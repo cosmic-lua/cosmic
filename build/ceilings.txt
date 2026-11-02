@@ -718,8 +718,6 @@ build/test_isolation_test.tl nil_not_allowed 2
 
 build/test_key.tl nil_not_allowed 52
 
-build/test_no_assert_tool_test.tl nil_not_allowed 1
-
 build/test_policy_plan_tool_test.tl nil_not_allowed 3
 
 build/test_report.tl nil_not_allowed 3
@@ -730,8 +728,6 @@ build/test_requires_tool_test.tl nil_not_allowed 1
 
 build/test_sandbox_probe.tl nil_not_allowed 1
 
-
-build/test_skip_tool_test.tl nil_not_allowed 1
 
 
 build/test_worker.tl nil_not_allowed 27
@@ -2431,8 +2427,6 @@ build/test_isolation_tool_test.tl map_field 24
 
 build/test_key.tl map_field 6
 
-build/test_no_assert_tool_test.tl map_field 3
-
 build/test_parent_tool_test.tl map_field 4
 
 build/test_policy_plan_tool_test.tl map_field 5
@@ -2456,8 +2450,6 @@ build/test_sandbox_test.tl map_field 9
 build/test_sandbox_tool_test.tl map_field 13
 
 build/test_selection_test.tl map_field 10
-
-build/test_skip_tool_test.tl map_field 3
 
 build/test_standing_test.tl map_field 10
 
@@ -3346,13 +3338,9 @@ build/zig_caches_test.tl cast_refused 1
 
 build/zig_test.tl cast_refused 3
 
-core/allocation_children_test.tl cast_refused 1
+core/allocation_test.tl cast_refused 6
 
-core/allocation_store_test.tl cast_refused 1
-
-core/allocation_test.tl cast_refused 7
-
-core/allocation_tool_test.tl cast_refused 4
+core/allocation_tool_test.tl cast_refused 3
 
 core/artifact_fd_test.tl cast_refused 5
 
@@ -5777,9 +5765,7 @@ cosmic/archive_test.tl literal_shape 6
 
 cosmic/http/init.tl literal_shape 1
 
-cosmic/http/multipart_fuzz_test.tl literal_shape 1
-
-cosmic/http/multipart_test.tl literal_shape 2
+cosmic/http/multipart_test.tl literal_shape 1
 
 cosmic/http_test.tl literal_shape 1
 

@@ -1,6 +1,6 @@
 --- Small helpers the tests of the tree each need: an element they know is
---- there, a list that holds a string, and a fresh build directory. Test
---- support.
+--- there, a list that holds a string, a fresh build directory, the open
+--- descriptors and a small project. Test support.
 
 local Fs = require("cosmic.fs")
 local build_paths = require("build.paths")
@@ -35,6 +35,45 @@ end
 function test_support_fixture.build_dir(root: string): string
   assert(Fs.mkdirs(root))
   return (assert(build_paths.prepare(root)))
+end
+
+--- The open descriptors of this process, each with what it names.
+function test_support_fixture.descriptors(): string
+  local out: mut {string} = {}
+  -- /dev/fd where there is no /proc (macOS, the BSDs).
+  local directory = "/proc/self/fd"
+  local is_dir, _ = Fs.is_dir(directory)
+  if is_dir ~= true then directory = "/dev/fd" end
+  for _, number in ipairs((assert(Fs.list(directory)))) do
+    local target, _ = Fs.readlink(directory .. "/" .. number)
+    out[#out + 1] = number .. "=" .. (target or "?")
+  end
+  table.sort(out)
+  return table.concat(out, "\n")
+end
+
+--- Writes a project of one program, `cmd/hello`, whose main requires `greet` and prints its `hello()`, `hello, <whom>`.
+--- @param root the project's root
+--- @param whom who the greeting greets
+function test_support_fixture.write_project(root: string, whom: string)
+  assert(Fs.mkdirs(root .. "/cmd/hello"))
+  assert(Fs.write(root .. "/cmd/hello/main.tl", table.concat({
+    'local greet = require("greet")',
+    "return function(): integer",
+    "  print(greet.hello())",
+    "  return 0",
+    "end",
+    "",
+  }, "\n")))
+  assert(Fs.write(root .. "/greet.tl", table.concat({
+    "local record greet",
+    "end",
+    "function greet.hello(): string",
+    '  return "hello, ' .. whom .. '"',
+    "end",
+    "return greet",
+    "",
+  }, "\n")))
 end
 
 return test_support_fixture

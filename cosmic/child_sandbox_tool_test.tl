@@ -11,7 +11,6 @@ local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
 local confine = require("build.confine")
-local this_program = require("build.this_program")
 local child_lua_fixture = require("build.child_lua_fixture")
 local child_tool_fixture = require("build.child_tool_fixture")
 
@@ -30,9 +29,7 @@ Test.policy{
 --- each test starts, where a shell would need the system's. The argv
 --- and options, for [`Child.run`] or [`Child.start`].
 local function lua(chunk: string, args?: {string}, opts?: Child.Options): {string}, Child.Options
-  local words: mut {string} = { "-e", chunk }
-  for _, word in ipairs(args or {}) do words[#words + 1] = word end
-  local started = this_program.program(words, opts)
+  local started = child_lua_fixture.lua(chunk, args, opts)
   return started.argv, started.options
 end
 

@@ -59,6 +59,7 @@ local PluralSites = require("build.plural_sites")
 local ShapeKey = require("build.shape_key")
 local Scopes = require("lang.scopes")
 local SyntaxNode = require("build.syntax_node")
+local TestClones = require("build.test_clones")
 local TestReturns = require("build.test_returns")
 local ScopesCover = require("lang.scopes_cover")
 local Warnings = require("lang.warnings")
@@ -2723,6 +2724,136 @@ function tree_checks.test_returns(root: string): {string}
       end
     end
   end
+  return out
+end
+
+--- The helpers of a test or fixture file that may stay a copy of another file's, as `<file>:<name>` and why. A copy
+--- is moved into a shared fixture instead; an entry goes once no other file holds a copy of it.
+-- TODO: once cosmic-lua/cosmic#3533 merges and these tests call build/tool_fixture.tl's `cosmic`, drop these entries.
+local cloned_helpers: {string: string} = {
+  ["build/archive_tool_test.tl:cosmic"] = "cosmic-lua/cosmic#3533 moves it into build/tool_fixture.tl",
+  ["build/codec_tool_test.tl:cosmic"] = "cosmic-lua/cosmic#3533 moves it into build/tool_fixture.tl",
+  ["build/hash_tool_test.tl:cosmic"] = "cosmic-lua/cosmic#3533 moves it into build/tool_fixture.tl",
+  ["build/json_tool_test.tl:cosmic"] = "cosmic-lua/cosmic#3533 moves it into build/tool_fixture.tl",
+  ["build/rand_tool_test.tl:cosmic"] = "cosmic-lua/cosmic#3533 moves it into build/tool_fixture.tl",
+  ["build/sql_tool_test.tl:cosmic"] = "cosmic-lua/cosmic#3533 moves it into build/tool_fixture.tl",
+  -- TODO: once the product's pty relay check (ci/fixtures/self_driven_test.tl) shows a script under test/terminal/
+  -- can require a fixture of build/, move `same` into one and drop this entry.
+  ["build/term_relay_backpressure_test.tl:same"] = "test/terminal/relay.tl holds the same function: it is a script " ..
+    "the CI fixture runs on the product with a pty, which no test here can run to prove a require of build/ resolves",
+}
+
+--- The fewest tokens a helper has for [`test_clones`] to compare it. The copies the tree held ran from about 30 tokens
+--- to a screen; 80 is where what is left is a whole helper (a process runner, a project writer) a change can move, and
+--- below about 30 a wrapper that two files write alike is no copy of the other.
+-- TODO: once the 89 sets of copies of 30 tokens or more between files (list them with `CLONE_TOKENS` lowered) are moved
+-- into shared fixtures, lower `CLONE_TOKENS` to 30.
+local CLONE_TOKENS = 80
+
+--- A helper [`test_clones`] has read: where it is, and whether its file is a test or a fixture.
+local record CloneSite
+  file: string
+  line: integer
+  name: string
+  held: boolean
+  --- The helper's text.
+  text: string
+end
+
+--- Each top-level `local function` that is no test, of a `*_test.tl` or `*_fixture.tl` file under `root`, written
+--- token for token as one in another file of the tree ([`TestClones`]), as `<file>:<line>: <name> is ...`, one for each
+--- set of copies; then each entry of `copies` (by default `cloned_helpers`) that no copy needs any more. A copy is
+--- fixed in one place: a helper goes into a shared fixture (build/test_support_fixture.tl,
+--- build/test_sandbox_fixture.tl, build/child_policy_fixture.tl ...), and each file requires it.
+function tree_checks.test_clones(root: string, copies?: {string: string}, threshold?: integer): {string}
+  local sources, trouble = sources_of(root)
+  if sources == nil then
+    return { "reading the sources: " .. trouble }
+  end
+  local excused = copies or cloned_helpers
+  local least = threshold or CLONE_TOKENS
+  local out: mut {string} = {}
+  local used: mut {string: boolean} = {}
+  -- The cuts that read alike, by their key; only those that share one are lexed.
+  local alike: mut {string: mut {CloneSite}} = {}
+  local keys: mut {string} = {}
+  for _, entry in ipairs(sources) do
+    local file, text = entry[1], entry[2]
+    if file ~= nil and text ~= nil and text:find("local function", 1, true) ~= nil then
+      local held = file:match("_test%.tl$") ~= nil or file:match("_fixture%.tl$") ~= nil
+      for _, cut in ipairs(TestClones.cuts(text, least)) do
+        local group: mut {CloneSite} = alike[cut.key] or {}
+        if alike[cut.key] == nil then
+          alike[cut.key] = group
+          keys[#keys + 1] = cut.key
+        end
+        group[#group + 1] = { file = file, line = cut.line, name = cut.name, held = held, text = cut.text }
+      end
+    end
+  end
+  local groups: mut {string: mut {CloneSite}} = {}
+  local order: mut {string} = {}
+  for _, key in ipairs(keys) do
+    local group = assert(alike[key])
+    local holds = false
+    for _, site in ipairs(group) do
+      if site.held then holds = true end
+    end
+    if #group >= 2 and holds then
+      for _, site in ipairs(group) do
+        local words = TestClones.tokens(site.text, site.file)
+        if words ~= nil and #words >= least then
+          local joined = table.concat(words, "\1")
+          local same: mut {CloneSite} = groups[joined] or {}
+          if groups[joined] == nil then
+            groups[joined] = same
+            order[#order + 1] = joined
+          end
+          same[#same + 1] = site
+        end
+      end
+    end
+  end
+  for _, body in ipairs(order) do
+    local group = assert(groups[body])
+    local kept: mut {CloneSite} = {}
+    local tests = 0
+    local files: mut {string: boolean} = {}
+    local distinct = 0
+    for _, site in ipairs(group) do
+      local key = site.file .. ":" .. site.name
+      if excused[key] ~= nil then
+        used[key] = true
+      else
+        kept[#kept + 1] = site
+        if site.held then tests = tests + 1 end
+        if files[site.file] ~= true then
+          files[site.file] = true
+          distinct = distinct + 1
+        end
+      end
+    end
+    if distinct >= 2 and tests >= 1 then
+      local others: mut {string} = {}
+      for i = 2, #kept do
+        local site = assert(kept[i])
+        others[#others + 1] = site.file .. ":" .. tostring(site.line) .. " (" .. site.name .. ")"
+      end
+      local first = assert(kept[1])
+      out[#out + 1] = first.file .. ":" .. tostring(first.line) .. ": " .. first.name .. " is copied token for token in " ..
+        table.concat(others, ", ") .. ": move it into a shared fixture (build/test_support_fixture.tl, " ..
+        "build/test_sandbox_fixture.tl, build/child_policy_fixture.tl ...) that each requires"
+    end
+  end
+  local stale: mut {string} = {}
+  for key in pairs(excused) do
+    if used[key] ~= true then
+      stale[#stale + 1] = key .. ": excused from the copied-helper check, but no other file has a copy of it any " ..
+        "more -- remove the exemption"
+    end
+  end
+  table.sort(stale)
+  for _, line in ipairs(stale) do out[#out + 1] = line end
   return out
 end
 

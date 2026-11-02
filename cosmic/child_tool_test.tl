@@ -34,28 +34,6 @@ local function path_exists(path: string): boolean
   return answer
 end
 
---- The pid, in this process's pid namespace, of the process that `pid`
---- names in the pid namespace of `within`, a live child of this process.
---- It is `pid` unless `within` was started in a pid namespace of its own
---- (a `sandbox` that unveils); then the process is found by the last
---- number of its NSpid, and the result is nil if none matches. A process
---- started without one is in the worker's namespace, sandboxed or not.
-local function host_pid(within: integer, pid: integer): integer?
-  local own, _ = sys.readlink("/proc/self/ns/pid")
-  local theirs, _ = sys.readlink("/proc/" .. tostring(within) .. "/ns/pid")
-  if theirs == nil or theirs == own then return pid end
-  local names = assert(Fs.list("/proc"))
-  for _, name in ipairs(names) do
-    local number = math.tointeger(tonumber(name:match("^%d+$")))
-    if number ~= nil and sys.readlink("/proc/" .. name .. "/ns/pid") == theirs then
-      local status = Fs.read("/proc/" .. name .. "/status") or ""
-      local nspid = status:match("\nNSpid:([^\n]*)") or ""
-      if tonumber(nspid:match("(%d+)%s*$")) == pid then return number end
-    end
-  end
-  return nil
-end
-
 local function output(dir: string, name: string): integer, string
   local path = dir .. "/" .. name
   return assert(Fs.open_write(path)), path
@@ -66,9 +44,7 @@ end
 --- each test starts, where a shell would need the system's. The argv
 --- and options, for [`Child.run`] or [`Child.start`].
 local function lua(chunk: string, args?: {string}, opts?: Child.Options): {string}, Child.Options
-  local words: mut {string} = { "-e", chunk }
-  for _, word in ipairs(args or {}) do words[#words + 1] = word end
-  local started = this_program.program(words, opts)
+  local started = child_lua_fixture.lua(chunk, args, opts)
   return started.argv, started.options
 end
 
@@ -161,7 +137,7 @@ end
   end
   assert(path_exists(ready) and Fs.read(ready) == "ready",
     "driver did not report readiness; log=" .. (Fs.read(diagnostic) or "<none>"))
-  local descendant = assert(host_pid(driver.pid, assert(math.tointeger((assert(tonumber(
+  local descendant = assert(child_lua_fixture.host_pid(driver.pid, assert(math.tointeger((assert(tonumber(
     assert(Fs.read(descendant_path)):match("%d+"))))))))
   assert(driver:stop(sys.SIGTERM))
   -- Generous, as the start was: a driver that ignored the signal is

@@ -14,6 +14,13 @@ local record test_sandbox_fixture
     text: string
     ok: boolean
   end
+
+  --- What a run with the sandbox off printed and how it ended.
+  record Unsandboxed
+    --- Its stdout and then its stderr.
+    text: string
+    code: integer?
+  end
 end
 
 --- Runs `cosmic test --all` on `root` with `env`, answering what it
@@ -31,6 +38,23 @@ function test_sandbox_fixture.run(root: string, output: string, env: {string:str
   local text = assert(Fs.read(output))
   assert(result ~= nil, tostring(trouble) .. text)
   return { text = text, ok = result.ok }
+end
+
+--- Runs `cosmic test` on `root` with the sandbox off (`COSMIC_TEST_SANDBOX=0`) and the environment this program has
+--- besides what `extra` sets, answering what it printed and its exit status.
+--- @param root the suite's tree, which the run starts in
+--- @param extra variables to set on top of the environment
+function test_sandbox_fixture.unsandboxed(root: string, extra: {string:string}): test_sandbox_fixture.Unsandboxed
+  local env = this_program.environment()
+  env["COSMIC_TEST_SANDBOX"] = "0"
+  env["COSMIC_SANDBOX"] = nil
+  env["COSMIC_CI_REQUIRE_SANDBOX"] = nil
+  for name, value in pairs(extra) do env[name] = value end
+  local started = this_program.program({ "test" }, {
+    cwd = root, env = env, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60),
+  })
+  local result = assert(Child.run(started.argv, started.options))
+  return { text = (result.stdout or "") .. (result.stderr or ""), code = result.code }
 end
 
 --- Writes `root`/suite/host_test.tl, whose one test grants the host path

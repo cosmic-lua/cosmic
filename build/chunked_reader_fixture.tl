@@ -1,6 +1,7 @@
 --- A stream that answers a text in chunks, for the tests of the readers
 --- that take a [`Stream.Reader`] (cosmic/json_reader_test.tl and
---- cosmic/json_reader_fuzz_test.tl). Test support.
+--- cosmic/json_reader_fuzz_test.tl, cosmic/http/multipart_test.tl and
+--- cosmic/http/multipart_fuzz_test.tl). Test support.
 
 local Stream = require("cosmic.stream")
 
@@ -47,6 +48,34 @@ end
 --- @return the reader
 function chunked_reader_fixture.chunked(text: string, size: integer, last?: string): Stream.Reader
   local r: Chunked = { skip = skip, text = text, at = 1, size = size, last = last or "" }
+  return r
+end
+
+local class Dripped is Stream.Reader
+  mut skip: function(Dripped, n: integer): boolean, string
+  inner: Stream.Reader
+  most: integer
+
+  function read(self, max_bytes?: integer): string?, string
+    return self.inner:read(math.min(self.most, max_bytes or self.most))
+  end
+
+  function close(self): boolean, string
+    return self.inner:close()
+  end
+end
+
+--- Skips `n` bytes of the reader `self` hands out.
+local function dripped_skip(self: Dripped, n: integer): boolean, string
+  return self.inner:skip(n)
+end
+
+--- A Reader over `text` that hands out at most `n` bytes a read.
+--- @param text what it reads
+--- @param n the most a read answers
+--- @return the reader
+function chunked_reader_fixture.drip(text: string, n: integer): Stream.Reader
+  local r: Dripped = { skip = dripped_skip, inner = Stream.from_string(text), most = n }
   return r
 end
 

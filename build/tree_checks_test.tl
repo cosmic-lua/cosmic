@@ -507,6 +507,60 @@ local function test_a_test_returning_early_is_refused(dir: string)
   assert(found[2]:find("^build/guard_test.tl:3: test_guarded returns early %(`if ... then return end`%)"), found[2])
 end
 
+--- A helper written token for token in two files, one a test, is refused with both files and lines, whatever its
+--- comments and layout; one renamed inside, too short, in two files that are no test or fixture, twice in one file, or
+--- a test itself is not; an entry in the allowance excuses its helper, and one nothing needs is told to go.
+local function test_a_helper_copied_between_test_files_is_refused(dir: string)
+  local function put(file: string, text: string)
+    assert(Fs.write(dir .. "/" .. file, text))
+  end
+  local function swap(text: string, from: string, to: string): string
+    return (text:gsub(from, to))
+  end
+  local function helper(name: string, tail: string): string
+    return source(
+      "local function " .. name .. "(first: string, second: string): string",
+      "  local out: {string} = {}",
+      "  out[#out + 1] = first",
+      "  out[#out + 1] = second",
+      "  return table.concat(out, \"" .. tail .. "\")",
+      "end")
+  end
+  local body = helper("join", "/")
+  assert(Fs.mkdirs(dir .. "/build"))
+  put("build/a_test.tl", "local x = 1\n\n" .. body)
+  -- Comments and the line breaks around the helper are no part of it.
+  put("build/b_fixture.tl", "-- Joins.\n" .. swap(body, "  out%[#out %+ 1%] = first", "  -- first\n  out[#out + 1] = first"))
+  -- A name inside differs, so it is another helper.
+  put("build/renamed_test.tl", swap(body, "second", "other"))
+  put("build/literal_test.tl", helper("join", "\\"))
+  put("build/short_test.tl", "local function f(a: string): string\n  return a\nend\n")
+  put("build/short_other_test.tl", "local function f(a: string): string\n  return a\nend\n")
+  local library = helper("library", "|")
+  put("build/lib.tl", library)
+  put("build/lib_other.tl", library)
+  local twice = helper("twice", ";")
+  put("build/twice_test.tl", twice .. "\n" .. swap(twice, "twice", "again"))
+  put("build/tests_test.tl", helper("test_join", ","))
+  put("build/tests_other_test.tl", helper("test_join", ","))
+  local found = tree_checks.test_clones(dir, {}, 20)
+  assert(#found == 1, table.concat(found, "\n"))
+  assert(found[1]:find("^build/a_test.tl:3: join is copied token for token in build/b_fixture.tl:2 %(join%): " ..
+      "move it into a shared fixture"), found[1])
+  assert(found[1]:find("build/test_support_fixture.tl", 1, true) ~= nil, found[1])
+  found = tree_checks.test_clones(dir, {}, 80)
+  assert(#found == 0, table.concat(found, "\n"))
+  found = tree_checks.test_clones(dir, { ["build/a_test.tl:join"] = "moved later" }, 20)
+  assert(#found == 0, table.concat(found, "\n"))
+  found = tree_checks.test_clones(dir, { ["build/a_test.tl:join"] = "moved later", ["build/short_test.tl:f"] = "no copy at 20",
+    ["build/nothing_test.tl:join"] = "gone" }, 20)
+  assert(#found == 2, table.concat(found, "\n"))
+  assert(found[1] == "build/nothing_test.tl:join: excused from the copied-helper check, but no other file has a copy of it " ..
+      "any more -- remove the exemption", found[1])
+  assert(found[2] == "build/short_test.tl:f: excused from the copied-helper check, but no other file has a copy of it " ..
+      "any more -- remove the exemption", found[2])
+end
+
 --- A declaration that requires only declarations passes; one that requires a module is refused.
 local function test_a_declaration_that_requires_a_module_is_refused(dir: string)
   local db = fixture.database(dir, {
