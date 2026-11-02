@@ -172,8 +172,7 @@ local function duplicate_import_paths(db: Sqlite.Handle): boolean, string
   end
   local first = doubled[1]
   if first ~= nil then
-    return false, first:text(2) .. " both answer to import path '" ..
-      first:text(1) .. "'; delete or rename one"
+    return false, analysis_schema.sharing(first:text(2), first:text(1))
   end
   return true, ""
 end

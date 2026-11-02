@@ -470,12 +470,21 @@ local function listed(src: source.View, staged: boolean)
   end
   local modules: mut {string:Module} = {}
   local files: mut {string:Module} = {}
+  -- Two files of one path and the same sort (two sources, or two declarations) are refused by the derive
+  -- ([`build.derivation`]), which picks neither; no module is listed for the path while they stand, so a `require` of it finds
+  -- none and its documents are told why ([`source.refusal`]).
+  local doubled: mut {string:boolean} = {}
+  local sorts: mut {string:boolean} = {}
   for _, row in ipairs(rows) do
     local found: Module = { path = row:text(1), file = row:text(2), kind = row:text(3),
       source_hash = row:text(4), origin = row:text(5) }
     if modules[found.path] == nil then modules[found.path] = found end
+    local sort = found.path .. "\0" .. tostring(AnalysisSchema.is_declaration(found.kind))
+    if sorts[sort] == true then doubled[found.path] = true end
+    sorts[sort] = true
     files[found.file] = found
   end
+  for path, _ in pairs(doubled) do modules[path] = nil end
   local requires: mut {string:mut {string}} = {}
   local named_rows, _ = Sqlite.text_rows(db,
     "SELECT source_hash, name FROM requires WHERE ?1 = 1 ORDER BY source_hash, ordinal",
@@ -652,15 +661,22 @@ function source.refusal(src: source.View, name: string, text?: string): string?
   local declaration: string? = nil
   local second: string? = nil
   local code: string? = nil
+  local other_code: string? = nil
   for _, file in ipairs(Driver.candidates(module)) do
     local there, _ = Fs.exists(src.root .. "/" .. file)
     if there == true then
       if file:match("%.d%.tl$") ~= nil then
         if declaration == nil then declaration = file elseif second == nil then second = file end
-      else
-        code = code or file
+      elseif code == nil then
+        code = file
+      elseif other_code == nil then
+        other_code = file
       end
     end
+  end
+  -- `x.tl` and `x/init.tl`: the derive's refusal, which the stage that met them staged nothing for.
+  if src.trouble ~= "" and code ~= nil and other_code ~= nil and (name == code or name == other_code) then
+    return AnalysisSchema.sharing(code .. " and " .. other_code, module)
   end
   if src.trouble ~= "" and declaration ~= nil and code ~= nil and (name == declaration or name == code) then
     return Driver.pairing(declaration, code, module)
