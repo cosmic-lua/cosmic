@@ -52,6 +52,9 @@ local record Env
     "COSMIC_TEST_COMPILER_SALT"
     --- For a test of the runner alone: stands in for a processor of other features.
     "COSMIC_TEST_CPU_SALT"
+    --- For a test of the runner alone: "1" holds a project that is not cosmic's own tree to the check
+    --- that a test entering processor-selected code declares `cpu_features`.
+    "COSMIC_TEST_DISPATCH_CHECK"
     --- "1" accepts verdicts from a host with another kernel.
     "COSMIC_TEST_FOREIGN_KERNEL"
     --- For a test of the runner alone: stands in for the harness epoch.

@@ -14,6 +14,11 @@
 --- is run by the callers. A core that compiles no such function
 --- (core/vector.c on aarch64, whose VNNI code is x86's) has nothing there.
 ---
+--- A function whose answer is the processor's own is enforced too (a
+--- site's `answers`): `vector_kernel`, which names the kernel in use. A
+--- test that asserts on its answer has an outcome that depends on the
+--- processor even where it runs no kernel.
+---
 --- Entering a vendored library's dispatched code is not enforced
 --- (mbedtls's AES-NI, SHA-NI and Arm instructions, xz's carry-less CRCs):
 --- those paths compute the same output as the portable ones, so a test that
@@ -35,6 +40,10 @@ local record dispatch_sites
   record Site
     lines: string
     reads: {string:{string}}
+    --- Functions of a core file whose answer is the processor's own, by
+    --- name: a test that enters one has an outcome that depends on the
+    --- processor, as one that enters the code it chooses does.
+    answers?: {string}
   end
   --- Lines of one function of the core that turn on the processor: its
   --- key ([`c_functions.Span`]'s), its file, the lines, and why they do.
@@ -101,29 +110,42 @@ local sites: {string:dispatch_sites.Site} = {
   ["vendor/zstd/lib/compress/zstd_compress.c"] = { lines = "e1810b0562e88cca", reads = {} },
   -- `cpu_features`, which answers what the processor has for a key
   -- (build/declared_key.tl's `features`), its declaration and its test:
-  -- none chooses code by it. syscalls.c asks Apple's
-  -- kern.maxfilesperproc too, for the descriptor limit a start raises
-  -- to: no feature.
+  -- none chooses code by it. Its answer is the processor's own, so a
+  -- test that asserts on it has an outcome that depends on the processor
+  -- (core/cpu_features_test.tl declares `cpu_features`). syscalls.c asks
+  -- Apple's kern.maxfilesperproc too, for the descriptor limit a start
+  -- raises to: no feature.
+  -- TODO: hold a test that enters `cosmic_sys_cpu_features` to declaring
+  -- `cpu_features` (`answers`), once the runner can tell the C a worker
+  -- ran from the C of the processes it started: every `cosmic test` a
+  -- test starts asks the processor for its key, so any module that runs
+  -- the tool hits the function, and holding them would put all of those
+  -- under a processor key.
   ["core/syscalls.c"] = { lines = "6d6f8c1e9f60c406", reads = {} },
   ["core/syscalls.h"] = { lines = "297b223c6bbcbc65", reads = {} },
-  ["core/syscalls_test.tl"] = { lines = "6c8d56b73b02f0bb", reads = {} },
+  ["core/cpu_features_test.tl"] = { lines = "5bf95b5154131ae2", reads = {} },
   -- The int8 dot product of [`Vector.corpus`]: VNNI in its AVX-512 (256-bit
   -- forms) and AVX encodings, by cpuid leaf 7. It also asks cpuid leaf 1
   -- for OSXSAVE and xgetbv for the state the system saves, which are the
   -- system's and no feature of the processor.
+  -- `vector_kernel` answers which kernel is in use, or switches to one.
   ["core/vector.c"] = { lines = "cd0767ce3aa41c0c",
-    reads = { x86_64 = { "avx512f", "avx512vl", "avx512_vnni", "avx_vnni" } } },
+    reads = { x86_64 = { "avx512f", "avx512vl", "avx512_vnni", "avx_vnni" } },
+    answers = { "vector_kernel" } },
   -- The processor count on Apple (sysctlbyname("hw.ncpu")): no feature.
   ["vendor/sqlite/sqlite3.c"] = { lines = "7b27815aae63deac", reads = {} },
 }
 
 dispatch_sites.sites = sites
 
---- The files of the core that are sites reading a feature, sorted.
+--- The files of the core that are sites reading a feature, or that hold
+--- a function whose answer is the processor's (`answers`), sorted.
 local function site_files(): {string}
   local out: mut {string} = {}
   for path, site in pairs(sites) do
-    if path:match("^core/.*%.c$") ~= nil and next(site.reads) ~= nil then out[#out + 1] = path end
+    if path:match("^core/.*%.c$") ~= nil and (next(site.reads) ~= nil or site.answers ~= nil) then
+      out[#out + 1] = path
+    end
   end
   table.sort(out)
   return out
@@ -186,6 +208,23 @@ local function in_site(spans: {c_functions.Span}, lines: {string}): {dispatch_si
   return out
 end
 
+--- The functions of `spans`, in the site file `lines`, that are named in
+--- `names`: their answer is the processor's own, so each line of one is
+--- a reach.
+local function answering(spans: {c_functions.Span}, lines: {string},
+                         names: {string}): {dispatch_sites.Reach}
+  local named: mut {string:boolean} = {}
+  for _, name in ipairs(names) do named[name] = true end
+  local out: mut {dispatch_sites.Reach} = {}
+  for _, span in ipairs(spans) do
+    if named[name_of(span)] == true then
+      out[#out + 1] = { key = span.key, path = span.path, lines = whole(span, lines),
+        why = "its answer is the processor's own" }
+    end
+  end
+  return out
+end
+
 function dispatch_sites.reaching(spans: {c_functions.Span},
                                  sources: {string:{string}}): {dispatch_sites.Reach}
   local out: mut {dispatch_sites.Reach} = {}
@@ -196,7 +235,17 @@ function dispatch_sites.reaching(spans: {c_functions.Span},
       for _, span in ipairs(spans) do
         if span.path == path then those[#those + 1] = span end
       end
-      for _, each in ipairs(in_site(those, lines)) do out[#out + 1] = each end
+      local site = assert(sites[path])
+      local chosen: {dispatch_sites.Reach} = {}
+      if next(site.reads) ~= nil then chosen = in_site(those, lines) end
+      for _, each in ipairs(chosen) do out[#out + 1] = each end
+      -- A file that reads a feature but compiles no code for one on this
+      -- core (core/vector.c on aarch64) answers nothing of the processor's.
+      if next(site.reads) == nil or #chosen > 0 then
+        for _, each in ipairs(answering(those, lines, site.answers or {})) do
+          out[#out + 1] = each
+        end
+      end
     end
   end
   return out
@@ -221,7 +270,7 @@ function dispatch_sites.failure(reaches: {dispatch_sites.Reach}, hits: {string:{
   table.sort(keys)
   local lines: mut {string} = {}
   for _, key in ipairs(keys) do lines[#lines + 1] = "  " .. tostring(ran[key]) end
-  return "the test runs C that chooses code by the processor's features, which its key does not " ..
+  return "the test runs C that chooses code by the processor's features or answers them, which its key does not " ..
     "hold, so its pass would stand on a host of another processor:\n" .. table.concat(lines, "\n") ..
     "\n  declare cpu_features = true in the module's Test.policy, which keys its tests by the " ..
     "processor's features (doc/testing.md, \"processor features\")"

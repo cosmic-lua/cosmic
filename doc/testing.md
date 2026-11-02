@@ -199,10 +199,11 @@ test runs.
 
 The harness holds a module to declaring it where the core itself selects
 the code by a feature. A run of cosmic's own tree reads which lines of the
-core's C each test ran (its worker and the processes it started,
-[`Coverage.native_functions`]), and a test that passes having run a line of
-code that core/vector.c selects by a feature (the kernel compiled for
-VNNI, and the lines that call the one chosen), in a module that does not
+core's C each test ran (its worker, from the module's load through the
+test, and the processes it started, [`Coverage.native_functions`]), and a
+test that passes having run a line of code that core/vector.c selects by a
+feature (the kernel compiled for VNNI, the lines that call the one chosen,
+and `vector_kernel`, which names it), in a module that does not
 declare `cpu_features`, fails, naming the function and the fix
 ([`build/dispatch_sites.tl`], derived from the audit of
 [`build/dispatched_features_test.tl`]). A pass that stands without
@@ -219,6 +220,13 @@ them to it put half the suite under a processor key. A module whose
 subject is such a routine (the hash, compress and zip tests) declares the
 field anyway, so that a bug in one processor's path is caught on that
 processor.
+
+A test that asserts on what [`sys.cpu_features`] answers has an outcome that
+depends on the processor, and the harness does not catch it: every
+`cosmic test` a test starts asks for the features to make its key, so the
+function's lines are hit by modules that do not depend on the answer. Such a
+test goes in a module of its own that declares `cpu_features`
+(core/cpu_features_test.tl), not in a module that happens to call it.
 
 ### the import closure
 
@@ -818,6 +826,7 @@ Other rules:
 [`lang/check_assigned_fuzz_test.tl`]: ../lang/check_assigned_fuzz_test.tl
 [`lang/check_flow_fuzz_test.tl`]: ../lang/check_flow_fuzz_test.tl
 [`lang/check_total_fuzz_test.tl`]: ../lang/check_total_fuzz_test.tl
+[`sys.cpu_features`]: ../core/syscalls.h
 [`Test.passed_unchecked`]: ../cosmic/test.tl
 [`Test.policy`]: ../cosmic/test.tl
 [`Test.skip`]: ../cosmic/test.tl

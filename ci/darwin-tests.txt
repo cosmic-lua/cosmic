@@ -64,3 +64,6 @@ build/host_features_test.tl
 # The launcher's Darwin shell: `stat -f` (portable_lstat), `ln -h`
 # (portable_link) and the $HOME/Library/Caches leaf (build/launcher.tl).
 core/launcher_cache_test.tl
+# The processor's features through sysctlbyname (core/syscalls.c's
+# `cpu_features`).
+core/cpu_features_test.tl

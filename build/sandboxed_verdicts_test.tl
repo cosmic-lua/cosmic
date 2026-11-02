@@ -32,7 +32,8 @@ local support = require("build.test_support_fixture")
 --- the variables [`skip_if_unsandboxed`] reads, which hold a run to sandboxing.
 Test.policy{
   profiles = { "cosmic", "proc" },
-  grants = { { path = "o/bin", letters = "rx" }, { path = "/dev/urandom", letters = "r" } },
+  grants = { { path = "o/bin", letters = "rx" }, { path = "/dev/urandom", letters = "r" },
+    { path = "core/vector.c", letters = "r" } },
   promises = { "nest" },
   env = { "COSMIC_SANDBOX", "COSMIC_TEST_SANDBOX" },
 }
@@ -656,6 +657,90 @@ end
   -- The host it came from still stands on its own verdicts.
   local back = run(root, tmp .. "/back.out", env)
   assert(back:find("0 ran, 2 stood", 1, true), back)
+end
+
+--- A run of the project in `tmp` whose test modules are `modules` (path to source), held to the
+--- processor check as cosmic's own tree is: the project holds a copy of the core's vector C, which
+--- the check reads the functions of, and COSMIC_TEST_DISPATCH_CHECK stands in for the tree being
+--- cosmic's own. Answers what the run printed, which may say a test failed. The test is skipped
+--- where no worker could be sandboxed, and where the core compiles no kernel for a processor feature
+--- (aarch64, whose core/vector.c has none to select).
+local function run_held_to_the_processor_check(tmp: string, modules: {string:string}): string
+  if assert(sys.uname()).machine ~= "x86_64" then
+    Test.skip("core/vector.c compiles its kernels for a processor feature on x86_64 alone")
+  end
+  local root = tmp .. "/root"
+  assert(Fs.mkdirs(root .. "/core"))
+  assert(Fs.mkdirs(root .. "/suite"))
+  assert(Fs.write(root .. "/core/vector.c", (assert(Fs.read("core/vector.c")))))
+  for path, source in pairs(modules) do assert(Fs.write(root .. "/suite/" .. path, source)) end
+  local env: mut {string:string} = {}
+  for name, value in pairs(environment(tmp .. "/cache/verdicts.db")) do env[name] = value end
+  env["COSMIC_TEST_DISPATCH_CHECK"] = "1"
+  local text = run(root, tmp .. "/held.out", env, nil, true)
+  skip_if_unsandboxed(text)
+  return text
+end
+
+--- A search of an int8 corpus, which scores each row through the kernel the processor chose.
+local SEARCH <const> = [[
+local Vector = require("cosmic.vector")
+
+local function search(): integer
+  local corpus = Vector.corpus(3, { storage = "int8" })
+  corpus:add(1, Vector.pack({ 1, 0, 0 }))
+  corpus:add(2, Vector.pack({ 0, 1, 0 }))
+  local hits = assert(corpus:search(Vector.pack({ 0.9, 0.1, 0 }), 1))
+  return assert(hits.ids[1])
+end
+]]
+
+--- A module that does not declare `cpu_features` fails for a test that runs the int8 kernel the
+--- processor chose, naming the function and the declaration; the same test in a module that does
+--- declare it passes. The check is the runner's wiring of build/dispatch_sites.tl to the lines a
+--- worker ran.
+local function test_a_module_without_cpu_features_fails_for_a_test_that_runs_a_vector_kernel(tmp: string)
+  local text = run_held_to_the_processor_check(tmp, {
+    ["undeclared_test.tl"] = SEARCH .. [[
+
+local function test_searches()
+  assert(search() == 1)
+end
+]],
+    ["declared_test.tl"] = [[
+local Test = require("cosmic.test")
+
+Test.policy { cpu_features = true }
+
+]] .. SEARCH .. [[
+
+local function test_searches()
+  assert(search() == 1)
+end
+]],
+  })
+  assert(text:find("FAIL  suite.undeclared_test test_searches", 1, true) ~= nil, text)
+  assert(text:find("core/vector.c:", 1, true) ~= nil, text)
+  assert(text:find("declare cpu_features = true in the module's Test.policy", 1, true) ~= nil, text)
+  assert(text:find("1 of 2 tests failed", 1, true) ~= nil, text)
+end
+
+--- Code a module runs as it loads is held to it too: a search at the top level of a module without
+--- `cpu_features` fails its test, though the test itself runs no kernel.
+local function test_a_module_that_runs_a_vector_kernel_as_it_loads_fails_without_cpu_features(tmp: string)
+  local text = run_held_to_the_processor_check(tmp, {
+    ["loading_test.tl"] = SEARCH .. [[
+
+local found = search()
+
+local function test_found_at_load()
+  assert(found == 1)
+end
+]],
+  })
+  assert(text:find("FAIL  suite.loading_test test_found_at_load", 1, true) ~= nil, text)
+  assert(text:find("core/vector.c:", 1, true) ~= nil, text)
+  assert(text:find("1 of 1 test failed", 1, true) ~= nil, text)
 end
 
 --- A checked run (`--check-types`) stands on verdicts of its own and on none of an unchecked
