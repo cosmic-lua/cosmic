@@ -88,10 +88,6 @@ function held.put(self: Program, served: Driver.Source)
   replaced(self, served.module, served.text)
 end
 
--- TODO: keep the declarations of the standard library and of the stubs across an edit, once a [`Declarations.Program`] can forget
--- a module (the TODO of [`Driver.Build.replace`]): every replacement begins a program, so an edit lowers them again, about
--- 90 ms of the ~150 ms an edit of build/lsp/check.tl takes on the 4-core host (a leaf document needs none of it again).
-
 --- Makes the module `source` is the document being checked, and the module that was before it the stub it serves again.
 --- Answers the program's reading of the document, or nil where the program lost a module on the way (`dead`): it holds the
 --- document it left as full source still, so nothing is checked in it, and the caller makes the program again.

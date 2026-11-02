@@ -266,6 +266,8 @@ local record Declarations
     value?: Type
     --- Whether [`Declarations.Program.lower`] ran for it.
     lowered: boolean
+    --- Whether it declares a global (a type or a value): a module that every other can name with no `require`.
+    mut globals: boolean
     errors: {Error}
   end
 
@@ -284,7 +286,7 @@ local record Declarations
     judge: Relation.Judge
     modules: mut {string: Module}
     --- The entries of declarations by module and names, and the declared globals by name.
-    entries: {string: Entry}
+    entries: mut {string: Entry}
     globals: {string: Entry}
     mut waiting: mut {Waiting}
     --- Modules whose types are not written in the program (the bindings of C): a type name of one is
@@ -307,11 +309,11 @@ local record Declarations
     --
     -- TODO: write the statics into the row of the declaration, once the rows of the new checker are written: a
     -- module that imports it reads them from the program until then.
-    statics: {Decl: {string: Types.Field}}
+    statics: mut {Decl: {string: Types.Field}}
     --- The function fields of a record of a module in the new grammar that take a value of the record first, by name, which
     --- no statement of the module gives the table of its functions (`function R.m(...)` or `R.m = ...` at the top level): a
     --- field every value holds, such as `m: function(self: R, ...)` that the constructor fills, and absent from the module.
-    absent: {Decl: {string: boolean}}
+    absent: mut {Decl: {string: boolean}}
 
     --- Makes `name` another name of the module `module`, which the program knows.
     alias: function(Program, name: string, module: string)
@@ -330,6 +332,14 @@ local record Declarations
 
   --- A program for a new store, or for `store`, that knows the language's own modules `library` names.
   new: function(store?: Store, library?: {string: boolean}): Program
+
+  --- Takes the modules `modules` out of the program as if they had never been declared: their declarations, aliases, the
+  --- checks that wait for them and what the program derived from them, and the types of the store that name a declaration
+  --- of theirs. Answers false and changes nothing where one of them declares a global, which a module that does not require
+  --- it may name. The caller names every module that requires one of `modules`, through others that require it, as well
+  --- ([`Declarations.Program.lower`] then takes them again): a type of a module left that names a forgotten declaration is
+  --- dead, and the store refuses it.
+  forget: function(program: Program, modules: {string}): boolean
 
   --- The module a file is: its path without `.tl`, `.d.tl` or a trailing `/init`, with dots for slashes.
   module_of: function(path: string): string
@@ -1585,6 +1595,7 @@ local function declare_one(ctx: Ctx, node: Ast.Node, place: Place, seen: mut {st
   ctx.by_binding[binding.id] = entry
   if scope_of(node) == "global" and place.top and #place.names == 0 and top then
     program.globals[name] = entry
+    ctx.info.globals = true
   end
   return { names = names, module = module, top = top }
 end
@@ -2857,6 +2868,7 @@ local function declare_values(ctx: Ctx, node: Ast.Local)
     end
     if #found > 0 then
       ctx.program.values[b.name] = found
+      ctx.info.globals = true
     end
   end
 end
@@ -2963,7 +2975,7 @@ end
 local function new_ctx(program: Program, input: Declarations.Input, lowering: boolean): Ctx
   local info = program.modules[input.module]
   if info == nil then
-    info = { name = input.module, lowered = false, errors = {} }
+    info = { name = input.module, lowered = false, globals = false, errors = {} }
     program.modules[input.module] = info
   end
   return {
@@ -3106,6 +3118,73 @@ Declarations.Program.alias = function(self: Program, name: string, module: strin
   if info ~= nil and self.modules[name] == nil then
     self.modules[name] = info
   end
+end
+
+--- The module a declaration's `module` belongs to: the text before the `@` that marks a declaration inside a body.
+local function owner_in(held: {string: boolean}, module: string): boolean
+  if held[module] == true then
+    return true
+  end
+  local at = module:find("@", 1, true)
+  while at ~= nil do
+    if held[module:sub(1, at - 1)] == true then
+      return true
+    end
+    at = module:find("@", at + 1, true)
+  end
+  return false
+end
+
+function Declarations.forget(self: Program, modules: {string}): boolean
+  local held: mut {string: boolean} = {}
+  for _, name in ipairs(modules) do
+    held[name] = true
+    local info = self.modules[name]
+    if info ~= nil then
+      if info.globals then
+        return false
+      end
+      held[info.name] = true
+    end
+  end
+  for name, info in pairs(self.modules) do
+    if held[info.name] == true then
+      if info.globals then
+        return false
+      end
+      held[name] = true
+    end
+  end
+  local dead: mut {Decl} = {}
+  local gone: mut {Decl: boolean} = {}
+  for _, decl in ipairs(self.store:declarations()) do
+    if owner_in(held, decl.module) then
+      dead[#dead + 1] = decl
+      gone[decl] = true
+    end
+  end
+  for name in pairs(held) do
+    self.modules[name] = nil
+  end
+  for key, entry in pairs(self.entries) do
+    if owner_in(held, entry.module) then
+      self.entries[key] = nil
+    end
+  end
+  for decl in pairs(gone) do
+    self.requires[decl] = nil
+    self.statics[decl] = nil
+    self.absent[decl] = nil
+  end
+  local kept: mut {Declarations.Waiting} = {}
+  for _, w in ipairs(self.waiting) do
+    if not owner_in(held, w.module) then
+      kept[#kept + 1] = w
+    end
+  end
+  self.waiting = kept
+  Types.forget(self.store, dead)
+  return true
 end
 
 Declarations.Program.errors = function(self: Program, module: string): {Error}
