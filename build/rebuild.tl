@@ -98,11 +98,11 @@ local function own_compiler(): string
   return Store.meta("compiler") or ""
 end
 
---- The compiler identity that a build in the mode `grammar` records as the projection's [`compiled_by`]
---- ([`writer.other_code`]): the compiler's, the mode's and the code that reads ([`build.pipeline`]'s `coded`), so that a
+--- The compiler identity that a build records as the projection's [`compiled_by`]
+--- ([`writer.other_code`]): the compiler's and the code that reads ([`build.pipeline`]'s `coded`), so that a
 --- projection an older checker wrote is told apart from one this process would write.
-function rebuild.compiled_by(grammar: GrammarMode.Mode): string
-  return require("build.pipeline").coded(GrammarMode.tool(own_compiler(), grammar))
+function rebuild.compiled_by(): string
+  return require("build.pipeline").coded(GrammarMode.tool(own_compiler()))
 end
 
 --- Whether `root` looks like a project that has not been built: Teal at
@@ -159,8 +159,8 @@ local function project(root: string, verb: string, start: boolean, carried?: str
     end
     return true, ""
   end
-  local grammar, grammar_trouble = GrammarMode.mode()
-  if grammar == nil then return false, grammar_trouble end
+  local grammar_trouble = GrammarMode.refusal()
+  if grammar_trouble ~= nil then return false, grammar_trouble end
   local started = Clock.monotonic_ns()
   local opening, open_trouble = opened_for(root, start)
   if opening == nil then return false, open_trouble end
@@ -181,7 +181,7 @@ local function project(root: string, verb: string, start: boolean, carried?: str
     return false, stage_trouble
   end
   local result, compile_trouble = importer.compile(handle,
-    GrammarMode.tool(own_compiler(), grammar), false, shared_compiles.for_build(), nil, start)
+    GrammarMode.tool(own_compiler()), false, shared_compiles.for_build(), nil, start)
   if result == nil then
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
     local _, _ = work.close(handle)
