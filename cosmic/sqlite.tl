@@ -29,6 +29,11 @@
 --- '<statement>'` runs one read-only statement; no `sqlite3` binary or
 --- other language is needed.
 ---
+--- To copy tables between database files, open the target writable and
+--- `ATTACH` the other file; [the SQL guide](doc/guides/sql.md) has the
+--- sections "copying tables between files" and "a prepared statement in
+--- a loop". `cosmic sql` cannot attach.
+---
 --- SQLite's JSON functions read JSON5 always, and in cosmic's copy `#`
 --- line comments too, as `cosmic.json` does given `hash_comments`: a
 --- text in YAML's flow style reads the same through either.
@@ -884,6 +889,8 @@ end
 
 local type Outcome = raw_sqlite.Outcome
 
+-- TODO: copying into a result record is `field_fixed` on the [`Outcome`] records (pinned in build/ceilings.txt), once
+-- the typed helpers make each record whole from the outcome they hold instead of copying into one made first.
 local function copy_outcome(from: Outcome, to: Outcome)
   to.code, to.extended_code = from.code, from.extended_code
   to.reason, to.cancelled = from.reason, from.cancelled

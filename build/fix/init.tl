@@ -87,6 +87,17 @@ local log = logger.log
 local verb_spec = require("build.verb_spec")
 local plural = require("build.plural")
 
+--- The notices told so far. `line` is [`ignored.of`]'s and names the root, so a repository is told once, whichever layer
+--- asked, and another one (a language server holds several) is told in its turn.
+local told_ignored: mut {string: boolean} = {}
+
+--- Tells `line` unless it was told already.
+local function ignored_notice(line: string)
+  if told_ignored[line] == true then return end
+  told_ignored[line] = true
+  log:say("fix: " .. line)
+end
+
 local record fix
   --- [`build.fix.format`]'s `format`, as [`format_text`], the way in for what is not inside `build/fix/`, such as the language server's
   --- formatting ([`build.lsp.session`]).
@@ -286,7 +297,7 @@ local function checked_sources(root: string): {string}?, string
     return nil, trouble
   end
   local out: mut {string} = {}
-  local left_alone = ignored.of(root)
+  local left_alone = ignored.of(root, ignored_notice)
   for _, file in ipairs(files) do
     local core_teal = file:sub(1, 5) == "core/" and
       (String.ends_with(file, ".tl") or String.ends_with(file, ".lua"))
@@ -769,7 +780,7 @@ function fix.links(context: link_resolve.Context, files: {string}, mode?: string
                    facts?: {string: links.Facts}): fix.Linked
   local known: {string: links.Facts} = facts or {}
   -- A path the tree ignores is no link's target. Only this layer asks: `context` is the build's, and a copy answers.
-  local left_alone = ignored.of(context.root)
+  local left_alone = ignored.of(context.root, ignored_notice)
   local guarded: link_resolve.Context = {
     root = context.root,
     kind = function(path: string): string?

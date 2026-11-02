@@ -30,6 +30,10 @@ nothing has changed, and about 8 minutes in a fresh worktree, where few
 verdicts stand. A run over ten seconds says `test: running n/m tests`
 as it goes.
 
+To check one file in a project, run `cosmic fix <file>`: it builds the tree and reports that file's errors, with every
+project `require` known. `cosmic --standalone --check <file>` checks a file alone, outside the project, so its project
+requires are unknown by design and a file that needs them is refused there.
+
 A parser that reads untrusted bytes also gets a fuzz test (below). An
 example (`*_example.tl`) shows use and is held to fewer rules.
 
@@ -218,6 +222,9 @@ refuses a module of the tree outside the closure.
   [`build.this_program`]'s `program` and needs no `"system"` profile.
   Build a child's environment from its `environment()` only where the
   test means to choose it.
+- `Store.source(name)` ([`cosmic.store`]) serves only the running binary's own database. Under `cosmic test` that is the
+  test's sealed database: the source of a module the test requires is there, and a module it does not require answers
+  `nil` and `no module '<name>' in the binary`.
 - To read the tree's projection or rows of modules outside the closure,
   grant `{ path = "o/cosmic.db", letters = "r" }` (`store`). A test that
   does so runs again on every edit to the tree. Put it in a module of
@@ -347,6 +354,15 @@ raise. The worker counts calls to `assert`, through any helper or
 fixture. `cosmic test` lists each such pass as `test: NO ASSERT <id>`
 and keeps no verdict of it. A held run fails it.
 
+To compare JSON-shaped values, use [`Json.diff`]`(want, got)` and assert that the list it answers is empty, or put the paths
+it names in the message. Compare a typed record field by field.
+
+    local Json = require("cosmic.json")
+    local want: Json.Value = { name = "cosmic", tags = Json.array({ "lua" }) }
+    local got: Json.Value = { name = "cosmic", tags = Json.array({ "lua", "teal" }) }
+    local differences = Json.diff(want, got)
+    assert(#differences == 1 and differences[1].path == "/tags/1")
+
 - A test that checks through `error` or `pcall` still calls `assert`
   for what it checks.
 - A test that shows something does not raise asserts on a result.
@@ -356,6 +372,44 @@ and keeps no verdict of it. A held run fails it.
 
 [`Test.passed_unchecked`] is for the fuzz runner alone. `bin/cosmic fix
 --check .` fails any other use.
+
+## coverage floor
+
+Every run reports the share of executable lines the tests reached,
+`test: coverage 90.9% (184277/202824 lines; informational, never a failure)`:
+the Teal of the tree and, in cosmic's own tree, the core's C. By itself it
+never fails a run. Two flags make it a gate:
+
+- `--min PCT` fails the run when the whole tree's coverage is under `PCT`.
+- `--min-file PCT` fails it when any one file's coverage is under `PCT`.
+  Each file under it is named with its percentage.
+
+`PCT` is a number from 0 to 100, with an optional decimal part (`76`,
+`76.5`), given as `--min 76` or `--min=76`. A coverage at the floor is not under it,
+and a failure prints its figure rounded down, so 1599 of 2000 lines is 79.9%, never
+80.0%. A tree or file with no line to cover is under no floor. A floor not met fails the
+run as a failing test does, with status 1 (not the 4 of a tree that does
+not compile). It lists each shortfall as a `test: FAIL  coverage: ...` line
+and names them in the summary line:
+
+```text
+test: coverage 77.8% (7/9 lines)
+test: FAIL  coverage: 77.8% (7/9 lines) is under --min 100%
+test: FAIL  coverage: lib 66.7% (4/6 lines) is under --min-file 80%
+test: 1 test passed in 1 module; ...; coverage floor not met: 77.8% under --min 100%, 1 file under --min-file 80%
+```
+
+A floor is over every line of the tree, so a run that names tests or a
+`--shard` is refused with status 2: it reaches only some of the lines. A run that stops early (`--bail`) judges no floor and says so: it reached only
+part of the lines. A floor on a failing run is judged and named beside the failures.
+
+A test whose verdict stands brings the lines it hit when it ran (the
+`coverage_by_test` rows of that run, or the ones another checkout shared).
+A run that stands entirely on verdicts therefore has the coverage of the
+runs that earned them, and a floor holds for it as for a run that ran every
+test. A test that is skipped or not applicable on the host reaches nothing
+of the lines it covers elsewhere, so the same floor can differ between
+hosts: state a floor from the measurements of the host that gates the merge.
 
 ## run-time type checks
 
@@ -697,6 +751,7 @@ Other rules:
 [`ci/README.md`]: ../ci/README.md
 [`cosmic.layout`]: ../cosmic/layout.tl
 [`cosmic.sandbox`]: ../cosmic/sandbox/init.tl
+[`cosmic.store`]: ../cosmic/store.tl
 [`cosmic.template`]: ../cosmic/template/init.tl
 [`cosmic/store_seal_test.tl`]: ../cosmic/store_seal_test.tl
 [`declared_key.host_split`]: ../build/declared_key.tl
@@ -705,6 +760,7 @@ Other rules:
 [`Fuzz.label`]: ../build/fuzz/init.tl
 [`Fuzz.more`]: ../build/fuzz/init.tl
 [`importer.checked_tool`]: ../build/importer.tl
+[`Json.diff`]: ../cosmic/json.tl
 [`lang.boundary_checks`]: ../lang/boundary_checks.tl
 [`lang.check_programs`]: ../lang/check_programs.tl
 [`lang.codegen`]: ../lang/codegen.tl

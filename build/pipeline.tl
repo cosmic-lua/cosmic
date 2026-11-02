@@ -56,6 +56,11 @@ local type Derivation = require("build.derivation")
 local type Module = Plans.Module
 
 local record Pipeline
+  --- Whether [`Pipeline.build`] refused the tree for what it holds, rather than for a trouble reading it.
+  record Refusal
+    mut refused: boolean
+  end
+
   type Mode = GrammarMode.Mode
 
   --- The mode `COSMIC_GRAMMAR` asks for ([`GrammarMode.mode`]).
@@ -153,7 +158,7 @@ local record Pipeline
 
   --- A build over the `inputs` of the working database `db`: the tree and what is written from it (the guides, the
   --- templates, the bindings of C).
-  build: function(db: Sqlite.Handle, options: Options): Built?, string
+  build: function(db: Sqlite.Handle, options: Options, refusal?: Refusal): Built?, string
 
   --- The Lua and the bytecode of the module `m`, checked and written by the new checker: nil and why where the module is refused. A module is refused for a count over its ceiling
   --- ([`Driver.Build.held`]), a warning, a call no rule of the discipline judged beyond its `[untyped]` ceiling, and the
@@ -201,7 +206,7 @@ local record Pipeline
   --- into `db` beside the others. A source that does not parse is listed in `broken` when given and stops the derive
   --- otherwise, told in the words of the new checker ([`build.error_render`]).
   derive: function(db: Sqlite.Handle, own: boolean, fresh: {Derivation.Fresh}, tally: Derivation.Parses,
-                   made: {Derivation.Source}, broken?: {Derivation.Broken}): boolean, string
+                   made: {Derivation.Source}, broken?: {Derivation.Broken}, refusal?: Refusal): boolean, string
 
   --- Writes a row for every code the new checker emits to the `catalog` table of `db` (of the schema `schema`, "" for the
   --- default), as [`ErrorCatalog.insert`] does.
@@ -333,7 +338,7 @@ end
 
 --- What `inputs` of `db` stages for the new checker: the files and their text (the tree's own, and what is written from it),
 --- and the kind of each ([`Pipeline.over`]).
-local function entries_of(db: Sqlite.Handle, own: boolean): {{string}}?, {string: string}, string
+local function entries_of(db: Sqlite.Handle, own: boolean, refusal?: Pipeline.Refusal): {{string}}?, {string: string}, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT file, path, kind, origin, source FROM inputs WHERE kind <> 'vendor' ORDER BY file")
   if rows == nil then
@@ -358,19 +363,23 @@ local function entries_of(db: Sqlite.Handle, own: boolean): {{string}}?, {string
   end
   local refused = TreeProgram.declared(entries, own)
   if refused ~= "" then
+    if refusal ~= nil then refusal.refused = true end
     return nil, {}, refused
   end
   return entries, kinds, ""
 end
 
-function Pipeline.build(db: Sqlite.Handle, options: Pipeline.Options): Pipeline.Built?, string
-  local entries, kinds, trouble = entries_of(db, options.project ~= true)
+--- `refusal`, when given, has `refused` set where the tree is refused for what it holds (a declaration beside its source,
+--- a module named for one the binary answers) and not for a trouble reading it.
+function Pipeline.build(db: Sqlite.Handle, options: Pipeline.Options, refusal?: Pipeline.Refusal): Pipeline.Built?, string
+  local entries, kinds, trouble = entries_of(db, options.project ~= true, refusal)
   if entries == nil then
     return nil, trouble
   end
   if options.project == true then
     local reserved = TreeProgram.reserved(entries, TreeProgram.library_modules(options.globals))
     if reserved ~= "" then
+      if refusal ~= nil then refusal.refused = true end
       return nil, reserved
     end
   end
@@ -530,8 +539,8 @@ local function restore_collector(previous: string)
 end
 
 function Pipeline.derive(db: Sqlite.Handle, own: boolean, fresh: {Derivation.Fresh}, tally: Derivation.Parses,
-                         made: mut {Derivation.Source}, broken?: mut {Derivation.Broken}): boolean, string
-  local entries, kinds, trouble = entries_of(db, own)
+                         made: mut {Derivation.Source}, broken?: mut {Derivation.Broken}, refusal?: Pipeline.Refusal): boolean, string
+  local entries, kinds, trouble = entries_of(db, own, refusal)
   if entries == nil then
     return false, trouble
   end

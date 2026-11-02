@@ -405,6 +405,9 @@ local record Json
   depth_limit: integer
 end
 
+-- TODO: these assignments after the [`Json`] record is made are `field_fixed`, pinned in build/ceilings.txt like the
+-- other modules' (channel, poll, sqlite, web/*), once the module records are built whole, each with its members,
+-- where `mut` on them would let an importer swap them.
 Json.null = raw.null
 Json.default_depth = raw.default_depth
 Json.depth_limit = raw.depth_limit
@@ -1163,8 +1166,8 @@ end
 --- `decode` counts it) or a table that contains itself. To diff a decoded
 --- value, check it with [`Json.to_value`] first.
 ---
----     local want = { name = "cosmic", tags = Json.array({ "lua" }), n = 1 }
----     local got = { name = "cosmic", tags = Json.array({ "lua", "teal" }), n = 1.0 }
+---     local want: Json.Value = { name = "cosmic", tags = Json.array({ "lua" }), n = 1 }
+---     local got: Json.Value = { name = "cosmic", tags = Json.array({ "lua", "teal" }), n = 1.0 }
 ---     local differences = Json.diff(want, got)
 ---     assert(#differences == 1 and differences[1].path == "/tags/1" and differences[1].got == "teal")
 function Json.diff(want: Json.Value, got: Json.Value): {Json.Difference}
@@ -1186,7 +1189,7 @@ end
 ---     local steps = assert(Json.from_pointer(doc, "/users/0/name"))
 ---     assert(steps[1] == "users" and steps[2] == 1 and Json.get(doc, steps) == "ada")
 function Json.from_pointer(value: any, text: string): Json.Steps?, string
-  local steps: Json.Steps = {}
+  local steps: mut {string | integer} = {}
   if text == "" then return steps, "" end
   if text:sub(1, 1) ~= "/" then
     return refuse(at_pointer(text) .. ": a JSON Pointer is empty or starts with `/`")
@@ -1566,7 +1569,7 @@ end
 
 --- `steps` and one step more, a new list.
 local function extended(steps: Json.Steps, step: string | integer): Json.Steps
-  local out: Json.Steps = table.move(steps, 1, #steps, 1, {})
+  local out: mut {string | integer} = table.move(steps, 1, #steps, 1, {})
   out[#out + 1] = step
   return out
 end
@@ -2288,7 +2291,7 @@ local class TokenReader is Json.Reader
   frames: mut {Frame}
 
   function steps(self): Json.Steps
-    local steps: Json.Steps = {}
+    local steps: mut {string | integer} = {}
     for _, f in ipairs(self.frames) do
       if f.object then
         local key = f.key

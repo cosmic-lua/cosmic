@@ -427,7 +427,7 @@ function wire.read_head(input: wire.Input, limits: wire.Limits): wire.Read
   if parts == nil then return refused(400, target_why) end
   -- Each name's values, joined once the head is read: joined as each
   -- came, a name repeated through the head would cost the square of it.
-  local values: mut {string:{string}} = {}
+  local values: mut {string: mut {string}} = {}
   local names: mut {string} = {}
   while true do
     local text = next_line()
@@ -435,12 +435,11 @@ function wire.read_head(input: wire.Input, limits: wire.Limits): wire.Read
     if text == "" then break end
     local got, why = field(text)
     if got == nil then return refused(400, why) end
-    local list = values[got.name]
-    if list == nil then
-      list = {}
-      values[got.name] = list
+    if values[got.name] == nil then
+      values[got.name] = {}
       names[#names + 1] = got.name
     end
+    local list = assert(values[got.name])
     list[#list + 1] = got.value
   end
   local headers: mut {string:string} = {}

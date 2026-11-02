@@ -145,12 +145,12 @@ local record Types
     headers: {string:string}
     --- Path parameters matched, decoded, all strings. Empty until the
     --- router has matched.
-    params: {string:string}
+    mut params: {string:string}
     --- The full prefix of the mount serving this request; "" at the top.
-    mount_path: string
+    mut mount_path: string
     --- The route matched; nil for a 404, a 405 and the router's other
     --- answers.
-    route?: RouteInfo
+    mut route?: RouteInfo
     --- The app serving this request.
     app: App
     --- The untyped escape hatch for ad-hoc scratch values; a module
@@ -166,7 +166,7 @@ local record Types
     --- sent.
     host?: string
     --- What the router decided; set before the middleware stack runs.
-    outcome?: Outcome
+    mut outcome?: Outcome
 
     --- Whether the path ended in "/" after its last segment.
     trailing: boolean
@@ -176,9 +176,9 @@ local record Types
     --- the app closes those the final reply does not carry.
     bodies: mut {Stream.Reader}
     --- The body once read, nil until then.
-    body_text?: string
+    mut body_text?: string
     --- Why reading the body failed, nil until it did.
-    body_failure?: string
+    mut body_failure?: string
 
     --- The first value of header `name`, matched in any case; nil when
     --- the request has none.
@@ -241,7 +241,7 @@ local record Types
     reverse?: function(prefix: string, params: {string:string}): string?, string
     --- What a typed route binds, erased of its types; nil for a plain
     --- route and for a mount.
-    input?: RouteInput
+    mut input?: RouteInput
   end
 
   --- What [`Web.route`] and the method constructors take beside the handler.
@@ -437,11 +437,11 @@ local record Types
     --- The mount's full prefix: "/api".
     prefix: string
     --- Its description, for a mount that serves a handler.
-    info?: RouteInfo
+    mut info?: RouteInfo
     --- A mount of a handler: the handler with its middleware folded in.
-    handler?: Handler
+    mut handler?: Handler
     --- A mount of routes: their router.
-    router?: Router
+    mut router?: Router
   end
 
   --- One node of the trie of segments.
@@ -449,13 +449,13 @@ local record Types
     --- The children matching one literal segment.
     literal: mut {string: Node}
     --- The child matching any one segment, parameter names aside.
-    param?: Node
+    mut param?: Node
     --- The routes whose pattern ends here.
-    exact?: Methods
+    mut exact?: Methods
     --- The routes whose pattern ends here in `*name`.
-    wild?: Methods
+    mut wild?: Methods
     --- A mount at this prefix; it has no other content.
-    mount?: Mount
+    mut mount?: Mount
   end
 
   --- How [`url_for`] finds a name.
@@ -523,7 +523,7 @@ local record Types
     --- brackets) without a port: an entry with a port, or that is no host,
     --- raises when the app is made. A request for another host, at any
     --- port, or whose Host header is not `host[:port]` whole, is a 400.
-    trusted_hosts?: {string}
+    mut trusted_hosts?: {string}
     --- Take the scheme, host and client from `X-Forwarded-Proto`,
     --- `X-Forwarded-Host` and `X-Forwarded-For` (false by default). Only
     --- the last entry of each is read: the one the proxy next to the app
@@ -572,7 +572,7 @@ local record Types
     --- ([`Web.serve`] and the test clients call it), taking the whole
     --- [`Server.Request`] and the full path; middleware and handlers are
     --- not called with it.
-    handle: function(raw: Server.Request): Response
+    mut handle: function(raw: Server.Request): Response
     --- [`Router.reverse`] on the app's routes.
     url_for: function(self: App, name: string, params?: {string: string | integer},
         query?: {string:string}): string?, string
@@ -585,17 +585,17 @@ local record Types
     on_stop: function(self: App, fn: function())
 
     --- Whether the server has begun to stop.
-    stopped: boolean
+    mut stopped: boolean
     --- The functions [`on_stop`] registered.
     stoppers: mut {function()}
     --- The open event streams: how to end each, by a key of its own. For
     --- [`Sse.EventStream`] alone.
     streams: {any: function()}
     --- How many event streams are open, which `streams` holds.
-    stream_count: integer
+    mut stream_count: integer
     --- The most [`stream_count`] may reach: the app's `max_streams`, else
     --- half the connections [`Web.serve`] is given.
-    stream_limit: integer
+    mut stream_limit: integer
   end
 
   --- What [`Web.serve`] takes.
@@ -673,11 +673,11 @@ local record Types
     --- The body; "" for a stream, a HEAD and a status with none.
     body: string
     --- The unread Reader, only where the request asked for `stream`.
-    stream?: Stream.Reader
+    mut stream?: Stream.Reader
     --- Whether the status is from 200 to 299.
     ok: boolean
     --- The Location header of a redirect; nil for any other reply.
-    redirect_location?: string
+    mut redirect_location?: string
 
     --- Every line of header `name`, in order; `{}` when it has none.
     header_list: function(self: TestResponse, name: string): {string}
