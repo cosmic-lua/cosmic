@@ -54,7 +54,7 @@ function connector_fixture.read_exact(conn: Net.Conn, count: integer): string
   local out = ""
   while #out < count do
     local data, why = conn:read(count - #out)
-    assert(data ~= nil, "the connection ended after " .. tostring(#out) .. " of " .. tostring(count) .. " bytes: " .. why)
+    assert(data ~= nil, "the connection ended with " .. tostring(#out) .. " read of " .. tostring(count) .. " wanted: " .. why)
     out = out .. data
   end
   return out

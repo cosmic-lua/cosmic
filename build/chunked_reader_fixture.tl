@@ -51,21 +51,32 @@ function chunked_reader_fixture.chunked(text: string, size: integer, last?: stri
   return r
 end
 
--- TODO: once `skip` is declared optional on [`Stream.Reader`] (the TODO in cosmic/stream.tl), drop this literal's pin in
--- build/ceilings.txt.
+local class Dripped is Stream.Reader
+  mut skip: function(Dripped, n: integer): boolean, string
+  inner: Stream.Reader
+  most: integer
 
---- A Reader over `text` that hands out at most `n` bytes a read. It has no `skip`, as a Reader of a stream has none.
+  function read(self, max_bytes?: integer): string?, string
+    return self.inner:read(math.min(self.most, max_bytes or self.most))
+  end
+
+  function close(self): boolean, string
+    return self.inner:close()
+  end
+end
+
+--- Skips `n` bytes of what `self` hands out, as the reader it wraps does. A [`Stream.Reader`] declares `skip`, so a
+--- class that is one has it.
+local function dripped_skip(self: Dripped, n: integer): boolean, string
+  return self.inner:skip(n)
+end
+
+--- A Reader over `text` that hands out at most `n` bytes a read.
 --- @param text what it reads
 --- @param n the most a read answers
 --- @return the reader
 function chunked_reader_fixture.drip(text: string, n: integer): Stream.Reader
-  local inner = Stream.from_string(text)
-  local r: Stream.Reader = {
-    read = function(_self: Stream.Reader, max?: integer): string?, string
-      return inner:read(math.min(n, max or n))
-    end,
-    close = function(_self: Stream.Reader): boolean, string return inner:close() end,
-  }
+  local r: Dripped = { skip = dripped_skip, inner = Stream.from_string(text), most = n }
   return r
 end
 
