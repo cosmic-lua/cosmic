@@ -184,7 +184,7 @@ end
 --- keys are equal literals.
 local function holds_key_twice(compact: string?): boolean?
   if compact == nil then return nil end
-  local open: mut {{string: boolean}} = {}
+  local open: mut {mut {string: boolean}} = {}
   local objects: mut {boolean} = {}
   local expecting = false
   local i = 1

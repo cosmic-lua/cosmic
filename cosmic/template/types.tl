@@ -176,7 +176,7 @@ local record Types
     --- The field names after the head, none for the head itself.
     mut path: {string}
     --- The stages, applied first to last.
-    stages: {Stage}
+    stages: mut {Stage}
   end
 
   --- One arm of an `if`, `with` or `range`: its condition (none for
