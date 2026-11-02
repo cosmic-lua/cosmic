@@ -238,25 +238,31 @@ end
   local result = invoke(root, output, ".")
   local text = assert(Fs.read(output))
   assert(not result.ok, text)
-  for _, case in ipairs({
-      { module = "suite.unrelated_test", selector = "suite/unrelated_test.tl:test_unrelated",
-          printed = "suite/unrelated_test.tl:test_unrelated" },
-      { module = "suite.two words.spaced_test",
-          selector = "suite/two words/spaced_test.tl:test_unrelated",
-          printed = "'suite/two words/spaced_test.tl:test_unrelated'" },
-  }) do
+  local record Case
+    module: string
+    selector: string
+    printed: string
+  end
+  local cases: {Case} = {
+    { module = "suite.unrelated_test", selector = "suite/unrelated_test.tl:test_unrelated",
+      printed = "suite/unrelated_test.tl:test_unrelated" },
+    { module = "suite.two words.spaced_test",
+      selector = "suite/two words/spaced_test.tl:test_unrelated",
+      printed = "'suite/two words/spaced_test.tl:test_unrelated'" },
+  }
+  for _, case in ipairs(cases) do
     -- The FAIL line keeps its `<module> <name>: <message>` shape, and
     -- the rerun line follows its block: the message, then the kept
     -- directory.
-    local block = "\ntest: FAIL  " .. case.module .. " test_unrelated: " .. -- checked: map_field
-      case.module .. ":2: unrelated test executed\n  its directory is kept: " -- checked: map_field
+    local block = "\ntest: FAIL  " .. case.module .. " test_unrelated: " ..
+      case.module .. ":2: unrelated test executed\n  its directory is kept: "
     local at = text:find(block, 1, true)
     assert(at ~= nil, text)
     local line_end = assert(text:find("\n", at + #block, true))
-    local rerun = "  rerun: COSMIC_TEST_SANDBOX=0 cosmic test " .. case.printed .. "\n" -- checked: map_field
+    local rerun = "  rerun: COSMIC_TEST_SANDBOX=0 cosmic test " .. case.printed .. "\n"
     assert(text:sub(line_end + 1, line_end + #rerun) == rerun, text)
     output = tmp .. "/rerun.out"
-    result = invoke(root, output, case.selector) -- checked: map_field
+    result = invoke(root, output, case.selector)
     local again = assert(Fs.read(output))
     assert(not result.ok, again)
     assert(again:find("unrelated test executed", 1, true), again)
