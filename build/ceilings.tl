@@ -585,10 +585,10 @@ function Ceilings.marked(stage: Ceilings.Stage, file: string, text: string, erro
           end
           local tail = "; follow the fix above"
           if unpinned ~= true then
-            tail = ", and its marker holds " .. tostring(allowed) .. tail .. " rather than add a marker"
+            tail = ", marked " .. tostring(allowed) .. tail .. " rather than add a marker"
           end
-          out[#out + 1] = file .. ":" .. tostring(line) .. ": " .. String.counted(#list, "error") .. " of " .. code ..
-            " on this line of its " .. what .. tail
+          out[#out + 1] = file .. ": " .. String.counted(#list, "error") .. " of " .. code .. " in its " .. what ..
+            " on line " .. tostring(line) .. tail
           unmarked[#unmarked + 1] = { file = file, line = line, stage = tostring(stage), code = code, count = #list - allowed }
         end
       end

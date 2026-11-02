@@ -306,12 +306,12 @@ local function test_a_finding_on_a_line_without_a_marker_for_its_code_is_listed_
     { "nil_not_allowed" }, "bodies")
   assert(#judged.lines == 2, table.concat(judged.lines, "\n"))
   assert(judged.lines[1] == "build/a.tl:3:3: message 3 (nil_not_allowed): fix 3", judged.lines[1])
-  assert(judged.lines[2] == "build/a.tl:3: 1 error of nil_not_allowed on this line of its bodies, and its marker holds 0; " ..
+  assert(judged.lines[2] == "build/a.tl: 1 error of nil_not_allowed in its bodies on line 3, marked 0; " ..
       "follow the fix above rather than add a marker", judged.lines[2])
   assert(#judged.unmarked == 1 and first(judged.unmarked, 1).line == 3 and first(judged.unmarked, 1).count == 1)
   assert(#judged.stale == 0)
   local tree = Ceilings.marked("checked", "a.tl", source, { finding("nil_not_allowed", 3) }, { "nil_not_allowed" }, "bodies", true)
-  assert(tree.lines[2] == "a.tl:3: 1 error of nil_not_allowed on this line of its bodies; follow the fix above", tree.lines[2])
+  assert(tree.lines[2] == "a.tl: 1 error of nil_not_allowed in its bodies on line 3; follow the fix above", tree.lines[2])
 end
 
 local function test_a_marker_whose_finding_is_gone_is_stale_with_the_count_it_holds_too_many()
@@ -352,7 +352,7 @@ local function test_a_closed_code_is_held_by_no_marker()
   local source = "local b = t[k] " .. KEY .. " " .. closed .. "\n"
   local judged = Ceilings.marked("checked", "a.tl", source, { finding(closed, 1) }, { closed }, "bodies")
   assert(#judged.unmarked == 1, "a marker for a closed code holds nothing")
-  assert(table.concat(judged.lines, "\n"):find("on this line", 1, true) ~= nil, table.concat(judged.lines, "\n"))
+  assert(table.concat(judged.lines, "\n"):find("on line 1, marked 0", 1, true) ~= nil, table.concat(judged.lines, "\n"))
 end
 
 local function test_a_marker_naming_a_code_of_no_stage_is_unknown()

@@ -41,7 +41,7 @@ local function test_a_finding_with_no_marker_on_its_line_fails_and_a_marker_hold
   local bare = tree(dir, "bare", MARKED, source("local t: integer = 3.5"))
   local found = joined(tree_checks.checked(bare))
   assert(found:find("build/bad.tl:1:20:", 1, true) and found:find("(not_assignable)", 1, true) and
-      found:find("build/bad.tl:1: 1 error of not_assignable on this line of its bodies, and its marker holds 0; " ..
+      found:find("build/bad.tl: 1 error of not_assignable in its bodies on line 1, marked 0; " ..
           "follow the fix above rather than add a marker", 1, true), found)
   local held = tree(dir, "held", MARKED, source("local t: integer = 3.5 " .. KEY .. " not_assignable"))
   assert(#tree_checks.checked(held) == 0, joined(tree_checks.checked(held)))
@@ -68,7 +68,7 @@ local function test_a_finding_that_moved_off_its_marker_fails_and_leaves_the_mar
   -- the code gains a line above the marker's line and the finding follows the code, not the marker
   assert(Fs.write(root .. "/build/bad.tl", source("local t: integer = 3.5", "local u = 1 " .. KEY .. " not_assignable")))
   local found = joined(tree_checks.checked(root))
-  assert(found:find("build/bad.tl:1: 1 error of not_assignable on this line", 1, true) and
+  assert(found:find("build/bad.tl: 1 error of not_assignable in its bodies on line 1", 1, true) and
       found:find("build/bad.tl:2: its marker holds 1 finding of not_assignable that the line no longer has", 1, true), found)
 end
 
@@ -93,10 +93,10 @@ end
 local function test_several_findings_on_one_line_are_held_by_a_count_and_by_several_codes(dir: string)
   local line = "local a: {integer} = { 3.5, 4.5 }"
   local two = tree(dir, "two", MARKED, source(line))
-  assert(joined(tree_checks.checked(two)):find("2 errors of not_assignable on this line", 1, true) ~= nil)
+  assert(joined(tree_checks.checked(two)):find("2 errors of not_assignable in its bodies on line 1", 1, true) ~= nil)
   assert(Fs.write(two .. "/build/bad.tl", source(line .. " " .. KEY .. " not_assignable")))
   local short = joined(tree_checks.checked(two))
-  assert(short:find("2 errors of not_assignable on this line", 1, true) and short:find("its marker holds 1", 1, true), short)
+  assert(short:find("2 errors of not_assignable in its bodies on line 1", 1, true) and short:find("on line 1, marked 1", 1, true), short)
   assert(Fs.write(two .. "/build/bad.tl", source(line .. " " .. KEY .. " not_assignable*2")))
   assert(#tree_checks.checked(two) == 0, joined(tree_checks.checked(two)))
   -- one more than the line has is stale by the difference
@@ -161,7 +161,7 @@ local function test_the_calls_the_checker_gave_no_function_are_held_by_untyped_m
     "end",
     "return M")))
   local bare = joined(tree_checks.untyped(root))
-  assert(bare:find("build/bad.tl:1:", 1, true) and bare:find("on this line of its calls", 1, true), bare)
+  assert(bare:find("build/bad.tl:1:", 1, true) and bare:find("in its calls on line 1", 1, true), bare)
   assert(Fs.write(root .. "/build/bad.tl", source("local x = missing(2) -- untyped: call",
     "local y = x.field(1) -- untyped: call", "return y")))
   assert(#tree_checks.untyped(root) == 0, joined(tree_checks.untyped(root)))

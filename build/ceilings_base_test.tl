@@ -3,6 +3,7 @@
 --- git is a stand-in that answers each call from a table.
 local CeilingsBase = require("build.ceilings_base")
 local Fs = require("cosmic.fs")
+local Markers = require("build.markers")
 local Test = require("cosmic.test")
 
 Test.policy{}
@@ -271,4 +272,22 @@ local function test_a_base_whose_markers_git_cannot_read_fails_the_check(tmp: st
   local held: CeilingsBase.Held = { ["build/a.tl"] = { ["checked map_field"] = 1 } }
   local verdict = CeilingsBase.check(root, ci({ COSMIC_CEILINGS_BASE = BASE }), git_of(base, { calls = {} }), held)
   assert(#verdict.lines == 1 and has(verdict.lines[1], "git grep of the markers"), table.concat(verdict.lines, "\n"))
+end
+
+local function test_code_that_moved_keeps_its_count_of_markers_and_passes(tmp: string)
+  local root = tree_with(tmp, BASE_TEXT)
+  local before = "a()\nb() " .. KEY .. " map_field\nc() " .. KEY .. " map_field, any_use\n"
+  -- the same findings three lines lower, after code added above them
+  local after = "x()\ny()\nz()\na()\nb() " .. KEY .. " map_field\nc() " .. KEY .. " map_field, any_use\n"
+  local base = marked_base({ ["build/a.tl"] = before })
+  local held: CeilingsBase.Held = { ["build/a.tl"] = Markers.counts(after, "build/a.tl") }
+  assert(held["build/a.tl"] ~= nil and (held["build/a.tl"] or {})["checked map_field"] == 2)
+  local verdict = CeilingsBase.check(root, ci({ COSMIC_CEILINGS_BASE = BASE }), git_of(base, { calls = {} }), held)
+  assert(#verdict.lines == 0, table.concat(verdict.lines, "\n"))
+  -- a marker added on one of the new lines is one more than the base held
+  local more = after .. "d() " .. KEY .. " map_field\n"
+  held = { ["build/a.tl"] = Markers.counts(more, "build/a.tl") }
+  local refused = CeilingsBase.check(root, ci({ COSMIC_CEILINGS_BASE = BASE }), git_of(base, { calls = {} }), held)
+  assert(#refused.lines == 1 and has(refused.lines[1], "3 of its markers hold checked map_field and the merge base's file " ..
+      "held 2"), table.concat(refused.lines, "\n"))
 end
