@@ -56,7 +56,7 @@ local text = bind.text
 
 local record bom
   --- The verb's registration: see build/verb_spec.tl.
-  spec: verb_spec.Spec
+  mut spec: verb_spec.Spec
   --- One `notice` line: a file under the component's directory, and
   --- the lines of it to keep; `first` is nil for the whole file.
   record Notice
@@ -68,16 +68,16 @@ local record bom
   --- One record, as [`bom.parse`] reads it.
   record Component
     name: string
-    kind: string
-    version: string
-    url: string
+    mut kind: string
+    mut version: string
+    mut url: string
     --- The upstream archive's, as fetched; "" when the record names
     --- none (a component cosmic does not fetch itself, or one whose
     --- upstream publishes another digest).
-    sha256: string
+    mut sha256: string
     --- As `sha256`, for the upstream that publishes SHA3-256.
-    sha3_256: string
-    license: string
+    mut sha3_256: string
+    mut license: string
     notices: mut {bom.Notice}
   end
 

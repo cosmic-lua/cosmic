@@ -18,7 +18,7 @@ local record standard_text
   --- declaration beside it. It says which it is, so a compile keyed on one is never taken for one keyed on the other. A
   --- stub keeps every position of its source, so either is served under the module's own file name. A database without the
   --- table (a sealed worker's, or a tool's from before it) answers sources.
-  of: function(name: string): Standard?
+  mut of: function(name: string): Standard?
 
   --- What the checker reads for the module `name` of the running binary, whatever its name: the tool's own modules beside the
   --- standard library's, each as [`standard_text.of`] reads a standard-library module. `cosmic -e` takes them so, since it

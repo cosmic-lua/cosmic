@@ -443,13 +443,10 @@ local function requires_in(db: Sqlite.Handle): function(string): {string}?, stri
         "SELECT DISTINCT i.path, r.name FROM inputs i " ..
           "JOIN requires r ON r.source_hash = i.source_hash ORDER BY i.path, r.name")
       if rows == nil then return nil, rows_trouble end
-      local read: mut {string:{string}} = {}
+      local read: mut {string:mut {string}} = {}
       for _, row in ipairs(rows) do
-        local list = read[row:text(1)]
-        if list == nil then
-          list = {}
-          read[row:text(1)] = list
-        end
+        local list = read[row:text(1)] or {}
+        read[row:text(1)] = list
         local second = row:text(2)
         list[#list + 1] = second
       end

@@ -22,6 +22,9 @@ local record protocol
     --- Whether bytes of another message are read already, or have
     --- arrived to be read: the stream's `poll` is asked, without waiting.
     waiting: function(Frames): boolean
+    --- The bytes read already and not yet taken as a message: what a
+    --- process that hands the stream on must give its successor first.
+    unread: function(Frames): string
   end
 
   --- What has arrived of a stream, read without waiting: nil and "" when
@@ -239,12 +242,12 @@ local record protocol
   end
 
   -- JSON-RPC's and the protocol's error codes.
-  INVALID_REQUEST: integer
-  METHOD_NOT_FOUND: integer
-  INVALID_PARAMS: integer
-  INTERNAL_ERROR: integer
-  NOT_INITIALIZED: integer
-  REQUEST_FAILED: integer
+  mut INVALID_REQUEST: integer
+  mut METHOD_NOT_FOUND: integer
+  mut INVALID_PARAMS: integer
+  mut INTERNAL_ERROR: integer
+  mut NOT_INITIALIZED: integer
+  mut REQUEST_FAILED: integer
 end
 
 protocol.INVALID_REQUEST = -32600
@@ -390,6 +393,9 @@ function protocol.frames_of(read: function(): string?, string, poll?: protocol.P
       local body = held.buffer:sub(start, start + header.length - 1)
       held.buffer = held.buffer:sub(start + header.length)
       return body
+    end,
+    unread = function(_self: protocol.Frames): string
+      return held.buffer
     end,
     waiting = function(_self: protocol.Frames): boolean
       if held.buffer:match("%S") ~= nil then return true end

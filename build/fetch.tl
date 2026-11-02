@@ -97,7 +97,7 @@ local String = require("cosmic.string")
 --- The `cosmic fetch` verb: `run` is what [`build/dispatch.tl`] calls.
 local record verb
   --- The verb's registration: see build/verb_spec.tl.
-  spec: verb_spec.Spec
+  mut spec: verb_spec.Spec
   --- Where `run` writes: what a test stands in for.
   record Io
     --- Writes to standard output, as given: the caller adds newlines.

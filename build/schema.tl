@@ -10,7 +10,7 @@
 
 local record schema
   --- The name of the `docs` index of a module's `local` declarations.
-  local_index: string
+  mut local_index: string
 end
 
 schema.local_index = "docs_by_local"

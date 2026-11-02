@@ -518,7 +518,9 @@ local function program_of(checker: Checker, path: string): held.Program
     checker.epoch = checker.epoch + 1
   end
   if program == nil then
-    program = held.new(options_of(checker), serve_of(checker))
+    program = held.new(options_of(checker), serve_of(checker), function(name: string, file: string): {string}
+      return graph.meant(checker.source, file, name)
+    end)
     checker.program = program
   end
   return program
@@ -546,7 +548,7 @@ local function checked_of(checker: Checker, document: Document): Checked
   -- A file of a pair the stage refused, or a declaration that names no kind, is told so at its first line, whatever else it holds.
   local told = source.refusal(checker.source, document.name, text)
   if told ~= nil then return checked({ plan.refusal_of(told) }, text, none) end
-  local named = plan.named(document.name)
+  local named = plan.named(document.name, text)
   local path, kind = named.path, named.kind
   local listed = source.module(checker.source, document.name)
   if listed ~= nil then path, kind = listed.path, listed.kind end

@@ -11,6 +11,7 @@ local Stream = require("cosmic.stream")
 local build_paths = require("build.paths")
 local schema = require("build.schema")
 local protocol = require("build.lsp.protocol")
+local handoff = require("build.lsp.handoff")
 local session = require("build.lsp.session")
 local source = require("build.lsp.source")
 
@@ -98,8 +99,8 @@ local record session_fixture
     ran: {string:integer}
   end
 
-  SHUTDOWN: string
-  EXIT: string
+  mut SHUTDOWN: string
+  mut EXIT: string
 end
 
 local type Diagnostic = session_fixture.Diagnostic
@@ -298,6 +299,27 @@ end
 --- `store` when given.
 function session_fixture.served(root: string, messages: {string}, store?: {Sqlite.Handle}, carried?: string): Ran
   local serving = begin(root, store, carried)
+  return ran_of(serving, serve(serving, Stream.from_string(session_fixture.framed(messages))), {})
+end
+
+--- What a session at `root` answers `messages` with, holding its tool to the tree through `reenter`
+--- ([`session.Options`]); `resumed`, a session a predecessor handed over ([`session.handed`]), serves them instead,
+--- after the messages it was left.
+function session_fixture.served_holding(root: string, messages: {string},
+                                        reenter: function(root: string, state: function(): handoff.Session): integer?,
+                                        resumed?: handoff.Session): Ran
+  local complaints: mut {string} = {}
+  local options: session.Options = {
+    err = function(line: string) complaints[#complaints + 1] = line end,
+    reenter = reenter,
+  }
+  local s: session.State
+  if resumed ~= nil then
+    s = session.handed(resumed, options)
+  else
+    s = session.new(root, options)
+  end
+  local serving: Serving = { session = s, wrote = {}, complaints = complaints }
   return ran_of(serving, serve(serving, Stream.from_string(session_fixture.framed(messages))), {})
 end
 

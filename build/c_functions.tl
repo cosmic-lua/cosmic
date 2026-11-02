@@ -251,13 +251,10 @@ end
 --- for what they hold): a function is entered when a hit lands anywhere in
 --- its span.
 function c_functions.spans(functions: {Coverage.Function}, sources?: {string: {string}}): {c_functions.Span}
-  local starts: mut {string: {integer}} = {}
+  local starts: mut {string: mut {integer}} = {}
   for _, fn in ipairs(functions) do
-    local lines = starts[fn.path]
-    if lines == nil then
-      lines = {}
-      starts[fn.path] = lines
-    end
+    local lines = starts[fn.path] or {}
+    starts[fn.path] = lines
     lines[#lines + 1] = fn.line
   end
   for _, lines in pairs(starts) do table.sort(lines) end

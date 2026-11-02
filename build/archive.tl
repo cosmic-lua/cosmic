@@ -29,7 +29,7 @@ local String = require("cosmic.string")
 --- The `cosmic archive` verb: `run` is what [`build/dispatch.tl`] calls.
 local record verb
   --- The verb's registration: see build/verb_spec.tl.
-  spec: verb_spec.Spec
+  mut spec: verb_spec.Spec
   --- Where `run` reads and writes: what a test stands in for.
   record Io
     --- Writes to standard output, as given: the caller adds newlines.
@@ -338,7 +338,7 @@ local record Step
   keep: boolean
   mtime: integer
   before: integer
-  backup: string
+  mut backup: string
 end
 
 --- The names in the directory `path`, sorted, and nil and why when it
@@ -920,8 +920,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     end
     local members: mut {string} = {}
     for slot = 3, #words do
-      local word = words[slot]
-      if word ~= nil then members[#members + 1] = word end
+      members[#members + 1] = words[slot]
     end
     outcome = extract(archive_file, flags.values["-C"] or ".", flags.set["--force"] or false,
       members, to)
@@ -933,8 +932,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     end
     local paths: mut {string} = {}
     for slot = 3, #words do
-      local word = words[slot]
-      if word ~= nil then paths[#paths + 1] = word end
+      paths[#paths + 1] = words[slot]
     end
     outcome = create(output, paths, flags.set["--reproducible"] or false, to)
   end

@@ -318,10 +318,10 @@ local function test_values_the_subset_cannot_hold_are_refused()
   assert(out == nil and why:find("a tab in a string", 1, true) ~= nil, tostring(why))
   out, why = flow.format("{\n  a: 1 # c1\n  , # c2\n  b: 2,\n}\n")
   assert(out == nil and why:find("on a line of its own", 1, true) ~= nil, tostring(why))
-  local deep: {any} = {}
+  local deep: mut {any} = {}
   local at = deep
   for _ = 1, 70 do
-    local inner: {any} = {}
+    local inner: mut {any} = {}
     at[1] = inner
     at = inner
   end

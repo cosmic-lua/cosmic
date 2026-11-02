@@ -64,10 +64,10 @@ local record c
   --- be checked.
   record Outcome
     file: string
-    findings?: {rules.Finding}
-    trouble?: string
+    mut findings?: mut {rules.Finding}
+    mut trouble?: string
     --- The names of the variants it was checked under, in order.
-    variants?: {string}
+    variants?: mut {string}
   end
 
   --- One way the core is built, as far as its C can tell: the compiler's
@@ -86,7 +86,7 @@ local record c
     variant: integer
   end
 
-  variants: {c.Variant}
+  mut variants: {c.Variant}
 end
 
 --- How many compilers run at once.
@@ -336,7 +336,7 @@ local function field(fields: {string}, i: integer): string
 end
 
 --- The findings and unit of `file` that `text` encodes ([`encoded`]), or nil where it does not read.
-local function decoded(file: string, text: string): {rules.Finding}?, rules.Unit?
+local function decoded(file: string, text: string): mut {rules.Finding}?, rules.Unit?
   local findings: mut {rules.Finding} = {}
   local unit: rules.Unit = { file = file, defines = {}, refers = {} }
   for _, fields in ipairs(check_memo.decode(text)) do
@@ -547,7 +547,7 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer, s
       if read ~= nil then
         local key = check_memo.key(salt, "c", context .. "\0" .. read)
         local text = check_memo.get(store, "c", key)
-        local findings, unit: {rules.Finding}?, rules.Unit?
+        local findings, unit: mut {rules.Finding}?, rules.Unit?
         if text ~= nil then
           findings, unit = decoded(file, text)
         end

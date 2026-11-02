@@ -77,7 +77,7 @@ local record verb
   end
 
   --- The verb's registration: see build/verb_spec.tl.
-  spec: verb_spec.Spec
+  mut spec: verb_spec.Spec
   --- Where `run` reads and writes: what a test stands in for.
   record Io
     --- Writes to standard output, as given. False and why when the

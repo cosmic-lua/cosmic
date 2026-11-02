@@ -66,7 +66,7 @@ local String = require("cosmic.string")
 --- The `cosmic rand` verb: `run` is what [`build/dispatch.tl`] calls.
 local record verb
   --- The verb's registration: see build/verb_spec.tl.
-  spec: verb_spec.Spec
+  mut spec: verb_spec.Spec
   --- Where `run` reads, writes and draws: what a test stands in for.
   record Io
     --- Writes to standard output, as given: the caller adds newlines.
@@ -83,9 +83,9 @@ local record verb
   end
 
   --- The most bytes `token --bytes` gives, [`Rand.entropy`]'s own limit.
-  MAX_BYTES: integer
+  mut MAX_BYTES: integer
   --- The most values `-n` asks for.
-  MAX_COUNT: integer
+  mut MAX_COUNT: integer
 end
 
 verb.MAX_BYTES = 1048576

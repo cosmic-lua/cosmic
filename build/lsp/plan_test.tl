@@ -1,6 +1,7 @@
 --- What a build refuses of a document before it checks it, and the plan it compiles it by ([`build.lsp.plan`]), as the new
 --- checker's reading finds it: the refusals in a build's words, at their places.
 local Test = require("cosmic.test")
+local analysis_schema = require("build.analysis_schema")
 local plan = require("build.lsp.plan")
 local syntax_read = require("build.lsp.syntax_read")
 
@@ -172,4 +173,35 @@ local function test_a_refusal_carries_the_code_the_checker_words_after_its_messa
   assert(by_line.line == 3 and by_line.code == "some_code", tostring(by_line.code))
   local bare = plan.refusal_of("it.tl: nothing to say of a code")
   assert(bare.message == "nothing to say of a code" and bare.code == nil, tostring(bare.code))
+end
+
+--- A declaration that names itself a binding is planned a binding, a main a main, as the `inputs` view says; the paths
+--- are the same as before.
+local function test_a_file_is_planned_the_kind_the_view_gives_it()
+  local record Kinded
+    file: string
+    text: string
+    path: string
+    kind: string
+  end
+  local binding = analysis_schema.binding_tag() .. "\n"
+  local cases: {Kinded} = {
+    { file = "cosmic/x.d.tl", text = binding, path = "cosmic.x", kind = "binding" },
+    { file = "cosmic/x.d.tl", text = "", path = "cosmic.x", kind = "decl" },
+    { file = "cosmic/x.d.tl", text = "-- nothing\n", path = "cosmic.x", kind = "decl" },
+    { file = "cmd/tool/main.tl", text = "", path = "cmd.tool.main", kind = "main" },
+    { file = "cmd/tool/sub/main.tl", text = "", path = "cmd.tool.sub.main", kind = "module" },
+    { file = "a/b_test.tl", text = "", path = "a.b_test", kind = "test" },
+    { file = "a/b_example.tl", text = "", path = "a.b_example", kind = "example" },
+    { file = "a/init.tl", text = "", path = "a", kind = "module" },
+    { file = "a/b.tmpl", text = "", path = "a.b", kind = "module" },
+    { file = "a/b.tmpl", text = binding, path = "a.b", kind = "module" },
+  }
+  for _, case in ipairs(cases) do
+    local named = plan.named(case.file, case.text)
+    assert(named.path == case.path and named.kind == case.kind, case.file .. ": " .. named.path .. " " .. named.kind)
+    if case.file:match("%.tmpl$") == nil then
+      assert(named.kind == analysis_schema.kind_of(case.file, case.text), case.file)
+    end
+  end
 end

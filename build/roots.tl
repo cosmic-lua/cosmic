@@ -105,7 +105,7 @@ end
 --- One object of certdata.txt: each attribute's value, by name. A
 --- `MULTILINE_OCTAL` value is its bytes; any other, the text after its
 --- type (`CKO_CERTIFICATE`, `"a label"`, `CK_FALSE`).
-local type Object = {string:string}
+local type Object = mut {string:string}
 
 --- `CKA_NSS_SERVER_DISTRUST_AFTER`'s value as [`Root.distrust_after`]: an
 --- ASN.1 UTCTime `YYMMDDHHMMSSZ`, its year 19YY from 50 up (RFC 5280
@@ -135,7 +135,7 @@ local function parse_certdata(text: string): {roots.Root}?, string
   local objects: mut {Object} = {}
   local object: Object = {}
   local name = ""
-  local value_lines: {string}? = nil
+  local value_lines: mut {string}? = nil
   local number = 0
   local begun = false
   for line in String.lines((text:gsub("\r\n", "\n"))) do

@@ -144,7 +144,7 @@ end
 
 --- The same over a unix socket file.
 local function test_a_landlock_ruleset_leaves_a_child_its_unix_socket(tmp: string)
-  if unix_socket.skipped(tmp) then return end
+  unix_socket.skip_if_refused(tmp)
   connects_through_a_ruleset(tmp, function(socket: string): Net.Listener
     return (assert(Net.listen(Net.unix(socket), { timeout_ns = Clock.seconds(5) })))
   end, function(_listener: Net.Listener, socket: string): string

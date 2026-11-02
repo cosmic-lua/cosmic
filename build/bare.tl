@@ -27,16 +27,16 @@ local record bare
   end
 
   --- The exit code of a run that did what was asked.
-  ok: integer
+  mut ok: integer
   --- The exit code of a run that ran and found a fault in what it
   --- looked for: a checksum that did not match, a path or a member that
   --- is not there, a value that cannot be printed.
-  failed: integer
+  mut failed: integer
   --- The exit code of a command line or an input it refused, or a write
   --- to standard output that was lost.
-  refused: integer
+  mut refused: integer
   --- What every bare verb says of an empty file argument.
-  empty_file: string
+  mut empty_file: string
 end
 
 bare.ok = 0

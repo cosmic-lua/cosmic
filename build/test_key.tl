@@ -94,7 +94,7 @@ local record test_key
     store_salt: string
     --- The set of the names of the modules the binary carries, which
     --- [`worker.judge`] holds what a worker loaded to.
-    carried: {string:boolean}
+    carried: mut {string:boolean}
   end
 
   --- What [`test_key.prepare`] made of a job: the command that starts its
@@ -556,7 +556,7 @@ function test_key.harness(db: Sqlite.Handle): Harness?, string
     compiled[row:text(1)] = row:text(2) .. " " .. row:text(3)
     carried[row:text(1)] = true
   end
-  local imports: mut {string:{string}} = {}
+  local imports: mut {string:mut {string}} = {}
   for _, row in ipairs(imported) do
     local list = imports[row:text(1)] or {}
     imports[row:text(1)] = list
@@ -932,9 +932,9 @@ end
 --- The set of the names of `m`'s import closure (`closures`), made
 --- once a run.
 local function closure_set(rec: Recording, m: Module): {string:boolean}
-  local set = rec.closure_sets[m.path]
-  if set == nil then
-    set = {}
+  local held = rec.closure_sets[m.path]
+  local set: mut {string: boolean} = held or {}
+  if held == nil then
     for _, name in ipairs(rec.closures[m.path] or {}) do set[name] = true end
     rec.closure_sets[m.path] = set
   end
@@ -1708,12 +1708,22 @@ end
 local UNMET_RANK <const>: {string:integer} = { refused = 3, na = 2, skipped = 1 }
 
 --- The names a module requires of its host, as its policy declares them
---- ([`host_names.check`]), sorted.
-local function requirements_of(m: Module): {string}
+--- ([`host_names.check`]), sorted. A module that declares loopback
+--- addresses also requires `loopback`: the addresses already say its
+--- tests reach loopback, so the name is derived here rather than written
+--- beside them in every module.
+function test_key.requirements(m: Module): {string}
   local names: mut {string} = {}
   local declared = m.inputs
   if declared == nil then return names end
   for _, name in ipairs(declared.requires) do names[#names + 1] = name end
+  if #declared.network > 0 then
+    local written = false
+    for _, name in ipairs(names) do
+      if name == "loopback" then written = true end
+    end
+    if not written then names[#names + 1] = "loopback" end
+  end
   table.sort(names)
   return names
 end
@@ -1729,14 +1739,18 @@ end
 --- an n/a or a skip of a requirement its leg promises (`promises`, the
 --- leg's name `leg`), naming the requirement and the leg; an absence of
 --- one it does not promise fails nothing. `sandbox` answers whether a
---- worker can be sandboxed here, which a requirement of it asks. The host
+--- worker can be sandboxed here, which a requirement of it asks.
+--- `sandboxed_workers` is whether this run's workers run sandboxed (the
+--- runner's `choose_sandbox` outcome, settled before this is called), which
+--- `loopback` answers from where workers are sandboxed. The host
 --- asked, or nil where no module requires anything.
 function test_key.ask_host(rec: Recording, modules: {Module},
                            sandbox: function(): host_requires.Sandbox, held: boolean,
-                           promises: {string}, leg: string): host_requires.Host?
+                           promises: {string}, leg: string,
+                           sandboxed_workers: boolean): host_requires.Host?
   local host: host_requires.Host? = nil
   for _, m in ipairs(modules) do
-    local names = requirements_of(m)
+    local names = test_key.requirements(m)
     if #names > 0 then
       if host == nil then
         -- COSMIC_TEST_PLATFORM=other, for a test of this runner alone, stands in
@@ -1759,6 +1773,7 @@ function test_key.ask_host(rec: Recording, modules: {Module},
           host_only = host_only,
           linux = linux,
           sandbox = sandbox,
+          sandboxed_workers = sandboxed_workers,
         })
       end
       local probed = assert(host)
@@ -2083,8 +2098,9 @@ function test_key.lookup(rec: Recording, m: Module, id: string,
         local foreign = declared_of(rec, m, id, other)
         local seen: shared_verdicts.Found? = nil
         local seen_trouble = ""
-        if foreign ~= nil and rec.shared ~= nil then
-          seen, seen_trouble = shared_verdicts.declared(rec.shared, foreign)
+        local shared = rec.shared
+        if foreign ~= nil and shared ~= nil then
+          seen, seen_trouble = shared_verdicts.declared(shared, foreign)
           if seen == nil and seen_trouble ~= "" then drop_shared(rec, seen_trouble) end
         end
         if seen ~= nil then
@@ -2174,7 +2190,8 @@ function test_key.judge(rec: Recording, job: Job, result: Child.Result?,
   end
   local passed, message = judgement.passed, judgement.message
   local skipped = ""
-  if passed and judgement.skipped ~= nil then skipped = judgement.skipped end
+  local unavailable_reason = judgement.skipped
+  if passed and unavailable_reason ~= nil then skipped = unavailable_reason end
   if skipped ~= "" then
     -- A reason may carry what a failed start printed: the report lists
     -- one line each.

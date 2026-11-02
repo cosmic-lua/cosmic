@@ -16,9 +16,9 @@ local Fs = require("cosmic.fs")
 local relative = Fs.relative
 
 local record key_parts
-  hex: function(data: string): string
-  unhex: function(text: string): string?, string
-  compiler_readers: {string}
+  mut hex: function(data: string): string
+  mut unhex: function(text: string): string?, string
+  mut compiler_readers: {string}
 end
 
 --- Every byte to its two lowercase hex digits, and every pair of hex

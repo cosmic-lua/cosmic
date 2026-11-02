@@ -1,7 +1,7 @@
 # Flow-style YAML, held by build/workflows_test.tl to what YAML and
 # JSON5 read alike; a longer script lives under .github/scripts/.
 {
-  name: "publish next prerelease",
+  name: "publish prerelease",
 
   # Publishes from each ci run on main -- a push or a manual run, not
   # the scheduled one -- that completed green (ci.yml runs main's pushes

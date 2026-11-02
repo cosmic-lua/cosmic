@@ -207,7 +207,7 @@ end
 --- a device in a listing: a worker is given no block device, and no
 --- directory of the system's to list.
 local function test_stat_names_a_socket_a_fifo_and_a_device(tmp: string)
-  if unix_socket.skipped(tmp) then return end
+  unix_socket.skip_if_refused(tmp)
   local socket = tmp .. "/socket"
   socket_file(socket)
   local found = assert(sys.lstat(socket)).kind
@@ -387,7 +387,7 @@ end
 
 --- A socket file in a listing is named a socket.
 local function test_readdir_names_a_socket_file_a_socket(tmp: string)
-  if unix_socket.skipped(tmp) then return end
+  unix_socket.skip_if_refused(tmp)
   local d = linked_directory(tmp, true)
   names_links_as_links(assert(sys.readdir(d)), "readdir", true)
 end

@@ -305,13 +305,10 @@ function inputs.key(reader: inputs.Reader, file: string, command: {string}, inst
   local seen: mut {string: boolean} = {}
   local stack: mut {string} = { file }
   seen[file] = true
-  local defines: mut {string: {inputs.Define}} = {}
+  local defines: mut {string: mut {inputs.Define}} = {}
   local function define(d: inputs.Define)
-    local list = defines[d.name]
-    if list == nil then
-      list = {}
-      defines[d.name] = list
-    end
+    local list = defines[d.name] or {}
+    defines[d.name] = list
     list[#list + 1] = d
   end
   for _, d in ipairs(reader.defined) do

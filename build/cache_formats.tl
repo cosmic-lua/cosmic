@@ -12,27 +12,27 @@ end
 
 local record cache_formats
   --- Current compiled-module table.
-  compiled: string
+  mut compiled: string
   --- Current parsed-source table.
-  parsed: string
+  mut parsed: string
   --- Current declared-input verdict table.
-  declared: string
+  mut declared: string
   --- Current closure-store digest table.
-  stores: string
+  mut stores: string
   --- Compile/parse prefixes and current versions, for writer migration.
-  compile_versions: {Version}
+  mut compile_versions: {Version}
   --- Statements the compile cache initializes with.
-  compiles: {string}
+  mut compiles: {string}
   --- Current table of the boot bridge's compiles (core/bridge.lua), which
   --- only the bridge writes, in plain Lua before any Teal has loaded.
-  bridge: string
+  mut bridge: string
   --- Statements the bridge makes its table with; core/bridge.lua holds
   --- the same ones.
-  bridge_statements: {string}
+  mut bridge_statements: {string}
   --- Statements the verdict cache initializes with.
-  verdicts: {string}
+  mut verdicts: {string}
   --- The supported observation-keyed verdict table, retained by current writers.
-  legacy_verdicts: string
+  mut legacy_verdicts: string
 end
 
 local compiled <const> = "compiled_v2"

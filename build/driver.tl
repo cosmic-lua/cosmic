@@ -53,9 +53,10 @@ local record Driver
     checked: boolean
     --- Whether its top-level `local function test_*` are called from outside the file (a test module), so that they are
     --- not unused.
-    tests: boolean
-    --- The other names a `require` may give it.
-    aliases: {string}
+    mut tests: boolean
+    --- The other names a `require` may give it: only a declaration file of the globals has any ([`Driver.declarations`]); a
+    --- module of an index ([`Driver.index`]) answers to its whole name alone.
+    mut aliases: mut {string}
     --- The name its ceilings are kept under, "" where that is its `filename`. A source the build writes from another
     --- file (a guide's examples, a template, the declarations of a header) is named for the file it comes from, which
     --- the tree has, where its `filename` names the text written.
@@ -115,29 +116,29 @@ local record Driver
     --- check counts nothing of it.
     broken: boolean
     --- What lowering made: nil until the module is lowered.
-    lowered: Declarations.Lowered?
+    mut lowered: Declarations.Lowered?
     --- What checking made: nil until the module is checked, and for a module that is not.
-    checked: Check.Checked?
+    mut checked: Check.Checked?
     --- The errors of each stage, in source order.
     syntax: {Problem}
-    scope_errors: mut {Problem}
+    mut scope_errors: mut {Problem}
     declared: mut {Problem}
     bodies: mut {Problem}
     --- Every error, in source order, and the warnings.
-    errors: {Problem}
+    mut errors: {Problem}
     warnings: mut {Problem}
     --- The type of each node the checker typed (an expression) or lowered (a type), by the id of the node.
-    types: {integer: Types.Type}
+    mut types: {integer: Types.Type}
     --- The function each call and method call took, by the id of the call node ([`Check.Checked.callees`]).
-    callees: {integer: Types.Type}
+    mut callees: {integer: Types.Type}
   end
 
   --- The nanoseconds a build spent in each phase, for the speed of a run.
   record Timing
     --- Lexing, parsing and scoping.
-    prepare: integer
-    lower: integer
-    check: integer
+    mut prepare: integer
+    mut lower: integer
+    mut check: integer
   end
 
   record Options
@@ -150,6 +151,9 @@ local record Driver
     external: {string}
     --- The names of the language's own modules ([`Declarations.Program.library`]); none where not given.
     library?: {string: boolean}
+    --- What a `require` of `name` in the file `file` that names no module may have meant, as "`b.m` (b/m.tl)" each: the modules
+    --- ending in the name ([`Driver.ending`]) that `file` may require, none where the build is not given one.
+    meant?: function(name: string, file: string): {string}
     --- Whether the checker keeps the type of each node: the `types` of a result. A run that reads none leaves it, and saves the
     --- time of recording them.
     types: boolean
@@ -157,33 +161,33 @@ local record Driver
 
   --- A build.
   record Build
-    program: Declarations.Program
+    mut program: Declarations.Program
     --- The calls of [`Shape.record_of`] a module of the tree makes that [`build.tree_program`] could not resolve before it lowered the module, one line each.
     problems: mut {string}
     timing: Timing
     --- Asks `provider` for a module after the providers added before it.
-    provide: function(Build, provider: Provider)
-    --- The module `name` (or one of its aliases) lexed, parsed and scoped, nil where no provider has it.
-    parsed: function(Build, name: string): Outcome?
+    mut provide: function(Build, provider: Provider)
+    --- The module `name` (or, of a declaration file of the globals, one of its aliases) lexed, parsed and scoped, nil where no provider has it.
+    mut parsed: function(Build, name: string): Outcome?
     --- Whether the build has the module `name`: a global source, a module a provider has, or one it has retired. Nothing is read
     --- to tell.
-    provides: function(Build, name: string): boolean
+    mut provides: function(Build, name: string): boolean
     --- Lowers the modules `names`, each after what it requires, and the globals before them.
-    lower: function(Build, names: {string})
+    mut lower: function(Build, names: {string})
     --- The result for `name`, lowered with what it requires. With `bodies` its bodies are checked too. nil where no
     --- provider has it. Call it for the modules you want, after [`Driver.Build.lower`] of all of them, since the
     --- errors of a module's declarations include checks that waited for a module lowered later.
-    result: function(Build, name: string, bodies: boolean): Outcome?
+    mut result: function(Build, name: string, bodies: boolean): Outcome?
     --- The lines that refuse `result` against `ceilings`: its syntax errors, and for each stage the errors of a code above
     --- its ceiling, each with its place and fix and then the count and `pinned N`. None where the module is held. The stages
     --- are those of the tree's checks, over the same text: a module is held to `[scoped]`, `[declared]` and `[checked]`, and
     --- to no syntax error. A module whose bodies were not checked is told so.
-    held: function(Build, result: Outcome, ceilings: Ceilings.Table): {string}
+    mut held: function(Build, result: Outcome, ceilings: Ceilings.Table): {string}
     --- Replaces the text of the module `name` with `text`, and answers its outcome, or nil where no provider has `name`. A module cannot be lowered twice in one program, so
     --- the build begins a new one: every module is lowered again, when it is next asked for, from the syntax tree it has
     --- already, and an outcome answered before is no longer the build's. The splices of [`build.syntax_shape_specs`] are
     --- made in the text of [`Driver.Outcome.text`] and checked this way.
-    replace: function(Build, name: string, text: string): Outcome?
+    mut replace: function(Build, name: string, text: string): Outcome?
     -- TODO: write the declarations of a retired module ([`Types.encode_declaration`]) and its verdict to the working database,
     -- and read them back when a module requires it, once [`Declarations.Program`] can load a module from rows: its entries,
     -- aliases, statics and values have no text, and a store reads only declarations through [`Types.Loader`]. Measured over the
@@ -197,16 +201,16 @@ local record Driver
     --- require one another. A module read again by [`Driver.Build.parsed`] is a new reading, outside the program;
     --- [`Driver.Build.lower`] and [`Driver.Build.result`] answer nothing for it. A declaration file that declares
     --- globals is not forgotten.
-    retire: function(Build, name: string)
+    mut retire: function(Build, name: string)
     --- Whether the module `name` was retired ([`Driver.Build.retire`]) and no replacement has begun the program again since.
-    retired: function(Build, name: string): boolean
+    mut retired: function(Build, name: string): boolean
     --- [`Driver.Build.retire`] of every module the build holds but those `keep` answers true for: for a build whose result
     --- for a module is read once it is lowered, and whose lowering of the modules it requires is not read at all.
-    retire_all: function(Build, keep?: function(Outcome): boolean)
+    mut retire_all: function(Build, keep?: function(Outcome): boolean)
     --- A build of its own over the same options and providers, made when first asked for and the same afterwards: a caller
     --- reads a module in it without lowering the module here. Its program, and what it holds of the modules read in it, are
     --- its own; a module of this build is not retired in it.
-    scratch: function(Build): Build
+    mut scratch: function(Build): Build
   end
 
   --- A build over `options`.
@@ -217,7 +221,7 @@ local record Driver
 
   --- A declaration file whose globals every module may use ([`Driver.Options.globals`]): not checked, answering to `aliases` as
   --- well.
-  declarations: function(module: string, filename: string, text: string, aliases: {string}): Source
+  declarations: function(module: string, filename: string, text: string, aliases: mut {string}): Source
 
   --- The sources of a tree and the names they answer to.
   record Index
@@ -226,18 +230,17 @@ local record Driver
   end
 
   --- The modules `entries` (pairs of a path below the root and its text) are: each `.tl` and `.d.tl` a module named by its
-  --- path ([`Declarations.module_of`]), checked. A module is also
-  --- answered to by the name of its path below each directory, since a project inside the tree (`ci/`, a fixture
-  --- directory) names its modules from its own root, except by a name in `unaliased`: the language's own modules, which
-  --- the binary answers and no tail of a project file's name stands for. `skip` says which paths are left out. A module
+  --- path ([`Declarations.module_of`]), checked. A module is answered to by that name alone, the one the run time resolves:
+  --- `b/m.tl` is `b.m`, never `m`. A project inside the tree names its modules from its own root by being built from there.
+  --- `skip` says which paths are left out. A module
   --- given as both `.tl` and `.d.tl` is refused before an index is made ([`Driver.declared`]); two files that are one module
   --- otherwise (`x.tl` and `x/init.tl`, or `x.d.tl` and `x/init.d.tl`) are refused by the derive ([`build.derivation`]),
-  --- and are not given here, but if they are the first given answers. A `*_test.tl` is a test module
+  --- and are not given here. A `*_test.tl` is a test module
   --- ([`Driver.Source.tests`]). An entry may give a third word, the module it is, and a fourth, the name its ceilings
   --- are kept under ([`Driver.Source.pinned`]), for a source the build writes from another file, whose path says
   --- neither: the entry's path is then the name of the text, and `.d.tl` still marks a declaration. `extras` says of a file
   --- what its name does not: a test module ([`Driver.Source.tests`]).
-  index: function(entries: {{string}}, skip: function(path: string): boolean, extras?: Extras, unaliased?: {string: boolean}): Index
+  index: function(entries: {{string}}, skip: function(path: string): boolean, extras?: Extras): Index
 
   --- The complaints about the files of `entries` (as [`Driver.index`] takes them, less the `skip`ped paths) whose module is
   --- one of `names`: a project's `require("math")` would be checked against `math.tl`, where the binary answers that call
@@ -275,6 +278,10 @@ local record Driver
   --- The provider of `index`.
   files: function(index: Index): Provider
 
+  --- The sources of `index` whose modules' names end in `.name`, by module: what a `require("name")` that names no module may
+  --- have meant, since a module is required by its whole name.
+  ending: function(index: Index, name: string): {Source}
+
   --- The provider of the `cosmic.*` modules `read` finds, each its stub or its source: `read` answers the text of a
   --- module, or nil. They are lowered for the types they give and never checked. A module `declared` says is one is read as a
   --- declaration file, which has no code.
@@ -298,7 +305,7 @@ local record Driver
 end
 
 local function make(module: string, filename: string, text: string, dialect: Ast.Dialect, checked: boolean,
-                    aliases: {string}, tests: boolean, pinned: string): Driver.Source
+                    aliases: mut {string}, tests: boolean, pinned: string): Driver.Source
   return {
     module = module, filename = filename, text = text, dialect = dialect,
     checked = checked, tests = tests, aliases = aliases, pinned = pinned,
@@ -309,7 +316,7 @@ function Driver.source(module: string, filename: string, text: string, dialect: 
   return make(module, filename, text, dialect, true, {}, tests == true, "")
 end
 
-function Driver.declarations(module: string, filename: string, text: string, aliases: {string}): Driver.Source
+function Driver.declarations(module: string, filename: string, text: string, aliases: mut {string}): Driver.Source
   return make(module, filename, text, "decl", false, aliases, false, "")
 end
 
@@ -377,8 +384,7 @@ function Driver.globals(sources: {Driver.Source}, adjust: (function(globals: {st
   return out
 end
 
-function Driver.index(entries: {{string}}, skip: function(path: string): boolean, extras?: Driver.Extras,
-                      unaliased?: {string: boolean}): Driver.Index
+function Driver.index(entries: {{string}}, skip: function(path: string): boolean, extras?: Driver.Extras): Driver.Index
   local index: Driver.Index = { sources = {}, by_module = {} }
   for _, entry in ipairs(entries) do
     local file = entry[1]
@@ -398,21 +404,6 @@ function Driver.index(entries: {{string}}, skip: function(path: string): boolean
       index.sources[#index.sources + 1] = source
       if index.by_module[source.module] == nil then
         index.by_module[source.module] = source
-      end
-    end
-  end
-  for _, source in ipairs(index.sources) do
-    -- Only the source a module is read from answers to the tail of its name, so that the module is one whichever name asks.
-    if index.by_module[source.module] == source then
-      local name = source.module
-      local dot = name:find(".", 1, true)
-      while dot ~= nil do
-        name = name:sub(dot + 1)
-        if index.by_module[name] == nil and not (unaliased ~= nil and unaliased[name] == true) then
-          index.by_module[name] = source
-          source.aliases[#source.aliases + 1] = name
-        end
-        dot = name:find(".", 1, true)
       end
     end
   end
@@ -544,6 +535,21 @@ function Driver.files(index: Driver.Index): Driver.Provider
   end
 end
 
+function Driver.ending(index: Driver.Index, name: string): {Driver.Source}
+  local found: mut {Driver.Source} = {}
+  local tail = "." .. name
+  for _, source in ipairs(index.sources) do
+    local module = source.module
+    if index.by_module[module] == source and #module > #tail and module:sub(-#tail) == tail then
+      found[#found + 1] = source
+    end
+  end
+  table.sort(found, function(a: Driver.Source, b: Driver.Source): boolean
+    return a.module < b.module
+  end)
+  return found
+end
+
 function Driver.standard(read: Driver.Reader, declared?: function(module: string): boolean): Driver.Provider
   return function(module: string): Driver.Source?
     local found = read(module)
@@ -581,9 +587,9 @@ local record Entry
   input: Declarations.Input
   mut lowered: boolean
   --- Whether it and everything it requires is lowered.
-  closed: boolean
-  checked: boolean
-  bodies: boolean
+  mut closed: boolean
+  mut checked: boolean
+  mut bodies: boolean
 end
 
 local function problem_of(kind: string, stage: string, code: string, msg: string, fix: string, y: integer, x: integer,
@@ -699,6 +705,40 @@ function Driver.new(options: Driver.Options): Driver.Build
       end
     end
     return nil
+  end
+
+  --- What a `require` that names no module may have meant, for the one at `offset` of `result`: "" where the name is a global
+  --- of the language (the checker's fix says to use it) or no module that the file may require ends in it, else
+  --- "; did you mean `b.m` (b/m.tl)?" or the candidates, "; did you mean one of `a.m` (a/m.tl), `b.m` (b/m.tl)?".
+  local function meant(result: Driver.Outcome, offset: integer): string
+    local tokens = result.chunk.tokens
+    local at = RemovedFix.token_at(tokens, offset)
+    if at == nil then
+      return ""
+    end
+    -- `require("m")`: the grammar refuses `require "m"` (string_call) before it is a require.
+    if tokens.kind[at + 2] ~= "string" then
+      return ""
+    end
+    local name = tokens.value[at + 2]
+    local ending = options.meant
+    local library = options.library
+    if name == nil or ending == nil or (library ~= nil and library[name] == true) then
+      return ""
+    end
+    local found = ending(name, result.source.filename)
+    if #found == 0 then
+      return ""
+    elseif #found == 1 then
+      return "; did you mean " .. found[1] .. "?"
+    end
+    -- A long list is a wall of text: the first few say what kind of name was meant.
+    local shown = 5
+    if #found <= shown then
+      return "; did you mean one of " .. table.concat(found, ", ") .. "?"
+    end
+    return "; did you mean one of " .. table.concat(found, ", ", 1, shown) .. " and " .. tostring(#found - shown) ..
+      " more?"
   end
 
   --- The entry for a source that has been read: scoped against the globals.
@@ -1010,8 +1050,13 @@ function Driver.new(options: Driver.Options): Driver.Build
         timing.check = timing.check + Clock.monotonic_ns() - started
         result.checked = checked
         for _, e in ipairs(checked.errors) do
-          table.insert(result.bodies, error_of(result, "checked", tostring(e.code), e.msg, e.fix, e.y, e.x, e.offset,
-            e.length, e.types, e.argument))
+          local code = tostring(e.code)
+          local msg = e.msg
+          if code == "require_unknown" then
+            msg = msg .. meant(result, e.offset)
+          end
+          table.insert(result.bodies, error_of(result, "checked", code, msg, e.fix, e.y, e.x, e.offset, e.length, e.types,
+            e.argument))
         end
         local exempt: {integer: boolean} = {}
         if source.tests then

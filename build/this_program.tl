@@ -12,7 +12,7 @@ local record this_program
   --- very program reads to run at all (caches, temporary directory, PATH,
   --- whether it may boot) and those that decide whether a `cosmic test`
   --- it runs sandboxes its workers.
-  runtime_environment: {string}
+  mut runtime_environment: {string}
 
   --- How to start this very program (`program`): the command line and
   --- the options to hand [`Child.run`] or [`Child.start`].

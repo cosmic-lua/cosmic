@@ -546,33 +546,19 @@ local function test_cache_fallbacks_follow_selected_output()
   assert(environment["ZIG_LOCAL_CACHE_DIR"] == "/selected/zig-cache")
 end
 
---- The open descriptors of this process, each with what it names.
-local function descriptors(): string
-  local out: mut {string} = {}
-  -- /dev/fd where there is no /proc (macOS, the BSDs).
-  local directory = "/proc/self/fd"
-  if Fs.is_dir(directory) ~= true then directory = "/dev/fd" end
-  for _, number in ipairs((assert(Fs.list(directory)))) do
-    local target, _ = Fs.readlink(directory .. "/" .. number)
-    out[#out + 1] = number .. "=" .. (target or "?")
-  end
-  table.sort(out)
-  return table.concat(out, "\n")
-end
-
 --- A raised error in the callback of [`Zig.with_lock`] must still let go of the lock: a descriptor left open holds the
 --- rebuild lock for the life of the process.
 local function test_with_lock_lets_go_when_the_callback_raises(tmp: string)
   local output = support.build_dir(tmp .. "/tree")
   assert(Zig.with_lock(output, {}, function(_env: {string:string}): integer return 0 end) == 0)
-  local before = descriptors()
+  local before = support.descriptors()
   local ok, trouble = pcall(Zig.with_lock, output, {}, function(_env: {string:string}): integer
     error("the callback raised")
   end)
   assert(not ok and tostring(trouble):find("the callback raised", 1, true) ~= nil, tostring(trouble))
-  assert(descriptors() == before, "a descriptor of the lock stayed open")
+  assert(support.descriptors() == before, "a descriptor of the lock stayed open")
   assert(Zig.with_lock(output, {}, function(_env: {string:string}): integer return 3 end) == 3)
-  assert(descriptors() == before, "the lock leaked on the normal path")
+  assert(support.descriptors() == before, "the lock leaked on the normal path")
 end
 
 --- [`Zig.run`] with a start that sends this process SIGTERM, which the run's guard catches, and then raises: the child

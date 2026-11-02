@@ -165,9 +165,9 @@ end
 --- @return near.Index
 function near.index(known: {near.Known}): near.Index
   local named: mut {string: integer} = {}
-  local named_in: mut {string: {string: integer}} = {}
+  local named_in: mut {string: mut {string: integer}} = {}
   local their_counts: mut {integer: integer} = {}
-  local using: mut {string: {integer}} = {}
+  local using: mut {string: mut {integer}} = {}
   local qualified: mut {integer: string} = {}
   local coded: mut {integer: string} = {}
   local comparable: mut {integer: boolean} = {}
@@ -177,11 +177,8 @@ function near.index(known: {near.Known}): near.Index
     if other.module ~= "cosmic.sys" then
       local taken = last_name(other.symbol)
       named[taken] = (named[taken] or 0) + 1
-      local within = named_in[other.module]
-      if within == nil then
-        within = {}
-        named_in[other.module] = within
-      end
+      local within = named_in[other.module] or {}
+      named_in[other.module] = within
       within[taken] = (within[taken] or 0) + 1
     end
     comparable[index] = (other.kind == "function" or other.kind == "method") and
@@ -190,11 +187,8 @@ function near.index(known: {near.Known}): near.Index
       local set, count = words(other.text)
       their_counts[index] = count
       for word in pairs(set) do
-        local list = using[word]
-        if list == nil then
-          list = {}
-          using[word] = list
-        end
+        local list = using[word] or {}
+        using[word] = list
         list[#list + 1] = index
       end
       qualified[index] = "%f[%w_.]" .. escaped(other.source_symbol:lower()) .. "%f[^%w_]"

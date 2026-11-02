@@ -35,8 +35,11 @@
 --- in place of the whole tree's check; the merge queue still runs that.
 ---
 --- In any project it also holds the links in comments and Markdown to resolving ([`build.links`]): each Teal and C file it
---- covers, and each Markdown and Zig file, which it never lays out. A plain code span that would link to one thing is made a
---- link ([`build.links`]'s `rewrite`), and `--check` fails on one it would link.
+--- covers, and each Markdown and Zig file, whose layout it never changes. A plain code span that would link to one thing
+--- is made a link ([`build.links`]'s `rewrite`), and a Markdown file's definitions are rewritten to match; `--check` is
+--- the dry run, and fails on one it would link. A path the tree's own `.gitignore` files ignore ([`build.fix.ignored`]),
+--- and anything under a `node_modules/`, is not covered, and no link names it; where git cannot say (no git, no
+--- repository) only `node_modules/` is.
 
 local build_paths = require("build.paths")
 local Cli = require("cosmic.cli")
@@ -59,6 +62,7 @@ local link_files = require("build.link_files")
 local link_resolve = require("build.link_resolve")
 local links = require("build.links")
 local near = require("build.fix.near")
+local ignored = require("build.fix.ignored")
 local Ast = require("lang.ast")
 local SyntaxAnalyzer = require("build.syntax_analyzer")
 local SyntaxLinks = require("build.syntax_links")
@@ -280,10 +284,11 @@ local function checked_sources(root: string): {string}?, string
     return nil, trouble
   end
   local out: mut {string} = {}
+  local left_alone = ignored.of(root)
   for _, file in ipairs(files) do
     local core_teal = file:sub(1, 5) == "core/" and
       (String.ends_with(file, ".tl") or String.ends_with(file, ".lua"))
-    if check_only(file) or core_teal then out[#out + 1] = file end
+    if (check_only(file) or core_teal) and not left_alone(file) then out[#out + 1] = file end
   end
   return out, ""
 end
@@ -363,6 +368,37 @@ local function workflow_sources(dir: string, root: string): {string}?, string
   return out, ""
 end
 
+--- The tree of its own inside cosmic's ([`identity.is_foreign_tree`], `ci/`) that the absolute path `real` is, or is below, from
+--- `root`'s: nil for any other path.
+local function foreign_tree_in(root: string, real: string): string?
+  local top, _ = Fs.absolute(root)
+  if top == nil then return nil end
+  local relative, _ = Fs.relative(real, top)
+  if relative == nil then return nil end
+  local first = relative:match("^([^/]+)") or relative
+  if first ~= ".." and identity.is_foreign_tree(first) then return first end
+  return nil
+end
+
+--- Why the tree's run refuses a path in the tree of its own `foreign`.
+local function foreign_refusal(foreign: string): string
+  return "in " .. foreign .. "/, a project of its own whose modules are named from its own root, which the tree's run " ..
+    "does not check: run `cosmic fix --check` with " .. foreign .. "/ as the working directory"
+end
+
+--- The refusal of each of `paths` that is in a tree of its own inside cosmic's own tree at `root` ([`identity.is_foreign_tree`]),
+--- which the tree's run does not check.
+function fix.foreign_paths(root: string, paths: {string}): {string}
+  local out: mut {string} = {}
+  for _, path in ipairs(paths) do
+    local absolute, _ = Fs.absolute(path)
+    local foreign: string? = nil
+    if absolute ~= nil then foreign = foreign_tree_in(root, absolute) end
+    if foreign ~= nil then out[#out + 1] = path .. ": " .. foreign_refusal(foreign) end
+  end
+  return out
+end
+
 --- The files one invocation covers: whatever paths were named, or the
 --- whole tree when none were.
 ---
@@ -434,6 +470,8 @@ function fix.chosen(root: string, paths: {string}, standing: tree.Standing): fix
     elseif static_root ~= nil and real ~= nil and
         (real == static_root or real:sub(1, #static_root + 1) == static_root .. "/") then
       refused[#refused + 1] = path .. ": under static/, which is carried verbatim, not laid out"
+    elseif own and real ~= nil and foreign_tree_in(root, real) ~= nil then
+      refused[#refused + 1] = path .. ": " .. foreign_refusal(assert(foreign_tree_in(root, real)))
     elseif what.kind == "dir" then
       local under, trouble = sources(path)
       if under == nil then
@@ -728,7 +766,23 @@ end
 function fix.links(context: link_resolve.Context, files: {string}, mode?: string,
                    facts?: {string: links.Facts}): fix.Linked
   local known: {string: links.Facts} = facts or {}
-  local resolver = link_resolve.resolver(context)
+  -- A path the tree ignores is no link's target. Only this layer asks: `context` is the build's, and a copy answers.
+  local left_alone = ignored.of(context.root)
+  local guarded: link_resolve.Context = {
+    root = context.root,
+    kind = function(path: string): string?
+      if path:sub(1, #context.root + 1) == context.root .. "/" and left_alone(path:sub(#context.root + 2)) then
+        return nil
+      end
+      return context.kind(path)
+    end,
+    read = context.read,
+    symbols = context.symbols,
+    member = context.member,
+    real = context.real,
+    unbuilt = context.unbuilt,
+  }
+  local resolver = link_resolve.resolver(guarded)
   local out: mut {string} = {}
   local would: mut {string} = {}
   local redefined: mut {string} = {}
@@ -1035,6 +1089,14 @@ local function choose_files(ctx: Fix): integer?
       log:complain("fix: --changed covers only cosmic's own tree, whose checks span files")
       return 2
     end
+    -- A path in a tree of its own is not the tree's to check, as a named path is refused in [`fix.chosen`].
+    if standing.own then
+      local refusals = fix.foreign_paths(root, paths)
+      if #refusals > 0 then
+        for _, why in ipairs(refusals) do log:complain(why) end
+        return 1
+      end
+    end
     picked = fix.narrowed(root, picked, paths, Store.databases())
     local widened = picked.widened
     if widened ~= nil then
@@ -1046,6 +1108,10 @@ local function choose_files(ctx: Fix): integer?
     end
   end
   ctx.picked = picked
+  if picked.whole then
+    log:say("fix: ci/ is a project of its own and is not checked here: run `cosmic fix --check` with ci/ as the working " ..
+        "directory (CI's format phase does)")
+  end
   -- What the checks spanning files cover: a run of `--changed` lays out
   -- only some of it.
   local every = picked.every
@@ -1462,6 +1528,9 @@ local function run_tree_checks(ctx: Fix)
       end
       for _, line in ipairs(tree_checks.test_returns(root)) do
         findings[#findings + 1] = "early returns: " .. line
+      end
+      for _, line in ipairs(tree_checks.test_clones(root)) do
+        findings[#findings + 1] = "copied helpers: " .. line
       end
       -- The ceilings only fall: the file is held to its merge base with main.
       local held = CeilingsBase.check(root, Env.all(), CeilingsBase.live_git())

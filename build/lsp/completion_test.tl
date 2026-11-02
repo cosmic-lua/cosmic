@@ -401,6 +401,62 @@ local function test_a_call_typed_since_the_last_parse_is_typed_with_the_type_arg
   assert(offered(base, base:sub(1, -13) .. 'local _ = first(many).|\n', { "x", "y", "origin" }) == "x,y")
 end
 
+local function test_a_name_is_narrowed_at_the_cursor_where_another_statement_does_not_parse()
+  -- A statement that is broken elsewhere (an unclosed call above, a `local` with no value below, a stray `)`) is left out of
+  -- the text the checker reads, so the cursor's statement has the checker's narrowing.
+  local typed = NARROW:gsub("local _ = 1", "local _ = x.|", 1)
+  assert(offered(NARROW, typed:gsub("^", "print(\n"), { "meow", "bark" }) == "meow")
+  assert(offered(NARROW, typed:gsub("return a", "local z =\nreturn a"), { "meow", "bark" }) == "meow")
+  local dog = NARROW:gsub("x is Cat", "x is Dog", 1):gsub("local _ = 1", "local _ = x.|", 1)
+  assert(offered(NARROW, dog:gsub("return a", "local z = )\nreturn a"), { "meow", "bark" }) == "bark")
+  assert(offered(NARROW, dog:gsub("^", "print(\n"), { "meow", "bark" }) == "bark")
+end
+
+local function test_a_generic_call_is_typed_where_another_statement_does_not_parse()
+  local base = POINT .. 'local function first<T>(list: {T}): T\n  return list[1]\nend\nlocal many: {Point} = { p }\nlocal _ = 1\n'
+  local head = POINT .. 'local function first<T>(list: {T}): T\n  return list[1]\nend\nlocal many: {Point} = { p }\n'
+  assert(offered(base, head .. 'local _ = first(many).|\nlocal z = )\n', { "x", "y", "origin" }) == "x,y")
+  assert(offered(base, head .. 'print(\nfirst(many).|\n', { "x", "y", "origin" }) == "x,y")
+end
+
+local function test_a_name_declared_since_is_offered_where_another_statement_does_not_parse()
+  local base = POINT .. 'local _ = 1\n'
+  assert(offered(base, POINT .. 'local fresh = 2\nlocal _ = fre|\nlocal z = )\n', { "fresh", "p" }) == "fresh")
+  assert(offered(base, POINT .. 'local q: Point = Point.origin()\nlocal _ = q.|\nlocal z = )\n', { "x", "y" }) == "x,y")
+end
+
+local SHADOW <const> = 'local record Foo\n  foo: integer\nend\nlocal record Bar\n  bar: integer\nend\n' ..
+  'local function make(): Foo\n  return { foo = 1 }\nend\nlocal x: Bar = { bar = 1 }\nlocal _ = x\n'
+local SHADOW_HEAD <const> = SHADOW:sub(1, -13)
+
+local function test_a_broken_declaration_does_not_let_the_name_be_read_as_an_outer_binding()
+  local function seen(typed: string): string
+    return offered(SHADOW, SHADOW_HEAD .. typed, { "foo", "bar" })
+  end
+  -- Annotated: the declared type stands; unannotated: nothing is known, and never the outer binding's.
+  assert(seen('local x: Foo = make(\nlocal _ = x.|\n') == "foo")
+  assert(seen('local x: Foo =\nlocal _ = x.|\n') == "foo")
+  assert(seen('do\n  local x: Foo = make(\nend\nlocal _ = x.|\n') == "bar")
+  assert(seen('do\n  local x: Foo = make(\n  local _ = x.|\nend\n') == "foo")
+  assert(seen('local x = (\nlocal _ = x.|\n') == "")
+  assert(seen('local x = (\nlocal _ = x.|\nlocal y = )\n') == "")
+  -- A broken declaration of a function or a type is not left out, so the name is not read as an outer one.
+  assert(seen('local function x(\nlocal _ = x.|\n') == "")
+end
+
+local function test_an_enum_value_is_offered_the_members_of_string()
+  local base = 'local enum Color\n  "red"\n  "blue"\nend\nlocal c: Color = "red"\nlocal _ = c\n'
+  local typed = 'local enum Color\n  "red"\n  "blue"\nend\nlocal c: Color = "red"\nlocal _ = c:|\n'
+  assert(offered(base, typed, { "upper", "sub", "nope" }) == "upper,sub")
+end
+
+local function test_a_string_is_offered_the_members_of_string_as_a_receiver()
+  local base = 'local s = "x"\nlocal _ = s\n'
+  assert(offered(base, 'local s = "x"\nlocal _ = ("x"):|\n', { "len", "sub", "nope" }) == "len,sub")
+  assert(offered(base, 'local s = "x"\nlocal _ = s:|\n', { "len", "sub", "nope" }) == "len,sub")
+  assert(offered(base, 'local s = "x"\n("x"):|\n', { "len", "sub", "nope" }) == "len,sub")
+end
+
 local function test_a_name_declared_since_the_last_parse_is_offered_and_typed()
   local base = POINT .. 'local _ = 1\n'
   assert(offered(base, POINT .. 'local q: Point = Point.origin()\nlocal _ = q.|\n', { "x", "y" }) == "x,y")
@@ -1109,11 +1165,44 @@ local function test_a_function_is_inserted_as_a_call_where_the_editor_takes_snip
   local called = assert(items(ran, 3)["shifted"])
   assert(called.insertTextFormat == nil and called.textEdit.newText == "shifted")
   local area = assert(items(ran, 4)["area"])
-  assert(area.insertTextFormat == 2 and area.textEdit.newText == "area(${1:arg1}, ${2:arg2})", area.textEdit.newText)
+  assert(area.insertTextFormat == 2 and area.textEdit.newText == "area(${1:width}, ${2:height})", area.textEdit.newText)
   -- Without the editor's word, the name alone.
   local plain = served(root, { initialize(root), open(root, "main.tl", text),
     change(root, "main.tl", (text:gsub("local _ = point\n$", "local _ = ar\n"))), ask(2, root, "main.tl", 4, 12) })
   assert(assert(items(plain, 2)["area"]).textEdit.newText == "area")
+end
+
+local function test_a_local_function_is_inserted_with_the_names_it_writes_not_those_of_a_function_of_its_type()
+  local root = session_fixture.project()
+  -- Both have the one function type, which the checker shares: each call is named by its own function.
+  local text = 'local function area(width: integer, height: integer): integer\n  return width\nend\n' ..
+    'local function plain(first: integer, ...: string): integer\n  return first\nend\n' ..
+    'local function shape(w: integer, h: integer): integer\n  return w\nend\nlocal _ = 1\n'
+  local ran = served(root, { initialize(root, SNIPPETS), open(root, "main.tl", text),
+    change(root, "main.tl", (text:gsub("local _ = 1\n$", "local _ = s\n"))), ask(2, root, "main.tl", 9, 11),
+    change(root, "main.tl", (text:gsub("local _ = 1\n$", "local _ = a\n"))), ask(3, root, "main.tl", 9, 11),
+    change(root, "main.tl", (text:gsub("local _ = 1\n$", "local _ = p\n"))), ask(4, root, "main.tl", 9, 11),
+  })
+  assert(assert(items(ran, 2)["shape"], ran.err).textEdit.newText == "shape(${1:w}, ${2:h})")
+  assert(assert(items(ran, 3)["area"]).textEdit.newText == "area(${1:width}, ${2:height})")
+  assert(assert(items(ran, 4)["plain"]).textEdit.newText == "plain(${1:first})")
+end
+
+local function test_a_local_function_of_a_name_declared_twice_or_nested_is_named_by_the_one_in_scope()
+  local root = session_fixture.project()
+  local twice = 'local function f(first: integer): integer\n  return first\nend\n' ..
+    'local function f(later: integer): integer\n  return later\nend\n'
+  local nested = 'local function f(outer: integer): integer\n  local function f(zz: integer): integer\n    return zz\n  end\n' ..
+    '  local _ = 1\n  return outer\nend\n'
+  local inside = nested:gsub("local _ = 1", "local _ = f")
+  local ran = served(root, { initialize(root, SNIPPETS), open(root, "main.tl", twice .. "local _ = 1\n"),
+    change(root, "main.tl", twice .. "local _ = f\n"), ask(2, root, "main.tl", 6, 11),
+    change(root, "main.tl", inside .. "local _ = 1\n"), ask(3, root, "main.tl", 4, 13),
+    change(root, "main.tl", nested .. "local _ = f\n"), ask(4, root, "main.tl", 7, 11),
+  })
+  assert(assert(items(ran, 2)["f"], ran.err).textEdit.newText == "f(${1:later})")
+  assert(assert(items(ran, 3)["f"], ran.err).textEdit.newText == "f(${1:zz})")
+  assert(assert(items(ran, 4)["f"], ran.err).textEdit.newText == "f(${1:outer})")
 end
 
 local function test_a_method_is_inserted_as_a_call_without_its_self()

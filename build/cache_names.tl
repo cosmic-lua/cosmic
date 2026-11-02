@@ -10,7 +10,7 @@
 
 local record cache_names
   --- Each name a declaration may give, to what it covers.
-  names: {string:string}
+  mut names: {string:string}
 end
 
 --- The variables that say where each cache is, which a process that

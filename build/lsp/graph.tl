@@ -85,14 +85,11 @@ end
 --- Every module that reaches `target` through `edges`: `target` too
 --- where it reaches itself.
 local function reaching(edges: {string:{string}}, target: string): {string:boolean}
-  local into: mut {string:{string}} = {}
+  local into: mut {string:mut {string}} = {}
   for from, names in pairs(edges) do
     for _, name in ipairs(names) do
-      local list = into[name]
-      if list == nil then
-        list = {}
-        into[name] = list
-      end
+      local list = into[name] or {}
+      into[name] = list
       list[#list + 1] = from
     end
   end
@@ -159,6 +156,29 @@ function graph.dependents(src: source.View, file: string, opened: {string:{strin
     if reaches then out[#out + 1] = other end
   end
   table.sort(out)
+  return out
+end
+
+--- What a `require` of `name` in the document `file` that names no module may have meant, as "`b.m` (b/m.tl)" each: the modules
+--- the stage lists that end in `.name` and that `file` may require, by the rules a build holds a `require` to ([`positions.permits`]).
+function graph.meant(src: source.View, file: string, name: string): {string}
+  local modules = listed(src)
+  local mine = src.files[file]
+  local kind = "module"
+  if mine ~= nil then
+    kind = mine.kind
+  end
+  local standing = source.standing(src)
+  local tail = "." .. name
+  local found: mut {Module} = {}
+  for _, m in ipairs(modules) do
+    if m.file ~= file and #m.path > #tail and m.path:sub(-#tail) == tail and positions.permits(modules, file, kind, m.path, standing, carried) then
+      found[#found + 1] = m
+    end
+  end
+  table.sort(found, function(a: Module, b: Module): boolean return a.path < b.path end)
+  local out: mut {string} = {}
+  for _, m in ipairs(found) do out[#out + 1] = "`" .. m.path .. "` (" .. m.file .. ")" end
   return out
 end
 

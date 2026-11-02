@@ -22,7 +22,7 @@ local record verb_list
   end
 
   --- Each verb, in help's order.
-  entries: {Entry}
+  mut entries: {Entry}
 end
 
 verb_list.entries = {

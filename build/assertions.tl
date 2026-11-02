@@ -23,7 +23,7 @@ local record assertions
   --- counting one must answer exactly as. Typed `any` because it answers
   --- every argument it is given, which no exported function here may;
   --- callers cast it.
-  lua_assert: any
+  mut lua_assert: any
 
   --- Replaces the global `assert` with the counting one, for the life of
   --- the process. Install it before a test's module loads, so a module that
@@ -31,10 +31,10 @@ local record assertions
   install: function()
 
   --- Calls to `assert` since [`reset`].
-  count: function(): integer
+  mut count: function(): integer
 
   --- Starts the count again from 0.
-  reset: function()
+  mut reset: function()
 end
 
 local state <const> = { installed = false }

@@ -17,7 +17,7 @@ local function ended(report: worker.Report): Child.Result
 end
 
 --- A passing report whose worker loaded `modules`.
-local function passing(modules: {string}): worker.Report
+local function passing(modules: mut {string}): worker.Report
   return { loaded = true, passed = true, message = "", elapsed_ns = 1,
     load_hits = {}, test_hits = {}, modules = modules }
 end
@@ -61,7 +61,7 @@ local function test_a_worker_that_ran_an_unkeyed_module_fails_its_test()
   local carried = { ["build.docs"] = true, ["build.lib"] = true, ["build.test_worker"] = true,
     ["cosmic.removed"] = true }
   local closure = { ["build.lib"] = true, ["build.lib_test"] = true }
-  local function judged(modules: {string}, held?: boolean): worker.Judgement
+  local function judged(modules: mut {string}, held?: boolean): worker.Judgement
     return worker.judge({ result = ended(passing(modules)), trouble = "", timeout_ns = Clock.seconds(1),
       sandboxed = true, carried = held ~= false and carried or nil,
       closure = held ~= false and closure or nil })

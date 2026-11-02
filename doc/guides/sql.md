@@ -4,6 +4,10 @@ Every SQLite handle cosmic opens, through [`cosmic.sqlite`] or [`cosmic.store`],
 answers the SQL functions, table-valued functions, virtual tables and
 collations listed here, with no extension to load, and no others.
 
+To try one from the shell, `cosmic sql --db <file> '<statement>'` runs a
+read-only statement against a database file; no `sqlite3` binary or
+other language is needed.
+
 Each entry starts with the name in backticks. An entry for SQLite's own
 functions is short and links to SQLite's page for the rest. An entry for
 what cosmic adds says what a caller needs.
@@ -315,6 +319,37 @@ within another.
   file's record, and a file that cannot be read fail the query, naming
   the line or record where the reader knows it; with `header=yes`, lines
   count from the one after the header.
+
+## prepared statements
+
+`db:prepare(sql)` returns a `Statement` to bind, step and run again.
+`statement:reset()` rewinds it and clears every binding, so a column bound
+once before a loop is NULL on the second row and fails a `NOT NULL`
+constraint. `statement:rewind()` rewinds it and keeps the bindings: bind
+the fixed columns once, then rebind only the changing column and rewind
+per row. Both return `true, ""`, or `false` and the previous step's
+failure.
+
+```teal
+local Sqlite = require("cosmic.sqlite")
+
+local db = assert(Sqlite.memory())
+assert(db:exec("CREATE TABLE t (owner TEXT NOT NULL, n INTEGER NOT NULL)"))
+local insert = assert(db:prepare("INSERT INTO t (owner, n) VALUES (?1, ?2)"))
+assert(insert:bind_text(1, "me"))
+for n = 1, 3 do
+  assert(insert:bind_integer(2, n))
+  assert(insert:step() == "done")
+  assert(insert:rewind())
+end
+insert:finalize()
+local rows = assert(Sqlite.text_rows(db, "SELECT count(*), sum(n) FROM t"))
+print(table.concat(assert(rows[1]):texts(), " "))
+```
+
+```output
+3 6
+```
 
 ## bound lists
 

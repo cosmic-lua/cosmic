@@ -38,7 +38,7 @@ local record Stub
   --- as for a module that returns no name whose declaration spells its type: what is kept of a statement is the same
   --- either way, which `cosmic lsp` reads the top-level calls of ([`build.lsp.check`]). The stub made is never `pruned`
   --- then.
-  made: function(chunk: Ast.Chunk, every?: boolean): Made
+  mut made: function(chunk: Ast.Chunk, every?: boolean): Made
 
   --- Where the types `module` has in `source`, a program that read its source, and in `stubbed`, a program that read its stub
   --- instead, differ: nil when the stub types the module as its source does, and otherwise a line that names the first

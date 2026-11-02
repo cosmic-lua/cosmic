@@ -97,7 +97,7 @@ end
 local record generator
   Target: Target
   Derivation: Derivation
-  targets: {Derivation}
+  mut targets: {Derivation}
   Parameter: Parameter
   Result: Result
   Call: Call
@@ -166,7 +166,7 @@ local function annotation_lines(comment: string, first: integer): {string}, {int
 end
 
 --- `lines` without the blank lines at either end.
-local function trimmed(lines: {string}): {string}
+local function trimmed(lines: mut {string}): {string}
   local first, last = 1, #lines
   while first <= last and lines[first] == "" do
     first = first + 1

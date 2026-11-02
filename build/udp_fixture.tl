@@ -15,8 +15,17 @@ local record udp_fixture
     address: raw_socket.Address
     socket: raw_socket.Socket
     fd: integer
-    open: boolean
+    mut open: boolean
     __close: function(Bound)
+  end
+
+  --- What a DNS query asks, as [`udp_fixture.question`] reads it.
+  record Asked
+    --- The name, its labels joined by dots.
+    name: string
+    qtype: integer
+    --- Where the question ends in the query: the byte before the next section.
+    after: integer
   end
 end
 
@@ -74,6 +83,23 @@ function udp_fixture.receive(bound: udp_fixture.Bound, timeout_ns?: integer): ra
     local ready, waiting = Poll.readable(bound.fd, timeout_ns)
     if not ready then return nil, waiting end
   end
+end
+
+--- The question of a DNS `query`: its name, its type and where it ends.
+--- @param query the bytes of a query of one question
+--- @return what it asks
+function udp_fixture.question(query: string): udp_fixture.Asked
+  local labels: mut {string} = {}
+  local at = 13
+  while true do
+    local size = query:byte(at)
+    assert(size ~= nil, "a malformed query")
+    if size == 0 then break end
+    labels[#labels + 1] = query:sub(at + 1, at + size)
+    at = at + size + 1
+  end
+  local qtype = string.unpack(">I2", query, at + 1)
+  return { name = table.concat(labels, "."), qtype = qtype, after = at + 4 }
 end
 
 return udp_fixture

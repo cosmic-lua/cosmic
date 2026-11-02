@@ -59,10 +59,10 @@ local record Pipeline
   type Mode = GrammarMode.Mode
 
   --- The mode `COSMIC_GRAMMAR` asks for ([`GrammarMode.mode`]).
-  mode: function(): Mode?, string
+  mut mode: function(): Mode?, string
 
   --- The tool string a compile in `mode` is keyed by ([`GrammarMode.tool`]).
-  tool: function(tool: string, mode: Mode, wraps?: boolean): string
+  mut tool: function(tool: string, mode: Mode, wraps?: boolean): string
 
   --- What a pipeline is made of besides the tree.
   record Options
@@ -321,12 +321,11 @@ end
 
 function Pipeline.over(entries: {{string}}, kinds: {string: string}, options: Pipeline.Options, stubs?: {string: string}):
     Pipeline.Built
-  -- The binary answers a `require` of a module of the language, which no tail of a project file's name may stand for.
-  local index = TreeProgram.index(entries, kinds,
-    if options.project == true then TreeProgram.library_modules(options.globals) else nil end)
+  local index = TreeProgram.index(entries, kinds)
   local standard = options.standard or Pipeline.carried()
   return {
-    build = TreeProgram.build(index, options.globals, options.types, nil, standard), ceilings = options.ceilings, index = index,
+    build = TreeProgram.build(index, options.globals, options.types, nil, standard,
+      TreeProgram.meant(index, options.project ~= true)), ceilings = options.ceilings, index = index,
     globals = options.globals, standard = standard, types = options.types, given = stubs or {}, stubs = nil, stubbed = nil,
     project = options.project,
   }
@@ -536,8 +535,6 @@ function Pipeline.derive(db: Sqlite.Handle, own: boolean, fresh: {Derivation.Fre
   if entries == nil then
     return false, trouble
   end
-  -- No `unaliased` here, as [`Pipeline.over`] gives its index: this index only finds each source by the name of its file, which
-  -- no alias changes, and the build that checks the tree has refused a file named for a module of the language already.
   local index = TreeProgram.index(entries, kinds)
   -- A source is found by the name of its file in the database, which for a declaration written from a header is the header's.
   local by_file: mut {string: Driver.Source} = {}
@@ -641,7 +638,8 @@ local function stub_trouble(m: Module, built: Pipeline.Built, result: Driver.Out
       "name whose last top-level declaration spells its type (`local record M ... end`, " ..
       "a local function, or `local m: M = ...`) (build/stub.tl)"
   end
-  local stubbed = built.stubbed or TreeProgram.build(built.index, built.globals, false, stubs_of(built), built.standard)
+  local stubbed = built.stubbed or TreeProgram.build(built.index, built.globals, false, stubs_of(built), built.standard,
+    TreeProgram.meant(built.index, built.project ~= true))
   built.stubbed = stubbed
   stubbed:lower({ m.path })
   local why = stub_verdict(made, built.build, result, stubbed)

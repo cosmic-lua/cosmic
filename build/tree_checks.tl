@@ -44,6 +44,7 @@ local GrammarMode = require("build.grammar_mode")
 local Pipeline = require("build.pipeline")
 local link_text = require("build.link_text")
 local host_names = require("build.host_names")
+local identity = require("build.identity")
 local importer = require("build.importer")
 local Ast = require("lang.ast")
 local Check = require("lang.check")
@@ -59,6 +60,7 @@ local PluralSites = require("build.plural_sites")
 local ShapeKey = require("build.shape_key")
 local Scopes = require("lang.scopes")
 local SyntaxNode = require("build.syntax_node")
+local TestClones = require("build.test_clones")
 local TestReturns = require("build.test_returns")
 local ScopesCover = require("lang.scopes_cover")
 local Warnings = require("lang.warnings")
@@ -97,9 +99,12 @@ local allowed: mut {string: string} = {}
 allowed["build.dataset.read"] = "the reader load_text composes and falls back on, tested directly " ..
   "over each format's text, and with load the reference load_text's fuzz property is held to"
 
+allowed["cosmic.hash.file"] = "the raw-digest form of hex_file, which is its only caller outside tests"
+
 allowed["build.searchable.share"] = "opens one file or directory to every user for the tests of a policy's child; build/child_policy_fixture.tl imports the module for `open`, so the tests' own uses no longer earn `share`"
 
 allowed["build.shared_verdicts.rows_kept"] = "the bound a file of a checked run's verdicts keeps, which the file's name decides; the settle of the same module applies it, and a test holds the names to it"
+allowed["build.test_key.requirements"] = "the names a module requires of its host, `loopback` derived from its declared addresses, which `ask_host` asks and a test holds to the derivation"
 allowed["build.test_key.met_nothing"] = "whether a checked run's report holds a violation, which `judge` asks and a test holds to the report's two clauses (a row, and rows that went unrecorded)"
 allowed["build.memprobe.enabled"] = "the switch `COSMIC_MEMPROBE` sets for a run, which a test turns on to read the line a mark writes"
 
@@ -261,8 +266,8 @@ for _, name in ipairs({ "key", "open", "close", "look", "settle", "analyzers", "
 end
 allowed["build.importer.analyzer_modules"] = "tested directly: the test holds the " ..
   "list to every module the analysis requires"
-allowed["build.lsp.protocol.frames_of"] = "tested directly: the test hands it a " ..
-  "stream that answers a byte a read, so a message arrives split at every place it can be"
+allowed["build.lsp.reentry"] = "tested directly: the test hands it checks that answer stale " ..
+  "or fresh, since a real exec into a rebuilt tool replaces the test's own process"
 allowed["build.importer.tree_code"] = "tested directly: the test holds what a " ..
   "boot names its analyzer by to what the tool it writes names it by, around a " ..
   "derive run as a boot runs it, which no binary under the suite otherwise does"
@@ -1087,13 +1092,10 @@ function tree_checks.requirements(build: Sqlite.Handle): {string:{string}}?, str
     "SELECT i.path, t.value FROM test_inputs t JOIN inputs i ON i.source_hash = t.source_hash " ..
       "WHERE t.field = 'requires' ORDER BY i.path, t.ordinal")
   if rows == nil then return nil, "reading the declared requirements: " .. trouble end
-  local out: mut {string:{string}} = {}
+  local out: mut {string:mut {string}} = {}
   for _, row in ipairs(rows) do
-    local names = out[row:text(1)]
-    if names == nil then
-      names = {}
-      out[row:text(1)] = names
-    end
+    local names = out[row:text(1)] or {}
+    out[row:text(1)] = names
     local second = row:text(2)
     names[#names + 1] = second
   end
@@ -1510,7 +1512,7 @@ function tree_checks.verbs(db: Sqlite.Handle, quickstart: string?): {string}
     expected[entry_module] = expected[entry_module] or {}
     table.insert(expected[entry_module], field)
   end
-  local found_fields: mut {string:{string:boolean}} = {}
+  local found_fields: mut {string:mut {string:boolean}} = {}
 
   for _, row in ipairs(modules) do
     if row:text(2) ~= "test" then
@@ -1990,13 +1992,14 @@ function tree_checks.ci_testdata(root: string): {string}
 end
 
 --- Every `.tl` file under `root` as `{file, source}` pairs, read from disk: the modules and tests, the declaration files
---- of a tree and `ci/`'s. The projection is not read, as it holds no declaration file. `vendor/`, the hidden directories,
---- `o/` (never read) and `ci/o` hold none the tree owns. The declarations of the globals ([`lang/prelude.d.tl`],
+--- of a tree. The projection is not read, as it holds no declaration file. `vendor/`, the hidden directories,
+--- `o/` (never read) and `ci/` hold none the tree owns: `ci/` is a project of its own, whose modules are named from its own
+--- root and checked there (`cosmic fix --check` run in `ci/`, which build/ci_check_test.tl runs). The declarations of the globals ([`lang/prelude.d.tl`],
 --- [`lang/stdlib.d.tl`]) are left out: they are the globals of every build ([`build.tree_program`]), no module of it.
 local function sources_of(root: string): {{string}}?, string
   local listed, trouble = Fs.walk(root, function(relative: string, name: string, kind: Fs.Kind): boolean
     return kind == "dir" and (name:sub(1, 1) == "." or relative == "vendor" or relative == "o" or
-      relative == "ci/o")
+      identity.is_foreign_tree(relative))
   end)
   if listed == nil then
     return nil, trouble
@@ -2212,7 +2215,7 @@ local record DeclareFile
   module: string
   dialect: Ast.Dialect
   imports: {string}
-  key: string
+  mut key: string
 end
 
 --- The modules a source requires by a literal name, as `require("m")` or `pcall(require, "m")`: the parser's own
@@ -2238,8 +2241,7 @@ end
 --- other projects.
 local record Tree
   rows: {DeclareFile}
-  --- Each file by its module, and by the name of its path below each directory: a project inside the tree (`ci/`, a
-  --- fixture directory) names its modules from its own root.
+  --- Each file by its module, the name of its whole path ([`Driver.index`]): `ci/`, a project of its own, is no part of the tree.
   by_module: {string: DeclareFile}
   --- The same files as the sources a build is given ([`build.driver`]).
   index: Driver.Index
@@ -2366,12 +2368,12 @@ end
 --- the calls of [`Shape.record_of`] of each module are resolved before it is lowered, as the pipeline resolves them.
 local function streamed(build: Driver.Build, tree: Tree, rows: {DeclareFile}, bodies: boolean, spliced: boolean,
                         seen: function(row: DeclareFile, result: Driver.Outcome?))
-  local rows_of: mut {string: {DeclareFile}} = {}
+  local rows_of: mut {string: mut {DeclareFile}} = {}
   local names: mut {string} = {}
   for _, row in ipairs(rows) do
-    local list = rows_of[row.module]
-    if list == nil then
-      list = {}
+    local held = rows_of[row.module]
+    local list = held or {}
+    if held == nil then
       rows_of[row.module] = list
       names[#names + 1] = row.module
     end
@@ -2702,26 +2704,15 @@ function tree_checks.text_loaders(root: string, files?: {string: string}): {stri
   return out
 end
 
---- The trees whose tests may still return early, by path prefix, and why. A prefix that no test under it returns early
---- from any more is told to go.
--- TODO: once cosmic-lua/cosmic#3498 merges and core/'s [`unix_socket.skipped`] callers use `skip_if_refused`, drop this
--- prefix.
-local early_returns: {string: string} = {
-  ["core/"] = "cosmic-lua/cosmic#3498 converts its tests, and its unix_socket.skipped callers follow",
-}
-
 --- Each early return of a test in a `*_test.tl` file of the tree under `root` ([`TestReturns`]), as `<file>:<line>:
---- <test> returns early ...`, and then each prefix of `pending` (by default `early_returns`) that nothing under it needs
---- any more. A test that cannot check its subject here declares `requires` or calls `Test.skip(reason)` (doc/testing.md,
---- "skipping"); a `return` passes having checked nothing.
-function tree_checks.test_returns(root: string, pending?: {string: string}): {string}
+--- <test> returns early ...`. A test that cannot check its subject here declares `requires` or calls `Test.skip(reason)`
+--- (doc/testing.md, "skipping"); a `return` passes having checked nothing.
+function tree_checks.test_returns(root: string): {string}
   local sources, trouble = sources_of(root)
   if sources == nil then
     return { "reading the sources: " .. trouble }
   end
-  local excused = pending or early_returns
   local out: mut {string} = {}
-  local used: mut {string: boolean} = {}
   for _, entry in ipairs(sources) do
     local file, text = entry[1], entry[2]
     if file ~= nil and text ~= nil and file:match("_test%.tl$") ~= nil and text:find("return", 1, true) ~= nil then
@@ -2730,30 +2721,150 @@ function tree_checks.test_returns(root: string, pending?: {string: string}): {st
         out[#out + 1] = file .. ": cannot read it to check its early returns: " .. parse_trouble
       else
         for _, site in ipairs(TestReturns.of_chunk(chunk)) do
-          local covered: string? = nil
-          for prefix in pairs(excused) do
-            if file:sub(1, #prefix) == prefix then covered = prefix end
-          end
-          if covered ~= nil then
-            used[covered] = true
-          else
-            out[#out + 1] = file .. ":" .. tostring(site[1]) .. ": " .. tostring(site[2]) .. " returns early (`" ..
-              tostring(site[3]) .. "`), which passes having checked nothing: declare `requires`, or call " ..
-              "`Test.skip(reason)` (doc/testing.md, \"skipping\"), after which nothing runs"
-          end
+          out[#out + 1] = file .. ":" .. tostring(site[1]) .. ": " .. tostring(site[2]) .. " returns early (`" ..
+            tostring(site[3]) .. "`), which passes having checked nothing: declare `requires`, or call " ..
+            "`Test.skip(reason)` (doc/testing.md, \"skipping\"), after which nothing runs"
         end
       end
     end
   end
-  local stale: mut {string} = {}
-  for prefix in pairs(excused) do
-    if used[prefix] ~= true then
-      stale[#stale + 1] = prefix .. ": excused from the early-return check, but no test there returns early any " ..
-        "more -- remove the exemption"
+  return out
+end
+
+-- TODO: once the helpers copied between files below `CLONE_TOKENS` are moved into shared fixtures, lower it to 30.
+
+--- The fewest tokens a helper has for [`test_clones`] to compare it. Copies ran from about 30 tokens to a screen: below
+--- about 30 a wrapper that two files write alike is no copy of the other, and 70 is the lowest where the copies the tree
+--- held were few enough for one change to move (a process runner, a project writer).
+local CLONE_TOKENS = 70
+
+--- A helper [`test_clones`] has read: where it is.
+local record CloneSite
+  file: string
+  line: integer
+  name: string
+end
+
+--- Each top-level `local function` that is no test, of a `*_test.tl` or `*_fixture.tl` file under `root`, written
+--- token for token as one in another such file ([`TestClones`]), as `<file>:<line>: <name> is ...`, one for each
+--- set of copies. A copy is fixed in one place: a helper goes into a shared fixture (build/test_support_fixture.tl,
+--- build/test_sandbox_fixture.tl, build/child_policy_fixture.tl ...), and each file requires it.
+function tree_checks.test_clones(root: string, threshold?: integer): {string}
+  local sources, trouble = sources_of(root)
+  if sources == nil then
+    return { "reading the sources: " .. trouble }
+  end
+  local least = threshold or CLONE_TOKENS
+  local out: mut {string} = {}
+  -- Only the files that are tests or fixtures take part, on both sides of a pair. A helper is read only where its head
+  -- ([`TestClones`]'s `scan`) is another file's too.
+  local scans: mut {string: TestClones.Scan} = {}
+  local texts: mut {string: string} = {}
+  local candidates: mut {string} = {}
+  local in_files: mut {string: mut {string: boolean}} = {}
+  for _, entry in ipairs(sources) do
+    local file, text = entry[1], entry[2]
+    if file ~= nil and text ~= nil and text:find("local function", 1, true) ~= nil and
+        (file:match("_test%.tl$") ~= nil or file:match("_fixture%.tl$") ~= nil) then
+      local scan = TestClones.scan(text)
+      scans[file] = scan
+      texts[file] = text
+      candidates[#candidates + 1] = file
+      for _, head in ipairs(scan.heads) do
+        local files: mut {string: boolean} = in_files[head.key] or {}
+        in_files[head.key] = files
+        files[file] = true
+      end
     end
   end
-  table.sort(stale)
-  for _, line in ipairs(stale) do out[#out + 1] = line end
+  -- The lines where a file's real top-level helpers begin, parsed whole once and only for a file a finding is made of:
+  -- a head in a long string that holds Teal source is no helper.
+  local real: mut {string: {string: boolean}} = {}
+  local function is_real(file: string, line: integer): boolean, string
+    local lines = real[file]
+    if lines == nil then
+      local chunk, parse_trouble = SyntaxNode.parse(assert(texts[file]), file)
+      if chunk == nil then
+        return false, parse_trouble
+      end
+      local found: mut {string: boolean} = {}
+      for _, top in ipairs(chunk.body.stats) do
+        if top.kind == "LocalFunction" then
+          found[tostring(SyntaxNode.span(chunk, top).y)] = true
+        end
+      end
+      real[file] = found
+      lines = found
+    end
+    return lines[tostring(line)] == true, ""
+  end
+  local groups: mut {string: mut {CloneSite}} = {}
+  local order: mut {string} = {}
+  local unreadable: mut {string} = {}
+  for _, file in ipairs(candidates) do
+    local scan = assert(scans[file])
+    for _, head in ipairs(scan.heads) do
+      local files = assert(in_files[head.key])
+      local count = 0
+      for _ in pairs(files) do count = count + 1 end
+      if count >= 2 then
+        local helper, cut_trouble = TestClones.read(scan, head, file)
+        if helper == nil then
+          local genuine, parse_trouble = is_real(file, head.line)
+          if parse_trouble ~= "" then
+            out[#out + 1] = file .. ": cannot read it to check its helpers: " .. parse_trouble
+          elseif genuine then
+            unreadable[#unreadable + 1] = file .. ":" .. tostring(head.line) .. ": cannot read " .. head.name ..
+              " to check it is no copy: " .. cut_trouble
+          end
+        elseif helper.size >= least then
+          local group: mut {CloneSite} = groups[helper.body] or {}
+          if groups[helper.body] == nil then
+            groups[helper.body] = group
+            order[#order + 1] = helper.body
+          end
+          group[#group + 1] = { file = file, line = helper.line, name = helper.name }
+        end
+      end
+    end
+  end
+  for _, line in ipairs(unreadable) do out[#out + 1] = line end
+  for _, body in ipairs(order) do
+    local group = assert(groups[body])
+    local files: mut {string: boolean} = {}
+    local distinct = 0
+    local sites: mut {CloneSite} = {}
+    local checked = #group >= 2
+    for _, site in ipairs(group) do
+      local genuine = false
+      if checked then
+        local real_here, parse_trouble = is_real(site.file, site.line)
+        genuine = real_here
+        if parse_trouble ~= "" then
+          out[#out + 1] = site.file .. ": cannot read it to check its helpers: " .. parse_trouble
+        end
+      end
+      if genuine then
+        if files[site.file] ~= true then
+          files[site.file] = true
+          distinct = distinct + 1
+        end
+        sites[#sites + 1] = site
+      end
+    end
+    if distinct >= 2 then
+      local first = assert(sites[1])
+      local others: mut {string} = {}
+      for i = 2, #sites do
+        local site = assert(sites[i])
+        others[#others + 1] = site.file .. ":" .. tostring(site.line) .. " (" .. site.name .. ")"
+      end
+      out[#out + 1] = first.file .. ":" .. tostring(first.line) .. ": " .. first.name ..
+        " is copied token for token in " .. table.concat(others, ", ") .. ": move it into a shared fixture " ..
+        "(build/test_support_fixture.tl, build/test_sandbox_fixture.tl, build/child_policy_fixture.tl ...) that " ..
+        "each requires"
+    end
+  end
   return out
 end
 
@@ -2795,8 +2906,8 @@ function tree_checks.untyped(root: string, pinned?: {string: integer}, memo?: Sq
     if pin ~= nil then found[file] = pin end
   end
   for _, row in ipairs(tree.rows) do
-    if row.dialect ~= "tl" or not SyntaxContracts.applies(row.file) or row.file:find("^ci/") ~= nil then
-      -- Not held to the discipline, or no module of the build (`ci/` is a tree of its own): nothing is counted of it.
+    if row.dialect ~= "tl" or not SyntaxContracts.applies(row.file) then
+      -- Not held to the discipline: nothing is counted of it.
       stands(row.file)
     else
       local count: integer? = nil

@@ -46,32 +46,32 @@ end
 local record worker
   --- What one worker found, as the runner reads it back.
   record Report
-    loaded: boolean
-    passed: boolean
-    message: string
-    elapsed_ns: integer
-    load_hits: Coverage.Hits
-    test_hits: Coverage.Hits
+    mut loaded: boolean
+    mut passed: boolean
+    mut message: string
+    mut elapsed_ns: integer
+    mut load_hits: Coverage.Hits
+    mut test_hits: Coverage.Hits
     --- The name of every module in the worker's `package.loaded` once
     --- its test has run, sorted: what it ran, which `judge` holds to
     --- what a key holds of it (`loads`).
-    modules: {string}
+    mut modules: mut {string}
     --- Why its test is skipped ([`Test.skip`]): each reason it was given,
     --- once, joined by "; "; "" or nil where it called none.
-    skipped?: string
+    mut skipped?: string
     --- How many calls to `assert` the test made while it ran, through
     --- every helper and fixture it called: 0 for one that did not run.
     --- A test that passes with none made no call to `assert`
     --- ([`Judgement.unchecked`]).
-    asserted?: integer
+    mut asserted?: integer
     --- What [`Test.passed_unchecked`] said, "" where it was not called: the
     --- test passed having deliberately not checked, which is no
     --- [`Judgement.unchecked`].
-    deliberate?: string
+    mut deliberate?: string
     --- The violations a checked run's worker met, in the order met, and
     --- how many more it kept no record of ([`worker.install_checks`]).
-    violations?: {Violation}
-    dropped?: integer
+    mut violations?: {Violation}
+    mut dropped?: integer
     --- Whether the hooks this process defines are the harness's own: `__fact` and `__cosmic_tc`
     --- are [`worker.fact`] and the parameter hook, not the stub that a wrapped chunk defines where
     --- none is. Set where the report is made, so a worker that installed nothing, or lost the
@@ -94,11 +94,11 @@ local record worker
   --- value was; the read raises, which fails its test.
   record Violation
     kind: string
-    at: string
+    mut at: string
     target: string
     declared: string
     actual: string
-    count: integer
+    mut count: integer
   end
 
   --- How a sandboxed worker is held by a Landlock ruleset
@@ -199,24 +199,24 @@ local record worker
   --- a pass.
   record Judgement
     report?: Report
-    passed: boolean
-    message: string
-    skipped?: string
+    mut passed: boolean
+    mut message: string
+    mut skipped?: string
     --- Whether it passed, and was not skipped, without one call to `assert`
     --- ([`Report.asserted`]): it ran and made no call to `assert`, which a held run
     --- fails and no run keeps a verdict of.
-    unchecked?: boolean
+    mut unchecked?: boolean
     --- Of one that passed, what it said it deliberately did not check
     --- for ([`Report.deliberate`]), "" for none.
-    deliberate?: string
+    mut deliberate?: string
   end
 
   --- The descriptor the report is written to.
-  report_fd: integer
+  mut report_fd: integer
 
   --- The most distinct violations a worker keeps a record of: any more are
   --- counted ([`worker.dropped_violations`]) and nothing else.
-  most_kept: integer
+  mut most_kept: integer
 
   install_checks: function()
   hooks_held: function(): boolean
@@ -228,12 +228,12 @@ local record worker
   cross: function(text: string, ...: any)
   --- The `__fact` that [`install_checks`] defines: the hook the calls of [`lang.fact_wraps`] run, for a test that runs
   --- the Lua of a program with them.
-  fact: function(v: any, taken: string, place: string, strings?: {string}, classes?: {any}, tag?: string,
+  mut fact: function(v: any, taken: string, place: string, strings?: {string}, classes?: {any}, tag?: string,
                  tags?: {string} | string, at?: string): any
   violations: function(): {Violation}
   dropped_violations: function(): integer
 
-  loads: {string}
+  mut loads: {string}
 end
 
 worker.report_fd = 3
@@ -347,7 +347,7 @@ local record Check
   integral: mut {integer: boolean}
   -- The violations met at each position, by the value's kind and then the
   -- place that sent it, so a repeated one is found without building a key.
-  memo: mut {{string:{string:worker.Violation}}}
+  memo: mut {mut {string:mut {string:worker.Violation}}}
 end
 
 -- The library the hook runs on, taken as the module loads: a test that
@@ -483,11 +483,8 @@ local function note(check: Check, index: integer, value: any, absent: boolean)
     -- frame and names its own caller).
     at = raw_errors.where(5) or "?"
   end
-  local sites = check.memo[index][actual]
-  if sites == nil then
-    sites = {}
-    check.memo[index][actual] = sites
-  end
+  local sites = check.memo[index][actual] or {}
+  check.memo[index][actual] = sites
   local known = sites[at]
   if known ~= nil then
     again(known)
@@ -630,7 +627,7 @@ local function hook(_: integer, text: string, ...: any): any...
   return ...
 end
 
-local fact_sites: {string:worker.Violation} = {}
+local fact_sites: mut {string:worker.Violation} = {}
 
 local function among(list: {any}, value: any): boolean
   for i = 1, #list do
@@ -1459,8 +1456,8 @@ function worker.run(argv: {string}): integer
     return fn(argument)
   end
   if argv[first] ~= nil then
-    local closure: {string:boolean} = {}
-    local tree: {string:boolean} = {}
+    local closure: mut {string:boolean} = {}
+    local tree: mut {string:boolean} = {}
     local into = closure
     local i = first
     while argv[i] ~= nil do

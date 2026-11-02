@@ -4,6 +4,7 @@
 --- tree's own last projection, document, and a project's uses of the
 --- standard library are read back beside the binary's own rows.
 
+local importer_fixture = require("build.importer_fixture")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
@@ -49,28 +50,6 @@ local function write_fixture(case: string, files: {string:string}): string?, str
     end
   end
   return root, ""
-end
-
---- Stages and compiles one fixture run. Reopening the same root keeps its
---- working database, which lets a test exercise the real warm cache.
-local function compile_fixture(root: string): importer.Result?, string
-  local handle, open_trouble = work.open(root)
-  if handle == nil then
-    return nil, open_trouble
-  end
-  local staged, stage_trouble = work.stage(handle, { own = false })
-  if staged == nil then
-    work.close(handle)
-    return nil, stage_trouble
-  end
-  local result, compile_trouble = importer.compile(handle,
-    "declaration-cache-test")
-  work.close(handle)
-  -- The new checker goes on past a module it refuses and says so in `refused`: that is no compile, as the tests ask.
-  if result ~= nil and #result.refused > 0 then
-    return nil, table.concat(result.refused, "\n")
-  end
-  return result, compile_trouble
 end
 
 --- Project projections retain resolved references to bundled modules even
@@ -138,7 +117,7 @@ local function test_unresolved_removed_global_names_its_own_replacement()
   local root = assert(write_fixture("removed-global-hint", {
     ["thing.tl"] = "return function(): integer\n  return os.time()\nend\n",
   }))
-  local result, compile_trouble = compile_fixture(root)
+  local result, compile_trouble = importer_fixture.compile_fixture(root)
   assert(result == nil, "expected the bare `os` reference to refuse the compile")
   assert(compile_trouble:find("thing.tl:2:10: `os` is not declared (unknown_variable): os.time is not available: use Clock.now_ns()",
     1, true) ~= nil, compile_trouble)
@@ -153,7 +132,7 @@ local function test_a_removed_field_names_its_replacement_at_compile_time()
   local root = assert(write_fixture("removed-field-replacement", {
     ["thing.tl"] = 'return function(): string\n  return os.getenv("HOME") or ""\nend\n',
   }))
-  local result, compile_trouble = compile_fixture(root)
+  local result, compile_trouble = importer_fixture.compile_fixture(root)
   assert(result == nil, "expected `os.getenv` to refuse the compile")
   assert(compile_trouble:find("thing.tl:2:10: `os` is not declared (unknown_variable): os.getenv is not " ..
       'available: use Env.get(name) (local Env = require("cosmic.env"))' ..
@@ -167,7 +146,7 @@ local function test_unresolved_removed_require_names_its_own_replacement()
   local root = assert(write_fixture("removed-require-hint", {
     ["thing.tl"] = 'local _io = require("io")\nreturn function(): integer\n  return 0\nend\n',
   }))
-  local result, compile_trouble = compile_fixture(root)
+  local result, compile_trouble = importer_fixture.compile_fixture(root)
   assert(result == nil, "expected `require(\"io\")` to refuse the compile")
   assert(compile_trouble:find("thing.tl:1:13: the project has no module `io` (require_unknown): io is not available",
     1, true) ~= nil, compile_trouble)
@@ -190,7 +169,7 @@ local function test_a_hint_names_what_the_tree_s_own_projection_documents()
       "kind, signature, text, file, line) VALUES ('greeter', '', 'greeter', 1, " ..
       "'module', '', 'Greets.', 'greeter.tl', 1)"))
   assert(projection:close())
-  local result, compile_trouble = compile_fixture(root)
+  local result, compile_trouble = importer_fixture.compile_fixture(root)
   assert(result == nil, "expected the undeclared name to refuse the compile")
   assert(compile_trouble:find("`greeter` is not declared (unknown_variable)", 1, true) ~= nil, compile_trouble)
   assert(compile_trouble:find("-- see also in docs: greeter", 1, true) ~= nil, compile_trouble)
@@ -205,7 +184,7 @@ local function test_an_unrelated_unknown_name_earns_no_hint()
   local root = assert(write_fixture("unrelated-unknown-name", {
     ["thing.tl"] = "return function(): integer\n  return pritn(1)\nend\n",
   }))
-  local result, compile_trouble = compile_fixture(root)
+  local result, compile_trouble = importer_fixture.compile_fixture(root)
   assert(result == nil, "expected the undeclared name to refuse the compile")
   assert(compile_trouble:find("`pritn` is not declared (unknown_variable)", 1, true) ~= nil, compile_trouble)
   assert(compile_trouble:find("see also in docs", 1, true) == nil, compile_trouble)
@@ -235,7 +214,7 @@ local function test_language_errors_name_relevant_checked_docs()
   for name, case in pairs(cases) do
     local root = assert(write_fixture("language-hint-" .. name,
       { ["thing.tl"] = case[1] }))
-    local result, trouble = compile_fixture(root)
+    local result, trouble = importer_fixture.compile_fixture(root)
     assert(result == nil, "expected " .. name .. " to refuse the compile")
     assert(trouble:find("thing.tl:", 1, true) ~= nil, trouble)
     assert(trouble:find(case[2], 1, true) ~= nil, trouble)
@@ -249,7 +228,7 @@ local function test_malformed_type_keeps_its_error()
   local root = assert(write_fixture("language-guide-malformed-type", {
     ["thing.tl"] = "local x: {string = integer} = {}\nreturn x\n",
   }))
-  local result, trouble = compile_fixture(root)
+  local result, trouble = importer_fixture.compile_fixture(root)
   assert(result == nil)
   assert(trouble:find("expected `}` to close the collection type on line 1, found `=` (unclosed)", 1, true) ~= nil, trouble)
 end
@@ -261,7 +240,7 @@ local function test_argument_hint_does_not_sniff_the_whole_source_line()
     ["thing.tl"] = "return function(): integer\n" ..
       "  return string.find(\"abc\") -- table.concat\nend\n",
   }))
-  local result, trouble = compile_fixture(root)
+  local result, trouble = importer_fixture.compile_fixture(root)
   assert(result == nil)
   assert(trouble:find("`string.find` takes 2 to 4 arguments, but 1 is given (arity)", 1, true) ~= nil, trouble)
   assert(trouble:find("cosmic docs generics_functions_returns", 1, true) ~= nil,
@@ -364,7 +343,7 @@ local function test_an_edit_to_an_embedded_source_moves_the_key_of_what_reaches_
       end
       return found
     end
-    local result, trouble = compile_fixture(root)
+    local result, trouble = importer_fixture.compile_fixture(root)
     standard_text.of = of
     assert(result ~= nil, tostring(trouble))
     for _, m in ipairs(result.modules) do

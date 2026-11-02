@@ -2,9 +2,9 @@
 --- transport ([`build.release.Io.script`]: a canned reply per request, in
 --- order, so no test reaches the network; [`build.release.Io.api`] points
 --- it at http, since a canned reply cannot answer TLS). A run asks the
---- API for the `next-` tags, main's history and the release of each
+--- API for the release tags (`YYYYMMDD-<commit>` and the earlier `next-<commit>`), main's history and the release of each
 --- tagged commit in it until enough are found -- or, for a `--commit`
---- prefix, the tags it starts and each one's release -- then SHA256SUMS,
+--- prefix, the tags of the commits it starts and each one's release -- then SHA256SUMS,
 --- source.json and, when it keeps or pins it, the binary.
 
 local Codec = require("cosmic.codec")
@@ -50,16 +50,27 @@ end
 
 local function ok(body: string): string return reply("200 OK", body) end
 
---- One release as the API lists it.
-local function entry(commit: string, published: string, draft?: boolean, assets?: string): string
-  return string.format('{"tag_name":"next-%s","draft":%s,"prerelease":true,"published_at":"%s","assets":%s}',
-    commit, tostring(draft == true), published, assets or all_assets)
+--- The tag of a release: the earlier form `next-<commit>`, or what
+--- has a `-` in it as it is (`YYYYMMDD-<commit>`).
+local function tag_for(commit_or_tag: string): string
+  if commit_or_tag:find("-", 1, true) ~= nil then return commit_or_tag end
+  return "next-" .. commit_or_tag
 end
 
---- What git matching-refs answers for tags of these commits.
+--- The tag of `commit`'s release in the form since YYYYMMDD-<commit>.
+local function dated(commit: string): string return "20261018-" .. commit end
+
+--- One release as the API lists it, of a commit or of a tag.
+local function entry(commit: string, published: string, draft?: boolean, assets?: string): string
+  return string.format('{"tag_name":"%s","draft":%s,"prerelease":true,"published_at":"%s","assets":%s}',
+    tag_for(commit), tostring(draft == true), published, assets or all_assets)
+end
+
+--- What git matching-refs answers for the tags of these commits (or
+--- these tags, as [`tag_for`] takes them).
 local function refs(...: string): string
   local items: mut {string} = {}
-  for i, commit in ipairs({ ... }) do items[i] = '{"ref":"refs/tags/next-' .. commit .. '"}' end
+  for i, commit in ipairs({ ... }) do items[i] = '{"ref":"refs/tags/' .. tag_for(commit) .. '"}' end
   return ok("[" .. table.concat(items, ",") .. "]")
 end
 
@@ -123,7 +134,51 @@ local function test_the_newest_published_release_prints_as_a_pin()
   assert(ran.code == 0, ran.err)
   assert(ran.out == newest .. "\nhttps://github.com/cosmic-lua/cosmic/releases/download/next-" ..
       newest .. "/cosmic\n" .. digest .. "\n", ran.out)
-  assert(ran.out == release.pin_text(newest, digest), ran.out)
+  assert(ran.out == release.pin_text("next-" .. newest, newest, digest), ran.out)
+end
+
+--- A release tagged YYYYMMDD-<commit> is the pin's, URL and all.
+local function test_a_dated_release_prints_as_a_pin()
+  local ran = run({}, {
+    refs(dated(newest), older), history(newest, older),
+    ok(entry(dated(newest), "2026-10-18T10:00:00Z")), sums(), source(newest) })
+  assert(ran.code == 0, ran.err)
+  assert(ran.out == newest .. "\nhttps://github.com/cosmic-lua/cosmic/releases/download/20261018-" ..
+      newest .. "/cosmic\n" .. digest .. "\n", ran.out)
+  assert(ran.out == release.pin_text(dated(newest), newest, digest), ran.out)
+  assert(tostring(ran.asked[3]):find("/releases/tags/20261018-" .. newest, 1, true) ~= nil, tostring(ran.asked[3]))
+end
+
+--- Both forms are listed together, newest first, and a commit tagged in
+--- both is asked for under each. Tags of neither form are not releases.
+local function test_both_tag_forms_are_found_and_other_tags_are_not()
+  local ran = run({ "--list" }, {
+    refs(dated(newest), "latest-" .. newest, "v1.0", "2026101-" .. older, "20261018-" .. older:upper(),
+      "next-" .. older, oldest),
+    history(newest, older, oldest),
+    ok(entry(dated(newest), "2026-10-18T10:00:00Z")),
+    ok(entry(older, "2026-10-17T10:00:00Z")),
+    ok(entry(oldest, "2026-10-16T10:00:00Z")),
+  })
+  assert(ran.code == 0, ran.err)
+  assert(ran.out == "2026-10-18T10:00:00Z  " .. newest .. "\n" ..
+      "2026-10-17T10:00:00Z  " .. older .. "\n" ..
+      "2026-10-16T10:00:00Z  " .. oldest .. "\n", ran.out)
+  local both = run({ "--list", "--json" }, {
+    refs(dated(newest), "next-" .. newest), history(newest),
+    ok(entry(dated(newest), "2026-10-18T10:00:00Z")), ok(entry(newest, "2026-10-18T09:00:00Z")) })
+  assert(both.code == 0, both.err)
+  assert(both.out:find("20261018-" .. newest, 1, true) ~= nil and both.out:find("next-" .. newest, 1, true) ~= nil,
+    both.out)
+end
+
+--- A prefix finds a dated tag though the date comes first.
+local function test_a_commit_prefix_finds_a_dated_tag()
+  local ran = run({ "--commit", "ABCCCCC" },
+    { refs(dated(older), newest), ok(entry(dated(older), "2026-10-17T10:00:00Z")), sums(), source(older) })
+  assert(ran.code == 0, ran.err)
+  assert(ran.out:sub(1, 41) == older .. "\n", ran.out)
+  assert(ran.out:find("/download/20261018-" .. older .. "/cosmic", 1, true) ~= nil, ran.out)
 end
 
 --- A prefix is looked up by its tags, not the pages: the script holds
@@ -151,10 +206,10 @@ local function test_a_prefix_passes_over_tags_without_a_release()
   })
   assert(ran.code == 0, ran.err)
   assert(ran.out == "2026-10-18T10:00:00Z  " .. later .. "\n2026-10-17T10:00:00Z  " .. earlier .. "\n", ran.out)
-  failed(run({ "--commit", "abcdef0" }, { refs() }), "no release matches, among the tags next-abcdef0 starts")
+  failed(run({ "--commit", "abcdef0" }, { refs() }), "no release matches, among the tags of commits starting abcdef0")
   failed(run({ "--commit", "abcdef0", "--until", "2026-01-01" }, { refs(earlier), ok(entry(earlier, "2026-10-17T10:00:00Z")) }),
     "published by --until 2026-01-01")
-  failed(run({ "--commit", "abcdef0" }, { reply("404 Not Found", "{}") }), "matching-refs/tags/next-abcdef0: HTTP 404")
+  failed(run({ "--commit", "abcdef0" }, { reply("404 Not Found", "{}") }), "matching-refs/tags: HTTP 404")
 end
 
 local function test_a_prefix_two_releases_share_is_refused_naming_both()
@@ -169,7 +224,7 @@ end
 local function test_a_prefix_naming_too_many_tags_is_refused()
   local many: mut {string} = {}
   for i = 1, 11 do many[i] = string.format("1234567%033x", i) end
-  failed(run({ "--commit", "1234567" }, { refs(table.unpack(many)) }), "11 tags start with next-1234567")
+  failed(run({ "--commit", "1234567" }, { refs(table.unpack(many)) }), "11 tags are of commits starting with 1234567")
   -- Ten are each asked for, none with a release.
   local ten: mut {string} = { refs(table.unpack(many, 1, 10)) }
   for _ = 2, 11 do ten[#ten + 1] = reply("404 Not Found", "{}") end
@@ -271,11 +326,12 @@ local function test_history_past_100_pages_fails()
   failed(run({}, script), "main's history runs past 100 pages")
 end
 
-local function test_a_full_commit_is_asked_for_by_its_tag()
-  local ran = run({ "--commit", oldest }, { ok(entry(oldest, "2026-10-16T10:00:00Z")), sums(), source(oldest) })
+local function test_a_full_commit_is_looked_up_by_its_tags()
+  local ran = run({ "--commit", oldest }, { refs(oldest), ok(entry(oldest, "2026-10-16T10:00:00Z")), sums(), source(oldest) })
   assert(ran.code == 0, ran.err)
   assert(ran.out:sub(1, 41) == oldest .. "\n", ran.out)
-  failed(run({ "--commit", oldest }, { reply("404 Not Found", "{}") }), "no release matches, by its tag")
+  failed(run({ "--commit", oldest }, { refs(oldest), reply("404 Not Found", "{}") }),
+    "no release matches, among the tags of commits starting " .. oldest)
 end
 
 local function test_a_release_that_disagrees_with_itself_fails()
@@ -327,7 +383,7 @@ local function test_pin_writes_the_pin_once_the_bytes_check(tmp: string)
   local ran = run({ "--pin", pin }, newest_then(sums(), source(newest), ok(binary)))
   assert(ran.code == 0, ran.err)
   assert(ran.out == "", ran.out)
-  assert(Fs.read(pin) == release.pin_text(newest, digest))
+  assert(Fs.read(pin) == release.pin_text("next-" .. newest, newest, digest))
   assert(#assert(Fs.list(tmp)) == 1, "only the pin is kept")
   local path = tmp .. "/bin"
   local both = run({ "--pin", pin, "-o", path }, newest_then(sums(), source(newest), ok(binary)))

@@ -21,11 +21,11 @@
 local record analysis_schema
   --- The statements that create `derived` and `inputs`, then each of
   --- `tables`, in order.
-  statements: {string}
+  mut statements: {string}
   --- The tables a parse or a generator fills, keyed by the source they
   --- came from: rows in them are only ever as right as the code that
   --- derived them.
-  tables: {string}
+  mut tables: {string}
 end
 
 --- Where a build reads no module from, as `GLOB` patterns of a path
@@ -210,12 +210,6 @@ local function kind_case(column: string, source?: string): string
 end
 
 local declaration_kind <const> = "decl"
-
---- The kind a build gives a declaration it writes or derives and says nothing more of ([`build.derivation`],
---- [`build.lsp.plan`]).
-function analysis_schema.declaration_kind(): string
-  return declaration_kind
-end
 
 --- The kinds that are a declaration, a file of types that no program runs, not a module: the one place that says
 --- which, asked in SQL ([`analysis_schema.declaration`]) and in Teal ([`analysis_schema.is_declaration`]). A kind a

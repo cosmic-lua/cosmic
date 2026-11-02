@@ -13,7 +13,7 @@
 ---   included (`x` after `if x is T then`); else it is worked out from the declared types of the names, the members, the
 ---   element of an array or a map and the result of a function. `.` offers a record's or class's fields and methods, an
 ---   interface's (its own and those of the interfaces it lists), the functions of a module or of a declaration used as a
----   value, and an enum's values; `:` offers the methods. A member of a type the rows hold has the type as written
+---   value, an enum's values and, of a string (`("x"):`, `s:`), the functions of `string` as methods; `:` offers the methods. A member of a type the rows hold has the type as written
 ---   for its `detail` and the `docs` text of its symbol for `documentation` ([`source.members`]), none when the text has no
 ---   doc comment on it: the rows are those of the module as staged, or open and unsaved, and for the document's own module of
 ---   the last text that parsed; those of the standard library's `cosmic.*` modules are the ones the tool carries. An
@@ -36,8 +36,10 @@
 --- parameter, unless a `(` follows the cursor.
 ---
 --- A text being typed (`p.`) does not parse, so what the checker knows of it is found in one of two ways. The text is made to
---- parse where it can: the word being typed is replaced by a placeholder name, and a receiver on a line of its own (`p.`) is
---- made the value of a statement, and it is checked as if the person had typed it ([`check.probe`]); the types are then the
+--- parse where it can: the word being typed is replaced by a placeholder name, a receiver on a line of its own (`p.`) is
+--- made the value of a statement, and each other statement the parser finds broken (an unclosed call, a `local x =` with no
+--- value) is written over by spaces, which keeps every other byte where it is ([`neutralized`]), and it is checked as if the
+--- person had typed it ([`check.probe`]); the types are then the
 --- checker's of that text, with the narrowing at the cursor, the results of generic calls and the names declared since. Where
 --- it still does not parse, the names and members are those of the document's last check that parsed ([`check.last`]), and the
 --- cursor is placed in that text by the lines the two texts share ([`lines.align`]), which holds after any number of edits and
@@ -47,16 +49,22 @@
 --- says whether the cursor is in a comment or a string, and the parser says what node the placeholder is in. Nothing is
 --- offered in a document the checker read nothing of.
 
--- TODO: type a name narrowed at the cursor, and a call receiver, in a text typed that does not parse even with the word
--- replaced and a receiver made a statement (another statement of it is broken), once the checker reads a tree the parser
--- recovered of a text with errors: the last text that parsed answers there, and where it has no read of a name at that
--- place its declared type is used, and a call takes its function's declared result, with the type parameters of a
--- generic function left unsolved. Likewise a string literal as a receiver (`("x"):len()`) offers nothing until the
--- members of `string` can be read as those of a value.
+-- TODO: type a name narrowed at the cursor, and a call receiver, in a text typed whose own statement does not parse
+-- (`foo(` left open around the cursor, or a block with its `end` missing above it), once the checker reads a tree the
+-- parser recovered of a text with errors: the last text that parsed answers there, and where it has no read of a name at
+-- that place its declared type is used, and a call takes its function's declared result, with the type parameters of a
+-- generic function left unsolved. A broken `local` keeps its names and what is before its `=` ([`neutralized`]), so
+-- a name without a written type has none there, and a broken function, record, enum or type declaration gives no text
+-- at all: the names such a statement declares are not typed while it stays broken. Where no text is made, a name a
+-- broken statement declares again (`local type Bar = `, or a `local x: Foo` inside a function a broken statement leaves
+-- open) is typed by the outer binding the last text that parsed has, as before this probe.
 
 -- TODO: name the placeholders of a call inserted for a function after its parameters where its type is the checker's and
--- not written (a local function, a global of the standard library, a member the rows do not hold), once a function type
--- carries the names of its parameters ([`Types.Param`]): they are `arg1`, `arg2`, ... there.
+-- not written and its declaration is no local function statement of the document (a global of the standard library, a
+-- member the rows do not hold, a local bound to a function value): they are `arg1`, `arg2`, ... there. Waits on the
+-- names of a function's parameters being read from its declaration: a [`Types.Field`] or [`Types.Method`] of a declaration's
+-- body carries only a name and a type (and is not shared by digest as a function type is, so it can hold more), once a
+-- field or a method carries the names of its parameters, lowered by [`lang.declarations`] and decoded by [`lang.types`].
 
 local Ast = require("lang.ast")
 local Declarations = require("lang.declarations")
@@ -527,6 +535,7 @@ local function typed_node(ground: Ground, node: Ast.Node): Typed?
   if node.kind == "Name" and ground.rebound(node.text) then return nil end
   local known = located(ground, node)
   if known ~= nil then return typed_of(known) end
+  if node.kind == "String" then return typed_of(ground.request.program.store.string) end
   if node.kind == "Paren" then return typed_node(ground, node.inner) end
   if node.kind == "Name" then
     -- A name declared again in the text typed since the last parse is not the binding that parse saw.
@@ -741,15 +750,49 @@ local function call_snippet(name: string, params: {string}): string
   end
   return escaped(name) .. "(" .. table.concat(parts, ", ") .. ")"
 end
---- The names to put in a call of a function of type `t` that is not written: one for each parameter.
-local function typed_params(t: Types.Type?, drop: boolean): {string}?
+--- The names of the parameters a local function statement (`local function f(a: A, b: B)`) writes, in order, which the binding
+--- `var` is the name of, or nil where `var` is no such function. A function type does not carry them: types are shared by
+--- their digest, so the names of the first function of a signature would stand for every other of it.
+local function written_names(chunk: Ast.Chunk, var: Scopes.Var): {string}?
+  local node: Ast.Node = chunk
+  local found: Ast.LocalFunction? = nil
+  local descending = true
+  while descending do
+    if node.kind == "LocalFunction" then found = node end
+    local inside: mut {Ast.Node} = {}
+    Ast.children(node, function(child: Ast.Node)
+      if child.first <= var.declared and var.declared <= child.last then inside[1] = child end
+    end)
+    local child = inside[1]
+    if child == nil then
+      descending = false
+    else
+      node = child
+    end
+  end
+  if found == nil or found.name.id ~= var.id then return nil end
+  local names: mut {string} = {}
+  for _, p in ipairs(found.fn.params) do
+    local binding = p.name
+    if not p.variadic then
+      if binding ~= nil then names[#names + 1] = binding.name else names[#names + 1] = "" end
+    end
+  end
+  return names
+end
+
+--- The names to put in a call of a function of type `t` that is not written: one for each parameter, `written` (the names
+--- the function's own declaration gives, from the first) where it has one, else `arg1`, `arg2`, ...
+local function typed_params(t: Types.Type?, drop: boolean, written?: {string}): {string}?
   local fn = stripped(t)
   if fn == nil or fn.tag ~= "fn" then return nil end
   local names: mut {string} = {}
   local first = 1
   if drop then first = 2 end
   for n = first, #fn.params do
-    local name = "arg" .. tostring(n - first + 1)
+    local name = ""
+    if written ~= nil then name = written[n] or "" end
+    if name == "" then name = "arg" .. tostring(n - first + 1) end
     names[#names + 1] = name
   end
   return names
@@ -757,15 +800,25 @@ end
 
 --- The members offered after a separator.
 local function member_items(request: Request, d: hover.Docs, decl: Types.Decl, value: boolean, context: Context,
-                            out: mut {protocol.CompletionItem}, edit: protocol.Range)
+                            out: mut {protocol.CompletionItem}, edit: protocol.Range, text?: boolean)
   local tally = request.checker.source.tally
   local members = rows_of(request, decl, value)
   local from_rows = members ~= nil
   if members ~= nil then
     tally.member_rows = tally.member_rows + 1
   else
-    tally.member_declarations = tally.member_declarations + 1
+    -- The functions of `string` are the checker's, and no module's rows hold them.
+    if text ~= true then tally.member_declarations = tally.member_declarations + 1 end
     members = members_of(request.program, decl, value)
+  end
+  -- A function of `string` is a method of a string, which the checker reads as `s:upper()` ([`lang.check`]).
+  if text == true then
+    local methods: mut {Member} = {}
+    for _, member in ipairs(members) do
+      local t = member.type
+      methods[#methods + 1] = { name = member.name, type = t, method = t ~= nil and t.tag == "fn", row = member.row }
+    end
+    members = methods
   end
   local wanted: mut {Member} = {}
   for _, member in ipairs(members) do
@@ -896,7 +949,7 @@ local function name_items(request: Request, scope: {string: Scopes.Var}, types: 
         sortText = string.format("0%02d%02d%s", 99 - math.min(var.depth, 99), 99 - used, name),
         textEdit = { range = edit, newText = name }, insertTextFormat = nil, data = nil }
       if request.call and kind == FUNCTION and not types then
-        local params = typed_params(t, false)
+        local params = typed_params(t, false, written_names(request.outcome.chunk, var))
         if params ~= nil then
           item.textEdit = { range = edit, newText = call_snippet(name, params) }
           item.insertTextFormat = 2
@@ -1002,25 +1055,117 @@ local function receiver_at(document: check.Document, text: string, tokens: Lexer
   return nil, nil, 0
 end
 
+--- The most syntax errors whose statements are left out of a text ([`neutralized`]): a text with more is not probed.
+local MOST_BROKEN <const> = 8
+
+--- The statements of `chunk` the syntax errors of `errors` are in: for an error at token `t`, the innermost statement that
+--- ends right before `t` (a call left open, `local x =` with nothing after it) and the tokens skipped at `t`, else the
+--- innermost statement that holds `t`. None where one of them holds the token `keep`, which is not left out.
+local function broken_statements(chunk: Ast.Chunk, errors: {Driver.Problem}, keep: integer): {Ast.Node}
+  local tokens = chunk.tokens
+  local found: mut {Ast.Node} = {}
+  local seen: mut {integer: boolean} = {}
+  for _, problem in ipairs(errors) do
+    local at = token_near(tokens, problem.offset)
+    local ending: Ast.Node? = nil
+    local holding: Ast.Node? = nil
+    local function walk(node: Ast.Node, statement: boolean)
+      if statement and node.first <= node.last then
+        if node.last == at - 1 then ending = node end
+        if node.first <= at and at <= node.last then holding = node end
+      end
+      local inside = node.kind == "Block"
+      Ast.children(node, function(child: Ast.Node) walk(child, inside) end)
+    end
+    walk(chunk, false)
+    -- The tokens the parser skips are a statement of their own (`Error`), which follows the statement left open.
+    local picked: mut {Ast.Node} = {}
+    local closing, skipped = ending, holding
+    if closing ~= nil then
+      picked[#picked + 1] = closing
+      if skipped ~= nil and skipped.kind == "Error" then picked[#picked + 1] = skipped end
+    elseif skipped ~= nil then
+      picked[#picked + 1] = skipped
+    end
+    for _, stat in ipairs(picked) do
+      if stat.first <= keep and keep <= stat.last then return {} end
+      if seen[stat.first] ~= true then
+        seen[stat.first] = true
+        found[#found + 1] = stat
+      end
+    end
+  end
+  return found
+end
+
+--- The kinds of statement that declare a name the statements after them use, other than a `local`.
+local DECLARING <const>: {string: boolean} = {
+  LocalFunction = true, Record = true, Interface = true, Class = true, Enum = true, Alias = true, Userdata = true, Import = true,
+}
+
+--- The text `text` with the statements the parser finds broken in it written over by spaces, which keeps every other byte
+--- where it is, and "" where it then still does not parse. Only a statement of another place than the one holding the
+--- placeholder is left out, so the cursor's own statement is as typed. The checker then reads a text that is whole, and
+--- types a name at the cursor, a call and a name declared since as it would the text without those statements; flow
+--- through them is not. A `local` keeps its names and what is written before its `=` (`local x: Foo`), so that a name it
+--- declares is never read as an outer binding of the same name; where that is not written plainly, and for any other
+--- statement that declares a name (a function, a record, an enum, a type), no text is made. The text's own errors stay the
+--- parser's. `parsed` is the parse of `text` where the caller has it.
+local function neutralized(document: check.Document, text: string, parsed?: Driver.Parsed): string
+  local dialect: Ast.Dialect = "tl"
+  if document.name:match("%.d%.tl$") ~= nil then dialect = "decl" end
+  local read = parsed or Driver.parse(Driver.source(document.name, document.name, text, dialect))
+  if #read.syntax == 0 then return text end
+  if #read.syntax > MOST_BROKEN then return "" end
+  local tokens = read.chunk.tokens
+  local keep = 0
+  for at = 1, Lexer.count(tokens) do
+    if Lexer.text(tokens, at) == PLACEHOLDER then keep = at end
+  end
+  if keep == 0 then return "" end
+  local broken = broken_statements(read.chunk, read.syntax, keep)
+  if #broken == 0 then return "" end
+  local out = text
+  -- A written-over span is as long as it was, so the offsets of the others stand.
+  for _, stat in ipairs(broken) do
+    if DECLARING[stat.kind] == true then return "" end
+    local first = stat.first
+    if stat.kind == "Local" then
+      local equals = 0
+      for at = stat.first, stat.last do
+        if equals == 0 and Lexer.text(tokens, at) == "=" then equals = at end
+      end
+      if equals == 0 then return "" end
+      first = equals
+    end
+    local from, to = Lexer.offset(tokens, first), Lexer.stop(tokens, stat.last) - 1
+    out = out:sub(1, from - 1) .. out:sub(from, to):gsub("[^\r\n]", " ") .. out:sub(to + 1)
+  end
+  if #Driver.parse(Driver.source(document.name, document.name, out, dialect)).syntax > 0 then
+    return ""
+  end
+  return out
+end
+
 --- The text that is checked in place of the document's `spliced` text, which does not parse as the person is typing: it
 --- and the bytes added before the cursor, "" where no text that parses is made. The text with the placeholder in the word
 --- typed is tried first; a receiver typed on a line of its own (`p.`, no statement) is then made the value of one
---- ([`HEAD`]). `parsed` is the parse of `spliced`, `tokens` its tokens, `at` the placeholder's, `sep` the token before it
---- and `node` the node it is in.
+--- ([`HEAD`]). Where the text still does not parse because another statement is broken, that statement is left out
+--- ([`neutralized`]). `parsed` is the parse of `spliced`, `tokens` its tokens, `at` the placeholder's, `sep` the token
+--- before it and `node` the node it is in.
 local function probe_text(document: check.Document, spliced: string, parsed: Driver.Parsed, tokens: Lexer.Tokens,
                           at: integer, sep: Lexer.Kind, node: Ast.Node): string, integer
   if #parsed.syntax == 0 then return spliced, 0 end
+  local left = neutralized(document, spliced, parsed)
+  if left ~= "" then return left, 0 end
   if sep ~= "." and sep ~= ":" then return "", 0 end
   local first = receiver_start(tokens, at - 2, node.kind == "TypeName")
   if first == nil then return "", 0 end
   local from = Lexer.offset(tokens, first)
   local text = spliced:sub(1, from - 1) .. HEAD .. spliced:sub(from)
-  local dialect: Ast.Dialect = "tl"
-  if document.name:match("%.d%.tl$") ~= nil then dialect = "decl" end
-  if #Driver.parse(Driver.source(document.name, document.name, text, dialect)).syntax > 0 then
-    return "", 0
-  end
-  return text, #HEAD
+  local made = neutralized(document, text)
+  if made == "" then return "", 0 end
+  return made, #HEAD
 end
 
 --- What was left out of the completion item `label` that [`completion.at`] gave at the place `data` names of `document`, which
@@ -1169,6 +1314,18 @@ function completion.at(checker: check.Checker, d: hover.Docs, document: check.Do
           nested_items(request, typed.decl, context, out, edit)
         else
           member_items(request, d, typed.decl, typed.value, context, out, edit)
+        end
+      end
+      -- A string, and a value of an enum (a string with a name), have the functions of `string` as methods.
+      if typed ~= nil and not context.types then
+        local held = stripped(typed.type)
+        local text = held ~= nil and held.tag == "string"
+        if typed.decl ~= nil and typed.decl.kind == "enum" and not typed.value then text = true end
+        local library = last.reading.program.globals["string"]
+        local decl: Types.Decl? = nil
+        if library ~= nil then decl = library.decl end
+        if text and decl ~= nil then
+          member_items(request, d, decl, false, context, out, edit, true)
         end
       end
     end

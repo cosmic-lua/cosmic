@@ -6,6 +6,7 @@
 --- under test.
 local type _ = require("cosmic.child")
 local type _net = require("cosmic.net")
+local ConnectorFixture = require("build.connector_fixture")
 local ConnectorEnds = require("build.connector_ends")
 local Test = require("cosmic.test")
 local Address = require("cosmic.relay.address")
@@ -13,14 +14,6 @@ local sys = require("cosmic.sys")
 local DENIED <const> = 65536 -- a refusal by the lists, past any errno
 Test.policy{ promises = { "fork" } }
 local process = require("cosmic.internal.process")
-
-local function require_native_connector()
-  local result, why, number = process.connector_probe({ host = "127.0.0.1", port = 9 }, "pointer")
-  if result == nil and (number == sys.ENOSYS or number == sys.EOPNOTSUPP) then
-    Test.skip("this host has no native connector confinement: " .. why)
-  end
-  assert(result == sys.EPERM, "native connector setup failed: " .. (why or ""))
-end
 
 local OWN <const>: {string} = { "8.8.4.4", "2606:4700::6810:84e5" }
 
@@ -144,7 +137,7 @@ local function expect(fd: integer, address: string, allowed: boolean, what: stri
 end
 
 local function test_every_refused_prefix_is_refused_at_both_ends_and_its_neighbours_follow_their_own_prefix()
-  require_native_connector()
+  ConnectorFixture.require_native_connector()
   local pair, child = start()
   local named: mut {string: boolean} = {}
   for _, row in ipairs(EDGES) do
@@ -167,7 +160,7 @@ local function test_every_refused_prefix_is_refused_at_both_ends_and_its_neighbo
 end
 
 local function test_ipv6_is_allowed_only_inside_2000_slash_3_and_the_forms_that_carry_ipv4_are_never_decoded()
-  require_native_connector()
+  ConnectorFixture.require_native_connector()
   local pair, child = start()
   for _, address in ipairs({ "2000::", "2000::1", "2606:4700:4700::1111", "2a00:1450:4001:81b::200e",
       "3fff:ffff:ffff:ffff:ffff:ffff:ffff:ffff", "2003::", "3ffe::" }) do
@@ -211,7 +204,7 @@ local function spelled(bytes: {integer}): string
 end
 
 local function test_a_prefix_of_any_length_holds_exactly_the_addresses_that_share_its_bits()
-  require_native_connector()
+  ConnectorFixture.require_native_connector()
   for _, base in ipairs({ "93.184.216.34", "2606:2800:220:1:248:1893:25c8:1946" }) do
     local bytes = assert(Address.parse(base))
     local width = #bytes * 8

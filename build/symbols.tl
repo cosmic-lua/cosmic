@@ -11,8 +11,8 @@ local Sqlite = require("cosmic.sqlite")
 local schema = require("build.schema")
 
 local record symbols
-  guides: {string}
-  internal_guides: {string:string}
+  mut guides: {string}
+  mut internal_guides: {string:string}
 end
 
 --- Whether a module is the public standard library's own: what a

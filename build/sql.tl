@@ -59,7 +59,7 @@ local log = logger.log
 --- own.
 local record sql
   --- The verb's registration: see build/verb_spec.tl.
-  spec: verb_spec.Spec
+  mut spec: verb_spec.Spec
   --- Where a statement runs.
   record Source
     --- What the summary and a complaint call it.
@@ -85,17 +85,17 @@ local record sql
   --- One `--from`: a data file to load as a table.
   record Input
     --- The file; nil for standard input.
-    path: string?
+    mut path: string?
     --- What a complaint calls it: the path, or "standard input".
-    label: string
+    mut label: string
     --- The table's name.
-    table: string
+    mut table: string
     --- The format's name, as [`dataset.read`] takes it.
-    format: string
+    mut format: string
     --- Where in the document the rows are; nil for all of it.
-    at?: Json.Steps
+    mut at?: Json.Steps
     --- Keep every cell of a CSV or TSV as text.
-    raw?: boolean
+    mut raw?: boolean
   end
 
   --- A database `open` made read-only.

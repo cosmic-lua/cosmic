@@ -53,11 +53,11 @@ local plural = require("build.plural")
 
 local record refresh
   --- The verb's registration: see build/verb_spec.tl.
-  spec: verb_spec.Spec
+  mut spec: verb_spec.Spec
 
   --- A release of a dataset, as a file on disk.
   record Source
-    path: string
+    mut path: string
     --- Where it was fetched from; "" for a file given on the command line.
     url: string
     --- Its version as upstream names it; "" to take the one `read` finds.
@@ -99,9 +99,9 @@ local record refresh
   end
 
   --- What [`vendor/tzdata/PIN`] keeps of the sdist.
-  tzdata_rules: Rules
+  mut tzdata_rules: Rules
   --- Every dataset a refresh can replace, in the order it replaces them.
-  datasets: {Dataset}
+  mut datasets: {Dataset}
 end
 
 --- Where NSS's release tags are listed, and where each release's

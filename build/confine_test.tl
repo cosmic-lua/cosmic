@@ -2,6 +2,7 @@
 --- sandboxed worker is given, and where a path leads as the sandbox
 --- binds it.
 
+local TestSandboxFixture = require("build.test_sandbox_fixture")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
@@ -68,22 +69,6 @@ test_child.register("worker", function(args: {string}): integer
   return 0
 end)
 
---- The descriptors [`this_program.program`] hands its child, as
---- [`process.spawn`] takes them: each a descriptor of this process, as
---- the relaunch's are, and none "capture", which only [`cosmic.child`]
---- reads.
-local function spawn_fds(started: this_program.Program): {integer:integer}
-  local fds: mut {integer:integer} = {}
-  for number, fd in pairs(started.options.fds or {}) do
-    if fd is integer then
-      fds[number] = fd
-    else
-      error("descriptor " .. tostring(number) .. " is " .. fd .. ", which spawn cannot hand on")
-    end
-  end
-  return fds
-end
-
 --- Runs the child `worker` in a worker of this very program, sandboxed to
 --- [`confine.worker_unveil`]'s paths as a worker whose module declares
 --- nothing of the system's is, with `tmp` its scratch, where the
@@ -110,7 +95,7 @@ local function sandboxed_worker(tmp: string): {string}
   local output = assert(sys.open(tmp .. "/said", sys.O_CREAT | sys.O_RDWR | sys.O_TRUNC, 420))
   local process = require("cosmic.internal.process")
   local pid, trouble, errno = process.spawn(argv[1], argv, opts.env, tree, nil, output,
-    output, false, spawn_fds(worker),
+    output, false, TestSandboxFixture.spawn_fds(worker),
     { unveil = unveil, offline = true })
   if pid == nil then
     sys.close(output)

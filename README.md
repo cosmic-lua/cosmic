@@ -21,6 +21,46 @@ databases. The tool carries the host's core alone; `bin/zig build boot
 -Dboot-cores=all` builds every release core, which `cosmic build` needs to write a
 program that runs on every target.
 
+## install
+
+cosmic publishes a prerelease for most commits on main once CI has
+passed on them (a commit whose run was cancelled, or that GitHub would
+not let the job tag, has none).
+There are no version numbers and no `latest`: a release is promoted by
+hand, so pick one yourself from the
+[releases page](https://github.com/cosmic-lua/cosmic/releases) or with
+
+```sh
+gh release list -R cosmic-lua/cosmic
+```
+
+A release is tagged `YYYYMMDD-<sha>`, the UTC date of its commit and
+the commit's 40 hex digits (the earlier ones are tagged `next-<sha>`).
+Its assets are `cosmic`, the one portable executable for every
+platform, `SHA256SUMS` and `source.json`, and they download from
+
+```text
+https://github.com/cosmic-lua/cosmic/releases/download/<tag>/cosmic
+https://github.com/cosmic-lua/cosmic/releases/download/<tag>/SHA256SUMS
+```
+
+for example, with `<tag>` as `20261018-0123456789abcdef0123456789abcdef01234567`:
+
+```sh
+tag=20261018-0123456789abcdef0123456789abcdef01234567
+base=https://github.com/cosmic-lua/cosmic/releases/download/$tag
+curl -fsSLO "$base/cosmic" -O "$base/SHA256SUMS"
+sha256sum -c SHA256SUMS   # shasum -a 256 -c SHA256SUMS on macOS
+chmod +x cosmic
+./cosmic help
+```
+
+Check the download against the release's `SHA256SUMS` before running it:
+it names the digest of `cosmic` (`<sha256>  cosmic`). `bin/cosmic release`
+does the same from a checkout: it picks a release, verifies it against
+its `SHA256SUMS` and `source.json`, and downloads it (`bin/cosmic help
+release`).
+
 ## run a file
 
 ```sh

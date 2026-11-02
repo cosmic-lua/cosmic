@@ -7,9 +7,9 @@
 --- how the source chunks the bytes.
 --- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
 
+local ChunkedReaderFixture = require("build.chunked_reader_fixture")
 local Fuzz = require("build.fuzz")
 local Multipart = require("cosmic.http.multipart")
-local Stream = require("cosmic.stream")
 
 local BOUNDARIES <const>: {string} = { "x", "----WebKitFormBoundaryAbC123xYz", "a b c", "--", "'()+_,-./:=?",
   string.rep("B", 70), "boundary", "0", "-" }
@@ -104,18 +104,6 @@ local function draw_body(src: Fuzz.Source, boundary: string): string, {Drawn}
   return table.concat(out), drawn
 end
 
---- A source over `text` that hands out at most `n` bytes a read.
-local function drip(text: string, n: integer): Stream.Reader
-  local inner = Stream.from_string(text)
-  local r: Stream.Reader = {
-    read = function(_self: Stream.Reader, max?: integer): string?, string
-      return inner:read(math.min(n, max or n))
-    end,
-    close = function(_self: Stream.Reader): boolean, string return inner:close() end,
-  }
-  return r
-end
-
 local record Outcome
   parts: mut {Drawn}
   mut failure: string
@@ -126,7 +114,7 @@ end
 --- `step` from each part.
 local function read_all(text: string, boundary: string, chunk: integer, step: integer): Outcome
   local out: Outcome = { parts = {}, failure = "", total = 0 }
-  local reader, bad = Multipart.reader(drip(text, chunk), { boundary = boundary, max_parts = 8,
+  local reader, bad = Multipart.reader(ChunkedReaderFixture.drip(text, chunk), { boundary = boundary, max_parts = 8,
     max_header_bytes = 256, max_header_lines = 6 })
   if reader == nil then
     out.failure = bad

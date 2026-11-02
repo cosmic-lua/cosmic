@@ -16,6 +16,11 @@ local type Module = module.Plan
 
 local record plans
   type Module = module.Plan
+  --- One refused `global`: the file that declares it and the refusal's line.
+  record GlobalRefusal
+    file: string
+    message: string
+  end
   --- What compiling one module makes.
   record Generated
     lua: string
@@ -38,7 +43,7 @@ local record plans
   --- The keys of `modules` made from nothing kept ([`plans.dependency_keys`]
   --- without its memos): what each is a function of, which a test holds the
   --- memos to.
-  full_keys: function(db: Sqlite.Handle, modules: {Module}, tool: string): {string:Keys}?, string
+  mut full_keys: function(db: Sqlite.Handle, modules: {Module}, tool: string): {string:Keys}?, string
 end
 
 local type Keys = plans.Keys
@@ -101,20 +106,17 @@ end
 
 --- Every name a table keyed by source hash lists, in order, by hash.
 local function names_by_hash(db: Sqlite.Handle,
-                             table_name: string): {string:{string}}?, string
+                             table_name: string): {string:mut {string}}?, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT source_hash, name FROM " .. table_name ..
       " ORDER BY source_hash, ordinal")
   if rows == nil then
     return nil, trouble
   end
-  local out: mut {string:{string}} = {}
+  local out: mut {string:mut {string}} = {}
   for _, row in ipairs(rows) do
-    local list = out[row:text(1)]
-    if list == nil then
-      list = {}
-      out[row:text(1)] = list
-    end
+    local list = out[row:text(1)] or {}
+    out[row:text(1)] = list
     local second = row:text(2)
     list[#list + 1] = second
   end
@@ -132,7 +134,7 @@ end
 --- [`Store.source`] reads it. Nil and why when that database has no row
 --- of it: every database the program runs on carries each module's, a
 --- sealed one too (build/test_key.tl's `sealed_fill`, [`Store.seal`]).
-local function embedded_edges(name: string): {string}?, string
+local function embedded_edges(name: string): mut {string}?, string
   local databases = Store.databases()
   local own = databases[#databases]
   if own == nil then
@@ -487,15 +489,12 @@ local function fast_keys(db: Sqlite.Handle, modules: {Module}, tool: string): {s
   -- The nodes that differ from the kept ones, and each that reaches one.
   local affected: mut {string:boolean} = {}
   if kept ~= nil and digests ~= nil then
-    local leading: mut {string:{string}} = {}
+    local leading: mut {string:mut {string}} = {}
     local queue: mut {string} = {}
     for slot, fragment in pairs(made) do
       for _, child in ipairs(fragment.children) do
-        local list = leading[child]
-        if list == nil then
-          list = {}
-          leading[child] = list
-        end
+        local list = leading[child] or {}
+        leading[child] = list
         list[#list + 1] = slot
       end
       if digests[slot] ~= fragment.digest then
@@ -795,17 +794,14 @@ function plans.global_refusal(at: string): string
     "in a module and `require` it"
 end
 
---- Why the build may not go on: the globals declared by any source the
---- tree holds but tl's own, one line each at the declaration, in file
---- order, or nil when there are none. A module's compile key holds its
---- kind, its source, the keys of what it requires and the compiler, and a
---- global reaches other modules by none of those: a cached compile could
---- stand after the global's type changed, and what a build accepts would
---- depend on the order modules are checked in. The declarations are the
---- rows a parse kept (build.globals) for every source, a `.d.tl`
---- and a compile that stands in a cache included, so the refusal is made
---- before any module is compiled, and does not depend on that order.
-function plans.refuse_globals(db: Sqlite.Handle): string?, string
+--- Why the build may not go on: the globals declared by any source the tree holds but tl's own, one refusal each at
+--- the declaration, in file order. A module's compile key holds its kind, its source, the keys of what it requires
+--- and the compiler, and a global reaches other modules by none of those: a cached compile could stand after the
+--- global's type changed, and what a build accepts would depend on the order modules are checked in. The
+--- declarations are the rows a parse kept (build.globals) for every source, a `.d.tl` and a compile that stands in a
+--- cache included, so the refusal is made before any module is compiled, and does not depend on that order. A
+--- caller may refuse the modules that declare them and not the tree, each refusal naming its file.
+function plans.global_refusals(db: Sqlite.Handle): {plans.GlobalRefusal}?, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT i.file, g.line, g.column FROM inputs i JOIN globals g " ..
       "ON g.source_hash = i.source_hash WHERE i.kind <> 'vendor' " ..
@@ -813,15 +809,12 @@ function plans.refuse_globals(db: Sqlite.Handle): string?, string
   if rows == nil then
     return nil, trouble
   end
-  if #rows == 0 then
-    return nil, ""
-  end
-  local lines: mut {string} = {}
+  local out: mut {plans.GlobalRefusal} = {}
   for _, row in ipairs(rows) do
-    lines[#lines + 1] = plans.global_refusal(row:text(1) .. ":" .. row:text(2) .. ":" ..
-        row:text(3))
+    out[#out + 1] = { file = row:text(1),
+      message = plans.global_refusal(row:text(1) .. ":" .. row:text(2) .. ":" .. row:text(3)) }
   end
-  return table.concat(lines, "\n"), ""
+  return out, ""
 end
 
 --- The record-field uses one compile found, kept under its key beside

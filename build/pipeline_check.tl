@@ -105,13 +105,13 @@ local function asked(build_db: Sqlite.Handle, options: Pipeline.Options, rows: {
   local build = pipeline.build
   local index, ceilings = pipeline.index, pipeline.ceilings
   -- What the working database stages: the tree of `ci/` is none of its modules.
-  local rows_of: mut {string: {PipelineCheck.Row}} = {}
+  local rows_of: mut {string: mut {PipelineCheck.Row}} = {}
   local names: mut {string} = {}
   for _, row in ipairs(rows) do
     if build:provides(row.module) then
-      local list = rows_of[row.module]
-      if list == nil then
-        list = {}
+      local held = rows_of[row.module]
+      local list = held or {}
+      if held == nil then
         rows_of[row.module] = list
         names[#names + 1] = row.module
       end

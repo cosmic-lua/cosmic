@@ -90,7 +90,7 @@ function progress.phase(verb: string, what: string, unit: string,
   local started_ns = now()
   -- The time of the last line said, held in a list of at most one: a
   -- function may change what a table holds, not a local of its maker.
-  local said: {integer} = {}
+  local said: mut {integer} = {}
   return {
     tick = function(done: integer, total: integer, detail?: function(): string)
       local at = now()

@@ -56,13 +56,13 @@ local record closure_store
   --- every row of a closure as it was leaves its store and its address
   --- too.
   record Basis
-    modules: {string:string}
+    modules: mut {string:string}
     shared: string
     --- Each module's kind, by path.
     kinds: mut {string:string}
     --- The modules an example can be paired with -- neither tests nor
     --- examples -- sorted (see [`build.writer`]'s `insert_examples`).
-    pairable: {string}
+    pairable: mut {string}
     --- Each declaration's line, by path.
     decls: mut {string:string}
     --- The declarations each declaration requires, by path
