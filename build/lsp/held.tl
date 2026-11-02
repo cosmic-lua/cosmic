@@ -49,8 +49,10 @@ local function none(_: string): boolean
   return false
 end
 
---- A program over the options `options`, whose modules but the document are served by `serve`.
-function held.new(options: Pipeline.Options, serve: function(module: string): Driver.Source?): Program
+--- A program over the options `options`, whose modules but the document are served by `serve`, and whose refused `require` of a
+--- name no module has is told by `meant` what it may have meant.
+function held.new(options: Pipeline.Options, serve: function(module: string): Driver.Source?,
+                  meant: function(name: string, file: string): {string}): Program
   local slot: held.Slot = { focus = nil }
   local index = Driver.index({}, none)
   --- The document's source while it is the focus, then what serves the module.
@@ -59,7 +61,7 @@ function held.new(options: Pipeline.Options, serve: function(module: string): Dr
     if focus ~= nil and focus.module == module then return focus.source end
     return serve(module)
   end
-  local build = TreeProgram.build(index, options.globals, true, nil, provider)
+  local build = TreeProgram.build(index, options.globals, true, nil, provider, meant)
   return {
     options = options,
     build = build,

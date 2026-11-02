@@ -1895,8 +1895,16 @@ local function format_command(root: string): {string}
   end
   command[#command + 1] = "--changed"
   command[#command + 1] = "--"
-  for line in text:gmatch("[^\n]+") do command[#command + 1] = line end
+  for line in text:gmatch("[^\n]+") do
+    -- `ci/` is checked as the project it is ([`ci_command`]), which the tree's run refuses a path of.
+    if line ~= "ci" and not String.starts_with(line, "ci/") then command[#command + 1] = line end
+  end
   return command
+end
+
+--- The check of `ci/` as a project of its own: `fix --check` of the tree's tool, run with `ci/` as the working directory.
+local function ci_command(root: string): {string}
+  return { BuildPaths.directory(root) .. "/bin/cosmic", "fix", "--check" }
 end
 
 --- The tree's format check (`fix --check .`, which also builds and
@@ -1947,7 +1955,8 @@ local function format_check(p: PlatformContext): integer
       local _, _ = Fs.put(Fs.stderr, "format check: the memo is not kept in " .. kept .. ": " .. tostring(trouble) .. "\n")
     end
   end
-  return status
+  if status ~= 0 then return status end
+  return checked(p.operation, "ci check", ci_command(p.root), nil, p.root .. "/ci")
 end
 
 local function phase_assemble(p: PlatformContext): integer

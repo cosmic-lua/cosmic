@@ -518,7 +518,9 @@ local function program_of(checker: Checker, path: string): held.Program
     checker.epoch = checker.epoch + 1
   end
   if program == nil then
-    program = held.new(options_of(checker), serve_of(checker))
+    program = held.new(options_of(checker), serve_of(checker), function(name: string, file: string): {string}
+      return graph.meant(checker.source, file, name)
+    end)
     checker.program = program
   end
   return program
