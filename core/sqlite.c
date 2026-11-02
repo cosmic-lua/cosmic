@@ -292,6 +292,15 @@ static void inflate_function (sqlite3_context *ctx, int argc,
   }
   size_t len;
   const void *data = bytes_of(argv[0], &len);
+  /* A deflate stream is never zero bytes. An empty value is most likely a
+   * text a store carries without it (a pure test store), which a test
+   * that reads it declares `store_text` for. */
+  if (len == 0) {
+    sqlite3_result_error(ctx, "inflate: the value is empty (a source a "
+                         "store withholds, if it is one: a test that reads "
+                         "it declares `Test.policy { store_text = true }`)", -1);
+    return;
+  }
   /* No more than SQLite would hold as one value anyway, so a stream
    * that decodes to more fails before it is ever all in memory. */
   int limit = sqlite3_limit(sqlite3_context_db_handle(ctx),

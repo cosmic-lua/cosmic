@@ -16,7 +16,8 @@ end
 --- binary does not carry as the tree has them (one it lacks too), and
 --- the first three, as " (2 modules moved: build.a, build.b)". "" where
 --- none is found (what moved was not a module) or the tree cannot be
---- read.
+--- read. Where the binary holds a module without its source ([`Store.withheld`]),
+--- the reason instead.
 function stale_reason.of(handle: work.Handle): string
   local rows, _ = Sqlite.text_rows(handle.db,
     "SELECT path, source_hash FROM inputs WHERE (origin = 'tree' " ..
@@ -28,6 +29,12 @@ function stale_reason.of(handle: work.Handle): string
   local shown = ""
   for _, row in ipairs(rows) do
     local source, _ = Store.source(row:text(1))
+    if source == nil then
+      -- A module held without its source has not moved: say what is wrong rather than that it did.
+      local withheld, trouble = Store.withheld(row:text(1))
+      if trouble ~= "" then return " (" .. trouble .. ")" end
+      if withheld ~= nil then return " (" .. withheld .. ")" end
+    end
     if source == nil or Hash.hex_sha256(source) ~= row:text(2) then
       count = count + 1
       if count == 1 then

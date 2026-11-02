@@ -574,6 +574,16 @@ static int store_source (lua_State *L) {
   };
   for (size_t i = 0; db != NULL && i < sizeof queries / sizeof *queries; i++) {
     if (lookup(L, db, queries[i], name)) {
+      /* A deflated source is never zero bytes, so an empty one is a row
+       * the store carries without its text (a pure test store). */
+      if (lua_rawlen(L, -1) == 0) {
+        lua_pop(L, 1);
+        lua_pushnil(L);
+        lua_pushfstring(L, "the source of '%s' is withheld: the store carries "
+                        "the module without its source; a test that reads it "
+                        "declares `Test.policy { store_text = true }`", name);
+        return 2;
+      }
       const char *why = inflate_top(L, db);
       if (why != NULL) {
         lua_pushnil(L);

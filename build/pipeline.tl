@@ -296,11 +296,25 @@ local function declared(name: string): boolean
   return rows ~= nil and #rows > 0
 end
 
+--- Nil for a module the binary does not hold. One it holds without its source
+--- (a pure test store, [`Store.withheld`]) is no absent module the checker may
+--- call missing: it raises why.
+local function withheld_or_absent(module: string): string?
+  local withheld, trouble = Store.withheld(module)
+  if trouble ~= "" then
+    error(trouble, 0)
+  end
+  if withheld ~= nil then
+    error(withheld, 0)
+  end
+  return nil
+end
+
 function Pipeline.carried(): Driver.Provider
   return Driver.standard(function(module: string): string?
     local found = standard_text.of(module)
     if found == nil then
-      return nil
+      return withheld_or_absent(module)
     end
     return found.text
   end, declared)
@@ -310,7 +324,7 @@ function Pipeline.carried_own(): Driver.Provider
   return Driver.standard(function(module: string): string?
     local found = standard_text.own(module)
     if found == nil then
-      return nil
+      return withheld_or_absent(module)
     end
     return found.text
   end, declared)
@@ -423,6 +437,12 @@ end
 local carried_code: Reader = {
   source = function(name: string): string?
     local source, _ = Store.source(name)
+    if source == nil then
+      -- Held without its source is no module the identity may leave out.
+      local withheld, trouble = Store.withheld(name)
+      if trouble ~= "" then error(trouble, 0) end
+      if withheld ~= nil then error(withheld, 0) end
+    end
     return source
   end,
   requires = function(name: string): {string}
