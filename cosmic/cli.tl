@@ -162,7 +162,13 @@ local record Cli
   --- declaration of its own file, one file, or, written in full
   --- (`module.member`), one symbol; in Markdown it also
   --- writes the definitions GitHub needs to show one, at the file's
-  --- end. It never lays out a Markdown or Zig file. A Teal file the
+  --- end. That is all it writes to a Markdown or Zig file: it never
+  --- reflows or re-indents one. `--check` writes nothing and reports
+  --- what a run would change, the dry run. A path the tree's own
+  --- .gitignore files ignore (not the user's global excludes), and
+  --- anything under a `node_modules/`, is neither checked, rewritten
+  --- nor linked to; where git cannot say (no git, no repository) only
+  --- `node_modules/` is left alone. A Teal file the
   --- build does not read (under `bin/` or a hidden directory, or
   --- outside the tree), named or under a named directory, is
   --- type-checked alone, as `cosmic --standalone` checks a file;
@@ -660,12 +666,13 @@ local record Cli
   --- binary it reads is never written
   refresh: string
   --- `cosmic release [--commit hex] [--until time] [--list [-n count] | -o file | --cache] [--pin file] [--json]`:
-  --- finds cosmic's own releases, the `next-<commit>` prereleases of
-  --- cosmic-lua/cosmic on GitHub, picks one and verifies it. Releases
-  --- are found by their tags and main's history, newest commit first, as
-  --- the API's list of releases serves only 1000 and not by time; a
-  --- `--commit` reads only the releases of the tags its prefix starts,
-  --- refusing a prefix that names more than 10. With no criterion it
+  --- finds cosmic's own releases, the `YYYYMMDD-<commit>` (earlier,
+  --- `next-<commit>`) prereleases of cosmic-lua/cosmic on GitHub, picks
+  --- one and verifies it. Releases are found by their tags and main's
+  --- history, newest commit first, as the API's list of releases serves
+  --- only 1000 and not by time; a `--commit` reads only the releases of
+  --- the tags whose commit starts with its prefix, refusing a prefix
+  --- that names more than 10. With no criterion it
   --- picks the release of the latest commit on main that has one;
   --- `--commit` the one whose commit starts with the hex (7 to 40
   --- digits), `--until` the latest whose release was published at or

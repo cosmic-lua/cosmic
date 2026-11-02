@@ -166,7 +166,7 @@ local function test_a_root_of_its_own_tmpfs_alone_makes_a_unix_socket_there(tmp:
     Test.skip("no Landlock here: " .. tostring(trouble))
     return
   end
-  if unix_socket.skipped(tmp) then return end
+  unix_socket.skip_if_refused(tmp)
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   -- What it makes in its own /tmp it also reaches there, whatever Landlock's ABI.
   local made = in_sandbox(tmp, probe, rooted_with(probe, {}), "loopback-unix /tmp/pair.sock")
@@ -191,7 +191,7 @@ local function nesting(probe: string, shown: {string}): raw_process.Sandbox
 end
 
 local function test_a_nest_start_with_a_root_of_files_alone_makes_a_unix_socket(tmp: string)
-  if unix_socket.skipped(tmp) then return end
+  unix_socket.skip_if_refused(tmp)
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   local made = in_sandbox(tmp, probe, nesting(probe, {}), "loopback-unix /tmp/pair.sock")
   assert(made.code == 0 and made.said == "connected\n", "made in its own tmpfs: " .. made.said)
@@ -206,7 +206,7 @@ local function test_a_nest_start_with_a_root_of_files_alone_makes_a_unix_socket(
 end
 
 local function test_a_nest_start_whose_root_shows_a_host_directory_or_socket_is_refused_a_unix_socket(tmp: string)
-  if unix_socket.skipped(tmp) then return end
+  unix_socket.skip_if_refused(tmp)
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   local socket, listener = host_socket(tmp)
   local control = in_sandbox(tmp, probe, nesting(probe, {}), "connect /none.sock")
@@ -226,7 +226,7 @@ local function test_a_root_that_shows_a_directory_of_the_host_is_held_by_landloc
     Test.skip("no Landlock here: " .. tostring(trouble))
     return
   end
-  if unix_socket.skipped(tmp) then return end
+  unix_socket.skip_if_refused(tmp)
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   local socket, listener = host_socket(tmp)
   local control = in_sandbox(tmp, probe, rooted_with(probe, {}), "connect /none.sock")
@@ -246,7 +246,7 @@ local function test_a_socket_file_in_the_root_is_not_held_below_abi_9(tmp: strin
     Test.skip("no Landlock here: " .. tostring(trouble))
     return
   end
-  if unix_socket.skipped(tmp) then return end
+  unix_socket.skip_if_refused(tmp)
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   local socket, listener = host_socket(tmp)
   local control = in_sandbox(tmp, probe, rooted_with(probe, {}), "connect /none.sock")
@@ -266,7 +266,7 @@ local function test_a_descriptor_that_opens_a_directory_or_a_socket_is_not_held_
     Test.skip("no Landlock here: " .. tostring(trouble))
     return
   end
-  if unix_socket.skipped(tmp) then return end
+  unix_socket.skip_if_refused(tmp)
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   local socket, listener = host_socket(tmp)
   local sandbox = rooted_with(probe, {})

@@ -1408,7 +1408,7 @@ local function settle(v: Scopes.Var)
     local loop = loops[i]
     while loop ~= 0 and level[loop] > floor and holding[loop] ~= true do
       holding[loop] = true
-      loop = parent[loop]
+      loop = assert(parent[loop])
     end
   end
   for _, c in ipairs(v.captures) do
@@ -1418,7 +1418,7 @@ local function settle(v: Scopes.Var)
       local loop = S.entry_of[c.fn]
       while loop ~= 0 and level[loop] > floor and not c.after do
         c.after = holding[loop] == true
-        loop = parent[loop]
+        loop = assert(parent[loop])
       end
     end
   end

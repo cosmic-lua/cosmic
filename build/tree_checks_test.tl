@@ -489,7 +489,7 @@ local function test_a_module_building_a_chunk_from_text_outside_the_list_is_refu
 end
 
 --- A test that returns early from its own body is refused with its file, line and name; a skip, a return in a branch that
---- asserts, a module that is no test and a prefix still excused are not; a prefix nothing needs is told to go.
+--- asserts, and a module that is no test are not.
 local function test_a_test_returning_early_is_refused(dir: string)
   local function put(file: string, text: string)
     assert(Fs.mkdirs(dir .. "/" .. (file:match("^(.*)/[^/]*$") or ".")))
@@ -501,13 +501,10 @@ local function test_a_test_returning_early_is_refused(dir: string)
       "  if nothing() then\n    Test.skip(\"no\")\n    return\n  end\n  assert(true)\nend\n")
   put("build/arm_test.tl", "local function test_arm()\n  if nothing() then\n    assert(true)\n    return\n  end\n  assert(false)\nend\n")
   put("build/helper.tl", "local function test_not_a_test_file()\n  if nothing() then return end\nend\n")
-  put("core/old_test.tl", "local function test_old()\n  if nothing() then return end\nend\n")
-  local found = tree_checks.test_returns(dir, { ["core/"] = "converted later", ["ci/"] = "converted later" })
-  assert(#found == 3, table.concat(found, "\n"))
+  local found = tree_checks.test_returns(dir)
+  assert(#found == 2, table.concat(found, "\n"))
   assert(found[1]:find("^build/bare_test.tl:3: test_bare returns early %(`return`%)"), found[1])
   assert(found[2]:find("^build/guard_test.tl:3: test_guarded returns early %(`if ... then return end`%)"), found[2])
-  assert(found[3] == "ci/: excused from the early-return check, but no test there returns early any more -- " ..
-      "remove the exemption", found[3])
 end
 
 --- A declaration that requires only declarations passes; one that requires a module is refused.

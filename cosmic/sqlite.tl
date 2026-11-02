@@ -25,6 +25,10 @@
 --- column 2 when it holds that type, and raise when it does not;
 --- [`Sqlite.map`] turns each row into a record of such reads.
 ---
+--- To query a database file from the shell, `cosmic sql --db notes.db
+--- '<statement>'` runs one read-only statement; no `sqlite3` binary or
+--- other language is needed.
+---
 --- SQLite's JSON functions read JSON5 always, and in cosmic's copy `#`
 --- line comments too, as `cosmic.json` does given `hash_comments`: a
 --- text in YAML's flow style reads the same through either.
@@ -639,7 +643,8 @@ local function checked(values: {Sqlite.Value}): integer
     for field in pairs(value as {any: any}) do
       if field ~= "integer" and field ~= "number" and field ~= "text" and field ~= "blob" and
           field ~= "integers" and field ~= "numbers" and field ~= "texts" and field ~= "blobs" then
-        error("sqlite: parameter " .. key .. " has an unknown Value field: " .. tostring(field), 4)
+        local hint = if field == "null" then " (use {} for NULL)" else "" end
+        error("sqlite: parameter " .. key .. " has an unknown Value field: " .. tostring(field) .. hint, 4)
       end
       fields = fields + 1
     end
