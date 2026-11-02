@@ -5,7 +5,7 @@
 ---
 --- What this layer decides, from the role of each token and never from the whitespace the author wrote:
 --- - a binary operator has one space each side, a unary operator hugs its operand (`-x`, `#t`; the operator `not`
----   keeps its space, and one before `not` hugs it: `-not a`);
+---   keeps its space, and one before `not` hugs it: `-not a`), as the `...` of a spread does (`{ ...r, a = 1 }`);
 --- - a comma has none before and one after, a `:` none before and one after, a call, an index and a field are
 ---   closed up;
 --- - a table has its entries one space inside its braces (`{ a = 1, 2 }`) and an empty one is `{}`, and a key is

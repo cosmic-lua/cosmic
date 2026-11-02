@@ -39,6 +39,15 @@ local function test_a_source_is_laid_out()
   lays("-- c\n", "-- c\n")
 end
 
+local function test_a_spread_hugs_its_source_and_a_vararg_keeps_its_spaces()
+  lays("local t={...r,a=1}\n", "local t = { ...r, a = 1 }\n")
+  lays("local t = {  ...  r  }\n", "local t = { ...r }\n")
+  lays("local t = {\n...f(x).y,\n  a = 2\n}\n", "local t = {\n  ...f(x).y,\n  a = 2,\n}\n")
+  lays("local t = {...}\n", "local t = { ... }\n")
+  lays("local t = { 1,... }\n", "local t = { 1, ... }\n")
+  lays("local t = { ...-1 }\n", "local t = { ... - 1 }\n")
+end
+
 local function test_what_is_laid_out_is_laid_out_as_itself()
   local source = "local function f(a: integer): integer\n  -- c\n  return a +\n    1\nend\n"
   lays(source, source)
