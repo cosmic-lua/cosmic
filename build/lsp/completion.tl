@@ -55,7 +55,9 @@
 -- that place its declared type is used, and a call takes its function's declared result, with the type parameters of a
 -- generic function left unsolved. A broken `local` keeps its names and what is before its `=` ([`neutralized`]), so
 -- a name without a written type has none there, and a broken function, record, enum or type declaration gives no text
--- at all: the names such a statement declares are not typed while it stays broken.
+-- at all: the names such a statement declares are not typed while it stays broken. Where no text is made, a name a
+-- broken statement declares again (`local type Bar = `, or a `local x: Foo` inside a function a broken statement leaves
+-- open) is typed by the outer binding the last text that parsed has, as before this probe.
 
 -- TODO: name the placeholders of a call inserted for a function after its parameters where its type is the checker's and
 -- not written (a local function, a global of the standard library, a member the rows do not hold), once a function type
@@ -1061,7 +1063,7 @@ end
 
 --- The kinds of statement that declare a name the statements after them use, other than a `local`.
 local DECLARING <const>: {string: boolean} = {
-  LocalFunction = true, Record = true, Interface = true, Class = true, Enum = true, TypeAlias = true, Import = true,
+  LocalFunction = true, Record = true, Interface = true, Class = true, Enum = true, Alias = true, Userdata = true, Import = true,
 }
 
 --- The text `text` with the statements the parser finds broken in it written over by spaces, which keeps every other byte
