@@ -14,6 +14,9 @@ local Shape = require("cosmic.shape")
 local Stream = require("cosmic.stream")
 local hash = require("build.hash")
 local support = require("build.test_support_fixture")
+local Test = require("cosmic.test")
+
+Test.policy{ cpu_features = true }
 
 local record Ran
   mut code: integer

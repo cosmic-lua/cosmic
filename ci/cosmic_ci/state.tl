@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS suite_runs (
   attempt TEXT NOT NULL, phase TEXT NOT NULL, suite TEXT NOT NULL,
   status TEXT NOT NULL, exit_code INTEGER, tests INTEGER, modules INTEGER,
   ran INTEGER, stood INTEGER, every INTEGER, shared INTEGER,
-  failed INTEGER, elapsed_ms INTEGER, sandbox TEXT, host_features TEXT,
+  failed INTEGER, elapsed_ms INTEGER, sandbox TEXT, host_kernel TEXT,
   host TEXT, system TEXT, runtime TEXT, compiler TEXT, harness TEXT,
   launcher TEXT, program TEXT, held TEXT, store TEXT);
 ]]
@@ -88,7 +88,7 @@ end
 --- The key parts `suite_runs` keeps, by the name `cosmic test` says each
 --- by, beside its column.
 local KEY_PARTS <const>: {State.KeyPart} = {
-  { said = "host features", column = "host_features" }, { said = "host", column = "host" },
+  { said = "host kernel", column = "host_kernel" }, { said = "host", column = "host" },
   { said = "system", column = "system" }, { said = "runtime", column = "runtime" },
   { said = "compiler", column = "compiler" }, { said = "harness", column = "harness" },
   { said = "launcher", column = "launcher" }, { said = "program", column = "program" },
