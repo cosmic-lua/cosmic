@@ -72,14 +72,6 @@ local record Markers
   --- the marker removed where it reaches none, and a comment of a marker's alone deleted with its line.
   without: function(text: string, name: string, spots: {Spot}): string
 
-  --- The text with the findings of `spots` (of one file) marked: added to the markers the line has, or written as a new
-  --- comment at the end of the line, or on a line of its own above it where the line cannot take a comment.
-  with: function(text: string, name: string, spots: {Spot}): string
-
-  --- The spots of `spots` that [`Markers.with`] leaves unwritten: a line that cannot take a trailing comment and has a line above
-  --- that ends inside a long string has nowhere to put one.
-  unwritable: function(text: string, name: string, spots: {Spot}): {Spot}
-
   --- `line`, a line of source, without the markers that end it: they are comments of the checker's, not part of what the line
   --- declares, so a signature shown from the line is shown without them.
   bare: function(line: string): string
@@ -348,15 +340,6 @@ local function by_line(spots: {Markers.Spot}): {integer: {string: integer}}, {in
   return out, lines
 end
 
---- The byte where each line of `text` begins.
-local function line_starts(text: string): {integer}
-  local starts: mut {integer} = { 1 }
-  for at in text:gmatch("()\n") do
-    starts[#starts + 1] = at + 1
-  end
-  return starts
-end
-
 --- A piece of `text` to replace: bytes `first` to `last` become `with`.
 local record Edit
   first: integer
@@ -474,61 +457,6 @@ function Markers.without(text: string, name: string, spots: {Markers.Spot}): str
     end
   end
   return applied(text, edits)
-end
-
-function Markers.with(text: string, name: string, spots: {Markers.Spot}): string
-  local wanted, lines = by_line(spots)
-  local read: Markers.Read = { marks = {}, open = {} }
-  if #lines > 0 then
-    scan(text, name, read)
-  end
-  local starts = line_starts(text)
-  local edits: mut {Edit} = {}
-  local marked: mut {integer: Markers.Mark} = {}
-  for _, mark in ipairs(read.marks) do
-    marked[mark.line] = marked[mark.line] or mark
-  end
-  for _, line in ipairs(lines) do
-    local add = assert(wanted[line])
-    local begin = starts[line]
-    local stop = (starts[line + 1] or #text + 2) - 2
-    if begin == nil then
-      -- a line the text lacks has nothing to mark
-    elseif marked[line] ~= nil then
-      local mark = assert(marked[line])
-      edits[#edits + 1] = { first = mark.first, last = mark.last, with = render(mark.prefix, changed(mark, add)) }
-    elseif read.open[line] == true and read.open[line - 1] == true then
-      -- the line above ends inside a string: a comment there would be its text ([`Markers.unwritable`])
-    elseif read.open[line] == true then
-      local indent = text:match("^[ \t]*", begin) or ""
-      edits[#edits + 1] = { first = begin, last = begin - 1,
-        with = indent .. render("", changed(nil, add)) .. "\n" }
-    else
-      if sub(text, stop, stop) == "\r" then stop = stop - 1 end
-      -- The end of the code, less the spaces it ends in.
-      while stop >= begin and sub(text, stop, stop):match("[ \t]") ~= nil do
-        stop = stop - 1
-      end
-      edits[#edits + 1] = { first = stop + 1, last = stop, with = " " .. render("", changed(nil, add)) }
-    end
-  end
-  return applied(text, edits)
-end
-
-function Markers.unwritable(text: string, name: string, spots: {Markers.Spot}): {Markers.Spot}
-  local out: mut {Markers.Spot} = {}
-  local read: Markers.Read = { marks = {}, open = {} }
-  scan(text, name, read)
-  local held: mut {integer: boolean} = {}
-  for _, mark in ipairs(read.marks) do
-    held[mark.line] = true
-  end
-  for _, spot in ipairs(spots) do
-    if held[spot.line] ~= true and read.open[spot.line] == true and read.open[spot.line - 1] == true then
-      out[#out + 1] = spot
-    end
-  end
-  return out
 end
 
 return Markers

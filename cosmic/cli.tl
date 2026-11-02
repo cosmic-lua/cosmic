@@ -928,8 +928,6 @@ local module: Module = {
             "not laid out, or that the formatter refuses, fails it)" },
         ["--changed"] = { about = "in cosmic's own tree, lay out only the paths named, which " ..
             "changed since the whole tree passed; what spans files still covers it all" },
-        ["--mark-ceilings"] = { about = "in cosmic's own tree, once: write a `-- checked: <code>` marker at each " ..
-            "finding the stages of build/ceilings.txt still count, and list those stages under [marked] in place of their rows" },
       },
     },
     build = {
