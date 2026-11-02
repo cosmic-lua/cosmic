@@ -26,6 +26,19 @@
 ---
 ---     local server, err = decode_into(text, SERVER.spec)
 ---
+--- A field that is one of several shapes has none to check: a union of more than one type is refused when the module is
+--- built. Write it as a tagged record, a `kind` enum and an optional field for each kind, and test `kind` after `into`:
+---
+---     local record Event
+---       enum Kind
+---         "click"
+---         "key"
+---       end
+---       kind: Kind
+---       x?: integer
+---       key?: string
+---     end
+---
 --- An array holds every index from 1, so a list that may have a missing
 --- element is not a `{T}`: `list(optional(x))` does not compile
 --- (`array_of_optional`), and [`sparse_list`] answers `{integer: T}`.

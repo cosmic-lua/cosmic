@@ -96,6 +96,59 @@ end
 3
 ```
 
+## an array with named fields
+
+A table that holds an array part and named fields is a record that declares both: `is {string}` makes the array part, and
+the body declares the fields. Its literal mixes the two, and `#r`, `r[1]`, `r.name` and a call of a function field, `r.run()`, all work. A map keyed by two
+types, `{string | integer: T}`, is refused on purpose (`key_type`): declare the record instead.
+
+```teal
+local record Plugin is {string}
+  name: string
+  run: function(): string
+end
+
+local plugin: Plugin = { "a", "b", name = "demo", run = function(): string return "ran" end }
+print(#plugin, plugin[1], plugin.name, plugin.run())
+```
+
+```output
+2	a	demo	ran
+```
+
+A call with a string in place of its arguments, `f "x"`, is not in the grammar (`string_call`): write `f("x")`.
+
+## choosing a module by name
+
+`require(name)` with a computed name is refused (`computed_require`), so that the build sees every module a program
+loads. To choose a module at run time, require each candidate by its literal name into a table keyed by name, and pick from
+the table.
+
+```teal
+local Json = require("cosmic.json")
+local Csv = require("cosmic.csv")
+
+local counters: {string: function(string): integer} = {
+  json = function(text: string): integer
+    local list = Json.decode_array(text)
+    if list == nil then return 0 end
+    return #list
+  end,
+  csv = function(text: string): integer
+    local rows = Csv.parse(text)
+    if rows == nil then return 0 end
+    return #rows
+  end,
+}
+
+local count = assert(counters["json"])
+print(count("[1, 2, 3]"))
+```
+
+```output
+3
+```
+
 ## integers and floats
 
 `local t = 0` is an `integer`. A later `t = t + 1.5` is `number`, which is not an `integer`, so the checker refuses it

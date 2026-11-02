@@ -30,6 +30,10 @@ nothing has changed, and about 8 minutes in a fresh worktree, where few
 verdicts stand. A run over ten seconds says `test: running n/m tests`
 as it goes.
 
+To check one file in a project, run `cosmic fix <file>`: it builds the tree and reports that file's errors, with every
+project `require` known. `cosmic --standalone --check <file>` checks a file alone, outside the project, so its project
+requires are unknown by design and a file that needs them is refused there.
+
 A parser that reads untrusted bytes also gets a fuzz test (below). An
 example (`*_example.tl`) shows use and is held to fewer rules.
 
@@ -201,6 +205,9 @@ refuses a module of the tree outside the closure.
   [`build.this_program`]'s `program` and needs no `"system"` profile.
   Build a child's environment from its `environment()` only where the
   test means to choose it.
+- `Store.source(name)` ([`cosmic.store`]) serves only the running binary's own database. Under `cosmic test` that is the
+  test's sealed database: the source of a module the test requires is there, and a module it does not require answers
+  `nil` and `no module '<name>' in the binary`.
 - To read the tree's projection or rows of modules outside the closure,
   grant `{ path = "o/cosmic.db", letters = "r" }` (`store`). A test that
   does so runs again on every edit to the tree. Put it in a module of
@@ -326,6 +333,15 @@ A test that passes without calling `assert` shows only that it did not
 raise. The worker counts calls to `assert`, through any helper or
 fixture. `cosmic test` lists each such pass as `test: NO ASSERT <id>`
 and keeps no verdict of it. A held run fails it.
+
+To compare JSON-shaped values, use [`Json.diff`]`(want, got)` and assert that the list it answers is empty, or put the paths
+it names in the message. Compare a typed record field by field.
+
+    local Json = require("cosmic.json")
+    local want: Json.Value = { name = "cosmic", tags = Json.array({ "lua" }) }
+    local got: Json.Value = { name = "cosmic", tags = Json.array({ "lua", "teal" }) }
+    local differences = Json.diff(want, got)
+    assert(#differences == 1 and differences[1].path == "/tags/1")
 
 - A test that checks through `error` or `pcall` still calls `assert`
   for what it checks.
@@ -604,6 +620,7 @@ Other rules:
 [`ci/README.md`]: ../ci/README.md
 [`cosmic.layout`]: ../cosmic/layout.tl
 [`cosmic.sandbox`]: ../cosmic/sandbox/init.tl
+[`cosmic.store`]: ../cosmic/store.tl
 [`cosmic.template`]: ../cosmic/template/init.tl
 [`cosmic/store_seal_test.tl`]: ../cosmic/store_seal_test.tl
 [`declared_key.host_split`]: ../build/declared_key.tl
@@ -611,6 +628,7 @@ Other rules:
 [`Fuzz.label`]: ../build/fuzz/init.tl
 [`Fuzz.more`]: ../build/fuzz/init.tl
 [`importer.checked_tool`]: ../build/importer.tl
+[`Json.diff`]: ../cosmic/json.tl
 [`lang.boundary_checks`]: ../lang/boundary_checks.tl
 [`lang.check_programs`]: ../lang/check_programs.tl
 [`lang.codegen`]: ../lang/codegen.tl
