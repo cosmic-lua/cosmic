@@ -289,18 +289,15 @@ end
 
 local function test_a_code_two_stages_report_is_held_by_the_marker_of_its_own_stage()
   -- `float_key` is a code of `declared` and of `checked`: each stage's finding needs its own marker
-  assert(Ceilings.stage_codes("declared")[1] ~= nil)
   local both = "local x = f() -- declared: float_key\n"
   local judged = Ceilings.marked("checked", "a.tl", both, { finding("float_key", 1) }, { "float_key" }, "bodies")
   assert(#judged.unmarked == 1, "the declared marker does not hold the checked finding")
   local own = Ceilings.marked("declared", "a.tl", both, { finding("float_key", 1) }, { "float_key" }, "declarations")
   assert(#own.lines == 0 and #own.stale == 0 and #own.unmarked == 0)
   assert(first(judged.unmarked, 1).stage == "checked")
-  -- the pseudo code of the stage that counts calls
-  assert(Ceilings.stage_codes("untyped")[1] == Ceilings.untyped_code)
-  for _, stage in ipairs(Ceilings.markable()) do
-    assert(#Ceilings.stage_codes(stage) > 0, tostring(stage))
-  end
+  -- a code of the stage is known to it and one of another is not; the pseudo code of the stage that counts calls is its own
+  assert(#Ceilings.unknown("a.tl", "x() -- declared: float_key -- checked: float_key -- untyped: call\n") == 0)
+  assert(#Ceilings.unknown("a.tl", "x() -- untyped: float_key -- scoped: float_key\n") == 2)
 end
 
 local function test_a_finding_on_a_line_without_a_marker_for_its_code_is_listed_and_one_with_it_is_not()

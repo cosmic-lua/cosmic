@@ -125,9 +125,6 @@ local record Ceilings
   --- Whether `ceilings` holds the findings of `stage` by markers.
   by_marks: function(ceilings: Table, stage: Stage): boolean
 
-  --- The codes a marker of `stage` may name: those of the stage's check, and for `untyped` the one pseudo code.
-  stage_codes: function(stage: Stage): {string}
-
   --- A place where a finding and a marker disagree, for the check that tells it and the fix that mends it.
   type Spot = Markers.Spot
 
@@ -530,13 +527,6 @@ function Ceilings.by_marks(ceilings: Ceilings.Table, stage: Ceilings.Stage): boo
   return marked ~= nil and marked[tostring(stage)] == true
 end
 
-function Ceilings.stage_codes(stage: Ceilings.Stage): {string}
-  if stage == "untyped" then
-    return { Ceilings.untyped_code }
-  end
-  return codes_of(tostring(stage)) or {}
-end
-
 function Ceilings.marked(stage: Ceilings.Stage, file: string, text: string, errors: {Ceilings.Finding}, codes: {string},
                          what: string, unpinned?: boolean): Ceilings.Judged
   local out: mut {string} = {}
@@ -681,6 +671,14 @@ function Ceilings.migrated(text: string, stages: {string}): string
   return out
 end
 
+--- The codes a marker of `stage` may name: those of the stage's check, and for `untyped` the one pseudo code.
+local function stage_codes(stage: Ceilings.Stage): {string}
+  if stage == "untyped" then
+    return { Ceilings.untyped_code }
+  end
+  return codes_of(tostring(stage)) or {}
+end
+
 function Ceilings.unknown(file: string, text: string): {Markers.Spot}
   local out: mut {Markers.Spot} = {}
   for _, mark in ipairs(Markers.read(text, file).marks) do
@@ -688,7 +686,7 @@ function Ceilings.unknown(file: string, text: string): {Markers.Spot}
       local known: mut {string: boolean} = {}
       for _, stage in ipairs(MARKABLE_LIST) do
         if tostring(stage) == segment.stage then
-          for _, code in ipairs(Ceilings.stage_codes(stage)) do
+          for _, code in ipairs(stage_codes(stage)) do
             known[code] = true
           end
         end

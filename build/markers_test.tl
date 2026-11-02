@@ -121,12 +121,10 @@ local function test_a_comment_with_the_words_and_a_sentence_is_left_alone()
   assert(Markers.without(source, "a.tl", { spot(1, "it") }) == source)
 end
 
-local function test_the_marker_renders_its_stages_and_codes_in_order()
-  local segments: {Markers.Segment} = {
-    { stage = "checked", codes = { "map_field", "any_use" }, counts = { map_field = 2, any_use = 1 } },
-    { stage = "scoped", codes = { "shadows" }, counts = { shadows = 1 } },
-  }
-  assert(Markers.render("", segments) == "-- scoped: shadows -- checked: map_field*2, any_use", Markers.render("", segments))
-  assert(Markers.render("-- why", segments) == "-- why -- scoped: shadows -- checked: map_field*2, any_use")
-  assert(Markers.render("", {}) == "")
+local function test_the_markers_are_written_in_the_order_of_the_stages_and_after_the_words_of_the_comment()
+  local marked = Markers.with(text("g() -- why"), "a.tl", { spot(1, "map_field", 2), spot(1, "any_use"),
+    { file = "a.tl", line = 1, stage = "scoped", code = "shadows", count = 1 } })
+  assert(marked == text("g() -- why -- scoped: shadows -- checked: any_use, map_field*2"), marked)
+  assert(Markers.without(marked, "a.tl", { spot(1, "map_field", 2), spot(1, "any_use"),
+    { file = "a.tl", line = 1, stage = "scoped", code = "shadows", count = 1 } }) == text("g() -- why"))
 end

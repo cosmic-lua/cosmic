@@ -17,9 +17,6 @@
 local Lexer = require("lang.lexer")
 
 local record Markers
-  --- The stages that have markers, in the order a comment writes them.
-  mut stages: {string}
-
   --- A place a marker holds or is wanted: the `count` findings of `code` of `stage` on `line` of `file`.
   record Spot
     file: string
@@ -82,11 +79,10 @@ local record Markers
   --- Whether `text` has the words of any stage's marker, so that it is worth lexing.
   mentions: function(text: string): boolean
 
-  --- The comment for `segments` in the order of the stages, after the words `prefix`, or "" where there is neither.
-  render: function(prefix: string, segments: {Segment}): string
 end
 
-Markers.stages = { "scoped", "declared", "checked", "untyped" }
+--- The stages that have markers, in the order a comment writes them.
+local STAGES <const>: {string} = { "scoped", "declared", "checked", "untyped" }
 
 local find, sub = string.find, string.sub
 
@@ -128,7 +124,7 @@ local function in_comment(text: string, alone: boolean): string, {Markers.Segmen
   -- Where each marker begins: the key at the start of the comment or after a space.
   local starts: mut {integer} = {}
   local stage_at: mut {integer: string} = {}
-  for _, stage in ipairs(Markers.stages) do
+  for _, stage in ipairs(STAGES) do
     local key = key_of(stage)
     local at = 1
     while true do
@@ -199,14 +195,14 @@ end
 
 function Markers.keys(): {string}
   local out: mut {string} = {}
-  for _, stage in ipairs(Markers.stages) do
+  for _, stage in ipairs(STAGES) do
     out[#out + 1] = key_of(stage)
   end
   return out
 end
 
 function Markers.mentions(text: string): boolean
-  for _, stage in ipairs(Markers.stages) do
+  for _, stage in ipairs(STAGES) do
     if find(text, key_of(stage), 1, true) ~= nil then
       return true
     end
@@ -260,12 +256,13 @@ local function piece(code: string, n: integer): string
   return code .. "*" .. tostring(n)
 end
 
-function Markers.render(prefix: string, segments: {Markers.Segment}): string
+--- The comment for `segments` in the order of the stages, after the words `prefix`, or "" where there is neither.
+local function render(prefix: string, segments: {Markers.Segment}): string
   local parts: mut {string} = {}
   if prefix ~= "" then
     parts[1] = prefix
   end
-  for _, stage in ipairs(Markers.stages) do
+  for _, stage in ipairs(STAGES) do
     for _, segment in ipairs(segments) do
       if segment.stage == stage and #segment.codes > 0 then
         local codes: mut {string} = {}
@@ -327,7 +324,7 @@ end
 local function changed(mark: Markers.Mark?, change: {string: integer}): {Markers.Segment}
   local order: mut {string: mut {string}} = {}
   local counts: mut {string: mut {string: integer}} = {}
-  for _, stage in ipairs(Markers.stages) do
+  for _, stage in ipairs(STAGES) do
     order[stage] = {}
     counts[stage] = {}
   end
@@ -357,7 +354,7 @@ local function changed(mark: Markers.Mark?, change: {string: integer}): {Markers
     held[code] = (held[code] or 0) + assert(change[key])
   end
   local out: mut {Markers.Segment} = {}
-  for _, stage in ipairs(Markers.stages) do
+  for _, stage in ipairs(STAGES) do
     local codes, held = assert(order[stage]), assert(counts[stage])
     local kept: mut {string} = {}
     local kept_counts: mut {string: integer} = {}
@@ -385,7 +382,7 @@ function Markers.without(text: string, name: string, spots: {Markers.Spot}): str
       for key, n in pairs(drop) do
         negative[key] = -n
       end
-      local rest = Markers.render(mark.prefix, changed(mark, negative))
+      local rest = render(mark.prefix, changed(mark, negative))
       if rest ~= "" then
         edits[#edits + 1] = { first = mark.first, last = mark.last, with = rest }
       else
@@ -426,18 +423,18 @@ function Markers.with(text: string, name: string, spots: {Markers.Spot}): string
       -- a line the text lacks has nothing to mark
     elseif marked[line] ~= nil then
       local mark = assert(marked[line])
-      edits[#edits + 1] = { first = mark.first, last = mark.last, with = Markers.render(mark.prefix, changed(mark, add)) }
+      edits[#edits + 1] = { first = mark.first, last = mark.last, with = render(mark.prefix, changed(mark, add)) }
     elseif read.open[line] == true then
       local indent = text:match("^[ \t]*", begin) or ""
       edits[#edits + 1] = { first = begin, last = begin - 1,
-        with = indent .. Markers.render("", changed(nil, add)) .. "\n" }
+        with = indent .. render("", changed(nil, add)) .. "\n" }
     else
       if sub(text, stop, stop) == "\r" then stop = stop - 1 end
       -- The end of the code, less the spaces it ends in.
       while stop >= begin and sub(text, stop, stop):match("[ \t]") ~= nil do
         stop = stop - 1
       end
-      edits[#edits + 1] = { first = stop + 1, last = stop, with = " " .. Markers.render("", changed(nil, add)) }
+      edits[#edits + 1] = { first = stop + 1, last = stop, with = " " .. render("", changed(nil, add)) }
     end
   end
   return applied(text, edits)
