@@ -48,15 +48,14 @@ local lines = {} as {string}
 --- An app with a form page, state-changing routes and a login, behind the
 --- session and `Csrf.middleware(opts)`.
 local function make_app(opts?: Csrf.Options, spec?: Web.AppSpec): Web.App
-  local made: Web.AppSpec = spec or {}
-  made.sink = { line = function(_self: Web.Sink, text: string)
+  local sink: Web.Sink = { line = function(_self: Web.Sink, text: string)
     lines[#lines + 1] = text
   end }
-  made.middleware = {
+  local middleware: {Web.Middleware} = {
     Session.middleware{ store = memory_store() },
     Csrf.middleware(opts),
   }
-  made.routes = {
+  local routes: {Web.Route} = {
     Web.get("/token", function(req: Web.Request): Web.Response
       return Web.text(Csrf.token(req))
     end),
@@ -104,7 +103,7 @@ local function make_app(opts?: Csrf.Options, spec?: Web.AppSpec): Web.App
       return Web.text(("name=%s files=%d"):format((multipart.fields.by_name["name"] or { "-" })[1], count))
     end),
   }
-  return Web.app(made)
+  return Web.app({ ...(spec or {}), sink = sink, middleware = middleware, routes = routes })
 end
 
 --- A client with a session that has drawn its token, and the token.

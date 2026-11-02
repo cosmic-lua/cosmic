@@ -368,15 +368,16 @@ end
 local function pattern(total: integer, chunk: string): Stream.Reader, function(): integer
   local left = { value = total }
   local peak = { value = 0 }
-  local reader: Stream.Reader = {}
-  reader.read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
-    peak.value = math.max(peak.value, math.floor(collectgarbage("count") as number))
-    if left.value == 0 then return nil, "" end
-    local size = math.min(left.value, max_bytes or #chunk, #chunk)
-    left.value = left.value - size
-    return chunk:sub(1, size), ""
-  end
-  reader.close = function(): boolean, string return true, "" end
+  local reader: Stream.Reader = {
+    read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
+      peak.value = math.max(peak.value, math.floor(collectgarbage("count") as number))
+      if left.value == 0 then return nil, "" end
+      local size = math.min(left.value, max_bytes or #chunk, #chunk)
+      left.value = left.value - size
+      return chunk:sub(1, size), ""
+    end,
+    close = function(): boolean, string return true, "" end,
+  }
   return reader, function(): integer return peak.value end
 end
 

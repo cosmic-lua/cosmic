@@ -40,8 +40,7 @@ end
 --- host gives no Landlock or seccomp; fails the test where the start is
 --- refused for another reason.
 local function under(program: string, policy: Sandbox.Policy, script: string, opts?: Child.Options): Outcome
-  local options: Child.Options = opts or {}
-  options.policy, options.stdout, options.stderr = policy, "capture", "stdout"
+  local options: Child.Options = { ...(opts or {}), policy = policy, stdout = "capture", stderr = "stdout" }
   local result, why = Child.run({ program, script }, options)
   if result == nil then
     assert(unsandboxable(why), "the start was refused: " .. why)

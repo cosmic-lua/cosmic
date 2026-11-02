@@ -30,13 +30,9 @@ local record Extra
 end
 
 local function options(store: Session.Store, extra?: Extra): Session.Options
-  local o: Session.Options = { store = store }
-  if extra ~= nil then
-    o.cookie_name, o.max_age, o.rolling = extra.cookie_name, extra.max_age, extra.rolling
-    o.secure, o.same_site = extra.secure, extra.same_site
-  end
-  o.now = function(): integer return clock.now end
-  return o
+  local x: Extra = extra or {}
+  return { store = store, cookie_name = x.cookie_name, max_age = x.max_age, rolling = x.rolling,
+    secure = x.secure, same_site = x.same_site, now = function(): integer return clock.now end }
 end
 
 local seen: mut {Session.Handle} = {}
@@ -44,14 +40,11 @@ local seen: mut {Session.Handle} = {}
 --- An app with routes over the session.
 local function make_app(opts: Session.Options, spec?: Web.AppSpec): Web.App
   local lines: mut {string} = {}
-  local made: Web.AppSpec = spec or {}
-  if made.sink == nil then
-    made.sink = { line = function(_self: Web.Sink, text: string)
-      lines[#lines + 1] = text
-    end }
-  end
-  made.middleware = { Session.middleware(opts) }
-  made.routes = {
+  local given: Web.AppSpec = spec or {}
+  local sink: Web.Sink = given.sink or { line = function(_self: Web.Sink, text: string)
+    lines[#lines + 1] = text
+  end }
+  local routes: {Web.Route} = {
     Web.get("/nothing", function(_req: Web.Request): Web.Response
       return Web.text("nothing")
     end),
@@ -115,7 +108,7 @@ local function make_app(opts: Session.Options, spec?: Web.AppSpec): Web.App
       return Web.text(tostring(Session.of(_req):get_integer("n")))
     end),
   }
-  return Web.app(made)
+  return Web.app({ ...given, sink = sink, middleware = { Session.middleware(opts) }, routes = routes })
 end
 
 local function set_cookies(res: Web.TestResponse): {string}

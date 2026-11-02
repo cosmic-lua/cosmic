@@ -15,8 +15,7 @@ local test_sandbox_probe = require("build.test_sandbox_probe")
 local function test_a_worker_is_given_only_the_variables_it_may_read()
   local view = { PATH = "/bin", DECLARED = "d", UNDECLARED = "u", TMPDIR = "/elsewhere",
     COSMIC_SANDBOX = "must" }
-  local inputs = TestInputsFixture.effective({})
-  inputs.env = { PATH = true, TMPDIR = true, DECLARED = true }
+  local inputs = { ...TestInputsFixture.effective({}), env = { PATH = true, TMPDIR = true, DECLARED = true } }
   local env = test_sandbox.environment(view, inputs)
   assert(env["PATH"] == "/bin" and env["DECLARED"] == "d" and env["UNDECLARED"] == nil)
   assert(env["TMPDIR"] == test_sandbox.scratch)
@@ -27,8 +26,7 @@ end
 --- the host's cores, not the sandbox's own, whose path no host has: a
 --- compiler build/c/init.tl confines to them would not start.
 local function test_an_unenforced_worker_has_the_hosts_cores()
-  local inputs = TestInputsFixture.effective({})
-  inputs.caches = { "bootstrap" }
+  local inputs = { ...TestInputsFixture.effective({}), caches = { "bootstrap" } }
   local sandboxed = test_sandbox.environment({ PATH = "/bin" }, inputs)
   assert(sandboxed.COSMIC_PORTABLE_CACHE ~= nil)
   local env = test_sandbox.unenforced_environment({ PATH = "/bin" }, inputs, "/host/scratch", "/host/tree")
@@ -73,8 +71,7 @@ local function test_a_worker_that_writes_where_the_program_is_cannot_be_held(tmp
 end
 
 local function test_only_a_granted_noexec_capability_supplies_its_environment()
-  local inputs = TestInputsFixture.effective({})
-  inputs.env = { COSMIC_TEST_NOEXEC = true, TMPDIR = true }
+  local inputs = { ...TestInputsFixture.effective({}), env = { COSMIC_TEST_NOEXEC = true, TMPDIR = true } }
   local host = { COSMIC_TEST_NOEXEC = "/forged", TMPDIR = "/host" }
   assert(test_sandbox.environment(host, inputs).COSMIC_TEST_NOEXEC == nil)
   inputs.noexec = true

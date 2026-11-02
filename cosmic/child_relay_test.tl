@@ -204,8 +204,7 @@ end
 --- way, started under a policy granting `port`; or nil and why where this
 --- host gives no sandbox (a start refused for any other reason fails).
 local function waiting(tmp: string, port: integer): Child.Handle?, string
-  local options = granting(sealed_client(tmp), port)
-  options.stdout, options.stderr = "null", "null"
+  local options = { ...granting(sealed_client(tmp), port), stdout = "null", stderr = "null" }
   local handle, why = Child.start({ assert(Proc.executable()), "wait" }, options)
   if handle == nil then
     assert(ChildPolicy.unsandboxable(why), "the start was refused: " .. why)
@@ -488,8 +487,7 @@ local function test_the_relays_log_goes_to_a_descriptor_the_caller_gives(tmp: st
   local refusal: string? = nil
   local program_stderr: string? = nil
   serving(function(granted: integer, ungranted: integer)
-    local options = granting(database, granted)
-    options.relay_log = writer
+    local options = { ...granting(database, granted), relay_log = writer }
     local result, why = Child.run({ assert(Proc.executable()), "flows", tostring(granted), tostring(ungranted) },
       options)
     if result == nil then
@@ -521,8 +519,8 @@ local function test_a_relay_whose_connector_has_ended_ends_with_its_program(tmp:
   local writer = assert(sys.open(tmp .. "/log", sys.O_WRONLY, 0))
   local refusal: string? = nil
   serving(function(granted: integer, _: integer)
-    local options = granting(database, granted)
-    options.stdin, options.stdout, options.stderr, options.relay_log = "stream", "null", "null", writer
+    local options = { ...granting(database, granted), stdin = "stream", stdout = "null", stderr = "null",
+      relay_log = writer }
     local handle, why = Child.start({ assert(Proc.executable()), "later", tostring(granted) }, options)
     if handle == nil then
       assert(ChildPolicy.unsandboxable(why), "the start was refused: " .. why)
@@ -563,8 +561,7 @@ local function test_a_terminal_or_a_kept_descriptor_is_no_place_for_the_relays_l
   local opened, pty_why = sys.openpty()
   if opened == nil then Test.skip("no pty: " .. pty_why) end
   local pty = assert(opened)
-  local options = granting(database, 9)
-  options.relay_log = pty.slave
+  local options = { ...granting(database, 9), relay_log = pty.slave }
   local started, why = Child.start({ assert(Proc.executable()), "wait" }, options)
   assert(sys.close(pty.slave))
   assert(sys.close(pty.master))
@@ -585,8 +582,7 @@ local function test_a_descriptor_the_program_keeps_is_no_place_for_the_relays_lo
   for fd = 3, 255 do
     local looked, _ = pcall(sys.isatty, fd)
     if not looked then
-      local kept = granting(database, 9)
-      kept.relay_log = fd
+      local kept = { ...granting(database, 9), relay_log = fd }
       local refused, refusal = Child.start({ assert(Proc.executable()), "wait" }, kept)
       assert(refused == nil and refusal:find("relay_log " .. tostring(fd) .. " is a descriptor this program keeps", 1, true),
         tostring(refusal))
@@ -626,8 +622,8 @@ local function test_no_connect_means_no_relay_and_no_extra_descriptors(tmp: stri
   end
   local kept = tmp .. "/kept"
   local fd = assert(sys.open(kept, sys.O_CREAT | sys.O_RDWR, 420))
-  local options = granting(database, 9)
-  assert(options.policy).grants = { { path = "/proc", letters = "r" } }
+  local given = granting(database, 9)
+  local options = { ...given, policy = { ...assert(given.policy), grants = { { path = "/proc", letters = "r" } } } }
   local program = assert(Child.run({ assert(Proc.executable()), "fds" }, options))
   assert(program.ok, tostring(program.stderr))
   local held = fields(assert(program.stdout))
@@ -636,7 +632,6 @@ local function test_no_connect_means_no_relay_and_no_extra_descriptors(tmp: stri
     assert(not target:find("socket:", 1, true), name .. " is a socket: " .. target)
     assert(not target:find(kept, 1, true), name .. " is this process's file: " .. target)
   end
-  options.stdout, options.stderr = "null", "null"
   while_waiting(tmp, function(handle: Child.Handle)
     local relay = assert(handle._relay)
     local names = assert(Fs.list("/proc/" .. tostring(relay.pid) .. "/fd"), "the relay's descriptors are readable")
@@ -682,10 +677,10 @@ end
 --- A policy that names more addresses literally than the relay's
 --- connector holds fails to start, saying so, with nothing left running.
 local function test_more_literal_targets_than_a_connector_holds_fail_the_start(tmp: string)
-  local options = granting(sealed_client(tmp), 9)
+  local given = granting(sealed_client(tmp), 9)
   local targets: mut {string} = {}
   for port = 1, 129 do targets[port] = "127.0.0.2:" .. tostring(port) end
-  assert(options.policy).connect = targets
+  local options = { ...given, policy = { ...assert(given.policy), connect = targets } }
   local started, why = Child.start({ assert(Proc.executable()), "wait" }, options)
   if started ~= nil then
     assert(started:stop())

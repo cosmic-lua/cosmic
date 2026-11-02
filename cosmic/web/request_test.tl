@@ -13,9 +13,7 @@ local function recording(spec?: Web.AppSpec): Web.App, mut {Web.Request}
       return Web.text("ok")
     end),
   }
-  local made: Web.AppSpec = spec or {}
-  made.routes = routes
-  return Web.app(made), seen
+  return Web.app({ ...(spec or {}), routes = routes }), seen
 end
 
 local function test_a_handler_sees_the_canonical_path_params_and_route()

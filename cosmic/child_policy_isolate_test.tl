@@ -215,8 +215,7 @@ local function test_tmp_under_isolate_file_is_a_tmpfs_of_the_sandboxs_own(tmp: s
   assert(mine ~= nil)
   for _, name in ipairs(mine) do assert(not name:find("cosmic-sandbox-", 1, true), name) end
   -- Without tmp, no /tmp.
-  policy.tmp = false
-  local gone = ChildPolicy.under(at.probe, policy, at.work, "present /tmp/n")
+  local gone = ChildPolicy.under(at.probe, { ...policy, tmp = false }, at.work, "present /tmp/n")
   assert(gone.code == 1, gone.said)
 end
 
@@ -268,8 +267,7 @@ local function test_isolate_proc_alone_has_its_own_proc_and_the_hosts_files_by_g
     "cat " .. tmp .. "/other/b")
   assert(ungranted.code == 1 and ungranted.said:find("Permission denied", 1, true), ungranted.said)
   -- tmp is a host directory here, as without isolate.
-  policy.tmp = true
-  local made = ChildPolicy.under(at.probe, policy, at.work, "env-of TMPDIR")
+  local made = ChildPolicy.under(at.probe, { ...policy, tmp = true }, at.work, "env-of TMPDIR")
   assert(made.code == 0 and made.said:find("^TMPDIR=/", 1) and not made.said:find("^TMPDIR=/tmp\n"),
     made.said)
 end

@@ -35,9 +35,7 @@ end
 --- Opens `url` over `script`, reads the whole body, and returns the
 --- response (closed), its body, and what curl sent.
 local function fetch(script: {string}, opts?: Http.Options): Http.Response, string, string
-  opts = opts or {}
-  opts.script = script
-  local response = assert(Http.open(url, opts))
+  local response = assert(Http.open(url, { ...(opts or {}), script = script }))
   local parts: mut {string} = {}
   while true do
     local chunk, trouble = response:read()
@@ -587,8 +585,7 @@ end
 
 --- The message [`Http.open`] raises with for `opts`.
 local function raised(opts: Http.Options): string
-  opts.script = opts.script or {}
-  local ok, err = pcall(Http.open, url, opts)
+  local ok, err = pcall(Http.open, url, { ...opts, script = opts.script or {} })
   assert(not ok, "expected a raise")
   return tostring(err)
 end
@@ -945,8 +942,9 @@ local function test_download_result_checksums_keep_typed_digests_and_legacy_text
   assert(Fs.write(path, "old"))
   for _, algorithm in ipairs({ "sha256", "sha512" } as {Hash.Algorithm}) do
     for _, expected in ipairs({ "ABC", "not HEX", string.rep("0", if algorithm == "sha256" then 64 else 128 end) }) do
-      local options: Http.Options = { script = { reply("200 OK", "", "body") } }
-      if algorithm == "sha256" then options.sha256 = expected else options.sha512 = expected end
+      local options: Http.Options = { script = { reply("200 OK", "", "body") },
+        sha256 = if algorithm == "sha256" then expected else nil end,
+        sha512 = if algorithm == "sha256" then nil else expected end }
       local result = Http.download_result(url, path, options)
       local actual = Codec.hex(Hash.digest(algorithm, "body"))
       assert(result.kind == "digest_mismatch" and result.status == nil)
