@@ -163,6 +163,40 @@ function standalone.entry(produced: any): standalone.Main?
   return nil
 end
 
+--- The first module `file` requires by a literal name that is no `cosmic.*` module but a file of the project the file sits
+--- in: found as `<name>.tl`, `<name>/init.tl` or `<name>.tmpl` (the name's dots as slashes) beside the file or in a directory
+--- above it. nil where there is none, or the file does not parse.
+local function project_module(file: string, source: string): string?
+  local required, _ = standalone.requires(file, source)
+  if required == nil then
+    return nil
+  end
+  local absolute, _ = Fs.absolute(file)
+  if absolute == nil then
+    return nil
+  end
+  for _, name in ipairs(required) do
+    if name:sub(1, 7) ~= "cosmic." and name ~= "cosmic" then
+      local stem = name:gsub("%.", "/")
+      local directory = Fs.dirname(absolute)
+      while true do
+        for _, candidate in ipairs({ stem .. ".tl", stem .. "/init.tl", stem .. ".tmpl" }) do
+          local there, _ = Fs.exists(directory .. "/" .. candidate)
+          if there == true then
+            return name
+          end
+        end
+        local parent = Fs.dirname(directory)
+        if parent == directory then
+          break
+        end
+        directory = parent
+      end
+    end
+  end
+  return nil
+end
+
 --- Runs `argv[2]` standalone, or with `--check` at slot 2 checks `argv[3]` and does not run it (exit 0 when it is clean; when not,
 --- the refusals on standard error and [`exit_status.uncompiled`]): `argv` is the whole command line, `--standalone`
 --- at slot 1, so the file sees what follows its own path, and its path at
@@ -189,6 +223,14 @@ function standalone.run(argv: {string}, why?: string): integer
     local _, _ = Fs.put(Fs.stderr, trouble .. "\n")
     if why ~= nil then
       local _, _ = Fs.put(Fs.stderr, "cosmic: " .. why .. "\n")
+    end
+    if outcome.refused then
+      local needed = project_module(file, source)
+      if needed ~= nil then
+        local _, _ = Fs.put(Fs.stderr, "cosmic: " .. file .. " belongs to a project (it requires " .. needed ..
+            ", a module of the project), and --standalone finds only cosmic.* modules: drop --standalone, or check it " ..
+            "with `cosmic fix " .. file .. "`\n")
+      end
     end
     return if outcome.refused then exit_status.uncompiled else 1 end
   end

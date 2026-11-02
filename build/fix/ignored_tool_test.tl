@@ -77,6 +77,23 @@ local function test_without_git_node_modules_is_still_skipped(tmp: string)
   assert(assert(result.stdout):find("node_modules", 1, true) == nil, result.stdout)
 end
 
+--- Git that refuses a repository for its owner (as it does with the user's `safe.directory` unread) is told once, and fix
+--- still runs with `node_modules/` alone left alone.
+local function test_a_repository_git_refuses_is_told_once(tmp: string)
+  local root = project(tmp, "project", true)
+  assert(Fs.write(root .. "/README.md", "Writes `src/kept.txt`.\n"))
+  local bin = tmp .. "/fakebin"
+  assert(Fs.mkdirs(bin))
+  assert(Fs.write(bin .. "/git", "#!/bin/sh\necho 'fatal: detected dubious ownership in repository at x' >&2\nexit 128\n", 0x1ed))
+  local result = run(root, { "fix" }, { PATH = bin })
+  assert(result.ok, result.stdout)
+  local said = assert(result.stdout)
+  local first = said:find("dubious ownership", 1, true)
+  assert(first ~= nil, said)
+  assert(said:find("only node_modules/ is left alone", 1, true) ~= nil, said)
+  assert(said:find("dubious ownership", first + 1, true) == nil, said)
+end
+
 --- A negation un-ignores one file of an ignored directory's contents: it is a target again.
 local function test_a_negated_path_is_a_link_again(tmp: string)
   local root = project(tmp, "project", true)

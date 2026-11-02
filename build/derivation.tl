@@ -12,6 +12,10 @@ local Template = require("cosmic.template")
 local bind = require("build.bind")
 
 local record derivation
+  --- Whether [`derivation.inputs`] stopped on a source of the tree it refused, rather than a trouble of the host.
+  record Refusal
+    mut refused: boolean
+  end
   record Parses
     mut parsed: integer
     mut shared: integer
@@ -61,7 +65,7 @@ local insert_derived =
 
 --- The doc guides with no current `derived` row, each extracted into
 --- the test module it is.
-local function derive_doc_guides(db: Sqlite.Handle): boolean, string
+local function derive_doc_guides(db: Sqlite.Handle, refusal: derivation.Refusal): boolean, string
   local guides, trouble = Sqlite.text_rows(db,
     "SELECT path, data, sha256 FROM files " ..
       "WHERE path GLOB 'doc/guides/*.md' AND path NOT GLOB 'doc/guides/*/*' " ..
@@ -73,6 +77,7 @@ local function derive_doc_guides(db: Sqlite.Handle): boolean, string
     local file, doc_source, from_hash = row:text(1), row:text(2), row:text(3)
     local source, extract_trouble = doctest.extract(doc_source, file)
     if source == nil then
+      refusal.refused = true
       return false, file .. ": " .. extract_trouble
     end
     local ok, insert_trouble = Sqlite.run(db, insert_derived,
@@ -102,7 +107,7 @@ end
 --- template stands while the analyzer does ([`build.importer`]'s
 --- `forget_stale_analysis`): [`cosmic.template`] is in its closure. The module is written in the new checker's grammar
 --- ([`cosmic.template`]'s `Options`).
-local function derive_templates(db: Sqlite.Handle): boolean, string
+local function derive_templates(db: Sqlite.Handle, refusal: derivation.Refusal): boolean, string
   local templates, trouble = Sqlite.text_rows(db,
     "SELECT path, CAST(data AS TEXT), sha256 FROM files " ..
       "WHERE path GLOB '*.tmpl' " .. analysis_schema.outside_apart("path") .. " " ..
@@ -114,6 +119,7 @@ local function derive_templates(db: Sqlite.Handle): boolean, string
     local file, template_source, from_hash = row:text(1), row:text(2), row:text(3)
     local source, compile_trouble = Template.compile(template_source, file, { dialects = nil })
     if source == nil then
+      refusal.refused = true
       return false, compile_trouble
     end
     local ok, insert_trouble = Sqlite.run(db, insert_derived,
@@ -130,7 +136,7 @@ end
 --- generated from its header when the header has no current `derived`
 --- row. Only cosmic's own tree has the headers; a project gets the
 --- declarations from the binary.
-local function derive_syscalls(db: Sqlite.Handle): boolean, string
+local function derive_syscalls(db: Sqlite.Handle, refusal: derivation.Refusal): boolean, string
   for _, target in ipairs(gen_syscalls.targets) do
     local file = target.target.header
     local headers, trouble = Sqlite.text_rows(db,
@@ -144,6 +150,7 @@ local function derive_syscalls(db: Sqlite.Handle): boolean, string
       local header, from_hash = found:text(1), found:text(2)
       local source, generate_trouble = gen_syscalls.declaration(header, target.target)
       if source == nil then
+        refusal.refused = true
         return false, file .. ": " .. generate_trouble
       end
       local ok, insert_trouble = Sqlite.run(db, insert_derived,
@@ -163,7 +170,7 @@ end
 --- one path (`x.d.tl` and `x/init.d.tl`) are refused as two sources are;
 --- a declaration beside a source is a pair, which the build refuses in
 --- its own words ([`build.driver`]'s `pairing`).
-local function duplicate_import_paths(db: Sqlite.Handle): boolean, string
+local function duplicate_import_paths(db: Sqlite.Handle, refusal: derivation.Refusal): boolean, string
   local doubled, trouble = Sqlite.text_rows(db,
     "SELECT path, group_concat(file, ' and ') FROM (SELECT path, file, kind FROM inputs ORDER BY file) " ..
       "GROUP BY path, " .. analysis_schema.not_declaration("kind") .. " HAVING count(*) > 1 ORDER BY path")
@@ -172,6 +179,7 @@ local function duplicate_import_paths(db: Sqlite.Handle): boolean, string
   end
   local first = doubled[1]
   if first ~= nil then
+    refusal.refused = true
     return false, first:text(2) .. " both answer to import path '" ..
       first:text(1) .. "'; delete or rename one"
   end
@@ -404,15 +412,16 @@ end
 
 --- Produces generated inputs and rejects ambiguous import paths before
 --- any cached parse or compile can stand for them. The templates are written in the new checker's grammar
---- ([`derive_templates`]).
-function derivation.inputs(db: Sqlite.Handle): boolean, string
+--- ([`derive_templates`]). `refusal`'s `refused` is set where a failure is the tree's own sources refusing (a template or
+--- guide that does not compile, two files of one import path) and not a trouble of the host (a database).
+function derivation.inputs(db: Sqlite.Handle, refusal: derivation.Refusal): boolean, string
   for _, step in ipairs({ derive_doc_guides, derive_syscalls }) do
-    local ok, trouble = step(db)
+    local ok, trouble = step(db, refusal)
     if not ok then return false, trouble end
   end
-  local made, made_trouble = derive_templates(db)
+  local made, made_trouble = derive_templates(db, refusal)
   if not made then return false, made_trouble end
-  return duplicate_import_paths(db)
+  return duplicate_import_paths(db, refusal)
 end
 
 return derivation

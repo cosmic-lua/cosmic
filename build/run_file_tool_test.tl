@@ -222,7 +222,7 @@ local function test_a_lua_module_beside_a_teal_one_is_no_module(tmp: string)
   assert(Fs.write(root .. "/helper.lua", "return { answer = 42 }\n"))
   assert(Fs.write(root .. "/main.tl", 'local Helper = require("helper")\nprint(Helper.answer)\n'))
   local result = run_in(root, "main.tl")
-  assert(result.code ~= 0 and result.stdout == "", tostring(result.stdout) .. tostring(result.stderr))
+  assert(result.code == 4 and result.stdout == "", tostring(result.stdout) .. tostring(result.stderr))
   assert((result.stderr or ""):find("helper", 1, true) ~= nil, tostring(result.stderr))
 end
 
@@ -246,7 +246,7 @@ local function test_a_refused_file_beside_the_one_run_names_standalone(tmp: stri
   local root = tree_of(tmp, "beside", { ["x.tl"] = 'print("hi")\n', ["a.tmpl"] = BAD_TEMPLATE })
   local result = run_in(root, "x.tl")
   local said = tostring(result.stdout) .. tostring(result.stderr)
-  assert(result.code ~= 0, said)
+  assert(result.code == 4, said)
   assert((result.stderr or ""):find("a.tmpl:1:1: a template starts with", 1, true) ~= nil, said)
   assert((result.stderr or ""):find("cosmic --standalone x.tl", 1, true) ~= nil, said)
   assert((result.stderr or ""):find("COSMIC_STANDALONE=1", 1, true) ~= nil, said)
@@ -265,7 +265,7 @@ local function test_the_standalone_hint_is_left_off_where_it_would_not_work(tmp:
   }
   for name, files in pairs(cases) do
     local result = run_in(tree_of(tmp, name, files), "x.tl")
-    assert(result.code ~= 0, name .. ": " .. tostring(result.stderr))
+    assert(result.code == 4, name .. ": " .. tostring(result.stderr))
     assert((result.stderr or ""):find("--standalone", 1, true) == nil, name .. ": " .. tostring(result.stderr))
   end
 end
@@ -275,6 +275,6 @@ local function test_the_standalone_hint_stays_for_a_file_that_requires_only_cosm
   local root = tree_of(tmp, "stdlib", { ["x.tl"] = 'local Fs = require("cosmic.fs")\nprint(Fs.basename("a/b"))\n',
     ["a.tmpl"] = BAD_TEMPLATE })
   local result = run_in(root, "x.tl")
-  assert(result.code ~= 0 and (result.stderr or ""):find("cosmic --standalone x.tl", 1, true) ~= nil,
+  assert(result.code == 4 and (result.stderr or ""):find("cosmic --standalone x.tl", 1, true) ~= nil,
     tostring(result.stderr))
 end

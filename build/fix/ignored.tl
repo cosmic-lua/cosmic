@@ -3,10 +3,12 @@
 --- so what they hold does not turn on git, on a user's excludes or on what the tree has ignored.
 ---
 --- The answer is the same on every host that holds the tree: git is asked with `--exclude-per-directory=.gitignore`
---- alone, so neither the user's global excludes (`core.excludesFile`), nor `.git/info/exclude`, nor any git
---- configuration is read, and the `GIT_*` variables that could point it at another repository are cleared. Where git
+--- alone, so neither the user's global excludes (`core.excludesFile`), nor `.git/info/exclude`, nor the global or
+--- system git configuration is read (the repository's own `.git/config` still is), and the `GIT_*` variables that could point it at another repository are cleared. Where git
 --- cannot answer (it is not installed, the root is no repository, or it lies inside an ignored directory, which git
---- refuses) only `node_modules/` is left alone.
+--- refuses) only `node_modules/` is left alone. Because the global configuration is not read, neither is the user's
+--- `safe.directory`: in a repository another user owns git exits 128 ("dubious ownership"), and the `say` that
+--- [`ignored.of`] is given hears of that fallback once.
 
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
@@ -35,13 +37,20 @@ end
 
 --- Whether the untracked, ignored paths of the tree at `root` can be had from git, and what they are: files by their path
 --- from `root`, and directories (which git lists whole) by theirs.
-local function listed(root: string): {string: boolean}?, {string: boolean}?
+local function listed(root: string, say?: function(string)): {string: boolean}?, {string: boolean}?
   local git, _ = Proc.find("git")
   if git == nil then return nil, nil end
   local result, _ = Child.run({ git, "-C", root, "ls-files", "-z", "--others", "--ignored",
     "--exclude-per-directory=.gitignore", "--directory" }, { env = clean_env(), stdin = "null",
-      stdout = "capture", stderr = "null", timeout_ns = git_timeout_ns })
-  if result == nil or result.timed_out or not result.ok then return nil, nil end
+      stdout = "capture", stderr = "capture", timeout_ns = git_timeout_ns })
+  if result == nil or result.timed_out then return nil, nil end
+  if not result.ok then
+    if say ~= nil and (result.stderr or ""):find("dubious ownership", 1, true) ~= nil then
+      say("git refused to list the ignored paths of " .. root .. " (dubious ownership: another user owns the " ..
+          "repository, and the user's safe.directory is not read), so only node_modules/ is left alone")
+    end
+    return nil, nil
+  end
   local files: mut {string: boolean} = {}
   local directories: mut {string: boolean} = {}
   for path in (result.stdout or ""):gmatch("[^%z]+") do
@@ -54,8 +63,10 @@ local function listed(root: string): {string: boolean}?, {string: boolean}?
   return files, directories
 end
 
---- A test of whether a path under `root`, given from it, is left alone. Git is asked once, at the first path.
-function ignored.of(root: string): function(string): boolean
+--- A test of whether a path under `root`, given from it, is left alone. Git is asked once, at the first path. `say` is
+--- given one line when git refuses the repository for its owner, which the fallback to `node_modules/` alone would
+--- otherwise hide.
+function ignored.of(root: string, say?: function(string)): function(string): boolean
   local files: {string: boolean}? = nil
   local directories: {string: boolean}? = nil
   local asked = false
@@ -63,7 +74,7 @@ function ignored.of(root: string): function(string): boolean
     if ("/" .. path .. "/"):find("/node_modules/", 1, true) ~= nil then return true end
     if not asked then
       asked = true
-      files, directories = listed(root)
+      files, directories = listed(root, say)
     end
     local known, whole = files, directories
     if known == nil or whole == nil then return false end

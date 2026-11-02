@@ -683,7 +683,7 @@ end
 --- took, "" for none.
 local function derive_new(handle: work.Handle, tally: importer.Parses,
                           made: {Source}, shared: importer.Shared?,
-                          broken: {derivation.Broken}?): string?, string
+                          broken: {derivation.Broken}?, outcome: importer.Outcome?): string?, string
   local db = handle.db
   local swept, sweep_trouble = db:exec(
     "DELETE FROM derived WHERE origin <> 'vendor' AND NOT EXISTS " ..
@@ -692,8 +692,12 @@ local function derive_new(handle: work.Handle, tally: importer.Parses,
   if not swept then
     return nil, sweep_trouble
   end
-  local derived, derived_trouble = derivation.inputs(db)
-  if not derived then return nil, derived_trouble end
+  local refusal: derivation.Refusal = { refused = false }
+  local derived, derived_trouble = derivation.inputs(db, refusal)
+  if not derived then
+    if refusal.refused and outcome ~= nil then outcome.refused = true end
+    return nil, derived_trouble
+  end
   local taken = ""
   if shared ~= nil then
     local sources, sources_trouble = derivation.unparsed(db)
@@ -738,9 +742,11 @@ end
 ---   cache; a compile entry point or the caller must finish it.
 --- @param broken where a source that does not parse is listed, rather
 ---   than stopping the derive, or nil to stop
+--- @param outcome set to `refused` where the derive stops on a source the tree holds that cannot be derived (a template
+---   that does not compile, two files of one import path)
 --- @return what it parsed and took, or nil and why it could not
 function importer.derive(handle: work.Handle, shared?: importer.Shared,
-                         broken?: mut {derivation.Broken}): importer.Parses?, string
+                         broken?: mut {derivation.Broken}, outcome?: importer.Outcome): importer.Parses?, string
   local db = handle.db
   if not work.standing(handle).own then
     local reserved, reserved_trouble = Fs.is_dir(handle.root .. "/cosmic")
@@ -768,7 +774,7 @@ function importer.derive(handle: work.Handle, shared?: importer.Shared,
   if forgotten == nil then
     return nil, forget_trouble
   end
-  local taken, derive_trouble = derive_new(handle, tally, made, shared, broken)
+  local taken, derive_trouble = derive_new(handle, tally, made, shared, broken, outcome)
   if taken == nil then
     return nil, derive_trouble
   end
@@ -815,7 +821,7 @@ function importer.derive(handle: work.Handle, shared?: importer.Shared,
     if broken ~= nil then
       while #broken > 0 do table.remove(broken) end
     end
-    local again, again_trouble = derive_new(handle, tally, made, nil, broken)
+    local again, again_trouble = derive_new(handle, tally, made, nil, broken, outcome)
     if again == nil then
       return nil, again_trouble
     end
@@ -1423,7 +1429,7 @@ local function prepare_compile(handle: work.Handle, tool: string,
                                checks: boolean, target: string?,
                                outcome: importer.Outcome?): importer.Result?, string
   local broken: {derivation.Broken} = {}
-  local parses, derive_trouble = importer.derive(handle, shared, broken)
+  local parses, derive_trouble = importer.derive(handle, shared, broken, outcome)
   if parses == nil then return nil, derive_trouble end
   if choose ~= nil then
     local recorded, record_trouble = identities.record_identities(handle.db)

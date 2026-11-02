@@ -108,6 +108,31 @@ local function test_a_run_without_a_file_is_a_usage_error()
   assert(tostring(result.stderr):find("usage", 1, true) ~= nil)
 end
 
+--- A file that requires a module of the project it sits in is refused standalone, and the refusal says the file belongs to
+--- the project; a file that requires nothing of the project's gets no such line.
+local function test_a_project_module_is_told_to_drop_standalone(tmp: string)
+  local project = tmp .. "/project"
+  assert(Fs.mkdirs(project .. "/cmd"))
+  assert(Fs.write(project .. "/greet.tl", "local record Greet\n  hi: string\nend\nreturn Greet\n"))
+  assert(Fs.write(project .. "/cmd/main.tl", 'local Greet = require("greet")\nprint(Greet.hi)\n'))
+  assert(Fs.write(project .. "/cmd/alone.tl", 'local a: integer = "no"\nprint(a)\n'))
+  local function run(args: {string}): Child.Result
+    local started = this_program.program(args, { cwd = project, stdout = "capture", stderr = "capture",
+      timeout_ns = Clock.seconds(30) })
+    return (assert(Child.run(started.argv, started.options)))
+  end
+  for _, args in ipairs({ { "--standalone", "--check", "cmd/main.tl" }, { "--standalone", "cmd/main.tl" } }) do
+    local result = run(args)
+    local said = tostring(result.stdout) .. tostring(result.stderr)
+    assert(result.code == 4, said)
+    assert((result.stderr or ""):find("belongs to a project", 1, true) ~= nil, said)
+    assert((result.stderr or ""):find("drop --standalone", 1, true) ~= nil, said)
+    assert((result.stderr or ""):find("cosmic fix cmd/main.tl", 1, true) ~= nil, said)
+  end
+  local alone = run({ "--standalone", "--check", "cmd/alone.tl" })
+  assert(alone.code == 4 and (alone.stderr or ""):find("belongs to a project", 1, true) == nil, tostring(alone.stderr))
+end
+
 --- `--standalone --check` types a file as a run does and never runs it: a clean file whose body would write a marker and
 --- raise exits 0 and leaves no marker, a broken one is refused as a run refuses it.
 local function test_check_types_a_file_without_running_it(tmp: string)

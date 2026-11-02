@@ -260,6 +260,22 @@ function sql.open(source: sql.Source, between?: function()): sql.Opened?, string
   return { db = db, owned = true }, ""
 end
 
+--- Said after SQLite's "too many attached databases", which is what
+--- [`sql.open`]'s attach limit of 0 makes of an ATTACH.
+local attach_hint <const> = "\n`cosmic sql` runs one read-only statement on one database, so it cannot " ..
+  "attach. Work across files with a short program: open the destination with " ..
+  "`Sqlite.open(path, { writable = true })` and run `db:exec(\"ATTACH ...\")`."
+
+--- `reason`, SQLite's, with how to work across files appended where it is the attached-database limit's refusal.
+-- TODO: tell an ATTACH by something but its message, once SQLite gives a refused ATTACH a result code of its own
+-- (today it is the generic SQLITE_ERROR, which no statement kind separates from any other failure).
+local function attach_hinted(reason: string): string
+  if reason:find("too many attached databases", 1, true) ~= nil then
+    return reason .. attach_hint
+  end
+  return reason
+end
+
 --- The shortest `%g` form that reads back as `x`, marked as a real
 --- number with ".0" when it would otherwise read as an integer, as
 --- SQLite writes one.
@@ -478,7 +494,7 @@ local function stream(db: Sqlite.Handle, statement: string,
     if asked and code == sqlite_auth and refusal_hint ~= nil then
       return nil, prepare_trouble .. refusal_hint
     end
-    return nil, prepare_trouble
+    return nil, attach_hinted(prepare_trouble)
   end
   -- Nothing is bound: a parameter left unbound would read as NULL.
   local wanted = prepared:parameters()
@@ -508,7 +524,7 @@ local function stream(db: Sqlite.Handle, statement: string,
     local state, trouble = prepared:step()
     if state == nil then
       prepared:finalize()
-      return nil, trouble
+      return nil, attach_hinted(trouble)
     end
     if state == "done" then
       break

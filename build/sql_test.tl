@@ -138,6 +138,18 @@ local function test_sqlite_refuses_every_write()
   assert(Fs.remove_tree(root))
 end
 
+--- An ATTACH is refused with the reason and the way across files, not SQLite's bare limit.
+local function test_an_attach_says_why_and_what_to_do()
+  local root = project()
+  local path = support.build_dir(root) .. "/cosmic.db"
+  local lines, trouble = query(path, "ATTACH ':memory:' AS old")
+  assert(lines == nil)
+  assert(trouble:find("one read-only statement on one database", 1, true), trouble)
+  assert(trouble:find("Sqlite.open(path, { writable = true })", 1, true), trouble)
+  assert(trouble:find("ATTACH", 1, true), trouble)
+  assert(Fs.remove_tree(root))
+end
+
 --- A read-only open must not make <db>-wal and <db>-shm beside a WAL-mode
 --- database whose -wal is gone, nor leave them there.
 local function test_a_query_leaves_no_wal_or_shm_beside_the_database()
