@@ -6,13 +6,7 @@
 local Codec = require("cosmic.codec")
 local declared_key = require("build.declared_key")
 local key_parts = require("build.key_parts")
-
---- The element of `list` at `index`, which the case knows is there.
-local function nth<T>(list: {T}, index: integer): T
-  local found = list[index]
-  assert(found ~= nil, "the list has an element at " .. tostring(index))
-  return found
-end
+local support = require("build.test_support_fixture")
 
 --- Every byte alone, and strings of every length to 64 over a spread
 --- of bytes, hex-encode as [`Codec.hex`] does and decode back.
@@ -60,6 +54,6 @@ end
 local function test_declared_key_answers_the_compiler_readers()
   assert(declared_key.compiler_readers == key_parts.compiler_readers)
   assert(declared_key.reads_compiler == key_parts.reads_compiler)
-  assert(key_parts.reads_compiler({ "build.a", nth(key_parts.compiler_readers, 1) }))
+  assert(key_parts.reads_compiler({ "build.a", support.nth(key_parts.compiler_readers, 1) }))
   assert(not key_parts.reads_compiler({ "build.a" }))
 end

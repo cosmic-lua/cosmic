@@ -5,7 +5,6 @@
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
-local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local this_program = require("build.this_program")
 local Clock = require("cosmic.clock")
@@ -54,9 +53,9 @@ end
 local function test_a_failed_standard_output_write_exits_2(tmp: string)
   -- /dev/full, where a write fails with ENOSPC, is Linux's, and every
   -- worker there is given it (build.confine's `runtime_paths`): one
-  -- without it is skipped, and elsewhere there is nothing to check.
+  -- without it, or a host that has none, is skipped.
   if Fs.stat("/dev/full") == nil then
-    if assert(sys.uname()).sysname == "Linux" then Test.skip("this worker has no /dev/full") end
+    Test.skip("this worker has no /dev/full")
     return
   end
   local full = assert(Fs.open_write("/dev/full"))

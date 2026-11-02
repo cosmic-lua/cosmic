@@ -22,14 +22,7 @@ local embed = require("build.embed")
 local invoke = require("build.invoke")
 local refresh = require("build.refresh")
 local Clock = require("cosmic.clock")
-local build_paths = require("build.paths")
-
---- The element of `list` at `index`, which the case knows is there.
-local function nth<T>(list: {T}, index: integer): T
-  local found = list[index]
-  assert(found ~= nil, "the list has an element at " .. tostring(index))
-  return found
-end
+local support = require("build.test_support_fixture")
 
 --- The vendored bundle and zones a refresh replaces, and this program,
 --- whose core a program it builds runs on.
@@ -44,13 +37,6 @@ Test.policy{
     { path = "o/cosmic.db", letters = "r" },
   },
 }
-
---- `root`'s build directory ([`build.paths`]), made, with `root` made
---- first where it is not there yet.
-local function build_dir(root: string): string
-  assert(Fs.mkdirs(root))
-  return (assert(build_paths.prepare(root)))
-end
 
 local bundle <const> = "vendor/cacert/certdata.txt"
 local zones <const> = "vendor/tzdata/zoneinfo"
@@ -70,7 +56,7 @@ local function program(tmp: string, portable?: boolean): string
   assert(Fs.mkdirs(tree .. "/cmd/ok"))
   assert(Fs.write(tree .. "/cmd/ok/main.tl", 'return function(): integer print("ok") return 0 end\n'))
   assert(embed.tree(tree, portable ~= true))
-  return build_dir(tree) .. "/bin/ok"
+  return support.build_dir(tree) .. "/bin/ok"
 end
 
 --- The database the artifact at `path` carries, opened from a copy.
@@ -86,7 +72,7 @@ end
 
 --- The first row `sql` selects from `db`, which the case knows is there.
 local function first_row(db: Sqlite.Handle, sql: string): Sqlite.Row
-  return nth(rows(db, sql), 1)
+  return support.nth(rows(db, sql), 1)
 end
 
 --- The roots the artifact at `path` carries, as a PEM bundle of their
@@ -138,7 +124,7 @@ local function test_the_carried_bundle_makes_the_same_binary(tmp: string)
   local path = program(tmp)
   local out = tmp .. "/refreshed"
   local lines = assert(refresh.binary(path, out, { datasets.cacert }, { cacert = bundle }))
-  assert(nth(lines, 1):find("(as it was)", 1, true), lines[1])
+  assert(support.nth(lines, 1):find("(as it was)", 1, true), lines[1])
   assert(Fs.read(out) == Fs.read(path), "a refresh to the carried release changed the binary")
 end
 
@@ -198,14 +184,14 @@ local function test_a_tzdata_sdist_replaces_the_zones(tmp: string)
 
   local out = tmp .. "/refreshed"
   local lines = assert(refresh.binary(path, out, { datasets.tzdata }, { tzdata = archive }))
-  assert(nth(lines, 1):find("-> 2099.1", 1, true), lines[1])
+  assert(support.nth(lines, 1):find("-> 2099.1", 1, true), lines[1])
   local before = carried(path)
   local after = carried(out)
   local query = "SELECT rowid, name, hex(sha256(data)) FROM zoneinfo ORDER BY rowid"
   local was, now = rows(before, query), rows(after, query)
   assert(#now == #was, tostring(#now) .. " zones, not " .. tostring(#was))
   for i, row in ipairs(was) do
-    assert(nth(now, i):text(1) == row:text(1) and nth(now, i):text(2) == row:text(2) and nth(now, i):text(3) == row:text(3), row:text(2))
+    assert(support.nth(now, i):text(1) == row:text(1) and support.nth(now, i):text(2) == row:text(2) and support.nth(now, i):text(3) == row:text(3), row:text(2))
   end
   local component = first_row(after, "SELECT version, sha256 FROM components WHERE name = 'tzdata'")
   assert(component:text(1) == "2099.1", component:text(1))
@@ -237,7 +223,7 @@ local function test_a_bad_release_writes_nothing(tmp: string)
   assert(Fs.write(mixed, (assert(Fs.read(pem))) .. carried_pem(path)))
   lines, trouble = refresh.binary(path, out, { datasets.cacert }, { cacert = mixed })
   assert(lines ~= nil, trouble)
-  assert(nth(lines, 1):find("left out certificate 1 (Bad)", 1, true), lines[1])
+  assert(support.nth(lines, 1):find("left out certificate 1 (Bad)", 1, true), lines[1])
   local after = carried(out)
   local want = carried(path)
   local query = "SELECT hex(sha256), label FROM ca_roots ORDER BY rowid"
@@ -344,7 +330,7 @@ return function(): integer
 end
 ]]):format(table.concat(hexes, ", "))))
   assert(embed.tree(tree, true))
-  return build_dir(tree) .. "/bin/present"
+  return support.build_dir(tree) .. "/bin/present"
 end
 
 --- What the program at `path` printed, a line each.

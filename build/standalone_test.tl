@@ -74,7 +74,8 @@ local function test_the_checker_refuses_a_file_with_a_place_a_code_and_the_repla
   -- a removed library is told what to write instead, for the field and the member used
   chunk, trouble = compile(tmp, "old.tl", 'return function(): integer\n  io.stderr:write("x")\n  return 0\nend\n')
   assert(chunk == nil and trouble:find("old.tl:2:3: `io` is not declared (unknown_variable): io.stderr is not available: " ..
-      "use Fs.stderr, a descriptor: Fs.put(Fs.stderr, text)", 1, true) ~= nil, trouble)
+      "use Fs.stderr, a descriptor: Fs.put(Fs.stderr, text), which answers a result to discard on purpose: " ..
+      'local _, _ = Fs.put(Fs.stderr, text .. "\\n")', 1, true) ~= nil, trouble)
   chunk, trouble = compile(tmp, "hex.tl", 'local Digest = require("cosmic.hash")\nreturn Digest.hex("x")\n')
   assert(chunk == nil and trouble:find("hex.tl:2:8: `Hash` has no field `hex` (field_unknown): Digest.hex was removed: " ..
       "use Codec.hex(digest)", 1, true) ~= nil, trouble)

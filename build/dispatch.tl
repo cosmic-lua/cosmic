@@ -93,10 +93,10 @@ end
 
 --- What follows the list of bare verbs in the paragraph that names them,
 --- before the sentence each bare verb's spec gives for its exit codes.
-local help_exit = "exits 0 when it passed; 1 when it failed; 2 when its command line was refused -- an option, an argument or a verb it does not know; 3 when the tool is older than the tree and did not rebuild itself (`COSMIC_AUTO_BOOT=0`, or a boot that failed). Its stdout is its result alone. Its stderr says what went wrong, and a run that passed ends there in a summary of how it went, `fix: 3 Teal files, 0 fixed, 12 ms`. `test`'s summary is its result instead, last on stdout once its tests ran, whether they passed or not: `test: 9 tests passed in 2 modules; ...` or `test: 2 of 9 tests failed, ...`."
+local help_exit = "exits 0 when it passed; 1 when it failed; 2 when its command line was refused -- an option, an argument or a verb it does not know; 3 when the tool is older than the tree and did not rebuild itself (`COSMIC_AUTO_BOOT=0`, or a boot that failed); 4 when `test` or `build` found that the tree, or a module a named run needs, did not compile -- the checker refused it, or it does not parse -- even when tests failed too, since they ran on a tree that is not whole; a failing test alone is 1, as is a failure to read, stage or write (a database, a file). Its stdout is its result alone. Its stderr says what went wrong, and a run that passed ends there in a summary of how it went, `fix: 3 Teal files, 0 fixed, 12 ms`. `test`'s summary is its result instead, last on stdout once its tests ran, whether they passed or not: `test: 9 tests passed in 2 modules; ...` or `test: 2 of 9 tests failed, ...`."
 
 --- What `cosmic help exit` says of what is not a verb.
-local help_programs = "A file run, `--standalone` and `-e` are not verbs of that kind: each prints only what its program prints and exits with what it returns. `--version` is not one either: it prints its one line."
+local help_programs = "A file run, `--standalone` and `-e` are not verbs of that kind: each prints only what its program prints and exits with what it returns, or 4 when the file, or a module it requires, did not compile (a program that returns 4 itself reads the same). `--version` is not one either: it prints its one line."
 
 --- `a`, `b` and `c`: the words in backticks, the last after "and".
 local function listed(names: {string}): string
@@ -440,12 +440,13 @@ local function run(file: string, argv: {string}): integer
 
   local database = build_paths.under(handle.dir).projection
 
-  local result, compile_trouble = importer.compile_for(handle, tool, name, shared_compiles.for_build())
+  local outcome: importer.Outcome = { refused = false }
+  local result, compile_trouble = importer.compile_for(handle, tool, name, shared_compiles.for_build(), outcome)
   if result == nil then
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
     local _, _ = work.close(handle)
     log:complain(compile_trouble)
-    return 1
+    return if outcome.refused then exit_status.uncompiled else 1 end
   end
   local written, write_trouble =
     writer.write_recorded(handle, database, result, started, staged)
@@ -559,7 +560,7 @@ end
 --- `cosmic -e <chunk> [args...]`: runs `chunk` as the body of a Teal file, against this binary's own standard
 --- library, with no tree around it. The chunk is parsed, checked as strictly as a tree build checks (a warning
 --- is refused with an error) and compiled by [`build.standalone`]; a chunk the checker refuses does not run, and
---- exits 1 with the checker's own messages. It reaches the standard library as a file does, by
+--- exits 4 ([`exit_status.uncompiled`]) with the checker's own messages. It reaches the standard library as a file does, by
 --- `require("cosmic.json")` with a literal name, and may require the tool's own modules too, which are the
 --- tool's one-liner's to use; nothing is bound for it. The words after it are its `...` (each a `string?`); what it
 --- returns is the exit code as a file run's is -- see build/exit_status.tl.
@@ -570,12 +571,14 @@ local function evaluate(argv: {string}): integer
     log:complain("usage: cosmic -e '<chunk>' [args...]")
     return 2
   end
-  local loaded, trouble = require("build.standalone").compile("-e", chunk, nil, true)
+  local type importer = require("build.importer")
+  local outcome: importer.Outcome = { refused = false }
+  local loaded, trouble = require("build.standalone").compile("-e", chunk, nil, true, outcome)
   if loaded == nil then
     local Fs = require("cosmic.fs")
     local _, _ = Fs.put(Fs.stderr, trouble .. "\n")
     log:complain("-e runs its chunk as Teal, checked as a file is: see `cosmic help -e`")
-    return 1
+    return if outcome.refused then exit_status.uncompiled else 1 end
   end
   local arguments: mut {string} = {}
   local slot = 3

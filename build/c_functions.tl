@@ -262,13 +262,10 @@ function c_functions.tally(functions: {Coverage.Function}, hits: Coverage.Hits,
   local function exempts(key: string): boolean
     return exempt[key] ~= nil or here_exempt[key] ~= nil
   end
-  local starts: mut {string: {integer}} = {}
+  local starts: mut {string: mut {integer}} = {}
   for _, fn in ipairs(functions) do
-    local lines = starts[fn.path]
-    if lines == nil then
-      lines = {}
-      starts[fn.path] = lines
-    end
+    local lines = starts[fn.path] or {}
+    starts[fn.path] = lines
     lines[#lines + 1] = fn.line
   end
   for _, lines in pairs(starts) do table.sort(lines) end

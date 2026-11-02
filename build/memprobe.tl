@@ -10,9 +10,9 @@ local Fs = require("cosmic.fs")
 
 local record Memprobe
   --- Whether marks are written: set by `COSMIC_MEMPROBE`.
-  enabled: boolean
+  mut enabled: boolean
   --- Where a line goes: standard error.
-  sink: function(line: string)
+  mut sink: function(line: string)
   --- Writes the line for `label` when the probe is enabled, and answers it (nil when it is not).
   mark: function(label: string): string?
 end

@@ -80,10 +80,10 @@ local build_layout = build_paths.resolve
 
 local record test_sandbox
   --- Where a sandboxed worker has the tree, and runs.
-  tree: string
+  mut tree: string
   --- Where it has its scratch directory.
-  scratch: string
-  output: string
+  mut scratch: string
+  mut output: string
   --- How long, at least, the path of every test's scratch directory is,
   --- on every host. macOS's own is 75 bytes, its temporary directory
   --- resolved (/private/var/folders/<2>/<30>/T/) and [`build.test`]'s
@@ -92,9 +92,9 @@ local record test_sandbox
   --- one elsewhere never meets. Padded to this on every host -- a
   --- sandbox's by its name, an unsandboxed one's by its prefix -- a test
   --- meets such a bound on every leg, not on macOS's alone.
-  scratch_length: integer
+  mut scratch_length: integer
   --- The variable that turns the sandbox on.
-  switch: Env.Name
+  mut switch: Env.Name
 
   --- How one worker is sandboxed.
   record Plan

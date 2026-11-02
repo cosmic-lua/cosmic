@@ -67,7 +67,7 @@ end
 -- ([`Fixture.tool_tree`]). Every other hook name (e.g.
 -- "after_select") goes through the named
 -- `COSMIC_PORTABLE_TEST_HOOK`/`_READY`/`_GO` mechanism (the one
--- launcher_test.tl's `hook_environment` drives), running the copied
+-- [`LauncherFixture.hook_environment`] drives), running the copied
 -- `probe.tl` fixture script from `work/run space`.
 local function run_paused(tool: string, work: string, diagnostics: string,
                           hook: string, program: string, cache: string, expected_hash: string,

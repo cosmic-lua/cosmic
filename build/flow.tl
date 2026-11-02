@@ -41,7 +41,7 @@ local record flow
     --- it, or a bare word.
     text?: string
     --- An object's or array's members, in order.
-    mut items?: {flow.Item}
+    mut items?: mut {flow.Item}
     --- Whether a container stays on one line.
     mut inline?: boolean
     --- For a container `from` built or `update` changed, the widest line
@@ -172,7 +172,7 @@ local function scan(text: string, comments: mut {string}): {string}
     table.insert(found, ("line %d: %s"):format(line, why))
   end
   --- For each open container, an object's keys seen, or false.
-  local open: mut {{string: boolean} | boolean} = {}
+  local open: mut {mut {string: boolean} | boolean} = {}
   local function key(name: string)
     local keys = open[#open]
     if keys is {string: boolean} then
@@ -547,7 +547,7 @@ function flow.parse(text: string): flow.Doc?, string
 end
 
 --- A container's members. A scalar has none, and is not asked.
-local function members(node: flow.Node): {flow.Item}
+local function members(node: flow.Node): mut {flow.Item}
   return (assert(node.items, "flow: a scalar has no members"))
 end
 

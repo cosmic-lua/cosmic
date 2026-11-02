@@ -8,13 +8,7 @@ local Codec = require("cosmic.codec")
 local Fuzz = require("build.fuzz")
 local Sources = require("build.codec_fuzz_sources")
 local codec = require("build.codec")
-
---- The element of `list` at `index`, which the case knows is there.
-local function nth<T>(list: {T}, index: integer): T
-  local found = list[index]
-  assert(found ~= nil, "the list has an element at " .. tostring(index))
-  return found
-end
+local support = require("build.test_support_fixture")
 
 local record Pair
   name: codec.Name
@@ -60,11 +54,11 @@ local function test_chunked_encoding_equals_the_whole_string(tmp: string)
       end,
       check = function(input: string): boolean, string
         local fields = Fuzz.unpack(input)
-        local got, why, empty = run_cut(codec.encoder(p.name), nth(fields, 1), nth(fields, 2))
-        if got ~= p.encode(nth(fields, 1)) then
+        local got, why, empty = run_cut(codec.encoder(p.name), support.nth(fields, 1), support.nth(fields, 2))
+        if got ~= p.encode(support.nth(fields, 1)) then
           return false, ("%q cut %q gave %q: %s"):format(fields[1], fields[2], tostring(got), why)
         end
-        Fuzz.label(if #nth(fields, 1) % 3 == 0 then "whole groups" else "leftover" end)
+        Fuzz.label(if #support.nth(fields, 1) % 3 == 0 then "whole groups" else "leftover" end)
         if empty then Fuzz.label("empty chunk") end
         return true, ""
       end,
@@ -89,8 +83,8 @@ local function test_chunked_decoding_equals_the_whole_string(tmp: string)
       end,
       check = function(input: string): boolean, string
         local fields = Fuzz.unpack(input)
-        local want, want_why = p.decode(nth(fields, 1))
-        local got, why, empty = run_cut(codec.decoder(p.name), nth(fields, 1), nth(fields, 2))
+        local want, want_why = p.decode(support.nth(fields, 1))
+        local got, why, empty = run_cut(codec.decoder(p.name), support.nth(fields, 1), support.nth(fields, 2))
         if got ~= want or why ~= want_why then
           return false, ("%q cut %q: %s | %s, whole %s | %s"):format(
             fields[1], fields[2], tostring(got), why, tostring(want), want_why)

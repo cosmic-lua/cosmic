@@ -8,7 +8,7 @@
 --- declaration's requires declared, every requirement a test module
 --- declares promised by a CI leg, every verb's spec listed and
 --- readable, no public doc citing the build or carrying a TODO, no
---- literal plural after a number, every file under ci/testdata
+--- literal plural after a number, no test returning early (a skip is [`Test.skip`]), every file under ci/testdata
 --- type-checking standalone, and every `.tl` file scoping, lowering and checking in the new checker's grammar but for
 --- what the ceilings pin. Each asks the tree's projection,
 --- `cosmic.db`, which holds every module's docs, uses, imports,
@@ -59,6 +59,7 @@ local PluralSites = require("build.plural_sites")
 local ShapeKey = require("build.shape_key")
 local Scopes = require("lang.scopes")
 local SyntaxNode = require("build.syntax_node")
+local TestReturns = require("build.test_returns")
 local ScopesCover = require("lang.scopes_cover")
 local Warnings = require("lang.warnings")
 local TreeProgram = require("build.tree_program")
@@ -1085,13 +1086,10 @@ function tree_checks.requirements(build: Sqlite.Handle): {string:{string}}?, str
     "SELECT i.path, t.value FROM test_inputs t JOIN inputs i ON i.source_hash = t.source_hash " ..
       "WHERE t.field = 'requires' ORDER BY i.path, t.ordinal")
   if rows == nil then return nil, "reading the declared requirements: " .. trouble end
-  local out: mut {string:{string}} = {}
+  local out: mut {string:mut {string}} = {}
   for _, row in ipairs(rows) do
-    local names = out[row:text(1)]
-    if names == nil then
-      names = {}
-      out[row:text(1)] = names
-    end
+    local names = out[row:text(1)] or {}
+    out[row:text(1)] = names
     local second = row:text(2)
     names[#names + 1] = second
   end
@@ -1508,7 +1506,7 @@ function tree_checks.verbs(db: Sqlite.Handle, quickstart: string?): {string}
     expected[entry_module] = expected[entry_module] or {}
     table.insert(expected[entry_module], field)
   end
-  local found_fields: mut {string:{string:boolean}} = {}
+  local found_fields: mut {string:mut {string:boolean}} = {}
 
   for _, row in ipairs(modules) do
     if row:text(2) ~= "test" then
@@ -2210,7 +2208,7 @@ local record DeclareFile
   module: string
   dialect: Ast.Dialect
   imports: {string}
-  key: string
+  mut key: string
 end
 
 --- The modules a source requires by a literal name, as `require("m")` or `pcall(require, "m")`: the parser's own
@@ -2364,12 +2362,12 @@ end
 --- the calls of [`Shape.record_of`] of each module are resolved before it is lowered, as the pipeline resolves them.
 local function streamed(build: Driver.Build, tree: Tree, rows: {DeclareFile}, bodies: boolean, spliced: boolean,
                         seen: function(row: DeclareFile, result: Driver.Outcome?))
-  local rows_of: mut {string: {DeclareFile}} = {}
+  local rows_of: mut {string: mut {DeclareFile}} = {}
   local names: mut {string} = {}
   for _, row in ipairs(rows) do
-    local list = rows_of[row.module]
-    if list == nil then
-      list = {}
+    local held = rows_of[row.module]
+    local list = held or {}
+    if held == nil then
       rows_of[row.module] = list
       names[#names + 1] = row.module
     end
@@ -2697,6 +2695,61 @@ function tree_checks.text_loaders(root: string, files?: {string: string}): {stri
       end
     end
   end
+  return out
+end
+
+--- The trees whose tests may still return early, by path prefix, and why. A prefix that no test under it returns early
+--- from any more is told to go.
+-- TODO: once cosmic-lua/cosmic#3498 merges and core/'s [`unix_socket.skipped`] callers use `skip_if_refused`, drop this
+-- prefix.
+local early_returns: {string: string} = {
+  ["core/"] = "cosmic-lua/cosmic#3498 converts its tests, and its unix_socket.skipped callers follow",
+}
+
+--- Each early return of a test in a `*_test.tl` file of the tree under `root` ([`TestReturns`]), as `<file>:<line>:
+--- <test> returns early ...`, and then each prefix of `pending` (by default `early_returns`) that nothing under it needs
+--- any more. A test that cannot check its subject here declares `requires` or calls `Test.skip(reason)` (doc/testing.md,
+--- "skipping"); a `return` passes having checked nothing.
+function tree_checks.test_returns(root: string, pending?: {string: string}): {string}
+  local sources, trouble = sources_of(root)
+  if sources == nil then
+    return { "reading the sources: " .. trouble }
+  end
+  local excused = pending or early_returns
+  local out: mut {string} = {}
+  local used: mut {string: boolean} = {}
+  for _, entry in ipairs(sources) do
+    local file, text = entry[1], entry[2]
+    if file ~= nil and text ~= nil and file:match("_test%.tl$") ~= nil and text:find("return", 1, true) ~= nil then
+      local chunk, parse_trouble = SyntaxNode.parse(text, file)
+      if chunk == nil then
+        out[#out + 1] = file .. ": cannot read it to check its early returns: " .. parse_trouble
+      else
+        for _, site in ipairs(TestReturns.of_chunk(chunk)) do
+          local covered: string? = nil
+          for prefix in pairs(excused) do
+            if file:sub(1, #prefix) == prefix then covered = prefix end
+          end
+          if covered ~= nil then
+            used[covered] = true
+          else
+            out[#out + 1] = file .. ":" .. tostring(site[1]) .. ": " .. tostring(site[2]) .. " returns early (`" ..
+              tostring(site[3]) .. "`), which passes having checked nothing: declare `requires`, or call " ..
+              "`Test.skip(reason)` (doc/testing.md, \"skipping\"), after which nothing runs"
+          end
+        end
+      end
+    end
+  end
+  local stale: mut {string} = {}
+  for prefix in pairs(excused) do
+    if used[prefix] ~= true then
+      stale[#stale + 1] = prefix .. ": excused from the early-return check, but no test there returns early any " ..
+        "more -- remove the exemption"
+    end
+  end
+  table.sort(stale)
+  for _, line in ipairs(stale) do out[#out + 1] = line end
   return out
 end
 

@@ -24,7 +24,7 @@ Test.policy{
 --- The features `text`, a /proc/cpuinfo, lists ("flags" on x86,
 --- "Features" on arm), split at spaces and tabs alone as CI's
 --- cosmic_ci/host_id.tl does, so a trailing carriage return is seen alike.
-local function listed(text: string): {string}
+local function listed(text: string): mut {string}
   local found: mut {string} = {}
   for line in text:gmatch("[^\n]+") do
     local flags = line:match("^flags%s*:%s*(.*)$") or line:match("^Features%s*:%s*(.*)$")

@@ -199,9 +199,12 @@ local replacements: {string:string} = {
     "check one file with Fs.exists(path) or Fs.stat(path) (" .. fs ..
     "), find a program on PATH with Proc.find(name) (" .. proc ..
     "), and load a module with require(name), which reads the database",
-  ["io.write"] = "use Fs.put(Fs.stdout, text) (" .. fs .. ")",
+  ["io.write"] = "use Fs.put(Fs.stdout, text), which answers a result to discard on purpose: " ..
+    "local _, _ = Fs.put(Fs.stdout, text) (" .. fs .. ")",
   ["io.stdout"] = "use Fs.stdout, a descriptor: Fs.put(Fs.stdout, text) (" .. fs .. ")",
-  ["io.stderr"] = "use Fs.stderr, a descriptor: Fs.put(Fs.stderr, text) (" .. fs .. ")",
+  ["io.stderr"] = "use Fs.stderr, a descriptor: Fs.put(Fs.stderr, text), which answers a result to discard on " ..
+    'purpose: local _, _ = Fs.put(Fs.stderr, text .. "\\n") (' .. fs .. "); a program's own complaints are " ..
+    "Log.new(name):complain(text) of cosmic.log, which adds the name and the newline",
   ["io.stdin"] = "use Fs.stdin, a descriptor: Fs.take(Fs.stdin, count) (" .. fs .. ")",
   ["io.read"] = "use Fs.take(Fs.stdin, count) for standard input, or " ..
     "Fs.read(path) for a whole file (" .. fs .. ")",

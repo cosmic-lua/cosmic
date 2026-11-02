@@ -37,10 +37,10 @@ local record Fixture
   port: function(source: string, modules?: {string: string}, given?: Rules.Exemptions): Said
 
   --- The functions the programs may call: `get` fails with a value, `put` with an effect, `name` cannot fail.
-  PRELUDE: string
+  mut PRELUDE: string
 
   --- A stand-in for [`cosmic.log`]: a `Logger` whose `say` and `complain` may stand alone.
-  LOG: string
+  mut LOG: string
 end
 
 Fixture.PRELUDE = table.concat({

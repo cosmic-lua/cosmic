@@ -16,9 +16,11 @@
 ---   value, and an enum's values; `:` offers the methods. A member of a type the rows hold has the type as written
 ---   for its `detail` and the `docs` text of its symbol for `documentation` ([`source.members`]), none when the text has no
 ---   doc comment on it: the rows are those of the module as staged, or open and unsaved, and for the document's own module of
----   the last text that parsed. The checker's declarations answer for a type the rows cannot name exactly: a module the
----   database does not list (the standard library's `cosmic.*`), a name declared twice in a module or in a block, an
----   interface listing one the rows do not resolve, and a text with no rows (one that does not parse). There the `detail`
+---   the last text that parsed; those of the standard library's `cosmic.*` modules are the ones the tool carries. An
+---   interface lists others by the checker's resolution of the names, in the module or another. A field whose type the
+---   checker resolves to a function is offered as a function. The checker's declarations answer for a type the rows cannot
+---   name exactly: a name declared twice in a module or in a block, a module generated from another file ([`cosmic.sys`]), an
+---   interface listing one whose rows are not held, and a text with no rows (one that does not parse). There the `detail`
 ---   is the signature in the docs database where it has one, else the checker's type, and the `documentation` its text.
 --- - In a type position, wherever the grammar has one (after `:`, `is`, `<` and `,` of type arguments, `{`, `|`, a return
 ---   type, `local type T =`, a field of a record, ...): the types in scope and the primitive types.
@@ -51,13 +53,6 @@
 -- place its declared type is used, and a call takes its function's declared result, with the type parameters of a
 -- generic function left unsolved. Likewise a string literal as a receiver (`("x"):len()`) offers nothing until the
 -- members of `string` can be read as those of a value.
-
--- TODO: complete the members of the standard library's `cosmic.*` modules from rows too, once the binary's own modules have
--- `members` and `docs` rows in a database the session reads: the working database lists none of them, so their members are
--- the checker's declarations of the module and their docs the docs database's.
-
--- TODO: resolve an interface a declaration lists from another module, or with type arguments, in the rows, once the rows
--- name a listed interface by the module that declares it: the members are then the checker's declarations.
 
 -- TODO: name the placeholders of a call inserted for a function after its parameters where its type is the checker's and
 -- not written (a local function, a global of the standard library, a member the rows do not hold), once a function type
@@ -603,9 +598,6 @@ local function markup(entry: docs.Entry?): protocol.MarkupContent?
   return { kind = "markdown", value = entry.text }
 end
 
--- TODO: offer a field whose type is an alias of a function as a function, once the rows carry the kind of a member's
--- resolved type: a row's type is as written, so only `function(` shows it.
-
 --- The kind of item a member is.
 local function member_kind(member: Member): integer
   local row = member.row
@@ -613,6 +605,9 @@ local function member_kind(member: Member): integer
     if row.kind == "value" then return ENUM_MEMBER end
     if row.kind == "method" then return METHOD end
     if row.kind == "function" or row.type:sub(1, 9) == "function(" then return FUNCTION end
+    -- A field whose type is a name the tree cannot look up: the checker's type for it, an alias of a function included.
+    local declared = member.type
+    if declared ~= nil and declared.tag == "fn" then return FUNCTION end
     return FIELD
   end
   local t = member.type
@@ -622,29 +617,68 @@ local function member_kind(member: Member): integer
   return FIELD
 end
 
---- The members of the type at `symbol` of `rows` (the interfaces it lists too), of its value when `value`, else of an
---- instance of it; nil where the rows do not hold the type, or a type it lists.
-local function row_members(rows: source.Members, symbol: string, value: boolean, depth?: integer): {Member}?
-  local owner = rows[symbol]
-  if owner == nil or owner.kind == "" or (depth or 0) > 16 then return nil end
+--- The members of `decl` its module's rows give (the interfaces it lists too), of its value when `value`, else of an
+--- instance of it; nil where the rows do not hold the type, or a type it lists ([`source.members`]). A listed interface is
+--- the checker's: the declaration the `is` names, in this module or another and with type arguments or without, whose
+--- rows are read in turn. A member's `type` is the checker's where the declaration holds a field of its name, which
+--- tells a field whose type is an alias of a function from one that is not; its row's type stays as written, for the
+--- `detail`. A member inherited through an interface listed with type arguments takes the checker's type with the
+--- arguments put in ([`Declarations.inherited`]), for its kind and its `detail`, as the rows have the type parameter.
+--- Every kind read from the checker's fields is as of the last check that parsed, which can lag the rows by one text for
+--- a module open and unsaved.
+local function rows_of(request: Request, decl: Types.Decl, value: boolean, depth?: integer): {Member}?
+  if (depth or 0) > 16 then return nil end
+  local checker = request.checker
+  local text: string? = nil
+  if decl.module == request.outcome.module then text = request.text end
+  local rows = source.members(checker.source, decl.module, check.open_files(checker), text)
+  if rows == nil then return nil end
+  local owner = rows[decl.name]
+  local body = decl.body
+  if owner == nil or owner.kind == "" or body == nil then return nil end
+  local fields: mut {string: Types.Type} = {}
+  for _, field in ipairs(body.fields) do fields[field.name] = field.type end
   local out: mut {Member} = {}
   local seen: mut {string: boolean} = {}
   for _, row in ipairs(owner.members) do
     local wanted = if value then row.scope ~= "instance" else row.scope ~= "value" end
     if wanted and seen[row.name] ~= true then
       seen[row.name] = true
-      out[#out + 1] = { name = row.name, type = nil, method = row.kind == "method", row = row }
+      local declared: Types.Type? = nil
+      if row.kind == "field" then declared = fields[row.name] end
+      out[#out + 1] = { name = row.name, type = declared, method = row.kind == "method", row = row }
     end
   end
   if owner.kind == "interface" and not value then
-    local parent = symbol:match("^(.*)%.[^.]*$")
-    for _, listed in ipairs(owner.supers) do
-      local named = if parent ~= nil and rows[parent .. "." .. listed] ~= nil then parent .. "." .. listed else listed end
-      local inherited = if listed:find("[<.]") == nil then row_members(rows, named, false, (depth or 0) + 1) else nil end
+    -- The rows list the interfaces as written and the declaration as resolved: they are the same when they are as many.
+    if #owner.supers ~= #body.supers then return nil end
+    local generic = false
+    for _, listed in ipairs(body.supers) do
+      if listed.tag ~= "named" then return nil end
+      if #listed.args > 0 then generic = true end
+    end
+    local put: mut {string: Types.Type} = {}
+    if generic then
+      local program = request.program
+      for _, field in ipairs(Declarations.inherited(program.store, program.judge, decl)) do
+        put[field.name] = field.type
+      end
+    end
+    for _, listed in ipairs(body.supers) do
+      if listed.tag ~= "named" then return nil end
+      local inherited = rows_of(request, listed.decl, false, (depth or 0) + 1)
       if inherited == nil then return nil end
       for _, member in ipairs(inherited) do
         if seen[member.name] ~= true then
           seen[member.name] = true
+          local substituted: Types.Type? = nil
+          if #listed.args > 0 then substituted = put[member.name] end
+          local row = member.row
+          if substituted ~= nil and row ~= nil and row.kind == "field" then
+            local copy: source.MemberRow = { name = row.name, kind = row.kind, scope = row.scope,
+              type = Types.display(substituted), doc = row.doc }
+            member = { name = member.name, type = substituted, method = false, row = copy }
+          end
           out[#out + 1] = member
         end
       end
@@ -652,16 +686,6 @@ local function row_members(rows: source.Members, symbol: string, value: boolean,
   end
   table.sort(out, function(a: Member, b: Member): boolean return a.name < b.name end)
   return out
-end
-
---- The members of `decl` its module's rows give, nil where there are none ([`source.members`]).
-local function rows_of(request: Request, decl: Types.Decl, value: boolean): {Member}?
-  local checker = request.checker
-  local text: string? = nil
-  if decl.module == request.outcome.module then text = request.text end
-  local rows = source.members(checker.source, decl.module, check.open_files(checker), text)
-  if rows == nil then return nil end
-  return row_members(rows, decl.name, value)
 end
 
 --- The names of the parameters in `written`, a function type as written (`function(self: P, a: T, b?: U): R`), without the

@@ -127,7 +127,7 @@ local function test_check_types_a_file_without_running_it(tmp: string)
   assert(passed.code == 0, tostring(passed.stderr))
   assert(Fs.exists(marker) ~= true, "--check ran the file")
   local refused = check(broken)
-  assert(refused.code == 1, tostring(refused.stderr))
+  assert(refused.code == 4, tostring(refused.stderr))
   assert(tostring(refused.stderr):find("not_assignable", 1, true), tostring(refused.stderr))
   local run = this_program.program({ "--standalone", broken }, { cwd = tmp, env = { XDG_CACHE_HOME = tmp .. "/cache" },
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })

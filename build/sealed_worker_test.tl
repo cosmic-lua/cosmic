@@ -21,17 +21,17 @@ local confine = require("build.confine")
 --- Modules of the tree this module's closure does not hold.
 local outside <const>: {string} = { "cosmic.zip", "build.writer", "build.sealed_worker_store_test" }
 
---- Whether this worker runs on a sealed database, which a sandboxed one
---- must (the runner marks every held worker: build.confine's
---- `held_variable`); an unmarked worker is skipped where it is not.
-local function sealed(): boolean
+--- Ends the running test as skipped ([`Test.skip`]) where this worker runs
+--- on no sealed database, which a sandboxed one must (the runner marks every
+--- held worker: build.confine's `held_variable`); an unmarked worker is
+--- skipped where it is not.
+local function skip_unless_sealed()
   local relaunch = Proc.relaunch()
   local on_database = relaunch ~= nil and relaunch.argv[2] == "--database"
   if Env.get(confine.held_variable) ~= nil then
     assert(on_database, "a sandboxed worker was not given a sealed database")
   end
   if not on_database then Test.skip("this worker does not run on a sealed database") end
-  return on_database
 end
 
 --- Every way a worker reads the program for `name`, which finds it in none.
@@ -53,7 +53,7 @@ local function absent(name: string)
 end
 
 local function test_a_module_outside_the_closure_is_not_in_the_program()
-  if not sealed() then return end
+  skip_unless_sealed()
   for _, name in ipairs(outside) do absent(name) end
   assert(Store.bytecode("cosmic.store") ~= nil, "a module of the closure is not")
   -- A `require` of a name made at run time, from a chunk of Lua: the parser refuses it in a typed file.
@@ -68,7 +68,7 @@ end
 --- The same from a finalizer, which a collection runs where it likes,
 --- once the test is over included.
 local function test_a_finalizer_finds_no_module_outside_the_closure()
-  if not sealed() then return end
+  skip_unless_sealed()
   local failure = { value = "not run" }
   setmetatable({}, { __gc = function()
     local ok, why = pcall(function()

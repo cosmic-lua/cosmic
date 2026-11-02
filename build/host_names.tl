@@ -44,7 +44,7 @@
 local record host_names
   --- The table's names, sorted: `landlock` is also written `landlock:N`,
   --- and `path` and `program` only with an argument.
-  names: {string}
+  mut names: mut {string}
 
   --- Whether a requirement is one only some platforms have.
   enum Class

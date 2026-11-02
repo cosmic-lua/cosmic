@@ -69,7 +69,7 @@ local record link_index
   --- answer too.
   record Memo
     kinds: mut {string: string}
-    reads: {string: {string}}
+    reads: mut {string: {string}}
     reals: mut {string: {string}}
   end
 
@@ -128,7 +128,7 @@ local record link_index
   end
 
   --- A library of nothing: links name the projection's own symbols alone.
-  none: Library
+  mut none: Library
 end
 
 link_index.none = {

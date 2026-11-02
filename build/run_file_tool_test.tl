@@ -105,7 +105,7 @@ local function test_a_broken_required_file_still_stops_a_file_run(tmp: string)
       "bad.tl: the compiler refused it" end
     local result = run_in(tree_of(tmp, name, files), "good.tl")
     local said = tostring(result.stdout) .. tostring(result.stderr)
-    assert(result.code == 1 and result.stdout == "", said)
+    assert(result.code == 4 and result.stdout == "", said)
     assert((result.stderr or ""):find(refusal, 1, true) ~= nil and
         (result.stderr or ""):find("left out", 1, true) == nil, said)
   end
@@ -123,7 +123,7 @@ local function broken_file_stops_a_file_run(tmp: string, file: string)
   })
   local result = run_in(root, "good.tl")
   local said = tostring(result.stdout) .. tostring(result.stderr)
-  assert(result.code == 1 and (result.stderr or ""):find("types.tl: the compiler refused it", 1, true) ~= nil and
+  assert(result.code == 4 and (result.stderr or ""):find("types.tl: the compiler refused it", 1, true) ~= nil and
       (result.stderr or ""):find("left out", 1, true) == nil, said)
 end
 
@@ -171,7 +171,7 @@ local function test_a_file_run_with_the_new_checker_is_told_a_refusal_in_its_wor
   local needing = tree_of(tmp, "new-needed", { ["good.tl"] = 'local b = require("bad")\nprint(b)\n', ["bad.tl"] = TYPE_ERROR })
   local stopped = run_new_in(needing, "good.tl")
   local stopped_said = tostring(stopped.stdout) .. tostring(stopped.stderr)
-  assert(stopped.code == 1 and stopped.stdout == "" and (stopped.stderr or ""):find("bad.tl: the compiler refused it", 1, true) ~= nil and
+  assert(stopped.code == 4 and stopped.stdout == "" and (stopped.stderr or ""):find("bad.tl: the compiler refused it", 1, true) ~= nil and
       (stopped.stderr or ""):find("(not_assignable)", 1, true) ~= nil, stopped_said)
 end
 
@@ -189,7 +189,7 @@ local function test_a_script_with_a_hashbang_line_runs_and_keeps_its_line_number
   local failed = run_in(root, "fails.tl")
   assert(failed.code ~= 0 and (failed.stderr or ""):find("fails:3: boom 1", 1, true) ~= nil, tostring(failed.stderr))
   local refused = run_in(root, "refused.tl")
-  assert(refused.code ~= 0 and (refused.stderr or ""):find("refused.tl:3:", 1, true) ~= nil and
+  assert(refused.code == 4 and (refused.stderr or ""):find("refused.tl:3:", 1, true) ~= nil and
       (refused.stderr or ""):find("(not_assignable)", 1, true) ~= nil, tostring(refused.stderr))
 end
 
@@ -234,6 +234,6 @@ local function test_a_lua_file_run_standalone_is_checked_as_teal(tmp: string)
   local started = this_program.program({ "--standalone", file }, { env = this_program.environment(),
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
   local result = assert(Child.run(started.argv, started.options))
-  assert(result.code == 1 and result.stdout == "" and (result.stderr or ""):find("param_untyped", 1, true) ~= nil,
+  assert(result.code == 4 and result.stdout == "" and (result.stderr or ""):find("param_untyped", 1, true) ~= nil,
     tostring(result.stdout) .. tostring(result.stderr))
 end

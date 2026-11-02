@@ -405,6 +405,10 @@ input to the build, never to the runtime. one database holds:
   columns of the source `modules` holds (build/syntax_places.tl). `cosmic
   lsp` answers a go to definition of a `cosmic.*` symbol in a project from
   it, with the module's text written below the build directory.
+- **members**: the tool's alone, what each standard-library module
+  declares its types to have (build/syntax_members.tl), with the doc
+  comment of each member. `cosmic lsp` completes the members of a
+  `cosmic.*` type in a project from it.
 - **docs**: one row per symbol a module declares at its top level --
   the module itself, each function, each record, enum or alias and
   every field and value under it, and each documented value -- with
@@ -1187,8 +1191,8 @@ verbs, with a bare path meaning run: `cosmic build`, `cosmic test`,
 `cosmic fix`, `cosmic docs`; `cosmic file.tl` runs a
 file; `-e` is the one-liner: `cosmic -e '<chunk>'` runs a chunk of Teal
 against the standard library, with no tree. The chunk is checked as a
-file is, so a type error exits 1 with the checker's messages and
-nothing runs; it takes the library by `require("cosmic.json")`, as a
+file is, so a type error exits 4, the status of code that did not
+compile, with the checker's messages and nothing runs; it takes the library by `require("cosmic.json")`, as a
 file does (and the tool's own modules, which only the tool's one-liner
 may require), with nothing pre-bound, and the words after it are its `...`. `build` builds the tree and
 writes an executable for each `cmd/<name>/` in it, so a library tree
@@ -1202,7 +1206,7 @@ exit code is its verdict and its stdout is its result alone; its stderr
 says what went wrong, and a run that passed ends there in a summary of
 how it went (`test`'s summary is its result, last on stdout). a file
 run, `--standalone` and `-e` are programs, not verbs, and print only
-what they print and exit with what they return. `cosmic help` prints an
+what they print and exit with what they return, or 4 where the file did not compile. `cosmic help` prints an
 index with a line per verb, `cosmic help <verb>` that verb's full text
 and options, and `cosmic help exit` the exit codes and summaries. no
 other stock-interpreter flags, no argv[0] personality.

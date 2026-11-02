@@ -51,7 +51,9 @@ end
   assert(result.signal ~= sys.SIGPIPE, "the write ended the process with SIGPIPE")
   assert(result.code == 0, tostring(result.code) .. " " .. tostring(result.stderr))
   local said = result.stdout or ""
-  if said == "ignored" then return end
+  if said == "ignored" then
+    Test.skip("this runner ignores SIGPIPE, which its children inherit, so a write to a closed peer ends nothing")
+  end
   assert(said:find("^false ") ~= nil and #said > #"false ", said)
 end
 

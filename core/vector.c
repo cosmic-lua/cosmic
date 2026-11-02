@@ -11,6 +11,7 @@
 #include "memory.h"
 #include "lauxlib.h"
 #include "process.h"
+#include "sqlite.h"
 
 #if defined(__x86_64__)
 #include <cpuid.h>
@@ -211,13 +212,6 @@ static int read_pair (sqlite3_context *ctx, sqlite3_value **argv,
     return 0;
   }
   return 1;
-}
-
-static int any_null (int argc, sqlite3_value **argv) {
-  for (int i = 0; i < argc; i++) {
-    if (sqlite3_value_type(argv[i]) == SQLITE_NULL) return 1;
-  }
-  return 0;
 }
 
 /* The kernels keep eight running sums, so the compiler can hold them in
@@ -479,7 +473,7 @@ static double l1_wide (const float *a, const float *b, size_t n) {
 
 static void l2_distance_function (sqlite3_context *ctx, int argc,
                                   sqlite3_value **argv) {
-  if (any_null(argc, argv)) {
+  if (cosmic_any_null(argc, argv)) {
     sqlite3_result_null(ctx);
     return;
   }
@@ -499,7 +493,7 @@ static void l2_distance_function (sqlite3_context *ctx, int argc,
 
 static void inner_product_function (sqlite3_context *ctx, int argc,
                                     sqlite3_value **argv) {
-  if (any_null(argc, argv)) {
+  if (cosmic_any_null(argc, argv)) {
     sqlite3_result_null(ctx);
     return;
   }
@@ -521,7 +515,7 @@ static void inner_product_function (sqlite3_context *ctx, int argc,
  * no direction. */
 static void cosine_distance_function (sqlite3_context *ctx, int argc,
                                       sqlite3_value **argv) {
-  if (any_null(argc, argv)) {
+  if (cosmic_any_null(argc, argv)) {
     sqlite3_result_null(ctx);
     return;
   }
@@ -554,7 +548,7 @@ static void cosine_distance_function (sqlite3_context *ctx, int argc,
 
 static void l1_distance_function (sqlite3_context *ctx, int argc,
                                   sqlite3_value **argv) {
-  if (any_null(argc, argv)) {
+  if (cosmic_any_null(argc, argv)) {
     sqlite3_result_null(ctx);
     return;
   }
@@ -579,7 +573,7 @@ static void result_floats (sqlite3_context *ctx, const float *values,
  * keep a scan fast, and give NaN for a vector that holds one. */
 static void vector_function (sqlite3_context *ctx, int argc,
                              sqlite3_value **argv) {
-  if (any_null(argc, argv)) {
+  if (cosmic_any_null(argc, argv)) {
     sqlite3_result_null(ctx);
     return;
   }
@@ -600,7 +594,7 @@ static void vector_function (sqlite3_context *ctx, int argc,
  * significant digits, which is enough to read back the same float. */
 static void vector_text_function (sqlite3_context *ctx, int argc,
                                   sqlite3_value **argv) {
-  if (any_null(argc, argv)) {
+  if (cosmic_any_null(argc, argv)) {
     sqlite3_result_null(ctx);
     return;
   }
@@ -634,7 +628,7 @@ static void vector_text_function (sqlite3_context *ctx, int argc,
 
 static void vector_dims_function (sqlite3_context *ctx, int argc,
                                   sqlite3_value **argv) {
-  if (any_null(argc, argv)) {
+  if (cosmic_any_null(argc, argv)) {
     sqlite3_result_null(ctx);
     return;
   }
@@ -648,7 +642,7 @@ static void vector_dims_function (sqlite3_context *ctx, int argc,
  * normalized vectors is their cosine; all zeros stays all zeros. */
 static void l2_normalize_function (sqlite3_context *ctx, int argc,
                                    sqlite3_value **argv) {
-  if (any_null(argc, argv)) {
+  if (cosmic_any_null(argc, argv)) {
     sqlite3_result_null(ctx);
     return;
   }
@@ -682,7 +676,7 @@ static void l2_normalize_function (sqlite3_context *ctx, int argc,
  * Only a range that leaves no dimension is an error. */
 static void subvector_function (sqlite3_context *ctx, int argc,
                                 sqlite3_value **argv) {
-  if (any_null(argc, argv)) {
+  if (cosmic_any_null(argc, argv)) {
     sqlite3_result_null(ctx);
     return;
   }
@@ -712,7 +706,7 @@ static void subvector_function (sqlite3_context *ctx, int argc,
  * bit type orders them; the last byte is padded with zeros. */
 static void binary_quantize_function (sqlite3_context *ctx, int argc,
                                       sqlite3_value **argv) {
-  if (any_null(argc, argv)) {
+  if (cosmic_any_null(argc, argv)) {
     sqlite3_result_null(ctx);
     return;
   }
@@ -789,7 +783,7 @@ static void bit_counts (const unsigned char *a, const unsigned char *b,
 
 static void hamming_distance_function (sqlite3_context *ctx, int argc,
                                        sqlite3_value **argv) {
-  if (any_null(argc, argv)) {
+  if (cosmic_any_null(argc, argv)) {
     sqlite3_result_null(ctx);
     return;
   }
@@ -805,7 +799,7 @@ static void hamming_distance_function (sqlite3_context *ctx, int argc,
  * vectors with no bit set. */
 static void jaccard_distance_function (sqlite3_context *ctx, int argc,
                                        sqlite3_value **argv) {
-  if (any_null(argc, argv)) {
+  if (cosmic_any_null(argc, argv)) {
     sqlite3_result_null(ctx);
     return;
   }

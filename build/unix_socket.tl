@@ -113,4 +113,15 @@ function unix_socket.skipped(dir: string): boolean
   return true
 end
 
+--- Ends the running test as skipped ([`Test.skip`]) where the process
+--- cannot make a unix socket in `dir` ([`unix_socket.refusal`]); returns
+--- where it can. Like every helper that skips for its test, it relies on
+--- [`Test.skip`] raising under a runner, so nothing after it runs there; run
+--- outside a runner it returns and the test goes on, which is unsupported.
+--- @param dir a directory the process may make a socket file in
+function unix_socket.skip_if_refused(dir: string)
+  local why = unix_socket.refusal(dir)
+  if why ~= nil then Test.skip(why) end
+end
+
 return unix_socket
