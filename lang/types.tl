@@ -416,6 +416,8 @@ local record Types
     --- decodes are open.
     mut depth: integer
     mut transactions: integer
+    --- How many of the types are dead, forgotten by [`Types.forget`] and counted still: their ids are not given again.
+    mut dead: integer
 
     integer: Type
     number: Type
@@ -476,6 +478,13 @@ local record Types
   --- How deeply a type may nest in a store and in text being decoded: the innermost type counts
   --- as one. A constructor raises for a type that would nest deeper.
   max_depth: integer
+
+  --- Takes `decls` out of the store, with every type that names one (an array of one, a function that takes one), so that a
+  --- declaration at the same path is made new by [`Store.declare`] and no type of the old one is found for it. The caller
+  --- forgets every declaration whose body names one of `decls` as well: a type a kept declaration holds that names a
+  --- forgotten one is dead, and a constructor refuses it as a type of another store. The ids of the types forgotten are not
+  --- given again, so a judge's memory of them is unreachable and no more. Raises while a decode is open.
+  forget: function(store: Store, decls: {Decl})
 
   --- The types `t` is made of, in the order its text writes them: the arguments of a named type,
   --- the element, key and value of a collection, the members of a union, and for a function the
@@ -1539,6 +1548,66 @@ Types.Store.declare = function(self: Store, kind: Types.DeclKind, module: string
   return decl
 end
 
+function Types.forget(self: Store, decls: {Decl})
+  if self.transactions > 0 then
+    error("types: a decode is open", 2)
+  end
+  local dead: mut {Decl: boolean} = {}
+  for _, decl in ipairs(decls) do
+    if decl.owner ~= self.owner then
+      error("types: a declaration of another store", 2)
+    end
+    dead[decl] = true
+  end
+  if next(dead) == nil then
+    return
+  end
+  -- A type is made after its parts, so one pass in the order of the ids finds every type that names a declaration.
+  local gone: mut {integer: boolean} = {}
+  local forgotten: mut {Type} = {}
+  for id = #ATOMS + 1, self.count do
+    local t = self.types[id]
+    assert(t ~= nil, "the store holds a type at each id to its count")
+    if t.owner == self.owner then
+      local names = t.tag == "named" and dead[t.decl] == true
+      if not names then
+        for _, part in ipairs(Types.parts(t)) do
+          if gone[part.id] == true then
+            names = true
+            break
+          end
+        end
+      end
+      if names then
+        gone[id] = true
+        forgotten[#forgotten + 1] = t
+      end
+    end
+  end
+  self.dead = self.dead + #forgotten
+  for _, t in ipairs(forgotten) do
+    self.interned[render(t, id_text)] = nil
+    set_owner(t, 0)
+  end
+  local kept: mut {Decl} = {}
+  for _, decl in ipairs(self.list) do
+    if dead[decl] == true then
+      local key = path_key(decl.module, decl.name)
+      self.declared[key] = nil
+      self.pending[key] = nil
+      decl.owner = 0
+    else
+      kept[#kept + 1] = decl
+    end
+  end
+  while #self.list > 0 do
+    table.remove(self.list)
+  end
+  for _, decl in ipairs(kept) do
+    self.list[#self.list + 1] = decl
+  end
+end
+
 Types.Store.find = function(self: Store, module: string, name: string): Decl?
   return self.declared[path_key(module, name)]
 end
@@ -2299,7 +2368,7 @@ function Types.new(loader?: Loader): Store
   local store: Store = setmetatable({
     owner = counter.stores, count = #ATOMS, types = types, interned = interned, declared = {}, list = {},
     atoms = atoms, loader = loader, pending = {}, journal = {}, building = {}, building_order = {}, depth = 0,
-    transactions = 0,
+    transactions = 0, dead = 0,
     integer = atoms["integer"], number = atoms["number"], string = atoms["string"], boolean = atoms["boolean"],
     never = atoms["never"], any = atoms["any"], invalid = atoms["invalid"],
   }, store_mt)
