@@ -4,6 +4,10 @@ Every SQLite handle cosmic opens, through [`cosmic.sqlite`] or [`cosmic.store`],
 answers the SQL functions, table-valued functions, virtual tables and
 collations listed here, with no extension to load, and no others.
 
+To try one from the shell, `cosmic sql --db <file> '<statement>'` runs a
+read-only statement against a database file; no `sqlite3` binary or
+other language is needed.
+
 Each entry starts with the name in backticks. An entry for SQLite's own
 functions is short and links to SQLite's page for the rest. An entry for
 what cosmic adds says what a caller needs.

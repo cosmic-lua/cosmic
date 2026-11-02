@@ -238,6 +238,22 @@ function Example.paths()
   for _, found in ipairs(names) do print(Json.pointer(found.steps), found.value) end
 end
 
+--- Compare two documents: [`Json.diff`] lists where they differ, each by
+--- JSON Pointer, ignoring member order and the difference between `1` and
+--- `1.0`. An empty list means equal, so a test asserts on the list.
+function Example.diff()
+  local expected = assert(Json.decode('{"id": 7, "tags": ["a"], "owner": {"name": "ada"}}'))
+  local found = assert(Json.decode('{"owner": {"name": "bob"}, "tags": ["a", "b"], "id": 7.0}'))
+  local want = assert(Json.to_value(expected))
+  local got = assert(Json.to_value(found))
+  local differences = Json.diff(want, got)
+  for _, difference in ipairs(differences) do
+    print(difference.path, Json.encode_any(difference.want) or "nothing", Json.encode_any(difference.got))
+  end
+  assert(#differences == 2 and differences[1].path == "/owner/name" and differences[2].path == "/tags/1")
+  assert(#Json.diff(want, want) == 0)
+end
+
 --- Read a document too large to hold whole a token at a time, and
 --- decode only the parts wanted: here each row of a long array.
 function Example.reader()
