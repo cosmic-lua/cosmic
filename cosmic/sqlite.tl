@@ -29,6 +29,11 @@
 --- '<statement>'` runs one read-only statement; no `sqlite3` binary or
 --- other language is needed.
 ---
+--- To copy tables between database files, open the target writable and
+--- `ATTACH` the other file; [the SQL guide](doc/guides/sql.md) has the
+--- sections "copying tables between files" and "a prepared statement in
+--- a loop". `cosmic sql` cannot attach.
+---
 --- SQLite's JSON functions read JSON5 always, and in cosmic's copy `#`
 --- line comments too, as `cosmic.json` does given `hash_comments`: a
 --- text in YAML's flow style reads the same through either.

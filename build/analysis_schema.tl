@@ -230,6 +230,12 @@ function analysis_schema.not_declaration(column: string): string
   return column .. " NOT IN ('" .. table.concat(declarations, "', '") .. "')"
 end
 
+--- The complaint about two files that answer to one import path (`x.tl` and `x/init.tl`), `files` being their names joined with
+--- " and ": the derive's refusal of them ([`build.derivation`]), which the editor words the same.
+function analysis_schema.sharing(files: string, path: string): string
+  return files .. " both answer to import path '" .. path .. "'; delete or rename one"
+end
+
 --- Whether `kind`, the kind of a module of a build, is a declaration.
 function analysis_schema.is_declaration(kind: string): boolean
   for _, each in ipairs(declarations) do

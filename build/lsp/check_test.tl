@@ -256,6 +256,80 @@ local function test_a_declaration_beside_its_source_is_refused_in_each_document_
   assert(final.uri:sub(-9) == "/lib/m.tl" and #final.diagnostics == 0, final.uri .. " " .. tostring(#final.diagnostics))
 end
 
+--- `x.tl` beside `x/init.tl` are one module, which the build refuses ([`build.analysis_schema.sharing`]): each of the two documents
+--- is told so at its first line, in the build's words, whichever is open, both from the first stage (cold) and when the pair
+--- appears after a good stage (warm); deleting one file clears it. A file that requires `x` finds no module cold, but warm still
+--- reads the `x.tl` last staged: the editor serves the last good stage silently while a stage is refused (a `TODO:` in
+--- [`build.lsp.source`]), which this test pins so that the fix to it is seen.
+local function test_two_files_of_one_module_are_refused_in_each_document()
+  local words = "x.tl and x/init.tl both answer to import path 'x'; delete or rename one"
+  local outer = "local record X\n  n: integer\nend\nreturn X\n"
+  local inner = "local record X\n  m: string\nend\nreturn X\n"
+  local user = 'local X = require("x")\nlocal v: X = { n = 1 }\nreturn v\n'
+  -- The last publication of each file by its last path segment: its first message, "|", and how many it holds.
+  local function last_told(ran: session_fixture.Ran): {string:string}
+    local seen: mut {string:string} = {}
+    for _, published in ipairs(publications(ran)) do
+      local d = published.diagnostics[1]
+      seen[assert(published.uri:match("[^/]*$"))] = (if d ~= nil then d.message else "" end) .. "|" ..
+        tostring(#published.diagnostics)
+    end
+    return seen
+  end
+  for _, cold in ipairs({ true, false }) do
+    local label = (if cold then "cold" else "warm" end)
+    local root = project()
+    assert(Fs.mkdirs(root .. "/x"))
+    assert(Fs.write(root .. "/x.tl", outer))
+    assert(Fs.write(root .. "/main.tl", user))
+    local send = serving(root)
+    local opened = { open(root, "x.tl", outer), open(root, "x/init.tl", inner), open(root, "main.tl", user) }
+    if cold then
+      assert(Fs.write(root .. "/x/init.tl", inner))
+      local ran = send({ initialize(root), table.unpack(opened) })
+      local in_outer, in_inner = only(nth(ran, 1)), only(nth(ran, 2))
+      assert(in_outer.message == words, label .. ": " .. in_outer.message)
+      assert(in_inner.message == words, label .. ": " .. in_inner.message)
+      assert(edge(in_outer, "start").line == 0 and edge(in_outer, "start").character == 0)
+      local requiring = messages_of(nth(ran, 3))
+      assert(requiring:find("the project has no module `x` (require_unknown)", 1, true) ~= nil, label .. ": " .. requiring)
+    else
+      local good = send({ initialize(root), open(root, "x.tl", outer), open(root, "main.tl", user) })
+      assert(counts(good) == "0,0", messages_of(nth(good, 1)) .. messages_of(nth(good, 2)))
+      assert(Fs.write(root .. "/x/init.tl", inner))
+      local seen = last_told(send({ session_fixture.changed_on_disk(root, "x/init.tl"), table.unpack(opened) }))
+      assert(seen["x.tl"] == words .. "|1" and seen["init.tl"] == words .. "|1", label .. ": " .. tostring(seen["x.tl"]))
+      -- Not the editor's last word: the requiring file reads the stage before the pair, which it does not say.
+      assert(seen["main.tl"] == "|0", label .. ": " .. tostring(seen["main.tl"]))
+    end
+    -- One file is deleted: the pair is gone and the requiring file reads the one that is left.
+    assert(Fs.remove(root .. "/x/init.tl"))
+    local after = send({ close(root, "x/init.tl"), session_fixture.changed_on_disk(root, "x/init.tl"),
+      change(root, "x.tl", outer .. "\n"), change(root, "main.tl", user) })
+    local seen = last_told(after)
+    assert(seen["x.tl"] == "|0" and seen["main.tl"] == "|0", label .. ": " .. tostring(seen["x.tl"]) .. "," .. tostring(seen["main.tl"]))
+  end
+end
+
+--- A third file of the module (`x.d.tl` beside `x.tl` and `x/init.tl`) leaves each document one message: the two sources are
+--- told the build's words for their pair, and the declaration the build's words for it beside its source.
+local function test_three_files_of_one_module_leave_each_document_one_message()
+  local root = project()
+  assert(Fs.mkdirs(root .. "/x"))
+  local declaration = "--- @kind binding\nlocal record X\n  n: integer\nend\nreturn X\n"
+  local outer = "local record X\n  n: integer\nend\nreturn X\n"
+  local inner = "local record X\n  m: string\nend\nreturn X\n"
+  assert(Fs.write(root .. "/x.d.tl", declaration))
+  assert(Fs.write(root .. "/x.tl", outer))
+  assert(Fs.write(root .. "/x/init.tl", inner))
+  local ran = served(root, { initialize(root), open(root, "x.d.tl", declaration), open(root, "x.tl", outer),
+    open(root, "x/init.tl", inner) })
+  local sharing = "x.tl and x/init.tl both answer to import path 'x'; delete or rename one"
+  assert(only(nth(ran, 1)).message:find("x.tl is already the module x. A .d.tl is only", 1, true) == 1, messages_of(nth(ran, 1)))
+  assert(only(nth(ran, 2)).message == sharing, messages_of(nth(ran, 2)))
+  assert(only(nth(ran, 3)).message == sharing, messages_of(nth(ran, 3)))
+end
+
 --- A `.d.tl` that names no kind is refused by the build, and its document is told so at its first line, in the words the build
 --- uses ([`build.driver.naming`]); tagged a binding it is published clear, and tagged `language` outside the two files of
 --- the globals it is refused again.

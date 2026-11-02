@@ -192,6 +192,10 @@ local function insert_test_inputs(db: Sqlite.Handle, source_hash: string, declar
     each("caches", declared.caches)
     each("parent", declared.parent or {})
     each("requires", declared.requires)
+    if declared.timeout ~= nil then
+      local value = tostring(declared.timeout)
+      rows[#rows + 1] = { field = "timeout", value = value }
+    end
   end
   for ordinal, row in ipairs(rows) do
     local ok, why = Sqlite.run(db,

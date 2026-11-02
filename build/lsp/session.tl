@@ -1,6 +1,6 @@
---- One editor's session of `cosmic lsp` ([`build.lsp`]): what it opened,
---- what it was told, and its answer to each message it sends, as the
---- protocol's lifecycle holds them ([`build.lsp.protocol`]).
+--- One editor's session of `cosmic lsp` ([`build.lsp`]): what it opened, what it was told, and its
+--- answer to each message it sends, as the protocol's lifecycle holds them
+--- ([`build.lsp.protocol`]).
 ---
 --- What it answers:
 ---
@@ -14,22 +14,26 @@
 --- - Formatting: a document laid out as `cosmic fix` lays out a Teal file ([`build.fix`]'s `format_text`), as one edit of the whole
 ---   text, or none where it is laid out already or the formatter refuses it, which the person is shown.
 ---
---- The open documents that require one whose text changed are checked
---- again once its own check is published, where what it serves them
---- changed, one at a time, while no other message waits
---- ([`build.lsp.dependents`]). A root no build was started in has its
---- documents checked against nothing: none is published, and the person
---- is shown, once, what to run there ([`source.outside`]); a tool not
---- checked against its tree, which stages nothing, says so once too
---- ([`source.unchecked`]).
---- Where the editor
---- takes a registration of the files to watch, the session registers
+--- The open documents that require one whose text changed are checked again once its own check is
+--- published, where what it serves them changed, one at a time, while no other message waits
+--- ([`build.lsp.dependents`]). A root no build was started in has its documents checked against
+--- nothing: none is published, and the person is shown, once, what to run there
+--- ([`source.outside`]); a tool not checked against its tree, which stages nothing, says so once
+--- too ([`source.unchecked`]).
+---
+--- A session whose process the tree's newer tool is to replace ([`session.Options`]'s `reenter`)
+--- hands itself over before it handles the messages that stage the tree (`initialized`, a document
+--- opened or saved, a watched file changed): the successor serves the same editor over the same
+--- stream with the same open documents ([`build.lsp.handoff`]), and first the message that was
+--- about to be handled. A check or a rebuild that fails leaves the session serving, and the person
+--- is told once. Where the editor takes a registration of the files to watch, the session registers
 --- every `.tl` and `.tmpl` file at `initialized`.
 ---
---- A message with no method answers a request of the session's own, and
---- is never answered, whatever its id.
+--- A message with no method answers a request of the session's own, and is never answered, whatever
+--- its id.
 
 local Json = require("cosmic.json")
+local sys = require("cosmic.sys")
 local Sqlite = require("cosmic.sqlite")
 local Stream = require("cosmic.stream")
 local bare = require("build.bare")
@@ -37,6 +41,7 @@ local check = require("build.lsp.check")
 local completion = require("build.lsp.completion")
 local definition = require("build.lsp.definition")
 local dependents = require("build.lsp.dependents")
+local handoff = require("build.lsp.handoff")
 local hover = require("build.lsp.hover")
 local lines = require("build.lsp.lines")
 local protocol = require("build.lsp.protocol")
@@ -52,6 +57,13 @@ local record session
     store?: {Sqlite.Handle}
     --- The `built_from` the tool carries: the binary's when nil ([`tree.standing`]).
     carried?: string
+    --- Holds the tool to the tree and replaces the process by the rebuilt one where it is older,
+    --- given the root and, to be called only where the process is to be replaced, the session to
+    --- hand it ([`build.lsp.handoff`]); it returns only where it did not, nil unless the check or
+    --- the rebuild failed, which it then answers as an exit code, having said why. None when the
+    --- process cannot be replaced: a listener serves many editors, and one stdin or connection of
+    --- them has no process of its own.
+    reenter?: function(root: string, state: function(): handoff.Session): integer?
   end
 
   --- One editor's session: what it opened and what it was told.
@@ -84,6 +96,12 @@ local record session
     --- Whether the person was shown that the root is no project, or that
     --- the tool was not checked against the tree: one message a session.
     mut told_outside: boolean
+    reenter: (function(root: string, state: function(): handoff.Session): integer?)?
+    --- Whether the person was shown that a rebuild failed: one message a session.
+    mut told_stale: boolean
+    --- The messages a predecessor read and did not answer, framed, which the stream gives first
+    --- ([`session.handed`]).
+    mut inherited: string
   end
 end
 
@@ -134,6 +152,9 @@ function session.new(root: string, options?: session.Options): Session
     docs = hover.new(root, checker.source, given.store, err),
     queue = dependents.new(),
     told_outside = false,
+    reenter = given.reenter,
+    told_stale = false,
+    inherited = "",
   }
   held[1] = made
   return made
@@ -154,6 +175,24 @@ local function document_of(s: Session, params: protocol.DocumentParams, text?: s
     check.set_text(document, text)
   end
   return document
+end
+
+--- The session `handed` left, to be served by this process: the open documents are open again, with
+--- the text the editor holds, and the messages the predecessor had not answered are read first.
+function session.handed(state: handoff.Session, options?: session.Options): Session
+  local s = session.new(state.root, options)
+  s.encoding = state.encoding
+  s.initialized = true
+  s.watch = state.watch
+  s.snippets = state.snippets
+  s.lazy = state.lazy
+  s.told_outside = state.told_outside
+  s.inherited = state.input
+  for _, opened in ipairs(state.documents) do
+    local document = document_of(s, { textDocument = { uri = opened.uri, text = nil }, position = nil, contentChanges = nil }, opened.text)
+    if document ~= nil then dependents.opened(s.queue, document) end
+  end
+  return s
 end
 
 --- The hover for `params`, or nil when nothing is documented there.
@@ -454,10 +493,55 @@ local function handle(s: Session, message: protocol.Message): {string}
   return out
 end
 
---- The messages to send in answer to the message `body`, encoded.
-local function answers(s: Session, body: string): {string}
+--- Whether the message `method` stages the tree: the session holds the tool to the tree before it
+--- handles one ([`reentering`]).
+local function stages(method: string?): boolean
+  return method == "initialized" or method == "textDocument/didOpen" or method == "textDocument/didSave" or
+    method == "workspace/didChangeWatchedFiles"
+end
+
+--- What the editor was told of the session, to hand to a successor: the root, what was negotiated
+--- and the open documents, in the order of their URIs, and `input`, the messages not answered.
+local function handed_of(s: Session, input: string): handoff.Session
+  local uris: mut {string} = {}
+  for uri in pairs(s.documents) do uris[#uris + 1] = uri end
+  table.sort(uris)
+  local opened: mut {handoff.Document} = {}
+  for _, uri in ipairs(uris) do
+    local document = s.documents[uri]
+    if document ~= nil then opened[#opened + 1] = { uri = uri, text = document.text } end
+  end
+  return { version = handoff.version(), pid = sys.getpid(), nonce = "", root = s.root, encoding = s.encoding, watch = s.watch,
+    snippets = s.snippets, lazy = s.lazy, told_outside = s.told_outside, documents = opened, input = input }
+end
+
+--- Holds the tool to the tree before the message `body` is handled, where this process can be
+--- replaced: a rebuilt tool enters in its place and handles `body` first, so this returns only
+--- where it did not. `unanswered` is the messages read after `body` and not handled. What to show
+--- the person where a check or a rebuild failed, once, or nil.
+local function reentering(s: Session, body: string, unanswered: function(): string): string?
+  local reenter = s.reenter
+  if reenter == nil then return nil end
+  -- The session is built only if the process is replaced.
+  local code = reenter(s.root, function(): handoff.Session
+    return handed_of(s, protocol.frame(body) .. unanswered())
+  end)
+  if code == nil or s.told_stale then return nil end
+  s.told_stale = true
+  return "cosmic: the tool is older than the tree and could not be rebuilt (exit " .. tostring(code) ..
+    "; the server's log says why): it goes on with its own code, which stages nothing, until the tree builds"
+end
+
+--- The messages to send in answer to the message `body`, encoded, and what to show the person of a
+--- tool that could not be held to the tree. `unanswered` is the messages read after it and not
+--- handled.
+local function answers(s: Session, body: string, unanswered: function(): string): {string}, string?
   local message, refusal = protocol.message_of(body)
-  if message == nil then return { refusal } end
+  if message == nil then return { refusal }, nil end
+  local told: string? = nil
+  if s.initialized and not s.shut_down and stages(message.method) then
+    told = reentering(s, body, unanswered)
+  end
   -- A fault answering one message fails that message, not the session.
   local ok, handled = pcall(handle, s, message)
   if ok then
@@ -477,12 +561,12 @@ local function answers(s: Session, body: string): {string}
         handled[#handled + 1] = protocol.shown(3, shown)
       end
     end
-    return handled
+    return handled, told
   end
   s.err("cosmic: lsp: " .. tostring(handled))
   local id = protocol.id_of(message)
-  if id == "null" or message.method == nil then return {} end
-  return { protocol.failure(id, protocol.INTERNAL_ERROR, tostring(handled)) }
+  if id == "null" or message.method == nil then return {}, told end
+  return { protocol.failure(id, protocol.INTERNAL_ERROR, tostring(handled)) }, told
 end
 
 --- The document the message `body` sends a whole new text of, or nil
@@ -535,6 +619,21 @@ local function waiting(frames: protocol.Frames, ahead: Ahead): boolean
   return ahead.body ~= nil or frames:waiting()
 end
 
+--- The messages `reader` gives, those a predecessor left first ([`session.handed`]).
+local function frames_of(s: Session, reader: Stream.Reader, poll?: protocol.Poll): protocol.Frames
+  local first: string? = s.inherited
+  s.inherited = ""
+  if first == "" then return protocol.frames(reader, poll) end
+  return protocol.frames_of(function(): string?, string
+    local given = first
+    if given ~= nil then
+      first = nil
+      return given, ""
+    end
+    return reader:read()
+  end, poll)
+end
+
 --- [`session.serve`]'s loop: its exit status.
 local function served(s: Session, frames: protocol.Frames,
                       write: function(text: string): boolean, string): integer
@@ -554,7 +653,17 @@ local function served(s: Session, frames: protocol.Frames,
     -- The answers go out before the dependents of a changed document are
     -- checked, and each dependent's as it is checked: the editor shows
     -- them without waiting for those after.
-    local sending = answers(s, latest(frames, ahead, body))
+    local sending, told = answers(s, latest(frames, ahead, body), function(): string
+      local held = ""
+      local read_ahead = ahead.body
+      if read_ahead ~= nil then held = protocol.frame(read_ahead) end
+      return held .. frames:unread()
+    end)
+    if told ~= nil then
+      local noticed: mut {string} = { protocol.shown(2, told) }
+      for _, answer in ipairs(sending) do noticed[#noticed + 1] = answer end
+      sending = noticed
+    end
     local more = true
     while more do
       for _, answer in ipairs(sending) do
@@ -586,7 +695,7 @@ end
 --- it, a stream that breaks or a write that fails.
 function session.serve(s: Session, reader: Stream.Reader,
                        write: function(text: string): boolean, string, poll?: protocol.Poll): integer
-  local code = served(s, protocol.frames(reader, poll), write)
+  local code = served(s, frames_of(s, reader, poll), write)
   hover.close(s.docs)
   check.close(s.checker)
   return code

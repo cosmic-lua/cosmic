@@ -16,7 +16,8 @@ local function described(found: PolicyRules.Declared?): string
   return table.concat({ tostring(declared.line), list(declared.reads), list(declared.host), list(declared.env),
     list(declared.network), tostring(declared.tool), tostring(declared.lua), tostring(declared.nests),
     tostring(declared.noexec), tostring(declared.store), tostring(declared.system), list(declared.caches),
-    list(declared.parent or {}), list(declared.requires) }, "|")
+    list(declared.parent or {}), list(declared.requires) }, "|") ..
+    (if declared.timeout ~= nil then "|timeout " .. tostring(declared.timeout) else "" end)
 end
 
 --- A policy call and, for a refusal, a word its reason holds.
@@ -75,6 +76,10 @@ local CASES: {Case} = {
   { body = 'Test.policy{ user = "x" }', refused = "takes a whole number", inputs = "" },
   { body = 'Test.policy{ database = "d" }', refused = "database is refused", inputs = "" },
   { body = "Test.policy{ database = 4 }", refused = "takes a string written out", inputs = "" },
+  { body = "Test.policy{ timeout = 90 }", refused = "", inputs = "2|||||false|false|false|false|false|false|||" .. "|timeout 90" },
+  { body = "Test.policy{ timeout = 0 }", refused = "timeout takes a whole number of seconds from 1 to 3600", inputs = "" },
+  { body = "Test.policy{ timeout = 3601 }", refused = "from 1 to 3600", inputs = "" },
+  { body = 'Test.policy{ timeout = "9" }', refused = "timeout takes a whole number", inputs = "" },
   { body = "Test.policy{ nope = 1 }", refused = "has no field nope", inputs = "" },
   { body = "Test.policy{ env = {}, env = {} }", refused = "declared twice", inputs = "" },
   { body = "Test.policy{ [1] = 2 }", refused = "an entry with no name", inputs = "" },

@@ -547,7 +547,8 @@ end
 --- ([`rebuild.Where`]'s `unchecked`).
 local unchecked_line <const> = "this tool was not checked against the tree when it started, " ..
   "since another cosmic run held the tree's build or its database was another tool's, so its " ..
-  "code may be older than the tree's: until the editor starts it again it stages nothing, " ..
+  "code may be older than the tree's: until the editor starts it again, or a session over " ..
+  "standard input and output holds it to the tree at a later stage, it stages nothing, " ..
   "and answers from what the tree last staged, or finds no module where another tool's code " ..
   "staged it"
 
@@ -626,6 +627,9 @@ local function refreshed(src: source.View)
     return
   end
   if staged == nil then
+    -- TODO: the editor serves the last good stage silently while a stage is refused (a `require` of a refused pair's module
+    -- still reads the file last staged, and a cold start finds no module); this waits on the editor naming the refusal on
+    -- every open document.
     src.err("cosmic: lsp: not staged, answering from the tree as last staged: " .. trouble)
     src.trouble = trouble
   else
@@ -652,15 +656,22 @@ function source.refusal(src: source.View, name: string, text?: string): string?
   local declaration: string? = nil
   local second: string? = nil
   local code: string? = nil
+  local other_code: string? = nil
   for _, file in ipairs(Driver.candidates(module)) do
     local there, _ = Fs.exists(src.root .. "/" .. file)
     if there == true then
       if file:match("%.d%.tl$") ~= nil then
         if declaration == nil then declaration = file elseif second == nil then second = file end
-      else
-        code = code or file
+      elseif code == nil then
+        code = file
+      elseif other_code == nil then
+        other_code = file
       end
     end
+  end
+  -- `x.tl` and `x/init.tl`: the derive's refusal, which the stage that met them staged nothing for.
+  if src.trouble ~= "" and code ~= nil and other_code ~= nil and (name == code or name == other_code) then
+    return AnalysisSchema.sharing(code .. " and " .. other_code, module)
   end
   if src.trouble ~= "" and declaration ~= nil and code ~= nil and (name == declaration or name == code) then
     return Driver.pairing(declaration, code, module)
