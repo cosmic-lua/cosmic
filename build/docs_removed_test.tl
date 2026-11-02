@@ -9,10 +9,7 @@
 local docs = require("build.docs")
 local fixture = require("build.docs_fixture")
 local Pipeline = require("build.pipeline")
--- The modules the test compiles a use of: required at the top level, so its closure carries them.
-local _net = require("cosmic.net")
-local _http = require("cosmic.http")
-local _sandbox = require("cosmic.sandbox")
+local Driver = require("build.driver")
 local support = require("build.test_support_fixture")
 
 local function source(...: string): string
@@ -170,7 +167,14 @@ end
 --- `(local Module = require(...))` it ends with.
 local function test_the_page_says_what_the_compiler_hint_says(dir: string)
   local view = assert(docs.view({ fixture.database(dir, tree()) }))
+  -- The modules the cases require, each a record with no member: the checker refuses a use of one as removed
+  -- wherever the catalog lists it, so the test needs none of the library's text.
   local options = assert(Pipeline.alone())
+  options.standard = Driver.stubs({
+    ["cosmic.net"] = "local record Net\nend\nreturn Net\n",
+    ["cosmic.http"] = "local record Http\nend\nreturn Http\n",
+    ["cosmic.sandbox"] = "local record Sandbox\nend\nreturn Sandbox\n",
+  })
   local record Case
     member: string
     required: string

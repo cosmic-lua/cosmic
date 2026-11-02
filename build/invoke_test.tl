@@ -23,15 +23,24 @@ end
 local function test_what_only_a_process_can_do_raises(tmp: string)
   local exit, execve, attach = sys.exit, sys.execve, Store.attach
   local here = assert(sys.getcwd())
-  local ran, trouble = pcall(invoke.run, { "-e", "require('cosmic.proc').exit(0)" },
-    { cwd = tmp })
-  assert(not ran and tostring(trouble):find("called sys.exit", 1, true) ~= nil, tostring(trouble))
-  local swallowed, why = pcall(invoke.run, { "-e", "pcall(require('cosmic.proc').exit, 0)" },
-    { cwd = tmp })
-  assert(not swallowed and tostring(why):find("called sys.exit", 1, true) ~= nil, tostring(why))
-  local file, file_trouble = pcall(invoke.run, { "main.tl" }, { cwd = tmp })
-  assert(not file and tostring(file_trouble):find("runs a file", 1, true) ~= nil,
-    tostring(file_trouble))
+  --- Whether [`invoke.run`] raised, and what it raised or, where it did not, what it answered: a result's `tostring` is a
+  --- table's address, which says nothing of why the call did not raise.
+  local function attempt(args: {string}): boolean, string
+    local answered: mut {invoke.Result} = {}
+    local ok, trouble = pcall(function() answered[1] = invoke.run(args, { cwd = tmp }) end)
+    if ok then
+      local result = assert(answered[1])
+      return false, "invoke.run did not raise; it answered code " .. tostring(result.code) ..
+        ", stderr " .. string.format("%q", result.stderr)
+    end
+    return true, tostring(trouble)
+  end
+  local raised, trouble = attempt({ "-e", "require('cosmic.proc').exit(0)" })
+  assert(raised and trouble:find("called sys.exit", 1, true) ~= nil, trouble)
+  local swallowed, why = attempt({ "-e", "pcall(require('cosmic.proc').exit, 0)" })
+  assert(swallowed and why:find("called sys.exit", 1, true) ~= nil, why)
+  local file, file_trouble = attempt({ "main.tl" })
+  assert(file and file_trouble:find("runs a file", 1, true) ~= nil, file_trouble)
   assert(sys.exit == exit and sys.execve == execve and Store.attach == attach)
   assert(sys.getcwd() == here)
   local again = invoke.run({ "-e", "print('after')" }, { cwd = tmp })

@@ -613,13 +613,13 @@ local SHAPE_HEAD <const> = "local Shape = require(\"cosmic.shape\")\n"
 --- Modules that declare a record, ask for its spec and hold a local of the type of another module: `a` and `b` require each
 --- other, and `top` requires `mid`.
 local RA <const> = SHAPE_HEAD .. "local type Other = require(\"b\")\nlocal record RA\n  n: integer\nend\n" ..
-  "local spec = Shape.record_of(\"RA\")\nlocal held: Other? = nil\nif spec == nil or held ~= nil then\n  error(\"no spec\")\nend\nreturn RA\n"
+  "local spec = Shape.record_of(\"RA\")\nlocal held: Other? = nil\nif spec.name == \"\" or held ~= nil then\n  error(\"no spec\")\nend\nreturn RA\n"
 local RB <const> = SHAPE_HEAD .. "local type Other = require(\"a\")\nlocal record RB\n  n: integer\nend\n" ..
-  "local spec = Shape.record_of(\"RB\")\nlocal held: Other? = nil\nif spec == nil or held ~= nil then\n  error(\"no spec\")\nend\nreturn RB\n"
+  "local spec = Shape.record_of(\"RB\")\nlocal held: Other? = nil\nif spec.name == \"\" or held ~= nil then\n  error(\"no spec\")\nend\nreturn RB\n"
 local WRAP <const> = SHAPE_HEAD .. "local record Wrap\n  n: integer\nend\nlocal spec = Shape.record_of(\"Wrap\")\n" ..
-  "if spec == nil then\n  error(\"no spec\")\nend\nreturn Wrap\n"
+  "if spec.name == \"\" then\n  error(\"no spec\")\nend\nreturn Wrap\n"
 local OWN <const> = SHAPE_HEAD .. "local type Other = require(\"mid\")\nlocal record Own\n  n: integer\nend\n" ..
-  "local spec = Shape.record_of(\"Own\")\nlocal held: Other? = nil\nif spec == nil or held ~= nil then\n  error(\"no spec\")\nend\nreturn Own\n"
+  "local spec = Shape.record_of(\"Own\")\nlocal held: Other? = nil\nif spec.name == \"\" or held ~= nil then\n  error(\"no spec\")\nend\nreturn Own\n"
 
 local function test_modules_that_require_one_another_and_each_resolve_a_record_are_each_resolved()
   -- the second module is read in the closure of the first, and still gets its spec
@@ -750,9 +750,6 @@ local function test_a_record_test_is_written_as_the_fork_writes_it_for_the_tree_
   assert(over == nil and why:find("(is_on_record)", 1, true) ~= nil, tostring(why))
 end
 
--- In the closure, so the store the worker is given carries the module the build reads the stub of ([`Pipeline.carried`]).
-local type _shape = require("cosmic.shape")
-
 local function test_into_answers_the_records_type_and_no_annotation_can_say_another()
   local function with_annotation(annotation: string): string
     return table.concat({
@@ -773,11 +770,10 @@ local function test_into_answers_the_records_type_and_no_annotation_can_say_anot
       "",
     }, "\n")
   end
-  local carried = options("[checked]\nm.tl export_not_declared 1\n")
-  carried.standard = Pipeline.carried()
+  local options_of = options("[checked]\nm.tl export_not_declared 1\n")
   local function compiled(annotation: string): plans.Generated?, string
     local source = with_annotation(annotation)
-    local pipeline = Pipeline.over({ { "m.tl", source } }, { ["m.tl"] = "module" }, carried)
+    local pipeline = Pipeline.over({ { "m.tl", source } }, { ["m.tl"] = "module" }, options_of)
     return Pipeline.generate(module_of("m", "m.tl", "module", source, {}), pipeline)
   end
   local made, trouble = compiled("R")
