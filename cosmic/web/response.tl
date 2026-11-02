@@ -348,6 +348,7 @@ function Response.problem(status: integer, detail?: string, extra?: {string:any}
   if extra ~= nil then
     for name, value in pairs(extra) do body[name] = value end
   end
+  -- TODO: once the problem body is a record that takes extra members, these are fields: a key write into this `{string: any}` is any_use.
   body.status = status -- checked: map_field
   body.detail = detail -- checked: map_field
   local text, why = Json.encode_any(body)
@@ -376,8 +377,9 @@ end
 --- @param err any What was raised
 --- @return Response.Abort | nil The abort
 function Response.aborted(err: any): Response.Abort?
-  if not (err is {string:any} and err.web_abort == true) then return nil end -- checked: is_on_record, map_field
-  local status, detail, extra = err.status, err.detail, err.extra -- checked: map_field*3
+  if not (err is {string:any} and err["web_abort"] == true) then return nil end -- checked: is_on_record
+  -- TODO: once the raised abort is a class, `extra` is a field: `extra is {string: any}` of an `any` read is is_on_record.
+  local status, detail, extra = err["status"], err["detail"], err.extra -- checked: map_field
   if not status is integer then return nil end
   local abort: Response.Abort = { web_abort = true, status = status }
   if detail is string then abort.detail = detail end -- checked: field_fixed

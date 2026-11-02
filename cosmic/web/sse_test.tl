@@ -97,7 +97,7 @@ end
 local function hub_app(hub: Sse.Hub, opts?: Sse.EventStreamOptions, spec?: Web.AppSpec): Web.App
   local given: Sse.EventStreamOptions = opts or { heartbeat_ns = BEAT_NS, retry_ms = 100 }
   local routes: {Web.Route} = { Web.get("/events/:topic", function(req: Web.Request): Web.Response
-    local sub, why = hub:subscribe({ req.params.topic }, { after = Sse.last_event_id(req) }) -- checked: map_field
+    local sub, why = hub:subscribe({ assert(req.params["topic"]) }, { after = Sse.last_event_id(req) })
     if sub == nil then
       return Web.text(why, { status = 503, headers = { ["Retry-After"] = "5" } })
     end

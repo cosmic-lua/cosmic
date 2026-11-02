@@ -4,6 +4,7 @@ local Hash = require("cosmic.hash")
 local Html = require("cosmic.html")
 local Htmx = require("cosmic.web.htmx")
 local Json = require("cosmic.json")
+local Shape = require("cosmic.shape")
 local Test = require("cosmic.test")
 local Web = require("cosmic.web")
 
@@ -75,12 +76,12 @@ end
 
 local function test_a_fragment_is_wanted_only_by_a_plain_htmx_request()
   local function partial(headers: {string:string}): boolean
-    local answer = { value = false }
+    local answered = false
     through(function(req: Web.Request): Web.Response
-      answer.value = Htmx.partial(req) -- checked: map_field
+      answered = Htmx.partial(req)
       return Web.text("")
     end, headers)
-    return answer.value -- checked: map_field
+    return answered
   end
   assert(partial({ ["HX-Request"] = "true" }))
   assert(not partial({}))
@@ -103,6 +104,23 @@ local function test_apply_writes_each_header()
   assert(header(located, "HX-Location") == "/next")
 end
 
+--- The headers the tests below decode.
+local record Message
+  level: string
+  text: string
+end
+local record Events
+  showMessage: Message
+  closeModal: {string:string}
+end
+local EVENTS <const> = Shape.record_of("Events")
+local record Located
+  path: string
+  target: string
+  values: {string:string}
+end
+local LOCATED <const> = Shape.record_of("Located")
+
 local function test_events_are_names_alone_or_ascii_json()
   local plain = assert(applied({ trigger = { { name = "showMessage" }, { name = "closeModal" } } }))
   assert(header(plain, "HX-Trigger") == "showMessage, closeModal")
@@ -115,12 +133,10 @@ local function test_events_are_names_alone_or_ascii_json()
   local sent = assert(header(res, "HX-Trigger"))
   assert(not sent:find("[\128-\255]"), "the header must be ASCII")
   assert(sent:find("caf\\u00e9", 1, true) and sent:find("\\ud83d\\ude00", 1, true), sent)
-  local decoded = assert(Json.decode(sent))
-  assert(decoded is {string:any}) -- checked: is_on_record
-  local message = decoded.showMessage -- checked: map_field
-  assert(message is {string:any} and message.level == "info" and message.text == "caf\u{e9} \u{1F600}")
-  local closing = decoded.closeModal -- checked: map_field
-  assert(closing is {string:any})
+  local decoded, why = EVENTS:into((assert(Json.decode(sent))))
+  assert(decoded ~= nil, why)
+  assert(decoded.showMessage.level == "info" and decoded.showMessage.text == "caf\u{e9} \u{1F600}")
+  assert(next(decoded.closeModal) == nil)
   assert(sent:find('"closeModal":{}', 1, true), sent)
   assert(header(res, "HX-Trigger-After-Swap") == "swapped")
   assert(header(res, "HX-Trigger-After-Settle") == '{"settled":7}')
@@ -129,11 +145,10 @@ end
 local function test_a_location_object_is_ascii_json_with_a_checked_path()
   local res = assert(applied({ location = { path = "/items", target = "#list", swap = "innerHTML",
     values = { name = "\u{e9}" } } })) -- checked: any_use
-  local decoded = assert(Json.decode(assert(header(res, "HX-Location"))))
-  assert(decoded is {string:any} and decoded.path == "/items" and decoded.target == "#list") -- checked: is_on_record, map_field*2
+  local decoded, shape = LOCATED:into((assert(Json.decode(assert(header(res, "HX-Location"))))))
+  assert(decoded ~= nil, shape)
+  assert(decoded.path == "/items" and decoded.target == "#list" and decoded.values["name"] == "\u{e9}")
   assert(not assert(header(res, "HX-Location")):find("[\128-\255]"))
-  local values = decoded.values -- checked: map_field
-  assert(values is {string:any} and values.name == "\u{e9}")
   local refused, why = applied({ location = { path = "//evil.example/x" } })
   assert(refused == nil and why:find("same-origin", 1, true) ~= nil, tostring(why))
   local bad, bad_why = applied({ location = { path = "/ok", target = "#a\n#b" } })
@@ -283,9 +298,9 @@ local function test_head_takes_a_nonce_a_prefix_and_the_overrides_it_names()
   local markup = Html.raw(Htmx.head({ nonce = 'n"1', prefix = "/app", sse = true,
     config = { allow_eval = true, allow_script_tags = true, history_cache_size = 0 } }))
   local config = config_of(markup)
-  assert(config.allowEval == true and config.allowScriptTags == true and config.historyCacheSize == 0) -- checked: map_field*3
-  assert(config.inlineScriptNonce == 'n"1' and config.selfRequestsOnly == true) -- checked: map_field*2
-  assert(config.includeIndicatorStyles == false) -- checked: map_field
+  assert(config["allowEval"] == true and config["allowScriptTags"] == true and config["historyCacheSize"] == 0)
+  assert(config["inlineScriptNonce"] == 'n"1' and config["selfRequestsOnly"] == true)
+  assert(config["includeIndicatorStyles"] == false)
   assert(not markup:find('n"1', 1, true), "the nonce is escaped")
   assert(select(2, markup:gsub(" nonce=", "")) == 2, markup)
   assert(markup:find('src="/app/_web/htmx-', 1, true) and markup:find('src="/app/_web/htmx-ext-sse-', 1, true), markup)

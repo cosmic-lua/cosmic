@@ -350,7 +350,7 @@ function StaticFiles.mount(prefix: string, opts?: StaticFiles.Options): Types.Ro
   }
   return Route.mount_handler(prefix, StaticFiles.handler(o), { name = "static",
     reverse = function(full: string, params: {string:string}): string?, string
-      local path = params.path -- checked: map_field
+      local path = params["path"]
       if path == nil then return nil, "static: url_for needs a 'path' parameter" end
       return StaticFiles.url(source, full, path)
     end })

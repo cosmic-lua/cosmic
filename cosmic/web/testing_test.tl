@@ -2,6 +2,7 @@ local Clock = require("cosmic.clock")
 local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
 local Web = require("cosmic.web")
+local Shape = require("cosmic.shape")
 local Test = require("cosmic.test")
 
 --- An app that echoes what a request carried.
@@ -17,22 +18,36 @@ local function echo(): Web.App
   } }
 end
 
+local record Echo
+  method: string
+  query: {string}
+  body: string
+  ct: string
+  length: string
+end
+local ECHO <const> = Shape.record_of("Echo")
+
+--- What the echo app answered, checked against what it sends.
+local function echoed(res: Web.TestResponse): Echo
+  local seen, why = ECHO:into((assert(res:json())))
+  assert(seen ~= nil, why)
+  return seen
+end
+
 local function test_the_client_builds_the_query_form_json_and_body_of_a_request()
   local client = Web.test_client(echo())
-  local get = assert(client:get("/echo?a=1", { query = { b = "2", c = { "x", "y z" } } }):json())
-  assert(get is {string:any} and get.method == "GET") -- checked: is_on_record, map_field
-  local query = get.query -- checked: map_field
-  assert(query is {string} and table.concat(query, "&") == "a=1&b=2&c=x&c=y z")
-  local form = assert(client:post("/echo", { form = { title = "a b", qty = "2" } }):json())
-  assert(form is {string:any} and form.body == "qty=2&title=a+b" and form.ct == "application/x-www-form-urlencoded") -- checked: is_on_record, map_field*2
-  local json = assert(client:put("/echo", { json = { n = 1 } }):json())
-  assert(json is {string:any} and json.body == '{"n":1}' and json.ct == "application/json" and json.length == "7") -- checked: is_on_record, map_field*3
-  local raw = assert(client:patch("/echo", { body = "abc", content_type = "text/plain" }):json())
-  assert(raw is {string:any} and raw.body == "abc" and raw.ct == "text/plain") -- checked: is_on_record, map_field*2
-  local reader = assert(client:delete("/echo", { body = Stream.from_string("xyz") }):json())
-  assert(reader is {string:any} and reader.method == "DELETE" and reader.body == "xyz") -- checked: is_on_record, map_field*2
-  local headers = assert(client:post("/echo", { headers = { ["Content-Type"] = "text/csv" }, body = "a,b" }):json())
-  assert(headers is {string:any} and headers.ct == "text/csv") -- checked: is_on_record, map_field
+  local get = echoed(client:get("/echo?a=1", { query = { b = "2", c = { "x", "y z" } } }))
+  assert(get.method == "GET" and table.concat(get.query, "&") == "a=1&b=2&c=x&c=y z")
+  local form = echoed(client:post("/echo", { form = { title = "a b", qty = "2" } }))
+  assert(form.body == "qty=2&title=a+b" and form.ct == "application/x-www-form-urlencoded")
+  local json = echoed(client:put("/echo", { json = { n = 1 } }))
+  assert(json.body == '{"n":1}' and json.ct == "application/json" and json.length == "7")
+  local raw = echoed(client:patch("/echo", { body = "abc", content_type = "text/plain" }))
+  assert(raw.body == "abc" and raw.ct == "text/plain")
+  local reader = echoed(client:delete("/echo", { body = Stream.from_string("xyz") }))
+  assert(reader.method == "DELETE" and reader.body == "xyz")
+  local headers = echoed(client:post("/echo", { headers = { ["Content-Type"] = "text/csv" }, body = "a,b" }))
+  assert(headers.ct == "text/csv")
 end
 
 local function test_a_response_reads_as_text_json_and_header_lines()
@@ -49,7 +64,7 @@ local function test_a_response_reads_as_text_json_and_header_lines()
   assert(#lines == 2 and lines[1] == "a=1" and lines[2] == "b=2" and res.headers["set-cookie"] == "a=1, b=2")
   assert(#res:header_list("x-none") == 0 and res.redirect_location == nil)
   local value = assert(res:json())
-  assert(value is {string:any} and value.ok == true) -- checked: is_on_record, map_field
+  assert(value is {string:any} and value["ok"] == true) -- checked: is_on_record
   local none, why = client:get("/plain"):json()
   assert(none == nil and why:find("json:", 1, true) ~= nil, why)
 end
@@ -74,7 +89,7 @@ local function test_the_jar_keeps_cookies_between_calls_and_drops_a_deleted_one(
   local client = Web.test_client(app)
   assert(client:get("/see"):text() == "none")
   client:get("/set")
-  assert(client:get("/see"):text() == "a=1; b=2" and client.jar.a == "1") -- checked: map_field
+  assert(client:get("/see"):text() == "a=1; b=2" and client.jar["a"] == "1")
   assert(client:get("/see", { cookies = { c = "3" } }):text() == "a=1; b=2; c=3")
   assert(client:get("/see"):text() == "a=1; b=2", "extra cookies are not kept")
   client:get("/drop")
@@ -281,9 +296,9 @@ local function test_the_jar_expires_a_cookie_by_max_age_and_by_expires_date()
   local client = Web.test_client(app)
   client:get("/set")
   assert(client:get("/see"):text() == "future=1; plain=1; short=1", "a cookie set already expired is not kept")
-  client.attrs.short.expires_ns = 1 -- checked: map_field
+  client.attrs["short"] = { ...assert(client.attrs["short"]), expires_ns = 1 }
   assert(client:get("/see"):text() == "future=1; plain=1", "a lapsed cookie is dropped")
-  assert(client.jar.short == nil) -- checked: map_field
+  assert(client.jar["short"] == nil)
 end
 
 local function test_the_jar_sends_a_secure_cookie_only_for_an_https_client()
@@ -325,9 +340,9 @@ local function test_a_delete_at_another_path_leaves_the_cookie_as_a_browser_does
   local client = Web.test_client(app)
   client:get("/set")
   client:get("/drop")
-  assert(client.jar.a == "1") -- checked: map_field
+  assert(client.jar["a"] == "1")
   client:get("/drop-x")
-  assert(client.jar.a == nil) -- checked: map_field
+  assert(client.jar["a"] == nil)
 end
 
 local function test_a_huge_max_age_does_not_overflow_into_a_lapsed_cookie()
@@ -344,7 +359,7 @@ local function test_a_huge_max_age_does_not_overflow_into_a_lapsed_cookie()
   local client = Web.test_client(app)
   client:get("/set")
   assert(client:get("/see"):text() == "a=1")
-  assert(assert(client.attrs.a.expires_ns) > 0) -- checked: map_field
+  assert(assert(assert(client.attrs["a"]).expires_ns) > 0)
 end
 
 --- A cookie set with neither Max-Age nor Expires is a session cookie: the
@@ -357,5 +372,5 @@ local function test_a_session_cookie_has_no_expiry()
   end) } }
   local client = Web.test_client(app)
   assert(client:get("/").status == 200)
-  assert(client.attrs.a.expires_ns == nil) -- checked: map_field
+  assert(assert(client.attrs["a"]).expires_ns == nil)
 end

@@ -140,7 +140,7 @@ local function test_the_router_answers_with_status_and_headers_by_accept()
   local problem = client:get("/missing", { headers = { accept = "application/json" } })
   assert(problem.status == 404 and problem.headers["content-type"] == "application/problem+json")
   local body = assert(Json.decode_object(problem:text()))
-  assert(body.status == 404 and body.title == "Not Found") -- checked: map_field*2
+  assert(body["status"] == 404 and body["title"] == "Not Found")
   local anything = client:get("/missing", { headers = { accept = "*/*" } })
   assert(anything.headers["content-type"] == "text/html; charset=utf-8", "a tie goes to HTML")
   local picky = client:get("/missing", { headers = { accept = "application/json, text/html;q=0.1" } })
@@ -227,9 +227,9 @@ local function test_debug_shows_the_fault_and_its_stack_escaped()
   assert(not res.body:find("<b>", 1, true))
   local json = Web.test_client(app):get("/boom", { headers = { accept = "application/json" } })
   local body = assert(Json.decode_object(json:text()))
-  local detail = body.detail -- checked: map_field
-  assert(json.status == 500 and detail is string and detail:find("secret detail <b>", 1, true))
-  assert(body.trace ~= nil) -- checked: map_field
+  local detail = body["detail"]
+  assert(json.status == 500 and detail is string and detail:find("secret detail <b>", 1, true) ~= nil)
+  assert(body["trace"] ~= nil)
 end
 
 local function test_debug_is_off_unless_asked_and_a_bad_response_is_a_fault_only_in_debug()
@@ -267,7 +267,7 @@ local function test_abort_answers_its_status_and_detail_in_the_negotiated_form()
   assert(page.status == 410 and page.body:find("removed &lt;b&gt;", 1, true) ~= nil and not page.body:find("<b>", 1, true))
   local json = client:get("/gone", { headers = { accept = "application/json" } })
   local body = assert(Json.decode_object(json:text()))
-  assert(json.status == 410 and body.detail == "removed <b>" and body.reason == "x") -- checked: map_field*2
+  assert(json.status == 410 and body["detail"] == "removed <b>" and body["reason"] == "x")
   assert(client:get("/down").status == 503)
 end
 
