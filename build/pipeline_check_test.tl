@@ -1,4 +1,4 @@
---- [`build.pipeline_check`]: the pipeline held against the checks of the tree. A module over the limit on the locals of its
+--- Tests of [`build.pipeline_check`], the pipeline held against the checks of the tree. A module over the limit on the locals of its
 --- main chunk is refused with its file and count, from the pipeline and from the memo alike.
 local Fs = require("cosmic.fs")
 local PipelineCheck = require("build.pipeline_check")
