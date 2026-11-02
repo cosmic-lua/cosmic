@@ -1085,7 +1085,7 @@ static int statement_bytes (lua_State *L) {
 }
 
 /* Rewinds the statement; `clear` also drops every binding. SQLite's
-** sqlite3_reset reports the previous step's failure, and still rewinds. */
+ * sqlite3_reset reports the previous step's failure, and still rewinds. */
 static int rewound (lua_State *L, int clear) {
   struct statement *s = checked_statement(L);
   begin_wait(s->owner);
