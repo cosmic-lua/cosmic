@@ -119,6 +119,8 @@ local SAME: {Same} = {
   },
   -- A promise with no `needs` field changes no key before the filter runs.
   { needs = "{ }", policy = 'Test.policy { promises = { "fork", "jit", "fattr" }, tmp = true }' },
+  -- A module's own limit, in seconds, is a field of its key.
+  { needs = "{ timeout = 120 }", policy = "Test.policy { timeout = 120 }" },
   {
     needs = '{ reads = { "testdata" }, system = true, tool = true, nests = true, ' ..
       'env = { "PATH", "TMPDIR" }, network = { "127.0.0.1" } }',
@@ -260,6 +262,10 @@ local function test_a_policy_with_no_needs_is_refused()
     { call = "Test.policy { env = { X } }", says = "test.policy: env takes a string written out as a literal" },
     { call = "Test.policy(1)", says = "hand it one table written out as a literal: Test.policy" },
     { call = 'Test.policy { env = { "A" }, env = { "B" } }', says = "env is declared twice" },
+    { call = "Test.policy { timeout = 0 }", says = "timeout takes a whole number of seconds from 1 to 3600" },
+    { call = "Test.policy { timeout = 3601 }", says = "timeout takes a whole number of seconds from 1 to 3600" },
+    { call = "Test.policy { timeout = 1.5 }", says = "timeout takes a whole number of seconds from 1 to 3600" },
+    { call = 'Test.policy { timeout = "60" }', says = "timeout takes a whole number of seconds from 1 to 3600" },
   }
   for _, case in ipairs(cases) do
     local got, trouble = declared(case.call)
@@ -299,13 +305,14 @@ local function test_a_module_declares_its_policy_once()
 end
 
 --- The fields [`Test.Policy`] repeats are the fields of cosmic.sandbox.policy's
---- `Policy`, and `requires`, which only a test declares.
+--- `Policy`, and `requires` and `timeout`, which only a test declares.
 local function test_the_policy_record_is_the_sandboxs()
   local text = assert(Fs.read("cosmic/sandbox/policy.tl"))
   local record = assert(text:match("\n  record Policy\n(.-)\n  end\n"), "no Policy")
   local theirs: mut {string} = {}
   for name in ("\n" .. record):gmatch("\n    ([%a_]+)%??: ") do theirs[#theirs + 1] = name end
   theirs[#theirs + 1] = "requires"
+  theirs[#theirs + 1] = "timeout"
   table.sort(theirs)
   local _, said = Test.needs_of({ nothing = true })
   local listed = assert(said:match("it has (.*)$"), said)
@@ -369,4 +376,22 @@ local function test_a_requirement_that_breaks_a_rule_fails_the_build()
     local found, why = declared(call)
     assert(found ~= nil, call .. ": " .. tostring(why))
   end
+end
+
+--- A module's `timeout` is what the build reads and the worker is handed
+--- alike, and the key's declaration holds it: a longer limit is another
+--- key, and a module declaring none has the same declaration as before.
+local function test_a_policy_declares_its_timeout()
+  local found, why = declared("Test.policy { timeout = 120 }")
+  assert(found ~= nil, tostring(why))
+  assert(found.timeout == 120)
+  local handed = assert(runtime_needs("Test.policy { timeout = 120 }"))
+  assert(handed.timeout == 120)
+  local canonical = test_inputs.canonical(found)
+  assert(canonical == "timeout 120", canonical)
+  assert(test_inputs.canonical(test_inputs.as_declared(handed)) == canonical)
+  local longer = assert(declared("Test.policy { timeout = 121 }"))
+  assert(test_inputs.canonical(longer) ~= canonical)
+  local none = assert(declared("Test.policy { }"))
+  assert(test_inputs.canonical(none) == "")
 end

@@ -1298,6 +1298,7 @@ local function policy_data(chunk: Ast.Chunk, node: Ast.Table): PolicyRules.Polic
   local user: integer?
   local group: integer?
   local database: string?
+  local timeout: integer?
   local seen: mut {string: boolean} = {}
   for _, item in ipairs(node.items) do
     local field = entry_name(item)
@@ -1336,6 +1337,12 @@ local function policy_data(chunk: Ast.Chunk, node: Ast.Table): PolicyRules.Polic
         requires, why = string_list(chunk, given, field)
       else
         env, why = string_list(chunk, given, field)
+      end
+    elseif takes == "seconds" then
+      if (given.kind == "Integer") then
+        timeout = given.value
+      else
+        why = field .. " takes a whole number of seconds from 1 to 3600"
       end
     elseif takes == "string" then
       database, why = plain_string(chunk, given, field)
@@ -1411,7 +1418,7 @@ local function policy_data(chunk: Ast.Chunk, node: Ast.Table): PolicyRules.Polic
   end
   return { profiles = profiles, isolate = isolate, promises = promises, connect = connect, loopback = loopback,
     env = env, requires = requires, set_env = set_env, set_env_digests = set_env_digests, grants = grants,
-    limits = limits, tmp = tmp, user = user, group = group, database = database }, ""
+    limits = limits, tmp = tmp, user = user, group = group, database = database, timeout = timeout }, ""
 end
 
 --- The chunk's `Test.policy { ... }` (see [`cosmic.test`]), read as data, never run: nil and "" when there is none,

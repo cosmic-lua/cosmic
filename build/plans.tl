@@ -92,6 +92,8 @@ local function test_inputs_by_hash(db: Sqlite.Handle): {string:PolicyRules.Decla
       list[#list + 1] = value
     elseif field == "requires" then
       one.requires[#one.requires + 1] = value
+    elseif field == "timeout" then
+      one.timeout = math.tointeger(tonumber(value))
     end
   end
   return declared, ""
