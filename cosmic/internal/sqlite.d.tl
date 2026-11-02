@@ -102,8 +102,28 @@ local record sqlite
     --- The column at `index` of the current row, as its bytes: text
     --- and blobs alike, `""` for an empty value.
     bytes: function(Statement, index: integer): string
-    --- Rewinds the statement to run again and clears every binding.
+    --- Rewinds the statement to run again and clears every binding, so
+    --- each parameter binds again before the next step; an unbound
+    --- parameter is NULL. Returns true and an empty reason, or false and
+    --- the previous step's failure, in which case the statement is
+    --- rewound all the same. See [`Statement.rewind`] to keep the bindings.
     reset: function(Statement): boolean, string
+    --- Rewinds the statement to run again and keeps every binding, as
+    --- SQLite's own reset does: bind the columns that stay fixed once,
+    --- then per row rebind the one that changes and rewind. It returns
+    --- and fails as [`Statement.reset`] does.
+    ---
+    --- ```
+    --- local insert = assert(db:prepare("INSERT INTO t (owner, n) VALUES (?1, ?2)"))
+    --- assert(insert:bind_text(1, "me"))
+    --- for n = 1, 3 do
+    ---   assert(insert:bind_integer(2, n))
+    ---   assert(insert:step() == "done")
+    ---   assert(insert:rewind())
+    --- end
+    --- insert:finalize()
+    --- ```
+    rewind: function(Statement): boolean, string
     --- Releases the statement. Finalizing one already finalized does
     --- nothing.
     finalize: function(Statement)
@@ -125,7 +145,7 @@ local record sqlite
     exec_result: function(Handle, sql: string): ExecResult
     --- Waits up to timeout_ns at locks, rounded up to milliseconds,
     --- checking the innermost guard's unread signal without taking it.
-    --- Each exec, prepare, step, reset or finalize shares one budget
+    --- Each exec, prepare, step, reset, rewind or finalize shares one budget
     --- across its locking events, starting at the first contention.
     --- Zero never sleeps. Negative/noninteger durations and borrowed
     --- or closed handles raise. Without a guard, only the time limits it.

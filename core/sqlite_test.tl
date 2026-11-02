@@ -164,12 +164,83 @@ local function test_reset_runs_again_and_clears_bindings()
   handle:close()
 end
 
+local function test_rewind_runs_again_and_keeps_bindings()
+  local handle = memory()
+  local statement = prepared(handle, "SELECT ?1")
+  assert(statement:bind_text(1, "kept"))
+  assert(statement:step() == "row")
+  assert(statement:bytes(0) == "kept")
+  assert(statement:step() == "done")
+  local ok, trouble = statement:rewind()
+  assert(ok == true and trouble == "", trouble)
+  assert(statement:step() == "row")
+  assert(statement:bytes(0) == "kept", "rewind keeps what was bound")
+  statement:finalize()
+  handle:close()
+end
+
+local function test_rewind_after_a_finished_statement_matches_reset()
+  local handle = memory()
+  local statement = prepared(handle, "SELECT 1")
+  assert(statement:step() == "row")
+  assert(statement:step() == "done")
+  local ok, trouble = statement:rewind()
+  assert(ok == true and trouble == "", trouble)
+  local again_ok, again = statement:reset()
+  assert(again_ok == true and again == "")
+  statement:finalize()
+  handle:close()
+end
+
+local function test_rewind_reports_the_failed_step_as_reset_does()
+  local handle = memory()
+  local statement = prepared(handle, "SELECT abs(-9223372036854775808)")
+  failed(statement:step())
+  local ok, trouble = statement:rewind()
+  failed(ok, trouble)
+  statement:finalize()
+  handle:close()
+end
+
+local function test_an_insert_loop_binds_the_fixed_column_once_and_rewinds()
+  local handle = memory()
+  assert(handle:exec("CREATE TABLE t (owner TEXT NOT NULL, n INTEGER NOT NULL)"))
+  local statement = prepared(handle, "INSERT INTO t VALUES (?1, ?2)")
+  assert(statement:bind_text(1, "me"))
+  for n = 1, 3 do
+    assert(statement:bind_integer(2, n))
+    assert(statement:step() == "done")
+    local ok, trouble = statement:rewind()
+    assert(ok == true, trouble)
+  end
+  statement:finalize()
+  local count = prepared(handle, "SELECT count(*), count(DISTINCT owner), sum(n) FROM t WHERE owner = 'me'")
+  assert(count:step() == "row")
+  assert(count:integer(0) == 3 and count:integer(1) == 1 and count:integer(2) == 6)
+  count:finalize()
+  handle:close()
+end
+
+local function test_reset_still_clears_what_an_insert_loop_bound_once()
+  local handle = memory()
+  assert(handle:exec("CREATE TABLE t (owner TEXT NOT NULL, n INTEGER NOT NULL)"))
+  local statement = prepared(handle, "INSERT INTO t VALUES (?1, ?2)")
+  assert(statement:bind_text(1, "me"))
+  assert(statement:bind_integer(2, 1))
+  assert(statement:step() == "done")
+  assert(statement:reset())
+  assert(statement:bind_integer(2, 2))
+  failed(statement:step())
+  statement:finalize()
+  handle:close()
+end
+
 local function test_a_finalized_statement_raises_from_every_method()
   local handle = memory()
   local statement = prepared(handle, "SELECT ?1")
   assert(select("#", statement:finalize()) == 0, "finalizing returns nothing")
   assert(select("#", statement:finalize()) == 0, "finalizing twice is harmless")
-  for _, method in ipairs({ "step", "columns", "reset", "parameters" }) do
+  for _, method in ipairs({ "step", "columns", "reset", "rewind", "parameters" }) do
     raises_saying("sqlite: the statement is closed", (statement as {string: any})[method], statement)
   end
   for _, method in ipairs({ "bind_null", "name", "kind", "integer", "number", "bytes" }) do
