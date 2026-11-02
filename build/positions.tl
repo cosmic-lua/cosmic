@@ -178,4 +178,19 @@ function positions.check(modules: {positions.Module}, standing: tree.Standing,
   return true, ""
 end
 
+--- Whether the file `file`, a module of `kind`, may require the module `name` that `modules` holds, by the rules of
+--- [`positions.check`], so that a hint names nothing the next check refuses. `modules` are the modules of the tree with no
+--- requires of their own.
+function positions.permits(modules: {positions.Module}, file: string, kind: string, name: string,
+                           standing: tree.Standing, carried?: function(name: string): boolean): boolean
+  local asked: mut {positions.Module} = {}
+  for _, m in ipairs(modules) do
+    if m.file ~= file then asked[#asked + 1] = m end
+  end
+  asked[#asked + 1] = { path = "", file = file, kind = kind, source = "", source_hash = "", requires = { name },
+    tests = {}, inputs = nil }
+  local fine, _ = positions.check(asked, standing, carried)
+  return fine
+end
+
 return positions
