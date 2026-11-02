@@ -1718,7 +1718,7 @@ local function literal_record(ctx: Ctx, e: Ast.Table, n: Named): Type
   local owner = quoted(n.decl.name)
   local array_part = index.array
   local shaped = true
-  -- A spread, which [`spread_literal`] has checked, gives every field the items after it do not.
+  -- A spread, which `spread_literal` (in [`table_literal`]) has checked, gives every field the items after it do not.
   local copied = ctx.spreads[e.id] ~= nil
   for _, item in ipairs(e.items) do
     local name = item_name(item)
@@ -1949,117 +1949,117 @@ end
 -- give such a literal to an `any` parameter hold that count in
 -- [`build/ceilings.txt`].
 
---- A literal that begins with a spread, `{ ...r, field = v }`: a copy of the record `r` with the fields written after
---- the spread given their own values. The spread is the first item, and the only one. Its source is a record, not
---- nilable, and a value of the record wanted, or of the record the literal is made of where none is wanted: the
---- copy is a value of that record. The fields after it are checked as those of a literal of the record are, and the
---- literal need not give the fields the spread does. A record with an array part is refused, since the spread would
---- drop the array. The code generator is told, by `spreads`, the fields the spread copies.
-local function spread_literal(ctx: Ctx, e: Ast.Table, expected: Type?): Type
-  local items = e.items
-  -- Checks the items after the first, which are no part of the literal that was refused.
-  local function items_after_first()
-    local rest: mut {Ast.Item} = {}
-    for i, item in ipairs(items) do
-      if i > 1 then
-        rest[#rest + 1] = item
-      end
-    end
-    items_unshaped(ctx, rest)
-  end
-  local first = items[1]
-  if first == nil or (first.kind ~= "Spread") then
-    for _, item in ipairs(items) do
-      if (item.kind == "Spread") then
-        report(ctx, "literal_spread", item, "a spread must be the first item of a literal, and this one follows another",
-          "write the spread first, and the fields that replace its own after it: `{ ...r, field = v }`")
-      end
-    end
-    items_unshaped(ctx, items)
-    return ctx.invalid
-  end
-  for i, item in ipairs(items) do
-    if i > 1 and (item.kind == "Spread") then
-      report(ctx, "literal_spread", item, "this literal has a second spread, and a copy is made from one record",
-        "remove it, and write the fields it would give: `{ ...r, field = v }`")
-      ctx.lenient = ctx.lenient + 1
-      local _ = expr(ctx, item.value, nil)
-      ctx.lenient = ctx.lenient - 1
-    end
-  end
-  local source = first.value
-  if (peel(source).kind == "Table") then
-    report(ctx, "literal_spread", source, "a spread copies a record value, and this is a table literal",
-      "write the fields by name, or spread a value held in a local")
-    items_after_first()
-    return ctx.invalid
-  end
-  local got = expr(ctx, source, nil)
-  local readable_type = readable(ctx, source, got, "its fields cannot be copied")
-  if readable_type == nil then
-    items_after_first()
-    return ctx.invalid
-  end
-  local open = Types.unfold(readable_type)
-  if not ((open.tag == "named") and not open.value and open.decl.kind == "record") then
-    local why = if (open.tag == "array") then "a spread copies the fields of a record, not the elements of an array" elseif
-      (open.tag == "map") then "a spread copies the fields of a record, not the entries of a map" elseif
-      (open.tag == "named") and open.decl.kind == "class" then "a spread copies the fields of a record, and a class value is not one" else
-      "a spread copies the fields of a record"
-      end
-    report(ctx, "literal_spread", source, subject(ctx, source) .. " is " .. tq(ctx, readable_type) .. ", and " .. why,
-      "spread a value of a record type, or write the fields by name", { show(ctx, readable_type) })
-    items_after_first()
-    return ctx.invalid
-  end
-  local made = open
-  local wanted: Type? = nil
-  if expected ~= nil and ctx.lenient == 0 then
-    local want = ctx.store:non_nil(expected)
-    if want.tag ~= "invalid" and want.tag ~= "any" and want.tag ~= "never" then
-      wanted = want
-      local unfolded = Types.unfold(want)
-      if (unfolded.tag == "named") and not unfolded.value and unfolded.decl.kind == "record" then
-        made = unfolded
-      elseif unfolded.tag ~= "union" then
-        report(ctx, "literal_spread", e, "this literal has a spread, which makes a record, and " .. tq(ctx, want) .. " is wanted",
-          "write the fields by name, or spread into a record type", { show(ctx, want) })
-        items_after_first()
-        return ctx.invalid
-      end
-    end
-  end
-  if wanted ~= nil and not expect(ctx, source, readable_type, wanted, " as the source of a spread") then
-    items_after_first()
-    return ctx.invalid
-  end
-  if not ((made.tag == "named")) then
-    items_after_first()
-    return ctx.invalid
-  end
-  local body = made.decl.body
-  local index = members_index(ctx, made.decl, false)
-  if body == nil or index == nil then
-    items_after_first()
-    return made
-  end
-  if index.array ~= nil then
-    report(ctx, "literal_spread", source, quoted(made.decl.name) .. " has an array part, which a spread does not copy",
-      "make the copy by hand, or declare the elements as a field", { show(ctx, made) })
-    items_after_first()
-    return made
-  end
-  local fields: mut {string} = {}
-  for _, f in ipairs(body.fields) do
-    fields[#fields + 1] = f.name
-  end
-  ctx.spreads[e.id] = fields
-  return literal_record(ctx, e, made)
-end
-
 --- A table literal. Checked against a type it is a record, a class, an array or a map as that type is; with no type it
 --- is an array or a map of the join of its items.
 local function table_literal(ctx: Ctx, e: Ast.Table, expected: Type?): Type
+  --- A literal that begins with a spread, `{ ...r, field = v }`: a copy of the record `r` with the fields written after
+  --- the spread given their own values. The spread is the first item, and the only one. Its source is a record, not
+  --- nilable, and a value of the record wanted, or of the record the literal is made of where none is wanted: the
+  --- copy is a value of that record. The fields after it are checked as those of a literal of the record are, and the
+  --- literal need not give the fields the spread does. A record with an array part is refused, since the spread would
+  --- drop the array. The code generator is told, by `spreads`, the fields the spread copies.
+  local function spread_literal(): Type
+    local items = e.items
+    -- Checks the items after the first, which are no part of the literal that was refused.
+    local function items_after_first()
+      local rest: mut {Ast.Item} = {}
+      for i, item in ipairs(items) do
+        if i > 1 then
+          rest[#rest + 1] = item
+        end
+      end
+      items_unshaped(ctx, rest)
+    end
+    local first = items[1]
+    if first == nil or (first.kind ~= "Spread") then
+      for _, item in ipairs(items) do
+        if (item.kind == "Spread") then
+          report(ctx, "literal_spread", item, "a spread must be the first item of a literal, and this one follows another",
+            "write the spread first, and the fields that replace its own after it: `{ ...r, field = v }`")
+        end
+      end
+      items_unshaped(ctx, items)
+      return ctx.invalid
+    end
+    for i, item in ipairs(items) do
+      if i > 1 and (item.kind == "Spread") then
+        report(ctx, "literal_spread", item, "this literal has a second spread, and a copy is made from one record",
+          "remove it, and write the fields it would give: `{ ...r, field = v }`")
+        ctx.lenient = ctx.lenient + 1
+        local _ = expr(ctx, item.value, nil)
+        ctx.lenient = ctx.lenient - 1
+      end
+    end
+    local source = first.value
+    if (peel(source).kind == "Table") then
+      report(ctx, "literal_spread", source, "a spread copies a record value, and this is a table literal",
+        "write the fields by name, or spread a value held in a local")
+      items_after_first()
+      return ctx.invalid
+    end
+    local got = expr(ctx, source, nil)
+    local readable_type = readable(ctx, source, got, "its fields cannot be copied")
+    if readable_type == nil then
+      items_after_first()
+      return ctx.invalid
+    end
+    local open = Types.unfold(readable_type)
+    if not ((open.tag == "named") and not open.value and open.decl.kind == "record") then
+      local why = if (open.tag == "array") then "a spread copies the fields of a record, not the elements of an array" elseif
+        (open.tag == "map") then "a spread copies the fields of a record, not the entries of a map" elseif
+        (open.tag == "named") and open.decl.kind == "class" then "a spread copies the fields of a record, and a class value is not one" else
+        "a spread copies the fields of a record"
+        end
+      report(ctx, "literal_spread", source, subject(ctx, source) .. " is " .. tq(ctx, readable_type) .. ", and " .. why,
+        "spread a value of a record type, or write the fields by name", { show(ctx, readable_type) })
+      items_after_first()
+      return ctx.invalid
+    end
+    local made = open
+    local wanted: Type? = nil
+    if expected ~= nil and ctx.lenient == 0 then
+      local want = ctx.store:non_nil(expected)
+      if want.tag ~= "invalid" and want.tag ~= "any" and want.tag ~= "never" then
+        wanted = want
+        local unfolded = Types.unfold(want)
+        if (unfolded.tag == "named") and not unfolded.value and unfolded.decl.kind == "record" then
+          made = unfolded
+        elseif unfolded.tag ~= "union" then
+          report(ctx, "literal_spread", e, "this literal has a spread, which makes a record, and " .. tq(ctx, want) .. " is wanted",
+            "write the fields by name, or spread into a record type", { show(ctx, want) })
+          items_after_first()
+          return ctx.invalid
+        end
+      end
+    end
+    if wanted ~= nil and not expect(ctx, source, readable_type, wanted, " as the source of a spread") then
+      items_after_first()
+      return ctx.invalid
+    end
+    if not ((made.tag == "named")) then
+      items_after_first()
+      return ctx.invalid
+    end
+    local body = made.decl.body
+    local index = members_index(ctx, made.decl, false)
+    if body == nil or index == nil then
+      items_after_first()
+      return made
+    end
+    if index.array ~= nil then
+      report(ctx, "literal_spread", source, quoted(made.decl.name) .. " has an array part, which a spread does not copy",
+        "make the copy by hand, or declare the elements as a field", { show(ctx, made) })
+      items_after_first()
+      return made
+    end
+    local fields: mut {string} = {}
+    for _, f in ipairs(body.fields) do
+      fields[#fields + 1] = f.name
+    end
+    ctx.spreads[e.id] = fields
+    return literal_record(ctx, e, made)
+  end
+
   -- Reports each key a table literal gives a second time: a name (`a = 1`), a constant key (`["a"]`, `[1]`, `[true]`), or the
   -- place of a positional item (`{ "x", [1] = "y" }`). The second value would replace the first, whatever type the literal is
   -- checked against, so this stands apart from the shape of the literal. A name and the same string as a key are one key.
@@ -2095,7 +2095,7 @@ local function table_literal(ctx: Ctx, e: Ast.Table, expected: Type?): Type
     end
   end
   if spread then
-    return spread_literal(ctx, e, expected)
+    return spread_literal()
   end
   if expected == nil or ctx.lenient > 0 then
     return literal_inferred(ctx, e)
