@@ -2727,21 +2727,6 @@ function tree_checks.test_returns(root: string): {string}
   return out
 end
 
--- TODO: once cosmic-lua/cosmic#3533 merges and these tests call build/tool_fixture.tl's `cosmic`, drop these entries and,
--- the table being empty, the allowance with them.
-
---- The helpers of a test or fixture file that may stay a copy of another file's, as `<file>:<name>` and why: every
---- copy of a set is named, or the set is refused. A copy is moved into a shared fixture instead; an entry goes once no
---- other file holds a copy of it.
-local cloned_helpers: {string: string} = {
-  ["build/archive_tool_test.tl:cosmic"] = "cosmic-lua/cosmic#3533 moves it into build/tool_fixture.tl",
-  ["build/codec_tool_test.tl:cosmic"] = "cosmic-lua/cosmic#3533 moves it into build/tool_fixture.tl",
-  ["build/hash_tool_test.tl:cosmic"] = "cosmic-lua/cosmic#3533 moves it into build/tool_fixture.tl",
-  ["build/json_tool_test.tl:cosmic"] = "cosmic-lua/cosmic#3533 moves it into build/tool_fixture.tl",
-  ["build/rand_tool_test.tl:cosmic"] = "cosmic-lua/cosmic#3533 moves it into build/tool_fixture.tl",
-  ["build/sql_tool_test.tl:cosmic"] = "cosmic-lua/cosmic#3533 moves it into build/tool_fixture.tl",
-}
-
 -- TODO: once the helpers copied between files below `CLONE_TOKENS` are moved into shared fixtures, lower it to 30.
 
 --- The fewest tokens a helper has for [`test_clones`] to compare it. Copies ran from about 30 tokens to a screen: below
@@ -2758,18 +2743,15 @@ end
 
 --- Each top-level `local function` that is no test, of a `*_test.tl` or `*_fixture.tl` file under `root`, written
 --- token for token as one in another such file ([`TestClones`]), as `<file>:<line>: <name> is ...`, one for each
---- set of copies; then each entry of `copies` (by default `cloned_helpers`) that no copy needs any more. A copy is
---- fixed in one place: a helper goes into a shared fixture (build/test_support_fixture.tl,
+--- set of copies. A copy is fixed in one place: a helper goes into a shared fixture (build/test_support_fixture.tl,
 --- build/test_sandbox_fixture.tl, build/child_policy_fixture.tl ...), and each file requires it.
-function tree_checks.test_clones(root: string, copies?: {string: string}, threshold?: integer): {string}
+function tree_checks.test_clones(root: string, threshold?: integer): {string}
   local sources, trouble = sources_of(root)
   if sources == nil then
     return { "reading the sources: " .. trouble }
   end
-  local excused = copies or cloned_helpers
   local least = threshold or CLONE_TOKENS
   local out: mut {string} = {}
-  local used: mut {string: boolean} = {}
   -- Only the files that are tests or fixtures take part, on both sides of a pair. A helper is read only where its head
   -- ([`TestClones`]'s `scan`) is another file's too.
   local scans: mut {string: TestClones.Scan} = {}
@@ -2847,8 +2829,7 @@ function tree_checks.test_clones(root: string, copies?: {string: string}, thresh
     local group = assert(groups[body])
     local files: mut {string: boolean} = {}
     local distinct = 0
-    local refused: mut {CloneSite} = {}
-    local excused_sites: mut {CloneSite} = {}
+    local sites: mut {CloneSite} = {}
     local checked = #group >= 2
     for _, site in ipairs(group) do
       local genuine = false
@@ -2864,42 +2845,22 @@ function tree_checks.test_clones(root: string, copies?: {string: string}, thresh
           files[site.file] = true
           distinct = distinct + 1
         end
-        if excused[site.file .. ":" .. site.name] ~= nil then
-          excused_sites[#excused_sites + 1] = site
-        else
-          refused[#refused + 1] = site
-        end
+        sites[#sites + 1] = site
       end
     end
-    -- A copy is a copy wherever it is: a set the allowance names stays excused only while it holds no site it does not name.
     if distinct >= 2 then
-      for _, site in ipairs(excused_sites) do used[site.file .. ":" .. site.name] = true end
-      if #refused > 0 then
-        local first = assert(refused[1])
-        local others: mut {string} = {}
-        for i = 2, #refused do
-          local site = assert(refused[i])
-          others[#others + 1] = site.file .. ":" .. tostring(site.line) .. " (" .. site.name .. ")"
-        end
-        for _, site in ipairs(excused_sites) do
-          others[#others + 1] = site.file .. ":" .. tostring(site.line) .. " (" .. site.name .. ")"
-        end
-        out[#out + 1] = first.file .. ":" .. tostring(first.line) .. ": " .. first.name ..
-          " is copied token for token in " .. table.concat(others, ", ") .. ": move it into a shared fixture " ..
-          "(build/test_support_fixture.tl, build/test_sandbox_fixture.tl, build/child_policy_fixture.tl ...) that " ..
-          "each requires"
+      local first = assert(sites[1])
+      local others: mut {string} = {}
+      for i = 2, #sites do
+        local site = assert(sites[i])
+        others[#others + 1] = site.file .. ":" .. tostring(site.line) .. " (" .. site.name .. ")"
       end
+      out[#out + 1] = first.file .. ":" .. tostring(first.line) .. ": " .. first.name ..
+        " is copied token for token in " .. table.concat(others, ", ") .. ": move it into a shared fixture " ..
+        "(build/test_support_fixture.tl, build/test_sandbox_fixture.tl, build/child_policy_fixture.tl ...) that " ..
+        "each requires"
     end
   end
-  local stale: mut {string} = {}
-  for key in pairs(excused) do
-    if used[key] ~= true then
-      stale[#stale + 1] = key .. ": excused from the copied-helper check, but no other file has a copy of it any " ..
-        "more -- remove the exemption"
-    end
-  end
-  table.sort(stale)
-  for _, line in ipairs(stale) do out[#out + 1] = line end
   return out
 end
 

@@ -545,21 +545,17 @@ local function test_a_helper_copied_between_test_files_is_refused(dir: string)
   put("build/twice_test.tl", twice .. "\n" .. swap(twice, "twice", "again"))
   put("build/tests_test.tl", helper("test_join", ","))
   put("build/tests_other_test.tl", helper("test_join", ","))
-  local found = tree_checks.test_clones(dir, {}, 20)
+  local found = tree_checks.test_clones(dir, 20)
   assert(#found == 1, table.concat(found, "\n"))
   assert(found[1]:find("^build/a_test.tl:3: join is copied token for token in build/b_fixture.tl:2 %(join%): " ..
       "move it into a shared fixture"), found[1])
   assert(found[1]:find("build/test_support_fixture.tl", 1, true) ~= nil, found[1])
-  found = tree_checks.test_clones(dir, {}, 80)
+  found = tree_checks.test_clones(dir, 80)
   assert(#found == 0, table.concat(found, "\n"))
 end
 
---- Two fixtures that copy each other are refused though no test file holds either; a copy of a set the allowance names
---- is refused unless the allowance names it too, and an entry no set needs is told to go.
-local function test_a_copy_between_fixtures_and_a_copy_the_allowance_does_not_name_are_refused(dir: string)
-  local function put(file: string, text: string)
-    assert(Fs.write(dir .. "/" .. file, text))
-  end
+--- Two fixtures that copy each other are refused though no test file holds either.
+local function test_a_copy_between_fixtures_is_refused(dir: string)
   local body = source(
     "local function join(first: string, second: string): string",
     "  local out: {string} = {}",
@@ -568,25 +564,11 @@ local function test_a_copy_between_fixtures_and_a_copy_the_allowance_does_not_na
     "  return table.concat(out, \"/\")",
     "end")
   assert(Fs.mkdirs(dir .. "/build"))
-  put("build/one_fixture.tl", body)
-  put("build/two_fixture.tl", body)
-  local found = tree_checks.test_clones(dir, {}, 20)
+  assert(Fs.write(dir .. "/build/one_fixture.tl", body))
+  assert(Fs.write(dir .. "/build/two_fixture.tl", body))
+  local found = tree_checks.test_clones(dir, 20)
   assert(#found == 1, table.concat(found, "\n"))
   assert(found[1]:find("^build/one_fixture.tl:1: join is copied token for token in build/two_fixture.tl:1"), found[1])
-  local named = { ["build/one_fixture.tl:join"] = "moved later", ["build/two_fixture.tl:join"] = "moved later" }
-  found = tree_checks.test_clones(dir, named, 20)
-  assert(#found == 0, table.concat(found, "\n"))
-  -- A third copy is no part of what the allowance named.
-  put("build/three_test.tl", body)
-  found = tree_checks.test_clones(dir, named, 20)
-  assert(#found == 1, table.concat(found, "\n"))
-  assert(found[1]:find("^build/three_test.tl:1: join is copied token for token in build/one_fixture.tl:1 %(join%), " ..
-      "build/two_fixture.tl:1 %(join%): "), found[1])
-  found = tree_checks.test_clones(dir, { ["build/one_fixture.tl:join"] = "moved later", ["build/two_fixture.tl:join"] = "moved later",
-    ["build/three_test.tl:join"] = "moved later", ["build/nothing_test.tl:join"] = "gone" }, 20)
-  assert(#found == 1, table.concat(found, "\n"))
-  assert(found[1] == "build/nothing_test.tl:join: excused from the copied-helper check, but no other file has a copy of it " ..
-      "any more -- remove the exemption", found[1])
 end
 
 --- Two files that embed the same snippet of Teal in a string, with a `local function` at the left margin in it, hold no
@@ -613,7 +595,7 @@ local function test_a_snippet_in_a_string_is_no_helper(dir: string)
   assert(Fs.mkdirs(dir .. "/build"))
   put("build/first_test.tl", (text:gsub("writes", "first")))
   put("build/second_test.tl", (text:gsub("\"x\"", "\"y\"")))
-  local found = tree_checks.test_clones(dir, {}, 5)
+  local found = tree_checks.test_clones(dir, 5)
   assert(#found == 0, table.concat(found, "\n"))
 end
 
@@ -636,7 +618,7 @@ local function test_a_helper_holding_a_string_of_source_or_on_one_line_is_found(
   assert(Fs.mkdirs(dir .. "/build"))
   put("build/a_test.tl", body)
   put("build/b_test.tl", body)
-  local found = tree_checks.test_clones(dir, {}, 5)
+  local found = tree_checks.test_clones(dir, 5)
   assert(#found == 2, table.concat(found, "\n"))
   assert(found[1]:find("^build/a_test.tl:1: writes is copied token for token in build/b_test.tl:1 %(writes%)"), found[1])
   assert(found[2]:find("^build/a_test.tl:9: one is copied token for token in build/b_test.tl:9 %(one%)"), found[2])
