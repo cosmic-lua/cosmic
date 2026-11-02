@@ -15,7 +15,7 @@
 # It never fails the run for what it cannot tell: a compare that fails, a
 # diff of 300 files (the most GitHub lists) or a path the list names is
 # `full`, the safe side, and a base it cannot name is `unknown`, which
-# the format check's ceilings base (build/ceilings_base.tl) refuses.
+# the format check's markers base (build/ceilings_base.tl) refuses.
 set -u
 set -f
 

@@ -209,7 +209,7 @@ local function test_a_project_is_refused_and_the_tree_is_not_by_this_check()
   local source = "local g = require(\"cosmic.internal.globals\")\nreturn g\n"
   local code, why = Pipeline.lone("p.tl", source, project)
   assert(code == nil and why:find("is not a module a project may require", 1, true) ~= nil, tostring(why))
-  local own: Pipeline.Options = { globals = project.globals, ceilings = project.ceilings, types = true, standard = nil,
+  local own: Pipeline.Options = { globals = project.globals, types = true, standard = nil,
     project = nil }
   local _, own_why = Pipeline.lone("p.tl", source, own)
   assert(own_why:find("is not a module a project may require", 1, true) == nil, own_why)

@@ -118,9 +118,9 @@ local record compile_grammar
   --- make, the values of the enums it tests, the kinds its type names resolved to, and with `facts` the wraps of the
   --- reads a test narrowed), and the tests it cannot write. The generator is told what the syntax of the text shows
   --- ([`Driver.Outcome.never_false`]). With `counted` the test of a record, an interface or a userdata is written as the fork
-  --- writes it, the test for a table (for userdata): the tree's own, which the ceilings of `[checked]` count as the checker's
+  --- writes it, the test for a table (for userdata): the tree's own, which the `checked` markers hold as the checker's
   --- `is_on_record` and let no more of, so that the program is not refused for a test the fork wrote. Without it such a test
-  --- is refused, as it is of a program that has no ceiling for it. With `served` the Lua is that of a build that serves every
+  --- is refused, as it is of a program that has no marker for it. With `served` the Lua is that of a build that serves every
   --- module ([`Codegen.generate`]'s `served`: a type import never read as a value is not loaded), as the build's compile writes
   --- it; without it, that of a file compiled alone, as `cosmic compile` does.
   emit: function(build: Driver.Build, result: Driver.Outcome, facts?: boolean, counted?: boolean, served?: boolean): Emitted
@@ -185,7 +185,7 @@ local function type_facts(program: Declarations.Program, result: Driver.Outcome,
         if counted == true and (t.decl.kind == "record" or t.decl.kind == "interface" or t.decl.kind == "userdata") and
             (tested.kind == "TypeName") then
           -- The test of a record is the test for a table, as the fork writes it: the checker reports it (`is_on_record`) and
-          -- the ceilings of `[checked]` count it, so the tests the tree has are the ones this writes and no more.
+          -- the `checked` markers hold it, so the tests the tree has are the ones this writes and no more.
           kinds[tested.id] = if t.decl.kind == "userdata" then "userdata" else "table" end
         elseif t.decl.kind ~= "class" then
           why = "a " .. t.decl.kind .. " has no run-time tag to test"

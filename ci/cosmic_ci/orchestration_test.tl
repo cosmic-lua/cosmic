@@ -549,7 +549,7 @@ local function test_a_suite_stands_on_verdicts_in_a_push_or_merge_queue()
 end
 
 --- ci.yml names the merge queue's base for a platform job (COSMIC_CI_BASE_SHA), which the format check holds
---- build/ceilings.txt against.
+--- the markers of the tree against.
 local function test_the_platform_job_names_the_merge_queue_base()
   local text = assert(Fs.read(Test.parent(".github/workflows/ci.yml")))
   local platform = assert(CiWorkflow.parse(text).jobs["platform"])

@@ -1252,7 +1252,7 @@ local function compile_derived(handle: work.Handle, tool: string,
     return nil, keys_trouble
   end
   -- What the new checker's compile is made over ([`build.pipeline`]), read once the first module needs it. A module is
-  -- keyed by the ceilings that hold it too, so that a pin that falls judges it again.
+  -- keyed by its text, which holds its markers.
   local reading: Reading = { options = nil, built = nil }
   local pipeline = require("build.pipeline")
   local made_options, options_trouble = pipeline.options(handle.root, standing.own)
@@ -1260,14 +1260,6 @@ local function compile_derived(handle: work.Handle, tool: string,
     return nil, options_trouble
   end
   reading.options = made_options
-  local pinned = pipeline.pinned(made_options.ceilings)
-  for _, m in ipairs(modules) do
-    local held = keys[m.path]
-    local digest = pinned[m.file]
-    if held ~= nil and digest ~= nil then
-      held.key = Hash.hex_sha256(held.key .. "\0" .. digest)
-    end
-  end
   local result: importer.Result = {
     modules = {}, tool = tool, main = nil, refused = refusals, own_refused = own_refused,
     refusal_roots = roots_by_file,

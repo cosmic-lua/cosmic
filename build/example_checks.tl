@@ -144,7 +144,7 @@ local record Place
 end
 
 --- Where a finding of the checker is (`name:5:9: message (code): fix`), nil for any other
---- line: a helper too long to carry, a count of a code's errors ("2 errors of x in its bodies; follow the fix above"), which
+--- line: a helper too long to carry, a count of a code's errors ("2 errors of x in its bodies on line 3; follow the fix above"), which
 --- the judging below says again by the markers.
 local function found_at(line: string): Place?
   local y = math.tointeger(tonumber(line:match(":(%d+):%d+: ")))
@@ -157,8 +157,11 @@ local function found_at(line: string): Place?
 end
 
 --- Whether `line` is the checker's own count of a code's errors in an example.
+-- TODO: drop this reader of the checker's prose, and the one of [`found_at`], once [`Pipeline.checked_alone`] answers the spots of
+-- [`build.ceilings.marked`] beside its lines: they match the words of a finding and of a count line, and a changed wording makes them
+-- tell a finding twice, which fails closed.
 local function is_count(line: string): boolean
-  return line:match(": %d+ errors? of [%a][%w_]* in its %a+; follow the fix above$") ~= nil
+  return line:match(": %d+ errors? of [%a][%w_]* in its %a+ on line %d+; follow the fix above$") ~= nil
 end
 
 local CLOSED: mut {string: boolean} = {}

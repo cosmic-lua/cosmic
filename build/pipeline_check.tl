@@ -1,17 +1,17 @@
 --- The pipeline ([`build.pipeline`]) held against the checks of the tree ([`build.tree_checks`]), for every module the working
---- database stages. A module the `declared` and `checked` checks refuse for a count over its ceiling is refused by
+--- database stages. A module the `declared` and `checked` checks refuse for an error no marker holds is refused by
 --- [`Driver.Build.held`] of the pipeline built over the `inputs` of the database, and a module they accept is held. The two
 --- read one program ([`build.tree_program`]): the same sources, mended and spliced by the same steps. This is what tells a
 --- difference in it, listing a module with the side that refuses it.
 ---
---- The pipeline refuses a module for more than a count: a translation that does not parse, a warning, a construct the
---- generator cannot write. No ceiling counts these, so a module refused so is listed with the code of the first line of its
+--- The pipeline refuses a module for more than a marker's worth: a translation that does not parse, a warning, a construct the
+--- generator cannot write. No marker holds these, so a module refused so is listed with the code of the first line of its
 --- refusal.
 ---
 --- It also holds the Lua the generator writes for each module to a limit on the locals of its main chunk ([`build.main_locals`]),
 --- since the Lua is written here. That covers the modules the working database stages that the generator writes Lua for: not
 --- the tree of `ci/` (a project of its own, which the database does not stage), not a declaration file, and not a module the
---- checker or the generator refuses for something else (listed as above, with no Lua to count). A module over a ceiling is
+--- checker or the generator refuses for something else (listed as above, with no Lua to count). A module with an error no marker holds is
 --- still counted. A chunk Lua refuses for its registers and not its locals is left alone ([`build.main_locals`]'s `over`).
 
 local CompileGrammar = require("build.compile_grammar")
@@ -23,7 +23,6 @@ local logger = require("build.logger")
 local TreeProgram = require("build.tree_program")
 local tree = require("build.tree")
 local check_memo = require("build.check_memo")
-local Hash = require("cosmic.hash")
 
 local record PipelineCheck
   --- A file of the tree to compare, as the checks of the tree lower it.
@@ -32,21 +31,10 @@ local record PipelineCheck
     module: string
     --- Whether the file is read as the fork's Teal (`tl`) or as a declaration file (`decl`).
     dialect: string
-    --- What the pipeline's answer for the file is kept under in the memo: the file's source and everything it requires. The
-    --- ceilings that hold it are added to it ([`PipelineCheck.keyed`]).
-    mut key: string
-    --- Whether the file is a source of the tree as it is written, and not one the build writes from another file: its ceilings
-    --- are then the ones kept under its own name.
-    plain: boolean
+    --- What the pipeline's answer for the file is kept under in the memo: the file's source (its markers among it) and
+    --- everything it requires.
+    key: string
   end
-
-  --- The key of a row's answer in the memo: `key` and the ceilings that hold the file. A module is held by the ceilings
-  --- kept under its own name alone ([`Pipeline.pinned`]: `digests` holds, by file, a digest of them), so that a pin of another
-  --- file does not change its answer; a file that is `plain` is keyed so, and any other by `whole`, a digest of every ceiling,
-  --- since the name its ceilings are kept under is not its own.
-  keyed: function(key: string, plain: boolean, file: string, digests: {string: string}, whole: string): string
-  --- A digest of every ceiling of `digests` ([`PipelineCheck.keyed`]'s `whole`) and of whether the tree has none.
-  whole: function(digests: {string: string}, none: boolean?): string
 
   --- The lines that tell where the pipeline and the tree's checks differ over the `count` files `row_at` answers by position.
   --- `declared` and `checked` are the lines the checks of the tree answer ([`tree_checks.declared`], [`tree_checks.checked`]).
@@ -64,41 +52,22 @@ local record PipelineCheck
   ): {string}
 end
 
-function PipelineCheck.keyed(key: string, plain: boolean, file: string, digests: {string: string}, whole: string): string
-  local held = whole
-  if plain then
-    held = digests[file] or ""
-  end
-  return Hash.hex_sha256(key .. "\0" .. held)
-end
-
-function PipelineCheck.whole(digests: {string: string}, none: boolean?): string
-  local files: mut {string} = {}
-  for file in pairs(digests) do
-    files[#files + 1] = file
-  end
-  table.sort(files, function(a: string, b: string): boolean return a < b end)
-  local parts: mut {string} = { if none == true then "none" else "pinned" end }
-  for _, file in ipairs(files) do
-    parts[#parts + 1] = file .. "=" .. (digests[file] or "")
-  end
-  return Hash.hex_sha256(table.concat(parts, "\0"))
-end
-
---- The file a line that refuses a count over its ceiling ([`build.ceilings.over`]) is about, if the line is one about declarations
---- or bodies.
+--- The file a line that refuses findings no marker holds ([`build.ceilings`]'s `marked`) is about, if the line is one about
+--- declarations or bodies.
+-- TODO: name the file of an error no marker holds from the spots of [`build.ceilings.marked`], not from the checker's prose, once
+-- [`Driver.Build.held`] and the checks of the tree answer their spots beside their lines: this reader and the one of the scope
+-- errors in `judge` match the words of a count line, which fail closed (a changed wording refuses) but break with the words.
 local function over_file(line: string): string?
-  return line:match("^(%S+): %d+ errors? of %S+ in its %a+, pinned %d+;") or
-    line:match("^(%S+): %d+ errors? of %S+ in its %a+ on line %d+, marked %d+;")
+  return line:match("^(%S+): %d+ errors? of %S+ in its %a+ on line %d+, marked %d+;")
 end
 
 --- The most locals the main chunk of a module's Lua may hold ([`build.main_locals`]). Lua allows 200, and a file at the limit
 --- builds alone but fails once two changes that each add a top-level local are merged, so the check keeps well clear.
 local MAIN_LOCALS_LIMIT <const> = 180
 
---- What the pipeline answered: by file, whether it refuses it for a count over a ceiling (none for a module the database
---- does not stage), and the code of the first line of another refusal; by key, what a memo keeps: `O` for a count over a
---- ceiling, `R` and the code for another refusal, `N` for none, `-` for a module the database does not stage.
+--- What the pipeline answered: by file, whether it refuses it for an error no marker holds (none for a module the database
+--- does not stage), and the code of the first line of another refusal; by key, what a memo keeps: `O` for an error no
+--- marker holds, `R` and the code for another refusal, `N` for none, `-` for a module the database does not stage.
 local record Answers
   over: {string: boolean}
   other: {string: string}
@@ -118,7 +87,7 @@ local function asked(build_db: Sqlite.Handle, options: Pipeline.Options, rows: {
     return { over = over, other = other, answers = answers, locals = main_locals }, { "the pipeline: " .. built_why }
   end
   local build = pipeline.build
-  local index, ceilings = pipeline.index, pipeline.ceilings
+  local index, markers = pipeline.index, pipeline.project ~= true
   -- What the working database stages: the tree of `ci/` is none of its modules.
   local rows_of: mut {string: mut {PipelineCheck.Row}} = {}
   local names: mut {string} = {}
@@ -154,11 +123,10 @@ local function asked(build_db: Sqlite.Handle, options: Pipeline.Options, rows: {
       local code = ""
       local held: integer? = nil
       if result ~= nil then
-        for _, line in ipairs(build:held(result, ceilings)) do
-          -- A scope error of a translated module is the translation's (a method moved above a name it reads): no ceiling of
-          -- the tree's checks counts it, and the module is refused for it.
-          local scoped = line:match("^%S+: %d+ errors? of (%S+) in its scopes, pinned %d+;") or
-            line:match("^%S+: %d+ errors? of (%S+) in its scopes on line %d+, marked %d+;")
+        for _, line in ipairs(build:held(result, markers)) do
+          -- A scope error of a translated module is the translation's (a method moved above a name it reads): no marker of
+          -- the tree's checks holds it, and the module is refused for it.
+          local scoped = line:match("^%S+: %d+ errors? of (%S+) in its scopes on line %d+, marked %d+;")
           if scoped ~= nil then
             code = scoped
           else
@@ -184,7 +152,7 @@ local function asked(build_db: Sqlite.Handle, options: Pipeline.Options, rows: {
           end
         end
       end
-      -- A module over a ceiling is still held to the limit on its locals, where the generator writes its Lua.
+      -- A module with an error no marker holds is still held to the limit on its locals, where the generator writes its Lua.
       if counted and row.dialect == "tl" and result ~= nil and not result.broken then
         local emitted = CompileGrammar.emit(build, result, nil, true, true)
         if emitted.code ~= nil then
@@ -253,13 +221,9 @@ function PipelineCheck.compare(
       end
     end
   end
-  local digests = Pipeline.pinned(options.ceilings)
-  local all = PipelineCheck.whole(digests, options.ceilings.none)
   local rows: mut {PipelineCheck.Row} = {}
   for index = 1, count do
-    local row = row_at(index)
-    row.key = PipelineCheck.keyed(row.key, row.plain, row.file, digests, all)
-    rows[index] = row
+    rows[index] = row_at(index)
   end
   if memo ~= nil then
     local _, _ = check_memo.prepare(memo, "pipeline")
@@ -321,14 +285,14 @@ function PipelineCheck.compare(
       compared = compared + 1
       local by_tree = refused[row.file] == true
       if by_pipeline and not by_tree then
-        out[#out + 1] = row.file .. ": the pipeline refuses it for a count over its ceiling, and the tree checks accept it: " ..
+        out[#out + 1] = row.file .. ": the pipeline refuses it for an error no marker holds, and the tree checks accept it: " ..
           "the two read different programs"
       elseif by_tree and not by_pipeline then
-        out[#out + 1] = row.file .. ": the tree checks refuse it for a count over its ceiling, and the pipeline accepts it: " ..
+        out[#out + 1] = row.file .. ": the tree checks refuse it for an error no marker holds, and the pipeline accepts it: " ..
           "the two read different programs"
       end
       if code ~= nil then
-        out[#out + 1] = row.file .. ": the pipeline refuses it for " .. code .. ", which no ceiling counts"
+        out[#out + 1] = row.file .. ": the pipeline refuses it for " .. code .. ", which no marker holds"
       end
       local held = main_locals[row.file]
       if held ~= nil then

@@ -103,14 +103,13 @@ words>`, `uses <symbol>`, `db`, `sql '<statement>'`, `todos <paths>`.
 The checker still finds things in the tree that no rewrite has removed
 yet, and each is held where it occurs by a marker, a trailing comment
 such as `-- checked: map_field`, in place of a count in a shared file
-([`doc/contributing.md`], "ceilings only fall"). A finding with no marker
+([`doc/contributing.md`], "markers only fall"). A finding with no marker
 fails; a new marker is refused against the merge base; a marker whose
 finding is gone is stale, and `bin/cosmic fix .` removes it. A change
 that removes findings runs `fix .` and commits what it wrote.
 The examples a reader copies hold theirs the same way: the marker is part
 of the text shown, and a guide's code block holds none, so a finding there
 fails, as does any finding in a file under `ci/testdata`, which holds none.
-[`build/ceilings.txt`] lists the marked stages and has no row.
 
 ## tests
 
@@ -164,7 +163,6 @@ procedure.
 [`bin/verify-codesign`]: bin/verify-codesign
 [`bin/zig`]: bin/zig
 [`build.fix.format`]: build/fix/format.tl
-[`build/ceilings.txt`]: build/ceilings.txt
 [`build/flow.tl`]: build/flow.tl
 [`build/harness_epoch.tl`]: build/harness_epoch.tl
 [`build/paths.tl`]: build/paths.tl
