@@ -122,9 +122,13 @@ local record Codegen
   --- `checks` names, by the id of a function's node (an [`Ast.Fn`], or a class's [`Ast.Method`]), the statement that checks
   --- its parameters ([`lang.boundary_checks`]). It is written on the line of the `)` that ends the parameters, after it, so
   --- that no line of the program moves and the body is as written: nothing wraps a `return`, and a tail call stays one.
+  --- `spreads` names, by the id of a table literal that begins with a spread, the fields the spread copies, in the order
+  --- the record declares them ([`lang.check`]'s [`Checked.spreads`]): the literal is then a function called on the spot with
+  --- the spread's value and the other items' values, so each is evaluated once and in the order written.
   generate: function(chunk: Ast.Chunk, scoped: Scopes.Scoped, truthy?: function(e: Ast.Exp): boolean,
                      classes?: {integer: string}, enums?: {integer: {string}}, wraps?: {integer: string},
-                     kinds?: {integer: string}, served?: boolean, checks?: {integer: string}): Generated
+                     kinds?: {integer: string}, served?: boolean, checks?: {integer: string},
+                     spreads?: {integer: {string}}): Generated
 
   --- `lua`, the Lua of this generator, once the layout of a `continue` is set aside: the `::continue::` that ends a
   --- loop is deleted, and a line's trailing blanks are ignored. Two texts that are equal then are the same Lua, line for
@@ -183,6 +187,8 @@ local record State
   mut served: boolean
   --- The statement that checks the parameters of a function, by the id of its node.
   mut checks: {integer: string}
+  --- The names of the fields the spread of a table literal copies, by the id of the literal.
+  mut spreads: {integer: {string}}
 end
 
 local NO_TOKENS <const>: Lexer.Tokens = Lexer.lex("", "").tokens
@@ -191,7 +197,7 @@ local G: State = {
   tokens = NO_TOKENS, scoped = { vars = {}, list = {}, resolved = {}, globals = {}, global_writes = {}, errors = {} },
   indent = 0, saved = {}, errors = {}, loops = {}, declarations = nil, matches = 0, body = nil,
   truthy = function(_e: Ast.Exp): boolean return false end, guarded = nil, classes = {}, enums = {}, wraps = {}, kinds = {}, served = false,
-  checks = {},
+  checks = {}, spreads = {},
 }
 
 local function base_of(node: Ast.Node): Ast.Base
@@ -638,10 +644,102 @@ local function item(it: Ast.Item): Output
   return out
 end
 
+local LUA_WORDS <const>: {string: boolean} = {
+  ["and"] = true, ["break"] = true, ["do"] = true, ["else"] = true, ["elseif"] = true, ["end"] = true, ["false"] = true,
+  ["for"] = true, ["function"] = true, ["goto"] = true, ["global"] = true, ["if"] = true, ["in"] = true, ["local"] = true,
+  ["nil"] = true, ["not"] = true, ["or"] = true, ["repeat"] = true, ["return"] = true, ["then"] = true, ["true"] = true,
+  ["until"] = true, ["while"] = true,
+}
+
+--- The name of a field in a table constructor (`key`) and in an index of `s` (`.key` or `["key"]`), as Lua spells it.
+local function field_spelling(name: string): string, string
+  if name:match("^[%a_][%w_]*$") ~= nil and LUA_WORDS[name] ~= true then
+    return name, "." .. name
+  end
+  local quoted = string.format("%q", name)
+  return "[" .. quoted .. "]", "[" .. quoted .. "]"
+end
+
+--- The name an item of a literal of a record gives a field: `name = v` or `["name"] = v`.
+local function given_name(it: Ast.Item): string?
+  if (it.kind == "Named") then
+    return it.name
+  elseif (it.kind == "Keyed") then
+    local key: Ast.Exp = it.key
+    while (key.kind == "Paren") do
+      key = key.inner
+    end
+    if (key.kind == "String") then
+      return key.value
+    end
+  end
+  return nil
+end
+
+--- A literal `{ ...source, a = 1 }`: the copy is made first by a function called on the spot, and a second one sets the
+--- fields after the spread into the copy: `(function(c, v1) c.a = v1 return c end)((function(s) return { a = s.a, b = s.b } end)(source), 1)`.
+--- The arguments are evaluated in the order written, so the source is evaluated once and is copied before any value after
+--- it runs (a value that changes the source does not change the copy), and those values are evaluated where they are
+--- written, with the varargs of the function around them. The copy names the fields the record declares (`fields`),
+--- and not what the source table holds. Assigning a field of the fresh copy is no write to a fixed field: the checker has
+--- passed the literal.
+local function spread_literal(node: Ast.Table, spread: Ast.Spread, fields: {string}): Output
+  local y = line_of(node.first)
+  local yend = line_of(node.last)
+  local items = node.items
+  local params: mut {string} = { "c" }
+  local sets: mut {string} = {}
+  for i, it in ipairs(items) do
+    if i > 1 then
+      local name = given_name(it)
+      local param = "v" .. tostring(i - 1)
+      params[#params + 1] = param
+      if name ~= nil then
+        local _, at = field_spelling(name)
+        sets[#sets + 1] = "c" .. at .. " = " .. param
+      end
+    end
+  end
+  local copies: mut {string} = {}
+  for i, name in ipairs(fields) do
+    local key, read = field_spelling(name)
+    copies[i] = key .. " = s" .. read
+  end
+  local copy = "(function(s) return { " .. table.concat(copies, ", ") .. " } end)("
+  local out = new(y)
+  if #sets == 0 then
+    put(out, copy)
+  else
+    put(out, "(function(" .. table.concat(params, ", ") .. ") " .. table.concat(sets, " ") .. " return c end)(" .. copy)
+  end
+  local child_y = line_of(spread.first)
+  indent_in(y, child_y)
+  add_child(out, exp(spread.value))
+  put(out, ")")
+  for i, it in ipairs(items) do
+    if i > 1 then
+      put(out, ",")
+      local child = exp(it.value)
+      add_child(out, child, " ", if child.y ~= y then G.indent else nil end)
+    end
+  end
+  indent_out(y, child_y)
+  add_child(out, text(yend, if #sets == 0 then "" else ")" end), "", G.indent)
+  return out
+end
+
 local function table_literal(node: Ast.Table): Output
   local y = line_of(node.first)
   local yend = line_of(node.last)
   local items = node.items
+  local spread = items[1]
+  if spread ~= nil and (spread.kind == "Spread") then
+    local fields = G.spreads[node.id]
+    if fields == nil then
+      error("lang.codegen: a table literal has a spread that the checker did not resolve (generate takes `spreads`)")
+    end
+    return spread_literal(node, spread, fields)
+  end
   local out = new(y)
   local class = G.classes[node.id]
   local made = if class ~= nil then " @ " .. class else "" end
@@ -1647,9 +1745,11 @@ end
 
 function Codegen.generate(chunk: Ast.Chunk, scoped: Scopes.Scoped, truthy?: function(e: Ast.Exp): boolean,
                           classes?: {integer: string}, enums?: {integer: {string}}, wraps?: {integer: string},
-                          kinds?: {integer: string}, served?: boolean, checks?: {integer: string}): Codegen.Generated
+                          kinds?: {integer: string}, served?: boolean, checks?: {integer: string},
+                          spreads?: {integer: {string}}): Codegen.Generated
   G.tokens, G.scoped = chunk.tokens, scoped
   G.checks = checks or {}
+  G.spreads = spreads or {}
   G.served = served == true
   G.truthy = truthy or syntactically_truthy
   G.classes = classes or {}
@@ -1669,7 +1769,7 @@ function Codegen.generate(chunk: Ast.Chunk, scoped: Scopes.Scoped, truthy?: func
   local errors = G.errors
   G.tokens, G.saved, G.errors, G.loops, G.declarations, G.body, G.classes =
     NO_TOKENS, {}, {}, {}, nil, nil, {}
-  G.enums, G.wraps, G.kinds, G.served, G.checks = {}, {}, {}, false, {}
+  G.enums, G.wraps, G.kinds, G.served, G.checks, G.spreads = {}, {}, {}, false, {}, {}
   return { text = written, errors = errors }
 end
 

@@ -87,3 +87,39 @@ local function test_stopped_properties_are_one_sorted_line()
   assert(test_report.stopped({ "x drew 64 of 99 inputs in 5 s (FUZZ_SECONDS=1)" })[1] ==
       "test: fuzz: 1 property stopped by FUZZ_SECONDS: x drew 64 of 99 inputs")
 end
+
+local function test_a_shown_output_is_listed_beneath_its_test_in_the_form_a_failure_has()
+  local lines = test_report.shown({
+    { id = "z.m_test test_b", printed = "one\ntwo\n" },
+    { id = "a.m_test test_a", printed = "x" },
+  })
+  assert(table.concat(lines, "\n") == "test: PASS  a.m_test test_a\n  | x\n" ..
+      "test: PASS  z.m_test test_b\n  | one\n  | two")
+  -- As long an output is cut as a failure's is, from the front.
+  lines = test_report.shown({ { id = "a test_x", printed = "prefix" .. string.rep("x", 4096) } })
+  assert(lines[2] == "  | ..." .. string.rep("x", 4096))
+  assert(#test_report.shown({}) == 0)
+  assert(test_report.shown_note(0) == nil)
+  assert(test_report.shown_note(1) == "test: show-output: 1 test stood and so printed nothing; --all runs it")
+  assert(test_report.shown_note(2) == "test: show-output: 2 tests stood and so printed nothing; --all runs them")
+end
+
+local function test_a_failure_names_the_relative_paths_it_did_not_find()
+  local function found(message: string): string
+    return table.concat(test_report.missing_relative_paths(message), " ")
+  end
+  assert(found("a test_x: fixture.txt: No such file or directory") == "fixture.txt")
+  assert(found("a test_x: x.tl:3: suite/data/p.txt: No such file or directory") == "suite/data/p.txt")
+  assert(found("a test_x: cannot open 'a/b.txt': No such file or directory") == "a/b.txt")
+  assert(found("a test_x: (a.txt): No such file or directory\nb.txt: No such file or directory") == "a.txt b.txt")
+  -- Once, though it is named twice; and an absolute path, a URL, a path out of the tree are no business of it.
+  assert(found("x: a.txt: No such file or directory a.txt: No such file or directory") == "a.txt")
+  assert(found("x: /etc/passwd: No such file or directory") == "")
+  assert(found("x: http://example.com/a.txt: No such file or directory") == "")
+  assert(found("x: ../a.txt: No such file or directory") == "")
+  assert(found("x: a/../../b.txt: No such file or directory") == "")
+  assert(found("x: other error: Permission denied") == "")
+  assert(test_report.tree_hint("a/b.txt") == "a/b.txt is not in this test's sandbox, though it is in the " ..
+      "tree: grant it in Test.policy { grants = { { path = \"a/b.txt\", letters = \"r\" } } } " ..
+      "(see cosmic docs cosmic.test)")
+end

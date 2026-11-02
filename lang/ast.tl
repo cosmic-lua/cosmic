@@ -33,7 +33,7 @@ local record Ast
     "While" "Repeat" "If" "Arm" "Match" "MatchArm" "PatBool" "PatBind" "ForNum" "ForIn"
     -- expressions
     "Name" "Nil" "Boolean" "Integer" "Float" "String" "Vararg" "Paren" "FunctionLit" "Table"
-    "Positional" "Named" "Keyed" "Field" "Index" "Call" "MethodCall" "Unary" "Binary"
+    "Positional" "Spread" "Named" "Keyed" "Field" "Index" "Call" "MethodCall" "Unary" "Binary"
     "IsTest" "Cast" "IfExp" "ExpArm"
     -- function parts
     "Fn" "Rets" "Param" "Binding"
@@ -451,6 +451,17 @@ local record Ast
   end
   record Positional is Base
     kind: Positional_kind
+    first: integer
+    mut last: integer
+    mut id: integer
+    value: Exp
+  end
+  enum Spread_kind
+    "Spread"
+  end
+  --- `...value` in a table constructor: the record update `{ ...r, field = v }`.
+  record Spread is Base
+    kind: Spread_kind
     first: integer
     mut last: integer
     mut id: integer
@@ -936,7 +947,7 @@ local record Ast
     Field | Index | Call | MethodCall | Unary | Binary | IsTest | Cast | IfExp | Error
   --- What a statement or a `match` takes as a call: a [`Call`] or a [`MethodCall`], or an [`Error`].
   type CallExp = Call | MethodCall | Error
-  type Item = Positional | Named | Keyed
+  type Item = Positional | Spread | Named | Keyed
   type PatItem = PatBool | PatBind
   type Type = TypeName | TypeBool | TypeNil | TypeError | TypeArray | TypeMap | TypeUnion |
     TypeOptional | TypeMut | TypeFunction
@@ -947,7 +958,7 @@ local record Ast
   --- the value is a table.
   type Node = Chunk | Block | Local | LocalFunction | Function | Assign | CallStat | Return | Do | Break |
     Continue | While | Repeat | If | Arm | Match | MatchArm | PatBool | PatBind | ForNum | ForIn | Name |
-    Nil | Boolean | Integer | Float | String | Vararg | Paren | FunctionLit | Table | Positional | Named |
+    Nil | Boolean | Integer | Float | String | Vararg | Paren | FunctionLit | Table | Positional | Spread | Named |
     Keyed | Field | Index | Call | MethodCall | Unary | Binary | IsTest | Cast | IfExp | ExpArm | Fn |
     Rets | Param | Binding | TypeName | TypeBool | TypeNil | TypeError | TypeArray | TypeMap | TypeUnion |
     TypeOptional | TypeMut | TypeFunction | PType | Narrows | TypeParam | Record | Interface | Class |
@@ -985,7 +996,7 @@ local SPEC <const>: {string: string} = {
   ForNum = "var from to step body", ForIn = "vars* iterators* body",
   Name = "text", Nil = "", Boolean = "value", Integer = "value", Float = "value",
   String = "value long", Vararg = "", Paren = "inner", FunctionLit = "fn", Table = "items*",
-  Positional = "value", Named = "name value", Keyed = "key value",
+  Positional = "value", Spread = "value", Named = "name value", Keyed = "key value",
   Field = "object name", Index = "object key", Call = "callee args*",
   MethodCall = "object name args*", Unary = "op operand", Binary = "op left right",
   IsTest = "value type", Cast = "value type", IfExp = "arms* else_value",
@@ -1192,6 +1203,11 @@ local WALK <const>: {string: function(Ast.Node, Visit)} = {
   end,
   Positional = function(n: Ast.Node, visit: Visit)
     if n.kind == "Positional" then
+      visit(n.value)
+    end
+  end,
+  Spread = function(n: Ast.Node, visit: Visit)
+    if n.kind == "Spread" then
       visit(n.value)
     end
   end,

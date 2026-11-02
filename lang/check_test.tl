@@ -300,6 +300,15 @@ local CASES <const>: {Case} = {
     msg = "`R` has no field `nam`, nearest `name`", fix = "write `name`, or declare `nam` in `R`",
   },
   {
+    code = "literal_spread", source = RECORD .. "local r: R = { name = \"a\", n = 1 }\nlocal xs: {integer} = { 1 }\nlocal c = { ...xs }\n",
+    msg = "`xs` is `{integer}`, and a spread copies the fields of a record, not the elements of an array",
+    fix = "spread a value of a record type, or write the fields by name",
+  },
+  {
+    code = "literal_spread", source = RECORD .. "local r: R = { name = \"a\", n = 1 }\nlocal c: R = { n = 2, ...r }\n",
+    msg = "a spread must be the first item of a literal", fix = "write the spread first",
+  },
+  {
     code = "literal_repeated", source = RECORD .. "local r: R = { name = \"a\", n = 1, name = \"b\" }\n",
     msg = "the key `name` is written twice in this literal", fix = "remove the second `name`, or give the two different keys",
   },

@@ -25,6 +25,40 @@ print(counter.name, counter.hits)
 visits	1
 ```
 
+A record with one field changed is made with a spread, `{ ...r, field = v }`. The spread copies the fields that the
+record declares, and the fields written after it replace them. The source is not changed. The copy is shallow: a field
+that holds a record or an array holds the same one in both.
+
+```teal
+local record Config
+  host: string
+  port: integer
+  mut retries: integer
+end
+
+local base: Config = { host = "a", port = 80, retries = 3 }
+local staging = { ...base, host = "b", port = 8080 }
+print(staging.host, staging.port, staging.retries)
+print(base.host, base.port)
+```
+
+```output
+b	8080	3
+a	80
+```
+
+The rules of the spread (`literal_spread`, `cosmic docs literal_spread`):
+
+- It is the first item of the literal, and the only one.
+- Its source is a value of a record type, not a table literal and not nilable: test a `Config?` before spreading it. An array, a map, a class
+  value and a value of a record with an array part are refused.
+- The literal is a value of the record the source is, or of the record the literal is wanted as, when the source is a
+  value of it. A source of another record type is `not_assignable`.
+- Each field after it is checked as a field of a literal of the record is: an unknown field is `literal_unknown`, a value
+  of the wrong type `not_assignable`. A literal with a spread leaves out no field.
+- The source is evaluated once, before the values after it, which are evaluated in the order written. Only the declared
+  fields are copied.
+
 `readonly f: T` is a form of the old grammar. The parser refuses it (`expected_token`): write `f: T`.
 
 ## narrowing
@@ -95,6 +129,60 @@ end
 ```output
 3
 ```
+
+## an array with named fields
+
+A table that holds an array part and named fields is a record that declares both: `is {string}` makes the array part, and
+the body declares the fields. Its literal mixes the two, and `#r`, `r[1]`, `r.name` and a call of a function field, `r.run()`, all work. A map keyed by two
+types, `{string | integer: T}`, is refused on purpose (`key_type`): declare the record instead.
+
+```teal
+local record Plugin is {string}
+  name: string
+  run: function(): string
+end
+
+local plugin: Plugin = { "a", "b", name = "demo", run = function(): string return "ran" end }
+print(#plugin, plugin[1], plugin.name, plugin.run())
+```
+
+```output
+2	a	demo	ran
+```
+
+A call with a string in place of its arguments, `f "x"`, is not in the grammar (`string_call`): write `f("x")`.
+
+## choosing a module by name
+
+`require(name)` with a computed name is refused (`computed_require`), so that the build sees every module a program
+loads. To choose a module at run time, require each candidate by its literal name into a table keyed by name, and pick from
+the table.
+
+```teal
+local Json = require("cosmic.json")
+local Csv = require("cosmic.csv")
+
+local counters: {string: function(string): integer} = {
+  json = function(text: string): integer
+    local list = Json.decode_array(text)
+    if list == nil then return 0 end
+    return #list
+  end,
+  csv = function(text: string): integer
+    local rows = Csv.parse(text)
+    if rows == nil then return 0 end
+    return #rows
+  end,
+}
+
+local count = assert(counters["json"])
+print(count("[1, 2, 3]"))
+```
+
+```output
+3
+```
+
 
 ## reading an array by index
 

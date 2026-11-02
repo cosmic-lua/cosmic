@@ -119,6 +119,7 @@ local Coverage = require("cosmic.coverage")
 local Env = require("cosmic.env")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
+local type test_inputs = require("build.test_inputs")
 local build_paths = require("build.paths")
 local cache_lifetime = require("build.cache_lifetime")
 local Poll = require("cosmic.poll")
@@ -933,6 +934,39 @@ local function running_detail(rec: Recording, running: {Job}): string
   return table.concat(parts, "; ")
 end
 
+--- Whether the tree's `path` is among what a sandboxed worker of `effective`
+--- is given: a source file of its closure, or a declared read or beneath one.
+local function in_sandbox(effective: test_inputs.Effective, path: string): boolean
+  if effective.files[path] == true then return true end
+  for _, read in ipairs(effective.reads) do
+    local granted = read:gsub("/+$", "")
+    if path == granted or path:sub(1, #granted + 1) == granted .. "/" then return true end
+  end
+  return false
+end
+
+--- What the failure `message` of a sandboxed test gains for a file of the
+--- tree it says was not found: where the file is in the tree and the
+--- sandbox lacks it, because the module did not declare it, the grant to
+--- declare (one line each, led by a newline). A run that is not sandboxed
+--- finds the file, and a path that is not in the tree is the test's own to
+--- report.
+local function tree_note(rec: Recording, job: Job, message: string): string
+  local effective = rec.effective[job.m.path]
+  if not rec.sandbox or effective == nil then return "" end
+  local lines: mut {string} = {}
+  for _, said in ipairs(test_report.missing_relative_paths(message)) do
+    local path = said
+    while path:sub(1, 2) == "./" do path = path:sub(3) end
+    local there, _ = Fs.exists(rec.root .. "/" .. path)
+    if path ~= "" and not in_sandbox(effective, path) and there == true then
+      local hint = test_report.tree_hint(path)
+      lines[#lines + 1] = "\n  " .. hint
+    end
+  end
+  return table.concat(lines)
+end
+
 --- Records one finished job: the verdict its worker reported, or a
 --- failure that says why there is no report to go by
 --- ([`test_key.judge`], which also says whether it checked, and
@@ -966,11 +1000,17 @@ local function finish(rec: Recording, job: Job, result: Child.Result?,
   local printed = result and result.stdout
   if passed and printed ~= nil and printed ~= "" then
     local prefix = test_report.stopped_prefix()
+    local own: mut {string} = {}
     for line in printed:gmatch("[^\n]+") do
       if line:sub(1, #prefix) == prefix then
         table.insert(rec.stopped, line:sub(#prefix + 1))
+      else
+        own[#own + 1] = line
       end
     end
+    -- What the runner reports on its own account (a stopped fuzz property)
+    -- is listed apart, so what is shown is the test's own.
+    if rec.show_output and #own > 0 then rec.shown[id] = table.concat(own, "\n") end
   end
   -- A test that said why it did not check keeps its verdict: its pass is a
   -- function of its key, and it is counted apart.
@@ -1007,6 +1047,7 @@ local function finish(rec: Recording, job: Job, result: Child.Result?,
   test_key.keep(rec, job, judged, elapsed)
   job.passed = passed
   if not passed then
+    message = message .. tree_note(rec, job, message)
     local scratch = job.scratch
     if scratch ~= nil then
       message = message .. "\n  its directory is kept: " .. scratch .. "/real"
@@ -1308,6 +1349,17 @@ local function say_failures(rec: Recording, failures: {string})
   end
 end
 
+--- Says what the tests that passed printed, each beneath its id, and that a
+--- test which stood printed nothing: it was not run.
+local function say_shown(rec: Recording, tally: State.Tally)
+  if not rec.show_output then return end
+  local shown: mut {test_report.Shown} = {}
+  for id, printed in pairs(rec.shown) do shown[#shown + 1] = { id = id, printed = printed } end
+  for _, line in ipairs(test_report.shown(shown)) do log:say(line) end
+  local note = test_report.shown_note(tally.cached)
+  if note ~= nil then log:say(note) end
+end
+
 --- What one run of the verb carries from phase to phase: each of
 --- [`run`]'s phases fills the fields it owns, and reads only fields the
 --- driver or an earlier phase has set.
@@ -1336,6 +1388,8 @@ local record Run
   mut checks?: boolean
   --- Whether the run starts no job after the first failure (`--bail`).
   mut bail?: boolean
+  --- Whether the run lists what a passing test printed beneath it (`--show-output`).
+  mut show_output?: boolean
 
   -- The checkout ([`hold_checkout`]).
   mut started?: integer
@@ -1483,6 +1537,7 @@ local function read_command(ctx: Run): integer?
   -- projection and the binary's own modules in a checked run.
   ctx.checks = parsed.set["--check-types"] == true or Env.read("COSMIC_TEST_CHECK_TYPES") == "1"
   ctx.bail = parsed.set["--bail"] == true or Env.read("COSMIC_TEST_BAIL") == "1"
+  ctx.show_output = parsed.set["--show-output"] == true
   return nil
 end
 
@@ -1914,6 +1969,7 @@ local function make_recording(ctx: Run)
     violations_dropped = 0, fact_wraps = assert(ctx.result).fact_wraps,
     parameter_checks = assert(ctx.result).parameter_checks, violation_met = {}, violators = {}, violator_ns = {},
     failures = failures, errors = errors, outputs = {}, reruns = {},
+    show_output = ctx.show_output == true, shown = {},
     failed = {}, skips = {}, unchecked = {}, deliberate = {}, stopped = {}, held = ctx.held, nas = {}, unmet = {}, answered = {},
     hits = hits, by_test = by_test, unowned = unowned, tally = tally, not_run = 0,
     owed = { kept = {}, used = {}, failed = {}, stores = {} }, shared_keys = {},
@@ -2505,6 +2561,7 @@ local function report(ctx: Run): integer
     end
     say_skips(rec)
     say_violations(rec)
+    say_shown(rec, tally)
     log:say(assert(ctx.cov_line))
     for _, function_line in ipairs(assert(ctx.function_lines)) do log:say(function_line) end
     local _, _ = log:say("test: " .. test_report.passed({ total = total,
@@ -2516,6 +2573,7 @@ local function report(ctx: Run): integer
   end
   say_skips(rec)
   say_violations(rec)
+  say_shown(rec, tally)
   say_failures(rec, failures)
   for _, line in ipairs(errors) do
     log:say("test: ERROR  " .. assert(ctx.records_path) .. ": " .. line)
