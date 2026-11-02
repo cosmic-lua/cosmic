@@ -1,6 +1,6 @@
 ---
 name: ship
-description: Take a change from implementation to a pull request in cosmic, following doc/contributing.md -- tested, adversarially reviewed by a separate agent, its TODOs listed -- and set to auto-merge unless told not to. Use when asked to implement and ship a change, or a list of changes as a sequence of PRs.
+description: Take a change from implementation to a pull request in cosmic, following doc/contributing.md -- tested, adversarially reviewed by a separate agent, its TODOs listed -- and set to auto-merge unless told not to. Use when asked to implement and ship a change, or a list of changes as a sequence of PRs or, through subagents, in parallel.
 argument-hint: "[no-automerge] <what to change>"
 ---
 
@@ -39,6 +39,43 @@ default and is dropped from what to change.
    the pin bump once the prerelease exists; otherwise say the pin was
    left alone.
 
+Removing code can lower a count that [`build/ceilings.txt`] pins, and
+the whole-tree check refuses a pin above its count; changing a harness
+module bumps `epoch` or sets `acknowledged` in
+[`build/harness_epoch.tl`], as [`doc/testing.md`] says. Both are found by
+`bin/cosmic fix --check .` and the tests, run as step 2 and the guide's
+"check before pushing" say.
+
+## Several changes at once, through subagents
+
+When the user asks for a batch of independent changes in parallel, this
+section replaces step 1's order for the independent ones; a change that
+depends on another, or shares a file with it, still waits for it. The
+session that plans the batch coordinates, and each change gets an
+implementing subagent of its own, in its own worktree and branch.
+
+- A subagent cannot start another agent, so it cannot run step 3. Tell
+  it to commit, run the checks and hand back "ready for review" without
+  pushing. The coordinator starts the reviewer and sends the findings
+  back; only then does the implementer push, open the PR and enable
+  auto-merge. If a PR was pushed before its review, disable its
+  auto-merge until the review is clean.
+- The coordinator subscribes to each PR, alone, so its events reach one
+  session: it fixes or relays CI failures and, once a PR merges, cleans
+  up its worktree, branch and build directory.
+- Before starting, list the files each change will touch. Changes that
+  share one (a test helper, a signature many callers pass, the same line
+  of [`build/ceilings.txt`], the `epoch` line of
+  [`build/harness_epoch.tl`]) go one after another: the later starts
+  from main once the earlier merges, or merges `origin/main` as the
+  guide says, since the merge queue drops a PR on any conflict and does
+  not update it.
+- Each implementer boots a tree and runs the whole suite, so run no more
+  at once than `nproc` reports.
+- Each finding an auditing agent reports is a claim to check against the
+  code before acting on it. One that does not hold is skipped, and the
+  PR says so.
+
 ## Reviewer prompt
 
 Fill in the angle brackets. Give the reviewer the goal and the diff, not
@@ -62,6 +99,9 @@ Check, against the code rather than the diff's story:
 - Comments against doc/writing.md: correct, necessary, no narrative.
 - A change that no module's code shows but can alter a pass or a fail
   (host, toolchain) without the `epoch` bump doc/testing.md says.
+- A deleted test: name the test that still checks what it checked, or
+  call the deletion BLOCKING. Where copies were replaced by a shared
+  helper, diff each copy against it.
 - Run `bin/cosmic fix --check .` and report its result.
 
 Report one line per finding, most severe first:
@@ -70,4 +110,7 @@ Before saying "no findings", list what you checked.
 ```
 
 [`AGENTS.md`]: ../../../AGENTS.md
+[`build/ceilings.txt`]: ../../../build/ceilings.txt
+[`build/harness_epoch.tl`]: ../../../build/harness_epoch.tl
 [`doc/contributing.md`]: ../../../doc/contributing.md
+[`doc/testing.md`]: ../../../doc/testing.md
