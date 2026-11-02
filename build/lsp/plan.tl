@@ -62,11 +62,11 @@ local type Refusal = plan.Refusal
 local type Named = plan.Named
 
 --- The import path and kind a build gives the file `name` below the root
---- that the working database does not list yet: the `inputs` view's
---- reading of a path ([`build.analysis_schema`]'s `kind_of`, given the
---- `text` of the file, which a declaration's kind is read from), and a
---- template's (build/derivation.tl), the convention a `.tl` file gets
---- with its extension swapped.
+--- that the working database does not list yet. The kind is
+--- [`build.analysis_schema`]'s `kind_of` of the path and the `text` of the
+--- file (a declaration's kind is read from its text), as the `inputs` view
+--- says it; a template (build/derivation.tl) is a module, and its path is
+--- the file's with the extension dropped.
 function plan.named(name: string, text?: string): Named
   if name:match("%.tmpl$") ~= nil then
     local template = name:gsub("%.tmpl$", ""):gsub("/init$", "")
