@@ -96,6 +96,54 @@ end
 3
 ```
 
+## reading an array by index
+
+`xs[i]` is `T?`: Lua answers nil for an index out of range. Write `xs[i] or 0` and an out-of-range read becomes a zero that
+nothing reports. Three ways to read that name the case instead (`index_may_be_nil`, `cosmic docs index_may_be_nil`).
+
+A loop `for i = 1, #xs do` counts the keys of `xs`, and in its body `xs[i]` is a `T`. It holds when the loop starts at a
+literal of 1 or more, steps by 1 or not at all, and runs to `#xs` of a local `xs`, and the body cannot change `xs`: it
+calls no function but one of `math` whose every argument is the loop variable, a literal, or an expression of operators other than `and` and `or`, with any call inside it held to the same rule (so `table.remove`, `table.insert`, `table.move`, a call that is given `xs`
+and a method call all end it), assigns neither `xs` nor `i`, and writes `xs` only at `xs[i]`. A function made in the body
+may run later, when `xs` is shorter, so a read inside one is still `T?`. `xs` is a name, not a field: `r.items` is not
+counted, so copy it to a local. `ipairs` gives a `T` as well.
+
+```teal
+local scores: mut {integer} = { 3, 1, 2 }
+local total = 0
+for i = 1, #scores do
+  scores[i] = scores[i] * 2
+  total = total + scores[i]
+end
+print(total)
+```
+
+```output
+12
+```
+
+Where the loop cannot say it (an index worked out, a loop that calls a function), `Array.at(xs, i)` of [`cosmic.array`] reads
+the element or raises with the index and the length. It is for an index the caller has already bounded, so a miss is a bug
+in the caller; a function whose caller may pass any index returns `xs[i]` as the `T?` it is, or `nil, why`.
+
+```teal
+local Array = require("cosmic.array")
+
+local ranks = { 10, 20, 30 }
+local middle = (#ranks + 1) // 2
+print(Array.at(ranks, middle))
+local ok, why = pcall(Array.at, ranks, 4)
+print(ok, why)
+```
+
+```output
+20
+false	array: at(4) is outside the array of 3 (1 to 3)
+```
+
+`assert(xs[i])` reads it too, and says less when it fails. Do not write `xs[i] or <default>`: it turns an out-of-range read
+into a wrong value.
+
 ## integers and floats
 
 `local t = 0` is an `integer`. A later `t = t + 1.5` is `number`, which is not an `integer`, so the checker refuses it
@@ -144,3 +192,5 @@ print(word)
 ```output
 hello
 ```
+
+[`cosmic.array`]: ../../cosmic/array.tl
