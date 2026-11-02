@@ -39,6 +39,38 @@ default and is dropped from what to change.
    the pin bump once the prerelease exists; otherwise say the pin was
    left alone.
 
+Before pushing, run `bin/cosmic fix --check .` as well as the tests: a
+change that removes code can lower a count [`build/ceilings.txt`] pins,
+and CI's format leg refuses a pin above its count. A change to a harness
+module is acknowledged in [`build/harness_epoch.tl`] before it pushes, as
+[`doc/testing.md`] says.
+
+## Several changes at once, through subagents
+
+When the user asks for a batch of independent changes in parallel, the
+session that plans them coordinates, and each change gets an
+implementing subagent of its own, in its own worktree and branch.
+
+- A subagent cannot start another agent, so it cannot run step 3 itself.
+  Tell it to commit, run the checks and hand back "ready for review"
+  without pushing. The coordinator starts the reviewer and sends the
+  findings back; only then does the implementer push, open the PR and
+  enable auto-merge. A PR pushed before its review has auto-merge
+  disabled until the review is clean.
+- A subagent cannot watch a PR. The coordinator subscribes to each one,
+  fixes or relays its CI failures, and cleans up its worktree, branch
+  and build directory once it merges.
+- Before starting, list the files each change will touch. Changes that
+  share one (a test helper, a signature many callers pass, a line of
+  [`build/ceilings.txt`] or [`build/harness_epoch.tl`]) go one after
+  another, the later rebased once the earlier merges: the merge queue
+  drops a PR on any conflict and does not rebase it.
+- Run no more implementers at once than the machine has cores; each
+  boots a tree and runs the whole suite.
+- Each finding an auditing agent reports is a claim to check against the
+  code before acting on it. One that does not hold is skipped, and the
+  PR says so.
+
 ## Reviewer prompt
 
 Fill in the angle brackets. Give the reviewer the goal and the diff, not
@@ -62,6 +94,9 @@ Check, against the code rather than the diff's story:
 - Comments against doc/writing.md: correct, necessary, no narrative.
 - A harness module changed without the epoch or acknowledged digests
   set as doc/testing.md says.
+- A deleted test: name the test that still checks what it checked, or
+  call the deletion BLOCKING. A helper shared in place of copies: diff
+  each copy against the shared one.
 - Run `bin/cosmic fix --check .` and report its result.
 
 Report one line per finding, most severe first:
@@ -70,4 +105,7 @@ Before saying "no findings", list what you checked.
 ```
 
 [`AGENTS.md`]: ../../../AGENTS.md
+[`build/ceilings.txt`]: ../../../build/ceilings.txt
+[`build/harness_epoch.tl`]: ../../../build/harness_epoch.tl
 [`doc/contributing.md`]: ../../../doc/contributing.md
+[`doc/testing.md`]: ../../../doc/testing.md
