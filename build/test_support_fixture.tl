@@ -13,6 +13,10 @@ local record test_support_fixture
     reader: integer
     writer: integer
   end
+  --- What a callback leaves for the case that ran it: empty until set.
+  record Cell<T>
+    mut value?: T
+  end
 end
 
 --- The element of `list` at `index`, which the case knows is there.
