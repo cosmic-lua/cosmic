@@ -359,8 +359,7 @@ local function with_change_time(paths: {string}, check: function(function()))
   Fs.stat = function(path: string): sys.Stat?, string
     local st, trouble = stat(path)
     if st ~= nil and tracked[path] == true then
-      st.ctime = 100
-      st.ctime_ns = tick.value
+      return { ...st, ctime = 100, ctime_ns = tick.value }, trouble
     end
     return st, trouble
   end

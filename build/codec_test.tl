@@ -191,15 +191,16 @@ end
 local function stream(words: {string}, chunk: string, rounds: integer, expect: string, newline: boolean):
     integer, boolean, number, number
   local sent = { value = 0 }
-  local input: Stream.Reader = {}
-  input.read = function(_self: Stream.Reader, _max_bytes?: integer): string?, string
-    if sent.value == rounds then return nil, "" end
-    sent.value = sent.value + 1
-    return chunk, ""
-  end
-  input.close = function(_self: Stream.Reader): boolean, string
-    return true, ""
-  end
+  local input: Stream.Reader = {
+    read = function(_self: Stream.Reader, _max_bytes?: integer): string?, string
+      if sent.value == rounds then return nil, "" end
+      sent.value = sent.value + 1
+      return chunk, ""
+    end,
+    close = function(_self: Stream.Reader): boolean, string
+      return true, ""
+    end,
+  }
   collectgarbage()
   collectgarbage()
   local base = collectgarbage("count")
@@ -273,17 +274,18 @@ end
 local function trickle(text: string): Stream.Reader
   local at = { value = 1 }
   local turn = { value = 0 }
-  local reader: Stream.Reader = {}
-  reader.read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
-    if at.value > #text then return nil, "" end
-    turn.value = turn.value % 4 + 1
-    local piece = text:sub(at.value, at.value + math.min(turn.value, max_bytes or turn.value) - 1)
-    at.value = at.value + #piece
-    return piece, ""
-  end
-  reader.close = function(_self: Stream.Reader): boolean, string
-    return true, ""
-  end
+  local reader: Stream.Reader = {
+    read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
+      if at.value > #text then return nil, "" end
+      turn.value = turn.value % 4 + 1
+      local piece = text:sub(at.value, at.value + math.min(turn.value, max_bytes or turn.value) - 1)
+      at.value = at.value + #piece
+      return piece, ""
+    end,
+    close = function(_self: Stream.Reader): boolean, string
+      return true, ""
+    end,
+  }
   return reader
 end
 
@@ -317,15 +319,16 @@ end
 local function test_an_encoder_writes_as_it_reads_but_a_decoder_holds_a_chunk()
   local writes = { value = 0 }
   local sent = { value = 0 }
-  local input: Stream.Reader = {}
-  input.read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
-    if sent.value == 3 then return nil, "" end
-    sent.value = sent.value + 1
-    return ("a"):rep(max_bytes or 1), ""
-  end
-  input.close = function(_self: Stream.Reader): boolean, string
-    return true, ""
-  end
+  local input: Stream.Reader = {
+    read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
+      if sent.value == 3 then return nil, "" end
+      sent.value = sent.value + 1
+      return ("a"):rep(max_bytes or 1), ""
+    end,
+    close = function(_self: Stream.Reader): boolean, string
+      return true, ""
+    end,
+  }
   local seen: mut {integer} = {}
   local code = codec.run({ "codec", "hex" }, {
     input = function(): Stream.Reader?, string return input, "" end,

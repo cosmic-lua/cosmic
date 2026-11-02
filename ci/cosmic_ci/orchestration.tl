@@ -17,7 +17,6 @@ local Archive = require("cosmic.archive")
 local ArtifactRow = require("cosmic_ci.artifact_row")
 local Sqlite = require("cosmic.sqlite")
 local sys = require("cosmic.sys")
-local Child = require("cosmic.child")
 local Proc = require("cosmic.proc")
 local Runner = require("cosmic_ci.runner")
 local RunNames = require("cosmic_ci.run_names")
@@ -43,12 +42,6 @@ local record Orchestration
     abandon: function(outcome: Runner.Outcome)
   end
   stands: function(env: {string:string}): boolean
-  against_a_base: function(env: {string:string}): boolean
-  --- What [`harness_moved`] answered: whether build/harness_epoch.tl differs, and why.
-  record Moved
-    moved: boolean
-    why: string
-  end
   --- A gating suite's `cosmic test` words and its environment.
   record SuiteRun
     words: {string}
@@ -59,7 +52,6 @@ local record Orchestration
     high?: integer
     low?: integer
   end
-  harness_moved: function(root: string, base: string): Moved
   stale_rows: function(path: string, kernel: string): integer?, string
   gather_bound: function(stale: integer): integer
   test_words: function(env: {string:string}): {string}
@@ -141,19 +133,10 @@ local standing_events: {string:boolean} = { push = true, merge_group = true }
 -- image names itself (COSMIC_SYSTEM_ID, host_id.tl),
 -- which every module given the system's paths is keyed by.
 ---
---- A merge-queue run does not stand either where its change moves
---- build/harness_epoch.tl from the queue's base, nor does a branch push's
---- that runs the queue's scope (ci.yml's `scope` job, which names the
---- main commit the branch grew from as COSMIC_CI_BASE_SHA, [`against_a_base`]):
---- it is the queue's decision, made on the branch (COSMIC_CI_HARNESS_MOVED,
---- which `environment` sets by [`harness_moved`] where the driver's
---- environment does not). No key holds the harness's code, only the
---- epoch that file records (build/declared_key.tl), so a harness change
---- marked there as one that moves no verdict would otherwise land on
---- verdicts it may have moved. Such a run runs every test, as main's
---- scheduled run does, so the change is gated on a run that stands on
---- nothing. Where the driver cannot tell whether the file moved, it takes
---- it as moved.
+--- A change to the test harness needs no run of its own: every key holds
+--- a digest of the harness's code (build/declared_key.tl), so a verdict
+--- reached under other code is not looked up, and such a change runs every
+--- test whichever run it is in.
 ---
 --- A run that gathers the shares of a suite (COSMIC_CI_GATHER=1, which
 --- the checked suite phase gives ci.yml's `checked` job) always stands, in every
@@ -166,129 +149,8 @@ local standing_events: {string:boolean} = { push = true, merge_group = true }
 --- answers: that some test enters each C function, which the rows carry.
 function Orchestration.stands(env: {string:string}): boolean
   if env["COSMIC_CI_GATHER"] == "1" then return true end
-  if Orchestration.against_a_base(env) and env["COSMIC_CI_HARNESS_MOVED"] ~= "0" then
-    return false
-  end
   return (env["COSMIC_CI_REQUIRE_SANDBOX"] == "1" or env["COSMIC_CI_DECLARED_KEYS"] == "1") and
     standing_events[env["COSMIC_CI_EVENT"] or ""] == true
-end
-
---- Whether the run's change is held against a base commit
---- (COSMIC_CI_BASE_SHA): the merge queue's, always, or a branch push's,
---- which ci.yml gives one only where it runs the queue's scope for the
---- change (its `scope` job; `unknown` where it could not name the base,
---- which [`harness_moved`] takes as moved). A push to main, the scheduled
---- and a manual run name none.
-function Orchestration.against_a_base(env: {string:string}): boolean
-  local event = env["COSMIC_CI_EVENT"]
-  return event == "merge_group" or (event == "push" and (env["COSMIC_CI_BASE_SHA"] or "") ~= "")
-end
-
---- The file that records the harness's epoch and the digests last
---- acknowledged of its modules (build/harness_epoch.tl). [`harness_moved`]
---- compares the whole file, not the epoch alone: an acknowledgment
---- without a bump is the case a run of every test is there to check.
-local epoch_file <const> = "build/harness_epoch.tl"
-
---- How long a git command [`harness_moved`] runs may take: a local
---- lookup, or a fetch of one commit.
-local git_timeout_ns <const> = Clock.seconds(60)
-
---- Runs git in the checkout at `root`, never asking for credentials
---- (GIT_TERMINAL_PROMPT=0) and ended past `git_timeout_ns`: what it
---- printed, or nil and why it failed, its own stderr among it.
-local function git(root: string, words: {string}): string?, string
-  local argv = { "/usr/bin/env", "git", "-C", root }
-  for _, word in ipairs(words) do argv[#argv + 1] = word end
-  local env = Maps.with(Env.all(), { GIT_TERMINAL_PROMPT = "0" })
-  local result, trouble = Child.run(argv, { env = env, stdout = "capture",
-    stderr = "capture", timeout_ns = git_timeout_ns })
-  if result == nil then return nil, "git " .. assert(words[1]) .. ": " .. trouble end
-  if result.timed_out then
-    return nil, "git " .. assert(words[1]) .. ": timed out after " .. tostring((git_timeout_ns // Clock.seconds(1))) .. " s"
-  end
-  if not result.ok then
-    return nil, "git " .. assert(words[1]) .. ": exit " .. tostring(result.code) .. ": " ..
-      ((result.stderr or ""):gsub("%s+$", ""))
-  end
-  return result.stdout or "", ""
-end
-
---- The git object `revision:path` names in the checkout at `root`, or
---- nil and why where there is none: no such commit here, or no such
---- file in it.
-local function blob(root: string, revision: string, path: string): string?, string
-  local out, trouble = git(root, { "rev-parse", "--verify", revision .. ":" .. path })
-  if out == nil then return nil, trouble end
-  local object = out:match("^(%x+)\n?$")
-  if object == nil then return nil, "git rev-parse: no object for " .. revision .. ":" .. path end
-  return object, ""
-end
-
---- Whether build/harness_epoch.tl differs between the commit `base`
---- names and HEAD in the checkout at `root`, and why: the merge queue's
---- base commit (ci.yml's COSMIC_CI_BASE_SHA) and the merge it checks. A
---- checkout that lacks the base, a shallow one, fetches that one commit.
---- True where either cannot be read (no base named, no git, a fetch
---- refused or timed out, a file added), which runs every test: the safe
---- side. The why says what failed.
-function Orchestration.harness_moved(root: string, base: string): Orchestration.Moved
-  if root == "" then return { moved = true, why = "no checkout named (GITHUB_WORKSPACE)" } end
-  if not base:match("^%x+$") then
-    return { moved = true, why = "no merge queue base named (COSMIC_CI_BASE_SHA=" .. base .. ")" }
-  end
-  local now, now_trouble = blob(root, "HEAD", epoch_file)
-  if now == nil then
-    return { moved = true, why = "cannot read HEAD's " .. epoch_file .. ": " .. now_trouble }
-  end
-  local was, was_trouble = blob(root, base, epoch_file)
-  if was == nil then
-    local _, fetch_trouble = git(root, { "fetch", "--quiet", "--no-tags", "--depth=1",
-      "origin", base })
-    was, was_trouble = blob(root, base, epoch_file)
-    if was == nil then
-      return { moved = true, why = "cannot read " .. base .. "'s " .. epoch_file .. ": " .. was_trouble ..
-          (if fetch_trouble ~= "" then ("; " .. fetch_trouble) else "" end) }
-    end
-  end
-  if was ~= now then
-    return { moved = true, why = epoch_file .. " differs from " .. base .. "'s" }
-  end
-  return { moved = false, why = epoch_file .. " is " .. base .. "'s" }
-end
-
---- What [`harness_moved`] answered of each checkout and base, asked once
---- a driver run: every operation's environment asks it.
-local moved_by_base: mut {string:boolean} = {}
-
---- COSMIC_CI_HARNESS_MOVED for `env`, a merge-queue run's, where it
---- does not say already: "1" where its change moves
---- build/harness_epoch.tl ([`harness_moved`], of the checkout
---- GITHUB_WORKSPACE names against COSMIC_CI_BASE_SHA), else "0".
-local function decide_harness(env: {string:string}): {string:string}
-  if not Orchestration.against_a_base(env) or env["COSMIC_CI_HARNESS_MOVED"] ~= nil then
-    return env
-  end
-  local root, base = env["GITHUB_WORKSPACE"] or "", env["COSMIC_CI_BASE_SHA"] or ""
-  local asked = root .. "\0" .. base
-  if moved_by_base[asked] == nil then
-    local judged = Orchestration.harness_moved(root, base)
-    local moved, why = judged.moved, judged.why
-    moved_by_base[asked] = moved
-    local gathering = env["COSMIC_CI_GATHER"] == "1"
-    local said = "suites stand on verdicts: "
-    if moved and gathering then
-      said = "the gathering run stands on the shares' verdicts, where every test ran (--all): "
-    elseif moved then
-      said = "every suite runs every test (--all): "
-    end
-    local where = "branch push: "
-    if env["COSMIC_CI_EVENT"] == "merge_group" then where = "merge queue: " end
-    local _, _ = Fs.put(Fs.stderr, where .. said .. why .. "\n")
-  end
-  local flag = "0"
-  if moved_by_base[asked] == true then flag = "1" end
-  return Maps.with(env, { COSMIC_CI_HARNESS_MOVED = flag })
 end
 
 --- Sets `env` for a suite that stands on nothing another run reached
@@ -336,9 +198,6 @@ local function environment(extra?: {string:string}): {string:string}
   local all = Maps.with(Maps.with(Env.all(), { FUZZ_ITERS = "0" }), extra or {})
   -- What follows is decided on the leg's environment, `extra`
   -- included, which may name the leg itself ([`suite_run`], a test's).
-  -- A merge-queue run that moves the harness's epoch file stands on
-  -- nothing (`stands`).
-  all = decide_harness(all)
   -- Where it does not stand on verdicts (`stands`), a suite stands on
   -- none another run reached, only on what it runs itself.
   all = Orchestration.shares(all)
@@ -808,8 +667,9 @@ local checked_compile_timeout_ns <const> = Clock.seconds(300)
 
 -- A whole `cosmic test` run of every test, sandboxed (about 4750 tests
 -- in October 2026), is what a change to core/ runs, as no verdict stands
--- for it, and what a merge-queue run that moves build/harness_epoch.tl
--- runs (`stands`): 12 of the 22 queue runs on October 9. Its time follows
+-- for it, and what a merge-queue run that moved build/harness_epoch.tl
+-- ran, 12 of the 22 queue runs on October 9 (a change to the harness now
+-- misses every key and runs as much). Its time follows
 -- the runner more than the tree. On alpine-x86_64 each whole suite took
 -- 192 to 309 s on runners where the driver's own tests took 73 to 120 s;
 -- on one where they took 135 s (37991854997), the local suite took 385 s
@@ -1609,7 +1469,7 @@ end
 
 --- Whether the native suite whose stdout is `text` and exit status
 --- `code` passed having run every test of the tree, none standing on a
---- verdict, as after a core change or a moved harness epoch: then it ran
+--- verdict, as after a core change: then it ran
 --- each listed module on this leg already. Not where it ran a share
 --- (its summary names one) or chose no test at all.
 function Orchestration.native_ran_every(text: string, code: integer): boolean

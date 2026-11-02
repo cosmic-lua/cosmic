@@ -141,16 +141,13 @@ local function under_nest(tmp: string, mode: string, policy: Sandbox.Policy): {s
   local scratch = tmp .. "/scratch"
   assert(Fs.mkdirs(scratch))
   searchable.share(scratch)
-  if policy.database == nil then policy.database = { path = path } end
-  policy.isolate = { "file" }
-  policy.promises = { "fork", "nest" }
-  policy.set_env = { TMPDIR = scratch }
   local grants = policy.grants or {}
-  policy.grants = grants
   table.insert(grants, { path = scratch, letters = "rwc" })
+  local nested: Sandbox.Policy = { ...policy, database = policy.database or { path = path },
+    isolate = { "file" }, promises = { "fork", "nest" }, set_env = { TMPDIR = scratch }, grants = grants }
   local executable = assert(Proc.executable())
   local result, why = Child.run({ executable, executable, mode, scratch },
-    { policy = policy, cwd = tmp, stdout = "capture", stderr = "capture",
+    { policy = nested, cwd = tmp, stdout = "capture", stderr = "capture",
       timeout_ns = Clock.seconds(60) })
   if result == nil then
     assert(ChildPolicy.unsandboxable(why), "the start was refused: " .. why)

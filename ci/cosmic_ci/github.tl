@@ -30,8 +30,8 @@ local record Github
     print: function(line: string)
     --- A line of the job's summary ($GITHUB_STEP_SUMMARY), if it has one.
     summary: function(line: string)
-    --- Whether the checkout's build/harness_epoch.tl differs from the
-    --- commit `base`'s: false where it cannot say.
+    --- Whether the checkout changed a file of the test harness from the
+    --- commit `base`'s ([`Github.harness_moved`]): false where it cannot say.
     moved: function(base: string): boolean
   end
   type Fetch = function(path: string, paginate: boolean, seconds: integer): {string}?, string
@@ -55,12 +55,13 @@ local record Github
   --- `host.fetch`, with the reason a failed lookup gives printed, so a
   --- step's log says why it asked again.
   ask: function(host: Host, path: string, paginate: boolean, seconds: integer): {string}?
-  --- Whether `base`'s build/harness_epoch.tl differs from the checkout's
-  --- HEAD's, asked of git through `git`, which runs a git command line and
-  --- answers its exit status (nil where it could not run). Only a
-  --- difference answers true: no git, a base it does not hold, or any
-  --- other refusal is no sign that it moved.
-  harness_moved: function(git: function(argv: {string}): integer?, base: string): boolean
+  --- Whether any of `paths`, relative to the repository's root, differs
+  --- between the commit `base` and the checkout's HEAD, asked of git
+  --- through `git`, which runs a git command line and answers its exit
+  --- status (nil where it could not run). Only a difference answers true:
+  --- no git, a base it does not hold, or any other refusal is no sign
+  --- that it moved.
+  harness_moved: function(git: function(argv: {string}): integer?, base: string, paths: {string}): boolean
 end
 
 function Github.is_commit(text: string): boolean
@@ -78,10 +79,12 @@ function Github.say(host: Github.Host, line: string)
   host.summary(line)
 end
 
-function Github.harness_moved(git: function(argv: {string}): integer?, base: string): boolean
-  if git({ "cat-file", "-e", base .. "^{commit}" }) ~= 0 then return false end
-  -- `:/` names the path from the repository's root, where the driver runs in ci/.
-  return git({ "diff", "--quiet", base, "HEAD", "--", ":/build/harness_epoch.tl" }) == 1
+function Github.harness_moved(git: function(argv: {string}): integer?, base: string, paths: {string}): boolean
+  if #paths == 0 or git({ "cat-file", "-e", base .. "^{commit}" }) ~= 0 then return false end
+  local argv: mut {string} = { "diff", "--quiet", base, "HEAD", "--" }
+  -- `:/` names a path from the repository's root, where the driver runs in ci/.
+  for _, path in ipairs(paths) do argv[#argv + 1] = ":/" .. path end
+  return git(argv) == 1
 end
 
 function Github.over(client: GithubApi.Client): Github.Over
@@ -104,8 +107,8 @@ end
 -- (github_test.tl), never against git. A pathspec git refuses, or a
 -- failure of its own (a repository it finds unsafe, "dubious
 -- ownership", say), answers a status other than 1 and reads as "the
--- harness did not move": every test then stands on the verdicts it
--- would, which costs a stale verdict at worst, never a failed run.
+-- harness did not move": the run then waits for the run ahead as it
+-- would, which costs time at worst, never a failed run.
 function Github.live(env: {string:string}, test?: GithubApi.Live): Github.Host
   local git, _ = Proc.find("git", env["PATH"] or "")
   local function run_git(argv: {string}): integer?
@@ -115,6 +118,14 @@ function Github.live(env: {string:string}, test?: GithubApi.Live): Github.Host
     local result, _ = Child.run(words, { env = env, stdin = "null", stdout = "null", stderr = "null" })
     if result == nil then return nil end
     return result.code
+  end
+  local function harness_files(): {string}
+    local text, _ = Fs.read((env["GITHUB_WORKSPACE"] or ".") .. "/ci/harness-files.txt")
+    local paths: mut {string} = {}
+    for line in (text or ""):gmatch("[^\n]+") do
+      if not line:find("^%s*#") then paths[#paths + 1] = line end
+    end
+    return paths
   end
   local client, absent = GithubApi.live(env, test)
   local over: Github.Over
@@ -156,7 +167,9 @@ function Github.live(env: {string:string}, test?: GithubApi.Live): Github.Host
         local _, _ = Fs.append(file, text .. "\n")
       end
     end,
-    moved = function(base: string): boolean return Github.harness_moved(run_git, base) end,
+    moved = function(base: string): boolean
+      return Github.harness_moved(run_git, base, harness_files())
+    end,
   }
 end
 

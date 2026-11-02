@@ -8,9 +8,6 @@ local Web = require("cosmic.web")
 local shared: Web.Response = { status = 200, headers = { ["Content-Type"] = "text/plain" }, body = "shared" }
 
 local function make_app(opts?: Headers.Options, more?: {Web.Route}, spec?: Web.AppSpec): Web.App
-  local made: Web.AppSpec = spec or {}
-  made.sink = { line = function(_self: Web.Sink, _text: string) end }
-  made.middleware = { Headers.middleware(opts) }
   local routes: mut {Web.Route} = {
     Web.get("/", function(_req: Web.Request): Web.Response
       return Web.text("plain")
@@ -48,8 +45,8 @@ local function make_app(opts?: Headers.Options, more?: {Web.Route}, spec?: Web.A
     end),
   }
   for _, each in ipairs(more or {}) do routes[#routes + 1] = each end
-  made.routes = routes
-  return Web.app(made)
+  return Web.app({ ...(spec or {}), sink = { line = function(_self: Web.Sink, _text: string) end },
+    middleware = { Headers.middleware(opts) }, routes = routes })
 end
 
 local function test_the_defaults_are_set_and_the_opt_in_headers_are_not()

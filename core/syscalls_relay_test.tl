@@ -84,13 +84,12 @@ local function relays(tmp: string, probe: string, sandbox: raw_process.Sandbox, 
   local given, receiving = channel()
   local first_port, second_port = ports[1], ports[2]
   assert(first_port and second_port, "the relay is given two ports")
-  sandbox.relay = { fd = given, ports = ports }
   -- The program holds no socket of the relay's (the listeners and the channel
   -- are close-on-exec or closed), so it binds a listener's port: in use, in the
   -- network the parent's listeners are in.
   local script = "sockets-open; bind-tcp 127.0.0.1 " .. tostring(first_port) .. "; connect-tcp 127.0.0.1 " ..
     tostring(first_port) .. "; connect-tcp 127.0.0.1 " .. tostring(second_port)
-  local pid, why = start(tmp, probe, script, sandbox)
+  local pid, why = start(tmp, probe, script, { ...sandbox, relay = { fd = given, ports = ports } })
   if pid == nil then
     sys.close(given)
     sys.close(receiving)

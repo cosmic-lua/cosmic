@@ -263,10 +263,9 @@ local function test_a_report_passes_only_after_successful_process_shutdown()
   local report = passing({})
   report.test_hits = { ["suite.tl"] = { [12] = true } }
   report.skipped = "unchecked"
-  local outcomes: {Child.Result} = { ended(report), ended(report), ended(report) }
-  support.nth(outcomes, 1).ok, support.nth(outcomes, 1).code = false, 7
-  support.nth(outcomes, 2).ok, support.nth(outcomes, 2).code, support.nth(outcomes, 2).signal = false, nil, 9
-  support.nth(outcomes, 3).ok = false
+  local ran = ended(report)
+  local outcomes: {Child.Result} = { { ...ran, ok = false, code = 7 },
+    { ...ran, ok = false, code = nil, signal = 9 }, { ...ran, ok = false } }
   for i, result in ipairs(outcomes) do
     local judged = worker.judge({ result = result, trouble = "", timeout_ns = Clock.seconds(1),
       sandboxed = false })
@@ -284,14 +283,11 @@ local function test_a_report_passes_only_after_successful_process_shutdown()
   local ordinary = worker.judge({ result = result, trouble = "", timeout_ns = Clock.seconds(1),
     sandboxed = false })
   assert(not ordinary.passed and ordinary.message == "assertion failed")
-  result.ok, result.code = false, 7
-  local shutdown = worker.judge({ result = result, trouble = "", timeout_ns = Clock.seconds(1),
+  local shutdown = worker.judge({ result = { ...result, ok = false, code = 7 }, trouble = "", timeout_ns = Clock.seconds(1),
     sandboxed = false })
   assert(not shutdown.passed and shutdown.message:find("assertion failed", 1, true) ~= nil)
   assert(shutdown.message:find("exited with status 7", 1, true), shutdown.message)
-  result = ended(passing({}))
-  result.ok, result.timed_out = false, true
-  local late = worker.judge({ result = result, trouble = "", timeout_ns = Clock.seconds(30),
+  local late = worker.judge({ result = { ...ended(passing({})), ok = false, timed_out = true }, trouble = "", timeout_ns = Clock.seconds(30),
     sandboxed = false })
   assert(not late.passed and late.message:find("timed out after 30 s", 1, true) ~= nil)
 end

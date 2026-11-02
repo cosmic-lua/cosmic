@@ -1,22 +1,22 @@
---- The harness's digests ([`build.test_key`]'s `harness`: what every worker
---- loads, the sandbox's maker and the code that makes and reads a key,
---- a digest per module by its source and bytecode) are the ones
---- build/harness_epoch.tl acknowledges, one to a line. No key holds
---- the harness's code, only its epoch, so an edit to it runs no test
---- again by itself: this fails until someone says, in
---- build/harness_epoch.tl, whether the edit can alter a pass or a
---- fail. And the digests hold all the harness runs: every module of
+--- The harness's digest ([`build.test_key`]'s `harness`: what every worker
+--- loads, the sandbox's maker and the code that makes and reads a key, a
+--- digest per module of its bytecode stripped of debug information) is in
+--- every key ([`test_key.harness_part`]), so an edit to the harness that
+--- changes what it does runs every test again with no word from anyone,
+--- and one that cannot (a comment, a blank line, a line number) runs none.
+--- What stays by hand is `epoch` and `retired` (build/harness_epoch.tl),
+--- held here to the form they keep, and the rule the harness's modules
+--- are held to: the digests hold all the harness runs, every module of
 --- the tree the modules it runs require.
 
 local Codec = require("cosmic.codec")
-local Compress = require("cosmic.compress")
+local Fs = require("cosmic.fs")
 local Rand = require("cosmic.rand")
 local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
 local build_paths = require("build.paths")
 local harness_epoch = require("build.harness_epoch")
 local test_key = require("build.test_key")
-local TypeWatch = require("build.type_watch")
 local support = require("build.test_support_fixture")
 
 --- The harness is read from the projection, in the tree's build
@@ -27,17 +27,14 @@ local support = require("build.test_support_fixture")
 --- edit to the tree runs this again, an edit to the harness among
 --- them, and so does a compiler that makes other bytecode of it; it
 --- is this module alone that pays that.
-Test.policy{ grants = { { path = "o/cosmic.db", letters = "r" } } }
+---
+--- `timeout`: the test that swaps each of the harness's 40-odd modules in
+--- turn asks for the digests of the whole tree once per module, 0.3 s each
+--- on an idle host, and the full suite runs it beside thousands of others.
+Test.policy{ grants = { { path = "o/cosmic.db", letters = "r" },
+  { path = "ci/harness-files.txt", letters = "r" } }, timeout = 120 }
 
 local projection = build_paths.resolve(".").projection
-
---- The line of build/harness_epoch.tl's `acknowledged` that holds
---- `name` at `digest`, as the file lays it out: each such line between
---- blank ones, so git merges changes to two modules that sort next to
---- each other as it does any other two.
-local function entry(name: string, digest: string): string
-  return string.format("  [%q] = %q,", name, digest)
-end
 
 --- The count and token of `epoch` (build/harness_epoch.tl) when it
 --- has the form the file keeps, a count, a dash and 8 lower-case hex
@@ -86,8 +83,7 @@ end
 --- both sides retired, passes, and the merged tree stands on the
 --- verdicts that side earned without the other's change. Enforcing it
 --- needs what a tree alone does not say -- the tokens other branches
---- hold: have CI's merge queue (ci/cosmic_ci/orchestration.tl, beside
---- its `harness_moved`) refuse a change whose `epoch` token its base
+--- hold: have CI's merge queue (ci/cosmic_ci/orchestration.tl) refuse a change whose `epoch` token its base
 --- did not hold but another open pull request's head does, once the
 --- queue's driver reads open pull requests.
 local function epoch_trouble(epoch: string, retired: {string}): string?
@@ -110,61 +106,6 @@ local function epoch_trouble(epoch: string, retired: {string}): string?
       #retired + 1, #retired)
   end
   return nil
-end
-
---- What differs between the harness's modules as `found` has them (a
---- digest per module, [`build.test_key`]'s `harness`) and `acknowledged`:
---- nil where they agree, or a message naming each module that moved,
---- that has no entry, and each entry that names no module of the
---- harness, with the lines that acknowledge the first two.
-local function unacknowledged(found: {string:string}, acknowledged: {string:string},
-                              epoch: string, retired: {string}): string?
-  local moved: mut {string} = {}
-  local stale: mut {string} = {}
-  for name, digest in pairs(found) do
-    if acknowledged[name] ~= digest then moved[#moved + 1] = name end
-  end
-  for name in pairs(acknowledged) do
-    if found[name] == nil then stale[#stale + 1] = name end
-  end
-  if #moved == 0 and #stale == 0 then return nil end
-  table.sort(moved)
-  table.sort(stale)
-  local out: mut {string} = {
-    "the test harness moved (build/harness_epoch.tl): what every worker loads, " ..
-      "the sandbox's maker or the code that makes and reads a key. Bump `epoch` if " ..
-      "the change can alter a pass or a fail -- what a worker is given, how it is " ..
-      "judged, how a key is computed; a sandbox's hold or bind tightened, too, which " ..
-      "moves no other part of a key, so a pass earned through the hole does not " ..
-      "stand -- which runs every test again; otherwise keep it. " .. how_to_bump(epoch, retired) ..
-      "\nEither way, in `acknowledged`:",
-  }
-  for _, name in ipairs(moved) do
-    out[#out + 1] = if acknowledged[name] == nil then
-      "no entry for " .. name .. "; add this line, in its place by name, between blank lines" else
-      "moved: " .. name .. "; set its line to" end
-    out[#out + 1] = entry(name, (assert(found[name], name .. " is found")))
-  end
-  for _, name in ipairs(stale) do
-    out[#out + 1] = "stale entry: " .. name .. " is no module of the harness; delete its line"
-  end
-  return table.concat(out, "\n")
-end
-
-local function test_the_harness_is_acknowledged()
-  -- TODO: check this on a checked run too. It waits on a way to read the
-  -- tree's projection and the binary's own modules there, as the checked
-  -- worker is given the checked ones (build/test.tl's TODO on the same).
-  if TypeWatch.checked() then
-    Test.skip("a checked run's modules carry checks, so their bytecode is not the binary's")
-  end
-  local db = assert(Sqlite.open(projection))
-  local found, trouble = test_key.harness(db)
-  db:close()
-  assert(found ~= nil, trouble)
-  local complaint = unacknowledged(found.modules, harness_epoch.acknowledged,
-    harness_epoch.epoch, harness_epoch.retired)
-  assert(complaint == nil, complaint)
 end
 
 --- The tree's projection copied into memory: every module the harness
@@ -194,22 +135,34 @@ local function harness_copy(): Sqlite.Handle, test_key.Harness
   return copy, found
 end
 
---- The digests the harness holds ([`build.test_key`]'s `harness`) of
---- `copy` with the `column` of `name`'s row edited, its source
---- (`source_hash`) or its bytecode, and the row put back.
-local function edited_digests(copy: Sqlite.Handle, name: string, column: string): test_key.Harness
-  -- The bytecode is stored deflated, so a byte is added to what it
-  -- inflates to, and taken from it again.
-  local plain = if column == "bytecode" then "inflate(bytecode)" else column end
-  local function stored(value: string): string
-    return if column == "bytecode" then "deflate(" .. value .. ")" else value end
-  end
-  assert(Sqlite.run(copy, "UPDATE modules SET " .. column .. " = " .. stored(plain .. " || X'00'") ..
-      " WHERE path = ?1", { { text = name } }))
+--- `string.dump` of the Lua `source`, with its debug information or without: the bytecode of a module
+--- the way the tree stores it, or what the core runs of it.
+local function dumped(source: string, strip: boolean): string
+  return string.dump(assert(load(source)), strip)
+end
+
+--- The digests the harness holds ([`build.test_key`]'s `harness`) of `copy`
+--- with the bytecode of `name` swapped for `bytecode`, as the tree
+--- stores it, and put back.
+local function edited_bytecode(copy: Sqlite.Handle, name: string, bytecode: string): test_key.Harness
+  local was = support.nth(assert(Sqlite.rows(copy, "SELECT bytecode FROM modules WHERE path = ?1",
+    { { text = name } })), 1):blob(1)
+  assert(Sqlite.run(copy, "UPDATE modules SET bytecode = deflate(?1) WHERE path = ?2",
+    { { blob = bytecode }, { text = name } }))
   local found, trouble = test_key.harness(copy)
-  assert(Sqlite.run(copy, "UPDATE modules SET " .. column .. " = " ..
-      stored("substr(" .. plain .. ", 1, length(" .. plain .. ") - 1)") ..
-      " WHERE path = ?1", { { text = name } }))
+  assert(Sqlite.run(copy, "UPDATE modules SET bytecode = ?1 WHERE path = ?2",
+    { { blob = was }, { text = name } }))
+  assert(found ~= nil, trouble)
+  return found
+end
+
+--- The digests the harness holds of `copy` with the source hash of `name` changed, and put back.
+local function edited_source(copy: Sqlite.Handle, name: string): test_key.Harness
+  assert(Sqlite.run(copy, "UPDATE modules SET source_hash = source_hash || X'00' WHERE path = ?1",
+    { { text = name } }))
+  local found, trouble = test_key.harness(copy)
+  assert(Sqlite.run(copy, "UPDATE modules SET source_hash = substr(source_hash, 1, " ..
+      "length(source_hash) - 1) WHERE path = ?1", { { text = name } }))
   assert(found ~= nil, trouble)
   return found
 end
@@ -224,34 +177,79 @@ local function moved_between(whole: test_key.Harness, edited: test_key.Harness):
   return moved
 end
 
---- The code that makes a key is held, and the runner around it is not: an
---- edit to build/test.tl -- a progress line, the coverage it writes, how it
---- schedules workers -- moves no digest, whether to its source or its
---- bytecode, and nor does one to what the two share (build/test_state.tl,
---- types only) or to the reporter. An edit to build/test_key.tl moves its
---- own digest alone, and the test that holds the digests to
---- `acknowledged` names it, so it cannot pass unacknowledged.
-local function test_an_edit_to_the_runner_moves_no_digest_and_one_to_the_key_code_moves_its_own()
+--- Every key holds the harness's digest, so an edit to a module of the harness that changes what it
+--- runs -- a constant, an instruction -- moves the part every key holds, and its own digest alone.
+--- The module is swapped for a chunk of another meaning in the tree's projection, copied.
+local function test_an_edit_to_a_harness_module_that_changes_what_it_does_moves_every_key()
   local copy, whole = harness_copy()
-  assert(whole.modules["build.test_key"] ~= nil, "build.test_key is not held")
-  for _, runner in ipairs({ "build.test", "build.test_state", "build.test_report" }) do
-    assert(whole.modules[runner] == nil, runner .. " is held: its edits would move the " ..
-        "harness's digests")
-    for _, column in ipairs({ "source_hash", "bytecode" }) do
-      local moved = moved_between(whole, edited_digests(copy, runner, column))
-      assert(moved == "", "an edit to " .. runner .. "'s " .. column .. " moved" .. moved)
+  local part = test_key.harness_part(harness_epoch.epoch, whole.digest)
+  assert(part:find("^" .. harness_epoch.epoch:gsub("%-", "%%-") .. "%+%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x$"), part)
+  local before = dumped("local x = 1\nreturn x\n", false)
+  assert(#whole.names > 10, "too few modules held: " .. tostring(#whole.names))
+  for _, name in ipairs(whole.names) do
+    assert(whole.modules[name] ~= nil, name .. " is not held")
+    local one = edited_bytecode(copy, name, before)
+    -- A module swapped for a chunk that requires nothing may drop the modules only it brought in,
+    -- which move too; its own digest always does.
+    assert((moved_between(whole, one) .. " "):find(" " .. name .. " ", 1, true) ~= nil,
+      "swapping " .. name .. " moved" .. moved_between(whole, one))
+    assert(one.digest ~= whole.digest, "an edit to " .. name .. " left the harness's digest")
+    assert(test_key.harness_part(harness_epoch.epoch, one.digest) ~= part,
+      "an edit to " .. name .. " left what every key holds")
+    -- Another meaning of the same module is another digest.
+    if name == "build.test_key" or name == "build.test_worker" then
+      local another = edited_bytecode(copy, name, dumped("local x = 2\nreturn x\n", false))
+      assert(another.digest ~= one.digest and another.modules[name] ~= one.modules[name],
+        "a constant of " .. name .. " moved nothing")
     end
   end
-  for _, column in ipairs({ "source_hash", "bytecode" }) do
-    local edited = edited_digests(copy, "build.test_key", column)
-    local moved = moved_between(whole, edited)
-    assert(moved == " build.test_key", "an edit to build.test_key's " .. column ..
-        " moved" .. moved)
-    -- And what moves it is unacknowledged until a person says so.
-    local complaint = unacknowledged(edited.modules, harness_epoch.acknowledged,
-      harness_epoch.epoch, harness_epoch.retired)
-    local said = assert(complaint, "an edit to build.test_key is acknowledged without a word")
-    assert(said:find("build.test_key", 1, true) ~= nil, said)
+  copy:close()
+end
+
+--- A comment, a blank line, a line number or a local's name is in no bytecode the core runs, so an
+--- edit to a harness module that changes only those moves no key: the stripped chunk is the same.
+local function test_an_edit_to_a_harness_module_that_changes_nothing_it_runs_moves_no_key()
+  local copy, whole = harness_copy()
+  local plain = "local x = 1\nreturn x\n"
+  local edits = {
+    comment = "-- what this is for\nlocal x = 1 -- and why\nreturn x\n",
+    blank_lines = "\n\n\nlocal   x = 1\n\nreturn x\n",
+    renamed = "local renamed = 1\nreturn renamed\n",
+  }
+  -- The test means something only where the tree's bytecode differs for them.
+  local first = edited_bytecode(copy, "build.test_key", dumped(plain, false))
+  for edit, source in pairs(edits) do
+    assert(dumped(source, false) ~= dumped(plain, false), edit .. " left the unstripped bytecode as it was")
+    local second = edited_bytecode(copy, "build.test_key", dumped(source, false))
+    assert(second.digest == first.digest and moved_between(first, second) == "",
+      "a " .. edit .. " edit moved the harness's digest")
+    assert(test_key.harness_part(harness_epoch.epoch, second.digest) ==
+        test_key.harness_part(harness_epoch.epoch, first.digest), "a " .. edit .. " edit moved what every key holds")
+  end
+  -- Nor does the hash of the source the tree keeps beside the bytecode.
+  local resourced = edited_source(copy, "build.test_key")
+  assert(resourced.digest == whole.digest and moved_between(whole, resourced) == "",
+    "a module's source hash moved the harness's digest")
+  copy:close()
+end
+
+--- The code that makes a key is held, and the runner around it is not: an
+--- edit to build/test.tl -- a progress line, the coverage it writes, how it
+--- schedules workers -- moves no digest, whatever the edit to its bytecode,
+--- and nor does one to what the two share (build/test_state.tl, types only)
+--- or to the reporter. That is every key but those of the tests the edit's
+--- module reaches: an edit outside the harness moves only the keys of the tests whose closure holds it.
+local function test_an_edit_outside_the_harness_moves_no_digest()
+  local copy, whole = harness_copy()
+  assert(whole.modules["build.test_key"] ~= nil, "build.test_key is not held")
+  local edit = dumped("local x = 3\nreturn x\n", false)
+  for _, runner in ipairs({ "build.test", "build.test_state", "build.test_report" }) do
+    assert(whole.modules[runner] == nil, runner .. " is held: its edits would move every key")
+    local edited = edited_bytecode(copy, runner, edit)
+    assert(edited.digest == whole.digest and moved_between(whole, edited) == "",
+      "an edit to " .. runner .. " moved the harness's digest")
+    local sourced = edited_source(copy, runner)
+    assert(sourced.digest == whole.digest, "an edit to " .. runner .. "'s source moved the digest")
   end
   copy:close()
 end
@@ -262,31 +260,6 @@ local function counted(n: integer): mut {string}
   local retired: mut {string} = {}
   for i = 1, n do retired[i] = tostring(i) end
   return retired
-end
-
---- A module that moved is named alone, with the one line to set; one
---- the harness gained has a line to add; an entry for a module the
---- harness does not hold is stale.
-local function test_unacknowledged_names_each_module()
-  local acknowledged = { ["build.a"] = "1", ["build.b"] = "2" }
-  local epoch, retired = "8-072f7458", counted(7)
-  assert(unacknowledged({ ["build.a"] = "1", ["build.b"] = "2" }, acknowledged, epoch,
-    retired) == nil)
-  local moved = assert(unacknowledged({ ["build.a"] = "1", ["build.b"] = "3" }, acknowledged,
-    epoch, retired))
-  assert(moved:find("moved: build.b; set its line to\n" .. entry("build.b", "3"), 1, true), moved)
-  assert(not moved:find("build.a", 1, true), moved)
-  assert(moved:find("Bump `epoch`", 1, true), moved)
-  -- Both edits of a bump, to paste.
-  assert(moved:find('\nharness_epoch.epoch = "9%-%x%x%x%x%x%x%x%x"\n'), moved)
-  assert(moved:find('append this line to `retired`:\n  "072f7458",\n', 1, true), moved)
-  local added = assert(unacknowledged({ ["build.a"] = "1", ["build.b"] = "2", ["build.c"] = "4" },
-    acknowledged, epoch, retired))
-  assert(added:find("no entry for build.c; add this line, in its place by name, between " ..
-      "blank lines\n" .. entry("build.c", "4"), 1, true), added)
-  local gone = assert(unacknowledged({ ["build.a"] = "1" }, acknowledged, epoch, retired))
-  assert(gone:find("stale entry: build.b", 1, true), gone)
-  assert(not gone:find("build.a", 1, true), gone)
 end
 
 --- `epoch` and `retired` are as build/harness_epoch.tl says: a count and
@@ -352,29 +325,33 @@ local function test_the_guard_holds_the_epoch_to_its_retired_tokens()
   assert(epoch_trouble(resolved, still) == nil, tostring(epoch_trouble(resolved, still)))
 end
 
---- The lines the guard prints are the lines build/harness_epoch.tl
---- holds, sorted by name and each between blank lines, so pasting one
---- is the whole edit and git merges two changes to different modules,
---- even two that sort next to each other.
-local function test_the_file_holds_its_entries_as_the_guard_prints_them()
+--- CI's queue-ahead step takes nothing from the run ahead where the change edits a file of the harness
+--- (ci/cosmic_ci/queue_seed.tl), which it reads from ci/harness-files.txt, since ci/ cannot
+--- call this module. The list is the files of the harness's modules and of build/harness_epoch.tl.
+local function test_the_list_of_the_harness_files_is_the_harness()
   local db = assert(Sqlite.open(projection))
-  local rows = assert(Sqlite.rows(db, "SELECT source FROM modules WHERE path = ?1",
-    { { text = "build.harness_epoch" } }))
-  db:close()
-  local text = assert(Compress.inflate("raw", support.nth(rows, 1):blob(1)))
-  local names: mut {string} = {}
-  for name in pairs(harness_epoch.acknowledged) do names[#names + 1] = name end
-  assert(#names > 0)
-  table.sort(names)
-  local last = 0
-  for _, name in ipairs(names) do
-    local at = text:find("\n\n" .. entry(name, (assert(harness_epoch.acknowledged[name], name .. " is acknowledged"))) .. "\n\n", 1,
-      true)
-    assert(at ~= nil, name .. "'s entry is not one line as the guard prints it, between " ..
-        "blank lines")
-    assert(at > last, name .. "'s entry is out of order: keep them sorted by name")
-    last = at
+  local found, trouble = test_key.harness(db)
+  assert(found ~= nil, trouble)
+  local expected: mut {string} = { "build/harness_epoch.tl" }
+  local seen: mut {string:boolean} = { ["build/harness_epoch.tl"] = true }
+  for _, name in ipairs(found.names) do
+    local rows = assert(Sqlite.text_rows(db, "SELECT file FROM modules WHERE path = ?1", { { text = name } }))
+    local file = support.nth(rows, 1):text(1)
+    if seen[file] ~= true then
+      seen[file] = true
+      expected[#expected + 1] = file
+    end
   end
+  db:close()
+  table.sort(expected)
+  local listed: mut {string} = {}
+  for line in (assert(Fs.read("ci/harness-files.txt"))):gmatch("[^\n]+") do
+    if not line:find("^%s*#") then listed[#listed + 1] = line end
+  end
+  table.sort(listed)
+  assert(table.concat(listed, "\n") == table.concat(expected, "\n"),
+    "ci/harness-files.txt lists the harness's files other than they are; it holds, one to a line " ..
+      "after its comment:\n" .. table.concat(expected, "\n"))
 end
 
 --- A require the harness never follows: cosmic's main hands the
@@ -477,7 +454,7 @@ end
 --- build/harness_epoch.tl's `library` names, each with its reason: a
 --- module of the harness that comes to require another -- cosmic.time
 --- for a clock the raw binding gives -- fails here with the rule,
---- rather than passing once its digest is acknowledged.
+--- rather than passing once its digest moves every key.
 local function test_the_harness_names_its_library()
   local db = assert(Sqlite.open(projection))
   local found, trouble = test_key.harness(db)
@@ -516,12 +493,12 @@ local function test_value_imports_follows_every_spelling_of_a_require()
   local db = assert(Sqlite.memory())
   assert(db:exec("CREATE TABLE modules (path TEXT, kind TEXT, bytecode BLOB); " ..
       "CREATE TABLE imports (path TEXT, requires TEXT)"))
-  local compiled = string.dump(assert(load(table.concat({
+  local compiled = dumped(table.concat({
     'local a = require"cosmic.fs"',
     'local b = require(',
     '  "cosmic.env")',
     'return a, b',
-  }, "\n"))), true)
+  }, "\n"), true)
   assert(Sqlite.run(db, "INSERT INTO modules VALUES ('build.x', 'module', deflate(?1))",
     { { blob = compiled } }))
   for _, wanted in ipairs({ "cosmic.fs", "cosmic.env", "cosmic.child" }) do
@@ -544,7 +521,7 @@ local function test_type_only_imports_is_what_value_imports_drops()
   local db = assert(Sqlite.memory())
   assert(db:exec("CREATE TABLE modules (path TEXT, kind TEXT, bytecode BLOB); " ..
       "CREATE TABLE imports (path TEXT, requires TEXT)"))
-  local compiled = string.dump(assert(load('local a = require"cosmic.fs" return a')), true)
+  local compiled = dumped('local a = require"cosmic.fs" return a', true)
   assert(Sqlite.run(db, "INSERT INTO modules VALUES ('build.x', 'module', deflate(?1))",
     { { blob = compiled } }))
   assert(Sqlite.run(db, "INSERT INTO modules VALUES ('build.t_test', 'test', deflate(?1))",

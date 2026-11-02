@@ -100,8 +100,7 @@ local function test_a_file_above_the_project_is_keyed_by_contents_not_place(tmp:
   end
   local function key_in(where: string, relative: string): string
     local s = spec()
-    s.effective.parent = { relative }
-    return key_of(tmp .. "/" .. where .. "/root", s)
+    return key_of(tmp .. "/" .. where .. "/root", { ...s, effective = { ...s.effective, parent = { relative } } })
   end
   assert(key_in("one", "up.txt") == key_in("two", "up.txt"), "the place moved the key")
   assert(key_in("one", "up.txt") ~= key_of(tmp .. "/one/root"), "the grant left the key")
@@ -137,11 +136,8 @@ local function test_a_lua_module_is_keyed_by_its_closure_not_the_program(tmp: st
   assert(Fs.write(support.build_dir(tmp) .. "/bin/cosmic", "one program"))
   local function lua_spec(program: string, store: string): declared_key.Spec
     local s = spec()
-    s.effective.lua = true
-    s.declaration = s.declaration .. "\nlua true"
-    s.program = program
-    s.closure_store = store
-    return s
+    return { ...s, effective = { ...s.effective, lua = true }, declaration = s.declaration .. "\nlua true",
+      program = program, closure_store = store }
   end
   local before = key_of(tmp, lua_spec("one program", "one store"))
   assert(Fs.write(support.build_dir(tmp) .. "/bin/cosmic", "another program"))
@@ -151,8 +147,7 @@ local function test_a_lua_module_is_keyed_by_its_closure_not_the_program(tmp: st
   local s = lua_spec("one program", "one store")
   s.effective.lua, s.effective.tool = false, true
   local tool_before = key_of(tmp, s)
-  s.program = "another program"
-  assert(key_of(tmp, s) ~= tool_before)
+  assert(key_of(tmp, { ...s, program = "another program" }) ~= tool_before)
 end
 
 --- A module that declares `lua` is keyed with what `cosmic -e` loads
@@ -187,10 +182,8 @@ local function test_a_chunk_module_is_keyed_with_what_dash_e_loads(tmp: string)
     by_path[m.path] = m
     by_path["suite.lib"] = { path = "suite.lib", file = "suite/lib.tl", kind = "lib",
       source = "", source_hash = "", requires = {}, tests = {}, inputs = nil }
-    local s = spec()
-    s.effective = test_inputs.effective(m, by_path, {})
-    s.declaration = test_inputs.canonical(declared)
-    return key_of(tmp, s)
+    return key_of(tmp, { ...spec(), effective = test_inputs.effective(m, by_path, {}),
+      declaration = test_inputs.canonical(declared) })
   end
   local chunk, both = key_declaring(false), key_declaring(true)
   assert(Fs.write(tmp .. "/build/standalone.tl", "return {} -- the standalone runner, edited\n"))
@@ -223,9 +216,7 @@ local function test_a_type_only_module_is_no_part_of_the_key(tmp: string)
       kind = "test", source = "", source_hash = "", requires = { "suite.lib", "suite.named" },
       tests = { "test_t" }, inputs = nil }
     by_path[m.path] = m
-    local s = spec()
-    s.effective = test_inputs.effective(m, by_path, {}, type_only)
-    return key_of(tmp, s)
+    return key_of(tmp, { ...spec(), effective = test_inputs.effective(m, by_path, {}, type_only) })
   end
   local by_type = { ["suite.lib"] = { ["suite.typed"] = true } }
   local before, whole = key_with(by_type), key_with({})
@@ -265,52 +256,27 @@ local function test_each_input_moves_it(tmp: string)
   differs("a link beneath a declared directory to a file of the tree")
   assert(Fs.write(tmp .. "/suite/lib.tl", "return { changed = true }\n"))
   differs("a module of the closure")
-  local s = spec()
-  s.declaration = s.declaration .. "\ntool true"
-  differs("the declaration", s)
+  local base = spec()
+  differs("the declaration", { ...base, declaration = base.declaration .. "\ntool true" })
   differs("a variable's value", spec({ DECLARED = "e", TMPDIR = "/tmp" }))
   differs("a variable given", spec({ DECLARED = "d", TMPDIR = "/tmp", OTHER = "" }))
-  s = spec()
-  s.runtime = "another core sandboxed"
-  differs("the runtime", s)
-  s = spec()
-  s.compiler = "another compiler"
-  differs("the compiler", s)
-  s = spec()
-  s.host = "another host"
-  differs("the host", s)
-  s = spec()
-  s.epoch = "2-00000000"
-  differs("the harness's epoch", s)
+  differs("the runtime", { ...base, runtime = "another core sandboxed" })
+  differs("the compiler", { ...base, compiler = "another compiler" })
+  differs("the host", { ...base, host = "another host" })
+  differs("the harness's epoch", { ...base, epoch = "2-00000000" })
   -- Two bumps from one count, as two branches make: each draws its own
   -- token, and the two keys differ (build/harness_epoch.tl).
-  s = spec()
-  s.epoch = "1-3f9c2a1b"
-  differs("another bump's token", s)
-  s = spec()
-  s.timeout_ns = Clock.seconds(60)
-  differs("the timeout its worker runs under", s)
+  differs("another bump's token", { ...base, epoch = "1-3f9c2a1b" })
+  differs("the timeout its worker runs under", { ...base, timeout_ns = Clock.seconds(60) })
   -- A worker that may run the program undeclared keys it as declared.
-  s = spec()
-  s.runs_tool = true
-  differs("the tool, run where it could not be refused", s)
-  s = spec()
-  s.runs_tool = true
-  s.program = "another program"
-  differs("the program that runs, for one that runs the tool", s)
-  s = spec()
-  s.closure_store = "one store's digest"
-  differs("the store of the closure, given", s)
-  s = spec()
-  s.closure_store = "another store's digest"
-  differs("the store of the closure's bytes", s)
-  s = spec()
-  s.module_key = "another module"
-  differs("the module's key", s)
-  s = spec()
-  s.id = "suite.t_test test_u"
-  differs("the test's name", s)
-  s = spec()
+  differs("the tool, run where it could not be refused", { ...base, runs_tool = true })
+  differs("the program that runs, for one that runs the tool",
+    { ...base, runs_tool = true, program = "another program" })
+  differs("the store of the closure, given", { ...base, closure_store = "one store's digest" })
+  differs("the store of the closure's bytes", { ...base, closure_store = "another store's digest" })
+  differs("the module's key", { ...base, module_key = "another module" })
+  differs("the test's name", { ...base, id = "suite.t_test test_u" })
+  local s = spec()
   s.effective.host = { tmp .. "/host.txt" }
   differs("a host path, missing", s)
   assert(Fs.write(tmp .. "/host.txt", "h\n"))
@@ -700,9 +666,8 @@ local function test_a_host_path_is_keyed_by_what_it_holds(tmp: string)
   local function resolved(declared: string): declared_key.Spec
     local s = spec({ DECLARED = "d", TMPDIR = "/tmp" })
     s.effective.host = { declared }
-    s.declaration = s.declaration .. "\nhost " .. string.format("%q", declared)
     test_inputs.resolve(s.effective, { root })
-    return s
+    return { ...s, declaration = s.declaration .. "\nhost " .. string.format("%q", declared) }
   end
   local function key_at(declared: string): string
     local s = resolved(declared)
@@ -811,10 +776,8 @@ local function test_only_a_closure_that_reads_the_compiler_is_keyed_by_it(tmp: s
   assert(not declared_key.reads_compiler({}))
   tree(tmp)
   local function run_under(compiler: string, closure: {string}): string
-    local s = spec()
-    s.closure_store = "the same store"
-    s.compiler = declared_key.reads_compiler(closure) and compiler or ""
-    return key_of(tmp, s)
+    return key_of(tmp, { ...spec(), closure_store = "the same store",
+      compiler = declared_key.reads_compiler(closure) and compiler or "" })
   end
   local plain = { "suite.lib", "suite.t_test" }
   assert(run_under("one compiler", plain) == run_under("another compiler", plain))
@@ -938,10 +901,9 @@ local function test_only_a_module_given_the_system_is_keyed_by_what_is_installed
   assert(one ~= other)
   local function key_on(system: string, declares_system: boolean, host: mut {string}): string
     local s = spec()
-    s.system = system
     s.effective.system = declares_system
     s.effective.host = host
-    return key_of(tmp .. "/tree", s)
+    return key_of(tmp .. "/tree", { ...s, system = system })
   end
   assert(key_on(one, false, {}) == key_on(other, false, {}), "a module not given the system")
   local file = { tmp .. "/host/file" }
@@ -1063,12 +1025,11 @@ local function test_a_changed_tool_moves_a_system_modules_key(tmp: string)
   end
   local function key_on(declares_system: boolean): string
     local s = spec({ DECLARED = "d", TMPDIR = "/tmp", PATH = bin })
-    s.system = declared_key.system_identity(declared_key.digests(tmp), {
+    s.effective.system = declares_system
+    return key_of(tmp .. "/tree", { ...s, system = declared_key.system_identity(declared_key.digests(tmp), {
       packages = { tmp .. "/no-packages" }, system = { tmp .. "/no-os-release" },
       walked = { tmp .. "/host/usr" },
-    }, declares_system)
-    s.effective.system = declares_system
-    return key_of(tmp .. "/tree", s)
+    }, declares_system) })
   end
   local given, not_given = key_on(true), key_on(false)
   assert(Fs.write(bin .. "/wc", "another wc\n"))
@@ -1134,8 +1095,7 @@ local function test_a_program_is_keyed_by_what_it_runs_as(tmp: string)
   s.effective.tool = true
   local function keys(): string, string
     local program = declared_key.program_identity(declared_key.digests(root), { tool })
-    s.program = program
-    return program, key_of(root, s)
+    return program, key_of(root, { ...s, program = program })
   end
   local meta: {string:string} = { boot_hash = "one", projected = "one", writer = "w", compiler = "c" }
   program_at(tool, "core one", meta, "bytecode one")
@@ -1207,10 +1167,8 @@ local function test_an_artifacts_launcher_moves_every_key(tmp: string)
   local s = spec()
   assert(not s.effective.tool)
   local native = key_of(root, s)
-  s.launcher = one
-  local first = key_of(root, s)
-  s.launcher = two
-  local second = key_of(root, s)
+  local first = key_of(root, { ...s, launcher = one })
+  local second = key_of(root, { ...s, launcher = two })
   assert(first ~= native and second ~= first, "the launcher left a key without `tool`")
   assert(declared_key.launcher_identity(declared_key.digests(root), root .. "/nowhere") ==
       "missing")
@@ -1270,11 +1228,10 @@ local function test_the_store_given_is_keyed_as_it_is_given(tmp: string)
   tree(tmp)
   assert(support.build_dir(tmp))
   assert(Fs.write(support.build_dir(tmp) .. "/cosmic.db", "one"))
-  local closed = spec()
-  closed.closure_store = "address"
+  local closed = { ...spec(), closure_store = "address" }
   local whole = spec()
   whole.effective.store = true
-  whole.closure_store = "address"
+  whole = { ...whole, closure_store = "address" }
   local closed_before, whole_before = key_of(tmp, closed), key_of(tmp, whole)
   assert(Fs.write(support.build_dir(tmp) .. "/cosmic.db", "two"))
   assert(key_of(tmp, closed) == closed_before, "the projection moved a closure store's key")

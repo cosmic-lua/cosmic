@@ -263,9 +263,8 @@ local SECOND_NS <const> = 1000 * 1000 * 1000
 --- no more.
 ---
 --- No key holds them by what they are. Every sandboxed key holds the
---- harness's epoch in their place (build/harness_epoch.tl), and the
---- harness's digests, which build/harness_epoch_test.tl holds to those
---- acknowledged there, hold each by its source and bytecode
+--- harness's epoch (build/harness_epoch.tl) and the harness's digest,
+--- which holds each by its bytecode stripped of debug information
 --- ([`build.test_key`]'s `harness`). `judge` fails a sandboxed test whose
 --- worker loaded a module of the tree the tool carries that is neither
 --- here nor in its closure, so what a worker runs is in its closure or

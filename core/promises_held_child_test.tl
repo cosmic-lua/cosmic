@@ -142,8 +142,7 @@ local function rooted_with(probe: string, shown: {string}): raw_process.Sandbox
   local sandbox = rooted(probe, true)
   local unveil = assert(sandbox.unveil)
   for _, path in ipairs(shown) do unveil.reads[#unveil.reads + 1] = path end
-  unveil.tmp = 1 << 20
-  return sandbox
+  return { ...sandbox, unveil = { ...unveil, tmp = 1 << 20 } }
 end
 
 --- A socket file of the host, made in a directory of `tmp`'s that holds
@@ -175,8 +174,7 @@ local function test_a_root_of_its_own_tmpfs_alone_makes_a_unix_socket_there(tmp:
   local beside = in_sandbox(tmp, probe, rooted_with(probe, { "/dev/zero" }), "loopback-unix /tmp/pair.sock")
   assert(beside.code == 0 and beside.said == "connected\n", "beside a file: " .. beside.said)
   -- Never beyond its own network: an abstract name is the namespace's.
-  local shared = rooted_with(probe, {})
-  shared.offline = false
+  local shared = { ...rooted_with(probe, {}), offline = false }
   local open = in_sandbox(tmp, probe, shared, "loopback-unix /tmp/pair.sock")
   assert(refused(open.said), "refused without its own network: " .. open.said)
 end
@@ -184,10 +182,7 @@ end
 --- [`rooted_with`], as a start that promises `nest` makes it: no Landlock
 --- ruleset holds it, so its root alone does.
 local function nesting(probe: string, shown: {string}): raw_process.Sandbox
-  local sandbox = rooted_with(probe, shown)
-  sandbox.grants = nil
-  sandbox.promises = { "nest" }
-  return sandbox
+  return { ...rooted_with(probe, shown), grants = nil, promises = { "nest" } }
 end
 
 local function test_a_nest_start_with_a_root_of_files_alone_makes_a_unix_socket(tmp: string)
@@ -199,8 +194,7 @@ local function test_a_nest_start_with_a_root_of_files_alone_makes_a_unix_socket(
   local beside = in_sandbox(tmp, probe, nesting(probe, { "/dev/zero" }), "loopback-unix /tmp/pair.sock")
   assert(beside.code == 0 and beside.said == "connected\n", "beside a file: " .. beside.said)
   -- Never without a network namespace of its own, where an abstract name is the host's.
-  local shared = nesting(probe, {})
-  shared.offline = false
+  local shared = { ...nesting(probe, {}), offline = false }
   local open = in_sandbox(tmp, probe, shared, "loopback-unix /tmp/pair.sock")
   assert(refused(open.said), "refused without its own network: " .. open.said)
 end
@@ -324,11 +318,10 @@ local function test_a_unix_socket_below_abi_9_fails_a_start_that_binds_a_directo
   -- swap may outrun, so the child refuses a path that is a directory when bound.
   local function with_u(shown: {string}): raw_process.Sandbox
     local sandbox = rooted_with(probe, shown)
-    sandbox.sockets = { "unix" }
-    sandbox.grants = { { path = probe, access = "rx" }, { path = tmp .. "/u.file", access = "u" } }
     local reads = assert(sandbox.unveil).reads
     reads[#reads + 1] = tmp .. "/u.file"
-    return sandbox
+    return { ...sandbox, sockets = { "unix" },
+      grants = { { path = probe, access = "rx" }, { path = tmp .. "/u.file", access = "u" } } }
   end
   local pid, why = start(probe, with_u({}))
   if pid == nil then Test.skip("no such sandbox: " .. tostring(why)) end
