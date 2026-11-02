@@ -98,8 +98,8 @@ local record session_fixture
     ran: {string:integer}
   end
 
-  SHUTDOWN: string
-  EXIT: string
+  mut SHUTDOWN: string
+  mut EXIT: string
 end
 
 local type Diagnostic = session_fixture.Diagnostic

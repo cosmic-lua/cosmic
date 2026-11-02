@@ -5,13 +5,7 @@ local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
 local bom = require("build.bom")
 local schema = require("build.schema")
-
---- The element of `list` at `index`, which the case knows is there.
-local function nth<T>(list: {T}, index: integer): T
-  local found = list[index]
-  assert(found ~= nil, "the list has an element at " .. tostring(index))
-  return found
-end
+local support = require("build.test_support_fixture")
 
 --- What the bill of materials describes: every vendored tree, the patches
 --- to it and the pins it came by.
@@ -119,9 +113,9 @@ local function test_the_standard_librarys_declarations_are_listed_with_tl(tmp: s
   assert(bom.fill(db, tmp, "main."))
   local rows = assert(bom.rows(db))
   assert(#rows == 1 and rows[1].patches == "lang/stdlib.d.tl " .. Hash.hex_sha256("a declaration"),
-    "the declarations are not listed: " .. tostring(rows[1] and nth(rows, 1).patches))
+    "the declarations are not listed: " .. tostring(rows[1] and support.nth(rows, 1).patches))
   local lines = assert(bom.lines(rows))
-  local line = nth(lines, 1)
+  local line = support.nth(lines, 1)
   assert(line:find("(modified: lang/stdlib.d.tl)", 1, true) and not line:find("patch", 1, true),
     "the declarations are a modified descendant, not a patch: " .. line)
   local document = assert(bom.cyclonedx(rows, "cosmic", "1"))
@@ -158,7 +152,7 @@ local function test_fill_reads_every_record_and_its_notices(tmp: string)
   assert(rows[2].name == "roots" and rows[2].kind == "data")
   assert(rows[3].name == "zlib" and rows[3].sha256 == "00ff" and rows[3].sha3_256 == "11ee")
   assert(rows[3].patches == "patch/zlib/01-fix.txt " .. Hash.hex_sha256("a patch"),
-    "only a patch record counts, not a file beside one: " .. nth(rows, 3).patches)
+    "only a patch record counts, not a file beside one: " .. support.nth(rows, 3).patches)
   local notices = assert(bom.notices(db))
   assert(notices:find(" (C) Jean-loup Gailly\n Mark Adler\n", 1, true),
     "a range keeps those lines of the file: " .. notices)
@@ -234,18 +228,18 @@ local function test_the_json_is_a_cyclonedx_document()
   assert(decoded ~= nil, tostring(why))
   assert(decoded.bomFormat == "CycloneDX" and decoded.specVersion == "1.6")
   local components = decoded.components
-  local zlib = nth(components, 1)
+  local zlib = support.nth(components, 1)
   assert(zlib.purl == "pkg:generic/zlib@1.3?download_url=https%3A%2F%2Fzlib.net%2Fz%201.tar.gz",
     zlib.purl)
-  assert(nth(zlib.licenses, 1).expression == "Zlib")
+  assert(support.nth(zlib.licenses, 1).expression == "Zlib")
   local pedigree = zlib.pedigree
   assert(pedigree ~= nil and pedigree.notes == "patched by cosmic:\npatch/zlib/a 01")
-  local hashes = nth(zlib.externalReferences, 1).hashes
-  assert(hashes ~= nil and nth(hashes, 1).alg == "SHA-256" and nth(hashes, 1).content == "00ff")
-  local roots = nth(components, 2)
+  local hashes = support.nth(zlib.externalReferences, 1).hashes
+  assert(hashes ~= nil and support.nth(hashes, 1).alg == "SHA-256" and support.nth(hashes, 1).content == "00ff")
+  local roots = support.nth(components, 2)
   assert(roots.type == "data" and roots.pedigree == nil)
-  assert(nth(roots.externalReferences, 1).hashes == nil, "no digest is named when the record has none")
-  local sqlite = nth(nth(components, 3).externalReferences, 1).hashes
+  assert(support.nth(roots.externalReferences, 1).hashes == nil, "no digest is named when the record has none")
+  local sqlite = support.nth(support.nth(components, 3).externalReferences, 1).hashes
   assert(sqlite ~= nil and #sqlite == 1 and sqlite[1].alg == "SHA3-256" and sqlite[1].content == "11ee")
 end
 

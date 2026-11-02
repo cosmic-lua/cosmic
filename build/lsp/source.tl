@@ -480,18 +480,15 @@ local function listed(src: source.View, staged: boolean)
     if modules[found.path] == nil then modules[found.path] = found end
     files[found.file] = found
   end
-  local requires: mut {string:{string}} = {}
+  local requires: mut {string:mut {string}} = {}
   local named_rows, _ = Sqlite.text_rows(db,
     "SELECT source_hash, name FROM requires WHERE ?1 = 1 ORDER BY source_hash, ordinal",
     { { integer = own } })
   if named_rows ~= nil then
     for _, row in ipairs(named_rows) do
       local hash = row:text(1)
-      local names = requires[hash]
-      if names == nil then
-        names = {}
-        requires[hash] = names
-      end
+      local names = requires[hash] or {}
+      requires[hash] = names
       local second = row:text(2)
       names[#names + 1] = second
     end

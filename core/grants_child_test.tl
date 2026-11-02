@@ -211,7 +211,7 @@ end
 
 local function test_u_connects_to_a_granted_socket_where_the_kernel_can_hold_it(tmp: string)
   local abi = abi_or_skip()
-  if unix_socket.skipped(tmp) then return end
+  unix_socket.skip_if_refused(tmp)
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   assert(Fs.mkdirs(tmp .. "/s"))
   local socket = tmp .. "/s/sock"

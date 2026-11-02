@@ -43,7 +43,7 @@ local verb_spec = require("build.verb_spec")
 
 local record embed
   --- The verb's registration: see build/verb_spec.tl.
-  spec: verb_spec.Spec
+  mut spec: verb_spec.Spec
 
   --- What [`embed.tree`] tells of a build beyond the programs it wrote.
   record Report

@@ -2,13 +2,7 @@
 --- fence lines and an info string. These tests build a markdown fixture
 --- as a plain string and call `parse_blocks` directly.
 local markdown = require("build.doctest.markdown")
-
---- The element of `list` at `index`, which the case knows is there.
-local function nth<T>(list: {T}, index: integer): T
-  local found = list[index]
-  assert(found ~= nil, "the list has an element at " .. tostring(index))
-  return found
-end
+local support = require("build.test_support_fixture")
 
 --- Joins lines the way a real doc would read, so no fixture string
 --- embeds a literal ``` sequence in this file's own source (see
@@ -25,12 +19,12 @@ local function test_finds_a_bare_teal_block()
   }))
   assert(blocks ~= nil, "parse failed: " .. tostring(trouble))
   assert(#blocks == 1, "expected 1 block, got " .. tostring(#blocks))
-  assert(nth(blocks, 1).lang == "teal")
-  assert(nth(blocks, 1).content == 'print("hi")')
-  assert(nth(blocks, 1).line == 1)
-  assert(not nth(blocks, 1).modifiers.continue)
-  assert(nth(blocks, 1).modifiers.file == nil)
-  assert(nth(blocks, 1).modifiers.skip == nil)
+  assert(support.nth(blocks, 1).lang == "teal")
+  assert(support.nth(blocks, 1).content == 'print("hi")')
+  assert(support.nth(blocks, 1).line == 1)
+  assert(not support.nth(blocks, 1).modifiers.continue)
+  assert(support.nth(blocks, 1).modifiers.file == nil)
+  assert(support.nth(blocks, 1).modifiers.skip == nil)
 end
 
 local function test_reads_a_multi_line_block_and_a_following_output_block()
@@ -51,12 +45,12 @@ local function test_reads_a_multi_line_block_and_a_following_output_block()
   }))
   assert(blocks ~= nil, "parse failed: " .. tostring(trouble))
   assert(#blocks == 2, "expected 2 blocks, got " .. tostring(#blocks))
-  assert(nth(blocks, 1).lang == "teal")
-  assert(nth(blocks, 1).content == "local a = 1\nlocal b = 2\nprint(a + b)")
-  assert(nth(blocks, 1).line == 3)
-  assert(nth(blocks, 2).lang == "output")
-  assert(nth(blocks, 2).content == "3")
-  assert(nth(blocks, 2).line == 9)
+  assert(support.nth(blocks, 1).lang == "teal")
+  assert(support.nth(blocks, 1).content == "local a = 1\nlocal b = 2\nprint(a + b)")
+  assert(support.nth(blocks, 1).line == 3)
+  assert(support.nth(blocks, 2).lang == "output")
+  assert(support.nth(blocks, 2).content == "3")
+  assert(support.nth(blocks, 2).line == 9)
 end
 
 local function test_reads_the_file_modifier()
@@ -68,8 +62,8 @@ local function test_reads_the_file_modifier()
     "```",
   }))
   assert(blocks ~= nil, "parse failed: " .. tostring(trouble))
-  assert(nth(blocks, 1).modifiers.file == "helper.tl",
-    "got: " .. tostring(nth(blocks, 1).modifiers.file))
+  assert(support.nth(blocks, 1).modifiers.file == "helper.tl",
+    "got: " .. tostring(support.nth(blocks, 1).modifiers.file))
 end
 
 local function test_reads_the_skip_modifier_with_its_reason()
@@ -79,8 +73,8 @@ local function test_reads_the_skip_modifier_with_its_reason()
     "```",
   }))
   assert(blocks ~= nil, "parse failed: " .. tostring(trouble))
-  assert(nth(blocks, 1).modifiers.skip == "network",
-    "got: " .. tostring(nth(blocks, 1).modifiers.skip))
+  assert(support.nth(blocks, 1).modifiers.skip == "network",
+    "got: " .. tostring(support.nth(blocks, 1).modifiers.skip))
 end
 
 local function test_reads_the_continue_modifier()
@@ -90,7 +84,7 @@ local function test_reads_the_continue_modifier()
     "```",
   }))
   assert(blocks ~= nil, "parse failed: " .. tostring(trouble))
-  assert(nth(blocks, 1).modifiers.continue)
+  assert(support.nth(blocks, 1).modifiers.continue)
 end
 
 local function test_refuses_combining_continue_and_file()
@@ -150,7 +144,7 @@ local function test_reads_a_bare_lua_block()
     "```",
   }))
   assert(blocks ~= nil, "parse failed: " .. tostring(trouble))
-  assert(nth(blocks, 1).lang == "lua")
+  assert(support.nth(blocks, 1).lang == "lua")
 end
 
 local function test_finds_a_bare_tilde_teal_block()
@@ -161,9 +155,9 @@ local function test_finds_a_bare_tilde_teal_block()
   }))
   assert(blocks ~= nil, "parse failed: " .. tostring(trouble))
   assert(#blocks == 1, "expected 1 block, got " .. tostring(#blocks))
-  assert(nth(blocks, 1).lang == "teal")
-  assert(nth(blocks, 1).content == 'print("hi")')
-  assert(nth(blocks, 1).line == 1)
+  assert(support.nth(blocks, 1).lang == "teal")
+  assert(support.nth(blocks, 1).content == 'print("hi")')
+  assert(support.nth(blocks, 1).line == 1)
 end
 
 local function test_reads_the_file_modifier_with_a_tilde_fence()
@@ -175,8 +169,8 @@ local function test_reads_the_file_modifier_with_a_tilde_fence()
     "~~~",
   }))
   assert(blocks ~= nil, "parse failed: " .. tostring(trouble))
-  assert(nth(blocks, 1).modifiers.file == "helper.tl",
-    "got: " .. tostring(nth(blocks, 1).modifiers.file))
+  assert(support.nth(blocks, 1).modifiers.file == "helper.tl",
+    "got: " .. tostring(support.nth(blocks, 1).modifiers.file))
 end
 
 local function test_reads_the_skip_modifier_with_a_tilde_fence()
@@ -186,8 +180,8 @@ local function test_reads_the_skip_modifier_with_a_tilde_fence()
     "~~~",
   }))
   assert(blocks ~= nil, "parse failed: " .. tostring(trouble))
-  assert(nth(blocks, 1).modifiers.skip == "network",
-    "got: " .. tostring(nth(blocks, 1).modifiers.skip))
+  assert(support.nth(blocks, 1).modifiers.skip == "network",
+    "got: " .. tostring(support.nth(blocks, 1).modifiers.skip))
 end
 
 --- A backtick fence's content passes a bare `~~~` line straight through
@@ -201,7 +195,7 @@ local function test_a_backtick_fence_is_not_closed_by_a_tilde_line()
   }))
   assert(blocks ~= nil, "parse failed: " .. tostring(trouble))
   assert(#blocks == 1, "expected 1 block, got " .. tostring(#blocks))
-  assert(nth(blocks, 1).content == "~~~", "got: " .. nth(blocks, 1).content)
+  assert(support.nth(blocks, 1).content == "~~~", "got: " .. support.nth(blocks, 1).content)
 end
 
 --- The reverse of the above, and the main reason CommonMark gives docs
@@ -215,7 +209,7 @@ local function test_a_tilde_fence_holds_backtick_content()
   }))
   assert(blocks ~= nil, "parse failed: " .. tostring(trouble))
   assert(#blocks == 1, "expected 1 block, got " .. tostring(#blocks))
-  assert(nth(blocks, 1).content == "-- ```\nprint(1)", "got: " .. nth(blocks, 1).content)
+  assert(support.nth(blocks, 1).content == "-- ```\nprint(1)", "got: " .. support.nth(blocks, 1).content)
 end
 
 local function test_a_long_backtick_fence_holds_a_shorter_marker()
@@ -226,7 +220,7 @@ local function test_a_long_backtick_fence_holds_a_shorter_marker()
     "`````",
   }))
   assert(blocks ~= nil, "parse failed: " .. tostring(trouble))
-  assert(nth(blocks, 1).content == "````\nprint(1)", "got: " .. nth(blocks, 1).content)
+  assert(support.nth(blocks, 1).content == "````\nprint(1)", "got: " .. support.nth(blocks, 1).content)
 end
 
 local function test_a_long_tilde_fence_holds_a_shorter_marker_and_accepts_a_longer_close()
@@ -237,7 +231,7 @@ local function test_a_long_tilde_fence_holds_a_shorter_marker_and_accepts_a_long
     "~~~~~~",
   }))
   assert(blocks ~= nil, "parse failed: " .. tostring(trouble))
-  assert(nth(blocks, 1).content == "~~~\nprint(1)", "got: " .. nth(blocks, 1).content)
+  assert(support.nth(blocks, 1).content == "~~~\nprint(1)", "got: " .. support.nth(blocks, 1).content)
 end
 
 local function test_refuses_an_indented_backtick_fence()
@@ -281,10 +275,10 @@ local function test_reads_a_policy_line_outside_a_fence()
   }))
   assert(blocks ~= nil, "parse failed: " .. tostring(trouble))
   assert(#blocks == 2, "expected 2 blocks, got " .. tostring(#blocks))
-  assert(nth(blocks, 1).lang == "policy" and nth(blocks, 1).content == "tmp = true",
-    nth(blocks, 1).lang .. ": " .. nth(blocks, 1).content)
-  assert(nth(blocks, 1).line == 3)
-  assert(nth(blocks, 2).lang == "teal" and nth(blocks, 2).content == "<!-- policy: tmp = true -->")
+  assert(support.nth(blocks, 1).lang == "policy" and support.nth(blocks, 1).content == "tmp = true",
+    support.nth(blocks, 1).lang .. ": " .. support.nth(blocks, 1).content)
+  assert(support.nth(blocks, 1).line == 3)
+  assert(support.nth(blocks, 2).lang == "teal" and support.nth(blocks, 2).content == "<!-- policy: tmp = true -->")
   local old, old_trouble = markdown.parse_blocks(doc({ "# a guide", "<!-- inputs: tool = true -->" }))
   assert(old == nil and old_trouble ==
       "line 2: a doc declares what its examples read with <!-- policy: ... --> now", old_trouble)

@@ -43,9 +43,9 @@ local record invoke
     --- the caller's own: a verb that checks the tool is fresh stages the
     --- tree it runs in, and a test's own tree is held by the run testing
     --- it.
-    cwd: string
+    mut cwd: string
     --- The environment it reads, name to value; this process's when nil.
-    env?: {string:string}
+    mut env?: {string:string}
   end
 
   --- What a run ended with, as a started binary's would be.
