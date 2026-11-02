@@ -427,6 +427,10 @@ function test_inputs.canonical(maybe: PolicyRules.Declared?): string
   list("caches", declared.caches or {})
   list("parent", declared.parent or {})
   list("requires", declared.requires or {})
+  if declared.timeout ~= nil then
+    local line = "timeout " .. tostring(declared.timeout)
+    lines[#lines + 1] = line
+  end
   return table.concat(lines, "\n")
 end
 
@@ -440,7 +444,8 @@ function test_inputs.as_declared(needs: inputs.Needs?): PolicyRules.Declared?
     nests = needs.nests == true,
     noexec = needs.noexec == true,
     store = needs.store == true, system = needs.system == true,
-    caches = needs.caches or {}, parent = needs.parent or {}, requires = needs.requires or {} }
+    caches = needs.caches or {}, parent = needs.parent or {}, requires = needs.requires or {},
+    timeout = needs.timeout }
 end
 
 return test_inputs

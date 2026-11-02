@@ -199,6 +199,9 @@ local record Test
     --- contents and its relative path, never where the project is. A file
     --- the host lacks fails the module's tests.
     parent?: {string}
+    --- The most seconds each test of the module may run, where that is more
+    --- than the run's own limit: `timeout` of [`Policy`].
+    mut timeout?: integer
   end
 
   --- One path a test may reach, and how: [`cosmic.sandbox`]'s [`Grant`].
@@ -282,6 +285,14 @@ local record Test
     --- path and a `program:` the profile "system" and the variable PATH in
     --- `env`, so the worker can see what the runner found.
     requires?: {string}
+    --- The most seconds each test of the module may run, whole, from 1 to
+    --- 3600, where that is more than the run's own limit (`--timeout`,
+    --- COSMIC_TEST_TIMEOUT, 30 by default). For a module whose tests
+    --- legitimately run long, such as one that starts `cosmic test` or
+    --- builds a program. A test that is slow by accident is investigated,
+    --- not given a longer limit. A limit below the run's changes nothing.
+    --- The limit a verdict was reached under is part of its key.
+    mut timeout?: integer
   end
 end
 
@@ -341,17 +352,17 @@ end
 
 --- The fields of [`Policy`] and what each takes: a list of strings
 --- ("list"), a table ("map"), a boolean ("flag"), a list of grants
---- ("grants") or the limits ("limits").
+--- ("grants"), the limits ("limits") or whole seconds ("seconds").
 local POLICY_FIELDS <const>: {string:string} = {
   profiles = "list", grants = "grants", isolate = "list", promises = "list",
   connect = "list", loopback = "list", env = "list", set_env = "map",
   set_env_digests = "map", tmp = "flag", limits = "limits", user = "id", group = "id",
-  database = "string", requires = "list",
+  database = "string", requires = "list", timeout = "seconds",
 }
 
 local POLICY_FIELD_NAMES <const>: {string} = {
   "connect", "database", "env", "grants", "group", "isolate", "limits", "loopback", "profiles",
-  "promises", "requires", "set_env", "set_env_digests", "tmp", "user",
+  "promises", "requires", "set_env", "set_env_digests", "timeout", "tmp", "user",
 }
 
 local LIMIT_FIELDS <const>: {string:boolean} = {
@@ -362,6 +373,13 @@ local LIMIT_FIELDS <const>: {string:boolean} = {
 --- it, so a declaration of it would claim more than the test is held to.
 local NOT_YET <const> = "is not yet taken: a worker is held to, and a key made of, what a " ..
   "policy's paths, profiles and variables say, and nothing holds a test to this"
+
+--- The most seconds a module's `timeout` may name, and what the field takes:
+--- an hour is longer than any test of the tree needs, so a larger number is
+--- a mistake or a slow test hidden. The build's read of a policy
+--- (build/policy_rules.tl) holds the same bound.
+local MOST_TIMEOUT <const> = 3600
+local TIMEOUT_TAKES <const> = " takes a whole number of seconds from 1 to 3600"
 
 --- The three grants a policy writes for what [`Needs`] says as a field: the
 --- store the worker is given, the private noexec scratch, and a host
@@ -543,6 +561,12 @@ local function policy_of(given: any): Test.Policy?, string
       else
         out.group = value
       end
+    elseif takes == "seconds" then
+      if value is integer and value >= 1 and value <= MOST_TIMEOUT then
+        out.timeout = value
+      else
+        why = key .. TIMEOUT_TAKES
+      end
     elseif takes == "string" then
       if value is string then out.database = value else why = key .. " takes a path" end
     elseif takes == "grants" then
@@ -714,6 +738,7 @@ function Test.needs_of(given: any): Test.Needs?, string
   -- Only as written: which names are known and allowed is the build's to say
   -- (build.host_names, which this module cannot require), and the runner's to probe.
   if #(policy.requires or {}) > 0 then out.requires = policy.requires end
+  out.timeout = policy.timeout
   return out, ""
 end
 

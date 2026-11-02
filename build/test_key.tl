@@ -630,6 +630,20 @@ function test_key.epoch_of(): string?, string
   return named, ""
 end
 
+--- The seconds each test of `m` may run: the run's limit (`rec.timeout_ns`,
+--- from `--timeout` or COSMIC_TEST_TIMEOUT), or the `timeout` the module's
+--- policy declares where that is longer. A declared limit only lengthens:
+--- a module that names fewer seconds than the run gives is held to the
+--- run's. The key holds this limit, not the run's: a pass reached under a
+--- shorter limit does not stand for a longer one, and a module that declared
+--- a longer limit keeps its verdicts while the run's own stays below it.
+local function timeout_ns_of(rec: Recording, m: Module): integer
+  local inputs = m.inputs
+  local own = if inputs ~= nil then inputs.timeout else nil end
+  if own ~= nil and Clock.seconds(own) > rec.timeout_ns then return Clock.seconds(own) end
+  return rec.timeout_ns
+end
+
 --- The word the census and key-parts lines say a key's harness parts
 --- as (`cosmic test --census`): its epoch and the workers' timeout, one
 --- word, which ci/cosmic_ci/report.tl compares whole, so a bump from
@@ -911,7 +925,7 @@ local function declared_of(rec: Recording, m: Module, id: string, host?: string)
     compiler = reads_compiler(rec, m) and rec.compiler or "",
     host = host or rec.host,
     system = rec.system,
-    epoch = rec.epoch, timeout_ns = rec.timeout_ns,
+    epoch = rec.epoch, timeout_ns = timeout_ns_of(rec, m),
     -- Held only where the key holds the program ([`declared_key.compute`]).
     program = (effective.tool or runs_tool) and program_of(rec) or nil,
     launcher = if seals(rec, m) then (assert(rec.core) .. "\0" .. extras_digest(rec)) else rec.launcher end,
@@ -2156,7 +2170,7 @@ function test_key.judge(rec: Recording, job: Job, result: Child.Result?,
     judgement = { passed = true, skipped = unavailable, message = "" }
   else
     judgement = worker.judge({
-      result = result, trouble = trouble, timeout_ns = rec.timeout_ns,
+      result = result, trouble = trouble, timeout_ns = timeout_ns_of(rec, job.m),
       sandboxed = rec.sandbox, refused = refused == true,
       carried = rec.carried,
       closure = closure_set(rec, job.m),
@@ -2281,8 +2295,8 @@ end
 --- directory, the sandbox's plan of its paths and environment, how it is
 --- held, the policy it is started under and the sealed database it runs
 --- on, as [`worker.invocation`] takes them. The program it starts is
---- [`worker.program`]'s and its deadline the run's timeout, which every
---- key holds (`rec.timeout_ns`). The job's `started_ns` is set before it is
+--- [`worker.program`]'s and its deadline the module's timeout, which its
+--- key holds ([`timeout_ns_of`]). The job's `started_ns` is set before it is
 --- called, since a failure is reckoned from it.
 function test_key.prepare(rec: Recording, job: Job): Prepared
   local start, start_trouble = worker.program()
@@ -2420,7 +2434,7 @@ function test_key.prepare(rec: Recording, job: Job): Prepared
   end
   local started_ns = Clock.monotonic_ns()
   job.started_ns = started_ns
-  job.deadline_ns = started_ns + rec.timeout_ns
+  job.deadline_ns = started_ns + timeout_ns_of(rec, job.m)
   -- Sandboxed, a worker whose module does not declare `tool` may not
   -- run this program ([`confine.forbid_running`]): what it would run
   -- is no input of its test's key; and one whose module does not

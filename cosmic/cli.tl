@@ -114,7 +114,9 @@ local record Cli
   --- directory; `<file or module>:<name>` to the one test of that name,
   --- `test_*` or an example's, and one no test there has is refused.
   --- Each test runs in a process of its own, and fails if it runs past
-  --- its timeout; what a failing test printed is shown beneath it.
+  --- its timeout (`--timeout`; a module's `Test.policy { timeout = n }`
+  --- lengthens it); what a failing test printed is shown beneath it, and
+  --- `--show-output` shows a passing test's too.
   ---
   --- Where the kernel can (Linux), each test runs sandboxed, given its
   --- module's import closure and what the module declares with
@@ -122,14 +124,16 @@ local record Cli
   --- tree or the host: a test that starts a host program, /bin/sh or
   --- `sleep`, declares the profile "system". A failure that met what its
   --- sandbox left out at an absolute path -- a program it started, a
-  --- file it read -- says so beneath it, naming what to declare.
+  --- file it read -- says so beneath it, naming what to declare, as does
+  --- one that read a file of the tree by a relative path without granting it.
   ---
   --- A test whose verdict still stands is not run again: one this
   --- checkout reached, in its build directory's build.db, or one any checkout of the same
   --- content did, which every sandboxed run shares through
   --- $XDG_CACHE_HOME/cosmic/verdicts (~/.cache/cosmic/verdicts):
   --- COSMIC_VERDICT_CACHE names another file, and COSMIC_VERDICT_CACHE=0
-  --- turns it off. A run whose workers are not sandboxed
+  --- turns off that shared cache alone: a verdict of this checkout still
+  --- stands, and only `--all` runs its test again. A run whose workers are not sandboxed
   --- (COSMIC_TEST_SANDBOX=0, or macOS) shares only through a file
   --- COSMIC_VERDICT_CACHE names.
   ---
@@ -869,7 +873,11 @@ local module: Module = {
       usage = "[selector...]",
       spec = {
         ["--all"] = { about = "run every test, whatever verdict stands for it, in this " ..
-            "checkout or another (COSMIC_TEST_ALL=1)" },
+            "checkout or another (COSMIC_TEST_ALL=1); COSMIC_VERDICT_CACHE=0 only turns off " ..
+            "the cache checkouts share, and a verdict of this checkout still stands" },
+        ["--show-output"] = { about = "list beneath each test that ran and passed what it printed, " ..
+            "as a failure's output is shown; a test whose verdict stands is not run and prints " ..
+            "nothing (--all runs it); no verdict or key changes" },
         ["--no-shared"] = { about = "stand on no verdict another checkout reached; what " ..
             "this run reaches is still shared (COSMIC_TEST_NO_SHARED=1)" },
         ["--bail"] = { about = "start no test after the first failure; those already running " ..
@@ -886,7 +894,8 @@ local module: Module = {
         ["--shard"] = { value = "i/n", about = "run only the i-th of n shares of the chosen " ..
             "tests, dealt in turn in sorted order, so n runs, i = 1 to n, run each test once" },
         ["--timeout"] = { value = "seconds",
-          about = "fail a test that runs longer (COSMIC_TEST_TIMEOUT, else 30)" },
+          about = "fail a test that runs longer (COSMIC_TEST_TIMEOUT, else 30); a module's " ..
+            "Test.policy { timeout = n } lengthens it for that module" },
       },
     },
     fix = {
