@@ -244,8 +244,11 @@ Test.policy {
 }
 ```
 
-Only what the module writes is required. Nothing is inferred from its
-promises or grants.
+Only what the module writes is required, with one exception. A module
+that declares `loopback` addresses also requires `loopback` (this host
+permits a TCP listener and a UDP socket bound to 127.0.0.1), which the
+runner derives from the declared addresses; it need not be written.
+Nothing else is inferred from its promises or grants.
 
 The names come from the closed table in [`build.host_names`]. The
 table says what each means. Read it before writing one. An unknown name
