@@ -57,7 +57,7 @@ local function test_what_the_store_signs_it_loads_back(tmp: string)
       end
       Fuzz.label("saved")
       local got = store:load(token, 50, "session")
-      if got == nil or got.values.text ~= text or got.values.n ~= n then -- checked: map_field*2
+      if got == nil or got.values["text"] ~= text or got.values["n"] ~= n then
         return false, "the session did not come back"
       end
       return true, ""

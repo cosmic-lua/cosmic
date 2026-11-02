@@ -105,13 +105,14 @@ local function test_problem_is_rfc_9457_json_with_the_reason_as_its_title()
   local res = Response.problem(404, "no such item", { errors = Json.array({ "x" }), status = 1 }) -- checked: any_use*2
   assert(Response.header(res, "Content-Type") == "application/problem+json")
   local body = assert(Json.decode_object(body_of(res)))
-  assert(body.type == "about:blank" and body.title == "Not Found" and body.status == 404) -- checked: map_field*3
-  assert(body.detail == "no such item") -- checked: map_field
+  assert(body["type"] == "about:blank" and body["title"] == "Not Found" and body["status"] == 404)
+  assert(body["detail"] == "no such item")
+  -- TODO: once the problem body is a record, these keys are fields; a key read here is `any`, which `is` cannot narrow.
   local errors = body.errors -- checked: map_field
   assert(errors is {string} and errors[1] == "x")
   sendable(res)
   local unnamed = assert(Json.decode_object(body_of(Response.problem(499))))
-  assert(unnamed.title == "Error" and unnamed.detail == nil) -- checked: map_field*2
+  assert(unnamed["title"] == "Error" and unnamed["detail"] == nil)
 end
 
 local function test_add_header_appends_lines_and_keeps_the_first_as_a_string()
@@ -175,7 +176,7 @@ local function test_abort_raises_a_tagged_table_the_exception_layer_reads()
   end)
   assert(not ok)
   local abort = Response.aborted(err)
-  assert(abort ~= nil and abort.status == 404 and abort.detail == "gone" and assert(abort.extra).code == "x") -- checked: map_field
+  assert(abort ~= nil and abort.status == 404 and abort.detail == "gone" and assert(abort.extra)["code"] == "x")
   assert(Response.aborted("an ordinary error") == nil)
   assert(Response.aborted({ web_abort = true }) == nil)
   assert(Test.raises(function() Response.abort(200) end):find("400 to 599", 1, true))

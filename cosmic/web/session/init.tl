@@ -426,7 +426,7 @@ local function make_handle(st: State): Session.Handle
       if st.data.values[FLASH] == nil then return out end
       writable(st)
       for _, each in ipairs(flashes_of(st)) do
-        local kind, text = each.kind, each.text -- checked: map_field*2
+        local kind, text = each["kind"], each["text"]
         if kind is string and text is string then
           out[#out + 1] = { kind = kind, text = text }
         end

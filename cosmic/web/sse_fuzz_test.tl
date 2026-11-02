@@ -121,8 +121,8 @@ local function test_format_event_makes_one_event_with_the_fields_given_and_no_ot
       if ev.comment == nil and #comment > 0 then return false, "a comment from nowhere" end
       if id ~= ev.id then return false, "id differs" end
       if (ev.event or "") ~= (event or "") then return false, "event differs" end
-      if (retry or 0) == 0 and seen.retry ~= nil then return false, "retry from nowhere" end -- checked: map_field
-      if (retry or 0) > 0 and seen.retry ~= 1 then return false, "retry is lost" end -- checked: map_field
+      if (retry or 0) == 0 and seen["retry"] ~= nil then return false, "retry from nowhere" end
+      if (retry or 0) > 0 and seen["retry"] ~= 1 then return false, "retry is lost" end
       if (ev.data or ""):find("[\r\n]") or (ev.comment or ""):find("[\r\n]") then
         Fuzz.label("injection attempt")
       end

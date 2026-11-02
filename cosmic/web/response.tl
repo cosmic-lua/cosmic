@@ -348,6 +348,7 @@ function Response.problem(status: integer, detail?: string, extra?: {string:any}
   if extra ~= nil then
     for name, value in pairs(extra) do body[name] = value end
   end
+  -- TODO: once the problem body is a record that takes extra members, these keys are fields, not writes into an `any` map.
   body.status = status -- checked: map_field
   body.detail = detail -- checked: map_field
   local text, why = Json.encode_any(body)

@@ -4,19 +4,19 @@ local Web = require("cosmic.web")
 
 local function test_parse_reads_pairs_and_the_first_of_a_name_wins()
   local got = Cookies.parse("a=1; b=2;c=3; a=9")
-  assert(got.a == "1" and got.b == "2" and got.c == "3") -- checked: map_field*3
+  assert(got["a"] == "1" and got["b"] == "2" and got["c"] == "3")
   assert(next(Cookies.parse(nil)) == nil and next(Cookies.parse("")) == nil)
 end
 
 local function test_parse_tolerates_a_comma_joined_header()
   local got = Cookies.parse("a=1, b=2; c=3")
-  assert(got.a == "1" and got.b == "2" and got.c == "3") -- checked: map_field*3
+  assert(got["a"] == "1" and got["b"] == "2" and got["c"] == "3")
 end
 
 local function test_parse_strips_quotes_and_skips_malformed_pieces()
   local got = Cookies.parse('q="x y"; flag; =orphan; ok=1; ;; e=')
-  assert(got.q == "x y" and got.ok == "1" and got.e == "") -- checked: map_field*3
-  assert(got.flag == nil and got[""] == nil) -- checked: map_field
+  assert(got["q"] == "x y" and got["ok"] == "1" and got["e"] == "")
+  assert(got["flag"] == nil and got[""] == nil)
   assert(Cookies.parse("v=%41")["v"] == "%41", "values are not percent-decoded")
 end
 
@@ -26,11 +26,11 @@ local function test_parse_reads_at_most_100_cookies_and_8_kib()
   local got = Cookies.parse(table.concat(parts, "; "))
   local n = 0
   for _ in pairs(got) do n = n + 1 end
-  assert(n == 100 and got.c1 == "v" and got.c101 == nil) -- checked: map_field*2
+  assert(n == 100 and got["c1"] == "v" and got["c101"] == nil)
   local big = "a=1; b=" .. ("x"):rep(9000) .. "; c=3"
   local cut = Cookies.parse(big)
-  assert(cut.a == "1" and cut.c == nil) -- checked: map_field*2
-  assert(cut.b == nil or #cut.b < 9000, "no half cookie is read as a whole one") -- checked: map_field*2
+  assert(cut["a"] == "1" and cut["c"] == nil)
+  assert(cut["b"] == nil or #(cut["b"] or "") < 9000, "no half cookie is read as a whole one")
 end
 
 local function test_format_writes_attributes_in_a_fixed_order_with_safe_defaults()
@@ -89,7 +89,7 @@ local function test_parse_reads_back_what_format_wrote()
   assert(got.name == "sid" and got.value == "abc" and got.path == "/app" and got.max_age == 30)
   assert(got.domain == "example.com" and got.secure and got.http_only and got.same_site == "None")
   assert(got.expires_ns == 0 and not got.partitioned)
-  assert(Cookies.parse("sid=abc").sid == got.value) -- checked: map_field
+  assert(Cookies.parse("sid=abc")["sid"] == got.value)
 end
 
 local function test_expire_deletes_with_max_age_zero_and_a_past_date()

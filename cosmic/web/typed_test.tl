@@ -80,14 +80,14 @@ local function test_a_bad_path_value_is_422_before_the_query_or_body_is_read()
   local client = Web.test_client(app)
   local reply = client:put("/items/abc?page=x", { json = { title = 1 } })
   assert(reply.status == 422 and not called)
-  local errors = problem(reply).errors as {{string:any}} -- checked: cast_refused, map_field
+  local errors = problem(reply)["errors"] as {{string:any}} -- checked: cast_refused
   assert(#errors == 1 and errors[1].source == "path" and errors[1].field == "id" and errors[1].code == "integer")
   assert(errors[1].pointer == nil, "only a JSON body has a pointer")
   reply = client:put("/items/1?page=x", { json = { title = 1 } })
-  errors = problem(reply).errors as {{string:any}} -- checked: cast_refused, map_field
+  errors = problem(reply)["errors"] as {{string:any}} -- checked: cast_refused
   assert(errors[1].source == "query" and errors[1].field == "page", "then the query")
   reply = client:put("/items/1", { json = { title = 1 } })
-  errors = problem(reply).errors as {{string:any}} -- checked: cast_refused, map_field
+  errors = problem(reply)["errors"] as {{string:any}} -- checked: cast_refused
   assert(errors[1].source == "body" and errors[1].pointer == "/qty", "then the body")
   assert(not called)
 end
@@ -103,9 +103,9 @@ local function test_a_json_route_answers_a_problem_body_with_every_error_listed(
   local reply = client:post("/items", { json = { title = "t", qty = "x" } })
   assert(reply.status == 422)
   local body = problem(reply)
-  assert(body.type == "about:blank" and body.title == "Unprocessable Content" and body.status == 422) -- checked: map_field*3
-  assert(body.detail == "qty: want integer, got string", tostring(body.detail)) -- checked: map_field*2
-  local errors = body.errors as {{string:any}} -- checked: cast_refused, map_field
+  assert(body["type"] == "about:blank" and body["title"] == "Unprocessable Content" and body["status"] == 422)
+  assert(body["detail"] == "qty: want integer, got string", tostring(body["detail"]))
+  local errors = body["errors"] as {{string:any}} -- checked: cast_refused
   assert(#errors == 1 and errors[1].source == "body" and errors[1].field == "qty" and errors[1].pointer == "/qty")
   assert(errors[1].code == "integer" and errors[1].message == "want integer, got string")
   reply = client:post("/items", { json = { title = "t", qty = 1 }, headers = { Accept = "text/html" } })
@@ -129,7 +129,7 @@ local function test_a_form_route_prefers_a_page_and_lists_all_errors_as_json_whe
   assert(reply.status == 422 and reply_headers_content_type:find("text/html", 1, true) ~= nil)
   reply = client:post("/items", { form = { qty = "two" }, headers = { Accept = "application/json" } })
   assert(reply.status == 422)
-  local errors = problem(reply).errors as {{string:any}} -- checked: cast_refused, map_field
+  local errors = problem(reply)["errors"] as {{string:any}} -- checked: cast_refused
   assert(#errors == 2 and errors[1].field == "qty" and errors[2].field == "title", "every field, in field order")
   assert(errors[1].source == "form" and errors[1].pointer == nil)
 end
@@ -147,14 +147,14 @@ local function test_on_invalid_re_renders_in_place_of_the_handler()
         on_invalid = function(req: Web.Request, bad: Web.Invalid): Web.Response
           seen = bad
           local bad_errors_1 = assert(bad.errors[1], "expected bad.errors[1]")
-          return Web.text(("%s:%s:%s"):format(req.method, bad_errors_1.field, assert(bad.submitted).by_name.name[1]), -- checked: map_field
+          return Web.text(("%s:%s:%s"):format(req.method, bad_errors_1.field, assert(assert(bad.submitted).by_name["name"])[1]),
             { status = bad.status })
         end,
       }),
   } }
   local reply = Web.test_client(app):post("/settings", { form = { name = "Ada", notify = "perhaps", secret = "s3" } })
   assert(reply.status == 422 and reply:text() == "POST:notify:Ada", reply:text())
-  assert(not called and assert(assert(seen).submitted).by_name.secret == nil, "the secret is not sent back") -- checked: map_field
+  assert(not called and assert(assert(seen).submitted).by_name["secret"] == nil, "the secret is not sent back")
   local ok = Web.test_client(app):post("/settings", { form = { name = "Ada" } })
   assert(ok.status == 204 and called, "an absent checkbox is false")
 end
@@ -184,16 +184,16 @@ local function test_the_wrong_content_type_is_415_and_a_big_body_413_and_bad_jso
   } }
   local client = Web.test_client(app)
   local reply = client:post("/items", { form = { title = "t", qty = "1" } })
-  assert(reply.status == 415 and problem(reply).errors ~= nil) -- checked: map_field
+  assert(reply.status == 415 and problem(reply)["errors"] ~= nil)
   reply = client:post("/items", { body = '{"title":"t","qty":1}', content_type = "text/plain" })
   assert(reply.status == 415)
   reply = client:post("/items", { json = { title = ("x"):rep(60), qty = 1 } })
   assert(reply.status == 413)
-  assert((problem(reply).errors as {{string:any}})[1].code == "too_large") -- checked: cast_refused, map_field
+  assert((problem(reply)["errors"] as {{string:any}})[1].code == "too_large") -- checked: cast_refused
   reply = client:post("/items", { body = '{"title":', content_type = "application/json" })
-  assert(reply.status == 400 and (problem(reply).errors as {{string:any}})[1].code == "json") -- checked: cast_refused, map_field
+  assert(reply.status == 400 and (problem(reply)["errors"] as {{string:any}})[1].code == "json") -- checked: cast_refused
   reply = client:post("/items", { body = "", content_type = "application/json" })
-  assert(reply.status == 422 and (problem(reply).errors as {{string:any}})[1].code == "required") -- checked: cast_refused, map_field
+  assert(reply.status == 422 and (problem(reply)["errors"] as {{string:any}})[1].code == "required") -- checked: cast_refused
   assert(client:post("/items", { json = { title = "t", qty = 1 } }).status == 204)
 end
 

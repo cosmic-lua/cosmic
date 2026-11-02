@@ -240,7 +240,7 @@ local function test_one_of_compares_text_or_the_listed_kind()
   local spec = dynamic(Nodes.record({ c = Nodes.one_of("red", "green"), n = Nodes.one_of(1, 2.5), t = Nodes.one_of(true) }))
   local r: Types.Parsed<{string:any}> = Input.bind_strings(decoded("c=green&n=2.50&t=on"), spec)
   assert(r.invalid == nil, message_of(r.invalid))
-  assert(assert(r.value).c == "green" and assert(r.value).n == 2.5 and assert(r.value).t == true) -- checked: map_field*3
+  assert(assert(r.value)["c"] == "green" and assert(r.value)["n"] == 2.5 and assert(r.value)["t"] == true)
   r = Input.bind_strings(decoded("c=blue&n=3&t=no"), spec)
   local invalid = r.invalid
   assert(invalid ~= nil and #invalid.errors == 3)
@@ -318,8 +318,8 @@ local function test_every_field_error_is_collected_in_field_order()
   assert(Input.value(bad, "password") == "" and Input.value(bad, "name") == "")
   assert(Input.value(bad, "age") == "x", "what was submitted comes back")
   local by_field = Input.errors_by_field(bad)
-  assert(by_field.age == "must be a whole number" and by_field["address.city"] == "is required") -- checked: map_field
-  assert(#assert(bad.submitted).pairs == 7 and assert(bad.submitted).by_name.password == nil, "secret names are left out") -- checked: map_field
+  assert(by_field["age"] == "must be a whole number" and by_field["address.city"] == "is required")
+  assert(#assert(bad.submitted).pairs == 7 and assert(bad.submitted).by_name["password"] == nil, "secret names are left out")
 end
 
 local function test_errors_by_field_joins_several_messages()
@@ -329,7 +329,7 @@ local function test_errors_by_field_joins_several_messages()
     { source = "form", field = "b", code = "x", message = "three" },
   } }
   local by = Input.errors_by_field(bad)
-  assert(by.a == "one; two" and by.b == "three") -- checked: map_field*2
+  assert(by["a"] == "one; two" and by["b"] == "three")
   assert(Input.value(bad, "a") == "", "a JSON refusal submitted nothing")
 end
 
@@ -351,11 +351,11 @@ local function test_check_spec_refuses_what_text_cannot_carry()
   refuses(Nodes.string, "form", "binds to a record")
   -- Shape.record refuses a hand-built kind, so corrupt a built spec.
   local odd = Nodes.record({ x = Nodes.optional(Nodes.string) })
-  local leaf = assert(odd.fields).x as any as {string:any} -- checked: cast_refused*2, map_field
+  local leaf = assert(assert(odd.fields)["x"]) as any as {string:any} -- checked: cast_refused*2
   leaf["kind"] = "bogus"
   refuses(odd, "form", "x of a form is of kind bogus")
   local listing = Nodes.record({ x = Nodes.list(Nodes.optional(Nodes.string)) })
-  local element = assert(assert(listing.fields).x.of) as any as {string:any} -- checked: cast_refused*2, map_field
+  local element = assert(assert(assert(listing.fields)["x"]).of) as any as {string:any} -- checked: cast_refused*2
   element["kind"] = "bogus"
   refuses(listing, "query", "list of kind bogus")
   refuses(Nodes.record({}), "cookie", "is not a source")
@@ -399,12 +399,12 @@ local function test_media_type_parses_parameters()
     return read
   end
   local m = of('Multipart/Form-Data; Boundary="a b\\"c"; charset=UTF-8')
-  assert(m.essence == "multipart/form-data" and m.params.boundary == 'a b"c' and m.params.charset == "UTF-8") -- checked: map_field*2
+  assert(m.essence == "multipart/form-data" and m.params["boundary"] == 'a b"c' and m.params["charset"] == "UTF-8")
   m = of("text/plain;charset=latin1 ; x=1")
-  assert(m.essence == "text/plain" and m.params.charset == "latin1" and m.params.x == "1") -- checked: map_field*2
+  assert(m.essence == "text/plain" and m.params["charset"] == "latin1" and m.params["x"] == "1")
   assert(of(nil).essence == "" and next(of(nil).params) == nil)
   assert(of("application/json;").essence == "application/json")
-  assert(of('a/b; q="unterminated').params.q == "unterminated") -- checked: map_field
+  assert(of('a/b; q="unterminated').params["q"] == "unterminated")
 end
 
 local function test_a_form_body_is_decoded_once_and_kept()

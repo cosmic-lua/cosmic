@@ -339,7 +339,7 @@ local function test_a_session_cookie_planted_before_login_carries_no_token_acros
   local app = make_app()
   local attacker, token = session_with_token(app)
   local victim = Web.test_client(app)
-  victim.jar.session = attacker.jar.session -- checked: map_field*2
+  victim.jar["session"] = assert(attacker.jar["session"])
   assert(victim:post("/login", { headers = { ["X-CSRF-Token"] = token } }).status == 200)
   assert(attacker:post("/do", { headers = { ["X-CSRF-Token"] = token } }).status == 403,
     "the planted id is revoked, so the attacker's token has nothing to match")

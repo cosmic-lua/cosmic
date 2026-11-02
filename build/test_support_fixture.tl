@@ -17,6 +17,10 @@ local record test_support_fixture
   record Cell<T>
     mut value?: T
   end
+  --- A number a callback moves and the case reads.
+  record Counter
+    mut value: integer
+  end
 end
 
 --- The element of `list` at `index`, which the case knows is there.
