@@ -494,7 +494,7 @@ local function test_a_name_whose_first_address_fails_connects_to_the_next(tmp: s
     Poll.run(function()
       local server = origin(echo)
       local port = server.port
-      local asked, given: {string}, {integer} = {}, {}
+      local asked, given: mut {string}, mut {integer} = {}, {}
       local rig = start(tmp, { grants = { "multi.test:" .. tostring(port) },
         connector = first_fails_connector(how, port, asked, given) })
       local conn, head = connect_to(rig, "multi.test:" .. tostring(port))
@@ -1163,7 +1163,7 @@ end
 --- A server that is a CONNECT proxy: it notes the request it is sent,
 --- answers with `status`, and for a 200 serves the tunnel by echoing.
 local record Proxy
-  head: string
+  mut head: string
   server: Origin
 end
 

@@ -267,7 +267,7 @@ local function reference_children(node: Json.Match): {Json.Match}
   local t = v as {any: any}
   local layout = Json.layout(t)
   local function child(step: string | integer, value: any)
-    local steps: Json.Steps = table.move(node.steps, 1, #node.steps, 1, {})
+    local steps: mut {string | integer} = table.move(node.steps, 1, #node.steps, 1, {})
     steps[#steps + 1] = step
     out[#out + 1] = { steps = steps, value = value }
   end
@@ -326,7 +326,7 @@ local function selection_holds(input: string): boolean, string
   local q: Json.Query = parsed
   local nodes: {Json.Match} = { { steps = {}, value = doc } }
   for _, seg in ipairs(q.segments) do
-    local out: {Json.Match} = {}
+    local out: mut {Json.Match} = {}
     for _, node in ipairs(nodes) do
       if seg.descendant then
         -- A descendant segment applies its selector at the node itself

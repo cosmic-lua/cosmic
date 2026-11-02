@@ -597,14 +597,15 @@ function Dev.supervise(opts?: Dev.SuperviseOptions): boolean, string
   local interval_ns = given.interval_ns or SUPERVISE_INTERVAL_NS
   local grace_ns = given.grace_ns or DEFAULT_GRACE_NS
   local roots = given.watch or { "." }
-  local ignore: mut {string}
+  local ignore: {string}
   local given_ignore = given.ignore
   if given_ignore ~= nil then
     ignore = given_ignore
   else
-    ignore = {}
-    for _, glob in ipairs(DEFAULT_IGNORE) do ignore[#ignore + 1] = glob end
-    ignore[#ignore + 1] = "/" .. (given.static or "static")
+    local built: mut {string} = {}
+    for _, glob in ipairs(DEFAULT_IGNORE) do built[#built + 1] = glob end
+    built[#built + 1] = "/" .. (given.static or "static")
+    ignore = built
   end
   local ignored = ignorer(ignore)
   local start: function(env: {string:string}): Child.Handle?, string

@@ -94,7 +94,7 @@ end
 --- while the hanging one waits out its own time.
 local function test_a_public_connect_that_hangs_holds_up_no_other()
   require_native_connector()
-  local held: {function()} = {}
+  local held: mut {function()} = {}
   Poll.run(function()
     local listener = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
     local accepting = Poll.spawn(function()

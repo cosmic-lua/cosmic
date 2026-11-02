@@ -64,7 +64,7 @@ local record Server
     --- leaves unread is read and dropped after its reply, the
     --- connection closed instead where it fails. Closing it does
     --- nothing more than end the handler's reads.
-    body: Stream.Reader
+    mut body: Stream.Reader
     --- The Content-Length: the body's size, 0 for a request with no
     --- body, nil for a chunked one.
     length?: integer
@@ -89,7 +89,7 @@ local record Server
   record Reply
     --- The status, from 200 to 999: the server sends `100 Continue`
     --- itself, and no other 1xx.
-    status: integer
+    mut status: integer
     --- Headers, name to value, written as given, but for a
     --- `Content-Length` (any case of the name), which is the body's size
     --- as `length` is: digits, equal to a string body's length, and
@@ -101,17 +101,17 @@ local record Server
     --- element, in order: use it for Set-Cookie, which cannot be joined
     --- with ", " (RFC 6265 3, RFC 9110 5.3). An empty list writes
     --- nothing; a list of Content-Length is refused.
-    headers?: {string: string | {string}}
+    mut headers?: {string: string | {string}}
     --- nil for none, the bytes, or a Reader, which the server reads to
     --- its end (or to `length`) as it writes and then closes, read or
     --- not.
-    body?: string | Stream.Reader
+    mut body?: string | Stream.Reader
     --- The body's size in bytes, as a `Content-Length` header gives it:
     --- the two, given both, must agree. A Reader without either goes
     --- chunked, or, to an HTTP/1.0 client, until the connection closes.
-    length?: integer
+    mut length?: integer
     --- Close the connection after this reply.
-    close?: boolean
+    mut close?: boolean
   end
 
   --- What [`Server.serve`] serves, and how. A field of the wrong shape, or

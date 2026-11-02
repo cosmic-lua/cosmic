@@ -1751,66 +1751,16 @@ cosmic/child.tl view_written 7
 cosmic/child_relay_seatbelt_test.tl view_written 2
 
 
-cosmic/flags.tl view_written 3
-
-cosmic/http/wire.tl view_written 1
-
 cosmic/http_store_test.tl view_written 1
-
-
-cosmic/internal/connector_test.tl view_written 1
-
-cosmic/internal/relay_config.tl view_written 1
-
-
-
-cosmic/internal/relay_wire.tl view_written 3
-
-cosmic/internal/relay_wire_test.tl view_written 1
-
-cosmic/json.tl view_written 5
-
-cosmic/json_fuzz_test.tl view_written 1
-
-cosmic/json_path_fuzz_test.tl view_written 1
-
-
-cosmic/net_connector_test.tl view_written 1
-
-
 
 
 cosmic/sqlite.tl view_written 9
 
-cosmic/template/context.tl view_written 3
-
-cosmic/template/parse.tl view_written 1
-
-
-cosmic/url.tl view_written 1
-
 cosmic/url_test.tl view_written 1
-
-cosmic/web/csrf_test.tl view_written 2
-
 
 cosmic/web/dev_test.tl view_written 1
 
-cosmic/web/input.tl view_written 3
-
-cosmic/web/input_fuzz_test.tl view_written 1
-
-cosmic/web/input_test.tl view_written 1
-
-cosmic/web/request_test.tl view_written 1
-
 cosmic/web/response.tl view_written 1
-
-cosmic/web/router_fuzz_test.tl view_written 1
-
-cosmic/web/session/csrf_example.tl view_written 2
-
-cosmic/web/session/init.tl view_written 6
 
 cosmic/web/sse_test.tl view_written 1
 
@@ -1886,25 +1836,6 @@ build/tree_program.tl view_as_mut 1
 build/work.tl view_as_mut 1
 
 core/declarations_test.tl view_as_mut 1
-
-cosmic/channel_test.tl view_as_mut 1
-
-cosmic/child.tl view_as_mut 11
-
-cosmic/internal/relay_handed_lost_test.tl view_as_mut 5
-
-cosmic/internal/relay_handed_test.tl view_as_mut 1
-
-cosmic/internal/relay_server_test.tl view_as_mut 2
-
-cosmic/json_path_fuzz_test.tl view_as_mut 2
-
-cosmic/net_resolve_through_test.tl view_as_mut 3
-
-
-cosmic/poll_test.tl view_as_mut 3
-
-cosmic/web/router.tl view_as_mut 2
 
 lang/ast_dump.tl view_as_mut 1
 
@@ -2003,7 +1934,7 @@ build/term_relay.tl field_fixed 2
 
 build/test_key.tl field_fixed 1
 
-build/test_policy.tl field_fixed 3
+build/test_policy.tl field_fixed 2
 
 build/test_policy_plan_tool_test.tl field_fixed 8
 
@@ -2052,7 +1983,7 @@ cosmic/archive_test.tl field_fixed 4
 
 cosmic/channel.tl field_fixed 2
 
-cosmic/child.tl field_fixed 24
+cosmic/child.tl field_fixed 14
 
 cosmic/child_drain_test.tl field_fixed 15
 
@@ -2078,16 +2009,11 @@ cosmic/child_stream_failure_test.tl field_fixed 10
 
 cosmic/child_task_tool_test.tl field_fixed 2
 
-cosmic/compress_test.tl field_fixed 1
-
-
 cosmic/fs.tl field_fixed 3
 
 cosmic/fs_append_test.tl field_fixed 18
 
 cosmic/fs_test.tl field_fixed 24
-
-cosmic/http/multipart_test.tl field_fixed 1
 
 cosmic/http/server_test.tl field_fixed 2
 
@@ -2098,31 +2024,16 @@ cosmic/http_test.tl field_fixed 13
 
 cosmic/internal/connector.tl field_fixed 3
 
-cosmic/internal/relay_config.tl field_fixed 16
-
-cosmic/internal/relay_main.tl field_fixed 2
-
-
-cosmic/internal/relay_server_test.tl field_fixed 1
-
-cosmic/internal/relay_start.tl field_fixed 9
-
-cosmic/internal/relay_wire.tl field_fixed 26
+cosmic/internal/relay_config.tl field_fixed 8
 
 cosmic/json.tl field_fixed 3
 
 
 
 
-cosmic/poll.tl field_fixed 17
+cosmic/poll.tl field_fixed 3
 
 cosmic/proc_user_test.tl field_fixed 1
-
-cosmic/sandbox/policy.tl field_fixed 4
-
-cosmic/sandbox_test.tl field_fixed 8
-
-
 
 cosmic/sqlite.tl field_fixed 13
 
@@ -2136,29 +2047,18 @@ cosmic/template/dialect/init.tl field_fixed 1
 
 
 
-cosmic/template_html5lib_tree_test.tl field_fixed 1
-
-cosmic/test.tl field_fixed 35
-
 cosmic/time.tl field_fixed 1
 
 
 
 
-cosmic/web/app.tl field_fixed 10
-
 cosmic/web/assets_test.tl field_fixed 2
 
-cosmic/web/builtin.tl field_fixed 1
+cosmic/web/csrf.tl field_fixed 2
 
+cosmic/web/csrf_test.tl field_fixed 3
 
-cosmic/web/csrf.tl field_fixed 4
-
-cosmic/web/csrf_test.tl field_fixed 4
-
-cosmic/web/dev.tl field_fixed 3
-
-cosmic/web/dev_test.tl field_fixed 2
+cosmic/web/dev_test.tl field_fixed 1
 
 cosmic/web/headers.tl field_fixed 1
 
@@ -2168,39 +2068,25 @@ cosmic/web/htmx.tl field_fixed 2
 
 cosmic/web/init.tl field_fixed 41
 
-cosmic/web/input.tl field_fixed 14
-
-cosmic/web/request.tl field_fixed 3
+cosmic/web/input.tl field_fixed 4
 
 cosmic/web/request_test.tl field_fixed 1
 
-cosmic/web/response.tl field_fixed 7
-
-cosmic/web/router.tl field_fixed 7
+cosmic/web/response.tl field_fixed 2
 
 cosmic/web/serve_test.tl field_fixed 3
 
-cosmic/web/session/init.tl field_fixed 9
+cosmic/web/session/init.tl field_fixed 3
 
 cosmic/web/session/session_test.tl field_fixed 9
 
-cosmic/web/session/sqlite.tl field_fixed 1
-
-cosmic/web/session/sqlite_test.tl field_fixed 1
-
-cosmic/web/sse.tl field_fixed 10
+cosmic/web/sse.tl field_fixed 5
 
 cosmic/web/sse_fuzz_test.tl field_fixed 4
 
-cosmic/web/sse_test.tl field_fixed 2
+cosmic/web/sse_test.tl field_fixed 1
 
-cosmic/web/static.tl field_fixed 2
-
-
-cosmic/web/testing.tl field_fixed 2
-
-
-cosmic/web/typed.tl field_fixed 3
+cosmic/web/typed.tl field_fixed 2
 
 cosmic/zip.tl field_fixed 2
 
@@ -2864,8 +2750,6 @@ cosmic/csv_test.tl overload_none 1
 
 
 
-
-cosmic/internal/relay_handed_lost_test.tl overload_none 1
 
 cosmic/json.tl overload_none 2
 
@@ -6509,26 +6393,7 @@ cosmic/fs.tl compare_disjoint 1
 
 
 
-cosmic/web/dev.tl view_as_mut 1
-
-
-
 cosmic/web/response.tl view_as_mut 2
-
-
-cosmic/web/sse.tl view_as_mut 1
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 # the language tour, which teaches forms the new checker refuses (see the TODO of [examples]): each stays until the tour is rewritten

@@ -35,8 +35,9 @@ end
 
 --- Every part of `text` read to the end, or the reason the body is refused.
 local function parse(text: string, n?: integer, opts?: Multipart.Options): {Seen}?, string
-  local o: Multipart.Options = opts or {}
-  o.boundary = o.boundary or B
+  local given = opts or {}
+  local o: Multipart.Options = { boundary = given.boundary or B, max_parts = given.max_parts,
+    max_header_bytes = given.max_header_bytes, max_header_lines = given.max_header_lines }
   local reader, bad = Multipart.reader(drip(text, n or 7), o)
   if reader == nil then return nil, bad end
   local out: mut {Seen} = {}

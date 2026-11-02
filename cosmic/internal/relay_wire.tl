@@ -427,17 +427,17 @@ function relay_wire.connect_reader(): relay_wire.ConnectReader
   --- first byte of the line being read, and what the head has said so
   --- far.
   local record Reading
-    final?: relay_wire.Connect
-    seen: integer
-    line_start: integer
-    pieces: {string}
-    after_cr: boolean
-    first: boolean
-    count: integer
-    authorization?: string
-    host?: string
-    kind?: relay_wire.Kind
-    port?: integer
+    mut final?: relay_wire.Connect
+    mut seen: integer
+    mut line_start: integer
+    mut pieces: mut {string}
+    mut after_cr: boolean
+    mut first: boolean
+    mut count: integer
+    mut authorization?: string
+    mut host?: string
+    mut kind?: relay_wire.Kind
+    mut port?: integer
   end
   local st: Reading = { seen = 0, line_start = 1, pieces = {}, after_cr = false, first = true, count = 0 }
 
@@ -1247,15 +1247,15 @@ function relay_wire.hello_reader(): relay_wire.HelloReader
   --- complete records, by piece, and the size of the message once its
   --- four-byte header is in (`total`).
   local record Reading
-    final?: relay_wire.Hello
-    pending: {string}
-    pending_len: integer
-    need: integer
-    base: integer
-    records: integer
-    parts: {string}
-    gathered: integer
-    total?: integer
+    mut final?: relay_wire.Hello
+    mut pending: mut {string}
+    mut pending_len: integer
+    mut need: integer
+    mut base: integer
+    mut records: integer
+    mut parts: mut {string}
+    mut gathered: integer
+    mut total?: integer
   end
   local st: Reading = { pending = {}, pending_len = 0, need = 5, base = 0, records = 0, parts = {},
     gathered = 0 }

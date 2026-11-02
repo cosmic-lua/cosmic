@@ -43,17 +43,17 @@ local record Flags
   --- What a command line held.
   record Parsed
     --- Each option given that takes no value.
-    set: {string:boolean}
+    set: mut {string:boolean}
     --- Each option given with a value, by name; the last one given wins.
     values: mut {string:string}
     --- Each option given with a value, by name: every value it was
     --- given, in order, for an option that may be repeated.
-    all: mut {string:{string}}
+    all: mut {string: mut {string}}
     --- Every option given, by name, in order, once each time it was
     --- given: what counts a repeat, or tells which came first.
     given: mut {string}
     --- Every other word, in order.
-    words: {string}
+    words: mut {string}
   end
 
   --- What [`Flags.dispatch`] did.
@@ -177,10 +177,10 @@ function Flags.parse(argv: {string}, from: integer,
     parsed.values[name] = value
     local list = parsed.all[name]
     if list == nil then
-      list = {}
-      parsed.all[name] = list
+      parsed.all[name] = { value }
+    else
+      list[#list + 1] = value
     end
-    list[#list + 1] = value
     parsed.given[#parsed.given + 1] = name
     return ""
   end

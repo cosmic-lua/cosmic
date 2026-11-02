@@ -81,7 +81,7 @@ end
 
 --- The meta tag, for a script that sets the header itself.
 function Example.meta()
-  local seen: {string} = {}
+  local seen: mut {string} = {}
   local app = Web.app{
     middleware = { Session.middleware{ store = SessionCookie.store{ keys = { Secret.generate() } } } },
     routes = { Web.get("/", function(req: Web.Request): Web.Response
@@ -98,7 +98,7 @@ end
 --- The attribute value that puts the token on every htmx request below an
 --- element: `<body hx-headers='...'>`.
 function Example.hx_headers()
-  local seen: {string} = {}
+  local seen: mut {string} = {}
   local app = Web.app{
     middleware = { Session.middleware{ store = SessionCookie.store{ keys = { Secret.generate() } } } },
     routes = { Web.get("/", function(req: Web.Request): Web.Response
