@@ -150,6 +150,9 @@ local record Check
     --- The class of each table literal that makes a value of a class, by the id of its node: what the code
     --- generator writes as the class literal, a class of this module.
     literals: {integer: Decl}
+    --- The names of the fields a table literal with a spread copies from its source, in the order the record declares
+    --- them, by the id of the literal's node: what the code generator writes before the fields given after the spread.
+    spreads: {integer: {string}}
     --- The reads of a place whose type a test narrowed, in source order: what the checker concluded, for a run
     --- that checks it ([`Check.Narrowed`]).
     narrowed: {Narrowed}
@@ -335,6 +338,8 @@ local record Ctx
   mut within: integer
   --- The class each table literal of a class is a literal of, by the id of its node.
   literals: mut {integer: Decl}
+  --- The fields each table literal with a spread copies, by the id of its node.
+  spreads: mut {integer: {string}}
   --- The classes whose declaration the walk has passed: a literal or a test of a class before that reads a name that
   --- is not yet its table.
   declared: mut {Decl: boolean}
@@ -1425,7 +1430,7 @@ local function items_unshaped(ctx: Ctx, items: {Ast.Item})
       local _ = expr(ctx, item.value, nil)
     elseif (item.kind == "Named") then
       local _ = expr(ctx, item.value, nil)
-    elseif (item.kind == "Positional") then
+    elseif (item.kind == "Positional") or (item.kind == "Spread") then
       local _ = expr(ctx, item.value, nil)
     end
   end
@@ -1694,9 +1699,13 @@ local function literal_record(ctx: Ctx, e: Ast.Table, n: Named): Type
   local owner = quoted(n.decl.name)
   local array_part = index.array
   local shaped = true
+  -- A spread, which [`spread_literal`] has checked, gives every field the items after it do not.
+  local copied = ctx.spreads[e.id] ~= nil
   for _, item in ipairs(e.items) do
     local name = item_name(item)
-    if name ~= nil and not ((item.kind == "Positional")) then
+    if (item.kind == "Spread") then
+      -- Its source is checked where the literal is, against the record.
+    elseif name ~= nil and not ((item.kind == "Positional")) then
       local value = (item.kind == "Named") and item.value or (item.kind == "Keyed") and item.value or nil
       local field = plain_field(ctx, n, name)
       if field == nil then
@@ -1736,7 +1745,7 @@ local function literal_record(ctx: Ctx, e: Ast.Table, n: Named): Type
   local missing: mut {string} = {}
   local optional_field: string? = nil
   for _, f in ipairs(body.fields) do
-    if (is_class or f.omittable ~= true) and given[f.name] ~= true then
+    if (is_class or f.omittable ~= true) and given[f.name] ~= true and not copied then
       missing[#missing + 1] = quoted(f.name)
       if optional_field == nil and nilable(f.type) then
         optional_field = f.name
@@ -1891,6 +1900,28 @@ local function literal_member(ctx: Ctx, e: Ast.Table, u: Union, written: Type): 
   return nil
 end
 
+--- The type to read from when the value of `node` has type `t`: `t` without its nil, after reporting that it may
+--- be nil. Nil where the access has nothing to read (an error already reported, or `invalid`).
+local function readable(ctx: Ctx, node: Ast.Node, t: Type, what: string): Type?
+  local tag = t.tag
+  if tag == "invalid" or tag == "never" then
+    return nil
+  elseif tag == "any" then
+    report(ctx, "any_use", node, subject(ctx, node) .. " is untrusted data (`any`), so " .. what,
+      "validate it with a [`cosmic.shape`] validator, or test its tag, and use the checked value", { "any" })
+    return nil
+  elseif tag == "nil" then
+    report(ctx, "nil_not_allowed", node, subject(ctx, node) .. " is nil, so " .. what,
+      "give it a value, or do not read it", { "nil" })
+    return nil
+  elseif nilable(t) then
+    report(ctx, "nil_not_allowed", node, subject(ctx, node) .. " is " .. tq(ctx, t) .. ", so it may be nil, and " .. what,
+      nil_fix(ctx, node), { show(ctx, t) })
+    return ctx.store:non_nil(t)
+  end
+  return t
+end
+
 -- TODO: check a literal given to a parameter declared `any` item by item
 -- and answer it without a join, once the rule for what may reach `any` (a
 -- literal's items, or the literal alone) is written into
@@ -1898,6 +1929,114 @@ end
 -- `Json.encode_any({ a = 1, b = "x" })` is `arms_differ`, and the files that
 -- give such a literal to an `any` parameter hold that count in
 -- [`build/ceilings.txt`].
+
+--- A literal that begins with a spread, `{ ...r, field = v }`: a copy of the record `r` with the fields written after
+--- the spread given their own values. The spread is the first item, and the only one. Its source is a record, not
+--- nilable, and a value of the record wanted, or of the record the literal is made of where none is wanted: the
+--- copy is a value of that record. The fields after it are checked as those of a literal of the record are, and the
+--- literal need not give the fields the spread does. A record with an array part is refused, since the spread would
+--- drop the array. The code generator is told, by `spreads`, the fields the spread copies.
+local function spread_literal(ctx: Ctx, e: Ast.Table, expected: Type?): Type
+  local items = e.items
+  -- Checks the items after the first, which are no part of the literal that was refused.
+  local function items_after_first()
+    local rest: mut {Ast.Item} = {}
+    for i, item in ipairs(items) do
+      if i > 1 then
+        rest[#rest + 1] = item
+      end
+    end
+    items_unshaped(ctx, rest)
+  end
+  local first = items[1]
+  if first == nil or (first.kind ~= "Spread") then
+    for _, item in ipairs(items) do
+      if (item.kind == "Spread") then
+        report(ctx, "literal_spread", item, "a spread must be the first item of a literal, and this one follows another",
+          "write the spread first, and the fields that replace its own after it: `{ ...r, field = v }`")
+      end
+    end
+    items_unshaped(ctx, items)
+    return ctx.invalid
+  end
+  for i, item in ipairs(items) do
+    if i > 1 and (item.kind == "Spread") then
+      report(ctx, "literal_spread", item, "this literal has a second spread, and a copy is made from one record",
+        "remove it, and write the fields it would give: `{ ...r, field = v }`")
+      ctx.lenient = ctx.lenient + 1
+      local _ = expr(ctx, item.value, nil)
+      ctx.lenient = ctx.lenient - 1
+    end
+  end
+  local source = first.value
+  if (peel(source).kind == "Table") then
+    report(ctx, "literal_spread", source, "a spread copies a record value, and this is a table literal",
+      "write the fields by name, or spread a value held in a local")
+    items_after_first()
+    return ctx.invalid
+  end
+  local got = expr(ctx, source, nil)
+  local readable_type = readable(ctx, source, got, "its fields cannot be copied")
+  if readable_type == nil then
+    items_after_first()
+    return ctx.invalid
+  end
+  local open = Types.unfold(readable_type)
+  if not ((open.tag == "named") and not open.value and open.decl.kind == "record") then
+    local why = if (open.tag == "array") then "a spread copies the fields of a record, not the elements of an array" elseif
+      (open.tag == "map") then "a spread copies the fields of a record, not the entries of a map" elseif
+      (open.tag == "named") and open.decl.kind == "class" then "a spread copies the fields of a record, and a class value is not one" else
+      "a spread copies the fields of a record"
+      end
+    report(ctx, "literal_spread", source, subject(ctx, source) .. " is " .. tq(ctx, readable_type) .. ", and " .. why,
+      "spread a value of a record type, or write the fields by name", { show(ctx, readable_type) })
+    items_after_first()
+    return ctx.invalid
+  end
+  local made = open
+  local wanted: Type? = nil
+  if expected ~= nil and ctx.lenient == 0 then
+    local want = ctx.store:non_nil(expected)
+    if want.tag ~= "invalid" and want.tag ~= "any" and want.tag ~= "never" then
+      wanted = want
+      local unfolded = Types.unfold(want)
+      if (unfolded.tag == "named") and not unfolded.value and unfolded.decl.kind == "record" then
+        made = unfolded
+      elseif unfolded.tag ~= "union" then
+        report(ctx, "literal_spread", e, "this literal has a spread, which makes a record, and " .. tq(ctx, want) .. " is wanted",
+          "write the fields by name, or spread into a record type", { show(ctx, want) })
+        items_after_first()
+        return ctx.invalid
+      end
+    end
+  end
+  if wanted ~= nil and not expect(ctx, source, readable_type, wanted, " as the source of a spread") then
+    items_after_first()
+    return ctx.invalid
+  end
+  if not ((made.tag == "named")) then
+    items_after_first()
+    return ctx.invalid
+  end
+  local body = made.decl.body
+  local index = members_index(ctx, made.decl, false)
+  if body == nil or index == nil then
+    items_after_first()
+    return made
+  end
+  if index.array ~= nil then
+    report(ctx, "literal_spread", source, quoted(made.decl.name) .. " has an array part, which a spread does not copy",
+      "make the copy by hand, or declare the elements as a field", { show(ctx, made) })
+    items_after_first()
+    return made
+  end
+  local fields: mut {string} = {}
+  for _, f in ipairs(body.fields) do
+    fields[#fields + 1] = f.name
+  end
+  ctx.spreads[e.id] = fields
+  return literal_record(ctx, e, made)
+end
 
 --- A table literal. Checked against a type it is a record, a class, an array or a map as that type is; with no type it
 --- is an array or a map of the join of its items.
@@ -1907,10 +2046,13 @@ local function table_literal(ctx: Ctx, e: Ast.Table, expected: Type?): Type
   -- checked against, so this stands apart from the shape of the literal. A name and the same string as a key are one key.
   local seen: mut {string: boolean} = {}
   local place = 0
+  local spread = false
   for _, item in ipairs(e.items) do
     local key: string? = nil
     local shown = ""
-    if (item.kind == "Positional") then
+    if (item.kind == "Spread") then
+      spread = true
+    elseif (item.kind == "Positional") then
       place = place + 1
       key, shown = "n" .. tostring(place), tostring(place)
     elseif (item.kind == "Named") then
@@ -1932,6 +2074,9 @@ local function table_literal(ctx: Ctx, e: Ast.Table, expected: Type?): Type
       end
       seen[key] = true
     end
+  end
+  if spread then
+    return spread_literal(ctx, e, expected)
   end
   if expected == nil or ctx.lenient > 0 then
     return literal_inferred(ctx, e)
@@ -1984,28 +2129,6 @@ local function table_literal(ctx: Ctx, e: Ast.Table, expected: Type?): Type
 end
 
 -- Fields and indexes -------------------------------------------------------------------------
-
---- The type to read from when the value of `node` has type `t`: `t` without its nil, after reporting that it may
---- be nil. Nil where the access has nothing to read (an error already reported, or `invalid`).
-local function readable(ctx: Ctx, node: Ast.Node, t: Type, what: string): Type?
-  local tag = t.tag
-  if tag == "invalid" or tag == "never" then
-    return nil
-  elseif tag == "any" then
-    report(ctx, "any_use", node, subject(ctx, node) .. " is untrusted data (`any`), so " .. what,
-      "validate it with a [`cosmic.shape`] validator, or test its tag, and use the checked value", { "any" })
-    return nil
-  elseif tag == "nil" then
-    report(ctx, "nil_not_allowed", node, subject(ctx, node) .. " is nil, so " .. what,
-      "give it a value, or do not read it", { "nil" })
-    return nil
-  elseif nilable(t) then
-    report(ctx, "nil_not_allowed", node, subject(ctx, node) .. " is " .. tq(ctx, t) .. ", so it may be nil, and " .. what,
-      nil_fix(ctx, node), { show(ctx, t) })
-    return ctx.store:non_nil(t)
-  end
-  return t
-end
 
 --- The members called `name` of `t`, each with the type arguments put in.
 local function member_types(ctx: Ctx, t: Named, name: string): {Member}?
@@ -7847,7 +7970,7 @@ function Check.check(program: Declarations.Program, input: Declarations.Input, l
     load = LoadOrder.new(0, function(_decl: Decl, _name: string): boolean
       return false
     end, function(_node: Ast.Node, _spelled: string, _found: LoadOrder.Found) end),
-    literals = {}, declared = {}, union_fields = {}, spine = {},
+    literals = {}, spreads = {}, declared = {}, union_fields = {}, spine = {},
     ternaries = {}, invalid = store.invalid, nil_type = store:atom("nil"), flow = Flow.start(), unfixed_now = {}, assigning = {}, quiet = 0, closers = 0, callee_module = "", member_module = "", moves = {},
     loops = {}, keys = {}, edges = {}, guards = {}, reads = {}, unfixed = {}, narrowed = {}, inert = {}, boundaries = {}, types = {}, callees = {}, consts = {}, starts = {}, library = {}, typed = typed ~= false, warnings = {},
     unite = function(a: Type, b: Type): Type
@@ -7968,7 +8091,7 @@ function Check.check(program: Declarations.Program, input: Declarations.Input, l
     return a.param < b.param
   end)
   return {
-    errors = ctx.errors, vars = ctx.vars, literals = ctx.literals, narrowed = narrowed, boundaries = boundaries,
+    errors = ctx.errors, vars = ctx.vars, literals = ctx.literals, spreads = ctx.spreads, narrowed = narrowed, boundaries = boundaries,
     types = ctx.types, callees = ctx.callees, warnings = warnings,
   }
 end

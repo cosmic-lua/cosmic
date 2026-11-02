@@ -133,6 +133,8 @@ local record Codes
     "literal_ambiguous"
     -- items of the wrong shape for the type, or a type no literal makes
     "literal_shape"
+    -- a spread `...r` that is not the first and only one, whose source is no record, or whose literal makes no record
+    "literal_spread"
     -- arms or elements with no common type
     "arms_differ"
     -- the elements of an array literal that may be nil
@@ -237,7 +239,7 @@ Codes.codes = {
   "condition_type", "or_mix", "and_ternary", "concat_type", "operand_type", "compare_disjoint", "generic_op",
   "cast_refused", "is_on_record", "is_disjoint", "class_scope", "close_not_closable", "setmetatable_call", "enum_member",
   "literal_missing", "literal_unknown", "literal_repeated",
-  "literal_needs_type", "literal_ambiguous", "literal_shape", "arms_differ", "array_of_optional", "require_unknown",
+  "literal_needs_type", "literal_ambiguous", "literal_shape", "literal_spread", "arms_differ", "array_of_optional", "require_unknown",
   "export_not_declared", "missing_return", "not_assigned", "unreachable", "narrowing_dropped", "narrows_unproved",
   "assign_repeated", "iterator_extra", "iterator_variables", "pattern_malformed", "format_malformed", "pack_malformed",
   "gsub_key", "paren_is", "type_name",
@@ -581,6 +583,13 @@ Codes.catalog = {
     why = "a literal is a record, an array or a map by its items and the type it is checked against; an interface or " ..
       "an enum is made by a class that lists it, and positional items make no record",
     fix = "write items of the shape of <type>",
+  },
+  {
+    code = "literal_spread", rule = "a copy has the fields its record declares",
+    why = "`{ ...r, field = v }` varies a record whose fields are fixed by copying the fields it declares: the spread " ..
+      "is the first and only one, and its source is a record value that is not nilable and not a literal; an array, a " ..
+      "map or a class has no declared fields to copy, and a record with an array part would lose the array",
+    fix = "spread one record value first, and write the fields that differ after it",
   },
   {
     code = "arms_differ", rule = "arms and elements join to a common type",

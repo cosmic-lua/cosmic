@@ -70,8 +70,6 @@ local CASES <const>: {Case} = {
     says = "found `return`: a keyword cannot name a field here", fix = "declared and indexed as `[\"return\"]`" },
   { code = "expected_name", source = "local interface I\n  do?: integer\nend", y = 2, x = 3, count = 1,
     says = "a keyword cannot name a field here", fix = "write `[\"do\"]: T`" },
-  { code = "unexpected_token", source = "local t = { ...c, a = 2 }", y = 1, x = 13,
-    says = "a table constructor has no spread yet: `...c` is not a field", fix = "write each field of `c` in the constructor" },
   { code = "expected_token", source = "local a = t:m\n(1)", y = 2, x = 1, says = "expected the arguments of the call `:m`",
     fix = "write the call's arguments in parentheses" },
   { code = "expected_token", source = "if x\n  y()\nend", y = 2, x = 3, says = "expected `then`", fix = "if cond then ... end" },
