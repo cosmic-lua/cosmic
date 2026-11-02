@@ -8,8 +8,10 @@
 --- Only code cosmic itself selects by a feature is enforced: in a core
 --- file that is itself a site reading a feature (core/vector.c), a
 --- function that takes a feature's code (one compiled for it, with a
---- `target` attribute) and the lines that call through a pointer the file
---- assigns such a function to. The function that picks the code at start
+--- `target` attribute) and the lines of the branch of a function that calls
+--- through a pointer the file assigns such a function to (the branch, since
+--- the core reports a line only where a basic block begins, and the call is
+--- usually in the middle of one). The function that picks the code at start
 --- is not, since it runs whenever the file is loaded and the code it picks
 --- is run by the callers. A core that compiles no such function
 --- (core/vector.c on aarch64, whose VNNI code is x86's) has nothing there.
@@ -170,6 +172,42 @@ local function matching(span: c_functions.Span, lines: {string}, pattern: string
   return found
 end
 
+--- Whether `text` opens a branch of a `switch`: a `case` or `default` label.
+local function is_label(text: string): boolean
+  return text:match("^%s*default%s*:") ~= nil or text:match("^%s*case%s+[^:]+:") ~= nil
+end
+
+--- The lines of the branch of `span` that holds line `at`: from the `case`
+--- or `default` label that opens it to the line before the next label of
+--- that depth (or the function's last line), or `at` alone where it is in
+--- no branch. The core reports a line only where a basic block begins, and
+--- a call in the middle of a block is no such line, nor is a line the
+--- processor's choice leaves out: the lines of the branch are what a test
+--- that makes the call is seen to run, whichever kernel the processor chose.
+local function branch_of(span: c_functions.Span, lines: {string}, at: integer): {integer}
+  local opened = 0
+  for line = at - 1, span.first + 1, -1 do
+    if is_label(lines[line] or "") then
+      opened = line
+      break
+    end
+  end
+  if opened == 0 then return { at } end
+  local depth = #((lines[opened] or ""):match("^%s*") or "")
+  local last = last_of(span, lines)
+  local stop = last
+  for line = at + 1, last do
+    local text = lines[line] or ""
+    if is_label(text) and #(text:match("^%s*") or "") <= depth then
+      stop = line - 1
+      break
+    end
+  end
+  local found: mut {integer} = {}
+  for line = opened, stop do found[#found + 1] = line end
+  return found
+end
+
 --- The lines of `span` in `lines`, all of them.
 local function whole(span: c_functions.Span, lines: {string}): {integer}
   local found: mut {integer} = {}
@@ -198,7 +236,18 @@ local function in_site(spans: {c_functions.Span}, lines: {string}): {dispatch_si
   end
   for _, span in ipairs(spans) do
     for pointer in pairs(pointers) do
-      local at = matching(span, lines, "%f[%w_]" .. pointer .. "%s*%(")
+      local calls = matching(span, lines, "%f[%w_]" .. pointer .. "%s*%(")
+      local seen: mut {integer:boolean} = {}
+      local at: mut {integer} = {}
+      for _, call in ipairs(calls) do
+        for _, line in ipairs(branch_of(span, lines, call)) do
+          if seen[line] == nil then
+            seen[line] = true
+            at[#at + 1] = line
+          end
+        end
+      end
+      table.sort(at)
       if #at > 0 then
         out[#out + 1] = { key = span.key, path = span.path, lines = at,
           why = "it calls the code chosen by the processor's features (" .. pointer .. ")" }
