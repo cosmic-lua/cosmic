@@ -60,7 +60,7 @@ local record Orchestration
     low?: integer
   end
   harness_moved: function(root: string, base: string): Moved
-  stale_rows: function(path: string, features: string): integer?, string
+  stale_rows: function(path: string, kernel: string): integer?, string
   gather_bound: function(stale: integer): integer
   test_words: function(env: {string:string}): {string}
   shares: function(env: {string:string}): {string:string}
@@ -678,19 +678,22 @@ local checked_shard_timeout_ns <const> = Clock.seconds(600)
 --- stood), some three times that on the checked core.
 ---
 --- That holds only for the rows whose key this host reaches. A share that
---- ran on a host of other host features (build/declared_key.tl's
---- `host_features`: the processor features a core dispatches on, and the
---- kernel's release and version, which a sandboxed verdict can depend on,
---- so they are rightly in the key) keeps rows this run cannot stand on,
---- and the run runs those tests again, one after another. Run 40495570639
---- of cosmic-lua/cosmic#3263 read 5751 rows under one host's features and
---- 1914 under another's, and ran 2046 tests in the 300 s this bound was,
---- at some 330 a minute, and timed out; the run that moved the harness
---- epoch and found 7665 of 7801 rows standing took 167 s in all.
+--- ran on a host of another kernel (build/declared_key.tl's
+--- `host_kernel`: the kernel's release and version, which a sandboxed
+--- verdict can depend on, so they are rightly in the key) keeps rows this
+--- run cannot stand on, and the run runs those tests again, one after
+--- another. (The processor's features are in the key of a module that
+--- declares `cpu_features` alone, and the gathering run looks those up
+--- under no other processor's key.) Run 40495570639 of
+--- cosmic-lua/cosmic#3263, when they were in every key, read 5751 rows
+--- under one host's features and 1914 under another's, and ran 2046 tests
+--- in the 300 s this bound was, at some 330 a minute, and timed out; the
+--- run that moved the harness epoch and found 7665 of 7801 rows standing
+--- took 167 s in all.
 ---
 --- So the bound is the base time, 300 s, that run's share of the harness'
 --- time with room, and a time for each row [`stale_rows`] counts under
---- other host features: `gather_row_ns`, 0.3 s, some 1.7 times the 0.18 s a
+--- another host kernel: `gather_row_ns`, 0.3 s, some 1.7 times the 0.18 s a
 --- test took there, and capped by `checked_gather_cap_ns`.
 local checked_gather_timeout_ns <const> = Clock.seconds(300)
 --- What a test the gathering run runs again may take of its bound, on
@@ -706,10 +709,10 @@ local gather_row_ns <const> = Clock.ms(300)
 local checked_gather_cap_ns <const> = Clock.seconds(780)
 
 --- How many rows the verdict cache at `path` holds that a host of
---- `features` ([`HostId.features`]) cannot stand on: those stamped with
+--- `kernel` ([`HostId.kernel`]) cannot stand on: those stamped with
 --- other key parts, or none (build/shared_verdicts.tl's `parts`, whose
---- first is "host features <digest>"), but for those that name the
---- identity of their host and its rest but for the features ("host
+--- first is "host kernel <digest>"), but for those that name the
+--- identity of their host and its rest but for the kernel ("host
 --- identity", "host rest"), which the gathering run looks up under their
 --- own host's key (build/test_key.tl's `lookup`). Nil and why where `path` is no
 --- cache of this format, which a gathering run then bounds as one with
@@ -717,18 +720,18 @@ local checked_gather_cap_ns <const> = Clock.seconds(780)
 -- TODO: count only the rows whose rest is this host's ("host rest"), once
 -- the driver can name this host's rest: build/declared_key.tl's
 -- `host_split` is the tree's, which the pinned release the driver runs on
--- cannot call, and ci/cosmic_ci/host_id.tl names only the features. Today
+-- cannot call, and ci/cosmic_ci/host_id.tl names only the kernel. Today
 -- a row of another rest (another image, user or sandbox) is counted as
 -- one to look up, which no key of this host reaches, so those tests run
 -- again beyond the time given.
-function Orchestration.stale_rows(path: string, features: string): integer?, string
-  if features:match("^%x+$") == nil then
-    return nil, "host features " .. features .. " are no digest"
+function Orchestration.stale_rows(path: string, kernel: string): integer?, string
+  if kernel:match("^%x+$") == nil then
+    return nil, "host kernel " .. kernel .. " is no digest"
   end
   local db, open_trouble = Sqlite.open(path)
   if db == nil then return nil, path .. ": " .. open_trouble end
   local rows, trouble = Sqlite.text_rows(db, "SELECT COUNT(*) FROM declared_v1 " ..
-      "WHERE parts NOT LIKE 'host features " .. features .. ",%' AND NOT " ..
+      "WHERE parts NOT LIKE 'host kernel " .. kernel .. ",%' AND NOT " ..
       "(parts LIKE '%, host identity %' AND parts LIKE '%, host rest %')")
   local _, _ = db:close()
   if rows == nil then return nil, path .. ": " .. trouble end
@@ -738,7 +741,7 @@ function Orchestration.stale_rows(path: string, features: string): integer?, str
 end
 
 --- The time the gathering run is given when `stale` rows of the shares'
---- verdicts are under other host features: the base, and a
+--- verdicts are under another host kernel: the base, and a
 --- `gather_row_ns` for each, up to `checked_gather_cap_ns`.
 function Orchestration.gather_bound(stale: integer): integer
   local bound = checked_gather_timeout_ns + stale * gather_row_ns
@@ -1165,11 +1168,11 @@ end
 --- again here, how many, and how long the run is given, so a step that
 --- ends at its bound is read for what it was given.
 local function gather_budget(path: string): integer
-  local features = HostId.features(HostId.live(Env.all()))
-  local stale, trouble = Orchestration.stale_rows(path, features)
+  local kernel = HostId.kernel(HostId.live(Env.all()))
+  local stale, trouble = Orchestration.stale_rows(path, kernel)
   if stale == nil then
     local _, _ = Fs.put(Fs.stderr, "checked suite: gathering bound: no count of the shares' rows under " ..
-        "other host features (" .. trouble .. "); the base bound\n")
+        "other host kernels (" .. trouble .. "); the base bound\n")
     return Orchestration.gather_bound(0)
   end
   local bound = Orchestration.gather_bound(stale)
@@ -1177,7 +1180,7 @@ local function gather_budget(path: string): integer
     local capped = ""
     if bound == checked_gather_cap_ns then capped = ", the most it is ever given" end
     local _, _ = Fs.put(Fs.stderr, "checked suite: " .. Plural.count(stale, "row") ..
-        " of the shares' verdicts are under host features other than this host's (" .. features ..
+        " of the shares' verdicts are under a host kernel other than this host's (" .. kernel ..
         "): their tests run again here, one after another, so the gathering run is given " ..
         tostring(bound // Clock.seconds(1)) .. " s" .. capped .. "\n")
   end
@@ -1359,9 +1362,9 @@ local function checked_suite(c: Context, target: string, work: string,
     COSMIC_TEST_TIMEOUT = checked_suite_test_timeout_s,
     COSMIC_CI_GATHER = if gathering then "1" else "" end,
     -- The gathering run's tool also looks a test up under the key of
-    -- a host of other features that kept its row (build/test_key.tl's
+    -- a host of another kernel that kept its row (build/test_key.tl's
     -- `lookup`), the shares' alone being what its cache holds.
-    COSMIC_TEST_FOREIGN_FEATURES = if gathering then "1" else "" end })
+    COSMIC_TEST_FOREIGN_KERNEL = if gathering then "1" else "" end })
   local checked_environment = checked_run.env
   local checked_words = with_census(checked_run.words)
   local shard_words: {string} = if share ~= nil then { "--shard", share } else {} end

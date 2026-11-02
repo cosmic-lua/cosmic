@@ -100,8 +100,7 @@ local function test_a_file_above_the_project_is_keyed_by_contents_not_place(tmp:
   end
   local function key_in(where: string, relative: string): string
     local s = spec()
-    s.effective.parent = { relative }
-    return key_of(tmp .. "/" .. where .. "/root", s)
+    return key_of(tmp .. "/" .. where .. "/root", { ...s, effective = { ...s.effective, parent = { relative } } })
   end
   assert(key_in("one", "up.txt") == key_in("two", "up.txt"), "the place moved the key")
   assert(key_in("one", "up.txt") ~= key_of(tmp .. "/one/root"), "the grant left the key")
@@ -137,11 +136,8 @@ local function test_a_lua_module_is_keyed_by_its_closure_not_the_program(tmp: st
   assert(Fs.write(support.build_dir(tmp) .. "/bin/cosmic", "one program"))
   local function lua_spec(program: string, store: string): declared_key.Spec
     local s = spec()
-    s.effective.lua = true
-    s.declaration = s.declaration .. "\nlua true"
-    s.program = program
-    s.closure_store = store
-    return s
+    return { ...s, effective = { ...s.effective, lua = true }, declaration = s.declaration .. "\nlua true",
+      program = program, closure_store = store }
   end
   local before = key_of(tmp, lua_spec("one program", "one store"))
   assert(Fs.write(support.build_dir(tmp) .. "/bin/cosmic", "another program"))
@@ -151,8 +147,7 @@ local function test_a_lua_module_is_keyed_by_its_closure_not_the_program(tmp: st
   local s = lua_spec("one program", "one store")
   s.effective.lua, s.effective.tool = false, true
   local tool_before = key_of(tmp, s)
-  s.program = "another program"
-  assert(key_of(tmp, s) ~= tool_before)
+  assert(key_of(tmp, { ...s, program = "another program" }) ~= tool_before)
 end
 
 --- A module that declares `lua` is keyed with what `cosmic -e` loads
@@ -187,10 +182,8 @@ local function test_a_chunk_module_is_keyed_with_what_dash_e_loads(tmp: string)
     by_path[m.path] = m
     by_path["suite.lib"] = { path = "suite.lib", file = "suite/lib.tl", kind = "lib",
       source = "", source_hash = "", requires = {}, tests = {}, inputs = nil }
-    local s = spec()
-    s.effective = test_inputs.effective(m, by_path, {})
-    s.declaration = test_inputs.canonical(declared)
-    return key_of(tmp, s)
+    return key_of(tmp, { ...spec(), effective = test_inputs.effective(m, by_path, {}),
+      declaration = test_inputs.canonical(declared) })
   end
   local chunk, both = key_declaring(false), key_declaring(true)
   assert(Fs.write(tmp .. "/build/standalone.tl", "return {} -- the standalone runner, edited\n"))
@@ -223,9 +216,7 @@ local function test_a_type_only_module_is_no_part_of_the_key(tmp: string)
       kind = "test", source = "", source_hash = "", requires = { "suite.lib", "suite.named" },
       tests = { "test_t" }, inputs = nil }
     by_path[m.path] = m
-    local s = spec()
-    s.effective = test_inputs.effective(m, by_path, {}, type_only)
-    return key_of(tmp, s)
+    return key_of(tmp, { ...spec(), effective = test_inputs.effective(m, by_path, {}, type_only) })
   end
   local by_type = { ["suite.lib"] = { ["suite.typed"] = true } }
   local before, whole = key_with(by_type), key_with({})
@@ -265,52 +256,27 @@ local function test_each_input_moves_it(tmp: string)
   differs("a link beneath a declared directory to a file of the tree")
   assert(Fs.write(tmp .. "/suite/lib.tl", "return { changed = true }\n"))
   differs("a module of the closure")
-  local s = spec()
-  s.declaration = s.declaration .. "\ntool true"
-  differs("the declaration", s)
+  local base = spec()
+  differs("the declaration", { ...base, declaration = base.declaration .. "\ntool true" })
   differs("a variable's value", spec({ DECLARED = "e", TMPDIR = "/tmp" }))
   differs("a variable given", spec({ DECLARED = "d", TMPDIR = "/tmp", OTHER = "" }))
-  s = spec()
-  s.runtime = "another core sandboxed"
-  differs("the runtime", s)
-  s = spec()
-  s.compiler = "another compiler"
-  differs("the compiler", s)
-  s = spec()
-  s.host = "another host"
-  differs("the host", s)
-  s = spec()
-  s.epoch = "2-00000000"
-  differs("the harness's epoch", s)
+  differs("the runtime", { ...base, runtime = "another core sandboxed" })
+  differs("the compiler", { ...base, compiler = "another compiler" })
+  differs("the host", { ...base, host = "another host" })
+  differs("the harness's epoch", { ...base, epoch = "2-00000000" })
   -- Two bumps from one count, as two branches make: each draws its own
   -- token, and the two keys differ (build/harness_epoch.tl).
-  s = spec()
-  s.epoch = "1-3f9c2a1b"
-  differs("another bump's token", s)
-  s = spec()
-  s.timeout_ns = Clock.seconds(60)
-  differs("the timeout its worker runs under", s)
+  differs("another bump's token", { ...base, epoch = "1-3f9c2a1b" })
+  differs("the timeout its worker runs under", { ...base, timeout_ns = Clock.seconds(60) })
   -- A worker that may run the program undeclared keys it as declared.
-  s = spec()
-  s.runs_tool = true
-  differs("the tool, run where it could not be refused", s)
-  s = spec()
-  s.runs_tool = true
-  s.program = "another program"
-  differs("the program that runs, for one that runs the tool", s)
-  s = spec()
-  s.closure_store = "one store's digest"
-  differs("the store of the closure, given", s)
-  s = spec()
-  s.closure_store = "another store's digest"
-  differs("the store of the closure's bytes", s)
-  s = spec()
-  s.module_key = "another module"
-  differs("the module's key", s)
-  s = spec()
-  s.id = "suite.t_test test_u"
-  differs("the test's name", s)
-  s = spec()
+  differs("the tool, run where it could not be refused", { ...base, runs_tool = true })
+  differs("the program that runs, for one that runs the tool",
+    { ...base, runs_tool = true, program = "another program" })
+  differs("the store of the closure, given", { ...base, closure_store = "one store's digest" })
+  differs("the store of the closure's bytes", { ...base, closure_store = "another store's digest" })
+  differs("the module's key", { ...base, module_key = "another module" })
+  differs("the test's name", { ...base, id = "suite.t_test test_u" })
+  local s = spec()
   s.effective.host = { tmp .. "/host.txt" }
   differs("a host path, missing", s)
   assert(Fs.write(tmp .. "/host.txt", "h\n"))
@@ -408,13 +374,14 @@ local function full_spec(hostdir: string): declared_key.Spec
     env = { DECLARED = true }, network = { ["127.0.0.1"] = true },
     tool = true, lua = true, nests = true, noexec = true,
     noexec_ready = true, noexec_trouble = "no reason", store = true, system = true,
+    cpu_features = true,
     caches = { "zig" }, cache_paths = { hostdir .. "/cache" }, parent = { "absent.txt" },
     unresolved = "no reason",
   }
   return {
     id = "suite.t_test test_t", group = "suite.t_test", module_key = "module",
     runtime = "runtime sandboxed", compiler = "compiler", epoch = "1-00000000", timeout_ns = Clock.seconds(30),
-    program = "program", host = "host", system = "system", launcher = "launcher",
+    program = "program", host = "host", cpu = "cpu", system = "system", launcher = "launcher",
     declaration = 'reads "suite/data/"\nenv "DECLARED"', effective = effective,
     requires = { proc = "mounted", ["program:jq"] = "sha256:jq" },
     environment = { DECLARED = "d", TMPDIR = "/tmp" },
@@ -459,6 +426,8 @@ local function test_every_field_of_a_spec_moves_it(tmp: string)
     tree = append("tree"),
     -- Keyed only for a module given the system's paths.
     system = append("system"),
+    -- Keyed only for a module that declares `cpu_features`.
+    cpu = append("cpu"),
     -- Keyed only for a test that runs the tool.
     program = append("program"),
     -- Keyed only where the module does not declare `store`.
@@ -511,6 +480,8 @@ local function test_every_field_of_a_spec_moves_it(tmp: string)
     function(s: declared_key.Spec): any return s.effective end, key, effective_changes, {
       noexec_trouble = "diagnostic only: the noexec grant itself is keyed, and no pass is " ..
         "kept when it is unavailable",
+      cpu_features = declaration .. ", and the spec's `cpu`, the features themselves, which a " ..
+        "module that declares it alone holds (build.test_key's `declared_of`)",
       env = declaration .. ", and `environment` by what the worker is given",
       network = declaration .. ": loopback addresses alone (`cosmic.test`), which an " ..
         "offline worker's own loopback answers",
@@ -558,7 +529,7 @@ local function test_every_field_of_the_host_sources_moves_the_host(tmp: string)
   local function key(sources: declared_key.HostSources): string
     local digests = declared_key.digests(tmp)
     return declared_key.host_identity(digests, sources) .. " " ..
-      declared_key.system_identity(digests, sources, true)
+      declared_key.system_identity(digests, sources, true) .. " " .. declared_key.host_cpu(sources)
   end
   local function set(field: string, value: any): Change<declared_key.HostSources>
     return { change = function(s: declared_key.HostSources)
@@ -695,9 +666,8 @@ local function test_a_host_path_is_keyed_by_what_it_holds(tmp: string)
   local function resolved(declared: string): declared_key.Spec
     local s = spec({ DECLARED = "d", TMPDIR = "/tmp" })
     s.effective.host = { declared }
-    s.declaration = s.declaration .. "\nhost " .. string.format("%q", declared)
     test_inputs.resolve(s.effective, { root })
-    return s
+    return { ...s, declaration = s.declaration .. "\nhost " .. string.format("%q", declared) }
   end
   local function key_at(declared: string): string
     local s = resolved(declared)
@@ -806,10 +776,8 @@ local function test_only_a_closure_that_reads_the_compiler_is_keyed_by_it(tmp: s
   assert(not declared_key.reads_compiler({}))
   tree(tmp)
   local function run_under(compiler: string, closure: {string}): string
-    local s = spec()
-    s.closure_store = "the same store"
-    s.compiler = declared_key.reads_compiler(closure) and compiler or ""
-    return key_of(tmp, s)
+    return key_of(tmp, { ...spec(), closure_store = "the same store",
+      compiler = declared_key.reads_compiler(closure) and compiler or "" })
   end
   local plain = { "suite.lib", "suite.t_test" }
   assert(run_under("one compiler", plain) == run_under("another compiler", plain))
@@ -848,6 +816,8 @@ local function test_each_part_of_the_host_moves_its_identity(tmp: string)
   assert(identity() == identity(), "the same host")
   sources.cpu_features = { "fma", "aes", "avx512bw" }
   assert(seen[identity()] == "the start", "each feature is counted once, if a core reads it")
+  sources.cpu_features = { "aes", "pclmulqdq" }
+  assert(seen[identity()] == "the start", "the processor's features are no part of the identity")
   local installed = declared_key.system_identity(declared_key.digests(tmp), sources)
   write("packages", "p2")
   write("os", "o2")
@@ -860,10 +830,8 @@ local function test_each_part_of_the_host_moves_its_identity(tmp: string)
   differs("the kernel's release")
   write("version", "v2")
   differs("the kernel's version")
-  sources.cpu_features = { "aes" }
-  assert(seen[identity()] == "the kernel's version", "a feature no core reads")
   sources.cpu_features = { "aes", "fma", "pclmulqdq" }
-  differs("a feature of the processor")
+  assert(seen[identity()] == "the kernel's version", "a feature of the processor")
   write("status", "Name: x\nCapEff: 1\nUid: 1 1 1 1\n")
   differs("the capabilities")
   write("status", "Name: y\nCapEff: 1\nUid: 1 1 1 1\n")
@@ -933,10 +901,9 @@ local function test_only_a_module_given_the_system_is_keyed_by_what_is_installed
   assert(one ~= other)
   local function key_on(system: string, declares_system: boolean, host: mut {string}): string
     local s = spec()
-    s.system = system
     s.effective.system = declares_system
     s.effective.host = host
-    return key_of(tmp .. "/tree", s)
+    return key_of(tmp .. "/tree", { ...s, system = system })
   end
   assert(key_on(one, false, {}) == key_on(other, false, {}), "a module not given the system")
   local file = { tmp .. "/host/file" }
@@ -1058,12 +1025,11 @@ local function test_a_changed_tool_moves_a_system_modules_key(tmp: string)
   end
   local function key_on(declares_system: boolean): string
     local s = spec({ DECLARED = "d", TMPDIR = "/tmp", PATH = bin })
-    s.system = declared_key.system_identity(declared_key.digests(tmp), {
+    s.effective.system = declares_system
+    return key_of(tmp .. "/tree", { ...s, system = declared_key.system_identity(declared_key.digests(tmp), {
       packages = { tmp .. "/no-packages" }, system = { tmp .. "/no-os-release" },
       walked = { tmp .. "/host/usr" },
-    }, declares_system)
-    s.effective.system = declares_system
-    return key_of(tmp .. "/tree", s)
+    }, declares_system) })
   end
   local given, not_given = key_on(true), key_on(false)
   assert(Fs.write(bin .. "/wc", "another wc\n"))
@@ -1129,8 +1095,7 @@ local function test_a_program_is_keyed_by_what_it_runs_as(tmp: string)
   s.effective.tool = true
   local function keys(): string, string
     local program = declared_key.program_identity(declared_key.digests(root), { tool })
-    s.program = program
-    return program, key_of(root, s)
+    return program, key_of(root, { ...s, program = program })
   end
   local meta: {string:string} = { boot_hash = "one", projected = "one", writer = "w", compiler = "c" }
   program_at(tool, "core one", meta, "bytecode one")
@@ -1202,10 +1167,8 @@ local function test_an_artifacts_launcher_moves_every_key(tmp: string)
   local s = spec()
   assert(not s.effective.tool)
   local native = key_of(root, s)
-  s.launcher = one
-  local first = key_of(root, s)
-  s.launcher = two
-  local second = key_of(root, s)
+  local first = key_of(root, { ...s, launcher = one })
+  local second = key_of(root, { ...s, launcher = two })
   assert(first ~= native and second ~= first, "the launcher left a key without `tool`")
   assert(declared_key.launcher_identity(declared_key.digests(root), root .. "/nowhere") ==
       "missing")
@@ -1265,11 +1228,10 @@ local function test_the_store_given_is_keyed_as_it_is_given(tmp: string)
   tree(tmp)
   assert(support.build_dir(tmp))
   assert(Fs.write(support.build_dir(tmp) .. "/cosmic.db", "one"))
-  local closed = spec()
-  closed.closure_store = "address"
+  local closed = { ...spec(), closure_store = "address" }
   local whole = spec()
   whole.effective.store = true
-  whole.closure_store = "address"
+  whole = { ...whole, closure_store = "address" }
   local closed_before, whole_before = key_of(tmp, closed), key_of(tmp, whole)
   assert(Fs.write(support.build_dir(tmp) .. "/cosmic.db", "two"))
   assert(key_of(tmp, closed) == closed_before, "the projection moved a closure store's key")
@@ -1369,12 +1331,12 @@ local function test_a_file_rewritten_since_an_earlier_run_is_read_once(tmp: stri
 end
 
 --- The rest of the host's identity (`host_split`) moves with everything
---- of it but its features: the kernel's release and version and the
---- processor's features move the identity and not the rest, while the
---- user, the sandbox's /proc and what the host says of itself move both.
---- A gathering run takes the verdicts of a host of another features by
---- this (build/shared_verdicts.tl's `hosts_like`).
-local function test_the_rest_of_a_hosts_identity_leaves_out_its_features(tmp: string)
+--- of it but its kernel: the kernel's release and version move the
+--- identity and not the rest, while the user, the sandbox's /proc and
+--- what the host says of itself move both, and the processor's features
+--- move neither. A gathering run takes the verdicts of a host of another
+--- kernel by this (build/shared_verdicts.tl's `hosts_like`).
+local function test_the_rest_of_a_hosts_identity_leaves_out_its_kernel(tmp: string)
   local function write(name: string, text: string): string
     assert(Fs.write(tmp .. "/" .. name, text))
     return tmp .. "/" .. name
@@ -1405,11 +1367,53 @@ local function test_the_rest_of_a_hosts_identity_leaves_out_its_features(tmp: st
   assert(Fs.write(version, "v2"))
   assert(start().rest == first.rest, "a kernel's version")
   local features = split({ "aes", "ssse3" }, "h1", true, 1)
-  assert(features.identity ~= kernel.identity and features.rest == first.rest, "a feature")
+  assert(features.identity == start().identity and features.rest == first.rest, "a feature")
   assert(Fs.write(release, "r1"))
   assert(Fs.write(version, "v1"))
   assert(start().identity == first.identity, "put back")
   assert(split({ "aes", "pclmulqdq" }, "h2", true, 1).rest ~= first.rest, "what the host says of itself")
   assert(split({ "aes", "pclmulqdq" }, "h1", false, 1).rest ~= first.rest, "a /proc of the sandbox's own")
   assert(split({ "aes", "pclmulqdq" }, "h1", true, 2).rest ~= first.rest, "the user")
+end
+
+--- A verdict earned on a host of other processor features stands for a
+--- test whose module does not declare `cpu_features`, and not for one
+--- that does: the key holds the features a core chooses code by
+--- ([`declared_key.host_cpu`]) in the second alone, and no feature a core
+--- chooses no code by in either. The kernel moves both keys.
+local function test_a_key_holds_the_processors_features_only_where_declared(tmp: string)
+  tree(tmp)
+  assert(Fs.write(tmp .. "/version", "v1"))
+  local function host(cpu: {string}, release: string): declared_key.HostSources
+    assert(Fs.write(tmp .. "/release-" .. release, release))
+    return {
+      packages = {}, system = { tmp .. "/os", tmp .. "/release-" .. release, tmp .. "/version" },
+      sysname = "Linux", cpu_features = cpu, machine = "x86_64", status = tmp .. "/status",
+      own_proc = true, host_id = "h", uid = 1,
+    }
+  end
+  -- The key of the test of a host, as build/test_key.tl's `declared_of` keys it.
+  local function key(sources: declared_key.HostSources, declares: boolean): string
+    local s = spec(nil, declared_key.host_identity(declared_key.digests(tmp), sources))
+    if declares then
+      s.cpu = declared_key.host_cpu(sources)
+      s.effective.cpu_features = true
+    end
+    return key_of(tmp, s)
+  end
+  local here = host({ "aes", "sse4_1", "ssse3", "avx512bw" }, "r1")
+  -- Another processor: one dispatched feature fewer.
+  local elsewhere = host({ "aes", "ssse3", "avx512bw" }, "r1")
+  assert(key(here, false) == key(elsewhere, false), "an undeclared test's key holds the processor")
+  assert(key(here, true) ~= key(elsewhere, true), "a declared test's key lacks the processor")
+  assert(key(here, true) ~= key(here, false))
+  -- A feature no core chooses code by names no other processor.
+  local lesser = host({ "aes", "sse4_1", "ssse3" }, "r1")
+  assert(key(here, true) == key(lesser, true), "a feature no core reads split the verdicts")
+  -- The kernel moves both.
+  local newer = host({ "aes", "sse4_1", "ssse3", "avx512bw" }, "r2")
+  assert(key(here, false) ~= key(newer, false), "a kernel moved no undeclared key")
+  assert(key(here, true) ~= key(newer, true), "a kernel moved no declared key")
+  assert(declared_key.host_cpu(here) == declared_key.host_cpu(lesser))
+  assert(declared_key.host_cpu(here) ~= declared_key.host_cpu(elsewhere))
 end

@@ -10,6 +10,9 @@ local Fs = require("cosmic.fs")
 local Stream = require("cosmic.stream")
 local Time = require("cosmic.time")
 local Zip = require("cosmic.zip")
+local Test = require("cosmic.test")
+
+Test.policy{ cpu_features = true }
 
 local ZIP_B64 <const> =
   "UEsDBAoAAAAAADItN13z+cmLFAAAABQAAAANABwAc3JjL3Nob3J0LnR4dFVUCQADkGazapBms2p1eAsAAQQAAAAABAAAAABzaG9ydCBmaWxlIGNvbnRlbnRzClBLAwQKAAAAAAAyLTddI9j0uAkAAAAJAAAADgAcAHNyYy9hZGlyL2FsaW5rVVQJAAOQZrNqkGazanV4CwABBAAAAAAEAAAAAHNob3J0LnR4dFBLAwQUAAAACAA4LTdd0RXq2CAAAACZCAAACwAcAHNyYy9iaWcudHh0VVQJAAOcZrNqn2azanV4CwABBAAAAAAEAAAAAEtJTctJLElVyE1VSBlljjJHmaPMUeYoc5Q5yhxIJhcAUEsDBAoAAAAAADgtN13z+cmLFAAAABQAAAAUABwAc3JjL3Nob3J0X3N0b3JlZC50eHRVVAkAA5xms2qfZrNqdXgLAAEEAAAAAAQAAAAAc2hvcnQgZmlsZSBjb250ZW50cwpQSwECHgMKAAAAAAAyLTdd8/nJixQAAAAUAAAADQAYAAAAAAABAAAApIEAAAAAc3JjL3Nob3J0LnR4dFVUBQADkGazanV4CwABBAAAAAAEAAAAAFBLAQIeAwoAAAAAADItN10j2PS4CQAAAAkAAAAOABgAAAAAAAAAAAD/oVsAAABzcmMvYWRpci9hbGlua1VUBQADkGazanV4CwABBAAAAAAEAAAAAFBLAQIeAxQAAAAIADgtN13RFerYIAAAAJkIAAALABgAAAAAAAEAAACkgawAAABzcmMvYmlnLnR4dFVUBQADnGazanV4CwABBAAAAAAEAAAAAFBLAQIeAwoAAAAAADgtN13z+cmLFAAAABQAAAAUABgAAAAAAAAAAACkgREBAABzcmMvc2hvcnRfc3RvcmVkLnR4dFVUBQADnGazanV4CwABBAAAAAAEAAAAAFBLBQYAAAAABAAEAFIBAABzAQAAAAA="
@@ -515,14 +518,15 @@ end
 --- its n-th read.
 local function repeating(chunk: string, rounds: integer, each?: function(integer)): Stream.Reader
   local n: integer = 0
-  local r: Stream.Reader = {}
-  r.read = function(_self: Stream.Reader, _max_bytes?: integer): string?, string
-    if n >= rounds then return nil, "" end
-    n = n + 1
-    if each ~= nil then each(n) end
-    return chunk, ""
-  end
-  r.close = function(_self: Stream.Reader): boolean, string return true, "" end
+  local r: Stream.Reader = {
+    read = function(_self: Stream.Reader, _max_bytes?: integer): string?, string
+      if n >= rounds then return nil, "" end
+      n = n + 1
+      if each ~= nil then each(n) end
+      return chunk, ""
+    end,
+    close = function(_self: Stream.Reader): boolean, string return true, "" end,
+  }
   return r
 end
 
@@ -583,13 +587,14 @@ end
 --- `abort` are noted.
 local function recording(): Stream.Writer, {string}
   local pieces: mut {string} = {}
-  local w: Stream.Writer = {}
-  w.write = function(_self: Stream.Writer, data: string): boolean, string
-    pieces[#pieces + 1] = data
-    return true, ""
-  end
-  w.close = function(_self: Stream.Writer): boolean, string return true, "" end
-  w.abort = function(_self: Stream.Writer): boolean, string return true, "" end
+  local w: Stream.Writer = {
+    write = function(_self: Stream.Writer, data: string): boolean, string
+      pieces[#pieces + 1] = data
+      return true, ""
+    end,
+    close = function(_self: Stream.Writer): boolean, string return true, "" end,
+    abort = function(_self: Stream.Writer): boolean, string return true, "" end,
+  }
   return w, pieces
 end
 
@@ -660,11 +665,12 @@ end
 
 local function test_a_failing_body_fails_and_aborts_the_writer()
   local w = Zip.writer(Stream.collect())
-  local bad: Stream.Reader = {}
-  bad.read = function(_self: Stream.Reader, _max_bytes?: integer): string?, string
-    return nil, "disk on fire"
-  end
-  bad.close = function(_self: Stream.Reader): boolean, string return true, "" end
+  local bad: Stream.Reader = {
+    read = function(_self: Stream.Reader, _max_bytes?: integer): string?, string
+      return nil, "disk on fire"
+    end,
+    close = function(_self: Stream.Reader): boolean, string return true, "" end,
+  }
   local ok, trouble = w:add_file("f", bad)
   assert(not ok and trouble == "zip: add_file: disk on fire", trouble)
   ok, trouble = w:add_file("g", "x")
@@ -683,13 +689,14 @@ local function test_a_streamed_body_takes_bounded_memory()
   local warm = 6
   for _, method in ipairs({ "deflate", "store" } as {Zip.Method}) do
     local written: integer = 0
-    local sink: Stream.Writer = {}
-    sink.write = function(_self: Stream.Writer, data: string): boolean, string
-      written = written + #data
-      return true, ""
-    end
-    sink.close = function(_self: Stream.Writer): boolean, string return true, "" end
-    sink.abort = function(_self: Stream.Writer): boolean, string return true, "" end
+    local sink: Stream.Writer = {
+      write = function(_self: Stream.Writer, data: string): boolean, string
+        written = written + #data
+        return true, ""
+      end,
+      close = function(_self: Stream.Writer): boolean, string return true, "" end,
+      abort = function(_self: Stream.Writer): boolean, string return true, "" end,
+    }
     collectgarbage()
     collectgarbage()
     local base = collectgarbage("count")
@@ -826,12 +833,13 @@ end
 --- A failing Writer's own words are what the writer answers, as they
 --- are; a failing body Reader's are told what the writer was doing.
 local function test_a_failing_underlying_writer_is_answered_as_it_said_it()
-  local full: Stream.Writer = {}
-  full.write = function(_self: Stream.Writer, _data: string): boolean, string
-    return false, "disk full"
-  end
-  full.close = function(_self: Stream.Writer): boolean, string return true, "" end
-  full.abort = full.close
+  local function closed(_self: Stream.Writer): boolean, string return true, "" end
+  local full: Stream.Writer = {
+    write = function(_self: Stream.Writer, _data: string): boolean, string
+      return false, "disk full"
+    end,
+    close = closed, abort = closed,
+  }
   local w = Zip.writer(full)
   local ok, trouble = w:add_file("f", Stream.from_string(string.rep("x", 100000)), { size = 100000 })
   assert(not ok and trouble == "disk full", trouble)

@@ -1,8 +1,7 @@
 # The islands: files the release in ci/cosmic-driver.pin reads as Teal
-# (it reads the grammar of the others from COSMIC_GRAMMAR). Empty on
+# (it reads the others in the new grammar, its default). Empty on
 # purpose: the bootstrap scripts of build/ and ci/ that were listed here
 # are written in the new checker's grammar, which that release reads
-# where COSMIC_GRAMMAR=new, as bin/cosmic-bootstrap and the CI driver's
-# wrapper set it. A path listed here is read as Teal again, and
+# by default. A path listed here is read as Teal again, and
 # `driver.tl check-islands` fails on one. One path a line from the
 # checkout's root, with what a `#` starts and blank lines left out.

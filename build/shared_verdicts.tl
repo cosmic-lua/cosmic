@@ -374,10 +374,9 @@ function shared_verdicts.host_of(parts: string): shared_verdicts.NamedHost
 end
 
 --- The identities of the hosts, other than `own`, whose rows the cache
---- holds and whose rest but for their features is `rest`: hosts that
+--- holds and whose rest but for their kernel is `rest`: hosts that
 --- differ from the one of identity `own` in its kernel's release and
---- version and its processor's features alone
---- ([`declared_key.host_split`]), sorted. A gathering run looks a test up
+--- version alone ([`declared_key.host_split`]), sorted. A gathering run looks a test up
 --- under each one's key (build/test_key.tl's `lookup`), in this order, and
 --- the first row found answers: a pass on any like host stands though
 --- another like host failed the same key, since a failing run deletes its
@@ -406,7 +405,7 @@ end
 --- rows it keys, "; " between them, or that it held none, so a report
 --- says whether the run's own parts were among what it restored:
 ---
----     test: census: 1994 rows under host features X, ..., harness e1-00000000-t60000; 3 rows under no parts named
+---     test: census: 1994 rows under host kernel X, ..., harness e1-00000000-t60000; 3 rows under no parts named
 ---     test: census: no rows
 function shared_verdicts.census_line(held: {shared_verdicts.Held}): string
   if #held == 0 then return "test: census: no rows" end

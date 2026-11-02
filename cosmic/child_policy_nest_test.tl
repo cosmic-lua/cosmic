@@ -222,9 +222,8 @@ end
 
 local function test_a_nested_sandbox_needs_nest(tmp: string)
   local at = placed(tmp)
-  local policy = nested(at)
-  policy.promises = { "fork" }
-  local ran = under({ at.probe, "run-isolated " .. at.probe .. " print hi" }, policy, at.work)
+  local ran = under({ at.probe, "run-isolated " .. at.probe .. " print hi" },
+    { ...nested(at), promises = { "fork" } }, at.work)
   assert(ran.code == 0, ran.said)
   assert(ran.said:find("namespace was refused", 1, true), ran.said)
 end

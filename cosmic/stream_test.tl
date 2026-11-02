@@ -551,13 +551,14 @@ end
 --- A Transform with nothing but the two required calls, which holds
 --- nothing back: it upper-cases, and ends with "!".
 local function shouting(): Stream.Transform
-  local t: Stream.Transform = {}
-  t.update = function(_self: Stream.Transform, chunk: string): string?, string
-    return chunk:upper(), ""
-  end
-  t.finish = function(_self: Stream.Transform): string?, string
-    return "!", ""
-  end
+  local t: Stream.Transform = {
+    update = function(_self: Stream.Transform, chunk: string): string?, string
+      return chunk:upper(), ""
+    end,
+    finish = function(_self: Stream.Transform): string?, string
+      return "!", ""
+    end,
+  }
   return t
 end
 
@@ -606,15 +607,16 @@ end
 --- `update`, and at `finish` either ends with "." or, when `cut`,
 --- refuses.
 local function strict(cut?: boolean): Stream.Transform
-  local t: Stream.Transform = {}
-  t.update = function(_self: Stream.Transform, chunk: string): string?, string
-    if chunk:find("!", 1, true) then return nil, "bang" end
-    return chunk:upper(), ""
-  end
-  t.finish = function(_self: Stream.Transform): string?, string
-    if cut then return nil, "cut short" end
-    return ".", ""
-  end
+  local t: Stream.Transform = {
+    update = function(_self: Stream.Transform, chunk: string): string?, string
+      if chunk:find("!", 1, true) then return nil, "bang" end
+      return chunk:upper(), ""
+    end,
+    finish = function(_self: Stream.Transform): string?, string
+      if cut then return nil, "cut short" end
+      return ".", ""
+    end,
+  }
   return t
 end
 
@@ -747,14 +749,15 @@ end
 local function test_transform_writer_hold_reports_a_drain_that_fails_mid_write()
   -- The second call of one write, the drain, refuses.
   local calls: integer = 0
-  local t: Stream.Transform = {}
-  t.update = function(_self: Stream.Transform, _chunk: string): string?, string
-    calls = calls + 1
-    if calls == 2 then return nil, "drain failed" end
-    return "x", ""
-  end
-  t.pending = function(_self: Stream.Transform): boolean return true end
-  t.finish = function(_self: Stream.Transform): string?, string return "", "" end
+  local t: Stream.Transform = {
+    update = function(_self: Stream.Transform, _chunk: string): string?, string
+      calls = calls + 1
+      if calls == 2 then return nil, "drain failed" end
+      return "x", ""
+    end,
+    pending = function(_self: Stream.Transform): boolean return true end,
+    finish = function(_self: Stream.Transform): string?, string return "", "" end,
+  }
   local out = recording()
   local w = Stream.transform_writer(out, t, { hold = 1 })
   local ok, trouble = w:write("ab")
@@ -864,13 +867,14 @@ end
 --- A Reader handing out `s` a byte at a time, whatever it is asked for.
 local function trickle(s: string): Stream.Reader
   local inner = Stream.from_string(s)
-  local r: Stream.Reader = {}
-  r.read = function(_self: Stream.Reader, _max_bytes?: integer): string?, string
-    return inner:read(1)
-  end
-  r.close = function(_self: Stream.Reader): boolean, string
-    return inner:close()
-  end
+  local r: Stream.Reader = {
+    read = function(_self: Stream.Reader, _max_bytes?: integer): string?, string
+      return inner:read(1)
+    end,
+    close = function(_self: Stream.Reader): boolean, string
+      return inner:close()
+    end,
+  }
   return r
 end
 
@@ -952,13 +956,14 @@ end
 --- A Reader's failure ends the lines with it, after the ones before.
 local function test_lines_stop_at_a_reader_failure()
   local inner = Stream.from_string("a\nb")
-  local r: Stream.Reader = {}
-  r.read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
-    local chunk, trouble = inner:read(max_bytes)
-    if chunk == nil and trouble == "" then return nil, "boom" end
-    return chunk, trouble
-  end
-  r.close = function(_self: Stream.Reader): boolean, string return true, "" end
+  local r: Stream.Reader = {
+    read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
+      local chunk, trouble = inner:read(max_bytes)
+      if chunk == nil and trouble == "" then return nil, "boom" end
+      return chunk, trouble
+    end,
+    close = function(_self: Stream.Reader): boolean, string return true, "" end,
+  }
   local lines = Stream.lines(r)
   local seen: mut {string} = {}
   for line in lines:each() do seen[#seen + 1] = line end
@@ -1007,14 +1012,15 @@ end
 local function test_rest_after_the_last_line_reads_nothing_more()
   local inner = Stream.from_string("a\nb")
   local ended: boolean = false
-  local r: Stream.Reader = {}
-  r.read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
-    assert(not ended, "read past the end")
-    local chunk, trouble = inner:read(max_bytes)
-    if chunk == nil then ended = true end
-    return chunk, trouble
-  end
-  r.close = function(_self: Stream.Reader): boolean, string return true, "" end
+  local r: Stream.Reader = {
+    read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
+      assert(not ended, "read past the end")
+      local chunk, trouble = inner:read(max_bytes)
+      if chunk == nil then ended = true end
+      return chunk, trouble
+    end,
+    close = function(_self: Stream.Reader): boolean, string return true, "" end,
+  }
   local lines = Stream.lines(r)
   local seen: mut {string} = {}
   for line in lines:each() do seen[#seen + 1] = line end
@@ -1042,14 +1048,15 @@ end
 local function test_rest_after_a_raise_keeps_the_start_of_a_line()
   local answers: {string | boolean} = { "a\npar", false, "tial\nbody" }
   local next_answer: integer = 0
-  local r: Stream.Reader = {}
-  r.read = function(_self: Stream.Reader, _max_bytes?: integer): string?, string
-    next_answer = next_answer + 1
-    local answer = answers[next_answer]
-    if answer == false then error("raised") end
-    return answer as string, ""
-  end
-  r.close = function(_self: Stream.Reader): boolean, string return true, "" end
+  local r: Stream.Reader = {
+    read = function(_self: Stream.Reader, _max_bytes?: integer): string?, string
+      next_answer = next_answer + 1
+      local answer = answers[next_answer]
+      if answer == false then error("raised") end
+      return answer as string, ""
+    end,
+    close = function(_self: Stream.Reader): boolean, string return true, "" end,
+  }
   local lines = Stream.lines(r)
   assert(lines:read() == "a")
   assert(not pcall(lines.read, lines))
@@ -1063,14 +1070,15 @@ end
 local function test_rest_ends_the_lines_and_closes_the_reader()
   local closes: integer = 0
   local inner = Stream.from_string("a\nb\n")
-  local r: Stream.Reader = {}
-  r.read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
-    return inner:read(max_bytes)
-  end
-  r.close = function(_self: Stream.Reader): boolean, string
-    closes = closes + 1
-    return true, ""
-  end
+  local r: Stream.Reader = {
+    read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
+      return inner:read(max_bytes)
+    end,
+    close = function(_self: Stream.Reader): boolean, string
+      closes = closes + 1
+      return true, ""
+    end,
+  }
   local lines = Stream.lines(r)
   assert(lines:read() == "a")
   local rest = lines:rest()
@@ -1125,13 +1133,14 @@ end
 --- asks, then fails with `failure` (an end of file when it is "").
 local function chunked(chunks: {string}, failure: string): Stream.Reader
   local at: integer = 0
-  local r: Stream.Reader = {}
-  r.read = function(_self: Stream.Reader, _max_bytes?: integer): string?, string
-    at = at + 1
-    if chunks[at] == nil then return nil, failure end
-    return chunks[at], ""
-  end
-  r.close = function(_self: Stream.Reader): boolean, string return true, "" end
+  local r: Stream.Reader = {
+    read = function(_self: Stream.Reader, _max_bytes?: integer): string?, string
+      at = at + 1
+      if chunks[at] == nil then return nil, failure end
+      return chunks[at], ""
+    end,
+    close = function(_self: Stream.Reader): boolean, string return true, "" end,
+  }
   return r
 end
 

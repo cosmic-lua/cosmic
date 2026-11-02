@@ -496,15 +496,11 @@ local function withdraw(name: string, bin: string, out: string?, held: mut {stri
 end
 
 -- The build of [`embed.tree`], under the rebuild lock it takes.
-local function build_tree(root: string, host?: boolean, under?: {string}, grammar?: GrammarMode.Mode,
+local function build_tree(root: string, host?: boolean, under?: {string},
                           roots?: string, carried?: string, outcome?: importer.Outcome, out?: string,
                           report?: embed.Report): {string}?, string
-  local mode = grammar
-  if mode == nil then
-    local chosen, chosen_trouble = GrammarMode.mode()
-    if chosen == nil then return nil, chosen_trouble end
-    mode = chosen
-  end
+  local grammar_trouble = GrammarMode.refusal()
+  if grammar_trouble ~= nil then return nil, grammar_trouble end
   -- A failure before the programs are known (the tree's standing, the working database, the staging) says nothing
   -- of any program, and withdraws none.
   local standing, standing_trouble = tree.standing(root, carried)
@@ -554,8 +550,8 @@ local function build_tree(root: string, host?: boolean, under?: {string}, gramma
     end
     manifest_write(root, held)
   end
-  -- The new checker reads the project in this process; its compile is keyed by the mode.
-  local tool = GrammarMode.tool(Store.meta("compiler") or "", mode)
+  -- The new checker reads the project in this process.
+  local tool = GrammarMode.tool(Store.meta("compiler") or "")
   local asked: importer.Outcome = outcome or { refused = false }
   local result, compile_trouble = importer.compile(handle, tool, false, shared_compiles.for_build(), nil, nil, asked)
   if result == nil then
@@ -738,11 +734,6 @@ end
 --- @param under paths relative to `root` that narrow it to the programs
 ---   whose `main.tl` is under one; each must hold one. None, or nil, is
 ---   every program
---- @param grammar the checker that compiles the project: the one
----   `COSMIC_GRAMMAR` names where not given ([`build.grammar_mode`]). The
----   new checker ([`build.pipeline`]) holds a project to no ceiling, and a
----   project written in a form only the fork reads is refused with the new
----   checker's words and fix.
 --- @param roots the roots its executables trust by default, as
 ---   `cosmic build --roots` names them ([`embed.database`]); nil records
 ---   none, which is "minimal"
@@ -751,14 +742,14 @@ end
 --- @param out a directory, made when the first executable is written to it, to which each executable is also
 ---   written under its name
 --- @param report filled with the refusals, the programs not made and the executables removed
-function embed.tree(root: string, host?: boolean, under?: {string}, grammar?: GrammarMode.Mode,
+function embed.tree(root: string, host?: boolean, under?: {string},
                     roots?: string, carried?: string, outcome?: importer.Outcome, out?: string,
                     report?: embed.Report): {string}?, string
   -- One build of a tree at a time: two would share `cosmic.db.partial` and the `--out` manifest, and one could
   -- remove what the other reads. A holder that has the lock already (`cosmic test`, a rebuild) goes on under it.
   local took, lock_trouble = rebuild_lock.hold(root, "write", "build")
   if took == nil then return nil, lock_trouble end
-  local names, trouble = build_tree(root, host, under, grammar, roots, carried, outcome, out, report)
+  local names, trouble = build_tree(root, host, under, roots, carried, outcome, out, report)
   if took then rebuild_lock.release() end
   if names == nil then return nil, trouble end
   return names, ""
@@ -829,7 +820,7 @@ local function run(argv: {string}): integer
   end
   local outcome: importer.Outcome = { refused = false }
   local report: embed.Report = { unbuilt = {}, removed = {}, refusal = "" }
-  local names, trouble = embed.tree(root, host, narrow.paths(root, parsed.words), nil, roots, nil, outcome, out,
+  local names, trouble = embed.tree(root, host, narrow.paths(root, parsed.words), roots, nil, outcome, out,
     report)
   -- The refusals are named whatever else happens; a failure to read, stage or write is 1 and outranks them
   -- ([`exit_status.uncompiled`] is for a run that failed only because a file did not compile).

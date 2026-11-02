@@ -148,11 +148,10 @@ local function test_each_broken_file_of_one_source_is_told(tmp: string)
     tostring(result.stdout) .. stderr)
 end
 
---- Runs `file` in `root` as this program with the new checker (`COSMIC_GRAMMAR=new`).
+--- Runs `file` in `root` as this program.
 local function run_new_in(root: string, file: string): Child.Result
   local env = this_program.environment()
   env["COSMIC_BUILD_CACHE"] = "0"
-  env["COSMIC_GRAMMAR"] = "new"
   local started = this_program.program({ file }, { cwd = root, env = env,
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
   return (assert(Child.run(started.argv, started.options)))

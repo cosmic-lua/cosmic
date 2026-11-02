@@ -252,6 +252,74 @@ local function test_a_busy_database_is_read_at_once_as_last_committed()
   assert(counts(ran) == "0,1", "staged once the lock is free: " .. counts(ran))
 end
 
+--- A stage that a single document's check makes (the tree is pending, a run having held the database when the files changed)
+--- and that is refused moves the banner of every other open document too, not only the document checked.
+local function test_a_refusal_found_in_one_documents_check_is_told_to_the_others()
+  local root = project()
+  assert(Fs.mkdirs(root .. "/x"))
+  local text = "local record X\n  n: integer\nend\nreturn X\n"
+  assert(Fs.write(root .. "/x.tl", text))
+  assert(Fs.write(root .. "/clean.tl", EMPTY))
+  local send = serving(root)
+  local good = send({ initialize(root), open(root, "x.tl", text), open(root, "clean.tl", EMPTY) })
+  assert(counts(good) == "0,0", counts(good))
+  assert(Fs.write(root .. "/x/init.tl", text))
+  -- Another run holds the database when the file is reported: nothing is staged, and the stage stays pending.
+  local held = assert(Sqlite.open(build_paths.under((assert(build_paths.directory(root)))).working,
+    { writable = true }))
+  assert(held:exec("BEGIN IMMEDIATE"))
+  local busy = send({ save(root, "x/init.tl") })
+  assert(counts(busy) == "0,0", "nothing staged while the lock is held: " .. counts(busy))
+  assert(held:exec("ROLLBACK"))
+  assert(held:close())
+  -- A change to one document stages the tree; the other document is told the refusal without being asked.
+  local ran = send({ change(root, "x.tl", text .. "\n") })
+  local told = ""
+  for _, each in ipairs(session_fixture.publications(ran)) do
+    if each.uri:match("[^/]*$") == "clean.tl" then
+      local first = each.diagnostics[1]
+      told = (if first ~= nil then first.message else "" end)
+    end
+  end
+  assert(told == "the build refuses this tree: x.tl and x/init.tl both answer to import path 'x'; delete or rename one; " ..
+      "modules are as last staged", told)
+end
+
+--- A banner does not outlive its cause: once the root is no project (its build directory is gone), the open documents are told
+--- nothing, though the tree was refused before.
+local function test_a_refusal_is_not_told_once_the_root_is_no_project()
+  local root = project()
+  assert(Fs.mkdirs(root .. "/x"))
+  local text = "local record X\n  n: integer\nend\nreturn X\n"
+  assert(Fs.write(root .. "/x.tl", text))
+  assert(Fs.write(root .. "/clean.tl", EMPTY))
+  local send = serving(root)
+  assert(counts(send({ initialize(root), open(root, "x.tl", text), open(root, "clean.tl", EMPTY) })) == "0,0")
+  assert(Fs.write(root .. "/x/init.tl", text))
+  local refused = send({ session_fixture.changed_on_disk(root, "x/init.tl") })
+  local told = ""
+  for _, each in ipairs(session_fixture.publications(refused)) do
+    if each.uri:match("[^/]*$") == "clean.tl" then
+      told = (if each.diagnostics[1] ~= nil then "banner" else "" end)
+    end
+  end
+  assert(told == "banner", "the refusal is told first: " .. told)
+  -- The build directory's database goes: the root is no project.
+  local layout = build_paths.under((assert(build_paths.directory(root))))
+  assert(Fs.remove(layout.working))
+  if Fs.exists(layout.projection) == true then assert(Fs.remove(layout.projection)) end
+  local gone = send({ session_fixture.changed_on_disk(root, "x/init.tl") })
+  local after: mut {string:integer} = {}
+  for _, each in ipairs(session_fixture.publications(gone)) do
+    after[each.uri:match("[^/]*$") or ""] = #each.diagnostics
+  end
+  local last = ""
+  for _, each in ipairs(session_fixture.publications(gone)) do
+    if each.uri:match("[^/]*$") == "clean.tl" then last = messages_of(each.diagnostics) end
+  end
+  assert(after["clean.tl"] == 0, "no banner: " .. last)
+end
+
 --- A database of another schema, another tool's, the session neither
 --- stages nor reads, saying so, and leaves where it is; once a build of
 --- this tool makes it again, it stages it.
@@ -272,11 +340,13 @@ local function test_a_database_of_another_schema_is_neither_staged_nor_read()
   assert(other.err:find("is of schema another", 1, true), other.err)
   assert(assert(Fs.stat(working)).ino == before, "the file was removed")
   -- None of its modules is read.
-  assert(counts(other) == "0,1", counts(other))
-  assert(messages_of(nth(other, 2)) == NO_SHAPES, messages_of(nth(other, 2)))
+  -- The document is told the editor could not stage, and finds no module.
+  assert(counts(other) == "0,2", counts(other))
+  local told = messages_of(nth(other, 2))
+  assert(told:find("the editor could not stage this tree: ", 1, true) == 1 and told:find(NO_SHAPES, 1, true) ~= nil, told)
   assert(work.close((assert(work.open(root)))))
   local ran = send({ change(root, "main.tl", main .. "\n") })
-  assert(counts(ran) == "0,1,1", "staged once made again: " .. counts(ran))
+  assert(counts(ran) == "0,2,1", "staged once made again: " .. counts(ran))
   assert(messages_of(nth(ran, 3)) == WRONG, messages_of(nth(ran, 3)))
 end
 
@@ -323,7 +393,7 @@ local function test_a_refused_pair_is_told_to_its_files_and_to_no_testdata()
   assert(Fs.write(root .. "/lib/other.tl", "local n: integer = 1\nreturn n\n"))
   local src = source.new(root, function(_: string) end)
   source.refresh(src)
-  assert(source.refused(src), "the stage staged a pair")
+  assert(source.banner(src) ~= nil, "the stage staged a pair")
   local told = source.refusal(src, "lib/m.tl")
   assert(told ~= nil and told:find("lib/m.d.tl: lib/m.tl is already the module lib.m.", 1, true) == 1, tostring(told))
   assert(source.refusal(src, "lib/m.d.tl") == told)
@@ -332,7 +402,7 @@ local function test_a_refused_pair_is_told_to_its_files_and_to_no_testdata()
   assert(Fs.remove(root .. "/lib/m.d.tl"))
   source.stale(src)
   source.refresh(src)
-  assert(not source.refused(src) and source.refusal(src, "lib/m.tl") == nil)
+  assert(source.banner(src) == nil and source.refusal(src, "lib/m.tl") == nil)
   source.close(src)
 end
 
@@ -361,8 +431,9 @@ local function test_a_database_made_again_of_another_schema_under_the_session_is
     end)
   assert(ran.err:find("is of schema another", 1, true), "not said: " .. ran.err)
   assert(ran.tally.reopened == 1, tostring(ran.tally.reopened))
-  assert(counts(ran) == "0,1", "a module of another schema's file is read: " .. counts(ran))
-  assert(messages_of(nth(ran, 2)) == NO_SHAPES, messages_of(nth(ran, 2)))
+  assert(counts(ran) == "0,2", "a module of another schema's file is read: " .. counts(ran))
+  local told = messages_of(nth(ran, 2))
+  assert(told:find("the editor could not stage this tree: ", 1, true) == 1 and told:find(NO_SHAPES, 1, true) ~= nil, told)
 end
 
 --- A session that has said the database is busy still says when it then
@@ -464,7 +535,10 @@ local function test_a_stage_that_fails_answers_from_the_last()
   assert(ran.err:find("cosmic: lsp: not staged, answering from the tree as last staged", 1, true),
     ran.err)
   assert(ran.tally.stages == 1, tostring(ran.tally.stages))
-  assert(counts(ran) == "0", "as last staged: " .. counts(ran))
+  -- The document still reads the modules as last staged, and is told the build's refusal.
+  local told = only(nth(ran, 2))
+  assert(told.message:find("the build refuses this tree: lib/broken.tl:1:7: ", 1, true) == 1 and
+      told.message:find("; modules are as last staged", 1, true) ~= nil, told.message)
 end
 
 --- How many times `ran` showed the person a message.

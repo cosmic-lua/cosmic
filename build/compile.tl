@@ -209,8 +209,10 @@ function verb.run(argv: {string}, streams?: verb.Io): integer
     if holder ~= nil then
       local Driver = require("build.driver")
       if holder_is_declaration[name] == declaration then
-        complain(path .. " and " .. holder .. " are both the module " .. name ..
-            ": a require could mean only one; name one of them, or compile them in two runs")
+        local first, second = holder, path
+        if second < first then first, second = second, first end
+        complain(require("build.analysis_schema").sharing(first .. " and " .. second, name) ..
+            ", or compile them in two runs")
       elseif declaration then
         complain(Driver.pairing(path, holder, name))
       else

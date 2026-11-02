@@ -41,12 +41,9 @@ end
 
 --- `opts` naming a host the development app trusts, as a browser's would.
 local function local_opts(opts?: Web.TestOptions, host?: string): Web.TestOptions
-  local made: Web.TestOptions = {}
-  for key, value in pairs((opts or {}) as {string:any}) do (made as {string:any})[key] = value end
   local headers: mut {string:string} = { host = host or "localhost:8080" }
   for name, value in pairs((opts and opts.headers) or {}) do headers[name:lower()] = value end
-  made.headers = headers
-  return made
+  return { ...(opts or {}), headers = headers }
 end
 
 local function get(client: Web.TestClient, path: string, opts?: Web.TestOptions): Web.TestResponse

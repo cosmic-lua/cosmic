@@ -10,7 +10,7 @@ local Test = require("cosmic.test")
 local tool_fixture = require("build.tool_fixture")
 
 --- The program itself, which its tests start.
-Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
+Test.policy{ cpu_features = true, profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 local ABC <const> = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
 

@@ -70,7 +70,10 @@ end
 --- changed on disk.
 function publish.restaged(o: Open): {string}
   check.stale(o.checker)
-  return changed(o, others(o, nil))
+  local out = changed(o, others(o, nil))
+  -- Every document was checked: what a check asked for ([`check.moved`]) is done.
+  check.moved(o.checker)
+  return out
 end
 
 --- The publication of `document`'s diagnostics, then, where its check

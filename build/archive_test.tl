@@ -255,15 +255,16 @@ local function write_big_tgz(path: string, mib: integer): integer
   local chunk = table.concat(block)
   local rounds = mib * 16
   local left = { value = rounds }
-  local body: Stream.Reader = {}
-  body.read = function(_self: Stream.Reader, _max_bytes?: integer): string?, string
-    if left.value == 0 then return nil, "" end
-    left.value = left.value - 1
-    return chunk, ""
-  end
-  body.close = function(_self: Stream.Reader): boolean, string return true, "" end
   local sink = assert(Stream.create(path))
   local w = Tar.writer(Stream.transform_writer(sink, (assert(Compress.deflater("gzip")))))
+  local body: Stream.Reader = {
+    read = function(_self: Stream.Reader, _max_bytes?: integer): string?, string
+      if left.value == 0 then return nil, "" end
+      left.value = left.value - 1
+      return chunk, ""
+    end,
+    close = function(_self: Stream.Reader): boolean, string return true, "" end,
+  }
   assert(w:add_file("big.bin", body, { size = #chunk * rounds }))
   assert(w:close())
   return #chunk * rounds
@@ -280,14 +281,15 @@ local function test_list_of_a_large_piped_tar_gz_keeps_memory_bounded(tmp: strin
   local inner = assert(Stream.open(tmp .. "/big.tar.gz"))
   local reads = { value = 0 }
   local peak = { value = 0.0 }
-  local piped: Stream.Reader = {}
-  piped.read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
-    collectgarbage()
-    peak.value = math.max(peak.value, collectgarbage("count"))
-    reads.value = reads.value + 1
-    return inner:read(max_bytes)
-  end
-  piped.close = function(_self: Stream.Reader): boolean, string return inner:close() end
+  local piped: Stream.Reader = {
+    read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
+      collectgarbage()
+      peak.value = math.max(peak.value, collectgarbage("count"))
+      reads.value = reads.value + 1
+      return inner:read(max_bytes)
+    end,
+    close = function(_self: Stream.Reader): boolean, string return inner:close() end,
+  }
   local ran = run({ "list", "-" }, piped)
   assert(ran.code == 0 and ran.err == "", ran.err)
   assert(ran.out:find("big.bin\t" .. tostring(total) .. "\t", 1, true), ran.out)
@@ -514,14 +516,15 @@ local function test_create_streams_a_large_file_into_a_zip_in_bounded_memory(tmp
     local opened, why = real_open(path)
     if opened == nil or path:sub(-7) ~= "big.txt" then return opened, why end
     local inner: Stream.Reader = opened
-    local wrapped: Stream.Reader = {}
-    wrapped.read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
-      collectgarbage()
-      peak.value = math.max(peak.value, collectgarbage("count"))
-      reads.value = reads.value + 1
-      return inner:read(max_bytes)
-    end
-    wrapped.close = function(_self: Stream.Reader): boolean, string return inner:close() end
+    local wrapped: Stream.Reader = {
+      read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
+        collectgarbage()
+        peak.value = math.max(peak.value, collectgarbage("count"))
+        reads.value = reads.value + 1
+        return inner:read(max_bytes)
+      end,
+      close = function(_self: Stream.Reader): boolean, string return inner:close() end,
+    }
     return wrapped, ""
   end
   local ok, ran = pcall(in_dir, src, { "create", tmp .. "/out.zip", "big.txt" })
@@ -564,20 +567,21 @@ local function create_counting(src: string, out: string, extra: string): Ran, in
     if opened == nil or path:sub(-4) ~= ".txt" then return opened, why end
     opens.value = opens.value + 1
     local inner: Stream.Reader = opened
-    local wrapped: Stream.Reader = {}
     local grown = { value = false }
-    wrapped.read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
-      local got, trouble = inner:read(max_bytes)
-      if got == nil and trouble == "" and extra ~= "" and grown.value ~= true then
-        grown.value = true
-        return extra, ""
-      end
-      return got, trouble
-    end
-    wrapped.close = function(_self: Stream.Reader): boolean, string
-      closes.value = closes.value + 1
-      return inner:close()
-    end
+    local wrapped: Stream.Reader = {
+      read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
+        local got, trouble = inner:read(max_bytes)
+        if got == nil and trouble == "" and extra ~= "" and grown.value ~= true then
+          grown.value = true
+          return extra, ""
+        end
+        return got, trouble
+      end,
+      close = function(_self: Stream.Reader): boolean, string
+        closes.value = closes.value + 1
+        return inner:close()
+      end,
+    }
     return wrapped, ""
   end
   local ok, ran = pcall(in_dir, src, { "create", out, "tree" })
@@ -1115,15 +1119,16 @@ local function test_extract_of_a_large_piped_tar_gz_keeps_memory_bounded(tmp: st
   local inner = assert(Stream.open(tmp .. "/big.tar.gz"))
   local reads = { value = 0 }
   local peak = { value = 0.0 }
-  local piped: Stream.Reader = {}
-  piped.read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
-    collectgarbage()
-    peak.value = math.max(peak.value, collectgarbage("count"))
-    reads.value = reads.value + 1
-    return inner:read(max_bytes)
-  end
-  piped.close = function(_self: Stream.Reader): boolean, string return inner:close() end
   local dest = tmp .. "/dest"
+  local piped: Stream.Reader = {
+    read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
+      collectgarbage()
+      peak.value = math.max(peak.value, collectgarbage("count"))
+      reads.value = reads.value + 1
+      return inner:read(max_bytes)
+    end,
+    close = function(_self: Stream.Reader): boolean, string return inner:close() end,
+  }
   local ran = run({ "extract", "-", "-C", dest }, piped)
   assert(ran.code == 0 and ran.err == "", ran.err)
   local st = assert(sys.stat(dest .. "/big.bin"))

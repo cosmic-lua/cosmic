@@ -6,6 +6,9 @@ local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
+local Test = require("cosmic.test")
+
+Test.policy{ cpu_features = true }
 
 local fox = "The quick brown fox jumps over the lazy dog"
 

@@ -8,12 +8,12 @@
 -- (build/shared_verdicts.tl's `key_parts`, or the `unmatched` line that
 -- says them in its place):
 --
---     test: key parts: host features X, host Y, system Z, runtime R, compiler C, harness H
+--     test: key parts: host kernel X, host Y, system Z, runtime R, compiler C, harness H
 --
 -- and, after it, the key parts the rows of the verdict cache it found
 -- name, each set with how many rows it keys (`census_line`):
 --
---     test: census: 1994 rows under host features X, ..., harness H; 3 rows under no parts named
+--     test: census: 1994 rows under host kernel X, ..., harness H; 3 rows under no parts named
 --
 -- A run that said neither -- one timed out, or failed before its tests
 -- ran -- yields no figures, never an error: the driver still records
@@ -44,7 +44,7 @@ local record SuiteOutput
     --- How many tests a bailing run (`cosmic test --bail`) started none
     --- of after its first failure; nil where the line says none.
     mut not_run?: integer
-    --- Each key part by the name the line gives it ("host features",
+    --- Each key part by the name the line gives it ("host kernel",
     --- "runtime", ...), its digest's prefix as said ("" for none).
     mut parts?: {string:string}
     --- What the verdict cache held when the run began: its census
@@ -206,7 +206,7 @@ local shown_parts: {Shown} = { { heading = "Runtime", part = "runtime" },
   { heading = "Harness", part = "harness" }, { heading = "Compiler", part = "compiler" },
   { heading = "Store", part = "store" }, { heading = "Host", part = "host" },
   { heading = "System", part = "system" },
-  { heading = "Host features", part = "host features" } }
+  { heading = "Host kernel", part = "host kernel" } }
 
 --- `rows` as the step summary's markdown table of suites: one line each,
 --- its counts, its stood share and its key parts.

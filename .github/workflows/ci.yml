@@ -509,8 +509,12 @@
 
         # What of the host every declared-key verdict's key holds
         # (COSMIC_HOST_ID): the container's image and options, or macOS's
-        # image; and the verdict cache's name, which adds the processor
-        # features and kernel, so a leg restores only its own host's.
+        # image; and the verdict cache's name, which adds the kernel, so a
+        # leg restores only its own host's. The processor's features are
+        # no part of the name: runners of other processors restore one
+        # entry, and the rows of a module that declares `cpu_features` are
+        # keyed apart inside it. The step logs the kernel and the features
+        # it read, to show which differs between runners.
         {
           name: "name the leg's host",
           id: "host-id",
@@ -2093,11 +2097,9 @@
         # holds the same COSMIC_HOST_ID as linux-x86_64's, and its verdict
         # cache is named apart from that leg's and the checked suite's
         # (the name is followed by 16 hex digits, which `n` is not).
-        # The cache's name holds the runner's CPU features too, and the
-        # merging job names the entry it saves with its own runner's.
-        # TODO: name the narrowing cache without the runner's features, or
-        # look rows up under other runners' features, once the census of the
-        # first runs (`--census`) shows how often the pool's runners differ.
+        # The cache's name holds the runner's kernel, not its processor's
+        # features, and the merging job names the entry it saves with its
+        # own runner's.
         {
           name: "name the leg's host",
           id: "host-id",

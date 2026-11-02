@@ -977,7 +977,6 @@ local function test_driver_stages_and_refuses_to_publish_without_a_token(tmp: st
     SOURCE_RUN_PREFIX = run_prefix,
     REPOSITORY = repository,
     RUNNER_TEMP = tmp .. "/driver-runner",
-    COSMIC_GRAMMAR = "new",
   })
   local function driver(command: string): Child.Result
     return (assert(Child.run({ host, "cosmic_ci/driver.tl", command }, { cwd = project,

@@ -1,5 +1,7 @@
 # semantic search
 
+<!-- policy: cpu_features = true -->
+
 Search a pile of text by meaning: embed each passage with a model, store
 the vectors in SQLite beside the text, and rank passages by distance to
 the embedding of the question. This guide builds that end to end with

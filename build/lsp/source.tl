@@ -256,6 +256,11 @@ local record source
     --- Why the last stage staged nothing, "" for a stage that did. A document of a pair it refused is told of it
     --- ([`source.refusal`]).
     mut trouble: string
+    --- Whether `trouble` is the tree's own refusal (what the derive found in the sources) and not the host's: a stage that could
+    --- not run (the database could not be opened, read or written) says so apart ([`source.banner`]).
+    mut refusing: boolean
+    --- Whether a stage has staged the tree in this session, so that the modules are the tree as it was then ([`source.banner`]).
+    mut staged_once: boolean
     --- Whether the tree is yet to be staged: before the first check, or
     --- since a stage that found the database busy.
     mut pending: boolean
@@ -345,6 +350,8 @@ function source.new(root: string, err: function(line: string), carried?: string,
     pending = true,
     told_busy = false,
     trouble = "",
+    refusing = false,
+    staged_once = false,
     made = {},
     carried_held = {},
     carried_count = 0,
@@ -604,6 +611,16 @@ local function refreshed(src: source.View)
   if staged ~= nil and (not staged.project or other ~= nil) then
     src.pending = other ~= nil
     src.modules, src.files, src.requires = {}, {}, {}
+    -- No module is held now, and what was told of an earlier refusal is not the case: a directory that is no project has
+    -- none, and a database of another schema is one the editor could not stage ([`source.banner`]).
+    src.staged_once = false
+    src.refusing = false
+    if other ~= nil then
+      src.trouble = tostring(src.working) .. " is of schema " .. other .. ", another tool's; not staging or reading it " ..
+        "until a `cosmic test` of this tool makes it again"
+    else
+      src.trouble = ""
+    end
     if other ~= nil and (where == nil or where.other_schema ~= other) then
       src.err("cosmic: lsp: " .. tostring(src.working) .. " is of schema " .. other ..
           ", another tool's; not staging or reading it until a `cosmic test` of this tool makes it again")
@@ -613,7 +630,8 @@ local function refreshed(src: source.View)
   if staged ~= nil and staged.unchecked then
     -- Its stubs stay as last staged for the session, which says why once
     -- ([`source.unchecked`]); the stage it asks for at each check stages
-    -- nothing.
+    -- nothing, and there is no refusal to tell: none was found, the tool never having staged.
+    src.trouble, src.refusing = "", false
     listed(src, false)
     return
   end
@@ -623,30 +641,38 @@ local function refreshed(src: source.View)
           tostring(src.working) .. "; not staging, answering from the tree as last committed")
       src.told_busy = true
     end
+    -- What the last stage reported stands: this one did not look at the tree, so it neither clears the refusal nor adds one.
     listed(src, false)
     return
   end
-  if staged == nil then
-    -- TODO: the editor serves the last good stage silently while a stage is refused (a `require` of a refused pair's module
-    -- still reads the file last staged, and a cold start finds no module); this waits on the editor naming the refusal on
-    -- every open document.
+  -- A stage that staged nothing: the host's trouble, or the derive's refusal of the sources, which is the build's own text.
+  local refusing = staged ~= nil and staged.refused ~= ""
+  if staged == nil or refusing then
+    if staged ~= nil then trouble = staged.refused end
     src.err("cosmic: lsp: not staged, answering from the tree as last staged: " .. trouble)
-    src.trouble = trouble
+    src.trouble, src.refusing = trouble, refusing
   else
     src.tally.stages = src.tally.stages + 1
-    src.trouble = ""
+    src.trouble, src.refusing, src.staged_once = "", false, true
   end
   src.pending, src.told_busy = false, false
-  listed(src, staged ~= nil)
+  listed(src, staged ~= nil and not refusing)
 end
 
---- Whether the last stage staged nothing.
-function source.refused(src: source.View): boolean
-  return src.trouble ~= ""
+--- What every open document the build reads is told while the last stage staged nothing, or nil when it did: the stage's own
+--- text, worded as the tree's refusal where the derive refused the sources and as the editor's trouble where the stage could
+--- not run, and what the modules the editor answers from are: the tree as last staged, or none where no stage ever staged
+--- it. A document a refusal names is told [`source.refusal`] instead.
+function source.banner(src: source.View): string?
+  if src.trouble == "" then return nil end
+  local held = if src.staged_once or next(src.modules) ~= nil then "modules are as last staged" else "no module is staged yet" end
+  local who = if src.refusing then "the build refuses this tree" else "the editor could not stage this tree" end
+  return who .. ": " .. src.trouble .. "; " .. held
 end
 
---- The complaint about the file `name` (below the root) where the last stage staged nothing and the file is one of a
---- declaration and a source of one module on disk, or one of two declarations of it, or nil: what a document of that file is told, at its first line. The pair
+--- The complaint about the file `name` (below the root) where the last stage staged nothing, the file is one of a
+--- declaration and a source of one module on disk, or one of two sources or two declarations of it, and the stage reported just that
+--- pair (its text holds the complaint), or nil: what a document of that file is told, at its first line. The pair
 --- is found as the build finds one, by the files a module may be written in ([`build.driver.candidates`]). A declaration
 --- file whose `text` (the document's, as it is open) names no kind is told so as well ([`build.driver.naming`]).
 function source.refusal(src: source.View, name: string, text?: string): string?
@@ -669,15 +695,23 @@ function source.refusal(src: source.View, name: string, text?: string): string?
       end
     end
   end
-  -- `x.tl` and `x/init.tl`: the derive's refusal, which the stage that met them staged nothing for.
-  if src.trouble ~= "" and code ~= nil and other_code ~= nil and (name == code or name == other_code) then
-    return AnalysisSchema.sharing(code .. " and " .. other_code, module)
+  -- A pair is told its own message only where that is what the stage reported: a stage reports the first refusal it meets, and
+  -- a document of another pair on disk is told the stage's text ([`source.banner`]) until its pair is the first.
+  local function reported(message: string): boolean
+    return src.refusing and src.trouble:find(message, 1, true) ~= nil
   end
-  if src.trouble ~= "" and declaration ~= nil and code ~= nil and (name == declaration or name == code) then
-    return Driver.pairing(declaration, code, module)
+  -- `x.tl` and `x/init.tl`, or two declarations: the derive's refusal, which the stage that met them staged nothing for.
+  if code ~= nil and other_code ~= nil and (name == code or name == other_code) then
+    local message = AnalysisSchema.sharing(code .. " and " .. other_code, module)
+    if reported(message) then return message end
   end
-  if src.trouble ~= "" and declaration ~= nil and second ~= nil and (name == declaration or name == second) then
-    return Driver.doubling(declaration, second, module)
+  if declaration ~= nil and code ~= nil and (name == declaration or name == code) then
+    local message = Driver.pairing(declaration, code, module)
+    if reported(message) then return message end
+  end
+  if declaration ~= nil and second ~= nil and (name == declaration or name == second) then
+    local message = AnalysisSchema.sharing(declaration .. " and " .. second, module)
+    if reported(message) then return message end
   end
   if text ~= nil and name:match("%.d%.tl$") ~= nil then
     local unnamed = Driver.naming(name, text, source.standing(src).own)

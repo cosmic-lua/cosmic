@@ -65,11 +65,11 @@ local function test_format_event_makes_one_event_with_the_fields_given_and_no_ot
       local fields = Fuzz.unpack(input)
       local present = assert(fields[1], "the generator packs which fields are present")
       local retry = math.tointeger(tonumber(fields[6]))
-      local ev: Sse.Event = { retry = retry }
-      if present:sub(1, 1) == "1" then ev.data = fields[2] end
-      if present:sub(2, 2) == "1" then ev.event = fields[3] end
-      if present:sub(3, 3) == "1" then ev.id = fields[4] end
-      if present:sub(4, 4) == "1" then ev.comment = fields[5] end
+      local ev: Sse.Event = { retry = retry,
+        data = if present:sub(1, 1) == "1" then fields[2] else nil end,
+        event = if present:sub(2, 2) == "1" then fields[3] else nil end,
+        id = if present:sub(3, 3) == "1" then fields[4] else nil end,
+        comment = if present:sub(4, 4) == "1" then fields[5] else nil end }
       local ev_event, ev_id = ev.event, ev.id
       local expect_refusal = (retry ~= nil and retry < 0) or
         (ev_event ~= nil and not carried(ev_event)) or (ev_id ~= nil and not carried(ev_id))

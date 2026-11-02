@@ -48,8 +48,7 @@ local Fs = require("cosmic.fs")
 for _ = 1, 256 do assert(Fs.put(1, "abcd")) assert(Fs.put(2, "WXYZ")) end]],
     { stdout = "stream", stderr = "stream", capture_limit = 17 })
   local out, err = Stream.collect(), Stream.collect()
-  local opts = options(out, 3)
-  opts.stderr = err
+  local opts = { ...options(out, 3), stderr = err }
   assert(finish(h, opts) == 2048)
   assert(out:result() == string.rep("abcd", 256))
   assert(err:result() == string.rep("WXYZ", 256))
@@ -398,8 +397,7 @@ assert(Fs.put(1, "abcd")) assert(Fs.put(2, "WXYZ"))]],
     { stdout = "stream", stderr = "stream" })
   assert(assert(h:wait()).ok)
   local out, err = Stream.collect(), Stream.collect()
-  local opts = options(out, 1)
-  opts.stderr = err
+  local opts = { ...options(out, 1), stderr = err }
   for i = 1, 4 do
     local first = h:drain(opts)
     assert(first.bytes == 1 and #out:result() == i and #err:result() == i - 1)
@@ -418,8 +416,7 @@ assert(Fs.put(1, "output")) assert(Fs.put(2, "error"))]],
   local incomplete: Child.DrainOptions = { stderr = err, max_bytes = 100, timeout_ns = 0 }
   Test.raises(function() h:drain(incomplete) end, "sink for each streamed output")
   assert(err:result() == "")
-  local complete = options(out)
-  complete.stderr = err
+  local complete = { ...options(out), stderr = err }
   assert(finish(h, complete) == 11)
   assert(out:result() == "output" and err:result() == "error")
 end

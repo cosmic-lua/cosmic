@@ -1,7 +1,7 @@
 --- `leg-host-id`, which names a CI leg's host (COSMIC_HOST_ID, and on
 --- macOS COSMIC_SYSTEM_ID) and the leg's verdict cache:
 --- `verdicts-<leg>-<16 hex of COSMIC_HOST_ID's sha256>-` and the host's
---- features, as ci.yml's restore, lookup and save key it. A Linux leg is
+--- kernel, as ci.yml's restore, lookup and save key it. A Linux leg is
 --- named by its container, the macOS leg, which has none, by its runner.
 --- It runs against recorded hosts, whose digests and names are vectors
 --- recorded from the original shell implementation: a byte that moves
@@ -12,7 +12,7 @@ local Shape = require("cosmic.shape")
 local Test = require("cosmic.test")
 
 --- The recorded hosts, which build/host_features_test.tl holds
---- `declared_key.host_features` to as well.
+--- `declared_key.host_kernel` and `host_cpu` to as well.
 Test.policy{
   grants = { { path = "testdata/host_features", letters = "r" } },
 }
@@ -25,7 +25,8 @@ local record Vector
   osrelease?: string
   version?: string
   sysctl?: {string:string}
-  digest: string
+  kernel: string
+  kept: string
 end
 local VECTOR <const> = Shape.record_of("Vector")
 local VECTORS <const> = Shape.list(VECTOR.spec)
@@ -76,33 +77,60 @@ end
 --- Every recorded host is named as its vector says: x86_64,
 --- aarch64 and a machine no audit has read; spaces, tabs, CRLF, no final
 --- line break, bytes beyond ASCII; a host with no cpuinfo or no kernel
---- files; and macOS, which asks sysctl.
+--- files; and macOS, which asks sysctl. The features it keys are the
+--- vector's `kept`.
 local function test_every_recorded_host_is_named_as_the_script_named_it()
   local count = 0
   for _, vector in ipairs(vectors()) do
-    local named = HostId.features(facts_of(vector))
-    assert(named == vector.digest, vector.name .. ": " .. named .. ", the script " .. vector.digest)
+    local named = HostId.kernel(facts_of(vector))
+    assert(named == vector.kernel, vector.name .. ": " .. named .. ", the script " .. vector.kernel)
+    local kept = table.concat(HostId.cpu_flags(facts_of(vector)), " ")
+    assert(kept == vector.kept, vector.name .. ": " .. kept .. ", recorded " .. vector.kept)
     count = count + 1
   end
   assert(count >= 20, "the recorded hosts are gone")
 end
 
---- The features of a host move with what a core on it chooses code by,
---- the kernel's release and its version, and with nothing else.
-local function test_what_moves_the_features_of_a_host()
+--- The kernel of a host moves with its release and its version, and with
+--- nothing else: not with the processor's features, which a cache is not
+--- named by, so runners of other processors restore one.
+local function test_what_moves_the_kernel_of_a_host()
   local x86 = vector_named("x86")
-  local function features(cpuinfo: string, osrelease: string, version: string): string
-    return HostId.features(facts_of({ name = "", sysname = "Linux", machine = "x86_64",
-      cpuinfo = cpuinfo, osrelease = osrelease, version = version, digest = "" }))
+  local function kernel(cpuinfo: string, osrelease: string, version: string): string
+    return HostId.kernel(facts_of({ name = "", sysname = "Linux", machine = "x86_64",
+      cpuinfo = cpuinfo, osrelease = osrelease, version = version, kernel = "", kept = "" }))
   end
-  local start = features("flags : aes pclmulqdq sse4_1 ssse3\n", "6.17.0-1022-azure\n", "#22-Ubuntu SMP\n")
-  -- Features no core chooses code by, and their order, name no new host.
-  assert(features("flags : sse4_1 aes ssse3 pclmulqdq avx512bw\n", "6.17.0-1022-azure\n",
-    "#22-Ubuntu SMP\n") == start)
-  assert(features("flags : aes pclmulqdq sse4_1\n", "6.17.0-1022-azure\n", "#22-Ubuntu SMP\n") ~= start)
-  assert(features("flags : aes pclmulqdq sse4_1 ssse3\n", "6.17.0-1023-azure\n", "#22-Ubuntu SMP\n") ~= start)
-  assert(features("flags : aes pclmulqdq sse4_1 ssse3\n", "6.17.0-1022-azure\n", "#23-Ubuntu SMP\n") ~= start)
-  assert(HostId.features(facts_of(x86)) == x86.digest)
+  local start = kernel("flags : aes pclmulqdq sse4_1 ssse3\n", "6.17.0-1022-azure\n", "#22-Ubuntu SMP\n")
+  assert(kernel("flags : aes pclmulqdq\n", "6.17.0-1022-azure\n", "#22-Ubuntu SMP\n") == start,
+    "the processor named another kernel")
+  assert(kernel("flags : aes pclmulqdq sse4_1 ssse3\n", "6.17.0-1023-azure\n", "#22-Ubuntu SMP\n") ~= start)
+  assert(kernel("flags : aes pclmulqdq sse4_1 ssse3\n", "6.17.0-1022-azure\n", "#23-Ubuntu SMP\n") ~= start)
+  assert(HostId.kernel(facts_of(x86)) == x86.kernel)
+end
+
+--- The features a host keys are those a core on it chooses code by, once,
+--- in byte order: features no core chooses code by, and their order,
+--- are not among them.
+local function test_what_the_features_of_a_host_are()
+  local function flags(cpuinfo: string): string
+    return table.concat(HostId.cpu_flags(facts_of({ name = "", sysname = "Linux", machine = "x86_64",
+      cpuinfo = cpuinfo, osrelease = "r\n", version = "v\n", kernel = "", kept = "" })), " ")
+  end
+  assert(flags("flags : sse4_1 aes ssse3 pclmulqdq avx512bw aes\n") == "aes pclmulqdq sse4_1 ssse3")
+  assert(flags("") == "")
+end
+
+--- What the step logs of a host names the kernel's release and version it
+--- hashes and the features it keys, and those it lacks, so CI's logs say
+--- which part differs between runners.
+local function test_the_step_describes_the_host_it_hashed()
+  local text = HostId.describe(facts_of(vector_named("x86")))
+  assert(text:find("kernel " .. vector_named("x86").kernel, 1, true) ~= nil, text)
+  assert(text:find('release "6.17.0-1022-azure"', 1, true) ~= nil, text)
+  assert(text:find("keyed features aes", 1, true) ~= nil, text)
+  assert(text:find("model name", 1, true) == nil and text:sub(-1) == "\n", text)
+  local lacking = HostId.describe(facts_of(vector_named("x86-noaes")))
+  assert(lacking:find("dispatched features absent .*aes") ~= nil, lacking)
 end
 
 --- Where the host's files are missing, or the machine is no x86 or arm
@@ -115,7 +143,8 @@ local function test_a_host_with_no_files_is_still_named()
     docker_version = function(): string?, string return nil, "" end,
   }
   -- sha256 of nothing, 16 hex digits.
-  assert(HostId.features(bare) == "e3b0c44298fc1c14", HostId.features(bare))
+  assert(HostId.kernel(bare) == "e3b0c44298fc1c14", HostId.kernel(bare))
+  assert(#HostId.cpu_flags(bare) == 0)
 end
 
 --- How many recorded runs have been made, where `named` can count it.
@@ -144,7 +173,7 @@ local function named(tmp: string, host: string, words: {string}, env: {string:st
 end
 
 local LINUX <const> = "x86"
-local LINUX_FEATURES <const> = "e709205be4810032"
+local LINUX_KERNEL <const> = "1a26de7daed63ab0"
 local IMAGE <const> = "ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:" ..
   "947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a"
 local STARTED <const> = ("a"):rep(64)
@@ -157,7 +186,7 @@ local function test_a_linux_leg_is_named_by_its_container(tmp: string)
   assert(code == 0 and said == "", said)
   assert(env == "COSMIC_HOST_ID=ghcr.io/c/i@sha256:ab cafe docker-28.0.4\n", env)
   assert(output == "prefix=verdicts-linux-x86_64-4a1d76e5ec7ac3c6-\n" ..
-      "verdicts=verdicts-linux-x86_64-4a1d76e5ec7ac3c6-" .. LINUX_FEATURES .. "-\n", output)
+      "verdicts=verdicts-linux-x86_64-4a1d76e5ec7ac3c6-" .. LINUX_KERNEL .. "-\n", output)
 end
 
 --- The names ci.yml's three steps give: the platform job's, the checked
@@ -166,11 +195,11 @@ end
 local function test_the_workflows_legs_are_named_as_the_script_named_them(tmp: string)
   local _, platform = named(tmp, "this", { "linux-x86_64", IMAGE, "ubuntu-24.04", STARTED }, {}, "28.0.4")
   assert(platform == "prefix=verdicts-linux-x86_64-cd38a6c7ffd72fed-\n" ..
-      "verdicts=verdicts-linux-x86_64-cd38a6c7ffd72fed-f096ae6e2072e404-\n", platform)
+      "verdicts=verdicts-linux-x86_64-cd38a6c7ffd72fed-1f567ab2409dcb5c-\n", platform)
   local env, checked = named(tmp, "this", { "linux-x86_64-checked", IMAGE, "ubuntu-24.04", STARTED }, {}, "28.0.4")
   assert(env == "COSMIC_HOST_ID=" .. IMAGE .. " " .. STARTED .. " docker-28.0.4\n", env)
   assert(checked == "prefix=verdicts-linux-x86_64-checked-cd38a6c7ffd72fed-\n" ..
-      "verdicts=verdicts-linux-x86_64-checked-cd38a6c7ffd72fed-f096ae6e2072e404-\n", checked)
+      "verdicts=verdicts-linux-x86_64-checked-cd38a6c7ffd72fed-1f567ab2409dcb5c-\n", checked)
   local none, light = named(tmp, "this", { "linux-x86_64", IMAGE, "ubuntu-24.04", STARTED },
     { GITHUB_ENV = "/dev/null" }, "28.0.4")
   assert(none == nil, "the environment file is /dev/null's")
@@ -178,15 +207,15 @@ local function test_the_workflows_legs_are_named_as_the_script_named_them(tmp: s
   local _, arm = named(tmp, "arm", { "linux-aarch64", "ghcr.io/c/arm@sha256:cd", "ubuntu-24.04-arm", "beef" },
     {}, "28.0.4")
   assert(arm == "prefix=verdicts-linux-aarch64-5d5805cd0d3eb351-\n" ..
-      "verdicts=verdicts-linux-aarch64-5d5805cd0d3eb351-2a6e8034148df4f1-\n", arm)
+      "verdicts=verdicts-linux-aarch64-5d5805cd0d3eb351-1a26de7daed63ab0-\n", arm)
   -- A leg with no runner is named by its container alone, and a name
   -- is taken as given.
   local _, odd = named(tmp, "this", { "a b", "i", "r", "s" }, {}, "28.0.4")
   assert(odd == "prefix=verdicts-a b-561229c72f9f67eb-\nverdicts=verdicts-a b-561229c72f9f67eb-" ..
-      "f096ae6e2072e404-\n", odd)
+      "1f567ab2409dcb5c-\n", odd)
   local _, bare = named(tmp, "this", { "alpine-x86_64", "img", "", "abc" }, {}, "28.0.4")
   assert(bare == "prefix=verdicts-alpine-x86_64-2b06a98f2cd61c3a-\nverdicts=verdicts-alpine-x86_64-" ..
-      "2b06a98f2cd61c3a-f096ae6e2072e404-\n", bare)
+      "2b06a98f2cd61c3a-1f567ab2409dcb5c-\n", bare)
 end
 
 --- The macOS leg, with no image, is named by its runner, and names the
@@ -198,7 +227,7 @@ local function test_the_macos_leg_is_named_by_its_runner(tmp: string)
   assert(code == 0 and said == "", said)
   assert(env == "COSMIC_SYSTEM_ID=macos15 20250922.1\nCOSMIC_HOST_ID=macos-15\n", env)
   assert(output == "prefix=verdicts-macos-aarch64-76f4af51eb54ac60-\n" ..
-      "verdicts=verdicts-macos-aarch64-76f4af51eb54ac60-d86f880ad83e73ad-\n", output)
+      "verdicts=verdicts-macos-aarch64-76f4af51eb54ac60-02bdd768a50cb64e-\n", output)
   -- The image's version names no cache of its own: a new one restores
   -- the last and reruns only what is keyed by it.
   local _, again = named(tmp, "darwin-all", { "macos-aarch64", "", "macos-15", "beef" },
@@ -227,12 +256,12 @@ local function test_unset_files_say_their_lines_instead(tmp: string)
   assert(code == 0)
   assert(said == "COSMIC_HOST_ID=img s docker-28.0.4\n" ..
       "prefix=verdicts-linux-x86_64-2e4dd1599b5fdb64-\n" ..
-      "verdicts=verdicts-linux-x86_64-2e4dd1599b5fdb64-" .. LINUX_FEATURES .. "-\n", said)
+      "verdicts=verdicts-linux-x86_64-2e4dd1599b5fdb64-" .. LINUX_KERNEL .. "-\n", said)
   local _, _, mac = named(tmp, "darwin-all", { "macos-aarch64", "", "macos-15", "cafe" },
     { GITHUB_ENV = "", GITHUB_OUTPUT = "", ImageOS = "macos15", ImageVersion = "1" })
   assert(mac == "COSMIC_SYSTEM_ID=macos15 1\nCOSMIC_HOST_ID=macos-15\n" ..
       "prefix=verdicts-macos-aarch64-76f4af51eb54ac60-\n" ..
-      "verdicts=verdicts-macos-aarch64-76f4af51eb54ac60-d86f880ad83e73ad-\n", mac)
+      "verdicts=verdicts-macos-aarch64-76f4af51eb54ac60-02bdd768a50cb64e-\n", mac)
 end
 
 --- One refused invocation: the words and the environment it was run with.

@@ -13,8 +13,8 @@ local this_program = require("build.this_program")
 Test.policy{ profiles = { "cosmic" } }
 
 local function output(fd: integer): Child.Handle
-  local options: Child.Options = { stdout = "null", stderr = "null" }
-  if fd == 1 then options.stdout = "stream" else options.stderr = "stream" end
+  local options: Child.Options = { stdout = if fd == 1 then "stream" else "null" end,
+    stderr = if fd == 1 then "null" else "stream" end }
   local script = 'assert(require("cosmic.fs").put(' .. tostring(fd) .. ', "abcdef"))'
   local started = this_program.program({ "-e", script }, options)
   return (assert(Child.start(started.argv, started.options)))
