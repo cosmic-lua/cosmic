@@ -1707,12 +1707,22 @@ end
 local UNMET_RANK <const>: {string:integer} = { refused = 3, na = 2, skipped = 1 }
 
 --- The names a module requires of its host, as its policy declares them
---- ([`host_names.check`]), sorted.
-local function requirements_of(m: Module): {string}
+--- ([`host_names.check`]), sorted. A module that declares loopback
+--- addresses also requires `loopback`: the addresses already say its
+--- tests reach loopback, so the name is derived here rather than written
+--- beside them in every module.
+function test_key.requirements(m: Module): {string}
   local names: mut {string} = {}
   local declared = m.inputs
   if declared == nil then return names end
   for _, name in ipairs(declared.requires) do names[#names + 1] = name end
+  if #declared.network > 0 then
+    local written = false
+    for _, name in ipairs(names) do
+      if name == "loopback" then written = true end
+    end
+    if not written then names[#names + 1] = "loopback" end
+  end
   table.sort(names)
   return names
 end
@@ -1728,14 +1738,18 @@ end
 --- an n/a or a skip of a requirement its leg promises (`promises`, the
 --- leg's name `leg`), naming the requirement and the leg; an absence of
 --- one it does not promise fails nothing. `sandbox` answers whether a
---- worker can be sandboxed here, which a requirement of it asks. The host
+--- worker can be sandboxed here, which a requirement of it asks.
+--- `sandboxed_workers` is whether this run's workers run sandboxed (the
+--- runner's `choose_sandbox` outcome, settled before this is called), which
+--- `loopback` answers from where workers are sandboxed. The host
 --- asked, or nil where no module requires anything.
 function test_key.ask_host(rec: Recording, modules: {Module},
                            sandbox: function(): host_requires.Sandbox, held: boolean,
-                           promises: {string}, leg: string): host_requires.Host?
+                           promises: {string}, leg: string,
+                           sandboxed_workers: boolean): host_requires.Host?
   local host: host_requires.Host? = nil
   for _, m in ipairs(modules) do
-    local names = requirements_of(m)
+    local names = test_key.requirements(m)
     if #names > 0 then
       if host == nil then
         -- COSMIC_TEST_PLATFORM=other, for a test of this runner alone, stands in
@@ -1758,6 +1772,7 @@ function test_key.ask_host(rec: Recording, modules: {Module},
           host_only = host_only,
           linux = linux,
           sandbox = sandbox,
+          sandboxed_workers = sandboxed_workers,
         })
       end
       local probed = assert(host)

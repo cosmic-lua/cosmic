@@ -220,6 +220,41 @@ local function test_a_promise_the_table_refuses_fails_a_held_run(tmp: string)
   assert(code == 0, out)
 end
 
+--- A module that declares loopback addresses requires `loopback` without
+--- writing it: where the host refuses loopback its tests are skipped
+--- naming the requirement and the module is never loaded; where the host
+--- permits it the tests run. This host's answer decides which is checked.
+local function test_loopback_is_required_by_declaring_loopback_addresses(tmp: string)
+  local root = project(tmp)
+  assert(Fs.write(root .. "/net_test.tl", [[
+local Net = require("cosmic.net")
+local Test = require("cosmic.test")
+Test.policy { loopback = { "127.0.0.1" } }
+local function test_listens()
+  assert(Net.listen(Net.tcp("127.0.0.1", 0)) ~= nil)
+end
+]]))
+  local out, code = run(root)
+  assert(code == 0, out)
+  local skipped = out:find("test: SKIP  net_test test_listens: requires loopback: loopback is refused: ", 1, true) ~= nil
+  if skipped then
+    assert(out:find("1 skipped ", 1, true), out)
+    assert(not out:find("FAIL", 1, true), out)
+  else
+    assert(out:find("1 test passed in 1 module; 1 ran, 0 stood, ", 1, true), out)
+  end
+  out, code = run(root)
+  assert(code == 0, out)
+  if skipped then
+    -- No verdict is kept of a skip: it is skipped again, not stood.
+    assert(out:find("1 skipped ", 1, true), out)
+    assert(not out:find("1 stood", 1, true), out)
+  else
+    -- A verdict is kept of a run: it stands.
+    assert(out:find("1 test passed in 1 module; 0 ran, 1 stood, ", 1, true), out)
+  end
+end
+
 --- A `path:` the worker is given no host grant of fails the build too.
 local function test_a_path_the_worker_could_not_see_fails_the_build(tmp: string)
   local root = project(tmp)
