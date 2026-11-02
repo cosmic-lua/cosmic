@@ -22,20 +22,13 @@ local test_inputs = require("build.test_inputs")
 local test_policy = require("build.test_policy")
 local test_sandbox = require("build.test_sandbox")
 local this_program = require("build.this_program")
-local build_paths = require("build.paths")
+local support = require("build.test_support_fixture")
 
 --- The program itself, which the case that starts it runs.
 Test.policy{
   profiles = { "cosmic", "system" },
   grants = { { path = "o/bin", letters = "rx" } },
 }
-
---- `root`'s build directory ([`build.paths`]), made, with `root` made
---- first where it is not there yet.
-local function build_dir(root: string): string
-  assert(Fs.mkdirs(root))
-  return (assert(build_paths.prepare(root)))
-end
 
 --- An `Effective` holding `files` of the tree and nothing else declared.
 local function effective(files: {string}): test_inputs.Effective
@@ -55,33 +48,25 @@ local function scratch_in(tmp: string): string
   return scratch
 end
 
---- Whether `list` holds `value`.
-local function holds(list: {string}, value: string): boolean
-  for _, each in ipairs(list) do
-    if each == value then return true end
-  end
-  return false
-end
-
 --- A plan leaves to the policy what a policy has of its own: no /proc of the
 --- host's, which the sandbox replaces with its own, and no system paths,
 --- which the profile "system" gives; the program and its core are the
 --- reads that are run, and a worker that declares `tool` runs o/bin.
 local function test_a_plan_for_the_policy_leaves_the_system_and_proc_to_the_policy(tmp: string)
   local root, scratch = tmp .. "/root", scratch_in(tmp)
-  assert(Fs.mkdirs(build_dir(root) .. "/bin"))
-  assert(Fs.write(build_dir(root) .. "/cosmic.db", "x"))
+  assert(Fs.mkdirs(support.build_dir(root) .. "/bin"))
+  assert(Fs.write(support.build_dir(root) .. "/cosmic.db", "x"))
   local inputs = effective({})
   inputs.system, inputs.tool = true, true
   inputs.host = { "/proc", "/dev/urandom" }
   local policy = test_sandbox.plan(root, scratch, inputs, {})
   assert(policy.trouble == "", policy.trouble)
   local reads = assert(policy.sandbox.unveil).reads
-  assert(not holds(reads, "/proc") and not holds(reads, "/usr") and not holds(reads, "/etc"),
+  assert(not support.holds(reads, "/proc") and not support.holds(reads, "/usr") and not support.holds(reads, "/etc"),
     table.concat(reads, " "))
-  assert(holds(reads, "/dev/urandom") and holds(reads, "/dev/null"))
+  assert(support.holds(reads, "/dev/urandom") and support.holds(reads, "/dev/null"))
   assert(policy.sandbox.user == nil, "a policy chooses the user")
-  assert(policy.runs[build_dir(root) .. "/bin"] == true)
+  assert(policy.runs[support.build_dir(root) .. "/bin"] == true)
 end
 
 --- The plan of one module made once a run is rebound to the scratch
@@ -90,8 +75,8 @@ end
 --- plan's path of, and a copy that shares nothing with the first.
 local function test_a_plan_rebound_to_another_scratch_is_the_plan_made_for_it(tmp: string)
   local root = tmp .. "/root"
-  assert(Fs.mkdirs(build_dir(root) .. "/bin"))
-  assert(Fs.write(build_dir(root) .. "/cosmic.db", "x"))
+  assert(Fs.mkdirs(support.build_dir(root) .. "/bin"))
+  assert(Fs.write(support.build_dir(root) .. "/cosmic.db", "x"))
   assert(Fs.write(root .. "/a.tl", "x"))
   for _, own in ipairs({ true, false }) do
     local inputs = effective({ "a.tl" })
@@ -117,11 +102,11 @@ local function test_a_plan_rebound_to_another_scratch_is_the_plan_made_for_it(tm
       assert((assert(fresh.sandbox.unveil).at or {})[path] ~= nil, path)
     end
     for path in pairs(fresh.runs) do assert(rebound.runs[path], path) end
-    assert(not holds((assert(rebound.sandbox.unveil).writes or {}), first))
+    assert(not support.holds((assert(rebound.sandbox.unveil).writes or {}), first))
     -- Changing the copy leaves the plan it came from alone.
     table.insert(assert(rebound.sandbox.unveil).reads, "/changed")
     rebound.env.CHANGED = "yes"
-    assert(not holds(assert(made.sandbox.unveil).reads, "/changed") and made.env["CHANGED"] == nil)
+    assert(not support.holds(assert(made.sandbox.unveil).reads, "/changed") and made.env["CHANGED"] == nil)
   end
 end
 
@@ -211,8 +196,8 @@ local function test_a_plan_for_a_nesting_worker_grants_the_artifact_only_with_st
   end
   local artifact = launched.argv[3]
   local root, scratch = tmp .. "/root", scratch_in(tmp)
-  assert(Fs.mkdirs(build_dir(root) .. "/bin"))
-  assert(Fs.write(build_dir(root) .. "/cosmic.db", "x"))
+  assert(Fs.mkdirs(support.build_dir(root) .. "/bin"))
+  assert(Fs.write(support.build_dir(root) .. "/cosmic.db", "x"))
   local bare = effective({})
   bare.nests = true
   local storing = effective({})
@@ -220,9 +205,9 @@ local function test_a_plan_for_a_nesting_worker_grants_the_artifact_only_with_st
   local plain = test_sandbox.plan(root, scratch, bare, {})
   local with = test_sandbox.plan(root, scratch, storing, {})
   assert(with.trouble == "", with.trouble)
-  assert(holds(assert(with.sandbox.unveil).reads, artifact), table.concat(assert(with.sandbox.unveil).reads, " "))
+  assert(support.holds(assert(with.sandbox.unveil).reads, artifact), table.concat(assert(with.sandbox.unveil).reads, " "))
   assert(with.runs[artifact] ~= true, "the artifact is read, not run")
-  assert(not holds(assert(plain.sandbox.unveil).reads, artifact),
+  assert(not support.holds(assert(plain.sandbox.unveil).reads, artifact),
     table.concat(assert(plain.sandbox.unveil).reads, " "))
   assert(test_policy.worker(plain, bare) ~= nil)
   assert(test_policy.worker(with, storing) ~= nil)
@@ -236,9 +221,9 @@ end
 --- Any of those declarations gives the plan the host's directory, and says which.
 local function test_a_plan_gives_a_scratch_of_its_own_only_where_no_host_directory_is_declared(tmp: string)
   local root, scratch = tmp .. "/root", scratch_in(tmp)
-  assert(Fs.mkdirs(build_dir(root) .. "/bin"))
+  assert(Fs.mkdirs(support.build_dir(root) .. "/bin"))
   assert(Fs.mkdirs(root .. "/data"))
-  assert(Fs.write(build_dir(root) .. "/cosmic.db", "x"))
+  assert(Fs.write(support.build_dir(root) .. "/cosmic.db", "x"))
   assert(Fs.write(root .. "/file.txt", "x"))
   local function planned(inputs: test_inputs.Effective): test_sandbox.Plan
     local made = test_sandbox.plan(root, scratch, inputs, {})

@@ -20,16 +20,10 @@ local Child = require("cosmic.child")
 local test_child = require("build.test_child")
 local this_program = require("build.this_program")
 local Test = require("cosmic.test")
+local support = require("build.test_support_fixture")
 
 --- The program itself (`tool`), which runs the child below, started past its launcher so that no host program is read.
 Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
-
---- `root`'s build directory ([`build.paths`]), made, with `root` made
---- first where it is not there yet.
-local function build_dir(root: string): string
-  assert(Fs.mkdirs(root))
-  return (assert(build_paths.prepare(root)))
-end
 
 local function test_read_pin_parses_version_and_hosts()
   local pin = assert(Zig.read_pin(
@@ -390,14 +384,14 @@ end
 --- no process answers to or this one's own.
 local function test_a_boot_names_a_holder_as_the_tool_does(tmp: string)
   local root = tmp .. "/tree"
-  assert(build_dir(root))
+  assert(support.build_dir(root))
   local contents: mut {string} = { "1\nnone\n", "1\n", "", "x\ntest\n",
     tostring(sys.getpid()) .. "\ntest\n" }
   for _, role in ipairs({ "test", "rebuild", "write" }) do
     contents[#contents + 1] = "1\n" .. role .. "\n"
   end
   for _, text in ipairs(contents) do
-    assert(Fs.write(build_dir(root) .. "/rebuild.lock.pid", text))
+    assert(Fs.write(support.build_dir(root) .. "/rebuild.lock.pid", text))
     local output = build_paths.required(root)
     assert(Zig.holder(output) == rebuild_lock.holder(root), text .. ": " ..
         Zig.holder(output) .. " against " .. rebuild_lock.holder(root))
@@ -410,9 +404,9 @@ end
 --- skipped.
 local function test_a_boot_refuses_a_lock_file_it_cannot_write(tmp: string)
   local root = tmp .. "/tree"
-  assert(build_dir(root))
-  assert(Fs.write(build_dir(root) .. "/rebuild.lock", "", 0x124))
-  local fd, _ = sys.open(build_dir(root) .. "/rebuild.lock", sys.O_RDWR, 0)
+  assert(support.build_dir(root))
+  assert(Fs.write(support.build_dir(root) .. "/rebuild.lock", "", 0x124))
+  local fd, _ = sys.open(support.build_dir(root) .. "/rebuild.lock", sys.O_RDWR, 0)
   if fd ~= nil then
     assert(sys.close(fd))
     Test.skip("this process is root, which writes whatever the mode says, so a mode holds no root back")
@@ -482,7 +476,7 @@ local function test_boot_lock_classifies_the_begin_result_not_its_reason(tmp: st
   end
   for i, each in ipairs(outcomes) do
     outcome, calls.value, closes.value = each, 0, 0
-    statuses[i] = Zig.with_lock(build_dir(tmp .. "/" .. tostring(i)), {}, function(_env: {string:string}): integer
+    statuses[i] = Zig.with_lock(support.build_dir(tmp .. "/" .. tostring(i)), {}, function(_env: {string:string}): integer
       return 7
     end)
     attempts[#attempts + 1] = calls.value
@@ -569,7 +563,7 @@ end
 --- A raised error in the callback of [`Zig.with_lock`] must still let go of the lock: a descriptor left open holds the
 --- rebuild lock for the life of the process.
 local function test_with_lock_lets_go_when_the_callback_raises(tmp: string)
-  local output = build_dir(tmp .. "/tree")
+  local output = support.build_dir(tmp .. "/tree")
   assert(Zig.with_lock(output, {}, function(_env: {string:string}): integer return 0 end) == 0)
   local before = descriptors()
   local ok, trouble = pcall(Zig.with_lock, output, {}, function(_env: {string:string}): integer

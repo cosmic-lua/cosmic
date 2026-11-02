@@ -329,13 +329,22 @@ same bytes, and writes the release under `RELEASE`: `cosmic`,
 `SHA256SUMS`, `source.json` and `notes.md`. `prerelease-publish` reads
 `GH_TOKEN` (else `GITHUB_TOKEN`), `REPOSITORY`, `RELEASE`, `SOURCE_COMMIT`,
 `SOURCE_RUN_PREFIX` and `RUNNER_TEMP` (and `GITHUB_API_URL`, if set), and makes the staged release the
-immutable `next-<commit>` prerelease, or verifies the one already there
+immutable `<YYYYMMDD>-<commit>` prerelease, or verifies the one already there
 (or, where GitHub refuses the job's token the tag with an HTTP 403
 "Resource not accessible by integration" and the default branch's
 workflows differ from the commit's, makes nothing and prints a warning:
 that commit has no prerelease, and a pin moves to a later one);
 it resumes an interrupted draft only by accepting assets identical to the
 staged ones, and writes its downloads under `$RUNNER_TEMP/prerelease/`.
+The tag's `YYYYMMDD` is the UTC day of the commit's committer date, read
+from the API (`GET repos/<repository>/commits/<commit>`) before anything
+is made, so a rerun of the same commit gives the same tag; it is not the
+day of the run or of the publication. There is no semver and no alias
+that moves, and nothing here marks a release as the latest: the maintainer
+promotes one by hand. Releases tagged `next-<commit>`, which every one
+before this naming is, stay as they are: `bin/cosmic-bootstrap` takes a
+pin naming either form, and `cosmic release` finds both. Nothing prunes
+old prereleases.
 [`cosmic_ci/prerelease_test.tl`] drives it against a fake transport, and
 [`cosmic_ci/github_api_test.tl`] drives the client's uploads and asset
 downloads over `cosmic.http`'s scripted replies; neither reaches the

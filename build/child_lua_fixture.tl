@@ -7,7 +7,7 @@ local this_program = require("build.this_program")
 
 local record child_lua_fixture
   --- A chunk's prefix: cosmic.fs as `Fs`.
-  FS: string
+  mut FS: string
   --- A prefix for a chunk that starts a descendant: `again(chunk, opts)`
   --- starts this program once more, as `lua` does, running `chunk`, with
   --- the environment of the chunk's process and `opts.process_group`, the
@@ -15,7 +15,7 @@ local record child_lua_fixture
   --- A chunk that leaves one running ends by [`sys.exit`], past the
   --- collector, whose end of the handle would end it, as a shell's `&`
   --- leaves it.
-  AGAIN: string
+  mut AGAIN: string
 end
 
 child_lua_fixture.FS = 'local Fs = require("cosmic.fs") '

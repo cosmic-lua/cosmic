@@ -15,24 +15,10 @@ local this_program = require("build.this_program")
 local shared_compiles = require("build.shared_compiles")
 local Test = require("cosmic.test")
 local Clock = require("cosmic.clock")
-local build_paths = require("build.paths")
-
---- The element of `list` at `index`, which the case knows is there.
-local function nth<T>(list: {T}, index: integer): T
-  local found = list[index]
-  assert(found ~= nil, "the list has an element at " .. tostring(index))
-  return found
-end
+local support = require("build.test_support_fixture")
 
 --- The program itself, which its tests start.
 Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
-
---- `root`'s build directory ([`build.paths`]), made, with `root` made
---- first where it is not there yet.
-local function build_dir(root: string): string
-  assert(Fs.mkdirs(root))
-  return (assert(build_paths.prepare(root)))
-end
 
 --- The project every case builds: `a` requires `b`, which requires `c`
 --- and reads a field of a record `c` declares, so its compile finds a
@@ -165,11 +151,11 @@ local function test_a_second_checkout_compiles_nothing_the_first_compiled(tmp: s
         "ORDER BY key, ordinal" },
   }
   for _, query in ipairs(queries) do
-    local first = dump(build_dir(tmp .. "/first") .. "/" .. nth(query, 1), nth(query, 2))
-    local second = dump(build_dir(tmp .. "/second") .. "/" .. nth(query, 1), nth(query, 2))
-    assert(first ~= "" and first == second, nth(query, 2) .. "\n" .. first .. "\n--\n" .. second)
+    local first = dump(support.build_dir(tmp .. "/first") .. "/" .. support.nth(query, 1), support.nth(query, 2))
+    local second = dump(support.build_dir(tmp .. "/second") .. "/" .. support.nth(query, 1), support.nth(query, 2))
+    assert(first ~= "" and first == second, support.nth(query, 2) .. "\n" .. first .. "\n--\n" .. second)
   end
-  local uses = dump(build_dir(tmp .. "/second") .. "/cosmic.db", "SELECT symbol FROM uses WHERE module = 'c'")
+  local uses = dump(support.build_dir(tmp .. "/second") .. "/cosmic.db", "SELECT symbol FROM uses WHERE module = 'c'")
   assert(uses:find("Box.value", 1, true), uses)
   -- Its own now: a build again takes nothing from the cache.
   local again = built(tmp .. "/second", env, "(0 compiled, 3 cached;")
@@ -246,7 +232,7 @@ local function test_a_damaged_row_is_compiled_again_and_replaced(tmp: string)
   checkout(tmp .. "/first")
   built(tmp .. "/first", env, "(3 compiled, 0 cached;")
   local keys: mut {string:string} = {}
-  local db = assert(Sqlite.open(build_dir(tmp .. "/first") .. "/cosmic.db"))
+  local db = assert(Sqlite.open(support.build_dir(tmp .. "/first") .. "/cosmic.db"))
   local rows = assert(Sqlite.text_rows(db, "SELECT path, CAST(key AS TEXT) FROM modules"))
   for _, row in ipairs(rows) do
     keys[row:text(1)] = shared_compiles.key(row:text(2), false, false)
@@ -340,7 +326,7 @@ local function test_two_builds_writing_at_once_keep_both(tmp: string)
   end
   for index, handle in ipairs(handles) do
     local result, trouble = handle:wait(Clock.seconds(60))
-    assert(Fs.close(nth(outputs, index)))
+    assert(Fs.close(support.nth(outputs, index)))
     local text = assert(Fs.read(tmp .. "/" .. (if index == 1 then "one" else "two" end) .. ".out"))
     assert(result ~= nil and result.ok, tostring(trouble) .. text)
     assert(text:find("(3 compiled, 0 cached;", 1, true), text)
@@ -392,7 +378,7 @@ return 0
   local cache, trouble = shared_compiles.open(path)
   assert(cache ~= nil, trouble)
   local rows = assert(Sqlite.text_rows(cache.db, "PRAGMA journal_mode"))
-  assert(nth(rows, 1):text(1) == "wal", nth(rows, 1):text(1))
+  assert(support.nth(rows, 1):text(1) == "wal", support.nth(rows, 1):text(1))
   shared_compiles.close(cache)
   local result, wait_trouble = handle:wait(Clock.seconds(10))
   assert(result ~= nil and result.ok, tostring(wait_trouble))

@@ -14,7 +14,11 @@
 --- as an argument of its own.
 ---
 ---     local got, why = Flags.parse(argv, 2, { ["--check"] = false, ["--jobs"] = true })
----     -- cosmic fix --check a.tl  => got.set["--check"], got.words = { "a.tl" }
+---     -- cosmic fix --check --jobs 4 a.tl
+---     --   => got.set["--check"] == true, got.values["--jobs"] == "4", got.words = { "a.tl" }
+---
+--- An option that takes no value is read from `set`, one that takes a value
+--- from `values` (`all` when it may be repeated).
 ---
 --- A spec may describe its options rather than only name them -- `{
 --- ["--jobs"] = { value = "n", about = "run n at once" } }` -- and
@@ -30,6 +34,10 @@ local record Flags
     value?: string
     --- One line on what it does.
     about?: string
+    --- Whether the line must give it: [`Flags.parse`] refuses a line
+    --- without it, and [`Flags.help`] marks it. An empty value
+    --- (`--out=`) counts as given.
+    required?: boolean
   end
 
   --- What a command line held.
@@ -90,6 +98,14 @@ local function takes_value(entry: boolean | Flags.Option): boolean
   return entry.value ~= nil
 end
 
+--- Whether the option a spec entry describes must be given.
+local function is_required(entry: boolean | Flags.Option): boolean
+  if entry is boolean then
+    return false
+  end
+  return entry.required == true
+end
+
 --- Parses command line options. Reads `argv` from slot `from` on: 1
 --- for a program's own `argv`, 2 for a verb's, whose slot 1 is the verb.
 --- `spec` maps each option, written as it is typed ("--check", "-v"), to
@@ -112,7 +128,9 @@ end
 --- option, never a cluster.
 ---
 --- Answers nil and why for an option the spec does not name, a value
---- given to one that takes none, or one whose value is missing: the end
+--- given to one that takes none, an option the spec marks `required` that
+--- the line does not give ("--jobs is required"; the first by name when
+--- several are missing), or one whose value is missing: the end
 --- of the line, or a next word that looks like an option -- one that
 --- begins with "-" and is not a lone "-" or a number `tonumber` reads
 --- ("-1", "-0.5"; not "-inf") -- so a mistyped option ("--jobs --chek")
@@ -224,6 +242,17 @@ function Flags.parse(argv: {string}, from: integer,
     end
     cursor = cursor + 1
   end
+  local missing: mut {string} = {}
+  for name, entry in pairs(spec) do
+    if is_required(entry) and parsed.set[name] == nil and parsed.values[name] == nil then
+      missing[#missing + 1] = name
+    end
+  end
+  table.sort(missing)
+  local first = missing[1]
+  if first ~= nil then
+    return nil, first .. " is required"
+  end
   return parsed, ""
 end
 
@@ -262,6 +291,9 @@ local function option_lines(spec: {string:boolean | Flags.Option}): {string}
   for index, name in ipairs(names) do
     local entry = spec[name]
     local about = entry is Flags.Option and entry.about or nil
+    if entry ~= nil and is_required(entry) then
+      about = if about ~= nil and about ~= "" then about .. " (required)" else "(required)" end
+    end
     if about ~= nil and about ~= "" then
       lines[#lines + 1] = "  " .. heads[index] .. string.rep(" ", width - columns(heads[index])) ..
         "  " .. about
@@ -286,10 +318,10 @@ end
 --- when given, and each option the command's `spec` names with its
 --- value's name and what it does, as a [`Flags.Option`] describes it:
 --- one named `false` is listed bare, and one named `true` with
---- "<value>". Columns are aligned by characters, not bytes. `run` is not
---- read, so a program with one command, or a tool that runs its command
---- itself, describes it the way [`Flags.dispatch`] describes each of its
---- own. It ends without a newline.
+--- "<value>". An option the line must give ends "(required)". Columns are
+--- aligned by characters, not bytes. `run` is not read, so a program with
+--- one command, or a tool that runs its command itself, describes it the
+--- way [`Flags.dispatch`] describes each of its own. It ends without a newline.
 ---
 ---     usage: prog count [options] <file>...
 ---
@@ -378,8 +410,11 @@ end
 --- would, and answers what its `run` answers. Answers nil and why, run
 --- nothing, when the line names no command, one `commands` does not
 --- hold -- an option before the command is one -- or a line the
---- command's spec refuses, whose why names the command, or a command
---- with no `run`. Empty
+--- command's spec refuses, or a command with no `run`. A line the spec
+--- refuses is answered with the command's name, the refusal and its usage
+--- line -- "build: --jobs is required; usage: prog build [options] <file>"
+--- -- so a program that prints `why` shows how to type the line. Only the
+--- first line of a multi-line `usage` is shown. Empty
 --- `commands` raises.
 ---
 --- Help is answered rather than run -- `code` 0 and `help` for the
@@ -441,7 +476,8 @@ function Flags.dispatch(argv: {string}, from: integer,
   end
   local parsed, why = Flags.parse(argv, from + 1, spec)
   if parsed == nil then
-    return nil, name .. ": " .. why
+    local usage_line = Flags.help(command, program .. " " .. name):match("^[^\n]*") or ""
+    return nil, name .. ": " .. why .. "; " .. usage_line
   end
   local run = command.run
   if run == nil then

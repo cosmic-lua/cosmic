@@ -25,18 +25,12 @@ local tree = require("build.tree")
 local rebuild = require("build.rebuild")
 local identity = require("build.identity")
 local todos = require("build.todos")
+local support = require("build.test_support_fixture")
 
 --- The program itself, whose runs of a verb or a file hold the lock
 --- against this process.
 Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" },
   { path = "lang/prelude.d.tl", letters = "r" }, { path = "lang/stdlib.d.tl", letters = "r" } } }
-
---- `root`'s build directory ([`build.paths`]), made, with `root` made
---- first where it is not there yet.
-local function build_dir(root: string): string
-  assert(Fs.mkdirs(root))
-  return (assert(build_paths.prepare(root)))
-end
 
 --- A project whose one test passes, and sleeps `sleep_ns` first.
 local function project(root: string, sleep_ns: integer)
@@ -110,7 +104,7 @@ local function test_a_run_lets_the_lock_go_on_failure_and_interrupt(tmp: string)
   project(root, Clock.seconds(60))
   local h = start_test(root, tmp .. "/interrupted.out")
   local _ = await("the run to take the lock", function(): boolean
-    return Fs.read(build_dir(root) .. "/rebuild.lock.pid") ~= nil and
+    return Fs.read(support.build_dir(root) .. "/rebuild.lock.pid") ~= nil and
       rebuild_lock.take(root, 0, "write") == "busy"
   end)
   assert(h:stop(sys.SIGINT))
@@ -139,7 +133,7 @@ end
 --- does.
 local function test_a_write_of_the_projection_waits_for_the_lock(tmp: string)
   local root = tmp .. "/project"
-  assert(build_dir(root))
+  assert(support.build_dir(root))
   assert(Fs.write(root .. "/hello.tl", 'print("hello")\n'))
   assert(rebuild_lock.take(root, 0, "test") == "held")
   local output = tmp .. "/run.out"
@@ -155,7 +149,7 @@ local function test_a_write_of_the_projection_waits_for_the_lock(tmp: string)
     return text:find("waiting for it", 1, true) ~= nil
   end)
   local running, _ = h:try_wait()
-  local projection, _ = sys.stat(build_dir(root) .. "/cosmic.db")
+  local projection, _ = sys.stat(support.build_dir(root) .. "/cosmic.db")
   local unwritten = projection == nil
   rebuild_lock.release()
   local result = assert(h:wait(Clock.seconds(20)))
@@ -164,7 +158,7 @@ local function test_a_write_of_the_projection_waits_for_the_lock(tmp: string)
   assert(running ~= nil and not running.finished, "the write did not wait:\n" .. text)
   assert(unwritten, "the projection was written under the lock")
   assert(result.ok, text)
-  assert(text:find(build_dir(root) .. "/cosmic.db: another cosmic run (pid " .. tostring(sys.getpid()) ..
+  assert(text:find(support.build_dir(root) .. "/cosmic.db: another cosmic run (pid " .. tostring(sys.getpid()) ..
       ") in this checkout is running its tests; waiting for it", 1, true), text)
   assert(text:find("hello\n", 1, true), text)
 end
@@ -194,7 +188,7 @@ end
 --- locks are free ([`writer.write_recorded`]).
 local function test_a_build_commits_its_row_before_it_waits_to_publish(tmp: string)
   local root = tmp .. "/project"
-  assert(build_dir(root))
+  assert(support.build_dir(root))
   assert(Fs.write(root .. "/hello.tl", 'print("hello")\n'))
   local working = build_paths.resolve(root).working
   assert(rebuild_lock.take(root, 0, "test") == "held")
@@ -233,7 +227,7 @@ local function test_a_waiting_projection_keeps_its_compiled_snapshot(tmp: string
   end
   for _, succeeds in ipairs({ false, true }) do
     local root = tmp .. (if succeeds then "/valid" else "/failed" end)
-    assert(build_dir(root))
+    assert(support.build_dir(root))
     local original = 'print("original")\n'
     assert(Fs.write(root .. "/main.tl", original))
     assert(rebuild_lock.take(root, 0, "test") == "held")
@@ -285,7 +279,7 @@ local function test_a_waiting_projection_keeps_its_compiled_snapshot(tmp: string
       local text = assert(Fs.read(output))
       assert(result.ok, text)
       assert(text:find("original\n", 1, true), text)
-      local db = assert(Sqlite.open(build_dir(root) .. "/cosmic.db"))
+      local db = assert(Sqlite.open(support.build_dir(root) .. "/cosmic.db"))
       local rows = assert(Sqlite.text_rows(db,
         "SELECT inflate(source) FROM modules WHERE path = 'main'"))
       assert(rows[1]:text(1) == original, "published another run's source")
@@ -330,7 +324,7 @@ end
 --- edit once the lock is free.
 local function test_a_reading_verb_answers_while_another_run_holds_the_lock(tmp: string)
   local root = tmp .. "/project"
-  assert(build_dir(root))
+  assert(support.build_dir(root))
   assert(Fs.write(root .. "/thing.tl", thing("First")))
   local built = bounded(root, { "build" }, Clock.seconds(20))
   assert(built.ok, (built.stdout or "") .. (built.stderr or ""))

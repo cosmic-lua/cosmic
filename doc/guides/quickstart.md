@@ -22,6 +22,10 @@ print(Hash.hex_sha256("cosmic"))
 01307b41e7ff0bb31cca03fb7ff5bea9fdb3dd83afaca63d588a0c07e7ae98b8
 ```
 
+To hash a file without reading it whole, [`Hash.hex_file`] streams it in
+chunks and answers the digest, or `nil` and why: `Hash.hex_file("sha256",
+path)`. [`Hash.file`] answers the raw bytes.
+
 ## reading a file back
 
 [`cosmic.fs`] reads and writes files. [`Fs.mkdtemp`] makes a fresh directory
@@ -421,6 +425,8 @@ A function declared `: number` may still
 [`Fs.read`]: ../../cosmic/fs.tl
 [`Fs.Scratch`]: ../../cosmic/fs.tl
 [`Fs.write`]: ../../cosmic/fs.tl
+[`Hash.file`]: ../../cosmic/hash.tl
+[`Hash.hex_file`]: ../../cosmic/hash.tl
 [`Hash.hex_sha256`]: ../../cosmic/hash.tl
 [`Http.open`]: ../../cosmic/http/init.tl
 [`Json.decode`]: ../../cosmic/json.tl

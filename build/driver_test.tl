@@ -12,13 +12,7 @@ local Programs = require("lang.check_programs")
 local Scopes = require("lang.scopes")
 local Test = require("cosmic.test")
 local Truthy = require("lang.truthy")
-
---- The element of `list` at `index`, which the case knows is there.
-local function nth<T>(list: {T}, index: integer): T
-  local found = list[index]
-  assert(found ~= nil, "the list has an element at " .. tostring(index))
-  return found
-end
+local support = require("build.test_support_fixture")
 
 Test.policy{}
 
@@ -79,7 +73,7 @@ local function test_one_program_is_built_over_modules_that_require_each_other_th
   })
   local result = assert(build:result("use", true))
   assert(codes_of(result.bodies) == "not_assignable", codes_of(result.errors))
-  assert(result.errors[1] ~= nil and nth(result.errors, 1).stage == "checked" and nth(result.errors, 1).kind == "error")
+  assert(result.errors[1] ~= nil and support.nth(result.errors, 1).stage == "checked" and support.nth(result.errors, 1).kind == "error")
   assert(result.lowered ~= nil and result.checked ~= nil and not result.broken)
   -- the module it requires was lowered with it, and is the same program's
   local box = assert(build:parsed("box"))
@@ -134,7 +128,7 @@ local function test_a_module_that_does_not_parse_is_lowered_for_those_that_impor
     { "use.tl", "local Box = require(\"bad\")\nlocal b: Box = { n = 1 }\nreturn b\n" },
   })
   local bad = assert(build:result("bad", true))
-  assert(bad.broken and #bad.syntax >= 1 and bad.checked == nil and bad.errors[1] ~= nil and nth(bad.errors, 1).stage == "syntax")
+  assert(bad.broken and #bad.syntax >= 1 and bad.checked == nil and bad.errors[1] ~= nil and support.nth(bad.errors, 1).stage == "syntax")
   assert(#assert(build:result("use", true)).errors == 0)
 end
 
@@ -189,11 +183,11 @@ local function test_a_module_has_its_errors_of_every_stage_in_source_order_and_i
   })
   local result = assert(build:result("m", true))
   assert(codes_of(result.errors) == "float_key not_assignable", codes_of(result.errors))
-  assert(nth(result.errors, 1).stage == "declared" and nth(result.errors, 2).stage == "checked")
+  assert(support.nth(result.errors, 1).stage == "declared" and support.nth(result.errors, 2).stage == "checked")
   assert(#result.declared == 1 and #result.bodies == 1 and #result.scope_errors == 0 and #result.syntax == 0)
   assert(#result.warnings == 2 and result.warnings[1].kind == "unused" and result.warnings[1].stage == "warning" and
       result.warnings[1].code == "unused_variable" and result.warnings[2].code == "unused_variable", codes_of(result.warnings))
-  assert(nth(result.errors, 1).y == 1 and nth(result.errors, 2).y == 3)
+  assert(support.nth(result.errors, 1).y == 1 and support.nth(result.errors, 2).y == 3)
 end
 
 local function test_a_module_without_the_bodies_asked_for_is_not_checked_and_asking_again_checks_it()
@@ -234,20 +228,20 @@ local function test_the_function_each_call_took_is_kept_by_the_id_of_the_call()
   end)
   assert(#calls == 7, "calls: " .. tostring(#calls))
   local function took(i: integer): Types.Fn
-    local t = result.callees[Node.base(nth(calls, i)).id]
+    local t = result.callees[Node.base(support.nth(calls, i)).id]
     assert(t ~= nil and (t.tag == "fn"), "call " .. tostring(i) .. " took no function")
     return t
   end
   -- the method takes its record as the first parameter and answers two results
-  assert(#took(1).params == 2 and #nth(took(1).rets, 1).items == 2)
+  assert(#took(1).params == 2 and #support.nth(took(1).rets, 1).items == 2)
   -- a chained call is judged by the function the inner call answered
-  assert(#took(2).params == 0 and #nth(took(2).rets, 1).items == 2 and #nth(took(3).rets, 1).items == 1)
+  assert(#took(2).params == 0 and #support.nth(took(2).rets, 1).items == 2 and #support.nth(took(3).rets, 1).items == 1)
   -- the overload taken, not the first the name has
-  assert(nth(took(4).params, 1).type.tag == "string" and nth(took(5).params, 1).type.tag == "named")
+  assert(support.nth(took(4).params, 1).type.tag == "string" and support.nth(took(5).params, 1).type.tag == "named")
   -- a generic callee is the function with its type parameters, and a function literal argument is checked after the overload
   -- is chosen: the callee is the overload that takes a function of one parameter
   assert(#took(6).tparams == 1)
-  local literal = nth(took(7).params, 1).type
+  local literal = support.nth(took(7).params, 1).type
   assert((literal.tag == "fn") and #literal.params == 1)
   local lean = Driver.new({ globals = { Driver.declarations("std", "std.d.tl", Programs.library, {}) }, adjust = nil, external = {}, types = false })
   lean:provide(Driver.files(Driver.index({ { "m.tl", source } }, nothing)))
@@ -291,7 +285,7 @@ local function test_the_test_functions_of_a_test_module_are_called_from_outside_
   tested:provide(Driver.files(index))
   local discounted = assert(tested:result("w_test", true))
   assert(#discounted.warnings == 1, codes_of(discounted.warnings))
-  assert(nth(discounted.warnings, 1).msg:find("helper", 1, true), nth(discounted.warnings, 1).msg)
+  assert(support.nth(discounted.warnings, 1).msg:find("helper", 1, true), support.nth(discounted.warnings, 1).msg)
   local plain = assert(build:result("w", true))
   assert(#plain.warnings == 2, "outside a test module a function nothing calls is unused: " .. codes_of(plain.warnings))
 end
@@ -305,7 +299,7 @@ local function test_a_count_above_its_ceiling_is_refused_with_the_places_and_wha
   local result = assert(build:result("m", true))
   local lines = build:held(result, pins({}, {}, {}))
   assert(#lines == 7, table.concat(lines, "\n"))
-  assert(nth(lines, 1):find("m.tl:5:", 1, true) and nth(lines, 1):find("(float_key)", 1, true), lines[1])
+  assert(support.nth(lines, 1):find("m.tl:5:", 1, true) and support.nth(lines, 1):find("(float_key)", 1, true), lines[1])
   assert(lines[2] == "m.tl: 1 error of float_key in its declarations, pinned 0; follow the fix above rather than raise the pin", lines[2])
   assert(lines[#lines] == "m.tl: 4 errors of not_assignable in its bodies, pinned 0; follow the fix above rather than raise the pin",
     lines[#lines])
@@ -331,7 +325,7 @@ local function test_a_module_that_does_not_parse_is_refused_for_its_syntax_alone
   local result = assert(build:result("m", true))
   local lines = build:held(result, pins({}, {}, { ["m.tl not_assignable"] = 99 }))
   assert(#lines >= 1, table.concat(lines, "\n"))
-  assert(nth(lines, 1):find("m.tl:1:", 1, true), table.concat(lines, "\n"))
+  assert(support.nth(lines, 1):find("m.tl:1:", 1, true), table.concat(lines, "\n"))
   for _, line in ipairs(lines) do
     assert(not line:find("pinned", 1, true), "a syntax error has no ceiling: " .. line)
   end

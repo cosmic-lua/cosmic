@@ -30,22 +30,28 @@ local function test_mismatched_parameters_do_not_execute()
   local db = assert(Sqlite.memory())
   assert(db:exec("CREATE TABLE items (a, b)"))
   local record Case
-    values: any
+    values: {Sqlite.Value}
     says: string
   end
   local mismatched: {Case} = {
     { values = {}, says = "sqlite: parameter 1 has no value (use {} for NULL)" },
     { values = { { integer = 1 } }, says = "sqlite: parameter 2 has no value (use {} for NULL)" },
     { values = { {}, {}, {} }, says = "sqlite: values holds a parameter 3, and the statement has 2" },
-    { values = { [2] = {} }, says = "sqlite: parameter 1 has no value (use {} for NULL)" },
   }
   for _, case in ipairs(mismatched) do
-    local values = case.values as {Sqlite.Value}
+    local values = case.values
     local ok, why = Sqlite.run(db, "INSERT INTO items VALUES (?1, ?2)", values)
     assert(not ok and why == case.says, tostring(why))
     local rows, failure = Sqlite.text_rows(db, "SELECT ?1, ?2", values)
     assert(rows == nil and failure == case.says, tostring(failure))
   end
+  -- A list with a gap is no literal of a list type, so it is built untyped.
+  local gap: any = { [2] = {} }
+  local gapped = gap as {Sqlite.Value}
+  local gap_ok, gap_why = Sqlite.run(db, "INSERT INTO items VALUES (?1, ?2)", gapped)
+  assert(not gap_ok and gap_why == "sqlite: parameter 1 has no value (use {} for NULL)", tostring(gap_why))
+  local gap_rows, gap_failure = Sqlite.text_rows(db, "SELECT ?1, ?2", gapped)
+  assert(gap_rows == nil and gap_failure == gap_why, tostring(gap_failure))
   local rows = assert(Sqlite.text_rows(db, "SELECT count(*) FROM items"))
   assert(first_row(rows):text(1) == "0")
   assert(db:close())
@@ -64,6 +70,7 @@ local function test_malformed_values_raise_and_do_not_execute()
     { values = { 1, {} }, says = "parameter 1 is no Value table" },
     { values = { { integer = 1, text = "one" }, {} }, says = "parameter 1 has more than one Value field" },
     { values = { { typo = "one" }, {} }, says = "parameter 1 has an unknown Value field: typo" },
+    { values = { { null = true } }, says = "parameter 1 has an unknown Value field: null (use {} for NULL)" },
     { values = { {}, {}, typo = {} }, says = "values holds the key typo" },
     { values = { {}, {}, [0] = {} }, says = "values holds the key 0" },
     { values = { { integers = { 1, 2.5 } }, {} }, says = "element 2 of parameter 1's integers is not of its type" },

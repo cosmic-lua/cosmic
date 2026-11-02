@@ -61,7 +61,7 @@ local record importer
     modules: {Module}
     --- The compiler identity every key in `modules` carries.
     tool: string
-    main?: string
+    mut main?: string
     -- One message per `kind = "test"` module refused compilation
     -- because it both defines its own tests and returns its own value;
     -- every module NOT in this list compiled and is in `modules`.
@@ -80,8 +80,8 @@ local record importer
     left_out: mut {string}
     -- How many modules were compiled this run, and how many came back
     -- from `compiled` under a key that stood.
-    compiled: integer
-    cached: integer
+    mut compiled: integer
+    mut cached: integer
     --- How many reads of a narrowed place and how many typed parameters the Lua of the modules checks, summed over
     --- the modules compiled and those a cache answered (the counts are kept with a compile): what a checked compile
     --- wrote, 0 for an unchecked one.
@@ -89,7 +89,7 @@ local record importer
     mut parameter_checks: integer
     --- How many of those `cached` came from the compiles every
     --- checkout shares ([`Shared`]) rather than this one's own.
-    shared: integer
+    mut shared: integer
     --- What the derive the compile began with parsed.
     parses: derivation.Parses
     --- Writes the rows the checker that compiled adds to the shipped catalog (`catalog` of the attached schema `schema`,
@@ -161,7 +161,7 @@ local record importer
 
   --- The statement that drops the record-field uses of every compile
   --- `compiled` no longer holds, run at the end of each compile.
-  prune_references: string
+  mut prune_references: string
 end
 
 local type Hints = importer.Hints
@@ -1020,13 +1020,10 @@ local function reach(db: Sqlite.Handle, target: string): {string:boolean}?, stri
   if rows == nil then
     return nil, trouble
   end
-  local requires: mut {string:{string}} = {}
+  local requires: mut {string:mut {string}} = {}
   for _, row in ipairs(rows) do
-    local list = requires[row:text(1)]
-    if list == nil then
-      list = {}
-      requires[row:text(1)] = list
-    end
+    local list = requires[row:text(1)] or {}
+    requires[row:text(1)] = list
     local second = row:text(2)
     list[#list + 1] = second
   end

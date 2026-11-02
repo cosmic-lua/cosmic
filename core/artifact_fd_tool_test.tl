@@ -374,7 +374,7 @@ local function test_descriptor_passing_refuses_an_open_alias_of_the_artifact()
 end
 
 local function test_descriptor_receive_refuses_and_closes_an_artifact_alias(tmp: string)
-  if unix_socket.skipped(tmp) then return end
+  unix_socket.skip_if_refused(tmp)
   local address: raw_socket.Address = { kind = "unix", path = tmp .. "/artifact-rights.sock" }
   local listener <close> = assert(socket.listen(address, 1))
   local sender <close> = assert(socket.connect(address, 5000))

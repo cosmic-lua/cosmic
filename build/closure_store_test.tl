@@ -15,13 +15,7 @@ local test_inputs = require("build.test_inputs")
 local work = require("build.work")
 local writer = require("build.writer")
 local Clock = require("cosmic.clock")
-
---- The element of `list` at `index`, which the case knows is there.
-local function nth<T>(list: {T}, index: integer): T
-  local found = list[index]
-  assert(found ~= nil, "the list has an element at " .. tostring(index))
-  return found
-end
+local support = require("build.test_support_fixture")
 
 --- Writes a minimal one-module project at `root`, greeting `whom`: the
 --- one build/writer_test.tl projects, restated here since a test module
@@ -143,7 +137,7 @@ local function test_a_closure_store_moves_only_with_its_closure(tmp: string)
   local held_rows = assert(Sqlite.text_rows(held_db,
     "SELECT group_concat(path, ' ') FROM (SELECT path FROM decls ORDER BY path)"))
   assert(held_db:close())
-  assert(nth(held_rows, 1):text(1) == "base extra", nth(held_rows, 1):text(1))
+  assert(support.nth(held_rows, 1):text(1) == "base extra", support.nth(held_rows, 1):text(1))
   closure = names
   assert(store("world", tmp .. "/unheld.db") == first,
     "a declaration's edit moved the address of a closure that does not hold it")
@@ -161,7 +155,7 @@ local function test_a_closure_store_moves_only_with_its_closure(tmp: string)
       "(SELECT count(*) FROM meta WHERE key IN ('boot_hash', 'projected', 'writer')), " ..
       "(SELECT count(*) FROM meta WHERE key = 'closure'), (SELECT count(*) FROM decls)"))
   assert(db:close())
-  local row = nth(rows, 1)
+  local row = support.nth(rows, 1)
   assert(row:text(1) == "greet greet_test", row:text(1))
   assert(row:text(2) == "0", "a doc of a module outside the closure is in its store")
   assert(row:text(3) == "0", "a meta row that moves with the whole tree is in the store")
@@ -488,7 +482,7 @@ local function test_a_closure_store_is_the_same_bytes_each_time_it_is_written(tm
       "MATCH 'world'), (SELECT count(*) FROM examples_fts WHERE examples_fts MATCH 'greets'), " ..
       "(SELECT count(*) FROM uses)"))
   assert(db:close())
-  assert(table.concat(nth(counts, 1):texts(), " ") == "1 1 1 2", table.concat(nth(counts, 1):texts(), " "))
+  assert(table.concat(support.nth(counts, 1):texts(), " ") == "1 1 1 2", table.concat(support.nth(counts, 1):texts(), " "))
 end
 
 --- The key of a test given a closure store holds the store by its bytes,

@@ -217,7 +217,7 @@ worktree's build directory too ([`build/paths.tl`] names it).
 [`bin/zig`], [`bin/vendor`], `ci/` and the standalone scripts run on the
 release [`ci/cosmic-driver.pin`] names, not on the tree. what a change
 adds reaches them only once the pin moves, and it can only move after
-the change merges and main publishes its `next-<commit>` prerelease
+the change merges and main publishes its `<YYYYMMDD>-<commit>` prerelease
 ([`ci/README.md`]).
 
 [`bin/zig`], [`bin/vendor`] and [`bin/verify-codesign`] each run their

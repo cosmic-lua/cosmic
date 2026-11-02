@@ -38,7 +38,7 @@ local record plans
   --- The keys of `modules` made from nothing kept ([`plans.dependency_keys`]
   --- without its memos): what each is a function of, which a test holds the
   --- memos to.
-  full_keys: function(db: Sqlite.Handle, modules: {Module}, tool: string): {string:Keys}?, string
+  mut full_keys: function(db: Sqlite.Handle, modules: {Module}, tool: string): {string:Keys}?, string
 end
 
 local type Keys = plans.Keys
@@ -101,20 +101,17 @@ end
 
 --- Every name a table keyed by source hash lists, in order, by hash.
 local function names_by_hash(db: Sqlite.Handle,
-                             table_name: string): {string:{string}}?, string
+                             table_name: string): {string:mut {string}}?, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT source_hash, name FROM " .. table_name ..
       " ORDER BY source_hash, ordinal")
   if rows == nil then
     return nil, trouble
   end
-  local out: mut {string:{string}} = {}
+  local out: mut {string:mut {string}} = {}
   for _, row in ipairs(rows) do
-    local list = out[row:text(1)]
-    if list == nil then
-      list = {}
-      out[row:text(1)] = list
-    end
+    local list = out[row:text(1)] or {}
+    out[row:text(1)] = list
     local second = row:text(2)
     list[#list + 1] = second
   end
@@ -132,7 +129,7 @@ end
 --- [`Store.source`] reads it. Nil and why when that database has no row
 --- of it: every database the program runs on carries each module's, a
 --- sealed one too (build/test_key.tl's `sealed_fill`, [`Store.seal`]).
-local function embedded_edges(name: string): {string}?, string
+local function embedded_edges(name: string): mut {string}?, string
   local databases = Store.databases()
   local own = databases[#databases]
   if own == nil then
@@ -487,15 +484,12 @@ local function fast_keys(db: Sqlite.Handle, modules: {Module}, tool: string): {s
   -- The nodes that differ from the kept ones, and each that reaches one.
   local affected: mut {string:boolean} = {}
   if kept ~= nil and digests ~= nil then
-    local leading: mut {string:{string}} = {}
+    local leading: mut {string:mut {string}} = {}
     local queue: mut {string} = {}
     for slot, fragment in pairs(made) do
       for _, child in ipairs(fragment.children) do
-        local list = leading[child]
-        if list == nil then
-          list = {}
-          leading[child] = list
-        end
+        local list = leading[child] or {}
+        leading[child] = list
         list[#list + 1] = slot
       end
       if digests[slot] ~= fragment.digest then

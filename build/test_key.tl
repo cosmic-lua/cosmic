@@ -94,7 +94,7 @@ local record test_key
     store_salt: string
     --- The set of the names of the modules the binary carries, which
     --- [`worker.judge`] holds what a worker loaded to.
-    carried: {string:boolean}
+    carried: mut {string:boolean}
   end
 
   --- What [`test_key.prepare`] made of a job: the command that starts its
@@ -556,7 +556,7 @@ function test_key.harness(db: Sqlite.Handle): Harness?, string
     compiled[row:text(1)] = row:text(2) .. " " .. row:text(3)
     carried[row:text(1)] = true
   end
-  local imports: mut {string:{string}} = {}
+  local imports: mut {string:mut {string}} = {}
   for _, row in ipairs(imported) do
     local list = imports[row:text(1)] or {}
     imports[row:text(1)] = list
@@ -945,9 +945,9 @@ end
 --- The set of the names of `m`'s import closure (`closures`), made
 --- once a run.
 local function closure_set(rec: Recording, m: Module): {string:boolean}
-  local set = rec.closure_sets[m.path]
-  if set == nil then
-    set = {}
+  local held = rec.closure_sets[m.path]
+  local set: mut {string: boolean} = held or {}
+  if held == nil then
     for _, name in ipairs(rec.closures[m.path] or {}) do set[name] = true end
     rec.closure_sets[m.path] = set
   end
@@ -2088,8 +2088,9 @@ function test_key.lookup(rec: Recording, m: Module, id: string,
         local foreign = declared_of(rec, m, id, other)
         local seen: shared_verdicts.Found? = nil
         local seen_trouble = ""
-        if foreign ~= nil and rec.shared ~= nil then
-          seen, seen_trouble = shared_verdicts.declared(rec.shared, foreign)
+        local shared = rec.shared
+        if foreign ~= nil and shared ~= nil then
+          seen, seen_trouble = shared_verdicts.declared(shared, foreign)
           if seen == nil and seen_trouble ~= "" then drop_shared(rec, seen_trouble) end
         end
         if seen ~= nil then
@@ -2179,7 +2180,8 @@ function test_key.judge(rec: Recording, job: Job, result: Child.Result?,
   end
   local passed, message = judgement.passed, judgement.message
   local skipped = ""
-  if passed and judgement.skipped ~= nil then skipped = judgement.skipped end
+  local unavailable_reason = judgement.skipped
+  if passed and unavailable_reason ~= nil then skipped = unavailable_reason end
   if skipped ~= "" then
     -- A reason may carry what a failed start printed: the report lists
     -- one line each.
