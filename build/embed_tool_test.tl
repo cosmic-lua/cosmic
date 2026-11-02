@@ -882,3 +882,56 @@ end
 
 -- TODO: cover `--out` of a portable program, as [`build/embed_portable_tool_test.tl`] covers `bin/`, once a run of
 -- the suite carries every core (`bin/zig build boot -Dboot-cores=all`): a host-only tool makes only `--host` programs.
+
+--- A module that breaks a position rule holds out every module resting on it, and the program at the end of the chain
+--- (prog -> mid -> a), while the program that rests on none of them is built and the held-out program's earlier
+--- executable is removed.
+local function test_a_position_breach_holds_out_the_program_resting_on_it(tmp: string)
+  write_two_programs(tmp)
+  local first = invoke.run({ "build", "--host" }, { cwd = tmp, env = build_env() })
+  assert(first.code == 0, first.stderr)
+  assert(Fs.mkdirs(tmp .. "/lib"))
+  assert(Fs.write(tmp .. "/lib/init.tl", "local record lib\nend\nreturn lib\n"))
+  assert(Fs.write(tmp .. "/lib/hidden.tl", "local record hidden\nend\nreturn hidden\n"))
+  assert(Fs.write(tmp .. "/a.tl", 'local hidden = require("lib.hidden")\nlocal record a\nend\nreturn a\n'))
+  assert(Fs.write(tmp .. "/mid.tl", 'local a = require("a")\nlocal record mid\nend\nreturn mid\n'))
+  assert(Fs.write(tmp .. "/cmd/two/main.tl",
+    'local mid = require("mid")\nreturn function(): integer return mid == nil and 1 or 0 end\n'))
+  local built = invoke.run({ "build", "--host" }, { cwd = tmp, env = build_env() })
+  local bin = support.build_dir(tmp) .. "/bin"
+  assert(built.code == 4 and built.stdout == bin .. "/one\n", tostring(built.code) .. built.stdout .. built.stderr)
+  assert(built.stderr:find("a.tl: lib.hidden is private to lib/", 1, true) ~= nil, built.stderr)
+  assert(built.stderr:find("mid.tl: not compiled: it requires a", 1, true) ~= nil, built.stderr)
+  assert(built.stderr:find("two (cmd/two/main.tl) was not built", 1, true) ~= nil, built.stderr)
+  assert(Fs.exists(bin .. "/two") == false, "the held-out program's earlier executable stood")
+end
+
+--- A `global` in a declaration file belongs to no module: it stops the whole tree, writes no program and removes the
+--- executables an earlier build made.
+local function test_a_global_of_a_declaration_file_stops_the_whole_tree(tmp: string)
+  write_two_programs(tmp)
+  local first = invoke.run({ "build", "--host" }, { cwd = tmp, env = build_env() })
+  assert(first.code == 0, first.stderr)
+  assert(Fs.write(tmp .. "/types.d.tl", "--- @kind binding\nglobal leaked: integer\n"))
+  local built = invoke.run({ "build", "--host" }, { cwd = tmp, env = build_env() })
+  assert(built.code == 4 and built.stdout == "", tostring(built.code) .. built.stdout .. built.stderr)
+  assert(built.stderr:find("types.d.tl", 1, true) ~= nil, built.stderr)
+  local bin = support.build_dir(tmp) .. "/bin"
+  assert(Fs.exists(bin .. "/one") == false and Fs.exists(bin .. "/two") == false, "an executable stood")
+end
+
+--- A build without `--out` leaves the copy an earlier `--out` build wrote, and a copy the user removed is forgotten,
+--- so a later build does not say it is not cosmic's.
+local function test_the_manifest_forgets_a_copy_that_is_gone(tmp: string)
+  write_two_programs(tmp)
+  local first = invoke.run({ "build", "--host", "--out", "dist" }, { cwd = tmp, env = build_env() })
+  assert(first.code == 0, first.stderr)
+  local plain = invoke.run({ "build", "--host" }, { cwd = tmp, env = build_env() })
+  assert(plain.code == 0 and Fs.exists(tmp .. "/dist/one") == true, plain.stderr)
+  assert(Fs.remove(tmp .. "/dist/two"))
+  assert(Fs.write(tmp .. "/dist/two", "the user's own file, put where the copy was"))
+  assert(Fs.write(tmp .. "/cmd/two/main.tl", 'local n: integer = "x"\nreturn function(): integer return n end\n'))
+  local again = invoke.run({ "build", "--host", "--out", "dist" }, { cwd = tmp, env = build_env() })
+  assert(again.code == 4, again.stderr)
+  assert(Fs.read(tmp .. "/dist/two") == "the user's own file, put where the copy was")
+end

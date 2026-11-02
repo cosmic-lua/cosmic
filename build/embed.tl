@@ -29,6 +29,7 @@ local artifact = require("build.artifact")
 local type raw_store = require("cosmic.internal.store")
 local GrammarMode = require("build.grammar_mode")
 local importer = require("build.importer")
+local rebuild_lock = require("build.rebuild_lock")
 local exit_status = require("build.exit_status")
 local shared_compiles = require("build.shared_compiles")
 local narrow = require("build.narrow")
@@ -494,50 +495,10 @@ local function withdraw(name: string, bin: string, out: string?, held: mut {stri
   if out ~= nil then drop(out .. "/" .. name, out .. "\t" .. name) end
 end
 
---- Builds the tree at `root` and writes `bin/<name>` in its build
---- directory ([`build.paths`]) for every `cmd/<name>/main.tl` it holds: a
---- portable program, or with `host` a host program -- this binary's own
---- core with the program's database appended, which the kernel runs
---- directly, with no launcher, only where this core runs. Returns the
---- names written, none for a tree with no `cmd/`.
----
---- A module the checker refuses, a test among them, or one that breaks a
---- position rule or declares a `global`, does not stop the programs whose own
---- requires compile: they are written, and `report` carries the refusals. A
---- caller that gives no `report` is answered nil and the refusals once the
---- programs that could be are written, so a refusal is never passed over.
---- What stops the whole tree, for no one module is the culprit, writes no
---- program: an import cycle, a `global` of a declaration file, a source the
---- tool cannot read.
----
---- A program that is not written because it was refused, or because its own
---- build failed, has the executable of an earlier build removed from `bin/`
---- and the copy this build wrote in `out`; a failure of the environment
---- (the tool lacks a core, the build directory cannot be made, the tree cannot
---- be staged) removes nothing, for it says nothing of the programs. Where a
---- refusal and such a failure meet, the answer is the failure, with the refusal
---- named in its text.
---- @param under paths relative to `root` that narrow it to the programs
----   whose `main.tl` is under one; each must hold one. None, or nil, is
----   every program
---- @param grammar the checker that compiles the project: the one
----   `COSMIC_GRAMMAR` names where not given ([`build.grammar_mode`]). The
----   new checker ([`build.pipeline`]) holds a project to no ceiling, and a
----   project written in a form only the fork reads is refused with the new
----   checker's words and fix.
---- @param roots the roots its executables trust by default, as
----   `cosmic build --roots` names them ([`embed.database`]); nil records
----   none, which is "minimal"
---- @param carried the `built_from` the tool carries, as [`tree.standing`] takes it
---- @param outcome set to `refused` where the whole tree is refused and nothing was written
---- @param out a directory, made when the first executable is written to it, to which each executable is also
----   written under its name
---- @param report filled with the refusals, the programs not made and the executables removed
--- TODO: hold the rebuild lock ([`build.rebuild_lock`]) while a partial build reads its projection, once `cosmic
--- build` takes it: two builds of one tree at once share `cosmic.db.partial`, and one can remove it from the other.
-function embed.tree(root: string, host?: boolean, under?: {string}, grammar?: GrammarMode.Mode,
-                    roots?: string, carried?: string, outcome?: importer.Outcome, out?: string,
-                    report?: embed.Report): {string}?, string
+-- The build of [`embed.tree`], under the rebuild lock it takes.
+local function build_tree(root: string, host?: boolean, under?: {string}, grammar?: GrammarMode.Mode,
+                          roots?: string, carried?: string, outcome?: importer.Outcome, out?: string,
+                          report?: embed.Report): {string}?, string
   local mode = grammar
   if mode == nil then
     local chosen, chosen_trouble = GrammarMode.mode()
@@ -572,6 +533,17 @@ function embed.tree(root: string, host?: boolean, under?: {string}, grammar?: Gr
     return nil, scope_trouble
   end
   local held = manifest_read(root)
+  -- A copy the user has removed is no longer one to remember, or every later build would say it is not ours.
+  local gone: mut {string} = {}
+  for key, _ in pairs(held) do
+    local directory, name = key:match("^(.*)\t([^\t]*)$")
+    if directory ~= nil and name ~= nil then
+      local there, _ = Fs.exists(directory .. "/" .. name)
+      if there == false then gone[#gone + 1] = key end
+    end
+  end
+  for _, key in ipairs(gone) do held[key] = nil end
+  if #gone > 0 then manifest_write(root, held) end
   --- Withdraws the executable of each program in `scope` but those `except` names.
   local function withdraw_all(why: string, except?: {string:boolean})
     for _, program in ipairs(scope) do
@@ -738,6 +710,58 @@ function embed.tree(root: string, host?: boolean, under?: {string}, grammar?: Gr
     names[#names + 1] = name
   end
   return finished(names)
+end
+
+--- Builds the tree at `root` and writes `bin/<name>` in its build
+--- directory ([`build.paths`]) for every `cmd/<name>/main.tl` it holds: a
+--- portable program, or with `host` a host program -- this binary's own
+--- core with the program's database appended, which the kernel runs
+--- directly, with no launcher, only where this core runs. Returns the
+--- names written, none for a tree with no `cmd/`.
+---
+--- A module the checker refuses, a test among them, or one that breaks a
+--- position rule or declares a `global`, does not stop the programs whose own
+--- requires compile: they are written, and `report` carries the refusals. A
+--- caller that gives no `report` is answered nil and the refusals once the
+--- programs that could be are written, so a refusal is never passed over.
+--- What stops the whole tree, for no one module is the culprit, writes no
+--- program: an import cycle, a `global` of a declaration file, a source the
+--- tool cannot read.
+---
+--- A program that is not written because it was refused, or because its own
+--- build failed, has the executable of an earlier build removed from `bin/`
+--- and the copy this build wrote in `out`; a failure of the environment
+--- (the tool lacks a core, the build directory cannot be made, the tree cannot
+--- be staged) removes nothing, for it says nothing of the programs. Where a
+--- refusal and such a failure meet, the answer is the failure, with the refusal
+--- named in its text.
+--- @param under paths relative to `root` that narrow it to the programs
+---   whose `main.tl` is under one; each must hold one. None, or nil, is
+---   every program
+--- @param grammar the checker that compiles the project: the one
+---   `COSMIC_GRAMMAR` names where not given ([`build.grammar_mode`]). The
+---   new checker ([`build.pipeline`]) holds a project to no ceiling, and a
+---   project written in a form only the fork reads is refused with the new
+---   checker's words and fix.
+--- @param roots the roots its executables trust by default, as
+---   `cosmic build --roots` names them ([`embed.database`]); nil records
+---   none, which is "minimal"
+--- @param carried the `built_from` the tool carries, as [`tree.standing`] takes it
+--- @param outcome set to `refused` where the whole tree is refused and nothing was written
+--- @param out a directory, made when the first executable is written to it, to which each executable is also
+---   written under its name
+--- @param report filled with the refusals, the programs not made and the executables removed
+function embed.tree(root: string, host?: boolean, under?: {string}, grammar?: GrammarMode.Mode,
+                    roots?: string, carried?: string, outcome?: importer.Outcome, out?: string,
+                    report?: embed.Report): {string}?, string
+  -- One build of a tree at a time: two would share `cosmic.db.partial` and the `--out` manifest, and one could
+  -- remove what the other reads. A holder that has the lock already (`cosmic test`, a rebuild) goes on under it.
+  local took, lock_trouble = rebuild_lock.hold(root, "write", "build")
+  if took == nil then return nil, lock_trouble end
+  local names, trouble = build_tree(root, host, under, grammar, roots, carried, outcome, out, report)
+  if took then rebuild_lock.release() end
+  if names == nil then return nil, trouble end
+  return names, ""
 end
 
 --- The directory `--out` names, as an absolute path under `root` when it is relative; or nil and why it will not do: a

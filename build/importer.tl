@@ -1182,23 +1182,12 @@ local function compile_derived(handle: work.Handle, tool: string,
     return nil, globals_trouble
   end
   if #globals > 0 then
-    local by_file: mut {string:Module} = {}
-    for _, m in ipairs(modules) do by_file[m.file] = m end
-    local unplaced = false
-    for _, one in ipairs(globals) do
-      if not lenient or by_file[one.file] == nil then unplaced = true end
-    end
-    if unplaced then
-      -- A `global` of a declaration file, or in a run that names a file: no one module is the culprit.
-      local lines: mut {string} = {}
-      for _, one in ipairs(globals) do lines[#lines + 1] = one.message end
-      if outcome ~= nil then outcome.refused = true end
-      return nil, table.concat(lines, "\n")
-    end
-    for _, one in ipairs(globals) do
-      local m = assert(by_file[one.file], "a global is placed in a module")
-      hold(m.path, m.file, one.message)
-    end
+    -- A `global` of a module is refused by the parser as that module's own (`global_in_program`), so one that reaches
+    -- here is a declaration file's, which no one module owns: it stops the tree.
+    local lines: mut {string} = {}
+    for _, one in ipairs(globals) do lines[#lines + 1] = one.message end
+    if outcome ~= nil then outcome.refused = true end
+    return nil, table.concat(lines, "\n")
   end
   local keys, keys_trouble = plans.dependency_keys(handle.db, modules, tool)
   if keys == nil then
@@ -1644,7 +1633,8 @@ end
 --- the same message, and sets `outcome`'s `refused`. Consumes `shared` as that does.
 --
 -- TODO: leave out a module outside `target`'s reach that a tree-wide check
--- refuses too -- a misplaced [`Test.policy`], a cycle of imports, a global, an
+-- refuses too -- a misplaced [`Test.policy`], a cycle of imports, a global, a
+-- position breach (a private module required from outside its directory), an
 -- unknown `cosmic.*` require -- once those checks name the modules they
 -- refuse rather than answering one message for the tree: today any of them
 -- stops a file run whatever the file reaches.
