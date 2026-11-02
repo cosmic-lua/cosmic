@@ -1,13 +1,7 @@
 --- Deterministic statistical cases; host timings are not inputs to the gate.
 local Perf = require("build.perf")
 local Test = require("cosmic.test")
-
---- The element of `list` at `index`, which the case knows is there.
-local function nth<T>(list: {T}, index: integer): T
-  local found = list[index]
-  assert(found ~= nil, "the list has an element at " .. tostring(index))
-  return found
-end
+local support = require("build.test_support_fixture")
 
 local function population(delta: number, count?: integer): {Perf.Pair}
   local samples: mut {Perf.Pair} = {}
@@ -34,7 +28,7 @@ end
 
 local function test_consistent_slowdown_cannot_hide_in_single_sample_noise()
   local calibration = population(0)
-  nth(calibration, 1).b, nth(calibration, 2).b = 1, 199
+  support.nth(calibration, 1).b, support.nth(calibration, 2).b = 1, 199
   assert(Perf.compare(calibration, population(5)).status == "regression")
 end
 
@@ -52,7 +46,7 @@ end
 
 local function test_slow_tail_cannot_hide_behind_fast_median()
   local candidate = population(-5)
-  for i = 171, 200 do nth(candidate, i).b = 150 + i end
+  for i = 171, 200 do support.nth(candidate, i).b = 150 + i end
   local measured = Perf.compare(population(0), candidate)
   assert(measured.delta.median < 0 and measured.tail_delta > 0)
   assert(measured.status ~= "pass" and has_reason(measured.reasons, "positive_tail_interval"))

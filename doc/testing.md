@@ -4,6 +4,17 @@ How to write a test for cosmic and how `cosmic test` decides to run it.
 The authoritative detail lives in the modules this doc links. This doc
 gives the rules an author acts on.
 
+## exit status
+
+`cosmic test` exits 0 when every test passed and 1 when a test failed. It
+exits 4 when the tree, or a module a named run needs, did not compile: the
+checker refused a module, a file does not parse, or the modules require each other in a cycle. That holds when tests
+failed too, so a script that tries a changed tree (a mutation run) tells a
+change the checker refused from one a test caught. A refusal in a module a
+named run does not need leaves the run at 0 or 1, as does a failure to read, stage or write. `cosmic build`, a file run, `-e` and
+`--standalone` exit 4 for the same reason; a program that returns 4 itself looks the same. `cosmic help exit` lists
+every status.
+
 ## where tests live
 
 A test is a top-level `local function test_*` in a `*_test.tl` file
@@ -299,6 +310,16 @@ Where a fact of the host alone decides, use `requires`, not a skip.
 Where no name stands for it (a native start with nothing to relaunch,
 a test of what only another platform does), skip.
 
+`bin/cosmic fix --check .` fails a test that returns early from its own
+body: an `if <condition> then return end` or a bare `return` standing
+directly in a top-level `local function test_*`, unless the `return`
+follows a `Test.skip(...)` call ([`build.test_returns`]). A `return` in
+a branch of its own, a loop, a callback or a helper is not read, so it is
+no licence: a branch that returns having checked nothing is a skip too.
+A helper that skips for several tests ends the test itself and returns
+nothing for the test to guard (`unix_socket.skip_if_refused(dir)`, a
+local `<thing>_or_skip()`), because after [`Test.skip`] nothing runs.
+
 ## assertions
 
 A test that passes without calling `assert` shows only that it did not
@@ -564,6 +585,7 @@ Other rules:
 [`build.rebuild`]: ../build/rebuild.tl
 [`build.sandboxed_verdicts_test`]: ../build/sandboxed_verdicts_test.tl
 [`build.test_child`]: ../build/test_child.tl
+[`build.test_returns`]: ../build/test_returns.tl
 [`build.test_sandbox_probe`]: ../build/test_sandbox_probe.tl
 [`build.test_sandbox`]: ../build/test_sandbox.tl
 [`build.test_worker`]: ../build/test_worker.tl

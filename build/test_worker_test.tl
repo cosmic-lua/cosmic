@@ -8,13 +8,7 @@ local Clock = require("cosmic.clock")
 local Globals = require("cosmic.internal.globals")
 local worker = require("build.test_worker")
 local test_key = require("build.test_key")
-
---- The element of `list` at `index`, which the case knows is there.
-local function nth<T>(list: {T}, index: integer): T
-  local found = list[index]
-  assert(found ~= nil, "the list has an element at " .. tostring(index))
-  return found
-end
+local support = require("build.test_support_fixture")
 
 --- A worker's end, having written `report` to the report's descriptor.
 local function ended(report: worker.Report): Child.Result
@@ -23,7 +17,7 @@ local function ended(report: worker.Report): Child.Result
 end
 
 --- A passing report whose worker loaded `modules`.
-local function passing(modules: {string}): worker.Report
+local function passing(modules: mut {string}): worker.Report
   return { loaded = true, passed = true, message = "", elapsed_ns = 1,
     load_hits = {}, test_hits = {}, modules = modules }
 end
@@ -42,8 +36,8 @@ end
 local function test_a_line_of_hits_read_twice_is_one_table()
   local function reported(loaded: {integer}, tested: {integer}): worker.Report
     local report = passing({})
-    report.load_hits = { ["build.a"] = { [nth(loaded, 1)] = true, [nth(loaded, 2)] = true } }
-    report.test_hits = { ["build.a"] = { [nth(tested, 1)] = true } }
+    report.load_hits = { ["build.a"] = { [support.nth(loaded, 1)] = true, [support.nth(loaded, 2)] = true } }
+    report.test_hits = { ["build.a"] = { [support.nth(tested, 1)] = true } }
     return report
   end
   local first = assert(worker.decode(worker.encode(reported({ 3, 5 }, { 7, 7 }))))
@@ -67,7 +61,7 @@ local function test_a_worker_that_ran_an_unkeyed_module_fails_its_test()
   local carried = { ["build.docs"] = true, ["build.lib"] = true, ["build.test_worker"] = true,
     ["cosmic.removed"] = true }
   local closure = { ["build.lib"] = true, ["build.lib_test"] = true }
-  local function judged(modules: {string}, held?: boolean): worker.Judgement
+  local function judged(modules: mut {string}, held?: boolean): worker.Judgement
     return worker.judge({ result = ended(passing(modules)), trouble = "", timeout_ns = Clock.seconds(1),
       sandboxed = true, carried = held ~= false and carried or nil,
       closure = held ~= false and closure or nil })
@@ -181,7 +175,7 @@ local function test_a_worker_is_started_as_its_command_line_says()
     "--tree", "suite.a_test", "suite.b" }
   assert(#argv == #expected, table.concat(argv, " "))
   for i, value in ipairs(expected) do
-    assert(argv[i] == value, tostring(i) .. ": " .. nth(argv, i))
+    assert(argv[i] == value, tostring(i) .. ": " .. support.nth(argv, i))
   end
   assert(assert(options.env)["PATH"] == "/bin" and assert(options.env)["COVERAGE"] == "1")
   assert(assert(options.env)["COSMIC_COVERAGE_STARTUP"] == "1")
@@ -270,9 +264,9 @@ local function test_a_report_passes_only_after_successful_process_shutdown()
   report.test_hits = { ["suite.tl"] = { [12] = true } }
   report.skipped = "unchecked"
   local outcomes: {Child.Result} = { ended(report), ended(report), ended(report) }
-  nth(outcomes, 1).ok, nth(outcomes, 1).code = false, 7
-  nth(outcomes, 2).ok, nth(outcomes, 2).code, nth(outcomes, 2).signal = false, nil, 9
-  nth(outcomes, 3).ok = false
+  support.nth(outcomes, 1).ok, support.nth(outcomes, 1).code = false, 7
+  support.nth(outcomes, 2).ok, support.nth(outcomes, 2).code, support.nth(outcomes, 2).signal = false, nil, 9
+  support.nth(outcomes, 3).ok = false
   for i, result in ipairs(outcomes) do
     local judged = worker.judge({ result = result, trouble = "", timeout_ns = Clock.seconds(1),
       sandboxed = false })

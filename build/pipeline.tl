@@ -59,10 +59,10 @@ local record Pipeline
   type Mode = GrammarMode.Mode
 
   --- The mode `COSMIC_GRAMMAR` asks for ([`GrammarMode.mode`]).
-  mode: function(): Mode?, string
+  mut mode: function(): Mode?, string
 
   --- The tool string a compile in `mode` is keyed by ([`GrammarMode.tool`]).
-  tool: function(tool: string, mode: Mode, wraps?: boolean): string
+  mut tool: function(tool: string, mode: Mode, wraps?: boolean): string
 
   --- What a pipeline is made of besides the tree.
   record Options

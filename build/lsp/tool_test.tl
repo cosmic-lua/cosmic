@@ -209,7 +209,7 @@ local function test_a_tcp_listener_stops_at_sigterm_with_a_connection_open(tmp: 
 end
 
 local function test_a_socket_listener_stops_at_sigterm_with_a_connection_open(tmp: string)
-  if unix_socket.skipped(tmp) then return end
+  unix_socket.skip_if_refused(tmp)
   local path = tmp .. "/lsp.sock"
   local started = listening(tmp, { "lsp", "--socket", path })
   assert(started.at == path, started.at)
@@ -221,7 +221,7 @@ end
 local SIGKILL <const> = 9
 
 local function test_a_socket_file_already_there_is_refused_and_left(tmp: string)
-  if unix_socket.skipped(tmp) then return end
+  unix_socket.skip_if_refused(tmp)
   local path = tmp .. "/lsp.sock"
   local crashed = listening(tmp, { "lsp", "--socket", path })
   assert(crashed.handle:stop(SIGKILL))

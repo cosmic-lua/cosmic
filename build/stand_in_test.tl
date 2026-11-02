@@ -378,7 +378,7 @@ end
 
 --- `connect` says why a unix socket file cannot be connected to.
 local function test_connect_says_why_a_unix_socket_file_cannot_be_connected_to(tmp: string)
-  if unix_socket.skipped(tmp) then return end
+  unix_socket.skip_if_refused(tmp)
   local probe = built(tmp)
   local missing = run({ probe, "connect " .. tmp .. "/none.sock" }, {})
   assert(missing.ok and missing.stdout == tmp .. "/none.sock: No such file or directory\n",

@@ -13,13 +13,7 @@ local Hash = require("cosmic.hash")
 local artifact = require("build.artifact")
 local core_image = require("build.core_image")
 local fixture = require("build.core_image_fixture")
-
---- The element of `list` at `index`, which the case knows is there.
-local function nth<T>(list: {T}, index: integer): T
-  local found = list[index]
-  assert(found ~= nil, "the list has an element at " .. tostring(index))
-  return found
-end
+local support = require("build.test_support_fixture")
 
 --- Overwrites the `width`-byte field at `at` in `s`, little-endian where
 --- `order` is "<" and big-endian otherwise.
@@ -43,7 +37,7 @@ local function gen(bases: {string}, fields: function(string): {{integer}},
       local what = src:int(1, 4)
       if what == 1 then
         local f = Fuzz.pick(src, fields(bytes))
-        bytes = set_field(bytes, nth(f, 1), nth(f, 2), Fuzz.pick(src, { 0, 1, 2, 64, 120, #bytes - 1,
+        bytes = set_field(bytes, support.nth(f, 1), support.nth(f, 2), Fuzz.pick(src, { 0, 1, 2, 64, 120, #bytes - 1,
           #bytes, #bytes + 1, -1, math.maxinteger, 65535 }), order)
       elseif what == 2 then
         bytes = Fuzz.mutate(src, bytes, 3)
@@ -66,8 +60,8 @@ local function elf_fields(bytes: string): {{integer}}
   for index = 0, 3 do
     local at = shoff + index * 64 + 1
     for _, f in ipairs({ { 0, 4 }, { 4, 4 }, { 24, 8 }, { 32, 8 } }) do
-      if at + nth(f, 1) + nth(f, 2) - 1 <= #bytes and at > 0 then
-        fields[#fields + 1] = { at + nth(f, 1), nth(f, 2) }
+      if at + support.nth(f, 1) + support.nth(f, 2) - 1 <= #bytes and at > 0 then
+        fields[#fields + 1] = { at + support.nth(f, 1), support.nth(f, 2) }
       end
     end
   end
@@ -111,11 +105,11 @@ local function test_an_image_holds_the_code_and_not_the_dwarf(tmp: string)
       if #f ~= 4 or f[1] == "" or f[2] == "" then return true, "" end
       local one = core_image.digest(fixture.elf(f[1], f[3]))
       if one == nil then return false, "a well-formed core carrying DWARF has no image" end
-      if core_image.digest(fixture.elf(nth(f, 1), f[4])) ~= one then
+      if core_image.digest(fixture.elf(support.nth(f, 1), f[4])) ~= one then
         return false, "its DWARF moved the image"
       end
       if f[3] ~= f[4] then Fuzz.label("dwarf moved") end
-      local other = core_image.digest(fixture.elf(nth(f, 2), f[3]))
+      local other = core_image.digest(fixture.elf(support.nth(f, 2), f[3]))
       if f[2] ~= f[1] then
         Fuzz.label("code moved")
         if other == one then return false, "its code left the image" end
@@ -135,11 +129,11 @@ local function manifest_fields(bytes: string): {{integer}}
   local fields: mut {{integer}} = { { at + 16, 8 }, { at + 24, 4 }, { at + 28, 4 } }
   for entry = 0, 2 do
     for _, field in ipairs({ { 8, 4 }, { 12, 4 }, { 16, 8 }, { 24, 8 }, { 64, 8 } }) do
-      fields[#fields + 1] = { at + 32 + entry * 104 + nth(field, 1), nth(field, 2) }
+      fields[#fields + 1] = { at + 32 + entry * 104 + support.nth(field, 1), support.nth(field, 2) }
     end
   end
   for i = #fields, 1, -1 do
-    if nth(nth(fields, i), 1) < 1 then table.remove(fields, i) end
+    if support.nth(support.nth(fields, i), 1) < 1 then table.remove(fields, i) end
   end
   if #fields == 0 then fields[1] = { 1, 1 } end
   return fields

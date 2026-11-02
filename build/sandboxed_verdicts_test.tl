@@ -8,7 +8,7 @@
 --- nested in this test's own confinement, three deep, which the kernel
 --- refuses root (core/syscalls.c's `map_ids`) -- the run says so, and
 --- there is nothing more to check, unless the run is held to
---- sandboxing (`unsandboxed`): then it fails. A test that runs this
+--- sandboxing ([`skip_if_unsandboxed`]): then it fails. A test that runs this
 --- program undeclared is refused it, sandboxed, and one that declares
 --- `tool` runs again when the tool does -- when what the tool runs as
 --- does, not when only the rows every edit of the tree moves do.
@@ -25,24 +25,17 @@ local confine = require("build.confine")
 local this_program = require("build.this_program")
 local harness_epoch = require("build.harness_epoch")
 local Test = require("cosmic.test")
-local build_paths = require("build.paths")
+local support = require("build.test_support_fixture")
 
 --- What a sandboxed run of `cosmic test` needs of the host, the
 --- program it runs, roots of their own for its workers (`nests`), and
---- the variables `unsandboxed` reads, which hold a run to sandboxing.
+--- the variables [`skip_if_unsandboxed`] reads, which hold a run to sandboxing.
 Test.policy{
   profiles = { "cosmic", "proc" },
   grants = { { path = "o/bin", letters = "rx" }, { path = "/dev/urandom", letters = "r" } },
   promises = { "nest" },
   env = { "COSMIC_SANDBOX", "COSMIC_TEST_SANDBOX" },
 }
-
---- `root`'s build directory ([`build.paths`]), made, with `root` made
---- first where it is not there yet.
-local function build_dir(root: string): string
-  assert(Fs.mkdirs(root))
-  return (assert(build_paths.prepare(root)))
-end
 
 -- What these tests start is this very program.
 confine.confine({ reads = confine.itself() })
@@ -84,15 +77,16 @@ end
 ]]))
 end
 
---- Whether a run that said `text` sandboxed no worker; if so, the
---- running test is skipped ([`Test.skip`]). A host that refuses a
---- worker's workers a sandbox of their own -- one running the tests as
---- root, this test's run confined in a sandbox already -- checks nothing
---- here (CI's unprivileged runner nests them).
-local function unsandboxed(text: string): boolean
-  if text:find("; sandboxed", 1, true) then return false end
+--- Ends the running test as skipped ([`Test.skip`]) where a run that said
+--- `text` sandboxed no worker. A host that refuses a worker's workers a
+--- sandbox of their own -- one running the tests as root, this test's run
+--- confined in a sandbox already -- checks nothing here (CI's unprivileged
+--- runner nests them), and a platform that sandboxes no worker has none to
+--- check.
+local function skip_if_unsandboxed(text: string)
+  if text:find("; sandboxed", 1, true) then return end
   if assert(sys.uname()).sysname == "Linux" then Test.skip(confine.unsandboxed_reason(text)) end
-  return true
+  Test.skip("this platform sandboxes no worker")
 end
 
 --- The environment a sandboxed run of the suite is started with, its
@@ -114,7 +108,7 @@ end
 --- printed, which must say it passed -- unless `unchecked`, for a run that
 --- may have sandboxed nothing. Either way it must have started: a run
 --- that did not printed nothing, which reads as one that sandboxed
---- nothing (`unsandboxed`).
+--- nothing ([`skip_if_unsandboxed`]).
 local function run(root: string, output: string, env: {string:string}, words?: {string},
                    unchecked?: boolean): string
   local fd = assert(Fs.open_write(output))
@@ -136,7 +130,7 @@ local type Said = function(string, arg2?: {string}): string
 --- A checkout of the suite in `tmp`, run once, sandboxed: the
 --- environment its runs take, and a check of a run after the last one
 --- -- what it says, with `words` after `test` -- and the root it runs
---- in; nil where no worker could be sandboxed. Each case below seeds
+--- in, the test skipped where no worker could be sandboxed. Each case below seeds
 --- its own, so none starts more nested runs than a test's bound (10 s
 --- in CI) holds under load.
 local function seeded(tmp: string): {string:string}, Said, string
@@ -151,7 +145,7 @@ local function seeded(tmp: string): {string:string}, Said, string
     return text
   end
   local first = run(root, tmp .. "/first.out", env)
-  if unsandboxed(first) then return env, said, nil end
+  skip_if_unsandboxed(first)
   assert(first:find("3 ran, 0 stood", 1, true) and first:find("; sandboxed", 1, true), first)
   return env, said, root
 end
@@ -160,7 +154,6 @@ end
 --- and none is assumed or runs every time.
 local function test_a_sandboxed_verdict_stands_until_what_it_declares_changes(tmp: string)
   local _, said, root = seeded(tmp)
-  if root == nil then return end
   local again = said("0 ran, 3 stood")
   assert(not again:find("assumed", 1, true) and not again:find("every time", 1, true), again)
   -- A file no test declares.
@@ -172,7 +165,6 @@ end
 --- closure, runs the test that declares it.
 local function test_a_declared_file_or_module_that_changes_runs_its_test(tmp: string)
   local _, said, root = seeded(tmp)
-  if root == nil then return end
   assert(Fs.write(root .. "/suite/data/f", "two\n"))
   said("1 ran, 2 stood")
   assert(Fs.write(root .. "/suite/lib.tl", "local record Lib\n  value: integer\nend\nlocal lib: Lib = { value = 2 }\nreturn lib\n"))
@@ -183,7 +175,6 @@ end
 --- runs the test that declares it.
 local function test_a_declared_variable_or_declaration_that_changes_runs_its_test(tmp: string)
   local env, said, root = seeded(tmp)
-  if root == nil then return end
   env.FLAVOUR = "salty"
   said("1 ran, 2 stood")
   local source = assert(Fs.read(root .. "/suite/data_test.tl"))
@@ -195,8 +186,7 @@ end
 
 --- Forced, by `--all` or COSMIC_TEST_ALL, every test runs.
 local function test_a_forced_run_runs_every_sandboxed_test(tmp: string)
-  local env, said, root = seeded(tmp)
-  if root == nil then return end
+  local env, said, _ = seeded(tmp)
   said("3 ran, 0 stood", { "--all" })
   env.COSMIC_TEST_ALL = "1"
   said("3 ran, 0 stood")
@@ -235,7 +225,7 @@ end
       not refused:find("test: %d+ tests? passed in "), refused)
   suite(tmp .. "/root", "loopback", '"127.0.0.1", "127.0.0.2"', false)
   local first = run(tmp .. "/root", tmp .. "/first.out", env)
-  if unsandboxed(first) then return end
+  skip_if_unsandboxed(first)
   assert(first:find("1 ran, 0 stood", 1, true), first)
   local again = run(tmp .. "/root", tmp .. "/again.out", env)
   assert(again:find("0 ran, 1 stood", 1, true) and not again:find("every time", 1, true), again)
@@ -253,8 +243,8 @@ end
 --- program's core is among.
 local function tool_checkout(root: string)
   assert(Fs.mkdirs(root .. "/suite"))
-  assert(Fs.mkdirs(build_dir(root) .. "/bin"))
-  assert(Fs.write(build_dir(root) .. "/bin/stand-in", "one\n"))
+  assert(Fs.mkdirs(support.build_dir(root) .. "/bin"))
+  assert(Fs.write(support.build_dir(root) .. "/bin/stand-in", "one\n"))
   -- Each starts this program past its launcher by hand, as
   -- [`this_program.program`] would: another project cannot reach build/.
   -- TODO: start it through [`this_program.program`] once that moves to
@@ -342,12 +332,12 @@ local function test_a_sandboxed_test_runs_the_tool_only_declared(tmp: string)
   -- The `bootstrap` cache, made where the runner can make it.
   env.XDG_CACHE_HOME = tmp .. "/cache"
   local first = run(root, tmp .. "/first.out", env, nil, true)
-  if unsandboxed(first) then return end
+  skip_if_unsandboxed(first)
   assert(first:find("test: %d+ tests? passed in ") and first:find("3 ran, 0 stood", 1, true), first)
   local again = run(root, tmp .. "/again.out", env)
   assert(again:find("0 ran, 3 stood", 1, true), again)
   -- The tool rebuilt: what declares it runs again.
-  assert(Fs.write(build_dir(root) .. "/bin/stand-in", "two\n"))
+  assert(Fs.write(support.build_dir(root) .. "/bin/stand-in", "two\n"))
   local rebuilt = run(root, tmp .. "/rebuilt.out", env)
   assert(rebuilt:find("1 ran, 2 stood", 1, true), rebuilt)
 end
@@ -385,7 +375,7 @@ end
 local function tool_project(tmp: string): function(string), function(string): string
   local root = tmp .. "/root"
   assert(Fs.mkdirs(root .. "/suite"))
-  assert(Fs.mkdirs(build_dir(root) .. "/bin"))
+  assert(Fs.mkdirs(support.build_dir(root) .. "/bin"))
   -- Its worker does not start the tool, which a sandbox nested in this
   -- test's confinement could not find at its name under this test's
   -- /tmp: what it declares is all its key turns on.
@@ -418,7 +408,7 @@ local function tool_project(tmp: string): function(string), function(string): st
     return text
   end
   local first = ran("", true)
-  if unsandboxed(first) then return nil, nil end
+  skip_if_unsandboxed(first)
   assert(first:find("test: %d+ tests? passed in ") and first:find("2 ran, 0 stood", 1, true), first)
   return rebuild, function(wanted: string): string return ran(wanted) end
 end
@@ -429,7 +419,6 @@ end
 --- does one that does not declare it.
 local function test_a_tool_test_stands_across_a_rebuild_that_moved_nothing_it_carries(tmp: string)
   local rebuild, ran = tool_project(tmp)
-  if rebuild == nil then return end
   ran("0 ran, 2 stood")
   -- Rebuilt for an edit no binary carries: every byte of the program
   -- after its image moved, and nothing it runs.
@@ -441,7 +430,6 @@ end
 --- carries moves; one that does not declare it stands.
 local function test_a_tool_test_runs_again_when_a_module_the_tool_carries_moves(tmp: string)
   local rebuild, ran = tool_project(tmp)
-  if rebuild == nil then return end
   rebuild("UPDATE modules SET source = deflate(CAST(inflate(source) AS TEXT) || " ..
       "char(10) || '-- edited' || char(10)) WHERE path = 'cosmic.json'")
   ran("1 ran, 1 stood")
@@ -542,7 +530,7 @@ end
   end
   local function stop(dir: string) assert(Fs.write(dir .. "/stop", "")) end
   local first, first_ok = run_then({}, stop)
-  if unsandboxed(first) then return end
+  skip_if_unsandboxed(first)
   assert(first_ok and first:find("1 ran, 0 stood", 1, true) ~= nil, first)
   -- Forced, and moved as it runs: it fails.
   local forced, forced_ok = run_then({ "--all" }, function(_: string)
@@ -567,7 +555,7 @@ local function test_a_bump_of_the_epoch_runs_every_test_again(tmp: string)
   checkout(root)
   local env = environment(tmp .. "/cache/verdicts.db")
   local first = run(root, tmp .. "/first.out", env)
-  if unsandboxed(first) then return end
+  skip_if_unsandboxed(first)
   local again = run(root, tmp .. "/again.out", env)
   assert(again:find("0 ran, 3 stood", 1, true), again)
   env.COSMIC_TEST_HARNESS_EPOCH = harness_epoch.epoch .. "0"
@@ -610,12 +598,12 @@ end
 ]]))
   local env = environment(tmp .. "/cache/verdicts.db")
   local first = run(root, tmp .. "/first.out", env)
-  if unsandboxed(first) then return end
+  skip_if_unsandboxed(first)
   assert(first:find("2 ran, 0 stood", 1, true), first)
   env.COSMIC_TEST_COMPILER_SALT = "another compiler"
   local moved = run(root, tmp .. "/moved.out", env)
   assert(moved:find("1 ran, 1 stood", 1, true), moved)
-  local db = assert(Sqlite.open(build_dir(root) .. "/build.db"))
+  local db = assert(Sqlite.open(support.build_dir(root) .. "/build.db"))
   local rows = assert(Sqlite.text_rows(db,
     "SELECT group_concat(path, ' ') FROM (SELECT path FROM runs " ..
       "WHERE run_at_ns = (SELECT max(run_at_ns) FROM runs) ORDER BY path)"))
@@ -649,10 +637,10 @@ end
 ]]))
   local env = environment(tmp .. "/cache/verdicts.db")
   local checked = run(root, tmp .. "/checked.out", env, { "--check-types" })
-  if unsandboxed(checked) then Test.skip("no worker could be sandboxed here") end
+  skip_if_unsandboxed(checked)
   assert(checked:find("2 ran, 0 stood", 1, true), checked)
   local function ran_last(): string
-    local db = assert(Sqlite.open(build_dir(root) .. "/build.db"))
+    local db = assert(Sqlite.open(support.build_dir(root) .. "/build.db"))
     local rows = assert(Sqlite.text_rows(db,
       "SELECT group_concat(path, ' ') FROM (SELECT path FROM runs " ..
         "WHERE run_at_ns = (SELECT max(run_at_ns) FROM runs) ORDER BY path)"))
@@ -685,7 +673,7 @@ end
 ]]))
   local env = environment(tmp .. "/cache/verdicts.db")
   local first = run(root, tmp .. "/first.out", env, { "--check-types" })
-  if unsandboxed(first) then Test.skip("no worker could be sandboxed here") end
+  skip_if_unsandboxed(first)
   assert(first:find("1 ran, 0 stood", 1, true), first)
   local plain = run(root, tmp .. "/plain.out", env)
   assert(plain:find("1 ran, 0 stood", 1, true), plain)
@@ -721,7 +709,7 @@ end
   assert(Fs.write(root .. "/suite/store_test.tl", text))
   local env = environment(tmp .. "/cache/verdicts.db")
   local first = run(root, tmp .. "/first.out", env, { "--check-types" })
-  if unsandboxed(first) then Test.skip("no worker could be sandboxed here") end
+  skip_if_unsandboxed(first)
   assert(first:find("1 ran, 0 stood", 1, true), first)
   local again = run(root, tmp .. "/again.out", env, { "--check-types" })
   assert(again:find("0 ran, 1 stood", 1, true), "a store module's checked verdict did not stand: " .. again)
@@ -755,7 +743,7 @@ local function test_a_test_is_given_the_store_of_its_closure_alone(tmp: string)
   -- (build/test_key.tl's `base_name`).
   local function closure_stores(): {string}
     local out: mut {string} = {}
-    local listed: {string} = assert(Fs.list(build_dir(root) .. "/stores"))
+    local listed: {string} = assert(Fs.list(support.build_dir(root) .. "/stores"))
     for _, name in ipairs(listed) do
       if name:sub(1, 5) ~= "base-" then out[#out + 1] = name end
     end
@@ -786,18 +774,18 @@ end
   local env = environment(tmp .. "/cache/verdicts.db")
   -- Unchecked: where no worker can be sandboxed, the run is
   -- unsandboxed, its worker attaches the whole projection, and the
-  -- test fails -- `unsandboxed` then ends this one.
+  -- test fails -- [`skip_if_unsandboxed`] then ends this one.
   local first = run(root, tmp .. "/first.out", env, nil, true)
-  if unsandboxed(first) then return end
+  skip_if_unsandboxed(first)
   assert(first:find("test: %d+ tests? passed in ") and first:find("1 ran, 0 stood", 1, true), first)
-  local projection = assert(Fs.read(build_dir(root) .. "/cosmic.db"))
+  local projection = assert(Fs.read(support.build_dir(root) .. "/cosmic.db"))
   local stores = closure_stores()
   assert(#stores == 1, table.concat(stores, " "))
   -- Outside the closure: the projection moves, the verdict stands.
   assert(Fs.write(root .. "/suite/other.tl", "local record Lib\n  value: integer\nend\nlocal lib: Lib = { value = 2 }\nreturn lib\n"))
   local outside = run(root, tmp .. "/outside.out", env)
   assert(outside:find("0 ran, 1 stood", 1, true), outside)
-  assert(assert(Fs.read(build_dir(root) .. "/cosmic.db")) ~= projection, "the projection did not move")
+  assert(assert(Fs.read(support.build_dir(root) .. "/cosmic.db")) ~= projection, "the projection did not move")
   -- A module added: it stands, on the same store; told to look, it
   -- finds the new module not in it.
   assert(Fs.write(root .. "/suite/added.tl", "local record Lib\n  value: integer\nend\nlocal lib: Lib = { value = 3 }\nreturn lib\n"))
@@ -832,7 +820,7 @@ local function test_a_store_is_keyed_by_its_bytes_not_its_address(tmp: string)
   checkout(root)
   local env = environment(tmp .. "/cache/verdicts.db")
   local first = run(root, tmp .. "/first.out", env)
-  if unsandboxed(first) then return end
+  skip_if_unsandboxed(first)
   assert(first:find("3 ran, 0 stood", 1, true), first)
   env.COSMIC_TEST_STORE_SALT = "another writer"
   local rewritten = run(root, tmp .. "/rewritten.out", env)
@@ -852,7 +840,7 @@ local function test_a_store_is_keyed_by_its_bytes_not_its_address(tmp: string)
   local second = run(tmp .. "/second", tmp .. "/second.out", env)
   assert(second:find("0 ran, 3 stood", 1, true) and
       not second:find("closure store", 1, true), second)
-  local stores, _ = Fs.list(build_dir(tmp .. "/second") .. "/stores")
+  local stores, _ = Fs.list(support.build_dir(tmp .. "/second") .. "/stores")
   assert(stores == nil or #stores == 0, "a checkout that stood wrote a store")
 end
 
@@ -890,7 +878,7 @@ local function test_a_store_whose_bytes_differ_from_its_kept_digest_fails_the_ru
   checkout(root)
   local env = environment(tmp .. "/cache/verdicts.db")
   local first = run(root, tmp .. "/first.out", env)
-  if unsandboxed(first) then return end
+  skip_if_unsandboxed(first)
   local function forge()
     local db = assert(Sqlite.open(tmp .. "/cache/verdicts.db", { writable = true }))
     assert(db:exec("UPDATE stores_v1 SET digest = 'not the digest of its bytes'"))
@@ -912,7 +900,7 @@ local function test_a_store_whose_bytes_differ_from_its_kept_digest_fails_the_ru
   assert(second:find("must follow from its address alone", 1, true) and
       second:find("test: %d+ of %d+ tests? failed"), second)
   local kept_aside = false
-  for _, entry in ipairs(Fs.list(build_dir(tmp .. "/second") .. "/stores") or {}) do
+  for _, entry in ipairs(Fs.list(support.build_dir(tmp .. "/second") .. "/stores") or {}) do
     if entry:match("%.mismatch%.db$") then kept_aside = true end
   end
   assert(kept_aside, "the store whose bytes differ was not kept aside")
@@ -927,15 +915,15 @@ local function test_a_run_that_writes_no_store_checks_one(tmp: string)
   checkout(root)
   local env = environment(tmp .. "/cache/verdicts.db")
   local first = run(root, tmp .. "/first.out", env)
-  if unsandboxed(first) then return end
+  skip_if_unsandboxed(first)
   -- Every store, and what the shared verdicts keep of it, made to agree
   -- on bytes no write makes.
   local db = assert(Sqlite.open(tmp .. "/cache/verdicts.db", { writable = true }))
-  local listed: {string} = assert(Fs.list(build_dir(root) .. "/stores"))
+  local listed: {string} = assert(Fs.list(support.build_dir(root) .. "/stores"))
   for _, entry in ipairs(listed) do
     local address = entry:match("^base%-(%x+)%.db$") or entry:match("^(%x+)%.db$")
     if address ~= nil then
-      local path = build_dir(root) .. "/stores/" .. entry
+      local path = support.build_dir(root) .. "/stores/" .. entry
       local data = assert(Fs.read(path)) .. "tampered"
       assert(Fs.write(path, data))
       assert(Sqlite.run(db, "UPDATE stores_v1 SET digest = ?1 WHERE address = ?2",

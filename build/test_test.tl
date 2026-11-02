@@ -9,13 +9,7 @@ local test = require("build.test")
 local test_key = require("build.test_key")
 local work = require("build.work")
 local worker = require("build.test_worker")
-
---- The element of `list` at `index`, which the case knows is there.
-local function nth<T>(list: {T}, index: integer): T
-  local found = list[index]
-  assert(found ~= nil, "the list has an element at " .. tostring(index))
-  return found
-end
+local support = require("build.test_support_fixture")
 
 local function test_a_run_that_names_tests_is_failed_by_the_refusals_of_the_files_it_names_alone()
   local lines = {
@@ -29,6 +23,28 @@ local function test_a_run_that_names_tests_is_failed_by_the_refusals_of_the_file
   assert(#test.refusals_of(lines, { "build" }) == 2)
   assert(test.refusals_of(lines, { "cosmic" })[1] == lines[1])
   assert(#test.refusals_of(lines, { "build/one_test.tl:test_it" }) == 1, "a selector that names a test is its module's")
+end
+
+local function test_a_named_file_that_did_not_compile_is_shown_the_refusals_it_rests_on_first()
+  local lines = {
+    "build/one_test.tl: not compiled: it requires build.one, which the new checker refused",
+    "build/one.tl: the compiler refused it\nbuild/one.tl:1:1: wrong (code): fix",
+    "build/two.tl: the compiler refused it\nbuild/two.tl:1:1: also wrong (code): fix",
+    "build/mid.tl: not compiled: it requires build.one, which the new checker refused",
+  }
+  local roots = { ["build/one_test.tl"] = { 2 }, ["build/one.tl"] = { 2 }, ["build/two.tl"] = { 3 },
+    ["build/mid.tl"] = { 2, 3 } }
+  local explained = test.explained(lines, roots, { "build/one_test.tl" })
+  local shown = explained.lines
+  assert(#shown == 2 and shown[1] == lines[2] and shown[2] == lines[1], table.concat(shown, "|"))
+  assert(explained.matched["build/one_test.tl"] == true)
+  -- A directory choosing the root and its dependents shows each line once, roots ahead of dependents.
+  local whole = test.explained(lines, roots, { "build" }).lines
+  assert(#whole == 4 and whole[1] == lines[2] and whole[2] == lines[3], table.concat(whole, "|"))
+  local mid = test.explained(lines, roots, { "build/mid.tl" }).lines
+  assert(#mid == 3 and mid[1] == lines[2] and mid[2] == lines[3] and mid[3] == lines[4], table.concat(mid, "|"))
+  local none = test.explained(lines, roots, { "build/absent_test.tl" })
+  assert(#none.lines == 0 and none.matched["build/absent_test.tl"] == nil)
 end
 
 local function test_selection_is_exact_or_at_a_directory_boundary()
@@ -49,7 +65,7 @@ end
 --- row, the run's hits hold their union, and a table taken before is
 --- not folded or spelled again.
 local function test_a_modules_load_and_test_hits_are_two_lines_of_its_row()
-  local hits: {string:mut {integer:boolean}} = {}
+  local hits: mut {string:mut {integer:boolean}} = {}
   local folded: {{integer:boolean}:boolean} = {}
   local spelled: {{integer:boolean}:string} = {}
   local loaded: {integer:boolean} = { [3] = true, [1] = true }
@@ -91,7 +107,7 @@ local function test_the_shares_deal_each_test_once()
     end
   end
   local reversed: mut {string} = {}
-  for i = #ids, 1, -1 do reversed[#reversed + 1] = nth(ids, i) end
+  for i = #ids, 1, -1 do reversed[#reversed + 1] = support.nth(ids, i) end
   for count = 1, 4 do
     local held: mut {string:integer} = {}
     local sizes: mut {integer} = {}
@@ -115,7 +131,7 @@ local function test_the_shares_deal_each_test_once()
       assert(held[id] == 1, id .. " is in " .. tostring(held[id]) .. " of " .. tostring(count) .. " shares")
     end
     table.sort(sizes)
-    assert(nth(sizes, #sizes) - nth(sizes, 1) <= 1, "shares of " .. tostring(count) .. " differ by more than one")
+    assert(support.nth(sizes, #sizes) - support.nth(sizes, 1) <= 1, "shares of " .. tostring(count) .. " differ by more than one")
   end
 end
 
@@ -223,7 +239,7 @@ local function test_the_harness_holds_what_a_worker_runs_and_what_keys_it()
   -- value leaves the name among its constants ([`test_key.value_imports`]).
   local named_in: mut {string:string} = {}
   for _, row in ipairs(imports) do
-    named_in[nth(row, 1)] = (named_in[nth(row, 1)] or "") .. " " .. nth(row, 2)
+    named_in[support.nth(row, 1)] = (named_in[support.nth(row, 1)] or "") .. " " .. support.nth(row, 2)
   end
   local function set(name: string, source: string, bytecode: string)
     assert(Sqlite.run(db, "DELETE FROM modules WHERE path = ?", { { text = name } }))

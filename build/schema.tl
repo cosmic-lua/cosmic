@@ -10,7 +10,7 @@
 
 local record schema
   --- The name of the `docs` index of a module's `local` declarations.
-  local_index: string
+  mut local_index: string
 end
 
 schema.local_index = "docs_by_local"
@@ -107,6 +107,25 @@ local tables: {Definition} = {
                   column INTEGER NOT NULL,
                   length INTEGER NOT NULL,
                   plain INTEGER NOT NULL,
+                  PRIMARY KEY (module, ordinal)) WITHOUT ROWID]] },
+
+  -- What each standard-library module declares its types to have
+  -- ([`build.syntax_members`]): the working database's `members` of the
+  -- module's source as `modules` holds it, by module, with `doc` the
+  -- text of the doc comment on the same symbol ("" for none), which the
+  -- working database holds in `docs`. What `cosmic lsp` completes the
+  -- members of a type of the binary's own `cosmic.*` modules from, in a
+  -- project, where the working database holds no such module
+  -- ([`build.lsp.source`]'s `members`). Only cosmic's own projection and
+  -- the tool fill it; a program has no editor to answer.
+  { name = "members", body = [[(module TEXT NOT NULL,
+                  ordinal INTEGER NOT NULL,
+                  owner TEXT NOT NULL,
+                  name TEXT NOT NULL,
+                  kind TEXT NOT NULL,
+                  scope TEXT NOT NULL,
+                  type TEXT NOT NULL,
+                  doc TEXT NOT NULL,
                   PRIMARY KEY (module, ordinal)) WITHOUT ROWID]] },
 
   -- The file a standard-library module generated from another file (the

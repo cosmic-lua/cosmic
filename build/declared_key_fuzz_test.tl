@@ -15,6 +15,7 @@ local declared_key = require("build.declared_key")
 local key_parts = require("build.key_parts")
 local test_inputs = require("build.test_inputs")
 local Clock = require("cosmic.clock")
+local support = require("build.test_support_fixture")
 
 --- The scalar fields of a spec a preimage names, in the order it spells
 --- them, and the optional ones, which are there or not.
@@ -35,7 +36,7 @@ local function is_map(name: string): boolean return name == "environment" or nam
 --- optional one, absent (nil); each list of strings.
 local record Drawn
   scalars: mut {string:string}
-  lists: mut {string:{string}}
+  lists: mut {string:mut {string}}
 end
 
 --- Bytes a framing would single out: separators a preimage or a value
@@ -47,15 +48,8 @@ local ALPHABET <const> = { "a", "b", "0", "f", " ", "\n", ":", "\0" }
 --- ([`test_inputs.plain`]), so "a/./b" and "a/b" are one path.
 local PATH_ALPHABET <const> = { "a", "b", "0", "f", " ", "\n", ":" }
 
---- The element of `list` at `index`, which the draw knows is there.
-local function nth<T>(list: {T}, index: integer): T
-  local found = list[index]
-  assert(found ~= nil, "the list has an element at " .. tostring(index))
-  return found
-end
-
 --- The list `d` holds under `name`: a drawn spec holds every one of [`LISTS`].
-local function list_of(d: Drawn, name: string): {string}
+local function list_of(d: Drawn, name: string): mut {string}
   local list = d.lists[name]
   assert(list, name .. " is a list a drawn spec holds")
   return list
@@ -65,9 +59,9 @@ end
 --- place, which a list that is not `mut` does not allow.
 local function splice(list: {string}, at: integer, drop: integer, put: {string}): mut {string}
   local out: mut {string} = {}
-  for i = 1, at - 1 do out[#out + 1] = nth(list, i) end
+  for i = 1, at - 1 do out[#out + 1] = support.nth(list, i) end
   for _, entry in ipairs(put) do out[#out + 1] = entry end
-  for i = at + drop, #list do out[#out + 1] = nth(list, i) end
+  for i = at + drop, #list do out[#out + 1] = support.nth(list, i) end
   return out
 end
 
@@ -99,7 +93,7 @@ local function canonical(d: Drawn): Drawn
     local env = list_of(d, map)
     for i = 1, #env - 1, 2 do
       -- The last value of a name given twice, as [`spec_of`] gives it.
-      local name, value = nth(env, i), nth(env, i + 1)
+      local name, value = support.nth(env, i), support.nth(env, i + 1)
       if name ~= "" then values[name] = value end
     end
     local names: mut {string} = {}
@@ -133,10 +127,10 @@ local function unpack(packed: string): Drawn
   local fields = Fuzz.unpack(packed)
   local d: Drawn = { scalars = {}, lists = {} }
   for i, name in ipairs(SCALARS) do
-    local value = nth(fields, i)
+    local value = support.nth(fields, i)
     if value:sub(1, 1) == "+" then d.scalars[name] = value:sub(2) end
   end
-  for i, name in ipairs(LISTS) do d.lists[name] = Fuzz.unpack(nth(fields, #SCALARS + i)) end
+  for i, name in ipairs(LISTS) do d.lists[name] = Fuzz.unpack(support.nth(fields, #SCALARS + i)) end
   return d
 end
 
@@ -176,7 +170,7 @@ local function shift(src: Fuzz.Source, d: Drawn): Drawn
   local out = copy(d)
   if src:int(0, 1) == 0 then
     local at = src:int(1, #SCALARS - 1)
-    local a, b = nth(SCALARS, at), nth(SCALARS, at + 1)
+    local a, b = support.nth(SCALARS, at), support.nth(SCALARS, at + 1)
     local left, right = out.scalars[a] or "", out.scalars[b] or ""
     if left ~= "" then
       out.scalars[a], out.scalars[b] = left:sub(1, -2), left:sub(-1) .. right
@@ -186,7 +180,7 @@ local function shift(src: Fuzz.Source, d: Drawn): Drawn
     local list = list_of(out, name)
     if #list >= 2 then
       local at = src:int(1, #list - 1)
-      local left, right = nth(list, at), nth(list, at + 1)
+      local left, right = support.nth(list, at), support.nth(list, at + 1)
       if left ~= "" then
         out.lists[name] = splice(list, at, 2, { left:sub(1, -2), left:sub(-1) .. right })
       end
@@ -214,12 +208,12 @@ local function edit(src: Fuzz.Source, d: Drawn): Drawn
     if kind == 2 and #list > 0 then
       -- An entry split in two, or two joined.
       local at = src:int(1, #list)
-      local entry = nth(list, at)
+      local entry = support.nth(list, at)
       if src:int(0, 1) == 0 and #entry >= 2 then
         local cut = src:int(1, #entry - 1)
         out.lists[name] = splice(list, at, 1, { entry:sub(1, cut), entry:sub(cut + 1) })
       elseif at < #list then
-        out.lists[name] = splice(list, at, 2, { entry .. nth(list, at + 1) })
+        out.lists[name] = splice(list, at, 2, { entry .. support.nth(list, at + 1) })
       end
       list = list_of(out, name)
     elseif kind == 3 and #list >= step then
@@ -300,8 +294,8 @@ local function test_distinct_specs_spell_distinct_preimages(tmp: string)
         return true, ""
       end
       Fuzz.label(if parts[1] == "shift" then "shifted" else "edited" end)
-      local one = spelled(root, spec_of(unpack(nth(parts, 2)), host))
-      local other = spelled(root, spec_of(unpack(nth(parts, 3)), host))
+      local one = spelled(root, spec_of(unpack(support.nth(parts, 2)), host))
+      local other = spelled(root, spec_of(unpack(support.nth(parts, 3)), host))
       if one == other then return false, "two specs spell one preimage" end
       return true, ""
     end,

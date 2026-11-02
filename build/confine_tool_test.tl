@@ -86,7 +86,9 @@ local function test_a_confined_process_has_what_it_was_given(tmp: string)
   assert(ran.ok, tostring(ran.produced))
   local code_value = code.value
   -- Unconfined, it sees what it was not given.
-  if code_value == 3 then return end
+  if code_value == 3 then
+    Test.skip("this host confined nothing: the process saw what it was not given")
+  end
   assert(code_value == 0, "the confined process exited " .. tostring(code_value))
   assert(assert(Fs.read(own .. "/out")) == "in")
 end
@@ -122,7 +124,7 @@ local function test_a_confined_process_has_somewhere_to_write(tmp: string)
   local probe = probe_in(tmp)
   local own = tmp .. "/own"
   assert(Fs.mkdirs(own .. "/hidden"))
-  if sees(probe, own, own .. "/hidden") then return end -- the kernel confines none
+  if sees(probe, own, own .. "/hidden") then Test.skip("the kernel confines none") end
   local chosen = own .. "/chosen"
   local inherited = Env.get("TMPDIR")
   local said: mut {string} = {}
@@ -155,7 +157,7 @@ local function test_a_confined_process_has_its_portable_cache_by_where_it_leads(
   local real = own .. "/real/cache"
   assert(Fs.mkdirs(real))
   assert(Fs.mkdirs(own .. "/hidden"))
-  if sees(probe, own, own .. "/hidden") then return end -- the kernel confines none
+  if sees(probe, own, own .. "/hidden") then Test.skip("the kernel confines none") end
   assert(Fs.write(real .. "/core", "core"))
   assert(Fs.symlink(own .. "/real", tmp .. "/linked"))
   local resolved = assert(sys.realpath(real))
