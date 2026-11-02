@@ -158,28 +158,3 @@ local function test_a_delete_sends_delete()
   local deleted, why = host.delete("repos/o/r/actions/caches/8", 30)
   assert(deleted == false and why == "DELETE repos/o/r/actions/caches/8: HTTP 403: Must have admin rights", why)
 end
-
---- The harness moved where git answers 1 to a diff of build/harness_epoch.tl,
---- by the path from the repository's root, which the driver, run in ci/,
---- needs. A base git does not hold, any other status, and no git at all are
---- no sign that it moved. (A recorded git stands in: no test runs the host's.)
-local function test_the_harness_moved_is_gits_answer()
-  local base = string.rep("a", 40)
-  local function moved(known: integer?, diff: integer?): boolean, {string}
-    local lines: mut {string} = {}
-    local answer = Github.harness_moved(function(argv: {string}): integer?
-      table.insert(lines, table.concat(argv, " "))
-      if argv[1] == "cat-file" and known ~= nil then return known end
-      return diff
-    end, base)
-    return answer, lines
-  end
-  local answer, lines = moved(0, 1)
-  assert(answer and lines[1] == "cat-file -e " .. base .. "^{commit}" and
-      lines[2] == "diff --quiet " .. base .. " HEAD -- :/build/harness_epoch.tl", table.concat(lines, "\n"))
-  assert(not moved(0, 0), "an unchanged harness moved")
-  assert(not moved(0, 2) and not moved(0, nil), "a refused diff moved the harness")
-  answer, lines = moved(128, 1)
-  assert(not answer and #lines == 1, "a base git lacks moved the harness")
-  assert(not moved(nil, 1), "no git moved the harness")
-end

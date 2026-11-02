@@ -269,9 +269,8 @@ allowed["build.lsp.reentry"] = "tested directly: the test hands it checks that a
 allowed["build.importer.tree_code"] = "tested directly: the test holds what a " ..
   "boot names its analyzer by to what the tool it writes names it by, around a " ..
   "derive run as a boot runs it, which no binary under the suite otherwise does"
-allowed["build.harness_epoch.acknowledged"] = "the digest of each module of the " ..
-  "harness a person last acknowledged, which only its test reads: a record of a choice, " ..
-  "which the key leaves to `epoch`"
+allowed["build.test_key.harness_part"] = "tested directly: build/harness_epoch_test.tl holds " ..
+  "that an edit to a harness module's code moves it and one to its comments does not"
 allowed["build.harness_epoch.retired"] = "every token the harness's epoch held " ..
   "before, which only its test reads: it holds the epoch's count to one past them, so " ..
   "each bump draws a token of its own"

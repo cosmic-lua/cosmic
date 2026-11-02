@@ -60,8 +60,8 @@ Check, against the code rather than the diff's story:
 - Rules in AGENTS.md, including doc/c.md's checklist when C changed, and
   TODO policy: a gap left with no `TODO:` naming what it waits on.
 - Comments against doc/writing.md: correct, necessary, no narrative.
-- A harness module changed without the epoch or acknowledged digests
-  set as doc/testing.md says.
+- A change that no module's code shows but can alter a pass or a fail
+  (host, toolchain) without the `epoch` bump doc/testing.md says.
 - Run `bin/cosmic fix --check .` and report its result.
 
 Report one line per finding, most severe first:

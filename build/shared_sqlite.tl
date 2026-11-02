@@ -4,8 +4,7 @@
 --- busy timeout and retry a busy answer within a bounded wait.
 ---
 --- It is a module of the test harness, through build.shared_verdicts:
---- an edit to it is acknowledged in build/harness_epoch.tl, and a
---- change to that file makes the merge queue run every test (`--all`),
+--- an edit to it that changes its bytecode moves every verdict key,
 --- which is what sharing it with the compile cache costs. Its clock is the raw binding's,
 --- since the harness reaches no cosmic.clock.
 

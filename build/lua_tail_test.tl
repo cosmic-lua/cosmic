@@ -27,3 +27,22 @@ local function test_a_chunk_lua_refuses_is_said_at_the_line_of_the_source_it_cam
   local bytecode, why = LuaTail.bytecode_of("local a = 1\nlocal b = = 2\n", "broken", "dir/broken.tl")
   assert(bytecode == nil and why:find("^dir/broken%.tl:2: ") ~= nil, tostring(why))
 end
+
+--- Stripped, a chunk is the same for two sources that differ in a comment, a blank line, a local's
+--- name or where a statement sits; one that differs in what it does is not.
+local function test_stripped_bytecode_ignores_what_the_core_does_not_run()
+  local function stripped(source: string): string
+    local compiled = assert(LuaTail.bytecode_of(source, "m", "m.tl"))
+    return (assert(LuaTail.stripped(compiled, "m")))
+  end
+  local plain = stripped("local x = 1\nreturn x\n")
+  assert(plain == stripped("-- a comment\n\n\nlocal  x = 1 -- another\nreturn x\n"), "a comment moved it")
+  assert(plain == stripped("local renamed = 1\nreturn renamed\n"), "a local's name moved it")
+  assert(plain ~= stripped("local x = 2\nreturn x\n"), "a constant did not move it")
+  assert(plain ~= stripped("local x = 1\nreturn x, x\n"), "an instruction did not move it")
+  -- Which the unstripped chunks differ in, or the cases above show nothing.
+  assert(LuaTail.bytecode_of("local x = 1\nreturn x\n", "m", "m.tl") ~=
+      LuaTail.bytecode_of("\n\nlocal x = 1\nreturn x\n", "m", "m.tl"))
+  local refused, why = LuaTail.stripped("not a chunk", "m")
+  assert(refused == nil and why:find("m", 1, true) ~= nil, tostring(why))
+end
