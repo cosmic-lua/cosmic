@@ -4,6 +4,7 @@
 
 local Errors = require("cosmic.errors")
 local String = require("cosmic.string")
+local sys = require("cosmic.sys")
 local plural = require("build.plural")
 
 local record test_report
@@ -32,6 +33,12 @@ local record test_report
   record Shortfall
     lines: {string}
     clause: string
+  end
+
+  --- A passing test and what it printed.
+  record Shown
+    id: string
+    printed: string
   end
 
   record Build
@@ -69,6 +76,16 @@ local function shell_word(word: string): string
   if word:sub(1, 1) == "-" then word = "./" .. word end
   if word ~= "" and not word:find("[^%w_./:@%%+=,-]") then return word end
   return "'" .. (word:gsub("'", "'\\''")) .. "'"
+end
+
+--- What a test printed as `  | ` lines, the last 4096 bytes of it.
+local function printed_lines(printed: string): {string}
+  if #printed > 4096 then printed = "..." .. printed:sub(-4096) end
+  local lines: mut {string} = {}
+  for line in String.lines((printed:gsub("\n$", ""))) do
+    lines[#lines + 1] = "  | " .. line
+  end
+  return lines
 end
 
 --- Each skipped test with its reason, sorted as the failure list is.
@@ -161,13 +178,64 @@ function test_report.failures(failures: mut {test_report.Failure}, prefix: strin
     end
     local printed = failure.printed
     if printed ~= nil then
-      if #printed > 4096 then printed = "..." .. printed:sub(-4096) end
-      for line in String.lines((printed:gsub("\n$", ""))) do
-        lines[#lines + 1] = "  | " .. line
-      end
+      for _, line in ipairs(printed_lines(printed)) do lines[#lines + 1] = line end
     end
   end
   return lines
+end
+
+--- What passing tests printed (`cosmic test --show-output`), each test's id
+--- on a line of its own and its output beneath it as a failure's is shown,
+--- sorted by id.
+function test_report.shown(shown: mut {test_report.Shown}): {string}
+  table.sort(shown, function(a: test_report.Shown, b: test_report.Shown): boolean
+    return a.id < b.id
+  end)
+  local lines: mut {string} = {}
+  for _, one in ipairs(shown) do
+    lines[#lines + 1] = "test: PASS  " .. one.id
+    for _, line in ipairs(printed_lines(one.printed)) do lines[#lines + 1] = line end
+  end
+  return lines
+end
+
+--- What `--show-output` says of the `stood` tests that did not run, which
+--- printed nothing: a verdict that stands is not run again.
+function test_report.shown_note(stood: integer): string?
+  if stood == 0 then return nil end
+  return "test: show-output: " .. plural.count(stood, "test") .. " stood and so printed nothing; --all runs " ..
+    (if stood == 1 then "it" else "them" end)
+end
+
+--- The relative paths of the tree that a failure's `message` says were not
+--- found (`path: No such file or directory`), each once, in order: the ones
+--- a sandboxed test may have been denied. An absolute path, a URL and a
+--- path that leaves the tree are not.
+function test_report.missing_relative_paths(message: string): {string}
+  local found: mut {string} = {}
+  local seen: mut {string:boolean} = {}
+  local not_found = (sys.errno_message(sys.ENOENT):gsub("%p", "%%%0"))
+  -- A path starts the message or follows a space, a quote or a parenthesis;
+  -- the tail of a longer path or a URL (`//host/x`) never does.
+  for path in ("\n" .. message):gmatch("[%s'\"(]([^%s:'\"/(][^%s:'\")]*)['\")]?: " .. not_found) do
+    local leaves = false
+    for part in path:gmatch("[^/]+") do
+      if part == ".." then leaves = true end
+    end
+    if not leaves and seen[path] == nil then
+      seen[path] = true
+      found[#found + 1] = path
+    end
+  end
+  return found
+end
+
+--- What a failure says of `path`, a file of the tree the test read without
+--- declaring it: it is in the tree, not in the sandbox the test runs in.
+function test_report.tree_hint(path: string): string
+  return path .. " is not in this test's sandbox, though it is in the tree: grant it in " ..
+    "Test.policy { grants = { { path = \"" .. path .. "\", letters = \"r\" } } } " ..
+    "(see cosmic docs cosmic.test)"
 end
 
 --- Compilation and staging counts, including reuse from another checkout.

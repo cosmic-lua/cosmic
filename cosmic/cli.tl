@@ -114,7 +114,9 @@ local record Cli
   --- directory; `<file or module>:<name>` to the one test of that name,
   --- `test_*` or an example's, and one no test there has is refused.
   --- Each test runs in a process of its own, and fails if it runs past
-  --- its timeout; what a failing test printed is shown beneath it.
+  --- its timeout (`--timeout`; a module's `Test.policy { timeout = n }`
+  --- lengthens it); what a failing test printed is shown beneath it, and
+  --- `--show-output` shows a passing test's too.
   ---
   --- Each run reports its line coverage and passes whatever it is. `--min
   --- PCT` and `--min-file PCT` hold a whole run to a floor, for the tree and
@@ -126,14 +128,24 @@ local record Cli
   --- tree or the host: a test that starts a host program, /bin/sh or
   --- `sleep`, declares the profile "system". A failure that met what its
   --- sandbox left out at an absolute path -- a program it started, a
-  --- file it read -- says so beneath it, naming what to declare.
+  --- file it read -- says so beneath it, naming what to declare, as does
+  --- one that read a file of the tree by a relative path without granting it.
   ---
   --- A test whose verdict still stands is not run again: one this
   --- checkout reached, in its build directory's build.db, or one any checkout of the same
   --- content did, which every sandboxed run shares through
   --- $XDG_CACHE_HOME/cosmic/verdicts (~/.cache/cosmic/verdicts):
   --- COSMIC_VERDICT_CACHE names another file, and COSMIC_VERDICT_CACHE=0
-  --- turns it off. A run whose workers are not sandboxed
+  --- turns off that shared cache alone: a verdict of this checkout still
+  --- stands, and only `--all` runs its test again.
+  ---
+  --- A test function is given a fresh directory (`<scratch>/tmp`); TMPDIR is
+  --- its scratch directory, `<scratch>`, so [`Fs.mkdtemp`] makes a sibling of
+  --- it. The scratch directory is removed after a pass, and kept after a
+  --- failure unsandboxed. Each run writes its line coverage to the `coverage`
+  --- table of build.db, which `cosmic sql --build` reads.
+  ---
+  --- A run whose workers are not sandboxed
   --- (COSMIC_TEST_SANDBOX=0, or macOS) shares only through a file
   --- COSMIC_VERDICT_CACHE names.
   ---
@@ -166,7 +178,13 @@ local record Cli
   --- declaration of its own file, one file, or, written in full
   --- (`module.member`), one symbol; in Markdown it also
   --- writes the definitions GitHub needs to show one, at the file's
-  --- end. It never lays out a Markdown or Zig file. A Teal file the
+  --- end. That is all it writes to a Markdown or Zig file: it never
+  --- reflows or re-indents one. `--check` writes nothing and reports
+  --- what a run would change, the dry run. A path the tree's own
+  --- .gitignore files ignore (not the user's global excludes), and
+  --- anything under a `node_modules/`, is neither checked, rewritten
+  --- nor linked to; where git cannot say (no git, no repository) only
+  --- `node_modules/` is left alone. A Teal file the
   --- build does not read (under `bin/` or a hidden directory, or
   --- outside the tree), named or under a named directory, is
   --- type-checked alone, as `cosmic --standalone` checks a file;
@@ -664,12 +682,13 @@ local record Cli
   --- binary it reads is never written
   refresh: string
   --- `cosmic release [--commit hex] [--until time] [--list [-n count] | -o file | --cache] [--pin file] [--json]`:
-  --- finds cosmic's own releases, the `next-<commit>` prereleases of
-  --- cosmic-lua/cosmic on GitHub, picks one and verifies it. Releases
-  --- are found by their tags and main's history, newest commit first, as
-  --- the API's list of releases serves only 1000 and not by time; a
-  --- `--commit` reads only the releases of the tags its prefix starts,
-  --- refusing a prefix that names more than 10. With no criterion it
+  --- finds cosmic's own releases, the `YYYYMMDD-<commit>` (earlier,
+  --- `next-<commit>`) prereleases of cosmic-lua/cosmic on GitHub, picks
+  --- one and verifies it. Releases are found by their tags and main's
+  --- history, newest commit first, as the API's list of releases serves
+  --- only 1000 and not by time; a `--commit` reads only the releases of
+  --- the tags whose commit starts with its prefix, refusing a prefix
+  --- that names more than 10. With no criterion it
   --- picks the release of the latest commit on main that has one;
   --- `--commit` the one whose commit starts with the hex (7 to 40
   --- digits), `--until` the latest whose release was published at or
@@ -872,8 +891,10 @@ local module: Module = {
       about = "build the tree and run its tests",
       usage = "[selector...]",
       spec = {
-        ["--all"] = { about = "run every test, whatever verdict stands for it, in this " ..
-            "checkout or another (COSMIC_TEST_ALL=1)" },
+        ["--all"] = { about = "run every test, whatever verdict stands for it (COSMIC_TEST_ALL=1); " ..
+            "COSMIC_VERDICT_CACHE=0 does not, see above" },
+        ["--show-output"] = { about = "also list what a passing test printed, beneath it; a test " ..
+            "that stands is not run and prints nothing (--all runs it)" },
         ["--no-shared"] = { about = "stand on no verdict another checkout reached; what " ..
             "this run reaches is still shared (COSMIC_TEST_NO_SHARED=1)" },
         ["--bail"] = { about = "start no test after the first failure; those already running " ..
@@ -895,7 +916,8 @@ local module: Module = {
         ["--shard"] = { value = "i/n", about = "run only the i-th of n shares of the chosen " ..
             "tests, dealt in turn in sorted order, so n runs, i = 1 to n, run each test once" },
         ["--timeout"] = { value = "seconds",
-          about = "fail a test that runs longer (COSMIC_TEST_TIMEOUT, else 30)" },
+          about = "fail a test that runs longer (COSMIC_TEST_TIMEOUT, else 30); a module's " ..
+            "Test.policy { timeout = n } lengthens it for that module" },
       },
     },
     fix = {

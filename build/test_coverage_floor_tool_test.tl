@@ -10,7 +10,11 @@ local Test = require("cosmic.test")
 local this_program = require("build.this_program")
 
 --- The program itself, which its tests start.
-Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
+Test.policy{
+  profiles = { "cosmic" },
+  grants = { { path = "o/bin", letters = "rx" } },
+  timeout = 180,
+}
 
 local function project(tmp: string): string
   local root = tmp .. "/project"

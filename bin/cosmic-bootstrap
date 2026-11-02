@@ -223,8 +223,14 @@ case $commit in *[!0-9a-f]* | '') die "$pin: line 1 is not a commit" ;; esac
 [ "${#commit}" -eq 40 ] || die "$pin: line 1 is not a commit"
 case $digest in *[!0-9a-f]* | '') die "$pin: line 3 is not a sha256" ;; esac
 [ "${#digest}" -eq 64 ] || die "$pin: line 3 is not a sha256"
-[ "$url" = "https://github.com/cosmic-lua/cosmic/releases/download/next-$commit/cosmic" ] ||
-  die "$pin: line 2 is not the release of line 1's commit"
+# A release is tagged YYYYMMDD-<commit>, or next-<commit> as the earlier
+# ones are; the pin may name either.
+base=https://github.com/cosmic-lua/cosmic/releases/download/
+case $url in
+  "$base"next-"$commit"/cosmic) ;;
+  "$base"[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-"$commit"/cosmic) ;;
+  *) die "$pin: line 2 is not the release of line 1's commit" ;;
+esac
 
 attempts=${COSMIC_BOOTSTRAP_ATTEMPTS:-5}
 case $attempts in

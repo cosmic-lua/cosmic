@@ -46,7 +46,9 @@ tree's location. A fresh worktree runs only what no checkout has run on
 the same content and core. A test that failed in this checkout never
 stands on another checkout's pass.
 
-- `--all` (`COSMIC_TEST_ALL=1`) runs every test.
+- `--all` (`COSMIC_TEST_ALL=1`) runs every test, whatever verdict stands for
+  it, in this checkout or another. It is the way to run a test again that
+  passed.
 - `--no-shared` (`COSMIC_TEST_NO_SHARED=1`) stands on no shared verdict.
 - `COSMIC_TEST_FOREIGN_FEATURES=1`, set only by CI's checked gathering run,
   also looks a test up under the key of another host in the shared cache
@@ -73,7 +75,10 @@ stands on another checkout's pass.
   that names tests (`cosmic test one_test.tl`) fails for the refusals of the files it names alone, and a named test
   module that requires a refused one is refused itself. A pool is refused with `--check-types`, which checks the facts
   alone (below).
-- `COSMIC_VERDICT_CACHE` names another cache file. `0` means none.
+- `COSMIC_VERDICT_CACHE` names another cache file. `0` means none. It turns
+  off the cache that checkouts share and nothing more: a verdict this
+  checkout reached, kept in `build.db`, still stands, so the variable does
+  not run a test again. `--all` does.
 
 `--bail` (`COSMIC_TEST_BAIL=1`) starts no test after the first failure.
 The tests already running finish with their own verdicts, and the run
@@ -520,6 +525,79 @@ most of its lines as they are. The fuzz properties carry that sensitivity,
 so a narrowing change runs them with a larger `FUZZ_ITERS` as well as
 reading the tree's ceilings.
 
+## a test's files, output and time
+
+### temporary files
+
+Each test has a scratch directory, `<scratch>`. The test function
+receives `<scratch>/tmp`, a link to the fresh, empty, writable directory
+`<scratch>/real`. The worker's `TMPDIR` is `<scratch>` itself, so
+[`Fs.mkdtemp`] and every process the test starts make their temporary files
+there, as siblings of `tmp` (`<scratch>/xXXXX`), not inside it. After a
+pass the runner removes the whole scratch directory, `tmp` and those
+siblings with it. Sandboxed, `<scratch>` is a tmpfs of the worker's own and
+is gone after a failure too. Unsandboxed (`COSMIC_TEST_SANDBOX=0`), a failing
+test's scratch directory is kept, and its failure says where. A sandboxed
+test has no write grant anywhere else.
+
+### output
+
+What a test prints is shown only when it fails, beneath its failure as
+`  | ` lines. `cosmic test --show-output` also lists it for a test that
+passed:
+
+```text
+test: PASS  suite.chatty_test test_prints_values
+  | value=42
+  | second line
+```
+
+Only a test that ran prints. A test whose verdict stands is not run, so the
+flag says how many stood and prints nothing for them: add `--all` to run
+them. The flag changes nothing a verdict is keyed or kept by. A run with it
+stands on the verdicts of a run without it. Only the last 4096 bytes of a
+test's output are shown.
+
+### time
+
+Each test has 30 seconds. `--timeout <seconds>` or `COSMIC_TEST_TIMEOUT`
+sets another for the run. The limit a test ran under is part of its key.
+
+A module whose tests legitimately run long, such as one that starts
+`cosmic test` or builds a program, declares a longer limit for itself:
+
+```text
+Test.policy {
+  profiles = { "cosmic" },
+  grants = { { path = "o/bin", letters = "rx" } },
+  timeout = 120,
+}
+```
+
+`timeout` is whole seconds, 1 to 3600. It lengthens the run's limit and
+never shortens it. A module that names fewer seconds than the run gives
+runs under the run's. Its key holds the limit it ran under, so a verdict
+that stood under one limit does not stand under a longer one. A module's
+`timeout` is not a way out of a slow test: a timeout is a failure to
+investigate (below), and a test that is slow by accident is made fast,
+not given more time.
+
+### coverage
+
+Every run records the lines the tests reached in the `coverage` table of
+the build directory's `build.db`: a row of `ran_at_ns` (when the run
+started), `path` (the module's name), `line` and `hit` for each line. Query
+the latest run with `cosmic sql --build`:
+
+```text
+cosmic sql --build "SELECT path, count(*) AS lines, sum(hit > 0) AS hit
+  FROM coverage WHERE ran_at_ns = (SELECT max(ran_at_ns) FROM coverage)
+  GROUP BY path ORDER BY hit * 1.0 / lines LIMIT 10"
+```
+
+`coverage_by_test` holds the lines each test reached. The run's own
+`test: coverage` line is informational and never a failure.
+
 ## other hazards
 
 - Every test's directory is at a path padded to macOS's length
@@ -646,6 +724,7 @@ Other rules:
 [`cosmic/store_seal_test.tl`]: ../cosmic/store_seal_test.tl
 [`declared_key.host_split`]: ../build/declared_key.tl
 [`doc/performance.md`]: performance.md
+[`Fs.mkdtemp`]: ../cosmic/fs.tl
 [`Fuzz.label`]: ../build/fuzz/init.tl
 [`Fuzz.more`]: ../build/fuzz/init.tl
 [`importer.checked_tool`]: ../build/importer.tl

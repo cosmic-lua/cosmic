@@ -62,9 +62,11 @@ local function checkout_root(): string
   return (assert(cwd:match("^(.*)/[^/]+$"), cwd .. ": no parent directory"))
 end
 
-local function pin(path: string, commit: string, digest: string)
+--- A pin of `commit` whose release is tagged `<tag_prefix><commit>`:
+--- `next-` as the earlier releases are, unless told otherwise.
+local function pin(path: string, commit: string, digest: string, tag_prefix?: string)
   assert(Fs.write(path, commit .. "\n" ..
-      "https://github.com/cosmic-lua/cosmic/releases/download/next-" ..
+      "https://github.com/cosmic-lua/cosmic/releases/download/" .. (tag_prefix or "next-") ..
       commit .. "/cosmic\n" .. digest .. "\n"))
 end
 
@@ -170,6 +172,37 @@ local function driver_project(tmp: string): string
   assert(assert(Child.run({ "/bin/cp", "-R",
     assert(Fs.absolute(".")) .. "/cosmic_ci", project })).ok)
   return project
+end
+
+--- Both tags name a release: `next-<commit>` and `YYYYMMDD-<commit>`;
+--- no other prefix, and no date of another length, is the pin's.
+local function test_bootstrap_accepts_either_tag_form_and_no_other(tmp: string)
+  local program = assert(Proc.executable())
+  local digest = Hash.hex_sha256((assert(Fs.read(program))))
+  local commit = string.rep("a", 40)
+  local root, cache = bootstrap_root(tmp, commit, digest)
+  assert(Fs.write(cache .. "/cosmic-" .. digest, (assert(Fs.read(program))), 0x1ed))
+  local n = 0
+  for _, accepted in ipairs({ "next-", "20261018-", "19700101-" }) do
+    n = n + 1
+    pin(root .. "/ci/cosmic-driver.pin", commit, digest, accepted)
+    local out = tmp .. "/accepted-" .. tostring(n) .. ".out"
+    local result = bootstrap(tmp, root, out)
+    assert(result.ok, accepted .. ": " .. tostring((Fs.read(out))))
+  end
+  for _, refused_prefix in ipairs({ "latest-", "2026101-", "202610181-", "2026101a-", "-", "", "next-next-",
+      "20261018-next-", "v20261018-" }) do
+    n = n + 1
+    pin(root .. "/ci/cosmic-driver.pin", commit, digest, refused_prefix)
+    local out = tmp .. "/refused-" .. tostring(n) .. ".out"
+    local result = bootstrap(tmp, root, out)
+    assert(not result.ok, refused_prefix .. " was accepted")
+  end
+  -- A release of another commit is refused in either form.
+  assert(Fs.write(root .. "/ci/cosmic-driver.pin", commit .. "\n" ..
+      "https://github.com/cosmic-lua/cosmic/releases/download/20261018-" .. string.rep("b", 40) ..
+      "/cosmic\n" .. digest .. "\n"))
+  assert(not bootstrap(tmp, root, tmp .. "/other.out").ok, "another commit's dated release was accepted")
 end
 
 local function test_bootstrap_rejects_corrupt_cache_and_download(tmp: string)

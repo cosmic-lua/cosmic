@@ -506,8 +506,6 @@ end
 --- `cosmic --version`: the SHA-256 of the file this binary runs from,
 --- read in pieces, as a release's SHA256SUMS names it: `cosmic <hex>`.
 local function version(argv: {string}): integer
-  local Codec = require("cosmic.codec")
-  local Fs = require("cosmic.fs")
   local Hash = require("cosmic.hash")
   local Proc = require("cosmic.proc")
   local extra = argv[2]
@@ -524,36 +522,12 @@ local function version(argv: {string}): integer
   -- opening the path again, once the store offers the whole file as it
   -- offers its core (trusted_core): a file renamed over this one after
   -- launch is hashed in its place, and an unlinked one fails.
-  local fd, open_trouble = Fs.open_read(path)
-  if fd == nil then
-    log:complain("--version: " .. path .. ": " .. open_trouble)
-    return 1
-  end
-  local hasher, hasher_trouble = Hash.hasher("sha256")
-  if hasher == nil then
-    local _, _ = Fs.close(fd)
-    log:complain("--version: " .. hasher_trouble)
-    return 1
-  end
-  while true do
-    local piece, read_trouble = Fs.take(fd, 1 << 20)
-    if piece == nil then
-      local _, _ = Fs.close(fd)
-      log:complain("--version: " .. path .. ": " .. read_trouble)
-      return 1
-    end
-    if piece == "" then
-      break
-    end
-    hasher:update(piece)
-  end
-  local _, _ = Fs.close(fd)
-  local digest, digest_trouble = hasher:digest()
+  local digest, digest_trouble = Hash.hex_file("sha256", path)
   if digest == nil then
     log:complain("--version: " .. digest_trouble)
     return 1
   end
-  log:say("cosmic " .. Codec.hex(digest))
+  log:say("cosmic " .. digest)
   return 0
 end
 

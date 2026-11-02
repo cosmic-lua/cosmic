@@ -37,6 +37,9 @@ local record policy_rules
     --- The host requirements a policy declares ([`Test.policy`]'s
     --- `requires`), as written.
     mut requires: {string}
+    --- The seconds a policy gives each test of the module as a longer limit
+    --- than the run's own ([`Test.policy`]'s `timeout`); nil for none.
+    mut timeout?: integer
   end
 
   --- What a `policy` declaration ([`cosmic.test`]'s `Policy`) holds, as the
@@ -57,11 +60,12 @@ local record policy_rules
     group?: integer
     database?: string
     requires?: {string}
+    timeout?: integer
   end
 
   --- What the field `name` of a `policy` declaration takes: a list of string literals ("list"), a table of names to
   --- string literals ("map"), `true` or `false` ("flag"), a list of tables of string literals ("grants"), a table of
-  --- integers ("limits"), an integer ("id") or a string ("string"); nil for a name that is no field.
+  --- integers ("limits"), an integer ("id"), whole seconds ("seconds") or a string ("string"); nil for a name that is no field.
   kind_of: function(name: string): string?
 
   --- The names of the fields of a `policy` declaration, sorted and joined by ", ".
@@ -76,6 +80,11 @@ local record policy_rules
   --- why where it is none. `line` is the line the policy starts on.
   declared: function(data: PolicyData, line: integer): Declared?, string
 end
+
+--- The most seconds a policy's `timeout` may name, as cosmic/test.tl's
+--- `needs_of` holds it, which this module cannot require.
+local MOST_TIMEOUT <const> = 3600
+local TIMEOUT_TAKES <const> = " takes a whole number of seconds from 1 to 3600"
 
 --- The rule a policy's `loopback` is held to, as a refusal names it.
 local LOOPBACK_ONLY <const> = "loopback takes loopback addresses 127.a.b.c only: no test " ..
@@ -155,7 +164,7 @@ local fields <const>: {string: string} = {
   profiles = "list", grants = "grants", isolate = "list", promises = "list",
   connect = "list", loopback = "list", env = "list", set_env = "map",
   set_env_digests = "map", tmp = "flag", limits = "limits", user = "id", group = "id",
-  database = "string", requires = "list",
+  database = "string", requires = "list", timeout = "seconds",
 }
 
 local field_names: mut {string} = {}
@@ -326,6 +335,11 @@ function policy_rules.declared(data: policy_rules.PolicyData, line: integer): po
     { system = out.system, host = out.host, env = out.env })
   if not fine then return nil, trouble end
   out.requires = data.requires or {}
+  local timeout = data.timeout
+  if timeout ~= nil then
+    if timeout < 1 or timeout > MOST_TIMEOUT then return nil, "timeout" .. TIMEOUT_TAKES end
+    out.timeout = timeout
+  end
   return out, ""
 end
 
