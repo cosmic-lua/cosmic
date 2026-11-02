@@ -95,6 +95,11 @@ line below it. [`build/markers.tl`] has the rules.
 - a finding with no marker for its code on its line is refused, by a
   compile of the module and by the tree check: fix the code. a marker is
   never the fix, and none is ever added.
+- a new rule of the checker that finds existing code lands with that code
+  fixed. a marker written by hand for it (`-- <stage>: <code>`) is
+  refused against the merge base, which held none of its code, and the
+  ceilings file takes no row (it lists the four stages and refuses any
+  other text).
 - a marker whose finding is gone is stale. `bin/cosmic fix .` removes
   it, and `fix --check` and the tree check name it. run `fix .` after
   a change that removes findings and commit what it wrote.

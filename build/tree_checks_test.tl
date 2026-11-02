@@ -4,6 +4,7 @@
 --- tree without it.
 
 local Ceilings = require("build.ceilings")
+local CeilingsFixture = require("build.ceilings_fixture")
 local Driver = require("build.driver")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
@@ -1489,8 +1490,8 @@ local function test_the_tree_checks_and_the_drivers_held_give_one_verdict_over_t
   assert(Fs.write(root .. "/build/bad.tl", source("local x: {number: integer}", "return x")))
   assert(Fs.write(root .. "/build/fine.tl", source("local record Fine", "  n: integer", "end", "return Fine")))
   local text = "[declared]\nbuild/bad.tl float_key 1\n"
-  local pinned = assert(Ceilings.parse(text))
-  local none = assert(Ceilings.parse(""))
+  local pinned = CeilingsFixture.rows(text)
+  local none = CeilingsFixture.rows("")
   for _, file in ipairs({ "build/bad.tl", "build/fine.tl" }) do
     local held = refused_by_the_tree(root, file, Ceilings.of(pinned, "scoped"), Ceilings.of(pinned, "declared"))
     assert(held == refused_by_the_driver(root, file, pinned), file .. " over the ceilings: the tree says " .. tostring(held))
@@ -1515,22 +1516,6 @@ local function test_an_edit_of_the_declaration_of_a_module_given_as_declaration_
   assert(again:find("q/use.tl:2:", 1, true), again)
   assert(again == table.concat(tree_checks.checked(root, {}), "\n"), "a warm memo and a cold run agree")
   assert(memo:close())
-end
-
---- The ceilings a check reads from the tree are refused when one names a file the tree lacks: no run could lower it.
-local function test_a_ceiling_for_a_file_that_is_gone_is_refused_when_a_check_reads_the_trees_ceilings(dir: string)
-  local root = dir .. "/deadceiling"
-  assert(Fs.mkdirs(root .. "/build"))
-  assert(Fs.write(root .. "/build/there.tl", source("local x: integer = 1", "return x")))
-  assert(Fs.write(root .. "/build/ceilings.txt", "[checked]\nbuild/there.tl nil_not_allowed 1\nbuild/gone.tl nil_not_allowed 1\n"))
-  local found = tree_checks.checked(root)
-  assert(#found == 1, table.concat(found, "\n"))
-  assert(support.nth(found, 1):find("holds ceilings for files that are gone", 1, true) ~= nil, found[1])
-  assert(support.nth(found, 1):find("build/gone.tl nil_not_allowed: pinned in [checked]", 1, true) ~= nil, found[1])
-  assert(Fs.write(root .. "/build/ceilings.txt", "[checked]\nbuild/there.tl nil_not_allowed 1\n"))
-  local fine = tree_checks.checked(root)
-  assert(#fine == 1, table.concat(fine, "\n"))
-  assert(fine[1] == "build/there.tl nil_not_allowed: pinned 1 but 0 found; lower the pin in build/ceilings.txt's [checked]", fine[1])
 end
 
 --- A tree for `typed`: a standard-library module with a record nested in its own, and a module that reads a field of it.
@@ -1598,7 +1583,7 @@ local function test_the_projection_of_the_tree_checks_is_written_by_the_code_tha
   assert(Fs.mkdirs(root .. "/core"))
   assert(Fs.write(root .. "/core/.keep", ""))
   assert(Fs.mkdirs(root .. "/build"))
-  assert(Fs.write(root .. "/build/ceilings.txt", ""))
+  assert(Fs.write(root .. "/build/ceilings.txt", "[marked]\nscoped declared untyped checked\n"))
   assert(Fs.write(root .. "/build/importer.tl", "local record importer\nend\n\nreturn importer\n"))
   assert(Fs.mkdirs(root .. "/lang"))
   assert(Fs.write(root .. "/lang/stdlib.d.tl", (assert(Fs.read("lang/stdlib.d.tl")))))
@@ -1610,27 +1595,22 @@ local function test_the_projection_of_the_tree_checks_is_written_by_the_code_tha
   assert(db:close())
 end
 
---- The ceilings file of the tree is held to its layout where the scope check reads it: a ceiling with a neighbour is
---- refused with how many there are and the first, and the same file with a blank line after each is read. Pins a caller
---- passes are not a file and are not held to it.
-local function test_the_scope_check_refuses_a_ceiling_with_a_neighbour_in_the_trees_file(dir: string)
-  local root = dir .. "/crowded"
+--- The ceilings file of the tree is read by every check that judges a stage, and a file that demotes a stage (takes it out of
+--- `[marked]` and gives it rows) is refused there: no check reads a count the file holds.
+local function test_every_check_refuses_a_ceilings_file_that_demotes_a_stage(dir: string)
+  local root = dir .. "/demoted"
   assert(Fs.mkdirs(root .. "/build"))
   assert(Fs.write(root .. "/build/there.tl", source("local x: integer = 1", "return x")))
   assert(Fs.write(root .. "/build/ceilings.txt",
-    "[checked]\nbuild/there.tl view_written 1\nbuild/there.tl field_fixed 1\n\nbuild/there.tl map_field 1\nbuild/there.tl no_value 1\n"))
-  local crowded = tree_checks.scoped(root)
-  assert(#crowded == 1, table.concat(crowded, "\n"))
-  local only = crowded[1]
-  assert(only:find("reading the ceilings: 2 of them have a neighbour", 1, true), only)
-  assert(only:find("build/ceilings.txt:2: `build/there.tl view_written 1`", 1, true), only)
-  assert(Fs.write(root .. "/build/ceilings.txt",
-    "[checked]\nbuild/there.tl view_written 1\n\nbuild/there.tl field_fixed 1\n\nbuild/there.tl map_field 1\n\nbuild/there.tl no_value 1\n"))
-  for _, line in ipairs(tree_checks.scoped(root)) do
-    assert(line:find("have a neighbour", 1, true) == nil, line)
-  end
-  assert(Fs.write(root .. "/build/ceilings.txt", "[checked]\nbuild/there.tl view_written 1\nbuild/there.tl field_fixed 1\n"))
-  for _, line in ipairs(tree_checks.scoped(root, {})) do
-    assert(line:find("have a neighbour", 1, true) == nil, line)
+    "[marked]\nscoped untyped checked\n\n[declared]\nbuild/there.tl float_key 1\n"))
+  for name, run in pairs({
+      scoped = function(): {string} return tree_checks.scoped(root) end,
+      declared = function(): {string} return tree_checks.declared(root) end,
+      checked = function(): {string} return tree_checks.checked(root) end,
+      untyped = function(): {string} return tree_checks.untyped(root) end,
+  }) do
+    local found = run()
+    assert(#found == 1 and found[1]:find("reading the ceilings: build/ceilings.txt:4: [declared] is no section of this file", 1, true) ~=
+        nil, name .. ": " .. table.concat(found, "\n"))
   end
 end

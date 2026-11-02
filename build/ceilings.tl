@@ -1,39 +1,23 @@
---- The ceilings of the new checker: how many errors of each code each file of the tree may still have, per stage.
+--- The ceilings of the new checker: what of the checker's findings the tree still holds, per stage.
 ---
---- A stage is held in one of two ways. A stage listed under `[marked]` in [`build/ceilings.txt`] is held by MARKERS: each
---- finding it still makes is held by a comment on the line it is reported at (`-- checked: map_field`, [`build.markers`]), so
---- that a change that removes code moves or deletes the markers with it and touches no shared file. [`Ceilings.marked`] judges
---- a file against its markers: a finding with no marker on its line is refused, by a compile of the module and by the check of
---- the tree, and a marker whose finding is gone is stale, which the check of the tree tells and `cosmic fix` removes. The
---- markers only fall: [`build.ceilings_base`] holds each file's count of each code to the file at the merge base with main. The
---- stage `examples` and the stages not listed are held by counts, as the rest of this comment says.
+--- Every stage (`scoped`, `declared`, `untyped`, `checked`) is held by MARKERS: each finding it still makes is held by a comment
+--- on the line it is reported at (`-- checked: map_field`, [`build.markers`]), so that a change that removes code moves or
+--- deletes the markers with it and touches no shared file. [`Ceilings.marked`] judges a file against its markers: a finding
+--- with no marker on its line is refused, by a compile of the module and by the check of the tree, and a marker whose finding
+--- is gone is stale, which the check of the tree tells and `cosmic fix` removes. The markers only fall: [`build.ceilings_base`]
+--- holds each file's count of each code to the file at the merge base with main. A code that no marker holds is closed
+--- ([`Ceilings.closed`]): no marker holds it, so the tree keeps its rule with no exceptions.
 ---
---- A COUNT is data in [`build/ceilings.txt`] and not Teal compiled into the tool.
+--- [`build/ceilings.txt`] only says so: its one section, `[marked]`, lists exactly those four stages, and [`Ceilings.parse`]
+--- refuses any other text. A row, or a section of rows (`[checked]`), is refused for every stage, since a count held in a
+--- shared file is the way a finding got past the markers: a stage cannot be taken out of the list and given rows.
+--- The examples a reader copies ([`build.example_checks`]) are held by markers in the example files, which are part of the
+--- text shown, and the Teal under `ci/testdata` by none (every finding fails).
 ---
---- A ceiling only falls, and two things enforce it. A file that goes over its ceiling is refused, by a compile of a module
---- and by the check of the tree ([`Ceilings.over`]); a missing row is a ceiling of 0. And a code that has no row left in any
---- stage is closed ([`Ceilings.closed`]): [`Ceilings.parse`] refuses a line keyed by it. A rewrite removes the places a
---- ceiling counts and lowers the number; nothing raises it. The markers are held falling by [`build.ceilings_base`].
----
---- The file is text, a section per stage (`[checked]`) and a line per ceiling: a file, a code and a count, or for the stage
---- `untyped` a file and a count. A line that begins with `#` is a comment, and a comment before the lines it explains
---- says what brings them to zero. Each ceiling line stands alone between blank lines ([`Ceilings.crowded`]), so two pull
---- requests that move neighbouring pins merge. The stages are the checks of [`build.tree_checks`], and `scoped`, `declared` and
---- `checked` are also the stages of a compile ([`build.driver`]), whose [`Ceilings.over`] a compile calls for a module: the
---- tree's check of a file and the build's refuse the same count, with the same words.
---- The examples a reader copies ([`build.example_checks`]) have no section: their findings are held by markers in the
---- example files, which are part of the text shown, and a guide's block holds none.
----
---- `testdata` is the check of the Teal under `ci/testdata` ([`build.tree_checks`]'s `ci_testdata`):
---- a key is a file and a code of any stage, and a count is the findings of that code in the file.
----
---- A ceiling is read at the start of a run, from the file or from a database the file filled; a caller that has neither
---- passes a table of its own.
-local Check = require("lang.check")
-local Declarations = require("lang.declarations")
+--- A count that a caller passes of its own (a table of [`Ceilings.Table`]'s `stages`) is still judged by [`Ceilings.over`], which
+--- the tests of the checks use.
 local Fs = require("cosmic.fs")
 local Markers = require("build.markers")
-local Scopes = require("lang.scopes")
 local String = require("cosmic.string")
 
 local record Ceilings
@@ -43,7 +27,6 @@ local record Ceilings
     "declared"
     "untyped"
     "checked"
-    "testdata"
   end
 
   --- An error of a file, as a check lists it.
@@ -69,12 +52,9 @@ local record Ceilings
   --- The path of the data file below the root of the tree.
   mut path: string
 
-  --- The ceilings `text` holds, or nil and what is wrong with it: a line of no section or of the wrong shape, a stage no
-  --- check has, a count that is not a positive integer, a key that two lines give, and a key that can never be met: one
-  --- of a stage that counts by code whose code is none of that stage's, or whose shape is not the stage's, and a line
-  --- keyed by a closed code ([`Ceilings.closed`], or `closed` where a caller gives its own list: a test of a checker that
-  --- finds an error of a code the tree has closed holds it to a pin of its own).
-  parse: function(text: string, closed?: {string}): Table?, string
+  --- The ceilings `text` holds, or nil and what is wrong with it: it must list exactly the stages markers hold under
+  --- `[marked]` (and no other section, nor a row of any stage, nor a line of no section).
+  parse: function(text: string): Table?, string
 
   --- The codes that no file may be pinned for: each has no row left in any stage, so the tree keeps its rule with no
   --- exceptions. It is a list and not "every code that has no row", because a file that gives a row to such a code
@@ -86,16 +66,6 @@ local record Ceilings
 
   --- The ceilings of the tree at `root` ([`Ceilings.path`]).
   read: function(root: string): Table?, string
-
-  --- The ceiling lines of `text` that a line follows directly, one line of message each with its place, or "" where there
-  --- are none. A ceiling stands alone between blank lines (a comment may sit directly above the one it explains, and a
-  --- `[stage]` line above its first): git merges two changes only where an unchanged line lies between them, so a
-  --- ceiling that has a neighbour conflicts with every change to that neighbour, and most pull requests move some pin.
-  crowded: function(text: string): string
-
-  --- The keys of `ceilings` that name a file `root` lacks, one line each: a ceiling that no run can meet, since the check of
-  --- the tree finds no error in a file that is not there.
-  dead: function(root: string, ceilings: Table): {string}
 
   --- The ceilings of `stage` in `ceilings`: empty for a stage the table has none of.
   of: function(ceilings: Table, stage: Stage): {string: integer}
@@ -249,63 +219,6 @@ function Ceilings.closed(): {string}
   return CLOSED_CODES
 end
 
---- The codes of the errors each stage that counts by code counts.
-local function codes_of(stage: string): {string}?
-  if stage == "scoped" then
-    return Scopes.codes
-  elseif stage == "declared" then
-    return Declarations.codes
-  elseif stage == "checked" then
-    return Check.codes
-  end
-  return nil
-end
-
---- Why `key`, a ceiling of `stage`, can never be met, or "" where it can.
-local function unmeetable(stage: string, key: string): string
-  if stage == "testdata" then
-    -- A finding of a file of ci/testdata is of any stage's code, so the shape is all that can be held.
-    if key:match("^%S+ %S+$") == nil then
-      return "a ceiling of [" .. stage .. "] is a file and a code, not `" .. key .. "`"
-    end
-    return ""
-  end
-  local codes = codes_of(stage)
-  if codes == nil then
-    if key:find("%s") ~= nil then
-      return "a ceiling of [" .. stage .. "] is one word, not `" .. key .. "`"
-    end
-    return ""
-  end
-  local file, code = key:match("^(%S+) (%S+)$")
-  if file == nil or code == nil then
-    return "a ceiling of [" .. stage .. "] is a file and a code, not `" .. key .. "`"
-  end
-  for _, known in ipairs(codes) do
-    if known == code then
-      return ""
-    end
-  end
-  return "`" .. code .. "` is no code of [" .. stage .. "]"
-end
-
---- The closed code ([`Ceilings.closed`]) `key`, a ceiling of `stage`, is keyed by, or "" where it is keyed by none: a stage
---- that counts by file alone has no code to close.
-local function closed_code(shut: {string: boolean}, stage: string, key: string): string
-  if stage == "untyped" then
-    return ""
-  end
-  local code = key:match("^%S+ (%S+)$")
-  if code ~= nil and shut[code] == true then
-    return code
-  end
-  return ""
-end
-
-local STAGES <const>: {string: boolean} = {
-  scoped = true, declared = true, untyped = true, checked = true, testdata = true,
-}
-
 --- The stages that markers hold, in the order of the file.
 local MARKABLE_LIST <const>: {Ceilings.Stage} = { "scoped", "declared", "untyped", "checked" }
 
@@ -314,102 +227,48 @@ for _, stage in ipairs(MARKABLE_LIST) do
   MARKABLE[tostring(stage)] = true
 end
 
-function Ceilings.parse(text: string, closed?: {string}): Ceilings.Table?, string
-  local shut = CLOSED
-  if closed ~= nil then
-    local own: mut {string: boolean} = {}
-    for _, code in ipairs(closed) do
-      own[code] = true
-    end
-    shut = own
-  end
+function Ceilings.parse(text: string): Ceilings.Table?, string
   local marked: mut {string: boolean} = {}
   local out: Ceilings.Table = { stages = {}, none = nil, marked = marked }
-  local held: mut {string: integer}? = nil
-  local stage = ""
-  local number = 0
   local listing = false
+  local listed = false
+  local number = 0
   for line in (text .. "\n"):gmatch("(.-)\n") do
     number = number + 1
+    local at = Ceilings.path .. ":" .. tostring(number) .. ": "
     if line ~= "" and line:sub(1, 1) ~= "#" then
       local name = line:match("^%[([a-z]+)%]$")
       if name == "marked" then
+        if listed then
+          return nil, at .. "[marked] is listed twice"
+        end
         listing = true
-        held = nil
-        stage = "marked"
-      elseif listing and name == nil and line:match("^[a-z ]+$") ~= nil then
-        local at = Ceilings.path .. ":" .. tostring(number) .. ": "
+        listed = true
+      elseif name ~= nil then
+        return nil, at .. "[" .. name .. "] is no section of this file: every stage is held by markers, and a row of counts " ..
+          "would hold a finding no marker holds; fix the finding or mark its line"
+      elseif listing and line:match("^[a-z ]+$") ~= nil then
         for word in line:gmatch("%S+") do
           if MARKABLE[word] ~= true then
-            return nil, at .. "`" .. word .. "` is no stage that markers hold; [marked] lists " .. table.concat(MARKABLE_LIST, ", ")
+            return nil, at .. "`" .. word .. "` is no stage that markers hold; [marked] lists " ..
+              table.concat(MARKABLE_LIST, ", ")
           end
           marked[word] = true
         end
-      elseif name ~= nil then
-        listing = false
-        if STAGES[name] ~= true then
-          return nil, Ceilings.path .. ":" .. tostring(number) .. ": no stage " .. name .. " in a check of the tree"
-        end
-        stage = name
-        local opened: mut {string: integer} = {}
-        for key, count in pairs(out.stages[name] or {}) do opened[key] = count end
-        out.stages[name] = opened
-        held = opened
       elseif listing then
-        return nil, Ceilings.path .. ":" .. tostring(number) .. ": [marked] lists stages by name, not `" .. line .. "`"
+        return nil, at .. "[marked] lists stages by name, not `" .. line .. "`"
       else
-        local key, count = line:match("^(%S.-)%s+(%d+)$")
-        local n: integer? = nil
-        if count ~= nil then
-          n = math.tointeger(tonumber(count))
-        end
-        local at = Ceilings.path .. ":" .. tostring(number) .. ": "
-        if held == nil then
-          return nil, at .. "a ceiling before any [stage] line"
-        elseif key == nil or n == nil or n < 1 then
-          return nil, at .. "expected `<file> <code> <count>` with a count of 1 or more, not `" .. line .. "`"
-        elseif held[key] ~= nil then
-          return nil, at .. "`" .. key .. "` has a ceiling twice in [" .. stage .. "]"
-        end
-        local why = unmeetable(stage, key)
-        if why ~= "" then
-          return nil, at .. why
-        end
-        local code = closed_code(shut, stage, key)
-        if code ~= "" then
-          return nil, at .. code .. " is closed: the tree keeps this rule with no exceptions; fix the code instead"
-        end
-        held[key] = n
+        return nil, at .. "a line before [marked], or a row of counts: every stage is held by markers, so this file has no row"
       end
     end
   end
-  for word in pairs(marked) do
-    if next(out.stages[word] or {}) ~= nil then
-      return nil, Ceilings.path .. ": [" .. word .. "] is held by markers, so it has no rows; the markers are its ceilings"
+  for _, stage in ipairs(MARKABLE_LIST) do
+    if marked[tostring(stage)] ~= true then
+      return nil, Ceilings.path .. ": [marked] must list every stage that markers hold, " ..
+        table.concat(MARKABLE_LIST, ", ") .. "; `" .. tostring(stage) .. "` is missing, and a stage not listed could be given rows"
     end
   end
   return out, ""
-end
-
-function Ceilings.crowded(text: string): string
-  local out = ""
-  local number = 0
-  -- The line before the one being read where it is a ceiling, else "".
-  local before = ""
-  for line in (text .. "\n"):gmatch("(.-)\n") do
-    number = number + 1
-    if before ~= "" and line ~= "" then
-      out = out .. Ceilings.path .. ":" .. tostring(number - 1) .. ": `" .. before ..
-        "` is followed directly by another line: a ceiling stands alone between blank lines, " ..
-        "so that a change to its neighbour merges with a change to it\n"
-    end
-    if line ~= "" and line:sub(1, 1) ~= "#" and line:match("^%[[a-z]+%]$") == nil then
-      before = line
-    else
-      before = ""
-    end
-  end
-  return out
 end
 
 function Ceilings.read(root: string): Ceilings.Table?, string
@@ -418,21 +277,6 @@ function Ceilings.read(root: string): Ceilings.Table?, string
     return nil, why
   end
   return Ceilings.parse(text)
-end
-
-function Ceilings.dead(root: string, ceilings: Ceilings.Table): {string}
-  local out: mut {string} = {}
-  for stage, held in pairs(ceilings.stages) do
-    for key in pairs(held) do
-      local file = assert(key:match("^(%S+)"), "a key names its file")
-      local there, _ = Fs.exists(root .. "/" .. file)
-      if there ~= true then
-        out[#out + 1] = key .. ": pinned in [" .. stage .. "], and the tree has no file " .. file
-      end
-    end
-  end
-  table.sort(out)
-  return out
 end
 
 function Ceilings.of(ceilings: Ceilings.Table, stage: Ceilings.Stage): {string: integer}

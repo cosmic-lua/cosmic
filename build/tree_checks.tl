@@ -159,7 +159,10 @@ allow({
 allow({ "build.todos.run" }, "the verb's run, which a test calls with a tree and a `reboot.Seen` to run it " ..
     "as that tree's own tool would; the verb's spec calls it with the command line alone")
 
-allow({ "build.ceilings.parse" }, "tested directly: the shape of the ceilings file, which `Ceilings.read` parses and the tests give text of their own")
+-- TODO: delete this entry with build/ceilings.txt and its parser, once the file is deleted (the last part of the change
+-- that deletes it): [`Ceilings.parse`] is used by nothing but its tests until then.
+allow({ "build.ceilings.parse" }, "tested directly: the layout of the ceilings file, which `Ceilings.read` parses and the " ..
+    "tests give text of their own")
 
 allow({ "build.pipeline.over" }, "the build's compile with the new checker: a build over given sources, which the " ..
     "pipeline's own tests are the callers of")
@@ -1897,11 +1900,6 @@ local function ceilings_for(root: string, stage: Ceilings.Stage, given: {string:
   if read == nil then
     return nil, why
   end
-  local dead = Ceilings.dead(root, read)
-  if #dead > 0 then
-    return nil, Ceilings.path .. " holds ceilings for files that are gone, which no check would ever lower: " ..
-      table.concat(dead, "; ")
-  end
   return Ceilings.of(read, stage), ""
 end
 
@@ -2115,9 +2113,6 @@ end
 --- [`build.ceilings`]) counts, no more. A file with more errors of a code than pinned is listed with each,
 --- their places and fix; one with fewer, and a pin for a file with none, is told to lower the pin.
 --- The sources are the `.tl` files under `root` ([`sources_of`]).
----
---- The tree's own ceilings file is held to its layout here, once for the run: a ceiling with a neighbour conflicts with
---- every change to it ([`Ceilings.crowded`]).
 function tree_checks.scoped(root: string, pinned?: {string: integer}, memo?: Sqlite.Handle,
                             marking?: Ceilings.Marking): {string}
   local ceilings, why = ceilings_for(root, "scoped", pinned)
@@ -2125,16 +2120,6 @@ function tree_checks.scoped(root: string, pinned?: {string: integer}, memo?: Sql
     return { "reading the ceilings: " .. why }
   end
   local by_marks = marked_for(root, "scoped", pinned)
-  if pinned == nil then
-    local text, _ = Fs.read(root .. "/" .. Ceilings.path)
-    local crowded = Ceilings.crowded(text or "")
-    if crowded ~= "" then
-      local _, count = crowded:gsub("\n", "\n")
-      local first = crowded:match("^[^\n]*\n[^\n]*\n[^\n]*\n") or crowded
-      return { "reading the ceilings: " .. tostring(count) .. " of them have a neighbour, the first of which are\n" ..
-          first:gsub("\n$", "") }
-    end
-  end
   pinned = ceilings
   local files, trouble = sources_of(root)
   if files == nil then

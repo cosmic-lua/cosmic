@@ -1,6 +1,7 @@
 --- [`build.tree_checks`]'s `ci_testdata` with the new checker ([`build.pipeline`]): a file under `ci/testdata` that does
 --- not check is named with its line in the checker's words. It needs the declarations of the standard library that the
 --- program itself carries, which a policy of the profile "cosmic" gives a worker.
+local Ceilings = require("build.ceilings")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local tree_checks = require("build.tree_checks")
@@ -54,8 +55,10 @@ local function test_a_finding_is_told_whatever_a_ceilings_file_says(dir: string)
   local bare = table.concat(tree_checks.ci_testdata(root), "\n")
   assert(bare:find("ci/testdata/bad.tl:1:", 1, true) ~= nil and
       bare:find("1 error of not_assignable in its bodies; follow the fix above", 1, true) ~= nil, bare)
-  -- a row of the old section, or a marker on the line, holds nothing
-  assert(Fs.write(root .. "/build/ceilings.txt", "[testdata]\nci/testdata/bad.tl not_assignable 1\n"))
+  -- a marker on the line holds nothing, and a row of the old `[testdata]` section is no row the file may hold
+  assert(Fs.write(root .. "/build/ceilings.txt", "[marked]\nscoped declared untyped checked\n\n[testdata]\nci/testdata/bad.tl not_assignable 1\n"))
   local pinned = table.concat(tree_checks.ci_testdata(root), "\n")
   assert(pinned == bare, pinned)
+  local read, why = Ceilings.read(root)
+  assert(read == nil and why:find("[testdata] is no section of this file", 1, true) ~= nil, tostring(why))
 end

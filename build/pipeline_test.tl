@@ -2,6 +2,7 @@
 --- new checker. The Lua is run, and compared with what the generator writes alone ([`lang.codegen`]) over the files of the tree.
 local ShapeStub = require("build.shape_stub")
 local Ceilings = require("build.ceilings")
+local CeilingsFixture = require("build.ceilings_fixture")
 local Codegen = require("lang.codegen")
 local CompileGrammar = require("build.compile_grammar")
 local Driver = require("build.driver")
@@ -38,7 +39,7 @@ local STANDARD <const>: {string: string} = ShapeStub.standard()
 --- The ceilings `text` holds, with no code closed: a program here has the errors the checker finds in it, whatever codes
 --- the tree has closed.
 local function ceilings(text: string): Ceilings.Table
-  return (assert(Ceilings.parse(text, {})))
+  return CeilingsFixture.rows(text)
 end
 
 local function options(pins: string): Pipeline.Options

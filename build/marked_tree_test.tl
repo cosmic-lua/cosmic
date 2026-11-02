@@ -34,7 +34,7 @@ local function tree(dir: string, name: string, ceilings: string, body: string): 
   return root
 end
 
-local MARKED <const> = "[marked]\nchecked declared untyped\n"
+local MARKED <const> = "[marked]\nscoped declared untyped checked\n"
 
 local function joined(lines: {string}): string
   return table.concat(lines, "\n")
@@ -51,9 +51,9 @@ local function test_a_finding_with_no_marker_on_its_line_fails_and_a_marker_hold
   -- a marker on another line does not hold it
   local other = tree(dir, "other", MARKED, source(KEY .. " not_assignable", "", "local t: integer = 3.5"))
   assert(joined(tree_checks.checked(other)):find("build/bad.tl:3:", 1, true) ~= nil)
-  -- a tree whose ceilings file does not list the stage is held by its rows, whatever its text says
-  local rows = tree(dir, "rows", "[checked]\n", source("local t: integer = 3.5 " .. KEY .. " not_assignable"))
-  assert(joined(tree_checks.checked(rows)):find("pinned 0; follow the fix above", 1, true) ~= nil)
+  -- a tree whose ceilings file does not list the stage is refused: a stage not under `[marked]` could be given rows
+  local rows = tree(dir, "rows", "[marked]\nscoped declared untyped\n", source("local t: integer = 3.5 " .. KEY .. " not_assignable"))
+  assert(joined(tree_checks.checked(rows)):find("`checked` is missing", 1, true) ~= nil)
 end
 
 local function test_code_that_moves_keeps_its_marker_because_the_marker_is_on_its_line(dir: string)
@@ -139,7 +139,7 @@ local function test_a_comment_that_is_no_marker_is_left_alone_and_a_closed_code_
   local told = tree_checks.markers(root)
   assert(#told.lines == 0 and next(told.counts) == nil, "a word that is no code is prose")
   -- `shadows` is closed: the tree keeps its rule with no exceptions, so a marker does not hold it
-  local closed = tree(dir, "closed", "[marked]\nscoped\n", source("local x = 1", "local x = 2 -- scoped: shadows", "return x"))
+  local closed = tree(dir, "closed", MARKED, source("local x = 1", "local x = 2 -- scoped: shadows", "return x"))
   local found = joined(tree_checks.scoped(closed))
   assert(found:find("(shadows)", 1, true) and found:find("shadows is closed", 1, true), found)
 end
