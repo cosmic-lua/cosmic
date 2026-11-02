@@ -35,7 +35,7 @@ local function query_holds(input: string): boolean, string
   local ok, q, err = pcall(Json.query, input)
   if not ok then return false, "query raised: " .. tostring(q) end
   if q == nil then
-    local column = (err as string):match("^json: JSONPath byte (%d+): ") -- checked: cast_refused
+    local column = tostring(err):match("^json: JSONPath byte (%d+): ")
     local at = math.tointeger(tonumber(column))
     if at == nil or at < 1 or at > #input + 1 then
       return false, "a refusal that names no byte: " .. tostring(err)
@@ -44,16 +44,17 @@ local function query_holds(input: string): boolean, string
     return true, ""
   end
   Fuzz.label("read")
-  local sok, steps, serr = pcall(Json.from_path, input)
-  if not sok then return false, "from_path raised: " .. tostring(steps) end
+  local sok, raised = pcall(Json.from_path, input)
+  if not sok then return false, "from_path raised: " .. tostring(raised) end
+  local steps, serr = Json.from_path(input)
   if steps == nil then
-    if not (serr as string):match("selects many values") then -- checked: cast_refused
+    if not serr:match("selects many values") then
       return false, "from_path refused: " .. tostring(serr)
     end
     return true, ""
   end
   Fuzz.label("singular")
-  local text, perr = Json.path(steps as Json.Steps) -- checked: cast_refused
+  local text, perr = Json.path(steps)
   if text == nil then return false, "a path from_path read cannot be written: " .. perr end
   local back, berr = Json.from_path(text)
   if back == nil then return false, "a normalized path does not read: " .. text .. ": " .. berr end
@@ -98,7 +99,7 @@ local function steps_of(input: string): Json.Steps, {string}
     if kind == "n" then
       steps[#steps + 1] = part:sub(2)
     else
-      local n = math.tointeger(tonumber(part:sub(2))) as integer -- checked: cast_refused
+      local n = assert(math.tointeger(tonumber(part:sub(2))))
       steps[#steps + 1] = if kind == "e" then -n else n end
     end
   end
@@ -182,16 +183,17 @@ local POINTED <const> = assert(Json.decode('{"a": [1, {"b": null, "": [true]}], 
   { null_value = Json.null }))
 
 local function pointer_holds(input: string): boolean, string
-  local ok, steps, err = pcall(Json.from_pointer, POINTED, input)
-  if not ok then return false, "from_pointer raised: " .. tostring(steps) end
+  local ok, raised = pcall(Json.from_pointer, POINTED, input)
+  if not ok then return false, "from_pointer raised: " .. tostring(raised) end
+  local steps, err = Json.from_pointer(POINTED, input)
   if steps == nil then
-    if not (err as string):match("^json: ") then -- checked: cast_refused
+    if not err:match("^json: ") then
       return false, "a refusal outside the module: " .. tostring(err)
     end
     Fuzz.label("refused")
     return true, ""
   end
-  local _, gerr = Json.get(POINTED, steps as Json.Steps) -- checked: cast_refused
+  local _, gerr = Json.get(POINTED, steps)
   if gerr ~= "" then return false, "a pointer read, its steps reach nothing: " .. gerr end
   Fuzz.label("read")
   return true, ""
