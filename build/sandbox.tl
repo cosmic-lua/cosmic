@@ -163,8 +163,7 @@ local limits <const>: {{string}} = {
   { "--processes", "processes", "1" },
 }
 
---- The fields of a policy's JSON the flags give; `isolate` and `promises`
---- hold the flags' words, which [`PolicyJson.decode`] checks.
+--- The fields of a policy's JSON the flags give; the words of `isolate` and `promises` are left to [`PolicyJson.decode`].
 local record PolicyFields
   mut grants?: {{string:string}}
   mut profiles?: {string}

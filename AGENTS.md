@@ -112,7 +112,8 @@ words>`, `uses <symbol>`, `db`, `sql '<statement>'`, `todos <paths>`.
 - A test calls `assert`, or its pass is listed as `NO ASSERT`.
 - A timeout is a failure to investigate; do not silently raise the limit.
 - A change to a harness module ([`build/harness_epoch.tl`] lists them)
-  needs the epoch handling in [`doc/testing.md`].
+  moves every verdict key by itself; [`doc/testing.md`] says when `epoch`
+  still wants a bump.
 
 ## comments and TODOs
 

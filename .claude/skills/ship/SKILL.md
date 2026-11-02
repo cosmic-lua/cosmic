@@ -40,9 +40,10 @@ default and is dropped from what to change.
    left alone.
 
 Removing code can lower a count that [`build/ceilings.txt`] pins, and
-the whole-tree check refuses a pin above its count; changing a harness
-module bumps `epoch` or sets `acknowledged` in
-[`build/harness_epoch.tl`], as [`doc/testing.md`] says. Both are found by
+the whole-tree check refuses a pin above its count. Changing a harness
+module needs nothing recorded (every key holds its code); a change the
+modules' code does not show bumps `epoch` in [`build/harness_epoch.tl`],
+as [`doc/testing.md`] says. The pins are found by
 `bin/cosmic fix --check .` and the tests, run as step 2 and the guide's
 "check before pushing" say.
 
@@ -97,8 +98,8 @@ Check, against the code rather than the diff's story:
 - Rules in AGENTS.md, including doc/c.md's checklist when C changed, and
   TODO policy: a gap left with no `TODO:` naming what it waits on.
 - Comments against doc/writing.md: correct, necessary, no narrative.
-- A harness module changed without the epoch or acknowledged digests
-  set as doc/testing.md says.
+- A change that no module's code shows but can alter a pass or a fail
+  (host, toolchain) without the `epoch` bump doc/testing.md says.
 - A deleted test: name the test that still checks what it checked, or
   call the deletion BLOCKING. Where copies were replaced by a shared
   helper, diff each copy against it.

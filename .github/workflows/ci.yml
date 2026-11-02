@@ -71,8 +71,8 @@
     # list, and no driver), which keeps it to a runner's start and some
     # seconds. Its `base`, set only where it chose `full`, is the main commit
     # the branch grew from: the legs take it as the merge queue's base
-    # (COSMIC_CI_BASE_SHA), so a change that moves build/harness_epoch.tl
-    # runs every test as the queue's does (orchestration.tl's `stands`).
+    # (COSMIC_CI_BASE_SHA), against which the format check holds
+    # build/ceilings.txt as the queue's does.
     # TODO: name what else only the queue's legs prove, once a record of the
     # queue's failures says which changed paths they follow: of the queue
     # failures read when this list was written, the alpine native and
@@ -345,10 +345,9 @@
         # scheduled run run every test (orchestration.tl's `stands`).
         COSMIC_CI_EVENT: "${{ github.event_name }}",
         # The queue's base, or a full branch push's (its merge base with
-        # main, from `scope`), against which a moved build/harness_epoch.tl
-        # runs every test and the format check holds build/ceilings.txt
-        # (build/ceilings_base.tl: a ceiling only falls); empty for any
-        # other run.
+        # main, from `scope`), against which the format check holds
+        # build/ceilings.txt (build/ceilings_base.tl: a ceiling only
+        # falls); empty for any other run.
         COSMIC_CI_BASE_SHA: "${{ github.event.merge_group.base_sha || needs.scope.outputs.base }}",
       },
       steps: [
@@ -780,8 +779,9 @@
         # A row stands only under its own key, so they decide how many
         # tests stand, never whether one passes. Not where the
         # restore took the base's own entry (it landed), nor where the
-        # change moves the harness and every test runs (driver.tl
-        # queue-ahead); where none are found, or a step fails, the suite runs
+        # change edits a file of the test harness, whose digest is in every
+        # key so no row of the run ahead stands
+        # (ci/harness-files.txt, driver.tl queue-ahead); where none are found, or a step fails, the suite runs
         # on what was restored.
         {
           name: "find the run ahead in the queue",

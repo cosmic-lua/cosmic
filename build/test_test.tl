@@ -192,17 +192,21 @@ local function test_a_refused_name_is_shown_the_nearest_names_first()
   assert(#near == 10 and near[1] == "test_12" and near[2] == "test_10", near[2])
 end
 
---- The harness's digest, which build/harness_epoch.tl acknowledges, is
---- what a worker runs and the code that makes and reads a key, each by
---- its source and bytecode; a closure store's address is salted by what
---- writes it and what that requires, by source and bytecode. So an edit
---- to how a key is computed, to how a verdict is looked up under one or
---- kept (build.test_key) moves the digest, a comment's too, and fails
---- build/harness_epoch_test.tl until it is acknowledged or the epoch
---- bumped; so does one to the worker, to the plan of its sandbox or to
---- cosmic's main, and one to the store's writer, its schema or a module
---- they require moves the address. One to a module of none of them
---- moves neither: not one to the runner (build.test) or the types it
+--- `string.dump` of the Lua `source`, as a module's bytecode is stored.
+local function dumped(source: string, strip: boolean): string
+  return string.dump(assert(load(source)), strip)
+end
+
+--- The harness's digest, which every key holds, is what a worker runs and
+--- the code that makes and reads a key, each by its bytecode stripped of
+--- debug information; a closure store's address is salted by what writes
+--- it and what that requires, by source and bytecode. So an edit to how a
+--- key is computed, to how a verdict is looked up under one or kept
+--- (build.test_key) moves the digest when it changes the bytecode, and a
+--- comment's does not; so does one to the worker, to the plan of its
+--- sandbox or to cosmic's main, and one to the store's writer, its schema
+--- or a module they require moves the address. One to a module of none of
+--- them moves neither: not one to the runner (build.test) or the types it
 --- shares with the key's code (build.test_state), nor one to
 --- cosmic.removed, which a test is keyed by
 --- only where its closure holds it, nor one to
@@ -210,14 +214,14 @@ end
 --- starts a worker ahead of it (cmd/cosmic/main.tl), nor one to the
 --- projection's writer, whose edits reach a store only through the rows
 --- and orderings its address digests (build/closure_store_test.tl holds
---- that), nor build.harness_epoch, which records the digest.
+--- that), nor build.harness_epoch, which every key holds beside the digest.
 local function test_the_harness_holds_what_a_worker_runs_and_what_keys_it()
   local db = assert(Sqlite.memory())
   assert(db:exec("CREATE TABLE modules (path TEXT, kind TEXT, source_hash BLOB, " ..
       "bytecode BLOB); CREATE TABLE imports (path TEXT, requires TEXT)"))
   local key_code = { "build.test_key", "build.declared_key", "build.shared_verdicts",
     "build.artifact", "build.bind", "build.harness_epoch", "build.host_requires",
-    "build.host_names" }
+    "build.host_names", "build.lua_tail" }
   local imports: {{string}} = {
     { "build.declared_key", "build.artifact" }, { "build.declared_key", "cosmic.fs" },
     { "build.shared_verdicts", "build.bind" }, { "build.test_key", "build.importer" },
@@ -247,7 +251,8 @@ local function test_the_harness_holds_what_a_worker_runs_and_what_keys_it()
     assert(Sqlite.run(db, "DELETE FROM modules WHERE path = ?", { { text = name } }))
     assert(Sqlite.run(db, "INSERT INTO modules VALUES (?, ?, ?, deflate(?))", { { text = name },
       { text = if name == "cmd.cosmic.main" then "main" else "module" end },
-      { blob = Hash.hex_sha256(source) }, { blob = bytecode .. (named_in[name] or "") } }))
+      { blob = Hash.hex_sha256(source) },
+      { blob = dumped("return " .. string.format("%q", bytecode .. (named_in[name] or "")), false) } }))
   end
   for _, list in ipairs({ worker.loads, key_code, others }) do
     for _, name in ipairs(list) do set(name, "return 'a key'\n", "bytecode") end
@@ -280,12 +285,18 @@ local function test_the_harness_holds_what_a_worker_runs_and_what_keys_it()
   end
   local commented = "-- a comment, and a blank line after it\n\nreturn 'a key'\n"
   local function edited(name: string): string return moves(name, commented, "bytecode") end
+  -- What the compiler made differently of a module's source.
+  local function recompiled(name: string): string
+    return moves(name, "return 'a key'\n", "other bytecode")
+  end
+  -- A comment moves no digest of the harness, whose bytecode is the same; another bytecode does.
   for _, name in ipairs({ "build.test_key", "build.declared_key", "build.shared_verdicts",
       "build.artifact", "build.test_worker", "build.test_sandbox", "build.test_policy",
-      "cmd.cosmic.main", "build.confine",
+      "cmd.cosmic.main", "build.confine", "build.lua_tail",
       "build.test_inputs", "cosmic.test", "build.host_requires", "build.host_names",
       "build.caches", "build.zig_caches" }) do
-    assert(edited(name) == "harness", name .. " moved " .. edited(name))
+    assert(edited(name) == "", name .. " moved " .. edited(name))
+    assert(recompiled(name) == "harness", name .. " recompiled moved " .. recompiled(name))
   end
   -- The runner is none of it: build.test requires the key's code and the types
   -- they share, and an edit to it moves no digest.
@@ -306,17 +317,19 @@ local function test_the_harness_holds_what_a_worker_runs_and_what_keys_it()
     assert(edited(name) == "store", name .. " moved " .. edited(name))
   end
   for _, name in ipairs({ "cosmic.sqlite", "cosmic.sys" }) do
-    assert(edited(name) == "harnessstore", name .. " moved " .. edited(name))
+    assert(edited(name) == "store", name .. " moved " .. edited(name))
+    assert(recompiled(name) == "harnessstore", name .. " recompiled moved " .. recompiled(name))
   end
   -- build.bind reads the shared verdicts' rows; a closure store's writer
   -- binds its own.
-  assert(edited("build.bind") == "harness", "build.bind moved " .. edited("build.bind"))
+  assert(edited("build.bind") == "" and recompiled("build.bind") == "harness",
+    "build.bind moved " .. edited("build.bind"))
   -- What the compiler made of the same source moves each that holds it:
   -- a compiler whose codegen moved can change what a worker runs.
-  local recompiled = moves("cosmic.sqlite", "return 'a key'\n", "other bytecode")
-  assert(recompiled == "harnessstore", "a recompile moved " .. recompiled)
-  recompiled = moves("build.test_key", "return 'a key'\n", "other bytecode")
-  assert(recompiled == "harness", "a recompile moved " .. recompiled)
+  local again = moves("cosmic.sqlite", "return 'a key'\n", "other bytecode")
+  assert(again == "harnessstore", "a recompile moved " .. again)
+  again = moves("build.test_key", "return 'a key'\n", "other bytecode")
+  assert(again == "harness", "a recompile moved " .. again)
   assert(moves("build.test", "return 'a key'\n", "other bytecode") == "")
   assert(moves("build.writer", "return 'a key'\n", "other bytecode") == "")
   assert(moves("build.test_report", "return 'a key'\n", "other bytecode") == "")
@@ -363,12 +376,12 @@ local function test_the_harness_walks_the_key_code_by_value()
     assert(Sqlite.run(db, "INSERT INTO modules VALUES (?, ?, ?, deflate(?))", { { text = name },
       { text = if name == "cmd.cosmic.main" then "main" else "module" end },
       { blob = Hash.hex_sha256(source) },
-      { blob = string.dump(assert(load(source)), true) } }))
+      { blob = dumped(source, true) } }))
   end
   for _, name in ipairs(worker.loads) do add(name) end
   for _, name in ipairs({ "build.test_key", "build.declared_key", "build.shared_verdicts",
       "build.host_requires", "build.artifact", "build.test_sandbox", "build.test_policy",
-      "build.caches", "build.zig_caches", "build.closure_store", "build.schema",
+      "build.caches", "build.zig_caches", "build.closure_store", "build.schema", "build.lua_tail",
       "cosmic.child", "cosmic.sandbox", "cosmic.sandbox.policy", "cosmic.time", "cosmic.sqlite", "cosmic.stream" }) do
     add(name)
   end

@@ -25,14 +25,14 @@
 ---
 --- - the test: its module's path and its name (`id`);
 --- - `version`, which names how the rest are computed;
---- - the test harness's epoch (build/harness_epoch.tl), in place of
----   the harness's own code: each module a worker loads besides its
+--- - the test harness's epoch (build/harness_epoch.tl) and a digest of
+---   the harness's own code ([`build.test_key`]'s `harness_part`): each module a worker loads besides its
 ---   test's closure ([`build.test_worker`]'s [`worker.loads`]), the plan of
 ---   its sandbox's maker ([`build.test_key`]'s `harness_own`), and the code
 ---   that makes a key and looks a verdict up under one ([`build.test_key`]'s
 ---   `key_code`: build.test_key, and this module's closure and
----   build.shared_verdicts'), none of which a key holds by what it is
----   -- COSMIC_TEST_HARNESS_EPOCH, for a test alone, stands in for a
+---   build.shared_verdicts'), each by its bytecode without debug
+---   information -- COSMIC_TEST_HARNESS_EPOCH, for a test alone, stands in for a
 ---   bump -- and the timeout its worker runs under (`timeout_ns`);
 --- - what runs it: the runtime identity -- the core's digest, its
 ---   platform and configuration, and the Teal and Lua pins -- the
@@ -112,21 +112,18 @@
 --- closure.
 ---
 --- The harness -- what a worker loads, the sandbox's maker, and the
---- code that computes a key -- is held by the epoch rather than by its
---- source, so an edit to it, a comment's or a doc's, runs no test
---- again that does not import it. The epoch is bumped by hand for one
---- that can alter a pass or a fail: a version of this code that maps a
---- test's inputs to the key another version computes for other inputs
---- -- a digest that misses a rewrite of the same size and times --
---- keeps its verdict under that key, in build.db and in the verdicts
---- every checkout shares, where it would stand after the fix unless
---- the epoch moves with it; so, too, does a pass a test earned through
---- a hole in its sandbox, where a fix that tightens a hold or a bind
---- moves no other part of its key. build/harness_epoch_test.tl holds the
---- harness's digest, over each of its modules' source and bytecode, to the one
---- build/harness_epoch.tl acknowledges, so no edit to it lands without
---- that choice made, and CI's merge queue runs every test for a change
---- that makes it. That holds what build.test_key decides of a worker's
+--- code that computes a key -- is held by a digest of its bytecode
+--- without debug information, beside the epoch, so an edit that changes
+--- what it does runs every test again and a comment's or a doc's runs
+--- none. A version of this code that maps a test's inputs to the key
+--- another version computes for other inputs -- a digest that misses a
+--- rewrite of the same size and times -- would keep its verdict under
+--- that key, in build.db and in the verdicts every checkout shares,
+--- were the digest not in the key; so, too, would a pass a test earned
+--- through a hole in its sandbox, where a fix that tightens a hold or a
+--- bind moves no other part of its key.
+---
+--- The digest holds what build.test_key decides of a worker's
 --- holds as well -- the names of the tree's modules and declarations a
 --- `require` or a lookup in the store refuses -- which it hands a
 --- worker and no other part of a key names. It would be unsound to
@@ -1484,9 +1481,9 @@ function declared_key.host_cpu(sources?: declared_key.HostSources): string
 end
 
 --- A digest of the modules `names` names, each by its name and what
---- `sources` says it is ([`build.test_key`]'s `harness`: its source's hash
---- for the harness's digest, and its bytecode's hash beside it for the
---- closure store's salt), sorted, so their order is no part of it.
+--- `sources` says it is ([`build.test_key`]'s `harness`: its stripped
+--- bytecode's hash for the harness's digest, and its source's hash and
+--- whole bytecode's beside it for the closure store's salt), sorted, so their order is no part of it.
 --- Nothing they require is walked. A module no source names is left
 --- out.
 function declared_key.harness(names: {string}, sources: {string:string}): string

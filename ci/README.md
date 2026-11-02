@@ -421,9 +421,8 @@ holds the list to what the caches and the driver check hash, so it
 cannot drift from them, and the script to `full` wherever it cannot tell
 (a failed compare, a diff of 300 files). A full branch push runs the
 queue's jobs (the checked shares and the narrowing run
-too), and decides the harness as the queue does: the script's merge base
-is the leg's `COSMIC_CI_BASE_SHA`, so a change that moves
-build/harness_epoch.tl runs every test (`harness_moved`). It saves
+too); the script's merge base is the leg's `COSMIC_CI_BASE_SHA`, which the
+format check holds build/ceilings.txt against. It saves
 nothing, runs the portable suite on alpine-x86_64 alone as the queue
 does, and its format check is assemble's, not the `format` job's.
 
@@ -650,8 +649,7 @@ ahead that will not have kept its verdicts by then, some ten minutes
 after it started (`READY_SECONDS`, a share's build and its quarter of the suite).
 A run, or its leg, that completed without the artifact, a base that
 heads no queue run (main's already, whose verdicts the restore took; a
-restore of the base's own entry skips the lookup), a change that moves
-build/harness_epoch.tl (every test runs, standing on none) and a
+restore of the base's own entry skips the lookup) and a
 failed step are all none, and the suite stands on what was restored.
 Only verdicts pass so, never compiles or the driver check's marker,
 and only from a suite that passed.
@@ -733,8 +731,8 @@ verdicts, which would otherwise ride along whole in each save.
   shares' verdicts of the run ahead too (two `queue-ahead` calls of a minute
   at most each, `READY_SECONDS` 660, the later share's start plus its
   boot and tests where none stood). It runs the tests whose key moved
-  (`stands`: a push and the queue; not the nightly, a manual run, or a queue run
-  whose change moves build/harness_epoch.tl, which run every test), says in
+  (`stands`: a push and the queue; not the nightly or a manual run, which run
+  every test), says in
   `--census` which key parts moved for the rest, trims to the rows its run
   used and keeps them as `verdicts-linux-x86_64-checked-narrowing-shard-<part>`.
 - `checked-narrowing-merge` (`linux-x86_64-checked-narrowing`), the job whose
