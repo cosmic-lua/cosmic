@@ -187,9 +187,10 @@ end
 --- holds it to; the runner separately enforces C-function entry.
 function test_report.coverage(hit: integer, total: integer, floored?: boolean): string
   local percentage = if total > 0 then (hit * 100.0 / total) else 0.0 end
+  local note = if floored ~= true then "; informational, never a failure" elseif total == 0 then
+    "; no lines to cover, so a floor holds vacuously" else "" end
   return string.format("test: coverage %.1f%% (%d/%d %s%s)",
-    percentage, hit, total, plural.noun(total, "line"),
-    if floored == true then "" else "; informational, never a failure" end)
+    percentage, hit, total, plural.noun(total, "line"), note)
 end
 
 --- The percentage `text` writes for the flag `flag`, from 0 to 100 with an
@@ -204,10 +205,19 @@ function test_report.percent(text: string, flag: string): number?, string
 end
 
 --- Whether `hit` of `lines` is under the floor `least`, in percent: at the
---- floor is not under it. A run that measured no line is at 0%.
+--- floor is not under it. A run or file with no line to cover is under no
+--- floor: there is nothing to reach.
 local function under(hit: integer, lines: integer, least: number): boolean
-  if lines == 0 then return least > 0 end
+  if lines == 0 then return false end
   return hit * 100.0 < least * lines
+end
+
+--- `hit` of `lines` as a percentage to one decimal, rounded down: a figure
+--- the check found under a floor never prints as reaching it (1599/2000 is
+--- 79.9%, not 80.0%).
+local function shown(hit: integer, lines: integer): string
+  if lines == 0 then return "0.0" end
+  return string.format("%.1f", (hit * 1000 // lines) / 10)
 end
 
 --- What fell short of `floors` for a run that hit `hit` of `total` executable
@@ -220,10 +230,9 @@ function test_report.floor(hit: integer, total: integer, files: {test_report.Fil
   local clauses: mut {string} = {}
   local min = floors.min
   if min ~= nil and under(hit, total, min) then
-    local percentage = if total > 0 then (hit * 100.0 / total) else 0.0 end
-    lines[#lines + 1] = string.format("test: FAIL  coverage: %.1f%% (%d/%d %s) is under --min %g%%",
-      percentage, hit, total, plural.noun(total, "line"), min)
-    clauses[#clauses + 1] = string.format("%.1f%% under --min %g%%", percentage, min)
+    lines[#lines + 1] = string.format("test: FAIL  coverage: %s%% (%d/%d %s) is under --min %g%%",
+      shown(hit, total), hit, total, plural.noun(total, "line"), min)
+    clauses[#clauses + 1] = string.format("%s%% under --min %g%%", shown(hit, total), min)
   end
   local least = floors.min_file
   if least ~= nil then
@@ -235,8 +244,8 @@ function test_report.floor(hit: integer, total: integer, files: {test_report.Fil
       return a.path < b.path
     end)
     for _, file in ipairs(sorted) do
-      lines[#lines + 1] = string.format("test: FAIL  coverage: %s %.1f%% (%d/%d %s) is under --min-file %g%%",
-        file.path, file.hit * 100.0 / file.lines, file.hit, file.lines, plural.noun(file.lines, "line"), least)
+      lines[#lines + 1] = string.format("test: FAIL  coverage: %s %s%% (%d/%d %s) is under --min-file %g%%",
+        file.path, shown(file.hit, file.lines), file.hit, file.lines, plural.noun(file.lines, "line"), least)
     end
     if #sorted > 0 then
       clauses[#clauses + 1] = string.format("%s under --min-file %g%%", plural.count(#sorted, "file"), least)

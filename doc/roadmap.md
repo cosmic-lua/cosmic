@@ -45,7 +45,7 @@ defines the target; once something ships, it leaves this file.
   [--min-file PCT]` ([`doc/testing.md`]'s coverage floor), rather than in a
   committed ratchet file. the flags are in place and cover the core's C, which
   every release core and the sanitized core observe into the `coverage` table
-  ([`core/coverage.c`]); no CI leg passes one yet. the sensitivity record below
+  ([`core/coverage.c`]); no CI leg passes one yet. a floor needs a whole run, so a sharded leg (`--shard`) cannot pass one: judge it on a whole run, or on the union of the shards' `coverage` rows. the sensitivity record below
   gives the number. old's #1781 (`pr.yml`'s `--min 76 --min-file 0`) is the model.
 - add a sensitivity record for coverage gates' host-dependent lines. old's
   `cosmic/coverage/SENSITIVITY.md` is a useful model: establish a floor from CI

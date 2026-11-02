@@ -122,7 +122,16 @@ local function test_a_floor_names_each_file_and_the_total_that_fall_short()
   assert(both.lines[1]:find("is under --min 76.5%", 1, true) ~= nil, both.lines[1])
   assert(both.clause == "coverage floor not met: 25.0% under --min 76.5%, 1 file under --min-file 50%", both.clause)
   -- A run that measured no line is under any floor above 0.
-  assert(#test_report.floor(0, 0, {}, { min = 1.0 }).lines == 1)
-  assert(#test_report.floor(0, 0, {}, { min = 0.0 }).lines == 0)
+  -- Nothing to cover is under no floor.
+  assert(#test_report.floor(0, 0, {}, { min = 1.0, min_file = 1.0 }).lines == 0)
   assert(test_report.coverage(1, 4, true) == "test: coverage 25.0% (1/4 lines)")
+  assert(test_report.coverage(0, 0, true) ==
+      "test: coverage 0.0% (0/0 lines; no lines to cover, so a floor holds vacuously)")
+  -- Exactly under the floor never prints as reaching it.
+  local near = test_report.floor(1599, 2000, { { path = "a.tl", hit = 1599, lines = 2000 } },
+    { min = 80.0, min_file = 80.0 })
+  assert(near.lines[1] == "test: FAIL  coverage: 79.9% (1599/2000 lines) is under --min 80%", near.lines[1])
+  assert(assert(near.lines[2]):find("a.tl 79.9% (1599/2000", 1, true) ~= nil)
+  assert(near.clause:find("79.9% under --min 80%", 1, true) ~= nil, near.clause)
+  assert(#test_report.floor(1600, 2000, {}, { min = 80.0 }).lines == 0)
 end

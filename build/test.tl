@@ -2494,7 +2494,13 @@ local function settle(ctx: Run)
         files = found
       end
     end
-    ctx.shortfall = test_report.floor(cov_hit, cov_total, files, floors)
+    if rec.not_run > 0 then
+      -- A run that stopped early (`--bail`) reached only part of the lines.
+      ctx.shortfall = { lines = { "test: coverage floor not judged: the run did not finish (" ..
+          plural.count(rec.not_run, "test") .. " not started after the first failure)" }, clause = "" }
+    else
+      ctx.shortfall = test_report.floor(cov_hit, cov_total, files, floors)
+    end
   end
   if rec.checks then
     local kept, keep_trouble = keep_violations(records, rec, ctx.run_at_ns)

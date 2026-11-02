@@ -349,7 +349,9 @@ never fails a run. Two flags make it a gate:
   Each file under it is named with its percentage.
 
 `PCT` is a number from 0 to 100, with an optional decimal part (`76`,
-`76.5`). A coverage at the floor is not under it. A floor not met fails the
+`76.5`), given as `--min 76` or `--min=76`. A coverage at the floor is not under it,
+and a failure prints its figure rounded down, so 1599 of 2000 lines is 79.9%, never
+80.0%. A tree or file with no line to cover is under no floor. A floor not met fails the
 run as a failing test does, with status 1 (not the 4 of a tree that does
 not compile). It lists each shortfall as a `test: FAIL  coverage: ...` line
 and names them in the summary line:
@@ -362,7 +364,8 @@ test: 1 test passed in 1 module; ...; coverage floor not met: 77.8% under --min 
 ```
 
 A floor is over every line of the tree, so a run that names tests or a
-`--shard` is refused with status 2: it reaches only some of the lines.
+`--shard` is refused with status 2: it reaches only some of the lines. A run that stops early (`--bail`) judges no floor and says so: it reached only
+part of the lines. A floor on a failing run is judged and named beside the failures.
 
 A test whose verdict stands brings the lines it hit when it ran (the
 `coverage_by_test` rows of that run, or the ones another checkout shared).
