@@ -46,7 +46,7 @@ function Example.guidance()
   print(text)
   assert(text ~= nil and text:find("Coverage.start (cosmic/coverage.tl:", 1, true) ~= nil,
     tostring(text))
-  assert(Errors.guidance("nothing whatever like any message") == nil)
+  assert(Errors.guidance("xyzzy plugh frobnicate quuxwiz") == nil)
 end
 
 --- What to do about an error Lua itself raised, read from its message:

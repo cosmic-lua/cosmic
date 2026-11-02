@@ -72,7 +72,7 @@
     # seconds. Its `base`, set only where it chose `full`, is the main commit
     # the branch grew from: the legs take it as the merge queue's base
     # (COSMIC_CI_BASE_SHA), against which the format check holds
-    # build/ceilings.txt as the queue's does.
+    # the markers of the tree as the queue's does.
     # TODO: name what else only the queue's legs prove, once a record of the
     # queue's failures says which changed paths they follow: of the queue
     # failures read when this list was written, the alpine native and
@@ -346,7 +346,7 @@
         COSMIC_CI_EVENT: "${{ github.event_name }}",
         # The queue's base, or a full branch push's (its merge base with
         # main, from `scope`), against which the format check holds
-        # build/ceilings.txt (build/ceilings_base.tl: a ceiling only
+        # the markers of the tree (build/ceilings_base.tl: a marker only
         # falls); empty for any other run.
         COSMIC_CI_BASE_SHA: "${{ github.event.merge_group.base_sha || needs.scope.outputs.base }}",
       },
@@ -2663,8 +2663,8 @@
           env: {GH_TOKEN: "${{ github.token }}", REPOSITORY: "${{ github.repository }}", SHA: "${{ github.sha }}", EVENT: "${{ github.event_name }}", REF: "${{ github.ref }}", QUEUE_BASE: "${{ github.event.merge_group.base_sha }}"},
           run: "cosmic-driver cosmic_ci/driver.tl merge-base",
         },
-        # The base the format check holds build/ceilings.txt to (build/ceilings_base.tl): a ceiling only
-        # falls, so a count raised or a row added since the tree's base on main fails the check. Where the
+        # The base the format check holds the markers of the tree to (build/ceilings_base.tl): a marker only
+        # falls, so a marker added since the tree's base on main fails the check. Where the
         # step above found no base this sets none, and the check fails, since skipping it there would let a
         # raise through whenever GitHub could not name the base; run the job again.
         {

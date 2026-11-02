@@ -95,6 +95,11 @@ line below it. [`build/markers.tl`] has the rules.
 - a finding with no marker for its code on its line is refused, by a
   compile of the module and by the tree check: fix the code. a marker is
   never the fix, and none is ever added.
+- a new rule of the checker that finds existing code lands with that code
+  fixed. a marker written by hand for it (`-- <stage>: <code>`) is
+  refused against the merge base, which held none of its code, and the
+  ceilings file takes no row (it lists the four stages and refuses any
+  other text).
 - a marker whose finding is gone is stale. `bin/cosmic fix .` removes
   it, and `fix --check` and the tree check name it. run `fix .` after
   a change that removes findings and commit what it wrote.
@@ -122,8 +127,8 @@ The examples a reader copies (`*_example.tl`) hold their findings by
 markers too: a marker is part of the text `cosmic docs` shows, and
 `cosmic fix --check .` refuses a finding with none and a marker whose
 finding is gone. A code block of a guide holds none, since a reader copies
-the block: a finding there is fixed. [`build/ceilings.txt`] holds only
-`[testdata]`, whose counts only fall and which pins none now.
+the block: a finding there is fixed, and so is one in a file under
+`ci/testdata`. [`build/ceilings.txt`] lists the marked stages and has no row.
 
 ## teal layout
 
