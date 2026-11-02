@@ -9,6 +9,7 @@
 --- refusal.
 
 local CompileGrammar = require("build.compile_grammar")
+local MainLocals = require("build.main_locals")
 local Pipeline = require("build.pipeline")
 local Sqlite = require("cosmic.sqlite")
 local String = require("cosmic.string")
@@ -84,6 +85,10 @@ local function over_file(line: string): string?
   return line:match("^(%S+): %d+ errors? of %S+ in its %a+, pinned %d+;")
 end
 
+--- The most locals the main chunk of a module's Lua may hold ([`build.main_locals`]). Lua allows 200, and a file at the limit
+--- builds alone but fails once two changes that each add a top-level local are merged, so the check keeps well clear.
+local MAIN_LOCALS_LIMIT <const> = 180
+
 --- What the pipeline answered: by file, whether it refuses it for a count over a ceiling (none for a module the database
 --- does not stage), and the code of the first line of another refusal; by key, what a memo keeps: `O` for a count over a
 --- ceiling, `R` and the code for another refusal, `N` for none, `-` for a module the database does not stage.
@@ -91,6 +96,8 @@ local record Answers
   over: {string: boolean}
   other: {string: string}
   answers: {string: string}
+  --- By file, the locals of the main chunk of a module's Lua that are more than `MAIN_LOCALS_LIMIT`.
+  locals: {string: integer}
 end
 
 --- What the pipeline answers for the staged modules of `rows`, and the lines that say why it could not.
@@ -98,9 +105,10 @@ local function asked(build_db: Sqlite.Handle, options: Pipeline.Options, rows: {
   local over: mut {string: boolean} = {}
   local other: mut {string: string} = {}
   local answers: mut {string: string} = {}
+  local main_locals: mut {string: integer} = {}
   local pipeline, built_why = Pipeline.build(build_db, options)
   if pipeline == nil then
-    return { over = over, other = other, answers = answers }, { "the pipeline: " .. built_why }
+    return { over = over, other = other, answers = answers, locals = main_locals }, { "the pipeline: " .. built_why }
   end
   local build = pipeline.build
   local index, ceilings = pipeline.index, pipeline.ceilings
@@ -137,6 +145,7 @@ local function asked(build_db: Sqlite.Handle, options: Pipeline.Options, rows: {
       end
       local counted = false
       local code = ""
+      local held: integer? = nil
       if result ~= nil then
         for _, line in ipairs(build:held(result, ceilings)) do
           -- A scope error of a translated module is the translation's (a method moved above a name it reads): no ceiling of
@@ -161,6 +170,8 @@ local function asked(build_db: Sqlite.Handle, options: Pipeline.Options, rows: {
             local emitted = CompileGrammar.emit(build, result, nil, true, true)
             if emitted.code == nil then
               code = emitted.trouble:match("%(([%a_]+)%)") or "unwritten"
+            else
+              held = MainLocals.over(emitted.code, MAIN_LOCALS_LIMIT)
             end
           end
         end
@@ -169,13 +180,16 @@ local function asked(build_db: Sqlite.Handle, options: Pipeline.Options, rows: {
       if code ~= "" then
         other[row.file] = code
       end
-      answers[row.key] = if counted then "O" elseif code == "" then "N" else "R " .. code end
+      if held ~= nil then
+        main_locals[row.file] = held
+      end
+      answers[row.key] = if counted then "O" elseif code ~= "" then "R " .. code elseif held ~= nil then "M " .. tostring(held) else "N" end
     end
   end
   -- The modules in the order they require one another, each forgotten once it is answered: the syntax of the whole tree is
   -- not held at once.
   local out = TreeProgram.stream(build, index, names, true, judge)
-  return { over = over, other = other, answers = answers }, out
+  return { over = over, other = other, answers = answers, locals = main_locals }, out
 end
 
 function PipelineCheck.compare(
@@ -219,6 +233,7 @@ function PipelineCheck.compare(
   end
   local over: mut {string: boolean} = {}
   local other: mut {string: string} = {}
+  local main_locals: mut {string: integer} = {}
   local missed: mut {PipelineCheck.Row} = {}
   for _, row in ipairs(rows) do
     local kept: string? = nil
@@ -231,6 +246,10 @@ function PipelineCheck.compare(
       end
       if kept:sub(1, 2) == "R " then
         other[row.file] = kept:sub(3)
+      end
+      if kept:sub(1, 2) == "M " then
+        local stored = math.tointeger(tonumber(kept:sub(3)))
+        main_locals[row.file] = stored or 0
       end
     else
       missed[#missed + 1] = row
@@ -246,6 +265,9 @@ function PipelineCheck.compare(
     end
     for file, code in pairs(made.other) do
       other[file] = code
+    end
+    for file, held in pairs(made.locals) do
+      main_locals[file] = held
     end
     if memo ~= nil then
       for key, answer in pairs(made.answers) do
@@ -274,6 +296,12 @@ function PipelineCheck.compare(
       end
       if code ~= nil then
         out[#out + 1] = row.file .. ": the pipeline refuses it for " .. code .. ", which no ceiling counts"
+      end
+      local held = main_locals[row.file]
+      if held ~= nil then
+        out[#out + 1] = row.file .. ": the main chunk of its Lua holds " .. String.counted(held, "local") .. ", over " ..
+          tostring(MAIN_LOCALS_LIMIT) .. " (Lua allows 200, and changes that each add one merge into a file that fails to " ..
+          "build): group related helpers into a table with `function Group.name(...)`, or move them to a module of their own"
       end
     end
   end

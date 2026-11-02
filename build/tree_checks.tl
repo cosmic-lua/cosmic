@@ -61,8 +61,6 @@ local ShapeKey = require("build.shape_key")
 local Scopes = require("lang.scopes")
 local SyntaxNode = require("build.syntax_node")
 local TestReturns = require("build.test_returns")
-local MainLocals = require("build.main_locals")
-local plural = require("build.plural")
 local ScopesCover = require("lang.scopes_cover")
 local Warnings = require("lang.warnings")
 local TreeProgram = require("build.tree_program")
@@ -2577,9 +2575,9 @@ function tree_checks.pipeline(root: string, build_db: Sqlite.Handle, memo?: Sqli
     "lang/check_codes.tl", "lang/warnings.tl", "lang/prelude.d.tl", "lang/stdlib.d.tl",
     "build/check_memo.tl", "build/driver.tl", "build/tree_checks.tl", "build/tree_program.tl",
     "build/syntax_shape_specs.tl", "build/pipeline.tl", "build/pipeline_check.tl",
-    "build/gen_syscalls.tl", "build/compile_grammar.tl", "lang/codegen.tl", "lang/truthy.tl", "lang/fact_wraps.tl",
+    "build/gen_syscalls.tl", "build/compile_grammar.tl", "build/main_locals.tl", "lang/codegen.tl", "lang/truthy.tl", "lang/fact_wraps.tl",
     "lang/boundaries.tl", "lang/boundary_checks.tl",
-    "core/syscalls.h", "core/process.h", "core/socket.h" }, "pipeline 3")
+    "core/syscalls.h", "core/process.h", "core/socket.h" }, "pipeline 4")
   local tree = tree_of(files, salt, TreeProgram.bindings_of(root), written, shaping_of(root, memo))
   -- The ceilings are not in the salt: each file's answer is keyed by those held under its own name ([`PipelineCheck.keyed`]).
   local given: mut {string: boolean} = {}
@@ -2647,7 +2645,7 @@ local loaders: {string: string} = {
   ["build/database_start_fixture.tl"] = "the modules of a fixture database, compiled by the build and loaded to test a start",
   ["build/fuzz/init.tl"] = "the constant chunk `return __cosmic_tc`, the hook a checked run defines",
   ["build/load_module.tl"] = "the named loader: the constant chunk `return require((...))`",
-  ["build/lua_tail.tl"] = "the Lua the compiler wrote, loaded in an environment of its own to dump its bytecode",
+  ["build/lua_tail.tl"] = "the Lua the compiler wrote, loaded in an environment of its own to dump its bytecode or to probe its locals",
   ["build/sandbox.tl"] = "the script the checker compiled ([`build.standalone`]'s `code`), as the main of a sealed program",
   ["build/standalone.tl"] = "the Lua the checker compiled from a file or a `-e` chunk, or kept from such a compile",
   ["build/test_worker.tl"] = "the constant chunk that reads a value's metatable in the form the compiler writes",
@@ -2723,43 +2721,6 @@ function tree_checks.test_returns(root: string): {string}
           out[#out + 1] = file .. ":" .. tostring(site[1]) .. ": " .. tostring(site[2]) .. " returns early (`" ..
             tostring(site[3]) .. "`), which passes having checked nothing: declare `requires`, or call " ..
             "`Test.skip(reason)` (doc/testing.md, \"skipping\"), after which nothing runs"
-        end
-      end
-    end
-  end
-  return out
-end
-
---- The most locals the main chunk of a module of the tree may hold ([`MainLocals`]). Lua allows 200, and a file at the limit
---- builds alone but fails once two changes that each add a top-level local are merged, so the check keeps well clear.
-local MAIN_LOCALS_LIMIT <const> = 180
-
---- Each `.tl` file of the tree under `root` whose main chunk holds more than `limit` locals ([`MainLocals`]) as
---- `<file>: the main chunk holds <n> locals, over <limit> (Lua allows 200) ...`. Past the limit a module builds only while no two
---- changes add a top-level local together: group helpers into a table (`function Group.name`) or move them to a module of
---- their own. A file with fewer than half the limit of lines that start a `local` is not parsed.
-function tree_checks.main_locals(root: string, limit?: integer): {string}
-  local sources, trouble = sources_of(root)
-  if sources == nil then
-    return { "reading the sources: " .. trouble }
-  end
-  local most = limit or MAIN_LOCALS_LIMIT
-  local out: mut {string} = {}
-  for _, entry in ipairs(sources) do
-    local file, text = entry[1], entry[2]
-    if file ~= nil and text ~= nil then
-      local _, starts = ("\n" .. text):gsub("\nlocal ", "")
-      if starts >= most // 2 then
-        local chunk, parse_trouble = SyntaxNode.parse(text, file)
-        if chunk == nil then
-          out[#out + 1] = file .. ": cannot read it to count its main-chunk locals: " .. parse_trouble
-        else
-          local held = MainLocals.of_chunk(chunk)
-          if held > most then
-            out[#out + 1] = file .. ": the main chunk holds " .. plural.count(held, "local") .. ", over " .. tostring(most) ..
-              " (Lua allows 200, and changes that each add one merge into a file that fails to build): group related " ..
-              "helpers into a table with `function Group.name(...)`, or move them to a module of their own"
-          end
         end
       end
     end

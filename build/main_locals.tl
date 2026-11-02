@@ -1,58 +1,48 @@
---- The locals a module's main chunk holds, which [`build.tree_checks`]'s `main_locals` keeps under its limit. Lua gives a
---- function 200 local variables, and the main chunk of a module is one: a file at the limit builds alone and fails
---- once two changes that each add a top-level local are merged. So the check refuses a file well short of it.
+--- The locals the main chunk of a module's Lua holds at its most, which [`build.pipeline_check`] keeps under a limit. Lua
+--- gives a function 200 local variables, and the main chunk of a module is one: a file at the limit builds alone and fails
+--- once two changes that each add a top-level local are merged, so the limit it is held to leaves room.
 ---
---- Read off the tree of the new checker ([`lang.ast`]), the statements that stand directly in the chunk and take a
---- register in the Lua written for it: each name of a `local` statement, except a `<const>` bound to a literal, which
---- Lua folds into its uses; each `local function`; and each `local record` or `local class` that has a
---- `function Name.member` at the top level, which becomes a table. A `local type`, an enum, and a record with no such
---- function are types, and write no local.
-local Ast = require("lang.ast")
+--- The count is Lua's own, of the Lua [`lang.codegen`] writes, and not a reading of the Teal: which locals the generator
+--- writes (a class table, an import read as a value, a `<const>` Lua folds) is its choice, so the chunk is probed. It is
+--- loaded with `n` locals in front, and the most `n` it takes is what the limit leaves over what the chunk holds ([`build.lua_tail`]'s `fits_with`).
+--- Nothing runs: a chunk is compiled and dropped.
+local LuaTail = require("build.lua_tail")
 
 local record MainLocals
-  --- The count of main-chunk locals in the chunk `chunk` ([`build.syntax_node.parse`]).
-  of_chunk: function(chunk: Ast.Chunk): integer
+  --- The most locals the main chunk of `lua` holds at one point, nested blocks included, if that is more than `limit`; else
+  --- nil, as for `lua` that does not compile. One load answers the common case.
+  over: function(lua: string, limit: integer): integer?
 end
 
---- Whether `exp` is a literal Lua folds into the uses of a `<const>` bound to it.
-local function folded(exp: Ast.Exp): boolean
-  local kind = exp.kind
-  return kind == "Integer" or kind == "Float" or kind == "String" or kind == "Boolean" or kind == "Nil"
+--- Lua's limit on the locals of a function.
+local LIMIT <const> = 200
+
+local function count(lua: string): integer?
+  if not LuaTail.fits_with(lua, 0) then
+    return nil
+  end
+  -- The greatest n that fits is the limit less the chunk's locals: search for it.
+  local low, high = 0, LIMIT
+  while low < high do
+    local middle = (low + high + 1) // 2
+    if LuaTail.fits_with(lua, middle) then
+      low = middle
+    else
+      high = middle - 1
+    end
+  end
+  return LIMIT - low
 end
 
---- The names `stat` binds in a register, if it is a `local` statement.
-local function bound(stat: Ast.Local): integer
-  local count = 0
-  for index, binding in ipairs(stat.bindings) do
-    local value = stat.values[index]
-    if not (binding.attr == "const" and value ~= nil and folded(value)) then
-      count = count + 1
-    end
+function MainLocals.over(lua: string, limit: integer): integer?
+  if LuaTail.fits_with(lua, LIMIT - limit) then
+    return nil
   end
-  return count
-end
-
-function MainLocals.of_chunk(chunk: Ast.Chunk): integer
-  local count = 0
-  local tabled: mut {string: boolean} = {}
-  for _, top in ipairs(chunk.body.stats) do
-    if top.kind == "Function" then
-      local root = top.path[1]
-      if root ~= nil then
-        tabled[root.text] = true
-      end
-    end
+  local held = count(lua)
+  if held ~= nil and held > limit then
+    return held
   end
-  for _, top in ipairs(chunk.body.stats) do
-    if top.kind == "Local" and top.scope == "local" then
-      count = count + bound(top)
-    elseif top.kind == "LocalFunction" then
-      count = count + 1
-    elseif (top.kind == "Record" or top.kind == "Class") and top.scope == "local" and tabled[top.name.name] == true then
-      count = count + 1
-    end
-  end
-  return count
+  return nil
 end
 
 return MainLocals

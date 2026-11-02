@@ -13,6 +13,10 @@ local record LuaTail
   --- The bytecode of `code` (compiled from the module `name`, whose source is `file`), checked to be the shape every target
   --- shares; nil and why where Lua refuses the chunk, said at the line of `file` it is on, or the host dumps another shape.
   bytecode_of: function(code: string, name: string, file: string): string?, string
+
+  --- Whether `code` compiles with `spare` locals declared in front of it: Lua gives a function 200, so the chunk holds at
+  --- most 200 less the greatest `spare` that fits ([`build.main_locals`]). The chunk is compiled and dropped, never run.
+  fits_with: function(code: string, spare: integer): boolean
 end
 
 --- The bytecode header every target must agree on. One column of
@@ -72,6 +76,16 @@ function LuaTail.bytecode_of(code: string, name: string, file: string): string?,
       "targets do not share"
   end
   return bytecode, ""
+end
+
+function LuaTail.fits_with(code: string, spare: integer): boolean
+  local names: mut {string} = {}
+  for index = 1, spare do
+    names[index] = "__l" .. tostring(index)
+  end
+  local front = if spare > 0 then "local " .. table.concat(names, ",") .. " " else "" end
+  local chunk, _ = load(front .. code, "=fits_with", "t")
+  return chunk ~= nil
 end
 
 return LuaTail
