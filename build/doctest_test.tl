@@ -15,10 +15,9 @@ local work = require("build.work")
 
 local type Module = importer.Module
 
--- The new checker, where the suite asks for it (`COSMIC_GRAMMAR=new`, which a sandboxed worker sees only if its policy
--- passes it through), types a project against the declarations the tool carries, which only a worker that holds the tool's
+-- The new checker types a project against the declarations the tool carries, which only a worker that holds the tool's
 -- database ("cosmic") has.
-Test.policy{ env = { "COSMIC_GRAMMAR" }, profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
+Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
 local function doc(parts: {string}): string
   return table.concat(parts, "\n") .. "\n"
@@ -92,7 +91,7 @@ local function write_fixture(case: string, content: string): string?, string
   return root, ""
 end
 
-local function compile_fixture(root: string, given?: GrammarMode.Mode): importer.Result?, string
+local function compile_fixture(root: string): importer.Result?, string
   local handle, open_trouble = work.open(root)
   if handle == nil then
     return nil, open_trouble
@@ -102,9 +101,8 @@ local function compile_fixture(root: string, given?: GrammarMode.Mode): importer
     work.close(handle)
     return nil, stage_trouble
   end
-  local grammar = given or assert(GrammarMode.mode())
   local result, compile_trouble = importer.compile(handle,
-    GrammarMode.tool("doctest-test", grammar),
+    GrammarMode.tool("doctest-test"),
     false,
     nil,
     false)
@@ -163,7 +161,7 @@ end
 local function test_an_output_matching_example_builds_with_the_new_checker_and_passes()
   local root, write_trouble = write_fixture("match-new", matching_doc)
   assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
-  local result, trouble = compile_fixture(root, "new")
+  local result, trouble = compile_fixture(root)
   assert(result ~= nil, "compile failed: " .. tostring(trouble))
   local m = find_module(result, "doc.guides.fixture")
   assert(m ~= nil and #m.tests == 1, "doc.guides.fixture was not compiled with its test")

@@ -73,7 +73,7 @@ function docs_fixture.database(dir: string, files: {string: string}): Sqlite.Han
   -- so a lookup takes the projection for its own code's
   -- ([`writer.other_code`]).
   assert(writer.write_result(handle, path, {
-    modules = {}, tool = rebuild.compiled_by("new"), refused = {}, left_out = {}, compiled = 0, cached = 0, shared = 0, fact_wraps = 0, parameter_checks = 0,
+    modules = {}, tool = rebuild.compiled_by(), refused = {}, left_out = {}, compiled = 0, cached = 0, shared = 0, fact_wraps = 0, parameter_checks = 0,
     parses = { parsed = 0, shared = 0 },
   }, nil, link_index.none))
   assert(db:close())

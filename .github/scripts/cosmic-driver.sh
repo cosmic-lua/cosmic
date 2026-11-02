@@ -10,7 +10,7 @@
 # checks a restored cache against the pin first. The driver is put
 # on the job's PATH as cosmic-driver, through a two-line wrapper that runs the
 # entry point bin/cosmic-bootstrap prints: it holds a `--standalone` run to
-# ci/bootstrap-files.txt and sets COSMIC_GRAMMAR=new for the release. `zig-cache` also points the job's later steps at the
+# ci/bootstrap-files.txt. `zig-cache` also points the job's later steps at the
 # caches the platform job restores.
 set -eu
 

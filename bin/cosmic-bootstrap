@@ -9,9 +9,8 @@
 # `exec` of this script -- against its own embedded standard library,
 # so neither the tree's state nor its build directory matters to it.
 #
-# What this runs is written in the new checker's grammar, and the release
-# reads that grammar when COSMIC_GRAMMAR=new, which this script sets for
-# whatever it runs (a stand-in too). `--standalone` on a file of this
+# What this runs is written in the new checker's grammar, which the release
+# reads by default. `--standalone` on a file of this
 # checkout is refused unless ci/bootstrap-files.txt lists it (below); ci.yml's
 # checked job type-checks the listed files on the pinned driver
 # (`cosmic-driver cosmic_ci/driver.tl check-islands`), and `cosmic-driver
@@ -183,7 +182,7 @@ if [ -n "${COSMIC_BOOTSTRAP_ENTRY:-}" ]; then
   if [ ! -f "$release" ] || [ ! -x "$release" ]; then
     die "the entry point's release $release is not an executable file"
   fi
-  exec env COSMIC_GRAMMAR=new "$release" "$@"
+  exec "$release" "$@"
 fi
 
 if [ -n "${COSMIC_BOOTSTRAP:-}" ]; then
@@ -211,7 +210,7 @@ if [ -n "${COSMIC_BOOTSTRAP:-}" ]; then
     printf '%s\n' "$COSMIC_BOOTSTRAP"
     exit 0
   fi
-  exec env COSMIC_GRAMMAR=new "$COSMIC_BOOTSTRAP" "$@"
+  exec "$COSMIC_BOOTSTRAP" "$@"
 fi
 
 [ -f "$pin" ] || die "no pin at $pin"
@@ -328,4 +327,4 @@ if [ "$#" -eq 1 ] && [ "$1" = --raw-path ]; then
   printf '%s\n' "$cached"
   exit 0
 fi
-exec env COSMIC_GRAMMAR=new "$cached" "$@"
+exec "$cached" "$@"

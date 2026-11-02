@@ -1,5 +1,5 @@
 --- `cosmic test --check-types` end to end for the declared parameters of a function: a project's source is read, checked
---- and written by the new checker (`COSMIC_GRAMMAR=new`), each function with typed parameters begins with a check of them
+--- and written by the new checker, each function with typed parameters begins with a check of them
 --- ([`lang.boundary_checks`]), and the tool's worker runs the tests with the hook that records a value of another kind
 --- ([`build.test_worker`]'s `install_checks`). A violation is reported at the line of the caller in the summary and in the working
 --- database's `type_violations`, as kind "parameter", and fails nothing, since the project declares it outside cosmic/ (a parameter declared there
