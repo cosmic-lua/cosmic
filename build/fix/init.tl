@@ -363,6 +363,37 @@ local function workflow_sources(dir: string, root: string): {string}?, string
   return out, ""
 end
 
+--- The tree of its own inside cosmic's ([`identity.is_foreign_tree`], `ci/`) that the absolute path `real` is, or is below, from
+--- `root`'s: nil for any other path.
+local function foreign_tree_in(root: string, real: string): string?
+  local top, _ = Fs.absolute(root)
+  if top == nil then return nil end
+  local relative, _ = Fs.relative(real, top)
+  if relative == nil then return nil end
+  local first = relative:match("^([^/]+)") or relative
+  if first ~= ".." and identity.is_foreign_tree(first) then return first end
+  return nil
+end
+
+--- Why the tree's run refuses a path in the tree of its own `foreign`.
+local function foreign_refusal(foreign: string): string
+  return "in " .. foreign .. "/, a project of its own whose modules are named from its own root, which the tree's run " ..
+    "does not check: run `cosmic fix --check` with " .. foreign .. "/ as the working directory"
+end
+
+--- The refusal of each of `paths` that is in a tree of its own inside cosmic's own tree at `root` ([`identity.is_foreign_tree`]),
+--- which the tree's run does not check.
+function fix.foreign_paths(root: string, paths: {string}): {string}
+  local out: mut {string} = {}
+  for _, path in ipairs(paths) do
+    local absolute, _ = Fs.absolute(path)
+    local foreign: string? = nil
+    if absolute ~= nil then foreign = foreign_tree_in(root, absolute) end
+    if foreign ~= nil then out[#out + 1] = path .. ": " .. foreign_refusal(foreign) end
+  end
+  return out
+end
+
 --- The files one invocation covers: whatever paths were named, or the
 --- whole tree when none were.
 ---
@@ -434,6 +465,8 @@ function fix.chosen(root: string, paths: {string}, standing: tree.Standing): fix
     elseif static_root ~= nil and real ~= nil and
         (real == static_root or real:sub(1, #static_root + 1) == static_root .. "/") then
       refused[#refused + 1] = path .. ": under static/, which is carried verbatim, not laid out"
+    elseif own and real ~= nil and foreign_tree_in(root, real) ~= nil then
+      refused[#refused + 1] = path .. ": " .. foreign_refusal(assert(foreign_tree_in(root, real)))
     elseif what.kind == "dir" then
       local under, trouble = sources(path)
       if under == nil then
@@ -1035,6 +1068,14 @@ local function choose_files(ctx: Fix): integer?
       log:complain("fix: --changed covers only cosmic's own tree, whose checks span files")
       return 2
     end
+    -- A path in a tree of its own is not the tree's to check, as a named path is refused in [`fix.chosen`].
+    if standing.own then
+      local refusals = fix.foreign_paths(root, paths)
+      if #refusals > 0 then
+        for _, why in ipairs(refusals) do log:complain(why) end
+        return 1
+      end
+    end
     picked = fix.narrowed(root, picked, paths, Store.databases())
     local widened = picked.widened
     if widened ~= nil then
@@ -1046,6 +1087,10 @@ local function choose_files(ctx: Fix): integer?
     end
   end
   ctx.picked = picked
+  if picked.whole then
+    log:say("fix: ci/ is a project of its own and is not checked here: run `cosmic fix --check` with ci/ as the working " ..
+        "directory (CI's format phase does)")
+  end
   -- What the checks spanning files cover: a run of `--changed` lays out
   -- only some of it.
   local every = picked.every

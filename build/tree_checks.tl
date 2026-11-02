@@ -44,6 +44,7 @@ local GrammarMode = require("build.grammar_mode")
 local Pipeline = require("build.pipeline")
 local link_text = require("build.link_text")
 local host_names = require("build.host_names")
+local identity = require("build.identity")
 local importer = require("build.importer")
 local Ast = require("lang.ast")
 local Check = require("lang.check")
@@ -1985,13 +1986,14 @@ function tree_checks.ci_testdata(root: string): {string}
 end
 
 --- Every `.tl` file under `root` as `{file, source}` pairs, read from disk: the modules and tests, the declaration files
---- of a tree and `ci/`'s. The projection is not read, as it holds no declaration file. `vendor/`, the hidden directories,
---- `o/` (never read) and `ci/o` hold none the tree owns. The declarations of the globals ([`lang/prelude.d.tl`],
+--- of a tree. The projection is not read, as it holds no declaration file. `vendor/`, the hidden directories,
+--- `o/` (never read) and `ci/` hold none the tree owns: `ci/` is a project of its own, whose modules are named from its own
+--- root and checked there (`cosmic fix --check` run in `ci/`, which build/ci_check_test.tl runs). The declarations of the globals ([`lang/prelude.d.tl`],
 --- [`lang/stdlib.d.tl`]) are left out: they are the globals of every build ([`build.tree_program`]), no module of it.
 local function sources_of(root: string): {{string}}?, string
   local listed, trouble = Fs.walk(root, function(relative: string, name: string, kind: Fs.Kind): boolean
     return kind == "dir" and (name:sub(1, 1) == "." or relative == "vendor" or relative == "o" or
-      relative == "ci/o")
+      identity.is_foreign_tree(relative))
   end)
   if listed == nil then
     return nil, trouble
@@ -2233,8 +2235,7 @@ end
 --- other projects.
 local record Tree
   rows: {DeclareFile}
-  --- Each file by its module, and by the name of its path below each directory: a project inside the tree (`ci/`, a
-  --- fixture directory) names its modules from its own root.
+  --- Each file by its module, the name of its whole path ([`Driver.index`]): `ci/`, a project of its own, is no part of the tree.
   by_module: {string: DeclareFile}
   --- The same files as the sources a build is given ([`build.driver`]).
   index: Driver.Index
@@ -2762,8 +2763,8 @@ function tree_checks.untyped(root: string, pinned?: {string: integer}, memo?: Sq
     if pin ~= nil then found[file] = pin end
   end
   for _, row in ipairs(tree.rows) do
-    if row.dialect ~= "tl" or not SyntaxContracts.applies(row.file) or row.file:find("^ci/") ~= nil then
-      -- Not held to the discipline, or no module of the build (`ci/` is a tree of its own): nothing is counted of it.
+    if row.dialect ~= "tl" or not SyntaxContracts.applies(row.file) then
+      -- Not held to the discipline: nothing is counted of it.
       stands(row.file)
     else
       local count: integer? = nil
