@@ -715,9 +715,8 @@ that runtime identity. a row compiled by another compiler is never mistaken
 for this one's. a sandboxed test's key holds what the
 compiler made rather than its identity -- the bytecode and rows of
 the store of the test's import closure, and the harness's epoch,
-which a guard test holds to a digest per harness module of its source
-and bytecode, so a compiler that compiles the harness otherwise asks for a
-bump or an acknowledgment and runs every test in the merge queue --
+beside a digest of the harness's modules by their stripped bytecode, so
+a compiler that compiles the harness otherwise runs every test --
 so an edit to the importer that compiles every module as before runs
 again only the tests whose closure holds or reads the compiler
 ([`build/declared_key.tl`]).

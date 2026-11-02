@@ -10,11 +10,10 @@
 --- workers, keeps the history and the coverage and says the summary; it
 --- calls this for each of those and makes no key.
 ---
---- This module is the one build/harness_epoch.tl holds of the runner, alone
---- (`key_own`): no key holds its code, which the epoch stands for, so an
---- edit to it fails build/harness_epoch_test.tl until the edit is
---- acknowledged or the epoch bumped, and an edit to the runner moves
---- nothing. What is the runner's and what is this module's is decided by
+--- This module is the one the harness holds of the runner, alone
+--- (`key_own`): every key holds its code, by the harness's digest, so an
+--- edit to it that changes its bytecode runs every test again, and an
+--- edit to the runner moves nothing. What is the runner's and what is this module's is decided by
 --- that rule: code that computes a key, looks a verdict up or keeps one,
 --- or decides what a worker is given is here; where a part could be
 --- either, it is here. The types they share are [`build.test_state`]'s.
@@ -64,6 +63,7 @@ local test_sandbox_probe = require("build.test_sandbox_probe")
 local declared_key = require("build.declared_key")
 local artifact = require("build.artifact")
 local hashing = require("build.digest")
+local lua_tail = require("build.lua_tail")
 local harness_epoch = require("build.harness_epoch")
 local host_names = require("build.host_names")
 local host_requires = require("build.host_requires")
@@ -77,13 +77,15 @@ local record test_key
   --- What of the running binary a run holds of the code a worker runs,
   --- or that writes what it is given ([`binary_harness`]).
   record Harness
-    --- A digest of each module of the test harness by its name, source
-    --- and bytecode ([`test_key.harness`]): what a worker runs, and the code
-    --- that makes and reads its key. build/harness_epoch.tl's
-    --- `acknowledged` records them, one to a line between blank ones, so
-    --- two changes to different modules of the harness merge cleanly. No
-    --- key holds them; each holds the epoch in their place.
+    --- A digest of each module of the test harness by its name and its
+    --- bytecode with the debug information stripped ([`test_key.harness`]):
+    --- what a worker runs, and the code that makes and reads its key.
     modules: {string:string}
+    --- One digest of all of `modules`, which every key holds beside the
+    --- epoch ([`test_key.begin`]): an edit to the harness that changes a
+    --- module's stripped bytecode moves every key, and one that changes
+    --- none (a comment, a blank line, a line number) moves none.
+    digest: string
     --- The modules `modules` holds, and those of them the harness runs
     --- -- what every worker loads and `harness_own` -- whose requires
     --- build/harness_epoch_test.tl holds to `names`.
@@ -326,11 +328,10 @@ end
 --- names of the tree's modules, which decide what a worker refuses a
 --- `require` of).
 ---
---- None of it is keyed by its code: the epoch stands for it
---- (build/harness_epoch.tl), and an edit to it fails
---- build/harness_epoch_test.tl until the epoch is bumped or the edit
---- acknowledged. That test also fails where a module here or in
---- [`worker.loads`] requires one of the tree the harness does not name.
+--- Every key holds it by its digest ([`Harness`]'s `digest`), beside the
+--- epoch (build/harness_epoch.tl). build/harness_epoch_test.tl fails
+--- where a module here or in [`worker.loads`] requires one of the tree
+--- the harness does not name.
 -- TODO: key the sandbox's plan as data -- its unveils and binds, with
 -- the tree, the scratch directory and the host caches named relative to
 -- what they stand for, and its environment -- rather than leaving it to
@@ -379,12 +380,10 @@ local harness_alone <const>: {string} = { "cosmic.child", "cosmic.sandbox",
 --- of this code that maps some inputs to the key another version
 --- computes for other inputs (a digest that misses a rewrite, say)
 --- keeps a verdict under that key, in build.db and in the verdicts
---- every checkout shares, which would stand after a fix. So a fix to it
---- bumps the epoch (build/harness_epoch.tl), which every key holds.
---- Every version of it is in the harness's digests, which
---- build/harness_epoch_test.tl holds to what was acknowledged: an edit
---- to any of it, a comment's too, fails that test until someone says
---- whether it can move a verdict.
+--- every checkout shares, which would stand after a fix. So every key
+--- holds the harness's digest ([`Harness`]'s `digest`), and a fix to any
+--- of it moves them all. The epoch (build/harness_epoch.tl) stays for
+--- what no module's code says.
 -- TODO: walk build.test_key as `key_roots` are, so what it requires is
 -- held and bound by build/harness_epoch.tl's `library` rule, once it takes
 -- what it needs of build.importer, build.closure_store, build.schema,
@@ -392,11 +391,11 @@ local harness_alone <const>: {string} = { "cosmic.child", "cosmic.sandbox",
 -- from raw bindings: held alone, as build.test was whole, what it requires
 -- beyond [`key_code`] is outside the rule.
 local key_roots <const>: {string} = { "build.declared_key", "build.shared_verdicts",
-  "build.host_requires" }
+  "build.host_requires", "build.lua_tail" }
 local key_own <const>: {string} = { "build.test_key" }
 
---- The module that holds the epoch and the acknowledged digests, which
---- the digests leave out: it would hold itself.
+--- The module that holds the epoch, which every key holds beside the
+--- digests, and which they leave out.
 local epoch_module <const> = "build.harness_epoch"
 
 --- The code that writes a closure store: build.closure_store's and the
@@ -523,22 +522,41 @@ local function store_code(imports: {string:{string}}): {string}
   return closure_of(store_writer, {}, imports)
 end
 
+--- The hash of the bytecode of the module `name` in `db`, stripped of
+--- its debug information ([`lua_tail.stripped`]), so what is hashed is
+--- what the core runs. Nil and why where `db` has no such module or its
+--- chunk does not load.
+local function stripped_digest(db: Sqlite.Handle, name: string): string?, string
+  local rows, trouble = Sqlite.rows(db, "SELECT inflate(bytecode) FROM modules WHERE path = ?1",
+    { { text = name } })
+  if rows == nil then return nil, trouble end
+  local row = rows[1]
+  if row == nil then return nil, name .. " is no module `db` carries" end
+  local stripped, why = lua_tail.stripped(row:blob(1), name)
+  if stripped == nil then return nil, why end
+  return hex_sha256(stripped), ""
+end
+
 --- The digests of the test harness's modules and that of the code that
 --- writes a closure store ([`Harness`]), over the modules `db` holds, by
 --- their `modules` and `imports` rows. `db` is the running binary's
 --- database ([`binary_harness`], which fills in `carried`), or the
 --- projection, o/cosmic.db, which build/harness_epoch_test.tl reads.
 ---
---- Each module of the harness is held by its name, its source's hash and
---- its bytecode's, a digest to each (`modules`). That covers what a
---- worker loads, `harness_own`, `harness_alone` and [`key_code`], but not
---- build.harness_epoch, which records the digests. Each digest is the
---- same wherever the tree is, and a compiler that makes other bytecode
---- of the same source moves it as an edit does. The salt holds each
---- module of the store's writer the same way ([`store_code`]), as the
---- store's bytes follow from both. Nil and why where a module either
---- names is none `db` carries, which the digests or the salt would
---- otherwise leave out unnoticed.
+--- Each module of the harness is held by its name and the hash of its
+--- bytecode stripped of debug information -- line numbers, local and
+--- upvalue names -- a digest to each (`modules`), and all of them by
+--- one (`digest`). That covers what a worker loads, `harness_own`,
+--- `harness_alone` and [`key_code`], but not build.harness_epoch, which
+--- every key holds beside it. A comment, a blank line or a moved line
+--- changes none of it; a constant, an instruction or a function's shape
+--- does. Each digest is the same wherever the tree is, and a compiler
+--- that makes other bytecode of the same source moves it as an edit
+--- does. The salt holds each module of the store's writer by its
+--- source and its whole bytecode ([`store_code`]), as the store's bytes
+--- follow from both. Nil and why where a module either names is none
+--- `db` carries, or whose bytecode does not load, which the digests or
+--- the salt would otherwise leave out unnoticed.
 function test_key.harness(db: Sqlite.Handle): Harness?, string
   local modules, trouble = Sqlite.text_rows(db,
     "SELECT path, source_hash, lower(hex(sha256(inflate(bytecode)))) FROM modules " ..
@@ -577,15 +595,21 @@ function test_key.harness(db: Sqlite.Handle): Harness?, string
       if name ~= epoch_module then names[#names + 1] = name end
     end
   end
+  local stripped: mut {string:string} = {}
+  for _, name in ipairs(names) do
+    local digest, why = stripped_digest(db, name)
+    if digest == nil then return nil, why end
+    stripped[name] = digest
+  end
   local each: mut {string:string} = {}
-  for _, name in ipairs(names) do each[name] = declared_key.harness({ name }, compiled) end
+  for _, name in ipairs(names) do each[name] = declared_key.harness({ name }, stripped) end
   local salted = store_code(imports)
   for _, name in ipairs(salted) do
     if compiled[name] == nil then
       return nil, name .. ", which writes a closure store, is no module the binary carries"
     end
   end
-  return { modules = each, names = names, runs = runs,
+  return { modules = each, digest = declared_key.harness(names, stripped), names = names, runs = runs,
     store_salt = declared_key.harness(salted, compiled), carried = carried }, ""
 end
 
@@ -640,6 +664,14 @@ local function timeout_ns_of(rec: Recording, m: Module): integer
   local own = if inputs ~= nil then inputs.timeout else nil end
   if own ~= nil and Clock.seconds(own) > rec.timeout_ns then return Clock.seconds(own) end
   return rec.timeout_ns
+end
+
+--- What every key holds of the harness's code and epoch, as one part: the
+--- epoch ([`test_key.epoch_of`]) and the first 16 hex digits of the
+--- harness's `digest` ([`Harness`]). It moves with either, and not with
+--- an edit to the harness that leaves its stripped bytecode as it was.
+function test_key.harness_part(epoch: string, digest: string): string
+  return epoch .. "+" .. digest:sub(1, 16)
 end
 
 --- The word the census and key-parts lines say a key's harness parts
@@ -2027,13 +2059,21 @@ end
 function test_key.begin(rec: Recording, from: Begin)
   rec.runtime = from.runtime
   rec.sandbox = from.sandbox
-  rec.epoch = from.epoch
+  local digest = from.harness.digest
+  -- A run in a tree of a project stands in for an edit to the harness, as COSMIC_TEST_STORE_SALT does for the
+  -- store's writer (build/sandboxed_verdicts_test.tl).
+  local harness_salt = Env.read("COSMIC_TEST_HARNESS_SALT")
+  if not from.own_tree and harness_salt ~= nil and harness_salt ~= "" then
+    digest = hex_sha256(digest .. "\0" .. harness_salt)
+  end
+  rec.epoch = test_key.harness_part(from.epoch, digest)
   rec.timeout_ns = from.timeout_ns
   rec.store_salt = from.harness.store_salt
   rec.carried = from.harness.carried
   if rec.checks then
-    -- The hooks and the judge of a checked run are the code of build.test_worker: an edit to it moves every
-    -- checked key and no other, where the epoch moves every key (doc/testing.md, "changing the harness").
+    -- The hooks and the judge of a checked run are the code of build.test_worker, which the harness's digest
+    -- holds already; its own digest stands in the checked part too, which a project's run varies
+    -- (COSMIC_TEST_HOOKS_SALT) without a binary of its own.
     local hooks = assert(from.harness.modules["build.test_worker"], "the harness names no digest of build.test_worker")
     -- A run in a tree of a project stands in for an edit to the hooks, as COSMIC_TEST_COMPILER_SALT does for a
     -- compiler (build/sandboxed_verdicts_test.tl).

@@ -72,8 +72,9 @@ conflict with the parent's squash.
   unprivileged user (`COSMIC_CI_LOCAL_USER`), as CI's runners are. the
   launcher fixture's core is a stand-in that checks nothing: a case about
   the real core belongs in `runtime_test.tl`.
-- a change to a harness module can alter what a pass or fail means:
-  see "changing the harness" in [`doc/testing.md`].
+- a change to a harness module needs nothing recorded: every key holds
+  the harness's code. see "changing the harness" in [`doc/testing.md`]
+  for the `epoch` bump a change outside its code may need.
 - a documentation-only edit needs no test run, but still
   `bin/cosmic fix` on the doc. comments follow [`doc/writing.md`].
 

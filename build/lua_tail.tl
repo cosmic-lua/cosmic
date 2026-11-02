@@ -14,11 +14,23 @@ local record LuaTail
   --- shares; nil and why where Lua refuses the chunk, said at the line of `file` it is on, or the host dumps another shape.
   bytecode_of: function(code: string, name: string, file: string): string?, string
 
+  --- `bytecode`, a chunk of the module `name` as [`bytecode_of`] made it, written again without its debug
+  --- information -- line numbers, local and upvalue names -- so that what is left is what the core runs: the same for
+  --- two versions of a module that differ in a comment, a blank line or where a function sits. Nil and why where
+  --- `bytecode` is not a chunk Lua loads.
+  stripped: function(bytecode: string, name: string): string?, string
+
   --- Whether `code` compiles with `spare` locals declared in front of it, and where it does not, Lua's words: "too many local
   --- variables" where the locals are past 200 (a function may hold that many), and another message for anything else, such
   --- as a chunk that needs too many registers, which the locals in front can cause and are no count of locals. The chunk is
   --- compiled and dropped, never run ([`build.main_locals`] searches for the greatest `spare` that fits).
   fits_with: function(code: string, spare: integer): boolean, string
+end
+
+--- `string.dump` of `chunk`, which `load` makes: the one place the vararg return of that type meets the single one
+--- `string.dump` declares.
+local function dump(chunk: function(...: any): any..., strip: boolean): string
+  return string.dump(chunk, strip)
 end
 
 --- The bytecode header every target must agree on. One column of
@@ -72,12 +84,22 @@ function LuaTail.bytecode_of(code: string, name: string, file: string): string?,
     -- the checker refuse the rest, as it does an assignment.
     return nil, at_source_line(tostring(load_trouble), file)
   end
-  local bytecode = string.dump(chunk, false)
+  local bytecode = dump(chunk, false)
   if not String.starts_with(bytecode, bytecode_header) then
     return nil, file .. ": this host dumps bytecode the three " ..
       "targets do not share"
   end
   return bytecode, ""
+end
+
+function LuaTail.stripped(bytecode: string, name: string): string?, string
+  if not String.starts_with(bytecode, "\27Lua") then
+    return nil, name .. ": not a binary chunk"
+  end
+  -- An environment of its own, which `load` asks of a binary chunk; the chunk is never run.
+  local chunk, trouble = load(bytecode, "=" .. name, "b", {})
+  if chunk == nil then return nil, name .. ": " .. tostring(trouble) end
+  return dump(chunk, true), ""
 end
 
 function LuaTail.fits_with(code: string, spare: integer): boolean, string

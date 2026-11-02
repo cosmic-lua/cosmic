@@ -99,8 +99,8 @@ local function test_the_list_names_what_the_caches_and_the_driver_check_hash(tmp
 end
 
 --- The list's exact entries (those with no `*`) name files that exist,
---- so a rename cannot leave one that moves nothing; and its one harness
---- entry is the epoch file orchestration.tl's `harness_moved` compares.
+--- so a rename cannot leave one that moves nothing; and it names the
+--- harness's epoch file.
 local function test_the_lists_files_exist()
   local seen = 0
   local epoch = false
@@ -115,9 +115,6 @@ local function test_the_lists_files_exist()
   end
   assert(seen >= 15, "too few files read: " .. tostring(seen))
   assert(epoch, "the list does not name the harness's epoch file")
-  local orchestration = assert(Fs.read("ci/cosmic_ci/orchestration.tl"))
-  assert(orchestration:find('local epoch_file <const> = "build/harness_epoch.tl"', 1, true),
-    "orchestration.tl compares another file for the harness than the list names")
 end
 
 --- The escapes that began this: PR #3176 (a new test requirement name the
@@ -208,8 +205,7 @@ local BASE <const> = string.rep("a1", 20)
 --- `scope` and `base` for the branch's change: `full` and the main
 --- commit it grew from where the list names a file of it, else `light`
 --- and no base; and `full` on the safe side wherever the script cannot
---- tell, a base it cannot name being `unknown`, which `harness_moved`
---- takes as moved.
+--- tell, a base it cannot name being `unknown`.
 local function test_the_scope_job_answers_full_wherever_it_cannot_tell(tmp: string)
   --- The answer for a base, the files' count and the files.
   local function compare(base: string, files: {string}): string
