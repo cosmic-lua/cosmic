@@ -18,8 +18,8 @@ Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx
 
 local function environment(): mut {string:string}
   local env = this_program.environment()
-  env.COSMIC_PORTABLE_STARTUP_TEST_READY = nil -- checked: map_field
-  env.COSMIC_PORTABLE_STARTUP_TEST_GO = nil -- checked: map_field
+  env["COSMIC_PORTABLE_STARTUP_TEST_READY"] = nil
+  env["COSMIC_PORTABLE_STARTUP_TEST_GO"] = nil
   return env
 end
 

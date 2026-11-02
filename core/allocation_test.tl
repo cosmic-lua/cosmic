@@ -116,20 +116,20 @@ local function test_open_temporary_closes_its_descriptor_whenever_an_allocation_
   local before = AllocationFixture.next_descriptor(tmp)
   -- Taken on the line that makes the call, so no hook runs between the
   -- binding's return and the test holding what it returned.
-  local received = { value = nil as sys.TemporaryFile? } -- checked: cast_refused
-  local opened = { value = 0 }
+  local received: sys.TemporaryFile? = nil
+  local opened = 0
   local ended = AllocationFixture.under_every_failure(function()
-    received.value = sys.open_temporary(path, 420) -- checked: map_field
+    received = sys.open_temporary(path, 420)
   end, function()
-    local value = received.value -- checked: map_field
+    local value = received
     if value ~= nil then
       sys.close(value.fd)
-      received.value = nil -- checked: map_field
-      opened.value = opened.value + 1 -- checked: map_field*2
+      received = nil
+      opened = opened + 1
     end
   end)
   assert(ended > 0, "building the answer allocates")
-  assert(opened.value >= 1, "the run with nothing refused opens a file") -- checked: map_field
+  assert(opened >= 1, "the run with nothing refused opens a file")
   collectgarbage("collect")
   local after = AllocationFixture.next_descriptor(tmp)
   assert(after == before, "a refused allocation left descriptor " .. tostring(before) .. " open")
@@ -153,21 +153,21 @@ local function test_pipe_leaves_no_end_open_whenever_an_allocation_fails(tmp: st
   local before = AllocationFixture.next_descriptor(tmp)
   -- Taken on the line that makes the call, and released in `settle`, so
   -- a refused coverage hook cannot fall between the two.
-  local received = { value = nil as raw_process.Pipe? } -- checked: cast_refused
-  local made = { value = 0 }
+  local received: raw_process.Pipe? = nil
+  local made = 0
   local ended = AllocationFixture.under_every_failure(function()
-    received.value = process.pipe() -- checked: map_field
+    received = process.pipe()
   end, function()
-    local pipe = received.value -- checked: map_field
+    local pipe = received
     if pipe ~= nil then
       sys.close(pipe.reader)
       sys.close(pipe.writer)
-      received.value = nil -- checked: map_field
-      made.value = made.value + 1 -- checked: map_field*2
+      received = nil
+      made = made + 1
     end
   end)
   assert(ended > 0, "building the answer allocates")
-  assert(made.value >= 1, "the run with nothing refused makes a pipe") -- checked: map_field
+  assert(made >= 1, "the run with nothing refused makes a pipe")
   local after = AllocationFixture.next_descriptor(tmp)
   assert(after == before, "a refused allocation left descriptor " .. tostring(before) .. " open")
 end
@@ -425,17 +425,16 @@ end
 --- deflater, whenever an allocation fails: a refusal raises or answers
 --- nil and a message, and leaves no block behind.
 local function test_compress_leaves_nothing_whenever_an_allocation_fails()
-  local packed: mut {string: string} = {}
-  for _, format in ipairs({ "raw", "zlib", "gzip" } as {Compress.Format}) do -- checked: cast_refused
+  local function packed(format: Compress.Format): string
     local encoder = assert(Compress.deflater(format))
-    packed[format] = assert(encoder:update(hello)) .. assert(encoder:finish())
+    return assert(encoder:update(hello)) .. assert(encoder:finish())
   end
   local decodings: {Decoding} = {
-    { name = "raw", input = packed.raw, -- checked: map_field
+    { name = "raw", input = packed("raw"),
       make = function(): Compress.Stream?, string return Compress.inflater("raw") end },
-    { name = "zlib", input = packed.zlib, -- checked: map_field
+    { name = "zlib", input = packed("zlib"),
       make = function(): Compress.Stream?, string return Compress.inflater("zlib") end },
-    { name = "gzip", input = packed.gzip .. "trailing", -- checked: map_field
+    { name = "gzip", input = packed("gzip") .. "trailing",
       make = function(): Compress.Stream?, string return Compress.inflater("gzip") end },
     { name = "xz", input = hello_xz .. "trailing",
       make = function(): Compress.Stream?, string return Compress.xz_decoder() end },
@@ -1176,15 +1175,15 @@ end
 --- successful acquisition too, and both must leave no descriptor behind.
 local function test_openpty_closes_both_descriptors_whenever_an_allocation_fails(tmp: string)
   local before = AllocationFixture.next_descriptor(tmp)
-  local received = { value = nil as sys.Pty? } -- checked: cast_refused
+  local received: sys.Pty? = nil
   local ended = AllocationFixture.under_every_failure(function()
-    received.value = sys.openpty() -- checked: map_field
+    received = sys.openpty()
   end, function()
-    local pty = received.value -- checked: map_field
+    local pty = received
     if pty ~= nil then
       sys.close(pty.master)
       sys.close(pty.slave)
-      received.value = nil -- checked: map_field
+      received = nil
     end
   end)
   assert(ended > 0, "building a pty answer allocates")
