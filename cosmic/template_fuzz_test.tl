@@ -250,9 +250,7 @@ local function test_compile_is_total_and_keeps_the_lines_on_any_bytes(tmp: strin
         end
         return true, ""
       end
-      if not out is string then
-        return false, "compile answered a " .. type(out)
-      end
+      if not out is string then return false, "compile answered a " .. type(out) end
       Fuzz.label("compiled")
       if newlines(out) ~= newlines(input) + 1 then
         return false, "the module has " .. tostring(newlines(out)) .. " newlines for the template's " .. tostring(newlines(input))
@@ -713,9 +711,9 @@ local NAMED <const>: {string: string} = {
 --- parser drops removed, as a browser reads an attribute.
 local function decoded(value: string): string
   local text = value:gsub("&#[xX](%x+);", function(n: string): string
-    return string.char(assert(math.tointeger(tonumber(n, 16))) % 256)
+    return string.char(assert(math.tointeger(assert(tonumber(n, 16)) % 256)))
   end):gsub("&#(%d+);", function(n: string): string
-    return string.char(assert(math.tointeger(n)) % 256)
+    return string.char(assert(math.tointeger(assert(tonumber(n)) % 256)))
   end):gsub("&(%a+);", function(name: string): string
     return NAMED[name] or "&" .. name .. ";"
   end)
@@ -883,7 +881,7 @@ local function test_a_value_cannot_get_out_of_where_a_slot_puts_it(tmp: string)
         for value, after in out:gmatch("\3&#5;([^\4]*)\4([^\"']*)") do
           Fuzz.label("assembled url")
           local url = (value .. after):gsub("&#(%d+);", function(n: string): string
-            return string.char(assert(math.tointeger(n)) % 256)
+            return string.char(assert(math.tointeger(assert(tonumber(n)) % 256)))
           end):gsub("[\t\n\r]", "")
           if url:find("^[/\\][/\\]") then
             return false, "an assembled URL is protocol-relative: " .. url

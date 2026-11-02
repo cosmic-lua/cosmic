@@ -1,8 +1,9 @@
 local dialect = require("cosmic.template.dialect")
 local markup = require("cosmic.template.markup")
 
--- TODO: once a test can read the fields of a record by name without a cast, or build a record from a map the checker
--- has validated, the casts between [`markup.Place`] and `{string: any}` here go.
+-- TODO: once cosmic.template.markup offers `markup.fields(place)`, answering a place's fields as a `{string: string | boolean | integer}`,
+-- and `markup.with(place, name, value)`, answering a copy of the place with one field changed, this test reads and
+-- changes fields through them and the casts between [`markup.Place`] and `{string: any}` go.
 
 -- A walk not taken again from a place whose key it has seen stands on the
 -- outcome from that place, so a field the key left out could join two
