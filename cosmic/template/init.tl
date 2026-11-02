@@ -184,7 +184,7 @@ end
 --- @return string|nil The module source, with line N the template's line N
 --- @return string The reason, as `name:line:col: ...`, when the template is refused
 function Template.compile(src: string, name: string, options?: Template.Options): string?, string
-  local registry = options ~= nil and options.dialects or dialect.registry
+  local registry = if options ~= nil and options.dialects ~= nil then options.dialects else dialect.registry end
   local template, why = parse.parse(src, name, registry)
   if template == nil then
     return nil, why

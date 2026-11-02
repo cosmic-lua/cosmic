@@ -257,15 +257,15 @@ local function test_parse_reads_back_the_parts_a_url_was_built_from(tmp: string)
       local parts, why = Url.parse(url)
       if parts == nil then return false, ("refused %q: %s"):format(url, why) end
       local want_host = host:lower():match("^%[(.*)%]$") or host:lower()
-      local want_port = port:sub(2) ~= "" and math.tointeger(tonumber(port:sub(2))) or nil
+      local want_port = if port:sub(2) ~= "" then math.tointeger(tonumber(port:sub(2))) else nil end
       local checks: {{string}} = {
         { "scheme", parts.scheme, scheme:lower() },
-        { "userinfo", parts.userinfo or "-", userinfo ~= "" and userinfo:sub(2) or "-" },
+        { "userinfo", parts.userinfo or "-", if userinfo ~= "" then userinfo:sub(2) else "-" end },
         { "host", parts.host, want_host },
         { "port", tostring(parts.port), tostring(want_port) },
         { "path", parts.path, path },
-        { "query", parts.query or "-", query ~= "" and query:sub(2) or "-" },
-        { "fragment", parts.fragment or "-", fragment ~= "" and fragment:sub(2) or "-" },
+        { "query", parts.query or "-", if query ~= "" then query:sub(2) else "-" end },
+        { "fragment", parts.fragment or "-", if fragment ~= "" then fragment:sub(2) else "-" end },
       }
       for _, c in ipairs(checks) do
         if c[2] ~= c[3] then

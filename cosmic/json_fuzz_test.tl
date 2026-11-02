@@ -81,7 +81,7 @@ local function gen_value(src: Fuzz.Source, depth: integer, json5: boolean): stri
   if kind == 2 or kind == 3 then
     local chunks: mut {string} = {}
     while Fuzz.more(src, #chunks, 8) do
-      chunks[#chunks + 1] = src:int(0, 31) == 0 and Fuzz.pick(src, LONE) or leaf(src, CHUNKS, json5)
+      chunks[#chunks + 1] = if src:int(0, 31) == 0 then Fuzz.pick(src, LONE) else leaf(src, CHUNKS, json5) end
     end
     local text = table.concat(chunks)
     if json5 and src:int(0, 3) == 0 then return "'" .. text:gsub("'", "\\'") .. "'" end
@@ -118,7 +118,7 @@ local function gen_text(src: Fuzz.Source): string
   if shape == 0 then
     local parts: mut {string} = {}
     while Fuzz.more(src, #parts, 40) do
-      parts[#parts + 1] = src:int(0, 3) == 0 and Fuzz.bytes(src, 3) or Fuzz.pick(src, TOKENS)
+      parts[#parts + 1] = if src:int(0, 3) == 0 then Fuzz.bytes(src, 3) else Fuzz.pick(src, TOKENS) end
     end
     return table.concat(parts)
   end
@@ -321,7 +321,7 @@ local function same_reading(a: string, a_opts: Json.DecodeOptions, b: string,
   local va, ea = Json.decode(a, a_opts)
   local vb, eb = Json.decode(b, b_opts)
   if (ea == "") ~= (eb == "") then
-    return false, false, where .. ": one read and one did not: " .. (ea ~= "" and ea or eb)
+    return false, false, where .. ": one read and one did not: " .. (if ea ~= "" then ea else eb end)
   end
   if ea ~= "" then return true, false, "" end
   if canonical(va, where) ~= canonical(vb, where) then
@@ -346,7 +346,7 @@ local function test_hash_comments_read_as_line_comments(tmp: string)
       local text = hashed(input)
       for _, five in ipairs({ false, true }) do
         local where = if five then "JSON5" else "RFC 8259" end
-        local before = five and input or (input:gsub("// c\n", "\n"))
+        local before = if five then input else (input:gsub("// c\n", "\n")) end
         local ok, read, why = same_reading(before, { null_value = Json.null, json5 = five, duplicate_keys = true },
           text, { null_value = Json.null, json5 = five, hash_comments = true, duplicate_keys = true }, where)
         if not ok then return false, why end
@@ -702,7 +702,7 @@ local function repeating_holds(input: string): boolean, string
   for label in (if expected == "" then "no key twice" else labels end):gmatch("[^;]+") do
     Fuzz.label(label)
   end
-  local opts: Json.DecodeOptions = { json5 = as_json5, null_value = null_value and Json.null or nil }
+  local opts: Json.DecodeOptions = { json5 = as_json5, null_value = if null_value then Json.null else nil end }
   local where = ("json5=%s null_value=%s"):format(tostring(as_json5), tostring(null_value))
   local value, err = Json.decode(text, opts)
   if err ~= expected then

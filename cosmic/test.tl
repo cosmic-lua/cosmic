@@ -561,7 +561,7 @@ local function policy_of(given: any): Test.Policy?, string
   end
   local out: Test.Policy = {}
   for key, value in pairs(given) do
-    local takes = key is string and POLICY_FIELDS[key] or nil
+    local takes = if key is string then POLICY_FIELDS[key] else nil end
     if not (key is string) or takes == nil then
       return nil, "has no field " .. tostring(key) .. "; it has " ..
         table.concat(POLICY_FIELD_NAMES, ", ")
@@ -650,7 +650,7 @@ function Test.needs_of(given: any): Test.Needs?, string
   local policy, why = policy_of(given)
   if policy == nil then return nil, why end
   local out: Test.Needs = {}
-  local reads: {string} = {}
+  local reads: mut {string} = {}
   local host: mut {string} = {}
   local caches: mut {string} = {}
   local parents: mut {string} = {}
@@ -696,7 +696,7 @@ function Test.needs_of(given: any): Test.Needs?, string
         return nil, at .. ".letters \"" .. letters .. "\" " .. NOT_YET ..
           "; a test reads, with \"r\", what it declares"
       end
-      local list = path:sub(1, 1) == "/" and host or reads
+      local list = if path:sub(1, 1) == "/" then host else reads end
       list[#list + 1] = path
     end
   end

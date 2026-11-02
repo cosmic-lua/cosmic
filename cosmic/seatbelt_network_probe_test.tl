@@ -250,7 +250,7 @@ local function test_a_port_rule_reaches_its_port_and_no_other(tmp: string)
     if v6 ~= nil then v6_port = port_of(v6.address) end
   end
   table.insert(report, "listeners: 127.0.0.1:" .. tostring(allowed_port) .. " (allowed), 127.0.0.1:" .. tostring(other_port) ..
-      " (other), [::1]:" .. (v6 ~= nil and tostring(v6_port) or ("none: " .. tostring(v6_why))))
+      " (other), [::1]:" .. (if v6 ~= nil then tostring(v6_port) else ("none: " .. tostring(v6_why)) end))
   local firsts: {string:string} = {}
   for index, form in ipairs(forms(allowed_port)) do
     if form.scoped then
@@ -270,7 +270,7 @@ local function test_a_port_rule_reaches_its_port_and_no_other(tmp: string)
         if any(a_nc, a_bash, "CONNECTED") then
           -- A rule that reaches its own port is tried on ::1 as well.
           if v6 ~= nil then
-            local rule_port = v6_port == allowed_port and form.lines or forms(v6_port)[index].lines
+            local rule_port = if v6_port == allowed_port then form.lines else forms(v6_port)[index].lines end
             local v6_text = profile(BASE, rule_port)
             local v_nc, v_bash = tcp_reach(tmp, v6_text, form.parameters, "::1", v6_port)
             table.insert(report, "  [::1]:" .. tostring(v6_port) .. ": nc=" .. v_nc .. " bash=" .. v_bash)

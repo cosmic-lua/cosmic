@@ -31,7 +31,7 @@ local function draw_text(src: Fuzz.Source): string
     head = head .. "\r\n" .. Fuzz.pick(src, CHARSETS) .. "\r\n"
     local body: mut {string} = {}
     while Fuzz.more(src, #body, 5) do
-      body[#body + 1] = src:int(0, 3) == 0 and Fuzz.bytes(src, 40) or Fuzz.pick(src, PIECES)
+      body[#body + 1] = if src:int(0, 3) == 0 then Fuzz.bytes(src, 40) else Fuzz.pick(src, PIECES) end
     end
     out[#out + 1] = head .. table.concat(body) .. "\r\n"
   end

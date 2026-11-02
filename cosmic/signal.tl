@@ -60,7 +60,7 @@ local function restore_guard(self: Guard): string, boolean, integer
   local owing = 0
   if last then owing, owed = owed % raw.SIGNAL_STAMP_UNIT, 0 end
   local fd = raw.child_signal_fd()
-  local stamp, trouble = raw.unguard_child_signals(active ~= nil and active.state.read or 0)
+  local stamp, trouble = raw.unguard_child_signals(if active ~= nil then active.state.read else 0 end)
   -- Every task waiting on the pipe looks again: one waiting on this
   -- guard finds it closed and returns, and one waiting on a guard
   -- still open finds its stamp unmoved and waits again.
@@ -116,7 +116,7 @@ local class Guard is Innermost.Held
       if self._signal ~= 0 and self.state.read > owed then owed = self.state.read end
       return true, ""
     end
-    local signal = self._signal ~= 0 and self._signal or owing
+    local signal = if self._signal ~= 0 then self._signal else owing end
     if signal ~= 0 then
       -- The caller's own dispositions are back: deliver it as it came.
       local _, _ = sys.kill(sys.getpid(), signal)

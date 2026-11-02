@@ -444,8 +444,8 @@ local function read_digits(cur: Cursor, most: integer, what: string, least?: int
     at = at + 1
   end
   if at - first < (least or most) then
-    fail(cur, ("%s: expected %s at byte %d"):format(what, least == nil and
-        String.counted(most, "digit") or "a number", first))
+    fail(cur, ("%s: expected %s at byte %d"):format(what,
+      if least == nil then String.counted(most, "digit") else "a number" end, first))
     return 0
   end
   cur.at = at
@@ -663,7 +663,7 @@ local function posix_kind(p: Posix, s: integer): Kind
       best, starts = changes[1], true
     end
   end
-  return starts and p.dst or p.std
+  return if starts then dst else p.std end
 end
 
 --- What `rules` say of `s` seconds since the epoch.
@@ -1349,7 +1349,7 @@ end
 --- a moment in range. Raises for a `zone` no function here made.
 function Time.civil(ns: integer, zone?: Time.Zone): Time.Civil
   local s, n = ns // NS, ns % NS
-  local kind = zone ~= nil and kind_at(rules_for(zone), s) or UTC_KIND
+  local kind = if zone ~= nil then kind_at(rules_for(zone), s) else UTC_KIND end
   local c = civil_at(s + kind.offset, n)
   c.offset, c.abbreviation, c.dst = kind.offset, kind.abbreviation, kind.dst
   return c
@@ -1410,7 +1410,7 @@ local function resolve(c: Time.CivilFields, zone: Time.Zone?, how: Time.Disambig
           "\"earlier\" or \"later\" picks one"):format(civil_text(c, "minute"), rules.name,
             offset_text(before), offset_text(after))
       end
-      chosen = how == "later" and found[#found] or found[1]
+      chosen = if how == "later" then found[#found] else found[1] end
     end
   end
   return chosen, ""
@@ -1430,7 +1430,7 @@ end
 --- is always `ns`. Raises for a `disambiguation` that is none of
 --- [`Disambiguation`]'s, or a `zone` no function here made.
 function Time.from_civil(c: Time.CivilFields, zone?: Time.Zone, opts?: Time.AddOptions): integer?, string
-  local how = disambiguation_of(opts ~= nil and opts.disambiguation or nil)
+  local how = disambiguation_of(if opts ~= nil then opts.disambiguation else nil end)
   integral("year", c.year)
   integral("month", c.month)
   integral("day", c.day)
@@ -1472,11 +1472,11 @@ function Time.add_calendar(ns: integer, duration: Time.Duration, zone?: Time.Zon
     outside("days", days, -3650000, 3650000) or
     outside("ns", exact, math.mininteger, math.maxinteger)
   if why ~= nil then return refuse(why) end
-  local overflow = opts ~= nil and opts.overflow or "reject"
+  local overflow = if opts ~= nil and opts.overflow ~= nil then opts.overflow else "reject" end
   if overflow ~= "reject" and overflow ~= "clamp" then
     error("time: overflow is \"reject\" or \"clamp\", not " .. tostring(overflow), 2)
   end
-  local how = disambiguation_of(opts ~= nil and opts.disambiguation or nil)
+  local how = disambiguation_of(if opts ~= nil then opts.disambiguation else nil end)
   local c = Time.civil(ns, zone)
   local index = c.year * 12 + (c.month - 1) + years * 12 + months
   c.year, c.month = index // 12, index % 12 + 1
@@ -1591,8 +1591,8 @@ end
 --- through 9, when `zone_name` is set without a zone or for one with no
 --- IANA name, or for a `zone` no function here made.
 function Time.format_rfc3339(ns: integer, zone?: Time.Zone, opts?: Time.FormatOptions): string
-  local digits = opts ~= nil and opts.digits or nil
-  local bad = digits ~= nil and outside("digits", digits, 0, 9) or nil
+  local digits = if opts ~= nil then opts.digits else nil end
+  local bad = if digits ~= nil then outside("digits", digits, 0, 9) else nil end
   if bad ~= nil then error("time: " .. bad, 2) end
   local zone_name = opts ~= nil and opts.zone_name or false
   local s, n = ns // NS, ns % NS
@@ -1694,7 +1694,7 @@ local function parse(text: string): Time.Zoned?, string
   date_into(cur, c)
   expect(cur, "T", "between the date and the time")
   clock_into(cur, c)
-  c.ns = accept(cur, ".") and read_fraction(cur) or 0
+  c.ns = if accept(cur, ".") then read_fraction(cur) else 0 end
   local why = cur.why
   if why ~= nil then return nil, why end
   local offset = 0
@@ -1763,7 +1763,7 @@ local function parse(text: string): Time.Zoned?, string
   finish(cur)
   local cur_why = cur.why
   if cur_why ~= nil then return nil, cur_why end
-  if named == nil then named = unknown and Time.UTC or fixed_zone(offset) end
+  if named == nil then named = if unknown then Time.UTC else fixed_zone(offset) end end
   return { ns = ns, zone = named }, ""
 end
 
@@ -1891,7 +1891,7 @@ function Time.parse_http(text: string): integer?, string
     expect(cur, " ", "after the day name")
     c.month = name_of(cur, MONTHS, "a month name")
     expect(cur, " ", "after the month")
-    c.day = accept(cur, " ") and read_digits(cur, 1, "day") or read_digits(cur, 2, "day")
+    c.day = if accept(cur, " ") then read_digits(cur, 1, "day") else read_digits(cur, 2, "day") end
     expect(cur, " ", "after the day")
     clock_into(cur, c)
     expect(cur, " ", "after the time")

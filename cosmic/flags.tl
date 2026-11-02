@@ -230,7 +230,7 @@ function Flags.parse(argv: {string}, from: integer,
           return nil, "no such option: " .. name .. " in " .. word
         elseif takes_value(entry) then
           local rest = word:sub(at + 1)
-          local trouble = valued(name, rest ~= "" and rest or nil, "")
+          local trouble = valued(name, if rest ~= "" then rest else nil end, "")
           if trouble ~= "" then
             return nil, trouble
           end
@@ -278,7 +278,7 @@ local function option_lines(spec: {string:boolean | Flags.Option}): {string}
   for index, name in ipairs(names) do
     local entry = spec[name]
     local head = name
-    local value = entry is Flags.Option and entry.value or nil
+    local value = if entry is Flags.Option then entry.value else nil end
     if value ~= nil then
       head = name .. " <" .. value .. ">"
     elseif entry == true then
@@ -290,7 +290,7 @@ local function option_lines(spec: {string:boolean | Flags.Option}): {string}
   local lines: mut {string} = {}
   for index, name in ipairs(names) do
     local entry = spec[name]
-    local about = entry is Flags.Option and entry.about or nil
+    local about = if entry is Flags.Option then entry.about else nil end
     if entry ~= nil and is_required(entry) then
       about = if about ~= nil and about ~= "" then about .. " (required)" else "(required)" end
     end
@@ -446,7 +446,7 @@ function Flags.dispatch(argv: {string}, from: integer,
   end
   local name = argv[from]
   if name == "--help" or name == "-h" or (name == "help" and commands.help == nil) then
-    local asked = name == "help" and argv[from + 1] or nil
+    local asked = if name == "help" then argv[from + 1] else nil end
     if asked == "--help" or asked == "-h" then
       asked = nil
     end

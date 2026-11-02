@@ -298,7 +298,7 @@ local lower <const> = relay_wire.lower
 --- The four decimal octets of `text`, or nil.
 local function octets(text: string): {integer}?
   local bytes = Grant.address(text)
-  return bytes ~= nil and #bytes == 4 and bytes or nil
+  return if bytes ~= nil and #bytes == 4 then bytes else nil end
 end
 
 local function ipv4(text: string): boolean
@@ -1356,7 +1356,7 @@ function relay_wire.hello_reader(): relay_wire.HelloReader
         pos = pos + 5 + length
       end
       st.base = st.base + pos - 1
-      local rest = pos == 1 and data or data:sub(pos)
+      local rest = if pos == 1 then data else data:sub(pos) end
       st.pending, st.pending_len = { rest }, #rest
       return { status = "more", consumed = 0 }
     end,

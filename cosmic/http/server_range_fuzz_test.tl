@@ -44,15 +44,15 @@ end
 --- against. Each way to make it one the server ignores is drawn rarely,
 --- so most are one range to read.
 local function gen_range(src: Fuzz.Source): string
-  local elements: mut {string} = { (src:int(0, 7) == 0 and Fuzz.pick(src, SPACES) or "") .. draw_spec(src) }
+  local elements: mut {string} = { (if src:int(0, 7) == 0 then Fuzz.pick(src, SPACES) else "" end) .. draw_spec(src) }
   while src:int(0, 5) == 0 and Fuzz.more(src, #elements - 1, 2) do
-    local spec = src:int(0, 2) == 0 and draw_spec(src) or ""
+    local spec = if src:int(0, 2) == 0 then draw_spec(src) else "" end
     elements[#elements + 1] = Fuzz.pick(src, SPACES) .. spec .. Fuzz.pick(src, SPACES)
   end
   local header = Fuzz.pick(src, SPACES) ..
-    (src:int(0, 5) == 0 and Fuzz.pick(src, UNITS) or "bytes") .. "=" .. table.concat(elements, ",")
+    (if src:int(0, 5) == 0 then Fuzz.pick(src, UNITS) else "bytes" end) .. "=" .. table.concat(elements, ",")
   if src:int(0, 7) == 0 then header = Fuzz.mutate(src, header, 3) end
-  local size = src:int(0, 4) == 0 and Fuzz.pick(src, SIZES) or src:int(0, 300)
+  local size = if src:int(0, 4) == 0 then Fuzz.pick(src, SIZES) else src:int(0, 300) end
   return Fuzz.pack({ header, tostring(size) })
 end
 
@@ -80,7 +80,7 @@ local function small(digits: string): integer?
   assert(bare, "the pattern matches every string of digits")
   if #bare > #tostring(math.maxinteger) then return nil end
   -- One past the largest integer reads as a float, which this refuses.
-  return math.tointeger(tonumber(bare ~= "" and bare or "0"))
+  return math.tointeger(tonumber(if bare ~= "" then bare else "0" end))
 end
 
 --- The one range-spec of `header` where it is one well-formed bytes
@@ -180,7 +180,7 @@ local ETAGC <const> = { "a", "v1", ",", "W", "/", "*", "\x80", "~", "!", " x", "
 local function draw_opaque(src: Fuzz.Source): string
   local parts: mut {string} = {}
   while Fuzz.more(src, #parts, 3) do
-    parts[#parts + 1] = src:int(0, 7) == 0 and string.char(src:int(0, 255)) or Fuzz.pick(src, ETAGC)
+    parts[#parts + 1] = if src:int(0, 7) == 0 then string.char(src:int(0, 255)) else Fuzz.pick(src, ETAGC) end
   end
   return table.concat(parts)
 end
@@ -273,7 +273,7 @@ local function test_none_match_is_total_over_any_header(tmp: string)
     dir = tmp,
     gen = function(src: Fuzz.Source): string
       local base = '"v1", W/"x,y" , *'
-      return src:int(0, 1) == 0 and Fuzz.mutate(src, base, 6) or Fuzz.bytes(src, 24)
+      return if src:int(0, 1) == 0 then Fuzz.mutate(src, base, 6) else Fuzz.bytes(src, 24) end
     end,
     check = function(input: string): boolean, string
       local got = Server.none_match(input, '"v1"')

@@ -48,7 +48,7 @@ end
 local function test_a_read_failure_follows_queued_stdout_and_stderr()
   for _, child_fd in ipairs({ 1, 2 }) do
     local h <close> = output(child_fd)
-    local reader = assert(child_fd == 1 and h.stdout_stream or h.stderr_stream)
+    local reader = assert(if child_fd == 1 and h.stdout_stream ~= nil then h.stdout_stream else h.stderr_stream end)
     local fd = assert(h._streams)[1].fd
     local reason = "read: injected terminal failure"
     local bytes: integer = 0
@@ -161,7 +161,7 @@ local function test_transient_read_errors_leave_the_stream_readable()
     sys.read = function(which: integer, count: integer): string?, string, integer
       if which == fd and transient < 2 then
         transient = transient + 1
-        return nil, "transient read", transient == 1 and sys.EAGAIN or sys.EINTR
+        return nil, "transient read", if transient == 1 then sys.EAGAIN else sys.EINTR end
       end
       return read(which, count)
     end

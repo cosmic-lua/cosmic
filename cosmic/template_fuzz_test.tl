@@ -111,7 +111,7 @@ local function gen_nodes(src: Fuzz.Source, depth: integer, out: mut {string}, ki
     if kind <= 4 then
       table.insert(out, Fuzz.pick(src, kit.markup))
     elseif kind <= 6 then
-      table.insert(out, src:int(0, 3) == 0 and gen_variable_slot(src, bound) or Fuzz.pick(src, kit.slots))
+      table.insert(out, if src:int(0, 3) == 0 then gen_variable_slot(src, bound) else Fuzz.pick(src, kit.slots) end)
     elseif depth >= 3 then
       table.insert(out, Fuzz.pick(src, kit.loose))
     elseif kind == 7 then
@@ -160,8 +160,8 @@ local function gen_body(src: Fuzz.Source): string
     return Fuzz.bytes(src, 40)
   elseif kind == 1 then
     while Fuzz.more(src, #out, 30) do
-      out[#out + 1] = src:int(0, 7) == 0 and Fuzz.bytes(src, 3) or
-        src:int(0, 1) == 0 and Fuzz.pick(src, MARKUP) or Fuzz.pick(src, ACTIONS)
+      out[#out + 1] = if src:int(0, 7) == 0 then Fuzz.bytes(src, 3) elseif src:int(0, 1) == 0 then
+        Fuzz.pick(src, MARKUP) else Fuzz.pick(src, ACTIONS) end
     end
   else
     gen_nodes(src, 0, out, ANY, {})
@@ -271,7 +271,7 @@ local function gen_literal(src: Fuzz.Source): string
   local parts: mut {string} = { Fuzz.pick(src, { "html", "text" }) }
   local text: mut {string} = {}
   while Fuzz.more(src, #text, 30) do
-    text[#text + 1] = src:int(0, 3) == 0 and Fuzz.bytes(src, 4) or Fuzz.pick(src, MARKUP)
+    text[#text + 1] = if src:int(0, 3) == 0 then Fuzz.bytes(src, 4) else Fuzz.pick(src, MARKUP) end
   end
   local joined = table.concat(text)
   while joined:find("{{", 1, true) do
@@ -566,7 +566,7 @@ local function gen_sound(src: Fuzz.Source): string
       body[#body + 1] = open .. first_text .. "{{else}}" .. second[1] .. "{{end}}"
       kinds[#kinds + 1] = first[2] .. second[2]
     else
-      local open = wrap == 2 and head or wrap == 3 and "{{with .w}}" or ""
+      local open = if wrap == 2 then head elseif wrap == 3 then "{{with .w}}" else "" end
       body[#body + 1] = open .. first_text .. (if open ~= "" then "{{end}}" else "" end)
       kinds[#kinds + 1] = first[2]
     end
@@ -616,7 +616,7 @@ local STAND_IN <const>: {string: function(any): any} = {
   escape = function(s: any): {string: string} return { s = "\1" .. esc(s) .. "\2" } end,
   escape_attr = function(s: any): {string: string} return { s = "\3" .. esc_attr(s) .. "\4" } end,
   href = function(s: any): {string: string}
-    local text = s is string and s:match("^[^|]*") or ""
+    local text = if s is string then s:match("^[^|]*") or "" else "" end
     return { s = "\5" .. (if text:lower():find("^%s*javascript:") then "about:invalid" else text end) }
   end,
   trust = function(s: any): {string: string}
@@ -991,9 +991,9 @@ local function test_a_cut_in_the_text_does_not_move_where_a_slot_lands(tmp: stri
         Fuzz.label("script slot refused")
       end
       Fuzz.label(if kind == 2 then "range" elseif kind == 3 then "with" elseif kind == 4 then "arms" elseif kind == 5 then "string" else "if" end)
-      local block = kind == 5 and as_strings(extra) or (CUTS[kind]:gsub("X", function(): string
+      local block = if kind == 5 then as_strings(extra) else (CUTS[kind]:gsub("X", function(): string
         return extra
-      end))
+      end)) end
       for cut = 0, #literal do
         local body = literal:sub(1, cut) .. block .. literal:sub(cut + 1) .. tail
         local split = Template.compile(head .. body, "t.tmpl")
@@ -1077,9 +1077,9 @@ local function gen_quoted(src: Fuzz.Source): string
     local run: mut {string} = {}
     while kind ~= "s" and Fuzz.more(src, #run, 4) do
       local pick = src:int(0, 4)
-      run[#run + 1] = pick == 0 and Fuzz.bytes(src, 3) or
-        pick == 1 and Fuzz.pick(src, { "{{", "}}", "{", "\"", "\\", "{{.a}}", "-}}", "{{- ", "|" }) or
-        Fuzz.pick(src, MARKUP)
+      run[#run + 1] = if pick == 0 then Fuzz.bytes(src, 3) elseif pick == 1 then
+        Fuzz.pick(src, { "{{", "}}", "{", "\"", "\\", "{{.a}}", "-}}", "{{- ", "|" }) else
+        Fuzz.pick(src, MARKUP) end
     end
     fields[#fields + 1] = kind
     fields[#fields + 1] = table.concat(run)
@@ -1111,7 +1111,7 @@ local function test_a_string_action_renders_the_bytes_it_quotes(tmp: string)
           want[#want + 1] = "P"
         else
           -- A `{` outside a string could start an action with the next one.
-          body[#body + 1] = kind == "q" and as_strings(text) or (text:gsub("{", '{{"{"}}'))
+          body[#body + 1] = if kind == "q" then as_strings(text) else (text:gsub("{", '{{"{"}}')) end
           want[#want + 1] = text
           if text:find("{{", 1, true) then Fuzz.label("brace") end
           if text:find('["\\]') then Fuzz.label("escape") end
@@ -1391,7 +1391,7 @@ local function test_a_block_in_a_tag_adds_only_the_attributes_it_writes(tmp: str
         end))
       end
       local n_before, n_arm = number(before), number(arm)
-      local n_other = kind == "else" and number(other) or ""
+      local n_other = if kind == "else" then number(other) else "" end
       local n_after, n_closer = number(after), number(closer)
       local kinds: mut {string} = {}
       for made in source:gmatch("parts%[#parts %+ 1%] = _(%a+)%(v%) end") do
@@ -1486,7 +1486,7 @@ local HOSTILE <const>: {string} = {
 }
 
 local function gen_selector(src: Fuzz.Source): string
-  local payload = src:int(0, 2) == 0 and Fuzz.bytes(src, 6) or Fuzz.pick(src, HOSTILE)
+  local payload = if src:int(0, 2) == 0 then Fuzz.bytes(src, 6) else Fuzz.pick(src, HOSTILE) end
   return Fuzz.pack({ payload, Fuzz.pick(src, SELECTOR_ATTRS), Fuzz.pick(src, SELECTOR_LEADS),
     Fuzz.pick(src, SELECTOR_TRAILS), Fuzz.pick(src, { '"', "'" }) })
 end
@@ -1534,7 +1534,7 @@ local function test_a_selector_slot_never_leaves_the_identifier_it_stands_in(tmp
         return false, "refused " .. body .. ": " .. why
       end
       local env: {string: any} = { require = function(name: string): any
-        return name == "cosmic.html" and Html or {}
+        return if name == "cosmic.html" then Html else {} end
       end, table = table, tostring = tostring, type = type }
       local chunk, trouble = load(lua_of(source), "=module", "t", env)
       if chunk == nil then
@@ -1571,7 +1571,7 @@ local function test_a_selector_slot_never_leaves_the_identifier_it_stands_in(tmp
 end
 
 local function gen_json(src: Fuzz.Source): string
-  local payload = src:int(0, 2) == 0 and Fuzz.bytes(src, 6) or Fuzz.pick(src, HOSTILE)
+  local payload = if src:int(0, 2) == 0 then Fuzz.bytes(src, 6) else Fuzz.pick(src, HOSTILE) end
   return Fuzz.pack({ payload, Fuzz.pick(src, { "hx-vals", "hx-headers", "hx-request", "data-hx-vals", "HX-HEADERS" }),
     Fuzz.pick(src, { '"', "'" }), Fuzz.pick(src, { "k", "js:alert(1)", "javascript:x", "}", "\"" }) })
 end
@@ -1598,7 +1598,7 @@ local function test_a_json_slot_is_the_attribute_value_it_was_given(tmp: string)
         return false, "refused " .. body .. ": " .. why
       end
       local env: {string: any} = { require = function(name: string): any
-        return name == "cosmic.html" and Html or {}
+        return if name == "cosmic.html" then Html else {} end
       end, table = table, tostring = tostring, type = type }
       local chunk, trouble = load(lua_of(source), "=module", "t", env)
       if chunk == nil then
@@ -1639,7 +1639,7 @@ local SCRIPT_ATTRS <const>: {string} = {
 --- (which reads `data-hx-x` as `hx-x`), a `data-` ahead of it or not.
 local function spelled(src: Fuzz.Source, name: string): string
   local out = name:gsub("%a", function(c: string): string
-    return src:int(0, 1) == 0 and c:lower() or c:upper()
+    return if src:int(0, 1) == 0 then c:lower() else c:upper() end
   end)
   return if name:find("^hx%-") and src:int(0, 1) == 0 then "data-" .. out else out end
 end

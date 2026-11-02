@@ -373,7 +373,7 @@ local function step_row<T>(statement: raw_sqlite.Statement,
                            project: function(raw_sqlite.Statement): T): T?, string
   local state, failure = statement:step()
   if state == nil then
-    return nil, failure ~= "" and failure or "sqlite: the step failed"
+    return nil, if failure ~= "" then failure else "sqlite: the step failed" end
   end
   if state == "done" then
     return nil, ""
@@ -820,7 +820,7 @@ function Sqlite.map<T>(handle: Sqlite.Handle, sql: string, values: {Sqlite.Value
     local state, failure = statement:step()
     if state == nil then
       statement:finalize()
-      return nil, failure ~= "" and failure or "sqlite: the step failed"
+      return nil, if failure ~= "" then failure else "sqlite: the step failed" end
     end
     if state == "done" then
       statement:finalize()

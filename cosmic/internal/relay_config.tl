@@ -357,7 +357,7 @@ function relay_config.upstream(env: {string:string}): relay_config.Upstream?, st
   if bracketed ~= nil then
     host = bracketed
     if after ~= "" then
-      port = after:sub(1, 1) == ":" and number_of(after:sub(2)) or nil
+      port = if after:sub(1, 1) == ":" then number_of(after:sub(2)) else nil end
     end
   else
     local name, at = hostport:match("^([^:]*):?(.*)$")

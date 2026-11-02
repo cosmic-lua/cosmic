@@ -107,7 +107,7 @@ local function connect_splits_agree(input: string)
   -- message is built only on a failure, for the same reason.
   local reader = Wire.connect_reader()
   for cut = 0, #input do
-    local part = cut == 0 and connect_head("") or reader:feed(input:sub(cut, cut))
+    local part = if cut == 0 then connect_head("") else reader:feed(input:sub(cut, cut)) end
     if not prefix_agrees(whole, wanted, cut, part) then
       assert(false, ("fed to %d of %q: %s"):format(cut, input, shown_connect(part)))
     end
@@ -590,7 +590,7 @@ end
 
 local function sni_of(input: string): string
   local r = client_hello(input)
-  return r.status == "name" and r.name or r.status
+  return if r.status == "name" and r.name ~= nil then r.name else r.status end
 end
 
 --- Every prefix of `input` is more, and the whole is `want` consumed.

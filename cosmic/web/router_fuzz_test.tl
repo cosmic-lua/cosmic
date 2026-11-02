@@ -29,7 +29,7 @@ local function gen_path(src: Fuzz.Source): string
       parts[#parts + 1] = Fuzz.pick(src, GOOD)
     end
   end
-  local lead = ("/"):rep(src:int(0, 7) == 0 and src:int(2, 3) or 1)
+  local lead = ("/"):rep(if src:int(0, 7) == 0 then src:int(2, 3) else 1 end)
   local tail = if src:int(0, 3) == 0 then "/" else "" end
   return lead .. table.concat(parts, "/") .. tail
 end
