@@ -2,6 +2,7 @@
 --- `Net.connector`: a public-only connector, whose process connects the
 --- numeric endpoint the relay has checked and returns the socket over
 --- the control stream.
+local ConnectorFixture = require("build.connector_fixture")
 local Clock = require("cosmic.clock")
 local Fixture = require("build.relay_wire_fixture")
 local Net = require("cosmic.net")
@@ -26,17 +27,6 @@ local function require_native_connector()
     Test.skip("this host has no native connector confinement: " .. why)
   end
   assert(result == sys.EPERM, "native connector setup failed: " .. tostring(why))
-end
-
---- Reads exactly `count` bytes.
-local function read_exact(conn: Net.Conn, count: integer): string
-  local out = ""
-  while #out < count do
-    local data, why = conn:read(count - #out)
-    assert(data ~= nil, "the connection ended after " .. tostring(#out) .. " of " .. tostring(count) .. " bytes: " .. why)
-    out = out .. data
-  end
-  return out
 end
 
 local function test_the_relay_connects_through_the_native_connector()
@@ -93,7 +83,7 @@ local function test_the_relay_connects_through_the_native_connector()
     end
     assert(head:find("^HTTP/1.1 200 "), head)
     assert(conn:write("through the connector"))
-    assert(read_exact(conn, 21) == "through the connector")
+    assert(ConnectorFixture.read_exact(conn, 21) == "through the connector")
     assert(asked == 1)
     local _, _ = conn:close()
     -- A port nothing listens at: the connector's errno is the reason.

@@ -4,18 +4,10 @@
 --- what a test run with the switch on sees, end to end, are in
 --- build/test_sandbox_tool_test.tl.
 
+local TestInputsFixture = require("build.test_inputs_fixture")
 local Fs = require("cosmic.fs")
-local test_inputs = require("build.test_inputs")
 local test_sandbox = require("build.test_sandbox")
 local test_sandbox_probe = require("build.test_sandbox_probe")
-
---- An `Effective` holding `files` of the tree and nothing else declared.
-local function effective(files: {string}): test_inputs.Effective
-  local out: test_inputs.Effective = { files = {}, reads = {}, host = {}, env = {}, network = {},
-    tool = false, store = false }
-  for _, file in ipairs(files) do out.files[file] = true end
-  return out
-end
 
 --- A worker's environment is the pinned variables and the ones its
 --- module declares, as the runner's view has them; and TMPDIR is its
@@ -23,7 +15,7 @@ end
 local function test_a_worker_is_given_only_the_variables_it_may_read()
   local view = { PATH = "/bin", DECLARED = "d", UNDECLARED = "u", TMPDIR = "/elsewhere",
     COSMIC_SANDBOX = "must" }
-  local inputs = effective({})
+  local inputs = TestInputsFixture.effective({})
   inputs.env = { PATH = true, TMPDIR = true, DECLARED = true }
   local env = test_sandbox.environment(view, inputs)
   assert(env["PATH"] == "/bin" and env["DECLARED"] == "d" and env["UNDECLARED"] == nil)
@@ -35,7 +27,7 @@ end
 --- the host's cores, not the sandbox's own, whose path no host has: a
 --- compiler build/c/init.tl confines to them would not start.
 local function test_an_unenforced_worker_has_the_hosts_cores()
-  local inputs = effective({})
+  local inputs = TestInputsFixture.effective({})
   inputs.caches = { "bootstrap" }
   local sandboxed = test_sandbox.environment({ PATH = "/bin" }, inputs)
   assert(sandboxed.COSMIC_PORTABLE_CACHE ~= nil)
@@ -81,7 +73,7 @@ local function test_a_worker_that_writes_where_the_program_is_cannot_be_held(tmp
 end
 
 local function test_only_a_granted_noexec_capability_supplies_its_environment()
-  local inputs = effective({})
+  local inputs = TestInputsFixture.effective({})
   inputs.env = { COSMIC_TEST_NOEXEC = true, TMPDIR = true }
   local host = { COSMIC_TEST_NOEXEC = "/forged", TMPDIR = "/host" }
   assert(test_sandbox.environment(host, inputs).COSMIC_TEST_NOEXEC == nil)
@@ -96,7 +88,7 @@ local function test_only_a_granted_noexec_capability_supplies_its_environment()
 end
 
 local function test_noexec_does_not_probe_an_ordinary_or_unsandboxed_worker()
-  local inputs = effective({})
+  local inputs = TestInputsFixture.effective({})
   local known: {string:string} = {}
   test_sandbox_probe.resolve_noexec(inputs, true, known)
   assert(inputs.noexec_ready ~= true and next(known) == nil)

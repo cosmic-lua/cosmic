@@ -8,6 +8,8 @@ local record Env
   enum Name
     --- "0" refuses a stale tool where it would boot.
     "COSMIC_AUTO_BOOT"
+    --- The nonce of the session file a replaced `cosmic lsp` hands its successor.
+    "COSMIC_LSP_HANDOFF"
     --- "0" turns the build's caches off.
     "COSMIC_BUILD_CACHE"
     --- Moves the build directory.

@@ -1,21 +1,8 @@
 --- The patch applier ([`build/patch.tl`]), run on trees built here.
+local support = require("build.test_support_fixture")
 local Fs = require("cosmic.fs")
 local Patch = require("build.patch")
 local sys = require("cosmic.sys")
-
---- The open descriptors of this process, each with what it names.
-local function descriptors(): string
-  local out: mut {string} = {}
-  -- /dev/fd where there is no /proc (macOS, the BSDs).
-  local directory = "/proc/self/fd"
-  if Fs.is_dir(directory) ~= true then directory = "/dev/fd" end
-  for _, number in ipairs((assert(Fs.list(directory)))) do
-    local target, _ = Fs.readlink(directory .. "/" .. number)
-    out[#out + 1] = number .. "=" .. (target or "?")
-  end
-  table.sort(out)
-  return table.concat(out, "\n")
-end
 
 --- A checkout at `root` with one vendored tree, `lib`, holding `files`,
 --- and the patch records `records` for it (none when nil).
@@ -418,7 +405,7 @@ local function test_prepare_cleans_its_scratch_when_a_step_raises(dir: string)
   assert(Patch.prepare(dir .. "/root", "lib", dir .. "/warm"))
   local cache = dir .. "/cache"
   assert(Fs.mkdirs(cache))
-  local before = descriptors()
+  local before = support.descriptors()
   local real_rename = Fs.rename
   Fs.rename = function(_from: string, _to: string): boolean, string
     error("the rename raised")
@@ -427,7 +414,7 @@ local function test_prepare_cleans_its_scratch_when_a_step_raises(dir: string)
   Fs.rename = real_rename
   assert(not ok and tostring(trouble):find("the rename raised", 1, true) ~= nil, tostring(trouble))
   assert(table.concat(assert(Fs.list(cache)), ",") == ".scratch-gate", "a scratch directory was left behind")
-  assert(descriptors() == before, "a descriptor of the scratch stayed open")
+  assert(support.descriptors() == before, "a descriptor of the scratch stayed open")
 end
 
 local function test_zig_lib_cleans_its_scratch_when_a_step_raises(dir: string)
@@ -437,7 +424,7 @@ local function test_zig_lib_cleans_its_scratch_when_a_step_raises(dir: string)
   assert(Fs.write(dir .. "/lib/x/f", "y"))
   local cache = dir .. "/cache"
   assert(Fs.mkdirs(cache))
-  local before = descriptors()
+  local before = support.descriptors()
   local real_rename = Fs.rename
   Fs.rename = function(_from: string, _to: string): boolean, string
     error("the rename raised")
@@ -446,5 +433,5 @@ local function test_zig_lib_cleans_its_scratch_when_a_step_raises(dir: string)
   Fs.rename = real_rename
   assert(not ok and tostring(trouble):find("the rename raised", 1, true) ~= nil, tostring(trouble))
   assert(table.concat(assert(Fs.list(cache)), ",") == ".scratch-gate", "a scratch directory was left behind")
-  assert(descriptors() == before, "a descriptor of the scratch stayed open")
+  assert(support.descriptors() == before, "a descriptor of the scratch stayed open")
 end

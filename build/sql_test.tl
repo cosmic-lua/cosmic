@@ -4,18 +4,6 @@ local Sqlite = require("cosmic.sqlite")
 local sql = require("build.sql")
 local support = require("build.test_support_fixture")
 
---- A temporary root whose projection holds one small table.
-local function project(): string
-  local root = assert(Fs.mkdtemp("cosmic-sql-test-"))
-  assert(support.build_dir(root))
-  local db = assert(Sqlite.open(support.build_dir(root) .. "/cosmic.db", { writable = true }))
-  assert(db:exec("CREATE TABLE t (a, b); INSERT INTO t VALUES " ..
-      "(1, 'one'), (NULL, x'00ff'), (1.5, 'tab' || char(9) || 'and\\'), (2.0, ''), " ..
-      "(3, char(27) || '[31m' || char(127) || '\\N')"))
-  assert(db:close())
-  return root
-end
-
 local function argv_of(words: {string}): {string}
   local argv: mut {string} = { "sql" }
   for _, word in ipairs(words) do
@@ -59,7 +47,7 @@ local function query(path: string, statement: string): {string}?, string
 end
 
 local function test_rows_come_back_one_line_each_with_cells_escaped()
-  local root = project()
+  local root = support.sql_project()
   local path = support.build_dir(root) .. "/cosmic.db"
   local lines = assert(query(path, "SELECT a, b FROM t ORDER BY rowid"))
   assert(#lines == 6, #lines)
@@ -100,7 +88,7 @@ local function test_rows_come_back_one_line_each_with_cells_escaped()
 end
 
 local function test_sqlite_refuses_every_write()
-  local root = project()
+  local root = support.sql_project()
   local path = support.build_dir(root) .. "/cosmic.db"
   local before = assert(Fs.read(path))
   for _, statement in ipairs({
@@ -212,7 +200,7 @@ end
 
 --- A row that cannot be written stops the statement there.
 local function test_a_failed_write_stops_the_statement()
-  local root = project()
+  local root = support.sql_project()
   local endless = "WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c) SELECT x FROM c"
   local lines: mut {string} = {}
   local complaints: mut {string} = {}
@@ -239,7 +227,7 @@ end
 --- Rows are written as they are stepped: one that fails on its third row
 --- has written the first two.
 local function test_rows_are_written_before_the_statement_finishes()
-  local root = project()
+  local root = support.sql_project()
   local failing = "WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c WHERE x < 3) " ..
     "SELECT x, CASE WHEN x = 3 THEN abs(-9223372036854775807 - 1) ELSE 0 END AS y FROM c"
   local code, written = run(root, { failing })
@@ -251,7 +239,7 @@ local function test_rows_are_written_before_the_statement_finishes()
 end
 
 local function test_a_missing_database_and_bad_sql_fail()
-  local root = project()
+  local root = support.sql_project()
   local missing = support.build_dir(root) .. "/nothing.db"
   local opened, trouble = sql.open({ name = missing, path = missing })
   assert(opened == nil and trouble == "no such database: " .. missing, trouble)
@@ -283,7 +271,7 @@ end
 --- tool's, as it is, and says once that it does: every other verb reads
 --- none of one ([`build.work.tell_other_schema`]).
 local function test_build_says_it_reads_a_database_of_another_schema()
-  local root = project()
+  local root = support.sql_project()
   local working = support.build_dir(root) .. "/build.db"
   local db = assert(Sqlite.open(working, { writable = true }))
   assert(db:exec("CREATE TABLE meta (key TEXT PRIMARY KEY, value BLOB NOT NULL) WITHOUT ROWID; " ..
@@ -299,7 +287,7 @@ local function test_build_says_it_reads_a_database_of_another_schema()
 end
 
 local function test_a_command_line_it_cannot_read_is_a_usage_error()
-  local root = project()
+  local root = support.sql_project()
   assert(run(root, {}) == 2)
   assert(run(root, { "SELECT", "1" }) == 2)
   assert(run(root, { "--nope", "SELECT 1" }) == 2)
@@ -751,7 +739,7 @@ local function test_to_refuses_what_it_cannot_write()
   assert(code == 2 and support.nth(written.err, 1):find("--to writes csv or ndjson, not xml", 1, true) ~= nil, written.err[1])
   code, written = run(dir, { "--from", "-", "--as", "csv", "--to", "csv" }, "a\n1\n")
   assert(code == 2 and support.nth(written.err, 1):find("--to writes a statement's rows", 1, true) ~= nil, written.err[1])
-  local root = project()
+  local root = support.sql_project()
   code, written = run(root, { "--db", support.build_dir(root) .. "/cosmic.db", "--to", "csv", "SELECT 1 AS one" })
   assert(code == 0 and table.concat(written.out, "\n") == "one\n1", table.concat(written.err, "|"))
 end

@@ -271,13 +271,16 @@ local record Test
     database?: string
     --- What the tests need of the host that no other field says, by name
     --- from a closed table: `portable`, `root`, `unix_socket` (Unix stream
-    --- socket creation), `path:<absolute path>` and
+    --- socket creation), `loopback` (a TCP listener and a UDP socket bound
+    --- to 127.0.0.1), `path:<absolute path>` and
     --- `program:<name>`, and the Linux-class `sandbox`, `landlock:N`, `userns`,
     --- `nest`, `own_proc` and `proc`. The runner asks the host
     --- once, before any worker starts, and a module whose requirement is
     --- absent is not run: its tests are counted n/a where the platform never
     --- has it and skipped where this host lacks it. Nothing is inferred from
-    --- the other fields. A name the table does not have or one written twice
+    --- the other fields but one: a module that declares `loopback` addresses
+    --- requires `loopback`, which the runner derives from the addresses, so
+    --- it need not be written. A name the table does not have or one written twice
     --- fails the build. A `path:` needs a `host` grant of that
     --- path and a `program:` the profile "system" and the variable PATH in
     --- `env`, so the worker can see what the runner found.

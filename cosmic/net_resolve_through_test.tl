@@ -64,17 +64,8 @@ local TYPE_A <const> = 1
 
 --- The name and type a query asks, and where its question ends.
 local function question(query: string): string, integer, integer
-  local labels: mut {string} = {}
-  local at = 13
-  while true do
-    local size = query:byte(at)
-    assert(size ~= nil, "a malformed query")
-    if size == 0 then break end
-    labels[#labels + 1] = query:sub(at + 1, at + size)
-    at = at + size + 1
-  end
-  local qtype = string.unpack(">I2", query, at + 1)
-  return table.concat(labels, "."), qtype, at + 4
+  local asked = Udp.question(query)
+  return asked.name, asked.qtype, asked.after
 end
 
 --- The answer to `query`: 192.0.2.7 for A, 2001:db8::7 for AAAA.

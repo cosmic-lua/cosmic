@@ -69,6 +69,13 @@ local function try_build(root: string): boolean, string
   if result == nil then
     return false, trouble
   end
+  -- A module that breaks a rule is refused among the result's refusals and the rest compiles. The fixtures' modules
+  -- refuse for their untyped exports too, which these cases are not about.
+  for _, line in ipairs(result.refused) do
+    if line:find(" is private to ", 1, true) ~= nil then
+      return false, line
+    end
+  end
   return true, ""
 end
 

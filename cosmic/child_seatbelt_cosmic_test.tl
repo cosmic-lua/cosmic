@@ -23,18 +23,6 @@ Test.policy{
   env = { "HOME", "TMPDIR" },
 }
 
---- What Seatbelt denied lately, as the system's log names it, which says
---- what a profile lacks. Empty where the log cannot be read.
-local function denials(): string
-  local result = Child.run({ "/usr/bin/log", "show", "--last", "1m", "--style", "compact",
-    "--predicate", "eventMessage CONTAINS \"Sandbox: \"" },
-    { stdout = "capture", stderr = "capture", stdin = "null", timeout_ns = Clock.seconds(60) })
-  if result == nil then return "" end
-  local lines: mut {string} = {}
-  for line in (result.stdout or ""):gmatch("[^\n]+") do lines[#lines + 1] = line end
-  return "\nlog: " .. table.concat(lines, "\n", math.max(1, #lines - 60), #lines)
-end
-
 --- This program run to its end under `policy` on `-e chunk` and `args`,
 --- its output captured.
 local function ran(chunk: string, policy: Sandbox.Policy, args?: {string}): Child.Result
@@ -53,7 +41,7 @@ local function expect(held: boolean, result: Child.Result)
   else
     assert(held, "code " .. tostring(result.code) .. ", signal " .. tostring(result.signal) ..
         ", stdout " .. string.format("%q", result.stdout or "") ..
-        ", stderr " .. string.format("%q", result.stderr or "") .. denials())
+        ", stderr " .. string.format("%q", result.stderr or "") .. SeatbeltFixture.denials())
   end
 end
 

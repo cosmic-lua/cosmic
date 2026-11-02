@@ -1,6 +1,7 @@
 --- What build/test_sandbox_tool_test.tl and build/test_sandbox_run_tool_test.tl
 --- share: a `cosmic test` run on a suite of their own, and a suite of one
---- module that grants a `host` path. Test support.
+--- module that grants a `host` path, and a run of this program in a project (build/boundary_hook_tool_test.tl and
+--- build/fact_hook_tool_test.tl). Test support.
 
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
@@ -13,6 +14,27 @@ local record test_sandbox_fixture
   record Run
     text: string
     ok: boolean
+  end
+
+  --- A run of [`test_sandbox_fixture.run_words`].
+  record Words
+    ok: boolean
+    stdout: string
+    stderr: string
+  end
+
+  --- A finished run of [`test_sandbox_fixture.invoke`] and what it said.
+  record Invoked
+    result: Child.Result
+    --- Its stdout and stderr, in the order they were written.
+    text: string
+  end
+
+  --- What a run with the sandbox off printed and how it ended.
+  record Unsandboxed
+    --- Its stdout and then its stderr.
+    text: string
+    code: integer?
   end
 end
 
@@ -31,6 +53,23 @@ function test_sandbox_fixture.run(root: string, output: string, env: {string:str
   local text = assert(Fs.read(output))
   assert(result ~= nil, tostring(trouble) .. text)
   return { text = text, ok = result.ok }
+end
+
+--- Runs `cosmic test` on `root` with the sandbox off (`COSMIC_TEST_SANDBOX=0`) and the environment this program has
+--- besides what `extra` sets, answering what it printed and its exit status.
+--- @param root the suite's tree, which the run starts in
+--- @param extra variables to set on top of the environment
+function test_sandbox_fixture.unsandboxed(root: string, extra: {string:string}): test_sandbox_fixture.Unsandboxed
+  local env = this_program.environment()
+  env["COSMIC_TEST_SANDBOX"] = "0"
+  env["COSMIC_SANDBOX"] = nil
+  env["COSMIC_CI_REQUIRE_SANDBOX"] = nil
+  for name, value in pairs(extra) do env[name] = value end
+  local started = this_program.program({ "test" }, {
+    cwd = root, env = env, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60),
+  })
+  local result = assert(Child.run(started.argv, started.options))
+  return { text = (result.stdout or "") .. (result.stderr or ""), code = result.code }
 end
 
 --- Writes `root`/suite/host_test.tl, whose one test grants the host path
@@ -105,6 +144,53 @@ local function test_view(tmp: string)
     tostring(sys.getenv("UNDECLARED_VAR")), (tostring(child.stdout):gsub("\n", "")), "end" }, "|"))
 end
 ]], hidden)))
+end
+
+--- Runs the program with `words` in `root`, unsandboxed (a sandbox nested in a test's own may be refused where the host
+--- nests only two deep), compiling with the new checker, and answers what it said.
+--- @param root the project the run starts in
+--- @param tmp a directory for its output and its TMPDIR
+--- @param words the program's arguments
+function test_sandbox_fixture.invoke(root: string, tmp: string, words: {string}): test_sandbox_fixture.Invoked
+  local output = tmp .. "/out." .. tostring(Clock.monotonic_ns())
+  local fd = assert(Fs.open_write(output))
+  local env = this_program.environment()
+  env["COSMIC_TEST_SANDBOX"] = "0"
+  env["TMPDIR"] = tmp
+  env["COSMIC_GRAMMAR"] = "new"
+  local started = this_program.program(words, {
+    cwd = root, env = env, stdout = fd, stderr = fd,
+    process_group = true, timeout_ns = Clock.seconds(120),
+  })
+  local result, trouble = Child.run(started.argv, started.options)
+  assert(Fs.close(fd))
+  return { result = assert(result, trouble), text = (assert(Fs.read(output))) }
+end
+
+--- The descriptors [`this_program.program`] hands its child, as
+--- [`process.spawn`] takes them: each a descriptor of this process, as
+--- the relaunch's are, and none "capture", which only [`cosmic.child`]
+--- reads.
+function test_sandbox_fixture.spawn_fds(started: this_program.Program): {integer:integer}
+  local fds: mut {integer:integer} = {}
+  for number, fd in pairs(started.options.fds or {}) do
+    if fd is integer then
+      fds[number] = fd
+    else
+      error("descriptor " .. tostring(number) .. " is " .. fd .. ", which spawn cannot hand on")
+    end
+  end
+  return fds
+end
+
+--- Runs `words` after this program, past its launcher, and answers whether it exited 0, and what it wrote to stdout and
+--- stderr.
+--- @param words the program's arguments
+function test_sandbox_fixture.run_words(words: {string}): test_sandbox_fixture.Words
+  local started = this_program.program(words, { stdout = "capture", stderr = "capture",
+    timeout_ns = Clock.seconds(30) })
+  local result = assert(Child.run(started.argv, started.options))
+  return { ok = result.ok, stdout = result.stdout or "", stderr = result.stderr or "" }
 end
 
 return test_sandbox_fixture
