@@ -93,18 +93,18 @@ end
 --- The environment a sandboxed run of the suite is started with, its
 --- shared cache at `cache`, `harness_salt` where given, and the pure store
 --- ([`build.closure_store`]) where `pure` says.
-local function environment(cache: string, harness_salt?: string, pure?: boolean): {string:string}
+local function environment(cache: string, harness_salt?: string, pure?: boolean): mut {string:string}
   local env = this_program.environment()
   if pure == true then env["COSMIC_TEST_PURE_STORE"] = "1" end
   if harness_salt ~= nil then env["COSMIC_TEST_HARNESS_SALT"] = harness_salt end
-  env.COSMIC_VERDICT_CACHE = cache -- checked: map_field
-  env.COSMIC_TEST_ALL = nil -- checked: map_field
-  env.COSMIC_TEST_NO_SHARED = nil -- checked: map_field
-  env.COSMIC_SANDBOX = nil -- checked: map_field
+  env["COSMIC_VERDICT_CACHE"] = cache
+  env["COSMIC_TEST_ALL"] = nil
+  env["COSMIC_TEST_NO_SHARED"] = nil
+  env["COSMIC_SANDBOX"] = nil
   -- Sandboxed where it can be, whatever this run's own switch says:
   -- this test's worker, unsandboxed, may start runs that are.
-  env.COSMIC_TEST_SANDBOX = nil -- checked: map_field
-  env.FLAVOUR = "sweet" -- checked: map_field
+  env["COSMIC_TEST_SANDBOX"] = nil
+  env["FLAVOUR"] = "sweet"
   return env
 end
 
@@ -137,15 +137,15 @@ local type Said = function(string, arg2?: {string}): string
 --- in, the test skipped where no worker could be sandboxed. Each case below seeds
 --- its own, so none starts more nested runs than a test's bound (10 s
 --- in CI) holds under load.
-local function seeded(tmp: string): {string:string}, Said, string
+local function seeded(tmp: string): mut {string:string}, Said, string
   local root = tmp .. "/root"
   checkout(root)
   local env = environment(tmp .. "/cache/verdicts.db")
-  local step = { value = 0 }
+  local step = 0
   local function said(wanted: string, words?: {string}): string
-    step.value = step.value + 1 -- checked: map_field*2
-    local text = run(root, tmp .. "/" .. step.value .. ".out", env, words) -- checked: map_field
-    assert(text:find(wanted, 1, true), step.value .. ": " .. text) -- checked: map_field
+    step = step + 1
+    local text = run(root, tmp .. "/" .. tostring(step) .. ".out", env, words)
+    assert(text:find(wanted, 1, true), tostring(step) .. ": " .. text)
     return text
   end
   local first = run(root, tmp .. "/first.out", env)
@@ -179,7 +179,7 @@ end
 --- runs the test that declares it.
 local function test_a_declared_variable_or_declaration_that_changes_runs_its_test(tmp: string)
   local env, said, root = seeded(tmp)
-  env.FLAVOUR = "salty" -- checked: map_field
+  env["FLAVOUR"] = "salty"
   said("1 ran, 2 stood")
   local source = assert(Fs.read(root .. "/suite/data_test.tl"))
   assert(Fs.write(root .. "/suite/data_test.tl",
@@ -192,7 +192,7 @@ end
 local function test_a_forced_run_runs_every_sandboxed_test(tmp: string)
   local env, said, _ = seeded(tmp)
   said("3 ran, 0 stood", { "--all" })
-  env.COSMIC_TEST_ALL = "1" -- checked: map_field
+  env["COSMIC_TEST_ALL"] = "1"
   said("3 ran, 0 stood")
 end
 
@@ -334,7 +334,7 @@ local function test_a_sandboxed_test_runs_the_tool_only_declared(tmp: string)
   tool_checkout(root)
   local env = environment(tmp .. "/cache/verdicts.db")
   -- The `bootstrap` cache, made where the runner can make it.
-  env.XDG_CACHE_HOME = tmp .. "/cache" -- checked: map_field
+  env["XDG_CACHE_HOME"] = tmp .. "/cache"
   local first = run(root, tmp .. "/first.out", env, nil, true)
   skip_if_unsandboxed(first)
   assert(first:find("test: %d+ tests? passed in ") and first:find("3 ran, 0 stood", 1, true), first)
@@ -396,19 +396,19 @@ local function tool_project(tmp: string): function(string), function(string): st
   end
   rebuild("UPDATE meta SET value = 'one' WHERE key IN ('boot_hash', 'projected')")
   local env = environment(tmp .. "/cache/verdicts.db")
-  env.COSMIC_VERDICT_CACHE = "0" -- checked: map_field
-  local step = { value = 0 }
+  env["COSMIC_VERDICT_CACHE"] = "0"
+  local step = 0
   local function ran(wanted: string, unchecked?: boolean): string
-    step.value = step.value + 1 -- checked: map_field*2
-    local fd = assert(Fs.open_write(tmp .. "/" .. step.value .. ".out")) -- checked: map_field
+    step = step + 1
+    local fd = assert(Fs.open_write(tmp .. "/" .. tostring(step) .. ".out"))
     local result, trouble = Child.run({ tool, "test" }, {
       cwd = root, env = env, stdout = fd, stderr = fd, process_group = true, timeout_ns = Clock.seconds(60),
     })
     assert(Fs.close(fd))
-    local text = assert(Fs.read(tmp .. "/" .. step.value .. ".out")) -- checked: map_field
+    local text = assert(Fs.read(tmp .. "/" .. tostring(step) .. ".out"))
     assert(result ~= nil, tostring(trouble) .. text)
     assert(unchecked == true or result.ok, tostring(trouble) .. text)
-    if wanted ~= "" then assert(text:find(wanted, 1, true), step.value .. ": " .. text) end -- checked: map_field
+    if wanted ~= "" then assert(text:find(wanted, 1, true), tostring(step) .. ": " .. text) end
     return text
   end
   local first = ran("", true)
@@ -490,17 +490,17 @@ local function test_moving(tmp: string)
 end
 ]]))
   local env = environment(tmp .. "/cache/verdicts.db")
-  env.COSMIC_VERDICT_CACHE = "0" -- checked: map_field
+  env["COSMIC_VERDICT_CACHE"] = "0"
   assert(Fs.mkdirs(tmp .. "/t"))
-  env.TMPDIR = assert(Fs.absolute(tmp .. "/t")) -- checked: map_field
-  local step = { value = 0 }
+  env["TMPDIR"] = assert(Fs.absolute(tmp .. "/t"))
+  local step = 0
   -- A run of `words` after `test`: once its test says it started --
   -- its directory is one of TMPDIR's, sandboxed or not -- `then_do`
   -- moves its input or stops it. What the run said, and whether it
   -- passed.
   local function run_then(words: {string}, then_do: function(string)): string, boolean
-    step.value = step.value + 1 -- checked: map_field*2
-    local out = tmp .. "/" .. step.value .. ".out" -- checked: map_field
+    step = step + 1
+    local out = tmp .. "/" .. tostring(step) .. ".out"
     local fd = assert(Fs.open_write(out))
     local args: mut {string} = { "test" }
     for _, word in ipairs(words) do args[#args + 1] = word end
@@ -562,13 +562,13 @@ local function test_a_bump_of_the_epoch_runs_every_test_again(tmp: string)
   skip_if_unsandboxed(first)
   local again = run(root, tmp .. "/again.out", env)
   assert(again:find("0 ran, 3 stood", 1, true), again)
-  env.COSMIC_TEST_HARNESS_EPOCH = harness_epoch.epoch .. "0" -- checked: map_field
+  env["COSMIC_TEST_HARNESS_EPOCH"] = harness_epoch.epoch .. "0"
   local moved = run(root, tmp .. "/moved.out", env)
   assert(moved:find("3 ran, 0 stood", 1, true), moved)
   -- So is the timeout a worker runs under: a pass reached under one
   -- does not stand under another.
-  env.COSMIC_TEST_HARNESS_EPOCH = nil -- checked: map_field
-  env.COSMIC_TEST_TIMEOUT = "31" -- checked: map_field
+  env["COSMIC_TEST_HARNESS_EPOCH"] = nil
+  env["COSMIC_TEST_TIMEOUT"] = "31"
   local longer = run(root, tmp .. "/longer.out", env)
   assert(longer:find("3 ran, 0 stood", 1, true), longer)
 end
@@ -622,7 +622,7 @@ end
   local first = run(root, tmp .. "/first.out", env)
   skip_if_unsandboxed(first)
   assert(first:find("2 ran, 0 stood", 1, true), first)
-  env.COSMIC_TEST_COMPILER_SALT = "another compiler" -- checked: map_field
+  env["COSMIC_TEST_COMPILER_SALT"] = "another compiler"
   local moved = run(root, tmp .. "/moved.out", env)
   assert(moved:find("1 ran, 1 stood", 1, true), moved)
   local db = assert(Sqlite.open(support.build_dir(root) .. "/build.db"))
@@ -945,10 +945,10 @@ end
   local added = run(root, tmp .. "/added.out", env)
   assert(added:find("0 ran, 1 stood", 1, true), added)
   assert(#closure_stores() == 1)
-  env.ADDED = "1" -- checked: map_field
+  env["ADDED"] = "1"
   local looked = run(root, tmp .. "/looked.out", env)
   assert(looked:find("1 ran, 0 stood", 1, true), looked)
-  env.ADDED = nil -- checked: map_field
+  env["ADDED"] = nil
   -- Inside it: it runs again, given a store of its own, and the one
   -- before is taken out.
   assert(Fs.write(root .. "/suite/lib.tl", "-- edited\nlocal record Lib\n  value: integer\nend\nlocal lib: Lib = { value = 1 }\nreturn lib\n"))
@@ -975,13 +975,13 @@ local function test_a_store_is_keyed_by_its_bytes_not_its_address(tmp: string)
   local first = run(root, tmp .. "/first.out", env)
   skip_if_unsandboxed(first)
   assert(first:find("3 ran, 0 stood", 1, true), first)
-  env.COSMIC_TEST_STORE_SALT = "another writer" -- checked: map_field
+  env["COSMIC_TEST_STORE_SALT"] = "another writer"
   local rewritten = run(root, tmp .. "/rewritten.out", env)
   assert(rewritten:find("0 ran, 3 stood", 1, true) and
       rewritten:find("3 closure stores written", 1, true), rewritten)
   -- So does the core that runs that code -- SQLite, and its bindings --
   -- stood in for by COSMIC_TEST_STORE_RUNTIME.
-  env.COSMIC_TEST_STORE_RUNTIME = "another core" -- checked: map_field
+  env["COSMIC_TEST_STORE_RUNTIME"] = "another core"
   local recored = run(root, tmp .. "/recored.out", env)
   assert(recored:find("0 ran, 3 stood", 1, true) and
       recored:find("3 closure stores written", 1, true), recored)
@@ -1029,6 +1029,21 @@ end
   assert(changed:find("2 ran, 2 stood", 1, true), changed)
 end
 
+--- The pure store is held for a sandboxed worker alone: an unsandboxed worker reads the
+--- real tree, so a comment in an imported module still runs the tests that import it.
+local function test_a_pure_store_is_not_held_for_an_unsandboxed_run(tmp: string)
+  local root = tmp .. "/root"
+  checkout(root)
+  local env = environment(tmp .. "/cache/verdicts.db", nil, true)
+  env["COSMIC_TEST_SANDBOX"] = "0"
+  local first = run(root, tmp .. "/first.out", env)
+  assert(first:find("3 ran, 0 stood", 1, true), first)
+  assert(Fs.write(root .. "/suite/lib.tl",
+    "-- a note\n\nlocal record Lib\n  value: integer\nend\nlocal lib: Lib = { value = 1 }\nreturn lib\n"))
+  local noted = run(root, tmp .. "/noted.out", env)
+  assert(noted:find("1 ran, 2 stood", 1, true), noted)
+end
+
 --- An unsandboxed worker of a module that is neither `store`, `tool` nor
 --- `nests` runs the core on the sealed database of its closure too, where
 --- the program is a portable artifact.
@@ -1049,7 +1064,7 @@ local function test_the_core_runs_on_a_database()
 end
 ]]))
   local env = environment(tmp .. "/cache/verdicts.db")
-  env.COSMIC_TEST_SANDBOX = "0" -- checked: map_field
+  env["COSMIC_TEST_SANDBOX"] = "0"
   local text = run(root, tmp .. "/first.out", env)
   assert(text:find("test: %d+ tests? passed in ") and text:find("1 ran, 0 stood", 1, true), text)
 end

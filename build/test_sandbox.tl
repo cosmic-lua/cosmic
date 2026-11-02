@@ -197,17 +197,18 @@ local parent_place <const> = "/tree-up"
 --- variables and those `effective` declares, and TMPDIR, set to its
 --- scratch directory, the one it can write to.
 function test_sandbox.environment(environment: {string:string},
-                                  effective: test_inputs.Effective): {string:string}
+                                  effective: test_inputs.Effective): mut {string:string}
   local out: mut {string:string} = {}
   for name in pairs(effective.env) do out[name] = environment[name] end -- checked: index_may_be_nil
-  out.COSMIC_TEST_NOEXEC = if effective.noexec_ready then "/noexec" else nil end -- checked: condition_type, map_field
-  out.COSMIC_TEST_PARENT = #(effective.parent or {}) > 0 and parent_place or nil -- checked: and_ternary, map_field
-  out.TMPDIR = test_sandbox.scratch -- checked: map_field
-  out.COSMIC_BUILD_HOME = build_home -- checked: map_field
+  out["COSMIC_TEST_NOEXEC"], out["COSMIC_TEST_PARENT"] = nil, nil
+  if effective.noexec_ready then out["COSMIC_TEST_NOEXEC"] = "/noexec" end -- checked: condition_type
+  if #(effective.parent or {}) > 0 then out["COSMIC_TEST_PARENT"] = parent_place end
+  out["TMPDIR"] = test_sandbox.scratch
+  out["COSMIC_BUILD_HOME"] = build_home
   -- The cores of its own a worker that declares the `bootstrap` cache
   -- writes (`cache_writes`).
   for _, name in ipairs(effective.caches or {}) do
-    if name == "bootstrap" then out.COSMIC_PORTABLE_CACHE = own_cores end -- checked: map_field
+    if name == "bootstrap" then out["COSMIC_PORTABLE_CACHE"] = own_cores end
   end
   return out
 end
@@ -222,12 +223,14 @@ end
 --- here keeps it from writing over this program's core in the host's
 --- anyway.
 function test_sandbox.unenforced_view(environment: {string:string},
-                                      effective: test_inputs.Effective): {string:string}
+                                      effective: test_inputs.Effective): mut {string:string}
   local out = test_sandbox.environment(environment, effective)
-  out.COSMIC_TEST_NOEXEC = nil -- checked: map_field
-  out.COSMIC_TEST_PARENT = nil -- checked: map_field
-  if out.COSMIC_PORTABLE_CACHE == own_cores then -- checked: map_field
-    out.COSMIC_PORTABLE_CACHE = environment.COSMIC_PORTABLE_CACHE -- checked: map_field*2
+  out["COSMIC_TEST_NOEXEC"] = nil
+  out["COSMIC_TEST_PARENT"] = nil
+  if out["COSMIC_PORTABLE_CACHE"] == own_cores then
+    out["COSMIC_PORTABLE_CACHE"] = nil
+    local view = environment["COSMIC_PORTABLE_CACHE"]
+    if view ~= nil then out["COSMIC_PORTABLE_CACHE"] = view end
   end
   return out
 end
@@ -242,9 +245,9 @@ function test_sandbox.unenforced_environment(environment: {string:string},
                                              effective: test_inputs.Effective,
                                              scratch: string, root: string): {string:string}
   local out = test_sandbox.unenforced_view(environment, effective)
-  if #(effective.parent or {}) > 0 then out.COSMIC_TEST_PARENT = root .. "/.." end -- checked: map_field
-  out.TMPDIR = scratch -- checked: map_field
-  out.COSMIC_BUILD_HOME = scratch .. "/build" -- checked: map_field
+  if #(effective.parent or {}) > 0 then out["COSMIC_TEST_PARENT"] = root .. "/.." end
+  out["TMPDIR"] = scratch
+  out["COSMIC_BUILD_HOME"] = scratch .. "/build"
   return out
 end
 
@@ -668,7 +671,7 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
     sandbox = { unveil = { reads = reads, writes = writes, at = at }, offline = true },
     env = test_sandbox.environment(environment, effective),
     over = over,
-    trouble = refused ~= "" and refused or made and "" or "a cache it declares: " .. trouble, -- checked: and_ternary, or_mix
+    trouble = refused ~= "" and refused or made and "" or "a cache it declares: " .. trouble, -- checked: or_mix, and_ternary
     program = program,
     runs = runs,
     own_scratch = own_scratch,

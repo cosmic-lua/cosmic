@@ -133,8 +133,8 @@ moved path.
 A module declares what its tests read with one top-level
 `Test.policy { ... }` ([`Test.policy`]). Its fields are those of
 [`cosmic.sandbox`]'s `Policy`: `profiles`, `grants`, `env`, `promises`,
-`loopback` and `requires`, and `cpu_features`, which only a test declares
-(below). The harness takes only some of the rest.
+`loopback` and `requires`, and `cpu_features` and `store_text`, which only a
+test declares (below, and "the pure store"). The harness takes only some of the rest.
 
 ```text
 local Test = require("cosmic.test")
@@ -313,6 +313,9 @@ Its key holds the digest of exactly that, so an edit to an imported module
 that changes no bytecode (a comment, a blank line, a renamed local, a function
 that moved down the file) runs no test of its importers again, and one that
 changes what the module does runs them.
+
+The pure store is held for a sandboxed worker alone: unsandboxed, a worker
+reads the real tree, which a key without the imports' sources would not follow.
 
 A test whose subject is the text of the store (the checker typing a snippet
 of the tree's sources, `cosmic docs`, the language server, the uses and

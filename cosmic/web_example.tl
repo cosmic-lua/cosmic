@@ -82,6 +82,11 @@ function Example.pages()
   assert(not ok)
 end
 
+-- TODO: write the JSON documents this example sends as a literal, once the new checker takes a literal of mixed values
+-- where a JSON value is wanted: a recursive alias (`string | number | boolean | {Value} | {string: Value}`) is
+-- `alias_cycle`, and a literal given to an `any` parameter is `arms_differ` or `any_use`. That needs a JSON value
+-- type, or a decision that a document is a record, first; the marker on the line holds it until then.
+
 --- The other response constructors: [`Web.text`], an empty reply, a Reader
 --- body, and a problem. The header helpers read in any case and append:
 --- [`Web.add_header`] adds a `Set-Cookie` line without dropping the first and

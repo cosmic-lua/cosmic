@@ -12,60 +12,6 @@
 # The stages whose findings a marker holds at the line they occur on, with no rows here.
 scoped declared untyped checked
 
-[examples]
-# The findings of the new checker in the examples a reader copies (`*_example.tl` and the code blocks of doc/guides), which
-# [`build.example_checks`] holds in the new mode: `<file> <code> <count>`, the count over all of the file's examples. They
-# are the examples that need a type the new checker or the library does not yet have to be written cleanly. A pin only falls.
-
-# TODO: declare the handles these examples close with `<close>` (a connection, a listener, a query, a response) as
-# classes, and write the metatable of the two examples that build one by hand as a class, once the library's handles are
-# classes (a change of its own, library by library): the new checker refuses `<close>` on a record and a call of
-# `setmetatable`.
-cosmic/http/server_example.tl close_not_closable 1
-
-cosmic/net_example.tl close_not_closable 7
-
-cosmic/poll_example.tl cast_refused 1
-
-cosmic/poll_example.tl literal_missing 1
-
-
-cosmic/poll_example.tl setmetatable_call 1
-
-cosmic/removed_example.tl literal_missing 1
-
-cosmic/removed_example.tl setmetatable_call 1
-
-
-# TODO: write the JSON documents these examples encode and send as literals, once the new checker takes a literal of mixed
-# values where a JSON value is wanted: a recursive alias (`string | number | boolean | {Value} | {string: Value}`) is
-# `alias_cycle`, and a literal given to an `any` parameter is `arms_differ` or `any_use`. That needs a
-# JSON value type, or a decision that a document is a record, first.
-cosmic/removed_example.tl any_use 1
-
-cosmic/web_example.tl any_use 1
-
-# TODO: write the coroutine example of the reference with typed coroutines, once lang/stdlib.d.tl declares them: the
-# checker declares no `coroutine.yield`, and `coroutine.close` answers one of two lists of values.
-cosmic/removed_example.tl alternatives_as_value 1
-
-cosmic/removed_example.tl field_unknown 2
-
-cosmic/removed_example.tl overload_none 1
-
-# TODO: rewrite or retire these examples of forms the new grammar cuts (a union of two records, a cast, a test of a record,
-# a field read of a map) once the language tour (cosmic/removed_example.tl) shows the replacements and not the removed
-# forms; the [declared] and [checked] stages pin the same forms.
-# The tour's other pins are gaps of the checker, named by the TODOs above them.
-
-cosmic/removed_example.tl cast_refused 1
-
-cosmic/removed_example.tl is_on_record 1
-
-cosmic/removed_example.tl map_field 1
-
-cosmic/removed_example.tl untagged_union 1
-
 [testdata]
 # The files under ci/testdata that the new checker takes less strictly written than the fork did: `<file> <code>` to how
 # many findings of that code the file has when `ci_testdata` reads it in the new mode: the collections they fill, which

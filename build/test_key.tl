@@ -1119,7 +1119,7 @@ end
 local function address_stores(rec: Recording, modules: {Module},
                               by_path: {string:Module},
                               declarations: {string:string}): boolean, string
-  local basis, trouble = closure_store.basis(projection_of(rec))
+  local basis, trouble = closure_store.basis(projection_of(rec), rec.pure_store)
   if basis == nil then return false, trouble end
   rec.basis = basis
   -- The code that writes a store, and the core that runs it -- SQLite
@@ -1900,15 +1900,17 @@ function test_key.gather(rec: Recording, from: Gather): string?
   local type_only, type_only_trouble = projection_type_only(from.database)
   if type_only == nil then return type_only_trouble end
   rec.type_only = type_only
-  -- TODO: make the pure store the default (drop this switch, [`test_inputs.is_pure`]'s `held`) once the 14 test
-  -- modules that fail under it declare what they read: `store_text` for those whose subject is the text of the
-  -- store (the checker, docs, lsp, links, [`Store.source`]) and `reads` for build.c.rules_test and build.c.memo_test,
-  -- which read the source file of a module they import.
-  rec.pure_store = Env.read("COSMIC_TEST_PURE_STORE") == "1"
+  -- Only a sandboxed worker is held to the store and the files it is given: unsandboxed, it reads the real tree,
+  -- which a key without the imports' sources would not follow.
+  --
+  -- TODO: make the pure store the default (drop this switch) once every test module that fails under it
+  -- (`COSMIC_TEST_PURE_STORE=1 bin/cosmic test`) declares what it reads: `store_text` for one whose subject is
+  -- the text of the store, `reads` for one that reads the source file of a module it imports.
+  rec.pure_store = Env.read("COSMIC_TEST_PURE_STORE") == "1" and rec.sandbox
   for _, m in ipairs(selected_modules) do
     rec.closures[m.path] = test_inputs.modules(m, by_path, declarations, type_only)
   end
-  local noexec_probes: {string:string} = {}
+  local noexec_probes: mut {string:string} = {}
   for _, m in ipairs(selected_modules) do
     local effective = test_inputs.effective(m, by_path, declarations, type_only, rec.pure_store)
     effective.cache_paths = caches_of(rec, m)

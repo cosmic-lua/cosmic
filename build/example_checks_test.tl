@@ -218,36 +218,111 @@ local function test_an_example_writing_a_view_is_refused(dir: string)
     table.concat(found, "\n"))
 end
 
---- The checker's findings in the examples are held to the `[examples]` ceilings of the tree: all of a code's findings in a
---- file, or none.
-local function test_a_finding_within_its_pin_is_not_told_and_one_over_it_or_a_pin_above_it_is(dir: string)
-  local writes = source(
+--- The example of a view written, with `mark` after the line that writes it.
+local function writes(mark: string): string
+  return source(
     "local record Example end",
     "--- Collects words.",
     "function Example.collect()",
     "  local words: {string} = {}",
     "  local function add()",
-    '    words[#words + 1] = "a"',
+    '    words[#words + 1] = "a"' .. mark,
     "  end",
     "  add()",
     "  print(#words)",
     "end",
     "return Example")
-  assert(Fs.mkdirs(dir .. "/build"))
-  local function pinned(count: integer): {string}
-    assert(Fs.write(dir .. "/build/ceilings.txt",
-      "[examples]\ncosmic/thing_example.tl view_written " .. tostring(count) .. "\n"))
-    return found_in(dir, writes)
-  end
-  local within = pinned(1)
-  assert(#within == 0, table.concat(within, "\n"))
-  -- a pin of another file leaves this one's finding over its pin of 0, and is itself above what it finds
-  assert(Fs.write(dir .. "/build/ceilings.txt", "[examples]\ncosmic/other_example.tl view_written 1\n"))
-  local told = table.concat(found_in(dir, writes), "\n")
-  assert(told:find("(view_written)", 1, true) ~= nil and
-      told:find("cosmic/thing_example.tl view_written: 1 found, pinned 0;", 1, true) ~= nil, told)
-  assert(told:find("cosmic/other_example.tl view_written: pinned 1 but 0 found; lower the pin", 1, true) ~= nil, told)
-  local above = pinned(2)
-  assert(#above == 1 and assert(above[1]) == "cosmic/thing_example.tl view_written: pinned 2 but 1 found; lower the pin in " ..
-      "build/ceilings.txt's [examples]", table.concat(above, "\n"))
+end
+
+--- A finding of the checker in an example is held by the marker on its line, which is part of the text shown.
+local function test_a_finding_with_a_marker_on_its_line_is_held(dir: string)
+  local found = found_in(dir, writes(" -- checked: view_written"))
+  assert(#found == 0, table.concat(found, "\n"))
+end
+
+--- Without the marker the same example is told, with the line of the text shown and what the markers hold.
+local function test_a_finding_with_no_marker_is_told(dir: string)
+  local told = table.concat(found_in(dir, writes("")), "\n")
+  assert(told:find("(view_written)", 1, true) ~= nil, told)
+  assert(told:find("cosmic/thing_example.tl:3: example collect: 1 error of view_written on line 4 of the text shown, " ..
+      "marked 0 rather than add a marker; follow the fix above", 1, true) ~= nil, told)
+end
+
+--- A marker holds the findings of its own line: one on another line holds nothing here, and is stale where it is.
+local function test_a_marker_on_another_line_holds_nothing_and_is_stale(dir: string)
+  local moved = writes(""):gsub('(  local words: {string} = {})', "%1 -- checked: view_written")
+  local told = table.concat(found_in(dir, moved), "\n")
+  assert(told:find("1 error of view_written on line 4 of the text shown, marked 0", 1, true) ~= nil, told)
+  assert(told:find("line 2 of the text shown: its marker holds 1 finding of view_written that the line no longer has; " ..
+      "remove the marker", 1, true) ~= nil, told)
+end
+
+--- A marker whose finding is gone is told, so a marker is not left behind when the example is made clean.
+local function test_a_marker_with_no_finding_is_stale(dir: string)
+  local clean = source(
+    "local record Example end",
+    "--- Prints.",
+    "function Example.say()",
+    '  print("hi") -- checked: map_field',
+    "end",
+    "return Example")
+  local found = found_in(dir, clean)
+  assert(#found == 1 and found[1]:find("line 2 of the text shown: its marker holds 1 finding of map_field that the line " ..
+      "no longer has", 1, true) ~= nil, table.concat(found, "\n"))
+end
+
+--- A marker holds as many findings as it counts: `view_written*2` over one finding is stale by one.
+local function test_a_marker_holds_no_more_than_it_counts(dir: string)
+  local found = found_in(dir, writes(" -- checked: view_written*2"))
+  assert(#found == 1 and found[1]:find("its marker holds 1 finding of view_written that the line no longer has", 1, true) ~= nil,
+    table.concat(found, "\n"))
+end
+
+--- A closed code has no exceptions: a marker for it holds nothing, and is refused for it.
+local function test_a_marker_for_a_closed_code_holds_nothing(dir: string)
+  local found = found_in(dir, source(
+    "local record Example end",
+    "function Example.use()",
+    "  print(Missing) -- scoped: unknown_variable",
+    "end",
+    "return Example"))
+  local told = table.concat(found, "\n")
+  assert(told:find("(unknown_variable)", 1, true) ~= nil and
+      told:find("unknown_variable is closed: the tree keeps this rule with no exceptions", 1, true) ~= nil, told)
+end
+
+--- A guide's block is copied whole, so it holds no marker: its finding is told whatever the block says.
+local function test_a_guide_block_holds_no_marker(dir: string)
+  local found = found_in_guide(dir, source(
+    "# Fixture", "", "```teal", "local words: {string} = {}",
+    'local function add() words[#words + 1] = "a" end -- checked: view_written',
+    "add()", "print(#words)", "```"))
+  local told = table.concat(found, "\n")
+  assert(told:find("(view_written)", 1, true) ~= nil and told:find("doc/guides/fixture.md:3: example: 1 error of view_written " ..
+      "on line 2 of the text shown; follow the fix above", 1, true) ~= nil, told)
+end
+
+--- The example of a float key in an index, a finding of `checked` (the code is a finding of `declared` too), with `mark` after
+--- the line that writes it.
+local function float_key(mark: string): string
+  return source(
+    "local record Example end",
+    "--- Keys by a float.",
+    "function Example.keys()",
+    '  local words: {integer: string} = { [1] = "a" }',
+    "  local at: number = 1.5",
+    "  print(words[at])" .. mark,
+    "end",
+    "return Example")
+end
+
+--- A marker holds the findings of its own stage: `declared: float_key` holds none of the `checked` finding of the code, and
+--- is stale for the `declared` finding the line does not have.
+local function test_a_marker_of_another_stage_holds_nothing(dir: string)
+  local held = found_in(dir, float_key(" -- checked: float_key"))
+  assert(#held == 0, table.concat(held, "\\n"))
+  local told = table.concat(found_in(dir, float_key(" -- declared: float_key")), "\\n")
+  assert(told:find("1 error of float_key on line 4 of the text shown, marked 0", 1, true) ~= nil, told)
+  assert(told:find("line 4 of the text shown: its marker holds 1 finding of float_key that the line no longer has", 1, true) ~=
+      nil, told)
 end

@@ -242,21 +242,21 @@ end
 local function client_of(words: {string}): {string}?, integer
   local argv: mut {string} = { "sandbox" }
   for _, word in ipairs(words) do argv[#argv + 1] = word end
-  local given = { value = nil as {string}? } -- checked: cast_refused
-  local started = { value = false }
+  local given: support.Cell<{string}> = {}
+  local started: support.Cell<boolean> = { value = false }
   local code = sandbox.run(argv, {
     err = function(_: string) end,
     run = function(_: {string}, _: Child.Options): Child.Result?, string
-      started.value = true -- checked: map_field
+      started.value = true
       return finished(0), ""
     end,
     connect = function(args: {string}): integer
-      given.value = args -- checked: map_field
+      given.value = args
       return 42
     end,
   })
-  assert(started.value ~= true or given.value == nil, "the client and a program are not both run") -- checked: map_field*2
-  return given.value, code -- checked: map_field
+  assert(started.value ~= true or given.value == nil, "the client and a program are not both run")
+  return given.value, code
 end
 
 local function test_a_connect_right_after_the_verb_is_the_relays_client()
@@ -427,7 +427,7 @@ end
 
 --- Whether a field holds something: a non-empty list or map, or a value.
 local function holds(value: any): boolean
-  if type(value) == "table" then return next(value as {any:any}) ~= nil end -- declared: key_type -- checked: cast_refused
+  if type(value) == "table" then return next(value as {any:any}) ~= nil end -- checked: cast_refused -- declared: key_type
   return value ~= nil and value ~= false
 end
 
@@ -443,33 +443,33 @@ local function test_every_policy_field_has_a_flag()
       local words = samples[name]
       assert(words ~= nil, "Policy." .. name .. " has no flag: add one to cosmic sandbox and to " ..
           "Cli.verbs.sandbox.spec, and a sample here")
-      assert(assert(Cli.verbs.sandbox.spec)[words[1]] ~= nil, support.nth(words, 1) .. " is not in the spec") -- checked: map_field
+      assert(assert(assert(Cli.verbs["sandbox"]).spec)[support.nth(words, 1)] ~= nil, support.nth(words, 1) .. " is not in the spec")
       seen[support.nth(words, 1)] = true
       assert(holds(policy_after(words)[name]), support.nth(words, 1) .. " does not set Policy." .. name)
     end
   end
-  local limits = fields.limits -- checked: map_field
+  local limits = fields["limits"]
   assert(limits ~= nil and limits.kind == "record" and next(assert(limits.fields)) ~= nil)
   for name in pairs(assert(limits.fields)) do
     local words = samples[name]
     assert(words ~= nil, "Policy.limits." .. name .. " has no flag: add one to cosmic sandbox " ..
         "and to Cli.verbs.sandbox.spec, and a sample here")
     seen[support.nth(words, 1)] = true
-    local set = (policy_after(words).limits as {string:any}) -- checked: cast_refused, map_field
+    local set = (policy_after(words)["limits"] as {string:any}) -- checked: cast_refused
     assert(set ~= nil and set[name] == 5, support.nth(words, 1) .. " does not set Policy.limits." .. name)
   end
   -- A grant's path and letters are one option's. `from` has none: it needs
   -- isolate file and names a host path; it waits on policy files (the
   -- design's Roadmap).
-  for name in pairs(assert(assert(assert(fields.grants).of).fields)) do -- checked: map_field
+  for name in pairs(assert(assert(assert(fields["grants"]).of).fields)) do
     assert(name == "path" or name == "letters" or name == "from", "Policy.grants[]." .. name ..
         " has no flag: add one, and say so here")
   end
-  for flag in pairs(Cli.verbs.sandbox.spec or {}) do -- checked: literal_needs_type, map_field
+  for flag in pairs(assert(Cli.verbs["sandbox"]).spec or {}) do
     assert(seen[flag] == true or others[flag] == true, flag .. " sets no field of the policy")
   end
   for name in pairs(samples) do
     local sample = assert(samples[name], name .. " has a sample")
-    assert(assert(Cli.verbs.sandbox.spec)[support.nth(sample, 1)] ~= nil, name .. ": no such flag") -- checked: map_field
+    assert(assert(assert(Cli.verbs["sandbox"]).spec)[support.nth(sample, 1)] ~= nil, name .. ": no such flag")
   end
 end

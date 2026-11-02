@@ -52,7 +52,7 @@ local names <const> = { "greet", "greet_test" }
 --- its pure store's bytes, for the project at `root` as it is.
 local function made(root: string, tmp: string, name: string, header?: string): string, string, string
   project(root, tmp .. "/whole.db", header)
-  local basis = assert(closure_store.basis(tmp .. "/whole.db"))
+  local basis = assert(closure_store.basis(tmp .. "/whole.db", true))
   assert(closure_store.write(tmp .. "/whole.db", tmp .. "/" .. name .. ".db", names, basis, nil, "greet_test"))
   local bytes = assert(Fs.read(tmp .. "/" .. name .. ".db"))
   return closure_store.address(basis, names, "salt", "greet_test"), closure_store.address(basis, names, "salt"), bytes
@@ -109,7 +109,7 @@ local function test_a_pure_store_holds_no_text(tmp: string)
       "INSERT INTO examples (module, name, text, file, line, source) VALUES " ..
       "('greet', 'hello', 'Greets.', 'greet.tl', 5, 'print(greet.hello())')"))
   assert(whole:close())
-  local basis = assert(closure_store.basis(tmp .. "/whole.db"))
+  local basis = assert(closure_store.basis(tmp .. "/whole.db", true))
   assert(closure_store.write(tmp .. "/whole.db", tmp .. "/pure.db", names, basis, nil, "greet_test"))
   assert(closure_store.write(tmp .. "/whole.db", tmp .. "/full.db", names, basis))
   local function count(db: Sqlite.Handle, query: string): string

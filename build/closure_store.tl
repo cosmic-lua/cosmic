@@ -184,7 +184,7 @@ end
 --- the file is younger than two seconds: a write inside the tick of the
 --- clock that stamped it would leave all of these as they were, so a
 --- basis is kept only of a file already older than that.
-local function memo_token(whole: string): string?
+local function memo_token(whole: string, pure?: boolean): string?
   local st, _ = sys.stat(whole)
   if st == nil then return nil end
   local written = st.mtime * 1000000000 + st.mtime_ns
@@ -192,7 +192,7 @@ local function memo_token(whole: string): string?
   if Clock.now_ns() - math.max(written, changed) < 2000000000 then return nil end
   local code, _ = Store.bytecode("build.closure_store")
   if code == nil then return nil end
-  return table.concat({ "basis-memo-2", Hash.hex_sha256(code), st.size, st.ino, st.dev, written, changed }, " ")
+  return table.concat({ if pure == true then "basis-memo-2-pure" else "basis-memo-2" end, Hash.hex_sha256(code), st.size, st.ino, st.dev, written, changed }, " ")
 end
 
 --- Where a read of a kept basis is, and the basis it made.
@@ -297,7 +297,7 @@ end
 
 --- The basis of the closure stores of the projection at `whole`, read from
 --- every row of it.
-local function read_basis(whole: string): closure_store.Basis?, string
+local function read_basis(whole: string, pure?: boolean): closure_store.Basis?, string
   local opened, trouble = Sqlite.open(whole)
   if opened == nil then return nil, whole .. ": " .. trouble end
   local db: Sqlite.Handle = opened
@@ -378,9 +378,15 @@ local function read_basis(whole: string): closure_store.Basis?, string
     -- The first three groups are the imports, the declaration imports and the bound names.
     local kept: mut {{string:string}} = {}
     for i = 1, 3 do kept[i] = assert(carried[i], "the first three groups are read") end
-    local pure_rows, pure_trouble = Sqlite.rows(db,
-      "SELECT path, kind, file, lower(hex(sha256(tests))), inflate(bytecode) FROM modules ORDER BY path")
-    if pure_rows == nil then return nil, pure_trouble end
+    -- Only for a run that holds the pure store: stripping every chunk is for it alone, and a chunk it refuses
+    -- would otherwise stop a run that never reads the result.
+    local pure_rows: {Sqlite.Row} = {}
+    if pure == true then
+      local found, pure_trouble = Sqlite.rows(db,
+        "SELECT path, kind, file, lower(hex(sha256(tests))), inflate(bytecode) FROM modules ORDER BY path")
+      if found == nil then return nil, pure_trouble end
+      pure_rows = found
+    end
     for _, row in ipairs(pure_rows) do
       local path = row:text(1)
       local line: mut {string} = { path, row:text(2), row:text(3), row:text(4) }
@@ -412,13 +418,16 @@ end
 --- from the file beside it where an earlier run kept one of this very
 --- file ([`memo_token`]), which saves hashing every row of the
 --- projection, some half a second for cosmic's own tree.
-function closure_store.basis(whole: string): closure_store.Basis?, string
-  local token = memo_token(whole)
+---
+--- `pure` makes it also what [`closure_store.address`] and [`closure_store.write`] take for
+--- the pure store (`pure`, `stripped`, `bytecode`, `pure_decls`); without it those are empty.
+function closure_store.basis(whole: string, pure?: boolean): closure_store.Basis?, string
+  local token = memo_token(whole, pure)
   if token ~= nil then
     local kept = remembered(whole, token)
     if kept ~= nil then return kept, "" end
   end
-  local made, made_trouble = read_basis(whole)
+  local made, made_trouble = read_basis(whole, pure)
   if made == nil then return nil, made_trouble end
   if token ~= nil then remember(whole, token, made) end
   return made, ""

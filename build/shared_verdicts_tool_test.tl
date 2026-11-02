@@ -66,9 +66,9 @@ end
 --- switch says -- this test's worker, unsandboxed, may start runs that
 --- are, and a run sandboxed and required to be may start runs that
 --- cannot be, which [`skip_unless_shared`] holds it to.
-local function environment(): {string:string}
+local function environment(): mut {string:string}
   local env = this_program.environment()
-  env.COSMIC_TEST_SANDBOX = nil -- checked: map_field
+  env["COSMIC_TEST_SANDBOX"] = nil
   return env
 end
 
@@ -134,18 +134,18 @@ local type Said = function(string, string, string, arg4?: {string}): string
 --- the test skipped where the run shared nothing. Each case
 --- below seeds its own, so none starts more nested runs than a test's
 --- bound (10 s in CI) holds under load.
-local function seeded(tmp: string): {string:string}, Said, string
+local function seeded(tmp: string): mut {string:string}, Said, string
   -- Resolved: a sandbox gives a host path its suite declares at the
   -- name it resolves to, and the one this test was handed is a link.
   tmp = assert(Fs.absolute(tmp))
   assert(Fs.mkdirs(tmp .. "/outside"))
   assert(Fs.write(tmp .. "/outside/f", "out\n"))
   local env = environment()
-  env.COSMIC_VERDICT_CACHE = tmp .. "/cache/verdicts.db" -- checked: map_field
-  env.OUTSIDE = tmp .. "/outside" -- checked: map_field
-  env.FLAVOUR = "sweet" -- checked: map_field
-  env.COSMIC_TEST_ALL = nil -- checked: map_field
-  env.COSMIC_SANDBOX = nil -- checked: map_field
+  env["COSMIC_VERDICT_CACHE"] = tmp .. "/cache/verdicts.db"
+  env["OUTSIDE"] = tmp .. "/outside"
+  env["FLAVOUR"] = "sweet"
+  env["COSMIC_TEST_ALL"] = nil
+  env["COSMIC_SANDBOX"] = nil
   local function said(name: string, root: string, wanted: string, words?: {string}): string
     local text = run(root, tmp .. "/" .. name .. ".out", env, words)
     assert(text:find(wanted, 1, true), name .. ": " .. text)
@@ -180,8 +180,8 @@ end
 local function test_a_rebooted_run_stands_on_the_first_ones_verdicts(tmp: string)
   local env, said, _ = seeded(tmp)
   tmp = assert(Fs.absolute(tmp))
-  env.COSMIC_REBOOTED = "1" -- checked: map_field
-  env.OLDPWD = tmp .. "/elsewhere" -- checked: map_field
+  env["COSMIC_REBOOTED"] = "1"
+  env["OLDPWD"] = tmp .. "/elsewhere"
   checkout(tmp .. "/rebooted", "one\n")
   said("rebooted", tmp .. "/rebooted", "0 ran, 5 stood")
 end
@@ -237,7 +237,7 @@ local function test_a_chosen_edited_module_or_another_variable_runs(tmp: string)
   local chosen = said("chosen", tmp .. "/first", "4 ran, 0 stood", { "suite/reads_test.tl" })
   assert(not chosen:find("shared verdicts: none of", 1, true), chosen)
   -- A variable a module declares differs: its tests run.
-  env.FLAVOUR = "salty" -- checked: map_field
+  env["FLAVOUR"] = "salty"
   checkout(tmp .. "/salty", "one\n")
   said("salty", tmp .. "/salty", "4 ran, 1 stood")
 end
@@ -259,7 +259,7 @@ end
 local function test_without_the_cache_a_checkout_runs_everything(tmp: string)
   local env, said, _ = seeded(tmp)
   tmp = assert(Fs.absolute(tmp))
-  env.COSMIC_VERDICT_CACHE = "0" -- checked: map_field
+  env["COSMIC_VERDICT_CACHE"] = "0"
   checkout(tmp .. "/alone", "one\n")
   said("alone", tmp .. "/alone", "5 ran, 0 stood")
 end
@@ -271,9 +271,9 @@ end
 --- first one's verdict.
 local function test_a_database_sqlite_reads_is_keyed_by_its_contents(tmp: string)
   local env = environment()
-  env.COSMIC_VERDICT_CACHE = tmp .. "/cache/verdicts.db" -- checked: map_field
-  env.COSMIC_TEST_ALL = nil -- checked: map_field
-  env.COSMIC_SANDBOX = nil -- checked: map_field
+  env["COSMIC_VERDICT_CACHE"] = tmp .. "/cache/verdicts.db"
+  env["COSMIC_TEST_ALL"] = nil
+  env["COSMIC_SANDBOX"] = nil
   local function database_checkout(root: string, value: string)
     assert(Fs.mkdirs(root .. "/suite"))
     local db = assert(Sqlite.open(root .. "/suite/data.db", { writable = true }))
@@ -336,11 +336,11 @@ end
 --- The environment the link cases run in, sharing through a cache in
 --- `tmp`, once a first checkout whose link leads to "a" has run and
 --- shared its verdicts, the test skipped where it shared nothing.
-local function linked(tmp: string): {string:string}
+local function linked(tmp: string): mut {string:string}
   local env = environment()
-  env.COSMIC_VERDICT_CACHE = tmp .. "/cache/verdicts.db" -- checked: map_field
-  env.COSMIC_TEST_ALL = nil -- checked: map_field
-  env.COSMIC_SANDBOX = nil -- checked: map_field
+  env["COSMIC_VERDICT_CACHE"] = tmp .. "/cache/verdicts.db"
+  env["COSMIC_TEST_ALL"] = nil
+  env["COSMIC_SANDBOX"] = nil
   link_checkout(tmp .. "/first", "a")
   local first = run(tmp .. "/first", tmp .. "/first.out", env)
   assert(first:find("2 ran, 0 stood", 1, true), first)
@@ -379,9 +379,9 @@ end
 --- rewrites, runs every time.
 local function test_a_database_attached_through_the_store_is_keyed_by_its_contents(tmp: string)
   local env = environment()
-  env.COSMIC_VERDICT_CACHE = tmp .. "/cache/verdicts.db" -- checked: map_field
-  env.COSMIC_TEST_ALL = nil -- checked: map_field
-  env.COSMIC_SANDBOX = nil -- checked: map_field
+  env["COSMIC_VERDICT_CACHE"] = tmp .. "/cache/verdicts.db"
+  env["COSMIC_TEST_ALL"] = nil
+  env["COSMIC_SANDBOX"] = nil
   local function attached_checkout(root: string, value: string)
     assert(Fs.mkdirs(root .. "/suite"))
     local db = assert(Sqlite.open(root .. "/suite/data.db", { writable = true }))
@@ -443,14 +443,14 @@ local function test_a_database_in_a_tests_own_directory_through_a_linked_temp_st
   assert(Fs.mkdirs(tmp .. "/real-temp"))
   assert(Fs.symlink("real-temp", tmp .. "/temp"))
   local env = environment()
-  env.COSMIC_VERDICT_CACHE = "0" -- checked: map_field
-  env.COSMIC_TEST_ALL = nil -- checked: map_field
-  env.COSMIC_SANDBOX = nil -- checked: map_field
-  env.TMPDIR = tmp .. "/temp" -- checked: map_field
+  env["COSMIC_VERDICT_CACHE"] = "0"
+  env["COSMIC_TEST_ALL"] = nil
+  env["COSMIC_SANDBOX"] = nil
+  env["TMPDIR"] = tmp .. "/temp"
   -- Unsandboxed, as on macOS, whose /var the link stands for: a
   -- sandboxed worker's directory is in its scratch directory, reached
   -- through no link.
-  env.COSMIC_TEST_SANDBOX = "0" -- checked: map_field
+  env["COSMIC_TEST_SANDBOX"] = "0"
   local root = tmp .. "/checkout"
   assert(Fs.mkdirs(root .. "/suite"))
   assert(Fs.write(root .. "/suite/own_database_test.tl", [[
@@ -476,9 +476,9 @@ end
 --- every time.
 local function test_a_read_of_the_builds_output_is_keyed_by_its_bytes(tmp: string)
   local env = environment()
-  env.COSMIC_VERDICT_CACHE = tmp .. "/cache/verdicts.db" -- checked: map_field
-  env.COSMIC_TEST_ALL = nil -- checked: map_field
-  env.COSMIC_SANDBOX = nil -- checked: map_field
+  env["COSMIC_VERDICT_CACHE"] = tmp .. "/cache/verdicts.db"
+  env["COSMIC_TEST_ALL"] = nil
+  env["COSMIC_SANDBOX"] = nil
   local function said(name: string, tool: string, wanted: string): string
     local root = tmp .. "/" .. name
     assert(Fs.mkdirs(root .. "/suite"))
@@ -536,9 +536,9 @@ end
 local function test_a_row_whose_key_this_checkout_does_not_reach_does_not_stand(tmp: string)
   local cache = tmp .. "/cache/verdicts.db"
   local env = environment()
-  env.COSMIC_VERDICT_CACHE = cache -- checked: map_field
-  env.FLAVOUR = "sweet" -- checked: map_field
-  env.OUTSIDE = tmp -- checked: map_field
+  env["COSMIC_VERDICT_CACHE"] = cache
+  env["FLAVOUR"] = "sweet"
+  env["OUTSIDE"] = tmp
   checkout(tmp .. "/first", "one\n")
   local first = run(tmp .. "/first", tmp .. "/first.out", env, { "suite/reads_test.tl" })
   assert(first:find("4 ran, 0 stood", 1, true), first)
@@ -564,11 +564,11 @@ end
 --- the run runs what it must and passes.
 local function test_a_cache_that_cannot_answer_is_done_without(tmp: string)
   local env = environment()
-  env.COSMIC_TEST_SANDBOX = "0" -- checked: map_field
-  env.FLAVOUR = "sweet" -- checked: map_field
-  env.OUTSIDE = tmp -- checked: map_field
+  env["COSMIC_TEST_SANDBOX"] = "0"
+  env["FLAVOUR"] = "sweet"
+  env["OUTSIDE"] = tmp
   local corrupt = tmp .. "/corrupt/verdicts.db"
-  env.COSMIC_VERDICT_CACHE = corrupt -- checked: map_field
+  env["COSMIC_VERDICT_CACHE"] = corrupt
   checkout(tmp .. "/first", "one\n")
   run(tmp .. "/first", tmp .. "/first.out", env, { "suite/reads_test.tl" })
   local bytes = assert(Fs.read(corrupt))
@@ -597,9 +597,9 @@ end
 --- once and done without: the run runs what it must and passes.
 local function test_a_cache_of_another_shape_is_done_without(tmp: string)
   local env = environment()
-  env.COSMIC_TEST_SANDBOX = "0" -- checked: map_field
-  env.FLAVOUR = "sweet" -- checked: map_field
-  env.OUTSIDE = tmp -- checked: map_field
+  env["COSMIC_TEST_SANDBOX"] = "0"
+  env["FLAVOUR"] = "sweet"
+  env["OUTSIDE"] = tmp
   local other = tmp .. "/other/malformed.db"
   assert(Fs.mkdirs(tmp .. "/other"))
   local db = assert(Sqlite.open(other, { writable = true }))
@@ -609,7 +609,7 @@ local function test_a_cache_of_another_shape_is_done_without(tmp: string)
   shared_verdicts.close(probe)
   assert(db:exec("CREATE TABLE " .. named[1]:text(1) .. " (x TEXT)")) -- checked: nil_not_allowed
   local before = assert(Fs.stat(other))
-  env.COSMIC_VERDICT_CACHE = other -- checked: map_field
+  env["COSMIC_VERDICT_CACHE"] = other
   checkout(tmp .. "/third", "one\n")
   local third = run(tmp .. "/third", tmp .. "/third.out", env, { "suite/reads_test.tl" })
   assert(third:find("4 ran, 0 stood", 1, true), third)
@@ -637,9 +637,9 @@ end
 --- file holds, not when it was written.
 local function test_a_touched_file_runs_nothing_again(tmp: string)
   local env = environment()
-  env.COSMIC_VERDICT_CACHE = tmp .. "/cache/verdicts.db" -- checked: map_field
-  env.FLAVOUR = "sweet" -- checked: map_field
-  env.OUTSIDE = tmp -- checked: map_field
+  env["COSMIC_VERDICT_CACHE"] = tmp .. "/cache/verdicts.db"
+  env["FLAVOUR"] = "sweet"
+  env["OUTSIDE"] = tmp
   checkout(tmp .. "/first", "one\n")
   local words = { "suite/reads_test.tl" }
   local first = run(tmp .. "/first", tmp .. "/first.out", env, words)
@@ -649,7 +649,7 @@ local function test_a_touched_file_runs_nothing_again(tmp: string)
   local touched = run(tmp .. "/first", tmp .. "/touched.out", env, words)
   assert(touched:find("0 ran, 4 stood", 1, true), touched)
   assert(not touched:find("another checkout", 1, true), touched)
-  env.COSMIC_VERDICT_CACHE = "0" -- checked: map_field
+  env["COSMIC_VERDICT_CACHE"] = "0"
   touch(tmp .. "/first/suite/data.txt")
   local alone = run(tmp .. "/first", tmp .. "/alone.out", env, words)
   assert(alone:find("0 ran, 4 stood", 1, true), alone)
@@ -660,9 +660,9 @@ end
 --- reached.
 local function test_a_checkout_made_again_at_the_same_path_stands_on_the_last(tmp: string)
   local env = environment()
-  env.COSMIC_VERDICT_CACHE = tmp .. "/cache/verdicts.db" -- checked: map_field
-  env.FLAVOUR = "sweet" -- checked: map_field
-  env.OUTSIDE = tmp -- checked: map_field
+  env["COSMIC_VERDICT_CACHE"] = tmp .. "/cache/verdicts.db"
+  env["FLAVOUR"] = "sweet"
+  env["OUTSIDE"] = tmp
   local words = { "suite/reads_test.tl" }
   checkout(tmp .. "/here", "one\n")
   local first = run(tmp .. "/here", tmp .. "/first.out", env, words)
@@ -683,12 +683,12 @@ local function test_a_failure_here_is_not_answered_from_elsewhere(tmp: string)
   -- name it resolves to, and the one this test was handed is a link.
   tmp = assert(Fs.absolute(tmp))
   local env = environment()
-  env.COSMIC_VERDICT_CACHE = tmp .. "/cache/verdicts.db" -- checked: map_field
-  env.COSMIC_TEST_ALL = nil -- checked: map_field
-  env.COSMIC_SANDBOX = nil -- checked: map_field
-  env.FLAVOUR = "sweet" -- checked: map_field
+  env["COSMIC_VERDICT_CACHE"] = tmp .. "/cache/verdicts.db"
+  env["COSMIC_TEST_ALL"] = nil
+  env["COSMIC_SANDBOX"] = nil
+  env["FLAVOUR"] = "sweet"
   assert(Fs.mkdirs(tmp .. "/outside"))
-  env.OUTSIDE = tmp .. "/outside" -- checked: map_field
+  env["OUTSIDE"] = tmp .. "/outside"
   assert(Fs.write(tmp .. "/outside/f", "out\n"))
   checkout(tmp .. "/first", "one\n")
   checkout(tmp .. "/second", "one\n")
@@ -719,17 +719,17 @@ end
 --- at its first read -- of f in the directory OUTSIDE names -- where f
 --- was last written at `unready`, and the environment they run in,
 --- sharing through a cache in `tmp`; and `tmp` resolved.
-local function early_suite(tmp: string): {string:string}, string
+local function early_suite(tmp: string): mut {string:string}, string
   -- Resolved: a sandbox gives a host path its suite declares at the
   -- name it resolves to, and the one this test was handed is a link.
   tmp = assert(Fs.absolute(tmp))
   local env = environment()
-  env.COSMIC_VERDICT_CACHE = tmp .. "/cache/verdicts.db" -- checked: map_field
-  env.COSMIC_TEST_ALL = nil -- checked: map_field
-  env.COSMIC_SANDBOX = nil -- checked: map_field
+  env["COSMIC_VERDICT_CACHE"] = tmp .. "/cache/verdicts.db"
+  env["COSMIC_TEST_ALL"] = nil
+  env["COSMIC_SANDBOX"] = nil
   assert(Fs.mkdirs(tmp .. "/outside"))
   assert(Fs.write(tmp .. "/outside/f", "out\n"))
-  env.OUTSIDE = tmp .. "/outside" -- checked: map_field
+  env["OUTSIDE"] = tmp .. "/outside"
   for _, name in ipairs({ "first", "second" }) do
     local root = tmp .. "/" .. name
     assert(Fs.mkdirs(root .. "/suite"))
@@ -780,7 +780,7 @@ local function test_a_failure_here_runs_again_without_the_cache(tmp: string)
   local failed = run(tmp .. "/second", tmp .. "/failed.out", env, {}, true)
   assert(failed:find("1 of 1 test failed", 1, true), failed)
   skip_unless_shared(failed)
-  env.COSMIC_VERDICT_CACHE = "0" -- checked: map_field
+  env["COSMIC_VERDICT_CACHE"] = "0"
   local alone = run(tmp .. "/second", tmp .. "/alone.out", env, {}, true)
   assert(alone:find("1 of 1 test failed", 1, true), alone)
 end

@@ -9,6 +9,7 @@ local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local confine = require("build.confine")
 local stand_in = require("build.stand_in")
+local support = require("build.test_support_fixture")
 local Test = require("cosmic.test")
 
 --- The system's own paths; `nests`, since a process it confines has a
@@ -30,13 +31,13 @@ local function test_a_confined_process_is_given_the_system_s_paths(tmp: string)
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   local own = tmp .. "/own"
   assert(Fs.mkdirs(own))
-  local code = { value = nil as integer? } -- checked: cast_refused
+  local code: support.Cell<integer> = {}
   local ran = confine.call(function() -- checked: not_assignable
     confine.confine({ reads = { probe } })
     local r = assert(Child.run({ probe, "present /usr || exit 3" }, { env = {} }))
     confine.confine(nil)
-    code.value = r.code -- checked: map_field
+    code.value = r.code
   end, nil, { own })
   assert(ran.ok, tostring(ran.produced))
-  assert(code.value == 0, "the process did not see /usr: " .. tostring(code.value)) -- checked: map_field*2
+  assert(code.value == 0, "the process did not see /usr: " .. tostring(code.value))
 end
