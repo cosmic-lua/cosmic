@@ -2,6 +2,7 @@
 --- tests: the one of them that starts a host program, setsid, to run in
 --- a session of its own, and so the one that needs the system's paths.
 
+local TestSandboxFixture = require("build.test_sandbox_fixture")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local confine = require("build.confine")
@@ -29,22 +30,6 @@ local function create(path: string): integer
   return fd
 end
 
---- The descriptors [`this_program.program`] hands its child, as
---- [`process.spawn`] takes them: each a descriptor of this process, as
---- the relaunch's are, and none "capture", which only [`cosmic.child`]
---- reads.
-local function spawn_fds(started: this_program.Program): {integer:integer}
-  local fds: mut {integer:integer} = {}
-  for number, fd in pairs(started.options.fds or {}) do
-    if fd is integer then
-      fds[number] = fd
-    else
-      error("descriptor " .. tostring(number) .. " is " .. fd .. ", which spawn cannot hand on")
-    end
-  end
-  return fds
-end
-
 --- The setsid program where this host has one, or nil.
 local function setsid_program(): string?
   for _, path in ipairs({ "/usr/bin/setsid", "/bin/setsid", "/usr/sbin/setsid" }) do
@@ -64,7 +49,7 @@ local function in_own_session(tmp: string, name: string, args: {string}): string
   local argv: mut {string} = { setsid }
   for _, word in ipairs(started.argv) do argv[#argv + 1] = word end
   local pid = assert(process.spawn(setsid, argv, started.options.env, tmp, nil, report, report,
-    false, spawn_fds(started)))
+    false, TestSandboxFixture.spawn_fds(started)))
   local status = assert(process.waitpid(pid, false))
   local said = assert(sys.pread(report, 65536, 0))
   sys.close(report)

@@ -498,6 +498,49 @@ local function captured(fd: integer, dir: string, run: function()): string
   return (assert(Fs.read(path)))
 end
 
+--- `cosmic lsp` holds its tool to the tree again at each stage ([`reboot.recheck`]): while another run holds the rebuild
+--- lock, a tool older than the tree is deferred and the tree stays unchecked; once the lock is free and the tool is the
+--- tree's the check clears it, so a stage is no longer left alone ([`rebuild.stage`]); and a tool still stale where the lock is free, which a rebuild
+--- cannot mend here, answers the failure and leaves the tree unchecked. The running tool is named ([`reboot.Seen`]).
+local function test_a_check_that_was_deferred_is_made_once_the_lock_is_free(tmp: string)
+  local root = tmp .. "/tree"
+  local fingerprint = own_tree(root)
+  local layout = build_paths.resolve(root)
+  local built_from = assert(tree.built_from(root))
+  local stale: reboot.Seen = { tool = layout.tool, environment = {},
+    meta = { image_hash = fingerprint.image, boot_hash = "not the tree's", built_from = built_from } }
+  local current: reboot.Seen = { tool = layout.tool, environment = {},
+    meta = { image_hash = fingerprint.image, boot_hash = fingerprint.boot, built_from = built_from } }
+  held_elsewhere(root, function()
+    local asked = false
+    local function before_enter(): {string:string}?, string
+      asked = true
+      return {}, ""
+    end
+    assert(reboot.recheck({ "lsp" }, root, stale, before_enter) == nil)
+    assert(not asked, "the session was written for a check that deferred")
+    assert(reboot.unchecked(root), "a stale tool under the lock is not deferred")
+    assert(assert(rebuild.stage(root)).unchecked)
+  end)
+  -- Still stale, the lock free, and a reboot has entered the process already, as one that rebuilt it would have: the
+  -- rebuild is refused, and the session goes on with its tree unchecked.
+  local entered: reboot.Seen = { tool = layout.tool, environment = { COSMIC_REBOOTED = "1" },
+    meta = { image_hash = fingerprint.image, boot_hash = "not the tree's", built_from = built_from } }
+  local said = captured(2, tmp, function()
+    assert(reboot.recheck({ "lsp" }, root, entered) == 3)
+  end)
+  assert(said:find("still stale after a reboot", 1, true), said)
+  assert(reboot.unchecked(root), "a failed check leaves the tree held")
+  -- The tool is the tree's and the lock is free: the tree is held to it again.
+  local fresh_asked = false
+  assert(reboot.recheck({ "lsp" }, root, current, function(): {string:string}?, string
+    fresh_asked = true
+    return {}, ""
+  end) == nil)
+  assert(not fresh_asked, "the session was written for a tool that was fresh")
+  assert(not reboot.unchecked(root), "a check that found the tool fresh left the tree unchecked")
+end
+
 --- The check before a verb that only reads, finding the tool stale by the
 --- tree's Teal alone -- an edit while `cosmic test` holds the rebuild lock,
 --- the commonest case -- waits for none: it rebuilds nothing, says that

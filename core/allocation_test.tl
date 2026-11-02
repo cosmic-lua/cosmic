@@ -26,6 +26,7 @@
 --- The children-list walk is core/allocation_children_test.tl's: it
 --- also requires the children file in this process's mounted /proc.
 
+local AllocationFixture = require("build.allocation_fixture")
 local Codec = require("cosmic.codec")
 local Compress = require("cosmic.compress")
 local Fs = require("cosmic.fs")
@@ -55,40 +56,6 @@ local process = require("cosmic.internal.process")
 
 local socket = require("cosmic.internal.socket")
 
---- Runs `work` once per allocation it makes, refusing that allocation,
---- and a last time with none refused; answers how many runs a refusal
---- ended. A run that nothing was refused in must succeed.
----
---- `settle`, when given, runs after each run with allocations granted
---- again, to release what the run was handed. The work cannot release it
---- itself: a worker's coverage hook runs Lua between any two lines, and
---- can itself be refused, so a refusal can fall between a binding's
---- return and the line that would have released what it returned.
-local function under_every_failure(work: function(), settle?: function()): integer
-  local ended = 0
-  for after = 0, 1000000 do
-    testing.fail_allocations(after)
-    local ok, failure = pcall(work as function(): any)
-    local refused = testing.allow_allocations()
-    if settle ~= nil then settle() end
-    collectgarbage("collect")
-    if refused == 0 then
-      assert(ok, "the work failed with every allocation granted: " .. tostring(failure))
-      return ended
-    end
-    ended = ended + 1
-  end
-  error("the work never ran with every allocation granted")
-end
-
---- The descriptor the next open is handed: the lowest free one, so an
---- earlier one left open shows as a higher number.
-local function next_descriptor(tmp: string): integer
-  local fd = assert(sys.open(tmp .. "/probe", sys.O_CREAT | sys.O_RDWR, 420))
-  sys.close(fd)
-  return fd
-end
-
 local function test_a_refused_allocation_raises_and_is_counted()
   -- Made before refusal starts: the closure is itself an allocation,
   -- and nothing after a refusal outside pcall could even report.
@@ -106,22 +73,22 @@ local function test_readdir_releases_its_directory_whenever_an_allocation_fails(
   for i = 1, 40 do
     sys.close((assert(sys.open(tmp .. "/d/entry-" .. tostring(i), sys.O_CREAT | sys.O_WRONLY, 420))))
   end
-  local before = next_descriptor(tmp)
-  local ended = under_every_failure(function()
+  local before = AllocationFixture.next_descriptor(tmp)
+  local ended = AllocationFixture.under_every_failure(function()
     assert(sys.readdir(tmp .. "/d"))
   end)
   assert(ended > 0, "listing forty entries allocates")
   collectgarbage("collect")
-  local after = next_descriptor(tmp)
+  local after = AllocationFixture.next_descriptor(tmp)
   assert(after == before, "a refused allocation left descriptor " .. tostring(before) .. " open")
 end
 
 local function test_the_store_finalizes_its_statement_whenever_an_allocation_fails()
   local before = testing.open_statements()
-  local ended = under_every_failure(function()
+  local ended = AllocationFixture.under_every_failure(function()
     assert(Store.bytecode("cosmic.fs"))
   end)
-  ended = ended + under_every_failure(function()
+  ended = ended + AllocationFixture.under_every_failure(function()
     Store.meta("compiler")
   end)
   assert(ended > 0, "copying a module's bytes out allocates")
@@ -136,7 +103,7 @@ end
 --- from under itself.
 local function test_print_survives_every_refused_allocation()
   local long = string.rep(".", 1100)
-  local ended = under_every_failure(function()
+  local ended = AllocationFixture.under_every_failure(function()
     print("allocation_test: a long print under refusal ->", long, 42)
   end)
   assert(ended > 0, "a line past the inline buffer allocates")
@@ -146,12 +113,12 @@ end
 --- refusal while it does must close it, not leave it to the process.
 local function test_open_temporary_closes_its_descriptor_whenever_an_allocation_fails(tmp: string)
   local path = tmp .. "/t"
-  local before = next_descriptor(tmp)
+  local before = AllocationFixture.next_descriptor(tmp)
   -- Taken on the line that makes the call, so no hook runs between the
   -- binding's return and the test holding what it returned.
   local received = { value = nil as sys.TemporaryFile? }
   local opened = { value = 0 }
-  local ended = under_every_failure(function()
+  local ended = AllocationFixture.under_every_failure(function()
     received.value = sys.open_temporary(path, 420)
   end, function()
     local value = received.value
@@ -164,7 +131,7 @@ local function test_open_temporary_closes_its_descriptor_whenever_an_allocation_
   assert(ended > 0, "building the answer allocates")
   assert(opened.value >= 1, "the run with nothing refused opens a file")
   collectgarbage("collect")
-  local after = next_descriptor(tmp)
+  local after = AllocationFixture.next_descriptor(tmp)
   assert(after == before, "a refused allocation left descriptor " .. tostring(before) .. " open")
 end
 
@@ -173,7 +140,7 @@ end
 --- it, must come back through the guards that free them.
 local function test_execve_survives_every_refused_allocation(tmp: string)
   local missing = tmp .. "/no-such-program"
-  local ended = under_every_failure(function()
+  local ended = AllocationFixture.under_every_failure(function()
     local ok, trouble = sys.execve(missing, { missing, "an argument" }, { NAME = "value" })
     assert(ok == false and trouble ~= nil,
       "a program that is not there cannot run")
@@ -183,12 +150,12 @@ end
 
 --- A pipe is made after its answer is: a refusal leaves neither end open.
 local function test_pipe_leaves_no_end_open_whenever_an_allocation_fails(tmp: string)
-  local before = next_descriptor(tmp)
+  local before = AllocationFixture.next_descriptor(tmp)
   -- Taken on the line that makes the call, and released in `settle`, so
   -- a refused coverage hook cannot fall between the two.
   local received = { value = nil as raw_process.Pipe? }
   local made = { value = 0 }
-  local ended = under_every_failure(function()
+  local ended = AllocationFixture.under_every_failure(function()
     received.value = process.pipe()
   end, function()
     local pipe = received.value
@@ -201,7 +168,7 @@ local function test_pipe_leaves_no_end_open_whenever_an_allocation_fails(tmp: st
   end)
   assert(ended > 0, "building the answer allocates")
   assert(made.value >= 1, "the run with nothing refused makes a pipe")
-  local after = next_descriptor(tmp)
+  local after = AllocationFixture.next_descriptor(tmp)
   assert(after == before, "a refused allocation left descriptor " .. tostring(before) .. " open")
 end
 
@@ -210,8 +177,8 @@ end
 --- builds the wrap -- leaves none to the process. Over the loopback, which
 --- needs no socket file.
 local function test_net_leaves_no_descriptor_whenever_an_allocation_fails(tmp: string)
-  local before = next_descriptor(tmp)
-  local ended = under_every_failure(function()
+  local before = AllocationFixture.next_descriptor(tmp)
+  local ended = AllocationFixture.under_every_failure(function()
     local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Clock.seconds(5) }))
     local client <close> = assert(Net.connect(server.address, { timeout_ns = Clock.seconds(5) }))
     local accepted <close> = assert(server:accept())
@@ -219,15 +186,15 @@ local function test_net_leaves_no_descriptor_whenever_an_allocation_fails(tmp: s
     assert(accepted:read() == "hello")
   end)
   assert(ended > 0, "listening, connecting and accepting allocate")
-  local after = next_descriptor(tmp)
+  local after = AllocationFixture.next_descriptor(tmp)
   assert(after == before, "a refused allocation left descriptor " .. tostring(before) .. " open")
 end
 
 --- Every allocation in making sockets and receiving packets is walked;
 --- ownership is in place before the wrapper or sender table is built.
 local function test_udp_leaves_no_descriptor_whenever_an_allocation_fails(tmp: string)
-  local before = next_descriptor(tmp)
-  local ended = under_every_failure(function()
+  local before = AllocationFixture.next_descriptor(tmp)
+  local ended = AllocationFixture.under_every_failure(function()
     local server <close> = assert(Udp.bind("127.0.0.1", 0))
     local client <close> = assert(Udp.bind("127.0.0.1", 0))
     assert(Udp.send(client, "hello", server.address))
@@ -237,7 +204,7 @@ local function test_udp_leaves_no_descriptor_whenever_an_allocation_fails(tmp: s
     assert(assert(Udp.receive(client, Clock.seconds(5))).data == "")
   end)
   assert(ended > 0, "binding and receiving allocate")
-  assert(next_descriptor(tmp) == before, "a refused allocation left descriptor " .. tostring(before) .. " open")
+  assert(AllocationFixture.next_descriptor(tmp) == before, "a refused allocation left descriptor " .. tostring(before) .. " open")
 end
 
 --- A lookup from a hosts file, which opens no socket, under every
@@ -249,13 +216,13 @@ end
 local function test_resolve_leaves_no_descriptor_whenever_an_allocation_fails(tmp: string)
   local hosts = tmp .. "/hosts"
   assert(Fs.write(hosts, "192.0.2.1 a.example.test\n2001:db8::1 a.example.test\n"))
-  local before = next_descriptor(tmp)
-  local ended = under_every_failure(function()
+  local before = AllocationFixture.next_descriptor(tmp)
+  local ended = AllocationFixture.under_every_failure(function()
     local found = assert(Net.resolve("a.example.test", { hosts_file = hosts, timeout_ns = Clock.seconds(5) }))
     assert(#found == 2)
   end)
   assert(ended > 0, "answering allocates")
-  assert(next_descriptor(tmp) == before, "a refused allocation left descriptor " .. tostring(before) .. " open")
+  assert(AllocationFixture.next_descriptor(tmp) == before, "a refused allocation left descriptor " .. tostring(before) .. " open")
 end
 
 --- A lookup keeps a c-ares channel, and a stand-in descriptor for each
@@ -270,8 +237,8 @@ local function test_lookup_leaves_no_descriptor_whenever_an_allocation_fails(tmp
   assert(Fs.write(hosts, "192.0.2.1 a.example.test\n"))
   local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Clock.seconds(5) }))
   local through = { { host = "127.0.0.1", port = server.address.port, index = 1 } }
-  local before = next_descriptor(tmp)
-  local ended = under_every_failure(function()
+  local before = AllocationFixture.next_descriptor(tmp)
+  local ended = AllocationFixture.under_every_failure(function()
     local answered <close> = assert(socket.lookup("a.example.test", 5000, nil, hosts, nil))
     assert(answered:step(nil, nil))
     assert(#assert(answered:result()) == 1)
@@ -295,7 +262,7 @@ local function test_lookup_leaves_no_descriptor_whenever_an_allocation_fails(tmp
     end
   end)
   assert(ended > 0, "starting a lookup allocates")
-  assert(next_descriptor(tmp) == before, "a refused allocation left descriptor " .. tostring(before) .. " open")
+  assert(AllocationFixture.next_descriptor(tmp) == before, "a refused allocation left descriptor " .. tostring(before) .. " open")
 end
 
 --- A unix listener owns its socket file too: a refusal anywhere leaves
@@ -305,8 +272,8 @@ local function test_net_leaves_no_descriptor_or_socket_file_whenever_an_allocati
     tmp: string)
   unix_socket.skip_if_refused(tmp)
   local path = tmp .. "/s.sock"
-  local before = next_descriptor(tmp)
-  local ended = under_every_failure(function()
+  local before = AllocationFixture.next_descriptor(tmp)
+  local ended = AllocationFixture.under_every_failure(function()
     local server <close> = assert(Net.listen(Net.unix(path), { timeout_ns = Clock.seconds(5) }))
     local client <close> = assert(Net.connect(server.address, { timeout_ns = Clock.seconds(5) }))
     local accepted <close> = assert(server:accept())
@@ -314,7 +281,7 @@ local function test_net_leaves_no_descriptor_or_socket_file_whenever_an_allocati
     assert(accepted:read() == "hello")
   end)
   assert(ended > 0, "listening, connecting and accepting allocate")
-  local after = next_descriptor(tmp)
+  local after = AllocationFixture.next_descriptor(tmp)
   assert(after == before, "a refused allocation left descriptor " .. tostring(before) .. " open")
   assert(sys.lstat(path) == nil, "a refused allocation left the socket file behind")
 end
@@ -323,8 +290,8 @@ end
 --- anywhere, a run torn down by one included, leaves no descriptor to
 --- the process.
 local function test_net_in_a_run_leaves_no_descriptor_whenever_an_allocation_fails(tmp: string)
-  local before = next_descriptor(tmp)
-  local ended = under_every_failure(function()
+  local before = AllocationFixture.next_descriptor(tmp)
+  local ended = AllocationFixture.under_every_failure(function()
     local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Clock.seconds(5) }))
     Poll.run(function()
       local client <close> = assert(Net.connect(server.address, { timeout_ns = Clock.seconds(5) }))
@@ -334,7 +301,7 @@ local function test_net_in_a_run_leaves_no_descriptor_whenever_an_allocation_fai
     end)
   end)
   assert(ended > 0, "connecting in a run allocates")
-  local after = next_descriptor(tmp)
+  local after = AllocationFixture.next_descriptor(tmp)
   assert(after == before, "a refused allocation left descriptor " .. tostring(before) .. " open")
 end
 
@@ -358,15 +325,15 @@ end
 --- and there is nothing to walk.
 local function test_maps_id_releases_its_block_whenever_an_allocation_fails(tmp: string)
   if assert(sys.uname()).sysname ~= "Linux" then Test.skip("this test walks a Linux-only path") end
-  local before = next_descriptor(tmp)
+  local before = AllocationFixture.next_descriptor(tmp)
   local bytes, blocks = testing.c_heap()
-  local ended = under_every_failure(function()
+  local ended = AllocationFixture.under_every_failure(function()
     local ok, why, errno = process.maps_id(0)
     assert(ok or errno == sys.EINVAL, why)
   end)
   assert(ended > 0, "reading the maps allocates")
   collectgarbage("collect")
-  assert(next_descriptor(tmp) == before, "a refused allocation left descriptor " .. tostring(before) .. " open")
+  assert(AllocationFixture.next_descriptor(tmp) == before, "a refused allocation left descriptor " .. tostring(before) .. " open")
   assert_c_heap(bytes, blocks, "maps_id under refusal")
 end
 
@@ -374,7 +341,7 @@ end
 --- so a refusal of the list's table after it leaves nothing behind.
 local function test_getgroups_leaves_nothing_whenever_an_allocation_fails()
   local bytes, blocks = testing.c_heap()
-  local ended = under_every_failure(function()
+  local ended = AllocationFixture.under_every_failure(function()
     assert(sys.getgroups())
   end)
   assert(ended > 0, "listing the groups allocates")
@@ -387,7 +354,7 @@ end
 local function test_getifaddrs_survives_every_refused_allocation()
   local darwin = assert(sys.uname()).sysname == "Darwin"
   local bytes, blocks = testing.c_heap()
-  local ended = under_every_failure(function()
+  local ended = AllocationFixture.under_every_failure(function()
     local listed, why, errno = sys.getifaddrs()
     if darwin then assert(listed ~= nil, why) else assert(listed == nil and errno == sys.ENOSYS) end
   end)
@@ -480,20 +447,20 @@ local function test_compress_leaves_nothing_whenever_an_allocation_fails()
   local bytes, blocks = testing.c_heap()
   local ended = 0
   for _, decoding in ipairs(decodings) do
-    ended = ended + under_every_failure(function()
+    ended = ended + AllocationFixture.under_every_failure(function()
       local stream = assert(decoding.make())
       assert(decode_in_pieces(stream, decoding.input) == hello, decoding.name .. " decodes")
       assert(stream:done(), decoding.name .. " is done")
     end)
     assert_c_heap(bytes, blocks, decoding.name .. " decoding under refusal")
   end
-  ended = ended + under_every_failure(function()
+  ended = ended + AllocationFixture.under_every_failure(function()
     local encoder = assert(Compress.deflater("gzip"))
     local out = assert(encoder:update(string.rep(hello, 64))) .. assert(encoder:finish())
     assert(#out > 0)
   end)
   assert_c_heap(bytes, blocks, "deflating under refusal")
-  ended = ended + under_every_failure(function()
+  ended = ended + AllocationFixture.under_every_failure(function()
     local encoder = assert(Compress.zstd_encoder())
     local out = assert(encoder:update(string.rep(hello, 64))) .. assert(encoder:finish())
     assert(#out > 0)
@@ -501,13 +468,13 @@ local function test_compress_leaves_nothing_whenever_an_allocation_fails()
   assert_c_heap(bytes, blocks, "zstd encoding under refusal")
   -- Preset 0, whose dictionary is the smallest: every refusal is walked,
   -- and each walk allocates what the preset asks for.
-  ended = ended + under_every_failure(function()
+  ended = ended + AllocationFixture.under_every_failure(function()
     local encoder = assert(Compress.xz_encoder(0))
     local out = assert(encoder:update(string.rep(hello, 64))) .. assert(encoder:finish())
     assert(#out > 0)
   end)
   assert_c_heap(bytes, blocks, "xz encoding under refusal")
-  ended = ended + under_every_failure(function()
+  ended = ended + AllocationFixture.under_every_failure(function()
     local encoder = assert(Compress.bz2_encoder(1))
     local out = assert(encoder:update(string.rep(hello, 64))) .. assert(encoder:finish())
     assert(#out > 0)
@@ -593,7 +560,7 @@ local function test_deflate_and_inflate_leave_nothing_whenever_an_allocation_fai
   local text = string.rep("deflated source, inflated again\n", 64)
   collectgarbage("collect")
   local bytes, blocks = testing.c_heap()
-  local ended = under_every_failure(function()
+  local ended = AllocationFixture.under_every_failure(function()
     local rows = assert(Sqlite.rows(db, "SELECT inflate(deflate(?1))",
       { { text = text } }))
     local row = assert(rows[1], "the query answers a row")
@@ -601,7 +568,7 @@ local function test_deflate_and_inflate_leave_nothing_whenever_an_allocation_fai
   end)
   assert(ended > 0, "a query allocates")
   assert_c_heap(bytes, blocks, "deflate and inflate under refusal")
-  ended = under_every_failure(function()
+  ended = AllocationFixture.under_every_failure(function()
     local source = assert(Store.source("cosmic.compress"))
     assert(source:find("function Compress.deflate", 1, true) ~= nil)
   end)
@@ -617,7 +584,7 @@ local function test_vector_functions_leave_nothing_whenever_an_allocation_fails(
   local db = assert(Sqlite.memory())
   collectgarbage("collect")
   local bytes, blocks = testing.c_heap()
-  local ended = under_every_failure(function()
+  local ended = AllocationFixture.under_every_failure(function()
     local rows = assert(Sqlite.rows(db, [[
       SELECT vector_text(l2_normalize(subvector('[3, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]', 1, 2))),
              cosine_distance('[1, 2, 3]', '[3, 2, 1]'),
@@ -658,7 +625,7 @@ local function test_a_corpus_leaves_nothing_whenever_an_allocation_fails()
   for _, storage in ipairs(corpus_storages) do
     collectgarbage("collect")
     local bytes, blocks = testing.c_heap()
-    local ended = under_every_failure(function()
+    local ended = AllocationFixture.under_every_failure(function()
       local corpus = Vector.corpus(4, { storage = storage })
       for i, blob in ipairs(blobs) do corpus:add(i, blob) end
       assert(corpus:count() == 70)
@@ -691,7 +658,7 @@ local function test_a_corpus_is_intact_after_a_refused_allocation()
     local blob = corpus_vector(1000)
     local query = corpus_vector(3)
     local want = assert(corpus:search(query, 64, { metric = "l2" }))
-    local ended = under_every_failure(function()
+    local ended = AllocationFixture.under_every_failure(function()
       -- Once the add has landed, a later pass only searches.
       if corpus:count() == 64 then pcall(corpus.add, corpus, 1000, blob) end
       pcall(corpus.search, corpus, query, 3, { candidates = 10 })
@@ -744,7 +711,7 @@ local function test_blocks_leave_nothing_whenever_an_allocation_fails()
   for _, storage in ipairs(corpus_storages) do
     collectgarbage("collect")
     local bytes, blocks = testing.c_heap()
-    local ended = under_every_failure(function()
+    local ended = AllocationFixture.under_every_failure(function()
       local db = assert(Sqlite.memory())
       assert(db:exec("CREATE TABLE r (id INTEGER PRIMARY KEY, v BLOB)"))
       assert(db:exec([[
@@ -783,7 +750,7 @@ local function test_a_corpus_is_intact_after_a_refused_block()
       -- Exactly the first capacity, so the block must grow every buffer.
       for i = 1, 64 do corpus:add(i, corpus_vector(i)) end
       local block = assert(made[from])
-      local ended = under_every_failure(function()
+      local ended = AllocationFixture.under_every_failure(function()
         if corpus:count() == 64 then pcall(corpus.add_block, corpus, block) end
       end, function()
         local n = corpus:count()
@@ -809,7 +776,7 @@ local function test_nearest_n_leaves_nothing_whenever_an_allocation_fails()
   local query = corpus_vector(2)
   collectgarbage("collect")
   local bytes, blocks = testing.c_heap()
-  local ended = under_every_failure(function()
+  local ended = AllocationFixture.under_every_failure(function()
     local near = Vector.nearest_n(centroids, query, 3)
     assert(#near == 3)
     assert(Vector.nearest(centroids, query) >= 1)
@@ -826,7 +793,7 @@ end
 local function test_hash_leaves_nothing_whenever_an_allocation_fails()
   collectgarbage("collect")
   local bytes, blocks = testing.c_heap()
-  local ended = under_every_failure(function()
+  local ended = AllocationFixture.under_every_failure(function()
     local hasher = assert(Hash.hasher("sha256"))
     hasher:update("hello, ")
     hasher:update("cosmic!")
@@ -836,7 +803,7 @@ local function test_hash_leaves_nothing_whenever_an_allocation_fails()
   assert(ended > 0, "a hasher is an allocation")
   assert_c_heap(bytes, blocks, "hashing under refusal")
   local long_key = string.rep("k", 200)
-  ended = under_every_failure(function()
+  ended = AllocationFixture.under_every_failure(function()
     local mac = assert(Hash.hmac_hasher("sha256", long_key))
     mac:update("hello, ")
     mac:update("cosmic!")
@@ -853,7 +820,7 @@ end
 local function test_html_leaves_nothing_whenever_an_allocation_fails()
   collectgarbage("collect")
   local bytes, blocks = testing.c_heap()
-  local ended = under_every_failure(function()
+  local ended = AllocationFixture.under_every_failure(function()
     local text = Html.escape("a < b & \"c\" 'd'")
     local attr = Html.escape_attr("a b\0\xc3\xa9")
     local joined = Html.concat({ Html.trust("<p>"), text, Html.trust("</p>") })
@@ -885,7 +852,7 @@ local function test_json_leaves_nothing_whenever_an_allocation_fails()
   local wide_text = assert(Json.encode_any(wide)):gsub("}$", ',"key1":0}')
   collectgarbage("collect")
   local bytes, blocks = testing.c_heap()
-  local ended = under_every_failure(function()
+  local ended = AllocationFixture.under_every_failure(function()
     local value, trouble = Json.decode(text, { null_value = Json.null })
     assert(trouble == "", trouble)
     assert(Json.encode(value) == '{"a":{"c":{},"d":[]},"b":[1,2.5,"x\xc3\xa9",true,null]}')
@@ -912,7 +879,7 @@ local function test_xml_leaves_nothing_whenever_an_allocation_fails()
     string.rep("text &e; ", 40) .. '<!-- c --><?pi data?><x:i a="1"/></r>'
   collectgarbage("collect")
   local bytes, blocks = testing.c_heap()
-  local ended = under_every_failure(function()
+  local ended = AllocationFixture.under_every_failure(function()
     local p <close> = assert(Xml.parser({ namespaces = true }))
     local first = assert(p:feed(text:sub(1, 100)))
     local rest = assert(p:feed(text:sub(101)))
@@ -1017,17 +984,17 @@ local function test_http_leaves_nothing_whenever_an_allocation_fails(tmp: string
   local first = assert(exchanges[1], "the exchanges include a first request")
   assert(exchange(first.options) == hello)
   collectgarbage("collect")
-  local before = next_descriptor(tmp)
+  local before = AllocationFixture.next_descriptor(tmp)
   local bytes, blocks = testing.c_heap()
   assert(testing.live_transfers() == 0, "no transfer outlives its close")
   local ended = 0
   for _, case in ipairs(exchanges) do
-    ended = ended + under_every_failure(function()
+    ended = ended + AllocationFixture.under_every_failure(function()
       assert(exchange(case.options) == hello, case.name .. " reads the whole body")
     end)
     assert(testing.live_transfers() == 0, case.name .. " left a transfer alive")
     assert_c_heap(bytes, blocks, case.name .. " under refusal")
-    local after = next_descriptor(tmp)
+    local after = AllocationFixture.next_descriptor(tmp)
     assert(after == before, case.name .. " left descriptor " .. tostring(before) .. " open")
   end
   assert(ended > 0, "a request allocates")
@@ -1041,7 +1008,7 @@ local function test_sqlite_exec_result_releases_its_snapshot_under_allocation_fa
   collectgarbage("collect")
   local bytes, blocks = testing.c_heap()
   for _, sql in ipairs({ "SELECT 1", "SELECT * FROM missing" }) do
-    local ended = under_every_failure(function()
+    local ended = AllocationFixture.under_every_failure(function()
       local result = db:exec_result(sql)
       assert(result.cancelled == false)
       assert((result.code == Sqlite.OK) == (sql == "SELECT 1"))
@@ -1059,7 +1026,7 @@ local function test_prepared_statements_keep_the_busy_handlers_owner_under_alloc
   db:busy_timeout(Clock.ms(10))
   collectgarbage("collect")
   local bytes, blocks = testing.c_heap()
-  local ended = under_every_failure(function()
+  local ended = AllocationFixture.under_every_failure(function()
     local statement = assert(db:prepare("SELECT 1"))
     assert(statement:step() == "row")
     assert(statement:reset())
@@ -1078,12 +1045,12 @@ local function test_sqlite_existing_only_open_releases_every_refused_allocation(
   assert(made:exec("CREATE TABLE t (a)"))
   assert(made:close())
   collectgarbage("collect")
-  local before = next_descriptor(tmp)
+  local before = AllocationFixture.next_descriptor(tmp)
   local statements = testing.open_statements()
   local bytes, blocks = testing.c_heap()
   for _, present in ipairs({ true, false }) do
     local target = present and path or tmp .. "/missing.db"
-    local ended = under_every_failure(function()
+    local ended = AllocationFixture.under_every_failure(function()
       local db, why = Sqlite.open(target, { writable = true, create = false })
       if present then
         local held = assert(db, why)
@@ -1094,7 +1061,7 @@ local function test_sqlite_existing_only_open_releases_every_refused_allocation(
       end
     end)
     assert(ended > 0, "opening a database allocates")
-    assert(next_descriptor(tmp) == before, "an open left a descriptor behind")
+    assert(AllocationFixture.next_descriptor(tmp) == before, "an open left a descriptor behind")
     assert(testing.open_statements() == statements, "an open left a statement behind")
     assert_c_heap(bytes, blocks, "existing-only SQLite open")
   end
@@ -1107,14 +1074,14 @@ local function test_full_fsync_preserves_its_descriptor_under_allocation_failure
   local fd = assert(sys.open(tmp .. "/full-flush", sys.O_CREAT | sys.O_RDWR, 420))
   assert(sys.write(fd, "data"))
   local darwin = assert(sys.uname()).sysname == "Darwin"
-  local before = next_descriptor(tmp)
-  under_every_failure(function()
+  local before = AllocationFixture.next_descriptor(tmp)
+  AllocationFixture.under_every_failure(function()
     local ok, why, errno = sys.full_fsync(fd)
     if darwin then assert(ok, why) else assert(ok == false and errno == sys.ENOSYS) end
   end, function() assert(sys.fstat(fd), "full_fsync consumed the caller's descriptor") end)
-  assert(next_descriptor(tmp) == before, "full_fsync leaked a descriptor")
+  assert(AllocationFixture.next_descriptor(tmp) == before, "full_fsync leaked a descriptor")
   assert(sys.close(fd))
-  under_every_failure(function()
+  AllocationFixture.under_every_failure(function()
     local ok, why, errno = sys.full_fsync(fd)
     assert(ok == false and why ~= "" and errno == (darwin and sys.EBADF or sys.ENOSYS))
   end)
@@ -1123,17 +1090,17 @@ end
 --- Credential failure still releases spawn's native argument copies and
 --- status pipe when allocating the refusal itself fails.
 local function test_spawn_credentials_refusal_leaks_no_resources(tmp: string)
-  local before = next_descriptor(tmp)
+  local before = AllocationFixture.next_descriptor(tmp)
   collectgarbage("collect")
   local heap = testing.c_heap()
   local credentials: raw_process.Credentials = { user = 65532, group = 65532 }
   local path = tmp .. "/never-executed"
-  under_every_failure(function()
+  AllocationFixture.under_every_failure(function()
     local pid, _, errno = process.spawn(path, { path }, { FIXTURE = "credentials" },
       tmp, nil, nil, nil, false, nil, nil, credentials)
     assert(pid == nil and errno ~= nil)
   end)
-  assert(next_descriptor(tmp) == before, "credential refusal leaked a descriptor")
+  assert(AllocationFixture.next_descriptor(tmp) == before, "credential refusal leaked a descriptor")
   assert(testing.c_heap() == heap, "credential refusal leaked native allocations")
 end
 
@@ -1142,9 +1109,9 @@ local function test_sqlite_captured_operations_release_every_refused_allocation(
   collectgarbage("collect")
   local bytes, blocks = testing.c_heap()
   local statements = testing.open_statements()
-  local before = next_descriptor(tmp)
+  local before = AllocationFixture.next_descriptor(tmp)
   for _, present in ipairs({ true, false }) do
-    local ended = under_every_failure(function()
+    local ended = AllocationFixture.under_every_failure(function()
       local opened = Sqlite.open_result(if present then ":memory:" else tmp .. "/absent" end)
       if present then
         assert(opened.handle ~= nil and opened.code == Sqlite.OK)
@@ -1154,11 +1121,11 @@ local function test_sqlite_captured_operations_release_every_refused_allocation(
       end
     end)
     assert(ended > 0)
-    assert(next_descriptor(tmp) == before)
+    assert(AllocationFixture.next_descriptor(tmp) == before)
     assert_c_heap(bytes, blocks, "captured SQLite open")
   end
   for _, sql in ipairs({ "SELECT ?1", "SELECT 1; SELECT * FROM missing" }) do
-    local ended = under_every_failure(function()
+    local ended = AllocationFixture.under_every_failure(function()
       local prepared = db:prepare_result(sql)
       if prepared.statement ~= nil then
         local statement = prepared.statement
@@ -1178,7 +1145,7 @@ local function test_sqlite_captured_operations_release_every_refused_allocation(
   local lists: {Sqlite.Value} = { { integers = { 1, 2 } }, { numbers = { 0.5 } },
     { texts = { "a", "bb" } }, { blobs = { "\0", "" } } }
   for _, list in ipairs(lists) do
-    local ended = under_every_failure(function()
+    local ended = AllocationFixture.under_every_failure(function()
       local statement = assert(db:prepare_result("SELECT count(*) FROM carray(?1)").statement)
       assert(statement:bind_values_result({ list }).code == Sqlite.OK)
       assert(statement:step_result() == "row")
@@ -1188,7 +1155,7 @@ local function test_sqlite_captured_operations_release_every_refused_allocation(
     assert(testing.open_statements() == statements)
     assert_c_heap(bytes, blocks, "captured SQLite list binding")
   end
-  local ended = under_every_failure(function()
+  local ended = AllocationFixture.under_every_failure(function()
     local statement = assert(db:prepare("SELECT CASE WHEN ?1 THEN 1 ELSE json('bad') END"))
     assert(statement:bind_integer(1, 1))
     assert(statement:step_result() == "row")
@@ -1208,9 +1175,9 @@ end
 --- Sandboxed workers refuse those devices; unsandboxed checked runs walk
 --- successful acquisition too, and both must leave no descriptor behind.
 local function test_openpty_closes_both_descriptors_whenever_an_allocation_fails(tmp: string)
-  local before = next_descriptor(tmp)
+  local before = AllocationFixture.next_descriptor(tmp)
   local received = { value = nil as sys.Pty? }
-  local ended = under_every_failure(function()
+  local ended = AllocationFixture.under_every_failure(function()
     received.value = sys.openpty()
   end, function()
     local pty = received.value
@@ -1221,7 +1188,7 @@ local function test_openpty_closes_both_descriptors_whenever_an_allocation_fails
     end
   end)
   assert(ended > 0, "building a pty answer allocates")
-  assert(next_descriptor(tmp) == before, "a refused allocation leaked a pty descriptor")
+  assert(AllocationFixture.next_descriptor(tmp) == before, "a refused allocation leaked a pty descriptor")
 end
 
 --- A receive prepares its owners and guard before recvmsg installs any
@@ -1232,7 +1199,7 @@ local function test_rights_release_every_descriptor_when_allocation_fails(tmp: s
   collectgarbage("collect")
   local before = testing.open_descriptors()
   local bytes, blocks = testing.c_heap()
-  local ended = under_every_failure(function()
+  local ended = AllocationFixture.under_every_failure(function()
     local address: raw_socket.Address = { kind = "unix", path = tmp .. "/rights.sock" }
     local listener <close> = assert(socket.listen(address, 1))
     local sender <close> = assert(socket.connect(address, 5000))
@@ -1255,7 +1222,7 @@ local function test_adopting_a_listener_leaves_no_descriptor_when_allocation_fai
   collectgarbage("collect")
   local original = assert(socket.listen({ kind = "tcp", host = "127.0.0.1", port = 0 }, 1))
   local before = testing.open_descriptors()
-  local ended = under_every_failure(function()
+  local ended = AllocationFixture.under_every_failure(function()
     local copy <close> = assert(socket.adopt(original:fd()))
     assert(copy:fd() ~= original:fd())
   end)
@@ -1279,7 +1246,7 @@ local function test_descriptor_census_sees_a_descriptor_above_the_lowest_free(tm
   end
   assert(sys.dup2(original, high))
   assert(sys.close(original))
-  assert(next_descriptor(tmp) == lowest, "the low slot must still be free")
+  assert(AllocationFixture.next_descriptor(tmp) == lowest, "the low slot must still be free")
   assert(testing.open_descriptors() == count + 1, "the census missed a high descriptor")
   assert(sys.close(high))
   assert(testing.open_descriptors() == count, "closing the high descriptor restores the count")

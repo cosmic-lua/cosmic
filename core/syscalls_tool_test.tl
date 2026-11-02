@@ -9,6 +9,7 @@
 --- core/syscalls_tool_unsandboxed_test.tl's. The executable's own path,
 --- which only a `tool` test can read, is core/artifact_fd_tool_test.tl's.
 
+local TestSandboxFixture = require("build.test_sandbox_fixture")
 local String = require("cosmic.string")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
@@ -33,22 +34,6 @@ Test.policy{
 }
 
 local process = require("cosmic.internal.process")
-
---- The descriptors [`this_program.program`] hands its child, as
---- [`process.spawn`] takes them: each a descriptor of this process, as
---- the relaunch's are, and none "capture", which only [`cosmic.child`]
---- reads.
-local function spawn_fds(started: this_program.Program): {integer:integer}
-  local fds: mut {integer:integer} = {}
-  for number, fd in pairs(started.options.fds or {}) do
-    if fd is integer then
-      fds[number] = fd
-    else
-      error("descriptor " .. tostring(number) .. " is " .. fd .. ", which spawn cannot hand on")
-    end
-  end
-  return fds
-end
 
 --- Skips the test ([`Test.skip`]) as the kernel refuses the sandbox it is
 --- about, which only the start can tell: `errno` is one a refusal answers.
@@ -108,7 +93,7 @@ local function test_a_confined_child_ends_with_its_parent(tmp: string)
     { table.concat(probe_reads(probe), ":") }))
   local parent = assert(process.spawn(assert(started.argv[1], "this_program.program puts the executable first"), started.argv, started.options.env, tmp,
     nil, report, report, false,
-    spawn_fds(started)))
+    TestSandboxFixture.spawn_fds(started)))
   local said = ""
   local by = assert(sys.clock_gettime(sys.CLOCK_MONOTONIC)) + Clock.seconds(30)
   while not said:find("\n") and assert(sys.clock_gettime(sys.CLOCK_MONOTONIC)) < by do
@@ -155,7 +140,7 @@ local function test_an_offline_child_s_loopback_is_up(tmp: string)
       'local _, why = Net.connect(Net.tcp("127.0.0.1", 1), { timeout_ns = Clock.seconds(5) }) print(why)' })
   local pid, trouble, errno = process.spawn(assert(started.argv[1], "this_program.program puts the executable first"), started.argv, started.options.env,
     tmp, nil, report, report, false,
-    spawn_fds(started),
+    TestSandboxFixture.spawn_fds(started),
     { offline = true })
   if pid == nil then
     sys.close(report)

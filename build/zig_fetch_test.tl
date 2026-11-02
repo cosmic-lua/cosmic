@@ -18,27 +18,13 @@ local function test_a_failed_install_leaves_no_scratch_directory(tmp: string)
   assert(table.concat(assert(Fs.list(cache)), " ") == ".scratch-gate", "a scratch wrapper was left behind")
 end
 
---- The open descriptors of this process, each with what it names.
-local function descriptors(): string
-  local out: mut {string} = {}
-  -- /dev/fd where there is no /proc (macOS, the BSDs).
-  local directory = "/proc/self/fd"
-  if Fs.is_dir(directory) ~= true then directory = "/dev/fd" end
-  for _, number in ipairs((assert(Fs.list(directory)))) do
-    local target, _ = Fs.readlink(directory .. "/" .. number)
-    out[#out + 1] = number .. "=" .. (target or "?")
-  end
-  table.sort(out)
-  return table.concat(out, "\n")
-end
-
 --- A raise during the download must leave no scratch directory and no descriptor: the scratch is held open while
 --- the install runs.
 local function test_a_raise_during_install_leaves_no_scratch_directory(tmp: string)
   local cache = tmp .. "/cache"
   assert(Fs.mkdirs(cache))
   local _, _ = ZigFetch.install(cache, cache .. "/warm", "0.1.0", "x86_64-linux", nil)
-  local before = descriptors()
+  local before = support.descriptors()
   local real = Http.download_result
   Http.download_result = function(_url: string, _path: string, _options?: Http.Options): Http.DownloadResult
     error("the download raised")
@@ -47,7 +33,7 @@ local function test_a_raise_during_install_leaves_no_scratch_directory(tmp: stri
   Http.download_result = real
   assert(not ok and tostring(trouble):find("the download raised", 1, true) ~= nil, tostring(trouble))
   assert(table.concat(assert(Fs.list(cache)), " ") == ".scratch-gate", "a scratch wrapper was left behind")
-  assert(descriptors() == before, "a descriptor of the scratch stayed open")
+  assert(support.descriptors() == before, "a descriptor of the scratch stayed open")
 end
 
 local function test_sources_try_a_few_shuffled_mirrors_then_ziglang_org()

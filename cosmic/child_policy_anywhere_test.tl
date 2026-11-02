@@ -38,14 +38,6 @@ local function itself(program: string, more?: {Sandbox.Grant}): mut {Sandbox.Gra
   return grants
 end
 
---- A copy of `grants` with `more` after them.
-local function with(grants: {Sandbox.Grant}, ...: Sandbox.Grant): {Sandbox.Grant}
-  local out: mut {Sandbox.Grant} = {}
-  for _, grant in ipairs(grants) do out[#out + 1] = grant end
-  for _, grant in ipairs({ ... }) do out[#out + 1] = grant end
-  return out
-end
-
 --- Why a start under `policy` is refused before any child exists.
 local function refused(argv: {string}, policy: Sandbox.Policy): string
   local handle, why = Child.start(argv, { policy = policy })
@@ -292,7 +284,7 @@ local function test_nest_refuses_what_a_root_cannot_hold(tmp: string)
   local grants, probe, extra = nest_grants(tmp)
   local function without(letters: string, path: string): string
     return refused({ probe }, { isolate = { "file" }, promises = { "nest" },
-      grants = with(grants, { path = path, letters = letters }) })
+      grants = ChildPolicy.with(grants, { path = path, letters = letters }) })
   end
   -- Landlock told writing a file from making one in a directory, and running
   -- from reading; a bind does not.
