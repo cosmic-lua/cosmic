@@ -1,6 +1,7 @@
 --- [`Net.listener_from`] and [`Net.connector`]: a listening socket
 --- another process or an earlier call made, taken as a listener, and the
 --- confined native connector (core/connector.c) as a connection maker.
+local ConnectorFixture = require("build.connector_fixture")
 local Clock = require("cosmic.clock")
 local ConnectorEnds = require("build.connector_ends")
 local Connector = require("cosmic.internal.connector")
@@ -45,22 +46,8 @@ end
 
 --- A loopback echo server in the run's tasks: its address, and the task to cancel.
 local function echo_server(): Net.Listener, Poll.Task
-  local listener = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
-  local task = Poll.spawn(function()
-    while true do
-      local conn = listener:accept()
-      if conn == nil then return end
-      Poll.spawn(function()
-        while true do
-          local data, _ = conn:read()
-          if data == nil then break end
-          local _, _ = conn:write(data)
-        end
-        local _, _ = conn:close()
-      end)
-    end
-  end)
-  return listener, task
+  local echo = ConnectorFixture.echo_server()
+  return echo.listener, echo.task
 end
 
 --- Echoes `text` through `conn` and closes it.

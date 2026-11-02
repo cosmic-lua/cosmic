@@ -1,23 +1,12 @@
 --- cosmic.http.multipart: browser-shaped bodies, the delimiter split across
 --- reads, and each way a hostile body is refused.
 
+local ChunkedReaderFixture = require("build.chunked_reader_fixture")
 local Clock = require("cosmic.clock")
 local Multipart = require("cosmic.http.multipart")
 local Stream = require("cosmic.stream")
 
 local B <const> = "----WebKitFormBoundary7MA4YWxkTrZu0gW"
-
---- A Reader over `text` that hands out at most `n` bytes a read.
-local function drip(text: string, n: integer): Stream.Reader
-  local inner = Stream.from_string(text)
-  local r: Stream.Reader = {
-    read = function(_self: Stream.Reader, max?: integer): string?, string
-      return inner:read(math.min(n, max or n))
-    end,
-    close = function(_self: Stream.Reader): boolean, string return inner:close() end,
-  }
-  return r
-end
 
 --- One part as a browser writes it.
 local function part(disposition: string, body: string, extra?: string): string
@@ -38,7 +27,7 @@ local function parse(text: string, n?: integer, opts?: Multipart.Options): {Seen
   local given = opts or {}
   local o: Multipart.Options = { boundary = given.boundary or B, max_parts = given.max_parts,
     max_header_bytes = given.max_header_bytes, max_header_lines = given.max_header_lines }
-  local reader, bad = Multipart.reader(drip(text, n or 7), o)
+  local reader, bad = Multipart.reader(ChunkedReaderFixture.drip(text, n or 7), o)
   if reader == nil then return nil, bad end
   local out: mut {Seen} = {}
   while true do
@@ -243,7 +232,7 @@ end
 local function test_an_unread_part_is_skipped_and_a_passed_one_is_dead()
   local text = part('form-data; name="big"; filename="b"', string.rep("0123456789", 5000)) ..
     part('form-data; name="next"', "n") .. close_it()
-  local reader = assert(Multipart.reader(drip(text, 100), { boundary = B }))
+  local reader = assert(Multipart.reader(ChunkedReaderFixture.drip(text, 100), { boundary = B }))
   local first = assert(reader:next_part())
   assert(first.name == "big")
   local head = assert(first.body:read(10))
@@ -256,7 +245,7 @@ local function test_an_unread_part_is_skipped_and_a_passed_one_is_dead()
   assert(reader:next_part() == nil)
   local again, ended = reader:next_part()
   assert(again == nil and ended == "")
-  local done = assert(Multipart.reader(drip(part('form-data; name="a"', "x") .. close_it(), 3), { boundary = B }))
+  local done = assert(Multipart.reader(ChunkedReaderFixture.drip(part('form-data; name="a"', "x") .. close_it(), 3), { boundary = B }))
   local only = assert(done:next_part())
   assert(assert(Stream.read_all(only.body)) == "x")
   assert(done:next_part() == nil)
@@ -266,7 +255,7 @@ end
 
 local function test_a_failed_parser_stays_failed_and_a_part_body_reports_it()
   local text = "--" .. B .. "\r\nContent-Disposition: form-data; name=\"a\"\r\n\r\nabc"
-  local reader = assert(Multipart.reader(drip(text, 4), { boundary = B }))
+  local reader = assert(Multipart.reader(ChunkedReaderFixture.drip(text, 4), { boundary = B }))
   local got = assert(reader:next_part())
   local data, why = Stream.read_all(got.body)
   assert(data == nil and why:find("before the closing") ~= nil, why)
@@ -298,7 +287,7 @@ local function test_a_large_part_streams_in_bounded_pieces()
   local size = 1024 * 1024
   local body = string.rep("abcdefghijklmnop", size // 16)
   local text = part('form-data; name="f"; filename="big"', body) .. close_it()
-  local reader = assert(Multipart.reader(drip(text, 65536), { boundary = B }))
+  local reader = assert(Multipart.reader(ChunkedReaderFixture.drip(text, 65536), { boundary = B }))
   local got = assert(reader:next_part())
   local total, largest = 0, 0
   while true do

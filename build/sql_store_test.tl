@@ -4,7 +4,6 @@
 
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
-local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
 local sql = require("build.sql")
 local support = require("build.test_support_fixture")
@@ -12,18 +11,6 @@ local support = require("build.test_support_fixture")
 --- The program's own database is read through a handle
 --- ([`Store.databases()`]), which reads every module's rows too.
 Test.policy{ grants = { { path = "o/cosmic.db", letters = "r" } } }
-
---- A temporary root whose o/cosmic.db holds one small table.
-local function project(): string
-  local root = assert(Fs.mkdtemp("cosmic-sql-test-"))
-  assert(support.build_dir(root))
-  local db = assert(Sqlite.open(support.build_dir(root) .. "/cosmic.db", { writable = true }))
-  assert(db:exec("CREATE TABLE t (a, b); INSERT INTO t VALUES " ..
-      "(1, 'one'), (NULL, x'00ff'), (1.5, 'tab' || char(9) || 'and\\'), (2.0, ''), " ..
-      "(3, char(27) || '[31m' || char(127) || '\\N')"))
-  assert(db:close())
-  return root
-end
 
 local function argv_of(words: {string}): {string}
   local argv: mut {string} = { "sql" }
@@ -68,14 +55,14 @@ end
 --- passes the question to the default one: `julianday('now')` answers
 --- rather than ending the process.
 local function test_the_binarys_own_database_tells_the_time()
-  local root = project()
+  local root = support.sql_project()
   local code, said = run(root, { "--store", "SELECT julianday('now') > 2460000 AS now" })
   assert(Fs.remove_tree(root))
   assert(code == 0 and said.out[2] == "1", table.concat(said.out, "|"))
 end
 
 local function test_the_default_is_the_project_database_else_the_binarys_own()
-  local root = project()
+  local root = support.sql_project()
   local chosen = assert(source(root, {}))
   assert(chosen.path == support.build_dir(root) .. "/cosmic.db", chosen.name)
   chosen = assert(source(root, { "--build" }))

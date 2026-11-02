@@ -17,35 +17,11 @@ local writer = require("build.writer")
 local Clock = require("cosmic.clock")
 local support = require("build.test_support_fixture")
 
---- Writes a minimal one-module project at `root`, greeting `whom`: the
---- one build/writer_test.tl projects, restated here since a test module
---- requires no other's.
-local function write_project(root: string, whom: string)
-  assert(Fs.mkdirs(root .. "/cmd/hello"))
-  assert(Fs.write(root .. "/cmd/hello/main.tl", table.concat({
-    'local greet = require("greet")',
-    "return function(): integer",
-    "  print(greet.hello())",
-    "  return 0",
-    "end",
-    "",
-  }, "\n")))
-  assert(Fs.write(root .. "/greet.tl", table.concat({
-    "local record greet",
-    "end",
-    "function greet.hello(): string",
-    '  return "hello, ' .. whom .. '"',
-    "end",
-    "return greet",
-    "",
-  }, "\n")))
-end
-
 --- Compiles the project at `root` and writes its projection to `out`,
 --- returning the open working handle; `tool` names the compiler.
 local function build_and_write(root: string, whom: string, out: string,
                                tool?: string): work.Handle
-  write_project(root, whom)
+  support.write_project(root, whom)
   local handle = assert(work.open(root))
   assert(work.stage(handle, { own = false }))
   local result = assert(importer.compile(handle, tool or "closure-store-test"))
@@ -392,7 +368,7 @@ local function test_a_declaration_moves_only_the_stores_that_hold_it(tmp: string
     "",
   }, "\n")))
   local function addresses(): {string:string}
-    write_project(root, "world")
+    support.write_project(root, "world")
     local handle = assert(work.open(root))
     assert(work.stage(handle, { own = false }))
     local result = assert(importer.compile(handle, "closure-store-test"))

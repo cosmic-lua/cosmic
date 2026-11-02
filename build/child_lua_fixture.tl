@@ -1,8 +1,12 @@
---- What cosmic/child_lua_test.tl and cosmic/child_lua_strays_test.tl share:
+--- What cosmic/child_lua_test.tl, cosmic/child_lua_strays_test.tl,
+--- cosmic/child_tool_test.tl and cosmic/child_sandbox_tool_test.tl share:
 --- a child that is this program again, past its launcher, running a Lua
---- chunk, and the chunk prefixes that build one. Test support.
+--- chunk, the chunk prefixes that build one, and the pid of a child's
+--- process on the host. Test support.
 
 local Child = require("cosmic.child")
+local Fs = require("cosmic.fs")
+local sys = require("cosmic.sys")
 local this_program = require("build.this_program")
 
 local record child_lua_fixture
@@ -52,6 +56,34 @@ end
 --- A chunk's statement that sleeps `ms` milliseconds.
 function child_lua_fixture.sleeping(ms: integer): string
   return 'require("cosmic.clock").sleep_ns(require("cosmic.clock").ms(' .. tostring(ms) .. ')) '
+end
+
+--- The pid, in this process's pid namespace, of the process that `pid`
+--- names in the pid namespace of `within`, a live child of this process.
+--- It is `pid` unless `within` was started in a pid namespace of its own
+--- (a `sandbox` that unveils); then the process is found by the last
+--- number of its NSpid, and the result is nil if none matches. A process
+--- started without one is in the worker's namespace, sandboxed or not.
+function child_lua_fixture.host_pid(within: integer, pid: integer): integer?
+  local own, _ = sys.readlink("/proc/self/ns/pid")
+  local theirs, _ = sys.readlink("/proc/" .. tostring(within) .. "/ns/pid")
+  if theirs == nil or theirs == own then return pid end
+  local names = assert(Fs.list("/proc"))
+  for _, name in ipairs(names) do
+    local number = math.tointeger(tonumber(name:match("^%d+$")))
+    local seen: string? = nil
+    if number ~= nil then
+      local link, _ = sys.readlink("/proc/" .. name .. "/ns/pid")
+      seen = link
+    end
+    if seen == theirs then
+      local read, _ = Fs.read("/proc/" .. name .. "/status")
+      local status = read or ""
+      local nspid = status:match("\nNSpid:([^\n]*)") or ""
+      if tonumber(nspid:match("(%d+)%s*$")) == pid then return number end
+    end
+  end
+  return nil
 end
 
 return child_lua_fixture

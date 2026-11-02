@@ -18,36 +18,12 @@ local writer = require("build.writer")
 local fixture = require("build.docs_fixture")
 local support = require("build.test_support_fixture")
 
---- Writes a minimal one-module project at `root`, greeting `whom`, so
---- two projects built from a different `whom` compile to different
---- module keys and so a different signature.
-local function write_project(root: string, whom: string)
-  assert(Fs.mkdirs(root .. "/cmd/hello"))
-  assert(Fs.write(root .. "/cmd/hello/main.tl", table.concat({
-    'local greet = require("greet")',
-    "return function(): integer",
-    "  print(greet.hello())",
-    "  return 0",
-    "end",
-    "",
-  }, "\n")))
-  assert(Fs.write(root .. "/greet.tl", table.concat({
-    "local record greet",
-    "end",
-    "function greet.hello(): string",
-    '  return "hello, ' .. whom .. '"',
-    "end",
-    "return greet",
-    "",
-  }, "\n")))
-end
-
 --- Compiles the project at `root` and writes it to `out`, returning the
 --- open working handle and its compiled result so the caller can write
 --- again against it.
 local function build_and_write(root: string, whom: string, out: string,
                                tool?: string): work.Handle, importer.Result
-  write_project(root, whom)
+  support.write_project(root, whom)
   local handle = assert(work.open(root))
   assert(work.stage(handle, { own = false }))
   local result = assert(importer.compile(handle, tool or "writer-test"))
@@ -564,7 +540,7 @@ local function test_an_edited_source_is_not_served_from_the_deflate_cache(tmp: s
   local before = assert(Sqlite.text_rows(handle.db, "SELECT count(*) FROM deflated"))
   assert(assert(before[1]):text(1) ~= "0", "writing a projection fills the cache")
 
-  write_project(tmp .. "/a", "moon")
+  support.write_project(tmp .. "/a", "moon")
   assert(work.stage(handle, { own = false }))
   local result = assert(importer.compile(handle, "writer-test"))
   assert(writer.write_result(handle, tmp .. "/second.db", result))
@@ -629,7 +605,7 @@ local function test_bytecode_is_deflated_once_per_compile_and_core(tmp: string)
   assert(assert(shipped[1]):text(1) ~= "0", "a cached compressed chunk was not shipped")
   assert(handle.db:exec("DELETE FROM deflated_bytecode"))
 
-  write_project(tmp .. "/a", "moon")
+  support.write_project(tmp .. "/a", "moon")
   assert(work.stage(handle, { own = false }))
   result = assert(importer.compile(handle, "writer-test"))
   assert(writer.write_result(handle, tmp .. "/second.db", result))
@@ -710,7 +686,7 @@ end
 --- A projection failure rolls back the working transaction and discards
 --- the attached snapshot, so the same handle can stage and publish again.
 local function test_a_failed_projection_can_be_retried(tmp: string)
-  write_project(tmp, "retry")
+  support.write_project(tmp, "retry")
   local handle = assert(work.open(tmp))
   assert(work.stage(handle, { own = false }))
   local result = assert(importer.compile(handle, "writer-test"))
@@ -756,7 +732,7 @@ end
 --- under it is an asset and no module, and a hidden file is left out.
 local function test_static_files_ship_as_payload_not_as_modules(tmp: string)
   local css = ("a { color: red }\n"):rep(200)
-  write_project(tmp .. "/p", "world")
+  support.write_project(tmp .. "/p", "world")
   write_static(tmp .. "/p", css)
   write_projection(tmp .. "/p", tmp .. "/p.db")
   local db = assert(Sqlite.open(tmp .. "/p.db"))
@@ -787,7 +763,7 @@ end
 --- projection although no module changed.
 local function test_an_edit_to_an_asset_moves_the_projection(tmp: string)
   for _, name in ipairs({ "one", "two" }) do
-    write_project(tmp .. "/" .. name, "world")
+    support.write_project(tmp .. "/" .. name, "world")
     write_static(tmp .. "/" .. name, "body {}")
     write_projection(tmp .. "/" .. name, tmp .. "/" .. name .. ".db")
   end
@@ -852,7 +828,7 @@ end
 --- all, and what no file uses is dropped. The projection is the bytes an
 --- uncached write gives.
 local function test_static_files_are_compressed_once_per_content(tmp: string)
-  write_project(tmp .. "/p", "world")
+  support.write_project(tmp .. "/p", "world")
   write_static(tmp .. "/p", ("a { color: red }\n"):rep(200))
   assert(Fs.write(tmp .. "/p/static/other.css", ("b { color: blue }\n"):rep(200)))
   local handle = assert(work.open(tmp .. "/p"))
@@ -901,7 +877,7 @@ end
 
 --- A tree with no `static/` has an empty payload.
 local function test_a_tree_without_static_has_no_payload(tmp: string)
-  write_project(tmp .. "/p", "world")
+  support.write_project(tmp .. "/p", "world")
   write_projection(tmp .. "/p", tmp .. "/p.db")
   local db = assert(Sqlite.open(tmp .. "/p.db"))
   local rows = assert(Sqlite.text_rows(db, "SELECT count(*) FROM payload"))

@@ -2,6 +2,7 @@
 --- listener's socket file, from the moment the call makes them, so one
 --- dropped before [`cosmic.net`] has wrapped it leaks neither.
 
+local AllocationFixture = require("build.allocation_fixture")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
@@ -14,14 +15,6 @@ local raw = require("cosmic.internal.socket")
 
 --- A TCP socket refused on the worker's own loopback.
 Test.policy{ loopback = { "127.0.0.1" } }
-
---- The descriptor the next open is handed: the lowest free one, so one
---- left open shows as a higher number.
-local function next_descriptor(tmp: string): integer
-  local fd = assert(sys.open(tmp .. "/probe", sys.O_CREAT | sys.O_RDWR, 420))
-  sys.close(fd)
-  return fd
-end
 
 --- Each sample includes the same temporary directory descriptor used
 --- to list it. Compare counts in this worker, never a host-wide baseline.
@@ -47,7 +40,7 @@ end
 --- A listener, a connection to it and the one it accepted over the loopback,
 --- dropped unclosed, are closed by the collector.
 local function test_a_tcp_socket_dropped_unclosed_is_closed_by_the_collector(tmp: string)
-  local before = next_descriptor(tmp)
+  local before = AllocationFixture.next_descriptor(tmp)
   do
     local listener = tcp_listener()
     local bound = assert(raw.bound(listener:fd()))
@@ -58,7 +51,7 @@ local function test_a_tcp_socket_dropped_unclosed_is_closed_by_the_collector(tmp
   end
   collectgarbage("collect")
   collectgarbage("collect")
-  assert(next_descriptor(tmp) == before, "a dropped socket left descriptor " .. tostring(before) .. " open")
+  assert(AllocationFixture.next_descriptor(tmp) == before, "a dropped socket left descriptor " .. tostring(before) .. " open")
 end
 
 --- A listener, a connection to it and the one it accepted, dropped
@@ -67,7 +60,7 @@ end
 local function test_a_socket_dropped_unclosed_is_closed_by_the_collector(tmp: string)
   unix_socket.skip_if_refused(tmp)
   local path = tmp .. "/s.sock"
-  local before = next_descriptor(tmp)
+  local before = AllocationFixture.next_descriptor(tmp)
   do
     local listener = assert(raw.listen(unix(path), 1))
     local client = assert(raw.connect(unix(path), 5000))
@@ -78,7 +71,7 @@ local function test_a_socket_dropped_unclosed_is_closed_by_the_collector(tmp: st
   assert(Fs.stat(path) ~= nil, "no socket file")
   collectgarbage("collect")
   collectgarbage("collect")
-  assert(next_descriptor(tmp) == before, "a dropped socket left descriptor " .. tostring(before) .. " open")
+  assert(AllocationFixture.next_descriptor(tmp) == before, "a dropped socket left descriptor " .. tostring(before) .. " open")
   assert(Fs.stat(path) == nil, "a dropped listener left its socket file")
 end
 
@@ -120,11 +113,11 @@ end
 --- A closed socket closes again, and has no descriptor to give; one
 --- held `<close>` is closed as its block ends.
 local function test_a_closed_socket_closes_again_and_has_no_descriptor(tmp: string)
-  local before = next_descriptor(tmp)
+  local before = AllocationFixture.next_descriptor(tmp)
   do
     local _held <close> = tcp_listener()
   end
-  assert(next_descriptor(tmp) == before, "a socket held <close> was left open")
+  assert(AllocationFixture.next_descriptor(tmp) == before, "a socket held <close> was left open")
   local listener = tcp_listener()
   assert(listener:close())
   assert(listener:close())
@@ -378,7 +371,7 @@ local function test_received_descriptor_is_closed_by_collection(tmp: string)
   local sender <close> = raw_sender
   local receiver <close> = raw_receiver
   local original <close> = tcp_listener()
-  local before = next_descriptor(tmp)
+  local before = AllocationFixture.next_descriptor(tmp)
   assert(raw.sendfds(sender:fd(), { original:fd() }))
   do
     local passed = assert(raw.recvfds(receiver:fd(), 1))
@@ -387,7 +380,7 @@ local function test_received_descriptor_is_closed_by_collection(tmp: string)
   end
   collectgarbage("collect")
   collectgarbage("collect")
-  assert(next_descriptor(tmp) == before, "a collected receiver leaked a descriptor")
+  assert(AllocationFixture.next_descriptor(tmp) == before, "a collected receiver leaked a descriptor")
   assert(raw.bound(original:fd()) ~= nil, "collection closed the sender's original")
 end
 
@@ -409,12 +402,12 @@ local function test_udp_raw_calls_keep_packet_boundaries_and_refuse_stream_descr
 end
 
 local function test_udp_dropped_unclosed_is_closed_by_the_collector(tmp: string)
-  local before = next_descriptor(tmp)
+  local before = AllocationFixture.next_descriptor(tmp)
   do
     local bound = assert(raw.datagram({ kind = "udp", host = "127.0.0.1", port = 0 }))
     assert(bound:fd() >= before)
   end
   collectgarbage("collect")
   collectgarbage("collect")
-  assert(next_descriptor(tmp) == before, "a dropped UDP socket left a descriptor open")
+  assert(AllocationFixture.next_descriptor(tmp) == before, "a dropped UDP socket left a descriptor open")
 end

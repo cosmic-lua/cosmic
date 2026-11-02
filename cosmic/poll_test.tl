@@ -1,3 +1,4 @@
+local support = require("build.test_support_fixture")
 local Poll = require("cosmic.poll")
 local sys = require("cosmic.sys")
 local Clock = require("cosmic.clock")
@@ -8,11 +9,8 @@ local process = require("cosmic.internal.process")
 --- The two ends of a named pipe in `dir`, neither waiting: the reading
 --- end open first, as a pipe with no reader refuses a nonblocking writer.
 local function fifo(dir: string, name: string): integer, integer
-  local path = dir .. "/" .. name
-  assert(sys.mkfifo(path, 384))
-  local reader = assert(sys.open(path, sys.O_RDONLY | sys.O_NONBLOCK, 0))
-  local writer = assert(sys.open(path, sys.O_WRONLY | sys.O_NONBLOCK, 0))
-  return reader, writer
+  local ends = support.fifo(dir, name)
+  return ends.reader, ends.writer
 end
 
 local function test_milliseconds_round_a_timeout_up_and_no_limit_is_minus_one()
