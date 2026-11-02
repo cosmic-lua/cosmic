@@ -900,10 +900,14 @@ local module: Module = {
       },
     },
     build = {
-      about = "write bin/<name> in the build directory per cmd/<name>/main.tl",
+      about = "write bin/<name> in the build directory per cmd/<name>/main.tl; a file that does not compile " ..
+        "holds out only the programs that need it (the rest are written, the earlier executable of each " ..
+        "held out is removed, and the exit status is 4)",
       usage = "[path...]",
       spec = {
         ["--host"] = { about = "this system's native executable: no launcher, runs only here" },
+        ["--out"] = { value = "dir", about = "also write each executable to dir/<name>, made if missing; a program " ..
+            "not built leaves none there or in bin/" },
         ["--roots"] = { value = "set", about = "the CA roots its requests trust by default: minimal (the default) " ..
             "or mozilla; every root goes along either way" },
       },

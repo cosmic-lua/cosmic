@@ -59,7 +59,9 @@ stands on another checkout's pass.
   has no ceilings: every error refuses, its globals are the declarations of the standard library the tool carries
   ([`build.checker_declarations`]), and a form of the old grammar is refused with the new checker's words and fix. A
   lone file run (`cosmic --standalone`, `cosmic sandbox`) and a file run (`cosmic <file>`) are built by it too. `cosmic
-  build` compiles the project with it, and refuses one that has a module it refuses. The Teal a template compiles to is
+  build` compiles the project with it. A module it refuses, a test file included, does not stop the programs (`cmd/<name>/`) whose own requires
+  compile: they are written, the refused files and programs are named, and the exit status is 4. The executable an earlier build left for a program
+  that is not written is removed, from the build directory and from `--out`, and the output says so. The Teal a template compiles to is
   written in the new grammar ([`cosmic.template`]'s `Options`); the examples `fix --check` compiles as shown are compiled
   as files alone ([`build.example_checks`]); `cosmic sandbox --closure` takes a script's requires from its syntax tree; and
   the coverage of a project counts the lines of the text it read. `cosmic docs` and `cosmic uses` build the project before

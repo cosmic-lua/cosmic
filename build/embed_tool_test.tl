@@ -661,20 +661,24 @@ local function test_an_executable_trusts_the_minimal_roots_unless_told(tmp: stri
   assert(run_with(out, { COSMIC_CA_ROOTS = "minimal" }) == "minimal\nrefused\n")
 end
 
---- A tree the checker refuses builds no program and exits 4, the status of a tree that did not compile, where a failure to
---- write one exits 1.
+--- A module the checker refuses exits 4, the status of a tree that did not compile, where a failure to write a program
+--- exits 1; the program that does not need it is built all the same. A tree that cannot be ordered at all (an import
+--- cycle) builds no program, and removes the one an earlier build left.
 local function test_build_of_a_tree_that_does_not_compile_exits_4(tmp: string)
   write_project(tmp)
   local env = { COSMIC_BUILD_CACHE = "0", COSMIC_BUILD_HOME = assert(Env.get("COSMIC_BUILD_HOME")) }
   assert(Fs.write(tmp .. "/bad.tl", 'local n: integer = "x"\nreturn n\n'))
   local built = invoke.run({ "build", "--host" }, { cwd = tmp, env = env })
-  assert(built.code == 4 and built.stdout == "" and built.stderr:find("bad.tl", 1, true) ~= nil,
+  local hello = build_dir(tmp) .. "/bin/hello"
+  assert(built.code == 4 and built.stdout == hello .. "\n" and built.stderr:find("bad.tl", 1, true) ~= nil,
     tostring(built.code) .. built.stdout .. built.stderr)
+  assert(Fs.exists(hello) == true)
   assert(Fs.remove(tmp .. "/bad.tl"))
   assert(Fs.write(tmp .. "/ping.tl", 'local pong = require("pong")\nreturn pong\n'))
   assert(Fs.write(tmp .. "/pong.tl", 'local ping = require("ping")\nreturn ping\n'))
   local cycle = invoke.run({ "build", "--host" }, { cwd = tmp, env = env })
   assert(cycle.code == 4 and cycle.stdout == "", tostring(cycle.code) .. cycle.stdout .. cycle.stderr)
+  assert(Fs.exists(hello) == false, "the earlier executable stood after a tree that cannot be ordered")
 end
 
 --- `cosmic build --roots` takes minimal or mozilla, and refuses anything
@@ -699,4 +703,99 @@ local function test_trusted_core_is_the_cached_raw_core_of_a_compressed_start()
   local core = assert(artifact.trusted_core())
   assert(Hash.sha256(core.bytes) == core.digest, "the bytes are the ones the digest names")
   assert(core.bytes == assert(Fs.read(assert(relaunch.argv[1]))), "and the core this start runs")
+end
+
+--- A scratch project of two programs, `one` and `two`, `two` requiring the module `shared` and `one` requiring
+--- nothing, and a test file beside `shared`.
+local function write_two_programs(root: string)
+  assert(Fs.mkdirs(root .. "/cmd/one"))
+  assert(Fs.mkdirs(root .. "/cmd/two"))
+  assert(Fs.write(root .. "/cmd/one/main.tl", "return function(): integer return 1 end\n"))
+  assert(Fs.write(root .. "/cmd/two/main.tl",
+    'local shared = require("shared")\nreturn function(): integer return shared.value() end\n'))
+  assert(Fs.write(root .. "/shared.tl",
+    "local record shared\nend\n\nfunction shared.value(): integer\n  return 2\nend\n\nreturn shared\n"))
+  assert(Fs.write(root .. "/shared_test.tl",
+    'local shared = require("shared")\n\nlocal function test_value()\n  assert(shared.value() == 2)\nend\n'))
+end
+
+local function build_env(): {string:string}
+  return { COSMIC_BUILD_CACHE = "0", COSMIC_BUILD_HOME = assert(Env.get("COSMIC_BUILD_HOME")) }
+end
+
+--- A test file the checker refuses does not keep the programs from being built: both are written, the build says which
+--- file was refused, and it still exits 4.
+local function test_a_broken_test_file_leaves_the_programs_built_and_exits_4(tmp: string)
+  write_two_programs(tmp)
+  assert(Fs.write(tmp .. "/shared_test.tl", 'local n: integer = "x"\nreturn n\n'))
+  local built = invoke.run({ "build", "--host" }, { cwd = tmp, env = build_env() })
+  local bin = build_dir(tmp) .. "/bin"
+  assert(built.code == 4, tostring(built.code) .. built.stdout .. built.stderr)
+  assert(built.stdout == bin .. "/one\n" .. bin .. "/two\n", built.stdout)
+  assert(built.stderr:find("shared_test.tl", 1, true) ~= nil, built.stderr)
+  assert(Fs.exists(bin .. "/one") == true and Fs.exists(bin .. "/two") == true, "a program was not written")
+end
+
+--- A program the checker refuses is not written, and the executable an earlier build left for it is removed, in the build
+--- directory and in `--out`, saying so; the other program is built.
+local function test_a_broken_program_is_removed_and_the_other_built(tmp: string)
+  write_two_programs(tmp)
+  local out = tmp .. "/dist"
+  local first = invoke.run({ "build", "--host", "--out", out }, { cwd = tmp, env = build_env() })
+  assert(first.code == 0, first.stdout .. first.stderr)
+  local bin = build_dir(tmp) .. "/bin"
+  assert(Fs.exists(bin .. "/two") == true and Fs.exists(out .. "/two") == true)
+  assert(Fs.write(tmp .. "/cmd/two/main.tl", 'local n: integer = "x"\nreturn function(): integer return n end\n'))
+  local built = invoke.run({ "build", "--host", "--out", out }, { cwd = tmp, env = build_env() })
+  assert(built.code == 4, tostring(built.code) .. built.stdout .. built.stderr)
+  assert(built.stdout == bin .. "/one\n", built.stdout)
+  assert(Fs.exists(bin .. "/one") == true and Fs.exists(out .. "/one") == true, "the other program was not built")
+  assert(Fs.exists(bin .. "/two") == false, "the old executable was left in the build directory")
+  assert(Fs.exists(out .. "/two") == false, "the old executable was left in --out")
+  assert(built.stderr:find("cmd/two/main.tl", 1, true) ~= nil, built.stderr)
+  assert(built.stderr:find("removed", 1, true) ~= nil and built.stderr:find(bin .. "/two", 1, true) ~= nil, built.stderr)
+end
+
+--- A module a program requires that does not compile refuses that program alone, and the program that does not need it is
+--- built.
+local function test_a_broken_module_refuses_only_the_programs_that_need_it(tmp: string)
+  write_two_programs(tmp)
+  assert(Fs.write(tmp .. "/shared.tl", 'local n: integer = "x"\nreturn n\n'))
+  local built = invoke.run({ "build", "--host" }, { cwd = tmp, env = build_env() })
+  local bin = build_dir(tmp) .. "/bin"
+  assert(built.code == 4, tostring(built.code) .. built.stdout .. built.stderr)
+  assert(built.stdout == bin .. "/one\n", built.stdout)
+  assert(Fs.exists(bin .. "/two") == false)
+  assert(built.stderr:find("shared.tl", 1, true) ~= nil and built.stderr:find("two", 1, true) ~= nil, built.stderr)
+end
+
+--- `--out <dir>` writes each executable into the directory under its program name, which is made where it is not there;
+--- a clean build exits 0.
+local function test_out_copies_each_executable_under_its_name(tmp: string)
+  write_two_programs(tmp)
+  local out = tmp .. "/dist/nested"
+  local built = invoke.run({ "build", "--host", "--out", out }, { cwd = tmp, env = build_env() })
+  assert(built.code == 0, built.stdout .. built.stderr)
+  local bin = build_dir(tmp) .. "/bin"
+  for _, name in ipairs({ "one", "two" }) do
+    local copy = assert(Fs.read(out .. "/" .. name))
+    assert(copy == assert(Fs.read(bin .. "/" .. name)), name .. " differs from the built one")
+    assert(assert(Fs.stat(out .. "/" .. name)).mode & 0x49 == 0x49, name .. " is not executable")
+  end
+  local ran = run_program(out .. "/one")
+  assert(ran.code == 1, tostring(ran.code))
+end
+
+--- An `--out` that is a file, or cannot be made, is refused before anything is built.
+local function test_out_that_is_no_directory_is_refused(tmp: string)
+  write_two_programs(tmp)
+  assert(Fs.write(tmp .. "/afile", "x"))
+  local built = invoke.run({ "build", "--host", "--out", tmp .. "/afile" }, { cwd = tmp, env = build_env() })
+  assert(built.code == 2, tostring(built.code) .. built.stdout .. built.stderr)
+  assert(built.stderr:find("--out", 1, true) ~= nil and built.stderr:find("not a directory", 1, true) ~= nil,
+    built.stderr)
+  assert(built.stdout == "", built.stdout)
+  local under = invoke.run({ "build", "--host", "--out", tmp .. "/afile/sub" }, { cwd = tmp, env = build_env() })
+  assert(under.code == 2 and under.stderr:find("--out", 1, true) ~= nil, tostring(under.code) .. under.stderr)
+  assert(Fs.exists(build_dir(tmp) .. "/bin/one") ~= true, "a program was built for a refused --out")
 end

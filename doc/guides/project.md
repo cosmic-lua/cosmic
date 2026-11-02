@@ -312,7 +312,7 @@ skips one whose code and inputs have not changed since it last passed.
 `cosmic cmd/tally/main.tl words words.txt` runs the program from source. `cosmic
 build` writes `tally` in the project's build directory, outside the project
 (`~/.cache/cosmic/trees/<key>/bin/tally`; `COSMIC_BUILD_HOME` moves it), and
-prints its path on a line of its own; `cosmic build cmd/tally` writes only that one. `cosmic docs` lists your own modules with the standard library's, and
+prints its path on a line of its own; `cosmic build cmd/tally` writes only that one, and `cosmic build --out dist` also copies each program to `dist/<name>`, a path a Makefile can name. A file that does not compile does not stop a program that does not need it from being written; the build then exits 4, names the file, and removes the earlier executable of any program it could not write. `cosmic docs` lists your own modules with the standard library's, and
 `cosmic docs Tally.words` shows a function with the examples that call it.
 
 That `tally` is the whole program: copy that one file to a Linux (arm64

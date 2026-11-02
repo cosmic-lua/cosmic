@@ -44,6 +44,16 @@ local verb_spec = require("build.verb_spec")
 local record embed
   --- The verb's registration: see build/verb_spec.tl.
   spec: verb_spec.Spec
+
+  --- What [`embed.tree`] tells of a build beyond the programs it wrote.
+  record Report
+    --- One line per program the build did not make, saying why, with the first line of each diagnostic that holds it out.
+    unbuilt: mut {string}
+    --- One line per executable removed because its program was not made, in the build directory or `--out`.
+    removed: mut {string}
+    --- The messages of the modules the checker refused, "" for a tree that compiled whole.
+    mut refusal: string
+  end
 end
 
 local text = bind.text
@@ -400,12 +410,58 @@ function embed.database(project: string, main: string, roots?: string): string?,
   return bytes, ""
 end
 
+--- A program of the staged tree: the import path of its `cmd/<name>/main.tl` and the file.
+local record Program
+  path: string
+  file: string
+end
+
+--- The programs of the staged tree that `paths` choose: the import path of each `cmd/<name>/main.tl` and its file.
+local function staged_programs(handle: work.Handle, paths: {string}): {Program}?, string
+  local rows, trouble = Sqlite.text_rows(handle.db,
+    "SELECT path, file FROM inputs WHERE kind = 'main' ORDER BY path")
+  if rows == nil then return nil, trouble end
+  local programs: mut {Program} = {}
+  for _, row in ipairs(rows) do
+    if narrow.holds(paths, row:text(2)) then
+      programs[#programs + 1] = { path = row:text(1), file = row:text(2) }
+    end
+  end
+  return programs, ""
+end
+
+--- Removes the executable of the program `name` from `bin` and from `out`, where there is one, and says so in `report`:
+--- a program that was not made must not leave the one an earlier build made, which would run old code as if it were
+--- this tree's.
+local function withdraw(name: string, bin: string, out: string?, why: string, report?: embed.Report)
+  local places: mut {string} = { bin .. "/" .. name }
+  if out ~= nil then places[#places + 1] = out .. "/" .. name end
+  for _, place in ipairs(places) do
+    local stat, _ = Fs.stat(place)
+    if stat ~= nil and stat.kind ~= "dir" then
+      local gone, trouble = Fs.remove(place)
+      if report ~= nil then
+        report.removed[#report.removed + 1] = if gone
+          then "removed " .. place .. ": " .. why .. ", and an earlier build's executable must not stand for it"
+          else "could not remove " .. place .. " (" .. why .. "): " .. trouble end
+      end
+    end
+  end
+end
+
 --- Builds the tree at `root` and writes `bin/<name>` in its build
 --- directory ([`build.paths`]) for every `cmd/<name>/main.tl` it holds: a
 --- portable program, or with `host` a host program -- this binary's own
 --- core with the program's database appended, which the kernel runs
 --- directly, with no launcher, only where this core runs. Returns the
 --- names written, none for a tree with no `cmd/`.
+---
+--- A module the checker refuses, a test among them, does not stop the
+--- programs whose own requires compile: they are written, and `report`
+--- carries the refusals. A caller that gives no `report` is answered nil and
+--- the refusals once the programs that could be are written, so a refusal is
+--- never passed over. A program that is not written, refused or failed, has
+--- the executable of an earlier build removed from `bin/` and from `out`.
 --- @param under paths relative to `root` that narrow it to the programs
 ---   whose `main.tl` is under one; each must hold one. None, or nil, is
 ---   every program
@@ -418,9 +474,12 @@ end
 ---   `cosmic build --roots` names them ([`embed.database`]); nil records
 ---   none, which is "minimal"
 --- @param carried the `built_from` the tool carries, as [`tree.standing`] takes it
---- @param outcome set to `refused` where the tree does not build because a module of it does not compile
+--- @param outcome set to `refused` where a module of the tree does not compile
+--- @param out a directory that exists, to which each executable is also written under its name
+--- @param report filled with the refusals, the programs not made and the executables removed
 function embed.tree(root: string, host?: boolean, under?: {string}, grammar?: GrammarMode.Mode,
-                    roots?: string, carried?: string, outcome?: importer.Outcome): {string}?, string
+                    roots?: string, carried?: string, outcome?: importer.Outcome, out?: string,
+                    report?: embed.Report): {string}?, string
   local mode = grammar
   if mode == nil then
     local chosen, chosen_trouble = GrammarMode.mode()
@@ -443,48 +502,108 @@ function embed.tree(root: string, host?: boolean, under?: {string}, grammar?: Gr
     return nil, stage_trouble
   end
   local project = build_paths.resolve(root).projection
+  local bin = build_paths.resolve(root).bin
+  local paths = under or {}
+  local scope, scope_trouble = staged_programs(handle, paths)
+  if scope == nil then
+    local _, _ = work.close(handle)
+    return nil, scope_trouble
+  end
+  --- Withdraws the executable of each program in `scope` but those `except` names.
+  local function withdraw_all(why: string, except?: {string:boolean})
+    for _, program in ipairs(scope) do
+      local name = name_of(program.path)
+      if name ~= nil and (except == nil or except[name] ~= true) then
+        withdraw(name, bin, out, why, report)
+      end
+    end
+  end
   -- The new checker reads the project in this process; its compile is keyed by the mode.
   local tool = GrammarMode.tool(Store.meta("compiler") or "", mode)
   local result, compile_trouble = importer.compile(handle, tool, false, shared_compiles.for_build(), nil, nil, outcome)
   if result == nil then
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
     local _, _ = work.close(handle)
+    withdraw_all("the tree did not build", nil)
     return nil, compile_trouble
   end
-  -- A compile with the new checker goes on past a module it refuses, to name them all; a program is not made of a tree that has one.
+  -- A compile with the new checker goes on past a module it refuses, to name them all. A program whose requires all
+  -- compiled is made of the modules that did, read from a projection file of its own, so that `cosmic db` and
+  -- `docs` go on answering from the last tree that compiled whole.
+  local refusal = ""
+  local source = project
   if #result.refused > 0 then
-    local _, _ = work.record(handle, clock.elapsed_ms(started), staged, result.compiled, result.cached, "FAIL")
-    local _, _ = work.close(handle)
+    refusal = table.concat(result.refused, "\n")
     if outcome ~= nil then outcome.refused = true end
-    return nil, table.concat(result.refused, "\n")
+    source = project .. ".partial"
+    local _, _ = work.record(handle, clock.elapsed_ms(started), staged, result.compiled, result.cached, "FAIL")
+    local written, write_trouble = writer.write_result(handle, source, result)
+    local _, _ = work.close(handle)
+    if not written then
+      withdraw_all("the tree did not build", nil)
+      return nil, refusal .. "\n" .. write_trouble
+    end
+  else
+    local written, write_trouble = writer.write_recorded(handle, project, result, started, staged)
+    local _, _ = work.close(handle)
+    if not written then
+      withdraw_all("the tree did not build", nil)
+      return nil, write_trouble
+    end
   end
-  local written, write_trouble = writer.write_recorded(handle, project, result, started, staged)
-  local _, _ = work.close(handle)
-  if not written then
-    return nil, write_trouble
+  --- Removes the partial projection, if this build made one.
+  local function tidy()
+    if source ~= project then local _, _ = Fs.remove(source) end
   end
 
-  local paths = under or {}
-  local mains: mut {string} = {}
-  local files: mut {string} = {}
+  --- What the build answers once it made what it could.
+  local function finished(names: {string}): {string}?, string
+    if report ~= nil then
+      report.refusal = refusal
+    elseif refusal ~= "" then
+      return nil, refusal
+    end
+    return names, ""
+  end
+
+  local compiled: mut {string:boolean} = {}
   for _, m in ipairs(result.modules) do
-    if m.kind == "main" and narrow.holds(paths, m.file) then
-      mains[#mains + 1] = m.path
-      files[#files + 1] = m.file
+    compiled[m.path] = true
+  end
+  local mains: mut {string} = {}
+  local made: mut {string:boolean} = {}
+  for _, program in ipairs(scope) do
+    local name = name_of(program.path)
+    if compiled[program.path] == true then
+      mains[#mains + 1] = program.path
+      if name ~= nil then made[name] = true end
+    elseif name ~= nil and report ~= nil then
+      -- The first line of each diagnostic that holds the program out: its own, or those of the modules it rests on.
+      local lines: mut {string} = {}
+      for _, position in ipairs((result.refusal_roots or {})[program.file] or {}) do
+        local message = result.refused[position]
+        if message ~= nil then lines[#lines + 1] = message:match("^[^\n]*") or message end
+      end
+      local line = name .. " (" .. program.file .. ") was not built" ..
+        (if #lines > 0 then ": " .. table.concat(lines, "; ") else "" end)
+      report.unbuilt[#report.unbuilt + 1] = line
     end
   end
   table.sort(mains)
   for _, path in ipairs(paths) do
     local held = false
-    for _, file in ipairs(files) do
-      if narrow.holds({ path }, file) then held = true end
+    for _, program in ipairs(scope) do
+      if narrow.holds({ path }, program.file) then held = true end
     end
     if not held then
+      tidy()
       return nil, "no cmd/<name>/main.tl under " .. path
     end
   end
+  withdraw_all("its program was not built", made)
   if #mains == 0 then
-    return {}, ""
+    tidy()
+    return finished({})
   end
 
   local prefix, core: string?, raw_store.Core?
@@ -495,49 +614,91 @@ function embed.tree(root: string, host?: boolean, under?: {string}, grammar?: Gr
     prefix, source_trouble = embed.portable_prefix(artifact.trusted_prefix())
   end
   if prefix == nil and core == nil then
+    tidy()
+    withdraw_all("the build could not make a program", nil)
     return nil, source_trouble
   end
-  local bin = build_paths.resolve(root).bin
-  local made, mkdir_trouble = Fs.mkdirs(bin)
-  if not made then
+  local made_dir, mkdir_trouble = Fs.mkdirs(bin)
+  if not made_dir then
+    tidy()
+    withdraw_all("the build could not make a program", nil)
     return nil, mkdir_trouble
   end
   local names: mut {string} = {}
+  --- Gives up on the program `name` and those after it, and answers `trouble`.
+  local function failed(name: string, trouble: string): {string}?, string
+    local kept: mut {string:boolean} = {}
+    for _, built in ipairs(names) do kept[built] = true end
+    tidy()
+    withdraw_all("the build of " .. name .. " failed", kept)
+    return nil, trouble
+  end
   for _, main in ipairs(mains) do
     local name = name_of(main)
     if name == nil then
-      return nil, main .. " is not a cmd/<name>/main.tl"
+      return failed(main, main .. " is not a cmd/<name>/main.tl")
     end
-    local database, database_trouble = embed.database(project, main, roots)
+    local database, database_trouble = embed.database(source, main, roots)
     if database == nil then
-      return nil, name .. ": " .. database_trouble
+      return failed(name, name .. ": " .. database_trouble)
     end
-    local out = bin .. "/" .. name
+    local target = bin .. "/" .. name
     local program, program_trouble: string?, string
     if core ~= nil then
       program, program_trouble = artifact.host_program(core, database)
     elseif prefix ~= nil then
       program, program_trouble = artifact.program(prefix, database)
     else
-      return nil, source_trouble
+      return failed(name, source_trouble)
     end
     if program == nil then
-      return nil, out .. ": " .. program_trouble
+      return failed(name, target .. ": " .. program_trouble)
     end
-    local published, publish_trouble = Fs.write(out, program, 0x1ed)
+    local published, publish_trouble = Fs.write(target, program, 0x1ed)
     if not published then
-      return nil, publish_trouble
+      return failed(name, publish_trouble)
+    end
+    if out ~= nil then
+      local copied, copy_trouble = Fs.write(out .. "/" .. name, program, 0x1ed)
+      if not copied then
+        return failed(name, copy_trouble)
+      end
     end
     names[#names + 1] = name
   end
-  return names, ""
+  tidy()
+  return finished(names)
 end
 
---- `cosmic build [--host] [--roots minimal|mozilla] [path...]`: the tree in the working directory,
+--- The directory `--out` names, made where it is not there, as an absolute path; or nil and why it will not do: a path
+--- that is a file, or one that cannot be made.
+local function out_directory(given: string): string?, string
+  local there, there_trouble = Fs.exists(given)
+  if there == nil then return nil, "--out " .. given .. ": " .. there_trouble end
+  if there then
+    local directory, _ = Fs.is_dir(given)
+    if directory ~= true then
+      return nil, "--out " .. given .. " is not a directory: it takes the directory to write the executables to"
+    end
+  else
+    local made, made_trouble = Fs.mkdirs(given)
+    if not made then
+      return nil, "--out " .. given .. " cannot be created: " .. made_trouble
+    end
+  end
+  local path, absolute_trouble = Fs.absolute(given)
+  if path == nil then return nil, "--out " .. given .. ": " .. absolute_trouble end
+  return path, ""
+end
+
+--- `cosmic build [--host] [--roots minimal|mozilla] [--out dir] [path...]`: the tree in the working directory,
 --- and its executables in its build directory's `bin/` -- only those whose `main.tl` is
---- under one of the paths, when there are any. Prints each executable it
+--- under one of the paths, when there are any -- and in `dir` when it is given. Prints each executable it
 --- wrote on stdout, a path per line, for a caller to run; its summary on
---- stderr names them again, or says why nothing was written.
+--- stderr names them again, or says why nothing was written. A file the checker refuses, a test
+--- among them, does not keep the programs that do not need it from being written: they are, the
+--- refusals and the programs not made are named, the earlier executable of each such program is removed
+--- (it would run old code), and the exit status is [`exit_status.uncompiled`].
 local function run(argv: {string}): integer
   local started = Clock.monotonic_ns()
   local parsed, parse_trouble = Flags.parse(argv, 2, assert(Cli.verbs.build.spec))
@@ -551,27 +712,49 @@ local function run(argv: {string}): integer
     log:complain("build: --roots takes minimal or mozilla, not " .. roots:sub(1, 40))
     return 2
   end
+  local out: string? = nil
+  local given = parsed.values["--out"]
+  if given ~= nil then
+    local directory, directory_trouble = out_directory(given)
+    if directory == nil then
+      log:complain("build: " .. directory_trouble)
+      return 2
+    end
+    out = directory
+  end
   local root, root_trouble = Fs.absolute(".")
   if root == nil then
     log:complain(root_trouble)
     return 1
   end
   local outcome: importer.Outcome = { refused = false }
-  local names, trouble = embed.tree(root, host, narrow.paths(root, parsed.words), nil, roots, nil, outcome)
+  local report: embed.Report = { unbuilt = {}, removed = {}, refusal = "" }
+  local names, trouble = embed.tree(root, host, narrow.paths(root, parsed.words), nil, roots, nil, outcome, out,
+    report)
   if names == nil then
     log:complain(trouble)
+    for _, line in ipairs(report.removed) do log:complain("build: " .. line) end
     return if outcome.refused then exit_status.uncompiled else 1 end
   end
+  local refused = report.refusal ~= ""
+  if refused then log:complain(report.refusal) end
+  for _, line in ipairs(report.unbuilt) do log:complain("build: " .. line) end
+  for _, line in ipairs(report.removed) do log:complain("build: " .. line) end
   local outputs: mut {string} = {}
   local bin = build_paths.resolve(root).bin
   for _, name in ipairs(names) do
     log:say(bin .. "/" .. name)
-    outputs[#outputs + 1] = bin .. "/" .. name .. (if host then " (host)" else "" end)
+    outputs[#outputs + 1] = bin .. "/" .. name .. (if host then " (host)" else "" end) ..
+      (if out ~= nil then " and " .. out .. "/" .. name else "" end)
   end
   local wrote = #outputs > 0 and table.concat(outputs, ", ") or
     "no executable: no cmd/<name>/main.tl in the tree"
+  if refused then
+    wrote = wrote .. ", but a file the checker refused" ..
+      (if #report.unbuilt > 0 then " held out " .. tostring(#report.unbuilt) .. " program(s)" else "" end)
+  end
   local _, _ = logger.summary("build", wrote .. ", " .. clock.took(started))
-  return 0
+  return if refused then exit_status.uncompiled else 0 end
 end
 
 --- The `build` verb as [`build/verb_list.tl`] lists it.
@@ -581,6 +764,8 @@ embed.spec = {
   tests = { "build.embed_test", "build.embed_tool_test", "build.embed_portable_tool_test" },
   run = function(argv: {string}): integer return run(argv) end,
   bare = false,
+  -- A build that wrote what it could and refused the rest ends in its summary, which names how many programs it held out.
+  summarizes_failure = true,
   takes = "the files or directories to act on",
 }
 
