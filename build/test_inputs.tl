@@ -47,43 +47,43 @@ local record test_inputs
     --- it: the fuzz corpora, and what the module declares.
     reads: mut {string}
     --- Absolute paths outside the tree, each a file or /proc.
-    host: {string}
+    mut host: mut {string}
     --- Environment variables, pinned or declared, by name.
-    env: {string:boolean}
+    env: mut {string:boolean}
     --- The loopback addresses the tests may reach, by address.
-    network: {string:boolean}
-    tool: boolean
+    network: mut {string:boolean}
+    mut tool: boolean
     --- Whether it starts this program only to run Lua in it
     --- ([`cosmic.test`]'s `lua`): its closure holds `lua_loads` too.
-    lua?: boolean
+    mut lua?: boolean
     --- Whether its worker is left unheld by Landlock, so a process it
     --- starts may have a root of its own ([`cosmic.test`]'s `nests`).
-    nests?: boolean
-    noexec?: boolean
+    mut nests?: boolean
+    mut noexec?: boolean
     --- Whether this run proved private noexec scratch usable by this
     --- worker's identity, and why not when requested but unavailable.
-    noexec_ready?: boolean
-    noexec_trouble?: string
-    store: boolean
+    mut noexec_ready?: boolean
+    mut noexec_trouble?: string
+    mut store: boolean
     --- Whether its worker is given the system's own paths
     --- ([`confine.worker_unveil`]), and its key the host's packages
     --- and system ([`declared_key.system_identity`]).
-    system?: boolean
+    mut system?: boolean
     --- The host caches declared, by name ([`build.caches`]), and where
     --- they are on this host, once the runner resolves them: empty until
     --- then.
     caches?: {string}
-    cache_paths?: {string}
+    mut cache_paths?: {string}
     --- The files of the project root's parent directory declared
     --- ([`cosmic.test`]'s `parent`), by their relative paths.
     parent?: {string}
     --- Once `resolve` has run: why a `host` path cannot be given, ""
     --- when every one can.
-    unresolved?: string
+    mut unresolved?: string
   end
 
-  lua_loads: {string}
-  standalone_loads: {string}
+  mut lua_loads: {string}
+  mut standalone_loads: {string}
   compiler_sought: function(closure: {string}, lua?: boolean): {string}
 end
 

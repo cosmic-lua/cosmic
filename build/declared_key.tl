@@ -192,8 +192,8 @@ local build_directory = build_paths.required
 
 local record declared_key
   --- build.key_parts', answered as this module's own.
-  compiler_readers: {string}
-  reads_compiler: function(closure: {string}): boolean
+  mut compiler_readers: {string}
+  mut reads_compiler: function(closure: {string}): boolean
 
   --- What a run knows of the files it keys, kept for the run.
   record Digests
@@ -215,10 +215,10 @@ local record declared_key
     --- While set, each answer by what asked for it: the whole
     --- selection of a run keys its tests before any of them starts, so
     --- one answer serves them all. Nil after, when each asks again.
-    snapshot?: {string:string}
+    mut snapshot?: mut {string:string}
     --- How many files were read to be hashed, and the time spent keying.
-    read: integer
-    spent_ns: integer
+    mut read: integer
+    mut spent_ns: integer
   end
 
   --- What one test's key is made of.
@@ -265,7 +265,7 @@ local record declared_key
     --- of an answer that is `present`. Only a module whose requirements
     --- were all present is keyed at all, so it holds those, and nil or empty
     --- for a module that declares none, whose key has no such part.
-    requires?: {string:string}
+    requires?: mut {string:string}
     effective: test_inputs.Effective
     --- The environment its worker is given.
     environment: {string:string}
@@ -311,19 +311,19 @@ local record declared_key
     --- The system the host says it is, then its kernel's release and
     --- version: [`system_identity`] reads the first, [`host_identity`] the
     --- other two. Where it is nil, `system_sources(sysname)`.
-    system?: {string}
+    mut system?: mut {string}
     --- The kernel `uname` names, which chooses where `system` looks
     --- when it is nil ([`system_sources`]).
-    sysname?: string
-    system_id?: string
-    status?: string
+    mut sysname?: string
+    mut system_id?: string
+    mut status?: string
     --- The processor's features, as [`sys.cpu_features`] names them.
-    cpu_features?: {string}
+    mut cpu_features?: {string}
     --- The machine whose features `cpu_features` keys (`dispatched`).
     machine?: string
-    own_proc?: boolean
-    host_id?: string
-    uid?: integer
+    mut own_proc?: boolean
+    mut host_id?: string
+    mut uid?: integer
     --- The group and the supplementary groups this process runs with,
     --- as [`sys.getgid`] and [`sys.getgroups`] answer them, which a host
     --- with no /proc/self/status (`status`) is keyed by in place of its
@@ -1014,15 +1014,14 @@ local dispatched: {string:{string:boolean}} = {
 --- every feature; with no `machine`, the machines audited, in byte
 --- order.
 function declared_key.dispatched(machine?: string): {string}
-  local kept: mut {string:boolean} = {}
-  if machine == nil then
-    for name in pairs(dispatched) do kept[name] = true end
-  else
-    kept = dispatched[machine]
-    if kept == nil then return nil end
-  end
   local sorted: mut {string} = {}
-  for flag in pairs(kept) do sorted[#sorted + 1] = flag end
+  if machine == nil then
+    for name in pairs(dispatched) do sorted[#sorted + 1] = name end
+  else
+    local kept = dispatched[machine]
+    if kept == nil then return nil end
+    for flag in pairs(kept) do sorted[#sorted + 1] = flag end
+  end
   table.sort(sorted)
   return sorted
 end

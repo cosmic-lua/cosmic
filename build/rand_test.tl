@@ -16,7 +16,7 @@ local record Ran
 end
 
 local record Stand
-  stdin?: string
+  mut stdin?: string
   entropy?: function(count: integer): string?, string
   now_ns?: function(): integer
   out?: function(text: string): boolean, string

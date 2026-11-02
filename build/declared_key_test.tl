@@ -931,7 +931,7 @@ local function test_only_a_module_given_the_system_is_keyed_by_what_is_installed
   local one = installed("dpkg one\n", "ID=one\n")
   local other = installed("dpkg other\n", "ID=other\n")
   assert(one ~= other)
-  local function key_on(system: string, declares_system: boolean, host: {string}): string
+  local function key_on(system: string, declares_system: boolean, host: mut {string}): string
     local s = spec()
     s.system = system
     s.effective.system = declares_system

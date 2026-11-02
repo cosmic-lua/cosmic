@@ -111,7 +111,7 @@ local record compile_grammar
   end
 
   --- The module the file `relative` (its path below the root) is.
-  module_of: function(relative: string): string
+  mut module_of: function(relative: string): string
 
   --- The Lua for `result`, a module of `build` that was lowered and checked with its bodies ([`Driver.Build.result`]):
   --- what [`lang.codegen`] writes of its syntax tree given what the checker concluded (the classes its table literals

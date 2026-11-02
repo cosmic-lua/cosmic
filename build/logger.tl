@@ -8,7 +8,7 @@ local Log = require("cosmic.log")
 
 local record logger
   --- The logger, whose complaints carry "cosmic".
-  log: Log.Logger
+  mut log: Log.Logger
   summary: function(verb: string, detail: string): boolean, string
 end
 

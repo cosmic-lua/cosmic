@@ -8,7 +8,7 @@ local maintenance = require("build.cache_maintenance")
 local verb_spec = require("build.verb_spec")
 
 local record verb
-  spec: verb_spec.Spec
+  mut spec: verb_spec.Spec
   record Io
     out: function(string): boolean, string
     err: function(string)

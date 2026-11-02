@@ -58,7 +58,7 @@ local record Ceilings
   end
 
   --- The path of the data file below the root of the tree.
-  path: string
+  mut path: string
 
   --- The ceilings `text` holds, or nil and what is wrong with it: a line of no section or of the wrong shape, a stage no
   --- check has, a count that is not a positive integer, a key that two lines give, and a key that can never be met: one
