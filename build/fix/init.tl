@@ -1538,6 +1538,14 @@ end
 
 --- Removes the stale markers the tree checks found ([`Ceilings.Sink`]), or with `--mark-ceilings` writes the markers for
 --- the findings that have none and moves the stages to `[marked]` in the ceilings file.
+---
+--- A run narrowed to some paths does not reach this: the tree checks judge the whole tree, and they are the only judge of a
+--- stale marker.
+--
+-- TODO: mend the stale markers of the paths a narrowed `cosmic fix <paths>` is given, once the checks of the tree
+-- ([`tree_checks.checked`], `declared`, `scoped`, `untyped`) take a set of files to judge and check only those; until then
+-- `cosmic fix .` removes them and `cosmic fix --check .` names them.
+--
 local function mend_markers(ctx: Fix, sink: Ceilings.Sink, migrating: {string})
   local root = assert(ctx.root)
   local changed = copied(assert(ctx.changed))
@@ -1701,6 +1709,9 @@ local function run_tree_checks(ctx: Fix)
       local closed, close_trouble = db:close()
       if not closed then findings[#findings + 1] = "tree checks: " .. close_trouble end
     end
+  elseif ctx.mark_ceilings == true then
+    findings[#findings + 1] = "--mark-ceilings: it moves the checks of the whole tree to markers, so it takes the whole tree: " ..
+      "run `cosmic fix --mark-ceilings .`"
   end
 end
 
