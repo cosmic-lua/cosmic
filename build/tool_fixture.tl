@@ -1,5 +1,7 @@
 --- What the tests of a verb that start this program share: a run of
---- `cosmic <words>` from a directory, and how it ended. Test support.
+--- `cosmic <words>` from a directory, and how it ended. Test support. The
+--- sandbox tool tests pass descriptors and need 60 s: they have
+--- [`build.sandbox_tool_fixture`].
 
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")

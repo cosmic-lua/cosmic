@@ -1,6 +1,7 @@
 --- What build/sandbox_tool_test.tl and build/sandbox_refusal_tool_test.tl
 --- share: a run of `cosmic sandbox` as this program from a directory. Test
---- support.
+--- support. The tests of other verbs, which feed standard input and need
+--- 30 s, have [`build.tool_fixture`].
 
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
