@@ -852,7 +852,7 @@ end
 local function string_work(work: function()): integer
   local total: integer = 0
   local record Patched
-    host: {string: any}
+    host: mut {string: any}
     name: string
     original: any
   end

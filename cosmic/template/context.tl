@@ -26,7 +26,7 @@ local function refuse(name: string, line: integer, col: integer, reason: string)
 end
 
 --- The place a walk last gave each interpolation it reached.
-local type Marks = {types.Node: types.Slot}
+local type Marks = mut {types.Node: types.Slot}
 
 --- What a walk of a block from one place found: the place after it, or the
 --- refusal, and the place it last gave each interpolation inside it.
@@ -40,7 +40,7 @@ end
 --- outcome from each place it was walked from, by [`Markup.key`].
 local record Walk
   name: string
-  seen: mut {types.Node: {string: Outcome}}
+  seen: mut {types.Node: mut {string: Outcome}}
 end
 
 --- How two places that `same` found different differ, for a message.
@@ -133,11 +133,8 @@ end
 --- ranges nest. A walk not taken again still sets the places it set on
 --- its interpolations, as taking it again would.
 local function block(w: Walk, node: types.Node, from: markup.Place, marks: Marks): markup.Place?, string
-  local outcomes = w.seen[node]
-  if outcomes == nil then
-    outcomes = {}
-    w.seen[node] = outcomes
-  end
+  if w.seen[node] == nil then w.seen[node] = {} end
+  local outcomes = assert(w.seen[node])
   -- The key holds fields `same` ignores (the tag and attribute outside the
   -- phases that read them), so two places that would judge alike can be
   -- walked apart: a walk too many, never a wrong one.

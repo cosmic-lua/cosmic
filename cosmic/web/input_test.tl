@@ -105,11 +105,8 @@ local function pairs_of(list: {{string}}): Url.Query
     local name = assert(pair[1], "expected a name")
     local value = assert(pair[2], "expected a value")
     q.pairs[#q.pairs + 1] = { name = name, value = value }
-    local values = q.by_name[name]
-    if values == nil then
-      values = {}
-      q.by_name[name] = values
-    end
+    if q.by_name[name] == nil then q.by_name[name] = {} end
+    local values = assert(q.by_name[name])
     values[#values + 1] = value
   end
   return q
