@@ -126,10 +126,31 @@ end
 --- One module's Teal source, or a declaration's, from the binary's own
 --- database and no other: what a checker building another tree needs
 --- to type a `require` of this one's modules. Stored deflated, it is
---- inflated here; nil beside why when there is no such row or it will
---- not inflate.
+--- inflated here; nil beside why when there is no such row, the row
+--- carries no source ([`Store.withheld`]) or it will not inflate.
 function Store.source(name: string): string?, string
   return store.source(name)
+end
+
+--- The reason [`Store.source`] gave no text for `name` when the binary's
+--- database holds its row without the source (a test's pure store); nil for
+--- a name it holds a source of or no row of. It tells a module that is present
+--- but withheld from one that is absent, which [`Store.source`] alone answers
+--- with a nil in both cases. The second answer is why the query failed, or
+--- "" when it ran or there is no database.
+function Store.withheld(name: string): string?, string
+  local databases = store.databases()
+  local binary = databases[#databases]
+  if binary == nil then return nil, "" end -- a boot carries none, so holds nothing withheld
+  local rows, trouble = Sqlite.text_rows(binary,
+    "SELECT 1 FROM decls WHERE path = ?1 AND length(source) = 0 UNION ALL " ..
+      "SELECT 1 FROM modules WHERE path = ?1 AND length(source) = 0",
+    { { text = name } })
+  if rows == nil then return nil, "withheld: " .. trouble end
+  if #rows == 0 then return nil, "" end
+  local source, why = store.source(name)
+  if source ~= nil then return nil, "" end
+  return why, ""
 end
 
 --- The names the binary's own `imports` table records the module
@@ -472,7 +493,7 @@ local function write_database(names: {string}, file: string, main: string?,
         -- Last, so the rows' order is the same whatever the script is.
         local added, why = Sqlite.run(db,
           "INSERT INTO modules (path, file, kind, source_hash, key, bytecode, tests, source) " ..
-            "VALUES (?1, ?2, 'main', ?3, X'', deflate(?4), '', ?5)",
+            "VALUES (?1, ?2, 'main', ?3, X'', deflate(?4), '', deflate(?5))",
           { text(script.name), text(script.name), { blob = Hash.sha256(script.source) },
             { blob = script.bytecode }, { blob = script.source } })
         if not added then

@@ -1889,6 +1889,12 @@ local function links_finder(db: Sqlite.Handle): string?, string
   local parts: mut {string} = {}
   for _, name in ipairs(names) do
     local source, _ = Store.source(name)
+    if source == nil then
+      -- A module held without its source is not one that is absent: it would hash as empty.
+      local withheld, withheld_trouble = Store.withheld(name)
+      if withheld_trouble ~= "" then return nil, withheld_trouble end
+      if withheld ~= nil then return nil, withheld end
+    end
     parts[#parts + 1] = name .. "\n" .. (source or "")
   end
   local finder = Hash.hex_sha256(table.concat(parts, "\n\0\n"))
