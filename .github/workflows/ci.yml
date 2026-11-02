@@ -775,8 +775,9 @@
         # A row stands only under its own key, so they decide how many
         # tests stand, never whether one passes. Not where the
         # restore took the base's own entry (it landed), nor where the
-        # change moves the harness and every test runs (driver.tl
-        # queue-ahead); where none are found, or a step fails, the suite runs
+        # change edits a file of the test harness, whose digest is in every
+        # key so no row of the run ahead stands
+        # (ci/harness-files.txt, driver.tl queue-ahead); where none are found, or a step fails, the suite runs
         # on what was restored.
         {
           name: "find the run ahead in the queue",

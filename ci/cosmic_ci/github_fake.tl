@@ -21,6 +21,10 @@ local record GithubFake
     sleeps: {integer}
     --- The time, in seconds, which each wait moves on.
     mut clock: integer
+    --- Whether the checkout's harness moved from the base asked after.
+    mut moved: boolean
+    --- The bases asked after.
+    asked: {string}
   end
   --- The JSON the API answers `path`'s `nth` ask (the first is 1), nil to
   --- fail it with a 500. An array answers a listing: each element is one
@@ -95,9 +99,10 @@ function GithubFake.new(answer: GithubFake.Answer, refuse?: {string}): GithubFak
   local summaries: mut {string} = {}
   local printed: mut {string} = {}
   local sleeps: mut {integer} = {}
+  local asked_bases: mut {string} = {}
   -- Made with a host that does nothing, which the real one, naming the fake, replaces.
   local fake: GithubFake.Fake = { calls = calls, outputs = outputs, summaries = summaries, printed = printed,
-    sleeps = sleeps, clock = START,
+    sleeps = sleeps, clock = START, moved = false, asked = asked_bases,
     host = {
       fetch = over.fetch,
       delete = over.delete,
@@ -106,6 +111,7 @@ function GithubFake.new(answer: GithubFake.Answer, refuse?: {string}): GithubFak
       output = function(_line: string) end,
       print = function(_line: string) end,
       summary = function(_line: string) end,
+      moved = function(_base: string): boolean return false end,
     } }
   fake.host = {
     fetch = over.fetch,
@@ -118,6 +124,10 @@ function GithubFake.new(answer: GithubFake.Answer, refuse?: {string}): GithubFak
     output = function(line: string) outputs[#outputs + 1] = line end,
     print = function(line: string) printed[#printed + 1] = line end,
     summary = function(line: string) summaries[#summaries + 1] = line end,
+    moved = function(base: string): boolean
+      asked_bases[#asked_bases + 1] = base
+      return fake.moved
+    end,
   }
   return fake
 end

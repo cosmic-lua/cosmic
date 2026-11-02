@@ -10,6 +10,7 @@
 --- the tree the modules it runs require.
 
 local Codec = require("cosmic.codec")
+local Fs = require("cosmic.fs")
 local Rand = require("cosmic.rand")
 local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
@@ -26,7 +27,8 @@ local support = require("build.test_support_fixture")
 --- edit to the tree runs this again, an edit to the harness among
 --- them, and so does a compiler that makes other bytecode of it; it
 --- is this module alone that pays that.
-Test.policy{ grants = { { path = "o/cosmic.db", letters = "r" } } }
+Test.policy{ grants = { { path = "o/cosmic.db", letters = "r" },
+  { path = "ci/harness-files.txt", letters = "r" } } }
 
 local projection = build_paths.resolve(".").projection
 
@@ -176,21 +178,26 @@ end
 --- The module is swapped for a chunk of another meaning in the tree's projection, copied.
 local function test_an_edit_to_a_harness_module_that_changes_what_it_does_moves_every_key()
   local copy, whole = harness_copy()
-  local part = test_key.harness_part(harness_epoch.epoch, whole)
+  local part = test_key.harness_part(harness_epoch.epoch, whole.digest)
   assert(part:find("^" .. harness_epoch.epoch:gsub("%-", "%%-") .. "%+%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x$"), part)
   local before = dumped("local x = 1\nreturn x\n", false)
-  for _, name in ipairs({ "build.test_key", "build.test_worker" }) do
+  assert(#whole.names > 10, "too few modules held: " .. tostring(#whole.names))
+  for _, name in ipairs(whole.names) do
     assert(whole.modules[name] ~= nil, name .. " is not held")
     local one = edited_bytecode(copy, name, before)
-    assert(moved_between(whole, one) == " " .. name,
+    -- A module swapped for a chunk that requires nothing may drop the modules only it brought in,
+    -- which move too; its own digest always does.
+    assert((moved_between(whole, one) .. " "):find(" " .. name .. " ", 1, true) ~= nil,
       "swapping " .. name .. " moved" .. moved_between(whole, one))
     assert(one.digest ~= whole.digest, "an edit to " .. name .. " left the harness's digest")
-    assert(test_key.harness_part(harness_epoch.epoch, one) ~= part,
+    assert(test_key.harness_part(harness_epoch.epoch, one.digest) ~= part,
       "an edit to " .. name .. " left what every key holds")
     -- Another meaning of the same module is another digest.
-    local another = edited_bytecode(copy, name, dumped("local x = 2\nreturn x\n", false))
-    assert(another.digest ~= one.digest and another.modules[name] ~= one.modules[name],
-      "a constant of " .. name .. " moved nothing")
+    if name == "build.test_key" or name == "build.test_worker" then
+      local another = edited_bytecode(copy, name, dumped("local x = 2\nreturn x\n", false))
+      assert(another.digest ~= one.digest and another.modules[name] ~= one.modules[name],
+        "a constant of " .. name .. " moved nothing")
+    end
   end
   copy:close()
 end
@@ -212,8 +219,8 @@ local function test_an_edit_to_a_harness_module_that_changes_nothing_it_runs_mov
     local second = edited_bytecode(copy, "build.test_key", dumped(source, false))
     assert(second.digest == first.digest and moved_between(first, second) == "",
       "a " .. edit .. " edit moved the harness's digest")
-    assert(test_key.harness_part(harness_epoch.epoch, second) ==
-        test_key.harness_part(harness_epoch.epoch, first), "a " .. edit .. " edit moved what every key holds")
+    assert(test_key.harness_part(harness_epoch.epoch, second.digest) ==
+        test_key.harness_part(harness_epoch.epoch, first.digest), "a " .. edit .. " edit moved what every key holds")
   end
   -- Nor does the hash of the source the tree keeps beside the bytecode.
   local resourced = edited_source(copy, "build.test_key")
@@ -312,6 +319,35 @@ local function test_the_guard_holds_the_epoch_to_its_retired_tokens()
   local resolved, still = applied(line, append, after)
   assert(resolved:match("^9%-") and resolved ~= epoch, resolved)
   assert(epoch_trouble(resolved, still) == nil, tostring(epoch_trouble(resolved, still)))
+end
+
+--- CI's queue-ahead step takes nothing from the run ahead where the change edits a file of the harness
+--- (ci/cosmic_ci/queue_seed.tl), which it reads from ci/harness-files.txt, since ci/ cannot
+--- call this module. The list is the files of the harness's modules and of build/harness_epoch.tl.
+local function test_the_list_of_the_harness_files_is_the_harness()
+  local db = assert(Sqlite.open(projection))
+  local found, trouble = test_key.harness(db)
+  assert(found ~= nil, trouble)
+  local expected: mut {string} = { "build/harness_epoch.tl" }
+  local seen: mut {string:boolean} = { ["build/harness_epoch.tl"] = true }
+  for _, name in ipairs(found.names) do
+    local rows = assert(Sqlite.text_rows(db, "SELECT file FROM modules WHERE path = ?1", { { text = name } }))
+    local file = support.nth(rows, 1):text(1)
+    if seen[file] ~= true then
+      seen[file] = true
+      expected[#expected + 1] = file
+    end
+  end
+  db:close()
+  table.sort(expected)
+  local listed: mut {string} = {}
+  for line in (assert(Fs.read("ci/harness-files.txt"))):gmatch("[^\n]+") do
+    if not line:find("^%s*#") then listed[#listed + 1] = line end
+  end
+  table.sort(listed)
+  assert(table.concat(listed, "\n") == table.concat(expected, "\n"),
+    "ci/harness-files.txt lists the harness's files other than they are; it holds, one to a line " ..
+      "after its comment:\n" .. table.concat(expected, "\n"))
 end
 
 --- A require the harness never follows: cosmic's main hands the

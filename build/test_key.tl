@@ -670,11 +670,10 @@ end
 
 --- What every key holds of the harness's code and epoch, as one part: the
 --- epoch ([`test_key.epoch_of`]) and the first 16 hex digits of the
---- harness's digest ([`Harness`]'s `digest`). It moves with either, and
---- not with an edit to the harness that leaves its stripped bytecode as
---- it was.
-function test_key.harness_part(epoch: string, harness: Harness): string
-  return epoch .. "+" .. harness.digest:sub(1, 16)
+--- harness's `digest` ([`Harness`]). It moves with either, and not with
+--- an edit to the harness that leaves its stripped bytecode as it was.
+function test_key.harness_part(epoch: string, digest: string): string
+  return epoch .. "+" .. digest:sub(1, 16)
 end
 
 --- The word the census and key-parts lines say a key's harness parts
@@ -2053,7 +2052,14 @@ end
 function test_key.begin(rec: Recording, from: Begin)
   rec.runtime = from.runtime
   rec.sandbox = from.sandbox
-  rec.epoch = test_key.harness_part(from.epoch, from.harness)
+  local digest = from.harness.digest
+  -- A run in a tree of a project stands in for an edit to the harness, as COSMIC_TEST_STORE_SALT does for the
+  -- store's writer (build/sandboxed_verdicts_test.tl).
+  local harness_salt = Env.read("COSMIC_TEST_HARNESS_SALT")
+  if not from.own_tree and harness_salt ~= nil and harness_salt ~= "" then
+    digest = hex_sha256(digest .. "\0" .. harness_salt)
+  end
+  rec.epoch = test_key.harness_part(from.epoch, digest)
   rec.timeout_ns = from.timeout_ns
   rec.store_salt = from.harness.store_salt
   rec.carried = from.harness.carried

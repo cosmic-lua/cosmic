@@ -1467,9 +1467,9 @@ function declared_key.host_features(sources?: declared_key.HostSources): string
 end
 
 --- A digest of the modules `names` names, each by its name and what
---- `sources` says it is ([`build.test_key`]'s `harness`: its source's hash
---- for the harness's digest, and its bytecode's hash beside it for the
---- closure store's salt), sorted, so their order is no part of it.
+--- `sources` says it is ([`build.test_key`]'s `harness`: its stripped
+--- bytecode's hash for the harness's digest, and its source's hash and
+--- whole bytecode's beside it for the closure store's salt), sorted, so their order is no part of it.
 --- Nothing they require is walked. A module no source names is left
 --- out.
 function declared_key.harness(names: {string}, sources: {string:string}): string

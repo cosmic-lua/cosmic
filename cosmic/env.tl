@@ -54,6 +54,8 @@ local record Env
     "COSMIC_TEST_FOREIGN_FEATURES"
     --- For a test of the runner alone: stands in for the harness epoch.
     "COSMIC_TEST_HARNESS_EPOCH"
+    --- For a test of the runner alone: salts the harness's digest.
+    "COSMIC_TEST_HARNESS_SALT"
     --- The module a held run was handed.
     "COSMIC_TEST_HELD"
     --- For a test of the runner alone: stands in for an edit to a checked run's hooks.

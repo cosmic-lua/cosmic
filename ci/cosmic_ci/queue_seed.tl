@@ -43,7 +43,9 @@
 --- keeps ARTIFACT (its suite), a JOB ahead that has not begun that step
 --- is not waited for either: one not started, still building, or itself
 --- waiting on the run ahead of it, whose ARTIFACT is more than a short
---- wait away. None is found at once where BASE heads no queue run (it is
+--- wait away. None is found at once where the checkout changes a file of
+--- the test harness (ci/harness-files.txt) from BASE's, since
+--- every key then moves and no verdict of the run ahead stands; where BASE heads no queue run (it is
 --- main's already: ci.yml skips the step where the restore took BASE's
 --- own entry, and a base that landed after the restore finds its run,
 --- whose verdicts merge as rows mostly held already); and where the run,
@@ -339,6 +341,8 @@ function QueueSeed.ahead(env: {string:string}, host: Github.Host): integer
   local deadline = host.now() + within
   if not Github.is_commit(base) then
     said = "no base to find the run ahead by: nothing taken from the run ahead."
+  elseif host.moved(base) then
+    said = "a file of the test harness moved from " .. base .. "'s: every key moves, so nothing is taken from the run ahead."
   end
   while said == "" do
     -- At most three calls a round, each cut off at CALL_SECONDS.

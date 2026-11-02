@@ -661,8 +661,8 @@ Other rules:
 - A held run fails instead of falling back. Hold a run with
   `COSMIC_TEST_SANDBOX=1`, `COSMIC_SANDBOX=must` or
   `COSMIC_CI_REQUIRE_SANDBOX=1`. CI's Linux legs hold theirs.
-- Never set `COSMIC_TEST_HARNESS_EPOCH` or `COSMIC_TEST_PLATFORM=other`
-  to run a suite. They are for the runner's own tests
+- Never set `COSMIC_TEST_HARNESS_EPOCH`, `COSMIC_TEST_HARNESS_SALT` or
+  `COSMIC_TEST_PLATFORM=other` to run a suite. They are for the runner's own tests
   ([`build.sandboxed_verdicts_test`]).
 - Harness modules reach the host through raw bindings and the
   standard-library modules `library` in [`build.harness_epoch`] names,

@@ -40,9 +40,10 @@ default and is dropped from what to change.
    left alone.
 
 Removing code can lower a count that [`build/ceilings.txt`] pins, and
-the whole-tree check refuses a pin above its count; changing a harness
-module bumps `epoch` or sets `acknowledged` in
-[`build/harness_epoch.tl`], as [`doc/testing.md`] says. Both are found by
+the whole-tree check refuses a pin above its count. Changing a harness
+module needs nothing recorded (every key holds its code); a change the
+modules' code does not show bumps `epoch` in [`build/harness_epoch.tl`],
+as [`doc/testing.md`] says. The pins are found by
 `bin/cosmic fix --check .` and the tests, run as step 2 and the guide's
 "check before pushing" say.
 
