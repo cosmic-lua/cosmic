@@ -425,6 +425,31 @@ local function test_a_name_declared_since_is_offered_where_another_statement_doe
   assert(offered(base, POINT .. 'local q: Point = Point.origin()\nlocal _ = q.|\nlocal z = )\n', { "x", "y" }) == "x,y")
 end
 
+local SHADOW <const> = 'local record Foo\n  foo: integer\nend\nlocal record Bar\n  bar: integer\nend\n' ..
+  'local function make(): Foo\n  return { foo = 1 }\nend\nlocal x: Bar = { bar = 1 }\nlocal _ = x\n'
+local SHADOW_HEAD <const> = SHADOW:sub(1, -13)
+
+local function test_a_broken_declaration_does_not_let_the_name_be_read_as_an_outer_binding()
+  local function seen(typed: string): string
+    return offered(SHADOW, SHADOW_HEAD .. typed, { "foo", "bar" })
+  end
+  -- Annotated: the declared type stands; unannotated: nothing is known, and never the outer binding's.
+  assert(seen('local x: Foo = make(\nlocal _ = x.|\n') == "foo")
+  assert(seen('local x: Foo =\nlocal _ = x.|\n') == "foo")
+  assert(seen('do\n  local x: Foo = make(\nend\nlocal _ = x.|\n') == "bar")
+  assert(seen('do\n  local x: Foo = make(\n  local _ = x.|\nend\n') == "foo")
+  assert(seen('local x = (\nlocal _ = x.|\n') == "")
+  assert(seen('local x = (\nlocal _ = x.|\nlocal y = )\n') == "")
+  -- A broken declaration of a function or a type is not left out, so the name is not read as an outer one.
+  assert(seen('local function x(\nlocal _ = x.|\n') == "")
+end
+
+local function test_an_enum_value_is_offered_the_members_of_string()
+  local base = 'local enum Color\n  "red"\n  "blue"\nend\nlocal c: Color = "red"\nlocal _ = c\n'
+  local typed = 'local enum Color\n  "red"\n  "blue"\nend\nlocal c: Color = "red"\nlocal _ = c:|\n'
+  assert(offered(base, typed, { "upper", "sub", "nope" }) == "upper,sub")
+end
+
 local function test_a_string_is_offered_the_members_of_string_as_a_receiver()
   local base = 'local s = "x"\nlocal _ = s\n'
   assert(offered(base, 'local s = "x"\nlocal _ = ("x"):|\n', { "len", "sub", "nope" }) == "len,sub")

@@ -53,8 +53,9 @@
 -- (`foo(` left open around the cursor, or a block with its `end` missing above it), once the checker reads a tree the
 -- parser recovered of a text with errors: the last text that parsed answers there, and where it has no read of a name at
 -- that place its declared type is used, and a call takes its function's declared result, with the type parameters of a
--- generic function left unsolved. A name that a statement left out as broken declares ([`neutralized`]) is not known to
--- the checker's text either, so it is not offered while that statement stays broken.
+-- generic function left unsolved. A broken `local` keeps its names and what is before its `=` ([`neutralized`]), so
+-- a name without a written type has none there, and a broken function, record, enum or type declaration gives no text
+-- at all: the names such a statement declares are not typed while it stays broken.
 
 -- TODO: name the placeholders of a call inserted for a function after its parameters where its type is the checker's and
 -- not written (a local function, a global of the standard library, a member the rows do not hold), once a function type
@@ -767,7 +768,8 @@ local function member_items(request: Request, d: hover.Docs, decl: Types.Decl, v
   if members ~= nil then
     tally.member_rows = tally.member_rows + 1
   else
-    tally.member_declarations = tally.member_declarations + 1
+    -- The functions of `string` are the checker's, and no module's rows hold them.
+    if text ~= true then tally.member_declarations = tally.member_declarations + 1 end
     members = members_of(request.program, decl, value)
   end
   -- A function of `string` is a method of a string, which the checker reads as `s:upper()` ([`lang.check`]).
@@ -1057,29 +1059,47 @@ local function broken_statements(chunk: Ast.Chunk, errors: {Driver.Problem}, kee
   return found
 end
 
+--- The kinds of statement that declare a name the statements after them use, other than a `local`.
+local DECLARING <const>: {string: boolean} = {
+  LocalFunction = true, Record = true, Interface = true, Class = true, Enum = true, TypeAlias = true, Import = true,
+}
+
 --- The text `text` with the statements the parser finds broken in it written over by spaces, which keeps every other byte
 --- where it is, and "" where it then still does not parse. Only a statement of another place than the one holding the
 --- placeholder is left out, so the cursor's own statement is as typed. The checker then reads a text that is whole, and
---- types a name at the cursor, a call and a name declared since as it would the text without those statements; a name
---- they declared is not known there, and flow through them is not. The text's own errors stay the parser's.
-local function neutralized(document: check.Document, text: string): string
+--- types a name at the cursor, a call and a name declared since as it would the text without those statements; flow
+--- through them is not. A `local` keeps its names and what is written before its `=` (`local x: Foo`), so that a name it
+--- declares is never read as an outer binding of the same name; where that is not written plainly, and for any other
+--- statement that declares a name (a function, a record, an enum, a type), no text is made. The text's own errors stay the
+--- parser's. `parsed` is the parse of `text` where the caller has it.
+local function neutralized(document: check.Document, text: string, parsed?: Driver.Parsed): string
   local dialect: Ast.Dialect = "tl"
   if document.name:match("%.d%.tl$") ~= nil then dialect = "decl" end
-  local parsed = Driver.parse(Driver.source(document.name, document.name, text, dialect))
-  if #parsed.syntax == 0 then return text end
-  if #parsed.syntax > MOST_BROKEN then return "" end
-  local tokens = parsed.chunk.tokens
+  local read = parsed or Driver.parse(Driver.source(document.name, document.name, text, dialect))
+  if #read.syntax == 0 then return text end
+  if #read.syntax > MOST_BROKEN then return "" end
+  local tokens = read.chunk.tokens
   local keep = 0
   for at = 1, Lexer.count(tokens) do
     if Lexer.text(tokens, at) == PLACEHOLDER then keep = at end
   end
   if keep == 0 then return "" end
-  local broken = broken_statements(parsed.chunk, parsed.syntax, keep)
+  local broken = broken_statements(read.chunk, read.syntax, keep)
   if #broken == 0 then return "" end
   local out = text
   -- A written-over span is as long as it was, so the offsets of the others stand.
   for _, stat in ipairs(broken) do
-    local from, to = Lexer.offset(tokens, stat.first), Lexer.stop(tokens, stat.last) - 1
+    if DECLARING[stat.kind] == true then return "" end
+    local first = stat.first
+    if stat.kind == "Local" then
+      local equals = 0
+      for at = stat.first, stat.last do
+        if equals == 0 and Lexer.text(tokens, at) == "=" then equals = at end
+      end
+      if equals == 0 then return "" end
+      first = equals
+    end
+    local from, to = Lexer.offset(tokens, first), Lexer.stop(tokens, stat.last) - 1
     out = out:sub(1, from - 1) .. out:sub(from, to):gsub("[^\r\n]", " ") .. out:sub(to + 1)
   end
   if #Driver.parse(Driver.source(document.name, document.name, out, dialect)).syntax > 0 then
@@ -1097,7 +1117,7 @@ end
 local function probe_text(document: check.Document, spliced: string, parsed: Driver.Parsed, tokens: Lexer.Tokens,
                           at: integer, sep: Lexer.Kind, node: Ast.Node): string, integer
   if #parsed.syntax == 0 then return spliced, 0 end
-  local left = neutralized(document, spliced)
+  local left = neutralized(document, spliced, parsed)
   if left ~= "" then return left, 0 end
   if sep ~= "." and sep ~= ":" then return "", 0 end
   local first = receiver_start(tokens, at - 2, node.kind == "TypeName")
@@ -1256,13 +1276,16 @@ function completion.at(checker: check.Checker, d: hover.Docs, document: check.Do
         else
           member_items(request, d, typed.decl, typed.value, context, out, edit)
         end
-      elseif typed ~= nil and not context.types then
-        -- A string has the functions of `string` as its methods.
+      end
+      -- A string, and a value of an enum (a string with a name), have the functions of `string` as methods.
+      if typed ~= nil and not context.types then
         local held = stripped(typed.type)
+        local text = held ~= nil and held.tag == "string"
+        if typed.decl ~= nil and typed.decl.kind == "enum" and not typed.value then text = true end
         local library = last.reading.program.globals["string"]
         local decl: Types.Decl? = nil
         if library ~= nil then decl = library.decl end
-        if held ~= nil and held.tag == "string" and decl ~= nil then
+        if text and decl ~= nil then
           member_items(request, d, decl, false, context, out, edit, true)
         end
       end
