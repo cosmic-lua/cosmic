@@ -641,8 +641,8 @@ function Dev.supervise(opts?: Dev.SuperviseOptions): boolean, string
   local function launch()
     program.boot = program.boot + 1
     local env = Env.all()
-    env.COSMIC_WEB_DEV = "1" -- checked: map_field
-    env.COSMIC_WEB_BOOT = tostring(program.boot) -- checked: map_field
+    env["COSMIC_WEB_DEV"] = "1"
+    env["COSMIC_WEB_BOOT"] = tostring(program.boot)
     log(("web dev: starting (boot %d)"):format(program.boot))
     local started, trouble = start(env)
     if started == nil then

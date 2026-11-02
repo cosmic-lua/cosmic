@@ -48,7 +48,7 @@ local function test_load_answers_the_data_and_nothing_for_unknown_or_malformed_i
   local store = open()
   local id = create(store, { user = "ada", n = 3 }) -- checked: any_use*2
   local got = assert(store:load(id, 500, "session"))
-  assert(got.values.user == "ada" and got.values.n == 3 and got.created == 100 and got.expires == 1000) -- checked: map_field*2
+  assert(got.values["user"] == "ada" and got.values["n"] == 3 and got.created == 100 and got.expires == 1000)
   local missing, why = store:load(("A"):rep(43), 500, "session")
   assert(missing == nil and why == "")
   assert(store:load("short", 500, "session") == nil and store:load("", 500, "session") == nil)
@@ -67,12 +67,13 @@ local function test_two_requests_that_changed_different_keys_both_land()
   local id = create(store, { base = 1 }) -- checked: any_use
   local first = assert(store:load(id, 500, "session"))
   local second = assert(store:load(id, 500, "session"))
+  -- TODO: once session values are a typed map, these are typed writes: a key write into the `{string: any}` values is any_use.
   first.values.a = "from first" -- checked: map_field
   second.values.b = "from second" -- checked: map_field
   assert(store:save(id, first, changed({ a = "from first" }), 500, "session") == id) -- checked: any_use
   assert(store:save(id, second, changed({ b = "from second" }), 501, "session") == id) -- checked: any_use
   local merged = assert(store:load(id, 502, "session"))
-  assert(merged.values.base == 1 and merged.values.a == "from first" and merged.values.b == "from second") -- checked: map_field*3
+  assert(merged.values["base"] == 1 and merged.values["a"] == "from first" and merged.values["b"] == "from second")
 end
 
 local function test_removed_keys_and_clear_are_applied_to_what_is_stored()
@@ -81,10 +82,10 @@ local function test_removed_keys_and_clear_are_applied_to_what_is_stored()
   local seen = assert(store:load(id, 500, "session"))
   assert(store:save(id, seen, { set = {}, removed = { "drop" } }, 500, "session"))
   local after = assert(store:load(id, 501, "session"))
-  assert(after.values.drop == nil and after.values.keep == 1) -- checked: map_field*2
+  assert(after.values["drop"] == nil and after.values["keep"] == 1)
   assert(store:save(id, seen, { set = { fresh = true }, removed = {}, cleared = true }, 502, "session")) -- checked: any_use
   local cleared = assert(store:load(id, 503, "session"))
-  assert(cleared.values.keep == nil and cleared.values.fresh == true) -- checked: map_field*2
+  assert(cleared.values["keep"] == nil and cleared.values["fresh"] == true)
 end
 
 local function test_regenerate_changes_the_id_keeps_the_data_and_removes_the_old_row()
@@ -96,7 +97,7 @@ local function test_regenerate_changes_the_id_keeps_the_data_and_removes_the_old
   assert(renewed ~= id and #renewed == 43)
   assert(store:load(id, 501, "session") == nil, "the old id is revoked")
   local got = assert(store:load(renewed, 501, "session"))
-  assert(got.values.user == "ada" and got.created == 500) -- checked: map_field
+  assert(got.values["user"] == "ada" and got.created == 500)
   assert(count(db) == 1)
 end
 
@@ -108,7 +109,7 @@ local function test_a_session_revoked_during_a_request_is_not_revived_with_what_
   local token = assert(store:save(id, seen, changed({ theme = "dark" }), 501, "session")) -- checked: any_use
   assert(token ~= id)
   local got = assert(store:load(token, 502, "session"))
-  assert(got.values.theme == "dark" and got.values.user == nil and got.values.secret == nil) -- checked: map_field*3
+  assert(got.values["theme"] == "dark" and got.values["user"] == nil and got.values["secret"] == nil)
 end
 
 local function test_destroy_revokes_one_id_and_ignores_junk()
@@ -207,5 +208,5 @@ local function test_save_refuses_what_load_cannot_read_and_leaves_no_transaction
   assert(token == nil and why:find("cannot encode", 1, true) ~= nil, why)
   local fine = nest(Session.MAX_DEPTH - 1)
   assert(store:save(id, data, changed({ deep = fine }), 501, "session") == id, "the failed save rolled back")
-  assert(assert(store:load(id, 502, "session")).values.deep ~= nil) -- checked: map_field
+  assert(assert(store:load(id, 502, "session")).values["deep"] ~= nil)
 end
