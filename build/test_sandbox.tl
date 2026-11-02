@@ -200,16 +200,9 @@ function test_sandbox.environment(environment: {string:string},
                                   effective: test_inputs.Effective): mut {string:string}
   local out: mut {string:string} = {}
   for name in pairs(effective.env) do out[name] = environment[name] end
-  if effective.noexec_ready then
-    out["COSMIC_TEST_NOEXEC"] = "/noexec"
-  else
-    out["COSMIC_TEST_NOEXEC"] = nil
-  end
-  if #(effective.parent or {}) > 0 then
-    out["COSMIC_TEST_PARENT"] = parent_place
-  else
-    out["COSMIC_TEST_PARENT"] = nil
-  end
+  out["COSMIC_TEST_NOEXEC"], out["COSMIC_TEST_PARENT"] = nil, nil
+  if effective.noexec_ready then out["COSMIC_TEST_NOEXEC"] = "/noexec" end
+  if #(effective.parent or {}) > 0 then out["COSMIC_TEST_PARENT"] = parent_place end
   out["TMPDIR"] = test_sandbox.scratch
   out["COSMIC_BUILD_HOME"] = build_home
   -- The cores of its own a worker that declares the `bootstrap` cache
@@ -235,12 +228,9 @@ function test_sandbox.unenforced_view(environment: {string:string},
   out["COSMIC_TEST_NOEXEC"] = nil
   out["COSMIC_TEST_PARENT"] = nil
   if out["COSMIC_PORTABLE_CACHE"] == own_cores then
+    out["COSMIC_PORTABLE_CACHE"] = nil
     local view = environment["COSMIC_PORTABLE_CACHE"]
-    if view ~= nil then
-      out["COSMIC_PORTABLE_CACHE"] = view
-    else
-      out["COSMIC_PORTABLE_CACHE"] = nil
-    end
+    if view ~= nil then out["COSMIC_PORTABLE_CACHE"] = view end
   end
   return out
 end
