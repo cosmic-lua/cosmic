@@ -211,12 +211,6 @@ end
 
 local declaration_kind <const> = "decl"
 
---- The kind a build gives a declaration it writes or derives and says nothing more of ([`build.derivation`],
---- [`build.lsp.plan`]).
-function analysis_schema.declaration_kind(): string
-  return declaration_kind
-end
-
 --- The kinds that are a declaration, a file of types that no program runs, not a module: the one place that says
 --- which, asked in SQL ([`analysis_schema.declaration`]) and in Teal ([`analysis_schema.is_declaration`]). A kind a
 --- derived declaration is given belongs here before it is written to the `derived` table. A `binding` is a declaration
