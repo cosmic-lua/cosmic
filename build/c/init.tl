@@ -461,7 +461,7 @@ local function sensitive(root: string, cwd: string, file: string, variant: c.Var
     if found or next(stack) == nil then memo[path] = found end
     return found
   end
-  return visit(file:sub(1, 1) == "/" and file or cwd .. "/" .. file, {}) -- checked: and_ternary
+  return visit(if file:sub(1, 1) == "/" then file else cwd .. "/" .. file end, {})
 end
 
 --- Checks every one of `files`, paths relative to `cwd` (by default
@@ -518,7 +518,7 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer, s
   env.COSMIC_ZIG_CACHE = deps .. "/zig-project" -- checked: map_field
   env.COSMIC_ZIG_GLOBAL_CACHE = deps .. "/zig-global" -- checked: map_field
   local function absolute(path: string): string
-    return path:sub(1, 1) == "/" and path or cwd .. "/" .. path -- checked: and_ternary
+    return if path:sub(1, 1) == "/" then path else cwd .. "/" .. path end
   end
   local dirs: mut {string} = {}
   for _, dir in ipairs(include_dirs(root, cwd)) do dirs[#dirs + 1] = absolute(dir) end
@@ -723,7 +723,7 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer, s
     -- A file that could not be read refers to what is not known: its
     -- own trouble is the finding, rather than guesses about the rest.
     local known = #every == #files
-    for _, f in ipairs(known and rules.single_file(every) or {}) do -- checked: and_ternary, literal_needs_type
+    for _, f in ipairs(if known then rules.single_file(every) else {} end) do -- checked: literal_needs_type
       for _, u in ipairs(every) do
         local o = by_file[u.file]
         if o ~= nil and u.defines[f.within] ~= nil then

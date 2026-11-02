@@ -691,11 +691,11 @@ local function view_of(rec: Recording, m: Module): {string:string} -- checked: n
   local view = rec.views[m.path]
   if view == nil then
     local effective = rec.effective[m.path]
-    view = rec.sandbox and test_sandbox.environment(worker_view(), effective) or -- checked: and_ternary, nil_not_allowed
-      test_sandbox.unenforced_view(worker_view(), effective) -- checked: nil_not_allowed
-    rec.views[m.path] = view -- checked: nil_not_allowed
+    view = if rec.sandbox then test_sandbox.environment(worker_view(), effective) else -- checked: nil_not_allowed
+      test_sandbox.unenforced_view(worker_view(), effective) end -- checked: nil_not_allowed
+    rec.views[m.path] = view
   end
-  return view -- checked: nil_not_allowed
+  return view
 end
 
 --- Where the tree is, for a `host` path that must not be it, beneath
@@ -952,13 +952,13 @@ local function declared_of(rec: Recording, m: Module, id: string, host?: string)
   end
   local key, why = declared_key.compute(digests_of(rec), {
     id = id, group = m.path, module_key = assert(m.graph_key), runtime = rec.runtime,
-    compiler = reads_compiler(rec, m) and rec.compiler or "", -- checked: and_ternary
+    compiler = (if reads_compiler(rec, m) then rec.compiler else nil end) or "",
     host = host or rec.host, -- checked: nil_not_allowed
     cpu = if effective.cpu_features == true then rec.cpu else nil end,
     system = rec.system,
     epoch = rec.epoch, timeout_ns = timeout_ns_of(rec, m),
     -- Held only where the key holds the program ([`declared_key.compute`]).
-    program = (effective.tool or runs_tool) and program_of(rec) or nil, -- checked: and_ternary
+    program = if effective.tool or runs_tool then program_of(rec) else nil end,
     launcher = if seals(rec, m) then (assert(rec.core) .. "\0" .. extras_digest(rec)) else rec.launcher end,
     declaration = test_inputs.canonical(m.inputs), effective = effective,
     requires = rec.answered[m.path],
@@ -967,7 +967,7 @@ local function declared_of(rec: Recording, m: Module, id: string, host?: string)
     checks = rec.checks_part,
     projection_file = (if rec.checks_part ~= nil then assert(rec.projection):match("[^/]*$") else nil end),
     -- Unsandboxed, its worker sees the tree where it is (`launch`).
-    tree = not rec.sandbox and rec.root or nil, -- checked: and_ternary
+    tree = if not rec.sandbox then rec.root else nil end,
   })
   if key == nil then rec.unkeyed[m.path] = why end
   return key
@@ -1209,7 +1209,7 @@ local function store_at(rec: Recording, address: string, names: {string},
       rec.writing_ns = rec.writing_ns + (Clock.monotonic_ns() - started)
       local wrote, _ = sys.stat(path) -- checked: nil_not_allowed
       rec.written = rec.written + 1
-      rec.written_bytes = rec.written_bytes + (wrote ~= nil and wrote.size or 0) -- checked: and_ternary
+      rec.written_bytes = rec.written_bytes + (if wrote ~= nil then wrote.size else 0 end)
     end
   end
   rec.built[address] = path -- checked: nil_not_allowed
@@ -1220,7 +1220,7 @@ end
 --- ([`store_at`]), or nil where `m` declares `store` and is given the
 --- whole projection; nil and why where it could not be made.
 local function given_store(rec: Recording, m: Module): string?, string
-  local address = rec.stores ~= nil and rec.stores[m.path] or nil -- checked: and_ternary, compare_disjoint
+  local address = if rec.stores ~= nil then rec.stores[m.path] else nil end -- checked: compare_disjoint
   if address == nil then return nil, "" end
   return store_at(rec, address, rec.closures[m.path]) -- checked: index_may_be_nil
 end
@@ -1632,8 +1632,8 @@ local function address_digest(rec: Recording, address: string, names: {string},
   local started = Clock.monotonic_ns()
   rec.store_names[address] = names
   rec.store_bases[address] = base
-  local path = stores_directory(rec.root) .. "/" .. (base and base_name(address) or -- checked: and_ternary
-    (address .. ".db"))
+  local path = stores_directory(rec.root) .. "/" .. (if base then base_name(address) else
+    address .. ".db" end)
   local digest: string? = nil
   local there, _ = sys.stat(path)
   if rec.built[address] == nil and there == nil then
@@ -1699,7 +1699,7 @@ local function verify_sample(rec: Recording)
       ", written again to check it: " .. trouble
   else
     local data, read_trouble = Fs.read(path)
-    local digest = data ~= nil and hex_sha256(data) or ("unreadable: " .. read_trouble) -- checked: and_ternary
+    local digest = if data ~= nil then hex_sha256(data) else "unreadable: " .. read_trouble end
     local kept = rec.store_digests[address] -- checked: nil_not_allowed
     if digest ~= kept and not rec.store_mismatched[address] then -- checked: condition_type, nil_not_allowed
       rec.store_mismatched[address] = true -- checked: nil_not_allowed
@@ -1718,7 +1718,7 @@ end
 --- is given ([`address_digest`]), which its key holds. Nil where `m`
 --- declares `store`; nil and why where it could not be made.
 store_digest = function(rec: Recording, m: Module): string?, string
-  local address = rec.stores ~= nil and rec.stores[m.path] or nil -- checked: and_ternary, compare_disjoint
+  local address = if rec.stores ~= nil then rec.stores[m.path] else nil end -- checked: compare_disjoint
   if address == nil then return nil, "" end
   return address_digest(rec, address, rec.closures[m.path], false) -- checked: index_may_be_nil
 end
@@ -2135,7 +2135,7 @@ function test_key.lookup(rec: Recording, m: Module, id: string,
                          consult: boolean?): Lookup
   local force: boolean = forced == true
   local key = declared_of(rec, m, id)
-  local own = key ~= nil and verdicts[key] or nil -- checked: and_ternary
+  local own = if key ~= nil then verdicts[key] else nil end
   local elsewhere: shared_verdicts.Found? = nil
   local asked = false
   local rec_shared = rec.shared
@@ -2338,7 +2338,7 @@ function test_key.persist_digests(records: Sqlite.Handle, rec: Recording,
   if digests ~= nil and digests.read > 0 then
     local kept, keep_trouble = true, ""
     if whole == true then kept, keep_trouble = records:exec("DELETE FROM digests") end
-    for _, row in ipairs(kept and declared_key.kept(digests) or {}) do -- checked: and_ternary, literal_needs_type
+    for _, row in ipairs(if kept then declared_key.kept(digests) else {} end) do -- checked: literal_needs_type
       if kept then
         kept, keep_trouble = Sqlite.run(records,
           "INSERT OR REPLACE INTO digests (path, signature, sha256) VALUES (?1, ?2, ?3)",
@@ -2559,7 +2559,7 @@ function test_key.prepare(rec: Recording, job: Job): Prepared
     name = job.name, scratch = inside, own_scratch = job.own_scratch, needs = test_inputs.canonical(declared), hold = hold,
     store = attached, closure = rec.closures[job.m.path], tree = rec.tree_names, -- checked: index_may_be_nil
     policy = policy, runs = runs, checks = rec.checks,
-    program = plan ~= nil and plan.program or nil, -- checked: and_ternary
+    program = if plan ~= nil then plan.program else nil end,
   })
   return { command = command, trouble = "", refused = false, unavailable = nil }
 end

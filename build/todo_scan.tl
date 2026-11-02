@@ -99,7 +99,7 @@ function todo_scan.scan(source: string): {todo_scan.Found}
   while index <= #lines do
     local line = lines[index]
     local comment = if line ~= nil then comment_of(line) else nil end
-    local text = comment ~= nil and comment.text:match("^TODO:[ \t]*(.*)$") or nil -- checked: and_ternary
+    local text = if comment ~= nil then comment.text:match("^TODO:[ \t]*(.*)$") else nil end
     if comment == nil or text == nil then
       index = index + 1
     else
@@ -157,8 +157,8 @@ local function note_todo(lines: {string}, first: integer, after: integer): todo_
   local rows: mut {integer} = {}
   for index = first, after - 1 do
     local line = assert(lines[index], "a TODO's lines are lines of its source")
-    local text = (index == first and line:sub(7) or line): -- checked: and_ternary
-      gsub("^[ \t]+", ""):gsub("[ \t]+$", "") -- untyped: call*2
+    local text = (if index == first then line:sub(7) else line end):
+      gsub("^[ \t]+", ""):gsub("[ \t]+$", "")
     if text ~= "" then
       if joined ~= "" then joined = joined .. " " end
       starts[#starts + 1] = #joined + 1

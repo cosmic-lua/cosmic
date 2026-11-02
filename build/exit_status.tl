@@ -25,7 +25,7 @@ function exit_status.status(value: any): integer?
   local whole: integer? = nil
   if value is number or value is string then
     local number = tonumber(value)
-    whole = number ~= nil and math.tointeger(number) or nil -- checked: and_ternary
+    whole = if number ~= nil then math.tointeger(number) else nil end
   end
   if whole == nil or whole < 0 or whole > 255 then
     return nil
@@ -39,7 +39,7 @@ function exit_status.of(what: string, value: any): integer
   local status = exit_status.status(value)
   if status == nil then
     log:complain(what .. " returned " ..
-        (value is string and string.format("%q", value) or tostring(value)) .. -- checked: and_ternary
+        (if value is string then string.format("%q", value) else tostring(value) end) ..
         ", not an exit status 0-255")
     return 2
   end

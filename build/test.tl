@@ -1391,8 +1391,8 @@ local function say_failures(rec: Recording, failures: {string})
     local id = rec.failed[failure]
     snapshots[#snapshots + 1] = {
       message = failure,
-      rerun = id ~= nil and rec.reruns[id] or nil, -- checked: and_ternary
-      printed = id ~= nil and rec.outputs[id] or nil, -- checked: and_ternary
+      rerun = if id ~= nil then rec.reruns[id] else nil end,
+      printed = if id ~= nil then rec.outputs[id] else nil end,
     }
   end
   for _, line in ipairs(test_report.failures(snapshots, rec.rerun_prefix)) do
@@ -1955,8 +1955,8 @@ local function select_tests(ctx: Run): integer?
   -- suite answers for is checked on such a run alone.
   ctx.whole = #selectors == 0 and shard == nil
   -- Said after the sandbox, last on the summary line, whichever verdict.
-  ctx.share_summary = shard ~= nil and -- checked: and_ternary
-    string.format("; shard %d of %d", shard.index, shard.count) or ""
+  ctx.share_summary = if shard ~= nil then
+    string.format("; shard %d of %d", shard.index, shard.count) else "" end
   return nil
 end
 
@@ -2277,8 +2277,8 @@ local function look_up_verdicts(ctx: Run)
     local line: string? = nil
     if shared ~= nil and found_count == 0 then
       local census, _ = shared_verdicts.census(shared, looked)
-      line = census ~= nil and shared_verdicts.unmatched(shared.path, looked_count, -- checked: and_ternary
-        census, parts) or nil
+      line = if census ~= nil then shared_verdicts.unmatched(shared.path, looked_count,
+        census, parts) else nil end
     end
     if line == nil and census_asked == true then line = shared_verdicts.key_parts(parts) end
     if line ~= nil then log:say(line) end
@@ -2466,8 +2466,8 @@ local function say_violations(rec: Recording)
       "fails the test that meets it; the rest are reported only)%s; all of them: cosmic sql --build 'SELECT * FROM " ..
       "type_violations'",
     plural.count(total, "violation"), distinct, plural.count(places, "place"),
-    rec.violations_dropped > 0 and string.format("; %s more went unrecorded", -- checked: and_ternary
-      plural.count(rec.violations_dropped, "kind")) or ""))
+    if rec.violations_dropped > 0 then string.format("; %s more went unrecorded",
+      plural.count(rec.violations_dropped, "kind")) else "" end))
   log:say(string.format("test: run-time types: %s and %s written in the compile; %s stood on checked verdicts",
     plural.count(rec.fact_wraps, "fact wrap"), plural.count(rec.parameter_checks, "parameter check"),
     plural.count(rec.tally.cached, "test")))
@@ -2554,7 +2554,7 @@ local function settle(ctx: Run)
     local names, uname_trouble = sys.uname()
     if names == nil then errors[#errors + 1] = "uname: " .. uname_trouble end
     local entered = c_functions.tally(functions, hits, c_functions.sources(assert(ctx.root), functions),
-      names ~= nil and names.sysname or nil, ctx.c_unavailable) -- checked: and_ternary
+      if names ~= nil then names.sysname else nil end, ctx.c_unavailable)
     for _, key in ipairs(entered.unentered) do
       failures[#failures + 1] = key .. ": a C function no test enters"
     end

@@ -1335,7 +1335,7 @@ local function binding_call_in(run: Run, body: Ast.Block): string?
     end
     if object ~= nil and name ~= nil and fallible_type(callee_fn(run, n)) then
       local decl = Report.decl_of(run.subject.types[Node.base(object).id])
-      local module = decl ~= nil and tables[decl] or nil -- checked: and_ternary
+      local module = if decl ~= nil then tables[decl] else nil end
       if module ~= nil then
         return module .. "." .. name
       end
@@ -1668,7 +1668,7 @@ local function check_modes(run: Run)
         for i, argument in ipairs(n.args) do
           local field = field_of(argument)
           local param = params[i]
-          local pname = param ~= nil and param.name or nil -- checked: and_ternary
+          local pname = if param ~= nil then param.name else nil end
           if field ~= nil and pname ~= nil then
             bind(fn, pname.name, field)
           end

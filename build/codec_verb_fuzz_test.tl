@@ -116,7 +116,7 @@ local function decode_cut(name: codec.Name, text: string, lenient: boolean, cuts
   local at, k = 1, 0
   while at <= #text do
     k = k + 1
-    local size = k <= #cuts and cuts:byte(k) or 1 -- checked: and_ternary
+    local size = (if k <= #cuts then cuts:byte(k) else nil end) or 1
     local part, why = coder:update(text:sub(at, at + size - 1))
     if part == nil then return nil, why end
     out[#out + 1] = part

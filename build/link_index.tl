@@ -192,7 +192,7 @@ local function remembering(root: string, memo: link_index.Memo,
         memo.kinds[path] = disk.kind(path) or ""
       end
       local kind = memo.kinds[path]
-      return kind ~= "" and kind or nil -- checked: and_ternary
+      return if kind ~= "" then kind else nil end
     end,
     read = function(path: string): string?
       local kept = memo.reads[path]
