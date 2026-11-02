@@ -416,6 +416,8 @@ local record Types
     --- decodes are open.
     mut depth: integer
     mut transactions: integer
+    --- How many of the types are dead, forgotten by [`Types.forget`] and counted still: their ids are not given again.
+    mut dead: integer
 
     integer: Type
     number: Type
@@ -1582,6 +1584,7 @@ function Types.forget(self: Store, decls: {Decl})
       end
     end
   end
+  self.dead = self.dead + #forgotten
   for _, t in ipairs(forgotten) do
     self.interned[render(t, id_text)] = nil
     set_owner(t, 0)
@@ -2365,7 +2368,7 @@ function Types.new(loader?: Loader): Store
   local store: Store = setmetatable({
     owner = counter.stores, count = #ATOMS, types = types, interned = interned, declared = {}, list = {},
     atoms = atoms, loader = loader, pending = {}, journal = {}, building = {}, building_order = {}, depth = 0,
-    transactions = 0,
+    transactions = 0, dead = 0,
     integer = atoms["integer"], number = atoms["number"], string = atoms["string"], boolean = atoms["boolean"],
     never = atoms["never"], any = atoms["any"], invalid = atoms["invalid"],
   }, store_mt)

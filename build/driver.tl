@@ -1033,7 +1033,10 @@ function Driver.new(options: Driver.Options): Driver.Build
     end
     -- The modules that do not require the one replaced keep what the program lowered of them; it forgets the others, which
     -- are lowered again when they are next asked for.
-    if not declares_globals(held) and forget_dependents(held, fresh, dependents(old.module)) then
+    -- The ids of the types forgotten are not given again, and each forgetting reads every id: once the dead are more than the
+    -- live the program begins again, so that the store's size and the cost of an edit stay within twice what is live.
+    local store = build.program.store
+    if store.dead <= store.count - store.dead and not declares_globals(held) and forget_dependents(held, fresh, dependents(old.module)) then
       return fresh.result
     end
     begin_again(held, fresh)

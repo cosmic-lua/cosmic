@@ -703,6 +703,90 @@ local function test_a_declaration_removed_from_the_replaced_module_is_gone_from_
   assert(#assert(build:result("box", true)).errors == 0)
 end
 
+--- The codes of the errors of every module of `files` in a build made fresh with `box` as `text`.
+local function fresh_codes(files: {{string}}, names: {string}): string
+  local build = build_of(files)
+  local out: mut {string} = {}
+  for _, name in ipairs(names) do
+    out[#out + 1] = name .. ":" .. codes_of(assert(build:result(name, true)).errors)
+  end
+  return table.concat(out, " ")
+end
+
+local function test_a_module_required_by_an_alias_name_is_forgotten_with_the_module_replaced()
+  local files: mut {{string}} = {
+    { "lib/box.tl", RECORD },
+    { "use.tl", "local Box = require(\"box\")\nlocal b: Box = { n = 1 }\nreturn b\n" },
+    { "other.tl", "local record O\nend\nreturn O\n" },
+  }
+  local build = build_of(files)
+  assert(#assert(build:result("use", true)).errors == 0 and #assert(build:result("other", true)).errors == 0)
+  local program = build.program
+  assert(build:replace("lib.box", STRINGY) ~= nil and build.program == program)
+  local got: mut {string} = {}
+  for _, name in ipairs({ "use", "other" }) do
+    got[#got + 1] = name .. ":" .. codes_of(assert(build:result(name, true)).errors)
+  end
+  table.remove(files, 1)
+  table.insert(files, 1, { "lib/box.tl", STRINGY })
+  assert(table.concat(got, " ") == fresh_codes(files, { "use", "other" }), table.concat(got, " "))
+  assert(got[1] == "use:not_assignable")
+end
+
+local function test_a_cycle_of_modules_is_forgotten_together_and_a_bystander_is_kept()
+  local a = "local type B = require(\"b\")\nlocal record A\n  b: B\nend\nreturn A\n"
+  local b = "local type A = require(\"a\")\nlocal record B\n  n: integer\n  a: A\nend\nreturn B\n"
+  local bystander = "local record O\nend\nreturn O\n"
+  local uses = "local B = require(\"b\")\nlocal function f(x: B): integer\n  return x.n\nend\nreturn f\n"
+  local files: mut {{string}} = { { "a.tl", a }, { "b.tl", b }, { "o.tl", bystander }, { "uses.tl", uses } }
+  local build = build_of(files)
+  for _, name in ipairs({ "a", "b", "o", "uses" }) do
+    assert(#assert(build:result(name, true)).errors == 0)
+  end
+  local program = build.program
+  local lowered = build.timing.lowerings
+  local changed = (b:gsub("n: integer", "n: string"))
+  assert(build:replace("b", changed) ~= nil and build.program == program)
+  local got: mut {string} = {}
+  for _, name in ipairs({ "a", "b", "o", "uses" }) do
+    got[#got + 1] = name .. ":" .. codes_of(assert(build:result(name, true)).errors)
+  end
+  assert(build.timing.lowerings == lowered + 3, "a, b and uses, not the bystander")
+  table.remove(files, 2)
+  table.insert(files, 2, { "b.tl", changed })
+  assert(table.concat(got, " ") == fresh_codes(files, { "a", "b", "o", "uses" }), table.concat(got, " "))
+  assert(got[4] == "uses:not_assignable", table.concat(got, " "))
+end
+
+local function test_many_replacements_keep_the_store_bounded_by_beginning_a_new_program()
+  local fields: mut {string} = {}
+  for n = 1, 30 do
+    local field = ("  f%d: %sBox%s"):format(n, ("{"):rep(n), ("}"):rep(n))
+    fields[#fields + 1] = field
+  end
+  local function boxed(n: integer): string
+    return "local record Box\n  n: integer\n" .. table.concat(fields, "\n") .. "\nend\n-- " .. tostring(n) .. "\nreturn Box\n"
+  end
+  local build = build_of({ { "box.tl", boxed(0) }, { "use.tl", "local Box = require(\"box\")\nlocal b: Box? = nil\nreturn b\n" } })
+  assert(#assert(build:result("use", true)).errors == 0)
+  local first = build.program
+  local largest = 0
+  local restarted = false
+  for n = 1, 400 do
+    assert(build:replace("box", boxed(n)) ~= nil)
+    assert(#assert(build:result("use", true)).errors == 0)
+    local store = build.program.store
+    largest = math.max(largest, store.count)
+    if build.program ~= first then
+      restarted = true
+      break
+    end
+    assert(store.dead <= store.count - store.dead + 100, "the dead types are more than the live")
+  end
+  assert(restarted, "a new program was begun once the dead types were more than the live")
+  assert(largest < 3 * build.program.store.count + 200, "the store stays within a few times what is live")
+end
+
 local function test_a_module_that_declares_a_global_is_not_forgotten_and_the_program_begins_again_for_it()
   local build = build_of({ { "box.tl", RECORD } })
   assert(#assert(build:result("box", true)).errors == 0)
