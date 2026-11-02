@@ -2994,6 +2994,62 @@ function tree_checks.markers(root: string): Marked
   return out
 end
 
+--- The codes of the checker's stages are closed ([`Ceilings.closed`]) exactly when nothing holds them: a code with a marker or a
+--- row in the tree at `root` must not be listed, a code with none must be, and every listed code is a code of a stage, once. It
+--- is a check of the whole tree because it reads every marker, which `markers` does once. `closed` is the list to hold the tree
+--- to, [`Ceilings.closed`] by default.
+function tree_checks.closure(root: string, closed?: {string}): {string}
+  local out: mut {string} = {}
+  local read, why = Ceilings.read(root)
+  if read == nil then
+    out[1] = "reading the ceilings: " .. why
+    return out
+  end
+  local held: mut {string: boolean} = {}
+  -- a row of any stage names a code, but for `untyped`, whose rows are files
+  for stage, rows in pairs(read.stages) do
+    if stage ~= "untyped" then
+      for key in pairs(rows) do
+        local code = key:match("^%S+ (%S+)$")
+        if code ~= nil then held[code] = true end
+      end
+    end
+  end
+  for _, keys in pairs(tree_checks.markers(root).counts) do
+    for key in pairs(keys) do
+      local code = key:match(" (%S+)$")
+      if code ~= nil then held[code] = true end
+    end
+  end
+  local codes: mut {string: boolean} = {}
+  local function learn(list: {string})
+    for _, code in ipairs(list) do codes[code] = true end
+  end
+  learn(Scopes.codes)
+  learn(Declarations.codes)
+  learn(Check.codes)
+  local listed: mut {string: boolean} = {}
+  for _, code in ipairs(closed or Ceilings.closed()) do
+    if codes[code] ~= true then
+      out[#out + 1] = code .. " is listed in Ceilings.closed and is no code of a stage"
+    elseif listed[code] == true then
+      out[#out + 1] = code .. " is listed twice in Ceilings.closed"
+    elseif held[code] == true then
+      out[#out + 1] = code .. " is closed and a marker or a row of build/ceilings.txt still holds it"
+    end
+    listed[code] = true
+  end
+  local open: mut {string} = {}
+  for code in pairs(codes) do
+    if held[code] ~= true and listed[code] ~= true then open[#open + 1] = code end
+  end
+  table.sort(open)
+  for _, code in ipairs(open) do
+    out[#out + 1] = code .. " has no marker or row left: add it to Ceilings.closed in build/ceilings.tl, so that nothing holds it again"
+  end
+  return out
+end
+
 --- The calls the new checker gave no function, which no rule of the discipline judged ([`build.syntax_contracts`]'s
 --- `untyped`), counted per file of the tree and held to `pinned` (by default the `[untyped]` ceilings): a file with fewer,
 --- and a pin for a file with none, is told to lower the pin; one with more is listed, as the build itself refuses it

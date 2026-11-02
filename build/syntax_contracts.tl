@@ -30,11 +30,11 @@
 --- the line, and a module the program holds under the name of a binding that declares no table is told by name.
 --
 -- TODO: judge the calls the checker could not type (a call has no callee in [`Checked.callees`] where its callee is `invalid`: a
--- value an error already reported, a call through one; the `[untyped]` ceilings of build/ceilings.txt count them per file, and the
--- build's compile with the new checker ([`build.pipeline`]) refuses a module above its ceiling), once the `[checked]` pins that
--- leave them untyped reach 0. Each of these calls follows from a pinned `[checked]` error, so the
--- count is bookkeeping of those pins and no gap of its own. The pins hold the
--- counts, and each later pull request that lowers a `[checked]` row lowers the `[untyped]` row of its file with it. The build's
+-- value an error already reported, a call through one; a `-- untyped: call` marker holds each at its line, and the
+-- build's compile with the new checker ([`build.pipeline`]) refuses a module with a call that has none), once the
+-- `-- checked:` markers that leave them untyped are gone. Each of these calls follows from a marked `checked` finding, so
+-- the marker is bookkeeping of that one and no gap of its own: each later pull request that removes a `checked` finding
+-- removes the `untyped` marker on its line with it. The build's
 -- compile declares the bindings of C from the declarations it derives of the headers, as the tree checks do, so their calls are
 -- judged.
 --

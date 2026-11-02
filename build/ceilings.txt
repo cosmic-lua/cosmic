@@ -1,14 +1,15 @@
-# The ceilings of the tree's checker: how many errors of each code each file may still have, per stage.
-# A ceiling only falls. The compiler refuses a file over its ceiling (a missing row is a ceiling of 0), and
-# [`build.ceilings_base`] refuses this file when it raises a count or adds a row, against the file at the merge
-# base with main: CI runs it on every branch push and in the merge queue, and `bin/cosmic fix --check .` runs it
-# wherever a base can be found. A code with no row left in any stage is closed ([`Ceilings.closed`]): this file
-# cannot name it again, and a change that takes a code's last row adds it to that list. To lower a pin, remove the
-# places it counts and lower the number, or delete the row at 0; never edit a number up.
+# What the tree's checker still finds, and the tree is held to. The stages listed under [marked] below are held by
+# markers: a comment at the end of the line a finding is reported at (`-- checked: map_field`), which [`build.markers`]
+# reads and [`build.ceilings`] judges, and which only fall ([`build.ceilings_base`] holds each file's markers to the file at
+# the merge base with main). This file holds what a marker cannot: the sections below, whose rows are counts of the
+# findings in text that is not the line of a file. A count only falls: the compiler refuses a file over its count (a
+# missing row is a count of 0), and [`build.ceilings_base`] refuses this file when it raises a count or adds a row. To lower
+# one, remove the places it counts and lower the number, or delete the row at 0; never edit a number up. A code with no
+# marker and no row left in any stage is closed ([`Ceilings.closed`]): nothing can name it again, and a change that takes a
+# code's last marker adds it to that list.
 
 [marked]
-# The stages whose findings a marker holds at the line they occur on (`-- checked: <code>`), in place of
-# the rows of a section here: [`build.ceilings`] and [`build.markers`] say how.
+# The stages whose findings a marker holds at the line they occur on, with no rows here.
 scoped declared untyped checked
 
 [examples]

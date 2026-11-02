@@ -8,7 +8,9 @@ local Scopes = require("lang.scopes")
 local Test = require("cosmic.test")
 
 Test.policy{
-  grants = { { path = "build/ceilings.txt", letters = "r" } },
+  grants = {
+    { path = "build/ceilings.txt", letters = "r" },
+  },
 }
 
 local function parsed(text: string): Ceilings.Table
@@ -57,7 +59,8 @@ local function test_the_file_of_the_tree_parses_and_names_only_the_stages_the_ch
   -- counts apart. No floor: the rows are meant to fall to none.
   local rows = 0
   for line in assert(Fs.read(Ceilings.path)):gmatch("[^\n]+") do
-    if line:find("^[^#%[%s]") ~= nil then rows = rows + 1 end
+    -- a row ends in its count; the line under `[marked]` lists stages
+    if line:find("^[^#%[%s]") ~= nil and line:find("%d$") ~= nil then rows = rows + 1 end
   end
   local counted = 0
   local stages: {Ceilings.Stage} = { "scoped", "declared", "untyped", "checked", "examples", "testdata" }
@@ -236,33 +239,18 @@ local function test_a_line_keyed_by_a_closed_code_is_refused_in_every_stage_that
   assert(Ceilings.of(parsed("[checked]\nbuild/a.tl view_written 1\n"), "checked")["build/a.tl view_written"] == 1)
 end
 
-local function test_every_code_of_a_stage_with_no_row_is_closed_and_every_closed_code_is_a_code()
+--- Whether a code is held by a marker or a row, and so whether it may be closed, is a check of the whole tree
+--- ([`tree_checks.closure`], which `cosmic fix --check .` runs); this holds the list alone.
+local function test_every_closed_code_is_a_code_of_a_stage_once()
   local codes: mut {string: boolean} = {}
   for _, code in ipairs(Scopes.codes) do codes[code] = true end
   for _, code in ipairs(Declarations.codes) do codes[code] = true end
   for _, code in ipairs(Check.codes) do codes[code] = true end
-  local text = assert(Fs.read("build/ceilings.txt"))
-  local pinned: mut {string: boolean} = {}
-  local stage = ""
-  for line in (text .. "\n"):gmatch("(.-)\n") do
-    local name = line:match("^%[([a-z]+)%]$")
-    if name ~= nil then
-      stage = name
-    elseif line ~= "" and line:sub(1, 1) ~= "#" and stage ~= "untyped" then
-      local code = line:match("^%S+ (%S+) %d+$")
-      if code ~= nil then pinned[code] = true end
-    end
-  end
   local closed: mut {string: boolean} = {}
   for _, code in ipairs(Ceilings.closed()) do
     assert(codes[code] == true, code .. " is listed in Ceilings.closed and is no code of a stage")
     assert(closed[code] == nil, code .. " is listed twice in Ceilings.closed")
-    assert(pinned[code] == nil, code .. " is closed and build/ceilings.txt still pins it")
     closed[code] = true
-  end
-  for code in pairs(codes) do
-    assert(pinned[code] == true or closed[code] == true, code .. " has no row left in build/ceilings.txt: add it to " ..
-        "Ceilings.closed in build/ceilings.tl, so that no pin of it comes back")
   end
 end
 

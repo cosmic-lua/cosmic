@@ -118,12 +118,9 @@ a code none of whose findings remain is closed: add it to
 `Ceilings.closed` in [`build/ceilings.tl`], and a marker naming it is
 refused from then on.
 
-[`build/ceilings.txt`] still holds what markers do not: the `[examples]`
-(the findings in the text a reader copies, which a marker would be in) and
-the stages not yet listed under its `[marked]`, as pins that only fall. a
-stage moves to markers once, with `bin/cosmic fix --mark-ceilings .`,
-which writes a marker at each finding it counts and lists the stage under
-`[marked]` in place of its rows.
+[`build/ceilings.txt`] holds what a marker cannot: `[examples]`, the
+findings in the text of the examples a reader copies, which a marker
+would be part of. its counts only fall, and a pin is never raised.
 
 ## teal layout
 

@@ -237,7 +237,8 @@ end
 local function test_the_options_of_cosmics_own_tree_are_its_declarations_and_ceilings_and_a_project_has_none_to_name()
   local own = assert(Pipeline.options(".", true))
   assert(#own.globals.sources == 2)
-  assert((Ceilings.of(own.ceilings, "checked")["build/tree_checks.tl view_written"] or 0) > 0, "the tree's ceilings are not read")
+  assert(Ceilings.by_marks(own.ceilings, "checked") and Ceilings.by_marks(own.ceilings, "untyped"),
+    "the tree's ceilings are not read")
   assert(next(own.ceilings.stages) ~= nil and own.types)
   assert(own.project == nil and own.ceilings.none == nil)
   -- A project's are the declarations the tool carries, which a worker's store of the modules a test reads does not: either the

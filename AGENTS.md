@@ -107,8 +107,8 @@ such as `-- checked: map_field`, in place of a count in a shared file
 fails; a new marker is refused against the merge base; a marker whose
 finding is gone is stale, and `bin/cosmic fix .` removes it. A change
 that removes findings runs `fix .` and commits what it wrote.
-[`build/ceilings.txt`] holds only what markers cannot (`[examples]`) and
-the stages not yet moved to markers, as pins to lower.
+[`build/ceilings.txt`] holds only what markers cannot (`[examples]`), as
+counts to lower.
 
 ## tests
 

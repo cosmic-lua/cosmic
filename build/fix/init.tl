@@ -1658,6 +1658,9 @@ local function run_tree_checks(ctx: Fix)
         findings[#findings + 1] = "markers: " .. line
       end
       -- The ceilings only fall: the file is held to its merge base with main.
+      for _, line in ipairs(tree_checks.closure(root)) do
+        findings[#findings + 1] = "closed codes: " .. line
+      end
       local held = CeilingsBase.check(root, Env.all(), CeilingsBase.live_git(), marks.counts)
       for _, line in ipairs(held.lines) do
         findings[#findings + 1] = "ceilings: " .. line
