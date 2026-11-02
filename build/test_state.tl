@@ -162,6 +162,11 @@ local record test_state
     answered: mut {string:mut {string:string}}
     --- What each failing test printed, by its id.
     outputs: mut {string:string}
+    --- Whether the run shows what a passing test printed (`--show-output`).
+    show_output: boolean
+    --- What each test that ran and passed printed, by its id, where
+    --- `show_output` asks for it; only a test that printed anything is here.
+    shown: mut {string:string}
     --- Each failing test's `<file>:<name>` selector, by its id: what
     --- `cosmic test` takes to run that one test again.
     reruns: mut {string:string}
@@ -256,7 +261,8 @@ local record test_state
     --- The harness's epoch (build/harness_epoch.tl), which every key
     --- holds in place of the harness's code, and the timeout each worker
     --- runs under ([`Limits.timeout_ns`]), which every key holds too: a
-    --- pass reached under a longer one need not come under a shorter.
+    --- pass reached under a longer one need not come under a shorter. A
+    --- module's own `timeout` can lengthen it (`timeout_ns_of` of build/test_key.tl).
     mut epoch: string
     mut timeout_ns: integer
     --- The program a test that runs this program runs
