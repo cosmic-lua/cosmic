@@ -15,7 +15,8 @@ local record LuaTail
   bytecode_of: function(code: string, name: string, file: string): string?, string
 
   --- `bytecode`, a chunk of the module `name` as [`bytecode_of`] made it, written again without its debug
-  --- information -- line numbers, local and upvalue names -- so that what is left is what the core runs: the same for
+  --- information -- line numbers, local and upvalue names -- and with the line each function is defined on and ends
+  --- on as 0, which `string.dump` keeps of a stripped chunk, so that what is left is what the core runs: the same for
   --- two versions of a module that differ in a comment, a blank line or where a function sits. Nil and why where
   --- `bytecode` is not a chunk Lua loads.
   stripped: function(bytecode: string, name: string): string?, string
@@ -92,6 +93,100 @@ function LuaTail.bytecode_of(code: string, name: string, file: string): string?,
   return bytecode, ""
 end
 
+--- `stripped`, a dump with its debug information left out, written again with the line each function is defined
+--- on and ends on (`linedefined`, `lastlinedefined`) as 0. `string.dump` keeps those two with the debug
+--- information stripped, so a function that moved down the file would otherwise differ. They are varints, so the
+--- code that follows may need other padding to stay aligned (ldump.c's `dumpAlign`): the whole dump is read as
+--- ldump.c writes it (the format 1 of [`bytecode_header`]) and written again. Nil and why where it is not a dump
+--- of that shape.
+local function without_lines(dumped: string, name: string): string?, string
+  local parts: mut {string} = {}
+  local at, emitted = 1, 0
+  local function said(why: string): string
+    return name .. ": a chunk the core dumped in a shape the line normalizer does not read: " .. why
+  end
+  local function copy(count: integer)
+    if count < 0 or at + count - 1 > #dumped then error(said("truncated"), 0) end
+    local piece = dumped:sub(at, at + count - 1)
+    parts[#parts + 1] = piece
+    at = at + count
+    emitted = emitted + count
+  end
+  local function varint(): integer
+    local value = 0
+    while true do
+      local byte = dumped:byte(at)
+      if byte == nil then error(said("truncated"), 0) end
+      at = at + 1
+      value = (value << 7) | (byte & 0x7f)
+      if byte < 0x80 then return value end
+    end
+  end
+  local function copy_varint(): integer
+    local started = at
+    local value = varint()
+    local piece = dumped:sub(started, at - 1)
+    parts[#parts + 1] = piece
+    emitted = emitted + (at - started)
+    return value
+  end
+  local function zero()
+    parts[#parts + 1] = "\0"
+    emitted = emitted + 1
+  end
+  local function copy_string()
+    local size = copy_varint()
+    if size == 0 then
+      copy_varint()
+    else
+      copy(size)
+    end
+  end
+  local function copy_function()
+    varint()
+    zero()
+    varint()
+    zero()
+    copy(3)
+    local code = copy_varint()
+    -- The padding is written for where the code now starts.
+    at = at + (4 - (at - 1) % 4) % 4
+    local pad = (4 - emitted % 4) % 4
+    local padding = string.rep("\0", pad)
+    parts[#parts + 1] = padding
+    emitted = emitted + pad
+    copy(code * 4)
+    for _ = 1, copy_varint() do
+      local tag = dumped:byte(at)
+      if tag == nil then error(said("truncated"), 0) end
+      copy(1)
+      if tag == 19 then
+        copy(8)
+      elseif tag == 3 then
+        copy_varint()
+      elseif tag == 4 or tag == 20 then
+        copy_string()
+      elseif tag ~= 0 and tag ~= 1 and tag ~= 17 then
+        error(said("a constant of tag " .. tostring(tag)), 0)
+      end
+    end
+    copy(3 * copy_varint())
+    for _ = 1, copy_varint() do copy_function() end
+    copy_string()
+    for _ = 1, 4 do
+      if copy_varint() ~= 0 then error(said("debug information in a stripped chunk"), 0) end
+    end
+  end
+  local ok, trouble = pcall(function()
+    copy(#bytecode_header)
+    copy(1)
+    copy_function()
+    if at ~= #dumped + 1 then error(said("bytes after the chunk"), 0) end
+  end)
+  if not ok then return nil, tostring(trouble) end
+  return table.concat(parts), ""
+end
+
 function LuaTail.stripped(bytecode: string, name: string): string?, string
   if not String.starts_with(bytecode, "\27Lua") then
     return nil, name .. ": not a binary chunk"
@@ -99,7 +194,15 @@ function LuaTail.stripped(bytecode: string, name: string): string?, string
   -- An environment of its own, which `load` asks of a binary chunk; the chunk is never run.
   local chunk, trouble = load(bytecode, "=" .. name, "b", {})
   if chunk == nil then return nil, name .. ": " .. tostring(trouble) end
-  return dump(chunk, true), ""
+  local plain, why = without_lines(dump(chunk, true), name)
+  if plain == nil then return nil, why end
+  -- Read back, or the writing above is not the chunk it was given.
+  local again, again_trouble = load(plain, "=" .. name, "b", {})
+  if again == nil then return nil, name .. ": " .. tostring(again_trouble) end
+  if dump(again, true) ~= plain then
+    return nil, name .. ": the chunk without its lines is not the chunk"
+  end
+  return plain, ""
 end
 
 function LuaTail.fits_with(code: string, spare: integer): boolean, string

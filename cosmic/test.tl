@@ -189,6 +189,11 @@ local record Test
     --- carry-less multiply), whose output is the same on every path, to
     --- have a bug of one processor's path caught on that processor.
     mut cpu_features?: boolean
+    --- Whether the tests read the text-derived rows of their closure's
+    --- store: a module's source, the docs, uses, links, examples, catalog
+    --- and places rows, the stubs, and the debug information of an
+    --- imported module's bytecode (`store_text` of [`Test.policy`]).
+    mut store_text?: boolean
     --- Host caches the tests, or the processes they start, write, by
     --- name: `"zig"` (the pinned zig, and zig's global and project
     --- caches) or `"bootstrap"` (the bootstrap cosmic, and the cores a
@@ -309,6 +314,9 @@ local record Test
     --- Whether the tests' outcome may turn on the processor's features:
     --- `cpu_features` of [`Needs`].
     mut cpu_features?: boolean
+    --- Whether the tests read text-derived rows of their closure's store:
+    --- `store_text` of [`Needs`].
+    mut store_text?: boolean
   end
 end
 
@@ -374,11 +382,13 @@ local POLICY_FIELDS <const>: {string:string} = {
   connect = "list", loopback = "list", env = "list", set_env = "map",
   set_env_digests = "map", tmp = "flag", limits = "limits", user = "id", group = "id",
   database = "string", requires = "list", timeout = "seconds", cpu_features = "flag",
+  store_text = "flag",
 }
 
 local POLICY_FIELD_NAMES <const>: {string} = {
   "connect", "cpu_features", "database", "env", "grants", "group", "isolate", "limits", "loopback",
-  "profiles", "promises", "requires", "set_env", "set_env_digests", "timeout", "tmp", "user",
+  "profiles", "promises", "requires", "set_env", "set_env_digests", "store_text", "timeout", "tmp",
+  "user",
 }
 
 local LIMIT_FIELDS <const>: {string:boolean} = {
@@ -572,6 +582,8 @@ local function policy_of(given: any): Test.Policy?, string
         why = key .. " takes true or false"
       elseif key == "cpu_features" then
         out.cpu_features = value
+      elseif key == "store_text" then
+        out.store_text = value
       else
         out.tmp = value
       end
@@ -762,6 +774,7 @@ function Test.needs_of(given: any): Test.Needs?, string
   if #(policy.requires or {}) > 0 then out.requires = policy.requires end
   out.timeout = policy.timeout
   out.cpu_features = if policy.cpu_features == true then true else nil end
+  out.store_text = if policy.store_text == true then true else nil end
   return out, ""
 end
 

@@ -309,7 +309,7 @@ local function test_a_module_declares_its_policy_once()
 end
 
 --- The fields [`Test.Policy`] repeats are the fields of cosmic.sandbox.policy's
---- `Policy`, and `requires` and `timeout`, which only a test declares.
+--- `Policy`, and `requires`, `timeout`, `cpu_features` and `store_text`, which only a test declares.
 local function test_the_policy_record_is_the_sandboxs()
   local text = assert(Fs.read("cosmic/sandbox/policy.tl"))
   local record = assert(text:match("\n  record Policy\n(.-)\n  end\n"), "no Policy")
@@ -318,6 +318,7 @@ local function test_the_policy_record_is_the_sandboxs()
   theirs[#theirs + 1] = "requires"
   theirs[#theirs + 1] = "timeout"
   theirs[#theirs + 1] = "cpu_features"
+  theirs[#theirs + 1] = "store_text"
   table.sort(theirs)
   local _, said = Test.needs_of({ nothing = true })
   local listed = assert(said:match("it has (.*)$"), said)

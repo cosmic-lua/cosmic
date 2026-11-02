@@ -291,6 +291,41 @@ refuses a module of the tree outside the closure.
   `promises = { "nest" }` (`nests`). Without it the kernel refuses the
   mounts a root is made of, the start fails and names the promise.
 
+### the pure store
+
+A test's key holds the store of its closure, and a comment, a blank line or
+a moved line of an imported module changes that store's rows (the source,
+the docs, the uses with their lines, the debug information of the bytecode)
+without changing what the module does. Under `COSMIC_TEST_PURE_STORE=1`
+(off by default; [`build.closure_store`]'s `write` with `own`) a test that
+declares neither `store` nor `store_text` is given a pure store instead:
+
+- no module's source or source hash, and no row of `docs`, `uses`, `links`,
+  `examples`, `catalog`, `stubs` or `places`: a test that reads one finds none
+  and fails, rather than standing on text that changed;
+- the bytecode of each module it imports stripped of its debug
+  information ([`build.lua_tail`]'s `stripped`, which also writes the line
+  each function is defined on as 0), and its own module's as the build made it;
+- the source file of its own module and of the declarations it requires, and
+  not of the modules it imports.
+
+Its key holds the digest of exactly that, so an edit to an imported module
+that changes no bytecode (a comment, a blank line, a renamed local, a function
+that moved down the file) runs no test of its importers again, and one that
+changes what the module does runs them.
+
+A test whose subject is the text of the store (the checker typing a snippet
+of the tree's sources, `cosmic docs`, the language server, the uses and
+catalog) declares `Test.policy { store_text = true }` and is given today's
+store, keyed by its bytes.
+
+A test does not assert a position inside code it imports: a line number of
+the module's own code in a message or a traceback, `debug.getinfo`'s
+`currentline` or `linedefined`. A pure store strips them, and the position
+would move with a comment anyway. Match the message without its position,
+or write the source the test asserts about in the test itself (a fixture
+string compiled by the test), whose lines it chooses.
+
 A test needs no network. A sandboxed worker has none: its filter refuses
 an inet socket. To reach a service, start one on `127.0.0.1` and declare
 `loopback = { "127.a.b.c" }`. The worker then runs offline on a loopback
@@ -771,6 +806,7 @@ Other rules:
 
 [`bin/cosmic`]: ../bin/cosmic
 [`build.checker_declarations`]: ../build/checker_declarations.tl
+[`build.closure_store`]: ../build/closure_store.tl
 [`build.compile_grammar`]: ../build/compile_grammar.tl
 [`build.confine`]: ../build/confine.tl
 [`build.example_checks`]: ../build/example_checks.tl
@@ -779,6 +815,7 @@ Other rules:
 [`build.harness_epoch_test`]: ../build/harness_epoch_test.tl
 [`build.harness_epoch`]: ../build/harness_epoch.tl
 [`build.host_names`]: ../build/host_names.tl
+[`build.lua_tail`]: ../build/lua_tail.tl
 [`build.paths`]: ../build/paths.tl
 [`build.pipeline`]: ../build/pipeline.tl
 [`build.rebuild`]: ../build/rebuild.tl

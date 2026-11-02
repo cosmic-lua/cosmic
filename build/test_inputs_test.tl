@@ -26,6 +26,7 @@ local record Fields
   lua?: boolean
   noexec?: boolean
   store?: boolean
+  store_text?: boolean
 end
 
 --- A declaration of what `fields` names, the rest left out.
@@ -34,7 +35,7 @@ local function declaring(fields: Fields): PolicyRules.Declared
     env = fields.env or {}, network = fields.network or {},
     tool = fields.tool == true, lua = fields.lua == true, nests = false,
     noexec = fields.noexec == true, store = fields.store == true,
-    system = false, caches = {}, requires = {} }
+    system = false, caches = {}, requires = {}, store_text = fields.store_text == true }
 end
 
 --- A tree of four modules: a test requiring a helper, which requires a
@@ -317,4 +318,44 @@ local function test_noexec_is_requested_but_not_granted_by_a_declaration()
   assert(test_inputs.canonical(m.inputs) == "noexec true")
   assert(test_inputs.canonical(test_inputs.as_declared({ noexec = true })) == "noexec true")
   assert(test_inputs.canonical(test_inputs.as_declared({ noexec = false })) == "")
+end
+
+--- A test the run gives the pure store is given, and its key holds, the
+--- source file of its own module and the declarations it requires, not
+--- the source files of the modules it imports: a comment in one of them
+--- moves none of it. `store` and `store_text` each keep the closure's
+--- files, as does a run that holds no pure store.
+local function test_a_pure_test_is_given_only_its_own_source_file()
+  local function files_of(inputs?: PolicyRules.Declared, pure?: boolean): string
+    local m, by_path = tree(inputs)
+    local effective = test_inputs.effective(m, by_path, staged, nil, pure)
+    local files: mut {string} = {}
+    for file in pairs(effective.files) do files[#files + 1] = file end
+    table.sort(files)
+    assert(effective.pure == test_inputs.is_pure(inputs, pure))
+    return table.concat(files, " ")
+  end
+  assert(files_of(nil, true) == "lib/declared.d.tl lib/thing_test.tl", files_of(nil, true))
+  local all = "lib/declared.d.tl lib/deep/init.tl lib/helper.tl lib/thing_test.tl"
+  assert(files_of(nil, false) == all and files_of(nil) == all)
+  assert(files_of(declaring({ store_text = true }), true) == all)
+  assert(files_of(declaring({ store = true }), true) == all)
+  assert(files_of(declaring({ lua = true }), true):find("lib/helper.tl", 1, true) ~= nil, "lua is pure")
+  assert(files_of(declaring({ tool = true }), true):find("lib/helper.tl", 1, true) ~= nil, "tool is pure")
+  -- Its closure's names are the same, pure or not: what it may `require`.
+  local m, by_path = tree()
+  assert(table.concat(test_inputs.modules(m, by_path, staged), " ") ==
+      "lib.declared lib.deep lib.helper lib.thing_test")
+end
+
+--- `store_text` is a part of a declaration's canonical text, so a test
+--- that declares it is keyed apart from one that does not.
+local function test_store_text_is_part_of_the_canonical_text()
+  local function of(needs: declared_inputs.Needs?): string
+    return test_inputs.canonical(test_inputs.as_declared(needs))
+  end
+  assert(of({ store_text = true }) == "store_text true", of({ store_text = true }))
+  assert(of({ store_text = false }) == "")
+  assert(of({ store_text = true }) == test_inputs.canonical(declaring({ store_text = true })))
+  assert(of({ store_text = true }) ~= of({ store = true }))
 end

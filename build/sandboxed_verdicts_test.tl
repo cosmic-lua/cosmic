@@ -91,9 +91,11 @@ local function skip_if_unsandboxed(text: string)
 end
 
 --- The environment a sandboxed run of the suite is started with, its
---- shared cache at `cache`, and `harness_salt` where given.
-local function environment(cache: string, harness_salt?: string): {string:string}
+--- shared cache at `cache`, `harness_salt` where given, and the pure store
+--- ([`build.closure_store`]) where `pure` says.
+local function environment(cache: string, harness_salt?: string, pure?: boolean): {string:string}
   local env = this_program.environment()
+  if pure == true then env["COSMIC_TEST_PURE_STORE"] = "1" end
   if harness_salt ~= nil then env["COSMIC_TEST_HARNESS_SALT"] = harness_salt end
   env.COSMIC_VERDICT_CACHE = cache -- checked: map_field
   env.COSMIC_TEST_ALL = nil -- checked: map_field
@@ -993,6 +995,38 @@ local function test_a_store_is_keyed_by_its_bytes_not_its_address(tmp: string)
       not second:find("closure store", 1, true), second)
   local stores, _ = Fs.list(support.build_dir(tmp .. "/second") .. "/stores")
   assert(stores == nil or #stores == 0, "a checkout that stood wrote a store")
+end
+
+--- A run that holds the pure store (COSMIC_TEST_PURE_STORE=1, [`build.closure_store`])
+--- keys a test by what its worker can observe of its closure: a comment
+--- or a blank line in an imported module runs only the test that declares
+--- `store_text`, which is given the text, and an edit to what the module
+--- does runs every test that imports it.
+local function test_a_pure_store_run_stands_on_a_comment_in_an_import(tmp: string)
+  local root = tmp .. "/root"
+  checkout(root)
+  assert(Fs.write(root .. "/suite/text_test.tl", [[
+local lib = require("suite.lib")
+local Test = require("cosmic.test")
+
+Test.policy { store_text = true }
+
+local function test_text()
+  assert(lib.value > 0)
+end
+]]))
+  local env = environment(tmp .. "/cache/verdicts.db", nil, true)
+  local first = run(root, tmp .. "/first.out", env)
+  skip_if_unsandboxed(first)
+  assert(first:find("4 ran, 0 stood", 1, true), first)
+  assert(Fs.write(root .. "/suite/lib.tl",
+    "-- a note\n\nlocal record Lib\n  value: integer\nend\nlocal lib: Lib = { value = 1 }\nreturn lib\n"))
+  local noted = run(root, tmp .. "/noted.out", env)
+  assert(noted:find("1 ran, 3 stood", 1, true), noted)
+  assert(Fs.write(root .. "/suite/lib.tl",
+    "-- a note\n\nlocal record Lib\n  value: integer\nend\nlocal lib: Lib = { value = 2 }\nreturn lib\n"))
+  local changed = run(root, tmp .. "/changed.out", env)
+  assert(changed:find("2 ran, 2 stood", 1, true), changed)
 end
 
 --- An unsandboxed worker of a module that is neither `store`, `tool` nor

@@ -25,6 +25,7 @@
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
+local lua_tail = require("build.lua_tail")
 local Proc = require("cosmic.proc")
 local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
@@ -68,6 +69,24 @@ local record closure_store
     --- The declarations each declaration requires, by path
     --- ([`required_by`]).
     decl_requires: mut {string:{string}}
+    --- The pure store's ([`closure_store.write`]'s `own`) line of each module,
+    --- by path: what it holds of a module but its bytecode -- the kind, file,
+    --- tests, and the imports, declaration imports and bound names, each by a
+    --- digest. Nothing text-derived: no source, source hash, doc, use, link,
+    --- example, catalog row, place or stub.
+    pure: mut {string:string}
+    --- The digest of each module's bytecode with the debug information
+    --- stripped ([`lua_tail.stripped`]), by path: what the pure store holds
+    --- of every module but its test's own.
+    stripped: mut {string:string}
+    --- The digest of each module's whole bytecode, debug information
+    --- included (inflated, so the compressor moves none), by path: what the
+    --- pure store holds of its test's own module.
+    bytecode: mut {string:string}
+    --- A declaration's line in the pure store: its source (a declaration is
+    --- types, with no bytecode to say what it does), the names it binds and
+    --- the edges the checker follows from it; not its docs or links.
+    pure_decls: mut {string:string}
   end
 end
 
@@ -173,7 +192,7 @@ local function memo_token(whole: string): string?
   if Clock.now_ns() - math.max(written, changed) < 2000000000 then return nil end
   local code, _ = Store.bytecode("build.closure_store")
   if code == nil then return nil end
-  return table.concat({ "basis-memo-1", Hash.hex_sha256(code), st.size, st.ino, st.dev, written, changed }, " ")
+  return table.concat({ "basis-memo-2", Hash.hex_sha256(code), st.size, st.ino, st.dev, written, changed }, " ")
 end
 
 --- Where a read of a kept basis is, and the basis it made.
@@ -205,11 +224,15 @@ local function remembered(whole: string, token: string): closure_store.Basis?
     if next_string() ~= token then return end
     local out: closure_store.Basis = {
       modules = {}, shared = next_string(), kinds = {}, pairable = {}, decls = {}, decl_requires = {},
+      pure = {}, stripped = {}, bytecode = {}, pure_decls = {},
     }
     for _ = 1, next_count() do
       local path = next_string()
       out.modules[path] = next_string()
       out.kinds[path] = next_string()
+      out.pure[path] = next_string()
+      out.stripped[path] = next_string()
+      out.bytecode[path] = next_string()
     end
     for _ = 1, next_count() do
       local name = next_string()
@@ -221,6 +244,7 @@ local function remembered(whole: string, token: string): closure_store.Basis?
       local required: mut {string} = {}
       for i = 1, next_count() do required[i] = next_string() end
       out.decl_requires[path] = required
+      out.pure_decls[path] = next_string()
     end
     if reading.at ~= #data + 1 then return end
     reading.basis = out
@@ -245,6 +269,9 @@ local function remember(whole: string, token: string, basis: closure_store.Basis
     put_string(path)
     put_string(line)
     put_string(basis.kinds[path] or "")
+    put_string(basis.pure[path] or "")
+    put_string(basis.stripped[path] or "")
+    put_string(basis.bytecode[path] or "")
   end
   put_count(#basis.pairable)
   for _, path in ipairs(basis.pairable) do put_string(path) end
@@ -257,6 +284,7 @@ local function remember(whole: string, token: string, basis: closure_store.Basis
     local required = basis.decl_requires[path] or {}
     put_count(#required)
     for _, name in ipairs(required) do put_string(name) end
+    put_string(basis.pure_decls[path] or "")
   end
   local aside = memo_path(whole) .. "." .. tostring(Proc.pid()) .. ".building"
   local written, _ = Fs.write(aside, table.concat(parts))
@@ -331,6 +359,7 @@ local function read_basis(whole: string): closure_store.Basis?, string
     local basis: closure_store.Basis = {
       modules = {}, shared = Hash.hex_sha256("closure-store-8\n" .. shared_row:text(1)),
       kinds = {}, pairable = {}, decls = {}, decl_requires = {},
+      pure = {}, stripped = {}, bytecode = {}, pure_decls = {},
     }
     for _, row in ipairs(rows) do
       local line: mut {string} = { row:text(2) }
@@ -346,11 +375,30 @@ local function read_basis(whole: string): closure_store.Basis?, string
       local name = row:text(1)
       basis.pairable[#basis.pairable + 1] = name
     end
+    -- The first three groups are the imports, the declaration imports and the bound names.
+    local kept: mut {{string:string}} = {}
+    for i = 1, 3 do kept[i] = assert(carried[i], "the first three groups are read") end
+    local pure_rows, pure_trouble = Sqlite.rows(db,
+      "SELECT path, kind, file, lower(hex(sha256(tests))), inflate(bytecode) FROM modules ORDER BY path")
+    if pure_rows == nil then return nil, pure_trouble end
+    for _, row in ipairs(pure_rows) do
+      local path = row:text(1)
+      local line: mut {string} = { path, row:text(2), row:text(3), row:text(4) }
+      for _, digests in ipairs(kept) do line[#line + 1] = digests[path] or "" end
+      basis.pure[path] = table.concat(line, "\t")
+      local code = row:blob(5)
+      basis.bytecode[path] = Hash.hex_sha256(code)
+      local stripped, why = lua_tail.stripped(code, path)
+      if stripped == nil then return nil, why end
+      basis.stripped[path] = Hash.hex_sha256(stripped)
+    end
     for _, row in ipairs(decl_rows) do
       basis.decls[row:text(1)] = "decl " .. row:text(1) .. " " .. row:text(2) .. " " .. (declared[row:text(1)] or "") ..
         " " .. (linked[row:text(1)] or "") .. " " .. (bound[row:text(1)] or "") .. " " ..
         (edges[row:text(1)] or "")
       basis.decl_requires[row:text(1)] = closure_store.required_by(row:text(3))
+      basis.pure_decls[row:text(1)] = "decl " .. row:text(1) .. " " .. row:text(2) .. " " ..
+        (bound[row:text(1)] or "") .. " " .. (edges[row:text(1)] or "")
     end
     return basis, ""
   end
@@ -490,8 +538,27 @@ end
 --- moves. The store holds no trace of its address (`write`), so two
 --- addresses of the same rows -- an edit to the writer's comments, say
 --- -- name stores of the same bytes, which a key holds alike.
+---
+--- With `own`, the address of the pure store ([`closure_store.write`]): the
+--- digest of what that holds, which is each module's line of `basis.pure`
+--- with its bytecode stripped of debug information -- `own`'s, the test's
+--- module, with it -- and each declaration's. It moves with a module's
+--- bytecode and what its rows say, and with no comment, blank line or
+--- moved line in a module `own` imports.
 function closure_store.address(basis: closure_store.Basis, names: {string},
-                               salt: string): string
+                               salt: string, own?: string): string
+  if own ~= nil then
+    local pure: mut {string} = { basis.shared, salt, "pure " .. own }
+    for _, name in ipairs(stored(basis, names)) do
+      local held = if name == own then basis.bytecode[name] else basis.stripped[name] end
+      pure[#pure + 1] = digest_of_line(assert(basis.pure[name], "a stored name has its pure line") ..
+          "\t" .. assert(held, "a stored name has its bytecode's digest"))
+    end
+    for _, name in ipairs(declared(basis, names)) do
+      pure[#pure + 1] = digest_of_line((assert(basis.pure_decls[name], "a declared name has its pure line")))
+    end
+    return Hash.hex_sha256(table.concat(pure, "\n"))
+  end
   local lines: mut {string} = { basis.shared, salt }
   for _, name in ipairs(stored(basis, names)) do
     lines[#lines + 1] = digest_of_line((assert(basis.modules[name], "a stored name has its line")))
@@ -572,6 +639,29 @@ local function closed(uses_from: string): {string}
   }
 end
 
+--- What [`closed`] copies, less everything text-derived: a module's source
+--- and source hash are left empty, and no doc, use, link, example, catalog
+--- row, place or stub goes in. The bytecode of the modules goes in as the
+--- projection has it; [`closure_store.write`] strips the debug information
+--- of all but the test's own.
+local function closed_pure(): {string}
+  return {
+    "INSERT INTO main.meta SELECT * FROM whole.meta WHERE key IN " .. closure_meta ..
+      " ORDER BY key",
+    "INSERT INTO main.modules (path, file, kind, source_hash, key, bytecode, tests, source) " ..
+      "SELECT path, file, kind, X'', X'', bytecode, tests, X'' FROM whole.modules " ..
+      "WHERE path IN temp.wanted ORDER BY path",
+    "INSERT INTO main.imports SELECT * FROM whole.imports " ..
+      "WHERE path IN temp.wanted AND requires IN temp.wanted ORDER BY path, requires",
+    "INSERT INTO main.decl_imports SELECT * FROM whole.decl_imports " ..
+      "WHERE path IN temp.wanted OR path IN temp.declared ORDER BY path, requires",
+    "INSERT INTO main.bound SELECT * FROM whole.bound " ..
+      "WHERE path IN temp.wanted OR path IN temp.declared ORDER BY path, name",
+    "INSERT INTO main.decls SELECT * FROM whole.decls WHERE path IN temp.declared " ..
+      "ORDER BY path",
+  }
+end
+
 --- Writes at `path` a database holding the projection's `uses` rows
 --- keyed by the module that makes them, for [`closure_store.write`] to
 --- find a closure's by that module: the projection's own table is keyed by
@@ -636,8 +726,17 @@ end
 --- (build/closure_store_test.tl holds two writes of the same rows to
 --- the same bytes); and synced before it is moved into place, since a
 --- store is written once and read as it is from then on.
+---
+--- With `own`, the name of the test module the store is for, it is the
+--- pure store instead: it holds nothing that moves with a comment, a blank
+--- line or a moved line. The modules' source and source hash are empty, the
+--- stubs, places, docs, uses, links, examples and catalog tables hold no
+--- rows, and every module's bytecode but `own`'s is stripped of its debug
+--- information, so a test that reads such a row finds none and fails, and
+--- the store's bytes follow from [`closure_store.address`]'s pure address.
 function closure_store.write(whole: string, out: string, names: {string},
-                             basis: closure_store.Basis, extraction?: string): boolean, string
+                             basis: closure_store.Basis, extraction?: string,
+                             own?: string): boolean, string
   local function fill(db: Sqlite.Handle): boolean, string
     local statements: mut {string} = {}
     for _, statement in ipairs(schema.settings("")) do statements[#statements + 1] = statement end
@@ -662,7 +761,7 @@ function closure_store.write(whole: string, out: string, names: {string},
       { text(whole) })
     if not attached then return false, attach_trouble end
     local uses_from = "whole.uses"
-    if extraction ~= nil then
+    if extraction ~= nil and own == nil then
       local extracted, extract_trouble = Sqlite.run(db, "ATTACH DATABASE ?1 AS extracted",
         { text(extraction) })
       if not extracted then
@@ -672,7 +771,7 @@ function closure_store.write(whole: string, out: string, names: {string},
       uses_from = "extracted.uses"
     end
     local made, refused = Sqlite.transact(db, function(): boolean, string
-      for _, statement in ipairs(closed(uses_from)) do
+      for _, statement in ipairs(if own ~= nil then closed_pure() else closed(uses_from) end) do
         local ok, failure = db:exec(statement)
         if not ok then return false, failure end
       end
@@ -680,10 +779,22 @@ function closure_store.write(whole: string, out: string, names: {string},
         local ok, failure = db:exec(statement)
         if not ok then return false, failure end
       end
+      if own ~= nil then
+        local held, held_trouble = Sqlite.rows(db,
+          "SELECT path, inflate(bytecode) FROM main.modules WHERE path <> ?1", { text(own) })
+        if held == nil then return false, held_trouble end
+        for _, row in ipairs(held) do
+          local stripped, why = lua_tail.stripped(row:blob(2), row:text(1))
+          if stripped == nil then return false, why end
+          local ok, failure = Sqlite.run(db, "UPDATE main.modules SET bytecode = deflate(?1) WHERE path = ?2",
+            { { blob = stripped }, text(row:text(1)) })
+          if not ok then return false, failure end
+        end
+      end
       return true, ""
     end)
     local _, _ = db:exec("DETACH whole")
-    if extraction ~= nil then local _, _ = db:exec("DETACH extracted") end
+    if extraction ~= nil and own == nil then local _, _ = db:exec("DETACH extracted") end
     if not made then return false, refused end
     -- Written aside under `out`'s one fixed `.building` name, which no
     -- other run writes or sweeps meanwhile: only `cosmic test` writes a

@@ -91,6 +91,8 @@ local function test_inputs_by_hash(db: Sqlite.Handle): {string:PolicyRules.Decla
       one.system = true
     elseif field == "cpu_features" then
       one.cpu_features = true
+    elseif field == "store_text" then
+      one.store_text = true
     elseif field == "caches" then
       one.caches[#one.caches + 1] = value -- checked: view_written
     elseif field == "parent" then
