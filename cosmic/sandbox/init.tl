@@ -221,7 +221,7 @@ local function elf_interpreter(fd: integer, head: string): string?
   if (class ~= 1 and class ~= 2) or (data ~= 1 and data ~= 2) then return nil end
   local little = data == 1
   local wide = class == 2
-  local offset = wide and unsigned(head, 33, 8, little) or unsigned(head, 29, 4, little)
+  local offset = if wide then unsigned(head, 33, 8, little) else unsigned(head, 29, 4, little) end
   local size = unsigned(head, if wide then 55 else 43 end, 2, little)
   local count = unsigned(head, if wide then 57 else 45 end, 2, little)
   -- An entry too small for its class would be read past its end below.
@@ -230,8 +230,8 @@ local function elf_interpreter(fd: integer, head: string): string?
     local entry, _ = sys.pread(fd, size, offset + i * size)
     if entry == nil or #entry < size then return nil end
     if unsigned(entry, 1, 4, little) == PT_INTERP then
-      local at = wide and unsigned(entry, 9, 8, little) or unsigned(entry, 5, 4, little)
-      local length = wide and unsigned(entry, 33, 8, little) or unsigned(entry, 17, 4, little)
+      local at = if wide then unsigned(entry, 9, 8, little) else unsigned(entry, 5, 4, little) end
+      local length = if wide then unsigned(entry, 33, 8, little) else unsigned(entry, 17, 4, little) end
       if length < 2 or length > 4096 then return nil end
       local name, _ = sys.pread(fd, length, at)
       if name == nil then return nil end
@@ -584,8 +584,8 @@ function Sandbox.restrict(policy: Sandbox.Policy, options?: Sandbox.RestrictOpti
   local limits = merged.limits or {}
   local rlimits: {string:integer} = { nofile = limits.open_files or DEFAULT_OPEN_FILES,
     core = 0 }
-  rlimits.fsize = limits.file_bytes
-  rlimits.cpu = limits.cpu_seconds
+  rlimits.fsize = limits.file_bytes -- checked: map_field
+  rlimits.cpu = limits.cpu_seconds -- checked: map_field
   local promises: mut {string} = {}
   for _, promise in ipairs(merged.promises or {}) do promises[#promises + 1] = promise end
   local done, held, failure = raw.restrict_self({ grants = grants, promises = promises,

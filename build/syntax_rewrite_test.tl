@@ -85,7 +85,7 @@ end
 
 local function test_keep_narrows_the_hits_and_an_empty_replacement_is_an_accepted_edit()
   local chunk = assert(Node.parse("f(1)\nf(2)\n", "t.tl"))
-  local second = Node.base(chunk.body.stats[2]).first
+  local second = Node.base(chunk.body.stats[2]).first -- checked: index_may_be_nil
   local result = rewritten("f(1)\nf(2)\n", "f($X)", "g($X)", function(node: Ast.Node): boolean
     return Node.base(node).first >= second
   end)

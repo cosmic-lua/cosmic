@@ -39,7 +39,7 @@ end
 --- grants no process of a sandbox.
 local function test_end_strays_ends_a_stray_named_as_an_init(tmp: string)
   local link = tmp .. "/cosmic-init"
-  assert(Fs.symlink(this_program.program({}).argv[1], link))
+  assert(Fs.symlink(this_program.program({}).argv[1], link)) -- checked: index_may_be_nil
   do
     -- A group started first makes this process the subreaper it adopts
     -- the stray as.

@@ -164,7 +164,7 @@ local function test_a_boot_holds_the_lock_and_hands_it_on(tmp: string)
     "write $DIR/handed [$COSMIC_REBUILD_LOCK_HANDED]; wait-for $DIR/go; exit 0"))
   local started = this_program.program({ "--standalone", script, "build", "boot" }, {
     env = { COSMIC_ZIG = "zig-for-test", PATH = tmp, XDG_CACHE_HOME = tmp .. "/cache",
-      COSMIC_BUILD_HOME = Env.get("COSMIC_BUILD_HOME") },
+      COSMIC_BUILD_HOME = Env.get("COSMIC_BUILD_HOME") }, -- checked: nil_not_allowed
     stdout = "capture", stderr = "capture",
   })
   local h = assert(Child.start(started.argv, started.options))

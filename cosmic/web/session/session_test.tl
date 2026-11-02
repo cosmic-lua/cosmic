@@ -32,7 +32,7 @@ end
 local function options(store: Session.Store, extra?: Extra): Session.Options
   local x: Extra = extra or {}
   return { store = store, cookie_name = x.cookie_name, max_age = x.max_age, rolling = x.rolling,
-    secure = x.secure, same_site = x.same_site, now = function(): integer return clock.now end }
+    secure = x.secure, same_site = x.same_site, now = function(): integer return clock.now end } -- checked: map_field
 end
 
 local seen: mut {Session.Handle} = {}
@@ -51,14 +51,14 @@ local function make_app(opts: Session.Options, spec?: Web.AppSpec): Web.App
     Web.get("/get/:key", function(req: Web.Request): Web.Response
       local handle = Session.of(req)
       seen[#seen + 1] = handle
-      return Web.text(handle:get_string(req.params.key) or "-")
+      return Web.text(handle:get_string(req.params.key) or "-") -- checked: map_field
     end),
     Web.post("/set/:key/:value", function(req: Web.Request): Web.Response
-      Session.of(req):set(req.params.key, req.params.value)
+      Session.of(req):set(req.params.key, req.params.value) -- checked: map_field*2
       return Web.text("ok")
     end),
     Web.post("/flash/:kind/:text", function(req: Web.Request): Web.Response
-      Session.of(req):flash(req.params.kind, req.params.text)
+      Session.of(req):flash(req.params.kind, req.params.text) -- checked: map_field*2
       return Web.text("ok")
     end),
     Web.get("/flashes", function(req: Web.Request): Web.Response
@@ -90,7 +90,7 @@ local function make_app(opts: Session.Options, spec?: Web.AppSpec): Web.App
       return Web.abort(403)
     end),
     Web.post("/bad", function(req: Web.Request): Web.Response
-      Session.of(req):set("f", print as any)
+      Session.of(req):set("f", print as any) -- checked: cast_refused
       return Web.text("unreachable")
     end),
     Web.post("/clear", function(req: Web.Request): Web.Response
@@ -98,7 +98,7 @@ local function make_app(opts: Session.Options, spec?: Web.AppSpec): Web.App
       return Web.text("cleared")
     end),
     Web.post("/pop/:key", function(req: Web.Request): Web.Response
-      return Web.text(tostring(Session.of(req):pop(req.params.key)))
+      return Web.text(tostring(Session.of(req):pop(req.params.key))) -- checked: map_field
     end),
     Web.get("/cached", function(req: Web.Request): Web.Response
       Session.of(req):get("x")
@@ -171,15 +171,15 @@ local function test_values_of_every_type_survive_the_cookie_store()
         local s = Session.of(req)
         s:set("i", 42)
         s:set("b", true)
-        s:set("t", { a = { 1, 2 }, b = "x" })
+        s:set("t", { a = { 1, 2 }, b = "x" }) -- checked: arms_differ
         return Web.text("ok")
       end),
       Web.get("/back", function(req: Web.Request): Web.Response
         local s = Session.of(req)
         local t = s:get("t")
-        assert(t is {string:any})
+        assert(t is {string:any}) -- checked: is_on_record
         return Web.text(tostring(s:get_integer("i")) .. tostring(s:get_boolean("b")) .. tostring(s:get_string("i")) ..
-            tostring(s:get_integer("b")) .. tostring(t.b))
+            tostring(s:get_integer("b")) .. tostring(t.b)) -- checked: map_field
       end),
     },
   }
@@ -213,7 +213,7 @@ local function test_flashes_are_capped_in_number_and_size()
       return Web.text(tostring(#flash.text))
     end) },
   })
-  local n = math.tointeger(tonumber(long:post("/f"):text())) as integer
+  local n = math.tointeger(tonumber(long:post("/f"):text())) as integer -- checked: cast_refused
   assert(n <= 500 and n % 2 == 0, "cut on a character, not in the middle of one")
 end
 
@@ -234,27 +234,27 @@ end
 local function test_an_expired_cookie_session_is_anonymous()
   local client = Web.test_client(make_app(options(cookie_store(), { max_age = 100 })))
   client:post("/set/user/ada")
-  clock.now = clock.now + 99
+  clock.now = clock.now + 99 -- checked: map_field*2
   assert(client:get("/get/user"):text() == "ada")
-  clock.now = clock.now + 1
+  clock.now = clock.now + 1 -- checked: map_field*2
   assert(client:get("/get/user"):text() == "-")
 end
 
 local function test_rolling_extends_the_lifetime_once_half_is_gone()
   local client = Web.test_client(make_app(options(cookie_store(), { max_age = 1000, rolling = true })))
   client:post("/set/user/ada")
-  clock.now = clock.now + 400
+  clock.now = clock.now + 400 -- checked: map_field*2
   assert(#set_cookies(client:get("/get/user")) == 0, "more than half is left")
-  clock.now = clock.now + 200
+  clock.now = clock.now + 200 -- checked: map_field*2
   local res = client:get("/get/user")
   assert(res:text() == "ada" and #set_cookies(res) == 1, "less than half is left")
-  clock.now = clock.now + 900
+  clock.now = clock.now + 900 -- checked: map_field*2
   assert(client:get("/get/user"):text() == "ada", "the renewed session outlived the first lifetime")
   local fixed = Web.test_client(make_app(options(cookie_store(), { max_age = 1000 })))
   fixed:post("/set/user/ada")
-  clock.now = clock.now + 600
+  clock.now = clock.now + 600 -- checked: map_field*2
   assert(#set_cookies(fixed:get("/get/user")) == 0)
-  clock.now = clock.now + 500
+  clock.now = clock.now + 500 -- checked: map_field*2
   assert(fixed:get("/get/user"):text() == "-", "not rolling: the lifetime is from the start")
 end
 
@@ -263,10 +263,10 @@ local function test_a_cookie_signed_under_a_retired_key_is_reissued_under_the_ne
   old:post("/set/user/ada")
   local rotated = make_app(options(SessionCookie.store{ keys = { KEY, "Qp8Ws2Ed5Rf7Tg1Yh3Uj6Ik9Ol0Pm4Nb" } }))
   local client = Web.test_client(rotated)
-  client.jar.session = old.jar.session
+  client.jar.session = old.jar.session -- checked: map_field*2
   local res = client:get("/get/user")
   assert(res:text() == "ada" and #set_cookies(res) == 1, "re-issued although only read")
-  assert(client.jar.session ~= old.jar.session)
+  assert(client.jar.session ~= old.jar.session) -- checked: map_field*2
   assert(#set_cookies(client:get("/get/user")) == 0)
 end
 
@@ -285,13 +285,13 @@ local function test_a_handler_that_raises_saves_nothing_but_a_4xx_keeps_its_chan
         return Web.text("no", { status = 422 })
       end),
       Web.get("/get/:key", function(req: Web.Request): Web.Response
-        return Web.text(Session.of(req):get_string(req.params.key) or "-")
+        return Web.text(Session.of(req):get_string(req.params.key) or "-") -- checked: map_field
       end),
     },
   }
   local client = Web.test_client(app)
   local res = client:post("/boom")
-  assert(res.status == 500 and #set_cookies(res) == 0 and client.jar.session == nil)
+  assert(res.status == 500 and #set_cookies(res) == 0 and client.jar.session == nil) -- checked: map_field
   assert(client:get("/get/lost"):text() == "-")
   local kept = client:post("/invalid")
   assert(kept.status == 422 and #set_cookies(kept) == 1)
@@ -300,12 +300,12 @@ end
 local function test_a_value_that_is_not_json_raises_at_the_set()
   local client = Web.test_client(make_app(options(cookie_store())))
   assert(client:post("/bad").status == 500)
-  local reasons = {} as {string}
+  local reasons = {} as {string} -- checked: cast_refused, literal_needs_type
   local app = Web.app{
     middleware = { Session.middleware(options(cookie_store())) },
     routes = { Web.get("/", function(req: Web.Request): Web.Response
       local s = Session.of(req)
-      local _, f = pcall(function() s:set("f", print as any) end)
+      local _, f = pcall(function() s:set("f", print as any) end) -- checked: cast_refused
       local _, e = pcall(function() s:set("", 1) end)
       local _, r = pcall(function() s:set("_flash", 1) end)
       reasons = { tostring(f), tostring(e), tostring(r) }
@@ -324,7 +324,7 @@ local function test_the_handle_is_frozen_once_the_response_is_built()
   local handle = assert(seen[#seen], "expected seen[#seen]")
   local ok, why = pcall(function() handle:set("late", "write") end)
   assert(not ok and tostring(why):find("written after the response head was built", 1, true) ~= nil, tostring(why))
-  ok = pcall(function() handle:flash("info", "late") end)
+  ok = pcall(function() handle:flash("info", "late") end) -- checked: alternatives_as_value
   assert(not ok)
   assert(handle:get_string("late") == nil)
 end
@@ -403,13 +403,13 @@ local function test_secure_true_names_the_cookie_host_prefixed_and_always_sets_s
 end
 
 local function test_options_that_cannot_work_are_refused_before_serving()
-  local ok, why = pcall(Session.middleware, {} as Session.Options)
+  local ok, why = pcall(Session.middleware, {} as Session.Options) -- checked: cast_refused, literal_needs_type
   assert(not ok and tostring(why):find("needs a store", 1, true) ~= nil)
   ok, why = pcall(Session.middleware, options(cookie_store(), { max_age = 0 }))
   assert(not ok and tostring(why):find("max_age", 1, true) ~= nil)
   ok, why = pcall(Session.middleware, options(cookie_store(), { cookie_name = "__Host-x" }))
   assert(not ok and tostring(why):find("__Host-", 1, true) ~= nil, tostring(why))
-  ok = pcall(Session.middleware, options(cookie_store(), { cookie_name = "bad name" }))
+  ok = pcall(Session.middleware, options(cookie_store(), { cookie_name = "bad name" })) -- checked: alternatives_as_value
   assert(not ok)
 end
 
@@ -418,12 +418,12 @@ local function test_sqlite_sessions_are_revocable_by_logout_and_by_subject()
   local app = make_app(options(store))
   local client = Web.test_client(app)
   client:post("/login")
-  local stolen = client.jar.session
+  local stolen = client.jar.session -- checked: map_field
   assert(#stolen == 43 and client:get("/get/user"):text() == "ada")
   assert(client:get("/id"):text() == stolen)
   local out = client:post("/logout")
   local gone = first_set_cookie(out)
-  assert(gone.max_age == 0 and gone.value == "" and client.jar.session == nil)
+  assert(gone.max_age == 0 and gone.value == "" and client.jar.session == nil) -- checked: map_field
   local thief = Web.test_client(app)
   assert(thief:get("/get/user", { cookies = { session = stolen } }):text() == "-", "the id is revoked")
   assert(session_count(db) == 0)
@@ -439,18 +439,18 @@ local function test_regenerate_changes_the_id_and_keeps_the_data()
   local app = make_app(options(store))
   local client = Web.test_client(app)
   client:post("/set/theme/dark")
-  local before = client.jar.session
+  local before = client.jar.session -- checked: map_field
   local res = client:post("/login")
-  local after = client.jar.session
+  local after = client.jar.session -- checked: map_field
   assert(before ~= after and #set_cookies(res) == 1)
   assert(client:get("/get/theme"):text() == "dark" and client:get("/get/user"):text() == "ada")
   assert(Web.test_client(app):get("/get/theme", { cookies = { session = before } }):text() == "-")
   local cookie_app = Web.test_client(make_app(options(cookie_store())))
   cookie_app:post("/set/theme/dark")
-  local first = cookie_app.jar.session
-  clock.now = clock.now + 5
+  local first = cookie_app.jar.session -- checked: map_field
+  clock.now = clock.now + 5 -- checked: map_field*2
   cookie_app:post("/login")
-  assert(cookie_app.jar.session ~= first)
+  assert(cookie_app.jar.session ~= first) -- checked: map_field
   assert(cookie_app:get("/get/theme"):text() == "dark")
 end
 
@@ -458,9 +458,9 @@ local function test_a_signed_cookie_logout_clears_the_browser_but_cannot_revoke_
   local app = make_app(options(cookie_store()))
   local client = Web.test_client(app)
   client:post("/login")
-  local copy = client.jar.session
+  local copy = client.jar.session -- checked: map_field
   client:post("/logout")
-  assert(client.jar.session == nil and client:get("/get/user"):text() == "-")
+  assert(client.jar.session == nil and client:get("/get/user"):text() == "-") -- checked: map_field
   assert(Web.test_client(app):get("/get/user", { cookies = { session = copy } }):text() == "ada")
   assert(client:get("/id"):text() == "", "a signed cookie has no id to log")
 end
@@ -474,17 +474,17 @@ local function test_invalidate_then_write_starts_a_new_session()
       s:set("fresh", "yes")
       return Web.text("ok")
     end), Web.get("/get/:key", function(req: Web.Request): Web.Response
-      return Web.text(Session.of(req):get_string(req.params.key) or "-")
+      return Web.text(Session.of(req):get_string(req.params.key) or "-") -- checked: map_field
     end), Web.post("/set/:key/:value", function(req: Web.Request): Web.Response
-      Session.of(req):set(req.params.key, req.params.value)
+      Session.of(req):set(req.params.key, req.params.value) -- checked: map_field*2
       return Web.text("ok")
     end) },
   }
   local client = Web.test_client(app)
   client:post("/set/old/1")
-  local before = client.jar.session
+  local before = client.jar.session -- checked: map_field
   client:post("/swap")
-  assert(client.jar.session ~= before)
+  assert(client.jar.session ~= before) -- checked: map_field
   assert(client:get("/get/old"):text() == "-" and client:get("/get/fresh"):text() == "yes")
 end
 
@@ -492,11 +492,11 @@ local function test_sqlite_expiry_and_rolling_follow_the_clock()
   local store = sqlite_store()
   local client = Web.test_client(make_app(options(store, { max_age = 1000, rolling = true })))
   client:post("/set/user/ada")
-  clock.now = clock.now + 600
+  clock.now = clock.now + 600 -- checked: map_field*2
   assert(client:get("/get/user"):text() == "ada")
-  clock.now = clock.now + 900
+  clock.now = clock.now + 900 -- checked: map_field*2
   assert(client:get("/get/user"):text() == "ada", "the read at 600 renewed it")
-  clock.now = clock.now + 1000
+  clock.now = clock.now + 1000 -- checked: map_field*2
   assert(client:get("/get/user"):text() == "-")
 end
 
@@ -509,8 +509,8 @@ end
 
 --- A value nested `levels` arrays deep.
 local function nest(levels: integer): any
-  local value: any = 1
-  for _ = 1, levels do value = { value } end
+  local value: any = 1 -- checked: any_use
+  for _ = 1, levels do value = { value } end -- checked: any_use
   return value
 end
 
@@ -522,7 +522,7 @@ local function test_a_response_shared_between_requests_is_not_given_a_cookie()
     local app = Web.app{
       middleware = { Session.middleware(options(make())) },
       routes = { Web.post("/shared/:v", function(req: Web.Request): Web.Response
-        Session.of(req):set("v", req.params.v)
+        Session.of(req):set("v", req.params.v) -- checked: map_field
         return shared
       end) },
     }
@@ -537,7 +537,7 @@ local function test_a_response_shared_between_requests_is_not_given_a_cookie()
     end
     assert(set_cookies(first)[3] ~= set_cookies(second)[3])
     local lines = assert(shared.headers)["Set-Cookie"]
-    assert(lines is {string} and #lines == 2, "the shared response is unchanged")
+    assert(lines is {string} and #lines == 2, "the shared response is unchanged") -- checked: is_on_record
     assert(Web.header(shared, "Vary") == nil and Web.header(shared, "Cache-Control") == nil)
   end
 end
@@ -556,7 +556,7 @@ local function test_a_value_at_the_depth_limit_survives_and_one_past_it_raises_a
           return Web.text("ok")
         end),
         Web.get("/has/:key", function(req: Web.Request): Web.Response
-          return Web.text(tostring(Session.of(req):get(req.params.key) ~= nil))
+          return Web.text(tostring(Session.of(req):get(req.params.key) ~= nil)) -- checked: map_field
         end),
         Web.get("/new", function(req: Web.Request): Web.Response
           return Web.text(tostring(Session.of(req):is_new()))
@@ -594,15 +594,15 @@ local function test_setting_nil_removes_the_key_in_both_stores()
       middleware = { Session.middleware(options(make())) },
       routes = {
         Web.post("/set/:key/:value", function(req: Web.Request): Web.Response
-          Session.of(req):set(req.params.key, req.params.value)
+          Session.of(req):set(req.params.key, req.params.value) -- checked: map_field*2
           return Web.text("ok")
         end),
         Web.post("/unset/:key", function(req: Web.Request): Web.Response
-          Session.of(req):set(req.params.key, nil)
+          Session.of(req):set(req.params.key, nil) -- checked: map_field
           return Web.text("ok")
         end),
         Web.get("/get/:key", function(req: Web.Request): Web.Response
-          return Web.text(Session.of(req):get_string(req.params.key) or "-")
+          return Web.text(Session.of(req):get_string(req.params.key) or "-") -- checked: map_field
         end),
       },
     }
@@ -624,7 +624,7 @@ local function test_same_site_none_follows_the_scheme_of_the_request()
   assert(#set_cookies(plain:get("/get/a")) == 0, "reading over http is fine")
   local ok, why = pcall(function() plain:post("/set/a/1") end)
   assert(not ok and tostring(why):find("needs a Secure cookie", 1, true) ~= nil, tostring(why))
-  ok = pcall(Session.middleware, options(cookie_store(), { same_site = "None", secure = false }))
+  ok = pcall(Session.middleware, options(cookie_store(), { same_site = "None", secure = false })) -- checked: alternatives_as_value
   assert(not ok, "an explicit secure = false can never work")
 end
 
@@ -634,7 +634,7 @@ local function test_invalidate_revokes_even_when_the_response_is_a_500()
     middleware = { Session.middleware(options(store)) },
     routes = {
       Web.post("/set/:key/:value", function(req: Web.Request): Web.Response
-        Session.of(req):set(req.params.key, req.params.value)
+        Session.of(req):set(req.params.key, req.params.value) -- checked: map_field*2
         return Web.text("ok")
       end),
       Web.post("/logout-fails", function(req: Web.Request): Web.Response
@@ -647,12 +647,12 @@ local function test_invalidate_revokes_even_when_the_response_is_a_500()
   }
   local client = Web.test_client(app)
   client:post("/set/user/ada")
-  local before = client.jar.session
+  local before = client.jar.session -- checked: map_field
   local res = client:post("/logout-fails")
   assert(res.status == 500)
   assert(session_count(db) == 0, "the row is gone")
-  assert(store:load(before, clock.now, "session") == nil)
-  assert(#set_cookies(res) == 1 and client.jar.session == nil, "and the cookie is expired")
+  assert(store:load(before, clock.now, "session") == nil) -- checked: map_field
+  assert(#set_cookies(res) == 1 and client.jar.session == nil, "and the cookie is expired") -- checked: map_field
 end
 
 local function test_regenerate_drops_the_csrf_secret_and_keeps_the_rest()

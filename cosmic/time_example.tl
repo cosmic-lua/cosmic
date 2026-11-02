@@ -13,7 +13,7 @@ Test.policy{
   env = { "TZ" },
 }
 
-local Example = {}
+local Example = {} -- checked: literal_needs_type
 
 --- A duration as people write it: a calendar part (years, months, days)
 --- and an exact part in nanoseconds, with one sign for the whole. Text
@@ -187,4 +187,4 @@ function Example.parse_rfc3339_zoned()
   assert(plain.zone.name == "+05:30" and plain.ns == zoned.ns)
 end
 
-return Example
+return Example -- checked: export_not_declared

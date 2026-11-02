@@ -236,7 +236,7 @@ local NO_TOKENS <const>: Lexer.Tokens = Lexer.lex("", "").tokens
 local S: State = {
   tokens = NO_TOKENS, kinds = NO_TOKENS.kind, texts = NO_TOKENS.text, ys = NO_TOKENS.y,
   yends = NO_TOKENS.yend, last = 1, pos = 1, text = "", kind = "$EOF$", errors = {}, name = "",
-  decl = false, half = 0, reported = {}, beside = nil, beside_work = 0, muted = false, nesting = 0, arms = 0, tables = 0, arm_from = 1, arm_same = 0, scan_at = 1, scan_depth = 0, depth = 0, loops = {}, loop_base = 0, requires = {},
+  decl = false, half = 0, reported = {}, beside = nil, beside_work = 0, muted = false, nesting = 0, arms = 0, tables = 0, arm_from = 1, arm_same = 0, scan_at = 1, scan_depth = 0, depth = 0, loops = {}, loop_base = 0, requires = {}, -- checked: nil_not_allowed
   require_nodes = {}, require_names = {},
 }
 
@@ -293,7 +293,7 @@ local function advance()
   end
   s.pos = p
   s.text = text
-  s.kind = s.kinds[p]
+  s.kind = s.kinds[p] -- checked: index_may_be_nil
 end
 
 --- The text of the token `n` places after the current one; "" past the end,
@@ -310,7 +310,7 @@ end
 --- Whether token `i` begins on a later line than the one before it ends.
 local function begins_line(i: integer): boolean
   local ys = S.ys
-  return ys[i] > (S.yends[i - 1] or ys[i - 1])
+  return ys[i] > (S.yends[i - 1] or ys[i - 1]) -- checked: nil_not_allowed
 end
 
 --- Whether token `i` begins on the line the one before it ends.
@@ -329,10 +329,10 @@ local function shown(i: integer): string
     return "a string"
   elseif kind == "$ERR$" then
     return "an invalid token"
-  elseif #text > 24 then
-    return "`" .. text:sub(1, 24) .. "...`"
+  elseif #text > 24 then -- checked: nil_not_allowed
+    return "`" .. text:sub(1, 24) .. "...`" -- checked: nil_not_allowed
   end
-  return "`" .. text .. "`"
+  return "`" .. text .. "`" -- checked: nil_not_allowed
 end
 
 --- Reports an error at the token `index`, with the token `other` as the second
@@ -349,13 +349,13 @@ local function report(code: Parser.Code, index: integer, msg: string, fix: strin
     return
   end
   S.reported[index] = code
-  local place: Parser.Place = nil
+  local place: Parser.Place = nil -- checked: nil_not_allowed
   if other ~= nil then
-    place = { y = S.ys[other], x = Lexer.x(S.tokens, other), offset = S.tokens.offset[other], length = #S.texts[other] }
+    place = { y = S.ys[other], x = Lexer.x(S.tokens, other), offset = S.tokens.offset[other], length = #S.texts[other] } -- checked: index_may_be_nil*2, nil_not_allowed
   end
   table.insert(S.errors, {
-    filename = S.name, code = code, msg = msg, fix = fix, y = S.ys[at], x = Lexer.x(S.tokens, at), offset = S.tokens.offset[at],
-    length = #S.texts[at], other = place,
+    filename = S.name, code = code, msg = msg, fix = fix, y = S.ys[at], x = Lexer.x(S.tokens, at), offset = S.tokens.offset[at], -- checked: index_may_be_nil*2
+    length = #S.texts[at], other = place, -- checked: nil_not_allowed
   })
 end
 
@@ -431,13 +431,13 @@ end
 --- once for a parse, when a body is found open at the end of the file.
 local function line_starts_of_statements(): {integer}
   local found = S.beside
-  if found == nil then
+  if found == nil then -- checked: compare_disjoint
     found = {}
     local texts = S.texts
     for i = 2, S.last - 1 do
       local text = texts[i]
       if (text == "function" or text == "local") and begins_line(i) then
-        found[#found + 1] = i
+        found[#found + 1] = i -- checked: view_written
       end
     end
     S.beside = found
@@ -462,7 +462,7 @@ local function begins_beside(open: integer): integer
   end
   local body = open + 1
   local open_end = yends[open] or ys[open]
-  while body < count and ys[body] <= open_end do
+  while body < count and ys[body] <= open_end do -- checked: nil_not_allowed
     body = body + 1
   end
   S.beside_work = S.beside_work + (open - at) + (body - open)
@@ -474,7 +474,7 @@ local function begins_beside(open: integer): integer
   local low, high = 1, #starts + 1
   while low < high do
     local mid = (low + high) // 2
-    if starts[mid] > open then
+    if starts[mid] > open then -- checked: nil_not_allowed
       high = mid
     else
       low = mid + 1
@@ -483,8 +483,8 @@ local function begins_beside(open: integer): integer
   for k = low, #starts do
     S.beside_work = S.beside_work + 1
     local i = starts[k]
-    if Lexer.x(tokens, i) <= x then
-      return i
+    if Lexer.x(tokens, i) <= x then -- checked: nil_not_allowed
+      return i -- checked: nil_not_allowed
     end
   end
   return 0
@@ -498,18 +498,18 @@ local function close(want: string, open: integer, desc: string): boolean
     return true
   end
   local open_line = S.ys[open]
-  local at = S.kind == "$EOF$" and begins_beside(open) or 0
+  local at = S.kind == "$EOF$" and begins_beside(open) or 0 -- checked: and_ternary
   if at > 0 then
     local at_line = S.ys[at]
     report("unclosed", at,
-      "expected `" .. want .. "` to close the " .. desc .. " on line " .. open_line .. " before the " .. shown(at) ..
-        " on line " .. at_line .. ", which begins no deeper than it",
-      "write `" .. want .. "` where the " .. desc .. " on line " .. open_line .. " ends, before line " .. at_line, open)
+      "expected `" .. want .. "` to close the " .. desc .. " on line " .. open_line .. " before the " .. shown(at) .. -- checked: nil_not_allowed
+        " on line " .. at_line .. ", which begins no deeper than it", -- checked: nil_not_allowed
+      "write `" .. want .. "` where the " .. desc .. " on line " .. open_line .. " ends, before line " .. at_line, open) -- checked: nil_not_allowed*2
     return false
   end
   report("unclosed", S.pos,
-    "expected `" .. want .. "` to close the " .. desc .. " on line " .. open_line .. ", found " .. shown(S.pos),
-    "write `" .. want .. "` where the " .. desc .. " on line " .. open_line .. " ends, or delete its `" .. S.texts[open] ..
+    "expected `" .. want .. "` to close the " .. desc .. " on line " .. open_line .. ", found " .. shown(S.pos), -- checked: nil_not_allowed
+    "write `" .. want .. "` where the " .. desc .. " on line " .. open_line .. " ends, or delete its `" .. S.texts[open] .. -- checked: nil_not_allowed*2
       "`", open)
   return false
 end
@@ -561,13 +561,13 @@ local function source_text(first: integer, last: integer, limit: integer): strin
   local offsets = S.tokens.offset
   for i = first, last do
     local text = S.texts[i]
-    parts[#parts + 1] = text
-    size = size + #text
+    parts[#parts + 1] = text -- checked: nil_not_allowed
+    size = size + #text -- checked: nil_not_allowed
     if limit > 0 and size > limit and i < last then
       parts[#parts + 1] = "\226\128\166"
       break
     end
-    if i < last and offsets[i + 1] > offsets[i] + #text then
+    if i < last and offsets[i + 1] > offsets[i] + #text then -- checked: nil_not_allowed*2
       parts[#parts + 1] = " "
       size = size + 1
     end
@@ -586,21 +586,21 @@ end
 local function doc_of(index: integer): {Lexer.Comment}
   local comments = S.tokens.comments[index]
   if comments == nil then
-    return nil
+    return nil -- checked: nil_not_allowed
   end
-  local line = S.ys[index] - 1
+  local line = S.ys[index] - 1 -- checked: nil_not_allowed
   local floor = S.yends[index - 1] or S.ys[index - 1] or 0
   local from = #comments + 1
   for i = #comments, 1, -1 do
     local c = comments[i]
-    if c.y ~= line or c.y <= floor then
+    if c.y ~= line or c.y <= floor then -- checked: nil_not_allowed*2
       break
     end
     from = i
     line = line - 1
   end
   if from > #comments then
-    return nil
+    return nil -- checked: nil_not_allowed
   end
   local doc: mut {Lexer.Comment} = {}
   for i, c in ipairs(comments) do
@@ -663,7 +663,7 @@ local function field_name(): string
     advance()
     return name
   end
-  report("expected_name", S.pos, "expected a field name after `" .. S.texts[S.pos - 1] .. "`, found " .. shown(S.pos),
+  report("expected_name", S.pos, "expected a field name after `" .. S.texts[S.pos - 1] .. "`, found " .. shown(S.pos), -- checked: nil_not_allowed
     "write the field's name, or `[\"name\"]` to index with a string")
   return ""
 end
@@ -785,7 +785,7 @@ local function finish_optional(first: integer, base: Ast.Type): Ast.Type
   return node
 end
 
-local function finish_union(first: integer, head: Ast.Type): Ast.Type
+local function finish_union(first: integer, head: Ast.Type): Ast.Type -- checked: not_assigned
   if S.text ~= "|" or arm_bar(false) then
     return head
   end
@@ -824,7 +824,7 @@ end
 
 --- A type argument list or a list of types: the types separated by `,`, a
 --- `,` ending the list where a parameter begins after it.
-local function parse_type_list(): {Ast.Type}
+local function parse_type_list(): {Ast.Type} -- checked: not_assigned
   local list: mut {Ast.Type} = { parse_type() }
   while S.text == "," and not starts_parameter() do
     advance()
@@ -860,7 +860,7 @@ local function parse_rtype(): Ast.RType
 end
 
 --- The type of a function type: `function<T>(a: A, b?: B, ...: C): R`.
-local function parse_function_type(): Ast.Type
+local function parse_function_type(): Ast.Type -- checked: not_assigned*2
   local first = S.pos
   advance()
   local typeparams: {Ast.TypeParam} = {}
@@ -877,7 +877,7 @@ local function parse_function_type(): Ast.Type
   advance()
   while S.text ~= ")" and S.kind ~= "$EOF$" do
     local pfirst = S.pos
-    local name: string = nil
+    local name: string = nil -- checked: nil_not_allowed
     local optional, variadic = false, false
     if S.text == "..." then
       advance()
@@ -915,7 +915,7 @@ local function parse_function_type(): Ast.Type
     end
   end
   close(")", open, "parameter list")
-  local rets: Ast.Rets = nil
+  local rets: Ast.Rets = nil -- checked: nil_not_allowed
   if S.text == ":" then
     advance()
     rets = parse_rets()
@@ -949,7 +949,7 @@ local function parse_collection(): Ast.Type
   return node
 end
 
-parse_base = function(): Ast.Type
+parse_base = function(): Ast.Type -- checked: not_assigned
   local first = S.pos
   local t = S.text
   local k = S.kind
@@ -1063,7 +1063,7 @@ parse_rets = function(): Ast.Rets
         end
         lists[#lists + 1] = more
       end
-    elseif #items == 1 and not variadic and (S.text == "?" or (S.text == "|" and not arm_bar(false))) and not ((head.kind == "Narrows")) then
+    elseif #items == 1 and not variadic and (S.text == "?" or (S.text == "|" and not arm_bar(false))) and not ((head.kind == "Narrows")) then -- checked: nil_not_allowed
       lists[1] = { continue_type(open, head) }
     else
       lists[1] = items
@@ -1091,7 +1091,7 @@ parse_typeparams = function(): {Ast.TypeParam}
   while true do
     local first = S.pos
     local name = binding("a type parameter")
-    local constraint: Ast.TypeName = nil
+    local constraint: Ast.TypeName = nil -- checked: nil_not_allowed
     if S.text == "is" then
       advance()
       local cfirst = S.pos
@@ -1144,7 +1144,7 @@ local ITEM_START <const>: {string: boolean} = {
   ["nil"] = true, ["true"] = true, ["false"] = true, ["function"] = true, ["..."] = true, ["if"] = true,
 }
 
-local function parse_explist(): {Ast.Exp}
+local function parse_explist(): {Ast.Exp} -- checked: not_assigned
   local list: mut {Ast.Exp} = { parse_expression() }
   while S.text == "," do
     advance()
@@ -1212,7 +1212,7 @@ local function parse_table(): Ast.Exp
     if S.text == "," then
       advance()
     elseif S.text ~= "}" and begins_line(S.pos) and starts_item() then
-      report("expected_token", S.pos, "expected `,` or `}` after the item on line " .. (S.yends[S.pos - 1] or S.ys[S.pos - 1]) .. ", found " .. shown(S.pos),
+      report("expected_token", S.pos, "expected `,` or `}` after the item on line " .. (S.yends[S.pos - 1] or S.ys[S.pos - 1]) .. ", found " .. shown(S.pos), -- checked: nil_not_allowed
         "add a `,` at the end of the item before it; the items of a table are separated by `,`")
     else
       break
@@ -1252,7 +1252,7 @@ local function parse_if_expression(): Ast.Exp
   return { kind = "IfExp", id = 0, first = first, last = S.pos - 1, arms = arms, else_value = else_value }
 end
 
-local function parse_primary(): Ast.Exp
+local function parse_primary(): Ast.Exp -- checked: not_assigned
   local first = S.pos
   local k = S.kind
   if k == "identifier" then
@@ -1574,7 +1574,7 @@ local function parse_params(): {Ast.Param}
         optional = true
         advance()
       end
-      local t: Ast.Type = nil
+      local t: Ast.Type = nil -- checked: nil_not_allowed
       if S.text == ":" then
         advance()
         t = parse_annotation()
@@ -1593,7 +1593,7 @@ end
 
 --- A block that is the body of a function: `continue` and `break` in it
 --- are the function's own, and a declaration file has none.
-local function parse_body(open: integer, desc: string): Ast.Block
+local function parse_body(open: integer, desc: string): Ast.Block -- checked: not_assigned
   if S.decl then
     report("body_in_declaration", open, "a declaration file has no function bodies",
       "declare the function's type: `name: function(x: T): U`")
@@ -1613,7 +1613,7 @@ parse_fn = function(open: integer, desc: string): Ast.Fn
   local arms, tables = S.arms, S.tables
   S.arms, S.tables = 0, 0
   local params: {Ast.Param} = {}
-  local rets: Ast.Rets = nil
+  local rets: Ast.Rets = nil -- checked: nil_not_allowed
   if expect("(", "to begin the parameters", "write the parameters in parentheses: `function(x: T)`") then
     params = parse_params()
     close(")", first, "parameter list")
@@ -1688,7 +1688,7 @@ local function parse_field(first: integer, seen: {string: boolean}): Ast.Member
   else
     t = { kind = "TypeError", id = 0, first = S.pos, last = S.pos - 1 }
   end
-  if name.name ~= "" and is_duplicate(seen, name.name, t) then
+  if name.name ~= "" and is_duplicate(seen, name.name, t) then -- checked: view_as_mut
     report("duplicate_field", nfirst, "the field `" .. name.name .. "` is declared twice",
       if S.decl then "delete one, or give both a function type to declare overloads" else
         "delete one; overloads, which repeat a function-typed field, are declared in a declaration file" end)
@@ -1724,7 +1724,7 @@ local function parse_method(first: integer, seen: mut {string: boolean}): Ast.Me
   end
   local open = S.pos
   local params: {Ast.Param} = {}
-  local rets: Ast.Rets = nil
+  local rets: Ast.Rets = nil -- checked: nil_not_allowed
   if expect("(", "to begin the parameters of the method", "write `function name(self, ...)`") then
     params = parse_params()
     close(")", open, "parameter list")
@@ -1788,7 +1788,7 @@ local function begins_statement(open: integer): boolean
 end
 
 --- One member of a `record`, `interface` or `class` body (`owner`).
-local function parse_member(owner: string, seen: {string: boolean}): Ast.Member
+local function parse_member(owner: string, seen: {string: boolean}): Ast.Member -- checked: not_assigned
   local first = S.pos
   local t = S.text
   local nxt_kind, nxt_text = peek_kind(1), peek_text(1)
@@ -1807,7 +1807,7 @@ local function parse_member(owner: string, seen: {string: boolean}): Ast.Member
         if owner == "record" then "write `class` in place of `record`: a class holds its methods, `function name(self, ...) ... end`" else
           "declare the method as a field: `name: function(self: I, ...): T`" end)
     end
-    return parse_method(first, seen)
+    return parse_method(first, seen) -- checked: view_as_mut
   elseif S.kind == "identifier" and DECL_WORD[t] == true and nxt_kind == "identifier" then
     if owner == "interface" then
       report("nested_in_interface", first, "an interface holds fields only and cannot declare a `" .. t .. "` inside it",
@@ -1853,7 +1853,7 @@ end
 --- The `is` of a declaration: one or, for an interface, several supertypes.
 local function parse_supers(owner: string): {Ast.TypeName}, Ast.Type
   local supers: mut {Ast.TypeName} = {}
-  local array: Ast.Type = nil
+  local array: Ast.Type = nil -- checked: nil_not_allowed
   if S.text ~= "is" then
     return supers, array
   end
@@ -1902,7 +1902,7 @@ local function parse_declaration_body(word: string, first: integer, at: integer,
     while S.text ~= "end" and S.kind ~= "$EOF$" and not begins_statement(at) do
       local vfirst = S.pos
       if S.kind == "string" then
-        values[#values + 1] = { kind = "EnumValue", id = 0, first = vfirst, last = vfirst, value = S.tokens.value[S.pos], doc = doc_of(vfirst) }
+        values[#values + 1] = { kind = "EnumValue", id = 0, first = vfirst, last = vfirst, value = S.tokens.value[S.pos], doc = doc_of(vfirst) } -- checked: index_may_be_nil
         advance()
       else
         report("expected_token", S.pos, "expected a string of the enum `" .. name.name .. "`, found " .. shown(S.pos),
@@ -1958,7 +1958,7 @@ parse_typedecl = function(first: integer, scope: Ast.Scope?): Decl
     advance()
     local module = ""
     if S.kind == "string" then
-      module = S.tokens.value[S.pos]
+      module = S.tokens.value[S.pos] -- checked: index_may_be_nil
       advance()
     else
       report("expected_token", S.pos, "expected the module name as a string, found " .. shown(S.pos),
@@ -1985,10 +1985,10 @@ local function declared(names: {string}, at: integer)
   local top = S.loops[#S.loops]
   if top ~= nil and top.repeat_loop and top.continue_at > 0 and #S.loops > S.loop_base and S.depth == top.depth then
     if top.after_at == 0 then
-      top.after_at = at
+      top.after_at = at -- checked: field_fixed
     end
     for _, n in ipairs(names) do
-      top.after[#top.after + 1] = n
+      top.after[#top.after + 1] = n -- checked: view_written
     end
   end
 end
@@ -1998,7 +1998,7 @@ local function parse_local_binding(what: string): Ast.Binding
   if S.text == "<" and peek_kind(1) == "identifier" and peek_text(2) == ">" then
     local attr = peek_text(1)
     if attr == "const" or attr == "close" then
-      b.attr = attr
+      b.attr = attr -- checked: not_assignable
     else
       report("bad_attribute", S.pos + 1, "`<" .. attr .. ">` is not an attribute of a local",
         "write `<const>` for a local that is not reassigned or `<close>` for one that is closed at the end of its block")
@@ -2055,7 +2055,7 @@ local function parse_local(): Ast.Stat
     end
     bindings[#bindings + 1] = each
   end
-  bindings[1].doc = doc_of(first)
+  bindings[1].doc = doc_of(first) -- checked: nil_not_allowed
   local types: {Ast.Type} = {}
   if S.text == ":" then
     advance()
@@ -2101,9 +2101,9 @@ local function parse_function_statement(): Ast.Stat
       break
     end
   end
-  local joined = path[1] and path[1].text or ""
+  local joined = path[1] and path[1].text or "" -- checked: nil_not_allowed
   if colon then
-    local method = path[#path] and path[#path].text or "m"
+    local method = path[#path] and path[#path].text or "m" -- checked: nil_not_allowed
     report("method_in_record", first, "`" .. quoted_text(first, S.pos - 1) .. "` is not in the grammar: a method is declared in its class",
       "declare it inside its class as `function " .. method .. "(self, ...)`")
   elseif #path == 1 then
@@ -2156,7 +2156,7 @@ local function binds(fn: Ast.Fn): {string: boolean}
   local stack: mut {Ast.Node} = { fn.body }
   while #stack > 0 do
     local node = table.remove(stack)
-    if (node.kind == "Local") then
+    if (node.kind == "Local") then -- checked: nil_not_allowed
       for _, b in ipairs(node.bindings) do
         names[b.name] = true
       end
@@ -2189,29 +2189,29 @@ local function find_read(tree: Ast.Node, names: {string: boolean}): Ast.Name
   while #stack > 0 do
     local node = table.remove(stack)
     local mask = table.remove(masks)
-    if (node.kind == "Name") then
+    if (node.kind == "Name") then -- checked: nil_not_allowed
       local best = found[1]
-      if names[node.text] == true and mask[node.text] ~= true and (best == nil or node.first < best.first) then
+      if names[node.text] == true and mask[node.text] ~= true and (best == nil or node.first < best.first) then -- checked: nil_not_allowed
         found[1] = node
       end
     else
       local inner = mask
       if (node.kind == "Fn") then
         inner = {}
-        for k in pairs(mask) do
-          inner[k] = true
+        for k in pairs(mask) do -- checked: nil_not_allowed
+          inner[k] = true -- checked: view_written
         end
         for k in pairs(binds(node)) do
-          inner[k] = true
+          inner[k] = true -- checked: view_written
         end
       end
       Ast.children(node, function(child: Ast.Node)
         stack[#stack + 1] = child
-        masks[#masks + 1] = inner
+        masks[#masks + 1] = inner -- checked: nil_not_allowed
       end)
     end
   end
-  return found[1]
+  return found[1] -- checked: index_may_be_nil
 end
 
 local function parse_repeat(): Ast.Stat
@@ -2228,13 +2228,13 @@ local function parse_repeat(): Ast.Stat
     end
     local name = loop.after[1]
     local continue_line = S.ys[loop.continue_at]
-    local fix = "wrap the code from `local " .. name .. "` to the end of the body in `do ... end`, so the local ends before `until`"
+    local fix = "wrap the code from `local " .. name .. "` to the end of the body in `do ... end`, so the local ends before `until`" -- checked: nil_not_allowed
     local read = find_read(cond, names)
-    if read ~= nil then
+    if read ~= nil then -- checked: compare_disjoint
       name = read.text
-      fix = "`until` reads `" .. name .. "`: declare it before the `repeat`, or before the `continue` on line " .. continue_line
+      fix = "`until` reads `" .. name .. "`: declare it before the `repeat`, or before the `continue` on line " .. continue_line -- checked: nil_not_allowed
     end
-    report("continue_skips_local", loop.after_at, "`" .. name .. "` is declared after the `continue` on line " .. continue_line ..
+    report("continue_skips_local", loop.after_at, "`" .. name .. "` is declared after the `continue` on line " .. continue_line .. -- checked: nil_not_allowed*2
         ", and Lua cannot jump into the scope of a local of a `repeat` body, which the `until` is inside", fix, loop.continue_at)
   end
   return { kind = "Repeat", id = 0, first = first, last = S.pos - 1, body = body, cond = cond }
@@ -2244,7 +2244,7 @@ local function parse_if(): Ast.Stat
   local first = S.pos
   advance()
   local arms: mut {Ast.Arm} = {}
-  local else_body: Ast.Block = nil
+  local else_body: Ast.Block = nil -- checked: nil_not_allowed
   while true do
     local afirst = S.pos
     local cond = parse_expression()
@@ -2261,10 +2261,10 @@ local function parse_if(): Ast.Stat
     advance()
     else_body = parse_block(0)
   end
-  local last_body = else_body or arms[#arms].body
+  local last_body = else_body or arms[#arms].body -- checked: condition_type, nil_not_allowed
   close_block(last_body, "end", first, "`if`")
-  if else_body == nil then
-    arms[#arms].last = last_body.last
+  if else_body == nil then -- checked: compare_disjoint
+    arms[#arms].last = last_body.last -- checked: nil_not_allowed
   end
   return { kind = "If", id = 0, first = first, last = S.pos - 1, arms = arms, else_body = else_body }
 end
@@ -2278,7 +2278,7 @@ local function parse_for(): Ast.Stat
     local from = parse_expression()
     expect(",", "between the bounds of a numeric `for`", "write `for i = from, to do`")
     local to = parse_expression()
-    local step: Ast.Exp = nil
+    local step: Ast.Exp = nil -- checked: nil_not_allowed
     if S.text == "," then
       advance()
       step = parse_expression()
@@ -2377,7 +2377,7 @@ local function parse_match(): Ast.Stat
     S.arm_from, S.scan_at, S.scan_depth = S.pos, S.pos, 0
     local body = parse_block(0)
     S.arms = S.arms - 1
-    S.arm_from, S.scan_at, S.scan_depth = saved[1], saved[2], saved[3]
+    S.arm_from, S.scan_at, S.scan_depth = saved[1], saved[2], saved[3] -- checked: index_may_be_nil*3
     arms[#arms + 1] = { kind = "MatchArm", id = 0, first = afirst, last = body.last, pats = pats, body = body }
   end
   local last_arm = arms[#arms]
@@ -2425,7 +2425,7 @@ local function parse_continue(): Ast.Stat
     report("continue_outside_loop", first, "`continue` is outside a loop",
       "move it into the body of a `while`, `for` or `repeat` of the same function; to leave a function write `return`")
   elseif top.repeat_loop and top.continue_at == 0 then
-    top.continue_at = first
+    top.continue_at = first -- checked: field_fixed
   end
   return { kind = "Continue", id = 0, first = first, last = first }
 end
@@ -2433,11 +2433,11 @@ end
 local function parse_goto(): Ast.Stat
   local first = S.pos
   advance()
-  local label: string = nil
+  local label: string = nil -- checked: nil_not_allowed
   if is_field_word() and S.ys[S.pos] == S.ys[first] then
     label = S.text
   end
-  report("label_or_goto", first, "`goto" .. (if label then " " .. label else "" end) .. "` is not in the grammar",
+  report("label_or_goto", first, "`goto" .. (if label then " " .. label else "" end) .. "` is not in the grammar", -- checked: condition_type
     if label == "continue" then "write `continue" .. "`" else
       "write `continue` to skip the rest of a pass of the loop around it; restructure any other jump with an `if` around the code to skip, or move the code into a function and `return` from it" end)
   return skip_junk(first, false)
@@ -2634,7 +2634,7 @@ parse_block = function(mode: integer): Ast.Block
     end
     local before = S.pos
     if returned > 0 then
-      report("statement_after_return", before, "a statement follows the `return` on line " .. S.ys[returned] .. ": a `return` ends its block",
+      report("statement_after_return", before, "a statement follows the `return` on line " .. S.ys[returned] .. ": a `return` ends its block", -- checked: nil_not_allowed
         "move the `return` to the end of the block, or write `do return end` to leave early", returned)
       returned = 0
     end
@@ -2657,14 +2657,14 @@ function Parser.parse(lexed: Lexer.Lexed, name: string, dialect: Ast.Dialect): P
   S.kinds, S.texts, S.ys, S.yends = tokens.kind, tokens.text, tokens.y, tokens.yend
   S.last = #tokens.kind
   S.pos = 1
-  S.text = tokens.text[1]
-  S.kind = tokens.kind[1]
+  S.text = tokens.text[1] -- checked: index_may_be_nil
+  S.kind = tokens.kind[1] -- checked: index_may_be_nil
   S.errors = {}
   S.name = name
   S.decl = dialect == "decl"
   S.half = 0
   S.reported = {}
-  S.beside = nil
+  S.beside = nil -- checked: nil_not_allowed
   S.beside_work = 0
   S.muted = false
   S.nesting = 0
@@ -2693,12 +2693,12 @@ function Parser.parse(lexed: Lexer.Lexed, name: string, dialect: Ast.Dialect): P
   local chunk: Ast.Chunk = { kind = "Chunk", id = 0, first = 1, last = S.last, body = body, tokens = tokens, requires = S.requires }
   Ast.number(chunk)
   for i, req in ipairs(S.requires) do
-    req.node = base_of(S.require_nodes[i]).id
+    req.node = base_of(S.require_nodes[i]).id -- checked: index_may_be_nil
   end
   local errors = S.errors
   for _, e in ipairs(lexed.errors) do
     errors[#errors + 1] = {
-      filename = e.filename, code = LEXER_CODES[e.code], msg = e.msg, fix = e.fix, y = e.y, x = e.x,
+      filename = e.filename, code = LEXER_CODES[e.code], msg = e.msg, fix = e.fix, y = e.y, x = e.x, -- checked: index_may_be_nil
       offset = e.offset, length = e.length,
     }
   end
@@ -2732,7 +2732,7 @@ function Parser.parse(lexed: Lexer.Lexed, name: string, dialect: Ast.Dialect): P
   return { chunk = chunk, errors = errors }
 end
 
-Parser.codes = {
+Parser.codes = { -- checked: field_fixed
   "label_or_goto", "semicolon", "long_comment", "unterminated_long_comment", "digit_separator",
   "hex_float", "malformed_number", "unterminated_string", "unterminated_long_string", "bad_escape",
   "stray_byte", "reserved_word", "nil_union", "method_in_record", "continue_outside_loop",

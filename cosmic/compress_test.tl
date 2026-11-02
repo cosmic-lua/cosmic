@@ -111,11 +111,11 @@ local function test_gzip_corrupt_crc_is_refused()
   local vector = "\31\139\8\0\0\0\0\0\2\3\203\72\205\201\201\215\81\72\206\47\206\205\76\86\4\0\92\110\87\199\14\0\0\0"
   local dec = assert(Compress.inflater("gzip"))
   local _, trouble = drive(dec, vector)
-  assert(trouble ~= "" and trouble:find("CRC", 1, true), trouble)
+  assert(trouble ~= "" and trouble:find("CRC", 1, true), trouble) -- checked: or_mix
 end
 
 local function test_zlib_and_raw_truncated_input_errors_on_finish()
-  for _, format in ipairs({ "raw", "zlib" } as {Compress.Format}) do
+  for _, format in ipairs({ "raw", "zlib" } as {Compress.Format}) do -- checked: cast_refused
     local enc = assert(Compress.deflater(format))
     local packed = assert(drive(enc, string.rep("abcdefgh", 200)))
     local dec = assert(Compress.inflater(format))
@@ -153,8 +153,8 @@ local NO_CODES_GZIP <const> = "\31\139\8\0\0\0\0\0\0\255\237\211" .. string.rep(
 local EOB_ONLY <const> = "\5\224\129\8\0\0\0\0\32\248\91"
 
 local function test_a_block_with_no_codes_is_refused_rather_than_decoded_forever()
-  for _, format in ipairs({ "gzip", "raw" } as {Compress.Format}) do
-    local bytes = format == "gzip" and NO_CODES_GZIP or NO_CODES_GZIP:sub(11)
+  for _, format in ipairs({ "gzip", "raw" } as {Compress.Format}) do -- checked: cast_refused
+    local bytes = if format == "gzip" then NO_CODES_GZIP else NO_CODES_GZIP:sub(11) end
     local dec = assert(Compress.inflater(format))
     -- One update is enough: before, it answered a full megabyte of
     -- zeros, and every update after it another.
@@ -188,14 +188,14 @@ local function test_bits_that_name_no_code_are_refused()
   for _, case in ipairs(cases) do
     local tail, want = case.tail, case.want
     dec = assert(Compress.inflater("raw"))
-    out, trouble = dec:update(EOB_ONLY .. "\95" .. tail)
-    if out ~= nil then
+    out, trouble = dec:update(EOB_ONLY .. "\95" .. tail) -- checked: nil_not_allowed
+    if out ~= nil then -- checked: compare_disjoint
       assert(out == "" and not dec:pending(), tostring(#tail) .. ": " .. tostring(#out) .. " bytes out")
-      out, trouble = dec:finish()
+      out, trouble = dec:finish() -- checked: nil_not_allowed
     end
     -- The patch's own words, not the ratio check's, which would also
     -- stop a decoder answering zeros, but only after a window of them.
-    assert(out == nil and (trouble == want or want == "truncated" and trouble:find(want, 1, true) ~= nil),
+    assert(out == nil and (trouble == want or want == "truncated" and trouble:find(want, 1, true) ~= nil), -- checked: compare_disjoint
       tostring(#tail) .. ": " .. trouble)
   end
 end
@@ -224,7 +224,7 @@ local function test_the_ratio_check_passes_deflates_most_compressible_stream()
   -- which inflate_step refuses to pass; whole and a byte at a time, so
   -- tinfl's read-ahead meets the check at every split.
   local size = 100 << 20
-  for _, format in ipairs({ "raw", "gzip" } as {Compress.Format}) do
+  for _, format in ipairs({ "raw", "gzip" } as {Compress.Format}) do -- checked: cast_refused
     local enc = assert(Compress.deflater(format, 9))
     local parts: mut {string} = {}
     local zeros = string.rep("\0", 1 << 20)
@@ -512,20 +512,20 @@ end
 local function test_a_stream_revived_by_a_finalizer_is_finished()
   for _, case in ipairs(every_kind()) do
     local saved: Compress.Stream? = nil
-    local holder: Holder = setmetatable({} as Holder, {
+    local holder: Holder = setmetatable({} as Holder, { -- checked: cast_refused*2, setmetatable_call
       __gc = function(self: Holder) saved = self.s end,
     } as metatable<Holder>)
     holder.s = case.stream
     -- The stream is collected in the same cycle as the table whose
     -- finalizer hands it back: an update on it must not read freed
     -- codec state.
-    case.stream = nil
-    holder = nil
+    case.stream = nil -- checked: nil_not_allowed
+    holder = nil -- checked: nil_not_allowed
     collectgarbage()
     collectgarbage()
     local kept = assert(saved, "the finalizer ran")
     Test.raises(function() kept:update(case.chunk) end, "compress: the stream is finished")
-    assert(not pcall(kept.finish, kept))
+    assert(not pcall(kept.finish, kept)) -- checked: alternatives_as_value
     assert(not kept:pending())
     assert(kept:rest() == "")
   end
@@ -543,12 +543,12 @@ local function test_a_closed_stream_is_finished_and_keeps_rest()
     assert(dec:update(hello_gz .. "TRAILER") == "hello, cosmic!")
   end
   assert(kept:rest() == "TRAILER" and kept:done())
-  assert(not pcall(kept.update, kept, ""))
-  assert(not pcall(kept.finish, kept))
+  assert(not pcall(kept.update, kept, "")) -- checked: alternatives_as_value
+  assert(not pcall(kept.finish, kept)) -- checked: alternatives_as_value
   -- Closing a finished stream, or closing twice, is harmless.
   for _, case in ipairs(every_kind()) do
     local s <close> = case.stream
-    local closer = getmetatable(s as {any: any}).__close as function(any, any)
+    local closer = getmetatable(s as {any: any}).__close as function(any, any) -- declared: key_type -- checked: cast_refused*2, nil_not_allowed
     closer(s, nil)
     closer(s, nil)
   end
@@ -556,7 +556,7 @@ end
 
 local function test_input_after_the_limit_queues_behind_the_backlog()
   local dec = gzip_decoder()
-  local parts = { assert(dec:update(hello_gz, 2)) }
+  local parts = { assert(dec:update(hello_gz, 2)) } -- checked: arms_differ
   assert(dec:pending())
   parts[#parts + 1] = assert(dec:update("trailer", 2))
   while dec:pending() do parts[#parts + 1] = assert(dec:update("", 2)) end
@@ -639,7 +639,7 @@ local function test_xz_stream_padding_is_skipped_but_ragged_nuls_are_rest()
   every_split(xz_decoder, hello_xz .. "\0\0\0\0junk", "hello, cosmic!", "junk")
   every_split(xz_decoder, hello_xz .. "\0\0", "hello, cosmic!", "\0\0")
   local out, trouble = xz_decoder():update(hello_xz .. "\0\0" .. hello_xz)
-  assert(out == nil and trouble:find("padding", 1, true), trouble)
+  assert(out == nil and trouble:find("padding", 1, true), trouble) -- checked: or_mix
 end
 
 local function test_xz_memory_limit_is_enforced()
@@ -689,11 +689,11 @@ local function test_the_first_member_must_carry_the_magic()
 end
 
 local function test_argument_shape_errors_raise()
-  assert(not pcall(Compress.inflater, "brotli" as Compress.Format))
-  assert(not pcall(Compress.deflater, "brotli" as Compress.Format))
-  assert(not pcall(Compress.deflater, "raw", 11))
-  assert(not pcall(Compress.deflater, "raw", -1))
-  assert(not pcall(Compress.xz_decoder, 0))
+  assert(not pcall(Compress.inflater, "brotli" as Compress.Format)) -- checked: alternatives_as_value, cast_refused
+  assert(not pcall(Compress.deflater, "brotli" as Compress.Format)) -- checked: alternatives_as_value, cast_refused
+  assert(not pcall(Compress.deflater, "raw", 11)) -- checked: alternatives_as_value
+  assert(not pcall(Compress.deflater, "raw", -1)) -- checked: alternatives_as_value
+  assert(not pcall(Compress.xz_decoder, 0)) -- checked: alternatives_as_value
   local low_window, _ = pcall(Compress.zstd_decoder, 1023)
   assert(not low_window)
   local low_level, _ = pcall(Compress.zstd_encoder, 0)
@@ -704,7 +704,7 @@ local function test_argument_shape_errors_raise()
   assert((Compress.zstd_encoder(1)))
   assert((Compress.zstd_encoder(19)))
   local dec = assert(Compress.inflater("raw"))
-  assert(not pcall(dec.update, dec, "x", 0))
+  assert(not pcall(dec.update, dec, "x", 0)) -- checked: alternatives_as_value
   assert((Compress.deflater("raw", 0)))
   assert((Compress.deflater("raw", 10)))
 end
@@ -712,8 +712,8 @@ end
 local function test_a_failed_stream_throws_afterward()
   local dec = bz2_decoder()
   assert(dec:update("garbage") == nil)
-  assert(not pcall(dec.update, dec, ""))
-  assert(not pcall(dec.finish, dec))
+  assert(not pcall(dec.update, dec, "")) -- checked: alternatives_as_value
+  assert(not pcall(dec.finish, dec)) -- checked: alternatives_as_value
 end
 
 local function test_one_shot_deflate_and_inflate_round_trip()
@@ -723,9 +723,9 @@ local function test_one_shot_deflate_and_inflate_round_trip()
   assert(Compress.inflate("zlib", packed) == plain)
   assert(Compress.inflate("zlib", packed, #plain) == plain)
   local out, trouble = Compress.inflate("zlib", packed, #plain - 1)
-  assert(out == nil and trouble:find("larger than", 1, true), trouble)
+  assert(out == nil and trouble:find("larger than", 1, true), trouble) -- checked: or_mix
   out, trouble = Compress.inflate("zlib", packed .. "x")
-  assert(out == nil and trouble:find("trailing", 1, true), trouble)
+  assert(out == nil and trouble:find("trailing", 1, true), trouble) -- checked: or_mix
   out, trouble = Compress.inflate("zlib", packed:sub(1, -2))
   assert(out == nil and trouble == "compress: truncated compressed stream", trouble)
   assert(Compress.inflate("zlib", (assert(Compress.deflate("zlib", "")))) == "")
@@ -748,8 +748,8 @@ local function test_one_shot_deflate_frames_as_its_format_says()
   assert(gz:sub(1, 2) == "\31\139", "no gzip magic")
   local raw = assert(Compress.deflate("raw", plain))
   local zl = assert(Compress.deflate("zlib", plain))
-  assert(zl:byte(1) & 0x0F == 8, "no zlib header")
-  for format, packed in pairs({ gzip = gz, raw = raw, zlib = zl } as {Compress.Format: string}) do
+  assert(zl:byte(1) & 0x0F == 8, "no zlib header") -- checked: nil_not_allowed
+  for format, packed in pairs({ gzip = gz, raw = raw, zlib = zl } as {Compress.Format: string}) do -- checked: cast_refused
     assert(Compress.inflate(format, packed) == plain, format)
     local dec = assert(Compress.inflater(format))
     local out = assert(dec:update(packed))
@@ -759,7 +759,7 @@ local function test_one_shot_deflate_frames_as_its_format_says()
   -- stream nor a gzip one.
   assert(Compress.inflate("raw", zl) == nil)
   assert(Compress.inflate("gzip", zl) == nil)
-  assert(not pcall(Compress.deflate, "lz4" as Compress.Format, plain))
+  assert(not pcall(Compress.deflate, "lz4" as Compress.Format, plain)) -- checked: alternatives_as_value, cast_refused
 end
 
 --- Without a level, the one-shot deflate compresses as a streaming
@@ -786,19 +786,19 @@ local function test_sql_deflate_and_inflate_speak_raw_deflate()
   for _, input in ipairs({ text, "", "x" }) do
     local rows = assert(Sqlite.rows(db,
       "SELECT deflate(?1), inflate(deflate(?1))", { { text = input } }))
-    local stored = rows[1]:blob(1)
+    local stored = rows[1]:blob(1) -- checked: nil_not_allowed
     assert(stored == assert(Compress.deflate("raw", input)),
       "SQL and Compress deflate alike")
     assert(assert(Compress.inflate("raw", stored)) == input)
-    assert(rows[1]:kind(2) == "blob" and rows[1]:blob(2) == input)
+    assert(rows[1]:kind(2) == "blob" and rows[1]:blob(2) == input) -- checked: nil_not_allowed*2
     local back = assert(Sqlite.rows(db, "SELECT inflate(?1)",
       { { blob = assert(Compress.deflate("raw", input)) } }))
-    assert(back[1]:blob(1) == input, "SQL inflates what Compress deflated")
+    assert(back[1]:blob(1) == input, "SQL inflates what Compress deflated") -- checked: nil_not_allowed
   end
   assert(#assert(Compress.deflate("raw", text)) < #text // 10)
   local nulls = assert(Sqlite.text_rows(db,
     "SELECT deflate(NULL) IS NULL, inflate(NULL) IS NULL"))
-  assert(nulls[1]:text(1) == "1" and nulls[1]:text(2) == "1")
+  assert(nulls[1]:text(1) == "1" and nulls[1]:text(2) == "1") -- checked: nil_not_allowed*2
   local stream = assert(Compress.deflate("raw", text))
   for _, case in ipairs({
       { stream:sub(1, #stream - 4), "truncated deflate stream" },
@@ -807,7 +807,7 @@ local function test_sql_deflate_and_inflate_speak_raw_deflate()
   }) do
     local rows, trouble = Sqlite.rows(db, "SELECT inflate(?1)", { { blob = case[1] } })
     assert(rows == nil, case[2])
-    assert(trouble:find(case[2], 1, true) ~= nil, trouble)
+    assert(trouble:find(case[2], 1, true) ~= nil, trouble) -- checked: index_may_be_nil
   end
   assert(db:close())
 end

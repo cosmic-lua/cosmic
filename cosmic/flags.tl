@@ -150,7 +150,7 @@ function Flags.parse(argv: {string}, from: integer,
       error("flags: " .. name .. " is not an option a spec can name", 2)
     end
     local entry = spec[name]
-    if entry is Flags.Option and entry.value == "" then
+    if entry is Flags.Option and entry.value == "" then -- checked: is_on_record
       error("flags: " .. name .. "'s value name is empty", 2)
     end
   end
@@ -194,43 +194,43 @@ function Flags.parse(argv: {string}, from: integer,
   local options = true
   while argv[cursor] ~= nil do
     local word = argv[cursor]
-    if not options or word == "-" or word:sub(1, 1) ~= "-" then
-      parsed.words[#parsed.words + 1] = word
+    if not options or word == "-" or word:sub(1, 1) ~= "-" then -- checked: nil_not_allowed
+      parsed.words[#parsed.words + 1] = word -- checked: nil_not_allowed
     elseif word == "--" then
       options = false
-    elseif word:sub(2, 2) == "-" or spec[word] ~= nil or whole(word) then
-      local name, value = word:match("^(%-%-?[^=]+)=(.*)$")
+    elseif word:sub(2, 2) == "-" or spec[word] ~= nil or whole(word) then -- checked: nil_not_allowed*3
+      local name, value = word:match("^(%-%-?[^=]+)=(.*)$") -- checked: nil_not_allowed
       if name == nil then name = word end
-      local entry = spec[name]
+      local entry = spec[name] -- checked: nil_not_allowed
       if entry == nil then
-        return nil, "no such option: " .. name
+        return nil, "no such option: " .. name -- checked: nil_not_allowed
       elseif takes_value(entry) then
-        local trouble = valued(name, value, if #name > 2 then "=" else "" end)
+        local trouble = valued(name, value, if #name > 2 then "=" else "" end) -- checked: nil_not_allowed*2
         if trouble ~= "" then
           return nil, trouble
         end
       elseif value ~= nil then
-        return nil, name .. " takes no value"
+        return nil, name .. " takes no value" -- checked: nil_not_allowed
       else
-        flag(name)
+        flag(name) -- checked: nil_not_allowed
       end
-    elseif spec[word:sub(1, 2)] == nil then
-      return nil, "no such option: " .. word
+    elseif spec[word:sub(1, 2)] == nil then -- checked: nil_not_allowed
+      return nil, "no such option: " .. word -- checked: nil_not_allowed
     else
       local at = 2
-      while at <= #word do
-        local letter = word:sub(at, at)
+      while at <= #word do -- checked: nil_not_allowed
+        local letter = word:sub(at, at) -- checked: nil_not_allowed
         local name = "-" .. letter
         local entry = spec[name]
         if letter == "=" then
-          return nil, "-" .. word:sub(at - 1, at - 1) .. " takes no value"
+          return nil, "-" .. word:sub(at - 1, at - 1) .. " takes no value" -- checked: nil_not_allowed
         elseif not letter:match("^%w$") then
-          return nil, "no such option: " .. word
+          return nil, "no such option: " .. word -- checked: nil_not_allowed
         elseif entry == nil then
-          return nil, "no such option: " .. name .. " in " .. word
+          return nil, "no such option: " .. name .. " in " .. word -- checked: nil_not_allowed
         elseif takes_value(entry) then
-          local rest = word:sub(at + 1)
-          local trouble = valued(name, rest ~= "" and rest or nil, "")
+          local rest = word:sub(at + 1) -- checked: nil_not_allowed
+          local trouble = valued(name, if rest ~= "" then rest else nil end, "")
           if trouble ~= "" then
             return nil, trouble
           end
@@ -278,7 +278,7 @@ local function option_lines(spec: {string:boolean | Flags.Option}): {string}
   for index, name in ipairs(names) do
     local entry = spec[name]
     local head = name
-    local value = entry is Flags.Option and entry.value or nil
+    local value = if entry is Flags.Option then entry.value else nil end -- checked: is_on_record
     if value ~= nil then
       head = name .. " <" .. value .. ">"
     elseif entry == true then
@@ -290,15 +290,15 @@ local function option_lines(spec: {string:boolean | Flags.Option}): {string}
   local lines: mut {string} = {}
   for index, name in ipairs(names) do
     local entry = spec[name]
-    local about = entry is Flags.Option and entry.about or nil
+    local about = if entry is Flags.Option then entry.about else nil end -- checked: is_on_record
     if entry ~= nil and is_required(entry) then
       about = if about ~= nil and about ~= "" then about .. " (required)" else "(required)" end
     end
     if about ~= nil and about ~= "" then
-      lines[#lines + 1] = "  " .. heads[index] .. string.rep(" ", width - columns(heads[index])) ..
+      lines[#lines + 1] = "  " .. heads[index] .. string.rep(" ", width - columns(heads[index])) .. -- checked: index_may_be_nil, nil_not_allowed
         "  " .. about
     else
-      lines[#lines + 1] = "  " .. heads[index]
+      lines[#lines + 1] = "  " .. heads[index] -- checked: nil_not_allowed
     end
   end
   return lines
@@ -369,7 +369,7 @@ local function commands_help(program: string, commands: {string:Flags.Command}):
   local usage = "usage: " .. program .. " <command>" .. (if any_options then " [options]" else "" end)
   local lines: mut {string} = { usage, "", "commands:" }
   for _, name in ipairs(names) do
-    local about = commands[name].about
+    local about = commands[name].about -- checked: nil_not_allowed
     if about ~= nil and about ~= "" then
       lines[#lines + 1] = "  " .. name .. string.rep(" ", width - columns(name)) .. "  " .. about
     else
@@ -397,7 +397,7 @@ function Flags.asks_help(argv: {string}, from: integer,
   local slot = from
   while argv[slot] ~= nil and argv[slot] ~= "--" do
     local word = argv[slot]
-    if (word == "--help" or word == "-h") and spec[word] == nil then
+    if (word == "--help" or word == "-h") and spec[word] == nil then -- checked: nil_not_allowed
       return true
     end
     slot = slot + 1
@@ -445,8 +445,8 @@ function Flags.dispatch(argv: {string}, from: integer,
     error("flags: dispatch needs a command to choose among", 2)
   end
   local name = argv[from]
-  if name == "--help" or name == "-h" or (name == "help" and commands.help == nil) then
-    local asked = name == "help" and argv[from + 1] or nil
+  if name == "--help" or name == "-h" or (name == "help" and commands.help == nil) then -- checked: map_field
+    local asked = if name == "help" then argv[from + 1] else nil end
     if asked == "--help" or asked == "-h" then
       asked = nil
     end
@@ -458,7 +458,7 @@ function Flags.dispatch(argv: {string}, from: integer,
     elseif commands[asked] == nil then
       return nil, "no such command: " .. asked
     end
-    return { code = 0, help = Flags.help(commands[asked], program .. " " .. asked) }, ""
+    return { code = 0, help = Flags.help(commands[asked], program .. " " .. asked) }, "" -- checked: index_may_be_nil
   end
   if name == nil then
     local names: mut {string} = {}

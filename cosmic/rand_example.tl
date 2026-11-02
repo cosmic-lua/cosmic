@@ -5,7 +5,7 @@
 local Codec = require("cosmic.codec")
 local Rand = require("cosmic.rand")
 
-local Example = {}
+local Example = {} -- checked: literal_needs_type
 
 --- A seed names one sequence: two sources made from it draw the same
 --- values, which is what lets a run that depends on chance be replayed.
@@ -69,4 +69,4 @@ function Example.gamma()
   assert(rng:gamma(0.5) > 0)
 end
 
-return Example
+return Example -- checked: export_not_declared

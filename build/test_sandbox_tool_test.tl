@@ -260,7 +260,7 @@ local function test_a_host_path_that_is_the_trees_is_refused_in_either_mode(tmp:
   -- The tree's: refused before the test starts, in either mode.
   fixture.host_test(root, product, root .. "/suite/given.txt")
   for _, mode in ipairs({ "0", "" }) do
-    env["COSMIC_TEST_SANDBOX"] = mode ~= "" and mode or nil
+    env["COSMIC_TEST_SANDBOX"] = mode ~= "" and mode or nil -- checked: and_ternary
     local inside, inside_ok = run(root, tmp .. "/inside" .. mode, env)
     assert(not inside_ok and inside:find(root .. "/suite/given.txt is the tree's", 1, true) ~= nil and
         not inside:find("read|", 1, true), inside)

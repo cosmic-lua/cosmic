@@ -362,7 +362,7 @@ local function target_parts(method: string, target: string): Target?, string
     if parts.userinfo ~= nil then return nil, "an absolute target holds userinfo" end
     local host = if parts.host:find(":", 1, true) then "[" .. parts.host .. "]" else parts.host end
     local port = parts.port
-    return { path = parts.path ~= "" and parts.path or "/", query = parts.query or "",
+    return { path = if parts.path ~= "" then parts.path else "/" end, query = parts.query or "",
       authority = if port ~= nil then host .. ":" .. tostring(port) else host end }, ""
   end
   local mark = target:find("?", 1, true)
@@ -526,13 +526,13 @@ end
 --- Fails the body for good: `state` says how, `why` what every later
 --- read answers.
 local function fail(self: BodyReader, state: wire.BodyState, why: string): nil, string
-  self.state, self.failure = state, why
+  self.state, self.failure = state, why -- checked: field_unknown
   return nil, why
 end
 
 --- [`fail`], answered as a step that did not go.
 local function stopped(self: BodyReader, state: wire.BodyState, why: string): boolean, string
-  self.state, self.failure = state, why
+  self.state, self.failure = state, why -- checked: field_unknown
   return false, why
 end
 
@@ -548,7 +548,7 @@ local function meta_line(self: BodyReader): string?, string
     if self.input.long then
       return fail(self, "over", "http: a chunked body's extensions and trailers pass limits.head_bytes")
     end
-    return fail(self, "failed", why ~= "" and why or "http: the request body ended early")
+    return fail(self, "failed", if why ~= "" then why else "http: the request body ended early" end)
   end
   if text:sub(-1) ~= "\r" then
     return fail(self, "bad", "http: a chunked body's line ends in a bare LF")
@@ -600,7 +600,7 @@ local function trailers(self: BodyReader): boolean, string
     local text, why = meta_line(self)
     if text == nil then return false, why end
     if text == "" then
-      self.state = "done"
+      self.state = "done" -- checked: field_unknown
       return true, ""
     end
     self.head.spent = self.head.spent + #text + 2
@@ -614,7 +614,7 @@ local function trailers(self: BodyReader): boolean, string
   end
 end
 
-local class BodyReader is wire.Body
+local class BodyReader is wire.Body -- declared: interface_disagrees*4
   input: wire.Input
   limits: wire.Limits
   head: wire.Head
@@ -630,25 +630,25 @@ local class BodyReader is wire.Body
   function read(self, max_bytes?: integer): string?, string
     if self.closed then return nil, "http: the request body is closed" end
     if self.failure ~= "" then return nil, self.failure end
-    if self.state == "done" then return nil, "" end
+    if self.state == "done" then return nil, "" end -- checked: field_unknown
     local most = max_bytes or CHUNK
     if most < 1 then error("http: read's max_bytes must be positive", 2) end
-    if not self.touched then
-      self.touched = true
-      if self.on_first_read ~= nil then self.on_first_read() end
+    if not self.touched then -- checked: field_unknown
+      self.touched = true -- checked: field_unknown
+      if self.on_first_read ~= nil then self.on_first_read() end -- checked: field_unknown*2 -- untyped: call
     end
     if not self.head.chunked then
       if self.left == 0 then
-        self.state = "done"
+        self.state = "done" -- checked: field_unknown
         return nil, ""
       end
       local piece, why = take(self.input, math.min(most, self.left))
       if piece == nil then
-        return fail(self, "failed", why ~= "" and why or "http: the request body ended early")
+        return fail(self, "failed", if why ~= "" then why else "http: the request body ended early" end)
       end
       self.left = self.left - #piece
       self.total = self.total + #piece
-      if self.left == 0 then self.state = "done" end
+      if self.left == 0 then self.state = "done" end -- checked: field_unknown
       return piece, ""
     end
     while true do
@@ -658,7 +658,7 @@ local class BodyReader is wire.Body
       elseif self.phase == "data" then
         local piece, why = take(self.input, math.min(most, self.left))
         if piece == nil then
-          return fail(self, "failed", why ~= "" and why or "http: the request body ended early")
+          return fail(self, "failed", if why ~= "" then why else "http: the request body ended early" end)
         end
         self.left = self.left - #piece
         self.total = self.total + #piece
@@ -688,12 +688,12 @@ local class BodyReader is wire.Body
     -- Read past a close: the server discards what the handler left.
     local closed = self.closed
     self.closed = false
-    while self.state == "open" do
+    while self.state == "open" do -- checked: field_unknown
       local piece, _ = self:read()
       if piece == nil then break end
     end
     self.closed = closed
-    return self.state == "done"
+    return self.state == "done" -- checked: field_unknown
   end
 end
 
@@ -704,9 +704,9 @@ function wire.body(input: wire.Input, head: wire.Head, limits: wire.Limits,
                    on_first_read?: function()): wire.Body
   local r: BodyReader = {
     input = input, limits = limits, head = head, left = head.length or 0,
-    phase = "size", total = 0, failure = "", closed = false, touched = false,
-    on_first_read = on_first_read,
-    state = if (not head.chunked and (head.length or 0) == 0) then "done" else "open" end,
+    phase = "size", total = 0, failure = "", closed = false, touched = false, -- checked: literal_unknown
+    on_first_read = on_first_read, -- checked: literal_unknown
+    state = if (not head.chunked and (head.length or 0) == 0) then "done" else "open" end, -- checked: literal_unknown
   }
   return r
 end
@@ -754,7 +754,7 @@ local function given_length(headers: {string: string | {string}}): integer?, str
     return nil, ("headers %s: Content-Length is given twice"):format(table.concat(names, " and "))
   end
   local name, value = names[1], headers[names[1]]
-  if value is {string} then
+  if value is {string} then -- checked: is_on_record
     return nil, ("header %s: Content-Length is one value, not a list"):format(name)
   end
   assert(value, "wire: a name collected from the headers holds a value")
@@ -819,7 +819,7 @@ end
 local function framing(reply: wire.Reply): integer?, boolean, boolean
   local close = reply.close == true
   local size = declared(reply)
-  if bodiless(reply.status) then return reply.status == 304 and size or nil, false, close end
+  if bodiless(reply.status) then return reply.status == 304 and size or nil, false, close end -- checked: and_ternary
   local body = reply.body
   if body == nil or body == "" then return size or 0, false, close end
   if body is string then return #body, false, close end
@@ -865,7 +865,7 @@ local function copy_body(w: Stream.Writer, body: Stream.Reader, length: integer?
                          chunked: boolean): string, string
   local left = length
   while left == nil or left > 0 do
-    local piece, why = body:read(left ~= nil and math.min(left, CHUNK) or CHUNK)
+    local piece, why = body:read(if left ~= nil then math.min(left, CHUNK) else CHUNK end)
     if piece == nil then
       if why ~= "" then return "", why end
       if left ~= nil then

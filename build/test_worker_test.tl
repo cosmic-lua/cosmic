@@ -63,8 +63,8 @@ local function test_a_worker_that_ran_an_unkeyed_module_fails_its_test()
   local closure = { ["build.lib"] = true, ["build.lib_test"] = true }
   local function judged(modules: mut {string}, held?: boolean): worker.Judgement
     return worker.judge({ result = ended(passing(modules)), trouble = "", timeout_ns = Clock.seconds(1),
-      sandboxed = true, carried = held ~= false and carried or nil,
-      closure = held ~= false and closure or nil })
+      sandboxed = true, carried = held ~= false and carried or nil, -- checked: and_ternary
+      closure = held ~= false and closure or nil }) -- checked: and_ternary
   end
   local kept = judged({ "build.lib", "build.lib_test", "build.test_worker",
     "cosmic.sys", "string" })
@@ -182,11 +182,11 @@ local function test_a_worker_is_started_as_its_command_line_says()
   assert(assert(options.fds)[worker.report_fd] == "capture" and assert(options.fds)[254] == 7)
   assert(options.process_group == true and options.sandbox == nil and options.stdin == "null")
   -- Held by a ruleset that forbids running nothing, or by none.
-  for hold, flag in pairs({ mounts = "--worker-held", none = "--worker" } as {string:string}) do
+  for hold, flag in pairs({ mounts = "--worker-held", none = "--worker" } as {string:string}) do -- checked: cast_refused
     local held = worker.invocation({
       start = { argv = { "/bin/cosmic" }, env = {}, fds = {} }, env = {}, root = "/tree",
       module_path = "suite.a_test", name = "test_x", scratch = "/tmp", needs = "",
-      hold = hold as worker.Hold, closure = {}, tree = {},
+      hold = hold as worker.Hold, closure = {}, tree = {}, -- checked: cast_refused
     })
     assert(held.argv[3] == flag, hold .. ": " .. table.concat(held.argv, " "))
   end
@@ -196,7 +196,7 @@ local function test_a_worker_is_started_as_its_command_line_says()
     local given = worker.invocation({
       start = { argv = { "/bin/cosmic" }, env = {}, fds = {} }, env = {}, root = "/tree",
       module_path = "suite.a_test", name = "test_x", scratch = "/tmp", needs = "",
-      hold = "none", store = store ~= "" and store or nil, closure = { "suite.a_test" },
+      hold = "none", store = store ~= "" and store or nil, closure = { "suite.a_test" }, -- checked: and_ternary
       tree = {},
     })
     local said = table.concat(given.argv, " ", 10)
@@ -220,7 +220,7 @@ local function test_a_nesting_worker_is_handed_no_descriptor_of_the_program()
         fds = { [254] = 7, [255] = 8 } },
       env = {}, root = "/tree", module_path = "suite.a_test", name = "test_x", scratch = "/tmp",
       needs = "", hold = "none", closure = {}, tree = {},
-      policy = { isolate = { "file" }, promises = promises as {Sandbox.Promise} },
+      policy = { isolate = { "file" }, promises = promises as {Sandbox.Promise} }, -- checked: cast_refused
     })
   end
   local nesting = started({ "fork", "nest" })

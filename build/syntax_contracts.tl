@@ -30,11 +30,11 @@
 --- the line, and a module the program holds under the name of a binding that declares no table is told by name.
 --
 -- TODO: judge the calls the checker could not type (a call has no callee in [`Checked.callees`] where its callee is `invalid`: a
--- value an error already reported, a call through one; the `[untyped]` ceilings of build/ceilings.txt count them per file, and the
--- build's compile with the new checker ([`build.pipeline`]) refuses a module above its ceiling), once the `[checked]` pins that
--- leave them untyped reach 0. Each of these calls follows from a pinned `[checked]` error, so the
--- count is bookkeeping of those pins and no gap of its own. The pins hold the
--- counts, and each later pull request that lowers a `[checked]` row lowers the `[untyped]` row of its file with it. The build's
+-- value an error already reported, a call through one; a `-- untyped: call` marker holds each at its line, and the
+-- build's compile with the new checker ([`build.pipeline`]) refuses a module with a call that has none), once the
+-- `-- checked:` markers that leave them untyped are gone. Each of these calls follows from a marked `checked` finding, so
+-- the marker is bookkeeping of that one and no gap of its own: each later pull request that removes a `checked` finding
+-- removes the `untyped` marker on its line with it. The build's
 -- compile declares the bindings of C from the declarations it derives of the headers, as the tree checks do, so their calls are
 -- judged.
 --
@@ -70,6 +70,8 @@ local record SyntaxContracts
     sites: {string: integer}
     --- How many calls the checker gave no function (the callee is `invalid`) and that are no `require`: calls no rule judged.
     untyped: integer
+    --- The line of each of those calls, in the order of the program: the places `[untyped]` markers hold ([`build.ceilings`]).
+    untyped_lines: {integer}
   end
 
   --- The breaches of the discipline in `subject`, a module of cosmic's own tree that was checked with its types kept.
@@ -1333,7 +1335,7 @@ local function binding_call_in(run: Run, body: Ast.Block): string?
     end
     if object ~= nil and name ~= nil and fallible_type(callee_fn(run, n)) then
       local decl = Report.decl_of(run.subject.types[Node.base(object).id])
-      local module = decl ~= nil and tables[decl] or nil
+      local module = decl ~= nil and tables[decl] or nil -- checked: and_ternary
       if module ~= nil then
         return module .. "." .. name
       end
@@ -1590,7 +1592,7 @@ local function check_modes(run: Run)
       return nil
     elseif (at.kind == "Name") then
       local scope = scope_binding(at.text)
-      local held = scope ~= nil and holding[Node.base(scope).id] or nil
+      local held = scope ~= nil and holding[Node.base(scope).id] or nil -- checked: and_ternary
       return held ~= nil and held[at.text] or nil
     elseif (at.kind == "Field") then
       local decl = Report.decl_of(subject.types[Node.base(at.object).id])
@@ -1666,7 +1668,7 @@ local function check_modes(run: Run)
         for i, argument in ipairs(n.args) do
           local field = field_of(argument)
           local param = params[i]
-          local pname = param ~= nil and param.name or nil
+          local pname = param ~= nil and param.name or nil -- checked: and_ternary
           if field ~= nil and pname ~= nil then
             bind(fn, pname.name, field)
           end
@@ -1763,6 +1765,7 @@ function SyntaxContracts.check(subject: Subject, given?: Rules.Exemptions, decla
   end
   local kept, statements, stood = keeping(run), standing(run), stand_ins(run)
   local untyped = 0
+  local untyped_lines: mut {integer} = {}
   for _, n in ipairs(run.index.order) do
     if is_call(n) and callee_fn(run, n) == nil then
       local is_require = false
@@ -1772,6 +1775,7 @@ function SyntaxContracts.check(subject: Subject, given?: Rules.Exemptions, decla
       end
       if not is_require then
         untyped = untyped + 1
+        untyped_lines[#untyped_lines + 1] = line_of(subject, n)
       end
     end
     local fallible = is_call(n) and not is_assert(n) and fallible_type(callee_fn(run, n))
@@ -1823,7 +1827,7 @@ function SyntaxContracts.check(subject: Subject, given?: Rules.Exemptions, decla
     end
   end
   table.sort(used)
-  return { problems = run.problems, used = used, sites = run.sites, untyped = untyped }
+  return { problems = run.problems, used = used, sites = run.sites, untyped = untyped, untyped_lines = untyped_lines }
 end
 
 return SyntaxContracts

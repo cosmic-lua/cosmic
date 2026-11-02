@@ -119,7 +119,7 @@ function Cover.check(chunk: Ast.Chunk, scoped: Scopes.Scoped, declared: {string:
       end
     end
     local held = by_name[v.name] or {}
-    held[#held + 1] = v
+    held[#held + 1] = v -- checked: view_written
     by_name[v.name] = held
   end
   -- Which variable each use is listed under, and whether it is a read.

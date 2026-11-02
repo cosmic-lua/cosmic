@@ -96,7 +96,7 @@ local record Time
     --- As [`Time.CivilFields.ns`].
     mut ns: integer
     --- Seconds east of UTC the local time is: 0 on the UTC calendar.
-    mut offset: integer
+    mut offset: integer -- declared: interface_disagrees
     --- ISO 8601's: 1 (Monday) through 7 (Sunday).
     weekday: integer
     --- The day of the year, 1 through 366.
@@ -250,7 +250,7 @@ local function civil_from_days(z: integer): Time.CivilFields
   local doy = doe - (365 * yoe + yoe // 4 - yoe // 100)
   local mp = (5 * doy + 2) // 153
   local month = if mp < 10 then mp + 3 else mp - 9 end
-  return {
+  return { -- checked: literal_shape
     year = yoe + era * 400 + (if month <= 2 then 1 else 0 end),
     month = month,
     day = doy - (153 * mp + 2) // 5 + 1,
@@ -268,7 +268,7 @@ end
 local MONTH_DAYS <const> = { 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 }
 
 local function month_days(y: integer, m: integer): integer
-  return if m == 2 and leap(y) then 29 else MONTH_DAYS[m] end
+  return if m == 2 and leap(y) then 29 else MONTH_DAYS[m] end -- checked: nil_not_allowed
 end
 
 --- Why `value`, the field `name`, is not an integer from `lo` through
@@ -397,19 +397,19 @@ end
 
 --- A cursor over `text`, of its own.
 local function cursor(text: string): Cursor
-  return { text = text, at = 1 }
+  return { text = text, at = 1 } -- checked: literal_missing
 end
 
-local byte: function(string, integer): integer? = string.byte
+local byte: function(string, integer): integer? = string.byte -- checked: overload_value
 local sub <const> = string.sub
 
 --- What ends a borrowing: the text is let go, so a large one is not held
 --- until the next read.
-local lent_mt: metatable<Cursor> = {
+local lent_mt: metatable<Cursor> = { -- checked: literal_missing
   __close = function(cur: Cursor) cur.text = "" end,
 }
 
-local lent: Cursor = setmetatable(cursor(""), lent_mt)
+local lent: Cursor = setmetatable(cursor(""), lent_mt) -- checked: setmetatable_call -- untyped: call
 
 --- A cursor over `text` that every caller shares, so the readers that
 --- run on every request allocate none; hold it in a `<close>` variable.
@@ -444,8 +444,8 @@ local function read_digits(cur: Cursor, most: integer, what: string, least?: int
     at = at + 1
   end
   if at - first < (least or most) then
-    fail(cur, ("%s: expected %s at byte %d"):format(what, least == nil and
-        String.counted(most, "digit") or "a number", first))
+    fail(cur, ("%s: expected %s at byte %d"):format(what,
+      if least == nil then String.counted(most, "digit") else "a number" end, first))
     return 0
   end
   cur.at = at
@@ -493,12 +493,12 @@ end
 local function read_fraction(cur: Cursor): integer
   if cur.why ~= nil then return 0 end
   local digits = cur.text:match("^%d*", cur.at)
-  if #digits == 0 or #digits > 9 then
-    fail(cur, ("fraction at byte %d: expected 1 to 9 digits, not %d"):format(cur.at, #digits))
+  if #digits == 0 or #digits > 9 then -- checked: nil_not_allowed*2
+    fail(cur, ("fraction at byte %d: expected 1 to 9 digits, not %d"):format(cur.at, #digits)) -- checked: nil_not_allowed
     return 0
   end
-  cur.at = cur.at + #digits
-  return fraction_ns(digits)
+  cur.at = cur.at + #digits -- checked: nil_not_allowed
+  return fraction_ns(digits) -- checked: nil_not_allowed
 end
 
 --- Fails when any text is left past the cursor.
@@ -573,7 +573,7 @@ local record Rules
 end
 
 --- Each zone's rules, kept apart from the record a caller holds.
-local rules_of: mut {Time.Zone:Rules} = setmetatable({}, { __mode = "k" })
+local rules_of: mut {Time.Zone:Rules} = setmetatable({}, { __mode = "k" }) -- checked: setmetatable_call -- untyped: call
 
 --- A zone for `rules`, named `name`. Zones are shared -- `zone` answers
 --- one per name, to every caller in the process -- so the record is
@@ -584,18 +584,18 @@ local rules_of: mut {Time.Zone:Rules} = setmetatable({}, { __mode = "k" })
 local function make_zone(name: string, rules: Rules): Time.Zone
   rules.name = name
   local zone: Time.Zone = {}
-  local hidden: metatable<Time.Zone> = {
-    __index = function(_: Time.Zone, key: string): any
-      if key == "name" then return name end
-      return nil
+  local hidden: metatable<Time.Zone> = { -- checked: literal_missing
+    __index = function(_: Time.Zone, key: string): any -- checked: any_use
+      if key == "name" then return name end -- checked: any_use
+      return nil -- checked: any_use
     end,
-    __newindex = function(_: Time.Zone, key: string)
+    __newindex = function(_: Time.Zone, key: string) -- checked: any_use
       error("time: a zone is read-only; it has no field " .. tostring(key) .. " to set", 2)
     end,
   }
   -- Teal's metatable record has no `__metatable`; Lua reads it all the same.
-  rawset(hidden as {string:any}, "__metatable", false)
-  setmetatable(zone, hidden)
+  rawset(hidden as {string:any}, "__metatable", false) -- checked: cast_refused
+  setmetatable(zone, hidden) -- checked: setmetatable_call -- untyped: call
   rules_of[zone] = rules
   return zone
 end
@@ -618,7 +618,7 @@ end
 
 local UTC_KIND <const>: Kind = { offset = 0, abbreviation = "UTC", dst = false }
 
-Time.UTC = make_zone("UTC", { transitions = {}, kinds = {}, first = UTC_KIND, named = true })
+Time.UTC = make_zone("UTC", { transitions = {}, kinds = {}, first = UTC_KIND, named = true }) -- checked: field_fixed
 
 --- The day, as days since the epoch, `r` names in `year`.
 local function rule_day(r: Rule, year: integer): integer
@@ -656,21 +656,21 @@ local function posix_kind(p: Posix, s: integer): Kind
         rule_day(stop, y) * DAY + stop.time - dst.offset }
       p.years[y] = changes
     end
-    if changes[2] <= s and changes[2] > best then
-      best, starts = changes[2], false
+    if changes[2] <= s and changes[2] > best then -- checked: nil_not_allowed*2
+      best, starts = changes[2], false -- checked: index_may_be_nil
     end
-    if changes[1] <= s and changes[1] >= best then
-      best, starts = changes[1], true
+    if changes[1] <= s and changes[1] >= best then -- checked: nil_not_allowed*2
+      best, starts = changes[1], true -- checked: index_may_be_nil
     end
   end
-  return starts and p.dst or p.std
+  return if starts then dst else p.std end
 end
 
 --- What `rules` say of `s` seconds since the epoch.
 local function kind_at(rules: Rules, s: integer): Kind
   local t = rules.transitions
   local n = #t
-  if n == 0 or s < t[1] then
+  if n == 0 or s < t[1] then -- checked: nil_not_allowed
     local footer = rules.footer
     -- RFC 8536 3.2: with no transitions, the footer holds for every
     -- moment; before the first, local time type 0 does.
@@ -678,13 +678,13 @@ local function kind_at(rules: Rules, s: integer): Kind
     return rules.first
   end
   local footer = rules.footer
-  if s > t[n] and footer ~= nil then return posix_kind(footer, s) end
+  if s > t[n] and footer ~= nil then return posix_kind(footer, s) end -- checked: nil_not_allowed
   local lo, hi = 1, n
   while lo < hi do
     local mid = (lo + hi + 1) // 2
-    if t[mid] <= s then lo = mid else hi = mid - 1 end
+    if t[mid] <= s then lo = mid else hi = mid - 1 end -- checked: nil_not_allowed
   end
-  return rules.kinds[lo]
+  return rules.kinds[lo] -- checked: index_may_be_nil
 end
 
 --- Every offset `rules` give some moment within two days of `s`
@@ -707,10 +707,10 @@ local function offsets_near(rules: Rules, s: integer): {integer}
   local first, last = 1, #t + 1
   while first < last do
     local mid = (first + last) // 2
-    if t[mid] > lo then last = mid else first = mid + 1 end
+    if t[mid] > lo then last = mid else first = mid + 1 end -- checked: nil_not_allowed
   end
-  while first <= #t and t[first] <= hi do
-    add(rules.kinds[first])
+  while first <= #t and t[first] <= hi do -- checked: nil_not_allowed
+    add(rules.kinds[first]) -- checked: index_may_be_nil
     first = first + 1
   end
   local footer = rules.footer
@@ -778,7 +778,7 @@ local function parse_posix(tz: string): Posix?, string
   local function number(most: integer, lo: integer, hi: integer, what: string): integer
     local first = cur.at
     local n = read_digits(cur, most, what, 1)
-    if n ~= nil and (n < lo or n > hi) then
+    if n ~= nil and (n < lo or n > hi) then -- checked: compare_disjoint
       fail(cur, ("%s %d at byte %d is not %d through %d"):format(what, n, first, lo, hi))
       return 0
     end
@@ -854,7 +854,7 @@ end
 --- The big-endian unsigned 32-bit integer at `at` in `s`.
 local function u32(s: string, at: integer): integer
   local a, b, c, d = s:byte(at, at + 3)
-  return (a << 24) | (b << 16) | (c << 8) | d
+  return (a << 24) | (b << 16) | (c << 8) | d -- checked: nil_not_allowed*4
 end
 
 --- The big-endian signed 32-bit integer at `at` in `s`.
@@ -902,7 +902,7 @@ local function parse_tzif(data: string): Rules?, string
   if version ~= 0 then
     local isut, isstd, leaps, times, types, chars =
       counts[1], counts[2], counts[3], counts[4], counts[5], counts[6]
-    local second = at + times * 5 + types * 6 + chars + leaps * 8 + isstd + isut
+    local second = at + times * 5 + types * 6 + chars + leaps * 8 + isstd + isut -- checked: nil_not_allowed*6
     counts, why = tzif_counts(data, second)
     if counts == nil then return nil, "the version 2 header: " .. why end
     if data:byte(second + 4) ~= version then
@@ -916,88 +916,88 @@ local function parse_tzif(data: string): Rules?, string
   if types == 0 then return nil, "typecnt is 0: a zone has at least one local time type" end
   if chars == 0 then return nil, "charcnt is 0: a zone has at least one abbreviation" end
   if isut ~= 0 and isut ~= types then
-    return nil, ("isutcnt %d is neither 0 nor typecnt, %d"):format(isut, types)
+    return nil, ("isutcnt %d is neither 0 nor typecnt, %d"):format(isut, types) -- checked: nil_not_allowed*2
   end
   if isstd ~= 0 and isstd ~= types then
-    return nil, ("isstdcnt %d is neither 0 nor typecnt, %d"):format(isstd, types)
+    return nil, ("isstdcnt %d is neither 0 nor typecnt, %d"):format(isstd, types) -- checked: nil_not_allowed*2
   end
   if leaps ~= 0 then
-    return nil, ("%d leap second records: cosmic time has no leap seconds"):format(leaps)
+    return nil, ("%d leap second records: cosmic time has no leap seconds"):format(leaps) -- checked: nil_not_allowed
   end
-  local length = times * (size + 1) + types * 6 + chars + isstd + isut
+  local length = times * (size + 1) + types * 6 + chars + isstd + isut -- checked: nil_not_allowed*5
   if at + length - 1 > #data then
     return nil, ("truncated: the data block at byte %d needs %s, and %d remain"):format(at,
       String.counted(length, "byte"), #data - at + 1)
   end
 
   local transitions: mut {integer} = {}
-  for i = 1, times do
+  for i = 1, times do -- checked: nil_not_allowed
     local t = if size == 8 then i64(data, at) else i32(data, at) end
-    if i > 1 and t <= transitions[i - 1] then
+    if i > 1 and t <= transitions[i - 1] then -- checked: nil_not_allowed
       return nil, ("transition %d at byte %d is not after the one before it"):format(i, at)
     end
     transitions[#transitions + 1] = t
     at = at + size
   end
   local indices: mut {integer} = {}
-  for i = 1, times do
+  for i = 1, times do -- checked: nil_not_allowed
     local index = data:byte(at)
-    if index >= types then
-      return nil, ("transition %d names local time type %d, and there are %d"):format(i, index, types)
+    if index >= types then -- checked: nil_not_allowed
+      return nil, ("transition %d names local time type %d, and there are %d"):format(i, index, types) -- checked: nil_not_allowed*2
     end
-    indices[i] = index + 1
+    indices[i] = index + 1 -- checked: nil_not_allowed
     at = at + 1
   end
   local kinds: mut {Kind} = {}
-  local names_at = at + types * 6
+  local names_at = at + types * 6 -- checked: nil_not_allowed
   -- An index is one byte, and cosmic caps an abbreviation at 255 bytes
   -- -- its own limit, far past tzcode's 50 for all of them -- so only
   -- the first 511 bytes of the abbreviations can hold one: each index's
   -- NUL is found in one pass back over them, never by a search that
   -- could run the length of the file once per type.
-  local window = math.min(chars, 511)
+  local window = math.min(chars, 511) -- checked: overload_none -- untyped: call
   local nul_after: mut {integer:integer} = {}
   local next_nul: integer? = nil
   for k = window - 1, 0, -1 do
-    if data:byte(names_at + k) == 0 then next_nul = k end
-    nul_after[k] = next_nul
+    if data:byte(names_at + k) == 0 then next_nul = k end -- checked: not_assignable, overload_none -- untyped: call
+    nul_after[k] = next_nul -- checked: float_key, nil_not_allowed
   end
   local abbreviations: mut {integer:string} = {}
-  for i = 1, types do
+  for i = 1, types do -- checked: nil_not_allowed
     local offset, dst, name = i32(data, at), data:byte(at + 4), data:byte(at + 5)
     if offset < -89999 or offset > 93599 then
       return nil, ("local time type %d's offset %d is not -89999 through 93599"):format(i - 1, offset)
     end
-    if dst > 1 then
-      return nil, ("local time type %d's isdst %d is not 0 or 1"):format(i - 1, dst)
+    if dst > 1 then -- checked: nil_not_allowed
+      return nil, ("local time type %d's isdst %d is not 0 or 1"):format(i - 1, dst) -- checked: nil_not_allowed
     end
-    if name >= chars then
+    if name >= chars then -- checked: nil_not_allowed
       return nil, ("local time type %d's abbreviation index %d is past charcnt, %d"):format(i - 1,
-        name, chars)
+        name, chars) -- checked: nil_not_allowed*2
     end
-    local abbreviation = abbreviations[name]
+    local abbreviation = abbreviations[name] -- checked: nil_not_allowed
     if abbreviation == nil then
-      local nul = nul_after[name]
-      if nul == nil or nul - name > 255 then
+      local nul = nul_after[name] -- checked: nil_not_allowed
+      if nul == nil or nul - name > 255 then -- checked: nil_not_allowed
         return nil, ("local time type %d's abbreviation has no NUL within 255 bytes and before " ..
           "the end of the abbreviations"):format(i - 1)
       end
-      abbreviation = data:sub(names_at + name, names_at + nul - 1)
-      abbreviations[name] = abbreviation
+      abbreviation = data:sub(names_at + name, names_at + nul - 1) -- checked: nil_not_allowed
+      abbreviations[name] = abbreviation -- checked: nil_not_allowed
     end
     kinds[i] = { offset = offset, dst = dst == 1, abbreviation = abbreviation }
     at = at + 6
   end
-  at = at + chars
-  for i = 1, isstd + isut do
+  at = at + chars -- checked: nil_not_allowed
+  for i = 1, isstd + isut do -- checked: nil_not_allowed*2
     if String.byte_at(data, at) > 1 then
       return nil, ("indicator %d at byte %d is not 0 or 1"):format(i, at)
     end
     at = at + 1
   end
-  local rules: Rules = { transitions = transitions, kinds = {}, first = kinds[1] }
-  for i = 1, times do
-    local kind = assert(kinds[indices[i]])
+  local rules: Rules = { transitions = transitions, kinds = {}, first = kinds[1] } -- checked: index_may_be_nil
+  for i = 1, times do -- checked: nil_not_allowed
+    local kind = assert(kinds[indices[i]]) -- checked: index_may_be_nil
     rules.kinds[#rules.kinds + 1] = kind
   end
 
@@ -1349,7 +1349,7 @@ end
 --- a moment in range. Raises for a `zone` no function here made.
 function Time.civil(ns: integer, zone?: Time.Zone): Time.Civil
   local s, n = ns // NS, ns % NS
-  local kind = zone ~= nil and kind_at(rules_for(zone), s) or UTC_KIND
+  local kind = if zone ~= nil then kind_at(rules_for(zone), s) else UTC_KIND end
   local c = civil_at(s + kind.offset, n)
   c.offset, c.abbreviation, c.dst = kind.offset, kind.abbreviation, kind.dst
   return c
@@ -1387,10 +1387,10 @@ local function resolve(c: Time.CivilFields, zone: Time.Zone?, how: Time.Disambig
   local lowest, highest = offsets[1], offsets[1]
   for _, offset in ipairs(offsets) do
     if kind_at(rules, s - offset).offset == offset then found[#found + 1] = s - offset end
-    lowest, highest = math.min(lowest, offset), math.max(highest, offset)
+    lowest, highest = math.min(lowest, offset), math.max(highest, offset) -- checked: overload_none*2 -- untyped: call*2
   end
   table.sort(found)
-  local before, after = kind_at(rules, s - highest).offset, kind_at(rules, s - lowest).offset
+  local before, after = kind_at(rules, s - highest).offset, kind_at(rules, s - lowest).offset -- checked: nil_not_allowed*2
   local chosen: integer?
   if #found == 0 then
     if how == "reject" then
@@ -1410,7 +1410,7 @@ local function resolve(c: Time.CivilFields, zone: Time.Zone?, how: Time.Disambig
           "\"earlier\" or \"later\" picks one"):format(civil_text(c, "minute"), rules.name,
             offset_text(before), offset_text(after))
       end
-      chosen = how == "later" and found[#found] or found[1]
+      chosen = if how == "later" then found[#found] else found[1] end
     end
   end
   return chosen, ""
@@ -1430,7 +1430,7 @@ end
 --- is always `ns`. Raises for a `disambiguation` that is none of
 --- [`Disambiguation`]'s, or a `zone` no function here made.
 function Time.from_civil(c: Time.CivilFields, zone?: Time.Zone, opts?: Time.AddOptions): integer?, string
-  local how = disambiguation_of(opts ~= nil and opts.disambiguation or nil)
+  local how = disambiguation_of(if opts ~= nil then opts.disambiguation else nil end)
   integral("year", c.year)
   integral("month", c.month)
   integral("day", c.day)
@@ -1472,11 +1472,11 @@ function Time.add_calendar(ns: integer, duration: Time.Duration, zone?: Time.Zon
     outside("days", days, -3650000, 3650000) or
     outside("ns", exact, math.mininteger, math.maxinteger)
   if why ~= nil then return refuse(why) end
-  local overflow = opts ~= nil and opts.overflow or "reject"
+  local overflow = if opts ~= nil and opts.overflow ~= nil then opts.overflow else "reject" end
   if overflow ~= "reject" and overflow ~= "clamp" then
     error("time: overflow is \"reject\" or \"clamp\", not " .. tostring(overflow), 2)
   end
-  local how = disambiguation_of(opts ~= nil and opts.disambiguation or nil)
+  local how = disambiguation_of(if opts ~= nil then opts.disambiguation else nil end)
   local c = Time.civil(ns, zone)
   local index = c.year * 12 + (c.month - 1) + years * 12 + months
   c.year, c.month = index // 12, index % 12 + 1
@@ -1591,10 +1591,10 @@ end
 --- through 9, when `zone_name` is set without a zone or for one with no
 --- IANA name, or for a `zone` no function here made.
 function Time.format_rfc3339(ns: integer, zone?: Time.Zone, opts?: Time.FormatOptions): string
-  local digits = opts ~= nil and opts.digits or nil
-  local bad = digits ~= nil and outside("digits", digits, 0, 9) or nil
+  local digits = if opts ~= nil then opts.digits else nil end
+  local bad = if digits ~= nil then outside("digits", digits, 0, 9) else nil end
   if bad ~= nil then error("time: " .. bad, 2) end
-  local zone_name = opts ~= nil and opts.zone_name or false
+  local zone_name = opts ~= nil and opts.zone_name or false -- checked: and_ternary
   local s, n = ns // NS, ns % NS
   local shift, tail = 0, "Z"
   if zone ~= nil then
@@ -1689,12 +1689,12 @@ end
 --- RFC 3339 text and its RFC 9557 suffix: [`parse_rfc3339`]'s and
 --- [`parse_rfc3339_zoned`]'s work.
 local function parse(text: string): Time.Zoned?, string
-  local cur <close> = borrow(text)
-  local c: Time.CivilFields = { year = 0, month = 0, day = 0, hour = 0, minute = 0, second = 0, ns = 0 }
+  local cur <close> = borrow(text) -- checked: close_not_closable
+  local c: Time.CivilFields = { year = 0, month = 0, day = 0, hour = 0, minute = 0, second = 0, ns = 0 } -- checked: literal_shape
   date_into(cur, c)
   expect(cur, "T", "between the date and the time")
   clock_into(cur, c)
-  c.ns = accept(cur, ".") and read_fraction(cur) or 0
+  c.ns = if accept(cur, ".") then read_fraction(cur) else 0 end
   local why = cur.why
   if why ~= nil then return nil, why end
   local offset = 0
@@ -1763,7 +1763,7 @@ local function parse(text: string): Time.Zoned?, string
   finish(cur)
   local cur_why = cur.why
   if cur_why ~= nil then return nil, cur_why end
-  if named == nil then named = unknown and Time.UTC or fixed_zone(offset) end
+  if named == nil then named = if unknown then Time.UTC else fixed_zone(offset) end end
   return { ns = ns, zone = named }, ""
 end
 
@@ -1812,8 +1812,8 @@ end
 --- moment is outside the range, as the range's first, 1677-09-21, in
 --- UTC. Raises for a `zone` no function here made.
 function Time.parse_date(text: string, zone?: Time.Zone): integer?, string
-  local c: Time.CivilFields = { year = 0, month = 0, day = 0, hour = 0, minute = 0, second = 0, ns = 0 }
-  local cur <close> = borrow(text)
+  local c: Time.CivilFields = { year = 0, month = 0, day = 0, hour = 0, minute = 0, second = 0, ns = 0 } -- checked: literal_shape
+  local cur <close> = borrow(text) -- checked: close_not_closable
   date_into(cur, c)
   finish(cur)
   local why = cur.why
@@ -1872,8 +1872,8 @@ end
 --- the clock as RFC 9110's fifty years ahead would. Nil and why for
 --- anything else, a leap second, or a moment outside the range.
 function Time.parse_http(text: string): integer?, string
-  local c: Time.CivilFields = { year = 0, month = 0, day = 0, hour = 0, minute = 0, second = 0, ns = 0 }
-  local cur <close> = borrow(text)
+  local c: Time.CivilFields = { year = 0, month = 0, day = 0, hour = 0, minute = 0, second = 0, ns = 0 } -- checked: literal_shape
+  local cur <close> = borrow(text) -- checked: close_not_closable
   local separator = text:sub(4, 4)
   if separator == "," then
     name_of(cur, SHORT_DAYS, "a day name")
@@ -1891,7 +1891,7 @@ function Time.parse_http(text: string): integer?, string
     expect(cur, " ", "after the day name")
     c.month = name_of(cur, MONTHS, "a month name")
     expect(cur, " ", "after the month")
-    c.day = accept(cur, " ") and read_digits(cur, 1, "day") or read_digits(cur, 2, "day")
+    c.day = if accept(cur, " ") then read_digits(cur, 1, "day") else read_digits(cur, 2, "day") end
     expect(cur, " ", "after the day")
     clock_into(cur, c)
     expect(cur, " ", "after the time")
@@ -1904,7 +1904,7 @@ function Time.parse_http(text: string): integer?, string
     c.month = name_of(cur, MONTHS, "a month name")
     expect(cur, "-", "after the month")
     local year = read_digits(cur, 2, "year")
-    c.year = if year ~= nil then year + (if year >= 69 then 1900 else 2000 end) else nil end
+    c.year = if year ~= nil then year + (if year >= 69 then 1900 else 2000 end) else nil end -- checked: compare_disjoint, nil_not_allowed
     expect(cur, " ", "after the year")
     clock_into(cur, c)
     expect(cur, " GMT", "after the time")
@@ -1979,14 +1979,14 @@ function Time.parse_duration(text: string): Time.Duration?, string
     end
     seen = unit
     values[unit] = assert(number)
-    at = at + #units[unit]
+    at = at + #units[unit] -- checked: nil_not_allowed
   end
-  local seconds = values[4] * 3600 + values[5] * 60 + values[6]
+  local seconds = values[4] * 3600 + values[5] * 60 + values[6] -- checked: nil_not_allowed*3
   if seconds > MAX_SPAN_S or (seconds == MAX_SPAN_S and fraction > math.maxinteger % NS) then
     return refuse("the hours, minutes and seconds are more than 292 years")
   end
   return {
-    years = sign * values[1], months = sign * values[2], days = sign * values[3],
+    years = sign * values[1], months = sign * values[2], days = sign * values[3], -- checked: nil_not_allowed*3
     ns = sign * (seconds * NS + fraction),
   }, ""
 end

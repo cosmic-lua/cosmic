@@ -613,10 +613,10 @@ local function split_at(body: string, cut: integer): string?
     if open == nil then
       break
     end
-    if cut >= open and cut < close then
+    if cut >= open and cut < close then -- checked: nil_not_allowed
       return nil
     end
-    at = close + 1
+    at = close + 1 -- checked: nil_not_allowed
   end
   return body:sub(1, cut) .. "{{if .f}}{{end}}" .. body:sub(cut + 1)
 end
@@ -693,14 +693,14 @@ local function render(body: string, page: {string: any}): string
   local compiled = assert(CompileGrammar.compile({ { path = "t.tl", relative = "t.tl", text = out, declaration = false } })[1])
   local code = compiled.code
   assert(code ~= nil and #compiled.syntax_errors == 0, "no Lua for " .. body)
-  local env: {string: any} = setmetatable({}, { __index = _G })
-  env.require = function(name: string): any
-    return name == "cosmic.html" and Html or {}
+  local env: {string: any} = setmetatable({}, { __index = _G }) -- checked: setmetatable_call, unchecked_binding
+  env.require = function(name: string): any -- checked: map_field
+    return if name == "cosmic.html" then Html else {} end -- checked: literal_needs_type
   end
   local chunk = assert(load(assert(code), "=template", "t", env))
   local loaded = chunk()
-  assert(loaded is {string: function(...: any): any...}, "no render")
-  local made = loaded.render(page)
+  assert(loaded is {string: function(...: any): any...}, "no render") -- checked: is_on_record
+  local made = loaded.render(page) -- checked: map_field
   assert(made is Html.SafeHtml, "render answered a " .. type(made))
   return (Html.raw(made):gsub("^\n", ""))
 end
@@ -741,21 +741,21 @@ local RENDERED <const>: {Rendered} = {
 }
 
 local function test_a_number_is_a_text_slot_as_go_prints_a_non_string_value()
-  assert(render("{{.n}}", { n = 42 }) == "42")
-  assert(render("<p>{{.n}}</p>", { n = 7 }) == "<p>7</p>")
-  assert(render("<p title=\"{{.n}}\">", { n = 7 }) == "<p title=\"" .. attr("7") .. "\">")
+  assert(render("{{.n}}", { n = 42 }) == "42") -- checked: any_use
+  assert(render("<p>{{.n}}</p>", { n = 7 }) == "<p>7</p>") -- checked: any_use
+  assert(render("<p title=\"{{.n}}\">", { n = 7 }) == "<p title=\"" .. attr("7") .. "\">") -- checked: any_use
 end
 
 local function test_a_range_else_renders_as_go_renders_it()
   -- TestEscape: rangeElse, whose list is empty.
-  assert(render("{{range .e}}{{.}}{{else}}{{.x}}{{end}}", { e = {}, x = "<Hello>" }) == "&lt;Hello&gt;")
-  assert(render("{{range .e}}{{.}}{{else}}{{.x}}{{end}}", { e = { "<a>", "b" }, x = "c" }) == "&lt;a&gt;b")
+  assert(render("{{range .e}}{{.}}{{else}}{{.x}}{{end}}", { e = {}, x = "<Hello>" }) == "&lt;Hello&gt;") -- checked: any_use, literal_needs_type
+  assert(render("{{range .e}}{{.}}{{else}}{{.x}}{{end}}", { e = { "<a>", "b" }, x = "c" }) == "&lt;a&gt;b") -- checked: any_use*2
 end
 
 local function test_hostile_values_are_rendered_for_the_place_they_land_in()
   local wrong: mut {string} = {}
   for _, case in ipairs(RENDERED) do
-    local got = render(case.source, { x = case.x })
+    local got = render(case.source, { x = case.x }) -- checked: any_use
     if got ~= case.want then
       wrong[#wrong + 1] = case.source .. " with " .. string.format("%q", case.x) .. " gave " ..
         string.format("%q", got) .. ", not " .. string.format("%q", case.want)
@@ -771,10 +771,10 @@ local EVERY_BYTE <const> = "\0\1\2\3\4\5\6\7\8\9\10\11\12\13\14\15\16\17\18\19\2
 
 local function test_no_byte_gets_out_of_a_quoted_place_unescaped()
   for _, body in ipairs({ "<p>{{.x}}</p>", "<textarea>{{.x}}</textarea>", "<p title=\"{{.x}}\">", "<p title='{{.x}}'>" }) do
-    local got = render(body, { x = EVERY_BYTE })
+    local got = render(body, { x = EVERY_BYTE }) -- checked: any_use
     local inner = got:gsub("^<%w+[^>]*>", ""):gsub("</?%w+>$", "")
     assert(not inner:find("[<>\"']"), body .. " let a markup byte through: " .. string.format("%q", got))
   end
-  local url = render("<a href=\"{{.x}}\">", { x = EVERY_BYTE })
+  local url = render("<a href=\"{{.x}}\">", { x = EVERY_BYTE }) -- checked: any_use
   assert(url == "<a href=\"" .. INVALID .. "\">", url)
 end

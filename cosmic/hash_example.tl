@@ -8,7 +8,7 @@ local Test = require("cosmic.test")
 
 Test.policy{ cpu_features = true }
 
-local Example = {}
+local Example = {} -- checked: literal_needs_type
 
 --- The hexadecimal SHA-256 of a short string.
 function Example.hex_sha256()
@@ -66,4 +66,4 @@ function Example.equal()
   assert(not Hash.equal(expected, expected:sub(1, 31)))
 end
 
-return Example
+return Example -- checked: export_not_declared

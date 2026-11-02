@@ -48,7 +48,7 @@ end
 local function test_cosmic_test_runs_a_project_reached_through_links(tmp: string)
   local project = linked_project(tmp)
   local env = this_program.environment()
-  env.COSMIC_TEST_SANDBOX = nil
+  env.COSMIC_TEST_SANDBOX = nil -- checked: map_field
   local started = this_program.program({ "test" }, {
     cwd = project, env = env, stdout = "capture", stderr = "capture",
     timeout_ns = Clock.seconds(60),

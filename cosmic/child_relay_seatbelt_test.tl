@@ -204,7 +204,7 @@ local function sealed_client(tmp: string): string
   local requires = { "cosmic.clock", "cosmic.codec", "cosmic.net" }
   local path = tmp .. "/client.db"
   assert(Store.seal(Store.closure(requires), path, { unchecked_bytecode = true, extra = { name = "relay_seatbelt_client",
-    bytecode = string.dump(chunk), source = CLIENT, requires = requires } }))
+    bytecode = string.dump(chunk), source = CLIENT, requires = requires } })) -- checked: not_assignable
   return path
 end
 
@@ -215,7 +215,7 @@ local function echoing(listener: Net.Listener, count: mut {integer}): Poll.Task
     while true do
       local conn = listener:accept()
       if conn == nil then return end
-      count[1] = count[1] + 1
+      count[1] = count[1] + 1 -- checked: nil_not_allowed
       Poll.spawn(function()
         local data = conn:read(4)
         if data ~= nil then
@@ -335,8 +335,8 @@ local function test_the_program_is_given_the_relay_and_its_token(tmp: string)
   local said, report = flows(tmp).said, ""
   local token, port = tostring(said["env_HTTPS_PROXY"]):match("^http://cosmic:(%x+)@127%.0%.0%.1:(%d+)$")
   assert(token ~= nil and #token == 64, "HTTPS_PROXY is " .. redacted(tostring(said["env_HTTPS_PROXY"])) .. report)
-  local http = "http://cosmic:" .. token .. "@127.0.0.1:" .. port
-  local socks = "socks5h://cosmic:" .. token .. "@127.0.0.1:" .. port
+  local http = "http://cosmic:" .. token .. "@127.0.0.1:" .. port -- checked: nil_not_allowed
+  local socks = "socks5h://cosmic:" .. token .. "@127.0.0.1:" .. port -- checked: nil_not_allowed
   for _, name in ipairs({ "HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy" }) do
     assert(said["env_" .. name] == http, name .. " is " .. redacted(tostring(said["env_" .. name])))
   end
@@ -398,7 +398,7 @@ local function run_under(held: raw_process.Seatbelt, argv: {string}, tmp: string
   local out = assert(sys.open(out_path, sys.O_WRONLY | sys.O_CREAT | sys.O_TRUNC, 384))
   local null = assert(sys.open("/dev/null", sys.O_RDONLY))
   local process = require("cosmic.internal.process")
-  local pid, why = process.spawn(argv[1], argv, { COSMIC_STANDALONE = "1" }, "/", null, out, out, false, nil,
+  local pid, why = process.spawn(argv[1], argv, { COSMIC_STANDALONE = "1" }, "/", null, out, out, false, nil, -- checked: index_may_be_nil
     { seatbelt = held })
   assert(sys.close(out))
   assert(sys.close(null))
@@ -406,7 +406,7 @@ local function run_under(held: raw_process.Seatbelt, argv: {string}, tmp: string
   local deadline = Clock.monotonic_ns() + Clock.seconds(30)
   local status = assert(process.waitpid(pid, true))
   while status.pid == 0 do
-    assert(Clock.monotonic_ns() < deadline, argv[1] .. " did not end")
+    assert(Clock.monotonic_ns() < deadline, argv[1] .. " did not end") -- checked: nil_not_allowed
     assert(Clock.sleep_ns(Clock.ms(20)))
     status = assert(process.waitpid(pid, true))
   end
@@ -494,14 +494,14 @@ local function test_the_relay_is_held_by_a_profile_of_its_own(tmp: string)
     local replaced = false
     for name, value in pairs(held.parameters) do
       if value:find("/relay%.db$") then
-        swapped.parameters[name] = real_client
+        swapped.parameters[name] = real_client -- checked: view_written
         replaced = true
       else
-        swapped.parameters[name] = value
+        swapped.parameters[name] = value -- checked: view_written
       end
     end
     assert(replaced, "no parameter names the relay's database")
-    local core = assert(sys.realpath(assert(Proc.relaunch()).argv[1]))
+    local core = assert(sys.realpath(assert(Proc.relaunch()).argv[1])) -- checked: index_may_be_nil
     local probe = run_under(swapped, { core, "--database", real_client, "probe", secret }, tmp)
     holds(probe.refused == "" and probe.code == 0, "the probe did not run under the relay's profile: " ..
         probe.refused .. " " .. probe.output)
@@ -525,7 +525,7 @@ local function test_a_public_name_is_resolved_and_reached_through_the_relay(tmp:
     Test.skip("this host resolves no public name: " .. resolve_why)
     return
   end
-  local reached, reach_why = Net.connect(Net.tcp(found[1].address, 443), { timeout_ns = Clock.seconds(5) })
+  local reached, reach_why = Net.connect(Net.tcp(found[1].address, 443), { timeout_ns = Clock.seconds(5) }) -- checked: nil_not_allowed
   if reached == nil then
     Test.skip("this host reaches no public address: " .. reach_why)
     return
@@ -618,7 +618,7 @@ local function test_a_policy_with_connect_may_not_set_a_proxy_variable(tmp: stri
   local handle, why = Child.start({ assert(Proc.executable()), "wait" }, { policy = {
     database = { path = sealed_client(tmp) }, profiles = { "system" }, connect = { "127.0.0.1:9" },
     set_env = { HTTPS_PROXY = "http://elsewhere:1" } } })
-  assert(handle == nil and why:find("HTTPS_PROXY is set by the relay", 1, true), tostring(why))
+  assert(handle == nil and why:find("HTTPS_PROXY is set by the relay", 1, true), tostring(why)) -- checked: or_mix
 end
 
 --- The relay's own policy reads the database it runs on and the resolver's

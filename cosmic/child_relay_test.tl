@@ -159,7 +159,7 @@ local function sealed_client(tmp: string): string, string
   local requires = { "cosmic.clock", "cosmic.fs", "cosmic.net" }
   local path = tmp .. "/client.db"
   local digest = assert(Store.seal(Store.closure(requires), path, { unchecked_bytecode = true, extra = { name = "relay_client",
-    bytecode = string.dump(chunk), source = CLIENT, requires = requires } }))
+    bytecode = string.dump(chunk), source = CLIENT, requires = requires } })) -- checked: not_assignable
   return path, digest
 end
 
@@ -575,7 +575,7 @@ local function test_a_descriptor_the_program_keeps_is_no_place_for_the_relays_lo
     if not looked then
       local kept = { ...granting(database, 9), relay_log = fd }
       local refused, refusal = Child.start({ assert(Proc.executable()), "wait" }, kept)
-      assert(refused == nil and refusal:find("relay_log " .. tostring(fd) .. " is a descriptor this program keeps", 1, true),
+      assert(refused == nil and refusal:find("relay_log " .. tostring(fd) .. " is a descriptor this program keeps", 1, true), -- checked: or_mix
         tostring(refusal))
       tried = tried + 1
     end
@@ -607,7 +607,7 @@ local function test_no_connect_means_no_relay_and_no_extra_descriptors(tmp: stri
     assert(ChildPolicy.unsandboxable(why), "the start was refused: " .. why)
     Test.skip(why)
   end
-  assert(plain ~= nil and plain.ok, tostring(plain ~= nil and plain.stderr))
+  assert(plain ~= nil and plain.ok, tostring(plain ~= nil and plain.stderr)) -- checked: or_mix
   for name, value in pairs(fixture.fields(assert(plain.stdout))) do
     assert(value == "nil", name .. " is set without connect: " .. value)
   end
@@ -736,5 +736,5 @@ local function test_the_upstream_proxy_is_reached_through_the_table(tmp: string)
   local fields_said = assert(said)
   assert(fields_said["connect"] == "HTTP/1.1 200 Connection established" and fields_said["connect_echo"] == "echo:ping",
     tostring(fields_said["connect"]) .. " " .. tostring(fields_said["connect_echo"]))
-  assert(#asked >= 1 and asked[1]:find("^CONNECT 127%.0%.0%.2:%d+ HTTP/1%.1$"), table.concat(asked, " | "))
+  assert(#asked >= 1 and asked[1]:find("^CONNECT 127%.0%.0%.2:%d+ HTTP/1%.1$"), table.concat(asked, " | ")) -- checked: or_mix
 end

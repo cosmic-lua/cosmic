@@ -243,7 +243,7 @@ local function test_an_unveiled_child_has_only_what_it_was_given(tmp: string)
   local nothing, _, nothing_errno = process.spawn(probe, { probe }, nil, tmp,
     nil, nil, nil, false, nil, { unveil = { reads = {}, writes = {} } })
   assert(nothing == nil and nothing_errno == sys.ENOENT, "an empty unveiling leaves no program")
-  assert(not pcall(process.spawn, probe, { probe }, nil, nil, nil, nil, nil, false, nil,
+  assert(not pcall(process.spawn, probe, { probe }, nil, nil, nil, nil, nil, false, nil, -- checked: overload_none
     { unveil = { reads = { "relative" } } }), "an unveiled path must be absolute")
 end
 
@@ -256,7 +256,7 @@ local function start_confined(probe: string, script: string, output: integer,
     output, output, false, nil,
     { unveil = { reads = probe_reads(probe) }, offline = online ~= true })
   if pid ~= nil then return pid end
-  refused("unveiling", trouble, errno)
+  refused("unveiling", trouble, errno) -- checked: missing_return
 end
 
 --- Runs `script` as [`start_confined`] starts it, its output in `tmp`: its
@@ -394,8 +394,8 @@ local function test_an_idmapped_bind_is_the_users_where_it_is_mapped(tmp: string
   local user = if sys.getuid() == 65533 then 65531 else 65533 end
   -- `proc` takes a user as `unveil` does: a caller that may not map it
   -- has the start refused, never the arguments.
-  local started, proc_pid = pcall(process.spawn, probe, { probe, "print hi" }, nil, nil, nil, nil,
-    nil, false, nil, { proc = true, user = user, group = user })
+  local started, proc_pid = pcall(process.spawn, probe, { probe, "print hi" }, nil, nil, nil, nil, -- checked: overload_none
+    nil, false, nil, { proc = true, user = user, group = user }) -- checked: arms_differ
   assert(started, "a user is refused with proc: " .. tostring(proc_pid))
   if proc_pid is integer then assert(process.waitpid(proc_pid, false)) end
   local sandbox: raw_process.Sandbox = { strict = true, user = user, group = user,

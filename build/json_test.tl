@@ -326,11 +326,11 @@ local function test_a_failed_write_exits_2_and_says_so(tmp: string)
   local complaints = { value = "" }
   local code = json.run(argv_of({ file(tmp) }), {
     out = function(_: string): boolean, string return false, "No space left on device" end,
-    err = function(line: string) complaints.value = complaints.value .. line .. "\n" end,
+    err = function(line: string) complaints.value = complaints.value .. line .. "\n" end, -- checked: map_field*2
     stdin = function(): string?, string return nil, "unused" end,
   })
   assert(code == 2, code)
-  assert(complaints.value == "cosmic: json: standard output: No space left on device\n", complaints.value)
+  assert(complaints.value == "cosmic: json: standard output: No space left on device\n", complaints.value) -- checked: map_field*2
   for _, mode in ipairs({ "--keys", "--shape" }) do
     local again = json.run(argv_of({ mode, file(tmp) }), {
       out = function(_: string): boolean, string return false, "closed" end,

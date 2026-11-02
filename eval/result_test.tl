@@ -36,34 +36,34 @@ local files <const>: Result.Files = { started_at = "2026-01-01T00:00:00Z\n",
 local function test_a_finished_run_reports_its_numbers()
   local fields = Result.build(lines({ init, call, finished("success", false) }), files,
     { exit_code = 0 }, { model = "asked", max_turns = 150, timeout = 600, commit = "abc" })
-  assert(fields.status == "completed", tostring(fields.status))
-  assert(fields.is_error == false, "false is a value, not null: " .. tostring(fields.is_error))
-  assert(fields.thinking_tokens == 7, tostring(fields.thinking_tokens))
-  assert(fields.model == "claude-x" and fields.claude_code_version == "9.9.9")
-  assert(fields.turns == 12 and fields.tool_calls == 2 and fields.cost_usd == 0.5)
-  assert(fields.elapsed_seconds == 150, tostring(fields.elapsed_seconds))
-  assert(fields.input_tokens == 10 and fields.output_tokens == 20)
-  assert(fields.cache_creation_input_tokens == 30 and fields.cache_read_input_tokens == 40)
-  assert(fields.grade_verdict == "PASS" and fields.grade_exit_code == 0)
-  assert(fields.max_turns == 150 and fields.commit == "abc")
-  local tools = fields.tools as {string}
+  assert(fields.status == "completed", tostring(fields.status)) -- checked: map_field*2
+  assert(fields.is_error == false, "false is a value, not null: " .. tostring(fields.is_error)) -- checked: map_field*2
+  assert(fields.thinking_tokens == 7, tostring(fields.thinking_tokens)) -- checked: map_field*2
+  assert(fields.model == "claude-x" and fields.claude_code_version == "9.9.9") -- checked: map_field*2
+  assert(fields.turns == 12 and fields.tool_calls == 2 and fields.cost_usd == 0.5) -- checked: map_field*3
+  assert(fields.elapsed_seconds == 150, tostring(fields.elapsed_seconds)) -- checked: map_field*2
+  assert(fields.input_tokens == 10 and fields.output_tokens == 20) -- checked: map_field*2
+  assert(fields.cache_creation_input_tokens == 30 and fields.cache_read_input_tokens == 40) -- checked: map_field*2
+  assert(fields.grade_verdict == "PASS" and fields.grade_exit_code == 0) -- checked: map_field*2
+  assert(fields.max_turns == 150 and fields.commit == "abc") -- checked: map_field*2
+  local tools = fields.tools as {string} -- checked: cast_refused, map_field
   assert(tools[2] == "Read")
 end
 
 local function test_the_cli_cap_the_deadline_and_an_error_each_have_a_status()
   local capped = Result.build(lines({ init, finished("error_max_turns", true) }), files, {})
-  assert(capped.status == "turn_cap", tostring(capped.status))
+  assert(capped.status == "turn_cap", tostring(capped.status)) -- checked: map_field*2
   local cut = Result.build(lines({ init, call }), files, {})
-  assert(cut.status == "no_result", tostring(cut.status))
+  assert(cut.status == "no_result", tostring(cut.status)) -- checked: map_field*2
   local crashed = Result.build(lines({ init, call }), { exit_code = "1\n" }, {})
-  assert(crashed.status == "no_result", tostring(crashed.status))
-  assert(Result.build(lines({ init, call }), { exit_code = "124\n" }, {}).status == "timeout")
+  assert(crashed.status == "no_result", tostring(crashed.status)) -- checked: map_field*2
+  assert(Result.build(lines({ init, call }), { exit_code = "124\n" }, {}).status == "timeout") -- checked: map_field
   local killed: Result.Files = { exit_code = "124\n" }
-  assert(Result.build(lines({ init, finished("success", false) }), killed, {}).status == "timeout")
+  assert(Result.build(lines({ init, finished("success", false) }), killed, {}).status == "timeout") -- checked: map_field
   local broke = Result.build(lines({ init, finished("success", true) }), files, {})
-  assert(broke.status == "api_error", tostring(broke.status))
+  assert(broke.status == "api_error", tostring(broke.status)) -- checked: map_field*2
   local died = Result.build(lines({ init, finished("error_during_execution", true) }), files, {})
-  assert(died.status == "api_error", tostring(died.status))
+  assert(died.status == "api_error", tostring(died.status)) -- checked: map_field*2
 end
 
 local function test_what_a_run_does_not_supply_is_null_not_zero()
@@ -76,7 +76,7 @@ local function test_what_a_run_does_not_supply_is_null_not_zero()
   local plain = line({ type = "result", subtype = "success", is_error = false, num_turns = 1,
     usage = { output_tokens = 3 } })
   local partial = Result.build(lines({ init, plain }), files, {})
-  assert(partial.thinking_tokens == Json.null, "no thinking figure was reported")
+  assert(partial.thinking_tokens == Json.null, "no thinking figure was reported") -- checked: map_field
 end
 
 local function test_the_grader_exit_status_names_its_verdict()
@@ -86,15 +86,15 @@ end
 
 local function test_the_summary_decides_contamination()
   local clean = Result.build(nil, { summary = "turns=1\n" }, {})
-  assert((clean.contamination as {string})[1] == nil)
+  assert((clean.contamination as {string})[1] == nil) -- checked: cast_refused, map_field
   local dirty = Result.build(nil, { summary = "turns=1\nBREACH: /home/x\nsandbox-tmp: 2\n" }, {})
-  assert((dirty.contamination as {string})[1] == "BREACH: /home/x")
+  assert((dirty.contamination as {string})[1] == "BREACH: /home/x") -- checked: cast_refused, map_field
 end
 
 local function test_the_encoding_is_json_in_the_readmes_order()
   local text = assert(Result.encode(Result.build(lines({ init, finished("success", false) }), files,
     { exit_code = 1, log = "grades/1/grade.log" })))
-  local back = assert(Json.decode(text)) as {string: any}
+  local back = assert(Json.decode(text)) as {string: any} -- checked: cast_refused
   assert(back.runner == "claude" and back.grade_verdict == "FAIL" and back.turns == 12)
   assert(back.reasoning_effort == nil, "null reads back as absent")
   local runner_at = assert(text:find('"runner"', 1, true), "expected a runner field")

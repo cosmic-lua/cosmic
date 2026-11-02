@@ -6,7 +6,7 @@ local Channel = require("cosmic.channel")
 local Clock = require("cosmic.clock")
 local Poll = require("cosmic.poll")
 
-local Example = {}
+local Example = {} -- checked: literal_needs_type
 
 --- A producer task and a consumer loop: the consumer takes jobs in the
 --- order they were queued until the producer closes the queue, which
@@ -82,4 +82,4 @@ function Example.closed()
   end)
 end
 
-return Example
+return Example -- checked: export_not_declared

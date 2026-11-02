@@ -66,8 +66,8 @@ local GAPS <const>: {{string}} = {
 --- One of `lists`' strict half, or, in a text meant for JSON5, now and
 --- then one of its JSON5 half.
 local function leaf(src: Fuzz.Source, lists: {{string}}, json5: boolean): string
-  if json5 and src:int(0, 3) == 0 then return Fuzz.pick(src, lists[2]) end
-  return Fuzz.pick(src, lists[1])
+  if json5 and src:int(0, 3) == 0 then return Fuzz.pick(src, lists[2]) end -- checked: index_may_be_nil
+  return Fuzz.pick(src, lists[1]) -- checked: index_may_be_nil
 end
 
 --- A value drawn from the grammar, nested at most `depth` deep, each
@@ -81,7 +81,7 @@ local function gen_value(src: Fuzz.Source, depth: integer, json5: boolean): stri
   if kind == 2 or kind == 3 then
     local chunks: mut {string} = {}
     while Fuzz.more(src, #chunks, 8) do
-      chunks[#chunks + 1] = src:int(0, 31) == 0 and Fuzz.pick(src, LONE) or leaf(src, CHUNKS, json5)
+      chunks[#chunks + 1] = if src:int(0, 31) == 0 then Fuzz.pick(src, LONE) else leaf(src, CHUNKS, json5) end
     end
     local text = table.concat(chunks)
     if json5 and src:int(0, 3) == 0 then return "'" .. text:gsub("'", "\\'") .. "'" end
@@ -118,7 +118,7 @@ local function gen_text(src: Fuzz.Source): string
   if shape == 0 then
     local parts: mut {string} = {}
     while Fuzz.more(src, #parts, 40) do
-      parts[#parts + 1] = src:int(0, 3) == 0 and Fuzz.bytes(src, 3) or Fuzz.pick(src, TOKENS)
+      parts[#parts + 1] = if src:int(0, 3) == 0 then Fuzz.bytes(src, 3) else Fuzz.pick(src, TOKENS) end
     end
     return table.concat(parts)
   end
@@ -144,13 +144,13 @@ local CANONICAL <const>: Json.EncodeOptions = { max_depth = 1000 }
 --- the checks decode.
 local function finite(value: any): any
   if value is number then
-    if value ~= value or value == math.huge or value == -math.huge then return Json.null end
-    return value
+    if value ~= value or value == math.huge or value == -math.huge then return Json.null end -- checked: any_use
+    return value -- checked: any_use
   end
-  if not (value is {any: any}) then return value end
-  local out: mut {any: any}
-  if Json.is_array(value) then out = Json.array() as {any: any} else out = {} end
-  for k, v in pairs(value) do out[k] = finite(v) end
+  if not (value is {any: any}) then return value end -- declared: key_type
+  local out: mut {any: any} -- declared: key_type
+  if Json.is_array(value) then out = Json.array() as {any: any} else out = {} end -- declared: key_type -- checked: cast_refused
+  for k, v in pairs(value) do out[k] = finite(v) end -- checked: any_use
   return out
 end
 
@@ -171,9 +171,9 @@ end
 --- else what it answered.
 local function decode_once(input: string, opts: Json.DecodeOptions, where: string): boolean, any, string
   local ok, value, err = pcall(Json.decode, input, opts)
-  if not ok then return false, nil, where .. ": raised: " .. tostring(value) end
-  if not (err is string) then return false, nil, where .. ": no message slot" end
-  if err ~= "" and value ~= nil then return false, nil, where .. ": a failure with a value" end
+  if not ok then return false, nil, where .. ": raised: " .. tostring(value) end -- checked: any_use
+  if not (err is string) then return false, nil, where .. ": no message slot" end -- checked: any_use
+  if err ~= "" and value ~= nil then return false, nil, where .. ": a failure with a value" end -- checked: any_use
   return true, value, err
 end
 
@@ -198,8 +198,8 @@ local function holds_key_twice(compact: string?): boolean?
       if expecting then
         local keys = open[#open]
         local literal = compact:sub(i, j)
-        if keys[literal] then return true end
-        keys[literal] = true
+        if keys[literal] then return true end -- checked: condition_type, nil_not_allowed
+        keys[literal] = true -- checked: nil_not_allowed
         expecting = false
       end
       i = j
@@ -216,7 +216,7 @@ local function holds_key_twice(compact: string?): boolean?
       objects[#objects] = nil
       expecting = false
     elseif c == "," then
-      expecting = #open > 0 and objects[#open]
+      expecting = #open > 0 and objects[#open] -- checked: or_mix
     end
     i = i + 1
   end
@@ -321,7 +321,7 @@ local function same_reading(a: string, a_opts: Json.DecodeOptions, b: string,
   local va, ea = Json.decode(a, a_opts)
   local vb, eb = Json.decode(b, b_opts)
   if (ea == "") ~= (eb == "") then
-    return false, false, where .. ": one read and one did not: " .. (ea ~= "" and ea or eb)
+    return false, false, where .. ": one read and one did not: " .. (if ea ~= "" then ea else eb end)
   end
   if ea ~= "" then return true, false, "" end
   if canonical(va, where) ~= canonical(vb, where) then
@@ -346,7 +346,7 @@ local function test_hash_comments_read_as_line_comments(tmp: string)
       local text = hashed(input)
       for _, five in ipairs({ false, true }) do
         local where = if five then "JSON5" else "RFC 8259" end
-        local before = five and input or (input:gsub("// c\n", "\n"))
+        local before = if five then input else (input:gsub("// c\n", "\n")) end
         local ok, read, why = same_reading(before, { null_value = Json.null, json5 = five, duplicate_keys = true },
           text, { null_value = Json.null, json5 = five, hash_comments = true, duplicate_keys = true }, where)
         if not ok then return false, why end
@@ -386,9 +386,9 @@ local function path_into(opens: string, limit: integer): string
   end
   local kept, length = "", 0
   for i = #segments, 1, -1 do
-    if length + #segments[i] >= 200 then return 'pointer ending "' .. kept .. '"' end
-    kept = segments[i] .. kept
-    length = length + #segments[i]
+    if length + #segments[i] >= 200 then return 'pointer ending "' .. kept .. '"' end -- checked: nil_not_allowed
+    kept = segments[i] .. kept -- checked: nil_not_allowed
+    length = length + #segments[i] -- checked: nil_not_allowed
   end
   return 'pointer "' .. kept .. '"'
 end
@@ -446,7 +446,7 @@ end
 --- this copy with it.
 local function fnv(s: string): integer
   local h = 2166136261
-  for i = 1, #s do h = ((h ~ s:byte(i)) * 16777619) & 0xffffffff end
+  for i = 1, #s do h = ((h ~ s:byte(i)) * 16777619) & 0xffffffff end -- checked: nil_not_allowed
   return h
 end
 
@@ -486,7 +486,7 @@ end
 local function gap(src: Fuzz.Source, b: Built, before_key: boolean)
   if b.json5 and src:int(0, 3) == 0 then
     local choice = Fuzz.pick(src, JSON5_GAPS)
-    emit(b, if before_key and choice:byte(1) > 127 then " " else choice end)
+    emit(b, if before_key and choice:byte(1) > 127 then " " else choice end) -- checked: nil_not_allowed
   else
     emit(b, Fuzz.pick(src, OFFICIAL_GAPS))
   end
@@ -497,20 +497,20 @@ end
 local function forms_of(ch: string, json5: boolean): {string}
   local code = utf8.codepoint(ch)
   local forms: mut {string} = {}
-  if code >= 32 and ch ~= '"' and ch ~= "\\" then forms[1] = ch end
+  if code >= 32 and ch ~= '"' and ch ~= "\\" then forms[1] = ch end -- checked: nil_not_allowed
   if ch == "\n" then forms[#forms + 1] = "\\n" end
   if ch == '"' then forms[#forms + 1] = '\\"' end
   if ch == "\\" then forms[#forms + 1] = "\\\\" end
   if ch == "/" then forms[#forms + 1] = "\\/" end
-  if code >= 0x10000 then
-    local high, low = 0xd800 + ((code - 0x10000) >> 10), 0xdc00 + ((code - 0x10000) & 0x3ff)
+  if code >= 0x10000 then -- checked: nil_not_allowed
+    local high, low = 0xd800 + ((code - 0x10000) >> 10), 0xdc00 + ((code - 0x10000) & 0x3ff) -- checked: nil_not_allowed*2
     forms[#forms + 1] = ("\\u%04x\\u%04x"):format(high, low)
     forms[#forms + 1] = ("\\u%04X\\u%04X"):format(high, low)
   else
-    forms[#forms + 1] = ("\\u%04x"):format(code)
-    forms[#forms + 1] = ("\\u%04X"):format(code)
+    forms[#forms + 1] = ("\\u%04x"):format(code) -- checked: nil_not_allowed
+    forms[#forms + 1] = ("\\u%04X"):format(code) -- checked: nil_not_allowed
   end
-  if json5 and code < 256 then forms[#forms + 1] = ("\\x%02x"):format(code) end
+  if json5 and code < 256 then forms[#forms + 1] = ("\\x%02x"):format(code) end -- checked: nil_not_allowed*2
   return forms
 end
 
@@ -520,13 +520,13 @@ end
 --- draws for 70 members would dominate a run.
 local function spell(src: Fuzz.Source, key: string, json5: boolean, large: boolean): string
   local plain = large and src:int(0, 3) ~= 0
-  if json5 and not plain and key:match("^[%a_$][%w_$]*$") and src:int(0, 3) == 0 then return key end
+  if json5 and not plain and key:match("^[%a_$][%w_$]*$") and src:int(0, 3) == 0 then return key end -- checked: or_mix
   local quote = if json5 and not plain and src:int(0, 3) == 0 then "'" else '"' end
   local varied = not plain
   local body: mut {string} = {}
   for ch in key:gmatch(utf8.charpattern) do
     local forms = forms_of(ch, json5)
-    body[#body + 1] = varied and src:int(0, 2) == 0 and Fuzz.pick(src, forms) or forms[1]
+    body[#body + 1] = varied and src:int(0, 2) == 0 and Fuzz.pick(src, forms) or forms[1] -- checked: and_ternary
   end
   return quote .. table.concat(body) .. quote
 end
@@ -536,7 +536,7 @@ end
 local function quoted(pointer: string): string
   return (pointer:gsub('[%c"\\]', function(c: string): string
     if c == '"' or c == "\\" then return "\\" .. c end
-    return ("\\u%04x"):format(c:byte())
+    return ("\\u%04x"):format(c:byte()) -- checked: nil_not_allowed
   end))
 end
 
@@ -553,13 +553,13 @@ local gen_member_value: function(Fuzz.Source, Built, integer, string, integer)
 --- rate its object draws, some objects never repeating; `large` says
 --- the object is one whose members are many, so the rate is per
 --- member lower.
-local function gen_object(src: Fuzz.Source, b: Built, depth: integer, path: string,
+local function gen_object(src: Fuzz.Source, b: Built, depth: integer, path: string, -- checked: not_assigned
                           size: integer, most: integer, exact: boolean, large: boolean)
   emit(b, "{")
   local names: mut {string} = {}
   local spelling: mut {string: string} = {}
   local shape: Shape = { count = 0 }
-  local rate = if b.quiet and not large then 0 else Fuzz.pick(src, if large then { 0, 3, 4, 4 } else { 0, 2, 3, 4, 5 } end) end
+  local rate = if b.quiet and not large then 0 else Fuzz.pick(src, if large then { 0, 3, 4, 4 } else { 0, 2, 3, 4, 5 } end) end -- checked: condition_type
   local colliding = src:int(0, 3) == 0
   local count = 0
   while count < size or (not exact and Fuzz.more(src, count, most)) do
@@ -567,13 +567,13 @@ local function gen_object(src: Fuzz.Source, b: Built, depth: integer, path: stri
     gap(src, b, true)
     local key: string
     if count > 0 and src:int(0, if large then 30 else 6 end) < rate then
-      key = names[src:int(1, #names)]
+      key = names[src:int(1, #names)] -- checked: index_may_be_nil
     else
       local fresh = #names + 1
       if colliding and fresh <= #COLLIDING then
-        key = COLLIDING[fresh]
+        key = COLLIDING[fresh] -- checked: index_may_be_nil
       elseif fresh <= #NAMES then
-        key = NAMES[fresh]
+        key = NAMES[fresh] -- checked: index_may_be_nil
       else
         key = "k" .. tostring(#names)
       end
@@ -680,7 +680,7 @@ local function gen_repeating(src: Fuzz.Source): string
   gap(src, b, false)
   emit(b, if wrap == 1 then "]" elseif wrap == 2 then "}" else "" end)
   local text = table.concat(b.parts)
-  local expected, labels = "", {} as {string}
+  local expected, labels = "", {} as {string} -- checked: cast_refused, literal_needs_type
   local first = b.first
   if first ~= nil then
     local line, column = place(text, first.at, b.json5)
@@ -699,28 +699,28 @@ local function repeating_holds(input: string): boolean, string
   local fields = Fuzz.unpack(input)
   local text, as_json5, null_value = fields[1], fields[3] == "json5", fields[4] == "null"
   local expected, labels = fields[5], fields[6]
-  for label in (if expected == "" then "no key twice" else labels end):gmatch("[^;]+") do
+  for label in (if expected == "" then "no key twice" else labels end):gmatch("[^;]+") do -- checked: nil_not_allowed
     Fuzz.label(label)
   end
-  local opts: Json.DecodeOptions = { json5 = as_json5, null_value = null_value and Json.null or nil }
+  local opts: Json.DecodeOptions = { json5 = as_json5, null_value = if null_value then Json.null else nil end }
   local where = ("json5=%s null_value=%s"):format(tostring(as_json5), tostring(null_value))
-  local value, err = Json.decode(text, opts)
+  local value, err = Json.decode(text, opts) -- checked: nil_not_allowed
   if err ~= expected then
-    return false, where .. ": decode said \"" .. err .. "\", expected \"" .. expected .. "\""
+    return false, where .. ": decode said \"" .. err .. "\", expected \"" .. expected .. "\"" -- checked: nil_not_allowed
   end
   if expected ~= "" and value ~= nil then return false, where .. ": a refusal with a value" end
-  local ok, check_err = Json.check(text, { json5 = as_json5 })
+  local ok, check_err = Json.check(text, { json5 = as_json5 }) -- checked: nil_not_allowed
   if ok ~= (expected == "") or check_err ~= expected then
     return false, where .. ": check said \"" .. check_err .. "\""
   end
   if expected ~= "" then
-    local _, format_err = Json.format(text, { json5 = as_json5 })
+    local _, format_err = Json.format(text, { json5 = as_json5 }) -- checked: nil_not_allowed
     if format_err ~= expected then
       return false, where .. ": format said \"" .. format_err .. "\""
     end
   end
   opts.duplicate_keys = true
-  local _, allowed = Json.decode(text, opts)
+  local _, allowed = Json.decode(text, opts) -- checked: nil_not_allowed
   if allowed ~= "" then return false, where .. ": duplicate_keys refused: " .. allowed end
   return true, ""
 end
@@ -863,53 +863,53 @@ local CHARS <const> = { "a", "Z", "0", " ", '"', "\\", "/", "\n", "\t", "\r", "\
 -- a middle element only by reshaping everything after it; a byte before
 -- each element whose low values stop, as [`Fuzz.more`] draws, would let
 -- shrinking drop any (measure "encoded" and "refused" again).
-local function recipe_value(r: Recipe, depth: integer, parent?: {any: any}): any
+local function recipe_value(r: Recipe, depth: integer, parent?: {any: any}): any -- declared: key_type
   local op = next_byte(r) % 13
   if depth > 6 and op >= 7 then op = op % 7 end
-  if op == 0 then return nil end
-  if op == 1 then return next_byte(r) % 2 == 1 end
-  if op == 2 then return next_byte(r) - 128 end
-  if op == 3 then return (string.unpack("<i8", next_bytes(r, 8))) end
-  if op == 4 then return (string.unpack("<d", next_bytes(r, 8))) end
-  if op == 5 then return next_bytes(r, next_byte(r) % 12) end
+  if op == 0 then return nil end -- checked: any_use
+  if op == 1 then return next_byte(r) % 2 == 1 end -- checked: any_use
+  if op == 2 then return next_byte(r) - 128 end -- checked: any_use
+  if op == 3 then return (string.unpack("<i8", next_bytes(r, 8))) end -- checked: any_use
+  if op == 4 then return (string.unpack("<d", next_bytes(r, 8))) end -- checked: any_use
+  if op == 5 then return next_bytes(r, next_byte(r) % 12) end -- checked: any_use
   if op == 6 then
     local parts: mut {string} = {}
     for _ = 1, next_byte(r) % 8 do
       local char = assert(CHARS[next_byte(r) % #CHARS + 1])
       parts[#parts + 1] = char
     end
-    return table.concat(parts)
+    return table.concat(parts) -- checked: any_use
   end
   if op == 7 then
-    local t: mut {any: any} = {}
+    local t: mut {any: any} = {} -- declared: key_type
     for i = 1, next_byte(r) % 5 do t[i] = recipe_value(r, depth + 1, t) end
     return t
   end
   if op == 8 then
-    local t: mut {any: any} = {}
+    local t: mut {any: any} = {} -- declared: key_type
     for _ = 1, next_byte(r) % 5 do
       local key = recipe_value(r, 9, t)
       if key is string then t[key] = recipe_value(r, depth + 1, t) end
     end
     return t
   end
-  if op == 9 then return Json.null end
+  if op == 9 then return Json.null end -- checked: any_use
   if op == 10 then
     local t: mut {Json.Value} = {}
     Json.array(t)
     for _ = 1, next_byte(r) % 4 do
       local element = recipe_value(r, depth + 1, t)
-      t[#t + 1] = element
+      t[#t + 1] = element -- checked: any_use
     end
-    return t
+    return t -- checked: any_use
   end
   if op == 11 then
-    local odd: {{any: any}} = { { [true] = 1 }, { [1.5] = 1 }, { [0] = 1 }, { 1, nil, 3 },
+    local odd: {{any: any}} = { { [true] = 1 }, { [1.5] = 1 }, { [0] = 1 }, { 1, nil, 3 }, -- declared: key_type
       { [40] = 1 }, { 1, a = 2 }, { [{}] = 1 }, { ["\xff"] = 1 } }
     return odd[next_byte(r) % #odd + 1]
   end
   if parent ~= nil and next_byte(r) % 2 == 0 then return parent end
-  return print
+  return print -- checked: any_use
 end
 
 local function recipe_options(r: Recipe): Json.EncodeOptions
@@ -927,7 +927,7 @@ local function encode_holds(input: string): boolean, string
   local ok, text, err = pcall(Json.encode_any, value, opts)
   if not ok then return false, "raised: " .. tostring(text) end
   Fuzz.label(if text ~= nil then "encoded" else "refused" end)
-  if opts.ascii then
+  if opts.ascii then -- checked: condition_type
     -- `ascii` changes how a string is written, never whether the value
     -- encodes, and the text has no byte past 0x7f.
     local plain = Json.encode_any(value, { pretty = opts.pretty, max_depth = opts.max_depth })
@@ -935,26 +935,26 @@ local function encode_holds(input: string): boolean, string
       return false, "ascii changed whether the value encodes"
     end
     if text ~= nil then
-      if text:find("[\128-\255]") then return false, "ascii wrote a byte past 0x7f: " .. text end
+      if text:find("[\128-\255]") then return false, "ascii wrote a byte past 0x7f: " .. text end -- checked: any_use*2
       Fuzz.label(if plain ~= text then "ascii escaped" else "ascii plain" end)
     end
   end
   if text == nil then
     if not (err is string) or err == "" then return false, "a failure without a message" end
     -- A path too long to tell whole names its innermost part.
-    if err:find(" at ", 1, true) and not err:find(' at pointer "', 1, true) and
+    if err:find(" at ", 1, true) and not err:find(' at pointer "', 1, true) and -- checked: condition_type
         not err:find(' at pointer ending "', 1, true) then
       return false, "a location that is not a pointer: " .. err
     end
     return true, ""
   end
-  if err ~= "" then return false, "a success with a message: " .. err end
+  if err ~= "" then return false, "a success with a message: " .. err end -- checked: nil_not_allowed
   local expected, eerr = Json.encode_any(value, { max_depth = opts.max_depth })
   if expected == nil then
     return false, "encoded laid out, but not compactly: " .. eerr
   end
-  local back, berr = Json.decode(text, { null_value = Json.null, max_depth = 1000 })
-  if berr ~= "" then return false, "wrote what decode refuses: " .. berr .. ": " .. text end
+  local back, berr = Json.decode(text, { null_value = Json.null, max_depth = 1000 }) -- checked: any_use
+  if berr ~= "" then return false, "wrote what decode refuses: " .. berr .. ": " .. text end -- checked: any_use
   local got, gerr = Json.encode_any(back, { max_depth = 1000 })
   if got ~= expected then
     return false, "did not read back the same: " .. expected .. " vs " .. tostring(got or gerr)
@@ -979,10 +979,10 @@ local function scalars(input: string): string
   local parts: mut {string} = {}
   for at = 1, #input - 2, 3 do
     local b1, b2, b3 = input:byte(at, at + 2)
-    local code = (b1 << 16 | b2 << 8 | b3) % 0x110000
+    local code = (b1 << 16 | b2 << 8 | b3) % 0x110000 -- checked: nil_not_allowed*3
     -- Two draws in three are kept small, so that the short widths and
     -- ASCII are drawn as often as the astral planes.
-    if b1 % 3 == 1 then code = code % 0x800 elseif b1 % 3 == 2 then code = code % 0x10000 end
+    if b1 % 3 == 1 then code = code % 0x800 elseif b1 % 3 == 2 then code = code % 0x10000 end -- checked: nil_not_allowed*2
     if code >= 0xd800 and code <= 0xdfff then code = code - 0x800 end
     parts[#parts + 1] = utf8.char(code)
   end
@@ -1002,7 +1002,7 @@ local function ascii_holds(input: string): boolean, string
   Fuzz.label(if text:find("[\128-\255]") then "escaped" else "plain" end)
   local back, berr = Json.decode(out)
   if back == nil then return false, "wrote what decode refuses: " .. berr end
-  local object = back as {string: any}
+  local object = back as {string: any} -- checked: cast_refused
   if object[text] ~= text then
     return false, "did not read back the same: " .. out
   end
@@ -1039,16 +1039,16 @@ local function test_the_depth_limits_are_exact(tmp: string)
     end,
     check = function(input: string): boolean, string
       local fields = Fuzz.unpack(input)
-      local opens, limit = fields[1], math.tointeger(tonumber(fields[2])) as integer
-      local closes = opens:reverse():gsub(":\"k\"{", "}"):gsub("%[", "]")
-      local _, n = opens:gsub("[%[{]", "")
-      local value, err = Json.decode(opens .. "1" .. closes, { max_depth = limit })
+      local opens, limit = fields[1], math.tointeger(tonumber(fields[2])) as integer -- checked: cast_refused
+      local closes = opens:reverse():gsub(":\"k\"{", "}"):gsub("%[", "]") -- checked: nil_not_allowed
+      local _, n = opens:gsub("[%[{]", "") -- checked: nil_not_allowed
+      local value, err = Json.decode(opens .. "1" .. closes, { max_depth = limit }) -- checked: nil_not_allowed
       if n <= limit then
         if err ~= "" then
           return false, ("%d levels under a limit of %d: %s"):format(n, limit, err)
         end
       elseif value ~= nil or err ~= ("json: JSON nests deeper than %d level%s at line 1, column %d (%s)"):
-          format(limit, if limit == 1 then "" else "s" end, deepest(opens, limit + 1), path_into(opens, limit)) then
+          format(limit, if limit == 1 then "" else "s" end, deepest(opens, limit + 1), path_into(opens, limit)) then -- checked: nil_not_allowed*2
         return false, ("%d levels over a limit of %d: %s"):format(n, limit, err)
       end
       if err == "" then
@@ -1084,8 +1084,8 @@ local function test_json_lines_are_total_and_round_trip(tmp: string)
         return true, ""
       end
       local written: mut {string} = {}
-      for i = 1, #values do
-        local line, eerr = Json.encode_any(finite(values[i]))
+      for i = 1, #values do -- checked: any_use
+        local line, eerr = Json.encode_any(finite(values[i])) -- checked: any_use
         if line == nil then
           return false, "decoded line " .. tostring(i) .. " did not encode: " .. eerr
         end

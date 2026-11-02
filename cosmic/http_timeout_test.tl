@@ -36,7 +36,7 @@ local function test_a_request_timeout_ends_at_about_the_time_given()
   local took = Clock.monotonic_ns() - began
   assert(response == nil and timed_out(why), tostring(why))
   assert(took >= Clock.ms(250) and took < Clock.seconds(10), tostring(took // Clock.ms(1)) .. " ms")
-  assert(server ~= nil)
+  assert(server ~= nil) -- checked: compare_disjoint
 end
 
 --- Counted in whole milliseconds and rounded up, a limit of one
@@ -51,7 +51,7 @@ local function test_a_limit_under_a_millisecond_is_not_none()
   response, why = Http.open(url, { connect_timeout_ns = 1, timeout_ns = Clock.ms(200) })
   assert(response == nil and timed_out(why), tostring(why))
   assert(Clock.monotonic_ns() - began < Clock.seconds(10))
-  assert(server ~= nil)
+  assert(server ~= nil) -- checked: compare_disjoint
 end
 
 --- A transfer that stays under the rate for `low_speed_ns` is ended: the
@@ -64,5 +64,5 @@ local function test_a_stalled_transfer_ends_after_the_low_speed_time()
   assert(response == nil, "a stalled request was answered")
   assert(took >= Clock.ms(500) and took < Clock.seconds(20),
     tostring(took // Clock.ms(1)) .. " ms: " .. tostring(why))
-  assert(server ~= nil)
+  assert(server ~= nil) -- checked: compare_disjoint
 end

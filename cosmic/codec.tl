@@ -91,7 +91,7 @@ local function alphabet(chars: string, class: string): Alphabet
     a.value[String.byte_at(chars, i)] = i - 1
   end
   for v = 0, 4095 do
-    a.pair[v] = a.char[v >> 6] .. a.char[v & 63]
+    a.pair[v] = a.char[v >> 6] .. a.char[v & 63] -- checked: nil_not_allowed*2
   end
   return a
 end
@@ -110,7 +110,7 @@ local function encode(a: Alphabet, s: string, pad: boolean): string
   local whole = n - n % 3
   for i = 1, whole, 3 do
     local b1, b2, b3 = s:byte(i, i + 2)
-    local v = (b1 << 16) | (b2 << 8) | b3
+    local v = (b1 << 16) | (b2 << 8) | b3 -- checked: nil_not_allowed*3
     local first, second = assert(pair[v >> 12]), assert(pair[v & 4095])
     out[#out + 1] = first
     out[#out + 1] = second
@@ -145,7 +145,7 @@ local function expand(value: {integer:integer}, s: string, whole: integer, out: 
     local last = math.min(first + BATCH - 1, whole)
     for i = first, last, 4 do
       local c1, c2, c3, c4 = s:byte(i, i + 3)
-      local v = (value[c1] << 18) | (value[c2] << 12) | (value[c3] << 6) | value[c4]
+      local v = (value[c1] << 18) | (value[c2] << 12) | (value[c3] << 6) | value[c4] -- checked: nil_not_allowed*8
       buf[#buf + 1] = v >> 16
       buf[#buf + 1] = (v >> 8) & 255
       buf[#buf + 1] = v & 255
@@ -186,7 +186,7 @@ local function decode(a: Alphabet, s: string, padded: boolean, name: string): st
   local left = n - whole
   if left == 2 then
     local c1, c2 = s:byte(n - 1, n)
-    local v = (value[c1] << 6) | value[c2]
+    local v = (value[c1] << 6) | value[c2] -- checked: nil_not_allowed*4
     if v & 15 ~= 0 then
       return refuse(("%s text ends in nonzero padding bits"):format(name))
     end
@@ -194,7 +194,7 @@ local function decode(a: Alphabet, s: string, padded: boolean, name: string): st
     out[#out + 1] = last
   elseif left == 3 then
     local c1, c2, c3 = s:byte(n - 2, n)
-    local v = (value[c1] << 12) | (value[c2] << 6) | value[c3]
+    local v = (value[c1] << 12) | (value[c2] << 6) | value[c3] -- checked: nil_not_allowed*6
     if v & 3 ~= 0 then
       return refuse(("%s text ends in nonzero padding bits"):format(name))
     end

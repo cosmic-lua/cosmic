@@ -23,13 +23,13 @@ local NONE <const>: Shape.Typed<Types.None> = Shape.record_of("cosmic.web.types.
 --- The body slot of a route that reads none.
 local NO_BODY <const>: Types.Body<Types.None> = { kind = "none", typed = NONE }
 
-Typed.NONE = NONE
-Typed.no_body = NO_BODY
+Typed.NONE = NONE -- checked: field_fixed
+Typed.no_body = NO_BODY -- checked: field_fixed
 
 --- What a handler is given for a slot the route does not read: the empty
 --- [`Web.None`] its spec builds from no fields.
 local function absent<T>(spec: Shape.Typed<T>): T
-  return (assert(spec:into({})))
+  return (assert(spec:into({}))) -- checked: literal_needs_type
 end
 
 --- The methods whose request may carry a body.
@@ -37,9 +37,9 @@ local BODY_METHODS <const>: {string:boolean} = { POST = true, PUT = true, PATCH 
 
 --- Raises unless `t` is what [`Shape.record_of`] answers.
 local function need_typed(t: any, what: string)
-  local spec: any = nil
-  if t is {string:any} then spec = t["spec"] end
-  if not (spec is {string:any}) then
+  local spec: any = nil -- checked: any_use
+  if t is {string:any} then spec = t["spec"] end -- checked: is_on_record
+  if not (spec is {string:any}) then -- checked: is_on_record
     error(("web: %s takes the result of Shape.record_of"):format(what), 3)
   end
 end
@@ -94,8 +94,8 @@ end
 function Typed.input<P,Q,B>(path: Shape.Typed<P>, query: Shape.Typed<Q>, body: Types.Body<B>): Types.Input<P,Q,B>
   need_typed(path, "input's path")
   need_typed(query, "input's query")
-  local slot: any = body
-  if not (slot is {string:any}) or slot["typed"] == nil then
+  local slot: any = body -- checked: any_use
+  if not (slot is {string:any}) or slot["typed"] == nil then -- checked: is_on_record
     error("web: input's body takes Web.json_body, Web.form_body, Web.multipart_body or Web.no_body", 2)
   end
   return { path = path, query = query, body = body }
@@ -137,9 +137,9 @@ end
 local function problem_errors(inv: Types.Invalid): any
   local list: mut {any} = {}
   for _, e in ipairs(inv.errors) do
-    list[#list + 1] = { source = e.source, field = e.field, pointer = e.pointer, message = e.message, code = e.code }
+    list[#list + 1] = { source = e.source, field = e.field, pointer = e.pointer, message = e.message, code = e.code } -- checked: array_of_optional
   end
-  return Json.array(list)
+  return Json.array(list) -- checked: any_use, not_assignable
 end
 
 --- The default answer for `inv`: a problem body for a client that prefers
@@ -197,7 +197,7 @@ function Typed.route_typed<P,Q,B>(methods: string | {string}, pattern: string, i
       end
     end
   end
-  check_path(pattern, has_path and Input.described(input.path.spec) or nil)
+  check_path(pattern, if has_path then Input.described(input.path.spec) else nil end)
   if has_path then Input.check_spec(Input.described(input.path.spec), "path") end
   if has_query then Input.check_spec(Input.described(input.query.spec), "query") end
   if kind == "form" or kind == "multipart" then
@@ -253,10 +253,10 @@ function Typed.route_typed<P,Q,B>(methods: string | {string}, pattern: string, i
   end
   local route = Route.route(methods, pattern, handler, opts)
   route.input = {
-    path = has_path and Input.described(input.path.spec) or nil, query = has_query and Input.described(input.query.spec) or nil,
-    body_kind = kind, body = kind ~= "none" and Input.described(input.body.typed.spec) or nil,
+    path = if has_path then Input.described(input.path.spec) else nil end, query = if has_query then Input.described(input.query.spec) else nil end,
+    body_kind = kind, body = if kind ~= "none" then Input.described(input.body.typed.spec) else nil end,
     max_bytes = options and options.max_bytes or
-      (kind == "multipart" and Input.DEFAULT_MULTIPART_MAX or Input.DEFAULT_MAX),
+      (if kind == "multipart" then Input.DEFAULT_MULTIPART_MAX else Input.DEFAULT_MAX end),
   }
   return route
 end

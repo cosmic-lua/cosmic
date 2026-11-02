@@ -111,7 +111,7 @@ local TOKEN <const> = "[%w!#$%%&'*+.^_`|~-]+"
 --- The body of a part. What it asks of its parser (the generation it is on, its state and failure, the bytes of the part it
 --- hands out, and failing it) it asks through the functions the parser gave it: the parser is no type of this record, whose
 --- class stands above the parser's, which makes it.
-local class BodyReader is Stream.Reader
+local class BodyReader is Stream.Reader -- declared: interface_disagrees
   generation: integer
   mut finished: boolean
   parsed_generation: function(): integer
@@ -534,7 +534,7 @@ end
 --- @return Multipart.Reader The parser, or nil
 --- @return string Why not: the boundary is unusable
 function Multipart.reader(source: Stream.Reader, opts: Multipart.Options): Multipart.Reader?, string
-  for field, v in pairs({ max_parts = opts.max_parts, max_header_bytes = opts.max_header_bytes,
+  for field, v in pairs({ max_parts = opts.max_parts, max_header_bytes = opts.max_header_bytes, -- checked: array_of_optional
       max_header_lines = opts.max_header_lines }) do
     if v ~= nil and v < 1 then
       error(("multipart: %s is a positive integer, not %d"):format(field, v), 2)

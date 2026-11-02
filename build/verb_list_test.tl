@@ -18,10 +18,10 @@ local function test_every_listed_module_has_its_spec()
   for _, entry in ipairs(verb_list.entries) do
     local spec = entry.load()
     assert(spec.name == entry.name, entry.name .. ": its spec names " .. tostring(spec.name))
-    local run: any = spec.run
-    local bare: any = spec.bare
+    local run: any = spec.run -- checked: any_use
+    local bare: any = spec.bare -- checked: any_use
     assert(type(run) == "function", entry.name .. ": no run")
-    local takes: any = spec.takes
+    local takes: any = spec.takes -- checked: any_use
     assert(type(takes) == "string", entry.name .. ": say what it takes")
     assert(type(bare) == "boolean", entry.name .. ": say whether it is bare")
   end

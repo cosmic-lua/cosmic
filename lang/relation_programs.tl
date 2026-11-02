@@ -67,14 +67,14 @@ function RelationPrograms.fixture(store: Types.Store): Programs.Fixture
   local d = fixture.decls
   local function declare(kind: Types.DeclKind, name: string, arity: integer, plain: boolean): Types.Decl
     local decl = store:declare(kind, "m", { name }, arity)
-    d[name] = decl
+    d[name] = decl -- checked: view_written
     if plain then
-      fixture.plain[#fixture.plain + 1] = name
+      fixture.plain[#fixture.plain + 1] = name -- checked: view_written
     end
     return decl
   end
   local function use(name: string, args?: {Types.Type}): Types.Type
-    return store:named(d[name], args)
+    return store:named(d[name], args) -- checked: index_may_be_nil
   end
   local event = declare("interface", "Event", 0, true)
   local key = declare("record", "KeyEvent", 0, true)
@@ -93,34 +93,34 @@ function RelationPrograms.fixture(store: Types.Store): Programs.Fixture
   local loud = declare("record", "Loud", 0, true)
 
   local b = body()
-  b.fields = { { name = "name", type = store.string } }
+  b.fields = { { name = "name", type = store.string } } -- checked: field_fixed
   store:define(event, b)
   b = body()
   b.supers = { use("Event") }
-  b.fields = { { name = "name", type = store.string }, { name = "key", type = store.string } }
+  b.fields = { { name = "name", type = store.string }, { name = "key", type = store.string } } -- checked: field_fixed
   store:define(key, b)
   b = body()
   b.supers = { use("Event") }
-  b.fields = { { name = "name", type = store.string }, { name = "x", type = store.integer } }
+  b.fields = { { name = "name", type = store.string }, { name = "x", type = store.integer } } -- checked: field_fixed
   store:define(mouse, b)
 
   b = body()
-  b.tparams = { { name = "T" } }
-  b.fields = { { name = "last", type = store:var(0, 0) } }
+  b.tparams = { { name = "T" } } -- checked: field_fixed
+  b.fields = { { name = "last", type = store:var(0, 0) } } -- checked: field_fixed
   store:define(source, b)
   b = body()
   b.supers = { use("Source", { store.integer }) }
-  b.fields = { { name = "last", type = store.integer } }
+  b.fields = { { name = "last", type = store.integer } } -- checked: field_fixed
   store:define(int_source, b)
   b = body()
-  b.tparams = { { name = "T" } }
+  b.tparams = { { name = "T" } } -- checked: field_fixed
   b.supers = { use("Source", { store:var(0, 0) }) }
-  b.fields = { { name = "last", type = store:var(0, 0) } }
+  b.fields = { { name = "last", type = store:var(0, 0) } } -- checked: field_fixed
   store:define(box, b)
   b = body()
-  b.tparams = { { name = "T" } }
+  b.tparams = { { name = "T" } } -- checked: field_fixed
   b.supers = { use("Source", { store:array(store:var(0, 0)) }) }
-  b.fields = { { name = "last", type = store:array(store:var(0, 0)) } }
+  b.fields = { { name = "last", type = store:array(store:var(0, 0)) } } -- checked: field_fixed
   store:define(wrapped, b)
   -- function<U>(U, T): U, where T is the variable of Gen and U the function's own.
   local generic = store:fn({
@@ -129,41 +129,41 @@ function RelationPrograms.fixture(store: Types.Store): Programs.Fixture
     rets = { { items = { store:var(0, 0) } } },
   })
   b = body()
-  b.tparams = { { name = "T" } }
+  b.tparams = { { name = "T" } } -- checked: field_fixed
   b.supers = { use("Source", { generic }) }
-  b.fields = { { name = "last", type = generic } }
+  b.fields = { { name = "last", type = generic } } -- checked: field_fixed
   store:define(gen, b)
 
-  local reader_body = d["Stream.Reader"].body
+  local reader_body = d["Stream.Reader"].body -- checked: nil_not_allowed
   assert(reader_body ~= nil)
-  local read = reader_body.fields[1].type
+  local read = reader_body.fields[1].type -- checked: nil_not_allowed
   b = body()
   b.supers = { use("Stream.Reader") }
-  b.fields = { { name = "read", type = read } }
+  b.fields = { { name = "read", type = read } } -- checked: field_fixed
   store:define(read_write, b)
   b = body()
   b.supers = { use("ReadWriter") }
-  b.fields = { { name = "read", type = read } }
+  b.fields = { { name = "read", type = read } } -- checked: field_fixed
   store:define(duplex, b)
 
   b = body()
-  b.fields = { { name = "rank", type = store.integer } }
+  b.fields = { { name = "rank", type = store.integer } } -- checked: field_fixed
   store:define(ordered, b)
   b = body()
   b.supers = { use("Ordered") }
-  b.fields = { { name = "rank", type = store.integer } }
+  b.fields = { { name = "rank", type = store.integer } } -- checked: field_fixed
   store:define(ranked, b)
 
   b = body()
-  b.tparams = { { name = "T" } }
+  b.tparams = { { name = "T" } } -- checked: field_fixed
   b.array = store:var(0, 0)
   store:define(ring, b)
 
   b = body()
-  b.fields = { { name = "die", type = store:fn({ rets = {} }) } }
+  b.fields = { { name = "die", type = store:fn({ rets = {} }) } } -- checked: field_fixed
   store:define(quiet, b)
   b = body()
-  b.fields = { { name = "die", type = store:fn({}) } }
+  b.fields = { { name = "die", type = store:fn({}) } } -- checked: field_fixed
   store:define(loud, b)
   return fixture
 end
@@ -175,7 +175,7 @@ function RelationPrograms.world(): RelationPrograms.World
 end
 
 function RelationPrograms.named(w: RelationPrograms.World, name: string, args?: {Types.Type}): Types.Type
-  return w.store:named(w.fixture.decls[name], args)
+  return w.store:named(w.fixture.decls[name], args) -- checked: index_may_be_nil
 end
 
 function RelationPrograms.func(w: RelationPrograms.World, params: {Types.Type}, returns: {Types.Type}): Types.Type

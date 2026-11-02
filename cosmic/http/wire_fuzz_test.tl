@@ -61,7 +61,7 @@ local function draw_request(src: Fuzz.Source, fields: mut {string})
   local chunks = 0
   while Fuzz.more(src, chunks, 4) do
     chunks = chunks + 1
-    table.insert(fields, "c" .. (src:int(0, 3) == 0 and Fuzz.bytes(src, 8) or Fuzz.pick(src, CHUNKS)))
+    table.insert(fields, "c" .. (if src:int(0, 3) == 0 then Fuzz.bytes(src, 8) else Fuzz.pick(src, CHUNKS) end))
   end
 end
 
@@ -158,7 +158,7 @@ end
 
 --- A Reader of `data` in pieces of `sizes`, then the rest whole; a read
 --- asking for less gets less.
-local class Pieces is Stream.Reader
+local class Pieces is Stream.Reader -- declared: interface_disagrees
   data: string
   sizes: {integer}
   mut at: integer
@@ -382,8 +382,8 @@ local function test_a_reply_is_framed_as_its_status_and_method_say(tmp: string)
     name = "http wire reply",
     dir = tmp,
     gen = function(src: Fuzz.Source): string
-      local status = src:int(0, 2) == 0 and src:int(100, 999) or
-        Fuzz.pick(src, { 100, 200, 201, 204, 304, 404, 500 })
+      local status = if src:int(0, 2) == 0 then src:int(100, 999) else
+        Fuzz.pick(src, { 100, 200, 201, 204, 304, 404, 500 }) end
       return Fuzz.pack({
         Fuzz.pick(src, { "GET", "HEAD", "POST" }), tostring(status),
         Fuzz.pick(src, { "HTTP/1.1", "HTTP/1.0" }),

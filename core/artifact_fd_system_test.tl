@@ -29,7 +29,7 @@ local function held_artifact_fd(): integer?
   local relaunch, _ = Proc.relaunch()
   if relaunch == nil then return nil end
   local slot = math.tointeger(tonumber(relaunch.env["COSMIC_PORTABLE_ARTIFACT_FD"]))
-  return slot ~= nil and relaunch.fds[slot] or nil
+  return slot ~= nil and relaunch.fds[slot] or nil -- checked: and_ternary
 end
 
 --- `script` run by the host's shell, with `...` its arguments.

@@ -178,7 +178,7 @@ end
 local function test_a_mention_follows_the_functions_a_function_mentions_however_far_and_stops_in_a_cycle()
   local said: {string} = {}
   local open = { size = true }
-  local state, decl, node = state_of(1, open, said)
+  local state, decl, node = state_of(1, open, said) -- checked: view_as_mut
   -- function 1 mentions 2, which mentions 3 and 1 again; 3 reads `size`
   LoadOrder.use(state, 1, LoadOrder.of_function(2, "`b`"))
   LoadOrder.use(state, 2, LoadOrder.of_function(1, "`a`"))
@@ -194,14 +194,14 @@ end
 
 local function test_a_mention_in_a_function_is_kept_for_the_day_it_runs_and_none_is_judged_when_nothing_waits()
   local said: {string} = {}
-  local state, decl, node = state_of(1, { size = true }, said)
+  local state, decl, node = state_of(1, { size = true }, said) -- checked: view_as_mut
   LoadOrder.read(state, 3, { decl = decl, name = "size", first = 1 })
   LoadOrder.mention(state, 2, node, LoadOrder.of_function(3, "`c`"))
   assert(#said == 0, "a mention in a function is no call")
   LoadOrder.mention(state, 0, node, LoadOrder.of_function(2, "`b`"))
   assert(#said == 1, table.concat(said, "|"))
   local none: {string} = {}
-  local idle, idle_decl = state_of(0, { size = true }, none)
+  local idle, idle_decl = state_of(0, { size = true }, none) -- checked: view_as_mut
   LoadOrder.read(idle, 3, { decl = idle_decl, name = "size", first = 1 })
   LoadOrder.mention(idle, 0, node, LoadOrder.of_function(3, "`c`"))
   assert(#none == 0, "nothing waits")
@@ -209,7 +209,7 @@ end
 
 local function test_a_local_and_a_static_are_looked_up_when_the_mention_is_followed()
   local said: {string} = {}
-  local state, decl, node = state_of(1, { size = true }, said)
+  local state, decl, node = state_of(1, { size = true }, said) -- checked: view_as_mut
   -- function 1 mentions the local 7 and the static `later` of R, neither of which holds a function yet
   LoadOrder.use(state, 1, LoadOrder.of_local(7, "`held`"))
   LoadOrder.use(state, 1, LoadOrder.of_static(decl, "later", "`R.later`"))
@@ -223,7 +223,7 @@ local function test_a_local_and_a_static_are_looked_up_when_the_mention_is_follo
   LoadOrder.mention(state, 0, node, LoadOrder.of_function(1, "`a`"))
   assert(#said == 1 and said[1] == "`a` reads size through `held`", table.concat(said, "|"))
   said = {}
-  local other, other_decl = state_of(1, { size = true }, said)
+  local other, other_decl = state_of(1, { size = true }, said) -- checked: view_as_mut
   LoadOrder.use(other, 1, LoadOrder.of_static(other_decl, "later", "`R.later`"))
   LoadOrder.read(other, 6, { decl = other_decl, name = "size", first = 2 })
   LoadOrder.define(other, other_decl, "later", 6)

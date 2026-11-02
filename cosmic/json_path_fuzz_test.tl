@@ -35,7 +35,7 @@ local function query_holds(input: string): boolean, string
   local ok, q, err = pcall(Json.query, input)
   if not ok then return false, "query raised: " .. tostring(q) end
   if q == nil then
-    local column = (err as string):match("^json: JSONPath byte (%d+): ")
+    local column = (err as string):match("^json: JSONPath byte (%d+): ") -- checked: cast_refused
     local at = math.tointeger(tonumber(column))
     if at == nil or at < 1 or at > #input + 1 then
       return false, "a refusal that names no byte: " .. tostring(err)
@@ -47,13 +47,13 @@ local function query_holds(input: string): boolean, string
   local sok, steps, serr = pcall(Json.from_path, input)
   if not sok then return false, "from_path raised: " .. tostring(steps) end
   if steps == nil then
-    if not (serr as string):match("selects many values") then
+    if not (serr as string):match("selects many values") then -- checked: cast_refused
       return false, "from_path refused: " .. tostring(serr)
     end
     return true, ""
   end
   Fuzz.label("singular")
-  local text, perr = Json.path(steps as Json.Steps)
+  local text, perr = Json.path(steps as Json.Steps) -- checked: cast_refused
   if text == nil then return false, "a path from_path read cannot be written: " .. perr end
   local back, berr = Json.from_path(text)
   if back == nil then return false, "a normalized path does not read: " .. text .. ": " .. berr end
@@ -98,7 +98,7 @@ local function steps_of(input: string): Json.Steps, {string}
     if kind == "n" then
       steps[#steps + 1] = part:sub(2)
     else
-      local n = math.tointeger(tonumber(part:sub(2))) as integer
+      local n = math.tointeger(tonumber(part:sub(2))) as integer -- checked: cast_refused
       steps[#steps + 1] = if kind == "e" then -n else n end
     end
   end
@@ -110,19 +110,19 @@ end
 --- (but the one a hole leaves out); counted from the end, the leaf
 --- first of as many elements as the step counts back.
 local function holder(steps: Json.Steps, builds: {string}, i: integer): any
-  if i > #steps then return "leaf" end
+  if i > #steps then return "leaf" end -- checked: any_use
   local step = steps[i]
   if step is string then
-    return { [step] = holder(steps, builds, i + 1), other = 0 }
+    return { [step] = holder(steps, builds, i + 1), other = 0 } -- checked: literal_shape
   end
-  local list: mut {any: any} = if builds[i] == "h" then {} else Json.array() as {any: any} end
-  if step < 0 then
+  local list: mut {any: any} = if builds[i] == "h" then {} else Json.array() as {any: any} end -- declared: key_type*2 -- checked: cast_refused
+  if step < 0 then -- checked: nil_not_allowed
     list[1] = holder(steps, builds, i + 1)
-    for k = 2, -step do list[k] = k end
+    for k = 2, -step do list[k] = k end -- checked: nil_not_allowed
     return list
   end
-  for k = 1, step - 1 do
-    if not (builds[i] == "h" and k == step - 1) then list[k] = k end
+  for k = 1, step - 1 do -- checked: nil_not_allowed
+    if not (builds[i] == "h" and k == step - 1) then list[k] = k end -- checked: nil_not_allowed
   end
   list[step] = holder(steps, builds, i + 1)
   return list
@@ -185,13 +185,13 @@ local function pointer_holds(input: string): boolean, string
   local ok, steps, err = pcall(Json.from_pointer, POINTED, input)
   if not ok then return false, "from_pointer raised: " .. tostring(steps) end
   if steps == nil then
-    if not (err as string):match("^json: ") then
+    if not (err as string):match("^json: ") then -- checked: cast_refused
       return false, "a refusal outside the module: " .. tostring(err)
     end
     Fuzz.label("refused")
     return true, ""
   end
-  local _, gerr = Json.get(POINTED, steps as Json.Steps)
+  local _, gerr = Json.get(POINTED, steps as Json.Steps) -- checked: cast_refused
   if gerr ~= "" then return false, "a pointer read, its steps reach nothing: " .. gerr end
   Fuzz.label("read")
   return true, ""
@@ -231,7 +231,7 @@ local function gen_document(src: Fuzz.Source, depth: integer): string
   local used: mut {string: boolean} = {}
   while Fuzz.more(src, #parts, 3) do
     local name = Fuzz.pick(src, { "a", "b", "c" })
-    if not used[name] then
+    if not used[name] then -- checked: condition_type
       used[name] = true
       parts[#parts + 1] = '"' .. name .. '":' .. gen_document(src, depth + 1)
     end
@@ -263,8 +263,8 @@ end
 local function reference_children(node: Json.Match): {Json.Match}
   local out: mut {Json.Match} = {}
   local v = node.value
-  if not (v is {any: any}) then return out end
-  local t = v as {any: any}
+  if not (v is {any: any}) then return out end -- declared: key_type
+  local t = v as {any: any} -- declared: key_type -- checked: cast_refused
   local layout = Json.layout(t)
   local function child(step: string | integer, value: any)
     local steps: mut {string | integer} = table.move(node.steps, 1, #node.steps, 1, {})
@@ -281,7 +281,7 @@ local function reference_children(node: Json.Match): {Json.Match}
     end
   elseif layout == "object" then
     local names: mut {string} = {}
-    for k in pairs(t) do names[#names + 1] = k as string end
+    for k in pairs(t) do names[#names + 1] = k as string end -- checked: cast_refused
     table.sort(names)
     for _, k in ipairs(names) do child(k, t[k]) end
   end
@@ -319,9 +319,9 @@ local function selection_holds(input: string): boolean, string
   local fields = Fuzz.unpack(input)
   local text, holes, query = fields[1], fields[2] == "holes", fields[3]
   -- A document of `null` alone decodes to nil: test the message.
-  local doc, derr = Json.decode(text, { null_value = (not holes) and Json.null or nil })
+  local doc, derr = Json.decode(text, { null_value = if not holes then Json.null else nil end }) -- checked: nil_not_allowed
   if derr ~= "" then return false, "a drawn document does not decode: " .. derr end
-  local parsed, qerr = Json.query(query)
+  local parsed, qerr = Json.query(query) -- checked: nil_not_allowed
   if parsed == nil then return false, "a drawn query does not read: " .. qerr end
   local q: Json.Query = parsed
   local nodes: {Json.Match} = { { steps = {}, value = doc } }
@@ -348,7 +348,7 @@ local function selection_holds(input: string): boolean, string
   for i, n in ipairs(nodes) do want[i] = assert(Json.path(n.steps)) end
   for i, m in ipairs(found) do got[i] = assert(Json.path(m.steps)) end
   local a, b = table.concat(got, " "), table.concat(want, " ")
-  if a ~= b then return false, query .. " on " .. text .. ":\n got  " .. a .. "\n want " .. b end
+  if a ~= b then return false, query .. " on " .. text .. ":\n got  " .. a .. "\n want " .. b end -- checked: nil_not_allowed*2
   Fuzz.label(if #found > 0 then "selected" else "selected nothing" end)
   return true, ""
 end

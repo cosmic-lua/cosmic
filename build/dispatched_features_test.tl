@@ -146,7 +146,7 @@ local function asking(text: string): {string}
   for j in pairs(kept) do numbers[#numbers + 1] = j end
   table.sort(numbers)
   local found: mut {string} = {}
-  for _, j in ipairs(numbers) do found[#found + 1] = kept[j] end
+  for _, j in ipairs(numbers) do found[#found + 1] = kept[j] end -- checked: index_may_be_nil
   return found
 end
 
@@ -181,7 +181,7 @@ local function test_asking_keeps_what_a_line_at_a_time_would()
     end
     local found: mut {string} = {}
     for i, line in ipairs(lines) do
-      if kept[i] then found[#found + 1] = line end
+      if kept[i] then found[#found + 1] = line end -- checked: condition_type
     end
     return found
   end
@@ -214,7 +214,7 @@ local function test_every_library_build_zig_compiles_is_walked()
   local count = 0
   for library in source:gmatch('patched%(b, trees, "([%w_%-]+)"%)') do
     count = count + 1
-    assert(walked[library] or NOT_C[library], "build.zig compiles vendor/" .. library ..
+    assert(walked[library] or NOT_C[library], "build.zig compiles vendor/" .. library .. -- checked: condition_type
         ", which this test does not walk: add it to LIBRARIES and to Test.policy")
   end
   assert(count >= #LIBRARIES, "build.zig names " .. tostring(count) .. " patched trees")
@@ -251,14 +251,14 @@ local function test_every_feature_a_site_reads_is_keyed()
   local want: mut {string:mut {string:boolean}} = {}
   local function add(machine: string, flags: {string})
     want[machine] = want[machine] or {}
-    for _, flag in ipairs(flags) do want[machine][flag] = true end
+    for _, flag in ipairs(flags) do want[machine][flag] = true end -- checked: nil_not_allowed
   end
   for _, site in pairs(SITES) do
     for machine, flags in pairs(site.reads) do add(machine, flags) end
   end
   for machine, flags in pairs(want) do
     local keyed = declared_key.dispatched(machine)
-    assert(keyed ~= nil, machine .. " has sites but no audited list")
+    assert(keyed ~= nil, machine .. " has sites but no audited list") -- checked: compare_disjoint
     local have: mut {string:boolean} = {}
     for _, flag in ipairs(keyed) do have[flag] = true end
     for flag in pairs(flags) do
@@ -364,7 +364,7 @@ local function test_the_core_lines_that_turn_on_the_processor_are_found()
   local own: {string:{string}} = { ["core/vector.c"] = own_lines }
   local own_functions: mut {Coverage.Function} = {}
   for _, name in ipairs({ "dot_i8_avx512_vnni", "dot_i8_avx_vnni", "dot_i8_generic", "cosmic_vector_functions",
-      "row_key" }) do
+      "row_key", "vector_kernel" }) do
     for at, line in ipairs(own_lines) do
       if line:match("^[%a_]") ~= nil and line:find(" " .. name .. " (", 1, true) ~= nil then
         own_functions[#own_functions + 1] = { path = "core/vector.c", name = name, line = at }
@@ -372,12 +372,77 @@ local function test_the_core_lines_that_turn_on_the_processor_are_found()
       end
     end
   end
-  assert(#own_functions == 5, "core/vector.c has the functions this reads")
+  assert(#own_functions == 6, "core/vector.c has the functions this reads")
   local real = reached(DispatchSites.reaching(c_functions.spans(own_functions, own), own))
   assert(real["core/vector.c:dot_i8_avx_vnni"] ~= nil and real["core/vector.c:dot_i8_avx512_vnni"] ~= nil)
   assert(real["core/vector.c:dot_i8_generic"] == nil)
   assert(real["core/vector.c:cosmic_vector_functions"] == nil, "the function that registers and picks")
   assert(real["core/vector.c:row_key"] ~= nil, "the scan that calls the kernel chosen")
+  assert(real["core/vector.c:vector_kernel"] ~= nil, "the function that names the kernel in use")
+  -- A core that compiles no kernel answers no kernel's name.
+  local kernelless: {string:{string}} = { ["core/vector.c"] = { "static int vector_kernel (void) {", "}" } }
+  local kernelless_functions: {Coverage.Function} = { { path = "core/vector.c", name = "vector_kernel", line = 1 } }
+  assert(#DispatchSites.reaching(c_functions.spans(kernelless_functions, kernelless), kernelless) == 0)
+end
+
+--- A function a site names in `answers` is one the core defines: a name
+--- that matched nothing would enforce nothing.
+local function test_every_function_a_site_says_answers_the_processor_exists()
+  local count = 0
+  for path, site in pairs(SITES) do
+    for _, name in ipairs(site.answers or {}) do
+      count = count + 1
+      local text = assert(Fs.read(path))
+      local defined = text:find("\nstatic int " .. name .. " (", 1, true) ~= nil or
+        text:find("\nCOSMIC_SYSCALL(" .. (name:gsub("^cosmic_sys_", "")) .. ",", 1, true) ~= nil
+      assert(defined, path .. " defines no function " .. name)
+    end
+  end
+  assert(count >= 1, "the sites name " .. tostring(count) .. " functions that answer the processor")
+end
+
+--- The core reports a line only where a basic block begins, and a call
+--- through the chosen kernel is in the middle of one, so a processor whose
+--- choice is the generic kernel would show the call's own line as never run.
+--- The lines of the branch holding the call are the reach: those of a branch
+--- that never calls it are not.
+local function test_a_call_through_the_chosen_kernel_is_seen_by_the_lines_of_its_branch()
+  local functions: {Coverage.Function} = {
+    { path = "core/vector.c", name = "kernel_generic", line = 1 },
+    { path = "core/vector.c", name = "kernel_avx", line = 4 },
+    { path = "core/vector.c", name = "pick", line = 7 },
+    { path = "core/vector.c", name = "scan", line = 10 },
+  }
+  local sources: {string:{string}} = {
+    ["core/vector.c"] = {
+      "static int kernel_generic (void) {", "}",
+      "__attribute__((target(\"avx2\")))",
+      "static int kernel_avx (void) {", "}",
+      "static int (*kernel) (void) = kernel_generic;",
+      "static void pick (void) {", "  kernel = kernel_avx;", "}",
+      "static int scan (int storage) {",
+      "  switch (storage) {",
+      "    case 1: {",
+      "      return 0;",
+      "    }",
+      "    default: {",
+      "      int product = kernel();",
+      "      switch (product) {",
+      "        case 0: return 1;",
+      "        default: return 2;",
+      "      }",
+      "    }",
+      "  }",
+      "}",
+    },
+  }
+  local found = reached(DispatchSites.reaching(c_functions.spans(functions, sources), sources))
+  local scan = assert(found["core/vector.c:scan"], "the scan that calls the kernel chosen")
+  local inside: mut {integer:boolean} = {}
+  for _, line in ipairs(scan.lines) do inside[line] = true end
+  assert(inside[15] == true and inside[17] == true and inside[21] == true, "the branch of the call")
+  assert(inside[12] == nil and inside[13] == nil, "the branch that makes no call")
+  assert(inside[11] == nil, "the switch that picks a branch")
 end
 
 --- A test whose module does not declare `cpu_features` fails for running

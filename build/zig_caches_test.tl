@@ -10,7 +10,7 @@ local build_paths = require("build.paths")
 local function test_the_caches_are_where_zig_puts_them(tmp: string)
   local root = tmp .. "/repo"
   assert(Fs.mkdirs(root))
-  for _, env in ipairs({
+  for _, env in ipairs({ -- checked: cast_refused
       { XDG_CACHE_HOME = tmp .. "/xdg" },
       { HOME = tmp .. "/home" },
       { XDG_CACHE_HOME = tmp .. "/xdg", COSMIC_ZIG_GLOBAL_CACHE = "/g", COSMIC_ZIG_CACHE = "/p" },

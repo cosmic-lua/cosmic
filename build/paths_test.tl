@@ -145,7 +145,7 @@ local function test_bootstrap_and_runtime_resolve_the_same_directory(tmp: string
   local script = tmp .. "/paths.tl"
   assert(Fs.write(script, (assert(Fs.read("build/paths.tl")))))
   local root, home = project(tmp)
-  for _, words in ipairs({ { root }, { "--prepare", root } } as {{string}}) do
+  for _, words in ipairs({ { root }, { "--prepare", root } } as {{string}}) do -- checked: cast_refused
     local argv = { "--standalone", script }
     for _, word in ipairs(words) do argv[#argv + 1] = word end
     local started = this_program.program(argv, {
@@ -171,7 +171,7 @@ end
 local function test_bootstrap_refuses_missing_and_extra_roots(tmp: string)
   local script = tmp .. "/paths.tl"
   assert(Fs.write(script, (assert(Fs.read("build/paths.tl")))))
-  for _, words in ipairs({ {}, { tmp, tmp }, { "--prepare" }, { "--prepare", tmp, tmp } } as {{string}}) do
+  for _, words in ipairs({ {}, { tmp, tmp }, { "--prepare" }, { "--prepare", tmp, tmp } } as {{string}}) do -- checked: cast_refused, literal_needs_type
     local argv = { "--standalone", script }
     for _, word in ipairs(words) do argv[#argv + 1] = word end
     local started = this_program.program(argv, {
@@ -198,7 +198,7 @@ local function test_the_layout_names_each_path_under_the_directory(tmp: string)
   local layout = paths.resolve(root, { COSMIC_BUILD_HOME = home })
   assert(layout.directory == paths.required(root, { COSMIC_BUILD_HOME = home }))
   local seen: mut {string: string} = {}
-  for field, path in pairs(layout as {string: string}) do
+  for field, path in pairs(layout as {string: string}) do -- checked: cast_refused
     if field ~= "directory" then
       assert(path:sub(1, #layout.directory + 1) == layout.directory .. "/",
         field .. " is outside the build directory: " .. path)
@@ -241,7 +241,7 @@ local function test_boot_verbs_and_lock_resolve_alike(tmp: string)
   assert(work.close(handle))
   assert(opened == layout.directory, opened .. " against " .. layout.directory)
   assert(Fs.exists(layout.working))
-  assert(rebuild_lock.hand({}, root).COSMIC_REBUILD_LOCK_HANDED == layout.lock)
+  assert(rebuild_lock.hand({}, root).COSMIC_REBUILD_LOCK_HANDED == layout.lock) -- checked: map_field
   assert(Fs.mkdirs(layout.bin))
   assert(Fs.write(layout.tool, ""))
   assert(tree.own_tool(root, layout.tool) == true)

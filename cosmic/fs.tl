@@ -150,7 +150,7 @@ local function write_all(fd: integer, data: string, blame: string): boolean, str
   local at = 1
   while at <= #data do
     -- The whole string the first time, rather than a copy of it.
-    local rest = at == 1 and data or data:sub(at)
+    local rest = if at == 1 then data else data:sub(at) end
     local put, trouble = sys.write(fd, rest)
     if put == nil then
       return false, trouble
@@ -279,7 +279,7 @@ local record AppendFile
   mut fd: integer
 end
 
-local append_mt: metatable<AppendFile> = {
+local append_mt: metatable<AppendFile> = { -- checked: literal_missing
   __close = function(self: AppendFile)
     if self.fd < 0 then return end
     local fd = self.fd
@@ -298,7 +298,7 @@ local append_mt: metatable<AppendFile> = {
 --- or false and a reason naming `path`; a write failure wins over a
 --- close failure.
 function Fs.append(path: string, data: string, mode?: integer): boolean, string
-  local file <close>: AppendFile = setmetatable({ fd = -1 }, append_mt)
+  local file <close>: AppendFile = setmetatable({ fd = -1 }, append_mt) -- checked: close_not_closable, setmetatable_call -- untyped: call
   local fd, trouble = sys.open(path, sys.O_WRONLY | sys.O_CREAT | sys.O_APPEND, mode or 0x1a4)
   if fd == nil then return false, path .. ": " .. trouble end
   file.fd = fd
@@ -461,7 +461,7 @@ end
 --- alone: nothing is made, looked at or checked, so the directory may
 --- not be there.
 function Fs.cache_dir(tool: string, opts?: Fs.CacheOptions): string?, string
-  local environment = opts ~= nil and opts.environment or nil
+  local environment = if opts ~= nil then opts.environment else nil end
   local base, base_trouble = cache_base(environment)
   if base == nil then
     return nil, base_trouble
@@ -553,12 +553,12 @@ end
 local function walk(root: string, follow: boolean,
                     skip?: function(string, string, Fs.Kind): boolean): {string}?, string
   local found: mut {string} = {}
-  local pending: mut {Pending} = { { relative = "", above = nil } }
+  local pending: mut {Pending} = { { relative = "", above = nil } } -- checked: nil_not_allowed
   while #pending > 0 do
     local next_one = table.remove(pending)
-    local relative = next_one.relative
-    local directory = relative == "" and root or (root .. "/" .. relative)
-    local above = next_one.above
+    local relative = next_one.relative -- checked: nil_not_allowed
+    local directory = if relative == "" then root else root .. "/" .. relative end
+    local above = next_one.above -- checked: nil_not_allowed
     local inside = true
     if follow then
       local st, stat_trouble = sys.stat(directory)
@@ -567,7 +567,7 @@ local function walk(root: string, follow: boolean,
       end
       local key = tostring(st.dev) .. ":" .. tostring(st.ino)
       local up = above
-      while up ~= nil and inside do
+      while up ~= nil and inside do -- checked: compare_disjoint
         inside = up.key ~= key
         up = up.up
       end
@@ -582,12 +582,12 @@ local function walk(root: string, follow: boolean,
       entries = listed
     end
     for _, name in ipairs(sorted_names(entries)) do
-      local entry = relative == "" and name or (relative .. "/" .. name)
+      local entry = if relative == "" then name else relative .. "/" .. name end
       local kind = entries[name]
-      if skip == nil or not skip(entry, name, kind) then
+      if skip == nil or not skip(entry, name, kind) then -- checked: nil_not_allowed
         if kind == "link" and follow then
           local st, _ = sys.stat(directory .. "/" .. name)
-          kind = st ~= nil and st.kind or "other"
+          kind = if st ~= nil then st.kind else "other" end
         end
         if kind == "dir" then
           pending[#pending + 1] = { relative = entry, above = above }
@@ -639,7 +639,7 @@ local record Descriptor
   fd: integer
   __close: function(Descriptor)
 end
-local descriptor_mt: metatable<Descriptor> = {
+local descriptor_mt: metatable<Descriptor> = { -- checked: literal_missing
   __close = function(self: Descriptor) local _, _ = sys.close(self.fd) end,
 }
 
@@ -664,8 +664,8 @@ local descriptor_mt: metatable<Descriptor> = {
 function Fs.scratch(parent: string): Fs.Scratch?, string
   local fd, trouble = sys.open(parent .. "/.scratch-gate", sys.O_RDWR | sys.O_CREAT | sys.O_NOFOLLOW, 0x180)
   if fd == nil then return nil, parent .. ": " .. trouble end
-  local opened: Descriptor = { fd = fd }
-  local gate <close> = setmetatable(opened, descriptor_mt)
+  local opened: Descriptor = { fd = fd } -- checked: literal_missing
+  local gate <close> = setmetatable(opened, descriptor_mt) -- checked: setmetatable_call -- untyped: call
   local locked, lock_trouble = sys.flock(gate.fd, "exclusive", -1)
   if not locked then return nil, parent .. ": " .. lock_trouble end
   local names, list_trouble = Fs.list(parent)
@@ -681,8 +681,8 @@ function Fs.scratch(parent: string): Fs.Scratch?, string
       local path = parent .. "/" .. name
       local owner, _ = sys.open(path .. "/owner", sys.O_RDWR | sys.O_NOFOLLOW)
       if owner ~= nil then
-        local descriptor: Descriptor = { fd = owner }
-        local probe <close> = setmetatable(descriptor, descriptor_mt)
+        local descriptor: Descriptor = { fd = owner } -- checked: literal_missing
+        local probe <close> = setmetatable(descriptor, descriptor_mt) -- checked: setmetatable_call -- untyped: call
         local dead, _ = sys.flock(probe.fd, "exclusive", 0)
         if dead then local _, _ = Fs.remove_tree(path) end
       end
@@ -730,8 +730,7 @@ end
 --- `Fs.stat(path).mode & 0xfff` reads them back.
 function Fs.chmod(path: string, mode: integer): boolean, string
   if mode < 0 or mode > 0xfff then
-    local shown = (mode > 0 and math.tointeger(mode) ~= nil) and string.format("0x%x", mode) or
-      tostring(mode)
+    local shown = if mode > 0 and math.tointeger(mode) ~= nil then string.format("0x%x", mode) else tostring(mode) end
     error("fs: mode " .. shown .. " is outside 0 to 0xfff", 2)
   end
   local changed, trouble = sys.chmod(path, mode)
@@ -854,7 +853,7 @@ local function copy_bytes(from: string, to: string): boolean, string
   local st, stat_trouble = sys.fstat(input)
   if st == nil or st.kind ~= "file" then
     local _, _ = Fs.close(input)
-    return false, from .. ": " .. (st == nil and stat_trouble or "no longer a regular file")
+    return false, from .. ": " .. (if st == nil then stat_trouble else "no longer a regular file" end)
   end
   -- Exclusive: a name that appeared since the target was checked, a
   -- planted link included, is refused rather than written through.
@@ -1003,8 +1002,8 @@ function Fs.relative(path: string, directory: string): string?, string
   return rest, ""
 end
 
-Fs.stdin = 0
-Fs.stdout = 1
-Fs.stderr = 2
+Fs.stdin = 0 -- checked: field_fixed
+Fs.stdout = 1 -- checked: field_fixed
+Fs.stderr = 2 -- checked: field_fixed
 
 return Fs

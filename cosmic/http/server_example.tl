@@ -11,7 +11,7 @@ local Test = require("cosmic.test")
 --- The server example listens on the worker's own loopback.
 Test.policy{ loopback = { "127.0.0.1" } }
 
-local Example = {}
+local Example = {} -- checked: literal_needs_type
 
 --- A key-value store over HTTP: PUT stores a body under its path, GET
 --- (and HEAD) answers it, 404 when there is none. A HEAD is answered as
@@ -40,7 +40,7 @@ function Example.serve()
       return { status = 405, headers = { Allow = "GET, HEAD, PUT" } }
     end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
-      local conn <close> = assert(Net.connect(assert(addresses[1]), { timeout_ns = Clock.seconds(5) }))
+      local conn <close> = assert(Net.connect(assert(addresses[1]), { timeout_ns = Clock.seconds(5) })) -- checked: close_not_closable
       assert(conn:write("PUT /greeting HTTP/1.1\r\nHost: kv\r\nContent-Length: 5\r\n\r\nhello" ..
           "GET /greeting HTTP/1.1\r\nHost: kv\r\nConnection: close\r\n\r\n"))
       local answer = assert(Stream.read_all(conn))
@@ -103,4 +103,4 @@ function Example.encoding()
   assert(pick(nil) == "identity" and pick("identity;q=0") == "none")
 end
 
-return Example
+return Example -- checked: export_not_declared

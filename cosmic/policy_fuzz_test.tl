@@ -35,35 +35,35 @@ end
 --- above, mostly valid.
 local function gen_policy(src: Fuzz.Source): {string:any}
   local fields: {string:any} = {}
-  fields.profiles = list(src, PROFILES, 3)
-  fields.isolate = list(src, ISOLATES, 3)
-  fields.promises = list(src, PROMISES, 5)
-  fields.connect = list(src, TARGETS, 4)
-  fields.loopback = list(src, ADDRESSES, 3)
-  fields.env = list(src, NAMES, 4)
+  fields.profiles = list(src, PROFILES, 3) -- checked: map_field
+  fields.isolate = list(src, ISOLATES, 3) -- checked: map_field
+  fields.promises = list(src, PROMISES, 5) -- checked: map_field
+  fields.connect = list(src, TARGETS, 4) -- checked: map_field
+  fields.loopback = list(src, ADDRESSES, 3) -- checked: map_field
+  fields.env = list(src, NAMES, 4) -- checked: map_field
   if src:int(0, 2) == 0 then
     local grants: mut {{string:string}} = {}
     while Fuzz.more(src, #grants, 4) do
       grants[#grants + 1] = { path = Fuzz.pick(src, PATHS), letters = Fuzz.pick(src, LETTERS),
-        from = src:int(0, 3) == 0 and Fuzz.pick(src, PATHS) or nil }
+        from = src:int(0, 3) == 0 and Fuzz.pick(src, PATHS) or nil } -- checked: and_ternary
     end
-    if #grants > 0 then fields.grants = grants end
+    if #grants > 0 then fields.grants = grants end -- checked: map_field
   end
   if src:int(0, 2) == 0 then
     local set_env: mut {string:string} = {}
     while Fuzz.more(src, 0, 3) do set_env[Fuzz.pick(src, NAMES)] = Fuzz.pick(src, PATHS) end
-    if next(set_env) ~= nil then fields.set_env = set_env end
+    if next(set_env) ~= nil then fields.set_env = set_env end -- checked: map_field
   end
   if src:int(0, 3) == 0 then
-    fields.set_env_digests = { [Fuzz.pick(src, NAMES)] = Fuzz.pick(src, DIGESTS) }
+    fields.set_env_digests = { [Fuzz.pick(src, NAMES)] = Fuzz.pick(src, DIGESTS) } -- checked: map_field
   end
-  if src:int(0, 2) == 0 then fields.tmp = src:int(0, 4) ~= 0 end
+  if src:int(0, 2) == 0 then fields.tmp = src:int(0, 4) ~= 0 end -- checked: map_field
   if src:int(0, 2) == 0 then
-    fields.limits = { open_files = Fuzz.pick(src, NUMBERS), file_bytes = Fuzz.pick(src, NUMBERS),
-      cpu_seconds = src:int(0, 1) == 0 and Fuzz.pick(src, NUMBERS) or nil,
-      processes = src:int(0, 1) == 0 and Fuzz.pick(src, NUMBERS) or nil }
+    fields.limits = { open_files = Fuzz.pick(src, NUMBERS), file_bytes = Fuzz.pick(src, NUMBERS), -- checked: map_field
+      cpu_seconds = src:int(0, 1) == 0 and Fuzz.pick(src, NUMBERS) or nil, -- checked: and_ternary
+      processes = src:int(0, 1) == 0 and Fuzz.pick(src, NUMBERS) or nil } -- checked: and_ternary
   end
-  if src:int(0, 6) == 0 then fields.extra = 1 end
+  if src:int(0, 6) == 0 then fields.extra = 1 end -- checked: map_field
   return fields
 end
 

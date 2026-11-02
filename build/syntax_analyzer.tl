@@ -17,6 +17,7 @@ local AnalysisSchema = require("build.analysis_schema")
 local Ast = require("lang.ast")
 local Lexer = require("lang.lexer")
 local Lexical = require("build.syntax_scopes")
+local Markers = require("build.markers")
 local Node = require("build.syntax_node")
 local PolicyRules = require("build.policy_rules")
 local Scopes = require("lang.scopes")
@@ -311,7 +312,8 @@ local function line_at(lines: {string}, y: integer): string
   if line == nil then
     return ""
   end
-  return String.trim(line)
+  -- A marker of the checker ([`build.markers`]) is no part of what the line declares.
+  return String.trim(Markers.bare(line))
 end
 
 --- The name a path of names spells, `Thing.Box`.
@@ -529,7 +531,7 @@ local type_docs: function(chunk: Ast.Chunk, lines: {string}, symbol: string, dec
 
 --- Adds the entries for the members of one record, interface or class under `symbol`, in the order given: the fields
 --- and nested types in declaration order, then the metamethods (fields named `__x`), then the methods.
-local function members_docs(chunk: Ast.Chunk, lines: {string}, symbol: string, members: {Ast.Member}, out: mut {Entry})
+local function members_docs(chunk: Ast.Chunk, lines: {string}, symbol: string, members: {Ast.Member}, out: mut {Entry}) -- checked: not_assigned
   for pass = 1, 3 do
     for _, member in ipairs(members) do
       local nested = Node.declared(member)
@@ -573,7 +575,7 @@ end
 
 --- Adds the entries for one record, interface, class or enum body under `symbol`: one per member, with a nested type
 --- recursing under its own name.
-type_docs = function(chunk: Ast.Chunk, lines: {string}, symbol: string, decl: Ast.Node, out: mut {Entry})
+type_docs = function(chunk: Ast.Chunk, lines: {string}, symbol: string, decl: Ast.Node, out: mut {Entry}) -- checked: view_as_mut
   if (decl.kind == "Enum") then
     local line = line_of(chunk, decl)
     for _, value in ipairs(decl.values) do
@@ -765,7 +767,7 @@ local function canonicalize_docs(entries: {Entry}, marks: Marks, chunk: Ast.Chun
       bucket = {}
       by_source[source] = bucket
     end
-    bucket[#bucket + 1] = entry
+    bucket[#bucket + 1] = entry -- checked: view_written
     if export ~= "" and source == export then
       marks.exported[entry] = true
     elseif export ~= "" and String.starts_with(source, dot) then

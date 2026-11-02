@@ -4,7 +4,7 @@
 
 local Codec = require("cosmic.codec")
 
-local Example = {}
+local Example = {} -- checked: literal_needs_type
 
 --- Bytes as lowercase hex, and back again from either case.
 function Example.hex()
@@ -49,4 +49,4 @@ function Example.base64url()
   assert(Codec.unbase64url(text) == "\xfb\xff?")
 end
 
-return Example
+return Example -- checked: export_not_declared

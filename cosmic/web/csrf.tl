@@ -102,8 +102,8 @@ local record Csrf
   HEADER: string
 end
 
-Csrf.FIELD = "csrf_token"
-Csrf.HEADER = "X-CSRF-Token"
+Csrf.FIELD = "csrf_token" -- checked: field_fixed
+Csrf.HEADER = "X-CSRF-Token" -- checked: field_fixed
 
 --- How many bytes of a form body are read to find the token.
 local PEEK <const> = 16384
@@ -195,7 +195,7 @@ local function multipart_token(req: Types.Request): string?
   local cached = req:get(Input.FORM)
   if cached ~= nil then
     local list = cached.by_name[Csrf.FIELD]
-    return list ~= nil and #list == 1 and list[1] or nil
+    return if list ~= nil and #list == 1 then list[1] else nil end
   end
   local boundary = Input.media_type(req).params["boundary"]
   if boundary == nil then return nil end
@@ -220,7 +220,7 @@ local function urlencoded_token(req: Types.Request): string?
   local cached = req:get(Input.FORM)
   if cached ~= nil then
     local list = cached.by_name[Csrf.FIELD]
-    return list ~= nil and #list == 1 and list[1] or nil
+    return if list ~= nil and #list == 1 then list[1] else nil end
   end
   local body = req.raw.body
   local head, _ = Stream.read_up_to(body, PEEK)
@@ -335,7 +335,7 @@ function Csrf.middleware(opts?: Csrf.Options): Types.Middleware
   opts = opts or {}
   local trusted: mut {string:boolean} = {}
   for _, each in ipairs(opts.trusted_origins or {}) do
-    local normal = if each == "null" then "null" else (type(each) == "string" and Origin.normalize(each) or nil) end
+    local normal = if each == "null" then "null" else (if type(each) == "string" then Origin.normalize(each) else nil end) end
     if normal == nil then
       error(("csrf: trusted_origins: %s is not an origin like https://app.example.com"):format(tostring(each)), 2)
     end
@@ -355,7 +355,7 @@ function Csrf.middleware(opts?: Csrf.Options): Types.Middleware
       if reason == nil and token_on and not (bearer_exempt and bearer(req)) then
         local secret = secret_of(Session.of(req))
         -- With no secret nothing can match: the body is not read.
-        local sent = secret ~= nil and token_of(req) or nil
+        local sent = if secret ~= nil then token_of(req) else nil end
         if secret == nil or sent == nil or not valid(secret, sent) then reason = "token" end
       end
       if reason == nil then return inner(req) end

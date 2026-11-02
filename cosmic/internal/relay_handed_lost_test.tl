@@ -14,29 +14,29 @@ local type Net = require("cosmic.net")
 --- already.
 local function fake(name: string, log: mut {string}, hold_ns?: integer, dies?: boolean, gone?: boolean): Net.Connector
   local hold = hold_ns or 0
-  local ended = { value = gone or false }
-  local stand_in: any = {
+  local ended = { value = gone or false } -- checked: condition_type
+  local stand_in: any = { -- checked: arms_differ
     connect = function(_: any, address: Net.Address, opts: Net.ConnectOptions): any, string
       table.insert(log, name .. " " .. assert(address.host) .. " " .. tostring(assert(opts.timeout_ns)))
       if hold > 0 then
         local waited, why = Poll.delay(hold)
-        if not waited then return nil, why end
+        if not waited then return nil, why end -- checked: any_use
       end
-      if dies then
-        ended.value = true
-        return nil, "net: the connector has ended"
+      if dies then -- checked: condition_type
+        ended.value = true -- checked: map_field
+        return nil, "net: the connector has ended" -- checked: any_use
       end
-      return nil, "refused by " .. name
+      return nil, "refused by " .. name -- checked: any_use
     end,
     ended = function(_: any): boolean
-      return ended.value
+      return ended.value -- checked: map_field
     end,
     close = function(_: any): boolean, string
-      ended.value = true
+      ended.value = true -- checked: map_field
       return true, ""
     end,
   }
-  return stand_in as Net.Connector -- cast: it has every method the relay calls
+  return stand_in as Net.Connector -- cast: it has every method the relay calls -- checked: cast_refused
 end
 
 local WAIT <const> = Clock.seconds(1)
@@ -113,12 +113,12 @@ local function test_a_connector_ended_already_is_told_to_lost_once_and_asked_not
   end)
   assert(#log == 0, table.concat(log, ","))
   assert(#told == 1 and told[1] == "relay: the connector has ended", table.concat(told, ","))
-  local ok, why = pcall(Relay.handed, { connector = fake("c", log), lost = 1 as any as function(string) })
+  local ok, why = pcall(Relay.handed, { connector = fake("c", log), lost = 1 as any as function(string) }) -- checked: cast_refused*2
   assert(not ok and tostring(why):find("handed.lost must be a function", 1, true) ~= nil, tostring(why))
-  ok, why = pcall(Relay.handed, {} as Relay.Handed)
+  ok, why = pcall(Relay.handed, {} as Relay.Handed) -- checked: cast_refused, literal_needs_type
   assert(not ok and tostring(why):find("handed needs a connector", 1, true) ~= nil, tostring(why))
   -- Only a nil connector is none: `false` passes the check, as it always has.
-  ok, why = pcall(Relay.handed, { connector = false as any as Net.Connector, lost = function(_: string)
+  ok, why = pcall(Relay.handed, { connector = false as any as Net.Connector, lost = function(_: string) -- checked: cast_refused*2
   end })
   assert(ok, tostring(why))
 end

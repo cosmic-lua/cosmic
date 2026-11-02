@@ -96,7 +96,7 @@ local function test_a_redirect_to_a_scheme_outside_redirect_protocols_is_refused
 end
 
 local function test_a_redirect_to_a_listed_scheme_is_followed()
-  for _, protocols in ipairs({ { "http" }, { "http", "https" } } as {{string}}) do
+  for _, protocols in ipairs({ { "http" }, { "http", "https" } } as {{string}}) do -- checked: cast_refused
     local response, body = fetch({ reply("302 Found", "Location: http://other.test/next\r\n"), reply("200 OK", "", "yes") },
       { redirect_protocols = protocols })
     assert(response.status == 200 and body == "yes", body)
@@ -282,9 +282,9 @@ local function test_a_space_or_control_byte_before_the_path_is_refused_naming_it
   assert(got == nil and why == "http: the URL holds a space at byte 10, in its user info; " ..
       "a user name or password goes in through Url.escape", why)
   got, why = Http.request("PUT", "cosmic\n.test/a b", { script = {} })
-  assert(got == nil and why:find("control byte 0x0a at byte 7, in its host,", 1, true), why)
+  assert(got == nil and why:find("control byte 0x0a at byte 7, in its host,", 1, true), why) -- checked: or_mix
   got, why = Http.get("http:/co smic.test/a", { script = {} })
-  assert(got == nil and why:find("a space at byte 9, in its host,", 1, true), why)
+  assert(got == nil and why:find("a space at byte 9, in its host,", 1, true), why) -- checked: or_mix
 end
 
 local function test_a_url_escaped_with_url_escape_is_sent_as_written()
@@ -344,7 +344,7 @@ local function test_a_post_body_outlives_the_options_that_held_it()
   local opts: Http.Options = { method = "POST", body = string.rep("A", size),
     headers = { Expect = "" }, script = { "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok" } }
   local response = assert(Http.open(url, opts))
-  opts = nil
+  opts = nil -- checked: nil_not_allowed
   collectgarbage()
   collectgarbage()
   local churn: mut {string} = {}
@@ -367,11 +367,11 @@ local function test_a_script_without_enough_connections_fails_cleanly()
 end
 
 local function test_a_non_string_option_throws()
-  local ok = pcall(Http.open, url, { body = {} as string, script = {} })
+  local ok = pcall(Http.open, url, { body = {} as string, script = {} }) -- checked: alternatives_as_value, cast_refused, literal_needs_type
   assert(not ok)
-  ok = pcall(Http.open, url, { headers = { X = 1 as string }, script = {} })
+  ok = pcall(Http.open, url, { headers = { X = 1 as string }, script = {} }) -- checked: alternatives_as_value, cast_refused
   assert(not ok)
-  ok = pcall(Http.open, url, { headers = { [1 as string] = "x" }, script = {} })
+  ok = pcall(Http.open, url, { headers = { [1 as string] = "x" }, script = {} }) -- checked: alternatives_as_value, cast_refused
   assert(not ok)
 end
 
@@ -437,7 +437,7 @@ local function test_download_removes_its_temporary_file_on_a_mismatch(tmp: strin
     script = { reply("200 OK", "", "not what was promised") } })
   assert(not ok)
   assert(trouble:find("mismatch", 1, true) ~= nil, trouble)
-  assert(not Fs.exists(path) and #assert(Fs.list(tmp)) == 0)
+  assert(not Fs.exists(path) and #assert(Fs.list(tmp)) == 0) -- checked: condition_type
 end
 
 local function test_download_removes_its_temporary_file_on_a_truncated_body(tmp: string)
@@ -446,7 +446,7 @@ local function test_download_removes_its_temporary_file_on_a_truncated_body(tmp:
     "HTTP/1.1 200 OK\r\nContent-Length: 100\r\nConnection: close\r\n\r\nonly ten b",
   } })
   assert(not ok)
-  assert(not Fs.exists(path) and #assert(Fs.list(tmp)) == 0)
+  assert(not Fs.exists(path) and #assert(Fs.list(tmp)) == 0) -- checked: condition_type
 end
 
 local function test_download_names_its_path_when_it_cannot_make_the_file(tmp: string)
@@ -669,7 +669,7 @@ local function test_zero_integer_options_are_accepted()
 end
 
 local function test_redirect_protocols_takes_a_list_of_http_and_https()
-  local err = raised({ redirect_protocols = "https" as {string} })
+  local err = raised({ redirect_protocols = "https" as {string} }) -- checked: cast_refused
   assert(err:find("http: opts.redirect_protocols must be a list of one or more", 1, true) ~= nil, err)
   err = raised({ redirect_protocols = {} })
   assert(err:find("http: opts.redirect_protocols must be a list of one or more", 1, true) ~= nil, err)
@@ -685,20 +685,20 @@ local function test_redirect_protocols_takes_a_list_of_http_and_https()
 end
 
 local function test_a_boolean_option_takes_only_a_boolean()
-  local err = raised({ follow = "no" as boolean })
+  local err = raised({ follow = "no" as boolean }) -- checked: cast_refused
   assert(err:find("http: opts.follow must be a boolean", 1, true) ~= nil, err)
 end
 
 local function test_non_table_headers_raise_naming_the_option()
   -- The message names the option, not a bad argument number.
-  local err = raised({ headers = "X-A: 1" as {string:string} })
+  local err = raised({ headers = "X-A: 1" as {string:string} }) -- checked: cast_refused
   assert(err:find("http: opts.headers must be a table", 1, true) ~= nil, err)
   assert(err:find("#-1", 1, true) == nil, err)
 end
 
 local function test_a_non_string_script_entry_raises()
   -- A non-string entry is refused, not read as an empty reply.
-  local err = raised({ script = { reply("200 OK", ""), 42 as string } })
+  local err = raised({ script = { reply("200 OK", ""), 42 as string } }) -- checked: cast_refused
   assert(err:find("http: opts.script must be a list of strings", 1, true) ~= nil, err)
 end
 
@@ -760,10 +760,10 @@ local function test_a_response_a_finalizer_revives_is_closed()
   -- state: every method has to see a closed handle, not freed memory.
   do
     local response = assert(Http.open(url, { script = { reply("200 OK", "", "x") } }))
-    local mt: metatable<{any:any}> = { __gc = function(_: {any:any})
+    local mt: metatable<{any:any}> = { __gc = function(_: {any:any}) -- declared: key_type*2 -- checked: literal_missing
       revived[1] = response
     end }
-    setmetatable({} as {any:any}, mt)
+    setmetatable({} as {any:any}, mt) -- declared: key_type -- checked: cast_refused, setmetatable_call
   end
   collectgarbage()
   collectgarbage()
@@ -780,9 +780,9 @@ end
 --- The raw handle's close answers nothing: it cannot fail, so a `true`
 --- would tell its caller nothing.
 local function test_the_raw_handle_close_returns_no_values()
-  local raw = require("cosmic.internal.http") as {string: function(string, {string: any}): any, string} -- cast: the table
+  local raw = require("cosmic.internal.http") as {string: function(string, {string: any}): any, string} -- cast: the table -- checked: cast_refused
   -- cosmic/internal/http.d.tl declares, called with a script that its `Options` have no field for
-  local handle = assert(raw.open(url, { script = { reply("200 OK", "", "body") } }))
+  local handle = assert(raw.open(url, { script = { reply("200 OK", "", "body") } })) -- checked: cast_refused
     as {string: function(any): any...}
   assert(select("#", handle.close(handle)) == 0, "close returns no values")
   assert(select("#", handle.close(handle)) == 0, "closing twice returns no values")
@@ -871,7 +871,7 @@ local function test_a_download_checks_every_digest_it_is_given(tmp: string)
   local other = tmp .. "/other.bin"
   local bad, bad_why = Http.download(url, other, { script = { reply("200 OK", "", "hello") },
     sha256 = s256, sha512 = string.rep("0", 128) })
-  assert(not bad and bad_why:find("sha512 mismatch: want " .. string.rep("0", 128) .. ", got " .. s512, 1, true), bad_why)
+  assert(not bad and bad_why:find("sha512 mismatch: want " .. string.rep("0", 128) .. ", got " .. s512, 1, true), bad_why) -- checked: or_mix
   assert(Fs.stat(other) == nil, "the target was created")
   for _, name in ipairs((assert(Fs.list(tmp)))) do
     assert(name == "two.bin", "left behind: " .. name)
@@ -887,7 +887,7 @@ local function test_a_download_with_only_a_sha512_checks_that_alone(tmp: string)
   local other = tmp .. "/wrong512.bin"
   local zeros = string.rep("0", 128)
   local bad, bad_why = Http.download(url, other, { script = { reply("200 OK", "", "hello") }, sha512 = zeros })
-  assert(not bad and bad_why:find("sha512 mismatch: want " .. zeros .. ", got " .. s512, 1, true), bad_why)
+  assert(not bad and bad_why:find("sha512 mismatch: want " .. zeros .. ", got " .. s512, 1, true), bad_why) -- checked: or_mix
   assert(not bad_why:find("sha256", 1, true), bad_why)
   assert(Fs.stat(other) == nil, "the target was created")
 end
@@ -905,7 +905,7 @@ local function test_a_download_with_a_sha3_256_checks_it(tmp: string)
   local zeros = string.rep("0", 64)
   local bad, bad_why = Http.download(url, other, { script = { reply("200 OK", "", "hello") },
     sha256 = Hash.hex_sha256("hello"), sha3_256 = zeros })
-  assert(not bad and bad_why:find("sha3-256 mismatch: want " .. zeros .. ", got " .. sha3, 1, true), bad_why)
+  assert(not bad and bad_why:find("sha3-256 mismatch: want " .. zeros .. ", got " .. sha3, 1, true), bad_why) -- checked: or_mix
   assert(Fs.stat(other) == nil, "the target was created")
 end
 
@@ -940,7 +940,7 @@ end
 local function test_download_result_checksums_keep_typed_digests_and_legacy_text(tmp: string)
   local path = tmp .. "/got"
   assert(Fs.write(path, "old"))
-  for _, algorithm in ipairs({ "sha256", "sha512" } as {Hash.Algorithm}) do
+  for _, algorithm in ipairs({ "sha256", "sha512" } as {Hash.Algorithm}) do -- checked: cast_refused
     for _, expected in ipairs({ "ABC", "not HEX", string.rep("0", if algorithm == "sha256" then 64 else 128 end) }) do
       local options: Http.Options = { script = { reply("200 OK", "", "body") },
         sha256 = if algorithm == "sha256" then expected else nil end,
@@ -963,8 +963,8 @@ end
 
 local function test_download_result_bad_checksum_shape_raises_before_publication(tmp: string)
   local path = tmp .. "/got"
-  local options: Http.Options = { sha256 = true as string, script = {} }
-  local ok = pcall(Http.download_result, url, path, options)
+  local options: Http.Options = { sha256 = true as string, script = {} } -- checked: cast_refused
+  local ok = pcall(Http.download_result, url, path, options) -- checked: alternatives_as_value
   assert(not ok and #assert(Fs.list(tmp)) == 0)
 end
 
@@ -983,19 +983,19 @@ local function test_download_result_write_and_sync_failures_abort_without_classi
   assert(Fs.write(path, "old"))
   local real_write, real_sync = sys.write, sys.fsync
   local reason = "HTTP 503: sha256 mismatch: want x, got y"
-  sys.write = function(_fd: integer, _data: string): integer?, string, integer
+  sys.write = function(_fd: integer, _data: string): integer?, string, integer -- checked: field_fixed
     return nil, reason, 0
   end
   local written = Http.download_result(url, path, { script = { reply("200 OK", "", "body") } })
-  sys.write = real_write
+  sys.write = real_write -- checked: field_fixed
   assert(written.kind == "failed" and written.reason == path .. ": " .. reason)
   assert(written.status == nil and written.algorithm == nil)
   assert(Fs.read(path) == "old" and #assert(Fs.list(tmp)) == 1)
-  sys.fsync = function(_fd: integer): boolean, string, integer
+  sys.fsync = function(_fd: integer): boolean, string, integer -- checked: field_fixed
     return false, reason, 0
   end
   local synced = Http.download_result(url, path, { script = { reply("200 OK", "", "body") } })
-  sys.fsync = real_sync
+  sys.fsync = real_sync -- checked: field_fixed
   assert(synced.kind == "failed" and synced.reason == path .. ": " .. reason)
   assert(synced.status == nil and synced.algorithm == nil)
   assert(Fs.read(path) == "old" and #assert(Fs.list(tmp)) == 1)
@@ -1047,17 +1047,17 @@ local function test_download_result_digest_failure_is_not_a_mismatch(tmp: string
   assert(Fs.write(path, "old"))
   local hashing = Stream.hashing
   local reason = "sha512 mismatch: digest engine failed"
-  Stream.hashing = function(algorithm: Hash.Algorithm): Stream.Hashing?, string
+  Stream.hashing = function(algorithm: Hash.Algorithm): Stream.Hashing?, string -- checked: field_fixed
     local writer, why = hashing(algorithm)
     if writer == nil then return nil, why end
-    writer.digest = function(_self: Stream.Hashing): string?, string
+    writer.digest = function(_self: Stream.Hashing): string?, string -- checked: field_fixed
       return nil, reason
     end
     return writer, ""
   end
   local result = Http.download_result(url, path, { sha256 = Hash.hex_sha256("body"),
     script = { reply("200 OK", "", "body") } })
-  Stream.hashing = hashing
+  Stream.hashing = hashing -- checked: field_fixed
   assert(result.kind == "failed" and result.reason == reason)
   assert(result.algorithm == nil and result.expected == nil and result.actual == nil)
   assert(Fs.read(path) == "old" and #assert(Fs.list(tmp)) == 1)
@@ -1066,12 +1066,12 @@ end
 local function test_download_result_preserves_underlying_url_text_without_classifying_it(tmp: string)
   local open = Http.open
   local reason = url .. ": HTTP 404; sha256 mismatch in transport diagnostic"
-  Http.open = function(_url: string, _opts?: Http.Options): Http.Response?, string
+  Http.open = function(_url: string, _opts?: Http.Options): Http.Response?, string -- checked: field_fixed
     return nil, reason
   end
   local result = Http.download_result(url, tmp .. "/got")
   local ok, why = Http.download(url, tmp .. "/got")
-  Http.open = open
+  Http.open = open -- checked: field_fixed
   assert(result.kind == "failed" and result.reason == reason)
   assert(result.status == nil and result.algorithm == nil)
   assert(not ok and why == reason and #assert(Fs.list(tmp)) == 0)
@@ -1092,7 +1092,7 @@ local function test_download_result_interleaved_publishers_own_their_staged_file
     local published: boolean = false
     local result = Http.download_result(url, path, {
       script = { reply("200 OK", "", "outer") },
-      sha256 = mismatch and string.rep("0", 64) or Hash.hex_sha256("outer"),
+      sha256 = if mismatch then string.rep("0", 64) else Hash.hex_sha256("outer") end,
       cancelled = function(): boolean
         if not published then
           published = true
@@ -1132,14 +1132,14 @@ end
 --- HEAD raise before anything is sent.
 local function test_request_refuses_what_it_would_not_send_as_asked()
   local script = { reply("200 OK", "") }
-  for method, opts in pairs({
+  for method, opts in pairs({ -- checked: cast_refused, literal_shape
       [""] = { script = script },
-      PUT = { method = "POST", script = script },
-      GET = { body = "x", script = script },
-      HEAD = { body = "x", script = script },
+      PUT = { method = "POST", script = script }, -- checked: arms_differ
+      GET = { body = "x", script = script }, -- checked: arms_differ
+      HEAD = { body = "x", script = script }, -- checked: arms_differ
   } as {string:Http.Options}) do
     local ok, why = pcall(Http.request, method, url, opts)
-    assert(not ok and tostring(why):find("Http.request", 1, true), method .. ": " .. tostring(why))
+    assert(not ok and tostring(why):find("Http.request", 1, true), method .. ": " .. tostring(why)) -- checked: or_mix
   end
   local got, trouble = Http.request("PUT", url, { method = "PUT", script = script })
   assert(got ~= nil and got.status == 200, trouble)
@@ -1156,10 +1156,10 @@ end
 --- a POST, raises and names Http.request.
 local function test_get_refuses_another_method_and_a_body()
   local script = { reply("200 OK", "") }
-  for _, opts in ipairs({
-      { method = "PUT", script = script },
-      { method = "HEAD", script = script },
-      { body = "x", script = script },
+  for _, opts in ipairs({ -- checked: cast_refused
+      { method = "PUT", script = script }, -- checked: arms_differ
+      { method = "HEAD", script = script }, -- checked: arms_differ
+      { body = "x", script = script }, -- checked: arms_differ
   } as {Http.Options}) do
     Test.raises(function() Http.get(url, opts) end, "Http.request")
   end
@@ -1345,9 +1345,9 @@ end
 --- absent one: both raise as any other method does.
 local function test_a_method_that_is_false_is_refused_not_taken_for_none()
   local script = { reply("200 OK", "") }
-  local opts = { method = false, script = script } as any as Http.Options
+  local opts = { method = false, script = script } as any as Http.Options -- checked: arms_differ, cast_refused*2
   local ok, why = pcall(Http.get, url, opts)
-  assert(not ok and tostring(why):find("Http.request", 1, true), tostring(why))
+  assert(not ok and tostring(why):find("Http.request", 1, true), tostring(why)) -- checked: or_mix
   ok, why = pcall(Http.request, "PUT", url, opts)
-  assert(not ok and tostring(why):find("leave opts.method out", 1, true), tostring(why))
+  assert(not ok and tostring(why):find("leave opts.method out", 1, true), tostring(why)) -- checked: or_mix
 end

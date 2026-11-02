@@ -11,7 +11,7 @@ local function test_a_borrowed_handle_cannot_install_a_busy_callback()
   for _, db in ipairs(databases) do
     local ok, reason = pcall(function(): any
       db:busy_timeout(0)
-      return nil
+      return nil -- checked: any_use
     end)
     assert(not ok and tostring(reason):find("borrowed handle", 1, true) ~= nil)
     assert(db:exec("SELECT 1"))

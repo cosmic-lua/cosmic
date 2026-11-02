@@ -202,6 +202,6 @@ function Dialect.resolve(names: {string}, registry: {string: types.Def}): Dialec
   return merged, ""
 end
 
-Dialect.registry = { htmx = htmx }
+Dialect.registry = { htmx = htmx } -- checked: field_fixed
 
 return Dialect

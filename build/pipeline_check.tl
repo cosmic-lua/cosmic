@@ -88,7 +88,8 @@ end
 --- The file a line that refuses a count over its ceiling ([`build.ceilings.over`]) is about, if the line is one about declarations
 --- or bodies.
 local function over_file(line: string): string?
-  return line:match("^(%S+): %d+ errors? of %S+ in its %a+, pinned %d+;")
+  return line:match("^(%S+): %d+ errors? of %S+ in its %a+, pinned %d+;") or
+    line:match("^(%S+): %d+ errors? of %S+ in its %a+ on line %d+, marked %d+;")
 end
 
 --- The most locals the main chunk of a module's Lua may hold ([`build.main_locals`]). Lua allows 200, and a file at the limit
@@ -156,7 +157,8 @@ local function asked(build_db: Sqlite.Handle, options: Pipeline.Options, rows: {
         for _, line in ipairs(build:held(result, ceilings)) do
           -- A scope error of a translated module is the translation's (a method moved above a name it reads): no ceiling of
           -- the tree's checks counts it, and the module is refused for it.
-          local scoped = line:match("^%S+: %d+ errors? of (%S+) in its scopes, pinned %d+;")
+          local scoped = line:match("^%S+: %d+ errors? of (%S+) in its scopes, pinned %d+;") or
+            line:match("^%S+: %d+ errors? of (%S+) in its scopes on line %d+, marked %d+;")
           if scoped ~= nil then
             code = scoped
           else

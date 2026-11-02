@@ -20,7 +20,7 @@ local function names_in(source: string, family: string): {string}
   local seen: mut {string:boolean} = {}
   local names: mut {string} = {}
   for name in source:gmatch("%f[%w-](" .. family .. "[%a-]*)") do
-    if not seen[name] then
+    if not seen[name] then -- checked: condition_type
       seen[name] = true
       names[#names + 1] = name
     end
@@ -32,7 +32,7 @@ end
 --- Whether the dialect says something of `name`, or lists it as needing no rule.
 local function classified(table_: dialect.Table, name: string): boolean
   if table_:classify(name) ~= nil then return true end
-  for _, plain in ipairs(dialect.registry.htmx.plain) do
+  for _, plain in ipairs(dialect.registry.htmx.plain) do -- checked: map_field
     if plain == name then return true end
   end
   return false
@@ -64,7 +64,7 @@ local function test_every_attribute_the_vendored_sse_extension_reads_is_classifi
 end
 
 local function test_the_dialect_targets_the_version_served()
-  assert(dialect.registry.htmx.targets == Htmx.version, dialect.registry.htmx.targets .. " ~= " .. Htmx.version)
+  assert(dialect.registry.htmx.targets == Htmx.version, dialect.registry.htmx.targets .. " ~= " .. Htmx.version) -- checked: map_field*2
 end
 
 local function test_the_configuration_keys_htmx_head_writes_are_ones_the_vendored_file_reads()

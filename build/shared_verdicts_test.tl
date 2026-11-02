@@ -73,7 +73,7 @@ local function test_a_census_names_the_parts_the_rows_were_kept_under(tmp: strin
   assert(shared_verdicts.settle(cache, "second", { parts = "runtime r2, harness e2-00000000-t60000",
     kept = {}, used = { "old", "k1" }, failed = {} }, Clock.now_ns()))
   local held = assert(shared_verdicts.held(cache))
-  assert(#held == 2 and held[1].rows == 2 and held[1].parts == now, held[1].parts)
+  assert(#held == 2 and held[1].rows == 2 and held[1].parts == now, held[1].parts) -- checked: nil_not_allowed
   assert(held[2].rows == 1 and held[2].parts == "runtime r2, harness e2-00000000-t60000", held[2].parts)
   shared_verdicts.close(cache)
 end
@@ -95,8 +95,8 @@ local function test_a_verdict_is_kept_by_its_key_alone(tmp: string)
   cache = assert(shared_verdicts.open(path))
   local tables = assert(Sqlite.text_rows(cache.db,
     "SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name"))
-  assert(#tables == 3 and tables[1]:text(1) == "declared_v1" and tables[2]:text(1) == "stores_v1" and
-      tables[3]:text(1) == "verdicts_v4", "an earlier format's table was dropped: " .. tostring(#tables))
+  assert(#tables == 3 and tables[1]:text(1) == "declared_v1" and tables[2]:text(1) == "stores_v1" and -- checked: nil_not_allowed
+      tables[3]:text(1) == "verdicts_v4", "an earlier format's table was dropped: " .. tostring(#tables)) -- checked: nil_not_allowed
   assert(shared_verdicts.declared(cache, "declared") == nil)
   assert(shared_verdicts.settle(cache, "first", { kept = { {
     key = "declared", test = "suite/t_test.tl test_t", hits = "suite/t_test.tl\t1,2,5\n",

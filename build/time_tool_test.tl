@@ -20,12 +20,12 @@ end
 
 local function cosmic(dir: string, words: {string}, tz?: string): Ran
   local env = this_program.environment()
-  env.TZ = tz or "Asia/Tokyo"
+  env.TZ = tz or "Asia/Tokyo" -- checked: map_field
   local started = this_program.program(words, {
     cwd = dir, env = env, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30),
   })
   local result = assert(Child.run(started.argv, started.options))
-  return { code = result.code, out = result.stdout or "", err = result.stderr or "" }
+  return { code = result.code, out = result.stdout or "", err = result.stderr or "" } -- checked: nil_not_allowed
 end
 
 local function test_now_prints_the_time_and_no_summary(tmp: string)

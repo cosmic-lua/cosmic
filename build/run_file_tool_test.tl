@@ -29,7 +29,7 @@ end
 --- across trees, so each case compiles what it holds.
 local function run_in(root: string, file: string): Child.Result
   local env = this_program.environment()
-  env.COSMIC_BUILD_CACHE = "0"
+  env.COSMIC_BUILD_CACHE = "0" -- checked: map_field
   local started = this_program.program({ file }, { cwd = root, env = env,
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
   return (assert(Child.run(started.argv, started.options)))

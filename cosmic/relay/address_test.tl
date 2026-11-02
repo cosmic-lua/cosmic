@@ -379,8 +379,8 @@ local function test_parsing_gives_the_bytes()
     { "1::1.2.3.4", { 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4 } },
   }
   for _, case in ipairs(cases) do
-    local want = case[2] as {integer}
-    assert(table.concat(bytes_of(case[1] as string), ",") == table.concat(want, ","), case[1] as string)
+    local want = case[2] as {integer} -- checked: cast_refused
+    assert(table.concat(bytes_of(case[1] as string), ",") == table.concat(want, ","), case[1] as string) -- checked: cast_refused*2
   end
 end
 

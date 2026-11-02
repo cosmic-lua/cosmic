@@ -75,12 +75,12 @@ local function use(g: Gen): string
         return name
       end
     end
-    return n > 0 and g.seen[g.draw(1, n)] or "print"
+    return n > 0 and g.seen[g.draw(1, n)] or "print" -- checked: and_ternary
   end
   return name
 end
 
-local function gen_list(g: Gen, depth: integer, max: integer)
+local function gen_list(g: Gen, depth: integer, max: integer) -- checked: not_assigned
   local n = 0
   while n == 0 or more(g, n, max) do
     if n > 0 then
@@ -92,7 +92,7 @@ local function gen_list(g: Gen, depth: integer, max: integer)
 end
 
 --- A function literal or the rest of a `local function`: `(params) body end`.
-local function gen_function(g: Gen, depth: integer)
+local function gen_function(g: Gen, depth: integer) -- checked: not_assigned
   local mark = #g.seen
   add(g, "(")
   for i = 1, g.draw(0, 2) do

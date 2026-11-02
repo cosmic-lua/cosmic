@@ -131,7 +131,7 @@ local function test_head_prints_the_status_and_headers()
   assert(ran.code == 0, ran.err)
   assert(ran.out:find("^HTTP 200\n"), ran.out)
   assert(ran.out:find("x-one: 1\n", 1, true) and ran.out:find("a-two: b\n", 1, true), ran.out)
-  assert(ran.out:find("a-two", 1, true) < ran.out:find("x-one", 1, true), "sorted: " .. ran.out)
+  assert(ran.out:find("a-two", 1, true) < ran.out:find("x-one", 1, true), "sorted: " .. ran.out) -- checked: nil_not_allowed
   assert(not ran.out:find("body", 1, true), ran.out)
 end
 
@@ -153,8 +153,8 @@ local function test_head_prints_then_fails_on_a_bad_status()
 end
 
 local function test_a_bad_url_or_command_line_is_a_usage_error()
-  for _, words in ipairs({
-      { "notaurl" }, { "ftp://example.com/x" }, { "http://" }, { "http://@/" }, { "http://:80/" }, { "http://u:p@:80/x" }, {}, { url, "extra" },
+  for _, words in ipairs({ -- checked: cast_refused
+      { "notaurl" }, { "ftp://example.com/x" }, { "http://" }, { "http://@/" }, { "http://:80/" }, { "http://u:p@:80/x" }, {}, { url, "extra" }, -- checked: literal_needs_type
       { url, "--bogus" }, { url, "--sha256", "abc" }, { url, "--json" },
       { url, "--head", "-o", "x" }, { url, "-o", "" },
   } as {{string}}) do
@@ -192,7 +192,7 @@ end
 
 local function test_credentials_never_reach_a_message_or_the_json(tmp: string)
   local secret = "http://user:hunter2@cosmic.test/data"
-  for _, words in ipairs({ { secret }, { secret, "-o", tmp .. "/x" },
+  for _, words in ipairs({ { secret }, { secret, "-o", tmp .. "/x" }, -- checked: cast_refused
       { "--sha256", string.rep("0", 64), secret } } as {{string}}) do
     local ran = run(words, { reply("404 Not Found", "", "no") })
     assert(ran.code == 1, ran.err)
@@ -397,7 +397,7 @@ local function test_different_algorithms_must_both_match(tmp: string)
 end
 
 local function test_bad_hex_in_a_recognized_fragment_is_a_usage_error()
-  for _, fragment in ipairs({ "sha256=abc", "sha256=" .. string.rep("g", 64), "sha256=",
+  for _, fragment in ipairs({ "sha256=abc", "sha256=" .. string.rep("g", 64), "sha256=", -- checked: cast_refused
       "sha512=" .. string.rep("a", 64), "sha256sum=" .. string.rep("a", 65) } as {string}) do
     local ran = run({ url .. "#" .. fragment }, {})
     assert(ran.code == 2 and ran.out == "", fragment .. ": " .. tostring(ran.code) .. ran.err)
@@ -408,7 +408,7 @@ local function test_bad_hex_in_a_recognized_fragment_is_a_usage_error()
 end
 
 local function test_an_unrecognized_fragment_is_dropped()
-  for _, fragment in ipairs({ "", "section", "a=b", "&&", "shape=1", "egg=x&hashtag", "x#y" } as {string}) do
+  for _, fragment in ipairs({ "", "section", "a=b", "&&", "shape=1", "egg=x&hashtag", "x#y" } as {string}) do -- checked: cast_refused
     local ran = run({ url .. "#" .. fragment }, { reply("200 OK", "", "hello") })
     assert(ran.code == 0 and ran.out == "hello", fragment .. ": " .. ran.err)
   end
@@ -420,7 +420,7 @@ end
 
 local function test_a_fragment_that_looks_like_a_checksum_is_refused()
   local hex = Hash.hex_sha256("hello")
-  for _, fragment in ipairs({ "sha1=abc", "SHA256=" .. hex, "sha-256=" .. hex, "sha256:" .. hex,
+  for _, fragment in ipairs({ "sha1=abc", "SHA256=" .. hex, "sha-256=" .. hex, "sha256:" .. hex, -- checked: cast_refused
       "sha256", "md5=abc", "Sha512sum=" .. hex, "egg=x&sha256x=1", "checksum=" .. hex } as {string}) do
     -- no script: a request would fail as exit 1, not the usage error
     local ran = run({ url .. "#" .. fragment }, {})
@@ -431,11 +431,11 @@ end
 
 local function test_download_status_uses_typed_code_instead_of_diagnostic_text(tmp: string)
   local download = Http.download_result
-  Http.download_result = function(_url: string, _path: string, _opts?: Http.Options): Http.DownloadResult
+  Http.download_result = function(_url: string, _path: string, _opts?: Http.Options): Http.DownloadResult -- checked: field_fixed
     return { kind = "http_status", status = 503, reason = "wording may change" }
   end
   local ran = run({ url, "-o", tmp .. "/got" }, {})
-  Http.download_result = download
+  Http.download_result = download -- checked: field_fixed
   assert(ran.code == 1 and ran.err == "cosmic: fetch: " .. url .. ": HTTP 503\n", ran.err)
   assert(ran.out == "" and #assert(Fs.list(tmp)) == 0)
 end
@@ -479,7 +479,7 @@ local function test_trust_flags_reach_the_request(tmp: string)
     { "--roots", "minimal", "--pin", pin, "--pin", pin },
   }
   for _, words in ipairs(usable) do
-    words[#words + 1] = url
+    words[#words + 1] = url -- checked: view_written
     local ran = run(words, { reply("200 OK", "", "hello") })
     assert(ran.code == 0 and ran.out == "hello", table.concat(words, " ") .. ": " .. ran.err)
   end

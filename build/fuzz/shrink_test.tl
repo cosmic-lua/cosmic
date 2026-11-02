@@ -8,13 +8,13 @@ end
 local function test_threshold_search_is_logarithmic()
   local checks = { value = 0 }
   local function fails(values: {integer}): boolean, {Shrink.Draw}
-    checks.value = checks.value + 1
+    checks.value = checks.value + 1 -- checked: map_field*2
     local value = values[1] or 0
     return value >= 600000000, scalar(value, 0, 1000000000)
   end
   local result = Shrink.shrink(scalar(1000000000, 0, 1000000000), fails, 2000)
   assert(support.nth(result.draws, 1).value == 600000000)
-  assert(checks.value == result.tries and checks.value < 200, tostring(checks.value))
+  assert(checks.value == result.tries and checks.value < 200, tostring(checks.value)) -- checked: map_field*3
   assert(result.reason == "exhausted")
   assert(result.cached > 0 and result.improvements > 0)
 end
@@ -66,13 +66,13 @@ local function test_candidates_are_checked_once_per_shrink()
       local name = values[1] and tostring(values[1]) or "empty"
       assert(seen[name] ~= true, "duplicate check: " .. name)
       seen[name] = true
-      checks.value = checks.value + 1
+      checks.value = checks.value + 1 -- checked: map_field*2
       local value = values[1] or 0
       return value >= 70, scalar(value, 0, 100)
     end
     local result = Shrink.shrink(scalar(100, 0, 100), fails, 2000)
     assert(support.nth(result.draws, 1).value == 70)
-    assert(checks.value == result.tries and result.cached > 0)
+    assert(checks.value == result.tries and result.cached > 0) -- checked: map_field
   end
 end
 

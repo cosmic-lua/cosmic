@@ -27,14 +27,14 @@ end
 local function test_an_abbreviated_position_reads_against_the_last()
   local decls = tree.parse(dump)
   local fn = decls[1]
-  local param = fn.children[1]
-  assert(param.file == "core/a.c" and param.line == 4 and param.col == 14)
-  local ret = fn.children[2].children[1]
-  assert(ret.line == 6 and ret.col == 3)
-  local cast = ret.children[1]
-  assert(cast.file == "core/a.c" and cast.line == 6 and cast.col == 10)
+  local param = fn.children[1] -- checked: nil_not_allowed
+  assert(param.file == "core/a.c" and param.line == 4 and param.col == 14) -- checked: nil_not_allowed
+  local ret = fn.children[2].children[1] -- checked: nil_not_allowed*2
+  assert(ret.line == 6 and ret.col == 3) -- checked: nil_not_allowed*2
+  local cast = ret.children[1] -- checked: nil_not_allowed
+  assert(cast.file == "core/a.c" and cast.line == 6 and cast.col == 10) -- checked: nil_not_allowed
   assert(tree.type_of(cast) == "int")
-  assert(decls[2].file == "core/a.c" and decls[2].line == 9)
+  assert(decls[2].file == "core/a.c" and decls[2].line == 9) -- checked: nil_not_allowed*2
 end
 
 local function test_a_sugared_type_reads_both_ways()
@@ -80,7 +80,7 @@ local function test_each_part_of_a_nested_range_is_read()
   }, "\n"))
   assert(#decls == 2, "kept " .. tostring(#decls))
   local paren = decls[1].children[1]
-  assert(paren.file == "<scratch space>" and paren.line == 1, tostring(paren.file))
+  assert(paren.file == "<scratch space>" and paren.line == 1, tostring(paren.file)) -- checked: nil_not_allowed
   assert(paren.text == "'int'", paren.text)
   assert(decls[2].file == "core/a.c" and decls[2].line == 3 and decls[2].col == 2,
     tostring(decls[2].file) .. ":" .. tostring(decls[2].line))

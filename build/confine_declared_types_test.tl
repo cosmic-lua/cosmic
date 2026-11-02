@@ -31,7 +31,7 @@ end
 --- A process started under the stand-in is its pid and no more.
 local function test_a_process_started_under_the_stand_in_is_as_declared(tmp: string)
   honest("build.confine", function()
-    local ran = confine.call(function()
+    local ran = confine.call(function() -- checked: not_assignable
       local started = this_program.program({ "-e", "return" }, { stdout = "capture" })
       assert(Child.run(started.argv, started.options))
     end, nil, { tmp })
@@ -62,16 +62,16 @@ local function tunnels(userinfo?: string)
     local variables: {string:string} = { ALL_PROXY = "socks5h://" ..
         (if userinfo ~= nil then (userinfo .. "@") else "" end) .. "127.0.0.1:" .. tostring(assert(listener.address.port)) }
     local client = Poll.spawn(function()
-      code.value = connect.run({ "host.example", "80" }, {
+      code.value = connect.run({ "host.example", "80" }, { -- checked: map_field
         getenv = function(name: string): string? return variables[name] end,
         err = function(_line: string) end,
         read = function(): string?, string
-          while waiting.value == "" and ended.value ~= true do
+          while waiting.value == "" and ended.value ~= true do -- checked: map_field*2
             local ok, why = Poll.delay(Clock.ms(1))
             if not ok then return nil, why end
           end
-          local data = waiting.value
-          waiting.value = ""
+          local data = waiting.value -- checked: map_field
+          waiting.value = "" -- checked: map_field
           return data, ""
         end,
         write = function(_data: string): boolean, string return true, "" end,
@@ -87,22 +87,22 @@ local function tunnels(userinfo?: string)
       assert(bytes(relay, 3) == "\5\1\2")
       assert(relay:write(RelayWire.socks_method_reply(2)))
       assert(bytes(relay, 1) == "\1")
-      bytes(relay, bytes(relay, 1):byte(1))
-      bytes(relay, bytes(relay, 1):byte(1))
+      bytes(relay, bytes(relay, 1):byte(1)) -- checked: nil_not_allowed
+      bytes(relay, bytes(relay, 1):byte(1)) -- checked: nil_not_allowed
       assert(relay:write("\1\0"))
     end
     local head = bytes(relay, 4)
     assert(head:byte(4) == 3)
     local length = bytes(relay, 1)
-    bytes(relay, length:byte(1) + 2)
+    bytes(relay, length:byte(1) + 2) -- checked: nil_not_allowed
     assert(relay:write(RelayWire.socks_reply("succeeded")))
-    ended.value = true
+    ended.value = true -- checked: map_field
     assert(relay:shutdown("write"))
     assert(client:join(Clock.seconds(4)), "the client did not end")
     local _, _ = relay:close()
     local _, _ = listener:close()
   end)
-  assert(code.value == 0, tostring(code.value))
+  assert(code.value == 0, tostring(code.value)) -- checked: map_field*2
 end
 
 local function test_the_relay_clients_readers_are_as_declared()

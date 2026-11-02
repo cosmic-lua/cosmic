@@ -8,19 +8,19 @@ local function tail(condition: any, message?: any): any...
 end
 
 local function position_of(f: function(): any...): any
-  local ok, message = pcall(f)
+  local ok, message = pcall(f) -- checked: overload_none
   assert(not ok)
   return message
 end
 
 local function test_it_counts_each_call_through_a_tail_call_a_helper_and_a_capture()
-  local capture = assert
+  local capture = assert -- checked: overload_value
   Assertions.reset()
   local before = Assertions.count()
   assert(true)
   capture(true)
   tail(true)
-  pcall(tail, false, "x")
+  pcall(tail, false, "x") -- checked: overload_none
   assert(Assertions.count() == before + 4, "counted " .. tostring(Assertions.count()))
 end
 
@@ -60,13 +60,13 @@ local function test_arguments_after_the_message_are_dropped_from_a_failure()
 end
 
 local function test_a_message_that_is_not_a_string_is_raised_as_it_is()
-  local value = {}
+  local value = {} -- checked: literal_needs_type
   assert(position_of(function() assert(false, value) end) == value)
   assert(position_of(function() assert(false, 42) end) == 42)
 end
 
 local function test_no_condition_is_a_bad_argument()
-  local message = position_of(function() (assert as function(...: any): any...)() end)
+  local message = position_of(function() (assert as function(...: any): any...)() end) -- checked: cast_refused
   assert(tostring(message):find("bad argument #1 to 'assert' (value expected)", 1, true), tostring(message))
 end
 
@@ -78,13 +78,13 @@ end
 --- What `f` does with `...`, called from this one line so that a position
 --- in a failure's message is the same whichever `assert` it is.
 local function outcome(f: function(...: any): any..., ...: any): Packed
-  return table.pack(pcall(function(...: any): any... return f(...) end, ...)) as Packed
+  return table.pack(pcall(function(...: any): any... return f(...) end, ...)) as Packed -- checked: cast_refused, overload_none
 end
 
 --- The same, with the `assert` called in tail position.
 local function tail_outcome(f: function(...: any): any..., ...: any): Packed
   local function call(...: any): any... return f(...) end
-  return table.pack(pcall(call, ...)) as Packed
+  return table.pack(pcall(call, ...)) as Packed -- checked: cast_refused, overload_none
 end
 
 local function same(a: Packed, b: Packed, case: string)
@@ -100,29 +100,29 @@ end
 --- results, the same raised value, the same message and position. A Lua
 --- upgrade that changes `luaB_assert` fails here rather than drifting.
 local function test_it_answers_as_luas_own_assert_does()
-  local value = {}
-  local function hole(): any return nil end
+  local value = {} -- checked: literal_needs_type
+  local function hole(): any return nil end -- checked: any_use
   local cases: {string: Packed} = {
-    ["true"] = table.pack(true) as Packed,
-    ["values"] = table.pack(1, "two", nil, 4) as Packed,
-    ["false"] = table.pack(false) as Packed,
-    ["nil"] = table.pack(nil) as Packed,
-    ["no arguments"] = table.pack() as Packed,
-    ["a message"] = table.pack(false, "m") as Packed,
-    ["a message and more"] = table.pack(nil, "m", "extra", 3) as Packed,
-    ["a format in the message"] = table.pack(false, "%d %s") as Packed,
-    ["a number message"] = table.pack(false, 42) as Packed,
-    ["a table message"] = table.pack(false, value) as Packed,
-    ["a nil message and more"] = table.pack(false, hole(), "x") as Packed,
+    ["true"] = table.pack(true) as Packed, -- checked: cast_refused
+    ["values"] = table.pack(1, "two", nil, 4) as Packed, -- checked: cast_refused
+    ["false"] = table.pack(false) as Packed, -- checked: cast_refused
+    ["nil"] = table.pack(nil) as Packed, -- checked: cast_refused
+    ["no arguments"] = table.pack() as Packed, -- checked: cast_refused
+    ["a message"] = table.pack(false, "m") as Packed, -- checked: cast_refused
+    ["a message and more"] = table.pack(nil, "m", "extra", 3) as Packed, -- checked: cast_refused
+    ["a format in the message"] = table.pack(false, "%d %s") as Packed, -- checked: cast_refused
+    ["a number message"] = table.pack(false, 42) as Packed, -- checked: cast_refused
+    ["a table message"] = table.pack(false, value) as Packed, -- checked: cast_refused
+    ["a nil message and more"] = table.pack(false, hole(), "x") as Packed, -- checked: cast_refused
   }
-  local lua_assert = Assertions.lua_assert as function(...: any): any...
+  local lua_assert = Assertions.lua_assert as function(...: any): any... -- checked: cast_refused
   -- Taken after install, it would be the counting one, held to itself.
-  assert(not rawequal(lua_assert, assert), "build.assertions took the counting assert as Lua's")
+  assert(not rawequal(lua_assert, assert), "build.assertions took the counting assert as Lua's") -- checked: overload_value
   for case, args in pairs(cases) do
     local n = args.n
-    same(outcome(assert, table.unpack(args, 1, n)), outcome(lua_assert,
+    same(outcome(assert, table.unpack(args, 1, n)), outcome(lua_assert, -- checked: overload_value
       table.unpack(args, 1, n)), case)
-    same(tail_outcome(assert, table.unpack(args, 1, n)), tail_outcome(lua_assert,
+    same(tail_outcome(assert, table.unpack(args, 1, n)), tail_outcome(lua_assert, -- checked: overload_value
       table.unpack(args, 1, n)), case .. " (tail call)")
   end
 end

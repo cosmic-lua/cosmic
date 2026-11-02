@@ -784,12 +784,12 @@ local function test_an_edit_to_cosmic_mime_moves_the_signature(tmp: string)
   local handle, result = build_and_write(tmp .. "/a", "world", tmp .. "/out.db")
   local before = assert(writer.signature(handle, result, "binary"))
   local real = Store.bytecode
-  Store.bytecode = function(name: string): string?, string
+  Store.bytecode = function(name: string): string?, string -- checked: field_fixed
     if name == "cosmic.mime" then return "an edited cosmic.mime", "" end
     return real(name)
   end
   local after, trouble = writer.signature(handle, result, "binary")
-  Store.bytecode = real
+  Store.bytecode = real -- checked: field_fixed
   assert(work.close(handle))
   assert(after ~= nil, trouble)
   assert(after ~= before, "cosmic.mime must be part of the signature")

@@ -40,16 +40,16 @@ local function test_a_sealed_database_started_on_the_core_runs_its_main(tmp: str
     assert(name ~= "cosmic.archive", "the fixture's set must leave cosmic.archive out")
   end
   local env = this_program.environment()
-  env.COSMIC_PORTABLE_STARTUP_TEST_READY = nil
-  env.COSMIC_PORTABLE_STARTUP_TEST_GO = nil
+  env.COSMIC_PORTABLE_STARTUP_TEST_READY = nil -- checked: map_field
+  env.COSMIC_PORTABLE_STARTUP_TEST_GO = nil -- checked: map_field
   local r = assert(Child.run({ core, "--database", path, "/nowhere" }, { env = env,
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) }))
   assert(r.ok, "exit " .. tostring(r.code) .. ": " .. tostring(r.stderr))
   local out = fixture.fields(assert(r.stdout))
-  assert(out.main == "fixture.main", tostring(out.main))
-  assert(out.context == "database-v1", tostring(out.context))
-  assert(out.databases == "1", tostring(out.databases))
-  assert(out.outside == "false", "a module outside the sealed set loaded")
+  assert(out.main == "fixture.main", tostring(out.main)) -- checked: map_field*2
+  assert(out.context == "database-v1", tostring(out.context)) -- checked: map_field*2
+  assert(out.databases == "1", tostring(out.databases)) -- checked: map_field*2
+  assert(out.outside == "false", "a module outside the sealed set loaded") -- checked: map_field
 end
 
 --- A database sealed by another core is refused by this one, naming the
@@ -67,9 +67,9 @@ local function test_a_database_sealed_for_another_core_does_not_start(tmp: strin
     { { text = string.rep("0", 64) } }))
   assert(db:close())
   local env = this_program.environment()
-  env.COSMIC_PORTABLE_STARTUP_TEST_READY = nil
-  env.COSMIC_PORTABLE_STARTUP_TEST_GO = nil
+  env.COSMIC_PORTABLE_STARTUP_TEST_READY = nil -- checked: map_field
+  env.COSMIC_PORTABLE_STARTUP_TEST_GO = nil -- checked: map_field
   local r = assert(Child.run({ core, "--database", path }, { env = env,
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) }))
-  assert(not r.ok and tostring(r.stderr):find("core_sha256", 1, true), tostring(r.stderr))
+  assert(not r.ok and tostring(r.stderr):find("core_sha256", 1, true), tostring(r.stderr)) -- checked: or_mix
 end

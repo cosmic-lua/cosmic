@@ -153,7 +153,7 @@ local function tried_from_outside(tmp: string, script: string, filters: string?,
   local seccomp = (status_text or ""):match("\nSeccomp:%s*(%d+)")
   local count = tonumber((status_text or ""):match("\nSeccomp_filters:%s*(%d+)"))
   local unfiltered = seccomp ~= "2" or (filters ~= nil and (count == nil or
-    count <= tonumber(filters)))
+    count <= tonumber(filters))) -- checked: nil_not_allowed
   local networked = devices == nil or select(2, devices:gsub(":", ":")) ~= 1
   local status, wait_trouble = process.waitpid(pid, false)
   if status == nil then return false, "waitpid: " .. wait_trouble end
@@ -278,7 +278,7 @@ function SandboxProbe.markdown(report: SandboxProbe.Report): string
   end
   lines[#lines + 1] = "\n| Host | |\n|---|---|\n"
   for _, pair in ipairs(report.host) do
-    lines[#lines + 1] = "| " .. cell(pair[1]) .. " | " .. cell(pair[2]) .. " |\n"
+    lines[#lines + 1] = "| " .. cell(pair[1]) .. " | " .. cell(pair[2]) .. " |\n" -- checked: index_may_be_nil*2
   end
   local ok, missing = SandboxProbe.enforceable(report)
   lines[#lines + 1] = if ok then "\nConfinement: available.\n" else
@@ -297,7 +297,7 @@ function SandboxProbe.main(_argv: {string}): integer
   local called, outcome = pcall(SandboxProbe.run, tmp)
   local _, _ = Fs.remove_tree(tmp)
   if not called then error(outcome, 0) end
-  assert(Fs.put(Fs.stdout, SandboxProbe.markdown(outcome)))
+  assert(Fs.put(Fs.stdout, SandboxProbe.markdown(outcome))) -- checked: any_use
   return 0
 end
 

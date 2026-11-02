@@ -111,18 +111,18 @@ local function test_a_nested_program_cannot_widen_what_it_was_given(tmp: string)
   local got: mut {string:string} = {}
   for name, outcome in said:gmatch("([%w_]+)=(%w+)") do got[name] = outcome end
   -- The kernel and the filter refuse before a namespace of its own.
-  assert(got.mount_before == "EPERM" and got.unshare_mount_before == "EPERM", said)
+  assert(got.mount_before == "EPERM" and got.unshare_mount_before == "EPERM", said) -- checked: map_field*2
   -- setns, chroot and the namespaces it never makes, whatever it promised.
   for _, name in ipairs({ "setns", "unshare_uts", "unshare_cgroup", "unshare_time", "chroot" }) do
     assert(got[name] == "EPERM", name .. ": " .. said)
   end
   -- Its own it makes and mounts in.
-  assert(got.unshare == "ok" and got.mount_tmpfs == "ok" and got.wrote == "ok", said)
+  assert(got.unshare == "ok" and got.mount_tmpfs == "ok" and got.wrote == "ok", said) -- checked: map_field*3
   -- And what it was given it cannot widen or reveal.
-  assert(got.remount_ro == "EPERM" and got.remount_ro_plain == "EPERM", said)
-  assert(got.remount_bind == "EPERM", said)
+  assert(got.remount_ro == "EPERM" and got.remount_ro_plain == "EPERM", said) -- checked: map_field*2
+  assert(got.remount_bind == "EPERM", said) -- checked: map_field
   for _, name in ipairs({ "umount_ro", "umount_ro_detach", "umount_root" }) do
     assert(got[name] == "EINVAL", name .. ": " .. said)
   end
-  assert(got.wrote_ro == "no", said)
+  assert(got.wrote_ro == "no", said) -- checked: map_field
 end

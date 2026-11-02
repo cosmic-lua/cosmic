@@ -147,7 +147,7 @@ function syntax_read.plan_of(name: string, text: string, path: string, kind: str
   end
   local tests: mut {string} = {}
   if kind == "test" then
-    tests = analysis.tests
+    tests = analysis.tests -- checked: view_as_mut
   elseif kind == "example" then
     for _, example in ipairs(analysis.examples) do tests[#tests + 1] = example.name end
   end
@@ -185,7 +185,8 @@ end
 --- Whether `line` counts the errors of a code ([`build.ceilings.over`]: `file: 2 errors of arity in its bodies; follow the fix
 --- above`), which a list of the errors in an editor, each at its place, has no use for.
 local function counts_errors(line: string): boolean
-  return line:match("^[^:\n]*: %d+ errors? of [%a][%w_]* in its [%a ]+[;,]") ~= nil
+  return line:match("^[^:\n]*: %d+ errors? of [%a][%w_]* in its [%a ]+[;,]") ~= nil or
+    line:match("^[^:\n]*: %d+ errors? of [%a][%w_]* in its %a+ on line %d+[;,]") ~= nil
 end
 
 --- The refusals of the lines `lines`, one each but for the lines that count errors ([`counts_errors`]).
@@ -250,7 +251,7 @@ function syntax_read.generated(compiled: build_module.Plan, pipeline: Pipeline.B
                                listed: function(name: string): boolean): plan.Compiled
   local made = generated_of(compiled, pipeline, hints)
   for _, refusal in ipairs(broken(pipeline, sites, listed)) do
-    made.refusals[#made.refusals + 1] = refusal
+    made.refusals[#made.refusals + 1] = refusal -- checked: view_written
   end
   return made
 end

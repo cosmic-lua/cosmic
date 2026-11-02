@@ -34,7 +34,7 @@
 --- ([`build.error_catalog`]).
 ---
 --- The core never calls `setlocale`, so `%w` in the patterns below is ASCII.
-local find, byte, sub, capture, concat = string.find, string.byte, string.sub, string.match, table.concat
+local find, byte, sub, capture, concat = string.find, string.byte, string.sub, string.match, table.concat -- checked: overload_value
 local math_type = math.type
 
 local record Lexer
@@ -286,30 +286,30 @@ end
 -- (7), `-` (8), `.` (9), `:` (10) or `[` (11). Any other byte is looked at
 -- singly.
 local class: mut {integer: integer} = {}
-for c = byte("a"), byte("z") do class[c] = 1 end
-for c = byte("A"), byte("Z") do class[c] = 1 end
-class[byte("_")] = 1
+for c = byte("a"), byte("z") do class[c] = 1 end -- checked: float_key -- untyped: call*2
+for c = byte("A"), byte("Z") do class[c] = 1 end -- checked: float_key -- untyped: call*2
+class[byte("_")] = 1 -- untyped: call
 for _, c in ipairs({ 32, 9, 11, 12 }) do class[c] = 2 end
 class[10] = 3
 class[13] = 3
-for c = byte("0"), byte("9") do class[c] = 5 end
+for c = byte("0"), byte("9") do class[c] = 5 end -- checked: float_key -- untyped: call*2
 class[34] = 6
 class[39] = 6
 
 -- The bytes that begin an operator of one byte or two, with the bytes that
 -- may follow to make it two.
 local second: {integer: {integer: boolean}} = {
-  [byte("=")] = { [byte("=")] = true },
-  [byte("~")] = { [byte("=")] = true },
-  [byte("<")] = { [byte("=")] = true, [byte("<")] = true },
-  [byte(">")] = { [byte("=")] = true, [byte(">")] = true },
-  [byte("/")] = { [byte("/")] = true },
+  [byte("=")] = { [byte("=")] = true }, -- untyped: call*2
+  [byte("~")] = { [byte("=")] = true }, -- untyped: call*2
+  [byte("<")] = { [byte("=")] = true, [byte("<")] = true }, -- untyped: call*3
+  [byte(">")] = { [byte("=")] = true, [byte(">")] = true }, -- untyped: call*3
+  [byte("/")] = { [byte("/")] = true }, -- untyped: call*2
 }
 for c in pairs(second) do class[c] = 7 end
-class[byte("-")] = 8
-class[byte(".")] = 9
-class[byte(":")] = 10
-class[byte("[")] = 11
+class[byte("-")] = 8 -- untyped: call
+class[byte(".")] = 9 -- untyped: call
+class[byte(":")] = 10 -- untyped: call
+class[byte("[")] = 11 -- untyped: call
 
 local bracket_kinds: {string: Lexer.Kind} = {
   ["("] = "(", [")"] = ")", ["{"] = "{", ["}"] = "}", ["]"] = "]", [","] = ",", ["?"] = "?",
@@ -318,18 +318,18 @@ local bracket_kinds: {string: Lexer.Kind} = {
 local one_text: mut {integer: string} = {}
 local one_kind: mut {integer: Lexer.Kind} = {}
 for text, kind in pairs(bracket_kinds) do
-  one_text[byte(text)] = text
-  one_kind[byte(text)] = kind
-  class[byte(text)] = 4
+  one_text[byte(text)] = text -- untyped: call
+  one_kind[byte(text)] = kind -- untyped: call
+  class[byte(text)] = 4 -- untyped: call
 end
 for _, text in ipairs({ "=", "~", "<", ">", "/" }) do
-  one_text[byte(text)] = text
+  one_text[byte(text)] = text -- untyped: call
 end
 
 local simple_escape: {integer: string} = {
-  [byte("a")] = "\a", [byte("b")] = "\b", [byte("f")] = "\f", [byte("n")] = "\n",
-  [byte("r")] = "\r", [byte("t")] = "\t", [byte("v")] = "\v", [byte("\\")] = "\\",
-  [byte("\"")] = "\"", [byte("'")] = "'",
+  [byte("a")] = "\a", [byte("b")] = "\b", [byte("f")] = "\f", [byte("n")] = "\n", -- untyped: call*4
+  [byte("r")] = "\r", [byte("t")] = "\t", [byte("v")] = "\v", [byte("\\")] = "\\", -- untyped: call*4
+  [byte("\"")] = "\"", [byte("'")] = "'", -- untyped: call*2
 }
 
 local NEWLINE <const> = 10
@@ -347,7 +347,7 @@ end
 --- A byte or character as the messages show it: itself when it is printable
 --- ASCII or a whole UTF-8 character, else each of its bytes as `\xNN`.
 local function shown(text: string): string
-  local b = byte(text)
+  local b = byte(text) -- untyped: call
   if #text == 1 and b >= 32 and b < 127 then
     return text
   end
@@ -356,7 +356,7 @@ local function shown(text: string): string
   end
   local hex: mut {string} = {}
   for i = 1, #text do
-    hex[i] = string.format("\\x%02X", byte(text, i))
+    hex[i] = string.format("\\x%02X", byte(text, i)) -- untyped: call
   end
   return concat(hex)
 end
@@ -364,11 +364,11 @@ end
 --- The length of the line break that begins at `i` of `text`, 0 where none
 --- does. As in Lua, `\n`, `\r`, `\r\n` and `\n\r` are each one.
 local function break_at(text: string, i: integer): integer
-  local c = byte(text, i)
+  local c = byte(text, i) -- untyped: call
   if c ~= NEWLINE and c ~= CARRIAGE_RETURN then
     return 0
   end
-  local d = byte(text, i + 1)
+  local d = byte(text, i + 1) -- untyped: call
   if (d == NEWLINE or d == CARRIAGE_RETURN) and d ~= c then
     return 2
   end
@@ -450,7 +450,7 @@ end
 --- Where the escape that begins at the backslash `s` of `source` ends, and
 --- what is wrong with it: "" for a good escape, else the fix for it.
 local function check_escape(source: string, s: integer): integer, string
-  local c = byte(source, s + 1)
+  local c = byte(source, s + 1) -- untyped: call
   if c == nil then
     return s, ""
   end
@@ -458,9 +458,9 @@ local function check_escape(source: string, s: integer): integer, string
     return s + 1, ""
   elseif c == NEWLINE or c == CARRIAGE_RETURN then
     return s + break_at(source, s + 1), ""
-  elseif c == byte("z") then
+  elseif c == byte("z") then -- untyped: call
     return run_end(source, "^[ \t\r\n\v\f]*", s + 2), ""
-  elseif c == byte("x") then
+  elseif c == byte("x") then -- untyped: call
     if find(source, "^%x%x", s + 2) then
       return s + 3, ""
     end
@@ -471,7 +471,7 @@ local function check_escape(source: string, s: integer): integer, string
       return e, "a decimal escape is at most `\\255`: write a character past 255 as `\\u{...}`, as `\\u{100}`"
     end
     return e, ""
-  elseif c == byte("u") then
+  elseif c == byte("u") then -- untyped: call
     local _, e, digits = find(source, "^{(%x+)}", s + 2)
     if e ~= nil and digits ~= nil then
       local significant = digits:gsub("^0+", "")
@@ -503,13 +503,13 @@ local function read_string(source: string, pos: integer, quote: integer
     if not s then
       return 0, #source, bad_at, bad_length, bad_fix
     end
-    local c = byte(source, s)
+    local c = byte(source, s) -- untyped: call
     if c == quote then
       return s, s, bad_at, bad_length, bad_fix
     elseif c == NEWLINE or c == CARRIAGE_RETURN then
       return 0, s - 1, bad_at, bad_length, bad_fix
     end
-    if byte(source, s + 1) == nil then
+    if byte(source, s + 1) == nil then -- untyped: call
       return 0, s, bad_at, bad_length, bad_fix
     end
     local e, fix = check_escape(source, s)
@@ -534,7 +534,7 @@ local function decode(inner: string): string
     if s > i then
       out[#out + 1] = sub(inner, i, s - 1)
     end
-    local c = byte(inner, s + 1)
+    local c = byte(inner, s + 1) -- untyped: call
     local text: string
     local e = s + 1
     local plain = simple_escape[c]
@@ -543,13 +543,13 @@ local function decode(inner: string): string
     elseif c == NEWLINE or c == CARRIAGE_RETURN then
       text = "\n"
       e = s + break_at(inner, s + 1)
-    elseif c == byte("z") then
+    elseif c == byte("z") then -- untyped: call
       text = ""
       e = run_end(inner, "^[ \t\r\n\v\f]*", s + 2)
-    elseif c == byte("x") then
+    elseif c == byte("x") then -- untyped: call
       text = string.char(assert(math.tointeger(assert(tonumber(sub(inner, s + 2, s + 3), 16)))))
       e = s + 3
-    elseif c == byte("u") then
+    elseif c == byte("u") then -- untyped: call
       local _, ue, digits = find(inner, "^{(%x+)}", s + 2)
       assert(ue ~= nil and digits ~= nil, "a good `\\u` escape has braces")
       text = utf8.char(assert(math.tointeger(assert(tonumber(digits, 16)))))
@@ -569,16 +569,16 @@ end
 --- digits, hexadecimal digits, dots and `_`, an exponent with its sign, and then
 --- the letters and `_` that make it malformed.
 local function numeral_end(source: string, pos: integer): integer
-  local hex = byte(source, pos) == 48 and (byte(source, pos + 1) == 120 or byte(source, pos + 1) == 88)
+  local hex = byte(source, pos) == 48 and (byte(source, pos + 1) == 120 or byte(source, pos + 1) == 88) -- untyped: call*3
   local i = if hex then pos + 2 else pos end
   while true do
-    local c = byte(source, i)
+    local c = byte(source, i) -- untyped: call
     if c == nil then
       break
     end
     if hex and (c == 80 or c == 112) or not hex and (c == 69 or c == 101) then
       i = i + 1
-      local sign = byte(source, i)
+      local sign = byte(source, i) -- untyped: call
       if sign == 43 or sign == 45 then
         i = i + 1
       end
@@ -647,7 +647,7 @@ function Lexer.lex(source: string, name: string): Lexer.Lexed
   -- Each branch that reads a token gives its `kind`, its `text` and the offset `e` of its last byte, and the foot of
   -- the loop makes the token. What only some tokens carry is entered here, under the number of the token to come.
   while pos <= len do
-    local b = byte(source, pos)
+    local b = byte(source, pos) -- untyped: call
     local c = class[b]
     local first_line = line
     local kind: Lexer.Kind? = nil
@@ -661,7 +661,7 @@ function Lexer.lex(source: string, name: string): Lexer.Lexed
       kind = if words[text] == true then "keyword" else "identifier" end
     elseif c == 2 then
       pos = pos + 1
-      if class[byte(source, pos)] == 2 then
+      if class[byte(source, pos)] == 2 then -- untyped: call
         pos = find(source, "[^ \t\v\f]", pos + 1) or len + 1
       end
     elseif c == 4 then
@@ -678,7 +678,7 @@ function Lexer.lex(source: string, name: string): Lexer.Lexed
     elseif c == 7 then
       kind = "op"
       local follows = second[b]
-      if follows ~= nil and follows[byte(source, pos + 1)] == true then
+      if follows ~= nil and follows[byte(source, pos + 1)] == true then -- untyped: call
         e = pos + 1
         text = sub(source, pos, e)
       else
@@ -687,7 +687,7 @@ function Lexer.lex(source: string, name: string): Lexer.Lexed
           text = fixed
         end
       end
-    elseif c == 8 and byte(source, pos + 1) ~= 45 then
+    elseif c == 8 and byte(source, pos + 1) ~= 45 then -- untyped: call
       kind = "op"
       text = "-"
     elseif c == 8 then
@@ -704,18 +704,18 @@ function Lexer.lex(source: string, name: string): Lexer.Lexed
           text = text_to_end
           e = len
           mark_end(tokens, n + 1, line, x, len - pos + 1, end_y, end_x)
-          add_error(errors, name, "unterminated_long_comment", "unfinished long comment",
+          add_error(errors, name, "unterminated_long_comment", "unfinished long comment", -- checked: view_as_mut
             "write line comments, which begin each line with `--`; a long comment is not in the grammar" ..
               " and this one has no closing `" .. close .. "`", pos, len - pos + 1, line, x)
           line, line_start = yend, yend_start
         else
           local comment_text = sub(source, pos, ce)
           local comments = pending or {}
-          comments[#comments + 1] = {
+          comments[#comments + 1] = { -- checked: view_written
             text = comment_text, offset = pos, length = ce - pos + 1, y = line, x = x,
           }
           pending = comments
-          add_error(errors, name, "long_comment", "long comments are not in the grammar",
+          add_error(errors, name, "long_comment", "long comments are not in the grammar", -- checked: view_as_mut
             "write line comments: begin each line of the comment with `--`", pos, ce - pos + 1, line, x)
           line, line_start = advance_lines(tokens, comment_text, pos, line, line_start)
           pos = ce + 1
@@ -726,14 +726,14 @@ function Lexer.lex(source: string, name: string): Lexer.Lexed
         local comment: Lexer.Comment = {
           text = sub(source, pos, ce), offset = pos, length = ce - pos + 1, y = line, x = x,
         }
-        comments[#comments + 1] = comment
+        comments[#comments + 1] = comment -- checked: view_written
         pending = comments
         pos = ce + 1
       end
     elseif c == 6 then
       local x = pos - line_start + 1
       local s = find(source, if b == 34 then "[\"\\\r\n]" else "['\\\r\n]" end, pos + 1)
-      if s and byte(source, s) == b then
+      if s and byte(source, s) == b then -- checked: condition_type -- untyped: call
         -- No escape and no line break: the common string, on one line.
         kind = "string"
         text = sub(source, pos, s)
@@ -756,7 +756,7 @@ function Lexer.lex(source: string, name: string): Lexer.Lexed
         mark_end(tokens, n + 1, line, x, stop - pos + 1, end_y, end_x)
         if close == 0 then
           local quote = if b == 34 then "\"" else "'" end
-          add_error(errors, name, "unterminated_string", "unterminated string",
+          add_error(errors, name, "unterminated_string", "unterminated string", -- checked: view_as_mut
             "close the string with a matching `" .. quote .. "` before the end of its line; to carry it onto the" ..
               " next line end this line with `\\`, or write a long string `[[ ... ]]`",
             pos, stop - pos + 1, line, x)
@@ -770,13 +770,13 @@ function Lexer.lex(source: string, name: string): Lexer.Lexed
             end
             bad_line, bad_start = bad_line + 1, following
           end
-          add_error(errors, name, "bad_escape",
+          add_error(errors, name, "bad_escape", -- checked: view_as_mut
             "invalid escape `\\" .. shown(sub(source, bad_at + 1, bad_at + bad_length - 1)) .. "`",
             bad_fix, bad_at, bad_length, bad_line, bad_at - bad_start + 1)
         end
         line, line_start = yend, yend_start
       end
-    elseif c == 5 or (c == 9 and (byte(source, pos + 1) or 0) >= 48 and (byte(source, pos + 1) or 0) <= 57) then
+    elseif c == 5 or (c == 9 and (byte(source, pos + 1) or 0) >= 48 and (byte(source, pos + 1) or 0) <= 57) then -- untyped: call*2
       local ne = numeral_end(source, pos)
       local number_text = sub(source, pos, ne)
       local x = pos - line_start + 1
@@ -789,16 +789,16 @@ function Lexer.lex(source: string, name: string): Lexer.Lexed
         if plain ~= nil and find(number_text, "_", 1, true) ~= nil then
           number_kind = if math_type(plain) == "integer" then "integer" else "number" end
           value = plain
-          add_error(errors, name, "digit_separator", "`_` in a number is not in the grammar",
+          add_error(errors, name, "digit_separator", "`_` in a number is not in the grammar", -- checked: view_as_mut
             "write the number without `_`: `" .. stripped .. "`", pos, ne - pos + 1, line, x)
         else
-          add_error(errors, name, "malformed_number", "malformed number `" .. number_text .. "`", malformed_fix,
+          add_error(errors, name, "malformed_number", "malformed number `" .. number_text .. "`", malformed_fix, -- checked: view_as_mut
             pos, ne - pos + 1, line, x)
         end
       else
         number_kind = if math_type(value) == "integer" then "integer" else "number" end
         if find(number_text, "^0[xX]") and find(number_text, "[%.pP]") then
-          add_error(errors, name, "hex_float", "a hexadecimal float is not in the grammar",
+          add_error(errors, name, "hex_float", "a hexadecimal float is not in the grammar", -- checked: view_as_mut
             hex_float_fix(value), pos, ne - pos + 1, line, x)
         end
       end
@@ -809,10 +809,10 @@ function Lexer.lex(source: string, name: string): Lexer.Lexed
         tokens.number[n + 1] = value
       end
     elseif c == 9 then
-      if byte(source, pos + 1) == 46 then
+      if byte(source, pos + 1) == 46 then -- untyped: call
         kind = "op"
         e = pos + 1
-        if byte(source, pos + 2) == 46 then
+        if byte(source, pos + 2) == 46 then -- untyped: call
           kind = "..."
           e = pos + 2
         end
@@ -822,7 +822,7 @@ function Lexer.lex(source: string, name: string): Lexer.Lexed
         text = "."
       end
     elseif c == 10 then
-      if byte(source, pos + 1) ~= 58 then
+      if byte(source, pos + 1) ~= 58 then -- untyped: call
         kind = ":"
         text = ":"
       else
@@ -831,7 +831,7 @@ function Lexer.lex(source: string, name: string): Lexer.Lexed
         e = le or pos + 1
         kind = "$ERR$"
         text = sub(source, pos, e)
-        add_error(errors, name, "label_or_goto",
+        add_error(errors, name, "label_or_goto", -- checked: view_as_mut
           if label then "the label `" .. text .. "` is not in the grammar" else "`::` is not in the grammar" end,
           "delete the label, and write `continue` where a `goto" .. (if label then " " .. label else "" end) ..
             "` skipped the rest of a pass of a loop; restructure any other jump with an `if` around the code to" ..
@@ -857,7 +857,7 @@ function Lexer.lex(source: string, name: string): Lexer.Lexed
           end
           value = contents
         else
-          add_error(errors, name, "unterminated_long_string", "unterminated long string",
+          add_error(errors, name, "unterminated_long_string", "unterminated long string", -- checked: view_as_mut
             "close the string with `" .. close .. "`", pos, last - pos + 1, line, x)
         end
         kind = if cs then "string" else "$ERR$" end
@@ -878,13 +878,13 @@ function Lexer.lex(source: string, name: string): Lexer.Lexed
       text = sub(source, pos, e)
       local x = pos - line_start + 1
       if b == 59 then
-        add_error(errors, name, "semicolon", "`;` is not in the grammar",
+        add_error(errors, name, "semicolon", "`;` is not in the grammar", -- checked: view_as_mut
           "delete the `;`: a statement needs no terminator and the fields of a table are separated by `,`",
           pos, 1, line, x)
       else
         local fix = "delete it; a character outside Lua's syntax can stand only inside a string or a comment"
         if b == 33 then
-          fix = if byte(source, pos + 1) == 61 then "write `~=` for \"not equal\"" else "write `not` for negation" end
+          fix = if byte(source, pos + 1) == 61 then "write `~=` for \"not equal\"" else "write `not` for negation" end -- untyped: call
         elseif b >= 128 then
           if text == "\239\187\191" then
             fix = if pos == 1 then "delete the byte order mark at the start of the file" else
@@ -900,7 +900,7 @@ function Lexer.lex(source: string, name: string): Lexer.Lexed
         elseif text == "\239\187\191" then
           what = "byte order mark"
         end
-        add_error(errors, name, "stray_byte", "stray " .. what, fix, pos, e - pos + 1, line, x)
+        add_error(errors, name, "stray_byte", "stray " .. what, fix, pos, e - pos + 1, line, x) -- checked: view_as_mut
       end
     end
     if kind ~= nil then
@@ -1040,13 +1040,13 @@ function Lexer.token(tokens: Lexer.Tokens, i: integer): Lexer.Token
   }
 end
 
-Lexer.reserved = reserved_set
-Lexer.codes = {
+Lexer.reserved = reserved_set -- checked: field_fixed
+Lexer.codes = { -- checked: field_fixed
   "label_or_goto", "semicolon", "long_comment", "unterminated_long_comment",
   "digit_separator", "hex_float", "malformed_number", "unterminated_string",
   "unterminated_long_string", "bad_escape", "stray_byte",
 }
-Lexer.added = added_words
-Lexer.declaration_words = { "record", "interface", "class", "enum", "type" }
+Lexer.added = added_words -- checked: field_fixed
+Lexer.declaration_words = { "record", "interface", "class", "enum", "type" } -- checked: field_fixed
 
 return Lexer

@@ -166,11 +166,11 @@ local function test_parse_refuses_a_space_or_control_byte_naming_url_escape()
   assert(p == nil)
   assert(why == "url: the URL holds a space at byte 11; escape a path segment or query value with Url.escape", why)
   p, why = Url.parse("http://h/\0")
-  assert(p == nil and why:find("holds a NUL at byte 10;", 1, true), why)
+  assert(p == nil and why:find("holds a NUL at byte 10;", 1, true), why) -- checked: or_mix
   p, why = Url.parse("http://h/?a=\n")
-  assert(p == nil and why:find("holds control byte 0x0a at byte 13;", 1, true), why)
+  assert(p == nil and why:find("holds control byte 0x0a at byte 13;", 1, true), why) -- checked: or_mix
   p, why = Url.parse("http://h\127/")
-  assert(p == nil and why:find("holds control byte 0x7f at byte 9;", 1, true), why)
+  assert(p == nil and why:find("holds control byte 0x7f at byte 9;", 1, true), why) -- checked: or_mix
 end
 
 local function test_parse_keeps_bytes_past_ascii_as_written()
@@ -221,7 +221,7 @@ local function test_decode_query_keeps_order_and_repeated_names()
   assert(table.concat(Url.query_all(q, "a"), ",") == "1,3,")
   assert(Url.query_first(q, "z") == nil and Url.query_last(q, "z") == nil)
   assert(#Url.query_all(q, "z") == 0)
-  Url.query_all(q, "a")[1] = "changed"
+  Url.query_all(q, "a")[1] = "changed" -- checked: view_written
   assert(Url.query_first(q, "a") == "1")
 end
 
@@ -275,12 +275,12 @@ local function test_encode_query_writes_plus_for_space_and_round_trips()
   local q = decoded(text, { utf8 = false })
   assert(#q.pairs == #pairs_)
   for i, p in ipairs(pairs_) do
-    assert(q.pairs[i].name == p.name and q.pairs[i].value == p.value)
+    assert(q.pairs[i].name == p.name and q.pairs[i].value == p.value) -- checked: nil_not_allowed*2
   end
 end
 
 local function test_encode_query_raises_on_a_value_that_is_no_string()
-  Test.raises(function() Url.encode_query({ { name = "a", value = 1 as string } }) end)
+  Test.raises(function() Url.encode_query({ { name = "a", value = 1 as string } }) end) -- checked: cast_refused
 end
 
 --- RFC 3986's own examples (section 5.4), normal and abnormal, against

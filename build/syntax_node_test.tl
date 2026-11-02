@@ -24,7 +24,7 @@ end
 local function test_a_node_reads_its_place_from_its_tokens()
   local chunk = parsed("local x = f(1,\n  2)\n")
   local stat = chunk.body.stats[1]
-  assert((stat.kind == "Local"))
+  assert((stat.kind == "Local")) -- checked: nil_not_allowed
   local span = Node.span(chunk, stat)
   assert(span.y == 1 and span.x == 1 and span.yend == 2 and span.xend == 4, tostring(span.y) .. ":" .. tostring(span.x))
   local range = Node.range(chunk, stat)
@@ -65,9 +65,9 @@ local function test_a_chain_of_any_length_is_walked()
   local chunk = parsed("local a = 1\nreturn " .. table.concat(operands, " + ") .. "\n")
   local seen = { count = 0 }
   Node.walk(chunk, function(_node: Ast.Node)
-    seen.count = seen.count + 1
+    seen.count = seen.count + 1 -- checked: map_field*2
   end)
-  assert(seen.count > 60000, tostring(seen.count))
+  assert(seen.count > 60000, tostring(seen.count)) -- checked: map_field*2
 end
 
 local function test_the_parent_of_each_node_is_the_node_that_holds_it()
@@ -75,7 +75,7 @@ local function test_the_parent_of_each_node_is_the_node_that_holds_it()
   local parents = Node.parents(chunk)
   assert(parents[Node.base(chunk).id] == nil)
   local stat = chunk.body.stats[1]
-  assert((stat.kind == "Local"))
+  assert((stat.kind == "Local")) -- checked: nil_not_allowed
   local call = assert(stat.values[1])
   assert((call.kind == "Call"))
   assert(parents[Node.base(call).id] == stat and parents[Node.base(assert(call.args[1])).id] == call)
@@ -88,7 +88,7 @@ local function test_a_name_is_resolved_against_the_globals_given()
   local scoped = Node.scope(chunk, "t.tl", { b = { space = "value", const = true } })
   assert(#scoped.errors == 0 and scoped.globals["b"] ~= nil)
   local bare = Node.scope(chunk, "t.tl")
-  assert(bare.errors[1] ~= nil and bare.errors[1].code == "unknown_variable")
+  assert(bare.errors[1] ~= nil and bare.errors[1].code == "unknown_variable") -- checked: nil_not_allowed
 end
 
 local function required(source: string): string

@@ -7,7 +7,7 @@ local Web = require("cosmic.web")
 
 Test.policy{ loopback = { "127.0.0.1" } }
 
-local Example = {}
+local Example = {} -- checked: literal_needs_type
 
 --- [`Web.serve`] runs an app over the HTTP server until it is stopped: it
 --- runs the app's `lifespan` first and its cleanup after the last request,
@@ -47,4 +47,4 @@ function Example.with_server()
   end)
 end
 
-return Example
+return Example -- checked: export_not_declared

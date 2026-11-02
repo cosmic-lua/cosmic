@@ -4,7 +4,7 @@
 local Sandbox = require("cosmic.sandbox")
 local PolicyJson = require("cosmic.policy")
 
-local Example = {}
+local Example = {} -- checked: literal_needs_type
 
 --- A policy read from JSON is checked as it is read: a letter out of
 --- order, or a key the policy does not have, is a failure naming the
@@ -37,4 +37,4 @@ function Example.encode()
   assert(PolicyJson.encode((assert(PolicyJson.decode(text)))) == text)
 end
 
-return Example
+return Example -- checked: export_not_declared

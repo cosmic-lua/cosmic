@@ -31,7 +31,7 @@ local function draw_text(src: Fuzz.Source): string
     head = head .. "\r\n" .. Fuzz.pick(src, CHARSETS) .. "\r\n"
     local body: mut {string} = {}
     while Fuzz.more(src, #body, 5) do
-      body[#body + 1] = src:int(0, 3) == 0 and Fuzz.bytes(src, 40) or Fuzz.pick(src, PIECES)
+      body[#body + 1] = if src:int(0, 3) == 0 then Fuzz.bytes(src, 40) else Fuzz.pick(src, PIECES) end
     end
     out[#out + 1] = head .. table.concat(body) .. "\r\n"
   end
@@ -45,10 +45,10 @@ local function test_any_multipart_body_is_bounded_and_leaves_no_file(tmp: string
   assert(Fs.mkdirs(uploads))
   local app: Web.App
   -- What the handler is told to read with, and what it read.
-  local handler = { opts = nil as Types.InputOptions?, outcome = nil as Types.Parsed<Input.Multipart>? }
+  local handler = { opts = nil as Types.InputOptions?, outcome = nil as Types.Parsed<Input.Multipart>? } -- checked: cast_refused*2
   app = Web.app{ routes = { Web.post("/x", function(req: Web.Request): Web.Response
-    local parsed = Input.multipart(req, handler.opts)
-    handler.outcome = parsed
+    local parsed = Input.multipart(req, handler.opts) -- checked: map_field
+    handler.outcome = parsed -- checked: map_field
     local value = parsed.value
     if value ~= nil then
       -- What a handler could still read while the request lasts.
@@ -80,22 +80,22 @@ local function test_any_multipart_body_is_bounded_and_leaves_no_file(tmp: string
       local max_field_bytes = assert(math.tointeger(tonumber(f[3])))
       local max_files = assert(math.tointeger(tonumber(f[4])))
       local max_parts = assert(math.tointeger(tonumber(f[5])))
-      handler.opts = { dir = uploads, max_file_bytes = max_file_bytes, max_field_bytes = max_field_bytes,
+      handler.opts = { dir = uploads, max_file_bytes = max_file_bytes, max_field_bytes = max_field_bytes, -- checked: arms_differ, map_field
         max_files = max_files, max_parts = max_parts, max_bytes = 600 }
       local chunked = f[6] == "1"
-      handler.outcome = nil
+      handler.outcome = nil -- checked: map_field
       local raw: Server.Request = { method = "POST", target = "/x", path = "/x", query = "", version = "HTTP/1.1",
         headers = { host = "x", ["content-type"] = "multipart/form-data; boundary=" .. B },
         body = Stream.from_string(text), length = if not chunked then #text else nil end }
       local ok, reply = pcall(app.handle, raw)
       if not ok then return false, "raised: " .. tostring(reply) end
-      if reply.status ~= 204 then return false, "the handler faulted: " .. reply.status end
+      if reply.status ~= 204 then return false, "the handler faulted: " .. reply.status end -- checked: any_use*2
       local left = assert(Fs.list(uploads))
       if #left ~= 0 then return false, "left behind: " .. table.concat(left, ", ") end
-      local read = assert(handler.outcome, "the handler read nothing")
+      local read = assert(handler.outcome, "the handler read nothing") -- checked: map_field
       local invalid = read.invalid
       if invalid ~= nil then
-        if read.value ~= nil or not ALLOWED[invalid.status] then
+        if read.value ~= nil or not ALLOWED[invalid.status] then -- checked: condition_type
           return false, "a bad refusal: " .. invalid.status
         end
         Fuzz.label("refused_" .. invalid.status)

@@ -129,10 +129,10 @@ end
 --- `run` starts afresh.
 local function test_an_error_ends_the_run_and_closes_the_rest()
   local closed: boolean = false
-  local closer_mt: metatable<Closer> = { __close = function() closed = true end }
+  local closer_mt: metatable<Closer> = { __close = function() closed = true end } -- checked: literal_missing
   local ok, err: boolean, any = pcall(Poll.run, function()
     Poll.spawn(function()
-      local _ <close> = setmetatable({} as Closer, closer_mt)
+      local _ <close> = setmetatable({} as Closer, closer_mt) -- checked: cast_refused, setmetatable_call
       assert(Poll.delay(Clock.seconds(1)))
     end)
     assert(Poll.delay(0))
@@ -209,7 +209,7 @@ end
 
 local function test_a_yield_of_its_own_raises()
   Test.raises(function()
-    Poll.run(function() coroutine.yield() end)
+    Poll.run(function() coroutine.yield() end) -- checked: field_unknown
   end, "yielded other than through cosmic.poll")
 end
 
@@ -227,17 +227,17 @@ local function test_many_tasks_wait_on_descriptors_at_once(tmp: string)
   Poll.run(function()
     for i = 1, count do
       Poll.spawn(function()
-        assert(Poll.readable(readers[i], Clock.seconds(5)))
-        got[i] = assert(sys.read(readers[i], 16))
+        assert(Poll.readable(readers[i], Clock.seconds(5))) -- checked: index_may_be_nil
+        got[i] = assert(sys.read(readers[i], 16)) -- checked: index_may_be_nil
       end)
     end
     assert(Poll.delay(0))
-    for i = count, 1, -1 do assert(assert(sys.write(writers[i], tostring(i))) > 0) end
+    for i = count, 1, -1 do assert(assert(sys.write(writers[i], tostring(i))) > 0) end -- checked: index_may_be_nil
   end)
   for i = 1, count do
     assert(got[i] == tostring(i), "task " .. tostring(i) .. " read " .. tostring(got[i]))
-    sys.close(readers[i])
-    sys.close(writers[i])
+    sys.close(readers[i]) -- checked: index_may_be_nil
+    sys.close(writers[i]) -- checked: index_may_be_nil
   end
 end
 
@@ -363,10 +363,10 @@ end
 --- outside a task would.
 local function test_a_raising_task_closes_its_own_close_variables()
   local closed: boolean = false
-  local closer_mt: metatable<Closer> = { __close = function() closed = true end }
+  local closer_mt: metatable<Closer> = { __close = function() closed = true end } -- checked: literal_missing
   Test.raises(function()
     Poll.run(function()
-      local _ <close> = setmetatable({} as Closer, closer_mt)
+      local _ <close> = setmetatable({} as Closer, closer_mt) -- checked: cast_refused, setmetatable_call
       error("broken", 0)
     end)
   end, "broken")
@@ -420,7 +420,7 @@ local function test_in_task_answers_only_in_a_task()
   local nested: boolean = true
   Poll.run(function()
     inside = Poll.in_task()
-    nested = coroutine.wrap(function(): boolean return Poll.in_task() end)() as boolean
+    nested = coroutine.wrap(function(): boolean return Poll.in_task() end)() as boolean -- checked: cast_refused
   end)
   assert(inside and not nested, tostring(inside) .. " " .. tostring(nested))
 end
@@ -449,7 +449,7 @@ end
 local function test_wake_answers_the_waits_on_a_descriptor_as_ready(tmp: string)
   local reader, writer = fifo(tmp, "p")
   local answered: boolean = false
-  local answers = { value = nil as {integer} }
+  local answers = { value = nil as {integer} } -- checked: cast_refused
   local again: string? = nil
   Poll.run(function()
     local waiter = Poll.spawn(function()
@@ -458,7 +458,7 @@ local function test_wake_answers_the_waits_on_a_descriptor_as_ready(tmp: string)
       again = why
     end)
     local several = Poll.spawn(function()
-      answers.value = Poll.ready({ reader }, { sys.POLLIN }, Clock.seconds(5))
+      answers.value = Poll.ready({ reader }, { sys.POLLIN }, Clock.seconds(5)) -- checked: map_field
     end)
     assert(Poll.delay(0))
     Poll.wake(reader)
@@ -467,7 +467,7 @@ local function test_wake_answers_the_waits_on_a_descriptor_as_ready(tmp: string)
   end)
   assert(answered, "the wait was not answered")
   assert(again == Poll.TIMEOUT, "a wait after the wake waits anew: " .. tostring(again))
-  assert(answers.value ~= nil and answers.value[1] == sys.POLLIN, "a wait on several is answered what it asked")
+  assert(answers.value ~= nil and answers.value[1] == sys.POLLIN, "a wait on several is answered what it asked") -- checked: map_field*2
   Poll.wake(reader)
   sys.close(reader)
   sys.close(writer)
@@ -483,10 +483,10 @@ local function test_kill_ends_a_parked_task_and_its_waits(tmp: string)
   local resumed: boolean = false
   local joined_ok: boolean? = nil
   local joined_why: string? = nil
-  local closer_mt: metatable<Closer> = { __close = function() closed = true end }
+  local closer_mt: metatable<Closer> = { __close = function() closed = true end } -- checked: literal_missing
   Poll.run(function()
     local sleeper = Poll.spawn(function()
-      local _ <close> = setmetatable({} as Closer, closer_mt)
+      local _ <close> = setmetatable({} as Closer, closer_mt) -- checked: cast_refused, setmetatable_call
       local _, _ = Poll.readable(reader, Clock.ms(20))
       resumed = true
     end)
@@ -556,8 +556,8 @@ local function test_kill_raises_what_a_close_handler_raises()
   local closed: boolean = false
   local wait_trouble: string = ""
   local in_task: boolean = false
-  local closer_mt: metatable<Closer> = { __close = function() closed = true end }
-  local raiser_mt: metatable<Closer> = { __close = function()
+  local closer_mt: metatable<Closer> = { __close = function() closed = true end } -- checked: literal_missing
+  local raiser_mt: metatable<Closer> = { __close = function() -- checked: literal_missing
     local _, err: boolean, any = pcall(Poll.delay, 0)
     wait_trouble = tostring(err)
     local _, trouble: boolean, any = pcall(Poll.readable, 0, 0)
@@ -567,12 +567,12 @@ local function test_kill_raises_what_a_close_handler_raises()
   end }
   Poll.run(function()
     local task = Poll.spawn(function()
-      local _ <close> = setmetatable({} as Closer, closer_mt)
-      local _ <close> = setmetatable({} as Closer, raiser_mt)
+      local _ <close> = setmetatable({} as Closer, closer_mt) -- checked: cast_refused, setmetatable_call
+      local _ <close> = setmetatable({} as Closer, raiser_mt) -- checked: cast_refused, setmetatable_call
       local _, _ = Poll.delay(Clock.seconds(1))
     end)
     assert(Poll.delay(0))
-    local killed, err: boolean, any = pcall(task.kill, task)
+    local killed, err: boolean, any = pcall(task.kill, task) -- checked: interface_method_value
     assert(not killed and err == "broken close", tostring(err))
     local ok, why = task:join()
     assert(not ok and why == Poll.CANCELLED, why)
@@ -583,7 +583,7 @@ local function test_kill_raises_what_a_close_handler_raises()
   Test.raises(function()
     Poll.run(function()
       local task = Poll.spawn(function()
-        local _ <close> = setmetatable({} as Closer, raiser_mt)
+        local _ <close> = setmetatable({} as Closer, raiser_mt) -- checked: cast_refused, setmetatable_call
         local _, _ = Poll.delay(Clock.seconds(1))
       end)
       assert(Poll.delay(0))
@@ -839,18 +839,18 @@ local function test_waits_sharing_descriptors_come_and_go(tmp: string)
         waiting[i] = row
         for r = 1, 3 do
           local task = Poll.spawn(function()
-            local ok, why = Poll.readable(readers[i], Clock.seconds(5))
+            local ok, why = Poll.readable(readers[i], Clock.seconds(5)) -- checked: index_may_be_nil
             table.insert(seen, tostring(i) .. "r" .. tostring(r) .. (if ok then "" else " " .. why end))
           end)
           row[#row + 1] = task
         end
         Poll.spawn(function()
           -- The writer is writable, but this wait does not ask that.
-          answers[i] = assert(Poll.ready({ readers[i], writers[i] }, { sys.POLLIN, 0 }, Clock.seconds(5)))
+          answers[i] = assert(Poll.ready({ readers[i], writers[i] }, { sys.POLLIN, 0 }, Clock.seconds(5))) -- checked: index_may_be_nil*2
           table.insert(seen, tostring(i) .. "q")
         end)
         Poll.spawn(function()
-          assert(Poll.writable(writers[i], Clock.seconds(5)))
+          assert(Poll.writable(writers[i], Clock.seconds(5))) -- checked: index_may_be_nil
           table.insert(seen, tostring(i) .. "w")
         end)
       end
@@ -866,14 +866,14 @@ local function test_waits_sharing_descriptors_come_and_go(tmp: string)
       for i = 1, count do
         local how = (i + round) % 3
         if how == 0 then
-          waiting[i][2]:cancel()
+          waiting[i][2]:cancel() -- checked: nil_not_allowed*2
           at_once[#at_once + 1] = tostring(i) .. "r2 " .. Poll.CANCELLED
         elseif how == 1 then
-          Poll.closing(readers[i])
+          Poll.closing(readers[i]) -- checked: index_may_be_nil
           for r = 1, 3 do at_once[#at_once + 1] = tostring(i) .. "r" .. tostring(r) end
           at_once[#at_once + 1] = tostring(i) .. "q"
         else
-          assert(sys.write(writers[i], "x") == 1)
+          assert(sys.write(writers[i], "x") == 1) -- checked: index_may_be_nil
           for r = 1, 3 do written[#written + 1] = tostring(i) .. "r" .. tostring(r) end
           written[#written + 1] = tostring(i) .. "q"
         end
@@ -887,7 +887,7 @@ local function test_waits_sharing_descriptors_come_and_go(tmp: string)
       for i = 1, count do
         local how = (i + round) % 3
         if how == 0 then
-          assert(sys.write(writers[i], "x") == 1)
+          assert(sys.write(writers[i], "x") == 1) -- checked: index_may_be_nil
           table.insert(expected, tostring(i) .. "r1")
           table.insert(expected, tostring(i) .. "r3")
           table.insert(expected, tostring(i) .. "q")
@@ -897,16 +897,16 @@ local function test_waits_sharing_descriptors_come_and_go(tmp: string)
       assert(table.concat(seen, ",") == table.concat(expected, ","), table.concat(seen, ","))
       for i = 1, count do
         local how = (i + round) % 3
-        local first = how == 1 and sys.POLLNVAL or sys.POLLIN
-        assert(answers[i][1] & first ~= 0 and answers[i][2] == 0,
-          tostring(i) .. ": " .. answers[i][1] .. " " .. answers[i][2])
-        if how ~= 1 then assert(sys.read(readers[i], 16) == "x") end
+        local first = if how == 1 then sys.POLLNVAL else sys.POLLIN end
+        assert(answers[i][1] & first ~= 0 and answers[i][2] == 0, -- checked: nil_not_allowed*3
+          tostring(i) .. ": " .. answers[i][1] .. " " .. answers[i][2]) -- checked: nil_not_allowed*4
+        if how ~= 1 then assert(sys.read(readers[i], 16) == "x") end -- checked: index_may_be_nil
       end
     end
   end)
   for i = 1, count do
-    sys.close(readers[i])
-    sys.close(writers[i])
+    sys.close(readers[i]) -- checked: index_may_be_nil
+    sys.close(writers[i]) -- checked: index_may_be_nil
   end
 end
 
@@ -927,7 +927,7 @@ local function test_a_task_error_carries_the_task_s_stack()
   local text = tostring(err)
   assert(not ok and text:find("deep trouble\nstack traceback:", 1, true) == 1, text)
   assert(text:find("deep_in_the_task", 1, true) ~= nil, text)
-  local raised = {}
+  local raised = {} -- checked: literal_needs_type
   local again, value: boolean, any = pcall(Poll.run, function() error(raised) end)
   assert(not again and rawequal(value, raised), tostring(value))
 end
@@ -974,11 +974,11 @@ end
 --- still closes one; shielding outside a task, or no function, raises.
 local function test_a_shielded_task_is_killed_and_closed()
   local closed: integer = 0
-  local closer_mt: metatable<Closer> = { __close = function() closed = closed + 1 end }
+  local closer_mt: metatable<Closer> = { __close = function() closed = closed + 1 end } -- checked: literal_missing
   Poll.run(function()
     local victim = Poll.spawn(function()
       Poll.shielded(function()
-        local _ <close> = setmetatable({} as Closer, closer_mt)
+        local _ <close> = setmetatable({} as Closer, closer_mt) -- checked: cast_refused, setmetatable_call
         local _, _ = Poll.delay(Clock.minutes(60))
       end)
     end)
@@ -992,7 +992,7 @@ local function test_a_shielded_task_is_killed_and_closed()
   local ok, err: boolean, any = pcall(Poll.run, function()
     Poll.spawn(function()
       Poll.shielded(function()
-        local _ <close> = setmetatable({} as Closer, closer_mt)
+        local _ <close> = setmetatable({} as Closer, closer_mt) -- checked: cast_refused, setmetatable_call
         local _, _ = Poll.delay(Clock.minutes(60))
       end)
     end)
@@ -1143,19 +1143,19 @@ end
 local function test_a_wait_raises_while_the_run_closes_its_tasks(tmp: string)
   local reader, writer = fifo(tmp, "p")
   local trouble: string = ""
-  local waiter_mt: metatable<Closer> = { __close = function()
+  local waiter_mt: metatable<Closer> = { __close = function() -- checked: literal_missing
     local _, err: boolean, any = pcall(Poll.wait, reader, sys.POLLIN, 0)
     trouble = tostring(err)
   end }
   local ok, err: boolean, any = pcall(Poll.run, function()
     Poll.spawn(function()
-      local _ <close> = setmetatable({} as Closer, waiter_mt)
+      local _ <close> = setmetatable({} as Closer, waiter_mt) -- checked: cast_refused, setmetatable_call
       local _, _ = Poll.delay(Clock.seconds(30))
     end)
     assert(Poll.delay(0))
     error("the run fails", 0)
   end)
-  assert(not ok and tostring(err):find("the run fails", 1, true), tostring(err))
+  assert(not ok and tostring(err):find("the run fails", 1, true), tostring(err)) -- checked: or_mix
   assert(trouble:find("Poll.wait while Poll.run closes its tasks", 1, true), trouble)
   sys.close(reader)
   sys.close(writer)
@@ -1190,7 +1190,7 @@ local function test_notify_one_wakes_the_longest_waiter_only()
     assert(#order == 2 and order[2] == 2)
     notifier:notify_all()
     for _, task in ipairs(tasks) do assert(task:join()) end
-    assert(table.concat(order as {string}, ",") == "1,2,3")
+    assert(table.concat(order as {string}, ",") == "1,2,3") -- checked: cast_refused
   end)
 end
 
@@ -1253,13 +1253,13 @@ local function test_a_killed_waiter_is_removed_and_the_next_one_is_woken()
   Poll.run(function()
     local notifier = Poll.notifier()
     local tasks = spawn_waiters(notifier, 3, order)
-    tasks[1]:kill()
+    tasks[1]:kill() -- checked: nil_not_allowed
     assert(notifier:waiting() == 2)
     notifier:notify_one()
-    assert(tasks[2]:join())
+    assert(tasks[2]:join()) -- checked: nil_not_allowed
     assert(#order == 1 and order[1] == 2)
     notifier:notify_all()
-    assert(tasks[3]:join())
+    assert(tasks[3]:join()) -- checked: nil_not_allowed
   end)
 end
 
@@ -1272,7 +1272,7 @@ local function test_a_queue_pattern_loses_no_item()
       while #got < 3 do
         while #queue == 0 do assert(notifier:wait(Clock.seconds(30))) end
         local appended = table.remove(queue, 1)
-        got[#got + 1] = appended
+        got[#got + 1] = appended -- checked: nil_not_allowed
       end
     end)
     -- Queued before the consumer first waits, and in a burst.
@@ -1285,7 +1285,7 @@ local function test_a_queue_pattern_loses_no_item()
     notifier:notify_one()
     assert(consumer:join(Clock.seconds(30)))
   end)
-  assert(table.concat(got as {string}, ",") == "1,2,3")
+  assert(table.concat(got as {string}, ",") == "1,2,3") -- checked: cast_refused
 end
 
 local function test_notify_is_callable_from_a_close_handler()
@@ -1297,9 +1297,9 @@ local function test_notify_is_callable_from_a_close_handler()
       done = true
     end)
     assert(Poll.delay(0))
-    local closing_mt: metatable<Closer> = { __close = function() notifier:notify_all() end }
+    local closing_mt: metatable<Closer> = { __close = function() notifier:notify_all() end } -- checked: literal_missing
     local victim = Poll.spawn(function()
-      local _ <close> = setmetatable({} as Closer, closing_mt)
+      local _ <close> = setmetatable({} as Closer, closing_mt) -- checked: cast_refused, setmetatable_call
       local _, _ = Poll.delay(Clock.seconds(30))
     end)
     assert(Poll.delay(0))
@@ -1339,8 +1339,8 @@ local function test_a_notice_for_a_waiter_killed_before_it_runs_passes_on()
     end
     assert(Poll.delay(0))
     notifier:notify_one()
-    tasks[1]:kill()
-    assert(tasks[2]:join(Clock.seconds(30)))
+    tasks[1]:kill() -- checked: nil_not_allowed
+    assert(tasks[2]:join(Clock.seconds(30))) -- checked: nil_not_allowed
     assert(#woken == 1 and woken[1] == 2)
   end)
 end
@@ -1360,10 +1360,10 @@ local function test_a_notice_for_a_waiter_killed_in_the_same_batch_passes_on()
     assert(notifier:waiting() == 2)
     -- Ready before the notice, so it runs ahead of the woken waiter in
     -- the one batch and kills it there.
-    local killer = Poll.spawn(function() tasks[1]:kill() end)
+    local killer = Poll.spawn(function() tasks[1]:kill() end) -- checked: nil_not_allowed
     notifier:notify_one()
     assert(killer:join(Clock.seconds(30)))
-    assert(tasks[2]:join(Clock.seconds(30)))
+    assert(tasks[2]:join(Clock.seconds(30))) -- checked: nil_not_allowed
     assert(#woken == 1 and woken[1] == 2)
   end)
 end

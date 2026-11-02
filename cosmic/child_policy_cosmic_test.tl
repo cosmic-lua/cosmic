@@ -65,7 +65,7 @@ local function test_this_program_ungranted_is_refused(tmp: string)
   local work = scripted(tmp, 'print("ran")\n')
   local result, why = Child.run({ assert(Proc.executable()), work .. "/run.tl" },
     { policy = { grants = { { path = work, letters = "rwc" } } }, cwd = work })
-  assert(result == nil and why:find("sandbox:", 1, true), tostring(why))
+  assert(result == nil and why:find("sandbox:", 1, true), tostring(why)) -- checked: or_mix
 end
 
 local function test_a_descriptor_the_relaunch_hands_on_is_refused(tmp: string)
@@ -80,7 +80,7 @@ local function test_a_descriptor_the_relaunch_hands_on_is_refused(tmp: string)
   local result, why = Child.run({ assert(Proc.executable()), work .. "/run.tl" },
     { policy = { profiles = { "cosmic" }, grants = { { path = work, letters = "rwc" } } },
       cwd = work, fds = { [taken] = 0 } })
-  assert(result == nil and why:find("relaunch", 1, true), tostring(why))
+  assert(result == nil and why:find("relaunch", 1, true), tostring(why)) -- checked: or_mix
 end
 
 local function test_this_program_under_nest_is_refused(tmp: string)
@@ -88,7 +88,7 @@ local function test_this_program_under_nest_is_refused(tmp: string)
   local result, why = Child.run({ (assert(Proc.executable())), work .. "/run.tl" },
     { policy = { profiles = { "cosmic" }, isolate = { "file" }, promises = { "nest" },
       grants = { { path = work, letters = "rwc" } } }, cwd = work })
-  assert(result == nil and why:find("nest", 1, true) and why:find("artifact and core", 1, true),
+  assert(result == nil and why:find("nest", 1, true) and why:find("artifact and core", 1, true), -- checked: or_mix
     tostring(why))
 end
 
@@ -124,9 +124,9 @@ local function test_a_policy_may_build_the_tree_around_the_file(tmp: string)
       tostring(built.stdout) .. tostring(built.stderr))
   assert(Fs.exists(build_paths.required(work, { COSMIC_BUILD_HOME = home }) .. "/build.db"),
     "the tree was not built in its build directory")
-  assert(not Fs.exists(work .. "/o"), "the tree was built into o/")
+  assert(not Fs.exists(work .. "/o"), "the tree was built into o/") -- checked: condition_type
   local refused = ran({ work .. "/run.tl", "beside" }, { profiles = { "cosmic" }, grants = {
     { path = work, letters = "r" } } }, work)
-  assert(refused.code ~= 0 and tostring(refused.stderr):find("COSMIC_STANDALONE=0", 1, true),
+  assert(refused.code ~= 0 and tostring(refused.stderr):find("COSMIC_STANDALONE=0", 1, true), -- checked: or_mix
     tostring(refused.code) .. ": " .. tostring(refused.stderr))
 end

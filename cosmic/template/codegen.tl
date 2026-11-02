@@ -205,7 +205,7 @@ local function value(g: Gen, pipe: types.Pipeline, dot: Dot, raw?: boolean): str
   for _, field in ipairs(pipe.path) do
     written = member(written, field)
     expr = member(expr, field)
-    local held = not raw and g.bound[written] or nil
+    local held = if not raw then g.bound[written] else nil end -- checked: condition_type
     if held ~= nil then
       expr = held
     end
@@ -301,7 +301,7 @@ local function new_dot(g: Gen): Dot
 end
 
 --- Writes an `if` or a `with`, or a `range`.
-local function block(g: Gen, node: types.Node, dot: Dot)
+local function block(g: Gen, node: types.Node, dot: Dot) -- checked: not_assigned
   to_line(g, node.line)
   if node.kind == "range" then
     -- While its body runs, a range holds five of the function's locals (the
@@ -339,8 +339,8 @@ local function block(g: Gen, node: types.Node, dot: Dot)
     g.vars[arm.index] = nil
     g.vars[arm.element] = nil
     local held = assert(g.pieces[head], "put made the piece at this place")
-    g.patched[head] = held .. opening .. "for " .. (index.used and index.name or "_") .. ", " ..
-      (inner.used and inner.name or "_") .. " in ipairs(" .. source .. ") do"
+    g.patched[head] = held .. opening .. "for " .. (if index.used then index.name else "_" end) .. ", " ..
+      (if inner.used then inner.name else "_" end) .. " in ipairs(" .. source .. ") do"
     if other ~= nil then
       to_line(g, other.line)
       put(g, "end else")
@@ -373,7 +373,7 @@ local function block(g: Gen, node: types.Node, dot: Dot)
         return nil
       end
       local written = value(g, pipeline, dot, true)
-      return g.bound[written] == nil and written or nil
+      return if g.bound[written] == nil then written else nil end
     end
     local any = false
     for _, arm in ipairs(node.branches) do
@@ -388,10 +388,10 @@ local function block(g: Gen, node: types.Node, dot: Dot)
     for at, arm in ipairs(node.branches) do
       to_line(g, arm.line)
       local pipeline = arm.pipeline
-      local written = pipeline ~= nil and bindable(pipeline) or nil
+      local written = if pipeline ~= nil then bindable(pipeline) else nil end
       local lead = if at == 1 and flat then "repeat " else "" end
       if pipeline == nil then
-        put(g, flat and closing or "else")
+        put(g, if flat then closing else "else" end)
         closing = if flat then "" else "end" end
       else
         local tested = value(g, pipeline, dot)

@@ -1062,10 +1062,12 @@ row in the catalog ([`build/error_catalog.tl`]) with the rule, why the language 
 <code>` answers it, and a refusal of a form the old grammar wrote carries the fix that says how to write it now
 ([`build/removed_fix.tl`]). a rule that refuses more lands with its code and its row together.
 
-the tree is held to the rules by ceilings. build/ceilings.txt pins, per file and code, the violations a stage of the checker
-finds there (`[declared]`, `[scoped]`, `[checked]`, and `[untyped]` for the calls whose callee the checker could not type),
-and a module is refused above its pin and a tree check fails below it, so a count only falls and a new violation is refused.
-a project outside the tree has no ceilings: every error refuses.
+the tree is held to the rules by markers and ceilings. a finding a stage of the checker (`scoped`, `declared`, `checked`,
+and `untyped` for the calls whose callee the checker could not type) still makes in the tree is held where it occurs, by a
+trailing comment such as `-- checked: map_field` ([`build/markers.tl`]); build/ceilings.txt lists the stages held that way under
+`[marked]` and pins, per file and code, the findings of the examples a reader copies. a module is refused for a finding with no marker (or above
+its pin), a tree check fails for a marker whose finding is gone (and `cosmic fix` removes it), and the markers of a file only
+fall against the merge base, so a new violation is refused. a project outside the tree has no ceilings: every error refuses.
 
 a build refuses a Teal `global` declaration in every source it holds: modules, tests, examples, guide examples and `.d.tl`
 files; the forms are `global x`, `global function`, `global record`, `global interface`, `global enum`, `global type`, and a
@@ -1438,6 +1440,7 @@ in [roadmap.md](roadmap.md).
 [`Test.policy`]: ../cosmic/test.tl
 
 [`build.pipeline`]: ../build/pipeline.tl
+[`build/markers.tl`]: ../build/markers.tl
 [`build/positions.tl`]: ../build/positions.tl
 [`cosmic.http.server`]: ../cosmic/http/server.tl
 [`cosmic.internal.globals`]: ../cosmic/internal/globals.d.tl

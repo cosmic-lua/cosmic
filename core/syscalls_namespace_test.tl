@@ -30,5 +30,5 @@ local function test_the_sandbox_calls_answer_true_or_an_errno(tmp: string)
   ok, why, errno = testing.chroot(missing)
   assert(not ok, "a chroot into nothing")
   shaped("chroot", ok, why, errno)
-  assert(not pcall(testing.mount, nil, missing, nil, -1), "negative mount flags raise")
+  assert(not pcall(testing.mount, nil, missing, nil, -1), "negative mount flags raise") -- checked: alternatives_as_value
 end

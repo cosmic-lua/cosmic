@@ -1017,8 +1017,8 @@ local SPEC <const>: {string: string} = {
   Userdata = "", Error = "",
 }
 
-Ast.fields = {}
-Ast.depths = {}
+Ast.fields = {} -- checked: field_fixed
+Ast.depths = {} -- checked: field_fixed
 for kind, spec in pairs(SPEC) do
   local names: mut {string} = {}
   local depths: mut {integer} = {}
@@ -1026,8 +1026,8 @@ for kind, spec in pairs(SPEC) do
     names[#names + 1] = name
     depths[#depths + 1] = #stars
   end
-  Ast.fields[kind] = names
-  Ast.depths[kind] = depths
+  Ast.fields[kind] = names -- checked: view_written
+  Ast.depths[kind] = depths -- checked: view_written
 end
 
 local type Visit = function(Ast.Node)

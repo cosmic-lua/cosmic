@@ -68,8 +68,8 @@ end
 --- not folded or spelled again.
 local function test_a_modules_load_and_test_hits_are_two_lines_of_its_row()
   local hits: mut {string:mut {integer:boolean}} = {}
-  local folded: {{integer:boolean}:boolean} = {}
-  local spelled: {{integer:boolean}:string} = {}
+  local folded: {{integer:boolean}:boolean} = {} -- declared: key_type
+  local spelled: {{integer:boolean}:string} = {} -- declared: key_type
   local loaded: {integer:boolean} = { [3] = true, [1] = true }
   local row = test.take_hits(hits, { ["core"] = {} }, folded, spelled,
     { ["build.a"] = loaded, ["core"] = { [9] = true } }, { ["build.a"] = { [7] = true } })
@@ -127,7 +127,7 @@ local function test_the_shares_deal_each_test_once()
       for id in pairs(again) do assert(dealt[id], id) end
       sizes[#sizes + 1] = size
       -- m5's fifteen tests reach every share.
-      assert(modules.m5, "share " .. tostring(index) .. " of " .. tostring(count) .. " holds none of m5")
+      assert(modules.m5, "share " .. tostring(index) .. " of " .. tostring(count) .. " holds none of m5") -- checked: map_field
     end
     for _, id in ipairs(ids) do
       assert(held[id] == 1, id .. " is in " .. tostring(held[id]) .. " of " .. tostring(count) .. " shares")
@@ -194,7 +194,7 @@ end
 
 --- `string.dump` of the Lua `source`, as a module's bytecode is stored.
 local function dumped(source: string, strip: boolean): string
-  return string.dump(assert(load(source)), strip)
+  return string.dump(assert(load(source)), strip) -- checked: not_assignable
 end
 
 --- The harness's digest, which every key holds, is what a worker runs and

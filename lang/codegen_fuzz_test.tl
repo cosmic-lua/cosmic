@@ -38,12 +38,12 @@ end
 local function add(g: Gen, ...: string)
   for i = 1, select("#", ...) do
     local token = (select(i, ...))
-    local first = token:sub(1, 1)
+    local first = token:sub(1, 1) -- checked: nil_not_allowed
     local sticky = first == "(" or first == "{" or first == "\"" or first == "[" or first == "'" or token == "\n"
     if g.breaks and not sticky and #g.out > 0 and g.out[#g.out] ~= "\n" and g.src:int(1, 9) == 1 then
       g.out[#g.out + 1] = "\n"
     end
-    g.out[#g.out + 1] = token
+    g.out[#g.out + 1] = token -- checked: nil_not_allowed
   end
 end
 
@@ -55,7 +55,7 @@ local gen_exp: function(g: Gen, depth: integer)
 local gen_block: function(g: Gen, depth: integer, loop: boolean)
 local gen_loop_body: function(g: Gen, depth: integer)
 
-local function gen_list(g: Gen, depth: integer, max: integer)
+local function gen_list(g: Gen, depth: integer, max: integer) -- checked: not_assigned
   local n = 0
   while n == 0 or Fuzz.more(g.src, n, max) do
     if n > 0 then
@@ -81,7 +81,7 @@ local function gen_params(g: Gen)
     if i > 1 then
       add(g, ",")
     end
-    add(g, NAMES[i])
+    add(g, NAMES[i]) -- checked: index_may_be_nil
     if g.src:int(1, 3) > 1 then
       add(g, ":")
       gen_type(g)
@@ -94,7 +94,7 @@ local function gen_params(g: Gen)
   end
 end
 
-local function gen_function(g: Gen, depth: integer)
+local function gen_function(g: Gen, depth: integer) -- checked: not_assigned
   gen_params(g)
   add(g, "\n")
   gen_block(g, depth - 1, false)
@@ -220,7 +220,7 @@ gen_exp = function(g: Gen, depth: integer)
   end
 end
 
-local function gen_statement(g: Gen, depth: integer, loop: boolean)
+local function gen_statement(g: Gen, depth: integer, loop: boolean) -- checked: not_assigned
   local k = g.src:int(1, if depth > 0 then 16 else 5 end)
   if k == 1 then
     add(g, "local", pick(g, NAMES))
@@ -424,7 +424,7 @@ end
 
 --- Runs `lua`, the text of a program, and answers what it returns; nil and why where it does not load.
 local function execute(lua: string): {any}?, string
-  local env: {string: any} = { select = select, table = table, math = math, type = type }
+  local env: {string: any} = { select = select, table = table, math = math, type = type } -- checked: any_use*3, overload_value
   local chunk, why = load(lua, "=r", "t", env)
   if chunk == nil then
     return nil, "does not load: " .. tostring(why) .. "\n" .. lua
@@ -497,14 +497,14 @@ local function runs_like_an_if_statement(input: string): boolean, string
   local arms: mut {string} = {}
   local statement: mut {string} = {}
   for i = 1, #parts - 1, 2 do
-    arms[#arms + 1] = (if i == 1 then "if " else "elseif " end) .. parts[i] .. " then " .. parts[i + 1]
-    statement[#statement + 1] = (if i == 1 then "if " else "elseif " end) .. parts[i] .. " then return (" .. parts[i + 1] .. ")"
+    arms[#arms + 1] = (if i == 1 then "if " else "elseif " end) .. parts[i] .. " then " .. parts[i + 1] -- checked: nil_not_allowed*2
+    statement[#statement + 1] = (if i == 1 then "if " else "elseif " end) .. parts[i] .. " then return (" .. parts[i + 1] .. ")" -- checked: nil_not_allowed*2
   end
   local last = parts[#parts]
   local new = "local n = 0\nlocal x = 5\nlocal function side(v: any): any\n  n = n + 1\n  return v\nend\n" ..
-    "local r = " .. table.concat(arms, " ") .. " else " .. last .. " end\nreturn r, n\n"
+    "local r = " .. table.concat(arms, " ") .. " else " .. last .. " end\nreturn r, n\n" -- checked: nil_not_allowed
   local reference = "local n = 0\nlocal x = 5\nlocal function side(v) n = n + 1 return v end\n" ..
-    "local r = (function() " .. table.concat(statement, " ") .. " else return (" .. last .. ") end end)()\nreturn r, n\n"
+    "local r = (function() " .. table.concat(statement, " ") .. " else return (" .. last .. ") end end)()\nreturn r, n\n" -- checked: nil_not_allowed
   return same_run(new, reference)
 end
 
@@ -536,18 +536,18 @@ local function runs_like_a_goto(input: string): boolean, string
   local closing: string
   local step = ""
   if variant == "for" then
-    opening, closing = "  for i = 1, " .. n .. " do\n", "  end\n"
+    opening, closing = "  for i = 1, " .. n .. " do\n", "  end\n" -- checked: nil_not_allowed
   elseif variant == "while" then
-    opening, closing, step = "  local i = 0\n  while i < " .. n .. " do\n", "  end\n", "    i = i + 1\n"
+    opening, closing, step = "  local i = 0\n  while i < " .. n .. " do\n", "  end\n", "    i = i + 1\n" -- checked: nil_not_allowed
   else
-    opening, closing, step = "  local i = 0\n  repeat\n", "  until i >= " .. n .. "\n", "    i = i + 1\n"
+    opening, closing, step = "  local i = 0\n  repeat\n", "  until i >= " .. n .. "\n", "    i = i + 1\n" -- checked: nil_not_allowed
   end
   -- A loop inside, which also `continue`s, so that each label is its own.
   local inner = if nested == "1" then "    for j = 1, 2 do\n      if j == 1 then continue end\n      acc = acc + 100\n    end\n" else "" end
   local inner_plain = if nested == "1" then "    for j = 1, 2 do\n      if j == 1 then goto continue end\n      acc = acc + 100\n      ::continue::\n    end\n" else "" end
   local function body(skip: string, label: string, tail: string, nest: string): string
     return "local function f(): integer\n  local acc = 0\n" .. opening .. step .. nest ..
-      "    if i % " .. m .. " == 0 then " .. skip .. " end\n    acc = acc + i\n" .. tail .. label .. closing ..
+      "    if i % " .. m .. " == 0 then " .. skip .. " end\n    acc = acc + i\n" .. tail .. label .. closing .. -- checked: nil_not_allowed
       "  return acc\nend\nreturn f()\n"
   end
   local plain = body("goto continue", "    ::continue::\n", if ends == "1" then "    do return acc end\n" else "" end, inner_plain)
@@ -570,7 +570,7 @@ local function gen_match(src: Fuzz.Source): string
   local seen: mut {string: boolean} = {}
   while Fuzz.more(src, #arms, 2) do
     local arm = Fuzz.pick(src, { "T", "F" })
-    if not seen[arm] then
+    if not seen[arm] then -- checked: condition_type
       seen[arm] = true
       arms[#arms + 1] = arm
     end
@@ -601,9 +601,9 @@ local function runs_like_an_if_on_the_flag(input: string): boolean, string
     "local function g(ok: boolean): string\n  match f(ok, \"v\") do\n" .. table.concat(lines, "\n") ..
     "\n  end\n  return \"none\"\nend\nreturn g(true), g(false)\n"
   local function expect(flag: string): string
-    if has[flag] then
+    if has[flag] then -- checked: condition_type
       return flag:lower() .. "v"
-    elseif has["C"] then
+    elseif has["C"] then -- checked: condition_type
       return "cv"
     end
     return "none"

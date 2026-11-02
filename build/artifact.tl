@@ -24,10 +24,10 @@ local String = require("cosmic.string")
 -- harness (build.test's `harness`).
 local sha256, hex = hashing.sha256, key_parts.hex
 
-local extra: any = select(2, ...)
+local extra: any = select(2, ...) -- checked: any_use
 local trusted_store: raw_store? = nil
 if type(extra) == "table" then
-  trusted_store = extra as raw_store
+  trusted_store = extra as raw_store -- checked: cast_refused
 end
 
 local record artifact
@@ -193,7 +193,7 @@ local function parse(records: string, cores: {string:string},
       return nil, "generated target id is outside the u32 range"
     end
     local identity = tostring(target_id) .. ":" .. tostring(configuration_id)
-    if identities[identity] then
+    if identities[identity] then -- checked: condition_type
       return nil, "duplicate generated target/configuration record"
     end
     local image = cores[target]
@@ -300,7 +300,7 @@ local function launcher(targets: {Target}, test_hooks: boolean,
     if selected_configuration == nil or
         target.configuration_id == selected_configuration then
       local system = target.uname_os .. ":" .. target.uname_arch
-      if systems[system] then
+      if systems[system] then -- checked: condition_type
         return nil, "duplicate generated uname record for launcher configuration"
       end
       systems[system] = true
@@ -624,7 +624,7 @@ function artifact.keyed_head(head: string): string
   end
   if not imaged then return head end
   for _, range in ipairs(ranges) do
-    if sha256(range[1]) ~= range[2] then return head end
+    if sha256(range[1]) ~= range[2] then return head end -- checked: index_may_be_nil
   end
   gaps[#gaps + 1] = head:sub(was_end + 1, manifest_offset)
   for _, gap in ipairs(gaps) do
@@ -662,7 +662,7 @@ function artifact.rejoin(parts: artifact.Split, database: string): string?, stri
     return nil, "the new database has no SQLite header"
   end
   local manifest_offset = #parts.head - manifest_length
-  local trailer = (parts.host and host_trailer_magic or trailer_magic) ..
+  local trailer = (parts.host and host_trailer_magic or trailer_magic) .. -- checked: and_ternary
     string.pack(">I4I4I8I8I8I8", version, trailer_length, manifest_offset,
       manifest_length, #parts.head, #database)
   return parts.head .. database .. trailer, ""

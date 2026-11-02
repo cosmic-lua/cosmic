@@ -36,8 +36,8 @@ local function test_a_test_run_prunes_a_stale_build_directory(tmp: string)
   local output = tmp .. "/run.out"
   local fd = assert(Fs.open_write(output))
   local env = this_program.environment()
-  env.COSMIC_TEST_SANDBOX = "0"
-  env.COSMIC_VERDICT_CACHE = "0"
+  env.COSMIC_TEST_SANDBOX = "0" -- checked: map_field
+  env.COSMIC_VERDICT_CACHE = "0" -- checked: map_field
   local started = this_program.program({ "test" }, {
     cwd = root, env = env, stdout = fd, stderr = fd, process_group = true,
   })

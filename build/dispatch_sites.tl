@@ -8,11 +8,18 @@
 --- Only code cosmic itself selects by a feature is enforced: in a core
 --- file that is itself a site reading a feature (core/vector.c), a
 --- function that takes a feature's code (one compiled for it, with a
---- `target` attribute) and the lines that call through a pointer the file
---- assigns such a function to. The function that picks the code at start
+--- `target` attribute) and the lines of the branch of a function that calls
+--- through a pointer the file assigns such a function to (the branch, since
+--- the core reports a line only where a basic block begins, and the call is
+--- usually in the middle of one). The function that picks the code at start
 --- is not, since it runs whenever the file is loaded and the code it picks
 --- is run by the callers. A core that compiles no such function
 --- (core/vector.c on aarch64, whose VNNI code is x86's) has nothing there.
+---
+--- A function whose answer is the processor's own is enforced too (a
+--- site's `answers`): `vector_kernel`, which names the kernel in use. A
+--- test that asserts on its answer has an outcome that depends on the
+--- processor even where it runs no kernel.
 ---
 --- Entering a vendored library's dispatched code is not enforced
 --- (mbedtls's AES-NI, SHA-NI and Arm instructions, xz's carry-less CRCs):
@@ -35,6 +42,10 @@ local record dispatch_sites
   record Site
     lines: string
     reads: {string:{string}}
+    --- Functions of a core file whose answer is the processor's own, by
+    --- name: a test that enters one has an outcome that depends on the
+    --- processor, as one that enters the code it chooses does.
+    answers?: {string}
   end
   --- Lines of one function of the core that turn on the processor: its
   --- key ([`c_functions.Span`]'s), its file, the lines, and why they do.
@@ -101,29 +112,42 @@ local sites: {string:dispatch_sites.Site} = {
   ["vendor/zstd/lib/compress/zstd_compress.c"] = { lines = "e1810b0562e88cca", reads = {} },
   -- `cpu_features`, which answers what the processor has for a key
   -- (build/declared_key.tl's `features`), its declaration and its test:
-  -- none chooses code by it. syscalls.c asks Apple's
-  -- kern.maxfilesperproc too, for the descriptor limit a start raises
-  -- to: no feature.
+  -- none chooses code by it. Its answer is the processor's own, so a
+  -- test that asserts on it has an outcome that depends on the processor
+  -- (core/cpu_features_test.tl declares `cpu_features`). syscalls.c asks
+  -- Apple's kern.maxfilesperproc too, for the descriptor limit a start
+  -- raises to: no feature.
+  -- TODO: hold a test that enters `cosmic_sys_cpu_features` to declaring
+  -- `cpu_features` (`answers`), once the runner can tell the C a worker
+  -- ran from the C of the processes it started: every `cosmic test` a
+  -- test starts asks the processor for its key, so any module that runs
+  -- the tool hits the function, and holding them would put all of those
+  -- under a processor key.
   ["core/syscalls.c"] = { lines = "6d6f8c1e9f60c406", reads = {} },
   ["core/syscalls.h"] = { lines = "297b223c6bbcbc65", reads = {} },
-  ["core/syscalls_test.tl"] = { lines = "6c8d56b73b02f0bb", reads = {} },
+  ["core/cpu_features_test.tl"] = { lines = "5bf95b5154131ae2", reads = {} },
   -- The int8 dot product of [`Vector.corpus`]: VNNI in its AVX-512 (256-bit
   -- forms) and AVX encodings, by cpuid leaf 7. It also asks cpuid leaf 1
   -- for OSXSAVE and xgetbv for the state the system saves, which are the
   -- system's and no feature of the processor.
+  -- `vector_kernel` answers which kernel is in use, or switches to one.
   ["core/vector.c"] = { lines = "cd0767ce3aa41c0c",
-    reads = { x86_64 = { "avx512f", "avx512vl", "avx512_vnni", "avx_vnni" } } },
+    reads = { x86_64 = { "avx512f", "avx512vl", "avx512_vnni", "avx_vnni" } },
+    answers = { "vector_kernel" } },
   -- The processor count on Apple (sysctlbyname("hw.ncpu")): no feature.
   ["vendor/sqlite/sqlite3.c"] = { lines = "7b27815aae63deac", reads = {} },
 }
 
 dispatch_sites.sites = sites
 
---- The files of the core that are sites reading a feature, sorted.
+--- The files of the core that are sites reading a feature, or that hold
+--- a function whose answer is the processor's (`answers`), sorted.
 local function site_files(): {string}
   local out: mut {string} = {}
   for path, site in pairs(sites) do
-    if path:match("^core/.*%.c$") ~= nil and next(site.reads) ~= nil then out[#out + 1] = path end
+    if path:match("^core/.*%.c$") ~= nil and (next(site.reads) ~= nil or site.answers ~= nil) then
+      out[#out + 1] = path
+    end
   end
   table.sort(out)
   return out
@@ -145,6 +169,42 @@ local function matching(span: c_functions.Span, lines: {string}, pattern: string
   for at = span.first, last_of(span, lines) do
     if (lines[at] or ""):find(pattern) ~= nil then found[#found + 1] = at end
   end
+  return found
+end
+
+--- Whether `text` opens a branch of a `switch`: a `case` or `default` label.
+local function is_label(text: string): boolean
+  return text:match("^%s*default%s*:") ~= nil or text:match("^%s*case%s+[^:]+:") ~= nil
+end
+
+--- The lines of the branch of `span` that holds line `at`: from the `case`
+--- or `default` label that opens it to the line before the next label of
+--- that depth (or the function's last line), or `at` alone where it is in
+--- no branch. The core reports a line only where a basic block begins, and
+--- a call in the middle of a block is no such line, nor is a line the
+--- processor's choice leaves out: the lines of the branch are what a test
+--- that makes the call is seen to run, whichever kernel the processor chose.
+local function branch_of(span: c_functions.Span, lines: {string}, at: integer): {integer}
+  local opened = 0
+  for line = at - 1, span.first + 1, -1 do
+    if is_label(lines[line] or "") then
+      opened = line
+      break
+    end
+  end
+  if opened == 0 then return { at } end
+  local depth = #((lines[opened] or ""):match("^%s*") or "")
+  local last = last_of(span, lines)
+  local stop = last
+  for line = at + 1, last do
+    local text = lines[line] or ""
+    if is_label(text) and #(text:match("^%s*") or "") <= depth then
+      stop = line - 1
+      break
+    end
+  end
+  local found: mut {integer} = {}
+  for line = opened, stop do found[#found + 1] = line end
   return found
 end
 
@@ -176,11 +236,39 @@ local function in_site(spans: {c_functions.Span}, lines: {string}): {dispatch_si
   end
   for _, span in ipairs(spans) do
     for pointer in pairs(pointers) do
-      local at = matching(span, lines, "%f[%w_]" .. pointer .. "%s*%(")
+      local calls = matching(span, lines, "%f[%w_]" .. pointer .. "%s*%(")
+      local seen: mut {integer:boolean} = {}
+      local at: mut {integer} = {}
+      for _, call in ipairs(calls) do
+        for _, line in ipairs(branch_of(span, lines, call)) do
+          if seen[line] == nil then
+            seen[line] = true
+            at[#at + 1] = line
+          end
+        end
+      end
+      table.sort(at)
       if #at > 0 then
         out[#out + 1] = { key = span.key, path = span.path, lines = at,
           why = "it calls the code chosen by the processor's features (" .. pointer .. ")" }
       end
+    end
+  end
+  return out
+end
+
+--- The functions of `spans`, in the site file `lines`, that are named in
+--- `names`: their answer is the processor's own, so each line of one is
+--- a reach.
+local function answering(spans: {c_functions.Span}, lines: {string},
+                         names: {string}): {dispatch_sites.Reach}
+  local named: mut {string:boolean} = {}
+  for _, name in ipairs(names) do named[name] = true end
+  local out: mut {dispatch_sites.Reach} = {}
+  for _, span in ipairs(spans) do
+    if named[name_of(span)] == true then
+      out[#out + 1] = { key = span.key, path = span.path, lines = whole(span, lines),
+        why = "its answer is the processor's own" }
     end
   end
   return out
@@ -196,7 +284,17 @@ function dispatch_sites.reaching(spans: {c_functions.Span},
       for _, span in ipairs(spans) do
         if span.path == path then those[#those + 1] = span end
       end
-      for _, each in ipairs(in_site(those, lines)) do out[#out + 1] = each end
+      local site = assert(sites[path])
+      local chosen: {dispatch_sites.Reach} = {}
+      if next(site.reads) ~= nil then chosen = in_site(those, lines) end
+      for _, each in ipairs(chosen) do out[#out + 1] = each end
+      -- A file that reads a feature but compiles no code for one on this
+      -- core (core/vector.c on aarch64) answers nothing of the processor's.
+      if next(site.reads) == nil or #chosen > 0 then
+        for _, each in ipairs(answering(those, lines, site.answers or {})) do
+          out[#out + 1] = each
+        end
+      end
     end
   end
   return out
@@ -221,7 +319,7 @@ function dispatch_sites.failure(reaches: {dispatch_sites.Reach}, hits: {string:{
   table.sort(keys)
   local lines: mut {string} = {}
   for _, key in ipairs(keys) do lines[#lines + 1] = "  " .. tostring(ran[key]) end
-  return "the test runs C that chooses code by the processor's features, which its key does not " ..
+  return "the test runs C that chooses code by the processor's features or answers them, which its key does not " ..
     "hold, so its pass would stand on a host of another processor:\n" .. table.concat(lines, "\n") ..
     "\n  declare cpu_features = true in the module's Test.policy, which keys its tests by the " ..
     "processor's features (doc/testing.md, \"processor features\")"

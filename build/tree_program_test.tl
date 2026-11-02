@@ -89,7 +89,7 @@ local function test_a_binding_of_c_is_typed_where_the_tree_declares_it_and_untyp
   end
   -- a provider that answers one is a declaration too
   local provided = TreeProgram.build(TreeProgram.index({}, {}), globals, false, nil, function(module: string): Driver.Source?
-    return module == "cosmic.sys" and Driver.declarations(module, "cosmic/sys.d.tl", "local record S\nend\nreturn S\n", {}) or nil
+    return module == "cosmic.sys" and Driver.declarations(module, "cosmic/sys.d.tl", "local record S\nend\nreturn S\n", {}) or nil -- checked: and_ternary
   end)
   assert(provided.program.external["cosmic.sys"] ~= true and provided.program.external["cosmic.internal.process"] == true)
   -- the declarations the headers give have no error of their own: no ceiling holds them
@@ -130,7 +130,7 @@ local function test_the_guides_and_templates_are_the_modules_the_stage_derives_f
     end
   end
   assert(work.close(handle))
-  table.sort(entries, function(a: {string}, b: {string}): boolean
+  table.sort(entries, function(a: {string}, b: {string}): boolean -- checked: overload_none
     return support.nth(a, 1) < support.nth(b, 1)
   end)
   -- the same files, the same modules, the same text: two guides and two templates

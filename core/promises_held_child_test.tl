@@ -141,7 +141,7 @@ end
 local function rooted_with(probe: string, shown: {string}): raw_process.Sandbox
   local sandbox = rooted(probe, true)
   local unveil = assert(sandbox.unveil)
-  for _, path in ipairs(shown) do unveil.reads[#unveil.reads + 1] = path end
+  for _, path in ipairs(shown) do unveil.reads[#unveil.reads + 1] = path end -- checked: view_written
   return { ...sandbox, unveil = { ...unveil, tmp = 1 << 20 } }
 end
 
@@ -319,7 +319,7 @@ local function test_a_unix_socket_below_abi_9_fails_a_start_that_binds_a_directo
   local function with_u(shown: {string}): raw_process.Sandbox
     local sandbox = rooted_with(probe, shown)
     local reads = assert(sandbox.unveil).reads
-    reads[#reads + 1] = tmp .. "/u.file"
+    reads[#reads + 1] = tmp .. "/u.file" -- checked: view_written
     return { ...sandbox, sockets = { "unix" },
       grants = { { path = probe, access = "rx" }, { path = tmp .. "/u.file", access = "u" } } }
   end

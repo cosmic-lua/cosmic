@@ -34,8 +34,8 @@ local function test_a_record_with_main_is_an_entry_point()
   local function main(): integer
     return 7
   end
-  assert(standalone.entry({ main = main }) == main)
-  assert(standalone.entry(main) == main)
+  assert(standalone.entry({ main = main }) == main) -- checked: compare_disjoint
+  assert(standalone.entry(main) == main) -- checked: compare_disjoint
   assert(standalone.entry({ other = main }) == nil)
   assert(standalone.entry(42) == nil)
 end

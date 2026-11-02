@@ -58,8 +58,8 @@ local function test_every_reserved_word_is_a_keyword()
     assert(token("x." .. word, 3).kind == "keyword", word .. " after a dot")
     assert(shape(word) == "keyword:" .. word, word)
   end
-  assert(Lexer.reserved["global"] and Lexer.reserved["goto"], "Lua 5.5 reserves goto and global")
-  assert(not Lexer.reserved["record"] and not Lexer.reserved["type"])
+  assert(Lexer.reserved["global"] and Lexer.reserved["goto"], "Lua 5.5 reserves goto and global") -- checked: condition_type
+  assert(not Lexer.reserved["record"] and not Lexer.reserved["type"]) -- checked: condition_type*2
 end
 
 local function test_the_words_the_grammar_adds_are_reserved()

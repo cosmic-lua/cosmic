@@ -59,7 +59,7 @@ end
 local function loading_from(store: Types.Store): Types.Loader
   return function(module: string, name: string): string?
     local decl = store:find(module, name)
-    return decl ~= nil and Types.encode_declaration(decl) or nil
+    return decl ~= nil and Types.encode_declaration(decl) or nil -- checked: and_ternary
   end
 end
 
@@ -729,7 +729,7 @@ local function test_a_path_the_store_and_the_loader_lack_is_an_unknown_declarati
   assert(t == nil and why:find("no declaration m Gone", 1, true) ~= nil, why)
   local asked: {string} = {}
   local loading = Types.new(function(module: string, name: string): string?
-    asked[#asked + 1] = module .. " " .. name
+    asked[#asked + 1] = module .. " " .. name -- checked: view_written
     return nil
   end)
   assert(loading:decode('(array (ref "m" "Gone"))') == nil and asked[1] == "m Gone")
@@ -810,7 +810,7 @@ end
 local function test_a_chain_of_declarations_far_longer_than_the_limit_is_refused_not_overflowed()
   local asked = { count = 0 }
   local s = Types.new(function(module: string, name: string): string?
-    asked.count = asked.count + 1
+    asked.count = asked.count + 1 -- checked: map_field*2
     local n = math.tointeger(tonumber(name:sub(2)))
     if n == nil then
       return nil
@@ -820,7 +820,7 @@ local function test_a_chain_of_declarations_far_longer_than_the_limit_is_refused
   end)
   local t, why = s:decode('(ref "m" "R1")')
   assert(t == nil and why:find("types:", 1, true) == 1 and why:find("deeper", 1, true) ~= nil, why)
-  assert(asked.count <= 1002, "the chain is not followed past the limit: " .. asked.count)
+  assert(asked.count <= 1002, "the chain is not followed past the limit: " .. asked.count) -- checked: map_field*2
   assert(#s:declarations() == 0 and s:size() == 10)
 end
 

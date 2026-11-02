@@ -151,7 +151,7 @@ end
 local function served_and_stopped(root: string, started: Listening, address: Net.Address)
   -- Reaped by the wait below.
   local handle = started.handle
-  local first <close> = assert(Net.connect(address, { timeout_ns = Clock.seconds(10) }))
+  local first <close> = assert(Net.connect(address, { timeout_ns = Clock.seconds(10) })) -- checked: close_not_closable
   assert(first:write(initialize(root) .. SHUTDOWN .. EXIT))
   local frames = protocol.frames(first)
   local body = assert(frames:next())
@@ -159,7 +159,7 @@ local function served_and_stopped(root: string, started: Listening, address: Net
   assert(frames:next())
   local after, why = frames:next()
   assert(after == nil and why == "", "the server closes the connection at exit: " .. why)
-  local held <close> = assert(Net.connect(address, { timeout_ns = Clock.seconds(10) }))
+  local held <close> = assert(Net.connect(address, { timeout_ns = Clock.seconds(10) })) -- checked: close_not_closable
   assert(held:write(initialize(root)))
   local answered = assert(protocol.frames(held):next())
   assert(answers_initialize(answered), answered)
@@ -336,7 +336,7 @@ end
 local function test_a_request_over_a_connection_is_answered_while_dependents_are_checked()
   local root, opening = helped()
   local started = listening(root, { "lsp", "--listen", "127.0.0.1:0" })
-  local conn <close> = assert(Net.connect(Net.tcp("127.0.0.1", port_of(started)),
+  local conn <close> = assert(Net.connect(Net.tcp("127.0.0.1", port_of(started)), -- checked: close_not_closable
     { timeout_ns = Clock.seconds(30) }))
   asked_while_checking(root, opening, function(text: string) assert(conn:write(text)) end,
     protocol.frames(conn))

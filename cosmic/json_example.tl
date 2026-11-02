@@ -5,7 +5,7 @@ local Json = require("cosmic.json")
 local Shape = require("cosmic.shape")
 local Stream = require("cosmic.stream")
 
-local Example = {}
+local Example = {} -- checked: literal_needs_type
 
 --- Read an object from outside: [`decode_object`] checks the outermost
 --- shape, and `is` narrows each field before it is trusted.
@@ -278,4 +278,4 @@ function Example.reader()
   assert(#ids == 2)
 end
 
-return Example
+return Example -- checked: export_not_declared

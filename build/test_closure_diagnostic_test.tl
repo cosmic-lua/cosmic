@@ -10,7 +10,7 @@
 local Globals = require("cosmic.internal.globals")
 
 local function test_a_removed_global_outside_the_closure_says_only_that_it_is_gone()
-  local ok, why = pcall(load("return os.getenv", "=os", "t", Globals.table()))
+  local ok, why = pcall(load("return os.getenv", "=os", "t", Globals.table())) -- checked: overload_none
   assert(not ok)
   assert(tostring(why):find(": os%.getenv is not available$"), tostring(why))
   assert(not tostring(why):find("Env.get", 1, true), tostring(why))

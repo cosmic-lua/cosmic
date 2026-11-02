@@ -209,7 +209,7 @@ local function leaf(c: Cursor): Types.Type
   return plain_named(c)
 end
 
-local function members(c: Cursor, depth: integer, least: integer): {Types.Type}
+local function members(c: Cursor, depth: integer, least: integer): {Types.Type} -- checked: not_assigned
   local out: mut {Types.Type} = {}
   for _ = 1, least + pick(c, 3) do
     out[#out + 1] = build(c, depth + 1)
@@ -219,7 +219,7 @@ end
 
 local a_function: function(c: Cursor, depth: integer): Types.Type
 
-a_function = function(c: Cursor, depth: integer): Types.Type
+a_function = function(c: Cursor, depth: integer): Types.Type -- checked: not_assigned
   local store = c.store
   local tparams: mut {Types.TParam} = {}
   for i = 1, pick(c, 3) do
@@ -253,14 +253,14 @@ a_function = function(c: Cursor, depth: integer): Types.Type
       if alts > 1 then
         -- Lists that several are told apart by a position that is `true` in one and `false` in the other.
         local first = store:atom(if k % 2 == 1 then "true" else "false" end)
-        alt.items[1] = first
+        alt.items[1] = first -- checked: view_written
         if alts == 3 then
           local second = store:atom(if k == 3 then "false" else "true" end)
-          alt.items[#alt.items + 1] = second
+          alt.items[#alt.items + 1] = second -- checked: view_written
         end
       end
       if alts == 1 and #params > 0 and pick(c, 5) == 0 then
-        alt.narrows = { param = pick(c, #params) + 1, to = build(c, depth + 1), asserts = pick(c, 2) == 0 }
+        alt.narrows = { param = pick(c, #params) + 1, to = build(c, depth + 1), asserts = pick(c, 2) == 0 } -- checked: field_fixed
       else
         -- The grammar spells a list that is empty or ends in `T...` only as the one alternative.
         for _ = 1, pick(c, 3) do
@@ -269,14 +269,14 @@ a_function = function(c: Cursor, depth: integer): Types.Type
             local first = a_function(c, depth + 1)
             local second = a_function(c, depth + 1)
             local both = store:union({ first, second })
-            alt.items[#alt.items + 1] = both
+            alt.items[#alt.items + 1] = both -- checked: view_written
           else
             local item = build(c, depth + 1)
-            alt.items[#alt.items + 1] = item
+            alt.items[#alt.items + 1] = item -- checked: view_written
           end
         end
         if alts == 1 and pick(c, 2) == 0 then
-          alt.tail = build(c, depth + 1)
+          alt.tail = build(c, depth + 1) -- checked: field_fixed
         end
       end
       listed[#listed + 1] = alt
@@ -323,7 +323,7 @@ build = function(c: Cursor, depth: integer): Types.Type
   elseif n == 19 then
     local a = build(c, depth + 1)
     -- Often the same type twice, which a type that shares its parts is made of.
-    local b = pick(c, 3) == 0 and a or build(c, depth + 1)
+    local b = pick(c, 3) == 0 and a or build(c, depth + 1) -- checked: and_ternary
     return store:named(declared(c.fixture.decls, "Pair"), { a, b })
   end
   return a_function(c, depth)

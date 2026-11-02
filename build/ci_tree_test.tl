@@ -5,6 +5,7 @@
 --- sources it reads, so a change to one runs it again on every leg.
 local Ceilings = require("build.ceilings")
 local Fs = require("cosmic.fs")
+local Markers = require("build.markers")
 local Shape = require("cosmic.shape")
 local Test = require("cosmic.test")
 local String = require("cosmic.string")
@@ -125,7 +126,7 @@ local function test_no_tree_source_reads_what_a_suite_forgets()
   for _, dir in ipairs({ "build", "cosmic", "core", "test", "eval", "cmd", "doc" }) do
     for _, path in ipairs((assert(Fs.walk(dir)))) do
       local relative = dir .. "/" .. path
-      if relative ~= "build/ci_tree_test.tl" and relative:match("%.tl$") or relative:match("%.lua$") or relative:match("%.[ch]$") then
+      if relative ~= "build/ci_tree_test.tl" and relative:match("%.tl$") or relative:match("%.lua$") or relative:match("%.[ch]$") then -- checked: and_ternary
         for _, name in ipairs(forgotten(names, (assert(Fs.read(relative))), sets_what_it_reads[relative] or {})) do
           found[#found + 1] = relative .. ": " .. name
         end
@@ -160,7 +161,7 @@ end
 
 --- ci/strict-files.txt lists the files the running product compiles at run time with no ceiling to stand on. `fix --check .`
 --- passes a file with a pin; the product's run of it stops at the first finding, so a file there has no pin in any stage
---- of build/ceilings.txt.
+--- of build/ceilings.txt, and no marker.
 local function strict_files(): {string}
   local files: mut {string} = {}
   for line in (assert(Fs.read("ci/strict-files.txt"))):gmatch("[^\n]+") do
@@ -187,6 +188,11 @@ local function test_a_file_run_without_ceilings_has_none_pinned()
             tostring(count) .. " (" .. key .. "); fix the finding rather than raise the pin")
       end
     end
+    -- nor a marker, which holds a finding the same way
+    local text = assert(Fs.read(file))
+    local marked = Markers.counts(text, file)
+    assert(next(marked) == nil, file .. " is compiled by the running product without ceilings, so it has no marker for a " ..
+        "finding; fix the finding rather than hold it")
   end
 end
 

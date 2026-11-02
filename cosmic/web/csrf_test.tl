@@ -43,7 +43,7 @@ local function memory_store(): Session.Store
 end
 
 --- The lines the app's sink received.
-local lines = {} as {string}
+local lines = {} as {string} -- checked: cast_refused, literal_needs_type
 
 --- An app with a form page, state-changing routes and a login, behind the
 --- session and `Csrf.middleware(opts)`.
@@ -274,7 +274,7 @@ local function test_trusted_origins_pass_the_origin_layer_and_still_need_the_tok
       "https://a.example")
   assert(#Cors.trusted({ allow_origins = { "*", "null" } }) == 0, "neither * nor null is trusted for state changes")
   for _, bad in ipairs({ "*", "partner.example", "https://partner.example/x", "ftp://x", "" }) do
-    local ok = pcall(Csrf.middleware, { trusted_origins = { bad } })
+    local ok = pcall(Csrf.middleware, { trusted_origins = { bad } }) -- checked: alternatives_as_value
     assert(not ok, "accepted " .. bad)
   end
 end
@@ -339,7 +339,7 @@ local function test_a_session_cookie_planted_before_login_carries_no_token_acros
   local app = make_app()
   local attacker, token = session_with_token(app)
   local victim = Web.test_client(app)
-  victim.jar.session = attacker.jar.session
+  victim.jar.session = attacker.jar.session -- checked: map_field*2
   assert(victim:post("/login", { headers = { ["X-CSRF-Token"] = token } }).status == 200)
   assert(attacker:post("/do", { headers = { ["X-CSRF-Token"] = token } }).status == 403,
     "the planted id is revoked, so the attacker's token has nothing to match")
@@ -441,7 +441,7 @@ local function test_a_cookieless_post_is_refused_before_its_body_is_read()
   local read: integer = 0
   local app = make_app({ exempt = function(req: Web.Request): boolean
     local inner = req.raw.body
-    req.raw.body = { read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
+    req.raw.body = { read = function(_self: Stream.Reader, max_bytes?: integer): string?, string -- checked: literal_shape
       read = read + 1
       return inner:read(max_bytes)
     end, close = function(_self: Stream.Reader): boolean, string

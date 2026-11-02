@@ -96,7 +96,7 @@ function Lexical.bindings_of(chunk: Ast.Chunk, scoped: Resolved.Scoped): {Lexica
   for _, v in ipairs(scoped.list) do
     if counted(v) then
       -- A loop's variable is in scope from its own name, as a parameter is: the header's iterators see it.
-      local from = v.kind == "loop" and v.declared or v.from
+      local from = v.kind == "loop" and v.declared or v.from -- checked: and_ternary
       local here = declared[v.id]
       local limit = math.maxinteger
       if not v.top then
@@ -105,12 +105,12 @@ function Lexical.bindings_of(chunk: Ast.Chunk, scoped: Resolved.Scoped): {Lexica
       local start = Lexical.position(Lexer.y(tokens, from), Lexer.x(tokens, from))
       if v.kind == "local" and (v.from == v.to or tokens.kind[from] == "$EOF$") then
         -- The last local of a block is in scope from the end of the word that closes it, and the chunk's last from nowhere.
-        start = tokens.kind[from] == "$EOF$" and math.maxinteger or
+        start = tokens.kind[from] == "$EOF$" and math.maxinteger or -- checked: and_ternary
           Lexical.position(Lexer.yend(tokens, from), Lexer.xend(tokens, from))
       end
       out[#out + 1] = {
         name = v.name, module = v.module, from = start, to = limit,
-        head = here ~= nil and here.head or 0, top = v.top, annotated = here ~= nil and here.annotated,
+        head = here ~= nil and here.head or 0, top = v.top, annotated = here ~= nil and here.annotated, -- checked: and_ternary
       }
     end
   end

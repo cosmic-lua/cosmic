@@ -5,7 +5,7 @@
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 
-local Example = {}
+local Example = {} -- checked: literal_needs_type
 
 --- Standard input is a descriptor like any other: [`Fs.take`] reads it,
 --- and [`Proc.is_tty`] says whether a person is typing into it.
@@ -164,4 +164,4 @@ function Example.walk()
   assert(Fs.remove_tree(dir))
 end
 
-return Example
+return Example -- checked: export_not_declared

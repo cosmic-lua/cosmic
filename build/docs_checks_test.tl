@@ -183,14 +183,14 @@ end
 --- prose.
 local function test_a_comment_in_a_signature_and_an_internal_path_are_refused()
   local rows = clean()
-  rows[3].signature = "function Thing.add(a: integer): integer -- A tail call"
+  rows[3].signature = "function Thing.add(a: integer): integer -- A tail call" -- checked: nil_not_allowed
   local found = docs_checks.rendered(projection(rows), none)
   assert(#found == 1 and found[1]:find("the signature has a comment in it", 1, true) ~= nil,
     table.concat(found, "\n"))
 
   for _, path in ipairs({ "build/test.tl", "core/check.h", "cosmic/internal/http.tl" }) do
     rows = clean()
-    rows[3].text = "Adds one to `a`; " .. path .. " says how."
+    rows[3].text = "Adds one to `a`; " .. path .. " says how." -- checked: nil_not_allowed
     found = docs_checks.rendered(projection(rows), none)
     -- The call's own page, and its module's, whose listing shows its
     -- first sentence.
@@ -201,7 +201,7 @@ local function test_a_comment_in_a_signature_and_an_internal_path_are_refused()
 
   -- A word that only ends like a directory is none.
   rows = clean()
-  rows[3].text = "Rebuild/score/coreboot are words; so is cosmic/fs.tl."
+  rows[3].text = "Rebuild/score/coreboot are words; so is cosmic/fs.tl." -- checked: nil_not_allowed
   found = docs_checks.rendered(projection(rows), none)
   assert(#found == 0, table.concat(found, "\n"))
 end
@@ -220,7 +220,7 @@ end
 --- query, a verb of `cosmic help`, and a `Module.symbol`.
 local function test_a_dangling_reference_is_named()
   local rows = clean()
-  rows[1].text = table.concat({
+  rows[1].text = table.concat({ -- checked: nil_not_allowed
     "Things, made and counted. See `Thing.add` and `cosmic docs Thing.add`,",
     "`cosmic docs <module>` and `cosmic help <verb>`; not `Thing.gone`,",
     "`cosmic docs Thing.nothing` or `cosmic help nosuch`. `Other.name` is",
@@ -311,7 +311,7 @@ local function test_a_type_standing_for_another_lists_members_that_resolve(dir: 
   })
   local view = assert(docs.view({ db }, { true }))
   local found = assert(docs.lookup(view, "Thing.Handle"))
-  local lines = assert(docs.render(view, found[1]))
+  local lines = assert(docs.render(view, found[1])) -- checked: index_may_be_nil
   assert(table.concat(lines, "\n"):find("size: integer -- How big", 1, true) ~= nil,
     table.concat(lines, "\n"))
   local checked = docs_checks.rendered(db, none)

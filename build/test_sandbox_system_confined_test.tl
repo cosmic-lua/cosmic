@@ -32,7 +32,7 @@ local function test_a_confined_process_is_given_the_system_s_paths(tmp: string)
   local own = tmp .. "/own"
   assert(Fs.mkdirs(own))
   local code: support.Cell<integer> = {}
-  local ran = confine.call(function()
+  local ran = confine.call(function() -- checked: not_assignable
     confine.confine({ reads = { probe } })
     local r = assert(Child.run({ probe, "present /usr || exit 3" }, { env = {} }))
     confine.confine(nil)

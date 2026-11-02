@@ -23,7 +23,7 @@ local function test_a_handler_sees_the_canonical_path_params_and_route()
   local req = assert(seen[1], "expected seen[1]")
   assert(req.method == "GET" and req.path == "/items/a~b" and req.query_string == "x=1&y=2")
   assert(#req.segments == 2 and req.segments[2] == "a~b")
-  assert(req.params.id == "a~b" and req.mount_path == "")
+  assert(req.params.id == "a~b" and req.mount_path == "") -- checked: map_field
   local route = assert(req.route)
   assert(route.pattern == "/items/:id" and route.methods[1] == "GET")
   assert(req.app == app and req.scheme == "http" and req.host == "testserver")
@@ -62,7 +62,7 @@ local function test_a_failed_body_read_answers_nil_and_why()
     req = r
     return Web.text("ok")
   end) } }
-  local broken: Stream.Reader = {
+  local broken: Stream.Reader = { -- checked: literal_shape
     read = function(_self: Stream.Reader, _max?: integer): string?, string
       return nil, "http: the body is over the limit"
     end,
@@ -81,7 +81,7 @@ local function test_query_decodes_once_and_refuses_a_malformed_escape()
   client:get("/items/1?a=1&a=2&b=x+y")
   local seen_1 = assert(seen[1], "expected seen[1]")
   local query = assert(seen_1:query())
-  assert(query.by_name.a[2] == "2" and query.by_name.b[1] == "x y")
+  assert(query.by_name.a[2] == "2" and query.by_name.b[1] == "x y") -- checked: map_field*2
   assert(seen_1:query() == query, "the decode is kept")
   client:get("/items/1?a=%zz")
   local seen_2 = assert(seen[2], "expected seen[2]")
@@ -111,7 +111,7 @@ local function test_typed_keys_carry_a_value_per_request()
   Web.test_client(app):get("/items/2")
   local seen_2 = assert(seen[2], "expected seen[2]")
   assert(seen_2:get(COUNT) == nil, "another request has its own")
-  local ok = pcall(Web.key, "")
+  local ok = pcall(Web.key, "") -- checked: overload_none
   assert(not ok)
 end
 
@@ -236,7 +236,7 @@ local function test_a_failed_body_read_is_remembered()
     seen = r
     return Web.text("ok")
   end) } }
-  local body: Stream.Reader = {
+  local body: Stream.Reader = { -- checked: literal_shape
     read = function(_self: Stream.Reader, _max?: integer): string?, string
       reads = reads + 1
       return nil, "the client went away"

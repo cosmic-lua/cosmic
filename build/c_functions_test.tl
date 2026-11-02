@@ -23,7 +23,7 @@ local exempt <const> = "core/vfs.c:file_write"
 
 local function test_an_exempt_function_is_not_a_failure()
   local path, name = exempt:match("^(.-):([^:]+)$")
-  local tally = c_functions.tally({ fn(path, 1, name) }, {})
+  local tally = c_functions.tally({ fn(path, 1, name) }, {}) -- checked: nil_not_allowed*2
   assert(tally.exempted == 1 and #tally.unentered == 0 and #tally.stale == 0)
 end
 
@@ -31,7 +31,7 @@ end
 --- counted as entered rather than exempt.
 local function test_an_exempt_function_entered_is_stale()
   local path, name = exempt:match("^(.-):([^:]+)$")
-  local tally = c_functions.tally({ fn(path, 1, name) }, { [path] = { [1] = true } })
+  local tally = c_functions.tally({ fn(path, 1, name) }, { [path] = { [1] = true } }) -- checked: nil_not_allowed*3
   assert(tally.entered == 1 and tally.exempted == 0)
   assert(#tally.stale == 1 and tally.stale[1] == exempt)
 end
@@ -167,8 +167,8 @@ local function test_a_promised_absence_or_a_refused_probe_retains_the_obligation
       why = "could not inspect" },
   }
   local unheld = c_functions.unavailable(answers)
-  assert(unheld.unix_socket == "requires unix_socket: absent")
-  assert(unheld.landlock == nil and unheld["path:/proc/thread-self/children"] == nil)
+  assert(unheld.unix_socket == "requires unix_socket: absent") -- checked: map_field
+  assert(unheld.landlock == nil and unheld["path:/proc/thread-self/children"] == nil) -- checked: map_field
   local held = c_functions.unavailable(answers, { "unix_socket" })
   assert(next(held) == nil)
   local tally = c_functions.tally({ fn("core/socket.c", 1, "reach_from") }, {}, nil, nil, held)

@@ -108,14 +108,14 @@ local function declared(r: Programs.Run, owner: string, name: string): {string}
     return out
   end
   local entry = r.program.globals[owner]
-  local decl = entry ~= nil and entry.decl or nil
+  local decl = entry ~= nil and entry.decl or nil -- checked: and_ternary
   local body = decl ~= nil and decl.body or nil
-  for _, f in ipairs(body ~= nil and body.fields or {}) do
+  for _, f in ipairs(body ~= nil and body.fields or {}) do -- checked: literal_needs_type
     if f.name == name then
       out[#out + 1] = Types.display(f.type)
     end
   end
-  for _, m in ipairs(body ~= nil and body.methods or {}) do
+  for _, m in ipairs(body ~= nil and body.methods or {}) do -- checked: literal_needs_type
     if m.name == name then
       out[#out + 1] = Types.display(m.type)
     end
@@ -130,7 +130,7 @@ local function test_a_function_that_answers_nil_where_lua_does_is_declared_so()
     local got, want = declared(r, owner, name), { ... }
     if table.concat(got, "\n") ~= table.concat(want, "\n") then
       local problem = owner .. "." .. name .. ":\n" .. table.concat(got, "\n")
-      problems[#problems + 1] = problem
+      problems[#problems + 1] = problem -- checked: view_written
     end
   end
   same("string", "byte", "function(string, p2?: integer): integer?", "function(string, integer, p3?: integer): integer...")
@@ -238,7 +238,7 @@ local function lines_have(lines: {Line}): Programs.Run
   local found: mut {integer: {string}} = {}
   for _, e in ipairs(r.errors) do
     local at = found[e.y] or {}
-    at[#at + 1] = e.code
+    at[#at + 1] = e.code -- checked: view_written
     found[e.y] = at
   end
   local problems: mut {string} = {}

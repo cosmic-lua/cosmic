@@ -110,6 +110,7 @@ local record Programs
   type_of: function(source: string, name: string): string
 end
 
+-- checked: field_fixed
 Programs.library = [[
 do
   global record string
@@ -305,7 +306,7 @@ end
 
 function Programs.runner(): function(source: string, module?: string, modules?: {string: string}, declared?: {string: string}): Programs.Run
   local program = Declarations.new()
-  program.external["cosmic.sys"] = true
+  program.external["cosmic.sys"] = true -- checked: view_written
   local library = read_library()
   local globals = Scopes.declared(library.chunk)
   local _ = lower(program, "std", Programs.library, "decl", {}, nil, library)
@@ -332,12 +333,12 @@ local function standard_program(prelude: string, stdlib: string, external?: {str
     Declarations.Program, {string: Scopes.Global}, Programs.Run, Programs.Run
   local program = Declarations.new()
   for _, name in ipairs(external or { "cosmic.sys" }) do
-    program.external[name] = true
+    program.external[name] = true -- checked: view_written
   end
   local globals: {string: Scopes.Global} = {}
   local function add(file: string, text: string)
     for name, g in pairs(Scopes.declared(Parser.parse(Lexer.lex(text, file), file, "decl").chunk)) do
-      globals[name] = g
+      globals[name] = g -- checked: view_written
     end
   end
   add("lang/prelude.d.tl", prelude)
@@ -432,14 +433,14 @@ local function typed_coroutines(): {string: any}
   local library: {string: any} = {}
   local function create(body: function(...: any): any...): Co
     local handle: {string: any} = {}
-    local thread = coroutine.create(function(first: any): any
+    local thread = coroutine.create(function(first: any): any -- checked: overload_none -- untyped: call
       return body(handle, first)
     end)
-    handle.yield = function(_self: any, y: any): any
-      if coroutine.running() ~= thread then
+    handle.yield = function(_self: any, y: any): any -- checked: map_field
+      if coroutine.running() ~= thread then -- checked: field_unknown -- untyped: call
         error("a handle yields for the coroutine it was made for", 2)
       end
-      return coroutine.yield(y)
+      return coroutine.yield(y) -- checked: field_unknown -- untyped: call
     end
     return {
       resume = function(...: any): (boolean, any...)
@@ -453,18 +454,18 @@ local function typed_coroutines(): {string: any}
       end,
     }
   end
-  library.create = create
-  library.resume = function(co: Co, ...: any): (boolean, any...)
+  library.create = create -- checked: map_field
+  library.resume = function(co: Co, ...: any): (boolean, any...) -- checked: map_field
     return co.resume(...)
   end
-  library.close = function(co: Co): (boolean, any...)
+  library.close = function(co: Co): (boolean, any...) -- checked: map_field
     return co.close()
   end
-  library.status = function(co: Co): string
+  library.status = function(co: Co): string -- checked: map_field
     return co.status()
   end
-  library.isyieldable = coroutine.isyieldable
-  library.wrap = function(body: function(...: any): any...): function(...: any): any
+  library.isyieldable = coroutine.isyieldable -- checked: map_field
+  library.wrap = function(body: function(...: any): any...): function(...: any): any -- checked: map_field
     local co = create(body)
     return function(...: any): any
       local ok, value = co.resume(...)
@@ -507,17 +508,17 @@ local function own_fact(v: any, kinds: string, name: string, strings?: {string},
     end
     return false
   end
-  if strings ~= nil and kind == "string" and not among(strings, v) then
+  if strings ~= nil and kind == "string" and not among(strings, v) then -- checked: any_use
     fails("the string " .. tostring(v) .. ", the checker proved one of " .. table.concat(strings, ","))
   end
-  if v is {string: any} then
+  if v is {string: any} then -- checked: is_on_record
     if tables ~= nil and not among(tables, getmetatable(v)) then
       fails("a table of another class than the checker proved")
     end
     if tag ~= nil and tags ~= nil then
       local field = v[tag]
       local listed = if tags is string then words_of(tags) else tags end
-      if not among(listed, field) then
+      if not among(listed, field) then -- checked: any_use
         fails("a table whose " .. tag .. " is " .. tostring(field) .. ", the checker proved one of " .. table.concat(listed, ","))
       end
     end
@@ -550,25 +551,25 @@ function Programs.execute(source: string, facts: boolean, modules?: {string: str
   if facts then
     wraps = FactWraps.of(run.result.narrowed, source, "t", run.chunk)
   end
-  done.lua = generated(run, wraps, kind_only)
+  done.lua = generated(run, wraps, kind_only) -- checked: field_fixed
   local loader: function(name: string): any
   local env: {string: any} = {
-    assert = assert, ipairs = ipairs, pairs = pairs, math = math, tostring = tostring, tonumber = tonumber, type = type, error = error, pcall = pcall, xpcall = xpcall,
-    string = string, table = table, select = select, setmetatable = setmetatable, getmetatable = getmetatable,
-    coroutine = typed_coroutines(),
-    require = function(name: string): any
+    assert = assert, ipairs = ipairs, pairs = pairs, math = math, tostring = tostring, tonumber = tonumber, type = type, error = error, pcall = pcall, xpcall = xpcall, -- checked: any_use*6, overload_value*4
+    string = string, table = table, select = select, setmetatable = setmetatable, getmetatable = getmetatable, -- checked: any_use*4, overload_value
+    coroutine = typed_coroutines(), -- checked: any_use
+    require = function(name: string): any -- checked: any_use, not_assigned
       return loader(name)
     end,
   }
-  env.print = function(...: any)
+  env.print = function(...: any) -- checked: map_field
     local parts: mut {string} = {}
     for i = 1, select("#", ...) do
       parts[i] = tostring((select(i, ...)))
     end
     local line = table.concat(parts, "\t")
-    done.printed[#done.printed + 1] = line
+    done.printed[#done.printed + 1] = line -- checked: view_written
   end
-  env.__fact = hook or own_fact
+  env.__fact = hook or own_fact -- checked: map_field
   local loaded: {string: any} = {}
   loader = function(name: string): any
     local held = loaded[name]
@@ -584,18 +585,18 @@ function Programs.execute(source: string, facts: boolean, modules?: {string: str
       error("the Lua of " .. name .. " does not load: " .. tostring(module_why), 2)
     end
     local value = module_chunk()
-    loaded[name] = value
+    loaded[name] = value -- checked: view_written
     return value
   end
   local chunk, why = load(done.lua, "=t", "t", env)
   if chunk == nil then
-    done.fault = "the Lua does not load: " .. tostring(why)
+    done.fault = "the Lua does not load: " .. tostring(why) -- checked: field_fixed
     return done
   end
-  local ok, err = pcall(chunk)
-  done.ran = true
+  local ok, err = pcall(chunk) -- checked: overload_none -- untyped: call
+  done.ran = true -- checked: field_fixed
   if not ok then
-    done.fault = tostring(err)
+    done.fault = tostring(err) -- checked: field_fixed
   end
   return done
 end

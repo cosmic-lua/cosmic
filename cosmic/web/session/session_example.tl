@@ -9,7 +9,7 @@ local SessionSqlite = require("cosmic.web.session.sqlite")
 local Sqlite = require("cosmic.sqlite")
 local Web = require("cosmic.web")
 
-local Example = {}
+local Example = {} -- checked: literal_needs_type
 
 --- A visit counter in a signed cookie. A request that only reads the
 --- session sends no cookie; one that changes it sends one.
@@ -107,4 +107,4 @@ function Example.logout_everywhere()
   assert(SessionSqlite.sweep(store, 0) == 0)
 end
 
-return Example
+return Example -- checked: export_not_declared

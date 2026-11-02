@@ -71,7 +71,7 @@ local function put(map: mut {string: {symbol_index.Row}}, key: string, row: symb
     list = {}
     map[key] = list
   end
-  list[#list + 1] = row
+  list[#list + 1] = row -- checked: view_written
 end
 
 --- Whether `a` was read before `b`: by database, then by row.
@@ -125,12 +125,12 @@ function symbol_index.add(index: symbol_index.Index, row: symbol_index.Row)
   local module, symbol, source = row.module, row.symbol, row.source_symbol
   if row.kind == "record" or row.kind == "interface" or row.kind == "enum" or
       row.signature:match("^type .* = ") ~= nil then
-    keep_first(index.types, module .. "\n" .. source, row)
-    if row.exported then keep_first(index.exported, module .. "\n" .. symbol, row) end
+    keep_first(index.types, module .. "\n" .. source, row) -- checked: view_as_mut
+    if row.exported then keep_first(index.exported, module .. "\n" .. symbol, row) end -- checked: view_as_mut
   end
   local parent, last = source:match("^(.*)%.([^.]*)$")
   if parent ~= nil and last ~= nil and (row.kind == "field" or row.kind == "value") and last:sub(1, 1) ~= "_" then
-    put(index.under, module .. "\n" .. parent, row)
+    put(index.under, module .. "\n" .. parent, row) -- checked: view_as_mut
   end
   if not row.shown then
     return
@@ -141,18 +141,18 @@ function symbol_index.add(index: symbol_index.Index, row: symbol_index.Row)
     local value = alias_members.value_record(row.signature)
     if value ~= nil then index.values[module] = value end
   end
-  put(index.exact, symbol, row)
-  if source ~= symbol then put(index.exact, source, row) end
+  put(index.exact, symbol, row) -- checked: view_as_mut
+  if source ~= symbol then put(index.exact, source, row) end -- checked: view_as_mut
   if symbol == "" then
-    put(index.exact, module, row)
+    put(index.exact, module, row) -- checked: view_as_mut
     return
   end
-  put(index.named, symbol, row)
-  for at in symbol:gmatch("()[.:]") do put(index.named, symbol:sub(at + 1), row) end
+  put(index.named, symbol, row) -- checked: view_as_mut
+  for at in symbol:gmatch("()[.:]") do put(index.named, symbol:sub(at + 1), row) end -- checked: view_as_mut
   local dotted = symbol:gsub(":", ".")
   local dotted_source = source:gsub(":", ".")
-  put(index.members, module .. "\n" .. dotted, row)
-  if dotted_source ~= dotted then put(index.members, module .. "\n" .. dotted_source, row) end
+  put(index.members, module .. "\n" .. dotted, row) -- checked: view_as_mut
+  if dotted_source ~= dotted then put(index.members, module .. "\n" .. dotted_source, row) end -- checked: view_as_mut
 end
 
 --- The rows of `lists`, in order, each module and symbol once.

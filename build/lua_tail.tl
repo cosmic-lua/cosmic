@@ -30,7 +30,7 @@ end
 --- `string.dump` of `chunk`, which `load` makes: the one place the vararg return of that type meets the single one
 --- `string.dump` declares.
 local function dump(chunk: function(...: any): any..., strip: boolean): string
-  return string.dump(chunk, strip)
+  return string.dump(chunk, strip) -- checked: not_assignable
 end
 
 --- The bytecode header every target must agree on. One column of

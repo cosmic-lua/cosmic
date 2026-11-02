@@ -31,7 +31,7 @@ local function gen_event(src: Fuzz.Source): string
   for i = 1, 4 do
     local has = src:int(0, 2) ~= 0
     present = present .. (if has then "1" else "0" end)
-    local text = has and gen_text(src) or ""
+    local text = if has then gen_text(src) else "" end
     -- The event and the id are mostly drawn to be valid, so most inputs reach the formatter.
     if (i == 2 or i == 3) and src:int(0, 4) ~= 0 then text = text:gsub("[%c]", "") end
     texts[#texts + 1] = text
@@ -82,10 +82,10 @@ local function test_format_event_makes_one_event_with_the_fields_given_and_no_ot
       if expect_refusal then
         return false, "formatted an event a field of which cannot be carried"
       end
-      if out:find("\r", 1, true) then return false, "a CR in the output" end
+      if out:find("\r", 1, true) then return false, "a CR in the output" end -- checked: any_use
       if out == "" then return true, "" end
       Fuzz.label("formatted")
-      if out:sub(-2) ~= "\n\n" or out:find("\n\n", 1, true) ~= #out - 1 then
+      if out:sub(-2) ~= "\n\n" or out:find("\n\n", 1, true) ~= #out - 1 then -- checked: any_use*3
         return false, "a blank line before the end of the event"
       end
       local seen: mut {string: integer} = {}
@@ -93,7 +93,7 @@ local function test_format_event_makes_one_event_with_the_fields_given_and_no_ot
       local comment: mut {string} = {}
       local id: string? = nil
       local event: string? = nil
-      for line in out:sub(1, -3):gmatch("[^\n]*") do
+      for line in out:sub(1, -3):gmatch("[^\n]*") do -- checked: any_use
         local name, value = line:match("^(%a+): (.*)$")
         if line:sub(1, 2) == ": " then
           comment[#comment + 1] = line:sub(3)
@@ -121,8 +121,8 @@ local function test_format_event_makes_one_event_with_the_fields_given_and_no_ot
       if ev.comment == nil and #comment > 0 then return false, "a comment from nowhere" end
       if id ~= ev.id then return false, "id differs" end
       if (ev.event or "") ~= (event or "") then return false, "event differs" end
-      if (retry or 0) == 0 and seen.retry ~= nil then return false, "retry from nowhere" end
-      if (retry or 0) > 0 and seen.retry ~= 1 then return false, "retry is lost" end
+      if (retry or 0) == 0 and seen.retry ~= nil then return false, "retry from nowhere" end -- checked: map_field
+      if (retry or 0) > 0 and seen.retry ~= 1 then return false, "retry is lost" end -- checked: map_field
       if (ev.data or ""):find("[\r\n]") or (ev.comment or ""):find("[\r\n]") then
         Fuzz.label("injection attempt")
       end

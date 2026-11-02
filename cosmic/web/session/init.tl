@@ -199,9 +199,9 @@ local record Session
   MAX_DEPTH: integer
 end
 
-Session.KEY = Request.key("session")
-Session.MAX_DEPTH = 16
-Session.CSRF_KEY = "_csrf"
+Session.KEY = Request.key("session") -- checked: field_fixed
+Session.MAX_DEPTH = 16 -- checked: field_fixed
+Session.CSRF_KEY = "_csrf" -- checked: field_fixed
 
 local DAY <const> = 86400
 local MAX_FLASHES <const> = 10
@@ -314,7 +314,7 @@ local function set_value(st: State, key: string, value: any)
   end
   -- The value sits inside the object of values, one level down.
   local _, why = Json.encode_any(value, { max_depth = Session.MAX_DEPTH - 1 })
-  if why ~= nil and why ~= "" then
+  if why ~= nil and why ~= "" then -- checked: compare_disjoint
     error("session: cannot keep " .. key .. ": " .. why, 0)
   end
   st.data.values[key] = value
@@ -338,7 +338,7 @@ end
 
 local function flashes_of(st: State): {{string:any}}
   local list = st.data.values[FLASH]
-  if list is {{string:any}} then return list end
+  if list is {{string:any}} then return list end -- checked: is_on_record
   return {}
 end
 
@@ -408,15 +408,15 @@ local function make_handle(st: State): Session.Handle
         error("session: a flash is a kind and a text, both strings", 0)
       end
       local _, why = Json.encode({ kind = kind, text = text })
-      if why ~= nil and why ~= "" then
+      if why ~= nil and why ~= "" then -- checked: compare_disjoint
         error("session: cannot flash that: " .. why, 0)
       end
       local list: mut {{string:any}} = {}
       for _, each in ipairs(flashes_of(st)) do list[#list + 1] = each end
-      list[#list + 1] = { kind = kind, text = cut(text, MAX_FLASH_BYTES) }
+      list[#list + 1] = { kind = kind, text = cut(text, MAX_FLASH_BYTES) } -- checked: any_use*2
       while #list > MAX_FLASHES do table.remove(list, 1) end
-      st.data.values[FLASH] = list
-      st.changes.set[FLASH] = list
+      st.data.values[FLASH] = list -- checked: any_use
+      st.changes.set[FLASH] = list -- checked: any_use
       remove_key(st.changes.removed, FLASH)
       mark(st)
     end,
@@ -426,7 +426,7 @@ local function make_handle(st: State): Session.Handle
       if st.data.values[FLASH] == nil then return out end
       writable(st)
       for _, each in ipairs(flashes_of(st)) do
-        local kind, text = each.kind, each.text
+        local kind, text = each.kind, each.text -- checked: map_field*2
         if kind is string and text is string then
           out[#out + 1] = { kind = kind, text = text }
         end
@@ -489,7 +489,7 @@ end
 --- @param opts Session.Options The store and the cookie
 --- @return Types.Middleware The middleware
 function Session.middleware(opts: Session.Options): Types.Middleware
-  if type(opts) ~= "table" or opts.store == nil then
+  if type(opts) ~= "table" or opts.store == nil then -- checked: compare_disjoint
     error("session: Session.middleware needs a store (SessionCookie.store or SessionSqlite.store)", 0)
   end
   local max_age = opts.max_age or 14 * DAY

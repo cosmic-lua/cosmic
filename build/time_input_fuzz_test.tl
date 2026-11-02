@@ -35,8 +35,8 @@ end
 
 local function input_is_total(input: string): boolean, string
   local fields = Fuzz.unpack(input)
-  local zone = assert(Time.zone(fields[2]))
-  local ok, got, why = pcall(time_verb.parse_input, fields[1], zone, fields[3] as Time.Disambiguation)
+  local zone = assert(Time.zone(fields[2])) -- checked: index_may_be_nil
+  local ok, got, why = pcall(time_verb.parse_input, fields[1], zone, fields[3] as Time.Disambiguation) -- checked: cast_refused, overload_none
   if not ok then return false, "raised: " .. tostring(got) end
   if got == nil then
     if not why is string or why == "" then return false, "refused with no reason" end
@@ -45,11 +45,11 @@ local function input_is_total(input: string): boolean, string
   end
   Fuzz.label("read")
   local text = fields[1]
-  if text:sub(1, 1) == "@" then
+  if text:sub(1, 1) == "@" then -- checked: nil_not_allowed
     Fuzz.label("epoch")
-  elseif #text == 10 then
+  elseif #text == 10 then -- checked: nil_not_allowed
     Fuzz.label("date")
-  elseif not text:find("[Zz+%-]", 11) then
+  elseif not text:find("[Zz+%-]", 11) then -- checked: nil_not_allowed
     Fuzz.label("local")
   else
     Fuzz.label("rfc3339")

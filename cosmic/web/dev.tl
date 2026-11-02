@@ -217,8 +217,8 @@ end
 --- Raises for an `opts` that is no table or holds a field `known` lacks.
 local function checked(opts: any, known: {string:boolean}, what: string)
   if opts == nil then return end
-  if not opts is {any:any} then error("web: " .. what .. " takes a table", 3) end
-  for key in pairs(opts) do
+  if not opts is {any:any} then error("web: " .. what .. " takes a table", 3) end -- declared: key_type
+  for key in pairs(opts) do -- checked: any_use
     if not (key is string and known[key] == true) then
       error(("web: %s has no field %s"):format(what, tostring(key)), 3)
     end
@@ -308,7 +308,7 @@ local function scan(roots: {string}, ignored: function(string, string): boolean,
       files = listed
     end
     for _, rel in ipairs(files) do
-      local path = root == "." and rel or (root .. "/" .. rel)
+      local path = if root == "." then rel else (root .. "/" .. rel) end
       local st, _ = Fs.stat(path)
       if st ~= nil then
         found[path] = ("%d:%d.%09d"):format(st.size, st.mtime, st.mtime_ns)
@@ -449,7 +449,7 @@ local function injected(res: Types.Response, nonce: string?): Types.Response
   local headers: mut {string: string | {string}} = {}
   for name, value in pairs(res.headers or {}) do headers[name] = value end
   local copy: Types.Response = { status = res.status }
-  for key, value in pairs(res as {any:any}) do (copy as {any:any})[key] = value end
+  for key, value in pairs(res as {any:any}) do (copy as {any:any})[key] = value end -- declared: key_type*2 -- checked: cast_refused*2
   copy.headers = headers
   copy.body = page
   if res.length ~= nil then copy.length = #page end
@@ -462,7 +462,7 @@ end
 --- Whether the request names a host the app answers to.
 local function host_ok(req: Types.Request): boolean
   local req_host = req.host
-  local named = req_host ~= nil and Request.parse_host(req_host) or nil
+  local named = if req_host ~= nil then Request.parse_host(req_host) else nil end
   if named == nil then return false end
   for _, host in ipairs(req.app.spec.trusted_hosts or {}) do
     if host == named.host then return true end
@@ -504,9 +504,9 @@ end
 local function checked_options(opts: Dev.Options?, level: integer)
   checked(opts, OPTION_FIELDS, "dev")
   if opts == nil then return end
-  local enabled: any = opts.enabled
-  local static: any = opts.static
-  local boot: any = opts.boot
+  local enabled: any = opts.enabled -- checked: any_use
+  local static: any = opts.static -- checked: any_use
+  local boot: any = opts.boot -- checked: any_use
   if enabled ~= nil and type(enabled) ~= "boolean" then
     error("web: dev: enabled must be a boolean", level)
   end
@@ -641,8 +641,8 @@ function Dev.supervise(opts?: Dev.SuperviseOptions): boolean, string
   local function launch()
     program.boot = program.boot + 1
     local env = Env.all()
-    env.COSMIC_WEB_DEV = "1"
-    env.COSMIC_WEB_BOOT = tostring(program.boot)
+    env.COSMIC_WEB_DEV = "1" -- checked: map_field
+    env.COSMIC_WEB_BOOT = tostring(program.boot) -- checked: map_field
     log(("web dev: starting (boot %d)"):format(program.boot))
     local started, trouble = start(env)
     if started == nil then
@@ -686,7 +686,7 @@ function Dev.supervise(opts?: Dev.SuperviseOptions): boolean, string
         local result, _ = running:wait()
         local _, _ = running:close()
         program.handle = nil
-        log("web dev: the program " .. (result ~= nil and ended(result) or "is gone") ..
+        log("web dev: the program " .. (if result ~= nil then ended(result) else "is gone" end) ..
             "; waiting for a change")
       end
     else
@@ -702,7 +702,7 @@ function Dev.supervise(opts?: Dev.SuperviseOptions): boolean, string
         local moved = pending
         pending = nil
         local first_moved = assert(moved[1], "web dev: a restart is pending only for a change")
-        log(("web dev: %s changed; restarting"):format(first_moved .. (#moved > 1 and (" and %d more"):format(#moved - 1) or "")))
+        log(("web dev: %s changed; restarting"):format(first_moved .. (if #moved > 1 then (" and %d more"):format(#moved - 1) else "" end)))
         halt()
         launch()
       end

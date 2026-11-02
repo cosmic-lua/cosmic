@@ -249,7 +249,7 @@ local function pushes(name: string): boolean
   if name:match("^lua_push") or name:match("^lua_new") or name:match("^lua_rawget") then
     return true
   end
-  if name:match("^lua_get") and name ~= "lua_gettop" and name ~= "lua_getallocf" then
+  if name:match("^lua_get") and name ~= "lua_gettop" and name ~= "lua_getallocf" then -- checked: condition_type
     return true
   end
   return pushing[name] == true
@@ -298,7 +298,7 @@ end
 --- a variable's address, or nil.
 local function referenced(node: Node): string?
   local bare = tree.bare(node)
-  if bare == nil then return nil end
+  if bare == nil then return nil end -- checked: compare_disjoint
   if bare.kind == "UnaryOperator" and bare.text:match("'&'") ~= nil and #bare.children == 1 then
     bare = tree.bare(bare.children[1])
   end
@@ -365,7 +365,7 @@ end
 local function report(ctx: Context, node: Node, rule: string, message: string)
   local at = tree.placed(node)
   ctx.findings[#ctx.findings + 1] = {
-    file = at ~= nil and at.file or ctx.file, line = at ~= nil and at.line or 0, rule = rule,
+    file = at ~= nil and at.file or ctx.file, line = at ~= nil and at.line or 0, rule = rule, -- checked: and_ternary*2
     within = ctx.within, message = message,
   }
 end
@@ -416,12 +416,12 @@ local function buffer_of(call: Node): string?
   for _, argument in ipairs(arguments(call)) do
     local bare = tree.bare(argument)
     local inner = bare
-    if bare ~= nil and bare.kind == "UnaryOperator" and #bare.children == 1 then
+    if bare ~= nil and bare.kind == "UnaryOperator" and #bare.children == 1 then -- checked: compare_disjoint
       inner = tree.bare(bare.children[1])
     end
-    if inner ~= nil and inner.kind == "DeclRefExpr" and is_buffer(inner) then
+    if inner ~= nil and inner.kind == "DeclRefExpr" and is_buffer(inner) then -- checked: compare_disjoint
       local r = tree.referent(inner)
-      return r ~= nil and r.id or nil
+      return r ~= nil and r.id or nil -- checked: and_ternary
     end
   end
   return nil
@@ -436,7 +436,7 @@ local function above_buffer(ctx: Context, fn: Function)
   end
   local above = 0
   for _, node in ipairs(fn.nodes) do
-    local name = node.kind == "CallExpr" and tree.callee(node) or nil
+    local name = node.kind == "CallExpr" and tree.callee(node) or nil -- checked: and_ternary
     if name ~= nil then
       local buffer = buffer_of(node)
       if name == "luaL_buffinit" or name == "luaL_buffinitsize" then
@@ -555,7 +555,7 @@ end
 --- The value of an integer constant expression, or nil: `-1`, `-(1)-1`.
 local function constant(node: Node): integer?
   local bare = tree.bare(node)
-  if bare == nil then return nil end
+  if bare == nil then return nil end -- checked: compare_disjoint
   if bare.kind == "IntegerLiteral" then
     return math.tointeger(tonumber(bare.text:match("(%d+)$")))
   end
@@ -631,7 +631,7 @@ local function track_strings(state: State, call: Node, name: string)
   -- Nothing followed and nothing taken: most calls.
   if pushed == nil and next(state.strings) == nil then return end
   local placed = tree.placed(call)
-  local line = placed ~= nil and placed.line or 0
+  local line = placed ~= nil and placed.line or 0 -- checked: and_ternary
   local delta, clears = stack_effect(name, call)
   for id, p in pairs(state.strings) do
     if p.gone == 0 then
@@ -713,13 +713,13 @@ local function expression(ctx: Context, node: Node, state: State)
         if held ~= nil then
           local at = tree.placed(n)
           state.held[held.id] = { name = held.name, from = name,
-            line = at ~= nil and at.line or 0 }
+            line = at ~= nil and at.line or 0 } -- checked: and_ternary
         end
       end
     elseif n.kind == "DeclRefExpr" then
       local r = tree.referent(n)
-      local id = r ~= nil and r.id or nil
-      local p = id ~= nil and state.strings[id] or nil
+      local id = r ~= nil and r.id or nil -- checked: and_ternary
+      local p = id ~= nil and state.strings[id] or nil -- checked: and_ternary
       local parent = n.parent
       local assigned = parent ~= nil and parent.kind == "BinaryOperator" and
         tree.operator(parent) == "=" and parent.children[1] == n
@@ -763,7 +763,7 @@ end
 --- The locals a condition says are absent on each side.
 local function tested(cond: Node, state: State): Absent
   local bare = tree.bare(cond)
-  if bare == nil then return {} end
+  if bare == nil then return {} end -- checked: compare_disjoint
   local operand = bare.children[1]
   if bare.kind == "UnaryOperator" and bare.text:match("'!'") ~= nil and operand ~= nil then
     return { yes = referenced(operand) }
@@ -784,7 +784,7 @@ local function tested(cond: Node, state: State): Absent
         local slot = if name ~= nil then acquires[name] else nil end
         if name ~= nil and absent_on_failure[name] == true and slot ~= nil then
           local handed = given(b, slot, state)
-          absent = handed ~= nil and handed.id or nil
+          absent = handed ~= nil and handed.id or nil -- checked: and_ternary
         end
       else
         local id = referenced(b)
@@ -798,12 +798,12 @@ local function tested(cond: Node, state: State): Absent
   end
   local function nothing(n: Node): boolean
     local b = tree.bare(n)
-    if b == nil then return false end
+    if b == nil then return false end -- checked: compare_disjoint
     if b.kind == "CStyleCastExpr" and b.text:find("<NullToPointer>", 1, true) ~= nil then
       return true
     end
     if b.kind == "CStyleCastExpr" and #b.children == 1 then b = tree.bare(b.children[1]) end
-    return b ~= nil and b.kind == "IntegerLiteral" and b.text:match(" 0$") ~= nil
+    return b ~= nil and b.kind == "IntegerLiteral" and b.text:match(" 0$") ~= nil -- checked: compare_disjoint
   end
   local id: string? = nil
   if nothing(right) then
@@ -902,7 +902,7 @@ local function statement(ctx: Context, node: Node, state: State): boolean
   end
   expression(ctx, node, state)
   local bare = tree.bare(node)
-  return bare ~= nil and bare.kind == "CallExpr" and ends(bare)
+  return bare ~= nil and bare.kind == "CallExpr" and ends(bare) -- checked: compare_disjoint
 end
 
 -- over a whole file ----------------------------------------------------
@@ -937,7 +937,7 @@ end
 --- The functions of each translation unit read, by its declarations,
 --- while they are held: `check` and `unit` read each one's functions,
 --- and the second reuses what the first indexed.
-local read: {{Node}: {Function}} = setmetatable({}, { __mode = "k" })
+local read: {{Node}: {Function}} = setmetatable({}, { __mode = "k" }) -- declared: key_type -- checked: setmetatable_call -- untyped: call
 
 local function functions(decls: {Node}): {Function}
   local known = read[decls]
@@ -1042,7 +1042,7 @@ end
 --- returns only truths, or a local only ever given one.
 local function truth(node: Node, known: Truths): boolean
   local bare = tree.bare(node)
-  if bare == nil then return false end
+  if bare == nil then return false end -- checked: compare_disjoint
   local v = constant(bare)
   if v ~= nil then return v == 0 or v == 1 end
   if bare.kind == "BinaryOperator" and truths[bare.text:match("'([^']*)'$") or ""] == true then
@@ -1141,7 +1141,7 @@ local function returned_constant(ctx: Context, fn: Function)
   local same: integer? = nil
   local all_same = true
   for _, r in ipairs(returns) do
-    local v = #r.children == 1 and constant(r.children[1]) or nil
+    local v = #r.children == 1 and constant(r.children[1]) or nil -- checked: and_ternary
     if v == nil or (same ~= nil and v ~= same) then all_same = false end
     same = same or v
   end
@@ -1157,7 +1157,7 @@ end
 --- Whether a `return` leaves `true` alone on the stack: `return
 --- cosmic_ok(L)`, or `return 1` just after `lua_pushboolean(L, 1)`.
 local function returns_true_alone(r: Node): boolean
-  local value = #r.children == 1 and tree.bare(r.children[1]) or nil
+  local value = #r.children == 1 and tree.bare(r.children[1]) or nil -- checked: and_ternary
   if value == nil then return false end
   if value.kind == "CallExpr" and tree.callee(value) == "cosmic_ok" then return true end
   if constant(value) ~= 1 then return false end
@@ -1187,7 +1187,7 @@ local function true_alone(ctx: Context, fn: Function)
   if not lua_facing(fn) or fn.inline then return end
   local any = false
   for _, r in ipairs(fn.returns) do
-    local value = #r.children == 1 and tree.bare(r.children[1]) or nil
+    local value = #r.children == 1 and tree.bare(r.children[1]) or nil -- checked: and_ternary
     if value ~= nil and value.kind == "CallExpr" and ends(value) then
       -- A raise is no return.
     elseif returns_true_alone(r) then
@@ -1222,9 +1222,9 @@ local function failure_shapes(fns: {Function}): {string: string}
         local shape: string? = nil
         local mixed = false
         for _, r in ipairs(fn.returns) do
-          local value = #r.children == 1 and tree.bare(r.children[1]) or nil
-          local helper = value ~= nil and value.kind == "CallExpr" and tree.callee(value) or nil
-          local this = helper ~= nil and shapes[helper] or nil
+          local value = #r.children == 1 and tree.bare(r.children[1]) or nil -- checked: and_ternary
+          local helper = value ~= nil and value.kind == "CallExpr" and tree.callee(value) or nil -- checked: and_ternary
+          local this = helper ~= nil and shapes[helper] or nil -- checked: and_ternary
           if this ~= nil then
             if shape ~= nil and shape ~= this then mixed = true end
             shape = shape or this
@@ -1252,9 +1252,9 @@ local function returned_shape(ctx: Context, fn: Function, declared: {string: rul
     local only = n.children[1]
     if #n.children == 1 and only ~= nil then
       local value = tree.bare(only)
-      local helper = value ~= nil and value.kind == "CallExpr" and tree.callee(value) or nil
-      local shape = helper ~= nil and ctx.shapes[helper] or nil
-      local through = if helper ~= nil and ctx.shapes[helper] ~= nil and not helper:match("^cosmic_") then
+      local helper = value ~= nil and value.kind == "CallExpr" and tree.callee(value) or nil -- checked: and_ternary, compare_disjoint
+      local shape = helper ~= nil and ctx.shapes[helper] or nil -- checked: and_ternary
+      local through = if helper ~= nil and ctx.shapes[helper] ~= nil and not helper:match("^cosmic_") then -- untyped: call
         " (through " .. helper .. ")" else "" end
       if d.fallible and d.effect and shape == "fail" then
         report(ctx, n, "failure-shape", "cosmic.sys." .. call .. " is declared an effect " ..
@@ -1312,14 +1312,14 @@ local function checked_positions(fn: Function, bound: {integer: integer},
     local c = constant(node)
     if c ~= nil then return c end
     local id = referenced(node)
-    local at = id ~= nil and index[id] or nil
-    return at ~= nil and bound[at] or nil
+    local at = id ~= nil and index[id] or nil -- checked: and_ternary
+    return at ~= nil and bound[at] or nil -- checked: and_ternary
   end
   for _, n in ipairs(fn.nodes) do
-    local name = n.kind == "CallExpr" and tree.callee(n) or nil
+    local name = n.kind == "CallExpr" and tree.callee(n) or nil -- checked: and_ternary
     if name ~= nil then
       local args = arguments(n)
-      if descriptor_checks[name] then
+      if descriptor_checks[name] then -- checked: condition_type
         local second = args[2]
         local at = if second ~= nil then value(second) else nil end
         if at ~= nil then out[at] = true end
@@ -1355,8 +1355,8 @@ local function descriptor_arguments(ctx: Context, fn: Function, byname: {string:
       name:match("^fd_") ~= nil
   end
   local function bare_taker(node: Node?): string?
-    local bare = node ~= nil and tree.bare(node) or nil
-    local taker = bare ~= nil and bare.kind == "CallExpr" and tree.callee(bare) or nil
+    local bare = node ~= nil and tree.bare(node) or nil -- checked: and_ternary
+    local taker = bare ~= nil and bare.kind == "CallExpr" and tree.callee(bare) or nil -- checked: and_ternary
     if taker ~= nil and integer_takers[taker] == true then return taker end
     return nil
   end
@@ -1375,7 +1375,7 @@ local function descriptor_arguments(ctx: Context, fn: Function, byname: {string:
         local target = bare_child(n, 1)
         local r = if target ~= nil then tree.referent(target) else nil end
         local taker = bare_taker(n.children[2])
-        if r ~= nil and r.name ~= nil and descriptor_name(r.name) and taker ~= nil then
+        if r ~= nil and r.name ~= nil and descriptor_name(r.name) and taker ~= nil then -- checked: compare_disjoint
           flag(n, r.name, taker)
         end
       end
@@ -1383,7 +1383,7 @@ local function descriptor_arguments(ctx: Context, fn: Function, byname: {string:
   end
   local call = fn.name:match("^cosmic_sys_(.+)$")
   local d = if call ~= nil then declared[call] else nil end
-  if call == nil or d == nil or d.descriptors == nil or #d.descriptors == 0 then return end
+  if call == nil or d == nil or d.descriptors == nil or #d.descriptors == 0 then return end -- checked: compare_disjoint
   local out: mut {integer: boolean} = {}
   checked_positions(fn, {}, byname, out, {})
   for _, at in ipairs(d.descriptors) do
@@ -1411,7 +1411,7 @@ function rules.unit(decls: {Node}, file: string,
     local binding = call ~= nil and declared ~= nil and declared[call] ~= nil
     if fn.prototype ~= nil and not fn.static and not fn.inline and not binding then
       local at = tree.placed(fn.prototype)
-      u.defines[fn.name] = { file = at ~= nil and at.file or file, line = at ~= nil and at.line or 0 }
+      u.defines[fn.name] = { file = at ~= nil and at.file or file, line = at ~= nil and at.line or 0 } -- checked: and_ternary*2
     end
   end
   local function refer(n: Node)

@@ -74,7 +74,7 @@ local function test_unescape_is_total_and_exact(tmp: string)
           return false, "refused with " .. why
         end
         local at = math.tointeger(tonumber(why:match("byte (%d+)")))
-        if input:sub(at, at) ~= "%" or input:find("^%x%x", at + 1) then
+        if input:sub(at, at) ~= "%" or input:find("^%x%x", at + 1) then -- checked: nil_not_allowed*2, or_mix
           return false, "refused naming the wrong byte: " .. why
         end
         Fuzz.label("refused")
@@ -82,7 +82,7 @@ local function test_unescape_is_total_and_exact(tmp: string)
       end
       if why ~= "" then return false, "decoded with a reason: " .. why end
       local again = input:gsub("%%(%x%x)", function(hex: string): string
-        return string.char(math.tointeger(tonumber(hex, 16)))
+        return string.char(math.tointeger(tonumber(hex, 16))) -- checked: nil_not_allowed
       end)
       if again ~= bytes then return false, ("decoded to %q, not %q"):format(bytes, again) end
       Fuzz.label("decoded")
@@ -139,7 +139,7 @@ local function test_segments_answer_no_climb_and_read_back_escaped_names(tmp: st
         if part:sub(1, 1) == "e" then
           local name = part:sub(2)
           pieces[#pieces + 1] = Url.escape(name)
-          if name == "" or name == "." or name == ".." or name:find("[/\0]") then
+          if name == "" or name == "." or name == ".." or name:find("[/\0]") then -- checked: or_mix
             only_names = false
           else
             names[#names + 1] = name
@@ -162,7 +162,7 @@ local function test_segments_answer_no_climb_and_read_back_escaped_names(tmp: st
       end
       if why ~= "" then return false, "answered with a reason: " .. why end
       for _, seg in ipairs(segs) do
-        if seg == "" or seg == "." or seg == ".." or seg:find("[/\0]") then
+        if seg == "" or seg == "." or seg == ".." or seg:find("[/\0]") then -- checked: or_mix
           return false, ("%q answered the segment %q"):format(path, seg)
         end
       end
@@ -205,7 +205,7 @@ local function test_parse_is_total(tmp: string)
       if not parts.scheme:find("^[a-z][a-z0-9+.-]*$") then
         return false, "scheme " .. parts.scheme
       end
-      if parts.host == "" or parts.host ~= parts.host:lower() or parts.host:find("[@%[%]/?#]") then
+      if parts.host == "" or parts.host ~= parts.host:lower() or parts.host:find("[@%[%]/?#]") then -- checked: or_mix
         return false, "host " .. parts.host
       end
       local port = parts.port
@@ -257,15 +257,15 @@ local function test_parse_reads_back_the_parts_a_url_was_built_from(tmp: string)
       local parts, why = Url.parse(url)
       if parts == nil then return false, ("refused %q: %s"):format(url, why) end
       local want_host = host:lower():match("^%[(.*)%]$") or host:lower()
-      local want_port = port:sub(2) ~= "" and math.tointeger(tonumber(port:sub(2))) or nil
+      local want_port = if port:sub(2) ~= "" then math.tointeger(tonumber(port:sub(2))) else nil end
       local checks: {{string}} = {
         { "scheme", parts.scheme, scheme:lower() },
-        { "userinfo", parts.userinfo or "-", userinfo ~= "" and userinfo:sub(2) or "-" },
+        { "userinfo", parts.userinfo or "-", if userinfo ~= "" then userinfo:sub(2) else "-" end },
         { "host", parts.host, want_host },
         { "port", tostring(parts.port), tostring(want_port) },
         { "path", parts.path, path },
-        { "query", parts.query or "-", query ~= "" and query:sub(2) or "-" },
-        { "fragment", parts.fragment or "-", fragment ~= "" and fragment:sub(2) or "-" },
+        { "query", parts.query or "-", if query ~= "" then query:sub(2) else "-" end },
+        { "fragment", parts.fragment or "-", if fragment ~= "" then fragment:sub(2) else "-" end },
       }
       for _, c in ipairs(checks) do
         if c[2] ~= c[3] then
@@ -303,7 +303,7 @@ local function test_encode_query_decodes_back_to_the_same_pairs(tmp: string)
       local fields = Fuzz.unpack(input)
       local want: mut {Url.Pair} = {}
       for i = 1, #fields - 1, 2 do
-        want[#want + 1] = { name = fields[i], value = fields[i + 1] }
+        want[#want + 1] = { name = fields[i], value = fields[i + 1] } -- checked: index_may_be_nil*2
       end
       local text = Url.encode_query(want)
       if text:find("[^A-Za-z0-9._~%%&=+-]") then
@@ -317,11 +317,11 @@ local function test_encode_query_decodes_back_to_the_same_pairs(tmp: string)
       local seen: mut {string:integer} = {}
       for i, p in ipairs(want) do
         local got = q.pairs[i]
-        if got.name ~= p.name or got.value ~= p.value then
-          return false, ("pair %d of %q read as %q=%q"):format(i, text, got.name, got.value)
+        if got.name ~= p.name or got.value ~= p.value then -- checked: nil_not_allowed*2
+          return false, ("pair %d of %q read as %q=%q"):format(i, text, got.name, got.value) -- checked: nil_not_allowed*2
         end
         seen[p.name] = (seen[p.name] or 0) + 1
-        if Url.query_all(q, p.name)[seen[p.name]] ~= p.value then
+        if Url.query_all(q, p.name)[seen[p.name]] ~= p.value then -- checked: index_may_be_nil
           return false, ("by_name misses pair %d of %q"):format(i, text)
         end
       end
@@ -360,17 +360,17 @@ local function test_decode_query_is_total_and_keeps_what_it_reads(tmp: string)
       local ok, q, why = pcall(Url.decode_query, text, opts)
       if not ok then return false, "raised: " .. tostring(q) end
       if q == nil then
-        if not why:find("^url: ") then return false, "refused with " .. why end
+        if not why:find("^url: ") then return false, "refused with " .. why end -- checked: nil_not_allowed*2
         Fuzz.label("refused")
         return true, ""
       end
-      if why ~= "" or #q.pairs > 6 then return false, "decoded with a reason or past the cap" end
+      if why ~= "" or #q.pairs > 6 then return false, "decoded with a reason or past the cap" end -- checked: any_use
       local total = 0
-      for name, values in pairs(q.by_name) do
+      for name, values in pairs(q.by_name) do -- checked: any_use
         if #values == 0 then return false, "empty list for " .. name end
         total = total + #values
       end
-      if total ~= #q.pairs then return false, "by_name and pairs disagree" end
+      if total ~= #q.pairs then return false, "by_name and pairs disagree" end -- checked: any_use
       Fuzz.label("decoded")
       return true, ""
     end,

@@ -181,10 +181,10 @@ local function test_a_tree_in_no_repository_starts_no_git(tmp: string)
   -- each call's first argument: every lookup of a variable (`Env`) and
   -- of a path ([`Proc.find`], [`Fs.exists`]) goes through it.
   local asked: mut {string} = {}
-  local calls = sys as {string:any}
+  local calls = sys as {string:any} -- checked: cast_refused
   local stood: mut {string:any} = {}
   for _, name in ipairs({ "getenv", "stat", "lstat", "access", "open" }) do
-    local was = calls[name] as function(...: any): any...
+    local was = calls[name] as function(...: any): any... -- checked: cast_refused
     stood[name] = was
     calls[name] = function(...: any): any...
       local given: any = ...
@@ -196,7 +196,7 @@ local function test_a_tree_in_no_repository_starts_no_git(tmp: string)
   for name, was in pairs(stood) do calls[name] = was end
   assert(ok, tostring(listing))
   assert(work.close(handle))
-  local listed = listing as todos.Listing
+  local listed = listing as todos.Listing -- checked: cast_refused
   assert(listed.blamed == 0, "blamed " .. listed.blamed)
   assert(#listed.todos == 1 and listed.todos[1].commit == "", listed.todos[1].commit)
   local asked_after_git = false

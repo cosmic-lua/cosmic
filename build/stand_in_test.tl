@@ -322,9 +322,9 @@ local function test_what_start_and_run_leave_running_runs_on(tmp: string)
     local r = assert(Child.run({ probe, how .. "; print gone on" },
       { env = {}, process_group = false, stdout = "capture", timeout_ns = Clock.seconds(30) }))
     assert(r.ok and r.stdout == "gone on\n", tostring(r.stdout))
-    assert(Fs.exists(tmp .. "/bin/done-" .. word) ~= true, "it did not wait")
-    assert(Fs.write(tmp .. "/bin/go-" .. word, ""))
-    await(tmp .. "/bin/done-" .. word)
+    assert(Fs.exists(tmp .. "/bin/done-" .. word) ~= true, "it did not wait") -- checked: nil_not_allowed
+    assert(Fs.write(tmp .. "/bin/go-" .. word, "")) -- checked: nil_not_allowed
+    await(tmp .. "/bin/done-" .. word) -- checked: nil_not_allowed
   end
 end
 
@@ -421,7 +421,7 @@ local function test_the_stand_in_s_main_loads_as_a_built_program_s(tmp: string)
   local db = assert(Sqlite.open(path))
   local function one(sql: string): string
     local rows = assert(Sqlite.text_rows(db, sql))
-    return rows[1] and rows[1]:text(1) or ""
+    return rows[1] and rows[1]:text(1) or "" -- checked: nil_not_allowed
   end
   assert(one("SELECT value FROM meta WHERE key = 'main'") == "stand_in.main")
   assert(one("SELECT kind FROM modules WHERE path = 'stand_in.main'") == "main")

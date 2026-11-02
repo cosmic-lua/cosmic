@@ -115,9 +115,9 @@ local function test_a_malformed_record_is_refused_by_name()
       { "file: a\nnote: n\n--- find\na\n--- replace\nb\n", "no '--- end' line" },
       { "file: a\nnote: n\n--- find\n--- replace\nb\n--- end\n", "the find block is empty" },
   }) do
-    local parsed, err = Patch.parse(case[1], "bad.txt")
+    local parsed, err = Patch.parse(case[1], "bad.txt") -- checked: index_may_be_nil
     assert(parsed == nil and err:find("bad.txt", 1, true) ~= nil and
-        err:find(case[2], 1, true) ~= nil, case[2] .. ": " .. err)
+        err:find(case[2], 1, true) ~= nil, case[2] .. ": " .. err) -- checked: index_may_be_nil, nil_not_allowed
   end
 end
 
@@ -299,7 +299,7 @@ local function darwin_flush_case(tmp: string, empty: boolean, fail: boolean)
   end
   local real_uname, real_flush = sys.uname, sys.full_fsync
   local real_sync, real_rename = Fs.fsync, Fs.rename
-  local raw, fs = sys as {string:any}, Fs as {string:any}
+  local raw, fs = sys as {string:any}, Fs as {string:any} -- checked: cast_refused*2
   local syncs = { value = 0 }
   local flushes = { value = 0 }
   local owner = { value = -1 }
@@ -308,13 +308,13 @@ local function darwin_flush_case(tmp: string, empty: boolean, fail: boolean)
     return { ...assert(real_uname()), sysname = "Darwin" }
   end
   fs.fsync = function(fd: integer): boolean, string
-    assert(flushes.value == 0 or renamed.value == true, "payload fsync followed the device flush")
-    syncs.value = syncs.value + 1
+    assert(flushes.value == 0 or renamed.value == true, "payload fsync followed the device flush") -- checked: map_field*2
+    syncs.value = syncs.value + 1 -- checked: map_field*2
     return real_sync(fd)
   end
   raw.full_fsync = function(fd: integer): boolean, string, integer
-    flushes.value, owner.value = flushes.value + 1, fd
-    assert(syncs.value > 0 and renamed.value ~= true, "full flush preceded payload sync or followed rename")
+    flushes.value, owner.value = flushes.value + 1, fd -- checked: map_field*3
+    assert(syncs.value > 0 and renamed.value ~= true, "full flush preceded payload sync or followed rename") -- checked: map_field*2
     local st = assert(sys.fstat(fd))
     assert(st.kind == "file", "full flush used a directory descriptor")
     local found = false
@@ -331,24 +331,24 @@ local function darwin_flush_case(tmp: string, empty: boolean, fail: boolean)
     return true, "", 0
   end
   fs.rename = function(from: string, to: string): boolean, string
-    assert(flushes.value == 1 and not fail, "payload published without a successful full flush")
-    renamed.value = true
+    assert(flushes.value == 1 and not fail, "payload published without a successful full flush") -- checked: map_field
+    renamed.value = true -- checked: map_field
     return real_rename(from, to)
   end
   local ok, problem = pcall(function(): boolean
     local path, trouble = Patch.prepare(root, "lib", cache)
-    assert(flushes.value == 1, "device flush missing or repeated")
-    assert(sys.fstat(owner.value) == nil, "scratch owner descriptor leaked")
+    assert(flushes.value == 1, "device flush missing or repeated") -- checked: map_field
+    assert(sys.fstat(owner.value) == nil, "scratch owner descriptor leaked") -- checked: map_field
     if fail then
       assert(path == nil and trouble:find("injected full flush failure", 1, true) ~= nil, trouble)
-      assert(renamed.value ~= true, "failed device flush published a tree")
+      assert(renamed.value ~= true, "failed device flush published a tree") -- checked: map_field
       assert(table.concat(assert(Fs.list(cache)), ",") == ".scratch-gate",
         "failed device flush left a payload or scratch owner")
     else
-      assert(path ~= nil and renamed.value, trouble)
-      local before = syncs.value
+      assert(path ~= nil and renamed.value, trouble) -- checked: map_field
+      local before = syncs.value -- checked: map_field
       assert(Patch.prepare(root, "lib", cache) == path)
-      assert(flushes.value == 1 and syncs.value == before, "warm hit flushed again")
+      assert(flushes.value == 1 and syncs.value == before, "warm hit flushed again") -- checked: map_field*2
     end
     return true
   end)
@@ -387,13 +387,13 @@ end
 local function test_direct_tree_does_not_request_a_device_flush(tmp: string)
   checkout(tmp .. "/source", { ["src/a.h"] = "direct\n" })
   local real = sys.full_fsync
-  local raw = sys as {string:any}
+  local raw = sys as {string:any} -- checked: cast_refused
   raw.full_fsync = function(): boolean
     error("direct tree requested a device flush")
   end
   local ok, result, trouble = pcall(Patch.tree, tmp .. "/source", "lib", tmp .. "/direct")
   raw.full_fsync = real
-  assert(ok and result, trouble or tostring(result))
+  assert(ok and result, trouble or tostring(result)) -- checked: or_mix
 end
 
 --- A raise while a tree is placed must leave no scratch directory and no descriptor: the scratch owner is held open
@@ -405,11 +405,11 @@ local function test_prepare_cleans_its_scratch_when_a_step_raises(dir: string)
   assert(Fs.mkdirs(cache))
   local before = support.descriptors()
   local real_rename = Fs.rename
-  Fs.rename = function(_from: string, _to: string): boolean, string
+  Fs.rename = function(_from: string, _to: string): boolean, string -- checked: field_fixed
     error("the rename raised")
   end
   local ok, trouble = pcall(Patch.prepare, dir .. "/root", "lib", cache)
-  Fs.rename = real_rename
+  Fs.rename = real_rename -- checked: field_fixed
   assert(not ok and tostring(trouble):find("the rename raised", 1, true) ~= nil, tostring(trouble))
   assert(table.concat(assert(Fs.list(cache)), ",") == ".scratch-gate", "a scratch directory was left behind")
   assert(support.descriptors() == before, "a descriptor of the scratch stayed open")
@@ -424,11 +424,11 @@ local function test_zig_lib_cleans_its_scratch_when_a_step_raises(dir: string)
   assert(Fs.mkdirs(cache))
   local before = support.descriptors()
   local real_rename = Fs.rename
-  Fs.rename = function(_from: string, _to: string): boolean, string
+  Fs.rename = function(_from: string, _to: string): boolean, string -- checked: field_fixed
     error("the rename raised")
   end
   local ok, trouble = pcall(Patch.zig_lib, dir .. "/root", dir .. "/lib", cache .. "/out")
-  Fs.rename = real_rename
+  Fs.rename = real_rename -- checked: field_fixed
   assert(not ok and tostring(trouble):find("the rename raised", 1, true) ~= nil, tostring(trouble))
   assert(table.concat(assert(Fs.list(cache)), ",") == ".scratch-gate", "a scratch directory was left behind")
   assert(support.descriptors() == before, "a descriptor of the scratch stayed open")

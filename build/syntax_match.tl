@@ -85,7 +85,7 @@ end
 
 --- The fields of a node by name, for a walk over [`Ast.fields`] that reads each.
 local function fields_of(node: any): {string: any}
-  if node is {string: any} then
+  if node is {string: any} then -- checked: is_on_record
     return node
   end
   return {}
@@ -94,7 +94,7 @@ end
 local function as_node(value: any): Ast.Node?
   local kind = fields_of(value)["kind"]
   if kind is string and Ast.fields[kind] ~= nil then
-    return value
+    return value -- checked: any_use
   end
   return nil
 end
@@ -104,7 +104,7 @@ end
 local function capture_of(node: Ast.Node): string?
   local f = fields_of(node)
   local kind = f["kind"]
-  local text: any = nil
+  local text: any = nil -- checked: any_use
   if kind == "Name" then
     text = f["text"]
   elseif kind == "Binding" then
@@ -112,8 +112,8 @@ local function capture_of(node: Ast.Node): string?
   elseif kind == "TypeName" then
     local path = f["path"]
     local args = f["args"]
-    if path is {string} and #path == 1 and args is {any} and #args == 0 then
-      text = path[1]
+    if path is {string} and #path == 1 and args is {any} and #args == 0 then -- checked: is_on_record*2
+      text = path[1] -- checked: any_use
     end
   end
   if text is string and (text:match(CAPTURE) ~= nil or text:match(REST) ~= nil) then
@@ -129,12 +129,12 @@ local function rest_of(node: Ast.Node): string?
   local kind = f["kind"]
   if kind == "Positional" then
     local value = as_node(f["value"])
-    return value ~= nil and rest_of(value) or nil
+    return value ~= nil and rest_of(value) or nil -- checked: and_ternary
   elseif kind == "CallStat" then
     local call = fields_of(f["call"])
     local args = call["args"]
     local callee = as_node(call["callee"])
-    if call["kind"] == "Call" and args is {any} and #args == 0 and callee ~= nil then
+    if call["kind"] == "Call" and args is {any} and #args == 0 and callee ~= nil then -- checked: is_on_record
       return rest_of(callee)
     end
     return nil
@@ -199,14 +199,14 @@ local function name_token(node: Ast.Node): integer
   return if object ~= nil then Node.base(object).last + 2 else 0 end
 end
 
-local function match_list(st: State, pl: {any}, nl: {any}, depth: integer): boolean
+local function match_list(st: State, pl: {any}, nl: {any}, depth: integer): boolean -- checked: not_assigned
   if depth == 2 then
     if #pl ~= #nl then
       return false
     end
     for i = 1, #pl do
       local a, b = pl[i], nl[i]
-      if not (a is {any} and b is {any} and match_list(st, a, b, 1)) then
+      if not (a is {any} and b is {any} and match_list(st, a, b, 1)) then -- checked: is_on_record*2
         return false
       end
     end
@@ -214,7 +214,7 @@ local function match_list(st: State, pl: {any}, nl: {any}, depth: integer): bool
   end
   local count = #pl
   local rest: string? = nil
-  local tail = count > 0 and as_node(pl[count]) or nil
+  local tail = count > 0 and as_node(pl[count]) or nil -- checked: and_ternary
   if tail ~= nil then
     rest = rest_of(tail)
   end
@@ -264,7 +264,7 @@ end
 local function match_field(st: State, kind: string, field: string, depth: integer, pv: any, nv: any,
                            nnode: Ast.Node): boolean
   if depth == 0 then
-    if pv is {string: any} then
+    if pv is {string: any} then -- checked: is_on_record
       local a, b = as_node(pv), as_node(nv)
       return a ~= nil and b ~= nil and match_node(st, a, b)
     end
@@ -276,7 +276,7 @@ local function match_field(st: State, kind: string, field: string, depth: intege
     end
     return pv == nv
   end
-  return pv is {any} and nv is {any} and match_list(st, pv, nv, depth)
+  return pv is {any} and nv is {any} and match_list(st, pv, nv, depth) -- checked: is_on_record*2
 end
 
 match_node = function(st: State, p: Ast.Node, n: Ast.Node): boolean

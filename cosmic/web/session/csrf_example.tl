@@ -9,7 +9,7 @@ local Session = require("cosmic.web.session")
 local SessionCookie = require("cosmic.web.session.cookie")
 local Web = require("cosmic.web")
 
-local Example = {}
+local Example = {} -- checked: literal_needs_type
 
 --- An app with a page that carries the token and a form that returns it.
 local function page_and_form(): Web.TestClient
@@ -112,4 +112,4 @@ function Example.hx_headers()
   assert(shown:find('{"X-CSRF-Token":"', 1, true))
 end
 
-return Example
+return Example -- checked: export_not_declared

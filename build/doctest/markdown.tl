@@ -154,7 +154,7 @@ function markdown.parse_blocks(source: string): {Block}?, string
   while i <= #lines do
     local line = assert(lines[i], "i is within the lines")
     local fence = open_fence(line)
-    local declared = fence == nil and
+    local declared = fence == nil and -- checked: and_ternary
       line:match("^<!%-%-%s*policy:%s*(.-)%s*%-%->%s*$") or nil
     if fence == nil and (line:match("^<!%-%-%s*inputs:") ~= nil or
         line:match("^<!%-%-%s*needs:") ~= nil) then

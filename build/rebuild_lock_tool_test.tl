@@ -50,8 +50,8 @@ end
 local function start_test(root: string, output: string): Child.Handle
   local fd = assert(Fs.open_write(output))
   local env = this_program.environment()
-  env.COSMIC_TEST_SANDBOX = "0"
-  env.COSMIC_VERDICT_CACHE = "0"
+  env.COSMIC_TEST_SANDBOX = "0" -- checked: map_field
+  env.COSMIC_VERDICT_CACHE = "0" -- checked: map_field
   local started = this_program.program({ "test" }, {
     cwd = root, env = env, stdout = fd, stderr = fd, process_group = true,
   })
@@ -264,7 +264,7 @@ local function test_a_waiting_projection_keeps_its_compiled_snapshot(tmp: string
         local db = assert(Sqlite.open(alternate))
         local rows = assert(Sqlite.text_rows(db,
           "SELECT inflate(source) FROM modules WHERE path = 'main'"))
-        assert(rows[1]:text(1) == 'print("replacement")\n')
+        assert(rows[1]:text(1) == 'print("replacement")\n') -- checked: nil_not_allowed
         assert(db:close())
       else
         assert(Fs.write(root .. "/main.tl", 'local broken: string = 42\nprint(broken)\n'))
@@ -282,10 +282,10 @@ local function test_a_waiting_projection_keeps_its_compiled_snapshot(tmp: string
       local db = assert(Sqlite.open(support.build_dir(root) .. "/cosmic.db"))
       local rows = assert(Sqlite.text_rows(db,
         "SELECT inflate(source) FROM modules WHERE path = 'main'"))
-      assert(rows[1]:text(1) == original, "published another run's source")
+      assert(rows[1]:text(1) == original, "published another run's source") -- checked: nil_not_allowed
       local signed = assert(Sqlite.text_rows(db,
         "SELECT value FROM meta WHERE key = 'projected'"))
-      assert(signed[1]:text(1) == first_signature, "published another run's signature")
+      assert(signed[1]:text(1) == first_signature, "published another run's signature") -- checked: nil_not_allowed
       assert(db:close())
     end)
     rebuild_lock.release()

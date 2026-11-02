@@ -76,7 +76,7 @@ local function parse_pem(pem: string): {roots.Root}?, string
       end
     elseif line == "-----BEGIN CERTIFICATE-----" then
       body = {}
-    elseif line:match("^=+$") and previous ~= "" then
+    elseif line:match("^=+$") and previous ~= "" then -- checked: condition_type
       label = previous
     end
     previous = line

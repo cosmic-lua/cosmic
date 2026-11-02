@@ -222,11 +222,11 @@ local function test_programs_share_the_prefix_and_have_distinct_suffixes()
 end
 
 local function test_writer_rejects_ambiguous_or_incomplete_inputs()
-  local missing, trouble = artifact.prefix(records, { x86 = cores.x86 })
+  local missing, trouble = artifact.prefix(records, { x86 = cores.x86 }) -- checked: map_field
   assert(missing == nil and trouble:find("no raw core", 1, true) ~= nil)
   local duplicate = records .. "1\t1\trelease\tother\tOther\tarch\n"
   local bad, duplicate_trouble = artifact.prefix(duplicate, {
-    x86 = cores.x86, arm = cores.arm, mac = cores.mac, other = "core",
+    x86 = cores.x86, arm = cores.arm, mac = cores.mac, other = "core", -- checked: map_field*3
   })
   assert(bad == nil and duplicate_trouble:find("duplicate", 1, true) ~= nil)
   local program, database_trouble = artifact.program(
@@ -238,9 +238,9 @@ local function test_checked_manifest_keeps_release_entries_but_selects_checked()
   local checked_records = records ..
     "1\t2\tsanitized\tsanitized-x86\tLinux\tx86_64\n"
   local checked_cores: mut {string:string} = {
-    x86 = cores.x86,
-    arm = cores.arm,
-    mac = cores.mac,
+    x86 = cores.x86, -- checked: map_field
+    arm = cores.arm, -- checked: map_field
+    mac = cores.mac, -- checked: map_field
     ["sanitized-x86"] = "ELF-checked-x86-contents",
   }
   local prefix = assert(artifact.prefix(checked_records, checked_cores, 2))
@@ -299,7 +299,7 @@ local function test_split_finds_the_database_either_writer_appended()
   local one = "SQLite format 3\0one"
   local two = "SQLite format 3\0the second, longer"
   local portable = assert(artifact.program(prefix, one))
-  local host = assert(artifact.host_program({ bytes = cores.x86, digest = Hash.sha256(cores.x86),
+  local host = assert(artifact.host_program({ bytes = cores.x86, digest = Hash.sha256(cores.x86), -- checked: map_field*2
     target_id = 1, configuration_id = 1 }, one))
   for bytes, is_host in pairs({ [portable] = false, [host] = true }) do
     local parts = assert(artifact.split(bytes))
@@ -346,7 +346,7 @@ end
 local function test_a_head_is_keyed_by_its_cores_images()
   local database = "SQLite format 3\0db"
   local function head(checked: string, arm?: string): string
-    local with: {string:string} = { x86 = checked, arm = cores.arm, mac = cores.mac }
+    local with: {string:string} = { x86 = checked, arm = cores.arm, mac = cores.mac } -- checked: map_field*2
     local prefix = assert(artifact.prefix(records, with))
     if arm ~= nil then prefix = prefix:gsub("x86_64'%)", arm .. "')", 1) end
     return assert(artifact.split((assert(artifact.program(prefix, database))))).head

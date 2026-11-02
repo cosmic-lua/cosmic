@@ -527,7 +527,7 @@ local function test_without_use_htmx_only_the_script_and_json_attributes_are_ref
     if attr == "hx-trigger" or attr == "hx-vars" or attr == "hx-on:click" or attr == "hx-vals" or
         attr == "hx-headers" or attr == "hx-request" or attr == "hx-ws" then
       assert(out == nil, case.source)
-      assert(why:find("'" .. attr .. "' attribute", 1, true), why)
+      assert(why:find("'" .. attr .. "' attribute", 1, true), why) -- checked: nil_not_allowed
     else
       -- A plain attribute, attribute-escaped as before.
       assert(out ~= nil, case.source .. ": " .. why)
@@ -541,12 +541,12 @@ end
 local function test_every_attribute_is_classified_alike_in_upper_case_and_with_data()
   for _, case in ipairs(HTMX_CLASSES) do
     local name, rest = case.source:match("^([%w:-]+)(.*)$")
-    for _, spelled in ipairs({ name:upper(), "data-" .. name, "DATA-" .. name:upper() }) do
-      local src = HEAD .. "{{use htmx}}\n<a " .. spelled .. rest .. ">"
+    for _, spelled in ipairs({ name:upper(), "data-" .. name, "DATA-" .. name:upper() }) do -- checked: nil_not_allowed*3
+      local src = HEAD .. "{{use htmx}}\n<a " .. spelled .. rest .. ">" -- checked: nil_not_allowed
       if case.want == "" then
         refused(src)
       else
-        assert(helpers_called(compiled(src))[1] == case.want, spelled .. rest)
+        assert(helpers_called(compiled(src))[1] == case.want, spelled .. rest) -- checked: nil_not_allowed
       end
     end
   end
@@ -758,14 +758,14 @@ local function test_a_project_dialect_replaces_the_registry()
   local out = assert(compile("<a x-link=\"{{.u}}\" data-x-link=\"/a/{{.i}}\">"))
   assert(helpers_called(out)[1] == "_lurl" and helpers_called(out)[2] == "_part", out)
   local html, why = compile("<a data-x-html=\"{{.u}}\">")
-  assert(html == nil and why:find("'data-x-html' attribute would be markup Alpine inserts", 1, true), tostring(why))
+  assert(html == nil and why:find("'data-x-html' attribute would be markup Alpine inserts", 1, true), tostring(why)) -- checked: or_mix
   local click, click_why = compile("<a @click=\"{{.u}}\">")
-  assert(click == nil and click_why:find("would be script", 1, true), tostring(click_why))
+  assert(click == nil and click_why:find("would be script", 1, true), tostring(click_why)) -- checked: or_mix
   -- The always-on refusals hold, and the built-in registry is not there.
   local on, on_why = compile("<a hx-on:click=\"{{.u}}\">")
-  assert(on == nil and on_why:find("would be script", 1, true), tostring(on_why))
+  assert(on == nil and on_why:find("would be script", 1, true), tostring(on_why)) -- checked: or_mix
   local gone, gone_why = Template.compile("{{type T from m.t}}{{use htmx}}\n", "t.tmpl", options)
-  assert(gone == nil and gone_why:find("unknown dialect 'htmx' (known: alpine)", 1, true), tostring(gone_why))
+  assert(gone == nil and gone_why:find("unknown dialect 'htmx' (known: alpine)", 1, true), tostring(gone_why)) -- checked: or_mix
   -- Two dialects must agree on an attribute they both name.
   local other: Template.Dialect = {
     name = "other",
@@ -777,7 +777,7 @@ local function test_a_project_dialect_replaces_the_registry()
   }
   local clash, clash_why = Template.compile("{{type T from m.t}}{{use alpine}}{{use other}}\n", "t.tmpl",
     { dialects = { alpine = alpine, other = other } })
-  assert(clash == nil and clash_why:find("dialects 'alpine' and 'other' give 'x-link' different rules", 1, true),
+  assert(clash == nil and clash_why:find("dialects 'alpine' and 'other' give 'x-link' different rules", 1, true), -- checked: or_mix
     tostring(clash_why))
 end
 
@@ -869,8 +869,8 @@ local function test_the_module_has_the_templates_lines()
       assert(at == number, mark .. " is on line " .. tostring(at) .. " of the module:\n" .. out)
     end
   end
-  assert(lines[#lines]:find("local _module: _Module = {render = render} return _module", 1, true), "last line: " .. lines[#lines])
-  assert(lines[#lines]:find('"L20" return table.concat(parts) end local record _Module', 1, true), "last line: " .. lines[#lines])
+  assert(lines[#lines]:find("local _module: _Module = {render = render} return _module", 1, true), "last line: " .. lines[#lines]) -- checked: nil_not_allowed*2
+  assert(lines[#lines]:find('"L20" return table.concat(parts) end local record _Module', 1, true), "last line: " .. lines[#lines]) -- checked: nil_not_allowed*2
 end
 
 local function test_trimmed_whitespace_keeps_its_lines()
@@ -1018,16 +1018,16 @@ local function rendered(src: string): string
   local lua = compiled(src):gsub("%(_: t%.T%): [%w%.]+", "()"):gsub("local parts: mut {string}", "local parts")
   lua = lua:gsub("local record _Module .- end local _module: _Module =", "local _module =")
   local env: {string: any} = {
-    require = function(name: string): any
+    require = function(name: string): any -- checked: any_use
       if name == "cosmic.html" then
-        return { trust = function(s: string): string return s end }
+        return { trust = function(s: string): string return s end } -- checked: any_use
       end
-      return {}
+      return {} -- checked: literal_needs_type
     end,
-    table = table,
+    table = table, -- checked: any_use
   }
   local chunk = assert(load(lua, "=module", "t", env))
-  local module = chunk() as {string: function(): string}
+  local module = chunk() as {string: function(): string} -- checked: cast_refused
   return module.render()
 end
 
@@ -1074,9 +1074,9 @@ local function test_a_string_action_keeps_the_templates_lines()
   for line in out:gmatch("([^\n]*)\n") do
     lines[#lines + 1] = line
   end
-  assert(lines[2]:find('"L2 "', 1, true) and lines[3]:find('"{{"', 1, true), out)
-  assert(lines[4]:find('" L4"', 1, true) and lines[5]:find('"x"', 1, true), out)
-  assert(lines[7]:find('"L6"', 1, true), out)
+  assert(lines[2]:find('"L2 "', 1, true) and lines[3]:find('"{{"', 1, true), out) -- checked: nil_not_allowed*2
+  assert(lines[4]:find('" L4"', 1, true) and lines[5]:find('"x"', 1, true), out) -- checked: nil_not_allowed*2
+  assert(lines[7]:find('"L6"', 1, true), out) -- checked: nil_not_allowed
 end
 
 local STRINGS <const>: {Refusal} = {
@@ -1176,7 +1176,7 @@ local function cuts(src: string): {string}
   end
   local out: mut {string} = { src }
   for i = 1, #src do
-    if literal[i] and literal[i - 1] ~= false and literal[i + 1] ~= false then
+    if literal[i] and literal[i - 1] ~= false and literal[i + 1] ~= false then -- checked: condition_type
       local byte = src:sub(i, i):gsub('[\\"]', "\\%0")
       out[#out + 1] = src:sub(1, i - 1) .. "{{if .cut}}{{end}}" .. src:sub(i)
       out[#out + 1] = src:sub(1, i - 1) .. '{{"' .. byte .. '"}}' .. src:sub(i + 1)
@@ -1411,12 +1411,12 @@ local function test_a_range_else_keeps_the_templates_lines()
   for line in out:gmatch("([^\n]*)\n") do
     lines[#lines + 1] = line
   end
-  assert(lines[2]:find("ipairs(d2) do", 1, true), lines[2])
-  assert(lines[3]:find('"L3 "', 1, true) and lines[3]:find("d1.x", 1, true), lines[3])
-  assert(lines[4]:find("end else", 1, true), lines[4])
-  assert(lines[5]:find('"L5 "', 1, true) and lines[5]:find("d.y", 1, true), lines[5])
-  assert(lines[6]:find("end end", 1, true), lines[6])
-  assert(lines[7]:find('"L7"', 1, true), lines[7])
+  assert(lines[2]:find("ipairs(d2) do", 1, true), lines[2]) -- checked: nil_not_allowed
+  assert(lines[3]:find('"L3 "', 1, true) and lines[3]:find("d1.x", 1, true), lines[3]) -- checked: nil_not_allowed*2
+  assert(lines[4]:find("end else", 1, true), lines[4]) -- checked: nil_not_allowed
+  assert(lines[5]:find('"L5 "', 1, true) and lines[5]:find("d.y", 1, true), lines[5]) -- checked: nil_not_allowed*2
+  assert(lines[6]:find("end end", 1, true), lines[6]) -- checked: nil_not_allowed
+  assert(lines[7]:find('"L7"', 1, true), lines[7]) -- checked: nil_not_allowed
 end
 
 local function test_a_range_else_is_judged_from_where_the_range_begins()
@@ -1526,10 +1526,10 @@ local function test_bindings_keep_the_templates_lines()
   for line in out:gmatch("([^\n]*)\n") do
     lines[#lines + 1] = line
   end
-  assert(lines[2]:find("for d2, _ in ipairs(d3) do", 1, true), lines[2])
-  assert(lines[4]:find('"L4 "', 1, true) and lines[4]:find("= d2 ", 1, true), lines[4])
-  assert(lines[6]:find('"L6 "', 1, true) and lines[6]:find("= d.y ", 1, true), lines[6])
-  assert(lines[8]:find('"L8"', 1, true), lines[8])
+  assert(lines[2]:find("for d2, _ in ipairs(d3) do", 1, true), lines[2]) -- checked: nil_not_allowed
+  assert(lines[4]:find('"L4 "', 1, true) and lines[4]:find("= d2 ", 1, true), lines[4]) -- checked: nil_not_allowed*2
+  assert(lines[6]:find('"L6 "', 1, true) and lines[6]:find("= d.y ", 1, true), lines[6]) -- checked: nil_not_allowed*2
+  assert(lines[8]:find('"L8"', 1, true), lines[8]) -- checked: nil_not_allowed
 end
 
 --- Template source, the line and column it is refused at, and what the

@@ -15,7 +15,7 @@ local PARTS <const> = { "a", "b", "dir", "x.txt", "é", "a b", "..", ".", "" }
 local function crc32_reference(data: string): integer
   local c = 0xFFFFFFFF
   for i = 1, #data do
-    c = c ~ data:byte(i)
+    c = c ~ data:byte(i) -- checked: nil_not_allowed
     for _ = 1, 8 do
       c = (c >> 1) ~ (0xEDB88320 & -(c & 1))
     end
@@ -64,13 +64,13 @@ local function write(fields: {string}): string?
     if kind == "file" then
       -- Half the bodies go in streamed, with a data descriptor: the
       -- reader, which goes by the central directory, must read both alike.
-      if #body % 2 == 0 then
-        ok = zw:add_file(path, Stream.from_string(body), { method = method })
+      if #body % 2 == 0 then -- checked: nil_not_allowed
+        ok = zw:add_file(path, Stream.from_string(body), { method = method }) -- checked: nil_not_allowed*2
       else
-        ok = zw:add_file(path, body, { method = method })
+        ok = zw:add_file(path, body, { method = method }) -- checked: nil_not_allowed*2
       end
     else
-      ok = zw:add_dir(path)
+      ok = zw:add_dir(path) -- checked: nil_not_allowed
     end
     if not ok then return nil end
   end
@@ -92,7 +92,7 @@ local function walk(input: string): boolean, string
   for _ = 1, 10000 do
     local e, ntrouble = zr:next()
     if e == nil then
-      if ntrouble == nil then return false, "next: nil without a reason" end
+      if ntrouble == nil then return false, "next: nil without a reason" end -- checked: compare_disjoint
       Fuzz.label(if ntrouble == "" then "ended" else "refused" end)
       ended = true
       break
@@ -200,11 +200,11 @@ local function gen_laid_out(src: Fuzz.Source): string
   local pos = { value = 0 }
   local function put(r: Rec)
     recs[#recs + 1] = r
-    marks[#marks + 1] = pos.value
-    pos.value = pos.value + #packed(r)
+    marks[#marks + 1] = pos.value -- checked: map_field
+    pos.value = pos.value + #packed(r) -- checked: map_field*2
   end
-  local prefix = src:int(0, 3) == 0 and Fuzz.bytes(src, 16) or ""
-  pos.value = #prefix
+  local prefix = if src:int(0, 3) == 0 then Fuzz.bytes(src, 16) else "" end
+  pos.value = #prefix -- checked: map_field
 
   local centrals: mut {Rec} = {}
   local wides: mut {integer: Rec} = {}
@@ -215,7 +215,7 @@ local function gen_laid_out(src: Fuzz.Source): string
     local name = gen_path(src)
     local attrs = Fuzz.pick(src, ATTRS)
     if attrs == ATTRS[2] and src:int(0, 1) == 1 then name = name .. "/" end
-    local data = attrs == ATTRS[3] and gen_path(src) or
+    local data = attrs == ATTRS[3] and gen_path(src) or -- checked: and_ternary
       string.rep(Fuzz.bytes(src, 8), src:int(0, 20))
     local method = Fuzz.pick(src, { 0, 8, 8, 93, 12 })
     local body = data
@@ -227,10 +227,10 @@ local function gen_laid_out(src: Fuzz.Source): string
     local crc = crc32_reference(data)
     local lfh: Rec = {
       fields = LFH_FIELDS,
-      values = { "PK\3\4", 20, 0, method, 0, 0x21, crc, #body, #data, #name, 0 },
+      values = { "PK\3\4", 20, 0, method, 0, 0x21, crc, #body, #data, #name, 0 }, -- checked: any_use*9
       tail = name .. body,
     }
-    local offset = pos.value
+    local offset = pos.value -- checked: map_field
     put(lfh)
     -- A central header's zip64 field holds the values its sentinels
     -- stand for, in order; an unknown field may come before it.
@@ -256,49 +256,49 @@ local function gen_laid_out(src: Fuzz.Source): string
       before = string.pack("<I2s2", 0xCAFE, junk)
     end
     local fmts: mut {string} = { "I2", "I2" }
-    local vals: mut {any} = { 1, 8 * #wide }
+    local vals: mut {any} = { 1, 8 * #wide } -- checked: any_use*2
     for _, v in ipairs(wide) do
       fmts[#fmts + 1] = "i8"
-      vals[#vals + 1] = v
+      vals[#vals + 1] = v -- checked: any_use
     end
     local z64: Rec = { fields = fmts, values = vals, tail = "" }
     local extra_len = #before + (if #wide > 0 then #packed(z64) else 0 end)
-    local comment = src:int(0, 3) == 0 and Fuzz.bytes(src, 8) or ""
+    local comment = src:int(0, 3) == 0 and Fuzz.bytes(src, 8) or "" -- checked: and_ternary
     centrals[#centrals + 1] = {
       fields = CDFH_FIELDS,
-      values = { "PK\1\2", UNIX_MADE_BY, 20, 0, method, 0, 0x21, crc, csize, usize, #name,
-        extra_len, #comment, 0, 0, attrs, loff },
+      values = { "PK\1\2", UNIX_MADE_BY, 20, 0, method, 0, 0x21, crc, csize, usize, #name, -- checked: any_use*9
+        extra_len, #comment, 0, 0, attrs, loff }, -- checked: any_use*4
       tail = name .. before,
     }
-    wides[n] = #wide > 0 and z64 or nil
+    wides[n] = #wide > 0 and z64 or nil -- checked: and_ternary
     comments[#comments + 1] = comment
   end
 
-  local cd_offset = pos.value
+  local cd_offset = pos.value -- checked: map_field
   for i = 1, n do
-    put(centrals[i])
-    if wides[i] ~= nil then put(wides[i]) end
+    put(centrals[i]) -- checked: index_may_be_nil
+    if wides[i] ~= nil then put(wides[i]) end -- checked: index_may_be_nil
     put({ fields = {}, values = {}, tail = comments[i] })
   end
-  local cd_size = pos.value - cd_offset
+  local cd_size = pos.value - cd_offset -- checked: map_field
   local total, eocd_size, eocd_offset = n, cd_size, cd_offset
   if src:int(0, 3) == 0 then
-    local z64_off = pos.value
+    local z64_off = pos.value -- checked: map_field
     put({
       fields = Z64_EOCD_FIELDS,
-      values = { "PK\6\6", 44, UNIX_MADE_BY, 45, 0, 0, n, n, cd_size, cd_offset },
+      values = { "PK\6\6", 44, UNIX_MADE_BY, 45, 0, 0, n, n, cd_size, cd_offset }, -- checked: any_use*8
     })
-    put({ fields = Z64_LOC_FIELDS, values = { "PK\6\7", 0, z64_off, 1 } })
+    put({ fields = Z64_LOC_FIELDS, values = { "PK\6\7", 0, z64_off, 1 } }) -- checked: any_use*3
     total, eocd_size, eocd_offset = 0xFFFF, 0xFFFFFFFF, 0xFFFFFFFF
   end
   -- A comment may hold a forged end record of its own.
   local comment = if src:int(0, 3) == 0 then "PK\5\6" .. Fuzz.bytes(src, 24) else Fuzz.bytes(src, 4) end
   put({
     fields = EOCD_FIELDS,
-    values = { "PK\5\6", 0, 0, total, total, eocd_size, eocd_offset, #comment },
+    values = { "PK\5\6", 0, 0, total, total, eocd_size, eocd_offset, #comment }, -- checked: any_use*6
     tail = comment,
   })
-  marks[#marks + 1] = pos.value
+  marks[#marks + 1] = pos.value -- checked: map_field
 
   local edits = 0
   while Fuzz.more(src, edits, 3) do
@@ -310,21 +310,21 @@ local function gen_laid_out(src: Fuzz.Source): string
       -- follows: few of the fields drawn at random are one.
       r = centrals[src:int(1, n)]
       at = #CDFH_FIELDS
-    elseif #r.fields > 0 then
+    elseif #r.fields > 0 then -- checked: nil_not_allowed
       -- Leave the signature, the one field every check starts from.
-      at = src:int(if r.fields[1] == "c4" then 2 else 1 end, #r.fields)
+      at = src:int(if r.fields[1] == "c4" then 2 else 1 end, #r.fields) -- checked: nil_not_allowed*2
     end
     if at ~= nil then
       local made: mut {any} = {}
-      for k, value in ipairs(r.values) do
+      for k, value in ipairs(r.values) do -- checked: nil_not_allowed
         if k == at then
-          local replaced = hostile(src, value as integer, r.fields[at], marks)
-          made[#made + 1] = replaced
+          local replaced = hostile(src, value as integer, r.fields[at], marks) -- checked: cast_refused, index_may_be_nil, nil_not_allowed
+          made[#made + 1] = replaced -- checked: any_use
         else
           made[#made + 1] = value
         end
       end
-      r.values = made
+      r.values = made -- checked: nil_not_allowed
     end
   end
 
@@ -363,7 +363,7 @@ local function test_what_the_writer_writes_the_reader_reads_back(tmp: string)
         local kind, path, body = fields[i], fields[i + 1], fields[i + 3]
         local e, ntrouble = zr:next()
         if e == nil then return false, ("entry %d (%q): %s"):format(i // 4 + 1, path, ntrouble) end
-        if (e.path:gsub("/+$", "")) ~= (path:gsub("/+$", "")) then
+        if (e.path:gsub("/+$", "")) ~= (path:gsub("/+$", "")) then -- checked: nil_not_allowed
           return false, ("wrote path %q, read %q"):format(path, e.path)
         end
         if tostring(e.kind) ~= kind then

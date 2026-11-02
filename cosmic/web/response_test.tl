@@ -32,8 +32,8 @@ local function test_json_encodes_and_marks_the_body_nosniff()
   assert(Response.header(res, "X-Content-Type-Options") == "nosniff")
   sendable(res)
   local cycle: {string:any} = {}
-  cycle.self = cycle
-  assert(Test.raises(function() Response.json(cycle) end):find("web: json:", 1, true))
+  cycle.self = cycle -- checked: map_field
+  assert(Test.raises(function() Response.json(cycle) end):find("web: json:", 1, true)) -- checked: not_assignable
 end
 
 local function test_text_is_plain_utf8_text()
@@ -54,7 +54,7 @@ local function test_options_replace_the_status_and_headers_in_any_case()
   end
   assert(count == 1, "one Content-Type")
   local many = assert(res.headers)["X-Many"]
-  assert(many is {string} and #many == 2 and many[2] == "b")
+  assert(many is {string} and #many == 2 and many[2] == "b") -- checked: is_on_record
   sendable(res)
 end
 
@@ -102,16 +102,16 @@ local function test_stream_carries_a_reader_with_its_content_type()
 end
 
 local function test_problem_is_rfc_9457_json_with_the_reason_as_its_title()
-  local res = Response.problem(404, "no such item", { errors = Json.array({ "x" }), status = 1 })
+  local res = Response.problem(404, "no such item", { errors = Json.array({ "x" }), status = 1 }) -- checked: any_use*2
   assert(Response.header(res, "Content-Type") == "application/problem+json")
   local body = assert(Json.decode_object(body_of(res)))
-  assert(body.type == "about:blank" and body.title == "Not Found" and body.status == 404)
-  assert(body.detail == "no such item")
-  local errors = body.errors
+  assert(body.type == "about:blank" and body.title == "Not Found" and body.status == 404) -- checked: map_field*3
+  assert(body.detail == "no such item") -- checked: map_field
+  local errors = body.errors -- checked: map_field
   assert(errors is {string} and errors[1] == "x")
   sendable(res)
   local unnamed = assert(Json.decode_object(body_of(Response.problem(499))))
-  assert(unnamed.title == "Error" and unnamed.detail == nil)
+  assert(unnamed.title == "Error" and unnamed.detail == nil) -- checked: map_field*2
 end
 
 local function test_add_header_appends_lines_and_keeps_the_first_as_a_string()
@@ -121,7 +121,7 @@ local function test_add_header_appends_lines_and_keeps_the_first_as_a_string()
   Response.add_header(res, "set-cookie", "b=2; Expires=Wed, 21 Oct 2026 07:28:00 GMT")
   Response.add_header(res, "Set-Cookie", "c=3")
   local lines = assert(res.headers)["Set-Cookie"]
-  assert(lines is {string} and #lines == 3 and lines[1] == "a=1" and lines[3] == "c=3")
+  assert(lines is {string} and #lines == 3 and lines[1] == "a=1" and lines[3] == "c=3") -- checked: is_on_record
   assert(assert(res.headers)["set-cookie"] == nil)
   sendable(res)
 end
@@ -148,7 +148,7 @@ local function test_add_header_gives_every_other_name_a_line_of_its_own()
   Response.add_header(res, "Link", "</a>; rel=preload")
   Response.add_header(res, "Link", "</b>; rel=preload")
   local lines = assert(res.headers)["Link"]
-  assert(lines is {string} and #lines == 2)
+  assert(lines is {string} and #lines == 2) -- checked: is_on_record
 end
 
 local function test_set_header_replaces_every_case_and_refuses_set_cookie()
@@ -170,12 +170,12 @@ end
 
 local function test_abort_raises_a_tagged_table_the_exception_layer_reads()
   local ok, err = pcall(function(): any
-    Response.abort(404, "gone", { code = "x" })
-    return nil
+    Response.abort(404, "gone", { code = "x" }) -- checked: any_use
+    return nil -- checked: any_use
   end)
   assert(not ok)
   local abort = Response.aborted(err)
-  assert(abort ~= nil and abort.status == 404 and abort.detail == "gone" and assert(abort.extra).code == "x")
+  assert(abort ~= nil and abort.status == 404 and abort.detail == "gone" and assert(abort.extra).code == "x") -- checked: map_field
   assert(Response.aborted("an ordinary error") == nil)
   assert(Response.aborted({ web_abort = true }) == nil)
   assert(Test.raises(function() Response.abort(200) end):find("400 to 599", 1, true))
@@ -185,21 +185,21 @@ local function test_a_constructor_refuses_a_status_the_server_cannot_send()
   for _, status in ipairs({ 199, 100, 1000, 0, -1 }) do
     assert(Test.raises(function() Response.text("x", { status = status }) end):find("200 to 999", 1, true), tostring(status))
   end
-  local fractional: any = { status = 200.5 }
-  assert(Test.raises(function() Response.json(1, fractional as Types.ResponseOptions) end):find("200 to 999", 1, true))
+  local fractional: any = { status = 200.5 } -- checked: any_use
+  assert(Test.raises(function() Response.json(1, fractional as Types.ResponseOptions) end):find("200 to 999", 1, true)) -- checked: cast_refused
   assert(Test.raises(function() Response.empty(150) end):find("200 to 999", 1, true))
   assert(Test.raises(function() Response.problem(99) end):find("200 to 999", 1, true))
-  local half: any = { status = 303.5 }
-  assert(Test.raises(function() Response.redirect("/x", half as Types.ResponseOptions) end):find("301", 1, true))
+  local half: any = { status = 303.5 } -- checked: any_use
+  assert(Test.raises(function() Response.redirect("/x", half as Types.ResponseOptions) end):find("301", 1, true)) -- checked: cast_refused
   assert(Response.text("x", { status = 999 }).status == 999 and Response.empty(200).status == 200)
 end
 
 local function test_a_json_failure_names_json_once()
   local cycle: {string:any} = {}
-  cycle.self = cycle
-  local message = Test.raises(function() Response.json(cycle) end)
+  cycle.self = cycle -- checked: map_field
+  local message = Test.raises(function() Response.json(cycle) end) -- checked: not_assignable
   assert(message:find("web: json: ", 1, true) and not message:find("json: json:", 1, true), message)
-  local problem = Test.raises(function() Response.problem(500, "x", { bad = cycle }) end)
+  local problem = Test.raises(function() Response.problem(500, "x", { bad = cycle }) end) -- checked: any_use
   assert(problem:find("web: problem: ", 1, true) and not problem:find("json: json:", 1, true), problem)
 end
 
@@ -222,7 +222,7 @@ local function test_copy_has_headers_of_its_own_and_every_field_of_a_reply()
   local copy_headers = assert(copy.headers)
   assert(#lines == 1 and original_headers["Vary"] == "Accept" and original_headers["X-New"] == nil,
     "the original is as it was")
-  assert(#(copy_headers["Set-Cookie"] as {string}) == 2 and copy_headers["Vary"] == "Accept, Origin")
+  assert(#(copy_headers["Set-Cookie"] as {string}) == 2 and copy_headers["Vary"] == "Accept, Origin") -- checked: cast_refused
   local bare = Response.copy({ status = 204 })
   assert(bare.status == 204 and next(assert(bare.headers)) == nil)
 end

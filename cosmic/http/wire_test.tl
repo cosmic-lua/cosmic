@@ -342,12 +342,12 @@ end
 --- end a chunked reply early, or more than asked, which would run past
 --- the Content-Length -- cuts the reply short instead.
 local function test_a_reader_breaking_its_contract_cuts_the_reply_short()
-  local record Giving is Stream.Reader
+  local record Giving is Stream.Reader -- declared: interface_disagrees
     pieces: mut {string}
     read: function(Giving, max_bytes?: integer): string?, string
     close: function(Giving): boolean, string
   end
-  local giving_methods = {
+  local giving_methods = { -- checked: arms_differ
     read = function(self: Giving, _max_bytes?: integer): string?, string
       local piece = table.remove(self.pieces, 1)
       if piece == nil then return nil, "" end
@@ -355,7 +355,7 @@ local function test_a_reader_breaking_its_contract_cuts_the_reply_short()
     end,
     close = function(_self: Giving): boolean, string return true, "" end,
   }
-  local giving_mt: metatable<Giving> = { __index = giving_methods }
+  local giving_mt: metatable<Giving> = { __index = giving_methods } -- checked: literal_missing
   local record Case
     length?: integer
     pieces: {string}
@@ -363,7 +363,7 @@ local function test_a_reader_breaking_its_contract_cuts_the_reply_short()
   local cases: {Case} = { { pieces = { "ab", "", "HTTP/1.1 200 OK\r\n\r\n" } },
     { length = 2, pieces = { "abHTTP/1.1 200 OK\r\n\r\n" } } }
   for _, case in ipairs(cases) do
-    local body: Giving = setmetatable({ pieces = case.pieces }, giving_mt)
+    local body: Giving = setmetatable({ pieces = case.pieces }, giving_mt) -- checked: setmetatable_call
     local sink = Stream.collect()
     local sent = wire.send(sink, { status = 200, body = body, length = case.length, method = "GET",
       version = "HTTP/1.1", date = DATE })

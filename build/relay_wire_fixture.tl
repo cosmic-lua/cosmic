@@ -23,7 +23,7 @@ end
 --- The bytes the hex digits of `text` spell.
 function relay_wire_fixture.bytes(text: string): string
   return (text:gsub("%x%x", function(pair: string): string
-    return string.char(math.tointeger(tonumber(pair, 16)))
+    return string.char(math.tointeger(tonumber(pair, 16))) -- checked: nil_not_allowed
   end))
 end
 
@@ -119,7 +119,7 @@ function relay_wire_fixture.ipv6_bytes(text: string): string
   local function side(part: string): {integer}
     local out: mut {integer} = {}
     for piece in part:gmatch("[^:]+") do
-      out[#out + 1] = math.tointeger(tonumber(piece, 16))
+      out[#out + 1] = math.tointeger(tonumber(piece, 16)) -- checked: nil_not_allowed
     end
     return out
   end

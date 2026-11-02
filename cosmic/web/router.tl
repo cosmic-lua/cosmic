@@ -85,7 +85,7 @@ function Router.canonical(path: string): Router.Canon?, string
   local rest = path:sub(2)
   local _, slashes = rest:gsub("/", "/")
   local last_empty = rest == "" or rest:sub(-1) == "/"
-  local kept = last_empty and slashes or slashes + 1
+  local kept = if last_empty then slashes else slashes + 1 end
   local trailing = last_empty and #segments > 0
   return { path = path_of(segments, trailing), segments = segments, trailing = trailing,
     changed = kept ~= #segments }, ""
@@ -166,8 +166,8 @@ end
 local function pattern_text(segments: {Types.Segment}, slash: boolean): string
   local out: mut {string} = {}
   for _, segment in ipairs(segments) do
-    local text = segment.kind == "literal" and segment.text or
-      (if segment.kind == "param" then ":" else "*" end) .. segment.text
+    local text = if segment.kind == "literal" then segment.text else
+      (if segment.kind == "param" then ":" else "*" end) .. segment.text end
     out[#out + 1] = text
   end
   return "/" .. table.concat(out, "/") .. (if slash and #out > 0 then "/" else "" end)
@@ -275,7 +275,7 @@ local function add_leaf(route: Types.Route, ctx: Router.Context, root: Types.Nod
   local full_pattern = pattern_text(full_segments, slash)
   local stack: mut {Types.Middleware} = {}
   for _, mw in ipairs(ctx.chain) do stack[#stack + 1] = mw end
-  for _, mw in ipairs(route.middleware or {}) do stack[#stack + 1] = mw end
+  for _, mw in ipairs(route.middleware or {}) do stack[#stack + 1] = mw end -- checked: condition_type, literal_needs_type
   local handler = Middleware.compose(stack, assert(route.handler))
   local full_name = if route.name ~= "" then ctx.name_prefix .. route.name else "" end
   local info: Types.RouteInfo = { name = full_name, pattern = full_pattern, methods = route.methods }
@@ -297,7 +297,7 @@ end
 
 --- Adds a mount to the trie, compiling its routes into a router of their
 --- own or taking its handler.
-local function add_mount(route: Types.Route, ctx: Router.Context, root: Types.Node)
+local function add_mount(route: Types.Route, ctx: Router.Context, root: Types.Node) -- checked: not_assigned
   local parsed, why = parse(route.pattern, true)
   if parsed == nil then
     refuse(("mount %q"):format(tostring(route.pattern)), why)
@@ -316,7 +316,7 @@ local function add_mount(route: Types.Route, ctx: Router.Context, root: Types.No
   local full_prefix = pattern_text(full_segments, false)
   local own: mut {Types.Middleware} = {}
   for _, mw in ipairs(ctx.chain) do own[#own + 1] = mw end
-  for _, mw in ipairs(route.middleware or {}) do own[#own + 1] = mw end
+  for _, mw in ipairs(route.middleware or {}) do own[#own + 1] = mw end -- checked: condition_type, literal_needs_type
   if route.name ~= "" and route.name:find(":", 1, true) ~= nil then
     refuse(what, "a mount's name holds no ':'")
   end
@@ -336,7 +336,7 @@ local function add_mount(route: Types.Route, ctx: Router.Context, root: Types.No
       name_prefix = if route.name ~= "" then ctx.name_prefix .. route.name .. ":" else ctx.name_prefix end,
       names = ctx.names, verbs = ctx.verbs,
     }
-    local sub: Types.Router = { root = new_node(), policy = ctx.policy, names = ctx.names,
+    local sub: Types.Router = { root = new_node(), policy = ctx.policy, names = ctx.names, -- checked: literal_missing
       verbs = ctx.verbs, miss = inner.miss, mount_path = full_prefix }
     compile(assert(route.routes), inner, sub.root)
     mount.router = sub
@@ -543,7 +543,7 @@ local function reverse(self: Types.Router, name: string, params?: {string: strin
   if entry == nil then return nil, ('url_for: no route named "%s"'):format(name) end
   local strings: mut {string:string} = {}
   for key, value in pairs(params or {}) do
-    strings[key] = value is string and value or ("%d"):format(value)
+    strings[key] = if value is string then value else ("%d"):format(value) end
   end
   local path: string
   if entry.mount == true then
@@ -601,8 +601,8 @@ local function reverse(self: Types.Router, name: string, params?: {string: strin
   return path, ""
 end
 
-local router_methods = { match = matched, reverse = reverse }
-local router_mt: metatable<Types.Router> = { __index = router_methods }
+local router_methods = { match = matched, reverse = reverse } -- checked: arms_differ
+local router_mt: metatable<Types.Router> = { __index = router_methods } -- checked: literal_missing
 
 --- Compiles `routes` into a router. Raises, naming the pattern, for a route
 --- or mount that cannot be registered: a pattern that is not valid, two
@@ -625,10 +625,10 @@ function Router.build(routes: {Types.Route}, terminal: Types.Handler, policy?: T
     keep_prefix = served ~= false,
     mount_path = "", name_prefix = "", names = {}, verbs = {},
   }
-  local router: Types.Router = { root = new_node(), policy = ctx.policy, names = ctx.names,
+  local router: Types.Router = { root = new_node(), policy = ctx.policy, names = ctx.names, -- checked: literal_missing
     verbs = ctx.verbs, miss = terminal, mount_path = "" }
   compile(routes, ctx, router.root)
-  return setmetatable(router, router_mt)
+  return setmetatable(router, router_mt) -- checked: setmetatable_call -- untyped: call
 end
 
 return Router

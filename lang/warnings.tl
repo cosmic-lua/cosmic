@@ -100,13 +100,13 @@ local record Warnings
                 msg: string, fix: string)
 end
 
-Warnings.codes = {
+Warnings.codes = { -- checked: field_fixed
   "unused_variable", "unused_argument", "unused_function", "unused_type", "unread", "method_dot",
 }
 
 local UNUSED_FIX <const> = "name it `_` or `_<name>` to say it is meant to be unused, or remove it"
 
-Warnings.catalog = {
+Warnings.catalog = { -- checked: field_fixed
   {
     code = "unused_variable", kind = "unused", rule = "names are used",
     why = "a local, loop variable or match binding that nothing reads or assigns is dead code, or a name the program " ..
@@ -158,7 +158,7 @@ function Warnings.kind_of(code: Warnings.Code): Warnings.Kind
   return KINDS[tostring(code)] or "hint"
 end
 
-function Warnings.add(list: mut {Warnings.Warning}, filename: string, tokens: Lexer.Tokens, code: Warnings.Code,
+function Warnings.add(list: mut {Warnings.Warning}, filename: string, tokens: Lexer.Tokens, code: Warnings.Code, -- checked: view_as_mut
                       first: integer, last: integer, msg: string, fix: string)
   local to = math.max(first, last)
   if tokens.text[first] == nil or tokens.text[to] == nil then

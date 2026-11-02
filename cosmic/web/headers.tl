@@ -87,7 +87,7 @@ local record Headers
   NONCE: Types.Key<string>
 end
 
-Headers.NONCE = Request.key("csp-nonce")
+Headers.NONCE = Request.key("csp-nonce") -- checked: field_fixed
 
 --- A header line to write to a response.
 local record Header
@@ -155,7 +155,7 @@ function Headers.middleware(opts?: Headers.Options): Types.Middleware
     fixed[#fixed + 1] = { name = "X-Content-Type-Options", value = "nosniff" }
   end
   local function add(name: string, value: string?, default: string)
-    local text = plain(value == nil and default or value, name)
+    local text = plain(if value == nil then default else value end, name)
     if text ~= "" then fixed[#fixed + 1] = { name = name, value = text } end
   end
   add("Referrer-Policy", opts.referrer_policy, "strict-origin-when-cross-origin")
@@ -224,7 +224,7 @@ function Headers.middleware(opts?: Headers.Options): Types.Middleware
         adds[#adds + 1] = { name = "Strict-Transport-Security", value = hsts }
       end
       if policy ~= nil and Response.header(res, csp_name) == nil then
-        adds[#adds + 1] = { name = csp_name, value = fixed_csp or Csp.format(policy, nonce ~= "" and nonce or nil) }
+        adds[#adds + 1] = { name = csp_name, value = fixed_csp or Csp.format(policy, if nonce ~= "" then nonce else nil end) }
       end
       if draw then
         local cache = Response.header(res, "Cache-Control")

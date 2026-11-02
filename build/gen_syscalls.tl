@@ -254,7 +254,7 @@ local function parse_call(name: string, lines: {string}): Call?, string
   if call.summary == "" then
     return nil, name .. ": the block says nothing about what it does"
   end
-  call.prose = trimmed(call.prose)
+  call.prose = trimmed(call.prose) -- checked: view_as_mut
   local n = #call.results
   if n ~= 0 and n ~= 1 and n ~= 3 then
     return nil, name .. ": declares " .. tostring(n) .. " returns; a syscall is " ..
@@ -328,7 +328,7 @@ local function parse_class(lines: {string}, at: {integer}): Class?, string
   if class.name == "" then
     return nil, "a class block names no class"
   end
-  class.prose = trimmed(class.prose)
+  class.prose = trimmed(class.prose) -- checked: view_as_mut
   if #class.fields == 0 then
     return nil, class.name .. ": the class has no fields"
   end
@@ -353,7 +353,7 @@ local function parse_alias(lines: {string}, at: {integer}): Alias?, string
     elseif line:sub(1, 1) == "|" then
       local value, description = line:match('^|%s*"([%w_]+)"%s*(.*)$')
       if value == nil or description == nil then
-        return nil, (alias.name ~= "" and alias.name or "an alias") ..
+        return nil, (alias.name ~= "" and alias.name or "an alias") .. -- checked: and_ternary
           ": a member line is not `| \"word\" # what it means`"
       end
       local said = description:match("^#%s*(.*)$")
@@ -369,14 +369,14 @@ local function parse_alias(lines: {string}, at: {integer}): Alias?, string
     elseif tag == nil then
       table.insert(alias.prose, (line:gsub("^%s+", "")))
     else
-      return nil, (alias.name ~= "" and alias.name or "an alias") .. ": an alias block takes no @" ..
+      return nil, (alias.name ~= "" and alias.name or "an alias") .. ": an alias block takes no @" .. -- checked: and_ternary
         tag
     end
   end
   if alias.name == "" then
     return nil, "an alias block names no alias"
   end
-  alias.prose = trimmed(alias.prose)
+  alias.prose = trimmed(alias.prose) -- checked: view_as_mut
   if #alias.prose == 0 then
     return nil, alias.name .. ": the alias says nothing about what it is"
   end

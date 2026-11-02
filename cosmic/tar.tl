@@ -50,7 +50,7 @@ local record Tar
     --- The next entry, or nil and `""` once the archive's two zero
     --- blocks are reached (or the stream simply ends there). An error
     --- is sticky: every later call returns it again.
-    next: function(Reader): Entry?, string
+    next: function(Reader): Entry?, string -- declared: interface_disagrees
     --- Closes the Stream.Reader this one reads from.
     close: function(Reader): boolean, string
   end
@@ -327,7 +327,7 @@ local function parse_header(block: string, long_name: string?, long_link: string
     -- A ustar prefix is only there when byte 346 is not NUL.
     if block:byte(346) ~= 0 then name = text_at(block, 346, 155) .. "/" .. name end
   end
-  local linkname = long_link or (block:byte(158) ~= 0 and text_at(block, 158, 100) or "")
+  local linkname = long_link or (if block:byte(158) ~= 0 then text_at(block, 158, 100) else "" end)
   local size = numeric_at(block, 125, 12)
   if size == nil then return nil, out_of_range("size") end
   local mtime = numeric_at(block, 137, 12)
@@ -389,7 +389,7 @@ local class BufferedReader is Stream.Reader
     return buf:sub(at, at + n - 1), ""
   end
 
-  function skip(self, n: integer): boolean, string
+  function skip(self, n: integer): boolean, string -- declared: interface_disagrees
     local avail = #self.buf - self.at + 1
     if n <= avail then
       self.at = self.at + n
@@ -413,8 +413,8 @@ end
 --- Keeps `trouble` as the reader's failure, or "tar: read failed" when
 --- it is "", and answers it.
 local function fail(self: EntryReader, trouble: string): nil, string
-  self.failed = trouble ~= "" and trouble or "tar: read failed"
-  return nil, self.failed
+  self.failed = if trouble ~= "" then trouble else "tar: read failed" end
+  return nil, self.failed -- checked: nil_not_allowed
 end
 
 --- What [`Tar.reader`] answers. Its entries' bodies share its state:
@@ -439,7 +439,7 @@ local class EntryReader is Tar.Reader
   --- What every entry of this reader gets as its metatable.
   mut entry_mt?: metatable<Tar.Entry>
 
-  function next(self): Tar.Entry?, string
+  function next(self): Tar.Entry?, string -- declared: interface_disagrees
     local failed = self.failed
     if failed then return nil, failed end
     if self.closed then return refuse("the reader is closed") end
@@ -493,7 +493,7 @@ local class EntryReader is Tar.Reader
         local f, ftrouble = parse_header(block, long_name, long_link, pax_local, self.pax_global)
         if f == nil then return fail(self, ftrouble) end
         self.pending_skip = f.size + padding_of(f.size)
-        local entry: Tar.Entry = setmetatable({
+        local entry: Tar.Entry = setmetatable({ -- checked: arms_differ, setmetatable_call -- untyped: call
           path = f.name,
           kind = f.kind,
           mode = f.mode,
@@ -522,7 +522,7 @@ local class EntryReader is Tar.Reader
 end
 
 --- An entry's body: a Reader bounded to the entry's size.
-local class BodyReader is Stream.Reader
+local class BodyReader is Stream.Reader -- declared: interface_disagrees
   state: EntryReader
   generation: integer
   mut left: integer
@@ -543,8 +543,8 @@ local class BodyReader is Stream.Reader
     if want > left then want = left end
     local chunk, rtrouble = state.src:read(want)
     if chunk == nil then
-      self.failed = rtrouble ~= "" and rtrouble or "tar: truncated archive"
-      return nil, self.failed
+      self.failed = if rtrouble ~= "" then rtrouble else "tar: truncated archive" end
+      return nil, self.failed -- checked: nil_not_allowed
     end
     self.left = left - #chunk
     state.pending_skip = state.pending_skip - #chunk
@@ -568,8 +568,8 @@ function Tar.reader(raw: Stream.Reader): Tar.Reader
   -- metatable: only the current entry can be opened, and only once. It
   -- is one closure for the whole reader, not one for each entry, and
   -- the entry's fields stay those [`Tar.Entry`] declares.
-  r.entry_mt = {
-    __index = {
+  r.entry_mt = { -- checked: literal_missing
+    __index = { -- checked: any_use
       open = function(e: Tar.Entry): Stream.Reader?, string
         if e ~= r.current then return refuse("entry is no longer current") end
         -- A second `open` on the same entry would share `left` and
@@ -704,8 +704,8 @@ local function put_entry(self: EntryWriter, path: string, typeflag: string, size
     if not ok then return false, trouble end
     if not fits then prefix, name = "", path:sub(-100) end
   end
-  local header_size = size_fits and size or 0
-  local header_mtime = mtime_fits and mtime or (if mtime < 0 then 0 else OCTAL_11_LIMIT - 1 end)
+  local header_size = if size_fits then size else 0 end
+  local header_mtime = if mtime_fits then mtime elseif mtime < 0 then 0 else OCTAL_11_LIMIT - 1 end
   local header = build_header(name, prefix, typeflag, header_size, mode & 0xFFF,
     header_mtime, linkname:sub(1, 100))
   return sink:put(header)
@@ -759,7 +759,7 @@ local class EntryWriter is Tar.Writer
     fopts = fopts or {}
     local mode = fopts.mode or 0x1ed
     local mtime = fopts.mtime or 0
-    local dirpath = path:sub(-1) == "/" and path or (path .. "/")
+    local dirpath = if path:sub(-1) == "/" then path else path .. "/" end
     return put_entry(self, dirpath, "5", 0, mode, mtime, "")
   end
 

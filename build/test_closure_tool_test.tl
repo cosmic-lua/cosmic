@@ -22,7 +22,7 @@ Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx
 local function run(root: string, output: string): boolean, string
   local fd = assert(Fs.open_write(output))
   local env = this_program.environment()
-  env.COSMIC_TEST_SANDBOX = "0"
+  env.COSMIC_TEST_SANDBOX = "0" -- checked: map_field
   local started = this_program.program({ "test" }, {
     cwd = root, env = env, stdout = fd, stderr = fd,
     process_group = true, timeout_ns = Clock.seconds(60),

@@ -4,7 +4,7 @@
 
 local Secret = require("cosmic.web.secret")
 
-local Example = {}
+local Example = {} -- checked: literal_needs_type
 
 --- A fresh key to put in an environment variable, and the check a key must
 --- pass.
@@ -33,4 +33,4 @@ function Example.keys_from_env()
   assert(why:find("not set", 1, true))
 end
 
-return Example
+return Example -- checked: export_not_declared

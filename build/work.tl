@@ -1261,8 +1261,8 @@ local function known_in(db: Sqlite.Handle,
     end
     out[statement:bytes(0)] = {
       size = statement:integer(1),
-      mtime_ns = statement:integer(5) == 0 and statement:integer(2) or nil,
-      ctime_ns = statement:integer(7) == 0 and statement:integer(6) or nil,
+      mtime_ns = statement:integer(5) == 0 and statement:integer(2) or nil, -- checked: and_ternary
+      ctime_ns = statement:integer(7) == 0 and statement:integer(6) or nil, -- checked: and_ternary
       ino = statement:integer(3),
       dev = statement:integer(4),
     }
@@ -1308,7 +1308,7 @@ local function moved(known: mut {string:Known}, file: string, st: sys.Stat,
   local ctime_ns = was and was.ctime_ns
   return was == nil or was.size ~= st.size or was_mtime_ns == nil or
     was_mtime_ns ~= mtime_ns or ctime_ns == nil or
-    st.ctime_ns == nil or ctime_ns ~= Clock.seconds(st.ctime) + st.ctime_ns or
+    st.ctime_ns == nil or ctime_ns ~= Clock.seconds(st.ctime) + st.ctime_ns or -- checked: compare_disjoint
     was.ino ~= st.ino or was.dev ~= st.dev
 end
 
@@ -1324,7 +1324,7 @@ function work.tool_moved(handle: work.Handle): boolean?, string
       local st, _ = Fs.stat(handle.root .. "/" .. path)
       if st == nil then return true, "" end
       local mtime_ns = Clock.seconds(st.mtime) + st.mtime_ns
-      if moved(known, path, st, mtime_ns) then return true, "" end
+      if moved(known, path, st, mtime_ns) then return true, "" end -- checked: view_as_mut
     end
   end
   return false, ""
@@ -1349,7 +1349,7 @@ local function put_row(put: Sqlite.Statement, file: string, st: sys.Stat,
   if bound then bound, trouble = put:bind_blob(6, data) end
   if bound then bound, trouble = put:bind_text(7, sha256) end
   if bound then
-    if settled and st.ctime_ns ~= nil then
+    if settled and st.ctime_ns ~= nil then -- checked: compare_disjoint
       bound, trouble = put:bind_integer(9, Clock.seconds(st.ctime) + st.ctime_ns)
     else
       bound, trouble = put:bind_null(9)
@@ -1491,7 +1491,7 @@ end
 --- @param standing what `root` is to the running tool, which the handle
 ---   keeps. Whether it is cosmic's own tree decides which files are the
 ---   tool's sources, and so is a part of what a stage reads.
-function work.stage(handle: work.Handle, standing: tree.Standing): work.Staged?, string
+function work.stage(handle: work.Handle, standing: tree.Standing): work.Staged?, string -- checked: not_assigned
   local db = handle.db
   local root = handle.root
   handle.standing = standing
@@ -1516,7 +1516,7 @@ function work.stage(handle: work.Handle, standing: tree.Standing): work.Staged?,
     if st == nil then return nil, trouble end
     discovery[""] = st
   end
-  local skip_path = own_tree and identity.skip_in_own_tree or identity.skip_input
+  local skip_path = own_tree and identity.skip_in_own_tree or identity.skip_input -- checked: and_ternary
   -- Each entry only the walk for links reaches.
   local links_only: mut {string:boolean} = {}
   local link_skip = link_files.skipper(root)
@@ -1526,7 +1526,7 @@ function work.stage(handle: work.Handle, standing: tree.Standing): work.Staged?,
   local walking: Walking = { ancestors = nil, above = "" }
   local function skip(entry: string, name: string, kind: string): boolean
     local parent = entry:match("^(.*)/[^/]*$")
-    if (parent ~= nil and links_only[parent] == true) or skip_path(entry, name) then
+    if (parent ~= nil and links_only[parent] == true) or skip_path(entry, name) then -- untyped: call
       if not for_links(entry) then
         return true
       end
@@ -1623,7 +1623,7 @@ function work.stage(handle: work.Handle, standing: tree.Standing): work.Staged?,
     local input = not only and is_input(file, own_tree)
     local tool = not only and identity.is_tool(file, own_tree)
     local scan = not only and not input and not tool and holds_own_todos(file)
-    local link_kind = for_links(file) and link_files.checked(file, own_tree) or nil
+    local link_kind = for_links(file) and link_files.checked(file, own_tree) or nil -- checked: and_ternary
     local st, stat_trouble = Fs.stat(root .. "/" .. file)
     if st == nil then
       finish(put)
@@ -1653,15 +1653,15 @@ function work.stage(handle: work.Handle, standing: tree.Standing): work.Staged?,
     end
     if input or tool or scan or link_kind ~= nil then
       local mtime_ns = Clock.seconds(st.mtime) + st.mtime_ns
-      local settled = st.ctime_ns ~= nil and
+      local settled = st.ctime_ns ~= nil and -- checked: compare_disjoint
         math.max(mtime_ns, Clock.seconds(st.ctime) + st.ctime_ns) < now - settle_ns
       if input or tool then
         staged.files = staged.files + 1
       end
-      local write_files = input and moved(known.files, file, st, mtime_ns)
-      local write_tool = tool and moved(known.tool, file, st, mtime_ns)
-      local write_scanned = scan and moved(known.scanned, file, st, mtime_ns)
-      local write_linked = link_kind ~= nil and moved(known.linked, file, st, mtime_ns)
+      local write_files = input and moved(known.files, file, st, mtime_ns) -- checked: map_field
+      local write_tool = tool and moved(known.tool, file, st, mtime_ns) -- checked: map_field
+      local write_scanned = scan and moved(known.scanned, file, st, mtime_ns) -- checked: map_field
+      local write_linked = link_kind ~= nil and moved(known.linked, file, st, mtime_ns) -- checked: map_field
       if write_files or write_tool or write_scanned or write_linked then
         local data, read_trouble = Fs.read(root .. "/" .. file)
         if data == nil then
@@ -1726,7 +1726,7 @@ function work.stage(handle: work.Handle, standing: tree.Standing): work.Staged?,
     end
     for path, st in pairs(discovery) do
       local mtime_ns = Clock.seconds(st.mtime) + st.mtime_ns
-      local ctime_ns = if st.ctime_ns ~= nil then Clock.seconds(st.ctime) + st.ctime_ns else nil end
+      local ctime_ns = if st.ctime_ns ~= nil then Clock.seconds(st.ctime) + st.ctime_ns else nil end -- checked: compare_disjoint
       local settled = ctime_ns ~= nil and math.max(mtime_ns, ctime_ns) < now - settle_ns
       local saved, why = discovery_put:bind_text(1, path)
       if saved then saved, why = discovery_put:bind_integer(2, st.size) end

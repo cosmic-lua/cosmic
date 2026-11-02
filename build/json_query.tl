@@ -80,18 +80,18 @@ function json_query.flatten(value: any, opts?: json_query.FlattenOptions): {Json
     if opts_root ~= nil then root = opts_root end
   end
   local leaves: mut {Json.Match} = {}
-  local open: {any:boolean} = {}
+  local open: {any:boolean} = {} -- declared: key_type
   local steps: mut {integer | string} = table.move(root, 1, #root, 1, {})
   local function leaf(v: any)
     table.insert(leaves, { steps = table.move(steps, 1, #steps, 1, {}), value = v })
   end
   -- Walks `v`, answering why it cannot be read, if it cannot.
   local function walk(v: any, depth: integer): string?
-    if not (v is {any:any}) then
+    if not (v is {any:any}) then -- declared: key_type
       leaf(v)
       return nil
     end
-    local t: {any:any} = v
+    local t: {any:any} = v -- declared: key_type
     local members = Json.members(t)
     local shape, keys, extent = members.layout, members.keys, members.extent
     if shape == "mixed" then
@@ -206,7 +206,7 @@ local function absorb(node: Node, v: any, depth: integer, limit: integer)
     node.scalars["number"] = true
     return
   end
-  if not (v is {any:any}) then
+  if not (v is {any:any}) then -- declared: key_type
     node.scalars[type(v)] = true
     return
   end
@@ -214,7 +214,7 @@ local function absorb(node: Node, v: any, depth: integer, limit: integer)
   if k == "mixed" then
     node.scalars["table"] = true
   elseif k == "array" then
-    local n = rawlen(v)
+    local n = rawlen(v) -- checked: any_use
     if node.arrays == 0 or n < node.shortest then node.shortest = n end
     if node.arrays == 0 or n > node.longest then node.longest = n end
     node.arrays = node.arrays + 1
@@ -226,7 +226,7 @@ local function absorb(node: Node, v: any, depth: integer, limit: integer)
       local elements = node.elements or new_node()
       node.elements = elements
       for i = 1, n do
-        absorb(elements, v[i], depth + 1, limit)
+        absorb(elements, v[i], depth + 1, limit) -- checked: any_use
       end
     end
   else
@@ -235,7 +235,7 @@ local function absorb(node: Node, v: any, depth: integer, limit: integer)
       node.cut = true
       return
     end
-    for key, member in pairs(v) do
+    for key, member in pairs(v) do -- checked: any_use
       local name: any = key
       if name is string then
         local field = node.fields[name]
@@ -258,7 +258,7 @@ local function sorted_keys<T>(t: {string:T}): {string}
 end
 
 local function render(node: Node): string
-  local parts: mut {string} = sorted_keys(node.scalars)
+  local parts: mut {string} = sorted_keys(node.scalars) -- checked: view_as_mut
   if node.objects > 0 then
     if node.cut then
       parts[#parts + 1] = "{...}"
@@ -310,7 +310,7 @@ end
 ---     -- {ids: [2 x number], ok: boolean}
 function json_query.describe(value: any, opts?: json_query.DescribeOptions): string
   local limit = 6
-  if opts ~= nil and opts.max_depth ~= nil then
+  if opts ~= nil and opts.max_depth ~= nil then -- checked: compare_disjoint
     limit = checked_depth(opts.max_depth, 0, nil, 2)
   end
   local node = new_node()

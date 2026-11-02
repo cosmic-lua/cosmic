@@ -123,7 +123,7 @@ local record verb
   refusal: function(why: string, protocols: {string}?): string
 end
 
-local spec = Cli.verbs.fetch.spec or {}
+local spec = Cli.verbs.fetch.spec or {} -- checked: literal_needs_type, map_field
 
 local usage = "cosmic fetch <url[#sha256=<hex>]> [-o <file>] [--sha256 <hex>] [--sha512 <hex>] " ..
   "[--allow-downgrade] [--head [--json]] [--roots <set>] [--cacert <file>] [--pin <pin>]"
@@ -318,8 +318,8 @@ function verb.run(argv: {string}, io?: verb.Io): integer
       end
     end
   end
-  local head = parsed.set["--head"] or false
-  local as_json = parsed.set["--json"] or false
+  local head = parsed.set["--head"] or false -- checked: condition_type
+  local as_json = parsed.set["--json"] or false -- checked: condition_type
   if as_json and not head then
     return refuse("--json shapes what --head prints")
   end
@@ -351,7 +351,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     end
   end
   local options: Http.Options = { script = to.script, roots = roots, ca = ca, pin = pins }
-  options.redirect_protocols = verb.redirect_protocols(url, parsed.set["--allow-downgrade"] or false)
+  options.redirect_protocols = verb.redirect_protocols(url, parsed.set["--allow-downgrade"] or false) -- checked: condition_type, field_fixed
   local function failed_status(status: integer): integer
     complain(shown .. ": HTTP " .. tostring(status))
     return bare.failed
@@ -361,9 +361,9 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   end
 
   if target ~= nil then
-    options.sha256, options.sha512 = wants.sha256, wants.sha512
+    options.sha256, options.sha512 = wants.sha256, wants.sha512 -- checked: field_fixed*2, map_field*2
     local function download(interrupted: function(): boolean): integer
-      options.cancelled = to.cancelled or interrupted
+      options.cancelled = to.cancelled or interrupted -- checked: field_fixed
       local result = Http.download_result(url, target, options)
       if result.kind == "downloaded" then return bare.ok end
       if result.kind == "http_status" then return failed_status(assert(result.status)) end

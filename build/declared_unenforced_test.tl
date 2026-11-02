@@ -119,8 +119,8 @@ end
 --- and the summary says so.
 local function test_an_unenforced_run_shares_only_through_a_named_cache(tmp: string)
   local env = environment("")
-  env.COSMIC_VERDICT_CACHE = nil
-  env.XDG_CACHE_HOME = tmp .. "/xdg"
+  env.COSMIC_VERDICT_CACHE = nil -- checked: map_field
+  env.XDG_CACHE_HOME = tmp .. "/xdg" -- checked: map_field
   checkout(tmp .. "/first")
   local first = says(tmp .. "/first", tmp .. "/first.out", env, "2 ran, 0 stood")
   assert(first:find(UNSHARED, 1, true), first)

@@ -282,7 +282,7 @@ local MAX_ALTERNATIVES <const> = 16
 --- the declaration whose closure it is.
 local MAX_LISTED <const> = 4096
 
-local judge_mt: metatable<Relation.Judge> = { __index = Relation.Judge }
+local judge_mt: metatable<Relation.Judge> = { __index = Relation.Judge } -- checked: field_unknown, literal_missing
 
 -- Results ------------------------------------------------------------------------------------
 
@@ -353,7 +353,7 @@ local function rewrite(
     local tparams: mut {Types.TParam} = {}
     for i, tp in ipairs(t.tparams) do
       local bound = tp.bound
-      tparams[i] = { bound = bound ~= nil and rewrite(store, bound, inside, on_var, memo) or nil }
+      tparams[i] = { bound = bound ~= nil and rewrite(store, bound, inside, on_var, memo) or nil } -- checked: and_ternary
     end
     local params: mut {Types.Param} = {}
     for i, p in ipairs(t.params) do
@@ -370,7 +370,7 @@ local function rewrite(
       local narrows = alt.narrows
       rets[i] = {
         items = items,
-        tail = tail ~= nil and rewrite(store, tail, inside, on_var, memo) or nil,
+        tail = tail ~= nil and rewrite(store, tail, inside, on_var, memo) or nil, -- checked: and_ternary
         narrows = if narrows ~= nil then {
           param = narrows.param, to = rewrite(store, narrows.to, inside, on_var, memo), asserts = narrows.asserts,
         } else nil end,
@@ -378,7 +378,7 @@ local function rewrite(
     end
     out = store:fn({
       tparams = tparams, params = params,
-      rest = rest ~= nil and rewrite(store, rest, inside, on_var, memo) or nil,
+      rest = rest ~= nil and rewrite(store, rest, inside, on_var, memo) or nil, -- checked: and_ternary
       rets = rets,
     })
   else
@@ -463,23 +463,23 @@ local function closure_of(j: Relation.Judge, n: Named): Relation.Closure
           listed = instantiate_within(j.store, super, x.args)
         end
         if listed == nil then
-          closure.complete = false
+          closure.complete = false -- checked: field_fixed
         elseif (listed.tag == "named") and closure.set[listed.id] ~= true then
           if #closure.list >= MAX_LISTED then
-            closure.complete = false
+            closure.complete = false -- checked: field_fixed
           else
-            closure.set[listed.id] = true
-            closure.list[#closure.list + 1] = listed
+            closure.set[listed.id] = true -- checked: view_written
+            closure.list[#closure.list + 1] = listed -- checked: view_written
             local same = closure.by_decl[listed.decl] or {}
-            same[#same + 1] = listed
-            closure.by_decl[listed.decl] = same
+            same[#same + 1] = listed -- checked: view_written
+            closure.by_decl[listed.decl] = same -- checked: view_written
             queue[#queue + 1] = listed
           end
         end
       end
     end
   end
-  j.closures[n.id] = closure
+  j.closures[n.id] = closure -- checked: view_written
   return closure
 end
 
@@ -537,7 +537,7 @@ local function specialize(store: Store, f: Fn, args: {Type}): Fn
     return store:var(v.depth - 1, v.index)
   end
   local function part(t: Type): Type
-    return rewrite(store, t, 0, on_var, memo)
+    return rewrite(store, t, 0, on_var, memo) -- checked: view_as_mut
   end
   local params: mut {Types.Param} = {}
   for i, p in ipairs(f.params) do
@@ -554,11 +554,11 @@ local function specialize(store: Store, f: Fn, args: {Type}): Fn
     local narrows = alt.narrows
     rets[i] = {
       items = items,
-      tail = tail ~= nil and part(tail) or nil,
+      tail = tail ~= nil and part(tail) or nil, -- checked: and_ternary
       narrows = if narrows ~= nil then { param = narrows.param, to = part(narrows.to), asserts = narrows.asserts } else nil end,
     }
   end
-  local made = store:fn({ tparams = {}, params = params, rest = rest ~= nil and part(rest) or nil, rets = rets })
+  local made = store:fn({ tparams = {}, params = params, rest = rest ~= nil and part(rest) or nil, rets = rets }) -- checked: and_ternary
   if not ((made.tag == "fn")) then
     error("relation: a function type is a function type")
   end
@@ -619,11 +619,11 @@ local function member_set(j: Relation.Judge, u: Union): {integer: boolean}
   for _, m in ipairs(u.members) do
     set[m.id] = true
   end
-  j.sets[u.id] = set
+  j.sets[u.id] = set -- checked: view_written
   return set
 end
 
-local function from_union(j: Relation.Judge, a: Union, b: Type, why: boolean): Relation.Refusal?
+local function from_union(j: Relation.Judge, a: Union, b: Type, why: boolean): Relation.Refusal? -- checked: not_assigned
   for i, m in ipairs(a.members) do
     local r = rel(j, m, b, why)
     if r ~= nil then
@@ -698,7 +698,7 @@ local function from_alias(j: Relation.Judge, a: Type, b: Type, why: boolean): Re
   end
   local ua, ub = Types.unfold(a), Types.unfold(b)
   if ua == a and ub == b then
-    error("relation: " .. Types.display(a_alias and a or b) .. " is not defined", 0)
+    error("relation: " .. Types.display(a_alias and a or b) .. " is not defined", 0) -- checked: and_ternary
   end
   if a_alias and (b.tag == "union") and member_set(j, b)[a.id] == true then
     return nil
@@ -708,7 +708,7 @@ local function from_alias(j: Relation.Judge, a: Type, b: Type, why: boolean): Re
     return r
   end
   return {
-    code = r.code, path = r.path, sub = r.sub == ua and a or r.sub, super = r.super == ub and b or r.super,
+    code = r.code, path = r.path, sub = r.sub == ua and a or r.sub, super = r.super == ub and b or r.super, -- checked: and_ternary*2
     index = r.index, alternatives = r.alternatives, lists = r.lists,
   }
 end
@@ -850,7 +850,7 @@ end
 local function arity(j: Relation.Judge, why: boolean, f: Fn, g: Fn, i: integer): Relation.Refusal
   local r = leaf(j, why, "arity", f, g)
   if why then
-    r.index = i
+    r.index = i -- checked: field_fixed
   end
   return r
 end
@@ -1015,7 +1015,7 @@ local function from_generic(j: Relation.Judge, a: Fn, b: Fn, why: boolean): Rela
   local solver = Generics.new(j.store, a, hooks_of(j))
   for i, p in ipairs(a.params) do
     local wanted = b.params[i]
-    local given = wanted ~= nil and wanted.type or b.rest
+    local given = wanted ~= nil and wanted.type or b.rest -- checked: and_ternary
     if given ~= nil then
       Generics.match(solver, p.type, given, "into", i)
     end
@@ -1151,9 +1151,9 @@ rel = function(j: Relation.Judge, a: Type, b: Type, why: boolean): Relation.Refu
     end
   end
   local r = rule(j, a, b, why)
-  memo[key] = r == nil
+  memo[key] = r == nil -- checked: view_written
   if why and r ~= nil then
-    j.explained[key] = r
+    j.explained[key] = r -- checked: view_written
   end
   return r
 end
@@ -1169,18 +1169,18 @@ local function owned(j: Relation.Judge, t: Type)
   end
 end
 
-Relation.Judge.subtype = function(self: Relation.Judge, a: Type, b: Type): boolean
+Relation.Judge.subtype = function(self: Relation.Judge, a: Type, b: Type): boolean -- checked: field_unknown
   owned(self, a)
   owned(self, b)
   return rel(self, a, b, false) == nil
 end
 
-Relation.Judge.refuse = function(self: Relation.Judge, a: Type, b: Type): Relation.Refusal?
+Relation.Judge.refuse = function(self: Relation.Judge, a: Type, b: Type): Relation.Refusal? -- checked: field_unknown
   owned(self, a)
   owned(self, b)
-  self.explained = {}
+  self.explained = {} -- checked: field_fixed
   local r = rel(self, a, b, true)
-  self.explained = {}
+  self.explained = {} -- checked: field_fixed
   return r
 end
 
@@ -1224,13 +1224,13 @@ function Relation.refuse_known(self: Relation.Judge, a: Type, b: Type): Relation
   return r
 end
 
-Relation.Judge.accepts = function(self: Relation.Judge, argument: Type, param: Type): boolean
+Relation.Judge.accepts = function(self: Relation.Judge, argument: Type, param: Type): boolean -- checked: field_unknown
   owned(self, argument)
   owned(self, param)
   return param.tag == "any" or rel(self, argument, param, false) == nil
 end
 
-Relation.Judge.refuse_argument = function(self: Relation.Judge, argument: Type, param: Type): Relation.Refusal?
+Relation.Judge.refuse_argument = function(self: Relation.Judge, argument: Type, param: Type): Relation.Refusal? -- checked: field_unknown
   if param.tag == "any" then
     owned(self, argument)
     owned(self, param)
@@ -1239,7 +1239,7 @@ Relation.Judge.refuse_argument = function(self: Relation.Judge, argument: Type, 
   return self:refuse(argument, param)
 end
 
-Relation.Judge.listed = function(self: Relation.Judge, n: Named): Relation.Listing
+Relation.Judge.listed = function(self: Relation.Judge, n: Named): Relation.Listing -- checked: field_unknown
   owned(self, n)
   local closure = closure_of(self, n)
   local copied: mut {Type} = {}
@@ -1249,7 +1249,7 @@ Relation.Judge.listed = function(self: Relation.Judge, n: Named): Relation.Listi
   return { types = copied, complete = closure.complete }
 end
 
-Relation.Judge.enter = function(self: Relation.Judge, tparams: {Types.TParam})
+Relation.Judge.enter = function(self: Relation.Judge, tparams: {Types.TParam}) -- checked: field_unknown
   local copied: mut {Types.TParam} = {}
   for i, tp in ipairs(tparams) do
     local bound = tp.bound
@@ -1265,7 +1265,7 @@ Relation.Judge.enter = function(self: Relation.Judge, tparams: {Types.TParam})
   self.scopes[#self.scopes + 1] = { tparams = copied, memo = {} }
 end
 
-Relation.Judge.leave = function(self: Relation.Judge)
+Relation.Judge.leave = function(self: Relation.Judge) -- checked: field_unknown
   if #self.scopes == 0 then
     error("relation: leave without enter", 2)
   end
@@ -1294,7 +1294,7 @@ function Relation.specialize(store: Store, f: Fn, args: {Type}): Fn?
 end
 
 function Relation.new(store: Store): Relation.Judge
-  local judge: Relation.Judge = setmetatable({
+  local judge: Relation.Judge = setmetatable({ -- checked: setmetatable_call -- untyped: call
     store = store, closed = {}, free = {}, scopes = {}, closures = {}, sets = {}, explained = {},
     none = { code = "mismatch", path = {}, sub = store.invalid, super = store.invalid },
     nil_type = store:atom("nil"),
@@ -1324,7 +1324,7 @@ function Relation.trace(r: Relation.Refusal): string
     local index = step.index
     parts[#parts + 1] = if index ~= nil then step.kind .. " " .. tostring(index) else step.kind end
   end
-  local where = #parts > 0 and table.concat(parts, " > ") or "here"
+  local where = #parts > 0 and table.concat(parts, " > ") or "here" -- checked: and_ternary
   return r.code .. " at " .. where .. ": " .. Types.display(r.sub) .. " is not below " .. Types.display(r.super)
 end
 

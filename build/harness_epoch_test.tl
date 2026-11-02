@@ -60,7 +60,7 @@ local function bump(epoch: string, retired: {string}): string, string?
   local count = #retired + (if retire ~= nil then 1 else 0 end) + 1
   local line = string.format("harness_epoch.epoch = %q",
     string.format("%d-%s", count, Codec.hex((assert(Rand.entropy(4))))))
-  return line, retire ~= nil and string.format("  %q,", retire) or nil
+  return line, retire ~= nil and string.format("  %q,", retire) or nil -- checked: and_ternary
 end
 
 --- The words that tell how to bump `epoch`, with the two edits to paste.
@@ -138,7 +138,7 @@ end
 --- `string.dump` of the Lua `source`, with its debug information or without: the bytecode of a module
 --- the way the tree stores it, or what the core runs of it.
 local function dumped(source: string, strip: boolean): string
-  return string.dump(assert(load(source)), strip)
+  return string.dump(assert(load(source)), strip) -- checked: not_assignable
 end
 
 --- The digests the harness holds ([`build.test_key`]'s `harness`) of `copy`

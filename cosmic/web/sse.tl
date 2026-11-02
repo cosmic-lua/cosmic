@@ -313,7 +313,7 @@ local record Guard
 end
 
 --- The Reader that is a stream's body.
-local record Body is Stream.Reader
+local record Body is Stream.Reader -- declared: interface_disagrees
   app: Types.App
   source: Sse.EventSource
   heartbeat_ns: integer
@@ -376,7 +376,7 @@ function Body.read(self: Body, max_bytes?: integer): string?, string
     self.prologue = ""
   end
   while self.pending == "" do
-    local timeout = self.heartbeat_ns > 0 and self.heartbeat_ns or nil
+    local timeout = if self.heartbeat_ns > 0 then self.heartbeat_ns else nil end
     local self_deadline = self.deadline
     if self_deadline ~= nil then
       local left = self_deadline - Clock.monotonic_ns()
@@ -394,7 +394,7 @@ function Body.read(self: Body, max_bytes?: integer): string?, string
       -- only once it has sent or abandoned the reply. A wait that returns
       -- clears `waiting` first, so the guard then does nothing.
       self.waiting = true
-      local _guard <close> = assert(self.guard)
+      local _guard <close> = assert(self.guard) -- checked: close_not_closable
       ev, why = self.source:next(timeout)
       self.waiting = false
     end
@@ -405,7 +405,7 @@ function Body.read(self: Body, max_bytes?: integer): string?, string
         finish(self, "failed: " .. tostring(text))
         return nil, ""
       end
-      self.pending = text
+      self.pending = text -- checked: any_use
     elseif why == Poll.TIMEOUT then
       local deadline = self.deadline
       if deadline == nil or Clock.monotonic_ns() < deadline then
@@ -445,8 +445,8 @@ end
 --- Why `given` is no table or holds a field `known` lacks; nil when fine.
 local function not_checked(given: any, known: {string:boolean}, what: string): string?
   if given == nil then return nil end
-  if not given is {any:any} then return "sse: " .. what .. " takes a table of options" end
-  for key in pairs(given) do
+  if not given is {any:any} then return "sse: " .. what .. " takes a table of options" end -- declared: key_type
+  for key in pairs(given) do -- checked: any_use
     if not (key is string and known[key] == true) then
       return ("sse: %s has no option %s"):format(what, tostring(key))
     end
@@ -513,7 +513,7 @@ local function event_stream(req: Types.Request, source: Sse.EventSource,
   for _, ev in ipairs(initial) do
     local ok, text = pcall(format_event, ev)
     if not ok then bad(tostring(text)) end
-    first[#first + 1] = text
+    first[#first + 1] = text -- checked: any_use
   end
   local prologue = table.concat(first)
   if prologue == "" then prologue = ":\n\n" end
@@ -524,14 +524,14 @@ local function event_stream(req: Types.Request, source: Sse.EventSource,
   }
   local max_age_ns = given.max_age_ns
   if max_age_ns ~= nil then body.deadline = Clock.monotonic_ns() + max_age_ns end
-  local guard: Guard = {}
-  local guard_mt: metatable<Guard> = { __close = function()
+  local guard: Guard = {} -- checked: literal_missing
+  local guard_mt: metatable<Guard> = { __close = function() -- checked: literal_missing
     if body.waiting then
       body.waiting = false
       finish(body, "client")
     end
   end }
-  body.guard = setmetatable(guard, guard_mt)
+  body.guard = setmetatable(guard, guard_mt) -- checked: setmetatable_call -- untyped: call
   req.bodies[#req.bodies + 1] = body
   local headers: mut {string: string | {string}} = {
     ["Cache-Control"] = "no-cache, no-transform", ["X-Accel-Buffering"] = "no",
@@ -548,7 +548,7 @@ local record Entry
   event: Sse.Event
 end
 
-local record Sub is Sse.Subscription
+local record Sub is Sse.Subscription -- declared: interface_disagrees
   queue: Channel.Queue<Sse.Event>
   mut detach: function()
   next: function(Sub, timeout_ns?: integer): Sse.Event?, string
@@ -648,7 +648,7 @@ function State.publish(self: State, name: string, ev: Sse.Event): integer
   -- from before a restart can match an unrelated event. That stays: the
   -- rings are lost with the process anyway, and an app whose clients must
   -- resume across restarts publishes ids of its own.
-  local kept: Sse.Event = { id = (ev_id ~= nil and ev_id ~= "") and ev_id or tostring(self.seq), event = ev.event, data = ev.data,
+  local kept: Sse.Event = { id = if ev_id ~= nil and ev_id ~= "" then ev_id else tostring(self.seq) end, event = ev.event, data = ev.data,
     retry = ev.retry, comment = ev.comment }
   local topic = topic_of(self, name)
   if self.replay > 0 then
@@ -724,11 +724,11 @@ local function head_id(self: State, names: {string}): string?
       if best == nil or entry.seq > best.seq then best = entry end
     end
   end
-  return best ~= nil and best.event.id or nil
+  return if best ~= nil then best.event.id else nil end
 end
 
 function State.subscribe(self: State, topics: {string}, opts?: Sse.SubscribeOptions): Sse.Subscription?, string
-  if not topics is {string} or #topics == 0 then
+  if not topics is {string} or #topics == 0 then -- checked: is_on_record
     error("sse: subscribe takes a list of topic names", 2)
   end
   local names: mut {string} = {}
@@ -768,7 +768,7 @@ function State.subscribe(self: State, topics: {string}, opts?: Sse.SubscribeOpti
   for _, ev in ipairs(replay) do assert(queue:try_send(ev)) end
   -- `detach` closes over `sub`, which does not exist until its literal is built: the no-op is
   -- replaced before `sub` is handed out.
-  local sub: Sub = { queue = queue, gap = gap, next = Sub.next, close = Sub.close,
+  local sub: Sub = { queue = queue, gap = gap, next = Sub.next, close = Sub.close, -- checked: literal_unknown
     closed = Sub.closed, dropped = Sub.dropped, detach = function() end }
   local attached: boolean = true
   sub.detach = function()
@@ -831,7 +831,7 @@ local function new_hub(opts?: Sse.HubOptions): Sse.Hub
   end
   local hub: State = {
     replay = given.replay or DEFAULT_REPLAY, queue_size = given.queue or DEFAULT_QUEUE,
-    overflow = overflow, max_per_topic = given.max_per_topic, max_total = given.max_total,
+    overflow = overflow, max_per_topic = given.max_per_topic, max_total = given.max_total, -- checked: not_assignable
     max_event_bytes = given.max_event_bytes or DEFAULT_EVENT_BYTES,
     topics = {}, total = 0, seq = 0, shut = false,
     publish = State.publish, subscribe = State.subscribe, subscribers = State.subscribers,
@@ -840,10 +840,10 @@ local function new_hub(opts?: Sse.HubOptions): Sse.Hub
   return hub
 end
 
-Sse.format_event = format_event
-Sse.last_event_id = last_event_id
-Sse.from_queue = from_queue
-Sse.EventStream = event_stream
-Sse.new_hub = new_hub
+Sse.format_event = format_event -- checked: field_fixed
+Sse.last_event_id = last_event_id -- checked: field_fixed
+Sse.from_queue = from_queue -- checked: field_fixed
+Sse.EventStream = event_stream -- checked: field_fixed
+Sse.new_hub = new_hub -- checked: field_fixed
 
 return Sse

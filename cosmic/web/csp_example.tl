@@ -4,7 +4,7 @@
 
 local Csp = require("cosmic.web.csp")
 
-local Example = {}
+local Example = {} -- checked: literal_needs_type
 
 --- The CSP of an htmx app, as the header value.
 function Example.htmx_default()
@@ -13,4 +13,4 @@ function Example.htmx_default()
   assert(value:find("script-src 'self'; style-src 'self'", 1, true))
 end
 
-return Example
+return Example -- checked: export_not_declared

@@ -12,13 +12,13 @@ end
 
 local function test_open_and_prepare_outcomes_outlive_cleanup(tmp: string)
   local missing = Sqlite.open_result(tmp .. "/absent", { writable = true, create = false })
-  assert(missing.handle == nil and missing.code == 14 and missing.extended_code == 14)
+  assert(missing.handle == nil and missing.code == 14 and missing.extended_code == 14) -- checked: compare_disjoint
   assert(missing.reason ~= "" and not missing.cancelled and Fs.stat(tmp .. "/absent") == nil)
   local opened = Sqlite.open_result(":memory:", { writable = true })
   assert(opened.code == Sqlite.OK and opened.reason == "" and not opened.cancelled)
   local db = assert(opened.handle)
   local failed = db:prepare_result("SELECT 1; SELECT * FROM missing")
-  assert(failed.statement == nil and failed.code == 1 and failed.reason ~= "")
+  assert(failed.statement == nil and failed.code == 1 and failed.reason ~= "") -- checked: compare_disjoint
   local reason = failed.reason
   local prepared = db:prepare_result("SELECT 2")
   assert(prepared.code == Sqlite.OK and prepared.reason == "")
@@ -37,11 +37,11 @@ local function test_bound_values_keep_kinds_and_invalid_lists_release_the_statem
   assert(row:integer(1) == 42 and row:number(2) == 1.5 and row:text(3) == "a\0b")
   assert(row:blob(4) == "a\0b" and row:kind(5) == "null")
   local invalid: {any} = {
-    {}, { {}, {} }, { [0] = {} }, { { text = "a", blob = "b" } },
-    { { ["text\0junk"] = "bad" } }, { { integer = 1.5 } }, { { text = false } },
+    {}, { {}, {} }, { [0] = {} }, { { text = "a", blob = "b" } }, -- checked: any_use*3, literal_needs_type*4
+    { { ["text\0junk"] = "bad" } }, { { integer = 1.5 } }, { { text = false } }, -- checked: any_use*3
   }
   for _, values in ipairs(invalid) do
-    Test.raises(function() Sqlite.rows_result(db, "SELECT ?1", values as {Sqlite.Value}) end)
+    Test.raises(function() Sqlite.rows_result(db, "SELECT ?1", values as {Sqlite.Value}) end) -- checked: cast_refused
   end
   local texts = Sqlite.text_rows_result(db, "SELECT ?1", { { integer = 42 } })
   assert(texts.code == Sqlite.OK and first_row(assert(texts.rows)):text(1) == "42")
@@ -54,7 +54,7 @@ local function test_steps_capture_extended_codes_across_reset_and_reuse()
   local statement = assert(db:prepare("INSERT INTO t VALUES (?1)"))
   assert(statement:bind_values_result({ { integer = 1 } }).code == Sqlite.OK)
   local failed = statement:step_result()
-  assert(failed is Sqlite.ExecResult)
+  assert(failed is Sqlite.ExecResult) -- checked: is_on_record
   assert(failed.code == 19 and failed.extended_code == 2067 and failed.reason ~= "")
   local reason = failed.reason
   local _, _ = statement:reset()
@@ -63,7 +63,7 @@ local function test_steps_capture_extended_codes_across_reset_and_reuse()
   assert(statement:reset())
   assert(statement:bind_values_result({ { integer = 2 } }).code == Sqlite.OK)
   local again = statement:step_result()
-  assert(again is Sqlite.ExecResult and again.code == 19 and again.extended_code == 2067)
+  assert(again is Sqlite.ExecResult and again.code == 19 and again.extended_code == 2067) -- checked: is_on_record
   statement:finalize()
   assert(db:close())
   assert(failed.code == 19 and failed.extended_code == 2067 and failed.reason == reason)
@@ -106,14 +106,14 @@ local function test_busy_and_locked_are_distinct_and_no_operation_is_retried(tmp
   local second = assert(Sqlite.open(path, { writable = true }))
   second:busy_timeout(0)
   local busy = Sqlite.run_result(second, "INSERT INTO t VALUES (2)")
-  assert(busy.code == Sqlite.BUSY and not busy.cancelled)
+  assert(busy.code == Sqlite.BUSY and not busy.cancelled) -- checked: condition_type
   assert(first:exec("ROLLBACK"))
   local rows = Sqlite.rows_result(first, "SELECT count(*) FROM t")
   assert(first_row(assert(rows.rows)):integer(1) == 1)
   local reader = assert(first:prepare("SELECT * FROM t"))
   assert(reader:step_result() == "row")
   local locked = Sqlite.run_result(first, "DROP TABLE t")
-  assert(locked.code == Sqlite.LOCKED and not locked.cancelled)
+  assert(locked.code == Sqlite.LOCKED and not locked.cancelled) -- checked: condition_type
   reader:finalize()
   assert(first:close() and second:close())
 end

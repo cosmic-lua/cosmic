@@ -307,7 +307,7 @@ function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Sea
     -- The slave answers tcgetsid and tcgetpgrp only where granted by its
     -- path, /dev/tty opens only where granted as that literal, and ttyname
     -- and tty list /dev.
-    parameters.TTY = terminal
+    parameters.TTY = terminal -- checked: map_field
     text[#text + 1] = '(allow file-read-data file-write-data file-ioctl (literal (param "TTY")))'
     text[#text + 1] = '(allow file-read-data file-write-data file-ioctl (literal "/dev/tty"))'
     text[#text + 1] = '(allow file-read-data (literal "/dev"))'
@@ -331,7 +331,7 @@ function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Sea
   end
   local limits = merged.limits or {}
   local rlimits: {string:integer} = { nofile = limits.open_files or 1024, core = 0 }
-  rlimits.fsize, rlimits.cpu = limits.file_bytes, limits.cpu_seconds
+  rlimits.fsize, rlimits.cpu = limits.file_bytes, limits.cpu_seconds -- checked: map_field*2
   return { text = table.concat(text, "\n") .. "\n", parameters = parameters, rlimits = rlimits,
     tmp = tmp }, ""
 end

@@ -194,7 +194,7 @@ end
 local function fence_opener(content: string): string?
   local ticks = content:match("^```+")
   if ticks ~= nil then
-    return content:find("`", #ticks + 1, true) == nil and ticks or nil
+    return content:find("`", #ticks + 1, true) == nil and ticks or nil -- checked: and_ternary
   end
   return content:match("^~~~+")
 end
@@ -398,7 +398,7 @@ local function visible_of(text: string): string, {integer: boolean}
     -- The column as the line has it, which a tab's stop is counted
     -- from, and as its container reads it.
     local raw, from = indent_of(rest, start)
-    local shift = depth == 0 and math.min(least or 0, raw) or start
+    local shift = depth == 0 and math.min(least or 0, raw) or start -- checked: and_ternary
     local column = raw - shift
     local content = rest:sub(from)
     local hidden = false
@@ -436,7 +436,7 @@ local function visible_of(text: string): string, {integer: boolean}
       while open > 0 and column < items[open] do
         open = open - 1
       end
-      local base = open > 0 and items[open] or 0
+      local base = open > 0 and items[open] or 0 -- checked: and_ternary
       if not continued and paragraph then
         local near = column - base < 4
         if near and open == #items and
@@ -461,13 +461,13 @@ local function visible_of(text: string): string, {integer: boolean}
           -- Each list item the line opens, `- 1. x` two of them.
           while not thematic(content) do
             local marker = content:match("^[-+*]") or content:match("^%d%d?%d?%d?%d?%d?%d?%d?%d?[.)]")
-            local after = marker ~= nil and content:sub(#marker + 1) or ""
-            if marker == nil or after ~= "" and after:match("^[ \t]") == nil then
+            local after = marker ~= nil and content:sub(#marker + 1) or "" -- checked: and_ternary
+            if marker == nil or after ~= "" and after:match("^[ \t]") == nil then -- untyped: call
               break
             end
             local reached, past = indent_of(after, raw + #marker)
             local spaces = reached - raw - #marker
-            local body = after:sub(past)
+            local body = after:sub(past) -- untyped: call
             if body == "" or spaces > 4 then
               -- Past five spaces, the item's content is indented code.
               items[#items + 1] = column + #marker + 1
@@ -484,13 +484,13 @@ local function visible_of(text: string): string, {integer: boolean}
             paragraph = false
           elseif fence_opener(content) ~= nil then
             fence = fence_opener(content)
-            fence_base = #items > 0 and items[#items] or 0
+            fence_base = #items > 0 and items[#items] or 0 -- checked: and_ternary
             fence_depth = depth
             hidden = true
           elseif content:match("^<!%-%-") ~= nil then
             hidden = true
             in_comment = content:find("-->", 3, true) == nil
-            comment_base = #items > 0 and items[#items] or 0
+            comment_base = #items > 0 and items[#items] or 0 -- checked: and_ternary
             comment_depth = depth
           else
             paragraph = not heading(content) and not thematic(content)
@@ -521,7 +521,7 @@ function link_text.shortcut_target(inner: string): string?
     return nil
   end
   local target = String.trim(content)
-  return target ~= "" and target or nil
+  return target ~= "" and target or nil -- checked: and_ternary
 end
 
 --- The destination of an inline link, from what its parentheses
@@ -597,8 +597,8 @@ local function scan(text: string, continues: {integer: boolean}, spans?: mut {li
   --- The link opened by the `[` at `at`, added to `out`; the index to
   --- go on from, or nil when the bracket is prose.
   local function link_at(at: integer): integer?
-    local before = at > 1 and text:sub(at - 1, at - 1) or ""
-    if before:match("[%w_%]%)%%]") ~= nil then
+    local before = at > 1 and text:sub(at - 1, at - 1) or "" -- checked: and_ternary
+    if before:match("[%w_%]%)%%]") ~= nil then -- untyped: call
       return nil
     end
     local long = text:match("^%[=*%[", at)
@@ -711,7 +711,7 @@ function link_text.plain_spans(text: string): {link_text.Span}
   end
   local visible, continues = visible_of(text)
   local found: {link_text.Span} = {}
-  scan(visible, continues, found)
+  scan(visible, continues, found) -- checked: not_assignable
   local lines: mut {string} = {}
   for line in String.lines(visible) do
     lines[#lines + 1] = line

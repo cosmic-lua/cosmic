@@ -66,10 +66,10 @@ local function test_a_protocol_runs_a_child_under_the_server_s_guard()
     serve = function(conn: Net.Conn)
       local started = this_program.program({ "-e", "return 6" }, { timeout_ns = Clock.seconds(30) })
       local r, why = Child.run(started.argv, started.options)
-      assert(conn:write((r ~= nil and tostring(r.code) or why) .. "\n"))
+      assert(conn:write((if r ~= nil then tostring(r.code) else why end) .. "\n"))
     end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
-      local conn <close> = assert(Net.connect(addresses[1], { timeout_ns = Clock.seconds(30) }))
+      local conn <close> = assert(Net.connect(addresses[1], { timeout_ns = Clock.seconds(30) })) -- checked: close_not_closable, index_may_be_nil
       answer = assert(Stream.lines(conn):read())
       server:stop()
     end,

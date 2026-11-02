@@ -229,7 +229,7 @@ local class Batches is Stream.Reader
   end
 
   --- Passes over `n` bytes, read and dropped.
-  function skip(self, n: integer): boolean, string
+  function skip(self, n: integer): boolean, string -- declared: interface_disagrees
     local left = n
     while left > 0 do
       local piece, trouble = self:read(left)

@@ -25,7 +25,7 @@ do
       "America/Santiago", "Africa/Casablanca", "Antarctica/Troll", "America/Scoresbysund" }) do
     local data = assert(Store.zoneinfo(name))
     local footer = data:match("\n([^\n]*)\n$")
-    if footer ~= nil and footer ~= "" and not seen[footer] then
+    if footer ~= nil and footer ~= "" and not seen[footer] then -- checked: condition_type
       seen[footer] = true
       samples[#samples + 1] = footer
     end
@@ -50,10 +50,10 @@ local function total(tz: string): boolean, string
   end
   Fuzz.label("read")
   for _, ns in ipairs(PROBES) do
-    local civil_ok, c = pcall(Time.civil, ns, zone)
+    local civil_ok, c = pcall(Time.civil, ns, zone) -- checked: overload_none
     if not civil_ok then return false, ("civil(%d) raised: %s"):format(ns, tostring(c)) end
     if c.dst then Fuzz.label("daylight saving time") end
-    local from_ok, back = pcall(Time.from_civil, c, zone)
+    local from_ok, back = pcall(Time.from_civil, c, zone) -- checked: overload_none
     if not from_ok then
       return false, ("from_civil of civil(%d) raised: %s"):format(ns, tostring(back))
     end
@@ -109,10 +109,10 @@ end
 --- A TZ string written from drawn offsets and rules, with the two
 --- offsets it may name after it, as `TZ\0std\0dst`.
 local function drawn(src: Fuzz.Source): string
-  local std = src:int(-96, 96) * 900 + (src:int(0, 3) == 0 and src:int(0, 899) or 0)
+  local std = src:int(-96, 96) * 900 + (if src:int(0, 3) == 0 then src:int(0, 899) else 0 end)
   local names = { "<+0530>", "EST", "AAA", "<-03>", "CET" }
   local text = Fuzz.pick(src, names) .. hms(-std)
-  if src:int(0, 3) == 0 then return text .. "\0" .. std .. "\0" .. std end
+  if src:int(0, 3) == 0 then return text .. "\0" .. tostring(std) .. "\0" .. tostring(std) end
   local dst = std + 3600
   text = text .. Fuzz.pick(src, { "EDT", "BBB", "<+0630>", "CEST" })
   if src:int(0, 1) == 1 then
@@ -121,7 +121,7 @@ local function drawn(src: Fuzz.Source): string
     text = text .. hms(-dst)
   end
   if src:int(0, 3) ~= 0 then text = text .. "," .. day(src) .. "," .. day(src) end
-  return text .. "\0" .. std .. "\0" .. dst
+  return text .. "\0" .. tostring(std) .. "\0" .. tostring(dst)
 end
 
 --- A written string reads back, and every moment it is asked about is
@@ -132,7 +132,7 @@ local function reads_back(input: string): boolean, string
   local zone, why = Time.local_zone({ tz = tz })
   if zone == nil then return false, tz .. " was refused: " .. why end
   Fuzz.label("read")
-  local offsets = { [math.tointeger(std)] = true, [math.tointeger(dst)] = true }
+  local offsets = { [math.tointeger(std)] = true, [math.tointeger(dst)] = true } -- checked: literal_shape
   for ns = 1451606400 * NS, 1956528000 * NS, 86400 * NS * 19 + 3 * 3600 * NS + 77 * NS do
     local c = Time.civil(ns, zone)
     if not offsets[c.offset] then

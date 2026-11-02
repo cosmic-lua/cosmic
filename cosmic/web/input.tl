@@ -133,8 +133,8 @@ local record Input
   end
 end
 
-Input.FORM = Request.key("input.form")
-Input.JSON = Request.key("input.json")
+Input.FORM = Request.key("input.form") -- checked: field_fixed
+Input.JSON = Request.key("input.json") -- checked: field_fixed
 
 --- The multipart body once read, kept on the request so that a middleware,
 --- [`Input.form`] and the handler share one read and one set of files.
@@ -143,10 +143,10 @@ local MULTIPART <const>: Types.Key<Types.Parsed<Input.Multipart>> = Request.key(
 --- The largest body read unless told: a form or a JSON document, not an
 --- upload.
 local DEFAULT_MAX <const> = 64 * 1024
-Input.DEFAULT_MAX = DEFAULT_MAX
+Input.DEFAULT_MAX = DEFAULT_MAX -- checked: field_fixed
 
 local DEFAULT_MULTIPART_MAX <const> = 16 * 1024 * 1024
-Input.DEFAULT_MULTIPART_MAX = DEFAULT_MULTIPART_MAX
+Input.DEFAULT_MULTIPART_MAX = DEFAULT_MULTIPART_MAX -- checked: field_fixed
 
 local DEFAULT_FILE_MAX <const> = 8 * 1024 * 1024
 local DEFAULT_FIELD_MAX <const> = 1024 * 1024
@@ -382,7 +382,7 @@ end
 --- `limit` bytes, and the count of the bytes it passed so far.
 local function counted(source: Stream.Reader, limit: integer): Stream.Reader, function(): integer
   local passed: integer = 0
-  local reader: Stream.Reader = {
+  local reader: Stream.Reader = { -- checked: literal_shape
     read = function(_self: Stream.Reader, max?: integer): string?, string
       local chunk, why = source:read(math.min(max or CHUNK, limit + 1 - passed))
       if chunk == nil then return nil, why end
@@ -481,7 +481,7 @@ local function read_multipart(req: Types.Request, limit: integer, opts: Types.In
   -- is spooled so far.
   local settled = false
   local spooling: Spool = {}
-  local unwinding_mt: metatable<Unwinding> = { __close = function()
+  local unwinding_mt: metatable<Unwinding> = { __close = function() -- checked: literal_missing
     if settled then return end
     local writer = spooling.writer
     if writer ~= nil then
@@ -489,7 +489,7 @@ local function read_multipart(req: Types.Request, limit: integer, opts: Types.In
     end
     m:discard()
   end }
-  local _unwinding <close>: Unwinding = setmetatable({}, unwinding_mt)
+  local _unwinding <close>: Unwinding = setmetatable({}, unwinding_mt) -- checked: close_not_closable, setmetatable_call -- untyped: call
   -- The body is spent from here, whatever the outcome: a later reader of
   -- the bytes is told so, not given an empty body.
   local source, total = counted(req.raw.body, limit)
@@ -620,7 +620,7 @@ local function read_multipart(req: Types.Request, limit: integer, opts: Types.In
     -- files go with them.
     -- TODO: once the app can run a hook after the reply is written, remove
     -- the files there, so a handler may answer with a stream over an upload.
-    local cleanup: Stream.Reader = {
+    local cleanup: Stream.Reader = { -- checked: literal_shape
       read = function(_self: Stream.Reader, _max?: integer): string?, string return nil, "" end,
       close = function(_self: Stream.Reader): boolean, string
         m:discard()
@@ -738,7 +738,7 @@ function Input.json(req: Types.Request, opts?: Types.InputOptions): Types.Parsed
   end
   local value, why = Json.decode(text, { null_value = Json.null, max_depth = 32 })
   if value == nil then
-    return { invalid = stop(400, "body", "", "json", why ~= "" and why or "the body is not JSON") }
+    return { invalid = stop(400, "body", "", "json", if why ~= "" then why else "the body is not JSON" end) }
   end
   req:set(Input.JSON, value)
   return { value = value }
@@ -882,8 +882,8 @@ end
 local function bind_list(w: Walk, field: string, spec: Shape.Node): any
   local values = w.q.by_name[field]
   if values == nil then
-    if spec.optional then return nil end
-    return Json.array({})
+    if spec.optional then return nil end -- checked: any_use
+    return Json.array({}) -- checked: any_use
   end
   -- An item that is absent without an error (an optional element read
   -- from empty text) stays a hole: shape admits it for a
@@ -897,14 +897,14 @@ local function bind_list(w: Walk, field: string, spec: Shape.Node): any
   -- `out` is a new table of positions from 1 with no metatable, which `with_holes` takes.
   local list, why = Json.with_holes(out)
   local marked = assert(list, why)
-  return marked
+  return marked -- checked: any_use
 end
 
-local function bind_node(w: Walk, field: string, spec: Shape.Node, depth: integer): any
+local function bind_node(w: Walk, field: string, spec: Shape.Node, depth: integer): any -- checked: not_assigned
   local kind = spec.kind
   if kind == "record" then
-    if spec.optional and not nested_present(w.q, field) then return nil end
-    return bind_record(w, field, spec, depth + 1)
+    if spec.optional and not nested_present(w.q, field) then return nil end -- checked: any_use
+    return bind_record(w, field, spec, depth + 1) -- checked: any_use
   elseif kind == "list" then
     return bind_list(w, field, spec)
   elseif kind == "map" then
@@ -913,9 +913,9 @@ local function bind_node(w: Walk, field: string, spec: Shape.Node, depth: intege
   local values = w.q.by_name[field]
   if values ~= nil and #values > 1 and w.repeated then
     refuse(w, field, "repeated", "was sent more than once")
-    return nil
+    return nil -- checked: any_use
   end
-  return scalar(w, field, spec, values and values[#values])
+  return scalar(w, field, spec, values and values[#values]) -- checked: any_use
 end
 
 --- The first component of `name` after `prefix` and a dot, or nil where
@@ -948,7 +948,7 @@ bind_record = function(w: Walk, prefix: string, spec: Shape.Node, depth: integer
   end
   local out: mut {string:any} = {}
   for _, name in ipairs(names) do
-    local field = prefix == "" and name or (prefix .. "." .. name)
+    local field = if prefix == "" then name else prefix .. "." .. name end
     out[name] = bind_node(w, field, assert(fields[name], "a record spec's names are all in its fields"), depth)
   end
   return out
@@ -978,7 +978,7 @@ local function check_node(spec: Shape.Node, field: string, source: string, depth
     local fields = assert(spec.fields)
     for _, name in ipairs(sorted_names(fields)) do
       local child = assert(fields[name], "a record spec's names are all in its fields")
-      local trouble = check_node(child, field == "" and name or (field .. "." .. name), source, depth + 1)
+      local trouble = check_node(child, if field == "" then name else field .. "." .. name end, source, depth + 1)
       if trouble ~= "" then return trouble end
     end
   elseif kind == "list" then
@@ -1241,7 +1241,7 @@ end
 function Input.fail(req: Types.Request, field: string, message: string, opts?: Types.InputOptions): Types.Invalid
   local q = req:get(Input.FORM)
   local errors: {Types.FieldError} = { { source = "form", field = field, code = "invalid", message = message } }
-  return invalid(422, errors, q ~= nil and without(q, opts and opts.secret) or nil)
+  return invalid(422, errors, if q ~= nil then without(q, opts and opts.secret) else nil end)
 end
 
 --- The messages of `bad` by field, several joined with "; ", for a

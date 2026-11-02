@@ -55,7 +55,7 @@ local function end_connector(connector: Process, collecting: boolean)
   local pid = connector.pid
   if pid == nil then return end
   local seen, gone = process_raw.waitpid(pid, true)
-  if seen == nil or gone ~= nil and gone ~= "" or seen.pid ~= 0 then return end
+  if seen == nil or gone ~= nil and gone ~= "" or seen.pid ~= 0 then return end -- checked: compare_disjoint
   -- Nothing the connector is doing is worth waiting for: it may be in a
   -- connect that would end only at its own timeout.
   local _, _ = sys.kill(pid, sys.SIGKILL)
@@ -78,7 +78,7 @@ local class Process
   mut open: boolean
   --- Whether the descriptor is another's, which `close` leaves open.
   borrowed?: boolean
-  __close: function(Process)
+  __close: function(Process) -- declared: class_metamethod
 
   --- Ends the connector, which holds no state worth finishing, and reaps
   --- it (an adopted one is only disconnected): true, and true again once
@@ -91,8 +91,8 @@ local class Process
   end
 end
 
-local process_mt: metatable<Process> = {
-  __index = Process,
+local process_mt: metatable<Process> = { -- checked: literal_missing
+  __index = Process, -- checked: any_use
   __close = function(self: Process)
     local _ = self:close()
   end,
@@ -105,7 +105,7 @@ local process_mt: metatable<Process> = {
 --- reaps, or with no pid, one it only disconnects; `borrowed` leaves `fd`
 --- open on close.
 local function process_over(fd: integer, pid: integer?, borrowed: boolean): Process
-  local made: Process = setmetatable({ fd = fd, pid = pid, open = true, borrowed = borrowed }, process_mt)
+  local made: Process = setmetatable({ fd = fd, pid = pid, open = true, borrowed = borrowed }, process_mt) -- checked: arms_differ, setmetatable_call -- untyped: call
   return made
 end
 
@@ -123,7 +123,7 @@ local function waited(fd: integer, writable: boolean, timeout_ns: integer?): boo
   -- then Stream.from_fd and Stream.to_fd (see the TODO at SocketConn:read
   -- in cosmic/net.tl).
   if Poll.in_task() then
-    return Poll.wait(fd, writable and sys.POLLOUT or sys.POLLIN, timeout_ns)
+    return Poll.wait(fd, if writable then sys.POLLOUT else sys.POLLIN end, timeout_ns)
   end
   local ok, trouble, errno = raw.wait(fd, writable, Poll.milliseconds(timeout_ns))
   if ok then return true, "" end
@@ -291,8 +291,8 @@ local function take_socket(channel: Channel, tag: integer): boolean
   if peer_host == nil or peer_port == nil or peer_port ~= pending.port or
       not same_host(peer_host, pending.host) then
     local _, _ = socket:close()
-    local connected = peer_host ~= nil and peer_port ~= nil and named(peer_host, peer_port) or
-      "an address that is no host and port"
+    local connected = if peer_host ~= nil and peer_port ~= nil then named(peer_host, peer_port) else
+      "an address that is no host and port" end
     lose(channel, "net: the connector passed a socket connected to " .. connected .. ", not " .. wanted)
     return false
   end
@@ -388,7 +388,7 @@ local function await(channel: Channel, deadline: integer?, late: boolean,
     if ready() then return true, "" end
     local lost = channel.lost
     if lost ~= nil then return false, lost end
-    local left = deadline ~= nil and math.max(0, deadline - Clock.monotonic_ns()) or nil
+    local left = if deadline ~= nil then math.max(0, deadline - Clock.monotonic_ns()) else nil end
     local woke, why = waited(channel.process.fd, false, left)
     if not woke then
       if late then
@@ -409,7 +409,7 @@ local record Asking
   __close: function(Asking)
 end
 
-local asking_mt: metatable<Asking> = {
+local asking_mt: metatable<Asking> = { -- checked: literal_missing
   __close = function(self: Asking)
     local pending = self.pending
     local socket = pending.socket
@@ -457,8 +457,8 @@ local function ask(channel: Channel, body: string, host: string, port: integer, 
   elseif kind == "public" then
     channel.public_count = channel.public_count + 1
   end
-  local asking: Asking = setmetatable({ pending = pending }, asking_mt)
-  local _held <close> = asking
+  local asking: Asking = setmetatable({ pending = pending }, asking_mt) -- checked: setmetatable_call -- untyped: call
+  local _held <close> = asking -- checked: close_not_closable
   local answered, why = await(channel, deadline, true, function(): boolean return pending.done end)
   if not answered then return nil, why end
   local socket = pending.socket
@@ -627,7 +627,7 @@ local class Served is Connection.Connector
     local unusable = registered.address_trouble(address)
     if unusable ~= "" then error("net: address must be " .. unusable, 2) end
     if address.kind ~= "tcp" then error("net: a connector connects tcp addresses", 2) end
-    local conn_ns = opts ~= nil and opts.timeout_ns or nil
+    local conn_ns = if opts ~= nil then opts.timeout_ns else nil end
     if conn_ns ~= nil and (math.type(conn_ns) ~= "integer" or conn_ns < 0) then
       error("net: timeout_ns must be an integer from 0", 2)
     end
@@ -685,7 +685,7 @@ local class Served is Connection.Connector
   --- Why the stream is lost, or nil while it is in step or not started.
   function lost(self): string?
     local channel = self.channel
-    return channel ~= nil and channel.lost or nil
+    return if channel ~= nil then channel.lost else nil end
   end
 
   function ended(self): boolean
@@ -709,7 +709,7 @@ end
 
 -- Every connector this module made, held weakly: what a lookup through a
 -- connector finds its [`Served`] by.
-local made: mut {Connection.Connector: Served} = setmetatable({}, { __mode = "k" })
+local made: mut {Connection.Connector: Served} = setmetatable({}, { __mode = "k" }) -- checked: setmetatable_call -- untyped: call
 
 local record Leaf
   type Process = Process
@@ -736,8 +736,8 @@ local record Leaf
   waited: function(fd: integer, writable: boolean, timeout_ns: integer?): boolean, string
 end
 
-Leaf.MAX_ENDPOINTS = 128
-Leaf.waited = waited
+Leaf.MAX_ENDPOINTS = 128 -- checked: field_fixed
+Leaf.waited = waited -- checked: field_fixed
 
 --- Hands this module how [`cosmic.net`] makes a connection of a connected
 --- `socket` (waiting `timeout_ns` on its reads and writes) and judges an
@@ -754,14 +754,14 @@ end
 --- endpoints (0 where `empty`).
 function Leaf.checked_endpoints(endpoints: any, empty: boolean, level: integer): {raw_process.ConnectorEndpoint}
   local least = if empty then 0 else 1 end
-  if not endpoints is {any} or #endpoints < least or #endpoints > Leaf.MAX_ENDPOINTS then
+  if not endpoints is {any} or #endpoints < least or #endpoints > Leaf.MAX_ENDPOINTS then -- checked: is_on_record
     error(string.format("net: endpoints must be from %d to %d, all numeric", least, Leaf.MAX_ENDPOINTS), level + 1)
   end
   local kept: mut {raw_process.ConnectorEndpoint} = {}
   for i, entry in ipairs(endpoints) do
     local host, port: any, any
-    if entry is {string: any} then host, port = entry.host, entry.port end
-    if not host is string or not port is integer or port < 0 or port > 65535 then
+    if entry is {string: any} then host, port = entry.host, entry.port end -- checked: is_on_record, map_field*2
+    if not host is string or not port is integer or port < 0 or port > 65535 then -- checked: not_assigned*2
       error("net: endpoints[" .. tostring(i) .. "] must be a host and a port from 0 to 65535", level + 1)
     end
     kept[i] = { host = host, port = port }
@@ -780,7 +780,7 @@ function Leaf.checked_timeout_ms(timeout_ns: integer?, level: integer): integer
   return (chosen + 999999) // 1000000
 end
 
-Leaf.start = start
+Leaf.start = start -- checked: field_fixed
 
 --- Starts a connector of the table `endpoints` (and `public`'s lists, if
 --- given) that waits `timeout_ms` to connect: the [`Net.Connector`] over

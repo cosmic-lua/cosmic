@@ -6,34 +6,34 @@ local coverage_hits = require("build.coverage_hits")
 --- of a computed name is refused under `cosmic test`
 --- ([`build.test_worker`]).
 local modules <const>: {string:any} = {
-  ["cosmic.archive"] = require("cosmic.archive"),
-  ["cosmic.child"] = require("cosmic.child"),
-  ["cosmic.clock"] = require("cosmic.clock"),
-  ["cosmic.cli"] = require("cosmic.cli"),
-  ["cosmic.codec"] = require("cosmic.codec"),
-  ["cosmic.compress"] = require("cosmic.compress"),
-  ["cosmic.csv"] = require("cosmic.csv"),
-  ["cosmic.coverage"] = require("cosmic.coverage"),
-  ["cosmic.env"] = require("cosmic.env"),
-  ["cosmic.errors"] = require("cosmic.errors"),
-  ["cosmic.fs"] = require("cosmic.fs"),
-  ["cosmic.hash"] = require("cosmic.hash"),
-  ["cosmic.http"] = require("cosmic.http"),
-  ["cosmic.json"] = require("cosmic.json"),
-  ["cosmic.net"] = require("cosmic.net"),
-  ["cosmic.policy"] = require("cosmic.policy"),
-  ["cosmic.proc"] = require("cosmic.proc"),
-  ["cosmic.sandbox"] = require("cosmic.sandbox"),
-  ["cosmic.shape"] = require("cosmic.shape"),
-  ["cosmic.signal"] = require("cosmic.signal"),
-  ["cosmic.sqlite"] = require("cosmic.sqlite"),
-  ["cosmic.stream"] = require("cosmic.stream"),
-  ["cosmic.string"] = require("cosmic.string"),
-  ["cosmic.sys"] = require("cosmic.sys"),
-  ["cosmic.tar"] = require("cosmic.tar"),
-  ["cosmic.test"] = require("cosmic.test"),
-  ["cosmic.time"] = require("cosmic.time"),
-  ["cosmic.zip"] = require("cosmic.zip"),
+  ["cosmic.archive"] = require("cosmic.archive"), -- checked: any_use
+  ["cosmic.child"] = require("cosmic.child"), -- checked: any_use
+  ["cosmic.clock"] = require("cosmic.clock"), -- checked: any_use
+  ["cosmic.cli"] = require("cosmic.cli"), -- checked: any_use
+  ["cosmic.codec"] = require("cosmic.codec"), -- checked: any_use
+  ["cosmic.compress"] = require("cosmic.compress"), -- checked: any_use
+  ["cosmic.csv"] = require("cosmic.csv"), -- checked: any_use
+  ["cosmic.coverage"] = require("cosmic.coverage"), -- checked: any_use
+  ["cosmic.env"] = require("cosmic.env"), -- checked: any_use
+  ["cosmic.errors"] = require("cosmic.errors"), -- checked: any_use
+  ["cosmic.fs"] = require("cosmic.fs"), -- checked: any_use
+  ["cosmic.hash"] = require("cosmic.hash"), -- checked: any_use
+  ["cosmic.http"] = require("cosmic.http"), -- checked: any_use
+  ["cosmic.json"] = require("cosmic.json"), -- checked: any_use
+  ["cosmic.net"] = require("cosmic.net"), -- checked: any_use
+  ["cosmic.policy"] = require("cosmic.policy"), -- checked: any_use
+  ["cosmic.proc"] = require("cosmic.proc"), -- checked: any_use
+  ["cosmic.sandbox"] = require("cosmic.sandbox"), -- checked: any_use
+  ["cosmic.shape"] = require("cosmic.shape"), -- checked: any_use
+  ["cosmic.signal"] = require("cosmic.signal"), -- checked: any_use
+  ["cosmic.sqlite"] = require("cosmic.sqlite"), -- checked: any_use
+  ["cosmic.stream"] = require("cosmic.stream"), -- checked: any_use
+  ["cosmic.string"] = require("cosmic.string"), -- checked: any_use
+  ["cosmic.sys"] = require("cosmic.sys"), -- checked: any_use
+  ["cosmic.tar"] = require("cosmic.tar"), -- checked: any_use
+  ["cosmic.test"] = require("cosmic.test"), -- checked: any_use
+  ["cosmic.time"] = require("cosmic.time"), -- checked: any_use
+  ["cosmic.zip"] = require("cosmic.zip"), -- checked: any_use
 }
 
 --- Every replacement is for a field of a name the surface removes, so
@@ -48,8 +48,8 @@ local function test_every_replacement_is_for_a_removed_name()
     local name, field = dotted:match("^([%a_]+)%.([%a_]+)$")
     if name == "package" then
       -- `package` is no removed name: only its four removed fields are.
-      assert(package_fields[field], dotted)
-      assert(Removed.names.package == nil)
+      assert(package_fields[field], dotted) -- checked: nil_not_allowed
+      assert(Removed.names.package == nil) -- checked: map_field
     else
       assert(name ~= nil and Removed.names[name] ~= nil, dotted)
     end
@@ -77,7 +77,7 @@ end
 
 local function test_a_field_with_no_replacement_names_where_to_look()
   assert(Removed.message("debug", "nonesuch") ==
-      "debug.nonesuch is not available: " .. Removed.names.debug)
+      "debug.nonesuch is not available: " .. Removed.names.debug) -- checked: map_field
   assert(Removed.message("print") == "print is not available")
 end
 
@@ -90,7 +90,7 @@ local function test_every_removed_member_is_gone_from_its_module()
     assert(module ~= nil, dotted)
     local loaded = modules[module]
     assert(loaded ~= nil, module .. " is not among this test's modules: add it")
-    assert(loaded is {string: any} and loaded[member] == nil, dotted)
+    assert(loaded is {string: any} and loaded[member] == nil, dotted) -- checked: is_on_record, nil_not_allowed
   end
 end
 
@@ -133,13 +133,13 @@ local function test_every_quoted_function_exists_in_the_module_it_names()
         checked = checked + 1
       end
       if module ~= nil and not field:find("^%u") then
-        if not (module == gone_module and field:lower() == gone:lower()) then
+        if not (module == gone_module and field:lower() == gone:lower()) then -- checked: nil_not_allowed
           local loaded = modules[module]
-          if loaded == nil and unreachable[module] then
+          if loaded == nil and unreachable[module] then -- checked: or_mix
             -- Unreachable from here; see `unreachable`.
           else
             assert(loaded ~= nil, module .. " is not among this test's modules: add it")
-            assert(loaded is {string: any} and loaded[field] ~= nil,
+            assert(loaded is {string: any} and loaded[field] ~= nil, -- checked: is_on_record
               key .. " quotes " .. alias .. "." .. field .. ", which " .. module .. " lacks")
           end
         end
@@ -174,29 +174,29 @@ local function test_the_removed_json_lookups_name_the_path_api()
     assert(not instead:find("[1]", 1, true), "a 1-based path: " .. instead)
   end
   for _, member in ipairs({ "flatten", "flat_line", "describe" }) do
-    assert(Removed.members["cosmic.json." .. member]:find("build.json_query", 1, true), member)
+    assert(Removed.members["cosmic.json." .. member]:find("build.json_query", 1, true), member) -- checked: nil_not_allowed
   end
   assert(Removed.members["cosmic.json.get"] == nil and Removed.members["cosmic.json.select"] == nil)
 end
 
 local function test_the_removed_csv_functions_name_what_to_use_instead()
-  assert(Removed.members["cosmic.csv.rows"]:find("Csv.table", 1, true))
+  assert(Removed.members["cosmic.csv.rows"]:find("Csv.table", 1, true)) -- checked: nil_not_allowed
   assert(Removed.members["cosmic.csv.encode"] == nil)
 end
 
 --- A program that named the removed codec type is told its interface.
 local function test_the_removed_codec_type_names_the_transform_interface()
   local instead = Removed.members["cosmic.stream.Codec"]
-  assert(instead ~= nil and instead:find("Stream.Transform", 1, true), instead)
+  assert(instead ~= nil and instead:find("Stream.Transform", 1, true), instead) -- checked: or_mix
 end
 
 --- A program that asked `into` for every failure, or a union, is told
 --- that `into` answers the first and what to write for alternatives.
 local function test_the_removed_shape_members_name_into_and_one_of()
   local failures = Removed.members["cosmic.shape.failures"]
-  assert(failures ~= nil and failures:find("Shape.into", 1, true) and failures:find("first", 1, true), failures)
+  assert(failures ~= nil and failures:find("Shape.into", 1, true) and failures:find("first", 1, true), failures) -- checked: or_mix
   local either = Removed.members["cosmic.shape.either"]
-  assert(either ~= nil and either:find("Shape.one_of", 1, true) and either:find("Shape.into", 1, true), either)
+  assert(either ~= nil and either:find("Shape.one_of", 1, true) and either:find("Shape.into", 1, true), either) -- checked: or_mix
   assert(Removed.members["cosmic.shape.Failure"] ~= nil)
 end
 
@@ -207,13 +207,13 @@ local function test_the_removed_test_and_coverage_members_say_what_to_do_instead
   for _, member in ipairs({ "needs", "fields", "any_host_refusal", "network_trouble",
       "lua_trouble" }) do
     local instead = Removed.members["cosmic.test." .. member]
-    assert(instead ~= nil and instead:find("Test.policy", 1, true), member)
+    assert(instead ~= nil and instead:find("Test.policy", 1, true), member) -- checked: or_mix
   end
   for _, member in ipairs({ "snapshot", "native_entries" }) do
     local instead = Removed.members["cosmic.coverage." .. member]
-    assert(instead ~= nil and instead:find("build.coverage_hits", 1, true), member)
+    assert(instead ~= nil and instead:find("build.coverage_hits", 1, true), member) -- checked: or_mix
   end
-  assert(coverage_hits.snapshot ~= nil and coverage_hits.native_entries ~= nil)
+  assert(coverage_hits.snapshot ~= nil and coverage_hits.native_entries ~= nil) -- checked: compare_disjoint*2
 end
 
 --- Every replaced argument is keyed by a `cosmic.*` module that loads,
@@ -230,7 +230,7 @@ end
 --- old `true` becomes and that `false` is no argument.
 local function test_the_sqlite_options_name_each_old_boolean_call()
   local instead = Removed.arguments["cosmic.sqlite.OpenOptions"]
-  assert(instead ~= nil and instead:find("{ writable = true }", 1, true) and
+  assert(instead ~= nil and instead:find("{ writable = true }", 1, true) and -- checked: or_mix
       instead:find("nothing for `false`", 1, true), instead)
 end
 
@@ -239,23 +239,23 @@ end
 local function test_the_removed_raw_pipe_names_the_stdin_stream()
   for _, member in ipairs({ "pipe", "Pipe", "ignore_sigpipe" }) do
     local instead = Removed.members["cosmic.sys." .. member]
-    assert(instead ~= nil and instead:find('stdin = "stream"', 1, true) and
+    assert(instead ~= nil and instead:find('stdin = "stream"', 1, true) and -- checked: or_mix
         not instead:find('"pipe"', 1, true), member)
   end
-  assert(Removed.members["cosmic.sys.pipe"]:find("h.stdin_stream", 1, true))
+  assert(Removed.members["cosmic.sys.pipe"]:find("h.stdin_stream", 1, true)) -- checked: nil_not_allowed
 end
 
 --- A program that called a removed calendar function or type is told what
 --- replaced it: `between` for the two counts, `local_zone` for a TZ string,
 --- `Duration` and `AddOptions` for the records.
 local function test_the_removed_time_members_name_their_replacements()
-  for member, want in pairs({
+  for member, want in pairs({ -- checked: cast_refused
       months_between = "Time.between", days_between = "Time.between",
       zone_from_posix = "Time.local_zone", Change = "Time.Duration",
       CivilOptions = "Time.AddOptions", parse_input = "build.time",
   } as {string:string}) do
     local instead = Removed.members["cosmic.time." .. member]
-    assert(instead ~= nil and instead:find(want, 1, true), member)
+    assert(instead ~= nil and instead:find(want, 1, true), member) -- checked: or_mix
   end
 end
 
@@ -277,7 +277,7 @@ local function test_the_removed_cli_maps_name_the_verb_record_field_that_replace
   local fields: {string:string} = { options = "spec", usage = "usage", summary = "about" }
   for member, field in pairs(fields) do
     local instead = Removed.members["cosmic.cli." .. member]
-    assert(instead ~= nil and instead:find("Cli.verbs[verb]." .. field, 1, true), member)
+    assert(instead ~= nil and instead:find("Cli.verbs[verb]." .. field, 1, true), member) -- checked: or_mix
   end
 end
 
@@ -285,14 +285,14 @@ end
 --- asked for a cache path is told what to write instead: a whole body
 --- through [`Http.request`], [`sys.ftruncate`], and `cache_dir` with `make = false`.
 local function test_the_removed_fs_and_http_members_name_their_replacements()
-  for member, want in pairs({
+  for member, want in pairs({ -- checked: cast_refused
       ["http.upload"] = "Http.request(\"PUT\", url, { body = body })",
       ["http.Upload"] = "Http.request(\"PUT\", url, { body = body })",
       ["fs.truncate"] = "sys.ftruncate(fd, length)",
       ["fs.cache_path"] = "Fs.cache_dir(tool, { environment = environment, make = false })",
   } as {string:string}) do
     local instead = Removed.members["cosmic." .. member]
-    assert(instead ~= nil and instead:find(want, 1, true), member)
+    assert(instead ~= nil and instead:find(want, 1, true), member) -- checked: or_mix
   end
 end
 
@@ -301,13 +301,13 @@ end
 --- instead, and the removed pair's record says it went with it.
 local function test_the_removed_net_and_proc_members_say_what_to_do_instead()
   local pair = Removed.members["cosmic.net.pair"]
-  assert(pair ~= nil and pair:find("Net.listen(Net.unix(path))", 1, true) and
+  assert(pair ~= nil and pair:find("Net.listen(Net.unix(path))", 1, true) and -- checked: or_mix
       pair:find("Net.connect(server.address)", 1, true), tostring(pair))
   local record = Removed.members["cosmic.net.Pair"]
-  assert(record ~= nil and record:find("Net.pair is gone", 1, true), tostring(record))
+  assert(record ~= nil and record:find("Net.pair is gone", 1, true), tostring(record)) -- checked: or_mix
   local kind = Removed.members["cosmic.net.Kind"]
-  assert(kind ~= nil and kind:find("Net.unix", 1, true), tostring(kind))
+  assert(kind ~= nil and kind:find("Net.unix", 1, true), tostring(kind)) -- checked: or_mix
   local arguments = Removed.members["cosmic.proc.arguments"]
-  assert(arguments ~= nil and arguments:find("Proc.relaunch()", 1, true) and
+  assert(arguments ~= nil and arguments:find("Proc.relaunch()", 1, true) and -- checked: or_mix
       arguments:find("argv", 1, true), tostring(arguments))
 end

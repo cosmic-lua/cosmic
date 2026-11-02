@@ -76,9 +76,9 @@ local function write(version: string, times: {integer}, indices: {integer}, type
     for i = 1, count do
       parts[#parts + 1] = string.pack(if wide then ">i8" else ">i4" end, times[i])
     end
-    for i = 1, count do parts[#parts + 1] = string.char(indices[i] - 1) end
+    for i = 1, count do parts[#parts + 1] = string.char(indices[i] - 1) end -- checked: nil_not_allowed
     for _, t in ipairs(types) do
-      parts[#parts + 1] = string.pack(">i4BB", t.offset, if t.dst then 1 else 0 end, at[t.abbreviation])
+      parts[#parts + 1] = string.pack(">i4BB", t.offset, if t.dst then 1 else 0 end, at[t.abbreviation]) -- checked: index_may_be_nil
     end
     parts[#parts + 1] = table.concat(chars)
     return table.concat(parts)
@@ -103,14 +103,14 @@ local function draw(src: Fuzz.Source): Drawn
   local indices: mut {integer} = {}
   -- 32-bit times for a version 1 file, and any for later ones.
   local wide = version ~= "\0"
-  local t = wide and src:int(-(1 << 40), 1 << 34) or src:int(-(1 << 31), 0)
+  local t = if wide then src:int(-(1 << 40), 1 << 34) else src:int(-(1 << 31), 0) end
   while Fuzz.more(src, #times, 12) do
     t = t + src:int(1, if wide then 1 << 30 else 1 << 26 end)
     if not wide and t > (1 << 31) - 1 then break end
     times[#times + 1] = t
     indices[#indices + 1] = src:int(1, #types)
   end
-  local footer = version ~= "\0" and Fuzz.pick(src, FOOTERS) or ""
+  local footer = if version ~= "\0" then Fuzz.pick(src, FOOTERS) else "" end
   return { bytes = write(version, times, indices, types, footer), times = times, indices = indices,
     types = types }
 end
@@ -179,17 +179,17 @@ local function total(data: string): boolean, string
   end
   Fuzz.label("read")
   for _, ns in ipairs(PROBES) do
-    local civil_ok, c = pcall(Time.civil, ns, zone)
+    local civil_ok, c = pcall(Time.civil, ns, zone) -- checked: overload_none
     if not civil_ok then return false, ("civil(%d) raised: %s"):format(ns, tostring(c)) end
     if c.offset < -89999 or c.offset > 93599 then
       return false, ("civil(%d) has offset %d"):format(ns, c.offset)
     end
-    local from_ok, back = pcall(Time.from_civil, c, zone)
+    local from_ok, back = pcall(Time.from_civil, c, zone) -- checked: overload_none
     if not from_ok then
       return false, ("from_civil of civil(%d) raised: %s"):format(ns, tostring(back))
     end
     if back == ns then Fuzz.label("round trip") end
-    local format_ok, text = pcall(Time.format_rfc3339, ns, zone, { zone_name = true })
+    local format_ok, text = pcall(Time.format_rfc3339, ns, zone, { zone_name = true }) -- checked: overload_none
     if not format_ok then return false, ("format_rfc3339(%d) raised: %s"):format(ns, text) end
   end
   return true, ""
@@ -221,7 +221,7 @@ local function reads_back(input: string): boolean, string
   Fuzz.label("read")
   local types: mut {Type} = {}
   for offset, dst, abbreviation in types_text:gmatch("(%S+) (%S+) (%S+)\n") do
-    types[#types + 1] = { offset = math.tointeger(offset), dst = dst == "true", abbreviation = abbreviation }
+    types[#types + 1] = { offset = math.tointeger(offset), dst = dst == "true", abbreviation = abbreviation } -- checked: nil_not_allowed
   end
   local function holds(ns: integer, t: Type): string?
     local c = Time.civil(ns, zone)
@@ -240,12 +240,12 @@ local function reads_back(input: string): boolean, string
   for s, index in times_text:gmatch("(%S+) (%S+)\n") do
     local seconds, i = math.tointeger(s), math.tointeger(index)
     -- Only moments an integer of nanoseconds holds can be asked about.
-    if seconds > math.mininteger // NS + 1 and seconds < math.maxinteger // NS then
+    if seconds > math.mininteger // NS + 1 and seconds < math.maxinteger // NS then -- checked: nil_not_allowed*2
       if first then
-        local wrong = holds((seconds - 1) * NS, types[1])
+        local wrong = holds((seconds - 1) * NS, types[1]) -- checked: index_may_be_nil, nil_not_allowed
         if wrong ~= nil then return false, "before the first transition, " .. wrong end
       end
-      local wrong = holds(seconds * NS, types[i])
+      local wrong = holds(seconds * NS, types[i]) -- checked: index_may_be_nil, nil_not_allowed*2
       if wrong ~= nil then return false, wrong end
       Fuzz.label("transition")
     end
@@ -261,7 +261,7 @@ local function test_a_written_file_reads_back_as_drawn(tmp: string)
     gen = function(src: Fuzz.Source): string
       local drawn = draw(src)
       local times: mut {string} = {}
-      for i, t in ipairs(drawn.times) do times[i] = ("%d %d\n"):format(t, drawn.indices[i]) end
+      for i, t in ipairs(drawn.times) do times[i] = ("%d %d\n"):format(t, drawn.indices[i]) end -- checked: index_may_be_nil
       local types: mut {string} = {}
       for i, t in ipairs(drawn.types) do
         types[i] = ("%d %s %s\n"):format(t.offset, tostring(t.dst), t.abbreviation)

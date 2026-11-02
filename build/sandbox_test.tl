@@ -36,7 +36,7 @@ local record Answer
 end
 
 local function finished(code: integer?, signal?: integer, timed_out?: boolean): Child.Result
-  return { code = code, signal = signal, ok = code == 0, timed_out = timed_out or false,
+  return { code = code, signal = signal, ok = code == 0, timed_out = timed_out or false, -- checked: condition_type
     captured = {}, truncated = false }
 end
 
@@ -166,7 +166,7 @@ local function test_words_after_the_program_are_the_programs()
 end
 
 local function test_a_line_without_a_program_or_with_an_unknown_option_is_refused()
-  for _, words in ipairs({ {}, { "--tmp" }, { "--read", "a" }, { "--read", "a", "--" }, { "--" } }) do
+  for _, words in ipairs({ {}, { "--tmp" }, { "--read", "a" }, { "--read", "a", "--" }, { "--" } }) do -- checked: literal_needs_type
     assert(refused(words).err:find("give a program", 1, true))
   end
   assert(refused({ "--no-such", "ls" }).err:find("--no-such", 1, true))
@@ -422,12 +422,12 @@ local function policy_after(words: {string}): {string:any}
   line[#line + 1] = "prog"
   local ran = run(line)
   assert(ran.code == 0, support.nth(words, 1) .. ": " .. ran.err)
-  return assert(ran.opts.policy) as {string:any}
+  return assert(ran.opts.policy) as {string:any} -- checked: cast_refused
 end
 
 --- Whether a field holds something: a non-empty list or map, or a value.
 local function holds(value: any): boolean
-  if type(value) == "table" then return next(value as {any:any}) ~= nil end
+  if type(value) == "table" then return next(value as {any:any}) ~= nil end -- checked: cast_refused -- declared: key_type
   return value ~= nil and value ~= false
 end
 
@@ -455,7 +455,7 @@ local function test_every_policy_field_has_a_flag()
     assert(words ~= nil, "Policy.limits." .. name .. " has no flag: add one to cosmic sandbox " ..
         "and to Cli.verbs.sandbox.spec, and a sample here")
     seen[support.nth(words, 1)] = true
-    local set = (policy_after(words)["limits"] as {string:any})
+    local set = (policy_after(words)["limits"] as {string:any}) -- checked: cast_refused
     assert(set ~= nil and set[name] == 5, support.nth(words, 1) .. " does not set Policy.limits." .. name)
   end
   -- A grant's path and letters are one option's. `from` has none: it needs

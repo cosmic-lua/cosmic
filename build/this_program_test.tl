@@ -19,14 +19,14 @@ Test.policy{
 --- Swaps [`Proc.relaunch`] for one answering `relaunch` while `fn` runs.
 local function relaunching(relaunch: Proc.Relaunch?, fn: function())
   local real = Proc.relaunch
-  Proc.relaunch = function(): Proc.Relaunch?, string
+  Proc.relaunch = function(): Proc.Relaunch?, string -- checked: field_fixed
     return relaunch, if relaunch == nil then "no artifact" else "" end
   end
   local ok, trouble = pcall(function(): string
     fn()
     return ""
   end)
-  Proc.relaunch = real
+  Proc.relaunch = real -- checked: field_fixed
   assert(ok, tostring(trouble))
 end
 
@@ -55,7 +55,7 @@ local function test_program_starts_the_relaunch_or_else_the_executable()
   -- And this very program's: its relaunch where it has one.
   local relaunch = Proc.relaunch()
   local argv = this_program.program({ "x" }).argv
-  local lead = relaunch ~= nil and relaunch.argv or { assert(Proc.executable()) }
+  local lead = relaunch ~= nil and relaunch.argv or { assert(Proc.executable()) } -- checked: and_ternary, arms_differ
   assert(#argv == #lead + 1 and argv[#argv] == "x", table.concat(argv, " "))
   for i, word in ipairs(lead) do assert(argv[i] == word, table.concat(argv, " ")) end
 end
@@ -136,8 +136,8 @@ if cmdline ~= nil then print(cmdline:match("^[^%z]*")) else print("") end
   if Fs.exists("/proc/self/cmdline") ~= true then
     Test.skip("this host has no /proc/self/cmdline")
   end
-  assert(r.stdout == relaunch.argv[1] .. "\n", tostring(r.stdout) .. " is no relaunch of " ..
-      relaunch.argv[1])
+  assert(r.stdout == relaunch.argv[1] .. "\n", tostring(r.stdout) .. " is no relaunch of " .. -- checked: nil_not_allowed
+      relaunch.argv[1]) -- checked: nil_not_allowed
 end
 
 --- Under a policy `program` is the command line a policy start takes,

@@ -438,7 +438,7 @@ local function expand(matrix: {string: any}, scope: string): {{string: string}}
       end
       if fits then
         added = true
-        for k, v in pairs(entry) do combo[k] = v end
+        for k, v in pairs(entry) do combo[k] = v end -- checked: view_written
       end
     end
     if not added then
@@ -937,7 +937,7 @@ local function test_a_job_passes_its_shell_to_its_actions()
       for _, holder in ipairs(run_defaults(job, workflow)) do
         shell = shell or holder["shell"]
       end
-      for _, step in ipairs(if shell ~= nil then job.steps else {} end) do
+      for _, step in ipairs(if shell ~= nil then job.steps else {} end) do -- checked: literal_needs_type
         local uses = step.uses
         local dir = uses is string and uses:match("^%./") and normal(uses) or nil
         local file = dir and action_file(dir) or nil
@@ -3167,9 +3167,9 @@ local function test_a_queue_run_takes_the_verdicts_of_the_run_ahead()
   for _, case in ipairs({
       -- A queue run's legs run whole, so a leg's job is named by the leg
       -- alone there ([`LEG_NAME`]).
-      { job = "platform", suite = "release-suite", file = "verdicts.db", name = "${{ matrix.name }}",
+      { job = "platform", suite = "release-suite", file = "verdicts.db", name = "${{ matrix.name }}", -- checked: arms_differ
           job_name = LEG_NAME, within = 30, ready = "", begun = true, queue_only = true },
-      { job = "checked-shard", suite = "checked-suite", file = "checked.db",
+      { job = "checked-shard", suite = "checked-suite", file = "checked.db", -- checked: arms_differ
           name = "linux-x86_64-checked-shard-${{ matrix.part }}",
           job_name = "linux-x86_64-checked-shard-${{ matrix.part }}", within = 90, ready = "600", begun = false,
           queue_only = false } }) do
@@ -3378,7 +3378,7 @@ local function evaluate(text: string, leg: {string: string}, event: string, ref:
   local i = { value = 1 }
   local function truthy(v: Value): boolean return v ~= "" and v ~= false end
   local disjunction: function(): Value
-  local function primary(): Value
+  local function primary(): Value -- checked: not_assigned
     local token = assert(tokens[assert(i["value"])], "an expression ends early: " .. inner)
     i["value"] = assert(i["value"]) + 1
     if token == "(" then

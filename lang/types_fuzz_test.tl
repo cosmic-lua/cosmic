@@ -35,7 +35,7 @@ end
 local function crowded(origin: Types.Store, draws: {integer}): Types.Store
   local store = Types.new(function(module: string, name: string): string?
     local decl = origin:find(module, name)
-    return decl ~= nil and Types.encode_declaration(decl) or nil
+    return decl ~= nil and Types.encode_declaration(decl) or nil -- checked: and_ternary
   end)
   local decoded = store:decode('(map string (marray (ref "m" "Pair" integer (ref "m" "Tree"))))')
   assert(decoded ~= nil)
@@ -48,7 +48,7 @@ end
 
 -- The labels a type reaches, so that a property that needs a form finds out when none is drawn.
 local function label_all(t: Types.Type, seen: mut {integer: boolean})
-  if seen[t.id] then
+  if seen[t.id] then -- checked: condition_type
     return
   end
   seen[t.id] = true
@@ -142,13 +142,13 @@ local function union_not_normal(t: Types.Union): string
     end
     previous = d
   end
-  if tags["integer"] and tags["number"] then
+  if tags["integer"] and tags["number"] then -- checked: condition_type
     return "integer beside number in " .. Types.display(t)
   end
-  if (tags["true"] or tags["false"]) and tags["boolean"] then
+  if (tags["true"] or tags["false"]) and tags["boolean"] then -- checked: condition_type
     return "true or false beside boolean in " .. Types.display(t)
   end
-  if tags["true"] and tags["false"] then
+  if tags["true"] and tags["false"] then -- checked: condition_type
     return "true beside false in " .. Types.display(t)
   end
   if enum and tags["string"] == true then
@@ -159,7 +159,7 @@ end
 
 --- Why `t`, or a type inside it, is not in normal form, or "".
 local function not_normal(t: Types.Type, seen: mut {integer: boolean}): string
-  if seen[t.id] then
+  if seen[t.id] then -- checked: condition_type
     return ""
   end
   seen[t.id] = true
@@ -277,7 +277,7 @@ local function flags(t: Types.Type): integer, boolean
 end
 
 local function flags_wrong(t: Types.Type, seen: mut {integer: boolean}): string
-  if seen[t.id] then
+  if seen[t.id] then -- checked: condition_type
     return ""
   end
   seen[t.id] = true
@@ -553,7 +553,7 @@ local function test_text_with_a_few_bytes_changed_decodes_to_a_type_in_normal_fo
       local origin = world()
       local fresh = Types.new(function(module: string, name: string): string?
         local decl = origin.store:find(module, name)
-        return decl ~= nil and Types.encode_declaration(decl) or nil
+        return decl ~= nil and Types.encode_declaration(decl) or nil -- checked: and_ternary
       end)
       local size, declared = fresh:size(), #fresh:declarations()
       local t, why = fresh:decode(input)

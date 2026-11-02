@@ -49,11 +49,11 @@ end
 --- its fields. Collection also exercises the guard's last-resort owner.
 local function test_user_releases_buffers_under_every_allocation_refusal()
   local cases = {
-    { name = "root", point = "", found = true },
-    { name = "root", point = "getpwnam_r(ERANGE)", found = true },
-    { name = "root", point = "getpwnam_r", found = false },
-    { name = "root", point = "getpwnam_r(missing)", found = false },
-    { name = "root", point = "getpwnam_r(oversize)", found = false },
+    { name = "root", point = "", found = true }, -- checked: arms_differ
+    { name = "root", point = "getpwnam_r(ERANGE)", found = true }, -- checked: arms_differ
+    { name = "root", point = "getpwnam_r", found = false }, -- checked: arms_differ
+    { name = "root", point = "getpwnam_r(missing)", found = false }, -- checked: arms_differ
+    { name = "root", point = "getpwnam_r(oversize)", found = false }, -- checked: arms_differ
   }
   for _, case in ipairs(cases) do
     collectgarbage("collect")
@@ -70,7 +70,7 @@ local function test_user_releases_buffers_under_every_allocation_refusal()
       assert(after_bytes == bytes and after_blocks == blocks, "lookup left its buffer allocated")
       if refused == 0 then
         assert(ok and (user ~= nil) == case.found)
-        if user ~= nil then assert(user.uid == 0) end
+        if user ~= nil then assert(user.uid == 0) end -- checked: any_use
         assert(after > 0, "lookup allocates")
         completed = true
         break

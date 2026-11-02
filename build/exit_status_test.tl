@@ -8,7 +8,7 @@ local exit_status = require("build.exit_status")
 --- Text is read as Lua reads a numeral, as `lua_tointegerx` does for
 --- the core: space around it, hex and an exponent are allowed.
 local function test_status_reads_text_as_the_core_does()
-  for value, status in pairs({ [" 3 "] = 3, ["0x3"] = 3, ["3.0"] = 3, ["3e0"] = 3,
+  for value, status in pairs({ [" 3 "] = 3, ["0x3"] = 3, ["3.0"] = 3, ["3e0"] = 3, -- checked: cast_refused
       ["255"] = 255 } as {string:integer}) do
     assert(exit_status.status(value) == status, value)
   end

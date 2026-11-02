@@ -481,7 +481,7 @@ end
 
 --- `p`'s phase and attribute as `alts` holds them.
 local function alt_key(p: Place): string
-  return p.phase .. ":" .. (ATTRIBUTED[p.phase] and p.attr or "")
+  return p.phase .. ":" .. (ATTRIBUTED[p.phase] and p.attr or "") -- checked: condition_type
 end
 
 --- The keys in `set` other than `p`'s own, as `alts` holds them.
@@ -629,7 +629,7 @@ local function segment(seg: string, text: string): string
     dots = dots + 1
   end
   if rest == "" then
-    return dots <= 2 and ("."):rep(dots) or "!"
+    return if dots <= 2 then ("."):rep(dots) else "!" end
   elseif (rest == "%" or rest == "%2") and dots <= 1 then
     return ("."):rep(dots) .. rest
   end
@@ -968,7 +968,7 @@ local function end_tag(p: Place, text: string, from: integer, unquoted: boolean)
   if p.attr == "http-equiv" and ATTRIBUTED[p.phase] == true then
     p.equiv = true
   end
-  local before = from >= 3 and text:byte(from - 2) or (if p.slash then 47 else 0 end)
+  local before = if from >= 3 then text:byte(from - 2) elseif p.slash then 47 else 0 end
   count(p, not unquoted and before == 47)
   if p.tag == "meta" and not p.closing and p.equiv and p.meta_line > 0 then
     p.late = "a slot in the content of a <meta> that has http-equiv could be a redirect"
@@ -1035,7 +1035,7 @@ local feed: function(p: Place, text: string, line: integer, col: integer)
 --- Moves `p` over `text` one state at a time. A run of text ends where a
 --- slot or the template does, so the places a slot may not stand in
 --- (inside a tag) are never left half read.
-local function scan(p: Place, text: string)
+local function scan(p: Place, text: string) -- checked: not_assigned
   if p.raw_tail ~= "" and (p.phase == "raw" or p.phase == "rcdata") then
     text = p.raw_tail .. text
     p.raw_tail = ""
@@ -1099,7 +1099,7 @@ local function scan(p: Place, text: string)
         -- After a name, `=` brings its value; before one it is the first
         -- byte of a name, as the standard has it.
         p.phase = if phase == "after_attr" then "before_value" else "attr_name" end
-        p.attr = phase == "after_attr" and p.attr or "="
+        p.attr = if phase == "after_attr" then p.attr else "=" end
         i = i + 1
       else
         p.phase = "attr_name"
@@ -1176,7 +1176,7 @@ local function scan(p: Place, text: string)
         end
       end
       local rule = p.dialect:classify(p.attr)
-      local class = rule ~= nil and rule.class or ""
+      local class = if rule ~= nil then rule.class else "" end
       if URL_ATTRS[p.attr] == true or class == "url" or class == "url_local" then
         track(p, text:sub(i, last))
       elseif class == "selector" then
@@ -1318,7 +1318,7 @@ local function scan(p: Place, text: string)
       local region = text:sub(i, (found or n + 1) - 1)
       local tail = ""
       if found == nil then
-        tail = p.tag == "script" and script_tail(region, p.escaped) or plain_tail(region, p.tag)
+        tail = if p.tag == "script" then script_tail(region, p.escaped) else plain_tail(region, p.tag) end
       end
       -- The tail is judged with the run that completes it, as it would be
       -- whole: `</sty` that becomes `</style>` holds no `<` of the text.
@@ -1343,7 +1343,7 @@ local function scan(p: Place, text: string)
         if off.late ~= "" then
           p.murky = true
         end
-        p.off = found == nil and off or nil
+        p.off = if found == nil then off else nil end
         if found ~= nil and not noscript_clean(off, p) then
           p.murky = true
         end
@@ -1444,8 +1444,8 @@ feed = function(p: Place, text: string, line: integer, col: integer)
     return
   end
   p.split = p.split or continues(p.phase, text:byte(1))
-  local from = p.alts ~= "" and settle(p, text, line, col) or 1
-  scan(p, from == 1 and text or text:sub(from))
+  local from = if p.alts ~= "" then settle(p, text, line, col) else 1 end
+  scan(p, if from == 1 then text else text:sub(from) end)
   if p.late_line == -1 then
     p.late_line, p.late_col = locate(text, from + p.late_col - 1, line, col)
   end
@@ -1505,7 +1505,7 @@ local function slot(p: Place): types.Slot?, string
     if attr == "content" and p.tag == "meta" and p.equiv then
       return nil, "a slot in the content of a <meta> that has http-equiv could be a redirect"
     end
-    local class = rule ~= nil and rule.class or ""
+    local class = if rule ~= nil then rule.class else "" end
     if URL_ATTRS[attr] == true or class == "url" or class == "url_local" then
       if ACTIVE_TAGS[p.tag] == true then
         return nil, "a slot in the '" .. attr .. "' of <" .. p.tag .. "> would make the page load or run it"

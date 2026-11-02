@@ -68,7 +68,7 @@ local waited = Leaf.waited
 -- dropped unclosed needs no __gc: its socket, which only the object
 -- holds, is closed by the collector.
 
-local class SocketConn is Connection.Conn
+local class SocketConn is Connection.Conn -- declared: interface_disagrees
   socket: raw_socket.Socket
   fd: integer
   mut open: boolean
@@ -191,7 +191,7 @@ end
 --- What `address` is called in a failure: its path, or its host and
 --- port, an IPv6 host in brackets.
 local function named(address: raw_socket.Address): string
-  if address.kind ~= "tcp" then return address.path end
+  if address.kind ~= "tcp" then return address.path end -- checked: nil_not_allowed
   local host = assert(address.host)
   if host:find(":", 1, true) then host = "[" .. host .. "]" end
   return host .. ":" .. tostring(address.port)
@@ -498,7 +498,7 @@ local record Connecting
   __close: function(Connecting)
 end
 
-local connecting_mt: metatable<Connecting> = {
+local connecting_mt: metatable<Connecting> = { -- checked: literal_missing
   __close = function(self: Connecting)
     local socket = self.socket
     if socket ~= nil then local _, _ = socket:close() end
@@ -507,8 +507,8 @@ local connecting_mt: metatable<Connecting> = {
 
 --- Why `address` is no [`Net.Address`] a listener can take, or "".
 local function address_trouble(address: any): string
-  if not address is {any: any} then return "an address, from Net.unix or Net.tcp" end
-  local kind, path, host, port = address.kind, address.path, address.host, address.port
+  if not address is {any: any} then return "an address, from Net.unix or Net.tcp" end -- declared: key_type
+  local kind, path, host, port = address.kind, address.path, address.host, address.port -- checked: any_use*4
   if kind == "unix" then
     if path is string and path ~= "" then return "" end
     return "a unix address whose path is a string of at least one byte"
@@ -561,7 +561,7 @@ local resolved_through: function(name: string, opts: Net.ResolveOptions): {Net.R
 --- task cancelled in it ends the lookup and fails "cancelled"; anywhere
 --- else it holds the thread until it answers. A `timeout_ns` out of range,
 --- an empty `servers` list or a server port outside 1 to 65535 raises.
-function Net.resolve(name: string, opts?: Net.ResolveOptions): {Net.Resolved}?, string
+function Net.resolve(name: string, opts?: Net.ResolveOptions): {Net.Resolved}?, string -- checked: not_assigned
   opts = opts or {}
   Poll.checked_ns(opts.timeout_ns, "net", "timeout_ns", 2)
   local hosts_file = opts.hosts_file
@@ -626,8 +626,8 @@ local function connection(address: Net.Address, timeout_ns: integer?): Attempt
   end
   local socket, trouble, errno = raw.start(address)
   if socket == nil then return { trouble = trouble, errno = errno } end
-  local holder: Connecting = { socket = socket }
-  local held <close> = setmetatable(holder, connecting_mt)
+  local holder: Connecting = { socket = socket } -- checked: literal_missing
+  local held <close> = setmetatable(holder, connecting_mt) -- checked: setmetatable_call -- untyped: call
   local ready, why = Poll.writable(socket:fd(), timeout_ns)
   if not ready then return { trouble = why, errno = 0 } end
   local made, refused, number = raw.connected(socket:fd())
@@ -639,7 +639,7 @@ end
 --- Whether `opts` sets `reclaim`, which no listen takes any more: a typed
 --- table cannot say so, but a program written for it can.
 local function sets_reclaim(opts: any): boolean
-  return opts is {string: any} and opts.reclaim ~= nil
+  return opts is {string: any} and opts.reclaim ~= nil -- checked: is_on_record, map_field
 end
 
 --- What [`Net.listen`] opens, with its descriptor; it raises at `level`
@@ -703,7 +703,7 @@ function Net.listener_from(fd: integer, opts?: Net.ListenOptions): Net.Listener?
   if math.type(fd) ~= "integer" or fd < 0 then
     error("net: fd must be an integer from 0", 2)
   end
-  Poll.checked_ns(opts ~= nil and opts.timeout_ns or nil, "net", "timeout_ns", 2)
+  Poll.checked_ns(if opts ~= nil then opts.timeout_ns else nil end, "net", "timeout_ns", 2)
   local socket, why, errno = raw.adopt(fd)
   if socket == nil then
     local reason = why
@@ -716,7 +716,7 @@ function Net.listener_from(fd: integer, opts?: Net.ListenOptions): Net.Listener?
     return nil, "net: descriptor " .. tostring(fd) .. ": " .. trouble
   end
   return new_listener(socket, Net.tcp(assert(bound.host), assert(bound.port)),
-    opts ~= nil and opts.timeout_ns or nil).listener, ""
+    if opts ~= nil then opts.timeout_ns else nil end).listener, ""
 end
 
 --- The two listeners a sandbox's relay channel carries: the TCP sockets a
@@ -742,7 +742,7 @@ function Net.receive_listeners(channel: integer, opts?: Net.ListenOptions): {Net
   if math.type(channel) ~= "integer" or channel < 0 then
     error("net: channel must be an integer from 0", 2)
   end
-  Poll.checked_ns(opts ~= nil and opts.timeout_ns or nil, "net", "timeout_ns", 2)
+  Poll.checked_ns(if opts ~= nil then opts.timeout_ns else nil end, "net", "timeout_ns", 2)
   local received, why = raw.recvfds(channel, 2)
   if received == nil then return nil, "net: descriptor " .. tostring(channel) .. ": " .. why end
   local listeners: mut {Net.Listener} = {}
@@ -777,7 +777,7 @@ end
 function Net.connect(address: Net.Address, opts?: Net.ConnectOptions): Net.Conn?, string
   local unusable = address_trouble(address)
   if unusable ~= "" then error("net: address must be " .. unusable, 2) end
-  local timeout_ns = opts ~= nil and opts.timeout_ns or nil
+  local timeout_ns = if opts ~= nil then opts.timeout_ns else nil end
   local attempt = connection(address, timeout_ns)
   local socket = attempt.socket
   if socket == nil then
@@ -814,7 +814,7 @@ resolved_through = function(name: string, opts: Net.ResolveOptions): {Net.Resolv
       return nil, "net: the name server " .. named(Net.tcp(server.host, server.port)) ..
         " is not in the connector's table"
     end
-    servers[#servers + 1] = { host = served.endpoints[index].host, port = server.port, index = index }
+    servers[#servers + 1] = { host = served.endpoints[index].host, port = server.port, index = index } -- checked: nil_not_allowed
   end
   local found, trouble = Resolv.lookup(name, {
     timeout_ns = opts.timeout_ns,
@@ -878,7 +878,7 @@ end
 --- its own as well. A refused address answers "net: ... is refused by the
 --- connector's deny list".
 function Net.connector(endpoints: {Net.Endpoint}, opts?: Net.ConnectorOptions): Net.Connector?, string
-  local timeout_ms = Leaf.checked_timeout_ms(opts ~= nil and opts.timeout_ns or nil, 2)
+  local timeout_ms = Leaf.checked_timeout_ms(if opts ~= nil then opts.timeout_ns else nil end, 2)
   local public: Leaf.Public?
   local given_public = opts and opts.public
   if given_public ~= nil then public = checked_public(given_public) end
@@ -913,15 +913,15 @@ end
 
 --- Raises, naming the field, where `spec` is no [`Net.ServeSpec`].
 local function checked_spec(spec: any)
-  if not spec is {any: any} then error("net: serve takes a spec table", 3) end
-  for key in pairs(spec) do
+  if not spec is {any: any} then error("net: serve takes a spec table", 3) end -- declared: key_type
+  for key in pairs(spec) do -- checked: any_use
     if not (key is string and SPEC_FIELDS[key] == true) then
-      local gone = key is string and REMOVED_FIELDS[key] or nil
+      local gone = if key is string then REMOVED_FIELDS[key] else nil end
       error("net: spec has no field " .. tostring(key) ..
           (if gone ~= nil then ": " .. gone else "" end), 3)
     end
   end
-  local listeners = spec.listeners
+  local listeners = spec.listeners -- checked: any_use
   if not listeners is {any} or #listeners == 0 then
     spec_error("listeners", "a list of one address or more")
   end
@@ -929,10 +929,10 @@ local function checked_spec(spec: any)
     local trouble = address_trouble(address)
     if trouble ~= "" then spec_error("listeners[" .. tostring(i) .. "]", trouble) end
   end
-  if type(spec.serve) ~= "function" then spec_error("serve", "a function of a connection") end
-  local limits = spec.limits
+  if type(spec.serve) ~= "function" then spec_error("serve", "a function of a connection") end -- checked: any_use
+  local limits = spec.limits -- checked: any_use
   if limits ~= nil then
-    if not limits is {any: any} then
+    if not limits is {any: any} then -- declared: key_type
       spec_error("limits", "a table")
     else
       for key in pairs(limits) do
@@ -947,10 +947,10 @@ local function checked_spec(spec: any)
     end
   end
   for _, field in ipairs({ "timeout_ns", "grace_ns" }) do
-    Poll.checked_ns(spec[field], "net", "spec." .. field, 3)
+    Poll.checked_ns(spec[field], "net", "spec." .. field, 3) -- checked: any_use
   end
   for _, field in ipairs({ "on_ready", "on_error", "on_stop" }) do
-    local fn = spec[field]
+    local fn = spec[field] -- checked: any_use
     if fn ~= nil and type(fn) ~= "function" then spec_error(field, "nil or a function") end
   end
 end
@@ -998,7 +998,7 @@ local record Serving
   __close: function(Serving)
 end
 
-local serving_mt: metatable<Serving> = {
+local serving_mt: metatable<Serving> = { -- checked: literal_missing
   __close = function(self: Serving)
     for _, accepting in ipairs(self.accepts) do local _, _ = accepting.listener:close() end
     for _, conn in pairs(self.conns) do local _, _ = conn:close() end
@@ -1036,15 +1036,15 @@ local resume_accepting: function(s: Serving)
 
 --- Serves `conn` in a task of its own, counted open until the protocol
 --- is done with it.
-local function serve_conn(s: Serving, conn: Net.Conn)
+local function serve_conn(s: Serving, conn: Net.Conn) -- checked: not_assigned
   s.open = s.open + 1
   local task: Poll.Task?
   task = Poll.spawn(function()
-    local held <close> = conn
-    local ok, trouble: boolean, any = xpcall(s.spec.serve, traced, held)
+    local held <close> = conn -- checked: close_not_closable
+    local ok, trouble: boolean, any = xpcall(s.spec.serve, traced, held) -- checked: any_use
     local _, _ = held:close()
     s.open = s.open - 1
-    s.conns[task] = nil
+    s.conns[task] = nil -- checked: nil_not_allowed
     resume_accepting(s)
     if not ok then report(s, tostring(trouble)) end
   end)
@@ -1114,8 +1114,8 @@ local function drain(s: Serving)
     -- writes it fails at once rather than wait; and done here, as a
     -- killed task is not resumed to do what serve_conn does after the
     -- protocol returns.
-    local _, _ = s.conns[task]:close()
-    local killed, trouble: boolean, any = pcall(task.kill, task)
+    local _, _ = s.conns[task]:close() -- checked: nil_not_allowed
+    local killed, trouble: boolean, any = pcall(task.kill, task) -- checked: interface_method_value
     s.conns[task] = nil
     s.open = s.open - 1
     -- Without its stack: the handler raised as its coroutine closed,
@@ -1160,12 +1160,12 @@ end
 --- The body of [`Net.serve`]'s run, over listeners of its own.
 local function serving(spec: Net.ServeSpec): boolean, string
   local limits = spec.limits
-  local state: Serving = {
+  local state: Serving = { -- checked: literal_missing
     spec = spec, most = limits and limits.connections or math.maxinteger,
     open = 0, stopping = false, accepts = {}, conns = {}, hurried = false,
     signalled = false,
   }
-  local s <close> = setmetatable(state, serving_mt)
+  local s <close> = setmetatable(state, serving_mt) -- checked: setmetatable_call -- untyped: call
   local guard, guard_trouble = Signal.guard()
   if guard == nil then return false, "net: signal guard: " .. guard_trouble end
   s.guard = guard
@@ -1173,7 +1173,7 @@ local function serving(spec: Net.ServeSpec): boolean, string
   for i, address in ipairs(spec.listeners) do
     local opened, trouble = listening(address, {}, 1)
     if opened == nil then return false, trouble end
-    s.accepts[i] = { listener = opened.listener, fd = opened.fd, failing = 0 }
+    s.accepts[i] = { listener = opened.listener, fd = opened.fd, failing = 0 } -- checked: arms_differ
     addresses[i] = opened.listener.address
   end
   local server: Net.Server = {
@@ -1193,7 +1193,7 @@ local function serving(spec: Net.ServeSpec): boolean, string
     -- whose protocol called `stop`.
     s.stopper = Poll.spawn(function()
       local _, _ = waiter:join()
-      local ok, trouble: boolean, any = xpcall(on_stop, traced, server)
+      local ok, trouble: boolean, any = xpcall(on_stop, traced, server) -- checked: any_use
       if not ok then report(s, tostring(trouble)) end
     end)
   end
@@ -1266,7 +1266,7 @@ function Net.serve(spec: Net.ServeSpec): boolean, string
   if Poll.in_task() then
     error("net: serve runs a Poll.run of its own, and cannot be called in a task of another", 2)
   end
-  local served = { ok = true, why = "" }
+  local served = { ok = true, why = "" } -- checked: arms_differ
   Poll.run(function() served.ok, served.why = serving(spec) end)
   if not served.ok then return false, served.why end
   return true, ""

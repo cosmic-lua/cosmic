@@ -43,7 +43,7 @@ end
 --- `fuzzes` says so.
 local function tree(inputs?: PolicyRules.Declared, fuzzes?: boolean): Module, mut {string:Module}
   local helper_requires = { "lib.deep", "lib.declared" }
-  if fuzzes then helper_requires[#helper_requires + 1] = "build.fuzz" end
+  if fuzzes then helper_requires[#helper_requires + 1] = "build.fuzz" end -- checked: condition_type
   local helper = module("lib.helper", "lib/helper.tl", helper_requires)
   local deep = module("lib.deep", "lib/deep/init.tl", {})
   local other = module("lib.other", "lib/other.tl", {})
@@ -93,10 +93,10 @@ local function test_the_default_inputs_are_the_closure_and_the_pinned_environmen
   assert(table.concat(files, " ") ==
       "lib/declared.d.tl lib/deep/init.tl lib/helper.tl lib/thing_test.tl", table.concat(files, " "))
   assert(#effective.reads == 0 and #effective.host == 0)
-  assert(effective.env.TMPDIR and effective.env.HOME and effective.env.FUZZ_SEED and effective.env["FUZZ_SECONDS"])
+  assert(effective.env.TMPDIR and effective.env.HOME and effective.env.FUZZ_SEED and effective.env["FUZZ_SECONDS"]) -- checked: map_field*3
   -- How a test of the sandbox itself confines what it starts.
-  assert(effective.env.COSMIC_SANDBOX)
-  assert(not effective.env.USER)
+  assert(effective.env.COSMIC_SANDBOX) -- checked: map_field
+  assert(not effective.env.USER) -- checked: map_field
   assert(next(effective.network) == nil)
   assert(not effective.tool and not effective.store)
 end
@@ -118,8 +118,8 @@ local function test_a_declaration_adds_to_the_defaults()
   local effective = test_inputs.effective(m, by_path, staged)
   assert(table.concat(effective.reads, " ") == "data/", table.concat(effective.reads, " "))
   assert(table.concat(effective.host, " ") == "/etc/localtime")
-  assert(effective.env.FLAVOUR and effective.env.TMPDIR)
-  assert(effective.network["127.0.0.1"] and next(effective.network, "127.0.0.1") == nil)
+  assert(effective.env.FLAVOUR and effective.env.TMPDIR) -- checked: map_field*2
+  assert(effective.network["127.0.0.1"] and next(effective.network, "127.0.0.1") == nil) -- checked: condition_type
   assert(effective.tool and effective.store)
 end
 
@@ -165,8 +165,8 @@ local function test_a_host_path_that_cannot_be_given_is_named()
     { "/", "/ holds the tree" },
   }
   for _, want in ipairs(wants) do
-    local why = trouble({ "/fixture/written", want[1] })
-    assert(why:find(want[2], 1, true), assert(want[1]) .. ": " .. why)
+    local why = trouble({ "/fixture/written", want[1] }) -- checked: index_may_be_nil
+    assert(why:find(want[2], 1, true), assert(want[1]) .. ": " .. why) -- checked: index_may_be_nil
   end
   assert(trouble({ "/fixture/written", "/fixture/product/f", "/proc" }) == "")
 end
@@ -243,11 +243,11 @@ local function test_a_lua_closure_holds_what_e_loads_and_no_more()
   local held: mut {string:boolean} = {}
   for _, name in ipairs(names) do held[name] = true end
   for _, name in ipairs(test_inputs.lua_loads) do assert(held[name], name) end
-  assert(not held["build.importer"], "what dispatch requires lazily is out")
-  assert(held["lib.helper"] and held["lib.deep"], "the module's own closure is in")
+  assert(not held["build.importer"], "what dispatch requires lazily is out") -- checked: condition_type
+  assert(held["lib.helper"] and held["lib.deep"], "the module's own closure is in") -- checked: condition_type
   local effective = test_inputs.effective(m, by_path, staged)
-  assert(effective.lua and effective.files["build/dispatch.tl"])
-  assert(not effective.files["build/importer.tl"])
+  assert(effective.lua and effective.files["build/dispatch.tl"]) -- checked: condition_type
+  assert(not effective.files["build/importer.tl"]) -- checked: condition_type
   -- Without it, none of them.
   local plain, plain_by_path = tree()
   for name, one in pairs(by_path) do plain_by_path[name] = plain_by_path[name] or one end
@@ -271,16 +271,16 @@ local function test_a_lua_closure_holds_what_the_checker_loads()
       if name ~= "build.standalone" then needed[#needed + 1] = name end
     end
     assert(by_path["build.standalone"]).requires = needed
-    if standalone then m.requires[#m.requires + 1] = "build.standalone" end
+    if standalone then m.requires[#m.requires + 1] = "build.standalone" end -- checked: view_written
     local held: mut {string:boolean} = {}
     for _, name in ipairs(test_inputs.modules(m, by_path, staged)) do held[name] = true end
     return held, test_inputs.effective(m, by_path, staged)
   end
   local chunk, chunk_effective = names_of(declaring({ lua = true }), false)
   local both, both_effective = names_of(declaring({ lua = true }), true)
-  for _, name in ipairs(test_inputs.lua_loads) do assert(chunk[name] and both[name], name) end
+  for _, name in ipairs(test_inputs.lua_loads) do assert(chunk[name] and both[name], name) end -- checked: condition_type
   for _, name in ipairs(test_inputs.standalone_loads) do
-    assert(chunk[name] and both[name], name)
+    assert(chunk[name] and both[name], name) -- checked: condition_type
   end
   assert(chunk_effective.files["build/standalone.tl"] == true and both_effective.files["build/standalone.tl"] == true)
   local plain, plain_effective = names_of(declaring({}), false)
@@ -313,7 +313,7 @@ end
 local function test_noexec_is_requested_but_not_granted_by_a_declaration()
   local m, by_path = tree(declaring({ noexec = true }))
   local effective = test_inputs.effective(m, by_path, staged)
-  assert(effective.noexec and not effective.noexec_ready)
+  assert(effective.noexec and not effective.noexec_ready) -- checked: condition_type*2
   assert(test_inputs.canonical(m.inputs) == "noexec true")
   assert(test_inputs.canonical(test_inputs.as_declared({ noexec = true })) == "noexec true")
   assert(test_inputs.canonical(test_inputs.as_declared({ noexec = false })) == "")

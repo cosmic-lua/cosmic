@@ -526,7 +526,7 @@ local function restore_collector(previous: string)
   end
 end
 
-function Pipeline.derive(db: Sqlite.Handle, own: boolean, fresh: {Derivation.Fresh}, tally: Derivation.Parses,
+function Pipeline.derive(db: Sqlite.Handle, own: boolean, fresh: {Derivation.Fresh}, tally: Derivation.Parses, -- checked: view_as_mut
                          made: mut {Derivation.Source}, broken?: mut {Derivation.Broken}, refusal?: Pipeline.Refusal): boolean, string
   local entries, kinds, trouble = entries_of(db, own, refusal)
   if entries == nil then
@@ -731,16 +731,35 @@ local function generated_of(m: Module, built: Pipeline.Built, facts?: boolean, j
     local read = SyntaxContracts.check(subject, nil, SyntaxContracts.declared_in(built.index))
     local problems = read.problems
     local allowed = Ceilings.of(built.ceilings, "untyped")[m.file] or 0
-    if read.untyped > allowed then
+    if built.ceilings.none ~= true and Ceilings.by_marks(built.ceilings, "untyped") then
+      -- Held by markers at the lines of the calls, in the text of the module itself.
+      local findings: mut {Ceilings.Finding} = {}
+      for _, line in ipairs(read.untyped_lines) do
+        findings[#findings + 1] = { code = Ceilings.untyped_code, y = line, x = 1, msg = Ceilings.untyped_message,
+          fix = Ceilings.untyped_fix }
+      end
+      local text = result.source.text
+      if result.source.pinned ~= "" then
+        text = ""
+      end
+      local joined: mut {string} = {}
+      for _, line in ipairs(problems) do
+        joined[#joined + 1] = line
+      end
+      for _, line in ipairs(Ceilings.marked("untyped", m.file, text, findings, { Ceilings.untyped_code }, "calls").lines) do
+        joined[#joined + 1] = line
+      end
+      problems = joined
+    elseif read.untyped > allowed then
       local calls = String.counted(read.untyped, "call")
       if built.ceilings.none == true then
-        problems[#problems + 1] = m.file .. ": " .. calls .. " the checker gave no function, " ..
+        problems[#problems + 1] = m.file .. ": " .. calls .. " the checker gave no function, " .. -- checked: view_written
           "which no rule of the discipline judged: type what it calls through"
       else
         local message = m.file .. ": " .. calls .. " the checker gave no function, " ..
           "which no rule of the discipline judged, pinned " .. tostring(allowed) ..
           "; type what it calls through rather than raise the pin (build/ceilings.txt's [untyped])"
-        problems[#problems + 1] = message
+        problems[#problems + 1] = message -- checked: view_written
       end
     end
     if #problems > 0 and judged ~= false then

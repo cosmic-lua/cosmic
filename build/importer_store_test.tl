@@ -40,7 +40,7 @@ local function write_fixture(case: string, files: {string:string}): string?, str
   end
   for filename, source in pairs(files) do
     local parent = filename:match("^(.+)/[^/]+$")
-    if parent and not Fs.mkdirs(root .. "/" .. parent) then
+    if parent and not Fs.mkdirs(root .. "/" .. parent) then -- checked: condition_type
       return nil, root .. "/" .. parent .. ": could not create fixture directory"
     end
     local ok: boolean
@@ -213,11 +213,11 @@ local function test_language_errors_name_relevant_checked_docs()
   }
   for name, case in pairs(cases) do
     local root = assert(write_fixture("language-hint-" .. name,
-      { ["thing.tl"] = case[1] }))
+      { ["thing.tl"] = case[1] })) -- checked: index_may_be_nil
     local result, trouble = importer_fixture.compile_fixture(root)
     assert(result == nil, "expected " .. name .. " to refuse the compile")
     assert(trouble:find("thing.tl:", 1, true) ~= nil, trouble)
-    assert(trouble:find(case[2], 1, true) ~= nil, trouble)
+    assert(trouble:find(case[2], 1, true) ~= nil, trouble) -- checked: index_may_be_nil
     assert(trouble:find("cosmic docs " .. assert(case[3]), 1, true) ~= nil, trouble)
   end
 end
@@ -314,12 +314,12 @@ local function test_the_keys_of_a_tree_do_not_parse_the_standard_library()
   local modules = assert(plans.collect(handle.db))
   local parse = Parser.parse
   local parsed: mut {string} = {}
-  Parser.parse = function(lexed: Lexer.Lexed, name: string, dialect: Ast.Dialect): Parser.Parsed
+  Parser.parse = function(lexed: Lexer.Lexed, name: string, dialect: Ast.Dialect): Parser.Parsed -- checked: field_fixed
     parsed[#parsed + 1] = name
     return parse(lexed, name, dialect)
   end
   local keys, trouble = plans.dependency_keys(handle.db, modules, "no-parse-test")
-  Parser.parse = parse
+  Parser.parse = parse -- checked: field_fixed
   work.close(handle)
   assert(keys ~= nil, tostring(trouble))
   assert(#parsed == 0, "parsed " .. table.concat(parsed, ", "))
@@ -338,7 +338,7 @@ local function test_an_edit_to_an_embedded_source_moves_the_key_of_what_reaches_
     standard_text.of = function(name: string): standard_text.Standard?
       local found = of(name)
       if found ~= nil and name == edited then
-        return { text = flipped and found.text or found.text .. "\n-- edited\n",
+        return { text = flipped and found.text or found.text .. "\n-- edited\n", -- checked: condition_type
           stubbed = (flipped == true) ~= found.stubbed }
       end
       return found

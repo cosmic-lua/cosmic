@@ -117,7 +117,7 @@ end
 
 local function test_nonfinite_observations_are_refused()
   for _, invalid in ipairs({ math.huge, -math.huge, 0 / 0 }) do
-    assert(not pcall(Perf.distribution, { 1, 2, 3, 4, 5, invalid }))
+    assert(not pcall(Perf.distribution, { 1, 2, 3, 4, 5, invalid })) -- checked: alternatives_as_value
   end
 end
 
@@ -156,7 +156,7 @@ local function test_overflowing_derived_bounds_are_refused()
     local value = if i <= 190 then -1e308 else 1e308 end
     samples[i] = { a = value, b = value }
   end
-  assert(not pcall(Perf.compare, samples, samples))
+  assert(not pcall(Perf.compare, samples, samples)) -- checked: alternatives_as_value
 end
 
 local function test_build_history_transitions_cover_queries_docs_and_leaf_edits()
@@ -165,23 +165,23 @@ local function test_build_history_transitions_cover_queries_docs_and_leaf_edits(
   Perf.check_transition(before, before, false, false)
   Perf.check_transition(before, next_run, true, false)
   Perf.check_transition(before, { "1", "5", "1", "PASS", "5", "5" }, true, true)
-  assert(not pcall(Perf.check_transition, before, before, true, false))
-  assert(not pcall(Perf.check_transition, before, next_run, false, false))
+  assert(not pcall(Perf.check_transition, before, before, true, false)) -- checked: alternatives_as_value
+  assert(not pcall(Perf.check_transition, before, next_run, false, false)) -- checked: alternatives_as_value
   for _, invalid in ipairs({
       { "0", "6", "0", "PASS", "6", "6" },
       { "0", "6", "0", "PASS", "5", "4" },
       { "0", "6", "1", "PASS", "5", "5" },
       { "1", "5", "0", "PASS", "5", "5" },
       { "0", "5", "0", "PASS", "5", "5" },
-  }) do assert(not pcall(Perf.check_transition, before, invalid, true, false)) end
-  assert(not pcall(Perf.check_transition, before, next_run, true, true))
+  }) do assert(not pcall(Perf.check_transition, before, invalid, true, false)) end -- checked: alternatives_as_value
+  assert(not pcall(Perf.check_transition, before, next_run, true, true)) -- checked: alternatives_as_value
 end
 
 local function test_shared_fixture_history_cannot_pass_pair_checks()
   local fresh = { "0", "6", "0", "PASS", "4", "4" }
   Perf.check_history(fresh, fresh)
-  assert(not pcall(Perf.check_history, fresh, { "0", "6", "0", "PASS", "37", "37" }))
-  assert(not pcall(Perf.check_history, fresh, { "0", "6", "0", "PASS", "4", "5" }))
+  assert(not pcall(Perf.check_history, fresh, { "0", "6", "0", "PASS", "37", "37" })) -- checked: alternatives_as_value
+  assert(not pcall(Perf.check_history, fresh, { "0", "6", "0", "PASS", "4", "5" })) -- checked: alternatives_as_value
 end
 
 local function argv_with(count: string): {string}

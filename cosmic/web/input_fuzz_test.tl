@@ -52,8 +52,8 @@ local function gen_pairs(src: Fuzz.Source): string
   local fields: mut {string} = { tostring(which) }
   while Fuzz.more(src, #fields // 2, 12) do
     local candidates = assert(NAMES[which], "NAMES holds a list for each spec")
-    local name = src:int(0, 9) == 0 and Fuzz.bytes(src, 6) or Fuzz.pick(src, candidates)
-    local value = src:int(0, 5) == 0 and Fuzz.bytes(src, 8) or Fuzz.pick(src, VALUES)
+    local name = if src:int(0, 9) == 0 then Fuzz.bytes(src, 6) else Fuzz.pick(src, candidates) end
+    local value = if src:int(0, 5) == 0 then Fuzz.bytes(src, 8) else Fuzz.pick(src, VALUES) end
     fields[#fields + 1] = name
     fields[#fields + 1] = value
   end
@@ -88,9 +88,9 @@ local function test_binding_never_raises_and_answers_a_value_or_every_error(tmp:
         return Input.bind_strings(q, spec, { secret = { "name" }, repeated = if which == 2 then "error" else nil end })
       end)
       if not ok then return false, "raised: " .. tostring(r) end
-      local invalid = r.invalid
+      local invalid = r.invalid -- checked: any_use
       if invalid == nil then
-        local r_value = r.value
+        local r_value = r.value -- checked: any_use
         if r_value == nil then return false, "neither a value nor a refusal" end
         local again, why = Shape.into(r_value, spec)
         if again == nil then return false, "the value fails its own spec: " .. why end
@@ -98,12 +98,12 @@ local function test_binding_never_raises_and_answers_a_value_or_every_error(tmp:
         return true, ""
       end
       local bad = invalid
-      if r.value ~= nil then return false, "both a value and a refusal" end
+      if r.value ~= nil then return false, "both a value and a refusal" end -- checked: any_use
       if bad.status ~= 422 or #bad.errors == 0 or bad.message == "" then
         return false, ("a refusal of status %d with %d errors"):format(bad.status, #bad.errors)
       end
       for _, e in ipairs(bad.errors) do
-        if e.source ~= "form" or e.message == "" or not KNOWN_CODES[e.code] or e.pointer ~= nil then
+        if e.source ~= "form" or e.message == "" or not KNOWN_CODES[e.code] or e.pointer ~= nil then -- checked: condition_type
           return false, ("a bad error: %s/%s/%s"):format(e.source, e.field, e.code)
         end
       end
@@ -128,14 +128,14 @@ local function test_a_content_type_of_any_bytes_parses(tmp: string)
     requires = { "typed", "empty" },
     shares = { typed = 0.1 },
     check = function(input: string): boolean, string
-      local req = { headers = { ["content-type"] = input } } as Types.Request
+      local req = { headers = { ["content-type"] = input } } as Types.Request -- checked: cast_refused
       local ok, m = pcall(Input.media_type, req)
       if not ok then return false, "raised: " .. tostring(m) end
-      if m.essence ~= m.essence:lower() then return false, "essence not lowercase" end
-      for name in pairs(m.params) do
+      if m.essence ~= m.essence:lower() then return false, "essence not lowercase" end -- checked: any_use*2
+      for name in pairs(m.params) do -- checked: any_use
         if name ~= name:lower() then return false, "parameter name not lowercase" end
       end
-      Fuzz.label(if m.essence:find("/", 1, true) then "typed" else "empty" end)
+      Fuzz.label(if m.essence:find("/", 1, true) then "typed" else "empty" end) -- checked: any_use
       return true, ""
     end,
   })

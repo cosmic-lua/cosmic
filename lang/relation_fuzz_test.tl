@@ -67,15 +67,15 @@ local function map_fn(
     local narrows = alt.narrows
     rets[i] = {
       items = items,
-      tail = tail ~= nil and on_item(tail) or nil,
+      tail = tail ~= nil and on_item(tail) or nil, -- checked: and_ternary
       -- `v is T` is invariant in T; `asserts v is T` is covariant.
       narrows = if narrows ~= nil then {
-        param = narrows.param, to = narrows.asserts and on_item(narrows.to) or narrows.to, asserts = narrows.asserts,
+        param = narrows.param, to = narrows.asserts and on_item(narrows.to) or narrows.to, asserts = narrows.asserts, -- checked: and_ternary
       } else nil end,
     }
   end
   return w.store:fn({
-    params = params, rest = rest ~= nil and on_param(rest) or nil, rets = rets,
+    params = params, rest = rest ~= nil and on_param(rest) or nil, rets = rets, -- checked: and_ternary
   })
 end
 
@@ -83,7 +83,7 @@ end
 --- enum into `string`, a class into an interface it lists, a record with an array part into the
 --- view, a `mut` collection into a view, an element, a value or a return weakened, a parameter
 --- strengthened, a union weakened by member, or `t` made optional.
-weaken = function(w: World, t: Type, salt: integer): Type
+weaken = function(w: World, t: Type, salt: integer): Type -- checked: not_assigned*2
   local s = w.store
   local next_salt = salt * 7 + 3
   local result: Type = t
@@ -96,7 +96,7 @@ weaken = function(w: World, t: Type, salt: integer): Type
     elseif tag == "nil" then
       result = s:optional(s.string)
     elseif tag == "never" then
-      result = salt % 2 == 0 and s.string or s:array(s.integer)
+      result = salt % 2 == 0 and s.string or s:array(s.integer) -- checked: and_ternary
     end
   elseif (t.tag == "named") then
     local name = t.decl.name
@@ -273,7 +273,7 @@ local function relation_type(c: Cursor, depth: integer): Type
   elseif n == 6 then
     return s.never
   elseif n == 7 then
-    return use(c.w, PLAIN[pick(c, #PLAIN) + 1])
+    return use(c.w, PLAIN[pick(c, #PLAIN) + 1]) -- checked: index_may_be_nil
   elseif n == 8 then
     return s.boolean
   elseif n == 9 then
@@ -286,9 +286,9 @@ local function relation_type(c: Cursor, depth: integer): Type
     end
     return s.string
   elseif n == 12 then
-    return c.mistakes and s.invalid or s.integer
+    return c.mistakes and s.invalid or s.integer -- checked: and_ternary
   elseif n == 13 then
-    return use(c.w, LISTED[pick(c, #LISTED) + 1], { relation_type(c, depth + 1) })
+    return use(c.w, LISTED[pick(c, #LISTED) + 1], { relation_type(c, depth + 1) }) -- checked: index_may_be_nil
   elseif n == 14 then
     return use(c.w, "Ring", { relation_type(c, depth + 1) })
   elseif n == 15 then
@@ -342,9 +342,9 @@ local function relation_pool(w: World, draws: {integer}, count: integer, vars: b
   local out: {Type} = {}
   local seen: {integer: boolean} = {}
   local function add(t: Type)
-    if not seen[t.id] then
-      seen[t.id] = true
-      out[#out + 1] = t
+    if not seen[t.id] then -- checked: condition_type
+      seen[t.id] = true -- checked: view_written
+      out[#out + 1] = t -- checked: view_written
     end
   end
   for _ = 1, count do
@@ -384,15 +384,15 @@ local function pool(w: World, draws: {integer}): {Type}
   local out: {Type} = {}
   local seen: {integer: boolean} = {}
   local function add(t: Type)
-    if not seen[t.id] then
-      seen[t.id] = true
-      out[#out + 1] = t
+    if not seen[t.id] then -- checked: condition_type
+      seen[t.id] = true -- checked: view_written
+      out[#out + 1] = t -- checked: view_written
     end
   end
   local function slice(from: integer): {integer}
     local part: mut {integer} = {}
     for i = from, #draws do
-      part[#part + 1] = draws[i]
+      part[#part + 1] = draws[i] -- checked: index_may_be_nil
     end
     return part
   end
@@ -693,7 +693,7 @@ local function test_a_weakening_is_above_a_type_and_a_strengthening_below_it(tmp
       for k = 1, 1 + (draws[2] or 0) % 3 do
         local part: mut {integer} = {}
         for i = 3 * k, #draws do
-          part[#part + 1] = draws[i]
+          part[#part + 1] = draws[i] -- checked: index_may_be_nil
         end
         local base = TypesPrograms.generate(w.store, w.fixture, part)
         local up = weaken(w, base, salt + k)
@@ -806,7 +806,7 @@ end
 local function crowded(origin: Types.Store): Types.Store
   local store = Types.new(function(module: string, name: string): string?
     local decl = origin:find(module, name)
-    return decl ~= nil and Types.encode_declaration(decl) or nil
+    return decl ~= nil and Types.encode_declaration(decl) or nil -- checked: and_ternary
   end)
   local _ = store:array(store:optional(store.number))
   local _ = store:map(store.string, store:array(store.integer, true))
@@ -828,9 +828,9 @@ local function test_a_judge_that_has_settled_other_pairs_and_another_store_agree
       for i = #types, 1, -1 do
         for k = #types, 1, -1 do
           if (i + k) % 2 == 0 then
-            local _ = warmed:refuse(types[i], types[k])
+            local _ = warmed:refuse(types[i], types[k]) -- checked: index_may_be_nil*2
           else
-            local _ = warmed:subtype(types[i], types[k])
+            local _ = warmed:subtype(types[i], types[k]) -- checked: index_may_be_nil*2
           end
         end
       end
@@ -851,10 +851,10 @@ local function test_a_judge_that_has_settled_other_pairs_and_another_store_agree
           if warmed:subtype(a, b) ~= answer then
             return false, Types.display(a) .. " against " .. Types.display(b) .. ": a judge that settled other pairs disagrees"
           end
-          if over:subtype(there[i], there[k]) ~= answer then
+          if over:subtype(there[i], there[k]) ~= answer then -- checked: index_may_be_nil*2
             return false, Types.display(a) .. " against " .. Types.display(b) .. ": another store disagrees"
           end
-          local r, there_r = fresh:refuse(a, b), over:refuse(there[i], there[k])
+          local r, there_r = fresh:refuse(a, b), over:refuse(there[i], there[k]) -- checked: index_may_be_nil*2
           if (r == nil) ~= (there_r == nil) or (r ~= nil and there_r ~= nil and (r.code ~= there_r.code or
               Programs.steps(r) ~= Programs.steps(there_r))) then
             return false, Types.display(a) .. " against " .. Types.display(b) .. ": another store gives another reason"
@@ -988,7 +988,7 @@ local function replay(
     elseif kind == "item" then
       if given_alt ~= nil and wanted_alt ~= nil and index ~= nil then
         local from, to = given_alt.items[index], wanted_alt.items[index]
-        a, b = from, to
+        a, b = from, to -- checked: nil_not_allowed*2
         given_alt, wanted_alt = nil, nil
       else
         return nil, nil, "skip"
@@ -1037,7 +1037,7 @@ local function test_the_path_of_a_refusal_leads_to_the_pair_it_names(tmp: string
               -- alternative of the function given.
               local start: Types.Alt?
               local last = r.path[#r.path]
-              local at = last ~= nil and last.index or nil
+              local at = last ~= nil and last.index or nil -- checked: and_ternary
               if r.code == "return_unmatched" and at ~= nil and (x.tag == "fn") then
                 start = x.rets[at]
               end
@@ -1069,7 +1069,7 @@ end
 
 local function enter_all(j: Relation.Judge, scopes: {{Types.TParam}}, count: integer)
   for i = 1, count do
-    j:enter(scopes[i])
+    j:enter(scopes[i]) -- checked: index_may_be_nil
   end
 end
 
@@ -1099,9 +1099,9 @@ local function test_a_pair_with_variables_is_settled_for_its_binders_and_the_rel
             for i = #types, 1, -1 do
               for k = 1, #types do
                 if (i + k) % 3 == 0 then
-                  local _ = history:refuse(types[i], types[k])
+                  local _ = history:refuse(types[i], types[k]) -- checked: index_may_be_nil*2
                 else
-                  local _ = history:subtype(types[i], types[k])
+                  local _ = history:subtype(types[i], types[k]) -- checked: index_may_be_nil*2
                 end
               end
             end
@@ -1114,7 +1114,7 @@ local function test_a_pair_with_variables_is_settled_for_its_binders_and_the_rel
           answers[a.id] = {}
           for _, b in ipairs(types) do
             local answer = fresh:subtype(a, b)
-            answers[a.id][b.id] = answer
+            answers[a.id][b.id] = answer -- checked: nil_not_allowed, view_written
             local who = Types.display(a) .. " against " .. Types.display(b) .. " under " .. tostring(count) .. " binders"
             if history:subtype(a, b) ~= answer then
               return false, who .. ": a judge that settled the pair under other binders disagrees"
@@ -1129,9 +1129,9 @@ local function test_a_pair_with_variables_is_settled_for_its_binders_and_the_rel
         end
         for _, a in ipairs(types) do
           for _, b in ipairs(types) do
-            if answers[a.id][b.id] then
+            if answers[a.id][b.id] then -- checked: condition_type, nil_not_allowed
               for _, c in ipairs(types) do
-                if answers[b.id][c.id] and not answers[a.id][c.id] then
+                if answers[b.id][c.id] and not answers[a.id][c.id] then -- checked: condition_type*2, nil_not_allowed*2
                   return false, Types.display(a) .. " is below " .. Types.display(b) .. ", which is below " ..
                     Types.display(c) .. " under " .. tostring(count) .. " binders, and a is not below c"
                 end
@@ -1169,10 +1169,10 @@ local function test_a_type_with_a_mistake_in_it_is_related_without_raising_and_e
           if (w.judge:refuse(a, b) == nil) ~= answer then
             return false, who .. ": the reason disagrees"
           end
-          if (a.tag == "invalid" or b.tag == "invalid") and not answer then
+          if (a.tag == "invalid" or b.tag == "invalid") and not answer then -- checked: any_use
             return false, who .. ": a mistake already reported is reported again"
           end
-          Fuzz.label(if answer then "holds" else "refused" end)
+          Fuzz.label(if answer then "holds" else "refused" end) -- checked: any_use
           if Types.encode(a):find("invalid", 1, true) ~= nil then
             Fuzz.label("with a mistake")
           end

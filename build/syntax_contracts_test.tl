@@ -40,8 +40,8 @@ end
 
 local function exempting(which: string, keys: {string}): Rules.Exemptions
   local out: Rules.Exemptions = { exempt = {}, parsing = {}, casts = {}, modes = {} }
-  local named: mut {string: string} = which == "exempt" and out.exempt or which == "parsing" and out.parsing or
-    which == "modes" and out.modes or out.casts
+  local named: mut {string: string} = which == "exempt" and out.exempt or which == "parsing" and out.parsing or -- checked: and_ternary, or_mix
+    which == "modes" and out.modes or out.casts -- checked: or_mix
   for _, key in ipairs(keys) do
     named[key] = "a test's own exemption"
   end
@@ -232,9 +232,9 @@ local function test_an_exemption_no_check_needs_is_refused()
   local unused = "which no longer needs it"
   for _, which in ipairs({ "casts", "parsing", "exempt", "modes" }) do
     local found = problems_of("use(1)", exempting(which, { "x.tl:gone" }))
-    assert(#found == 1 and found[1]:find("contracts." .. which .. " names x.tl:gone, " .. unused, 1, true), table.concat(found, "\n"))
+    assert(#found == 1 and found[1]:find("contracts." .. which .. " names x.tl:gone, " .. unused, 1, true), table.concat(found, "\n")) -- checked: or_mix
     local stubbed = problems_of("use(1)", exempting(which, { "build/importer.tl:generate" }))
-    assert(#stubbed == 1 and stubbed[1]:find("names build/importer.tl:generate", 1, true), table.concat(stubbed, "\n"))
+    assert(#stubbed == 1 and stubbed[1]:find("names build/importer.tl:generate", 1, true), table.concat(stubbed, "\n")) -- checked: or_mix
   end
 end
 

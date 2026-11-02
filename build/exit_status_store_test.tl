@@ -42,7 +42,7 @@ local function test_a_main_that_returns_no_exit_status_is_refused(tmp: string)
   assert(Fs.write(tmp .. "/cmd/status/main.tl", MAIN))
   assert(embed.tree(tmp, true))
   local program = support.build_dir(tmp) .. "/bin/status"
-  for expression, code in pairs({ ["7"] = 7, ["3.0"] = 3, ["nil"] = 0, ["\"5\""] = 5 } as {string:integer}) do
+  for expression, code in pairs({ ["7"] = 7, ["3.0"] = 3, ["nil"] = 0, ["\"5\""] = 5 } as {string:integer}) do -- checked: cast_refused
     local r = run_program(program, expression)
     assert(r.code == code, "an exit status that fits is the program's own: " ..
         expression .. " exited " .. tostring(r.code) .. ": " .. tostring(r.stderr))

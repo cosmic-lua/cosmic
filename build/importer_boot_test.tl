@@ -82,7 +82,7 @@ local function test_a_boot_names_its_analyzer_as_the_tool_it_writes()
   local based_on = assert(Sqlite.text_rows(out,
     "SELECT value FROM meta WHERE key = 'runtime_basis'"))
   local binary: importer.Code = {
-    basis = based_on[1]:text(1),
+    basis = based_on[1]:text(1), -- checked: nil_not_allowed
     requires = function(name: string): {string}?, string
       local rows, trouble = Sqlite.text_rows(out,
         "SELECT requires FROM imports WHERE path = ?1 ORDER BY requires",
@@ -126,12 +126,12 @@ local function test_a_boot_names_its_analyzer_as_the_tool_it_writes()
     if before_derive ~= nil then before_derive(again) end
     local before = importer.analyzer_identity((assert(importer.tree_code(again))))
     local meta = Store.meta
-    Store.meta = function(key: string): string?
+    Store.meta = function(key: string): string? -- checked: field_fixed
       if key == "boot_hash" then return nil end
       return meta(key)
     end
     local ok, derived, trouble = pcall(importer.derive, again)
-    Store.meta = meta
+    Store.meta = meta -- checked: field_fixed
     assert(ok, tostring(derived))
     assert(derived, trouble)
     local after = importer.analyzer_identity((assert(importer.tree_code(again))))
@@ -143,7 +143,7 @@ local function test_a_boot_names_its_analyzer_as_the_tool_it_writes()
     -- ([`build.pipeline`]'s `coded_of`), which the binary running this test is not.
     local named = assert(pipeline.coded_of(after, again.db))
     work.close(again)
-    return before, after, recorded[1]:text(1), planted[1]:text(1) == "1", named
+    return before, after, recorded[1]:text(1), planted[1]:text(1) == "1", named -- checked: nil_not_allowed*2
   end
   -- The first boot after the suite's own binary derived: that binary's
   -- rows go, and the boot names its own as the tool does.
@@ -159,7 +159,7 @@ local function test_a_boot_names_its_analyzer_as_the_tool_it_writes()
   before, after, recorded, kept, named = boot()
   assert(recorded == named and kept, "a boot forgot what a boot of the same tree derived")
 
-  assert(Fs.write(root .. "/build/other.tl", files["build/other.tl"] .. "-- edited\n"))
+  assert(Fs.write(root .. "/build/other.tl", files["build/other.tl"] .. "-- edited\n")) -- checked: nil_not_allowed
   before, after, recorded, kept, named = boot()
   assert(before == tool and after == tool and recorded == named,
     "an edit outside the analyzer moved its name")

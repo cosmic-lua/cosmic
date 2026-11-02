@@ -240,7 +240,7 @@ local function test_one_of_compares_text_or_the_listed_kind()
   local spec = dynamic(Nodes.record({ c = Nodes.one_of("red", "green"), n = Nodes.one_of(1, 2.5), t = Nodes.one_of(true) }))
   local r: Types.Parsed<{string:any}> = Input.bind_strings(decoded("c=green&n=2.50&t=on"), spec)
   assert(r.invalid == nil, message_of(r.invalid))
-  assert(assert(r.value).c == "green" and assert(r.value).n == 2.5 and assert(r.value).t == true)
+  assert(assert(r.value).c == "green" and assert(r.value).n == 2.5 and assert(r.value).t == true) -- checked: map_field*3
   r = Input.bind_strings(decoded("c=blue&n=3&t=no"), spec)
   local invalid = r.invalid
   assert(invalid ~= nil and #invalid.errors == 3)
@@ -276,7 +276,7 @@ end
 local function test_unknown_names_are_dropped_and_a_strict_record_refuses_them()
   local r: Types.Parsed<Counts> = Input.bind_strings(decoded("n=1&is_admin=1"), COUNTS.spec)
   assert(r.invalid == nil)
-  local bound = r.value as {string:any}
+  local bound = r.value as {string:any} -- checked: cast_refused
   assert(bound["is_admin"] == nil, "the spec is the allow-list")
   local strict = COUNTS:strict().spec
   local s: Types.Parsed<Counts> = Input.bind_strings(decoded("n=1&zz=1&aa=2&csrf_token=t"), strict)
@@ -318,8 +318,8 @@ local function test_every_field_error_is_collected_in_field_order()
   assert(Input.value(bad, "password") == "" and Input.value(bad, "name") == "")
   assert(Input.value(bad, "age") == "x", "what was submitted comes back")
   local by_field = Input.errors_by_field(bad)
-  assert(by_field.age == "must be a whole number" and by_field["address.city"] == "is required")
-  assert(#assert(bad.submitted).pairs == 7 and assert(bad.submitted).by_name.password == nil, "secret names are left out")
+  assert(by_field.age == "must be a whole number" and by_field["address.city"] == "is required") -- checked: map_field
+  assert(#assert(bad.submitted).pairs == 7 and assert(bad.submitted).by_name.password == nil, "secret names are left out") -- checked: map_field
 end
 
 local function test_errors_by_field_joins_several_messages()
@@ -329,7 +329,7 @@ local function test_errors_by_field_joins_several_messages()
     { source = "form", field = "b", code = "x", message = "three" },
   } }
   local by = Input.errors_by_field(bad)
-  assert(by.a == "one; two" and by.b == "three")
+  assert(by.a == "one; two" and by.b == "three") -- checked: map_field*2
   assert(Input.value(bad, "a") == "", "a JSON refusal submitted nothing")
 end
 
@@ -337,7 +337,7 @@ local function test_check_spec_refuses_what_text_cannot_carry()
   local function refuses(spec: Shape.Node, source: string, needle: string)
     local ok, err = pcall(function(): any
       Input.check_spec(spec, source)
-      return nil
+      return nil -- checked: any_use
     end)
     assert(not ok and tostring(err):find(needle, 1, true) ~= nil, tostring(err))
   end
@@ -351,11 +351,11 @@ local function test_check_spec_refuses_what_text_cannot_carry()
   refuses(Nodes.string, "form", "binds to a record")
   -- Shape.record refuses a hand-built kind, so corrupt a built spec.
   local odd = Nodes.record({ x = Nodes.optional(Nodes.string) })
-  local leaf = assert(odd.fields).x as any as {string:any}
+  local leaf = assert(odd.fields).x as any as {string:any} -- checked: cast_refused*2, map_field
   leaf["kind"] = "bogus"
   refuses(odd, "form", "x of a form is of kind bogus")
   local listing = Nodes.record({ x = Nodes.list(Nodes.optional(Nodes.string)) })
-  local element = assert(assert(listing.fields).x.of) as any as {string:any}
+  local element = assert(assert(listing.fields).x.of) as any as {string:any} -- checked: cast_refused*2, map_field
   element["kind"] = "bogus"
   refuses(listing, "query", "list of kind bogus")
   refuses(Nodes.record({}), "cookie", "is not a source")
@@ -382,7 +382,7 @@ local function with_request(method: string, opts: Web.TestOptions, fn: function(
     return Web.text("ok")
   end) } }
   local client = Web.test_client(app)
-  local reply = method == "GET" and client:get("/x", opts) or client:post("/x", opts)
+  local reply = if method == "GET" then client:get("/x", opts) else client:post("/x", opts) end
   assert(reply.status == 200, reply.status)
 end
 
@@ -399,12 +399,12 @@ local function test_media_type_parses_parameters()
     return read
   end
   local m = of('Multipart/Form-Data; Boundary="a b\\"c"; charset=UTF-8')
-  assert(m.essence == "multipart/form-data" and m.params.boundary == 'a b"c' and m.params.charset == "UTF-8")
+  assert(m.essence == "multipart/form-data" and m.params.boundary == 'a b"c' and m.params.charset == "UTF-8") -- checked: map_field*2
   m = of("text/plain;charset=latin1 ; x=1")
-  assert(m.essence == "text/plain" and m.params.charset == "latin1" and m.params.x == "1")
+  assert(m.essence == "text/plain" and m.params.charset == "latin1" and m.params.x == "1") -- checked: map_field*2
   assert(of(nil).essence == "" and next(of(nil).params) == nil)
   assert(of("application/json;").essence == "application/json")
-  assert(of('a/b; q="unterminated').params.q == "unterminated")
+  assert(of('a/b; q="unterminated').params.q == "unterminated") -- checked: map_field
 end
 
 local function test_a_form_body_is_decoded_once_and_kept()
@@ -476,7 +476,7 @@ end
 
 local function test_a_chunked_body_over_the_limit_is_413_without_reading_it_all()
   local pulled: integer = 0
-  local reader: Stream.Reader = {
+  local reader: Stream.Reader = { -- checked: literal_shape
     read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
       pulled = pulled + 1
       if pulled > 100 then return nil, "" end
@@ -503,7 +503,7 @@ end
 --- fails with `why` on its first read, and the body_failure left after, and
 --- what a second read with a larger limit answers.
 local function failing_body(why: string): integer, integer
-  local reader: Stream.Reader = {
+  local reader: Stream.Reader = { -- checked: literal_shape
     read = function(_self: Stream.Reader, _max_bytes?: integer): string?, string
       return nil, why
     end,
@@ -538,7 +538,7 @@ end
 
 local function test_a_body_read_over_the_limit_stays_failed_for_a_later_reader()
   local pulled: integer = 0
-  local reader: Stream.Reader = {
+  local reader: Stream.Reader = { -- checked: literal_shape
     read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
       pulled = pulled + 1
       if pulled > 100 then return nil, "" end
@@ -709,7 +709,7 @@ local function test_a_valid_json_body_is_a_record()
     local read = Input.json_into(req, ITEM)
     assert(read.invalid == nil)
     assert(assert(read.value).title == "t" and assert(read.value).qty == 3 and assert(assert(read.value).tags)[1] == "x")
-    assert((read.value as {string:any})["extra"] == nil)
+    assert((read.value as {string:any})["extra"] == nil) -- checked: cast_refused
     assert(req:get(Input.JSON) ~= nil)
     assert(assert(Input.json_into(req, ITEM).value).qty == 3, "bound again from the cache")
   end)

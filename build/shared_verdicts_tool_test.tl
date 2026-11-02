@@ -209,7 +209,7 @@ local function test_a_checkout_runs_what_no_shared_verdict_answers_for(tmp: stri
   -- key of every test that does not declare `store` when it moves.
   assert(Fs.write(tmp .. "/first/suite/data.txt", "five\n"))
   local asked = said("asked", tmp .. "/first", "4 ran, 1 stood", { "--census" })
-  assert(asked:find("test: shared verdicts: none of 4 tests looked up stood", 1, true) and
+  assert(asked:find("test: shared verdicts: none of 4 tests looked up stood", 1, true) and -- checked: condition_type
       asked:find("runtime %x+, compiler %x+, harness %x+") and
       asked:find("launcher %x+") ~= nil and asked:find(", store " .. ("%x"):rep(12)) ~= nil,
     asked)
@@ -221,7 +221,7 @@ local function test_a_checkout_runs_what_no_shared_verdict_answers_for(tmp: stri
   -- them said, these among them.
   local said_parts = parts:match("test: key parts: ([^\n]*)")
   assert(parts:find("test: census: %d+ rows? under ") and
-      parts:find("under " .. said_parts, 1, true) ~= nil, parts)
+      parts:find("under " .. said_parts, 1, true) ~= nil, parts) -- checked: nil_not_allowed
 end
 
 --- A run that chooses only an edited module runs its tests and says
@@ -607,7 +607,7 @@ local function test_a_cache_of_another_shape_is_done_without(tmp: string)
   local named = assert(Sqlite.text_rows(probe.db,
     "SELECT name FROM sqlite_schema WHERE type = 'table' AND name LIKE 'declared%'"))
   shared_verdicts.close(probe)
-  assert(db:exec("CREATE TABLE " .. named[1]:text(1) .. " (x TEXT)"))
+  assert(db:exec("CREATE TABLE " .. named[1]:text(1) .. " (x TEXT)")) -- checked: nil_not_allowed
   local before = assert(Fs.stat(other))
   env["COSMIC_VERDICT_CACHE"] = other
   checkout(tmp .. "/third", "one\n")
@@ -619,7 +619,7 @@ local function test_a_cache_of_another_shape_is_done_without(tmp: string)
   assert(db:exec("CREATE TABLE healthy (value TEXT)"))
   assert(db:exec("INSERT INTO healthy VALUES ('still usable')"))
   local reader = assert(Sqlite.open(other))
-  assert(assert(Sqlite.text_rows(reader, "SELECT value FROM healthy"))[1]:text(1) == "still usable")
+  assert(assert(Sqlite.text_rows(reader, "SELECT value FROM healthy"))[1]:text(1) == "still usable") -- checked: nil_not_allowed
   assert(reader:close())
   assert(db:close())
 end

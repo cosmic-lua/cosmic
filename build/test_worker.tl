@@ -35,10 +35,10 @@ local test_inputs = require("build.test_inputs")
 --- `raw_modules`): the worker attaches the store it is given through it, as
 --- a loader no test can replace on [`cosmic.store`]'s table. Boot mode,
 --- which runs no worker, has it by name alone.
-local extra: any = select(2, ...)
+local extra: any = select(2, ...) -- checked: any_use
 local store: raw_store
 if type(extra) == "table" then
-  store = extra as raw_store
+  store = extra as raw_store -- checked: cast_refused
 else
   store = require("cosmic.internal.store")
 end
@@ -357,11 +357,11 @@ local gmatch, lua_match = string.gmatch, string.match
 local lua_type, math_type = type, math.type
 local lua_char, lua_error = string.char, error
 -- These are overloaded in the library, so each is declared with the one signature the hook calls it by.
-local lua_byte: function(string, integer): integer? = string.byte
-local lua_gsub: function(string, string, any): string, integer = string.gsub
-local lua_tonumber: function(string, integer): number? = tonumber
-local lua_pcall: function(any, ...: any): boolean, any... = pcall
-local lua_select = select
+local lua_byte: function(string, integer): integer? = string.byte -- checked: overload_value
+local lua_gsub: function(string, string, any): string, integer = string.gsub -- checked: overload_value
+local lua_tonumber: function(string, integer): number? = tonumber -- checked: overload_value
+local lua_pcall: function(any, ...: any): boolean, any... = pcall -- checked: overload_value
+local lua_select = select -- checked: overload_value
 local lua_concat, lua_format, lua_sub, lua_getmetatable, lua_tostring, lua_find =
   table.concat, string.format, string.sub, getmetatable, tostring, string.find
 
@@ -398,21 +398,21 @@ local tally = 0
 local function parse_check(text: string): Check
   local fields: mut {string} = {}
   for field in gmatch(text .. ";", "([^;]*);") do fields[#fields + 1] = field end
-  local check: Check = { kind = fields[1], at = fields[2], name = "", n = 0, labels = {},
+  local check: Check = { kind = fields[1], at = fields[2], name = "", n = 0, labels = {}, -- checked: index_may_be_nil*2
     declared = {}, kinds = {}, integral = {}, memo = {} }
   if check.kind ~= "p" and check.kind ~= "r" and check.kind ~= "f" then
     error("a check of no kind")
   end
   local first = 3
   if check.kind == "p" or check.kind == "f" then
-    check.name = fields[3]
+    check.name = fields[3] -- checked: index_may_be_nil
     first = 4
   end
   for i = first, #fields do
     local index = i - first + 1
     local label, declared = fields[i], fields[i]
     if check.kind == "p" then
-      label, declared = lua_match(fields[i], "^([^=]*)=(.*)$")
+      label, declared = lua_match(fields[i], "^([^=]*)=(.*)$") -- checked: index_may_be_nil
     elseif check.kind == "r" then
       label = "return value " .. tostring(index)
     else
@@ -420,11 +420,11 @@ local function parse_check(text: string): Check
     end
     check.n = index
     check.memo[#check.memo + 1] = {}
-    check.labels[#check.labels + 1] = label
+    check.labels[#check.labels + 1] = label -- checked: nil_not_allowed
     if declared ~= "-" then
       local kinds: mut {string:boolean} = {}
       local integer, number = false, false
-      for kind in gmatch(declared, "[^|]+") do
+      for kind in gmatch(declared, "[^|]+") do -- checked: nil_not_allowed
         if kind == "integer" then
           integer = true
         else
@@ -433,11 +433,11 @@ local function parse_check(text: string): Check
         end
       end
       if integer and not number then
-        kinds.number = true
+        kinds.number = true -- checked: map_field
         check.integral[index] = true
       end
       check.kinds[index] = kinds
-      check.declared[index] = declared
+      check.declared[index] = declared -- checked: nil_not_allowed
     end
   end
   checks[text] = check
@@ -472,7 +472,7 @@ end
 
 local function note(check: Check, index: integer, value: any, absent: boolean)
   local actual = lua_type(value)
-  if actual == "number" then actual = math_type(value) end
+  if actual == "number" then actual = math_type(value) end -- checked: nil_not_allowed
   if absent then actual = "absent" end
   local at = check.at
   if check.kind == "p" then
@@ -482,8 +482,8 @@ local function note(check: Check, index: integer, value: any, absent: boolean)
     -- frame and names its own caller).
     at = raw_errors.where(5) or "?"
   end
-  local sites = check.memo[index][actual] or {}
-  check.memo[index][actual] = sites
+  local sites = check.memo[index][actual] or {} -- checked: nil_not_allowed
+  check.memo[index][actual] = sites -- checked: nil_not_allowed
   local known = sites[at]
   if known ~= nil then
     again(known)
@@ -492,14 +492,14 @@ local function note(check: Check, index: integer, value: any, absent: boolean)
   end
   local target: string
   if check.kind == "p" then
-    target = "parameter " .. check.labels[index] .. " of " .. check.name .. " (" .. check.at .. ")"
+    target = "parameter " .. check.labels[index] .. " of " .. check.name .. " (" .. check.at .. ")" -- checked: nil_not_allowed
   elseif check.kind == "r" then
-    target = check.labels[index]
+    target = check.labels[index] -- checked: index_may_be_nil
   else
     target = "field " .. check.name
   end
   local met: worker.Violation = { kind = if check.kind == "p" then "parameter" elseif check.kind == "r" then "return" else "field" end,
-    at = at, target = target, declared = check.declared[index], actual = actual, count = 1 }
+    at = at, target = target, declared = check.declared[index], actual = actual, count = 1 } -- checked: index_may_be_nil
   keep(sites, at, met)
   latest.met = met
 end
@@ -510,11 +510,11 @@ local function parse_fact(text: string)
   local negated = lua_byte(declared, 1) == 126
   local fact: Fact = { at = (lua_gsub(at, "%%(%x%x)", function(digits: string): string
     local byte = lua_tonumber(digits, 16)
-    return byte is integer and lua_char(byte) or "?"
+    return byte is integer and lua_char(byte) or "?" -- checked: and_ternary
   end)), name = name, declared = if negated then "not " .. declared:sub(2) else declared end,
     kinds = {}, negated = negated, integral = false }
   local integer, number = false, false
-  for kind in gmatch(negated and declared:sub(2) or declared, "[^|]+") do
+  for kind in gmatch(negated and declared:sub(2) or declared, "[^|]+") do -- checked: and_ternary
     if kind == "integer" then
       integer = true
     else
@@ -524,9 +524,9 @@ local function parse_fact(text: string)
   end
   if integer and not number then
     if negated then
-      fact.kinds.integer = true
+      fact.kinds.integer = true -- checked: map_field
     else
-      fact.kinds.number = true
+      fact.kinds.number = true -- checked: map_field
     end
     fact.integral = true
   end
@@ -539,13 +539,13 @@ local function verify(fact: Fact, value: any): any
   local kinds = fact.kinds
   local broken: boolean
   if fact.negated then
-    broken = kinds[kind] == true or (kind == "number" and kinds.integer == true and math_type(value) == "integer")
+    broken = kinds[kind] == true or (kind == "number" and kinds.integer == true and math_type(value) == "integer") -- checked: map_field
   else
     broken = kinds[kind] ~= true or (kind == "number" and fact.integral and math_type(value) ~= "integer")
   end
   if not broken then return value end
   local actual = kind
-  if actual == "number" then actual = math_type(value) end
+  if actual == "number" then actual = math_type(value) end -- checked: nil_not_allowed
   lua_error("fact violated at " .. fact.at .. ": " .. fact.name .. " is " .. actual ..
       ", the checker proved " .. fact.declared, 0)
 end
@@ -575,7 +575,7 @@ local function hook(_: integer, text: string, ...: any): any...
     if malformed[text] ~= true then
       if lua_byte(text, 1) == 110 then
         if lua_pcall(parse_fact, text) then
-          return verify(facts[text], (...))
+          return verify(facts[text], (...)) -- checked: index_may_be_nil
         end
         malformed[text] = true
         note_unreadable("a fact spec", text)
@@ -595,11 +595,11 @@ local function hook(_: integer, text: string, ...: any): any...
       return ...
     end
   end
-  local given = lua_select("#", ...)
+  local given = lua_select("#", ...) -- untyped: call
   for index = 1, check.n do
     local kinds = check.kinds[index]
     if kinds ~= nil then
-      local value = (lua_select(index, ...))
+      local value = (lua_select(index, ...)) -- untyped: call
       local kind = lua_type(value)
       if kinds[kind] ~= true or (kind == "number" and check.integral[index] == true and
           math_type(value) ~= "integer") then
@@ -727,7 +727,7 @@ local function fact(v: any, taken?: string, name: string, strings?: {string}, cl
       fact_broken(at or raw_errors.where(2) or "?", name, "one of " .. lua_concat(strings, "|"), shown(v))
     end
   end
-  if v is {string:any} then
+  if v is {string:any} then -- checked: is_on_record
     if classes ~= nil and not of_class(v, classes) then
       fact_broken(at or raw_errors.where(2) or "?", name, "a table of one of its classes", "a table of another class")
     end
@@ -772,7 +772,7 @@ function worker.hooks_held(): boolean
 end
 
 function worker.install_checks()
-  local globals = _G as {string:any}
+  local globals = _G as {string:any} -- checked: cast_refused, unchecked_binding
   hooks_are_held = function(): boolean
     return rawget(globals, "__fact") == fact and rawget(globals, "__cosmic_tc") == hook
   end
@@ -807,13 +807,13 @@ local function monotonic_ns(): integer
 end
 
 local function encode_hits(lines: mut {string}, tag: string, hits: Coverage.Hits)
-  if hits == nil then return end
+  if hits == nil then return end -- checked: compare_disjoint
   local paths: mut {string} = {}
   for path in pairs(hits) do paths[#paths + 1] = path end
   table.sort(paths)
   for _, path in ipairs(paths) do
     local numbers: mut {integer} = {}
-    for line in pairs(hits[path]) do numbers[#numbers + 1] = line end
+    for line in pairs(hits[path]) do numbers[#numbers + 1] = line end -- checked: index_may_be_nil
     table.sort(numbers)
     local text: mut {string} = {}
     for i, line in ipairs(numbers) do text[i] = tostring(line) end
@@ -836,10 +836,10 @@ local function child_hits(directory: string, into: Coverage.Hits)
           local here = into[path]
           if here == nil then
             here = {}
-            into[path] = here
+            into[path] = here -- checked: view_written
           end
           local number = math.tointeger(tonumber(line))
-          if number ~= nil then here[number] = true end
+          if number ~= nil then here[number] = true end -- checked: view_written
         end
       end
       local _, _ = Fs.remove(file)
@@ -859,7 +859,7 @@ function worker.encode(report: worker.Report): string
   }
   encode_hits(lines, "load-hit", report.load_hits)
   encode_hits(lines, "test-hit", report.test_hits)
-  for _, name in ipairs(report.modules or {}) do table.insert(lines, "module " .. hex(name)) end
+  for _, name in ipairs(report.modules or {}) do table.insert(lines, "module " .. hex(name)) end -- checked: condition_type, literal_needs_type
   local skipped = report.skipped
   if skipped ~= nil and skipped ~= "" then
     table.insert(lines, "skipped " .. hex(skipped))
@@ -899,7 +899,7 @@ local decoded_hits: mut {string:DecodedHit} = {}
 --- tables of its `load_hits` and `test_hits` are shared with every other
 --- report read, so a caller does not change them.
 function worker.decode(text: string): worker.Report?, string
-  if text == nil or text == "" then return nil, "no report" end
+  if text == nil or text == "" then return nil, "no report" end -- checked: compare_disjoint
   local report: worker.Report = {
     loaded = false, passed = false, message = "", elapsed_ns = 0,
     load_hits = {}, test_hits = {}, modules = {}, skipped = "",
@@ -923,48 +923,48 @@ function worker.decode(text: string): worker.Report?, string
       elseif tag == "elapsed" then
         report.elapsed_ns = math.tointeger(tonumber(rest)) or 0
       elseif tag == "message" then
-        report.message = unhex(rest) or ""
+        report.message = unhex(rest) or "" -- checked: nil_not_allowed
       elseif tag == "load-hit" or tag == "test-hit" then
-        local into = tag == "load-hit" and report.load_hits or report.test_hits
-        local known = decoded_hits[rest]
+        local into = tag == "load-hit" and report.load_hits or report.test_hits -- checked: and_ternary
+        local known = decoded_hits[rest] -- checked: nil_not_allowed
         if known == nil then
-          local path, numbers = rest:match("^([0-9a-f]*) ([0-9,]*)$")
-          local decoded = path ~= nil and unhex(path) or nil
+          local path, numbers = rest:match("^([0-9a-f]*) ([0-9,]*)$") -- checked: nil_not_allowed
+          local decoded = path ~= nil and unhex(path) or nil -- checked: and_ternary
           if decoded == nil then return nil, "a malformed hit: " .. line end
           local per_line: mut {integer:boolean} = {}
-          for number in numbers:gmatch("%d+") do
+          for number in numbers:gmatch("%d+") do -- checked: nil_not_allowed
             per_line[math.tointeger(tonumber(number)) or 0] = true
           end
           known = { path = decoded, lines = per_line }
-          decoded_hits[rest] = known
+          decoded_hits[rest] = known -- checked: nil_not_allowed
         end
         into[known.path] = known.lines
       elseif tag == "module" then
-        local decoded = unhex(rest)
+        local decoded = unhex(rest) -- checked: nil_not_allowed
         if decoded == nil or decoded == "" then return nil, "a malformed module: " .. line end
         report.modules[#report.modules + 1] = decoded
       elseif tag == "skipped" then
-        local decoded = unhex(rest)
+        local decoded = unhex(rest) -- checked: nil_not_allowed
         if decoded == nil or decoded == "" then return nil, "a malformed skip: " .. line end
         report.skipped = decoded
       elseif tag == "deliberate" then
-        local decoded = unhex(rest)
+        local decoded = unhex(rest) -- checked: nil_not_allowed
         if decoded == nil or decoded == "" then return nil, "a malformed deliberate: " .. line end
         report.deliberate = decoded
       elseif tag == "violation" then
-        local packed, count = rest:match("^([0-9a-f]+) (%d+)$")
-        local decoded = packed ~= nil and unhex(packed) or nil
+        local packed, count = rest:match("^([0-9a-f]+) (%d+)$") -- checked: nil_not_allowed
+        local decoded = packed ~= nil and unhex(packed) or nil -- checked: and_ternary
         local kind, at, target, declared, actual: string?, string?, string?, string?, string?
         if decoded ~= nil then
           kind, at, target, declared, actual =
-            decoded:match("^([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)$")
+            decoded:match("^([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)$") -- untyped: call
         end
         if actual == nil then return nil, "a malformed violation: " .. line end
         local met = report.violations or {}
         report.violations = met
-        local entry: worker.Violation = { kind = kind, at = at, target = target, declared = declared,
+        local entry: worker.Violation = { kind = kind, at = at, target = target, declared = declared, -- checked: nil_not_allowed*4
           actual = actual, count = math.tointeger(tonumber(count)) or 1 }
-        met[#met + 1] = entry
+        met[#met + 1] = entry -- checked: view_written
       elseif tag == "checked" then
         report.checked = rest == "1"
       elseif tag == "dropped" then
@@ -1044,11 +1044,11 @@ local function hold_requires(module_path: string, closure: {string:boolean},
   -- nothing of the name.
   local function gate(name: string): (function(arg1?: string, arg2?: any): (any), any)
     local why = refusal(name, module_path, closure, tree)
-    if why == nil then return nil, nil end
+    if why == nil then return nil, nil end -- checked: any_use, nil_not_allowed
     return function(_?: string, _?: any): any
       -- Level 3: the caller of `require`, past this loader and it.
       error(why, 3)
-    end, nil
+    end, nil -- checked: any_use
   end
   -- A searcher after the gate, handing the loader of a module `refusal` refuses as a loader that raises why, and nothing
   -- beside it: a loop over every searcher finds the loader of the store and calls it, or reads the core's raw table.
@@ -1070,7 +1070,7 @@ local function hold_requires(module_path: string, closure: {string:boolean},
     for name, value in pairs(package.loaded) do
       if refusal(name, module_path, closure, tree) ~= nil then set_aside[name] = value end
     end
-    for name in pairs(set_aside) do package.loaded[name] = nil end
+    for name in pairs(set_aside) do package.loaded[name] = nil end -- checked: view_written
     -- The table `require` and a hand-made loop both read is replaced for the call, by the gate and a guarded
     -- copy of each searcher, and put back as it was.
     local held_searchers = package.searchers
@@ -1079,9 +1079,9 @@ local function hold_requires(module_path: string, closure: {string:boolean},
       guarded_searchers[#guarded_searchers + 1] = guarded(searcher)
     end
     package.searchers = guarded_searchers
-    local ok, produced = pcall(fn, argument)
+    local ok, produced = pcall(fn, argument) -- checked: overload_none -- untyped: call
     package.searchers = held_searchers
-    for name, value in pairs(set_aside) do package.loaded[name] = value end
+    for name, value in pairs(set_aside) do package.loaded[name] = value end -- checked: view_written
     -- Level 0: the value raised, as it was raised.
     if not ok then error(produced, 0) end
     return produced
@@ -1167,8 +1167,8 @@ function worker.invocation(given: worker.Invocation): worker.Command
   local env: mut {string:string} = {}
   for name, value in pairs(given.env) do env[name] = value end
   for name, value in pairs(given.start.env) do env[name] = value end
-  env.COSMIC_COVERAGE_STARTUP = "1"
-  env.COSMIC_TEST_TYPES = if given.checks then "1" else nil end
+  env.COSMIC_COVERAGE_STARTUP = "1" -- checked: map_field
+  env.COSMIC_TEST_TYPES = if given.checks then "1" else nil end -- checked: condition_type, map_field
   local fds: mut {integer:integer | string} = { [worker.report_fd] = "capture" }
   for number, fd in pairs(given.start.fds) do fds[number] = fd end
   local given_policy = given.policy
@@ -1194,7 +1194,7 @@ function worker.invocation(given: worker.Invocation): worker.Command
       isolate = held.isolate, promises = held.promises, connect = held.connect,
       loopback = held.loopback, env = held.env, tmp = held.tmp, limits = held.limits,
       database = held.database }
-    policy.set_env = env
+    policy.set_env = env -- checked: field_fixed
     return { argv = argv, options = {
       policy = policy, cwd = given.cwd, stdin = "null", stdout = "capture", stderr = "stdout",
       fds = fds, process_group = false,
@@ -1251,7 +1251,7 @@ function worker.judge(judging: worker.Judging): worker.Judgement
         tostring(judging.timeout_ns // SECOND_NS) .. " s; " ..
         (if judging.sandboxed then "its pid namespace" else "its process group" end) .. " was ended" }
   end
-  local report, decode_trouble = worker.decode(result.captured[worker.report_fd])
+  local report, decode_trouble = worker.decode(result.captured[worker.report_fd]) -- checked: index_may_be_nil
   if report == nil then
     return { passed = false, skipped = "", message = "the test process " .. ending(result) ..
         " before it reported (" .. decode_trouble .. ")" }
@@ -1286,7 +1286,7 @@ function worker.judge(judging: worker.Judging): worker.Judgement
     judgement.passed, judgement.message = false, judging.trouble
   end
   -- Only a pass is skipped instead: a failure is one, skip or not.
-  judgement.skipped = judgement.passed and report.skipped or ""
+  judgement.skipped = judgement.passed and report.skipped or "" -- checked: and_ternary
   judgement.deliberate = ""
   -- A test that also asserted checked something: it is no deliberate non-check.
   if judgement.passed and judgement.skipped == "" and report.asserted == 0 then
@@ -1300,7 +1300,7 @@ end
 --- Installs `runner` as `__runner` on `module`, [`cosmic.test`]'s table,
 --- where `policy` looks for a runner: no member of its type.
 local function install(module: any, runner: any)
-  if module is {string:any} then module.__runner = runner end
+  if module is {string:any} then module.__runner = runner end -- checked: is_on_record, map_field
 end
 
 --- [`confine.unseen`] and the message ENOENT stands for, as this module
@@ -1408,9 +1408,9 @@ function worker.run(argv: {string}): integer
   end
   if argv[2] == "--worker-no-tool" or argv[2] == "--worker-held" then
     local no_tool = argv[2] == "--worker-no-tool"
-    local forbidden, forbid_trouble = confine.forbid_running(no_tool and confine.itself() or {}, runs)
+    local forbidden, forbid_trouble = confine.forbid_running(no_tool and confine.itself() or {}, runs) -- checked: and_ternary, literal_needs_type
     if not forbidden then
-      complain("test " .. argv[2] .. ": this program cannot be held by a Landlock " ..
+      complain("test " .. argv[2] .. ": this program cannot be held by a Landlock " .. -- checked: nil_not_allowed
           "ruleset: " .. forbid_trouble)
       return 2
     end
@@ -1445,9 +1445,9 @@ function worker.run(argv: {string}): integer
   end
   local db_path = argv[first + 1]
   first = first + 2
-  local attached, attach_trouble = store.attach(db_path)
+  local attached, attach_trouble = store.attach(db_path) -- checked: nil_not_allowed
   if not attached then
-    complain(db_path .. ": " .. attach_trouble)
+    complain(db_path .. ": " .. attach_trouble) -- checked: nil_not_allowed
     return 2
   end
   -- Without a closure, a call as it is.
@@ -1463,7 +1463,7 @@ function worker.run(argv: {string}): integer
       if argv[i] == "--tree" and into == closure then
         into = tree
       else
-        into[argv[i]] = true
+        into[argv[i]] = true -- checked: index_may_be_nil
       end
       i = i + 1
     end
@@ -1481,7 +1481,7 @@ function worker.run(argv: {string}): integer
   -- Processes the test starts report the core's C they ran here, so it
   -- counts for the test like the C it runs itself.
   local made, _ = sys.mkdir(children_path, 0x1c0)
-  local children = made and children_path or nil
+  local children = made and children_path or nil -- checked: and_ternary
   if children ~= nil then Coverage.children(children) end
   local load_session, _ = Coverage.start()
   -- The directories the test owns, which a process it confines may
@@ -1512,10 +1512,10 @@ function worker.run(argv: {string}): integer
   -- What [`Test.skip`] raises to end its test. Only this table counts as
   -- a skip; any other error is a failure, and a test cannot make this one.
   local ended_by_skip: {string:string} = {}
-  setmetatable(ended_by_skip, {
+  setmetatable(ended_by_skip, { -- checked: setmetatable_call -- untyped: call
     __tostring = function(): string return "the test was skipped" end,
   })
-  local runner = {
+  local runner = { -- checked: arms_differ
     loaded = false,
     deliberate = function(reason: string) handed_over.deliberate = reason end,
     handed = function(needs: Test.Needs) handed_over.handed = needs end,
@@ -1536,23 +1536,23 @@ function worker.run(argv: {string}): integer
   -- alone, not for the worker's own work around them.
   -- Each under a stand-in for `spawn` ([`confine.call`]), which holds what
   -- the test starts.
-  local loading = confine.call(function(): any
-    return held(function(): any return load_module.load(module_path) end)
+  local loading = confine.call(function(): any -- checked: not_assignable
+    return held(function(): any return load_module.load(module_path) end) -- checked: not_assignable
   end, nil, own, sandboxed)
   local loaded, produced = loading.ok, loading.produced
   runner.loaded = true
   if load_session ~= nil then
     local hits, _ = Coverage.stop(load_session)
-    report.load_hits = hits
+    report.load_hits = hits -- checked: nil_not_allowed
     child_into = hits
   end
-  local needs = loaded and test_inputs.canonical(test_inputs.as_declared(handed_over.handed)) or ""
+  local needs = loaded and test_inputs.canonical(test_inputs.as_declared(handed_over.handed)) or "" -- checked: and_ternary
   if loaded and needs ~= expected_needs then
     loaded = false
     produced = "its cosmic.test policy call stands for what the build did not read " ..
       "from its source -- the build reads only a top-level Test.policy { ... } " ..
       "on a local bound to require(\"cosmic.test\") (see cosmic.test):\n" ..
-      "  handed:\n    " .. (if needs == "" then "nothing" else needs:gsub("\n", "\n    ") end) ..
+      "  handed:\n    " .. (if needs == "" then "nothing" else needs:gsub("\n", "\n    ") end) .. -- untyped: call
       "\n  read:\n    " .. (if expected_needs == "" then "nothing" else
         expected_needs:gsub("\n", "\n    ") end)
   end
@@ -1563,20 +1563,20 @@ function worker.run(argv: {string}): integer
       report.message = report.message .. unseen_note(report.message, loading.unseen)
     end
   else
-    local fn: any = produced is {string: any} and produced[name] or nil
-    if not (fn is function(...: any): (any...)) then
+    local fn: any = produced is {string: any} and produced[name] or nil -- checked: and_ternary, is_on_record
+    if not (fn is function(...: any): (any...)) then -- checked: is_on_record
       report.message = module_path .. " has no test named " .. name
     else
       local test_session, _ = Coverage.start()
       local started = monotonic_ns()
       Assertions.reset()
-      local ran = confine.call(function(argument: any): any
+      local ran = confine.call(function(argument: any): any -- checked: not_assignable
         return held(fn, argument)
       end, tmp, own, sandboxed)
       local finished = monotonic_ns()
       if test_session ~= nil then
         local hits, _ = Coverage.stop(test_session)
-        report.test_hits = hits
+        report.test_hits = hits -- checked: nil_not_allowed
         child_into = hits or child_into
       end
       -- A test that skipped ends by raising `ended_by_skip`: it passed as far

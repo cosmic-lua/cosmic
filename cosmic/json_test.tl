@@ -45,11 +45,11 @@ end
 local function same(a: any, b: any): boolean
   if type(a) ~= type(b) then return false end
   if type(a) == "number" then
-    return math.type(a as number) == math.type(b as number) and a == b
+    return math.type(a as number) == math.type(b as number) and a == b -- checked: cast_refused*2
   end
   if type(a) ~= "table" then return a == b end
-  local x = a as {any: any}
-  local y = b as {any: any}
+  local x = a as {any: any} -- declared: key_type -- checked: cast_refused
+  local y = b as {any: any} -- declared: key_type -- checked: cast_refused
   if Json.is_array(x) ~= Json.is_array(y) then return false end
   for k, v in pairs(x) do
     if not same(v, y[k]) then return false end
@@ -68,9 +68,9 @@ local function test_encode_writes_a_literal_value_as_encode_any_does()
 end
 
 local function test_decode_object()
-  local v = decoded('{"a": 1, "b": "hello", "c": [true, false]}') as {string: any}
+  local v = decoded('{"a": 1, "b": "hello", "c": [true, false]}') as {string: any} -- checked: cast_refused
   assert(v.a == 1 and v.b == "hello", "members decode by key")
-  local c = v.c as {boolean}
+  local c = v.c as {boolean} -- checked: cast_refused
   assert(c[1] == true and c[2] == false and #c == 2, "a nested array decodes")
   assert(not Json.is_array(v), "an object carries no array mark")
   assert(Json.is_array(c), "an array carries the array mark")
@@ -87,7 +87,7 @@ end
 
 local function test_decode_object_and_array_check_the_shape()
   local obj, err = Json.decode_object('{"a": 1}')
-  assert(obj ~= nil and obj.a == 1 and err == "", "an object is an object")
+  assert(obj ~= nil and obj.a == 1 and err == "", "an object is an object") -- checked: map_field
   local empty = Json.decode_object("{}")
   assert(empty ~= nil and next(empty) == nil, "{} is an empty object")
   local list = Json.decode_array('[1, "two"]')
@@ -138,24 +138,24 @@ local function test_json5_is_read_when_asked()
 b",
 }
 ]]
-  local v = decoded(text, five) as {string: any}
+  local v = decoded(text, five) as {string: any} -- checked: cast_refused, not_assignable
   assert(v.unquoted == "single", "an unquoted key and a single-quoted string")
-  local list = v.trailing as {integer}
+  local list = v.trailing as {integer} -- checked: cast_refused
   assert(#list == 2 and Json.is_array(list), "a trailing comma")
   local hex = v.hex
-  assert(hex == 31 and math.type(hex as number) == "integer", "a hexadecimal integer")
+  assert(hex == 31 and math.type(hex as number) == "integer", "a hexadecimal integer") -- checked: cast_refused
   assert(v.plus == 1 and v.lead == 0.5 and v.trail == 5.0, "the other number forms")
   assert(v.nl == "ab", "a line continuation")
-  local nan = decoded("NaN", five) as number
+  local nan = decoded("NaN", five) as number -- checked: cast_refused, not_assignable
   assert(nan ~= nan, "NaN is the float")
-  assert(decoded("-Infinity", five) == -math.huge, "and so is -Infinity")
-  assert(decoded("[inf]", five) ~= nil, "yyjson takes inf in any case")
-  assert(decoded("'\\a'", five) == "\a", "and escapes JSON5 does not have")
-  assert(Json.decode_object("{a: 1,}", five) ~= nil, "decode_object takes json5")
-  assert(Json.decode_array("[1,]", five) ~= nil, "and decode_array")
+  assert(decoded("-Infinity", five) == -math.huge, "and so is -Infinity") -- checked: not_assignable
+  assert(decoded("[inf]", five) ~= nil, "yyjson takes inf in any case") -- checked: not_assignable
+  assert(decoded("'\\a'", five) == "\a", "and escapes JSON5 does not have") -- checked: not_assignable
+  assert(Json.decode_object("{a: 1,}", five) ~= nil, "decode_object takes json5") -- checked: not_assignable
+  assert(Json.decode_array("[1,]", five) ~= nil, "and decode_array") -- checked: not_assignable
   assert(decode_failure("{a: 1,}"):match("^json: invalid JSON"), "the default stays strict")
-  assert(decode_failure("{a: 1", five):match("^json: invalid JSON at line 1"), "JSON5 fails with a place too")
-  assert(encoded(decoded("{a: [1,],}", five)) == '{"a":[1]}', "output is RFC 8259")
+  assert(decode_failure("{a: 1", five):match("^json: invalid JSON at line 1"), "JSON5 fails with a place too") -- checked: not_assignable
+  assert(encoded(decoded("{a: [1,],}", five)) == '{"a":[1]}', "output is RFC 8259") -- checked: not_assignable
 end
 
 local function test_strings_are_utf8()
@@ -166,7 +166,7 @@ local function test_strings_are_utf8()
   assert(decode_failure('"\xff"'):match("UTF%-8"), "a byte that is not UTF-8")
   decode_failure('"\xed\xa0\x80"')
   decode_failure('"\xc0\xaf"')
-  local nul = decoded('"a\\u0000b"') as string
+  local nul = decoded('"a\\u0000b"') as string -- checked: cast_refused
   assert(#nul == 3 and nul == "a\0b", "an escaped NUL is one byte")
   assert(encoded("a\0b") == '"a\\u0000b"', "a NUL encodes escaped")
 end
@@ -191,25 +191,25 @@ local function test_integers_stay_exact()
   local n = 9007199254740993
   assert(encoded(n) == "9007199254740993", "2^53 + 1 encodes exactly")
   local back = decoded("9007199254740993")
-  assert(back == n and math.type(back as number) == "integer", "and decodes as that integer")
+  assert(back == n and math.type(back as number) == "integer", "and decodes as that integer") -- checked: cast_refused
   assert(encoded(math.maxinteger) == "9223372036854775807", "the largest integer")
   assert(encoded(math.mininteger) == "-9223372036854775808", "the smallest integer")
   assert(decoded("-9223372036854775808") == math.mininteger, "the smallest integer decodes")
   local past = decoded("9223372036854775808")
-  assert(math.type(past as number) == "float" and past == 2.0 ^ 63,
+  assert(math.type(past as number) == "float" and past == 2.0 ^ 63, -- checked: cast_refused
     "an integer past 64 bits decodes as the nearest float")
-  assert(math.type(decoded("-9223372036854775809") as number) == "float", "and below")
-  assert(math.type(decoded("123456789012345678901234567890") as number) == "float", "far past")
+  assert(math.type(decoded("-9223372036854775809") as number) == "float", "and below") -- checked: cast_refused
+  assert(math.type(decoded("123456789012345678901234567890") as number) == "float", "far past") -- checked: cast_refused
 end
 
 local function test_floats_stay_floats()
-  assert(math.type(decoded("1.0") as number) == "float", "1.0 is a float")
-  assert(math.type(decoded("1e2") as number) == "float", "1e2 is a float")
+  assert(math.type(decoded("1.0") as number) == "float", "1.0 is a float") -- checked: cast_refused
+  assert(math.type(decoded("1e2") as number) == "float", "1e2 is a float") -- checked: cast_refused
   assert(encoded(1.0) == "1.0", "an integral float keeps its point")
   assert(encoded(-0.0) == "-0.0", "negative zero")
   for _, f in ipairs({ 0.1, 3.141592653589793, 1e300, -2.5e-10, 5e-324, 2.0 ^ 63 }) do
     local back = decoded(encoded(f))
-    assert(back == f and math.type(back as number) == "float",
+    assert(back == f and math.type(back as number) == "float", -- checked: cast_refused
       "a float round-trips exactly: " .. tostring(f))
   end
   assert(encoded(0.1) == "0.1", "the shortest text that reads back")
@@ -223,20 +223,20 @@ local function test_nan_and_infinity()
 end
 
 local function test_null_policy()
-  local obj = decoded('{"a": null, "b": 1}') as {string: any}
+  local obj = decoded('{"a": null, "b": 1}') as {string: any} -- checked: cast_refused
   assert(obj.a == nil and obj.b == 1, "a null member is absent")
   assert(encoded(obj) == '{"b":1}', "and stays absent")
-  local list = decoded("[1, null, 3]") as {any}
+  local list = decoded("[1, null, 3]") as {any} -- checked: cast_refused
   assert(list[1] == 1 and list[2] == nil and list[3] == 3, "a null element is a hole")
   assert(encode_failure(list) == "json: cannot encode an array with a hole (index 2 is nil)",
     "a hole is an error, not a truncation")
-  local kept = decoded('{"a": null, "b": [null]}', { null_value = Json.null }) as {string: any}
-  assert(kept.a == Json.null and (kept.b as {any})[1] == Json.null, "the stand-in keeps them")
+  local kept = decoded('{"a": null, "b": [null]}', { null_value = Json.null }) as {string: any} -- checked: cast_refused
+  assert(kept.a == Json.null and (kept.b as {any})[1] == Json.null, "the stand-in keeps them") -- checked: cast_refused
   assert(encoded(kept) == '{"a":null,"b":[null]}', "and the round trip is whole")
   assert(decoded("null", { null_value = Json.null }) == Json.null, "a null document")
   assert(encoded(nil) == "null" and encoded(Json.null) == "null", "nil and the stand-in")
   assert(tostring(Json.null) == "null", "the stand-in prints as null")
-  assert(not pcall(function(): any return (Json.null as {string: any}).x end),
+  assert(not pcall(function(): any return (Json.null as {string: any}).x end), -- checked: alternatives_as_value, cast_refused
     "indexing the stand-in raises")
 end
 
@@ -268,7 +268,7 @@ local function test_duplicate_keys_are_refused()
   many[#many + 1] = '"k3": 0'
   local wide = "{" .. table.concat(many, ", ") .. "}"
   local _, at = wide:find('"k7": 0', 1, true)
-  assert(decode_failure(wide) == ("json: duplicate key at line 1, column %d (pointer \"/k7\")"):format(at - 6),
+  assert(decode_failure(wide) == ("json: duplicate key at line 1, column %d (pointer \"/k7\")"):format(at - 6), -- checked: nil_not_allowed
     "an object too large to compare pair by pair names the first repeat in the text")
   for _, size in ipairs({ 8, 9, 64, 65 }) do
     local members: mut {string} = {}
@@ -300,7 +300,7 @@ local function test_duplicate_keys_are_refused()
   for i = 1, 70 do
     large[#large + 1] = if i == 5 then '"k5": null' else ('"k%d": %d'):format(i, i) end
   end
-  local whole = decoded("{" .. table.concat(large, ", ") .. "}") as {string: any}
+  local whole = decoded("{" .. table.concat(large, ", ") .. "}") as {string: any} -- checked: cast_refused
   assert(whole.k5 == nil and whole.k6 == 6, "a null member is absent")
   large[#large + 1] = '"k5": 0'
   assert(decode_failure("{" .. table.concat(large, ", ") .. "}"):match('^json: duplicate key .* %(pointer "/k5"%)$'),
@@ -311,7 +311,7 @@ local function test_duplicate_keys_are_refused()
   for i = 1, 70 do
     outer[#outer + 1] = ('"o%d": %s'):format(i, if i % 2 == 0 then "null" else inner end)
   end
-  local within = decoded("{" .. table.concat(outer, ", ") .. "}") as {string: {string: any}}
+  local within = decoded("{" .. table.concat(outer, ", ") .. "}") as {string: {string: any}} -- checked: cast_refused
   assert(within.o2 == nil and within.o1.k5 == nil and within.o1.k6 == 6, "every held null let go")
   for _, v in pairs(within.o1) do assert(type(v) == "number", "only the values the text holds") end
   local _, lines = Json.decode_lines('1\n{"a": 1, "a": 2}')
@@ -324,9 +324,9 @@ local function test_duplicate_keys_are_refused()
   assert(decode_failure('{"b": 1, "b": 2, "a": [[[1]]]}', { max_depth = 2 }) ==
       "json: duplicate key at line 1, column 10 (pointer \"/b\")", "and a key twice before it does")
   local allowed = { duplicate_keys = true }
-  assert((decoded('{"a": 1, "a": 2}', allowed) as {string: any}).a == 2, "the last value of a key stands")
-  assert((decoded('{"a": 1, "a": null}', allowed) as {string: any}).a == nil, "even when it is null")
-  assert(Json.decode_object('{"a": 1, "a": 2}', allowed) ~= nil, "decode_object takes it")
+  assert((decoded('{"a": 1, "a": 2}', allowed) as {string: any}).a == 2, "the last value of a key stands") -- checked: cast_refused, not_assignable
+  assert((decoded('{"a": 1, "a": null}', allowed) as {string: any}).a == nil, "even when it is null") -- checked: cast_refused, not_assignable
+  assert(Json.decode_object('{"a": 1, "a": 2}', allowed) ~= nil, "decode_object takes it") -- checked: not_assignable
 end
 
 --- Keys that differ only in their lone surrogates read as the same key,
@@ -335,42 +335,42 @@ local function test_repaired_surrogates_can_repeat_a_key()
   local text = '{"\\ud800": 1, "\\udc00": 2}'
   assert(decode_failure(text, { lone_surrogates = true }) ==
       "json: duplicate key at line 1, column 15 (pointer \"/\u{fffd}\")", decode_failure(text, { lone_surrogates = true }))
-  local v = decoded(text, { lone_surrogates = true, duplicate_keys = true }) as {string: any}
+  local v = decoded(text, { lone_surrogates = true, duplicate_keys = true }) as {string: any} -- checked: cast_refused
   assert(v["\u{fffd}"] == 2, "the last stands")
 end
 
 local function test_empty_containers_round_trip()
   assert(encoded(decoded("[]")) == "[]", "[] stays an array")
   assert(encoded(decoded("{}")) == "{}", "{} stays an object")
-  assert(encoded({}) == "{}", "an unmarked empty table is an object")
+  assert(encoded({}) == "{}", "an unmarked empty table is an object") -- checked: literal_needs_type
   assert(encoded(Json.array()) == "[]", "a marked one is an array")
   local t: {any} = {}
-  assert(Json.array(t) == t and Json.is_array(t), "array marks the table it is given")
-  assert(Json.array(t) == t, "marking twice is harmless")
-  assert(encoded({ Json.array(), {} }) == "[[],{}]", "nested")
-  assert(not Json.is_array({}) and not Json.is_array("x") and not Json.is_array(nil),
+  assert(Json.array(t) == t and Json.is_array(t), "array marks the table it is given") -- checked: compare_disjoint, not_assignable
+  assert(Json.array(t) == t, "marking twice is harmless") -- checked: compare_disjoint, not_assignable
+  assert(encoded({ Json.array(), {} }) == "[[],{}]", "nested") -- checked: literal_needs_type
+  assert(not Json.is_array({}) and not Json.is_array("x") and not Json.is_array(nil), -- checked: literal_needs_type
     "is_array is false for everything unmarked")
-  local owned = setmetatable({} as {any}, {})
-  assert(not pcall(Json.array, owned), "a table with a metatable of its own is refused")
+  local owned = setmetatable({} as {any}, {}) -- checked: cast_refused, setmetatable_call
+  assert(not pcall(Json.array, owned), "a table with a metatable of its own is refused") -- checked: alternatives_as_value
 end
 
 local function test_tables_are_classified_by_their_keys()
   assert(encoded({ 1, 2, 3 }) == "[1,2,3]", "keys 1..n are an array")
   assert(encoded({ b = 1, a = 2 }) == '{"a":2,"b":1}', "string keys are an object")
-  assert(encode_failure({ 1, a = 2 }) == "json: cannot encode a table with both string and integer keys",
+  assert(encode_failure({ 1, a = 2 }) == "json: cannot encode a table with both string and integer keys", -- checked: literal_shape
     "mixed")
-  assert(encode_failure({ [true] = 1 } as {any: any}) == "json: cannot encode a table with a boolean key",
+  assert(encode_failure({ [true] = 1 } as {any: any}) == "json: cannot encode a table with a boolean key", -- declared: key_type -- checked: cast_refused
     "boolean key")
-  assert(encode_failure({ [1.5] = 1 } as {any: any}) == "json: cannot encode a table with a fractional number key",
+  assert(encode_failure({ [1.5] = 1 } as {any: any}) == "json: cannot encode a table with a fractional number key", -- declared: key_type -- checked: cast_refused, float_key
     "float key")
-  assert(encode_failure({ [0] = 1 } as {any: any}) == "json: cannot encode a table with an integer key below 1",
+  assert(encode_failure({ [0] = 1 } as {any: any}) == "json: cannot encode a table with an integer key below 1", -- declared: key_type -- checked: cast_refused
     "zero key")
-  assert(encode_failure({ [{}] = 1 } as {any: any}) == "json: cannot encode a table with a table key",
+  assert(encode_failure({ [{}] = 1 } as {any: any}) == "json: cannot encode a table with a table key", -- declared: key_type -- checked: cast_refused, literal_needs_type
     "table key")
-  local marked = Json.array({ 1 }) as {any: any}
+  local marked = Json.array({ 1 }) as {any: any} -- declared: key_type -- checked: cast_refused
   marked.x = 1
   assert(encode_failure(marked) == "json: cannot encode an array with a string key", "marked with a string key")
-  local plain = setmetatable({ x = 1 } as {string: any}, { __index = function(): any return 2 end })
+  local plain = setmetatable({ x = 1 } as {string: any}, { __index = function(): any return 2 end }) -- checked: any_use, cast_refused, setmetatable_call
   assert(encoded(plain) == '{"x":1}', "another metatable encodes the raw contents")
 end
 
@@ -405,57 +405,57 @@ local function test_depth_limits()
   t[1] = past
   assert(encode_failure(root):match("^json: cannot encode a value nested deeper than 64 levels"), "65 do not")
   local cycle: mut {any} = {}
-  cycle[1] = cycle
+  cycle[1] = cycle -- checked: any_use
   assert(encode_failure(cycle, { max_depth = 5 }):match("contain itself"), "a cycle fails")
-  assert(not pcall(Json.decode, "1", { max_depth = 0 }), "a limit below 1 raises")
+  assert(not pcall(Json.decode, "1", { max_depth = 0 }), "a limit below 1 raises") -- checked: alternatives_as_value
   assert(Json.default_depth == 64 and Json.depth_limit == 1000, "the core's limits")
   assert(Json.encode(1, { max_depth = Json.depth_limit }) == "1", "the limit itself is allowed")
-  assert(not pcall(Json.encode, 1, { max_depth = Json.depth_limit + 1 }),
+  assert(not pcall(Json.encode, 1, { max_depth = Json.depth_limit + 1 }), -- checked: alternatives_as_value
     "a limit past the most raises")
-  local fractional: any = { max_depth = 1.5 }
-  assert(not pcall(Json.encode, 1, fractional as Json.EncodeOptions), "a fractional limit raises")
+  local fractional: any = { max_depth = 1.5 } -- checked: any_use
+  assert(not pcall(Json.encode, 1, fractional as Json.EncodeOptions), "a fractional limit raises") -- checked: alternatives_as_value, cast_refused
 end
 
 local function test_pretty()
-  assert(encoded({ b = { 1, 2 }, a = {}, c = Json.array() }, { pretty = true }) ==
+  assert(encoded({ b = { 1, 2 }, a = {}, c = Json.array() }, { pretty = true }) == -- checked: literal_needs_type
       '{\n  "a": {},\n  "b": [\n    1,\n    2\n  ],\n  "c": []\n}', "two spaces by default")
   assert(encoded({ a = { 1 } }) == '{"a":[1]}', "compact without pretty")
 end
 
 local function test_ascii_escapes_every_character_past_ascii()
   local ascii = { ascii = true }
-  assert(encoded("caf\xc3\xa9", ascii) == '"caf\\u00e9"', "two bytes")
-  assert(encoded("\xe2\x82\xac", ascii) == '"\\u20ac"', "three bytes")
-  assert(encoded("\xf0\x9f\x98\x80", ascii) == '"\\ud83d\\ude00"', "a surrogate pair above U+FFFF")
-  assert(encoded("\xf4\x8f\xbf\xbf", ascii) == '"\\udbff\\udfff"', "the last code point")
-  assert(encoded("\xef\xbf\xbf", ascii) == '"\\uffff"', "the last of the plane")
-  assert(encoded("\xc2\x80", ascii) == '"\\u0080"', "the first past ASCII")
-  assert(encoded("a\"\\\n\127\xc3\xa9z", ascii) == '"a\\"\\\\\\n\127\\u00e9z"',
+  assert(encoded("caf\xc3\xa9", ascii) == '"caf\\u00e9"', "two bytes") -- checked: not_assignable
+  assert(encoded("\xe2\x82\xac", ascii) == '"\\u20ac"', "three bytes") -- checked: not_assignable
+  assert(encoded("\xf0\x9f\x98\x80", ascii) == '"\\ud83d\\ude00"', "a surrogate pair above U+FFFF") -- checked: not_assignable
+  assert(encoded("\xf4\x8f\xbf\xbf", ascii) == '"\\udbff\\udfff"', "the last code point") -- checked: not_assignable
+  assert(encoded("\xef\xbf\xbf", ascii) == '"\\uffff"', "the last of the plane") -- checked: not_assignable
+  assert(encoded("\xc2\x80", ascii) == '"\\u0080"', "the first past ASCII") -- checked: not_assignable
+  assert(encoded("a\"\\\n\127\xc3\xa9z", ascii) == '"a\\"\\\\\\n\127\\u00e9z"', -- checked: not_assignable
     "ASCII escapes and DEL are as without the option")
-  assert(encoded({ ["\xc3\xa9"] = { "\xe2\x82\xac" } }, ascii) == '{"\\u00e9":["\\u20ac"]}', "keys too")
+  assert(encoded({ ["\xc3\xa9"] = { "\xe2\x82\xac" } }, ascii) == '{"\\u00e9":["\\u20ac"]}', "keys too") -- checked: not_assignable
   assert(encoded({ a = "\xc3\xa9" }, { ascii = true, pretty = true }) == '{\n  "a": "\\u00e9"\n}',
     "with pretty")
   assert(encoded("\xc3\xa9", { ascii = false }) == '"\xc3\xa9"', "false leaves the text alone")
   assert(encoded("\xc3\xa9") == '"\xc3\xa9"', "off by default")
-  assert(encoded("plain", ascii) == '"plain"')
+  assert(encoded("plain", ascii) == '"plain"') -- checked: not_assignable
 end
 
 local function test_ascii_round_trips_through_decode()
-  local value = { name = "Zo\xc3\xab \xe2\x82\xac \xf0\x9f\x98\x80", ["k\xc3\xa9y"] = { "\xc2\x80", "\xef\xbf\xbf" } }
+  local value = { name = "Zo\xc3\xab \xe2\x82\xac \xf0\x9f\x98\x80", ["k\xc3\xa9y"] = { "\xc2\x80", "\xef\xbf\xbf" } } -- checked: literal_shape
   local text = encoded(value, { ascii = true })
   assert(not text:find("[\128-\255]"), "no byte past 0x7f: " .. text)
-  local back = decoded(text) as {string: any}
+  local back = decoded(text) as {string: any} -- checked: cast_refused
   assert(back.name == value.name and back["k\xc3\xa9y"] ~= nil, "decodes to the value written")
   assert(encoded(decoded(text)) == encoded(value), "and to the same plain text")
 end
 
 local function test_ascii_still_refuses_what_is_not_utf8()
   local ascii = { ascii = true }
-  assert(encode_failure("\xff", ascii) == "json: cannot encode a string that is not UTF-8", "a stray byte")
-  encode_failure("\xc3", ascii)
-  encode_failure("\xed\xa0\x80", ascii)
-  encode_failure({ x = { ["\xff"] = 1 } }, ascii)
-  assert(encode_failure("a\xc3\xa9\xff", ascii) == encode_failure("a\xc3\xa9\xff"), "the same message")
+  assert(encode_failure("\xff", ascii) == "json: cannot encode a string that is not UTF-8", "a stray byte") -- checked: not_assignable
+  encode_failure("\xc3", ascii) -- checked: not_assignable
+  encode_failure("\xed\xa0\x80", ascii) -- checked: not_assignable
+  encode_failure({ x = { ["\xff"] = 1 } }, ascii) -- checked: not_assignable
+  assert(encode_failure("a\xc3\xa9\xff", ascii) == encode_failure("a\xc3\xa9\xff"), "the same message") -- checked: not_assignable
 end
 
 local function test_sorted_is_byte_order()
@@ -465,12 +465,12 @@ end
 
 local function test_a_large_document_round_trips()
   local list: mut {any} = {}
-  for i = 1, 5000 do list[i] = 0 end
+  for i = 1, 5000 do list[i] = 0 end -- checked: any_use
   local text = encoded(list)
-  local back = decoded(text) as {integer}
+  local back = decoded(text) as {integer} -- checked: cast_refused
   assert(#back == 5000 and back[5000] == 0, "every element")
   local big: mut {string: any} = {}
-  for i = 1, 2000 do big["key" .. tostring(i)] = Json.array({ i, tostring(i), i + 0.5 }) end
+  for i = 1, 2000 do big["key" .. tostring(i)] = Json.array({ i, tostring(i), i + 0.5 }) end -- checked: any_use
   assert(same(decoded(encoded(big)), big), "a wide object round-trips whole")
 end
 
@@ -479,8 +479,8 @@ end
 local function generator(seed: integer): function(integer, integer): integer
   local state = { value = seed }
   return function(lo: integer, hi: integer): integer
-    state.value = (state.value * 6364136223846793005 + 1442695040888963407)
-    return lo + ((state.value >> 33) % (hi - lo + 1))
+    state.value = (state.value * 6364136223846793005 + 1442695040888963407) -- checked: map_field*2
+    return lo + ((state.value >> 33) % (hi - lo + 1)) -- checked: map_field
   end
 end
 
@@ -498,24 +498,24 @@ end
 
 local function random_value(pick: function(integer, integer): integer, depth: integer): any
   local kind = pick(1, if depth > 3 then 5 else 7 end)
-  if kind == 1 then return pick(0, 1) == 1 end
-  if kind == 2 then return pick(-1000000, 1000000) * pick(1, 1 << 40) end
-  if kind == 3 then return pick(-1000000, 1000000) / pick(1, 1000) + 0.5 end
-  if kind == 4 then return random_string(pick) end
-  if kind == 5 then return Json.null end
+  if kind == 1 then return pick(0, 1) == 1 end -- checked: any_use
+  if kind == 2 then return pick(-1000000, 1000000) * pick(1, 1 << 40) end -- checked: any_use
+  if kind == 3 then return pick(-1000000, 1000000) / pick(1, 1000) + 0.5 end -- checked: any_use
+  if kind == 4 then return random_string(pick) end -- checked: any_use
+  if kind == 5 then return Json.null end -- checked: any_use
   if kind == 6 then
     local made: mut {Json.Value} = {}
     for _ = 1, pick(0, 4) do
       local element = random_value(pick, depth + 1)
-      made[#made + 1] = element
+      made[#made + 1] = element -- checked: any_use
     end
-    return Json.array(made)
+    return Json.array(made) -- checked: any_use
   end
   local obj: mut {string: any} = {}
   for _ = 1, pick(0, 4) do
     obj[random_string(pick)] = random_value(pick, depth + 1)
   end
-  return obj
+  return obj -- checked: any_use
 end
 
 local function test_random_values_round_trip()
@@ -524,12 +524,12 @@ local function test_random_values_round_trip()
   for _ = 1, 500 do
     local value = random_value(pick, 0)
     local text = encoded(value)
-    assert(same(decoded(text, keep), value), "round trip of " .. text)
+    assert(same(decoded(text, keep), value), "round trip of " .. text) -- checked: not_assignable
     local pretty = encoded(value, { pretty = true })
-    assert(same(decoded(pretty, keep), value), "pretty round trip of " .. pretty)
+    assert(same(decoded(pretty, keep), value), "pretty round trip of " .. pretty) -- checked: not_assignable
     local ascii = encoded(value, { ascii = true })
     assert(not ascii:find("[\128-\255]"), "ascii text is ASCII: " .. ascii)
-    assert(same(decoded(ascii, keep), value), "ascii round trip of " .. ascii)
+    assert(same(decoded(ascii, keep), value), "ascii round trip of " .. ascii) -- checked: not_assignable
   end
 end
 
@@ -540,19 +540,19 @@ local function test_any_bytes_are_answered()
     local text: string
     if i % 2 == 0 then
       local base = seeds[pick(1, #seeds)]
-      local at = pick(1, #base)
-      text = base:sub(1, at - 1) .. string.char(pick(0, 255)) .. base:sub(at + 1)
+      local at = pick(1, #base) -- checked: nil_not_allowed
+      text = base:sub(1, at - 1) .. string.char(pick(0, 255)) .. base:sub(at + 1) -- checked: nil_not_allowed*2
     else
       local bytes: mut {string} = {}
       for j = 1, pick(0, 12) do bytes[j] = string.char(pick(0, 255)) end
       text = table.concat(bytes)
     end
     local value, err = Json.decode(text)
-    assert(err ~= nil, "decode answers every input")
+    assert(err ~= nil, "decode answers every input") -- checked: compare_disjoint
     if err == "" and value ~= nil then
       -- Re-decoded with Json.null so no hole is left: encode refuses holes, which the fuzz property writes as nulls through the raw table.
       local whole = Json.decode(text, { null_value = Json.null })
-      assert(Json.encode(whole) ~= nil, "what decodes encodes: " .. string.format("%q", text))
+      assert(Json.encode(whole) ~= nil, "what decodes encodes: " .. string.format("%q", text)) -- checked: any_use
     else
       assert(value == nil, "a failure carries no value")
     end
@@ -560,21 +560,21 @@ local function test_any_bytes_are_answered()
 end
 
 local function test_an_encode_failure_says_where()
-  local users = { { name = "ada" }, { name = "bob" }, { name = print } }
+  local users = { { name = "ada" }, { name = "bob" }, { name = print } } -- checked: arms_differ
   assert(encode_failure({ users = users }) == "json: cannot encode a function at pointer \"/users/2/name\"",
     "a path through objects and arrays")
   assert(encode_failure({ ["a key"] = { 1, 0 / 0 } }) == 'json: cannot encode NaN at pointer "/a key/1"',
     "a key that is not a word is quoted")
   assert(encode_failure({ ['q"\1'] = print }) == 'json: cannot encode a function at pointer "/q\\"\\u0001"',
     "its quotes escaped and its unprintable bytes shown as ?")
-  assert(encode_failure({ x = { 1, nil, 3 } as {any} }) ==
+  assert(encode_failure({ x = { 1, nil, 3 } as {any} }) == -- checked: array_of_optional, cast_refused
       "json: cannot encode an array with a hole (index 2 is nil) at pointer \"/x\"", "a table's own failure names the table")
   assert(encode_failure({ x = { ["\xff"] = 1 } }) == "json: cannot encode a key that is not UTF-8 at pointer \"/x\"",
     "a bad key is the object's")
   assert(encode_failure(print) == "json: cannot encode a function", "nothing to say at the top")
   local long = string.rep("k", 60)
-  local deep: {string: any} = { [long] = print }
-  for _ = 1, 8 do deep = { [long] = deep } end
+  local deep: {string: any} = { [long] = print } -- checked: any_use
+  for _ = 1, 8 do deep = { [long] = deep } end -- checked: any_use
   local where = encode_failure(deep)
   assert(where == 'json: cannot encode a function at pointer ending "' .. string.rep("/" .. long, 3) .. '"',
     "a pointer too long keeps its innermost segments, whole: " .. where)
@@ -582,24 +582,24 @@ end
 
 local function test_big_numbers_as_strings()
   local keep = { big_numbers_as_strings = true }
-  local v = decoded('{"id": 18446744073709551615, "big": 123456789012345678901234567890,' ..
-      ' "fits": 9223372036854775807, "neg": -9223372036854775809, "huge": 1e400, "f": 0.5}', keep)
+  local v = decoded('{"id": 18446744073709551615, "big": 123456789012345678901234567890,' .. -- checked: cast_refused
+      ' "fits": 9223372036854775807, "neg": -9223372036854775809, "huge": 1e400, "f": 0.5}', keep) -- checked: not_assignable
     as {string: any}
   assert(v.id == "18446744073709551615", "past a Lua integer, below 2^64")
   assert(v.big == "123456789012345678901234567890", "past 64 bits")
   assert(v.neg == "-9223372036854775809", "below the smallest integer")
   assert(v.huge == "1e400", "past a double")
   local fits = v.fits
-  assert(fits == math.maxinteger and math.type(fits as number) == "integer", "what fits is a number")
+  assert(fits == math.maxinteger and math.type(fits as number) == "integer", "what fits is a number") -- checked: cast_refused
   assert(v.f == 0.5, "and so is an ordinary float")
-  assert(math.type(decoded("18446744073709551615") as number) == "float", "the default is unchanged")
+  assert(math.type(decoded("18446744073709551615") as number) == "float", "the default is unchanged") -- checked: cast_refused
   assert(encoded(v.id) == '"18446744073709551615"', "it encodes back as a string")
 end
 
 local function test_json_lines()
   local values, err = Json.decode_lines('{"a": 1}\n[2]\r\n\n  \n"three"\nnull\n4')
   assert(values ~= nil, err)
-  assert((values[1] as {string: any}).a == 1 and (values[2] as {integer})[1] == 2, "values in order")
+  assert((values[1] as {string: any}).a == 1 and (values[2] as {integer})[1] == 2, "values in order") -- checked: cast_refused*2
   assert(values[3] == "three" and values[4] == nil and values[5] == 4, "blank lines skipped, null a hole")
   assert(Json.is_array(values), "a marked array")
   local empty = Json.decode_lines("")
@@ -631,11 +631,11 @@ end
 --- stays a character.
 local function test_hash_comments_are_read_when_asked()
   local hash = { hash_comments = true }
-  local list = decoded('# lead\n[1, # one\n2] # end', hash) as {integer}
+  local list = decoded('# lead\n[1, # one\n2] # end', hash) as {integer} -- checked: cast_refused, not_assignable
   assert(#list == 2 and list[1] == 1 and list[2] == 2, "comments before, inside and after")
-  local strings = decoded('["#x", "# y"]', hash) as {string}
+  local strings = decoded('["#x", "# y"]', hash) as {string} -- checked: cast_refused, not_assignable
   assert(strings[1] == "#x" and strings[2] == "# y", "a # in a string")
-  assert(decoded("1 # no newline", hash) == 1, "a comment the text ends in")
+  assert(decoded("1 # no newline", hash) == 1, "a comment the text ends in") -- checked: not_assignable
   local five = { json5 = true, hash_comments = true }
   local text = [[
 # the name GitHub shows
@@ -645,21 +645,21 @@ local function test_hash_comments_are_read_when_asked()
   "runs-on": ["ubuntu-24.04",],
 }
 ]]
-  local v = decoded(text, five) as {string: any}
-  assert(v.name == "ci" and (v["runs-on"] as {string})[1] == "ubuntu-24.04", "JSON5 with # comments")
-  assert(Json.decode_object(text, five) ~= nil, "decode_object takes hash_comments")
+  local v = decoded(text, five) as {string: any} -- checked: cast_refused, not_assignable
+  assert(v.name == "ci" and (v["runs-on"] as {string})[1] == "ubuntu-24.04", "JSON5 with # comments") -- checked: cast_refused
+  assert(Json.decode_object(text, five) ~= nil, "decode_object takes hash_comments") -- checked: not_assignable
   assert(decode_failure("# c\n1"):match("^json: invalid JSON at line 1, column 1"), "RFC 8259 has no # comment")
   assert(decode_failure("# c\n1", { json5 = true }):match("^json: invalid JSON at line 1, column 1"),
     "nor does JSON5")
-  assert(decode_failure("# only", hash) == "json: invalid JSON: the text is empty", "a comment is no value")
+  assert(decode_failure("# only", hash) == "json: invalid JSON: the text is empty", "a comment is no value") -- checked: not_assignable
   -- A # comment ends where a // one does: at U+2028 in JSON5, and
   -- only at \n or \r outside it.
-  assert(decoded("# c\u{2028}1", five) == 1, "JSON5 ends it at U+2028")
-  assert(decode_failure("# c\u{2028}1", hash) == "json: invalid JSON: the text is empty",
+  assert(decoded("# c\u{2028}1", five) == 1, "JSON5 ends it at U+2028") -- checked: not_assignable
+  assert(decode_failure("# c\u{2028}1", hash) == "json: invalid JSON: the text is empty", -- checked: not_assignable
     "outside JSON5, U+2028 is inside it")
-  local values = assert(Json.decode_lines("1 # one\n3", hash))
+  local values = assert(Json.decode_lines("1 # one\n3", hash)) -- checked: not_assignable
   assert(#values == 2 and values[2] == 3, "decode_lines takes hash_comments")
-  local _, only = Json.decode_lines("1\n# two", hash)
+  local _, only = Json.decode_lines("1\n# two", hash) -- checked: not_assignable
   assert(only == "json: invalid JSON at line 2: the line holds no value", only)
 end
 
@@ -718,7 +718,7 @@ end
 local function test_lone_surrogates_read_as_the_replacement_character()
   local opts: Json.DecodeOptions = { lone_surrogates = true }
   local text = '{"\\ud83d": ["a\\ud83d", "\\ude00", "\\ud83d\\u0041", "\\ud83d\\ude00", "\\\\ud83d"]}'
-  local value = assert(Json.decode(text, opts)) as {string: {string}}
+  local value = assert(Json.decode(text, opts)) as {string: {string}} -- checked: cast_refused
   local list = value["\u{FFFD}"]
   assert(list ~= nil, "the key's lone surrogate")
   assert(list[1] == "a\u{FFFD}" and list[2] == "\u{FFFD}" and list[3] == "\u{FFFD}A",
@@ -744,48 +744,48 @@ local function test_layout_classifies_a_table_as_encode_does()
   assert(Json.layout({ b = 1, a = 2 }) == "object")
   assert(Json.layout({ [1] = 1, [3] = 3 }) == "hole")
   assert(Json.layout({ 1, a = 2 }) == "mixed")
-  assert(Json.layout({ [0] = 1 } as {any: any}) == "mixed", "an integer key below 1")
-  assert(Json.layout({ [1.5] = 1 } as {any: any}) == "mixed", "a fractional key")
-  assert(Json.layout({ [true] = 1 } as {any: any}) == "mixed", "a boolean key")
+  assert(Json.layout({ [0] = 1 } as {any: any}) == "mixed", "an integer key below 1") -- declared: key_type -- checked: cast_refused
+  assert(Json.layout({ [1.5] = 1 } as {any: any}) == "mixed", "a fractional key") -- declared: key_type -- checked: cast_refused, float_key
+  assert(Json.layout({ [true] = 1 } as {any: any}) == "mixed", "a boolean key") -- declared: key_type -- checked: cast_refused
 end
 
 --- `members` lists the keys a walk visits, sorted, and an array's extent
 --- is its highest index even where a `null` left holes.
 local function test_members_lists_what_a_walk_visits()
   local object = Json.members({ b = 1, a = 2, c = 3 })
-  assert(object.layout == "object" and table.concat(object.keys as {string}, ",") == "a,b,c")
+  assert(object.layout == "object" and table.concat(object.keys as {string}, ",") == "a,b,c") -- checked: cast_refused
   assert(object.extent == 0)
-  local hole = Json.members({ [7] = "g", [1] = "a", [3] = "c" } as {any: any})
+  local hole = Json.members({ [7] = "g", [1] = "a", [3] = "c" } as {any: any}) -- declared: key_type -- checked: cast_refused
   assert(hole.layout == "hole" and #hole.keys == 3 and hole.keys[1] == 1 and hole.keys[2] == 3 and
       hole.keys[3] == 7 and hole.extent == 0)
   local array = Json.members({ "x", "y" })
   assert(array.layout == "array" and #array.keys == 0 and array.extent == 2, "no key list for an array")
-  local holed = Json.members(decoded("[1, null, null, 4, null]") as {any: any})
+  local holed = Json.members(decoded("[1, null, null, 4, null]") as {any: any}) -- declared: key_type -- checked: cast_refused
   assert(holed.layout == "array" and holed.extent == 4, "a decoded array's extent")
   assert(#holed.keys == 0, "a marked array's keys are listed only when asked")
-  local holed_keys = Json.members(decoded("[1, null, null, 4, null]") as {any: any}, true).keys
+  local holed_keys = Json.members(decoded("[1, null, null, 4, null]") as {any: any}, true).keys -- declared: key_type -- checked: cast_refused
   assert(#holed_keys == 2 and holed_keys[1] == 1 and holed_keys[2] == 4, "a marked array's keys, past a gap")
-  local dense = Json.members(decoded("[1, 2]") as {any: any})
+  local dense = Json.members(decoded("[1, 2]") as {any: any}) -- declared: key_type -- checked: cast_refused
   assert(#dense.keys == 0 and dense.extent == 2, "a marked array with no gap lists no keys")
   local mixed = Json.members({ 1, a = 2 })
   assert(mixed.layout == "mixed" and #mixed.keys == 0 and mixed.extent == 0)
   assert(Json.members(Json.array()).extent == 0)
   -- A marked array that holds a key no array has is mixed, as `encode`
   -- refuses it, and only a request for gaps lists a gap's keys.
-  for _, stray in ipairs({ "x", 0, -1, 1.5, true } as {any}) do
-    local odd: mut {any: any} = Json.array({ 1 }) as {any: any}
+  for _, stray in ipairs({ "x", 0, -1, 1.5, true } as {any}) do -- checked: arms_differ, cast_refused
+    local odd: mut {any: any} = Json.array({ 1 }) as {any: any} -- declared: key_type*2 -- checked: cast_refused
     odd[stray] = 2
     local m = Json.members(odd)
     assert(m.layout == "mixed" and #m.keys == 0 and m.extent == 0, tostring(stray))
   end
-  assert(#Json.members(decoded("[1, null, 3]") as {any: any}).keys == 0, "no gap keys unless asked")
-  assert(#Json.members(decoded("[1, null, 3]") as {any: any}, true).keys == 2)
+  assert(#Json.members(decoded("[1, null, 3]") as {any: any}).keys == 0, "no gap keys unless asked") -- declared: key_type -- checked: cast_refused
+  assert(#Json.members(decoded("[1, null, 3]") as {any: any}, true).keys == 2) -- declared: key_type -- checked: cast_refused
   -- `rawlen` of this table is 3, and its keys are as many, but 5 lies past it.
-  local bordered: mut {any: any} = { 1, 2, 3 }
+  local bordered: mut {any: any} = { 1, 2, 3 } -- declared: key_type
   bordered[2] = nil
   bordered[5] = 5
   assert(Json.layout(bordered) == "hole", "a border is not the extent")
-  local far = Json.members(Json.array({ [1 << 40] = 7 } as {any}) as {any: any}, true)
+  local far = Json.members(Json.array({ [1 << 40] = 7 } as {any}) as {any: any}, true) -- declared: key_type -- checked: cast_refused*2
   assert(far.layout == "array" and far.extent == 1 << 40 and #far.keys == 1)
 end
 
@@ -881,7 +881,7 @@ local function test_canonical_is_rfc_8785()
   for _, sample in ipairs(samples) do
     local bits = assert(math.tointeger(tonumber(sample.hex:sub(1, 8), 16))) << 32 |
       assert(math.tointeger(tonumber(sample.hex:sub(9), 16)))
-    local f = string.unpack("<d", string.pack("<i8", bits)) as number
+    local f = string.unpack("<d", string.pack("<i8", bits)) as number -- checked: cast_refused
     local got = Json.canonical(("%.17g"):format(f))
     assert(got == sample.canonical, sample.hex .. ": " .. tostring(got))
   end

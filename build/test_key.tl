@@ -305,7 +305,7 @@ local function binary_tables(): string?, string
   end)
   local rows = looked.value
   if rows == nil then return nil, looked.trouble end
-  return rows[1]:text(1), ""
+  return rows[1]:text(1), "" -- checked: nil_not_allowed
 end
 
 --- The modules of the harness beside what every worker loads
@@ -440,10 +440,10 @@ local function closure_of(roots: {string}, own: {string},
   for _, name in ipairs(roots) do stack[#stack + 1] = name end
   while #stack > 0 do
     local name = table.remove(stack)
-    if seen[name] ~= true then
-      seen[name] = true
-      names[#names + 1] = name
-      for _, required in ipairs(imports[name] or {}) do stack[#stack + 1] = required end
+    if seen[name] ~= true then -- checked: nil_not_allowed
+      seen[name] = true -- checked: nil_not_allowed
+      names[#names + 1] = name -- checked: nil_not_allowed
+      for _, required in ipairs(imports[name] or {}) do stack[#stack + 1] = required end -- checked: nil_not_allowed
     end
   end
   return names
@@ -687,15 +687,15 @@ end
 --- ([`test_sandbox.environment`]), TMPDIR its scratch directory; one
 --- unsandboxed has the host's cores cache in place of the sandbox's own
 --- ([`test_sandbox.unenforced_view`]), as it is given.
-local function view_of(rec: Recording, m: Module): {string:string}
+local function view_of(rec: Recording, m: Module): {string:string} -- checked: not_assigned
   local view = rec.views[m.path]
   if view == nil then
     local effective = rec.effective[m.path]
-    view = rec.sandbox and test_sandbox.environment(worker_view(), effective) or
-      test_sandbox.unenforced_view(worker_view(), effective)
-    rec.views[m.path] = view
+    view = rec.sandbox and test_sandbox.environment(worker_view(), effective) or -- checked: and_ternary, nil_not_allowed
+      test_sandbox.unenforced_view(worker_view(), effective) -- checked: nil_not_allowed
+    rec.views[m.path] = view -- checked: nil_not_allowed
   end
-  return view
+  return view -- checked: nil_not_allowed
 end
 
 --- Where the tree is, for a `host` path that must not be it, beneath
@@ -709,10 +709,10 @@ end
 --- ([`test_inputs.resolved`]): "" where they can. Every test of such a
 --- module fails before its worker starts, sandboxed or not.
 local function unresolved(rec: Recording, m: Module): string
-  local effective = if rec.effective ~= nil then rec.effective[m.path] else nil end
+  local effective = if rec.effective ~= nil then rec.effective[m.path] else nil end -- checked: compare_disjoint
   if effective ~= nil then return effective.unresolved or "" end
   local inputs = m.inputs
-  for _, declared in ipairs(if inputs ~= nil then inputs.host else {} end) do
+  for _, declared in ipairs(if inputs ~= nil then inputs.host else {} end) do -- checked: literal_needs_type
     local path, trouble = test_inputs.resolved(declared, tree_roots(rec))
     if path == nil then return trouble end
   end
@@ -790,7 +790,7 @@ end
 local function can_forbid(rec: Recording, m: Module): boolean
   local found = rec.forbiddable[m.path]
   if found ~= nil then return found end
-  found = test_sandbox.forbiddable(test_sandbox.cache_writes(rec.effective[m.path],
+  found = test_sandbox.forbiddable(test_sandbox.cache_writes(rec.effective[m.path], -- checked: index_may_be_nil
     worker_view()), tool_of(rec))
   rec.forbiddable[m.path] = found
   return found
@@ -810,7 +810,7 @@ end
 --- runs. Every other worker runs the program.
 function test_key.seals(rec: Recording, m: Module): boolean
   local effective = rec.effective[m.path]
-  if rec.launcher == nil or rec.stores == nil or rec.stores[m.path] == nil or
+  if rec.launcher == nil or rec.stores == nil or rec.stores[m.path] == nil or -- checked: compare_disjoint
       effective == nil or effective.store or effective.tool then
     return false
   end
@@ -838,8 +838,8 @@ end
 
 local function tool_use(rec: Recording, m: Module): ToolUse
   local effective = rec.effective[m.path]
-  if effective.tool then return "declared" end
-  if effective.lua == true or effective.nests == true then
+  if effective.tool then return "declared" end -- checked: nil_not_allowed
+  if effective.lua == true or effective.nests == true then -- checked: nil_not_allowed*2
     return if seals(rec, m) then "sealed" else "allowed" end
   end
   return if can_forbid(rec, m) then "forbidden" else "allowed" end
@@ -853,7 +853,7 @@ end
 --- making no root of its own, since the kernel refuses every mount under
 --- a ruleset.
 local function hold_of(rec: Recording, m: Module): worker.Hold
-  if not rec.sandbox or rec.effective[m.path].nests == true then return "none" end
+  if not rec.sandbox or rec.effective[m.path].nests == true then return "none" end -- checked: nil_not_allowed
   return if tool_use(rec, m) == "forbidden" then "forbid" else "mounts" end
 end
 
@@ -865,7 +865,7 @@ end
 local function reads_compiler(rec: Recording, m: Module): boolean
   if rec.stores[m.path] == nil then return false end
   return declared_key.reads_compiler(test_inputs.compiler_sought(rec.closures[m.path] or {},
-    rec.effective[m.path].lua))
+    rec.effective[m.path].lua)) -- checked: nil_not_allowed
 end
 
 --- The digest of the modules of the program's own database that the tree
@@ -884,11 +884,11 @@ local function extras_digest(rec: Recording): string
     "WHERE d.path = modules.path), '')"
   -- With its stub ([`sealed_fill`] carries it), where the program has
   -- them: a program from before `stubs` has no such table to read.
-  local rows, _ = Sqlite.text_rows(databases[#databases], query ..
+  local rows, _ = Sqlite.text_rows(databases[#databases], query .. -- checked: index_may_be_nil
       ", coalesce((SELECT lower(hex(sha256(source))) FROM stubs s WHERE s.path = modules.path), '') " ..
       "FROM modules ORDER BY path")
   if rows == nil then
-    rows, _ = Sqlite.text_rows(databases[#databases], query .. " FROM modules ORDER BY path")
+    rows, _ = Sqlite.text_rows(databases[#databases], query .. " FROM modules ORDER BY path") -- checked: index_may_be_nil
   end
   local digest = "unread"
   if rows ~= nil then
@@ -942,7 +942,7 @@ local program_of = test_key.program_of
 -- hold from build.test_worker (C, and a boot):
 -- today a test that leans on a file of the tree's times sees what its
 -- checkout gave it, and stands on a sibling's verdict where they differ.
-local function declared_of(rec: Recording, m: Module, id: string, host?: string): string?
+local function declared_of(rec: Recording, m: Module, id: string, host?: string): string? -- checked: not_assigned
   local effective = assert(rec.effective[m.path])
   local runs_tool = tool_use(rec, m) == "allowed"
   local store, store_trouble = store_digest(rec, m)
@@ -952,13 +952,13 @@ local function declared_of(rec: Recording, m: Module, id: string, host?: string)
   end
   local key, why = declared_key.compute(digests_of(rec), {
     id = id, group = m.path, module_key = assert(m.graph_key), runtime = rec.runtime,
-    compiler = reads_compiler(rec, m) and rec.compiler or "",
-    host = host or rec.host,
+    compiler = reads_compiler(rec, m) and rec.compiler or "", -- checked: and_ternary
+    host = host or rec.host, -- checked: nil_not_allowed
     cpu = if effective.cpu_features == true then rec.cpu else nil end,
     system = rec.system,
     epoch = rec.epoch, timeout_ns = timeout_ns_of(rec, m),
     -- Held only where the key holds the program ([`declared_key.compute`]).
-    program = (effective.tool or runs_tool) and program_of(rec) or nil,
+    program = (effective.tool or runs_tool) and program_of(rec) or nil, -- checked: and_ternary
     launcher = if seals(rec, m) then (assert(rec.core) .. "\0" .. extras_digest(rec)) else rec.launcher end,
     declaration = test_inputs.canonical(m.inputs), effective = effective,
     requires = rec.answered[m.path],
@@ -967,7 +967,7 @@ local function declared_of(rec: Recording, m: Module, id: string, host?: string)
     checks = rec.checks_part,
     projection_file = (if rec.checks_part ~= nil then assert(rec.projection):match("[^/]*$") else nil end),
     -- Unsandboxed, its worker sees the tree where it is (`launch`).
-    tree = not rec.sandbox and rec.root or nil,
+    tree = not rec.sandbox and rec.root or nil, -- checked: and_ternary
   })
   if key == nil then rec.unkeyed[m.path] = why end
   return key
@@ -1028,16 +1028,16 @@ function test_key.worker_environment(environment: {string:string}): {string:stri
   shared_compiles.turn_off(out)
   -- Nor does it take this run's choice not to stand on them: a test
   -- that runs `cosmic test` says for itself what that run does.
-  out.COSMIC_TEST_NO_SHARED = nil
+  out.COSMIC_TEST_NO_SHARED = nil -- checked: map_field
   out["COSMIC_TEST_FOREIGN_KERNEL"] = nil
-  out.COSMIC_TEST_BAIL = nil
+  out.COSMIC_TEST_BAIL = nil -- checked: map_field
   -- Nor whether this run compiles its tree with run-time checks, and its
   -- workers report them: a `cosmic test` a test starts compiles its tree
   -- as that run is told.
-  out.COSMIC_TEST_CHECK_TYPES = nil
-  out.COSMIC_TEST_TYPES = nil
-  out.COSMIC_TEST_NOEXEC = nil
-  out.COSMIC_TEST_PARENT = nil
+  out.COSMIC_TEST_CHECK_TYPES = nil -- checked: map_field
+  out.COSMIC_TEST_TYPES = nil -- checked: map_field
+  out.COSMIC_TEST_NOEXEC = nil -- checked: map_field
+  out.COSMIC_TEST_PARENT = nil -- checked: map_field
   -- Nor a rebuild lock handed to this run (build.rebuild_lock): what a
   -- test starts holds none of this run's.
   return rebuild_lock.unhanded(out)
@@ -1049,7 +1049,7 @@ function test_key.worker_view(): {string:string}
   if worker_view_memo[1] == nil then
     worker_view_memo[1] = test_key.worker_environment(Env.all())
   end
-  return worker_view_memo[1]
+  return worker_view_memo[1] -- checked: index_may_be_nil
 end
 worker_view = test_key.worker_view
 
@@ -1194,25 +1194,25 @@ local function store_at(rec: Recording, address: string, names: {string},
   local path = rec.built[address]
   if path ~= nil then return path, "" end
   local directory = stores_directory(rec.root)
-  path = directory .. "/" .. (base and base_name(address) or (address .. ".db"))
-  local there, _ = sys.stat(path)
+  path = directory .. "/" .. (base and base_name(address) or (address .. ".db")) -- checked: condition_type
+  local there, _ = sys.stat(path) -- checked: nil_not_allowed
   if there == nil then
     local made, trouble = Fs.mkdirs(directory)
     if not made then return nil, directory .. ": " .. trouble end
     local started = Clock.monotonic_ns()
     local extraction, extraction_trouble = extraction_for(rec)
     if extraction == nil then return nil, extraction_trouble end
-    local written, write_trouble = closure_store.write(projection_of(rec), path, names, assert(rec.basis),
+    local written, write_trouble = closure_store.write(projection_of(rec), path, names, assert(rec.basis), -- checked: nil_not_allowed
       extraction)
     if not written then return nil, "the store of its closure: " .. write_trouble end
     if base ~= true then
       rec.writing_ns = rec.writing_ns + (Clock.monotonic_ns() - started)
-      local wrote, _ = sys.stat(path)
+      local wrote, _ = sys.stat(path) -- checked: nil_not_allowed
       rec.written = rec.written + 1
-      rec.written_bytes = rec.written_bytes + (wrote ~= nil and wrote.size or 0)
+      rec.written_bytes = rec.written_bytes + (wrote ~= nil and wrote.size or 0) -- checked: and_ternary
     end
   end
-  rec.built[address] = path
+  rec.built[address] = path -- checked: nil_not_allowed
   return path, ""
 end
 
@@ -1220,9 +1220,9 @@ end
 --- ([`store_at`]), or nil where `m` declares `store` and is given the
 --- whole projection; nil and why where it could not be made.
 local function given_store(rec: Recording, m: Module): string?, string
-  local address = rec.stores ~= nil and rec.stores[m.path] or nil
+  local address = rec.stores ~= nil and rec.stores[m.path] or nil -- checked: and_ternary, compare_disjoint
   if address == nil then return nil, "" end
-  return store_at(rec, address, rec.closures[m.path])
+  return store_at(rec, address, rec.closures[m.path]) -- checked: index_may_be_nil
 end
 
 --- The tables of a sealed database as the core reads them
@@ -1341,12 +1341,12 @@ local function sealing_for(rec: Recording): Sealing?, string
   if launched == nil or launched.argv[2] ~= "--artifact" or launched.argv[3] == nil then
     return refuse("this program is no portable artifact to take its database from")
   end
-  local bytes, read_trouble = Fs.read(launched.argv[3])
-  if bytes == nil then return refuse(launched.argv[3] .. ": " .. read_trouble) end
+  local bytes, read_trouble = Fs.read(launched.argv[3]) -- checked: index_may_be_nil
+  if bytes == nil then return refuse(launched.argv[3] .. ": " .. read_trouble) end -- checked: nil_not_allowed
   local parts, split_trouble = artifact.split(bytes)
-  if parts == nil then return refuse(launched.argv[3] .. ": " .. split_trouble) end
+  if parts == nil then return refuse(launched.argv[3] .. ": " .. split_trouble) end -- checked: nil_not_allowed
   if parts.host then
-    return refuse(launched.argv[3] .. ": a host program has no database to seal from")
+    return refuse(launched.argv[3] .. ": a host program has no database to seal from") -- checked: nil_not_allowed
   end
   local database = parts.database
   -- A root runner's workers run as a user of their own, which must be
@@ -1398,7 +1398,7 @@ local function sealing_for(rec: Recording): Sealing?, string
     local _, _ = Fs.remove_tree(directory)
     return refuse(why)
   end
-  local opened, open_trouble = sys.chmod(directory, tonumber("755", 8))
+  local opened, open_trouble = sys.chmod(directory, tonumber("755", 8)) -- checked: nil_not_allowed
   if not opened then return fail(directory .. ": " .. tostring(open_trouble)) end
   local path = directory .. "/program.db"
   local written, write_trouble = Fs.write(path, database)
@@ -1457,7 +1457,7 @@ local function write_sealed(sealing: Sealing, store: string, whole: string, out:
     end
     for _, attached in ipairs({ { "closure", store }, { "program", sealing.program },
         { "whole", whole } }) do
-      local ok, why = Sqlite.run(db, "ATTACH DATABASE ?1 AS " .. attached[1],
+      local ok, why = Sqlite.run(db, "ATTACH DATABASE ?1 AS " .. attached[1], -- checked: nil_not_allowed
         { { text = attached[2] } })
       if not ok then return false, why end
     end
@@ -1503,7 +1503,7 @@ local function write_sealed(sealing: Sealing, store: string, whole: string, out:
     local _, _ = Fs.remove(aside)
     return false, fill_trouble
   end
-  local readable, chmod_trouble = sys.chmod(aside, tonumber("644", 8))
+  local readable, chmod_trouble = sys.chmod(aside, tonumber("644", 8)) -- checked: nil_not_allowed
   if not readable then
     local _, _ = Fs.remove(aside)
     return false, aside .. ": " .. tostring(chmod_trouble)
@@ -1532,7 +1532,7 @@ local function sealed_for(rec: Recording, m: Module): string?, string
   local with_compiler = reads_compiler(rec, m)
   -- A worker whose key holds the compiler's identity reads it, so its
   -- database holds it: another file than a closure's that does not.
-  local name = rec.stores[m.path] .. (if with_compiler then "-compiler" else "" end)
+  local name = rec.stores[m.path] .. (if with_compiler then "-compiler" else "" end) -- checked: nil_not_allowed
   local kept = rec.sealed[name]
   if kept ~= nil then return kept, "" end
   local started = Clock.monotonic_ns()
@@ -1632,7 +1632,7 @@ local function address_digest(rec: Recording, address: string, names: {string},
   local started = Clock.monotonic_ns()
   rec.store_names[address] = names
   rec.store_bases[address] = base
-  local path = stores_directory(rec.root) .. "/" .. (base and base_name(address) or
+  local path = stores_directory(rec.root) .. "/" .. (base and base_name(address) or -- checked: and_ternary
     (address .. ".db"))
   local digest: string? = nil
   local there, _ = sys.stat(path)
@@ -1681,8 +1681,8 @@ local function verify_sample(rec: Recording)
   if #addresses == 0 then return end
   table.sort(addresses)
   local started = Clock.monotonic_ns()
-  local address = addresses[(rec.run or 0) % #addresses + 1]
-  local path = stores_directory(rec.root) .. "/" .. address .. ".verify.db"
+  local address = addresses[(rec.run or 0) % #addresses + 1] -- checked: condition_type
+  local path = stores_directory(rec.root) .. "/" .. address .. ".verify.db" -- checked: nil_not_allowed
   local made, _ = Fs.mkdirs(stores_directory(rec.root))
   local written, trouble = false, "no stores directory"
   if made then
@@ -1690,23 +1690,23 @@ local function verify_sample(rec: Recording)
     if extraction == nil then
       written, trouble = false, extraction_trouble
     else
-      written, trouble = closure_store.write(projection_of(rec), path, rec.store_names[address],
+      written, trouble = closure_store.write(projection_of(rec), path, rec.store_names[address], -- checked: index_may_be_nil, nil_not_allowed
         assert(rec.basis), extraction)
     end
   end
   if not written then
-    rec.errors[#rec.errors + 1] = "the closure store at address " .. address ..
+    rec.errors[#rec.errors + 1] = "the closure store at address " .. address .. -- checked: nil_not_allowed
       ", written again to check it: " .. trouble
   else
     local data, read_trouble = Fs.read(path)
-    local digest = data ~= nil and hex_sha256(data) or ("unreadable: " .. read_trouble)
-    local kept = rec.store_digests[address]
-    if digest ~= kept and not rec.store_mismatched[address] then
-      rec.store_mismatched[address] = true
-      local other = stores_directory(rec.root) .. "/" .. (rec.store_bases[address] and
-        base_name(address) or (address .. ".db"))
+    local digest = data ~= nil and hex_sha256(data) or ("unreadable: " .. read_trouble) -- checked: and_ternary
+    local kept = rec.store_digests[address] -- checked: nil_not_allowed
+    if digest ~= kept and not rec.store_mismatched[address] then -- checked: condition_type, nil_not_allowed
+      rec.store_mismatched[address] = true -- checked: nil_not_allowed
+      local other = stores_directory(rec.root) .. "/" .. (rec.store_bases[address] and -- checked: condition_type, nil_not_allowed
+        base_name(address) or (address .. ".db")) -- checked: nil_not_allowed*2
       local there, _ = sys.stat(other)
-      mismatched(rec, address, path, digest, kept, there ~= nil and other or
+      mismatched(rec, address, path, digest, kept, there ~= nil and other or -- checked: nil_not_allowed*2
           "the store this run keyed its tests by", true)
     end
   end
@@ -1718,9 +1718,9 @@ end
 --- is given ([`address_digest`]), which its key holds. Nil where `m`
 --- declares `store`; nil and why where it could not be made.
 store_digest = function(rec: Recording, m: Module): string?, string
-  local address = rec.stores ~= nil and rec.stores[m.path] or nil
+  local address = rec.stores ~= nil and rec.stores[m.path] or nil -- checked: and_ternary, compare_disjoint
   if address == nil then return nil, "" end
-  return address_digest(rec, address, rec.closures[m.path], false)
+  return address_digest(rec, address, rec.closures[m.path], false) -- checked: index_may_be_nil
 end
 
 --- The digest of the bytes of the store of no module (`base_store`),
@@ -1740,8 +1740,8 @@ end
 --- worker's. Nil and why where its directory cannot be made.
 local function policy_of(rec: Recording, job: Job): Sandbox.Policy?, string
   local effective = rec.effective[job.m.path]
-  local policy = test_policy.worker(assert(job.plan), effective)
-  if effective.noexec_ready == true then
+  local policy = test_policy.worker(assert(job.plan), effective) -- checked: nil_not_allowed
+  if effective.noexec_ready == true then -- checked: nil_not_allowed
     local made, made_trouble = Fs.mkdirs(assert(job.scratch) .. "/noexec")
     if not made then return nil, "its private noexec scratch: " .. made_trouble end
   end
@@ -1824,7 +1824,7 @@ function test_key.ask_host(rec: Recording, modules: {Module},
       local asked, answers = pcall(host_requires.answer, probed, names)
       local found: {host_requires.Answer} = {}
       if asked then
-        found = answers
+        found = answers -- checked: any_use
       else
         -- A probe that cannot tell (a file it may not read) is no answer: the
         -- modules that name it fail, saying why, and the run goes on.
@@ -1844,7 +1844,7 @@ function test_key.ask_host(rec: Recording, modules: {Module},
               " promises " .. answer.name .. ", and a held run fails what its leg promised)"
             kind = "refused"
           end
-          if unmet == nil or UNMET_RANK[kind] > UNMET_RANK[unmet.kind] then
+          if unmet == nil or UNMET_RANK[kind] > UNMET_RANK[unmet.kind] then -- checked: nil_not_allowed
             unmet = { kind = kind, why = said }
           end
         end
@@ -2135,7 +2135,7 @@ function test_key.lookup(rec: Recording, m: Module, id: string,
                          consult: boolean?): Lookup
   local force: boolean = forced == true
   local key = declared_of(rec, m, id)
-  local own = key ~= nil and verdicts[key] or nil
+  local own = key ~= nil and verdicts[key] or nil -- checked: and_ternary
   local elsewhere: shared_verdicts.Found? = nil
   local asked = false
   local rec_shared = rec.shared
@@ -2312,7 +2312,7 @@ function test_key.keep(rec: Recording, job: Job, judged: Judged, elapsed: intege
   if key ~= nil and not passed then
     rec.owed.failed[#rec.owed.failed + 1] = key
   elseif passed and checked and held and judged.report ~= nil then
-    rec.owed.kept[#rec.owed.kept + 1] = { key = key, test = id, hits = rec.by_test[id],
+    rec.owed.kept[#rec.owed.kept + 1] = { key = key, test = id, hits = rec.by_test[id], -- checked: index_may_be_nil, nil_not_allowed
       elapsed_ns = elapsed }
   end
 end
@@ -2338,7 +2338,7 @@ function test_key.persist_digests(records: Sqlite.Handle, rec: Recording,
   if digests ~= nil and digests.read > 0 then
     local kept, keep_trouble = true, ""
     if whole == true then kept, keep_trouble = records:exec("DELETE FROM digests") end
-    for _, row in ipairs(kept and declared_key.kept(digests) or {}) do
+    for _, row in ipairs(kept and declared_key.kept(digests) or {}) do -- checked: and_ternary, literal_needs_type
       if kept then
         kept, keep_trouble = Sqlite.run(records,
           "INSERT OR REPLACE INTO digests (path, signature, sha256) VALUES (?1, ?2, ?3)",
@@ -2377,14 +2377,14 @@ function test_key.prepare(rec: Recording, job: Job): Prepared
   -- Sandboxed, the worker has the tree at /tree, where it runs, and
   -- its scratch directory at [`test_sandbox.scratch`].
   local env: {string:string} = worker_view()
-  local root, inside, cwd: string, string, string = rec.root, scratch, nil
+  local root, inside, cwd: string, string, string = rec.root, scratch, nil -- checked: nil_not_allowed
   local declares_trouble = unresolved(rec, job.m)
   if declares_trouble ~= "" then
     return cannot(declares_trouble, true, nil)
   end
   local effective = rec.effective[job.m.path]
-  if effective.noexec == true and effective.noexec_ready ~= true then
-    return cannot("", false, effective.noexec_trouble)
+  if effective.noexec == true and effective.noexec_ready ~= true then -- checked: nil_not_allowed*2
+    return cannot("", false, effective.noexec_trouble) -- checked: nil_not_allowed
   end
   -- The store its worker attaches ([`worker.Invocation`]'s `store`).
   local attached: string? = nil
@@ -2403,8 +2403,8 @@ function test_key.prepare(rec: Recording, job: Job): Prepared
     if sealed == nil and sealed_trouble ~= "" then
       return cannot(sealed_trouble, false, nil)
     end
-    if sealed == nil and rec.effective[job.m.path].lua == true and not rec.effective[job.m.path].store and
-        not rec.effective[job.m.path].tool then
+    if sealed == nil and rec.effective[job.m.path].lua == true and not rec.effective[job.m.path].store and -- checked: nil_not_allowed*2
+        not rec.effective[job.m.path].tool then -- checked: nil_not_allowed
       local launched, _ = Proc.relaunch()
       local why = if (launched == nil or launched.argv[2] ~= "--artifact" or launched.argv[3] == nil) then
         "this program is no portable artifact to take its database from" else
@@ -2415,9 +2415,9 @@ function test_key.prepare(rec: Recording, job: Job): Prepared
     local kept = rec.plans[job.m.path]
     local plan: test_sandbox.Plan
     if kept ~= nil then
-      plan = test_sandbox.rebind(kept.plan, kept.scratch, scratch, effective)
+      plan = test_sandbox.rebind(kept.plan, kept.scratch, scratch, effective) -- checked: nil_not_allowed
     else
-      plan = test_sandbox.plan(rec.root, scratch, effective, worker_view(), store,
+      plan = test_sandbox.plan(rec.root, scratch, effective, worker_view(), store, -- checked: nil_not_allowed
         rec.projection)
       if plan.trouble == "" then rec.plans[job.m.path] = { plan = plan, scratch = scratch } end
     end
@@ -2493,7 +2493,7 @@ function test_key.prepare(rec: Recording, job: Job): Prepared
     if not homed then
       return cannot(home_trouble, false, nil)
     end
-    env = test_sandbox.unenforced_environment(worker_view(), rec.effective[job.m.path], scratch,
+    env = test_sandbox.unenforced_environment(worker_view(), rec.effective[job.m.path], scratch, -- checked: index_may_be_nil
       rec.root)
   end
   local started_ns = Clock.monotonic_ns()
@@ -2510,7 +2510,7 @@ function test_key.prepare(rec: Recording, job: Job): Prepared
   if rec.sandbox then
     local given: mut {string:string} = {}
     for name, value in pairs(env) do given[name] = value end
-    given[confine.held_variable] = hold ~= "none" and job.m.path or nil
+    given[confine.held_variable] = hold ~= "none" and job.m.path or nil -- checked: and_ternary
     env = given
   end
   -- The grants hold the worker from its first instruction, but the core it
@@ -2528,7 +2528,7 @@ function test_key.prepare(rec: Recording, job: Job): Prepared
       return cannot(made_trouble, true, nil)
     end
     policy = made
-    policy.database = if sealed ~= nil then { path = sealed } else nil end
+    policy.database = if sealed ~= nil then { path = sealed } else nil end -- checked: field_fixed
     if hold == "forbid" then
       local ran, ran_trouble = test_policy.runs(policy)
       if ran == nil then
@@ -2550,16 +2550,16 @@ function test_key.prepare(rec: Recording, job: Job): Prepared
       end
       started = { argv = { executable }, env = {}, fds = {} }
     else
-      started = { argv = { start.argv[1], "--database", sealed }, env = {}, fds = {} }
+      started = { argv = { start.argv[1], "--database", sealed }, env = {}, fds = {} } -- checked: index_may_be_nil
     end
   end
   local plan = job.plan
   local command = worker.invocation({
     start = started, env = env, root = root, cwd = cwd, module_path = job.m.path,
     name = job.name, scratch = inside, own_scratch = job.own_scratch, needs = test_inputs.canonical(declared), hold = hold,
-    store = attached, closure = rec.closures[job.m.path], tree = rec.tree_names,
+    store = attached, closure = rec.closures[job.m.path], tree = rec.tree_names, -- checked: index_may_be_nil
     policy = policy, runs = runs, checks = rec.checks,
-    program = plan ~= nil and plan.program or nil,
+    program = plan ~= nil and plan.program or nil, -- checked: and_ternary
   })
   return { command = command, trouble = "", refused = false, unavailable = nil }
 end

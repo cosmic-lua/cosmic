@@ -4,7 +4,7 @@
 local Cors = require("cosmic.web.cors")
 local Web = require("cosmic.web")
 
-local Example = {}
+local Example = {} -- checked: literal_needs_type
 
 --- One partner site may read the API with its cookies; a preflight is answered
 --- without calling a route.
@@ -31,4 +31,4 @@ function Example.trusted()
   assert(#origins == 1 and origins[1] == "https://app.example.com")
 end
 
-return Example
+return Example -- checked: export_not_declared

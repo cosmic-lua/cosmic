@@ -113,7 +113,7 @@ local function against(args: {string}, body: function(relay: Net.Conn, send: fun
   local held = streams()
   Poll.run(function()
     local listener = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
-    local variables = { [variable or "ALL_PROXY"] = proxy_at(assert(listener.address.port), userinfo), COSMIC_CONNECT_TRACE = "1" }
+    local variables = { [variable or "ALL_PROXY"] = proxy_at(assert(listener.address.port), userinfo), COSMIC_CONNECT_TRACE = "1" } -- checked: literal_shape
     if variable == "all_proxy" then variables.all_proxy = variables.all_proxy .. "/" end
     local client = Poll.spawn(function()
       ran.code = connect.run(args, io_of(held, variables, function(line: string)
@@ -244,7 +244,7 @@ local function test_a_refusal_exits_1_with_one_line_naming_what_the_reply_means(
   for _, case in ipairs(REFUSALS) do
     local ran = against({ "host.example", "443" }, function(relay: Net.Conn)
       asked(relay)
-      assert(relay:write(RelayWire.socks_reply(case[1] as RelayWire.SocksReply)))
+      assert(relay:write(RelayWire.socks_reply(case[1] as RelayWire.SocksReply))) -- checked: cast_refused
     end)
     assert(ran.code == 1, support.nth(case, 1) .. ": " .. tostring(ran.code))
     assert(#ran.complaints == 1, table.concat(ran.complaints, "\n"))

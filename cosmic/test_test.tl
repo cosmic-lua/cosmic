@@ -29,8 +29,8 @@ end
 
 --- `module`'s table, whose fields a runner installs, as its untyped self.
 local function fields_of(module: any): {string:any}
-  if module is {string:any} then return module end
-  return nil
+  if module is {string:any} then return module end -- checked: is_on_record
+  return nil -- checked: nil_not_allowed
 end
 
 --- `skip` records its reason with the runner and raises what the runner
@@ -40,17 +40,17 @@ local function test_skip_raises_what_the_runner_answers()
   local ending: {string:string} = {}
   local given: mut {string} = {}
   local fake: {string:any} = {
-    loaded = true,
-    skipped = function(reason: string): {string:string}
+    loaded = true, -- checked: any_use
+    skipped = function(reason: string): {string:string} -- checked: any_use
       given[#given + 1] = reason
       return ending
     end,
   }
   local module = fields_of(Test)
-  local own = module.__runner
-  module.__runner = fake
+  local own = module.__runner -- checked: map_field
+  module.__runner = fake -- checked: map_field
   local ok, raised: boolean, any = pcall(Test.skip, "no kernel")
-  module.__runner = own
+  module.__runner = own -- checked: map_field
   assert(not ok and raised == ending, tostring(raised))
   assert(#given == 1 and given[1] == "no kernel")
 end

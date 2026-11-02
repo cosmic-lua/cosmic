@@ -246,7 +246,7 @@ local function read(text: string, delimiter: string): Scan?, string
           local _, breaks = skipped:gsub("\n", "")
           if breaks > 0 then
             line = line + breaks
-            line_start = opened + skipped:match(".*\n()") - 1
+            line_start = opened + skipped:match(".*\n()") - 1 -- checked: nil_not_allowed
           end
           pos = close + 1
           local after = text:byte(pos)
@@ -307,7 +307,7 @@ local function located(text: string, delimiter: string): {Csv.Record}?, string
   local found: mut {Csv.Record} = {}
   for number, record in ipairs(scan.records) do
     if #record > 0 then
-      found[#found + 1] = { fields = record, line = scan.lines[number] }
+      found[#found + 1] = { fields = record, line = scan.lines[number] } -- checked: index_may_be_nil
     end
   end
   return found, ""
@@ -470,7 +470,7 @@ function Csv.table(text: string, opts?: Csv.Options): Csv.Table?, string
   end
   local records, lines = scan.records, scan.lines
   local first = 1
-  while records[first] ~= nil and #records[first] == 0 do
+  while records[first] ~= nil and #records[first] == 0 do -- checked: nil_not_allowed
     first = first + 1
   end
   local rows: mut {{string:string}} = {}
@@ -478,28 +478,28 @@ function Csv.table(text: string, opts?: Csv.Options): Csv.Table?, string
   if records[first] == nil then
     return { columns = {}, rows = rows, lines = began }, ""
   end
-  local names = Csv.column_names(records[first])
+  local names = Csv.column_names(records[first]) -- checked: index_may_be_nil
   local last = #records
   if #names == 1 then
     -- Blank lines after the last record are the file's end.
-    while last > first and #records[last] == 0 do
+    while last > first and #records[last] == 0 do -- checked: nil_not_allowed
       last = last - 1
     end
   end
   for number = first + 1, last do
     local record = records[number]
-    if #record == 0 then
+    if #record == 0 then -- checked: nil_not_allowed
       if #names == 1 then
         record = { "" }
       end
-    elseif #record ~= #names then
-      return refuse(at(lines[number], 1) .. ": the record has " .. #record ..
-          (if #record == 1 then " field" else " fields" end) .. ", the header " .. tostring(#names))
+    elseif #record ~= #names then -- checked: nil_not_allowed
+      return refuse(at(lines[number], 1) .. ": the record has " .. #record .. -- checked: index_may_be_nil, nil_not_allowed
+          (if #record == 1 then " field" else " fields" end) .. ", the header " .. tostring(#names)) -- checked: nil_not_allowed
     end
-    if #record > 0 then
+    if #record > 0 then -- checked: nil_not_allowed
       local row: mut {string:string} = {}
       for index, name in ipairs(names) do
-        row[name] = record[index]
+        row[name] = record[index] -- checked: index_may_be_nil, nil_not_allowed
       end
       rows[#rows + 1] = row
       local began_at = assert(lines[number])
@@ -638,14 +638,14 @@ function Csv.load(handle: Sqlite.Handle, name: string, source: Csv.Source): Csv.
     if #names == 1 then
       cell = "coalesce(" .. cell .. ", '')"
     end
-    local entry = source.raw and cell or typed(cell)
+    local entry = source.raw and cell or typed(cell) -- checked: condition_type
     cells[#cells + 1] = entry
   end
   -- Blank lines are read as `table` reads them, and a record short of the
   -- header's fields is refused, as `table` refuses one, so no row is
   -- padded past what the input holds; patch/sqlite-ext/ refuses a longer
   -- one.
-  local kept = "rowid > " .. first[1]:text(1)
+  local kept = "rowid > " .. first[1]:text(1) -- checked: nil_not_allowed
   if #names == 1 then
     -- Only the blank lines after the last record are the file's end.
     kept = kept .. " AND rowid <= (SELECT max(rowid) FROM " .. scratch .. " WHERE c0 IS NOT NULL)"
@@ -676,11 +676,11 @@ function Csv.load(handle: Sqlite.Handle, name: string, source: Csv.Source): Csv.
       order[index] = index
     end
     table.sort(order, function(a: integer, b: integer): boolean
-      return keys[a] < keys[b]
+      return keys[a] < keys[b] -- checked: nil_not_allowed
     end)
     local members: mut {string} = {}
     for _, index in ipairs(order) do
-      members[#members + 1] = literal(keys[index]) .. ", " .. identifier(names[index])
+      members[#members + 1] = literal(keys[index]) .. ", " .. identifier(names[index]) -- checked: index_may_be_nil*2
     end
     -- Appending '' leaves plain text: json_object's own result is marked
     -- JSON, which another JSON function would nest as an object.

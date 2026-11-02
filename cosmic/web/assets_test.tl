@@ -103,15 +103,15 @@ end
 --- module ("" for the tool, which records none).
 local function as_program(main: string, fn: function())
   local real = Store.meta
-  Store.meta = function(key: string): string?
+  Store.meta = function(key: string): string? -- checked: field_fixed
     if key == "main" then return main end
     return real(key)
   end
   local ok, err = pcall(function(): any
     fn()
-    return nil
+    return nil -- checked: any_use
   end)
-  Store.meta = real
+  Store.meta = real -- checked: field_fixed
   assert(ok, tostring(err))
 end
 

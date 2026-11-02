@@ -5,7 +5,7 @@ local Html = require("cosmic.html")
 local Htmx = require("cosmic.web.htmx")
 local Web = require("cosmic.web")
 
-local Example = {}
+local Example = {} -- checked: literal_needs_type
 
 --- One handler answers a fragment to an htmx request and the whole page to
 --- a browser, to a boosted link and to a history restore; both answers
@@ -84,4 +84,4 @@ function Example.poll()
   assert(Htmx.path():find(Htmx.version, 1, true) and Htmx.path("sse"):find(Htmx.sse_version, 1, true))
 end
 
-return Example
+return Example -- checked: export_not_declared

@@ -4,7 +4,7 @@
 local Csv = require("cosmic.csv")
 local Sqlite = require("cosmic.sqlite")
 
-local Example = {}
+local Example = {} -- checked: literal_needs_type
 
 --- Records keep quoted commas, quotes and line breaks; every field is
 --- a string, and nothing is read as a number.
@@ -104,4 +104,4 @@ function Example.load()
   assert(db:close())
 end
 
-return Example
+return Example -- checked: export_not_declared

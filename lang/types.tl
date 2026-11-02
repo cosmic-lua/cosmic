@@ -557,7 +557,7 @@ local DECL_KINDS <const>: {string: Types.DeclKind} = {
 --- as one. It bounds every recursion over a type, so that no type or text exhausts the stack.
 local MAX_DEPTH <const> = 1000
 
-Types.max_depth = MAX_DEPTH
+Types.max_depth = MAX_DEPTH -- checked: field_fixed
 
 --- The most types of text [`Types.encode`] writes.
 local TEXT_LIMIT <const> = 100000
@@ -644,7 +644,7 @@ local function render(t: Type, sub: function(Type): string): string
   local parts: mut {string} = { "(fn (tp" }
   for _, tp in ipairs(f.tparams) do
     local bound = tp.bound
-    parts[#parts + 1] = " " .. (bound ~= nil and sub(bound) or "_")
+    parts[#parts + 1] = " " .. (bound ~= nil and sub(bound) or "_") -- checked: and_ternary
   end
   parts[#parts + 1] = ") ("
   local params: mut {string} = {}
@@ -757,8 +757,8 @@ local function written(t: Type): string
   return render(t, encode_text)
 end
 
-Types.digest = digest_text
-Types.encode = written
+Types.digest = digest_text -- checked: field_fixed
+Types.encode = written -- checked: field_fixed
 
 -- Display ----------------------------------------------------------------------
 
@@ -809,7 +809,7 @@ local function parameter_name(names: Names, level: integer, index: integer): str
   local name = "P" .. tostring(index) .. (if level == 0 then "" else "_" .. tostring(level) end)
   if index < #NAME_LETTERS then
     local letter = NAME_LETTERS:sub(index + 1, index + 1)
-    name = level == 0 and letter or letter .. "_" .. tostring(level)
+    name = level == 0 and letter or letter .. "_" .. tostring(level) -- checked: and_ternary
   end
   local taken: {string: boolean} = names.taken or declared_names(names.root)
   names.taken = taken
@@ -852,7 +852,7 @@ local show: function(t: Type, names: Names, parenthesized: boolean): string
 
 --- `t` written before a comma: a function type is parenthesized, or the types after it would be
 --- taken for its returns. `last` says that nothing follows it in the list.
-local function show_element(t: Type, names: Names, last: boolean): string
+local function show_element(t: Type, names: Names, last: boolean): string -- checked: not_assigned
   return show(t, names, not last and (t.tag == "fn"))
 end
 
@@ -1066,7 +1066,7 @@ show = function(t: Type, names: Names, parenthesized: boolean): string
     return if parenthesized then "(" .. text .. ")" else text end
   elseif (t.tag == "var") then
     local binder = names.binders[#names.binders - t.depth]
-    local name = binder ~= nil and binder[t.index + 1] or nil
+    local name = binder ~= nil and binder[t.index + 1] or nil -- checked: and_ternary
     return name or "?" .. tostring(t.depth) .. "." .. tostring(t.index)
   elseif (t.tag == "fn") then
     local text = show_fn(t, names)
@@ -1076,7 +1076,7 @@ show = function(t: Type, names: Names, parenthesized: boolean): string
 end
 
 function Types.display(t: Type, binders?: {{string}}): string
-  local names: Names = { binders = {}, budget = DISPLAY_BUDGET, root = t }
+  local names: Names = { binders = {}, budget = DISPLAY_BUDGET, root = t } -- checked: literal_missing
   for _, b in ipairs(binders or {}) do
     names.binders[#names.binders + 1] = b
   end
@@ -1109,7 +1109,7 @@ local function measure(t: Type)
     changes = changes or t.mut
   elseif (t.tag == "fn") then
     -- The function's own variables are bound by it.
-    open = #t.tparams > 0 and math.max(0, open - 1) or open
+    open = #t.tparams > 0 and math.max(0, open - 1) or open -- checked: and_ternary
   end
   -- A view does not reach through a named type or a function.
   set_measure(t, open, changes and not ((t.tag == "named") or (t.tag == "fn")), weight, height + 1)
@@ -1213,7 +1213,7 @@ local function union_of(store: Store, members: {Type}): Type
     end
   end
   if #kept == 0 then
-    return g.nilable and store.atoms["nil"] or store.never
+    return g.nilable and store.atoms["nil"] or store.never -- checked: and_ternary
   end
   if #kept == 1 and not g.nilable then
     return kept[1]
@@ -1269,36 +1269,36 @@ local function bound_ok(store: Store, bound: Type)
   end
 end
 
-Types.Store.atom = function(self: Store, name: Atom_tag): Type
+Types.Store.atom = function(self: Store, name: Atom_tag): Type -- checked: field_unknown
   return atom_of(self, name)
 end
 
-Types.Store.array = function(self: Store, element: Type, mutable?: boolean): Type
+Types.Store.array = function(self: Store, element: Type, mutable?: boolean): Type -- checked: field_unknown
   owned(self, element)
   local array: Array = {
     tag = "array", atom = false, id = 0, owner = self.owner, digest = "", open = 0, has_mut = false,
     weight = 1, height = 1,
-    element = element, mut = mutable or false,
+    element = element, mut = mutable or false, -- checked: condition_type
   }
   return intern(self, array)
 end
 
-Types.Store.map = function(self: Store, key: Type, value: Type, mutable?: boolean): Type
+Types.Store.map = function(self: Store, key: Type, value: Type, mutable?: boolean): Type -- checked: field_unknown
   owned(self, key)
   owned(self, value)
   local map: Map = {
     tag = "map", atom = false, id = 0, owner = self.owner, digest = "", open = 0, has_mut = false,
     weight = 1, height = 1,
-    key = key, value = value, mut = mutable or false,
+    key = key, value = value, mut = mutable or false, -- checked: condition_type
   }
   return intern(self, map)
 end
 
-Types.Store.union = function(self: Store, members: {Type}): Type
+Types.Store.union = function(self: Store, members: {Type}): Type -- checked: field_unknown
   return union_of(self, members)
 end
 
-Types.Store.optional = function(self: Store, t: Type): Type
+Types.Store.optional = function(self: Store, t: Type): Type -- checked: field_unknown
   owned(self, t)
   if (t.tag == "union") and t.nilable then
     return t
@@ -1306,7 +1306,7 @@ Types.Store.optional = function(self: Store, t: Type): Type
   return union_of(self, { t, atom_of(self, "nil") })
 end
 
-Types.Store.non_nil = function(self: Store, t: Type): Type
+Types.Store.non_nil = function(self: Store, t: Type): Type -- checked: field_unknown
   owned(self, t)
   if (t.atom == true) and t.tag == "nil" then
     return self.never
@@ -1316,7 +1316,7 @@ Types.Store.non_nil = function(self: Store, t: Type): Type
   return t
 end
 
-Types.Store.var = function(self: Store, depth: integer, index: integer): Type
+Types.Store.var = function(self: Store, depth: integer, index: integer): Type -- checked: field_unknown
   if math.type(depth) ~= "integer" or math.type(index) ~= "integer" or depth < 0 or index < 0 then
     error("types: a variable has a depth and an index of 0 or more", 2)
   end
@@ -1328,7 +1328,7 @@ Types.Store.var = function(self: Store, depth: integer, index: integer): Type
   return intern(self, var)
 end
 
-Types.Store.named = function(self: Store, decl: Decl, args?: {Type}, value?: boolean): Type
+Types.Store.named = function(self: Store, decl: Decl, args?: {Type}, value?: boolean): Type -- checked: field_unknown
   if decl.owner ~= self.owner then
     error("types: a declaration of another store", 2)
   end
@@ -1344,7 +1344,7 @@ Types.Store.named = function(self: Store, decl: Decl, args?: {Type}, value?: boo
   local named: Named = {
     tag = "named", atom = false, id = 0, owner = self.owner, digest = "", open = 0, has_mut = false,
     weight = 1, height = 1,
-    decl = decl, args = copied, value = value or false,
+    decl = decl, args = copied, value = value or false, -- checked: condition_type
   }
   local made = intern(self, named)
   if arity == nil and made == named then
@@ -1397,7 +1397,7 @@ local record Keyed
   alt: Alt
 end
 
-Types.Store.fn = function(self: Store, spec: FnSpec): Type
+Types.Store.fn = function(self: Store, spec: FnSpec): Type -- checked: field_unknown
   local tparams: mut {TParam} = {}
   for i, tp in ipairs(spec.tparams or {}) do
     local bound = tp.bound
@@ -1409,7 +1409,7 @@ Types.Store.fn = function(self: Store, spec: FnSpec): Type
   local params: mut {Param} = {}
   for i, p in ipairs(spec.params or {}) do
     owned(self, p.type)
-    local omittable = p.omittable or false
+    local omittable = p.omittable or false -- checked: condition_type
     params[i] = { type = omittable and self:optional(p.type) or p.type, omittable = omittable }
   end
   local rest = spec.rest
@@ -1451,7 +1451,7 @@ Types.Store.fn = function(self: Store, spec: FnSpec): Type
     -- Its own variables, which may be anywhere in it, name a parameter it has.
     local seen: {string: boolean} = {}
     for _, part in ipairs(Types.parts(f)) do
-      local why = unbound(part, 0, #tparams, seen)
+      local why = unbound(part, 0, #tparams, seen) -- checked: view_as_mut
       if why ~= "" then
         error("types: " .. why, 2)
       end
@@ -1460,7 +1460,7 @@ Types.Store.fn = function(self: Store, spec: FnSpec): Type
   return intern(self, f)
 end
 
-Types.Store.size = function(self: Store): integer
+Types.Store.size = function(self: Store): integer -- checked: field_unknown
   return self.count
 end
 
@@ -1519,7 +1519,7 @@ local function set_arity(store: Store, decl: Decl, arity: integer)
   decl.arity = arity
 end
 
-Types.Store.declare = function(self: Store, kind: Types.DeclKind, module: string, names: {string}, arity?: integer): Decl
+Types.Store.declare = function(self: Store, kind: Types.DeclKind, module: string, names: {string}, arity?: integer): Decl -- checked: field_unknown
   if arity ~= nil and (math.type(arity) ~= "integer" or arity < 0) then
     error("types: a declaration takes a count of type arguments of 0 or more", 2)
   end
@@ -1608,11 +1608,11 @@ function Types.forget(self: Store, decls: {Decl})
   end
 end
 
-Types.Store.find = function(self: Store, module: string, name: string): Decl?
+Types.Store.find = function(self: Store, module: string, name: string): Decl? -- checked: field_unknown
   return self.declared[path_key(module, name)]
 end
 
-Types.Store.declarations = function(self: Store): {Decl}
+Types.Store.declarations = function(self: Store): {Decl} -- checked: field_unknown
   local out: mut {Decl} = {}
   for i, d in ipairs(self.list) do
     out[i] = d
@@ -1712,9 +1712,9 @@ local function normal_body(store: Store, decl: Decl, body: Body): Body
   end
   for _, field in ipairs(body.fields) do
     owned(store, field.type)
-    local omittable = field.omittable or false
+    local omittable = field.omittable or false -- checked: condition_type
     local t = omittable and store:optional(field.type) or field.type
-    made.fields[#made.fields + 1] = { name = field.name, type = t, mut = field.mut or false, omittable = omittable }
+    made.fields[#made.fields + 1] = { name = field.name, type = t, mut = field.mut or false, omittable = omittable } -- checked: condition_type
     roots[#roots + 1] = t
   end
   local array = body.array
@@ -1754,7 +1754,7 @@ local function normal_body(store: Store, decl: Decl, body: Body): Body
     if root.open > 1 then
       error("types: " .. Types.display(root) .. " in " .. decl.name .. " names a variable of no binder", 3)
     end
-    local why = unbound(root, 0, #made.tparams, checked)
+    local why = unbound(root, 0, #made.tparams, checked) -- checked: view_as_mut
     if why ~= "" then
       error("types: " .. why .. " in " .. decl.name, 3)
     end
@@ -1787,7 +1787,7 @@ local function give_body(store: Store, decl: Decl, body: Body)
   decl.body = body
 end
 
-Types.Store.define = function(self: Store, decl: Decl, body: Body): Decl
+Types.Store.define = function(self: Store, decl: Decl, body: Body): Decl -- checked: field_unknown
   if decl.owner ~= self.owner then
     error("types: a declaration of another store", 2)
   end
@@ -1907,7 +1907,7 @@ end
 
 local function integer(r: Reader): integer
   local word = atom(r)
-  local n = word:match("^%d+$") ~= nil and #word < 10 and math.tointeger(tonumber(word)) or nil
+  local n = word:match("^%d+$") ~= nil and #word < 10 and math.tointeger(tonumber(word)) or nil -- checked: and_ternary
   if n == nil then
     fail(r, "a number was expected, not " .. word)
   end
@@ -1932,7 +1932,7 @@ local function string_of(r: Reader): string
       return table.concat(out)
     end
     local digits = text:match("^%d%d%d", stop + 1)
-    local byte = digits ~= nil and math.tointeger(tonumber(digits)) or nil
+    local byte = digits ~= nil and math.tointeger(tonumber(digits)) or nil -- checked: and_ternary
     if byte == nil or byte > 255 then
       fail(r, "a string has a bad escape")
     end
@@ -1968,7 +1968,7 @@ local function descend(r: Reader)
 end
 
 --- The declaration at a path: the store's, or the loader's.
-local function resolve(r: Reader, module: string, name: string): Decl
+local function resolve(r: Reader, module: string, name: string): Decl -- checked: not_assigned
   local store = r.store
   local found = store:find(module, name)
   if found ~= nil then
@@ -1989,7 +1989,7 @@ local function resolve(r: Reader, module: string, name: string): Decl
 end
 
 --- A parameter or field type, which `(opt T)` marks omittable.
-local function read_slot(r: Reader): Type, boolean
+local function read_slot(r: Reader): Type, boolean -- checked: not_assigned
   if head(r) == "opt" then
     expect(r, "opt")
     local t = read_type(r)
@@ -2142,7 +2142,7 @@ local function read_body(r: Reader, decl: Decl): Body
   -- Known before anything else in the body, which may use the declaration.
   store:declare(decl.kind, decl.module, decl.names, #body.tparams)
   expect(r, "supers")
-  body.supers = read_types(r)
+  body.supers = read_types(r) -- checked: view_as_mut
   close(r)
   expect(r, "fields")
   while peek(r) ~= ")" do
@@ -2319,7 +2319,7 @@ local function attempt(store: Store, work: function()): string
   return message:sub(at)
 end
 
-Types.Store.decode = function(self: Store, text: string): Type?, string
+Types.Store.decode = function(self: Store, text: string): Type?, string -- checked: field_unknown
   local r: Reader = { text = text, at = 1, store = self }
   local read: mut {Type} = {}
   local why = attempt(self, function()
@@ -2336,7 +2336,7 @@ Types.Store.decode = function(self: Store, text: string): Type?, string
   return nil, why
 end
 
-Types.Store.decode_declaration = function(self: Store, text: string): Decl?, string
+Types.Store.decode_declaration = function(self: Store, text: string): Decl?, string -- checked: field_unknown
   local read: mut {Decl} = {}
   local why = attempt(self, function()
     read[1] = read_declaration(self, text, nil, nil)
@@ -2349,24 +2349,24 @@ end
 
 -- The store ---------------------------------------------------------------------------
 
-local store_mt: metatable<Store> = { __index = Types.Store }
+local store_mt: metatable<Store> = { __index = Types.Store } -- checked: field_unknown, literal_missing
 
 function Types.new(loader?: Loader): Store
-  counter.stores = counter.stores + 1
+  counter.stores = counter.stores + 1 -- checked: map_field*2
   local atoms: mut {string: Type} = {}
   local interned: mut {string: Type} = {}
   local types: mut {Type} = {}
   for i, name in ipairs(ATOMS) do
     local made: Atom = {
-      tag = name, atom = true, id = i, owner = counter.stores, digest = "", open = 0, has_mut = false,
+      tag = name, atom = true, id = i, owner = counter.stores, digest = "", open = 0, has_mut = false, -- checked: map_field
       weight = 1, height = 1,
     }
     atoms[name] = made
     interned[name] = made
     types[i] = made
   end
-  local store: Store = setmetatable({
-    owner = counter.stores, count = #ATOMS, types = types, interned = interned, declared = {}, list = {},
+  local store: Store = setmetatable({ -- checked: setmetatable_call -- untyped: call
+    owner = counter.stores, count = #ATOMS, types = types, interned = interned, declared = {}, list = {}, -- checked: map_field
     atoms = atoms, loader = loader, pending = {}, journal = {}, building = {}, building_order = {}, depth = 0,
     transactions = 0, dead = 0,
     integer = atoms["integer"], number = atoms["number"], string = atoms["string"], boolean = atoms["boolean"],

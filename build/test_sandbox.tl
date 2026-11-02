@@ -199,9 +199,9 @@ local parent_place <const> = "/tree-up"
 function test_sandbox.environment(environment: {string:string},
                                   effective: test_inputs.Effective): mut {string:string}
   local out: mut {string:string} = {}
-  for name in pairs(effective.env) do out[name] = environment[name] end
+  for name in pairs(effective.env) do out[name] = environment[name] end -- checked: index_may_be_nil
   out["COSMIC_TEST_NOEXEC"], out["COSMIC_TEST_PARENT"] = nil, nil
-  if effective.noexec_ready then out["COSMIC_TEST_NOEXEC"] = "/noexec" end
+  if effective.noexec_ready then out["COSMIC_TEST_NOEXEC"] = "/noexec" end -- checked: condition_type
   if #(effective.parent or {}) > 0 then out["COSMIC_TEST_PARENT"] = parent_place end
   out["TMPDIR"] = test_sandbox.scratch
   out["COSMIC_BUILD_HOME"] = build_home
@@ -291,7 +291,7 @@ end
 --- rest from its "/" on -- or nil for a path not beneath it.
 local function beneath(path: string, dir: string): string?
   if path == dir then return "" end
-  if dir == "/" then return path:sub(1, 1) == "/" and path or nil end
+  if dir == "/" then return path:sub(1, 1) == "/" and path or nil end -- checked: and_ternary
   if String.starts_with(path, dir .. "/") then return path:sub(#dir + 1) end
   return nil
 end
@@ -306,7 +306,7 @@ end
 local function shown_by(path: string, reads: {string}, at: {string:string}): boolean
   local placed = at[path] or path
   for _, other in ipairs(reads) do
-    local rest = other ~= path and beneath(path, other) or nil
+    local rest = other ~= path and beneath(path, other) or nil -- checked: and_ternary
     if rest ~= nil and rest ~= "" and beneath(placed, at[other] or other) == rest then
       local real, other_real = confine.resolution(path), confine.resolution(other)
       if real ~= "" and other_real ~= "" and beneath(real, other_real) == rest then
@@ -474,7 +474,7 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
     -- The artifact is run only where the module declares `tool`: a worker that
     -- nests is given it to read alone, where it is given it at all (below).
     if executable ~= nil and effective.tool then runs[executable] = true end
-    if launched ~= nil then runs[launched.argv[1]] = true end
+    if launched ~= nil then runs[launched.argv[1]] = true end -- checked: index_may_be_nil
   end
   for _, path in ipairs(base.reads) do
     if path == "/proc" then
@@ -533,7 +533,7 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
     if launched ~= nil and launched.argv[2] == "--artifact" and launched.argv[3] ~= nil then
       -- Given by a name a grant may name, which the worker is told it by
       -- too (`program`) where that differs from the runner's.
-      local artifact = confine.grantable(launched.argv[3])
+      local artifact = confine.grantable(launched.argv[3]) -- checked: index_may_be_nil
       if artifact ~= launched.argv[3] then program = artifact end
       give(artifact)
     end
@@ -569,7 +569,7 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   -- Each file above the project, read-only at its relative path beneath
   -- [`parent_place`]. A file the host lacks is none, as the test
   -- finds ([`test_inputs.resolve`] fails its tests before it starts).
-  local above = #(effective.parent or {}) > 0 and test_inputs.parent_directory(root) or ""
+  local above = #(effective.parent or {}) > 0 and test_inputs.parent_directory(root) or "" -- checked: and_ternary
   for _, relative in ipairs(effective.parent or {}) do
     local source = above .. "/" .. relative
     -- One host path is bound at one place: a file the plan gives already
@@ -671,7 +671,7 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
     sandbox = { unveil = { reads = reads, writes = writes, at = at }, offline = true },
     env = test_sandbox.environment(environment, effective),
     over = over,
-    trouble = refused ~= "" and refused or made and "" or "a cache it declares: " .. trouble,
+    trouble = refused ~= "" and refused or made and "" or "a cache it declares: " .. trouble, -- checked: or_mix, and_ternary
     program = program,
     runs = runs,
     own_scratch = own_scratch,
@@ -697,10 +697,10 @@ function test_sandbox.rebind(plan: test_sandbox.Plan, from: string, scratch: str
   for _, path in ipairs(unveil.reads) do reads[#reads + 1] = path end
   local writes: mut {string} = {}
   for _, path in ipairs(unveil.writes or {}) do
-    writes[#writes + 1] = path == from and scratch or path
+    writes[#writes + 1] = path == from and scratch or path -- checked: and_ternary
   end
   local at: mut {string:string} = {}
-  for path, inside in pairs(unveil.at or {}) do at[path == from and scratch or path] = inside end
+  for path, inside in pairs(unveil.at or {}) do at[path == from and scratch or path] = inside end -- checked: and_ternary
   local env: mut {string:string} = {}
   for name, value in pairs(plan.env) do env[name] = value end
   local runs: mut {string:boolean} = {}

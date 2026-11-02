@@ -97,7 +97,7 @@ end
 local function hub_app(hub: Sse.Hub, opts?: Sse.EventStreamOptions, spec?: Web.AppSpec): Web.App
   local given: Sse.EventStreamOptions = opts or { heartbeat_ns = BEAT_NS, retry_ms = 100 }
   local routes: {Web.Route} = { Web.get("/events/:topic", function(req: Web.Request): Web.Response
-    local sub, why = hub:subscribe({ req.params.topic }, { after = Sse.last_event_id(req) })
+    local sub, why = hub:subscribe({ req.params.topic }, { after = Sse.last_event_id(req) }) -- checked: map_field
     if sub == nil then
       return Web.text(why, { status = 503, headers = { ["Retry-After"] = "5" } })
     end
@@ -127,8 +127,8 @@ local function test_format_event_refuses_a_field_that_would_start_another()
   assert(Test.raises(function() local _ = Sse.format_event({ id = "a\0b" }) end):find("NUL", 1, true))
   assert(Test.raises(function() local _ = Sse.format_event({ event = "a\rb" }) end):find("event must not hold", 1, true))
   assert(Test.raises(function() local _ = Sse.format_event({ retry = -1 }) end):find("retry", 1, true))
-  local fractional: any = { retry = 1.5 }
-  assert(Test.raises(function() local _ = Sse.format_event(fractional as Sse.Event) end):find("retry", 1, true))
+  local fractional: any = { retry = 1.5 } -- checked: any_use
+  assert(Test.raises(function() local _ = Sse.format_event(fractional as Sse.Event) end):find("retry", 1, true)) -- checked: cast_refused
 end
 
 local function test_event_helpers_name_the_event_and_escape_nothing_themselves()
@@ -174,7 +174,7 @@ end
 local function test_a_source_that_fails_ends_the_stream_and_says_why()
   local closed: mut {string} = {}
   local app = Web.app{ routes = { Web.get("/s", function(req: Web.Request): Web.Response
-    local source: Sse.EventSource = {
+    local source: Sse.EventSource = { -- checked: literal_shape
       next = function(_self: Sse.EventSource, _t?: integer): Sse.Event?, string
         return nil, "database gone"
       end,
@@ -211,8 +211,8 @@ end
 local function test_options_are_checked()
   assert(Test.raises(function() local _ = Sse.new_hub({ overflow = "block" }) end):find("overflow must be", 1, true))
   assert(Test.raises(function() local _ = Sse.new_hub({ replay = -1 }) end):find("replay", 1, true))
-  local unknown: any = { nope = 1 }
-  assert(Test.raises(function() local _ = Sse.new_hub(unknown as Sse.HubOptions) end):find("no option nope", 1, true))
+  local unknown: any = { nope = 1 } -- checked: any_use
+  assert(Test.raises(function() local _ = Sse.new_hub(unknown as Sse.HubOptions) end):find("no option nope", 1, true)) -- checked: cast_refused
   assert(Test.raises(function() Web.app{ max_streams = -1 } end):find("max_streams", 1, true))
 end
 
@@ -290,8 +290,8 @@ local function test_subscribing_to_names_and_leaving_leaves_no_topic_behind()
     none:publish("gone", { data = "x" })
     local count = 0
     for _, each in ipairs({ hub, none }) do
-      local inner: any = each
-      for _ in pairs((inner as {string:{string:any}}).topics as {string:any}) do
+      local inner: any = each -- checked: any_use
+      for _ in pairs((inner as {string:{string:any}}).topics as {string:any}) do -- checked: cast_refused*2
         count = count + 1
       end
     end
@@ -490,7 +490,7 @@ local function test_stopping_the_server_ends_every_stream_long_before_the_grace(
     return Sse.EventStream(req, Sse.from_queue(source), { heartbeat_ns = Clock.seconds(30),
       on_close = function(why: string) ended[#ended + 1] = why end })
   end)
-  routes[#routes + 1] = queued
+  routes[#routes + 1] = queued -- checked: view_written
   local started = Clock.monotonic_ns()
   serving(Web.app(app.spec), Clock.seconds(8), function(host: string, server: Net.Server)
     local feeds = { open(host, "/events/t"), open(host, "/events/u"), open(host, "/queue") }
@@ -509,7 +509,7 @@ end
 
 local function test_a_stream_that_ignores_its_close_is_killed_at_the_grace_and_released()
   local closed: mut {string} = {}
-  local stuck: Sse.EventSource = {
+  local stuck: Sse.EventSource = { -- checked: literal_shape
     next = function(_self: Sse.EventSource, _t?: integer): Sse.Event?, string
       local _, _ = Poll.delay(Clock.seconds(60))
       return nil, ""
@@ -599,9 +599,9 @@ local function test_a_bad_option_closes_the_source_it_was_given()
   local app = Web.app{ routes = { Web.get("/s", function(req: Web.Request): Web.Response
     local queue: Channel.Queue<Sse.Event> = Channel.new()
     queues[#queues + 1] = queue
-    local wrong: any = { retry_ms = -1 }
-    if #queues == 2 then wrong = { initial = { { id = "a\nb" } } } end
-    return Sse.EventStream(req, Sse.from_queue(queue), wrong as Sse.EventStreamOptions)
+    local wrong: any = { retry_ms = -1 } -- checked: any_use
+    if #queues == 2 then wrong = { initial = { { id = "a\nb" } } } end -- checked: any_use
+    return Sse.EventStream(req, Sse.from_queue(queue), wrong as Sse.EventStreamOptions) -- checked: cast_refused
   end) }, sink = { line = function(_self: Web.Sink, _text: string) end } }
   Web.with_client(app, function(client: Web.TestClient)
     assert(client:get("/s").status == 500 and client:get("/s").status == 500)

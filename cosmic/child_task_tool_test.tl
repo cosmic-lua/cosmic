@@ -32,7 +32,7 @@ end
 --- `start` and are put back after it: `start` asks for the exit watch once,
 --- and the handle it answers waits on what it was given.
 local function reloaded(alter: function({string: any})): Entry
-  local real = require("cosmic.internal.process") as mut {string: any} -- cast: to replace members by name
+  local real = require("cosmic.internal.process") as mut {string: any} -- cast: to replace members by name -- checked: cast_refused
   local copy: mut {string: any} = {}
   for name, value in pairs(real) do copy[name] = value end
   alter(copy)
@@ -78,7 +78,7 @@ end
 --- each exit every few milliseconds instead.
 local function without_exit_watch(): Entry
   return reloaded(function(copy: {string: any})
-    copy.exit_watch = function(_pid: integer): integer?, string, integer
+    copy.exit_watch = function(_pid: integer): integer?, string, integer -- checked: map_field
       return nil, "no exit watch here", sys.ENOSYS
     end
   end)
@@ -156,11 +156,11 @@ local function test_a_wait_in_a_task_is_woken_by_its_exit_watch()
   local type Watch = function(integer): integer?, string, integer
   local watch: Watch? = nil
   local module = reloaded(function(copy: {string: any})
-    local pipe = copy.pipe as function(): raw_process.Pipe, string, integer -- cast: the raw table's `pipe`
-    watch = copy.exit_watch as Watch -- cast: the raw table's `exit_watch`
+    local pipe = copy.pipe as function(): raw_process.Pipe, string, integer -- cast: the raw table's `pipe` -- checked: cast_refused, map_field
+    watch = copy.exit_watch as Watch -- cast: the raw table's `exit_watch` -- checked: cast_refused, map_field
     local made = assert(pipe())
     ends = made
-    copy.exit_watch = function(_pid: integer): integer?, string, integer
+    copy.exit_watch = function(_pid: integer): integer?, string, integer -- checked: map_field
       return made.reader, "", 0
     end
   end)
@@ -205,8 +205,8 @@ local function test_every_child_started_here_has_an_exit_watch()
   local given: integer = 0
   local refused: string = ""
   local module = reloaded(function(copy: {string: any})
-    local watch = copy.exit_watch as function(integer): integer?, string, integer -- cast: the raw table's `exit_watch`
-    copy.exit_watch = function(pid: integer): integer?, string, integer
+    local watch = copy.exit_watch as function(integer): integer?, string, integer -- cast: the raw table's `exit_watch` -- checked: cast_refused, map_field
+    copy.exit_watch = function(pid: integer): integer?, string, integer -- checked: map_field
       local fd, why, errno = watch(pid)
       if fd ~= nil then given = given + 1 else refused = why end
       return fd, why, errno
@@ -234,12 +234,12 @@ end
 local function test_a_child_that_exited_before_its_watch_was_asked_for_is_waited_for()
   local asked: integer = 0
   local module = reloaded(function(copy: {string: any})
-    local watch = copy.exit_watch as function(integer): integer?, string, integer -- cast: the raw table's `exit_watch`
-    copy.exit_watch = function(pid: integer): integer?, string, integer
+    local watch = copy.exit_watch as function(integer): integer?, string, integer -- cast: the raw table's `exit_watch` -- checked: cast_refused, map_field
+    copy.exit_watch = function(pid: integer): integer?, string, integer -- checked: map_field
       asked = asked + 1
       local fd, _, _ = watch(pid)
       if fd ~= nil then
-        assert(assert(sys.poll({ fd }, { sys.POLLIN }, 30000))[1] & sys.POLLIN ~= 0,
+        assert(assert(sys.poll({ fd }, { sys.POLLIN }, 30000))[1] & sys.POLLIN ~= 0, -- checked: nil_not_allowed
           "the child did not exit")
         assert(sys.close(fd))
       end
@@ -434,7 +434,7 @@ local function test_a_raise_while_ending_a_run_still_kills_the_child(tmp: string
   local report = tmp .. "/raised"
   local poll = sys.poll
   local raised: boolean = false
-  sys.poll = function(fds: {integer}, events: {integer}, ms: integer): {integer}?, string, integer
+  sys.poll = function(fds: {integer}, events: {integer}, ms: integer): {integer}?, string, integer -- checked: field_fixed
     if Fs.exists(report) == true then
       raised = true
       error("poll refused", 0)
@@ -448,7 +448,7 @@ local function test_a_raise_while_ending_a_run_still_kills_the_child(tmp: string
   -- assertions below.
   local argv, options = lua(holding_term(report), { timeout_ns = Clock.seconds(8) })
   local ok, trouble: boolean, any = pcall(Child.run, argv, options)
-  sys.poll = poll
+  sys.poll = poll -- checked: field_fixed
   assert(raised and not ok and tostring(trouble):find("poll refused", 1, true) ~= nil,
     tostring(trouble))
   local pid = assert(math.tointeger(tonumber((assert(Fs.read(report))))))
@@ -672,7 +672,7 @@ local function test_two_tasks_settle_one_child_once()
       tasks[i] = Poll.spawn(function()
         local t = assert(again:try_wait())
         assert(t.finished)
-        answers[i] = t.result
+        answers[i] = t.result -- checked: nil_not_allowed
       end)
     end
     for _, task in ipairs(tasks) do assert(task:join()) end
@@ -683,7 +683,7 @@ local function test_two_tasks_settle_one_child_once()
     assert(closer:join())
     answers[4] = assert(third:wait())
   end)
-  assert(rawequal(answers[1], answers[2]) and answers[1].code == 4, "try_wait settled twice")
+  assert(rawequal(answers[1], answers[2]) and answers[1].code == 4, "try_wait settled twice") -- checked: nil_not_allowed
   assert(closed, "the close failed")
   assert(rawequal(answers[3], answers[4]), "a wait and a close settled twice")
 end

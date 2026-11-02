@@ -89,6 +89,6 @@ local function test_a_sandboxed_child_has_only_what_it_unveils(tmp: string)
     return
   end
   assert(r.ok and r.stdout == "in\n/given\nhidden-absent\nno-own-name\n", tostring(r.stdout))
-  assert(not pcall(Child.start, { "/bin/sh" },
-    { sandbox = { unveil = { reads = { "relative" } } } } as Child.Options))
+  assert(not pcall(Child.start, { "/bin/sh" }, -- checked: alternatives_as_value
+    { sandbox = { unveil = { reads = { "relative" } } } } as Child.Options)) -- checked: cast_refused
 end

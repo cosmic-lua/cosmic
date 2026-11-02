@@ -247,7 +247,7 @@ function StaticFiles.handler(opts?: StaticFiles.Options): Types.Handler
       return missing(req)
     end
 
-    local control = by_digest and immutable_control or plain_control
+    local control = if by_digest then immutable_control else plain_control end
     local has_range = req:header("range") ~= nil
     -- A byte range is of the identity representation, so a Range request is
     -- served plain whatever the client accepts: a range of the coded bytes
@@ -350,7 +350,7 @@ function StaticFiles.mount(prefix: string, opts?: StaticFiles.Options): Types.Ro
   }
   return Route.mount_handler(prefix, StaticFiles.handler(o), { name = "static",
     reverse = function(full: string, params: {string:string}): string?, string
-      local path = params.path
+      local path = params.path -- checked: map_field
       if path == nil then return nil, "static: url_for needs a 'path' parameter" end
       return StaticFiles.url(source, full, path)
     end })

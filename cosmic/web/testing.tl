@@ -168,7 +168,7 @@ local function prepare(method: string, path: string, opts: Options): Prepared
   local opts_query = opts.query
   if opts_query ~= nil then
     local extra = Url.encode_query(pairs_of(opts_query))
-    if extra ~= "" then query = query == "" and extra or query .. "&" .. extra end
+    if extra ~= "" then query = (if query == "" then extra else query .. "&" .. extra end) end
   end
   local headers: mut {string:string} = { host = "testserver" }
   for name, value in pairs(opts.headers or {}) do headers[name:lower()] = value end
@@ -210,12 +210,12 @@ end
 
 local function json(self: Response): any?, string
   local value, why = Json.decode(self.body)
-  if why ~= "" then return nil, why end
+  if why ~= "" then return nil, why end -- checked: any_use
   return value, ""
 end
 
-local response_methods = { header_list = header_list, text = text, json = json }
-local response_mt: metatable<Response> = { __index = response_methods }
+local response_methods = { header_list = header_list, text = text, json = json } -- checked: arms_differ
+local response_mt: metatable<Response> = { __index = response_methods } -- checked: literal_missing
 
 --- A response from `lines`, header lines as `{name, value}` in order.
 local function response_of(status: integer, lines: {HeaderLine}, body: string): Response
@@ -230,12 +230,12 @@ local function response_of(status: integer, lines: {HeaderLine}, body: string): 
       headers[name] = held .. ", " .. line.value
     end
     by_name[name] = by_name[name] or {}
-    table.insert(by_name[name], line.value)
+    table.insert(by_name[name], line.value) -- checked: overload_none -- untyped: call
   end
-  local response: Response = { status = status, headers = headers, lines = by_name, body = body,
+  local response: Response = { status = status, headers = headers, lines = by_name, body = body, -- checked: literal_missing
     ok = status >= 200 and status < 300 }
   if REDIRECT[status] == true then response.redirect_location = headers["location"] end
-  return setmetatable(response, response_mt)
+  return setmetatable(response, response_mt) -- checked: setmetatable_call -- untyped: call
 end
 
 --- Runs `fn` in a [`Poll.run`] unless the caller is already in a task of one.
@@ -258,7 +258,7 @@ local function start(client: Testing.Client)
   local lifespan = client.app.spec.lifespan
   if lifespan ~= nil then
     local cleanup, why = lifespan(client.app)
-    if cleanup == nil and why ~= nil and why ~= "" then
+    if cleanup == nil and why ~= nil and why ~= "" then -- checked: compare_disjoint
       error("web: test client: the lifespan failed: " .. why, 0)
     end
     client.shutdown = cleanup
@@ -374,7 +374,7 @@ local function send(client: Testing.Client, method: string, path: string, opts: 
     local reply = client.app.handle(raw)
     local trouble = Server.check(reply, method)
     if trouble ~= "" then
-      local unsent = type(reply) == "table" and reply.body or nil
+      local unsent = if type(reply) == "table" then reply.body else nil end
       if unsent ~= nil then
         if not unsent is string then
           local _, _ = unsent:close()
@@ -465,12 +465,12 @@ local function verb(method: string): function(self: Testing.Client, path: string
   end
 end
 
-local client_methods = {
+local client_methods = { -- checked: arms_differ
   request = request, get = verb("GET"), head = verb("HEAD"), post = verb("POST"),
   put = verb("PUT"), patch = verb("PATCH"), delete = verb("DELETE"), options = verb("OPTIONS"),
 }
 
-client_mt = {
+client_mt = { -- checked: literal_missing
   __index = client_methods,
   __close = function(self: Testing.Client)
     local shutdown = self.shutdown
@@ -488,7 +488,7 @@ client_mt = {
 --- @param app Types.App The app
 --- @return Testing.Client The client
 function Testing.test_client(app: Types.App): Testing.Client
-  return setmetatable({ app = app, jar = {}, attrs = {}, scheme = "http", started = false },
+  return setmetatable({ app = app, jar = {}, attrs = {}, scheme = "http", started = false }, -- checked: setmetatable_call -- untyped: call
     client_mt)
 end
 
@@ -498,7 +498,7 @@ end
 --- @param app Types.App The app
 --- @param fn function(client: Testing.Client) The test
 function Testing.with_client(app: Types.App, fn: function(client: Testing.Client))
-  local client <close> = Testing.test_client(app)
+  local client <close> = Testing.test_client(app) -- checked: close_not_closable
   start(client)
   Poll.run(function() fn(client) end)
 end
@@ -525,7 +525,7 @@ local function next_line(lb: Testing.Loopback): string?, string
       return found, ""
     end
     local ok, why = fill(lb)
-    if not ok then return nil, why ~= "" and why or "the connection ended within a head" end
+    if not ok then return nil, why ~= "" and why or "the connection ended within a head" end -- checked: and_ternary
   end
 end
 
@@ -533,7 +533,7 @@ end
 local function take(lb: Testing.Loopback, n: integer): string?, string
   while #lb.buf < n do
     local ok, why = fill(lb)
-    if not ok then return nil, why ~= "" and why or "the connection ended within a body" end
+    if not ok then return nil, why ~= "" and why or "the connection ended within a body" end -- checked: and_ternary
   end
   local out = lb.buf:sub(1, n)
   lb.buf = lb.buf:sub(n + 1)
@@ -661,7 +661,7 @@ local function loopback_raw(self: Testing.Loopback, bytes: string, method?: stri
   -- long again for a reply would only double the failure's time.
   if write_why == Poll.TIMEOUT then return nil, write_why end
   local reply, why = read_reply(self, method or "GET")
-  if reply == nil then return nil, write_why ~= "" and write_why or why end
+  if reply == nil then return nil, (if write_why ~= "" then write_why else why end) end
   return reply, ""
 end
 

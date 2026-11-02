@@ -34,7 +34,7 @@ end
 
 local function class_of(table_: dialect.Table, attr: string): string
   local rule = table_:classify(attr)
-  return rule ~= nil and rule.class or "plain"
+  return if rule ~= nil then rule.class else "plain" end
 end
 
 local function test_the_htmx_table_is_what_is_pinned_here()
@@ -45,7 +45,7 @@ local function test_the_htmx_table_is_what_is_pinned_here()
     -- `classify` takes the lower-case name the tokenizer gives it; the
     -- upper-case spellings of a page are compiled in template_test.
   end
-  local def = dialect.registry.htmx
+  local def = dialect.registry.htmx -- checked: map_field
   assert(def.targets == "2.0.11", def.targets)
   -- Nothing in the table or its plain list is missing from the pin.
   for attr in pairs(def.exact) do

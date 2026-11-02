@@ -43,7 +43,7 @@ local function sdist(path: string, version: string, files: {string:string})
   end
   table.sort(names)
   for _, name in ipairs(names) do
-    assert(w:add_file(("tzdata-%s/src/tzdata/%s"):format(version, name), files[name]))
+    assert(w:add_file(("tzdata-%s/src/tzdata/%s"):format(version, name), files[name])) -- checked: index_may_be_nil
   end
   assert(w:close())
   assert(Fs.write(path, (assert(Compress.deflate("gzip", out:result())))))
@@ -63,15 +63,15 @@ local function test_reads_a_zone()
 end
 ]]))
   local env = this_program.environment()
-  env.COSMIC_VERDICT_CACHE = tmp .. "/cache/verdicts.db"
-  env.COSMIC_TEST_ALL = nil
-  env.COSMIC_SANDBOX = nil
+  env.COSMIC_VERDICT_CACHE = tmp .. "/cache/verdicts.db" -- checked: map_field
+  env.COSMIC_TEST_ALL = nil -- checked: map_field
+  env.COSMIC_SANDBOX = nil -- checked: map_field
   -- Unsandboxed: the tables are keyed in the runtime of a run sandboxed
   -- or not, and a sandbox nested in this test's own is one a host may
   -- refuse (root nests one only two deep, where its runner cannot run
   -- its workers as a user of their own), so the runs mean the same
   -- everywhere.
-  env.COSMIC_TEST_SANDBOX = "0"
+  env.COSMIC_TEST_SANDBOX = "0" -- checked: map_field
   local function run(binary: string, name: string): boolean, string
     local output = tmp .. "/" .. name .. ".out"
     local fd = assert(Fs.open_write(output))
@@ -101,7 +101,7 @@ end
     ["zoneinfo/Etc/GMT"] = assert(Fs.read(zones .. "/Etc/GMT")),
   })
   local refreshed = tmp .. "/refreshed"
-  assert(refresh.binary(itself, refreshed, { datasets.tzdata }, { tzdata = archive }))
+  assert(refresh.binary(itself, refreshed, { datasets.tzdata }, { tzdata = archive })) -- checked: map_field
   ok, text = run(refreshed, "refreshed")
   assert(not ok and text:find("1 of 1 test failed", 1, true) ~= nil and text:find("Europe/Paris", 1, true) ~= nil, text)
 end

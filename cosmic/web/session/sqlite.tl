@@ -63,7 +63,7 @@ local record Backing
 end
 
 --- The backing of each store made here, which goes with the store.
-local backings: mut {Session.Store:Backing} = setmetatable({}, { __mode = "k" })
+local backings: mut {Session.Store:Backing} = setmetatable({}, { __mode = "k" }) -- checked: setmetatable_call -- untyped: call
 
 local function backing(store: Session.Store): Backing
   local found = backings[store]
@@ -135,7 +135,7 @@ local function immediate(db: Sqlite.Handle, work: function(): boolean, string): 
     local _, _ = Sqlite.run(db, "ROLLBACK")
     error(ok, 0)
   end
-  if not ok then
+  if not ok then -- checked: any_use
     local _, _ = Sqlite.run(db, "ROLLBACK")
     assert(why, "session: a transaction that answers false says why")
     return false, why
@@ -168,7 +168,7 @@ end
 --- The values a row's JSON holds; nil for text that is not an object.
 local function values_of(text: string): mut {string:any}?
   local value, _ = Json.decode(text, { max_depth = Session.MAX_DEPTH })
-  if not value is {string:any} then return nil end
+  if not value is {string:any} then return nil end -- checked: is_on_record
   local out: mut {string:any} = {}
   for key, entry in pairs(value) do out[key] = entry end
   return out

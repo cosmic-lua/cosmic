@@ -76,7 +76,7 @@ local function test_a_cache_with_a_table_of_no_known_shape_is_as_declared(tmp: s
     assert(db:exec("CREATE TABLE compiled_v99 (key TEXT PRIMARY KEY, lua BLOB)"))
     assert(db:close())
     local result = maintenance.run({ family = "compiles", paths = { path }, since_ns = Clock.seconds(1), whole = false })
-    assert(result.complete and #result.report.files[1].unknown_tables == 1)
+    assert(result.complete and #result.report.files[1].unknown_tables == 1) -- checked: nil_not_allowed
   end)
 end
 
@@ -146,7 +146,7 @@ local function test_a_reference_naming_no_type_is_as_declared()
         return member
       end,
     }
-    local alias: alias_members.Declared = { module = "m", symbol = "A", source_symbol = "A",
+    local alias: alias_members.Declared = { module = "m", symbol = "A", source_symbol = "A", -- checked: literal_shape
       kind = "alias", signature = "type A = Mod.Thing" }
     assert(alias_members.resolved(source, alias, "Mod.Thing") == nil)
   end)

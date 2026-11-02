@@ -17,7 +17,7 @@ local OFFERS <const>: {string} = { "text/html", "application/json", "application
 --- "404 Not Found".
 local function title_of(status: integer): string
   local reason = Server.reason(status)
-  return reason ~= "" and ("%d %s"):format(status, reason) or tostring(status)
+  return if reason ~= "" then ("%d %s"):format(status, reason) else tostring(status) end
 end
 
 --- A small page for `status`, holding `detail` and `trace` escaped.
@@ -64,7 +64,7 @@ local function respond(req: Types.Request, status: integer, detail?: string,
   local spec = req.app.spec
   local res: Types.Response
   local error_pages = spec.error_pages
-  local custom = error_pages ~= nil and error_pages[status] or nil
+  local custom = if error_pages ~= nil then error_pages[status] else nil end
   local error_view = spec.error_view
   if custom ~= nil then
     res = custom(req)
@@ -104,8 +104,8 @@ end
 local function traced(err: any): any
   if Response.aborted(err) ~= nil then return err end
   -- A layer below has traced it: the first stack is the one that matters.
-  if err is string and err:find("\nstack traceback:", 1, true) ~= nil then return err end
-  return errors.trace(tostring(err), 2)
+  if err is string and err:find("\nstack traceback:", 1, true) ~= nil then return err end -- checked: any_use
+  return errors.trace(tostring(err), 2) -- checked: any_use
 end
 
 --- The response for the fault `trace`, which `req` raised.
@@ -115,12 +115,12 @@ local function fault(req: Types.Request, trace: string): Types.Response
   if spec.debug == true then
     local message = trace:match("^[^\n]*") or trace
     if wants_json(req) then
-      return Response.problem(500, message, { trace = trace })
+      return Response.problem(500, message, { trace = trace }) -- checked: any_use
     end
     return page(500, message, trace)
   end
   local ok, res = pcall(respond, req, 500)
-  if ok then return res end
+  if ok then return res end -- checked: any_use
   return Response.text("Internal Server Error\n", { status = 500 })
 end
 
@@ -132,7 +132,7 @@ local function answer_abort(req: Types.Request, abort: Response.Abort): Types.Re
       abort.detail or ""))
   end
   local answered, answer = pcall(respond, req, abort.status, abort.detail, abort.extra)
-  if answered then return answer end
+  if answered then return answer end -- checked: any_use
   return fault(req, tostring(answer))
 end
 
@@ -155,13 +155,13 @@ function Errors.wrap(inner: Types.Handler): Types.Handler
         if res == nil then
           trouble = "the handler answered nil, not a Server.Reply"
         else
-          trouble = Server.check(res, req.method)
+          trouble = Server.check(res, req.method) -- checked: any_use
         end
         if trouble ~= "" then
           return fault(req, "web: the handler's response cannot be sent: " .. trouble)
         end
       end
-      return res
+      return res -- checked: any_use
     end
     local abort = Response.aborted(res)
     if abort == nil then return fault(req, tostring(res)) end
@@ -179,7 +179,7 @@ end
 function Errors.guard(inner: Types.Handler): Types.Handler
   return function(req: Types.Request): Types.Response
     local ok, res = xpcall(inner, traced, req)
-    if ok then return res end
+    if ok then return res end -- checked: any_use
     local abort = Response.aborted(res)
     if abort == nil then error(res, 0) end
     return answer_abort(req, abort)

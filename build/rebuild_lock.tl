@@ -128,7 +128,7 @@ end
 
 local type Lock = rebuild_lock.Claim
 
-local lock_mt: metatable<Lock> = {
+local lock_mt: metatable<Lock> = { -- checked: literal_missing
   __close = function(self: Lock)
     local db, fd = self.db, self.fd
     self.db, self.fd = nil, nil
@@ -184,8 +184,8 @@ local function acquire(path: string, wait_ns: integer): Lock?, string
   if fd == nil then
     return nil, path .. ": " .. open_trouble
   end
-  local opened: Lock = { fd = fd }
-  local taking <close> = setmetatable(opened, lock_mt)
+  local opened: Lock = { fd = fd } -- checked: literal_missing
+  local taking <close> = setmetatable(opened, lock_mt) -- checked: setmetatable_call -- untyped: call
   local flocked, flock_trouble, errno = sys.flock(fd, "exclusive", Clock.ceil(wait_ns, MS))
   if not flocked then
     local name = sys.errno_name(errno)
@@ -209,9 +209,9 @@ local function acquire(path: string, wait_ns: integer): Lock?, string
       return nil, ""
     end
   end
-  local holding: Lock = { fd = taking.fd, db = taking.db }
+  local holding: Lock = { fd = taking.fd, db = taking.db } -- checked: literal_missing
   taking.fd, taking.db = nil, nil
-  setmetatable(holding, lock_mt)
+  setmetatable(holding, lock_mt) -- checked: setmetatable_call -- untyped: call
   return holding, ""
 end
 
@@ -280,7 +280,7 @@ function rebuild_lock.release()
   local lock = held.lock
   held.lock, held.path = nil, nil
   if lock ~= nil then
-    local _letting <close> = lock
+    local _letting <close> = lock -- checked: close_not_closable
   end
 end
 

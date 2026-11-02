@@ -22,7 +22,7 @@ local ZIP_B64 <const> =
 local function crc32_reference(data: string): integer
   local c = 0xFFFFFFFF
   for i = 1, #data do
-    c = c ~ data:byte(i)
+    c = c ~ data:byte(i) -- checked: nil_not_allowed
     for _ = 1, 8 do
       c = (c >> 1) ~ (0xEDB88320 & -(c & 1))
     end
@@ -75,7 +75,7 @@ end
 --- (a cast, or plain Lua); the writer refuses it rather than guessing.
 local function test_an_unknown_method_is_refused()
   local w = Zip.writer(Stream.collect(), { deterministic = true })
-  local ok, trouble = w:add_file("f", "x", { method = "lzma" as Zip.Method })
+  local ok, trouble = w:add_file("f", "x", { method = "lzma" as Zip.Method }) -- checked: cast_refused
   assert(not ok and trouble == "zip: unknown method 'lzma'", trouble)
 end
 
@@ -98,7 +98,7 @@ local function test_a_corrupt_body_fails_its_crc_check()
   -- flip a byte inside the stored payload, which sits right after the
   -- local header and its 1-byte name
   local at = raw:find("hello", 1, true)
-  local corrupt = raw:sub(1, at - 1) .. "x" .. raw:sub(at + 1)
+  local corrupt = raw:sub(1, at - 1) .. "x" .. raw:sub(at + 1) -- checked: nil_not_allowed*2
   local r = assert(Zip.open_string(corrupt))
   local entry = by_path(entries_of(r), "f")
   local reader = assert(entry:open())
@@ -174,7 +174,7 @@ local function le64(n: integer): string
 end
 
 local function rd32(s: string, at: integer): integer
-  return s:byte(at) | (s:byte(at + 1) << 8) | (s:byte(at + 2) << 16) | (s:byte(at + 3) << 24)
+  return s:byte(at) | (s:byte(at + 1) << 8) | (s:byte(at + 2) << 16) | (s:byte(at + 3) << 24) -- checked: nil_not_allowed*4
 end
 
 local function patch(s: string, at: integer, bytes: string): string
@@ -204,7 +204,7 @@ local function test_more_than_65535_entries_round_trip_through_zip64()
   local r = assert(Zip.open_string(c:result()))
   local entries = assert(r:entries())
   assert(#entries == n, tostring(#entries))
-  assert(entries[n].path == "f" .. tostring(n))
+  assert(entries[n].path == "f" .. tostring(n)) -- checked: nil_not_allowed
 end
 
 local function test_local_header_offsets_past_4_gib_go_in_zip64_extra_fields(tmp: string)
@@ -406,7 +406,7 @@ local function test_entries_of_a_closed_reader_cannot_be_opened(tmp: string)
   local r = assert(Zip.open(path))
   local entries = assert(r:entries())
   assert(r:close())
-  local body, trouble = entries[1]:open()
+  local body, trouble = entries[1]:open() -- checked: nil_not_allowed
   assert(body == nil and trouble:find("closed", 1, true) ~= nil, trouble)
 end
 
@@ -463,7 +463,7 @@ local function test_next_walks_a_central_directory_many_windows_long()
     end
     count = count + 1
     assert(e.path == prefix .. tostring(count), e.path)
-    assert(e.path == listed[count].path)
+    assert(e.path == listed[count].path) -- checked: nil_not_allowed
     if count % 997 == 0 then
       assert(Stream.read_all((assert(e:open()))) == "body " .. tostring(count))
     end
@@ -518,7 +518,7 @@ end
 --- its n-th read.
 local function repeating(chunk: string, rounds: integer, each?: function(integer)): Stream.Reader
   local n: integer = 0
-  local r: Stream.Reader = {
+  local r: Stream.Reader = { -- checked: literal_shape
     read = function(_self: Stream.Reader, _max_bytes?: integer): string?, string
       if n >= rounds then return nil, "" end
       n = n + 1
@@ -534,7 +534,7 @@ local function test_a_streamed_body_round_trips_through_the_reader()
   local chunk = "streamed body, "
   local whole = string.rep(chunk, 5000)
   local whole_crc = crc32_reference(whole)
-  for _, method in ipairs({ "deflate", "store" } as {Zip.Method}) do
+  for _, method in ipairs({ "deflate", "store" } as {Zip.Method}) do -- checked: cast_refused
     local c = Stream.collect()
     local w = Zip.writer(c)
     assert(w:add_file("a", repeating(chunk, 5000), { method = method }))
@@ -587,7 +587,7 @@ end
 --- `abort` are noted.
 local function recording(): Stream.Writer, {string}
   local pieces: mut {string} = {}
-  local w: Stream.Writer = {
+  local w: Stream.Writer = { -- checked: literal_shape
     write = function(_self: Stream.Writer, data: string): boolean, string
       pieces[#pieces + 1] = data
       return true, ""
@@ -605,13 +605,13 @@ local function test_a_streamed_size_of_2_gib_or_more_announces_zip64_up_front()
   -- only after the local header has gone out.
   local ok, trouble = w:add_file("big", Stream.from_string("short"),
     { method = "store", size = 1 << 32 })
-  assert(not ok and trouble:find("not 4294967296", 1, true), trouble)
+  assert(not ok and trouble:find("not 4294967296", 1, true), trouble) -- checked: or_mix
   local header = pieces[1]
-  assert(header:sub(1, 4) == "PK\3\4")
-  assert(rd32(header, 5) & 0xFFFF == 45, "version needed")
-  assert(header:sub(-20, -17) == le16(1) .. le16(16), "a zip64 extra field of two sizes")
+  assert(header:sub(1, 4) == "PK\3\4") -- checked: nil_not_allowed
+  assert(rd32(header, 5) & 0xFFFF == 45, "version needed") -- checked: nil_not_allowed
+  assert(header:sub(-20, -17) == le16(1) .. le16(16), "a zip64 extra field of two sizes") -- checked: nil_not_allowed
   -- With the field there, the header's own sizes are the sentinel.
-  assert(rd32(header, 19) == 0xFFFFFFFF and rd32(header, 23) == 0xFFFFFFFF)
+  assert(rd32(header, 19) == 0xFFFFFFFF and rd32(header, 23) == 0xFFFFFFFF) -- checked: nil_not_allowed*2
   assert(not w:close())
 end
 
@@ -632,7 +632,7 @@ local function test_a_streamed_size_that_is_wrong_fails_the_write()
   for _, size in ipairs({ 4, 6 }) do
     local w = Zip.writer(Stream.collect())
     local ok, trouble = w:add_file("f", Stream.from_string("12345"), { size = size })
-    assert(not ok and trouble:find("body is 5 bytes", 1, true), trouble)
+    assert(not ok and trouble:find("body is 5 bytes", 1, true), trouble) -- checked: or_mix
     assert(not w:add_file("g", "x"))
     assert(not w:close())
   end
@@ -642,21 +642,21 @@ end
 --- of the write: it raises, and the writer stays usable.
 local function test_a_streamed_size_below_zero_or_no_integer_raises()
   local w = Zip.writer(Stream.collect())
-  for _, size in ipairs({ -1, 1.5 } as {number}) do
+  for _, size in ipairs({ -1, 1.5 } as {number}) do -- checked: cast_refused
     local ok, why: boolean, any = pcall(function()
-      local _, _ = w:add_file("f", Stream.from_string("abc"), { size = size as integer })
+      local _, _ = w:add_file("f", Stream.from_string("abc"), { size = size as integer }) -- checked: cast_refused
     end)
-    assert(not ok and tostring(why):find("zip: opts.size must be an integer of at least 0", 1, true),
+    assert(not ok and tostring(why):find("zip: opts.size must be an integer of at least 0", 1, true), -- checked: or_mix
       tostring(why))
     assert(tostring(why):find("zip_test", 1, true), "blames the caller: " .. tostring(why))
   end
   -- Whatever the body, and before any other refusal of the call.
-  for _, call in ipairs({
+  for _, call in ipairs({ -- checked: cast_refused
       function() local _, _ = w:add_file("f", "abc", { size = -1 }) end,
       function() local _, _ = w:add_file("dir/", "abc", { size = -1 }) end,
   } as {function()}) do
     local ok, why: boolean, any = pcall(call)
-    assert(not ok and tostring(why):find("zip: opts.size must be an integer of at least 0", 1, true),
+    assert(not ok and tostring(why):find("zip: opts.size must be an integer of at least 0", 1, true), -- checked: or_mix
       tostring(why))
   end
   assert(w:add_file("g", "x"))
@@ -665,7 +665,7 @@ end
 
 local function test_a_failing_body_fails_and_aborts_the_writer()
   local w = Zip.writer(Stream.collect())
-  local bad: Stream.Reader = {
+  local bad: Stream.Reader = { -- checked: literal_shape
     read = function(_self: Stream.Reader, _max_bytes?: integer): string?, string
       return nil, "disk on fire"
     end,
@@ -678,7 +678,7 @@ local function test_a_failing_body_fails_and_aborts_the_writer()
 end
 
 local function test_a_streamed_body_takes_bounded_memory()
-  local block = {} as {integer}
+  local block = {} as {integer} -- checked: cast_refused, literal_needs_type
   for i = 1, 65536 do block[i] = (i * 131 + (i >> 8) + (i >> 3) * 7) & 255 end
   local pieces: mut {string} = {}
   for first = 1, #block, 4096 do
@@ -687,9 +687,9 @@ local function test_a_streamed_body_takes_bounded_memory()
   local chunk = table.concat(pieces)
   local rounds = 48 -- 3 MiB through each method
   local warm = 6
-  for _, method in ipairs({ "deflate", "store" } as {Zip.Method}) do
+  for _, method in ipairs({ "deflate", "store" } as {Zip.Method}) do -- checked: cast_refused
     local written: integer = 0
-    local sink: Stream.Writer = {
+    local sink: Stream.Writer = { -- checked: literal_shape
       write = function(_self: Stream.Writer, data: string): boolean, string
         written = written + #data
         return true, ""
@@ -743,7 +743,7 @@ local function test_a_symlink_round_trips_with_its_target_mode_and_time()
     if entry == nil then break end
     seen[entry.path] = entry.kind .. ":" .. entry.linkpath
   end
-  assert(seen.link == "symlink:a.txt" and seen["a.txt"] == "file:")
+  assert(seen.link == "symlink:a.txt" and seen["a.txt"] == "file:") -- checked: map_field
 end
 
 local function test_a_symlink_a_reader_would_refuse_is_refused_when_added()
@@ -763,7 +763,7 @@ end
 --- The Unix time of a UTC calendar moment.
 local function unix(year: integer, month: integer, day: integer, hour: integer, minute: integer,
                     second: integer): integer
-  local ns = assert(Time.from_civil({
+  local ns = assert(Time.from_civil({ -- checked: literal_shape
     year = year, month = month, day = day, hour = hour, minute = minute, second = second,
     ns = 0,
   }))
@@ -785,7 +785,7 @@ local function test_a_dos_date_no_calendar_has_is_clamped()
     local date = ((year - 1980) << 9) | (month << 5) | day
     local clock = (hour << 11) | (minute << 5) | (second // 2)
     local r = assert(Zip.open_string(patch(raw, header + 12, le16(clock) .. le16(date))))
-    return entries_of(r)[1].mtime
+    return entries_of(r)[1].mtime -- checked: nil_not_allowed
   end
   assert(mtime_of(2021, 2, 31, 10, 20, 30) == unix(2021, 2, 28, 10, 20, 30))
   assert(mtime_of(2020, 2, 30, 10, 20, 30) == unix(2020, 2, 29, 10, 20, 30))
@@ -834,7 +834,7 @@ end
 --- are; a failing body Reader's are told what the writer was doing.
 local function test_a_failing_underlying_writer_is_answered_as_it_said_it()
   local function closed(_self: Stream.Writer): boolean, string return true, "" end
-  local full: Stream.Writer = {
+  local full: Stream.Writer = { -- checked: literal_shape
     write = function(_self: Stream.Writer, _data: string): boolean, string
       return false, "disk full"
     end,

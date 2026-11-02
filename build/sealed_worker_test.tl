@@ -42,12 +42,12 @@ local function absent(name: string)
   for _, db in ipairs(Store.databases()) do
     local rows = assert(Sqlite.text_rows(db,
       "SELECT count(*) FROM modules WHERE path = ?1", { { text = name } }))
-    assert(rows[1]:text(1) == "0", name .. ": a database holds its row")
+    assert(rows[1]:text(1) == "0", name .. ": a database holds its row") -- checked: nil_not_allowed
   end
   -- The searchers behind the runner's own hold on `require`, which stands
   -- first only while the test runs.
   for i = 2, #package.searchers do
-    local loader = package.searchers[i](name)
+    local loader = package.searchers[i](name) -- checked: nil_not_allowed
     assert(type(loader) ~= "function", name .. ": a searcher loads it")
   end
 end
@@ -70,13 +70,13 @@ end
 local function test_a_finalizer_finds_no_module_outside_the_closure()
   skip_unless_sealed()
   local failure = { value = "not run" }
-  setmetatable({}, { __gc = function()
+  setmetatable({}, { __gc = function() -- checked: setmetatable_call
     local ok, why = pcall(function()
       for _, name in ipairs(outside) do absent(name) end
     end)
-    failure.value = if ok then "" else tostring(why) end
+    failure.value = if ok then "" else tostring(why) end -- checked: map_field
   end })
   collectgarbage()
   collectgarbage()
-  assert(failure.value == "", failure.value)
+  assert(failure.value == "", failure.value) -- checked: map_field*2
 end

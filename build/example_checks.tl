@@ -55,8 +55,8 @@ local function chunk(name: string, source: string): string
   if at ~= nil and source:sub(at, at) == "\n" then
     at = at + 1
   end
-  local head = at ~= nil and source:sub(1, at - 1) or ""
-  local rest = at ~= nil and source:sub(at) or source
+  local head = at ~= nil and source:sub(1, at - 1) or "" -- checked: and_ternary
+  local rest = at ~= nil and source:sub(at) or source -- checked: and_ternary
   return head .. "local record Example end " .. rest .. "\nExample." .. name .. "()\n"
 end
 
@@ -144,7 +144,7 @@ local function examples(db: Sqlite.Handle, options: Pipeline.Options, root: stri
     local told: mut {string: boolean} = {}
     for _, line in ipairs(problems(options, where, chunk(row:text(3), row:text(4)))) do
       local name = unknown_name(line)
-      local said = name ~= nil and helper_trouble(file, name) or nil
+      local said = name ~= nil and helper_trouble(file, name) or nil -- checked: and_ternary
       if said == nil then
         out[#out + 1] = line
       elseif told[said] ~= true then

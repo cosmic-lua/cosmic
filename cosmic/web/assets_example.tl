@@ -5,7 +5,7 @@
 local Assets = require("cosmic.web.assets")
 local Fs = require("cosmic.fs")
 
-local Example = {}
+local Example = {} -- checked: literal_needs_type
 
 --- A program built from a project with a `static/` directory carries its
 --- files; one that was not, as this example is, holds none, and a lookup
@@ -46,4 +46,4 @@ function Example.directory()
   assert(Fs.remove_tree(root))
 end
 
-return Example
+return Example -- checked: export_not_declared

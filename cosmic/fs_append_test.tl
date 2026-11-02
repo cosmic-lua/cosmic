@@ -39,14 +39,14 @@ local function test_append_open_failures_name_the_path(tmp: string)
   for _, path in ipairs({ tmp, tmp .. "/missing/log" }) do
     local result = table.pack(Fs.append(path, "data"))
     assert(result.n == 2 and result[1] == false)
-    assert((result[2] as string):sub(1, #path + 2) == path .. ": ")
+    assert((result[2] as string):sub(1, #path + 2) == path .. ": ") -- checked: cast_refused
   end
   local real_open = sys.open
-  sys.open = function(_path: string, _flags: integer, _mode?: integer): integer?, string, integer
+  sys.open = function(_path: string, _flags: integer, _mode?: integer): integer?, string, integer -- checked: field_fixed
     return nil, "permission denied", sys.EACCES
   end
   local ok, why = Fs.append(tmp .. "/denied", "data")
-  sys.open = real_open
+  sys.open = real_open -- checked: field_fixed
   assert(not ok and why == tmp .. "/denied: permission denied", why)
   assert(Fs.exists(tmp .. "/denied") == false)
 end
@@ -56,12 +56,12 @@ local function test_append_completes_short_writes(tmp: string)
   assert(Fs.write(path, "before"))
   local real_write = sys.write
   local writes: integer = 0
-  sys.write = function(fd: integer, data: string): integer?, string, integer
+  sys.write = function(fd: integer, data: string): integer?, string, integer -- checked: field_fixed
     writes = writes + 1
     return real_write(fd, data:sub(1, 2))
   end
   local ok, why = Fs.append(path, "abcdefg")
-  sys.write = real_write
+  sys.write = real_write -- checked: field_fixed
   assert(ok and why == "" and writes == 4)
   assert(Fs.read(path) == "beforeabcdefg")
 end
@@ -69,16 +69,16 @@ end
 local function test_append_zero_progress_closes_once(tmp: string)
   local real_write, real_close = sys.write, sys.close
   local closes: integer = 0
-  sys.write = function(_fd: integer, _data: string): integer?, string, integer
+  sys.write = function(_fd: integer, _data: string): integer?, string, integer -- checked: field_fixed
     return 0, "", 0
   end
-  sys.close = function(fd: integer): boolean, string, integer
+  sys.close = function(fd: integer): boolean, string, integer -- checked: field_fixed
     closes = closes + 1
     return real_close(fd)
   end
   local path = tmp .. "/log"
   local ok, why = Fs.append(path, "data")
-  sys.write, sys.close = real_write, real_close
+  sys.write, sys.close = real_write, real_close -- checked: field_fixed*2
   assert(not ok and why == path .. ": write made no progress", why)
   assert(closes == 1 and Fs.read(path) == "")
 end
@@ -89,18 +89,18 @@ local function test_append_partial_failure_keeps_prefix_and_first_error(tmp: str
   local real_write, real_close = sys.write, sys.close
   local writes: integer = 0
   local closes: integer = 0
-  sys.write = function(fd: integer, data: string): integer?, string, integer
+  sys.write = function(fd: integer, data: string): integer?, string, integer -- checked: field_fixed
     writes = writes + 1
     if writes == 1 then return real_write(fd, data:sub(1, 2)) end
     return nil, "write refused", 0
   end
-  sys.close = function(fd: integer): boolean, string, integer
+  sys.close = function(fd: integer): boolean, string, integer -- checked: field_fixed
     closes = closes + 1
     assert(real_close(fd))
     return false, "close refused", 0
   end
   local ok, why = Fs.append(path, "abcdef")
-  sys.write, sys.close = real_write, real_close
+  sys.write, sys.close = real_write, real_close -- checked: field_fixed*2
   assert(not ok and why == path .. ": write refused", why)
   assert(closes == 1 and Fs.read(path) == "beforeab")
 end
@@ -110,14 +110,14 @@ local function test_append_close_failure_does_not_retry_a_recycled_descriptor(tm
   local real_close = sys.close
   local closes: integer = 0
   local recycled: integer = -1
-  sys.close = function(fd: integer): boolean, string, integer
+  sys.close = function(fd: integer): boolean, string, integer -- checked: field_fixed
     closes = closes + 1
     assert(real_close(fd))
     recycled = assert(sys.open(tmp .. "/other", sys.O_WRONLY | sys.O_CREAT, 0x180))
     return false, "close refused", 0
   end
   local ok, why = Fs.append(path, "data")
-  sys.close = real_close
+  sys.close = real_close -- checked: field_fixed
   local written = sys.write(recycled, "still open")
   assert(sys.close(recycled))
   assert(not ok and why == path .. ": close refused", why)
@@ -127,15 +127,15 @@ end
 local function test_append_raising_write_releases_descriptor_and_keeps_exception(tmp: string)
   local real_write, real_close = sys.write, sys.close
   local closes: integer = 0
-  local marker = {}
-  sys.write = function(_fd: integer, _data: string): integer?, string, integer
+  local marker = {} -- checked: literal_needs_type
+  sys.write = function(_fd: integer, _data: string): integer?, string, integer -- checked: field_fixed
     error(marker)
   end
-  sys.close = function(fd: integer): boolean, string, integer
+  sys.close = function(fd: integer): boolean, string, integer -- checked: field_fixed
     closes = closes + 1
     return real_close(fd)
   end
   local ok, why = pcall(Fs.append, tmp .. "/log", "data")
-  sys.write, sys.close = real_write, real_close
+  sys.write, sys.close = real_write, real_close -- checked: field_fixed*2
   assert(not ok and why == marker and closes == 1)
 end

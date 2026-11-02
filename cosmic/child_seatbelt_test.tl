@@ -78,9 +78,9 @@ local function test_another_user_or_group_is_refused_naming_what_differs()
     return Seatbelt.credentials_unmet(assert(Sandbox.merge(policy)), user, group)
   end
   local why = unmet({ user = 6, group = 7 }, 5, 7)
-  assert(why:find("^user 6:") and not why:find("group 7", 1, true) and not why:find("nil", 1, true), why)
+  assert(why:find("^user 6:") and not why:find("group 7", 1, true) and not why:find("nil", 1, true), why) -- checked: condition_type
   why = unmet({ user = 5, group = 8 }, 5, 7)
-  assert(why:find("^group 8") and not why:find("user 5", 1, true) and not why:find("nil", 1, true), why)
+  assert(why:find("^group 8") and not why:find("user 5", 1, true) and not why:find("nil", 1, true), why) -- checked: condition_type
   why = unmet({ user = 6, group = 8 }, 5, 7)
   assert(why:find("user 6, group 8", 1, true), why)
   assert(unmet({ user = 5, group = 7 }, 5, 7) == "" and unmet({}, 5, 7) == "")
@@ -104,7 +104,7 @@ local function test_another_user_is_refused_before_a_child_starts()
   if sys.getuid() == 0 then Test.skip("root is refused") end
   local handle, why = Child.start({ "/bin/true" }, { policy = { profiles = { "system" },
     user = sys.getuid() + 1 }, stdin = "null", stdout = "null", stderr = "null" })
-  assert(handle == nil and why:find("cannot change them", 1, true), why)
+  assert(handle == nil and why:find("cannot change them", 1, true), why) -- checked: or_mix
 end
 
 --- The "system" profile means one thing whether the policy is started
@@ -254,7 +254,7 @@ local function test_a_profile_the_system_refuses_fails_the_start_and_never_runs_
     { seatbelt = { profile = "(version 1)\n(allow default\n", parameters = {} } })
   assert(pid == nil, "a malformed profile was applied")
   assert(why:find("sandbox_init_with_parameters", 1, true), why)
-  assert(errno ~= nil and errno > 0)
+  assert(errno ~= nil and errno > 0) -- checked: compare_disjoint
   assert(sys.stat(marker) == nil, "the program ran with no profile applied")
 end
 
@@ -314,7 +314,7 @@ end
 local function test_a_terminal_asked_of_no_terminal_starts_nothing()
   local process = require("cosmic.internal.process")
   local function start(...: any): integer?, string, integer
-    return (process.spawn as function(...: any): integer?, string, integer)(...)
+    return (process.spawn as function(...: any): integer?, string, integer)(...) -- checked: cast_refused
   end
   local pid, why = start(SH, { SH, "-c", "exit 0" }, nil, nil, nil, nil, nil, true,
     nil, nil, nil, "/dev/null")
@@ -332,7 +332,7 @@ local function test_a_terminal_that_is_not_stdins_fails_the_start_at_the_termina
   SeatbeltFixture.macos_only()
   local process = require("cosmic.internal.process")
   local function start(...: any): integer?, string, integer
-    return (process.spawn as function(...: any): integer?, string, integer)(...)
+    return (process.spawn as function(...: any): integer?, string, integer)(...) -- checked: cast_refused
   end
   local mine = assert(sys.openpty())
   local other = assert(sys.openpty())
@@ -345,7 +345,7 @@ local function test_a_terminal_that_is_not_stdins_fails_the_start_at_the_termina
   pid, why = start(SH, { SH, "-c", "exit 0" }, nil, nil, mine.slave, mine.slave, mine.slave, true,
     nil, nil, nil, "/dev/null")
   if pid ~= nil then process.waitpid(pid, false) end
-  assert(pid == nil and tostring(why):find("terminal", 1, true), tostring(why))
+  assert(pid == nil and tostring(why):find("terminal", 1, true), tostring(why)) -- checked: or_mix
   for _, pty in ipairs({ mine, other }) do
     assert(sys.close(pty.slave))
     assert(sys.close(pty.master))
@@ -359,7 +359,7 @@ local function test_a_seatbelt_profile_is_no_argument_where_there_is_no_seatbelt
     Test.skip("macOS takes a profile: the tests above start a child under one")
   end
   local process = require("cosmic.internal.process")
-  local ok, why = pcall(process.spawn, "/nowhere", { "/nowhere" }, nil, nil, nil, nil, nil, false, nil,
+  local ok, why = pcall(process.spawn, "/nowhere", { "/nowhere" }, nil, nil, nil, nil, nil, false, nil, -- checked: overload_none
     { seatbelt = { profile = "(version 1)\n", parameters = {} } })
-  assert(not ok and tostring(why):find("seatbelt is macOS's", 1, true), tostring(why))
+  assert(not ok and tostring(why):find("seatbelt is macOS's", 1, true), tostring(why)) -- checked: or_mix
 end

@@ -174,8 +174,8 @@ end
 local htmx_file = carried("htmx.min.js")
 local sse_file = carried("htmx-ext-sse.min.js")
 
-Htmx.version = htmx_file.version
-Htmx.sse_version = sse_file.version
+Htmx.version = htmx_file.version -- checked: field_fixed
+Htmx.sse_version = sse_file.version -- checked: field_fixed
 
 --- The path of an asset, which carries its version so its content never
 --- changes there.
@@ -341,16 +341,16 @@ function Htmx.apply(res: Types.Response, reply: Htmx.Reply): Types.Response?, st
   local reply_location = reply.location
   if reply_location ~= nil then
     local location = reply_location
-    if location is Htmx.Location then
+    if location is Htmx.Location then -- checked: is_on_record
       local path, why = url_of("location path", location.path)
       if path == nil then return nil, why end
-      local object: mut {string: any} = { path = path, values = location.values, headers = location.headers }
-      for _, pair in ipairs({ { "target", location.target }, { "swap", location.swap },
-          { "select", location.select }, { "source", location.source }, { "event", location.event } }) do
+      local object: mut {string: any} = { path = path, values = location.values, headers = location.headers } -- checked: any_use
+      for _, pair in ipairs({ { "target", location.target }, { "swap", location.swap }, -- checked: array_of_optional*2
+          { "select", location.select }, { "source", location.source }, { "event", location.event } }) do -- checked: array_of_optional*3
         if pair[2] ~= nil then
           local ok, trouble = text_of("location " .. pair[1], pair[2])
           if ok == nil then return nil, trouble end
-          object[pair[1]] = ok
+          object[pair[1]] = ok -- checked: any_use
         end
       end
       local text, json_why = header_json("location", object)
@@ -389,7 +389,7 @@ function Htmx.apply(res: Types.Response, reply: Htmx.Reply): Types.Response?, st
     if text == nil then return nil, why end
     put("HX-Reselect", text)
   end
-  local swap: any = reply.reswap
+  local swap: any = reply.reswap -- checked: any_use
   if swap ~= nil then
     if type(swap) ~= "string" or not swap_ok(swap) then
       return nil, "htmx: reswap is not a swap style htmx knows, with modifiers"
@@ -446,7 +446,7 @@ local VARY <const>: {string} = { "HX-Request", "HX-History-Restore-Request", "HX
 --- @return Types.Response The response
 function Htmx.page(req: Types.Request, content: Html.SafeHtml,
                    wrap: function(Html.SafeHtml): Html.SafeHtml): Types.Response
-  local res = Response.html(Htmx.partial(req) and content or wrap(content))
+  local res = Response.html(if Htmx.partial(req) then content else wrap(content) end)
   for _, token in ipairs(VARY) do Response.add_header(res, "Vary", token) end
   if Response.header(res, "Cache-Control") == nil then
     Response.set_header(res, "Cache-Control", "no-cache")
@@ -466,22 +466,22 @@ end
 local function config_of(opts: Htmx.HeadOptions): {string: any}
   local config = opts.config or {}
   local out: {string: any} = {
-    allowEval = config.allow_eval == true,
-    allowScriptTags = config.allow_script_tags == true,
-    includeIndicatorStyles = false,
-    selfRequestsOnly = true,
-    responseHandling = {
-      { code = "204", swap = false },
-      { code = "[23]..", swap = true },
-      { code = "422", swap = true, error = true },
-      { code = "[45]..", swap = false, error = true },
-      { code = "...", swap = false },
+    allowEval = config.allow_eval == true, -- checked: any_use
+    allowScriptTags = config.allow_script_tags == true, -- checked: any_use
+    includeIndicatorStyles = false, -- checked: any_use
+    selfRequestsOnly = true, -- checked: any_use
+    responseHandling = { -- checked: any_use
+      { code = "204", swap = false }, -- checked: arms_differ
+      { code = "[23]..", swap = true }, -- checked: arms_differ
+      { code = "422", swap = true, error = true }, -- checked: arms_differ
+      { code = "[45]..", swap = false, error = true }, -- checked: arms_differ
+      { code = "...", swap = false }, -- checked: arms_differ
     },
   }
   local history_cache_size = config.history_cache_size
-  if history_cache_size ~= nil then out.historyCacheSize = history_cache_size end
+  if history_cache_size ~= nil then out.historyCacheSize = history_cache_size end -- checked: map_field
   local nonce = opts.nonce
-  if nonce ~= nil then out.inlineScriptNonce = nonce end
+  if nonce ~= nil then out.inlineScriptNonce = nonce end -- checked: map_field
   return out
 end
 
@@ -508,7 +508,7 @@ function Htmx.head(opts?: Htmx.HeadOptions): Html.SafeHtml
   opts = opts or {}
   local prefix = opts.prefix
   if prefix ~= nil and prefix ~= "" and
-      not (prefix:find("^/[%w._~/-]*$") and not prefix:find("^//") and prefix:sub(-1) ~= "/") then
+      not (prefix:find("^/[%w._~/-]*$") and not prefix:find("^//") and prefix:sub(-1) ~= "/") then -- checked: condition_type
     error("htmx: head: the prefix is a path on this origin without a trailing slash, like /app", 2)
   end
   local nonce = opts.nonce

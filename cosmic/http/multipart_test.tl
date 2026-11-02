@@ -101,7 +101,7 @@ local function test_a_boundary_must_be_short_and_plain()
     local r, why = Multipart.reader(Stream.from_string(""), { boundary = b })
     assert(r == nil and why:find("boundary") ~= nil, b)
   end
-  assert(not pcall(Multipart.reader, Stream.from_string(""), { boundary = "a", max_parts = 0 }))
+  assert(not pcall(Multipart.reader, Stream.from_string(""), { boundary = "a", max_parts = 0 })) -- checked: alternatives_as_value
 end
 
 local function test_a_body_without_its_closing_boundary_is_truncated()
@@ -262,12 +262,12 @@ local function test_a_failed_parser_stays_failed_and_a_part_body_reports_it()
   local next_got, again = reader:next_part()
   assert(next_got == nil and again:find("before the closing") ~= nil)
   assert(reader:close())
-  assert(not pcall(got.body.read, got.body, 0))
+  assert(not pcall(got.body.read, got.body, 0)) -- checked: alternatives_as_value, interface_method_value
 end
 
 local function test_a_source_failure_is_passed_on_as_it_was_given()
   local sent: boolean = false
-  local source: Stream.Reader = {
+  local source: Stream.Reader = { -- checked: literal_shape
     read = function(_self: Stream.Reader, _max?: integer): string?, string
       if sent then return nil, "boom" end
       sent = true

@@ -116,11 +116,11 @@ end
 local function environment(tmp: string): {string:string}, string
   local env = this_program.environment()
   local path = tmp .. "/cache/cache.db"
-  env.COSMIC_BUILD_CACHE = path
-  env.COSMIC_TEST_ALL = nil
-  env.COSMIC_SANDBOX = nil
+  env.COSMIC_BUILD_CACHE = path -- checked: map_field
+  env.COSMIC_TEST_ALL = nil -- checked: map_field
+  env.COSMIC_SANDBOX = nil -- checked: map_field
   -- It runs no test, so it sandboxes none: the same on every host.
-  env.COSMIC_TEST_SANDBOX = "0"
+  env.COSMIC_TEST_SANDBOX = "0" -- checked: map_field
   return env, path
 end
 
@@ -183,7 +183,7 @@ local function test_an_edit_parses_only_what_it_edited(tmp: string)
   local env = environment(tmp)
   checkout(tmp .. "/first")
   built_as(tmp .. "/first", env, "4 sources parsed;")
-  checkout(tmp .. "/edited", { ["c.tl"] = project["c.tl"] .. "-- edited\n" })
+  checkout(tmp .. "/edited", { ["c.tl"] = project["c.tl"] .. "-- edited\n" }) -- checked: nil_not_allowed
   built_as(tmp .. "/edited", env, "; 1 source parsed, 3 taken from another checkout;")
 end
 
@@ -252,7 +252,7 @@ end
 local function test_the_cache_turned_off_shares_no_parse(tmp: string)
   tmp = assert(Fs.absolute(tmp))
   local env = environment(tmp)
-  env.COSMIC_BUILD_CACHE = "0"
+  env.COSMIC_BUILD_CACHE = "0" -- checked: map_field
   checkout(tmp .. "/first")
   built_as(tmp .. "/first", env, "(4 compiled, 0 cached; 4 sources parsed;")
   checkout(tmp .. "/second")

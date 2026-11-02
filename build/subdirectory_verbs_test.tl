@@ -20,7 +20,7 @@ Test.policy{
 --- outside the test's own directory.
 local function cosmic(dir: string, args: {string}): invoke.Result
   return invoke.run(args, { cwd = dir,
-    env = { COSMIC_BUILD_CACHE = "0", COSMIC_BUILD_HOME = Env.get("COSMIC_BUILD_HOME") } })
+    env = { COSMIC_BUILD_CACHE = "0", COSMIC_BUILD_HOME = Env.get("COSMIC_BUILD_HOME") } }) -- checked: nil_not_allowed
 end
 
 --- A project at `tmp/project` built at its root, with a module and a

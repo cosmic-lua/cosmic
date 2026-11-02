@@ -108,12 +108,12 @@ end
 function Cookies.parse(header: string?): {string:string}
   local out: mut {string:string} = {}
   if header == nil or header == "" then return out end
-  local text: string = header or ""
+  local text: string = header or "" -- checked: condition_type
   if #text > MAX_HEADER then
     -- Cut at a separator, so a cookie is never read half.
     text = text:sub(1, MAX_HEADER)
     local last = text:find("[;,][^;,]*$")
-    text = last ~= nil and text:sub(1, last - 1) or ""
+    text = if last ~= nil then text:sub(1, last - 1) else "" end
   end
   local count = 0
   for piece in (text .. ";"):gmatch("([^;,]*)[;,]") do

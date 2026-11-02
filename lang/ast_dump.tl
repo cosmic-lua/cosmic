@@ -27,12 +27,12 @@ local function is_blank(field: any, name: string): boolean
   if field == nil or (field == false and name ~= "value") then
     return true
   end
-  return field is {string: any} and field.kind == nil and next(field) == nil
+  return field is {string: any} and field.kind == nil and next(field) == nil -- checked: is_on_record, map_field
 end
 
-local function write_list(list: any, name: string, out: mut {string})
+local function write_list(list: any, name: string, out: mut {string}) -- checked: not_assigned
   out[#out + 1] = "["
-  if list is {any} then
+  if list is {any} then -- checked: is_on_record
     for i, item in ipairs(list) do
       if i > 1 then out[#out + 1] = " " end
       write(item, name, out)
@@ -61,15 +61,15 @@ local function write_node(node: {string: any}, kind: string, out: mut {string})
   out[#out + 1] = ")"
 end
 
-write = function(value: any, name: string, out: mut {string})
+write = function(value: any, name: string, out: mut {string}) -- checked: view_as_mut
   if value is string then
     table.insert(out, quoted(value))
   elseif value is boolean then
-    table.insert(out, name == "value" and tostring(value) or name)
+    table.insert(out, name == "value" and tostring(value) or name) -- checked: and_ternary
   elseif value is number then
     table.insert(out, tostring(value))
-  elseif value is {string: any} then
-    local kind = value.kind
+  elseif value is {string: any} then -- checked: is_on_record
+    local kind = value.kind -- checked: map_field
     if kind is string then
       write_node(value, kind, out)
     else

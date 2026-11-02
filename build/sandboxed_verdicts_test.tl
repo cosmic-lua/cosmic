@@ -627,7 +627,7 @@ end
     "SELECT group_concat(path, ' ') FROM (SELECT path FROM runs " ..
       "WHERE run_at_ns = (SELECT max(run_at_ns) FROM runs) ORDER BY path)"))
   assert(db:close())
-  assert(rows[1]:text(1) == "core.allocation_test", "ran under another compiler: " .. rows[1]:text(1))
+  assert(rows[1]:text(1) == "core.allocation_test", "ran under another compiler: " .. rows[1]:text(1)) -- checked: nil_not_allowed*2
 end
 
 --- A processor of other features (stood in for by COSMIC_TEST_CPU_SALT) runs only the modules that
@@ -711,7 +711,7 @@ end
       "SELECT group_concat(path, ' ') FROM (SELECT path FROM runs " ..
         "WHERE run_at_ns = (SELECT max(run_at_ns) FROM runs) ORDER BY path)"))
     assert(db:close())
-    return rows[1]:text(1)
+    return rows[1]:text(1) -- checked: nil_not_allowed
   end
   local plain = run(root, tmp .. "/plain.out", env)
   assert(plain:find("2 ran, 0 stood", 1, true), "a checked pass stood for an unchecked run: " .. plain)
@@ -998,6 +998,6 @@ local function test_a_run_that_writes_no_store_checks_one(tmp: string)
   end
   assert(db:close())
   local checked = run(root, tmp .. "/checked.out", env, nil, true)
-  assert(checked:find("must follow from its address alone", 1, true) and
+  assert(checked:find("must follow from its address alone", 1, true) and -- checked: condition_type
       checked:find("%.db has %x+") ~= nil and checked:find("test: %d+ of %d+ tests? failed"), checked)
 end
