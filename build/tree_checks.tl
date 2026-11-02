@@ -2698,26 +2698,15 @@ function tree_checks.text_loaders(root: string, files?: {string: string}): {stri
   return out
 end
 
---- The trees whose tests may still return early, by path prefix, and why. A prefix that no test under it returns early
---- from any more is told to go.
--- TODO: once cosmic-lua/cosmic#3498 merges and core/'s [`unix_socket.skipped`] callers use `skip_if_refused`, drop this
--- prefix.
-local early_returns: {string: string} = {
-  ["core/"] = "cosmic-lua/cosmic#3498 converts its tests, and its unix_socket.skipped callers follow",
-}
-
 --- Each early return of a test in a `*_test.tl` file of the tree under `root` ([`TestReturns`]), as `<file>:<line>:
---- <test> returns early ...`, and then each prefix of `pending` (by default `early_returns`) that nothing under it needs
---- any more. A test that cannot check its subject here declares `requires` or calls `Test.skip(reason)` (doc/testing.md,
---- "skipping"); a `return` passes having checked nothing.
-function tree_checks.test_returns(root: string, pending?: {string: string}): {string}
+--- <test> returns early ...`. A test that cannot check its subject here declares `requires` or calls `Test.skip(reason)`
+--- (doc/testing.md, "skipping"); a `return` passes having checked nothing.
+function tree_checks.test_returns(root: string): {string}
   local sources, trouble = sources_of(root)
   if sources == nil then
     return { "reading the sources: " .. trouble }
   end
-  local excused = pending or early_returns
   local out: mut {string} = {}
-  local used: mut {string: boolean} = {}
   for _, entry in ipairs(sources) do
     local file, text = entry[1], entry[2]
     if file ~= nil and text ~= nil and file:match("_test%.tl$") ~= nil and text:find("return", 1, true) ~= nil then
@@ -2726,30 +2715,13 @@ function tree_checks.test_returns(root: string, pending?: {string: string}): {st
         out[#out + 1] = file .. ": cannot read it to check its early returns: " .. parse_trouble
       else
         for _, site in ipairs(TestReturns.of_chunk(chunk)) do
-          local covered: string? = nil
-          for prefix in pairs(excused) do
-            if file:sub(1, #prefix) == prefix then covered = prefix end
-          end
-          if covered ~= nil then
-            used[covered] = true
-          else
-            out[#out + 1] = file .. ":" .. tostring(site[1]) .. ": " .. tostring(site[2]) .. " returns early (`" ..
-              tostring(site[3]) .. "`), which passes having checked nothing: declare `requires`, or call " ..
-              "`Test.skip(reason)` (doc/testing.md, \"skipping\"), after which nothing runs"
-          end
+          out[#out + 1] = file .. ":" .. tostring(site[1]) .. ": " .. tostring(site[2]) .. " returns early (`" ..
+            tostring(site[3]) .. "`), which passes having checked nothing: declare `requires`, or call " ..
+            "`Test.skip(reason)` (doc/testing.md, \"skipping\"), after which nothing runs"
         end
       end
     end
   end
-  local stale: mut {string} = {}
-  for prefix in pairs(excused) do
-    if used[prefix] ~= true then
-      stale[#stale + 1] = prefix .. ": excused from the early-return check, but no test there returns early any " ..
-        "more -- remove the exemption"
-    end
-  end
-  table.sort(stale)
-  for _, line in ipairs(stale) do out[#out + 1] = line end
   return out
 end
 

@@ -392,7 +392,7 @@ test: 3 tests passed
 5
 the	2
 cat	1
-2	tally: words: no such option: --nope
+2	tally: words: no such option: --nope; usage: tally words [options] [file]
 usage: tally <command> [options]
 
 commands:
