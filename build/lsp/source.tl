@@ -646,11 +646,6 @@ function source.banner(src: source.View): string?
   return "the build refuses this tree: " .. src.trouble .. "; " .. held
 end
 
---- Whether the last stage staged nothing.
-function source.refused(src: source.View): boolean
-  return src.trouble ~= ""
-end
-
 --- The complaint about the file `name` (below the root) where the last stage staged nothing and the file is one of a
 --- declaration and a source of one module on disk, or one of two declarations of it, or nil: what a document of that file is told, at its first line. The pair
 --- is found as the build finds one, by the files a module may be written in ([`build.driver.candidates`]). A declaration
