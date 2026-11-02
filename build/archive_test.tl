@@ -15,13 +15,7 @@ local Test = require("cosmic.test")
 local Zip = require("cosmic.zip")
 local sys = require("cosmic.sys")
 local archive = require("build.archive")
-
---- The element of `list` at `index`, which the case knows is there.
-local function nth<T>(list: {T}, index: integer): T
-  local found = list[index]
-  assert(found ~= nil, "the list has an element at " .. tostring(index))
-  return found
-end
+local support = require("build.test_support_fixture")
 
 local record Ran
   mut code: integer
@@ -154,15 +148,15 @@ local function test_list_prints_path_size_mode_and_type_for_each_format(tmp: str
       rows[#rows + 1] = cells
     end
     assert(#rows == 4, format .. ": " .. ran.out)
-    local top = nth(rows, 1)
-    assert(nth(top, 1) == "proj" or nth(top, 1) == "proj/", format .. ": " .. nth(top, 1))
+    local top = support.nth(rows, 1)
+    assert(support.nth(top, 1) == "proj" or support.nth(top, 1) == "proj/", format .. ": " .. support.nth(top, 1))
     assert(top[4] == "dir", format)
-    local second = nth(rows, 2)
+    local second = support.nth(rows, 2)
     assert(second[1] == "proj/a.txt" and second[2] == "5" and second[4] == "file",
       format .. ": " .. table.concat(second, "|"))
-    assert(nth(rows, 3)[1] == "proj/sub/b.txt" and nth(rows, 3)[2] == "6", format)
-    assert(nth(rows, 4)[1] == "top.txt" and nth(rows, 4)[2] == "3", format)
-    local year = nth(nth(rows, 4), 3)
+    assert(support.nth(rows, 3)[1] == "proj/sub/b.txt" and support.nth(rows, 3)[2] == "6", format)
+    assert(support.nth(rows, 4)[1] == "top.txt" and support.nth(rows, 4)[2] == "3", format)
+    local year = support.nth(support.nth(rows, 4), 3)
     assert(year:match("^%d%d%d%d$"), year)
   end
 end
@@ -175,7 +169,7 @@ local function test_list_json_is_an_array_of_objects_for_each_format(tmp: string
     assert(#rows == 4, format .. ": " .. ran.out)
     assert(rows[2].path == "proj/a.txt" and rows[2].size == 5 and rows[2].type == "file", format)
     assert(rows[2].mode == "0644" and math.type(rows[2].mtime) == "integer", format)
-    assert(nth(rows, 1).type == "dir", format)
+    assert(support.nth(rows, 1).type == "dir", format)
   end
 end
 
@@ -195,8 +189,8 @@ local function test_list_shows_a_symlink_and_escapes_a_name(tmp: string)
   assert(ran.out:find("ln -> t.txt\t0\t", 1, true), ran.out)
   assert(ran.out:find("odd\\tname\\n\t1\t", 1, true), ran.out)
   local json = rows_of(run({ "list", "--json", path }).out)
-  assert(nth(json, 2).linkpath == "t.txt" and nth(json, 2).type == "symlink")
-  assert(nth(json, 3).path == "odd\tname\n")
+  assert(support.nth(json, 2).linkpath == "t.txt" and support.nth(json, 2).type == "symlink")
+  assert(support.nth(json, 3).path == "odd\tname\n")
 end
 
 local function test_list_reads_standard_input(tmp: string)
@@ -932,7 +926,7 @@ local function both_ways(tmp: string, name: string, bytes: string, words: {strin
     results[slot] = run(argv, from == "stdin" and bytes or nil)
     trees[slot] = tree_of(tmp .. "/" .. from)
   end
-  return nth(results, 1), nth(results, 2), nth(trees, 1), nth(trees, 2)
+  return support.nth(results, 1), support.nth(results, 2), support.nth(trees, 1), support.nth(trees, 2)
 end
 
 --- `err` with the input file's path read as standard input's name, and
@@ -952,12 +946,12 @@ local function test_a_member_that_fails_mid_stream_leaves_the_destination_untouc
     thru = { file_member("first.txt", "1"), link_member("l", "sub"), file_member("l/f.txt", "2") },
   }
   for _, pair in ipairs(hostile) do
-    local members = archives[nth(pair, 1)]
+    local members = archives[support.nth(pair, 1)]
     if members ~= nil then
-      local bytes = assert(Fs.read(make_tar(tmp .. "/" .. nth(pair, 1) .. ".tgz", members, true)))
+      local bytes = assert(Fs.read(make_tar(tmp .. "/" .. support.nth(pair, 1) .. ".tgz", members, true)))
       -- No destination yet, and one that holds a file of its own.
       for _, holds in ipairs({ false, true }) do
-        local case = tmp .. "/" .. nth(pair, 1) .. (if holds then "-holds" else "-new" end)
+        local case = tmp .. "/" .. support.nth(pair, 1) .. (if holds then "-holds" else "-new" end)
         assert(Fs.mkdirs(case))
         local dest = case .. "/deep/dest"
         if holds then
@@ -965,10 +959,10 @@ local function test_a_member_that_fails_mid_stream_leaves_the_destination_untouc
           assert(Fs.write(dest .. "/mine.txt", "mine"))
         end
         local ran = run({ "extract", "-", "-C", dest }, bytes)
-        assert(ran.code == 2 and ran.out == "", nth(pair, 1) .. ": " .. tostring(ran.code) .. ran.err)
+        assert(ran.code == 2 and ran.out == "", support.nth(pair, 1) .. ": " .. tostring(ran.code) .. ran.err)
         local seen = tree_of(case)
         local want = if holds then "deep,deep/dest,deep/dest/mine.txt" else "" end
-        assert(table.concat(seen, ",") == want, nth(pair, 1) .. " left " .. table.concat(seen, ","))
+        assert(table.concat(seen, ",") == want, support.nth(pair, 1) .. " left " .. table.concat(seen, ","))
       end
     end
   end

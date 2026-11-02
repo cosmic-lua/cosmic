@@ -7,13 +7,7 @@
 local Fs = require("cosmic.fs")
 local Rand = require("cosmic.rand")
 local rand = require("build.rand")
-
---- The element of `list` at `index`, which the case knows is there.
-local function nth<T>(list: {T}, index: integer): T
-  local found = list[index]
-  assert(found ~= nil, "the list has an element at " .. tostring(index))
-  return found
-end
+local support = require("build.test_support_fixture")
 
 local record Ran
   mut code: integer
@@ -22,7 +16,7 @@ local record Ran
 end
 
 local record Stand
-  stdin?: string
+  mut stdin?: string
   entropy?: function(count: integer): string?, string
   now_ns?: function(): integer
   out?: function(text: string): boolean, string
@@ -112,11 +106,11 @@ local function test_uuid_v7_sorts_as_drawn_within_one_millisecond()
   local ids = lines(ran.out)
   assert(#ids == 300)
   for index = 2, #ids do
-    assert(nth(ids, index - 1) < nth(ids, index), nth(ids, index - 1) .. " !< " .. nth(ids, index))
+    assert(support.nth(ids, index - 1) < support.nth(ids, index), support.nth(ids, index - 1) .. " !< " .. support.nth(ids, index))
   end
   local real = lines(run({ "uuid", "--v7", "-n", "2000" }).out)
   for index = 2, #real do
-    assert(nth(real, index - 1) < nth(real, index), nth(real, index - 1) .. " !< " .. nth(real, index))
+    assert(support.nth(real, index - 1) < support.nth(real, index), support.nth(real, index - 1) .. " !< " .. support.nth(real, index))
   end
 end
 
@@ -227,7 +221,7 @@ local function test_int_from_entropy_rejects_rather_than_wraps()
     calls.value = calls.value + 1
     local parts: mut {string} = {}
     for index = 1, count // 8 do
-      parts[index] = string.pack("<i8", nth(draws, (index - 1) % 5 + 1))
+      parts[index] = string.pack("<i8", support.nth(draws, (index - 1) % 5 + 1))
     end
     return table.concat(parts), ""
   end })
@@ -439,7 +433,7 @@ end
 
 local function test_gamma_seeded_replays_the_source_draw_for_draw()
   for _, case in ipairs({ { "0.5", "1" }, { "3", "2.5" }, { "1", "1e2" } }) do
-    local shape, scale = nth(case, 1), nth(case, 2)
+    local shape, scale = support.nth(case, 1), support.nth(case, 2)
     local ran = run({ "gamma", "-n", "30", "--seed", "9", "--shape", shape, "--scale", scale })
     assert(ran.code == 0 and ran.err == "", ran.err)
     local source = Rand.new(9)
@@ -461,7 +455,7 @@ local function test_normal_and_gamma_from_entropy_use_its_words_as_they_come()
     assert(ran.code == 0 and ran.err == "", ran.err)
     -- Entropy is read once, in a block, and its words go to the samplers
     -- in order: a generator seeded from entropy would draw other values.
-    assert(#reads == 1 and nth(reads, 1) == 8192, table.concat(reads, ","))
+    assert(#reads == 1 and support.nth(reads, 1) == 8192, table.concat(reads, ","))
     local twin = Rand.new(11)
     for _, line in ipairs(lines(ran.out)) do
       assert(line == g17(twin:normal(-5.0, 2.0)), line)

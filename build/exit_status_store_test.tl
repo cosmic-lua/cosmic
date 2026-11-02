@@ -9,7 +9,7 @@ local Fs = require("cosmic.fs")
 local embed = require("build.embed")
 local Test = require("cosmic.test")
 local Clock = require("cosmic.clock")
-local build_paths = require("build.paths")
+local support = require("build.test_support_fixture")
 
 --- The program itself, whose core the programs it builds run on.
 --- `store`: [`embed.tree`] joins every `cosmic.*` module's rows.
@@ -17,13 +17,6 @@ Test.policy{
   profiles = { "cosmic" },
   grants = { { path = "o/bin", letters = "rx" }, { path = "o/cosmic.db", letters = "r" } },
 }
-
---- `root`'s build directory ([`build.paths`]), made, with `root` made
---- first where it is not there yet.
-local function build_dir(root: string): string
-  assert(Fs.mkdirs(root))
-  return (assert(build_paths.prepare(root)))
-end
 
 local function run_program(path: string, expression: string): Child.Result
   return (assert(Child.run({ path, expression }, {
@@ -48,7 +41,7 @@ local function test_a_main_that_returns_no_exit_status_is_refused(tmp: string)
   assert(Fs.mkdirs(tmp .. "/cmd/status"))
   assert(Fs.write(tmp .. "/cmd/status/main.tl", MAIN))
   assert(embed.tree(tmp, true))
-  local program = build_dir(tmp) .. "/bin/status"
+  local program = support.build_dir(tmp) .. "/bin/status"
   for expression, code in pairs({ ["7"] = 7, ["3.0"] = 3, ["nil"] = 0, ["\"5\""] = 5 } as {string:integer}) do
     local r = run_program(program, expression)
     assert(r.code == code, "an exit status that fits is the program's own: " ..

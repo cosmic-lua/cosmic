@@ -40,7 +40,7 @@ local record ErrorRender
     --- For a field a record lacks.
     record_key: string
   end
-  queries: Queries
+  mut queries: Queries
 
   --- The line for `problem` of the file `file`, its fix included: `file:line:column: message (code): fix`.
   line: function(file: string, problem: Driver.Problem): string

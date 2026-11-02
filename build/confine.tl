@@ -49,15 +49,15 @@ local record confine
   end
 
   --- The most paths a sandbox unveils, its reads and writes together.
-  unveil_max: integer
+  mut unveil_max: integer
 
   --- See below.
-  system_paths: {string}
+  mut system_paths: {string}
 
   --- See below.
-  held_variable: Env.Name
+  mut held_variable: Env.Name
   --- See below.
-  unseen: function(path: string, use: Use): string?
+  mut unseen: function(path: string, use: Use): string?
 
   --- What a test reads or starts that a process may meet missing.
   enum Use

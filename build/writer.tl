@@ -268,6 +268,18 @@ local insert_places =
   "JOIN main.places l ON l.source_hash = i.source_hash " ..
   "WHERE p.path GLOB 'cosmic.*' ORDER BY p.path, l.ordinal"
 
+--- The `members` ([`build.syntax_members`]) of each planned `cosmic.*` module's source, with the text of the doc comment of
+--- the same symbol (`docs`' `source_symbol`, the longest if two) in `doc`, as the working database reads them for a
+--- text ([`build.lsp.source`]'s `read_members`). A module generated from another file (`mapped`) has none.
+local insert_members =
+  "INSERT INTO out.members (module, ordinal, owner, name, kind, scope, type, doc) " ..
+  "SELECT p.path, l.ordinal, l.owner, l.name, l.kind, l.scope, l.type, coalesce((SELECT d.text FROM main.docs d " ..
+  "WHERE d.source_hash = l.source_hash AND d.source_symbol IN (l.owner || '.' || l.name, l.owner || ':' || l.name) " ..
+  "ORDER BY length(d.text) DESC LIMIT 1), '') FROM plan p " ..
+  "JOIN inputs i ON i.path = p.path AND i.kind = 'module' " ..
+  "JOIN main.members l ON l.source_hash = i.source_hash " ..
+  "WHERE p.path GLOB 'cosmic.*' ORDER BY p.path, l.ordinal"
+
 --- The places of each `cosmic.*` module generated from a header (`origin` `syscalls`: [`cosmic.sys`] and the raw process
 --- and socket tables), which are no planned module: the lines of the header its `-- line` map gave
 --- ([`build.syntax_derivation`]'s `origin_lines`), beside `insert_origins`'s text of that header.
@@ -834,8 +846,8 @@ local function project(handle: work.Handle,
   -- library's stubs (`insert_stubs`): a stub is a function of its
   -- module's source, which the module's key holds, and of build.stub,
   -- which the compiler's identity in `meta` holds. The places of those
-  -- sources (`insert_places`) are a function of the source and of
-  -- build.syntax_places, the code of the tool, which `boot_hash` holds.
+  -- sources (`insert_places`, `insert_members`) are a function of the source and of
+  -- build.syntax_places and build.syntax_members, the code of the tool, which `boot_hash` holds.
   -- A project's tables stay empty.
   if work.standing(handle).own then
     local filled, fill_trouble = bom.fill(db, handle.root, "out.")
@@ -878,6 +890,10 @@ local function project(handle: work.Handle,
     local placed, place_trouble = db:exec(insert_places)
     if not placed then
       return false, place_trouble
+    end
+    local membered, member_trouble = db:exec(insert_members)
+    if not membered then
+      return false, member_trouble
     end
     for _, statement in ipairs({ insert_mapped_places, insert_origins }) do
       local mapped, mapped_trouble = db:exec(statement)
@@ -1215,6 +1231,7 @@ local carry: {string} = {
   "INSERT INTO main.decls SELECT * FROM whole.decls ORDER BY path",
   "INSERT INTO main.stubs SELECT * FROM whole.stubs ORDER BY path",
   "INSERT INTO main.places SELECT * FROM whole.places ORDER BY module, ordinal",
+  "INSERT INTO main.members SELECT * FROM whole.members ORDER BY module, ordinal",
   "INSERT INTO main.origins SELECT * FROM whole.origins ORDER BY module",
   "INSERT INTO main.payload SELECT * FROM whole.payload ORDER BY path",
   "INSERT INTO main.zoneinfo (name, data) SELECT name, data FROM whole.zoneinfo " ..

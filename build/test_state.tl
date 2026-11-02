@@ -35,36 +35,36 @@ local record test_state
   --- How many tests this run ran, and how many it answered from a
   --- verdict that still stood.
   record Tally
-    ran: integer
-    cached: integer
+    mut ran: integer
+    mut cached: integer
     --- Of those that stood, how many on a verdict another checkout
     --- reached ([`build.shared_verdicts`]).
-    shared: integer
+    mut shared: integer
     --- Of those that ran, how many no key holds, which run every time:
     --- one whose module reaches a network beyond loopback, or reads a
     --- link out of the tree.
-    every: integer
+    mut every: integer
     --- Of those that ran, how many passed having said, with
     --- [`Test.skip`], that this host could not check them: no verdict is
     --- kept of one, so each runs every time.
-    skipped: integer
+    mut skipped: integer
     --- Of those that ran, how many passed having made no call to `assert`
     --- ([`worker.Judgement.unchecked`]): no verdict is kept of one
     --- either, and a held run fails it.
-    unchecked: integer
+    mut unchecked: integer
     --- Of the tests chosen, how many are not applicable: their module
     --- requires what this platform never has ([`host_requires`]), so none
     --- ran or stood, and no verdict is kept of one. Neither in `ran` nor
     --- in `cached`, but in the run's total.
-    na: integer
+    mut na: integer
   end
 
   --- How a run is bounded, from the command line and the environment.
   record Limits
     --- Each test's deadline, in nanoseconds.
-    timeout_ns: integer
+    mut timeout_ns: integer
     --- How many workers run at once.
-    jobs: integer
+    mut jobs: integer
   end
 
   --- One test the run has to run: no verdict stands for it.
@@ -78,22 +78,22 @@ local record test_state
     id: string
     --- The directory the runner made for the test, holding `real` and
     --- `tmp`, a link to it; removed once the test passes.
-    scratch?: string
-    tmp?: string
+    mut scratch?: string
+    mut tmp?: string
     --- Whether the test's directory is one its worker makes in a tmpfs of its
     --- own ([`test_sandbox.Plan`]'s `own_scratch`), so the runner has none.
-    own_scratch?: boolean
+    mut own_scratch?: boolean
     --- How its worker is sandboxed, when it is ([`build.test_sandbox`]).
-    plan?: test_sandbox.Plan
+    mut plan?: test_sandbox.Plan
     --- Sandboxed, the key its verdict is reached under, over its
     --- declared inputs as they were before it started
     --- ([`build.declared_key`]); nil for one that reaches a network beyond
     --- loopback, or an unsandboxed run's.
     declared?: string
-    passed?: boolean
-    handle?: Child.Handle
-    started_ns?: integer
-    deadline_ns?: integer
+    mut passed?: boolean
+    mut handle?: Child.Handle
+    mut started_ns?: integer
+    mut deadline_ns?: integer
   end
 
   --- Why a module's tests are not run on this host: a requirement of its
@@ -132,11 +132,11 @@ local record test_state
     records: Sqlite.Handle
     root: string
     -- The binary's runtime identity and the digest of its data tables.
-    runtime: string
+    mut runtime: string
     run_at_ns: integer
     run: integer
-    failures: {string}
-    errors: {string}
+    failures: mut {string}
+    errors: mut {string}
     --- Each skipped test's id and why ([`Test.skip`], or a requirement of
     --- its module the host lacks), as "<id>: <reason>".
     skips: mut {string}
@@ -159,7 +159,7 @@ local record test_state
     --- What the host answered to each module's requirements, by path, as
     --- its key holds them: each present answer's name and key text. Empty
     --- for a module that requires nothing.
-    answered: mut {string:{string:string}}
+    answered: mut {string:mut {string:string}}
     --- What each failing test printed, by its id.
     outputs: mut {string:string}
     --- Each failing test's `<file>:<name>` selector, by its id: what
@@ -173,7 +173,7 @@ local record test_state
     --- Each test's own hits, encoded as it finishes. Kept as tables, every
     --- test's lines would stay in memory until the run ends: hundreds of
     --- megabytes.
-    by_test: {string: string}
+    by_test: mut {string: string}
     --- The core's C when the tree is not cosmic's own: its hits are kept
     --- out of every record of the run (see `write_coverage`).
     unowned: Coverage.Hits
@@ -193,7 +193,7 @@ local record test_state
     violations: mut {string:worker.Violation}
     violation_order: mut {string}
     violation_tests: mut {string:string}
-    violations_dropped: integer
+    mut violations_dropped: integer
     --- Which test met which violation, and how often (`take_violations`): a
     --- row to each test and distinct violation, in the order met. Where
     --- `violation_tests` names only the first test to meet one.
@@ -209,10 +209,10 @@ local record test_state
     --- How many jobs `--bail` left unstarted after the first failure
     --- (`run_jobs`). Such a test made no verdict, pass or fail, and is
     --- in no figure of the tally.
-    not_run: integer
+    mut not_run: integer
     --- The verdicts every checkout shares, or nil, and what the run owes
     --- them when it ends.
-    shared?: shared_verdicts.Cache
+    mut shared?: shared_verdicts.Cache
     owed: shared_verdicts.Owed
     --- Each key a verdict of this run stands under, its
     --- shared key, for `owed.used`.
@@ -222,12 +222,12 @@ local record test_state
     --- Each selected module's effective inputs, by path, and the program
     --- running the tests, which `tool` declares.
     effective: mut {string:test_inputs.Effective}
-    tool?: {string}
+    mut tool?: {string}
     --- Whether each worker runs sandboxed ([`build.test_sandbox`]): the
     --- switch does not turn it off and the kernel can. `effective` then
     --- holds every selected module's inputs, and `views` the environment
     --- its workers are given, by module path.
-    sandbox: boolean
+    mut sandbox: boolean
     --- What reruns one test as this run ran it: the switch as the run was
     --- given it ([`test_sandbox.mode`]), or "" when unset.
     rerun_prefix: string
@@ -237,15 +237,15 @@ local record test_state
     --- identity ([`build.identity`]'s `Identities`) as the running tool's `meta`
     --- names it, `compiler` and then `compiled_by`, which a key holds
     --- only where its closure reads it ([`declared_key.reads_compiler`]).
-    digests?: declared_key.Digests
-    compiler?: string
+    mut digests?: declared_key.Digests
+    mut compiler?: string
     --- The host's identity every key holds
     --- ([`declared_key.host_identity`]), what it has installed, which only
     --- the key of a module given the system's paths holds
     --- ([`declared_key.system_identity`]), and why each module whose tests
     --- have no key has none, but for the network, by module path.
-    host?: string
-    system?: string
+    mut host?: string
+    mut system?: string
     --- The digest of the rest of the host's identity but its features
     --- ([`declared_key.host_split`]), the identities of other hosts of
     --- that rest the shared verdicts name, which `accept_foreign` looks
@@ -257,39 +257,39 @@ local record test_state
     --- holds in place of the harness's code, and the timeout each worker
     --- runs under ([`Limits.timeout_ns`]), which every key holds too: a
     --- pass reached under a longer one need not come under a shorter.
-    epoch: string
-    timeout_ns: integer
+    mut epoch: string
+    mut timeout_ns: integer
     --- The program a test that runs this program runs
     --- ([`declared_key.program_identity`]), worked out once a key needs
     --- it (`program_of`).
-    program?: string
+    mut program?: string
     --- The digest of the code that writes a closure store (`Harness`),
     --- and the set of the modules of the tree the binary carries, which
     --- a worker's loads are held to ([`worker.judge`]).
-    store_salt: string
-    carried: {string:boolean}
+    mut store_salt: string
+    mut carried: mut {string:boolean}
     --- Where an artifact runs the tests (the tree's tool, or a
     --- portable cosmic), what runs its core
     --- ([`declared_key.launcher_identity`]), which every key holds; nil
     --- where a host program does.
-    launcher?: string
+    mut launcher?: string
     unkeyed: mut {string:string}
     --- Whether each module's workers can be kept from running this
     --- program (`can_forbid`), by module path.
     forbiddable: mut {string:boolean}
     --- Where the host caches each module declares are ([`build.caches`]),
     --- by module path, as `caches_of` resolves them.
-    caches: {string:{string}}
+    caches: mut {string:{string}}
     --- Each selected module's import closure, by path: the names of its
     --- modules, which its worker holds its `require`s to
     --- ([`test_inputs.modules`], [`build.test_worker`]).
     closures: mut {string:{string}}
     --- The requires a closure does not follow, which make no module a
     --- worker loads (`test.type_only_imports`).
-    type_only: {string:{string:boolean}}
+    mut type_only: {string:{string:boolean}}
     --- The same, each a set of names, made as a verdict needs one
     --- (`closure_set`).
-    closure_sets: mut {string:{string:boolean}}
+    closure_sets: mut {string:mut {string:boolean}}
     --- The sandbox plan of the first worker started of each module, by path,
     --- and the scratch directory it was made for: a later worker of the
     --- module takes it rebound to its own ([`test_sandbox.rebind`]).
@@ -316,28 +316,28 @@ local record test_state
     --- made the first time one is: the directory they are written in, the
     --- program's own database written there (`sealing_for`); the reason
     --- there is none, or nil before it is made.
-    sealing?: Sealing
-    sealing_trouble?: string
+    mut sealing?: Sealing
+    mut sealing_trouble?: string
     --- The path of the sealed database of each closure store, by its
     --- address (`sealed_for`).
-    sealed: mut {string:string}
+    mut sealed: mut {string:string}
     --- How many sealed databases this run wrote, their bytes, and the time
     --- taken (`sealed_for`).
-    sealed_written: integer
-    sealed_bytes: integer
-    sealed_ns: integer
-    projection?: string
+    mut sealed_written: integer
+    mut sealed_bytes: integer
+    mut sealed_ns: integer
+    mut projection?: string
     --- The path of the projection's `uses` keyed by source module, made
     --- by the first store this run writes (`extraction_for`); nil
     --- until then.
-    extraction?: string
-    basis?: closure_store.Basis
+    mut extraction?: string
+    mut basis?: closure_store.Basis
     built: mut {string:string}
     --- The address of the store of no module, which holds what every
     --- closure store holds alike -- the schema, as the code that writes
     --- it lays it out, and the `meta` rows each keeps -- and which the
     --- census names by its bytes (`base_store_digest`).
-    base_store?: string
+    mut base_store?: string
     --- The digest of the bytes of each store this run keyed a test by, by
     --- address (`address_digest`), and whether it may take one from the
     --- shared verdicts: not under `--no-shared`, which stands on nothing
@@ -345,13 +345,13 @@ local record test_state
     --- salted with: the runtime's identity, less the run's other parts.
     store_digests: mut {string:string}
     consult_shared: boolean
-    store_runtime?: string
+    mut store_runtime?: string
     --- The identity of the core the run's workers run ([`declared_key.runtime_identity`]),
     --- which the key of a worker on a sealed database holds in place of the
     --- launcher (`seals`).
-    core?: string
+    mut core?: string
     --- The digest of the program's modules the tree lacks (`extras_digest`).
-    extras?: string
+    mut extras?: string
     --- What the shared verdicts keep of each address this run looked up
     --- ("" for none), the closure and kind each address was keyed for, and
     --- the addresses whose bytes it found to differ, said once each.
@@ -360,9 +360,9 @@ local record test_state
     store_bases: mut {string:boolean}
     store_mismatched: mut {string:boolean}
     --- How many of them this run wrote, their bytes, and the time taken.
-    written: integer
-    written_bytes: integer
-    writing_ns: integer
+    mut written: integer
+    mut written_bytes: integer
+    mut writing_ns: integer
   end
 end
 

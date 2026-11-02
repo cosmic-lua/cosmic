@@ -28,6 +28,7 @@ local artifact = require("build.artifact")
 local type raw_store = require("cosmic.internal.store")
 local GrammarMode = require("build.grammar_mode")
 local importer = require("build.importer")
+local exit_status = require("build.exit_status")
 local shared_compiles = require("build.shared_compiles")
 local narrow = require("build.narrow")
 local schema = require("build.schema")
@@ -42,7 +43,7 @@ local verb_spec = require("build.verb_spec")
 
 local record embed
   --- The verb's registration: see build/verb_spec.tl.
-  spec: verb_spec.Spec
+  mut spec: verb_spec.Spec
 end
 
 local text = bind.text
@@ -417,8 +418,9 @@ end
 ---   `cosmic build --roots` names them ([`embed.database`]); nil records
 ---   none, which is "minimal"
 --- @param carried the `built_from` the tool carries, as [`tree.standing`] takes it
+--- @param outcome set to `refused` where the tree does not build because a module of it does not compile
 function embed.tree(root: string, host?: boolean, under?: {string}, grammar?: GrammarMode.Mode,
-                    roots?: string, carried?: string): {string}?, string
+                    roots?: string, carried?: string, outcome?: importer.Outcome): {string}?, string
   local mode = grammar
   if mode == nil then
     local chosen, chosen_trouble = GrammarMode.mode()
@@ -443,7 +445,7 @@ function embed.tree(root: string, host?: boolean, under?: {string}, grammar?: Gr
   local project = build_paths.resolve(root).projection
   -- The new checker reads the project in this process; its compile is keyed by the mode.
   local tool = GrammarMode.tool(Store.meta("compiler") or "", mode)
-  local result, compile_trouble = importer.compile(handle, tool, false, shared_compiles.for_build())
+  local result, compile_trouble = importer.compile(handle, tool, false, shared_compiles.for_build(), nil, nil, outcome)
   if result == nil then
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
     local _, _ = work.close(handle)
@@ -453,6 +455,7 @@ function embed.tree(root: string, host?: boolean, under?: {string}, grammar?: Gr
   if #result.refused > 0 then
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, result.compiled, result.cached, "FAIL")
     local _, _ = work.close(handle)
+    if outcome ~= nil then outcome.refused = true end
     return nil, table.concat(result.refused, "\n")
   end
   local written, write_trouble = writer.write_recorded(handle, project, result, started, staged)
@@ -553,10 +556,11 @@ local function run(argv: {string}): integer
     log:complain(root_trouble)
     return 1
   end
-  local names, trouble = embed.tree(root, host, narrow.paths(root, parsed.words), nil, roots)
+  local outcome: importer.Outcome = { refused = false }
+  local names, trouble = embed.tree(root, host, narrow.paths(root, parsed.words), nil, roots, nil, outcome)
   if names == nil then
     log:complain(trouble)
-    return 1
+    return if outcome.refused then exit_status.uncompiled else 1 end
   end
   local outputs: mut {string} = {}
   local bin = build_paths.resolve(root).bin

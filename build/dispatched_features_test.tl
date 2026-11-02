@@ -310,7 +310,7 @@ local function test_every_site_that_asks_the_processor_is_named()
 end
 
 local function test_every_feature_a_site_reads_is_keyed()
-  local want: mut {string:{string:boolean}} = {}
+  local want: mut {string:mut {string:boolean}} = {}
   local function add(machine: string, flags: {string})
     want[machine] = want[machine] or {}
     for _, flag in ipairs(flags) do want[machine][flag] = true end

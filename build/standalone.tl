@@ -46,6 +46,7 @@ local Store = require("cosmic.store")
 local Globals = require("cosmic.internal.globals")
 local GrammarMode = require("build.grammar_mode")
 local exit_status = require("build.exit_status")
+local type importer = require("build.importer")
 local log = require("build.logger").log
 local Pipeline = require("build.pipeline")
 
@@ -87,7 +88,8 @@ end
 --- `COSMIC_GRAMMAR` that names another checker is refused ([`build.grammar_mode`]). With `own`, as `cosmic -e` asks, the file
 --- may also require the tool's own modules, which the checker types from their sources ([`build.standard_text`]'s `own`),
 --- and it is checked each time and kept nowhere.
-function standalone.code(file: string, source: string, variables?: {string:string}, own?: boolean): string?, string
+function standalone.code(file: string, source: string, variables?: {string:string}, own?: boolean,
+                         outcome?: importer.Outcome): string?, string
   local mode, mode_trouble = GrammarMode.mode()
   if mode == nil then
     return nil, mode_trouble
@@ -114,6 +116,7 @@ function standalone.code(file: string, source: string, variables?: {string:strin
     end
     local generated, generate_trouble = Pipeline.lone(file, source, options)
     if generated == nil then
+      if outcome ~= nil then outcome.refused = true end
       return nil, generate_trouble
     end
     code = generated
@@ -135,9 +138,10 @@ function standalone.requires(file: string, source: string): {string}?, string
 end
 
 --- `file`'s Teal, checked and compiled to a loaded chunk ([`standalone.code`],
---- loaded as `file`'s), `own` as it says there.
-function standalone.compile(file: string, source: string, variables?: {string:string}, own?: boolean): standalone.Main?, string
-  local code, trouble = standalone.code(file, source, variables, own)
+--- loaded as `file`'s), `own` and `outcome` as it says there.
+function standalone.compile(file: string, source: string, variables?: {string:string}, own?: boolean,
+                            outcome?: importer.Outcome): standalone.Main?, string
+  local code, trouble = standalone.code(file, source, variables, own, outcome)
   if code == nil then
     return nil, trouble
   end
@@ -159,13 +163,13 @@ function standalone.entry(produced: any): standalone.Main?
   return nil
 end
 
---- Runs `argv[2]` standalone, or with `--check` at slot 2 checks `argv[3]` and does not run it (exit 0 when it is clean, 1 and
---- the refusals on standard error when not): `argv` is the whole command line, `--standalone`
+--- Runs `argv[2]` standalone, or with `--check` at slot 2 checks `argv[3]` and does not run it (exit 0 when it is clean; when not,
+--- the refusals on standard error and [`exit_status.uncompiled`]): `argv` is the whole command line, `--standalone`
 --- at slot 1, so the file sees what follows its own path, and its path at
 --- `argv[0]`. `why`, where given, says what made this run standalone, which
 --- a file that does not compile is told beside its refusal: a require of a
 --- module that is not `cosmic.*` is refused here and not in the run the
---- caller may have meant.
+--- caller may have meant. A file the checker refuses or that does not parse exits [`exit_status.uncompiled`].
 function standalone.run(argv: {string}, why?: string): integer
   -- `--check` stands before the file and takes nothing after it: the file is checked as a run checks it, and not run.
   local only = argv[2] == "--check"
@@ -179,13 +183,14 @@ function standalone.run(argv: {string}, why?: string): integer
     log:complain(read_trouble)
     return 1
   end
-  local chunk, trouble = standalone.compile(file, source)
+  local outcome: importer.Outcome = { refused = false }
+  local chunk, trouble = standalone.compile(file, source, nil, nil, outcome)
   if chunk == nil then
     local _, _ = Fs.put(Fs.stderr, trouble .. "\n")
     if why ~= nil then
       local _, _ = Fs.put(Fs.stderr, "cosmic: " .. why .. "\n")
     end
-    return 1
+    return if outcome.refused then exit_status.uncompiled else 1 end
   end
   if only then
     return 0
