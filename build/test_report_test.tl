@@ -135,6 +135,15 @@ local function test_a_floor_names_each_file_and_the_total_that_fall_short()
   assert(#test_report.floor(1600, 2000, {}, { min = 80.0 }).lines == 0)
 end
 
+--- A decimal floor a file meets exactly holds, though `64.4 * 250` rounds above 16100 in floating point.
+local function test_a_decimal_floor_met_exactly_holds()
+  local at = test_report.floor(161, 250, { { path = "f.tl", hit = 161, lines = 250 } }, { min = 64.4, min_file = 64.4 })
+  assert(#at.lines == 0, at.lines[1])
+  assert(#test_report.floor(33, 375, { { path = "g.tl", hit = 33, lines = 375 } }, { min_file = 8.8 }).lines == 0)
+  local short = test_report.floor(160, 250, { { path = "f.tl", hit = 160, lines = 250 } }, { min_file = 64.4 })
+  assert(#short.lines == 1, "one line short of 64.4% is under it")
+end
+
 local function test_a_shown_output_is_listed_beneath_its_test_in_the_form_a_failure_has()
   local lines = test_report.shown({
     { id = "z.m_test test_b", printed = "one\ntwo\n" },

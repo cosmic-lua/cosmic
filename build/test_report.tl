@@ -274,10 +274,12 @@ end
 
 --- Whether `hit` of `lines` is under the floor `least`, in percent: at the
 --- floor is not under it. A run or file with no line to cover is under no
---- floor: there is nothing to reach.
+--- floor: there is nothing to reach. The floor is compared in millionths of a
+--- percent, as integers: `least * lines` in floating point rounds `64.4 * 250`
+--- above 16100, which would put a file exactly at the floor under it.
 local function under(hit: integer, lines: integer, least: number): boolean
   if lines == 0 then return false end
-  return hit * 100.0 < least * lines
+  return hit * 100000000 < math.floor(least * 1000000 + 0.5) * lines
 end
 
 --- `hit` of `lines` as a percentage to one decimal, rounded down: a figure
