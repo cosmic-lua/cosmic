@@ -419,9 +419,9 @@ local function rows_of(db: Sqlite.Handle, head: string): {Row}?, string
             line = row:integer(2),
             last = row:integer(3),
             text = row:text(4),
-            commit = blamed and row:text(6) or "", -- checked: and_ternary
-            author_time = blamed and row:integer(7) or 0, -- checked: and_ternary
-            summary = blamed and row:text(8) or "", -- checked: and_ternary
+            commit = if blamed then row:text(6) else "" end,
+            author_time = if blamed then row:integer(7) else 0 end,
+            summary = if blamed then row:text(8) else "" end,
             boundary = blamed and row:integer(9) ~= 0,
           },
           sha256 = row:text(5),
@@ -664,7 +664,7 @@ function todos.arguments(root: string, argv: {string}): todos.Arguments
   for _, word in ipairs(argv) do
     -- A path when it names one, and words to search for when not, as
     -- `cosmic docs` takes a symbol first and words after.
-    local full = word:sub(1, 1) == "/" and word or root .. "/" .. word -- checked: and_ternary
+    local full = if word:sub(1, 1) == "/" then word else root .. "/" .. word end
     local absolute, _ = Fs.absolute(full)
     if word ~= "" and absolute ~= nil then
       named[#named + 1] = full

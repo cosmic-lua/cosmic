@@ -1,6 +1,6 @@
---- Tests of [`build.ceilings_base`]: the ceilings file is held to the file at the merge base, from the base CI names or
---- that git finds, and a run that cannot name one fails in CI and is skipped (saying why) only where none can exist. The
---- git is a stand-in that answers each call from a table.
+--- Tests of [`build.ceilings_base`]: the markers of the tree are held to those of the files at the merge base, from the base CI
+--- names or that git finds, and a run that cannot name one fails in CI and is skipped (saying why) only where none can exist.
+--- The git is a stand-in that answers each call from a table.
 local CeilingsBase = require("build.ceilings_base")
 local Fs = require("cosmic.fs")
 local Markers = require("build.markers")
@@ -9,8 +9,6 @@ local Test = require("cosmic.test")
 Test.policy{}
 
 local BASE <const> = "0123456789abcdef0123456789abcdef01234567"
-
-local BASE_TEXT <const> = "[checked]\nbuild/a.tl nil_not_allowed 3\n\nbuild/b.tl view_written 2\n"
 
 --- The calls a git was asked, joined with spaces.
 local record Asked
@@ -38,25 +36,21 @@ local function nothing(): Answers
   return { status = {}, printed = {} }
 end
 
-local BLOB <const> = "cat-file -p " .. BASE .. ":build/ceilings.txt"
-
---- A git that has the base commit, an ancestor of HEAD, whose ceilings file holds `text`.
-local function holding(text: string): Answers
+--- A git that has the base commit, an ancestor of HEAD.
+local function holding(): Answers
   return {
     status = {
       ["cat-file -e " .. BASE .. "^{commit}"] = 0,
       ["merge-base --is-ancestor " .. BASE .. " HEAD"] = 0,
       ["rev-parse --is-shallow-repository"] = 0,
-      [BLOB] = 0,
     },
-    printed = { [BLOB] = text, ["rev-parse --is-shallow-repository"] = "true\n" },
+    printed = { ["rev-parse --is-shallow-repository"] = "true\n" },
   }
 end
 
---- The tree at `tmp` with `text` as its ceilings file.
-local function tree_with(tmp: string, text: string): string
+--- The tree at `tmp`.
+local function tree_with(tmp: string): string
   assert(Fs.mkdirs(tmp .. "/build"))
-  assert(Fs.write(tmp .. "/build/ceilings.txt", text))
   return tmp
 end
 
@@ -72,128 +66,7 @@ local function has(text: string?, needle: string): boolean
   return text ~= nil and text:find(needle, 1, true) ~= nil
 end
 
-local function test_a_raised_count_in_ci_is_refused_naming_the_line(tmp: string)
-  local root = tree_with(tmp, "[checked]\nbuild/a.tl nil_not_allowed 4\n\nbuild/b.tl view_written 2\n")
-  local verdict = CeilingsBase.check(root, ci({ COSMIC_CEILINGS_BASE = BASE }), git_of(holding(BASE_TEXT), { calls = {} }))
-  assert(#verdict.lines == 1, table.concat(verdict.lines, "\n"))
-  assert(verdict.lines[1] == "build/ceilings.txt:2: [checked] build/a.tl nil_not_allowed rose from 3 to 4; " ..
-      "a ceiling only falls: fix the code instead", verdict.lines[1])
-end
-
-local function test_a_new_key_in_the_merge_queue_is_refused(tmp: string)
-  local root = tree_with(tmp, BASE_TEXT .. "\nbuild/c.tl any_use 1\n")
-  local env = ci({ COSMIC_CI_EVENT = "merge_group", COSMIC_CI_BASE_SHA = BASE })
-  local verdict = CeilingsBase.check(root, env, git_of(holding(BASE_TEXT), { calls = {} }))
-  assert(#verdict.lines == 1 and has(verdict.lines[1], "build/c.tl any_use is a row the merge base lacks"),
-    table.concat(verdict.lines, "\n"))
-end
-
-local function test_a_lowered_count_and_a_removed_row_are_accepted(tmp: string)
-  local root = tree_with(tmp, "[checked]\nbuild/a.tl nil_not_allowed 2\n")
-  local verdict = CeilingsBase.check(root, ci({ COSMIC_CEILINGS_BASE = BASE }), git_of(holding(BASE_TEXT), { calls = {} }))
-  assert(#verdict.lines == 0, table.concat(verdict.lines, "\n"))
-  assert(has(verdict.note, "held to the ceilings of 0123456789ab"), verdict.note)
-end
-
-local function test_a_base_without_the_file_makes_every_row_new(tmp: string)
-  local root = tree_with(tmp, BASE_TEXT)
-  local answers = holding(BASE_TEXT)
-  answers.status[BLOB] = 128
-  local verdict = CeilingsBase.check(root, ci({ COSMIC_CEILINGS_BASE = BASE }), git_of(answers, { calls = {} }))
-  assert(#verdict.lines == 2, table.concat(verdict.lines, "\n"))
-end
-
-local function test_a_base_the_checkout_lacks_is_fetched_once_and_a_fetch_that_fails_fails_the_check(tmp: string)
-  local root = tree_with(tmp, BASE_TEXT)
-  local asked: Asked = { calls = {} }
-  local verdict = CeilingsBase.check(root, ci({ COSMIC_CEILINGS_BASE = BASE }), git_of(nothing(), asked))
-  assert(#verdict.lines == 1 and has(verdict.lines[1], "is not in this checkout"), table.concat(verdict.lines, "\n"))
-  local fetched = 0
-  for _, call in ipairs(asked.calls) do
-    if call == "fetch --quiet --no-tags --depth=1 origin " .. BASE then fetched = fetched + 1 end
-  end
-  assert(fetched == 1, "fetched " .. tostring(fetched))
-end
-
-local function test_a_base_that_is_not_an_ancestor_of_head_is_refused(tmp: string)
-  local root = tree_with(tmp, BASE_TEXT)
-  local answers = holding(BASE_TEXT)
-  answers.printed["rev-parse --is-shallow-repository"] = "false\n"
-  for _, status in ipairs({ 1, 128, -1 }) do
-    answers.status["merge-base --is-ancestor " .. BASE .. " HEAD"] = status
-    local verdict = CeilingsBase.check(root, ci({ COSMIC_CEILINGS_BASE = BASE }), git_of(answers, { calls = {} }))
-    assert(#verdict.lines == 1 and has(verdict.lines[1], "is not an ancestor of HEAD"), table.concat(verdict.lines, "\n"))
-  end
-  -- a shallow checkout cannot tell, as a branch push's cannot, and is not refused for it
-  answers.printed["rev-parse --is-shallow-repository"] = "true\n"
-  local shallow = CeilingsBase.check(root, ci({ COSMIC_CEILINGS_BASE = BASE }), git_of(answers, { calls = {} }))
-  assert(#shallow.lines == 0, table.concat(shallow.lines, "\n"))
-end
-
-local function test_a_base_that_is_not_a_full_hash_or_a_ceilings_file_that_does_not_parse_fails(tmp: string)
-  local root = tree_with(tmp, BASE_TEXT)
-  local short = CeilingsBase.check(root, ci({ COSMIC_CEILINGS_BASE = "0" }), git_of(holding(BASE_TEXT), { calls = {} }))
-  assert(#short.lines == 1 and has(short.lines[1], "no full commit hash"), table.concat(short.lines, "\n"))
-  local closed = tree_with(tmp .. "/closed", "[checked]\nbuild/a.tl arity 1\n")
-  local verdict = CeilingsBase.check(closed, ci({ COSMIC_CEILINGS_BASE = BASE }),
-    git_of(holding("[checked]\nbuild/a.tl arity 1\n"), { calls = {} }))
-  assert(#verdict.lines == 1 and has(verdict.lines[1], "arity is closed"), table.concat(verdict.lines, "\n"))
-end
-
-local function test_the_base_a_workflow_names_for_the_ceilings_wins_over_the_queues(tmp: string)
-  local root = tree_with(tmp, BASE_TEXT)
-  local other = "1111111111111111111111111111111111111111"
-  local verdict = CeilingsBase.check(root, ci({ COSMIC_CEILINGS_BASE = BASE, COSMIC_CI_BASE_SHA = other }),
-    git_of(holding(BASE_TEXT), { calls = {} }))
-  assert(#verdict.lines == 0 and has(verdict.note, "0123456789ab"), table.concat(verdict.lines, "\n") .. verdict.note)
-end
-
-local function test_a_run_of_ci_that_holds_a_change_and_names_no_base_fails(tmp: string)
-  local root = tree_with(tmp, BASE_TEXT)
-  for _, env in ipairs({
-      ci({}),
-      ci({ COSMIC_CI_EVENT = "merge_group" }),
-      ci({ COSMIC_CI_BASE_SHA = "unknown" }),
-      ci({ COSMIC_CI_EVENT = "workflow_dispatch" }),
-  }) do
-    local verdict = CeilingsBase.check(root, env, git_of(nothing(), { calls = {} }))
-    assert(#verdict.lines == 1 and has(verdict.lines[1], "so they are refused"), table.concat(verdict.lines, "\n"))
-  end
-end
-
-local function test_the_runs_of_main_itself_are_skipped_saying_so(tmp: string)
-  local root = tree_with(tmp, BASE_TEXT)
-  for _, env in ipairs({
-      ci({ COSMIC_CI_EVENT = "schedule" }),
-      ci({ COSMIC_CI_EVENT = "workflow_dispatch", GITHUB_REF = "refs/heads/main" }),
-      ci({ GITHUB_REF = "refs/heads/main" }),
-  }) do
-    local verdict = CeilingsBase.check(root, env, git_of(nothing(), { calls = {} }))
-    assert(#verdict.lines == 0 and has(verdict.note, "run of main itself"), verdict.note)
-  end
-end
-
-local function test_a_checkout_without_git_or_origin_main_is_skipped_saying_so_and_one_with_both_is_held(tmp: string)
-  local root = tree_with(tmp, "[checked]\nbuild/a.tl nil_not_allowed 9\n")
-  local outside = CeilingsBase.check(root, {}, git_of(nothing(), { calls = {} }))
-  assert(#outside.lines == 0 and has(outside.note, "no git checkout"), outside.note)
-  local answers = holding(BASE_TEXT)
-  answers.status["rev-parse --git-dir"] = 0
-  local lonely = CeilingsBase.check(root, {}, git_of(answers, { calls = {} }))
-  assert(#lonely.lines == 0 and has(lonely.note, "no merge base with origin/main"), lonely.note)
-  answers.status["merge-base HEAD origin/main"] = 0
-  answers.printed["merge-base HEAD origin/main"] = BASE .. "\n"
-  local held = CeilingsBase.check(root, {}, git_of(answers, { calls = {} }))
-  assert(#held.lines == 1 and has(held.lines[1], "rose from 3 to 9"), table.concat(held.lines, "\n"))
-end
-
--- The markers: a file may hold no more of a stage's code than it did at the merge base. A marker in a fixture is written as
--- `KEY .. " ..."` so that this file holds none.
-
 local KEY <const> = "-- checked:"
-
---- A ceilings file that lists every stage under `[marked]`, as the base and the tree of these tests have it.
-local MARKED <const> = "[marked]\nscoped declared untyped checked\n"
 
 local GREP <const> = "grep -l -F -e -- scoped: -e -- declared: -e -- checked: -e -- untyped: " .. BASE ..
   " -- *.tl :(exclude)vendor :(exclude)ci"
@@ -209,7 +82,7 @@ end
 
 --- A git that has the base, whose markers are in `files` (path to text).
 local function marked_base(files: {string: string}): Answers
-  local answers = holding(MARKED)
+  local answers = holding()
   local paths: mut {string} = {}
   for path in pairs(files) do paths[#paths + 1] = path end
   table.sort(paths)
@@ -230,8 +103,93 @@ local function marked_base(files: {string: string}): Answers
   return answers
 end
 
+local function test_a_base_the_checkout_lacks_is_fetched_once_and_a_fetch_that_fails_fails_the_check(tmp: string)
+  local root = tree_with(tmp)
+  local asked: Asked = { calls = {} }
+  local verdict = CeilingsBase.check(root, ci({ COSMIC_CEILINGS_BASE = BASE }), git_of(nothing(), asked))
+  assert(#verdict.lines == 1 and has(verdict.lines[1], "is not in this checkout"), table.concat(verdict.lines, "\n"))
+  local fetched = 0
+  for _, call in ipairs(asked.calls) do
+    if call == "fetch --quiet --no-tags --depth=1 origin " .. BASE then fetched = fetched + 1 end
+  end
+  assert(fetched == 1, "fetched " .. tostring(fetched))
+end
+
+local function test_a_base_that_is_not_an_ancestor_of_head_is_refused(tmp: string)
+  local root = tree_with(tmp)
+  local answers = holding()
+  answers.printed["rev-parse --is-shallow-repository"] = "false\n"
+  for _, status in ipairs({ 1, 128, -1 }) do
+    answers.status["merge-base --is-ancestor " .. BASE .. " HEAD"] = status
+    local verdict = CeilingsBase.check(root, ci({ COSMIC_CEILINGS_BASE = BASE }), git_of(answers, { calls = {} }))
+    assert(#verdict.lines == 1 and has(verdict.lines[1], "is not an ancestor of HEAD"), table.concat(verdict.lines, "\n"))
+  end
+  -- a shallow checkout cannot tell, as a branch push's cannot, and is not refused for it
+  answers.printed["rev-parse --is-shallow-repository"] = "true\n"
+  local shallow = CeilingsBase.check(root, ci({ COSMIC_CEILINGS_BASE = BASE }), git_of(answers, { calls = {} }))
+  assert(#shallow.lines == 0, table.concat(shallow.lines, "\n"))
+end
+
+local function test_a_base_that_is_not_a_full_hash_fails(tmp: string)
+  local root = tree_with(tmp)
+  local short = CeilingsBase.check(root, ci({ COSMIC_CEILINGS_BASE = "0" }), git_of(holding(), { calls = {} }))
+  assert(#short.lines == 1 and has(short.lines[1], "no full commit hash"), table.concat(short.lines, "\n"))
+end
+
+local function test_the_base_a_workflow_names_for_the_markers_wins_over_the_queues(tmp: string)
+  local root = tree_with(tmp)
+  local other = "1111111111111111111111111111111111111111"
+  local verdict = CeilingsBase.check(root, ci({ COSMIC_CEILINGS_BASE = BASE, COSMIC_CI_BASE_SHA = other }),
+    git_of(holding(), { calls = {} }))
+  assert(#verdict.lines == 0 and has(verdict.note, "0123456789ab"), table.concat(verdict.lines, "\n") .. verdict.note)
+end
+
+local function test_a_run_of_ci_that_holds_a_change_and_names_no_base_fails(tmp: string)
+  local root = tree_with(tmp)
+  for _, env in ipairs({
+      ci({}),
+      ci({ COSMIC_CI_EVENT = "merge_group" }),
+      ci({ COSMIC_CI_BASE_SHA = "unknown" }),
+      ci({ COSMIC_CI_EVENT = "workflow_dispatch" }),
+  }) do
+    local verdict = CeilingsBase.check(root, env, git_of(nothing(), { calls = {} }))
+    assert(#verdict.lines == 1 and has(verdict.lines[1], "so they are refused"), table.concat(verdict.lines, "\n"))
+  end
+end
+
+local function test_the_runs_of_main_itself_are_skipped_saying_so(tmp: string)
+  local root = tree_with(tmp)
+  for _, env in ipairs({
+      ci({ COSMIC_CI_EVENT = "schedule" }),
+      ci({ COSMIC_CI_EVENT = "workflow_dispatch", GITHUB_REF = "refs/heads/main" }),
+      ci({ GITHUB_REF = "refs/heads/main" }),
+  }) do
+    local verdict = CeilingsBase.check(root, env, git_of(nothing(), { calls = {} }))
+    assert(#verdict.lines == 0 and has(verdict.note, "run of main itself"), verdict.note)
+  end
+end
+
+local function test_a_checkout_without_git_or_origin_main_is_skipped_saying_so_and_one_with_both_is_held(tmp: string)
+  local root = tree_with(tmp)
+  local held: CeilingsBase.Held = { ["build/a.tl"] = { ["checked map_field"] = 1 } }
+  local outside = CeilingsBase.check(root, {}, git_of(nothing(), { calls = {} }), held)
+  assert(#outside.lines == 0 and has(outside.note, "no git checkout"), outside.note)
+  local answers = marked_base({})
+  answers.status["rev-parse --git-dir"] = 0
+  local lonely = CeilingsBase.check(root, {}, git_of(answers, { calls = {} }), held)
+  assert(#lonely.lines == 0 and has(lonely.note, "no merge base with origin/main"), lonely.note)
+  answers.status["merge-base HEAD origin/main"] = 0
+  answers.printed["merge-base HEAD origin/main"] = BASE .. "\n"
+  local verdict = CeilingsBase.check(root, {}, git_of(answers, { calls = {} }), held)
+  assert(#verdict.lines == 1 and has(verdict.lines[1], "1 of its markers hold checked map_field and the merge base held 0"),
+    table.concat(verdict.lines, "\n"))
+end
+
+-- The markers: a file may hold no more of a stage's code than it did at the merge base. A marker in a fixture is written as
+-- `KEY .. " ..."` so that this file holds none.
+
 local function test_a_file_with_more_markers_of_a_code_than_the_base_is_refused(tmp: string)
-  local root = tree_with(tmp, MARKED)
+  local root = tree_with(tmp)
   local base = marked_base({ ["build/a.tl"] = "f() " .. KEY .. " map_field\ng()\n" })
   local held: CeilingsBase.Held = { ["build/a.tl"] = { ["checked map_field"] = 2, ["checked any_use"] = 1 } }
   local verdict = CeilingsBase.check(root, ci({ COSMIC_CEILINGS_BASE = BASE }), git_of(base, { calls = {} }), held)
@@ -242,7 +200,7 @@ local function test_a_file_with_more_markers_of_a_code_than_the_base_is_refused(
 end
 
 local function test_a_new_file_of_markers_is_refused_and_a_file_at_or_under_its_base_is_not(tmp: string)
-  local root = tree_with(tmp, MARKED)
+  local root = tree_with(tmp)
   local base = marked_base({ ["build/a.tl"] = "f() " .. KEY .. " map_field*3\n" })
   local fine: CeilingsBase.Held = { ["build/a.tl"] = { ["checked map_field"] = 3 } }
   local verdict = CeilingsBase.check(root, ci({ COSMIC_CEILINGS_BASE = BASE }), git_of(base, { calls = {} }), fine)
@@ -256,7 +214,7 @@ local function test_a_new_file_of_markers_is_refused_and_a_file_at_or_under_its_
 end
 
 local function test_a_base_without_markers_makes_every_marker_new_and_a_tree_without_asks_git_nothing(tmp: string)
-  local root = tree_with(tmp, MARKED)
+  local root = tree_with(tmp)
   local held: CeilingsBase.Held = { ["build/a.tl"] = { ["checked map_field"] = 1 } }
   local verdict = CeilingsBase.check(root, ci({ COSMIC_CEILINGS_BASE = BASE }), git_of(marked_base({}), { calls = {} }), held)
   assert(#verdict.lines == 1, table.concat(verdict.lines, "\n"))
@@ -269,7 +227,7 @@ local function test_a_base_without_markers_makes_every_marker_new_and_a_tree_wit
 end
 
 local function test_a_base_whose_markers_git_cannot_read_fails_the_check(tmp: string)
-  local root = tree_with(tmp, MARKED)
+  local root = tree_with(tmp)
   local base = marked_base({ ["build/a.tl"] = "f()\n" })
   base.status[GREP] = 128
   local held: CeilingsBase.Held = { ["build/a.tl"] = { ["checked map_field"] = 1 } }
@@ -278,7 +236,7 @@ local function test_a_base_whose_markers_git_cannot_read_fails_the_check(tmp: st
 end
 
 local function test_code_that_moved_keeps_its_count_of_markers_and_passes(tmp: string)
-  local root = tree_with(tmp, MARKED)
+  local root = tree_with(tmp)
   local before = "a()\nb() " .. KEY .. " map_field\nc() " .. KEY .. " map_field, any_use\n"
   -- the same findings three lines lower, after code added above them
   local after = "x()\ny()\nz()\na()\nb() " .. KEY .. " map_field\nc() " .. KEY .. " map_field, any_use\n"
@@ -293,44 +251,4 @@ local function test_code_that_moved_keeps_its_count_of_markers_and_passes(tmp: s
   local refused = CeilingsBase.check(root, ci({ COSMIC_CEILINGS_BASE = BASE }), git_of(base, { calls = {} }), held)
   assert(#refused.lines == 1 and has(refused.lines[1], "3 of its markers hold checked map_field and the merge base " ..
       "held 2"), table.concat(refused.lines, "\n"))
-end
-
-local function test_the_change_that_moves_a_stage_from_rows_to_markers_may_hold_up_to_the_rows(tmp: string)
-  local root = tree_with(tmp, "[marked]\nchecked untyped\n")
-  -- the base counts by rows: the git of this test answers nothing about markers, so none is asked
-  local rows = "[checked]\nbuild/a.tl map_field 3\n\nbuild/a.tl any_use 1\n\n[untyped]\nbuild/a.tl 2\n"
-  local fine: CeilingsBase.Held = { ["build/a.tl"] = { ["checked map_field"] = 3, ["checked any_use"] = 1, ["untyped call"] = 2 } }
-  local verdict = CeilingsBase.check(root, ci({ COSMIC_CEILINGS_BASE = BASE }), git_of(holding(rows), { calls = {} }), fine)
-  assert(#verdict.lines == 0, table.concat(verdict.lines, "\n"))
-  local over: CeilingsBase.Held = { ["build/a.tl"] = { ["checked map_field"] = 4, ["untyped call"] = 3, ["checked shadows"] = 1 },
-    ["build/b.tl"] = { ["checked map_field"] = 1 } }
-  local refused = CeilingsBase.check(root, ci({ COSMIC_CEILINGS_BASE = BASE }), git_of(holding(rows), { calls = {} }), over)
-  local told = table.concat(refused.lines, "\n")
-  assert(#refused.lines == 4, told)
-  assert(has(told, "build/a.tl: 4 of its markers hold checked map_field and the merge base held 3"), told)
-  assert(has(told, "build/a.tl: 1 of its markers hold checked shadows and the merge base held 0"), told)
-  assert(has(told, "build/a.tl: 3 of its markers hold untyped call and the merge base held 2"), told)
-  assert(has(told, "build/b.tl: 1 of its markers hold checked map_field and the merge base held 0"), told)
-end
-
-local function test_a_stage_the_base_lists_under_marked_is_held_to_its_markers_and_the_others_to_their_rows(tmp: string)
-  local root = tree_with(tmp, "[marked]\nchecked declared\n")
-  local base = marked_base({ ["build/a.tl"] = "f() " .. KEY .. " map_field\n" })
-  base.printed[BLOB] = "[marked]\nchecked\n\n[declared]\nbuild/a.tl float_key 2\n"
-  local held: CeilingsBase.Held = { ["build/a.tl"] = { ["checked map_field"] = 1, ["declared float_key"] = 2 } }
-  local verdict = CeilingsBase.check(root, ci({ COSMIC_CEILINGS_BASE = BASE }), git_of(base, { calls = {} }), held)
-  assert(#verdict.lines == 0, table.concat(verdict.lines, "\n"))
-  held = { ["build/a.tl"] = { ["checked map_field"] = 1, ["declared float_key"] = 3 } }
-  local refused = CeilingsBase.check(root, ci({ COSMIC_CEILINGS_BASE = BASE }), git_of(base, { calls = {} }), held)
-  assert(#refused.lines == 1 and has(refused.lines[1], "3 of its markers hold declared float_key and the merge base held 2"),
-    table.concat(refused.lines, "\n"))
-end
-
---- A base cut before the examples were held by markers has an `[examples]` section, which is no stage now: the check reads
---- the base without it, and the change that deletes the section is not refused for it.
-local function test_a_base_with_an_examples_section_is_read_without_it(tmp: string)
-  local base = BASE_TEXT .. "\n[examples]\ncosmic/a_example.tl view_written 2\n"
-  local root = tree_with(tmp, BASE_TEXT)
-  local verdict = CeilingsBase.check(root, ci({ COSMIC_CEILINGS_BASE = BASE }), git_of(holding(base), { calls = {} }))
-  assert(#verdict.lines == 0, table.concat(verdict.lines, "\n"))
 end

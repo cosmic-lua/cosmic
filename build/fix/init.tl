@@ -353,7 +353,7 @@ local function workflow_sources(dir: string, root: string): {string}?, string
   if not within and inside ~= "." then
     return {}, ""
   end
-  local base = within and dir or dir .. "/.github" -- checked: and_ternary
+  local base = if within then dir else dir .. "/.github" end
   local prefix = if within then "" else ".github/" end
   local st, _ = Fs.stat(base)
   if st == nil or st.kind ~= "dir" then
@@ -970,7 +970,7 @@ function fix.notes(root: string, files: {string}, databases: {Sqlite.Handle},
     end
     local candidates: {near.Candidate}? = nil
     if relative ~= nil and relative:sub(1, 3) ~= "../" then
-      candidates = ready ~= nil and ready[file] or nil -- checked: and_ternary
+      candidates = if ready ~= nil then ready[file] else nil end
       if candidates == nil then
         local source, _ = Fs.read(file)
         if source ~= nil then
@@ -1008,7 +1008,7 @@ local function in_foreign_tree(root: string, file: string): boolean
   local absolute, _ = Fs.absolute(file)
   if absolute == nil then return false end
   local relative, _ = Fs.relative(absolute, root)
-  local first = relative ~= nil and relative:match("^([^/]+)/") or nil -- checked: and_ternary
+  local first = if relative ~= nil then relative:match("^([^/]+)/") else nil end
   return first ~= nil and identity.is_foreign_tree(first)
 end
 
@@ -1021,9 +1021,6 @@ local record Fix
   mut checking?: boolean
   mut paths?: {string}
   mut changes_only?: boolean
-  --- Whether the run writes a marker for each finding the ceilings file counts and moves those stages to `[marked]`
-  --- (`--mark-ceilings`).
-  mut mark_ceilings?: boolean
   mut root?: string
   mut standing?: tree.Standing
 
@@ -1071,11 +1068,6 @@ local function read_command(ctx: Fix): integer?
   ctx.checking = parsed.set["--check"] == true
   ctx.paths = parsed.words
   ctx.changes_only = parsed.set["--changed"] == true
-  ctx.mark_ceilings = parsed.set["--mark-ceilings"] == true
-  if ctx.mark_ceilings == true and ctx.checking == true then
-    log:complain("fix: --mark-ceilings writes markers, and --check writes nothing")
-    return 2
-  end
 
   local root, root_trouble = Fs.absolute(".")
   if root == nil then
@@ -1536,8 +1528,7 @@ local function spots_by_file(spots: {Markers.Spot}): {string: {Markers.Spot}}, {
   return by, files
 end
 
---- Removes the stale markers the tree checks found ([`Ceilings.Sink`]), or with `--mark-ceilings` writes the markers for
---- the findings that have none and moves the stages to `[marked]` in the ceilings file.
+--- Removes the stale markers the tree checks found ([`Ceilings.Sink`]).
 ---
 --- A run narrowed to some paths does not reach this: the tree checks judge the whole tree, and they are the only judge of a
 --- stale marker.
@@ -1546,30 +1537,10 @@ end
 -- ([`tree_checks.checked`], `declared`, `scoped`, `untyped`) take a set of files to judge and check only those; until then
 -- `cosmic fix .` removes them and `cosmic fix --check .` names them.
 --
-local function mend_markers(ctx: Fix, sink: Ceilings.Sink, migrating: {string})
+local function mend_markers(ctx: Fix, sink: Ceilings.Sink)
   local root = assert(ctx.root)
   local changed = copied(assert(ctx.changed))
   local failures = copied(assert(ctx.failures))
-  if #migrating > 0 then
-    local by, files = spots_by_file(sink.unmarked)
-    for _, file in ipairs(files) do
-      local spots = assert(by[file])
-      edit_marked(root, file, function(text: string): string
-        for _, spot in ipairs(Markers.unwritable(text, file, spots)) do
-          local said = file .. ":" .. tostring(spot.line) .. ": no marker can be written for " .. spot.code ..
-            ": the line above it ends inside a long string"
-          failures[#failures + 1] = said
-        end
-        return Markers.with(text, file, spots)
-      end, changed, failures)
-    end
-    edit_marked(root, Ceilings.path, function(text: string): string
-      return Ceilings.migrated(text, migrating)
-    end,
-      changed, failures)
-    log:say("fix: marked " .. plural.count(#sink.unmarked, "place") .. " in " .. plural.count(#files, "file") ..
-        "; [" .. table.concat(migrating, "], [") .. "] of " .. Ceilings.path .. " are held by markers now")
-  end
   local by, files = spots_by_file(sink.stale)
   for _, file in ipairs(files) do
     local spots = assert(by[file])
@@ -1635,29 +1606,15 @@ local function run_tree_checks(ctx: Fix)
       for _, line in ipairs(tree_checks.test_clones(root)) do
         findings[#findings + 1] = "copied helpers: " .. line
       end
-      -- The markers: a stage the ceilings file lists under `[marked]` is held by them. They only fall, and the run mends the
-      -- stale ones. With `--mark-ceilings` every stage still counted is held as if listed, and its findings get markers.
+      -- The markers hold the findings. They only fall, and the run mends the stale ones.
       local sink: Ceilings.Sink = { unmarked = {}, stale = {}, mend = ctx.checking ~= true }
-      local migrating: mut {string} = {}
-      if ctx.mark_ceilings == true then
-        local counted, counted_trouble = Ceilings.read(root)
-        if counted == nil then
-          findings[#findings + 1] = "ceilings: " .. counted_trouble
-        else
-          for _, stage in ipairs(Ceilings.markable()) do
-            if not Ceilings.by_marks(counted, stage) then
-              migrating[#migrating + 1] = tostring(stage)
-            end
-          end
-        end
-      end
-      local marking: Ceilings.Marking = { sink = sink, force = #migrating > 0 }
+      local marking: Ceilings.Marking = { sink = sink }
       local marks_began = Clock.monotonic_ns()
       local marks = tree_checks.markers(root)
       for _, line in ipairs(marks.lines) do
         findings[#findings + 1] = "markers: " .. line
       end
-      -- The ceilings only fall: the file is held to its merge base with main.
+      -- The markers only fall: each file's are held to its merge base with main.
       for _, line in ipairs(tree_checks.closure(root)) do
         findings[#findings + 1] = "closed codes: " .. line
       end
@@ -1676,19 +1633,19 @@ local function run_tree_checks(ctx: Fix)
       timing.began = Clock.monotonic_ns()
       tree_begin(timing, "scopes", "1 of 5")
       for _, line in ipairs(tree_checks.scoped(root, nil, memo, marking)) do
-        if #migrating == 0 then findings[#findings + 1] = "scopes: " .. line end
+        findings[#findings + 1] = "scopes: " .. line
       end
       tree_took(timing, "scopes")
       Memprobe.mark("tree checks: scopes")
       tree_begin(timing, "declarations", "2 of 5")
       for _, line in ipairs(tree_checks.declared(root, nil, memo, marking)) do
-        if #migrating == 0 then findings[#findings + 1] = "declarations: " .. line end
+        findings[#findings + 1] = "declarations: " .. line
       end
       tree_took(timing, "declarations")
       Memprobe.mark("tree checks: declarations")
       tree_begin(timing, "checker", "3 of 5")
       for _, line in ipairs(tree_checks.checked(root, nil, memo, nil, marking)) do
-        if #migrating == 0 then findings[#findings + 1] = "checker: " .. line end
+        findings[#findings + 1] = "checker: " .. line
       end
       tree_took(timing, "checker")
       Memprobe.mark("tree checks: checker")
@@ -1701,14 +1658,14 @@ local function run_tree_checks(ctx: Fix)
       -- The new checker's own count of the calls no rule judged.
       tree_begin(timing, "untyped", "5 of 5")
       for _, line in ipairs(tree_checks.untyped(root, nil, memo, marking)) do
-        if #migrating == 0 then findings[#findings + 1] = "untyped: " .. line end
+        findings[#findings + 1] = "untyped: " .. line
       end
       tree_took(timing, "untyped")
       if memo ~= nil then
         local _, _ = memo:close()
       end
       if ctx.checking ~= true then
-        mend_markers(ctx, sink, migrating)
+        mend_markers(ctx, sink)
       end
       for _, line in ipairs(promise_findings(root)) do
         findings[#findings + 1] = line
@@ -1719,9 +1676,6 @@ local function run_tree_checks(ctx: Fix)
       local closed, close_trouble = db:close()
       if not closed then findings[#findings + 1] = "tree checks: " .. close_trouble end
     end
-  elseif ctx.mark_ceilings == true then
-    findings[#findings + 1] = "--mark-ceilings: it moves the checks of the whole tree to markers, so it takes the whole tree: " ..
-      "run `cosmic fix --mark-ceilings .`"
   end
 end
 

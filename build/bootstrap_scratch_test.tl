@@ -89,7 +89,7 @@ assert(require("build.patch").prepare(%q, "lib", %q))
 local cache = %q
 require("build.zig_fetch").install(cache, cache .. "/install", "v", "host", nil)
 ]] end
-    local body = patch and script:format(root, cache) or script:format(cache) -- checked: and_ternary
+    local body = if patch then script:format(root, cache) else script:format(cache) end
     body = 'print("started")\n' .. body .. '\nprint("finished")'
     local command = this_program.program({ "-e", body }, { stdout = "stream", stderr = "capture" })
     local child = assert(Child.start(command.argv, command.options))

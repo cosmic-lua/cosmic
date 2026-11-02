@@ -168,7 +168,7 @@ local verbs: {string:function(string, string): integer?} = {
       if held == nil then return failed(target:sub(2), trouble) end
       named = String.trim(held)
     end
-    local pid = target == "" and sys.getpid() or number(named) -- checked: and_ternary
+    local pid = if target == "" then sys.getpid() else number(named) end
     if pid == nil then return failed("signal", "no process " .. named) end
     -- kill(2) takes 0 for its own group and -1 for every process this
     -- user may signal: a script names a group by its number.
@@ -572,7 +572,7 @@ local function run_script(script: string, args: {string}, dir: string): integer
     local line: string = String.trim(each)
     local only, guarded = line:match("^%[([^%]]*)%]%s+(.*)$")
     if only ~= nil and guarded ~= nil then
-      line = only == args[1] and guarded or "" -- checked: and_ternary
+      line = if only == args[1] then guarded else "" end
     end
     if line ~= "" then
       local commands, operators = chained(line)

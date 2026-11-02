@@ -1261,8 +1261,8 @@ local function known_in(db: Sqlite.Handle,
     end
     out[statement:bytes(0)] = {
       size = statement:integer(1),
-      mtime_ns = statement:integer(5) == 0 and statement:integer(2) or nil, -- checked: and_ternary
-      ctime_ns = statement:integer(7) == 0 and statement:integer(6) or nil, -- checked: and_ternary
+      mtime_ns = if statement:integer(5) == 0 then statement:integer(2) else nil end,
+      ctime_ns = if statement:integer(7) == 0 then statement:integer(6) else nil end,
       ino = statement:integer(3),
       dev = statement:integer(4),
     }
@@ -1516,7 +1516,7 @@ function work.stage(handle: work.Handle, standing: tree.Standing): work.Staged?,
     if st == nil then return nil, trouble end
     discovery[""] = st
   end
-  local skip_path = own_tree and identity.skip_in_own_tree or identity.skip_input -- checked: and_ternary
+  local skip_path = if own_tree then identity.skip_in_own_tree else identity.skip_input end
   -- Each entry only the walk for links reaches.
   local links_only: mut {string:boolean} = {}
   local link_skip = link_files.skipper(root)
@@ -1526,7 +1526,7 @@ function work.stage(handle: work.Handle, standing: tree.Standing): work.Staged?,
   local walking: Walking = { ancestors = nil, above = "" }
   local function skip(entry: string, name: string, kind: string): boolean
     local parent = entry:match("^(.*)/[^/]*$")
-    if (parent ~= nil and links_only[parent] == true) or skip_path(entry, name) then -- untyped: call
+    if (parent ~= nil and links_only[parent] == true) or skip_path(entry, name) then
       if not for_links(entry) then
         return true
       end
@@ -1623,7 +1623,7 @@ function work.stage(handle: work.Handle, standing: tree.Standing): work.Staged?,
     local input = not only and is_input(file, own_tree)
     local tool = not only and identity.is_tool(file, own_tree)
     local scan = not only and not input and not tool and holds_own_todos(file)
-    local link_kind = for_links(file) and link_files.checked(file, own_tree) or nil -- checked: and_ternary
+    local link_kind = if for_links(file) then link_files.checked(file, own_tree) else nil end
     local st, stat_trouble = Fs.stat(root .. "/" .. file)
     if st == nil then
       finish(put)

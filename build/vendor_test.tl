@@ -28,7 +28,7 @@ local function write_tar(path: string, files: {string:string}, modes?: {string:i
   local w = assert(Stream.create(path))
   local tw = Tar.writer(w)
   for entry_path, data in pairs(files) do
-    local mode = modes ~= nil and modes[entry_path] or nil -- checked: and_ternary
+    local mode = if modes ~= nil then modes[entry_path] else nil end
     assert(tw:add_file(entry_path, data, { mode = mode }))
   end
   assert(tw:close())

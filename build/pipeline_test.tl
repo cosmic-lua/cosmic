@@ -2,6 +2,7 @@
 --- new checker. The Lua is run, and compared with what the generator writes alone ([`lang.codegen`]) over the files of the tree.
 local ShapeStub = require("build.shape_stub")
 local Ceilings = require("build.ceilings")
+local CeilingsFixture = require("build.ceilings_fixture")
 local Codegen = require("lang.codegen")
 local CompileGrammar = require("build.compile_grammar")
 local Driver = require("build.driver")
@@ -38,7 +39,7 @@ local STANDARD <const>: {string: string} = ShapeStub.standard()
 --- The ceilings `text` holds, with no code closed: a program here has the errors the checker finds in it, whatever codes
 --- the tree has closed.
 local function ceilings(text: string): Ceilings.Table
-  return (assert(Ceilings.parse(text, {})))
+  return CeilingsFixture.rows(text)
 end
 
 local function options(pins: string): Pipeline.Options
@@ -239,7 +240,7 @@ local function test_the_options_of_cosmics_own_tree_are_its_declarations_and_cei
   assert(#own.globals.sources == 2)
   assert(Ceilings.by_marks(own.ceilings, "checked") and Ceilings.by_marks(own.ceilings, "untyped"),
     "the tree's ceilings are not read")
-  assert(next(own.ceilings.stages) ~= nil and own.types)
+  assert(own.types)
   assert(own.project == nil and own.ceilings.none == nil)
   -- A project's are the declarations the tool carries, which a worker's store of the modules a test reads does not: either the
   -- options are the project's, or the tool is told to boot again.

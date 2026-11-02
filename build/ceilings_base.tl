@@ -1,6 +1,7 @@
---- The check that the ceilings only fall: [`build/ceilings.txt`] as the tree has it is held to the file at the merge base
---- with main, and a count raised or a row added is refused ([`Ceilings.rises`]). The compile and the check of the tree
---- already refuse code over its ceiling, so the only way to let code through is to edit the data, and this closes it.
+--- The check that the markers only fall: the markers each file of the tree holds ([`build.markers`]) are held to the files at
+--- the merge base with main, and a file that holds more of a code than it did there is refused. The compile and the check of
+--- the tree already refuse a finding no marker holds, so the only way to let code through is to add a marker, and this closes
+--- it.
 ---
 --- Where the base comes from, in order:
 ---
@@ -19,7 +20,6 @@
 --- (the workflow's edits are in the diff a reviewer reads). It does refuse a name that is not a full commit hash, and,
 --- where the checkout holds enough history to tell (a shallow one, as CI's branch pushes are, cannot), a base that is not an
 --- ancestor of HEAD.
-local Ceilings = require("build.ceilings")
 local Markers = require("build.markers")
 local Child = require("cosmic.child")
 local Env = require("cosmic.env")
@@ -47,8 +47,8 @@ local record CeilingsBase
   --- [`CeilingsBase.Git`] for the host's own `git`.
   live_git: function(): Git
 
-  --- Holds the ceilings file of the tree at `root` to the file at the base `env` names, or that `git` finds, and the markers
-  --- the tree `held` to the markers of the files at that base: a file may hold no more markers of a code than it did there.
+  --- Holds the markers the tree at `root` `held` to the markers of the files at the base `env` names, or that `git` finds:
+  --- a file may hold no more markers of a code than it did there.
   check: function(root: string, env: {string:string}, git: Git, held?: Held): Verdict
 end
 
@@ -115,7 +115,7 @@ local function skipped(why: string): CeilingsBase.Verdict
 end
 
 local function failed(why: string): CeilingsBase.Verdict
-  return { lines = { Ceilings.path .. ": cannot hold the ceilings to the merge base, so they are refused: " .. why }, note = "" }
+  return { lines = { "cannot hold the markers to the merge base, so they are refused: " .. why }, note = "" }
 end
 
 --- The markers each file holds at `base`, by file and code, read from the commit with git alone: the files that mention the
@@ -183,75 +183,13 @@ local function base_marks(root: string, base: string, held: CeilingsBase.Held, g
   return out, ""
 end
 
---- What the merge base held, by file and `<stage> <code>`: its markers for a stage its ceilings file lists under `[marked]`, and
---- the rows of its ceilings file for any other (`untyped` counts its calls as `untyped call`). So the change that moves a stage
---- from rows to markers may hold up to the rows' counts of them, and no more. nil and why where it cannot be read.
-local function base_held(root: string, base: string, text: string, held: CeilingsBase.Held, git: CeilingsBase.Git):
-    CeilingsBase.Held?, string
-  -- TODO: delete this strip of the `[examples]` section once no merge base predates the change that made the examples held by
-  -- markers, or with the deletion of build/ceilings.txt (the one waits on the other); until then a base cut before it
-  -- holds a section that [`Ceilings.parse`] refuses.
-  -- Nothing is closed for the base: it may still hold a row of a code closed since. It may also hold the `[examples]` section,
-  -- which a base cut before the examples were held by markers has: its rows are no stage any more, and the markers of the
-  -- example files, read below, are what it held.
-  local without: mut {string} = {}
-  local skipping = false
-  for line in (text .. "\n"):gmatch("(.-)\n") do
-    local name = line:match("^%[([a-z]+)%]$")
-    if name ~= nil then
-      skipping = name == "examples"
-    end
-    if not skipping then
-      without[#without + 1] = line
-    end
-  end
-  local table_, why = Ceilings.parse(table.concat(without, "\n"), {})
-  if table_ == nil then
-    return nil, why
-  end
-  local out: mut {string: mut {string: integer}} = {}
-  local any_marked = false
-  for _, stage in ipairs(Ceilings.markable()) do
-    if Ceilings.by_marks(table_, stage) then
-      any_marked = true
-    else
-      for key, n in pairs(Ceilings.of(table_, stage)) do
-        local file = assert(key:match("^(%S+)"))
-        local code = key:match("^%S+ (%S+)$") or Ceilings.untyped_code
-        local files = out[file] or {}
-        out[file] = files
-        files[tostring(stage) .. " " .. code] = n
-      end
-    end
-  end
-  if any_marked then
-    local marked, marked_why = base_marks(root, base, held, git)
-    if marked == nil then
-      return nil, marked_why
-    end
-    for file, counts in pairs(marked) do
-      for key, n in pairs(counts) do
-        local name = assert(key:match("^(%S+) "))
-        for _, stage in ipairs(Ceilings.markable()) do
-          if tostring(stage) == name and Ceilings.by_marks(table_, stage) then
-            local files = out[file] or {}
-            out[file] = files
-            files[key] = n
-          end
-        end
-      end
-    end
-  end
-  return out, ""
-end
-
---- The lines that refuse the markers `held` of the tree where a file holds more of a code than the merge base did (as markers,
---- or as rows of its ceilings file `text`), or nil and why where the base cannot be read. A moved line keeps its marker and so
+--- The lines that refuse the markers `held` of the tree where a file holds more of a code than the merge base held in its
+--- markers, or nil and why where the base cannot be read. A moved line keeps its marker and so
 --- its count; a marker is never added, as a pin never rose. The count of a file is its own: a marker of a file renamed or split
 --- is new where it lands.
-local function marks_rise(root: string, base: string, text: string, held: CeilingsBase.Held, git: CeilingsBase.Git):
+local function marks_rise(root: string, base: string, held: CeilingsBase.Held, git: CeilingsBase.Git):
     {string}?, string
-  local was, why = base_held(root, base, text, held, git)
+  local was, why = base_marks(root, base, held, git)
   if was == nil then
     return nil, why
   end
@@ -301,13 +239,13 @@ function CeilingsBase.check(root: string, env: {string:string}, git: CeilingsBas
     end
     local inside, _ = git(root, { "rev-parse", "--git-dir" })
     if inside ~= 0 then
-      return skipped("this tree is no git checkout, so it has no base to grow from; CI holds the ceilings on every branch")
+      return skipped("this tree is no git checkout, so it has no base to grow from; CI holds the markers on every branch")
     end
     local found, out = git(root, { "merge-base", "HEAD", "origin/main" })
     local sha = out:match("^(%x+)")
     if found ~= 0 or sha == nil then
       return skipped("this checkout has no merge base with origin/main (no such branch fetched, or too shallow a clone); " ..
-          "`git fetch origin main` to hold the ceilings here, as CI does on every branch")
+          "`git fetch origin main` to hold the markers here, as CI does on every branch")
     end
     base = sha
   end
@@ -328,26 +266,9 @@ function CeilingsBase.check(root: string, env: {string:string}, git: CeilingsBas
       return failed("the base " .. base .. " is not an ancestor of HEAD, so it is not where this change grew from")
     end
   end
-  -- A base without the file holds no row, so every row of the tree's is one it lacks.
-  local shown, was = git(root, { "cat-file", "-p", base .. ":" .. Ceilings.path })
-  if shown ~= 0 then
-    was = ""
-  end
-  local text, why = Fs.read(root .. "/" .. Ceilings.path)
-  if text == nil then
-    return failed("cannot read " .. Ceilings.path .. ": " .. why)
-  end
-  -- The comparison reads rows leniently; the file it judges is read as the compile reads it first.
-  local parsed, parse_why = Ceilings.parse(text)
-  if parsed == nil then
-    return failed(parse_why)
-  end
   local lines: mut {string} = {}
-  for _, line in ipairs(Ceilings.rises(was, text)) do
-    lines[#lines + 1] = line
-  end
   if held ~= nil and next(held) ~= nil then
-    local rose, rose_why = marks_rise(root, base, was, held, git)
+    local rose, rose_why = marks_rise(root, base, held, git)
     if rose == nil then
       return failed(rose_why)
     end
@@ -355,7 +276,7 @@ function CeilingsBase.check(root: string, env: {string:string}, git: CeilingsBas
       lines[#lines + 1] = line
     end
   end
-  return { lines = lines, note = "held to the ceilings of " .. base:sub(1, 12) }
+  return { lines = lines, note = "held to the markers of " .. base:sub(1, 12) }
 end
 
 return CeilingsBase

@@ -109,8 +109,8 @@ finding is gone is stale, and `bin/cosmic fix .` removes it. A change
 that removes findings runs `fix .` and commits what it wrote.
 The examples a reader copies hold theirs the same way: the marker is part
 of the text shown, and a guide's code block holds none, so a finding there
-fails. [`build/ceilings.txt`] holds only `[testdata]`, a count that pins
-none.
+fails, as does any finding in a file under `ci/testdata`, which holds none.
+[`build/ceilings.txt`] lists the marked stages and has no row.
 
 ## tests
 

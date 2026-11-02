@@ -232,7 +232,7 @@ function near.notes(module: string, candidates: {near.Candidate},
       end
     end
     local commands = COMMANDS[name] == true and mine.method ~= true and
-      (named_all[name] or 0) - (named_in ~= nil and named_in[name] or 0) == 0 -- checked: and_ternary
+      (named_all[name] or 0) - ((if named_in ~= nil then named_in[name] else nil end) or 0) == 0
     -- A pair that shares no words can only be noted as a command's
     -- stand-in, so only then is every library function looked at.
     local scan: mut {integer} = order

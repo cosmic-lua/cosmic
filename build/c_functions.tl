@@ -261,7 +261,7 @@ function c_functions.spans(functions: {Coverage.Function}, sources?: {string: {s
   local out: mut {c_functions.Span} = {}
   for _, fn in ipairs(functions) do
     if fn.path:match("%.c$") ~= nil then
-      local source = sources ~= nil and sources[fn.path] or nil -- checked: and_ternary
+      local source = if sources ~= nil then sources[fn.path] else nil end
       local first = fn.line
       local stop: integer? = nil
       if source ~= nil then
@@ -302,7 +302,7 @@ end
 function c_functions.tally(functions: {Coverage.Function}, hits: Coverage.Hits,
                            sources?: {string: {string}}, sysname?: string,
                            unavailable?: {string: string}): c_functions.Tally
-  local here_exempt = sysname ~= nil and exempt_on[sysname] or {} -- checked: and_ternary, literal_needs_type
+  local here_exempt = (if sysname ~= nil then exempt_on[sysname] else nil end) or {}
   local function exempts(key: string): boolean
     return exempt[key] ~= nil or here_exempt[key] ~= nil
   end
