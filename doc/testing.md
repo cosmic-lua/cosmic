@@ -59,7 +59,19 @@ stands on another checkout's pass.
   has no ceilings: every error refuses, its globals are the declarations of the standard library the tool carries
   ([`build.checker_declarations`]), and a form of the old grammar is refused with the new checker's words and fix. A
   lone file run (`cosmic --standalone`, `cosmic sandbox`) and a file run (`cosmic <file>`) are built by it too. `cosmic
-  build` compiles the project with it, and refuses one that has a module it refuses. The Teal a template compiles to is
+  build` compiles the project with it. A module it refuses, a test file included, or one that breaks a position rule (a
+  private module imported from outside its directory), does not stop the programs (`cmd/<name>/`) whose own requires
+  compile: they are written, the refused files and the programs held out are named, and the exit status is 4. A module
+  that requires a refused one is refused too, so a program resting on it is held out. A `global` in a module is refused
+  as that module's own; one in a declaration file, an import cycle and a source that cannot be read stop the whole tree:
+  no program is written, the executable of every program is removed, and the status is 4. The executable an earlier
+  build left for a program that is not written (refused, or its own build failed) is removed from the build directory
+  and, with `--out`, from that directory, and the output says so. `--out` removes only a copy a build of this tree wrote
+  (a manifest beside `cosmic.db` names them) and that is unchanged since, never a file of the user's, and a build
+  without `--out` leaves an earlier `dist/<name>` alone. A failure of the environment (no portable core, a build
+  directory that cannot be made) removes no executable of its own, though a program refused in the same run has had its
+  executable removed before the failure is found. A failure to read, stage or write is 1 and outranks the refusal, which
+  is named all the same. The Teal a template compiles to is
   written in the new grammar ([`cosmic.template`]'s `Options`); the examples `fix --check` compiles as shown are compiled
   as files alone ([`build.example_checks`]); `cosmic sandbox --closure` takes a script's requires from its syntax tree; and
   the coverage of a project counts the lines of the text it read. `cosmic docs` and `cosmic uses` build the project before

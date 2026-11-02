@@ -16,6 +16,11 @@ local type Module = module.Plan
 
 local record plans
   type Module = module.Plan
+  --- One refused `global`: the file that declares it and the refusal's line.
+  record GlobalRefusal
+    file: string
+    message: string
+  end
   --- What compiling one module makes.
   record Generated
     lua: string
@@ -787,17 +792,14 @@ function plans.global_refusal(at: string): string
     "in a module and `require` it"
 end
 
---- Why the build may not go on: the globals declared by any source the
---- tree holds but tl's own, one line each at the declaration, in file
---- order, or nil when there are none. A module's compile key holds its
---- kind, its source, the keys of what it requires and the compiler, and a
---- global reaches other modules by none of those: a cached compile could
---- stand after the global's type changed, and what a build accepts would
---- depend on the order modules are checked in. The declarations are the
---- rows a parse kept (build.globals) for every source, a `.d.tl`
---- and a compile that stands in a cache included, so the refusal is made
---- before any module is compiled, and does not depend on that order.
-function plans.refuse_globals(db: Sqlite.Handle): string?, string
+--- Why the build may not go on: the globals declared by any source the tree holds but tl's own, one refusal each at
+--- the declaration, in file order. A module's compile key holds its kind, its source, the keys of what it requires
+--- and the compiler, and a global reaches other modules by none of those: a cached compile could stand after the
+--- global's type changed, and what a build accepts would depend on the order modules are checked in. The
+--- declarations are the rows a parse kept (build.globals) for every source, a `.d.tl` and a compile that stands in a
+--- cache included, so the refusal is made before any module is compiled, and does not depend on that order. A
+--- caller may refuse the modules that declare them and not the tree, each refusal naming its file.
+function plans.global_refusals(db: Sqlite.Handle): {plans.GlobalRefusal}?, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT i.file, g.line, g.column FROM inputs i JOIN globals g " ..
       "ON g.source_hash = i.source_hash WHERE i.kind <> 'vendor' " ..
@@ -805,15 +807,12 @@ function plans.refuse_globals(db: Sqlite.Handle): string?, string
   if rows == nil then
     return nil, trouble
   end
-  if #rows == 0 then
-    return nil, ""
-  end
-  local lines: mut {string} = {}
+  local out: mut {plans.GlobalRefusal} = {}
   for _, row in ipairs(rows) do
-    lines[#lines + 1] = plans.global_refusal(row:text(1) .. ":" .. row:text(2) .. ":" ..
-        row:text(3))
+    out[#out + 1] = { file = row:text(1),
+      message = plans.global_refusal(row:text(1) .. ":" .. row:text(2) .. ":" .. row:text(3)) }
   end
-  return table.concat(lines, "\n"), ""
+  return out, ""
 end
 
 --- The record-field uses one compile found, kept under its key beside
