@@ -152,7 +152,7 @@ local function token_values(text: string, size: integer, opts: Json.ReaderOption
     elseif t.kind == "end_object" or t.kind == "end_array" then
       stack[#stack] = nil
     elseif t.kind == "key" then
-      keys[#stack] = t.value as string -- checked: cast_refused
+      keys[#stack] = tostring(t.value)
     elseif t.kind == "null" then
       place(Json.null)
     else
@@ -228,15 +228,15 @@ end
 
 local function holds(input: string): boolean, string
   local fields = Fuzz.unpack(input)
-  local text, size = fields[1], math.tointeger(tonumber(fields[2])) as integer -- checked: cast_refused
-  local flags = math.tointeger(tonumber(fields[3])) as integer -- checked: cast_refused
+  local text, size = fields[1], assert(math.tointeger(tonumber(fields[2])))
+  local flags = assert(math.tointeger(tonumber(fields[3])))
   local opts, dopts = options_of(flags)
   local whole, raised = token_lines(text, #text + 1, opts) -- checked: nil_not_allowed*2
   if whole == nil then return false, raised end
   local split, split_raised = token_lines(text, size, opts) -- checked: nil_not_allowed
   if split == nil then return false, split_raised end
   if split ~= whole then
-    return false, "split in " .. size .. "s:\n" .. split .. "\nwhole:\n" .. whole
+    return false, "split in " .. tostring(size) .. "s:\n" .. split .. "\nwhole:\n" .. whole
   end
   for peeks = 1, 2 do
     local peeked, peek_raised = token_lines(text, size, opts, peeks) -- checked: nil_not_allowed

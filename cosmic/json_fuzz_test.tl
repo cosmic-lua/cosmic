@@ -11,6 +11,7 @@
 
 local Fuzz = require("build.fuzz")
 local Json = require("cosmic.json")
+-- TODO: once a generator can build a value that is not a Json.Value (a function, a cycle, a table of mixed keys) with a type, the `any` plumbing of this file, json_path_fuzz_test.tl and json_reader_fuzz_test.tl goes.
 
 --- Well-formed and nearly well-formed texts to mutate: every shape the
 --- walk builds, the number and string corners, and JSON5's forms.
@@ -680,7 +681,8 @@ local function gen_repeating(src: Fuzz.Source): string
   gap(src, b, false)
   emit(b, if wrap == 1 then "]" elseif wrap == 2 then "}" else "" end)
   local text = table.concat(b.parts)
-  local expected, labels = "", {} as {string} -- checked: cast_refused, literal_needs_type
+  local expected = ""
+  local labels: mut {string} = {}
   local first = b.first
   if first ~= nil then
     local line, column = place(text, first.at, b.json5)
@@ -1002,8 +1004,7 @@ local function ascii_holds(input: string): boolean, string
   Fuzz.label(if text:find("[\128-\255]") then "escaped" else "plain" end)
   local back, berr = Json.decode(out)
   if back == nil then return false, "wrote what decode refuses: " .. berr end
-  local object = back as {string: any} -- checked: cast_refused
-  if object[text] ~= text then
+  if Json.get(back, { text }) ~= text then
     return false, "did not read back the same: " .. out
   end
   local plain = assert(Json.encode(value))
@@ -1039,7 +1040,7 @@ local function test_the_depth_limits_are_exact(tmp: string)
     end,
     check = function(input: string): boolean, string
       local fields = Fuzz.unpack(input)
-      local opens, limit = fields[1], math.tointeger(tonumber(fields[2])) as integer -- checked: cast_refused
+      local opens, limit = fields[1], assert(math.tointeger(tonumber(fields[2])))
       local closes = opens:reverse():gsub(":\"k\"{", "}"):gsub("%[", "]") -- checked: nil_not_allowed
       local _, n = opens:gsub("[%[{]", "") -- checked: nil_not_allowed
       local value, err = Json.decode(opens .. "1" .. closes, { max_depth = limit }) -- checked: nil_not_allowed

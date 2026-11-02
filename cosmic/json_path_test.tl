@@ -37,11 +37,10 @@ local function failure(value: any, err: string, what?: string): string
   return err
 end
 
--- checked: cast_refused
 local DOC <const> = assert(Json.decode([[{
   "users": [{"name": "ada", "tags": ["x", "y"]}, {"name": "bob"}],
   "a/b": 1, "m~n": 2, "": 3, "it's": 4, "nil": null
-}]], { null_value = Json.null })) as {string: any}
+}]], { null_value = Json.null }))
 
 local function test_a_pointer_counts_from_0_and_escapes_its_separators()
   assert(Json.pointer({}) == "", "the whole value")
