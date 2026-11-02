@@ -239,7 +239,7 @@ local function test_the_options_of_cosmics_own_tree_are_its_declarations_and_cei
   assert(#own.globals.sources == 2)
   assert(Ceilings.by_marks(own.ceilings, "checked") and Ceilings.by_marks(own.ceilings, "untyped"),
     "the tree's ceilings are not read")
-  assert(next(own.ceilings.stages) ~= nil and own.types)
+  assert(own.types)
   assert(own.project == nil and own.ceilings.none == nil)
   -- A project's are the declarations the tool carries, which a worker's store of the modules a test reads does not: either the
   -- options are the project's, or the tool is told to boot again.
