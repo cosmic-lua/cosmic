@@ -7,13 +7,12 @@
 ---
 --- The project is compiled by the tool the test starts, in the new mode.
 local Child = require("cosmic.child")
-local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
 local Pipeline = require("build.pipeline")
+local TestSandboxFixture = require("build.test_sandbox_fixture")
 local build_paths = require("build.paths")
-local this_program = require("build.this_program")
 
 --- Whether a module of the database file at `path` holds `needle` in its bytecode, which the database stores
 --- deflated: the file's own bytes show none of it.
@@ -100,19 +99,8 @@ end
 --- Runs the program with `words` in `root`, unsandboxed (a sandbox nested in this test's own may be refused where the
 --- host nests only two deep), compiling with the new checker, and answers what it said.
 local function invoke(root: string, tmp: string, words: {string}): Child.Result, string
-  local output = tmp .. "/out." .. tostring(Clock.monotonic_ns())
-  local fd = assert(Fs.open_write(output))
-  local env = this_program.environment()
-  env["COSMIC_TEST_SANDBOX"] = "0"
-  env["TMPDIR"] = tmp
-  env["COSMIC_GRAMMAR"] = "new"
-  local started = this_program.program(words, {
-    cwd = root, env = env, stdout = fd, stderr = fd,
-    process_group = true, timeout_ns = Clock.seconds(120),
-  })
-  local result, trouble = Child.run(started.argv, started.options)
-  assert(Fs.close(fd))
-  return assert(result, trouble), (assert(Fs.read(output)))
+  local ran = TestSandboxFixture.invoke(root, tmp, words)
+  return ran.result, ran.text
 end
 
 --- The rows of `type_violations` the project's last checked run kept.

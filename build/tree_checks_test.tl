@@ -507,6 +507,123 @@ local function test_a_test_returning_early_is_refused(dir: string)
   assert(found[2]:find("^build/guard_test.tl:3: test_guarded returns early %(`if ... then return end`%)"), found[2])
 end
 
+--- A helper written token for token in two files, one a test or a fixture, is refused with both files and lines,
+--- whatever its comments and layout; one renamed inside, too short, in two files that are neither, twice in one file, or
+--- a test itself is not.
+local function test_a_helper_copied_between_test_files_is_refused(dir: string)
+  local function put(file: string, text: string)
+    assert(Fs.write(dir .. "/" .. file, text))
+  end
+  local function swap(text: string, from: string, to: string): string
+    return (text:gsub(from, to))
+  end
+  local function helper(name: string, tail: string): string
+    return source(
+      "local function " .. name .. "(first: string, second: string): string",
+      "  local out: {string} = {}",
+      "  out[#out + 1] = first",
+      "  out[#out + 1] = second",
+      "  return table.concat(out, \"" .. tail .. "\")",
+      "end")
+  end
+  local body = helper("join", "/")
+  assert(Fs.mkdirs(dir .. "/build"))
+  put("build/a_test.tl", "local x = 1\n\n" .. body)
+  -- Comments and the line breaks around the helper are no part of it.
+  put("build/b_fixture.tl", "-- Joins.\n" .. swap(body, "  out%[#out %+ 1%] = first", "  -- first\n  out[#out + 1] = first"))
+  -- A name inside differs, so it is another helper.
+  put("build/renamed_test.tl", swap(body, "second", "other"))
+  put("build/literal_test.tl", helper("join", "-"))
+  put("build/short_test.tl", "local function f(a: string): string\n  return a\nend\n")
+  put("build/short_other_test.tl", "local function f(a: string): string\n  return a\nend\n")
+  local library = helper("library", "|")
+  put("build/lib.tl", library)
+  put("build/lib_other.tl", library)
+  -- A plain script is no side of a pair, though the other side is a test.
+  put("build/script.tl", body)
+  local twice = helper("twice", ";")
+  put("build/twice_test.tl", twice .. "\n" .. swap(twice, "twice", "again"))
+  put("build/tests_test.tl", helper("test_join", ","))
+  put("build/tests_other_test.tl", helper("test_join", ","))
+  local found = tree_checks.test_clones(dir, 20)
+  assert(#found == 1, table.concat(found, "\n"))
+  assert(found[1]:find("^build/a_test.tl:3: join is copied token for token in build/b_fixture.tl:2 %(join%): " ..
+      "move it into a shared fixture"), found[1])
+  assert(found[1]:find("build/test_support_fixture.tl", 1, true) ~= nil, found[1])
+  found = tree_checks.test_clones(dir, 80)
+  assert(#found == 0, table.concat(found, "\n"))
+end
+
+--- Two fixtures that copy each other are refused though no test file holds either.
+local function test_a_copy_between_fixtures_is_refused(dir: string)
+  local body = source(
+    "local function join(first: string, second: string): string",
+    "  local out: {string} = {}",
+    "  out[#out + 1] = first",
+    "  out[#out + 1] = second",
+    "  return table.concat(out, \"/\")",
+    "end")
+  assert(Fs.mkdirs(dir .. "/build"))
+  assert(Fs.write(dir .. "/build/one_fixture.tl", body))
+  assert(Fs.write(dir .. "/build/two_fixture.tl", body))
+  local found = tree_checks.test_clones(dir, 20)
+  assert(#found == 1, table.concat(found, "\n"))
+  assert(found[1]:find("^build/one_fixture.tl:1: join is copied token for token in build/two_fixture.tl:1"), found[1])
+end
+
+--- Two files that embed the same snippet of Teal in a string, with a `local function` at the left margin in it, hold no
+--- helper of it: nothing is found, though the heads match and one of them is unreadable.
+local function test_a_snippet_in_a_string_is_no_helper(dir: string)
+  local function put(file: string, text: string)
+    assert(Fs.write(dir .. "/" .. file, text))
+  end
+  local text = source(
+    "local function writes(root: string)",
+    "  assert(Fs.write(root .. \"/a.tl\", [[",
+    "local function inner(first: string, second: string): string",
+    "  local out: {string} = {}",
+    "  out[#out + 1] = first",
+    "  out[#out + 1] = second",
+    "  return table.concat(out, \"/\")",
+    "end",
+    "local function broken(a: string): string",
+    "  return a +",
+    "end",
+    "]]))",
+    "  assert(Fs.write(root .. \"/b.tl\", \"x\"))",
+    "end")
+  assert(Fs.mkdirs(dir .. "/build"))
+  put("build/first_test.tl", (text:gsub("writes", "first")))
+  put("build/second_test.tl", (text:gsub("\"x\"", "\"y\"")))
+  local found = tree_checks.test_clones(dir, 5)
+  assert(#found == 0, table.concat(found, "\n"))
+end
+
+--- A helper that writes Teal source in a long string, with `end` lines of its own, and one written on a line are read
+--- whole, so their copies are found.
+local function test_a_helper_holding_a_string_of_source_or_on_one_line_is_found(dir: string)
+  local function put(file: string, text: string)
+    assert(Fs.write(dir .. "/" .. file, text))
+  end
+  local body = source(
+    "local function writes(root: string)",
+    "  assert(Fs.write(root .. \"/a.tl\", [[",
+    "  local function inner()",
+    "    return 1",
+    "end",
+    "]]))",
+    "  assert(Fs.write(root .. \"/b.tl\", \"x\"))",
+    "end",
+    "local function one(a: string): string return a .. a .. a end")
+  assert(Fs.mkdirs(dir .. "/build"))
+  put("build/a_test.tl", body)
+  put("build/b_test.tl", body)
+  local found = tree_checks.test_clones(dir, 5)
+  assert(#found == 2, table.concat(found, "\n"))
+  assert(found[1]:find("^build/a_test.tl:1: writes is copied token for token in build/b_test.tl:1 %(writes%)"), found[1])
+  assert(found[2]:find("^build/a_test.tl:9: one is copied token for token in build/b_test.tl:9 %(one%)"), found[2])
+end
+
 --- A declaration that requires only declarations passes; one that requires a module is refused.
 local function test_a_declaration_that_requires_a_module_is_refused(dir: string)
   local db = fixture.database(dir, {

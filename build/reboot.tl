@@ -73,6 +73,10 @@ end
 --- rebuilt tool's own writer (`unsettled`).
 local marker = "COSMIC_REBOOTED"
 
+--- Whether this process let go of the `marker` it was entered with
+--- ([`reboot.release_entry`]).
+local released = false
+
 --- The running binary's `meta` value of `key`, or what `seen` says in
 --- its place ([`reboot.Seen`]).
 local function meta_of(key: string, seen?: reboot.Seen): string?
@@ -158,6 +162,29 @@ local function reentry(program: string, argv: {string}): {string}
   return arguments
 end
 
+--- What is asked just before this process is replaced by the tool a
+--- reboot enters, while [`reboot.recheck`] runs: it answers the
+--- environment entries the successor is given in addition, or nil and
+--- why the process must not be replaced.
+local entering: (function(): {string:string}?, string)? = nil
+
+--- Replaces this process with `program` running `argv`, in
+--- `environment`, after the hook of [`reboot.recheck`], if one is set,
+--- has said it may and added its entries. Returns only when it cannot,
+--- saying why.
+local function enter(program: string, argv: {string}, given: {string:string}): string
+  local environment: mut {string:string} = {}
+  for name, value in pairs(given) do environment[name] = value end
+  local hook = entering
+  if hook ~= nil then
+    local extra, why = hook()
+    if extra == nil then return why end
+    for name, value in pairs(extra) do environment[name] = value end
+  end
+  local _, trouble = Proc.exec(reentry(program, argv), { env = environment })
+  return trouble
+end
+
 --- Compares the tree's fingerprints with the running binary's.
 local function state_of(handle: work.Handle, seen?: reboot.Seen): reboot.State?, string
   local fingerprint, trouble = identity.record_fingerprint(handle.db, handle.root)
@@ -185,7 +212,26 @@ local function entered_by(seen?: reboot.Seen): string?
   if seen ~= nil then
     return seen.environment[marker]
   end
+  if released then return nil end
   return sys.getenv(marker)
+end
+
+--- Whether a reboot entered this process: it runs the tool a rebuild or
+--- a boot wrote, re-entered with the command line it was started with.
+--- A process that [`reboot.release_entry`] let go of is none.
+function reboot.entered(): boolean
+  return entered_by() ~= nil
+end
+
+--- Lets a process a reboot entered rebuild again. The `marker` it was
+--- entered with only keeps a tool that is still stale after one reboot
+--- from rebuilding at once, forever; a process that serves for good
+--- (`cosmic lsp`, [`reboot.recheck`]) has shown its tool fresh by
+--- serving, and has no way to change its own environment, so it says so
+--- here. Whatever it rebuilds then enters its successor with the marker
+--- set, as any does.
+function reboot.release_entry()
+  released = true
 end
 
 --- Why a rebuild (`into`, settling when `settle`) refuses in this
@@ -417,8 +463,7 @@ local function into(handle: work.Handle, argv: {string}, settle: boolean): strin
     plural.count(result.compiled, "module"), result.cached))
   local environment = sys.environ()
   environment[marker] = if settle then "2" else "1" end
-  local _, exec_trouble = Proc.exec(reentry(out, argv), { env = environment })
-  return exec_trouble, false
+  return enter(out, argv, environment), false
 end
 
 --- What `serialize` answers a verb that only reads, which found another
@@ -442,12 +487,13 @@ local function leave_unchecked(root: string)
 end
 
 --- Whether this process's check before a verb that only reads
---- ([`reboot.stale_exit`]) went on in the tree at `root` without holding
---- the tool to it: another run held its working database, or that
---- database was of another schema, so the check was skipped; or another
---- run held the rebuild lock while the tool was older than the tree. The
---- tool's code may then be older than the tree's, so for the life of the
---- process nothing derived from it is written there: a lookup builds
+--- ([`reboot.stale_exit`]) went on in the tree at `root` without
+--- holding the tool to it: another run held its working database, or
+--- that database was of another schema, so the check was skipped; or
+--- another run held the rebuild lock while the tool was older than the
+--- tree. The tool's code may then be older than the tree's, so for the
+--- life of the process, or until [`reboot.recheck`] holds it to the
+--- tree, nothing derived from it is written there: a lookup builds
 --- nothing ([`rebuild.here`]), `cosmic lsp` stages nothing
 --- ([`rebuild.stage`]), and each reads what is there.
 function reboot.unchecked(root: string): boolean
@@ -455,6 +501,38 @@ function reboot.unchecked(root: string): boolean
   -- is beneath, was never checked, and so never left unchecked.
   local directory, _ = build_paths.optional(root)
   return directory ~= nil and unchecked_trees[directory] == true
+end
+
+--- Holds the tool of a process that goes on running, `cosmic lsp`, to
+--- the tree at `root` again: forgets that the check before it went on
+--- without doing so ([`reboot.unchecked`]), then makes it as
+--- [`reboot.stale_exit`] does for a verb that only reads. Where another
+--- run still holds the working database or the rebuild lock, the tree
+--- stays unchecked and nothing else happens, so the caller tries again
+--- later; where the tool is stale and the locks are free, this process
+--- is replaced by the rebuilt tool running `argv` again and does not
+--- return. Answers nil where the tool is the tree's or the check was
+--- deferred, and otherwise the exit code of a check or a rebuild that
+--- failed, having said why on stderr: the tree is then left unchecked,
+--- as nothing this tool derives of it can be trusted. `before_enter`,
+--- when given, is asked only once the rebuild has succeeded,
+--- immediately before the exec, and nothing is written for the
+--- successor earlier: it answers the environment entries the successor
+--- is given, or nil and why the process is not to be replaced, which
+--- fails the check. A process that dies during the rebuild leaves
+--- nothing behind.
+--- @param argv the command line, re-entered after a rebuild
+--- @param seen how a test has the check see the running tool ([`reboot.Seen`])
+--- @param before_enter asked just before the exec
+function reboot.recheck(argv: {string}, root: string, seen?: reboot.Seen,
+                        before_enter?: function(): {string:string}?, string): integer?
+  local directory, _ = build_paths.optional(root)
+  if directory ~= nil then unchecked_trees[directory] = nil end
+  entering = before_enter
+  local code = reboot.stale_exit(argv, true, root, seen)
+  entering = nil
+  if code ~= nil then leave_unchecked(root) end
+  return code
 end
 
 -- The rebuild lock ([`build.rebuild_lock`]) is held by a run from the
@@ -536,8 +614,7 @@ local function reenter(handle: work.Handle, out: string,
     log:complain(close_trouble)
     return 1
   end
-  local _, exec_trouble = Proc.exec(reentry(out, argv), { env = sys.environ() })
-  log:complain(exec_trouble)
+  log:complain(enter(out, argv, sys.environ()))
   return 3
 end
 
@@ -609,8 +686,7 @@ local function serialize(handle: work.Handle, root: string,
   end
   -- Released at once: the run entered below takes it again if it must.
   rebuild_lock.release()
-  local _, exec_trouble = Proc.exec(reentry(out, argv), { env = sys.environ() })
-  log:complain(exec_trouble)
+  log:complain(enter(out, argv, sys.environ()))
   return 3
 end
 
@@ -651,9 +727,7 @@ function reboot.boot_into(root: string, argv: {string},
     return command .. " failed; fix what it reports and run this again"
   end
   run_in[marker] = "1"
-  local _, exec_trouble = Proc.exec(reentry(build_paths.resolve(root).tool, argv),
-    { env = run_in })
-  return exec_trouble
+  return enter(build_paths.resolve(root).tool, argv, run_in)
 end
 
 --- What a Teal rebuild does once it has failed with `trouble`; `moved`

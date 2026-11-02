@@ -298,3 +298,19 @@ local function test_position_keeps_the_two_exceptions_to_cosmics_own_tree()
   ok, trouble = positioned({ { "build/clock.tl" }, { "lib/time.tl", "build.clock" } }, true)
   assert(not ok, "in the tree itself the directory is the tool's")
 end
+
+--- `violations` names every breach with the module that makes it, where `check` names the first: a caller that
+--- refuses modules and not the tree needs each culprit.
+local function test_violations_name_each_module_that_breaks_a_rule()
+  local modules: {positions.Module} = {
+    module_at("lib/init.tl", {}, ""), module_at("lib/part.tl", {}, ""),
+    module_at("a.tl", { "lib.part" }, ""), module_at("b.tl", { "lib" }, ""), module_at("c.tl", { "lib.part" }, ""),
+  }
+  local found = positions.violations(modules, { own = false })
+  assert(#found == 2, tostring(#found))
+  local first, second = found[1], found[2]
+  assert(first.module.file == "a.tl" and second.module.file == "c.tl")
+  assert(first.message:find("a.tl: lib.part is private to lib/", 1, true) ~= nil, first.message)
+  local ok, trouble = positions.check(modules, { own = false })
+  assert(not ok and trouble == first.message, trouble)
+end
