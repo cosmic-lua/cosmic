@@ -37,14 +37,15 @@ local type Pipeline = require("build.pipeline")
 local record example_checks
 end
 
---- What the new checker says of `source` as the chunk `name`, one line each: its place is a line of the text as shown.
-local function problems(options: Pipeline.Options, name: string, source: string): {string}
+--- What the new checker says of `source` as the chunk `name`, one line each: its place is a line of the text as shown, and the
+--- stage of each finding ([`Pipeline.Alone`]'s `stages`, from the checker's own lists).
+local function problems(options: Pipeline.Options, name: string, source: string): {string}, {string: string}
   local made = require("build.pipeline").checked_alone(name, source, options)
   -- Each line is the checker's, `name:line:column: what is wrong (code): the fix`, the line a line of the text as shown.
   if made.code ~= nil then
-    return {}
+    return {}, {}
   end
-  return made.lines
+  return made.lines, made.stages
 end
 
 --- A stored example source ([`build.syntax_analyzer`]'s `ExampleEntry`.source: the
@@ -138,6 +139,7 @@ end
 --- Where a finding is: its line of the chunk and its code.
 local record Place
   y: integer
+  x: integer
   code: string
 end
 
@@ -146,11 +148,12 @@ end
 --- the judging below says again by the markers.
 local function found_at(line: string): Place?
   local y = math.tointeger(tonumber(line:match(":(%d+):%d+: ")))
+  local x = math.tointeger(tonumber(line:match(":%d+:(%d+): ")))
   local code = code_of(line)
-  if y == nil or code == nil then
+  if y == nil or x == nil or code == nil then
     return nil
   end
-  return { y = y, code = code }
+  return { y = y, x = x, code = code }
 end
 
 --- Whether `line` is the checker's own count of a code's errors in an example.
@@ -163,47 +166,25 @@ for _, code in ipairs(Ceilings.closed()) do
   CLOSED[code] = true
 end
 
---- The stage each of `lines` is a finding of, by index: "" for any other line. The checker tells a stage's findings and then
---- its count of each code ("2 errors of x in its bodies"), which names the stage, so a code that two stages have
---- (`float_key` is a finding of `declared` and of `checked`) is told apart.
-local function stages_of(lines: {string}): {integer: string}
-  local stages: mut {integer: string} = {}
-  local pending: mut {string: mut {integer}} = {}
-  for at, line in ipairs(lines) do
-    local found = found_at(line)
-    if found ~= nil then
-      local list = pending[found.code] or {}
-      pending[found.code] = list
-      list[#list + 1] = at
-      stages[at] = ""
-    else
-      local code, what = line:match(": %d+ errors? of ([%a][%w_]*) in its (%a+); follow the fix above$")
-      if code ~= nil and what ~= nil then
-        local stage = if what == "scopes" then "scoped" elseif what == "declarations" then "declared" else "checked" end
-        for _, index in ipairs(pending[code] or {}) do
-          stages[index] = stage
-        end
-        pending[code] = {}
-      end
-    end
-  end
-  return stages
+--- The stage of the finding at `place`, from what the checker told ([`Pipeline.Alone`]'s `stages`): "" where it has none (a
+--- warning, a finding two stages report at one place), which no marker holds.
+local function stage_of(stages: {string: string}, place: Place): string
+  return stages[tostring(place.y) .. ":" .. tostring(place.x) .. ":" .. place.code] or ""
 end
 
 --- `lines`, the findings of the checker over `text` (the chunk `where` names), less what the markers of `text` hold: the
 --- findings of a code of a stage on a line that the markers of that stage do not hold, each told with a count, and each
 --- marker that holds more of a code than its line has. `marks` is false for a guide's block, which carries none. A closed
 --- code ([`Ceilings.closed`]) is held by no marker.
-local function held(where: string, text: string, lines: {string}, marks: boolean): {string}
+local function held(where: string, text: string, lines: {string}, stages: {string: string}, marks: boolean): {string}
   local out: mut {string} = {}
-  local stages = stages_of(lines)
   -- The findings and the markers by line and `<stage> <code>`.
   local found: mut {integer: mut {string: integer}} = {}
   local order: mut {string} = {}
-  for at, line in ipairs(lines) do
+  for _, line in ipairs(lines) do
     local place = found_at(line)
     if place ~= nil then
-      local key = (stages[at] or "") .. " " .. place.code
+      local key = stage_of(stages, place) .. " " .. place.code
       local on = found[place.y] or {}
       found[place.y] = on
       if on[key] == nil then
@@ -236,14 +217,14 @@ local function held(where: string, text: string, lines: {string}, marks: boolean
     return (marked[y] or {})[key] or 0
   end
   local told: mut {string: boolean} = {}
-  for at, line in ipairs(lines) do
+  for _, line in ipairs(lines) do
     local place = found_at(line)
     if place == nil then
       if not is_count(line) then
         out[#out + 1] = line
       end
     else
-      local key = (stages[at] or "") .. " " .. place.code
+      local key = stage_of(stages, place) .. " " .. place.code
       if (assert(found[place.y])[key] or 0) > allowed(place.y, key) then
         out[#out + 1] = line
       end
@@ -303,7 +284,8 @@ local function examples(db: Sqlite.Handle, options: Pipeline.Options, root: stri
     local told: mut {string: boolean} = {}
     local text = chunk(row:text(3), row:text(4))
     local said_lines: mut {string} = {}
-    for _, line in ipairs(problems(options, where, text)) do
+    local lines, stages = problems(options, where, text)
+    for _, line in ipairs(lines) do
       local name = unknown_name(line)
       local said = name ~= nil and helper_trouble(file, name) or nil -- checked: and_ternary
       if said == nil then
@@ -313,7 +295,7 @@ local function examples(db: Sqlite.Handle, options: Pipeline.Options, root: stri
         said_lines[#said_lines + 1] = where .. ": " .. said
       end
     end
-    for _, line in ipairs(held(where, text, said_lines, true)) do
+    for _, line in ipairs(held(where, text, said_lines, stages, true)) do
       out[#out + 1] = line
     end
   end
@@ -337,7 +319,8 @@ local function guide(text: string, file: string, options: Pipeline.Options): {st
       source = 'local tmp: string = ""\nlocal _ = tmp\n' .. source
     end
     local where = file .. ":" .. tostring(entry.line) .. ": example"
-    for _, line in ipairs(held(where, source .. "\n", problems(options, where, source .. "\n"), false)) do
+    local lines, stages = problems(options, where, source .. "\n")
+    for _, line in ipairs(held(where, source .. "\n", lines, stages, false)) do
       out[#out + 1] = line
     end
   end

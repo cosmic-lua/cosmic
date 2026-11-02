@@ -128,6 +128,10 @@ local record Pipeline
   record Alone
     code: string?
     lines: {string}
+    --- The stage (`scoped`, `declared`, `checked`) each finding of the checker is of, by `<line>:<column>:<code>` of the
+    --- finding: from the checker's own lists, so that a code two stages have is told apart. A finding two stages report at
+    --- one place and under one code is "" (no stage can hold it), and a warning has no entry.
+    stages: {string: string}
   end
 
   --- [`Pipeline.lone`] with the refusal as a line for each problem, for a caller that lists them.
@@ -844,6 +848,19 @@ function Pipeline.requires(file: string, text: string): {string}?, string
   return out, ""
 end
 
+--- Records in `stages` the stage of each of `list`, the findings of one stage, by place and code ([`Pipeline.Alone`]'s `stages`).
+local function note_stages(stages: mut {string: string}, stage: string, list: {Driver.Problem})
+  for _, p in ipairs(list) do
+    local key = tostring(p.y) .. ":" .. tostring(p.x) .. ":" .. p.code
+    local was = stages[key]
+    if was ~= nil and was ~= stage then
+      stages[key] = ""
+    else
+      stages[key] = stage
+    end
+  end
+end
+
 function Pipeline.checked_alone(file: string, text: string, options: Pipeline.Options, tests?: boolean): Pipeline.Alone
   -- A module of its own, named for nothing a `require` can say.
   local module = "lone"
@@ -853,14 +870,15 @@ function Pipeline.checked_alone(file: string, text: string, options: Pipeline.Op
   -- The calls of [`Shape.record_of`] are resolved in the text the checker reads, as the tree's compile does.
   local spliced, spec_trouble = TreeProgram.splice(build, module, file)
   if spliced == nil then
-    return { code = nil, lines = { spec_trouble } }
+    return { code = nil, lines = { spec_trouble }, stages = {} }
   end
   build:lower({ module })
   local result = build:result(module, true)
   if result == nil then
-    return { code = nil, lines = { file .. ": the new checker's build has no module " .. module } }
+    return { code = nil, lines = { file .. ": the new checker's build has no module " .. module }, stages = {} }
   end
   local told: mut {string} = {}
+  local stages: mut {string: string} = {}
   if result.broken then
     for _, p in ipairs(result.syntax) do
       told[#told + 1] = ErrorRender.line(file, p)
@@ -874,6 +892,9 @@ function Pipeline.checked_alone(file: string, text: string, options: Pipeline.Op
     for _, line in ipairs(build:held(result, entry)) do
       told[#told + 1] = line
     end
+    note_stages(stages, "scoped", result.scope_errors)
+    note_stages(stages, "declared", result.declared)
+    note_stages(stages, "checked", result.bodies)
     for _, w in ipairs(result.warnings) do
       told[#told + 1] = ErrorRender.line(file, w)
     end
@@ -884,14 +905,14 @@ function Pipeline.checked_alone(file: string, text: string, options: Pipeline.Op
     end
   end
   if #told > 0 then
-    return { code = nil, lines = told }
+    return { code = nil, lines = told, stages = stages }
   end
   -- A file alone keeps an import it reads as a type only: nothing serves the module it names.
   local emitted = CompileGrammar.emit(build, result, false, true, false)
   if emitted.code == nil then
-    return { code = nil, lines = { file .. ": the generator wrote no Lua: " .. emitted.trouble } }
+    return { code = nil, lines = { file .. ": the generator wrote no Lua: " .. emitted.trouble }, stages = stages }
   end
-  return { code = emitted.code, lines = {} }
+  return { code = emitted.code, lines = {}, stages = stages }
 end
 
 function Pipeline.lone(file: string, text: string, options: Pipeline.Options, tests?: boolean): string?, string
