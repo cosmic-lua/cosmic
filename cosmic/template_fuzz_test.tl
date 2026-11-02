@@ -11,6 +11,10 @@ local Html = require("cosmic.html")
 local Json = require("cosmic.json")
 local Template = require("cosmic.template")
 
+-- TODO: once a test can load generated Lua into a typed module (a `load` environment that takes values of several
+-- types, and a validator for a table of functions), the `any` environments and the casts of `chunk()` and of its
+-- renders here go.
+
 local HEADS <const> = { "{{type T from m.t}}", "{{type T from m.t}}{{mode text}}", "{{type T from m.t}}\n{{mode html}}\n" }
 
 --- Markup in the states a slot may or may not stand in, and plain text.
@@ -246,14 +250,15 @@ local function test_compile_is_total_and_keeps_the_lines_on_any_bytes(tmp: strin
         end
         return true, ""
       end
+      if not out is string then return false, "compile answered a " .. type(out) end
       Fuzz.label("compiled")
-      if newlines(out) ~= newlines(input) + 1 then -- checked: any_use
-        return false, "the module has " .. tostring(newlines(out)) .. " newlines for the template's " .. tostring(newlines(input)) -- checked: any_use
+      if newlines(out) ~= newlines(input) + 1 then
+        return false, "the module has " .. tostring(newlines(out)) .. " newlines for the template's " .. tostring(newlines(input))
       end
-      if out:find("\r", 1, true) or not out:find("local _module: _Module = {render = render} return _module\n", 1, true) then -- checked: any_use*2
-        return false, "the module is not shaped as one: " .. out -- checked: any_use
+      if out:find("\r", 1, true) ~= nil or out:find("local _module: _Module = {render = render} return _module\n", 1, true) == nil then
+        return false, "the module is not shaped as one: " .. out
       end
-      if out:find("render(d: ", 1, true) and out:find("local parts: mut {string} = {} ", 1, true) == nil then -- checked: any_use*2
+      if out:find("render(d: ", 1, true) ~= nil and out:find("local parts: mut {string} = {} ", 1, true) == nil then
         return false, "no parts"
       end
       if input:find("{{mode text}}", 1, true) then Fuzz.label("text mode") end
@@ -596,15 +601,31 @@ local function esc_attr(s: any): string
   end))
 end
 
+--- What the part templates read: a text, a list to range over, and a value to range with.
+local record PartData a: string l: {{string: any}} w: {string: any} end
+
 local record PartRun
   mut calls: integer
   mut only: integer
   mut skip: integer
 end
 
---- Which `url_part` calls of a render answer their value: the `calls` so
+--- Which [`url_part`] calls of a render answer their value: the `calls` so
 --- far, and with `only` set, only that call; with `skip`, all but that one.
 local PART_RUN: PartRun = { calls = 0, only = 0, skip = 0 }
+
+--- The made values the stand-in below answers: each helper takes `any`, as the core's do.
+local record StandIn
+  escape: function(s: any): {string: string}
+  escape_attr: function(s: any): {string: string}
+  href: function(s: any): {string: string}
+  trust: function(s: any): {string: string}
+  url_part: function(s: any): {string: string}
+  raw_url_part: function(v: any): string
+  raw: function(v: any): string
+  raw_attr: function(v: any): string
+  raw_url: function(v: any): string
+end
 
 --- The core's escapers (cosmic.html), for what they do to bytes, each
 --- made value wrapped in marker bytes so a check can tell what came from
@@ -612,20 +633,20 @@ local PART_RUN: PartRun = { calls = 0, only = 0, skip = 0 }
 --- and \5 ahead of what `href` answered. A payload `A|B` is `A` to a
 --- whole-URL slot and `B` to a part, as a template given an origin in one
 --- slot and a hostile value in another.
-local STAND_IN <const>: {string: function(any): any} = {
-  escape = function(s: any): {string: string} return { s = "\1" .. esc(s) .. "\2" } end, -- checked: any_use
-  escape_attr = function(s: any): {string: string} return { s = "\3" .. esc_attr(s) .. "\4" } end, -- checked: any_use
-  href = function(s: any): {string: string} -- checked: any_use
+local STAND_IN <const>: StandIn = {
+  escape = function(s: any): {string: string} return { s = "\1" .. esc(s) .. "\2" } end,
+  escape_attr = function(s: any): {string: string} return { s = "\3" .. esc_attr(s) .. "\4" } end,
+  href = function(s: any): {string: string}
     local text = if s is string then s:match("^[^|]*") or "" else "" end
     return { s = "\5" .. (if text:lower():find("^%s*javascript:") then "about:invalid" else text end) }
   end,
-  trust = function(s: any): {string: string} -- checked: any_use
+  trust = function(s: any): {string: string}
     if not s is string then error("trust: a string is expected, got " .. type(s), 2) end
     return { s = s }
   end,
   -- The bytes of the escaped part between \6 and \7: only unreserved ones
   -- and %XX, except that a whole `.` or `..` is written with its `%` escaped.
-  url_part = function(s: any): {string: string} -- checked: any_use
+  url_part = function(s: any): {string: string}
     local text = tostring(s):match("[^|]*$")
     PART_RUN.calls = PART_RUN.calls + 1
     if PART_RUN.only > 0 and PART_RUN.calls ~= PART_RUN.only or PART_RUN.skip == PART_RUN.calls then
@@ -638,25 +659,25 @@ local STAND_IN <const>: {string: function(any): any} = {
       return string.format("%%%02X", c:byte()) -- checked: nil_not_allowed
     end) .. "\7" }
   end,
-  raw_url_part = function(v: any): string -- checked: any_use
+  raw_url_part = function(v: any): string
     if not v is {string: string} then -- checked: is_on_record
       error("raw_url_part: a made value is expected, got " .. type(v), 2)
     end
     return v.s -- checked: map_field
   end,
-  raw = function(v: any): string -- checked: any_use
+  raw = function(v: any): string
     if not v is {string: string} then -- checked: is_on_record
       error("raw: a made value is expected, got " .. type(v), 2)
     end
     return v.s -- checked: map_field
   end,
-  raw_attr = function(v: any): string -- checked: any_use
+  raw_attr = function(v: any): string
     if not v is {string: string} then -- checked: is_on_record
       error("raw_attr: a made value is expected, got " .. type(v), 2)
     end
     return v.s -- checked: map_field
   end,
-  raw_url = function(v: any): string -- checked: any_use
+  raw_url = function(v: any): string
     if not v is {string: string} then -- checked: is_on_record
       error("raw_url: a made value is expected, got " .. type(v), 2)
     end
@@ -690,9 +711,9 @@ local NAMED <const>: {string: string} = {
 --- parser drops removed, as a browser reads an attribute.
 local function decoded(value: string): string
   local text = value:gsub("&#[xX](%x+);", function(n: string): string
-    return string.char(tonumber(n, 16) as integer % 256) -- checked: cast_refused
+    return string.char(assert(math.tointeger(assert(tonumber(n, 16)) % 256)))
   end):gsub("&#(%d+);", function(n: string): string
-    return string.char(tonumber(n) as integer % 256) -- checked: cast_refused
+    return string.char(assert(math.tointeger(assert(tonumber(n)) % 256)))
   end):gsub("&(%a+);", function(name: string): string
     return NAMED[name] or "&" .. name .. ";"
   end)
@@ -793,7 +814,7 @@ local function test_a_value_cannot_get_out_of_where_a_slot_puts_it(tmp: string)
         return false, "the module does not load: " .. tostring(trouble) .. "\n" .. lua_of(source)
       end
       local loaded = chunk()
-      if not loaded is { string: function({string: any}): {string: string} } then -- checked: is_on_record
+      if not loaded is { string: function(any): {string: string} } then -- checked: is_on_record
         return false, "the module exports no render"
       end
       local render = loaded.render -- checked: map_field
@@ -860,7 +881,7 @@ local function test_a_value_cannot_get_out_of_where_a_slot_puts_it(tmp: string)
         for value, after in out:gmatch("\3&#5;([^\4]*)\4([^\"']*)") do
           Fuzz.label("assembled url")
           local url = (value .. after):gsub("&#(%d+);", function(n: string): string
-            return string.char(tonumber(n) as integer % 256) -- checked: cast_refused
+            return string.char(assert(math.tointeger(assert(tonumber(n)) % 256)))
           end):gsub("[\t\n\r]", "")
           if url:find("^[/\\][/\\]") then
             return false, "an assembled URL is protocol-relative: " .. url
@@ -872,12 +893,15 @@ local function test_a_value_cannot_get_out_of_where_a_slot_puts_it(tmp: string)
       -- rendered with every part given its value, then with one part alone
       -- given it and the others empty, and with one part alone empty: a part
       -- may be empty, and the others need not be.
-      for _, list in ipairs({ { each, each }, {} } as {{any}}) do -- checked: cast_refused, literal_needs_type
+      local pair: {{string: any}} = { each, each }
+      local none: {{string: any}} = {}
+      for _, list in ipairs({ pair, none }) do
         local runs: mut {{integer}} = { { 0, 0 } }
         local at = 1
         while at <= #runs do
           PART_RUN.calls, PART_RUN.only, PART_RUN.skip = 0, runs[at][1], runs[at][2] -- checked: index_may_be_nil*2, nil_not_allowed*2
-          local ok, made = pcall(render, { a = payload, l = list, w = each })
+          local data: PartData = { a = payload, l = list, w = each }
+          local ok, made = pcall(render, data)
           if not ok then
             return false, "render raised: " .. tostring(made) .. "\n" .. lua_of(assert(source))
           end
@@ -1126,7 +1150,7 @@ local function test_a_string_action_renders_the_bytes_it_quotes(tmp: string)
       if newlines(source) ~= newlines(src) + 1 then
         return false, "the module does not have the template's lines"
       end
-      local env: {string: any} = { require = function(_: string): any return {} end, table = table, -- checked: any_use*2, literal_needs_type
+      local env: {string: any} = { require = function(_: string): any return {} end, table = table, -- checked: literal_needs_type, any_use*2
         tostring = tostring, type = type } -- checked: any_use*2
       local chunk, trouble = load(lua_of(source), "=module", "t", env)
       if chunk == nil then
@@ -1495,7 +1519,7 @@ end
 --- and one white space after them, or a backslash and the byte after it.
 local function css_unescape(text: string): string
   local out = text:gsub("\\(%x%x?%x?%x?%x?%x?)[ \t\n\f\r]?", function(hex: string): string
-    local code = tonumber(hex, 16) as integer -- checked: cast_refused
+    local code = assert(math.tointeger(tonumber(hex, 16)))
     return if code == 0 then "\239\191\189" else utf8.char(code) end
   end)
   return out
@@ -1549,7 +1573,7 @@ local function test_a_selector_slot_never_leaves_the_identifier_it_stands_in(tmp
         return false, "the attribute is not one quoted value: " .. made
       end
       local css = value:gsub("&#(%d+);", function(n: string): string
-        return string.char(tonumber(n) as integer) -- checked: cast_refused
+        return string.char(assert(math.tointeger(n)))
       end)
       local at, stop = #lead + 1, #css - #trail
       if css:sub(1, #lead) ~= lead or css:sub(stop + 1) ~= trail then
@@ -1615,7 +1639,7 @@ local function test_a_json_slot_is_the_attribute_value_it_was_given(tmp: string)
       end
       -- What a browser reads of the value is the JSON text itself.
       local read = value:gsub("&(%a+);", { quot = '"', amp = "&", lt = "<", gt = ">", apos = "'" }):gsub("&#(%d+);", function(n: string): string
-        return string.char(tonumber(n) as integer) -- checked: cast_refused
+        return string.char(assert(math.tointeger(n)))
       end)
       if read ~= Html.raw_json(json) then
         return false, "the attribute reads as " .. string.format("%q", read)

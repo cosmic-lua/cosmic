@@ -77,6 +77,9 @@ local function project(tmp: string, case: string, files: {string: string}): {str
   return compile(root)
 end
 
+-- TODO: once a `load` environment can hold a module and a function together without `any` (or a test can hand
+-- `require` the real [`cosmic.html`] another way), [`load_module`] answers it typed and loses its `any_use`.
+
 --- The module `path` of `lua`, run against the real [`cosmic.html`].
 --- Each module it loads is set in `loaded`, when given.
 local function load_module(lua: {string: string}, path: string, loaded?: mut {string: any}): any
@@ -96,15 +99,22 @@ local function load_module(lua: {string: string}, path: string, loaded?: mut {st
   return req(path)
 end
 
+local record Page title?: string h?: Html.SafeHtml url?: string end
+
 local record Loaded
-  render: function({string: any}): any
+  render: function(Page): any
+end
+
+--- What an HTML template exports: it answers markup.
+local record Markup
+  render: function(Page): Html.SafeHtml
 end
 
 --- What module `path` of `lua` renders `page` to.
-local function rendered(lua: {string: string}, path: string, page: {string: any}): string
+local function rendered(lua: {string: string}, path: string, page: Page): string
   local mod = load_module(lua, path)
-  assert(mod is Loaded, path .. " exports no render") -- checked: is_on_record
-  return Html.raw(mod.render(page) as Html.SafeHtml) -- checked: cast_refused
+  assert(mod is Markup, path .. " exports no render") -- checked: is_on_record
+  return Html.raw(mod.render(page))
 end
 
 local HEAD <const> = "{{type Page from data}}\n"
@@ -113,7 +123,7 @@ local function test_a_template_and_its_data_build_and_render(tmp: string)
   local lua, trouble = project(tmp, "ok", { ["data.tl"] = DATA,
     ["page.tmpl"] = HEAD .. '<h1>{{.title}}</h1>{{.h}}<a href="{{.url}}">x</a>\n' })
   assert(lua ~= nil, trouble)
-  local out = rendered(lua, "page", { title = "a<b", h = Html.trust("<i>"), url = "/x" }) -- checked: any_use*3
+  local out = rendered(lua, "page", { title = "a<b", h = Html.trust("<i>"), url = "/x" })
   assert(out == '\n<h1>a&lt;b</h1><i><a href="' .. Html.raw_attr(Html.escape_attr("/x")) .. '">x</a>\n', out)
 end
 
@@ -143,10 +153,10 @@ local function test_an_init_template_is_its_directory_and_a_sibling_is_a_member(
   assert(lua ~= nil, trouble)
   local mod = load_module(lua, "pages")
   assert(mod is Loaded, "pages exports no render") -- checked: is_on_record
-  assert(mod.render({ title = "t" }) == "index t") -- checked: any_use
+  assert(mod.render({ title = "t" }) == "index t")
   local home = load_module(lua, "pages.home")
   assert(home is Loaded, "pages.home exports no render") -- checked: is_on_record
-  assert(home.render({ title = "t" }) == "home t") -- checked: any_use
+  assert(home.render({ title = "t" }) == "home t")
 end
 
 local function test_a_template_beside_an_init_template_is_private_to_its_directory(tmp: string)
@@ -178,13 +188,13 @@ local function test_editing_a_template_makes_its_module_again(tmp: string)
   local first, first_trouble = compile(root)
   assert(first ~= nil, first_trouble)
   local once = load_module(first, "page")
-  assert(once is Loaded and once.render({ title = "t" }) == "one t") -- checked: any_use, is_on_record
+  assert(once is Loaded and once.render({ title = "t" }) == "one t") -- checked: is_on_record
   write(root, { ["page.tmpl"] = "{{type Page from data}}{{mode text}}two {{.title}}!" })
   local second, second_trouble = compile(root)
   assert(second ~= nil, second_trouble)
   local mod = load_module(second, "page")
   assert(mod is Loaded) -- checked: is_on_record
-  assert(mod.render({ title = "t" }) == "two t!", tostring(mod.render({ title = "t" }))) -- checked: any_use*2
+  assert(mod.render({ title = "t" }) == "two t!", tostring(mod.render({ title = "t" })))
   write(root, { ["page.tmpl"] = "{{type Page from data}}{{mode text}}{{.nope}}" })
   local third, third_trouble = compile(root)
   assert(third == nil and third_trouble:find("page.tmpl:1:", 1, true), tostring(third_trouble)) -- checked: or_mix
@@ -214,7 +224,7 @@ local function test_a_template_whose_data_is_a_type_module_builds_and_renders(tm
     ["page.tmpl"] = "{{type Page from types}}{{mode text}}{{.title}}" })
   assert(lua ~= nil, trouble)
   local mod = load_module(lua, "page")
-  assert(mod is Loaded and mod.render({ title = "t" }) == "t") -- checked: any_use, is_on_record
+  assert(mod is Loaded and mod.render({ title = "t" }) == "t") -- checked: is_on_record
 end
 
 local function test_a_data_module_is_not_loaded_for_its_type_alone(tmp: string)
@@ -225,7 +235,7 @@ local function test_a_data_module_is_not_loaded_for_its_type_alone(tmp: string)
   assert(lua ~= nil, trouble)
   local loaded: {string: any} = {}
   local mod = load_module(lua, "page", loaded) -- checked: not_assignable
-  assert(mod is Loaded and mod.render({ title = "t" }) == "t") -- checked: any_use, is_on_record
+  assert(mod is Loaded and mod.render({ title = "t" }) == "t") -- checked: is_on_record
   assert(loaded.data == nil) -- checked: map_field
 end
 
@@ -239,7 +249,7 @@ local function test_a_data_module_a_stage_reads_is_required_once_as_a_value(tmp:
   local _, requires = lua.page:gsub('require%("data"%)', "") -- checked: map_field
   assert(requires == 1, lua.page) -- checked: map_field
   local mod = load_module(lua, "page")
-  assert(mod is Loaded and mod.render({ title = "t" }) == "T") -- checked: any_use, is_on_record
+  assert(mod is Loaded and mod.render({ title = "t" }) == "T") -- checked: is_on_record
 end
 
 local function test_a_module_named_like_the_helpers_parameter_or_type_is_renamed(tmp: string)
@@ -251,7 +261,7 @@ local function test_a_module_named_like_the_helpers_parameter_or_type_is_renamed
       ["page.tmpl"] = "{{type Page from " .. name .. "}}{{mode text}}{{.title | " .. name .. ".up}}" })
     assert(lua ~= nil, name .. ": " .. trouble)
     local mod = load_module(lua, "page")
-    assert(mod is Loaded and mod.render({ title = "t" }) == "T", name) -- checked: any_use, is_on_record
+    assert(mod is Loaded and mod.render({ title = "t" }) == "T", name) -- checked: is_on_record
   end
 end
 
@@ -263,7 +273,7 @@ local function test_a_records_module_that_returns_a_value_builds_when_only_its_t
       "local data: Data = {}\nreturn data\n",
     ["page.tmpl"] = HEAD .. "<p>{{.title}}</p>" })
   assert(built_lua ~= nil, built_trouble)
-  assert(rendered(built_lua, "page", { title = "t" }) == "\n<p>t</p>") -- checked: any_use
+  assert(rendered(built_lua, "page", { title = "t" }) == "\n<p>t</p>")
 end
 
 --- A data module that returns a function is refused: it declares no type for the record to be read from.
@@ -287,7 +297,7 @@ local function test_blank_lines_before_the_type_keep_each_line(tmp: string)
     ["page.tmpl"] = "\n\n{{type Page from data}}{{mode text}}\n{{.title}}" })
   assert(lua ~= nil, trouble)
   local mod = load_module(lua, "page")
-  assert(mod is Loaded and mod.render({ title = "t" }) == "\nt", tostring(mod is Loaded and mod.render({ title = "t" }))) -- checked: any_use*2, is_on_record*2, or_mix
+  assert(mod is Loaded and mod.render({ title = "t" }) == "\nt", tostring(mod is Loaded and mod.render({ title = "t" }))) -- checked: is_on_record*2, or_mix
 end
 
 --- A stage that reads the record's module requires it as a value, whose
@@ -302,7 +312,7 @@ local function test_a_records_module_that_returns_a_value_builds_when_a_stage_re
     ["page.tmpl"] = "{{type Page from data}}{{mode text}}{{.title | data.shout}}" })
   assert(lua ~= nil, trouble)
   local mod = load_module(lua, "page")
-  assert(mod is Loaded and mod.render({ title = "t" }) == "T") -- checked: any_use, is_on_record
+  assert(mod is Loaded and mod.render({ title = "t" }) == "T") -- checked: is_on_record
 end
 
 --- The checker builds a template and holds the guarantee: the Teal [`cosmic.template`] writes for it is the new grammar's,

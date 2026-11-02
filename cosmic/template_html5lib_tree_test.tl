@@ -379,7 +379,7 @@ local function check_case(file: string, case: Case, reach: Reach)
     local comment = body:match("^<!%-%- (.*) %-%->$")
     local name, value = body:match('^([^%s="<]+ ?[^%s="<]*)="(.*)"$')
     if text ~= nil and text ~= "" and #text > 2 and count(input, text) == 1 and count(document, text) == 1 then
-      local start = input:find(text, 1, true) as integer -- checked: cast_refused
+      local start = assert(input:find(text, 1, true))
       local before = input:sub(start - 1, start - 1)
       local after = input:sub(start + #text, start + #text)
       local cdata = input:sub(start - 9, start - 1) == "<![CDATA[" and input:sub(start + #text, start + #text + 2) == "]]>"
@@ -405,7 +405,7 @@ local function check_case(file: string, case: Case, reach: Reach)
       end
     elseif comment ~= nil and comment ~= "" and #comment > 2 and count(input, comment) == 1 and
         count(document, comment) == 1 then
-      local start = input:find(comment, 1, true) as integer -- checked: cast_refused
+      local start = assert(input:find(comment, 1, true))
       local use: string? = nil
       if input:sub(start - 4, start - 1) == "<!--" and input:sub(start + #comment, start + #comment + 2) == "-->" then
         use = closed()
@@ -419,7 +419,7 @@ local function check_case(file: string, case: Case, reach: Reach)
       end
     elseif name ~= nil and value ~= "" and not value:find("[\"']") and count(input, value) == 1 and -- checked: nil_not_allowed*2
         named[value] == name then -- checked: nil_not_allowed
-      local start = input:find(value, 1, true) as integer -- checked: cast_refused, nil_not_allowed
+      local start = assert(input:find(value, 1, true)) -- checked: nil_not_allowed
       local quote = input:sub(start - 1, start - 1)
       local written = (name:gsub(" ", ":")):lower()
       local before = input:sub(start - 2 - #written, start - 2):lower()

@@ -1,5 +1,9 @@
 local Template = require("cosmic.template")
 
+-- TODO: once a test can load generated Lua into a typed module (a `load` environment that takes values of several
+-- types, and a validator for a table of functions), the `any` environments and the casts of `chunk()` and of its
+-- renders here go.
+
 local HEAD <const> = "{{type T from m.t}}\n"
 
 local record Expect source: string want: string end
