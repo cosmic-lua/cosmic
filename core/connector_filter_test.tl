@@ -79,28 +79,28 @@ local function filter(architecture: string): {Insn}
     { base = BASE + 4096, slots = 65535, length = 28 },
   }, CONTROL, STATUS))
 end
+local function connect_in(code: {Insn}, architecture: string, i: integer, pointer: integer, length: integer): integer
+  return run(code, audit_of(architecture), number_of("connect", i), { 5, pointer, length })
+end
 local V4 <const> = 16
 local V6 <const> = 32
 local function test_connect_accepts_only_whole_immutable_slots_with_exact_sizes()
   for i, architecture in ipairs(arches) do
     local code = filter(architecture)
-    local function connect(pointer: integer, length: integer): integer
-      return run(code, audit_of(architecture), number_of("connect", i), { 5, pointer, length })
-    end
     for slot = 0, 3 do
-      assert(connect(BASE + V4 * slot, 16) == ALLOW)
+      assert(connect_in(code, architecture, i, BASE + V4 * slot, 16) == ALLOW)
     end
     for _, pointer in ipairs({ BASE - V4, BASE - 1, BASE + 1, BASE + 8, BASE + 15, BASE + 4 * V4,
         BASE + (1 << 32), BASE - (1 << 32) }) do
-      assert(connect(pointer, 16) == REFUSE)
+      assert(connect_in(code, architecture, i, pointer, 16) == REFUSE)
     end
     for _, length in ipairs({ 0, 15, 17, 28, 16 + (1 << 32), -1 }) do
-      assert(connect(BASE, length) == REFUSE)
+      assert(connect_in(code, architecture, i, BASE, length) == REFUSE)
     end
-    assert(connect(BASE + 4096, 28) == ALLOW)
-    assert(connect(BASE + 4096 + 65534 * V6, 28) == ALLOW)
-    assert(connect(BASE + 4096 + 65535 * V6, 28) == REFUSE)
-    assert(connect(BASE + 4096, 16) == REFUSE)
+    assert(connect_in(code, architecture, i, BASE + 4096, 28) == ALLOW)
+    assert(connect_in(code, architecture, i, BASE + 4096 + 65534 * V6, 28) == ALLOW)
+    assert(connect_in(code, architecture, i, BASE + 4096 + 65535 * V6, 28) == REFUSE)
+    assert(connect_in(code, architecture, i, BASE + 4096, 16) == REFUSE)
     assert(run(code, 0x40000003, number_of("connect", i), { 5, BASE, 16 }) == KILL)
     assert(run(code, audit_of(architecture), number_of("connect", i) | 0x40000000, { 5, BASE, 16 }) == REFUSE)
   end
@@ -108,24 +108,21 @@ end
 local function test_a_slot_is_held_to_its_own_ranges_stride_and_length()
   for i, architecture in ipairs(arches) do
     local code = filter(architecture)
-    local function connect(pointer: integer, length: integer): integer
-      return run(code, audit_of(architecture), number_of("connect", i), { 5, pointer, length })
-    end
     -- Into the other range: an IPv6 slot at the IPv4 length, and the reverse.
-    assert(connect(BASE + 4096, 16) == REFUSE)
-    assert(connect(BASE + 4096 + V6, 16) == REFUSE)
-    assert(connect(BASE, 28) == REFUSE)
-    assert(connect(BASE + V4, 28) == REFUSE)
+    assert(connect_in(code, architecture, i, BASE + 4096, 16) == REFUSE)
+    assert(connect_in(code, architecture, i, BASE + 4096 + V6, 16) == REFUSE)
+    assert(connect_in(code, architecture, i, BASE, 28) == REFUSE)
+    assert(connect_in(code, architecture, i, BASE + V4, 28) == REFUSE)
     -- Aligned to the IPv4 stride but not to the IPv6 one.
-    assert(connect(BASE + 4096 + V4, 28) == REFUSE)
-    assert(connect(BASE + 4096 + V6 + V4, 28) == REFUSE)
-    assert(connect(BASE + 4096 + 3 * V6 + 1, 28) == REFUSE)
+    assert(connect_in(code, architecture, i, BASE + 4096 + V4, 28) == REFUSE)
+    assert(connect_in(code, architecture, i, BASE + 4096 + V6 + V4, 28) == REFUSE)
+    assert(connect_in(code, architecture, i, BASE + 4096 + 3 * V6 + 1, 28) == REFUSE)
     -- Between the ranges, and past the last slot of each.
-    assert(connect(BASE + 4 * V4, 16) == REFUSE)
-    assert(connect(BASE + 2048, 28) == REFUSE)
-    assert(connect(BASE + 4096 + 65535 * V6, 28) == REFUSE)
+    assert(connect_in(code, architecture, i, BASE + 4 * V4, 16) == REFUSE)
+    assert(connect_in(code, architecture, i, BASE + 2048, 28) == REFUSE)
+    assert(connect_in(code, architecture, i, BASE + 4096 + 65535 * V6, 28) == REFUSE)
     -- A pointer whose low 32 bits are right in another 4 GiB.
-    assert(connect(BASE + 4096 + (1 << 32), 28) == REFUSE)
+    assert(connect_in(code, architecture, i, BASE + 4096 + (1 << 32), 28) == REFUSE)
   end
 end
 local function test_only_tcp_creation_and_protected_ipc_descriptor_sends_are_allowed()
