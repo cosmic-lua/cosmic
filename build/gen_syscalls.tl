@@ -353,7 +353,7 @@ local function parse_alias(lines: {string}, at: {integer}): Alias?, string
     elseif line:sub(1, 1) == "|" then
       local value, description = line:match('^|%s*"([%w_]+)"%s*(.*)$')
       if value == nil or description == nil then
-        return nil, (alias.name ~= "" and alias.name or "an alias") .. -- checked: and_ternary
+        return nil, (if alias.name ~= "" then alias.name else "an alias" end) ..
           ": a member line is not `| \"word\" # what it means`"
       end
       local said = description:match("^#%s*(.*)$")
@@ -369,7 +369,7 @@ local function parse_alias(lines: {string}, at: {integer}): Alias?, string
     elseif tag == nil then
       table.insert(alias.prose, (line:gsub("^%s+", "")))
     else
-      return nil, (alias.name ~= "" and alias.name or "an alias") .. ": an alias block takes no @" .. -- checked: and_ternary
+      return nil, (if alias.name ~= "" then alias.name else "an alias" end) .. ": an alias block takes no @" ..
         tag
     end
   end

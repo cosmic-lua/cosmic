@@ -129,7 +129,7 @@ local function rest_of(node: Ast.Node): string?
   local kind = f["kind"]
   if kind == "Positional" then
     local value = as_node(f["value"])
-    return value ~= nil and rest_of(value) or nil -- checked: and_ternary
+    return if value ~= nil then rest_of(value) else nil end
   elseif kind == "CallStat" then
     local call = fields_of(f["call"])
     local args = call["args"]
@@ -214,7 +214,7 @@ local function match_list(st: State, pl: {any}, nl: {any}, depth: integer): bool
   end
   local count = #pl
   local rest: string? = nil
-  local tail = count > 0 and as_node(pl[count]) or nil -- checked: and_ternary
+  local tail = if count > 0 then as_node(pl[count]) else nil end
   if tail ~= nil then
     rest = rest_of(tail)
   end

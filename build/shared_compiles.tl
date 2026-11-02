@@ -377,7 +377,7 @@ function shared_compiles.look(cache: shared_compiles.Cache,
     -- next build that looks, and the cache stays on.
     local _, _ = Sqlite.run(cache.db,
       "DELETE FROM " .. compiled .. " WHERE key = ?1 AND digest IS ?2",
-      { text(key), stored ~= nil and text(stored) or {} }) -- checked: and_ternary, literal_needs_type
+      { text(key), if stored ~= nil then text(stored) else {} end })
     return nil, ""
   end
   return { lua = parts[1], bytecode = parts[2], references = references, fact_wraps = fact_wraps, -- checked: index_may_be_nil*2
@@ -444,11 +444,11 @@ function shared_compiles.look_parse(cache: shared_compiles.Cache,
     local out, _ = Compress.inflate("raw", packed_rows)
     inflated = out
   end
-  local names = requires ~= nil and unpacked_requires(requires) or nil -- checked: and_ternary
+  local names = if requires ~= nil then unpacked_requires(requires) else nil end
   local stored = text_at(row, 3)
   if names == nil or inflated == nil or requires == nil or
       stored ~= parse_digest(key, requires, inflated) then
-    local digest: Sqlite.Value = stored ~= nil and text(stored) or {} -- checked: and_ternary, literal_needs_type
+    local digest: Sqlite.Value = if stored ~= nil then text(stored) else {} end
     where[#where + 1] = digest
     local _, _ = Sqlite.run(cache.db, "DELETE FROM " .. parsed ..
         " WHERE analyzer = ?1 AND source_hash = ?2 AND mapped = ?3 AND digest IS ?4", where)

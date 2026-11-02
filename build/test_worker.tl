@@ -510,11 +510,11 @@ local function parse_fact(text: string)
   local negated = lua_byte(declared, 1) == 126
   local fact: Fact = { at = (lua_gsub(at, "%%(%x%x)", function(digits: string): string
     local byte = lua_tonumber(digits, 16)
-    return byte is integer and lua_char(byte) or "?" -- checked: and_ternary
+    return if byte is integer then lua_char(byte) else "?" end
   end)), name = name, declared = if negated then "not " .. declared:sub(2) else declared end,
     kinds = {}, negated = negated, integral = false }
   local integer, number = false, false
-  for kind in gmatch(negated and declared:sub(2) or declared, "[^|]+") do -- checked: and_ternary
+  for kind in gmatch(if negated then declared:sub(2) else declared end, "[^|]+") do
     if kind == "integer" then
       integer = true
     else
@@ -929,7 +929,7 @@ function worker.decode(text: string): worker.Report?, string
         local known = decoded_hits[rest] -- checked: nil_not_allowed
         if known == nil then
           local path, numbers = rest:match("^([0-9a-f]*) ([0-9,]*)$") -- checked: nil_not_allowed
-          local decoded = path ~= nil and unhex(path) or nil -- checked: and_ternary
+          local decoded = if path ~= nil then unhex(path) else nil end
           if decoded == nil then return nil, "a malformed hit: " .. line end
           local per_line: mut {integer:boolean} = {}
           for number in numbers:gmatch("%d+") do -- checked: nil_not_allowed
@@ -953,11 +953,11 @@ function worker.decode(text: string): worker.Report?, string
         report.deliberate = decoded
       elseif tag == "violation" then
         local packed, count = rest:match("^([0-9a-f]+) (%d+)$") -- checked: nil_not_allowed
-        local decoded = packed ~= nil and unhex(packed) or nil -- checked: and_ternary
+        local decoded = if packed ~= nil then unhex(packed) else nil end
         local kind, at, target, declared, actual: string?, string?, string?, string?, string?
         if decoded ~= nil then
           kind, at, target, declared, actual =
-            decoded:match("^([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)$") -- untyped: call
+            decoded:match("^([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)$")
         end
         if actual == nil then return nil, "a malformed violation: " .. line end
         local met = report.violations or {}
@@ -1286,7 +1286,7 @@ function worker.judge(judging: worker.Judging): worker.Judgement
     judgement.passed, judgement.message = false, judging.trouble
   end
   -- Only a pass is skipped instead: a failure is one, skip or not.
-  judgement.skipped = judgement.passed and report.skipped or "" -- checked: and_ternary
+  judgement.skipped = (if judgement.passed then report.skipped else nil end) or ""
   judgement.deliberate = ""
   -- A test that also asserted checked something: it is no deliberate non-check.
   if judgement.passed and judgement.skipped == "" and report.asserted == 0 then
@@ -1408,7 +1408,7 @@ function worker.run(argv: {string}): integer
   end
   if argv[2] == "--worker-no-tool" or argv[2] == "--worker-held" then
     local no_tool = argv[2] == "--worker-no-tool"
-    local forbidden, forbid_trouble = confine.forbid_running(no_tool and confine.itself() or {}, runs) -- checked: and_ternary, literal_needs_type
+    local forbidden, forbid_trouble = confine.forbid_running(if no_tool then confine.itself() else {} end, runs)
     if not forbidden then
       complain("test " .. argv[2] .. ": this program cannot be held by a Landlock " .. -- checked: nil_not_allowed
           "ruleset: " .. forbid_trouble)
@@ -1481,7 +1481,7 @@ function worker.run(argv: {string}): integer
   -- Processes the test starts report the core's C they ran here, so it
   -- counts for the test like the C it runs itself.
   local made, _ = sys.mkdir(children_path, 0x1c0)
-  local children = made and children_path or nil -- checked: and_ternary
+  local children = if made then children_path else nil end
   if children ~= nil then Coverage.children(children) end
   local load_session, _ = Coverage.start()
   -- The directories the test owns, which a process it confines may

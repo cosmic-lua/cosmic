@@ -213,7 +213,7 @@ function TermFilter.new(): Filter
       if p == "" or count_parameters(p) > MOST_MODES or find(p, "^[%d;]+$") == nil then return end
       local listed: mut {integer} = {}
       for digits in (p .. ";"):gmatch("([^;]*);") do
-        local number = digits ~= "" and #digits <= 4 and math.tointeger(tonumber(digits)) or nil -- checked: and_ternary
+        local number = if digits ~= "" and #digits <= 4 then math.tointeger(tonumber(digits)) else nil end
         if number == nil or MODE_DEFAULTS[number] == nil then return end
         listed[#listed + 1] = number
       end
@@ -227,7 +227,7 @@ function TermFilter.new(): Filter
   ground = function(b: integer)
     if st.needed > 0 then
       local first = #st.held == 1
-      if b >= (first and st.low or 0x80) and b <= (first and st.high or 0xbf) then -- checked: and_ternary*2
+      if b >= (if first then st.low else 0x80 end) and b <= (if first then st.high else 0xbf end) then
         st.held = st.held .. char(b)
         st.needed = st.needed - 1
         if st.needed == 0 then

@@ -31,7 +31,7 @@ local function run_cut(coder: codec.Coder, input: string, cuts: string): string?
   local empty = false
   while at <= #input do
     k = k + 1
-    local size = k <= #cuts and cuts:byte(k) or 1 -- checked: and_ternary
+    local size = (if k <= #cuts then cuts:byte(k) else nil end) or 1
     if size == 0 then empty = true end
     local part, why = coder:update(input:sub(at, at + size - 1))
     if part == nil then return nil, why, empty end

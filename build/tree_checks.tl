@@ -531,7 +531,7 @@ function tree_checks.unnamed_types(db: Sqlite.Handle): {string}
     local members = assert(by_module[module], "every module of the order has its rows")
     local source = text[module] or ""
     local record = returned_record(source)
-    local body = record ~= nil and record_body(source, record) or nil -- checked: and_ternary
+    local body = if record ~= nil then record_body(source, record) else nil end
     local tops: mut {string:Sqlite.Row} = {}
     for _, row in ipairs(members) do
       if row:text(2) ~= "" and not row:text(2):find("[.:]") and row:text(2) ~= record and
@@ -1491,7 +1491,7 @@ function tree_checks.verbs(db: Sqlite.Handle, quickstart: string?): {string}
   local fenced = false
   for line in String.lines(quickstart or "") do
     if line:match("^```") then fenced = not fenced end
-    local heading = not fenced and line:match("^## (.+)$") or nil -- checked: and_ternary
+    local heading = if not fenced then line:match("^## (.+)$") else nil end
     if heading ~= nil then
       current = heading
       sections[heading] = sections[heading] or ""
@@ -1726,12 +1726,12 @@ function tree_checks.public_docs(db: Sqlite.Handle, excused?: {string: string}):
         local word = text:sub(start, stop)
         local before, after = text:sub(from - 1, from - 1), text:sub(to + 1, to + 1)
         if rule.breaks(before, hit, after, modules) then
-          local key = row:text(1) .. " " .. (row:text(2) ~= "" and row:text(2) or "(module)") .. " " .. rule.name -- checked: and_ternary
+          local key = row:text(1) .. " " .. (if row:text(2) ~= "" then row:text(2) else "(module)" end) .. " " .. rule.name
           found[key] = true
           if excused[key] == nil and seen[word] ~= true then
             seen[word] = true
             out[#out + 1] = row:text(4) .. ":" .. row:text(5) .. ": " .. row:text(1) .. " " ..
-              (row:text(2) ~= "" and row:text(2) or "(module)") .. ": its doc text has `" .. word .. -- checked: and_ternary
+              (if row:text(2) ~= "" then row:text(2) else "(module)" end) .. ": its doc text has `" .. word ..
               "` (" .. rule.name .. " rule) -- " .. rule.fix
           end
         end
@@ -2106,7 +2106,7 @@ local function scope_outcome(file: string, source: string, declared: {string: Sc
   if memo ~= nil then
     key = check_memo.key(salt, dialect, source)
     local text = check_memo.get(memo, "scoped", key)
-    local kept = text ~= nil and kept_scopes(text, file) or nil -- checked: and_ternary
+    local kept = if text ~= nil then kept_scopes(text, file) else nil end
     if kept ~= nil then
       return kept
     end
@@ -2340,7 +2340,7 @@ local function tree_of(given: {{string}}, salt: string, bindings?: {{string}}, w
   -- What the files that require a module read of it, by module: its digest where it has one ([`ShapeKey`]), else its text.
   local read: mut {string: string} = {}
   local store: Sqlite.Handle? = nil
-  local opened = shaping ~= nil and shaping.memo or nil -- checked: and_ternary
+  local opened = if shaping ~= nil then shaping.memo else nil end
   if opened ~= nil then
     local prepared, _ = check_memo.prepare(opened, "shape")
     if prepared then
@@ -2364,7 +2364,7 @@ local function tree_of(given: {{string}}, salt: string, bindings?: {{string}}, w
       local held = exact
       if shaping ~= nil and source.dialect == "tl" and source.pinned == "" then
         local key = check_memo.key(shaping.salt, "shape", source.text)
-        local kept = store ~= nil and check_memo.get(store, "shape", key) or nil -- checked: and_ternary
+        local kept = if store ~= nil then check_memo.get(store, "shape", key) else nil end
         local digest = kept or ShapeKey.digest(source.text, source.filename)
         if kept == nil and store ~= nil then
           check_memo.put(store, "shape", key, digest)
@@ -2467,8 +2467,8 @@ local function kept_outcomes(memo: Sqlite.Handle?, kind: string, tree: Tree,
   local outcomes: mut {string: DeclareOutcome} = {}
   local missed: mut {DeclareFile} = {}
   for _, row in ipairs(tree.rows) do
-    local text = memo ~= nil and check_memo.get(memo, kind, row.key) or nil -- checked: and_ternary
-    local kept = text ~= nil and read(text, row.file) or nil -- checked: and_ternary
+    local text = if memo ~= nil then check_memo.get(memo, kind, row.key) else nil end
+    local kept = if text ~= nil then read(text, row.file) else nil end
     if kept ~= nil then
       outcomes[row.file] = kept
     else
