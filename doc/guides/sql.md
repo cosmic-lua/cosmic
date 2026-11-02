@@ -320,6 +320,38 @@ within another.
   the line or record where the reader knows it; with `header=yes`, lines
   count from the one after the header.
 
+## prepared statements
+
+`db:prepare(sql)` returns a `Statement` to bind, step and run again.
+`statement:reset()` rewinds it and clears every binding, so a column bound
+once before a loop is NULL on the second row and fails a `NOT NULL`
+constraint. `statement:rewind()` rewinds it and keeps the bindings: bind
+the fixed columns once, then rebind only the changing column and rewind
+per row. Both return `true, ""`, or `false` and the previous step's
+failure. To bind every column afresh for each row, see [a prepared statement in a loop](#a-prepared-statement-in-a-loop),
+which uses `bind_values_result` or a values table per row with [`Sqlite.run`].
+
+```teal
+local Sqlite = require("cosmic.sqlite")
+
+local db = assert(Sqlite.memory())
+assert(db:exec("CREATE TABLE t (owner TEXT NOT NULL, n INTEGER NOT NULL)"))
+local insert = assert(db:prepare("INSERT INTO t (owner, n) VALUES (?1, ?2)"))
+assert(insert:bind_text(1, "me"))
+for n = 1, 3 do
+  assert(insert:bind_integer(2, n))
+  assert(insert:step() == "done")
+  assert(insert:rewind())
+end
+insert:finalize()
+local rows = assert(Sqlite.text_rows(db, "SELECT count(*), sum(n) FROM t"))
+print(table.concat(assert(rows[1]):texts(), " "))
+```
+
+```output
+3 6
+```
+
 ## bound lists
 
 - `carray(?N)`: a table of the elements of the list bound at parameter
@@ -661,7 +693,8 @@ program, as above.
 
 [`Statement.reset()`] rewinds a statement and clears every binding, so bind again inside the loop with
 `bind_values_result(values)`. For one-off rows, [`Sqlite.run`] with a values table per row prepares, binds and steps in one
-call.
+call. To keep the bindings across rows, [`Statement:rewind()`] ([prepared statements](#prepared-statements)) rewinds
+without clearing them.
 
 ```teal
 local Sqlite = require("cosmic.sqlite")
@@ -697,4 +730,5 @@ print(assert(assert(Sqlite.rows(db, "select count(*) from t"))[1]):integer(1))
 [`Sqlite.open`]: ../../cosmic/sqlite.tl
 [`Sqlite.run`]: ../../cosmic/sqlite.tl
 [`Statement.reset()`]: ../../cosmic/internal/sqlite.d.tl
+[`Statement:rewind()`]: ../../cosmic/internal/sqlite.d.tl
 [`Vector.load_blocks`]: ../../cosmic/vector.tl

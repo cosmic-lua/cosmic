@@ -54,7 +54,8 @@ local record Driver
     --- Whether its top-level `local function test_*` are called from outside the file (a test module), so that they are
     --- not unused.
     mut tests: boolean
-    --- The other names a `require` may give it.
+    --- The other names a `require` may give it: only a declaration file of the globals has any ([`Driver.declarations`]); a
+    --- module of an index ([`Driver.index`]) answers to its whole name alone.
     mut aliases: mut {string}
     --- The name its ceilings are kept under, "" where that is its `filename`. A source the build writes from another
     --- file (a guide's examples, a template, the declarations of a header) is named for the file it comes from, which
@@ -150,6 +151,9 @@ local record Driver
     external: {string}
     --- The names of the language's own modules ([`Declarations.Program.library`]); none where not given.
     library?: {string: boolean}
+    --- What a `require` of `name` in the file `file` that names no module may have meant, as "`b.m` (b/m.tl)" each: the modules
+    --- ending in the name ([`Driver.ending`]) that `file` may require, none where the build is not given one.
+    meant?: function(name: string, file: string): {string}
     --- Whether the checker keeps the type of each node: the `types` of a result. A run that reads none leaves it, and saves the
     --- time of recording them.
     types: boolean
@@ -163,7 +167,7 @@ local record Driver
     timing: Timing
     --- Asks `provider` for a module after the providers added before it.
     mut provide: function(Build, provider: Provider)
-    --- The module `name` (or one of its aliases) lexed, parsed and scoped, nil where no provider has it.
+    --- The module `name` (or, of a declaration file of the globals, one of its aliases) lexed, parsed and scoped, nil where no provider has it.
     mut parsed: function(Build, name: string): Outcome?
     --- Whether the build has the module `name`: a global source, a module a provider has, or one it has retired. Nothing is read
     --- to tell.
@@ -226,18 +230,17 @@ local record Driver
   end
 
   --- The modules `entries` (pairs of a path below the root and its text) are: each `.tl` and `.d.tl` a module named by its
-  --- path ([`Declarations.module_of`]), checked. A module is also
-  --- answered to by the name of its path below each directory, since a project inside the tree (`ci/`, a fixture
-  --- directory) names its modules from its own root, except by a name in `unaliased`: the language's own modules, which
-  --- the binary answers and no tail of a project file's name stands for. `skip` says which paths are left out. A module
+  --- path ([`Declarations.module_of`]), checked. A module is answered to by that name alone, the one the run time resolves:
+  --- `b/m.tl` is `b.m`, never `m`. A project inside the tree names its modules from its own root by being built from there.
+  --- `skip` says which paths are left out. A module
   --- given as both `.tl` and `.d.tl` is refused before an index is made ([`Driver.declared`]); two files that are one module
   --- otherwise (`x.tl` and `x/init.tl`, or `x.d.tl` and `x/init.d.tl`) are refused by the derive ([`build.derivation`]),
-  --- and are not given here, but if they are the first given answers. A `*_test.tl` is a test module
+  --- and are not given here. A `*_test.tl` is a test module
   --- ([`Driver.Source.tests`]). An entry may give a third word, the module it is, and a fourth, the name its ceilings
   --- are kept under ([`Driver.Source.pinned`]), for a source the build writes from another file, whose path says
   --- neither: the entry's path is then the name of the text, and `.d.tl` still marks a declaration. `extras` says of a file
   --- what its name does not: a test module ([`Driver.Source.tests`]).
-  index: function(entries: {{string}}, skip: function(path: string): boolean, extras?: Extras, unaliased?: {string: boolean}): Index
+  index: function(entries: {{string}}, skip: function(path: string): boolean, extras?: Extras): Index
 
   --- The complaints about the files of `entries` (as [`Driver.index`] takes them, less the `skip`ped paths) whose module is
   --- one of `names`: a project's `require("math")` would be checked against `math.tl`, where the binary answers that call
@@ -274,6 +277,10 @@ local record Driver
 
   --- The provider of `index`.
   files: function(index: Index): Provider
+
+  --- The sources of `index` whose modules' names end in `.name`, by module: what a `require("name")` that names no module may
+  --- have meant, since a module is required by its whole name.
+  ending: function(index: Index, name: string): {Source}
 
   --- The provider of the `cosmic.*` modules `read` finds, each its stub or its source: `read` answers the text of a
   --- module, or nil. They are lowered for the types they give and never checked. A module `declared` says is one is read as a
@@ -377,8 +384,7 @@ function Driver.globals(sources: {Driver.Source}, adjust: (function(globals: {st
   return out
 end
 
-function Driver.index(entries: {{string}}, skip: function(path: string): boolean, extras?: Driver.Extras,
-                      unaliased?: {string: boolean}): Driver.Index
+function Driver.index(entries: {{string}}, skip: function(path: string): boolean, extras?: Driver.Extras): Driver.Index
   local index: Driver.Index = { sources = {}, by_module = {} }
   for _, entry in ipairs(entries) do
     local file = entry[1]
@@ -398,21 +404,6 @@ function Driver.index(entries: {{string}}, skip: function(path: string): boolean
       index.sources[#index.sources + 1] = source
       if index.by_module[source.module] == nil then
         index.by_module[source.module] = source
-      end
-    end
-  end
-  for _, source in ipairs(index.sources) do
-    -- Only the source a module is read from answers to the tail of its name, so that the module is one whichever name asks.
-    if index.by_module[source.module] == source then
-      local name = source.module
-      local dot = name:find(".", 1, true)
-      while dot ~= nil do
-        name = name:sub(dot + 1)
-        if index.by_module[name] == nil and not (unaliased ~= nil and unaliased[name] == true) then
-          index.by_module[name] = source
-          source.aliases[#source.aliases + 1] = name
-        end
-        dot = name:find(".", 1, true)
       end
     end
   end
@@ -542,6 +533,21 @@ function Driver.files(index: Driver.Index): Driver.Provider
   return function(module: string): Driver.Source?
     return index.by_module[module]
   end
+end
+
+function Driver.ending(index: Driver.Index, name: string): {Driver.Source}
+  local found: mut {Driver.Source} = {}
+  local tail = "." .. name
+  for _, source in ipairs(index.sources) do
+    local module = source.module
+    if index.by_module[module] == source and #module > #tail and module:sub(-#tail) == tail then
+      found[#found + 1] = source
+    end
+  end
+  table.sort(found, function(a: Driver.Source, b: Driver.Source): boolean
+    return a.module < b.module
+  end)
+  return found
 end
 
 function Driver.standard(read: Driver.Reader, declared?: function(module: string): boolean): Driver.Provider
@@ -699,6 +705,40 @@ function Driver.new(options: Driver.Options): Driver.Build
       end
     end
     return nil
+  end
+
+  --- What a `require` that names no module may have meant, for the one at `offset` of `result`: "" where the name is a global
+  --- of the language (the checker's fix says to use it) or no module that the file may require ends in it, else
+  --- "; did you mean `b.m` (b/m.tl)?" or the candidates, "; did you mean one of `a.m` (a/m.tl), `b.m` (b/m.tl)?".
+  local function meant(result: Driver.Outcome, offset: integer): string
+    local tokens = result.chunk.tokens
+    local at = RemovedFix.token_at(tokens, offset)
+    if at == nil then
+      return ""
+    end
+    -- `require("m")`: the grammar refuses `require "m"` (string_call) before it is a require.
+    if tokens.kind[at + 2] ~= "string" then
+      return ""
+    end
+    local name = tokens.value[at + 2]
+    local ending = options.meant
+    local library = options.library
+    if name == nil or ending == nil or (library ~= nil and library[name] == true) then
+      return ""
+    end
+    local found = ending(name, result.source.filename)
+    if #found == 0 then
+      return ""
+    elseif #found == 1 then
+      return "; did you mean " .. found[1] .. "?"
+    end
+    -- A long list is a wall of text: the first few say what kind of name was meant.
+    local shown = 5
+    if #found <= shown then
+      return "; did you mean one of " .. table.concat(found, ", ") .. "?"
+    end
+    return "; did you mean one of " .. table.concat(found, ", ", 1, shown) .. " and " .. tostring(#found - shown) ..
+      " more?"
   end
 
   --- The entry for a source that has been read: scoped against the globals.
@@ -1010,8 +1050,13 @@ function Driver.new(options: Driver.Options): Driver.Build
         timing.check = timing.check + Clock.monotonic_ns() - started
         result.checked = checked
         for _, e in ipairs(checked.errors) do
-          table.insert(result.bodies, error_of(result, "checked", tostring(e.code), e.msg, e.fix, e.y, e.x, e.offset,
-            e.length, e.types, e.argument))
+          local code = tostring(e.code)
+          local msg = e.msg
+          if code == "require_unknown" then
+            msg = msg .. meant(result, e.offset)
+          end
+          table.insert(result.bodies, error_of(result, "checked", code, msg, e.fix, e.y, e.x, e.offset, e.length, e.types,
+            e.argument))
         end
         local exempt: {integer: boolean} = {}
         if source.tests then
