@@ -146,6 +146,7 @@ local CLOSED_CODES <const>: {string} = {
   "lists_overlap",
   "literal_ambiguous",
   "literal_repeated",
+  "literal_spread",
   "local_untyped",
   "match_missing",
   "match_pattern",
