@@ -531,12 +531,14 @@ local function checked_of(checker: Checker, document: Document): Checked
   local none: {ShapeSpecs.Splice} = {}
   local generated = document.name:match("%.tmpl$") ~= nil
   local text = document.text
-  -- A document the refusal names is told that alone, at its first line ([`source.refusal`]); every other is told the build's
-  -- refusal before what its own check finds.
+  -- A document the refusal names is told that alone, at its first line ([`source.refusal`]); every other is told the stage's
+  -- text before what its own check finds. A file the build does not read is told none, as the refusal is not of it: a fixture
+  -- under `testdata/` ([`build.tree_program.skipped`]), and, not checked here at all, a file of a tree of its own ([`apart`]) such
+  -- as `ci/` from the root, one that is no module file (`static/`), and one outside the root ([`unread`]).
   local told = source.refusal(checker.source, document.name, text)
   local banner = source.banner(checker.source)
   local function with_banner(found: {plan.Refusal}): {plan.Refusal}
-    if banner == nil or told ~= nil then return found end
+    if banner == nil or told ~= nil or TreeProgram.skipped(document.name) then return found end
     local out: mut {plan.Refusal} = { { line = 1, column = 1, message = banner } }
     for _, each in ipairs(found) do out[#out + 1] = each end
     return out
@@ -737,6 +739,9 @@ local function staged(checker: Checker, document: Document): boolean
   local banner = source.banner(checker.source) or ""
   if banner ~= checker.banner then
     checker.banner = banner
+    -- Every other open document shows it too, however this stage came about (a save, a change on disk, or a check that found
+    -- the stage pending): ask for them to be checked again ([`check.moved`]).
+    checker.graph_moved = true
     checker.epoch = checker.epoch + 1
   end
   if source.outside(checker.source) or apart(checker, document.name) then return false end

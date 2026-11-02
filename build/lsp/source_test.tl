@@ -252,6 +252,39 @@ local function test_a_busy_database_is_read_at_once_as_last_committed()
   assert(counts(ran) == "0,1", "staged once the lock is free: " .. counts(ran))
 end
 
+--- A stage that a single document's check makes (the tree is pending, a run having held the database when the files changed)
+--- and that is refused moves the banner of every other open document too, not only the document checked.
+local function test_a_refusal_found_in_one_documents_check_is_told_to_the_others()
+  local root = project()
+  assert(Fs.mkdirs(root .. "/x"))
+  local text = "local record X\n  n: integer\nend\nreturn X\n"
+  assert(Fs.write(root .. "/x.tl", text))
+  assert(Fs.write(root .. "/clean.tl", EMPTY))
+  local send = serving(root)
+  local good = send({ initialize(root), open(root, "x.tl", text), open(root, "clean.tl", EMPTY) })
+  assert(counts(good) == "0,0", counts(good))
+  assert(Fs.write(root .. "/x/init.tl", text))
+  -- Another run holds the database when the file is reported: nothing is staged, and the stage stays pending.
+  local held = assert(Sqlite.open(build_paths.under((assert(build_paths.directory(root)))).working,
+    { writable = true }))
+  assert(held:exec("BEGIN IMMEDIATE"))
+  local busy = send({ save(root, "x/init.tl") })
+  assert(counts(busy) == "0,0", "nothing staged while the lock is held: " .. counts(busy))
+  assert(held:exec("ROLLBACK"))
+  assert(held:close())
+  -- A change to one document stages the tree; the other document is told the refusal without being asked.
+  local ran = send({ change(root, "x.tl", text .. "\n") })
+  local told = ""
+  for _, each in ipairs(session_fixture.publications(ran)) do
+    if each.uri:match("[^/]*$") == "clean.tl" then
+      local first = each.diagnostics[1]
+      told = (if first ~= nil then first.message else "" end)
+    end
+  end
+  assert(told == "the build refuses this tree: x.tl and x/init.tl both answer to import path 'x'; delete or rename one; " ..
+      "modules are as last staged", told)
+end
+
 --- A database of another schema, another tool's, the session neither
 --- stages nor reads, saying so, and leaves where it is; once a build of
 --- this tool makes it again, it stages it.

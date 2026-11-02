@@ -385,8 +385,59 @@ local function test_two_declaration_files_of_one_module_are_told_the_derives_wor
   assert(only(nth(ran, 2)).message == words, messages_of(nth(ran, 2)))
 end
 
---- A third file of the module (`x.d.tl` beside `x.tl` and `x/init.tl`) leaves each document one message: the two sources are
---- told the build's words for their pair, and the declaration the build's words for it beside its source.
+--- The first message of the last publication of the file `name`.
+local function last_banner(ran: session_fixture.Ran, name: string): string
+  local found = ""
+  for _, published in ipairs(publications(ran)) do
+    if published.uri:match("[^/]*$") == name then
+      local d = published.diagnostics[1]
+      found = (if d ~= nil then d.message else "" end)
+    end
+  end
+  return found
+end
+
+--- A document is told its own pair's message only where that is what the stage reported: with `x.tl` beside `x/init.tl` and `z.tl`
+--- beside a `z.d.tl`, the stage reports `x`, so the documents of `z` are told that, and once `x` is mended they are told theirs. One
+--- the stage reports together with another still names it.
+local function test_a_pair_is_told_its_own_message_only_where_the_stage_reported_it()
+  local record = "local record X\n  n: integer\nend\nreturn X\n"
+  local declaration = "--- @kind binding\n" .. record
+  local root = project()
+  assert(Fs.mkdirs(root .. "/x"))
+  assert(Fs.write(root .. "/x.tl", record))
+  assert(Fs.write(root .. "/x/init.tl", record))
+  assert(Fs.write(root .. "/z.tl", record))
+  assert(Fs.write(root .. "/z.d.tl", declaration))
+  local send = serving(root)
+  local x_words = "x.tl and x/init.tl both answer to import path 'x'; delete or rename one"
+  local ran = send({ initialize(root), open(root, "x.tl", record), open(root, "z.tl", record),
+    open(root, "z.d.tl", declaration) })
+  local banner = "the build refuses this tree: " .. x_words .. "; no module is staged yet"
+  assert(only(nth(ran, 1)).message == x_words, messages_of(nth(ran, 1)))
+  assert(only(nth(ran, 2)).message == banner, messages_of(nth(ran, 2)))
+  assert(only(nth(ran, 3)).message == banner, messages_of(nth(ran, 3)))
+  -- `x` is mended: the stage now reports the pair of `z`, and its documents are told it.
+  assert(Fs.remove(root .. "/x/init.tl"))
+  local mended = send({ session_fixture.changed_on_disk(root, "x/init.tl") })
+  local seen: mut {string:string} = {}
+  for _, published in ipairs(publications(mended)) do
+    local d = published.diagnostics[1]
+    seen[assert(published.uri:match("[^/]*$"))] = (if d ~= nil then d.message else "" end)
+  end
+  local told = assert(seen["z.tl"])
+  assert(told:find("z.tl is already the module z. A .d.tl is only", 1, true) == 1, told)
+  assert(seen["z.d.tl"] == told, tostring(seen["z.d.tl"]))
+  -- The document of `x` is clear of its own pair now and is told the one the stage reports.
+  assert(assert(seen["x.tl"]):find("the build refuses this tree: z.d.tl: z.tl is already the module z.", 1, true) == 1, seen["x.tl"])
+  -- An untagged `u.d.tl` joins what the stage reports, which holds the pair of `z` still: its documents keep their message.
+  assert(Fs.write(root .. "/u.d.tl", record))
+  local both = last_banner(send({ session_fixture.changed_on_disk(root, "u.d.tl") }), "z.tl")
+  assert(both:find("z.tl is already the module z. A .d.tl is only", 1, true) == 1, both)
+end
+
+--- A third file of the module (`x.d.tl` beside `x.tl` and `x/init.tl`) leaves each document one message: the stage reports the
+--- two sources, so they are told that, and the declaration is told the stage's text, not a pairing the stage did not report.
 local function test_three_files_of_one_module_leave_each_document_one_message()
   local root = project()
   assert(Fs.mkdirs(root .. "/x"))
@@ -399,7 +450,8 @@ local function test_three_files_of_one_module_leave_each_document_one_message()
   local ran = served(root, { initialize(root), open(root, "x.d.tl", declaration), open(root, "x.tl", outer),
     open(root, "x/init.tl", inner) })
   local sharing = "x.tl and x/init.tl both answer to import path 'x'; delete or rename one"
-  assert(only(nth(ran, 1)).message:find("x.tl is already the module x. A .d.tl is only", 1, true) == 1, messages_of(nth(ran, 1)))
+  assert(only(nth(ran, 1)).message == "the build refuses this tree: " .. sharing .. "; no module is staged yet",
+    messages_of(nth(ran, 1)))
   assert(only(nth(ran, 2)).message == sharing, messages_of(nth(ran, 2)))
   assert(only(nth(ran, 3)).message == sharing, messages_of(nth(ran, 3)))
 end
