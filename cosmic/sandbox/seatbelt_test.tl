@@ -22,8 +22,8 @@ local function test_empty_policy_denies_every_file_network_and_process_fork()
   assert(out.text == BASE, out.text)
   local held = 0
   for _, _ in pairs(out.parameters) do held = held + 1 end
-  assert(out.parameters.ROOT == "/" and held == 1)
-  assert(out.rlimits.nofile == 1024 and out.rlimits.core == 0)
+  assert(out.parameters["ROOT"] == "/" and held == 1)
+  assert(out.rlimits["nofile"] == 1024 and out.rlimits["core"] == 0)
   assert((assert(Seatbelt.compile({}))).text == BASE)
 end
 
@@ -36,7 +36,7 @@ local function test_letters_grant_only_their_operations()
     local out = compile({ grants = { { path = "one", letters = letter } } },
       { one = { path = "/one", directory = false } })
     assert(out.text == BASE .. '(allow ' .. operation .. ' (literal (param "PATH_1")))\n', out.text)
-    assert(out.parameters.PATH_1 == "/one" and out.parameters.PATH_2 == nil)
+    assert(out.parameters["PATH_1"] == "/one" and out.parameters["PATH_2"] == nil)
   end
 end
 
@@ -47,7 +47,7 @@ local function test_directory_profile_is_recursive_and_parameterized()
 (allow file-write-data (subpath (param "PATH_1")))
 (allow file-write-create file-write-unlink (subpath (param "PATH_1")))
 ]], out.text)
-  assert(out.parameters.PATH_1 == "/private/data")
+  assert(out.parameters["PATH_1"] == "/private/data")
   assert(not out.text:find("/private/data", 1, true), out.text)
 end
 
@@ -75,7 +75,7 @@ local function test_quotes_parentheses_newlines_and_equals_never_enter_profile_t
     assert(out.text == BASE .. [[(allow file-read* (literal (param "PATH_1")))
 (allow network-outbound (literal (param "PATH_1")))
 ]], out.text)
-    assert(out.parameters.PATH_1 == path)
+    assert(out.parameters["PATH_1"] == path)
     assert(not out.text:find(path, 1, true), out.text)
   end
 end
@@ -92,8 +92,8 @@ local function test_aliases_and_grant_order_produce_one_canonical_profile()
     { path = "c", letters = "w" }, { path = "b", letters = "r" }, { path = "a", letters = "x" },
   } }, paths)
   assert(first.text == second.text, second.text)
-  assert(first.parameters.PATH_1 == "/other" and first.parameters.PATH_2 == "/same")
-  assert(first.parameters.PATH_3 == nil)
+  assert(first.parameters["PATH_1"] == "/other" and first.parameters["PATH_2"] == "/same")
+  assert(first.parameters["PATH_3"] == nil)
   assert(first.text == BASE .. [[(allow file-write-data (subpath (param "PATH_1")))
 (allow file-read* (literal (param "PATH_2")))
 (allow process-exec file-map-executable (literal (param "PATH_2")))
@@ -111,11 +111,11 @@ local function test_system_expands_mac_paths_only_and_cosmic_names_the_supplied_
   }
   local out = assert(Seatbelt.compile({ profiles = { "system", "cosmic" } },
     { paths = paths, executable = "program" }))
-  assert(out.parameters.PATH_1 == "/System/Cryptexes/OS")
-  assert(out.parameters.PATH_2 == "/System/Library")
-  assert(out.parameters.PATH_3 == "/dev/null")
-  assert(out.parameters.PATH_4 == "/opt/cosmic")
-  assert(out.parameters.PATH_5 == "/private/etc/passwd" and out.parameters.PATH_6 == nil)
+  assert(out.parameters["PATH_1"] == "/System/Cryptexes/OS")
+  assert(out.parameters["PATH_2"] == "/System/Library")
+  assert(out.parameters["PATH_3"] == "/dev/null")
+  assert(out.parameters["PATH_4"] == "/opt/cosmic")
+  assert(out.parameters["PATH_5"] == "/private/etc/passwd" and out.parameters["PATH_6"] == nil)
   assert(out.text == BASE .. [[(allow file-read* (subpath (param "PATH_1")))
 (allow process-exec file-map-executable (subpath (param "PATH_1")))
 (allow file-read* (subpath (param "PATH_2")))
@@ -130,8 +130,8 @@ end
 
 local function test_rlimits_are_returned_for_the_enforcement_caller()
   local out = compile({ limits = { open_files = 9, file_bytes = 100, cpu_seconds = 2 } })
-  assert(out.rlimits.nofile == 9 and out.rlimits.core == 0)
-  assert(out.rlimits.fsize == 100 and out.rlimits.cpu == 2)
+  assert(out.rlimits["nofile"] == 9 and out.rlimits["core"] == 0)
+  assert(out.rlimits["fsize"] == 100 and out.rlimits["cpu"] == 2)
   assert(out.text == BASE)
 end
 
@@ -188,9 +188,9 @@ local function test_the_relay_profile_connects_out_and_accepts_at_its_port()
   local out = assert(Seatbelt.compile({ grants = { { path = "/usr", letters = "rx" } } },
     { paths = paths, core = "/core", database = "/db", serves_relay = 49153 }))
   assert(out.text:find('(allow process-exec file-map-executable (literal (param "PATH_1")))', 1, true) and
-      out.parameters.PATH_1 == "/real/core", out.text)
+      out.parameters["PATH_1"] == "/real/core", out.text)
   assert(out.text:find('(allow file-map-executable (subpath (param "PATH_3")))', 1, true) and
-      out.parameters.PATH_3 == "/usr", out.text)
+      out.parameters["PATH_3"] == "/usr", out.text)
   assert(select(2, out.text:gsub("process%-exec", "")) == 1, "the core alone runs: " .. out.text)
   assert(out.text:find([[(allow network-outbound (remote ip "*:*"))
 (allow network-inbound (local tcp "localhost:49153"))
@@ -210,7 +210,7 @@ local function test_tmp_is_granted_through_a_parameter_the_caller_sets()
 (allow file-write-data (subpath (param "TMP")))
 (allow file-write-create file-write-unlink (subpath (param "TMP")))
 ]], out.text)
-  assert(out.tmp == "TMP" and out.parameters.TMP == nil)
+  assert(out.tmp == "TMP" and out.parameters["TMP"] == nil)
   assert(compile({}).tmp == nil)
   local held = compile({ tmp = true, promises = { "fattr" } })
   assert(held.text:find('file-write-xattr (subpath (param "TMP"))', 1, true), held.text)
@@ -231,7 +231,7 @@ local function test_a_database_grants_its_core_and_itself_and_not_this_programs_
       '(allow process-exec file-map-executable (literal (param "PATH_1")))\n' ..
       '(allow file-read* (literal (param "PATH_2")))\n', out.text)
   -- Sorted by path: the core's /private/core is before the database's path.
-  assert(out.parameters.PATH_1 == "/private/core" and out.parameters.PATH_2 == database, out.text)
+  assert(out.parameters["PATH_1"] == "/private/core" and out.parameters["PATH_2"] == database, out.text)
   assert(not out.text:find("write", 1, true) and not out.text:find("launcher", 1, true), out.text)
   for _, value in pairs(out.parameters) do
     assert(value ~= "/private/launcher", "the launcher is granted a program on a database")
@@ -282,7 +282,7 @@ local function test_system_profile_means_the_same_raw_merged_and_through_json()
     paths[grant.path] = { path = "/real" .. grant.path, directory = true }
   end
   local want = compile(raw, paths)
-  assert(want.parameters.PATH_1 ~= nil)
+  assert(want.parameters["PATH_1"] ~= nil)
   for _, other in ipairs({ profile, merged, decoded }) do
     assert(other.profiles == nil)
     local seen: mut {string:string} = {}
@@ -312,7 +312,7 @@ local function test_compiling_does_not_mutate_the_policy_or_paths()
   local policy: Sandbox.Policy = { grants = { { path = "a//b", letters = "xr" } }, profiles = { "system" } }
   local paths: {string:Seatbelt.Path} = { ["a//b"] = { path = "/real", directory = false } }
   local out = compile(policy, paths)
-  assert(out.parameters.PATH_1 == "/real")
+  assert(out.parameters["PATH_1"] == "/real")
   local grant = assert(assert(policy.grants)[1], "the policy kept its grant")
   assert(grant.path == "a//b" and grant.letters == "xr")
   local kept = assert(paths["a//b"], "the paths kept their entry")
@@ -321,13 +321,13 @@ end
 
 local function test_a_terminal_grants_its_slave_and_dev_tty_by_parameter_and_nothing_otherwise()
   local without = compile({ profiles = { "system" } })
-  assert(not without.text:find("/dev/tty", 1, true) and without.parameters.TTY == nil, without.text)
+  assert(not without.text:find("/dev/tty", 1, true) and without.parameters["TTY"] == nil, without.text)
   local out = (assert(Seatbelt.compile({}, { paths = {}, terminal = "/dev/ttys004" })))
   assert(out.text == BASE .. [[(allow file-read-data file-write-data file-ioctl (literal (param "TTY")))
 (allow file-read-data file-write-data file-ioctl (literal "/dev/tty"))
 (allow file-read-data (literal "/dev"))
 ]], out.text)
-  assert(out.parameters.TTY == "/dev/ttys004")
+  assert(out.parameters["TTY"] == "/dev/ttys004")
   assert(not out.text:find("ttys004", 1, true), out.text)
   local refused, why = Seatbelt.compile({}, { paths = {}, terminal = "ttys004" })
   assert(refused == nil and why:find("terminal needs an absolute canonical path", 1, true) ~= nil, why)

@@ -25,6 +25,7 @@ local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
 local this_program = require("build.this_program")
 local ChildPolicy = require("build.child_policy_fixture")
+local fixture = require("build.child_policy_database_fixture")
 
 --- [`Store.seal`] reads the rows of every module it carries through
 --- [`Store.databases()`], which a worker without the store is not given (the
@@ -237,16 +238,6 @@ local function gone(pid: integer): boolean
   return not alive and errno == sys.ESRCH
 end
 
---- The lines `name<TAB>value` of a program's output, by name.
-local function fields(output: string): {string:string}
-  local out: mut {string:string} = {}
-  for line in output:gmatch("([^\n]*)\n") do
-    local name, value = line:match("^([^\t]+)\t(.*)$")
-    if name ~= nil then out[name] = value end
-  end
-  return out
-end
-
 --- What the program says of its flows, and the port its servers left
 --- ungranted: ends the test, skipped, where the host gives no sandbox.
 local function flows(tmp: string): {string:string}, integer
@@ -263,7 +254,7 @@ local function flows(tmp: string): {string:string}, integer
       return
     end
     assert(result.ok, "exit " .. tostring(result.code) .. ": " .. tostring(result.stderr))
-    said, other = fields(assert(result.stdout)), ungranted
+    said, other = fixture.fields(assert(result.stdout)), ungranted
   end)
   local refusal_value = refusal
   if refusal_value ~= nil then Test.skip(refusal_value) end
@@ -275,16 +266,16 @@ end
 --- own network holds no route of its own to the server.
 local function test_a_granted_flow_echoes_and_an_ungranted_one_is_refused(tmp: string)
   local said, ungranted = flows(tmp)
-  assert(said.connect_ungranted:find(" 403 not granted: --connect 127.0.0.2:" .. tostring(ungranted), 1, true),
-    tostring(said.connect_ungranted))
-  assert(said.connect == "HTTP/1.1 200 Connection established", tostring(said.connect))
-  assert(said.connect_echo == "echo:ping", tostring(said.connect_echo))
-  assert(said.socks == "0" and said.socks_echo == "echo:ping", tostring(said.socks))
-  assert(said.socks_ungranted ~= "0" and said.socks_ungranted_echo == nil,
-    tostring(said.socks_ungranted))
-  assert(said.connect_ungranted_echo == nil, "an ungranted flow went through")
-  assert(said.direct ~= "connected" and said.direct:find("refused", 1, true),
-    "the program's network is its own: " .. tostring(said.direct))
+  assert(assert(said["connect_ungranted"]):find(" 403 not granted: --connect 127.0.0.2:" .. tostring(ungranted), 1, true),
+    tostring(said["connect_ungranted"]))
+  assert(said["connect"] == "HTTP/1.1 200 Connection established", tostring(said["connect"]))
+  assert(said["connect_echo"] == "echo:ping", tostring(said["connect_echo"]))
+  assert(said["socks"] == "0" and said["socks_echo"] == "echo:ping", tostring(said["socks"]))
+  assert(said["socks_ungranted"] ~= "0" and said["socks_ungranted_echo"] == nil,
+    tostring(said["socks_ungranted"]))
+  assert(said["connect_ungranted_echo"] == nil, "an ungranted flow went through")
+  assert(assert(said["direct"]):find("refused", 1, true),
+    "the program's network is its own: " .. tostring(said["direct"]))
 end
 
 --- The program is pointed at the relay by every variable a proxy client
@@ -294,8 +285,8 @@ local function test_the_program_is_given_the_proxy_environment(tmp: string)
   for name, value in pairs(RelayConfig.proxy_env({}, nil, nil, { "127.0.0.2:1" })) do
     assert(said["env_" .. name] == value, name .. " is " .. tostring(said["env_" .. name]))
   end
-  assert(said.env_HTTPS_PROXY == "http://127.0.0.1:3128" and said.env_ALL_PROXY == "socks5h://127.0.0.1:1080" and
-      said.env_NO_PROXY == "localhost,127.0.0.1,::1" and said.env_NODE_USE_ENV_PROXY == "1",
+  assert(said["env_HTTPS_PROXY"] == "http://127.0.0.1:3128" and said["env_ALL_PROXY"] == "socks5h://127.0.0.1:1080" and
+      said["env_NO_PROXY"] == "localhost,127.0.0.1,::1" and said["env_NODE_USE_ENV_PROXY"] == "1",
     "the variables are the relay's")
 end
 
@@ -395,7 +386,7 @@ local function test_a_relay_that_will_not_serve_fails_the_start_and_ends_the_pro
   local script = tmp .. "/start.tl"
   assert(Fs.write(script, STARTER))
   local env = this_program.environment()
-  env.https_proxy = "https://proxy.test:3128"
+  env["https_proxy"] = "https://proxy.test:3128"
   local started = this_program.program({ "--standalone", script, sealed_client(tmp) },
     { env = env, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
   local result = assert(Child.run(started.argv, started.options))
@@ -414,7 +405,7 @@ local function test_an_upstream_whose_host_does_not_resolve_fails_the_start(tmp:
   local script = tmp .. "/start.tl"
   assert(Fs.write(script, STARTER))
   local env = this_program.environment()
-  env.https_proxy = "http://proxy.invalid:3128"
+  env["https_proxy"] = "http://proxy.invalid:3128"
   local started = this_program.program({ "--standalone", script, sealed_client(tmp) },
     { env = env, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
   local result = assert(Child.run(started.argv, started.options))
@@ -464,16 +455,16 @@ local function test_the_relays_log_goes_where_the_start_says(tmp: string)
       end
       assert(result.ok, "exit " .. tostring(result.code) .. ": " .. tostring(result.stderr))
       errors[log] = assert(result.stderr)
-      assert(fields(assert(result.stdout)).connect_echo == "echo:ping", "the flow was served")
+      assert(fixture.fields(assert(result.stdout))["connect_echo"] == "echo:ping", "the flow was served")
     end
-    assert(errors.inherit:find("not granted: --connect 127.0.0.2:" .. tostring(ungranted), 1, true),
-      "the refusal is logged: " .. errors.inherit)
-    assert(errors.inherit:find("connect 127.0.0.2:" .. tostring(granted) .. ": allowed", 1, true),
-      "the granted flow is logged: " .. errors.inherit)
+    assert(assert(errors["inherit"]):find("not granted: --connect 127.0.0.2:" .. tostring(ungranted), 1, true),
+      "the refusal is logged: " .. tostring(errors["inherit"]))
+    assert(assert(errors["inherit"]):find("connect 127.0.0.2:" .. tostring(granted) .. ": allowed", 1, true),
+      "the granted flow is logged: " .. tostring(errors["inherit"]))
   end)
   local refusal_value = refusal
   if refusal_value ~= nil then Test.skip(refusal_value) end
-  assert(not errors["null"]:find("not granted", 1, true), "the log was dropped: " .. errors["null"])
+  assert(not assert(errors["null"]):find("not granted", 1, true), "the log was dropped: " .. tostring(errors["null"]))
 end
 
 --- A descriptor of this process as `relay_log` gets the relay's decision
@@ -621,7 +612,7 @@ local function test_no_connect_means_no_relay_and_no_extra_descriptors(tmp: stri
     Test.skip(why)
   end
   assert(plain ~= nil and plain.ok, tostring(plain ~= nil and plain.stderr))
-  for name, value in pairs(fields(assert(plain.stdout))) do
+  for name, value in pairs(fixture.fields(assert(plain.stdout))) do
     assert(value == "nil", name .. " is set without connect: " .. value)
   end
   local kept = tmp .. "/kept"
@@ -630,8 +621,8 @@ local function test_no_connect_means_no_relay_and_no_extra_descriptors(tmp: stri
   assert(options.policy).grants = { { path = "/proc", letters = "r" } }
   local program = assert(Child.run({ assert(Proc.executable()), "fds" }, options))
   assert(program.ok, tostring(program.stderr))
-  local held = fields(assert(program.stdout))
-  assert(held.fd_0 ~= nil and held.fd_1 ~= nil and held.fd_2 ~= nil, "the program lists its descriptors")
+  local held = fixture.fields(assert(program.stdout))
+  assert(held["fd_0"] ~= nil and held["fd_1"] ~= nil and held["fd_2"] ~= nil, "the program lists its descriptors")
   for name, target in pairs(held) do
     assert(not target:find("socket:", 1, true), name .. " is a socket: " .. target)
     assert(not target:find(kept, 1, true), name .. " is this process's file: " .. target)
@@ -670,7 +661,7 @@ local function test_the_relays_policy_gives_it_no_network_of_its_own(tmp: string
       return
     end
     assert(result.ok, "exit " .. tostring(result.code) .. ": " .. tostring(result.stderr))
-    said = fields(assert(result.stdout)).dial
+    said = fixture.fields(assert(result.stdout))["dial"]
   end)
   local refusal_value = refusal
   if refusal_value ~= nil then Test.skip(refusal_value) end
@@ -731,7 +722,7 @@ local function test_the_upstream_proxy_is_reached_through_the_table(tmp: string)
       end
     end)
     local env = this_program.environment()
-    env.https_proxy = "http://127.0.0.2:" .. tostring(assert(listener.address.port))
+    env["https_proxy"] = "http://127.0.0.2:" .. tostring(assert(listener.address.port))
     local started = this_program.program({ "--standalone", script, database, tostring(granted),
       tostring(ungranted), "null" }, { env = env, stdout = "capture", stderr = "capture",
         timeout_ns = Clock.seconds(60) })
@@ -743,12 +734,12 @@ local function test_the_upstream_proxy_is_reached_through_the_table(tmp: string)
       return
     end
     assert(result.ok, "exit " .. tostring(result.code) .. ": " .. tostring(result.stderr))
-    said = fields(assert(result.stdout))
+    said = fixture.fields(assert(result.stdout))
   end)
   local refusal_value = refusal
   if refusal_value ~= nil then Test.skip(refusal_value) end
   local fields_said = assert(said)
-  assert(fields_said.connect == "HTTP/1.1 200 Connection established" and fields_said.connect_echo == "echo:ping",
-    tostring(fields_said.connect) .. " " .. tostring(fields_said.connect_echo))
+  assert(fields_said["connect"] == "HTTP/1.1 200 Connection established" and fields_said["connect_echo"] == "echo:ping",
+    tostring(fields_said["connect"]) .. " " .. tostring(fields_said["connect_echo"]))
   assert(#asked >= 1 and asked[1]:find("^CONNECT 127%.0%.0%.2:%d+ HTTP/1%.1$"), table.concat(asked, " | "))
 end
