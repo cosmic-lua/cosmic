@@ -18,6 +18,7 @@ local protocol = require("build.lsp.protocol")
 local session_fixture = require("build.lsp.session_fixture")
 local this_program = require("build.this_program")
 local unix_socket = require("build.unix_socket")
+local tool_fixture = require("build.tool_fixture")
 
 --- The program itself, which its tests start, and a loopback its
 --- listener listens on.
@@ -26,22 +27,6 @@ Test.policy{
   grants = { { path = "o/bin", letters = "rx" } },
   loopback = { "127.0.0.1" },
 }
-
-local record Ran
-  code: integer
-  out: string
-  err: string
-end
-
-local function cosmic(dir: string, words: {string}, input?: string): Ran
-  local started = this_program.program(words, {
-    cwd = dir, stdout = "capture", stderr = "capture", input = input,
-    timeout_ns = Clock.seconds(30),
-  })
-  local result = assert(Child.run(started.argv, started.options))
-  -- A child a signal ended has no code: -1 is none a test expects.
-  return { code = result.code or -1, out = result.stdout or "", err = result.stderr or "" }
-end
 
 local record Info
   name: string
@@ -85,7 +70,7 @@ local function test_a_command_line_it_refuses_exits_2(tmp: string)
       { "lsp", "--stdio", "--listen", "9000" },
       { "lsp", "--stdio", "--socket", tmp .. "/lsp.sock" },
   }) do
-    local ran = cosmic(tmp, words)
+    local ran = tool_fixture.cosmic(tmp, words)
     local line = table.concat(words, " ")
     assert(ran.code == 2 and ran.out == "", line .. ": " .. tostring(ran.code) .. " " .. ran.err)
     assert(ran.err:find("cosmic: lsp: ", 1, true), line .. ": " .. ran.err)
@@ -105,13 +90,13 @@ local function test_a_grammar_that_is_none_stops_the_server_and_names_the_one_th
 end
 
 local function test_one_editor_over_standard_input_and_output(tmp: string)
-  local ran = cosmic(tmp, { "lsp" }, initialize(tmp) .. SHUTDOWN .. EXIT)
+  local ran = tool_fixture.cosmic(tmp, { "lsp" }, initialize(tmp) .. SHUTDOWN .. EXIT)
   assert(ran.code == 0, ran.err)
   local body = assert(protocol.frames(Stream.from_string(ran.out)):next())
   assert(answers_initialize(body), body)
-  local ended = cosmic(tmp, { "lsp", "--stdio" }, initialize(tmp) .. SHUTDOWN)
+  local ended = tool_fixture.cosmic(tmp, { "lsp", "--stdio" }, initialize(tmp) .. SHUTDOWN)
   assert(ended.code == 0, "the stream ends after shutdown: " .. ended.err)
-  local early = cosmic(tmp, { "lsp" }, initialize(tmp))
+  local early = tool_fixture.cosmic(tmp, { "lsp" }, initialize(tmp))
   assert(early.code == 1, "the stream ends before shutdown: " .. early.err)
 end
 
@@ -122,7 +107,7 @@ local function test_a_definition_is_answered_from_the_module_that_declares_it()
   assert(Fs.write(root .. "/helper.tl",
     "local record helper\nend\n\nfunction helper.twice(n: integer): integer\n  return n * 2\nend\n\nreturn helper\n"))
   local main = 'local helper = require("helper")\nlocal _ = helper.twice(2)\n'
-  local ran = cosmic(root, { "lsp" }, initialize(root) ..
+  local ran = tool_fixture.cosmic(root, { "lsp" }, initialize(root) ..
       protocol.frame(session_fixture.open(root, "main.tl", main)) ..
       protocol.frame(session_fixture.at(7, "textDocument/definition", root, "main.tl", 1, 19)) .. SHUTDOWN .. EXIT)
   assert(ran.code == 0, ran.err)
@@ -230,7 +215,7 @@ local function test_a_socket_file_already_there_is_refused_and_left(tmp: string)
   assert(Fs.exists(path) == true, "the crash leaves the socket file")
   -- Whether a listener is behind it no connect can tell: a live one's
   -- full backlog refuses as a dead one does.
-  local ran = cosmic(tmp, { "lsp", "--socket", path })
+  local ran = tool_fixture.cosmic(tmp, { "lsp", "--socket", path })
   assert(ran.code == 1, tostring(ran.code) .. ": " .. ran.err)
   assert(ran.err:find(path .. " is a socket file already; remove it if no server is running there",
     1, true), ran.err)
@@ -240,7 +225,7 @@ end
 local function test_a_socket_path_holding_another_file_is_left_alone(tmp: string)
   local path = tmp .. "/lsp.sock"
   assert(Fs.write(path, "not a socket\n"))
-  local ran = cosmic(tmp, { "lsp", "--socket", path })
+  local ran = tool_fixture.cosmic(tmp, { "lsp", "--socket", path })
   assert(ran.code == 1, tostring(ran.code) .. ": " .. ran.err)
   assert(Fs.read(path) == "not a socket\n", "the file is not removed")
 end
