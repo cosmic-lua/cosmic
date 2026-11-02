@@ -283,7 +283,7 @@ local function test_seal_carries_an_extra_module_as_the_main(tmp: string)
   assert(count_of(path, "imports") == 1, "its edge to a name left out is no row")
   local db = assert(Sqlite.open(path))
   local rows = assert(Sqlite.text_rows(db,
-    "SELECT kind, inflate(bytecode) = ?1, source FROM modules WHERE path = 'main' " ..
+    "SELECT kind, inflate(bytecode) = ?1, inflate(source) FROM modules WHERE path = 'main' " ..
       "UNION ALL SELECT value, '', '' FROM meta WHERE key = 'main'", { { blob = extra.bytecode } }))
   assert(db:close())
   assert(rows[1]:text(1) == "main" and rows[1]:text(2) == "1" and rows[1]:text(3) == "return 1\n") -- checked: nil_not_allowed*3

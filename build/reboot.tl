@@ -258,7 +258,8 @@ end
 --- fingerprint, the compiler's and the writer's identities) is then what
 --- the tree's own code computes, and what a tool it writes carries.
 --- False when any module is missing or differs, or the tree cannot be
---- read.
+--- read. Raises why where the binary holds a module without its source
+--- ([`Store.withheld`]), which is neither.
 function reboot.carries_tree_code(handle: work.Handle): boolean
   local rows, _ = Sqlite.text_rows(handle.db,
     "SELECT path, source_hash FROM inputs WHERE (origin = 'tree' " ..
@@ -268,6 +269,12 @@ function reboot.carries_tree_code(handle: work.Handle): boolean
   end
   for _, row in ipairs(rows) do
     local source, _ = Store.source(row:text(1))
+    if source == nil then
+      -- A module held without its source has not moved: the comparison cannot be made, which is no answer.
+      local withheld, trouble = Store.withheld(row:text(1))
+      if trouble ~= "" then error(trouble, 0) end
+      if withheld ~= nil then error(withheld, 0) end
+    end
     if source == nil or Hash.hex_sha256(source) ~= row:text(2) then
       return false
     end

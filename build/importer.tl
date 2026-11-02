@@ -203,7 +203,14 @@ local analyzer_roots: {string} = {
 --- checker's readers ([`build.pipeline`]'s `coded`) and of the runtime basis,
 --- and of nothing else in the tool. Cache coordination and
 --- diagnostic presentation belong to the importer, outside this closure.
-function importer.analyzer_modules(code?: importer.Code): {string}?, string
+local record Walk
+  names: {string}?
+  trouble: string
+  --- Whether the walk stopped at a module held without its source ([`Store.withheld`]), not at one it could not read.
+  withheld: boolean
+end
+
+local function walk_analyzer(code?: importer.Code): Walk
   -- A name at a time ([`Store.requires`]), not a query of a handle on
   -- the binary's database, which would read every module's rows.
   local requires = if code ~= nil then code.requires else Store.requires end
@@ -216,7 +223,7 @@ function importer.analyzer_modules(code?: importer.Code): {string}?, string
     if name ~= nil and reached[name] ~= true then
       reached[name] = true
       local required, trouble = requires(name)
-      if required == nil then return nil, trouble end
+      if required == nil then return { names = nil, trouble = trouble, withheld = false } end
       for _, next_name in ipairs(required) do stack[#stack + 1] = next_name end
     end
   end
@@ -225,9 +232,26 @@ function importer.analyzer_modules(code?: importer.Code): {string}?, string
     -- What the binary holds a module or a declaration of: what
     -- [`Store.source`] answers, of a name no hold holds.
     local source, _ = source_of(name)
-    if source ~= nil then names[#names + 1] = name end
+    if source ~= nil then
+      names[#names + 1] = name
+    elseif code == nil then
+      -- A module the binary holds without its source (a pure test store)
+      -- is held, not absent: its absence would shorten the set quietly.
+      local withheld, withheld_trouble = Store.withheld(name)
+      if withheld_trouble ~= "" then
+        return { names = nil, trouble = withheld_trouble, withheld = false }
+      end
+      if withheld ~= nil then return { names = nil, trouble = withheld, withheld = true } end
+    end
   end
   table.sort(names)
+  return { names = names, trouble = "", withheld = false }
+end
+
+function importer.analyzer_modules(code?: importer.Code): {string}?, string
+  local walk = walk_analyzer(code)
+  local names = walk.names
+  if names == nil then return nil, walk.trouble end
   return names, ""
 end
 
@@ -303,21 +327,32 @@ end
 --- build.tree compiles again and parses nothing again. What the checker's
 --- readers reach (build.withheld, build.syntax_contracts and the rules,
 --- through build.pipeline) still parses again.
-function importer.analyzer_identity(code?: importer.Code): string
+local function analyzer_named(code?: importer.Code): string?, string
   local parts: mut {string} = { (if code ~= nil then code.basis else Store.meta("runtime_basis") end) or "" }
-  local modules, _ = importer.analyzer_modules(code)
+  local walk = walk_analyzer(code)
+  local modules = walk.names
   if modules == nil then
-    return "binary " .. (Store.meta("boot_hash") or "")
+    -- A module the binary holds without its source is no binary that carries none of it: say so.
+    if walk.withheld then return nil, walk.trouble end
+    return "binary " .. (Store.meta("boot_hash") or ""), ""
   end
   local source_of = if code ~= nil then code.source else Store.source end
   for _, name in ipairs(modules) do
     local source, _ = source_of(name)
     if source == nil then
-      return "binary " .. (Store.meta("boot_hash") or "")
+      return "binary " .. (Store.meta("boot_hash") or ""), ""
     end
     parts[#parts + 1] = name .. "\n" .. source
   end
-  return Hash.hex_sha256(table.concat(parts, "\n\0\n"))
+  return Hash.hex_sha256(table.concat(parts, "\n\0\n")), ""
+end
+
+--- [`analyzer_named`] for a caller with no place to carry a refusal: it raises the reason a module's
+--- source is withheld.
+function importer.analyzer_identity(code?: importer.Code): string
+  local identity, trouble = analyzer_named(code)
+  if identity == nil then error(trouble, 0) end
+  return identity
 end
 
 --- Whether `identity` names an analyzer at all: one named by a binary
@@ -332,13 +367,17 @@ end
 local function running_analyzer(handle: work.Handle): string?, string
   local identity = ""
   if Store.meta("boot_hash") ~= nil then
-    identity = importer.analyzer_identity()
+    local named, named_trouble = analyzer_named()
+    if named == nil then return nil, named_trouble end
+    identity = named
   else
     local code, trouble = importer.tree_code(handle)
     if code == nil then
       return nil, trouble
     end
-    identity = importer.analyzer_identity(code)
+    local named, named_trouble = analyzer_named(code)
+    if named == nil then return nil, named_trouble end
+    identity = named
   end
   -- The new checker's readers write the rows of a parse: the analyzer is named by the code that reads them too.
   if not nameless(identity) then
@@ -450,6 +489,12 @@ local function receivers_identity(db: Sqlite.Handle): string?, string
       source = carried
     end
     if source == nil then
+      if not booting then
+        -- Held without its source is no binary that lacks the module.
+        local withheld, withheld_trouble = Store.withheld(name)
+        if withheld_trouble ~= "" then return nil, withheld_trouble end
+        if withheld ~= nil then return nil, withheld end
+      end
       return "binary " .. (Store.meta("boot_hash") or ""), ""
     end
     parts[#parts + 1] = source
