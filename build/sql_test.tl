@@ -128,7 +128,7 @@ end
 
 --- An ATTACH is refused with the reason and the way across files, not SQLite's bare limit.
 local function test_an_attach_says_why_and_what_to_do()
-  local root = project()
+  local root = support.sql_project()
   local path = support.build_dir(root) .. "/cosmic.db"
   local lines, trouble = query(path, "ATTACH ':memory:' AS old")
   assert(lines == nil)
