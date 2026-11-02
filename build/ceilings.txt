@@ -1818,7 +1818,7 @@ lang/check_test.tl view_written 1
 
 lang/codegen_test.tl view_written 1
 
-lang/declarations.tl view_written 13
+lang/declarations.tl view_written 10
 
 lang/flow.tl view_written 12
 

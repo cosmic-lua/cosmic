@@ -138,6 +138,8 @@ local record Driver
     mut prepare: integer
     mut lower: integer
     mut check: integer
+    --- How many modules the program lowered (not the time), for a test that a module was not lowered again.
+    mut lowerings: integer
   end
 
   record Options
@@ -180,8 +182,11 @@ local record Driver
     --- to no syntax error. A module whose bodies were not checked is told so.
     mut held: function(Build, result: Outcome, ceilings: Ceilings.Table): {string}
     --- Replaces the text of the module `name` with `text`, and answers its outcome, or nil where no provider has `name`. A module cannot be lowered twice in one program, so
-    --- the build begins a new one: every module is lowered again, when it is next asked for, from the syntax tree it has
-    --- already, and an outcome answered before is no longer the build's. The splices of [`build.syntax_shape_specs`] are
+    --- the program forgets the module and every module that requires it, through others as well ([`Declarations.forget`]),
+    --- and lowers them again when they are next asked for, from the syntax tree the build has already; the others keep
+    --- what is lowered, those retired among them, and a retired module that requires it is read from its source again. An
+    --- outcome answered before for a module forgotten is no longer the build's. Where the module replaced, or one that
+    --- requires it, declares a global, the build begins a new program and lowers every module again. The splices of [`build.syntax_shape_specs`] are
     --- made in the text of [`Driver.Outcome.text`] and checked this way.
     mut replace: function(Build, name: string, text: string): Outcome?
     -- TODO: write the declarations of a retired module ([`Types.encode_declaration`]) and its verdict to the working database,
@@ -656,7 +661,7 @@ end
 
 function Driver.new(options: Driver.Options): Driver.Build
   local build: Driver.Build = {
-    program = program_of(options.external, options.library), problems = {}, timing = { prepare = 0, lower = 0, check = 0 },
+    program = program_of(options.external, options.library), problems = {}, timing = { prepare = 0, lower = 0, check = 0, lowerings = 0 },
     provide = function(_self: Driver.Build, _provider: Driver.Provider) end,
     parsed = function(_self: Driver.Build, _name: string): Driver.Outcome? return nil end,
     provides = function(_self: Driver.Build, _name: string): boolean
@@ -689,6 +694,9 @@ function Driver.new(options: Driver.Options): Driver.Build
   local started_up: Flag = { done = false }
   --- The names of the modules [`Driver.Build.retire`] forgot after the program lowered them, which nothing reads again.
   local retired: mut {string: boolean} = {}
+  --- The names each module read requires, by the module: what a replacement follows to the modules that read the one it
+  --- replaces, those retired among them, whose syntax tree is gone.
+  local needs: mut {string: {string}} = {}
   local scratches: mut {Driver.Build} = {}
 
   local function find(module: string): Driver.Source?
@@ -705,6 +713,11 @@ function Driver.new(options: Driver.Options): Driver.Build
   local function entry_of(read: Read): Entry
     local source = read.source
     local scoped = Scopes.build(read.chunk, source.filename, globals)
+    local required: mut {string} = {}
+    for _, r in ipairs(read.chunk.requires) do
+      required[#required + 1] = r.module
+    end
+    needs[source.module] = required
     local syntax: mut {Driver.Problem} = {}
     for _, e in ipairs(read.errors) do
       syntax[#syntax + 1] = problem_of("error", "syntax", tostring(e.code), e.msg, e.fix, e.y, e.x, e.offset)
@@ -749,6 +762,7 @@ function Driver.new(options: Driver.Options): Driver.Build
     local started = Clock.monotonic_ns()
     entry.result.lowered = build.program:lower(entry.input)
     timing.lower = timing.lower + Clock.monotonic_ns() - started
+    timing.lowerings = timing.lowerings + 1
     alias_all(entry)
   end
 
@@ -864,31 +878,53 @@ function Driver.new(options: Driver.Options): Driver.Build
     return entry.result
   end
 
-  -- TODO: keep what is lowered of the modules that do not require the replaced one, once a Declarations.Program can forget a
-  -- module (lang/declarations.tl): after the replacement of a module this program has met, every module is lowered again,
-  -- the retired ones read from their sources and kept until their callers retire them. The splice of [`Shape.record_of`] does
-  -- not meet the module here: it reads it in [`Driver.Build.scratch`], so that the replacement takes the first branch below.
-  build.replace = function(_self: Driver.Build, name: string, text: string): Driver.Outcome?
-    local held = prepare(name)
-    if held == nil then
-      return nil
+  --- Whether `entry` is one of the declaration files that declare the globals.
+  local function declares_globals(entry: Entry): boolean
+    for _, declaring in ipairs(global_entries) do
+      if declaring == entry then
+        return true
+      end
     end
-    local old = held.result.source
-    local source = make(old.module, old.filename, text, old.dialect, old.checked, old.aliases, old.tests, old.pinned)
-    local started = Clock.monotonic_ns()
-    local fresh = entry_of(read_source(source, text))
-    timing.prepare = timing.prepare + Clock.monotonic_ns() - started
-    if build.program.modules[old.module] == nil then
-      -- The program has not met the module, so nothing in it depends on the text that goes: the text that replaces it
-      -- stands in the entries, and every other module stays lowered.
-      for key, entry in pairs(entries) do
-        if entry == held then
-          entries[key] = fresh
+    return false
+  end
+
+  --- The module `name` stands for: the one its entry reads, or the program knows it as, or `name`.
+  local function canonical(name: string): string
+    local entry = entries[name]
+    if entry ~= nil then
+      return entry.result.module
+    end
+    local info = build.program.modules[name]
+    if info ~= nil then
+      return info.name
+    end
+    return name
+  end
+
+  --- `module` and the modules that require it, or require one of those, whether the build holds them or retired them.
+  local function dependents(module: string): {string: boolean}
+    local set: mut {string: boolean} = { [module] = true }
+    local grew = true
+    while grew do
+      grew = false
+      for name, required in pairs(needs) do
+        if set[name] ~= true then
+          for _, r in ipairs(required) do
+            if set[canonical(r)] == true then
+              set[name] = true
+              grew = true
+              break
+            end
+          end
         end
       end
-      return fresh.result
     end
-    -- Every module is lowered again, those retired among them when they are next asked for.
+    return set
+  end
+
+  --- The text of `held`, which the program has met, put in place of it in a new program, where every module is lowered again,
+  --- those retired among them when they are next asked for.
+  local function begin_again(held: Entry, fresh: Entry)
     for key in pairs(retired) do
       retired[key] = nil
     end
@@ -923,6 +959,87 @@ function Driver.new(options: Driver.Options): Driver.Build
     for _, entry in ipairs(global_entries) do
       lower_entry(entry)
     end
+  end
+
+  --- Forgets `set`, the modules that read the one replaced, in the program that keeps the rest: false, with nothing changed,
+  --- where one of them declares a global, which a module that does not require it may name.
+  local function forget_dependents(held: Entry, fresh: Entry, set: {string: boolean}): boolean
+    for _, entry in ipairs(global_entries) do
+      if set[entry.result.module] == true then
+        return false
+      end
+    end
+    local names: mut {string} = {}
+    for module in pairs(set) do
+      names[#names + 1] = module
+    end
+    -- The names the modules answer to, before the program forgets them.
+    local answered: mut {string: boolean} = {}
+    for key, info in pairs(build.program.modules) do
+      if set[info.name] == true then
+        answered[key] = true
+      end
+    end
+    if not Declarations.forget(build.program, names) then
+      return false
+    end
+    for key in pairs(retired) do
+      if answered[key] == true or set[key] == true then
+        retired[key] = nil
+      end
+    end
+    local made: mut {Entry: Entry} = {}
+    local swaps: mut {string: Entry} = {}
+    for key, entry in pairs(entries) do
+      if entry == held then
+        swaps[key] = fresh
+      elseif set[entry.result.module] == true then
+        local kept = made[entry]
+        if kept == nil then
+          kept = unlowered(entry)
+          made[entry] = kept
+        end
+        swaps[key] = kept
+      end
+    end
+    for key, entry in pairs(swaps) do
+      entries[key] = entry
+    end
+    return true
+  end
+
+  -- TODO: keep what is lowered of the other modules across the replacement of a declaration file of the globals, or of a module
+  -- one requires, once a Declarations.Program forgets the globals and values of a module (lang/declarations.tl, `globals` and
+  -- `values`): a module that names a global needs no `require`, so the program begins again for such a replacement.
+  build.replace = function(_self: Driver.Build, name: string, text: string): Driver.Outcome?
+    local held = prepare(name)
+    if held == nil then
+      return nil
+    end
+    local old = held.result.source
+    local source = make(old.module, old.filename, text, old.dialect, old.checked, old.aliases, old.tests, old.pinned)
+    local started = Clock.monotonic_ns()
+    local fresh = entry_of(read_source(source, text))
+    timing.prepare = timing.prepare + Clock.monotonic_ns() - started
+    if build.program.modules[old.module] == nil then
+      -- The program has not met the module, so nothing in it depends on the text that goes: the text that replaces it
+      -- stands in the entries, and every other module stays lowered.
+      for key, entry in pairs(entries) do
+        if entry == held then
+          entries[key] = fresh
+        end
+      end
+      return fresh.result
+    end
+    -- The modules that do not require the one replaced keep what the program lowered of them; it forgets the others, which
+    -- are lowered again when they are next asked for.
+    -- The ids of the types forgotten are not given again, and each forgetting reads every id: once the dead are more than the
+    -- live the program begins again, so that the store's size and the cost of an edit stay within twice what is live.
+    local store = build.program.store
+    if store.dead <= store.count - store.dead and not declares_globals(held) and forget_dependents(held, fresh, dependents(old.module)) then
+      return fresh.result
+    end
+    begin_again(held, fresh)
     return fresh.result
   end
 
@@ -948,16 +1065,6 @@ function Driver.new(options: Driver.Options): Driver.Build
       lower_entry(entry)
       entry.closed = true
     end
-  end
-
-  --- Whether `entry` is one of the declaration files that declare the globals.
-  local function declares_globals(entry: Entry): boolean
-    for _, declaring in ipairs(global_entries) do
-      if declaring == entry then
-        return true
-      end
-    end
-    return false
   end
 
   build.retire = function(_self: Driver.Build, name: string)

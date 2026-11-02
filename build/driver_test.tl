@@ -5,6 +5,7 @@ local Ast = require("lang.ast")
 local Ceilings = require("build.ceilings")
 local Check = require("lang.check")
 local Codegen = require("lang.codegen")
+local Declarations = require("lang.declarations")
 local Driver = require("build.driver")
 local Node = require("build.syntax_node")
 local Types = require("lang.types")
@@ -638,28 +639,153 @@ local function test_a_cast_does_not_make_the_middle_of_an_if_expression_never_fa
   assert(cast_if("7", "integer") == 7)
 end
 
-local function test_replacing_a_module_begins_a_new_program_in_which_everything_is_lowered_again()
+local USE <const> = "local Box = require(\"box\")\nlocal b: Box = { n = 1 }\nlocal s: string = string.upper(\"x\")\nreturn b\n"
+local STRINGY <const> = "local record Box\n  n: string\nend\nreturn Box\n"
+
+local function test_replacing_a_module_keeps_what_is_lowered_of_the_modules_that_do_not_require_it()
   local build = build_of({
     { "box.tl", RECORD },
-    { "use.tl", "local Box = require(\"box\")\nlocal b: Box = { n = 1 }\nlocal s: string = string.upper(\"x\")\nreturn b\n" },
+    { "use.tl", USE },
     { "other.tl", "local record O\nend\nreturn O\n" },
   })
   local before = assert(build:result("use", true))
   assert(#before.errors == 0, codes_of(before.errors))
+  local other = assert(build:result("other", true))
   local program = build.program
-  local replaced = assert(build:replace("box", "local record Box\n  n: string\nend\nreturn Box\n"))
-  assert(build.program ~= program, "a module cannot be lowered twice in one program")
+  local lowered = build.timing.lowerings
+  local replaced = assert(build:replace("box", STRINGY))
+  assert(build.program == program, "the program is the same, it forgot the module and what requires it")
   assert(replaced.module == "box" and replaced.text:find("n: string", 1, true) ~= nil and replaced.lowered == nil)
-  build:lower({ "box" })
-  assert(assert(build:parsed("box")).lowered ~= nil, "lowered when asked for")
+  assert(build.timing.lowerings == lowered, "nothing is lowered until it is asked for")
   -- what requires it is checked again, against the new text, and the library's globals are still there
   local after = assert(build:result("use", true))
   assert(after ~= before and codes_of(after.errors) == "not_assignable", codes_of(after.errors))
-  assert(build:parsed("box") == replaced and #assert(build:result("other", true)).errors == 0)
+  assert(assert(build:parsed("box")).lowered ~= nil and build:parsed("box") == replaced)
+  assert(build.timing.lowerings == lowered + 2, "the module replaced and the one that requires it, and no other")
+  assert(build:result("other", true) == other and other.lowered ~= nil and #other.errors == 0)
+  assert(build.timing.lowerings == lowered + 2, "the module that does not require it stays lowered")
   -- the old text again, and the errors go; a module no provider has is not replaced
   assert(build:replace("box", RECORD) ~= nil)
   assert(#assert(build:result("use", true)).errors == 0)
   assert(build:replace("nothing here", RECORD) == nil)
+end
+
+local function test_a_module_that_requires_the_replaced_one_through_another_sees_its_new_declarations()
+  local build = build_of({
+    { "box.tl", RECORD },
+    { "mid.tl", "local Box = require(\"box\")\nlocal record Mid\n  make: function(): Box\nend\n" ..
+        "local mid: Mid = { make = function(): Box return { n = 1 } end }\nreturn mid\n" },
+    { "top.tl", "local mid = require(\"mid\")\nlocal b = mid.make()\nlocal n: integer = b.n\nreturn n\n" },
+  })
+  assert(#assert(build:result("top", true)).errors == 0)
+  local old = assert(build.program.store:find("box", "Box"))
+  local program = build.program
+  assert(build:replace("box", STRINGY) ~= nil and build.program == program)
+  assert(codes_of(assert(build:result("top", true)).errors) == "not_assignable")
+  local new = assert(build.program.store:find("box", "Box"))
+  assert(new ~= old and old.owner == 0, "the declaration is new, and the old one is dead to the store")
+end
+
+local function test_a_declaration_removed_from_the_replaced_module_is_gone_from_what_requires_it()
+  local build = build_of({
+    { "box.tl", "local record Box\n  n: integer\n  m: integer\nend\nreturn Box\n" },
+    { "use.tl", "local Box = require(\"box\")\nlocal function m(b: Box): integer\n  return b.m\nend\nreturn m\n" },
+  })
+  assert(#assert(build:result("use", true)).errors == 0)
+  assert(build:replace("box", RECORD) ~= nil)
+  assert(codes_of(assert(build:result("use", true)).errors) == "field_unknown")
+  assert(#assert(build:result("box", true)).errors == 0)
+end
+
+--- The codes of the errors of every module of `files` in a build made fresh with `box` as `text`.
+local function fresh_codes(files: {{string}}, names: {string}): string
+  local build = build_of(files)
+  local out: mut {string} = {}
+  for _, name in ipairs(names) do
+    out[#out + 1] = name .. ":" .. codes_of(assert(build:result(name, true)).errors)
+  end
+  return table.concat(out, " ")
+end
+
+local function test_a_module_required_by_an_alias_name_is_forgotten_with_the_module_replaced()
+  local files: mut {{string}} = {
+    { "lib/box.tl", RECORD },
+    { "use.tl", "local Box = require(\"box\")\nlocal b: Box = { n = 1 }\nreturn b\n" },
+    { "other.tl", "local record O\nend\nreturn O\n" },
+  }
+  local build = build_of(files)
+  assert(#assert(build:result("use", true)).errors == 0 and #assert(build:result("other", true)).errors == 0)
+  local program = build.program
+  assert(build:replace("lib.box", STRINGY) ~= nil and build.program == program)
+  local got: mut {string} = {}
+  for _, name in ipairs({ "use", "other" }) do
+    got[#got + 1] = name .. ":" .. codes_of(assert(build:result(name, true)).errors)
+  end
+  table.remove(files, 1)
+  table.insert(files, 1, { "lib/box.tl", STRINGY })
+  assert(table.concat(got, " ") == fresh_codes(files, { "use", "other" }), table.concat(got, " "))
+  assert(got[1] == "use:not_assignable")
+end
+
+local function test_a_cycle_of_modules_is_forgotten_together_and_a_bystander_is_kept()
+  local a = "local type B = require(\"b\")\nlocal record A\n  b: B\nend\nreturn A\n"
+  local b = "local type A = require(\"a\")\nlocal record B\n  n: integer\n  a: A\nend\nreturn B\n"
+  local bystander = "local record O\nend\nreturn O\n"
+  local uses = "local B = require(\"b\")\nlocal function f(x: B): integer\n  return x.n\nend\nreturn f\n"
+  local files: mut {{string}} = { { "a.tl", a }, { "b.tl", b }, { "o.tl", bystander }, { "uses.tl", uses } }
+  local build = build_of(files)
+  for _, name in ipairs({ "a", "b", "o", "uses" }) do
+    assert(#assert(build:result(name, true)).errors == 0)
+  end
+  local program = build.program
+  local lowered = build.timing.lowerings
+  local changed = (b:gsub("n: integer", "n: string"))
+  assert(build:replace("b", changed) ~= nil and build.program == program)
+  local got: mut {string} = {}
+  for _, name in ipairs({ "a", "b", "o", "uses" }) do
+    got[#got + 1] = name .. ":" .. codes_of(assert(build:result(name, true)).errors)
+  end
+  assert(build.timing.lowerings == lowered + 3, "a, b and uses, not the bystander")
+  table.remove(files, 2)
+  table.insert(files, 2, { "b.tl", changed })
+  assert(table.concat(got, " ") == fresh_codes(files, { "a", "b", "o", "uses" }), table.concat(got, " "))
+  assert(got[4] == "uses:not_assignable", table.concat(got, " "))
+end
+
+local function test_many_replacements_keep_the_store_bounded_by_beginning_a_new_program()
+  local fields: mut {string} = {}
+  for n = 1, 30 do
+    local field = ("  f%d: %sBox%s"):format(n, ("{"):rep(n), ("}"):rep(n))
+    fields[#fields + 1] = field
+  end
+  local function boxed(n: integer): string
+    return "local record Box\n  n: integer\n" .. table.concat(fields, "\n") .. "\nend\n-- " .. tostring(n) .. "\nreturn Box\n"
+  end
+  local build = build_of({ { "box.tl", boxed(0) }, { "use.tl", "local Box = require(\"box\")\nlocal b: Box? = nil\nreturn b\n" } })
+  assert(#assert(build:result("use", true)).errors == 0)
+  local first = build.program
+  local largest = 0
+  local restarted = false
+  for n = 1, 400 do
+    assert(build:replace("box", boxed(n)) ~= nil)
+    assert(#assert(build:result("use", true)).errors == 0)
+    local store = build.program.store
+    largest = math.max(largest, store.count)
+    if build.program ~= first then
+      restarted = true
+      break
+    end
+    assert(store.dead <= store.count - store.dead + 100, "the dead types are more than the live")
+  end
+  assert(restarted, "a new program was begun once the dead types were more than the live")
+  assert(largest < 3 * build.program.store.count + 200, "the store stays within a few times what is live")
+end
+
+local function test_a_module_that_declares_a_global_is_not_forgotten_and_the_program_begins_again_for_it()
+  local build = build_of({ { "box.tl", RECORD } })
+  assert(#assert(build:result("box", true)).errors == 0)
+  assert(not Declarations.forget(build.program, { "std" }), "the library declares globals, which any module may name")
+  assert(build.program.modules["box"] ~= nil)
 end
 
 local function test_a_retired_module_is_forgotten_and_a_module_that_requires_it_is_checked_as_before()
@@ -714,21 +840,27 @@ local function test_retiring_every_module_forgets_them_all_and_keeps_the_globals
   assert(assert(build.program.modules["use"]).lowered and assert(build.program.modules["box"]).lowered)
 end
 
-local function test_a_module_lowered_again_after_a_replacement_reads_the_modules_it_retired_from_their_sources()
+local function test_a_module_retired_stays_retired_unless_it_requires_the_replaced_one()
   local build = build_of({
     { "box.tl", RECORD },
     { "use.tl", "local Box = require(\"box\")\nlocal b: Box = { n = 1 }\nreturn b\n" },
+    { "other.tl", "local record O\nend\nreturn O\n" },
   })
-  build:lower({ "box" })
-  assert(#assert(build:result("box", true)).errors == 0)
-  build:retire("box")
-  assert(#assert(build:result("use", true)).errors == 0)
-  -- `use` is lowered, so the program begins again; `box` is read from its source when `use` requires it
+  build:lower({ "box", "other" })
+  assert(#assert(build:result("use", true)).errors == 0 and #assert(build:result("other", true)).errors == 0)
+  build:retire("use")
+  build:retire("other")
   local program = build.program
-  assert(build:replace("use", "local Box = require(\"box\")\nlocal b: Box = { n = \"one\" }\nreturn b\n") ~= nil)
-  assert(build.program ~= program)
-  assert(codes_of(assert(build:result("use", true)).errors) == "not_assignable")
-  assert(assert(build:result("box", true)).lowered ~= nil, "lowered again, from its source")
+  local lowered = build.timing.lowerings
+  assert(build:replace("box", STRINGY) ~= nil)
+  assert(build.program == program)
+  assert(build:retired("other"), "it does not require the module replaced, and the program keeps it")
+  assert(not build:retired("use"), "it requires the module replaced, and is read from its source")
+  build:lower({ "use" })
+  assert(build.timing.lowerings == lowered + 2)
+  build:replace("use", "local Box = require(\"box\")\nlocal b: Box = { n = \"one\" }\nreturn b\n")
+  assert(#assert(build:result("use", true)).errors == 0)
+  assert(build.timing.lowerings == lowered + 3, "the module replaced is the only one lowered again")
 end
 
 local function test_replacing_a_module_the_program_has_not_met_keeps_everything_lowered()
