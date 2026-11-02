@@ -24,6 +24,10 @@ local numbers: {string: {integer}} = {
   poll = { 7, -1 }, ppoll = { 271, 73 }, clock = { 228, 113 },
   exit = { 60, 93 }, exit_group = { 231, 94 },
 }
+--- The number of the syscall `name` on the architecture at `arches[i]`.
+local function number_of(name: string, i: integer): integer
+  return (assert(assert(numbers[name], name .. " is not a call")[i], name .. " has no number here"))
+end
 local record Insn
   code: integer
   jt: integer
@@ -81,7 +85,7 @@ local function test_connect_accepts_only_whole_immutable_slots_with_exact_sizes(
   for i, architecture in ipairs(arches) do
     local code = filter(architecture)
     local function connect(pointer: integer, length: integer): integer
-      return run(code, audit_of(architecture), numbers.connect[i], { 5, pointer, length }) -- checked: map_field
+      return run(code, audit_of(architecture), number_of("connect", i), { 5, pointer, length })
     end
     for slot = 0, 3 do
       assert(connect(BASE + V4 * slot, 16) == ALLOW)
@@ -97,15 +101,15 @@ local function test_connect_accepts_only_whole_immutable_slots_with_exact_sizes(
     assert(connect(BASE + 4096 + 65534 * V6, 28) == ALLOW)
     assert(connect(BASE + 4096 + 65535 * V6, 28) == REFUSE)
     assert(connect(BASE + 4096, 16) == REFUSE)
-    assert(run(code, 0x40000003, numbers.connect[i], { 5, BASE, 16 }) == KILL) -- checked: map_field
-    assert(run(code, audit_of(architecture), numbers.connect[i] | 0x40000000, { 5, BASE, 16 }) == REFUSE) -- checked: map_field
+    assert(run(code, 0x40000003, number_of("connect", i), { 5, BASE, 16 }) == KILL)
+    assert(run(code, audit_of(architecture), number_of("connect", i) | 0x40000000, { 5, BASE, 16 }) == REFUSE)
   end
 end
 local function test_a_slot_is_held_to_its_own_ranges_stride_and_length()
   for i, architecture in ipairs(arches) do
     local code = filter(architecture)
     local function connect(pointer: integer, length: integer): integer
-      return run(code, audit_of(architecture), numbers.connect[i], { 5, pointer, length }) -- checked: map_field
+      return run(code, audit_of(architecture), number_of("connect", i), { 5, pointer, length })
     end
     -- Into the other range: an IPv6 slot at the IPv4 length, and the reverse.
     assert(connect(BASE + 4096, 16) == REFUSE)
@@ -128,26 +132,26 @@ local function test_only_tcp_creation_and_protected_ipc_descriptor_sends_are_all
   for i, architecture in ipairs(arches) do
     local code = filter(architecture)
     for _, family in ipairs({ 2, 10 }) do
-      assert(run(code, audit_of(architecture), numbers.socket[i], { family, 0x80801, 6 }) == ALLOW) -- checked: map_field
+      assert(run(code, audit_of(architecture), number_of("socket", i), { family, 0x80801, 6 }) == ALLOW)
     end
     for _, args in ipairs({ { 1, 0x80801, 6 }, { 2, 0x80802, 17 }, { 2, 0x80801, 0 },
         { 2, 1, 6 }, { 2 + (1 << 32), 0x80801, 6 }, { 2, 0x80801 + (1 << 32), 6 } }) do
-      assert(run(code, audit_of(architecture), numbers.socket[i], args) == REFUSE) -- checked: map_field
+      assert(run(code, audit_of(architecture), number_of("socket", i), args) == REFUSE)
     end
-    assert(run(code, audit_of(architecture), numbers.sendmsg[i], { CONTROL, 1234, 0x4000 }) == ALLOW) -- checked: map_field
+    assert(run(code, audit_of(architecture), number_of("sendmsg", i), { CONTROL, 1234, 0x4000 }) == ALLOW)
     for _, args in ipairs({ { 5, 1234, 0x4000 }, { STATUS, 1234, 0x4000 },
         { CONTROL + (1 << 32), 1234, 0x4000 }, { CONTROL, 1234, 0x20004000 }, { CONTROL, 1234, 0 } }) do
-      assert(run(code, audit_of(architecture), numbers.sendmsg[i], args) == REFUSE) -- checked: map_field
+      assert(run(code, audit_of(architecture), number_of("sendmsg", i), args) == REFUSE)
     end
-    assert(run(code, audit_of(architecture), numbers.close[i], { CONTROL }) == KILL) -- checked: map_field
-    assert(run(code, audit_of(architecture), numbers.close[i], { 5 }) == ALLOW) -- checked: map_field
-    assert(run(code, audit_of(architecture), numbers.read[i], { CONTROL }) == ALLOW) -- checked: map_field
-    assert(run(code, audit_of(architecture), numbers.read[i], { STATUS }) == REFUSE) -- checked: map_field
-    assert(run(code, audit_of(architecture), numbers.write[i], { CONTROL }) == ALLOW) -- checked: map_field
-    assert(run(code, audit_of(architecture), numbers.write[i], { STATUS }) == ALLOW) -- checked: map_field
-    assert(run(code, audit_of(architecture), numbers.write[i], { 5 }) == REFUSE) -- checked: map_field
-    assert(run(code, audit_of(architecture), numbers.getsockopt[i], { 5, 1, 4 }) == ALLOW) -- checked: map_field
-    assert(run(code, audit_of(architecture), numbers.getsockopt[i], { 5, 1, 30 }) == REFUSE) -- checked: map_field
+    assert(run(code, audit_of(architecture), number_of("close", i), { CONTROL }) == KILL)
+    assert(run(code, audit_of(architecture), number_of("close", i), { 5 }) == ALLOW)
+    assert(run(code, audit_of(architecture), number_of("read", i), { CONTROL }) == ALLOW)
+    assert(run(code, audit_of(architecture), number_of("read", i), { STATUS }) == REFUSE)
+    assert(run(code, audit_of(architecture), number_of("write", i), { CONTROL }) == ALLOW)
+    assert(run(code, audit_of(architecture), number_of("write", i), { STATUS }) == ALLOW)
+    assert(run(code, audit_of(architecture), number_of("write", i), { 5 }) == REFUSE)
+    assert(run(code, audit_of(architecture), number_of("getsockopt", i), { 5, 1, 4 }) == ALLOW)
+    assert(run(code, audit_of(architecture), number_of("getsockopt", i), { 5, 1, 30 }) == REFUSE)
   end
 end
 local function test_every_call_outside_the_explicit_allowlist_is_refused()
