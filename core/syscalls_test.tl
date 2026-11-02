@@ -50,7 +50,7 @@ local function failed(value: any, message: any, number: any)
     "a failure must lead with nil or false, not " .. tostring(value))
   assert(type(message) == "string" and message ~= "",
     "a failure must say what went wrong")
-  assert(math.type(number) == "integer" and (number as integer) > 0,
+  assert(math.type(number) == "integer" and (number as integer) > 0, -- checked: cast_refused
     "a failure must carry its errno, not " .. tostring(number))
 end
 
@@ -67,7 +67,7 @@ end
 
 --- Asserts calling `fn` with `...` raises rather than returning.
 local function raises(fn: any, ...: any)
-  local ok = pcall(fn as function(...: any): (any...), ...)
+  local ok = pcall(fn as function(...: any): (any...), ...) -- checked: alternatives_as_value, cast_refused
   assert(not ok, "a degenerate argument must raise")
 end
 
@@ -109,7 +109,7 @@ local function test_open_exclusive_refuses_an_existing_file(tmp: string)
 end
 
 local function test_open_raises_on_a_path_that_is_not_a_string()
-  raises(sys.open, {}, sys.O_RDONLY)
+  raises(sys.open, {}, sys.O_RDONLY) -- checked: literal_needs_type
 end
 
 local function test_write_read_and_seek(tmp: string)
@@ -446,12 +446,12 @@ end
 --- nothing holds.
 local function test_execve_raises_on_an_entry_that_is_not_a_string(tmp: string)
   local missing = tmp .. "/missing"
-  raises(sys.execve, missing, { "missing", 1 }, {})
-  raises(sys.execve, missing, { "missing", 1.5 }, {})
+  raises(sys.execve, missing, { "missing", 1 }, {}) -- checked: arms_differ, literal_needs_type
+  raises(sys.execve, missing, { "missing", 1.5 }, {}) -- checked: arms_differ, literal_needs_type
   raises(sys.execve, missing, { "missing" }, { NAME = 1 })
   raises(sys.execve, missing, { "missing" }, { [1] = "value" })
   raises(sys.execve, missing, { "missing" }, { ["A=B"] = "value" })
-  raises(sys.execve, missing, { "missing", "a\0b" }, {})
+  raises(sys.execve, missing, { "missing", "a\0b" }, {}) -- checked: literal_needs_type
 end
 
 --- A failed execve leaves this process as it was: SIGPIPE, which it hands
@@ -698,7 +698,7 @@ local function test_a_child_starts_with_this_process_s_signal_mask(tmp: string)
   local child = assert(sys.pread(output, 65536, 0))
   sys.close(output)
   local function mask(text: string, name: string): integer
-    return math.tointeger(tonumber(assert(text:match(name .. ":%s*(%x+)")), 16)) as integer
+    return math.tointeger(tonumber(assert(text:match(name .. ":%s*(%x+)")), 16)) as integer -- checked: cast_refused
   end
   assert(mask(child, "SigBlk") == mask(own, "SigBlk"), child)
   -- This process was started by one too, so a mask its start leaked
@@ -789,8 +789,8 @@ local function test_every_path_call_refuses_an_embedded_nul(tmp: string)
   -- the program named is not there, so one that did not would fail
   -- rather than run it.
   local program = tmp .. "/program"
-  raises(sys.execve, tmp .. "\0/program", { "program" }, {})
-  raises(sys.execve, program, { "program", "-c\0x" }, {})
+  raises(sys.execve, tmp .. "\0/program", { "program" }, {}) -- checked: literal_needs_type
+  raises(sys.execve, program, { "program", "-c\0x" }, {}) -- checked: literal_needs_type
   raises(sys.execve, program, { "program" }, { A = "b\0c" })
   -- spawn refused a NUL before this rule existed, by raising, and
   -- [`cosmic.child`] relies on that; it never truncates either way.
@@ -1061,7 +1061,7 @@ local function test_a_sandbox_the_platform_lacks_is_refused(tmp: string)
   local held, hold_trouble, hold_errno = process.landlock_restrict_execute({ tmp })
   assert(not held and (hold_errno == sys.ENOSYS or hold_errno == sys.EOPNOTSUPP or
     hold_errno == sys.EPERM), tostring(hold_trouble))
-  for _, promises in ipairs({ {}, { "unix", "inet" } }) do
+  for _, promises in ipairs({ {}, { "unix", "inet" } }) do -- checked: literal_needs_type
     local pid, why, pledge_errno = process.spawn(probe, { probe }, nil, nil, nil, nil, nil,
       false, nil, { pledge = promises })
     assert(pid == nil and pledge_errno == sys.ENOSYS, tostring(why))
@@ -1072,7 +1072,7 @@ end
 --- platform.
 local function test_a_pledge_no_one_keeps_is_refused_before_a_start(tmp: string)
   local probe = probe_in(tmp)
-  local refused = pcall(process.spawn, probe, { probe }, nil, nil, nil, nil, nil,
+  local refused = pcall(process.spawn, probe, { probe }, nil, nil, nil, nil, nil, -- checked: overload_none
     false, nil, { pledge = { "fly" } })
   assert(not refused, "a promise no one keeps is refused")
 end
@@ -1085,8 +1085,8 @@ end
 --- `set_nonblocking`, which wait on any descriptor, are the public
 --- table's alone.
 local function test_the_process_calls_are_off_the_public_table()
-  local public: {string: any} = sys as {string: any} -- cast: to look a member up by name
-  local raw: {string: any} = process as {string: any} -- cast: to look a member up by name
+  local public: {string: any} = sys as {string: any} -- cast: to look a member up by name -- checked: cast_refused
+  local raw: {string: any} = process as {string: any} -- cast: to look a member up by name -- checked: cast_refused
   for _, name in ipairs({ "spawn", "waitpid", "subreaper", "sandbox_inits", "children", "maps_id",
       "may_map_ids", "own_proc", "sandbox_platform", "relaunch", "pipe",
       "ignore_sigpipe", "landlock_ruleset", "landlock_abi", "exit_watch",
@@ -1102,7 +1102,7 @@ local function test_the_process_calls_are_off_the_public_table()
   end
   for _, name in ipairs({ "digest", "hmac" }) do
     assert(public[name] == nil, "cosmic.sys." .. name .. " is public")
-    assert(type((hash as {string: any})[name]) == "function", name .. " is not raw hash's")
+    assert(type((hash as {string: any})[name]) == "function", name .. " is not raw hash's") -- checked: cast_refused
   end
 end
 
@@ -1117,7 +1117,7 @@ local function test_poll_answers_every_entry_of_a_descriptor_given_twice()
     { sys.POLLIN, sys.POLLIN, sys.POLLOUT, sys.POLLIN, sys.POLLOUT, sys.POLLIN | sys.POLLOUT }, 0))
   sys.close(ends.reader)
   sys.close(ends.writer)
-  local said = table.concat(revents as {number}, " ") -- cast: an integer is a number
+  local said = table.concat(revents as {number}, " ") -- cast: an integer is a number -- checked: cast_refused
   assert(#revents == 6, said)
   assert(revents[1] == 0, "a writing end asked to read: " .. said)
   assert(revents[2] & sys.POLLIN ~= 0 and revents[2] & sys.POLLOUT == 0, said)
@@ -1137,7 +1137,7 @@ local function test_poll_answers_a_hangup_and_a_closed_descriptor_in_every_entry
   local revents = assert(sys.poll({ ends.reader, ends.reader, closed, closed },
     { sys.POLLIN, sys.POLLOUT, sys.POLLIN, sys.POLLOUT }, 0))
   sys.close(ends.reader)
-  local said = table.concat(revents as {number}, " ") -- cast: an integer is a number
+  local said = table.concat(revents as {number}, " ") -- cast: an integer is a number -- checked: cast_refused
   assert(revent(revents, 1) & sys.POLLHUP ~= 0 and revent(revents, 2) & sys.POLLHUP ~= 0, said)
   assert(revent(revents, 3) & sys.POLLNVAL ~= 0 and revent(revents, 4) & sys.POLLNVAL ~= 0, said)
 end
@@ -1157,7 +1157,7 @@ local record Restored
   __close: function(Restored)
 end
 
-local restored_mt: metatable<Restored> = {
+local restored_mt: metatable<Restored> = { -- checked: literal_missing
   __close = function(r: Restored)
     for _, fd in ipairs(r.fds) do sys.close(fd) end
     assert(sys.setrlimit(sys.RLIMIT_NOFILE, r.limits.soft, r.limits.hard))
@@ -1167,7 +1167,7 @@ local restored_mt: metatable<Restored> = {
 local function test_poll_watches_past_a_thousand_descriptors()
   local wanted <const> = 1100
   local limits = assert(sys.getrlimit(sys.RLIMIT_NOFILE))
-  local held <close> = setmetatable({ fds = {}, limits = limits } as Restored, restored_mt)
+  local held <close> = setmetatable({ fds = {}, limits = limits } as Restored, restored_mt) -- checked: cast_refused, setmetatable_call
   -- Room for the copies beside whatever the worker holds open already.
   local room = math.min(wanted + 256, limits.hard)
   if limits.soft < room then assert(sys.setrlimit(sys.RLIMIT_NOFILE, room, limits.hard)) end
@@ -1189,7 +1189,7 @@ local function test_poll_watches_past_a_thousand_descriptors()
       ": " .. tostring(trouble))
   fds[#fds + 1] = -1
   events[#events + 1] = sys.POLLIN
-  assert(not pcall(sys.poll, { -2 }, { sys.POLLIN }, 0), "a descriptor below -1 raises")
+  assert(not pcall(sys.poll, { -2 }, { sys.POLLIN }, 0), "a descriptor below -1 raises") -- checked: alternatives_as_value
   local revents, failure = sys.poll(fds, events, 0)
   assert(revents ~= nil, failure)
   assert(#revents == wanted + 1, "one answer per descriptor, not " .. tostring(#revents))
@@ -1356,8 +1356,8 @@ local function test_umask_withholds_bits_and_answers_the_last(tmp: string)
   sys.umask(before)
   if not ok then error(failure) end
   assert(failure, "umask did not answer the mask it replaced")
-  assert(not pcall(sys.umask, -1))
-  assert(not pcall(sys.umask, 0x200))
+  assert(not pcall(sys.umask, -1)) -- checked: alternatives_as_value
+  assert(not pcall(sys.umask, 0x200)) -- checked: alternatives_as_value
 end
 
 local function test_entropy_and_ftruncate_answer_their_contracts(tmp: string)
@@ -1566,7 +1566,7 @@ local function test_an_errno_is_named_as_errno_h_names_it()
   end
   assert(sys.errno_name(0) == nil and sys.errno_name(-1) == nil)
   assert(sys.errno_message(-1) == "No error information")
-  assert(not pcall(sys.errno_name, "ENOENT" as integer), "a name is not a number")
+  assert(not pcall(sys.errno_name, "ENOENT" as integer), "a name is not a number") -- checked: alternatives_as_value, cast_refused
 end
 
 --- Every errno a macOS call can fail with is named and worded, those
@@ -1656,23 +1656,23 @@ end
 --- Descriptor validation precedes platform dispatch, including on hosts
 --- that do not implement the operation.
 local function test_full_fsync_validates_its_descriptor()
-  raises(sys.full_fsync, {})
+  raises(sys.full_fsync, {}) -- checked: literal_needs_type
   raises(sys.full_fsync, 1.5)
   raises(sys.full_fsync, 1 << 40)
 end
 
 --- The raw boundary validates both IDs independently of Child.Options.
 local function test_spawn_credentials_reject_incomplete_and_reserved_ids()
-  for index, credentials in ipairs({
-      {}, { user = 1 }, { group = 1 }, { user = 0, group = 1 },
+  for index, credentials in ipairs({ -- checked: cast_refused
+      {}, { user = 1 }, { group = 1 }, { user = 0, group = 1 }, -- checked: literal_needs_type
       { user = 1, group = -1 }, { user = 4294967295, group = 1 },
-      { user = 1.5, group = 1 } as raw_process.Credentials,
+      { user = 1.5, group = 1 } as raw_process.Credentials, -- checked: cast_refused
   } as {raw_process.Credentials}) do
-    local ok, why = pcall(process.spawn, "/never-started", { "/never-started" },
+    local ok, why = pcall(process.spawn, "/never-started", { "/never-started" }, -- checked: overload_none
       nil, nil, nil, nil, nil, false, nil, nil, credentials)
     assert(not ok and tostring(why):find("credentials", 1, true) ~= nil, tostring(index) .. ": " .. tostring(why))
   end
-  local ok, why = pcall(process.spawn, "/never-started", { "/never-started" },
+  local ok, why = pcall(process.spawn, "/never-started", { "/never-started" }, -- checked: overload_none
     nil, nil, nil, nil, nil, false, nil, { offline = true }, { user = 1, group = 1 })
   assert(not ok and tostring(why):find("credentials exclude", 1, true) ~= nil, tostring(why))
 end
@@ -1685,13 +1685,13 @@ local function test_spawn_credentials_runtime_refusal(tmp: string)
   local pid, trouble, errno = process.spawn(probe, { probe, "append " .. marker .. " wrong" },
     nil, tmp .. "/absent", nil, nil, nil, false, nil, nil, { user = 65532, group = 65532 })
   failed(pid, trouble, errno)
-  assert(not Fs.exists(marker))
+  assert(not Fs.exists(marker)) -- checked: condition_type
 end
 
 --- What spawn raises for `sandbox` taken as a raw table, malformed.
 local function refused_sandbox(fields: {string:any}): string
-  local ok, trouble = pcall(process.spawn, "/missing", { "/missing" }, nil, nil,
-    nil, nil, nil, false, nil, fields as raw_process.Sandbox) -- cast: malformed input exercises raw validation
+  local ok, trouble = pcall(process.spawn, "/missing", { "/missing" }, nil, nil, -- checked: overload_none
+    nil, nil, nil, false, nil, fields as raw_process.Sandbox) -- cast: malformed input exercises raw validation -- checked: cast_refused
   assert(not ok, "spawn took a malformed sandbox")
   return tostring(trouble)
 end
@@ -1700,39 +1700,39 @@ local function test_a_policys_sandbox_fields_are_checked_before_a_start()
   local function says(trouble: string, text: string)
     assert(trouble:find(text, 1, true), trouble)
   end
-  says(refused_sandbox({ strict = "yes" }), "strict must be a boolean")
-  says(refused_sandbox({ proc = 1 }), "proc must be a boolean")
-  says(refused_sandbox({ proc = true, unveil = { reads = { "/" } } }),
+  says(refused_sandbox({ strict = "yes" }), "strict must be a boolean") -- checked: any_use
+  says(refused_sandbox({ proc = 1 }), "proc must be a boolean") -- checked: any_use
+  says(refused_sandbox({ proc = true, unveil = { reads = { "/" } } }), -- checked: any_use*2
     "proc and unveil exclude each other")
-  says(refused_sandbox({ sockets = { "inet" } }), "sockets require promises")
-  says(refused_sandbox({ promises = {}, sockets = { "packet" } }), "a socket family is")
-  says(refused_sandbox({ promises = {}, sockets = { "inet" } }), "sockets require offline")
-  says(refused_sandbox({ relay = { fd = 3 } }), "relay requires offline")
-  says(refused_sandbox({ relay = 3 }), "relay must be a table")
-  says(refused_sandbox({ relay = {}, offline = true }), "relay's fd must be a descriptor")
-  says(refused_sandbox({ relay = { fd = -1 }, offline = true }), "relay's fd is out of range")
-  says(refused_sandbox({ relay = { fd = 2 }, offline = true }), "relay's fd is out of range")
-  says(refused_sandbox({ relay = { fd = 3, ports = { 4000, 4000 } }, offline = true }),
+  says(refused_sandbox({ sockets = { "inet" } }), "sockets require promises") -- checked: any_use
+  says(refused_sandbox({ promises = {}, sockets = { "packet" } }), "a socket family is") -- checked: any_use, literal_needs_type
+  says(refused_sandbox({ promises = {}, sockets = { "inet" } }), "sockets require offline") -- checked: any_use, literal_needs_type
+  says(refused_sandbox({ relay = { fd = 3 } }), "relay requires offline") -- checked: any_use
+  says(refused_sandbox({ relay = 3 }), "relay must be a table") -- checked: any_use
+  says(refused_sandbox({ relay = {}, offline = true }), "relay's fd must be a descriptor") -- checked: any_use, literal_needs_type
+  says(refused_sandbox({ relay = { fd = -1 }, offline = true }), "relay's fd is out of range") -- checked: any_use*2
+  says(refused_sandbox({ relay = { fd = 2 }, offline = true }), "relay's fd is out of range") -- checked: any_use*2
+  says(refused_sandbox({ relay = { fd = 3, ports = { 4000, 4000 } }, offline = true }), -- checked: any_use, arms_differ
     "a relay's two ports differ")
-  says(refused_sandbox({ relay = { fd = 3, ports = { 1 } }, offline = true }),
+  says(refused_sandbox({ relay = { fd = 3, ports = { 1 } }, offline = true }), -- checked: any_use, arms_differ
     "relay's ports are two ports")
-  says(refused_sandbox({ relay = { fd = 3, ports = { 1, "x" } }, offline = true }),
+  says(refused_sandbox({ relay = { fd = 3, ports = { 1, "x" } }, offline = true }), -- checked: any_use*2, arms_differ
     "a relay port is an integer")
-  says(refused_sandbox({ relay = { fd = 3, ports = { 0, 1 } }, offline = true }),
+  says(refused_sandbox({ relay = { fd = 3, ports = { 0, 1 } }, offline = true }), -- checked: any_use, arms_differ
     "a relay port is 1 to 65535")
-  says(refused_sandbox({ relay = { fd = 3, ports = { 1, 65536 } }, offline = true }),
+  says(refused_sandbox({ relay = { fd = 3, ports = { 1, 65536 } }, offline = true }), -- checked: any_use, arms_differ
     "a relay port is 1 to 65535")
-  says(refused_sandbox({ unveil = { tmp = 4096 } }), "unveil's tmp requires strict")
-  says(refused_sandbox({ promises = {}, sockets = "inet" }), "sockets must be a list")
-  says(refused_sandbox({ unveil = { tmp = 0 } }), "unveil's tmp is a size in bytes")
-  says(refused_sandbox({ unveil = { tmp = "big" } }), "unveil's tmp is a size in bytes")
-  says(refused_sandbox({ unveil = { tmp_exec = 1 } }), "unveil's tmp_exec must be a boolean")
-  says(refused_sandbox({ unveil = { tmp_exec = true } }), "unveil's tmp_exec requires tmp")
+  says(refused_sandbox({ unveil = { tmp = 4096 } }), "unveil's tmp requires strict") -- checked: any_use
+  says(refused_sandbox({ promises = {}, sockets = "inet" }), "sockets must be a list") -- checked: any_use, literal_needs_type
+  says(refused_sandbox({ unveil = { tmp = 0 } }), "unveil's tmp is a size in bytes") -- checked: any_use
+  says(refused_sandbox({ unveil = { tmp = "big" } }), "unveil's tmp is a size in bytes") -- checked: any_use
+  says(refused_sandbox({ unveil = { tmp_exec = 1 } }), "unveil's tmp_exec must be a boolean") -- checked: any_use
+  says(refused_sandbox({ unveil = { tmp_exec = true } }), "unveil's tmp_exec requires tmp") -- checked: any_use
 end
 
 local function test_unveils_binds_are_checked_before_a_start()
   local function says(binds: any, text: string)
-    local trouble = refused_sandbox({ unveil = { binds = binds } })
+    local trouble = refused_sandbox({ unveil = { binds = binds } }) -- checked: any_use
     assert(trouble:find(text, 1, true), trouble)
   end
   says("/x", "unveil's binds must be a list")
@@ -1745,17 +1745,17 @@ local function test_unveils_binds_are_checked_before_a_start()
 end
 
 local function test_noexec_scratch_requires_a_boolean_and_unveiling()
-  local invalid: {any} = { "yes", 1, {} }
+  local invalid: {any} = { "yes", 1, {} } -- checked: any_use*2, literal_needs_type
   for _, value in ipairs(invalid) do
     local sandbox: raw_process.Sandbox = {}
-    local fields = sandbox as {string:any} -- cast: malformed input exercises raw validation
+    local fields = sandbox as {string:any} -- cast: malformed input exercises raw validation -- checked: cast_refused
     fields.noexec_scratch = value
-    local ok, trouble = pcall(process.spawn, "/missing", { "/missing" }, nil, nil,
+    local ok, trouble = pcall(process.spawn, "/missing", { "/missing" }, nil, nil, -- checked: overload_none
       nil, nil, nil, false, nil, sandbox)
     assert(not ok and tostring(trouble):find("noexec_scratch must be a boolean", 1, true) ~= nil,
       tostring(trouble))
   end
-  local ok, trouble = pcall(process.spawn, "/missing", { "/missing" }, nil, nil,
+  local ok, trouble = pcall(process.spawn, "/missing", { "/missing" }, nil, nil, -- checked: overload_none
     nil, nil, nil, false, nil, { noexec_scratch = true })
   assert(not ok and tostring(trouble):find("noexec_scratch requires unveil", 1, true) ~= nil,
     tostring(trouble))

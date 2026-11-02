@@ -56,10 +56,10 @@ local function test_the_database_runs_as_the_program(tmp: string)
   local r = run({ core, "--database", path, "a", "b c" })
   assert(r.ok, "exit " .. tostring(r.code) .. ": " .. tostring(r.stderr))
   local out = fields(assert(r.stdout))
-  assert(out.arg0 == path, tostring(out.arg0))
-  assert(out.args == "a|b c", tostring(out.args))
-  assert(out.databases == "1", tostring(out.databases))
-  assert(out.main == "probe.main", tostring(out.main))
+  assert(out.arg0 == path, tostring(out.arg0)) -- checked: map_field*2
+  assert(out.args == "a|b c", tostring(out.args)) -- checked: map_field*2
+  assert(out.databases == "1", tostring(out.databases)) -- checked: map_field*2
+  assert(out.main == "probe.main", tostring(out.main)) -- checked: map_field*2
 end
 
 --- The runtime's identity is the database's meta and the core's own
@@ -72,11 +72,11 @@ local function test_the_runtime_identity_is_the_database_and_the_core(tmp: strin
   local r = run({ core, "--database", path })
   assert(r.ok, "exit " .. tostring(r.code) .. ": " .. tostring(r.stderr))
   local out = fields(assert(r.stdout))
-  assert(out.context == "database-v1", tostring(out.context))
-  assert(out.host_image == core_digest(), tostring(out.host_image))
-  assert(out.runtime == "true", tostring(out.runtime))
-  assert(out.artifact == assert(sys.realpath(path)), tostring(out.artifact))
-  assert(out.executable == core, tostring(out.executable))
+  assert(out.context == "database-v1", tostring(out.context)) -- checked: map_field*2
+  assert(out.host_image == core_digest(), tostring(out.host_image)) -- checked: map_field*2
+  assert(out.runtime == "true", tostring(out.runtime)) -- checked: map_field*2
+  assert(out.artifact == assert(sys.realpath(path)), tostring(out.artifact)) -- checked: map_field*2
+  assert(out.executable == core, tostring(out.executable)) -- checked: map_field*2
 end
 
 --- A module the database lacks is not found: nothing of the tree, the
@@ -119,18 +119,18 @@ local function test_require_and_the_store_see_only_that_database(tmp: string)
   local r = run({ core, "--database", path, attached })
   assert(r.ok, "exit " .. tostring(r.code) .. ": " .. tostring(r.stderr))
   local out = fields(assert(r.stdout))
-  assert(out.archive == "false", "the tree's cosmic.archive was found: " .. tostring(out.archive))
-  assert(out.value == "from-database:base", tostring(out.value))
-  assert(out.requires == "extra.base", tostring(out.requires))
-  assert(out.databases == "1", tostring(out.databases))
+  assert(out.archive == "false", "the tree's cosmic.archive was found: " .. tostring(out.archive)) -- checked: map_field*2
+  assert(out.value == "from-database:base", tostring(out.value)) -- checked: map_field*2
+  assert(out.requires == "extra.base", tostring(out.requires)) -- checked: map_field*2
+  assert(out.databases == "1", tostring(out.databases)) -- checked: map_field*2
   -- Attaching still searches the new database first, ahead of its own.
-  assert(out.attached == "true", tostring(out.attached))
-  assert(out.databases_after == "2", tostring(out.databases_after))
-  assert(out.shadow == "attached", tostring(out.shadow))
-  assert(out.second == "second", tostring(out.second))
+  assert(out.attached == "true", tostring(out.attached)) -- checked: map_field*2
+  assert(out.databases_after == "2", tostring(out.databases_after)) -- checked: map_field*2
+  assert(out.shadow == "attached", tostring(out.shadow)) -- checked: map_field*2
+  assert(out.second == "second", tostring(out.second)) -- checked: map_field*2
   -- What reads the binary's own rows still reads the database's, not the attached one's.
-  assert(out.requires_after == "extra.base", tostring(out.requires_after))
-  assert(out.main_after == "probe.main", tostring(out.main_after))
+  assert(out.requires_after == "extra.base", tostring(out.requires_after)) -- checked: map_field*2
+  assert(out.main_after == "probe.main", tostring(out.main_after)) -- checked: map_field*2
 end
 
 --- A core run from a cache entry -- a name that holds its target, its
@@ -162,7 +162,7 @@ local function test_a_core_a_stamp_vouches_for_is_not_hashed_again_until_it_is_w
   local stamp = directory .. "/.verified-" .. Fs.basename(copy)
   -- A stamp is written only once a second has passed since the entry changed.
   local _, _ = Clock.sleep_ns(Clock.ms(1100))
-  assert(not Fs.exists(stamp), "a stamp before any start")
+  assert(not Fs.exists(stamp), "a stamp before any start") -- checked: condition_type
   local first = run({ copy, "--database", path })
   assert(first.ok, "exit " .. tostring(first.code) .. ": " .. tostring(first.stderr))
   assert(Fs.exists(stamp), "the first start left no stamp")
@@ -195,14 +195,14 @@ local function test_a_relaunch_and_its_child_stay_on_the_database_a_relative_lin
   assert(r.ok, "exit " .. tostring(r.code) .. ": " .. tostring(r.stderr))
   local out = fields(assert(r.stdout))
   local real = assert(sys.realpath(path))
-  assert(out.relaunch == core .. "|--database|" .. real, "relaunch: " .. tostring(out.relaunch))
-  assert(out.relaunch_env == "true" and out.relaunch_fds == "true",
-    "relaunch env/fds: " .. tostring(out.relaunch_env) .. " " .. tostring(out.relaunch_fds))
-  assert(out.artifact == real, "artifact: " .. tostring(out.artifact))
-  assert(out.child_code == "0", "child code: " .. tostring(out.child_code) .. ": " .. tostring(out.child_stderr))
-  assert(out.child_databases == "1", "child databases: " .. tostring(out.child_databases))
-  assert(out.child_main == "probe.main", "child main: " .. tostring(out.child_main))
-  assert(out.child_args == "child|x y", "child args: " .. tostring(out.child_args))
+  assert(out.relaunch == core .. "|--database|" .. real, "relaunch: " .. tostring(out.relaunch)) -- checked: map_field*2
+  assert(out.relaunch_env == "true" and out.relaunch_fds == "true", -- checked: map_field*2
+    "relaunch env/fds: " .. tostring(out.relaunch_env) .. " " .. tostring(out.relaunch_fds)) -- checked: map_field*2
+  assert(out.artifact == real, "artifact: " .. tostring(out.artifact)) -- checked: map_field*2
+  assert(out.child_code == "0", "child code: " .. tostring(out.child_code) .. ": " .. tostring(out.child_stderr)) -- checked: map_field*3
+  assert(out.child_databases == "1", "child databases: " .. tostring(out.child_databases)) -- checked: map_field*2
+  assert(out.child_main == "probe.main", "child main: " .. tostring(out.child_main)) -- checked: map_field*2
+  assert(out.child_args == "child|x y", "child args: " .. tostring(out.child_args)) -- checked: map_field*2
 end
 
 --- What a start that says nothing of a launcher is told of none: the
@@ -238,7 +238,7 @@ local function test_no_artifact_or_launcher_is_opened_and_the_core_is_held_back(
   local core = core_or_skip()
   -- The probe reads the descriptors it holds through /proc, which only
   -- Linux has.
-  if not Fs.is_dir("/proc/self/fd") then Test.skip("this host has no /proc/self/fd to probe") end
+  if not Fs.is_dir("/proc/self/fd") then Test.skip("this host has no /proc/self/fd to probe") end -- checked: condition_type
   local path = tmp .. "/program.db"
   write_database(path, {
     { name = "probe.main", kind = "main", source = DESCRIPTORS, requires = { "cosmic.sys", "cosmic.fs" } },
@@ -249,11 +249,11 @@ local function test_no_artifact_or_launcher_is_opened_and_the_core_is_held_back(
   local r = run({ core, "--database", path, program })
   assert(r.ok, "exit " .. tostring(r.code) .. ": " .. tostring(r.stderr))
   local out = fields(assert(r.stdout))
-  assert(out.opened_artifact == nil, "the artifact was open as descriptor " .. tostring(out.opened_artifact))
-  assert(out.portable_env == "nil", tostring(out.portable_env))
-  assert(out.core_fd == "true", "the retained core descriptor was not found")
-  assert(out.dup_core == "false", "the core's descriptor was duplicated")
-  assert((out.dup_why or ""):find("retained artifact descriptor", 1, true), tostring(out.dup_why))
+  assert(out.opened_artifact == nil, "the artifact was open as descriptor " .. tostring(out.opened_artifact)) -- checked: map_field*2
+  assert(out.portable_env == "nil", tostring(out.portable_env)) -- checked: map_field*2
+  assert(out.core_fd == "true", "the retained core descriptor was not found") -- checked: map_field
+  assert(out.dup_core == "false", "the core's descriptor was duplicated") -- checked: map_field
+  assert((out.dup_why or ""):find("retained artifact descriptor", 1, true), tostring(out.dup_why)) -- checked: map_field*2
 end
 
 --- The database is named in what a refusal says, whatever its reason,
@@ -351,5 +351,5 @@ local function test_a_path_with_uri_syntax_opens_as_itself(tmp: string)
   local path = info_database(tmp .. "/odd?vfs=cosmic&mode=rw#%41", "a b.db")
   local r = run({ core, "--database", path })
   assert(r.ok, "exit " .. tostring(r.code) .. ": " .. tostring(r.stderr))
-  assert(fields(assert(r.stdout)).main == "probe.main")
+  assert(fields(assert(r.stdout)).main == "probe.main") -- checked: map_field
 end

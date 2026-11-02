@@ -89,7 +89,7 @@ function Cover.check(source: string, parsed: Parser.Parsed): boolean, string
   if chunk.first ~= 1 or chunk.last ~= #chunk.tokens.kind or chunk.id ~= 1 then
     return false, "the chunk does not span the tokens or is not node 1"
   end
-  local state: Walk = { chunk = chunk, count = 1, problem = "", ids = { true } }
+  local state: Walk = { chunk = chunk, count = 1, problem = "", ids = { true } } -- checked: literal_shape
   Ast.children(chunk, function(child: Ast.Node)
     walk(child, chunk, state)
   end)

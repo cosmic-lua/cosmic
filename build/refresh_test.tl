@@ -36,7 +36,7 @@ end
 local function test_a_file_that_is_no_artifact_is_refused(tmp: string)
   local path = tmp .. "/plain"
   assert(Fs.write(path, "#!/bin/sh\n" .. ("# a script, not an artifact\n"):rep(4), 0x1ed))
-  local lines, trouble = refresh.binary(path, tmp .. "/out", { datasets.cacert }, { cacert = bundle })
+  local lines, trouble = refresh.binary(path, tmp .. "/out", { datasets.cacert }, { cacert = bundle }) -- checked: map_field
   assert(lines == nil and trouble:find("no artifact trailer", 1, true) ~= nil, trouble)
 end
 
@@ -54,7 +54,7 @@ end
 --- Every dataset is an option naming a file to read it from.
 local function test_every_dataset_is_an_option()
   for _, dataset in ipairs(refresh.datasets) do
-    assert(assert(Cli.verbs.refresh.spec)["--" .. dataset.name] ~= nil, dataset.name)
+    assert(assert(Cli.verbs.refresh.spec)["--" .. dataset.name] ~= nil, dataset.name) -- checked: map_field
   end
 end
 

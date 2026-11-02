@@ -115,7 +115,7 @@ local entered: mut {Entry} = {}
 --- sandbox, but the worker's does.
 local function in_sandbox(): boolean
   for at = #entered, 1, -1 do
-    if entered[at].sandboxed then return true end
+    if entered[at].sandboxed then return true end -- checked: nil_not_allowed
   end
   return false
 end
@@ -385,10 +385,10 @@ function confine.itself(): mut {string}
   local launched, _ = Proc.relaunch()
   if launched ~= nil then
     local core = launched.argv[1]
-    program[#program + 1] = core
-    local directory, name = core:match("^(.*)/(core%-[^/]*)$")
+    program[#program + 1] = core -- checked: nil_not_allowed
+    local directory, name = core:match("^(.*)/(core%-[^/]*)$") -- checked: nil_not_allowed
     if directory ~= nil then
-      local stamp = directory .. "/.verified-" .. name
+      local stamp = directory .. "/.verified-" .. name -- checked: nil_not_allowed
       local there, _ = asked.lstat(stamp)
       if there ~= nil and there.kind == "file" then program[#program + 1] = stamp end
     end
@@ -534,7 +534,7 @@ function confine.worker_unveil(cwd: string?, scratch: string,
   local withheld = ""
   if with_program ~= true and program ~= nil then
     local launched, _ = Proc.relaunch()
-    local core = launched ~= nil and launched.argv[1] or program
+    local core = launched ~= nil and launched.argv[1] or program -- checked: and_ternary
     local a, _ = asked.stat(program)
     local b, _ = asked.stat(core)
     if a == nil or b == nil or a.dev ~= b.dev or a.ino ~= b.ino then withheld = program end
@@ -598,7 +598,7 @@ function confine.forbid_running(programs: {string}, within?: {string}): boolean,
   end
   local allowed: mut {string} = {}
   local walk: function(dir: string)
-  local function visit(path: string)
+  local function visit(path: string) -- checked: not_assigned
     local real, _ = now.realpath(path)
     if held[path] == true or (real ~= nil and held[real] == true) then
       -- The program, or a link to it.
@@ -637,7 +637,7 @@ end
 --- temporary files (build.this_program's `environment`).
 function confine.test_directory(): string?
   for at = #entered, 1, -1 do
-    local own = entered[at].own[1]
+    local own = entered[at].own[1] -- checked: nil_not_allowed
     if own ~= nil then return own end
   end
   return nil
@@ -679,7 +679,7 @@ function confine.resolution(path: string): string
     if finish == 0 then finish = 1 end
   end
   -- The loop ends only on a path some prefix of which resolved.
-  assert(real ~= nil)
+  assert(real ~= nil) -- checked: compare_disjoint
   local names: mut {string} = {}
   for name in path:sub(finish + 1):gmatch("[^/]+") do names[#names + 1] = name end
   if #names == 0 then return real end
@@ -731,7 +731,7 @@ local unconfinable: {integer:boolean} = {
 local function raw_strings(list: any): {string}?
   local out: mut {string} = {}
   if list == nil then return out end
-  if not list is {any:any} then return nil end
+  if not list is {any:any} then return nil end -- declared: key_type
   local at = 1
   while true do
     local value = rawget(list, at)
@@ -757,7 +757,7 @@ local plain_unveil_fields <const>: {string:boolean} = { reads = true, writes = t
 --- the child to grants, promises or limits, and "" for a sandbox that is not
 --- a policy's.
 local function policy_kind(sandbox: raw_process.Sandbox): string
-  local raw = sandbox as {string:any}
+  local raw = sandbox as {string:any} -- checked: cast_refused
   local policy = false
   for _, key in ipairs({ "grants", "promises", "rlimits", "sockets", "strict", "proc" }) do
     if rawget(raw, key) ~= nil then policy = true end
@@ -776,33 +776,33 @@ end
 --- what the core would refuse, for the core to refuse, or one this does
 --- not copy, which the core is given as it is.
 local function plain_sandbox(sandbox: raw_process.Sandbox): raw_process.Sandbox?
-  local raw = sandbox as {string:any}
-  for key, _ in next, raw do
+  local raw = sandbox as {string:any} -- checked: cast_refused
+  for key, _ in next, raw do -- checked: overload_value
     if not key is string or plain_fields[key] ~= true then return nil end
   end
   local listed = rawget(raw, "unveil")
-  if listed is {any:any} then
-    for key, _ in next, listed do
+  if listed is {any:any} then -- declared: key_type
+    for key, _ in next, listed do -- checked: overload_value
       if not key is string or plain_unveil_fields[key] ~= true then return nil end
     end
   end
   local plain: raw_process.Sandbox = {}
   local ruleset = rawget(raw, "ruleset")
-  if ruleset is integer then plain.ruleset = ruleset elseif ruleset ~= nil then return nil end
+  if ruleset is integer then plain.ruleset = ruleset elseif ruleset ~= nil then return nil end -- checked: field_fixed
   local unveil = rawget(raw, "unveil")
-  if unveil is {any:any} then
+  if unveil is {any:any} then -- declared: key_type
     local reads, writes = raw_strings(rawget(unveil, "reads")), raw_strings(rawget(unveil, "writes"))
     if reads == nil or writes == nil then return nil end
     local plain_unveil: raw_process.Unveil = { reads = reads, writes = writes }
-    plain.unveil = plain_unveil
+    plain.unveil = plain_unveil -- checked: field_fixed
     local at = rawget(unveil, "at")
-    if at is {any:any} then
+    if at is {any:any} then -- declared: key_type
       local names: mut {string:string} = {}
-      for given, name in next, at do
+      for given, name in next, at do -- checked: overload_value
         if not given is string or not name is string then return nil end
         names[given] = name
       end
-      plain_unveil.at = names
+      plain_unveil.at = names -- checked: field_fixed
     elseif at ~= nil then
       return nil
     end
@@ -810,16 +810,16 @@ local function plain_sandbox(sandbox: raw_process.Sandbox): raw_process.Sandbox?
     return nil
   end
   local noexec = rawget(raw, "noexec_scratch")
-  if noexec is boolean then plain.noexec_scratch = noexec elseif noexec ~= nil then return nil end
-  plain.offline = rawget(raw, "offline") == true
+  if noexec is boolean then plain.noexec_scratch = noexec elseif noexec ~= nil then return nil end -- checked: field_fixed
+  plain.offline = rawget(raw, "offline") == true -- checked: field_fixed
   local user, group = rawget(raw, "user"), rawget(raw, "group")
-  if user is integer then plain.user = user elseif user ~= nil then return nil end
-  if group is integer then plain.group = group elseif group ~= nil then return nil end
+  if user is integer then plain.user = user elseif user ~= nil then return nil end -- checked: field_fixed
+  if group is integer then plain.group = group elseif group ~= nil then return nil end -- checked: field_fixed
   local pledge = rawget(raw, "pledge")
   if pledge ~= nil then
     local promises = raw_strings(pledge)
     if promises == nil then return nil end
-    plain.pledge = promises
+    plain.pledge = promises -- checked: field_fixed
   end
   return plain
 end
@@ -844,7 +844,7 @@ local function led_to(path: string): string?
     end
     local parent, last = head:match("^(.*)/([^/]+)$")
     if parent == nil or last == ".." then return nil end
-    rest = rest == "" and last or last .. "/" .. rest
+    rest = rest == "" and last or last .. "/" .. rest -- checked: and_ternary, nil_not_allowed
     head = parent
   end
   return nil
@@ -958,7 +958,7 @@ local function unseen(path: string, use: confine.Use): string?
   if fd == nil then return nil end
   local head, _ = asked.read(fd, 256)
   local _, _ = asked.close(fd)
-  local interpreter = head ~= nil and head:match("^#!%s*(/[^%s]+)") or nil
+  local interpreter = head ~= nil and head:match("^#!%s*(/[^%s]+)") or nil -- checked: and_ternary
   if interpreter == nil or interpreter == path then return nil end
   local why = unseen(interpreter, "starts")
   if why == nil then return nil end
@@ -1029,7 +1029,7 @@ local function enter(own?: {string}, sandboxed?: boolean): Leave, {string}
   local owned: mut {string} = {}
   for _, directory in ipairs(own or {}) do owned[#owned + 1] = directory end
   local entry: Entry = { own = owned, sandboxed = sandboxed == true, unseen = {}, ended = false }
-  process.spawn = function(path: string, argv: {string}, environment: {string:string}?,
+  process.spawn = function(path: string, argv: {string}, environment: {string:string}?, -- checked: field_fixed, not_assignable
                            cwd: string?, stdin: integer?, stdout: integer?,
                            stderr: integer?, process_group: boolean,
                            fds?: {integer:integer}, sandbox?: raw_process.Sandbox,
@@ -1053,19 +1053,19 @@ local function enter(own?: {string}, sandboxed?: boolean): Leave, {string}
     -- process as a confinement does. It is read as the core reads it,
     -- raw, and a plain copy is what the core is given, so what is
     -- judged of it is what holds the process.
-    local plain = sandbox ~= nil and plain_sandbox(sandbox) or nil
+    local plain = sandbox ~= nil and plain_sandbox(sandbox) or nil -- checked: and_ternary
     -- A root of its own, which a worker held by a Landlock ruleset
     -- cannot make: refused outright, naming `nests`.
     local holder = held_by()
     -- A policy's sandbox that makes a root, a procfs or a network namespace
     -- is refused so as well: it is not copied ([`plain_sandbox`]).
-    local kind = sandbox ~= nil and plain == nil and policy_kind(sandbox) or ""
+    local kind = sandbox ~= nil and plain == nil and policy_kind(sandbox) or "" -- checked: and_ternary
     if holder ~= nil and ((plain ~= nil and plain.unveil ~= nil) or
         kind == "rooted" or kind == "isolating" or
         (sandbox == nil and declared_by.confinement ~= nil)) then
       return nil, refuse_nesting(path, holder), sys.EPERM
     end
-    local must = declared_by.confinement ~= nil and declared_by.strict or nil
+    local must = declared_by.confinement ~= nil and declared_by.strict or nil -- checked: and_ternary
     if plain ~= nil and plain.unveil ~= nil and plain.offline == true then
       local pid, trouble, errno = spawn(path, argv, environment, cwd, stdin, stdout, stderr,
         process_group, fds, plain, credentials, terminal)
@@ -1147,9 +1147,9 @@ local function enter(own?: {string}, sandboxed?: boolean): Leave, {string}
         if replace and writes[1] ~= nil then
           given_environment = {}
           for name, value in pairs(environment or asked.environ()) do
-            given_environment[name] = value
+            given_environment[name] = value -- checked: view_written
           end
-          given_environment.TMPDIR = writes[1]
+          given_environment.TMPDIR = writes[1] -- checked: map_field
         end
         -- A portable program's launcher looks for its core in the cache
         -- COSMIC_PORTABLE_CACHE names, and makes the cache there when it
@@ -1171,14 +1171,14 @@ local function enter(own?: {string}, sandboxed?: boolean): Leave, {string}
         -- host has it (the TODO above): only the sandbox's own tests
         -- confine now, but one of them run where COSMIC_PORTABLE_CACHE
         -- is named through a link still needs it.
-        local cache = (given_environment or asked.environ()).COSMIC_PORTABLE_CACHE
-        local leads = cache ~= nil and led_to(cache) or nil
+        local cache = (given_environment or asked.environ()).COSMIC_PORTABLE_CACHE -- checked: map_field
+        local leads = cache ~= nil and led_to(cache) or nil -- checked: and_ternary
         if leads ~= nil and leads ~= cache then
           local renamed: mut {string:string} = {}
           for name, value in pairs(given_environment or asked.environ()) do
             renamed[name] = value
           end
-          renamed.COSMIC_PORTABLE_CACHE = leads
+          renamed.COSMIC_PORTABLE_CACHE = leads -- checked: map_field
           given_environment = renamed
         end
         local pid, trouble, errno = spawn(path, argv, given_environment, start_in, stdin, stdout,
@@ -1223,7 +1223,7 @@ local function enter(own?: {string}, sandboxed?: boolean): Leave, {string}
   entered[#entered + 1] = entry
   return function(): string?
     entry.ended = true
-    process.spawn = spawn
+    process.spawn = spawn -- checked: field_fixed
     for at = #entered, 1, -1 do
       if entered[at] == entry then
         table.remove(entered, at)
@@ -1247,10 +1247,10 @@ end
 function confine.call(fn: function(...: any): (any...), argument?: any, own?: {string},
                       sandboxed?: boolean): confine.Ran
   local leave, heard = enter(own, sandboxed)
-  local ok, produced: boolean, any = pcall(fn, argument)
+  local ok, produced: boolean, any = pcall(fn, argument) -- checked: overload_none -- untyped: call
   local refused = leave()
   if refused ~= nil then
-    produced = ok and refused or refused .. "; and then: " .. tostring(produced)
+    produced = ok and refused or refused .. "; and then: " .. tostring(produced) -- checked: and_ternary
     ok = false
   end
   return { ok = ok, produced = produced, unseen = heard }

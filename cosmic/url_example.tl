@@ -3,7 +3,7 @@
 
 local Url = require("cosmic.url")
 
-local Example = {}
+local Example = {} -- checked: literal_needs_type
 
 --- A file name or a search term goes into a URL escaped, one piece at a
 --- time: the space, `&` and `/` it holds stay data rather than ending
@@ -71,4 +71,4 @@ function Example.resolve()
   assert(Url.resolve("/xl/worksheets/sheet1.xml", "../sharedStrings.xml") == "/xl/sharedStrings.xml")
 end
 
-return Example
+return Example -- checked: export_not_declared

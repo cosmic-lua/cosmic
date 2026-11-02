@@ -28,8 +28,8 @@ local function test_forbid_running_within_refuses_the_program_by_every_name(tmp:
   local sibling = assert(stand_in.build(tmp .. "/sibling/stand-in"))
   local program = confine.itself()[1]
   assert(Fs.mkdirs(tmp .. "/links"))
-  assert(Fs.symlink(program, tmp .. "/links/program"))
-  local within = { Fs.dirname(sibling), tmp .. "/links", Fs.dirname(program) }
+  assert(Fs.symlink(program, tmp .. "/links/program")) -- checked: nil_not_allowed
+  local within = { Fs.dirname(sibling), tmp .. "/links", Fs.dirname(program) } -- checked: nil_not_allowed
   local chunk = string.format([=[
 local Child = require("cosmic.child")
 local confine = require("build.confine")

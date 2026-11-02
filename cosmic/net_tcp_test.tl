@@ -16,8 +16,8 @@ local function test_a_tcp_listener_at_port_zero_names_the_port_it_has()
   assert(address.kind == "tcp" and address.host == "127.0.0.1", address.host)
   local listening = assert(address.port)
   assert(listening > 0 and listening <= 65535, tostring(listening))
-  local client <close> = assert(Net.connect(address, { timeout_ns = Clock.seconds(5) }))
-  local accepted <close> = assert(server:accept())
+  local client <close> = assert(Net.connect(address, { timeout_ns = Clock.seconds(5) })) -- checked: close_not_closable
+  local accepted <close> = assert(server:accept()) -- checked: close_not_closable
   assert(client:write("ping"))
   assert(client:shutdown("write"))
   assert(assert(Stream.read_all(accepted)) == "ping")
@@ -29,10 +29,10 @@ end
 --- `reclaim` is gone for a TCP address too: it raises, naming the
 --- removal, rather than listen without it.
 local function test_listen_refuses_the_removed_reclaim_option_for_a_tcp_address()
-  local options: any = { reclaim = true }
+  local options: any = { reclaim = true } -- checked: any_use
   local address = Net.tcp("127.0.0.1", 0)
   local ok, err: boolean, any = pcall(function()
-    local _, _ = Net.listen(address, options as Net.ListenOptions)
+    local _, _ = Net.listen(address, options as Net.ListenOptions) -- checked: cast_refused
   end)
   assert(not ok and tostring(err):find("^cosmic%.net_tcp_test:%d+: net: ListenOptions.reclaim is gone: ") ~= nil,
     tostring(err))
@@ -41,7 +41,7 @@ end
 --- A TCP listener's `address` is built again by [`Net.tcp`]: the host as
 --- given and the port the kernel chose, with no field of a unix one.
 local function test_a_tcp_listeners_address_is_built_again_from_its_host_and_port()
-  local given = { kind = "tcp", host = "127.0.0.1", port = 0, path = "unused" }
+  local given = { kind = "tcp", host = "127.0.0.1", port = 0, path = "unused" } -- checked: arms_differ
   local server <close> = assert(Net.listen(given))
   local address = server.address
   assert(address.kind == "tcp" and address.host == "127.0.0.1" and assert(address.port) > 0)
@@ -72,11 +72,11 @@ local function test_a_host_that_is_no_address_is_refused()
     listen_why)
   local nul, nul_why = Net.connect(Net.tcp("127.0.0.1\0junk", 1))
   assert(nul == nil and nul_why:find("Invalid argument", 1, true) ~= nil, nul_why)
-  assert(not pcall(Net.connect, { kind = "tcp", host = "127.0.0.1", port = "1" } as Net.Address))
-  assert(not pcall(Net.connect, { kind = "tcp", host = "127.0.0.1", port = 1.5 } as Net.Address))
-  assert(not pcall(Net.connect, Net.tcp("127.0.0.1", 65536)))
-  assert(not pcall(Net.connect, Net.tcp("127.0.0.1", -1)))
-  assert(not pcall(Net.connect, { kind = "tcp", port = 1 } as Net.Address))
+  assert(not pcall(Net.connect, { kind = "tcp", host = "127.0.0.1", port = "1" } as Net.Address)) -- checked: alternatives_as_value, cast_refused
+  assert(not pcall(Net.connect, { kind = "tcp", host = "127.0.0.1", port = 1.5 } as Net.Address)) -- checked: alternatives_as_value, arms_differ, cast_refused
+  assert(not pcall(Net.connect, Net.tcp("127.0.0.1", 65536))) -- checked: alternatives_as_value
+  assert(not pcall(Net.connect, Net.tcp("127.0.0.1", -1))) -- checked: alternatives_as_value
+  assert(not pcall(Net.connect, { kind = "tcp", port = 1 } as Net.Address)) -- checked: alternatives_as_value, arms_differ, cast_refused
 end
 
 --- A connection waits for room at a listener whose backlog is full, as
@@ -151,7 +151,7 @@ end
 --- and on_ready is told the port the kernel chose for one at port 0.
 local function test_a_server_names_what_it_bound_and_serves_every_listener(tmp: string)
   unix_socket.skip_if_refused(tmp)
-  local bound = {} as {Net.Address}
+  local bound = {} as {Net.Address} -- checked: cast_refused, literal_needs_type
   local answers: mut {string} = {}
   assert(Net.serve{
     listeners = { Net.tcp("127.0.0.1", 0), Net.unix(tmp .. "/s.sock") },
@@ -163,7 +163,7 @@ local function test_a_server_names_what_it_bound_and_serves_every_listener(tmp: 
       bound = addresses
       assert(server.addresses == addresses)
       for _, address in ipairs(addresses) do
-        local conn <close> = assert(Net.connect(address, { timeout_ns = Clock.seconds(5) }))
+        local conn <close> = assert(Net.connect(address, { timeout_ns = Clock.seconds(5) })) -- checked: close_not_closable
         assert(conn:write(address.kind .. "\n"))
         local appended = assert(Stream.lines(conn):read())
         answers[#answers + 1] = appended
@@ -180,7 +180,7 @@ end
 
 --- The same for two TCP listeners, which need no socket file.
 local function test_a_server_names_what_it_bound_and_serves_two_tcp_listeners()
-  local bound = {} as {Net.Address}
+  local bound = {} as {Net.Address} -- checked: cast_refused, literal_needs_type
   local answers: mut {string} = {}
   assert(Net.serve{
     listeners = { Net.tcp("127.0.0.1", 0), Net.tcp("127.0.0.1", 0) },
@@ -192,7 +192,7 @@ local function test_a_server_names_what_it_bound_and_serves_two_tcp_listeners()
       bound = addresses
       assert(server.addresses == addresses)
       for _, address in ipairs(addresses) do
-        local conn <close> = assert(Net.connect(address, { timeout_ns = Clock.seconds(5) }))
+        local conn <close> = assert(Net.connect(address, { timeout_ns = Clock.seconds(5) })) -- checked: close_not_closable
         assert(conn:write(address.kind .. "\n"))
         local appended = assert(Stream.lines(conn):read())
         answers[#answers + 1] = appended

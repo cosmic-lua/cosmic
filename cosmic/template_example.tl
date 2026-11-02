@@ -3,7 +3,7 @@
 
 local Template = require("cosmic.template")
 
-local Example = {}
+local Example = {} -- checked: literal_needs_type
 
 --- A template compiles to the source of a Teal module. This one names the
 --- record it takes, `Page` from `site.page`, and renders a string; line N
@@ -121,4 +121,4 @@ function Example.literal()
   assert(not source:find("d.name", 1, true))
 end
 
-return Example
+return Example -- checked: export_not_declared

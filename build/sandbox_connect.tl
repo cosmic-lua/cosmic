@@ -166,7 +166,7 @@ end
 --- `text` with each `%XX` replaced by its byte.
 local function percent_decoded(text: string): string
   return (text:gsub("%%(%x%x)", function(hex: string): string
-    return string.char(tonumber(hex, 16))
+    return string.char(tonumber(hex, 16)) -- checked: nil_not_allowed
   end))
 end
 
@@ -195,7 +195,7 @@ local function proxy_of(io: sandbox_connect.Io): Proxy?, string
     return nil, "the userinfo of ALL_PROXY is not user:token (the token is the password, percent-encoded)"
   end
   user = percent_decoded(user)
-  return { port = port, user = user ~= "" and user or "cosmic", password = percent_decoded(password) }, ""
+  return { port = port, user = user ~= "" and user or "cosmic", password = percent_decoded(password) }, "" -- checked: and_ternary, nil_not_allowed
 end
 
 --- Passes standard input to `conn` and `conn` to standard output, `first`
@@ -215,7 +215,7 @@ local function carry(conn: Net.Conn, first: string, io: sandbox_connect.Io, trac
     while true do
       trace("up: waiting for standard input")
       local data, why = io.read()
-      trace("up: read " .. (data ~= nil and plural.count(#data, "byte") or "failed: " .. tostring(why)))
+      trace("up: read " .. (data ~= nil and plural.count(#data, "byte") or "failed: " .. tostring(why))) -- checked: and_ternary
       if data == nil then
         return fail("standard input: " .. why)
       end
@@ -245,7 +245,7 @@ local function carry(conn: Net.Conn, first: string, io: sandbox_connect.Io, trac
       end
       trace("down: waiting for the relay")
       local more, why = conn:read(CHUNK)
-      trace("down: read " .. (more ~= nil and plural.count(#more, "byte") or "end or failure: " .. tostring(why)))
+      trace("down: read " .. (more ~= nil and plural.count(#more, "byte") or "end or failure: " .. tostring(why))) -- checked: and_ternary
       if more == nil then
         if why ~= "" then return fail("reading from the relay: " .. why) end
         -- The far side has ended what it sends: ours hears it as the end of

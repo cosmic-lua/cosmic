@@ -60,7 +60,7 @@ local function test_wait_then_drain_prefers_known_eof_to_exact_limit()
   assert(assert(h:wait()).ok)
   local out = Stream.collect()
   local got = h:drain(options(out, 4))
-  assert(got ~= nil and got.kind == "eof" and got.bytes == 4 and got.reason == "")
+  assert(got ~= nil and got.kind == "eof" and got.bytes == 4 and got.reason == "") -- checked: compare_disjoint
   assert(out:result() == "abcd")
 end
 
@@ -70,7 +70,7 @@ local function test_zero_timeout_copies_one_round_without_waiting()
   assert(assert(h:wait()).ok)
   local out = Stream.collect()
   local got = h:drain(options(out, 262144, 0))
-  assert(got ~= nil and got.kind == "timeout" and got.bytes > 0 and got.bytes <= 65536)
+  assert(got ~= nil and got.kind == "timeout" and got.bytes > 0 and got.bytes <= 65536) -- checked: compare_disjoint
   assert(finish(h, options(out)) + got.bytes == 131072)
   assert(out:result() == string.rep("x", 131072))
 end
@@ -79,7 +79,7 @@ local function test_deadline_keeps_the_child_running()
   local h <close> = start('assert(require("cosmic.fs").take(0, 1))',
     { stdin = "stream", stdout = "stream" })
   local got = h:drain(options(Stream.collect(), nil, Clock.ms(10)))
-  assert(got ~= nil and got.kind == "timeout" and got.bytes == 0)
+  assert(got ~= nil and got.kind == "timeout" and got.bytes == 0) -- checked: compare_disjoint
   assert(not assert(h:try_wait()).finished)
   assert(assert(h.stdin_stream):close())
   assert(h:drain(options(Stream.collect())).kind == "eof")
@@ -105,11 +105,11 @@ assert(guard:release() ~= 0)]])
   assert(data == nil and old ~= "")
   local out = Stream.collect()
   local got = h:drain(options(out))
-  assert(got ~= nil and got.kind == "interrupted" and got.bytes == 0)
+  assert(got ~= nil and got.kind == "interrupted" and got.bytes == 0) -- checked: compare_disjoint
   assert(guard:take() == sys.SIGTERM)
   assert(sys.kill(sys.getpid(), sys.SIGTERM))
   got = h:drain(options(out))
-  assert(got ~= nil and got.kind == "interrupted" and got.bytes == 0)
+  assert(got ~= nil and got.kind == "interrupted" and got.bytes == 0) -- checked: compare_disjoint
   assert(guard:take() == sys.SIGTERM)
   assert(h:stop(sys.SIGTERM))
   assert(finish(h, options(out)) == 4 and out:result() == "last")
@@ -123,12 +123,12 @@ local function test_invalid_bounds_and_sink_mapping_consume_nothing()
   local h <close> = start('assert(require("cosmic.fs").put(1, "safe"))')
   local out = Stream.collect()
   for _, bad in ipairs({
-      { stdout = out, max_bytes = 0, timeout_ns = 0 },
-      { stdout = out, max_bytes = 4, timeout_ns = -1 },
-      { stderr = out, max_bytes = 4, timeout_ns = 0 },
-      { stdout = out, stderr = out, max_bytes = 4, timeout_ns = 0 },
+      { stdout = out, max_bytes = 0, timeout_ns = 0 }, -- checked: arms_differ
+      { stdout = out, max_bytes = 4, timeout_ns = -1 }, -- checked: arms_differ
+      { stderr = out, max_bytes = 4, timeout_ns = 0 }, -- checked: arms_differ
+      { stdout = out, stderr = out, max_bytes = 4, timeout_ns = 0 }, -- checked: arms_differ
   }) do
-    assert(not pcall(function() h:drain(bad) end))
+    assert(not pcall(function() h:drain(bad) end)) -- checked: alternatives_as_value
   end
   assert(finish(h, options(out)) == 4 and out:result() == "safe")
 end
@@ -138,24 +138,24 @@ local function test_explicit_reader_and_handle_close_refuse_drain()
     local h <close> = start('return 0')
     if reader_close then assert(assert(h.stdout_stream):close()) else assert(h:close()) end
     local got = h:drain(options(Stream.collect()))
-    assert(got ~= nil and got.kind == "failed" and got.reason:find("closed", 1, true))
+    assert(got ~= nil and got.kind == "failed" and got.reason:find("closed", 1, true)) -- checked: compare_disjoint, or_mix
   end
 end
 
 local function test_sink_failure_is_not_replayed_and_borrowed_sink_stays_open()
   local h <close> = start('assert(require("cosmic.fs").put(1, "abcdef"))')
   local sink = Stream.collect()
-  local original = sink.write
+  local original = sink.write -- checked: interface_method_value
   local writes: integer = 0
-  sink.write = function(self: Stream.Collector, bytes: string): boolean, string
+  sink.write = function(self: Stream.Collector, bytes: string): boolean, string -- checked: field_fixed
     writes = writes + 1
     assert(original(self, bytes:sub(1, 1)))
     return false, "sink: full"
   end
   local got = h:drain(options(sink))
-  assert(got ~= nil and got.kind == "failed" and got.reason == "sink: full" and got.bytes == 6)
+  assert(got ~= nil and got.kind == "failed" and got.reason == "sink: full" and got.bytes == 6) -- checked: compare_disjoint
   assert(h:drain(options(sink)).reason == "sink: full" and writes == 1)
-  sink.write = original
+  sink.write = original -- checked: field_fixed
   assert(sink:write("still open"))
   assert(sink:result() == "astill open")
 end
@@ -242,8 +242,8 @@ local function test_a_parked_drain_refuses_another_read_and_drain()
   Poll.run(function()
     local task = Poll.spawn(function() h:drain(options(Stream.collect())) end)
     assert(Poll.delay(0))
-    assert(not pcall(function() assert(h.stdout_stream):read() end))
-    assert(not pcall(function() h:drain(options(Stream.collect(), nil, 0)) end))
+    assert(not pcall(function() assert(h.stdout_stream):read() end)) -- checked: alternatives_as_value
+    assert(not pcall(function() h:drain(options(Stream.collect(), nil, 0)) end)) -- checked: alternatives_as_value
     task:kill()
     assert(assert(h.stdin_stream):close())
     local data, why = assert(h.stdout_stream):read()
@@ -254,13 +254,13 @@ end
 local function test_a_raising_sink_closes_inputs_and_releases_ownership()
   local h <close> = start('assert(require("cosmic.fs").put(1, "abcdef"))')
   local sink = Stream.collect()
-  local write = sink.write
-  sink.write = function(_self: Stream.Collector, _data: string): boolean, string
+  local write = sink.write -- checked: interface_method_value
+  sink.write = function(_self: Stream.Collector, _data: string): boolean, string -- checked: field_fixed
     error("writer raised")
   end
   Test.raises(function() h:drain(options(sink)) end, "writer raised")
   assert(h:drain(options(sink)).kind == "failed")
-  sink.write = write
+  sink.write = write -- checked: field_fixed
   assert(sink:write("open"))
 end
 
@@ -268,7 +268,7 @@ local function test_killing_a_task_in_a_yielding_sink_releases_ownership()
   local h <close> = start('assert(require("cosmic.fs").put(1, "abcdef"))')
   local sink = Stream.collect()
   local writing: boolean = false
-  sink.write = function(_self: Stream.Collector, _data: string): boolean, string
+  sink.write = function(_self: Stream.Collector, _data: string): boolean, string -- checked: field_fixed
     writing = true
     return Poll.delay(Clock.seconds(10))
   end
@@ -284,10 +284,10 @@ end
 
 local function test_saved_source_failure_follows_prefix_and_wins_at_exact_limit()
   local h <close> = start('assert(require("cosmic.fs").put(1, "abcdef"))')
-  local fd = assert(h._streams)[1].fd
+  local fd = assert(h._streams)[1].fd -- checked: nil_not_allowed
   local read = sys.read
   local seen: boolean = false
-  sys.read = function(which: integer, count: integer): string?, string, integer
+  sys.read = function(which: integer, count: integer): string?, string, integer -- checked: field_fixed
     if which == fd and seen then
       return nil, "read: cancelled-looking real error", sys.EBADF
     end
@@ -296,7 +296,7 @@ local function test_saved_source_failure_follows_prefix_and_wins_at_exact_limit(
     return data, why, errno
   end
   local ok, why: boolean, any = pcall(function() assert(assert(h:wait()).ok) end)
-  sys.read = read
+  sys.read = read -- checked: field_fixed
   assert(ok, tostring(why))
   local out = Stream.collect()
   local first = h:drain(options(out, 2))
@@ -323,7 +323,7 @@ local Fs = require("cosmic.fs")
 assert(Fs.close(1)) assert(Fs.take(0, 1))]],
     { stdin = "stream", stdout = "stream" })
   local got = h:drain(options(Stream.collect()))
-  assert(got ~= nil and got.kind == "eof")
+  assert(got ~= nil and got.kind == "eof") -- checked: compare_disjoint
   assert(not assert(h:try_wait()).finished)
 end
 
@@ -353,7 +353,7 @@ end
 local function test_silent_escaped_writer_obeys_deadline_without_ending_child()
   local h <close> = escaped('require("cosmic.clock").sleep_ns(require("cosmic.clock").seconds(10))')
   local got = h:drain(options(Stream.collect(), nil, Clock.ms(20)))
-  assert(got ~= nil and got.kind == "timeout" and got.bytes == 0)
+  assert(got ~= nil and got.kind == "timeout" and got.bytes == 0) -- checked: compare_disjoint
   Child.end_strays()
   assert(assert(h:wait()).ok)
 end
@@ -361,9 +361,9 @@ end
 local function test_a_single_write_never_exceeds_the_chunk_bound()
   local h <close> = start('assert(require("cosmic.fs").put(1, string.rep("x", 262144)))')
   local sink = Stream.collect()
-  local original = sink.write
+  local original = sink.write -- checked: interface_method_value
   local biggest: integer = 0
-  sink.write = function(self: Stream.Collector, bytes: string): boolean, string
+  sink.write = function(self: Stream.Collector, bytes: string): boolean, string -- checked: field_fixed
     biggest = math.max(biggest, #bytes)
     return original(self, bytes)
   end
@@ -428,7 +428,7 @@ local function test_reader_abandonment_of_escaped_writer_is_not_drain_eof()
   local data, why = reader:read()
   assert(data == nil and why == "")
   local got = h:drain(options(Stream.collect()))
-  assert(got ~= nil and got.kind == "failed" and got.reason == "child: the reader is closed")
+  assert(got ~= nil and got.kind == "failed" and got.reason == "child: the reader is closed") -- checked: compare_disjoint
   data, why = reader:read()
   assert(data == nil and why == "", "ordinary Reader retains its legacy EOF")
   Child.end_strays()
@@ -438,13 +438,13 @@ local function test_sink_cannot_change_the_calls_validated_bounds()
   local h <close> = start('assert(require("cosmic.fs").put(1, "abcdefghi"))')
   local sink = Stream.collect()
   local opts = options(sink, 3)
-  local write = sink.write
-  sink.write = function(self: Stream.Collector, bytes: string): boolean, string
-    opts.max_bytes, opts.timeout_ns = 0, 0
+  local write = sink.write -- checked: interface_method_value
+  sink.write = function(self: Stream.Collector, bytes: string): boolean, string -- checked: field_fixed
+    opts.max_bytes, opts.timeout_ns = 0, 0 -- checked: field_fixed*2
     return write(self, bytes)
   end
   local got = h:drain(opts)
-  assert(got ~= nil and got.kind == "limit" and got.bytes == 3 and sink:result() == "abc")
-  sink.write = write
+  assert(got ~= nil and got.kind == "limit" and got.bytes == 3 and sink:result() == "abc") -- checked: compare_disjoint
+  sink.write = write -- checked: field_fixed
   assert(finish(h, options(sink)) == 6 and sink:result() == "abcdefghi")
 end

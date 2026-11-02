@@ -181,7 +181,7 @@ local function rows_of(value: any): dataset.Rows?, string
         local _, trouble = Json.to_array(value)
         return nil, trouble
       end
-      rows[index] = row
+      rows[index] = row -- checked: view_written
     end
     return rows, ""
   end
@@ -189,7 +189,7 @@ local function rows_of(value: any): dataset.Rows?, string
   if row == nil then
     return nil, why
   end
-  rows[1] = row
+  rows[1] = row -- checked: view_written
   return rows, ""
 end
 
@@ -255,9 +255,9 @@ local function delimited(name: string, delimiter: string): function(text: string
     for index, record in ipairs(made.rows) do
       local row: dataset.Row = {}
       for key, cell in pairs(record) do
-        row[key] = opts.raw and cell or cell_of(cell)
+        row[key] = opts.raw and cell or cell_of(cell) -- checked: condition_type, view_written
       end
-      rows[index] = row
+      rows[index] = row -- checked: view_written
     end
     return rows, ""
   end

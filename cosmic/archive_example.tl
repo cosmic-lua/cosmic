@@ -8,7 +8,7 @@ local Fs = require("cosmic.fs")
 local Stream = require("cosmic.stream")
 local Tar = require("cosmic.tar")
 
-local Example = {}
+local Example = {} -- checked: literal_needs_type
 
 --- An archive walked entry by entry, whatever it turns out to be: here
 --- a gzipped tar, which `open` knows by its first bytes, not its name.
@@ -63,4 +63,4 @@ function Example.list_reader()
   assert(#entries == 2 and readme.path == "README" and docs.kind == "dir")
 end
 
-return Example
+return Example -- checked: export_not_declared

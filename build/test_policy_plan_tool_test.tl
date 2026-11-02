@@ -97,8 +97,8 @@ local function test_a_plan_rebound_to_another_scratch_is_the_plan_made_for_it(tm
     for path in pairs(fresh.runs) do assert(rebound.runs[path], path) end
     assert(not support.holds((assert(rebound.sandbox.unveil).writes or {}), first))
     -- Changing the copy leaves the plan it came from alone.
-    table.insert(assert(rebound.sandbox.unveil).reads, "/changed")
-    rebound.env.CHANGED = "yes"
+    table.insert(assert(rebound.sandbox.unveil).reads, "/changed") -- checked: overload_none
+    rebound.env.CHANGED = "yes" -- checked: map_field
     assert(not support.holds(assert(made.sandbox.unveil).reads, "/changed") and made.env["CHANGED"] == nil)
   end
 end
@@ -157,12 +157,12 @@ end
     return
   end
   assert(Fs.mkdirs(tmp .. "/beside/ci"))
-  assert(Fs.symlink(launched.argv[3], tmp .. "/beside/cosmic"))
+  assert(Fs.symlink(launched.argv[3], tmp .. "/beside/cosmic")) -- checked: index_may_be_nil
   local started = this_program.program({ "-e", script })
   local root, scratch = tmp .. "/beside/ci", scratch_in(tmp)
   local env = started.options.env or {}
-  env.ROOT, env.SCRATCH, env.PATH = root, scratch, "/usr/bin:/bin"
-  env.ARTIFACT = launched.argv[3]
+  env.ROOT, env.SCRATCH, env.PATH = root, scratch, "/usr/bin:/bin" -- checked: map_field*3
+  env.ARTIFACT = launched.argv[3] -- checked: map_field
   local options = { ...started.options, env = env, stdout = "capture", stderr = "capture",
     timeout_ns = Clock.seconds(60), cwd = tmp .. "/beside/ci", fds = nil }
   -- The launcher names the artifact by where it was started from: $PWD/$0.
@@ -196,12 +196,12 @@ local function test_a_plan_for_a_nesting_worker_grants_the_artifact_only_with_st
   local plain = test_sandbox.plan(root, scratch, bare, {})
   local with = test_sandbox.plan(root, scratch, storing, {})
   assert(with.trouble == "", with.trouble)
-  assert(support.holds(assert(with.sandbox.unveil).reads, artifact), table.concat(assert(with.sandbox.unveil).reads, " "))
-  assert(with.runs[artifact] ~= true, "the artifact is read, not run")
-  assert(not support.holds(assert(plain.sandbox.unveil).reads, artifact),
+  assert(support.holds(assert(with.sandbox.unveil).reads, artifact), table.concat(assert(with.sandbox.unveil).reads, " ")) -- checked: nil_not_allowed
+  assert(with.runs[artifact] ~= true, "the artifact is read, not run") -- checked: nil_not_allowed
+  assert(not support.holds(assert(plain.sandbox.unveil).reads, artifact), -- checked: nil_not_allowed
     table.concat(assert(plain.sandbox.unveil).reads, " "))
-  assert(test_policy.worker(plain, bare) ~= nil)
-  assert(test_policy.worker(with, storing) ~= nil)
+  assert(test_policy.worker(plain, bare) ~= nil) -- checked: compare_disjoint
+  assert(test_policy.worker(with, storing) ~= nil) -- checked: compare_disjoint
 end
 
 --- A worker whose module declares nothing that puts a directory of the host

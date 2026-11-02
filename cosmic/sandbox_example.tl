@@ -6,7 +6,7 @@ local Proc = require("cosmic.proc")
 local Sandbox = require("cosmic.sandbox")
 local sys = require("cosmic.sys")
 
-local Example = {}
+local Example = {} -- checked: literal_needs_type
 
 --- Two policies joined: the letters of a path are summed in the order of
 --- "rwxcu", the lists are unions without repeats, and two different
@@ -52,4 +52,4 @@ function Example.loaders()
   assert(Fs.remove_tree(dir))
 end
 
-return Example
+return Example -- checked: export_not_declared

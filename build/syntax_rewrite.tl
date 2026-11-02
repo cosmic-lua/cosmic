@@ -50,7 +50,7 @@ end
 function Rewrite.find_all(pattern: Match.Pattern, chunk: Ast.Chunk): {Match.Hit}
   local hits = Match.find_all(pattern, chunk, chunk)
   -- An outer node comes before one it holds that starts at the same token: its id is lower.
-  table.sort(hits, function(a: Match.Hit, b: Match.Hit): boolean
+  table.sort(hits, function(a: Match.Hit, b: Match.Hit): boolean -- checked: overload_none -- untyped: call
     local af, bf = Node.base(a.node).first, Node.base(b.node).first
     if af ~= bf then
       return af < bf
@@ -103,9 +103,9 @@ local function find_name(text: string, name: string, init: integer): integer?, i
     if a == nil or b == nil then
       return nil, nil
     end
-    local before = a > 1 and text:sub(a - 1, a - 1) or ""
-    local after = b < #text and text:sub(b + 1, b + 1) or ""
-    if not before:match("[%w_]") and not after:match("[%w_]") then
+    local before = a > 1 and text:sub(a - 1, a - 1) or "" -- checked: and_ternary
+    local after = b < #text and text:sub(b + 1, b + 1) or "" -- checked: and_ternary
+    if not before:match("[%w_]") and not after:match("[%w_]") then -- untyped: call*2
       return a, b
     end
     pos = a + 1

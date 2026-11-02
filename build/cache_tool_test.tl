@@ -16,7 +16,7 @@ Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx
 
 local function run(dir: string, words: {string}): Child.Result
   local env = this_program.environment()
-  env.COSMIC_TREE = dir .. "/does-not-exist"
+  env.COSMIC_TREE = dir .. "/does-not-exist" -- checked: map_field
   local started = this_program.program(words, { cwd = dir, env = env,
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(10) })
   return (assert(Child.run(started.argv, started.options)))
@@ -50,7 +50,7 @@ local function test_busy_cache_cancellation_is_prompt_and_preserves_file(tmp: st
   assert(result.timed_out, "the live writer must block maintenance")
   assert(Fs.stat(path) ~= nil)
   db = assert(Sqlite.open(path))
-  assert(assert(Sqlite.text_rows(db, "SELECT value FROM untouched"))[1]:text(1) == "keep")
+  assert(assert(Sqlite.text_rows(db, "SELECT value FROM untouched"))[1]:text(1) == "keep") -- checked: nil_not_allowed
   assert(db:close())
 end
 

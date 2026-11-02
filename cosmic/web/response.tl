@@ -40,7 +40,7 @@ end
 --- Sets header `name` of `res` to a string or a list, replacing the
 --- header in any case; the first of the two helpers below.
 local function put(res: Types.Response, name: string, value: string | {string})
-  local headers: mut {string: string | {string}} = res.headers or {}
+  local headers: mut {string: string | {string}} = res.headers or {} -- checked: view_as_mut
   res.headers = headers
   local want = name:lower()
   local stale: mut {string} = {}
@@ -128,7 +128,7 @@ end
 --- @param name string The header's name
 --- @param value string The line to add
 function Response.add_header(res: Types.Response, name: string, value: string)
-  local headers: mut {string: string | {string}} = res.headers or {}
+  local headers: mut {string: string | {string}} = res.headers or {} -- checked: view_as_mut
   res.headers = headers
   local key = key_of(headers, name)
   if name:lower() == "vary" then
@@ -171,7 +171,7 @@ function Response.add_header(res: Types.Response, name: string, value: string)
   elseif old is string then
     headers[key] = { old, value }
   else
-    old[#old + 1] = value
+    old[#old + 1] = value -- checked: view_written
   end
 end
 
@@ -344,12 +344,12 @@ end
 function Response.problem(status: integer, detail?: string, extra?: {string:any}): Types.Response
   check_status(status, 3)
   local reason = Server.reason(status)
-  local body: mut {string:any} = { type = "about:blank", title = reason ~= "" and reason or "Error" }
+  local body: mut {string:any} = { type = "about:blank", title = reason ~= "" and reason or "Error" } -- checked: and_ternary, any_use
   if extra ~= nil then
     for name, value in pairs(extra) do body[name] = value end
   end
-  body.status = status
-  body.detail = detail
+  body.status = status -- checked: map_field
+  body.detail = detail -- checked: map_field
   local text, why = Json.encode_any(body)
   if text == nil then error("web: problem: " .. unprefixed(why), 2) end
   return { status = status, headers = { ["Content-Type"] = "application/problem+json",
@@ -376,12 +376,12 @@ end
 --- @param err any What was raised
 --- @return Response.Abort | nil The abort
 function Response.aborted(err: any): Response.Abort?
-  if not (err is {string:any} and err.web_abort == true) then return nil end
-  local status, detail, extra = err.status, err.detail, err.extra
+  if not (err is {string:any} and err.web_abort == true) then return nil end -- checked: is_on_record, map_field
+  local status, detail, extra = err.status, err.detail, err.extra -- checked: map_field*3
   if not status is integer then return nil end
   local abort: Response.Abort = { web_abort = true, status = status }
-  if detail is string then abort.detail = detail end
-  if extra is {string:any} then abort.extra = extra end
+  if detail is string then abort.detail = detail end -- checked: field_fixed
+  if extra is {string:any} then abort.extra = extra end -- checked: field_fixed
   return abort
 end
 

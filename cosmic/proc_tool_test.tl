@@ -54,7 +54,7 @@ local function test_exec_hands_on_sigpipe_at_its_default(tmp: string)
     Test.skip("a native start has nothing to relaunch")
     return
   end
-  if not Fs.exists("/proc/self/status") then
+  if not Fs.exists("/proc/self/status") then -- checked: condition_type
     Test.skip("this host has no /proc/self/status to ask")
     return
   end
@@ -102,7 +102,7 @@ local function becomes(tmp: string, probe: string, exec: string): string
   local chunk = 'local Proc = require("cosmic.proc")\nlocal probe = ...\nif probe == nil then return 2 end\n' ..
     "local _, trouble = " .. exec .. "\nprint(trouble)\nrequire(\"cosmic.sys\").exit(1)\n"
   local env = this_program.environment()
-  env.FOO = "outer"
+  env.FOO = "outer" -- checked: map_field
   local started = this_program.program({ "-e", chunk, probe }, { env = env, cwd = tmp,
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
   local r = assert(Child.run(started.argv, started.options))
@@ -125,7 +125,7 @@ local function test_exec_takes_argv_and_the_whole_environment(tmp: string)
   assert(replaced == "FOO unset\n", replaced)
   local inherited = becomes(tmp, probe, 'Proc.exec({ probe, "env-of FOO" })')
   assert(inherited == "FOO=outer\n", inherited)
-  assert(not pcall(Proc.exec, {}))
+  assert(not pcall(Proc.exec, {})) -- checked: alternatives_as_value
   local missing = tmp .. "/missing"
   local failed, trouble = Proc.exec({ missing, "x" })
   assert(not failed and trouble:find(missing .. ": ", 1, true) == 1, trouble)

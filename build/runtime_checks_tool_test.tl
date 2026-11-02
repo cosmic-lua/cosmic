@@ -86,8 +86,8 @@ local function invoke(root: string, tmp: string, words: {string}, extra?: {strin
   local output = tmp .. "/out." .. tostring(Clock.monotonic_ns())
   local fd = assert(Fs.open_write(output))
   local env = this_program.environment()
-  env.COSMIC_TEST_SANDBOX = "0"
-  env.TMPDIR = tmp
+  env.COSMIC_TEST_SANDBOX = "0" -- checked: map_field
+  env.TMPDIR = tmp -- checked: map_field
   for name, value in pairs(extra or {}) do env[name] = value end
   local started = this_program.program(words, {
     cwd = root, env = env, stdout = fd, stderr = fd,
@@ -125,7 +125,7 @@ local function test_a_checked_run_reports_a_false_value_and_changes_no_verdict(t
   local rows = violations(root)
   assert(#rows == 1, tostring(#rows) .. " rows")
   assert(table.concat(rows[1]:texts(), " | ") == "parameter | greet_test.tl:5 | parameter name of function (greet.tl:6) | string|nil | integer | 1",
-    table.concat(rows[1]:texts(), " | "))
+    table.concat(rows[1]:texts(), " | ")) -- checked: nil_not_allowed
 
   -- The same variable asks for the same.
   local variable, variable_text = invoke(root, tmp, { "test" }, { COSMIC_TEST_CHECK_TYPES = "1" })

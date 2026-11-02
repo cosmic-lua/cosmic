@@ -1335,7 +1335,7 @@ local function binding_call_in(run: Run, body: Ast.Block): string?
     end
     if object ~= nil and name ~= nil and fallible_type(callee_fn(run, n)) then
       local decl = Report.decl_of(run.subject.types[Node.base(object).id])
-      local module = decl ~= nil and tables[decl] or nil
+      local module = decl ~= nil and tables[decl] or nil -- checked: and_ternary
       if module ~= nil then
         return module .. "." .. name
       end
@@ -1592,7 +1592,7 @@ local function check_modes(run: Run)
       return nil
     elseif (at.kind == "Name") then
       local scope = scope_binding(at.text)
-      local held = scope ~= nil and holding[Node.base(scope).id] or nil
+      local held = scope ~= nil and holding[Node.base(scope).id] or nil -- checked: and_ternary
       return held ~= nil and held[at.text] or nil
     elseif (at.kind == "Field") then
       local decl = Report.decl_of(subject.types[Node.base(at.object).id])
@@ -1668,7 +1668,7 @@ local function check_modes(run: Run)
         for i, argument in ipairs(n.args) do
           local field = field_of(argument)
           local param = params[i]
-          local pname = param ~= nil and param.name or nil
+          local pname = param ~= nil and param.name or nil -- checked: and_ternary
           if field ~= nil and pname ~= nil then
             bind(fn, pname.name, field)
           end

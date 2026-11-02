@@ -91,7 +91,7 @@ local function body_span(chunk: Ast.Chunk, body: Ast.Block, rets: Ast.Rets?, lit
       Lexer.x(tokens, closer) - Lexer.x(tokens, opener) <= #NEVER_BODY then
     return nil
   end
-  return { first = opener, last = closer - 1, instead = never and NEVER_BODY or nil }
+  return { first = opener, last = closer - 1, instead = never and NEVER_BODY or nil } -- checked: and_ternary
 end
 
 --- The bodies of `stat` left out, in source order. What a body left out holds is not walked.
@@ -348,7 +348,7 @@ local function reached(program: Declarations.Program, module: string): Reached
   local out: Reached = { decls = {}, order = {}, value = "", statics = {} }
   local seen: mut {integer: boolean} = {}
   local add: function(d: Types.Decl)
-  local function walk(t: Types.Type)
+  local function walk(t: Types.Type) -- checked: not_assigned
     if seen[t.id] == true then
       return
     end

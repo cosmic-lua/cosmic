@@ -3,7 +3,7 @@
 
 local Html = require("cosmic.html")
 
-local Example = {}
+local Example = {} -- checked: literal_needs_type
 
 --- Text from a user is escaped, so markup in it is shown, not run.
 function Example.escape()
@@ -76,4 +76,4 @@ function Example.concat()
   assert(Html.raw(list) == "<ul><li>Fish &amp; Chips</li><li>Bread &lt;3</li></ul>")
 end
 
-return Example
+return Example -- checked: export_not_declared

@@ -37,6 +37,7 @@ local function failure(value: any, err: string, what?: string): string
   return err
 end
 
+-- checked: cast_refused
 local DOC <const> = assert(Json.decode([[{
   "users": [{"name": "ada", "tags": ["x", "y"]}, {"name": "bob"}],
   "a/b": 1, "m~n": 2, "": 3, "it's": 4, "nil": null
@@ -97,7 +98,7 @@ local function test_get_follows_steps_and_counts_back_from_the_end()
   assert(failure(Json.get(DOC, { "users", "name" })) == 'json: the value at pointer "/users" is an array, not an object')
   assert(failure(Json.get(DOC, { 1 })) == 'json: the value at pointer "" is an object, not an array')
   assert(failure(Json.get(DOC, { "it's", "x" })) == 'json: the value at pointer "/it\'s" is number, not an array or object')
-  assert(failure(Json.get({ 1, a = 2 }, { 1 })) == 'json: the value at pointer "" is a table with mixed keys, not an array')
+  assert(failure(Json.get({ 1, a = 2 }, { 1 })) == 'json: the value at pointer "" is a table with mixed keys, not an array') -- checked: literal_shape
 end
 
 local function test_a_normalized_path_counts_from_0()
@@ -205,30 +206,30 @@ local function test_select_answers_the_rfc_examples()
     "what a selector does not find selects nothing")
   local found = run("$..book[0]")
   assert(#found == 1 and Json.path(found[1].steps) == "$['store']['book'][0]")
-  assert(found[1].steps[3] == 1, "a match's steps count from 1")
+  assert(found[1].steps[3] == 1, "a match's steps count from 1") -- checked: nil_not_allowed
 end
 
 local function test_select_refuses_what_is_not_json()
   local loop: {string: any} = {}
-  loop.self = loop
+  loop.self = loop -- checked: map_field
   local _, cycle = Json.select(loop, (assert(Json.query("$..x"))), { max_depth = 5 })
   assert(cycle == 'json: a value nests deeper than 5 levels at pointer "/self/self/self/self/self" ' ..
       "(does it contain itself?)", cycle)
-  local _, mixed = Json.select({ a = { 1, b = 2 } }, (assert(Json.query("$.a[0]"))))
+  local _, mixed = Json.select({ a = { 1, b = 2 } }, (assert(Json.query("$.a[0]")))) -- checked: literal_shape
   assert(mixed == 'json: the value at pointer "/a" is a table with mixed keys', mixed)
   local everything = assert(Json.query("$"))
-  assert(not pcall(function() Json.select({}, everything, { max_depth = 0 }) end), "a depth below 1 raises")
+  assert(not pcall(function() Json.select({}, everything, { max_depth = 0 }) end), "a depth below 1 raises") -- checked: alternatives_as_value, literal_needs_type
 end
 
 --- A table with a hole counts from its highest position, as its
 --- elements do; a step of 0, or that is no step, is named.
 local function test_steps_count_from_a_holes_highest_position()
-  local holed: {any: any} = { [1] = "a", [3] = "c" }
+  local holed: {any: any} = { [1] = "a", [3] = "c" } -- declared: key_type
   assert(Json.get(holed, { -1 }) == "c" and Json.get(holed, { -3 }) == "a")
   local last = assert(Json.select(holed, (assert(Json.query("$[-1]")))))
   assert(#last == 1 and last[1].value == "c" and last[1].steps[1] == 3)
   assert(failure(Json.get(holed, { 0 })) == "json: step 1 is 0: positions count from 1, or from -1 at the end")
-  assert(failure(Json.get(holed, { 1.5 } as Json.Steps)) == "json: step 1 is 1.5, neither a name nor an integer")
+  assert(failure(Json.get(holed, { 1.5 } as Json.Steps)) == "json: step 1 is 1.5, neither a name nor an integer") -- checked: cast_refused
   assert(failure(Json.path({ "\xff" })) == "json: step 1 is a name that is not UTF-8")
   assert(failure(Json.pointer({ "a", "\xff" })) == "json: step 2 is a name that is not UTF-8")
 end
@@ -247,7 +248,7 @@ local function test_a_long_place_is_named_by_its_innermost_part()
   assert(got == 'json: the value at pointer ending "/' .. string.rep("k", 40) .. '..." is number, not an array or object',
     got)
   local loop: {string: any} = {}
-  loop.self = loop
+  loop.self = loop -- checked: map_field
   local _, cycle = Json.select(loop, (assert(Json.query("$..x"))), { max_depth = 100 })
   assert(cycle:match('^json: a value nests deeper than 100 levels at pointer ending "/self/') and #cycle < 300, cycle)
   local _, del = Json.encode_any({ ["a\127"] = print })

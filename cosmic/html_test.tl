@@ -21,19 +21,19 @@ local function untyped(value: any): any
 end
 
 local function metatable_of(value: any): any
-  return getmetatable(value)
+  return getmetatable(value) -- checked: any_use
 end
 
 --- Calls `f` with `...` as the checker would not allow: whatever it is
 --- declared to take.
 local function attempt(f: any, ...: any): boolean, any
-  return pcall(f as Call, ...) -- cast: a function of the core's, called past its declaration
+  return pcall(f as Call, ...) -- cast: a function of the core's, called past its declaration -- checked: cast_refused, not_assignable
 end
 
 --- Runs the Lua `body` on `...`, for an operator the checker refuses.
 local function lua(body: string, ...: any): boolean, any
   local chunk = assert(load(body))
-  return pcall(chunk as Call, ...) -- cast: the chunk is untyped Lua
+  return pcall(chunk as Call, ...) -- cast: the chunk is untyped Lua -- checked: cast_refused, not_assignable
 end
 
 local function test_escape_replaces_the_five_characters()
@@ -91,8 +91,8 @@ end
 
 --- Nothing but `raw` reaches the string: a safe value has no operator.
 --- A table of the values given, as a sequence, with its type forgotten.
-local function table_of(...: any): {any: any}
-  local out: mut {any: any} = {}
+local function table_of(...: any): {any: any} -- declared: key_type
+  local out: mut {any: any} = {} -- declared: key_type
   for index, value in ipairs({ ... }) do out[index] = value end
   return out
 end
@@ -114,7 +114,7 @@ local function test_concat_refuses_a_table_that_is_no_sequence()
   for name, parts in pairs({ holes = holes, extra = extra, sparse = sparse,
       negative = negative, float = float }) do
     local ok, why = attempt(Html.concat, parts)
-    assert(not ok and tostring(why):find("parts is not a sequence", 1, true), name .. ": " .. tostring(why))
+    assert(not ok and tostring(why):find("parts is not a sequence", 1, true), name .. ": " .. tostring(why)) -- checked: or_mix
   end
   assert(Html.raw(Html.concat({ a, b })) == "ab")
 end
@@ -131,12 +131,12 @@ local function test_a_safe_value_has_no_string_behavior()
     assert(not lua("return (...).x", value))
     assert(not lua("return (...).raw", value))
     assert(not lua("return (...) < (...)", value))
-    assert(lua("return (...) == 'x'", value) and not select(2, lua("return (...) == 'x'", value)))
+    assert(lua("return (...) == 'x'", value) and not select(2, lua("return (...) == 'x'", value))) -- checked: any_use
     assert(tostring(value):find("^cosmic%.html%.Safe%w+: ") ~= nil, tostring(value))
   end
   -- The metatable is hidden, so no program adds an operator to every value.
   assert(metatable_of(html) == false and metatable_of(attr) == false and metatable_of(url) == false)
-  assert(not attempt(setmetatable, html, {}))
+  assert(not attempt(setmetatable, html, {})) -- checked: literal_needs_type
 end
 
 --- The raw functions and `concat` refuse a value of a type they were not
@@ -145,34 +145,34 @@ local function test_the_functions_refuse_what_is_not_theirs()
   local attr = untyped(Html.escape_attr("x"))
   local html = untyped(Html.escape("x"))
   local ok, why = attempt(Html.raw, attr)
-  assert(not ok and tostring(why):find("SafeHtml expected", 1, true), tostring(why))
+  assert(not ok and tostring(why):find("SafeHtml expected", 1, true), tostring(why)) -- checked: or_mix
   ok, why = attempt(Html.raw_attr, html)
-  assert(not ok and tostring(why):find("SafeAttr expected", 1, true), tostring(why))
-  local plains: {any} = { "x", {}, 1 }
+  assert(not ok and tostring(why):find("SafeAttr expected", 1, true), tostring(why)) -- checked: or_mix
+  local plains: {any} = { "x", {}, 1 } -- checked: any_use*2, literal_needs_type
   for _, plain in ipairs(plains) do
     assert(not attempt(Html.raw, plain))
     assert(not attempt(Html.raw_attr, plain))
   end
-  local mixed: {any} = { Html.trust("a"), attr }
+  local mixed: {any} = { Html.trust("a"), attr } -- checked: any_use
   ok, why = attempt(Html.concat, mixed)
-  assert(not ok and tostring(why):find("element 2 is not a SafeHtml", 1, true), tostring(why))
-  local strings: {any} = { "a" }
+  assert(not ok and tostring(why):find("element 2 is not a SafeHtml", 1, true), tostring(why)) -- checked: or_mix
+  local strings: {any} = { "a" } -- checked: any_use
   ok, why = attempt(Html.concat, strings)
-  assert(not ok and tostring(why):find("element 1 is not a SafeHtml", 1, true), tostring(why))
+  assert(not ok and tostring(why):find("element 1 is not a SafeHtml", 1, true), tostring(why)) -- checked: or_mix
   assert(not attempt(Html.concat, "a"))
   assert(not attempt(Html.trust, 1))
-  assert(not attempt(Html.trust_attr, {}))
+  assert(not attempt(Html.trust_attr, {})) -- checked: literal_needs_type
   local url = untyped(Html.trust_url("x"))
   for _, other in ipairs({ html, attr }) do
     ok, why = attempt(Html.raw_url, other)
-    assert(not ok and tostring(why):find("SafeUrl expected", 1, true), tostring(why))
+    assert(not ok and tostring(why):find("SafeUrl expected", 1, true), tostring(why)) -- checked: or_mix
   end
   assert(not attempt(Html.raw, url) and not attempt(Html.raw_attr, url))
-  local urls: {any} = { Html.trust("a"), url }
+  local urls: {any} = { Html.trust("a"), url } -- checked: any_use
   assert(not attempt(Html.concat, urls))
   assert(not attempt(Html.raw_url, "x"))
-  assert(not attempt(Html.href, {}))
-  assert(not attempt(Html.trust_url, {}))
+  assert(not attempt(Html.href, {})) -- checked: literal_needs_type
+  assert(not attempt(Html.trust_url, {})) -- checked: literal_needs_type
 end
 
 --- What `href` makes of `input`, as a table of (input, allowed)
@@ -352,10 +352,10 @@ local function test_url_part_writes_a_whole_dot_segment_with_its_percent_escaped
 end
 
 local function test_url_part_refuses_a_value_that_is_not_text()
-  local others: {any} = { {}, true, false, Html.escape("x") }
+  local others: {any} = { {}, true, false, Html.escape("x") } -- checked: any_use*3, literal_needs_type
   for _, other in ipairs(others) do
     local ok, why = attempt(Html.url_part, other)
-    assert(not ok and tostring(why):find("string or number expected", 1, true), tostring(why))
+    assert(not ok and tostring(why):find("string or number expected", 1, true), tostring(why)) -- checked: or_mix
   end
   assert(not attempt(Html.url_part))
 end
@@ -372,14 +372,14 @@ end
 
 local function test_url_query_names_a_pair_that_is_not_two_strings()
   local cases: {{any}} = {
-    { { "a" } }, { { "a", "b", "c" } }, { { "a", 1 } }, { { 1, "a" } }, { "ab" }, { {} },
-    { { "a", "b" }, { "c" } },
+    { { "a" } }, { { "a", "b", "c" } }, { { "a", 1 } }, { { 1, "a" } }, { "ab" }, { {} }, -- checked: any_use*3, arms_differ*2, literal_needs_type
+    { { "a", "b" }, { "c" } }, -- checked: any_use*2
   }
   for _, given in ipairs(cases) do
-    local part, why = (Html.url_query as function(any): any, string)(given)
+    local part, why = (Html.url_query as function(any): any, string)(given) -- checked: cast_refused
     assert(part == nil and why:find("is not two strings", 1, true), tostring(why))
   end
-  local part, why = (Html.url_query as function(any): any, string)({ { "a", "b" }, { "c" } })
+  local part, why = (Html.url_query as function(any): any, string)({ { "a", "b" }, { "c" } }) -- checked: cast_refused
   assert(part == nil and why == "html: pair 2 is not two strings", why)
 end
 
@@ -388,10 +388,10 @@ local function test_url_query_raises_for_a_table_that_is_no_sequence()
   holes[3] = { "c", "d" }
   local extra = table_of({ "a", "b" })
   extra["note"] = 1
-  local cases: {{any: any}} = { holes, extra }
+  local cases: {{any: any}} = { holes, extra } -- declared: key_type
   for _, given in ipairs(cases) do
     local ok, why = attempt(Html.url_query, given)
-    assert(not ok and tostring(why):find("pairs is not a sequence", 1, true), tostring(why))
+    assert(not ok and tostring(why):find("pairs is not a sequence", 1, true), tostring(why)) -- checked: or_mix
   end
   assert(not attempt(Html.url_query, "a=b"))
 end
@@ -402,7 +402,7 @@ local function test_raw_url_part_holds_to_its_type()
   local part = untyped(Html.url_part("x"))
   for _, other in ipairs({ html, url }) do
     local ok, why = attempt(Html.raw_url_part, other)
-    assert(not ok and tostring(why):find("SafeUrlPart expected", 1, true), tostring(why))
+    assert(not ok and tostring(why):find("SafeUrlPart expected", 1, true), tostring(why)) -- checked: or_mix
   end
   assert(not attempt(Html.raw_url_part, "x"))
   assert(not attempt(Html.raw_url, part) and not attempt(Html.raw, part) and not attempt(Html.raw_attr, part))
@@ -446,7 +446,7 @@ local function test_local_href_lets_only_a_relative_reference_through()
       assert(out == "about:invalid", ("%q was let through as %q"):format(input, out))
     end
   end
-  assert(not attempt(Html.local_href, {}))
+  assert(not attempt(Html.local_href, {})) -- checked: literal_needs_type
 end
 
 --- `CSS.escape` as the plan for [`Html.escape_css_attr`] states it, written
@@ -461,10 +461,10 @@ local function css_escape(s: string): string
     local leading_digit = c:find("^%d$") and (i == 1 or (i == 2 and s:sub(1, 1) == "-"))
     if byte == 0 then
       out[#out + 1] = "\xef\xbf\xbd"
-    elseif byte >= 128 or (c:find("^[%w_-]$") and not leading_digit and not (c == "-" and #s == 1)) then
+    elseif byte >= 128 or (c:find("^[%w_-]$") and not leading_digit and not (c == "-" and #s == 1)) then -- checked: condition_type*2, nil_not_allowed
       out[#out + 1] = c
     else
-      out[#out + 1] = ("\\%x "):format(byte)
+      out[#out + 1] = ("\\%x "):format(byte) -- checked: nil_not_allowed
     end
   end
   return table.concat(out)
@@ -476,7 +476,7 @@ end
 --- references the escaper writes are decoded first.
 local function css_unescape(text: string): string
   local plain = text:gsub("&#(%d+);", function(code: string): string
-    return string.char(tonumber(code) as integer)
+    return string.char(tonumber(code) as integer) -- checked: cast_refused
   end)
   local out: mut {string} = {}
   local i = 1
@@ -488,7 +488,7 @@ local function css_unescape(text: string): string
     else
       local hex = plain:match("^%x%x?%x?%x?%x?%x?", i + 1)
       if hex then
-        out[#out + 1] = utf8.char(tonumber(hex, 16) as integer)
+        out[#out + 1] = utf8.char(tonumber(hex, 16) as integer) -- checked: cast_refused
         i = i + 1 + #hex
         if plain:sub(i, i) == " " then
           i = i + 1
@@ -571,30 +571,30 @@ local function test_escape_css_attr_is_css_escape_then_escape_attr()
 end
 
 local function test_escape_css_attr_refuses_a_value_that_is_not_text()
-  local others: {any} = { {}, true, Html.escape("x") }
+  local others: {any} = { {}, true, Html.escape("x") } -- checked: any_use*2, literal_needs_type
   for _, other in ipairs(others) do
     assert(not attempt(Html.escape_css_attr, other))
   end
 end
 
 local function test_json_holds_the_encoded_value()
-  local json = (assert(Html.json({ id = 7, kind = "note" })))
+  local json = (assert(Html.json({ id = 7, kind = "note" }))) -- checked: arms_differ
   local text = Html.raw_json(json)
   assert(text == '{"id":7,"kind":"note"}' or text == '{"kind":"note","id":7}', text)
   assert(Html.raw_json((assert(Html.json("a\"b<c>&'")))) == '"a\\"b<c>&\'"')
   assert(Html.raw_json((assert(Html.json(nil)))) == "null")
-  assert(Html.raw_json((assert(Html.json({ "x", 1, true })))) == '["x",1,true]')
+  assert(Html.raw_json((assert(Html.json({ "x", 1, true })))) == '["x",1,true]') -- checked: arms_differ
   -- The text is JSON, not attribute text: the slot escapes it.
   assert(Html.raw(Html.escape(Html.raw_json((assert(Html.json({ a = "b" })))))) == "{&quot;a&quot;:&quot;b&quot;}")
 end
 
 local function test_json_names_what_it_cannot_encode()
   local json, why = Html.json({ users = { { name = print } } })
-  assert(json == nil and why:find("/users/0/name", 1, true), tostring(why))
+  assert(json == nil and why:find("/users/0/name", 1, true), tostring(why)) -- checked: or_mix
   json, why = Html.json(0 / 0)
   assert(json == nil and why ~= "")
   local cycle: {string: any} = {}
-  cycle.me = cycle
+  cycle.me = cycle -- checked: map_field
   json, why = Html.json(cycle)
   assert(json == nil and why ~= "")
   json, why = Html.json("\xff")
@@ -610,14 +610,14 @@ local function test_json_text_wraps_only_text_that_is_json()
 end
 
 local function test_json_has_no_unchecked_door_and_holds_to_its_type()
-  local html_module: {string: any} = Html as {string: any}
-  assert(html_module.trust_json == nil and html_module.trust_json_text == nil)
+  local html_module: {string: any} = Html as {string: any} -- checked: cast_refused
+  assert(html_module.trust_json == nil and html_module.trust_json_text == nil) -- checked: map_field*2
   local json = untyped((assert(Html.json(1))))
   assert(type(json) == "userdata" and metatable_of(json) == false)
   assert(not lua("return ... .. 'y'", json))
-  for _, other in ipairs({ untyped(Html.escape("1")), untyped(Html.url_part("1")), "1", 1 }) do
+  for _, other in ipairs({ untyped(Html.escape("1")), untyped(Html.url_part("1")), "1", 1 }) do -- checked: arms_differ
     local ok, why = attempt(Html.raw_json, other)
-    assert(not ok and tostring(why):find("SafeJson expected", 1, true), tostring(why))
+    assert(not ok and tostring(why):find("SafeJson expected", 1, true), tostring(why)) -- checked: or_mix
   end
   assert(not attempt(Html.raw, json) and not attempt(Html.raw_attr, json) and not attempt(Html.raw_url_part, json))
 end

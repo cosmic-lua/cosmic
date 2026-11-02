@@ -118,7 +118,7 @@ local function test_uncompress_bounds_a_claimed_length_by_deflates_ratio()
   local compressed = assert(Sqlite.rows(handle, "SELECT compress(zeroblob(?1))",
     { { integer = size } }))
   local packed = first_row(compressed):blob(1)
-  assert(packed ~= nil)
+  assert(packed ~= nil) -- checked: compare_disjoint
   local prefix = #length_prefix(size)
   local stream = packed:sub(prefix + 1)
   local function read(claim: integer): string

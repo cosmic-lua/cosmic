@@ -408,9 +408,9 @@ end
 -- TODO: these assignments after the [`Json`] record is made are `field_fixed`, pinned in build/ceilings.txt like the
 -- other modules' (channel, poll, sqlite, web/*), once the module records are built whole, each with its members,
 -- where `mut` on them would let an importer swap them.
-Json.null = raw.null
-Json.default_depth = raw.default_depth
-Json.depth_limit = raw.depth_limit
+Json.null = raw.null -- checked: field_fixed
+Json.default_depth = raw.default_depth -- checked: field_fixed
+Json.depth_limit = raw.depth_limit -- checked: field_fixed
 
 --- What a failure of this module answers, nil and `why` under the
 --- module's name.
@@ -426,7 +426,7 @@ local function decode_with(text: string, opts: Json.DecodeOptions, record?: inte
   local value, err = raw.decode(text, null_value, opts.max_depth, opts.json5,
     opts.big_numbers_as_strings, opts.lone_surrogates, record, opts.hash_comments,
     opts.duplicate_keys)
-  if err ~= "" then return refuse(err) end
+  if err ~= "" then return refuse(err) end -- checked: any_use
   return value, ""
 end
 
@@ -442,7 +442,7 @@ end
 function Json.decode(text: string, opts?: Json.DecodeOptions): any?, string
   if opts == nil then
     local value, err = raw.decode(text)
-    if err ~= "" then return refuse(err) end
+    if err ~= "" then return refuse(err) end -- checked: any_use
     return value, ""
   end
   return decode_with(text, opts)
@@ -466,7 +466,7 @@ function Json.decode_object(text: string, opts?: Json.DecodeOptions): {string: a
   if err ~= "" then
     return nil, err
   end
-  if value is {string: any} and not raw.is_array(value) then
+  if value is {string: any} and not raw.is_array(value) then -- checked: is_on_record
     return value, ""
   end
   return refuse("expected a JSON object, got " .. kind(value))
@@ -479,7 +479,7 @@ function Json.decode_array(text: string, opts?: Json.DecodeOptions): {any}?, str
   if err ~= "" then
     return nil, err
   end
-  if value is {any} and raw.is_array(value) then
+  if value is {any} and raw.is_array(value) then -- checked: is_on_record
     return value, ""
   end
   return refuse("expected a JSON array, got " .. kind(value))
@@ -495,11 +495,11 @@ function Json.encode_any(value: any, opts?: Json.EncodeOptions): string?, string
   local text: string
   local err: string
   if opts == nil then
-    text, err = raw.encode(value)
+    text, err = raw.encode(value) -- checked: nil_not_allowed
   else
-    text, err = raw.encode(value, opts.pretty, opts.max_depth, opts.ascii)
+    text, err = raw.encode(value, opts.pretty, opts.max_depth, opts.ascii) -- checked: nil_not_allowed
   end
-  if text == nil then return refuse(err) end
+  if text == nil then return refuse(err) end -- checked: compare_disjoint
   return text, ""
 end
 
@@ -607,7 +607,7 @@ end
 --- already has a metatable of its own.
 function Json.array(t?: {Json.Value}): {Json.Value}
   if t == nil then
-    return raw.array()
+    return raw.array() -- checked: any_use
   end
   return raw.array(t)
 end
@@ -658,7 +658,7 @@ end
 --- lists them as [`Json.members`] says; else the keys are empty and the
 --- extent 0, and a marked array is classified with no scan of it.
 --- `gaps` asks for a marked array's integer keys when it has a gap.
-local function classify(t: {any:any}, members: boolean, gaps: boolean): Json.TableLayout, {string | integer}, integer
+local function classify(t: {any:any}, members: boolean, gaps: boolean): Json.TableLayout, {string | integer}, integer -- declared: key_type
   if raw.is_array(t) then
     local extent = 0
     local keys: mut {string | integer} = {}
@@ -675,7 +675,7 @@ local function classify(t: {any:any}, members: boolean, gaps: boolean): Json.Tab
           local k: any = key
           if k is integer then keys[#keys + 1] = k end
         end
-        table.sort(keys)
+        table.sort(keys) -- checked: overload_none -- untyped: call
       end
     elseif members then
       for key in pairs(t) do
@@ -705,7 +705,7 @@ local function classify(t: {any:any}, members: boolean, gaps: boolean): Json.Tab
   -- `rawlen` is only some border, so as many keys as it says are the
   -- integers 1 to it only when none lies past it.
   if numbers > 0 and numbers == rawlen(t) and top == numbers then return "array", {}, numbers end
-  if members then table.sort(keys) end
+  if members then table.sort(keys) end -- checked: overload_none -- untyped: call
   return if numbers > 0 then "hole" else "object" end, keys, 0
 end
 
@@ -720,7 +720,7 @@ end
 ---     assert(Json.layout({ a = 1 }) == "object")
 ---     assert(Json.layout({ [1] = 1, [3] = 3 }) == "hole")
 ---     assert(Json.layout({ 1, a = 2 }) == "mixed")
-function Json.layout(t: {any:any}): Json.TableLayout
+function Json.layout(t: {any:any}): Json.TableLayout -- declared: key_type
   local layout = classify(t, false, false)
   return layout
 end
@@ -735,7 +735,7 @@ end
 --- other layout. Unlike [`Json.layout`], it scans a marked array, to
 --- find that extent and to answer "mixed" for one that holds a key
 --- other than a positive integer.
-function Json.members(t: {any:any}, gaps?: boolean): Json.Members
+function Json.members(t: {any:any}, gaps?: boolean): Json.Members -- declared: key_type
   local layout, keys, extent = classify(t, true, gaps == true)
   return { layout = layout, keys = keys, extent = extent }
 end
@@ -743,7 +743,7 @@ end
 --- The escape `quote` writes for the one character `c` it escapes.
 local function escape(c: string): string
   if c == '"' or c == "\\" then return "\\" .. c end
-  return ("\\u%04x"):format(c:byte())
+  return ("\\u%04x"):format(c:byte()) -- checked: nil_not_allowed
 end
 
 --- `s` as a JSON string literal, for a message: `"` and `\\` escaped and
@@ -774,16 +774,16 @@ local function at_pointer(pointer: string): string
   local segments: mut {string} = {}
   for segment in pointer:gmatch("/[^/]*") do segments[#segments + 1] = segment end
   local kept = segments[#segments]
-  if #kept >= 200 then
-    kept = kept:sub(1, 41)
+  if #kept >= 200 then -- checked: nil_not_allowed
+    kept = kept:sub(1, 41) -- checked: nil_not_allowed
     while utf8.len(kept) == nil or kept:sub(-1) == "~" do kept = kept:sub(1, -2) end
     return "pointer ending " .. Json.quote(kept .. "...")
   end
   for i = #segments - 1, 1, -1 do
-    if #kept + #segments[i] >= 200 then break end
-    kept = segments[i] .. kept
+    if #kept + #segments[i] >= 200 then break end -- checked: nil_not_allowed*2
+    kept = segments[i] .. kept -- checked: nil_not_allowed*2
   end
-  return "pointer ending " .. Json.quote(kept)
+  return "pointer ending " .. Json.quote(kept) -- checked: nil_not_allowed
 end
 
 --- Why step `i` of a path is none, or nil when it is one: a name that
@@ -803,8 +803,8 @@ local function bad_step(i: integer, step: any): string?
 end
 
 --- `v` as a table, or nil when it is none.
-local function table_of(v: any): {any: any}?
-  if v is {any: any} then return v end
+local function table_of(v: any): {any: any}? -- declared: key_type
+  if v is {any: any} then return v end -- declared: key_type
   return nil
 end
 
@@ -994,7 +994,7 @@ function Json.to_array(value: any): {Json.Value}?, string
 end
 
 --- The highest position of the array `t`, holes and all.
-local function last_position(t: {any: any}): integer
+local function last_position(t: {any: any}): integer -- declared: key_type
   local m = Json.members(t, true)
   local last = m.keys[#m.keys]
   if m.layout == "hole" and last is integer then return last end
@@ -1004,7 +1004,7 @@ end
 --- Whether `t` holds an array's elements, as `encode` would write it:
 --- one marked, or keyed 1 up with or without gaps; "mixed" when it is
 --- neither an array nor an object.
-local function container(t: {any: any}): string
+local function container(t: {any: any}): string -- declared: key_type
   local layout = Json.layout(t)
   if layout == "hole" then return "array" end
   return layout
@@ -1219,7 +1219,7 @@ function Json.from_pointer(value: any, text: string): Json.Steps?, string
         return refuse(("no value at %s: the value at %s is an array, and %s is no index"):
             format(at_pointer(reached), at_pointer(before), Json.quote(name)))
       end
-      local index = math.tointeger(tonumber(name)) + 1
+      local index = math.tointeger(tonumber(name)) + 1 -- checked: nil_not_allowed
       steps[#steps + 1] = index
       at = t[index]
     elseif shape == "object" then
@@ -1246,33 +1246,33 @@ function Json.get(value: any, steps: Json.Steps): any?, string
   local reached = ""
   for i, step in ipairs(steps) do
     local bad = bad_step(i, step)
-    if bad ~= nil then return refuse(bad) end
+    if bad ~= nil then return refuse(bad) end -- checked: any_use
     local t = table_of(at)
     if t == nil then
-      return refuse(("the value at %s is %s, not an array or object"):format(at_pointer(reached), kind(at)))
+      return refuse(("the value at %s is %s, not an array or object"):format(at_pointer(reached), kind(at))) -- checked: any_use
     end
     local shape = container(t)
     if step is string then
       if shape ~= "object" then
-        return refuse(("the value at %s is %s, not an object"):format(at_pointer(reached),
+        return refuse(("the value at %s is %s, not an object"):format(at_pointer(reached), -- checked: any_use
           if shape == "array" then "an array" else "a table with mixed keys" end))
       end
       reached = reached .. "/" .. pointer_segment(step)
       at = t[step]
     else
       if shape ~= "array" then
-        return refuse(("the value at %s is %s, not an array"):format(at_pointer(reached),
+        return refuse(("the value at %s is %s, not an array"):format(at_pointer(reached), -- checked: any_use
           if shape == "object" then "an object" else "a table with mixed keys" end))
       end
       local position = step
       if position < 0 then position = last_position(t) + 1 + position end
       if position < 1 then
-        return refuse(("no element %d from the end at %s"):format(-step, at_pointer(reached)))
+        return refuse(("no element %d from the end at %s"):format(-step, at_pointer(reached))) -- checked: any_use
       end
       reached = reached .. "/" .. tostring(position - 1)
       at = t[position]
     end
-    if at == nil then return refuse("no value at " .. at_pointer(reached)) end
+    if at == nil then return refuse("no value at " .. at_pointer(reached)) end -- checked: any_use
   end
   return at, ""
 end
@@ -1291,7 +1291,7 @@ local function normal_name(name: string): string
     local short = SHORT_ESCAPES[c]
     if short ~= nil then return short end
     if c:byte() == 127 then return c end
-    return ("\\u%04x"):format(c:byte())
+    return ("\\u%04x"):format(c:byte()) -- checked: nil_not_allowed
   end) .. "'"
 end
 
@@ -1379,19 +1379,19 @@ local function query_string(text: string, at: integer): Piece?, string
         end
         local unit = math.tointeger(tonumber(hex, 16))
         i = i + 6
-        if unit >= 0xDC00 and unit <= 0xDFFF then
+        if unit >= 0xDC00 and unit <= 0xDFFF then -- checked: nil_not_allowed*2
           return query_error(i - 6, "a low surrogate with no high one before it")
         end
-        if unit >= 0xD800 and unit <= 0xDBFF then
+        if unit >= 0xD800 and unit <= 0xDBFF then -- checked: nil_not_allowed*2
           local low = text:match("^\\u(%x%x%x%x)", i)
           local low_unit = if low ~= nil then math.tointeger(tonumber(low, 16)) or 0 else 0 end
           if low_unit < 0xDC00 or low_unit > 0xDFFF then
             return query_error(i - 6, "a high surrogate with no low one after it")
           end
-          unit = 0x10000 + ((unit - 0xD800) << 10) + (low_unit - 0xDC00)
+          unit = 0x10000 + ((unit - 0xD800) << 10) + (low_unit - 0xDC00) -- checked: nil_not_allowed
           i = i + 6
         end
-        out[#out + 1] = utf8.char(unit)
+        out[#out + 1] = utf8.char(unit) -- checked: nil_not_allowed
       else
         return query_error(i, "`\\" .. e .. "` is no escape a JSONPath string has")
       end
@@ -1405,7 +1405,7 @@ end
 --- Passes blank space (RFC 9535's `S`) from byte `at`.
 local function blank(text: string, at: integer): integer
   local _, last = text:find("^[ \t\n\r]*", at)
-  return last + 1
+  return last + 1 -- checked: nil_not_allowed
 end
 
 --- The selector of the bracketed selection at byte `at` (`[`), as a
@@ -1475,7 +1475,7 @@ end
 ---     assert(#q.segments == 3 and q.segments[2].kind == "wildcard")
 function Json.query(text: string): Json.Query?, string
   local valid, bad = utf8.len(text)
-  if valid == nil then return query_error(bad, "a byte that is not UTF-8") end
+  if valid == nil then return query_error(bad, "a byte that is not UTF-8") end -- checked: nil_not_allowed
   if text:sub(1, 1) ~= "$" then return query_error(1, "a query starts with `$`") end
   local segments: mut {Json.Segment} = {}
   local at = 2
@@ -1492,7 +1492,7 @@ function Json.query(text: string): Json.Query?, string
       if c == "[" and descendant then
         local piece, why = bracketed(text, i, true)
         if piece == nil then return nil, why end
-        seg, after = piece.segment, piece.after
+        seg, after = piece.segment, piece.after -- checked: nil_not_allowed
       elseif c == "*" then
         seg, after = { descendant = descendant, kind = "wildcard" }, i + 1
       elseif name_first(text:byte(i)) then
@@ -1505,7 +1505,7 @@ function Json.query(text: string): Json.Query?, string
     elseif text:sub(at, at) == "[" then
       local piece, why = bracketed(text, at, false)
       if piece == nil then return nil, why end
-      seg, after = piece.segment, piece.after
+      seg, after = piece.segment, piece.after -- checked: nil_not_allowed
     else
       return query_error(at, "a segment starts with `.`, `..` or `[`")
     end
@@ -1535,7 +1535,7 @@ function Json.from_path(text: string): Json.Steps?, string
     end
     local step: string | integer
     if seg_kind == "name" then
-      step = seg.name
+      step = seg.name -- checked: nil_not_allowed
     else
       local index = assert(seg.index)
       step = if index >= 0 then index + 1 else index end
@@ -1548,7 +1548,7 @@ end
 --- The children of the table `t`, in order, each with its step: an
 --- array's elements by position, an object's members by name in byte
 --- order; nil and why for a table with mixed keys.
-local function children(t: {any: any}): {Json.Match}?, string
+local function children(t: {any: any}): {Json.Match}?, string -- declared: key_type
   local m = Json.members(t, true)
   local out: mut {Json.Match} = {}
   if m.layout == "array" or m.layout == "hole" then
@@ -1601,7 +1601,7 @@ local function apply(seg: Json.Segment, node: Json.Match, out: mut {Json.Match})
     local kids, mixed = children(t)
     if kids == nil then return false, "json: " .. mixed end
     for _, kid in ipairs(kids) do
-      table.insert(out, { steps = extended(node.steps, kid.steps[1]), value = kid.value })
+      table.insert(out, { steps = extended(node.steps, kid.steps[1]), value = kid.value }) -- checked: index_may_be_nil
     end
   end
   return true, ""
@@ -1625,7 +1625,7 @@ local function descend(seg: Json.Segment, node: Json.Match, out: mut {Json.Match
     return false, "json: the value at " .. at_pointer(pointer_of(node.steps)) .. " is " .. mixed
   end
   for _, kid in ipairs(kids) do
-    ok, why = descend(seg, { steps = extended(node.steps, kid.steps[1]), value = kid.value }, out,
+    ok, why = descend(seg, { steps = extended(node.steps, kid.steps[1]), value = kid.value }, out, -- checked: index_may_be_nil
       depth + 1, limit)
     if not ok then return false, why end
   end
@@ -1899,9 +1899,9 @@ local function skip_space(self: TokenReader, key_start: boolean): boolean, strin
   local plain = if self.json5 then "^[ \t\r\n\v\f]*" else "^[ \t\r\n]*" end
   while true do
     local _, last = self.buf:find(plain, self.at)
-    if last >= self.at then
+    if last >= self.at then -- checked: nil_not_allowed
       pass_lines(self, self.buf:sub(self.at, last), self.before + self.at - 1)
-      self.at = last + 1
+      self.at = last + 1 -- checked: nil_not_allowed
     end
     local c = self.buf:byte(self.at)
     -- How many bytes tell whether `c` starts whitespace or a comment.
@@ -2035,7 +2035,7 @@ local function token_text(self: TokenReader, class: string): string?, string
   while true do
     local _, last = self.buf:find(pattern, self.at)
     parts[#parts + 1] = self.buf:sub(self.at, last)
-    pass(self, last + 1 - self.at)
+    pass(self, last + 1 - self.at) -- checked: nil_not_allowed
     if self.at <= #self.buf or self.ended then return table.concat(parts), "" end
     local ok, why = fill(self)
     if not ok then return nil, why end
@@ -2088,7 +2088,7 @@ local function scalar(self: TokenReader, text: string, column: integer, closer?:
     err = err:gsub("unexpected content after document",
       "unexpected character, expected ',' or '" .. closer .. "'")
   end
-  if err ~= "" then return stop(self, "json: " .. err) end
+  if err ~= "" then return stop(self, "json: " .. err) end -- checked: any_use
   return value, ""
 end
 
@@ -2099,9 +2099,9 @@ local function key_text(self: TokenReader): string?, string
   local parts: mut {string} = {}
   while true do
     local _, last = self.buf:find("^[%w_$\\]*", self.at)
-    if last >= self.at then
+    if last >= self.at then -- checked: nil_not_allowed
       parts[#parts + 1] = self.buf:sub(self.at, last)
-      pass(self, last + 1 - self.at)
+      pass(self, last + 1 - self.at) -- checked: nil_not_allowed
     end
     local c = self.buf:byte(self.at)
     if c == nil then
@@ -2134,7 +2134,7 @@ end
 -- the column back in the message.
 local function key_value(self: TokenReader, text: string, column: integer): any?, string
   -- JSON5's whitespace where a key starts is an empty key, as yyjson reads it.
-  if text == "" then return "", "" end
+  if text == "" then return "", "" end -- checked: any_use
   local value, err = raw.decode("{" .. text .. ":0}", nil, nil, true, false, self.lone, nil, false,
     false, self.line, column)
   if err ~= "" and self.buf:byte(self.at) == nil then
@@ -2147,14 +2147,14 @@ local function key_value(self: TokenReader, text: string, column: integer): any?
   end
   if err ~= "" then
     local back = err:gsub("(column )(%d+)", function(label: string, n: string): string
-      return label .. tostring(tonumber(n) - 1)
+      return label .. tostring(tonumber(n) - 1) -- checked: nil_not_allowed
     end, 1)
-    return stop(self, "json: " .. back)
+    return stop(self, "json: " .. back) -- checked: any_use
   end
-  if value is {string: integer} then
-    for key in pairs(value) do return key, "" end
+  if value is {string: integer} then -- checked: is_on_record
+    for key in pairs(value) do return key, "" end -- checked: any_use
   end
-  return stop(self, "json: an object with no key")
+  return stop(self, "json: an object with no key") -- checked: any_use
 end
 
 --- `v` as a token's value: a string, a number or a boolean, or nil.
@@ -2172,7 +2172,7 @@ local function open(self: TokenReader, object: boolean): boolean, string
     return false, why
   end
   self.frames[#self.frames + 1] = { object = object, state = "first", count = 0,
-    seen = if (object and not self.duplicate_keys) then {} else nil end }
+    seen = if (object and not self.duplicate_keys) then {} else nil end } -- checked: nil_not_allowed
   pass(self, 1)
   return true, ""
 end
@@ -2347,11 +2347,11 @@ local class TokenReader is Json.Reader
       local text: string
       local trouble: string
       if bare then
-        text, trouble = key_text(self)
+        text, trouble = key_text(self) -- checked: nil_not_allowed
       else
-        text, trouble = string_text(self, column)
+        text, trouble = string_text(self, column) -- checked: nil_not_allowed
       end
-      if text == nil then return nil, trouble end
+      if text == nil then return nil, trouble end -- checked: compare_disjoint
       local key: any
       local err: string
       if bare then
@@ -2361,26 +2361,26 @@ local class TokenReader is Json.Reader
       end
       if err ~= "" then return nil, err end
       if not (key is string) then return placed(self, column, "a key that is not a string") end
-      f.key = key
-      if f.seen ~= nil then
-        if f.seen[f.key] == true then return placed(self, column, "duplicate key") end
-        f.seen[f.key] = true
+      f.key = key -- checked: nil_not_allowed
+      if f.seen ~= nil then -- checked: compare_disjoint, nil_not_allowed
+        if f.seen[f.key] == true then return placed(self, column, "duplicate key") end -- checked: nil_not_allowed*3
+        f.seen[f.key] = true -- checked: nil_not_allowed*3
       end
       if self.json5 then pass_lines(self, text, start) end
-      f.count = f.count + 1
-      f.state = "colon"
-      return { kind = "key", value = f.key }, ""
+      f.count = f.count + 1 -- checked: nil_not_allowed*2
+      f.state = "colon" -- checked: nil_not_allowed
+      return { kind = "key", value = f.key }, "" -- checked: nil_not_allowed
     end
     begin_value(self)
     local text: string
     local trouble: string
     if token == "string" then
-      text, trouble = string_text(self, column)
+      text, trouble = string_text(self, column) -- checked: nil_not_allowed
     else
       local class = "%a"
       if token == "number" then class = if self.json5 then "[%w+%-.]" else "[-+.%deE]" end end
-      text, trouble = token_text(self, class)
-      if text ~= nil then
+      text, trouble = token_text(self, class) -- checked: nil_not_allowed
+      if text ~= nil then -- checked: compare_disjoint
         -- A number or a word runs to the next byte that is not one of
         -- its own; the byte must end it, so `1true` is no two values.
         local after = self.buf:byte(self.at)
@@ -2390,15 +2390,15 @@ local class TokenReader is Json.Reader
         end
       end
     end
-    if text == nil then return nil, trouble end
+    if text == nil then return nil, trouble end -- checked: compare_disjoint
     local value: any
     if token == "boolean" or token == "null" then
       if text ~= "true" and text ~= "false" and text ~= "null" then
         return placed(self, column, "a word JSON has no literal for")
       end
       token = if text == "null" then "null" else "boolean" end
-      value = text == "true"
-      if token == "null" then value = nil end
+      value = text == "true" -- checked: any_use
+      if token == "null" then value = nil end -- checked: any_use
     else
       local err: string
       -- A number is read with the byte that ends it, as in the text: a
@@ -2417,29 +2417,29 @@ local class TokenReader is Json.Reader
   function value(self): any?, string
     local token, why = self:peek()
     if token == nil then
-      if why ~= "" then return nil, why end
-      return stop(self, "json: no value: the stream has ended")
+      if why ~= "" then return nil, why end -- checked: any_use
+      return stop(self, "json: no value: the stream has ended") -- checked: any_use
     end
     if token == "key" or token == "end_object" or token == "end_array" then
-      return fail_at(self, self.at, "expected a value")
+      return fail_at(self, self.at, "expected a value") -- checked: any_use
     end
     if token ~= "object" and token ~= "array" then
       local read, trouble = self:next()
-      if read == nil then return nil, trouble end
-      if token == "null" then return self.null_value, "" end
-      return read.value, ""
+      if read == nil then return nil, trouble end -- checked: any_use
+      if token == "null" then return self.null_value, "" end -- checked: any_use
+      return read.value, "" -- checked: any_use
     end
     begin_value(self)
     if #self.frames >= self.max_depth then
-      return fail_at(self, self.at, "JSON nests deeper than " .. String.counted(self.max_depth, "level"))
+      return fail_at(self, self.at, "JSON nests deeper than " .. String.counted(self.max_depth, "level")) -- checked: any_use
     end
     local path = pointer_of(self:steps())
     local line, column = self.line, self.before + self.at - self.line_start
     local text, trouble = container_text(self)
-    if text == nil then return nil, trouble end
+    if text == nil then return nil, trouble end -- checked: any_use
     local value, err = raw.decode(text, self.null_value, self.max_depth, self.json5,
       self.big, self.lone, nil, self.hash, self.duplicate_keys, line, column, path, #self.frames)
-    if err ~= "" then return stop(self, "json: " .. err) end
+    if err ~= "" then return stop(self, "json: " .. err) end -- checked: any_use
     return value, ""
   end
 end

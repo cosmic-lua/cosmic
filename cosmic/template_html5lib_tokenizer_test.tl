@@ -81,7 +81,7 @@ local function tag_text(kind: string, name: string, attrs: {string: string}, sel
   table.sort(names)
   local parts: mut {string} = {}
   for _, k in ipairs(names) do
-    parts[#parts + 1] = k .. "=" .. attrs[k]
+    parts[#parts + 1] = k .. "=" .. attrs[k] -- checked: nil_not_allowed
   end
   return kind .. ":" .. name .. ":" .. table.concat(parts, "&") .. (if self then ":/" else "" end)
 end
@@ -654,7 +654,7 @@ local function tokenize(input: string, initial: string, last_tag: string): Run
   elseif s == "markup_declaration" then
     m.comment = ""
     emit_comment()
-  elseif s == "bogus_comment" or s:find("^comment") then
+  elseif s == "bogus_comment" or s:find("^comment") then -- checked: or_mix
     emit_comment()
   elseif s == "doctype" then
     flush()
@@ -738,7 +738,7 @@ local function allowed(state: string, kind: string, attr: string, tail: string, 
   elseif state == "value_dq" or state == "value_sq" then
     if is_code(attr) then
       return false
-    elseif URL_ATTRS[attr] then
+    elseif URL_ATTRS[attr] then -- checked: condition_type
       return kind == "url" or kind == "part"
     end
     return kind == "attr" or ((kind == "url" or kind == "part") and attr == "archive")
@@ -794,10 +794,10 @@ local function expected_tokens(output: {any}): {string}
   local tokens: mut {string} = {}
   local chars = ""
   for _, raw in ipairs(output) do
-    local item = raw as {any}
-    local kind = item[1] as string
+    local item = raw as {any} -- checked: cast_refused
+    local kind = item[1] as string -- checked: cast_refused
     if kind == "Character" then
-      chars = chars .. (item[2] as string)
+      chars = chars .. (item[2] as string) -- checked: cast_refused
     else
       if chars ~= "" then
         tokens[#tokens + 1] = "C:" .. chars
@@ -805,16 +805,16 @@ local function expected_tokens(output: {any}): {string}
       end
       if kind == "StartTag" then
         local attrs: mut {string: string} = {}
-        for k, v in pairs(item[3] as {string: any}) do
-          attrs[k] = v as string
+        for k, v in pairs(item[3] as {string: any}) do -- checked: cast_refused
+          attrs[k] = v as string -- checked: cast_refused
         end
-        tokens[#tokens + 1] = tag_text("S", item[2] as string, attrs, item[4] == true)
+        tokens[#tokens + 1] = tag_text("S", item[2] as string, attrs, item[4] == true) -- checked: cast_refused
       elseif kind == "EndTag" then
-        tokens[#tokens + 1] = "E:" .. (item[2] as string)
+        tokens[#tokens + 1] = "E:" .. (item[2] as string) -- checked: cast_refused
       elseif kind == "ProcessingInstruction" then
-        tokens[#tokens + 1] = "P:" .. (item[2] as string) .. ":" .. (item[3] as string)
+        tokens[#tokens + 1] = "P:" .. (item[2] as string) .. ":" .. (item[3] as string) -- checked: cast_refused*2
       elseif kind == "Comment" then
-        tokens[#tokens + 1] = "M:" .. (item[2] as string)
+        tokens[#tokens + 1] = "M:" .. (item[2] as string) -- checked: cast_refused
       else
         tokens[#tokens + 1] = "D"
       end
@@ -842,7 +842,7 @@ local function check_case(
     description: string, input: string, initial: string, last_tag: string?,
     output: {any}, reach: Reach)
   local state = STATES[initial]
-  if state == nil or input:find("{{", 1, true) or input:find("[&%z\r]") then
+  if state == nil or input:find("{{", 1, true) or input:find("[&%z\r]") then -- checked: or_mix
     return
   end
   local wrapper, last = "", last_tag
@@ -853,11 +853,11 @@ local function check_case(
   local borrowed = false
   if state ~= "data" then
     local named: string
-    if last ~= nil and WRAPPERS[state][last] then
+    if last ~= nil and WRAPPERS[state][last] then -- checked: nil_not_allowed, or_mix
       named = last
     else
       borrowed = last ~= nil
-      named = DEFAULT_WRAPPER[state]
+      named = DEFAULT_WRAPPER[state] -- checked: index_may_be_nil
     end
     last = named
     wrapper = "<" .. named .. ">"
@@ -877,7 +877,7 @@ local function check_case(
   if state ~= "data" then
     from = #input
     for at = 0, #input do
-      if run.states[at + 1]:sub(1, #state) ~= state then
+      if run.states[at + 1]:sub(1, #state) ~= state then -- checked: nil_not_allowed
         from = at
         break
       end
@@ -905,9 +905,9 @@ local function check_case(
       if out ~= nil then
         local kind = kind_of(out)
         local where = run.states[at + 1]
-        local key = where .. "/" .. kind
+        local key = where .. "/" .. kind -- checked: nil_not_allowed
         reach.accepted[key] = (reach.accepted[key] or 0) + 1
-        if not allowed(where, kind, run.attrs[at + 1], run.tails[at + 1], last or "") then
+        if not allowed(where, kind, run.attrs[at + 1], run.tails[at + 1], last or "") then -- checked: index_may_be_nil*2, nil_not_allowed
           table.insert(reach.failures, ("%s (%s): slot %s at %d of %q: tokenizer is in %s"):format(
             description, initial, kind, at, input, where))
         end
@@ -922,12 +922,12 @@ local function test_a_slot_is_accepted_only_where_the_tokenizer_is_in_the_state_
   for _, file in ipairs(files) do
     if file:find("%.test$") then
       local text = assert(Fs.read(DIRECTORY .. "/" .. file))
-      local document = assert(Json.decode(text, { lone_surrogates = true })) as {string: any}
+      local document = assert(Json.decode(text, { lone_surrogates = true })) as {string: any} -- checked: cast_refused
       -- The XML-violation cases give the tokens of a coercing consumer.
       document.xmlViolationTests = nil
       for _, list in pairs(document) do
-        for _, raw in ipairs(list as {any}) do
-          local case = raw as {string: any}
+        for _, raw in ipairs(list as {any}) do -- checked: cast_refused
+          local case = raw as {string: any} -- checked: cast_refused
           local input = case.input
           local output = case.output
           if input is string and output is {any} and case.doubleEscaped == nil then

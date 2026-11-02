@@ -118,7 +118,7 @@ local function token_lines(text: string, size: integer, opts: Json.ReaderOptions
     end
   end)
   if not ok then return nil, "raised: " .. tostring(result) end
-  return result .. "\n!" .. err, ""
+  return result .. "\n!" .. err, "" -- checked: any_use, nil_not_allowed
 end
 
 --- The values the tokens of `text` build, each with the null stand-in;
@@ -126,7 +126,7 @@ end
 local function token_values(text: string, size: integer, opts: Json.ReaderOptions): {any}?, string
   local r = Json.reader(ChunkedReader.chunked(text, size), opts)
   local values: mut {any} = {}
-  local stack: mut {{any: any}} = {}
+  local stack: mut {{any: any}} = {} -- declared: key_type
   local keys: mut {integer: string} = {}
   local function place(v: any)
     local top = stack[#stack]
@@ -145,14 +145,14 @@ local function token_values(text: string, size: integer, opts: Json.ReaderOption
       return values, ""
     end
     if t.kind == "object" or t.kind == "array" then
-      local container: {any: any}
-      if t.kind == "array" then container = Json.array() as {any: any} else container = {} end
+      local container: {any: any} -- declared: key_type
+      if t.kind == "array" then container = Json.array() as {any: any} else container = {} end -- declared: key_type -- checked: cast_refused
       place(container)
       stack[#stack + 1] = container
     elseif t.kind == "end_object" or t.kind == "end_array" then
       stack[#stack] = nil
     elseif t.kind == "key" then
-      keys[#stack] = t.value as string
+      keys[#stack] = t.value as string -- checked: cast_refused
     elseif t.kind == "null" then
       place(Json.null)
     else
@@ -167,11 +167,11 @@ end
 local function same(a: any, b: any): boolean
   if a is table then
     if not (b is table) or Json.is_array(a) ~= Json.is_array(b) then return false end
-    for k, v in pairs(a) do
-      if not same(v, b[k]) then return false end
+    for k, v in pairs(a) do -- checked: any_use
+      if not same(v, b[k]) then return false end -- checked: any_use
     end
-    for k in pairs(b) do
-      if a[k] == nil then return false end
+    for k in pairs(b) do -- checked: any_use
+      if a[k] == nil then return false end -- checked: any_use
     end
     return true
   end
@@ -228,49 +228,49 @@ end
 
 local function holds(input: string): boolean, string
   local fields = Fuzz.unpack(input)
-  local text, size = fields[1], math.tointeger(tonumber(fields[2])) as integer
-  local flags = math.tointeger(tonumber(fields[3])) as integer
+  local text, size = fields[1], math.tointeger(tonumber(fields[2])) as integer -- checked: cast_refused
+  local flags = math.tointeger(tonumber(fields[3])) as integer -- checked: cast_refused
   local opts, dopts = options_of(flags)
-  local whole, raised = token_lines(text, #text + 1, opts)
+  local whole, raised = token_lines(text, #text + 1, opts) -- checked: nil_not_allowed*2
   if whole == nil then return false, raised end
-  local split, split_raised = token_lines(text, size, opts)
+  local split, split_raised = token_lines(text, size, opts) -- checked: nil_not_allowed
   if split == nil then return false, split_raised end
   if split ~= whole then
     return false, "split in " .. size .. "s:\n" .. split .. "\nwhole:\n" .. whole
   end
   for peeks = 1, 2 do
-    local peeked, peek_raised = token_lines(text, size, opts, peeks)
+    local peeked, peek_raised = token_lines(text, size, opts, peeks) -- checked: nil_not_allowed
     if peeked == nil then return false, peek_raised end
     if peeked ~= whole then
       return false, "peeking " .. tostring(peeks) .. " times:\n" .. peeked .. "\nnot:\n" .. whole
     end
   end
-  local decoded, err = Json.decode(text, dopts)
-  local values, why = token_values(text, size, opts)
+  local decoded, err = Json.decode(text, dopts) -- checked: nil_not_allowed
+  local values, why = token_values(text, size, opts) -- checked: nil_not_allowed
   if err == "" then
     Fuzz.label("decoded")
-    if flags & 1 == 1 and not Json.check(text) then Fuzz.label("json5") end
-    if flags & 2 == 2 and not Json.check(text, { json5 = flags & 1 == 1 }) then
+    if flags & 1 == 1 and not Json.check(text) then Fuzz.label("json5") end -- checked: nil_not_allowed
+    if flags & 2 == 2 and not Json.check(text, { json5 = flags & 1 == 1 }) then -- checked: nil_not_allowed
       Fuzz.label("hash")
     end
     if values == nil then return false, "decode read it, the reader refused: " .. why end
     if #values ~= 1 or not same(values[1], decoded) then
       return false, "the tokens built another value"
     end
-    local r = Json.reader(ChunkedReader.chunked(text, size), opts)
+    local r = Json.reader(ChunkedReader.chunked(text, size), opts) -- checked: nil_not_allowed
     local value, verr = r:value()
     if verr ~= "" then return false, "value refused what decode read: " .. verr end
     if not same(value, decoded) then return false, "value read another value" end
     local after, aerr = r:next()
     if after ~= nil or aerr ~= "" then return false, "a token after the one value: " .. aerr end
-    local ok, why_not = placed_after(text, size, opts)
+    local ok, why_not = placed_after(text, size, opts) -- checked: nil_not_allowed
     if not ok then return false, why_not end
   elseif values ~= nil and #values == 1 then
     return false, "the reader read one value, decode refused it: " .. err
   elseif values == nil then
     Fuzz.label("refused")
     -- Text another combination of the options reads, refused by this one.
-    if Json.check(text, { json5 = true, hash_comments = true }) then
+    if Json.check(text, { json5 = true, hash_comments = true }) then -- checked: nil_not_allowed
       Fuzz.label("refused_extended")
     end
     -- A refusal that is `decode`'s own, of a token's text, is placed
@@ -279,7 +279,7 @@ local function holds(input: string): boolean, string
     if at_line ~= nil then
       Fuzz.label("placed")
       -- JSON5-specific: without json5 the same text is refused otherwise.
-      local _, plain_err = Json.decode(text, { hash_comments = flags & 2 == 2 })
+      local _, plain_err = Json.decode(text, { hash_comments = flags & 2 == 2 }) -- checked: nil_not_allowed
       if flags & 1 == 1 and plain_err ~= err then
         Fuzz.label("placed_json5")
       end
@@ -292,7 +292,7 @@ local function holds(input: string): boolean, string
       if err:find("unexpected content after document", 1, true) == nil and
           err:find("unexpected end of data", 1, true) == nil and
           (want_line ~= at_line or want_column ~= at_column) then
-        return false, "refused at " .. at_line .. ":" .. at_column .. ", decode at " ..
+        return false, "refused at " .. at_line .. ":" .. at_column .. ", decode at " .. -- checked: nil_not_allowed
           tostring(want_line) .. ":" .. tostring(want_column) .. ": " .. err
       end
     end

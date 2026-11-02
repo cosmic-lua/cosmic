@@ -111,7 +111,7 @@ local function write_fixture(case: string, files: {string:string}): string?, str
   end
   for filename, source in pairs(all) do
     local parent = filename:match("^(.+)/[^/]+$")
-    if parent and not Fs.mkdirs(root .. "/" .. parent) then
+    if parent and not Fs.mkdirs(root .. "/" .. parent) then -- checked: condition_type
       return nil, root .. "/" .. parent .. ": could not create fixture directory"
     end
     local ok: boolean
@@ -254,7 +254,7 @@ local function test_self_compile_consumes_cache_after_identity_selection()
     local result, trouble = importer.compile_tree(handle,
       function(recorded: identity.Identities): string?,
       string
-        selected.value = true
+        selected.value = true -- checked: map_field
         assert(trace.finished == 0 and trace.offered == 2,
           "identity selected before derivation completed")
         local rows = assert(Sqlite.text_rows(handle.db,
@@ -264,7 +264,7 @@ local function test_self_compile_consumes_cache_after_identity_selection()
         return "chosen-compiler", ""
       end, false, shared)
     assert(trace.finished == 1, "self-build did not finish its cache exactly once")
-    assert(selected.value == (phase ~= "record"))
+    assert(selected.value == (phase ~= "record")) -- checked: map_field
     if phase == "success" then
       assert(result ~= nil, trouble)
       -- The tool the selection answered, as the compile in the new mode keys it ([`Pipeline.coded_of`]).
@@ -1864,7 +1864,7 @@ local function test_the_compiler_modules_are_closed_under_require()
     assert(file ~= nil, name .. " is in the compiler's identity but is no module of the tree's")
     local source = assert(Fs.read(file))
     for _, required in ipairs(requires_of(source, file)) do
-      local ours = (required:match("^build%.") or required:match("^cosmic%.")) and
+      local ours = (required:match("^build%.") or required:match("^cosmic%.")) and -- checked: condition_type
         not required:match("^cosmic%.internal%.") and tree_file_of(required) ~= nil
       if ours and covered[required] ~= true then
         if name == "build.importer" and left_out[required] ~= nil then

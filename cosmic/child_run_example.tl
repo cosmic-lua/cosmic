@@ -9,7 +9,7 @@ local Test = require("cosmic.test")
 --- worker sees only when the module declares `system`.
 Test.policy{ profiles = { "system" } }
 
-local Example = {}
+local Example = {} -- checked: literal_needs_type
 
 --- A host program run to completion, its output collected: a failing
 --- exit is a `Result` with `ok` false and the status in `code`, not an
@@ -25,4 +25,4 @@ function Example.run()
   assert(result.code == 3 and not result.ok and not result.timed_out)
 end
 
-return Example
+return Example -- checked: export_not_declared

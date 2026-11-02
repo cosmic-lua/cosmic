@@ -85,9 +85,9 @@ local function test_a_rest_capture_takes_the_rest_of_a_list_none_included()
   local chunk = parse_ok("f(1, 2, 3)\nf()\ng(1)")
   local found = Match.find_all(pattern_ok("f($$$ARGS)"), chunk, chunk)
   assert(#found == 2)
-  assert(#found[1].caps["___ARGS"].nodes == 3 and #found[2].caps["___ARGS"].nodes == 0)
+  assert(#found[1].caps["___ARGS"].nodes == 3 and #found[2].caps["___ARGS"].nodes == 0) -- checked: nil_not_allowed*2
   local some = Match.find_all(pattern_ok("f($A, $$$REST)"), chunk, chunk)
-  assert(#some == 1 and #some[1].caps["___REST"].nodes == 2)
+  assert(#some == 1 and #some[1].caps["___REST"].nodes == 2) -- checked: nil_not_allowed
 end
 
 local function test_a_rest_capture_in_a_block_is_written_as_a_call()
@@ -95,7 +95,7 @@ local function test_a_rest_capture_in_a_block_is_written_as_a_call()
   assert(pattern == nil and why ~= "")
   local chunk = parse_ok("if a then print(1)\nprint(2) end")
   local found = Match.find_all(pattern_ok("if $C then $$$BODY() end"), chunk, chunk)
-  assert(#found == 1 and #found[1].caps["___BODY"].nodes == 2)
+  assert(#found == 1 and #found[1].caps["___BODY"].nodes == 2) -- checked: nil_not_allowed
 end
 
 local function test_a_table_item_rest_and_an_empty_table()
@@ -126,7 +126,7 @@ end
 local function test_a_capture_predicate_restricts_what_a_capture_binds()
   local chunk = parse_ok("test_a()\nrun()")
   local found = Match.find_all(pattern_ok("$F:^test_()"), chunk, chunk)
-  assert(#found == 1 and Match.text(chunk, "test_a()\nrun()", found[1].caps["_F"]) == "test_a")
+  assert(#found == 1 and Match.text(chunk, "test_a()\nrun()", found[1].caps["_F"]) == "test_a") -- checked: index_may_be_nil
   -- a compound node has no one token to test
   assert(count("f($X:^a)", "f(a.b)") == 0 and count("f($X:^a)", "f(ab)") == 1)
 end

@@ -470,7 +470,7 @@ local function test_each_case_has_its_error_with_place_message_and_fix()
     if #r.before > 0 then
       problems[#problems + 1] = label .. ": the source has " .. table.concat(r.before, " ")
     elseif Programs.codes(r) ~= (case.codes or case.code) then
-      problems[#problems + 1] = label .. ": has " .. Programs.codes(r) .. (if r.errors[1] ~= nil then " (" .. r.errors[1].msg .. ")" else "" end)
+      problems[#problems + 1] = label .. ": has " .. Programs.codes(r) .. (if r.errors[1] ~= nil then " (" .. r.errors[1].msg .. ")" else "" end) -- checked: nil_not_allowed
     else
       local e = r.errors[#r.errors]
       for _, each in ipairs(r.errors) do
@@ -478,15 +478,15 @@ local function test_each_case_has_its_error_with_place_message_and_fix()
           e = each
         end
       end
-      if not has(e.msg, case.msg) then
-        problems[#problems + 1] = label .. ": msg " .. e.msg .. "\n    wanted " .. case.msg
+      if not has(e.msg, case.msg) then -- checked: nil_not_allowed
+        problems[#problems + 1] = label .. ": msg " .. e.msg .. "\n    wanted " .. case.msg -- checked: nil_not_allowed
       end
-      if not has(e.fix, case.fix) then
-        problems[#problems + 1] = label .. ": fix " .. e.fix .. "\n    wanted " .. case.fix
+      if not has(e.fix, case.fix) then -- checked: nil_not_allowed
+        problems[#problems + 1] = label .. ": fix " .. e.fix .. "\n    wanted " .. case.fix -- checked: nil_not_allowed
       end
       local at = case.at
-      if at ~= nil and (e.y ~= at[1] or e.x ~= at[2]) then
-        problems[#problems + 1] = label .. ": at " .. tostring(e.y) .. ":" .. tostring(e.x) .. ", wanted " .. at[1] .. ":" .. at[2]
+      if at ~= nil and (e.y ~= at[1] or e.x ~= at[2]) then -- checked: nil_not_allowed*2
+        problems[#problems + 1] = label .. ": at " .. tostring(e.y) .. ":" .. tostring(e.x) .. ", wanted " .. at[1] .. ":" .. at[2] -- checked: nil_not_allowed*4
       end
     end
   end
@@ -553,7 +553,7 @@ end
 local function test_every_code_has_a_row_with_a_rule_a_reason_and_a_fix_and_the_catalog_names_each_once()
   local owned: mut {string: boolean} = {}
   for _, row in ipairs(Check.catalog) do
-    assert(not owned[row.code], row.code .. " is in the catalog twice")
+    assert(not owned[row.code], row.code .. " is in the catalog twice") -- checked: condition_type
     owned[row.code] = true
     assert(row.rule ~= "" and row.why ~= "" and row.fix ~= "")
   end
@@ -809,7 +809,7 @@ local function test_programs_that_follow_the_rules_check_clean()
   table.sort(names)
   local problems: mut {string} = {}
   for _, name in ipairs(names) do
-    local r = Programs.run(STANDING[name], MODULES)
+    local r = Programs.run(STANDING[name], MODULES) -- checked: index_may_be_nil
     local found: mut {string} = {}
     for _, e in ipairs(r.errors) do
       found[#found + 1] = tostring(e.y) .. ":" .. tostring(e.x) .. " " .. e.code .. " " .. e.msg
@@ -893,7 +893,7 @@ local up = ("a"):upper()
 local count = m.count
 local pick = m.f(1)
 ]], { m = "local record M\n  count: integer\nend\nfunction M.f(a: integer): integer\n  return a\nend\nreturn M\n" })
-  assert(#r.before == 0 and #r.errors == 0, Programs.codes(r) .. (r.errors[1] ~= nil and r.errors[1].msg or ""))
+  assert(#r.before == 0 and #r.errors == 0, Programs.codes(r) .. (r.errors[1] ~= nil and r.errors[1].msg or "")) -- checked: and_ternary, nil_not_allowed
   local got = shown(r, { "item", "rest", "first", "i", "j", "k", "x", "up", "count", "pick" })
   local want: {string: string} = {
     item = "Item", rest = "string?", first = "number?", i = "integer", j = "integer", k = "number", x = "number",
@@ -922,8 +922,8 @@ local c = ("x"):gsub("a", function(c: integer): string return "" end)
   assert(#r.before == 0 and Programs.codes(r) == "not_assignable", Programs.codes(r))
   assert(Types.display(Programs.var(r, "a")) == "string" and Types.display(Programs.var(r, "n")) == "integer")
   local e = r.errors[1]
-  assert(e.y == 3 and has(e.msg, "`function(c: integer): string return \"\" end` is `function(integer): string`, where " ..
-      "`function(string): string` is wanted as argument 2"), e.msg)
+  assert(e.y == 3 and has(e.msg, "`function(c: integer): string return \"\" end` is `function(integer): string`, where " .. -- checked: nil_not_allowed*2
+      "`function(string): string` is wanted as argument 2"), e.msg) -- checked: nil_not_allowed
 end
 
 local function test_a_function_literal_takes_its_returns_from_the_position_and_the_body_is_checked_against_them()
@@ -976,7 +976,7 @@ local x: integer = R.defined(1)
 local y: string = R.defined(1)
 ]])
   assert(#r.before == 0 and Programs.codes(r) == "not_assignable not_assignable", Programs.codes(r))
-  assert(r.errors[1].y == 4 and has(r.errors[1].msg, "as the declaration of `R.declared`"), r.errors[1].msg)
+  assert(r.errors[1].y == 4 and has(r.errors[1].msg, "as the declaration of `R.declared`"), r.errors[1].msg) -- checked: nil_not_allowed*3
 end
 
 local function test_a_global_value_a_declaration_file_gives_and_a_global_record_are_typed_from_the_declarations()
@@ -1062,7 +1062,7 @@ local function test_a_write_through_a_union_or_onto_a_string_is_refused()
   assert(codes_of(source .. "  u.x = \"wrong\"\nend\n") == "field_fixed")
   assert(codes_of(source .. "  s.upper = nil\nend\n") == "field_fixed")
   local r = Programs.run(source .. "  u.x = 1\nend\n")
-  assert(has(r.errors[1].fix, "narrow the value to one record, then write its `mut` field"), r.errors[1].fix)
+  assert(has(r.errors[1].fix, "narrow the value to one record, then write its `mut` field"), r.errors[1].fix) -- checked: nil_not_allowed*2
 end
 
 local function test_the_tail_a_return_ends_in_is_held_to_the_return_list()
@@ -1075,7 +1075,7 @@ local function test_the_tail_a_return_ends_in_is_held_to_the_return_list()
   assert(g("string?, string?", "tailed()") == "", g("string?, string?", "tailed()"))
   assert(g("string?", "\"a\", tailed()") == "return_arity", g("string?", "\"a\", tailed()"))
   local r = Programs.run("local function g(...: string): string\n  return ...\nend\n")
-  assert(#r.before == 0 and Programs.codes(r) == "nil_not_allowed" and has(r.errors[1].fix, "varargs end in nil"))
+  assert(#r.before == 0 and Programs.codes(r) == "nil_not_allowed" and has(r.errors[1].fix, "varargs end in nil")) -- checked: nil_not_allowed
   assert(codes_of("local function g(...: string): string?\n  return ...\nend\n") == "")
 end
 
@@ -1110,7 +1110,7 @@ local function test_a_module_that_returns_a_function_gives_its_importers_the_typ
   assert(codes_of("local g = require(\"typed\")\nlocal n: integer = g(\"a\")\n", modules) == "")
   -- a module whose value has no written type is reported where it is returned and where it is required
   assert(codes_of("local t = require(\"plain\")\n", modules) == "unchecked_binding")
-  assert(Programs.codes(Programs.run(modules.plain)) == "export_not_declared")
+  assert(Programs.codes(Programs.run(modules.plain)) == "export_not_declared") -- checked: map_field
 end
 
 local function test_a_returned_local_declared_with_a_type_of_an_imported_module_is_an_export()
@@ -1119,8 +1119,8 @@ local function test_a_returned_local_declared_with_a_type_of_an_imported_module_
     mu = "local T = require(\"mt\")\nlocal x: T = { n = 1 }\nreturn x\n",
   }
   local r = Programs.run("local U = require(\"mu\")\nlocal v: integer = U.n\n", modules)
-  assert(#r.before == 0 and Programs.codes(r) == "", Programs.codes(r) .. (r.errors[1] ~= nil and r.errors[1].msg or ""))
-  assert(r.program.modules.mu.export ~= nil)
+  assert(#r.before == 0 and Programs.codes(r) == "", Programs.codes(r) .. (r.errors[1] ~= nil and r.errors[1].msg or "")) -- checked: and_ternary, nil_not_allowed
+  assert(r.program.modules.mu.export ~= nil) -- checked: map_field
 end
 
 local function test_a_loop_over_a_call_that_gives_no_iterator_is_reported()
@@ -1716,13 +1716,13 @@ local function silent_invalids(first: integer, last: integer, standing: boolean)
     for _, v in ipairs(r.scoped.list) do
       local t = r.result.vars[v.id]
       if t ~= nil and t.tag == "invalid" then
-        problems[#problems + 1] = label .. ": " .. v.name .. " is invalid and nothing is reported"
+        problems[#problems + 1] = label .. ": " .. v.name .. " is invalid and nothing is reported" -- checked: view_written
       end
     end
   end
   for i = first, math.min(last, #CASES) do
     local case = CASES[i]
-    hold("case " .. tostring(i) .. " " .. case.code, case.source, case.modules)
+    hold("case " .. tostring(i) .. " " .. case.code, case.source, case.modules) -- checked: nil_not_allowed*3
   end
   if standing then
     for name, source in pairs(STANDING) do
@@ -1899,7 +1899,7 @@ local function test_the_arguments_of_a_library_call_are_read_where_they_are_writ
   local function msg_of(source: string): string
     local r = Programs.run(source)
     local first = r.errors[1]
-    return first ~= nil and first.msg or ""
+    return first ~= nil and first.msg or "" -- checked: and_ternary
   end
   local said: {string} = {
     -- the plain argument of a method call is the third argument, and `false` is no plain text
@@ -1921,7 +1921,7 @@ local function test_the_arguments_of_a_library_call_are_read_where_they_are_writ
   -- the error stands on the literal: the receiver of a method call is the first argument
   local r = Programs.run("local x = (\"%y\"):format(1)\nprint(x)\n")
   local first = r.errors[1]
-  assert(first ~= nil and first.y == 1 and first.x == 11 and first.length == 6, tostring(first ~= nil and first.length))
+  assert(first ~= nil and first.y == 1 and first.x == 11 and first.length == 6, tostring(first ~= nil and first.length)) -- checked: or_mix
   -- and `~=` says the test is always true
   assert(has(msg_of("local x = 1\nprint(type(x) ~= \"int\")\n"), "so the test is always true"))
   assert(has(msg_of("local x = 1\nprint(type(x) == \"int\")\n"), "so the test is always false"))
@@ -2000,7 +2000,7 @@ local function test_the_types_a_literal_gives_are_held_to_the_arguments_and_the_
   local wrong: mut {string} = {}
   for i, each in ipairs(want) do
     if said[i] ~= each then
-      wrong[#wrong + 1] = tostring(i) .. ": " .. said[i] .. " (wanted " .. each .. ")"
+      wrong[#wrong + 1] = tostring(i) .. ": " .. said[i] .. " (wanted " .. each .. ")" -- checked: nil_not_allowed
     end
   end
   assert(#wrong == 0, table.concat(wrong, "; "))

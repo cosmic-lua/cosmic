@@ -70,6 +70,6 @@ local function test_a_finished_hasher_refuses_more()
   local hasher = assert(digest.sha256_hasher())
   hasher:update("x")
   assert(hasher:digest() == digest.sha256("x"))
-  assert(not pcall(function() hasher:update("y") end))
-  assert(not pcall(function() local _, _ = hasher:digest() end))
+  assert(not pcall(function() hasher:update("y") end)) -- checked: alternatives_as_value
+  assert(not pcall(function() local _, _ = hasher:digest() end)) -- checked: alternatives_as_value
 end

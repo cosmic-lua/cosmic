@@ -30,12 +30,12 @@ end
 local function test_unix_socket_creation_is_a_keyed_host_capability_on_every_platform()
   local calls = { value = 0 }
   local host = host_requires.new({ linux = false, unix_socket = function(): boolean, string
-    calls.value = calls.value + 1
+    calls.value = calls.value + 1 -- checked: map_field*2
     return true, ""
   end })
   local answer = ask(host, "unix_socket")
   assert(answer.kind == "present" and answer.class == "host" and answer.key == "stream")
-  assert(ask(host, "unix_socket").key == answer.key and calls.value == 1)
+  assert(ask(host, "unix_socket").key == answer.key and calls.value == 1) -- checked: map_field
   local refused = ask(host_requires.new({ unix_socket = function(): boolean, string
     return false, "Operation not permitted"
   end }), "unix_socket")
@@ -213,16 +213,16 @@ end
 local function test_a_platform_absence_is_n_a_and_a_host_absence_skipped()
   local asked = { value = 0 }
   local host = host_requires.new({ sandbox = function(): host_requires.Sandbox
-    asked.value = asked.value + 1
+    asked.value = asked.value + 1 -- checked: map_field*2
     return { ok = false, why = "refused here", broken = false }
   end })
   local sandbox = ask(host, "sandbox")
   if assert(sys.uname()).sysname == "Linux" then
-    assert(sandbox.kind == "skipped" and sandbox.why == "refused here" and asked.value == 1)
+    assert(sandbox.kind == "skipped" and sandbox.why == "refused here" and asked.value == 1) -- checked: map_field
     assert(ask(host, "landlock:9999").kind == "skipped", "an ABI no kernel has is skipped, not n/a")
     assert(ask(host, "proc").kind ~= "na")
   else
-    assert(sandbox.kind == "na" and asked.value == 0, "no probe is asked where the platform has none")
+    assert(sandbox.kind == "na" and asked.value == 0, "no probe is asked where the platform has none") -- checked: map_field
     for _, name in ipairs({ "landlock", "userns", "nest", "own_proc", "proc" }) do
       assert(ask(host, name).kind == "na", name)
     end
@@ -265,12 +265,12 @@ local function test_each_probe_runs_once_per_host()
   if not (assert(sys.uname()).sysname == "Linux") then Test.skip("only Linux has this probe") end
   local asked = { value = 0 }
   local host = host_requires.new({ sandbox = function(): host_requires.Sandbox
-    asked.value = asked.value + 1
+    asked.value = asked.value + 1 -- checked: map_field*2
     return { ok = true, why = "", broken = false }
   end })
   local answers = host_requires.answer(host, { "sandbox", "sandbox", "proc" })
   local _ = ask(host, "sandbox")
-  assert(asked.value == 1 and answers[1] == answers[2])
+  assert(asked.value == 1 and answers[1] == answers[2]) -- checked: map_field
 end
 
 --- Landlock follows the kernel's ABI: `landlock:N` is present up to it,
@@ -517,7 +517,7 @@ local function test_promises_are_read_and_matched_by_name()
   assert(#assert(host_names.read_promises("")) == 0)
   for _, bad in ipairs({ "nope", "sandbox,sandbox", "sandbox,", "path:rel", "landlock:0" }) do
     local found, why = host_names.read_promises(bad)
-    assert(found == nil and why ~= nil, bad)
+    assert(found == nil and why ~= nil, bad) -- checked: compare_disjoint
   end
   assert(host_names.promised(read, "nest") and host_names.promised(read, "sandbox"))
   assert(host_names.promised(read, "landlock") and host_names.promised(read, "landlock:2") and
@@ -534,7 +534,7 @@ end
 local function test_a_program_outside_the_systems_paths_is_absent(tmp: string)
   assert(Fs.mkdirs(tmp .. "/bin"))
   assert(Fs.write(tmp .. "/bin/elsewhere-tool", "x\n"))
-  assert(Fs.chmod(tmp .. "/bin/elsewhere-tool", tonumber("755", 8) as integer))
+  assert(Fs.chmod(tmp .. "/bin/elsewhere-tool", tonumber("755", 8) as integer)) -- checked: cast_refused
   local answer = ask(host_with({ ok = true, why = "", broken = false }, tmp .. "/bin", { "/nonexistent-system" }),
     "program:elsewhere-tool")
   assert(answer.kind == "skipped" and answer.why:find("outside the system's paths", 1, true) ~= nil, answer.why)

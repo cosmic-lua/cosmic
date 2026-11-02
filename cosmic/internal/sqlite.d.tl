@@ -16,7 +16,7 @@ local record sqlite
     code: integer
     extended_code: integer
     reason: string
-    cancelled?: boolean
+    cancelled?: boolean -- declared: interface_disagrees
   end
   record OpenResult is Outcome
     handle: Handle

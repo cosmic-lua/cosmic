@@ -24,7 +24,7 @@ local function cosmic(dir: string, words: {string}): integer, string, string
     cwd = dir, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30),
   })
   local result = assert(Child.run(started.argv, started.options))
-  return result.code, result.stdout or "", result.stderr or ""
+  return result.code, result.stdout or "", result.stderr or "" -- checked: nil_not_allowed
 end
 
 local function test_a_refusal_is_two_and_prints_no_summary(tmp: string)
@@ -98,7 +98,7 @@ local function test_a_fetch_interrupted_mid_body_leaves_no_file(tmp: string)
   local started = this_program.program({ "fetch", "-o", tmp .. "/target", url },
     { cwd = tmp, stdout = "null", stderr = "capture" })
   local child <close> = assert(Child.start(started.argv, started.options))
-  local conn <close> = assert(server:accept())
+  local conn <close> = assert(server:accept()) -- checked: close_not_closable
   local request = ""
   while not request:find("\r\n\r\n", 1, true) do
     request = request .. assert(conn:read())

@@ -38,7 +38,7 @@ local function named(path: string): string?, string
   local found, trouble = sys.realpath(path)
   if found ~= nil then return found, "" end
   local _, stat_trouble, errno = sys.stat(path)
-  if errno ~= sys.ENOENT then return nil, path .. ": " .. (stat_trouble or trouble) end
+  if errno ~= sys.ENOENT then return nil, path .. ": " .. (stat_trouble or trouble) end -- checked: condition_type
   local parent = Fs.dirname(path)
   if parent == path then return nil, path .. ": " .. trouble end
   local resolved, resolve_trouble = named(parent)

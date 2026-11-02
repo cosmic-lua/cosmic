@@ -59,9 +59,9 @@ local function run(code: {Insn}, architecture: integer, number: integer, args: {
     elseif insn.code == 0x05 then
       pc = pc + insn.k
     elseif insn.code == 0x15 then
-      pc = pc + (a == insn.k and insn.jt or insn.jf)
+      pc = pc + (a == insn.k and insn.jt or insn.jf) -- checked: and_ternary
     elseif insn.code == 0x35 then
-      pc = pc + (a >= insn.k and insn.jt or insn.jf)
+      pc = pc + (a >= insn.k and insn.jt or insn.jf) -- checked: and_ternary
     elseif insn.code == 0x06 then
       return insn.k
     else
@@ -81,7 +81,7 @@ local function test_connect_accepts_only_whole_immutable_slots_with_exact_sizes(
   for i, architecture in ipairs(arches) do
     local code = filter(architecture)
     local function connect(pointer: integer, length: integer): integer
-      return run(code, audit_of(architecture), numbers.connect[i], { 5, pointer, length })
+      return run(code, audit_of(architecture), numbers.connect[i], { 5, pointer, length }) -- checked: map_field
     end
     for slot = 0, 3 do
       assert(connect(BASE + V4 * slot, 16) == ALLOW)
@@ -97,15 +97,15 @@ local function test_connect_accepts_only_whole_immutable_slots_with_exact_sizes(
     assert(connect(BASE + 4096 + 65534 * V6, 28) == ALLOW)
     assert(connect(BASE + 4096 + 65535 * V6, 28) == REFUSE)
     assert(connect(BASE + 4096, 16) == REFUSE)
-    assert(run(code, 0x40000003, numbers.connect[i], { 5, BASE, 16 }) == KILL)
-    assert(run(code, audit_of(architecture), numbers.connect[i] | 0x40000000, { 5, BASE, 16 }) == REFUSE)
+    assert(run(code, 0x40000003, numbers.connect[i], { 5, BASE, 16 }) == KILL) -- checked: map_field
+    assert(run(code, audit_of(architecture), numbers.connect[i] | 0x40000000, { 5, BASE, 16 }) == REFUSE) -- checked: map_field
   end
 end
 local function test_a_slot_is_held_to_its_own_ranges_stride_and_length()
   for i, architecture in ipairs(arches) do
     local code = filter(architecture)
     local function connect(pointer: integer, length: integer): integer
-      return run(code, audit_of(architecture), numbers.connect[i], { 5, pointer, length })
+      return run(code, audit_of(architecture), numbers.connect[i], { 5, pointer, length }) -- checked: map_field
     end
     -- Into the other range: an IPv6 slot at the IPv4 length, and the reverse.
     assert(connect(BASE + 4096, 16) == REFUSE)
@@ -128,26 +128,26 @@ local function test_only_tcp_creation_and_protected_ipc_descriptor_sends_are_all
   for i, architecture in ipairs(arches) do
     local code = filter(architecture)
     for _, family in ipairs({ 2, 10 }) do
-      assert(run(code, audit_of(architecture), numbers.socket[i], { family, 0x80801, 6 }) == ALLOW)
+      assert(run(code, audit_of(architecture), numbers.socket[i], { family, 0x80801, 6 }) == ALLOW) -- checked: map_field
     end
     for _, args in ipairs({ { 1, 0x80801, 6 }, { 2, 0x80802, 17 }, { 2, 0x80801, 0 },
         { 2, 1, 6 }, { 2 + (1 << 32), 0x80801, 6 }, { 2, 0x80801 + (1 << 32), 6 } }) do
-      assert(run(code, audit_of(architecture), numbers.socket[i], args) == REFUSE)
+      assert(run(code, audit_of(architecture), numbers.socket[i], args) == REFUSE) -- checked: map_field
     end
-    assert(run(code, audit_of(architecture), numbers.sendmsg[i], { CONTROL, 1234, 0x4000 }) == ALLOW)
+    assert(run(code, audit_of(architecture), numbers.sendmsg[i], { CONTROL, 1234, 0x4000 }) == ALLOW) -- checked: map_field
     for _, args in ipairs({ { 5, 1234, 0x4000 }, { STATUS, 1234, 0x4000 },
         { CONTROL + (1 << 32), 1234, 0x4000 }, { CONTROL, 1234, 0x20004000 }, { CONTROL, 1234, 0 } }) do
-      assert(run(code, audit_of(architecture), numbers.sendmsg[i], args) == REFUSE)
+      assert(run(code, audit_of(architecture), numbers.sendmsg[i], args) == REFUSE) -- checked: map_field
     end
-    assert(run(code, audit_of(architecture), numbers.close[i], { CONTROL }) == KILL)
-    assert(run(code, audit_of(architecture), numbers.close[i], { 5 }) == ALLOW)
-    assert(run(code, audit_of(architecture), numbers.read[i], { CONTROL }) == ALLOW)
-    assert(run(code, audit_of(architecture), numbers.read[i], { STATUS }) == REFUSE)
-    assert(run(code, audit_of(architecture), numbers.write[i], { CONTROL }) == ALLOW)
-    assert(run(code, audit_of(architecture), numbers.write[i], { STATUS }) == ALLOW)
-    assert(run(code, audit_of(architecture), numbers.write[i], { 5 }) == REFUSE)
-    assert(run(code, audit_of(architecture), numbers.getsockopt[i], { 5, 1, 4 }) == ALLOW)
-    assert(run(code, audit_of(architecture), numbers.getsockopt[i], { 5, 1, 30 }) == REFUSE)
+    assert(run(code, audit_of(architecture), numbers.close[i], { CONTROL }) == KILL) -- checked: map_field
+    assert(run(code, audit_of(architecture), numbers.close[i], { 5 }) == ALLOW) -- checked: map_field
+    assert(run(code, audit_of(architecture), numbers.read[i], { CONTROL }) == ALLOW) -- checked: map_field
+    assert(run(code, audit_of(architecture), numbers.read[i], { STATUS }) == REFUSE) -- checked: map_field
+    assert(run(code, audit_of(architecture), numbers.write[i], { CONTROL }) == ALLOW) -- checked: map_field
+    assert(run(code, audit_of(architecture), numbers.write[i], { STATUS }) == ALLOW) -- checked: map_field
+    assert(run(code, audit_of(architecture), numbers.write[i], { 5 }) == REFUSE) -- checked: map_field
+    assert(run(code, audit_of(architecture), numbers.getsockopt[i], { 5, 1, 4 }) == ALLOW) -- checked: map_field
+    assert(run(code, audit_of(architecture), numbers.getsockopt[i], { 5, 1, 30 }) == REFUSE) -- checked: map_field
   end
 end
 local function test_every_call_outside_the_explicit_allowlist_is_refused()
@@ -160,7 +160,7 @@ local function test_every_call_outside_the_explicit_allowlist_is_refused()
       if number >= 0 then allowed[number] = true end
     end
     for number = 0, 1024 do
-      if not allowed[number] then
+      if not allowed[number] then -- checked: condition_type
         assert(run(code, audit_of(architecture), number, { CONTROL, BASE, 16 }) == REFUSE,
           architecture .. " unexpectedly allowed syscall " .. tostring(number))
       end
@@ -169,7 +169,7 @@ local function test_every_call_outside_the_explicit_allowlist_is_refused()
 end
 local function test_invalid_filter_inputs_are_refused()
   for _, ranges in ipairs({
-      {} as {raw_process.ConnectorRange},
+      {} as {raw_process.ConnectorRange}, -- checked: cast_refused, literal_needs_type
       { { base = BASE + 1, slots = 1, length = 16 } },
       { { base = BASE + 16, slots = 1, length = 28 } },
       { { base = BASE, slots = 0, length = 16 } },

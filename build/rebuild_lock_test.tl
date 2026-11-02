@@ -50,7 +50,7 @@ local function test_a_claim_is_refused_while_a_run_holds_the_lock(tmp: string)
   do
     local claimed, claim_trouble = rebuild_lock.claim(directory)
     assert(claimed ~= nil, claim_trouble)
-    local _held <close> = claimed
+    local _held <close> = claimed -- checked: close_not_closable
     assert(rebuild_lock.take(root, 0) == "busy", "a claim let a run take the lock")
   end
   assert(rebuild_lock.take(root, 0) == "held")
@@ -120,7 +120,7 @@ end
 --- A process holds one checkout's lock at once: another's is refused,
 --- by name, rather than taken as the one it holds.
 local function test_a_holder_is_refused_another_checkouts_lock(tmp: string)
-  assert(support.build_dir(tmp .. "/one") and support.build_dir(tmp .. "/two"))
+  assert(support.build_dir(tmp .. "/one") and support.build_dir(tmp .. "/two")) -- checked: condition_type
   assert(rebuild_lock.take(tmp .. "/one", 0, "test") == "held")
   local taken, trouble = rebuild_lock.take(tmp .. "/two", 0, "test")
   rebuild_lock.release()
@@ -154,8 +154,8 @@ local function test_a_lock_is_handed_by_the_file_it_names(tmp: string)
   assert(rebuild_lock.take(root, 0, "test") == "held")
   local handed = rebuild_lock.hand({ KEPT = "1" }, root .. "/.")
   rebuild_lock.release()
-  assert(handed.KEPT == "1")
-  assert(handed.COSMIC_REBUILD_LOCK_HANDED == support.build_dir(root) .. "/rebuild.lock")
+  assert(handed.KEPT == "1") -- checked: map_field
+  assert(handed.COSMIC_REBUILD_LOCK_HANDED == support.build_dir(root) .. "/rebuild.lock") -- checked: map_field
 end
 
 --- A lock file this process cannot write would lock nothing, so it is

@@ -141,7 +141,7 @@ local SAME: {Same} = {
 local function test_a_policy_is_keyed_as_its_needs()
   for _, pair in ipairs(SAME) do
     local chunk = assert(load("return " .. pair.needs))
-    local from_needs = assert(test_inputs.as_declared(chunk() as Test.Needs))
+    local from_needs = assert(test_inputs.as_declared(chunk() as Test.Needs)) -- checked: cast_refused
     local from_policy, why_policy = declared(pair.policy)
     assert(from_policy ~= nil, pair.policy .. ": " .. why_policy)
     assert(test_inputs.canonical(from_needs) == test_inputs.canonical(from_policy),
@@ -154,8 +154,8 @@ local function test_a_policy_is_keyed_as_its_needs()
     assert(test_inputs.canonical(test_inputs.as_declared(handed)) ==
         test_inputs.canonical(from_needs), pair.policy .. ": the worker is handed another needs")
     from_needs.line, from_policy.line = 0, 0
-    for field, value in pairs(from_needs as {string:any}) do
-      local other = (from_policy as {string:any})[field]
+    for field, value in pairs(from_needs as {string:any}) do -- checked: cast_refused
+      local other = (from_policy as {string:any})[field] -- checked: cast_refused
       if value is {string} and other is {string} then
         assert(table.concat(value, " ") == table.concat(other, " "), pair.policy .. " " .. field)
       else
@@ -294,17 +294,17 @@ end
 --- `parent` raises for, whether or not a runner gives it a parent directory.
 local function test_parent_refuses_a_path_the_module_never_declared()
   local ok, why = pcall(Test.parent, "bin/cosmic-bootstrap")
-  assert(not ok and tostring(why):find("parent(\"bin/cosmic-bootstrap\") is not declared", 1, true),
+  assert(not ok and tostring(why):find("parent(\"bin/cosmic-bootstrap\") is not declared", 1, true), -- checked: or_mix
     tostring(why))
 end
 
 --- A module declares its policy once, at the top level.
 local function test_a_module_declares_its_policy_once()
   local twice, again = declared('Test.policy { }\nTest.policy { }')
-  assert(twice == nil and again:find("fixture_test.tl:3: test.policy: a module declares its " ..
+  assert(twice == nil and again:find("fixture_test.tl:3: test.policy: a module declares its " .. -- checked: or_mix
       "policy once; line 2 did already", 1, true), again)
   local inside, within = declared('local function f() Test.policy { } end')
-  assert(inside == nil and within:find("test.policy: call it as a statement at the module's " ..
+  assert(inside == nil and within:find("test.policy: call it as a statement at the module's " .. -- checked: or_mix
       "top level", 1, true), within)
 end
 

@@ -146,7 +146,7 @@ local function asking(text: string): {string}
   for j in pairs(kept) do numbers[#numbers + 1] = j end
   table.sort(numbers)
   local found: mut {string} = {}
-  for _, j in ipairs(numbers) do found[#found + 1] = kept[j] end
+  for _, j in ipairs(numbers) do found[#found + 1] = kept[j] end -- checked: index_may_be_nil
   return found
 end
 
@@ -181,7 +181,7 @@ local function test_asking_keeps_what_a_line_at_a_time_would()
     end
     local found: mut {string} = {}
     for i, line in ipairs(lines) do
-      if kept[i] then found[#found + 1] = line end
+      if kept[i] then found[#found + 1] = line end -- checked: condition_type
     end
     return found
   end
@@ -214,7 +214,7 @@ local function test_every_library_build_zig_compiles_is_walked()
   local count = 0
   for library in source:gmatch('patched%(b, trees, "([%w_%-]+)"%)') do
     count = count + 1
-    assert(walked[library] or NOT_C[library], "build.zig compiles vendor/" .. library ..
+    assert(walked[library] or NOT_C[library], "build.zig compiles vendor/" .. library .. -- checked: condition_type
         ", which this test does not walk: add it to LIBRARIES and to Test.policy")
   end
   assert(count >= #LIBRARIES, "build.zig names " .. tostring(count) .. " patched trees")
@@ -251,14 +251,14 @@ local function test_every_feature_a_site_reads_is_keyed()
   local want: mut {string:mut {string:boolean}} = {}
   local function add(machine: string, flags: {string})
     want[machine] = want[machine] or {}
-    for _, flag in ipairs(flags) do want[machine][flag] = true end
+    for _, flag in ipairs(flags) do want[machine][flag] = true end -- checked: nil_not_allowed
   end
   for _, site in pairs(SITES) do
     for machine, flags in pairs(site.reads) do add(machine, flags) end
   end
   for machine, flags in pairs(want) do
     local keyed = declared_key.dispatched(machine)
-    assert(keyed ~= nil, machine .. " has sites but no audited list")
+    assert(keyed ~= nil, machine .. " has sites but no audited list") -- checked: compare_disjoint
     local have: mut {string:boolean} = {}
     for _, flag in ipairs(keyed) do have[flag] = true end
     for flag in pairs(flags) do

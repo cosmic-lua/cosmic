@@ -5,10 +5,10 @@ local function test_exception_rolls_back_and_preserves_error()
   assert(db:exec("CREATE TABLE items (value TEXT)"))
   local marker = { message = "callback failed" }
   local called, failure = pcall(function(): any, string
-    return Sqlite.transact(db, function(): boolean, string
+    return Sqlite.transact(db, function(): boolean, string -- checked: any_use
       assert(db:exec("INSERT INTO items VALUES ('discard')"))
       error(marker)
-      return true, ""
+      return true, "" -- checked: unreachable
     end)
   end)
   assert(not called and failure == marker)

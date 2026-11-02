@@ -629,7 +629,7 @@ local function query_words(query: string): {string}
   if #words > 0 then
     return words
   end
-  return #short > 0 and short or stop
+  return #short > 0 and short or stop -- checked: and_ternary
 end
 
 --- The first word of `query` a search keeps (see [`query_words`]).
@@ -1585,7 +1585,7 @@ local function lookup(entries: {docs.Entry}, exact: boolean, count: integer,
   for _, list in ipairs({ first, entries }) do
     for _, entry in ipairs(list) do
       at = at + 1
-      out[at] = entry
+      out[at] = entry -- checked: view_written
     end
   end
   return out
@@ -1635,7 +1635,7 @@ local function by_options(view: docs.View, query: string,
   for _, entry in ipairs(found) do held[entry.module .. "\n" .. entry.symbol] = true end
   local out: mut {docs.Entry} = {}
   for _, entry in ipairs(fields) do
-    local verb = entry.module == "cosmic.cli" and entry.symbol:match("^Cli%.(%w+)$") or nil
+    local verb = entry.module == "cosmic.cli" and entry.symbol:match("^Cli%.(%w+)$") or nil -- checked: and_ternary
     -- A field of `Cli` that is no verb has no options to speak of.
     local command = if verb ~= nil then Cli.verbs[verb] else nil end
     if command ~= nil and held[entry.module .. "\n" .. entry.symbol] ~= true then
@@ -1686,7 +1686,7 @@ local removed_by: function(view: docs.View, query: string): {docs.Entry}?, strin
 ---   (see `scoped`);
 --- - the documentation that carries all its words, and the verbs whose
 ---   options do (see [`by_options`]).
-local function lookup_names(view: docs.View, query: string): docs.Lookup?, string
+local function lookup_names(view: docs.View, query: string): docs.Lookup?, string -- checked: not_assigned*3
   -- A bare lowercase name that ends a public module's name is that
   -- module (`json` is `cosmic.json`, not the internal record `json`);
   -- the symbols it names exactly follow the module (`string` is
@@ -1769,7 +1769,7 @@ local function lookup_names(view: docs.View, query: string): docs.Lookup?, strin
         return nil, wrapping_trouble
       end
       for _, entry in ipairs(wrapping) do
-        exact[#exact + 1] = entry
+        exact[#exact + 1] = entry -- checked: view_written
       end
     end
     -- An environment variable's declaration ([`Env.Name.COSMIC_TEST_TIMEOUT`])
@@ -1844,7 +1844,7 @@ local function lookup_names(view: docs.View, query: string): docs.Lookup?, strin
     if near == nil then
       return nil, near_trouble
     end
-    found = near
+    found = near -- checked: view_as_mut
   end
   if #found == 0 then
     local searched_found, search_trouble = across(view,
@@ -1854,7 +1854,7 @@ local function lookup_names(view: docs.View, query: string): docs.Lookup?, strin
     if searched_found == nil then
       return nil, search_trouble
     end
-    found = searched_found
+    found = searched_found -- checked: view_as_mut
     local verbs, verbs_trouble = by_options(view, query, found)
     if verbs == nil then
       return nil, verbs_trouble
@@ -1865,7 +1865,7 @@ local function lookup_names(view: docs.View, query: string): docs.Lookup?, strin
       if ruled == nil then
         return nil, ruled_trouble
       end
-      found = ruled
+      found = ruled -- checked: view_as_mut
     end
     if #found == 0 then
       local near, near_trouble = across(view,
@@ -2046,7 +2046,7 @@ end
 --- [`docs.exact`] does, the member of a type an alias of the module
 --- stands for (`Handle.close` of [`cosmic.sqlite`]). None when the view
 --- holds no such module. The database that owns the module answers.
-local function member_of(view: docs.View, module: string, name: string): {docs.Entry}?, string
+local function member_of(view: docs.View, module: string, name: string): {docs.Entry}?, string -- checked: not_assigned
   local owner = view.owners[module]
   if owner == nil then
     return {}, ""
@@ -2092,7 +2092,7 @@ local function member_of(view: docs.View, module: string, name: string): {docs.E
   return aliased_members(view, owners, last)
 end
 
-in_full = function(view: docs.View, query: string): {docs.Entry}?, string
+in_full = function(view: docs.View, query: string): {docs.Entry}?, string -- checked: not_assigned
   local through, through_trouble = through_alias(view, query)
   if through == nil then
     return nil, through_trouble
@@ -2186,7 +2186,7 @@ local function removed_as(query: string): Removal?
     return nil
   end
   local first = keys[1]
-  if first == nil then
+  if first == nil then -- checked: compare_disjoint
     return nil
   end
   local module = first:match("^(.+)%.")
@@ -2215,7 +2215,7 @@ removed_by = function(view: docs.View, query: string): {docs.Entry}?, string
     end
   end
   return { {
-    module = module ~= "" and module or "cosmic.removed", symbol = query,
+    module = module ~= "" and module or "cosmic.removed", symbol = query, -- checked: and_ternary
     source_symbol = query, exported = true, kind = "removed", signature = "",
     text = sentence, file = "cosmic/removed.tl", line = 0,
     uses = 0, links = 0, examples = 0, related = {},
@@ -2293,7 +2293,7 @@ function docs.uses(view: docs.View, query: string): {docs.Use}?, string
     if more == nil then
       return nil, more_trouble
     end
-    for _, use in ipairs(more) do found[#found + 1] = use end
+    for _, use in ipairs(more) do found[#found + 1] = use end -- checked: view_written
   end
   local out: mut {docs.Use} = {}
   local seen: mut {string: boolean} = {}
@@ -2389,7 +2389,7 @@ local function listed(item: docs.Entry): string
       shown = "function " .. item.source_symbol .. rest
     end
   end
-  local note = is_call(item) and clipped(first_sentence(item.text), NOTE_LIMIT) or ""
+  local note = is_call(item) and clipped(first_sentence(item.text), NOTE_LIMIT) or "" -- checked: and_ternary
   return shown .. (if note ~= "" then " -- " .. note else "" end) ..
     (if #marks > 0 then "  (" .. table.concat(marks, ", ") .. ")" else "" end)
 end
@@ -2514,7 +2514,7 @@ end
 --- stands for nothing.
 local function inherited_lines(view: docs.View, entry: docs.Entry): {string}?, string
   local lines: mut {string} = {}
-  local references = entry.symbol ~= "" and alias_members.references(entry) or {}
+  local references = entry.symbol ~= "" and alias_members.references(entry) or {} -- checked: and_ternary, literal_needs_type
   if #references == 0 then
     return lines, ""
   end
@@ -2550,7 +2550,7 @@ local function inherited_lines(view: docs.View, entry: docs.Entry): {string}?, s
             values[#values + 1] = "    " .. member_line(member)
           elseif tail ~= nil then
             methods[#methods + 1] = "    " .. name .. "(" ..
-              (tail:sub(1, 2) == ", " and tail:sub(3) or tail) ..
+              (tail:sub(1, 2) == ", " and tail:sub(3) or tail) .. -- checked: and_ternary
               (if note ~= "" then " -- " .. note else "" end)
           else
             fields[#fields + 1] = "    " .. member_line(member)
@@ -2664,7 +2664,7 @@ function docs.render(view: docs.View, entry: docs.Entry): {string}?, string
   if entry.symbol ~= "" then
     -- `local` says only how the module spelled a declaration it hands
     -- out; a caller reads it as a record like any other.
-    lines[#lines + 1] = "  " .. (entry.exported and entry.signature:gsub("^local ", "") or
+    lines[#lines + 1] = "  " .. (entry.exported and entry.signature:gsub("^local ", "") or -- checked: and_ternary
       entry.signature)
   end
   if #entry.related > 0 then
@@ -2712,7 +2712,7 @@ function docs.render(view: docs.View, entry: docs.Entry): {string}?, string
     for _, member in ipairs(members) do
       local parent = parent_of(member.source_symbol)
       under[parent] = under[parent] or {}
-      table.insert(under[parent], member)
+      table.insert(under[parent], member) -- checked: overload_none -- untyped: call
     end
     -- A call the module's own record declares is listed as a function
     -- already, so it is not a field under that record as well.
@@ -2730,7 +2730,7 @@ function docs.render(view: docs.View, entry: docs.Entry): {string}?, string
         end
       end
     end
-    pointed = best ~= nil and best.source_symbol or nil
+    pointed = best ~= nil and best.source_symbol or nil -- checked: and_ternary
   end
   -- The listing goes after the first paragraph, or, when that ends in
   -- a colon, after the run of indented or fenced blocks it introduces
@@ -2800,8 +2800,8 @@ function docs.render(view: docs.View, entry: docs.Entry): {string}?, string
   -- A verb's options are data, a `spec` of [`Cli.verbs`], not prose: shown under
   -- its field as `cosmic help <verb>` shows them, and searched by
   -- [`by_options`].
-  local verb = entry.module == "cosmic.cli" and entry.symbol:match("^Cli%.(%w+)$") or nil
-  local command = verb ~= nil and Cli.verbs[verb] or nil
+  local verb = entry.module == "cosmic.cli" and entry.symbol:match("^Cli%.(%w+)$") or nil -- checked: and_ternary
+  local command = verb ~= nil and Cli.verbs[verb] or nil -- checked: and_ternary
   local spec = command and command.spec
   if command ~= nil and spec ~= nil then
     lines[#lines + 1] = "  options:"
@@ -2942,7 +2942,7 @@ local function index_lines(index: {docs.Summary}, limit?: integer): mut {string}
     local line = summary.module
     if summary.text ~= "" then
       line = line .. string.rep(" ", width - #line + 2) ..
-        (limit ~= nil and clipped(summary.text, limit) or summary.text)
+        (limit ~= nil and clipped(summary.text, limit) or summary.text) -- checked: and_ternary
     end
     lines[#lines + 1] = line
   end
@@ -3014,7 +3014,7 @@ function docs.answer(view: docs.View, words: {string}): docs.Answer?, string
       hint = "`cosmic docs <module>` shows one (cosmic.fs, or fs), with what it " ..
         "offers; `cosmic docs Fs.read` a symbol; `cosmic docs <words>` searches."
     end
-    local lines = index_lines(index, query ~= "" and NOTE_LIMIT or nil)
+    local lines = index_lines(index, query ~= "" and NOTE_LIMIT or nil) -- checked: and_ternary
     lines[#lines + 1] = ""
     lines[#lines + 1] = hint
     return { lines = lines, found = true, said = plural.count(#index, "module") }, ""

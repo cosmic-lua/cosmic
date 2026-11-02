@@ -584,8 +584,8 @@ function Sandbox.restrict(policy: Sandbox.Policy, options?: Sandbox.RestrictOpti
   local limits = merged.limits or {}
   local rlimits: {string:integer} = { nofile = limits.open_files or DEFAULT_OPEN_FILES,
     core = 0 }
-  rlimits.fsize = limits.file_bytes
-  rlimits.cpu = limits.cpu_seconds
+  rlimits.fsize = limits.file_bytes -- checked: map_field
+  rlimits.cpu = limits.cpu_seconds -- checked: map_field
   local promises: mut {string} = {}
   for _, promise in ipairs(merged.promises or {}) do promises[#promises + 1] = promise end
   local done, held, failure = raw.restrict_self({ grants = grants, promises = promises,

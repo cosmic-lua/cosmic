@@ -481,7 +481,7 @@ end
 
 --- `p`'s phase and attribute as `alts` holds them.
 local function alt_key(p: Place): string
-  return p.phase .. ":" .. (ATTRIBUTED[p.phase] and p.attr or "")
+  return p.phase .. ":" .. (ATTRIBUTED[p.phase] and p.attr or "") -- checked: condition_type
 end
 
 --- The keys in `set` other than `p`'s own, as `alts` holds them.
@@ -1035,7 +1035,7 @@ local feed: function(p: Place, text: string, line: integer, col: integer)
 --- Moves `p` over `text` one state at a time. A run of text ends where a
 --- slot or the template does, so the places a slot may not stand in
 --- (inside a tag) are never left half read.
-local function scan(p: Place, text: string)
+local function scan(p: Place, text: string) -- checked: not_assigned
   if p.raw_tail ~= "" and (p.phase == "raw" or p.phase == "rcdata") then
     text = p.raw_tail .. text
     p.raw_tail = ""

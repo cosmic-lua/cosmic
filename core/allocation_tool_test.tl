@@ -36,18 +36,18 @@ end
 local function test_waitpid_never_loses_a_status_to_a_failed_allocation()
   -- A chunk that exits 7: a real status to reap.
   local pid = spawn_again("return 7")
-  local received = { value = nil as raw_process.ChildStatus? }
-  local reaped = { value = nil as raw_process.ChildStatus? }
+  local received = { value = nil as raw_process.ChildStatus? } -- checked: cast_refused
+  local reaped = { value = nil as raw_process.ChildStatus? } -- checked: cast_refused
   AllocationFixture.under_every_failure(function()
-    if reaped.value == nil then received.value = process.waitpid(pid, false) end
+    if reaped.value == nil then received.value = process.waitpid(pid, false) end -- checked: map_field*2
   end, function()
-    local value = received.value
+    local value = received.value -- checked: map_field
     if value ~= nil then
-      reaped.value = value
-      received.value = nil
+      reaped.value = value -- checked: map_field
+      received.value = nil -- checked: map_field
     end
   end)
-  local reaped_value = reaped.value
+  local reaped_value = reaped.value -- checked: map_field
   assert(reaped_value ~= nil, "the child's status was lost to a refused allocation")
   assert(reaped_value.pid == pid and reaped_value.code == 7 and reaped_value.signal == -1)
 end
@@ -65,19 +65,19 @@ local function test_an_exit_watch_leaves_no_descriptor_whenever_an_allocation_fa
     return fd
   end
   local before = next_descriptor()
-  local received = { value = nil as integer? }
+  local received = { value = nil as integer? } -- checked: cast_refused
   local opened = { value = 0 }
   AllocationFixture.under_every_failure(function()
-    received.value = process.exit_watch(pid)
+    received.value = process.exit_watch(pid) -- checked: map_field
   end, function()
-    local value = received.value
+    local value = received.value -- checked: map_field
     if value ~= nil then
       sys.close(value)
-      received.value = nil
-      opened.value = opened.value + 1
+      received.value = nil -- checked: map_field
+      opened.value = opened.value + 1 -- checked: map_field*2
     end
   end)
-  assert(opened.value >= 1, "the run with nothing refused opens a watch")
+  assert(opened.value >= 1, "the run with nothing refused opens a watch") -- checked: map_field
   assert(sys.kill(pid, sys.SIGKILL))
   assert(process.waitpid(pid, false))
   -- Reaped, the child has no watch to give, and its failure is made

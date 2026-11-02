@@ -159,12 +159,12 @@ function core_image.digest(bytes: string): string?
   hasher:update(bytes:sub(found.phoff + 1, found.phoff + found.phnum * program_header_length))
   for _, segment in ipairs(found.segments) do
     local offset, size = segment[1], segment[2]
-    hasher:update(string.pack(">I8", size))
-    if offset < header_length then
-      hasher:update(header:sub(offset + 1, math.min(header_length, offset + size)))
-      hasher:update(bytes:sub(header_length + 1, offset + size))
+    hasher:update(string.pack(">I8", size)) -- checked: nil_not_allowed
+    if offset < header_length then -- checked: nil_not_allowed
+      hasher:update(header:sub(offset + 1, math.min(header_length, offset + size))) -- checked: nil_not_allowed*3
+      hasher:update(bytes:sub(header_length + 1, offset + size)) -- checked: nil_not_allowed*2
     else
-      hasher:update(bytes:sub(offset + 1, offset + size))
+      hasher:update(bytes:sub(offset + 1, offset + size)) -- checked: nil_not_allowed*3
     end
   end
   local digest, _ = hasher:digest()

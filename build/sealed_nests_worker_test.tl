@@ -53,7 +53,7 @@ print("confined")
 ]]
   -- The child runs the core on the worker's own database, which it reads.
   local reads = confine.itself()
-  reads[#reads + 1] = relaunch.argv[3]
+  reads[#reads + 1] = relaunch.argv[3] -- checked: index_may_be_nil
   confine.must_confine({ reads = reads })
   local result, trouble = Child.run(argv, { env = relaunch.env, fds = relaunch.fds,
     stdout = "capture", stderr = "capture" })

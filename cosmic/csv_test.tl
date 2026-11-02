@@ -41,8 +41,8 @@ end
 
 local function test_quotes_escape_and_hold_commas_and_line_breaks()
   local records = assert(Csv.parse('"a,b","say ""hi""","line\none\r\ntwo",plain\n"",x\n'))
-  assert(records[1][1] == "a,b" and records[1][2] == 'say "hi"' and records[1][3] == "line\none\r\ntwo")
-  assert(records[1][4] == "plain" and records[2][1] == "" and records[2][2] == "x")
+  assert(records[1][1] == "a,b" and records[1][2] == 'say "hi"' and records[1][3] == "line\none\r\ntwo") -- checked: nil_not_allowed*3
+  assert(records[1][4] == "plain" and records[2][1] == "" and records[2][2] == "x") -- checked: nil_not_allowed*3
   assert(parsed('"""",""""""\n') == '"|""')
   assert(parsed('"a"\r\n"b"') == "a;b")
 end
@@ -52,7 +52,7 @@ local function test_empty_fields_and_a_trailing_delimiter()
   assert(parsed("a,b,\n") == "a|b|")
   assert(parsed("a,b,") == "a|b|")
   assert(parsed(",\n") == "|")
-  assert(#assert(Csv.parse("a,b,\n"))[1] == 3)
+  assert(#assert(Csv.parse("a,b,\n"))[1] == 3) -- checked: nil_not_allowed
   assert(parsed('a,""\n') == "a|")
 end
 
@@ -66,30 +66,30 @@ local function test_delimiters_tab_and_semicolon()
   assert(parsed("a\tb,c\n1\t2\n", { delimiter = "\t" }) == "a|b,c;1|2")
   assert(parsed('a;"b;c";d\n', { delimiter = ";" }) == "a|b;c|d")
   assert(parsed("a,b\n", { delimiter = ";" }) == "a,b")
-  assert(parsed("a|b\n", { delimiter = "|" }) == "a|b" and #assert(Csv.parse("a|b\n", { delimiter = "|" }))[1] == 2)
+  assert(parsed("a|b\n", { delimiter = "|" }) == "a|b" and #assert(Csv.parse("a|b\n", { delimiter = "|" }))[1] == 2) -- checked: nil_not_allowed
   assert(parsed("a.b\n", { delimiter = "." }) == "a|b")
   assert(parsed("a1b\n", { delimiter = "1" }) == "a|b")
   -- Not a tail call, which would leave no frame here to name.
   local readers: {function(text: string, opts: Csv.Options): any} = {
     function(text: string, opts: Csv.Options): any
       local records = Csv.parse(text, opts)
-      return records
+      return records -- checked: any_use
     end,
     function(text: string, opts: Csv.Options): any
       local made = Csv.table(text, opts)
-      return made
+      return made -- checked: any_use
     end,
   }
   for _, bad in ipairs({ "", ",,", '"', "\n", "\r" }) do
     for _, read in ipairs(readers) do
       local ok, message = pcall(read, "a", { delimiter = bad })
-      assert(not ok and tostring(message):find("csv: the delimiter", 1, true), tostring(message))
+      assert(not ok and tostring(message):find("csv: the delimiter", 1, true), tostring(message)) -- checked: or_mix
       assert(tostring(message):find("csv_test", 1, true), "named where it was called: " .. tostring(message))
     end
   end
-  local wrong = { delimiter = 1 } as any as Csv.Options
-  local ok, message = pcall(readers[1], "a", wrong)
-  assert(not ok and tostring(message):find("not a number", 1, true), tostring(message))
+  local wrong = { delimiter = 1 } as any as Csv.Options -- checked: cast_refused*2
+  local ok, message = pcall(readers[1], "a", wrong) -- checked: overload_none
+  assert(not ok and tostring(message):find("not a number", 1, true), tostring(message)) -- checked: or_mix
 end
 
 local function test_a_lone_carriage_return_is_data()
@@ -114,10 +114,10 @@ end
 
 local function test_rows_key_each_record_by_the_header()
   local rows = assert(rows_of("id,name\r\n1,Ann\r\n2,\"B, b\"\r\n"))
-  assert(#rows == 2 and rows[1].id == "1" and rows[1].name == "Ann" and rows[2].name == "B, b")
+  assert(#rows == 2 and rows[1].id == "1" and rows[1].name == "Ann" and rows[2].name == "B, b") -- checked: map_field*3
   assert(#assert(rows_of("id,name\n")) == 0 and #assert(rows_of("")) == 0)
   local tabs = assert(rows_of("a\tb\n1\t2\n", { delimiter = "\t" }))
-  assert(tabs[1].b == "2")
+  assert(tabs[1].b == "2") -- checked: map_field, nil_not_allowed
 end
 
 local function test_a_ragged_record_is_refused_strictly_naming_its_line()
@@ -135,7 +135,7 @@ local function test_a_ragged_record_is_refused_strictly_naming_its_line()
   -- Parse alone keeps them.
   assert(parsed("a,b\n1\n") == "a|b;1")
   local bad_quote, quote_why = rows_of('a\n"x\n')
-  assert(bad_quote == nil and quote_why:find("unclosed quote", 1, true), quote_why)
+  assert(bad_quote == nil and quote_why:find("unclosed quote", 1, true), quote_why) -- checked: or_mix
 end
 
 local function lines_of(text: string, opts?: Csv.Options): string
@@ -201,12 +201,12 @@ local function test_records_agree_with_parse_and_table_and_refuse_as_parse_does(
   local made = assert(Csv.table(text))
   assert(#rows == #records)
   for index, row in ipairs(rows) do
-    assert(show({ row.fields }) == show({ records[index] }))
+    assert(show({ row.fields }) == show({ records[index] })) -- checked: index_may_be_nil
     if index > 1 then assert(row.line == made.lines[index - 1]) end
   end
   local none, why = Csv.records('a\n"x\n')
   assert(none == nil and why == refused('a\n"x\n'), why)
-  assert(not pcall(Csv.records, "a", { delimiter = "ab" }))
+  assert(not pcall(Csv.records, "a", { delimiter = "ab" })) -- checked: alternatives_as_value
 end
 
 local function test_headers_are_renamed_deterministically()
@@ -214,10 +214,10 @@ local function test_headers_are_renamed_deterministically()
   local row = rows[1]
   -- a, a_2 (from the second a), A_3 (a and a_2 are taken), _, __2, then a_2 is
   -- taken so the sixth `a_2` is `a_2_2`, and the last `a` is a_4.
-  assert(row.a == "1" and row.a_2 == "2" and row.A_3 == "3" and row._ == "4" and row.__2 == "5", "renamed")
-  assert(row.a_2_2 == "6" and row.a_4 == "7")
+  assert(row.a == "1" and row.a_2 == "2" and row.A_3 == "3" and row._ == "4" and row.__2 == "5", "renamed") -- checked: map_field*5, nil_not_allowed
+  assert(row.a_2_2 == "6" and row.a_4 == "7") -- checked: map_field*2
   local nul = assert(rows_of("x\0y,b\n1,2\n"))
-  assert(nul[1]["x\0y"] == nil and nul[1].x_y == "1", "a NUL in a name is _")
+  assert(nul[1]["x\0y"] == nil and nul[1].x_y == "1", "a NUL in a name is _") -- checked: map_field, nil_not_allowed*2
 end
 
 local function test_a_large_file_reads_in_full()
@@ -227,7 +227,7 @@ local function test_a_large_file_reads_in_full()
   end
   local text = table.concat(lines, "\r\n") .. "\r\n"
   local rows = assert(rows_of(text))
-  assert(#rows == 60000 and rows[60000].id == "60000" and rows[1].note == 'note, "1" \nmore')
+  assert(#rows == 60000 and rows[60000].id == "60000" and rows[1].note == 'note, "1" \nmore') -- checked: map_field*2, nil_not_allowed
   -- A fault at the end is placed by the line count, quoted breaks included.
   local none, why = rows_of(text .. "9,x")
   assert(none == nil and why == "csv: line 120002, column 1: the record has 2 fields, the header 3", why)
@@ -239,7 +239,7 @@ end
 
 local function test_a_one_column_file_reads_an_interior_blank_line_as_an_empty_field()
   local rows = assert(rows_of("a\n1\n\n3\n"))
-  assert(#rows == 3 and rows[1].a == "1" and rows[2].a == "" and rows[3].a == "3", tostring(#rows) .. " rows")
+  assert(#rows == 3 and rows[1].a == "1" and rows[2].a == "" and rows[3].a == "3", tostring(#rows) .. " rows") -- checked: map_field*3
   -- Blank lines at the end are the file's end, however many, LF or CRLF.
   assert(#assert(rows_of("a\n1\n\n3\n\n\n")) == 3)
   assert(#assert(rows_of("a\r\n1\r\n\r\n3\r\n\r\n")) == 3)
@@ -247,14 +247,14 @@ local function test_a_one_column_file_reads_an_interior_blank_line_as_an_empty_f
   assert(#assert(rows_of("a\n\n\n")) == 0 and #assert(rows_of("a\n")) == 0)
   -- Blank lines before the header are skipped.
   local lead = assert(rows_of("\n\na\n1\n"))
-  assert(#lead == 1 and lead[1].a == "1")
+  assert(#lead == 1 and lead[1].a == "1") -- checked: map_field
   -- parse alone never yields a record of no fields.
   assert(parsed("a\n1\n\n3\n") == "a;1;3")
 end
 
 local function test_a_file_of_two_columns_skips_blank_lines()
   local rows = assert(rows_of("a,b\n1,2\n\n3,4\n\n\n"))
-  assert(#rows == 2 and rows[2].a == "3")
+  assert(#rows == 2 and rows[2].a == "3") -- checked: map_field
   assert(#assert(rows_of("\na,b\r\n\r\n1,2\r\n")) == 1)
   local none, why = rows_of("a,b\n1,2\n\n3\n")
   assert(none == nil and why == "csv: line 4, column 1: the record has 1 field, the header 2", why)
@@ -271,13 +271,13 @@ end
 local function test_a_lone_carriage_return_at_the_end_is_data()
   assert(parsed("1,2\r") == "1|2\r")
   local rows = assert(rows_of("a,b\n1,2\r"))
-  assert(rows[1].b == "2\r")
+  assert(rows[1].b == "2\r") -- checked: map_field, nil_not_allowed
   assert(parsed("1,2\r\n") == "1|2")
 end
 
 local function test_a_blank_line_inside_quotes_is_data_in_a_one_column_file()
   local rows = assert(rows_of('a\n"x\n\ny"\n1\n'))
-  assert(#rows == 2 and rows[1].a == "x\n\ny" and rows[2].a == "1")
+  assert(#rows == 2 and rows[1].a == "x\n\ny" and rows[2].a == "1") -- checked: map_field*2
   -- A final empty cell written "" is kept; a bare blank line there is not.
   assert(#assert(rows_of('a\n1\n""\n')) == 2)
   assert(#assert(rows_of("a\n1\n\n")) == 1)
@@ -285,7 +285,7 @@ end
 
 local function test_a_lone_delimiter_is_a_record_of_two_empty_fields()
   local rows = assert(rows_of("a,b\n,\n1,2\n"))
-  assert(#rows == 2 and rows[1].a == "" and rows[1].b == "" and rows[2].a == "1")
+  assert(#rows == 2 and rows[1].a == "" and rows[1].b == "" and rows[2].a == "1") -- checked: map_field*3
   assert(parsed(",\n") == "|")
 end
 

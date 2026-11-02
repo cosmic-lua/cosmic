@@ -42,7 +42,7 @@ return function(): integer
 end
 ]]))
   local env = this_program.environment()
-  env.COSMIC_COVERAGE_STARTUP = if startup then "1" else nil end
+  env.COSMIC_COVERAGE_STARTUP = if startup then "1" else nil end -- checked: map_field
   local started = this_program.program({ "windows.tl" },
     { env = env, cwd = dir, stdout = "capture", stderr = "capture",
       timeout_ns = Clock.seconds(30) })

@@ -243,7 +243,7 @@ local record Scopes
   codes: {Code}
 end
 
-Scopes.primitives = {
+Scopes.primitives = { -- checked: field_fixed
   any = true, boolean = true, integer = true, never = true, number = true, string = true, thread = true,
 }
 
@@ -331,7 +331,7 @@ local GUESSES <const> = 50
 
 local NO_TOKENS <const>: Lexer.Tokens = Lexer.lex("", "").tokens
 
-local S: State = {
+local S: State = { -- checked: literal_missing
   tokens = NO_TOKENS, filename = "", declared = {}, visible = {}, names = {}, marks = {}, ends = {}, frames = {},
   loop_parent = {}, loop_level = {}, vars = {}, list = {}, resolved = {}, globals = {}, global_writes = {},
   errors = {}, unknown = {}, guessed = 0, assign_end = 0, write_end = {}, write_loop = {}, captured = {},
@@ -387,15 +387,15 @@ end
 
 local resolve_pending: function(depth: integer)
 
-local function close()
+local function close() -- checked: not_assigned
   local mark = S.marks[#S.marks]
   if #S.pending > 0 then
     resolve_pending(#S.marks)
   end
   local names, visible = S.names, S.visible
-  for i = #names, mark + 1, -1 do
-    local stack = visible[names[i]]
-    stack[#stack] = nil
+  for i = #names, mark + 1, -1 do -- checked: nil_not_allowed
+    local stack = visible[names[i]] -- checked: index_may_be_nil
+    stack[#stack] = nil -- checked: nil_not_allowed*3, view_written
     names[#names] = nil
   end
   S.marks[#S.marks] = nil
@@ -403,12 +403,12 @@ local function close()
 end
 
 local function frame(): Frame
-  return S.frames[#S.frames]
+  return S.frames[#S.frames] -- checked: index_may_be_nil
 end
 
 local function push_frame(id: integer, last: integer)
   local current = S.frames[#S.frames]
-  local entry = current ~= nil and current.loop or 0
+  local entry = current ~= nil and current.loop or 0 -- checked: and_ternary
   S.frames[#S.frames + 1] = { id = id, loop = 0 }
   S.made[id] = last
   S.entry_of[id] = entry
@@ -423,11 +423,11 @@ local function enter_loop(id: integer)
   local f = frame()
   S.loop_parent[id] = f.loop
   S.loop_level[id] = (S.loop_level[f.loop] or 0) + 1
-  f.loop = id
+  f.loop = id -- checked: field_fixed
 end
 
 local function leave_loop(id: integer)
-  frame().loop = S.loop_parent[id]
+  frame().loop = S.loop_parent[id] -- checked: field_fixed, index_may_be_nil
 end
 
 local function lookup(name: string): Scopes.Var?
@@ -456,10 +456,10 @@ local function distance(a: string, b: string, limit: integer): integer
     local ca = a:byte(i)
     for j = 1, lb do
       local cost = if ca == b:byte(j) then 0 else 1 end
-      local best = previous[j - 1] + cost
-      local up = previous[j] + 1
+      local best = previous[j - 1] + cost -- checked: nil_not_allowed
+      local up = previous[j] + 1 -- checked: nil_not_allowed
       if up < best then best = up end
-      local left = row[j - 1] + 1
+      local left = row[j - 1] + 1 -- checked: nil_not_allowed
       if left < best then best = left end
       row[j] = best
       if best < least then least = best end
@@ -469,7 +469,7 @@ local function distance(a: string, b: string, limit: integer): integer
     end
     previous = row
   end
-  return previous[lb]
+  return previous[lb] -- checked: index_may_be_nil
 end
 
 -- How far from a name another may be to be taken for what was meant.
@@ -535,13 +535,13 @@ local function nearest(name: string, types: boolean): string, Scopes.Place?
   local seen: mut {string: boolean} = {}
   for i = #S.names, 1, -1 do
     local other = S.names[i]
-    if seen[other] ~= true then
-      seen[other] = true
-      local v = lookup(other)
+    if seen[other] ~= true then -- checked: nil_not_allowed
+      seen[other] = true -- checked: nil_not_allowed
+      local v = lookup(other) -- checked: nil_not_allowed
       if v ~= nil and (fits(v.space, types) or (types and v.kind == "local")) then
-        local d = near(name, other, limit)
+        local d = near(name, other, limit) -- checked: nil_not_allowed
         if d < best_distance then
-          best, best_distance, best_at = other, d, place_of(v.declared)
+          best, best_distance, best_at = other, d, place_of(v.declared) -- checked: nil_not_allowed
         end
       end
     end
@@ -549,7 +549,7 @@ local function nearest(name: string, types: boolean): string, Scopes.Place?
   local globals = global_names()
   for _, other in ipairs(globals) do
     local declared = S.declared[other]
-    local space: Scopes.Space = declared ~= nil and declared.space or "type"
+    local space: Scopes.Space = declared ~= nil and declared.space or "type" -- checked: and_ternary
     if seen[other] ~= true and fits(space, types) then
       local d = near(name, other, limit)
       if d < best_distance then
@@ -591,18 +591,18 @@ local function shadowed(token: integer, name: string, kind: Scopes.Kind, prior: 
   if prior == nil then
     local declared = S.declared[name]
     local what = if declared ~= nil and declared.space == "type" then "type" else "global" end
-    report("shadows", token, word .. " " .. quoted(name) .. " shadows the " .. what .. " " .. quoted(name),
+    report("shadows", token, word .. " " .. quoted(name) .. " shadows the " .. what .. " " .. quoted(name), -- checked: nil_not_allowed
       "rename it: it would hide the declared " .. what .. " " .. quoted(name) .. " for the rest of its scope. " ..
         "To keep the " .. what .. " under its name in a local, write `local " .. name .. " = " .. name .. "`")
     return
   end
-  local msg = word .. " " .. quoted(name) .. " shadows the " .. KIND_WORDS[prior.kind] .. " " .. quoted(name) ..
+  local msg = word .. " " .. quoted(name) .. " shadows the " .. KIND_WORDS[prior.kind] .. " " .. quoted(name) .. -- checked: nil_not_allowed*2
     " declared at " .. shown(prior.declared)
   local assignable = kind == "local" and not prior.readonly and prior.depth == #S.frames and
     (prior.kind == "local" or prior.kind == "param" or prior.kind == "pattern")
   local fix: string
   if kind == "typeparam" then
-    fix = "rename the type parameter: it hides the " .. KIND_WORDS[prior.kind] .. " " .. quoted(name) ..
+    fix = "rename the type parameter: it hides the " .. KIND_WORDS[prior.kind] .. " " .. quoted(name) .. -- checked: nil_not_allowed
       " in scope here"
   elseif assignable then
     fix = "to change the existing " .. quoted(name) .. " write `" .. name .. " = ...` without `local`; " ..
@@ -632,17 +632,17 @@ local function declare(binding: Ast.Binding, kind: Scopes.Kind, from: integer, c
   if prior ~= nil and prior == S.own then
     -- The parameters of `local function f` are declared before `f`: they shadow what `f` hid.
     local stack = S.visible[name]
-    prior = stack[#stack - 1]
+    prior = stack[#stack - 1] -- checked: nil_not_allowed*2
   end
-  local primitive = not is_global and TYPE_KINDS[kind] and Scopes.primitives[name]
+  local primitive = not is_global and TYPE_KINDS[kind] and Scopes.primitives[name] -- checked: or_mix
   if primitive then
-    report("primitive_type_name", token, quoted(name) .. " is a primitive type, so " .. with_article(KIND_WORDS[kind]) ..
+    report("primitive_type_name", token, quoted(name) .. " is a primitive type, so " .. with_article(KIND_WORDS[kind]) .. -- checked: index_may_be_nil
         " of that name could never be named",
-      "rename the " .. KIND_WORDS[kind] .. ", for example to `" .. name:sub(1, 1):upper() .. name:sub(2) ..
+      "rename the " .. KIND_WORDS[kind] .. ", for example to `" .. name:sub(1, 1):upper() .. name:sub(2) .. -- checked: nil_not_allowed
         "`: in a type, `" .. name .. "` always means the primitive")
   elseif name == "_ENV" then
     report("env_reserved", token, "`_ENV` is reserved and cannot be declared",
-      "choose another name for the " .. KIND_WORDS[kind])
+      "choose another name for the " .. KIND_WORDS[kind]) -- checked: nil_not_allowed
   elseif check and not is_global and copy == nil and name:sub(1, 1) ~= "_" and name ~= "self" and
       (prior ~= nil or hides_global(name, kind)) then
     shadowed(token, name, kind, prior)
@@ -651,8 +651,8 @@ local function declare(binding: Ast.Binding, kind: Scopes.Kind, from: integer, c
   local space = SPACES[kind]
   local top = #S.frames == 1 and #S.marks == 1
   local v: Scopes.Var = {
-    id = binding.id, name = name, kind = kind, space = space, attr = attr, exported = is_global, top = top,
-    declared = token, from = from, to = math.max(from, S.ends[#S.ends]), owner = f.id, depth = #S.frames,
+    id = binding.id, name = name, kind = kind, space = space, attr = attr, exported = is_global, top = top, -- checked: nil_not_allowed
+    declared = token, from = from, to = math.max(from, S.ends[#S.ends]), owner = f.id, depth = #S.frames, -- checked: overload_none -- untyped: call
     loop = f.loop,
     module = "", readonly = attr ~= nil, reads = {}, writes = {}, type_uses = {},
     assigned = false, closure_assigned = false, captures = {}, nested = false,
@@ -660,7 +660,7 @@ local function declare(binding: Ast.Binding, kind: Scopes.Kind, from: integer, c
   if copy ~= nil then
     local copied = copy.binding
     if copied ~= nil then
-      v.copies = copied
+      v.copies = copied -- checked: field_fixed
     end
   end
   -- A binding with no name is one the parser refused and reported.
@@ -674,7 +674,7 @@ local function declare(binding: Ast.Binding, kind: Scopes.Kind, from: integer, c
     stack = {}
     S.visible[name] = stack
   end
-  stack[#stack + 1] = v
+  stack[#stack + 1] = v -- checked: view_written
   S.names[#S.names + 1] = name
   return v
 end
@@ -687,7 +687,7 @@ local function add_global(table_of: mut {string: {integer}}, name: string, id: i
     held = {}
     table_of[name] = held
   end
-  held[#held + 1] = id
+  held[#held + 1] = id -- checked: view_written
 end
 
 -- A read of the value `name`, or an assignment to it (`write`).
@@ -711,9 +711,9 @@ local function use_name(n: Ast.Name, write: boolean)
       report("const_assigned", token, "the global " .. quoted(name) .. " is declared `<const>` and cannot be assigned",
         "keep the new value in a local of your own: `local " .. name .. "_new = ...`")
     end
-    add_global(S.globals, name, id)
+    add_global(S.globals, name, id) -- checked: view_as_mut
     if write then
-      add_global(S.global_writes, name, id)
+      add_global(S.global_writes, name, id) -- checked: view_as_mut
     end
     if name == "_ENV" and write then
       report("env_reserved", token, "`_ENV` is reserved and cannot be assigned", "assign a local of another name")
@@ -723,7 +723,7 @@ local function use_name(n: Ast.Name, write: boolean)
   n.binding = v.id
   S.resolved[id] = v.id
   if v.space == "type" then
-    report("not_a_value", token, quoted(name) .. " is " .. with_article(KIND_WORDS[v.kind]) .. ", a type, and has no value",
+    report("not_a_value", token, quoted(name) .. " is " .. with_article(KIND_WORDS[v.kind]) .. ", a type, and has no value", -- checked: index_may_be_nil
       "write " .. quoted(name) .. " where a type goes (`x: " .. name .. "`) and a variable or a literal where a value goes",
       place_of(v.declared))
   end
@@ -731,8 +731,8 @@ local function use_name(n: Ast.Name, write: boolean)
   local depth = #S.frames
   if write then
     local writes = v.writes
-    writes[#writes + 1] = id
-    v.assigned = true
+    writes[#writes + 1] = id -- checked: view_written
+    v.assigned = true -- checked: field_fixed
     if v.readonly then
       local why: string
       local fix: string
@@ -758,8 +758,8 @@ local function use_name(n: Ast.Name, write: boolean)
         ends, loops = {}, {}
         S.write_end[v], S.write_loop[v] = ends, loops
       end
-      ends[#ends + 1] = S.assign_end
-      loops[#loops + 1] = f.loop
+      ends[#ends + 1] = S.assign_end -- checked: view_written
+      loops[#loops + 1] = f.loop -- checked: view_written
     end
     if name == "_ENV" then
       report("env_reserved", token, "`_ENV` is reserved and cannot be assigned", "assign a local of another name")
@@ -767,19 +767,19 @@ local function use_name(n: Ast.Name, write: boolean)
     return
   end
   local reads = v.reads
-  reads[#reads + 1] = id
+  reads[#reads + 1] = id -- checked: view_written
   if v.depth < depth and not v.exported then
     local inside = S.frames[v.depth + 1]
     local captures = v.captures
     local last = captures[#captures]
-    if last == nil or last.fn ~= inside.id then
-      last = { fn = inside.id, uses = {}, after = false }
-      captures[#captures + 1] = last
+    if last == nil or last.fn ~= inside.id then -- checked: nil_not_allowed
+      last = { fn = inside.id, uses = {}, after = false } -- checked: nil_not_allowed
+      captures[#captures + 1] = last -- checked: view_written
       if #captures == 1 then
         S.captured[#S.captured + 1] = v
       end
     end
-    last.uses[#last.uses + 1] = id
+    last.uses[#last.uses + 1] = id -- checked: view_written
   end
 end
 
@@ -787,7 +787,7 @@ end
 local function type_use(t: Ast.TypeName, v: Scopes.Var)
   S.resolved[t.id] = v.id
   local uses = v.type_uses
-  uses[#uses + 1] = t.id
+  uses[#uses + 1] = t.id -- checked: view_written
   if v.space == "value" and (v.kind ~= "local" or v.module == "") then
     local head = v.name
     local alias = v.alias
@@ -796,7 +796,7 @@ local function type_use(t: Ast.TypeName, v: Scopes.Var)
     if alias ~= nil then
       fix = "declare the type instead of the variable: `local type " .. head .. " = " .. alias .. "`"
     end
-    report("not_a_type", t.first, quoted(head) .. " is " .. with_article(KIND_WORDS[v.kind]) .. ", a value, and names no type",
+    report("not_a_type", t.first, quoted(head) .. " is " .. with_article(KIND_WORDS[v.kind]) .. ", a value, and names no type", -- checked: index_may_be_nil
       fix, place_of(v.declared))
   end
 end
@@ -813,13 +813,13 @@ resolve_pending = function(depth: integer)
   local pending = S.pending
   local n = #pending
   local first = n + 1
-  while first > 1 and pending[first - 1].depth >= depth do
+  while first > 1 and pending[first - 1].depth >= depth do -- checked: nil_not_allowed
     first = first - 1
   end
   -- The names of the ending scope are taken off the end, and those it passes on to the scope around it go back, in order.
   local taken: mut {Pending} = {}
   for i = first, n do
-    taken[#taken + 1] = pending[i]
+    taken[#taken + 1] = pending[i] -- checked: index_may_be_nil
   end
   for _ = first, n do
     pending[#pending] = nil
@@ -829,7 +829,7 @@ resolve_pending = function(depth: integer)
     if v ~= nil then
       type_use(p.node, v)
     elseif depth > 1 then
-      p.depth = depth - 1
+      p.depth = depth - 1 -- checked: field_fixed
       pending[#pending + 1] = p
     else
       unknown_type(p.node, p.name)
@@ -854,7 +854,7 @@ local function use_type(t: Ast.TypeName)
   end
   local declared = S.declared[head]
   if declared ~= nil and (declared.space ~= "value" or #path > 1) then
-    add_global(S.globals, head, t.id)
+    add_global(S.globals, head, t.id) -- checked: view_as_mut
   elseif S.defer then
     table.insert(S.pending, { node = t, name = head, depth = math.min(#S.marks, S.floor) })
   else
@@ -870,15 +870,15 @@ local stats: function(list: {Ast.Stat})
 local stat: function(s: Ast.Stat)
 local typedecl: function(d: Ast.Node, nested: boolean)
 
-local function walk_types(list: {Ast.Type})
+local function walk_types(list: {Ast.Type}) -- checked: not_assigned
   for i = 1, #list do
-    ty(list[i])
+    ty(list[i]) -- checked: index_may_be_nil
   end
 end
 
 local function narrows(n: Ast.Narrows)
   local params = S.params
-  local bound = params ~= nil and params[n.param] or nil
+  local bound = params ~= nil and params[n.param] or nil -- checked: and_ternary
   if bound == nil then
     report("unknown_parameter", n.first, "the narrowing return names " .. quoted(n.param) ..
         ", which is no parameter of this function",
@@ -900,9 +900,9 @@ local function walk_rets(r: Ast.Rets?, params: {string: integer})
   local lists = r.lists
   for i = 1, #lists do
     local list = lists[i]
-    for j = 1, #list do
-      local item = list[j]
-      if (item.kind == "Narrows") then
+    for j = 1, #list do -- checked: nil_not_allowed
+      local item = list[j] -- checked: nil_not_allowed
+      if (item.kind == "Narrows") then -- checked: nil_not_allowed
         narrows(item)
       else
         ty(item)
@@ -915,10 +915,10 @@ end
 local function walk_typeparams(list: {Ast.TypeParam})
   for i = 1, #list do
     local p = list[i]
-    declare(p.name, "typeparam", p.name.first, true, nil, false)
+    declare(p.name, "typeparam", p.name.first, true, nil, false) -- checked: nil_not_allowed*2
   end
   for i = 1, #list do
-    local constraint = list[i].constraint
+    local constraint = list[i].constraint -- checked: nil_not_allowed
     if constraint ~= nil then
       ty(constraint)
     end
@@ -962,7 +962,7 @@ end
 -- Walks a function: its parameters, return list and body. `typeparams` are declared by the
 -- construct that holds it, in a scope around `id`'s. `implicit` is the function statement
 -- whose refused colon form gives it a `self`.
-local function walk_function(id: integer, last: integer, params: {Ast.Param}, rets: Ast.Rets?,
+local function walk_function(id: integer, last: integer, params: {Ast.Param}, rets: Ast.Rets?, -- checked: not_assigned
                              body: Ast.Block, implicit: Ast.Function?)
   push_frame(id, last)
   open(last)
@@ -986,7 +986,7 @@ local function walk_function(id: integer, last: integer, params: {Ast.Param}, re
   S.floor = floor
   if implicit ~= nil then
     local path = implicit.path
-    local at = path[#path].first - 1
+    local at = path[#path].first - 1 -- checked: nil_not_allowed
     local self_binding: Ast.Binding = { kind = "Binding", id = implicit.id, first = at, last = at, name = "self" }
     declare(self_binding, "param", at, false, nil, false)
   end
@@ -1022,10 +1022,10 @@ local function walk_fn(fn: Ast.Fn, typeparams: {Ast.TypeParam}, implicit: Ast.Fu
   close()
 end
 
-local function walk_items(items: {Ast.Item})
+local function walk_items(items: {Ast.Item}) -- checked: not_assigned
   for i = 1, #items do
     local item = items[i]
-    if (item.kind == "Positional") or (item.kind == "Spread") then
+    if (item.kind == "Positional") or (item.kind == "Spread") then -- checked: nil_not_allowed
       exp(item.value)
     elseif (item.kind == "Named") then
       exp(item.value)
@@ -1038,7 +1038,7 @@ end
 
 local function walk_exps(list: {Ast.Exp})
   for i = 1, #list do
-    exp(list[i])
+    exp(list[i]) -- checked: index_may_be_nil
   end
 end
 
@@ -1084,7 +1084,7 @@ exp = function(e: Ast.Exp)
   local top = floor
   local cur = e
   while true do
-    local nxt: Ast.Exp = nil
+    local nxt: Ast.Exp = nil -- checked: nil_not_allowed
     if (cur.kind == "Binary") then
       nxt = cur.left
     elseif (cur.kind == "Call") then
@@ -1100,7 +1100,7 @@ exp = function(e: Ast.Exp)
     elseif (cur.kind == "Cast") then
       nxt = cur.value
     end
-    if nxt == nil then
+    if nxt == nil then -- checked: compare_disjoint
       break
     end
     top = top + 1
@@ -1113,7 +1113,7 @@ exp = function(e: Ast.Exp)
     local node = spine[i]
     spine[#spine] = nil
     S.top = i - 1
-    finish(node)
+    finish(node) -- checked: nil_not_allowed
   end
   S.top = floor
 end
@@ -1136,7 +1136,7 @@ end
 -- The text `a.b.c` of a name or a chain of fields on one, nil for any other expression.
 local function dotted(e: Ast.Exp?): string?, Ast.Name?
   local parts: mut {string} = {}
-  local head: Ast.Name = nil
+  local head: Ast.Name = nil -- checked: nil_not_allowed
   local cur = e
   while cur ~= nil and (cur.kind == "Field") do
     parts[#parts + 1] = cur.name
@@ -1167,12 +1167,12 @@ local function stat_local(s: Ast.Local)
     local b = bindings[i]
     local value = values[i]
     local copy: Ast.Name? = nil
-    if value ~= nil and (value.kind == "Name") and value.text == b.name then
+    if value ~= nil and (value.kind == "Name") and value.text == b.name then -- checked: nil_not_allowed
       copy = value
     end
-    local v = declare(b, "local", s.last + 1, true, copy, is_global)
+    local v = declare(b, "local", s.last + 1, true, copy, is_global) -- checked: nil_not_allowed
     if #bindings == 1 and #values == 1 then
-      v.module = required(value)
+      v.module = required(value) -- checked: field_fixed
       -- Offered as the fix only where the chain starts at a module or a type.
       local text, head = dotted(value)
       local bound: Scopes.Var? = nil
@@ -1183,7 +1183,7 @@ local function stat_local(s: Ast.Local)
         end
       end
       if bound ~= nil and (bound.module ~= "" or bound.space ~= "value") then
-        v.alias = text
+        v.alias = text -- checked: field_fixed
       end
     end
   end
@@ -1194,7 +1194,7 @@ local function stat_assign(s: Ast.Assign)
   local targets = s.targets
   for i = 1, #targets do
     local target = targets[i]
-    if (target.kind == "Name") then
+    if (target.kind == "Name") then -- checked: nil_not_allowed
       -- Set here: a target before this one may hold a function with assignments of its own.
       S.assign_end = s.last
       use_name(target, true)
@@ -1208,8 +1208,8 @@ local KINDS <const>: {string: Scopes.Kind} = {
   Record = "record", Interface = "interface", Class = "class", Enum = "enum", Alias = "alias", Import = "import",
 }
 
-typedecl = function(d: Ast.Node, nested: boolean)
-  local name: Ast.Binding = nil
+typedecl = function(d: Ast.Node, nested: boolean) -- checked: not_assigned
+  local name: Ast.Binding = nil -- checked: nil_not_allowed
   local scope: Ast.Scope? = nil
   local typeparams: {Ast.TypeParam} = {}
   local supers: {Ast.TypeName} = {}
@@ -1235,11 +1235,11 @@ typedecl = function(d: Ast.Node, nested: boolean)
   -- around it; the name is declared once its type is walked.
   local v: Scopes.Var? = nil
   if d.kind ~= "Alias" then
-    v = declare(name, KINDS[d.kind], name.first, not nested, nil, scope == "global")
-    v.nested = nested
+    v = declare(name, KINDS[d.kind], name.first, not nested, nil, scope == "global") -- checked: index_may_be_nil
+    v.nested = nested -- checked: field_fixed
   end
   if (d.kind == "Import") and v ~= nil then
-    v.module = d.module
+    v.module = d.module -- checked: field_fixed
   end
   if d.kind == "Enum" or d.kind == "Import" then
     return
@@ -1257,7 +1257,7 @@ typedecl = function(d: Ast.Node, nested: boolean)
   end
   for i = 1, #members do
     local m = members[i]
-    if (m.kind == "FieldDecl") then
+    if (m.kind == "FieldDecl") then -- checked: nil_not_allowed
       ty(m.type)
     elseif (m.kind == "Method") then
       walk_function(m.id, m.last, m.params, m.rets, m.body, nil)
@@ -1268,8 +1268,8 @@ typedecl = function(d: Ast.Node, nested: boolean)
   close()
   S.defer = deferring
   if d.kind == "Alias" then
-    local alias = declare(name, KINDS[d.kind], name.first, not nested, nil, scope == "global")
-    alias.nested = nested
+    local alias = declare(name, KINDS[d.kind], name.first, not nested, nil, scope == "global") -- checked: index_may_be_nil
+    alias.nested = nested -- checked: field_fixed
   end
 end
 
@@ -1278,10 +1278,10 @@ local function stat_function(s: Ast.Function)
   local first = path[1]
   local colon = false
   if #path == 2 then
-    use_name(first, false)
-    colon = S.tokens.text[path[2].first - 1] == ":"
+    use_name(first, false) -- checked: nil_not_allowed
+    colon = S.tokens.text[path[2].first - 1] == ":" -- checked: nil_not_allowed
   end
-  walk_fn(s.fn, s.typeparams, colon and s or nil)
+  walk_fn(s.fn, s.typeparams, colon and s or nil) -- checked: and_ternary
 end
 
 local function stat_if(s: Ast.If)
@@ -1319,7 +1319,7 @@ local function stat_for_num(s: Ast.ForNum)
   enter_loop(s.id)
   open(s.body.close)
   local v = declare(s.var, "loop", s.body.first, true, nil, false)
-  v.readonly = true
+  v.readonly = true -- checked: field_fixed
   stats(s.body.stats)
   close()
   leave_loop(s.id)
@@ -1331,7 +1331,7 @@ local function stat_for_in(s: Ast.ForIn)
   open(s.body.close)
   for i, binding in ipairs(s.vars) do
     local v = declare(binding, "loop", s.body.first, true, nil, false)
-    v.readonly = i == 1
+    v.readonly = i == 1 -- checked: field_fixed
   end
   stats(s.body.stats)
   close()
@@ -1347,7 +1347,7 @@ stat = function(s: Ast.Stat)
     exp(s.call)
   elseif (s.kind == "LocalFunction") then
     local own = declare(s.name, "function", s.name.first, true, nil, false)
-    own.fn = s.fn.id
+    own.fn = s.fn.id -- checked: field_fixed
     S.own = own
     walk_fn(s.fn, s.typeparams, nil)
     S.own = nil
@@ -1384,7 +1384,7 @@ end
 
 stats = function(list: {Ast.Stat})
   for i = 1, #list do
-    stat(list[i])
+    stat(list[i]) -- checked: index_may_be_nil
   end
 end
 
@@ -1398,7 +1398,7 @@ local function settle(v: Scopes.Var)
   end
   local newest = 0
   for i = 1, #ends do
-    newest = math.max(newest, ends[i])
+    newest = math.max(newest, ends[i]) -- checked: overload_none -- untyped: call
   end
   -- The loops inside the scope of `v` that hold an assignment, and so any function made in one of them.
   local level, parent = S.loop_level, S.loop_parent
@@ -1406,19 +1406,19 @@ local function settle(v: Scopes.Var)
   local holding: mut {integer: boolean} = {}
   for i = 1, #loops do
     local loop = loops[i]
-    while loop ~= 0 and level[loop] > floor and holding[loop] ~= true do
-      holding[loop] = true
-      loop = assert(parent[loop])
+    while loop ~= 0 and level[loop] > floor and holding[loop] ~= true do -- checked: nil_not_allowed*3
+      holding[loop] = true -- checked: nil_not_allowed
+      loop = assert(parent[loop]) -- checked: nil_not_allowed
     end
   end
   for _, c in ipairs(v.captures) do
-    if newest >= S.made[c.fn] then
-      c.after = true
+    if newest >= S.made[c.fn] then -- checked: nil_not_allowed
+      c.after = true -- checked: field_fixed
     else
       local loop = S.entry_of[c.fn]
-      while loop ~= 0 and level[loop] > floor and not c.after do
-        c.after = holding[loop] == true
-        loop = assert(parent[loop])
+      while loop ~= 0 and level[loop] > floor and not c.after do -- checked: nil_not_allowed*2
+        c.after = holding[loop] == true -- checked: field_fixed, nil_not_allowed
+        loop = assert(parent[loop]) -- checked: nil_not_allowed
       end
     end
   end
@@ -1439,11 +1439,11 @@ local function unknown_errors()
   for _, v in ipairs(S.list) do
     local held = by_name[v.name]
     if held ~= nil then
-      held[#held + 1] = v
+      held[#held + 1] = v -- checked: view_written
     end
   end
   for _, held in pairs(by_name) do
-    table.sort(held, function(a: Scopes.Var, b: Scopes.Var): boolean
+    table.sort(held, function(a: Scopes.Var, b: Scopes.Var): boolean -- checked: overload_none -- untyped: call
       return a.declared < b.declared
     end)
   end
@@ -1456,7 +1456,7 @@ local function unknown_errors()
       local low, high = 1, #held + 1
       while low < high do
         local middle = (low + high) // 2
-        if held[middle].declared > u.token then
+        if held[middle].declared > u.token then -- checked: nil_not_allowed
           high = middle
         else
           low = middle + 1
@@ -1464,7 +1464,7 @@ local function unknown_errors()
       end
       for i = low, math.min(#held, low + 49) do
         local v = held[i]
-        if v.to >= u.token and v.space ~= "type" then
+        if v.to >= u.token and v.space ~= "type" then -- checked: nil_not_allowed*2
           later = v
           break
         end
@@ -1488,10 +1488,10 @@ local function unknown_errors()
         " = require(\"...\")`; a program may use `any`, `boolean`, `integer`, `never`, `number`, `string` " ..
         "and `thread` with no declaration"
     elseif later ~= nil then
-      msg = quoted(name) .. " is used before the " .. KIND_WORDS[later.kind] .. " " .. quoted(name) ..
+      msg = quoted(name) .. " is used before the " .. KIND_WORDS[later.kind] .. " " .. quoted(name) .. -- checked: nil_not_allowed
         " that is declared at " .. shown(later.declared)
       fix = "Lua sees only what is declared above a use: move the declaration of " .. quoted(name) ..
-        " (line " .. S.tokens.y[later.declared] .. ") above this line, or declare `local " .. name ..
+        " (line " .. S.tokens.y[later.declared] .. ") above this line, or declare `local " .. name .. -- checked: nil_not_allowed
         ": <its type>` here and assign it where it is declared now"
       other = place_of(later.declared)
     elseif u.what == "assigned" then
@@ -1529,7 +1529,7 @@ function Scopes.build(chunk: Ast.Chunk, name: string, declared: {string: Scopes.
     if a.offset ~= b.offset then
       return a.offset < b.offset
     end
-    return order[a] < order[b]
+    return order[a] < order[b] -- checked: nil_not_allowed
   end)
   local answer: Scopes.Scoped = {
     vars = S.vars, list = S.list, resolved = S.resolved, globals = S.globals, global_writes = S.global_writes,
@@ -1563,7 +1563,7 @@ function Scopes.in_scope(scoped: Scopes.Scoped, at: integer): {string: Scopes.Va
   return out
 end
 
-Scopes.codes = {
+Scopes.codes = { -- checked: field_fixed
   "unknown_variable", "unknown_type", "shadows", "const_assigned", "not_a_value", "not_a_type",
   "unknown_parameter", "env_reserved", "primitive_type_name",
 }

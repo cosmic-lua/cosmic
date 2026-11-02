@@ -27,7 +27,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     complain(why .. "; " .. usage)
     return 2
   end
-  local parsed, why = Flags.parse(argv, 2, assert(Cli.verbs.cache.spec))
+  local parsed, why = Flags.parse(argv, 2, assert(Cli.verbs.cache.spec)) -- checked: map_field
   if parsed == nil then return refuse(why) end
   if parsed.words[1] ~= "trim" then return refuse("give the trim operation") end
   local family = parsed.words[2]
@@ -70,14 +70,14 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   for _, warning in ipairs(report.warnings) do complain(warning) end
   local output: string
   if parsed.set["--json"] == true then
-    Json.array(report.files)
+    Json.array(report.files) -- checked: not_assignable
     Json.array(report.warnings)
     for _, file in ipairs(report.files) do
       Json.array(file.unknown_tables)
       Json.array(file.unstamped_tables)
       Json.array(file.removed_set_aside)
     end
-    output = assert(Json.encode(report)) .. "\n"
+    output = assert(Json.encode(report)) .. "\n" -- checked: not_assignable
   else
     local lines: mut {string} = {}
     for _, file in ipairs(report.files) do

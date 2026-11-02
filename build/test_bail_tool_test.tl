@@ -45,8 +45,8 @@ local function invoke(root: string, output: string, words: {string},
                       jobs?: string): Child.Result
   local fd = assert(Fs.open_write(output))
   local env = this_program.environment()
-  env.COSMIC_TEST_SANDBOX = "0"
-  env.TMPDIR = Fs.dirname(output)
+  env.COSMIC_TEST_SANDBOX = "0" -- checked: map_field
+  env.TMPDIR = Fs.dirname(output) -- checked: map_field
   local argv: mut {string} = { "test", "--jobs", jobs or "1" }
   for _, word in ipairs(words) do argv[#argv + 1] = word end
   local started = this_program.program(argv, {
@@ -89,7 +89,7 @@ local function test_a_bailing_run_starts_no_test_after_the_first_failure(tmp: st
   local db = assert(Sqlite.open(build_db))
   local rows = assert(Sqlite.text_rows(db, "SELECT test, passed FROM runs ORDER BY test"))
   assert(db:close())
-  assert(#rows == 1 and rows[1]:text(1) == "test_a_fails" and rows[1]:text(2) == "0",
+  assert(#rows == 1 and rows[1]:text(1) == "test_a_fails" and rows[1]:text(2) == "0", -- checked: nil_not_allowed
     "the run kept a verdict for a test that did not start")
 
   local again = invoke(fresh, other .. "/again.out", {})
@@ -104,7 +104,7 @@ local function test_a_test_in_flight_at_the_first_failure_finishes(tmp: string)
   local root = project(tmp, { "a_fails", "b_passes", "c_passes", "d_passes" })
   local result = invoke(root, tmp .. "/two.out", { "--bail" }, "2")
   local text = assert(Fs.read(tmp .. "/two.out"))
-  assert(not result.ok and text:find("test: FAIL  suite.bail_test test_a_fails", 1, true), text)
+  assert(not result.ok and text:find("test: FAIL  suite.bail_test test_a_fails", 1, true), text) -- checked: or_mix
   assert(text:find("2 not run after the first failure", 1, true), text)
   assert(marked(tmp, "a_fails") and marked(tmp, "b_passes"), "the in-flight test did not finish")
   assert(not marked(tmp, "c_passes") and not marked(tmp, "d_passes"),
@@ -112,6 +112,6 @@ local function test_a_test_in_flight_at_the_first_failure_finishes(tmp: string)
   local db = assert(Sqlite.open(assert(build_paths.directory(root)) .. "/build.db"))
   local rows = assert(Sqlite.text_rows(db, "SELECT test, passed FROM runs ORDER BY test"))
   assert(db:close())
-  assert(#rows == 2 and rows[1]:text(1) == "test_a_fails" and rows[1]:text(2) == "0" and
-      rows[2]:text(1) == "test_b_passes" and rows[2]:text(2) == "1", "the runs kept: " .. tostring(#rows))
+  assert(#rows == 2 and rows[1]:text(1) == "test_a_fails" and rows[1]:text(2) == "0" and -- checked: nil_not_allowed
+      rows[2]:text(1) == "test_b_passes" and rows[2]:text(2) == "1", "the runs kept: " .. tostring(#rows)) -- checked: nil_not_allowed*2
 end

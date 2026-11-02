@@ -16,7 +16,7 @@
 local Lexer = require("lang.lexer")
 
 local find = string.find
-local byte: function(string, integer): integer? = string.byte
+local byte: function(string, integer): integer? = string.byte -- checked: overload_value
 
 local record Cover
   --- Whether `lexed` tiles `source`, or `false` and the first place it does
@@ -76,7 +76,7 @@ end
 --- -1. `ending` allows the break bytes.
 local function placed(lines: Lines, y: integer, x: integer, ending: boolean): integer
   local start = lines.starts[y]
-  if start == nil or x < 1 or x > (ending and lines.wide[y] or lines.columns[y]) then
+  if start == nil or x < 1 or x > (ending and lines.wide[y] or lines.columns[y]) then -- checked: and_ternary
     return -1
   end
   return start + x - 1

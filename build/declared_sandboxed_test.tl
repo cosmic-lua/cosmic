@@ -40,9 +40,9 @@ local function test_a_sandboxed_and_an_unenforced_verdict_stand_apart(tmp: strin
     local unenforced = environment(cache)
     local sandboxed: mut {string:string} = {}
     for name, value in pairs(unenforced) do sandboxed[name] = value end
-    sandboxed.COSMIC_TEST_SANDBOX = nil
-    sandboxed.UNDECLARED = nil
-    sandboxed.OUTER_TMPDIR = nil
+    sandboxed.COSMIC_TEST_SANDBOX = nil -- checked: map_field
+    sandboxed.UNDECLARED = nil -- checked: map_field
+    sandboxed.OUTER_TMPDIR = nil -- checked: map_field
     return sandboxed, unenforced
   end
   local sandboxed, unenforced = environments(tmp .. "/cache/verdicts.db")

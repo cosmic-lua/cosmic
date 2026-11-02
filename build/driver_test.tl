@@ -148,7 +148,7 @@ end
 local function test_the_globals_are_what_the_declaration_files_declare_less_what_the_host_withholds()
   local text = "global record Seen\n  n: integer\nend\nglobal record Withheld\n  n: integer\nend\n"
   local globals = Driver.globals({ Driver.declarations("lib", "lib.d.tl", text, {}) },
-    function(names: mut {string: Scopes.Global})
+    function(names: mut {string: Scopes.Global}) -- checked: not_assignable
       names["Withheld"] = nil
       names["Added"] = { space = "type", const = false }
     end)
@@ -814,7 +814,7 @@ end
 local function test_a_retired_module_leaves_no_syntax_tree_behind()
   local build = build_of({ { "box.tl", RECORD } })
   build:lower({ "box" })
-  local weak: mut {Ast.Chunk} = setmetatable({}, { __mode = "v" })
+  local weak: mut {Ast.Chunk} = setmetatable({}, { __mode = "v" }) -- checked: setmetatable_call
   weak[1] = assert(build:result("box", true)).chunk
   collectgarbage("collect")
   assert(weak[1] ~= nil, "the build holds the tree until it is retired")

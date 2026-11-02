@@ -11,7 +11,7 @@ Test.policy{}
 
 local function count(db: Sqlite.Handle, table_name: string): integer
   local rows = assert(Sqlite.text_rows(db, "SELECT count(*) FROM " .. table_name))
-  return assert(math.tointeger(tonumber(rows[1]:text(1))))
+  return assert(math.tointeger(tonumber(rows[1]:text(1)))) -- checked: nil_not_allowed
 end
 
 local function same_lines(a: {integer: boolean}, b: {integer: boolean}): boolean

@@ -44,7 +44,7 @@ local record verb
   end
 end
 
-local spec = Cli.verbs.archive.spec or {}
+local spec = Cli.verbs.archive.spec or {} -- checked: literal_needs_type, map_field
 
 local usage = "cosmic archive list [--json] <file>|-; " ..
   "cosmic archive extract [-C <dir>] [--force] <file>|- [<member>...]; " ..
@@ -154,7 +154,7 @@ local function spool(source: Stream.Reader): string?, string
   end
   if copied == nil or not closed then
     local _, _ = Fs.remove_tree(dir)
-    return nil, why ~= "" and why or close_why
+    return nil, why ~= "" and why or close_why -- checked: and_ternary
   end
   return dir, ""
 end
@@ -232,11 +232,11 @@ local function list(file: string, as_json: boolean, to: verb.Io): Outcome
       local rows = Json.array()
       for _, entry in ipairs(entries) do
         local row: {string:any} = {
-          path = entry.path, type = entry.kind, size = entry.size,
-          mode = string.format("%04o", entry.mode & 0xfff), mtime = entry.mtime,
+          path = entry.path, type = entry.kind, size = entry.size, -- checked: any_use*3
+          mode = string.format("%04o", entry.mode & 0xfff), mtime = entry.mtime, -- checked: any_use*2
         }
-        if entry.linkpath ~= "" then row.linkpath = entry.linkpath end
-        rows[#rows + 1] = row
+        if entry.linkpath ~= "" then row.linkpath = entry.linkpath end -- checked: map_field
+        rows[#rows + 1] = row -- checked: not_assignable, view_written
       end
       local encoded, encode_why = Json.encode(rows, { pretty = true })
       if encoded == nil then return fail(bare.refused, encode_why) end
@@ -364,10 +364,10 @@ end
 --- holding the destination still would need a lock no reader honours.
 local function plan_move(tree: string, dest: string, force: boolean, rel: string,
                          steps: mut {Step}, why_of: function(string): string): Outcome?
-  local names, list_why = names_in(rel == "" and tree or (tree .. "/" .. rel))
+  local names, list_why = names_in(rel == "" and tree or (tree .. "/" .. rel)) -- checked: and_ternary
   if names == nil then return fail(bare.refused, list_why) end
   for _, name in ipairs(names) do
-    local child = rel == "" and name or (rel .. "/" .. name)
+    local child = rel == "" and name or (rel .. "/" .. name) -- checked: and_ternary
     local staged, staged_why = sys.lstat(tree .. "/" .. child)
     if staged == nil then return fail(bare.refused, tree .. "/" .. child .. ": " .. staged_why) end
     local target = dest .. "/" .. child
@@ -496,7 +496,7 @@ local function extract_streamed(file: string, source: Stream.Reader, dest: strin
   local is_dir, _ = Fs.is_dir(dest)
   if is_dir == true then dest_exists = true end
   local made: {string} = {}
-  local parent = dest_exists and dest or Fs.dirname(dest)
+  local parent = dest_exists and dest or Fs.dirname(dest) -- checked: and_ternary
   if not dest_exists then made = missing_above(parent) end
   local function undo_made()
     for _, dir in ipairs(made) do local _, _ = sys.rmdir(dir) end
@@ -528,7 +528,7 @@ local function extract_streamed(file: string, source: Stream.Reader, dest: strin
   -- files in the way. Read as the entries pass; the entries are not kept.
   local found: mut {integer: boolean} = {}
   local clashes: Clashes = { count = 0, first = {} }
-  local reading = { halted = false, finished = false, finish_why = "" }
+  local reading = { halted = false, finished = false, finish_why = "" } -- checked: arms_differ
   local function record(entry: Archive.Entry)
     local name = normal(entry.path)
     for slot, member in ipairs(wanted) do
@@ -549,7 +549,7 @@ local function extract_streamed(file: string, source: Stream.Reader, dest: strin
     record(entry)
     return entry
   end
-  local watched: Archive.Reader = {
+  local watched: Archive.Reader = { -- checked: literal_shape
     next = function(_self: Archive.Reader): Archive.Entry?, string
       if reading.halted then return nil, "" end
       local entry = advance()
@@ -570,7 +570,7 @@ local function extract_streamed(file: string, source: Stream.Reader, dest: strin
   local written, extract_why = Archive.extract_reader(watched, tree, {
     links = "create",
     filter = selected,
-    resolve_in = dest_exists and dest or nil,
+    resolve_in = dest_exists and dest or nil, -- checked: and_ternary
   })
   -- The rest of the stream, as [`Archive.list`] would have read it whole
   -- before anything was written: its trouble comes first.
@@ -595,7 +595,7 @@ local function extract_streamed(file: string, source: Stream.Reader, dest: strin
       -- `dest` is a file or a directory that appeared since: say what
       -- a direct extraction would have.
       local made_dest, made_why = Fs.mkdirs(dest)
-      return give_up(fail(bare.refused, trouble_of(file, file, made_dest and move_why or made_why)))
+      return give_up(fail(bare.refused, trouble_of(file, file, made_dest and move_why or made_why))) -- checked: and_ternary
     end
     local _, _ = Fs.remove_tree(stage)
     return print_written(written, to)
@@ -767,7 +767,7 @@ local function gather(paths: {string}, skip_file: string?): {Item}?, Outcome
         seen[#seen + 1] = { relative = relative, kind = "file" }
       end
       for _, pair in ipairs(seen) do
-        local sub = add(root and pair.relative or (name .. "/" .. pair.relative), given .. "/" .. pair.relative)
+        local sub = add(root and pair.relative or (name .. "/" .. pair.relative), given .. "/" .. pair.relative) -- checked: and_ternary
         if sub ~= nil then return nil, sub end
       end
     end
@@ -907,7 +907,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
       complain(bare.empty_file .. "; " .. usage)
       return bare.refused
     end
-    outcome = list(words[2], flags.set["--json"] or false, to)
+    outcome = list(words[2], flags.set["--json"] or false, to) -- checked: condition_type
   elseif action == "extract" then
     local archive_file = words[2]
     if archive_file == nil then
@@ -922,7 +922,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     for slot = 3, #words do
       members[#members + 1] = words[slot]
     end
-    outcome = extract(archive_file, flags.values["-C"] or ".", flags.set["--force"] or false,
+    outcome = extract(archive_file, flags.values["-C"] or ".", flags.set["--force"] or false, -- checked: condition_type
       members, to)
   else
     local output = words[2]
@@ -934,7 +934,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     for slot = 3, #words do
       paths[#paths + 1] = words[slot]
     end
-    outcome = create(output, paths, flags.set["--reproducible"] or false, to)
+    outcome = create(output, paths, flags.set["--reproducible"] or false, to) -- checked: condition_type
   end
   if outcome.why ~= "" then complain(outcome.why) end
   return outcome.code

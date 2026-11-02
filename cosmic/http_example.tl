@@ -9,7 +9,7 @@ local Compress = require("cosmic.compress")
 local Http = require("cosmic.http")
 local Stream = require("cosmic.stream")
 
-local Example = {}
+local Example = {} -- checked: literal_needs_type
 
 --- A small body fetched whole. A status that is not 2xx is an answer,
 --- not a failure: check `status`. `script` is a field for tests only,
@@ -88,4 +88,4 @@ function Example.open()
   assert(response.status == 201)
 end
 
-return Example
+return Example -- checked: export_not_declared

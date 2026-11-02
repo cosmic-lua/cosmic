@@ -172,7 +172,7 @@ local record Slave
   fd: integer
 end
 
-local slave_mt: metatable<Slave> = {
+local slave_mt: metatable<Slave> = { -- checked: literal_missing
   __close = function(self: Slave)
     local _, _ = sys.close(self.fd)
   end,
@@ -215,7 +215,7 @@ local function write_within(fd: integer, data: string, limit_ms: integer): integ
   return at - 1
 end
 
-local restoring_mt: metatable<Restoring> = {
+local restoring_mt: metatable<Restoring> = { -- checked: literal_missing
   __close = function(self: Restoring)
     local saved = self.saved
     -- The termios first, which waits for nothing; the resets after, for
@@ -247,10 +247,10 @@ local function window(fd: integer): integer, integer
 end
 
 function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal): Child.Result?, string
-  local input = terminal ~= nil and terminal.input or 0
-  local output = terminal ~= nil and terminal.output or 1
-  local errors = terminal ~= nil and terminal.error or 2
-  local notes = terminal ~= nil and terminal.notes or nil
+  local input = terminal ~= nil and terminal.input or 0 -- checked: and_ternary
+  local output = terminal ~= nil and terminal.output or 1 -- checked: and_ternary
+  local errors = terminal ~= nil and terminal.error or 2 -- checked: and_ternary
+  local notes = terminal ~= nil and terminal.notes or nil -- checked: and_ternary
   local streams: mut {integer} = {}
   for number, fd in ipairs({ input, output, errors }) do
     if sys.isatty(fd) then streams[#streams + 1] = number - 1 end
@@ -272,7 +272,7 @@ function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal)
   end
   local rows, columns = window(shown)
   local pty: Child.PtyOptions = { streams = streams, keep_slave = true }
-  if rows >= 0 then pty.rows, pty.columns = rows, columns end
+  if rows >= 0 then pty.rows, pty.columns = rows, columns end -- checked: field_fixed*2
   -- Held before the program starts, and closed after it has ended, so a
   -- signal that comes between never finds it unguarded.
   local opened, guard_why = Signal.guard()
@@ -281,9 +281,9 @@ function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal)
   local started, start_why = Child.start_on_pty(argv, opts, pty)
   if started == nil then return nil, start_why end
   local master = started.master
-  local _slave <close>: Slave = setmetatable({ fd = started.slave }, slave_mt)
+  local _slave <close>: Slave = setmetatable({ fd = started.slave }, slave_mt) -- checked: close_not_closable, setmetatable_call -- untyped: call
   local filter = TermFilter.new()
-  local restoring <close>: Restoring = setmetatable({
+  local restoring <close>: Restoring = setmetatable({ -- checked: close_not_closable, setmetatable_call -- untyped: call
     input = input, output = shown, master = master, saved = nil, filter = filter,
     made_nonblocking = {},
   }, restoring_mt)
@@ -485,11 +485,11 @@ function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal)
     -- program's output is read and dropped (`relay_output`).
     local room = relay.queued < MOST_QUEUED
     local reading_output = room or signals > 0
-    local master_events = (relay.master_open and reading_output and sys.POLLIN or 0) | (#relay.pending > 0 and sys.POLLOUT or 0)
-    local master_fd = master_events ~= 0 and master or -1
+    local master_events = (relay.master_open and reading_output and sys.POLLIN or 0) | (#relay.pending > 0 and sys.POLLOUT or 0) -- checked: and_ternary*2
+    local master_fd = master_events ~= 0 and master or -1 -- checked: and_ternary
     local notes_fd = relay.notes_open and room and notes or -1
     local head = relay.queue[1]
-    local out_fd = head ~= nil and head.fd or -1
+    local out_fd = head ~= nil and head.fd or -1 -- checked: and_ternary
     local ready, poll_why = sys.poll({ keys_fd, master_fd, notes_fd, out_fd },
       { sys.POLLIN, master_events, sys.POLLIN, sys.POLLOUT }, TICK_MS)
     if ready == nil then
@@ -528,10 +528,10 @@ function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal)
   -- wrote last and the notes after it are read first. A terminal that
   -- takes nothing for `STALL_MS`, or a signal, drops what is left.
   local function settle(drain: boolean)
-    local out_budget = drain and result ~= nil and relay.master_open and MOST_AFTER_EXIT or 0
+    local out_budget = drain and result ~= nil and relay.master_open and MOST_AFTER_EXIT or 0 -- checked: and_ternary
     -- The program is settled, and its relay ended with it: what it wrote
     -- last is in the notes pipe, which the caller's end of keeps open.
-    local notes_budget = drain and result ~= nil and relay.notes_open and MOST_AFTER_EXIT or 0
+    local notes_budget = drain and result ~= nil and relay.notes_open and MOST_AFTER_EXIT or 0 -- checked: and_ternary
     local stalled = 0
     while true do
       if guard:take() ~= 0 then break end

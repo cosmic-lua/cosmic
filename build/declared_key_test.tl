@@ -318,7 +318,7 @@ end
 --- Whether `value` holds something: not nil, false, "" or empty.
 local function populated(value: any): boolean
   if value == nil or value == false or value == "" then return false end
-  if value is table then return next(value) ~= nil end
+  if value is table then return next(value) ~= nil end -- checked: overload_none
   return true
 end
 
@@ -334,7 +334,7 @@ local function each_field_moves<T>(what: string, fields: {string}, make: functio
   local declared: mut {string:boolean} = {}
   for _, name in ipairs(fields) do
     declared[name] = true
-    local full = holder(make()) as {string:any}
+    local full = holder(make()) as {string:any} -- checked: cast_refused
     assert(populated(full[name]), what .. "." .. name .. " is not populated: set it in " ..
         "the populated value, to a value other than its default")
     local change = changes[name]
@@ -405,16 +405,16 @@ local function test_every_field_of_a_spec_moves_it(tmp: string)
   assert(Fs.write(support.build_dir(root) .. "/cosmic.checked.dbx", "checked another"))
   local function append(field: string): Change<declared_key.Spec>
     return { change = function(s: declared_key.Spec)
-      local t = s as {string:any}
-      t[field] = (t[field] as string) .. "x"
+      local t = s as {string:any} -- checked: cast_refused
+      t[field] = (t[field] as string) .. "x" -- checked: cast_refused
     end }
   end
   local spec_changes: {string:Change<declared_key.Spec>} = {
     id = append("id"), module_key = append("module_key"), runtime = append("runtime"),
     compiler = append("compiler"), host = append("host"),
-    epoch = { change = function(s: declared_key.Spec) s.epoch = s.epoch .. "0" end },
+    epoch = { change = function(s: declared_key.Spec) s.epoch = s.epoch .. "0" end }, -- checked: field_fixed
     timeout_ns = { change = function(s: declared_key.Spec)
-      s.timeout_ns = s.timeout_ns + Clock.seconds(1)
+      s.timeout_ns = s.timeout_ns + Clock.seconds(1) -- checked: field_fixed
     end },
     launcher = append("launcher"), declaration = append("declaration"),
     -- Each present answer, by name and by what it holds.
@@ -432,11 +432,11 @@ local function test_every_field_of_a_spec_moves_it(tmp: string)
     program = append("program"),
     -- Keyed only where the module does not declare `store`.
     closure_store = { from = function(s: declared_key.Spec) s.effective.store = false end,
-      change = function(s: declared_key.Spec) s.closure_store = "another" end },
+      change = function(s: declared_key.Spec) s.closure_store = "another" end }, -- checked: field_fixed
     -- Either it or the module's `tool` keys the tool.
     runs_tool = { from = function(s: declared_key.Spec) s.effective.tool = false end,
-      change = function(s: declared_key.Spec) s.runs_tool = false end },
-    environment = { change = function(s: declared_key.Spec) s.environment.DECLARED = "e" end },
+      change = function(s: declared_key.Spec) s.runs_tool = false end }, -- checked: field_fixed
+    environment = { change = function(s: declared_key.Spec) s.environment.DECLARED = "e" end }, -- checked: map_field
     -- Keyed only for a checked run, which sets it; an ordinary run's key holds no such part.
     checks = append("checks"),
     -- Keyed only where the module declares `store`, as the file under o/cosmic.db that its worker is given
@@ -449,7 +449,7 @@ local function test_every_field_of_a_spec_moves_it(tmp: string)
   }
   each_field_moves("Spec", fields_of("build.declared_key", "Spec"),
     function(): declared_key.Spec return full_spec(hostdir) end,
-    function(s: declared_key.Spec): any return s end, key, spec_changes, {
+    function(s: declared_key.Spec): any return s end, key, spec_changes, { -- checked: any_use
       group = "names the tests whose specs are the same but for `id`, which `compute` " ..
         "digests the rest of once for: no input",
     })
@@ -465,19 +465,19 @@ local function test_every_field_of_a_spec_moves_it(tmp: string)
     host = { change = function(s: declared_key.Spec)
       table.insert(s.effective.host, hostdir .. "/elsewhere")
     end },
-    tool = { from = function(s: declared_key.Spec) s.runs_tool = false end,
+    tool = { from = function(s: declared_key.Spec) s.runs_tool = false end, -- checked: field_fixed
       change = function(s: declared_key.Spec) s.effective.tool = false end },
     store = { change = function(s: declared_key.Spec) s.effective.store = false end },
     system = { change = function(s: declared_key.Spec) s.effective.system = false end },
     parent = { change = function(s: declared_key.Spec)
-      table.insert(assert(s.effective.parent), "up.txt")
+      table.insert(assert(s.effective.parent), "up.txt") -- checked: overload_none
     end },
   }
   local declaration = "what the module declares, which `declaration` keys as " ..
     "`test_inputs.canonical` spells it"
   each_field_moves("Effective", fields_of("build.test_inputs", "Effective"),
     function(): declared_key.Spec return full_spec(hostdir) end,
-    function(s: declared_key.Spec): any return s.effective end, key, effective_changes, {
+    function(s: declared_key.Spec): any return s.effective end, key, effective_changes, { -- checked: any_use
       noexec_trouble = "diagnostic only: the noexec grant itself is keyed, and no pass is " ..
         "kept when it is unavailable",
       cpu_features = declaration .. ", and the spec's `cpu`, the features themselves, which a " ..
@@ -533,7 +533,7 @@ local function test_every_field_of_the_host_sources_moves_the_host(tmp: string)
   end
   local function set(field: string, value: any): Change<declared_key.HostSources>
     return { change = function(s: declared_key.HostSources)
-      (s as {string:any})[field] = value
+      (s as {string:any})[field] = value -- checked: cast_refused
     end }
   end
   local changes: {string:Change<declared_key.HostSources>} = {
@@ -554,7 +554,7 @@ local function test_every_field_of_the_host_sources_moves_the_host(tmp: string)
     walked = set("walked", { write("walked2", "w22") }),
   }
   each_field_moves("HostSources", fields_of("build.declared_key", "HostSources"), make,
-    function(s: declared_key.HostSources): any return s end, key, changes, {})
+    function(s: declared_key.HostSources): any return s end, key, changes, {}) -- checked: any_use
 end
 
 --- Where there is no /proc/self/status (macOS), the key holds the group
@@ -646,7 +646,7 @@ local function test_a_link_out_of_the_tree_has_no_key(tmp: string)
   assert(key == nil and why:find("/nowhere/at/all", 1, true) ~= nil, why)
   assert(Fs.remove(root .. "/suite/data/abs"))
   assert(Fs.symlink("../../lib.tl", root .. "/suite/data/deeper/in"))
-  assert(key_of(root) ~= nil)
+  assert(key_of(root) ~= nil) -- checked: compare_disjoint
 end
 
 --- A `host` file is keyed by what it holds: a change to its contents moves
@@ -777,7 +777,7 @@ local function test_only_a_closure_that_reads_the_compiler_is_keyed_by_it(tmp: s
   tree(tmp)
   local function run_under(compiler: string, closure: {string}): string
     return key_of(tmp, { ...spec(), closure_store = "the same store",
-      compiler = declared_key.reads_compiler(closure) and compiler or "" })
+      compiler = declared_key.reads_compiler(closure) and compiler or "" }) -- checked: and_ternary
   end
   local plain = { "suite.lib", "suite.t_test" }
   assert(run_under("one compiler", plain) == run_under("another compiler", plain))
@@ -858,7 +858,7 @@ local function test_a_macos_host_is_keyed_by_its_system_version(tmp: string)
   assert(declared_key.system_sources("Linux")[2] == "/proc/sys/kernel/osrelease")
   local fake = tmp .. "/SystemVersion.plist"
   local system: mut {string} = {}
-  for _, path in ipairs(darwin) do system[#system + 1] = path == plist and fake or path end
+  for _, path in ipairs(darwin) do system[#system + 1] = path == plist and fake or path end -- checked: and_ternary
   local sources: declared_key.HostSources = {
     packages = { tmp .. "/no-packages" }, system = system, status = tmp .. "/no-status",
     cpu_features = {}, machine = "arm64", own_proc = false,
@@ -1102,18 +1102,18 @@ local function test_a_program_is_keyed_by_what_it_runs_as(tmp: string)
   local program, key = keys()
   -- Rebuilt for an edit no binary carries: its bytes move, not its key.
   local bytes = assert(Fs.read(tool))
-  meta.boot_hash, meta.projected = "two", "two"
+  meta.boot_hash, meta.projected = "two", "two" -- checked: map_field*2
   program_at(tool, "core one", meta, "bytecode one")
   assert(assert(Fs.read(tool)) ~= bytes, "the rebuilt program's bytes did not move")
   local rebuilt_program, rebuilt_key = keys()
   assert(rebuilt_program == program, "boot_hash and projected moved the program")
   assert(rebuilt_key == key, "boot_hash and projected moved the key")
   -- Any other row of its meta does.
-  meta.writer = "another writer"
+  meta.writer = "another writer" -- checked: map_field
   program_at(tool, "core one", meta, "bytecode one")
   local writer_program, writer_key = keys()
   assert(writer_program ~= program and writer_key ~= key, "the writer left the key")
-  meta.writer = "w"
+  meta.writer = "w" -- checked: map_field
   -- A carried module.
   program_at(tool, "core one", meta, "bytecode two")
   local module_program, module_key = keys()
@@ -1127,18 +1127,18 @@ local function test_a_program_is_keyed_by_what_it_runs_as(tmp: string)
     "the image left the program")
   assert(image_key ~= key and image_key ~= module_key, "the image left the key")
   -- A text's bytes after a NUL, where SQLite's quote() would end it.
-  meta.note = "a\0one"
+  meta.note = "a\0one" -- checked: map_field
   program_at(tool, "core one", meta, "bytecode one")
   local one_program = keys()
-  meta.note = "a\0two"
+  meta.note = "a\0two" -- checked: map_field
   program_at(tool, "core one", meta, "bytecode one")
   assert(keys() ~= one_program, "a text's bytes after a NUL left the program")
-  meta.note = nil
+  meta.note = nil -- checked: map_field
   -- A file in o/bin that is no artifact is keyed by its contents.
   program_at(tool, "core one", meta, "bytecode one")
   assert(select(2, keys()) == key)
   assert(Fs.write(support.build_dir(root) .. "/bin/other", "one"))
-  local other = select(2, keys()) as string
+  local other = select(2, keys()) as string -- checked: cast_refused
   assert(other ~= key, "a file added to o/bin left the key")
   assert(Fs.write(support.build_dir(root) .. "/bin/other", "two"))
   assert(select(2, keys()) ~= other, "a file of o/bin's contents left the key")

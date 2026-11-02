@@ -37,9 +37,9 @@ local function gen(programs: {string}): function(Fuzz.Source): string
       local what = src:int(1, 4)
       if what == 1 then
         local f = Fuzz.pick(src, TRAILER_FIELDS)
-        local at = #bytes - 48 + f[1]
-        local near = big(bytes, at, f[2])
-        bytes = set_field(bytes, at, f[2], Fuzz.pick(src, { 0, 1, near - 1, near + 1,
+        local at = #bytes - 48 + f[1] -- checked: nil_not_allowed
+        local near = big(bytes, at, f[2]) -- checked: index_may_be_nil
+        bytes = set_field(bytes, at, f[2], Fuzz.pick(src, { 0, 1, near - 1, near + 1, -- checked: index_may_be_nil
           near + 4096, -1, math.mininteger, #bytes }))
       elseif what == 2 then
         bytes = bytes:sub(1, -49) .. Fuzz.mutate(src, bytes:sub(-48), 3)
@@ -56,7 +56,7 @@ end
 local function test_split_is_total(tmp: string)
   local prefix = assert(artifact.prefix(records, { x86 = core }))
   local database = "SQLite format 3\0" .. ("d"):rep(40)
-  local programs = {
+  local programs = { -- checked: arms_differ
     assert(artifact.program(prefix, database)),
     assert(artifact.host_program({ bytes = core, digest = Hash.sha256(core), target_id = 1,
       configuration_id = 1 }, database)),

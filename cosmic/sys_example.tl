@@ -5,7 +5,7 @@
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
 
-local Example = {}
+local Example = {} -- checked: literal_needs_type
 
 --- A fresh directory holding `hello.txt`, which says "hello, world".
 local function scratch(): string, string
@@ -133,4 +133,4 @@ function Example.full_fsync()
   end
 end
 
-return Example
+return Example -- checked: export_not_declared

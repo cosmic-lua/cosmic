@@ -42,10 +42,10 @@ end
 --- The environment of a run: nothing shared, every test run.
 local function run_environment(sandbox: string?): {string:string}
   local env = this_program.environment()
-  env.COSMIC_VERDICT_CACHE = "0"
-  env.COSMIC_TEST_ALL = nil
-  env.COSMIC_SANDBOX = nil
-  env.COSMIC_TEST_SANDBOX = sandbox
+  env.COSMIC_VERDICT_CACHE = "0" -- checked: map_field
+  env.COSMIC_TEST_ALL = nil -- checked: map_field
+  env.COSMIC_SANDBOX = nil -- checked: map_field
+  env.COSMIC_TEST_SANDBOX = sandbox -- checked: map_field
   return env
 end
 

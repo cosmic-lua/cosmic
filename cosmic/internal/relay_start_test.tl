@@ -147,10 +147,10 @@ end
 local function core_takes(rows: {Net.Endpoint}): boolean, string
   local ok, made, why = pcall(Net.connector, rows)
   if ok and made ~= nil then
-    local _, _ = (made as Net.Connector):close()
+    local _, _ = (made as Net.Connector):close() -- checked: cast_refused
     return true, ""
   end
-  return false, tostring(ok and why or made)
+  return false, tostring(ok and why or made) -- checked: and_ternary
 end
 
 --- The plan-time count of the port tables (cosmic/internal/relay_start.tl) agrees
@@ -160,7 +160,7 @@ end
 local function test_the_plan_and_the_core_count_the_port_tables_alike()
   local probe, absent = Net.connector({ { host = "127.0.0.1", port = 9 } })
   if probe == nil then Test.skip("no native connector: " .. tostring(absent)) end
-  local _, _ = (probe as Net.Connector):close()
+  local _, _ = (probe as Net.Connector):close() -- checked: cast_refused
   local function agree(grants: {string}, accepted: boolean)
     local plan = SandboxRelay.plan(grants, {})
     assert((plan ~= nil) == accepted, "the plan " .. (if accepted then "refused" else "took" end) .. " " .. tostring(#grants) .. " grants")
@@ -168,7 +168,7 @@ local function test_the_plan_and_the_core_count_the_port_tables_alike()
     for _, grant in ipairs(grants) do
       local host, port = grant:match("^%[?([^%]]+)%]?:([%d*]+)$")
       assert(host ~= nil and port ~= nil, "a grant is a host and a port: " .. grant)
-      rows[#rows + 1] = { host = host, port = if port == "*" then 0 else math.tointeger(port) as integer end }
+      rows[#rows + 1] = { host = host, port = if port == "*" then 0 else math.tointeger(port) as integer end } -- checked: cast_refused
     end
     local took, why = core_takes(rows)
     assert(took == accepted, "the core " .. (if took then "took" else "refused: " .. why end) .. " what the plan did not agree to")

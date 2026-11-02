@@ -207,7 +207,7 @@ local function closure(m: Module, by_path: {string:Module},
       seen[here.path] = true
       files[#files + 1] = here.file
       names[#names + 1] = here.path
-      local erased = type_only ~= nil and type_only[here.path] or {}
+      local erased = type_only ~= nil and type_only[here.path] or {} -- checked: and_ternary, literal_needs_type
       for _, name in ipairs(here.requires) do
         local other = by_path[name]
         if name == "build.fuzz" then fuzzes = true end
@@ -217,7 +217,7 @@ local function closure(m: Module, by_path: {string:Module},
           stack[#stack + 1] = other
         elseif other == nil and declarations[name] ~= nil and seen[name] ~= true then
           seen[name] = true
-          files[#files + 1] = declarations[name]
+          files[#files + 1] = declarations[name] -- checked: index_may_be_nil
           names[#names + 1] = name
         end
       end
@@ -291,7 +291,7 @@ function test_inputs.effective(m: Module, by_path: {string:Module},
     out.cpu_features = declared.cpu_features == true
     for _, relative in ipairs(declared.parent or {}) do parent[#parent + 1] = relative end
     -- A cache is declared with the variables that locate it.
-    for _, name in ipairs(declared.caches or {}) do
+    for _, name in ipairs(declared.caches or {}) do -- checked: condition_type, literal_needs_type
       caches[#caches + 1] = name
       for _, variable in ipairs(cache_names.variables(name)) do out.env[variable] = true end
     end
@@ -394,7 +394,7 @@ function test_inputs.resolve(effective: test_inputs.Effective, roots: {string})
   effective.host = host
   -- Each file above the project must be there, and a file: a test that
   -- reads one the host lacks fails with this, not with its own error.
-  local above = #(effective.parent or {}) > 0 and test_inputs.parent_directory(roots[1] or "") or ""
+  local above = #(effective.parent or {}) > 0 and test_inputs.parent_directory(roots[1] or "") or "" -- checked: and_ternary
   for _, relative in ipairs(effective.parent or {}) do
     local st, _ = sys.stat(above .. "/" .. relative)
     if effective.unresolved == "" and (st == nil or st.kind ~= "file") then
@@ -430,9 +430,9 @@ function test_inputs.canonical(maybe: PolicyRules.Declared?): string
   if declared.store then lines[#lines + 1] = "store true" end
   if declared.system then lines[#lines + 1] = "system true" end
   if declared.cpu_features == true then lines[#lines + 1] = "cpu_features true" end
-  list("caches", declared.caches or {})
+  list("caches", declared.caches or {}) -- checked: condition_type, literal_needs_type
   list("parent", declared.parent or {})
-  list("requires", declared.requires or {})
+  list("requires", declared.requires or {}) -- checked: condition_type, literal_needs_type
   if declared.timeout ~= nil then
     local line = "timeout " .. tostring(declared.timeout)
     lines[#lines + 1] = line

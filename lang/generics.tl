@@ -233,7 +233,7 @@ local function bind(s: Generics.Solver, index: integer, actual: Type, dir: Gener
     end
     local joined = join(s, held, actual)
     if joined == nil then
-      conflict(s, index, held, actual, s.lower_at[index], at, false)
+      conflict(s, index, held, actual, s.lower_at[index], at, false) -- checked: index_may_be_nil
     else
       s.lower[index] = joined
     end
@@ -245,7 +245,7 @@ local function bind(s: Generics.Solver, index: integer, actual: Type, dir: Gener
     end
     local met = meet(s, held, actual)
     if met == nil then
-      conflict(s, index, held, actual, s.upper_at[index], at, false)
+      conflict(s, index, held, actual, s.upper_at[index], at, false) -- checked: index_may_be_nil
     else
       s.upper[index] = met
     end
@@ -254,7 +254,7 @@ local function bind(s: Generics.Solver, index: integer, actual: Type, dir: Gener
     if held == nil then
       s.exact[index], s.exact_at[index] = actual, at
     elseif held ~= actual then
-      conflict(s, index, held, actual, s.exact_at[index], at, true)
+      conflict(s, index, held, actual, s.exact_at[index], at, true) -- checked: index_may_be_nil
     end
   end
 end
@@ -309,7 +309,7 @@ local visit: function(s: Generics.Solver, pattern: Type, actual: Type, dir: Gene
 
 --- A union pattern with one member that names variables (`A?`, `{A} | string`): that member against what the type
 --- found has beside the members the pattern spells out.
-local function visit_union(s: Generics.Solver, pattern: Types.Union, actual: Type, dir: Generics.Direction, at: integer)
+local function visit_union(s: Generics.Solver, pattern: Types.Union, actual: Type, dir: Generics.Direction, at: integer) -- checked: not_assigned
   local open: Type? = nil
   local plain: mut {Type} = {}
   for _, m in ipairs(pattern.members) do
@@ -539,9 +539,9 @@ function Generics.value(s: Generics.Solver, index: integer): Type?
   local exact, lower, upper = s.exact[index], s.lower[index], s.upper[index]
   if exact ~= nil then
     if lower ~= nil and not s.hooks.below(lower, exact) then
-      conflict(s, index, exact, lower, s.exact_at[index], s.lower_at[index], true)
+      conflict(s, index, exact, lower, s.exact_at[index], s.lower_at[index], true) -- checked: index_may_be_nil*2
     elseif upper ~= nil and not s.hooks.below(exact, upper) then
-      conflict(s, index, upper, exact, s.upper_at[index], s.exact_at[index], true)
+      conflict(s, index, upper, exact, s.upper_at[index], s.exact_at[index], true) -- checked: index_may_be_nil*2
     end
     return exact
   elseif lower ~= nil then
@@ -550,7 +550,7 @@ function Generics.value(s: Generics.Solver, index: integer): Type?
       return hint
     end
     if upper ~= nil and not s.hooks.below(lower, upper) then
-      conflict(s, index, lower, upper, s.lower_at[index], s.upper_at[index], false)
+      conflict(s, index, lower, upper, s.lower_at[index], s.upper_at[index], false) -- checked: index_may_be_nil*2
     end
     return lower
   end

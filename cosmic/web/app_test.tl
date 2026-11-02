@@ -72,8 +72,8 @@ local function test_a_stack_that_answers_nothing_raises_and_is_not_a_nil_respons
     routes = { Web.get("/", hello) },
     middleware = { function(_inner: Web.Handler): Web.Handler
       return function(_req: Web.Request): Web.Response
-        local nothing: any = nil
-        return nothing as Web.Response
+        local nothing: any = nil -- checked: any_use
+        return nothing as Web.Response -- checked: cast_refused
       end
     end },
   }
@@ -140,7 +140,7 @@ local function test_the_router_answers_with_status_and_headers_by_accept()
   local problem = client:get("/missing", { headers = { accept = "application/json" } })
   assert(problem.status == 404 and problem.headers["content-type"] == "application/problem+json")
   local body = assert(Json.decode_object(problem:text()))
-  assert(body.status == 404 and body.title == "Not Found")
+  assert(body.status == 404 and body.title == "Not Found") -- checked: map_field*2
   local anything = client:get("/missing", { headers = { accept = "*/*" } })
   assert(anything.headers["content-type"] == "text/html; charset=utf-8", "a tie goes to HTML")
   local picky = client:get("/missing", { headers = { accept = "application/json, text/html;q=0.1" } })
@@ -227,9 +227,9 @@ local function test_debug_shows_the_fault_and_its_stack_escaped()
   assert(not res.body:find("<b>", 1, true))
   local json = Web.test_client(app):get("/boom", { headers = { accept = "application/json" } })
   local body = assert(Json.decode_object(json:text()))
-  local detail = body.detail
+  local detail = body.detail -- checked: map_field
   assert(json.status == 500 and detail is string and detail:find("secret detail <b>", 1, true))
-  assert(body.trace ~= nil)
+  assert(body.trace ~= nil) -- checked: map_field
 end
 
 local function test_debug_is_off_unless_asked_and_a_bad_response_is_a_fault_only_in_debug()
@@ -246,7 +246,7 @@ end
 
 local function test_in_debug_a_handler_that_returns_nothing_is_told_as_the_server_tells_it()
   local function nothing(_req: Web.Request): Web.Response
-    return nil as Web.Response
+    return nil as Web.Response -- checked: cast_refused
   end
   local debugging = Web.app{ routes = { Web.get("/nothing", nothing) }, debug = true, sink = recording() }
   local res = Web.test_client(debugging):get("/nothing")
@@ -256,7 +256,7 @@ end
 local function test_abort_answers_its_status_and_detail_in_the_negotiated_form()
   local app = Web.app{ routes = {
     Web.get("/gone", function(_req: Web.Request): Web.Response
-      return Web.abort(410, "removed <b>", { reason = "x" })
+      return Web.abort(410, "removed <b>", { reason = "x" }) -- checked: any_use
     end),
     Web.get("/down", function(_req: Web.Request): Web.Response
       return Web.abort(503)
@@ -267,7 +267,7 @@ local function test_abort_answers_its_status_and_detail_in_the_negotiated_form()
   assert(page.status == 410 and page.body:find("removed &lt;b&gt;", 1, true) ~= nil and not page.body:find("<b>", 1, true))
   local json = client:get("/gone", { headers = { accept = "application/json" } })
   local body = assert(Json.decode_object(json:text()))
-  assert(json.status == 410 and body.detail == "removed <b>" and body.reason == "x")
+  assert(json.status == 410 and body.detail == "removed <b>" and body.reason == "x") -- checked: map_field*2
   assert(client:get("/down").status == 503)
 end
 
@@ -379,14 +379,14 @@ local function test_access_log_options_choose_the_sink_format_and_what_to_skip()
 end
 
 local function test_an_app_refuses_a_spec_with_a_field_it_does_not_have()
-  local spec: any = { routes = {}, middlewares = {} }
-  assert(Test.raises(function() Web.app(spec as Web.AppSpec) end):find("app has no field middlewares", 1, true))
+  local spec: any = { routes = {}, middlewares = {} } -- checked: any_use, literal_needs_type*2
+  assert(Test.raises(function() Web.app(spec as Web.AppSpec) end):find("app has no field middlewares", 1, true)) -- checked: cast_refused
 end
 
 local function test_a_missing_handler_or_bad_registration_raises_when_the_app_is_built()
   local ok, err = pcall(function(): any
     Web.app{ routes = { Web.get("/a", hello), Web.get("/a", hello) } }
-    return nil
+    return nil -- checked: any_use
   end)
   assert(not ok and tostring(err):find("already answered", 1, true) ~= nil, tostring(err))
 end
@@ -423,7 +423,7 @@ local function test_abort_from_app_middleware_is_answered_and_seen_by_the_middle
   }
   local res = Web.test_client(app):get("/", { headers = { accept = "application/json" } })
   assert(res.status == 403, "answered, not raised")
-  local body = assert(res:json()) as {string:any}
+  local body = assert(res:json()) as {string:any} -- checked: cast_refused
   assert(body.detail == "no entry" and body.status == 403)
   assert(table.concat(trace, " ") == "A abort /A", table.concat(trace, " "))
   assert(#lines == 1 and lines[1]:find("^GET / 403 ") ~= nil, table.concat(lines, "|"))

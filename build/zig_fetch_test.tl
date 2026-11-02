@@ -26,11 +26,11 @@ local function test_a_raise_during_install_leaves_no_scratch_directory(tmp: stri
   local _, _ = ZigFetch.install(cache, cache .. "/warm", "0.1.0", "x86_64-linux", nil)
   local before = support.descriptors()
   local real = Http.download_result
-  Http.download_result = function(_url: string, _path: string, _options?: Http.Options): Http.DownloadResult
+  Http.download_result = function(_url: string, _path: string, _options?: Http.Options): Http.DownloadResult -- checked: field_fixed
     error("the download raised")
   end
   local ok, trouble = pcall(ZigFetch.install, cache, cache .. "/0.1.0-x86_64-linux", "0.1.0", "x86_64-linux", "abc")
-  Http.download_result = real
+  Http.download_result = real -- checked: field_fixed
   assert(not ok and tostring(trouble):find("the download raised", 1, true) ~= nil, tostring(trouble))
   assert(table.concat(assert(Fs.list(cache)), " ") == ".scratch-gate", "a scratch wrapper was left behind")
   assert(support.descriptors() == before, "a descriptor of the scratch stayed open")
@@ -91,7 +91,7 @@ local function scripted(replies: {string:{Http.DownloadResult}}, calls: mut {str
       if seen ~= nil then
         seen[#seen + 1] = opts
       end
-      clock.value = clock.value + (per_call_ns or 0)
+      clock.value = clock.value + (per_call_ns or 0) -- checked: map_field*2
       served[url] = (served[url] or 0) + 1
       local script = assert(replies[url], "no replies are scripted for " .. url)
       local attempt = assert(served[url], "the attempt was counted")
@@ -103,10 +103,10 @@ local function scripted(replies: {string:{Http.DownloadResult}}, calls: mut {str
     end,
     sleep = function(ns: integer)
       sleeps[#sleeps + 1] = ns
-      clock.value = clock.value + ns
+      clock.value = clock.value + ns -- checked: map_field*2
     end,
     now = function(): integer
-      return clock.value
+      return clock.value -- checked: map_field
     end,
   }
 end
@@ -183,7 +183,7 @@ local function test_fetch_bounds_mirrors_by_the_budget_and_never_the_fallback(tm
     scripted({
       ["http://mirror"] = { failed("timed out") },
       ["http://fallback"] = { failed("stalled") },
-    }, calls, sleeps, Clock.minutes(5), seen))
+    }, calls, sleeps, Clock.minutes(5), seen)) -- checked: not_assignable
   assert(not ok)
   assert(table.concat(calls, " ") ==
       "http://mirror http://fallback http://mirror http://fallback http://fallback",

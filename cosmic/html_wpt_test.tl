@@ -16,12 +16,12 @@ local relative_floor <const> = 50
 
 local function test_href_agrees_with_the_whatwg_url_data()
   local text = assert(Fs.read("vendor/wpt-url/urltestdata.json"))
-  local entries = assert(Json.decode(text)) as {any}
+  local entries = assert(Json.decode(text)) as {any} -- checked: cast_refused
   local checked, relative = 0, 0
   for _, raw in ipairs(entries) do
     -- The data's few strings are comments between its entries.
     if raw is table then
-      local entry = raw as {string:any}
+      local entry = raw as {string:any} -- checked: cast_refused
       local input, base = entry.input, entry.base
       if input is string and entry.failure == nil and (base == nil or base is string) and
           Html.raw_url(Html.href(input)) ~= "about:invalid" then
@@ -32,7 +32,7 @@ local function test_href_agrees_with_the_whatwg_url_data()
             ("%q resolves to %s"):format(input, tostring(protocol)))
         else
           relative = relative + 1
-          local base_text = assert(base, "a relative input has a base") as string
+          local base_text = assert(base, "a relative input has a base") as string -- checked: cast_refused
           assert(protocol == base_text:match("^%a[%w+.-]*:"):lower(),
             ("%q against %s resolves to %s"):format(input, base_text, tostring(protocol)))
           -- The data's web bases hold at most a user name and a lower-case

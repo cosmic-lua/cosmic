@@ -103,9 +103,9 @@ local function test_each_single_byte_escapes_as_the_oracle_says()
     local byte = string.char(code)
     local control = code < 32 or code == 127
     local hex = string.format("\\x%02X", code)
-    local plain = control and hex or byte
-    local named = if code == 92 then "\\\\" else (control and (common[code] or hex) or byte) end
-    local kept = (code == 9 or code == 10) and byte or plain
+    local plain = control and hex or byte -- checked: and_ternary
+    local named = if code == 92 then "\\\\" else (control and (common[code] or hex) or byte) end -- checked: and_ternary
+    local kept = (code == 9 or code == 10) and byte or plain -- checked: and_ternary
     assert(bare.escape(byte) == plain, "plain " .. tostring(code))
     assert(bare.escape(byte, { named = true }) == named, "named " .. tostring(code))
     assert(bare.escape(byte, { keep_tab_newline = true }) == kept, "keep " .. tostring(code))

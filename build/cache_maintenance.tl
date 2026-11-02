@@ -56,7 +56,7 @@ local record Database
   __close: function(Database)
 end
 
-local database_mt: metatable<Database> = {
+local database_mt: metatable<Database> = { -- checked: literal_missing
   __close = function(self: Database)
     local db = self.db
     if db ~= nil then
@@ -67,7 +67,7 @@ local database_mt: metatable<Database> = {
 }
 
 local function owned(db?: Sqlite.Handle): Database
-  return setmetatable({ db = db, transaction = false }, database_mt)
+  return setmetatable({ db = db, transaction = false }, database_mt) -- checked: arms_differ, setmetatable_call -- untyped: call
 end
 
 local function close(database: Database): boolean, string
@@ -113,7 +113,7 @@ end
 
 local function shapes(): {string:Shape}
   local memory = assert(Sqlite.memory())
-  local _scratch <close> = owned(memory)
+  local _scratch <close> = owned(memory) -- checked: close_not_closable
   for _, schema in ipairs({ formats.compiles, formats.bridge_statements, formats.verdicts }) do
     for _, sql in ipairs(schema) do assert(memory:exec(sql)) end
   end
@@ -270,7 +270,7 @@ local function maintain_file(path: string, options: maintenance.Options,
   -- users and replacements. Typed failure codes alone authorize no deletion;
   -- keep every unreadable file and omit its save digest.
   if opened == nil then return failed(file, open_why) end
-  local database <close> = owned(opened)
+  local database <close> = owned(opened) -- checked: close_not_closable
   local db = opened
   db:busy_timeout(Clock.seconds(10))
   local begun = db:exec_result("BEGIN IMMEDIATE")
@@ -335,7 +335,7 @@ end
 local function feed_rows(hasher: Hash.Hasher, path: string, guard: Signal.Guard): boolean, string
   local opened, open_why = Sqlite.open(path, { writable = true, create = false })
   if opened == nil then return false, open_why end
-  local database <close> = owned(opened)
+  local database <close> = owned(opened) -- checked: close_not_closable
   local db = opened
   db:busy_timeout(Clock.seconds(10))
   local begun = db:exec_result("BEGIN")
@@ -442,9 +442,9 @@ local function fresh_keys(path: string, restored: string, expected: {string:Shap
                           guard: Signal.Guard): integer?, string
   local opened, why = Sqlite.open(path, { writable = true, create = false })
   if opened == nil then return nil, why end
-  local live <close> = owned(opened)
+  local live <close> = owned(opened) -- checked: close_not_closable
   opened:busy_timeout(Clock.seconds(10))
-  local old <close> = owned(nil)
+  local old <close> = owned(nil) -- checked: close_not_closable
   local st, stat_why, errno = sys.stat(restored)
   if st ~= nil then
     old.db, why = Sqlite.open(restored)
@@ -459,7 +459,7 @@ local function fresh_keys(path: string, restored: string, expected: {string:Shap
     local tables, table_why = inspect(db, "compiles", expected)
     if tables == nil then return nil, table_why end
     for _, entry in ipairs(tables) do
-      if entry.name:match("^compiled_v%d+$") and not entry.supported then
+      if entry.name:match("^compiled_v%d+$") and not entry.supported then -- checked: condition_type
         return nil, "cannot compare unknown compile format " .. entry.name
       end
     end
@@ -533,7 +533,7 @@ function maintenance.run(options: maintenance.Options): maintenance.Result
   local signal, release_why = held:release()
   if signal == nil or signal ~= 0 then
     report.digest, report.fresh = nil, nil
-    report.warnings[#report.warnings + 1] = signal == nil and release_why or "cache maintenance interrupted"
+    report.warnings[#report.warnings + 1] = signal == nil and release_why or "cache maintenance interrupted" -- checked: and_ternary
     complete = false
   end
   if not complete then report.digest, report.fresh = nil, nil end

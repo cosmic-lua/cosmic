@@ -25,7 +25,7 @@ end
 
 local function test_a_mistyped_verb_is_named(tmp: string)
   local result = cosmic(tmp, { "tset" })
-  local err = result.stderr or ""
+  local err = result.stderr or "" -- checked: condition_type
   assert(result.code == 2, err)
   -- The whole of stderr: one line, prefixed once.
   assert(err == "cosmic: no such verb or file: tset; see `cosmic help`\n", err)
@@ -39,7 +39,7 @@ local function test_dispatch_starts_no_worker(tmp: string)
   for _, mode in ipairs({ "--worker", "--worker-no-tool", "--worker-held" }) do
     local result = invoke.run({ "test", mode, tmp, "a_test", "test_a", tmp .. "/tmp",
       tmp .. "/children" }, { cwd = tmp })
-    local err = result.stderr or ""
+    local err = result.stderr or "" -- checked: condition_type
     assert(result.code == 2, err)
     assert(err:find("no such option: " .. mode, 1, true), err)
   end
@@ -52,21 +52,21 @@ local function test_e_runs_a_teal_chunk(tmp: string)
   assert(cosmic(tmp, { "-e", "return 3" }).code == 3)
   local raised = cosmic(tmp, { "-e", 'error("boom")' })
   assert(raised.code == 1 and raised.stdout == "", raised.stdout)
-  assert((raised.stderr or ""):find("-e:1: boom", 1, true), raised.stderr)
+  assert((raised.stderr or ""):find("-e:1: boom", 1, true), raised.stderr) -- checked: condition_type
   local broken = cosmic(tmp, { "-e", "x =" })
   assert(broken.code == 4, broken.stderr)
   local bare = cosmic(tmp, { "-e" })
   assert(bare.code == 2, bare.stderr)
-  assert((bare.stderr or ""):find("usage: cosmic -e", 1, true), bare.stderr)
+  assert((bare.stderr or ""):find("usage: cosmic -e", 1, true), bare.stderr) -- checked: condition_type
   assert(cosmic(tmp, { "-e", "return nil" }).code == 0)
   assert(cosmic(tmp, { "-e", "return 3.0" }).code == 3)
   assert(cosmic(tmp, { "-e", "return 255" }).code == 255)
-  for chunk, shown in pairs({ ["256"] = "256", ["-1"] = "-1", ["1.5"] = "1.5", ["true"] = "true",
+  for chunk, shown in pairs({ ["256"] = "256", ["-1"] = "-1", ["1.5"] = "1.5", ["true"] = "true", -- checked: cast_refused
       ["'text'"] = '"text"', ["{ 1 }"] = "table: " } as {string:string}) do
     local refused = cosmic(tmp, { "-e", "return " .. chunk })
     assert(refused.code == 2, chunk .. ": " .. tostring(refused.code))
-    assert((refused.stderr or ""):find("-e returned " .. shown, 1, true), refused.stderr)
-    assert((refused.stderr or ""):find("not an exit status 0-255", 1, true), refused.stderr)
+    assert((refused.stderr or ""):find("-e returned " .. shown, 1, true), refused.stderr) -- checked: condition_type
+    assert((refused.stderr or ""):find("not an exit status 0-255", 1, true), refused.stderr) -- checked: condition_type
   end
   local nothing, _ = Fs.exists(tmp .. "/o")
   assert(nothing == false, "-e wrote under o/")

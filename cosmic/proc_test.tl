@@ -68,9 +68,9 @@ end
 
 local function test_find_refuses_an_empty_name()
   local ok, why: boolean, any = pcall(Proc.find, "")
-  assert(not ok and tostring(why):find("proc: find's name is empty", 1, true), tostring(why))
+  assert(not ok and tostring(why):find("proc: find's name is empty", 1, true), tostring(why)) -- checked: or_mix
   ok, why = pcall(Proc.exec, {})
-  assert(not ok and tostring(why):find("proc: argv is empty", 1, true), tostring(why))
+  assert(not ok and tostring(why):find("proc: argv is empty", 1, true), tostring(why)) -- checked: or_mix
 end
 
 --- Failure keeps the first denied regular file, while a later runnable

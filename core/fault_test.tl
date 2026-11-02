@@ -152,6 +152,6 @@ local function test_fail_at_reports_a_fault_left_unfired()
   assert(testing.fail_at("curl_easy_init", 3), "the unfired fault is reported")
   assert(testing.fail_at(), "the replacement is armed")
   assert(not testing.fail_at(), "and disarmed")
-  assert(not pcall(testing.fail_at, ""), "an empty point is refused")
-  assert(not pcall(testing.fail_at, "curl_easy_init", -1), "a negative skip is refused")
+  assert(not pcall(testing.fail_at, ""), "an empty point is refused") -- checked: alternatives_as_value
+  assert(not pcall(testing.fail_at, "curl_easy_init", -1), "a negative skip is refused") -- checked: alternatives_as_value
 end

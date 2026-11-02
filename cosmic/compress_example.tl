@@ -7,7 +7,7 @@ local Test = require("cosmic.test")
 
 Test.policy{ cpu_features = true }
 
-local Example = {}
+local Example = {} -- checked: literal_needs_type
 
 --- Bytes compressed whole into a gzip stream, and expanded back.
 function Example.deflate()
@@ -45,4 +45,4 @@ function Example.zstd_encoder()
   assert(table.concat(out) == string.rep("cosmic zstd ", 100))
 end
 
-return Example
+return Example -- checked: export_not_declared

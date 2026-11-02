@@ -4,7 +4,7 @@
 
 local Flags = require("cosmic.flags")
 
-local Example = {}
+local Example = {} -- checked: literal_needs_type
 
 --- A command's options and paths: a flag, a value after "=", and a word.
 function Example.parse()
@@ -147,4 +147,4 @@ function Example.help()
   assert(got.values["--jobs"] == "4" and got.set["-v"] == true)
 end
 
-return Example
+return Example -- checked: export_not_declared

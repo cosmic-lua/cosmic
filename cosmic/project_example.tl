@@ -6,7 +6,7 @@ local Fs = require("cosmic.fs")
 local Project = require("cosmic.project")
 local sys = require("cosmic.sys")
 
-local Example = {}
+local Example = {} -- checked: literal_needs_type
 
 --- Where a project's build lands, under a base of builds named for the
 --- run: each project has a directory of its own there, which only a
@@ -30,4 +30,4 @@ function Example.directory()
   assert(Fs.remove_tree(dir))
 end
 
-return Example
+return Example -- checked: export_not_declared

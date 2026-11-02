@@ -244,7 +244,7 @@ local function test_yaml_in_flow_style_is_taken(tmp: string)
   assert(Fs.write(tmp .. "/.github/own/docs/d.yml", "{a: 1}\n"))
   assert(Fs.write(tmp .. "/.github/own/vendor/lua/.github/v.yml", "{a: 1}\n"))
   local nested = tmp .. "/.github/own"
-  for _, named in ipairs({ {}, { nested } }) do
+  for _, named in ipairs({ {}, { nested } }) do -- checked: literal_needs_type
     picked = assert(chosen(nested, named, true))
     local got = table.concat(picked.flow_files, " ")
     assert(#picked.flow_files == 1 and got:match("%.github/workflows/w%.yml$") ~= nil, got)
@@ -262,15 +262,15 @@ local function test_yaml_is_laid_out_in_place(tmp: string)
   assert(Fs.write(path, "{a:  1,b: [1,2]}\n"))
   assert(Fs.write(tmp .. "/b.yml", "a: 1\n"))
   local changed, failures: {string}, {string} = {}, {}
-  fix.lay_out({ path }, true, changed, failures)
+  fix.lay_out({ path }, true, changed, failures) -- checked: view_as_mut*2
   assert(#changed == 1 and #failures == 0 and Fs.read(path) == "{a:  1,b: [1,2]}\n", "--check writes nothing")
   changed = {}
-  fix.lay_out({ path, tmp .. "/b.yml" }, false, changed, failures)
+  fix.lay_out({ path, tmp .. "/b.yml" }, false, changed, failures) -- checked: view_as_mut*2
   assert(#changed == 1 and (Fs.read(path)) == "{a: 1, b: [1, 2]}\n", (Fs.read(path)))
   assert(#failures == 1 and failures[1]:find("not in flow style", 1, true) ~= nil, failures[1])
   assert(Fs.read(tmp .. "/b.yml") == "a: 1\n")
   changed = {}
-  fix.lay_out({ path }, true, changed, {})
+  fix.lay_out({ path }, true, changed, {}) -- checked: view_as_mut
   assert(#changed == 0, "a laid-out file is left alone")
 end
 
@@ -380,20 +380,20 @@ local function test_links_read_symbols_from_a_build_made_when_needed(tmp: string
     local opened = { value = 0 }
     local source = fix.link_context(root, whole, true,
       function(_: string): boolean, string
-        rebuilt.value = rebuilt.value + 1
+        rebuilt.value = rebuilt.value + 1 -- checked: map_field*2
         return true, ""
       end,
       function(): docs.Sources
-        opened.value = opened.value + 1
+        opened.value = opened.value + 1 -- checked: map_field*2
         return { handles = {}, public = {}, opened = {} }
       end)
     fix.links(source.context, { root .. "/b.md" })
-    assert(opened.value == 0 and rebuilt.value == 0, "a file with no symbol link opened the databases")
+    assert(opened.value == 0 and rebuilt.value == 0, "a file with no symbol link opened the databases") -- checked: map_field*2
     local found = fix.links(source.context, { root .. "/a.md" })
     source.close()
     assert(#found.broken == 2, table.concat(found.broken, "\n"))
-    assert(opened.value == 1, "opened " .. opened.value .. " times")
-    assert(rebuilt.value == (if whole then 0 else 1 end), (if whole then "whole" else "part" end) .. ": rebuilt " .. rebuilt.value)
+    assert(opened.value == 1, "opened " .. opened.value .. " times") -- checked: map_field*2
+    assert(rebuilt.value == (if whole then 0 else 1 end), (if whole then "whole" else "part" end) .. ": rebuilt " .. rebuilt.value) -- checked: map_field*2
   end
 end
 
@@ -402,7 +402,7 @@ end
 local function test_links_keep_why_their_build_failed(tmp: string)
   local root = assert(Fs.absolute(tmp))
   assert(Fs.write(root .. "/a.md", "[`m.one`]\n"))
-  for _, case in ipairs({ { ok = false, want = "a.tl: the compiler refused it" }, { ok = true } }) do
+  for _, case in ipairs({ { ok = false, want = "a.tl: the compiler refused it" }, { ok = true } }) do -- checked: arms_differ
     local source = fix.link_context(root, false, true,
       function(_: string): boolean, string
         return case.ok, if case.ok then "" else "a.tl: the compiler refused it" end
@@ -458,7 +458,7 @@ end
 local function test_markdown_and_zig_are_never_rewritten(tmp: string)
   assert(Fs.write(tmp .. "/a.md", "#  Messy   heading\n"))
   assert(Fs.write(tmp .. "/b.zig", "const   x = 1;\n"))
-  for _, named in ipairs({ {}, { tmp }, { tmp .. "/a.md", tmp .. "/b.zig" } }) do
+  for _, named in ipairs({ {}, { tmp }, { tmp .. "/a.md", tmp .. "/b.zig" } }) do -- checked: literal_needs_type
     local picked = assert(chosen(tmp, named))
     local rewritten = table.concat(picked.files, " ") .. table.concat(picked.c_files, " ") ..
       table.concat(picked.flow_files, " ")

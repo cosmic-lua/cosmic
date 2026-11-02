@@ -4,7 +4,7 @@
 
 local Clock = require("cosmic.clock")
 
-local Example = {}
+local Example = {} -- checked: literal_needs_type
 
 --- A millisecond's wait, measured on the monotonic clock, which never
 --- jumps the way the wall clock can.
@@ -64,4 +64,4 @@ function Example.ceil()
   assert(not ok)
 end
 
-return Example
+return Example -- checked: export_not_declared

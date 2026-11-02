@@ -120,7 +120,7 @@ local function test_a_run_keeps_what_the_phases_after_the_parse_read(tmp: string
   local facts: mut {string: links.Facts} = {}
   local ready: mut {string: {near.Candidate}} = {}
   local plurals: {string: tree_checks.Plurals} = {}
-  fix.read_off("./build/paths.tl", chunk, text, facts, ready, plurals)
+  fix.read_off("./build/paths.tl", chunk, text, facts, ready, plurals) -- checked: not_assignable
   assert(assert(facts["./build/paths.tl"]).source == text)
   local candidates = assert(ready["./build/paths.tl"])
   assert(#candidates == 1, #candidates)

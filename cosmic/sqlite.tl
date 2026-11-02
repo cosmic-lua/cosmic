@@ -146,7 +146,7 @@ local record Stored is {any}
   value: function(Stored, integer): raw_sqlite.Value
 end
 
-local stored_mt: metatable<Stored> = { __index = Stored }
+local stored_mt: metatable<Stored> = { __index = Stored } -- checked: any_use, literal_missing
 
 --- What a cell of kind `kind` is called in a failure.
 local function described(kind: Kind): string
@@ -270,7 +270,7 @@ local record TextStored is {any}
   value: function(TextStored, integer): raw_sqlite.Value
 end
 
-local text_stored_mt: metatable<TextStored> = { __index = TextStored }
+local text_stored_mt: metatable<TextStored> = { __index = TextStored } -- checked: any_use, literal_missing
 
 --- The bytes of column `index` of `row`, which `name` reads. Raises,
 --- blaming the caller of the accessor that called this, unless `index`
@@ -337,31 +337,31 @@ end
 --- order. Its columns are asked after each step: a schema change
 --- re-prepares the statement, and its columns with it.
 local function cells_of(statement: raw_sqlite.Statement): Row
-  local row: Stored = setmetatable({}, stored_mt)
+  local row: Stored = setmetatable({}, stored_mt) -- checked: setmetatable_call -- untyped: call
   for index = 0, statement:columns() - 1 do
     local kind = statement:kind(index)
     local at = 2 * index + 1
     if kind == "integer" then
-      row[at], row[at + 1] = "integer", statement:integer(index)
+      row[at], row[at + 1] = "integer", statement:integer(index) -- checked: view_written*2
     elseif kind == "number" then
-      row[at], row[at + 1] = "number", statement:number(index)
+      row[at], row[at + 1] = "number", statement:number(index) -- checked: view_written*2
     elseif kind == "text" or kind == "blob" then
-      row[at], row[at + 1] = kind, statement:bytes(index)
+      row[at], row[at + 1] = kind, statement:bytes(index) -- checked: view_written*2
     else
-      row[at], row[at + 1] = "null", false
+      row[at], row[at + 1] = "null", false -- checked: view_written*2
     end
   end
-  return row as Row
+  return row as Row -- checked: cast_refused
 end
 
 --- The row `statement` was just stepped to, as the bytes of each column
 --- in order, each a "text" cell. Asked after each step, as [`cells_of`] is.
 local function texts_of(statement: raw_sqlite.Statement): Row
-  local row: TextStored = setmetatable({}, text_stored_mt)
+  local row: TextStored = setmetatable({}, text_stored_mt) -- checked: setmetatable_call -- untyped: call
   for index = 0, statement:columns() - 1 do
-    row[index + 1] = statement:bytes(index)
+    row[index + 1] = statement:bytes(index) -- checked: view_written
   end
-  return row as Row
+  return row as Row -- checked: cast_refused
 end
 
 --- Steps `statement` once and gives `project` the row it stands on: the
@@ -637,7 +637,7 @@ end
 --- a raise leaves none to finalize. Answers the highest key, 0 for none.
 local function checked(values: {Sqlite.Value}): integer
   local highest = 0
-  for key, value in pairs(values as {any: any}) do
+  for key, value in pairs(values as {any: any}) do -- declared: key_type -- checked: cast_refused
     if not (key is integer) or key < 1 then
       error("sqlite: values holds the key " .. tostring(key) .. ", not a position from 1", 4)
     end
@@ -645,7 +645,7 @@ local function checked(values: {Sqlite.Value}): integer
       error("sqlite: parameter " .. key .. " is no Value table (use {} for NULL)", 4)
     end
     local fields = 0
-    for field in pairs(value as {any: any}) do
+    for field in pairs(value as {any: any}) do -- declared: key_type -- checked: cast_refused
       if field ~= "integer" and field ~= "number" and field ~= "text" and field ~= "blob" and
           field ~= "integers" and field ~= "numbers" and field ~= "texts" and field ~= "blobs" then
         local hint = if field == "null" then " (use {} for NULL)" else "" end
@@ -655,13 +655,13 @@ local function checked(values: {Sqlite.Value}): integer
     end
     if key is integer then
       local held = values[key]
-      local integers = held.integers
+      local integers = held.integers -- checked: nil_not_allowed
       if integers ~= nil then check_array(key, "integers", integers) end
-      local numbers = held.numbers
+      local numbers = held.numbers -- checked: nil_not_allowed
       if numbers ~= nil then check_array(key, "numbers", numbers) end
-      local texts = held.texts
+      local texts = held.texts -- checked: nil_not_allowed
       if texts ~= nil then check_array(key, "texts", texts) end
-      local blobs = held.blobs
+      local blobs = held.blobs -- checked: nil_not_allowed
       if blobs ~= nil then check_array(key, "blobs", blobs) end
     end
     if fields > 1 then
@@ -835,7 +835,7 @@ function Sqlite.map<T>(handle: Sqlite.Handle, sql: string, values: {Sqlite.Value
       statement:finalize()
       error("sqlite: map: project answered nil for a row; answer a value", 2)
     end
-    out[#out + 1] = made
+    out[#out + 1] = made -- checked: any_use
   end
 end
 
@@ -892,8 +892,8 @@ local type Outcome = raw_sqlite.Outcome
 -- TODO: copying into a result record is `field_fixed` on the [`Outcome`] records (pinned in build/ceilings.txt), once
 -- the typed helpers make each record whole from the outcome they hold instead of copying into one made first.
 local function copy_outcome(from: Outcome, to: Outcome)
-  to.code, to.extended_code = from.code, from.extended_code
-  to.reason, to.cancelled = from.reason, from.cancelled
+  to.code, to.extended_code = from.code, from.extended_code -- checked: field_fixed*2
+  to.reason, to.cancelled = from.reason, from.cancelled -- checked: field_fixed*2
 end
 
 --- A typed helper owns preparation and binding failures alike. A bad
@@ -901,7 +901,7 @@ end
 local function prepared_result(handle: Sqlite.Handle, sql: string,
                                values?: {Sqlite.Value}): Sqlite.PrepareResult
   local opened = handle:prepare_result(sql)
-  if opened.statement == nil then return opened end
+  if opened.statement == nil then return opened end -- checked: compare_disjoint
   local statement = opened.statement
   if values == nil and statement:parameters() == 0 then return opened end
   if values == nil then values = {} end
@@ -910,10 +910,10 @@ local function prepared_result(handle: Sqlite.Handle, sql: string,
     statement:finalize()
     error(bound, 0)
   end
-  if bound.code ~= Sqlite.OK then
+  if bound.code ~= Sqlite.OK then -- checked: any_use
     statement:finalize()
-    opened.statement = nil
-    copy_outcome(bound, opened)
+    opened.statement = nil -- checked: field_fixed, nil_not_allowed
+    copy_outcome(bound, opened) -- checked: any_use
   end
   return opened
 end
@@ -926,10 +926,10 @@ function Sqlite.run_result(handle: Sqlite.Handle, sql: string,
   local opened = prepared_result(handle, sql, values)
   local result: Sqlite.ExecResult = { code = 0, extended_code = 0, reason = "", cancelled = false }
   copy_outcome(opened, result)
-  if opened.statement == nil then return result end
+  if opened.statement == nil then return result end -- checked: compare_disjoint
   local state = opened.statement:step_result()
   opened.statement:finalize()
-  if state is Sqlite.ExecResult then return state end
+  if state is Sqlite.ExecResult then return state end -- checked: is_on_record
   return result
 end
 
@@ -940,7 +940,7 @@ local function collect_result<T>(statement: Sqlite.Statement,
   local rows: mut {T} = {}
   while true do
     local state = statement:step_result()
-    if state is Sqlite.ExecResult then
+    if state is Sqlite.ExecResult then -- checked: is_on_record
       statement:finalize()
       copy_outcome(state, outcome)
       return nil
@@ -960,8 +960,8 @@ function Sqlite.rows_result(handle: Sqlite.Handle, sql: string,
   local opened = prepared_result(handle, sql, values)
   local result: Sqlite.RowsResult = { code = 0, extended_code = 0, reason = "", cancelled = false }
   copy_outcome(opened, result)
-  if opened.statement ~= nil then
-    result.rows = collect_result(opened.statement, cells_of, result)
+  if opened.statement ~= nil then -- checked: compare_disjoint
+    result.rows = collect_result(opened.statement, cells_of, result) -- checked: field_fixed
   end
   return result
 end
@@ -973,8 +973,8 @@ function Sqlite.text_rows_result(handle: Sqlite.Handle, sql: string,
   local opened = prepared_result(handle, sql, values)
   local result: Sqlite.TextRowsResult = { code = 0, extended_code = 0, reason = "", cancelled = false }
   copy_outcome(opened, result)
-  if opened.statement ~= nil then
-    result.rows = collect_result(opened.statement, texts_of, result)
+  if opened.statement ~= nil then -- checked: compare_disjoint
+    result.rows = collect_result(opened.statement, texts_of, result) -- checked: field_fixed
   end
   return result
 end
@@ -1009,9 +1009,9 @@ function Sqlite.transact(handle: Sqlite.Handle,
     local _, _ = handle:exec("ROLLBACK")
     error(ok, 0)
   end
-  if not ok then
+  if not ok then -- checked: any_use
     local _, _ = handle:exec("ROLLBACK")
-    return false, why
+    return false, why -- checked: nil_not_allowed
   end
   local committed, failure = handle:exec("COMMIT")
   if not committed then
@@ -1021,11 +1021,11 @@ function Sqlite.transact(handle: Sqlite.Handle,
   return true, ""
 end
 
-Sqlite.OK = 0
-Sqlite.BUSY = 5
-Sqlite.LOCKED = 6
-Sqlite.CORRUPT = 11
-Sqlite.NOTADB = 26
-Sqlite.version = sqlite.version
+Sqlite.OK = 0 -- checked: field_fixed
+Sqlite.BUSY = 5 -- checked: field_fixed
+Sqlite.LOCKED = 6 -- checked: field_fixed
+Sqlite.CORRUPT = 11 -- checked: field_fixed
+Sqlite.NOTADB = 26 -- checked: field_fixed
+Sqlite.version = sqlite.version -- checked: field_fixed
 
 return Sqlite

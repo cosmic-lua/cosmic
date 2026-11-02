@@ -139,7 +139,7 @@ local record Codegen
   codes: {Code}
 end
 
-Codegen.codes = { "class_nested_refused" }
+Codegen.codes = { "class_nested_refused" } -- checked: field_fixed
 
 function Codegen.compared(lua: string): string
   return (lua:gsub("::continue:: ?", ""):gsub("[ \t]+\n", "\n"))
@@ -271,13 +271,13 @@ local function flatten(root: Output): string
   while #stack > 0 do
     local out = stack[#stack]
     local i = at[#at]
-    local part = out.parts[i]
+    local part = out.parts[i] -- checked: nil_not_allowed
     if part == nil then
       stack[#stack] = nil
       at[#at] = nil
     else
       at[#at] = nil
-      at[#at + 1] = i + 1
+      at[#at + 1] = i + 1 -- checked: nil_not_allowed
       if part is string then
         pieces[#pieces + 1] = part
       else
@@ -296,7 +296,7 @@ end
 local function indent_in(y: integer, child_y: integer)
   if child_y ~= y then
     if G.indent == 0 and #G.saved > 0 then
-      G.indent = G.saved[#G.saved] + 1
+      G.indent = G.saved[#G.saved] + 1 -- checked: nil_not_allowed
     else
       G.indent = G.indent + 1
     end
@@ -310,7 +310,7 @@ local function indent_out(y: integer, child_y: integer)
   if child_y ~= y then
     G.indent = G.indent - 1
   else
-    G.indent = table.remove(G.saved)
+    G.indent = table.remove(G.saved) -- checked: nil_not_allowed
   end
 end
 
@@ -363,7 +363,7 @@ local function declarations_of(chunk_body: Ast.Block): {integer: Ast.Node}
   local stack: mut {Ast.Node} = { chunk_body }
   while #stack > 0 do
     local node = table.remove(stack)
-    if (node.kind == "Record") or (node.kind == "Interface") or (node.kind == "Class") or (node.kind == "Enum") or (node.kind == "Alias") or
+    if (node.kind == "Record") or (node.kind == "Interface") or (node.kind == "Class") or (node.kind == "Enum") or (node.kind == "Alias") or -- checked: nil_not_allowed
         (node.kind == "Import") then
       found[node.name.id] = node
     end
@@ -377,7 +377,7 @@ end
 local lua_type: function(t: Ast.Type, hops: integer): string
 
 --- The type a declaration stands for, as a test of a value of it writes it.
-local function declared_type(declaration: Ast.Node, hops: integer): string
+local function declared_type(declaration: Ast.Node, hops: integer): string -- checked: not_assigned
   if (declaration.kind == "Enum") then
     return "string"
   elseif (declaration.kind == "Alias") then
@@ -416,12 +416,12 @@ local function declaration_of(t: Ast.TypeName): Ast.Node?, boolean
     held = declarations_of(body)
     G.declarations = held
   end
-  local declaration: Ast.Node? = held ~= nil and held[G.scoped.vars[var_id].id] or nil
+  local declaration: Ast.Node? = held ~= nil and held[G.scoped.vars[var_id].id] or nil -- checked: and_ternary, nil_not_allowed
   for i = 2, #path do
     if declaration == nil then
       break
     end
-    declaration = nested_type(declaration, path[i])
+    declaration = nested_type(declaration, path[i]) -- checked: index_may_be_nil
   end
   return declaration, true
 end
@@ -432,7 +432,7 @@ lua_type = function(t: Ast.Type, hops: integer): string
   if (t.kind == "TypeName") then
     local declaration, resolved = declaration_of(t)
     if not resolved then
-      return #t.path == 1 and LUA_TYPES[assert(t.path[1])] or "table"
+      return #t.path == 1 and LUA_TYPES[assert(t.path[1])] or "table" -- checked: and_ternary
     end
     if declaration == nil then
       return "table"
@@ -451,7 +451,7 @@ end
 local union_members: function(t: Ast.Type, hops: integer): {Ast.Type}?
 
 --- Appends `t` to `out`, or its members where it is a union.
-local function append_members(out: mut {Ast.Type}, t: Ast.Type, hops: integer)
+local function append_members(out: mut {Ast.Type}, t: Ast.Type, hops: integer) -- checked: not_assigned
   local members = union_members(t, hops)
   if members == nil then
     out[#out + 1] = t
@@ -532,7 +532,7 @@ local function precedence(e: Ast.Exp): integer?
     if union_members(e.type, 32) ~= nil then
       -- A test for each member, or a function called on the spot where the value is no name.
       local value = e.value
-      return (value.kind == "Name") and PRECEDENCE["or"] or nil
+      return (value.kind == "Name") and PRECEDENCE["or"] or nil -- checked: and_ternary
     end
     return IS_PRECEDENCE
   elseif e.kind == "Cast" then
@@ -592,12 +592,12 @@ local function list(y: integer, items: {Output}): Output
       put(out, ",")
       space = " "
     end
-    add_child(out, child, space, child.y ~= y and G.indent or nil)
+    add_child(out, child, space, child.y ~= y and G.indent or nil) -- checked: and_ternary
   end
   return out
 end
 
-local function exps(values: {Ast.Exp}, y: integer): Output
+local function exps(values: {Ast.Exp}, y: integer): Output -- checked: not_assigned
   local outs: mut {Output} = {}
   for i, value in ipairs(values) do
     outs[i] = exp(value)
@@ -607,7 +607,7 @@ end
 
 --- The number's text, without its digit separators.
 local function number_text(token: integer): string
-  return (G.tokens.text[token]:gsub("_", ""))
+  return (G.tokens.text[token]:gsub("_", "")) -- checked: nil_not_allowed
 end
 
 --- The parameters of a function, as the `(`...`)` at token `open` has them.
@@ -615,7 +615,7 @@ local function params_of(open: integer, params: {Ast.Param}): Output
   local outs: mut {Output} = {}
   for i, p in ipairs(params) do
     local name = p.name
-    outs[i] = text(line_of(p.first), name ~= nil and name.name or "...")
+    outs[i] = text(line_of(p.first), name ~= nil and name.name or "...") -- checked: and_ternary
   end
   return list(line_of(open), outs)
 end
@@ -625,7 +625,7 @@ local function item(it: Ast.Item): Output
   local y = line_of(it.first)
   local out = new(y)
   if (it.kind == "Named") then
-    add_child(out, text(y, if RESERVED_FIELDS[it.name] then "[\"" .. it.name .. "\"]" else it.name end))
+    add_child(out, text(y, if RESERVED_FIELDS[it.name] then "[\"" .. it.name .. "\"]" else it.name end)) -- checked: condition_type
     put(out, " = ")
     add_child(out, exp(it.value))
   elseif (it.kind == "Keyed") then
@@ -755,7 +755,7 @@ local function table_literal(node: Ast.Table): Output
     children[i] = item(it)
   end
   for i, child in ipairs(children) do
-    add_child(out, child, " ", child.y ~= y and G.indent or nil)
+    add_child(out, child, " ", child.y ~= y and G.indent or nil) -- checked: and_ternary
     if i < #children or yend ~= y then
       put(out, ",")
     end
@@ -767,7 +767,7 @@ end
 
 --- A function's parameters and body after its `function` token or name: `head` has been written, and the text
 --- before the parameters is `(`.
-local function function_rest(out: Output, y: integer, fn: Ast.Fn)
+local function function_rest(out: Output, y: integer, fn: Ast.Fn) -- checked: not_assigned
   local body = fn.body
   local body_y = line_of(body.first)
   add_child(out, params_of(fn.first, fn.params))
@@ -836,7 +836,7 @@ local function type_test(declared: Ast.Type, value: Output, y: integer, operand?
   elseif G.enums[base_of(t).id] ~= nil then
     -- A string that is the type's kind is no member of an enum: the test is for the values.
     local members: mut {string} = {}
-    for i, v in ipairs(G.enums[base_of(t).id]) do
+    for i, v in ipairs(G.enums[base_of(t).id]) do -- checked: index_may_be_nil
       members[i] = "[" .. string.format("%q", v):gsub("\\\n", "\\n") .. "] = true"
     end
     put(out, "({" .. table.concat(members, ", ") .. "})[")
@@ -899,7 +899,7 @@ local function is_test(node: Ast.IsTest, value: Output): Output
     else
       operand = exp(node.value)
     end
-    add_child(out, type_test(member, operand, y, not held and node.value or nil), "", G.indent)
+    add_child(out, type_test(member, operand, y, not held and node.value or nil), "", G.indent) -- checked: and_ternary
   end
   if held then
     put(out, " end)(")
@@ -917,8 +917,8 @@ local function combine(e: Ast.Exp, left: Output): Output
     local own = PRECEDENCE[op]
     local out = new(line_of(e.left.last + 1))
     local right = exp(e.right)
-    guard(own, e.left, left)
-    guard(own, e.right, right)
+    guard(own, e.left, left) -- checked: nil_not_allowed
+    guard(own, e.right, right) -- checked: nil_not_allowed
     add_child(out, left, "", G.indent)
     put(out, " ")
     put(out, op)
@@ -927,7 +927,7 @@ local function combine(e: Ast.Exp, left: Output): Output
   elseif (e.kind == "Field") then
     local out = new(line_of(e.object.last + 1))
     add_child(out, left, "", G.indent)
-    if RESERVED_FIELDS[e.name] then
+    if RESERVED_FIELDS[e.name] then -- checked: condition_type
       add_child(out, text(line_of(e.last), "[\"" .. e.name .. "\"]"), "", G.indent)
     else
       put(out, ".")
@@ -984,7 +984,7 @@ local function holds_vararg(node: Ast.Node): boolean
   local stack: mut {Ast.Node} = { node }
   while #stack > 0 do
     local cur = table.remove(stack)
-    if (cur.kind == "Vararg") then
+    if (cur.kind == "Vararg") then -- checked: nil_not_allowed
       return true
     elseif not ((cur.kind == "FunctionLit")) then
       Ast.children(cur, function(child: Ast.Node)
@@ -1010,8 +1010,8 @@ local function if_expression(node: Ast.IfExp): Output
     conds[i] = exp(arm.cond)
     values[i] = exp(arm.value)
     if plain then
-      guard(PRECEDENCE["and"], arm.cond, conds[i])
-      guard(PRECEDENCE["and"], arm.value, values[i])
+      guard(PRECEDENCE["and"], arm.cond, conds[i]) -- checked: index_may_be_nil*2
+      guard(PRECEDENCE["and"], arm.value, values[i]) -- checked: index_may_be_nil*2
     end
   end
   local rest = exp(node.else_value)
@@ -1021,9 +1021,9 @@ local function if_expression(node: Ast.IfExp): Output
     put(out, if varargs then "(function(...)" else "(function()" end)
     for i, arm in ipairs(arms) do
       add_child(out, text(line_of(arm.first - 1), if i == 1 then "if" else "elseif" end), " ", G.indent)
-      add_child(out, conds[i], " ", G.indent)
+      add_child(out, conds[i], " ", G.indent) -- checked: index_may_be_nil
       add_child(out, text(line_of(arm.value.first - 1), "then return ("), " ", G.indent)
-      add_child(out, values[i], "", G.indent)
+      add_child(out, values[i], "", G.indent) -- checked: index_may_be_nil
       put(out, ")")
     end
     add_child(out, text(line_of(node.else_value.first - 1), "else return ("), " ", G.indent)
@@ -1035,9 +1035,9 @@ local function if_expression(node: Ast.IfExp): Output
   local acc: Output? = nil
   for i, arm in ipairs(arms) do
     local both = new(line_of(arm.value.first - 1))
-    add_child(both, conds[i], "", G.indent)
+    add_child(both, conds[i], "", G.indent) -- checked: index_may_be_nil
     put(both, " and")
-    add_child(both, values[i], " ", G.indent)
+    add_child(both, values[i], " ", G.indent) -- checked: index_may_be_nil
     if acc == nil then
       acc = both
     else
@@ -1193,7 +1193,7 @@ exp = function(e: Ast.Exp): Output
   end
   local out = checked_read(cur, leaf(cur))
   for i = #spine, 1, -1 do
-    out = checked_read(spine[i], combine(spine[i], out))
+    out = checked_read(spine[i], combine(spine[i], out)) -- checked: index_may_be_nil*2
   end
   return out
 end
@@ -1212,7 +1212,7 @@ local function continues(body: Ast.Block): boolean
   local stack: mut {Ast.Node} = { body }
   while #stack > 0 do
     local cur = table.remove(stack)
-    if (cur.kind == "Continue") then
+    if (cur.kind == "Continue") then -- checked: nil_not_allowed
       return true
     elseif not ((cur.kind == "While") or (cur.kind == "Repeat") or (cur.kind == "ForNum") or (cur.kind == "ForIn") or
         (cur.kind == "FunctionLit") or (cur.kind == "LocalFunction") or (cur.kind == "Function") or (cur.kind == "Method")) then
@@ -1236,7 +1236,7 @@ local function loop_body(body: Ast.Block): Output, boolean
   local out = block(body)
   local labelled = table.remove(G.loops)
   G.guarded = outer
-  return out, labelled
+  return out, labelled -- checked: nil_not_allowed
 end
 
 --- Whether the value of `s` ends in an expression, so that a line that begins with `(` after it would continue it.
@@ -1268,22 +1268,22 @@ local function ends_in_expression(s: Ast.Stat): boolean
   return false
 end
 
-block = function(b: Ast.Block): Output
+block = function(b: Ast.Block): Output -- checked: not_assigned
   local out = new(line_of(b.first))
   local stats = b.stats
   local children: mut {Output} = {}
   for i = 1, #stats do
-    children[i] = stat(stats[i])
+    children[i] = stat(stats[i]) -- checked: index_may_be_nil
   end
   local space: string? = nil
   -- The last statement that wrote anything: one that writes nothing (a type, an unused record or import) leaves the
   -- one before it as the end of the line that a `(` would continue.
   local written: Ast.Stat? = nil
   for i = 1, #stats do
-    add_child(out, children[i], space, G.indent)
+    add_child(out, children[i], space, G.indent) -- checked: index_may_be_nil
     -- A statement ends with a `;` where the next begins a line with `(`, which would continue it.
     local s = stats[i]
-    if #children[i].parts > 0 then
+    if #children[i].parts > 0 then -- checked: nil_not_allowed
       written = s
     end
     local following = stats[i + 1]
@@ -1379,7 +1379,7 @@ local function import_statement(node: Ast.Import): Output
 end
 
 local function local_statement(s: Ast.Local): Output
-  local out = new(line_of(s.bindings[1].first))
+  local out = new(line_of(s.bindings[1].first)) -- checked: nil_not_allowed
   put(out, "local ")
   for i, b in ipairs(s.bindings) do
     if i > 1 then
@@ -1405,7 +1405,7 @@ local function local_statement(s: Ast.Local): Output
     add_child(out, hoisted_if(hoisted, bound.name .. " = ", ""), " ", G.indent)
   elseif #values > 0 then
     put(out, " =")
-    add_child(out, exps(values, line_of(values[1].first - 1)), " ")
+    add_child(out, exps(values, line_of(values[1].first - 1)), " ") -- checked: nil_not_allowed
   end
   return out
 end
@@ -1426,7 +1426,7 @@ local function assign_statement(s: Ast.Assign): Output
   end
   add_child(out, exps(s.targets, y))
   put(out, " =")
-  add_child(out, exps(s.values, line_of(s.values[1].first - 1)), " ")
+  add_child(out, exps(s.values, line_of(s.values[1].first - 1)), " ") -- checked: nil_not_allowed
   return out
 end
 
@@ -1458,7 +1458,7 @@ local function if_statement(s: Ast.If): Output
     pieces[#pieces + 1] = piece
   end
   for i, piece in ipairs(pieces) do
-    add_child(out, piece, if i > 1 then " " else nil end, piece.y ~= y and G.indent or nil)
+    add_child(out, piece, if i > 1 then " " else nil end, piece.y ~= y and G.indent or nil) -- checked: and_ternary
   end
   add_child(out, text(line_of(s.last), "end"), " ", G.indent)
   return out
@@ -1528,9 +1528,9 @@ local function for_in_statement(s: Ast.ForIn): Output
   for i, b in ipairs(s.vars) do
     names[i] = text(line_of(b.first), b.name)
   end
-  add_child(out, list(line_of(s.vars[1].first), names), " ")
+  add_child(out, list(line_of(s.vars[1].first), names), " ") -- checked: nil_not_allowed
   put(out, " in")
-  add_child(out, exps(s.iterators, line_of(s.iterators[1].first)), " ")
+  add_child(out, exps(s.iterators, line_of(s.iterators[1].first)), " ") -- checked: nil_not_allowed
   put(out, " do")
   local body, labelled = loop_body(s.body)
   add_child(out, body, " ")
@@ -1567,10 +1567,10 @@ local function match_statement(s: Ast.Match): Output
     local values: mut {string} = {}
     for i, p in ipairs(arm.pats) do
       if (p.kind == "PatBool") then
-        tests[#tests + 1] = names[i] .. " == " .. (if p.value then "true" else "false" end)
+        tests[#tests + 1] = names[i] .. " == " .. (if p.value then "true" else "false" end) -- checked: nil_not_allowed
       elseif (p.kind == "PatBind") then
         bound[#bound + 1] = p.name.name
-        values[#values + 1] = names[i]
+        values[#values + 1] = names[i] -- checked: index_may_be_nil
       end
     end
     if #tests == 0 then
@@ -1586,7 +1586,7 @@ local function match_statement(s: Ast.Match): Output
     pieces[k] = piece
   end
   for _, piece in ipairs(pieces) do
-    add_child(out, piece, " ", piece.y ~= y and G.indent or nil)
+    add_child(out, piece, " ", piece.y ~= y and G.indent or nil) -- checked: and_ternary
   end
   add_child(out, text(line_of(s.last), "end end"), " ", G.indent)
   return out
@@ -1666,7 +1666,7 @@ stat = function(s: Ast.Stat): Output
     local out = new(y)
     local name = assert(s.path[#s.path])
     local head = assert(s.path[1])
-    if RESERVED_FIELDS[name.text] then
+    if RESERVED_FIELDS[name.text] then -- checked: condition_type
       -- `function R.goto()` is no Lua 5.5.
       add_child(out, text(line_of(head.first), head.text))
       add_child(out, text(line_of(name.first), "[\"" .. name.text .. "\"]"))

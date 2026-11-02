@@ -30,7 +30,7 @@ local function build_of(files: {string: string}): Driver.Build
     entries[#entries + 1] = { name, text }
   end
   table.sort(entries, function(a: {string}, b: {string}): boolean
-    return a[1] < b[1]
+    return a[1] < b[1] -- checked: nil_not_allowed
   end)
   local index = Driver.index(entries, function(_file: string): boolean
     return false
@@ -47,7 +47,7 @@ end
 --- The source of the module `main` after the build resolved its `record_of` calls, or what it refused, in a project of
 --- `files` (name to text).
 local function resolved(files: {string: string}): string?, string
-  return ShapeSpecs.resolve(build_of(files), "main", "main.tl", files["main.tl"])
+  return ShapeSpecs.resolve(build_of(files), "main", "main.tl", files["main.tl"]) -- checked: index_may_be_nil
 end
 
 --- A module that declares `declaration` and asks for the spec of its record `R` (or the `call`).

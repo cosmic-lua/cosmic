@@ -651,7 +651,7 @@ end
 local function program_of(external: {string}, library: {string: boolean}?): Declarations.Program
   local program = Declarations.new(nil, library)
   for _, name in ipairs(external) do
-    program.external[name] = true
+    program.external[name] = true -- checked: view_written
   end
   return program
 end
@@ -860,7 +860,7 @@ function Driver.new(options: Driver.Options): Driver.Build
 
   --- Makes `program` answer the modules a `require` names from the entries.
   local function attach()
-    build.program.provider = function(self: Declarations.Program, module: string): boolean
+    build.program.provider = function(self: Declarations.Program, module: string): boolean -- checked: field_fixed
       local entry = prepare(module)
       if entry == nil then
         return false
@@ -1171,7 +1171,7 @@ function Driver.new(options: Driver.Options): Driver.Build
         if options.types then
           local types = checked.types
           for id, t in pairs(lowered.types) do
-            types[id] = t
+            types[id] = t -- checked: view_written
           end
           result.types = types
           result.callees = checked.callees

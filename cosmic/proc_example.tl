@@ -9,7 +9,7 @@ local Test = require("cosmic.test")
 -- Account lookup can consult the host's directory service.
 Test.policy{ profiles = { "system" } }
 
-local Example = {}
+local Example = {} -- checked: literal_needs_type
 
 --- Colour and progress lines are for a person at a terminal: when
 --- standard output is a pipe or a file, write plain lines instead.
@@ -55,4 +55,4 @@ function Example.user()
   end
 end
 
-return Example
+return Example -- checked: export_not_declared

@@ -140,7 +140,7 @@ local function resolved(text: string, name: string): string?
   local head, rest = name:match("^([%a_][%w_]*)(.*)$")
   if head == nil or rest == nil then return nil end
   for alias, module in text:gmatch("local%s+([%a_][%w_]*)%s*=%s*require%s*%(?%s*[\"']([%w_%.]+)[\"']") do
-    if alias == head and module ~= nil then return module .. rest end
+    if alias == head and module ~= nil then return module .. rest end -- checked: compare_disjoint
   end
   return nil
 end

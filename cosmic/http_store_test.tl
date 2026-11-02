@@ -30,7 +30,7 @@ end
 --- A root the binary's own database carries (`ca_roots`), as DER.
 local function carried_root(label: string): string
   local databases = Store.databases()
-  local rows = assert(Sqlite.text_rows(databases[#databases],
+  local rows = assert(Sqlite.text_rows(databases[#databases], -- checked: index_may_be_nil
     "SELECT hex(der) FROM ca_roots WHERE label = ?1", { { text = label } }))
   assert(#rows == 1, label .. " is not among the binary's CA roots")
   return (assert(Codec.unhex(rows[1]:text(1))))
@@ -47,7 +47,7 @@ local function test_an_https_peer_is_verified_against_the_carried_roots()
   assert(trusted:find("Common Name", 1, true), trusted)
   assert(not trusted:find("not correctly signed", 1, true),
     "a carried root is not trusted: " .. trusted)
-  local broken = root:sub(1, -2) .. string.char(root:byte(-1) ~ 1)
+  local broken = root:sub(1, -2) .. string.char(root:byte(-1) ~ 1) -- checked: nil_not_allowed
   local _, refused = Http.open("https://cosmic.test/", { script = { first_flight(broken) }, roots = "mozilla" })
   assert(refused:find("not correctly signed by the trusted CA", 1, true), refused)
   -- Trusting every root the binary carries, the carried roots may be what
@@ -65,7 +65,7 @@ end
 --- and say why.
 local function test_check_certificate_reads_what_the_binary_trusts()
   local databases = Store.databases()
-  local roots = assert(Sqlite.rows(databases[#databases], "SELECT der, label FROM ca_roots"))
+  local roots = assert(Sqlite.rows(databases[#databases], "SELECT der, label FROM ca_roots")) -- checked: index_may_be_nil
   assert(#roots > 0)
   for _, row in ipairs(roots) do
     local ok, why = Http.check_certificate(row:blob(1))
@@ -218,7 +218,7 @@ local function test_minimal_roots_are_carried()
     assert(#rows == 1, hex .. " is not among the binary's CA roots")
   end
   local mine = Http.minimal_roots()
-  mine[1] = "changed"
+  mine[1] = "changed" -- checked: view_written
   assert(Http.minimal_roots()[1] ~= "changed", "the list is a copy")
 end
 

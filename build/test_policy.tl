@@ -128,7 +128,7 @@ end
 --- The letters a read of the plan at host path `path` is granted: `rx` for
 --- what the plan says is run (`runs`), what a device allows, else `r`.
 local function letters_of(path: string, inside: string, runs: {string:boolean}): string
-  if devices[inside] ~= nil then return devices[inside] end
+  if devices[inside] ~= nil then return devices[inside] end -- checked: index_may_be_nil
   if runs[path] == true then return "rx" end
   return "r"
 end
@@ -147,13 +147,13 @@ function test_policy.worker(plan: test_sandbox.Plan, effective: test_inputs.Effe
   local grants: mut {Sandbox.Grant} = {}
   for _, path in ipairs(unveil.reads) do
     local inside = at[path] or path
-    grants[#grants + 1] = { path = inside, from = at[path] ~= nil and path or nil,
+    grants[#grants + 1] = { path = inside, from = at[path] ~= nil and path or nil, -- checked: and_ternary
       letters = letters_of(path, inside, plan.runs) }
   end
   local scratch: string? = nil
   for _, path in ipairs(unveil.writes or {}) do
     local inside = at[path] or path
-    grants[#grants + 1] = { path = inside, from = at[path] ~= nil and path or nil, letters = "rwxc" }
+    grants[#grants + 1] = { path = inside, from = at[path] ~= nil and path or nil, letters = "rwxc" } -- checked: and_ternary
     scratch = scratch or path
   end
   -- The private noexec scratch: a writable grant without `x`, which the
@@ -166,10 +166,10 @@ function test_policy.worker(plan: test_sandbox.Plan, effective: test_inputs.Effe
   -- directory in the sandbox's own /tmp, which `tmp` makes, granted
   -- `rwxc` as the host's directory is: its test may run what it writes.
   if plan.own_scratch then
-    policy.tmp = true
+    policy.tmp = true -- checked: field_fixed
     grants[#grants + 1] = { path = "/tmp", letters = "rwxc" }
   end
-  policy.grants = grants
+  policy.grants = grants -- checked: field_fixed
   return policy
 end
 

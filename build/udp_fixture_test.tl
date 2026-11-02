@@ -10,8 +10,8 @@ local function bind(): Udp.Bound
 end
 
 local function test_packets_keep_their_boundaries_and_name_their_sender()
-  local server <close> = bind()
-  local client <close> = bind()
+  local server <close> = bind() -- checked: close_not_closable
+  local client <close> = bind() -- checked: close_not_closable
   assert(server.address.kind == "udp" and assert(server.address.port) > 0)
   for _, data in ipairs({ "a\0b", "", "third" }) do
     assert(Udp.send(client, data, server.address))
@@ -24,7 +24,7 @@ local function test_packets_keep_their_boundaries_and_name_their_sender()
 end
 
 local function test_a_receive_with_nothing_waiting_times_out()
-  local server <close> = bind()
+  local server <close> = bind() -- checked: close_not_closable
   local packet, why = Udp.receive(server, 0)
   assert(packet == nil and why == Poll.TIMEOUT, why)
 end
@@ -36,14 +36,14 @@ local function test_close_ends_a_wait_and_is_idempotent()
     Poll.spawn(function()
       local packet, why = Udp.receive(server)
       assert(packet == nil)
-      answer.value = why
+      answer.value = why -- checked: map_field
     end)
     Poll.spawn(function()
       Udp.close(server)
       Udp.close(server)
     end)
   end)
-  assert(answer.value == "closed", answer.value)
+  assert(answer.value == "closed", answer.value) -- checked: map_field*2
 end
 
 local function test_only_numeric_hosts_bind_and_a_port_is_not_shared()
@@ -51,7 +51,7 @@ local function test_only_numeric_hosts_bind_and_a_port_is_not_shared()
     local bound = Udp.bind(host, 0)
     assert(bound == nil, "bound " .. string.format("%q", host))
   end
-  local server <close> = bind()
+  local server <close> = bind() -- checked: close_not_closable
   local other, why = Udp.bind("127.0.0.1", assert(server.address.port))
   assert(other == nil and why == "Address in use", why)
 end

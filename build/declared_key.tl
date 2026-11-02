@@ -380,7 +380,7 @@ end
 --- back would answer the hash it had before.
 function declared_key.digests(root: string, remembered?: {{string}}): declared_key.Digests
   local hashed: mut {string:string} = {}
-  for _, row in ipairs(remembered or {}) do hashed[row[1]] = row[2] .. "\0" .. row[3] end
+  for _, row in ipairs(remembered or {}) do hashed[row[1]] = row[2] .. "\0" .. row[3] end -- checked: index_may_be_nil, nil_not_allowed*2
   local real, _ = sys.realpath(root)
   local output = build_directory(root)
   local real_output, _ = sys.realpath(output)
@@ -396,9 +396,9 @@ function declared_key.kept(digests: declared_key.Digests): {{string}}
   for path in pairs(digests.used) do
     local was = digests.hashed[path]
     local said, hash = (was or ""):match("^([^\0]*)\0(%x+)$")
-    if said ~= nil then out[#out + 1] = { path, said, hash } end
+    if said ~= nil then out[#out + 1] = { path, said, hash } end -- checked: nil_not_allowed
   end
-  table.sort(out, function(a: {string}, b: {string}): boolean return a[1] < b[1] end)
+  table.sort(out, function(a: {string}, b: {string}): boolean return a[1] < b[1] end) -- checked: nil_not_allowed
   return out
 end
 
@@ -502,7 +502,7 @@ local function carried_digest(database: string): string?, string
             trouble = digest_trouble
             break
           end
-          lines[#lines + 1] = "rows " .. row:text(2) .. " " .. digest[1]:text(1)
+          lines[#lines + 1] = "rows " .. row:text(2) .. " " .. digest[1]:text(1) -- checked: nil_not_allowed
         end
       end
       local _, _ = db:close()
@@ -526,7 +526,7 @@ local function remembered(digests: declared_key.Digests, name: string, st: sys.S
   for _, was in ipairs({ digests.this_run[name] or "", digests.hashed[name] or "" }) do
     if was:sub(1, #said + 1) == said .. "\0" then return was:sub(#said + 2) end
   end
-  local data, _ = Fs.read(name:match("^[^\0]*\0(.*)$"))
+  local data, _ = Fs.read(name:match("^[^\0]*\0(.*)$")) -- checked: nil_not_allowed
   digests.read = digests.read + 1
   if data == nil then return "unreadable" end
   local hash = compute(data)
@@ -696,12 +696,12 @@ end
 --- a `program` where `programs` says to.
 local function entry(digests: declared_key.Digests, path: string, follow: boolean,
                      programs?: boolean): string, string
-  local st, _ = (follow and sys.stat or sys.lstat)(path)
+  local st, _ = (follow and sys.stat or sys.lstat)(path) -- checked: and_ternary -- untyped: call
   if st == nil then return "missing", "missing" end
   if st.kind == "file" then
     local runnable = st.mode & 73 ~= 0 -- 0o111
     return "file", (if runnable then "file+x " else "file " end) ..
-      (if programs then ("program " .. program(digests, path, st)) else contents(digests, path, st) end)
+      (if programs then ("program " .. program(digests, path, st)) else contents(digests, path, st) end) -- checked: condition_type
   elseif st.kind == "link" then
     local target, _ = sys.readlink(path)
     return "link", "link " .. (target or "unreadable")
@@ -736,7 +736,7 @@ end
 local function leads_out(digests: declared_key.Digests, path: string,
                          directory: string, bounds?: {string}): string?
   local within = bounds or { digests.root, digests.real_root, digests.output, digests.real_output }
-  local what = bounds ~= nil and within[1] or "the tree"
+  local what = bounds ~= nil and within[1] or "the tree" -- checked: and_ternary
   local function inside(candidate: string): boolean
     for _, bound in ipairs(within) do
       if Fs.within(candidate, bound) then return true end
@@ -750,7 +750,7 @@ local function leads_out(digests: declared_key.Digests, path: string,
   end
   local target, _ = sys.readlink(path)
   if target == nil then return nil end
-  local lexical = test_inputs.plain(target:sub(1, 1) == "/" and target or
+  local lexical = test_inputs.plain(target:sub(1, 1) == "/" and target or -- checked: and_ternary
       (directory .. "/" .. target))
   if inside(lexical) then return nil end
   return path .. " leads out of " .. what .. ", to " .. target
@@ -764,7 +764,7 @@ end
 --- `bounds` ([`leads_out`]), the tree where nil.
 local function tree(digests: declared_key.Digests, path: string, programs?: boolean,
                     bounds?: {string}): string
-  local tag = (if programs then "p\0" elseif bounds ~= nil then "v\0" else "t\0" end) .. path
+  local tag = (if programs then "p\0" elseif bounds ~= nil then "v\0" else "t\0" end) .. path -- checked: condition_type
   return once(digests, tag, function(): string
     local kind, answer = entry(digests, path, true, programs)
     if kind ~= "dir" then return answer end
@@ -782,7 +782,7 @@ local function tree(digests: declared_key.Digests, path: string, programs?: bool
       table.sort(names)
       for _, name in ipairs(names) do
         local here = directory .. "/" .. name
-        local named = prefix == "" and name or (prefix .. "/" .. name)
+        local named = prefix == "" and name or (prefix .. "/" .. name) -- checked: and_ternary
         local what, said = entry(digests, here, false, programs)
         lines[#lines + 1] = named .. "\0" .. said
         if what == "link" and refused[1] == nil then
@@ -800,7 +800,7 @@ local function tree(digests: declared_key.Digests, path: string, programs?: bool
       end
     end
     walk(path, "", 0)
-    if refused[1] ~= nil then return "refused " .. refused[1] end
+    if refused[1] ~= nil then return "refused " .. refused[1] end -- checked: nil_not_allowed
     return "dir " .. hex_sha256(table.concat(lines, "\n"))
   end)
 end
@@ -843,7 +843,7 @@ local inputs_of: function(declared_key.Digests, declared_key.Spec): string
 --- The key of the test `spec` describes, over what `digests` finds now,
 --- or nil and why there is none: a declared directory holds a link out
 --- of the tree ([`leads_out`]).
-function declared_key.compute(digests: declared_key.Digests,
+function declared_key.compute(digests: declared_key.Digests, -- checked: not_assigned
                               spec: declared_key.Spec): string?, string
   local started = monotonic_ns()
   -- All but the test's name is its module's, and the same for each of
@@ -901,10 +901,10 @@ function declared_key.preimage(digests: declared_key.Digests,
   for name in pairs(answers) do required[#required + 1] = name end
   table.sort(required)
   for _, name in ipairs(required) do
-    lines[#lines + 1] = part("requires", name, answers[name])
+    lines[#lines + 1] = part("requires", name, answers[name]) -- checked: index_may_be_nil
   end
-  if effective.noexec then
-    lines[#lines + 1] = part("noexec", if effective.noexec_ready then "granted" else "unavailable" end, "")
+  if effective.noexec then -- checked: condition_type
+    lines[#lines + 1] = part("noexec", if effective.noexec_ready then "granted" else "unavailable" end, "") -- checked: condition_type
   end
   local launcher = spec.launcher
   if launcher ~= nil then lines[#lines + 1] = part("launcher", launcher, "") end
@@ -915,7 +915,7 @@ function declared_key.preimage(digests: declared_key.Digests,
   table.sort(files)
   for _, file in ipairs(files) do
     local plain, path = of_tree(digests, file)
-    local answer = path ~= "" and once(digests, "f\0" .. path, function(): string
+    local answer = path ~= "" and once(digests, "f\0" .. path, function(): string -- checked: and_ternary
       local _, said = entry(digests, path, true)
       return said
     end) or "outside"
@@ -923,7 +923,7 @@ function declared_key.preimage(digests: declared_key.Digests,
   end
   local reads: mut {string} = {}
   for _, read in ipairs(effective.reads) do reads[#reads + 1] = read end
-  if effective.tool or spec.runs_tool then
+  if effective.tool or spec.runs_tool then -- checked: or_mix
     -- o/bin, as its sandbox gives it, each program in it by what it
     -- runs as rather than its bytes (`program`): a rebuild that moved
     -- only what the whole tree's edits move leaves it.
@@ -956,10 +956,10 @@ function declared_key.preimage(digests: declared_key.Digests,
     if plain == "o/cosmic.db" and projection_file ~= nil and projection_file ~= "cosmic.db" then
       path = digests.output .. "/" .. projection_file
     end
-    if not seen[plain] then
+    if not seen[plain] then -- checked: condition_type
       seen[plain] = true
-      local answer = path ~= "" and tree(digests, path) or "outside"
-      if answer:sub(1, 8) == "refused " then return nil, answer:sub(9) end
+      local answer = path ~= "" and tree(digests, path) or "outside" -- checked: and_ternary
+      if answer:sub(1, 8) == "refused " then return nil, answer:sub(9) end -- untyped: call*2
       lines[#lines + 1] = part("r", plain, answer)
     end
   end
@@ -970,12 +970,12 @@ function declared_key.preimage(digests: declared_key.Digests,
   -- the package database stands for what they hold.
   local installed = effective.system
   for _, path in ipairs(hosts) do
-    if not seen[path] then
+    if not seen[path] then -- checked: condition_type
       seen[path] = true
       lines[#lines + 1] = part("h", path, host(digests, path))
     end
   end
-  if installed then lines[#lines + 1] = part("system", spec.system or "", "") end
+  if installed then lines[#lines + 1] = part("system", spec.system or "", "") end -- checked: condition_type
   -- Each file above the project by its relative path and contents, never
   -- by where the project is.
   local parents: mut {string} = {}
@@ -991,7 +991,7 @@ function declared_key.preimage(digests: declared_key.Digests,
   for name in pairs(spec.environment) do names[#names + 1] = name end
   table.sort(names)
   for _, name in ipairs(names) do
-    lines[#lines + 1] = part("e", name, held_value(spec.environment[name], digests))
+    lines[#lines + 1] = part("e", name, held_value(spec.environment[name], digests)) -- checked: index_may_be_nil
   end
   return table.concat(lines, "\n"), ""
 end
@@ -1043,7 +1043,7 @@ function declared_key.dispatched(machine?: string): {string}
     for name in pairs(dispatched) do sorted[#sorted + 1] = name end
   else
     local kept = dispatched[machine]
-    if kept == nil then return nil end
+    if kept == nil then return nil end -- checked: nil_not_allowed
     for flag in pairs(kept) do sorted[#sorted + 1] = flag end
   end
   table.sort(sorted)
@@ -1059,9 +1059,9 @@ local function features(listed?: {string}, machine?: string): {string}
   for _, flag in ipairs(listed or sys.cpu_features()) do seen[flag] = true end
   if machine == nil then
     local names, _ = sys.uname()
-    machine = names ~= nil and names.machine or nil
+    machine = names ~= nil and names.machine or nil -- checked: and_ternary
   end
-  local kept = machine ~= nil and dispatched[machine] or nil
+  local kept = machine ~= nil and dispatched[machine] or nil -- checked: and_ternary
   local sorted: mut {string} = {}
   for flag in pairs(seen) do
     if kept == nil or kept[flag] then sorted[#sorted + 1] = flag end
@@ -1104,7 +1104,7 @@ local darwin_system: {string} = { "/System/Library/CoreServices/SystemVersion.pl
 --- `sysname`: `darwin_system` on "Darwin", and /etc/os-release and
 --- /proc's elsewhere.
 function declared_key.system_sources(sysname: string): {string}
-  local chosen = sysname == "Darwin" and darwin_system or default_system
+  local chosen = sysname == "Darwin" and darwin_system or default_system -- checked: and_ternary
   local out: mut {string} = {}
   for _, path in ipairs(chosen) do out[#out + 1] = path end
   return out
@@ -1118,7 +1118,7 @@ local function system_of(from: declared_key.HostSources): {string}
   local sysname = from.sysname
   if sysname == nil then
     local names, _ = sys.uname()
-    return declared_key.system_sources(names ~= nil and names.sysname or "")
+    return declared_key.system_sources(names ~= nil and names.sysname or "") -- checked: and_ternary
   end
   return declared_key.system_sources(sysname)
 end
@@ -1178,17 +1178,17 @@ function declared_key.host_split(digests: declared_key.Digests,
     -- Groups, each group once, sorted, since the system lists them in
     -- an order of its own. A list that cannot be read keys apart from
     -- every one that can.
-    local groups: {integer} = from.groups
+    local groups: {integer} = from.groups -- checked: nil_not_allowed
     local trouble: string?
-    if groups == nil then groups, trouble = sys.getgroups() end
+    if groups == nil then groups, trouble = sys.getgroups() end -- checked: compare_disjoint, nil_not_allowed
     lines[#lines + 1] = "gid " .. tostring(from.gid or sys.getgid())
-    if groups == nil then
+    if groups == nil then -- checked: compare_disjoint
       lines[#lines + 1] = "groups unread: " .. tostring(trouble)
     else
       local seen: mut {integer:boolean} = {}
       local sorted: mut {integer} = {}
       for _, group in ipairs(groups) do
-        if not seen[group] then seen[group], sorted[#sorted + 1] = true, group end
+        if not seen[group] then seen[group], sorted[#sorted + 1] = true, group end -- checked: condition_type
       end
       table.sort(sorted)
       local named: mut {string} = {}
@@ -1369,7 +1369,7 @@ local function remembered_walk(digests: declared_key.Digests, paths: {string},
         end
       end
     end
-    if still then return hash end
+    if still then return hash end -- checked: nil_not_allowed
   end
   local walked, directories, latest = walk_system(paths)
   digests.read = digests.read + 1
@@ -1432,7 +1432,7 @@ function declared_key.system_identity(digests: declared_key.Digests,
   end
   local system_id = from.system_id or sys.getenv(system_variable) or ""
   lines[#lines + 1] = "system " .. system_id
-  if walk then
+  if walk then -- checked: condition_type
     lines[#lines + 1] = "walked " .. remembered_walk(digests, walked_paths(from.walked or confine.system_paths),
       packages)
   end
@@ -1459,7 +1459,7 @@ function declared_key.host_kernel(sources?: declared_key.HostSources): string
     -- None ("", macOS's version) is read as nothing, as in [`host_identity`].
     local text: string? = nil
     if (system[i] or "") ~= "" then
-      local read, _ = Fs.read(system[i])
+      local read, _ = Fs.read(system[i]) -- checked: index_may_be_nil
       text = read
     end
     parts[#parts + 1] = text or ""
@@ -1490,9 +1490,9 @@ function declared_key.harness(names: {string}, sources: {string:string}): string
   local seen: mut {string:boolean} = {}
   local lines: mut {string} = {}
   for _, name in ipairs(names) do
-    if sources[name] ~= nil and not seen[name] then
+    if sources[name] ~= nil and not seen[name] then -- checked: condition_type
       seen[name] = true
-      lines[#lines + 1] = name .. " " .. sources[name]
+      lines[#lines + 1] = name .. " " .. sources[name] -- checked: nil_not_allowed
     end
   end
   table.sort(lines)
@@ -1511,7 +1511,7 @@ function declared_key.program_identity(digests: declared_key.Digests, paths: {st
   for _, path in ipairs(paths) do
     if path:match("/%.verified%-[^/]*$") == nil then
       local st, _ = sys.stat(path)
-      lines[#lines + 1] = (st ~= nil and st.kind == "file") and program(digests, path, st) or
+      lines[#lines + 1] = (st ~= nil and st.kind == "file") and program(digests, path, st) or -- checked: and_ternary
         "missing"
     end
   end

@@ -18,7 +18,7 @@ local SIZES <const>: {integer} = { 16, 20, 28, 32, 48, 64 }
 local function gen_entries(src: Fuzz.Source): string
   local fields: mut {string} = { tostring(Fuzz.pick(src, SIZES)) }
   while Fuzz.more(src, #fields - 1, 6) do
-    fields[#fields + 1] = src:int(0, 2) == 0 and Fuzz.bytes(src, 6) or Fuzz.pick(src, NAMES)
+    fields[#fields + 1] = src:int(0, 2) == 0 and Fuzz.bytes(src, 6) or Fuzz.pick(src, NAMES) -- checked: and_ternary
   end
   return Fuzz.pack(fields)
 end
@@ -32,22 +32,22 @@ local function test_a_formatted_line_reads_back(tmp: string)
     requires = { "escaped name", "plain name", "several lines" },
     check = function(input: string): boolean, string
       local fields = Fuzz.unpack(input)
-      local size = math.tointeger(tonumber(fields[1]) as number) as integer
+      local size = math.tointeger(tonumber(fields[1]) as number) as integer -- checked: cast_refused*2
       local lines: mut {string} = {}
       local names: mut {string} = {}
       local digests: mut {string} = {}
       for i = 2, #fields do
         if fields[i] ~= "" then
           local digest = Codec.hex(string.rep(string.char((i * 37) % 256), size))
-          names[#names + 1], digests[#digests + 1] = fields[i], digest
-          lines[#lines + 1] = hash.format_line(digest, fields[i])
-          Fuzz.label(if fields[i]:find("[\\\n\r]") then "escaped name" else "plain name" end)
+          names[#names + 1], digests[#digests + 1] = fields[i], digest -- checked: index_may_be_nil
+          lines[#lines + 1] = hash.format_line(digest, fields[i]) -- checked: index_may_be_nil
+          Fuzz.label(if fields[i]:find("[\\\n\r]") then "escaped name" else "plain name" end) -- checked: nil_not_allowed
         end
       end
       if #lines > 1 then Fuzz.label("several lines") end
       local ok, sums = pcall(hash.parse_sums, table.concat(lines, "\n") .. (if #lines > 0 then "\n" else "" end), size)
       if not ok then return false, "raised: " .. tostring(sums) end
-      local got = sums as hash.Sums
+      local got = sums as hash.Sums -- checked: cast_refused
       if #got.bad ~= 0 then
         return false, "refused line " .. got.bad[1].line .. ": " .. got.bad[1].why
       end
@@ -82,7 +82,7 @@ local function gen_text(src: Fuzz.Source): string
   if src:int(0, 3) == 0 then
     local parts: mut {string} = {}
     while Fuzz.more(src, #parts, 20) do
-      parts[#parts + 1] = src:int(0, 3) == 0 and Fuzz.bytes(src, 3) or Fuzz.pick(src, TOKENS)
+      parts[#parts + 1] = src:int(0, 3) == 0 and Fuzz.bytes(src, 3) or Fuzz.pick(src, TOKENS) -- checked: and_ternary
     end
     return table.concat(parts)
   end
@@ -101,10 +101,10 @@ local function test_parse_sums_is_total_on_any_bytes(tmp: string)
     check = function(input: string): boolean, string
       local ok, sums = pcall(hash.parse_sums, input, 32)
       if not ok then return false, "raised: " .. tostring(sums) end
-      local got = sums as hash.Sums
+      local got = sums as hash.Sums -- checked: cast_refused
       if #got.entries > 0 then Fuzz.label("entry") end
       if #got.bad > 0 then Fuzz.label("refused") end
-      if input:find("^%s*#") or input:find("\n\n") or input == "" then Fuzz.label("skipped") end
+      if input:find("^%s*#") or input:find("\n\n") or input == "" then Fuzz.label("skipped") end -- checked: or_mix
       local last = 0
       for _, entry in ipairs(got.entries) do
         if #entry.digest ~= 64 or not entry.digest:match("^%x+$") or entry.digest:lower() ~= entry.digest then

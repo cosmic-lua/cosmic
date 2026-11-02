@@ -9,10 +9,10 @@ local function test_check_holds_letters_to_the_canonical_order_only_when_exact()
   local grant: Sandbox.Policy = { grants = { { path = "a", letters = "xr" } } }
   assert(Sandbox.check(grant))
   local ok, why = Sandbox.check(grant, true)
-  assert(not ok and why:find("^sandbox: %$%.grants%[0%]%.letters: ") and why:find('"rx"', 1, true), why)
+  assert(not ok and why:find("^sandbox: %$%.grants%[0%]%.letters: ") and why:find('"rx"', 1, true), why) -- checked: or_mix
   assert(Sandbox.check({ grants = { { path = "a", letters = "rx" } } }, true))
   local bad, trouble = Sandbox.check({ connect = { "nope" } })
-  assert(not bad and trouble:find("$.connect[0]", 1, true), trouble)
+  assert(not bad and trouble:find("$.connect[0]", 1, true), trouble) -- checked: or_mix
 end
 
 --- A merged policy's `loopback` is one list, so the failure says which one.
@@ -44,7 +44,7 @@ local function test_check_takes_an_ipv6_connect_host_in_brackets_only()
     assert(ok, target .. ": " .. tostring(why))
   end
   local bad, why = Sandbox.check({ connect = { "::1:80" } })
-  assert(not bad and why:find("brackets", 1, true), why)
+  assert(not bad and why:find("brackets", 1, true), why) -- checked: or_mix
 end
 
 local function test_merge_joins_the_letters_of_a_path_in_order()
@@ -52,8 +52,8 @@ local function test_merge_joins_the_letters_of_a_path_in_order()
     { grants = { { path = "/a", letters = "x" }, { path = "/b", letters = "c" } } },
     { grants = { { path = "/a", letters = "wr" }, { path = "/b", letters = "ur" } } })
   assert(#assert(out.grants) == 2)
-  assert(assert(out.grants)[1].path == "/a" and assert(out.grants)[1].letters == "rwx")
-  assert(assert(out.grants)[2].path == "/b" and assert(out.grants)[2].letters == "rcu")
+  assert(assert(out.grants)[1].path == "/a" and assert(out.grants)[1].letters == "rwx") -- checked: nil_not_allowed*2
+  assert(assert(out.grants)[2].path == "/b" and assert(out.grants)[2].letters == "rcu") -- checked: nil_not_allowed*2
 end
 
 local function test_merge_keeps_a_path_with_another_host_path_apart()
@@ -62,8 +62,8 @@ local function test_merge_keeps_a_path_with_another_host_path_apart()
     { path = "/a", letters = "x", from = "/x" },
   } })
   assert(#assert(out.grants) == 2)
-  assert(assert(out.grants)[1].from == nil and assert(out.grants)[1].letters == "w")
-  assert(assert(out.grants)[2].from == "/x" and assert(out.grants)[2].letters == "rx")
+  assert(assert(out.grants)[1].from == nil and assert(out.grants)[1].letters == "w") -- checked: nil_not_allowed*2
+  assert(assert(out.grants)[2].from == "/x" and assert(out.grants)[2].letters == "rx") -- checked: nil_not_allowed*2
 end
 
 local function test_merge_unions_lists_sorted_without_repeats()
@@ -85,7 +85,7 @@ local function test_merge_answers_every_field_even_for_nothing()
   assert(#assert(out.grants) == 0 and #assert(out.isolate) == 0 and #assert(out.promises) == 0 and #assert(out.connect) == 0)
   assert(#assert(out.loopback) == 0 and #assert(out.env) == 0 and next(assert(out.set_env)) == nil)
   assert(next(assert(out.set_env_digests)) == nil and assert(out.limits).open_files == nil)
-  assert(PolicyMerge.merged({}, { tmp = false }).tmp == false and PolicyMerge.merged({ tmp = false }, { tmp = true }).tmp)
+  assert(PolicyMerge.merged({}, { tmp = false }).tmp == false and PolicyMerge.merged({ tmp = false }, { tmp = true }).tmp) -- checked: or_mix
 end
 
 local function test_merge_agrees_on_one_limit_and_refuses_two()
@@ -101,7 +101,7 @@ local function test_merge_agrees_on_one_limit_and_refuses_two()
     if field == "cpu_seconds" then a.cpu_seconds, b.cpu_seconds = 1, 2 end
     if field == "processes" then a.processes, b.processes = 1, 2 end
     local none, why = Sandbox.merge({ limits = a }, { limits = b })
-    assert(none == nil and why:find("limits." .. field, 1, true), why)
+    assert(none == nil and why:find("limits." .. field, 1, true), why) -- checked: or_mix
   end
 end
 
@@ -112,24 +112,24 @@ local function test_merge_takes_one_user_and_group_and_refuses_two()
   assert(out.user == 1000 and out.group == 100)
   assert(PolicyMerge.merged().user == nil and PolicyMerge.merged().group == nil)
   local none, why = Sandbox.merge({ user = 1 }, { user = 2 })
-  assert(none == nil and why:find("$.user: given two values", 1, true), why)
+  assert(none == nil and why:find("$.user: given two values", 1, true), why) -- checked: or_mix
   none, why = Sandbox.merge({ user = 1, group = 1 }, { user = 1, group = 2 })
-  assert(none == nil and why:find("$.group: given two values", 1, true), why)
+  assert(none == nil and why:find("$.group: given two values", 1, true), why) -- checked: or_mix
 end
 
 local function test_merge_refuses_root_and_a_group_without_a_user()
   local roots: {Sandbox.Policy} = { { user = 0 }, { user = 4294967295 }, { user = 1, group = 0 } }
   for _, policy in ipairs(roots) do
     local none, why = Sandbox.merge(policy)
-    assert(none == nil and why:find("never root", 1, true), why)
+    assert(none == nil and why:find("never root", 1, true), why) -- checked: or_mix
   end
   local overflows: {Sandbox.Policy} = { { user = 65534 }, { user = 1, group = 65535 } }
   for _, policy in ipairs(overflows) do
     local none, why = Sandbox.merge(policy)
-    assert(none == nil and why:find("overflow id", 1, true), why)
+    assert(none == nil and why:find("overflow id", 1, true), why) -- checked: or_mix
   end
   local none, why = Sandbox.merge({ group = 5 })
-  assert(none == nil and why:find("$.group", 1, true) and why:find("with a user", 1, true), why)
+  assert(none == nil and why:find("$.group", 1, true) and why:find("with a user", 1, true), why) -- checked: or_mix
 end
 
 local function test_in_pool_is_whether_an_id_is_a_pool_user_s()
@@ -149,9 +149,9 @@ end
 
 local function test_merge_refuses_two_values_for_one_variable_without_saying_them()
   local out = PolicyMerge.merged({ set_env = { A = "1", B = "2" } }, { set_env = { A = "1", C = "3" } })
-  assert(assert(out.set_env).A == "1" and assert(out.set_env).B == "2" and assert(out.set_env).C == "3")
+  assert(assert(out.set_env).A == "1" and assert(out.set_env).B == "2" and assert(out.set_env).C == "3") -- checked: map_field*3
   local none, why = Sandbox.merge({ set_env = { TOKEN = "hunter2" } }, { set_env = { TOKEN = "hunter3" } })
-  assert(none == nil and why:find("$.set_env.TOKEN: given two values", 1, true), why)
+  assert(none == nil and why:find("$.set_env.TOKEN: given two values", 1, true), why) -- checked: or_mix
   assert(not why:find("hunter", 1, true), why)
 end
 
@@ -189,7 +189,7 @@ local function test_merge_refuses_values_a_type_does_not_stop()
   }
   for _, case in ipairs(cases) do
     local none, why = Sandbox.merge(case.policy)
-    assert(none == nil and why:find(case.at, 1, true), why)
+    assert(none == nil and why:find(case.at, 1, true), why) -- checked: or_mix
   end
 end
 
@@ -197,15 +197,15 @@ end
 --- policy or in two, are refused at the loopback entry, saying what to do.
 local function test_a_loopback_address_a_connect_target_names_is_refused()
   local none, why = Sandbox.merge({ loopback = { "127.0.0.1" } }, { connect = { "127.0.0.1:8080" } })
-  assert(none == nil and why:find("$.loopback[0]", 1, true) and why:find("127.0.0.2", 1, true), tostring(why))
+  assert(none == nil and why:find("$.loopback[0]", 1, true) and why:find("127.0.0.2", 1, true), tostring(why)) -- checked: or_mix
   local ok, checked = Sandbox.check({ loopback = { "127.0.0.2" }, connect = { "127.0.0.1:80" } })
   assert(ok, checked)
   assert(PolicyMerge.merged({ loopback = { "127.0.0.2" }, connect = { "127.0.0.3:80", "[::1]:80", "example.com:80" } }))
 end
 
 local function test_merge_takes_letters_in_any_order_where_decode_does_not()
-  assert(assert(PolicyMerge.merged({ grants = { { path = "a", letters = "xr" } } }).grants)[1].letters == "rx")
-  assert(assert(PolicyMerge.merged({ grants = { { path = "a", letters = "rrw" } } }).grants)[1].letters == "rw")
+  assert(assert(PolicyMerge.merged({ grants = { { path = "a", letters = "xr" } } }).grants)[1].letters == "rx") -- checked: nil_not_allowed
+  assert(assert(PolicyMerge.merged({ grants = { { path = "a", letters = "rrw" } } }).grants)[1].letters == "rw") -- checked: nil_not_allowed
 end
 
 local function test_merge_resolves_profiles_away()
@@ -219,7 +219,7 @@ local function test_merge_resolves_profiles_away()
   end
   assert(found and data)
   local none, why = Sandbox.merge({ profiles = { "nope" } })
-  assert(none == nil and why:find("$.profiles[0]", 1, true) and why:find("known", 1, true), why)
+  assert(none == nil and why:find("$.profiles[0]", 1, true) and why:find("known", 1, true), why) -- checked: or_mix
 end
 
 local function test_a_profile_joins_with_the_policys_own_grant_of_the_same_path()
@@ -241,10 +241,10 @@ local function test_profile_names_what_it_holds_and_refuses_what_it_has_not()
   local system = assert(Sandbox.profile("system"))
   assert(system.profiles == nil and system.grants ~= nil)
   local cosmic = assert(Sandbox.profile("cosmic"))
-  assert(#assert(cosmic.grants) == 1 and assert(cosmic.grants)[1].path == assert(Proc.executable()))
-  assert(assert(cosmic.grants)[1].letters == "rx")
+  assert(#assert(cosmic.grants) == 1 and assert(cosmic.grants)[1].path == assert(Proc.executable())) -- checked: nil_not_allowed
+  assert(assert(cosmic.grants)[1].letters == "rx") -- checked: nil_not_allowed
   local none, why = Sandbox.profile("bogus")
-  assert(none == nil and why:find("unknown profile \"bogus\"", 1, true), why)
+  assert(none == nil and why:find("unknown profile \"bogus\"", 1, true), why) -- checked: or_mix
 end
 
 local function test_proc_profile_is_proc_on_linux_and_nothing_on_macos()
@@ -254,10 +254,10 @@ local function test_proc_profile_is_proc_on_linux_and_nothing_on_macos()
     local proc_grants = proc.grants
     assert(proc_grants == nil or #assert(proc_grants) == 0)
   else
-    assert(#assert(proc.grants) == 1 and assert(proc.grants)[1].path == "/proc" and assert(proc.grants)[1].letters == "r")
+    assert(#assert(proc.grants) == 1 and assert(proc.grants)[1].path == "/proc" and assert(proc.grants)[1].letters == "r") -- checked: nil_not_allowed*2
   end
   local both = assert(Sandbox.merge({ profiles = { "proc" } }, { grants = { { path = "/proc", letters = "r" } } }))
-  assert(both.profiles == nil and #assert(both.grants) == 1 and assert(both.grants)[1].path == "/proc")
+  assert(both.profiles == nil and #assert(both.grants) == 1 and assert(both.grants)[1].path == "/proc") -- checked: nil_not_allowed
 end
 
 local function test_loaders_names_a_static_program_alone(tmp: string)
@@ -288,10 +288,10 @@ local function test_loaders_stops_at_a_cycle_and_refuses_what_is_missing(tmp: st
   local cycle = assert(Sandbox.loaders(tmp .. "/a"))
   assert(#cycle == 2)
   local none, why = Sandbox.loaders(tmp .. "/absent")
-  assert(none == nil and why:find("^sandbox: ") and why:find("absent", 1, true), why)
+  assert(none == nil and why:find("^sandbox: ") and why:find("absent", 1, true), why) -- checked: or_mix
   assert(Fs.write(tmp .. "/dangling", "#!" .. tmp .. "/nowhere\n", 493))
   local dangling, trouble = Sandbox.loaders(tmp .. "/dangling")
-  assert(dangling == nil and trouble:find("nowhere", 1, true), trouble)
+  assert(dangling == nil and trouble:find("nowhere", 1, true), trouble) -- checked: or_mix
 end
 
 --- An ELF header of `class` (1 or 2) and `data` (1 little, 2 big endian)
@@ -343,7 +343,7 @@ local function test_loaders_reads_an_elf_interpreter_of_every_layout(tmp: string
   -- One whose interpreter is not there is a program that cannot start.
   assert(Fs.write(tmp .. "/lost", elf(2, 1, tmp .. "/no-loader"), 493))
   local none, why = Sandbox.loaders(tmp .. "/lost")
-  assert(none == nil and why:find("no-loader", 1, true), why)
+  assert(none == nil and why:find("no-loader", 1, true), why) -- checked: or_mix
 end
 
 --- A header whose stated program header size is too small for its class
@@ -399,12 +399,12 @@ end
 local function test_a_dot_dot_in_a_grant_path_is_refused_naming_the_field()
   for _, path in ipairs({ "..", "/a/../b", "a/b/..", "../x", "/data/x/link/.." }) do
     local ok, why = Sandbox.check({ grants = { { path = path, letters = "r" } } })
-    assert(not ok and why:find("$.grants[0].path", 1, true) and why:find('".." is not allowed', 1, true), why)
+    assert(not ok and why:find("$.grants[0].path", 1, true) and why:find('".." is not allowed', 1, true), why) -- checked: or_mix
     local none, trouble = Sandbox.merge({ grants = { { path = "ok", letters = "r" }, { path = path, letters = "r" } } })
-    assert(none == nil and trouble:find("$.grants[1].path", 1, true) and trouble:find("..", 1, true), trouble)
+    assert(none == nil and trouble:find("$.grants[1].path", 1, true) and trouble:find("..", 1, true), trouble) -- checked: or_mix
   end
   -- A name that only contains dots is a name.
-  assert(assert(PolicyMerge.merged({ grants = { { path = "/a/..b/c..", letters = "r" } } }).grants)[1].path == "/a/..b/c..")
+  assert(assert(PolicyMerge.merged({ grants = { { path = "/a/..b/c..", letters = "r" } } }).grants)[1].path == "/a/..b/c..") -- checked: nil_not_allowed
 end
 
 local FULL <const> = "         0          0 4294967295\n"
@@ -429,7 +429,7 @@ local function test_user_id_differs_for_serials_a_pool_apart_less_than_its_size(
   local seen: mut {integer:boolean} = {}
   for serial = 100, 100 + 4095 do
     local id = assert(Sandbox.user_id(FULL, FULL, serial))
-    assert(not seen[id], "serial " .. tostring(serial) .. " repeats " .. tostring(id))
+    assert(not seen[id], "serial " .. tostring(serial) .. " repeats " .. tostring(id)) -- checked: condition_type
     seen[id] = true
   end
   assert(assert(Sandbox.user_id(FULL, FULL, 5)) == assert(Sandbox.user_id(FULL, FULL, 5 + 4096)))
@@ -438,12 +438,12 @@ end
 local function test_user_id_fails_where_the_namespace_maps_no_such_run()
   local few = "         0          0       1000\n"
   local none, why = Sandbox.user_id(few, few, 0)
-  assert(none == nil and why:find("^sandbox: ") and why:find("never runs as root", 1, true), why)
+  assert(none == nil and why:find("^sandbox: ") and why:find("never runs as root", 1, true), why) -- checked: or_mix
   -- A gap in one of the maps, or an empty one.
   local gap = "0 0 1000\n4294965000 4294965000 2294\n"
   assert(Sandbox.user_id(gap, gap, 0) == nil)
   local missing, trouble = Sandbox.user_id("", FULL, 0)
-  assert(missing == nil and trouble:find("maps no user or no group", 1, true), trouble)
+  assert(missing == nil and trouble:find("maps no user or no group", 1, true), trouble) -- checked: or_mix
   -- Both maps must hold the run: one that stops short of it does not.
   assert(Sandbox.user_id(FULL, "0 0 1000\n", 0) == nil)
 end
@@ -460,52 +460,52 @@ end
 --- A Stat with the mode and kind a reach is judged on, and its owner and
 --- group, 0 unless given.
 local function described(mode: integer, kind: string, uid?: integer, gid?: integer): sys.Stat
-  return { mode = mode, kind = kind as sys.Kind, uid = uid or 0, gid = gid or 0 } as sys.Stat
+  return { mode = mode, kind = kind as sys.Kind, uid = uid or 0, gid = gid or 0 } as sys.Stat -- checked: cast_refused*2
 end
 
 local function test_reach_says_who_gives_a_user_that_owns_nothing_its_rights()
   -- Everyone: 0644 and 0755 files and directories.
-  assert(Sandbox.reach("r", described(tonumber("100644", 8), "file")).by == "other")
-  assert(Sandbox.reach("rx", described(tonumber("100755", 8), "file")).by == "other")
-  assert(Sandbox.reach("r", described(tonumber("40755", 8), "dir")).by == "other")
+  assert(Sandbox.reach("r", described(tonumber("100644", 8), "file")).by == "other") -- checked: nil_not_allowed
+  assert(Sandbox.reach("rx", described(tonumber("100755", 8), "file")).by == "other") -- checked: nil_not_allowed
+  assert(Sandbox.reach("r", described(tonumber("40755", 8), "dir")).by == "other") -- checked: nil_not_allowed
   -- A directory is read and entered, written and entered.
-  assert(Sandbox.reach("r", described(tonumber("40744", 8), "dir")).by == "owner")
-  assert(Sandbox.reach("rwc", described(tonumber("40755", 8), "dir")).by == "owner")
-  assert(Sandbox.reach("rwc", described(tonumber("40757", 8), "dir")).by == "other")
-  assert(Sandbox.reach("w", described(tonumber("100646", 8), "file")).by == "other")
+  assert(Sandbox.reach("r", described(tonumber("40744", 8), "dir")).by == "owner") -- checked: nil_not_allowed
+  assert(Sandbox.reach("rwc", described(tonumber("40755", 8), "dir")).by == "owner") -- checked: nil_not_allowed
+  assert(Sandbox.reach("rwc", described(tonumber("40757", 8), "dir")).by == "other") -- checked: nil_not_allowed
+  assert(Sandbox.reach("w", described(tonumber("100646", 8), "file")).by == "other") -- checked: nil_not_allowed
   -- A socket is connected to by writing.
-  assert(Sandbox.reach("u", described(tonumber("140666", 8), "socket")).by == "other")
-  assert(Sandbox.reach("u", described(tonumber("140755", 8), "socket")).by == "owner")
+  assert(Sandbox.reach("u", described(tonumber("140666", 8), "socket")).by == "other") -- checked: nil_not_allowed
+  assert(Sandbox.reach("u", described(tonumber("140755", 8), "socket")).by == "owner") -- checked: nil_not_allowed
   -- Only the owner's bits: what an idmapped mount gives.
-  assert(Sandbox.reach("rw", described(tonumber("100600", 8), "file")).by == "owner")
-  assert(Sandbox.reach("x", described(tonumber("100700", 8), "file")).by == "owner")
+  assert(Sandbox.reach("rw", described(tonumber("100600", 8), "file")).by == "owner") -- checked: nil_not_allowed
+  assert(Sandbox.reach("x", described(tonumber("100700", 8), "file")).by == "owner") -- checked: nil_not_allowed
 end
 
 local function test_reach_of_a_named_user_reads_its_own_class_alone()
   local mine = tonumber("40700", 8)
   -- Its own directory, 0700: the owner's bits are its own.
-  assert(Sandbox.reach("rwc", described(mine, "dir", 1000, 1000), 1000, 1000).by == "user")
+  assert(Sandbox.reach("rwc", described(mine, "dir", 1000, 1000), 1000, 1000).by == "user") -- checked: nil_not_allowed
   -- Another user's, 0700, in no group of its: only an idmapped mount gives it.
-  assert(Sandbox.reach("r", described(mine, "dir", 2000, 2000), 1000, 1000).by == "owner")
+  assert(Sandbox.reach("r", described(mine, "dir", 2000, 2000), 1000, 1000).by == "owner") -- checked: nil_not_allowed
   -- Its group's, 0750: the group's bits.
-  assert(Sandbox.reach("r", described(tonumber("40750", 8), "dir", 2000, 1000), 1000, 1000).by == "user")
+  assert(Sandbox.reach("r", described(tonumber("40750", 8), "dir", 2000, 1000), 1000, 1000).by == "user") -- checked: nil_not_allowed
   -- Its own file, 0077: open to everyone but its owner, which the kernel
   -- holds to the owner's bits.
-  local own = Sandbox.reach("r", described(tonumber("100077", 8), "file", 1000, 1000), 1000, 1000)
-  assert(own.by == "" and own.lacks:find("its owner, user 1000,", 1, true), own.lacks)
+  local own = Sandbox.reach("r", described(tonumber("100077", 8), "file", 1000, 1000), 1000, 1000) -- checked: nil_not_allowed
+  assert(own.by == "" and own.lacks:find("its owner, user 1000,", 1, true), own.lacks) -- checked: or_mix
   -- Its group's file, 0604: the group's bits, not everyone's.
-  local grouped = Sandbox.reach("r", described(tonumber("100604", 8), "file", 2000, 1000), 1000, 1000)
+  local grouped = Sandbox.reach("r", described(tonumber("100604", 8), "file", 2000, 1000), 1000, 1000) -- checked: nil_not_allowed
   assert(grouped.by == "owner", grouped.by)
   -- No match: as for a user that owns nothing.
-  assert(Sandbox.reach("r", described(tonumber("100644", 8), "file", 2000, 2000), 1000, 1000).by == "other")
+  assert(Sandbox.reach("r", described(tonumber("100644", 8), "file", 2000, 2000), 1000, 1000).by == "other") -- checked: nil_not_allowed
 end
 
 local function test_reach_names_what_even_the_owner_lacks()
-  local result = Sandbox.reach("rw", described(tonumber("100400", 8), "file"))
-  assert(result.by == "" and result.lacks:find("0400", 1, true) and result.lacks:find("write", 1, true), result.lacks)
+  local result = Sandbox.reach("rw", described(tonumber("100400", 8), "file")) -- checked: nil_not_allowed
+  assert(result.by == "" and result.lacks:find("0400", 1, true) and result.lacks:find("write", 1, true), result.lacks) -- checked: or_mix
   assert(not result.lacks:find("read", 1, true), result.lacks)
-  local both = Sandbox.reach("rx", described(tonumber("100200", 8), "file"))
-  assert(both.by == "" and both.lacks:find("execute and read", 1, true), both.lacks)
+  local both = Sandbox.reach("rx", described(tonumber("100200", 8), "file")) -- checked: nil_not_allowed
+  assert(both.by == "" and both.lacks:find("execute and read", 1, true), both.lacks) -- checked: or_mix
 end
 
 --- A file to name as a database, which the check reads only for being a
@@ -520,15 +520,15 @@ local function test_check_refuses_a_database_that_is_not_a_file_by_its_absolute_
   local path = database_file(tmp)
   assert(Sandbox.check({ database = { path = path } }))
   local ok, why = Sandbox.check({ database = { path = "program.db" } })
-  assert(not ok and why:find("$.database", 1, true) and why:find("relative", 1, true), why)
+  assert(not ok and why:find("$.database", 1, true) and why:find("relative", 1, true), why) -- checked: or_mix
   ok, why = Sandbox.check({ database = { path = tmp .. "/absent.db" } })
-  assert(not ok and why:find("$.database", 1, true) and why:find("absent.db", 1, true), why)
+  assert(not ok and why:find("$.database", 1, true) and why:find("absent.db", 1, true), why) -- checked: or_mix
   ok, why = Sandbox.check({ database = { path = tmp .. "/../" .. assert(tmp:match("[^/]+$")) .. "/program.db" } })
-  assert(not ok and why:find("\"..\"", 1, true), why)
+  assert(not ok and why:find("\"..\"", 1, true), why) -- checked: or_mix
   ok, why = Sandbox.check({ database = { path = tmp } })
-  assert(not ok and why:find("not a regular file", 1, true), why)
+  assert(not ok and why:find("not a regular file", 1, true), why) -- checked: or_mix
   ok, why = Sandbox.check({ database = { path = "" } })
-  assert(not ok and why:find("$.database", 1, true), why)
+  assert(not ok and why:find("$.database", 1, true), why) -- checked: or_mix
 end
 
 local function test_merge_carries_a_database_and_refuses_two(tmp: string)
@@ -537,7 +537,7 @@ local function test_merge_carries_a_database_and_refuses_two(tmp: string)
   assert(assert(PolicyMerge.merged({ database = { path = path } }).database).path == path)
   assert(assert(PolicyMerge.merged({ database = { path = path } }, { database = { path = tmp .. "//./program.db" } }, {}).database).path == path)
   local none, why = Sandbox.merge({ database = { path = path } }, { database = { path = other } })
-  assert(none == nil and why:find("$.database.path: given two values", 1, true), tostring(why))
+  assert(none == nil and why:find("$.database.path: given two values", 1, true), tostring(why)) -- checked: or_mix
   assert(PolicyMerge.merged({}).database == nil)
 end
 
@@ -564,6 +564,6 @@ end
 local function test_restrict_refuses_a_database_before_it_holds_anything(tmp: string)
   local path = database_file(tmp)
   local ok, why = Sandbox.restrict({ database = { path = path } })
-  assert(not ok and why:find("^sandbox: restrict: "), why)
+  assert(not ok and why:find("^sandbox: restrict: "), why) -- checked: or_mix
   assert(why:find("database", 1, true) and why:find("Child.start", 1, true), why)
 end

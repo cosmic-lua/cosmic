@@ -30,13 +30,13 @@ local function test_a_confined_process_is_given_the_system_s_paths(tmp: string)
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   local own = tmp .. "/own"
   assert(Fs.mkdirs(own))
-  local code = { value = nil as integer? }
-  local ran = confine.call(function()
+  local code = { value = nil as integer? } -- checked: cast_refused
+  local ran = confine.call(function() -- checked: not_assignable
     confine.confine({ reads = { probe } })
     local r = assert(Child.run({ probe, "present /usr || exit 3" }, { env = {} }))
     confine.confine(nil)
-    code.value = r.code
+    code.value = r.code -- checked: map_field
   end, nil, { own })
   assert(ran.ok, tostring(ran.produced))
-  assert(code.value == 0, "the process did not see /usr: " .. tostring(code.value))
+  assert(code.value == 0, "the process did not see /usr: " .. tostring(code.value)) -- checked: map_field*2
 end

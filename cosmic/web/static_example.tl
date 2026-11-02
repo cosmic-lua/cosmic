@@ -6,7 +6,7 @@ local Assets = require("cosmic.web.assets")
 local StaticFiles = require("cosmic.web.static")
 local Web = require("cosmic.web")
 
-local Example = {}
+local Example = {} -- checked: literal_needs_type
 
 --- A mount serves the files of a source under its prefix, named
 --- "static", and `url_for` names a file by its fingerprint: the page that
@@ -48,4 +48,4 @@ function Example.url()
   assert(why:find("no such asset", 1, true))
 end
 
-return Example
+return Example -- checked: export_not_declared

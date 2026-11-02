@@ -175,7 +175,7 @@ local function scan(text: string, comments: mut {string}): {string}
   local open: mut {mut {string: boolean} | boolean} = {}
   local function key(name: string)
     local keys = open[#open]
-    if keys is {string: boolean} then
+    if keys is {string: boolean} then -- checked: is_on_record
       if keys[name] == true then say("the key " .. name .. " twice in one object") end
       keys[name] = true
     end
@@ -194,7 +194,7 @@ local function scan(text: string, comments: mut {string}): {string}
     elseif c == " " then
       i = i + 1
     elseif c == "#" then
-      local before = i > 1 and text:sub(i - 1, i - 1) or "\n"
+      local before = i > 1 and text:sub(i - 1, i - 1) or "\n" -- checked: and_ternary
       if before ~= " " and before ~= "\n" then
         say("a # right after a token: put a space before it")
       end
@@ -270,7 +270,7 @@ local function scan(text: string, comments: mut {string}): {string}
     else
       local code = String.byte_at(c, 1)
       say(("the character %s outside a string, which the two read differently"):format(
-        code < 0x80 and ("%q"):format(c) or ("\\x%02X"):format(code)))
+        code < 0x80 and ("%q"):format(c) or ("\\x%02X"):format(code))) -- checked: and_ternary
       i = i + 1
     end
   end
@@ -447,7 +447,7 @@ local function read_word(r: Reader): string
   return word
 end
 
-local function parse_container(r: Reader): flow.Node
+local function parse_container(r: Reader): flow.Node -- checked: not_assigned
   local open = r.text:sub(r.at, r.at)
   local close = if open == "{" then "}" else "]" end
   r.depth = r.depth + 1
@@ -502,7 +502,7 @@ local function parse_container(r: Reader): flow.Node
       if comment == nil and #rest == 0 then
         comment, rest = on_comma, beyond
       else
-        for _, entry in ipairs(more.entries) do rest[#rest + 1] = entry end
+        for _, entry in ipairs(more.entries) do rest[#rest + 1] = entry end -- checked: view_written
       end
     elseif r.text:sub(r.at, r.at) ~= close then
       fail(r.line, "a member with no , after it")
@@ -637,7 +637,7 @@ end
 --- compare.
 local function value_of(text: string): string?, string
   local value, trouble = Json.decode(text, { json5 = true, hash_comments = true, null_value = Json.null })
-  if trouble ~= nil and trouble ~= "" then return nil, trouble end
+  if trouble ~= nil and trouble ~= "" then return nil, trouble end -- checked: compare_disjoint
   return Json.encode_any(value)
 end
 
@@ -691,7 +691,7 @@ end
 --- blank nor a comment opens with `{` or `[`.
 function flow.is_flow(text: string): boolean
   for row in text:gmatch("[^\n]*") do
-    if row:match("%S") and not row:match("^%s*#") then
+    if row:match("%S") and not row:match("^%s*#") then -- checked: condition_type
       return row:match("^%s*[{[]") ~= nil
     end
   end
@@ -701,11 +701,11 @@ end
 --- Whether `value` is a Lua table `from` writes as an array: one
 --- `cosmic.json` marked, or a non-empty sequence.
 local function is_array(value: any): boolean
-  if not value is {any: any} then return false end
+  if not value is {any: any} then return false end -- declared: key_type
   if Json.is_array(value) then return true end
   local count = 0
-  for _ in pairs(value) do count = count + 1 end
-  if value is {any} then return count > 0 and count == #value end
+  for _ in pairs(value) do count = count + 1 end -- checked: any_use
+  if value is {any} then return count > 0 and count == #value end -- checked: is_on_record
   return false
 end
 
@@ -732,7 +732,7 @@ end
 
 --- The tree of `value`, `depth` containers down.
 local function build(value: any, opts: flow.Options, depth: integer): flow.Node
-  if not value is {any: any} or value == Json.null then
+  if not value is {any: any} or value == Json.null then -- declared: key_type
     return flow.scalar(value)
   end
   if depth >= MAX_DEPTH then
@@ -740,12 +740,12 @@ local function build(value: any, opts: flow.Options, depth: integer): flow.Node
   end
   local items: mut {flow.Item} = {}
   local node: flow.Node = { kind = "object", items = items, tail = {}, width = opts.width or 100 }
-  if is_array(value) and value is {any} then
+  if is_array(value) and value is {any} then -- checked: is_on_record
     node.kind = "array"
     for _, each in ipairs(value) do
       table.insert(items, { value = build(each, opts, depth + 1), before = {} })
     end
-  elseif value is {string: any} then
+  elseif value is {string: any} then -- checked: is_on_record
     for _, key in ipairs(ordered(value, opts)) do
       table.insert(items, { key = key, value = build(value[key], opts, depth + 1), before = {} })
     end
@@ -832,7 +832,7 @@ end
 --- A value's encoding, to tell members apart by; a member whose text
 --- reads as no value gets one no value can have.
 local function encoded(value: any, trouble: string, index: integer): string
-  if trouble ~= nil and trouble ~= "" then return "\0" .. tostring(index) end
+  if trouble ~= nil and trouble ~= "" then return "\0" .. tostring(index) end -- checked: compare_disjoint
   local text, _ = Json.encode_any(value)
   return text or "\0" .. tostring(index)
 end
@@ -841,13 +841,13 @@ end
 --- or the action its `uses` names, without the version after `@` -- a
 --- step, a job, a matrix leg -- or nil.
 local function identity(value: any): string?
-  if not value is {string: any} then return nil end
+  if not value is {string: any} then return nil end -- checked: is_on_record
   for _, field in ipairs({ "id", "name" }) do
     local found = value[field]
     if found is string then return field .. "\0" .. found end
   end
-  local uses = value.uses
-  if uses is string then return "uses\0" .. uses:gsub("@.*$", "") end
+  local uses = value.uses -- checked: map_field
+  if uses is string then return "uses\0" .. uses:gsub("@.*$", "") end -- untyped: call
   return nil
 end
 
@@ -904,7 +904,7 @@ local function paired(old: {flow.Item}, new: {any}): {integer: flow.Item}
       elseif a[i] == b[j] then
         row[j] = run_from(lcs, i + 1, j + 1) + 1
       else
-        row[j] = math.max(run_from(lcs, i + 1, j), row[j + 1])
+        row[j] = math.max(run_from(lcs, i + 1, j), row[j + 1]) -- checked: overload_none -- untyped: call
       end
     end
   end
@@ -947,7 +947,7 @@ end
 
 --- `update`'s walk.
 local function update(node: flow.Node, value: any, o: flow.Options, depth: integer): flow.Node
-  if not value is {any: any} or value == Json.null then
+  if not value is {any: any} or value == Json.null then -- declared: key_type
     local new = flow.scalar(value)
     if node.kind == "scalar" and node.text == new.text then return node end
     return new
@@ -955,13 +955,13 @@ local function update(node: flow.Node, value: any, o: flow.Options, depth: integ
   if depth >= MAX_DEPTH then
     error("flow.update: containers nested deeper than " .. tostring(MAX_DEPTH) .. ", or a table that holds itself", 0)
   end
-  local array = is_array(value) or (node.kind == "array" and next(value) == nil)
+  local array = is_array(value) or (node.kind == "array" and next(value) == nil) -- checked: overload_none -- untyped: call
   if (array and node.kind ~= "array") or (not array and node.kind ~= "object") then
     return build(value, o, depth)
   end
   local was = inline_text(node)
   local kept: mut {flow.Item} = {}
-  if array and value is {any} then
+  if array and value is {any} then -- checked: is_on_record
     local pairing = paired(members(node), value)
     for index, each in ipairs(value) do
       local item = pairing[index]
@@ -972,7 +972,7 @@ local function update(node: flow.Node, value: any, o: flow.Options, depth: integ
         kept[#kept + 1] = { value = build(each, o, depth + 1), before = {} }
       end
     end
-  elseif value is {string: any} then
+  elseif value is {string: any} then -- checked: is_on_record
     local seen: mut {string: boolean} = {}
     for _, item in ipairs(members(node)) do
       local member_key = item.key

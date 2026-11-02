@@ -175,7 +175,7 @@ local function test_what_would_be_lost_is_refused()
   assert(out == nil and why:find("the bare value foo", 1, true) ~= nil, tostring(why))
   out, why = flow.format(string.rep("[", 100) .. string.rep("]", 100) .. "\n")
   assert(out == nil and why:find("nested deeper", 1, true) ~= nil, tostring(why))
-  local ok = pcall(flow.format, string.rep("[", 300000))
+  local ok = pcall(flow.format, string.rep("[", 300000)) -- checked: alternatives_as_value
   assert(ok, "deep nesting is refused, not raised")
 end
 
@@ -186,9 +186,9 @@ end
 
 local function test_a_tree_is_built_from_teal_values()
   local Json = require("cosmic.json")
-  local text = flow.write({
-    jobs = { a = { steps = { { run = "make" } }, ["runs-on"] = "ubuntu-24.04" } },
-    on = { push = { branches = { "main" } }, workflow_dispatch = {} },
+  local text = flow.write({ -- checked: arms_differ
+    jobs = { a = { steps = { { run = "make" } }, ["runs-on"] = "ubuntu-24.04" } }, -- checked: literal_shape
+    on = { push = { branches = { "main" } }, workflow_dispatch = {} }, -- checked: literal_needs_type
     name = "ci",
     list = Json.array(),
     nothing = Json.null,
@@ -220,8 +220,8 @@ local function test_a_tree_is_built_from_teal_values()
   local wide = flow.write({ a = { string.rep("x", 60), string.rep("y", 60) } }, { width = 80 })
   assert(wide == "{\n  a: [\n    \"" .. string.rep("x", 60) .. "\",\n    \"" .. string.rep("y", 60) ..
       "\",\n  ],\n}\n", wide)
-  assert(not pcall(flow.from, { a = 1.5 }), "a float is refused")
-  assert(not pcall(flow.from, { [true] = 1 }), "a key that is no string is refused")
+  assert(not pcall(flow.from, { a = 1.5 }), "a float is refused") -- checked: alternatives_as_value
+  assert(not pcall(flow.from, { [true] = 1 }), "a key that is no string is refused") -- checked: alternatives_as_value
 end
 
 local function test_get_and_set_find_and_change_members()
@@ -233,8 +233,8 @@ local function test_get_and_set_find_and_change_members()
   flow.set(assert(flow.get(doc.root, "a")), "c", flow.from({ d = true }))
   flow.set(doc.root, "a", assert(flow.get(doc.root, "a")))
   assert(flow.render(doc) == "{\n  a: {b: [1, 2, 3], c: {d: true}}, # keep\n}\n", flow.render(doc))
-  assert(not pcall(flow.set, b, 9, flow.scalar(1)), "an index past the end is refused")
-  assert(not pcall(flow.set, b, "k", flow.scalar(1)), "a key on an array is refused")
+  assert(not pcall(flow.set, b, 9, flow.scalar(1)), "an index past the end is refused") -- checked: alternatives_as_value
+  assert(not pcall(flow.set, b, "k", flow.scalar(1)), "a key on an array is refused") -- checked: alternatives_as_value
 end
 
 local function test_update_keeps_the_comments_of_what_stays()
@@ -249,7 +249,7 @@ local function test_update_keeps_the_comments_of_what_stays()
     "}",
     "",
   }, "\n")))
-  doc.root = flow.update(doc.root, {
+  doc.root = flow.update(doc.root, { -- checked: arms_differ
     name = "cd", list = Json.array({ 1, 5 }), kind = { "x" }, added = { b = 2 },
   })
   local want = table.concat({
@@ -263,8 +263,8 @@ local function test_update_keeps_the_comments_of_what_stays()
     "",
   }, "\n")
   assert(flow.render(doc) == want, flow.render(doc))
-  local v = flow.value(doc.root) as {string: any}
-  assert(v.name == "cd" and (v.added as {string: any}).b == 2)
+  local v = flow.value(doc.root) as {string: any} -- checked: cast_refused
+  assert(v.name == "cd" and (v.added as {string: any}).b == 2) -- checked: cast_refused
 end
 
 --- An array's members are paired the way a diff pairs lines, so a step
@@ -313,7 +313,7 @@ end
 local function test_values_the_subset_cannot_hold_are_refused()
   local out, why = flow.format('{"<<": {a: 1}}\n')
   assert(out == nil and why:find("merge", 1, true) ~= nil, tostring(why))
-  assert(not pcall(flow.from, { ["<<"] = 1 }))
+  assert(not pcall(flow.from, { ["<<"] = 1 })) -- checked: alternatives_as_value
   out, why = flow.format('{a: "x\ty"}\n')
   assert(out == nil and why:find("a tab in a string", 1, true) ~= nil, tostring(why))
   out, why = flow.format("{\n  a: 1 # c1\n  , # c2\n  b: 2,\n}\n")
@@ -322,12 +322,12 @@ local function test_values_the_subset_cannot_hold_are_refused()
   local at = deep
   for _ = 1, 70 do
     local inner: mut {any} = {}
-    at[1] = inner
+    at[1] = inner -- checked: any_use
     at = inner
   end
-  assert(not pcall(flow.from, deep), "nesting past cosmic.json's depth is refused")
+  assert(not pcall(flow.from, deep), "nesting past cosmic.json's depth is refused") -- checked: overload_none
   local cycle: {string: any} = {}
-  cycle.self = cycle
+  cycle.self = cycle -- checked: map_field
   Test.raises(function() flow.from(cycle) end, "holds itself")
   local value, trouble = flow.value(assert(flow.parse("{a: x}")).root)
   assert(value == nil and trouble ~= "", "a node that reads as nothing says why")

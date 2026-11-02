@@ -36,7 +36,7 @@ end
 
 local function test_an_execute_restriction_refuses_a_path_that_is_not_a_string()
   local apply = require("cosmic.internal.process").landlock_restrict_execute
-  local ok, why = pcall(apply, { false } as {string}) -- cast: a deliberately degenerate argument
+  local ok, why = pcall(apply, { false } as {string}) -- cast: a deliberately degenerate argument -- checked: cast_refused
   assert(not ok and tostring(why):find("path must be a string", 1, true) ~= nil, tostring(why))
 end
 

@@ -217,8 +217,8 @@ end
 --- Raises for an `opts` that is no table or holds a field `known` lacks.
 local function checked(opts: any, known: {string:boolean}, what: string)
   if opts == nil then return end
-  if not opts is {any:any} then error("web: " .. what .. " takes a table", 3) end
-  for key in pairs(opts) do
+  if not opts is {any:any} then error("web: " .. what .. " takes a table", 3) end -- declared: key_type
+  for key in pairs(opts) do -- checked: any_use
     if not (key is string and known[key] == true) then
       error(("web: %s has no field %s"):format(what, tostring(key)), 3)
     end
@@ -449,7 +449,7 @@ local function injected(res: Types.Response, nonce: string?): Types.Response
   local headers: mut {string: string | {string}} = {}
   for name, value in pairs(res.headers or {}) do headers[name] = value end
   local copy: Types.Response = { status = res.status }
-  for key, value in pairs(res as {any:any}) do (copy as {any:any})[key] = value end
+  for key, value in pairs(res as {any:any}) do (copy as {any:any})[key] = value end -- declared: key_type*2 -- checked: cast_refused*2
   copy.headers = headers
   copy.body = page
   if res.length ~= nil then copy.length = #page end
@@ -504,9 +504,9 @@ end
 local function checked_options(opts: Dev.Options?, level: integer)
   checked(opts, OPTION_FIELDS, "dev")
   if opts == nil then return end
-  local enabled: any = opts.enabled
-  local static: any = opts.static
-  local boot: any = opts.boot
+  local enabled: any = opts.enabled -- checked: any_use
+  local static: any = opts.static -- checked: any_use
+  local boot: any = opts.boot -- checked: any_use
   if enabled ~= nil and type(enabled) ~= "boolean" then
     error("web: dev: enabled must be a boolean", level)
   end
@@ -641,8 +641,8 @@ function Dev.supervise(opts?: Dev.SuperviseOptions): boolean, string
   local function launch()
     program.boot = program.boot + 1
     local env = Env.all()
-    env.COSMIC_WEB_DEV = "1"
-    env.COSMIC_WEB_BOOT = tostring(program.boot)
+    env.COSMIC_WEB_DEV = "1" -- checked: map_field
+    env.COSMIC_WEB_BOOT = tostring(program.boot) -- checked: map_field
     log(("web dev: starting (boot %d)"):format(program.boot))
     local started, trouble = start(env)
     if started == nil then

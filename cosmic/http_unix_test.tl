@@ -45,7 +45,7 @@ local function across(tmp: string, client: string): string, string
       return { status = 200, body = "body of " .. req.path }
     end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
-      local started = this_program.program({ "--standalone", script, assert(addresses[1].path) },
+      local started = this_program.program({ "--standalone", script, assert(addresses[1].path) }, -- checked: nil_not_allowed
         { stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
       ran.value = assert(Child.run(started.argv, started.options))
       server:stop()

@@ -28,7 +28,7 @@ local function test_pair_allocation_refusals_leave_no_descriptors(tmp: string)
     -- By the core's own table and no `connector_pair` of `ConnectorEnds`: that makes a table of its own, and the walk
     -- would fail those allocations instead of the core's.
     pair.value = assert(process.connector_pair())
-    return true
+    return true -- checked: any_use
   end
   for after = 0, 1000 do
     pair.value = nil

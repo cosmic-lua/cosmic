@@ -158,7 +158,7 @@ end
 
 --- A Reader of `data` in pieces of `sizes`, then the rest whole; a read
 --- asking for less gets less.
-local class Pieces is Stream.Reader
+local class Pieces is Stream.Reader -- declared: interface_disagrees
   data: string
   sizes: {integer}
   mut at: integer

@@ -171,7 +171,7 @@ local function split(line: string): integer, string
   if indent == nil then
     return -1, line
   end
-  return #indent // 2, body
+  return #indent // 2, body -- checked: nil_not_allowed
 end
 
 --- What a line of the tree says, less its depth.
@@ -192,12 +192,12 @@ local function ancestors(tree: {string}, at: integer, depth: integer): {Element}
   local list: mut {Element} = {}
   local below = depth
   for up = at - 1, 1, -1 do
-    local d, body = split(tree[up])
+    local d, body = split(tree[up]) -- checked: index_may_be_nil
     if d >= 0 and d < below then
       below = d
       local ns, name = body:match("^<(%a+) ([^>]+)>$")
       if ns == "svg" or ns == "math" then
-        list[#list + 1] = { name = name:lower(), foreign = true }
+        list[#list + 1] = { name = name:lower(), foreign = true } -- checked: nil_not_allowed
       else
         local plain = body:match("^<([^ >]+)>$")
         if plain ~= nil then
@@ -222,7 +222,7 @@ local function text_trouble(kind: string, up: {Element}): string?
     return nil
   end
   if kind == "rtext" then
-    if parent.foreign or not RCDATA[parent.name] then
+    if parent.foreign or not RCDATA[parent.name] then -- checked: condition_type
       return "rtext but it is not in an HTML textarea or title"
     end
     return nil
@@ -231,7 +231,7 @@ local function text_trouble(kind: string, up: {Element}): string?
   end
   if parent.name == "script" or parent.name == "style" then
     return "text in raw text"
-  elseif not parent.foreign and (RAW[parent.name] or RCDATA[parent.name]) then
+  elseif not parent.foreign and (RAW[parent.name] or RCDATA[parent.name]) then -- checked: condition_type
     return "text in raw text or RCDATA"
   end
   local html_below = false
@@ -242,7 +242,7 @@ local function text_trouble(kind: string, up: {Element}): string?
       return "text, which takes markup, inside " .. element.name
     end
     if element.foreign then
-      if INTEGRATION[element.name] then
+      if INTEGRATION[element.name] then -- checked: condition_type
         return "text in or under " .. element.name .. ", where a browser reads HTML"
       elseif html_below then
         return "text in an HTML element inside foreign content"
@@ -273,7 +273,7 @@ local function foreign_names(tree: {string}): {string}
   local names: mut {string} = {}
   for _, line in ipairs(tree) do
     local name = body_of(line):match("^<%a+ ([^>]+)>$")
-    if name ~= nil and not seen[name] and #names < 5 then
+    if name ~= nil and not seen[name] and #names < 5 then -- checked: condition_type
       seen[name] = true
       names[#names + 1] = name
     end
@@ -344,7 +344,7 @@ end
 
 local function check_case(file: string, case: Case, reach: Reach)
   local input, tree = case.input, case.tree
-  if case.other or input:find("{{", 1, true) or input:find("[&%z\r]") then
+  if case.other or input:find("{{", 1, true) or input:find("[&%z\r]") then -- checked: or_mix
     return
   end
   reach.cases = reach.cases + 1
@@ -355,7 +355,7 @@ local function check_case(file: string, case: Case, reach: Reach)
   for _, line in ipairs(tree) do
     local name, value = body_of(line):match('^([^%s="<]+ ?[^%s="<]*)="(.*)"$')
     if name ~= nil then
-      named[value] = if named[value] == nil or named[value] == name then name else false end
+      named[value] = if named[value] == nil or named[value] == name then name else false end -- checked: nil_not_allowed*3
     end
   end
   local closer: string? = nil
@@ -379,7 +379,7 @@ local function check_case(file: string, case: Case, reach: Reach)
     local comment = body:match("^<!%-%- (.*) %-%->$")
     local name, value = body:match('^([^%s="<]+ ?[^%s="<]*)="(.*)"$')
     if text ~= nil and text ~= "" and #text > 2 and count(input, text) == 1 and count(document, text) == 1 then
-      local start = input:find(text, 1, true) as integer
+      local start = input:find(text, 1, true) as integer -- checked: cast_refused
       local before = input:sub(start - 1, start - 1)
       local after = input:sub(start + #text, start + #text)
       local cdata = input:sub(start - 9, start - 1) == "<![CDATA[" and input:sub(start + #text, start + #text + 2) == "]]>"
@@ -405,7 +405,7 @@ local function check_case(file: string, case: Case, reach: Reach)
       end
     elseif comment ~= nil and comment ~= "" and #comment > 2 and count(input, comment) == 1 and
         count(document, comment) == 1 then
-      local start = input:find(comment, 1, true) as integer
+      local start = input:find(comment, 1, true) as integer -- checked: cast_refused
       local use: string? = nil
       if input:sub(start - 4, start - 1) == "<!--" and input:sub(start + #comment, start + #comment + 2) == "-->" then
         use = closed()
@@ -417,24 +417,24 @@ local function check_case(file: string, case: Case, reach: Reach)
           fail(reach, file, kind, cut, input, "the tree has a comment there")
         end)
       end
-    elseif name ~= nil and value ~= "" and not value:find("[\"']") and count(input, value) == 1 and
-        named[value] == name then
-      local start = input:find(value, 1, true) as integer
+    elseif name ~= nil and value ~= "" and not value:find("[\"']") and count(input, value) == 1 and -- checked: nil_not_allowed*2
+        named[value] == name then -- checked: nil_not_allowed
+      local start = input:find(value, 1, true) as integer -- checked: cast_refused, nil_not_allowed
       local quote = input:sub(start - 1, start - 1)
       local written = (name:gsub(" ", ":")):lower()
       local before = input:sub(start - 2 - #written, start - 2):lower()
       local use: string? = nil
-      if (quote == '"' or quote == "'") and input:sub(start + #value, start + #value) == quote and
+      if (quote == '"' or quote == "'") and input:sub(start + #value, start + #value) == quote and -- checked: nil_not_allowed*2
           before == written .. "=" and owner_of(tree, at, depth) ~= nil then
         use = closed()
       end
       if use ~= nil then
         reach.values = reach.values + 1
-        try(input, use, start - 1, #value, reach, function(kind: string, cut: integer)
+        try(input, use, start - 1, #value, reach, function(kind: string, cut: integer) -- checked: nil_not_allowed
           note(reach, "value", kind)
           if is_code(written) then
             fail(reach, file, kind, cut, input, "the tree has the value of the code attribute " .. name)
-          elseif URL_ATTRS[written] then
+          elseif URL_ATTRS[written] then -- checked: condition_type
             if kind ~= "url" and kind ~= "part" then
               fail(reach, file, kind, cut, input, "the tree has the value of the URL attribute " .. name)
             end
@@ -452,7 +452,7 @@ local function test_a_slot_is_accepted_only_where_the_tree_has_text_or_an_attrib
     accepted = {}, failures = {} }
   for _, file in ipairs((assert(Fs.list(DIRECTORY)))) do
     -- The scripted files give the tree a script's changes to it make.
-    if file:find("%.dat$") and not file:find("^scripted_") then
+    if file:find("%.dat$") and not file:find("^scripted_") then -- checked: condition_type
       local text = assert(Fs.read(DIRECTORY .. "/" .. file))
       for _, case in ipairs(cases_of(text)) do
         check_case(file, case, reach)

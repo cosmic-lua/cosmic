@@ -69,9 +69,9 @@ local function test_the_c_tree_answers_what_the_dump_leaves_out()
     local decls = tree.parse(dump)
     assert(#decls == 2)
     local body = decls[1].children[1]
-    local call = body.children[1]
-    assert(tree.callee(call) == nil and tree.operator(body) == nil)
-    assert(tree.referent(call) == nil)
+    local call = body.children[1] -- checked: nil_not_allowed
+    assert(tree.callee(call) == nil and tree.operator(body) == nil) -- checked: nil_not_allowed*2
+    assert(tree.referent(call) == nil) -- checked: nil_not_allowed
   end)
 end
 

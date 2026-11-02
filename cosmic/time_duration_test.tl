@@ -41,5 +41,5 @@ local function test_a_duration_writes_the_text_it_reads()
   assert(Time.format_duration(duration("0s")) == "0s")
   assert(Time.format_duration({ months = 14 }) == "14mo")
   assert(Time.format_duration(duration("1.500s")) == "1.5s")
-  assert(not pcall(Time.format_duration, { days = 1, months = -1 }), "mixed signs")
+  assert(not pcall(Time.format_duration, { days = 1, months = -1 }), "mixed signs") -- checked: alternatives_as_value
 end

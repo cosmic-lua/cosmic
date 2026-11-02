@@ -87,13 +87,13 @@ local function test_a_sandboxed_run_holds_each_worker_to_its_inputs(tmp: string)
   suite_tree(tmp, root)
   fixture.view_suite(tmp, root, hidden)
   local env = this_program.environment()
-  env.COSMIC_VERDICT_CACHE = "0"
-  env.COSMIC_TEST_ALL = nil
-  env.COSMIC_SANDBOX = nil
-  env.DECLARED_VAR = "d"
-  env.UNDECLARED_VAR = "u"
+  env.COSMIC_VERDICT_CACHE = "0" -- checked: map_field
+  env.COSMIC_TEST_ALL = nil -- checked: map_field
+  env.COSMIC_SANDBOX = nil -- checked: map_field
+  env.DECLARED_VAR = "d" -- checked: map_field
+  env.UNDECLARED_VAR = "u" -- checked: map_field
   local text, ok: string, boolean
-  env.COSMIC_TEST_SANDBOX = nil
+  env.COSMIC_TEST_SANDBOX = nil -- checked: map_field
   text, ok = run(root, tmp .. "/sandboxed", env)
   assert(not ok, text)
   skip_if_unsandboxed(text)
@@ -109,13 +109,13 @@ local function test_a_sandboxed_run_holds_each_worker_to_its_inputs(tmp: string)
   assert(not text:find("does not declare", 1, true), text)
   assert(text:find("rerun: cosmic test suite/view_test.tl:test_view", 1, true), text)
   -- Required where it can be, the same.
-  env.COSMIC_TEST_SANDBOX = "1"
+  env.COSMIC_TEST_SANDBOX = "1" -- checked: map_field
   text, ok = run(root, tmp .. "/required", env)
   assert(not ok and text:find("; sandboxed", 1, true) ~= nil, text)
   assert(text:find("rerun: COSMIC_TEST_SANDBOX=1 cosmic test suite/view_test.tl:test_view", 1,
     true), text)
   -- A misspelt switch is refused.
-  env.COSMIC_TEST_SANDBOX = "yes"
+  env.COSMIC_TEST_SANDBOX = "yes" -- checked: map_field
   text, ok = run(root, tmp .. "/misspelt", env)
   assert(not ok and text:find('COSMIC_TEST_SANDBOX is "yes"', 1, true) ~= nil, text)
 end
@@ -142,14 +142,14 @@ local function test_write()
 end
 ]]))
   local env = this_program.environment()
-  env.COSMIC_VERDICT_CACHE = "0"
-  env.COSMIC_TEST_ALL = nil
-  env.COSMIC_SANDBOX = nil
+  env.COSMIC_VERDICT_CACHE = "0" -- checked: map_field
+  env.COSMIC_TEST_ALL = nil -- checked: map_field
+  env.COSMIC_SANDBOX = nil -- checked: map_field
   -- The program's cores stay where they are; only the caches move.
-  env.COSMIC_PORTABLE_CACHE = env.COSMIC_PORTABLE_CACHE or Fs.cache_dir("cores", { make = false })
-  env.XDG_CACHE_HOME = xdg
-  env.COSMIC_ZIG_CACHE, env.COSMIC_ZIG_GLOBAL_CACHE = nil, nil
-  env.COSMIC_TEST_SANDBOX = nil
+  env.COSMIC_PORTABLE_CACHE = env.COSMIC_PORTABLE_CACHE or Fs.cache_dir("cores", { make = false }) -- checked: map_field*2
+  env.XDG_CACHE_HOME = xdg -- checked: map_field
+  env.COSMIC_ZIG_CACHE, env.COSMIC_ZIG_GLOBAL_CACHE = nil, nil -- checked: map_field*2
+  env.COSMIC_TEST_SANDBOX = nil -- checked: map_field
   local text, ok = run(root, tmp .. "/out", env)
   assert(not ok, text)
   skip_if_unsandboxed(text)
@@ -168,12 +168,12 @@ local function test_a_host_path_is_given_where_it_is_declared(tmp: string)
   assert(Fs.write(product .. "/given.txt", "given"))
   assert(Fs.write(product .. "/sibling.txt", "sibling"))
   local env = this_program.environment()
-  env.COSMIC_VERDICT_CACHE = "0"
-  env.COSMIC_TEST_ALL = nil
-  env.COSMIC_SANDBOX = nil
-  env.COSMIC_TEST_SANDBOX = nil
+  env.COSMIC_VERDICT_CACHE = "0" -- checked: map_field
+  env.COSMIC_TEST_ALL = nil -- checked: map_field
+  env.COSMIC_SANDBOX = nil -- checked: map_field
+  env.COSMIC_TEST_SANDBOX = nil -- checked: map_field
   fixture.host_test(root, product, product .. "/given.txt")
-  env.COSMIC_TEST_SANDBOX = nil
+  env.COSMIC_TEST_SANDBOX = nil -- checked: map_field
   local text, ok = run(root, tmp .. "/given", env)
   assert(not ok, text)
   skip_if_unsandboxed(text)
@@ -224,17 +224,17 @@ local function test_child_reads_the_closure_store()
 end
 ]]))
   local env = this_program.environment()
-  env.COSMIC_VERDICT_CACHE = "0"
-  env.COSMIC_TEST_ALL = nil
-  env.COSMIC_SANDBOX = nil
+  env.COSMIC_VERDICT_CACHE = "0" -- checked: map_field
+  env.COSMIC_TEST_ALL = nil -- checked: map_field
+  env.COSMIC_SANDBOX = nil -- checked: map_field
   -- Sandboxed where it can be, whatever this run's own switch says.
-  env.COSMIC_TEST_SANDBOX = nil
+  env.COSMIC_TEST_SANDBOX = nil -- checked: map_field
   local step = { value = 0 }
   local function said(wanted: string, passes?: boolean): string
-    step.value = step.value + 1
-    local text, ok = run_again(root, tmp .. "/run" .. step.value, env)
-    assert(ok == (passes ~= false), step.value .. ": " .. text)
-    assert(text:find(wanted, 1, true), step.value .. ": " .. text)
+    step.value = step.value + 1 -- checked: map_field*2
+    local text, ok = run_again(root, tmp .. "/run" .. step.value, env) -- checked: map_field
+    assert(ok == (passes ~= false), step.value .. ": " .. text) -- checked: map_field
+    assert(text:find(wanted, 1, true), step.value .. ": " .. text) -- checked: map_field
     return text
   end
   local first = said("2 ran, 0 stood")
@@ -299,12 +299,12 @@ local function test_first(tmp: string) hold(tmp) end
 local function test_second(tmp: string) hold(tmp) end
 ]]))
   local env = this_program.environment()
-  env.COSMIC_VERDICT_CACHE = "0"
-  env.COSMIC_TEST_ALL = nil
-  env.COSMIC_SANDBOX = nil
+  env.COSMIC_VERDICT_CACHE = "0" -- checked: map_field
+  env.COSMIC_TEST_ALL = nil -- checked: map_field
+  env.COSMIC_SANDBOX = nil -- checked: map_field
   -- Sandboxed where it can be, whatever this run's own switch says.
-  env.COSMIC_TEST_SANDBOX = nil
-  env.TMPDIR = temp
+  env.COSMIC_TEST_SANDBOX = nil -- checked: map_field
+  env.TMPDIR = temp -- checked: map_field
   -- Each worker's directory holding the file its test wrote.
   local function held(): integer
     local count = 0

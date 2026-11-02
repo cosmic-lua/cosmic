@@ -253,7 +253,7 @@ function test.nearest(name: string, names: {string}): {string}
     return a < b
   end)
   local out: mut {string} = {}
-  for i = 1, math.min(#ranked, shown_names) do out[#out + 1] = ranked[i] end
+  for i = 1, math.min(#ranked, shown_names) do out[#out + 1] = ranked[i] end -- checked: index_may_be_nil
   return out
 end
 
@@ -450,7 +450,7 @@ local function encode_hits(test_hits: Coverage.Hits): string
   local out: mut {string} = {}
   for _, path in ipairs(paths) do
     local lines: mut {integer} = {}
-    for line in pairs(test_hits[path]) do
+    for line in pairs(test_hits[path]) do -- checked: index_may_be_nil
       lines[#lines + 1] = line
     end
     table.sort(lines)
@@ -469,10 +469,10 @@ local function decode_hits(encoded: string, hits: Coverage.Hits)
     local per_line = hits[path]
     if per_line == nil then
       per_line = {}
-      hits[path] = per_line
+      hits[path] = per_line -- checked: view_written
     end
     for line in lines:gmatch("%d+") do
-      per_line[math.tointeger(tonumber(line)) or 0] = true
+      per_line[math.tointeger(tonumber(line)) or 0] = true -- checked: view_written
     end
   end
 end
@@ -686,21 +686,21 @@ local function write_coverage(handle: Sqlite.Handle, modules: {Module},
     for _, path in ipairs(sorted_paths) do
       local hit_here = hits[path] or {}
       local per_line: coverage_report.LineHits = {}
-      for line in pairs(native_lines[path]) do
-        per_line[line] = hit_here[line] == true
+      for line in pairs(native_lines[path]) do -- checked: index_may_be_nil
+        per_line[line] = hit_here[line] == true -- checked: view_written
       end
-      local lines = sorted_lines(per_line)
+      local lines = sorted_lines(per_line) -- checked: any_use
       if #lines > 0 then
         local flags: mut {string} = {}
         for _, line in ipairs(lines) do
           if per_line[line] == true then
             flags[#flags + 1] = "1"
-            totals.hit = totals.hit + 1
+            totals.hit = totals.hit + 1 -- checked: map_field*2
           else
             flags[#flags + 1] = "0"
           end
         end
-        totals.lines = totals.lines + #lines
+        totals.lines = totals.lines + #lines -- checked: map_field*2
         local ok, write_trouble = coverage:bind_integer(1, run_at_ns)
         if ok then ok, write_trouble = coverage:bind_text(2, path) end
         if ok then
@@ -726,7 +726,7 @@ local function write_coverage(handle: Sqlite.Handle, modules: {Module},
         ok, write_trouble = per_test:bind_text(2, test_name)
       end
       if ok then
-        ok, write_trouble = per_test:bind_text(3, by_test[test_name])
+        ok, write_trouble = per_test:bind_text(3, by_test[test_name]) -- checked: index_may_be_nil
       end
       if not ok then
         return false, write_trouble
@@ -752,10 +752,10 @@ local function write_coverage(handle: Sqlite.Handle, modules: {Module},
   if not called then
     return 0, 0, tostring(made)
   end
-  if not made then
-    return 0, 0, trouble
+  if not made then -- checked: any_use
+    return 0, 0, trouble -- checked: nil_not_allowed
   end
-  return totals.hit, totals.lines, ""
+  return totals.hit, totals.lines, "" -- checked: map_field*2
 end
 
 --- Folds every line `from` holds into `into`, both keyed by module
@@ -764,9 +764,9 @@ end
 local function merge_hits(into: Coverage.Hits, from: Coverage.Hits)
   for path, per_line in pairs(from) do
     local existing = into[path] or {}
-    into[path] = existing
+    into[path] = existing -- checked: view_written
     for line in pairs(per_line) do
-      existing[line] = true
+      existing[line] = true -- checked: view_written
     end
   end
 end
@@ -777,9 +777,9 @@ end
 --- one whose o/ is removed is too.
 local function checkout_id(records: Sqlite.Handle, root: string, now_ns: integer): string
   local rows, _ = Sqlite.text_rows(records, "SELECT value FROM meta WHERE key = 'checkout'")
-  if rows ~= nil and rows[1] ~= nil then return rows[1]:text(1) end
+  if rows ~= nil and rows[1] ~= nil then return rows[1]:text(1) end -- checked: nil_not_allowed
   local made = hex_sha256(root .. "\0" .. tostring(now_ns) .. "\0" ..
-      tostring(Clock.monotonic_ns()) .. "\0" .. tostring({}))
+      tostring(Clock.monotonic_ns()) .. "\0" .. tostring({})) -- checked: literal_needs_type
   local _, _ = Sqlite.run(records, "INSERT OR REPLACE INTO meta (key, value) VALUES ('checkout', ?1)",
     { text(made) })
   return made
@@ -818,7 +818,7 @@ local function share(rec: Recording, m: Module, name: string, id: string,
   local hit: Coverage.Hits = {}
   decode_hits(elsewhere.hits, hit)
   for path in pairs(rec.unowned) do
-    hit[path] = nil
+    hit[path] = nil -- checked: view_written
   end
   merge_hits(rec.hits, hit)
   rec.by_test[id] = encode_hits(hit)
@@ -836,7 +836,7 @@ end
 --- A module's hit lines as a row of `coverage_by_test` holds them
 --- ([`encode_hits`]'s line), kept in `spelled` by the table
 --- [`worker.decode`] shares among the reports that held them.
-local function spell(spelled: mut {{integer:boolean}:string}, path: string,
+local function spell(spelled: mut {{integer:boolean}:string}, path: string, -- declared: key_type
                      per_line: {integer:boolean}): string
   local row = spelled[per_line]
   if row == nil then
@@ -860,8 +860,8 @@ end
 --- which tables have been, and are one run's, since a table folded into
 --- another run's `hits` is not in this one's.
 function test.take_hits(hits: Coverage.Hits, unowned: Coverage.Hits,
-                        folded: mut {{integer:boolean}:boolean},
-                        spelled: {{integer:boolean}:string},
+                        folded: mut {{integer:boolean}:boolean}, -- declared: key_type
+                        spelled: {{integer:boolean}:string}, -- declared: key_type
                         load_hits: Coverage.Hits, test_hits: Coverage.Hits): string
   local out: mut {string} = {}
   for _, taken in ipairs({ load_hits, test_hits }) do
@@ -875,10 +875,10 @@ function test.take_hits(hits: Coverage.Hits, unowned: Coverage.Hits,
       if not folded[per_line] then
         folded[per_line] = true
         local into = hits[path] or {}
-        hits[path] = into
-        for line in pairs(per_line) do into[line] = true end
+        hits[path] = into -- checked: view_written
+        for line in pairs(per_line) do into[line] = true end -- checked: nil_not_allowed, view_written
       end
-      out[#out + 1] = spell(spelled, path, per_line)
+      out[#out + 1] = spell(spelled, path, per_line) -- checked: nil_not_allowed
     end
   end
   return table.concat(out)
@@ -891,7 +891,7 @@ local function take_violations(rec: Recording, id: string, reported: worker.Repo
     -- A frame a traceback names by its module's name, as the file it was
     -- read from, as a statement the compiler placed is.
     local named, line = met.at:match("^([%w_%.]+):(%d+)$")
-    if named ~= nil and rec.files[named] ~= nil then met.at = rec.files[named] .. ":" .. line end
+    if named ~= nil and rec.files[named] ~= nil then met.at = rec.files[named] .. ":" .. line end -- checked: nil_not_allowed*2
     local key = table.concat({ met.kind, met.at, met.target, met.declared, met.actual }, "\t")
     local known = rec.violations[key]
     if known ~= nil then
@@ -1192,8 +1192,8 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: State.Limits,
         not (bail == true and #rec.failures > failures_before) do
       local job = jobs[next_job]
       next_job = next_job + 1
-      if launch(rec, job) then
-        running[#running + 1] = job
+      if launch(rec, job) then -- checked: nil_not_allowed
+        running[#running + 1] = job -- checked: nil_not_allowed
       end
     end
     if #running == 0 then break end
@@ -1201,7 +1201,7 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: State.Limits,
       cancelled = guard:cancelled()
       if cancelled ~= 0 then break end
     end
-    local earliest = assert(running[1].deadline_ns)
+    local earliest = assert(running[1].deadline_ns) -- checked: nil_not_allowed
     local handles: mut {Child.Handle} = {}
     for i, job in ipairs(running) do
       handles[i] = assert(job.handle)
@@ -1333,12 +1333,12 @@ local function limits_of(values: {string:string}): State.Limits?, string
     limits.timeout_ns = Clock.seconds(seconds)
   end
   if values["--timeout"] ~= nil then
-    local seconds, trouble = seconds_of(values["--timeout"], "--timeout")
+    local seconds, trouble = seconds_of(values["--timeout"], "--timeout") -- checked: index_may_be_nil
     if seconds == nil then return nil, trouble end
     limits.timeout_ns = Clock.seconds(seconds)
   end
   if values["--jobs"] ~= nil then
-    local jobs, trouble = positive(values["--jobs"], "--jobs")
+    local jobs, trouble = positive(values["--jobs"], "--jobs") -- checked: index_may_be_nil
     if jobs == nil then return nil, trouble end
     limits.jobs = jobs
   end
@@ -1360,7 +1360,7 @@ local function sandbox_here(): test_sandbox_probe.Answer
   local env: mut {string:string} = {}
   for name, value in pairs(test_key.worker_view()) do env[name] = value end
   for name, value in pairs(start.env) do env[name] = value end
-  env.TMPDIR = test_sandbox.scratch
+  env.TMPDIR = test_sandbox.scratch -- checked: map_field
   local answer = test_sandbox_probe.available(start.argv, env, start.fds, directory)
   local _, _ = Fs.remove_tree(directory)
   return answer
@@ -1391,8 +1391,8 @@ local function say_failures(rec: Recording, failures: {string})
     local id = rec.failed[failure]
     snapshots[#snapshots + 1] = {
       message = failure,
-      rerun = id ~= nil and rec.reruns[id] or nil,
-      printed = id ~= nil and rec.outputs[id] or nil,
+      rerun = id ~= nil and rec.reruns[id] or nil, -- checked: and_ternary
+      printed = id ~= nil and rec.outputs[id] or nil, -- checked: and_ternary
     }
   end
   for _, line in ipairs(test_report.failures(snapshots, rec.rerun_prefix)) do
@@ -1527,7 +1527,7 @@ local function read_command(ctx: Run): integer?
     return 1
   end
   ctx.root = root
-  local parsed, parse_trouble = Flags.parse(ctx.argv, 2, assert(Cli.verbs.test.spec))
+  local parsed, parse_trouble = Flags.parse(ctx.argv, 2, assert(Cli.verbs.test.spec)) -- checked: map_field
   if parsed == nil then
     log:complain("test: " .. parse_trouble)
     return 2
@@ -1561,7 +1561,7 @@ local function read_command(ctx: Run): integer?
     ctx.floors = { min = floor_values["--min"], min_file = floor_values["--min-file"] }
   end
   if parsed.values["--shard"] ~= nil then
-    local chosen, shard_trouble = test.shard(parsed.values["--shard"])
+    local chosen, shard_trouble = test.shard(parsed.values["--shard"]) -- checked: index_may_be_nil
     if chosen == nil then
       log:complain("test: " .. shard_trouble)
       return 2
@@ -1932,13 +1932,13 @@ local function select_tests(ctx: Run): integer?
   if shard ~= nil then
     local ids: mut {string} = {}
     for _, m in ipairs(selected_modules) do
-      for _, name in ipairs(selected_tests[m.path]) do ids[#ids + 1] = m.path .. " " .. name end
+      for _, name in ipairs(selected_tests[m.path]) do ids[#ids + 1] = m.path .. " " .. name end -- checked: index_may_be_nil
     end
     local dealt = test.dealt(ids, shard)
     local kept: mut {Module} = {}
     for _, m in ipairs(selected_modules) do
       local names: mut {string} = {}
-      for _, name in ipairs(selected_tests[m.path]) do
+      for _, name in ipairs(selected_tests[m.path]) do -- checked: index_may_be_nil
         if dealt[m.path .. " " .. name] == true then names[#names + 1] = name end
       end
       if #names > 0 then
@@ -1955,7 +1955,7 @@ local function select_tests(ctx: Run): integer?
   -- suite answers for is checked on such a run alone.
   ctx.whole = #selectors == 0 and shard == nil
   -- Said after the sandbox, last on the summary line, whichever verdict.
-  ctx.share_summary = shard ~= nil and
+  ctx.share_summary = shard ~= nil and -- checked: and_ternary
     string.format("; shard %d of %d", shard.index, shard.count) or ""
   return nil
 end
@@ -2043,10 +2043,10 @@ local function make_recording(ctx: Run)
     parameter_checks = assert(ctx.result).parameter_checks, violation_met = {}, violators = {}, violator_ns = {},
     failures = failures, errors = errors, outputs = {}, reruns = {},
     show_output = ctx.show_output == true, shown = {},
-    failed = {}, skips = {}, unchecked = {}, deliberate = {}, stopped = {}, held = ctx.held, nas = {}, unmet = {}, answered = {},
+    failed = {}, skips = {}, unchecked = {}, deliberate = {}, stopped = {}, held = ctx.held, nas = {}, unmet = {}, answered = {}, -- checked: nil_not_allowed
     hits = hits, by_test = by_test, unowned = unowned, own_tree = ctx.own_tree == true, tally = tally, not_run = 0,
     owed = { kept = {}, used = {}, failed = {}, stores = {} }, shared_keys = {},
-    consult_shared = ctx.consult,
+    consult_shared = ctx.consult, -- checked: nil_not_allowed
     accept_foreign = ctx.accept_foreign == true and ctx.consult == true and ctx.sandboxed == true,
     origin = checkout_id(records, assert(ctx_root), ctx.run_at_ns),
     views = {}, caches = {}, unkeyed = {},
@@ -2132,7 +2132,7 @@ local function require_of_host(ctx: Run): integer?
     table.sort(names)
     local asked, trouble = pcall(function()
       local answers = host_requires.answer(probed, names)
-      ctx.c_unavailable = c_functions.unavailable(answers, ctx.held and ctx.promises or nil)
+      ctx.c_unavailable = c_functions.unavailable(answers, ctx.held and ctx.promises or nil) -- checked: condition_type
       for _, answer in ipairs(answers) do
         if answer.kind == "refused" then
           rec.errors[#rec.errors + 1] = "C coverage requires " .. answer.name .. ": " .. answer.why
@@ -2191,7 +2191,7 @@ local function look_up_verdicts(ctx: Run)
   local keyed_count, looked_count, found_count, ran_here = 0, 0, 0, 0
   for _, m in ipairs(selected_modules) do
     local unmet = rec.unmet[m.path]
-    for _, name in ipairs(selected_tests[m.path]) do
+    for _, name in ipairs(selected_tests[m.path]) do -- checked: index_may_be_nil
       local id = m.path .. " " .. name
       if unmet ~= nil then
         settle_unmet(rec, m, name, id, unmet)
@@ -2228,7 +2228,7 @@ local function look_up_verdicts(ctx: Run)
       { "host kernel", declared_key.host_kernel() },
       { "host", assert(rec.host):sub(1, 12) },
       { "system", (rec.system or ""):sub(1, 12) },
-      { "runtime", hex_sha256(rec.runtime or ""):sub(1, 12) },
+      { "runtime", hex_sha256(rec.runtime or ""):sub(1, 12) }, -- checked: condition_type
       { "compiler", (rec.compiler or ""):sub(1, 12) },
       -- The key's harness parts, its epoch and timeout, as one word.
       { "harness", test_key.harness_word(rec.epoch, rec.timeout_ns) },
@@ -2247,7 +2247,7 @@ local function look_up_verdicts(ctx: Run)
     end
     local runs_tool = false
     for _, m in ipairs(selected_modules) do
-      if rec.effective[m.path] ~= nil and rec.effective[m.path].tool then runs_tool = true end
+      if rec.effective[m.path] ~= nil and rec.effective[m.path].tool then runs_tool = true end -- checked: nil_not_allowed
     end
     if runs_tool then
       table.insert(parts, { "program", test_key.program_of(rec):sub(1, 12) })
@@ -2277,7 +2277,7 @@ local function look_up_verdicts(ctx: Run)
     local line: string? = nil
     if shared ~= nil and found_count == 0 then
       local census, _ = shared_verdicts.census(shared, looked)
-      line = census ~= nil and shared_verdicts.unmatched(shared.path, looked_count,
+      line = census ~= nil and shared_verdicts.unmatched(shared.path, looked_count, -- checked: and_ternary
         census, parts) or nil
     end
     if line == nil and census_asked == true then line = shared_verdicts.key_parts(parts) end
@@ -2291,7 +2291,7 @@ local function look_up_verdicts(ctx: Run)
   test_key.close_keying(rec)
   local tests = 0
   for _, m in ipairs(selected_modules) do
-    if rec.unmet[m.path] == nil then tests = tests + #selected_tests[m.path] end
+    if rec.unmet[m.path] == nil then tests = tests + #selected_tests[m.path] end -- checked: nil_not_allowed
   end
   -- Workers that would run on a sealed database but run the whole
   -- program, as this one is no portable artifact to take its database from.
@@ -2300,7 +2300,7 @@ local function look_up_verdicts(ctx: Run)
     local effective = rec.effective[m.path]
     if rec.unmet[m.path] == nil and rec.stores[m.path] ~= nil and effective ~= nil and
         not (effective.store or effective.tool) and not test_key.seals(rec, m) then
-      unsealed = unsealed + #selected_tests[m.path]
+      unsealed = unsealed + #selected_tests[m.path] -- checked: nil_not_allowed
     end
   end
   if unsealed > 0 then
@@ -2315,7 +2315,7 @@ local function look_up_verdicts(ctx: Run)
   table.sort(unkeyed)
   for _, path in ipairs(unkeyed) do
     log:say(keying .. path .. " has no key, so its tests run every time: " ..
-        rec.unkeyed[path])
+        rec.unkeyed[path]) -- checked: nil_not_allowed
   end
 end
 
@@ -2326,7 +2326,7 @@ local record Removal
   __close: function(Removal)
 end
 
-local removal_mt: metatable<Removal> = {
+local removal_mt: metatable<Removal> = { -- checked: literal_missing
   __close = function(removal: Removal) test_key.drop_sealing(removal.rec) end,
 }
 
@@ -2373,7 +2373,7 @@ local function execute(ctx: Run): integer?
     -- would.
     -- Whatever ends the run, an error escaping it included, takes out
     -- the directory of its sealed databases.
-    local _removing <close>: Removal = setmetatable({ rec = rec }, removal_mt)
+    local _removing <close>: Removal = setmetatable({ rec = rec }, removal_mt) -- checked: close_not_closable, setmetatable_call -- untyped: call
     local opened, _ = Signal.guard()
     if opened == nil then
       run_jobs(rec, jobs, assert(ctx.limits), nil, ctx.bail)
@@ -2410,9 +2410,9 @@ local function keep_violations(records: Sqlite.Handle, rec: Recording,
     local saved, save_trouble = Sqlite.run(records,
       "INSERT INTO type_violations (ran_at_ns, kind, site, target, declared, actual, " ..
         "count, test) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-      { { integer = run_at_ns }, text(met.kind), text(met.at), text(met.target),
-        text(met.declared), text(met.actual), { integer = met.count },
-        text(rec.violation_tests[key]) })
+      { { integer = run_at_ns }, text(met.kind), text(met.at), text(met.target), -- checked: nil_not_allowed*3
+        text(met.declared), text(met.actual), { integer = met.count }, -- checked: nil_not_allowed*3
+        text(rec.violation_tests[key]) }) -- checked: index_may_be_nil
     if not saved then return false, save_trouble end
   end
   local cleared_tests, clear_tests_trouble = records:exec("DELETE FROM type_violation_tests")
@@ -2455,9 +2455,9 @@ local function say_violations(rec: Recording)
   local seen: mut {string:boolean} = {}
   for _, key in ipairs(rec.violation_order) do
     local met = rec.violations[key]
-    total = total + met.count
-    if seen[met.at] ~= true then
-      seen[met.at] = true
+    total = total + met.count -- checked: nil_not_allowed
+    if seen[met.at] ~= true then -- checked: nil_not_allowed
+      seen[met.at] = true -- checked: nil_not_allowed
       places = places + 1
     end
   end
@@ -2466,7 +2466,7 @@ local function say_violations(rec: Recording)
       "fails the test that meets it; the rest are reported only)%s; all of them: cosmic sql --build 'SELECT * FROM " ..
       "type_violations'",
     plural.count(total, "violation"), distinct, plural.count(places, "place"),
-    rec.violations_dropped > 0 and string.format("; %s more went unrecorded",
+    rec.violations_dropped > 0 and string.format("; %s more went unrecorded", -- checked: and_ternary
       plural.count(rec.violations_dropped, "kind")) or ""))
   log:say(string.format("test: run-time types: %s and %s written in the compile; %s stood on checked verdicts",
     plural.count(rec.fact_wraps, "fact wrap"), plural.count(rec.parameter_checks, "parameter check"),
@@ -2483,14 +2483,14 @@ local function say_violations(rec: Recording)
   local order: mut {string} = {}
   for i, key in ipairs(rec.violation_order) do order[i] = key end
   table.sort(order, function(a: string, b: string): boolean
-    local ca, cb = rec.violations[a].count, rec.violations[b].count
+    local ca, cb = rec.violations[a].count, rec.violations[b].count -- checked: nil_not_allowed*2
     if ca ~= cb then return ca > cb end
     return a < b
   end)
   for i = 1, math.min(SAMPLE_VIOLATIONS, #order) do
-    local met = rec.violations[order[i]]
-    log:say(string.format("test:   %s: %s declared %s got %s (%s)", met.at, met.target,
-      met.declared, met.actual, plural.count(met.count, "time")))
+    local met = rec.violations[order[i]] -- checked: index_may_be_nil
+    log:say(string.format("test:   %s: %s declared %s got %s (%s)", met.at, met.target, -- checked: nil_not_allowed*2
+      met.declared, met.actual, plural.count(met.count, "time"))) -- checked: nil_not_allowed*3
   end
 end
 
@@ -2554,7 +2554,7 @@ local function settle(ctx: Run)
     local names, uname_trouble = sys.uname()
     if names == nil then errors[#errors + 1] = "uname: " .. uname_trouble end
     local entered = c_functions.tally(functions, hits, c_functions.sources(assert(ctx.root), functions),
-      names ~= nil and names.sysname or nil, ctx.c_unavailable)
+      names ~= nil and names.sysname or nil, ctx.c_unavailable) -- checked: and_ternary
     for _, key in ipairs(entered.unentered) do
       failures[#failures + 1] = key .. ": a C function no test enters"
     end

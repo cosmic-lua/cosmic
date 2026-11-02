@@ -185,7 +185,7 @@ local function served(tmp: string, name: string, wait_ms: integer | string, befo
       end
     end)
     local ports: mut {string} = {}
-    for _, other in ipairs(if before ~= nil then before() else {} end) do
+    for _, other in ipairs(if before ~= nil then before() else {} end) do -- checked: literal_needs_type
       ports[#ports + 1] = tostring(other)
     end
     ports[#ports + 1] = tostring(port)
@@ -245,7 +245,7 @@ local function stuck_server(held: mut {function()}): {integer}
     end
   end
   assert(taken >= 1 and taken < 4, tostring(taken) .. " connections were taken")
-  return { stuck.address.port }
+  return { stuck.address.port } -- checked: nil_not_allowed
 end
 
 --- A first name server that never takes the connection costs the
@@ -260,9 +260,9 @@ local function test_a_server_that_never_answers_its_connect_fails_over_to_the_ne
   for _, close in ipairs(held) do close() end
   assert(seen.lines[1] == "192.0.2.7,2001:db8::7", tostring(seen.lines[1]))
   assert(seen.lines[2] == "192.0.2.7,2001:db8::7", tostring(seen.lines[2]))
-  for took in seen.lines[3]:gmatch("[^,]+") do
+  for took in seen.lines[3]:gmatch("[^,]+") do -- checked: nil_not_allowed
     local ms = assert(math.tointeger(tonumber(took)))
-    assert(ms >= 400 and ms < 5000, seen.lines[3] .. " ms")
+    assert(ms >= 400 and ms < 5000, seen.lines[3] .. " ms") -- checked: nil_not_allowed
   end
   assert(seen.datagrams == 0, tostring(seen.datagrams) .. " datagrams were sent")
 end
@@ -280,7 +280,7 @@ local function test_a_lookup_out_of_time_still_takes_the_connectors_reply(tmp: s
   for _, close in ipairs(held) do close() end
   assert(seen.lines[1] == "error " .. Poll.TIMEOUT, tostring(seen.lines[1]))
   assert(seen.lines[2] == "192.0.2.7,2001:db8::7", tostring(seen.lines[2]))
-  local first = assert(math.tointeger(tonumber(seen.lines[3]:match("^(%d+)"))))
+  local first = assert(math.tointeger(tonumber(seen.lines[3]:match("^(%d+)")))) -- checked: nil_not_allowed
   assert(first >= 100 and first < 480, "the first lookup ended after " .. tostring(first) .. " ms, not at its deadline")
 end
 
@@ -313,7 +313,7 @@ local function test_an_unreachable_name_server_fails_the_lookup()
   local free = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
   local port = assert(free.address.port)
   assert(free:close())
-  local dns <close> = assert(Net.connector({ { host = "127.0.0.1", port = port } }))
+  local dns <close> = assert(Net.connector({ { host = "127.0.0.1", port = port } })) -- checked: close_not_closable
   local found, why = Net.resolve("down.example.test", { timeout_ns = Clock.seconds(20), connector = dns,
     servers = { { host = "127.0.0.1", port = port } } })
   assert(found == nil and why == "Connection refused", tostring(why))
@@ -323,24 +323,24 @@ local function test_an_unreachable_name_server_fails_the_lookup()
   assert(found == nil and why == "Connection refused", tostring(why))
   -- A numeric address answers itself and asks no one.
   local literal = assert(Net.resolve("192.0.2.1", { connector = dns, servers = { { host = "127.0.0.1", port = port } } }))
-  assert(#literal == 1 and literal[1].address == "192.0.2.1")
+  assert(#literal == 1 and literal[1].address == "192.0.2.1") -- checked: nil_not_allowed
 end
 
 local function test_a_name_server_the_connector_lacks_is_refused_before_anything_is_asked()
   require_native_connector()
-  local dns <close> = assert(Net.connector({ { host = "127.0.0.1", port = 53 } }))
+  local dns <close> = assert(Net.connector({ { host = "127.0.0.1", port = 53 } })) -- checked: close_not_closable
   local found, why = Net.resolve("example.test", { connector = dns, servers = { { host = "127.0.0.1", port = 5353 } } })
   assert(found == nil and why == "net: the name server 127.0.0.1:5353 is not in the connector's table", why)
   found, why = Net.resolve("example.test", { connector = dns, servers = { { host = "192.0.2.53", port = 53 } } })
   assert(found == nil and why:find("is not in the connector's table", 1, true) ~= nil, why)
-  local public <close> = assert(Net.connector({}, { public = { deny = {} } }))
+  local public <close> = assert(Net.connector({}, { public = { deny = {} } })) -- checked: close_not_closable
   found, why = Net.resolve("example.test", { connector = public, servers = { { host = "127.0.0.1", port = 53 } } })
   assert(found == nil and why:find("is not in the connector's table", 1, true) ~= nil, why)
   assert(dns:close())
   found, why = Net.resolve("example.test", { connector = dns, servers = { { host = "127.0.0.1", port = 53 } } })
   assert(found == nil and why == "net: the connector is closed", why)
-  local stand_in: any = { connect = function() end }
-  assert(not pcall(Net.resolve, "example.test", { connector = stand_in as Net.Connector }))
+  local stand_in: any = { connect = function() end } -- checked: any_use
+  assert(not pcall(Net.resolve, "example.test", { connector = stand_in as Net.Connector })) -- checked: alternatives_as_value, cast_refused
 end
 
 --- The connector made of the name servers resolv.conf names is confined
@@ -355,13 +355,13 @@ local function test_the_name_servers_connector_refuses_what_is_no_name_server(tm
   local rows = servers
   local table_rows: mut {Net.Endpoint} = {}
   for i, server in ipairs(servers) do table_rows[i] = { host = server.host, port = server.port } end
-  local dns <close> = assert(Net.connector(table_rows))
+  local dns <close> = assert(Net.connector(table_rows)) -- checked: close_not_closable
   local conn, why = dns:connect(Net.tcp("127.0.0.1", 80), { timeout_ns = Clock.seconds(5) })
   assert(conn == nil and why:find("is not in the connector's table", 1, true) ~= nil, tostring(why))
   conn, why = dns:connect(Net.tcp("192.0.2.1", 53), { timeout_ns = Clock.seconds(5) })
   assert(conn == nil and why:find("is not in the connector's table", 1, true) ~= nil, tostring(why))
   -- The process itself, asked past the checks of its Lua side.
-  local started <close> = assert(Connector.start(rows, 1000))
+  local started <close> = assert(Connector.start(rows, 1000)) -- checked: close_not_closable
   local function read_whole(count: integer): string
     local reply = ""
     while #reply < count do
@@ -409,7 +409,7 @@ local function test_a_name_server_reset_as_it_is_made_leaves_the_stream_in_step(
   assert(sys.set_nonblocking(pair.controller, true))
   assert(sys.set_nonblocking(pair.connector, true))
   assert(sys.write(pair.connector, string.pack(">I4", socket.CONNECTOR_HELLO)) == 4)
-  local dns <close> = assert(Connector.adopted(pair.controller, { { host = "127.0.0.1", port = 53 } }, false, Clock.ms(100)))
+  local dns <close> = assert(Connector.adopted(pair.controller, { { host = "127.0.0.1", port = 53 } }, false, Clock.ms(100))) -- checked: close_not_closable
   local asked: string? = nil
   local found: {Net.Resolved}? = nil
   local why: string? = nil
@@ -448,7 +448,7 @@ local function test_a_lookup_reads_the_connectors_hello_before_it_asks(tmp: stri
   assert(Fs.write(hosts, ""))
   local other = ConnectorEnds.connector_pair()
   assert(sys.write(other.connector, string.pack(">I4", 0x434e4301)) == 4)
-  local dns <close> = assert(Connector.adopted(other.controller, { { host = "127.0.0.1", port = 53 } }, false, Clock.ms(100)))
+  local dns <close> = assert(Connector.adopted(other.controller, { { host = "127.0.0.1", port = 53 } }, false, Clock.ms(100))) -- checked: close_not_closable
   local none, trouble = Net.resolve("hello.example.test", { timeout_ns = Clock.seconds(2), connector = dns,
     servers = { { host = "127.0.0.1", port = 53 } }, hosts_file = hosts })
   assert(none == nil and trouble == "net: the connector speaks another protocol than this program's: " ..
@@ -476,7 +476,7 @@ local function test_a_connector_that_passes_the_wrong_descriptor_is_given_up(tmp
     assert(sys.set_nonblocking(pair.controller, true))
     assert(sys.set_nonblocking(pair.connector, true))
     assert(sys.write(pair.connector, string.pack(">I4", socket.CONNECTOR_HELLO)) == 4)
-    local dns <close> = assert(Connector.adopted(pair.controller, { { host = "127.0.0.1", port = 53 } }, false, Clock.ms(100)))
+    local dns <close> = assert(Connector.adopted(pair.controller, { { host = "127.0.0.1", port = 53 } }, false, Clock.ms(100))) -- checked: close_not_closable
     local asked: string? = nil
     local found: {Net.Resolved}? = nil
     local why: string? = nil
@@ -511,7 +511,7 @@ local function test_a_connector_that_never_replies_ends_the_lookup_and_is_not_as
   local peer = pair.connector
   assert(sys.write(peer, string.pack(">I4", socket.CONNECTOR_HELLO)) == 4)
   -- Its process would wait 100 ms to connect and a grace more: the lookup ends at its own deadline.
-  local dns <close> = assert(Connector.adopted(pair.controller, { { host = "127.0.0.1", port = 53 } }, false, Clock.ms(100)))
+  local dns <close> = assert(Connector.adopted(pair.controller, { { host = "127.0.0.1", port = 53 } }, false, Clock.ms(100))) -- checked: close_not_closable
   local opts: Net.ResolveOptions = { timeout_ns = Clock.ms(200), connector = dns,
     servers = { { host = "127.0.0.1", port = 53 } } }
   local began = Clock.monotonic_ns()
@@ -565,7 +565,7 @@ local function test_nameservers_reads_the_servers_resolv_conf_names(tmp: string)
   if none == nil then
     assert(trouble:find("scoped to an interface", 1, true) ~= nil, trouble)
   else
-    assert(#none == 1 and none[1].host == "127.0.0.1", none[1].host)
+    assert(#none == 1 and none[1].host == "127.0.0.1", none[1].host) -- checked: nil_not_allowed
   end
   -- None configured: the resolver's default.
   assert(missing ~= nil and #missing == 1 and missing[1].host == "127.0.0.1" and missing[1].port == 53)
@@ -582,14 +582,14 @@ local function test_the_relays_name_servers_stand_when_the_system_names_others(t
   local hosts = tmp .. "/hosts"
   assert(Fs.write(hosts, "198.51.100.9 kept.example.test\n"))
   local opts = assert(name_server_options({ resolv_conf = conf }))
-  local _dns <close> = assert(opts.connector)
+  local _dns <close> = assert(opts.connector) -- checked: close_not_closable
   local servers = assert(opts.servers)
-  assert(#servers == 1 and servers[1].host == "192.0.2.53" and servers[1].port == 53)
+  assert(#servers == 1 and servers[1].host == "192.0.2.53" and servers[1].port == 53) -- checked: nil_not_allowed*2
   local system = Resolv.nameservers()
-  assert(system == nil or system[1].host ~= "192.0.2.53", "the system names the test's server")
+  assert(system == nil or system[1].host ~= "192.0.2.53", "the system names the test's server") -- checked: nil_not_allowed
   local found, why = Net.resolve("kept.example.test",
     { connector = opts.connector, servers = opts.servers, hosts_file = hosts, timeout_ns = Clock.seconds(5) })
-  assert(found ~= nil and #found == 1 and found[1].address == "198.51.100.9", tostring(why))
+  assert(found ~= nil and #found == 1 and found[1].address == "198.51.100.9", tostring(why)) -- checked: nil_not_allowed
   -- Without the servers, the lookup asks the system's, which the table lacks.
   found, why = Net.resolve("kept.example.test", { connector = opts.connector, hosts_file = hosts })
   assert(found == nil, "the system's servers were asked through the table")
@@ -610,9 +610,9 @@ local function test_the_relays_wait_leaves_the_second_server_time_to_answer(tmp:
   for _, close in ipairs(held) do close() end
   assert(seen.lines[1] == "192.0.2.7,2001:db8::7", tostring(seen.lines[1]))
   assert(seen.lines[2] == "192.0.2.7,2001:db8::7", tostring(seen.lines[2]))
-  for took in seen.lines[3]:gmatch("[^,]+") do
+  for took in seen.lines[3]:gmatch("[^,]+") do -- checked: nil_not_allowed
     local ms = assert(math.tointeger(tonumber(took)))
-    assert(ms >= 1500 and ms < 5000, seen.lines[3] .. " ms")
+    assert(ms >= 1500 and ms < 5000, seen.lines[3] .. " ms") -- checked: nil_not_allowed
   end
 end
 
@@ -625,7 +625,7 @@ local function silent_lookup(count: integer, lookup_ms: integer)
   local endpoints: mut {Resolv.Endpoint} = {}
   for _ = 1, count do
     local port = stuck_server(held)[1]
-    endpoints[#endpoints + 1] = { host = "127.0.0.1", port = port }
+    endpoints[#endpoints + 1] = { host = "127.0.0.1", port = port } -- checked: nil_not_allowed
   end
   local opts = assert(name_server_options({ servers = endpoints, resolve = Clock.ms(lookup_ms) }))
   local wait = math.max(500, lookup_ms // (count + 1))
@@ -648,19 +648,19 @@ local function test_three_silent_name_servers_time_the_lookup_out_within_its_bou
 end
 
 local function test_name_servers_and_an_adopted_connector_refuse_what_is_out_of_range()
-  local zero: any = 0
-  assert(not pcall(RelayStart.name_servers, { resolve = zero as integer }))
-  assert(not pcall(RelayStart.name_servers, { resolve = -1 }))
+  local zero: any = 0 -- checked: any_use
+  assert(not pcall(RelayStart.name_servers, { resolve = zero as integer })) -- checked: alternatives_as_value, cast_refused
+  assert(not pcall(RelayStart.name_servers, { resolve = -1 })) -- checked: alternatives_as_value
   local pair = ConnectorEnds.connector_pair()
-  assert(not pcall(Connector.adopted, pair.controller, nil, false, 5))
-  assert(not pcall(Connector.adopted, pair.controller, nil, false, Clock.seconds(61)))
+  assert(not pcall(Connector.adopted, pair.controller, nil, false, 5)) -- checked: alternatives_as_value
+  assert(not pcall(Connector.adopted, pair.controller, nil, false, Clock.seconds(61))) -- checked: alternatives_as_value
   assert(sys.close(pair.controller))
   assert(sys.close(pair.connector))
 end
 
 local function test_more_name_servers_than_a_connector_holds_is_a_failure()
   require_native_connector()
-  local dns <close> = assert(Net.connector({ { host = "127.0.0.1", port = 53 } }))
+  local dns <close> = assert(Net.connector({ { host = "127.0.0.1", port = 53 } })) -- checked: close_not_closable
   local servers: mut {Net.Endpoint} = {}
   for i = 1, 129 do servers[i] = { host = "127.0.0.1", port = 1000 + i } end
   local found, why = Net.resolve("many.example.test", { connector = dns, servers = servers })
@@ -712,7 +712,7 @@ local function test_a_lookup_nobody_answers_stalls_no_other_task(tmp: string)
   local found: {Net.Resolved}? = nil
   local why: string? = nil
   local worst, took = ticking_beside(function()
-    found, why = Net.resolve("silent.example.test", { timeout_ns = Clock.ms(600), servers = { { host = "127.0.0.1", port = silent.address.port } },
+    found, why = Net.resolve("silent.example.test", { timeout_ns = Clock.ms(600), servers = { { host = "127.0.0.1", port = silent.address.port } }, -- checked: nil_not_allowed
       hosts_file = hosts })
   end)
   Udp.close(silent)
@@ -731,7 +731,7 @@ local function test_a_lookup_through_a_silent_connector_stalls_no_other_task(tmp
   assert(Fs.write(hosts, ""))
   local pair = ConnectorEnds.connector_pair()
   assert(sys.write(pair.connector, string.pack(">I4", socket.CONNECTOR_HELLO)) == 4)
-  local dns <close> = assert(Connector.adopted(pair.controller, { { host = "127.0.0.1", port = 53 } }, false, Clock.ms(100)))
+  local dns <close> = assert(Connector.adopted(pair.controller, { { host = "127.0.0.1", port = 53 } }, false, Clock.ms(100))) -- checked: close_not_closable
   local found: {Net.Resolved}? = nil
   local why: string? = nil
   local worst, took = ticking_beside(function()
@@ -774,7 +774,7 @@ local function test_a_cancelled_lookup_closes_everything_it_held(tmp: string)
   assert(Fs.write(hosts, ""))
   local silent = assert(Udp.bind("127.0.0.1", 0))
   local waited, outcome, before, after = cancelled_lookup(
-    { timeout_ns = Clock.seconds(30), servers = { { host = "127.0.0.1", port = silent.address.port } }, hosts_file = hosts })
+    { timeout_ns = Clock.seconds(30), servers = { { host = "127.0.0.1", port = silent.address.port } }, hosts_file = hosts }) -- checked: nil_not_allowed
   assert(outcome == Poll.CANCELLED, outcome)
   assert(waited < 1500, "a cancelled lookup took " .. tostring(waited) .. " ms to end")
   assert(after == before, "a cancelled lookup left a descriptor open")
@@ -791,7 +791,7 @@ local function test_a_cancelled_lookup_through_a_connector_closes_everything_it_
   assert(Fs.write(hosts, ""))
   local pair = ConnectorEnds.connector_pair()
   assert(sys.write(pair.connector, string.pack(">I4", socket.CONNECTOR_HELLO)) == 4)
-  local dns <close> = assert(Connector.adopted(pair.controller, { { host = "127.0.0.1", port = 53 } }, false, Clock.ms(100)))
+  local dns <close> = assert(Connector.adopted(pair.controller, { { host = "127.0.0.1", port = 53 } }, false, Clock.ms(100))) -- checked: close_not_closable
   local waited, outcome, before, after = cancelled_lookup({ timeout_ns = Clock.seconds(30), connector = dns,
     servers = { { host = "127.0.0.1", port = 53 } }, hosts_file = hosts })
   assert(outcome == Poll.CANCELLED, outcome)

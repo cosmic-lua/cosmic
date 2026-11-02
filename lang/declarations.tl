@@ -361,7 +361,7 @@ local record Declarations
   catalog: {Row}
 end
 
-Declarations.codes = {
+Declarations.codes = { -- checked: field_fixed
   "interface_disagrees", "super_not_interface", "super_cycle", "listing_too_large", "untagged_union",
   "array_of_optional", "float_key", "key_type", "repeated_field", "repeated_value", "type_arguments",
   "type_too_deep", "alias_cycle", "bound_not_interface", "lists_overlap", "bound_not_met", "outer_type_parameter", "member_missing",
@@ -369,7 +369,7 @@ Declarations.codes = {
   "unused_type_parameter", "metamethod_unknown", "array_part_map", "store_refused",
 }
 
-Declarations.catalog = {
+Declarations.catalog = { -- checked: field_fixed
   {
     code = "interface_disagrees", rule = "interface agreement",
     why = "a type conforms to an interface only by listing it with `is`, and the listing is checked once, where " ..
@@ -753,17 +753,17 @@ local function parameter_type(ctx: Ctx, id: integer): Type?, boolean
   local blocked = false
   for i = #ctx.frames, 1, -1 do
     local f = ctx.frames[i]
-    local index = f.ids[id]
+    local index = f.ids[id] -- checked: nil_not_allowed
     if index ~= nil then
       if blocked then
         return nil, true
       end
       return ctx.store:var(depth, index), false
     end
-    if f.count > 0 then
+    if f.count > 0 then -- checked: nil_not_allowed
       depth = depth + 1
     end
-    if f.barrier then
+    if f.barrier then -- checked: nil_not_allowed
       blocked = true
     end
   end
@@ -820,7 +820,7 @@ local function attempt(ctx: Ctx, node: Ast.Node, build: function(): Type): Type
     box[1] = build()
   end)
   if ok then
-    return box[1]
+    return box[1] -- checked: index_may_be_nil
   end
   local text = tostring(why)
   if text:find("nested deeper than", 1, true) ~= nil then
@@ -876,11 +876,11 @@ local function parameter_list(e: Entry, count: integer): string
   end
   local names: mut {string} = {}
   local decl = e.decl
-  local body = decl ~= nil and decl.body or nil
+  local body = decl ~= nil and decl.body or nil -- checked: and_ternary
   local alias = e.alias
   for i = 1, count do
     local held = body ~= nil and body.tparams[i] or nil
-    local from_alias = alias ~= nil and alias.tparams[i] or nil
+    local from_alias = alias ~= nil and alias.tparams[i] or nil -- checked: and_ternary
     names[#names + 1] = held ~= nil and held.name or from_alias ~= nil and from_alias.name or (if count == 1 then "T" else "T" .. tostring(i) end)
   end
   return "<" .. table.concat(names, ", ") .. ">"
@@ -915,7 +915,7 @@ local function follow(ctx: Ctx, t: Ast.TypeName, base: Entry, rest: {string}): E
     local what = table.concat(rest, ".")
     local owner = dotted(base)
     local owner_decl = base.decl
-    local body = owner_decl ~= nil and owner_decl.body or nil
+    local body = owner_decl ~= nil and owner_decl.body or nil -- checked: and_ternary
     local field = false
     if body ~= nil and #rest == 1 then
       for _, f in ipairs(body.fields) do
@@ -966,7 +966,7 @@ local function resolve_entry(ctx: Ctx, t: Ast.TypeName): Entry?
       end
       local info = known_module(ctx, v.module)
       if info == nil then
-        report_at(ctx, "member_missing", t, "the module " .. quoted(v.module) .. " that " .. quoted(head) ..
+        report_at(ctx, "member_missing", t, "the module " .. quoted(v.module) .. " that " .. quoted(head) .. -- checked: nil_not_allowed
             " imports is not known to the checker",
           "import a module of the project: its declarations are what a type of it names")
         return nil
@@ -982,13 +982,13 @@ local function resolve_entry(ctx: Ctx, t: Ast.TypeName): Entry?
     end
     return nil
   end
-  local declared = ctx.program.globals[head]
+  local declared = ctx.program.globals[head] -- checked: nil_not_allowed
   if declared ~= nil then
     return follow(ctx, t, declared, rest)
   end
-  if ctx.scoped.globals[head] ~= nil then
-    report_at(ctx, "member_missing", t, "no declaration file declares the type " .. quoted(head),
-      "declare " .. quoted(head) .. " with `global` in a declaration file")
+  if ctx.scoped.globals[head] ~= nil then -- checked: nil_not_allowed
+    report_at(ctx, "member_missing", t, "no declaration file declares the type " .. quoted(head), -- checked: nil_not_allowed
+      "declare " .. quoted(head) .. " with `global` in a declaration file") -- checked: nil_not_allowed
   end
   return nil
 end
@@ -998,7 +998,7 @@ end
 local lower_bound: function(ctx: Ctx, p: Ast.TypeParam): Type?
 
 --- Lowers the alias, which names a type with its own type parameters as the one binder.
-local function lower_alias(ctx: Ctx, alias: AliasInfo)
+local function lower_alias(ctx: Ctx, alias: AliasInfo) -- checked: not_assigned*2
   local node = alias.node
   if node == nil then
     alias.state = "unavailable"
@@ -1102,7 +1102,7 @@ local function use_entry(ctx: Ctx, t: Ast.TypeName, e: Entry): Type
       made = store:named(decl, args)
     end
     if #args > 0 and made.tag ~= "invalid" then
-      table.insert(ctx.uses, { node = t, decl = decl, args = args, names = binder_names(ctx.frames) })
+      table.insert(ctx.uses, { node = t, decl = decl, args = args, names = binder_names(ctx.frames) }) -- checked: literal_missing
     end
     return made
   end
@@ -1117,7 +1117,7 @@ local function use_entry(ctx: Ctx, t: Ast.TypeName, e: Entry): Type
       -- The use is in an array or a map of the alias's own body (`type Json = string | {Json}`): the alias
       -- is named, so that a type does not have to hold itself.
       local named = alias.decl or store:declare("alias", alias.module, alias.names, 0)
-      alias.decl = named
+      alias.decl = named -- checked: field_fixed
       return store:named(named, {})
     end
     report_at(ctx, "alias_cycle", t, "the alias " .. quoted(alias.name) .. " names itself, with no declaration between",
@@ -1148,7 +1148,7 @@ local function use_entry(ctx: Ctx, t: Ast.TypeName, e: Entry): Type
         tostring(MAX_DEPTH) .. " types deep", "name a part of the arguments with a record, which a type does not unfold")
     return store.invalid
   end
-  table.insert(ctx.uses, { node = t, alias = alias, args = args, names = binder_names(ctx.frames) })
+  table.insert(ctx.uses, { node = t, alias = alias, args = args, names = binder_names(ctx.frames) }) -- checked: literal_missing
   return made
 end
 
@@ -1160,7 +1160,7 @@ local function lower_name(ctx: Ctx, t: Ast.TypeName): Type
   if head == nil then
     return store.invalid
   end
-  local primitive = #path == 1 and PRIMITIVES[head] or nil
+  local primitive = #path == 1 and PRIMITIVES[head] or nil -- checked: and_ternary
   if primitive ~= nil then
     if #t.args > 0 then
       report_at(ctx, "type_arguments", t, quoted(head) .. " takes no type arguments, not " .. tostring(#t.args),
@@ -1178,7 +1178,7 @@ local function lower_name(ctx: Ctx, t: Ast.TypeName): Type
     return store.invalid
   end
   local vid = ctx.scoped.resolved[t.id]
-  local v = vid ~= nil and ctx.scoped.vars[vid] or nil
+  local v = vid ~= nil and ctx.scoped.vars[vid] or nil -- checked: and_ternary
   if v ~= nil and v.kind == "typeparam" then
     if #path > 1 or #t.args > 0 then
       report_at(ctx, "type_arguments", t, "the type parameter " .. quoted(head) .. " takes no type arguments and has no members",
@@ -1243,7 +1243,7 @@ end
 --- Whether the lists `a` and `b` have `true` in one and `false` in the other at a position, which tells them apart.
 local function told_apart(a: Types.Alt, b: Types.Alt): boolean
   for i = 1, math.min(#a.items, #b.items) do
-    local x, y = a.items[i].tag, b.items[i].tag
+    local x, y = a.items[i].tag, b.items[i].tag -- checked: nil_not_allowed*2
     if (x == "true" and y == "false") or (x == "false" and y == "true") then
       return true
     end
@@ -1264,21 +1264,21 @@ local function lower_rets(ctx: Ctx, rets: Ast.Rets, positions: {string: integer}
         if position == nil then
           return nil
         end
-        alt.narrows = { param = position, to = to, asserts = item.asserts }
+        alt.narrows = { param = position, to = to, asserts = item.asserts } -- checked: field_fixed
       elseif rets.variadic and i == #list then
-        alt.tail = lower_type(ctx, item)
+        alt.tail = lower_type(ctx, item) -- checked: field_fixed
       else
         local lowered = lower_type(ctx, item)
-        alt.items[#alt.items + 1] = lowered
+        alt.items[#alt.items + 1] = lowered -- checked: view_written
       end
     end
     alts[#alts + 1] = alt
   end
   for i = 1, #alts do
     for j = i + 1, #alts do
-      if not told_apart(alts[i], alts[j]) then
+      if not told_apart(alts[i], alts[j]) then -- checked: index_may_be_nil*2
         local shown: mut {string} = {}
-        for _, each in ipairs({ alts[i], alts[j] }) do
+        for _, each in ipairs({ alts[i], alts[j] }) do -- checked: array_of_optional
           local items: mut {string} = {}
           for k, t in ipairs(each.items) do
             items[k] = show(ctx, t)
@@ -1289,10 +1289,10 @@ local function lower_rets(ctx: Ctx, rets: Ast.Rets, positions: {string: integer}
           end
           shown[#shown + 1] = "(" .. table.concat(items, ", ") .. ")"
         end
-        report_at(ctx, "lists_overlap", rets, "the return lists " .. quoted(shown[1]) .. " and " .. quoted(shown[2]) ..
+        report_at(ctx, "lists_overlap", rets, "the return lists " .. quoted(shown[1]) .. " and " .. quoted(shown[2]) .. -- checked: index_may_be_nil*2
             " are told apart by no position that is `true` in one and `false` in the other",
           "make one position `true` in one list and `false` in the other (`(true, R) | (false, E)`), so that a `match` can " ..
-            "tell which list a call answered", { shown[1], shown[2] })
+            "tell which list a call answered", { shown[1], shown[2] }) -- checked: index_may_be_nil*2
         break
       end
     end
@@ -1567,7 +1567,7 @@ local function declare_one(ctx: Ctx, node: Ast.Node, place: Place, seen: mut {st
   if kind ~= nil then
     local arity = #typeparams_of(node)
     local made: mut {Decl} = {}
-    local ok = pcall(function()
+    local ok = pcall(function() -- checked: alternatives_as_value
       made[1] = ctx.store:declare(kind, module, names, arity)
     end)
     if not ok then
@@ -1578,12 +1578,12 @@ local function declare_one(ctx: Ctx, node: Ast.Node, place: Place, seen: mut {st
       return nil
     end
     entry.decl = made[1]
-    ctx.decls[base_of(node).id] = made[1]
+    ctx.decls[base_of(node).id] = made[1] -- checked: index_may_be_nil
   elseif (node.kind == "Alias") then
     local count = #node.typeparams
-    local alias: AliasInfo = {
+    local alias: AliasInfo = { -- checked: literal_missing
       name = name, module = module, names = names, count = count, tparams = {},
-      state = if ctx.lowering then "declared" else "unavailable" end, node = ctx.lowering and node or nil,
+      state = if ctx.lowering then "declared" else "unavailable" end, node = ctx.lowering and node or nil, -- checked: and_ternary
     }
     entry.alias = alias
   else
@@ -1594,7 +1594,7 @@ local function declare_one(ctx: Ctx, node: Ast.Node, place: Place, seen: mut {st
   ctx.entry_of[base_of(node).id] = entry
   ctx.by_binding[binding.id] = entry
   if scope_of(node) == "global" and place.top and #place.names == 0 and top then
-    program.globals[name] = entry
+    program.globals[name] = entry -- checked: view_written
     ctx.info.globals = true
   end
   return { names = names, module = module, top = top }
@@ -1616,7 +1616,7 @@ local function declare_all(ctx: Ctx)
     nodes[#nodes] = nil
     places[#places] = nil
     if DECLARATIONS[node.kind] == true then
-      local inside = declare_one(ctx, node, place, seen)
+      local inside = declare_one(ctx, node, place, seen) -- checked: view_as_mut
       if inside ~= nil then
         local members = members_of(node)
         for i = #members, 1, -1 do
@@ -1629,7 +1629,7 @@ local function declare_all(ctx: Ctx)
         end
       end
     elseif SKIP[node.kind] ~= true then
-      local transparent = TRANSPARENT[node.kind] or (node.kind == "Do" and ctx.decl_file)
+      local transparent = TRANSPARENT[node.kind] or (node.kind == "Do" and ctx.decl_file) -- checked: condition_type
       local below: Place = place
       if not transparent then
         below = { names = {}, module = "", top = false }
@@ -1675,12 +1675,12 @@ local function find_export(ctx: Ctx): Entry?
       local annotation = stat.types[1]
       if annotation ~= nil and (annotation.kind == "TypeName") then
         local vid = ctx.scoped.resolved[annotation.id]
-        local v = vid ~= nil and ctx.scoped.vars[vid] or nil
-        local base = v ~= nil and ctx.by_binding[v.id] or nil
+        local v = vid ~= nil and ctx.scoped.vars[vid] or nil -- checked: and_ternary
+        local base = v ~= nil and ctx.by_binding[v.id] or nil -- checked: and_ternary
         if base == nil and v ~= nil and v.module ~= "" and ctx.program.external[v.module] ~= true then
           -- A type of an imported module: `local x: Mod.Type = ... return x`.
           local imported = known_module(ctx, v.module)
-          base = imported ~= nil and imported.export or nil
+          base = imported ~= nil and imported.export or nil -- checked: and_ternary
         end
         if base ~= nil then
           local names: mut {string} = {}
@@ -1721,7 +1721,7 @@ local function find_value(ctx: Ctx): Type?
       return ctx.types[stat.fn.id]
     elseif (stat.kind == "Local") and #stat.bindings == 1 and assert(stat.bindings[1]).id == value.binding then
       local annotation = stat.types[1]
-      return annotation ~= nil and ctx.types[annotation.id] or nil
+      return annotation ~= nil and ctx.types[annotation.id] or nil -- checked: and_ternary
     end
   end
   return nil
@@ -1750,7 +1750,7 @@ local function lower_fn(ctx: Ctx, fn: Ast.Fn, tparams: {Types.TParam}, typeparam
     else
       params[#params + 1] = { type = lowered, omittable = p.optional }
       local binding = p.name
-      names[#names + 1] = binding ~= nil and binding.name or ""
+      names[#names + 1] = binding ~= nil and binding.name or "" -- checked: and_ternary
     end
   end
   local alts: {Types.Alt}?
@@ -1788,7 +1788,7 @@ local function claim(ctx: Ctx, build: Build, node: Ast.Node, binding: Ast.Bindin
   report_at(ctx, "repeated_field", binding, quoted(name) .. " is declared twice in " .. quoted(build.decl.name) .. what,
     "rename or remove one of them" .. (if ctx.decl_file then ", or write both as fixed function-typed fields" else
       ": the fields and methods of a record or class share one namespace" end), nil,
-    first ~= nil and place_of(ctx, first) or nil)
+    first ~= nil and place_of(ctx, first) or nil) -- checked: and_ternary
   return false
 end
 
@@ -1866,7 +1866,7 @@ local function lower_method(ctx: Ctx, build: Build, m: Ast.Method)
   local rest: Type?
   for i, p in ipairs(m.params) do
     local binding = p.name
-    local pname = binding ~= nil and binding.name or ""
+    local pname = binding ~= nil and binding.name or "" -- checked: and_ternary
     if i == 1 then
       params[1] = { type = build.self_type }
       names[#names + 1] = pname
@@ -2001,11 +2001,11 @@ local function collect_statics(ctx: Ctx)
   for _, stat in ipairs(ctx.input.chunk.body.stats) do
     if (stat.kind == "Function") and #stat.path == 2 then
       local binding = assert(stat.path[1]).binding
-      local entry = binding ~= nil and ctx.by_binding[binding] or nil
+      local entry = binding ~= nil and ctx.by_binding[binding] or nil -- checked: and_ternary
       local decl = entry ~= nil and entry.decl or nil
       if decl ~= nil and (decl.kind == "record" or decl.kind == "class" or decl.kind == "userdata") then
         local list = ctx.statics[decl] or {}
-        list[#list + 1] = stat
+        list[#list + 1] = stat -- checked: view_written
         ctx.statics[decl] = list
       end
     end
@@ -2021,12 +2021,12 @@ local function note_absent(ctx: Ctx)
     if (head.kind == "Name") then
       binding = head.binding
     end
-    local entry = binding ~= nil and ctx.by_binding[binding] or nil
+    local entry = binding ~= nil and ctx.by_binding[binding] or nil -- checked: and_ternary
     local decl = entry ~= nil and entry.decl or nil
     if decl ~= nil then
       local names = given[decl] or {}
-      names[field] = true
-      given[decl] = names
+      names[field] = true -- checked: view_written
+      given[decl] = names -- checked: view_written
     end
   end
   for _, stat in ipairs(ctx.input.chunk.body.stats) do
@@ -2040,16 +2040,16 @@ local function note_absent(ctx: Ctx)
     end
   end
   for _, entry in pairs(ctx.by_binding) do
-    local decl = entry.module == ctx.module and entry.decl or nil
+    local decl = entry.module == ctx.module and entry.decl or nil -- checked: and_ternary
     local body = decl ~= nil and decl.kind == "record" and decl.body or nil
-    for _, f in ipairs(body ~= nil and body.fields or {}) do
+    for _, f in ipairs(body ~= nil and body.fields or {}) do -- checked: literal_needs_type
       local ft = f.type
       local first = (ft.tag == "fn") and ft.params[1] or nil
       local receiver = first ~= nil and first.type or nil
       if decl ~= nil and receiver ~= nil and (receiver.tag == "named") and receiver.decl == decl and
           (given[decl] or {})[f.name] ~= true then
         local names = ctx.program.absent[decl] or {}
-        names[f.name] = true
+        names[f.name] = true -- checked: view_written
         ctx.program.absent[decl] = names
       end
     end
@@ -2077,7 +2077,7 @@ local function lower_supers(ctx: Ctx, build: Build, supers: {Ast.TypeName})
             quoted(build.decl.name) .. " from what " .. quoted(through.name) .. " lists")
       end
     elseif t.tag ~= "invalid" then
-      local what = (t.tag == "named") and KIND_WORDS[t.decl.kind] or "type"
+      local what = (t.tag == "named") and KIND_WORDS[t.decl.kind] or "type" -- checked: and_ternary
       report_at(ctx, "super_not_interface", s, quoted(build.decl.name) .. " lists " .. quoted(show(ctx, t)) ..
           ", which is " .. (if what == "interface" then "an " else "a " end) .. what .. ", and only an interface can follow `is`",
         "list an interface here" .. (if (t.tag == "named") then ", or declare " .. quoted(t.decl.name) .. " as an interface" else "" end),
@@ -2089,7 +2089,7 @@ end
 --- Gives the declaration its body, and queues the checks that read other bodies.
 local queue_checks: function(ctx: Ctx, build: Build, names: {{string}})
 
-local function finish_build(ctx: Ctx, build: Build, frames_names: {{string}})
+local function finish_build(ctx: Ctx, build: Build, frames_names: {{string}}) -- checked: not_assigned
   local store = ctx.store
   local body: Types.Body = {
     tparams = build.tparams, supers = build.supers, fields = build.fields, array = build.array,
@@ -2105,7 +2105,7 @@ local function finish_build(ctx: Ctx, build: Build, frames_names: {{string}})
     for _, p in ipairs(build.tparams) do
       bare.tparams[#bare.tparams + 1] = { name = p.name }
     end
-    local _ = pcall(function()
+    local _ = pcall(function() -- checked: alternatives_as_value
       store:define(build.decl, bare)
     end)
     return
@@ -2117,14 +2117,14 @@ end
 --- the nodes to walk next: the declarations nested in it and the bodies of its methods.
 local function enter_declaration(ctx: Ctx, node: Ast.Node): {Ast.Node}
   local entry = ctx.entry_of[base_of(node).id]
-  local decl = entry ~= nil and entry.decl or nil
+  local decl = entry ~= nil and entry.decl or nil -- checked: and_ternary
   if decl == nil then
     return {}
   end
   local store = ctx.store
   local params = typeparams_of(node)
   push_frame(ctx, true, params)
-  local build: Build = {
+  local build: Build = { -- checked: literal_missing
     node = node, decl = decl, self_type = store:named(decl, identity(store, #params)), tparams = {},
     supers = {}, fields = {}, methods = {}, first_of = {}, overloads = {},
   }
@@ -2165,7 +2165,7 @@ local function enter_declaration(ctx: Ctx, node: Ast.Node): {Ast.Node}
   -- A function statement `function R.m(...)` gives the declaration used as a value the fixed field `m` unless `R`
   -- declares one: that field is then what the statement implements. An instance of `R` has no such field.
   for _, f in ipairs(ctx.statics[decl] or {}) do
-    local name = f.path[2].text
+    local name = f.path[2].text -- checked: nil_not_allowed
     if decl.kind == "class" and metamethod_name(name) then
       report_at(ctx, "class_metamethod", f, "the function " .. quoted(decl.name .. "." .. name) .. " is a name Lua reads as a " ..
           "metamethod of the values of " .. quoted(decl.name) .. ", and `__close` and `__tostring` are written as methods",
@@ -2174,12 +2174,12 @@ local function enter_declaration(ctx: Ctx, node: Ast.Node): {Ast.Node}
       report_at(ctx, "repeated_field", f, quoted(name) .. " is declared twice in " .. quoted(decl.name) .. ": a function " ..
           quoted(decl.name .. "." .. name) .. " and a field or method of its values",
         "rename the function or the member: a class's fields, methods and functions share one namespace, since the " ..
-          "table of its methods holds them all", nil, place_of(ctx, build.first_of[name]))
+          "table of its methods holds them all", nil, place_of(ctx, build.first_of[name])) -- checked: index_may_be_nil
     elseif build.overloads[name] == nil then
       build.overloads[name] = false
       build.first_of[name] = f
       local named = ctx.program.statics[decl] or {}
-      named[name] = { name = name, type = lower_static(ctx, f), mut = false, omittable = false }
+      named[name] = { name = name, type = lower_static(ctx, f), mut = false, omittable = false } -- checked: view_written
       ctx.program.statics[decl] = named
     end
   end
@@ -2192,7 +2192,7 @@ end
 --- Lowers an enum.
 local function enter_enum(ctx: Ctx, node: Ast.Enum)
   local entry = ctx.entry_of[node.id]
-  local decl = entry ~= nil and entry.decl or nil
+  local decl = entry ~= nil and entry.decl or nil -- checked: and_ternary
   if decl == nil then
     return
   end
@@ -2224,7 +2224,7 @@ end
 local function with_receiver(store: Store, f: Types.Fn, receiver: Type): Type
   local params: mut {Types.Param} = {}
   for i, p in ipairs(f.params) do
-    params[i] = { type = i == 1 and receiver or p.type, omittable = p.omittable }
+    params[i] = { type = i == 1 and receiver or p.type, omittable = p.omittable } -- checked: and_ternary
   end
   local rets: mut {Types.Alt} = {}
   for i, alt in ipairs(f.rets) do
@@ -2336,9 +2336,9 @@ local function check_listing(ctx: Ctx, build: Build, names: {{string}}): boolean
   local listing = box[1]
   local node = build.node
   local binding = name_of(node)
-  local first = binding ~= nil and base_of(binding).first or base_of(node).first
-  local last = binding ~= nil and base_of(binding).last or first
-  if not listing.complete then
+  local first = binding ~= nil and base_of(binding).first or base_of(node).first -- checked: and_ternary
+  local last = binding ~= nil and base_of(binding).last or first -- checked: and_ternary
+  if not listing.complete then -- checked: nil_not_allowed
     report(ctx, "listing_too_large", first, last, quoted(decl.name) .. " lists more interfaces, through the ones it lists, " ..
         "than the checker follows, or one that would nest more than " .. tostring(MAX_DEPTH) .. " types deep",
       "list fewer interfaces, or interfaces whose own listings are the same for every argument")
@@ -2351,7 +2351,7 @@ local function check_listing(ctx: Ctx, build: Build, names: {{string}}): boolean
   -- declare differently.
   local inherited: mut {string: Inherited} = {}
   local conflicted: mut {string: boolean} = {}
-  for _, x in ipairs(listing.types) do
+  for _, x in ipairs(listing.types) do -- checked: nil_not_allowed
     local xbody: Types.Body? = nil
     if x.tag == "named" then
       xbody = x.decl.body
@@ -2363,7 +2363,7 @@ local function check_listing(ctx: Ctx, build: Build, names: {{string}}): boolean
           local expected: Type = instance
           local found = supplies(body, f.name)
           local at = build.first_of[f.name]
-          local where = at ~= nil and at or node
+          local where = at ~= nil and at or node -- checked: and_ternary
           local satisfied = false
           for _, s in ipairs(found) do
             local same = s.type == expected or tainted(ctx, s.type) or tainted(ctx, expected)
@@ -2523,7 +2523,7 @@ local function check_union(ctx: Ctx, site: UnionSite): boolean
   local function shown_of(r: Named): string
     return quoted(Types.display(r, site.names))
   end
-  local first_body = records[1].decl.body
+  local first_body = records[1].decl.body -- checked: nil_not_allowed
   if first_body == nil then
     return true
   end
@@ -2545,7 +2545,7 @@ local function check_union(ctx: Ctx, site: UnionSite): boolean
     shared = shared or everywhere
     for _, r in ipairs(records) do
       local body = r.decl.body
-      local f = body ~= nil and field_named(body, candidate.name) or nil
+      local f = body ~= nil and field_named(body, candidate.name) or nil -- checked: and_ternary
       if f == nil then
         good = false
         why = shown_of(r) .. " has no field " .. quoted(candidate.name)
@@ -2612,7 +2612,7 @@ local function scan_requires(roots: {Type}): Requires
   local req: Requires = { dense = {}, key = {}, optional = {}, flows = {} }
   local seen: {string: boolean} = {}
   local walk: function(t: Type, level: integer)
-  walk = function(t: Type, level: integer)
+  walk = function(t: Type, level: integer) -- checked: not_assigned
     if t.open <= level then
       return
     end
@@ -2620,7 +2620,7 @@ local function scan_requires(roots: {Type}): Requires
     if seen[mark] == true then
       return
     end
-    seen[mark] = true
+    seen[mark] = true -- checked: view_written
     if (t.tag == "array") then
       local e = t.element
       if (e.tag == "var") and e.depth == level then
@@ -2722,7 +2722,7 @@ local function must(program: Program, req: Requires, index: integer, kind: strin
       end
       local mark = tostring(flow.into) .. kind
       if marks[mark] ~= true then
-        marks[mark] = true
+        marks[mark] = true -- checked: view_written
         local theirs = requires_of(program, flow.to)
         if theirs == nil then
           return nil
@@ -2767,7 +2767,7 @@ local function check_use(ctx: Ctx, use: Use): boolean
     req = alias.requires
     if req == nil then
       req = scan_requires({ body })
-      alias.requires = req
+      alias.requires = req -- checked: field_fixed
     end
     name = alias.name
   elseif decl ~= nil then
@@ -2778,7 +2778,7 @@ local function check_use(ctx: Ctx, use: Use): boolean
     return false
   end
   local params: {Types.DeclParam} = {}
-  local decl_body = decl ~= nil and decl.body or nil
+  local decl_body = decl ~= nil and decl.body or nil -- checked: and_ternary
   if alias ~= nil then
     params = alias.tparams
   elseif decl_body ~= nil then
@@ -2787,7 +2787,7 @@ local function check_use(ctx: Ctx, use: Use): boolean
   for i, argument in ipairs(use.args) do
     if not tainted(ctx, argument) then
       local param = params[i]
-      local bound = param ~= nil and param.bound or nil
+      local bound = param ~= nil and param.bound or nil -- checked: and_ternary
       -- A variable of the code around stays unchecked until it is instantiated.
       if bound ~= nil and argument.open == 0 then
         local met = bound_met(ctx, argument, bound)
@@ -2830,7 +2830,7 @@ local function check_use(ctx: Ctx, use: Use): boolean
       if key and key_refusal(argument) ~= nil then
         local shown = Types.display(argument, use.names)
         local code = key_refusal(argument) or "key_type"
-        report_at(ctx, code, use.node, quoted(name) .. " keys a map by its type parameter " .. tostring(i) .. ", so " ..
+        report_at(ctx, code, use.node, quoted(name) .. " keys a map by its type parameter " .. tostring(i) .. ", so " .. -- checked: not_assignable
             quoted(shown) .. " would make a map keyed by " .. (if code == "float_key" then "a float" else key_word(argument, use.names) end),
           if code == "float_key" then "pass `integer`, and convert a float with `math.tointeger(n)` or `math.floor(n)`" else
             "pass `integer`, `string`, `boolean`, an enum, or a record, class, interface or userdata" end, { shown })
@@ -2857,17 +2857,17 @@ local function declare_values(ctx: Ctx, node: Ast.Local)
       if (head.kind == "Name") then
         binding = head.binding
       end
-      local entry = binding ~= nil and ctx.by_binding[binding] or nil
+      local entry = binding ~= nil and ctx.by_binding[binding] or nil -- checked: and_ternary
       local decl = entry ~= nil and entry.decl or nil
       local body = decl ~= nil and decl.body or nil
-      for _, f in ipairs(body ~= nil and body.fields or {}) do
+      for _, f in ipairs(body ~= nil and body.fields or {}) do -- checked: literal_needs_type
         if f.name == value.name then
           found[#found + 1] = f.type
         end
       end
     end
     if #found > 0 then
-      ctx.program.values[b.name] = found
+      ctx.program.values[b.name] = found -- checked: view_written
       ctx.info.globals = true
     end
   end
@@ -2911,7 +2911,7 @@ local function enter(ctx: Ctx, node: Ast.Node): {Ast.Node}?, boolean
     return {}, false
   elseif (node.kind == "Alias") then
     local entry = ctx.entry_of[node.id]
-    local alias = entry ~= nil and entry.alias or nil
+    local alias = entry ~= nil and entry.alias or nil -- checked: and_ternary
     if alias ~= nil then
       ensure_alias(ctx, alias)
     end
@@ -2945,7 +2945,7 @@ local function walk(ctx: Ctx)
       end
       if given ~= nil then
         for i = #given, 1, -1 do
-          nodes[#nodes + 1], leaves[#leaves + 1] = given[i], false
+          nodes[#nodes + 1], leaves[#leaves + 1] = given[i], false -- checked: index_may_be_nil
         end
       else
         held = 0
@@ -2962,11 +2962,11 @@ end
 
 -- The program ---------------------------------------------------------------------------------
 
-local program_mt: metatable<Program> = { __index = Declarations.Program }
+local program_mt: metatable<Program> = { __index = Declarations.Program } -- checked: field_unknown, literal_missing
 
 function Declarations.new(store?: Store, library?: {string: boolean}): Program
   local s = store or Types.new()
-  local program: Program = setmetatable({
+  local program: Program = setmetatable({ -- checked: setmetatable_call -- untyped: call
     store = s, judge = Relation.new(s), modules = {}, entries = {}, globals = {}, waiting = {}, requires = {}, external = {}, library = library or {}, values = {}, statics = {}, absent = {},
   }, program_mt)
   return program
@@ -2981,7 +2981,7 @@ local function new_ctx(program: Program, input: Declarations.Input, lowering: bo
   return {
     program = program, store = program.store, input = input, module = input.module, filename = input.filename,
     tokens = input.chunk.tokens, scoped = input.scoped, decl_file = input.dialect == "decl", info = info,
-    frames = {}, entry_of = {}, by_binding = {}, types = {}, decls = {}, aliases = {}, errors = info.errors,
+    frames = {}, entry_of = {}, by_binding = {}, types = {}, decls = {}, aliases = {}, errors = info.errors, -- checked: view_as_mut
     unions = {}, uses = {}, tainted = {}, alias_depth = 0, collections = 0, kids = {}, lowering = lowering, checks = {},
     statics = {}, static_done = {},
   }
@@ -3002,7 +3002,7 @@ local function in_order(errors: {Error}): {Error}
     if a.offset ~= b.offset then
       return a.offset < b.offset
     end
-    return position[a] < position[b]
+    return position[a] < position[b] -- checked: nil_not_allowed
   end)
   local _ = keyed
   return out
@@ -3025,22 +3025,22 @@ local function retry_waiting(program: Program)
   end
 end
 
-Declarations.Program.declare = function(self: Program, input: Declarations.Input)
+Declarations.Program.declare = function(self: Program, input: Declarations.Input) -- checked: field_unknown
   local ctx = new_ctx(self, input, false)
   declare_all(ctx)
   local info = ctx.info
-  info.export = find_export(ctx)
+  info.export = find_export(ctx) -- checked: field_fixed
   ctx.kids = {}
 end
 
-Declarations.Program.lower = function(self: Program, input: Declarations.Input): Declarations.Lowered
+Declarations.Program.lower = function(self: Program, input: Declarations.Input): Declarations.Lowered -- checked: field_unknown
   local existing = self.modules[input.module]
   if existing ~= nil and existing.lowered then
     error("declarations: the module " .. input.module .. " was lowered already", 2)
   end
   local ctx = new_ctx(self, input, true)
   declare_all(ctx)
-  ctx.info.export = find_export(ctx)
+  ctx.info.export = find_export(ctx) -- checked: field_fixed
   collect_statics(ctx)
   walk(ctx)
   if not ctx.decl_file then
@@ -3048,7 +3048,7 @@ Declarations.Program.lower = function(self: Program, input: Declarations.Input):
   end
   local export = ctx.info.export
   if export == nil or export.instance == true then
-    ctx.info.value = find_value(ctx)
+    ctx.info.value = find_value(ctx) -- checked: field_fixed
   end
   for _, site in ipairs(ctx.unions) do
     ctx.checks[#ctx.checks + 1] = function(): boolean
@@ -3060,13 +3060,13 @@ Declarations.Program.lower = function(self: Program, input: Declarations.Input):
       return check_use(ctx, use)
     end
   end
-  ctx.info.lowered = true
+  ctx.info.lowered = true -- checked: field_fixed
   for _, check in ipairs(ctx.checks) do
     if not check() then
       self.waiting[#self.waiting + 1] = { module = ctx.module, run = check }
     end
   end
-  ctx.checks = {}
+  ctx.checks = {} -- checked: field_fixed
   retry_waiting(self)
   return {
     module = ctx.module, errors = in_order(ctx.errors), decls = ctx.decls, types = ctx.types, aliases = ctx.aliases,
@@ -3113,7 +3113,7 @@ function Declarations.inherited(store: Store, judge: Relation.Judge, decl: Types
   return out
 end
 
-Declarations.Program.alias = function(self: Program, name: string, module: string)
+Declarations.Program.alias = function(self: Program, name: string, module: string) -- checked: field_unknown
   local info = self.modules[module]
   if info ~= nil and self.modules[name] == nil then
     self.modules[name] = info
@@ -3187,7 +3187,7 @@ function Declarations.forget(self: Program, modules: {string}): boolean
   return true
 end
 
-Declarations.Program.errors = function(self: Program, module: string): {Error}
+Declarations.Program.errors = function(self: Program, module: string): {Error} -- checked: field_unknown
   local info = self.modules[module]
   if info == nil then
     return {}
@@ -3195,11 +3195,11 @@ Declarations.Program.errors = function(self: Program, module: string): {Error}
   return in_order(info.errors)
 end
 
-Declarations.Program.unsettled = function(self: Program): integer
+Declarations.Program.unsettled = function(self: Program): integer -- checked: field_unknown
   return #self.waiting
 end
 
-Declarations.Program.scope_globals = function(self: Program): {string: Scopes.Global}
+Declarations.Program.scope_globals = function(self: Program): {string: Scopes.Global} -- checked: field_unknown
   local out: mut {string: Scopes.Global} = {}
   for name, entry in pairs(self.globals) do
     local decl = entry.decl

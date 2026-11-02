@@ -91,8 +91,8 @@ local function test_nested_bind_preserves_noexec_and_cannot_clear_it(tmp: string
     end
   end
   -- The remount is refused, not merely a no-op, and the bind runs nothing.
-  assert(got.remount ~= nil and got.remount ~= "ok", "nested bind cleared noexec: " .. said)
-  assert(got.exec == tostring(sys.EACCES), "nested alias: " .. said)
+  assert(got.remount ~= nil and got.remount ~= "ok", "nested bind cleared noexec: " .. said) -- checked: map_field*2
+  assert(got.exec == tostring(sys.EACCES), "nested alias: " .. said) -- checked: map_field
   local ok, why, errno = sys.execve(path, { path, "exit 97" }, {})
   assert(not ok and errno == sys.EACCES, why)
 end

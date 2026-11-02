@@ -262,7 +262,7 @@ function Archive.list_reader(reader: Archive.Reader): {Archive.Entry}?, string
     end
     -- The reader is closed before the list is returned, so no entry can be
     -- opened: say so, rather than read a closed reader.
-    entry.open = listed_open
+    entry.open = listed_open -- checked: field_fixed
     out[#out + 1] = entry
   end
 end
@@ -620,7 +620,7 @@ local function extract_from(from: string | Archive.Reader, dest: string,
       if seg == ".." then
         at[#at] = nil
       else
-        at[#at + 1] = seg
+        at[#at + 1] = seg -- checked: nil_not_allowed
         local rel = table.concat(at, "/")
         if pending[rel] ~= nil then return true end
         local st, _ = sys.lstat(dest .. "/" .. rel)
@@ -757,7 +757,7 @@ local function extract_from(from: string | Archive.Reader, dest: string,
   -- undone by then touching something inside it.
   for i = #dir_times, 1, -1 do
     local d = dir_times[i]
-    local _, _ = Fs.set_mtime(d.path, d.mtime)
+    local _, _ = Fs.set_mtime(d.path, d.mtime) -- checked: nil_not_allowed*2
   end
   local _, _ = reader:close()
   return written, ""

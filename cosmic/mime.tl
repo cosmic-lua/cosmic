@@ -44,7 +44,7 @@ local COMPRESSIBLE <const>: {string:boolean} = {
 --- nil for a name with none (a leading dot alone is no extension).
 local function extension(path: string): string?
   local name = path:match("([^/]*)$")
-  local ext = name:match("^.+%.([^.]*)$")
+  local ext = name:match("^.+%.([^.]*)$") -- checked: nil_not_allowed
   if ext == nil or ext == "" then return nil end
   return ext:lower()
 end
@@ -68,7 +68,7 @@ end
 --- @param content_type string A Content-Type, with or without parameters
 --- @return boolean Whether the type needs the sandbox
 function Mime.scripted(content_type: string): boolean
-  local kind = content_type:match("^%s*([^;]*)"):lower():gsub("%s+$", "")
+  local kind = content_type:match("^%s*([^;]*)"):lower():gsub("%s+$", "") -- checked: nil_not_allowed
   return kind == "image/svg+xml" or kind == "application/xml" or kind == "text/xml" or
     kind == "application/xhtml+xml"
 end

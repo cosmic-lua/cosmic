@@ -43,7 +43,7 @@ end
 local function simpler(a: {Shrink.Draw}, b: {Shrink.Draw}): boolean
   if #a ~= #b then return #a < #b end
   for i = 1, #a do
-    local x, y = offset(a[i]), offset(b[i])
+    local x, y = offset(a[i]), offset(b[i]) -- checked: index_may_be_nil*2
     if x ~= y then return math.ult(x, y) end
   end
   return false
@@ -150,21 +150,21 @@ function Shrink.shrink(draws: {Shrink.Draw}, fails: Shrink.Fails,
     local i = 1
     while i <= #search.best and search.proposals < max_tries do
       local d = search.best[i]
-      local delta = offset(d)
+      local delta = offset(d) -- checked: nil_not_allowed
       if delta ~= 0 and settled[i] ~= key(Shrink.values_of(search.best)) then
         local count = #search.best
         local before = search.best
-        local values = values_with(search.best, i, d.min)
+        local values = values_with(search.best, i, d.min) -- checked: nil_not_allowed
         if try(values) then
           improved = true
         else
-          while #search.best == count and search.best[i].min == d.min and search.proposals < max_tries do
+          while #search.best == count and search.best[i].min == d.min and search.proposals < max_tries do -- checked: nil_not_allowed*2
             local previous = search.best
             -- Probe disconnected failing regions across the full width;
             -- passing midpoints do not rule out smaller failures.
-            local half = offset(search.best[i]) >> 1
+            local half = offset(search.best[i]) >> 1 -- checked: index_may_be_nil
             while half ~= 0 and #search.best == count and search.proposals < max_tries do
-              values = values_with(search.best, i, d.min + half)
+              values = values_with(search.best, i, d.min + half) -- checked: nil_not_allowed
               if try(values) then improved = true end
               half = half >> 1
             end
@@ -172,11 +172,11 @@ function Shrink.shrink(draws: {Shrink.Draw}, fails: Shrink.Fails,
             -- Revisit halves when this changes the high end: a different
             -- sequence can expose another disconnected failing region.
             local low = 0
-            while #search.best == count and search.best[i].min == d.min and search.proposals < max_tries do
-              local high = offset(search.best[i])
+            while #search.best == count and search.best[i].min == d.min and search.proposals < max_tries do -- checked: nil_not_allowed*2
+              local high = offset(search.best[i]) -- checked: index_may_be_nil
               if not math.ult(low, high) or high - low == 1 then break end
               local middle = low + ((high - low) >> 1)
-              values = values_with(search.best, i, d.min + middle)
+              values = values_with(search.best, i, d.min + middle) -- checked: nil_not_allowed
               if try(values) then improved = true else low = middle end
             end
             if search.best == previous then break end
@@ -189,7 +189,7 @@ function Shrink.shrink(draws: {Shrink.Draw}, fails: Shrink.Fails,
         if unchanged then
           for j, old in ipairs(before) do
             local now = search.best[j]
-            if now.min ~= old.min or now.max ~= old.max or (j ~= i and now.value ~= old.value) then
+            if now.min ~= old.min or now.max ~= old.max or (j ~= i and now.value ~= old.value) then -- checked: nil_not_allowed*3
               unchanged = false
               break
             end

@@ -14,14 +14,14 @@ local VECTORS <const> = {
 
 local function test_hex_matches_rfc4648_in_lowercase()
   for _, v in ipairs(VECTORS) do
-    assert(Codec.hex(v[1]) == v[2]:lower(), v[1])
+    assert(Codec.hex(v[1]) == v[2]:lower(), v[1]) -- checked: index_may_be_nil, nil_not_allowed
   end
 end
 
 local function test_unhex_reads_either_case()
   for _, v in ipairs(VECTORS) do
-    assert(Codec.unhex(v[2]) == v[1], v[2])
-    assert(Codec.unhex(v[2]:lower()) == v[1], v[2])
+    assert(Codec.unhex(v[2]) == v[1], v[2]) -- checked: index_may_be_nil
+    assert(Codec.unhex(v[2]:lower()) == v[1], v[2]) -- checked: nil_not_allowed
   end
   assert(Codec.unhex("aBcD") == "\xab\xcd")
 end
@@ -50,16 +50,16 @@ end
 
 local function test_base64_matches_rfc4648()
   for _, v in ipairs(VECTORS) do
-    assert(Codec.base64(v[1]) == v[3], v[1])
-    local out, why = Codec.unbase64(v[3])
+    assert(Codec.base64(v[1]) == v[3], v[1]) -- checked: index_may_be_nil
+    local out, why = Codec.unbase64(v[3]) -- checked: index_may_be_nil
     assert(out == v[1] and why == "", v[3])
   end
 end
 
 local function test_base64url_is_unpadded_and_url_safe()
   for _, v in ipairs(VECTORS) do
-    local bare = (v[3]:gsub("=", ""))
-    assert(Codec.base64url(v[1]) == bare, v[1])
+    local bare = (v[3]:gsub("=", "")) -- checked: nil_not_allowed
+    assert(Codec.base64url(v[1]) == bare, v[1]) -- checked: index_may_be_nil
     assert(Codec.unbase64url(bare) == v[1], bare)
   end
   assert(Codec.base64("\xfb\xff") == "+/8=")

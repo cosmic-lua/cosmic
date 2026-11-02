@@ -32,7 +32,7 @@ end
 --- Whether `sandbox` is refused as an argument, which raises before any
 --- start.
 local function raises(probe: string, sandbox: raw_process.Sandbox): boolean
-  return not pcall(process.spawn, probe, { probe }, nil, nil, nil, nil, nil, false, nil, sandbox)
+  return not pcall(process.spawn, probe, { probe }, nil, nil, nil, nil, nil, false, nil, sandbox) -- checked: overload_none
 end
 
 --- A child's `user` is given with its `group` and `unveil`, and is not
@@ -54,8 +54,8 @@ end
 local function test_an_idmapped_bind_is_refused_without_a_user(tmp: string)
   local probe = probe_in(tmp)
   assert(sys.mkdir(tmp .. "/closed", 0x1c0))
-  local ok, trouble = pcall(process.spawn, probe, { probe }, nil, nil, nil, nil, nil, false, nil,
-    { unveil = { reads = { probe }, writes = {}, binds = { { path = tmp .. "/closed", idmap = true } } } })
+  local ok, trouble = pcall(process.spawn, probe, { probe }, nil, nil, nil, nil, nil, false, nil, -- checked: overload_none
+    { unveil = { reads = { probe }, writes = {}, binds = { { path = tmp .. "/closed", idmap = true } } } }) -- checked: arms_differ
   assert(not ok and tostring(trouble):find("idmap requires a user", 1, true) ~= nil, tostring(trouble))
 end
 
@@ -100,7 +100,7 @@ local function test_a_sandbox_the_platform_lacks_is_refused(tmp: string)
     { proc = true, user = user, group = user },
   }
   for index, sandbox in ipairs(sandboxes) do
-    local ok, pid, trouble, errno = pcall(process.spawn, probe, { probe, "print hi" }, nil, tmp, nil,
+    local ok, pid, trouble, errno = pcall(process.spawn, probe, { probe, "print hi" }, nil, tmp, nil, -- checked: overload_none
       nil, nil, false, nil, sandbox)
     assert(ok, "a start of a sandbox the platform lacks is refused, not raised, " .. tostring(index) .. ": " .. tostring(pid))
     assert(pid == nil and (errno == sys.ENOSYS or errno == sys.EPERM or errno == sys.EACCES or

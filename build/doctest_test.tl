@@ -132,7 +132,7 @@ end
 local function load_module(m: Module): {string:any}
   local chunk, load_err = load(assert(m.lua), "@" .. m.path, "t")
   assert(chunk ~= nil, "load failed: " .. tostring(load_err))
-  return chunk() as {string:any}
+  return chunk() as {string:any} -- checked: cast_refused
 end
 
 local function fresh_tmp(): string
@@ -151,7 +151,7 @@ local function test_an_output_matching_example_actually_passes()
   assert(#m.tests == 1 and m.tests[1] == "test_1",
     "expected exactly test_1, got " .. table.concat(m.tests, ","))
   local mod = load_module(m)
-  local fn = mod.test_1 as function(...: any): (any...)
+  local fn = mod.test_1 as function(...: any): (any...) -- checked: cast_refused, map_field
   local ok, err = pcall(fn, fresh_tmp())
   assert(ok, "expected the matching example to pass, got: " .. tostring(err))
 end
@@ -179,7 +179,7 @@ local function test_a_tilde_fenced_example_actually_passes()
     "expected a long tilde-fenced example to be extracted as test_1, got " ..
       table.concat(m.tests, ","))
   local mod = load_module(m)
-  local fn = mod.test_1 as function(...: any): (any...)
+  local fn = mod.test_1 as function(...: any): (any...) -- checked: cast_refused, map_field
   local ok, err = pcall(fn, fresh_tmp())
   assert(ok, "expected the tilde-fenced example to pass, got: " .. tostring(err))
 end
@@ -192,7 +192,7 @@ local function test_an_output_mismatching_example_fails_clearly()
   local m = find_module(result, "doc.guides.fixture")
   assert(m ~= nil, "doc.guides.fixture was not among the compiled modules")
   local mod = load_module(m)
-  local fn = mod.test_1 as function(...: any): (any...)
+  local fn = mod.test_1 as function(...: any): (any...) -- checked: cast_refused, map_field
   local ok, err = pcall(fn, fresh_tmp())
   assert(not ok, "expected the mismatching example to fail")
   local message = tostring(err)

@@ -20,14 +20,14 @@ local function test_an_open_cache_is_in_wal_mode_and_prepared(tmp: string)
   local path = tmp .. "/cache.db"
   local db = assert(shared_sqlite.open(path, prepare))
   local mode = assert(Sqlite.text_rows(db, "PRAGMA journal_mode"))
-  assert(mode[1]:text(1) == "wal", mode[1]:text(1))
+  assert(mode[1]:text(1) == "wal", mode[1]:text(1)) -- checked: nil_not_allowed*2
   local timeout = assert(Sqlite.text_rows(db, "PRAGMA busy_timeout"))
-  assert(timeout[1]:text(1) == "10000", "busy timeout " .. timeout[1]:text(1))
+  assert(timeout[1]:text(1) == "10000", "busy timeout " .. timeout[1]:text(1)) -- checked: nil_not_allowed*2
   assert(Sqlite.text_rows(db, "SELECT key FROM kept"))
   db:close()
   local waiting = assert(shared_sqlite.open(path, prepare, Clock.ms(50)))
   timeout = assert(Sqlite.text_rows(waiting, "PRAGMA busy_timeout"))
-  assert(timeout[1]:text(1) == "50", "busy timeout " .. timeout[1]:text(1))
+  assert(timeout[1]:text(1) == "50", "busy timeout " .. timeout[1]:text(1)) -- checked: nil_not_allowed*2
   waiting:close()
   -- The last connection closed, SQLite removes the log; one left open
   -- by a failed open would keep it.

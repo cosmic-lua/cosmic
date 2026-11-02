@@ -92,7 +92,7 @@ local function kind_at(resolver: link_resolve.Resolver, path: string): string?
     cached = resolver.context.kind(path) or ""
     resolver.kinds[path] = cached
   end
-  return cached ~= "" and cached or nil
+  return cached ~= "" and cached or nil -- checked: and_ternary
 end
 
 --- Whether the code point `code` is a pictograph or a mark that
@@ -160,7 +160,7 @@ function link_resolve.anchors(text: string): {string: boolean}
       heading(String.trim(previous))
       previous = nil
     else
-      previous = line:match("%S") ~= nil and line or nil
+      previous = line:match("%S") ~= nil and line or nil -- checked: and_ternary
     end
     for _, attribute in ipairs({ "id", "name" }) do
       for name in line:gmatch("<a%s[^>]-" .. attribute .. "%s*=%s*[\"']([^\"']+)[\"']") do
@@ -179,7 +179,7 @@ local function headings_of(resolver: link_resolve.Resolver, path: string): {stri
     return cached
   end
   local text = resolver.context.read(path)
-  local read = if text ~= nil then link_resolve.anchors(text) else {} end
+  local read = if text ~= nil then link_resolve.anchors(text) else {} end -- checked: literal_needs_type
   resolver.headings[path] = read
   return read
 end
@@ -237,14 +237,14 @@ local function located(resolver: link_resolve.Resolver, from: string, target: st
   for _, base in ipairs(bases) do
     local path = normalized(base .. "/" .. target)
     local reason: string? = nil
-    local relative = path ~= nil and path:sub(#root + 2) or ""
+    local relative = path ~= nil and path:sub(#root + 2) or "" -- checked: and_ternary
     if path == nil or not within(path, root) then
       reason = "it lies outside the project's root"
-    elseif relative == "o" or relative:sub(1, 2) == "o/" then
+    elseif relative == "o" or relative:sub(1, 2) == "o/" then -- untyped: call
       -- Refused before it is looked at, so a stale build's output
       -- never enters what a projection is signed by ([`build.link_index`]).
       reason = "it is under o/, a stale build directory"
-    elseif ("/" .. relative .. "/"):find("/.git/", 1, true) then
+    elseif ("/" .. relative .. "/"):find("/.git/", 1, true) then -- untyped: call
       -- Git's own metadata, not the project's: in a worktree `.git` is a
       -- file, so a path through it resolves in one checkout and not
       -- another. Refused before it is looked at, as `o/` is.
@@ -338,13 +338,13 @@ end
 --- `package.loaded` or `package.preload`, which hold what this process
 --- happened to load, and `_G` again.
 local function standard(name: string): boolean
-  local globals: any = _G
-  local package_table: any = package
+  local globals: any = _G -- checked: unchecked_binding
+  local package_table: any = package -- checked: any_use
   local value: any = globals
   local steps = 0
   for part in name:gmatch("[^.]+") do
     steps = steps + 1
-    if value is {any: any} then
+    if value is {any: any} then -- declared: key_type
       if rawequal(value, package_table) and (part == "loaded" or part == "preload") then
         return false
       end

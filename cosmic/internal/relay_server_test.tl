@@ -160,7 +160,7 @@ local function start(tmp: string, opts: Options): Rig
   local http, socks, mixed: Net.Listener?, Net.Listener?, Net.Listener?
   local at_http, at_socks: Net.Address, Net.Address
   local listeners: {Net.Listener}
-  if opts.mixed then
+  if opts.mixed then -- checked: condition_type
     mixed = listen_here()
     at_http, at_socks, listeners = mixed.address, mixed.address, { mixed }
   else
@@ -168,7 +168,7 @@ local function start(tmp: string, opts: Options): Rig
     at_http, at_socks, listeners = http.address, socks.address, { http, socks }
   end
   local rig: Rig = { http = at_http, socks = at_socks, listeners = listeners, log = {}, asked = {},
-    given = {}, server = nil as Relay.Serving }
+    given = {}, server = nil as Relay.Serving } -- checked: cast_refused
   local redirect = opts.redirect or {}
   local resolve: Net.ResolveOptions = opts.resolve or { hosts_file = hosts }
   local spec: Relay.Spec = {
@@ -1417,7 +1417,7 @@ local function test_stop_does_not_wait_for_a_request_that_is_not_finished(tmp: s
 end
 
 local function test_a_spec_that_is_no_spec_raises()
-  local ok = pcall(Relay.start, { grants = {}, connector = function(): Net.Conn?, string
+  local ok = pcall(Relay.start, { grants = {}, connector = function(): Net.Conn?, string -- checked: alternatives_as_value
     return nil, ""
   end })
   assert(not ok, "start runs in a task")
@@ -1432,8 +1432,8 @@ local function test_a_spec_that_is_no_spec_raises()
     end
     local cases: {Case} = {
       { spec = { grants = {}, connector = connector }, says = "an http, a socks or a mixed listener" },
-      { spec = { http = listener, connector = connector } as Relay.Spec, says = "spec.grants" },
-      { spec = { http = listener, grants = { 1 as any as string }, connector = connector }, says = "spec.grants must hold strings" },
+      { spec = { http = listener, connector = connector } as Relay.Spec, says = "spec.grants" }, -- checked: arms_differ, cast_refused
+      { spec = { http = listener, grants = { 1 as any as string }, connector = connector }, says = "spec.grants must hold strings" }, -- checked: cast_refused*2
       { spec = { http = listener, grants = {}, connector = connector, timeouts = { idle = 0 } }, says = "timeouts.idle must be an integer from 1" },
       { spec = { http = listener, grants = {}, connector = connector, limits = { total = -1 } }, says = "limits.total must be an integer from 1" },
       { spec = { http = listener, grants = {}, connector = connector, tls_ports = { 0 } }, says = "tls_ports" },
@@ -1442,23 +1442,23 @@ local function test_a_spec_that_is_no_spec_raises()
       { spec = { http = listener, grants = {}, connector = connector, timeouts = { auth = 0 } }, says = "timeouts.auth must be an integer from 1" },
       { spec = { http = listener, grants = {}, connector = connector, token = ("t"):rep(256) }, says = "spec.token must be a string" },
       { spec = { http = listener, grants = {}, connector = connector, token = "a\nb" }, says = "spec.token must be a string" },
-      { spec = { http = listener, grants = {}, connector = connector, token = 5 as any as string }, says = "spec.token must be a string" },
+      { spec = { http = listener, grants = {}, connector = connector, token = 5 as any as string }, says = "spec.token must be a string" }, -- checked: cast_refused*2
       { spec = { http = listener, grants = {}, connector = connector, limits = { pre_auth = 0 } }, says = "limits.pre_auth must be an integer from 1" },
       { spec = { http = listener, grants = {}, connector = connector, own_addresses = { "nope" } }, says = "not numeric" },
-      { spec = { http = listener, grants = {}, connector = connector, timeouts = 5 as any as Relay.Timeouts }, says = "spec.timeouts must be a table" },
+      { spec = { http = listener, grants = {}, connector = connector, timeouts = 5 as any as Relay.Timeouts }, says = "spec.timeouts must be a table" }, -- checked: cast_refused*2
       { spec = { http = listener, grants = {}, connector = connector, upstream = { host = "", port = 80, no_proxy = {} } }, says = "upstream.host" },
       { spec = { http = listener, grants = {}, connector = connector, upstream = { host = "p", port = 0, no_proxy = {} } }, says = "upstream.port" },
       { spec = { http = listener, grants = {}, connector = connector,
         upstream = { host = "p", port = 80, authorization = "x\r\nHost: y", no_proxy = {} } }, says = "upstream.authorization" },
       { spec = { http = listener, grants = {}, connector = connector,
-        upstream = { host = "p", port = 80, no_proxy = { 1 as any as string } } }, says = "upstream.no_proxy" },
+        upstream = { host = "p", port = 80, no_proxy = { 1 as any as string } } }, says = "upstream.no_proxy" }, -- checked: cast_refused*2
     }
     for _, case in ipairs(cases) do
       local started, why = pcall(Relay.start, case.spec)
       assert(not started and tostring(why):find(case.says, 1, true) ~= nil, tostring(why))
     end
     -- A spec with no connector is no [`Relay.Spec`], so it goes to `pcall` as an argument of `any`.
-    local started, why = pcall(Relay.start, { http = listener, grants = {} })
+    local started, why = pcall(Relay.start, { http = listener, grants = {} }) -- checked: literal_missing
     assert(not started, "a spec with no connector started")
     assert(tostring(why):find("spec.connector", 1, true) ~= nil, tostring(why))
     local _, _ = listener:close()

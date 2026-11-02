@@ -149,7 +149,7 @@ local function test_the_carried_database_holds_what_a_program_needs(tmp: string)
     "SELECT group_concat(name || ' ' || version || ' ' || sha256, ',' ORDER BY name) FROM web_assets"))
   local web = rows_of(path,
     "SELECT group_concat(name || ' ' || version || ' ' || sha256, ',' ORDER BY name) FROM web_assets")
-  assert(support.nth(web, 1):text(1) ~= nil and support.nth(web, 1):text(1) == support.nth(assets, 1):text(1) and support.nth(web, 1):text(1):find("htmx.min.js", 1, true) ~= nil,
+  assert(support.nth(web, 1):text(1) ~= nil and support.nth(web, 1):text(1) == support.nth(assets, 1):text(1) and support.nth(web, 1):text(1):find("htmx.min.js", 1, true) ~= nil, -- checked: compare_disjoint
     "every web asset the binary carries is in")
   local materials = rows_of(path,
     "SELECT (SELECT count(*) FROM components WHERE name = 'lua'), " ..

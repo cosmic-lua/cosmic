@@ -61,8 +61,8 @@ end
 --- comparison, concatenation, length, or conversion metamethod behavior.
 function Example.metatables_raw()
   local values: mut {string:integer} = { present = 2 }
-  local mt: metatable<mut {string:integer}> = { __index = function(): integer return 9 end }
-  setmetatable(values, mt)
+  local mt: metatable<mut {string:integer}> = { __index = function(): integer return 9 end } -- checked: any_use, literal_missing
+  setmetatable(values, mt) -- checked: setmetatable_call
   assert(values["missing"] == 9 and rawget(values, "missing") == nil)
   rawset(values, "missing", 4)
   assert(rawequal(values, values) and rawlen({ 1, 2 }) == 2 and getmetatable(values) == mt)
@@ -238,7 +238,7 @@ end
 --- closing the running or a normal coroutine raises.
 function Example.coroutines()
   local co = coroutine.create(function(): string
-    coroutine.yield("paused")
+    coroutine.yield("paused") -- checked: field_unknown
     return "done"
   end)
   assert(coroutine.status(co) == "suspended")
@@ -246,8 +246,8 @@ function Example.coroutines()
   assert(ok and state == "paused")
   ok, state = coroutine.resume(co)
   assert(ok and state == "done" and coroutine.status(co) == "dead")
-  local abandoned = coroutine.create(function() coroutine.yield() end)
-  assert(coroutine.close(abandoned))
+  local abandoned = coroutine.create(function() coroutine.yield() end) -- checked: field_unknown
+  assert(coroutine.close(abandoned)) -- checked: alternatives_as_value, overload_none
 end
 
 -- An interface method names its receiver, `function(self: Greeter, ...)`:
@@ -310,7 +310,7 @@ function Example.enums_arrays_maps_tuples()
     count: integer
   end
   local pair: Pair = { label = "age", count = 9 }
-  assert(color == "red" and array[2] == 3 and map.answer == 42 and pair.label == "age")
+  assert(color == "red" and array[2] == 3 and map.answer == 42 and pair.label == "age") -- checked: map_field
 end
 
 --- A union `A | B` accepts only values assignable to one member; operations
@@ -336,14 +336,14 @@ function Example.unions_narrowing_casts()
   local record Right is Named
     name: string
   end
-  local function side(value: Left | Right): string
-    if value is Left then return "L:" .. value.name end
+  local function side(value: Left | Right): string -- declared: untagged_union
+    if value is Left then return "L:" .. value.name end -- checked: is_on_record
     return "R:" .. value.name
   end
   local function render(value: (string | integer)?): string
     if value == nil then return "missing" end
     if value is integer then return tostring(value + 1) end
-    return string.upper(value as string)
+    return string.upper(value as string) -- checked: cast_refused
   end
   local function length(value: any): integer
     if type(value) ~= "string" then return 0 end

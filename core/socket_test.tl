@@ -145,16 +145,16 @@ local function test_an_address_is_read_once(tmp: string)
   unix_socket.skip_if_refused(tmp)
   local path = tmp .. "/s.sock"
   local reads = { value = 0 }
-  local fickle: metatable<raw_socket.Address> = {
-    __index = function(_: raw_socket.Address, key: string): any
-      if key == "kind" then return "unix" end
-      if key ~= "path" then return nil end
-      reads.value = reads.value + 1
-      return reads.value == 1 and path or nil
+  local fickle: metatable<raw_socket.Address> = { -- checked: literal_missing
+    __index = function(_: raw_socket.Address, key: string): any -- checked: any_use
+      if key == "kind" then return "unix" end -- checked: any_use
+      if key ~= "path" then return nil end -- checked: any_use
+      reads.value = reads.value + 1 -- checked: map_field*2
+      return reads.value == 1 and path or nil -- checked: and_ternary, map_field
     end,
   }
-  local listener = assert(raw.listen(setmetatable({} as raw_socket.Address, fickle), 1))
-  assert(reads.value == 1, "the path was read " .. reads.value .. " times")
+  local listener = assert(raw.listen(setmetatable({} as raw_socket.Address, fickle), 1)) -- checked: cast_refused, setmetatable_call
+  assert(reads.value == 1, "the path was read " .. reads.value .. " times") -- checked: map_field*2
   assert(Fs.stat(path) ~= nil, "no socket file")
   assert(listener:close())
   assert(Fs.stat(path) == nil, "the socket file was left")
@@ -257,7 +257,7 @@ local function test_a_full_unix_backlog_refuses_a_connection_at_once(tmp: string
     if client == nil then break end
     held[#held + 1] = client
   end
-  local want = assert(sys.uname()).sysname == "Darwin" and raw.ECONNREFUSED or raw.EAGAIN
+  local want = assert(sys.uname()).sysname == "Darwin" and raw.ECONNREFUSED or raw.EAGAIN -- checked: and_ternary
   local began = Clock.monotonic_ns()
   local client, why, errno = raw.connect(unix(path), 20000)
   assert(Clock.monotonic_ns() - began < Clock.seconds(10), "the connection waited for room")
@@ -358,8 +358,8 @@ local function test_descriptor_passing_runtime_failures_and_argument_checks(tmp:
     assert(not ok and tostring(why) ~= "")
   end
   local no_descriptors: {integer} = {}
-  assert(not pcall(raw.sendfds, sender:fd(), no_descriptors))
-  assert(not pcall(raw.sendfds, sender:fd(), { math.maxinteger }))
+  assert(not pcall(raw.sendfds, sender:fd(), no_descriptors)) -- checked: alternatives_as_value
+  assert(not pcall(raw.sendfds, sender:fd(), { math.maxinteger })) -- checked: alternatives_as_value
   assert(receiver:close())
   local ended, _, ended_errno = raw.sendfds(sender:fd(), { original:fd() })
   assert(ended == false and ended_errno == sys.EPIPE)

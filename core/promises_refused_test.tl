@@ -21,26 +21,26 @@ local process = require("cosmic.internal.process")
 local function test_a_promise_no_one_keeps_is_refused_before_a_start(tmp: string)
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   for _, bad in ipairs({ "inet", "" }) do
-    local started = pcall(process.spawn, probe, { probe }, nil, nil, nil, nil, nil, false, nil,
+    local started = pcall(process.spawn, probe, { probe }, nil, nil, nil, nil, nil, false, nil, -- checked: overload_none
       { promises = { bad } })
     assert(not started, bad .. " is no promise")
   end
-  local numeric: any = { 1 }
-  assert(not pcall(process.spawn, probe, { probe }, nil, nil, nil, nil, nil, false, nil,
-    { promises = numeric as {string} }))
-  local scalar: any = "fork"
-  assert(not pcall(process.spawn, probe, { probe }, nil, nil, nil, nil, nil, false, nil,
-    { promises = scalar as {string} }))
+  local numeric: any = { 1 } -- checked: any_use
+  assert(not pcall(process.spawn, probe, { probe }, nil, nil, nil, nil, nil, false, nil, -- checked: overload_none
+    { promises = numeric as {string} })) -- checked: cast_refused
+  local scalar: any = "fork" -- checked: any_use
+  assert(not pcall(process.spawn, probe, { probe }, nil, nil, nil, nil, nil, false, nil, -- checked: overload_none
+    { promises = scalar as {string} })) -- checked: cast_refused
 end
 
 local function test_nest_is_a_promise_of_a_root_and_pid_namespace_of_its_own(tmp: string)
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   -- It lets signals reach any pid and files rest on mounts, which only a
   -- policy's root and pid namespace hold: no start without them keeps it.
-  for _, sandbox in ipairs({ {}, { strict = true }, { unveil = { reads = { probe } } } }) do
-    local sandboxed = sandbox as raw_process.Sandbox -- cast: each shape is a partial sandbox
+  for _, sandbox in ipairs({ {}, { strict = true }, { unveil = { reads = { probe } } } }) do -- checked: literal_needs_type
+    local sandboxed = sandbox as raw_process.Sandbox -- cast: each shape is a partial sandbox -- checked: cast_refused
     sandboxed.promises = { "nest" }
-    local started, why = pcall(process.spawn, probe, { probe }, nil, nil, nil, nil, nil, false, nil,
+    local started, why = pcall(process.spawn, probe, { probe }, nil, nil, nil, nil, nil, false, nil, -- checked: overload_none
       sandboxed)
     assert(not started and tostring(why):find("nest", 1, true) ~= nil, tostring(why))
   end

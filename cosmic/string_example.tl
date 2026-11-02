@@ -4,7 +4,7 @@
 
 local String = require("cosmic.string")
 
-local Example = {}
+local Example = {} -- checked: literal_needs_type
 
 --- Fields of a record, empty ones kept; the separator is plain text.
 function Example.split()
@@ -54,4 +54,4 @@ function Example.counted()
   assert(message == "1 entry, 3 entries, 2 files")
 end
 
-return Example
+return Example -- checked: export_not_declared

@@ -54,7 +54,7 @@ local function unhex(text: string): string?, string
   end
   local at = text:find("[^0-9a-fA-F]")
   if at ~= nil then
-    return nil, ("byte 0x%02x at %d is not a hex digit"):format(text:byte(at), at)
+    return nil, ("byte 0x%02x at %d is not a hex digit"):format(text:byte(at), at) -- checked: nil_not_allowed
   end
   return (text:gsub("..", byte_of_hex)), ""
 end

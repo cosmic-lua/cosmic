@@ -371,16 +371,16 @@ function shared_compiles.look(cache: shared_compiles.Cache,
     fact_wraps, parameter_checks = checks_of(refs_text)
   end
   local stored = text_at(row, 4)
-  if references == nil or stored ~= digest_of(parts[1], parts[2], parts[3]) then
+  if references == nil or stored ~= digest_of(parts[1], parts[2], parts[3]) then -- checked: index_may_be_nil*3
     -- Only the row read, by its digest: a good one a build writes under
     -- the key meanwhile stays. Best effort: a busy file leaves it for the
     -- next build that looks, and the cache stays on.
     local _, _ = Sqlite.run(cache.db,
       "DELETE FROM " .. compiled .. " WHERE key = ?1 AND digest IS ?2",
-      { text(key), stored ~= nil and text(stored) or {} })
+      { text(key), stored ~= nil and text(stored) or {} }) -- checked: and_ternary, literal_needs_type
     return nil, ""
   end
-  return { lua = parts[1], bytecode = parts[2], references = references, fact_wraps = fact_wraps,
+  return { lua = parts[1], bytecode = parts[2], references = references, fact_wraps = fact_wraps, -- checked: index_may_be_nil*2
     parameter_checks = parameter_checks }, ""
 end
 
@@ -444,11 +444,11 @@ function shared_compiles.look_parse(cache: shared_compiles.Cache,
     local out, _ = Compress.inflate("raw", packed_rows)
     inflated = out
   end
-  local names = requires ~= nil and unpacked_requires(requires) or nil
+  local names = requires ~= nil and unpacked_requires(requires) or nil -- checked: and_ternary
   local stored = text_at(row, 3)
   if names == nil or inflated == nil or requires == nil or
       stored ~= parse_digest(key, requires, inflated) then
-    local digest: Sqlite.Value = stored ~= nil and text(stored) or {}
+    local digest: Sqlite.Value = stored ~= nil and text(stored) or {} -- checked: and_ternary, literal_needs_type
     where[#where + 1] = digest
     local _, _ = Sqlite.run(cache.db, "DELETE FROM " .. parsed ..
         " WHERE analyzer = ?1 AND source_hash = ?2 AND mapped = ?3 AND digest IS ?4", where)
@@ -476,13 +476,13 @@ local function evict(db: Sqlite.Handle, now_ns: integer, bound_bytes: integer): 
   for _, row in ipairs(over) do
     local list = ids[row:text(1)]
     local second = row:text(2)
-    list[#list + 1] = second
+    list[#list + 1] = second -- checked: nil_not_allowed*2
   end
   for tab, name in pairs({ c = compiled, p = parsed }) do
-    if #ids[tab] > 0 then
+    if #ids[tab] > 0 then -- checked: nil_not_allowed
       local ok, delete_trouble = Sqlite.run(db, "DELETE FROM " .. name ..
           " WHERE rowid IN (SELECT value FROM json_each(?1))",
-        { text("[" .. table.concat(ids[tab], ",") .. "]") })
+        { text("[" .. table.concat(ids[tab], ",") .. "]") }) -- checked: index_may_be_nil
       if not ok then return false, delete_trouble end
     end
   end
@@ -535,7 +535,7 @@ function shared_compiles.settle(cache: shared_compiles.Cache, owed: shared_compi
       local ok, trouble = Sqlite.run(db,
         "INSERT OR REPLACE INTO " .. parsed .. " (analyzer, source_hash, mapped, requires, rows, " ..
           "digest, size, used_ns) VALUES (?1, ?2, ?3, ?4, deflate(?5), ?6, 0, ?7)",
-        { where[1], where[2], where[3], text(requires), { blob = one.made.rows },
+        { where[1], where[2], where[3], text(requires), { blob = one.made.rows }, -- checked: index_may_be_nil*3
           text(parse_digest(key, requires, one.made.rows)), { integer = now_ns } })
       if not ok then return false, trouble end
       ok, trouble = Sqlite.run(db, "UPDATE " .. parsed ..
@@ -643,14 +643,14 @@ function shared_compiles.for_build(environment?: {string:string}): importer.Shar
         if look_trouble ~= "" then drop(look_trouble) end
         return nil
       end
-      table.insert(assert(owed.parses_used), key)
+      table.insert(assert(owed.parses_used), key) -- checked: overload_none -- untyped: call
       return found
     end,
     offer = function(analyzer: string, source_hash: string, mapped: boolean,
                      made: importer.Shared.Parse)
       if open.cache == nil then return end
-      table.insert(assert(owed.parses), {
-        key = { analyzer = analyzer, source_hash = source_hash, mapped = mapped },
+      table.insert(assert(owed.parses), { -- checked: overload_none -- untyped: call
+        key = { analyzer = analyzer, source_hash = source_hash, mapped = mapped }, -- checked: arms_differ
         made = made,
       })
     end,

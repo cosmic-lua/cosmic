@@ -109,7 +109,7 @@ end
 
 --- The options `cosmic sql` takes: each names a database, and at most
 --- one may be given.
-local spec = Cli.verbs.sql.spec or {}
+local spec = Cli.verbs.sql.spec or {} -- checked: literal_needs_type, map_field
 
 --- The database a command line names under `root`, the working
 --- directory: `--db <path>`, `--build` (its build directory's
@@ -425,9 +425,9 @@ local function ndjson_writer(): Writer
         return nil, unnamable_key
       end
       if whole_json then
-        local text = statement:kind(0) == "text" and statement:bytes(0) or nil
+        local text = statement:kind(0) == "text" and statement:bytes(0) or nil -- checked: and_ternary
         local object, _ = Json.decode_object(text or "")
-        if text == nil or text:find("[\r\n]") ~= nil or object == nil then
+        if text == nil or text:find("[\r\n]") ~= nil or object == nil then -- untyped: call
           return nil, "_json is not a JSON object's text on one line"
         end
         return text, ""
@@ -435,13 +435,13 @@ local function ndjson_writer(): Writer
       local members: mut {string} = {}
       for index = 0, width - 1 do
         local kind = statement:kind(index)
-        local value: any = Json.null
+        local value: any = Json.null -- checked: any_use
         if kind == "integer" then
-          value = statement:integer(index)
+          value = statement:integer(index) -- checked: any_use
         elseif kind == "number" then
-          value = statement:number(index)
+          value = statement:number(index) -- checked: any_use
         elseif kind == "text" then
-          value = statement:bytes(index)
+          value = statement:bytes(index) -- checked: any_use
         elseif kind == "blob" then
           return nil, "column " .. tostring((index + 1)) .. " is a blob, which JSON has no value for; " ..
             "select its hex() or base64()"
@@ -673,7 +673,7 @@ local function read_inputs(parsed: Flags.Parsed): {sql.Input}?, string
         return nil, name .. " belongs to the --from before it; give --from first"
       end
       assert(value ~= nil, "Flags.parse gives each --as and --at its value")
-      local given = name == "--as" and given_as or given_at
+      local given = name == "--as" and given_as or given_at -- checked: and_ternary
       if given[#inputs] == true then
         return nil, name .. " is given twice for " .. input.label
       end
@@ -773,7 +773,7 @@ local function describe(db: Sqlite.Handle, tables: {dataset.Table}): {string}?, 
         types[#types + 1] = row:text(1)
       end
       local name = plain(column)
-      local line = "  " .. name .. string.rep(" ", width - #name) .. "  " .. (#types > 0 and table.concat(types, "|") or "-")
+      local line = "  " .. name .. string.rep(" ", width - #name) .. "  " .. (#types > 0 and table.concat(types, "|") or "-") -- checked: and_ternary
       local original = each.renamed[column]
       if original ~= nil then
         line = line .. "  (the key " .. plain(Json.quote(original)) .. ")"

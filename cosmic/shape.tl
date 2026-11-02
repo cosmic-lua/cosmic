@@ -81,7 +81,7 @@ local Json = require("cosmic.json")
 
 local record Shape
   --- A table of anything, which [`Build.object`] answers for the generated code to read fields from.
-  type Table = {any: any}
+  type Table = {any: any} -- declared: key_type
 
   --- Which check a [`Node`] describes.
   enum Kind
@@ -294,7 +294,7 @@ local field_path, index_path = FieldPath.field, FieldPath.index
 --- What a value is, for a message: the Lua type, with integer and float
 --- told apart, and arrays by their JSON name.
 local function kind_of(v: any): string
-  if v is number then return math.type(v) end
+  if v is number then return math.type(v) end -- checked: nil_not_allowed
   if Json.is_array(v) then return "array" end
   return type(v)
 end
@@ -364,9 +364,9 @@ end
 
 --- The first key of `t`, in [`key_before`]'s order, that `good` refuses,
 --- or nil when it refuses none.
-local function least_refused(t: {any: any}, good: function(any): boolean): any
-  local least: any = nil
-  for k in next, t do
+local function least_refused(t: {any: any}, good: function(any): boolean): any -- declared: key_type
+  local least: any = nil -- checked: any_use
+  for k in next, t do -- checked: overload_value
     if not good(k) and (least == nil or key_before(k, least)) then least = k end
   end
   return least
@@ -381,7 +381,7 @@ end
 --- where the record stands, or else the first string key it does not name, in byte order, named where that key is
 --- (`$.prot: unknown key`). A key that is not a string takes precedence, so a strict record fails where it stands or at
 --- its keys, never at a field as well. Answers the message, or "".
-local function unknown_key(t: {any: any}, names: {string}, path: string): string
+local function unknown_key(t: {any: any}, names: {string}, path: string): string -- declared: key_type
   local members = Json.members(t)
   if members.layout ~= "object" then
     local refused = least_refused(t, is_name)
@@ -407,7 +407,7 @@ end
 --- `v` as the `T` the caller says. The one cast of the module, for [`Shape.list`], which marks a dense array of what its
 --- element spec checked (the mark is a call on a map, [`Json.with_holes`], and the array it marks is the same table).
 local function trust<T>(v: any): T
-  return v as T
+  return v as T -- checked: cast_refused
 end
 
 local function into<T>(value: any, spec: Shape.Spec<T>): T?, string
@@ -666,7 +666,7 @@ local BOOLEAN_SPEC: Shape.Spec<boolean> = {
 
 local ANY_SPEC: Shape.Spec<any> = {
   check = function(value: any, path: string): any, string
-    if absent(value) then return nil, path .. ": missing" end
+    if absent(value) then return nil, path .. ": missing" end -- checked: any_use
     return value, ""
   end,
 }

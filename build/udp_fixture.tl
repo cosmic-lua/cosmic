@@ -37,7 +37,7 @@ function udp_fixture.close(bound: udp_fixture.Bound)
   local _, _ = bound.socket:close()
 end
 
-local bound_mt: metatable<udp_fixture.Bound> = { __close = udp_fixture.close }
+local bound_mt: metatable<udp_fixture.Bound> = { __close = udp_fixture.close } -- checked: literal_missing
 
 --- Binds a UDP socket at `host` and `port` (0 for one the kernel chooses),
 --- or answers nil and why not: a name is never looked up, which the
@@ -53,7 +53,7 @@ function udp_fixture.bind(host: string, port: integer): udp_fixture.Bound?, stri
     local _, _ = socket:close()
     return nil, trouble
   end
-  local bound: udp_fixture.Bound = setmetatable({
+  local bound: udp_fixture.Bound = setmetatable({ -- checked: arms_differ, setmetatable_call -- untyped: call
     address = address, socket = socket, fd = socket:fd(), open = true,
   }, bound_mt)
   return bound, ""

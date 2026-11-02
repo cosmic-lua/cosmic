@@ -46,12 +46,12 @@ local function test_a_numeric_literal_answers_itself_without_a_query()
       { "127.0.0.1", "ipv4" }, { "255.255.255.255", "ipv4" }, { "::1", "ipv6" },
       { "2001:db8::1", "ipv6" }, { "::ffff:192.0.2.1", "ipv6" },
   }) do
-    local found, why = Net.resolve(case[1], opts)
-    assert(found ~= nil and why == "", case[1] .. ": " .. why)
+    local found, why = Net.resolve(case[1], opts) -- checked: index_may_be_nil
+    assert(found ~= nil and why == "", case[1] .. ": " .. why) -- checked: nil_not_allowed
     assert(#found == 1 and found[1].address == case[1] and found[1].family == case[2], case[1])
   end
   -- Written back as inet_ntop writes it.
-  assert(assert(Net.resolve("2001:0db8:0:0:0:0:0:1", opts))[1].address == "2001:db8::1")
+  assert(assert(Net.resolve("2001:0db8:0:0:0:0:0:1", opts))[1].address == "2001:db8::1") -- checked: nil_not_allowed
 end
 
 local function test_a_name_the_resolver_cannot_take_fails_and_a_degenerate_argument_raises(tmp: string)
@@ -65,10 +65,10 @@ local function test_a_name_the_resolver_cannot_take_fails_and_a_degenerate_argum
   assert(found == nil and why == "Invalid argument", why)
   found, why = Net.resolve("example.test", { hosts_file = tmp .. "/x\0y" })
   assert(found == nil and why == "Invalid argument", why)
-  assert(not pcall(Net.resolve, "example.test", { timeout_ns = -1 }))
-  assert(not pcall(Net.resolve, "example.test", { servers = {} }))
-  assert(not pcall(Net.resolve, "example.test", { servers = { { host = "127.0.0.1", port = 70000 } } }))
-  assert(not pcall(Net.resolve, "example.test", { servers = { { host = "127.0.0.1", port = 0 } } }))
+  assert(not pcall(Net.resolve, "example.test", { timeout_ns = -1 })) -- checked: alternatives_as_value
+  assert(not pcall(Net.resolve, "example.test", { servers = {} })) -- checked: alternatives_as_value
+  assert(not pcall(Net.resolve, "example.test", { servers = { { host = "127.0.0.1", port = 70000 } } })) -- checked: alternatives_as_value
+  assert(not pcall(Net.resolve, "example.test", { servers = { { host = "127.0.0.1", port = 0 } } })) -- checked: alternatives_as_value
 end
 
 --- A name of 254 bytes (253 and a trailing dot) is the longest asked of

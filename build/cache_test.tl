@@ -199,15 +199,15 @@ local function test_failed_retired_file_removal_withholds_save_digest(tmp: strin
   local retired = path .. ".corrupt-1"
   assert(Fs.write(retired, "retired"))
   local original = Fs.remove
-  Fs.remove = function(name: string): boolean, string
+  Fs.remove = function(name: string): boolean, string -- checked: field_fixed
     if name == retired then return false, "injected unlink failure" end
     return original(name)
   end
   local ok, result = pcall(function(): maintenance.Result return trim(path, "compiles", 5) end)
-  Fs.remove = original
-  assert(ok and not result.complete and result.report.digest == nil)
-  assert(result.report.files[1].reason == "injected unlink failure")
-  assert(#result.report.files[1].removed_set_aside == 0)
+  Fs.remove = original -- checked: field_fixed
+  assert(ok and not result.complete and result.report.digest == nil) -- checked: any_use*2
+  assert(result.report.files[1].reason == "injected unlink failure") -- checked: any_use
+  assert(#result.report.files[1].removed_set_aside == 0) -- checked: any_use
   assert(Fs.read(retired) == "retired" and count(path, "compiled_v2") == 1)
 end
 
@@ -216,15 +216,15 @@ local function test_retired_file_disappearance_before_inspection_is_harmless(tmp
   local retired = path .. ".corrupt-1"
   assert(Fs.write(retired, "retired"))
   local original = Fs.list
-  Fs.list = function(dir: string): {string}?, string
+  Fs.list = function(dir: string): {string}?, string -- checked: field_fixed
     local names, why = original(dir)
     if dir == tmp then assert(Fs.remove(retired)) end
     return names, why
   end
   local ok, result = pcall(function(): maintenance.Result return trim(path, "compiles", 5) end)
-  Fs.list = original
-  assert(ok and result.complete and result.report.files[1].state == "missing")
-  assert(#result.report.files[1].removed_set_aside == 0)
+  Fs.list = original -- checked: field_fixed
+  assert(ok and result.complete and result.report.files[1].state == "missing") -- checked: any_use*2
+  assert(#result.report.files[1].removed_set_aside == 0) -- checked: any_use
   assert(Fs.stat(retired) == nil)
 end
 
@@ -236,15 +236,15 @@ local function test_failed_retired_file_inspection_withholds_save_digest(tmp: st
   local retired = path .. ".corrupt-1"
   assert(Fs.write(retired, "retired"))
   local original = sys.lstat
-  sys.lstat = function(name: string): sys.Stat?, string, integer
+  sys.lstat = function(name: string): sys.Stat?, string, integer -- checked: field_fixed
     if name == retired then return nil, "injected lstat failure", sys.EACCES end
     return original(name)
   end
   local ok, result = pcall(function(): maintenance.Result return trim(path, "compiles", 5) end)
-  sys.lstat = original
-  assert(ok and not result.complete and result.report.digest == nil)
-  assert(result.report.files[1].reason == "injected lstat failure")
-  assert(#result.report.files[1].removed_set_aside == 0)
+  sys.lstat = original -- checked: field_fixed
+  assert(ok and not result.complete and result.report.digest == nil) -- checked: any_use*2
+  assert(result.report.files[1].reason == "injected lstat failure") -- checked: any_use
+  assert(#result.report.files[1].removed_set_aside == 0) -- checked: any_use
   assert(Fs.read(retired) == "retired" and count(path, "compiled_v2") == 1)
 end
 
@@ -273,14 +273,14 @@ local function test_cli_usage_and_json_empty_arrays(tmp: string)
   local trouble = { value = "" }
   local io: cache.Io = {
     out = function(text: string): boolean, string
-      output.value = output.value .. text
+      output.value = output.value .. text -- checked: map_field*2
       return true, ""
     end,
-    err = function(text: string) trouble.value = trouble.value .. text end,
+    err = function(text: string) trouble.value = trouble.value .. text end, -- checked: map_field*2
   }
   local argv: mut {string} = { "cache", "trim", "compiles", tmp .. "/missing", "--since-ns", "0", "--json" }
-  assert(cache.run(argv, io) == 0 and trouble.value == "", trouble.value)
-  assert(Json.decode(output.value) ~= nil and output.value:find('"warnings":[]', 1, true) ~= nil, output.value)
+  assert(cache.run(argv, io) == 0 and trouble.value == "", trouble.value) -- checked: map_field*2
+  assert(Json.decode(output.value) ~= nil and output.value:find('"warnings":[]', 1, true) ~= nil, output.value) -- checked: map_field*3
   table.remove(argv, 6)
   table.insert(argv, 6, "-1")
   assert(cache.run(argv, io) == 2)
@@ -293,15 +293,15 @@ local function test_failed_delete_rolls_back_earlier_tables(tmp: string)
   assert(db:exec("INSERT INTO parsed_v1 VALUES ('a','s',0,'',x'','d',0,1)"))
   assert(db:close())
   local original = Sqlite.run
-  Sqlite.run = function(handle: Sqlite.Handle, sql: string, values?: {Sqlite.Value}): boolean, string
+  Sqlite.run = function(handle: Sqlite.Handle, sql: string, values?: {Sqlite.Value}): boolean, string -- checked: field_fixed
     if sql:find('DELETE FROM "parsed_v1"', 1, true) then return false, "injected delete failure" end
     return original(handle, sql, values)
   end
   local ok, result = pcall(function(): maintenance.Result return trim(path, "compiles", 5) end)
-  Sqlite.run = original
+  Sqlite.run = original -- checked: field_fixed
   assert(ok)
-  assert(not result.complete and result.report.digest == nil)
-  assert(result.report.files[1].removed == 0 and result.report.files[1].kept == 2)
+  assert(not result.complete and result.report.digest == nil) -- checked: any_use*2
+  assert(result.report.files[1].removed == 0 and result.report.files[1].kept == 2) -- checked: any_use*2
   assert(count(path, "compiled_v2") == 1 and count(path, "parsed_v1") == 1)
 end
 
@@ -343,13 +343,13 @@ local function test_disappearance_before_open_does_not_recreate_database(tmp: st
   compiled(db, "old", 1)
   assert(db:close())
   local original = Sqlite.open
-  Sqlite.open = function(name: string, options?: Sqlite.OpenOptions): Sqlite.Handle?, string
+  Sqlite.open = function(name: string, options?: Sqlite.OpenOptions): Sqlite.Handle?, string -- checked: field_fixed
     if name == path then assert(Fs.remove(path)) end
     return original(name, options)
   end
   local ok, result = pcall(function(): maintenance.Result return trim(path, "compiles", 5) end)
-  Sqlite.open = original
-  assert(ok and not result.complete and result.report.digest == nil)
+  Sqlite.open = original -- checked: field_fixed
+  assert(ok and not result.complete and result.report.digest == nil) -- checked: any_use*2
   assert(Fs.stat(path) == nil)
 end
 
@@ -358,16 +358,16 @@ local function test_busy_checkpoint_row_suppresses_save_digest(tmp: string)
   local db = database(path, formats.verdicts)
   assert(db:close())
   local original = Sqlite.rows
-  Sqlite.rows = function(handle: Sqlite.Handle, sql: string, values?: {Sqlite.Value}): Sqlite.Rows?, string
+  Sqlite.rows = function(handle: Sqlite.Handle, sql: string, values?: {Sqlite.Value}): Sqlite.Rows?, string -- checked: field_fixed
     if sql == "PRAGMA wal_checkpoint(TRUNCATE)" then
       return original(handle, "SELECT 1, 3, 2")
     end
     return original(handle, sql, values)
   end
   local ok, result = pcall(function(): maintenance.Result return trim(path, "verdicts") end)
-  Sqlite.rows = original
-  assert(ok and not result.complete and result.report.digest == nil)
-  assert(result.report.files[1].reason:find("checkpoint", 1, true))
+  Sqlite.rows = original -- checked: field_fixed
+  assert(ok and not result.complete and result.report.digest == nil) -- checked: any_use*2
+  assert(result.report.files[1].reason:find("checkpoint", 1, true)) -- checked: any_use
 end
 
 --- Captured from the pre-migration CI feed_rows/digest on the same fixture,
@@ -389,7 +389,7 @@ local function test_vacuum_failure_reports_already_committed_row_counts(tmp: str
   compiled(db, "new", 5)
   assert(db:close())
   local original = Sqlite.run
-  Sqlite.run = function(handle: Sqlite.Handle, sql: string, values?: {Sqlite.Value}): boolean, string
+  Sqlite.run = function(handle: Sqlite.Handle, sql: string, values?: {Sqlite.Value}): boolean, string -- checked: field_fixed
     local ok, why = original(handle, sql, values)
     if ok and sql:find('DELETE FROM "compiled_v2"', 1, true) ~= nil then
       -- VACUUM needs its temporary attached database; COMMIT needs none.
@@ -398,9 +398,9 @@ local function test_vacuum_failure_reports_already_committed_row_counts(tmp: str
     return ok, why
   end
   local ok, result = pcall(function(): maintenance.Result return trim(path, "compiles", 5) end)
-  Sqlite.run = original
-  assert(ok and not result.complete and result.report.digest == nil)
-  assert(result.report.files[1].kept == 1 and result.report.files[1].removed == 1)
+  Sqlite.run = original -- checked: field_fixed
+  assert(ok and not result.complete and result.report.digest == nil) -- checked: any_use*2
+  assert(result.report.files[1].kept == 1 and result.report.files[1].removed == 1) -- checked: any_use*2
   assert(count(path, "compiled_v2") == 1, "the delete committed before compaction failed")
 end
 

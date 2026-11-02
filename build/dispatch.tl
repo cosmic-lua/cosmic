@@ -528,7 +528,7 @@ local function run(file: string, argv: {string}): integer
   end
   -- The file's top level, which `require` hands its own name and loader
   -- data as `...`, finds its words in `arg`, as `lua file a b` gives them.
-  rawset(_G as {string:any}, "arg", arguments)
+  rawset(_G as {string:any}, "arg", arguments) -- checked: cast_refused, unchecked_binding
   local load_module = require("build.load_module")
   local entry = standalone.entry(load_module.load(name))
   if entry ~= nil then
@@ -619,7 +619,7 @@ local function help(argv: {string}, asked: string?): integer
   -- candidate database or passing through the stale-tool guard.
   if asked == "cache" or (asked == nil and argv[2] == "cache" and argv[3] == nil) then
     local spec = assert(verb_list.find("cache"))
-    log:say(verb_text("cache", { spec }, verb_help({ "cache" }, true).cache) .. "\n")
+    log:say(verb_text("cache", { spec }, verb_help({ "cache" }, true).cache) .. "\n") -- checked: map_field
     local _, _ = logger.summary("help", "1 verb, " .. clock.took(started))
     return 0
   end
@@ -825,7 +825,7 @@ function Dispatch.main(argv: {string}): integer
   -- refuse as options) and `-e`, `--standalone` and `--version` are
   -- verbs by no command name.
   local command = Cli.verbs[verb]
-  local options = if chosen ~= nil and command ~= nil then command.spec or {} else {} end
+  local options = if chosen ~= nil and command ~= nil then command.spec or {} else {} end -- checked: literal_needs_type
   -- The words of a program a verb runs are not the verb's to read.
   local own = argv
   if chosen ~= nil and chosen.program_slot ~= nil then
@@ -833,7 +833,7 @@ function Dispatch.main(argv: {string}): integer
     if at ~= nil then
       own = {}
       for slot, given in ipairs(argv) do
-        if slot < at then own[#own + 1] = given end
+        if slot < at then own[#own + 1] = given end -- checked: view_written
       end
     end
   end

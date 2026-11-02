@@ -112,19 +112,19 @@ function Fixture.subject(source: string, modules?: {string: string}): Report.Sub
   table.sort(names)
   local key: mut {string} = {}
   for _, module in ipairs(names) do
-    key[#key + 1] = module .. "\n" .. all[module]
+    key[#key + 1] = module .. "\n" .. all[module] -- checked: nil_not_allowed
   end
   -- The modules of a session are lowered with the first program, and stay in its program.
   local kept = table.concat(key, "\0")
   local held = sessions[kept]
   local given_modules: {string: string} = all
   if held == nil then
-    held = { run = Programs.session(standard[1], standard[2], {}) }
+    held = { run = Programs.session(standard[1], standard[2], {}) } -- checked: index_may_be_nil*2
     sessions[kept] = held
   else
     given_modules = {}
   end
-  counter[1] = counter[1] + 1
+  counter[1] = counter[1] + 1 -- checked: nil_not_allowed
   local module = "t" .. tostring(counter[1])
   local run = held.run(source, module, given_modules)
   local types: mut {integer: Types.Type} = {}

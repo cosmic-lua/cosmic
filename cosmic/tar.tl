@@ -50,7 +50,7 @@ local record Tar
     --- The next entry, or nil and `""` once the archive's two zero
     --- blocks are reached (or the stream simply ends there). An error
     --- is sticky: every later call returns it again.
-    next: function(Reader): Entry?, string
+    next: function(Reader): Entry?, string -- declared: interface_disagrees
     --- Closes the Stream.Reader this one reads from.
     close: function(Reader): boolean, string
   end
@@ -389,7 +389,7 @@ local class BufferedReader is Stream.Reader
     return buf:sub(at, at + n - 1), ""
   end
 
-  function skip(self, n: integer): boolean, string
+  function skip(self, n: integer): boolean, string -- declared: interface_disagrees
     local avail = #self.buf - self.at + 1
     if n <= avail then
       self.at = self.at + n
@@ -414,7 +414,7 @@ end
 --- it is "", and answers it.
 local function fail(self: EntryReader, trouble: string): nil, string
   self.failed = if trouble ~= "" then trouble else "tar: read failed" end
-  return nil, self.failed
+  return nil, self.failed -- checked: nil_not_allowed
 end
 
 --- What [`Tar.reader`] answers. Its entries' bodies share its state:
@@ -439,7 +439,7 @@ local class EntryReader is Tar.Reader
   --- What every entry of this reader gets as its metatable.
   mut entry_mt?: metatable<Tar.Entry>
 
-  function next(self): Tar.Entry?, string
+  function next(self): Tar.Entry?, string -- declared: interface_disagrees
     local failed = self.failed
     if failed then return nil, failed end
     if self.closed then return refuse("the reader is closed") end
@@ -493,7 +493,7 @@ local class EntryReader is Tar.Reader
         local f, ftrouble = parse_header(block, long_name, long_link, pax_local, self.pax_global)
         if f == nil then return fail(self, ftrouble) end
         self.pending_skip = f.size + padding_of(f.size)
-        local entry: Tar.Entry = setmetatable({
+        local entry: Tar.Entry = setmetatable({ -- checked: arms_differ, setmetatable_call -- untyped: call
           path = f.name,
           kind = f.kind,
           mode = f.mode,
@@ -522,7 +522,7 @@ local class EntryReader is Tar.Reader
 end
 
 --- An entry's body: a Reader bounded to the entry's size.
-local class BodyReader is Stream.Reader
+local class BodyReader is Stream.Reader -- declared: interface_disagrees
   state: EntryReader
   generation: integer
   mut left: integer
@@ -544,7 +544,7 @@ local class BodyReader is Stream.Reader
     local chunk, rtrouble = state.src:read(want)
     if chunk == nil then
       self.failed = if rtrouble ~= "" then rtrouble else "tar: truncated archive" end
-      return nil, self.failed
+      return nil, self.failed -- checked: nil_not_allowed
     end
     self.left = left - #chunk
     state.pending_skip = state.pending_skip - #chunk
@@ -568,8 +568,8 @@ function Tar.reader(raw: Stream.Reader): Tar.Reader
   -- metatable: only the current entry can be opened, and only once. It
   -- is one closure for the whole reader, not one for each entry, and
   -- the entry's fields stay those [`Tar.Entry`] declares.
-  r.entry_mt = {
-    __index = {
+  r.entry_mt = { -- checked: literal_missing
+    __index = { -- checked: any_use
       open = function(e: Tar.Entry): Stream.Reader?, string
         if e ~= r.current then return refuse("entry is no longer current") end
         -- A second `open` on the same entry would share `left` and

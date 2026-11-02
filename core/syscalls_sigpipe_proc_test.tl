@@ -16,7 +16,7 @@ Test.policy{ profiles = { "proc" }, requires = { "proc" } }
 local function test_a_child_keeps_the_inherited_sigpipe_mask(tmp: string)
   local probe = probe_in(tmp)
   local function ignored(text: string): integer
-    return math.tointeger(tonumber(assert(text:match("SigIgn:%s*(%x+)"), text), 16)) as integer
+    return math.tointeger(tonumber(assert(text:match("SigIgn:%s*(%x+)"), text), 16)) as integer -- checked: cast_refused
   end
   local status = sys.open("/proc/self/status", sys.O_RDONLY)
   assert(status)

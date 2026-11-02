@@ -1,6 +1,6 @@
 local Seatbelt = require("cosmic.sandbox.seatbelt")
 
-local Example = {}
+local Example = {} -- checked: literal_needs_type
 
 --- A read grant becomes a parameterized literal rule. Compilation can
 --- be inspected on any host; it does not apply a sandbox. An enforcement
@@ -13,4 +13,4 @@ function Example.compile()
   assert(not profile.text:find("/srv/input", 1, true))
 end
 
-return Example
+return Example -- checked: export_not_declared

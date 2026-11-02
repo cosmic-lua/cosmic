@@ -11,7 +11,7 @@ local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
 
-local Example = {}
+local Example = {} -- checked: literal_needs_type
 
 --- Bytes already in memory, read as a stream: at most `max_bytes` bytes a
 --- `read`, and nil and `""` at the end.
@@ -218,4 +218,4 @@ function Example.run()
   assert(shouted == "HELLO!", shouted)
 end
 
-return Example
+return Example -- checked: export_not_declared

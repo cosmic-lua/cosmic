@@ -13,7 +13,7 @@ local function expression(text: string): Ast.Exp
   local parsed = Parser.parse(Lexer.lex("return " .. text .. "\n", "t.tl"), "t.tl", "tl")
   assert(#parsed.errors == 0, text)
   local stat = parsed.chunk.body.stats[1]
-  assert((stat.kind == "Return"), text)
+  assert((stat.kind == "Return"), text) -- checked: nil_not_allowed
   return (assert(stat.values[1], text))
 end
 

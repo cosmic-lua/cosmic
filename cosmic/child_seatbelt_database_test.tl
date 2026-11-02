@@ -51,13 +51,13 @@ local function test_a_sealed_database_runs_its_main_and_requires_its_modules(tmp
   local path = tmp .. "/sealed.db"
   fixture.seal(tmp, path)
   local out = fixture.fields(assert(ran_sealed(path).stdout))
-  assert(out.main == "fixture.main", tostring(out.main))
-  assert(out.context == "database-v1", tostring(out.context))
-  assert(out.databases == "1", tostring(out.databases))
-  assert(out.outside == "false", "a module outside the sealed set loaded")
-  assert(out.own_file == "false", "this program's own file was read")
-  local core = assert(sys.realpath(assert(Proc.relaunch()).argv[1]))
-  assert(out.relaunch == core .. "|--database|" .. assert(sys.realpath(path)), tostring(out.relaunch))
+  assert(out.main == "fixture.main", tostring(out.main)) -- checked: map_field*2
+  assert(out.context == "database-v1", tostring(out.context)) -- checked: map_field*2
+  assert(out.databases == "1", tostring(out.databases)) -- checked: map_field*2
+  assert(out.outside == "false", "a module outside the sealed set loaded") -- checked: map_field
+  assert(out.own_file == "false", "this program's own file was read") -- checked: map_field
+  local core = assert(sys.realpath(assert(Proc.relaunch()).argv[1])) -- checked: index_may_be_nil
+  assert(out.relaunch == core .. "|--database|" .. assert(sys.realpath(path)), tostring(out.relaunch)) -- checked: map_field*2
 end
 
 --- The database is granted to read, and no more: the core opens it read-only
@@ -67,10 +67,10 @@ local function test_the_child_may_read_the_database_and_write_nothing_beside_it(
   local path = tmp .. "/sealed.db"
   fixture.seal(tmp, path)
   local before = assert(Fs.list(tmp))
-  table.sort(before)
+  table.sort(before) -- checked: overload_none
   ran_sealed(path)
   local after = assert(Fs.list(tmp))
-  table.sort(after)
+  table.sort(after) -- checked: overload_none
   assert(table.concat(after, "\n") == table.concat(before, "\n"),
     "the child left files beside the database: " .. table.concat(after, " "))
 end
@@ -81,7 +81,7 @@ local function test_a_database_that_is_not_there_fails_the_start(tmp: string)
   local executable = assert(Proc.executable())
   local result, why = Child.run({ executable, executable }, { policy = { profiles = { "system" },
     database = { path = tmp .. "/absent.db" } }, stdout = "capture", stderr = "capture" })
-  assert(result == nil and why:find("absent.db", 1, true), tostring(why))
+  assert(result == nil and why:find("absent.db", 1, true), tostring(why)) -- checked: or_mix
 end
 
 --- The child may not write the database it runs on, by open or beside it:
@@ -95,9 +95,9 @@ local function test_the_child_cannot_write_the_database_or_a_file_beside_it(tmp:
   assert(Fs.write(beside, "beside"))
   local out = fixture.fields(assert(ran_sealed(path, { "plain", tmp, beside }).stdout))
   local refused = tostring(sys.EPERM)
-  assert(out.db_write == refused, "the database opened for writing: " .. tostring(out.db_write))
-  assert(out.core_write == refused, "the core opened for writing: " .. tostring(out.core_write))
-  assert(out.beside_write == refused, "a file beside it opened for writing: " .. tostring(out.beside_write))
-  assert(out.beside_create == refused, "a file beside it was made: " .. tostring(out.beside_create))
+  assert(out.db_write == refused, "the database opened for writing: " .. tostring(out.db_write)) -- checked: map_field*2
+  assert(out.core_write == refused, "the core opened for writing: " .. tostring(out.core_write)) -- checked: map_field*2
+  assert(out.beside_write == refused, "a file beside it opened for writing: " .. tostring(out.beside_write)) -- checked: map_field*2
+  assert(out.beside_create == refused, "a file beside it was made: " .. tostring(out.beside_create)) -- checked: map_field*2
   assert(Fs.read(beside) == "beside" and sys.stat(beside .. ".new") == nil)
 end

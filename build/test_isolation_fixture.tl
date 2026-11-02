@@ -18,7 +18,7 @@ end
 --- of the host, which a sandbox would not let it reach.
 function fixture.environment(): {string:string}
   local env = this_program.environment()
-  env.COSMIC_TEST_SANDBOX = "0"
+  env.COSMIC_TEST_SANDBOX = "0" -- checked: map_field
   return env
 end
 
@@ -120,8 +120,8 @@ function fixture.hung_runs(tmp: string, probe: string?, sandbox_workers: boolean
     local output = here .. "/run.out"
     -- The failing tests' directories are kept; they are kept here.
     local env = fixture.environment()
-    env.TMPDIR = here .. "/temp"
-    env.COSMIC_TEST_SANDBOX = mode
+    env.TMPDIR = here .. "/temp" -- checked: map_field
+    env.COSMIC_TEST_SANDBOX = mode -- checked: map_field
     assert(Fs.mkdirs(assert(env["TMPDIR"])))
     local started = Clock.monotonic_ns()
     -- Every test's deadline counts from its worker's start, so the two

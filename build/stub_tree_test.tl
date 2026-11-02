@@ -90,7 +90,7 @@ local function test_the_tool_carries_each_standard_module_s_stub(tmp: string)
     "the stubs carried are those of the standard library's modules alone")
   local parsed = Parser.parse(Lexer.lex(thing, "cosmic/thing.tl"), "cosmic/thing.tl", "tl")
   assert(#parsed.errors == 0)
-  assert(rows[1]:text(2) == stub.made(parsed.chunk).text, rows[1]:text(2))
+  assert(rows[1]:text(2) == stub.made(parsed.chunk).text, rows[1]:text(2)) -- checked: nil_not_allowed*2
 end
 
 --- The places ([`build.syntax_places`]) of the standard library's modules are in the projection and in the tool, for

@@ -38,7 +38,7 @@ local function summary(r: Tar.Reader, read_bodies: boolean): {string}?, string
       (if entry.kind == "symlink" then (" -> " .. entry.linkpath) else "" end) ..
       (if body ~= "" then (" [" .. body .. "]") else "" end)
   end
-  return lines, ""
+  return lines, "" -- checked: unreachable
 end
 
 local function test_writer_and_reader_roundtrip_files_dirs_and_symlinks()
@@ -51,7 +51,7 @@ local function test_writer_and_reader_roundtrip_files_dirs_and_symlinks()
 
   local r = Tar.reader(Stream.from_string(c:result()))
   local lines = assert(summary(r, true))
-  table.sort(lines)
+  table.sort(lines) -- checked: overload_none
   assert(#lines == 3, table.concat(lines, " | "))
   assert(lines[1] == "dir adir/")
   assert(lines[2] == "file adir/short.txt [hello there]")
@@ -99,21 +99,21 @@ end
 
 local function test_a_size_below_zero_or_no_integer_raises()
   local w = Tar.writer(Stream.collect())
-  for _, size in ipairs({ -1, 1.5 } as {number}) do
+  for _, size in ipairs({ -1, 1.5 } as {number}) do -- checked: cast_refused
     local ok, why: boolean, any = pcall(function()
-      local _, _ = w:add_file("f", Stream.from_string("abc"), { size = size as integer })
+      local _, _ = w:add_file("f", Stream.from_string("abc"), { size = size as integer }) -- checked: cast_refused
     end)
-    assert(not ok and tostring(why):find("tar: opts.size must be an integer of at least 0", 1, true),
+    assert(not ok and tostring(why):find("tar: opts.size must be an integer of at least 0", 1, true), -- checked: or_mix
       tostring(why))
     assert(tostring(why):find("tar_test", 1, true), "blames the caller: " .. tostring(why))
   end
   -- Whatever the body, and before any other refusal of the call.
-  for _, call in ipairs({
+  for _, call in ipairs({ -- checked: cast_refused
       function() local _, _ = w:add_file("f", "abc", { size = -1 }) end,
       function() local _, _ = w:add_file("dir/", "abc", { size = -1 }) end,
   } as {function()}) do
     local ok, why: boolean, any = pcall(call)
-    assert(not ok and tostring(why):find("tar: opts.size must be an integer of at least 0", 1, true),
+    assert(not ok and tostring(why):find("tar: opts.size must be an integer of at least 0", 1, true), -- checked: or_mix
       tostring(why))
   end
   assert(w:add_file("g", "x"))
@@ -184,8 +184,8 @@ end
 
 local function recompute_checksum(block: string): string
   local sum = 256
-  for i = 1, 148 do sum = sum + block:byte(i) end
-  for i = 157, 512 do sum = sum + block:byte(i) end
+  for i = 1, 148 do sum = sum + block:byte(i) end -- checked: nil_not_allowed
+  for i = 157, 512 do sum = sum + block:byte(i) end -- checked: nil_not_allowed
   local checksum = string.format("%06o", sum) .. "\0 "
   return block:sub(1, 148) .. checksum .. block:sub(157)
 end
@@ -237,7 +237,7 @@ local function test_a_base256_mtime_at_either_end_of_the_integer_range_is_read()
   for _, n in ipairs({ math.maxinteger, math.mininteger }) do
     -- A positive value's first byte needs the marker bit set.
     local field = base256_field_12(n)
-    field = string.char(field:byte(1) | 0x80) .. field:sub(2)
+    field = string.char(field:byte(1) | 0x80) .. field:sub(2) -- checked: nil_not_allowed
     local entry = assert(Tar.reader(Stream.from_string(with_field_12(137, field))):next())
     assert(entry.mtime == n, tostring(entry.mtime))
   end
@@ -279,7 +279,7 @@ local function test_gnu_long_name_archive_from_system_tar()
   local raw = assert(Codec.unbase64(GNU_TAR_B64))
   local r = Tar.reader(Stream.from_string(raw))
   local lines = assert(summary(r, true))
-  table.sort(lines)
+  table.sort(lines) -- checked: overload_none
   local joined = table.concat(lines, "\n")
   assert(joined:find("file short.txt [short file contents\n]", 1, true) ~= nil, joined)
   assert(joined:find("symlink adir/alink -> short.txt", 1, true) ~= nil, joined)
@@ -293,7 +293,7 @@ local function test_pax_archive_from_system_tar()
   local raw = assert(Codec.unbase64(PAX_TAR_B64))
   local r = Tar.reader(Stream.from_string(raw))
   local lines = assert(summary(r, true))
-  table.sort(lines)
+  table.sort(lines) -- checked: overload_none
   local joined = table.concat(lines, "\n")
   assert(joined:find("file short.txt [short file contents\n]", 1, true) ~= nil, joined)
   assert(joined:find("symlink adir/alink -> short.txt", 1, true) ~= nil, joined)
@@ -370,7 +370,7 @@ local function test_global_pax_headers_keep_only_the_keys_the_reader_uses()
   table.insert(parts, header("PaxHeaders/g", "g", #sparse + #mtime) .. padded(sparse .. mtime))
   table.insert(parts, header("f", "0", 0) .. END)
   local r = Tar.reader(Stream.from_string(table.concat(parts)))
-  parts = nil
+  parts = nil -- checked: nil_not_allowed
   collectgarbage()
   local before = collectgarbage("count")
   local entry, trouble = r:next()
@@ -430,9 +430,9 @@ local function test_mtimes_outside_the_octal_field_round_trip_through_pax()
     local e: Tar.Entry = entry
     seen[e.path] = e.mtime
   end
-  assert(seen.old == -86400, tostring(seen.old))
-  assert(seen.far == 1 << 40, tostring(seen.far))
-  assert(seen.now == 1700000000, tostring(seen.now))
+  assert(seen.old == -86400, tostring(seen.old)) -- checked: map_field*2
+  assert(seen.far == 1 << 40, tostring(seen.far)) -- checked: map_field*2
+  assert(seen.now == 1700000000, tostring(seen.now)) -- checked: map_field*2
 end
 
 local function test_a_failed_add_aborts_the_archive_and_fails_every_later_call(tmp: string)
@@ -510,7 +510,7 @@ end
 --- and cannot skip, like a pipe.
 local function trickle(data: string, step: integer): Stream.Reader
   local inner = Stream.from_string(data)
-  local r: Stream.Reader = {
+  local r: Stream.Reader = { -- checked: literal_shape
     read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
       local want = max_bytes or step
       if want > step then want = step end
@@ -574,7 +574,7 @@ end
 
 local function test_a_failing_body_names_what_the_writer_was_doing()
   local w = Tar.writer(Stream.collect())
-  local bad: Stream.Reader = {
+  local bad: Stream.Reader = { -- checked: literal_shape
     read = function(_self: Stream.Reader, _max_bytes?: integer): string?, string
       return nil, "disk on fire"
     end,
@@ -597,7 +597,7 @@ end
 --- are; a failing body Reader's are told what the writer was doing.
 local function test_a_failing_underlying_writer_is_answered_as_it_said_it()
   local function closed(_self: Stream.Writer): boolean, string return true, "" end
-  local full: Stream.Writer = {
+  local full: Stream.Writer = { -- checked: literal_shape
     write = function(_self: Stream.Writer, _data: string): boolean, string
       return false, "disk full"
     end,
@@ -619,7 +619,7 @@ local function test_a_header_checksum_counts_unsigned_bytes_and_its_own_field_as
   local block = c:result():sub(1, 512)
   local expected = 8 * 32
   for i = 1, 512 do
-    if i < 149 or i > 156 then expected = expected + block:byte(i) end
+    if i < 149 or i > 156 then expected = expected + block:byte(i) end -- checked: nil_not_allowed
   end
   assert(expected > 20 * 255)
   assert(tonumber(block:sub(149, 154), 8) == expected, block:sub(149, 156))

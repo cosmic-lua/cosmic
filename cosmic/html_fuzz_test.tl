@@ -186,7 +186,7 @@ end
 local function url_expected(text: string): string
   if not url_is_safe(text) then return "about:invalid" end
   local head = text:match("^[^/?#]*")
-  if head:find(":", 1, true) and scheme_of(text) == nil then return "about:invalid" end
+  if head:find(":", 1, true) and scheme_of(text) == nil then return "about:invalid" end -- checked: condition_type, nil_not_allowed
   return text
 end
 

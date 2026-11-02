@@ -94,7 +94,7 @@ end
   local started = this_program.program({ "--standalone", script, url, marker },
     { stdout = "capture", stderr = "capture" })
   local child <close> = assert(Child.start(started.argv, started.options))
-  local conn <close> = assert(server:accept())
+  local conn <close> = assert(server:accept()) -- checked: close_not_closable
   local head = ""
   while not head:find("\r\n\r\n", 1, true) do head = head .. assert(conn:read()) end
   serve(conn, head)
@@ -175,14 +175,14 @@ end
   local accepted, refused = server:accept()
   if accepted == nil then
     local died = child:wait(Clock.seconds(5))
-    error(refused .. ": " .. tostring(died ~= nil and died.stderr))
+    error(refused .. ": " .. tostring(died ~= nil and died.stderr)) -- checked: or_mix
   end
-  local conn <close> = accepted
+  local conn <close> = accepted -- checked: close_not_closable
   local request = ""
   while not request:find("\r\n\r\n", 1, true) do request = request .. assert(conn:read()) end
-  local head_end = request:find("\r\n\r\n", 1, true) + 3
+  local head_end = request:find("\r\n\r\n", 1, true) + 3 -- checked: nil_not_allowed
   local length = tonumber(request:sub(1, head_end):lower():match("\r\ncontent%-length: *(%d+)") or "0")
-  while #request < head_end + length do request = request .. assert(conn:read()) end
+  while #request < head_end + length do request = request .. assert(conn:read()) end -- checked: nil_not_allowed
   assert(conn:write("HTTP/1.1 200 OK\r\nContent-Length: 4\r\nConnection: close\r\n\r\ndone"))
   conn:close()
   local result = assert(child:wait(Clock.seconds(20)))

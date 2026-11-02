@@ -70,7 +70,7 @@ local function binds(source: string): string
     local bound = n.binding
     local v = if bound ~= nil then case.scoped.vars[bound] else nil end
     if n.binding ~= nil or case.scoped.globals[n.text] ~= nil then
-      out[#out + 1] = n.text .. " " .. at(case, n.first) .. " -> " .. (v ~= nil and at(case, v.declared) or "global")
+      out[#out + 1] = n.text .. " " .. at(case, n.first) .. " -> " .. (v ~= nil and at(case, v.declared) or "global") -- checked: and_ternary
     end
   end
   return table.concat(out, "; ")
@@ -490,11 +490,11 @@ local function test_in_scope_answers_the_innermost_binding_at_a_token()
     error("no token")
   end
   local inside = Scopes.in_scope(case.scoped, token_at(3, 10))
-  assert(inside.x == var(case, "x", 2) and inside.y == var(case, "y") and inside.f == var(case, "f"))
-  assert(inside.z == nil)
+  assert(inside.x == var(case, "x", 2) and inside.y == var(case, "y") and inside.f == var(case, "f")) -- checked: map_field*3
+  assert(inside.z == nil) -- checked: map_field
   local outside = Scopes.in_scope(case.scoped, token_at(5, 7))
-  assert(outside.x == var(case, "x", 1) and outside.y == nil and outside.z == nil)
-  assert(Scopes.in_scope(case.scoped, #case.tokens.kind).z == var(case, "z"))
+  assert(outside.x == var(case, "x", 1) and outside.y == nil and outside.z == nil) -- checked: map_field*3
+  assert(Scopes.in_scope(case.scoped, #case.tokens.kind).z == var(case, "z")) -- checked: map_field
 end
 
 local function test_building_twice_gives_the_same_bindings()
@@ -510,7 +510,7 @@ end
 
 local function test_a_name_that_was_bound_is_unbound_when_the_globals_change()
   local parsed = Parser.parse(Lexer.lex("print(x)", "t.tl"), "t.tl", "tl")
-  local with: {string: Scopes.Global} = { print = GLOBALS.print, x = { space = "value", const = false } }
+  local with: {string: Scopes.Global} = { print = GLOBALS.print, x = { space = "value", const = false } } -- checked: map_field
   assert(#Scopes.build(parsed.chunk, "t.tl", with).errors == 0)
   assert(#Scopes.build(parsed.chunk, "t.tl", {}).errors == 2)
 end

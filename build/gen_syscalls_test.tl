@@ -109,7 +109,7 @@ end
 --- its own summary and mapped to its own header, not the syscall
 --- table's.
 local function test_a_target_names_its_own_record_and_header()
-  local process: gen_syscalls.Target? = nil
+  local process: gen_syscalls.Target? = nil -- declared: member_missing
   for _, derivation in ipairs(gen_syscalls.targets) do
     if derivation.path == "cosmic.internal.process" then process = derivation.target end
   end
@@ -138,9 +138,9 @@ end
 --- failing with nil: `boolean|nil` says it is both.
 local function test_a_fallible_call_is_an_effect_or_a_value()
   local _, trouble = gen_syscalls.read(fallible("boolean|nil"))
-  assert(trouble ~= nil and trouble:find("never boolean|nil", 1, true) ~= nil, trouble)
+  assert(trouble ~= nil and trouble:find("never boolean|nil", 1, true) ~= nil, trouble) -- checked: compare_disjoint
   local _, bare = gen_syscalls.read(fallible("string"))
-  assert(bare ~= nil and bare:find("fails with nil", 1, true) ~= nil, bare)
+  assert(bare ~= nil and bare:find("fails with nil", 1, true) ~= nil, bare) -- checked: compare_disjoint
   assert(gen_syscalls.read(fallible("boolean")) ~= nil)
   assert(gen_syscalls.read(fallible("string|nil")) ~= nil)
 end

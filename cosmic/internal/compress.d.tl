@@ -31,7 +31,7 @@ local record compress
     -- error on corrupt data; the stream is finished after an error, and
     -- after a raise inside the call (out of memory). Raises when
     -- `max_bytes` is not positive, and on a finished stream.
-    update: function(Stream, chunk: string, max_bytes?: integer): string?, string
+    update: function(Stream, chunk: string, max_bytes?: integer): string?, string -- declared: interface_disagrees
     -- No more input: returns the remaining output, which for a decoder
     -- is only what follows its drained output (in practice ""). Raises
     -- while [`pending()`] is true, and on a finished stream. For a

@@ -122,10 +122,10 @@ local record Poll
   MOST_NS: integer
 end
 
-Poll.TIMEOUT = "timed out"
-Poll.CANCELLED = "cancelled"
+Poll.TIMEOUT = "timed out" -- checked: field_fixed
+Poll.CANCELLED = "cancelled" -- checked: field_fixed
 
-Poll.MOST_NS = Clock.ms(0x7fffffff)
+Poll.MOST_NS = Clock.ms(0x7fffffff) -- checked: field_fixed
 --- One millisecond, which [`sys.poll`] counts its waits in.
 local MS <const> = Clock.ms(1)
 --- The highest descriptor [`sys.poll`] takes: a C `int`.
@@ -238,8 +238,8 @@ local function heap_push(heap: mut {integer: Wait}, size: integer, w: Wait)
   local i = size
   while i > 1 do
     local parent = i // 2
-    if not earlier(heap[i], heap[parent]) then break end
-    heap[i], heap[parent] = heap[parent], heap[i]
+    if not earlier(heap[i], heap[parent]) then break end -- checked: index_may_be_nil*2
+    heap[i], heap[parent] = heap[parent], heap[i] -- checked: index_may_be_nil*2
     i = parent
   end
 end
@@ -247,10 +247,10 @@ end
 local function sift_down(heap: mut {integer: Wait}, size: integer, i: integer)
   while true do
     local l, r, least = 2 * i, 2 * i + 1, i
-    if l <= size and earlier(heap[l], heap[least]) then least = l end
-    if r <= size and earlier(heap[r], heap[least]) then least = r end
+    if l <= size and earlier(heap[l], heap[least]) then least = l end -- checked: index_may_be_nil*2
+    if r <= size and earlier(heap[r], heap[least]) then least = r end -- checked: index_may_be_nil*2
     if least == i then return end
-    heap[i], heap[least] = heap[least], heap[i]
+    heap[i], heap[least] = heap[least], heap[i] -- checked: index_may_be_nil*2
     i = least
   end
 end
@@ -263,11 +263,11 @@ local function compact_timers()
   local size = running().timer_count
   for i = 1, size do
     local w = heap[i]
-    if w.done == true then
-      w.in_heap = false
+    if w.done == true then -- checked: nil_not_allowed
+      w.in_heap = false -- checked: nil_not_allowed
     else
       kept = kept + 1
-      heap[kept] = w
+      heap[kept] = w -- checked: nil_not_allowed
     end
   end
   for i = size, kept + 1, -1 do heap[i] = nil end
@@ -304,32 +304,32 @@ local function leave(watch: Watch)
   local loop = running()
   local fd = watch.fd
   local entry = loop.watched[fd]
-  local watches = entry.watches
-  local count = entry.count
+  local watches = entry.watches -- checked: nil_not_allowed
+  local count = entry.count -- checked: nil_not_allowed
   local last = assert(watches[count])
   watches[watch.index], last.index = last, watch.index
   watches[count] = nil
-  entry.count = count - 1
+  entry.count = count - 1 -- checked: nil_not_allowed
   if count == 1 then
-    local slot, top = entry.slot, loop.slots
+    local slot, top = entry.slot, loop.slots -- checked: nil_not_allowed
     local moved = assert(loop.fds[top])
     local moved_events = assert(loop.events[top])
     loop.fds[slot], loop.events[slot] = moved, moved_events
-    loop.watched[moved].slot = slot
+    loop.watched[moved].slot = slot -- checked: nil_not_allowed
     loop.fds[top], loop.events[top] = nil, nil
     loop.slots = top - 1
     loop.watched[fd] = nil
     return
   end
-  local left = entry.masks[watch.mask] - 1
+  local left = entry.masks[watch.mask] - 1 -- checked: nil_not_allowed*2
   if left > 0 then
-    entry.masks[watch.mask] = left
+    entry.masks[watch.mask] = left -- checked: nil_not_allowed
     return
   end
-  entry.masks[watch.mask] = nil
+  entry.masks[watch.mask] = nil -- checked: nil_not_allowed
   local events = 0
-  for mask in pairs(entry.masks) do events = events | mask end
-  loop.events[entry.slot] = events
+  for mask in pairs(entry.masks) do events = events | mask end -- checked: nil_not_allowed
+  loop.events[entry.slot] = events -- checked: nil_not_allowed
 end
 
 --- Takes a join's wait from the joiners of the task it waits on, the
@@ -399,7 +399,7 @@ local function current(what: string, level: integer): State
   if loop.closing == true then
     error("poll: " .. what .. " while Poll.run closes its tasks", level + 1)
   end
-  local task = loop.tasks[coroutine.running()]
+  local task = loop.tasks[coroutine.running()] -- checked: field_unknown -- untyped: call
   if task == nil then error("poll: " .. what .. " outside a task's own coroutine", level + 1) end
   if task.killed then error("poll: " .. what .. " while its task is killed", level + 1) end
   return task
@@ -423,7 +423,7 @@ local function park(task: State, w: Wait, timeout_ns: integer?): boolean, string
     elseif w_fds ~= nil then
       w.watches = {}
       local masks = assert(w.masks)
-      for place, fd in ipairs(w_fds) do enter(w, fd, masks[place], place) end
+      for place, fd in ipairs(w_fds) do enter(w, fd, masks[place], place) end -- checked: index_may_be_nil
     end
     if timeout_ns ~= nil then
       w.at, w.in_heap = Clock.monotonic_ns() + timeout_ns, true
@@ -432,7 +432,7 @@ local function park(task: State, w: Wait, timeout_ns: integer?): boolean, string
     end
   end
   task.waiting = true
-  local ok, why = coroutine.yield(w)
+  local ok, why = coroutine.yield(w) -- checked: field_unknown -- untyped: call
   task.waiting = false
   if w.done ~= true then error("poll: a task was resumed other than by Poll.run", 2) end
   if ok == true then return true, "" end
@@ -473,7 +473,7 @@ end
 
 --- What a run keeps of a task, which `spawn` answers.
 local class State is Poll.Task
-  co: thread
+  co: thread -- declared: thread_type
   --- The run the task belongs to: a handle kept past it answers as a
   --- task that has ended.
   loop: Loop
@@ -567,7 +567,7 @@ end
 
 --- A run's state while [`Poll.run`] runs; nil otherwise.
 local record Loop
-  tasks: mut {thread: State}
+  tasks: mut {thread: State} -- declared: thread_type
   mut live: integer
   mut ready: mut {Wake}
   --- What [`sys.poll`] is handed, kept as waits begin and end: each
@@ -601,12 +601,12 @@ local function pop_timer(): Wait
   size = size - 1
   running().timer_count = size
   if size > 0 then
-    heap[1] = last
+    heap[1] = last -- checked: nil_not_allowed
     sift_down(heap, size, 1)
   end
-  top.in_heap = false
-  if top.done == true then running().stale = running().stale - 1 end
-  return top
+  top.in_heap = false -- checked: nil_not_allowed
+  if top.done == true then running().stale = running().stale - 1 end -- checked: nil_not_allowed
+  return top -- checked: nil_not_allowed
 end
 
 local function began_first(a: Wait, b: Wait): boolean
@@ -642,7 +642,7 @@ end
 local function waiting_task(what: string, level: integer): State?
   local active = ongoing.loop
   if active == nil then return nil end
-  local task = active.tasks[coroutine.running()]
+  local task = active.tasks[coroutine.running()] -- checked: field_unknown -- untyped: call
   if task == nil then return nil end
   if active.closing == true then
     error("poll: " .. what .. " while Poll.run closes its tasks", level + 1)
@@ -793,7 +793,7 @@ end
 --- A new task running `fn`, ready to run.
 local function start(fn: function()): Poll.Task
   local state: State = {
-    co = coroutine.create(fn), loop = ongoing.loop, started = false, waiting = false,
+    co = coroutine.create(fn), loop = ongoing.loop, started = false, waiting = false, -- checked: nil_not_allowed
     ended = false, killed = false, cancelled = false, shields = 0, parked = nil, joiners = {} }
   running().tasks[state.co] = state
   running().live = running().live + 1
@@ -802,7 +802,7 @@ local function start(fn: function()): Poll.Task
   return state
 end
 
-local shielding_mt: metatable<Shielding> = {
+local shielding_mt: metatable<Shielding> = { -- checked: literal_missing
   __close = function(held: Shielding)
     held.task.shields = held.task.shields - 1
   end,
@@ -820,8 +820,8 @@ local shielding_mt: metatable<Shielding> = {
 function Poll.shielded(fn: function())
   local task = current("Poll.shielded", 2)
   -- Made before the count moves, so a refused allocation leaves it be.
-  local held: Shielding = { task = task }
-  local _held <close> = setmetatable(held, shielding_mt)
+  local held: Shielding = { task = task } -- checked: literal_missing
+  local _held <close> = setmetatable(held, shielding_mt) -- checked: setmetatable_call -- untyped: call
   task.shields = task.shields + 1
   fn()
 end
@@ -838,11 +838,11 @@ end
 --- is already ending with an error of its own.
 local function close_all()
   running().closing = true
-  local cos: mut {thread} = {}
+  local cos: mut {thread} = {} -- declared: thread_type
   for co in pairs(running().tasks) do cos[#cos + 1] = co end
   for _, co in ipairs(cos) do
     local task = running().tasks[co]
-    task.ended, task.killed, task.parked = true, true, nil
+    task.ended, task.killed, task.parked = true, true, nil -- checked: nil_not_allowed*3
     if coroutine.status(co) == "suspended" then
       local _, _ = coroutine.close(co)
     end
@@ -854,7 +854,7 @@ end
 local function step(task: State, ok: boolean, why: string)
   local resumed, err: boolean, any
   if task.started then
-    resumed, err = coroutine.resume(task.co, ok, why)
+    resumed, err = coroutine.resume(task.co, ok, why) -- checked: overload_none -- untyped: call
   else
     task.started = true
     resumed, err = coroutine.resume(task.co)
@@ -888,9 +888,9 @@ end
 --- while a task is ready, until the nearest time wait, or -1 for no limit.
 local function next_timeout(): integer
   if #running().ready > 0 then return 0 end
-  while running().timer_count > 0 and running().timers[1].done == true do pop_timer() end
+  while running().timer_count > 0 and running().timers[1].done == true do pop_timer() end -- checked: nil_not_allowed
   if running().timer_count == 0 then return -1 end
-  local left = assert(running().timers[1].at) - Clock.monotonic_ns()
+  local left = assert(running().timers[1].at) - Clock.monotonic_ns() -- checked: nil_not_allowed
   if left <= 0 then return 0 end
   return math.min(Clock.ceil(left, MS), Clock.ceil(Poll.MOST_NS, MS))
 end
@@ -924,8 +924,8 @@ local function poll_once(timeout: integer)
   for slot, happened in ipairs(revents) do
     if happened ~= 0 then
       local entry = loop.watched[assert(fds[slot])]
-      for index = 1, entry.count do
-        local watch = assert(entry.watches[index])
+      for index = 1, entry.count do -- checked: nil_not_allowed
+        local watch = assert(entry.watches[index]) -- checked: nil_not_allowed
         local answer = happened & (watch.mask | UNASKED)
         if answer ~= 0 then
           local w = watch.wait
@@ -944,7 +944,7 @@ end
 --- Answers every time wait whose time has come.
 local function expire()
   local t = Clock.monotonic_ns()
-  while running().timer_count > 0 and (running().timers[1].done == true or assert(running().timers[1].at) <= t) do
+  while running().timer_count > 0 and (running().timers[1].done == true or assert(running().timers[1].at) <= t) do -- checked: nil_not_allowed*2
     local w = pop_timer()
     if w.done ~= true then
       if w.expiry_ok == true then wake(w, true, "") else wake(w, false, Poll.TIMEOUT) end
@@ -1019,7 +1019,7 @@ end
 --- raise: a wait there fails at once rather than hold the thread.
 function Poll.in_task(): boolean
   local loop = ongoing.loop
-  return loop ~= nil and loop.closing ~= true and loop.tasks[coroutine.running()] ~= nil
+  return loop ~= nil and loop.closing ~= true and loop.tasks[coroutine.running()] ~= nil -- checked: field_unknown -- untyped: call
 end
 
 --- Starts `main` as the first task and runs the loop until every task

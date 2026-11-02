@@ -169,7 +169,7 @@ local function test_a_child_exiting_as_a_wait_ends_it_is_reaped()
   local kill = sys.kill
   local refused: boolean = false
   local ok, trouble: boolean, any = pcall(function()
-    sys.kill = function(pid: integer, signal: integer): boolean, string, integer
+    sys.kill = function(pid: integer, signal: integer): boolean, string, integer -- checked: field_fixed
       -- The child leads its group, which the handle signals.
       if pid == -h.pid and signal == sys.SIGTERM and not refused then
         refused = true
@@ -182,7 +182,7 @@ local function test_a_child_exiting_as_a_wait_ends_it_is_reaped()
     assert(r ~= nil, why)
     assert(r.signal == sys.SIGTERM and r.timed_out, "the wait reaped the exit the SIGTERM began")
   end)
-  sys.kill = kill
+  sys.kill = kill -- checked: field_fixed
   assert(ok, tostring(trouble))
   assert(refused and not sys.kill(h.pid, 0), "the child is reaped")
 end
@@ -191,16 +191,16 @@ end
 -- its option is refused before a start, and a sandboxed worker has no
 -- sh to find, so a refusal that regressed fails the case either way.
 local function test_invalid_inputs_do_not_poison_signal_guard()
-  assert(not pcall(Child.run, { "/bin/sh" }, { stdout = "bad" } as Child.Options))
-  assert(not pcall(Child.run, { "/bin/sh\0bad" }))
-  assert(not pcall(Child.run, { "/bin/sh" }, { cwd = "/tmp\0bad" } as Child.Options))
-  assert(not pcall(Child.run, { "/bin/sh" },
-    { env = { ["BAD=NAME"] = "value" } } as Child.Options))
-  assert(not pcall(Child.run, { "/bin/sh" },
-    { env = { NAME = "value\0tail" } } as Child.Options))
-  assert(not pcall(Child.run, { "/bin/sh" },
-    { stdout = 2147483648 } as Child.Options))
-  assert(not pcall(sys.kill, 2147483648, 0))
+  assert(not pcall(Child.run, { "/bin/sh" }, { stdout = "bad" } as Child.Options)) -- checked: alternatives_as_value, cast_refused
+  assert(not pcall(Child.run, { "/bin/sh\0bad" })) -- checked: alternatives_as_value
+  assert(not pcall(Child.run, { "/bin/sh" }, { cwd = "/tmp\0bad" } as Child.Options)) -- checked: alternatives_as_value, cast_refused
+  assert(not pcall(Child.run, { "/bin/sh" }, -- checked: alternatives_as_value
+    { env = { ["BAD=NAME"] = "value" } } as Child.Options)) -- checked: cast_refused
+  assert(not pcall(Child.run, { "/bin/sh" }, -- checked: alternatives_as_value
+    { env = { NAME = "value\0tail" } } as Child.Options)) -- checked: cast_refused
+  assert(not pcall(Child.run, { "/bin/sh" }, -- checked: alternatives_as_value
+    { stdout = 2147483648 } as Child.Options)) -- checked: cast_refused
+  assert(not pcall(sys.kill, 2147483648, 0)) -- checked: alternatives_as_value
   local result = assert(Child.run(lua("")))
   assert(result.ok)
 end
@@ -294,10 +294,10 @@ end
 --- A start with `stdin = "pipe"` raises, and the message names the
 --- stream and `input` to use instead.
 local function test_a_stdin_pipe_names_the_stream_to_use()
-  local ok, trouble = pcall(Child.start, { "/bin/sh" }, { stdin = "pipe" } as Child.Options)
+  local ok, trouble = pcall(Child.start, { "/bin/sh" }, { stdin = "pipe" } as Child.Options) -- checked: cast_refused
   assert(not ok and tostring(trouble):find('"stream"', 1, true) ~= nil and
       tostring(trouble):find("stdin_stream", 1, true) ~= nil, tostring(trouble))
-  assert(not pcall(Child.run, { "/bin/sh" }, { stdin = "pipe" } as Child.Options))
+  assert(not pcall(Child.run, { "/bin/sh" }, { stdin = "pipe" } as Child.Options)) -- checked: alternatives_as_value, cast_refused
 end
 
 local function read_all(reader: Stream.Reader): string
@@ -481,7 +481,7 @@ end
 local function test_a_streamed_read_of_nothing_is_refused()
   local h = assert(Child.start(lua(FS .. 'Fs.put(1, "x")', nil, { stdout = "stream" })))
   local stdout = assert(h.stdout_stream)
-  assert(not pcall(stdout.read, stdout, 0))
+  assert(not pcall(stdout.read, stdout, 0)) -- checked: alternatives_as_value, interface_method_value
   assert(read_all(stdout) == "x")
   assert(assert(h:wait(Clock.seconds(5))).ok)
 end
@@ -718,7 +718,7 @@ local function test_a_stream_read_ends_a_child_past_its_start_timeout()
   local h <close> = assert(Child.start(lua(FS .. 'Fs.put(1, "early") ' .. sleep(30000), nil,
     { stdout = "stream", timeout_ns = timeout })))
   local began = Clock.monotonic_ns()
-  local out = assert(Stream.read_all(h.stdout_stream as Stream.Reader))
+  local out = assert(Stream.read_all(h.stdout_stream as Stream.Reader)) -- checked: cast_refused
   assert(out == "early", out)
   assert(about(began, timeout - Clock.ms(50)), ms_since(began))
   local r = assert(h:wait())
@@ -732,7 +732,7 @@ local function test_a_stream_write_ends_a_child_past_its_start_timeout()
   local h <close> = assert(Child.start(lua(sleep(30000), nil,
     { stdin = "stream", timeout_ns = Clock.ms(200) })))
   local began = Clock.monotonic_ns()
-  local writer = h.stdin_stream as Stream.Writer
+  local writer = h.stdin_stream as Stream.Writer -- checked: cast_refused
   local wrote, trouble = writer:write(string.rep("x", 4 * 1024 * 1024))
   assert(not wrote, "a write to a child that never reads went through")
   assert(about(began, Clock.ms(150)), ms_since(began) .. ": " .. trouble)

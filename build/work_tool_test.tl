@@ -283,14 +283,14 @@ local function test_a_settled_source_rewrite_runs_new_bytecode(tmp: string)
       timeout_ns = Clock.seconds(60) })
     local result = assert(Child.run(started.argv, started.options))
     assert(result.ok, (result.stdout or "") .. (result.stderr or ""))
-    return result.stdout
+    return result.stdout -- checked: nil_not_allowed
   end
   assert(run() == "OLD\n")
   local handle = assert(work.open(tmp))
   local now = Clock.now_ns
-  Clock.now_ns = function(): integer return now() + Clock.seconds(3) end
+  Clock.now_ns = function(): integer return now() + Clock.seconds(3) end -- checked: field_fixed
   local ok, staged, trouble = pcall(work.stage, handle, { own = false })
-  Clock.now_ns = now
+  Clock.now_ns = now -- checked: field_fixed
   assert(ok and staged ~= nil, tostring(trouble))
   assert(work.close(handle))
   assert(run() == "OLD\n")

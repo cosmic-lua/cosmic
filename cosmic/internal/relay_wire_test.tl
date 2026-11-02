@@ -474,8 +474,8 @@ local function test_socks_greeting_picks_the_method()
   assert(Wire.socks_method_reply(0) == "\5\0")
   assert(Wire.socks_method_reply(2) == "\5\2")
   assert(Wire.socks_method_reply(255) == "\5\255")
-  assert(not pcall(Wire.socks_method_reply, 256))
-  assert(not pcall(Wire.socks_method_reply, -1))
+  assert(not pcall(Wire.socks_method_reply, 256)) -- checked: alternatives_as_value
+  assert(not pcall(Wire.socks_method_reply, -1)) -- checked: alternatives_as_value
 end
 
 local function test_socks_username_password()
@@ -581,11 +581,11 @@ local function test_socks_replies_carry_their_codes()
     { name = "command_not_supported", code = 7 }, { name = "address_type_not_supported", code = 8 },
   }
   for _, case in ipairs(codes) do
-    local reply = Wire.socks_reply(case.name as Wire.SocksReply)
+    local reply = Wire.socks_reply(case.name as Wire.SocksReply) -- checked: cast_refused
     assert(reply == "\5" .. string.char(case.code) .. "\0\1\0\0\0\0\0\0", case.name)
     assert(#reply == 10)
   end
-  assert(not pcall(Wire.socks_reply, "bogus" as Wire.SocksReply))
+  assert(not pcall(Wire.socks_reply, "bogus" as Wire.SocksReply)) -- checked: alternatives_as_value, cast_refused
 end
 
 local function sni_of(input: string): string
@@ -859,9 +859,9 @@ local function string_work(work: function()): integer
   local saved: mut {Patched} = {}
   --- Replaces `host[name]` with a wrapper that adds `cost(result, args)`.
   local function patch(host: mut {string: any}, name: string, cost: function({any}, {any}): integer)
-    local original = host[name] as function(...: any): any...
+    local original = host[name] as function(...: any): any... -- checked: cast_refused
     saved[#saved + 1] = { host = host, name = name, original = original }
-    host[name] = function(...: any): any...
+    host[name] = function(...: any): any... -- checked: any_use
       local args = table.pack(...)
       local results = table.pack(original(...))
       total = total + cost(results, args)
@@ -880,14 +880,14 @@ local function string_work(work: function()): integer
     local from = math.tointeger(args[3]) or 1
     return math.max(1, #subject - from + 1)
   end
-  local lib = string as any as {string: any}
+  local lib = string as any as {string: any} -- checked: cast_refused*2
   patch(lib, "sub", length)
   patch(lib, "reverse", length)
   patch(lib, "gsub", length)
   patch(lib, "byte", function(): integer return 1 end)
   patch(lib, "find", scan)
   patch(lib, "match", scan)
-  patch(table as any as {string: any}, "concat", length)
+  patch(table as any as {string: any}, "concat", length) -- checked: cast_refused*2
   local ok, trouble = pcall(function(): boolean
     work()
     return true

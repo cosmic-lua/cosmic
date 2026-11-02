@@ -29,7 +29,7 @@ local function gen_duration_text(src: Fuzz.Source): string
     if units[at] == "s" and src:int(0, 2) == 0 then
       n = n .. "." .. tostring(src:int(0, 999999999))
     end
-    parts[#parts + 1] = n .. units[at]
+    parts[#parts + 1] = n .. units[at] -- checked: nil_not_allowed
   end
   return table.concat(parts)
 end
@@ -72,7 +72,7 @@ local function duration_is_total(input: string): boolean, string
     return true, ""
   end
   Fuzz.label("read")
-  local d = got as Time.Duration
+  local d = got as Time.Duration -- checked: cast_refused
   local again, again_why = Time.parse_duration(Time.format_duration(d))
   if again == nil then return false, "its own text refused: " .. again_why end
   if again.years ~= d.years or again.months ~= d.months or again.days ~= d.days or

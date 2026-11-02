@@ -85,12 +85,12 @@ function database_start_fixture.write_database(path: string, modules: {Module}, 
   for _, module in ipairs(modules) do
     rows[#rows + 1] = module
     local chunk = assert(load(module.source, "=" .. module.name))
-    bytecode[module.name] = string.dump(chunk, true)
+    bytecode[module.name] = string.dump(chunk, true) -- checked: not_assignable
   end
   for _, module in ipairs(rows) do
     assert(Sqlite.run(db, "INSERT INTO modules (path, file, kind, source_hash, key, bytecode, " ..
         "tests, source) VALUES (?1, ?2, ?3, X'', X'', deflate(?4), '', X'')",
-      { text(module.name), text(module.name), text(module.kind), blob(bytecode[module.name]) }))
+      { text(module.name), text(module.name), text(module.kind), blob(bytecode[module.name]) })) -- checked: index_may_be_nil
     for _, required in ipairs(module.requires) do
       assert(Sqlite.run(db, "INSERT OR IGNORE INTO imports (path, requires) VALUES (?1, ?2)",
         { text(module.name), text(required) }))
@@ -103,7 +103,7 @@ function database_start_fixture.write_database(path: string, modules: {Module}, 
   if core ~= nil then meta[#meta + 1] = { "core_sha256", core } end
   for _, pair in ipairs(meta) do
     assert(Sqlite.run(db, "INSERT INTO meta (key, value) VALUES (?1, ?2)",
-      { text(pair[1]), text(pair[2]) }))
+      { text(pair[1]), text(pair[2]) })) -- checked: index_may_be_nil*2
   end
   assert(db:close())
 end
@@ -135,8 +135,8 @@ end
 --- the variables of the portable startup's own tests.
 function database_start_fixture.environment(): {string:string}
   local env = this_program.environment()
-  env.COSMIC_PORTABLE_STARTUP_TEST_READY = nil
-  env.COSMIC_PORTABLE_STARTUP_TEST_GO = nil
+  env.COSMIC_PORTABLE_STARTUP_TEST_READY = nil -- checked: map_field
+  env.COSMIC_PORTABLE_STARTUP_TEST_GO = nil -- checked: map_field
   return env
 end
 
@@ -150,7 +150,7 @@ function database_start_fixture.fields(output: string): {string:string}
   local out: mut {string:string} = {}
   for line in output:gmatch("([^\n]*)\n") do
     local name, value = line:match("^([^\t]+)\t(.*)$")
-    if name ~= nil then out[name] = value end
+    if name ~= nil then out[name] = value end -- checked: nil_not_allowed
   end
   return out
 end

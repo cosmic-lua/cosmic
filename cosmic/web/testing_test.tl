@@ -20,19 +20,19 @@ end
 local function test_the_client_builds_the_query_form_json_and_body_of_a_request()
   local client = Web.test_client(echo())
   local get = assert(client:get("/echo?a=1", { query = { b = "2", c = { "x", "y z" } } }):json())
-  assert(get is {string:any} and get.method == "GET")
-  local query = get.query
+  assert(get is {string:any} and get.method == "GET") -- checked: is_on_record, map_field
+  local query = get.query -- checked: map_field
   assert(query is {string} and table.concat(query, "&") == "a=1&b=2&c=x&c=y z")
   local form = assert(client:post("/echo", { form = { title = "a b", qty = "2" } }):json())
-  assert(form is {string:any} and form.body == "qty=2&title=a+b" and form.ct == "application/x-www-form-urlencoded")
+  assert(form is {string:any} and form.body == "qty=2&title=a+b" and form.ct == "application/x-www-form-urlencoded") -- checked: is_on_record, map_field*2
   local json = assert(client:put("/echo", { json = { n = 1 } }):json())
-  assert(json is {string:any} and json.body == '{"n":1}' and json.ct == "application/json" and json.length == "7")
+  assert(json is {string:any} and json.body == '{"n":1}' and json.ct == "application/json" and json.length == "7") -- checked: is_on_record, map_field*3
   local raw = assert(client:patch("/echo", { body = "abc", content_type = "text/plain" }):json())
-  assert(raw is {string:any} and raw.body == "abc" and raw.ct == "text/plain")
+  assert(raw is {string:any} and raw.body == "abc" and raw.ct == "text/plain") -- checked: is_on_record, map_field*2
   local reader = assert(client:delete("/echo", { body = Stream.from_string("xyz") }):json())
-  assert(reader is {string:any} and reader.method == "DELETE" and reader.body == "xyz")
+  assert(reader is {string:any} and reader.method == "DELETE" and reader.body == "xyz") -- checked: is_on_record, map_field*2
   local headers = assert(client:post("/echo", { headers = { ["Content-Type"] = "text/csv" }, body = "a,b" }):json())
-  assert(headers is {string:any} and headers.ct == "text/csv")
+  assert(headers is {string:any} and headers.ct == "text/csv") -- checked: is_on_record, map_field
 end
 
 local function test_a_response_reads_as_text_json_and_header_lines()
@@ -49,7 +49,7 @@ local function test_a_response_reads_as_text_json_and_header_lines()
   assert(#lines == 2 and lines[1] == "a=1" and lines[2] == "b=2" and res.headers["set-cookie"] == "a=1, b=2")
   assert(#res:header_list("x-none") == 0 and res.redirect_location == nil)
   local value = assert(res:json())
-  assert(value is {string:any} and value.ok == true)
+  assert(value is {string:any} and value.ok == true) -- checked: is_on_record, map_field
   local none, why = client:get("/plain"):json()
   assert(none == nil and why:find("json:", 1, true) ~= nil, why)
 end
@@ -74,7 +74,7 @@ local function test_the_jar_keeps_cookies_between_calls_and_drops_a_deleted_one(
   local client = Web.test_client(app)
   assert(client:get("/see"):text() == "none")
   client:get("/set")
-  assert(client:get("/see"):text() == "a=1; b=2" and client.jar.a == "1")
+  assert(client:get("/see"):text() == "a=1; b=2" and client.jar.a == "1") -- checked: map_field
   assert(client:get("/see", { cookies = { c = "3" } }):text() == "a=1; b=2; c=3")
   assert(client:get("/see"):text() == "a=1; b=2", "extra cookies are not kept")
   client:get("/drop")
@@ -113,7 +113,7 @@ local function test_a_reader_body_is_read_whole_or_left_as_a_stream_or_closed_fo
   local closed: integer = 0
   local function reader(): Stream.Reader
     local inner = Stream.from_string("streamed")
-    return {
+    return { -- checked: literal_shape
       read = function(_self: Stream.Reader, max?: integer): string?, string
         return inner:read(max)
       end,
@@ -150,7 +150,7 @@ local function test_the_client_fails_a_reply_the_server_would_answer_500_for()
       return { status = 204, body = "oops" }
     end),
     Web.get("/reader", function(_req: Web.Request): Web.Response
-      return { status = 204, body = { read = function(_s: Stream.Reader, _m?: integer): string?, string
+      return { status = 204, body = { read = function(_s: Stream.Reader, _m?: integer): string?, string -- checked: literal_shape
         return nil, ""
       end,
         close = function(_s: Stream.Reader): boolean, string
@@ -187,7 +187,7 @@ local function test_the_lifespan_runs_at_the_first_request_and_cleans_up_on_clos
   local function make(): Web.App
     return Web.app{
       routes = { Web.get("/", function(req: Web.Request): Web.Response
-        local db = req.app.state[DB] as {string}
+        local db = req.app.state[DB] as {string} -- checked: cast_refused
         db[#db + 1] = "request"
         return Web.text(#db .. "")
       end) },
@@ -199,7 +199,7 @@ local function test_the_lifespan_runs_at_the_first_request_and_cleans_up_on_clos
     }
   end
   do
-    local client <close> = Web.test_client(make())
+    local client <close> = Web.test_client(make()) -- checked: close_not_closable
     assert(#events == 0, "nothing runs before the first request")
     assert(client:get("/"):text() == "2")
     assert(client:get("/"):text() == "3")
@@ -281,9 +281,9 @@ local function test_the_jar_expires_a_cookie_by_max_age_and_by_expires_date()
   local client = Web.test_client(app)
   client:get("/set")
   assert(client:get("/see"):text() == "future=1; plain=1; short=1", "a cookie set already expired is not kept")
-  client.attrs.short.expires_ns = 1
+  client.attrs.short.expires_ns = 1 -- checked: map_field
   assert(client:get("/see"):text() == "future=1; plain=1", "a lapsed cookie is dropped")
-  assert(client.jar.short == nil)
+  assert(client.jar.short == nil) -- checked: map_field
 end
 
 local function test_the_jar_sends_a_secure_cookie_only_for_an_https_client()
@@ -325,9 +325,9 @@ local function test_a_delete_at_another_path_leaves_the_cookie_as_a_browser_does
   local client = Web.test_client(app)
   client:get("/set")
   client:get("/drop")
-  assert(client.jar.a == "1")
+  assert(client.jar.a == "1") -- checked: map_field
   client:get("/drop-x")
-  assert(client.jar.a == nil)
+  assert(client.jar.a == nil) -- checked: map_field
 end
 
 local function test_a_huge_max_age_does_not_overflow_into_a_lapsed_cookie()
@@ -344,7 +344,7 @@ local function test_a_huge_max_age_does_not_overflow_into_a_lapsed_cookie()
   local client = Web.test_client(app)
   client:get("/set")
   assert(client:get("/see"):text() == "a=1")
-  assert(assert(client.attrs.a.expires_ns) > 0)
+  assert(assert(client.attrs.a.expires_ns) > 0) -- checked: map_field
 end
 
 --- A cookie set with neither Max-Age nor Expires is a session cookie: the
@@ -357,5 +357,5 @@ local function test_a_session_cookie_has_no_expiry()
   end) } }
   local client = Web.test_client(app)
   assert(client:get("/").status == 200)
-  assert(client.attrs.a.expires_ns == nil)
+  assert(client.attrs.a.expires_ns == nil) -- checked: map_field
 end

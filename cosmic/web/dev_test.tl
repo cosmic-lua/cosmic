@@ -60,7 +60,7 @@ end
 
 local function test_without_development_mode_the_app_is_the_plain_one()
   local app = Dev.app({ routes = routes(), sink = quiet() }, { enabled = false })
-  assert(not app.spec.dev and not app.spec.debug)
+  assert(not app.spec.dev and not app.spec.debug) -- checked: condition_type*2
   Web.with_client(app, function(client: Web.TestClient)
     assert(get(client, "/").body == "<html><body><p>hi</p></body></html>")
     assert(get(client, "/_web/dev.js").status == 404)
@@ -72,7 +72,7 @@ end
 
 local function test_a_page_gets_the_script_before_its_last_body_end()
   local app = Dev.app({ routes = routes(), sink = quiet() }, { enabled = true })
-  assert(app.spec.dev and app.spec.debug)
+  assert(app.spec.dev and app.spec.debug) -- checked: condition_type
   Web.with_client(app, function(client: Web.TestClient)
     local page = get(client, "/")
     assert(page.body == "<html><body><p>hi</p>" .. TAG .. "</body></html>")
@@ -84,7 +84,7 @@ end
 
 local function test_the_tag_carries_the_nonce_the_headers_middleware_drew()
   local policy = Csp.htmx_default()
-  policy.directives["script-src"] = { "'self'", "{nonce}" }
+  policy.directives["script-src"] = { "'self'", "{nonce}" } -- checked: view_written
   local app = Dev.app({ routes = routes(), sink = quiet(),
     middleware = { Headers.middleware{ csp = policy, nonce = true } } }, { enabled = true })
   Web.with_client(app, function(client: Web.TestClient)
@@ -225,9 +225,9 @@ end
 
 local function test_the_plain_app_and_a_debug_app_are_left_to_the_caller()
   local app = Web.app{ routes = routes(), debug = true, sink = quiet() }
-  assert(not app.spec.dev)
+  assert(not app.spec.dev) -- checked: condition_type
   local plain = Dev.app({ routes = routes(), sink = quiet() }, { enabled = false })
-  assert(not plain.spec.dev)
+  assert(not plain.spec.dev) -- checked: condition_type
 end
 
 local function test_static_is_served_from_disk_and_never_cached_in_development(tmp: string)
@@ -248,10 +248,10 @@ local function test_static_is_served_from_disk_and_never_cached_in_development(t
 end
 
 local function test_an_option_of_the_wrong_kind_raises()
-  local wrong: any = { enabled = "yes" }
-  assert(Test.raises(function() Dev.app({}, wrong as Dev.Options) end):find("enabled", 1, true))
-  local unknown: any = { stat = "x" }
-  assert(Test.raises(function() Dev.app({}, unknown as Dev.Options) end):find("no field stat", 1, true))
+  local wrong: any = { enabled = "yes" } -- checked: any_use
+  assert(Test.raises(function() Dev.app({}, wrong as Dev.Options) end):find("enabled", 1, true)) -- checked: cast_refused
+  local unknown: any = { stat = "x" } -- checked: any_use
+  assert(Test.raises(function() Dev.app({}, unknown as Dev.Options) end):find("no field stat", 1, true)) -- checked: cast_refused
   assert(Test.raises(function() Dev.app({}, { interval_ns = 0 }) end):find("interval_ns", 1, true))
   assert(Test.raises(function() Dev.static("/s", { static = "" }) end):find("static", 1, true))
 end

@@ -53,7 +53,7 @@ local function question(query: string): string, integer, integer
   local at = 13
   while true do
     local size = query:byte(at)
-    if size == nil then return nil, 0, 0 end
+    if size == nil then return nil, 0, 0 end -- checked: nil_not_allowed
     if size == 0 then break end
     labels[#labels + 1] = query:sub(at + 1, at + size)
     at = at + size + 1
@@ -140,8 +140,8 @@ local function lookup(tmp: string, name: string, timeout_ms: integer,
                       serve: function(string, integer): Reply?,
                       guarded?: boolean): {string}, {string}
   local script = tmp .. "/resolve.tl"
-  assert(Fs.write(script, guarded and GUARDED or SCRIPT))
-  local server <close> = assert(Udp.bind("127.0.0.1", 0))
+  assert(Fs.write(script, guarded and GUARDED or SCRIPT)) -- checked: condition_type
+  local server <close> = assert(Udp.bind("127.0.0.1", 0)) -- checked: close_not_closable
   local started = this_program.program({ "--standalone", script, name,
     tostring(server.address.port), tostring(timeout_ms) },
     { stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
@@ -156,9 +156,9 @@ local function lookup(tmp: string, name: string, timeout_ms: integer,
       local packet, why = Udp.receive(server, Clock.ms(20))
       if packet ~= nil then
         local asked, qtype, question_end = question(packet.data)
-        assert(asked ~= nil, "a malformed query")
+        assert(asked ~= nil, "a malformed query") -- checked: compare_disjoint
         seen[#seen + 1] = tostring(qtype) .. " " .. asked
-        if guarded and #seen == 1 then assert(child:stop(sys.SIGINT)) end
+        if guarded and #seen == 1 then assert(child:stop(sys.SIGINT)) end -- checked: condition_type
         local reply = serve(asked, qtype)
         if reply ~= nil then
           assert(Udp.send(server, response(packet.data, reply, question_end), packet.address))

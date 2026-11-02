@@ -86,6 +86,6 @@ end
 local function test_a_proxy_client_reaches_a_granted_host_loopback_service()
   serving(function(port: integer)
     local out, code = curl("127.0.0.1:" .. tostring(port), "http://127.0.0.1:" .. tostring(port) .. "/")
-    assert(code == 0 and out:find("hello from the host", 1, true), "exit " .. tostring(code) .. ": " .. out)
+    assert(code == 0 and out:find("hello from the host", 1, true), "exit " .. tostring(code) .. ": " .. out) -- checked: or_mix
   end)
 end

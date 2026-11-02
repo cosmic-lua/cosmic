@@ -254,8 +254,8 @@ local function test_a_program_that_outlasts_the_grace_is_killed(tmp: string)
 end
 
 local function test_options_of_the_wrong_kind_raise()
-  local unknown: any = { watches = {} }
-  assert(Test.raises(function() Dev.supervise(unknown as Dev.SuperviseOptions) end):find("no field watches", 1, true))
+  local unknown: any = { watches = {} } -- checked: any_use, literal_needs_type
+  assert(Test.raises(function() Dev.supervise(unknown as Dev.SuperviseOptions) end):find("no field watches", 1, true)) -- checked: cast_refused
   assert(Test.raises(function() Dev.supervise{ interval_ns = 0 } end):find("interval_ns", 1, true))
 end
 

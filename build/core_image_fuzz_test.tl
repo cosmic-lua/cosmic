@@ -19,7 +19,7 @@ local support = require("build.test_support_fixture")
 --- `order` is "<" and big-endian otherwise.
 local function set_field(s: string, at: integer, width: integer, value: integer,
                          order: string): string
-  local packed = order == "<" and string.pack("<i8", value):sub(1, width) or
+  local packed = order == "<" and string.pack("<i8", value):sub(1, width) or -- checked: and_ternary
     string.pack(">i8", value):sub(9 - width)
   return s:sub(1, at - 1) .. packed .. s:sub(at + width)
 end
@@ -56,7 +56,7 @@ end
 local function elf_fields(bytes: string): {{integer}}
   local fields: mut {{integer}} = { { 33, 8 }, { 41, 8 }, { 55, 2 }, { 57, 2 }, { 59, 2 },
     { 61, 2 }, { 63, 2 }, { 73, 8 }, { 97, 8 } }
-  local shoff = #bytes >= 48 and (string.unpack("<i8", bytes, 41)) or 0
+  local shoff = #bytes >= 48 and (string.unpack("<i8", bytes, 41)) or 0 -- checked: and_ternary
   for index = 0, 3 do
     local at = shoff + index * 64 + 1
     for _, f in ipairs({ { 0, 4 }, { 4, 4 }, { 24, 8 }, { 32, 8 } }) do
@@ -97,7 +97,7 @@ local function test_an_image_holds_the_code_and_not_the_dwarf(tmp: string)
     dir = tmp,
     gen = function(src: Fuzz.Source): string
       local code = "c" .. Fuzz.bytes(src, 64)
-      local other_code = src:int(0, 1) == 0 and code or Fuzz.mutate(src, code, 3)
+      local other_code = src:int(0, 1) == 0 and code or Fuzz.mutate(src, code, 3) -- checked: and_ternary
       return Fuzz.pack({ code, other_code, "d" .. Fuzz.bytes(src, 64), "d" .. Fuzz.bytes(src, 64) })
     end,
     check = function(input: string): boolean, string

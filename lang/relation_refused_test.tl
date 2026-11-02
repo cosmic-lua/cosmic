@@ -91,7 +91,7 @@ local function test_a_never_function_is_below_a_returning_one_only_where_the_pla
         end
         return nothing(w, { t })
       end
-      local given_never, given_returns = mk(forward[1]), mk(forward[2])
+      local given_never, given_returns = mk(forward[1]), mk(forward[2]) -- checked: index_may_be_nil*2
       -- a parameter swaps: the function over the returning container takes the never one
       local expect_forward = place == "return" and ok
       local expect_back = place == "parameter" and ok
@@ -152,15 +152,15 @@ local function test_a_container_of_never_functions_is_not_a_container_of_returni
     { s:array(s:array(dies, true), true), s:array(s:array(may_return, true), true) },
     { s:array(s:array(dies)), s:array(s:array(may_return)) },
   }
-  refused(w, pairs_of[1][1], pairs_of[1][2], "invariant_mut", "element")
-  refused(w, pairs_of[1][2], pairs_of[1][1], "invariant_mut", "element")
-  refused(w, pairs_of[2][1], pairs_of[2][2], "invariant_mut", "value")
-  refused(w, pairs_of[2][2], pairs_of[2][1], "invariant_mut", "value")
-  refused(w, pairs_of[3][1], pairs_of[3][2], "invariant_mut", "element")
-  refused(w, pairs_of[3][2], pairs_of[3][1], "invariant_mut", "element")
+  refused(w, pairs_of[1][1], pairs_of[1][2], "invariant_mut", "element") -- checked: index_may_be_nil*2, nil_not_allowed*2
+  refused(w, pairs_of[1][2], pairs_of[1][1], "invariant_mut", "element") -- checked: index_may_be_nil*2, nil_not_allowed*2
+  refused(w, pairs_of[2][1], pairs_of[2][2], "invariant_mut", "value") -- checked: index_may_be_nil*2, nil_not_allowed*2
+  refused(w, pairs_of[2][2], pairs_of[2][1], "invariant_mut", "value") -- checked: index_may_be_nil*2, nil_not_allowed*2
+  refused(w, pairs_of[3][1], pairs_of[3][2], "invariant_mut", "element") -- checked: index_may_be_nil*2, nil_not_allowed*2
+  refused(w, pairs_of[3][2], pairs_of[3][1], "invariant_mut", "element") -- checked: index_may_be_nil*2, nil_not_allowed*2
   -- the view of views is covariant and cannot be written
-  assert(below(w, pairs_of[4][1], pairs_of[4][2]))
-  refused(w, pairs_of[4][2], pairs_of[4][1], "may_return", "element > element > alternative 1")
+  assert(below(w, pairs_of[4][1], pairs_of[4][2])) -- checked: index_may_be_nil*2, nil_not_allowed*2
+  refused(w, pairs_of[4][2], pairs_of[4][1], "may_return", "element > element > alternative 1") -- checked: index_may_be_nil*2, nil_not_allowed*2
   -- a generic record
   refused(w, named(w, "List", { dies }), named(w, "List", { may_return }), "invariant_generic", "argument 1")
   refused(w, named(w, "List", { may_return }), named(w, "List", { dies }), "invariant_generic", "argument 1")

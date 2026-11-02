@@ -85,14 +85,14 @@ end
 local gen_expr: function(g: Gen, t: string, depth: integer): string
 
 --- A number or an integer, which a number operator takes.
-local function numeric(g: Gen, depth: integer): string
+local function numeric(g: Gen, depth: integer): string -- checked: not_assigned
   return gen_expr(g, if g.src:int(1, 2) == 1 then "integer" else "number" end, depth)
 end
 
 --- An expression of the optional type `t` that may be nil: an index read. A variable of the type is no source: its
 --- initializer narrows it to the type of the value, which a test of nil then refuses.
 local function maybe(g: Gen, t: string): string
-  return t == "integer?" and Fuzz.pick(g.src, { "a0[1]", "m0[\"k\"]" }) or "sn0"
+  return t == "integer?" and Fuzz.pick(g.src, { "a0[1]", "m0[\"k\"]" }) or "sn0" -- checked: and_ternary
 end
 
 --- An expression that is a literal or a variable.
@@ -184,7 +184,7 @@ gen_expr = function(g: Gen, t: string, depth: integer): string
     local tag = if g.src:int(1, 2) == 1 then ", tag = " .. gen_expr(g, "string", d) else "" end
     return "{ x = " .. numeric(g, d) .. ", y = " .. numeric(g, d) .. ", color = " .. gen_expr(g, "Color", d) .. tag .. " }"
   elseif t == "integer?" then
-    return k == 2 and maybe(g, "integer?") or gen_expr(g, "integer", d)
+    return k == 2 and maybe(g, "integer?") or gen_expr(g, "integer", d) -- checked: and_ternary
   elseif t == "string?" then
     return gen_expr(g, "string", d)
   elseif t == "{integer}" or t == "mut {integer}" then
@@ -206,7 +206,7 @@ end
 local gen_statements: function(g: Gen, n: integer, depth: integer, indent: string)
 
 --- A statement.
-local function gen_statement(g: Gen, depth: integer, indent: string)
+local function gen_statement(g: Gen, depth: integer, indent: string) -- checked: not_assigned
   local k = g.src:int(1, if depth > 0 then 10 else 7 end)
   if k <= 3 then
     local t = pick(g, TYPES)
@@ -219,7 +219,7 @@ local function gen_statement(g: Gen, depth: integer, indent: string)
   elseif k == 4 then
     local names: mut {string} = {}
     for _, v in ipairs(g.vars) do
-      if v.type == "integer" and v.params == nil and not v.readonly then
+      if v.type == "integer" and v.params == nil and not v.readonly then -- checked: condition_type
         names[#names + 1] = v.name
       end
     end

@@ -38,7 +38,7 @@ local function test_a_raise_inside_update_leaves_the_stream_finished()
   for after = 0, 100000 do
     local dec = gzip_decoder()
     testing.fail_allocations(after)
-    local ok = pcall(dec.update, dec, packed, 1 << 20)
+    local ok = pcall(dec.update, dec, packed, 1 << 20) -- checked: alternatives_as_value
     local refused = testing.allow_allocations()
     if refused == 0 then
       assert(ok)
@@ -47,7 +47,7 @@ local function test_a_raise_inside_update_leaves_the_stream_finished()
     if not ok then
       raised = raised + 1
       local again, why = pcall(dec.update, dec, "")
-      assert(not again and tostring(why):find("finished", 1, true), tostring(why))
+      assert(not again and tostring(why):find("finished", 1, true), tostring(why)) -- checked: or_mix
     end
   end
   assert(raised > 0)

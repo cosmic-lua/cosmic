@@ -134,11 +134,11 @@ local record relay_config
   connect_ns: integer
 end
 
-relay_config.http_port = 3128
-relay_config.socks_port = 1080
-relay_config.name_server_fd = 4
-relay_config.connector_fd = 5
-relay_config.connect_ns = 10000000000
+relay_config.http_port = 3128 -- checked: field_fixed
+relay_config.socks_port = 1080 -- checked: field_fixed
+relay_config.name_server_fd = 4 -- checked: field_fixed
+relay_config.connector_fd = 5 -- checked: field_fixed
+relay_config.connect_ns = 10000000000 -- checked: field_fixed
 
 --- The variables the relay sets for the program, which a policy with
 --- `connect` may not set itself.
@@ -336,9 +336,9 @@ end
 --- @return Upstream|nil The upstream, nil for none
 --- @return string Why the variable cannot be used, "" otherwise
 function relay_config.upstream(env: {string:string}): relay_config.Upstream?, string
-  local value = env.https_proxy or env["HTTPS_PROXY"]
+  local value = env.https_proxy or env["HTTPS_PROXY"] -- checked: map_field
   if value == nil or value == "" then return nil, "" end
-  local scheme, rest = value:match("^(%a[%w+.-]*)://(.*)$")
+  local scheme, rest = value:match("^(%a[%w+.-]*)://(.*)$") -- untyped: call
   if scheme ~= nil then
     if lower(scheme) ~= "http" then
       -- No reason below repeats the value: it may hold a password, and no
@@ -348,31 +348,31 @@ function relay_config.upstream(env: {string:string}): relay_config.Upstream?, st
   else
     rest = value
   end
-  rest = rest:gsub("/.*$", "")
-  local userinfo, hostport = rest:match("^(.*)@(.-)$")
+  rest = rest:gsub("/.*$", "") -- untyped: call
+  local userinfo, hostport = rest:match("^(.*)@(.-)$") -- untyped: call
   if userinfo == nil then hostport = rest end
   local host: string
   local port: integer? = 80
-  local bracketed, after = hostport:match("^%[([^%]]*)%](.*)$")
+  local bracketed, after = hostport:match("^%[([^%]]*)%](.*)$") -- untyped: call
   if bracketed ~= nil then
     host = bracketed
     if after ~= "" then
-      port = if after:sub(1, 1) == ":" then number_of(after:sub(2)) else nil end
+      port = if after:sub(1, 1) == ":" then number_of(after:sub(2)) else nil end -- untyped: call*2
     end
   else
-    local name, at = hostport:match("^([^:]*):?(.*)$")
+    local name, at = hostport:match("^([^:]*):?(.*)$") -- untyped: call
     host = name
     if at ~= "" then port = number_of(at) end
   end
-  if host == nil or host == "" or port == nil then
+  if host == nil or host == "" or port == nil then -- checked: compare_disjoint
     return nil, "https_proxy has no usable host:port (http://[user:password@]host[:port])"
   end
   local upstream: relay_config.Upstream = { host = lower(host), port = port, no_proxy = {} }
   if userinfo ~= nil and userinfo ~= "" then
-    local user, password = userinfo:match("^([^:]*):?(.*)$")
-    upstream.authorization = "Basic " .. Codec.base64(percent_decoded(user) .. ":" .. percent_decoded(password))
+    local user, password = userinfo:match("^([^:]*):?(.*)$") -- untyped: call
+    upstream.authorization = "Basic " .. Codec.base64(percent_decoded(user) .. ":" .. percent_decoded(password)) -- checked: field_fixed
   end
-  for entry in ((env.no_proxy or env["NO_PROXY"] or "") .. ","):gmatch("([^,]*),") do
+  for entry in ((env.no_proxy or env["NO_PROXY"] or "") .. ","):gmatch("([^,]*),") do -- checked: map_field -- untyped: call
     local trimmed = String.trim(entry)
     if trimmed ~= "" then
       local lowered = lower(trimmed)
@@ -493,7 +493,7 @@ local function upstream_of(raw: Json.Value?): relay_config.Upstream?, string
     end
   end
   local up: relay_config.Upstream = { host = host, port = port, no_proxy = skipped, addresses = addresses }
-  if authorization is string then up.authorization = authorization end
+  if authorization is string then up.authorization = authorization end -- checked: field_fixed
   return up, ""
 end
 
@@ -544,7 +544,7 @@ function relay_config.decode(text: string): relay_config.Config?, string
   if unresolved is string then config.unresolved = unresolved end
   local direct = value["direct"]
   if direct ~= nil and not direct is boolean then return nil, "direct is not a boolean" end
-  config.direct = direct == true
+  config.direct = direct == true -- checked: field_fixed
   local token = value["token"]
   if token ~= nil and not token is string then return nil, "token is not a string" end
   if token is string then config.token = token end

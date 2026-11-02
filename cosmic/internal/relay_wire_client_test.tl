@@ -174,7 +174,7 @@ local function test_a_reply_that_is_no_success_is_an_answer_with_its_code()
     "ttl_expired", "command_not_supported", "address_type_not_supported" }
   for code, name in ipairs(names) do
     local expected = ("done|10|nil|%d|%s"):format(code - 1, name)
-    assert(same_in_pieces(answer_fresh, Wire.socks_reply(name as Wire.SocksReply)) == expected, name)
+    assert(same_in_pieces(answer_fresh, Wire.socks_reply(name as Wire.SocksReply)) == expected, name) -- checked: cast_refused
   end
   -- A code the protocol does not define is still the server's answer.
   assert(same_in_pieces(answer_fresh, "\5\99\0\1\0\0\0\0\0\0") == "done|10|nil|99|nil")

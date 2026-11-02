@@ -103,7 +103,7 @@ local function test_the_json_readers_and_paths_answer_what_they_declare()
         if token == nil then break end
       end
     end
-    local value = { a = { 1, 2, { b = true } } }
+    local value = { a = { 1, 2, { b = true } } } -- checked: arms_differ
     local _g, _h = Json.get(value, { "a", 3, "b" })
     _g, _h = Json.get(value, { "a", 3, "b", "c" })
     _g, _h = Json.get(value, { "a", 0 })
@@ -138,7 +138,7 @@ local function test_a_sandbox_policy_merges_what_it_declares()
     assert(merged_limits ~= nil and merged_limits.open_files == 10 and merged_limits.processes == 5 and
         merged_limits.cpu_seconds == 3)
     local none, why = Sandbox.merge({ limits = { open_files = 10 } }, { limits = { open_files = 11 } })
-    assert(none == nil and why:find("limits.open_files", 1, true), tostring(why))
+    assert(none == nil and why:find("limits.open_files", 1, true), tostring(why)) -- checked: or_mix
     local _, _ = Sandbox.merge({}, {})
   end)
 end
@@ -164,7 +164,7 @@ local function test_a_typed_route_is_given_an_empty_none_for_an_absent_slot()
           return Web.text("ok")
         end),
     } }
-    local client <close> = Web.test_client(app)
+    local client <close> = Web.test_client(app) -- checked: close_not_closable
     assert(client:get("/a").status == 200)
     assert(client:post("/b", { json = { id = 1 } }).status == 200)
     assert(client:post("/b", { body = "x", headers = { ["content-type"] = "text/plain" } }).status == 415)
@@ -186,7 +186,7 @@ local function test_sqlite_runs_without_values_as_declared(tmp: string)
     -- in cosmic/sqlite.tl.)
     while query:read() ~= nil do count = count + 1 end
     assert(count == 3 and query:failure() == "")
-    assert(query:close() == nil)
+    assert(query:close() == nil) -- checked: no_value
     assert(db:close())
   end)
 end
@@ -194,10 +194,10 @@ end
 local function test_a_template_that_starts_with_blank_text_answers_what_it_declares()
   honest("template", function()
     local _, _ = Template.compile("{{type T from m.t}}\n{{mode html}}\nhello", "t.tmpl")
-    _, _ = Template.compile("\n{{type T from m.t}}\nhello", "t.tmpl")
-    _, _ = Template.compile("hello", "t.tmpl")
-    _, _ = Template.compile("{{type T from m.t}}", "t.tmpl")
-    _, _ = Template.compile("", "t.tmpl")
+    _, _ = Template.compile("\n{{type T from m.t}}\nhello", "t.tmpl") -- checked: nil_not_allowed
+    _, _ = Template.compile("hello", "t.tmpl") -- checked: nil_not_allowed
+    _, _ = Template.compile("{{type T from m.t}}", "t.tmpl") -- checked: nil_not_allowed
+    _, _ = Template.compile("", "t.tmpl") -- checked: nil_not_allowed
   end)
 end
 
@@ -212,7 +212,7 @@ local function test_an_archive_extracts_and_a_walk_lists_as_declared(tmp: string
     assert(#written == 2)
     assert(#assert(Archive.extract(tmp .. "/a.tar", tmp .. "/again", { strip_prefix = "top" })) == 2)
     -- A whole number held as a float counts as the integer does.
-    local whole = (assert(load("return 1.0")))() as integer
+    local whole = (assert(load("return 1.0")))() as integer -- checked: cast_refused
     assert(#assert(Archive.extract(tmp .. "/a.tar", tmp .. "/float", { strip_components = whole })) == 2)
     assert(#assert(Fs.walk(tmp .. "/out")) >= 2)
     assert(#assert(Fs.walk_following(tmp .. "/out")) >= 2)

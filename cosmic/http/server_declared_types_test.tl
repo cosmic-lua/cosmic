@@ -21,8 +21,8 @@ local function test_a_handler_that_answers_nothing_is_a_500_the_server_declares(
       handle = function(_req: Server.Request): Server.Reply
         -- The handler's lie, which the server must survive: its own
         -- declarations are what is watched, not this return.
-        local nothing: any = nil
-        return nothing as Server.Reply
+        local nothing: any = nil -- checked: any_use
+        return nothing as Server.Reply -- checked: cast_refused
       end,
       on_error = function(_trouble: string) end,
       on_ready = function(addresses: {Net.Address}, server: Net.Server)

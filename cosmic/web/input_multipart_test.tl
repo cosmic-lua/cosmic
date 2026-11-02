@@ -75,7 +75,7 @@ local function post(body: string, fn: function(req: Web.Request): Web.Response, 
   end } }
   local raw: Server.Request = { method = "POST", target = "/x", path = "/x", query = "", version = "HTTP/1.1",
     headers = { host = "x", ["content-type"] = content_type or FORM_TYPE },
-    body = Stream.from_string(body), length = if not chunked then #body else nil end }
+    body = Stream.from_string(body), length = if not chunked then #body else nil end } -- checked: condition_type
   return app.handle(raw)
 end
 
@@ -254,12 +254,12 @@ local function test_a_typed_multipart_route_binds_and_answers_problems(tmp: stri
 end
 
 local function test_a_typed_route_registers_a_multipart_spec_text_can_carry()
-  local ok = pcall(Web.post_typed, "/up", Web.input(Web.NONE, Web.NONE,
+  local ok = pcall(Web.post_typed, "/up", Web.input(Web.NONE, Web.NONE, -- checked: overload_none
     Web.multipart_body(Shape.record_of("Signup"))), function(_req: Web.Request): Web.Response
       return Web.empty()
     end)
   assert(ok)
-  local bad = pcall(Web.get_typed, "/up", Web.input(Web.NONE, Web.NONE, Web.multipart_body(SIGNUP)),
+  local bad = pcall(Web.get_typed, "/up", Web.input(Web.NONE, Web.NONE, Web.multipart_body(SIGNUP)), -- checked: overload_none
     function(_req: Web.Request): Web.Response return Web.empty() end)
   assert(not bad, "GET takes no body")
 end
@@ -325,7 +325,7 @@ end
 
 local function test_a_body_not_read_by_length_is_not_pulled_past_the_limit()
   local pulled: integer = 0
-  local body: Stream.Reader = {
+  local body: Stream.Reader = { -- checked: literal_shape
     read = function(_self: Stream.Reader, max?: integer): string?, string
       pulled = pulled + (max or 0)
       return ("a"):rep(math.min(max or 100, 100)), ""
@@ -425,7 +425,7 @@ end
 local function test_a_slow_or_failing_source_is_408_or_400(tmp: string)
   local function with_source(why: string): Types.Invalid
     local sent: boolean = false
-    local body: Stream.Reader = {
+    local body: Stream.Reader = { -- checked: literal_shape
       read = function(_self: Stream.Reader, _max?: integer): string?, string
         if sent then return nil, why end
         sent = true
@@ -552,7 +552,7 @@ local function killed_while_waiting(fn: function(req: Web.Request), first: strin
     return Web.empty()
   end) } }
   local at: integer = 0
-  local body: Stream.Reader = {
+  local body: Stream.Reader = { -- checked: literal_shape
     read = function(_self: Stream.Reader, _max?: integer): string?, string
       at = at + 1
       if at == 1 then return first, "" end

@@ -279,7 +279,7 @@ local record AppendFile
   mut fd: integer
 end
 
-local append_mt: metatable<AppendFile> = {
+local append_mt: metatable<AppendFile> = { -- checked: literal_missing
   __close = function(self: AppendFile)
     if self.fd < 0 then return end
     local fd = self.fd
@@ -298,7 +298,7 @@ local append_mt: metatable<AppendFile> = {
 --- or false and a reason naming `path`; a write failure wins over a
 --- close failure.
 function Fs.append(path: string, data: string, mode?: integer): boolean, string
-  local file <close>: AppendFile = setmetatable({ fd = -1 }, append_mt)
+  local file <close>: AppendFile = setmetatable({ fd = -1 }, append_mt) -- checked: close_not_closable, setmetatable_call -- untyped: call
   local fd, trouble = sys.open(path, sys.O_WRONLY | sys.O_CREAT | sys.O_APPEND, mode or 0x1a4)
   if fd == nil then return false, path .. ": " .. trouble end
   file.fd = fd
@@ -553,12 +553,12 @@ end
 local function walk(root: string, follow: boolean,
                     skip?: function(string, string, Fs.Kind): boolean): {string}?, string
   local found: mut {string} = {}
-  local pending: mut {Pending} = { { relative = "", above = nil } }
+  local pending: mut {Pending} = { { relative = "", above = nil } } -- checked: nil_not_allowed
   while #pending > 0 do
     local next_one = table.remove(pending)
-    local relative = next_one.relative
+    local relative = next_one.relative -- checked: nil_not_allowed
     local directory = if relative == "" then root else root .. "/" .. relative end
-    local above = next_one.above
+    local above = next_one.above -- checked: nil_not_allowed
     local inside = true
     if follow then
       local st, stat_trouble = sys.stat(directory)
@@ -567,7 +567,7 @@ local function walk(root: string, follow: boolean,
       end
       local key = tostring(st.dev) .. ":" .. tostring(st.ino)
       local up = above
-      while up ~= nil and inside do
+      while up ~= nil and inside do -- checked: compare_disjoint
         inside = up.key ~= key
         up = up.up
       end
@@ -584,7 +584,7 @@ local function walk(root: string, follow: boolean,
     for _, name in ipairs(sorted_names(entries)) do
       local entry = if relative == "" then name else relative .. "/" .. name end
       local kind = entries[name]
-      if skip == nil or not skip(entry, name, kind) then
+      if skip == nil or not skip(entry, name, kind) then -- checked: nil_not_allowed
         if kind == "link" and follow then
           local st, _ = sys.stat(directory .. "/" .. name)
           kind = if st ~= nil then st.kind else "other" end
@@ -639,7 +639,7 @@ local record Descriptor
   fd: integer
   __close: function(Descriptor)
 end
-local descriptor_mt: metatable<Descriptor> = {
+local descriptor_mt: metatable<Descriptor> = { -- checked: literal_missing
   __close = function(self: Descriptor) local _, _ = sys.close(self.fd) end,
 }
 
@@ -664,8 +664,8 @@ local descriptor_mt: metatable<Descriptor> = {
 function Fs.scratch(parent: string): Fs.Scratch?, string
   local fd, trouble = sys.open(parent .. "/.scratch-gate", sys.O_RDWR | sys.O_CREAT | sys.O_NOFOLLOW, 0x180)
   if fd == nil then return nil, parent .. ": " .. trouble end
-  local opened: Descriptor = { fd = fd }
-  local gate <close> = setmetatable(opened, descriptor_mt)
+  local opened: Descriptor = { fd = fd } -- checked: literal_missing
+  local gate <close> = setmetatable(opened, descriptor_mt) -- checked: setmetatable_call -- untyped: call
   local locked, lock_trouble = sys.flock(gate.fd, "exclusive", -1)
   if not locked then return nil, parent .. ": " .. lock_trouble end
   local names, list_trouble = Fs.list(parent)
@@ -681,8 +681,8 @@ function Fs.scratch(parent: string): Fs.Scratch?, string
       local path = parent .. "/" .. name
       local owner, _ = sys.open(path .. "/owner", sys.O_RDWR | sys.O_NOFOLLOW)
       if owner ~= nil then
-        local descriptor: Descriptor = { fd = owner }
-        local probe <close> = setmetatable(descriptor, descriptor_mt)
+        local descriptor: Descriptor = { fd = owner } -- checked: literal_missing
+        local probe <close> = setmetatable(descriptor, descriptor_mt) -- checked: setmetatable_call -- untyped: call
         local dead, _ = sys.flock(probe.fd, "exclusive", 0)
         if dead then local _, _ = Fs.remove_tree(path) end
       end
@@ -1002,8 +1002,8 @@ function Fs.relative(path: string, directory: string): string?, string
   return rest, ""
 end
 
-Fs.stdin = 0
-Fs.stdout = 1
-Fs.stderr = 2
+Fs.stdin = 0 -- checked: field_fixed
+Fs.stdout = 1 -- checked: field_fixed
+Fs.stderr = 2 -- checked: field_fixed
 
 return Fs

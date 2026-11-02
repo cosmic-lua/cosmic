@@ -56,7 +56,7 @@ local function boot(root: string, path: string): importer.Parses, string, string
   assert(work.stage(handle, { own = true }))
   local shared = shared_compiles.for_build({ COSMIC_BUILD_CACHE = path })
   local meta = Store.meta
-  Store.meta = function(key: string): string?
+  Store.meta = function(key: string): string? -- checked: field_fixed
     if key == "boot_hash" then return nil end
     return meta(key)
   end
@@ -66,7 +66,7 @@ local function boot(root: string, path: string): importer.Parses, string, string
     local made, why = importer.derive(handle, shared)
     derived, trouble = made, why
   end)
-  Store.meta = meta
+  Store.meta = meta -- checked: field_fixed
   if shared ~= nil then shared.finish() end
   assert(ok, tostring(raised))
   local parses = assert(derived, trouble)
@@ -209,7 +209,7 @@ local function test_a_kept_parse_comes_back_whole(tmp: string)
     { analyzer = "x", source_hash = "ab", mapped = false })
   assert(unmapped == nil and trouble == "", "a mapped parse stood for an unmapped one")
   local guessed = assert(shared_compiles.requires(cache, "x", { "ab", "cd" }))
-  assert(table.concat(guessed.ab, " ") == "c cosmic.fs" and guessed.cd == nil)
+  assert(table.concat(guessed.ab, " ") == "c cosmic.fs" and guessed.cd == nil) -- checked: map_field*2
   local analyzers = assert(shared_compiles.analyzers(cache, { "ab" }))
   assert(#analyzers == 1 and analyzers[1] == "x")
   assert(#assert(shared_compiles.analyzers(cache, { "ab", "cd" })) == 0)

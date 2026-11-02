@@ -99,7 +99,7 @@ local function effects_of(state: LoadOrder.State, fn: integer): LoadOrder.Effect
   local held = effects[fn]
   if held == nil then
     held = { reads = {}, uses = {} }
-    effects[fn] = held
+    effects[fn] = held -- checked: view_written
   end
   return held
 end
@@ -107,7 +107,7 @@ end
 --- Notes that the function `within` reads a static not yet defined.
 function LoadOrder.read(state: LoadOrder.State, within: integer, read: LoadOrder.Read)
   local reads = effects_of(state, within).reads
-  reads[#reads + 1] = read
+  reads[#reads + 1] = read -- checked: view_written
 end
 
 --- The mention of the function `fn`.
@@ -128,7 +128,7 @@ end
 --- Notes that the function `within` makes `use`.
 function LoadOrder.use(state: LoadOrder.State, within: integer, use: LoadOrder.Use)
   local uses = effects_of(state, within).uses
-  uses[#uses + 1] = use
+  uses[#uses + 1] = use -- checked: view_written
 end
 
 --- Adds `fn` to `list` unless it is there.
@@ -160,9 +160,9 @@ function LoadOrder.hold(state: LoadOrder.State, binding: integer, fn: integer)
   local list = held[binding]
   if list == nil then
     list = {}
-    held[binding] = list
+    held[binding] = list -- checked: view_written
   end
-  add(list, fn)
+  add(list, fn) -- checked: view_as_mut
 end
 
 --- Notes that the local `binding` takes `value`: if that is a function, or a local that holds some, the local holds them
@@ -184,14 +184,14 @@ function LoadOrder.define(state: LoadOrder.State, decl: Types.Decl, name: string
   local named = statics[decl]
   if named == nil then
     named = {}
-    statics[decl] = named
+    statics[decl] = named -- checked: view_written
   end
   local list = named[name]
   if list == nil then
     list = {}
-    named[name] = list
+    named[name] = list -- checked: view_written
   end
-  add(list, fn)
+  add(list, fn) -- checked: view_as_mut
 end
 
 --- Notes that the class `class` lists the interface `interface`: a method called through the interface is the method of
@@ -201,14 +201,14 @@ function LoadOrder.implement(state: LoadOrder.State, interface: Types.Decl, clas
   local list = implementers[interface]
   if list == nil then
     list = {}
-    implementers[interface] = list
+    implementers[interface] = list -- checked: view_written
   end
   for _, held in ipairs(list) do
     if held == class then
       return
     end
   end
-  list[#list + 1] = class
+  list[#list + 1] = class -- checked: view_written
 end
 
 --- Notes that the static `name` of `decl` takes `value`: if that is a function, or a local that holds some, the static is
@@ -294,7 +294,7 @@ function LoadOrder.mention(state: LoadOrder.State, within: integer, node: Ast.No
   end
   local seen: {integer: boolean} = {}
   for _, fn in ipairs(followed(state, use)) do
-    local found = search(state, fn, seen, {})
+    local found = search(state, fn, seen, {}) -- checked: view_as_mut
     if found ~= nil then
       state.refuse(node, use.spelled, found)
       return

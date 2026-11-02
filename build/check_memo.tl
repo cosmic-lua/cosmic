@@ -57,11 +57,11 @@ end
 function check_memo.get(db: Sqlite.Handle, kind: string, key: string): string?
   local rows, _ = Sqlite.rows(db, "SELECT value FROM check_memo WHERE kind = ?1 AND key = ?2",
     { { text = kind }, { text = key } })
-  local row = rows ~= nil and rows[1] or nil
+  local row = rows ~= nil and rows[1] or nil -- checked: and_ternary
   if row == nil then
     return nil
   end
-  local value = row:text(1)
+  local value = row:text(1) -- untyped: call
   local _, _ = Sqlite.run(db, "UPDATE check_memo SET used = 1 WHERE kind = ?1 AND key = ?2",
     { { text = kind }, { text = key } })
   return value

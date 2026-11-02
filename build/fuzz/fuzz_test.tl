@@ -22,11 +22,11 @@ local function test_a_property_that_holds_runs_every_iteration()
     iters = 20,
     gen = any_bytes,
     check = function(_input: string): boolean, string
-      seen.value = seen.value + 1
+      seen.value = seen.value + 1 -- checked: map_field*2
       return true, ""
     end,
   })
-  assert(n == 20 and seen.value == 20, ("ran %d, checked %d"):format(n, seen.value))
+  assert(n == 20 and seen.value == 20, ("ran %d, checked %d"):format(n, seen.value)) -- checked: map_field*2
 end
 
 -- Any byte of 200 or more fails: the simplest failing input is that one
@@ -116,12 +116,12 @@ local function test_a_checked_run_allows_the_checks_their_instructions()
     }
   end
   -- A checked run has the hook already: take it away, and give it back.
-  local globals = _G as {string:any}
+  local globals = _G as {string:any} -- checked: cast_refused, unchecked_binding
   local saved = globals.__cosmic_tc
   globals.__cosmic_tc = nil
   local unhooked_ok, unhooked_held, unhooked_why = pcall(Fuzz.replay, property(), "input")
   -- A hook that answers the values, as `select` does.
-  globals.__cosmic_tc = select
+  globals.__cosmic_tc = select -- checked: overload_value
   local ok, hooked_held, hooked_why = pcall(Fuzz.replay, property(), "input")
   globals.__cosmic_tc = saved
   assert(unhooked_ok and unhooked_held == false and
@@ -167,11 +167,11 @@ local function test_mutate_stays_deterministic_and_changes_its_sample()
       return Fuzz.mutate(src, "ustar\0" .. string.rep("0", 20), 4)
     end,
     check = function(input: string): boolean, string
-      if input ~= "ustar\0" .. string.rep("0", 20) then changed.value = changed.value + 1 end
+      if input ~= "ustar\0" .. string.rep("0", 20) then changed.value = changed.value + 1 end -- checked: map_field*2
       return #input < 40, "grew"
     end,
   })
-  assert(changed.value > 0)
+  assert(changed.value > 0) -- checked: map_field
   assert(err:find("grew", 1, true), err)
 end
 
@@ -191,7 +191,7 @@ local function test_shrink_cuts_and_lowers_draws()
   for i, v in ipairs({ 3, 90, 2, 55, 1 }) do draws[i] = { min = 0, max = 100, value = v } end
   local shrunk = shrink.shrink(draws, fails, 1000)
   local best, tries = shrunk.draws, shrunk.tries
-  assert(#best == 1 and best[1].value == 7, ("%d draws, first %d"):format(#best, best[1].value))
+  assert(#best == 1 and best[1].value == 7, ("%d draws, first %d"):format(#best, best[1].value)) -- checked: nil_not_allowed
   assert(tries > 0 and tries <= 1000)
   local capped = shrink.shrink(draws, fails, 3).tries
   assert(capped == 3)
@@ -421,7 +421,7 @@ local function test_a_case_checks_the_one_input_it_names(tmp: string)
   local case = assert(err:match("reproduce: FUZZ_CASE=(%S+)"), err)
   local first: string?
   for i = 1, #seen do
-    if seen[i]:find("\0", 1, true) then
+    if seen[i]:find("\0", 1, true) then -- checked: nil_not_allowed
       first = seen[i]
       break
     end
@@ -453,8 +453,8 @@ local function test_a_check_that_fails_once_is_reported_flaky()
   local failed = { value = false }
   local err = report({ name = "once", iters = 5, gen = any_bytes,
     check = function(_input: string): boolean, string
-      if failed.value == true then return true, "" end
-      failed.value = true
+      if failed.value == true then return true, "" end -- checked: map_field
+      failed.value = true -- checked: map_field
       return false, "the first time"
     end })
   assert(err:find("fuzz once: seed=1 iteration=1: flaky: failed (the first time), then held " ..
@@ -470,8 +470,8 @@ local function test_a_shrunk_input_that_then_holds_is_named_flaky()
   local err = report({ name = "shrunk once", iters = 200, gen = any_bytes,
     check = function(input: string): boolean, string
       if input == "\200" then
-        if seen_alone.value == true then return true, "" end
-        seen_alone.value = true
+        if seen_alone.value == true then return true, "" end -- checked: map_field
+        seen_alone.value = true -- checked: map_field
         return false, "a high byte"
       end
       return input:find("[\200-\255]") == nil, "a high byte"

@@ -266,7 +266,7 @@ local function globals_of(prelude: string?, stdlib: string?): TreeProgram.Global
     sources[#sources + 1] = Driver.declarations(CheckerDeclarations.stdlib_module(), CheckerDeclarations.stdlib_file(), stdlib,
       {})
   end
-  return { sources = sources, adjust = function(globals: mut {string: Scopes.Global})
+  return { sources = sources, adjust = function(globals: mut {string: Scopes.Global}) -- checked: view_as_mut
     for _, name in ipairs(withheld.globals) do
       globals[name] = nil
     end

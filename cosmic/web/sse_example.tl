@@ -7,7 +7,7 @@ local Html = require("cosmic.html")
 local Sse = require("cosmic.web.sse")
 local Web = require("cosmic.web")
 
-local Example = {}
+local Example = {} -- checked: literal_needs_type
 
 --- An event written for the wire: a data line for every line of the text,
 --- so text from a user cannot start a field or end the event.
@@ -77,4 +77,4 @@ function Example.queue()
   end)
 end
 
-return Example
+return Example -- checked: export_not_declared

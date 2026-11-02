@@ -46,9 +46,9 @@ local function test_describe_scalars_empties_and_null()
   assert(json_query.describe(decoded('{"a": {}, "b": [], "c": null}', { null_value = Json.null })) ==
       "{a: {}, b: [0], c: null}")
   assert(json_query.describe(decoded('{"odd key": 1}')) == '{"odd key": number}', json_query.describe(decoded('{"odd key": 1}')))
-  assert(not pcall(json_query.describe, {}, { max_depth = -1 }))
-  local fraction: any = 1.5
-  assert(not pcall(json_query.describe, {}, { max_depth = fraction as integer }))
+  assert(not pcall(json_query.describe, {}, { max_depth = -1 })) -- checked: alternatives_as_value, literal_needs_type
+  local fraction: any = 1.5 -- checked: any_use
+  assert(not pcall(json_query.describe, {}, { max_depth = fraction as integer })) -- checked: alternatives_as_value, cast_refused, literal_needs_type
 end
 
 --- `?` and a depth cut, objects merged across nested arrays, holes.
@@ -67,7 +67,7 @@ local function test_describe_a_long_array_is_one_merged_shape()
   for i = 1, 5000 do made[i] = { id = i, tag = "t" } end
   local items = Json.array(made)
   assert(json_query.describe(items) == "[5000 x {id: number, tag: string}]")
-  local cycle: {any:any} = {}
+  local cycle: {any:any} = {} -- declared: key_type
   cycle.self = cycle
   assert(json_query.describe(cycle, { max_depth = 3 }) == "{self: {self: {self: {...}}}}")
 end
@@ -144,19 +144,19 @@ local function test_flatten_stops_at_max_depth_naming_the_pointer()
   -- An empty container still nests: it is a container.
   local _, empty_err = json_query.flatten(decoded('[[[]]]'), { max_depth = 2 })
   assert(empty_err:find('pointer "/0/0"', 1, true), empty_err)
-  local deep: any = 1
-  for _ = 1, 100 do deep = { deep } end
+  local deep: any = 1 -- checked: any_use
+  for _ = 1, 100 do deep = { deep } end -- checked: any_use
   local _, default_err = json_query.flatten(deep)
   assert(default_err:find("max_depth 64", 1, true), default_err)
   assert(json_query.flatten(deep, { max_depth = 200 }) ~= nil)
 end
 
 local function test_flatten_fails_on_a_cycle_and_on_mixed_keys()
-  local loop: {string:any} = { name = "x" }
-  loop.self = loop
+  local loop: {string:any} = { name = "x" } -- checked: any_use
+  loop.self = loop -- checked: map_field
   local leaves, err = json_query.flatten(loop)
   assert(leaves == nil and err == 'the value at pointer "/self" contains itself', err)
-  local mixed: {any:any} = { a = 1, [1] = 2 }
+  local mixed: {any:any} = { a = 1, [1] = 2 } -- declared: key_type
   local m, mixed_err = json_query.flatten({ rows = mixed })
   assert(m == nil and mixed_err == 'the value at pointer "/rows" is a table with mixed keys', mixed_err)
   -- The same table twice is no cycle.
@@ -192,30 +192,30 @@ end
 --- every container a walk lays out, so a test can bound the work a walk
 --- does by what it counted, not by how long it took.
 local function counted(value: any, counter: mut {integer}): any
-  if not (value is {any:any}) then return value end
-  local copy: mut {any:any} = {}
-  for key, member in pairs(value) do copy[key] = counted(member, counter) end
+  if not (value is {any:any}) then return value end -- declared: key_type
+  local copy: mut {any:any} = {} -- declared: key_type
+  for key, member in pairs(value) do copy[key] = counted(member, counter) end -- checked: any_use
   local walk_copy = function(): function(): (any, any)
-    counter[1] = counter[1] + 1
-    local at = { value = nil as any }
+    counter[1] = counter[1] + 1 -- checked: nil_not_allowed
+    local at = { value = nil as any } -- checked: cast_refused
     return function(): any, any
-      local key, member = next(copy, at.value)
-      at.value = key
+      local key, member = next(copy, at.value) -- checked: map_field
+      at.value = key -- checked: map_field
       return key, member
     end
   end
-  return setmetatable({}, { __index = copy, __pairs = walk_copy })
+  return setmetatable({}, { __index = copy, __pairs = walk_copy }) -- checked: setmetatable_call
 end
 
 local function test_flatten_of_a_large_document_lays_out_each_container_once()
   local rows: mut {any} = {}
-  for i = 1, 25000 do rows[#rows + 1] = { id = i, tags = { "a", "b" }, ["in"] = { id = -i } } end
+  for i = 1, 25000 do rows[#rows + 1] = { id = i, tags = { "a", "b" }, ["in"] = { id = -i } } end -- checked: literal_shape
   local counter = { 0 }
-  local leaves = assert(json_query.flatten(counted({ rows = Json.array(rows) }, counter)))
+  local leaves = assert(json_query.flatten(counted({ rows = Json.array(rows) }, counter))) -- checked: not_assignable
   assert(#leaves == 100000, #leaves)
   assert(json_query.flat_line(leaves[1].steps, 1) == "$.rows[0].id = 1" and
-      json_query.flat_line(leaves[4].steps, 1) == "$.rows[0].tags[1] = 1")
-  assert(counter[1] == 75002, "laid out " .. counter[1] .. " containers")
+      json_query.flat_line(leaves[4].steps, 1) == "$.rows[0].tags[1] = 1") -- checked: nil_not_allowed
+  assert(counter[1] == 75002, "laid out " .. counter[1] .. " containers") -- checked: nil_not_allowed
 end
 
 --- A depth outside what a walk takes raises, naming the caller, for
@@ -224,20 +224,20 @@ local function test_a_max_depth_out_of_range_raises_naming_the_caller()
   local doc = decoded('{"a": [1]}')
   local function flatten_with(depth: any): any
     -- Not a tail call, which would leave no frame here to name.
-    local leaves = json_query.flatten(doc, { max_depth = depth as integer })
-    return leaves
+    local leaves = json_query.flatten(doc, { max_depth = depth as integer }) -- checked: cast_refused
+    return leaves -- checked: any_use
   end
   local function describe_with(depth: any): any
-    local text = json_query.describe(doc, { max_depth = depth as integer })
-    return text
+    local text = json_query.describe(doc, { max_depth = depth as integer }) -- checked: cast_refused
+    return text -- checked: any_use
   end
   local walks = "json: max_depth must be an integer from 1 to " .. tostring(Json.depth_limit)
-  for _, bad in ipairs({ 0, Json.depth_limit + 1, 1.5, "2" } as {any}) do
+  for _, bad in ipairs({ 0, Json.depth_limit + 1, 1.5, "2" } as {any}) do -- checked: arms_differ, cast_refused
     local ok, message = pcall(flatten_with, bad)
     assert(not ok and tostring(message):find(walks, 1, true) ~= nil, tostring(message))
     assert(tostring(message):find("json_query_test", 1, true), "named where it was called: " .. tostring(message))
   end
-  for _, bad in ipairs({ -1, 1.5, "2" } as {any}) do
+  for _, bad in ipairs({ -1, 1.5, "2" } as {any}) do -- checked: arms_differ, cast_refused
     local ok, message = pcall(describe_with, bad)
     assert(not ok and tostring(message):find("json: max_depth must be an integer of at least 0", 1, true) ~= nil,
       tostring(message))

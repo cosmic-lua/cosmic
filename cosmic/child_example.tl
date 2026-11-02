@@ -22,7 +22,7 @@ Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx
 -- build.confine's `confine`: examples are shown by `cosmic docs`, and may
 -- not import build.confine.
 
-local Example = {}
+local Example = {} -- checked: literal_needs_type
 
 --- Several children at once, and Ctrl-C ends them before it ends this
 --- process: the guard holds SIGINT and SIGTERM while they run, each
@@ -188,4 +188,4 @@ assert(Fs.put(2, "diagnostic\n"))]]
   assert(assert(h:wait()).ok)
 end
 
-return Example
+return Example -- checked: export_not_declared

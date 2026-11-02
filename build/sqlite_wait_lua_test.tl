@@ -102,7 +102,7 @@ local function test_work_open_does_not_retry_a_cancelled_first_or_second_begin(t
       assert(sys.kill(sys.getpid(), sys.SIGTERM))
     end
     log.complain = function(_: Log.Logger, _: string): boolean, string
-      notices.value = notices.value + 1
+      notices.value = notices.value + 1 -- checked: map_field*2
       if sender ~= nil then signal(sender) end
       return true, ""
     end
@@ -111,9 +111,9 @@ local function test_work_open_does_not_retry_a_cancelled_first_or_second_begin(t
     assert(ran, tostring(opened))
     local caught = guard:take()
     guard:release()
-    assert(opened == nil and reason:find("interrupted", 1, true) ~= nil, reason)
+    assert(opened == nil and reason:find("interrupted", 1, true) ~= nil, reason) -- checked: nil_not_allowed
     assert(caught == sys.SIGTERM)
-    assert(notices.value == (if retried then 1 else 0 end), notices.value .. " notices")
+    assert(notices.value == (if retried then 1 else 0 end), notices.value .. " notices") -- checked: map_field*2
     if sender ~= nil then done(sender) end
   end
   assert(assert(holder.stdin_stream):close())

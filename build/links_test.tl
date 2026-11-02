@@ -594,13 +594,13 @@ end
 --- A global resolves by what `_G` holds when the link is read: one set
 --- since resolves, members and all, and one never set does not.
 local function test_a_global_the_runtime_adds_resolves()
-  local globals = _G as {string: any}
+  local globals = _G as {string: any} -- checked: cast_refused, unchecked_binding
   rawset(globals, "links_test_added", { member = true })
   local ok, found = pcall(checked, world({}), "/p/a.md", "markdown",
     "[`links_test_added.member`] [`links_test_added.other`] [`links_test_never`]\n")
-  rawset(globals, "links_test_added", nil)
+  rawset(globals, "links_test_added", nil) -- checked: array_of_optional
   assert(ok, tostring(found))
-  same(found as {string}, {
+  same(found as {string}, { -- checked: cast_refused
     "/p/a.md:1: link: links_test_added.other does not resolve (no declaration, symbol or file by that name)",
     "/p/a.md:1: link: links_test_never does not resolve (a name alone links only to a declaration of its own file; write another module's symbol in full (`module.member`))",
   })

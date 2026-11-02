@@ -130,7 +130,7 @@ end
 
 function Flow.root(key: string): integer
   local dot = key:find(".", 1, true)
-  return math.tointeger(tonumber(dot ~= nil and key:sub(1, dot - 1) or key)) or 0
+  return math.tointeger(tonumber(dot ~= nil and key:sub(1, dot - 1) or key)) or 0 -- checked: and_ternary
 end
 
 local function made(live: boolean, facts: {string: Flow.Fact}, paths: integer, lens: {string: Flow.Fact},
@@ -177,18 +177,18 @@ function Flow.narrow(f: Flow.State, key: string, narrowed: Type, declared: Type)
       return f
     end
     local facts = copy_facts(f.facts)
-    facts[key] = nil
+    facts[key] = nil -- checked: view_written
     return made(f.live, facts, f.paths - (if is_path(key) then 1 else 0 end), f.lens, f.unset, f.unsets, f.gone)
   end
   if held ~= nil and held.type == narrowed and held.declared == declared then
     return f
   end
   local facts = copy_facts(f.facts)
-  facts[key] = { type = narrowed, declared = declared }
+  facts[key] = { type = narrowed, declared = declared } -- checked: view_written
   local gone = f.gone
   if gone[key] ~= nil then
     gone = copy_gone(gone)
-    gone[key] = nil
+    gone[key] = nil -- checked: view_written
   end
   local paths = f.paths
   if held == nil and is_path(key) then
@@ -263,7 +263,7 @@ local function without(f: Flow.State, id: integer, why: Scopes.Place?): Flow.Sta
   if #doomed > 0 then
     facts = copy_facts(facts)
     for _, k in ipairs(doomed) do
-      facts[k] = nil
+      facts[k] = nil -- checked: view_written
       if is_path(k) then
         paths = paths - 1
       end
@@ -283,7 +283,7 @@ local function without(f: Flow.State, id: integer, why: Scopes.Place?): Flow.Sta
   if why == nil and #old > 0 then
     gone = copy_gone(gone)
     for _, k in ipairs(old) do
-      gone[k] = nil
+      gone[k] = nil -- checked: view_written
     end
   elseif why ~= nil then
     gone = copy_gone(gone)
@@ -295,7 +295,7 @@ local function without(f: Flow.State, id: integer, why: Scopes.Place?): Flow.Sta
       marked[#marked + 1] = k
     end
     for _, k in ipairs(marked) do
-      gone[k] = why
+      gone[k] = why -- checked: view_written
     end
   end
   return made(f.live, facts, paths, if next(lens) == nil then NO_LENS else lens end, f.unset, f.unsets, gone)
@@ -305,7 +305,7 @@ function Flow.assign(f: Flow.State, id: integer, why: Scopes.Place?): Flow.State
   local g = without(f, id, why)
   if g.unset[id] == true then
     local unset = copy_unset(g.unset)
-    unset[id] = nil
+    unset[id] = nil -- checked: view_written
     return made(g.live, g.facts, g.paths, g.lens, unset, g.unsets - 1, g.gone)
   end
   return g
@@ -318,7 +318,7 @@ function Flow.declare(f: Flow.State, id: integer, unset: boolean): Flow.State
     return g
   end
   local out = copy_unset(g.unset)
-  out[id] = unset or nil
+  out[id] = unset or nil -- checked: or_mix, view_written
   return made(g.live, g.facts, g.paths, g.lens, out, g.unsets + (if unset then 1 else -1 end), g.gone)
 end
 
@@ -327,7 +327,7 @@ function Flow.assigned(f: Flow.State, id: integer): Flow.State
     return f
   end
   local unset = copy_unset(f.unset)
-  unset[id] = nil
+  unset[id] = nil -- checked: view_written
   return made(f.live, f.facts, f.paths, f.lens, unset, f.unsets - 1, f.gone)
 end
 
@@ -344,7 +344,7 @@ function Flow.enter(f: Flow.State, unfixed: {integer: boolean}?): Flow.State
     if #doomed > 0 then
       facts = copy_facts(facts)
       for _, k in ipairs(doomed) do
-        facts[k] = nil
+        facts[k] = nil -- checked: view_written
         if is_path(k) then
           paths = paths - 1
         end
@@ -371,7 +371,7 @@ end
 
 --- The earlier of two places.
 local function earlier(a: Scopes.Place, b: Scopes.Place): Scopes.Place
-  return b.offset < a.offset and b or a
+  return b.offset < a.offset and b or a -- checked: and_ternary
 end
 
 --- The facts of `a` that `b` holds too, as [`Flow.join`] keeps them, and how many of them are paths.
@@ -418,7 +418,7 @@ function Flow.join(a: Flow.State, b: Flow.State, unite: function(Type, Type): Ty
         if unset == a.unset then
           unset = copy_unset(unset)
         end
-        unset[id] = true
+        unset[id] = true -- checked: view_written
         unsets = unsets + 1
       end
     end
@@ -427,7 +427,7 @@ function Flow.join(a: Flow.State, b: Flow.State, unite: function(Type, Type): Ty
   local function note(key: string, place: Scopes.Place)
     if facts[key] == nil and lens[key] == nil then
       local held = gone[key]
-      gone[key] = held ~= nil and earlier(held, place) or place
+      gone[key] = held ~= nil and earlier(held, place) or place -- checked: and_ternary, view_written
     end
   end
   for key, place in pairs(a.gone) do
