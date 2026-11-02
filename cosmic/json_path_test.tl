@@ -21,7 +21,7 @@ end
 local function steps_text(steps: Json.Steps): string
   local parts: mut {string} = {}
   for _, step in ipairs(steps) do
-    local text = step is string and Json.quote(step) or tostring(step)
+    local text = if step is string then Json.quote(step) else tostring(step) end
     parts[#parts + 1] = text
   end
   return "{" .. table.concat(parts, ", ") .. "}"

@@ -703,7 +703,7 @@ function Net.listener_from(fd: integer, opts?: Net.ListenOptions): Net.Listener?
   if math.type(fd) ~= "integer" or fd < 0 then
     error("net: fd must be an integer from 0", 2)
   end
-  Poll.checked_ns(opts ~= nil and opts.timeout_ns or nil, "net", "timeout_ns", 2)
+  Poll.checked_ns(if opts ~= nil then opts.timeout_ns else nil end, "net", "timeout_ns", 2)
   local socket, why, errno = raw.adopt(fd)
   if socket == nil then
     local reason = why
@@ -716,7 +716,7 @@ function Net.listener_from(fd: integer, opts?: Net.ListenOptions): Net.Listener?
     return nil, "net: descriptor " .. tostring(fd) .. ": " .. trouble
   end
   return new_listener(socket, Net.tcp(assert(bound.host), assert(bound.port)),
-    opts ~= nil and opts.timeout_ns or nil).listener, ""
+    if opts ~= nil then opts.timeout_ns else nil end).listener, ""
 end
 
 --- The two listeners a sandbox's relay channel carries: the TCP sockets a
@@ -742,7 +742,7 @@ function Net.receive_listeners(channel: integer, opts?: Net.ListenOptions): {Net
   if math.type(channel) ~= "integer" or channel < 0 then
     error("net: channel must be an integer from 0", 2)
   end
-  Poll.checked_ns(opts ~= nil and opts.timeout_ns or nil, "net", "timeout_ns", 2)
+  Poll.checked_ns(if opts ~= nil then opts.timeout_ns else nil end, "net", "timeout_ns", 2)
   local received, why = raw.recvfds(channel, 2)
   if received == nil then return nil, "net: descriptor " .. tostring(channel) .. ": " .. why end
   local listeners: mut {Net.Listener} = {}
@@ -777,7 +777,7 @@ end
 function Net.connect(address: Net.Address, opts?: Net.ConnectOptions): Net.Conn?, string
   local unusable = address_trouble(address)
   if unusable ~= "" then error("net: address must be " .. unusable, 2) end
-  local timeout_ns = opts ~= nil and opts.timeout_ns or nil
+  local timeout_ns = if opts ~= nil then opts.timeout_ns else nil end
   local attempt = connection(address, timeout_ns)
   local socket = attempt.socket
   if socket == nil then
@@ -878,7 +878,7 @@ end
 --- its own as well. A refused address answers "net: ... is refused by the
 --- connector's deny list".
 function Net.connector(endpoints: {Net.Endpoint}, opts?: Net.ConnectorOptions): Net.Connector?, string
-  local timeout_ms = Leaf.checked_timeout_ms(opts ~= nil and opts.timeout_ns or nil, 2)
+  local timeout_ms = Leaf.checked_timeout_ms(if opts ~= nil then opts.timeout_ns else nil end, 2)
   local public: Leaf.Public?
   local given_public = opts and opts.public
   if given_public ~= nil then public = checked_public(given_public) end
@@ -916,7 +916,7 @@ local function checked_spec(spec: any)
   if not spec is {any: any} then error("net: serve takes a spec table", 3) end
   for key in pairs(spec) do
     if not (key is string and SPEC_FIELDS[key] == true) then
-      local gone = key is string and REMOVED_FIELDS[key] or nil
+      local gone = if key is string then REMOVED_FIELDS[key] else nil end
       error("net: spec has no field " .. tostring(key) ..
           (if gone ~= nil then ": " .. gone else "" end), 3)
     end

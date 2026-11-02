@@ -126,7 +126,7 @@ function App.new(spec: Types.AppSpec): Types.App
     local hosts: mut {string} = {}
     kept.trusted_hosts = hosts
     for _, host in ipairs(trusted_hosts) do
-      local parsed = type(host) == "string" and Request.parse_host(host) or nil
+      local parsed = if type(host) == "string" then Request.parse_host(host) else nil end
       if parsed == nil or parsed.port ~= nil then
         error(("web: trusted_hosts: %q is not a host name without a port"):format(tostring(host)), 2)
       end
@@ -173,7 +173,7 @@ function App.new(spec: Types.AppSpec): Types.App
     local req = Request.new(app, raw, parts)
     if trusted ~= nil then
       local host = req.host
-      local named = host ~= nil and Request.parse_host(host) or nil
+      local named = if host ~= nil then Request.parse_host(host) else nil end
       if named == nil or trusted[named.host] ~= true then
         outcome = { kind = "bad_host", detail = "the host is not one this app answers to",
           handler = router.miss, mount_path = "" }

@@ -109,10 +109,10 @@ end
 --- A TZ string written from drawn offsets and rules, with the two
 --- offsets it may name after it, as `TZ\0std\0dst`.
 local function drawn(src: Fuzz.Source): string
-  local std = src:int(-96, 96) * 900 + (src:int(0, 3) == 0 and src:int(0, 899) or 0)
+  local std = src:int(-96, 96) * 900 + (if src:int(0, 3) == 0 then src:int(0, 899) else 0 end)
   local names = { "<+0530>", "EST", "AAA", "<-03>", "CET" }
   local text = Fuzz.pick(src, names) .. hms(-std)
-  if src:int(0, 3) == 0 then return text .. "\0" .. std .. "\0" .. std end
+  if src:int(0, 3) == 0 then return text .. "\0" .. tostring(std) .. "\0" .. tostring(std) end
   local dst = std + 3600
   text = text .. Fuzz.pick(src, { "EDT", "BBB", "<+0630>", "CEST" })
   if src:int(0, 1) == 1 then
@@ -121,7 +121,7 @@ local function drawn(src: Fuzz.Source): string
     text = text .. hms(-dst)
   end
   if src:int(0, 3) ~= 0 then text = text .. "," .. day(src) .. "," .. day(src) end
-  return text .. "\0" .. std .. "\0" .. dst
+  return text .. "\0" .. tostring(std) .. "\0" .. tostring(dst)
 end
 
 --- A written string reads back, and every moment it is asked about is

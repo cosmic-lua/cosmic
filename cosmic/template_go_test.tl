@@ -695,7 +695,7 @@ local function render(body: string, page: {string: any}): string
   assert(code ~= nil and #compiled.syntax_errors == 0, "no Lua for " .. body)
   local env: {string: any} = setmetatable({}, { __index = _G })
   env.require = function(name: string): any
-    return name == "cosmic.html" and Html or {}
+    return if name == "cosmic.html" then Html else {} end
   end
   local chunk = assert(load(assert(code), "=template", "t", env))
   local loaded = chunk()

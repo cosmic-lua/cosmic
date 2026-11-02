@@ -168,7 +168,7 @@ local function prepare(method: string, path: string, opts: Options): Prepared
   local opts_query = opts.query
   if opts_query ~= nil then
     local extra = Url.encode_query(pairs_of(opts_query))
-    if extra ~= "" then query = query == "" and extra or query .. "&" .. extra end
+    if extra ~= "" then query = (if query == "" then extra else query .. "&" .. extra end) end
   end
   local headers: mut {string:string} = { host = "testserver" }
   for name, value in pairs(opts.headers or {}) do headers[name:lower()] = value end
@@ -374,7 +374,7 @@ local function send(client: Testing.Client, method: string, path: string, opts: 
     local reply = client.app.handle(raw)
     local trouble = Server.check(reply, method)
     if trouble ~= "" then
-      local unsent = type(reply) == "table" and reply.body or nil
+      local unsent = if type(reply) == "table" then reply.body else nil end
       if unsent ~= nil then
         if not unsent is string then
           local _, _ = unsent:close()
@@ -661,7 +661,7 @@ local function loopback_raw(self: Testing.Loopback, bytes: string, method?: stri
   -- long again for a reply would only double the failure's time.
   if write_why == Poll.TIMEOUT then return nil, write_why end
   local reply, why = read_reply(self, method or "GET")
-  if reply == nil then return nil, write_why ~= "" and write_why or why end
+  if reply == nil then return nil, (if write_why ~= "" then write_why else why end) end
   return reply, ""
 end
 

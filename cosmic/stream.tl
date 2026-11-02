@@ -503,7 +503,7 @@ local class FdReader is Stream.Reader
         return nil, ""
       end
       if not (opts.nonblocking == true and (errno == sys.EAGAIN or errno == sys.EINTR)) then
-        self.failed = trouble ~= "" and trouble or "stream: read failed"
+        self.failed = if trouble ~= "" then trouble else "stream: read failed" end
         return nil, self.failed
       end
       local ready, why = wait_for(fd, sys.POLLIN, opts, deadline)
@@ -647,7 +647,7 @@ local class TransformReader is Stream.Reader
     while self.at > #self.batch and not self.finished do
       local out, trouble = step(self)
       if out == nil then
-        self.failed = trouble ~= "" and trouble or "stream: codec failed"
+        self.failed = if trouble ~= "" then trouble else "stream: codec failed" end
         self.batch, self.at = "", 1
         return nil, self.failed
       end
@@ -658,7 +658,7 @@ local class TransformReader is Stream.Reader
     local want = max_bytes or chunk_size
     local avail = #batch - at + 1
     if want >= avail then
-      local piece = at == 1 and batch or batch:sub(at)
+      local piece = if at == 1 then batch else batch:sub(at) end
       self.batch, self.at = "", 1
       return piece, ""
     end
@@ -835,7 +835,7 @@ local class StickyWriter is Stream.Sticky
 
   function fail(self, trouble: string): boolean, string
     if self.failed == nil then
-      self.failed = trouble ~= "" and trouble or self.name .. ": write failed"
+      self.failed = if trouble ~= "" then trouble else self.name .. ": write failed" end
       local _, _ = self.writer:abort()
     end
     return false, self.failed
@@ -956,7 +956,7 @@ local class LineReader is Stream.Lines
       if at <= #chunk then
         self.held = self.held + #chunk - at + 1
         if self.held > limit then return fail(self, too_long(self)) end
-        table.insert(self.parts, at == 1 and chunk or chunk:sub(at))
+        table.insert(self.parts, if at == 1 then chunk else chunk:sub(at) end)
       end
       self.chunk, self.at = "", 1
       if self.ended then
@@ -1454,7 +1454,7 @@ end
 ---     assert(w:close())              -- the decoded bytes, or `out` aborted
 function Stream.transform_writer(writer: Stream.Writer, codec: Stream.Transform,
                                  opts?: Stream.TransformWriterOptions): Stream.Writer
-  local hold = opts ~= nil and opts.hold or 0
+  local hold = if opts ~= nil then opts.hold or 0 else 0 end
   if math.type(hold) ~= "integer" or hold < 0 then
     error("stream: hold must be an integer of at least 0", 2)
   end

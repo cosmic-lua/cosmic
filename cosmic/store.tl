@@ -601,7 +601,7 @@ end
 ---     local digest = assert(Store.seal(names, "json.db"))
 function Store.seal(names: {string}, path?: string,
                     opts?: Store.SealOptions): string?, string
-  local script = opts ~= nil and opts.extra or nil
+  local script = if opts ~= nil then opts.extra else nil end
   if type(names) ~= "table" or (#names == 0 and script == nil) then
     error("store: seal: names is a non-empty list of module names", 2)
   end
@@ -614,7 +614,7 @@ function Store.seal(names: {string}, path?: string,
     end
   end
   table.sort(sorted)
-  local main = opts ~= nil and opts.main or nil
+  local main = if opts ~= nil then opts.main else nil end
   if script ~= nil then
     if opts ~= nil and opts.unchecked_bytecode ~= true then
       error("store: seal: extra is bytecode loaded unchecked; " ..

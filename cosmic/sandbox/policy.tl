@@ -295,7 +295,7 @@ local function invalid(p: rules.Policy, exact: boolean): string
         return at({ "grants", i, "path" }, "\"..\" is not allowed; name the directory itself")
       end
     end
-    local canonical = grant.letters ~= nil and canonical_letters(grant.letters) or nil
+    local canonical = if grant.letters ~= nil then canonical_letters(grant.letters) else nil end
     if canonical == nil then
       return at({ "grants", i, "letters" }, "letters are of \"" .. LETTERS .. "\", at least one")
     end
@@ -351,7 +351,7 @@ local function invalid(p: rules.Policy, exact: boolean): string
       return at({ field }, "an id is a whole number from 1 to 4294967294: never root")
     end
     if id == 65534 or id == 65535 then
-      return at({ field }, id .. " is the overflow id, which the kernel shows for an id " ..
+      return at({ field }, tostring(id) .. " is the overflow id, which the kernel shows for an id " ..
           "a namespace does not map: name another")
     end
   end

@@ -254,8 +254,6 @@ cosmic/sandbox/policy.tl 1
 
 cosmic/sqlite.tl 2
 
-cosmic/store.tl 1
-
 cosmic/tar.tl 1
 
 cosmic/test.tl 4
@@ -263,8 +261,6 @@ cosmic/test.tl 4
 cosmic/time.tl 7
 
 cosmic/web/app.tl 2
-
-cosmic/web/errors.tl 1
 
 cosmic/web/input.tl 1
 
@@ -277,7 +273,7 @@ cosmic/web/session/sqlite.tl 1
 cosmic/web/sse.tl 1
 
 
-cosmic/web/testing.tl 4
+cosmic/web/testing.tl 3
 
 cosmic/zip.tl 1
 
@@ -791,7 +787,7 @@ build/zig_tool_test.tl nil_not_allowed 1
 
 
 
-cosmic/archive.tl nil_not_allowed 8
+cosmic/archive.tl nil_not_allowed 3
 
 cosmic/archive_fuzz_test.tl nil_not_allowed 3
 
@@ -799,7 +795,7 @@ cosmic/archive_test.tl nil_not_allowed 28
 
 cosmic/channel.tl nil_not_allowed 1
 
-cosmic/child.tl nil_not_allowed 66
+cosmic/child.tl nil_not_allowed 64
 
 cosmic/child_drain_test.tl nil_not_allowed 1
 
@@ -1008,7 +1004,7 @@ cosmic/test.tl nil_not_allowed 1
 
 cosmic/test_test.tl nil_not_allowed 1
 
-cosmic/time.tl nil_not_allowed 70
+cosmic/time.tl nil_not_allowed 69
 
 cosmic/time_duration_fuzz_test.tl nil_not_allowed 1
 
@@ -4317,7 +4313,7 @@ cosmic/template_build_test.tl or_mix 3
 
 cosmic/template_check_test.tl or_mix 1
 
-cosmic/template_fuzz_test.tl or_mix 6
+cosmic/template_fuzz_test.tl or_mix 3
 
 cosmic/template_html5lib_tokenizer_test.tl or_mix 3
 
@@ -4635,194 +4631,32 @@ core/sqlite_documented_test.tl and_ternary 1
 core/sqlite_functions_fuzz_test.tl and_ternary 7
 
 
-cosmic/archive.tl and_ternary 2
+cosmic/time.tl and_ternary 1
 
-cosmic/archive_fuzz_test.tl and_ternary 5
+cosmic/sandbox/policy.tl and_ternary 1
 
-cosmic/child.tl and_ternary 29
+cosmic/child.tl and_ternary 1
 
-cosmic/child_stream_failure_test.tl and_ternary 2
-
-cosmic/compress_test.tl and_ternary 1
-
-cosmic/csv_fuzz_test.tl and_ternary 3
-
-cosmic/flags.tl and_ternary 4
-
-cosmic/fs.tl and_ternary 7
-
-cosmic/html_fuzz_test.tl and_ternary 4
-
-cosmic/http/server.tl and_ternary 2
-
-cosmic/http/server_range_fuzz_test.tl and_ternary 7
-
-cosmic/http/wire.tl and_ternary 6
-
-cosmic/http/wire_fuzz_test.tl and_ternary 2
-
-cosmic/http_test.tl and_ternary 1
-
-cosmic/internal/connector.tl and_ternary 5
-
-cosmic/internal/relay_config.tl and_ternary 1
-
-cosmic/internal/relay_handed_test.tl and_ternary 1
-
-cosmic/internal/relay_main.tl and_ternary 1
-
-cosmic/internal/relay_resolv.tl and_ternary 3
-
-cosmic/internal/relay_server.tl and_ternary 6
-
-cosmic/internal/relay_start.tl and_ternary 2
+cosmic/http/wire.tl and_ternary 1
 
 cosmic/internal/relay_start_test.tl and_ternary 1
 
-cosmic/internal/relay_token_fuzz_test.tl and_ternary 1
+cosmic/internal/relay_wire_client_fuzz_test.tl and_ternary 1
 
-cosmic/internal/relay_wire.tl and_ternary 2
-
-cosmic/internal/relay_wire_client_fuzz_test.tl and_ternary 10
-
-cosmic/internal/relay_wire_fuzz_test.tl and_ternary 18
-
-cosmic/internal/relay_wire_test.tl and_ternary 2
-
-cosmic/json.tl and_ternary 3
-
-cosmic/json_fuzz_test.tl and_ternary 6
-
-cosmic/json_path_fuzz_test.tl and_ternary 1
-
-cosmic/json_path_test.tl and_ternary 1
-
-cosmic/json_reader_fuzz_test.tl and_ternary 2
-
-cosmic/mime.tl and_ternary 1
-
-cosmic/net.tl and_ternary 6
-
-cosmic/net_connector_test.tl and_ternary 1
-
-cosmic/net_resolve_through_test.tl and_ternary 2
-
-cosmic/net_tool_test.tl and_ternary 1
+cosmic/json_fuzz_test.tl and_ternary 1
 
 cosmic/policy_fuzz_test.tl and_ternary 3
 
-cosmic/poll.tl and_ternary 1
-
-cosmic/poll_test.tl and_ternary 1
-
-cosmic/proc.tl and_ternary 1
-
-cosmic/relay/address_fuzz_test.tl and_ternary 1
-
-cosmic/removed.tl and_ternary 1
-
-cosmic/sandbox/init.tl and_ternary 3
-
-cosmic/sandbox/policy.tl and_ternary 2
-
-cosmic/seatbelt_network_probe_test.tl and_ternary 2
-
 cosmic/shape_fuzz_test.tl and_ternary 3
 
-cosmic/signal.tl and_ternary 2
-
-cosmic/sqlite.tl and_ternary 2
-
-cosmic/store.tl and_ternary 2
-
-cosmic/stream.tl and_ternary 6
-
-cosmic/string.tl and_ternary 1
-
-cosmic/tar.tl and_ternary 6
-
-cosmic/tar_fuzz_test.tl and_ternary 3
-
-cosmic/template/codegen.tl and_ternary 6
-
-cosmic/template/dialect_test.tl and_ternary 1
-
-cosmic/template/init.tl and_ternary 1
-
-cosmic/template/lex.tl and_ternary 1
-
-cosmic/template/markup.tl and_ternary 9
-
-cosmic/template/parse.tl and_ternary 6
-
-cosmic/template_fuzz_test.tl and_ternary 15
-
-cosmic/template_go_test.tl and_ternary 1
-
-cosmic/template_html5lib_tokenizer_test.tl and_ternary 1
-
-cosmic/template_html5lib_tree_test.tl and_ternary 2
-
-cosmic/test.tl and_ternary 2
-
-cosmic/time.tl and_ternary 13
-
-cosmic/time_posix_fuzz_test.tl and_ternary 1
-
-cosmic/time_tzif_fuzz_test.tl and_ternary 2
-
-cosmic/time_zone_test.tl and_ternary 1
-
-cosmic/url_fuzz_test.tl and_ternary 4
-
-cosmic/web/app.tl and_ternary 2
-
-cosmic/web/assets.tl and_ternary 1
-
-cosmic/web/cookies.tl and_ternary 1
-
-cosmic/web/cors.tl and_ternary 2
-
-cosmic/web/csrf.tl and_ternary 4
-
-cosmic/web/dev.tl and_ternary 4
-
-cosmic/web/errors.tl and_ternary 2
-
-cosmic/web/headers.tl and_ternary 2
-
-cosmic/web/htmx.tl and_ternary 1
-
-cosmic/web/input.tl and_ternary 4
-
-cosmic/web/input_fuzz_test.tl and_ternary 2
-
-cosmic/web/input_multipart_fuzz_test.tl and_ternary 1
-
-cosmic/web/input_multipart_test.tl and_ternary 1
-
-cosmic/web/input_test.tl and_ternary 1
+cosmic/template_fuzz_test.tl and_ternary 1
 
 
-cosmic/web/response.tl and_ternary 2
+cosmic/web/response.tl and_ternary 1
 
-cosmic/web/router.tl and_ternary 3
+cosmic/web/testing.tl and_ternary 2
 
-cosmic/web/router_fuzz_test.tl and_ternary 1
-
-cosmic/web/sse.tl and_ternary 3
-
-cosmic/web/sse_fuzz_test.tl and_ternary 1
-
-cosmic/web/static.tl and_ternary 1
-
-cosmic/web/testing.tl and_ternary 5
-
-cosmic/web/typed.tl and_ternary 5
-
-cosmic/zip.tl and_ternary 5
-
-cosmic/zip_fuzz_test.tl and_ternary 4
+cosmic/zip_fuzz_test.tl and_ternary 3
 
 
 
@@ -5092,7 +4926,7 @@ core/surface_test.tl compare_disjoint 4
 
 
 
-cosmic/child.tl compare_disjoint 9
+cosmic/child.tl compare_disjoint 8
 
 cosmic/child_drain_test.tl compare_disjoint 11
 
@@ -5367,8 +5201,6 @@ core/promises_test.tl literal_needs_type 7
 
 core/syscalls_test.tl literal_needs_type 14
 
-
-cosmic/archive.tl literal_needs_type 1
 
 cosmic/archive_example.tl literal_needs_type 1
 
@@ -6065,8 +5897,6 @@ cosmic/time.tl not_assignable 1
 
 
 
-
-cosmic/web/router.tl not_assignable 1
 
 cosmic/web/sse.tl not_assignable 1
 

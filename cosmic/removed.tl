@@ -543,7 +543,7 @@ local module: Module = {
   -- names the callee.
   message = function(name: string, field?: string): string
     local dotted = if field ~= nil then name .. "." .. field else name end
-    local instead = field ~= nil and replacements[dotted] or nil
+    local instead = if field ~= nil then replacements[dotted] else nil end
     if instead ~= nil then
       return dotted .. " is not available: " .. instead
     end

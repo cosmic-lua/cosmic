@@ -17,7 +17,7 @@ local OFFERS <const>: {string} = { "text/html", "application/json", "application
 --- "404 Not Found".
 local function title_of(status: integer): string
   local reason = Server.reason(status)
-  return reason ~= "" and ("%d %s"):format(status, reason) or tostring(status)
+  return if reason ~= "" then ("%d %s"):format(status, reason) else tostring(status) end
 end
 
 --- A small page for `status`, holding `detail` and `trace` escaped.
@@ -64,7 +64,7 @@ local function respond(req: Types.Request, status: integer, detail?: string,
   local spec = req.app.spec
   local res: Types.Response
   local error_pages = spec.error_pages
-  local custom = error_pages ~= nil and error_pages[status] or nil
+  local custom = if error_pages ~= nil then error_pages[status] else nil end
   local error_view = spec.error_view
   if custom ~= nil then
     res = custom(req)

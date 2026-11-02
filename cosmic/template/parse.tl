@@ -119,9 +119,9 @@ local function pipeline(p: Parser, item: types.Item, first: integer, ranged: boo
   elseif head.kind == "field" and (head.value == "." or dotted(head.value:sub(2), 1)) then
     result.path = fields(head.value:sub(2))
   else
-    return nil, refuse(p, head.line, head.col, head.kind == "string" and STRING_ALONE or
-        "'" .. head.value .. "' is not a field path such as . or .a.b, nor a variable such as $ or $x.a" ..
-        trim_hint(head))
+    return nil, refuse(p, head.line, head.col, if head.kind == "string" then STRING_ALONE else
+      "'" .. head.value .. "' is not a field path such as . or .a.b, nor a variable such as $ or $x.a" ..
+        trim_hint(head) end)
   end
   for at = first + 1, #tokens do
     local token = assert(tokens[at], "the loop stays inside the tokens")
@@ -132,7 +132,7 @@ local function pipeline(p: Parser, item: types.Item, first: integer, ranged: boo
     elseif kind == "comma" then
       why = STRAY_COMMA
     elseif kind == "declare" then
-      why = ranged and BINDS_ONCE or BINDS_ALONE
+      why = if ranged then BINDS_ONCE else BINDS_ALONE end
     end
     if why ~= "" then
       return nil, refuse(p, token.line, token.col, why)
@@ -277,8 +277,8 @@ local function block(p: Parser, open: types.Item): types.Node?, string
       return nil, berr
     end
     local own = #node.branches == 0
-    node.branches[#node.branches + 1] = { pipeline = cond, index = own and index or "",
-      element = own and element or "", body = body, line = arm.line, col = arm.col, end_line = arm.end_line }
+    node.branches[#node.branches + 1] = { pipeline = cond, index = if own then index else "" end,
+      element = if own then element else "" end, body = body, line = arm.line, col = arm.col, end_line = arm.end_line }
     if own then
       p.visible[index] = nil
       p.visible[element] = nil
@@ -420,8 +420,8 @@ function Parse.parse(src: string, name: string, registry: {string: types.Def}): 
   end
   local head = p.items[p.pos]
   if head == nil or not head.action or keyword(head) ~= "type" then
-    local line = head ~= nil and head.line or 1
-    local col = head ~= nil and head.col or 1
+    local line = if head ~= nil then head.line else 1 end
+    local col = if head ~= nil then head.col else 1 end
     return nil, refuse(p, line, col, "a template starts with {{type Name from import.path}}")
   end
   local declared, terr = declaration(p, head)

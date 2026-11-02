@@ -150,7 +150,7 @@ local function write_all(fd: integer, data: string, blame: string): boolean, str
   local at = 1
   while at <= #data do
     -- The whole string the first time, rather than a copy of it.
-    local rest = at == 1 and data or data:sub(at)
+    local rest = if at == 1 then data else data:sub(at) end
     local put, trouble = sys.write(fd, rest)
     if put == nil then
       return false, trouble
@@ -461,7 +461,7 @@ end
 --- alone: nothing is made, looked at or checked, so the directory may
 --- not be there.
 function Fs.cache_dir(tool: string, opts?: Fs.CacheOptions): string?, string
-  local environment = opts ~= nil and opts.environment or nil
+  local environment = if opts ~= nil then opts.environment else nil end
   local base, base_trouble = cache_base(environment)
   if base == nil then
     return nil, base_trouble
@@ -557,7 +557,7 @@ local function walk(root: string, follow: boolean,
   while #pending > 0 do
     local next_one = table.remove(pending)
     local relative = next_one.relative
-    local directory = relative == "" and root or (root .. "/" .. relative)
+    local directory = if relative == "" then root else root .. "/" .. relative end
     local above = next_one.above
     local inside = true
     if follow then
@@ -582,12 +582,12 @@ local function walk(root: string, follow: boolean,
       entries = listed
     end
     for _, name in ipairs(sorted_names(entries)) do
-      local entry = relative == "" and name or (relative .. "/" .. name)
+      local entry = if relative == "" then name else relative .. "/" .. name end
       local kind = entries[name]
       if skip == nil or not skip(entry, name, kind) then
         if kind == "link" and follow then
           local st, _ = sys.stat(directory .. "/" .. name)
-          kind = st ~= nil and st.kind or "other"
+          kind = if st ~= nil then st.kind else "other" end
         end
         if kind == "dir" then
           pending[#pending + 1] = { relative = entry, above = above }
@@ -730,8 +730,7 @@ end
 --- `Fs.stat(path).mode & 0xfff` reads them back.
 function Fs.chmod(path: string, mode: integer): boolean, string
   if mode < 0 or mode > 0xfff then
-    local shown = (mode > 0 and math.tointeger(mode) ~= nil) and string.format("0x%x", mode) or
-      tostring(mode)
+    local shown = if mode > 0 and math.tointeger(mode) ~= nil then string.format("0x%x", mode) else tostring(mode) end
     error("fs: mode " .. shown .. " is outside 0 to 0xfff", 2)
   end
   local changed, trouble = sys.chmod(path, mode)
@@ -854,7 +853,7 @@ local function copy_bytes(from: string, to: string): boolean, string
   local st, stat_trouble = sys.fstat(input)
   if st == nil or st.kind ~= "file" then
     local _, _ = Fs.close(input)
-    return false, from .. ": " .. (st == nil and stat_trouble or "no longer a regular file")
+    return false, from .. ": " .. (if st == nil then stat_trouble else "no longer a regular file" end)
   end
   -- Exclusive: a name that appeared since the target was checked, a
   -- planted link included, is refused rather than written through.

@@ -57,7 +57,7 @@ end
 --- @return string The Content-Type
 function Mime.of(path: string): string
   local ext = extension(path)
-  return ext ~= nil and TYPES[ext] or "application/octet-stream"
+  return (if ext ~= nil then TYPES[ext] else nil end) or "application/octet-stream"
 end
 
 --- Whether a file of `content_type` can carry script a browser runs when it

@@ -478,7 +478,7 @@ local function extract_from(from: string | Archive.Reader, dest: string,
     error("archive: strip_components is negative", 2)
   end
   -- A float that is a whole number (2.0) counts as one.
-  local count = strip ~= nil and math.tointeger(strip) or nil
+  local count = if strip ~= nil then math.tointeger(strip) else nil end
   local links_mode = opts.links or "skip"
   local entries_left = opts.max_entries
   local reader: Archive.Reader
@@ -680,7 +680,7 @@ local function extract_from(from: string | Archive.Reader, dest: string,
       rel = stripped
       parent = stripped:match("^(.*)/")
     else
-      parts = stripped ~= nil and components(stripped) or {}
+      parts = if stripped ~= nil then components(stripped) else {} end
       rel = join(parts, #parts)
       if #parts > 1 then parent = join(parts, #parts - 1) end
     end

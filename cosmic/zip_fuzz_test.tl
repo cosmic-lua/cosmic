@@ -203,7 +203,7 @@ local function gen_laid_out(src: Fuzz.Source): string
     marks[#marks + 1] = pos.value
     pos.value = pos.value + #packed(r)
   end
-  local prefix = src:int(0, 3) == 0 and Fuzz.bytes(src, 16) or ""
+  local prefix = if src:int(0, 3) == 0 then Fuzz.bytes(src, 16) else "" end
   pos.value = #prefix
 
   local centrals: mut {Rec} = {}

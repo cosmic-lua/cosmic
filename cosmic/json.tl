@@ -1384,7 +1384,7 @@ local function query_string(text: string, at: integer): Piece?, string
         end
         if unit >= 0xD800 and unit <= 0xDBFF then
           local low = text:match("^\\u(%x%x%x%x)", i)
-          local low_unit = low ~= nil and math.tointeger(tonumber(low, 16)) or 0
+          local low_unit = if low ~= nil then math.tointeger(tonumber(low, 16)) or 0 else 0 end
           if low_unit < 0xDC00 or low_unit > 0xDFFF then
             return query_error(i - 6, "a high surrogate with no low one after it")
           end
@@ -1425,7 +1425,7 @@ local function bracketed(text: string, at: integer, descendant: boolean): Piece?
     if digits == nil or not (digits:match("^0$") or digits:match("^%-?[1-9]%d*$")) then
       return query_error(i, "an index is 0, or has no leading zero and is not -0")
     end
-    local index = #digits <= 17 and math.tointeger(tonumber(digits)) or nil
+    local index = if #digits <= 17 then math.tointeger(tonumber(digits)) else nil end
     if index == nil or index > MAX_INDEX or index < -MAX_INDEX then
       return query_error(i, "an index past 2^53 - 1")
     end
@@ -2407,7 +2407,7 @@ local class TokenReader is Json.Reader
       local ended = token == "string" or self.buf:byte(self.at) == nil
       local closer: string?
       if f ~= nil then closer = if f.object then "}" else "]" end end
-      value, err = scalar(self, ended and text or text .. " ", column, closer)
+      value, err = scalar(self, if ended then text else text .. " " end, column, closer)
       if err ~= "" then return nil, err end
       if token == "string" and self.json5 then pass_lines(self, text, start) end
     end

@@ -103,7 +103,7 @@ end
 --- @param several string | nil The noun for any other count; `singular` and an "s" when nil
 --- @return string The count, a space and the noun
 function String.counted(n: integer, singular: string, several?: string): string
-  return tostring(n) .. " " .. (n == 1 and singular or several or singular .. "s")
+  return tostring(n) .. " " .. (if n == 1 then singular else several or singular .. "s" end)
 end
 
 return String

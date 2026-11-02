@@ -1092,7 +1092,7 @@ local function test_download_result_interleaved_publishers_own_their_staged_file
     local published: boolean = false
     local result = Http.download_result(url, path, {
       script = { reply("200 OK", "", "outer") },
-      sha256 = mismatch and string.rep("0", 64) or Hash.hex_sha256("outer"),
+      sha256 = if mismatch then string.rep("0", 64) else Hash.hex_sha256("outer") end,
       cancelled = function(): boolean
         if not published then
           published = true

@@ -1058,7 +1058,7 @@ local function pump(entries: mut {Entry}, timeout_ns: integer,
   if in_run then
     local looked: Readied = {}
     local function look()
-      looked.answers, looked.why = Poll.ready(fds, events, timeout_ns >= 0 and timeout_ns or nil)
+      looked.answers, looked.why = Poll.ready(fds, events, if timeout_ns >= 0 then timeout_ns else nil end)
     end
     if cancellable == true then look() else Poll.shielded(look) end
     -- A wait that ran out of time found nothing: no stream moved.
@@ -1068,7 +1068,7 @@ local function pump(entries: mut {Entry}, timeout_ns: integer,
     revents = answers
   else
     -- Rounded up: a wait with time left polls for at least a millisecond.
-    local polled, why = sys.poll(fds, events, timeout_ns >= 0 and Clock.ceil(timeout_ns, MS) or -1)
+    local polled, why = sys.poll(fds, events, if timeout_ns >= 0 then Clock.ceil(timeout_ns, MS) else -1 end)
     revents, trouble = polled, why
   end
   if revents == nil then
@@ -1469,7 +1469,7 @@ local function feed_writer(self: Handle, fd: integer): Stream.Writer
     end
     -- Another task may have closed it meanwhile, by this writer's
     -- close or a settle, and its number be another file's by now.
-    if self._feed_fd ~= fd then return false, w.closed and closed_writer or EXITED end
+    if self._feed_fd ~= fd then return false, (if w.closed then closed_writer else EXITED end) end
     return true, ""
   end
   w.into = Stream.to_fd(fd, { nonblocking = true, wait = room })
@@ -1740,7 +1740,7 @@ local class Handle
       end
     end
     local active = Innermost.active()
-    local cancelled = active ~= nil and active:cancelled() or 0
+    local cancelled = if active ~= nil then active:cancelled() else 0 end
     if cancelled ~= 0 then
       -- A wait the guard's signal ended leaves no child running. The
       -- signal may have landed after the deadline, so say so here.
@@ -2280,9 +2280,9 @@ local record Held
   drop?: MappedUser
   --- The arguments to run with, where they are not the caller's: this
   --- program's relaunch ([`relaunch_of`]).
-  argv: {string}
-  --- The descriptors the relaunch hands the child, by its number.
-  fds: {integer:integer}
+  argv?: {string}
+  --- The descriptors the relaunch hands the child, by its number; nil for none.
+  fds?: {integer:integer}
   --- Whether `sandbox` holds the child by Seatbelt, as on macOS, and not
   --- by Landlock and seccomp.
   seatbelt?: boolean
@@ -2365,11 +2365,11 @@ end
 local function unmet(merged: Rules.Policy): string
   local file = isolates(merged, "file")
   local held = #(merged.grants or {}) + (if merged.tmp == true and not file then 1 else 0 end)
-  local most = file and MAX_ISOLATED_GRANTS or MAX_GRANTS
+  local most = if file then MAX_ISOLATED_GRANTS else MAX_GRANTS end
   if held > most then
     return "grants: the policy holds " .. tostring(held) ..
       (if file then ", and the sandbox's /proc is one more" else ", tmp's included" end) ..
-      ", past the most a start takes, " .. most .. "; grant a directory above them instead"
+      ", past the most a start takes, " .. tostring(most) .. "; grant a directory above them instead"
   end
   if nests(merged) and not file then
     return "promises \"nest\" needs isolate \"file\": the root of the program's own is what " ..
@@ -2452,7 +2452,7 @@ local function root_of(merged: Rules.Policy, base: string, idmap: {integer: bool
     if name == "/proc" or name == "/" then proc = false end
     local writable = lettered(grant.letters, "w") or lettered(grant.letters, "c")
     binds[#binds + 1] = { path = named(grant.from or grant.path, base),
-      at = grant.from ~= nil and name or nil, writable = writable,
+      at = if grant.from ~= nil then name else nil end, writable = writable,
       noexec = (writable or nest) and not lettered(grant.letters, "x"), idmap = idmap[index] or nil }
   end
   if proc then reads[1] = "/proc" end
@@ -2479,7 +2479,7 @@ local function unix_unheld(merged: Rules.Policy, base: string, nest: boolean): s
   if not nest and (abi == nil or abi >= 9) then return "" end
   for _, grant in ipairs(merged.grants or {}) do
     local st, _ = sys.stat(named(grant.from or grant.path, base))
-    local kind = st ~= nil and st.kind or ""
+    local kind = if st ~= nil then st.kind else "" end
     if kind == "dir" or (kind == "socket" and not lettered(grant.letters, "u")) then
       local what = if kind == "dir" then "a directory" else "a socket without `u`" end
       if nest then
@@ -2552,8 +2552,8 @@ local sandbox_serial: integer = 0
 --- geteuid: a setuid program's real and effective users differ there.
 local function effective_user(): integer
   local status, _ = Fs.read("/proc/self/status")
-  local effective = status ~= nil and status:match("\nUid:%s+%d+%s+(%d+)") or nil
-  local number = effective ~= nil and math.tointeger(tonumber(effective)) or nil
+  local effective = if status ~= nil then status:match("\nUid:%s+%d+%s+(%d+)") else nil end
+  local number = if effective ~= nil then math.tointeger(tonumber(effective)) else nil end
   return number or sys.getuid()
 end
 
@@ -2563,8 +2563,8 @@ end
 --- real group, until cosmic.sys carries getegid (the TODO of [`effective_user`]).
 local function effective_group(): integer
   local status, _ = Fs.read("/proc/self/status")
-  local effective = status ~= nil and status:match("\nGid:%s+%d+%s+(%d+)") or nil
-  local number = effective ~= nil and math.tointeger(tonumber(effective)) or nil
+  local effective = if status ~= nil then status:match("\nGid:%s+%d+%s+(%d+)") else nil end
+  local number = if effective ~= nil then math.tointeger(tonumber(effective)) else nil end
   return number or sys.getgid()
 end
 
@@ -2644,7 +2644,7 @@ local function unsearchable_above(path: string, user: MappedUser): string
   local at = Fs.dirname(path)
   while true do
     local st, _ = sys.stat(at)
-    local by = st ~= nil and Rules.reach("x", st, user.uid, user.gid).by or "other"
+    local by = if st ~= nil then Rules.reach("x", st, user.uid, user.gid).by else "other" end
     if by ~= "other" and by ~= "user" then return at end
     if at == "/" or at == "." then return "" end
     at = Fs.dirname(at)
@@ -2667,7 +2667,7 @@ local function reached_by(merged: Rules.Policy, base: string, file: boolean,
     local tmpdir = "/tmp"
     if given ~= nil and #given > 0 then tmpdir = given end
     local real, _ = sys.realpath(tmpdir)
-    local above = real ~= nil and unsearchable_above(real .. "/.", user) or ""
+    local above = if real ~= nil then unsearchable_above(real .. "/.", user) else "" end
     if above ~= "" then
       return nil, "tmp makes its directory in TMPDIR, " .. string.format("%q", tmpdir) ..
         ", which the user a root caller's program runs as cannot reach: " .. above ..
@@ -2974,7 +2974,7 @@ end
 --- The kernel's release, as uname(2) answers it, or "" where it fails.
 local function kernel_release(): string
   local names, _ = sys.uname()
-  return names ~= nil and names.release or ""
+  return if names ~= nil then names.release else "" end
 end
 
 --- What a program started under `isolate` with no `processes` of its
@@ -3257,11 +3257,11 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy): Hel
   -- Under `nest` no ruleset holds the paths: the kernel refuses a mount to
   -- a process Landlock holds, so the root, which only the grants are bound
   -- into, does ([`nest_unheld`]).
-  local sandbox: raw_process.Sandbox = { grants = not nest and grants or nil, promises = promises,
+  local sandbox: raw_process.Sandbox = { grants = if not nest then grants else nil end, promises = promises,
     rlimits = rlimits,
     sockets = sockets, offline = inet or unix, strict = file or proc or inet or unix,
-    proc = proc and not file, user = user ~= nil and drop == nil and user.uid or nil,
-    group = user ~= nil and drop == nil and user.gid or nil }
+    proc = proc and not file, user = if user ~= nil and drop == nil then user.uid else nil end,
+    group = if user ~= nil and drop == nil then user.gid else nil end }
   if root ~= nil then
     sandbox.unveil = root
     if merged.tmp == true then
@@ -3288,9 +3288,9 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy): Hel
     if not holds then return nil, "sandbox: " .. held_why end
   end
   return { path = path, env = env, tmp = "", wants_tmp = merged.tmp == true and not file,
-    sandbox = sandbox, cwd = file and base or nil, user = user, drop = drop, nests = nest,
-    argv = run_argv, fds = relaunch ~= nil and relaunch.fds or nil,
-    relay = relayed and merged.connect or nil }, ""
+    sandbox = sandbox, cwd = if file then base else nil end, user = user, drop = drop, nests = nest,
+    argv = run_argv, fds = if relaunch ~= nil then relaunch.fds else nil end,
+    relay = if relayed then merged.connect else nil end }, ""
 end
 
 --- Whether this host holds a policy's child by Seatbelt, which is how
@@ -3430,7 +3430,7 @@ local function held_by_seatbelt(argv: {string}, opts: Options, policy: Rules.Pol
   }
   return { path = path, env = env, tmp = "", wants_tmp = merged.tmp, tmp_parameter = profile.tmp,
     sandbox = sandbox, nests = false, seatbelt = true, argv = run_argv,
-    fds = relaunch ~= nil and relaunch.fds or nil, relay = relayed and merged.connect or nil,
+    fds = if relaunch ~= nil then relaunch.fds else nil end, relay = if relayed then merged.connect else nil end,
     seatbelt_policy = policy, seatbelt_options = options }, ""
 end
 
@@ -3517,7 +3517,7 @@ local function nest_descriptors(slots: {integer:integer}): string
         "it and, by .., above it, and the root of its own holds no descriptor"
     elseif st ~= nil and st.kind == "file" then
       local info, _ = Fs.read("/proc/self/fdinfo/" .. tostring(fd))
-      local flags = info ~= nil and info:match("flags:%s*(%d+)") or nil
+      local flags = if info ~= nil then info:match("flags:%s*(%d+)") else nil end
       local mode = if flags ~= nil then (math.tointeger(tonumber(flags, 8)) or 0) & 3 else nil end
       if mode ~= 2 then
         return what .. " is a file not open for reading and writing, which promises " ..
@@ -3669,8 +3669,8 @@ local function prepare_relay(connect: {string}, opts: Options, seatbelt: boolean
   config.token = token
   -- `program.digest` is the hex SHA-256 [`Store.seal`] hashed the file to,
   -- which is what `$.database.sha256` holds; [`Rules.merge`] checks it anyway.
-  local policy = seatbelt and RelayStart.seatbelt_policy(program.path, program.digest) or
-    RelayStart.policy(program.path, program.digest)
+  local policy = if seatbelt then RelayStart.seatbelt_policy(program.path, program.digest) else
+    RelayStart.policy(program.path, program.digest) end
   return { dir = program.dir, policy = policy, config = RelayConfig.encode(config), log = log,
     handover = handover, seatbelt = seatbelt, token = token, port = port }, ""
 end
@@ -3703,9 +3703,9 @@ end
 --- `how` ended it and `read_trouble` is why its output failed.
 local function relay_ended(relay: Handle, read_trouble: string, log: RelayLog | integer): string
   local ended, _ = end_or_kill(relay)
-  local signal = ended ~= nil and ended.signal or nil
-  local how = if signal ~= nil then "signal " .. signal else
-    "status " .. tostring(ended ~= nil and ended.code or "unknown") end
+  local signal = if ended ~= nil then ended.signal else nil end
+  local how = if signal ~= nil then "signal " .. tostring(signal) else
+    "status " .. (if ended ~= nil and ended.code ~= nil then tostring(ended.code) else "unknown" end) end
   return "the relay ended (" .. how .. ") before it served" ..
     (if read_trouble ~= "" then ": " .. read_trouble else "" end) ..
     (if log ~= "null" then "" else "; start with relay_log = \"inherit\" to see why" end)
@@ -3945,7 +3945,7 @@ local function start(argv: {string}, opts: Options, pty?: Pty, serves_relay?: in
   -- Nothing but the spawn lies between the directory's making and its
   -- owner, the handle: a spawn that raises (an argument it refuses) must
   -- not leave it, nor the descriptors wired, behind.
-  local run_argv = held ~= nil and held.argv or argv
+  local run_argv = if held ~= nil and held.argv ~= nil then held.argv else argv end
   -- The pty's path is the terminal where stdin is on it.
   local terminal: boolean | string = false
   if pty ~= nil and pty.streams[0] == true then terminal = pty.name or true end
@@ -4193,7 +4193,7 @@ function Child.start_on_pty(argv: {string}, opts: Options, pty: PtyOptions): Pty
   if started == nil then return nil, trouble end
   holding.keep = true
   holding.keep_slave = pty.keep_slave == true
-  return { child = started, master = made.master, slave = holding.keep_slave and made.slave or -1 }, ""
+  return { child = started, master = made.master, slave = if holding.keep_slave then made.slave else -1 end }, ""
 end
 
 --- Waits for the first of several handles to finish, servicing every
