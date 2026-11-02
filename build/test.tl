@@ -130,6 +130,7 @@ local progress = require("build.progress")
 local coverage_report = require("build.coverage")
 local c_functions = require("build.c_functions")
 local importer = require("build.importer")
+local exit_status = require("build.exit_status")
 local type Module = importer.Module
 local GrammarMode = require("build.grammar_mode")
 local plural = require("build.plural")
@@ -168,7 +169,7 @@ local type Unmet = State.Unmet
 
 local record test
   --- The verb's registration: see build/verb_spec.tl.
-  spec: verb_spec.Spec
+  mut spec: verb_spec.Spec
   --- How many tests this run ran, and how many it answered from a
   --- verdict that still stood ([`build.test_state`]'s [`Tally`]).
   type Tally = State.Tally
@@ -177,7 +178,7 @@ local record test
   --- given run, by that run's `run_at_ns`: what this run still owes
   --- `hits`, gathered while replaying verdicts and resolved against
   --- `coverage_by_test` in one query per run credited, after the loop.
-  type Credited = {integer: {string}}
+  type Credited = mut {integer: mut {string}}
 
   --- One of the shares `--shard I/N` splits a run's chosen tests into
   --- ([`test.shard`], [`test.dealt`]).
@@ -455,6 +456,9 @@ local function encode_hits(test_hits: Coverage.Hits): string
   end
   return table.concat(out)
 end
+
+-- TODO: have [`Coverage.Hits`] write its lines through, so `hits` here and in [`merge_hits`] and [`take_hits`] can be written, once
+-- `Hits` in cosmic/internal/debug.d.tl is `{string: mut {integer: boolean}}`.
 
 --- Folds every line `encoded` (as [`encode_hits`] writes it) names into
 --- `hits`.
@@ -757,11 +761,8 @@ end
 --- module-load's own coverage window hands back.
 local function merge_hits(into: Coverage.Hits, from: Coverage.Hits)
   for path, per_line in pairs(from) do
-    local existing = into[path]
-    if existing == nil then
-      existing = {}
-      into[path] = existing
-    end
+    local existing = into[path] or {}
+    into[path] = existing
     for line in pairs(per_line) do
       existing[line] = true
     end
@@ -788,11 +789,8 @@ local function stand(rec: Recording, credited: test.Credited, m: Module,
                      name: string, id: string, found: test_key.Lookup)
   local key, stood = assert(found.key), assert(found.own)
   rec.tally.cached = rec.tally.cached + 1
-  local owed = credited[stood.run_at_ns]
-  if owed == nil then
-    owed = {}
-    credited[stood.run_at_ns] = owed
-  end
+  local owed = credited[stood.run_at_ns] or {}
+  credited[stood.run_at_ns] = owed
   owed[#owed + 1] = id
   local kept, keep_trouble = record_run(rec.records, m.path, name, true, "",
     Clock.now_ns(), run_key(key, rec.shared_keys[key]), stood.run_at_ns, stood.elapsed_ns)
@@ -874,11 +872,8 @@ function test.take_hits(hits: Coverage.Hits, unowned: Coverage.Hits,
       local per_line = taken[path]
       if not folded[per_line] then
         folded[per_line] = true
-        local into = hits[path]
-        if into == nil then
-          into = {}
-          hits[path] = into
-        end
+        local into = hits[path] or {}
+        hits[path] = into
         for line in pairs(per_line) do into[line] = true end
       end
       out[#out + 1] = spell(spelled, path, per_line)
@@ -1397,8 +1392,8 @@ local record Run
 
   -- What the run tallies and reports ([`make_recording`]).
   mut tally?: State.Tally
-  mut failures?: {string}
-  mut errors?: {string}
+  mut failures?: mut {string}
+  mut errors?: mut {string}
   mut hits?: Coverage.Hits
   mut by_test?: {string:string}
   mut native_lines?: Coverage.Hits
@@ -1698,13 +1693,14 @@ end
 --- The exit code to stop with, or nil to go on.
 local function build_tree(ctx: Run): integer?
   local handle, staged, started = assert(ctx.handle), assert(ctx.staged), assert(ctx.started)
+  local outcome: importer.Outcome = { refused = false }
   local result, compile_trouble = importer.compile(handle,
-    GrammarMode.tool(assert(ctx.tool), assert(ctx.grammar)), false, shared_compiles.for_build(), ctx.checks)
+    GrammarMode.tool(assert(ctx.tool), assert(ctx.grammar)), false, shared_compiles.for_build(), ctx.checks, nil, outcome)
   if result == nil then
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
     local _, _ = work.close(handle)
     log:complain(compile_trouble)
-    return 1
+    return if outcome.refused then exit_status.uncompiled else 1 end
   end
   local written, write_trouble =
     writer.write_result(handle, assert(ctx.database), result)
@@ -1887,13 +1883,13 @@ local function make_recording(ctx: Run)
   ctx.tally = { ran = 0, cached = 0, shared = 0, every = 0,
     skipped = 0, unchecked = 0, na = 0 }
   local tally = assert(ctx.tally)
-  local failures: {string} = {}
-  local errors: {string} = {}
+  local failures: mut {string} = {}
+  local errors: mut {string} = {}
   ctx.failures, ctx.errors = failures, errors
   -- Every hit line of the run, and each test's own, which is what lets
   -- a later run credit a standing verdict's lines to it by name.
   local hits: Coverage.Hits = {}
-  local by_test: {string: string} = {}
+  local by_test: mut {string: string} = {}
   ctx.hits, ctx.by_test = hits, by_test
   -- The core's C is cosmic's own: another project's run neither owns
   -- nor tests it, and counting it would make its lines most of that
@@ -2530,7 +2526,17 @@ local function report(ctx: Run): integer
   end
   local _, _ = log:say("test: " .. test_report.failed(#failures, total + #assert(ctx.refusals),
     #errors, clock.took(started) .. assert(ctx.sandbox_summary) .. assert(ctx.share_summary), rec.not_run))
-  return 1
+  -- A refused module outranks a failing test: the tests ran on a tree that did not compile.
+  return if #assert(ctx.refusals) > 0 then exit_status.uncompiled else 1 end
+end
+
+--- The exit code of a run that stopped at `code` after the compile: [`exit_status.uncompiled`] in place of a 1 where a
+--- module its selectors name was refused, since a run that names none of the refused is not about them.
+local function stopped_at(ctx: Run, code: integer): integer
+  if code == 1 and #test.refusals_of(assert(ctx.result).refused, assert(ctx.selectors)) > 0 then
+    return exit_status.uncompiled
+  end
+  return code
 end
 
 --- Builds the tree in the working directory and runs every test it
@@ -2556,7 +2562,7 @@ local function run(argv: {string}): integer
   code = build_tree(ctx)
   if code ~= nil then return code end
   code = select_tests(ctx)
-  if code ~= nil then return code end
+  if code ~= nil then return stopped_at(ctx, code) end
   code = open_records(ctx)
   if code ~= nil then return code end
   make_recording(ctx)

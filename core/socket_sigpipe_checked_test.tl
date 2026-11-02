@@ -44,7 +44,7 @@ end
 --- the public batch cap. On Darwin a short ancillary buffer hides most
 --- of these descriptors; on Linux this exercises kernel truncation.
 local function test_oversized_native_rights_batch_is_closed(tmp: string)
-  if assert(sys.uname()).sysname ~= "Darwin" and unix_socket.skipped(tmp) then return end
+  if assert(sys.uname()).sysname ~= "Darwin" then unix_socket.skip_if_refused(tmp) end
   local sending, taking = pair(tmp .. "/oversized.sock")
   local sender <close> = sending
   local receiver <close> = taking

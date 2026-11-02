@@ -105,7 +105,7 @@ local function test_a_broken_required_file_still_stops_a_file_run(tmp: string)
       "bad.tl: the compiler refused it" end
     local result = run_in(tree_of(tmp, name, files), "good.tl")
     local said = tostring(result.stdout) .. tostring(result.stderr)
-    assert(result.code == 1 and result.stdout == "", said)
+    assert(result.code == 4 and result.stdout == "", said)
     assert((result.stderr or ""):find(refusal, 1, true) ~= nil and
         (result.stderr or ""):find("left out", 1, true) == nil, said)
   end
@@ -123,7 +123,7 @@ local function broken_file_stops_a_file_run(tmp: string, file: string)
   })
   local result = run_in(root, "good.tl")
   local said = tostring(result.stdout) .. tostring(result.stderr)
-  assert(result.code == 1 and (result.stderr or ""):find("types.tl: the compiler refused it", 1, true) ~= nil and
+  assert(result.code == 4 and (result.stderr or ""):find("types.tl: the compiler refused it", 1, true) ~= nil and
       (result.stderr or ""):find("left out", 1, true) == nil, said)
 end
 
@@ -171,7 +171,7 @@ local function test_a_file_run_with_the_new_checker_is_told_a_refusal_in_its_wor
   local needing = tree_of(tmp, "new-needed", { ["good.tl"] = 'local b = require("bad")\nprint(b)\n', ["bad.tl"] = TYPE_ERROR })
   local stopped = run_new_in(needing, "good.tl")
   local stopped_said = tostring(stopped.stdout) .. tostring(stopped.stderr)
-  assert(stopped.code == 1 and stopped.stdout == "" and (stopped.stderr or ""):find("bad.tl: the compiler refused it", 1, true) ~= nil and
+  assert(stopped.code == 4 and stopped.stdout == "" and (stopped.stderr or ""):find("bad.tl: the compiler refused it", 1, true) ~= nil and
       (stopped.stderr or ""):find("(not_assignable)", 1, true) ~= nil, stopped_said)
 end
 
@@ -189,7 +189,7 @@ local function test_a_script_with_a_hashbang_line_runs_and_keeps_its_line_number
   local failed = run_in(root, "fails.tl")
   assert(failed.code ~= 0 and (failed.stderr or ""):find("fails:3: boom 1", 1, true) ~= nil, tostring(failed.stderr))
   local refused = run_in(root, "refused.tl")
-  assert(refused.code ~= 0 and (refused.stderr or ""):find("refused.tl:3:", 1, true) ~= nil and
+  assert(refused.code == 4 and (refused.stderr or ""):find("refused.tl:3:", 1, true) ~= nil and
       (refused.stderr or ""):find("(not_assignable)", 1, true) ~= nil, tostring(refused.stderr))
 end
 
@@ -234,6 +234,47 @@ local function test_a_lua_file_run_standalone_is_checked_as_teal(tmp: string)
   local started = this_program.program({ "--standalone", file }, { env = this_program.environment(),
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
   local result = assert(Child.run(started.argv, started.options))
-  assert(result.code == 1 and result.stdout == "" and (result.stderr or ""):find("param_untyped", 1, true) ~= nil,
+  assert(result.code == 4 and result.stdout == "" and (result.stderr or ""):find("param_untyped", 1, true) ~= nil,
     tostring(result.stdout) .. tostring(result.stderr))
+end
+
+local BAD_TEMPLATE <const> = "oops\n"
+
+--- A file that no file of the run reaches but that stops the build around it is told apart from the file run: the
+--- run says `--standalone` runs the file alone.
+local function test_a_refused_file_beside_the_one_run_names_standalone(tmp: string)
+  local root = tree_of(tmp, "beside", { ["x.tl"] = 'print("hi")\n', ["a.tmpl"] = BAD_TEMPLATE })
+  local result = run_in(root, "x.tl")
+  local said = tostring(result.stdout) .. tostring(result.stderr)
+  assert(result.code ~= 0, said)
+  assert((result.stderr or ""):find("a.tmpl:1:1: a template starts with", 1, true) ~= nil, said)
+  assert((result.stderr or ""):find("cosmic --standalone x.tl", 1, true) ~= nil, said)
+  assert((result.stderr or ""):find("COSMIC_STANDALONE=1", 1, true) ~= nil, said)
+end
+
+--- The hint is wrong where the run file requires a project module, directly or through another, and where the refused
+--- file is the one run: `--standalone` finds no project module.
+local function test_the_standalone_hint_is_left_off_where_it_would_not_work(tmp: string)
+  local cases: {string: {string:string}} = {
+    direct = { ["x.tl"] = 'local a = require("a")\nprint(a)\n', ["a.tmpl"] = BAD_TEMPLATE },
+    stray = { ["x.tl"] = 'local b = require("b")\nprint(b)\n', ["b.tl"] = "return 1\n",
+      ["a.tmpl"] = BAD_TEMPLATE },
+    long = { ["x.tl"] = 'local b = require("b")\nprint(b)\n', ["b.tl"] = 'return require("a")\n',
+      ["a.tmpl"] = BAD_TEMPLATE },
+    itself = { ["x.tl"] = SYNTAX_ERROR },
+  }
+  for name, files in pairs(cases) do
+    local result = run_in(tree_of(tmp, name, files), "x.tl")
+    assert(result.code ~= 0, name .. ": " .. tostring(result.stderr))
+    assert((result.stderr or ""):find("--standalone", 1, true) == nil, name .. ": " .. tostring(result.stderr))
+  end
+end
+
+--- A file run that requires only the standard library keeps the hint.
+local function test_the_standalone_hint_stays_for_a_file_that_requires_only_cosmic(tmp: string)
+  local root = tree_of(tmp, "stdlib", { ["x.tl"] = 'local Fs = require("cosmic.fs")\nprint(Fs.basename("a/b"))\n',
+    ["a.tmpl"] = BAD_TEMPLATE })
+  local result = run_in(root, "x.tl")
+  assert(result.code ~= 0 and (result.stderr or ""):find("cosmic --standalone x.tl", 1, true) ~= nil,
+    tostring(result.stderr))
 end

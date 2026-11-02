@@ -593,7 +593,7 @@ end
 
 --- A block that closes a local whose `__close` clears `r`'s fields, `s`'s
 --- or the global (`clo_r`, `clo_s`, `clo_g`), then `leave`.
-local function close_lines(g: Gen, who: string, leave?: string): {string}
+local function close_lines(g: Gen, who: string, leave?: string): mut {string}
   local name = fresh(g, "c")
   local out = { "do", "  local " .. name .. " <close> = clo_" .. who, "  local _ = " .. name }
   if leave then out[#out + 1] = "  " .. leave end
@@ -1347,15 +1347,15 @@ end
 local record programs
   --- The header and the prologue of a program that draws shapes and
   --- nothing else, every draw `choice` above its least or its greatest.
-  bare_shapes: function(choice: integer): string
+  mut bare_shapes: function(choice: integer): string
   --- The line that ends a program holding a function that assigns a local
   --- declared outside it, which the checker must refuse as such.
-  captures_mark: string
+  mut captures_mark: string
   --- A well-formed program: the generator of the soundness property.
-  well_formed: function(Fuzz.Source): string
+  mut well_formed: function(Fuzz.Source): string
   --- A well-formed program, one in three edited at random bytes: the
   --- generator of the totality property.
-  any: function(Fuzz.Source): string
+  mut any: function(Fuzz.Source): string
 end
 
 programs.captures_mark = CAPTURES_MARK

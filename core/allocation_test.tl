@@ -303,7 +303,7 @@ end
 --- listener takes the same path.
 local function test_net_leaves_no_descriptor_or_socket_file_whenever_an_allocation_fails(
     tmp: string)
-  if unix_socket.skipped(tmp) then return end
+  unix_socket.skip_if_refused(tmp)
   local path = tmp .. "/s.sock"
   local before = next_descriptor(tmp)
   local ended = under_every_failure(function()
@@ -1228,7 +1228,7 @@ end
 --- descriptors. Failures after the receive must close both the guarded
 --- rights and every owner a batch has already acquired.
 local function test_rights_release_every_descriptor_when_allocation_fails(tmp: string)
-  if unix_socket.skipped(tmp) then return end
+  unix_socket.skip_if_refused(tmp)
   collectgarbage("collect")
   local before = testing.open_descriptors()
   local bytes, blocks = testing.c_heap()

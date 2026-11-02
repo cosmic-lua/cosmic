@@ -12,19 +12,13 @@ local Sandbox = require("cosmic.sandbox")
 local Shape = require("cosmic.shape")
 local sys = require("cosmic.sys")
 local sandbox = require("build.sandbox")
+local support = require("build.test_support_fixture")
 
 --- The node a record's spec describes.
 local function described<T>(spec: Shape.Spec<T>): Shape.Node
   local describe = spec.describe
   assert(describe ~= nil, "a spec that describes nothing")
   return describe()
-end
-
---- The element of `list` at `index`, which the case knows is there.
-local function nth<T>(list: {T}, index: integer): T
-  local found = list[index]
-  assert(found ~= nil, "the list has an element at " .. tostring(index))
-  return found
 end
 
 local record Ran
@@ -208,7 +202,7 @@ local function test_a_number_is_a_whole_one_in_range()
     for _, word in ipairs(case) do words[#words + 1] = word end
     words[#words + 1] = "prog"
     local ran = refused(words)
-    assert(ran.err:find(nth(case, 1), 1, true), ran.err)
+    assert(ran.err:find(support.nth(case, 1), 1, true), ran.err)
   end
 end
 
@@ -427,7 +421,7 @@ local function policy_after(words: {string}): {string:any}
   for _, word in ipairs(words) do line[#line + 1] = word end
   line[#line + 1] = "prog"
   local ran = run(line)
-  assert(ran.code == 0, nth(words, 1) .. ": " .. ran.err)
+  assert(ran.code == 0, support.nth(words, 1) .. ": " .. ran.err)
   return assert(ran.opts.policy) as {string:any}
 end
 
@@ -449,9 +443,9 @@ local function test_every_policy_field_has_a_flag()
       local words = samples[name]
       assert(words ~= nil, "Policy." .. name .. " has no flag: add one to cosmic sandbox and to " ..
           "Cli.verbs.sandbox.spec, and a sample here")
-      assert(assert(Cli.verbs.sandbox.spec)[words[1]] ~= nil, nth(words, 1) .. " is not in the spec")
-      seen[nth(words, 1)] = true
-      assert(holds(policy_after(words)[name]), nth(words, 1) .. " does not set Policy." .. name)
+      assert(assert(Cli.verbs.sandbox.spec)[words[1]] ~= nil, support.nth(words, 1) .. " is not in the spec")
+      seen[support.nth(words, 1)] = true
+      assert(holds(policy_after(words)[name]), support.nth(words, 1) .. " does not set Policy." .. name)
     end
   end
   local limits = fields.limits
@@ -460,9 +454,9 @@ local function test_every_policy_field_has_a_flag()
     local words = samples[name]
     assert(words ~= nil, "Policy.limits." .. name .. " has no flag: add one to cosmic sandbox " ..
         "and to Cli.verbs.sandbox.spec, and a sample here")
-    seen[nth(words, 1)] = true
+    seen[support.nth(words, 1)] = true
     local set = (policy_after(words).limits as {string:any})
-    assert(set ~= nil and set[name] == 5, nth(words, 1) .. " does not set Policy.limits." .. name)
+    assert(set ~= nil and set[name] == 5, support.nth(words, 1) .. " does not set Policy.limits." .. name)
   end
   -- A grant's path and letters are one option's. `from` has none: it needs
   -- isolate file and names a host path; it waits on policy files (the
@@ -476,6 +470,6 @@ local function test_every_policy_field_has_a_flag()
   end
   for name in pairs(samples) do
     local sample = assert(samples[name], name .. " has a sample")
-    assert(assert(Cli.verbs.sandbox.spec)[nth(sample, 1)] ~= nil, name .. ": no such flag")
+    assert(assert(Cli.verbs.sandbox.spec)[support.nth(sample, 1)] ~= nil, name .. ": no such flag")
   end
 end

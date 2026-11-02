@@ -53,9 +53,9 @@ local record Driver
     checked: boolean
     --- Whether its top-level `local function test_*` are called from outside the file (a test module), so that they are
     --- not unused.
-    tests: boolean
+    mut tests: boolean
     --- The other names a `require` may give it.
-    aliases: {string}
+    mut aliases: mut {string}
     --- The name its ceilings are kept under, "" where that is its `filename`. A source the build writes from another
     --- file (a guide's examples, a template, the declarations of a header) is named for the file it comes from, which
     --- the tree has, where its `filename` names the text written.
@@ -115,29 +115,29 @@ local record Driver
     --- check counts nothing of it.
     broken: boolean
     --- What lowering made: nil until the module is lowered.
-    lowered: Declarations.Lowered?
+    mut lowered: Declarations.Lowered?
     --- What checking made: nil until the module is checked, and for a module that is not.
-    checked: Check.Checked?
+    mut checked: Check.Checked?
     --- The errors of each stage, in source order.
     syntax: {Problem}
-    scope_errors: mut {Problem}
+    mut scope_errors: mut {Problem}
     declared: mut {Problem}
     bodies: mut {Problem}
     --- Every error, in source order, and the warnings.
-    errors: {Problem}
+    mut errors: {Problem}
     warnings: mut {Problem}
     --- The type of each node the checker typed (an expression) or lowered (a type), by the id of the node.
-    types: {integer: Types.Type}
+    mut types: {integer: Types.Type}
     --- The function each call and method call took, by the id of the call node ([`Check.Checked.callees`]).
-    callees: {integer: Types.Type}
+    mut callees: {integer: Types.Type}
   end
 
   --- The nanoseconds a build spent in each phase, for the speed of a run.
   record Timing
     --- Lexing, parsing and scoping.
-    prepare: integer
-    lower: integer
-    check: integer
+    mut prepare: integer
+    mut lower: integer
+    mut check: integer
     --- How many modules the program lowered (not the time), for a test that a module was not lowered again.
     mut lowerings: integer
   end
@@ -159,28 +159,28 @@ local record Driver
 
   --- A build.
   record Build
-    program: Declarations.Program
+    mut program: Declarations.Program
     --- The calls of [`Shape.record_of`] a module of the tree makes that [`build.tree_program`] could not resolve before it lowered the module, one line each.
     problems: mut {string}
     timing: Timing
     --- Asks `provider` for a module after the providers added before it.
-    provide: function(Build, provider: Provider)
+    mut provide: function(Build, provider: Provider)
     --- The module `name` (or one of its aliases) lexed, parsed and scoped, nil where no provider has it.
-    parsed: function(Build, name: string): Outcome?
+    mut parsed: function(Build, name: string): Outcome?
     --- Whether the build has the module `name`: a global source, a module a provider has, or one it has retired. Nothing is read
     --- to tell.
-    provides: function(Build, name: string): boolean
+    mut provides: function(Build, name: string): boolean
     --- Lowers the modules `names`, each after what it requires, and the globals before them.
-    lower: function(Build, names: {string})
+    mut lower: function(Build, names: {string})
     --- The result for `name`, lowered with what it requires. With `bodies` its bodies are checked too. nil where no
     --- provider has it. Call it for the modules you want, after [`Driver.Build.lower`] of all of them, since the
     --- errors of a module's declarations include checks that waited for a module lowered later.
-    result: function(Build, name: string, bodies: boolean): Outcome?
+    mut result: function(Build, name: string, bodies: boolean): Outcome?
     --- The lines that refuse `result` against `ceilings`: its syntax errors, and for each stage the errors of a code above
     --- its ceiling, each with its place and fix and then the count and `pinned N`. None where the module is held. The stages
     --- are those of the tree's checks, over the same text: a module is held to `[scoped]`, `[declared]` and `[checked]`, and
     --- to no syntax error. A module whose bodies were not checked is told so.
-    held: function(Build, result: Outcome, ceilings: Ceilings.Table): {string}
+    mut held: function(Build, result: Outcome, ceilings: Ceilings.Table): {string}
     --- Replaces the text of the module `name` with `text`, and answers its outcome, or nil where no provider has `name`. A module cannot be lowered twice in one program, so
     --- the program forgets the module and every module that requires it, through others as well ([`Declarations.forget`]),
     --- and lowers them again when they are next asked for, from the syntax tree the build has already; the others keep
@@ -188,7 +188,7 @@ local record Driver
     --- outcome answered before for a module forgotten is no longer the build's. Where the module replaced, or one that
     --- requires it, declares a global, the build begins a new program and lowers every module again. The splices of [`build.syntax_shape_specs`] are
     --- made in the text of [`Driver.Outcome.text`] and checked this way.
-    replace: function(Build, name: string, text: string): Outcome?
+    mut replace: function(Build, name: string, text: string): Outcome?
     -- TODO: write the declarations of a retired module ([`Types.encode_declaration`]) and its verdict to the working database,
     -- and read them back when a module requires it, once [`Declarations.Program`] can load a module from rows: its entries,
     -- aliases, statics and values have no text, and a store reads only declarations through [`Types.Loader`]. Measured over the
@@ -202,16 +202,16 @@ local record Driver
     --- require one another. A module read again by [`Driver.Build.parsed`] is a new reading, outside the program;
     --- [`Driver.Build.lower`] and [`Driver.Build.result`] answer nothing for it. A declaration file that declares
     --- globals is not forgotten.
-    retire: function(Build, name: string)
+    mut retire: function(Build, name: string)
     --- Whether the module `name` was retired ([`Driver.Build.retire`]) and no replacement has begun the program again since.
-    retired: function(Build, name: string): boolean
+    mut retired: function(Build, name: string): boolean
     --- [`Driver.Build.retire`] of every module the build holds but those `keep` answers true for: for a build whose result
     --- for a module is read once it is lowered, and whose lowering of the modules it requires is not read at all.
-    retire_all: function(Build, keep?: function(Outcome): boolean)
+    mut retire_all: function(Build, keep?: function(Outcome): boolean)
     --- A build of its own over the same options and providers, made when first asked for and the same afterwards: a caller
     --- reads a module in it without lowering the module here. Its program, and what it holds of the modules read in it, are
     --- its own; a module of this build is not retired in it.
-    scratch: function(Build): Build
+    mut scratch: function(Build): Build
   end
 
   --- A build over `options`.
@@ -222,7 +222,7 @@ local record Driver
 
   --- A declaration file whose globals every module may use ([`Driver.Options.globals`]): not checked, answering to `aliases` as
   --- well.
-  declarations: function(module: string, filename: string, text: string, aliases: {string}): Source
+  declarations: function(module: string, filename: string, text: string, aliases: mut {string}): Source
 
   --- The sources of a tree and the names they answer to.
   record Index
@@ -303,7 +303,7 @@ local record Driver
 end
 
 local function make(module: string, filename: string, text: string, dialect: Ast.Dialect, checked: boolean,
-                    aliases: {string}, tests: boolean, pinned: string): Driver.Source
+                    aliases: mut {string}, tests: boolean, pinned: string): Driver.Source
   return {
     module = module, filename = filename, text = text, dialect = dialect,
     checked = checked, tests = tests, aliases = aliases, pinned = pinned,
@@ -314,7 +314,7 @@ function Driver.source(module: string, filename: string, text: string, dialect: 
   return make(module, filename, text, dialect, true, {}, tests == true, "")
 end
 
-function Driver.declarations(module: string, filename: string, text: string, aliases: {string}): Driver.Source
+function Driver.declarations(module: string, filename: string, text: string, aliases: mut {string}): Driver.Source
   return make(module, filename, text, "decl", false, aliases, false, "")
 end
 
@@ -586,9 +586,9 @@ local record Entry
   input: Declarations.Input
   mut lowered: boolean
   --- Whether it and everything it requires is lowered.
-  closed: boolean
-  checked: boolean
-  bodies: boolean
+  mut closed: boolean
+  mut checked: boolean
+  mut bodies: boolean
 end
 
 local function problem_of(kind: string, stage: string, code: string, msg: string, fix: string, y: integer, x: integer,

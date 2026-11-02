@@ -39,9 +39,10 @@
 ---
 --- A module is served as its stub ([`build.syntax_stub`]) where it has one, as
 --- cosmic serves its standard library: the checker reads a fraction of
---- it, and the stub types a `require` of it as its source does but where a
---- body declares past itself ([`build.syntax_stub`]), which nothing here checks.
---- The stub of a
+--- it, and the stub types a `require` of it as its source does: a body cannot
+--- declare past its module, since a build refuses a function or field added to
+--- a record the module does not declare (`field_unknown`), so a dependent
+--- never lacks a field the build would give it. The stub of a
 --- file is the one the stage derived of its source (the `stubs` row of its
 --- `source_hash`), while the database's rows are the running analyzer's:
 --- the one this session's own stage recorded deriving them (the `meta`
@@ -69,11 +70,6 @@
 --- tool or an older one, saying so, until a stage of this tool's code
 --- stages it again; which code staged it is read again at every
 --- refresh, as the analyzer is.
-
--- TODO: serve a module whose body declares past itself as its source, or
--- as a stub that keeps such bodies, once [`build.syntax_stub`]'s TODO is done:
--- until then a dependent of a module whose body adds a function to an
--- outer record is told the record has no such field.
 
 local AnalysisSchema = require("build.analysis_schema")
 local Ast = require("lang.ast")
@@ -480,18 +476,15 @@ local function listed(src: source.View, staged: boolean)
     if modules[found.path] == nil then modules[found.path] = found end
     files[found.file] = found
   end
-  local requires: mut {string:{string}} = {}
+  local requires: mut {string:mut {string}} = {}
   local named_rows, _ = Sqlite.text_rows(db,
     "SELECT source_hash, name FROM requires WHERE ?1 = 1 ORDER BY source_hash, ordinal",
     { { integer = own } })
   if named_rows ~= nil then
     for _, row in ipairs(named_rows) do
       local hash = row:text(1)
-      local names = requires[hash]
-      if names == nil then
-        names = {}
-        requires[hash] = names
-      end
+      local names = requires[hash] or {}
+      requires[hash] = names
       local second = row:text(2)
       names[#names + 1] = second
     end

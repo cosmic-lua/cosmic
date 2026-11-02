@@ -15,20 +15,13 @@ local sys = require("cosmic.sys")
 local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
 local Clock = require("cosmic.clock")
-local build_paths = require("build.paths")
 local rebuild_lock = require("build.rebuild_lock")
 local this_program = require("build.this_program")
+local support = require("build.test_support_fixture")
 
 --- The program itself, which holds the lock against this process,
 --- started only to run a chunk (`lua`).
 Test.policy{ profiles = { "cosmic" } }
-
---- `root`'s build directory ([`build.paths`]), made, with `root` made
---- first where it is not there yet.
-local function build_dir(root: string): string
-  assert(Fs.mkdirs(root))
-  return (assert(build_paths.prepare(root)))
-end
 
 --- Asks for the lock of the tree at the first `%q` as a tool from
 --- before the flock does, and prints "held" or "busy". A holder keeps
@@ -103,7 +96,7 @@ end
 
 local function tree(tmp: string): string
   local root = tmp .. "/tree"
-  assert(build_dir(root))
+  assert(support.build_dir(root))
   return root
 end
 
@@ -159,12 +152,12 @@ local function test_a_waiting_run_takes_the_lock_once_let_go(tmp: string)
     local holder, said = start(script, root, Clock.seconds(1))
     assert(said == "held", said)
     local taken, trouble = rebuild_lock.take(root, Clock.seconds(20))
-    local let_go = Fs.exists(build_dir(root) .. "/let-go")
+    local let_go = Fs.exists(support.build_dir(root) .. "/let-go")
     rebuild_lock.release()
     finish(holder)
     assert(taken == "held", tostring(taken) .. " " .. trouble)
     assert(let_go == true, "took the lock while its holder held it")
-    assert(Fs.remove(build_dir(root) .. "/let-go"))
+    assert(Fs.remove(support.build_dir(root) .. "/let-go"))
   end
 end
 
@@ -192,7 +185,7 @@ print(tostring(held) .. " " .. trouble)
 local function start_handed(root: string, role: string, output: string): Child.Handle
   local fd = assert(Fs.open_write(output))
   local env = this_program.environment()
-  env.COSMIC_REBUILD_LOCK_HANDED = build_dir(root) .. "/./rebuild.lock"
+  env.COSMIC_REBUILD_LOCK_HANDED = support.build_dir(root) .. "/./rebuild.lock"
   local started = this_program.program({ "-e", holding:format(root, role) },
     { env = env, stdout = fd, stderr = fd, process_group = true })
   local h = assert(Child.start(started.argv, started.options))

@@ -5,6 +5,8 @@
 ---   any [`Hash.Algorithm`].
 --- - [`Hash.hasher`] and [`Hash.hmac_hasher`] take it in chunks, for a file
 ---   or a stream; [`cosmic.stream`]'s `hashing` feeds one as data passes.
+--- - [`Hash.file`] and [`Hash.hex_file`] digest a file in chunks, never
+---   holding it whole.
 --- - [`Hash.sha256`] and [`Hash.hex_sha256`] are the common case in one
 ---   call.
 --- - [`Hash.equal`] compares two MACs or tokens without leaking where
@@ -19,6 +21,7 @@
 --- for anything an attacker can choose the input of.
 
 local Codec = require("cosmic.codec")
+local Fs = require("cosmic.fs")
 
 -- The raw module behind every function here lives under the reserved
 -- `cosmic.internal.` namespace -- see cosmic/store.tl for why it is off
@@ -89,6 +92,52 @@ end
 --- which is the form the build writes into keys.
 function Hash.hex_sha256(data: string): string
   return Codec.hex(raw.digest("sha256", data))
+end
+
+--- How many bytes [`Hash.file`] reads at once.
+local chunk_size = 1 << 20
+
+--- The raw digest of the file at `path` under an algorithm, and "": the
+--- bytes [`Hash.digest`] gives over its whole contents, read a chunk at a
+--- time so that a file of any size takes the same memory. nil and a message
+--- naming the path when it cannot be opened or read, or the digest cannot
+--- finish. Raises on an unknown algorithm, as `digest` does. [`Hash.hex_file`]
+--- spells the digest as `sha256sum` does.
+---
+---     local dir = assert(Fs.mkdtemp("hash-"))
+---     assert(Fs.write(dir .. "/a.txt", "cosmic"))
+---     assert(Hash.file("sha256", dir .. "/a.txt") == Hash.sha256("cosmic"))
+---     assert(Fs.remove_tree(dir))
+function Hash.file(algorithm: Hash.Algorithm, path: string): string?, string
+  local made, trouble = raw.hasher(algorithm)
+  if made == nil then return nil, trouble end
+  -- Abandoned on every way out that does not finish it.
+  local hasher <close> = made
+  local fd, open_trouble = Fs.open_read(path)
+  if fd == nil then return nil, open_trouble end
+  while true do
+    local piece, read_trouble = Fs.take(fd, chunk_size)
+    if piece == nil then
+      local _, _ = Fs.close(fd)
+      return nil, path .. ": " .. read_trouble
+    end
+    if piece == "" then break end
+    hasher:update(piece)
+  end
+  -- Nothing was written through the descriptor, so a close that fails loses nothing.
+  local _, _ = Fs.close(fd)
+  local digest, digest_trouble = hasher:digest()
+  if digest == nil then return nil, path .. ": " .. digest_trouble end
+  return digest, ""
+end
+
+--- The hexadecimal digest of the file at `path` under an algorithm, as
+--- `sha256sum` prints it, and "": [`Hash.file`] spelled by
+--- [`Codec.hex`]. It fails and raises as [`Hash.file`] does.
+function Hash.hex_file(algorithm: Hash.Algorithm, path: string): string?, string
+  local digest, trouble = Hash.file(algorithm, path)
+  if digest == nil then return nil, trouble end
+  return Codec.hex(digest), ""
 end
 
 --- An incremental hasher over an algorithm, for data that arrives in

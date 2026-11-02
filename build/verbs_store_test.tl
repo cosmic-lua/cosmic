@@ -13,7 +13,7 @@ local verb_cases = require("build.verb_cases")
 local verb_list = require("build.verb_list")
 local verbs_fixture = require("build.verbs_fixture")
 local String = require("cosmic.string")
-local build_paths = require("build.paths")
+local support = require("build.test_support_fixture")
 
 --- The tool itself, whose core a program `build` writes runs on, the CA
 --- bundle `refresh` reads, and what bin/zig reads to find or fetch zig.
@@ -31,13 +31,6 @@ Test.policy{
     "HTTP_PROXY", "NO_PROXY", "SSL_CERT_DIR", "SSL_CERT_FILE", "all_proxy", "http_proxy",
     "https_proxy", "no_proxy" },
 }
-
---- `root`'s build directory ([`build.paths`]), made, with `root` made
---- first where it is not there yet.
-local function build_dir(root: string): string
-  assert(Fs.mkdirs(root))
-  return (assert(build_paths.prepare(root)))
-end
 
 --- The vendored bundle, which `refresh` reads with no network; the
 --- tree's root is where a test module loads.
@@ -59,7 +52,7 @@ local function says_how_it_went(tmp: string)
       if fail is {string} then
         local fail_in = case.fail_in
         local dir = if fail_in ~= nil then tmp .. "/" .. fail_in else tree end
-        local _ = verbs_fixture.expect(dir, verb, fail, 1)
+        local _ = verbs_fixture.expect(dir, verb, fail, case.fail_code or 1)
       end
     end
   end
@@ -240,13 +233,13 @@ end
 local function test_build_takes_paths_to_narrow_it(tmp: string)
   local tree = write_programs(tmp)
   local one = verbs_fixture.expect(tree, "build", { "build", "--host", "./cmd/hi/" }, 0).stdout or ""
-  assert(one == build_dir(tree) .. "/bin/hi\n", one)
-  assert(Fs.exists(build_dir(tree) .. "/bin/hi"))
-  assert(Fs.exists(build_dir(tree) .. "/bin/bye") ~= true)
+  assert(one == support.build_dir(tree) .. "/bin/hi\n", one)
+  assert(Fs.exists(support.build_dir(tree) .. "/bin/hi"))
+  assert(Fs.exists(support.build_dir(tree) .. "/bin/bye") ~= true)
   local refused = verbs_fixture.expect(tree, "build", { "build", "--host", "cmd/hi", "lib" }, 1)
   assert((refused.stderr or ""):find("no cmd/<name>/main.tl under lib", 1, true), refused.stderr)
   local _ = verbs_fixture.expect(tree, "build", { "build", "--host", "cmd" }, 0)
-  assert(Fs.exists(build_dir(tree) .. "/bin/bye"))
+  assert(Fs.exists(support.build_dir(tree) .. "/bin/bye"))
 end
 
 local function test_uses_takes_paths_to_narrow_it(tmp: string)
@@ -339,7 +332,7 @@ end
 local function test_db_reads_none_of_a_working_database_of_another_schema(tmp: string)
   local tree = write_programs(tmp)
   local _ = verbs_fixture.expect(tree, "build", { "build", "--host" }, 0)
-  local working = build_dir(tree) .. "/build.db"
+  local working = support.build_dir(tree) .. "/build.db"
   local db = assert(Sqlite.open(working, { writable = true }))
   assert(db:exec("UPDATE meta SET value = 'another' WHERE key = 'schema'"))
   assert(db:exec("DROP TABLE derived"))
@@ -362,9 +355,9 @@ local function test_sql_never_stages_the_tree(tmp: string)
   assert(Fs.mkdirs(tmp .. "/core"))
   assert(Fs.mkdirs(tmp .. "/build"))
   assert(Fs.write(tmp .. "/build/importer.tl", ""))
-  assert(build_dir(tmp))
+  assert(support.build_dir(tmp))
   local garbage = string.rep("not a database. ", 16)
-  assert(Fs.write(build_dir(tmp) .. "/build.db", garbage))
+  assert(Fs.write(support.build_dir(tmp) .. "/build.db", garbage))
   local staged = verbs_fixture.expect(tmp, "db", { "db" }, 1)
   assert((staged.stderr or ""):find("file is not a database", 1, true), staged.stderr)
   -- Every listing `sql` makes, through [`cosmic.sys`]'s shared table,
@@ -394,9 +387,9 @@ local function test_sql_never_stages_the_tree(tmp: string)
     local under = String.starts_with(path, tmp) or String.starts_with(path, real)
     assert(not under, "sql listed " .. path)
   end
-  assert(Fs.read(build_dir(tmp) .. "/build.db") == garbage)
+  assert(Fs.read(support.build_dir(tmp) .. "/build.db") == garbage)
   -- `used` is the record of use that build_dir's own `prepare` made.
-  local names = assert(Fs.list(build_dir(tmp)))
+  local names = assert(Fs.list(support.build_dir(tmp)))
   assert(table.concat(names, " ") == "build.db used", table.concat(names, " "))
 end
 
@@ -405,9 +398,9 @@ end
 local function test_db_counts_the_closure_stores_alone(tmp: string)
   local tree = write_programs(tmp)
   local _ = verbs_fixture.expect(tree, "build", { "build", "--host" }, 0)
-  assert(Fs.mkdirs(build_dir(tree) .. "/stores"))
-  assert(Fs.write(build_dir(tree) .. "/stores/" .. ("a"):rep(64) .. ".db", "abc"))
-  assert(Fs.write(build_dir(tree) .. "/stores/base-" .. ("b"):rep(64) .. ".db", "defgh"))
+  assert(Fs.mkdirs(support.build_dir(tree) .. "/stores"))
+  assert(Fs.write(support.build_dir(tree) .. "/stores/" .. ("a"):rep(64) .. ".db", "abc"))
+  assert(Fs.write(support.build_dir(tree) .. "/stores/base-" .. ("b"):rep(64) .. ".db", "defgh"))
   local whole = verbs_fixture.expect(tree, "db", { "db" }, 0).stdout or ""
   assert(whole:find("1 closure store, 3 bytes", 1, true), whole)
 end

@@ -85,14 +85,11 @@ end
 --- Every module that reaches `target` through `edges`: `target` too
 --- where it reaches itself.
 local function reaching(edges: {string:{string}}, target: string): {string:boolean}
-  local into: mut {string:{string}} = {}
+  local into: mut {string:mut {string}} = {}
   for from, names in pairs(edges) do
     for _, name in ipairs(names) do
-      local list = into[name]
-      if list == nil then
-        list = {}
-        into[name] = list
-      end
+      local list = into[name] or {}
+      into[name] = list
       list[#list + 1] = from
     end
   end

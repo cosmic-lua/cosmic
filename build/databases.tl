@@ -22,7 +22,7 @@ local verb_spec = require("build.verb_spec")
 
 local record databases
   --- The verb's registration: see build/verb_spec.tl.
-  spec: verb_spec.Spec
+  mut spec: verb_spec.Spec
 end
 
 --- `value` right-aligned in `width` columns.
@@ -122,7 +122,7 @@ local function slowest(path: string, about: function(string): boolean): boolean,
   if rows == nil then
     return false, trouble
   end
-  local kept: Sqlite.Rows = {}
+  local kept: mut {Sqlite.Row} = {}
   for _, row in ipairs(rows) do
     if #kept < slowest_kept and about(row:text(1)) then kept[#kept + 1] = row end
   end

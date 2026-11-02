@@ -76,7 +76,7 @@ end
 --- its code and position, as for a file.
 local function test_e_refuses_a_chunk_the_checker_refuses_and_runs_none_of_it(tmp: string)
   local r = evaluate(tmp, 'print("ran") local x: integer = "a" print(x)')
-  assert(r.code == 1 and r.stdout == "", tostring(r.code) .. tostring(r.stdout))
+  assert(r.code == 4 and r.stdout == "", tostring(r.code) .. tostring(r.stdout))
   assert(says(r, "-e:1:") and says(r, "not_assignable") and says(r, "cosmic help -e"), tostring(r.stderr))
 end
 
@@ -84,20 +84,20 @@ end
 --- cosmic removed), are refused with the messages a file gets.
 local function test_e_refuses_lua_that_teal_does_not_take(tmp: string)
   local untyped = evaluate(tmp, "local function f(x) return x end print(f(1))")
-  assert(untyped.code == 1 and says(untyped, "param_untyped"), tostring(untyped.stderr))
+  assert(untyped.code == 4 and says(untyped, "param_untyped"), tostring(untyped.stderr))
   local removed = evaluate(tmp, "os.exit(3)")
-  assert(removed.code == 1 and says(removed, "unknown_variable"), tostring(removed.stderr))
+  assert(removed.code == 4 and says(removed, "unknown_variable"), tostring(removed.stderr))
 end
 
 --- Nothing is pre-bound for a one-liner: it requires what it uses. It may require the tool's own modules beside the
 --- library's, and a module the program holds none of is refused where the chunk is checked.
 local function test_e_binds_no_module_and_requires_what_the_program_holds(tmp: string)
   local unbound = evaluate(tmp, "print(Json)")
-  assert(unbound.code == 1 and says(unbound, "unknown_variable"), tostring(unbound.stderr))
+  assert(unbound.code == 4 and says(unbound, "unknown_variable"), tostring(unbound.stderr))
   local own = evaluate(tmp, 'local Status = require("build.exit_status") print(Status.status(7))')
   assert(own.code == 0 and own.stdout == "7\n", tostring(own.stdout) .. tostring(own.stderr))
   local absent = evaluate(tmp, 'local Missing = require("build.nothing_like_this") print(Missing)')
-  assert(absent.code == 1 and absent.stdout == "" and says(absent, "build.nothing_like_this"),
+  assert(absent.code == 4 and absent.stdout == "" and says(absent, "build.nothing_like_this"),
     tostring(absent.stdout) .. tostring(absent.stderr))
 end
 
@@ -105,17 +105,17 @@ end
 --- tables ([`build.project_refusals`]), and what it may do beside them still runs.
 local function test_e_is_refused_what_a_project_is_refused_and_runs_the_near_misses(tmp: string)
   local globals = evaluate(tmp, 'local Globals = require("cosmic.internal.globals") print("ran") return 0')
-  assert(globals.code == 1 and globals.stdout == "" and says(globals, "cosmic.internal.globals"),
+  assert(globals.code == 4 and globals.stdout == "" and says(globals, "cosmic.internal.globals"),
     tostring(globals.stdout) .. tostring(globals.stderr))
   -- the owner's repro: the globals handed to a chunk of text by `load`
   local handed = evaluate(tmp, 'local G=require("cosmic.internal.globals") local f=load("return 1","=x","t",G.table()) if f then f() end')
-  assert(handed.code == 1 and says(handed, "cosmic.internal.globals"), tostring(handed.stdout) .. tostring(handed.stderr))
+  assert(handed.code == 4 and says(handed, "cosmic.internal.globals"), tostring(handed.stdout) .. tostring(handed.stderr))
   local underscore = evaluate(tmp, 'local f = _G.load print("ran") return 0')
-  assert(underscore.code == 1 and underscore.stdout == "", tostring(underscore.stdout) .. tostring(underscore.stderr))
+  assert(underscore.code == 4 and underscore.stdout == "", tostring(underscore.stdout) .. tostring(underscore.stderr))
   local packaged = evaluate(tmp, 'print("ran") return #package.searchers')
-  assert(packaged.code == 1 and packaged.stdout == "" and says(packaged, "`package`"), tostring(packaged.stdout) .. tostring(packaged.stderr))
+  assert(packaged.code == 4 and packaged.stdout == "" and says(packaged, "`package`"), tostring(packaged.stdout) .. tostring(packaged.stderr))
   local bytecode = evaluate(tmp, 'print("ran") local f = load("return 1", "=x", "b", {}) return 0')
-  assert(bytecode.code == 1 and bytecode.stdout == "" and says(bytecode, "`load` takes the mode"),
+  assert(bytecode.code == 4 and bytecode.stdout == "" and says(bytecode, "`load` takes the mode"),
     tostring(bytecode.stdout) .. tostring(bytecode.stderr))
   local text = evaluate(tmp, 'local f = load("return 7", "=x", "t", {}) if f == nil then return 1 end print(f()) return 0')
   assert(text.code == 0 and text.stdout == "7\n", tostring(text.stdout) .. tostring(text.stderr))

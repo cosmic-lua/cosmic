@@ -487,6 +487,60 @@ local function test_each_case_has_its_error_with_place_message_and_fix()
   end
 end
 
+--- The first error of `source` with `code`, or a failure that prints what the source reported.
+local function first_error(source: string, code: Codes.Code): Codes.Error
+  local r = Programs.run(source)
+  assert(#r.before == 0, table.concat(r.before, " "))
+  for _, e in ipairs(r.errors) do
+    if e.code == code then
+      return e
+    end
+  end
+  error("no " .. code .. " in " .. Programs.codes(r))
+end
+
+local function test_the_default_of_a_value_a_test_made_non_nil_is_deleted_not_made_a_comparison()
+  -- `~= 0` for the integer left of `or` would only turn the error into `or_mix`.
+  for _, field in ipairs({ "stop_year: integer?", "stop_year?: integer" }) do
+    local e = first_error("local record C\n  " .. field .. "\nend\nlocal function f(c: C, y: integer): boolean\n" ..
+        "  if c.stop_year == nil or y <= (c.stop_year or 9999) then\n    return true\n  end\n  return false\nend\n",
+      "condition_type")
+    assert(has(e.msg, "`c.stop_year` is `integer`"), e.msg)
+    assert(has(e.fix, "never nil here"), e.fix)
+    assert(has(e.fix, "a test before may have narrowed it"), e.fix)
+    assert(has(e.fix, "delete `or ...`"), e.fix)
+    assert(not has(e.fix, "~= 0"), e.fix)
+  end
+  local generic = first_error("local function h<T>(x: T?, d: T): T\n  if x == nil then\n    return d\n  end\n  return x or d\nend\n",
+    "condition_type")
+  assert(has(generic.fix, "a type parameter may be nil or false"), generic.fix)
+  local own = first_error("local function g(y: integer?): integer\n  return (y or 9) or 3\nend\n", "condition_type")
+  assert(has(own.fix, "is never nil, so the default") and not has(own.fix, "narrowed"), own.fix)
+  local bare = first_error("local n = 1\nif n then\nend\n", "condition_type")
+  assert(has(bare.fix, "write the test: `n ~= 0`"), bare.fix)
+  local text = first_error("local s = \"a\"\nlocal t = s or \"b\"\n", "condition_type")
+  assert(has(text.fix, "delete `or ...`") and not has(text.fix, "~="), text.fix)
+end
+
+local TWO <const> = "local function two(): string?, string\n  return nil, \"x\"\nend\n"
+
+local function test_a_call_that_answers_several_values_as_the_last_argument_says_where_they_land()
+  local e = first_error(TWO .. "local function w(p: string, s: string, n: integer?)\nend\nw(\"a\", assert(two()))\n",
+    "not_assignable")
+  assert(has(e.fix, "`assert(two())` is the last argument and answers 2 values"), e.fix)
+  assert(has(e.fix, "value 2 lands in the following parameter"), e.fix)
+  assert(has(e.fix, "`(assert(two()))`"), e.fix)
+  assert(has(e.fix, "bind it to a local"), e.fix)
+  assert(has(e.fix, "`assert(f())` passes every value of `f()` through"), e.fix)
+  local arity = first_error(TWO .. "local function h(s: string)\nend\nh(assert(two()))\n", "arity")
+  assert(has(arity.fix, "`assert(two())` is the last argument and answers 2 values"), arity.fix)
+  assert(has(arity.fix, "are passed as further arguments"), arity.fix)
+  assert(has(arity.fix, "write `(assert(two()))`"), arity.fix)
+  -- A single-valued last argument, and a parenthesized call, have nothing to spill.
+  local plain = first_error("local function w(s: string, n: integer?)\nend\nw(\"a\", \"b\")\n", "not_assignable")
+  assert(not has(plain.fix, "values 2.."), plain.fix)
+end
+
 local function test_every_code_has_a_row_with_a_rule_a_reason_and_a_fix_and_the_catalog_names_each_once()
   local owned: mut {string: boolean} = {}
   for _, row in ipairs(Check.catalog) do
@@ -688,6 +742,55 @@ local w: integer = M.count
 local MODULES <const>: {string: string} = {
   m = "local record M\n  count: integer\nend\nfunction M.f(a: integer): integer\n  return a\nend\nreturn M\n",
 }
+
+--- The first error of `source` with `code`; fails, printing what `source` reported, when it has none.
+local function error_of(source: string, code: Codes.Code): Codes.Error
+  local r = Programs.run(source)
+  assert(#r.before == 0, table.concat(r.before, " "))
+  for _, e in ipairs(r.errors) do
+    if e.code == code then
+      return e
+    end
+  end
+  error("no " .. code .. " in " .. Programs.codes(r))
+end
+
+local function test_a_literal_that_leaves_out_an_optional_field_tells_it_from_a_field_that_may_be_left_out()
+  local source = "local record R\n  name: string\n  note: string?\nend\nlocal r: R = { name = \"a\" }\n"
+  local e = error_of(source, "literal_missing")
+  assert(has(e.msg, "leaves out `note`"), e.msg)
+  assert(has(e.fix, "`note: T?` is a field that must be written, though it may hold nil"), e.fix)
+  assert(has(e.fix, "`note?: T` is a field that may be left out"), e.fix)
+  -- No field that may hold nil, nothing to tell apart.
+  local plain = error_of("local record R\n  name: string\nend\nlocal r: R = {}\n", "literal_missing")
+  assert(not has(plain.fix, "must be written"), plain.fix)
+end
+
+local function test_a_pcall_taken_as_a_value_in_a_test_file_names_test_raises()
+  local source = "local function f()\nend\nlocal ok = pcall(f)\n"
+  local in_test = Programs.runner()(source, "t_test")
+  local named: string? = nil
+  for _, e in ipairs(in_test.errors) do
+    if e.code == "alternatives_as_value" then
+      named = e.fix
+    end
+  end
+  assert(named ~= nil and has(named, "match pcall(f) do"), tostring(named))
+  assert(has(named, "`Test.raises(fn, says?)`"), named)
+  assert(not has(error_of(source, "alternatives_as_value").fix, "Test.raises"))
+  -- A name that only ends in `_test.tl` is no test file.
+  local other = Programs.runner()(source, "t_test.tlx")
+  for _, e in ipairs(other.errors) do
+    assert(not has(e.fix, "Test.raises"), e.fix)
+  end
+  local handled = Programs.runner()("local function f()\nend\nlocal function h(m: string): string\n  return m\nend\n" ..
+      "local ok = xpcall(f, h)\n", "t_test")
+  for _, e in ipairs(handled.errors) do
+    if e.code == "alternatives_as_value" then
+      assert(has(e.fix, "`Test.raises(fn, says?)`"), e.fix)
+    end
+  end
+end
 
 local function test_programs_that_follow_the_rules_check_clean()
   local names: mut {string} = {}
@@ -1433,6 +1536,88 @@ local function test_no_metamethod_runs_in_the_body_of_a_fill_loop_while_three_re
   -- a closure made in the loop is refused because a function body has no loop around it, not for what the body does
   assert(codes_of("local saved: function() = function() end\nlocal u: mut {integer} = { 1, 2, 3 }\nfor i = 1, #u do\n" ..
       "  saved = function() u[i] = 1 end\nend\n") == "array_hole")
+end
+
+local LOOPED <const> = "local record Holder\n  items: {integer}\nend\n" ..
+  "local function other(v: {integer}): integer\n  return #v\nend\n" ..
+  "local xs: mut {integer} = { 1, 2, 3 }\nlocal ys: mut {integer} = { 4 }\nlocal h: Holder = { items = xs }\n" ..
+  "local fns: mut {function(): integer} = {}\nlocal total = 0\n"
+
+local function counted(loop: string): string
+  return codes_of(LOOPED .. loop)
+end
+
+local function test_the_hint_of_an_index_read_names_the_loop_and_the_checked_read_and_steers_from_a_default()
+  local function fix_of(source: string, code: string): string
+    local r = Programs.run(source)
+    local e = r.errors[1]
+    assert(e ~= nil and e.code == code, source)
+    return e.fix
+  end
+  local named = fix_of("local xs: {integer} = {}\nlocal i: integer = 2\nlocal n: integer = xs[i]\n", "index_may_be_nil")
+  for _, part in ipairs({ "for i = 1, #xs do", "Array.at(xs, i)", "assert(xs[i])", "ipairs(xs)", "or <default>",
+      "a wrong value" }) do
+    assert(has(named, part), part .. " is not in " .. named)
+  end
+  -- the loop is offered only for a local array read at a name
+  local literal = fix_of("local xs: {integer} = {}\nlocal n: integer = xs[2]\n", "index_may_be_nil")
+  assert(has(literal, "Array.at(xs, 2)") and has(literal, "assert(xs[2])") and not has(literal, "for 2 = 1"), literal)
+  local path = fix_of("local record R\n  items: {integer}\nend\nlocal r: R = { items = {} }\nlocal i: integer = 1\n" ..
+      "local n: integer = r.items[i]\n", "index_may_be_nil")
+  assert(has(path, "Array.at(r.items, i)") and not has(path, "count the keys"), path)
+  -- an operand gets the same pointer
+  local operand = fix_of("local xs: {integer} = {}\nlocal i: integer = 2\nlocal n = xs[i] + 1\n", "nil_not_allowed")
+  assert(has(operand, "Array.at(xs, i)") and has(operand, "or <default>"), operand)
+end
+
+local function test_a_read_at_the_index_of_a_loop_over_the_length_of_the_array_is_not_optional()
+  assert(counted("for i = 1, #xs do\n  total = total + xs[i]\nend\n") == "")
+  assert(counted("for i = 2, #xs do\n  total = total + xs[i]\nend\n") == "")
+  assert(counted("for i = 1, #xs, 1 do\n  total = total + xs[i]\nend\n") == "")
+  -- an element is overwritten in place, and a nested loop keeps the outer index
+  assert(counted("for i = 1, #xs do\n  xs[i] = xs[i] * 2\nend\n") == "")
+  assert(counted("for i = 1, #xs do\n  for j = 1, #xs do\n    total = total + xs[i] * xs[j]\n  end\nend\n") == "")
+  assert(counted("for i = 1, #xs do\n  for j = 1, #ys do\n    total = total + xs[i]\n  end\nend\n") == "")
+  -- a view parameter, whose elements are views, and a record element
+  assert(codes_of("local function sum(v: {integer}): integer\n  local s = 0\n  for i = 1, #v do\n    s = s + v[i]\n  end\n" ..
+      "  return s\nend\n") == "")
+  assert(codes_of("local record R\n  name: string\nend\nlocal function size(v: {R}): integer\n  local n = 0\n" ..
+      "  for i = 1, #v do\n    n = n + #v[i].name\n  end\n  return n\nend\n") == "")
+  -- an upvalue is a local the loop's function reads
+  assert(counted("local function sum(): integer\n  local s = 0\n  for i = 1, #xs do\n    s = s + xs[i]\n  end\n  return s\nend\n" ..
+      "total = sum()\n") == "")
+end
+
+local function test_a_read_at_the_index_of_a_counted_loop_stays_optional_where_the_loop_is_not_the_proof()
+  -- `also` is the other code the program has, which does not change the verdict on the read
+  local function stays(loop: string, also?: string)
+    local got = counted(loop)
+    local want = if also == nil then "index_may_be_nil" else also .. " index_may_be_nil" end
+    assert(got == want, got .. " in\n" .. loop)
+  end
+  -- the loop does not count the keys of the array read
+  stays("for i = 1, #xs, 2 do\n  total = xs[i]\nend\n")
+  stays("for i = 0, #xs do\n  total = xs[i]\nend\n")
+  stays("for i = 1, #xs - 1 do\n  total = xs[i]\nend\n")
+  stays("for i = 1, #ys do\n  total = xs[i]\nend\n")
+  stays("for i = 1, 3 do\n  total = xs[i]\nend\n")
+  stays("for i = 1, #xs do\n  total = xs[i + 1]\nend\n")
+  stays("for i = 1, #xs do\n  total = xs[#xs]\nend\n")
+  stays("for i = 1, #xs do\n  for j = 1, #ys do\n    total = xs[j]\n  end\nend\n")
+  stays("for i = 1, #h.items do\n  total = h.items[i]\nend\n")
+  -- the body may shorten the array, or lose it
+  stays("for i = 1, #xs do\n  table.remove(xs)\n  total = xs[i]\nend\n")
+  stays("for i = 1, #xs do\n  table.insert(xs, 1)\n  total = xs[i]\nend\n")
+  stays("for i = 1, #xs do\n  local n = other(xs)\n  total = xs[i]\nend\n")
+  stays("for i = 1, #xs do\n  print(i)\n  total = xs[i]\nend\n")
+  stays("for i = 1, #xs do\n  local u = (\"a\"):upper()\n  total = xs[i]\nend\n")
+  stays("for i = 1, #xs do\n  xs = {}\n  total = xs[i]\nend\n")
+  stays("for i = 1, #xs do\n  xs[#xs] = nil\n  total = xs[i]\nend\n")
+  stays("for i = 1, #xs do\n  xs[i + 1] = 1\n  total = xs[i]\nend\n", "array_hole")
+  stays("for i = 1, #xs do\n  ys[#ys] = nil\n  total = xs[i]\nend\n")
+  -- (an assignment to `i` is refused before the check, as `const_assigned`)
+  -- a function made in the loop may run when the array is shorter
+  stays("for i = 1, #xs do\n  fns[#fns + 1] = function(): integer\n    return xs[i]\n  end\nend\n")
 end
 
 local function test_a_removal_of_the_last_element_is_held_to_a_mut_array_and_a_write_there_is_not_one()

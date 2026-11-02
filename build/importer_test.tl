@@ -25,13 +25,7 @@ local shared_compiles = require("build.shared_compiles")
 local Lexer = require("lang.lexer")
 local Parser = require("lang.parser")
 local SyntaxNode = require("build.syntax_node")
-
---- The element of `list` at `index`, which the case knows is there.
-local function nth<T>(list: {T}, index: integer): T
-  local found = list[index]
-  assert(found ~= nil, "the list has an element at " .. tostring(index))
-  return found
-end
+local support = require("build.test_support_fixture")
 
 --- Whether the tree is cosmic's own. The tests that read the projection
 --- beyond this module's closure -- the docs a compile's hint names --
@@ -44,7 +38,7 @@ Test.policy{
 --- The modules the source `source` of the file `file` requires, as a parse of it finds them.
 local function requires_of(source: string, file: string): {string}
   local parsed = Parser.parse(Lexer.lex(source, file), file, "tl")
-  assert(#parsed.errors == 0, file .. ": " .. (if parsed.errors[1] ~= nil then nth(parsed.errors, 1).msg else "" end))
+  assert(#parsed.errors == 0, file .. ": " .. (if parsed.errors[1] ~= nil then support.nth(parsed.errors, 1).msg else "" end))
   return SyntaxNode.requires(parsed.chunk)
 end
 
@@ -286,7 +280,7 @@ local function test_self_compile_consumes_cache_after_identity_selection()
           "identity selected before derivation completed")
         local rows = assert(Sqlite.text_rows(handle.db,
           "SELECT value FROM meta WHERE key = 'compiler'"))
-        assert(nth(rows, 1):text(1) == recorded.compiler, "selection ran before recording identities")
+        assert(support.nth(rows, 1):text(1) == recorded.compiler, "selection ran before recording identities")
         if phase == "select" then return nil, "selection refused" end
         return "chosen-compiler", ""
       end, false, shared)
@@ -1158,8 +1152,8 @@ local function test_boot_hash_leaves_out_tests()
     "SELECT (SELECT count(*) FROM tool WHERE path GLOB '*_test.tl'), " ..
       "(SELECT count(*) FROM files WHERE path = 'cosmic/added_test.tl')"))
   work.close(handle)
-  assert(nth(rows, 1):text(1) == "0", "the tool's rows hold a test")
-  assert(nth(rows, 1):text(2) == "1", "a test was not staged as an input")
+  assert(support.nth(rows, 1):text(1) == "0", "the tool's rows hold a test")
+  assert(support.nth(rows, 1):text(2) == "1", "a test was not staged as an input")
 end
 
 --- A tree that is not cosmic's own can `require` the standard library
@@ -1438,9 +1432,9 @@ local function test_generated_lua_keeps_teal_line_numbers()
   for line in String.lines(lua) do
     generated[#generated + 1] = line
   end
-  assert(nth(generated, 9):find("function lines.add", 1, true), "line 9: " .. nth(generated, 9))
-  assert(nth(generated, 11):find("return a + b", 1, true), "line 11: " .. nth(generated, 11))
-  assert(nth(generated, 15):find("line fifteen fails", 1, true), "line 15: " .. nth(generated, 15))
+  assert(support.nth(generated, 9):find("function lines.add", 1, true), "line 9: " .. support.nth(generated, 9))
+  assert(support.nth(generated, 11):find("return a + b", 1, true), "line 11: " .. support.nth(generated, 11))
+  assert(support.nth(generated, 15):find("line fifteen fails", 1, true), "line 15: " .. support.nth(generated, 15))
 end
 
 --- What a parse derived -- docs, requires, tests, the catalog -- is
@@ -1485,7 +1479,7 @@ local function test_a_changed_analyzer_forgets_what_it_derived()
     local rows = assert(Sqlite.text_rows(handle.db,
       "SELECT count(*) FROM docs WHERE symbol = 'Planted'"))
     work.close(handle)
-    return math.tointeger(tonumber(nth(rows, 1):text(1))) or -1
+    return math.tointeger(tonumber(support.nth(rows, 1):text(1))) or -1
   end
   assert(derived_with("tool-one", false) == 0)
   -- The same analyzer: a planted row survives, as any derived row does.
@@ -1530,7 +1524,7 @@ local function test_places_follow_the_source_they_were_read_from()
     local out: mut {string} = {}
     for _, row in ipairs(rows) do out[#out + 1] = row:text(1) end
     work.close(handle)
-    return table.concat(out, ";") .. "|" .. nth(every, 1):text(1)
+    return table.concat(out, ";") .. "|" .. support.nth(every, 1):text(1)
   end
   assert(derived() == "Thing 1:14;Thing.n 2:3|2", derived())
   -- Edited: the rows of the text before it are pruned, the rows of the text now are written.
@@ -1694,10 +1688,10 @@ local function test_generated_syscall_docs_carry_header_lines()
   assert(out:close())
   assert(#examples == 1 and examples[1]:text(1) == "read", tostring(#examples))
   assert(#rows == 2, tostring(#rows))
-  assert(nth(rows, 1):text(1) == "O_RDONLY" and nth(rows, 1):text(2) == "core/syscalls.h" and
-      nth(rows, 1):text(3) == "12", table.concat(nth(rows, 1):texts(), " "))
-  assert(nth(rows, 2):text(1) == "read" and nth(rows, 2):text(3) == "8", table.concat(nth(rows, 2):texts(), " "))
-  assert(nth(rows, 2):text(4):find("Reads bytes.", 1, true) == 1, nth(rows, 2):text(4))
+  assert(support.nth(rows, 1):text(1) == "O_RDONLY" and support.nth(rows, 1):text(2) == "core/syscalls.h" and
+      support.nth(rows, 1):text(3) == "12", table.concat(support.nth(rows, 1):texts(), " "))
+  assert(support.nth(rows, 2):text(1) == "read" and support.nth(rows, 2):text(3) == "8", table.concat(support.nth(rows, 2):texts(), " "))
+  assert(support.nth(rows, 2):text(4):find("Reads bytes.", 1, true) == 1, support.nth(rows, 2):text(4))
 end
 
 --- The file of the tree's module `name`, as the build finds it: nil
@@ -1800,7 +1794,7 @@ local function test_compiler_identity_follows_what_shapes_a_compile()
   local root = identity_fixture("identity-follows")
   local seen: mut {string:string} = {}
   local original = identities_of(root)
-  seen[nth(original, 1)] = "the original tree"
+  seen[support.nth(original, 1)] = "the original tree"
   local parsed: {string:boolean} = {
     ["build/derivation.tl"] = true, ["build/analysis_schema.tl"] = true, ["build/bind.tl"] = true,
     ["build/cache_names.tl"] = true, ["vendor/lua/PIN"] = true, ["patch/lua/01.txt"] = true,
@@ -1811,14 +1805,14 @@ local function test_compiler_identity_follows_what_shapes_a_compile()
     local before = identities_of(root)
     edit(root, path)
     local after = identities_of(root)
-    assert(seen[nth(after, 1)] == nil, "an edit to " .. path ..
-        " did not move the compiler identity from that of " .. tostring(seen[nth(after, 1)]))
+    assert(seen[support.nth(after, 1)] == nil, "an edit to " .. path ..
+        " did not move the compiler identity from that of " .. tostring(seen[support.nth(after, 1)]))
     if parsed[path] == true then
       assert(after[2] ~= before[2], "an edit to " .. path .. " did not move the analyzer identity")
     else
       assert(after[2] == before[2], "an edit to " .. path .. ", which no parse runs, moved the analyzer identity")
     end
-    seen[nth(after, 1)] = path
+    seen[support.nth(after, 1)] = path
   end
 end
 
@@ -2240,7 +2234,7 @@ end
 
 local function count_of(db: Sqlite.Handle, sql: string): integer
   local rows = assert(Sqlite.text_rows(db, sql))
-  return math.tointeger(tonumber(nth(rows, 1):text(1))) or -1
+  return math.tointeger(tonumber(support.nth(rows, 1):text(1))) or -1
 end
 
 --- The record-field uses of a compile `compiled` has dropped go at

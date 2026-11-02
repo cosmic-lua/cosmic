@@ -40,8 +40,8 @@ local verb_spec = require("build.verb_spec")
 
 local record docs
   --- The verbs' registrations: see build/verb_spec.tl.
-  spec: verb_spec.Spec
-  uses_spec: verb_spec.Spec
+  mut spec: verb_spec.Spec
+  mut uses_spec: verb_spec.Spec
   --- The databases a lookup reads, in order, and which of them, by
   --- index, are public sources: what `view` takes.
   record Sources
@@ -213,7 +213,7 @@ local columns =
   "('\"' || replace(replace(d.source_symbol, '.', ' '), ':', ' ') || '\"') " ..
   "AND " .. EXAMPLE_BOUNDARY_SQL .. ") END"
 
-local function entries_of(rows: Sqlite.Rows): {docs.Entry}
+local function entries_of(rows: Sqlite.Rows): mut {docs.Entry}
   local out: mut {docs.Entry} = {}
   for _, row in ipairs(rows) do
     out[#out + 1] = {
@@ -312,7 +312,7 @@ end
 --- A top-level piece of an example's head as [`pieces_of`] reads it: the
 --- lines so far, and its first line that is not a comment.
 local record Piece
-  mut lines: {string}
+  mut lines: mut {string}
   mut code: string
 end
 
@@ -774,7 +774,7 @@ local function partly_searched(db: Sqlite.Handle, public: boolean,
   for _, row in ipairs(rows) do
     by_id[math.tointeger(tonumber(row:text(row:count()))) or 0] = row
   end
-  local out: Sqlite.Rows = {}
+  local out: mut {Sqlite.Row} = {}
   for _, id in ipairs(ids) do
     local row = by_id[id]
     if row ~= nil then out[#out + 1] = row end

@@ -13,6 +13,7 @@ local test_inputs = require("build.test_inputs")
 local test_policy = require("build.test_policy")
 local test_sandbox = require("build.test_sandbox")
 local Test = require("cosmic.test")
+local support = require("build.test_support_fixture")
 
 --- The system's own paths, which the plan looks for where the host has
 --- them, beside what it gives every worker; `nests`, since the plan reads
@@ -22,14 +23,6 @@ Test.policy{
   grants = { { path = "o/bin", letters = "rx" }, { path = "/dev/urandom", letters = "r" } },
   promises = { "nest" },
 }
-
---- Whether `list` holds `value`.
-local function holds(list: {string}, value: string): boolean
-  for _, each in ipairs(list) do
-    if each == value then return true end
-  end
-  return false
-end
 
 --- A worker whose module declares `system` is given the system's own
 --- paths by its policy's profile "system", which is no path of its plan.
@@ -43,7 +36,7 @@ local function test_a_module_that_declares_system_is_given_the_system_profile(tm
     network = {}, tool = false, store = false, system = true }
   local plan = test_sandbox.plan(root, scratch, inputs, {})
   assert(plan.trouble == "", plan.trouble)
-  assert(not holds(assert(plan.sandbox.unveil).reads, "/usr"))
+  assert(not support.holds(assert(plan.sandbox.unveil).reads, "/usr"))
   local policy = assert(test_policy.worker(plan, inputs))
-  assert(holds(policy.profiles or {}, "system"))
+  assert(support.holds(policy.profiles or {}, "system"))
 end

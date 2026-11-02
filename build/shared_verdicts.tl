@@ -96,7 +96,7 @@ local record shared_verdicts
     --- test by, by the store's address ([`build.closure_store`]'s
     --- `address`): kept, or stamped as relied on, so a checkout without
     --- the store keys its tests without writing it ([`store_digest`]).
-    stores?: {string:string}
+    stores?: mut {string:string}
   end
 end
 

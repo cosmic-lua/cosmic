@@ -93,10 +93,10 @@ end
 
 --- What follows the list of bare verbs in the paragraph that names them,
 --- before the sentence each bare verb's spec gives for its exit codes.
-local help_exit = "exits 0 when it passed; 1 when it failed; 2 when its command line was refused -- an option, an argument or a verb it does not know; 3 when the tool is older than the tree and did not rebuild itself (`COSMIC_AUTO_BOOT=0`, or a boot that failed). Its stdout is its result alone. Its stderr says what went wrong, and a run that passed ends there in a summary of how it went, `fix: 3 Teal files, 0 fixed, 12 ms`. `test`'s summary is its result instead, last on stdout once its tests ran, whether they passed or not: `test: 9 tests passed in 2 modules; ...` or `test: 2 of 9 tests failed, ...`."
+local help_exit = "exits 0 when it passed; 1 when it failed; 2 when its command line was refused -- an option, an argument or a verb it does not know; 3 when the tool is older than the tree and did not rebuild itself (`COSMIC_AUTO_BOOT=0`, or a boot that failed); 4 when `test` or `build` found that the tree, or a module a named run needs, did not compile -- the checker refused it, or it does not parse -- even when tests failed too, since they ran on a tree that is not whole; a failing test alone is 1, as is a failure to read, stage or write (a database, a file). Its stdout is its result alone. Its stderr says what went wrong, and a run that passed ends there in a summary of how it went, `fix: 3 Teal files, 0 fixed, 12 ms`. `test`'s summary is its result instead, last on stdout once its tests ran, whether they passed or not: `test: 9 tests passed in 2 modules; ...` or `test: 2 of 9 tests failed, ...`."
 
 --- What `cosmic help exit` says of what is not a verb.
-local help_programs = "A file run, `--standalone` and `-e` are not verbs of that kind: each prints only what its program prints and exits with what it returns. `--version` is not one either: it prints its one line."
+local help_programs = "A file run, `--standalone` and `-e` are not verbs of that kind: each prints only what its program prints and exits with what it returns, or 4 when the file, or a module it requires, did not compile (a program that returns 4 itself reads the same). `--version` is not one either: it prints its one line."
 
 --- `a`, `b` and `c`: the words in backticks, the last after "and".
 local function listed(names: {string}): string
@@ -359,6 +359,40 @@ local function module_of(root: string, file: string): string?, string
   return (name:gsub("/", ".")), ""
 end
 
+--- `trouble`, the reason a file run's build failed, with a line saying `--standalone` where the file it names is not the
+--- file run and the file run requires no module of the project: `--standalone` finds only `cosmic.*` modules, so
+--- it is the way to run such a file past a refused file beside it, and no way for one that requires a project module,
+--- directly or through another. A file that does not parse gets no hint.
+--- @param file the path named on the command line
+--- @param name the module of that file
+local function with_standalone_hint(trouble: string, file: string, name: string): string
+  local culprit = trouble:match("^([^:\n]+):")
+  if culprit == nil or not (culprit:match("%.tl$") ~= nil or culprit:match("%.tmpl$") ~= nil) then
+    return trouble
+  end
+  local module = culprit:gsub("%.tmpl$", ""):gsub("%.tl$", ""):gsub("/init$", ""):gsub("/", ".")
+  if module == name then
+    return trouble
+  end
+  local Fs = require("cosmic.fs")
+  local source, _ = Fs.read(file)
+  if source == nil then
+    return trouble
+  end
+  -- The requires as the checker's syntax tree reads them, the way `--standalone` itself reads them.
+  local required, _ = require("build.standalone").requires(file, source)
+  if required == nil then
+    return trouble
+  end
+  for _, needed in ipairs(required) do
+    if needed:sub(1, 7) ~= "cosmic." then
+      return trouble
+    end
+  end
+  return trouble .. "\n" .. "cosmic: " .. culprit .. " is not the file run, but a run builds the tree around its file; " ..
+    "`cosmic --standalone " .. file .. "` (or COSMIC_STANDALONE=1) runs the file alone"
+end
+
 --- Runs a file. The file is a module: it is required once its tree is
 --- built, with its arguments (below) set in the global `arg` before its
 --- top level runs, and if what it returns is a function, that function is
@@ -440,12 +474,14 @@ local function run(file: string, argv: {string}): integer
 
   local database = build_paths.under(handle.dir).projection
 
-  local result, compile_trouble = importer.compile_for(handle, tool, name, shared_compiles.for_build())
+  local outcome: importer.Outcome = { refused = false }
+  local result, compile_trouble = importer.compile_for(handle, tool, name, shared_compiles.for_build(), outcome)
   if result == nil then
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
+    local hinted = with_standalone_hint(compile_trouble, file, name)
     local _, _ = work.close(handle)
-    log:complain(compile_trouble)
-    return 1
+    log:complain(hinted)
+    return if outcome.refused then exit_status.uncompiled else 1 end
   end
   local written, write_trouble =
     writer.write_recorded(handle, database, result, started, staged)
@@ -505,8 +541,6 @@ end
 --- `cosmic --version`: the SHA-256 of the file this binary runs from,
 --- read in pieces, as a release's SHA256SUMS names it: `cosmic <hex>`.
 local function version(argv: {string}): integer
-  local Codec = require("cosmic.codec")
-  local Fs = require("cosmic.fs")
   local Hash = require("cosmic.hash")
   local Proc = require("cosmic.proc")
   local extra = argv[2]
@@ -523,43 +557,19 @@ local function version(argv: {string}): integer
   -- opening the path again, once the store offers the whole file as it
   -- offers its core (trusted_core): a file renamed over this one after
   -- launch is hashed in its place, and an unlinked one fails.
-  local fd, open_trouble = Fs.open_read(path)
-  if fd == nil then
-    log:complain("--version: " .. path .. ": " .. open_trouble)
-    return 1
-  end
-  local hasher, hasher_trouble = Hash.hasher("sha256")
-  if hasher == nil then
-    local _, _ = Fs.close(fd)
-    log:complain("--version: " .. hasher_trouble)
-    return 1
-  end
-  while true do
-    local piece, read_trouble = Fs.take(fd, 1 << 20)
-    if piece == nil then
-      local _, _ = Fs.close(fd)
-      log:complain("--version: " .. path .. ": " .. read_trouble)
-      return 1
-    end
-    if piece == "" then
-      break
-    end
-    hasher:update(piece)
-  end
-  local _, _ = Fs.close(fd)
-  local digest, digest_trouble = hasher:digest()
+  local digest, digest_trouble = Hash.hex_file("sha256", path)
   if digest == nil then
     log:complain("--version: " .. digest_trouble)
     return 1
   end
-  log:say("cosmic " .. Codec.hex(digest))
+  log:say("cosmic " .. digest)
   return 0
 end
 
 --- `cosmic -e <chunk> [args...]`: runs `chunk` as the body of a Teal file, against this binary's own standard
 --- library, with no tree around it. The chunk is parsed, checked as strictly as a tree build checks (a warning
 --- is refused with an error) and compiled by [`build.standalone`]; a chunk the checker refuses does not run, and
---- exits 1 with the checker's own messages. It reaches the standard library as a file does, by
+--- exits 4 ([`exit_status.uncompiled`]) with the checker's own messages. It reaches the standard library as a file does, by
 --- `require("cosmic.json")` with a literal name, and may require the tool's own modules too, which are the
 --- tool's one-liner's to use; nothing is bound for it. The words after it are its `...` (each a `string?`); what it
 --- returns is the exit code as a file run's is -- see build/exit_status.tl.
@@ -570,12 +580,14 @@ local function evaluate(argv: {string}): integer
     log:complain("usage: cosmic -e '<chunk>' [args...]")
     return 2
   end
-  local loaded, trouble = require("build.standalone").compile("-e", chunk, nil, true)
+  local type importer = require("build.importer")
+  local outcome: importer.Outcome = { refused = false }
+  local loaded, trouble = require("build.standalone").compile("-e", chunk, nil, true, outcome)
   if loaded == nil then
     local Fs = require("cosmic.fs")
     local _, _ = Fs.put(Fs.stderr, trouble .. "\n")
     log:complain("-e runs its chunk as Teal, checked as a file is: see `cosmic help -e`")
-    return 1
+    return if outcome.refused then exit_status.uncompiled else 1 end
   end
   local arguments: mut {string} = {}
   local slot = 3
@@ -750,6 +762,16 @@ local function load_removed_catalog()
   local _, _ = pcall(require, "cosmic.removed")
 end
 
+--- The flags of earlier releases that were the command line's first word, each with what replaced it. Only the first
+--- word is asked: `cosmic test --check-types` is a current flag of a verb.
+local RETIRED_FLAGS <const>: {string: string} = {
+  ["--make"] = "use `cosmic build` to build a program, or `cosmic test` to run a tree's tests",
+  ["--docs"] = "use `cosmic docs`",
+  ["--check-types"] = "use `cosmic test`, which checks the tree's types as it builds (`cosmic test --check-types` also " ..
+    "checks the values at run time)",
+  ["--check-format"] = "use `cosmic fix --check`",
+}
+
 --- Runs the command line and answers its exit code.
 --- @param argv the command line, the verb at slot 1
 function Dispatch.main(argv: {string}): integer
@@ -877,6 +899,12 @@ function Dispatch.main(argv: {string}): integer
     return code
   end
   if verb:sub(1, 1) == "-" then
+    local retired = RETIRED_FLAGS[verb]
+    if retired ~= nil then
+      -- Told as the removed `migrate` verb is, and exits 2 as it does.
+      log:complain("cosmic " .. verb .. " was removed: " .. retired)
+      return 2
+    end
     log:complain("no such option: " .. verb)
     log:complain("`cosmic help` is the whole discovery surface")
     return 2

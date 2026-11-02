@@ -248,6 +248,8 @@ local record Fill
   var: integer
   --- The local `t`, as the loop writes it.
   object: Ast.Exp
+  --- Whether the loop steps by 1 (no step, or a literal 1), so that it reaches each key from its start to `#t`.
+  unit: boolean
 end
 
 --- What a loop whose index counts 1, 2, 3 and so on, and writes `a[i]` in every pass before any `continue`, knows of the
@@ -374,6 +376,8 @@ local record Ctx
   mut member_node: Ast.Node?
   --- The call argument being checked: [`report`] gives it to the error it files.
   mut argument: Codes.Argument?
+  --- Added to the fix of an error reported now: what a call spilling values into later parameters did ([`Calls.spill_note`]).
+  mut spill: string?
   --- The loops being walked, innermost last.
   mut loops: mut {Loop}
   --- The key of each local's place, by id.
@@ -520,6 +524,10 @@ local function report(ctx: Ctx, code: Code, node: Ast.Node, msg: string, fix: st
   local b = base_of(node)
   local tokens = ctx.tokens
   local first, last = b.first, math.max(b.first, b.last)
+  local spill = ctx.spill
+  if spill ~= nil then
+    fix = fix .. spill
+  end
   local why = code == "nil_not_allowed" and dropped_by(ctx, node) or nil
   if why ~= nil then
     code = "narrowing_dropped"
@@ -837,6 +845,22 @@ local KIND_WORDS <const>: {Types.DeclKind: string} = {
 
 -- Refusals -----------------------------------------------------------------------------------
 
+--- The fix for a read `e` of an index that may be nil. The counted loop is offered only where it could apply: an array that
+--- is a local name, read at a name. [`Array.at`] and `assert` take any array and key; `or <default>` is steered from.
+local function index_fix(ctx: Ctx, e: Ast.Index): string
+  local xs, key = text_of(ctx, e.object), text_of(ctx, e.key)
+  local read = text_of(ctx, e)
+  local object, at = peel(e.object), peel(e.key)
+  local parts = "iterate with `for _, v in ipairs(" .. xs .. ")`, "
+  if object.kind == "Name" and at.kind == "Name" then
+    parts = parts .. "count the keys with `for " .. key .. " = 1, #" .. xs .. " do` (a body that leaves " .. quoted(xs) ..
+      " alone reads " .. quoted(read) .. " as a value), "
+  end
+  return parts .. "read it with `Array.at(" .. xs .. ", " .. key .. ")` (`cosmic.array`: raises when missing) or `assert(" ..
+    read .. ")`, or test it (`local v = " .. read .. " if v ~= nil then ... end`); `or <default>` turns an out-of-range " ..
+    "read into a wrong value"
+end
+
 --- The fix for a value that may be nil.
 local function nil_fix(ctx: Ctx, node: Ast.Node): string
   local e = peel(node)
@@ -844,6 +868,9 @@ local function nil_fix(ctx: Ctx, node: Ast.Node): string
     local call = subject(ctx, e)
     return "take the value with `local v = assert(" .. text_of(ctx, e) .. ")`, or test it first (`if v == nil then " ..
       "return nil, why end`); " .. call .. " answers nil when it fails"
+  end
+  if e.kind == "Index" then
+    return index_fix(ctx, e)
   end
   local s = text_of(ctx, e)
   if (e.kind == "Field") then
@@ -909,11 +936,9 @@ local function refused(ctx: Ctx, node: Ast.Node, got: Type, want: Type, r: Relat
       report(ctx, "nil_not_allowed", node, "nil is given" .. where .. ", where " .. quoted(w) .. " is wanted",
         "give a value, or declare what takes it `" .. w .. "?` (a parameter or field `name?: T`)", shown)
     elseif (e.kind == "Index") then
-      local xs = e.object
       report(ctx, "index_may_be_nil", node, s .. " is " .. quoted(g) .. " (an index read may be nil), where " ..
           quoted(w) .. " is wanted" .. where,
-        "read it into a local and test it (`local v = " .. text_of(ctx, e) .. " if v ~= nil then ... end`), or iterate " ..
-          "with `for _, v in ipairs(" .. text_of(ctx, xs) .. ")`", shown)
+        index_fix(ctx, e), shown)
     else
       report(ctx, "nil_not_allowed", node, s .. " is " .. quoted(g) .. ", so it may be nil, where " .. quoted(w) ..
           " is wanted" .. where, nil_fix(ctx, node), shown)
@@ -1332,9 +1357,14 @@ local function first_value(ctx: Ctx, node: Ast.Node, alts: {Alt}): Type
   if #alts == 0 then
     return ctx.store.never
   elseif #alts > 1 then
+    local call = text_of(ctx, node)
+    local raises = ""
+    if ctx.filename:sub(-8) == "_test.tl" and (call:find("^pcall%(") ~= nil or call:find("^xpcall%(") ~= nil) then
+      raises = "; to check that a call raises, `Test.raises(fn, says?)` runs it and answers the message it raised"
+    end
     report(ctx, "alternatives_as_value", node, subject(ctx, node) .. " answers one of " .. tostring(#alts) ..
         " lists of values, which is no value",
-      "match the call: `match " .. text_of(ctx, node) .. " do | (true, v) then ... end`")
+      "match the call: `match " .. call .. " do | (true, v) then ... end`" .. raises)
     return ctx.invalid
   end
   local alt = alts[1]
@@ -1723,9 +1753,13 @@ local function literal_record(ctx: Ctx, e: Ast.Table, n: Named): Type
     end
   end
   local missing: mut {string} = {}
+  local optional_field: string? = nil
   for _, f in ipairs(body.fields) do
     if (is_class or f.omittable ~= true) and given[f.name] ~= true then
       missing[#missing + 1] = quoted(f.name)
+      if optional_field == nil and nilable(f.type) then
+        optional_field = f.name
+      end
     end
   end
   if #missing > 0 and shaped then
@@ -1733,7 +1767,9 @@ local function literal_record(ctx: Ctx, e: Ast.Table, n: Named): Type
       if is_class then "add " .. listed(missing, "and") .. " to the literal: a class literal names every field, a field " ..
           "not yet known as its empty value (`fd = -1`) and a `?` field as `name = nil`" else
         "add " .. listed(missing, "and") .. " to the literal (`name = nil` for a value that may be nil), or declare " ..
-          (if #missing == 1 then "the field" else "them" end) .. " `name?: T`" end)
+          (if #missing == 1 then "the field" else "them" end) .. " `name?: T`" ..
+          (if optional_field ~= nil then ": `" .. optional_field .. ": T?` is a field that must be written, though it may " ..
+              "hold nil; `" .. optional_field .. "?: T` is a field that may be left out" else "" end) end)
   end
   return n
 end
@@ -2507,7 +2543,9 @@ local function overlaps(ctx: Ctx, a: Type, b: Type): boolean
 end
 
 --- What a condition of type `t` is: "bool", "opt" (a `T?` for a `T` that is not a boolean), or "bad" after the error.
-local function condition_kind(ctx: Ctx, node: Ast.Node, t: Type): string
+--- `default` is set where `node` is the left of an `or`, which asks for a default: a value that is never nil there needs no
+--- test, and no default.
+local function condition_kind(ctx: Ctx, node: Ast.Node, t: Type, default?: boolean): string
   local tag = t.tag
   if is_bool(t) or tag == "never" or tag == "invalid" then
     return "bool"
@@ -2531,12 +2569,16 @@ local function condition_kind(ctx: Ctx, node: Ast.Node, t: Type): string
     return "bad"
   end
   local fix = "remove the condition: " .. s .. " is never false"
-  if is_text(t) then
+  if (t.tag == "var") then
+    fix = "a type parameter may be nil or false: test it with `" .. text_of(ctx, node) .. " ~= nil` where it is bounded"
+  elseif default == true then
+    local place = peel(node).kind
+    fix = s .. " is never nil" .. (if place == "Name" or place == "Field" then " here (a test before may have narrowed it)" else "" end) ..
+      ", so the default is never used: delete `or ...`"
+  elseif is_text(t) then
     fix = "write the test: `" .. text_of(ctx, node) .. " ~= \"\"`"
   elseif tag == "integer" or tag == "number" then
     fix = "write the test: `" .. text_of(ctx, node) .. " ~= 0`"
-  elseif (t.tag == "var") then
-    fix = "a type parameter may be nil or false: test it with `" .. text_of(ctx, node) .. " ~= nil` where it is bounded"
   end
   report(ctx, "condition_type", node, s .. " is " .. tq(ctx, t) .. ", which is no boolean or optional, so it is no condition",
     fix, { show(ctx, t) })
@@ -3291,6 +3333,10 @@ local function index_read(ctx: Ctx, node: Ast.Index, object: Type): Type
       note_narrowed(ctx, node, maybe, element)
       return element
     end
+    if Writes.counted_read(ctx, node) then
+      note_narrowed(ctx, node, maybe, element)
+      return element
+    end
     return maybe
   elseif (t.tag == "map") then
     local k = expr(ctx, node.key, t.key)
@@ -3577,7 +3623,7 @@ end
 --- `a or b`: both booleans, or a `T?` replaced by a default of its own type.
 local function disjunction(ctx: Ctx, node: Ast.Binary, left: Type, expected: Type?): Type
   local store = ctx.store
-  local left_kind = if left.tag == "invalid" then "bad" else condition_kind(ctx, node.left, left) end
+  local left_kind = if left.tag == "invalid" then "bad" else condition_kind(ctx, node.left, left, true) end
   if left_kind == "bad" then
     local _ = expr(ctx, node.right, nil)
     return ctx.invalid
@@ -4448,6 +4494,7 @@ local record Calls
   --- or none, and arguments of the types `types` and the `tail` an expanding last one gives, all plain ([`Tests.plain`]).
   note_plain: function(ctx: Ctx, node: Ast.Node, recv: Type?, types: {Type}, tail: Type?, lists: {Alt}?)
   replace_type: function(list: mut {Type}, at: integer, t: Type)
+  spill_note: function(ctx: Ctx, args: {Ast.Exp}, n: integer, position: integer, arity?: boolean): string?
   hooks: function(ctx: Ctx): Generics.Hooks
   source: function(at: integer): string
   typed_literal: function(e: Ast.Exp): boolean
@@ -4567,6 +4614,23 @@ function Calls.note_plain(ctx: Ctx, node: Ast.Node, recv: Type?, types: {Type}, 
   ctx.inert[base_of(node).id] = true
 end
 
+--- What to add to the fix of an error at parameter `position` of a call with `n` values from `args`: the last argument is a
+--- call whose values spilled into the following parameters. Nil where they did not.
+function Calls.spill_note(ctx: Ctx, args: {Ast.Exp}, n: integer, position: integer, arity?: boolean): string?
+  local last = args[#args]
+  if last == nil or position <= #args or not (last.kind == "Call" or last.kind == "MethodCall") then
+    return nil
+  end
+  local call = text_of(ctx, last)
+  local answers = n - #args + 1
+  local landed = if arity == true then "are passed as further arguments" else "land in the following parameters" end
+  return "; " .. quoted(call) .. " is the last argument and answers " .. tostring(answers) .. " values, so " ..
+    (if answers == 2 then "value 2" else "values 2.." .. tostring(answers) end) .. " " ..
+    (if answers == 2 and arity ~= true then "lands in the following parameter" else landed end) .. ": write `(" .. call ..
+    ")` to pass its first value alone, or bind it to a local" ..
+    (if call:sub(1, 7) == "assert(" then " (`assert(f())` passes every value of `f()` through)" else "" end)
+end
+
 --- A call of the function `f`, with the arguments checked against its parameters. Answers its return lists. `given`
 --- holds the values of the arguments when the caller typed them already (a generic call types its arguments to solve the
 --- function's type parameters).
@@ -4607,7 +4671,9 @@ local function apply_function(ctx: Ctx, node: Ast.Node, callee: string, f: Fn, a
     if want == nil then
       if not reported and why == "too many" then
         reported = true
+        ctx.spill = Calls.spill_note(ctx, args, n, n, true)
         arity_error(ctx, node, quoted(callee), f, off, n, why)
+        ctx.spill = nil
       end
     else
       local named: string? = nil
@@ -4615,7 +4681,9 @@ local function apply_function(ctx: Ctx, node: Ast.Node, callee: string, f: Fn, a
       if original ~= nil and declared ~= nil and names_invalid(want) then
         named = Calls.shown(ctx, declared, original)
       end
+      ctx.spill = Calls.spill_note(ctx, args, n, i)
       local _ = Calls.expect_argument(ctx, at, t, want, callee, i, named, generic)
+      ctx.spill = nil
     end
   end
   if why == "too few" or (why == "too many" and not reported) then
@@ -6298,6 +6366,10 @@ function Writes.keeps_length(body: Ast.Node, array: integer, var: integer): bool
         end
       end
     elseif (node.kind == "Assign") then
+      -- A target with no value of its own is given nil.
+      if #node.values < #node.targets then
+        marks[#marks + 1] = true
+      end
       for i, target in ipairs(node.targets) do
         local value = node.values[i]
         if (target.kind == "Name") then
@@ -6352,7 +6424,35 @@ function Writes.fill_of(s: Ast.ForNum): Fill?
   if held == nil or not Writes.keeps_length(s.body, held, s.var.id) then
     return nil
   end
-  return { var = s.var.id, object = object }
+  local unit = true
+  if step ~= nil then
+    local given = peel(step)
+    unit = given.kind == "Integer" and given.value == 1
+  end
+  return { var = s.var.id, object = object, unit = unit }
+end
+
+--- Whether `node`, a read of an array, reads it at the index of a loop that counts its keys ([`Writes.fill_of`]) from a
+--- literal of 1 or more by 1 to `#t`, with `t` the local the read names. The loop has run `i - 1` passes and `t` has kept
+--- every key it had at the start (`#t` of them) through each, so `t[i]` is a key it has: the read is the element type,
+--- not an optional. A function made in the body begins with no loop around it ([`function_body`]), so a read there, which
+--- may run when `t` is shorter, stays optional. The proof holds for a program the checker accepts: a write of a value that
+--- may be nil into `t` is an error of its own statement, and a checked run (`cosmic test --check-types`) tests the read.
+---
+--- TODO: read the index of a loop whose body calls a function, once the checker can show that no code the call runs names
+--- the array ([`Writes.unreachable`] shows it only for a local made `{}`): a body with a call keeps the read `T?` now.
+function Writes.counted_read(ctx: Ctx, node: Ast.Index): boolean
+  local key = peel(node.key)
+  if key.kind ~= "Name" or key.binding == nil then
+    return false
+  end
+  for _, loop in ipairs(ctx.loops) do
+    local fill = loop.fill
+    if fill ~= nil and fill.unit and key.binding == fill.var and Writes.same_place(fill.object, node.object) then
+      return true
+    end
+  end
+  return false
 end
 
 --- Whether `child`, a name read in `parent`, only indexes the table it names, takes its length, returns it or hands it to a

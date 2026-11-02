@@ -15,7 +15,7 @@ local record udp_fixture
     address: raw_socket.Address
     socket: raw_socket.Socket
     fd: integer
-    open: boolean
+    mut open: boolean
     __close: function(Bound)
   end
 end

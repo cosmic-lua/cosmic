@@ -1109,11 +1109,44 @@ local function test_a_function_is_inserted_as_a_call_where_the_editor_takes_snip
   local called = assert(items(ran, 3)["shifted"])
   assert(called.insertTextFormat == nil and called.textEdit.newText == "shifted")
   local area = assert(items(ran, 4)["area"])
-  assert(area.insertTextFormat == 2 and area.textEdit.newText == "area(${1:arg1}, ${2:arg2})", area.textEdit.newText)
+  assert(area.insertTextFormat == 2 and area.textEdit.newText == "area(${1:width}, ${2:height})", area.textEdit.newText)
   -- Without the editor's word, the name alone.
   local plain = served(root, { initialize(root), open(root, "main.tl", text),
     change(root, "main.tl", (text:gsub("local _ = point\n$", "local _ = ar\n"))), ask(2, root, "main.tl", 4, 12) })
   assert(assert(items(plain, 2)["area"]).textEdit.newText == "area")
+end
+
+local function test_a_local_function_is_inserted_with_the_names_it_writes_not_those_of_a_function_of_its_type()
+  local root = session_fixture.project()
+  -- Both have the one function type, which the checker shares: each call is named by its own function.
+  local text = 'local function area(width: integer, height: integer): integer\n  return width\nend\n' ..
+    'local function plain(first: integer, ...: string): integer\n  return first\nend\n' ..
+    'local function shape(w: integer, h: integer): integer\n  return w\nend\nlocal _ = 1\n'
+  local ran = served(root, { initialize(root, SNIPPETS), open(root, "main.tl", text),
+    change(root, "main.tl", (text:gsub("local _ = 1\n$", "local _ = s\n"))), ask(2, root, "main.tl", 9, 11),
+    change(root, "main.tl", (text:gsub("local _ = 1\n$", "local _ = a\n"))), ask(3, root, "main.tl", 9, 11),
+    change(root, "main.tl", (text:gsub("local _ = 1\n$", "local _ = p\n"))), ask(4, root, "main.tl", 9, 11),
+  })
+  assert(assert(items(ran, 2)["shape"], ran.err).textEdit.newText == "shape(${1:w}, ${2:h})")
+  assert(assert(items(ran, 3)["area"]).textEdit.newText == "area(${1:width}, ${2:height})")
+  assert(assert(items(ran, 4)["plain"]).textEdit.newText == "plain(${1:first})")
+end
+
+local function test_a_local_function_of_a_name_declared_twice_or_nested_is_named_by_the_one_in_scope()
+  local root = session_fixture.project()
+  local twice = 'local function f(first: integer): integer\n  return first\nend\n' ..
+    'local function f(later: integer): integer\n  return later\nend\n'
+  local nested = 'local function f(outer: integer): integer\n  local function f(zz: integer): integer\n    return zz\n  end\n' ..
+    '  local _ = 1\n  return outer\nend\n'
+  local inside = nested:gsub("local _ = 1", "local _ = f")
+  local ran = served(root, { initialize(root, SNIPPETS), open(root, "main.tl", twice .. "local _ = 1\n"),
+    change(root, "main.tl", twice .. "local _ = f\n"), ask(2, root, "main.tl", 6, 11),
+    change(root, "main.tl", inside .. "local _ = 1\n"), ask(3, root, "main.tl", 4, 13),
+    change(root, "main.tl", nested .. "local _ = f\n"), ask(4, root, "main.tl", 7, 11),
+  })
+  assert(assert(items(ran, 2)["f"], ran.err).textEdit.newText == "f(${1:later})")
+  assert(assert(items(ran, 3)["f"], ran.err).textEdit.newText == "f(${1:zz})")
+  assert(assert(items(ran, 4)["f"], ran.err).textEdit.newText == "f(${1:outer})")
 end
 
 local function test_a_method_is_inserted_as_a_call_without_its_self()
