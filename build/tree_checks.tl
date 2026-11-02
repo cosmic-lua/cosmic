@@ -2230,6 +2230,9 @@ local type Finding = Ceilings.Finding
 --- What lowering or checking one file found: its errors.
 local record DeclareOutcome
   errors: mut {Finding}
+  --- Whether the stage could not judge the file (it does not parse, or the stage does not check that kind of file): its
+  --- markers are neither held nor stale, and are left as they are.
+  mut unjudged?: boolean
 end
 
 --- The outcome a memo kept, or nil where it kept none or it does not read; a code is read only if it is one of `codes`.
@@ -2247,6 +2250,8 @@ local function kept_findings(text: string, codes: {string}): DeclareOutcome?
         return nil
       end
       outcome.errors[#outcome.errors + 1] = { code = code, y = y, x = x, msg = msg, fix = fix }
+    elseif fields[1] == "U" then
+      outcome.unjudged = true
     elseif fields[1] ~= "N" then
       return nil
     end
@@ -2260,7 +2265,7 @@ end
 
 --- What a memo holds for an outcome.
 local function kept_rows(outcome: DeclareOutcome): {{string}}
-  local kept: mut {{string}} = { { "N" } }
+  local kept: mut {{string}} = { { if outcome.unjudged == true then "U" else "N" end } }
   for _, e in ipairs(outcome.errors) do
     kept[#kept + 1] = { "E", e.code, tostring(e.y), tostring(e.x), e.msg, e.fix }
   end
@@ -2487,9 +2492,12 @@ local function held_to_pins(tree: Tree, outcomes: {string: DeclareOutcome}, stag
   for _, row in ipairs(tree.rows) do
     local outcome = lookup_in(outcomes, row.file)
     if by_marks then
-      for _, line in ipairs(told_marks(row.file, Ceilings.marked(stage, row.file, row.source, outcome.errors, codes, what),
-          sink_of(marking))) do
-        out[#out + 1] = line
+      -- A file the stage could not judge keeps its markers: neither held nor stale.
+      if outcome.unjudged ~= true then
+        for _, line in ipairs(told_marks(row.file, Ceilings.marked(stage, row.file, row.source, outcome.errors, codes, what),
+            sink_of(marking))) do
+          out[#out + 1] = line
+        end
       end
     else
       local held = Ceilings.over(row.file, outcome.errors, codes, pinned, what)
@@ -2531,7 +2539,7 @@ function tree_checks.declared(root: string, pinned?: {string: integer}, memo?: S
   local salt = check_memo.salt(root, { "lang/ast.tl", "lang/lexer.tl", "lang/parser.tl", "lang/scopes.tl",
     "lang/truthy.tl", "lang/types.tl", "lang/relation.tl", "lang/declarations.tl", "lang/prelude.d.tl", "lang/stdlib.d.tl", "build/check_memo.tl", "build/driver.tl",
     "build/tree_checks.tl", "build/tree_program.tl", "build/gen_syscalls.tl", "core/syscalls.h",
-    "core/process.h", "core/socket.h" }, "declared 5")
+    "core/process.h", "core/socket.h" }, "declared 6")
   local written, written_why = TreeProgram.derived_of(root)
   if written == nil then
     return { "reading the derived sources: " .. written_why }
@@ -2544,7 +2552,7 @@ function tree_checks.declared(root: string, pinned?: {string: integer}, memo?: S
   if #missed > 0 then
     local build = tree_build(root, tree)
     streamed(build, tree, missed, false, false, function(row: DeclareFile, result: Driver.Outcome?)
-      local outcome: DeclareOutcome = { errors = {} }
+      local outcome: DeclareOutcome = { errors = {}, unjudged = true }
       if result ~= nil and not result.broken then
         outcome = { errors = findings_of(result.declared) }
       end
@@ -2592,7 +2600,7 @@ function tree_checks.checked(root: string, pinned?: {string: integer}, memo?: Sq
     "lang/truthy.tl", "lang/types.tl", "lang/relation.tl", "lang/declarations.tl", "lang/check.tl",
     "lang/flow.tl", "lang/check_codes.tl", "lang/warnings.tl", "lang/prelude.d.tl", "lang/stdlib.d.tl", "build/check_memo.tl", "build/driver.tl", "build/tree_checks.tl", "build/tree_program.tl",
     "build/syntax_shape_specs.tl", "build/gen_syscalls.tl", "core/syscalls.h", "core/process.h",
-    "core/socket.h" }, "checked 5")
+    "core/socket.h" }, "checked 6")
   local written, written_why = TreeProgram.derived_of(root)
   if written == nil then
     return { "reading the derived sources: " .. written_why }
@@ -2606,7 +2614,7 @@ function tree_checks.checked(root: string, pinned?: {string: integer}, memo?: Sq
   if #missed > 0 then
     local build = tree_build(root, tree)
     streamed(build, tree, missed, true, true, function(row: DeclareFile, result: Driver.Outcome?)
-      local outcome: DeclareOutcome = { errors = {} }
+      local outcome: DeclareOutcome = { errors = {}, unjudged = true }
       if result ~= nil and row.dialect == "tl" and not result.broken then
         outcome = { errors = findings_of(result.bodies) }
       end
@@ -2948,10 +2956,8 @@ local record Marked
   mut counts: mut {string: {string: integer}}
 end
 
---- The markers of the tree at `root`, when its ceilings file lists a stage under `[marked]`: a marker that names a code of no
---- stage is a typo or a code the checker lost and holds nothing; `cosmic fix` removes it (it goes to the `sink`'s `stale`
---- where one is given). The counts are of the codes of the marked stages alone, by file: the ratchet's side of the tree.
-function tree_checks.markers(root: string, sink?: Ceilings.Sink): Marked
+--- The markers of the tree at `root`, when its ceilings file lists a stage under `[marked]`. The counts are of the codes of the marked stages alone, by file: the ratchet's side of the tree.
+function tree_checks.markers(root: string): Marked
   local out: Marked = { lines = {}, counts = {} }
   local read, _ = Ceilings.read(root)
   if read == nil then
@@ -2983,16 +2989,6 @@ function tree_checks.markers(root: string, sink?: Ceilings.Sink): Marked
       end
       if next(held) ~= nil then
         out.counts[file] = held
-      end
-      for _, spot in ipairs(Ceilings.unknown(file, source)) do
-        if sink == nil or sink.mend ~= true then
-          local said = file .. ":" .. tostring(spot.line) .. ": its marker names `" .. spot.code ..
-            "` of [" .. spot.stage .. "], which has no such code; `cosmic fix` removes the marker"
-          out.lines[#out.lines + 1] = said
-        end
-        if sink ~= nil then
-          sink.stale[#sink.stale + 1] = spot
-        end
       end
     end
   end

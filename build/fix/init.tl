@@ -1555,6 +1555,11 @@ local function mend_markers(ctx: Fix, sink: Ceilings.Sink, migrating: {string})
     for _, file in ipairs(files) do
       local spots = assert(by[file])
       edit_marked(root, file, function(text: string): string
+        for _, spot in ipairs(Markers.unwritable(text, file, spots)) do
+          local said = file .. ":" .. tostring(spot.line) .. ": no marker can be written for " .. spot.code ..
+            ": the line above it ends inside a long string"
+          failures[#failures + 1] = said
+        end
         return Markers.with(text, file, spots)
       end, changed, failures)
     end
@@ -1648,7 +1653,7 @@ local function run_tree_checks(ctx: Fix)
       end
       local marking: Ceilings.Marking = { sink = sink, force = #migrating > 0 }
       local marks_began = Clock.monotonic_ns()
-      local marks = tree_checks.markers(root, sink)
+      local marks = tree_checks.markers(root)
       for _, line in ipairs(marks.lines) do
         findings[#findings + 1] = "markers: " .. line
       end

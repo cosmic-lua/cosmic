@@ -73,12 +73,12 @@ end
 local function test_writing_a_marker_appends_it_and_merges_with_the_one_the_line_has()
   local source = text("a()", "b() " .. KEY .. " map_field", "c() -- why")
   local marked = Markers.with(source, "a.tl", { spot(1, "any_use"), spot(2, "any_use", 2), spot(2, "map_field"),
-    spot(3, "shadows") })
+    spot(3, "view_written") })
   assert(marked == text("a() " .. KEY .. " any_use", "b() " .. KEY .. " map_field*2, any_use*2",
-    "c() -- why " .. KEY .. " shadows"), marked)
+    "c() -- why " .. KEY .. " view_written"), marked)
   -- the text reads back as the markers written
   local counts = Markers.counts(marked, "a.tl")
-  assert(counts["checked any_use"] == 3 and counts["checked map_field"] == 2 and counts["checked shadows"] == 1)
+  assert(counts["checked any_use"] == 3 and counts["checked map_field"] == 2 and counts["checked view_written"] == 1)
 end
 
 local function test_a_line_that_ends_inside_a_string_gets_its_marker_on_the_line_above()
@@ -116,9 +116,12 @@ local function test_one_comment_holds_the_markers_of_several_stages_and_each_is_
 end
 
 local function test_a_comment_with_the_words_and_a_sentence_is_left_alone()
-  local source = text("local x = f() -- checked: it is fine, as written", "g() -- declared: float_key -- checked: because of this")
+  local source = text("local x = f() -- checked: it is fine, as written", "g() -- declared: float_key -- checked: because of this", "h() " .. KEY .. " done")
   assert(#Markers.read(source, "a.tl").marks == 0)
-  assert(Markers.without(source, "a.tl", { spot(1, "it") }) == source)
+  assert(Markers.without(source, "a.tl", { spot(1, "it"), spot(3, "done") }) == source)
+  -- a single word that is no code of the stage is prose too, and a code of another stage is none of this one's
+  assert(Markers.bare("h() " .. KEY .. " done") == "h() " .. KEY .. " done")
+  assert(#Markers.read(text("h() -- untyped: float_key", "h() -- scoped: map_field"), "a.tl").marks == 0)
 end
 
 local function test_the_markers_are_written_in_the_order_of_the_stages_and_after_the_words_of_the_comment()
@@ -147,4 +150,19 @@ local function test_a_line_of_its_own_holds_the_markers_of_several_stages()
     { file = "a.tl", line = 1, stage = "declared", code = "key_type", count = 1 } })
   assert(written == text("-- declared: key_type -- checked: any_use", "local s = g([[", "x", "]])"), written)
   assert(Markers.counts(written, "a.tl")["declared key_type"] == 1)
+end
+
+local function test_a_marker_a_line_holds_twice_loses_only_what_is_stale()
+  -- one count held by a comment above and one at the end of the line
+  local source = text("-- checked: any_use", "f() -- checked: any_use")
+  local once = Markers.without(source, "a.tl", { spot(2, "any_use") })
+  assert(once == text("f() -- checked: any_use") or once == text("-- checked: any_use", "f()"), once)
+  assert(Markers.counts(once, "a.tl")["checked any_use"] == 1)
+end
+
+local function test_a_line_whose_line_above_ends_inside_a_string_is_refused_a_marker()
+  local source = text("local s = [[", "text", "]] .. g([[", "more", "]])")
+  local refused = Markers.unwritable(source, "a.tl", { spot(3, "any_use"), spot(1, "any_use") })
+  assert(#refused == 1 and assert(refused[1]).line == 3)
+  assert(Markers.with(source, "a.tl", { spot(3, "any_use") }) == source)
 end

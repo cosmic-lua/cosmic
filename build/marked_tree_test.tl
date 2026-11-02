@@ -134,12 +134,10 @@ local function test_a_stage_listed_nowhere_is_found_by_forcing_it_and_the_marker
   assert(file["checked not_assignable"] == 2 and #counted.lines == 0, joined(counted.lines))
 end
 
-local function test_a_marker_for_a_code_the_stage_lacks_is_unknown_and_a_closed_code_is_never_held(dir: string)
-  local root = tree(dir, "unknown", MARKED, source("local t = 1 " .. KEY .. " no_such_code"))
+local function test_a_comment_that_is_no_marker_is_left_alone_and_a_closed_code_is_never_held(dir: string)
+  local root = tree(dir, "prose", MARKED, source("local t = 1 " .. KEY .. " done"))
   local told = tree_checks.markers(root)
-  assert(#told.lines == 1, joined(told.lines))
-  local said = assert(told.lines[1])
-  assert(said:find("its marker names `no_such_code` of [checked], which has no such code", 1, true) ~= nil, said)
+  assert(#told.lines == 0 and next(told.counts) == nil, "a word that is no code is prose")
   -- `shadows` is closed: the tree keeps its rule with no exceptions, so a marker does not hold it
   local closed = tree(dir, "closed", "[marked]\nscoped\n", source("local x = 1", "local x = 2 -- scoped: shadows", "return x"))
   local found = joined(tree_checks.scoped(closed))
@@ -168,4 +166,19 @@ local function test_the_calls_the_checker_gave_no_function_are_held_by_untyped_m
   assert(Fs.write(root .. "/build/bad.tl", source("local x = missing(2) -- untyped: call*2",
     "local y = x.field(1) -- untyped: call", "return y")))
   assert(joined(tree_checks.untyped(root)):find("its marker holds 1 finding of call", 1, true) ~= nil)
+end
+
+local function test_a_file_that_does_not_parse_keeps_its_markers_through_the_check_and_the_fix(dir: string)
+  local body = source("local t: integer = 3.5 " .. KEY .. " not_assignable", "local = = 1")
+  local root = tree(dir, "broken", MARKED, body)
+  local sink: Ceilings.Sink = { unmarked = {}, stale = {}, mend = true }
+  for _, found in ipairs({ tree_checks.checked(root, nil, nil, nil, { sink = sink }),
+      tree_checks.declared(root, nil, nil, { sink = sink }) }) do
+    assert(not joined(found):find("no longer has", 1, true), joined(found))
+  end
+  assert(#sink.stale == 0, "a file no stage could judge has no stale marker")
+  -- the same markers over a file that parses and has no finding are stale
+  assert(Fs.write(root .. "/build/bad.tl", source("local t: integer = 3 " .. KEY .. " not_assignable")))
+  tree_checks.checked(root, nil, nil, nil, { sink = sink })
+  assert(#sink.stale == 1)
 end

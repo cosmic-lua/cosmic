@@ -14,7 +14,10 @@
 ---
 --- The text is read with the lexer, so that `-- checked:` inside a string is no marker. A comment that has the words but
 --- whose list is not codes alone (a sentence) is no marker, and `cosmic fix` leaves it alone.
+local Check = require("lang.check")
+local Declarations = require("lang.declarations")
 local Lexer = require("lang.lexer")
+local Scopes = require("lang.scopes")
 
 local record Markers
   --- A place a marker holds or is wanted: the `count` findings of `code` of `stage` on `line` of `file`.
@@ -73,6 +76,10 @@ local record Markers
   --- comment at the end of the line, or on a line of its own above it where the line cannot take a comment.
   with: function(text: string, name: string, spots: {Spot}): string
 
+  --- The spots of `spots` that [`Markers.with`] leaves unwritten: a line that cannot take a trailing comment and has a line above
+  --- that ends inside a long string has nowhere to put one.
+  unwritable: function(text: string, name: string, spots: {Spot}): {Spot}
+
   --- `line`, a line of source, without the markers that end it: they are comments of the checker's, not part of what the line
   --- declares, so a signature shown from the line is shown without them.
   bare: function(line: string): string
@@ -90,9 +97,26 @@ local STAGES <const>: {string} = { "scoped", "declared", "checked", "untyped" }
 
 local find, sub = string.find, string.sub
 
---- The codes of `list`, a marker's text after its stage and colon, with their counts, or nil where it is not a list of codes
---- alone (a sentence that happens to follow the words is no marker).
-local function codes_of(list: string): {string}?, {string: integer}
+--- The codes each stage has, which are the only words a marker reads: any other comment that happens to follow the words
+--- (`-- checked: done`) is prose, left alone by every edit.
+local KNOWN: mut {string: mut {string: boolean}} = {}
+
+local function know(stage: string, codes: {string})
+  local known: mut {string: boolean} = {}
+  for _, code in ipairs(codes) do
+    known[code] = true
+  end
+  KNOWN[stage] = known
+end
+
+know("scoped", Scopes.codes)
+know("declared", Declarations.codes)
+know("checked", Check.codes)
+know("untyped", { "call" })
+
+--- The codes of `list`, a marker's text after the stage and colon, with their counts, or nil where it is not a list of codes
+--- of that stage alone.
+local function codes_of(stage: string, list: string): {string}?, {string: integer}
   local codes: mut {string} = {}
   local counts: mut {string: integer} = {}
   local trimmed = list:gsub("^%s+", "")
@@ -100,6 +124,7 @@ local function codes_of(list: string): {string}?, {string: integer}
   if rest == "" then
     return nil, counts
   end
+  local known = KNOWN[stage] or {}
   for item in (rest .. ","):gmatch("%s*([^,]*),") do
     local code, times = item:match("^([a-z][a-z_]*)%*(%d+)$")
     if code == nil then
@@ -107,7 +132,7 @@ local function codes_of(list: string): {string}?, {string: integer}
       times = "1"
     end
     local n = math.tointeger(tonumber(times))
-    if code == nil or n == nil or n < 1 or counts[code] ~= nil then
+    if code == nil or n == nil or n < 1 or counts[code] ~= nil or known[code] ~= true then
       return nil, counts
     end
     codes[#codes + 1] = code
@@ -155,7 +180,7 @@ local function in_comment(text: string, alone: boolean): string, {Markers.Segmen
   for i, start in ipairs(starts) do
     local stage = assert(stage_at[start])
     local stop = (starts[i + 1] or #text + 2) - 1
-    local codes, counts = codes_of(sub(text, start + #key_of(stage), stop - 1))
+    local codes, counts = codes_of(stage, sub(text, start + #key_of(stage), stop - 1))
     if codes == nil then
       return "", nil
     end
@@ -405,28 +430,46 @@ end
 function Markers.without(text: string, name: string, spots: {Markers.Spot}): string
   local gone = by_line(spots)
   local edits: mut {Edit} = {}
+  local left: mut {integer: mut {string: integer}} = {}
   for _, mark in ipairs(Markers.read(text, name).marks) do
-    local drop = gone[mark.line]
-    if drop ~= nil then
-      local negative: mut {string: integer} = {}
-      for key, n in pairs(drop) do
-        negative[key] = -n
+    local wanted = gone[mark.line]
+    if wanted ~= nil then
+      local drop = left[mark.line] or {}
+      if left[mark.line] == nil then
+        for key, n in pairs(wanted) do drop[key] = n end
+        left[mark.line] = drop
       end
-      local rest = render(mark.prefix, changed(mark, negative))
-      if rest ~= "" then
-        edits[#edits + 1] = { first = mark.first, last = mark.last, with = rest }
-      else
-        -- The comment goes: a line of its own with its break, a trailing one with the spaces before it.
-        local from = mark.first
-        while from > 1 and sub(text, from - 1, from - 1):match("[ \t]") ~= nil do
-          from = from - 1
+      -- What is to go is taken from the markers of the line in turn, so that one that holds the line twice (a comment above
+      -- and one at its end) loses it once.
+      local negative: mut {string: integer} = {}
+      for _, segment in ipairs(mark.segments) do
+        for code, n in pairs(segment.counts) do
+          local key = segment.stage .. " " .. code
+          local owed = drop[key] or 0
+          local taken = math.min(n, owed)
+          if taken > 0 then
+            negative[key] = (negative[key] or 0) - taken
+            drop[key] = owed - taken
+          end
         end
-        local to = mark.last
-        if mark.alone then
-          if sub(text, to + 1, to + 1) == "\r" then to = to + 1 end
-          if sub(text, to + 1, to + 1) == "\n" then to = to + 1 end
+      end
+      if next(negative) ~= nil then
+        local rest = render(mark.prefix, changed(mark, negative))
+        if rest ~= "" then
+          edits[#edits + 1] = { first = mark.first, last = mark.last, with = rest }
+        else
+          -- The comment goes: a line of its own with its break, a trailing one with the spaces before it.
+          local from = mark.first
+          while from > 1 and sub(text, from - 1, from - 1):match("[ \t]") ~= nil do
+            from = from - 1
+          end
+          local to = mark.last
+          if mark.alone then
+            if sub(text, to + 1, to + 1) == "\r" then to = to + 1 end
+            if sub(text, to + 1, to + 1) == "\n" then to = to + 1 end
+          end
+          edits[#edits + 1] = { first = from, last = to, with = "" }
         end
-        edits[#edits + 1] = { first = from, last = to, with = "" }
       end
     end
   end
@@ -454,6 +497,8 @@ function Markers.with(text: string, name: string, spots: {Markers.Spot}): string
     elseif marked[line] ~= nil then
       local mark = assert(marked[line])
       edits[#edits + 1] = { first = mark.first, last = mark.last, with = render(mark.prefix, changed(mark, add)) }
+    elseif read.open[line] == true and read.open[line - 1] == true then
+      -- the line above ends inside a string: a comment there would be its text ([`Markers.unwritable`])
     elseif read.open[line] == true then
       local indent = text:match("^[ \t]*", begin) or ""
       edits[#edits + 1] = { first = begin, last = begin - 1,
@@ -468,6 +513,22 @@ function Markers.with(text: string, name: string, spots: {Markers.Spot}): string
     end
   end
   return applied(text, edits)
+end
+
+function Markers.unwritable(text: string, name: string, spots: {Markers.Spot}): {Markers.Spot}
+  local out: mut {Markers.Spot} = {}
+  local read: Markers.Read = { marks = {}, open = {} }
+  scan(text, name, read)
+  local held: mut {integer: boolean} = {}
+  for _, mark in ipairs(read.marks) do
+    held[mark.line] = true
+  end
+  for _, spot in ipairs(spots) do
+    if held[spot.line] ~= true and read.open[spot.line] == true and read.open[spot.line - 1] == true then
+      out[#out + 1] = spot
+    end
+  end
+  return out
 end
 
 return Markers

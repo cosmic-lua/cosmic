@@ -168,10 +168,6 @@ local record Ceilings
   --- goes with the section.
   migrated: function(text: string, stages: {string}): string
 
-  --- The markers of `text` that name no code of their stage, as spots of `file`: a typo, a code of another stage or a code
-  --- the checker lost, which holds nothing.
-  unknown: function(file: string, text: string): {Spot}
-
   --- What [`Ceilings.over`] found.
   record Held
     --- The errors over their ceilings, listed.
@@ -668,37 +664,6 @@ function Ceilings.migrated(text: string, stages: {string}): string
     "# the rows of a section here: [`build.ceilings`] and [`build.markers`] say how.\n" .. table.concat(order, " ") .. "\n\n"
   local rest = table.concat(kept, "\n"):gsub("^\n+", ""):gsub("\n+$", "")
   if rest ~= "" then out = out .. rest .. "\n" end
-  return out
-end
-
---- The codes a marker of `stage` may name: those of the stage's check, and for `untyped` the one pseudo code.
-local function stage_codes(stage: Ceilings.Stage): {string}
-  if stage == "untyped" then
-    return { Ceilings.untyped_code }
-  end
-  return codes_of(tostring(stage)) or {}
-end
-
-function Ceilings.unknown(file: string, text: string): {Markers.Spot}
-  local out: mut {Markers.Spot} = {}
-  for _, mark in ipairs(Markers.read(text, file).marks) do
-    for _, segment in ipairs(mark.segments) do
-      local known: mut {string: boolean} = {}
-      for _, stage in ipairs(MARKABLE_LIST) do
-        if tostring(stage) == segment.stage then
-          for _, code in ipairs(stage_codes(stage)) do
-            known[code] = true
-          end
-        end
-      end
-      for _, code in ipairs(segment.codes) do
-        if known[code] ~= true then
-          out[#out + 1] = { file = file, line = mark.line, stage = segment.stage, code = code,
-            count = assert(segment.counts[code]) }
-        end
-      end
-    end
-  end
   return out
 end
 

@@ -295,9 +295,6 @@ local function test_a_code_two_stages_report_is_held_by_the_marker_of_its_own_st
   local own = Ceilings.marked("declared", "a.tl", both, { finding("float_key", 1) }, { "float_key" }, "declarations")
   assert(#own.lines == 0 and #own.stale == 0 and #own.unmarked == 0)
   assert(first(judged.unmarked, 1).stage == "checked")
-  -- a code of the stage is known to it and one of another is not; the pseudo code of the stage that counts calls is its own
-  assert(#Ceilings.unknown("a.tl", "x() -- declared: float_key -- checked: float_key -- untyped: call\n") == 0)
-  assert(#Ceilings.unknown("a.tl", "x() -- untyped: float_key -- scoped: float_key\n") == 2)
 end
 
 local function test_a_finding_on_a_line_without_a_marker_for_its_code_is_listed_and_one_with_it_is_not()
@@ -348,20 +345,11 @@ local function test_a_marker_above_a_line_holds_that_line_and_moved_code_keeps_i
 end
 
 local function test_a_closed_code_is_held_by_no_marker()
-  local closed = assert(Ceilings.closed()[1])
+  local closed = "arity"
   local source = "local b = t[k] " .. KEY .. " " .. closed .. "\n"
   local judged = Ceilings.marked("checked", "a.tl", source, { finding(closed, 1) }, { closed }, "bodies")
   assert(#judged.unmarked == 1, "a marker for a closed code holds nothing")
   assert(table.concat(judged.lines, "\n"):find("on line 1, marked 0", 1, true) ~= nil, table.concat(judged.lines, "\n"))
-end
-
-local function test_a_marker_naming_a_code_of_no_stage_is_unknown()
-  local source = "local b = 1 " .. KEY .. " no_such_code, nil_not_allowed -- scoped: nil_not_allowed\n"
-  local unknown = Ceilings.unknown("a.tl", source)
-  assert(#unknown == 2, tostring(#unknown))
-  assert(first(unknown, 1).code == "nil_not_allowed" and first(unknown, 1).stage == "scoped" or
-      first(unknown, 2).code == "nil_not_allowed" and first(unknown, 2).stage == "scoped", "a code of another stage is none")
-  assert(first(unknown, 1).line == 1)
 end
 
 local function test_migrating_a_ceilings_file_drops_the_rows_of_a_stage_and_lists_it_under_marked()
