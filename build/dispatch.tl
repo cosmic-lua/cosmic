@@ -429,14 +429,13 @@ local function run(file: string, argv: {string}): integer
 
   -- The compiler this binary is, as the build that made it recorded
   -- ([`importer.own_tool`]).
-  local asked, grammar_trouble = GrammarMode.mode()
-  if asked == nil then
+  local grammar_trouble = GrammarMode.refusal()
+  if grammar_trouble ~= nil then
     local _, _ = work.close(handle)
     log:complain(grammar_trouble)
     return 1
   end
-  local grammar = asked
-  local tool = importer.own_tool(grammar)
+  local tool = importer.own_tool()
 
   local database = build_paths.under(handle.dir).projection
 

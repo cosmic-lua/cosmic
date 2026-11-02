@@ -160,7 +160,7 @@ local function build(tmp: string, case: string, files: {string: string}): {strin
     local _, _ = work.close(handle)
     return nil, stage_trouble
   end
-  local result, trouble = importer.compile(handle, GrammarMode.tool("template-check-test", "new"), false)
+  local result, trouble = importer.compile(handle, GrammarMode.tool("template-check-test"), false)
   local _, _ = work.close(handle)
   if result == nil then
     return nil, trouble

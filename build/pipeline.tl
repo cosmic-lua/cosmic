@@ -37,7 +37,6 @@ local Memprobe = require("build.memprobe")
 local ErrorCatalog = require("build.error_catalog")
 local ErrorRender = require("build.error_render")
 local Fs = require("cosmic.fs")
-local GrammarMode = require("build.grammar_mode")
 local Hash = require("cosmic.hash")
 local LuaTail = require("build.lua_tail")
 local ProjectRefusals = require("build.project_refusals")
@@ -56,14 +55,6 @@ local type Derivation = require("build.derivation")
 local type Module = Plans.Module
 
 local record Pipeline
-  type Mode = GrammarMode.Mode
-
-  --- The mode `COSMIC_GRAMMAR` asks for ([`GrammarMode.mode`]).
-  mut mode: function(): Mode?, string
-
-  --- The tool string a compile in `mode` is keyed by ([`GrammarMode.tool`]).
-  mut tool: function(tool: string, mode: Mode, wraps?: boolean): string
-
   --- What a pipeline is made of besides the tree.
   record Options
     --- The standard library's declarations, which every module's globals are made of ([`build.tree_program`]).
@@ -180,8 +171,8 @@ local record Pipeline
   --- name is its own.
   discounted: function(result: Driver.Outcome)
 
-  --- The tool string a compile in the new mode is keyed by, given the one the harness chose ([`GrammarMode.tool`]): that and the
-  --- identity of the code that reads and checks a source in the new mode, which is the source, as the running binary carries it,
+  --- The tool string a compile is keyed by, given the one the harness chose ([`build.grammar_mode`]'s `tool`): that and the
+  --- identity of the code that reads and checks a source, which is the source, as the running binary carries it,
   --- of every module of the tree (`lang.*`, `build.*`) that [`build.pipeline`] reaches. A compile or a parse made with it is
   --- keyed by it, so that an edit to the checker or to a reader reads the tree again; the compiler's identity
   --- ([`build.identity`]) holds none of it, so a default run is not read again for it.
@@ -207,9 +198,6 @@ local record Pipeline
   --- default), as [`ErrorCatalog.insert`] does.
   catalog: function(db: Sqlite.Handle, schema: string): integer?, string
 end
-
-Pipeline.mode = GrammarMode.mode
-Pipeline.tool = GrammarMode.tool
 
 --- Whether the stub of the module `module` of the file `file` is held to its source's type: a standard-library module that
 --- the error-slot discipline covers.
@@ -395,7 +383,7 @@ local type_only <const>: {string:string} = {
     "parse, and is a root of the analyzer's identity",
 }
 
---- The identity of the code that reads and checks in the new mode ([`Pipeline.coded`]), over the modules `reader` answers for.
+--- The identity of the code that reads and checks ([`Pipeline.coded`]), over the modules `reader` answers for.
 local function identity(reader: Reader): string
   local parts: mut {string} = {}
   local seen: mut {string: boolean} = {}
@@ -496,7 +484,7 @@ function Pipeline.coded_of(tool: string, db: Sqlite.Handle): string?, string
   end
   local count = rows[1]
   if count == nil or count:text(1) == "0" then
-    return nil, "build/pipeline.tl is not parsed yet, so the code that reads the tree in the new mode cannot be named"
+    return nil, "build/pipeline.tl is not parsed yet, so the code that reads the tree cannot be named"
   end
   return Hash.hex_sha256(tool .. "\0" .. identity(staged_code(db))), ""
 end

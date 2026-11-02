@@ -1305,11 +1305,11 @@ function docs.databases(store?: {Sqlite.Handle}, at?: string, known?: docs.Known
       -- too, said once: what that code wrote may mean other than this
       -- code takes it to.
       if readable ~= nil then
-        local grammar, grammar_trouble = GrammarMode.mode()
+        local grammar_trouble = GrammarMode.refusal()
         local other: string? = nil
-        local other_trouble = grammar_trouble
-        if grammar ~= nil then
-          other, other_trouble = writer.other_code(own, rebuild.compiled_by(grammar))
+        local other_trouble = grammar_trouble or ""
+        if grammar_trouble == nil then
+          other, other_trouble = writer.other_code(own, rebuild.compiled_by())
         end
         if other ~= nil then tell_other_code(own_path, other, project) end
         if other == nil and other_trouble ~= "" then tell_unread_code(own_path, other_trouble) end
@@ -3148,8 +3148,8 @@ local function run(argv: {string}): integer
     log:complain("docs: " .. parse_trouble)
     return 2
   end
-  local chosen, mode_trouble = GrammarMode.mode()
-  if chosen == nil then
+  local mode_trouble = GrammarMode.refusal()
+  if mode_trouble ~= nil then
     log:complain("docs: " .. mode_trouble)
     return 1
   end
@@ -3213,8 +3213,8 @@ local function run_uses(argv: {string}): integer
         "or which file (doc/writing.md, doc/writing.md#heading)")
     return 2
   end
-  local chosen, mode_trouble = GrammarMode.mode()
-  if chosen == nil then
+  local mode_trouble = GrammarMode.refusal()
+  if mode_trouble ~= nil then
     log:complain("uses: " .. mode_trouble)
     return 1
   end

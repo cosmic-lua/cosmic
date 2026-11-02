@@ -146,7 +146,7 @@ allow({ "build.seed.compile", "build.seed.program" }, "the two things the bridge
 allow({ "build.plans.full_keys" }, "the keys made of nothing kept, which build/dependency_keys_test.tl holds " ..
     "the keys `dependency_keys` keeps to, edit by edit")
 allow({
-  "build.syntax_receivers.blind", "build.syntax_rewrite.find_all", "build.doctest.blocks", "build.grammar_mode.of",
+  "build.syntax_receivers.blind", "build.syntax_rewrite.find_all", "build.doctest.blocks", "build.grammar_mode.refusal_of",
   "build.plural_sites.lines", "build.coverage.syntax_lines.executable", "build.withheld.package_fields",
   "build.syntax_contracts.rules", "build.syntax_receivers.known",
 }, "tested directly: a reader whose callers outside its module take it through a composed reader (`references`, `rewrite`, " ..
@@ -157,10 +157,8 @@ allow({ "build.todos.run" }, "the verb's run, which a test calls with a tree and
 allowed["build.ceilings.closed"] = "the codes `parse` refuses a ceiling for, which build/ceilings_test.tl reads to hold the list " ..
   "complete: a code of a stage with no row left must be in it"
 
-allow({
-  "build.pipeline.mode", "build.pipeline.tool", "build.pipeline.over",
-}, "the build's compile with the new checker: the mode and the tool string the harness chooses (`build.grammar_mode`) and a " ..
-    "build over given sources, which the pipeline's own tests are the callers of")
+allow({ "build.pipeline.over" }, "the build's compile with the new checker: a build over given sources, which the " ..
+    "pipeline's own tests are the callers of")
 
 allow({ "build.pipeline.project" }, "tested directly: the options of a project given the texts of the declarations (a worker's " ..
     "store holds none of the tool's)")
@@ -1286,7 +1284,7 @@ function tree_checks.projection(root: string, standing: tree_standing.Standing):
     return nil, stage_trouble
   end
   local result, compile_trouble = importer.compile(handle,
-    GrammarMode.tool(Store.meta("compiler") or "", "new"), false, shared_compiles.for_build())
+    GrammarMode.tool(Store.meta("compiler") or ""), false, shared_compiles.for_build())
   if result == nil then
     local _, _ = work.close(handle)
     return nil, compile_trouble

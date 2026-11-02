@@ -1469,7 +1469,7 @@ local function test_the_projection_of_the_tree_checks_is_written_by_the_code_tha
   assert(Fs.write(root .. "/lang/prelude.d.tl", (assert(Fs.read("lang/prelude.d.tl")))))
   assert(Fs.write(root .. "/things.tl", "--- Opens.\nlocal function open(): integer\n  return 1\nend\n\nreturn open\n"))
   local db = assert(tree_checks.projection(root, (assert(Tree.standing(root, (assert(Tree.built_from(root))))))))
-  local own, trouble = writer.other_code(db, rebuild.compiled_by("new"))
+  local own, trouble = writer.other_code(db, rebuild.compiled_by())
   assert(own == nil and trouble == "", tostring(own) .. trouble)
   assert(db:close())
 end

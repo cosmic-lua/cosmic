@@ -1585,13 +1585,13 @@ function importer.compile(handle: work.Handle, tool: string, unjudged?: boolean,
 end
 
 --- The tool string a compile of this binary's own compiler is keyed by
---- ([`build.grammar_mode`]'s `tool`, under `grammar`): the compiler's
+--- ([`build.grammar_mode`]'s `tool`): the compiler's
 --- identity the build that made this binary recorded (its `meta`'s
 --- `compiler`), so a project's rows made by another compiler are compiled
 --- again. A worker's read of it is answered by the running tool
 --- ([`build.key_parts`]' `compiler_readers` names this module for it).
-function importer.own_tool(grammar: GrammarMode.Mode): string
-  return GrammarMode.tool(Store.meta("compiler") or "", grammar)
+function importer.own_tool(): string
+  return GrammarMode.tool(Store.meta("compiler") or "")
 end
 
 --- Compiles every module as [`importer.compile`] does, for a file run

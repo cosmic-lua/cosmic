@@ -290,7 +290,7 @@ local function test_self_compile_consumes_cache_after_identity_selection()
       assert(result ~= nil, trouble)
       -- The tool the selection answered, as the compile in the new mode keys it ([`Pipeline.coded_of`]).
       local chosen = "chosen-compiler"
-      local moded = GrammarMode.tool(chosen, "new")
+      local moded = GrammarMode.tool(chosen)
       local c1, c2 = Pipeline.coded(chosen), assert(Pipeline.coded_of(chosen, handle.db))
       local c3, c4 = Pipeline.coded(moded), assert(Pipeline.coded_of(moded, handle.db))
       assert(result.parses.parsed == 2, tostring(result.parses.parsed))
@@ -1872,7 +1872,7 @@ local function test_the_compiler_modules_are_closed_under_require()
     ["build.positions"] = "fails a whole build before any key is looked up, and stores nothing",
     ["build.grammar_mode"] = "makes the tool string a compile key holds of the compiler's identity " ..
       "(`importer.own_tool`): what it decides is in every key, and no compile stores it",
-    ["build.pipeline"] = "the compile with the new checker (COSMIC_GRAMMAR=new), keyed by the code that reads it " ..
+    ["build.pipeline"] = "the compile with the new checker, keyed by the code that reads it " ..
       "(`Pipeline.coded`) and not by the compiler's identity, which a default run keeps",
   }
   assert(covered["build.importer"] ~= true, "cache coordination and diagnostics entered compiler identity")
@@ -1975,7 +1975,7 @@ local function test_the_writer_modules_are_closed_under_require()
     return seen
   end
   local reached = reach({})
-  -- The new grammar's compile (`COSMIC_GRAMMAR=new`, build.pipeline and what it reads) runs only where the build is asked for
+  -- The new grammar's compile (build.pipeline and what it reads) runs only where the build is asked for
   -- it, and its output is keyed apart from the compiler's by [`Pipeline.coded`] over those sources; no projection of the
   -- default compile turns on them.
   local through_pipeline = reach({ ["build.pipeline"] = true })
@@ -2302,7 +2302,7 @@ end
 --- this holds the two together.
 local function test_the_importer_spells_the_checks_format_of_the_grammar_mode()
   assert(importer.checked_tool("tool", true) == Hash.hex_sha256("tool\0" .. GrammarMode.checks_format))
-  assert(GrammarMode.tool("tool", "new", true) == Hash.hex_sha256("tool\0grammar-new\0" .. GrammarMode.checks_format))
+  assert(GrammarMode.tool("tool", true) == Hash.hex_sha256("tool\0grammar-new\0" .. GrammarMode.checks_format))
 end
 
 --- A module whose Lua a checked compile writes checks into: `hello` takes nil out of `name` with an `assert` (a

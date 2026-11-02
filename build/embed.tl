@@ -409,24 +409,15 @@ end
 --- @param under paths relative to `root` that narrow it to the programs
 ---   whose `main.tl` is under one; each must hold one. None, or nil, is
 ---   every program
---- @param grammar the checker that compiles the project: the one
----   `COSMIC_GRAMMAR` names where not given ([`build.grammar_mode`]). The
----   new checker ([`build.pipeline`]) holds a project to no ceiling, and a
----   project written in a form only the fork reads is refused with the new
----   checker's words and fix.
 --- @param roots the roots its executables trust by default, as
 ---   `cosmic build --roots` names them ([`embed.database`]); nil records
 ---   none, which is "minimal"
 --- @param carried the `built_from` the tool carries, as [`tree.standing`] takes it
 --- @param outcome set to `refused` where the tree does not build because a module of it does not compile
-function embed.tree(root: string, host?: boolean, under?: {string}, grammar?: GrammarMode.Mode,
+function embed.tree(root: string, host?: boolean, under?: {string},
                     roots?: string, carried?: string, outcome?: importer.Outcome): {string}?, string
-  local mode = grammar
-  if mode == nil then
-    local chosen, chosen_trouble = GrammarMode.mode()
-    if chosen == nil then return nil, chosen_trouble end
-    mode = chosen
-  end
+  local grammar_trouble = GrammarMode.refusal()
+  if grammar_trouble ~= nil then return nil, grammar_trouble end
   local standing, standing_trouble = tree.standing(root, carried)
   if standing == nil then return nil, standing_trouble end
   if standing.own then
@@ -443,8 +434,8 @@ function embed.tree(root: string, host?: boolean, under?: {string}, grammar?: Gr
     return nil, stage_trouble
   end
   local project = build_paths.resolve(root).projection
-  -- The new checker reads the project in this process; its compile is keyed by the mode.
-  local tool = GrammarMode.tool(Store.meta("compiler") or "", mode)
+  -- The new checker reads the project in this process.
+  local tool = GrammarMode.tool(Store.meta("compiler") or "")
   local result, compile_trouble = importer.compile(handle, tool, false, shared_compiles.for_build(), nil, nil, outcome)
   if result == nil then
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
@@ -557,7 +548,7 @@ local function run(argv: {string}): integer
     return 1
   end
   local outcome: importer.Outcome = { refused = false }
-  local names, trouble = embed.tree(root, host, narrow.paths(root, parsed.words), nil, roots, nil, outcome)
+  local names, trouble = embed.tree(root, host, narrow.paths(root, parsed.words), roots, nil, outcome)
   if names == nil then
     log:complain(trouble)
     return if outcome.refused then exit_status.uncompiled else 1 end
