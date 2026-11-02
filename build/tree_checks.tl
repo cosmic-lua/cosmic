@@ -159,6 +159,8 @@ allow({
 allow({ "build.todos.run" }, "the verb's run, which a test calls with a tree and a `reboot.Seen` to run it " ..
     "as that tree's own tool would; the verb's spec calls it with the command line alone")
 
+allow({ "build.ceilings.parse" }, "tested directly: the shape of the ceilings file, which `Ceilings.read` parses and the tests give text of their own")
+
 allow({ "build.pipeline.over" }, "the build's compile with the new checker: a build over given sources, which the " ..
     "pipeline's own tests are the callers of")
 
