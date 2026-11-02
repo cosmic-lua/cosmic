@@ -5,7 +5,7 @@
 
 local Hash = require("cosmic.hash")
 local Json = require("cosmic.json")
--- TODO: once a test can build a value its type refuses without a cast, the casts left here go: a marked array with a string key, an array with an element at 1 << 40, `max_depth = 1.5`, a map holding `print`, and `Json.null` indexed as a table (json_path_test.tl keeps one: the step 1.5 in Json.Steps).
+-- TODO: once a test can build a value its type refuses without a cast, the casts left here go: a marked array with a string key, an array with an element at 1 << 40, `max_depth = 1.5`, a map holding `print`, and [`Json.null`] indexed as a table (json_path_test.tl keeps one: the step 1.5 in Json.Steps).
 
 --- The bits of a double, in hex, and the shortest text RFC 8785 writes it as.
 local record Sample
