@@ -53,6 +53,16 @@ local function test_a_move_of_elements_the_array_has_to_the_start_or_the_end_of_
   moves("local t = table\nt.move(xs, 1, #xs, 1, ys)\n", "")
 end
 
+local function test_a_move_in_a_loop_over_the_length_of_the_array_keeps_the_read_optional()
+  local head = "local xs: mut {integer} = { 1, 2 }\nlocal ys: mut {integer} = {}\nlocal total = 0\n"
+  local read = "for i = 1, #xs do\n  total = total + xs[i]\nend\n"
+  assert(Programs.codes(run(head .. read)) == "")
+  assert(Programs.codes(run(head .. "for i = 1, #xs do\n  table.move(xs, 1, #xs, 1, ys)\n  total = xs[i]\nend\n")) ==
+      "index_may_be_nil")
+  assert(Programs.codes(run(head .. "for i = 1, #xs do\n  table.move(ys, 1, #ys, 1, xs)\n  total = xs[i]\nend\n")) ==
+      "index_may_be_nil")
+end
+
 local function test_a_move_that_may_copy_a_nil_or_leave_a_hole_is_refused()
   -- the range reaches past the end of the source
   moves("table.move(xs, 1, n, 1, ys)\n", "array_hole")

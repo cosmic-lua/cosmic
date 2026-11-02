@@ -20,6 +20,7 @@ local SyntaxNode = require("build.syntax_node")
 local Template = require("cosmic.template")
 local analysis_schema = require("build.analysis_schema")
 local doctest = require("build.doctest")
+local positions = require("build.positions")
 local gen_syscalls = require("build.gen_syscalls")
 local withheld = require("build.withheld")
 
@@ -34,7 +35,7 @@ local record TreeProgram
   --- ceilings are kept under as well for a source the build writes from another file ([`Driver.index`]), all in the new
   --- grammar, less the programs of a `testdata/` directory. `kinds` says of a file what the working database says
   --- of its input; a `test` has its functions called from outside.
-  index: function(entries: {{string}}, kinds: {string: string}, unaliased?: {string: boolean}): Driver.Index
+  index: function(entries: {{string}}, kinds: {string: string}): Driver.Index
 
   --- The names of the language's own modules, which no project file may be named for: the lowercase records of the standard
   --- library's declarations (`math`, `string`, ...) and `_G`, which the checker answers itself. The binary answers a `require`
@@ -83,9 +84,15 @@ local record TreeProgram
 
   --- A build over `index` with the global sources and adjustment [`TreeProgram.tree_globals`] answered: the modules of `stubs`,
   --- whose stub is read in place of their source, are answered ahead of the index, and `standard` after it. The bindings of C
-  --- that neither declares are left untyped (`external`). With `types` the checker keeps the type of each node.
+  --- that neither declares are left untyped (`external`). With `types` the checker keeps the type of each node. A `require`
+  --- that names no module is told what it may have meant by `meant`, which is [`TreeProgram.meant`] of `index` where none is given.
   build: function(index: Driver.Index, globals: Globals, types?: boolean, stubs?: {string: Driver.Source},
-    standard?: Driver.Provider): Driver.Build
+    standard?: Driver.Provider, meant?: function(name: string, file: string): {string}): Driver.Build
+
+  --- What a `require` of `name` in the file `file` that names no module may have meant, as "`b.m` (b/m.tl)" each: the modules of
+  --- `index` ending in `.name` that `file` may require ([`positions.permits`]), so that no hint names a module the next check
+  --- refuses. `own` is whether the tree is cosmic's own, whose position rules are more.
+  meant: function(index: Driver.Index, own: boolean): function(name: string, file: string): {string}
 
   --- Hands each of `modules` to `each`, in the order they require one another, once it is lowered after
   --- the modules it requires, and retires it when `each` is done with it ([`Driver.Build.retire`]): a build then holds the
@@ -102,10 +109,10 @@ end
 
 local skipped = TreeProgram.skipped
 
-function TreeProgram.index(entries: {{string}}, kinds: {string: string}, unaliased?: {string: boolean}): Driver.Index
+function TreeProgram.index(entries: {{string}}, kinds: {string: string}): Driver.Index
   return Driver.index(entries, skipped, function(file: string, _text: string): Driver.Extra
     return { tests = kinds[file] == "test" }
-  end, unaliased)
+  end)
 end
 
 function TreeProgram.library_modules(globals: TreeProgram.Globals): {string: boolean}
@@ -348,8 +355,43 @@ function TreeProgram.derived_of(root: string): {{string}}?, string
   return out, ""
 end
 
+function TreeProgram.meant(index: Driver.Index, own: boolean): function(name: string, file: string): {string}
+  return function(name: string, file: string): {string}
+    local candidates = Driver.ending(index, name)
+    if #candidates == 0 then
+      return {}
+    end
+    local modules: mut {positions.Module} = {}
+    local kind = "module"
+    for _, source in ipairs(index.sources) do
+      if source.dialect == "tl" and index.by_module[source.module] == source then
+        local sort = "module"
+        if source.tests then
+          sort = "test"
+        end
+        if source.filename == file then
+          kind = sort
+        end
+        modules[#modules + 1] = { path = source.module, file = source.filename, kind = sort, source = source.text,
+          source_hash = "", requires = {}, tests = {}, inputs = nil }
+      end
+    end
+    local found: mut {string} = {}
+    for _, source in ipairs(candidates) do
+      -- Not the file's own module: a `require` of it is a cycle.
+      -- TODO: a candidate that requires `file`, directly or not, is a cycle too, and is still named. Leave it out once
+      -- this index carries each source's requires, which it does not: it holds sources alone.
+      if source.filename ~= file and (source.dialect ~= "tl" or positions.permits(modules, file, kind, source.module, { own = own })) then
+        found[#found + 1] = "`" .. source.module .. "` (" .. source.filename .. ")"
+      end
+    end
+    return found
+  end
+end
+
 function TreeProgram.build(index: Driver.Index, globals: TreeProgram.Globals, types?: boolean,
-                           stubs?: {string: Driver.Source}, standard?: Driver.Provider): Driver.Build
+                           stubs?: {string: Driver.Source}, standard?: Driver.Provider,
+                           meant?: function(name: string, file: string): {string}): Driver.Build
   -- A binding of C is typed when the tree has the header its declaration is derived from, and is left untyped (`external`)
   -- where it does not.
   local external: mut {string} = {}
@@ -361,6 +403,7 @@ function TreeProgram.build(index: Driver.Index, globals: TreeProgram.Globals, ty
   local build = Driver.new({
     globals = globals.sources, adjust = globals.adjust, external = external, types = types == true,
     library = TreeProgram.library_modules(globals),
+    meant = meant or TreeProgram.meant(index, true),
   })
   if stubs ~= nil then
     -- The modules whose stub is read in place of their source are answered ahead of the tree's files.
