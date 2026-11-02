@@ -21,6 +21,12 @@
 ---   the portable programs it makes needs;
 --- - `root`: the run's user is root;
 --- - `unix_socket`: this host permits creation of a Unix stream socket;
+--- - `loopback`: this host permits loopback sockets, a TCP listener and
+---   a UDP socket bound to 127.0.0.1. A module that declares loopback
+---   addresses ([`Test.policy`]'s `loopback`) requires it without writing
+---   it: the runner derives the name from the declared addresses
+---   ([`build.test_key`]'s `ask_host`), since the addresses already say
+---   the tests reach loopback;
 --- - `path:<absolute path>`: a file or directory of the host;
 --- - `program:<name>`: a program the PATH finds.
 ---
@@ -78,6 +84,7 @@ end
 
 local shapes: {string:Shape} = {
   unix_socket = { class = "host", argument = false, optional = false },
+  loopback = { class = "host", argument = false, optional = false },
   sandbox = { class = "platform", argument = false, optional = false },
   landlock = { class = "platform", argument = true, optional = true },
   userns = { class = "platform", argument = false, optional = false },
