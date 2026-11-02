@@ -65,7 +65,7 @@ local function test_a_project_written_in_forms_the_new_grammar_refuses_is_refuse
   assert(text:find("lookup_test.tl: not compiled: it requires lookup, which the new checker refused", 1, true) ~= nil, text)
   assert(text:find("test: 4 of 4 tests failed", 1, true) ~= nil, text)
   -- a project has no pins to raise: nothing in its errors speaks of one
-  assert(text:find("pinned", 1, true) == nil and text:find("ceilings.txt", 1, true) == nil, text)
+  assert(text:find("pinned", 1, true) == nil and text:find("add a marker", 1, true) == nil, text)
 end
 
 --- A project of `files` under `tmp`, a tree of its own for a run in `grammar`.

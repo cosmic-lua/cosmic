@@ -40,7 +40,7 @@ default and is dropped from what to change.
    left alone.
 
 Removing code can leave a marker stale (the `-- checked: ...` comment
-that holds a finding of the checker on its line, see "ceilings only fall"
+that holds a finding of the checker on its line, see "markers only fall"
 in [`doc/contributing.md`]); `bin/cosmic fix .` removes it, and the
 whole-tree check refuses it until then. Changing a harness module needs
 nothing recorded (every key holds its code); a change the modules' code

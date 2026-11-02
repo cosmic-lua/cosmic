@@ -45,7 +45,6 @@ local function own_tree(tmp: string, source?: string, underived?: boolean, heade
   assert(Fs.write(root .. "/cosmic/thing.tl", source or thing))
   if header ~= nil then assert(Fs.write(root .. "/core/syscalls.h", header)) end
   assert(Fs.mkdirs(root .. "/lang"))
-  assert(Fs.write(root .. "/build/ceilings.txt", "[marked]\nscoped declared untyped checked\n"))
   assert(Fs.write(root .. "/lang/prelude.d.tl", (assert(Fs.read("lang/prelude.d.tl")))))
   assert(Fs.write(root .. "/lang/stdlib.d.tl", (assert(Fs.read("lang/stdlib.d.tl")))))
   local handle = assert(work.open(root))

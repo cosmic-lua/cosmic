@@ -65,7 +65,7 @@ local function refusal(result: Child.Result, text: string, words: {string})
   for _, word in ipairs(words) do
     assert(text:find(word, 1, true) ~= nil, word .. " is not in: " .. text)
   end
-  assert(text:find("pinned", 1, true) == nil and text:find("ceilings.txt", 1, true) == nil and
+  assert(text:find("pinned", 1, true) == nil and text:find("add a marker", 1, true) == nil and
       text:find("rather than raise", 1, true) == nil and text:find("the TODO of", 1, true) == nil, text)
 end
 

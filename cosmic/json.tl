@@ -405,7 +405,7 @@ local record Json
   depth_limit: integer
 end
 
--- TODO: these assignments after the [`Json`] record is made are `field_fixed`, pinned in build/ceilings.txt like the
+-- TODO: these assignments after the [`Json`] record is made are `field_fixed`, held by markers like the
 -- other modules' (channel, poll, sqlite, web/*), once the module records are built whole, each with its members,
 -- where `mut` on them would let an importer swap them.
 Json.null = raw.null -- checked: field_fixed
@@ -600,7 +600,7 @@ end
 -- TODO: give [`Json.array`] a type parameter (`{T}` in, `{T}` out), so that an array of records or of decoded values is marked
 -- under its own type, once a call that passes nothing can take the parameter from the type its result is expected to have
 -- ([`Json.array()`] as an argument or in a literal is `cannot_infer` as a generic): the new checker reads `{Json.Value}` today
--- (`build.new_declarations`), so the arrays of `any` and of records given to it are pinned in [`build/ceilings.txt`].
+-- (`build.new_declarations`), so the arrays of `any` and of records given to it are held by markers.
 
 --- Marks `t` as a JSON array, so it encodes as `[]` even when empty,
 --- and answers it; with no argument, a new empty one. Raises when `t`

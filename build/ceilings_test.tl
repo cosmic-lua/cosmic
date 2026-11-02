@@ -1,69 +1,15 @@
---- Tests of [`build.ceilings`]: the data file's shape, what it refuses, and the words a ceiling is enforced in, which a
---- compile and the check of the tree share.
+--- Tests of [`build.ceilings`]: what a marker holds, what it does not (a marker of another stage, of a closed code, a stale
+--- one), and the words a finding is refused in, which a compile and the check of the tree share.
 local Ceilings = require("build.ceilings")
 local Check = require("lang.check")
 local Declarations = require("lang.declarations")
 local Scopes = require("lang.scopes")
 local Test = require("cosmic.test")
 
-Test.policy{
-  grants = {
-    { path = "build/ceilings.txt", letters = "r" },
-  },
-}
-
-local function parsed(text: string): Ceilings.Table
-  local table_, why = Ceilings.parse(text)
-  return (assert(table_, why))
-end
-
-local function refused(text: string): string
-  local table_, why = Ceilings.parse(text)
-  assert(table_ == nil, "accepted:\n" .. text)
-  return why
-end
+Test.policy{}
 
 local function finding(code: string, y: integer): Ceilings.Finding
   return { code = code, y = y, x = 3, msg = "message " .. tostring(y), fix = "fix " .. tostring(y) }
-end
-
-local function test_errors_over_their_ceiling_are_listed_with_the_count_and_what_it_is_pinned_at()
-  local errors = { finding("nil_not_allowed", 4), finding("nil_not_allowed", 9), finding("view_written", 2) }
-  local held = Ceilings.over("build/a.tl", errors, { "nil_not_allowed", "view_written" }, { ["build/a.tl nil_not_allowed"] = 1 }, "bodies")
-  assert(#held.lines == 5, table.concat(held.lines, "\n"))
-  assert(held.lines[1] == "build/a.tl:4:3: message 4 (nil_not_allowed): fix 4", held.lines[1])
-  assert(held.lines[2]:find(":9:3:", 1, true), held.lines[2])
-  assert(held.lines[3] == "build/a.tl: 2 errors of nil_not_allowed in its bodies, pinned 1; follow the fix above rather than raise the pin",
-    held.lines[3])
-  assert(held.lines[5] == "build/a.tl: 1 error of view_written in its bodies, pinned 0; follow the fix above rather than raise the pin",
-    held.lines[5])
-  assert(held.found["build/a.tl nil_not_allowed"] == 2 and held.found["build/a.tl view_written"] == 1)
-end
-
-local function test_a_tree_without_ceilings_lists_its_errors_without_a_pin_to_raise()
-  local errors = { finding("nil_not_allowed", 4), finding("nil_not_allowed", 9), finding("view_written", 2) }
-  local held = Ceilings.over("a.tl", errors, { "nil_not_allowed", "view_written" }, {}, "bodies", true)
-  assert(#held.lines == 5, table.concat(held.lines, "\n"))
-  assert(held.lines[3] == "a.tl: 2 errors of nil_not_allowed in its bodies; follow the fix above", held.lines[3])
-  assert(held.lines[5] == "a.tl: 1 error of view_written in its bodies; follow the fix above", held.lines[5])
-  -- the same errors under a table that has ceilings are told with them
-  local pinned = Ceilings.over("a.tl", errors, { "nil_not_allowed", "view_written" }, {}, "bodies", false)
-  assert(pinned.lines[3] == "a.tl: 2 errors of nil_not_allowed in its bodies, pinned 0; follow the fix above rather than raise the pin",
-    pinned.lines[3])
-end
-
-local function test_errors_at_or_under_their_ceiling_and_codes_nobody_asked_for_are_not_listed()
-  local errors = { finding("nil_not_allowed", 4), finding("view_written", 2), finding("other_code", 1) }
-  local held = Ceilings.over("build/a.tl", errors, { "nil_not_allowed", "view_written" },
-    { ["build/a.tl nil_not_allowed"] = 1, ["build/a.tl view_written"] = 5 }, "bodies")
-  assert(#held.lines == 0, table.concat(held.lines, "\n"))
-  assert(held.found["build/a.tl other_code"] == nil)
-end
-
-local function test_a_ceiling_above_what_is_found_is_told_to_fall_in_the_order_of_the_keys()
-  local lines = Ceilings.fallen({ ["b.tl x"] = 2, ["a.tl x"] = 1 }, { ["b.tl x"] = 3, ["a.tl x"] = 1, ["c.tl y"] = 2 }, "the file")
-  assert(#lines == 2 and lines[1] == "b.tl x: pinned 3 but 2 found; lower the pin in the file" and
-      lines[2] == "c.tl y: pinned 2 but 0 found; lower the pin in the file", table.concat(lines, "\n"))
 end
 
 --- Whether `text`, which may be absent, holds `needle`.
@@ -71,50 +17,27 @@ local function has(text: string?, needle: string): boolean
   return text ~= nil and text:find(needle, 1, true) ~= nil
 end
 
-local MARKED <const> = "[marked]\nscoped declared untyped checked\n"
-
---- The file lists exactly the stages markers hold, and holds no row: the one text the parse accepts.
-local function test_the_file_of_the_tree_lists_every_stage_as_marked_and_holds_no_row()
-  local ceilings = assert(Ceilings.read("."))
-  for _, stage in ipairs(Ceilings.markable()) do
-    assert(Ceilings.by_marks(ceilings, stage), tostring(stage) .. " is not held by markers")
-    assert(next(Ceilings.of(ceilings, stage)) == nil, tostring(stage) .. " has a row")
-  end
-  local parsed_text = parsed("# why\n" .. MARKED .. "\n")
-  assert(Ceilings.by_marks(parsed_text, "declared"))
+--- No file configures the stages: they are these four, in the order a comment writes them, and each is held by markers.
+local function test_the_stages_markers_hold_are_the_four_of_the_checker()
+  local stages: mut {string} = {}
+  for _, stage in ipairs(Ceilings.markable()) do stages[#stages + 1] = tostring(stage) end
+  assert(table.concat(stages, " ") == "scoped declared untyped checked", table.concat(stages, " "))
 end
 
---- A stage taken out of `[marked]` and given rows is how a count held a finding no marker holds: no stage may have rows.
-local function test_a_section_of_rows_is_refused_for_every_stage()
-  for _, stage in ipairs({ "scoped", "declared", "untyped", "checked", "testdata", "examples" }) do
-    local why = refused(MARKED .. "\n[" .. stage .. "]\nbuild/a.tl view_written 1\n")
-    assert(has(why, "build/ceilings.txt:4: [" .. stage .. "] is no section of this file"), why)
-  end
-  -- the demotion itself: `declared` out of the list, with rows at its counts
-  local demoted = refused("[marked]\nscoped untyped checked\n\n[declared]\nbuild/a.tl float_key 1\n")
-  assert(has(demoted, "[declared] is no section of this file"), demoted)
-  -- a row with no section, or among the stages
-  assert(has(refused("build/a.tl nil_not_allowed 3\n"), "this file has no row"))
-  assert(has(refused(MARKED .. "build/a.tl 3\n"), "[marked] lists stages by name, not `build/a.tl 3`"))
+--- A project holds no marker: its findings are all refused, and the lines say the count alone, not what a marker holds.
+local function test_a_markerless_text_lists_every_finding_without_a_marker_to_add()
+  local errors = { finding("nil_not_allowed", 4), finding("nil_not_allowed", 9), finding("view_written", 2) }
+  local text = "a()\nb()\n"
+  local judged = Ceilings.marked("checked", "a.tl", text, errors, { "nil_not_allowed", "view_written" }, "bodies", true)
+  assert(#judged.lines == 6, table.concat(judged.lines, "\n"))
+  assert(judged.lines[2] == "a.tl: 1 error of view_written in its bodies on line 2; follow the fix above", judged.lines[2])
+  assert(judged.lines[4] == "a.tl: 1 error of nil_not_allowed in its bodies on line 4; follow the fix above", judged.lines[4])
+  assert(not has(table.concat(judged.lines, "\n"), "marker"), table.concat(judged.lines, "\n"))
+  -- the same errors under a text with markers are told with what is marked
+  local marked = Ceilings.marked("checked", "a.tl", text, errors, { "nil_not_allowed", "view_written" }, "bodies")
+  assert(has(marked.lines[2], ", marked 0; follow the fix above rather than add a marker"), marked.lines[2])
 end
 
---- `[marked]` must name exactly the stages markers hold, so that no stage is left to hold its findings by counts.
-local function test_a_marked_list_that_misses_a_stage_is_refused()
-  for _, missing in ipairs({ "scoped", "declared", "untyped", "checked" }) do
-    local names: mut {string} = {}
-    for _, stage in ipairs(Ceilings.markable()) do
-      if tostring(stage) ~= missing then names[#names + 1] = tostring(stage) end
-    end
-    local why = refused("[marked]\n" .. table.concat(names, " ") .. "\n")
-    assert(has(why, "`" .. missing .. "` is missing"), why)
-  end
-  assert(has(refused(""), "[marked] must list every stage"))
-  assert(has(refused("[marked]\nscoped declared untyped checked testdata\n"), "`testdata` is no stage that markers hold"))
-  assert(has(refused(MARKED .. "\n[marked]\nscoped\n"), "[marked] is listed twice"))
-end
-
---- Whether a code is held by a marker or a row, and so whether it may be closed, is a check of the whole tree
---- ([`tree_checks.closure`], which `cosmic fix --check .` runs); this holds the list alone.
 local function test_every_closed_code_is_a_code_of_a_stage_once()
   local codes: mut {string: boolean} = {}
   for _, code in ipairs(Scopes.codes) do codes[code] = true end
@@ -128,7 +51,7 @@ local function test_every_closed_code_is_a_code_of_a_stage_once()
   end
 end
 
--- The markers: a stage listed under `[marked]` has its findings held at the lines they occur on. A marker in a fixture is written
+-- The markers: a stage has its findings held at the lines they occur on. A marker in a fixture is written
 -- as `KEY .. " ..."` so that this file holds none.
 
 local KEY <const> = "-- checked:"

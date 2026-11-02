@@ -1950,8 +1950,7 @@ end
 -- literal's items, or the literal alone) is written into
 -- doc/guides/project.md: it is typed by the join of its items today, so
 -- `Json.encode_any({ a = 1, b = "x" })` is `arms_differ`, and the files that
--- give such a literal to an `any` parameter hold that count in
--- [`build/ceilings.txt`].
+-- give such a literal to an `any` parameter hold it by markers.
 
 --- A table literal. Checked against a type it is a record, a class, an array or a map as that type is; with no type it
 --- is an array or a map of the join of its items.

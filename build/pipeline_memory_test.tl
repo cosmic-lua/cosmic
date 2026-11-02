@@ -2,7 +2,6 @@
 --- a module is the declarations the next module reads, and not the module's tokens, syntax tree and scopes, which are most
 --- of what a build holds while it is read. A tree of a thousand modules is checked in a few of them at a time.
 local ShapeStub = require("build.shape_stub")
-local CeilingsFixture = require("build.ceilings_fixture")
 local Driver = require("build.driver")
 local Pipeline = require("build.pipeline")
 local Programs = require("lang.check_programs")
@@ -30,7 +29,7 @@ local function options(): Pipeline.Options
       sources = { Driver.declarations("std", "std.d.tl", Programs.library, {}) },
       adjust = function(_globals: {string: Scopes.Global}) end,
     },
-    ceilings = CeilingsFixture.rows(""), types = true, standard = Driver.stubs(SHAPE), project = nil,
+    types = true, standard = Driver.stubs(SHAPE), project = nil,
   }
 end
 

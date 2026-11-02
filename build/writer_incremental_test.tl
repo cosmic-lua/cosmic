@@ -501,7 +501,6 @@ local function test_the_ca_tables_stand_or_move_with_their_files(tmp: string)
     assert(Fs.mkdirs(root .. "/lang"))
     assert(Fs.write(root .. "/lang/prelude.d.tl", (assert(Fs.read("lang/prelude.d.tl")))))
     assert(Fs.write(root .. "/lang/stdlib.d.tl", (assert(Fs.read("lang/stdlib.d.tl")))))
-    assert(Fs.write(root .. "/build/ceilings.txt", "[marked]\nscoped declared untyped checked\n"))
   end
   put(initial)
   assert(Fs.write(root .. "/vendor/cacert/certdata.txt", block("one") .. block("two")))

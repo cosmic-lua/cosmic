@@ -107,7 +107,6 @@ local function write_fixture(case: string, files: {string:string}): string?, str
   if files["build/importer.tl"] ~= nil then
     all["lang/prelude.d.tl"] = assert(Fs.read("lang/prelude.d.tl"))
     all["lang/stdlib.d.tl"] = assert(Fs.read("lang/stdlib.d.tl"))
-    all["build/ceilings.txt"] = "[marked]\nscoped declared untyped checked\n"
   end
   for filename, source in pairs(all) do
     local parent = filename:match("^(.+)/[^/]+$")

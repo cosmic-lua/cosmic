@@ -889,7 +889,7 @@ end
 
 local type Outcome = raw_sqlite.Outcome
 
--- TODO: copying into a result record is `field_fixed` on the [`Outcome`] records (pinned in build/ceilings.txt), once
+-- TODO: copying into a result record is `field_fixed` on the [`Outcome`] records (held by markers), once
 -- the typed helpers make each record whole from the outcome they hold instead of copying into one made first.
 local function copy_outcome(from: Outcome, to: Outcome)
   to.code, to.extended_code = from.code, from.extended_code -- checked: field_fixed*2

@@ -61,10 +61,10 @@ stands on another checkout's pass.
   a share that ran on an image with another kernel. It never reaches a
   row of another processor's features (below). Unset, a run reuses only
   the rows of its own host's keys.
-- The new checker is the tool's only one: [`build.pipeline`] reads the tree, checks it against its markers and ceilings and writes
+- The new checker is the tool's only one: [`build.pipeline`] reads the tree, checks it against its markers and writes
   the Lua. `COSMIC_GRAMMAR` takes `new` or nothing ([`build.grammar_mode`]); `teal`, the grammar of the fork that was
   deleted, is refused, pointing to the project guide, which says how to rewrite a project to the new one. A project outside cosmic's own
-  has no ceilings: every error refuses, its globals are the declarations of the standard library the tool carries
+  holds no marker: every error refuses, its globals are the declarations of the standard library the tool carries
   ([`build.checker_declarations`]), and a form of the old grammar is refused with the new checker's words and fix. A
   lone file run (`cosmic --standalone`, `cosmic sandbox`) and a file run (`cosmic <file>`) are built by it too. `cosmic
   build` compiles the project with it. A module it refuses, a test file included, or one that breaks a position rule (a
@@ -644,7 +644,7 @@ The tree alone is weak evidence for a change to narrowing: the tree's own
 code is written to pass, and a checker that narrowed less or more leaves
 most of its lines as they are. The fuzz properties carry that sensitivity,
 so a narrowing change runs them with a larger `FUZZ_ITERS` as well as
-reading the tree's ceilings.
+reading the tree's markers.
 
 ## a test's files, output and time
 

@@ -22,10 +22,8 @@
 --- reads, and the tokens, the syntax tree and the scopes of the module go. Asked for the modules in the order they require one
 --- another, a build holds one module's syntax at a time and not the tree's.
 ---
---- The ceilings ([`build.ceilings`]) are enforced for a module by [`Driver.Build.held`]: a count of errors of a code
---- above its ceiling, or an error with no marker on its line for a stage held by markers, is refused, with the same words
---- as the check of the tree. A module that did not parse is refused
---- for that alone.
+--- The markers ([`build.ceilings`]) are enforced for a module by [`Driver.Build.held`]: an error with no marker on its line
+--- is refused, with the same words as the check of the tree. A module that did not parse is refused for that alone.
 ---
 --- Its callers are [`build.tree_checks`], `cosmic compile` ([`build.compile_grammar`]) and the pipeline of the
 --- new checker ([`build.pipeline`]), which the build's own compile calls ([`build.importer`]).
@@ -58,7 +56,7 @@ local record Driver
     --- The other names a `require` may give it: only a declaration file of the globals has any ([`Driver.declarations`]); a
     --- module of an index ([`Driver.index`]) answers to its whole name alone.
     mut aliases: mut {string}
-    --- The name its ceilings are kept under, "" where that is its `filename`. A source the build writes from another
+    --- The name its findings are told under, "" where that is its `filename`. A source the build writes from another
     --- file (a guide's examples, a template, the declarations of a header) is named for the file it comes from, which
     --- the tree has, where its `filename` names the text written.
     pinned: string
@@ -181,11 +179,13 @@ local record Driver
     --- provider has it. Call it for the modules you want, after [`Driver.Build.lower`] of all of them, since the
     --- errors of a module's declarations include checks that waited for a module lowered later.
     mut result: function(Build, name: string, bodies: boolean): Outcome?
-    --- The lines that refuse `result` against `ceilings`: its syntax errors, and for each stage the errors of a code above
-    --- its ceiling, each with its place and fix and then the count and `pinned N`. None where the module is held. The stages
-    --- are those of the tree's checks, over the same text: a module is held to `[scoped]`, `[declared]` and `[checked]`, and
-    --- to no syntax error. A module whose bodies were not checked is told so.
-    mut held: function(Build, result: Outcome, ceilings: Ceilings.Table): {string}
+    --- The lines that refuse `result`: its syntax errors, and for each stage the errors of a code on a line whose markers do not
+    --- hold them, each with its place and fix and then the count on the line and what is marked. None where the module is
+    --- held. The stages are those of the tree's checks, over the same text: a module is held to its `scoped`, `declared` and
+    --- `checked` markers, and to no syntax error. A module whose bodies were not checked is told so. With `markers` false (a
+    --- project's, which no marker holds) every error is refused, and the lines point to no marker. An error of a code of
+    --- `free` is never refused.
+    mut held: function(Build, result: Outcome, markers: boolean, free?: {string}): {string}
     --- Replaces the text of the module `name` with `text`, and answers its outcome, or nil where no provider has `name`. A module cannot be lowered twice in one program, so
     --- the program forgets the module and every module that requires it, through others as well ([`Declarations.forget`]),
     --- and lowers them again when they are next asked for, from the syntax tree the build has already; the others keep
@@ -242,7 +242,7 @@ local record Driver
   --- given as both `.tl` and `.d.tl` is refused before an index is made ([`Driver.declared`]); two files that are one module
   --- otherwise (`x.tl` and `x/init.tl`, or `x.d.tl` and `x/init.d.tl`) are refused by the derive ([`build.derivation`]),
   --- and are not given here. A `*_test.tl` is a test module
-  --- ([`Driver.Source.tests`]). An entry may give a third word, the module it is, and a fourth, the name its ceilings
+  --- ([`Driver.Source.tests`]). An entry may give a third word, the module it is, and a fourth, the name its findings
   --- are kept under ([`Driver.Source.pinned`]), for a source the build writes from another file, whose path says
   --- neither: the entry's path is then the name of the text, and `.d.tl` still marks a declaration. `extras` says of a file
   --- what its name does not: a test module ([`Driver.Source.tests`]).
@@ -668,7 +668,7 @@ function Driver.new(options: Driver.Options): Driver.Build
     result = function(_self: Driver.Build, _name: string, _bodies: boolean): Driver.Outcome?
       return nil
     end,
-    held = function(_self: Driver.Build, _result: Driver.Outcome, _ceilings: Ceilings.Table): {string}
+    held = function(_self: Driver.Build, _result: Driver.Outcome, _markers: boolean, _free?: {string}): {string}
       return {}
     end,
     replace = function(_self: Driver.Build, _name: string, _text: string): Driver.Outcome?
@@ -1201,31 +1201,31 @@ function Driver.new(options: Driver.Options): Driver.Build
     return result
   end
 
-  build.held = function(_self: Driver.Build, result: Driver.Outcome, ceilings: Ceilings.Table): {string}
+  build.held = function(_self: Driver.Build, result: Driver.Outcome, markers: boolean, free?: {string}): {string}
     local out: mut {string} = {}
     local source = result.source
     local file = source.filename
     if source.pinned ~= "" then
       file = source.pinned
     end
+    local exempt: mut {string: boolean} = {}
+    for _, code in ipairs(free or {}) do
+      exempt[code] = true
+    end
     local function stage(list: {Driver.Problem}, codes: {string}, name: Ceilings.Stage, what: string)
       local findings: mut {Ceilings.Finding} = {}
       for _, p in ipairs(list) do
-        findings[#findings + 1] = { code = p.code, y = p.y, x = p.x, msg = p.msg, fix = p.fix }
-      end
-      if ceilings.none ~= true and Ceilings.by_marks(ceilings, name) then
-        -- The markers are comments of the text itself; a text the build writes from another file has none.
-        local text = source.text
-        if source.pinned ~= "" then
-          text = ""
+        if exempt[p.code] ~= true then
+          findings[#findings + 1] = { code = p.code, y = p.y, x = p.x, msg = p.msg, fix = p.fix }
         end
-        for _, line in ipairs(Ceilings.marked(name, file, text, findings, codes, what).lines) do
-          out[#out + 1] = line
-        end
-        return
       end
-      local held = Ceilings.over(file, findings, codes, Ceilings.of(ceilings, name), what, ceilings.none)
-      for _, line in ipairs(held.lines) do
+      -- The markers are comments of the text itself; a text the build writes from another file has none, and a project's
+      -- holds none.
+      local text = source.text
+      if source.pinned ~= "" or not markers then
+        text = ""
+      end
+      for _, line in ipairs(Ceilings.marked(name, file, text, findings, codes, what, not markers).lines) do
         out[#out + 1] = line
       end
     end
@@ -1239,7 +1239,7 @@ function Driver.new(options: Driver.Options): Driver.Build
     stage(result.declared, Declarations.codes, "declared", "declarations")
     stage(result.bodies, Check.codes, "checked", "bodies")
     if source.checked and source.dialect == "tl" and result.checked == nil then
-      out[#out + 1] = file .. ": its bodies were not checked, so no ceiling on them was held: ask for the result with the " ..
+      out[#out + 1] = file .. ": its bodies were not checked, so no marker on them was held: ask for the result with the " ..
         "bodies checked"
     end
     return out

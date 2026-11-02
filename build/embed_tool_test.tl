@@ -574,7 +574,7 @@ local function test_a_project_the_new_checker_refuses_is_not_built(tmp: string)
   assert(names == nil, "built a project the new checker refuses")
   assert(trouble:find("lookup.tl:10:12: nil is given as return value 1, where `Entry` is wanted (nil_not_allowed): give a value, " ..
       "or declare what takes it `Entry?`", 1, true) ~= nil, tostring(trouble))
-  assert(trouble:find("pinned", 1, true) == nil and trouble:find("ceilings.txt", 1, true) == nil, trouble)
+  assert(trouble:find("pinned", 1, true) == nil and trouble:find("add a marker", 1, true) == nil, trouble)
 end
 
 --- A program that says which roots its requests trust by default
