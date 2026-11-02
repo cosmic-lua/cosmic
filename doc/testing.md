@@ -337,6 +337,7 @@ and keeps no verdict of it. A held run fails it.
 To compare JSON-shaped values, use [`Json.diff`]`(want, got)` and assert that the list it answers is empty, or put the paths
 it names in the message. Compare a typed record field by field.
 
+    local Json = require("cosmic.json")
     local want: Json.Value = { name = "cosmic", tags = Json.array({ "lua" }) }
     local got: Json.Value = { name = "cosmic", tags = Json.array({ "lua", "teal" }) }
     local differences = Json.diff(want, got)

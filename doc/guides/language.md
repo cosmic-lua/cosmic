@@ -99,7 +99,7 @@ end
 ## an array with named fields
 
 A table that holds an array part and named fields is a record that declares both: `is {string}` makes the array part, and
-the body declares the fields. Its literal mixes the two, and `#r`, `r[1]` and `r.name()` all work. A map keyed by two
+the body declares the fields. Its literal mixes the two, and `#r`, `r[1]`, `r.name` and a call of a function field, `r.run()`, all work. A map keyed by two
 types, `{string | integer: T}`, is refused on purpose (`key_type`): declare the record instead.
 
 ```teal
