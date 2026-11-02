@@ -973,10 +973,13 @@ end
 --- ([`build.dispatch_sites`]), and its module does not declare
 --- `cpu_features`, so its key holds none of them and its verdict would
 --- stand on a host of another processor. The functions are those the
---- worker's hits name: the lines of the core's C the test ran, and those of
---- the processes it started. Nothing is checked where the core observes
+--- worker's hits name: the lines of the core's C the module's load and the
+--- test ran, and those of the processes it started. Code a module runs as
+--- it loads (a top-level search) is the module's as much as a test's.
+--- Nothing is checked where the core observes
 --- no C ([`Coverage.native_functions`] is empty), or for a test that reported
---- nothing, or in a tree that is not cosmic's own, whose C is not there to read.
+--- nothing, or in a tree that is not cosmic's own, whose C is not there to read
+--- (unless COSMIC_TEST_DISPATCH_CHECK=1, for the runner's own tests).
 -- TODO: hold a project outside cosmic's tree to it too, once the core
 -- reports which of its C functions turn on the processor (the list is
 -- derived from the core's C source and the audit, which only cosmic's own
@@ -984,7 +987,10 @@ end
 -- `cpu_features` stand on a host of another processor.
 local function dispatch_failure(rec: Recording, job: Job, reported: worker.Report?): string
   local effective = rec.effective[job.m.path]
-  if not rec.own_tree or reported == nil or effective == nil or effective.cpu_features == true then
+  -- A test of the runner stands a project in for cosmic's tree by copying the core's C under core/
+  -- (build/sandboxed_verdicts_test.tl).
+  local held = rec.own_tree or Env.read("COSMIC_TEST_DISPATCH_CHECK") == "1"
+  if not held or reported == nil or effective == nil or effective.cpu_features == true then
     return ""
   end
   local reaches = rec.dispatched
@@ -994,7 +1000,15 @@ local function dispatch_failure(rec: Recording, job: Job, reported: worker.Repor
     reaches = dispatch_sites.reaching(c_functions.spans(functions, sources), sources)
     rec.dispatched = reaches
   end
-  return dispatch_sites.failure(reaches, reported.test_hits)
+  local ran: mut {string:mut {integer:boolean}} = {}
+  for _, taken in ipairs({ reported.load_hits, reported.test_hits }) do
+    for path, lines in pairs(taken) do
+      local into = ran[path] or {}
+      ran[path] = into
+      for line in pairs(lines) do into[line] = true end
+    end
+  end
+  return dispatch_sites.failure(reaches, ran)
 end
 
 --- Records one finished job: the verdict its worker reported, or a

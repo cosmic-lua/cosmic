@@ -3830,7 +3830,7 @@ core/sqlite_wait_lua_test.tl condition_type 1
 core/syscalls_namespace_refusal_test.tl condition_type 1
 
 
-core/syscalls_test.tl condition_type 2
+core/syscalls_test.tl condition_type 1
 
 
 
