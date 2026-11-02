@@ -223,6 +223,9 @@ local record Credentials
   group?: integer
 end
 
+-- TODO: the child tests that set a field of an [`Options`] or [`rules.Policy`] after making it are `field_fixed` (pinned in
+-- build/ceilings.txt for cosmic/child_*_test.tl), once they build each record whole, which needs no `mut` on a public
+-- record.
 local record Options
   --- The child's whole environment, by name: it replaces this process's
   --- rather than adding to it. Nil inherits this process's.
@@ -595,8 +598,8 @@ local record Pipe
   mut head: integer
   mut tail: integer
   --- The Reader ended this pipe, explicitly or after an escaped writer.
-  reader_closed: boolean
-  consuming: boolean
+  mut reader_closed: boolean
+  mut consuming: boolean
 end
 
 --- Bounds and borrowed destinations for [`Handle.drain`].
@@ -957,7 +960,7 @@ local services: {Kind:Service} = {
 --- a streamed one holding `_limit` unread bytes, its pending input, and
 --- its exit while it is not reaped. With `feeding`, room in that
 --- handle's stdin stream too.
-local function watching(handles: {Handle}, feeding?: Handle): {Entry}
+local function watching(handles: {Handle}, feeding?: Handle): mut {Entry}
   local entries: mut {Entry} = {}
   if feeding ~= nil then
     entries[1] = { fd = feeding._feed_fd, events = sys.POLLOUT, owner = feeding, kind = "feed" }
@@ -1275,8 +1278,8 @@ end
 --- One read or drain owns its queues even while a sink or pipe wait yields.
 local record Consumption
   pipes: {Pipe}
-  discard: boolean
-  reason?: string
+  mut discard: boolean
+  mut reason?: string
   __close: function(Consumption)
 end
 

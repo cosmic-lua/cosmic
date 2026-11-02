@@ -125,7 +125,7 @@ local record Input
     --- blank (an empty filename and no bytes) is not here.
     files: {string:{Input.Upload}}
     --- How many bytes the body held.
-    size: integer
+    mut size: integer
     --- Removes the spooled files (and the directory made for them), now
     --- rather than when the request ends. It is safe to call twice and
     --- when a file is gone.
@@ -191,11 +191,8 @@ local function without(q: Url.Query, secret: {string}?): Url.Query
   for _, pair in ipairs(q.pairs) do
     if hidden[pair.name] ~= true then
       out.pairs[#out.pairs + 1] = { name = pair.name, value = pair.value }
-      local list = out.by_name[pair.name]
-      if list == nil then
-        list = {}
-        out.by_name[pair.name] = list
-      end
+      if out.by_name[pair.name] == nil then out.by_name[pair.name] = {} end
+      local list = assert(out.by_name[pair.name])
       list[#list + 1] = pair.value
     end
   end
@@ -466,7 +463,7 @@ local function read_multipart(req: Types.Request, limit: integer, opts: Types.In
   -- private directory under the temp directory is the system's to clean.
   local spooled: Spooled = { kept = {} }
   local fields: Url.Query = { pairs = {}, by_name = {} }
-  local files: mut {string:{Input.Upload}} = {}
+  local files: mut {string: mut {Input.Upload}} = {}
   local m: Input.Multipart = { fields = fields, files = files, size = 0,
     discard = function(_self: Input.Multipart)
       for _, upload in ipairs(spooled.kept) do
@@ -577,11 +574,8 @@ local function read_multipart(req: Types.Request, limit: integer, opts: Types.In
         local upload: Input.Upload = { field = part.name, filename = part.filename,
           content_type = part.content_type, size = size, path = path }
         spooled.kept[#spooled.kept + 1] = upload
-        local list = files[part.name]
-        if list == nil then
-          list = {}
-          files[part.name] = list
-        end
+        if files[part.name] == nil then files[part.name] = {} end
+        local list = assert(files[part.name])
         list[#list + 1] = upload
       end
     else
@@ -613,11 +607,8 @@ local function read_multipart(req: Types.Request, limit: integer, opts: Types.In
         return stop_with(stop(400, "body", "", "utf8", ("the field %s is not valid UTF-8"):format(shown(part.name))))
       end
       fields.pairs[#fields.pairs + 1] = { name = part.name, value = value }
-      local list = fields.by_name[part.name]
-      if list == nil then
-        list = {}
-        fields.by_name[part.name] = list
-      end
+      if fields.by_name[part.name] == nil then fields.by_name[part.name] = {} end
+      local list = assert(fields.by_name[part.name])
       list[#list + 1] = value
     end
   end
@@ -1121,12 +1112,8 @@ local function bind_json<T>(value: any, spec: Shape.Spec<T>): Types.Parsed<T>
 end
 
 local function with_source(opts: Types.InputOptions?, source: string): Types.InputOptions
-  local out: Types.InputOptions = {}
-  if opts ~= nil then
-    out.max_bytes, out.secret, out.repeated = opts.max_bytes, opts.secret, opts.repeated
-  end
-  out.source = source
-  return out
+  local given = opts or {}
+  return { max_bytes = given.max_bytes, secret = given.secret, repeated = given.repeated, source = source }
 end
 
 --- Binds the text of `q` to `spec`, a record, coercing by the rules in the

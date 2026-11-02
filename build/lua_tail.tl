@@ -19,6 +19,12 @@ local record LuaTail
   --- two versions of a module that differ in a comment, a blank line or where a function sits. Nil and why where
   --- `bytecode` is not a chunk Lua loads.
   stripped: function(bytecode: string, name: string): string?, string
+
+  --- Whether `code` compiles with `spare` locals declared in front of it, and where it does not, Lua's words: "too many local
+  --- variables" where the locals are past 200 (a function may hold that many), and another message for anything else, such
+  --- as a chunk that needs too many registers, which the locals in front can cause and are no count of locals. The chunk is
+  --- compiled and dropped, never run ([`build.main_locals`] searches for the greatest `spare` that fits).
+  fits_with: function(code: string, spare: integer): boolean, string
 end
 
 --- `string.dump` of `chunk`, which `load` makes: the one place the vararg return of that type meets the single one
@@ -94,6 +100,19 @@ function LuaTail.stripped(bytecode: string, name: string): string?, string
   local chunk, trouble = load(bytecode, "=" .. name, "b", {})
   if chunk == nil then return nil, name .. ": " .. tostring(trouble) end
   return dump(chunk, true), ""
+end
+
+function LuaTail.fits_with(code: string, spare: integer): boolean, string
+  local names: mut {string} = {}
+  for index = 1, spare do
+    names[index] = "__l" .. tostring(index)
+  end
+  local front = if spare > 0 then "local " .. table.concat(names, ",") .. " " else "" end
+  local chunk, trouble = load(front .. code, "=fits_with", "t")
+  if chunk == nil then
+    return false, tostring(trouble)
+  end
+  return true, ""
 end
 
 return LuaTail
