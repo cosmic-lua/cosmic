@@ -1084,15 +1084,27 @@ static int statement_bytes (lua_State *L) {
   return 1;
 }
 
-static int statement_reset (lua_State *L) {
+/* Rewinds the statement; `clear` also drops every binding. SQLite's
+ * sqlite3_reset reports the previous step's failure, and still rewinds. */
+static int rewound (lua_State *L, int clear) {
   struct statement *s = checked_statement(L);
   begin_wait(s->owner);
-  sqlite3_clear_bindings(s->stmt);
+  if (clear) {
+    sqlite3_clear_bindings(s->stmt);
+  }
   int rc = sqlite3_reset(s->stmt);
   if (rc != SQLITE_OK) {
     return failed_effect(L, s->db, rc);
   }
   return cosmic_done(L);
+}
+
+static int statement_reset (lua_State *L) {
+  return rewound(L, 1);
+}
+
+static int statement_rewind (lua_State *L) {
+  return rewound(L, 0);
 }
 
 static int statement_finalize (lua_State *L) {
@@ -1136,6 +1148,7 @@ static const luaL_Reg statement_methods[] = {
   {"number", statement_number},
   {"bytes", statement_bytes},
   {"reset", statement_reset},
+  {"rewind", statement_rewind},
   {"finalize", statement_finalize},
   {NULL, NULL},
 };
