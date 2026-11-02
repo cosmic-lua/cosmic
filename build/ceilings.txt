@@ -1381,7 +1381,6 @@ build/patch_test.tl index_may_be_nil 2
 
 
 
-build/positions_test.tl index_may_be_nil 1
 
 
 
@@ -1463,7 +1462,6 @@ build/time_test.tl index_may_be_nil 1
 
 build/tree_root.tl index_may_be_nil 1
 
-build/verb_list_test.tl index_may_be_nil 2
 
 
 
@@ -1487,7 +1485,7 @@ cosmic/archive_fuzz_test.tl index_may_be_nil 7
 
 cosmic/archive_test.tl index_may_be_nil 1
 
-cosmic/child.tl index_may_be_nil 21
+cosmic/child.tl index_may_be_nil 19
 
 cosmic/child_lua_strays_test.tl index_may_be_nil 1
 
@@ -1641,7 +1639,7 @@ lang/codegen.tl index_may_be_nil 15
 
 lang/codegen_fuzz_test.tl index_may_be_nil 1
 
-lang/declarations.tl index_may_be_nil 11
+lang/declarations.tl index_may_be_nil 10
 
 lang/declarations_test.tl index_may_be_nil 7
 
