@@ -259,8 +259,6 @@ for _, name in ipairs({ "key", "open", "close", "look", "settle", "analyzers", "
 end
 allowed["build.importer.analyzer_modules"] = "tested directly: the test holds the " ..
   "list to every module the analysis requires"
-allowed["build.lsp.protocol.frames_of"] = "tested directly: the test hands it a " ..
-  "stream that answers a byte a read, so a message arrives split at every place it can be"
 allowed["build.importer.tree_code"] = "tested directly: the test holds what a " ..
   "boot names its analyzer by to what the tool it writes names it by, around a " ..
   "derive run as a boot runs it, which no binary under the suite otherwise does"

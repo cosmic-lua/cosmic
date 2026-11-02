@@ -73,6 +73,10 @@ end
 --- rebuilt tool's own writer (`unsettled`).
 local marker = "COSMIC_REBOOTED"
 
+--- Whether this process let go of the `marker` it was entered with
+--- ([`reboot.release_entry`]).
+local released = false
+
 --- The running binary's `meta` value of `key`, or what `seen` says in
 --- its place ([`reboot.Seen`]).
 local function meta_of(key: string, seen?: reboot.Seen): string?
@@ -185,7 +189,26 @@ local function entered_by(seen?: reboot.Seen): string?
   if seen ~= nil then
     return seen.environment[marker]
   end
+  if released then return nil end
   return sys.getenv(marker)
+end
+
+--- Whether a reboot entered this process: it runs the tool a rebuild or
+--- a boot wrote, re-entered with the command line it was started with.
+--- A process that [`reboot.release_entry`] let go of is none.
+function reboot.entered(): boolean
+  return entered_by() ~= nil
+end
+
+--- Lets a process a reboot entered rebuild again. The `marker` it was
+--- entered with only keeps a tool that is still stale after one reboot
+--- from rebuilding at once, forever; a process that serves for good
+--- (`cosmic lsp`, [`reboot.recheck`]) has shown its tool fresh by
+--- serving, and has no way to change its own environment, so it says so
+--- here. Whatever it rebuilds then enters its successor with the marker
+--- set, as any does.
+function reboot.release_entry()
+  released = true
 end
 
 --- Why a rebuild (`into`, settling when `settle`) refuses in this
@@ -447,7 +470,7 @@ end
 --- database was of another schema, so the check was skipped; or another
 --- run held the rebuild lock while the tool was older than the tree. The
 --- tool's code may then be older than the tree's, so for the life of the
---- process nothing derived from it is written there: a lookup builds
+--- process, or until [`reboot.recheck`] holds it to the tree, nothing derived from it is written there: a lookup builds
 --- nothing ([`rebuild.here`]), `cosmic lsp` stages nothing
 --- ([`rebuild.stage`]), and each reads what is there.
 function reboot.unchecked(root: string): boolean
@@ -455,6 +478,28 @@ function reboot.unchecked(root: string): boolean
   -- is beneath, was never checked, and so never left unchecked.
   local directory, _ = build_paths.optional(root)
   return directory ~= nil and unchecked_trees[directory] == true
+end
+
+--- Holds the tool of a process that goes on running, `cosmic lsp`, to
+--- the tree at `root` again: forgets that the check before it went on
+--- without doing so ([`reboot.unchecked`]), then makes it as
+--- [`reboot.stale_exit`] does for a verb that only reads. Where another
+--- run still holds the working database or the rebuild lock, the tree
+--- stays unchecked and nothing else happens, so the caller tries again
+--- later; where the tool is stale and the locks are free, this process
+--- is replaced by the rebuilt tool running `argv` again and does not
+--- return. Answers nil where the tool is the tree's or the check was
+--- deferred, and otherwise the exit code of a check or a rebuild that
+--- failed, having said why on stderr: the tree is then left unchecked, as
+--- nothing this tool derives of it can be trusted.
+--- @param argv the command line, re-entered after a rebuild
+--- @param seen how a test has the check see the running tool ([`reboot.Seen`])
+function reboot.recheck(argv: {string}, root: string, seen?: reboot.Seen): integer?
+  local directory, _ = build_paths.optional(root)
+  if directory ~= nil then unchecked_trees[directory] = nil end
+  local code = reboot.stale_exit(argv, true, root, seen)
+  if code ~= nil then leave_unchecked(root) end
+  return code
 end
 
 -- The rebuild lock ([`build.rebuild_lock`]) is held by a run from the

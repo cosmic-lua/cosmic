@@ -24,7 +24,11 @@
 --- tree rebuilds itself first, as `docs` does, and `reads`: where another
 --- run holds the working database or the rebuild lock, it starts at once
 --- and rebuilds no tool; where that left the tool unchecked against the
---- tree, it stages nothing for the session ([`reboot.unchecked`]). Complaints go to standard
+--- tree, it stages nothing for the session ([`reboot.unchecked`]) until it holds the tool to the tree
+--- again. Over standard input and output it does so before each message that stages the tree, and where the tool is
+--- older than the tree and no run holds the locks, it is replaced in its process by the rebuilt tool, which serves the
+--- same editor and the same open documents ([`build.lsp.handoff`]); a listener holds nothing to the tree after it
+--- started. Complaints go to standard
 --- error as `cosmic: lsp: ...`.
 
 local Cli = require("cosmic.cli")
@@ -36,6 +40,8 @@ local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
 local bare = require("build.bare")
+local handoff = require("build.lsp.handoff")
+local reboot = require("build.reboot")
 local protocol = require("build.lsp.protocol")
 local session = require("build.lsp.session")
 local verb_spec = require("build.verb_spec")
@@ -218,6 +224,34 @@ local function socket_taken(path: string): string?
   return path .. " is a socket file already; remove it if no server is running there"
 end
 
+--- What a session over standard input and output holds its tool to the tree
+--- with ([`session.Options`]'s `reenter`): the check of a reader
+--- ([`reboot.recheck`]) of the tree the session's root is, with the session
+--- written for the successor first, in the build directory of `launch`,
+--- the tree this process was started in. A root that is not cosmic's own
+--- has no tool to hold to it. A session that cannot be written is not
+--- handed over, so the check is not made at all and the person is told
+--- once on stderr.
+local function reentry(launch: string, argv: {string}): function(state: handoff.Session): integer?
+  local told = false
+  return function(state: handoff.Session): integer?
+    local standing, _ = reboot.standing(state.root)
+    if standing == nil or not standing.own then return nil end
+    local put, why = handoff.put(launch, state)
+    if not put then
+      if not told then
+        told = true
+        bare.err("cosmic: lsp: not holding the tool to the tree, since the session cannot be handed to a " ..
+            "newer tool: " .. why)
+      end
+      return nil
+    end
+    local code = reboot.recheck(argv, state.root)
+    handoff.drop(launch)
+    return code
+  end
+end
+
 --- Runs the command line `argv`, `lsp` at slot 1, and answers the exit
 --- code.
 local function run(argv: {string}): integer
@@ -263,7 +297,21 @@ local function run(argv: {string}): integer
   end
   if #listeners == 0 then
     local input = Stream.from_fd(0)
-    return session.serve(session.new(root), input, bare.out, polled_input(input))
+    local options: session.Options = { reenter = reentry(root, argv) }
+    local resumed: session.State? = nil
+    -- A tool a reboot entered serves the session its predecessor handed
+    -- over, if it left one; once serving, it has shown itself fresh, so
+    -- it may be rebuilt again.
+    if reboot.entered() then
+      local state, why = handoff.take(root)
+      if why ~= "" then
+        complain(why)
+        return bare.failed
+      end
+      if state ~= nil then resumed = session.handed(state, options) end
+      reboot.release_entry()
+    end
+    return session.serve(resumed or session.new(root, options), input, bare.out, polled_input(input))
   end
   for _, path in ipairs(parsed.all["--socket"] or none) do
     local taken = socket_taken(path)
@@ -279,22 +327,19 @@ lsp.spec = {
   name = "lsp",
   run = run,
   bare = true,
-  -- TODO: a tool the tree outdates while a session runs goes on checking
-  -- with its own code until the editor starts it again, since `fresh`
-  -- rebuilds it only before the verb runs: it stages the tree again with
-  -- that older code at a change on disk, and wherever the newer tool
-  -- staged it since ([`work.other_code`]), and reads its own rows. A session whose check went on
-  -- without holding the tool to the tree, another run holding its
-  -- database or rebuild lock ([`reboot.unchecked`]), serves the stubs last
-  -- staged, or none where other code staged them ([`work.other_code`]),
-  -- until it is restarted, staging nothing, even once the locks
-  -- are free. The fix: at each stage, once no run holds them, check the
-  -- tool against the tree, and where it is stale re-enter the rebuilt
-  -- tool in this process, as [`build.reboot`] does, keeping the editor's
-  -- stream and handing it the session's root, encoding and open
-  -- documents. It waits on a check of the tool that stages and rebuilds
-  -- without exec'ing ([`reboot.guard`] re-enters the command line), and
-  -- on a way to hand a session to the tool it re-enters.
+  -- TODO: a `cosmic lsp` that listens (`--listen`, `--socket`) goes on
+  -- checking with the tool it started with, though the tree outdates it
+  -- while it runs, and one that started while another run held the locks
+  -- ([`reboot.unchecked`]) serves the stubs last staged, or none, until it
+  -- is restarted. Only a session over standard input and output holds its
+  -- tool to the tree at each stage ([`reboot.recheck`]), handing itself to
+  -- the rebuilt tool that replaces the process ([`build.lsp.handoff`]); a
+  -- listener's process serves many editors, and replacing it would end
+  -- every connection but the one that asked. It waits on a hand-over of
+  -- every connection's session, which a listener with the sockets
+  -- inherited (`SO_REUSEPORT` or a descriptor handed on `exec`) would
+  -- make, or on a check that rebuilds the tool without replacing the
+  -- process ([`reboot.stale_exit`] re-enters the command line).
   fresh = true,
   reads = true,
   recheck_on_refusal = nil,
@@ -307,7 +352,7 @@ lsp.spec = {
     "2 for a command line it refuses",
   passthrough = "it serves until its editor exits, which a case of the verb list cannot be",
   guide = "none: an editor starts it, not a person",
-  tests = { "build.lsp.check_test", "build.lsp.dependents_test", "build.lsp.lines_test", "build.lsp.protocol_test", "build.lsp.session_test",
+  tests = { "build.lsp.check_test", "build.lsp.dependents_test", "build.lsp.handoff_test", "build.lsp.lines_test", "build.lsp.protocol_test", "build.lsp.session_test",
     "build.lsp.source_test", "build.lsp.tool_test" },
 }
 
