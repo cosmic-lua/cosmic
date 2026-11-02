@@ -188,6 +188,9 @@ end
 --- from rows to markers may hold up to the rows' counts of them, and no more. nil and why where it cannot be read.
 local function base_held(root: string, base: string, text: string, held: CeilingsBase.Held, git: CeilingsBase.Git):
     CeilingsBase.Held?, string
+  -- TODO: delete this strip of the `[examples]` section once no merge base predates the change that made the examples held by
+  -- markers, or with the deletion of build/ceilings.txt (the one waits on the other); until then a base cut before it
+  -- holds a section that [`Ceilings.parse`] refuses.
   -- Nothing is closed for the base: it may still hold a row of a code closed since. It may also hold the `[examples]` section,
   -- which a base cut before the examples were held by markers has: its rows are no stage any more, and the markers of the
   -- example files, read below, are what it held.

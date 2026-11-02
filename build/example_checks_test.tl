@@ -301,3 +301,28 @@ local function test_a_guide_block_holds_no_marker(dir: string)
   assert(told:find("(view_written)", 1, true) ~= nil and told:find("doc/guides/fixture.md:3: example: 1 error of view_written " ..
       "on line 2 of the text shown; follow the fix above", 1, true) ~= nil, told)
 end
+
+--- The example of a float key in an index, a finding of `checked` (the code is a finding of `declared` too), with `mark` after
+--- the line that writes it.
+local function float_key(mark: string): string
+  return source(
+    "local record Example end",
+    "--- Keys by a float.",
+    "function Example.keys()",
+    '  local words: {integer: string} = { [1] = "a" }',
+    "  local at: number = 1.5",
+    "  print(words[at])" .. mark,
+    "end",
+    "return Example")
+end
+
+--- A marker holds the findings of its own stage: `declared: float_key` holds none of the `checked` finding of the code, and
+--- is stale for the `declared` finding the line does not have.
+local function test_a_marker_of_another_stage_holds_nothing(dir: string)
+  local held = found_in(dir, float_key(" -- checked: float_key"))
+  assert(#held == 0, table.concat(held, "\\n"))
+  local told = table.concat(found_in(dir, float_key(" -- declared: float_key")), "\\n")
+  assert(told:find("1 error of float_key on line 4 of the text shown, marked 0", 1, true) ~= nil, told)
+  assert(told:find("line 4 of the text shown: its marker holds 1 finding of float_key that the line no longer has", 1, true) ~=
+      nil, told)
+end

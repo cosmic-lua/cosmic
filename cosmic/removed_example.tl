@@ -303,9 +303,8 @@ function Example.records_interfaces_methods()
   assert(friend("hello"):greet("Ada") == "hello, Ada")
 end
 
--- TODO: rewrite or retire this example of forms the new grammar cuts (a union of two records, a cast, a test of a record, a
--- field read of a map) once the language tour (cosmic/removed_example.tl) shows the replacements and not the removed
--- forms; the markers on the lines hold them until then.
+-- TODO: write the field read of a map in this example as a read by a key, once the language tour shows the replacement
+-- and not the removed form; the marker on the line holds it until then.
 
 --- Enums are closed sets of literal strings. `{T}` is an array, `{K:V}` a map,
 --- and a record with a field for each position a fixed tuple.
@@ -325,9 +324,9 @@ function Example.enums_arrays_maps_tuples()
   assert(color == "red" and array[2] == 3 and map.answer == 42 and pair.label == "age") -- checked: map_field
 end
 
--- TODO: rewrite or retire this example of forms the new grammar cuts (a union of two records, a cast, a test of a record, a
--- field read of a map) once the language tour (cosmic/removed_example.tl) shows the replacements and not the removed
--- forms; the markers on the lines hold them until then.
+-- TODO: rewrite or retire the forms this example shows that the new grammar cuts (a union of two records, a test of a
+-- record, a cast), once the language tour shows the replacements and not the removed forms; the markers on the lines
+-- hold them until then.
 
 --- A union `A | B` accepts only values assignable to one member; operations
 --- must be valid for every member until control flow narrows it. Comparisons

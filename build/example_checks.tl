@@ -163,25 +163,53 @@ for _, code in ipairs(Ceilings.closed()) do
   CLOSED[code] = true
 end
 
+--- The stage each of `lines` is a finding of, by index: "" for any other line. The checker tells a stage's findings and then
+--- its count of each code ("2 errors of x in its bodies"), which names the stage, so a code that two stages have
+--- (`float_key` is a finding of `declared` and of `checked`) is told apart.
+local function stages_of(lines: {string}): {integer: string}
+  local stages: mut {integer: string} = {}
+  local pending: mut {string: mut {integer}} = {}
+  for at, line in ipairs(lines) do
+    local found = found_at(line)
+    if found ~= nil then
+      local list = pending[found.code] or {}
+      pending[found.code] = list
+      list[#list + 1] = at
+      stages[at] = ""
+    else
+      local code, what = line:match(": %d+ errors? of ([%a][%w_]*) in its (%a+); follow the fix above$")
+      if code ~= nil and what ~= nil then
+        local stage = if what == "scopes" then "scoped" elseif what == "declarations" then "declared" else "checked" end
+        for _, index in ipairs(pending[code] or {}) do
+          stages[index] = stage
+        end
+        pending[code] = {}
+      end
+    end
+  end
+  return stages
+end
+
 --- `lines`, the findings of the checker over `text` (the chunk `where` names), less what the markers of `text` hold: the
---- findings of a code on a line that its markers do not hold, each told with a count, and each marker that holds more of a
---- code than its line has. `marks` is false for a guide's block, which carries none. A closed code ([`Ceilings.closed`])
---- is held by no marker.
+--- findings of a code of a stage on a line that the markers of that stage do not hold, each told with a count, and each
+--- marker that holds more of a code than its line has. `marks` is false for a guide's block, which carries none. A closed
+--- code ([`Ceilings.closed`]) is held by no marker.
 local function held(where: string, text: string, lines: {string}, marks: boolean): {string}
   local out: mut {string} = {}
-  -- The findings by line and code, in the order they came.
+  local stages = stages_of(lines)
+  -- The findings and the markers by line and `<stage> <code>`.
   local found: mut {integer: mut {string: integer}} = {}
   local order: mut {string} = {}
-  for _, line in ipairs(lines) do
-    local at = found_at(line)
-    if at ~= nil then
-      local y, code = at.y, at.code
-      local on = found[y] or {}
-      found[y] = on
-      if on[code] == nil then
-        order[#order + 1] = tostring(y) .. " " .. code
+  for at, line in ipairs(lines) do
+    local place = found_at(line)
+    if place ~= nil then
+      local key = (stages[at] or "") .. " " .. place.code
+      local on = found[place.y] or {}
+      found[place.y] = on
+      if on[key] == nil then
+        order[#order + 1] = tostring(place.y) .. " " .. key
       end
-      on[code] = (on[code] or 0) + 1
+      on[key] = (on[key] or 0) + 1
     end
   end
   local marked: mut {integer: mut {string: integer}} = {}
@@ -195,34 +223,39 @@ local function held(where: string, text: string, lines: {string}, marks: boolean
             marked[mark.line] = on
             marked_lines[#marked_lines + 1] = mark.line
           end
-          on[code] = (on[code] or 0) + n
+          local key = segment.stage .. " " .. code
+          on[key] = (on[key] or 0) + n
         end
       end
     end
   end
-  local function allowed(y: integer, code: string): integer
-    if CLOSED[code] == true then
+  local function allowed(y: integer, key: string): integer
+    if CLOSED[assert(key:match("^%S* (%S+)$"))] == true then
       return 0
     end
-    return (marked[y] or {})[code] or 0
+    return (marked[y] or {})[key] or 0
   end
   local told: mut {string: boolean} = {}
-  for _, line in ipairs(lines) do
-    local at = found_at(line)
-    if at == nil then
+  for at, line in ipairs(lines) do
+    local place = found_at(line)
+    if place == nil then
       if not is_count(line) then
         out[#out + 1] = line
       end
-    elseif (assert(found[at.y])[at.code] or 0) > allowed(at.y, at.code) then
-      out[#out + 1] = line
+    else
+      local key = (stages[at] or "") .. " " .. place.code
+      if (assert(found[place.y])[key] or 0) > allowed(place.y, key) then
+        out[#out + 1] = line
+      end
     end
   end
-  for _, key in ipairs(order) do
-    local y = assert(math.tointeger(tonumber(key:match("^(%d+)"))))
-    local code = assert(key:match("^%d+ (%S+)$"))
-    local n, has = assert(assert(found[y])[code]), allowed(y, code)
-    if n > has and told[key] ~= true then
-      told[key] = true
+  for _, entry in ipairs(order) do
+    local y = assert(math.tointeger(tonumber(entry:match("^(%d+)"))))
+    local key = assert(entry:match("^%d+ (.*)$"))
+    local code = assert(key:match("^%S* (%S+)$"))
+    local n, has = assert(assert(found[y])[key]), allowed(y, key)
+    if n > has and told[entry] ~= true then
+      told[entry] = true
       local how = if marks then ", marked " .. tostring(has) .. " rather than add a marker" else "" end
       out[#out + 1] = where .. ": " .. String.counted(n, "error") .. " of " .. code .. " on line " .. tostring(y) ..
         " of the text shown" .. how .. "; follow the fix above"
@@ -230,14 +263,15 @@ local function held(where: string, text: string, lines: {string}, marks: boolean
   end
   table.sort(marked_lines)
   for _, y in ipairs(marked_lines) do
-    local codes: mut {string} = {}
-    for code in pairs(assert(marked[y])) do
-      codes[#codes + 1] = code
+    local keys: mut {string} = {}
+    for key in pairs(assert(marked[y])) do
+      keys[#keys + 1] = key
     end
-    table.sort(codes)
-    for _, code in ipairs(codes) do
-      local n = assert(assert(marked[y])[code])
-      local has = (found[y] or {})[code] or 0
+    table.sort(keys)
+    for _, key in ipairs(keys) do
+      local n = assert(assert(marked[y])[key])
+      local has = (found[y] or {})[key] or 0
+      local code = assert(key:match("^%S* (%S+)$"))
       if CLOSED[code] == true then
         out[#out + 1] = where .. ": line " .. tostring(y) .. " of the text shown: " .. code .. " is closed: the tree keeps " ..
           "this rule with no exceptions; a marker holds none of it, so fix the code"
