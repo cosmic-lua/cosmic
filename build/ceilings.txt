@@ -494,8 +494,6 @@ build/cache_tool_test.tl nil_not_allowed 1
 build/check_memo_test.tl nil_not_allowed 1
 
 
-build/child_policy_database_fixture.tl nil_not_allowed 1
-
 
 
 
@@ -813,9 +811,7 @@ cosmic/child_policy_system_test.tl nil_not_allowed 1
 
 cosmic/child_policy_user_test.tl nil_not_allowed 1
 
-cosmic/child_relay_seatbelt_test.tl nil_not_allowed 6
-
-cosmic/child_relay_test.tl nil_not_allowed 3
+cosmic/child_relay_seatbelt_test.tl nil_not_allowed 5
 
 cosmic/child_stream_failure_test.tl nil_not_allowed 7
 
@@ -952,10 +948,6 @@ cosmic/removed_test.tl nil_not_allowed 6
 
 
 
-
-cosmic/sandbox_restrict_seatbelt_test.tl nil_not_allowed 1
-
-cosmic/sandbox_restrict_test.tl nil_not_allowed 1
 
 cosmic/sandbox_test.tl nil_not_allowed 35
 
@@ -2401,15 +2393,9 @@ core/surface_test.tl map_field 2
 
 cosmic/child.tl map_field 8
 
-cosmic/child_policy_database_sandboxed_test.tl map_field 32
-
 cosmic/child_policy_database_test.tl map_field 11
 
 cosmic/child_policy_nest_calls_test.tl map_field 9
-
-cosmic/child_relay_seatbelt_test.tl map_field 27
-
-cosmic/child_relay_test.tl map_field 36
 
 cosmic/child_seatbelt_database_test.tl map_field 18
 
@@ -2463,12 +2449,6 @@ cosmic/removed_test.tl map_field 2
 cosmic/sandbox/init.tl map_field 2
 
 cosmic/sandbox/seatbelt.tl map_field 3
-
-cosmic/sandbox/seatbelt_test.tl map_field 29
-
-cosmic/sandbox_restrict_seatbelt_test.tl map_field 29
-
-cosmic/sandbox_restrict_test.tl map_field 63
 
 cosmic/sandbox_test.tl map_field 3
 

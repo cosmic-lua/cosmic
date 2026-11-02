@@ -172,7 +172,7 @@ function child_policy_database_fixture.fields(output: string): {string:string}
   local out: mut {string:string} = {}
   for line in output:gmatch("([^\n]*)\n") do
     local name, value = line:match("^([^\t]+)\t(.*)$")
-    if name ~= nil then out[name] = value end
+    if name ~= nil and value ~= nil then out[name] = value end
   end
   return out
 end

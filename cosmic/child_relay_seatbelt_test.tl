@@ -21,6 +21,7 @@ local Store = require("cosmic.store")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
 local SeatbeltFixture = require("build.seatbelt_fixture")
+local fixture = require("build.child_policy_database_fixture")
 local type raw_process = require("cosmic.internal.process")
 
 --- [`Store.seal`] reads the rows of every module it carries through
@@ -241,16 +242,6 @@ local function holds(ok: boolean, message: string)
   assert(ok, explained(not ok, message))
 end
 
---- The lines `name<TAB>value` of a program's output, by name.
-local function fields(output: string): {string:string}
-  local out: mut {string:string} = {}
-  for line in output:gmatch("([^\n]*)\n") do
-    local name, value = line:match("^([^\t]+)\t(.*)$")
-    if name ~= nil then out[name] = value end
-  end
-  return out
-end
-
 --- What a flows run saw: the program's lines, the relay's decision lines,
 --- the servers' connection counts, and everything for a failure's message.
 local record Flows
@@ -288,7 +279,7 @@ local function flows(tmp: string): Flows
         "\nstdout: " .. tostring(result.stdout) .. "\nstderr: " .. tostring(result.stderr) ..
         "\nrelay: " .. relay_log)
     holds(result.ok, report)
-    seen = { said = fields(result.stdout or ""), log = relay_log, granted = granted, ungranted = ungranted,
+    seen = { said = fixture.fields(result.stdout or ""), log = relay_log, granted = granted, ungranted = ungranted,
       reached = assert(ungranted_count[1]), report = report }
   end)
   assert(sys.close(log))
@@ -303,22 +294,22 @@ local function test_a_granted_server_is_reached_through_the_relay_and_an_ungrant
   SeatbeltFixture.macos_only()
   local seen = flows(tmp)
   local said, report = seen.said, seen.report
-  holds(said.connect == "HTTP/1.1 200 Connection established" and said.connect_echo == "echo:ping",
+  holds(said["connect"] == "HTTP/1.1 200 Connection established" and said["connect_echo"] == "echo:ping",
     "CONNECT by address\n" .. report)
-  holds(said.connect_name == "HTTP/1.1 200 Connection established" and said.connect_name_echo == "echo:ping",
+  holds(said["connect_name"] == "HTTP/1.1 200 Connection established" and said["connect_name_echo"] == "echo:ping",
     "CONNECT by a granted name\n" .. report)
-  holds(said.socks == "0" and said.socks_echo == "echo:ping", "SOCKS5\n" .. report)
-  holds(said.connect_v6 == "HTTP/1.1 200 Connection established" and said.connect_v6_echo == "echo:ping",
+  holds(said["socks"] == "0" and said["socks_echo"] == "echo:ping", "SOCKS5\n" .. report)
+  holds(said["connect_v6"] == "HTTP/1.1 200 Connection established" and said["connect_v6_echo"] == "echo:ping",
     "CONNECT to the relay's port on ::1\n" .. report)
-  assert(said.connect_v6_no_token == "HTTP/1.1 407 Proxy Authentication Required",
+  assert(said["connect_v6_no_token"] == "HTTP/1.1 407 Proxy Authentication Required",
     "no token on ::1\n" .. report)
-  assert(tostring(said.connect_ungranted):find(" 403 not granted: --connect 127.0.0.1:" .. tostring(seen.ungranted), 1, true),
+  assert(tostring(said["connect_ungranted"]):find(" 403 not granted: --connect 127.0.0.1:" .. tostring(seen.ungranted), 1, true),
     "an ungranted CONNECT\n" .. report)
-  assert(said.socks_ungranted == "2" and said.socks_ungranted_echo == nil, "an ungranted SOCKS5 request\n" .. report)
+  assert(said["socks_ungranted"] == "2" and said["socks_ungranted_echo"] == nil, "an ungranted SOCKS5 request\n" .. report)
   assert(seen.reached == 0, "the ungranted server was reached\n" .. report)
-  assert(said.connect_no_token == "HTTP/1.1 407 Proxy Authentication Required", "no token\n" .. report)
-  assert(said.connect_wrong_token == "HTTP/1.1 407 Proxy Authentication Required", "a wrong token\n" .. report)
-  assert(said.socks_wrong_token == "auth 0101", "a wrong SOCKS5 password\n" .. report)
+  assert(said["connect_no_token"] == "HTTP/1.1 407 Proxy Authentication Required", "no token\n" .. report)
+  assert(said["connect_wrong_token"] == "HTTP/1.1 407 Proxy Authentication Required", "a wrong token\n" .. report)
+  assert(said["socks_wrong_token"] == "auth 0101", "a wrong SOCKS5 password\n" .. report)
   assert(seen.log:find("not granted: --connect 127.0.0.1:" .. tostring(seen.ungranted), 1, true),
     "the relay logs the refusal\n" .. report)
 end
@@ -342,18 +333,18 @@ end
 local function test_the_program_is_given_the_relay_and_its_token(tmp: string)
   SeatbeltFixture.macos_only()
   local said, report = flows(tmp).said, ""
-  local token, port = tostring(said.env_HTTPS_PROXY):match("^http://cosmic:(%x+)@127%.0%.0%.1:(%d+)$")
-  assert(token ~= nil and #token == 64, "HTTPS_PROXY is " .. redacted(tostring(said.env_HTTPS_PROXY)) .. report)
+  local token, port = tostring(said["env_HTTPS_PROXY"]):match("^http://cosmic:(%x+)@127%.0%.0%.1:(%d+)$")
+  assert(token ~= nil and #token == 64, "HTTPS_PROXY is " .. redacted(tostring(said["env_HTTPS_PROXY"])) .. report)
   local http = "http://cosmic:" .. token .. "@127.0.0.1:" .. port
   local socks = "socks5h://cosmic:" .. token .. "@127.0.0.1:" .. port
   for _, name in ipairs({ "HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy" }) do
     assert(said["env_" .. name] == http, name .. " is " .. redacted(tostring(said["env_" .. name])))
   end
-  assert(said.env_ALL_PROXY == socks and said.env_all_proxy == socks, redacted(tostring(said.env_ALL_PROXY)))
+  assert(said["env_ALL_PROXY"] == socks and said["env_all_proxy"] == socks, redacted(tostring(said["env_ALL_PROXY"])))
   -- 127.0.0.1 is granted: it, and localhost with it, go through the relay.
-  assert(said.env_NO_PROXY == "::1" and said.env_NODE_USE_ENV_PROXY == "1", tostring(said.env_NO_PROXY))
+  assert(said["env_NO_PROXY"] == "::1" and said["env_NODE_USE_ENV_PROXY"] == "1", tostring(said["env_NO_PROXY"]))
   local again = flows(tmp).said
-  assert(not tostring(again.env_HTTPS_PROXY):find(token, 1, true), "each start draws a token of its own")
+  assert(not tostring(again["env_HTTPS_PROXY"]):find(token, 1, true), "each start draws a token of its own")
 end
 
 --- A handle to a program that waits under a policy with `connect`.
@@ -469,7 +460,7 @@ local function test_the_program_holds_no_listener_of_the_relays(tmp: string)
   assert(result, explained(result == nil, tostring(why)))
   local report = redacted(tostring(result.stdout) .. "\nstderr: " .. tostring(result.stderr))
   holds(result.ok, report)
-  assert(fields(result.stdout or "").listeners == "none", "the program holds a listening socket\n" .. report)
+  assert(fixture.fields(result.stdout or "")["listeners"] == "none", "the program holds a listening socket\n" .. report)
 end
 
 --- The relay itself is held by a profile of its own: it accepts at its
@@ -514,7 +505,7 @@ local function test_the_relay_is_held_by_a_profile_of_its_own(tmp: string)
     local probe = run_under(swapped, { core, "--database", real_client, "probe", secret }, tmp)
     holds(probe.refused == "" and probe.code == 0, "the probe did not run under the relay's profile: " ..
         probe.refused .. " " .. probe.output)
-    local said = fields(probe.output)
+    local said = fixture.fields(probe.output)
     assert(said["read /etc/hosts"] == "read", "the relay's profile does not read /etc/hosts: " .. probe.output)
     assert(tostring(said["read " .. secret]):find("not permitted", 1, true),
       "the relay's profile read a file it does not grant: " .. probe.output)
@@ -548,8 +539,8 @@ local function test_a_public_name_is_resolved_and_reached_through_the_relay(tmp:
   assert(sys.close(log))
   local relay_log = Fs.read(log_path) or ""
   assert(result, explained(result == nil, tostring(why) .. "\nrelay: " .. relay_log))
-  local said = fields(result.stdout or "")
-  holds(said.public == "HTTP/1.1 200 Connection established", redacted(tostring(result.stdout)) ..
+  local said = fixture.fields(result.stdout or "")
+  holds(said["public"] == "HTTP/1.1 200 Connection established", redacted(tostring(result.stdout)) ..
       "\nrelay: " .. relay_log)
 end
 
@@ -566,7 +557,7 @@ local function connect_through(tmp: string, target: string): string, string
   assert(result, explained(result == nil, tostring(why) .. "\nrelay: " .. relay_log))
   holds(result.ok, redacted(tostring(result.stdout) .. "\nstderr: " .. tostring(result.stderr)) ..
       "\nrelay: " .. relay_log)
-  return tostring(fields(result.stdout or "").public), relay_log
+  return tostring(fixture.fields(result.stdout or "")["public"]), relay_log
 end
 
 --- The start tells the relay this host's own addresses, which it refuses

@@ -84,7 +84,7 @@ local function in_child(chunk: string): Said
   local said: Said = { lines = {}, raw = result.stdout or "" }
   for line in said.raw:gmatch("[^\n]+") do
     local name, value = line:match("^([%w_]+)=(.*)$")
-    if name ~= nil then said.lines[name] = value end
+    if name ~= nil and value ~= nil then said.lines[name] = value end
   end
   assert(result.code == 0, "the child ended " .. tostring(result.code) .. ": " .. said.raw)
   return said
@@ -99,9 +99,9 @@ say("restrict", Sandbox.restrict({ grants = { { path = %q, letters = "r" } } }))
 say("granted", reads(%q))
 say("other", reads(%q))
 ]], tmp .. "/granted", tmp .. "/granted/a", tmp .. "/other/b"))
-  assert(said.lines.restrict == "true ", said.raw)
-  assert(said.lines.granted == "alpha", said.raw)
-  assert(said.lines.other == "denied: " .. DENIED, said.raw)
+  assert(said.lines["restrict"] == "true ", said.raw)
+  assert(said.lines["granted"] == "alpha", said.raw)
+  assert(said.lines["other"] == "denied: " .. DENIED, said.raw)
 end
 
 --- The child of the test below: restricted, it loads a module from the store, which it had not loaded before. A module of
@@ -134,8 +134,8 @@ local function test_a_second_restriction_is_refused()
 say("first", Sandbox.restrict({}))
 say("second", Sandbox.restrict({}))
 ]])
-  assert(said.lines.first == "true ", said.raw)
-  assert(said.lines.second == HELD, said.raw)
+  assert(said.lines["first"] == "true ", said.raw)
+  assert(said.lines["second"] == HELD, said.raw)
 end
 
 local function test_a_child_under_a_policy_is_refused_after_the_restriction()
@@ -146,8 +146,8 @@ local started, why = Child.start({ "/bin/cat" }, { policy = { profiles = { "syst
   stdin = "null" })
 say("policy", started ~= nil, why)
 ]])
-  assert(said.lines.restrict == "true ", said.raw)
-  assert(said.lines.policy:find("^false ") and said.lines.policy:find(
+  assert(said.lines["restrict"] == "true ", said.raw)
+  assert(assert(said.lines["policy"]):find("^false ") and assert(said.lines["policy"]):find(
     "this process is held by a Seatbelt profile, one it applied (Sandbox.restrict)", 1, true), said.raw)
 end
 
@@ -169,11 +169,11 @@ say("child", Sandbox.restrict({}))
 assert(running:close())
 say("still", reads(%q))
 ]], tmp .. "/free", tmp .. "/held", tmp .. "/free"))
-  assert(said.lines.nest:find("^false sandbox: restrict: promises \"nest\""), said.raw)
-  assert(said.lines.free == "free" and said.lines.still == "free", said.raw)
-  assert(said.lines.unnamed == "false sandbox: restrict: descriptor " .. said.lines.fd ..
+  assert(assert(said.lines["nest"]):find("^false sandbox: restrict: promises \"nest\""), said.raw)
+  assert(said.lines["free"] == "free" and said.lines["still"] == "free", said.raw)
+  assert(said.lines["unnamed"] == "false sandbox: restrict: descriptor " .. assert(said.lines["fd"]) ..
       " is open and not named in fds: close it, or name it to keep it", said.raw)
-  assert(said.lines.child:find("^false sandbox: restrict: this process has a child, pid %d+, not waited for"),
+  assert(assert(said.lines["child"]):find("^false sandbox: restrict: this process has a child, pid %d+, not waited for"),
     said.raw)
 end
 
@@ -186,9 +186,9 @@ say("named", Sandbox.restrict({}, { fds = { fd } }))
 say("through", sys.read(fd, 10))
 say("after", reads(%q))
 ]], tmp .. "/f", tmp .. "/f"))
-  assert(said.lines.named == "true ", said.raw)
-  assert(said.lines.through == "held", said.raw)
-  assert(said.lines.after == "denied: " .. DENIED, said.raw)
+  assert(said.lines["named"] == "true ", said.raw)
+  assert(said.lines["through"] == "held", said.raw)
+  assert(said.lines["after"] == "denied: " .. DENIED, said.raw)
 end
 
 --- A database in WAL mode, attached and searched first, keeps its log
@@ -216,10 +216,10 @@ say("restrict", Sandbox.restrict({}))
 local Csv = require("cosmic.csv")
 say("loaded", true, assert(assert(Csv.parse("a,b"))[1])[2])
 ]], tmp, build_paths.resolve(".").projection))
-  assert(said.lines.mode == "wal", said.raw)
-  assert(said.lines.restrict:find("^false sandbox: restrict: the store's database .*copy%.db " ..
+  assert(said.lines["mode"] == "wal", said.raw)
+  assert(assert(said.lines["restrict"]):find("^false sandbox: restrict: the store's database .*copy%.db " ..
       "is in WAL mode"), said.raw)
-  assert(said.lines.loaded == "true b", said.raw)
+  assert(said.lines["loaded"] == "true b", said.raw)
 end
 
 --- A process a policy's profile holds, started by [`Child.start`], is
@@ -260,10 +260,10 @@ if granted ~= nil then say("granted", granted.ok, granted.stdout) else say("gran
 local other = Child.run({ "/bin/cat", %q }, { stdout = "capture", stderr = "capture" })
 if other ~= nil then say("other", other.ok, other.stdout, other.stderr) else say("other", nil, nil, nil) end
 ]], tmp .. "/granted", tmp .. "/granted", tmp .. "/other"))
-  assert(said.lines.restrict == "true ", said.raw)
-  assert(said.lines.granted == "true granted-bytes", said.raw)
-  assert(said.lines.other:find("^false ") and said.lines.other:find(DENIED, 1, true) and
-      not said.lines.other:find("other-bytes", 1, true), said.raw)
+  assert(said.lines["restrict"] == "true ", said.raw)
+  assert(said.lines["granted"] == "true granted-bytes", said.raw)
+  assert(assert(said.lines["other"]):find("^false ") and assert(said.lines["other"]):find(DENIED, 1, true) and
+      not assert(said.lines["other"]):find("other-bytes", 1, true), said.raw)
 end
 
 --- A policy with no limits is given a child's defaults: 1024 open files and
@@ -277,9 +277,9 @@ say("restrict", Sandbox.restrict({}))
 say("nofile", limit(sys.RLIMIT_NOFILE))
 say("core", limit(sys.RLIMIT_CORE))
 ]])
-  assert(said.lines.restrict == "true ", said.raw)
-  if said.lines.before == "true" then
-    assert(said.lines.nofile == "1024 1024", said.raw)
+  assert(said.lines["restrict"] == "true ", said.raw)
+  if said.lines["before"] == "true" then
+    assert(said.lines["nofile"] == "1024 1024", said.raw)
   end
-  assert(said.lines.core == "0 0", said.raw)
+  assert(said.lines["core"] == "0 0", said.raw)
 end
