@@ -157,7 +157,6 @@ function test_sandbox_fixture.invoke(root: string, tmp: string, words: {string})
   local env = this_program.environment()
   env["COSMIC_TEST_SANDBOX"] = "0"
   env["TMPDIR"] = tmp
-  env["COSMIC_GRAMMAR"] = "new"
   local started = this_program.program(words, {
     cwd = root, env = env, stdout = fd, stderr = fd,
     process_group = true, timeout_ns = Clock.seconds(120),

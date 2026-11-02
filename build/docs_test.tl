@@ -2628,7 +2628,7 @@ local function test_a_projection_other_code_wrote_is_left_out(dir: string)
   if boot_hash ~= nil then own_writer = Store.meta("writer") or ("boot " .. boot_hash) end
   assert(Sqlite.run(projection,
     "INSERT INTO meta (key, value) VALUES ('written_by', ?1), ('writer', ?1), ('compiled_by', ?2)",
-    { { text = own_writer }, { text = rebuild.compiled_by("new") } }))
+    { { text = own_writer }, { text = rebuild.compiled_by() } }))
   local known: docs.Known = { directory = directory, own_tree = false }
   local function read(): integer
     local sources = docs.databases({ store }, dir, known)

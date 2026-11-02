@@ -1161,8 +1161,7 @@ const seed_refused =
 
 /// The seed boot builds its compiler from: a directory holding the Lua the
 /// pinned release ([`bin/cosmic-bootstrap`], which `COSMIC_BOOTSTRAP` can
-/// point at another cosmic) writes, with its `cosmic compile --grammar
-/// new`, for the files of [`build/seed.txt`]: [`build/seed.tl`] and what it
+/// point at another cosmic) writes, with its `cosmic compile`, for the files of [`build/seed.txt`]: [`build/seed.tl`] and what it
 /// requires. It is raw: the bridge loads it as the first-stage compiler and
 /// has that compile the same files again (core/bridge.lua's `bootstrap`),
 /// so what the tool carries never depends on this release's emitter.
@@ -1186,7 +1185,7 @@ fn seedCompiler(b: *std.Build) std.Build.LazyPath {
     // The tree is the working directory and so the root the modules are
     // named from: [`lang/flow.tl`] is [`lang.flow`].
     compile.setCwd(b.path("."));
-    compile.addArgs(&.{ "bin/cosmic-bootstrap", "compile", "--grammar", "new", "-o" });
+    compile.addArgs(&.{ "bin/cosmic-bootstrap", "compile", "-o" });
     const out = compile.addOutputDirectoryArg("seed");
     const listing = b.path("build/seed.txt");
     const at = b.root.joinString(b.allocator, "build/seed.txt") catch @panic("OOM");

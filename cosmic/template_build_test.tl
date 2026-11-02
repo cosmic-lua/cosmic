@@ -52,7 +52,7 @@ local function compile(root: string): {string: string}?, string
     local _, _ = work.close(handle)
     return nil, stage_trouble
   end
-  local result, trouble = importer.compile(handle, GrammarMode.tool("template-build-test", "new"), false)
+  local result, trouble = importer.compile(handle, GrammarMode.tool("template-build-test"), false)
   local _, _ = work.close(handle)
   if result == nil then
     return nil, trouble

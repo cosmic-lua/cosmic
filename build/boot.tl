@@ -112,8 +112,8 @@ local function stage(root: string, working: build_paths.Layout, output: build_pa
     log:complain("boot: " .. mkdir_trouble)
     return nil
   end
-  local grammar, grammar_trouble = GrammarMode.mode()
-  if grammar == nil then
+  local grammar_trouble = GrammarMode.refusal()
+  if grammar_trouble ~= nil then
     log:complain("boot: " .. grammar_trouble)
     return nil
   end
@@ -174,7 +174,7 @@ local function stage(root: string, working: build_paths.Layout, output: build_pa
   -- checker compiles the tree, in this process ([`importer.compile_tree`]).
   local result, compile_trouble = importer.compile_tree(handle,
     function(recorded: identity.Identities): string, string
-      return GrammarMode.tool(recorded.compiler, grammar), ""
+      return GrammarMode.tool(recorded.compiler), ""
     end, false, shared_compiles.for_build())
   if result == nil then
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
