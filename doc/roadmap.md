@@ -41,19 +41,12 @@ defines the target; once something ships, it leaves this file.
   in the declarations that say so ([`lang/stdlib.d.tl`]), and let a declaration of the
   program's own say it too, so a call of one given arguments that cannot
   dispatch keeps the narrowing as `tostring` and `table.concat` do.
-- add a floor for line coverage, C included: `cosmic test --min PCT
-  [--min-file PCT]` fails a whole run whose overall or any one file's line
-  coverage falls below it, naming each file under the per-file floor with its
-  percentage; with neither flag it reports and passes, as today. every release
-  core and the sanitized core already observe their own C, in the processes a
-  test starts too, into the same `coverage` table as Teal's ([`core/coverage.c`]),
-  and a run already fails for any C function no test enters
-  ([`build/c_functions.tl`]); the floor is what catches lines going untested
-  inside a function a test does enter. CI states the floor at the call site
-  rather than in a committed ratchet file. old's #1778
-  (`_tool/coverage/minimum.tl`, `--make coverage --min PCT --min-file PCT`,
-  which replaced the `.cosmic-coverage` ratchet and its `--baseline`) and #1781
-  (`pr.yml`'s `--min 76 --min-file 0`) are the model.
+- state a line-coverage floor at CI's call site, `cosmic test --min PCT
+  [--min-file PCT]` ([`doc/testing.md`]'s coverage floor), rather than in a
+  committed ratchet file. the flags are in place and cover the core's C, which
+  every release core and the sanitized core observe into the `coverage` table
+  ([`core/coverage.c`]); no CI leg passes one yet. the sensitivity record below
+  gives the number. old's #1781 (`pr.yml`'s `--min 76 --min-file 0`) is the model.
 - add a sensitivity record for coverage gates' host-dependent lines. old's
   `cosmic/coverage/SENSITIVITY.md` is a useful model: establish a floor from CI
   measurements and record why root access, a terminal, a free port, or a
@@ -419,7 +412,6 @@ four-producer provenance join.
 [`build/archive.tl`]: ../build/archive.tl
 [`build/archive_test.tl`]: ../build/archive_test.tl
 [`build/c/tree.tl`]: ../build/c/tree.tl
-[`build/c_functions.tl`]: ../build/c_functions.tl
 [`build/dataset.tl`]: ../build/dataset.tl
 [`build/flow.tl`]: ../build/flow.tl
 [`build/hash_test.tl`]: ../build/hash_test.tl
@@ -458,6 +450,7 @@ four-producer provenance join.
 [`cosmic/json_fuzz_test.tl`]: ../cosmic/json_fuzz_test.tl
 [`cosmic/stream.tl`]: ../cosmic/stream.tl
 [`cosmic/template/markup.tl`]: ../cosmic/template/markup.tl
+[`doc/testing.md`]: testing.md
 [`Errors.guidance`]: ../cosmic/errors.tl
 [`eval/summarize.tl`]: ../eval/summarize.tl
 [`Html.url_part`]: ../cosmic/html.tl

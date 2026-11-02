@@ -116,6 +116,10 @@ local record Cli
   --- Each test runs in a process of its own, and fails if it runs past
   --- its timeout; what a failing test printed is shown beneath it.
   ---
+  --- Each run reports its line coverage and passes whatever it is. `--min
+  --- PCT` and `--min-file PCT` hold a whole run to a floor, for the tree and
+  --- for each file, and fail it (status 1) naming what fell short.
+  ---
   --- Where the kernel can (Linux), each test runs sandboxed, given its
   --- module's import closure and what the module declares with
   --- [`Test.policy`] (`cosmic docs cosmic.test`), and nothing else of the
@@ -883,6 +887,11 @@ local module: Module = {
             "test, and report the values that fail one; a parameter declared under cosmic/ also " ..
             "fails the test that passes it (COSMIC_TEST_CHECK_TYPES=1)" },
         ["--jobs"] = { value = "n", about = "run n tests at once; one per processor by default" },
+        ["--min"] = { value = "pct", about = "fail the run, as a failing test does (status 1), when the " ..
+            "tree's line coverage, C included, is under pct percent; a run on standing verdicts " ..
+            "has the lines they hit; needs a whole run (no selector, no --shard)" },
+        ["--min-file"] = { value = "pct", about = "fail the run when any one file's line coverage is " ..
+            "under pct percent, naming each file with its percentage; needs a whole run" },
         ["--shard"] = { value = "i/n", about = "run only the i-th of n shares of the chosen " ..
             "tests, dealt in turn in sorted order, so n runs, i = 1 to n, run each test once" },
         ["--timeout"] = { value = "seconds",

@@ -1336,6 +1336,10 @@ local record Run
   mut checks?: boolean
   --- Whether the run starts no job after the first failure (`--bail`).
   mut bail?: boolean
+  --- The coverage floors the run was given (`--min`, `--min-file`); nil for neither.
+  mut floors?: test_report.Floors
+  --- What fell short of them, once the run's coverage is known ([`settle`]).
+  mut shortfall?: test_report.Shortfall
 
   -- The checkout ([`hold_checkout`]).
   mut started?: integer
@@ -1432,6 +1436,28 @@ local function read_command(ctx: Run): integer?
     return 2
   end
   ctx.limits = limits
+  local floor_values: mut {string: number} = {}
+  for _, flag in ipairs({ "--min", "--min-file" }) do
+    local given = parsed.values[flag]
+    if given ~= nil then
+      local percent, percent_trouble = test_report.percent(given, flag)
+      if percent == nil then
+        log:complain("test: " .. percent_trouble)
+        return 2
+      end
+      floor_values[flag] = percent
+    end
+  end
+  if next(floor_values) ~= nil then
+    -- The floors are over every line of the tree, as the check of C functions
+    -- is, which only a run of every test answers.
+    if #parsed.words > 0 or parsed.values["--shard"] ~= nil then
+      log:complain("test: --min and --min-file need a whole run: a floor is over every line of the " ..
+          "tree, and a run of chosen tests (selectors, --shard) reaches only some of them")
+      return 2
+    end
+    ctx.floors = { min = floor_values["--min"], min_file = floor_values["--min-file"] }
+  end
   if parsed.values["--shard"] ~= nil then
     local chosen, shard_trouble = test.shard(parsed.values["--shard"])
     if chosen == nil then
@@ -2366,6 +2392,23 @@ local function say_violations(rec: Recording)
   end
 end
 
+--- The executable lines of each file this run wrote to `coverage`, and how
+--- many were hit: the figures a per-file floor holds the run to. A standing
+--- verdict's lines are among them ([`credit_hits`]), so a run that stood
+--- entirely on verdicts has the same figures as the run that earned them.
+local function file_lines(handle: Sqlite.Handle, run_at_ns: integer): {test_report.FileLines}?, string
+  local rows, trouble = Sqlite.text_rows(handle,
+    "SELECT path, count(*), sum(hit) FROM coverage WHERE ran_at_ns = ?1 GROUP BY path",
+    { { integer = run_at_ns } })
+  if rows == nil then return nil, trouble end
+  local files: mut {test_report.FileLines} = {}
+  for _, row in ipairs(rows) do
+    files[#files + 1] = { path = row:text(1), lines = math.tointeger(tonumber(row:text(2))) or 0,
+      hit = math.tointeger(tonumber(row:text(3))) or 0 }
+  end
+  return files, ""
+end
+
 --- What the finished tests leave: their coverage and the history and
 --- digests kept, the working database closed and the shared cache
 --- settled. Everything it meets goes in `errors`, never an exit.
@@ -2439,6 +2482,20 @@ local function settle(ctx: Run)
   if cov_trouble ~= "" then
     errors[#errors + 1] = "coverage: " .. cov_trouble
   end
+  -- Before the working database closes: the per-file figures are its rows.
+  local floors = ctx.floors
+  if floors ~= nil and cov_trouble == "" then
+    local files: {test_report.FileLines} = {}
+    if floors.min_file ~= nil then
+      local found, files_trouble = file_lines(records, ctx.run_at_ns)
+      if found == nil then
+        errors[#errors + 1] = "coverage: " .. files_trouble
+      else
+        files = found
+      end
+    end
+    ctx.shortfall = test_report.floor(cov_hit, cov_total, files, floors)
+  end
   if rec.checks then
     local kept, keep_trouble = keep_violations(records, rec, ctx.run_at_ns)
     -- The hook raises at the first violation of a parameter of cosmic/, which a `pcall` in the code under test can
@@ -2488,7 +2545,21 @@ local function settle(ctx: Run)
   end
   ctx.refusals = refusals
 
-  ctx.cov_line = test_report.coverage(cov_hit, cov_total)
+  ctx.cov_line = test_report.coverage(cov_hit, cov_total, ctx.floors ~= nil)
+end
+
+--- Says each place the run's coverage fell short of its floors.
+local function say_shortfall(ctx: Run)
+  local shortfall = ctx.shortfall
+  if shortfall == nil then return end
+  for _, line in ipairs(shortfall.lines) do log:say(line) end
+end
+
+--- What the run's summary line adds for a floor not met, after a "; ", or "".
+local function floor_clause(ctx: Run): string
+  local shortfall = ctx.shortfall
+  if shortfall == nil or shortfall.clause == "" then return "" end
+  return "; " .. shortfall.clause
 end
 
 --- The run's summary said, last on stdout, with the skips, failures and
@@ -2506,13 +2577,15 @@ local function report(ctx: Run): integer
     say_skips(rec)
     say_violations(rec)
     log:say(assert(ctx.cov_line))
+    say_shortfall(ctx)
     for _, function_line in ipairs(assert(ctx.function_lines)) do log:say(function_line) end
     local _, _ = log:say("test: " .. test_report.passed({ total = total,
       modules = #assert(ctx.selected_modules),
       ran = tally.ran, cached = tally.cached, skipped = tally.skipped, unchecked = tally.unchecked, na = tally.na,
       every = tally.every, shared = tally.shared },
-      clock.took(started) .. assert(ctx.sandbox_summary) .. assert(ctx.share_summary)))
-    return 0
+      clock.took(started) .. assert(ctx.sandbox_summary) .. assert(ctx.share_summary) .. floor_clause(ctx)))
+    -- A floor not met fails the run as a failing test does: status 1.
+    return if floor_clause(ctx) == "" then 0 else 1 end
   end
   say_skips(rec)
   say_violations(rec)
@@ -2522,10 +2595,12 @@ local function report(ctx: Run): integer
   end
   if #errors == 0 then
     log:say(assert(ctx.cov_line))
+    say_shortfall(ctx)
     for _, function_line in ipairs(assert(ctx.function_lines)) do log:say(function_line) end
   end
   local _, _ = log:say("test: " .. test_report.failed(#failures, total + #assert(ctx.refusals),
-    #errors, clock.took(started) .. assert(ctx.sandbox_summary) .. assert(ctx.share_summary), rec.not_run))
+    #errors, clock.took(started) .. assert(ctx.sandbox_summary) .. assert(ctx.share_summary) ..
+      (if #errors == 0 then floor_clause(ctx) else "" end), rec.not_run))
   -- A refused module outranks a failing test: the tests ran on a tree that did not compile.
   return if #assert(ctx.refusals) > 0 then exit_status.uncompiled else 1 end
 end

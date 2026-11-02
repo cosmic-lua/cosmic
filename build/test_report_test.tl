@@ -87,3 +87,42 @@ local function test_stopped_properties_are_one_sorted_line()
   assert(test_report.stopped({ "x drew 64 of 99 inputs in 5 s (FUZZ_SECONDS=1)" })[1] ==
       "test: fuzz: 1 property stopped by FUZZ_SECONDS: x drew 64 of 99 inputs")
 end
+
+local function test_a_floor_is_a_percentage_from_0_to_100()
+  for text, wanted in pairs({ ["76"] = 76.0, ["76.5"] = 76.5, ["0"] = 0.0, ["100"] = 100.0, ["0.25"] = 0.25 }) do
+    local got, why = test_report.percent(text, "--min")
+    assert(got == wanted and why == "", text .. ": " .. tostring(got) .. tostring(why))
+  end
+  for _, text in ipairs({ "", "x", "101", "100.1", "-1", "1e2", "0x10", "7 6", "nan", "inf", ".5", "5.", "%" }) do
+    local got, why = test_report.percent(text, "--min-file")
+    assert(got == nil and why == "--min-file must be a percentage from 0 to 100, not " .. text, text .. ": " .. why)
+  end
+end
+
+local function test_a_floor_names_each_file_and_the_total_that_fall_short()
+  local files: {test_report.FileLines} = {
+    { path = "z.tl", hit = 1, lines = 8 }, { path = "a.tl", hit = 3, lines = 4 },
+    { path = "core/a.c", hit = 1, lines = 8 }, { path = "empty.tl", hit = 0, lines = 0 },
+  }
+  local none = test_report.floor(13, 24, files, {})
+  assert(#none.lines == 0 and none.clause == "")
+  -- At the floor is not under it, for the total and for a file.
+  local at = test_report.floor(3, 4, { { path = "a.tl", hit = 3, lines = 4 } }, { min = 75.0, min_file = 75.0 })
+  assert(#at.lines == 0 and at.clause == "", table.concat(at.lines, "\n"))
+  local total = test_report.floor(1, 4, files, { min = 76.0 })
+  assert(table.concat(total.lines, "\n") == "test: FAIL  coverage: 25.0% (1/4 lines) is under --min 76%")
+  assert(total.clause == "coverage floor not met: 25.0% under --min 76%", total.clause)
+  local per_file = test_report.floor(13, 24, files, { min_file = 50.0 })
+  assert(table.concat(per_file.lines, "\n") ==
+      "test: FAIL  coverage: core/a.c 12.5% (1/8 lines) is under --min-file 50%\n" ..
+      "test: FAIL  coverage: z.tl 12.5% (1/8 lines) is under --min-file 50%", table.concat(per_file.lines, "\n"))
+  assert(per_file.clause == "coverage floor not met: 2 files under --min-file 50%", per_file.clause)
+  local both = test_report.floor(1, 4, { { path = "z.tl", hit = 1, lines = 8 } }, { min = 76.5, min_file = 50.0 })
+  assert(#both.lines == 2, table.concat(both.lines, "\n"))
+  assert(both.lines[1]:find("is under --min 76.5%", 1, true) ~= nil, both.lines[1])
+  assert(both.clause == "coverage floor not met: 25.0% under --min 76.5%, 1 file under --min-file 50%", both.clause)
+  -- A run that measured no line is under any floor above 0.
+  assert(#test_report.floor(0, 0, {}, { min = 1.0 }).lines == 1)
+  assert(#test_report.floor(0, 0, {}, { min = 0.0 }).lines == 0)
+  assert(test_report.coverage(1, 4, true) == "test: coverage 25.0% (1/4 lines)")
+end

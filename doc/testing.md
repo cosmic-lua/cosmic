@@ -337,6 +337,41 @@ and keeps no verdict of it. A held run fails it.
 [`Test.passed_unchecked`] is for the fuzz runner alone. `bin/cosmic fix
 --check .` fails any other use.
 
+## coverage floor
+
+Every run reports the share of executable lines the tests reached,
+`test: coverage 90.9% (184277/202824 lines; informational, never a failure)`:
+the Teal of the tree and, in cosmic's own tree, the core's C. By itself it
+never fails a run. Two flags make it a gate:
+
+- `--min PCT` fails the run when the whole tree's coverage is under `PCT`.
+- `--min-file PCT` fails it when any one file's coverage is under `PCT`.
+  Each file under it is named with its percentage.
+
+`PCT` is a number from 0 to 100, with an optional decimal part (`76`,
+`76.5`). A coverage at the floor is not under it. A floor not met fails the
+run as a failing test does, with status 1 (not the 4 of a tree that does
+not compile). It lists each shortfall as a `test: FAIL  coverage: ...` line
+and names them in the summary line:
+
+```text
+test: coverage 77.8% (7/9 lines)
+test: FAIL  coverage: 77.8% (7/9 lines) is under --min 100%
+test: FAIL  coverage: lib 66.7% (4/6 lines) is under --min-file 80%
+test: 1 test passed in 1 module; ...; coverage floor not met: 77.8% under --min 100%, 1 file under --min-file 80%
+```
+
+A floor is over every line of the tree, so a run that names tests or a
+`--shard` is refused with status 2: it reaches only some of the lines.
+
+A test whose verdict stands brings the lines it hit when it ran (the
+`coverage_by_test` rows of that run, or the ones another checkout shared).
+A run that stands entirely on verdicts therefore has the coverage of the
+runs that earned them, and a floor holds for it as for a run that ran every
+test. A test that is skipped or not applicable on the host reaches nothing
+of the lines it covers elsewhere, so the same floor can differ between
+hosts: state a floor from the measurements of the host that gates the merge.
+
 ## run-time type checks
 
 `cosmic test --check-types` (`COSMIC_TEST_CHECK_TYPES=1`) shows where the checker's conclusion from a test is false at
