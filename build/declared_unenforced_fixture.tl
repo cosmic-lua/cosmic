@@ -62,11 +62,11 @@ end
 --- worker's is not.
 function declared_unenforced_fixture.environment(cache: string): {string:string}
   local env = this_program.environment()
-  env.COSMIC_VERDICT_CACHE = cache
-  env.COSMIC_TEST_SANDBOX = "0"
-  env.FLAVOUR = "sweet"
-  env.UNDECLARED = "leaked"
-  env.OUTER_TMPDIR = env.TMPDIR or "/tmp"
+  env.COSMIC_VERDICT_CACHE = cache -- checked: map_field
+  env.COSMIC_TEST_SANDBOX = "0" -- checked: map_field
+  env.FLAVOUR = "sweet" -- checked: map_field
+  env.UNDECLARED = "leaked" -- checked: map_field
+  env.OUTER_TMPDIR = env.TMPDIR or "/tmp" -- checked: map_field*2
   return env
 end
 

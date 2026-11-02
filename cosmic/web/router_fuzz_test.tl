@@ -103,7 +103,7 @@ local function test_lookup_is_total_and_redirects_stay_local(tmp: string)
       local method = assert(fields[1], "the generator packs a method")
       local path = assert(fields[2], "the generator packs a path")
       local outcome = router:match(method, path)
-      if not KINDS[outcome.kind] then return false, "kind " .. tostring(outcome.kind) end
+      if not KINDS[outcome.kind] then return false, "kind " .. tostring(outcome.kind) end -- checked: condition_type
       Fuzz.label(outcome.kind)
       if outcome.kind == "match" then
         for name, value in pairs(outcome.params or {}) do
@@ -186,7 +186,7 @@ local function reescaped(path: string, salt: integer): string
       out[#out + 1] = path:sub(at, at + 2)
       at = at + 3
     else
-      if byte:find("^[%w%-._~]$") and (at + salt) % 2 == 0 then
+      if byte:find("^[%w%-._~]$") and (at + salt) % 2 == 0 then -- checked: condition_type
         out[#out + 1] = (if (at + salt) % 4 == 0 then "%%%02X" else "%%%02x" end):format(byte:byte())
       else
         out[#out + 1] = byte

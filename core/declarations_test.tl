@@ -70,7 +70,7 @@ Test.policy{
 local function members(value: any): {string: any}
   local t = type(value)
   assert(t == "table" or t == "userdata", "not a table: " .. t)
-  return value as {string: any} -- cast: checked above to be indexable
+  return value as {string: any} -- cast: checked above to be indexable -- checked: cast_refused
 end
 
 local type Call = function(...: any): any...
@@ -78,7 +78,7 @@ local type Call = function(...: any): any...
 --- Calls a function of the core's, whatever its declared signature.
 local function call(f: any, ...: any): any...
   assert(type(f) == "function", "not a function: " .. type(f))
-  return (f as Call)(...) -- cast: checked above to be callable
+  return (f as Call)(...) -- cast: checked above to be callable -- checked: cast_refused
 end
 
 --- What one record declares: each value member by name, true for a
@@ -167,7 +167,7 @@ local undeclared_metamethods <const>: {string: boolean} = {
 --- What `getmetatable` answers for `value`: `false` for a type that
 --- hides its metatable.
 local function metatable_of(value: any): any
-  return getmetatable(value)
+  return getmetatable(value) -- checked: any_use
 end
 
 --- Where the raw module `raw`, and `instances`, one value of each
@@ -199,7 +199,7 @@ local function disagreements(module: string, source: string, raw: any,
       end
     else
       local mt = members(getmetatable(instance))
-      local index = mt.__index
+      local index = mt.__index -- checked: map_field
       local methods: mut {string: any} = {}
       local metamethods: mut {string: any} = {}
       if index == mt then
@@ -208,7 +208,7 @@ local function disagreements(module: string, source: string, raw: any,
         for key, value in pairs(mt) do
           if key:sub(1, 2) ~= "__" then
             methods[key] = value
-          elseif not undeclared_metamethods[key] then
+          elseif not undeclared_metamethods[key] then -- checked: condition_type
             metamethods[key] = value
           end
         end
@@ -217,10 +217,10 @@ local function disagreements(module: string, source: string, raw: any,
           problems[#problems + 1] = where .. "'s __index is a function, whose methods " ..
             "this test cannot list"
         elseif index ~= nil then
-          methods = members(index)
+          methods = members(index) -- checked: view_as_mut
         end
         for key, value in pairs(mt) do
-          if not undeclared_metamethods[key] then metamethods[key] = value end
+          if not undeclared_metamethods[key] then metamethods[key] = value end -- checked: condition_type
         end
       end
       if type(index) ~= "function" then
@@ -250,23 +250,23 @@ end
 
 local makers: {string: function(raw: {string: any}): Made} = {
   compress = function(raw: {string: any}): Made
-    local stream = assert(call(raw.inflater, "raw"))
+    local stream = assert(call(raw.inflater, "raw")) -- checked: map_field
     return { instances = { Stream = stream }, release = nothing }
   end,
   hash = function(raw: {string: any}): Made
-    local hasher = assert(call(raw.hasher, "sha256"))
+    local hasher = assert(call(raw.hasher, "sha256")) -- checked: map_field
     return { instances = { Hasher = hasher }, release = nothing }
   end,
   html = function(raw: {string: any}): Made
-    return { instances = { SafeHtml = call(raw.escape, "<"), SafeAttr = call(raw.escape_attr, "<"),
-      SafeUrl = call(raw.href, "/"), SafeUrlPart = call(raw.url_part, "x"), SafeJson = call(raw.trust_json, "1") },
+    return { instances = { SafeHtml = call(raw.escape, "<"), SafeAttr = call(raw.escape_attr, "<"), -- checked: map_field*2
+      SafeUrl = call(raw.href, "/"), SafeUrlPart = call(raw.url_part, "x"), SafeJson = call(raw.trust_json, "1") }, -- checked: map_field*3
       release = nothing }
   end,
   http = function(raw: {string: any}): Made
-    local handle = assert(call(raw.open, "http://declarations.invalid/",
+    local handle = assert(call(raw.open, "http://declarations.invalid/", -- checked: map_field
       { script = { reply() } }))
     return { instances = { Handle = handle },
-      release = function() call(members(handle).close, handle) end }
+      release = function() call(members(handle).close, handle) end } -- checked: map_field
   end,
   json = function(raw: {string: any}): Made
     return { instances = { Null = raw["null"] }, release = nothing }
@@ -274,13 +274,13 @@ local makers: {string: function(raw: {string: any}): Made} = {
   socket = function(raw: {string: any}): Made
     -- A TCP listener on the worker's own loopback: a unix one needs a `u`
     -- grant the policy path cannot give below Landlock ABI 9.
-    local socket = assert(call(raw.listen, { kind = "tcp", host = "127.0.0.1", port = 0 }, 1))
+    local socket = assert(call(raw.listen, { kind = "tcp", host = "127.0.0.1", port = 0 }, 1)) -- checked: arms_differ, map_field
     -- A numeric address answers itself, so the lookup opens nothing.
-    local lookup = assert(call(raw.lookup, "127.0.0.1", -1))
+    local lookup = assert(call(raw.lookup, "127.0.0.1", -1)) -- checked: map_field
     return { instances = { Socket = socket, Lookup = lookup },
       release = function()
-        call(members(socket).close, socket)
-        call(members(lookup).close, lookup)
+        call(members(socket).close, socket) -- checked: map_field
+        call(members(lookup).close, lookup) -- checked: map_field
       end }
   end,
   xml = function(raw: {string: any}): Made
@@ -291,12 +291,12 @@ local makers: {string: function(raw: {string: any}): Made} = {
     return { instances = { Corpus = call(raw["corpus"], 4) }, release = nothing }
   end,
   sqlite = function(raw: {string: any}): Made
-    local handle = assert(call(raw.open, ":memory:", true))
-    local statement = assert(call(members(handle).prepare, handle, "SELECT 1"))
+    local handle = assert(call(raw.open, ":memory:", true)) -- checked: map_field
+    local statement = assert(call(members(handle).prepare, handle, "SELECT 1")) -- checked: map_field
     return { instances = { Handle = handle, Statement = statement },
       release = function()
-        call(members(statement).finalize, statement)
-        call(members(handle).close, handle)
+        call(members(statement).finalize, statement) -- checked: map_field
+        call(members(handle).close, handle) -- checked: map_field
       end }
   end,
 }
@@ -325,14 +325,14 @@ local function searched(asked: string): Loader?, any
     local loader, extra = searcher(asked)
     if type(loader) == "function" then return loader, extra end
   end
-  return nil, nil
+  return nil, nil -- checked: any_use
 end
 
 --- The raw module a declaration names, as the running core registers it:
 --- a plain one is what `require` answers by its name, and the others are
 --- what the store hands the first wrapper that takes them.
 local function raw_module(name: string): any
-  if preloaded[name] then
+  if preloaded[name] then -- checked: condition_type
     local open = package.preload["cosmic.internal." .. name]
     assert(open ~= nil, "cosmic.internal." .. name .. " is not preloaded")
     return open("cosmic.internal." .. name)
@@ -356,7 +356,7 @@ end
 --- The raw modules whose declaration the build derives from a header
 --- (build/gen_syscalls.tl) rather than a cosmic/internal/*.d.tl, by
 --- name, and the target that derives it.
-local derived <const>: mut {string: gen_syscalls.Target} = {}
+local derived <const>: mut {string: gen_syscalls.Target} = {} -- declared: member_missing
 for _, derivation in ipairs(gen_syscalls.targets) do
   local name = derivation.path:match("^cosmic%.internal%.(.+)$")
   if name ~= nil then derived[name] = derivation.target end
@@ -425,8 +425,8 @@ local function test_every_declaration_is_what_the_core_registers()
   for _, name in ipairs(names) do
     local raw = raw_module(name)
     local maker = makers[name]
-    local made: Made = maker ~= nil and maker(members(raw)) or
-      { instances = {}, release = nothing }
+    local made: Made = maker ~= nil and maker(members(raw)) or -- checked: and_ternary
+      { instances = {}, release = nothing } -- checked: literal_needs_type
     local source = declaration_of(name)
     for _, problem in ipairs(disagreements(name, source, raw, made.instances)) do
       problems[#problems + 1] = problem
@@ -589,10 +589,10 @@ return m
 
 --- Makes a thing whose metatable holds `methods` and `metamethods`.
 local function thing(methods: {string: any}, metamethods: {string: any}): any
-  local mt: mut {string: any} = { __index = methods, __name = "thing", __gc = nothing }
+  local mt: mut {string: any} = { __index = methods, __name = "thing", __gc = nothing } -- checked: any_use*3
   for key, value in pairs(metamethods) do mt[key] = value end
-  local stand_in: any = {}
-  return setmetatable(stand_in, mt as metatable<any>) -- cast: a stand-in userdata
+  local stand_in: any = {} -- checked: literal_needs_type
+  return setmetatable(stand_in, mt as metatable<any>) -- cast: a stand-in userdata -- checked: cast_refused, setmetatable_call
 end
 
 local function check(raw: {string: any}, methods: {string: any},
@@ -601,20 +601,20 @@ local function check(raw: {string: any}, methods: {string: any},
 end
 
 local function test_a_module_that_matches_its_declaration_passes()
-  local problems = check({ open = nothing, version = "1" }, { poke = nothing },
-    { __close = nothing })
+  local problems = check({ open = nothing, version = "1" }, { poke = nothing }, -- checked: any_use*3
+    { __close = nothing }) -- checked: any_use
   assert(#problems == 0, table.concat(problems, "\n"))
 end
 
 local function test_a_declared_member_the_core_lacks_is_named()
-  local problems = check({ open = nothing }, { poke = nothing }, { __close = nothing })
+  local problems = check({ open = nothing }, { poke = nothing }, { __close = nothing }) -- checked: any_use*3
   assert(#problems == 1 and problems[1] == "m.version is declared but not registered",
     table.concat(problems, "\n"))
 end
 
 local function test_a_registered_member_nothing_declares_is_named()
-  local problems = check({ open = nothing, version = "1", extra = nothing },
-    { poke = nothing, prod = nothing }, { __close = nothing, __len = nothing })
+  local problems = check({ open = nothing, version = "1", extra = nothing }, -- checked: any_use*3
+    { poke = nothing, prod = nothing }, { __close = nothing, __len = nothing }) -- checked: any_use*4
   assert(#problems == 3, table.concat(problems, "\n"))
   assert(problems[1] == "m.Thing.__len is registered but not declared", problems[1])
   assert(problems[2] == "m.Thing:prod is registered but not declared", problems[2])
@@ -622,48 +622,48 @@ local function test_a_registered_member_nothing_declares_is_named()
 end
 
 local function test_a_function_declared_as_a_value_is_named()
-  local problems = check({ open = "no", version = "1" }, { poke = nothing },
-    { __close = nothing })
+  local problems = check({ open = "no", version = "1" }, { poke = nothing }, -- checked: any_use*3
+    { __close = nothing }) -- checked: any_use
   assert(#problems == 1 and
       problems[1] == "m.open is declared as a function but registered as a string",
     table.concat(problems, "\n"))
 end
 
 local function test_a_missing_method_or_metamethod_is_named()
-  local problems = check({ open = nothing, version = "1" }, {}, {})
+  local problems = check({ open = nothing, version = "1" }, {}, {}) -- checked: any_use*2
   assert(#problems == 2, table.concat(problems, "\n"))
   assert(problems[1] == "m.Thing.__close is declared but not registered", problems[1])
   assert(problems[2] == "m.Thing:poke is declared but not registered", problems[2])
 end
 
 local function test_a_metatable_that_is_its_own_index_is_split_by_name()
-  local mt: {string: any} = { __name = "thing", __close = nothing, poke = nothing }
-  mt.__index = mt
-  local stand_in: any = {}
-  local problems = disagreements("m", declaration, { open = nothing, version = "1" },
-    { Thing = setmetatable(stand_in, mt as metatable<any>) }) -- cast: a stand-in userdata
+  local mt: {string: any} = { __name = "thing", __close = nothing, poke = nothing } -- checked: any_use*3
+  mt.__index = mt -- checked: map_field
+  local stand_in: any = {} -- checked: literal_needs_type
+  local problems = disagreements("m", declaration, { open = nothing, version = "1" }, -- checked: arms_differ
+    { Thing = setmetatable(stand_in, mt as metatable<any>) }) -- cast: a stand-in userdata -- checked: cast_refused, setmetatable_call
   assert(#problems == 0, table.concat(problems, "\n"))
-  mt.poke = nil
-  mt.prod = nothing
-  problems = disagreements("m", declaration, { open = nothing, version = "1" },
-    { Thing = setmetatable(stand_in, mt as metatable<any>) }) -- cast: a stand-in userdata
+  mt.poke = nil -- checked: map_field
+  mt.prod = nothing -- checked: map_field
+  problems = disagreements("m", declaration, { open = nothing, version = "1" }, -- checked: arms_differ
+    { Thing = setmetatable(stand_in, mt as metatable<any>) }) -- cast: a stand-in userdata -- checked: cast_refused, setmetatable_call
   assert(#problems == 2, table.concat(problems, "\n"))
   assert(problems[1] == "m.Thing:poke is declared but not registered", problems[1])
   assert(problems[2] == "m.Thing:prod is registered but not declared", problems[2])
 end
 
 local function test_a_function_index_is_named_rather_than_listed()
-  local mt: {string: any} = { __index = function(): any return nil end, __close = nothing }
-  local stand_in: any = {}
-  local problems = disagreements("m", declaration, { open = nothing, version = "1" },
-    { Thing = setmetatable(stand_in, mt as metatable<any>) }) -- cast: a stand-in userdata
+  local mt: {string: any} = { __index = function(): any return nil end, __close = nothing } -- checked: any_use*3
+  local stand_in: any = {} -- checked: literal_needs_type
+  local problems = disagreements("m", declaration, { open = nothing, version = "1" }, -- checked: arms_differ
+    { Thing = setmetatable(stand_in, mt as metatable<any>) }) -- cast: a stand-in userdata -- checked: cast_refused, setmetatable_call
   assert(#problems == 1 and problems[1] ==
       "m.Thing's __index is a function, whose methods this test cannot list",
     table.concat(problems, "\n"))
 end
 
 local function test_userdata_the_test_makes_none_of_is_named()
-  local problems = disagreements("m", declaration, { open = nothing, version = "1" }, {})
+  local problems = disagreements("m", declaration, { open = nothing, version = "1" }, {}) -- checked: arms_differ
   assert(#problems == 1 and problems[1] == "m.Thing is userdata this test makes none of",
     table.concat(problems, "\n"))
 end

@@ -5,7 +5,7 @@
 local Stream = require("cosmic.stream")
 local Tar = require("cosmic.tar")
 
-local Example = {}
+local Example = {} -- checked: literal_needs_type
 
 --- A tar made in memory and read back: `writer` over a
 --- [`Stream.collect`], then `reader` over what it collected.
@@ -31,4 +31,4 @@ function Example.writer()
   assert(table.concat(kinds, " ") == "dir file symlink", table.concat(kinds, " "))
 end
 
-return Example
+return Example -- checked: export_not_declared

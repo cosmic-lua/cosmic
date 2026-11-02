@@ -43,7 +43,7 @@ local function needs_a_process(args: {string}): string?
   end
   if args[1] == "test" and not asks_help then
     return "it starts a process for each test, and coverage this one is keeping"
-  elseif args[1] == "--standalone" or (args[1] ~= nil and args[1]:match("%.tl$") ~= nil) then
+  elseif args[1] == "--standalone" or (args[1] ~= nil and args[1]:match("%.tl$") ~= nil) then -- checked: nil_not_allowed
     return "a file run loads its tree's modules into the process"
   end
   return nil
@@ -61,14 +61,14 @@ function verbs_fixture.run(dir: string, args: {string}): invoke.Result
   -- command line is what is held here, and a sandbox nested in this
   -- test's own is one a host may refuse.
   local env = this_program.environment()
-  env.COSMIC_TEST_SANDBOX = "0"
+  env.COSMIC_TEST_SANDBOX = "0" -- checked: map_field
   local started = this_program.program(args, {
     cwd = dir, env = env, stdout = "capture", stderr = "capture",
     timeout_ns = Clock.seconds(60),
   })
   local result, trouble = Child.run(started.argv, started.options)
   local ran = assert(result, trouble)
-  return { code = ran.code, stdout = ran.stdout or "", stderr = ran.stderr or "" }
+  return { code = ran.code, stdout = ran.stdout or "", stderr = ran.stderr or "" } -- checked: nil_not_allowed
 end
 
 --- The last line of `text`, or "" when it has none.
@@ -89,18 +89,18 @@ end
 --- a verdict line, `verb: PASS` or `verb: FAIL`.
 function verbs_fixture.expect(dir: string, verb: string, args: {string}, code: integer): invoke.Result
   local result = verbs_fixture.run(dir, args)
-  local out, err = result.stdout or "", result.stderr or ""
+  local out, err = result.stdout or "", result.stderr or "" -- checked: condition_type*2
   local shown = table.concat(args, " ") .. " exited " .. tostring(result.code) ..
     "\nstdout:\n" .. out .. "\nstderr:\n" .. err
   assert(result.code == code, shown)
-  for line in (out .. "\n" .. err):gmatch("[^\n]+") do
+  for line in (out .. "\n" .. err):gmatch("[^\n]+") do -- untyped: call
     assert(line ~= verb .. ": PASS" and line ~= verb .. ": FAIL" and
         not String.starts_with(line, verb .. ": PASS (") and
         not String.starts_with(line, verb .. ": FAIL ("), "a verdict line in " .. shown)
   end
   if code == 2 then
     assert(out == "" and err ~= "", "expected a complaint and no output from " .. shown)
-    for line in err:gmatch("[^\n]+") do
+    for line in err:gmatch("[^\n]+") do -- untyped: call
       assert(not String.starts_with(line, verb .. ": "), "a summary of a refusal in " .. shown)
     end
   elseif verb == "test" then
@@ -114,7 +114,7 @@ function verbs_fixture.expect(dir: string, verb: string, args: {string}, code: i
     assert(err ~= "", "expected stderr to say why from " .. shown)
     local spec = verb_list.find(verb)
     if spec == nil or spec.summarizes_failure ~= true then
-      for line in err:gmatch("[^\n]+") do
+      for line in err:gmatch("[^\n]+") do -- untyped: call
         assert(not String.starts_with(line, verb .. ": "), "a summary of a failure in " .. shown)
       end
     end

@@ -68,8 +68,8 @@ local function parse4(text: string): {integer}?
   local a, b, c, d = text:match("^(%d+)%.(%d+)%.(%d+)%.(%d+)$")
   if a == nil then return nil end
   local out: mut {integer} = {}
-  for _, part in ipairs({ a, b, c, d }) do
-    if #part > 3 or (#part > 1 and part:sub(1, 1) == "0") then return nil end
+  for _, part in ipairs({ a, b, c, d }) do -- checked: array_of_optional
+    if #part > 3 or (#part > 1 and part:sub(1, 1) == "0") then return nil end -- untyped: call
     local n = math.tointeger(tonumber(part))
     if n == nil or n > 255 then return nil end
     out[#out + 1] = n

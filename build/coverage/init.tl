@@ -40,7 +40,7 @@ function coverage.lines_of(db: Sqlite.Handle, m: Module, hits: Coverage.Hits): c
   local hit_lines = hits[m.path] or {}
   local out: coverage.LineHits = {}
   for line in pairs(executable) do
-    out[line] = hit_lines[line] == true
+    out[line] = hit_lines[line] == true -- checked: view_written
   end
   return out, ""
 end

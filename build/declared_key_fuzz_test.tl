@@ -130,7 +130,7 @@ local function unpack(packed: string): Drawn
     local value = support.nth(fields, i)
     if value:sub(1, 1) == "+" then d.scalars[name] = value:sub(2) end
   end
-  for i, name in ipairs(LISTS) do d.lists[name] = Fuzz.unpack(support.nth(fields, #SCALARS + i)) end
+  for i, name in ipairs(LISTS) do d.lists[name] = Fuzz.unpack(support.nth(fields, #SCALARS + i)) end -- checked: view_as_mut
   return d
 end
 
@@ -154,7 +154,7 @@ local function draw_spec(src: Fuzz.Source): Drawn
   end
   for _, name in ipairs(LISTS) do
     local list: mut {string} = {}
-    local alphabet = is_map(name) and ALPHABET or PATH_ALPHABET
+    local alphabet = is_map(name) and ALPHABET or PATH_ALPHABET -- checked: and_ternary
     while Fuzz.more(src, #list, 6) do list[#list + 1] = draw_string(src, alphabet, 1) end
     -- The environment is names and values in turn.
     if is_map(name) and #list % 2 == 1 then list[#list + 1] = "" end
@@ -223,7 +223,7 @@ local function edit(src: Fuzz.Source, d: Drawn): Drawn
     else
       -- One added.
       for _ = 1, step do
-        local drawn = draw_string(src, is_map(name) and ALPHABET or PATH_ALPHABET, 1)
+        local drawn = draw_string(src, is_map(name) and ALPHABET or PATH_ALPHABET, 1) -- checked: and_ternary
         list[#list + 1] = drawn
       end
     end
@@ -243,27 +243,27 @@ end
 -- paths to the key alone.
 local function spec_of(d: Drawn, host: string): declared_key.Spec
   local files: mut {string:boolean} = {}
-  for _, file in ipairs(d.lists.files) do files[file] = true end
+  for _, file in ipairs(d.lists.files) do files[file] = true end -- checked: map_field
   local hosts: mut {string} = {}
-  for _, path in ipairs(d.lists.hosts) do hosts[#hosts + 1] = host .. "/" .. path end
+  for _, path in ipairs(d.lists.hosts) do hosts[#hosts + 1] = host .. "/" .. path end -- checked: map_field
   local environment: mut {string:string} = {}
-  local env = d.lists.environment
+  local env = d.lists.environment -- checked: map_field
   for i = 1, #env - 1, 2 do environment[env[i]] = env[i + 1] end
   local required: mut {string:string} = {}
-  local asked = d.lists.requires
+  local asked = d.lists.requires -- checked: map_field
   for i = 1, #asked - 1, 2 do required[asked[i]] = asked[i + 1] end
   local effective: test_inputs.Effective = {
-    files = files, reads = d.lists.reads, host = hosts, env = {}, network = {},
+    files = files, reads = d.lists.reads, host = hosts, env = {}, network = {}, -- checked: map_field
     tool = true, store = false, system = true, caches = {},
     cache_paths = {},
   }
   local s = d.scalars
   return {
-    id = s.id, group = "group", module_key = s.module_key, runtime = s.runtime,
-    compiler = s.compiler, epoch = "1-00000000", timeout_ns = Clock.seconds(30), program = s.program, host = s.host,
-    system = s.system, launcher = s.launcher, declaration = s.declaration,
+    id = s.id, group = "group", module_key = s.module_key, runtime = s.runtime, -- checked: map_field*3
+    compiler = s.compiler, epoch = "1-00000000", timeout_ns = Clock.seconds(30), program = s.program, host = s.host, -- checked: map_field*3
+    system = s.system, launcher = s.launcher, declaration = s.declaration, -- checked: map_field*3
     effective = effective, environment = environment, requires = required, runs_tool = false,
-    closure_store = s.closure_store, tree = s.tree,
+    closure_store = s.closure_store, tree = s.tree, -- checked: map_field*2
   }
 end
 
@@ -284,7 +284,7 @@ local function test_distinct_specs_spell_distinct_preimages(tmp: string)
     gen = function(src: Fuzz.Source): string
       local one = draw_spec(src)
       local shifted = src:int(0, 1) == 0
-      local other = shifted and shift(src, one) or edit(src, one)
+      local other = shifted and shift(src, one) or edit(src, one) -- checked: and_ternary
       return Fuzz.pack({ if shifted then "shift" else "edit" end, pack(one), pack(other) })
     end,
     check = function(input: string): boolean, string
@@ -312,8 +312,8 @@ local function test_a_variable_named_twice_packs_as_its_last_value()
     return min
   end })
   local other = copy(one)
-  one.lists.environment = { "X", "a", "X", "b" }
-  other.lists.environment = { "X", "b" }
+  one.lists.environment = { "X", "a", "X", "b" } -- checked: map_field
+  other.lists.environment = { "X", "b" } -- checked: map_field
   assert(pack(one) == pack(other), "one environment packed as two")
-  assert(spec_of(unpack(pack(one)), "/host").environment.X == "b")
+  assert(spec_of(unpack(pack(one)), "/host").environment.X == "b") -- checked: map_field
 end

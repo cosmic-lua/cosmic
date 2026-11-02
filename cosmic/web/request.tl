@@ -48,7 +48,7 @@ local QUERY: Types.Key<Url.Query> = Request.key("query")
 local function ipv4(text: string): boolean
   local a, b, c, d = text:match("^(%d+)%.(%d+)%.(%d+)%.(%d+)$")
   if a == nil then return false end
-  for _, octet in ipairs({ a, b, c, d }) do
+  for _, octet in ipairs({ a, b, c, d }) do -- checked: array_of_optional
     if #octet > 3 or (math.tointeger(tonumber(octet)) or 256) > 255 then return false end
   end
   return true
@@ -120,7 +120,7 @@ end
 
 local function get<T>(self: Req, key: Types.Key<T>): T?
   -- cast: a slot holds the T that `set` stored under this very key.
-  return self.slots[key] as T
+  return self.slots[key] as T -- checked: cast_refused
 end
 
 local function set<T>(self: Req, key: Types.Key<T>, value: T)
@@ -157,12 +157,12 @@ local function base_url(self: Req): string?, string
   return self.scheme .. "://" .. parsed.host .. (if port ~= nil then ":" .. tostring(port) else "" end), ""
 end
 
-local methods = {
+local methods = { -- checked: arms_differ
   header = header, bytes = bytes, text = text, query = query, accepts = accepts,
   url_for = url_for, get = get, set = set, base_url = base_url,
 }
 
-local request_mt: metatable<Req> = { __index = methods }
+local request_mt: metatable<Req> = { __index = methods } -- checked: literal_missing
 
 --- The last entry of a comma-separated forwarding header: the one the
 --- proxy next to the app added, since the entries before it are the
@@ -204,13 +204,13 @@ function Request.new(app: Types.App, raw: Server.Request, parts: Request.Parts):
     local from = last_entry(headers["x-forwarded-for"])
     if from ~= nil and ip_literal(from) then client = { host = from } end
   end
-  local request: Types.Request = {
+  local request: Types.Request = { -- checked: literal_missing
     raw = raw, method = raw.method, path = parts.path, segments = parts.segments,
     query_string = raw.query, headers = headers, params = {}, mount_path = "", app = app,
     state = {}, client = client, scheme = scheme, host = host, trailing = parts.trailing,
     slots = {}, bodies = {},
   }
-  return setmetatable(request, request_mt)
+  return setmetatable(request, request_mt) -- checked: setmetatable_call -- untyped: call
 end
 
 return Request

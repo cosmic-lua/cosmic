@@ -288,12 +288,12 @@ local function declared_in(root: string): {string: rules.Declared}
   local out: mut {string: rules.Declared} = {}
   for _, derivation in ipairs(gen_syscalls.targets) do
     local header, _ = Fs.read(root .. "/" .. derivation.target.header)
-    local found: gen_syscalls.Declarations? = nil
+    local found: gen_syscalls.Declarations? = nil -- declared: member_missing
     if header ~= nil then
       local read, _ = gen_syscalls.read(header)
       found = read
     end
-    for _, call in ipairs(found ~= nil and found.calls or {}) do
+    for _, call in ipairs(found ~= nil and found.calls or {}) do -- checked: literal_needs_type
       local descriptors: mut {integer} = {}
       for i, parameter in ipairs(call.parameters) do
         if gen_syscalls.descriptor(parameter) then
@@ -406,7 +406,7 @@ local function whole(cwd: string, files: {string}): boolean
     named[file] = true
   end
   for _, file in ipairs(all) do
-    if String.ends_with(file, ".c") and not named[file] then return false end
+    if String.ends_with(file, ".c") and not named[file] then return false end -- checked: condition_type
   end
   return true
 end
@@ -431,7 +431,7 @@ local function sensitive(root: string, cwd: string, file: string, variant: c.Var
   local function visit(path: string, stack: mut {string: boolean}): boolean
     local remembered = memo[path]
     if remembered ~= nil then return remembered end
-    if stack[path] then return false end
+    if stack[path] then return false end -- checked: condition_type
     stack[path] = true
     local text, _ = Fs.read(path)
     local found = text == nil
@@ -448,7 +448,7 @@ local function sensitive(root: string, cwd: string, file: string, variant: c.Var
         for _, dir in ipairs({ Fs.dirname(path), root .. "/core" }) do
           local header = dir .. "/" .. name
           local present, _ = Fs.exists(header)
-          if present then
+          if present then -- checked: condition_type
             if visit(header, stack) then found = true end
             break
           end
@@ -461,7 +461,7 @@ local function sensitive(root: string, cwd: string, file: string, variant: c.Var
     if found or next(stack) == nil then memo[path] = found end
     return found
   end
-  return visit(file:sub(1, 1) == "/" and file or cwd .. "/" .. file, {})
+  return visit(file:sub(1, 1) == "/" and file or cwd .. "/" .. file, {}) -- checked: and_ternary
 end
 
 --- Checks every one of `files`, paths relative to `cwd` (by default
@@ -494,9 +494,9 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer, s
   for v = 2, #c.variants do
     memo[v] = {}
     for i, file in ipairs(files) do
-      if sensitive(root, cwd, file, nth(c.variants, v), held_in(memo, v)) then
+      if sensitive(root, cwd, file, nth(c.variants, v), held_in(memo, v)) then -- checked: view_as_mut
         local used = held_in(ran, i)
-        used[#used + 1] = v
+        used[#used + 1] = v -- checked: view_written
         jobs[#jobs + 1] = { file = i, variant = v }
       end
     end
@@ -515,10 +515,10 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer, s
   -- zig's caches are the check's own: `-E` keeps nothing a later
   -- compile finds there, and a cache shared with every build is no path
   -- to give a confined compiler.
-  env.COSMIC_ZIG_CACHE = deps .. "/zig-project"
-  env.COSMIC_ZIG_GLOBAL_CACHE = deps .. "/zig-global"
+  env.COSMIC_ZIG_CACHE = deps .. "/zig-project" -- checked: map_field
+  env.COSMIC_ZIG_GLOBAL_CACHE = deps .. "/zig-global" -- checked: map_field
   local function absolute(path: string): string
-    return path:sub(1, 1) == "/" and path or cwd .. "/" .. path
+    return path:sub(1, 1) == "/" and path or cwd .. "/" .. path -- checked: and_ternary
   end
   local dirs: mut {string} = {}
   for _, dir in ipairs(include_dirs(root, cwd)) do dirs[#dirs + 1] = absolute(dir) end
@@ -626,7 +626,7 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer, s
     local reads: mut {string} = {}
     local seen: mut {string: boolean} = {}
     local function give(path: string)
-      if not seen[path] then
+      if not seen[path] then -- checked: condition_type
         seen[path] = true
         reads[#reads + 1] = path
       end
@@ -723,7 +723,7 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer, s
     -- A file that could not be read refers to what is not known: its
     -- own trouble is the finding, rather than guesses about the rest.
     local known = #every == #files
-    for _, f in ipairs(known and rules.single_file(every) or {}) do
+    for _, f in ipairs(known and rules.single_file(every) or {}) do -- checked: and_ternary, literal_needs_type
       for _, u in ipairs(every) do
         local o = by_file[u.file]
         if o ~= nil and u.defines[f.within] ~= nil then
@@ -743,7 +743,7 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer, s
       local kept: mut {rules.Finding} = {}
       for _, f in ipairs(o_findings) do
         local key = f.file .. ":" .. tostring(f.line) .. ":" .. f.rule
-        if not seen[key] then
+        if not seen[key] then -- checked: condition_type
           seen[key] = true
           kept[#kept + 1] = f
         end

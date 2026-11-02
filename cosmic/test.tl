@@ -321,11 +321,11 @@ end
 --- each `skip` is given and answers the value `skip` raises to end the
 --- test (nothing, to let it go on). Nil when none is installed.
 local function runner_in(module: any): {string:any}
-  if module is {string:any} then
-    local installed = module.__runner
+  if module is {string:any} then -- checked: is_on_record
+    local installed = module.__runner -- checked: map_field
     if installed is {string:any} then return installed end
   end
-  return nil
+  return nil -- checked: nil_not_allowed
 end
 
 local record Declared
@@ -351,7 +351,7 @@ end
 --- as the module loads.
 local function declare(needs: Test.Needs)
   local installed = runner_in(Test)
-  if installed ~= nil and installed.loaded == true then
+  if installed ~= nil and installed.loaded == true then -- checked: compare_disjoint, map_field
     error("test: policy is called at the top of a test module, while it loads", 3)
   end
   local called_at = declared.called_at
@@ -362,8 +362,8 @@ local function declare(needs: Test.Needs)
   declared.called_at = caller()
   declared.parents = {}
   for _, relative in ipairs(needs.parent or {}) do declared.parents[relative] = true end
-  local handed = installed ~= nil and installed.handed or nil
-  if handed is function(Test.Needs) then handed(needs) end
+  local handed = installed ~= nil and installed.handed or nil -- checked: compare_disjoint, map_field
+  if handed is function(Test.Needs) then handed(needs) end -- untyped: call
 end
 
 --- The fields of [`Policy`] and what each takes: a list of strings
@@ -465,10 +465,10 @@ local PROMISE_FIELDS <const>: {string:string} = {
 --- `value` as a list of strings, or nil and why, naming `field`.
 local function strings_of(field: string, value: any): {string}?, string
   local out: mut {string} = {}
-  if value is {any:any} then
+  if value is {any:any} then -- declared: key_type
     local count = 0
     local held: mut {integer:string} = {}
-    for i, item in pairs(value) do
+    for i, item in pairs(value) do -- checked: any_use
       if not (i is integer and item is string) then
         return nil, field .. " takes a list of strings"
       end
@@ -491,8 +491,8 @@ end
 --- `value` as a table of names to strings, or nil and why, naming `field`.
 local function names_of(field: string, value: any): {string:string}?, string
   local out: mut {string:string} = {}
-  if value is {any:any} then
-    for k, v in pairs(value) do
+  if value is {any:any} then -- declared: key_type
+    for k, v in pairs(value) do -- checked: any_use
       if not (k is string and v is string) then
         return nil, field .. " takes a table of names to strings"
       end
@@ -506,12 +506,12 @@ end
 --- `value` as a [`Policy`]'s grants, or nil and why.
 local function grants_of(value: any): {Test.Grant}?, string
   local out: mut {Test.Grant} = {}
-  if not value is {any} then return nil, "grants takes a list of grants" end
+  if not value is {any} then return nil, "grants takes a list of grants" end -- checked: is_on_record
   for i, given in ipairs(value) do
     local at = "grants[" .. tostring(i) .. "]"
-    if not given is {any:any} then return nil, at .. " takes a table" end
+    if not given is {any:any} then return nil, at .. " takes a table" end -- declared: key_type
     local grant: Test.Grant = {}
-    for key, field in pairs(given) do
+    for key, field in pairs(given) do -- checked: any_use
       if not (key == "path" or key == "letters" or key == "from") then
         return nil, at .. " has no field " .. tostring(key) .. "; it has from, letters, path"
       end
@@ -532,8 +532,8 @@ end
 --- `value` as a [`Policy`]'s limits, or nil and why.
 local function limits_of(value: any): Test.Limits?, string
   local out: Test.Limits = {}
-  if value is {any:any} then
-    for key, field in pairs(value) do
+  if value is {any:any} then -- declared: key_type
+    for key, field in pairs(value) do -- checked: any_use
       if not (key is string and LIMIT_FIELDS[key] == true and field is integer) then
         return nil, "limits takes open_files, file_bytes, cpu_seconds and processes, " ..
           "each an integer"
@@ -556,11 +556,11 @@ end
 --- What was handed to `policy` as a [`Policy`], or nil and why, naming
 --- the field.
 local function policy_of(given: any): Test.Policy?, string
-  if not given is {any:any} then
+  if not given is {any:any} then -- declared: key_type
     return nil, "takes a table, got " .. type(given)
   end
   local out: Test.Policy = {}
-  for key, value in pairs(given) do
+  for key, value in pairs(given) do -- checked: any_use
     local takes = if key is string then POLICY_FIELDS[key] else nil end
     if not (key is string) or takes == nil then
       return nil, "has no field " .. tostring(key) .. "; it has " ..
@@ -705,10 +705,10 @@ function Test.needs_of(given: any): Test.Needs?, string
     if field == nil then
       return nil, "promises: no promise " .. promise .. "; the promises are fattr, fork, jit, nest"
     end
-    if field == "nests" then flags.nests = true end
+    if field == "nests" then flags.nests = true end -- checked: map_field
   end
   if #(policy.isolate or {}) > 0 then return nil, "isolate " .. NOT_YET end
-  if next(policy.limits or {}) ~= nil then return nil, "limits " .. NOT_YET end
+  if next(policy.limits or {}) ~= nil then return nil, "limits " .. NOT_YET end -- checked: overload_none -- untyped: call
   if next(policy.set_env or {}) ~= nil then return nil, "set_env " .. NOT_YET end
   if next(policy.set_env_digests or {}) ~= nil then
     return nil, "set_env_digests is refused: a digest holds no value to set; " ..
@@ -733,19 +733,19 @@ function Test.needs_of(given: any): Test.Needs?, string
     return nil, (if policy.user ~= nil then "user" else "group" end) .. " is refused: the harness " ..
       "chooses the user a worker runs as"
   end
-  if bin and flags.cosmic ~= true then
+  if bin and flags.cosmic ~= true then -- checked: map_field
     return nil, "grants: .path o/bin is the program's directory, " ..
       "granted only beside the profile \"cosmic\"; add the profile, or drop the grant"
   end
-  out.tool = if flags.cosmic == true and bin then true else nil end
-  out.lua = if flags.cosmic == true and not bin then true else nil end
+  out.tool = if flags.cosmic == true and bin then true else nil end -- checked: map_field
+  out.lua = if flags.cosmic == true and not bin then true else nil end -- checked: map_field
   if out.lua == true then
-    local beside = if out.store == true then "o/cosmic.db" elseif flags.system == true then "system" elseif
+    local beside = if out.store == true then "o/cosmic.db" elseif flags.system == true then "system" elseif -- checked: map_field
       #caches > 0 then "/cache/" .. caches[1] else nil end
     if beside ~= nil then return nil, LUA_BESIDE .. beside .. LUA_FIX end
   end
-  out.system, out.nests = flags.system, flags.nests
-  if flags.proc == true then host[#host + 1] = "/proc" end
+  out.system, out.nests = flags.system, flags.nests -- checked: map_field*2
+  if flags.proc == true then host[#host + 1] = "/proc" end -- checked: map_field
   if #reads > 0 then out.reads = reads end
   if #host > 0 then out.host = host end
   if #caches > 0 then out.caches = caches end
@@ -844,7 +844,7 @@ function Test.parent(relative: string): string
         "{ path = \"/parent/%s\", letters = \"r\" } in Test.policy", relative, relative), 2)
   end
   local installed = runner_in(Test)
-  local base = installed ~= nil and installed.parent or nil
+  local base = installed ~= nil and installed.parent or nil -- checked: compare_disjoint, map_field
   if not (base is string) then
     error("test: parent is given by a runner only, and this one gives none", 2)
   end
@@ -891,13 +891,13 @@ end
 function Test.skip(reason: string)
   if reason == "" then error("test: skip's reason is empty", 2) end
   local installed = runner_in(Test)
-  if installed == nil then return end
-  if installed.loaded ~= true then
+  if installed == nil then return end -- checked: compare_disjoint
+  if installed.loaded ~= true then -- checked: map_field
     error("test: skip is called from a test as it runs, not as its module loads", 2)
   end
-  local skipped = installed.skipped
+  local skipped = installed.skipped -- checked: map_field
   if skipped is function(string): any then
-    local ending = skipped(reason)
+    local ending = skipped(reason) -- untyped: call
     if ending ~= nil then error(ending, 0) end
   end
 end
@@ -915,9 +915,9 @@ end
 function Test.passed_unchecked(reason: string)
   if reason == "" then error("test: passed_unchecked's reason is empty", 2) end
   local installed = runner_in(Test)
-  if installed == nil then return end
-  local deliberate = installed.deliberate
-  if deliberate is function(string) then deliberate(reason) end
+  if installed == nil then return end -- checked: compare_disjoint
+  local deliberate = installed.deliberate -- checked: map_field
+  if deliberate is function(string) then deliberate(reason) end -- untyped: call
 end
 
 --- Calls `fn` and checks that it raises: returns the message it raised, as

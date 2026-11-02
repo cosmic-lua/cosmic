@@ -32,7 +32,7 @@ local function cat(policy: Sandbox.Policy, file: string): string, integer
     end
     error("the start was refused: " .. why)
   end
-  return result.stdout, result.code or -1
+  return result.stdout, result.code or -1 -- checked: nil_not_allowed
 end
 
 local function test_the_system_profile_lets_a_host_program_read_what_is_granted(tmp: string)
@@ -43,7 +43,7 @@ local function test_the_system_profile_lets_a_host_program_read_what_is_granted(
   local said, code = cat(policy, tmp .. "/ro/a")
   assert(code == 0 and said == "alpha\n", tostring(code) .. ": " .. said)
   local sibling, status = cat(policy, tmp .. "/other/b")
-  assert(status ~= 0 and sibling:find("Permission denied", 1, true), sibling)
+  assert(status ~= 0 and sibling:find("Permission denied", 1, true), sibling) -- checked: or_mix
   -- The profile reaches the system's own files and no other of the host's.
   if sys.stat("/etc/passwd") ~= nil then
     local passwd, found = cat(policy, "/etc/passwd")

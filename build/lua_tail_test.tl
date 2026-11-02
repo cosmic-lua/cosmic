@@ -8,7 +8,7 @@ local function test_a_test_module_hands_its_tests_back_on_the_table_require_give
   local code = LuaTail.with_test_tail("local function test_a() return 1 end\nlocal function test_b() return 2 end\n",
     { "test_a", "test_b" })
   assert(code:sub(-#"\nreturn { test_a = test_a, test_b = test_b }\n") == "\nreturn { test_a = test_a, test_b = test_b }\n", code)
-  local loaded = assert(load(code, "=tail", "t"))() as {string: function(): integer}
+  local loaded = assert(load(code, "=tail", "t"))() as {string: function(): integer} -- checked: cast_refused
   assert(loaded.test_a() == 1 and loaded.test_b() == 2)
 end
 

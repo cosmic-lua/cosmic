@@ -759,11 +759,11 @@ local function address_of(run: Running, name: string, kind: Wire.Kind, port: int
     return { addresses = { name } }
   end
   local answers: mut {Address.Answer} = {}
-  local resolved_once = trusted and assert(run.spec.upstream).addresses or nil
+  local resolved_once = trusted and assert(run.spec.upstream).addresses or nil -- checked: condition_type
   if resolved_once ~= nil then
     -- The upstream's addresses, which its starter resolved: no lookup.
     for i, address in ipairs(resolved_once) do
-      answers[i] = { address = address, family = if address:find(":", 1, true) then "ipv6" else "ipv4" end }
+      answers[i] = { address = address, family = if address:find(":", 1, true) then "ipv6" else "ipv4" end } -- untyped: call
     end
   else
     -- A numeric host, as an upstream proxy's may be, answers itself.

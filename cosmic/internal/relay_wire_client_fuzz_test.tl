@@ -127,7 +127,7 @@ local function test_no_client_reader_raises_or_takes_more_than_it_was_given(tmp:
         if (status == "done") ~= (consumed > 0) then
           return false, ("%s having taken %d bytes"):format(status, consumed)
         end
-        Fuzz.label(status as string)
+        Fuzz.label(status as string) -- checked: cast_refused
         return true, ""
       end,
     })
@@ -190,7 +190,7 @@ local function test_a_request_the_client_writes_is_read_back_by_the_relay(tmp: s
         for i = 1, 4 do host[i] = tostring(src:int(0, 255)) end
         return Fuzz.pack({ table.concat(host, "."), tostring(src:int(0, 65536)) })
       elseif kind == 1 then
-        for i = 1, 8 do host[i] = ("%x"):format(src:int(0, 3) == 0 and src:int(0, 65535) or 0) end
+        for i = 1, 8 do host[i] = ("%x"):format(src:int(0, 3) == 0 and src:int(0, 65535) or 0) end -- checked: and_ternary
         return Fuzz.pack({ table.concat(host, ":"), tostring(src:int(0, 65536)) })
       end
       if kind == 2 then
@@ -269,7 +269,7 @@ local function test_a_username_and_password_the_client_writes_are_read_back_by_t
       if message == nil then
         if fits then return false, "refused what fits: " .. why end
         if why == "" then return false, "refused without saying why" end
-        if why:find(password, 1, true) and #password > 3 then
+        if why:find(password, 1, true) and #password > 3 then -- checked: condition_type
           return false, "the reason holds the password"
         end
         Fuzz.label("refused")

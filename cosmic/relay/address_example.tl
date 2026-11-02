@@ -1,6 +1,6 @@
 local relay_address = require("cosmic.relay.address")
 
-local Example = {}
+local Example = {} -- checked: literal_needs_type
 
 --- A name's answers are classified one by one and the allowed ones are the
 --- only ones connected to, in order; a refusal names the remedy.
@@ -22,4 +22,4 @@ function Example.permitted()
   assert(relay_address.parse("1.2.3") == nil)
 end
 
-return Example
+return Example -- checked: export_not_declared

@@ -40,9 +40,9 @@ local function test_a_fact_that_holds_answers_its_value_and_records_nothing()
   assert(fact(false, "nil", "x", nil, nil, nil, nil, "held.tl:1:2") == false, "false is a value")
   assert(fact(1.5, "nil,string", "n", nil, nil, nil, nil, "held.tl:1:3") == 1.5)
   assert(fact("red", "number", "c", { "red", "green" }, nil, nil, nil, "held.tl:2:1") == "red")
-  local class = {}
-  local pet = setmetatable({}, class)
-  assert(fact(pet, "nil", "p", nil, { {}, class }, nil, nil, "held.tl:3:1") == pet)
+  local class = {} -- checked: literal_needs_type
+  local pet = setmetatable({}, class) -- checked: setmetatable_call
+  assert(fact(pet, "nil", "p", nil, { {}, class }, nil, nil, "held.tl:3:1") == pet) -- checked: literal_needs_type
   local square = { kind = "sq" }
   assert(fact(square, "nil", "s", nil, nil, "kind", { "sq" }, "held.tl:4:1") == square)
   assert(#since(before) == 0, "a fact that held was recorded")
@@ -95,13 +95,13 @@ end
 
 --- Each shape of conclusion, a value it is false of, the place the read is at, and the message and the row that come of it.
 local function test_a_false_fact_fails_the_read_and_is_recorded()
-  local class = {}
+  local class = {} -- checked: literal_needs_type
   refuses(1, nil, "nil", nil, nil, nil, nil, "nil", "not nil")
   refuses(2, 2, "nil,number", nil, nil, nil, nil, "integer", "not nil|number")
   refuses(3, 2.5, "number", nil, nil, nil, nil, "float", "not number")
   refuses(4, true, "boolean", nil, nil, nil, nil, "boolean", "not boolean")
   refuses(5, "purple", "number", { "red", "green" }, nil, nil, nil, "string \"purple\"", "one of red|green")
-  refuses(6, setmetatable({}, {}), "nil", nil, { class }, nil, nil, "a table of another class",
+  refuses(6, setmetatable({}, {}), "nil", nil, { class }, nil, nil, "a table of another class", -- checked: setmetatable_call
     "a table of one of its classes")
   refuses(7, { kind = "ci" }, "nil", nil, nil, "kind", { "sq" }, "a table whose kind is string \"ci\"",
     "kind one of sq")
@@ -193,11 +193,11 @@ end
 local function loaded(code: string, name: string, lax: boolean): any
   local env: mut {string:any} = {}
   if lax then
-    env["assert"] = function(...: any): any...
+    env["assert"] = function(...: any): any... -- checked: any_use
       return ...
     end
   end
-  setmetatable(env, { __index = _G })
+  setmetatable(env, { __index = _G }) -- checked: setmetatable_call, unchecked_binding
   return assert(load(code, "=" .. name, "t", env))()
 end
 
@@ -225,7 +225,7 @@ end
 local function test_a_sound_program_runs_checked_and_records_nothing()
   worker.install_checks()
   local before = #worker.violations()
-  local api = loaded(programs.compiled("sound.tl", programs.sound, true), "sound.tl", false) as Api
+  local api = loaded(programs.compiled("sound.tl", programs.sound, true), "sound.tl", false) as Api -- checked: cast_refused
   assert(api.read("a", nothing) == "a" and api.read(nil, nothing) == "none")
   assert(#since(before) == 0, "a sound read was recorded")
 end
@@ -234,7 +234,7 @@ end
 local function test_a_narrowing_planted_by_a_lax_assert_is_one_row()
   worker.install_checks()
   local before = #worker.violations()
-  local api = loaded(programs.compiled("unsound_assert.tl", programs.unsound_assert, true), "unsound_assert.tl", true) as Api
+  local api = loaded(programs.compiled("unsound_assert.tl", programs.unsound_assert, true), "unsound_assert.tl", true) as Api -- checked: cast_refused
   assert(api.read("a", nothing) == "a", "a read the fact holds of was refused")
   assert(#since(before) == 0)
   for _ = 1, 2 do
@@ -267,7 +267,7 @@ end
 local function test_a_narrowing_planted_by_a_cast_write_is_one_row()
   worker.install_checks()
   local before = #worker.violations()
-  local api = loaded(programs.compiled("unsound_poke.tl", programs.unsound_poke, true), "unsound_poke.tl", false) as PokeApi
+  local api = loaded(programs.compiled("unsound_poke.tl", programs.unsound_poke, true), "unsound_poke.tl", false) as PokeApi -- checked: cast_refused
   local box: Box = { value = "kept" }
   assert(api.read(box, nothing) == "kept")
   assert(#since(before) == 0, "a field that stayed was recorded")
@@ -285,7 +285,7 @@ local function test_the_wraps_of_a_class_and_a_tag_hold_of_the_values_that_meet_
   local before = #worker.violations()
   local code = programs.compiled("shapes.tl", programs.shapes, true)
   assert(code:find("\"kind\", \"square\"", 1, true) ~= nil and code:find("{Dog}", 1, true) ~= nil, code)
-  local api = loaded(code, "shapes.tl", false) as Shapes
+  local api = loaded(code, "shapes.tl", false) as Shapes -- checked: cast_refused
   assert(api.paint("red") == "red" and api.paint(3) == "3")
   assert(api.pet(api.dog()) == "rex" and api.pet(api.cat()) == "other" and api.pet(nil) == "other")
   assert(api.area(api.square()) == 4 and api.area(api.circle()) == 0)
@@ -297,15 +297,15 @@ end
 local function test_a_class_and_a_tag_planted_false_are_one_row_each()
   worker.install_checks()
   local before = #worker.violations()
-  local api = loaded(programs.compiled("shapes.tl", programs.shapes, true), "shapes.tl", false) as Shapes
-  local square = api.square() as {string:any}
-  local dog = api.dog() as {string:any}
+  local api = loaded(programs.compiled("shapes.tl", programs.shapes, true), "shapes.tl", false) as Shapes -- checked: cast_refused
+  local square = api.square() as {string:any} -- checked: cast_refused
+  local dog = api.dog() as {string:any} -- checked: cast_refused
   assert(api.area_after(square, nothing) == 4 and api.pet_after(dog, nothing) == "rex")
   assert(#since(before) == 0, "a conclusion that held was recorded")
   local ok, message = pcall(api.area_after, square, function() square["kind"] = "circle" end)
   assert(not ok and tostring(message) == "fact violated at shapes.tl:42:12: s is a table whose kind is string \"circle\", " ..
       "the checker proved kind one of square", tostring(message))
-  local ok_dog, message_dog = pcall(api.pet_after, dog, function() setmetatable(dog, nil) end)
+  local ok_dog, message_dog = pcall(api.pet_after, dog, function() setmetatable(dog, nil) end) -- checked: setmetatable_call
   assert(not ok_dog and message_dog == "fact violated at shapes.tl:49:12: p is a table of another class, the checker proved " ..
       "a table of one of its classes", tostring(message_dog))
   local met = since(before)

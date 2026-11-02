@@ -38,7 +38,7 @@ local REFUSING <const> = {
 local ARMS <const> = { "{{if .a}}<b {{end}}", "{{range .l}}<a title=\"{{end}}", "{{with .w}}<!--{{end}}" }
 
 --- The heads of an `html` template.
-local HTML_HEADS <const> = { HEADS[1], HEADS[3] }
+local HTML_HEADS <const> = { HEADS[1], HEADS[3] } -- checked: array_of_optional
 
 --- Actions, well-formed and not, and braces that are not actions.
 local ACTIONS <const> = {
@@ -232,14 +232,14 @@ local function test_compile_is_total_and_keeps_the_lines_on_any_bytes(tmp: strin
         return false, "compile answered differently the second time"
       end
       if out == nil then
-        if not places(why) then
-          return false, "no place in: " .. why
+        if not places(why) then -- checked: nil_not_allowed
+          return false, "no place in: " .. why -- checked: nil_not_allowed
         end
-        if why:find(": a slot ", 1, true) then
+        if why:find(": a slot ", 1, true) then -- checked: nil_not_allowed
           Fuzz.label("slot")
-        elseif why:find(" end in different places", 1, true) or why:find(" ends where it did not", 1, true) then
+        elseif why:find(" end in different places", 1, true) or why:find(" ends where it did not", 1, true) then -- checked: nil_not_allowed*2
           Fuzz.label("arms")
-        elseif why:find(": the template ends ", 1, true) then
+        elseif why:find(": the template ends ", 1, true) then -- checked: nil_not_allowed
           Fuzz.label("open end")
         else
           Fuzz.label("syntax")
@@ -247,13 +247,13 @@ local function test_compile_is_total_and_keeps_the_lines_on_any_bytes(tmp: strin
         return true, ""
       end
       Fuzz.label("compiled")
-      if newlines(out) ~= newlines(input) + 1 then
-        return false, "the module has " .. tostring(newlines(out)) .. " newlines for the template's " .. tostring(newlines(input))
+      if newlines(out) ~= newlines(input) + 1 then -- checked: any_use
+        return false, "the module has " .. tostring(newlines(out)) .. " newlines for the template's " .. tostring(newlines(input)) -- checked: any_use
       end
-      if out:find("\r", 1, true) or not out:find("local _module: _Module = {render = render} return _module\n", 1, true) then
-        return false, "the module is not shaped as one: " .. out
+      if out:find("\r", 1, true) or not out:find("local _module: _Module = {render = render} return _module\n", 1, true) then -- checked: any_use*2
+        return false, "the module is not shaped as one: " .. out -- checked: any_use
       end
-      if out:find("render(d: ", 1, true) and out:find("local parts: mut {string} = {} ", 1, true) == nil then
+      if out:find("render(d: ", 1, true) and out:find("local parts: mut {string} = {} ", 1, true) == nil then -- checked: any_use*2
         return false, "no parts"
       end
       if input:find("{{mode text}}", 1, true) then Fuzz.label("text mode") end
@@ -296,7 +296,7 @@ local function test_literal_text_is_rendered_byte_for_byte(tmp: string)
       local body = fields[2] or ""
       local head = if mode == "text" then "{{type T from m.t}}{{mode text}}" else "{{type T from m.t}}" end
       local out, why = Template.compile(head .. body, "t.tmpl")
-      if out == nil and mode == "html" and why:find(": the template ends ", 1, true) then
+      if out == nil and mode == "html" and why:find(": the template ends ", 1, true) then -- checked: or_mix
         -- Markup left open is refused in html, and rendered as it stands in text.
         Fuzz.label("html")
         head = "{{type T from m.t}}{{mode text}}"
@@ -320,23 +320,23 @@ local function test_literal_text_is_rendered_byte_for_byte(tmp: string)
       lua = lua:gsub("%(_: t%.T%): [%w%.]+", "()"):gsub("local parts: mut {string}", "local parts")
       lua = lua:gsub("local record _Module .- end local _module: _Module =", "local _module =")
       local env: {string: any} = {
-        require = function(name: string): any
+        require = function(name: string): any -- checked: any_use
           if name == "cosmic.html" then
-            return { trust = function(s: string): string return s end }
+            return { trust = function(s: string): string return s end } -- checked: any_use
           end
-          return {}
+          return {} -- checked: literal_needs_type
         end,
-        table = table,
+        table = table, -- checked: any_use
       }
       local chunk, trouble = load(lua, "=module", "t", env)
       if chunk == nil then
         return false, "the module does not load: " .. tostring(trouble) .. "\n" .. lua
       end
       local loaded = chunk()
-      if not loaded is {string: function(): string} then
+      if not loaded is {string: function(): string} then -- checked: is_on_record
         return false, "the module exports no render"
       end
-      local rendered = loaded.render()
+      local rendered = loaded.render() -- checked: map_field
       if rendered ~= body then
         return false, "rendered " .. string.format("%q", rendered) .. " for " .. string.format("%q", body)
       end
@@ -535,7 +535,7 @@ local function gen_sound(src: Fuzz.Source): string
       sound[#sound + 1] = unit
     end
   end
-  local pool = want == "x" and UNITS or sound
+  local pool = want == "x" and UNITS or sound -- checked: and_ternary
   while Fuzz.more(src, #body, 5) do
     drawn = drawn + 1
     local first = Fuzz.pick(src, pool)
@@ -543,7 +543,7 @@ local function gen_sound(src: Fuzz.Source): string
       -- The first fragment is of a kind drawn first, so every kind is reached however few inputs run.
       local of: mut {{string}} = {}
       for _, unit in ipairs(UNITS) do
-        if unit[2]:find(want, 1, true) then
+        if unit[2]:find(want, 1, true) then -- checked: nil_not_allowed
           of[#of + 1] = unit
         end
       end
@@ -592,7 +592,7 @@ local function esc_attr(s: any): string
     return ""
   end
   return (s:gsub("[\0-\47\58-\64\91-\96\123-\127]", function(c: string): string
-    return "&#" .. c:byte() .. ";"
+    return "&#" .. c:byte() .. ";" -- checked: nil_not_allowed
   end))
 end
 
@@ -613,54 +613,54 @@ local PART_RUN: PartRun = { calls = 0, only = 0, skip = 0 }
 --- whole-URL slot and `B` to a part, as a template given an origin in one
 --- slot and a hostile value in another.
 local STAND_IN <const>: {string: function(any): any} = {
-  escape = function(s: any): {string: string} return { s = "\1" .. esc(s) .. "\2" } end,
-  escape_attr = function(s: any): {string: string} return { s = "\3" .. esc_attr(s) .. "\4" } end,
-  href = function(s: any): {string: string}
+  escape = function(s: any): {string: string} return { s = "\1" .. esc(s) .. "\2" } end, -- checked: any_use
+  escape_attr = function(s: any): {string: string} return { s = "\3" .. esc_attr(s) .. "\4" } end, -- checked: any_use
+  href = function(s: any): {string: string} -- checked: any_use
     local text = if s is string then s:match("^[^|]*") or "" else "" end
     return { s = "\5" .. (if text:lower():find("^%s*javascript:") then "about:invalid" else text end) }
   end,
-  trust = function(s: any): {string: string}
+  trust = function(s: any): {string: string} -- checked: any_use
     if not s is string then error("trust: a string is expected, got " .. type(s), 2) end
     return { s = s }
   end,
   -- The bytes of the escaped part between \6 and \7: only unreserved ones
   -- and %XX, except that a whole `.` or `..` is written with its `%` escaped.
-  url_part = function(s: any): {string: string}
+  url_part = function(s: any): {string: string} -- checked: any_use
     local text = tostring(s):match("[^|]*$")
     PART_RUN.calls = PART_RUN.calls + 1
     if PART_RUN.only > 0 and PART_RUN.calls ~= PART_RUN.only or PART_RUN.skip == PART_RUN.calls then
       text = ""
     end
     if text == "." or text == ".." then
-      return { s = "\6" .. text:gsub("%.", "%%252E") .. "\7" }
+      return { s = "\6" .. text:gsub("%.", "%%252E") .. "\7" } -- checked: nil_not_allowed
     end
-    return { s = "\6" .. text:gsub("[^%w%-._~]", function(c: string): string
-      return string.format("%%%02X", c:byte())
+    return { s = "\6" .. text:gsub("[^%w%-._~]", function(c: string): string -- checked: nil_not_allowed
+      return string.format("%%%02X", c:byte()) -- checked: nil_not_allowed
     end) .. "\7" }
   end,
-  raw_url_part = function(v: any): string
-    if not v is {string: string} then
+  raw_url_part = function(v: any): string -- checked: any_use
+    if not v is {string: string} then -- checked: is_on_record
       error("raw_url_part: a made value is expected, got " .. type(v), 2)
     end
-    return v.s
+    return v.s -- checked: map_field
   end,
-  raw = function(v: any): string
-    if not v is {string: string} then
+  raw = function(v: any): string -- checked: any_use
+    if not v is {string: string} then -- checked: is_on_record
       error("raw: a made value is expected, got " .. type(v), 2)
     end
-    return v.s
+    return v.s -- checked: map_field
   end,
-  raw_attr = function(v: any): string
-    if not v is {string: string} then
+  raw_attr = function(v: any): string -- checked: any_use
+    if not v is {string: string} then -- checked: is_on_record
       error("raw_attr: a made value is expected, got " .. type(v), 2)
     end
-    return v.s
+    return v.s -- checked: map_field
   end,
-  raw_url = function(v: any): string
-    if not v is {string: string} then
+  raw_url = function(v: any): string -- checked: any_use
+    if not v is {string: string} then -- checked: is_on_record
       error("raw_url: a made value is expected, got " .. type(v), 2)
     end
-    return v.s
+    return v.s -- checked: map_field
   end,
 }
 
@@ -690,9 +690,9 @@ local NAMED <const>: {string: string} = {
 --- parser drops removed, as a browser reads an attribute.
 local function decoded(value: string): string
   local text = value:gsub("&#[xX](%x+);", function(n: string): string
-    return string.char(tonumber(n, 16) as integer % 256)
+    return string.char(tonumber(n, 16) as integer % 256) -- checked: cast_refused
   end):gsub("&#(%d+);", function(n: string): string
-    return string.char(tonumber(n) as integer % 256)
+    return string.char(tonumber(n) as integer % 256) -- checked: cast_refused
   end):gsub("&(%a+);", function(name: string): string
     return NAMED[name] or "&" .. name .. ";"
   end)
@@ -707,13 +707,13 @@ local function origin(url: string): string
   local scheme, rest = url:match("^(%a[%w+.-]*):(.*)$")
   if scheme == nil then
     if url:find("^[/\\][/\\]") then
-      return "|" .. url:gsub("^[/\\]+", ""):match("^[^/\\?#]*")
+      return "|" .. url:gsub("^[/\\]+", ""):match("^[^/\\?#]*") -- checked: nil_not_allowed
     end
     return "|"
   end
   scheme = scheme:lower()
   if scheme == "http" or scheme == "https" then
-    return scheme .. "|" .. rest:gsub("^[/\\]+", ""):match("^[^/\\?#]*")
+    return scheme .. "|" .. rest:gsub("^[/\\]+", ""):match("^[^/\\?#]*") -- checked: nil_not_allowed*2
   end
   return scheme .. "|"
 end
@@ -729,7 +729,7 @@ local function assembled_fault(value: string): string
   if origin(full) ~= origin(bare) then
     return "a URL part changed the origin from " .. origin(bare) .. " to " .. origin(full)
   end
-  for segment in (text:match("^[^?#]*"):gsub("[\\]", "/") .. "/"):gmatch("([^/]*)/") do
+  for segment in (text:match("^[^?#]*"):gsub("[\\]", "/") .. "/"):gmatch("([^/]*)/") do -- checked: nil_not_allowed
     if segment:find("\6", 1, true) then
       local name = segment:gsub("[\6\7]", ""):lower():gsub("%%2e", ".")
       if name == "." or name == ".." then
@@ -777,34 +777,34 @@ local function test_a_value_cannot_get_out_of_where_a_slot_puts_it(tmp: string)
       if kinds:find("r", 1, true) then Fuzz.label("rtext") end
       if kinds:find("f", 1, true) then Fuzz.label("ftext") end
       local env: {string: any} = {
-        require = function(name: string): any
+        require = function(name: string): any -- checked: any_use
           if name == "cosmic.html" then
-            return STAND_IN
+            return STAND_IN -- checked: any_use
           end
-          return {}
+          return {} -- checked: literal_needs_type
         end,
-        table = table,
-        ipairs = ipairs,
-        tostring = tostring,
-        type = type,
+        table = table, -- checked: any_use
+        ipairs = ipairs, -- checked: any_use
+        tostring = tostring, -- checked: any_use
+        type = type, -- checked: any_use
       }
       local chunk, trouble = load(lua_of(source), "=module", "t", env)
       if chunk == nil then
         return false, "the module does not load: " .. tostring(trouble) .. "\n" .. lua_of(source)
       end
       local loaded = chunk()
-      if not loaded is { string: function({string: any}): {string: string} } then
+      if not loaded is { string: function({string: any}): {string: string} } then -- checked: is_on_record
         return false, "the module exports no render"
       end
-      local render = loaded.render
-      local each: {string: any} = { s = "" }
-      setmetatable(each, { __index = function(_: any, key: string): any
+      local render = loaded.render -- checked: map_field
+      local each: {string: any} = { s = "" } -- checked: any_use
+      setmetatable(each, { __index = function(_: any, key: string): any -- checked: setmetatable_call
         if key == "w" then
-          return each
+          return each -- checked: any_use
         elseif key == "l" then
-          return { each }
+          return { each } -- checked: any_use
         end
-        return payload
+        return payload -- checked: any_use
       end })
       -- A list of two runs each range's body; an empty one, its else.
       local function inspect(out: string): boolean, string
@@ -860,7 +860,7 @@ local function test_a_value_cannot_get_out_of_where_a_slot_puts_it(tmp: string)
         for value, after in out:gmatch("\3&#5;([^\4]*)\4([^\"']*)") do
           Fuzz.label("assembled url")
           local url = (value .. after):gsub("&#(%d+);", function(n: string): string
-            return string.char(tonumber(n) as integer % 256)
+            return string.char(tonumber(n) as integer % 256) -- checked: cast_refused
           end):gsub("[\t\n\r]", "")
           if url:find("^[/\\][/\\]") then
             return false, "an assembled URL is protocol-relative: " .. url
@@ -872,16 +872,16 @@ local function test_a_value_cannot_get_out_of_where_a_slot_puts_it(tmp: string)
       -- rendered with every part given its value, then with one part alone
       -- given it and the others empty, and with one part alone empty: a part
       -- may be empty, and the others need not be.
-      for _, list in ipairs({ { each, each }, {} } as {{any}}) do
+      for _, list in ipairs({ { each, each }, {} } as {{any}}) do -- checked: cast_refused, literal_needs_type
         local runs: mut {{integer}} = { { 0, 0 } }
         local at = 1
         while at <= #runs do
-          PART_RUN.calls, PART_RUN.only, PART_RUN.skip = 0, runs[at][1], runs[at][2]
+          PART_RUN.calls, PART_RUN.only, PART_RUN.skip = 0, runs[at][1], runs[at][2] -- checked: index_may_be_nil*2, nil_not_allowed*2
           local ok, made = pcall(render, { a = payload, l = list, w = each })
           if not ok then
             return false, "render raised: " .. tostring(made) .. "\n" .. lua_of(assert(source))
           end
-          local good, bad = inspect(made.s)
+          local good, bad = inspect(made.s) -- checked: any_use
           if not good then
             return false, bad
           end
@@ -987,11 +987,11 @@ local function test_a_cut_in_the_text_does_not_move_where_a_slot_lands(tmp: stri
           literal:find("<style", 1, true) then
         Fuzz.label("raw text")
       end
-      if whole == nil and why:find("<script>", 1, true) then
+      if whole == nil and why:find("<script>", 1, true) then -- checked: or_mix
         Fuzz.label("script slot refused")
       end
       Fuzz.label(if kind == 2 then "range" elseif kind == 3 then "with" elseif kind == 4 then "arms" elseif kind == 5 then "string" else "if" end)
-      local block = if kind == 5 then as_strings(extra) else (CUTS[kind]:gsub("X", function(): string
+      local block = if kind == 5 then as_strings(extra) else (CUTS[kind]:gsub("X", function(): string -- checked: nil_not_allowed
         return extra
       end)) end
       for cut = 0, #literal do
@@ -1111,11 +1111,11 @@ local function test_a_string_action_renders_the_bytes_it_quotes(tmp: string)
           want[#want + 1] = "P"
         else
           -- A `{` outside a string could start an action with the next one.
-          body[#body + 1] = if kind == "q" then as_strings(text) else (text:gsub("{", '{{"{"}}')) end
-          want[#want + 1] = text
-          if text:find("{{", 1, true) then Fuzz.label("brace") end
-          if text:find('["\\]') then Fuzz.label("escape") end
-          if text:find("\n", 1, true) then Fuzz.label("newline") end
+          body[#body + 1] = if kind == "q" then as_strings(text) else (text:gsub("{", '{{"{"}}')) end -- checked: nil_not_allowed*2
+          want[#want + 1] = text -- checked: nil_not_allowed
+          if text:find("{{", 1, true) then Fuzz.label("brace") end -- checked: nil_not_allowed
+          if text:find('["\\]') then Fuzz.label("escape") end -- checked: nil_not_allowed
+          if text:find("\n", 1, true) then Fuzz.label("newline") end -- checked: nil_not_allowed
         end
       end
       local src = "{{type T from m.t}}{{mode text}}" .. table.concat(body)
@@ -1126,13 +1126,13 @@ local function test_a_string_action_renders_the_bytes_it_quotes(tmp: string)
       if newlines(source) ~= newlines(src) + 1 then
         return false, "the module does not have the template's lines"
       end
-      local env: {string: any} = { require = function(_: string): any return {} end, table = table,
-        tostring = tostring, type = type }
+      local env: {string: any} = { require = function(_: string): any return {} end, table = table, -- checked: any_use*2, literal_needs_type
+        tostring = tostring, type = type } -- checked: any_use*2
       local chunk, trouble = load(lua_of(source), "=module", "t", env)
       if chunk == nil then
         return false, "the module does not load: " .. tostring(trouble) .. "\n" .. lua_of(source)
       end
-      local loaded = chunk() as {string: function({string: string}): string}
+      local loaded = chunk() as {string: function({string: string}): string} -- checked: cast_refused
       local made = loaded.render({ a = "P" })
       if made ~= table.concat(want) then
         return false, "rendered " .. string.format("%q", made) .. " for " .. string.format("%q", table.concat(want))
@@ -1420,7 +1420,7 @@ local function test_a_block_in_a_tag_adds_only_the_attributes_it_writes(tmp: str
         local text = if (lead ~= "" or (tag.name == "svg" and not tag.selfclosing)) then "ftext" else "text" end
         if lead ~= "" then
           for _, a in ipairs(tag.attrs) do
-            if FONT_BREAKS[a:match("^[^=]*")] then
+            if FONT_BREAKS[a:match("^[^=]*")] then -- checked: condition_type, nil_not_allowed
               text = "refuse"
             end
           end
@@ -1431,10 +1431,10 @@ local function test_a_block_in_a_tag_adds_only_the_attributes_it_writes(tmp: str
         for _, slot in ipairs(tag.slots) do
           local want, made = slot[2], kinds[math.tointeger(tonumber(slot[1])) or 0]
           if want == "refuse" then
-            return false, "compiled slot " .. slot[1] .. " where nothing escapes it, as " .. tostring(made) .. ": " ..
+            return false, "compiled slot " .. slot[1] .. " where nothing escapes it, as " .. tostring(made) .. ": " .. -- checked: nil_not_allowed
               body
           elseif made ~= want then
-            return false, "slot " .. slot[1] .. " is " .. tostring(made) .. ", not " .. want .. ": " .. body
+            return false, "slot " .. slot[1] .. " is " .. tostring(made) .. ", not " .. want .. ": " .. body -- checked: nil_not_allowed*2
           end
           if want ~= text then
             Fuzz.label("slot")
@@ -1446,16 +1446,16 @@ local function test_a_block_in_a_tag_adds_only_the_attributes_it_writes(tmp: str
           state ~= "selfclosing" then
         return true, ""
       end
-      if kind == "else" and read_tag(open .. n_before .. runs[1]).at == read_tag(open .. n_before .. runs[2]).at then
+      if kind == "else" and read_tag(open .. n_before .. runs[1]).at == read_tag(open .. n_before .. runs[2]).at then -- checked: nil_not_allowed*2
         return true, ""
       end
       for i = 2, #runs do
-        if tags[i].name ~= tags[1].name or tags[i].selfclosing ~= tags[1].selfclosing then
+        if tags[i].name ~= tags[1].name or tags[i].selfclosing ~= tags[1].selfclosing then -- checked: nil_not_allowed*4
           return false, "the block changes the tag: " .. body
         end
-        if merged(tags[i].attrs, own[1]) ~= merged(tags[1].attrs, own[i]) then
-          return false, "the attributes around the block differ as it runs: " .. table.concat(tags[i].attrs, " ") ..
-            " against " .. table.concat(tags[1].attrs, " ") .. ": " .. body
+        if merged(tags[i].attrs, own[1]) ~= merged(tags[1].attrs, own[i]) then -- checked: index_may_be_nil*2, nil_not_allowed*2
+          return false, "the attributes around the block differ as it runs: " .. table.concat(tags[i].attrs, " ") .. -- checked: nil_not_allowed
+            " against " .. table.concat(tags[1].attrs, " ") .. ": " .. body -- checked: nil_not_allowed
         end
       end
       if arm:find("%a") then
@@ -1495,7 +1495,7 @@ end
 --- and one white space after them, or a backslash and the byte after it.
 local function css_unescape(text: string): string
   local out = text:gsub("\\(%x%x?%x?%x?%x?%x?)[ \t\n\f\r]?", function(hex: string): string
-    local code = tonumber(hex, 16) as integer
+    local code = tonumber(hex, 16) as integer -- checked: cast_refused
     return if code == 0 then "\239\191\189" else utf8.char(code) end
   end)
   return out
@@ -1533,15 +1533,15 @@ local function test_a_selector_slot_never_leaves_the_identifier_it_stands_in(tmp
       if source == nil then
         return false, "refused " .. body .. ": " .. why
       end
-      local env: {string: any} = { require = function(name: string): any
-        return if name == "cosmic.html" then Html else {} end
-      end, table = table, tostring = tostring, type = type }
+      local env: {string: any} = { require = function(name: string): any -- checked: any_use
+        return if name == "cosmic.html" then Html else {} end -- checked: literal_needs_type
+      end, table = table, tostring = tostring, type = type } -- checked: any_use*3
       local chunk, trouble = load(lua_of(source), "=module", "t", env)
       if chunk == nil then
         return false, "the module does not load: " .. tostring(trouble)
       end
-      local loaded = chunk() as {string: function({string: string}): any}
-      local made = Html.raw(loaded.render({ a = payload }) as Html.SafeHtml)
+      local loaded = chunk() as {string: function({string: string}): any} -- checked: cast_refused
+      local made = Html.raw(loaded.render({ a = payload }) as Html.SafeHtml) -- checked: cast_refused
       -- The attribute is a quoted value that holds no quote: the escaper
       -- writes every byte that could end it as a reference.
       local value = made:match("^<a [^=]+=" .. quote .. "([^" .. quote .. "]*)" .. quote .. ">$")
@@ -1549,7 +1549,7 @@ local function test_a_selector_slot_never_leaves_the_identifier_it_stands_in(tmp
         return false, "the attribute is not one quoted value: " .. made
       end
       local css = value:gsub("&#(%d+);", function(n: string): string
-        return string.char(tonumber(n) as integer)
+        return string.char(tonumber(n) as integer) -- checked: cast_refused
       end)
       local at, stop = #lead + 1, #css - #trail
       if css:sub(1, #lead) ~= lead or css:sub(stop + 1) ~= trail then
@@ -1586,7 +1586,7 @@ local function test_a_json_slot_is_the_attribute_value_it_was_given(tmp: string)
     check = function(input: string): boolean, string
       local fields = Fuzz.unpack(input)
       local payload, attr, quote, key = fields[1] or "", fields[2] or "", fields[3] or '"', fields[4] or ""
-      local json = Html.json({ [key] = payload, list = { payload, key }, ["js:" .. payload] = key })
+      local json = Html.json({ [key] = payload, list = { payload, key }, ["js:" .. payload] = key }) -- checked: literal_shape
       if json == nil then
         -- Bytes that are not UTF-8 are not JSON text.
         return true, ""
@@ -1597,15 +1597,15 @@ local function test_a_json_slot_is_the_attribute_value_it_was_given(tmp: string)
       if source == nil then
         return false, "refused " .. body .. ": " .. why
       end
-      local env: {string: any} = { require = function(name: string): any
-        return if name == "cosmic.html" then Html else {} end
-      end, table = table, tostring = tostring, type = type }
+      local env: {string: any} = { require = function(name: string): any -- checked: any_use
+        return if name == "cosmic.html" then Html else {} end -- checked: literal_needs_type
+      end, table = table, tostring = tostring, type = type } -- checked: any_use*3
       local chunk, trouble = load(lua_of(source), "=module", "t", env)
       if chunk == nil then
         return false, "the module does not load: " .. tostring(trouble)
       end
-      local loaded = chunk() as {string: function({string: any}): any}
-      local made = Html.raw(loaded.render({ j = json }) as Html.SafeHtml)
+      local loaded = chunk() as {string: function({string: any}): any} -- checked: cast_refused
+      local made = Html.raw(loaded.render({ j = json }) as Html.SafeHtml) -- checked: cast_refused
       local value = made:match("^<a [^=]+=" .. quote .. "([^" .. quote .. "]*)" .. quote .. ">$")
       if value == nil then
         return false, "the attribute is not one quoted value: " .. made
@@ -1615,12 +1615,12 @@ local function test_a_json_slot_is_the_attribute_value_it_was_given(tmp: string)
       end
       -- What a browser reads of the value is the JSON text itself.
       local read = value:gsub("&(%a+);", { quot = '"', amp = "&", lt = "<", gt = ">", apos = "'" }):gsub("&#(%d+);", function(n: string): string
-        return string.char(tonumber(n) as integer)
+        return string.char(tonumber(n) as integer) -- checked: cast_refused
       end)
       if read ~= Html.raw_json(json) then
         return false, "the attribute reads as " .. string.format("%q", read)
       end
-      if read:find("^%s*j") or not Json.check(read) then
+      if read:find("^%s*j") or not Json.check(read) then -- checked: or_mix
         return false, "the value could be read as code: " .. read
       end
       if value:find("&quot;", 1, true) or value:find("&#39;", 1, true) then Fuzz.label("quoted") end
@@ -1641,7 +1641,7 @@ local function spelled(src: Fuzz.Source, name: string): string
   local out = name:gsub("%a", function(c: string): string
     return if src:int(0, 1) == 0 then c:lower() else c:upper() end
   end)
-  return if name:find("^hx%-") and src:int(0, 1) == 0 then "data-" .. out else out end
+  return if name:find("^hx%-") and src:int(0, 1) == 0 then "data-" .. out else out end -- checked: condition_type
 end
 
 local function gen_script_attr(src: Fuzz.Source): string

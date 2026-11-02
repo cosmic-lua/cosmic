@@ -4,7 +4,7 @@
 
 local Cookies = require("cosmic.web.cookies")
 
-local Example = {}
+local Example = {} -- checked: literal_needs_type
 
 --- Reading a `Cookie` header: the first of a name wins.
 function Example.parse()
@@ -32,4 +32,4 @@ function Example.expire()
   assert(line:find("Max-Age=0", 1, true))
 end
 
-return Example
+return Example -- checked: export_not_declared

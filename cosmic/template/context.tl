@@ -52,7 +52,7 @@ end
 local walk: function(w: Walk, body: {types.Node}, from: markup.Place, marks: Marks): markup.Place?, string
 
 --- The place after the `range` `node`, which begins at `from`.
-local function range_after(w: Walk, node: types.Node, from: markup.Place, marks: Marks): markup.Place?, string
+local function range_after(w: Walk, node: types.Node, from: markup.Place, marks: Marks): markup.Place?, string -- checked: not_assigned
   local first = node.branches[1]
   if first == nil then
     return nil, refuse(w.name, node.line, node.col, "this {{range}} has no body")

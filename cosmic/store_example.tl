@@ -10,7 +10,7 @@ local Test = require("cosmic.test")
 --- `store`: both read every module's rows through [`Store.databases()`].
 Test.policy{ grants = { { path = "o/cosmic.db", letters = "r" } } }
 
-local Example = {}
+local Example = {} -- checked: literal_needs_type
 
 --- The modules a program that requires `cosmic.json` needs: the module
 --- itself and, sorted, everything it loads. A module the store does not
@@ -39,4 +39,4 @@ function Example.seal()
   assert(Fs.remove_tree(dir))
 end
 
-return Example
+return Example -- checked: export_not_declared

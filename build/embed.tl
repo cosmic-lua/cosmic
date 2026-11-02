@@ -792,7 +792,7 @@ end
 --- (it would run old code), and the exit status is [`exit_status.uncompiled`].
 local function run(argv: {string}): integer
   local started = Clock.monotonic_ns()
-  local parsed, parse_trouble = Flags.parse(argv, 2, assert(Cli.verbs.build.spec))
+  local parsed, parse_trouble = Flags.parse(argv, 2, assert(Cli.verbs.build.spec)) -- checked: map_field
   if parsed == nil then
     log:complain("build: " .. parse_trouble)
     return 2
@@ -849,7 +849,7 @@ local function run(argv: {string}): integer
         ", " .. clock.took(started))
     return exit_status.uncompiled
   end
-  local wrote = #outputs > 0 and table.concat(outputs, ", ") or
+  local wrote = #outputs > 0 and table.concat(outputs, ", ") or -- checked: and_ternary
     "no executable: no cmd/<name>/main.tl in the tree"
   local _, _ = logger.summary("build", wrote .. ", " .. clock.took(started))
   return 0

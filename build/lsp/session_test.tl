@@ -865,12 +865,12 @@ local function test_a_session_over_a_loopback_connection()
   local exchange: Exchange = { code = -1, sent = "" }
   Poll.run(function()
     Poll.spawn(function()
-      local conn <close> = assert(listener:accept(Clock.seconds(10)))
+      local conn <close> = assert(listener:accept(Clock.seconds(10))) -- checked: close_not_closable
       exchange.code = session.serve(session.new(root), conn, function(text: string): boolean, string
         return conn:write(text)
       end)
     end)
-    local client <close> = assert(Net.connect(address, { timeout_ns = Clock.seconds(10) }))
+    local client <close> = assert(Net.connect(address, { timeout_ns = Clock.seconds(10) })) -- checked: close_not_closable
     assert(client:write(framed({ initialize(root), SHUTDOWN, EXIT })))
     assert(client:shutdown("write"))
     exchange.sent = assert(Stream.read_all(client))

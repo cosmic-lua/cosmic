@@ -7,7 +7,7 @@ Test.policy{}
 
 --- Runs `source` as a chunk and answers what it returns.
 local function run(source: string): any, any, any, any, any, any
-  local env: {string: any} = { setmetatable = setmetatable, tostring = tostring, string = string, print = print }
+  local env: {string: any} = { setmetatable = setmetatable, tostring = tostring, string = string, print = print } -- checked: any_use*4
   local chunk, why = load(source, "=class_form", "t", env)
   assert(chunk ~= nil, tostring(why))
   return chunk()
@@ -91,13 +91,13 @@ end
 
 local function test_a_class_that_is_no_table_is_an_error_naming_it()
   Test.raises(function() run("local D = nil\nreturn {} @ D\n") end, "attempt to use as a class a nil value (local 'D')")
-  local again, trouble = pcall(run, "local D = 'text'\nreturn {} @ D\n")
+  local again, trouble = pcall(run, "local D = 'text'\nreturn {} @ D\n") -- checked: overload_none
   assert(not again and tostring(trouble):find("attempt to use as a class a string value", 1, true) ~= nil, tostring(trouble))
 end
 
 local function test_a_dumped_chunk_runs_after_it_is_loaded_and_names_the_format_of_the_machine_that_wrote_it()
   local chunk = assert(load("local C = {}; C.__index = C; C.m = function() return 1 end; return ({} @ C):m()", "=dump", "t", {}))
-  local bytes = string.dump(chunk)
+  local bytes = string.dump(chunk) -- checked: not_assignable
   -- the signature, the version, then the format byte: 1 where this machine's instructions follow Lua's
   assert(bytes:byte(5) == 0x55 and bytes:byte(6) == 1, "format " .. tostring(bytes:byte(6)))
   local again = assert(load(bytes, "=dump", "b", {}))
@@ -112,7 +112,7 @@ local function test_the_form_needs_a_constructor_before_the_at_and_a_class_after
   local refused = 0
   for _, source in ipairs(bad) do
     local chunk = load(source, "=bad", "t", {})
-    if chunk == nil or not pcall(chunk) then
+    if chunk == nil or not pcall(chunk) then -- checked: overload_none
       refused = refused + 1
     end
   end

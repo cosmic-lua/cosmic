@@ -69,7 +69,7 @@ local function test_a_protocol_runs_a_child_under_the_server_s_guard()
       assert(conn:write((if r ~= nil then tostring(r.code) else why end) .. "\n"))
     end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
-      local conn <close> = assert(Net.connect(addresses[1], { timeout_ns = Clock.seconds(30) }))
+      local conn <close> = assert(Net.connect(addresses[1], { timeout_ns = Clock.seconds(30) })) -- checked: close_not_closable, index_may_be_nil
       answer = assert(Stream.lines(conn):read())
       server:stop()
     end,

@@ -504,7 +504,7 @@ local function read_pack(format: string): Literals.PackRead
               at(at_i) .. "), and Lua raises \"invalid next option for option 'X'\"",
             "follow `X` with an option of a size, such as `Xi4`")
         end
-        align = after ~= nil and after.size or 0
+        align = after ~= nil and after.size or 0 -- checked: and_ternary
       end
       if s.bad == nil and align > 1 and not o.fixed_string then
         if align > s.max_align then
@@ -542,7 +542,7 @@ local function check(call: Literals.Call): {Literals.Finding}
       found[#found + 1] = finding("pattern_malformed", 2, "pattern", fn, trouble)
     elseif fn == "gsub" then
       local replacement = call.literals[3]
-      local bad = replacement ~= nil and read_replacement(replacement, #read.captures) or nil
+      local bad = replacement ~= nil and read_replacement(replacement, #read.captures) or nil -- checked: and_ternary
       if bad ~= nil then
         found[#found + 1] = finding("pattern_malformed", 3, "replacement", fn, bad)
       end
@@ -578,14 +578,14 @@ local function key_of(pattern: string): string?
   return if read.captures[1] == "position" then "integer" else "string" end
 end
 
-Literals.pattern = read_pattern
-Literals.replacement = read_replacement
-Literals.format = read_format
-Literals.pack = read_pack
-Literals.check = check
-Literals.functions = {
+Literals.pattern = read_pattern -- checked: field_fixed
+Literals.replacement = read_replacement -- checked: field_fixed
+Literals.format = read_format -- checked: field_fixed
+Literals.pack = read_pack -- checked: field_fixed
+Literals.check = check -- checked: field_fixed
+Literals.functions = { -- checked: field_fixed
   find = true, match = true, gmatch = true, gsub = true, format = true, pack = true, unpack = true, packsize = true,
 }
-Literals.key = key_of
+Literals.key = key_of -- checked: field_fixed
 
 return Literals

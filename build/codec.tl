@@ -121,7 +121,7 @@ local URL <const>: Alphabet = {
 }
 
 --- The hex encoder: each chunk's digits, as it comes.
-local class HexEncoder is verb.Coder
+local class HexEncoder is verb.Coder -- declared: interface_disagrees
   mut done: boolean
 
   function update(self, chunk: string): string?, string
@@ -129,7 +129,7 @@ local class HexEncoder is verb.Coder
     return Codec.hex(chunk), ""
   end
 
-  function finish(self): string, string
+  function finish(self): string, string -- declared: interface_disagrees
     if self.done then error("codec: coder is finished", 2) end
     self.done = true
     return "", ""
@@ -138,7 +138,7 @@ end
 
 --- A base64 encoder: whole groups of three bytes go out as they come,
 --- and the last one or two are padded, if the alphabet pads, at `finish`.
-local class Base64Encoder is verb.Coder
+local class Base64Encoder is verb.Coder -- declared: interface_disagrees
   alphabet: Alphabet
   mut carry: string
   mut done: boolean
@@ -149,7 +149,7 @@ local class Base64Encoder is verb.Coder
     local whole = #data - #data % 3
     self.carry = data:sub(whole + 1)
     if whole == 0 then return "", "" end
-    return self.alphabet.encode(whole == #data and data or data:sub(1, whole)), ""
+    return self.alphabet.encode(whole == #data and data or data:sub(1, whole)), "" -- checked: and_ternary
   end
 
   function finish(self): string?, string
@@ -160,7 +160,7 @@ local class Base64Encoder is verb.Coder
 end
 
 --- The hex decoder.
-local class HexDecoder is verb.Coder
+local class HexDecoder is verb.Coder -- declared: interface_disagrees
   mut total: integer
   mut carry: string
   --- The first character that is no hex digit: where it lies and what
@@ -169,7 +169,7 @@ local class HexDecoder is verb.Coder
   mut bad_byte: integer
   mut done: boolean
 
-  function update(self, chunk: string): string, string
+  function update(self, chunk: string): string, string -- declared: interface_disagrees
     if self.done then error("codec: coder is finished", 2) end
     local before = self.total - #self.carry
     self.total = self.total + #chunk
@@ -181,7 +181,7 @@ local class HexDecoder is verb.Coder
     local even = #data - #data % 2
     local tail = data:sub(even + 1)
     if not tail:find("[^0-9a-fA-F]") then
-      local out, _why = Codec.unhex(even == #data and data or data:sub(1, even))
+      local out, _why = Codec.unhex(even == #data and data or data:sub(1, even)) -- checked: and_ternary
       if out ~= nil then
         self.carry = tail
         return out, ""
@@ -210,7 +210,7 @@ end
 --- A decoder for an alphabet, as the whole-string one is: the same
 --- refusals in the same order, the same words, and offsets counted from
 --- the first character fed.
-local class Base64Decoder is verb.Coder
+local class Base64Decoder is verb.Coder -- declared: interface_disagrees
   alphabet: Alphabet
   mut total: integer
   -- Characters of the group in progress, all in the alphabet.
@@ -243,7 +243,7 @@ local class Base64Decoder is verb.Coder
     if whole > 0 and data:byte(whole) ~= 61 then
       local tail = data:sub(whole + 1)
       if not tail:find(a.class) then
-        local out, _why = a.decode(whole == #data and data or data:sub(1, whole))
+        local out, _why = a.decode(whole == #data and data or data:sub(1, whole)) -- checked: and_ternary
         if out ~= nil then
           self.carry = tail
           return out, ""
@@ -354,7 +354,7 @@ function verb.decoder(name: verb.Name): verb.Coder
   error("codec: no such encoding: " .. tostring(name), 2)
 end
 
-local spec = Cli.verbs.codec.spec or {}
+local spec = Cli.verbs.codec.spec or {} -- checked: literal_needs_type, map_field
 
 local usage = "cosmic codec <hex|base64|base64url> [-d] [--wrap N] [--lenient] [<file>|-]"
 
@@ -427,7 +427,7 @@ end
 --- An encoder that writes its text in lines of `wrap` columns when that
 --- is positive, and ends in a newline at `finish` (so empty input
 --- writes just the newline).
-local class Encoding is verb.Coder
+local class Encoding is verb.Coder -- declared: interface_disagrees
   inner: verb.Coder
   wrap: integer
   --- How many columns of the line in progress are written.
@@ -437,7 +437,7 @@ local class Encoding is verb.Coder
     return shaped(self, (assert(self.inner:update(chunk)))), ""
   end
 
-  function finish(self): string, string
+  function finish(self): string, string -- declared: interface_disagrees
     return shaped(self, (assert(self.inner:finish()))) .. "\n", ""
   end
 end
@@ -464,7 +464,7 @@ local function at_end(self: Decoding, why: string): nil, string
 end
 
 --- A decoder of text with ASCII whitespace anywhere in it.
-local class Decoding is verb.Coder
+local class Decoding is verb.Coder -- declared: interface_disagrees
   inner: verb.Coder
   name: verb.Name
   --- A pattern class of what `name`'s text may not hold.
@@ -603,8 +603,8 @@ local function arguments(argv: {string}): Request?, string
     return nil, ("no such encoding: %s; there are %s"):format(words[1], table.concat(names, ", "))
   end
   local request: Request = {
-    name = name, decode = parsed.set["-d"] or parsed.set["--decode"] or false,
-    wrap = 0, lenient = parsed.set["--lenient"] or false,
+    name = name, decode = parsed.set["-d"] or parsed.set["--decode"] or false, -- checked: condition_type
+    wrap = 0, lenient = parsed.set["--lenient"] or false, -- checked: condition_type
   }
   if #words > 2 then
     return nil, "give an encoding and a file at most, not " .. plural.count(#words, "word")
@@ -701,7 +701,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   end
   local reader: Stream.Reader = opened
   local decode = request.decode
-  local coder = decode and verb.decoding(request.name, request.lenient) or
+  local coder = decode and verb.decoding(request.name, request.lenient) or -- checked: and_ternary
     encoding(request.name, request.wrap)
   local source = request.file or "standard input"
   -- A Writer over `to.out`, local because no Stream helper adapts a
@@ -722,7 +722,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   --- The complaint for what `sink` refused: a lost write or a coder's refusal.
   local function blame(why: string): string
     local lost = standard_output.lost
-    return lost ~= nil and bare.lost(lost) or source .. ": " .. why
+    return lost ~= nil and bare.lost(lost) or source .. ": " .. why -- checked: and_ternary
   end
   while true do
     -- A read may come up short; fill the chunk, so that what is held

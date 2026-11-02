@@ -227,34 +227,34 @@ function policy_rules.declared(data: policy_rules.PolicyData, line: integer): po
   end
   for i, grant in ipairs(data.grants or {}) do
     local at = "grants[" .. tostring(i) .. "]"
-    local path, letters = grant.path, grant.letters
+    local path, letters = grant.path, grant.letters -- checked: map_field*2
     if path == nil or path == "" then return nil, at .. ".path takes a path" end
-    if letters == nil or letters == "" or letters:find("^r?w?x?c?u?$") == nil then
+    if letters == nil or letters == "" or letters:find("^r?w?x?c?u?$") == nil then -- untyped: call
       return nil, at .. ".letters takes letters of rwxcu, in that order"
     end
-    local named = path:match("^/cache/(.*)$")
-    local above = path:match("^/parent/(.*)$")
+    local named = path:match("^/cache/(.*)$") -- untyped: call
+    local above = path:match("^/parent/(.*)$") -- untyped: call
     if path == "o/cosmic.db" then
-      if letters ~= "r" or grant.from ~= nil then
+      if letters ~= "r" or grant.from ~= nil then -- checked: map_field
         return nil, at .. ".path o/cosmic.db is the store, granted " ..
           "{ path = \"o/cosmic.db\", letters = \"r\" } with no from"
       end
       out.store = true
     elseif path == "o/bin" then
-      if letters ~= "rx" or grant.from ~= nil then
+      if letters ~= "rx" or grant.from ~= nil then -- checked: map_field
         return nil, at .. ".path o/bin is the directory the program is in, granted " ..
           "{ path = \"o/bin\", letters = \"rx\" } with no from, beside the profile \"cosmic\""
       end
       bin = true
     elseif path == "/noexec" then
-      if letters ~= "rwc" or grant.from ~= nil then
+      if letters ~= "rwc" or grant.from ~= nil then -- checked: map_field
         return nil, at .. ".path /noexec is the private scratch the harness gives, " ..
           "granted { path = \"/noexec\", letters = \"rwc\" }: writable, never executable, " ..
           "with no from"
       end
       out.noexec = true
     elseif named ~= nil then
-      if letters ~= "rwxc" or grant.from ~= nil then
+      if letters ~= "rwxc" or grant.from ~= nil then -- checked: map_field
         return nil, at .. ".path /cache/<name> is a host cache, granted " ..
           "{ path = \"/cache/<name>\", letters = \"rwxc\" } with no from"
       end
@@ -265,9 +265,9 @@ function policy_rules.declared(data: policy_rules.PolicyData, line: integer): po
         return nil, at .. ".path /cache/" .. named .. ": no cache " .. named ..
           "; the caches are " .. table.concat(known, ", ")
       end
-      out.caches[#out.caches + 1] = named
+      out.caches[#out.caches + 1] = named -- checked: view_written
     elseif above ~= nil then
-      if letters ~= "r" or grant.from ~= nil then
+      if letters ~= "r" or grant.from ~= nil then -- checked: map_field
         return nil, at .. ".path /parent/<file> is a file of the project root's parent " ..
           "directory, granted { path = \"/parent/<file>\", letters = \"r\" } with no from"
       end
@@ -275,12 +275,12 @@ function policy_rules.declared(data: policy_rules.PolicyData, line: integer): po
       if fault ~= "" then return nil, at .. ".path /parent/" .. above .. " " .. fault end
       parents[#parents + 1] = above
     else
-      if grant.from ~= nil then return nil, at .. ".from" .. not_yet end
+      if grant.from ~= nil then return nil, at .. ".from" .. not_yet end -- checked: map_field
       if letters ~= "r" then
         return nil, at .. ".letters \"" .. letters .. "\"" .. not_yet ..
           "; a test reads, with \"r\", what it declares"
       end
-      local list = path:sub(1, 1) == "/" and out.host or out.reads
+      local list = path:sub(1, 1) == "/" and out.host or out.reads -- checked: and_ternary -- untyped: call
       list[#list + 1] = path
     end
   end
@@ -323,7 +323,7 @@ function policy_rules.declared(data: policy_rules.PolicyData, line: integer): po
     return nil, "grants: .path o/bin is the program's directory, granted only beside " ..
       "the profile \"cosmic\"; add the profile, or drop the grant"
   end
-  if proc then out.host[#out.host + 1] = "/proc" end
+  if proc then out.host[#out.host + 1] = "/proc" end -- checked: view_written
   out.tool, out.lua = cosmic and bin, cosmic and not bin
   if out.lua then
     local beside = if out.store then "o/cosmic.db" elseif out.system then "system" elseif

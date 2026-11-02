@@ -5,7 +5,7 @@
 local Headers = require("cosmic.web.headers")
 local Web = require("cosmic.web")
 
-local Example = {}
+local Example = {} -- checked: literal_needs_type
 
 --- Security headers and a CSP for every response, with a nonce for the
 --- layout's inline scripts.
@@ -28,4 +28,4 @@ function Example.middleware()
   assert(assert(res.headers["content-security-policy"]):find("'nonce-", 1, true))
 end
 
-return Example
+return Example -- checked: export_not_declared

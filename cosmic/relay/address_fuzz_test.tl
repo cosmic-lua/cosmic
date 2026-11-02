@@ -115,10 +115,10 @@ local function test_no_text_raises_the_parser_or_the_check(tmp: string)
       local selected, picked, reason = pcall(relay_address.permitted,
         { { address = text, family = "inet" } }, 443, NONE, NO_OWN)
       if not selected then return false, "permitted raised: " .. tostring(picked) end
-      local bytes = parsed as {integer}?
+      local bytes = parsed as {integer}? -- checked: cast_refused
       if bytes == nil then
         Fuzz.label("rejected")
-        if allowed then return false, "allowed text that is no address" end
+        if allowed then return false, "allowed text that is no address" end -- checked: any_use
         if picked ~= nil then return false, "selected text that is no address" end
         return true, ""
       end
@@ -127,7 +127,7 @@ local function test_no_text_raises_the_parser_or_the_check(tmp: string)
       for _, b in ipairs(bytes) do
         if math.type(b) ~= "integer" or b < 0 or b > 255 then return false, "byte out of range" end
       end
-      if not allowed then
+      if not allowed then -- checked: any_use
         return false, "an address its own grant does not open: " .. tostring(why)
       end
       return true, tostring(reason)
@@ -302,9 +302,9 @@ local function test_a_grant_opens_its_address_and_selection_keeps_every_allowed_
             return false, a .. " is opened on another port by " .. grant
           end
           Fuzz.label("granted")
-          local mine = relay_address.parse(a) as {integer}
+          local mine = relay_address.parse(a) as {integer} -- checked: cast_refused
           for j, b in ipairs(list) do
-            local theirs = relay_address.parse(b) as {integer}
+            local theirs = relay_address.parse(b) as {integer} -- checked: cast_refused
             if j ~= i and table.concat(theirs, ",") ~= table.concat(mine, ",") then
               if relay_address.check(b, port, { grant }, NO_OWN) ~= relay_address.check(b, port, NONE, NO_OWN) then
                 return false, grant .. " opens " .. b

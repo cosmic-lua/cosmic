@@ -186,7 +186,7 @@ local function consider(base: string, name: string, now: integer,
     end
     return
   end
-  local _held <close> = lock
+  local _held <close> = lock -- checked: close_not_closable
   remove(path, name, base, now, report)
 end
 

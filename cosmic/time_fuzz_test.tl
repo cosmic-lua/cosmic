@@ -104,10 +104,10 @@ local function parse_holds(input: string): boolean, string
     return true, ""
   end
   Fuzz.label("parsed")
-  if why ~= "" then return false, "parsed with a reason: " .. why end
-  local again, again_why = Time.parse_rfc3339(Time.format_rfc3339(ns))
+  if why ~= "" then return false, "parsed with a reason: " .. why end -- checked: nil_not_allowed
+  local again, again_why = Time.parse_rfc3339(Time.format_rfc3339(ns)) -- checked: any_use
   if again ~= ns then
-    return false, ("%q parsed as %d, whose text parsed as %s: %s"):format(input, ns,
+    return false, ("%q parsed as %d, whose text parsed as %s: %s"):format(input, ns, -- checked: any_use
       tostring(again), again_why)
   end
   return true, ""
@@ -163,7 +163,7 @@ local function http_round_trips(input: string): boolean, string
   local day = (" %d"):format(c.day):sub(-2)
   if c.day < 10 then Fuzz.label("one-digit day") end
   local clock = ("%02d:%02d:%02d"):format(c.hour, c.minute, c.second)
-  ok, why = parses_as(Time.parse_http, ("%s %s %s %s %04d"):format(DAYS[c.weekday]:sub(1, 3),
+  ok, why = parses_as(Time.parse_http, ("%s %s %s %s %04d"):format(DAYS[c.weekday]:sub(1, 3), -- checked: nil_not_allowed
     MONTHS[c.month], day, clock, c.year), second, ns)
   if not ok then return false, why end
   if c.year >= 1969 and c.year <= 2068 then
@@ -198,9 +198,9 @@ local function text_parse_holds(input: string): boolean, string
   if not ok then return false, "parse_http raised: " .. tostring(ns) end
   if ns ~= nil then
     Fuzz.label("http parsed")
-    if why ~= "" then return false, "parse_http parsed with a reason: " .. why end
-    if ns % NS ~= 0 or Time.parse_http(Time.format_http(ns)) ~= ns then
-      return false, ("%q parsed as %d, which does not come back"):format(input, ns)
+    if why ~= "" then return false, "parse_http parsed with a reason: " .. why end -- checked: nil_not_allowed
+    if ns % NS ~= 0 or Time.parse_http(Time.format_http(ns)) ~= ns then -- checked: any_use*2
+      return false, ("%q parsed as %d, which does not come back"):format(input, ns) -- checked: any_use
     end
   elseif why == "" then
     return false, "parse_http refused without a reason"
@@ -209,9 +209,9 @@ local function text_parse_holds(input: string): boolean, string
   if not ok then return false, "parse_date raised: " .. tostring(ns) end
   if ns ~= nil then
     Fuzz.label("date parsed")
-    if why ~= "" then return false, "parse_date parsed with a reason: " .. why end
-    if ns % DAY_NS ~= 0 or Time.parse_date(Time.format_date(ns)) ~= ns then
-      return false, ("%q parsed as %d, which does not come back"):format(input, ns)
+    if why ~= "" then return false, "parse_date parsed with a reason: " .. why end -- checked: nil_not_allowed
+    if ns % DAY_NS ~= 0 or Time.parse_date(Time.format_date(ns)) ~= ns then -- checked: any_use*2
+      return false, ("%q parsed as %d, which does not come back"):format(input, ns) -- checked: any_use
     end
   elseif why == "" then
     return false, "parse_date refused without a reason"
@@ -254,15 +254,15 @@ local function between_holds(input: string): boolean, string
   local zone = assert(Time.zone(name))
   local ok, span = pcall(Time.between, from, to, zone)
   if not ok then return false, "raised: " .. tostring(span) end
-  local d = span as Time.Duration
+  local d = span as Time.Duration -- checked: cast_refused
   local text_ok, text = pcall(Time.format_duration, d)
   if not text_ok then
     return false, ("%d to %d in %s: %s"):format(from, to, name, tostring(text))
   end
-  local back = Time.parse_duration(text)
+  local back = Time.parse_duration(text) -- checked: any_use
   if back == nil or back.years ~= d.years or back.months ~= d.months or back.days ~= d.days or
       back.ns ~= d.ns then
-    return false, text .. " does not read back"
+    return false, text .. " does not read back" -- checked: any_use
   end
   local dir = if to > from then 1 elseif to < from then -1 else 0 end
   if ((d.years or 0) * dir < 0) or ((d.months or 0) * dir < 0) or ((d.days or 0) * dir < 0) or

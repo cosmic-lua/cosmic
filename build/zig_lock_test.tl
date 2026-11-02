@@ -49,7 +49,7 @@ if wait < 0 then Fs.take(Fs.stdin, 1) else Clock.sleep_ns(wait) end
 ]]
 
 local function start(root: string, wait_ns: integer, flock?: boolean): Child.Handle, string
-  local started = this_program.program({ "-e", (flock and flock_tool or sql_tool):format(support.build_dir(root), wait_ns) },
+  local started = this_program.program({ "-e", (flock and flock_tool or sql_tool):format(support.build_dir(root), wait_ns) }, -- checked: condition_type
     { stdin = "stream", stdout = "stream", stderr = "capture" })
   local child = assert(Child.start(started.argv, started.options))
   local line = assert(Stream.lines(assert(child.stdout_stream)):read())
@@ -79,8 +79,8 @@ local function test_a_boot_excludes_a_sqlite_only_tool_and_releases_on_return(tm
   local env = { KEPT = "value", COSMIC_REBUILD_LOCK_HANDED = "/stale" }
   local status = Zig.with_lock(build_paths.required(root), env, function(handed: {string:string}): integer
     assert(probe(root) == "busy", "a SQL-only tool entered the boot's lock")
-    assert(handed.KEPT == "value")
-    assert(handed.COSMIC_REBUILD_LOCK_HANDED == support.build_dir(root) .. "/rebuild.lock")
+    assert(handed.KEPT == "value") -- checked: map_field
+    assert(handed.COSMIC_REBUILD_LOCK_HANDED == support.build_dir(root) .. "/rebuild.lock") -- checked: map_field
     assert(Fs.read(support.build_dir(root) .. "/rebuild.lock.pid") == tostring(sys.getpid()) .. "\nrebuild\n")
     return 7
   end)
@@ -137,8 +137,8 @@ end
 
 local function test_an_exception_releases_the_lock_before_it_is_rethrown(tmp: string)
   local root = tree(tmp)
-  local marker = {}
-  local ok, trouble: boolean, any = pcall(Zig.with_lock, build_paths.required(root), {}, function(): integer
+  local marker = {} -- checked: literal_needs_type
+  local ok, trouble: boolean, any = pcall(Zig.with_lock, build_paths.required(root), {}, function(): integer -- checked: overload_none
     assert(probe(root) == "busy")
     error(marker)
   end)
@@ -151,13 +151,13 @@ end
 local function test_an_exception_during_acquisition_releases_the_lock(tmp: string)
   local root = tree(tmp)
   local write = Fs.write
-  Fs.write = function(): boolean, string
+  Fs.write = function(): boolean, string -- checked: field_fixed
     error("holder write failed", 0)
   end
-  local ok, trouble: boolean, any = pcall(Zig.with_lock, build_paths.required(root), {}, function(): integer
+  local ok, trouble: boolean, any = pcall(Zig.with_lock, build_paths.required(root), {}, function(): integer -- checked: overload_none
     error("a build ran after acquisition raised")
   end)
-  Fs.write = write
+  Fs.write = write -- checked: field_fixed
   assert(not ok and trouble == "holder write failed", tostring(trouble))
   assert(probe(root) == "held", "exceptional acquisition retained its lock")
 end
@@ -171,15 +171,15 @@ local function test_a_snapshot_exception_releases_mains_lock(tmp: string)
   local fake = tmp .. "/zig"
   assert(Fs.write(fake, "", 0x1ed))
   local get, snapshot = Env.read, Zig.snapshot
-  Env.read = function(name: Env.Name): string?
-    return name == "COSMIC_ZIG" and fake or get(name)
+  Env.read = function(name: Env.Name): string? -- checked: field_fixed
+    return name == "COSMIC_ZIG" and fake or get(name) -- checked: and_ternary
   end
-  Zig.snapshot = function(): {string:string}?, string
+  Zig.snapshot = function(): {string:string}?, string -- checked: field_fixed
     error("snapshot failed", 0)
   end
   local ok, trouble: boolean, any = pcall(Zig.enter,
     { "build", "boot" }, root .. "/build/zig.tl")
-  Env.read, Zig.snapshot = get, snapshot
+  Env.read, Zig.snapshot = get, snapshot -- checked: field_fixed*2
   assert(not ok and trouble == "snapshot failed", tostring(trouble))
   assert(probe(root) == "held", "main retained its lock after a snapshot exception")
 end

@@ -79,7 +79,7 @@ local record Zip
     --- the directory, so walking an archive of any size holds one
     --- entry at a time; nil and `""` after the last. Independent of
     --- `entries`.
-    next: function(Reader): Entry?, string
+    next: function(Reader): Entry?, string -- declared: interface_disagrees
     --- The entry whose path is `path`, from the list `entries` builds, so
     --- the same rules hold: the first call must come before `close`.
     --- The first in directory order where an archive holds the path twice.
@@ -229,7 +229,7 @@ local last_dos: LastDay = { date = -1, midnight = 0 }
 --- and a day past its month's end (February 31) to the month's last.
 local function dos_to_unix(date: integer, clock: integer): integer
   if date ~= last_dos.date then
-    local c: Time.CivilFields = {
+    local c: Time.CivilFields = { -- checked: literal_shape
       year = ((date >> 9) & 0x7F) + 1980,
       month = math.min(math.max((date >> 5) & 0x0F, 1), 12),
       day = math.max(date & 0x1F, 1),
@@ -333,7 +333,7 @@ end
 --- offset, without walking whatever came before it. `held`, when set,
 --- is the start of those bytes, already read along with the local
 --- header. Its methods live on a shared metatable.
-local class SpanReader is Stream.Reader
+local class SpanReader is Stream.Reader -- declared: interface_disagrees
   pread: Pread
   mut pos: integer
   mut left: integer
@@ -363,7 +363,7 @@ local class SpanReader is Stream.Reader
       end
       if #got == 0 then
         self.failed = "zip: entry body runs past the end of the file"
-        return nil, self.failed
+        return nil, self.failed -- checked: nil_not_allowed
       end
       chunk = got
     end
@@ -383,7 +383,7 @@ end
 --- against `crc` at end of file; fails the moment more than `size`
 --- bytes arrive, so a body lying about its size is never expanded
 --- much past it.
-local class CheckedReader is Stream.Reader
+local class CheckedReader is Stream.Reader -- declared: interface_disagrees
   inner: Stream.Reader
   crc: integer
   size: integer
@@ -406,13 +406,13 @@ local class CheckedReader is Stream.Reader
       else
         return nil, ""
       end
-      return nil, self.failed
+      return nil, self.failed -- checked: nil_not_allowed
     end
     local seen = self.seen + #chunk
     self.seen = seen
     if seen > self.size then
       self.failed = "zip: entry is larger than its recorded size of " .. String.counted(self.size, "byte")
-      return nil, self.failed
+      return nil, self.failed -- checked: nil_not_allowed
     end
     self.state = sums.crc32(chunk, self.state)
     return chunk, ""
@@ -600,7 +600,7 @@ local function next_record(c: Cursor, mt: metatable<Zip.Entry>, bare?: boolean):
         "the start of the central directory at " .. tostring(cd_offset))
   end
   if bare == true and kind ~= "symlink" then return CHECKED, "" end
-  local entry: Zip.Entry = setmetatable({
+  local entry: Zip.Entry = setmetatable({ -- checked: arms_differ, setmetatable_call -- untyped: call
     path = buf:sub(name_start, name_end),
     kind = kind,
     size = usize,
@@ -654,13 +654,13 @@ local class EntryReader is Zip.Reader
   mut by_folded?: {string: Zip.Entry}
   mut closed: boolean
 
-  function next(self): Zip.Entry?, string
+  function next(self): Zip.Entry?, string -- declared: interface_disagrees
     if self.closed then return refuse("the reader is closed") end
     local entry, etrouble = next_record(self.walk, self.entry_mt)
     if entry == nil then return nil, etrouble end
     self.walked = self.walked + 1
     local target = self.links[self.walked]
-    if target ~= nil then entry.linkpath = target end
+    if target ~= nil then entry.linkpath = target end -- checked: field_fixed
     return entry, ""
   end
 
@@ -679,7 +679,7 @@ local class EntryReader is Zip.Reader
       end
       all[#all + 1] = entry
       local target = self.links[#all]
-      if target ~= nil then entry.linkpath = target end
+      if target ~= nil then entry.linkpath = target end -- checked: field_fixed
     end
     self.listed = all
     return all, ""
@@ -757,7 +757,7 @@ local function open_reader(size: integer, pread: Pread, closer: function(): bool
       return open_entry(pread, e)
     end,
   }
-  local entry_mt: metatable<Zip.Entry> = { __index = entry_methods }
+  local entry_mt: metatable<Zip.Entry> = { __index = entry_methods } -- checked: any_use, literal_missing
 
   -- One pass over the whole directory up front, keeping no entry, so
   -- a malformed one, or a count that disagrees with the end record,
@@ -1281,7 +1281,7 @@ end
 function Zip.writer(w: Stream.Writer, opts?: Zip.WriterOptions): Zip.Writer
   opts = opts or {}
   local zw: EntryWriter = {
-    sink = Stream.sticky(w, "zip"), deterministic = opts.deterministic or false,
+    sink = Stream.sticky(w, "zip"), deterministic = opts.deterministic or false, -- checked: condition_type
     offset = opts.offset or 0, cd_parts = {}, count = 0, open = nil,
   }
   return zw

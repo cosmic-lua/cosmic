@@ -229,13 +229,13 @@ local function run(insns: {Insn}, arch: integer, number: integer, args: {integer
     elseif code == 0x05 then
       pc = pc + k
     elseif code == 0x15 then
-      pc = pc + (a == k and insn.jt or insn.jf)
+      pc = pc + (a == k and insn.jt or insn.jf) -- checked: and_ternary
     elseif code == 0x25 then
-      pc = pc + (a > k and insn.jt or insn.jf)
+      pc = pc + (a > k and insn.jt or insn.jf) -- checked: and_ternary
     elseif code == 0x35 then
-      pc = pc + (a >= k and insn.jt or insn.jf)
+      pc = pc + (a >= k and insn.jt or insn.jf) -- checked: and_ternary
     elseif code == 0x45 then
-      pc = pc + ((a & k) ~= 0 and insn.jt or insn.jf)
+      pc = pc + ((a & k) ~= 0 and insn.jt or insn.jf) -- checked: and_ternary
     elseif code == 0x06 then
       return k
     else
@@ -277,7 +277,7 @@ local function holds(promises: {string}, arch: string, cases: {Case},
   for _, case in ipairs(cases) do
     local both = numbers[case.name]
     assert(both ~= nil, case.name .. " is in no table of this test")
-    local number = arch == "x86_64" and both[1] or both[2]
+    local number = arch == "x86_64" and both[1] or both[2] -- checked: and_ternary
     if number ~= nil then
       local got = verdict(run(insns, audit_of(arch), number, case.args))
       local shown: mut {string} = {}
@@ -391,7 +391,7 @@ local function test_a_call_above_the_reviewed_table_answers_ENOSYS()
 end
 
 local function test_clone3_and_openat2_answer_ENOSYS_whatever_was_promised()
-  for _, promises in ipairs({ {}, { "fork" }, { "fork", "jit", "fattr" } }) do
+  for _, promises in ipairs({ {}, { "fork" }, { "fork", "jit", "fattr" } }) do -- checked: literal_needs_type
     holds_on_both(promises, { call("clone3", "ENOSYS"), call("openat2", "ENOSYS") })
   end
   holds_on_both({}, { call("clone3", "ENOSYS"), call("openat2", "ENOSYS") }, { unix = true })
@@ -646,7 +646,7 @@ local function test_nest_adds_the_interface_flag_ioctls_and_no_other()
       call("ioctl", "ENOTTY", 3, 0x894c),
     })
   end
-  for _, promises in ipairs({ {}, { "fork", "jit", "fattr" } }) do
+  for _, promises in ipairs({ {}, { "fork", "jit", "fattr" } }) do -- checked: literal_needs_type
     holds_on_both(promises, {
       call("ioctl", "ENOTTY", 3, 0x8913), call("ioctl", "ENOTTY", 3, 0x8914),
       call("ioctl", "allow", 3, 0x541b),
@@ -662,7 +662,7 @@ local function test_the_namespace_calls_are_refused_without_nest()
   cases[#cases + 1] = call("kill", "EPERM", 4243, 9)
   cases[#cases + 1] = call("prctl", "EPERM", 24)
   cases[#cases + 1] = call("prctl", "EPERM", 47)
-  for _, promises in ipairs({ {}, { "fork" }, { "jit" }, { "fattr" }, { "fork", "jit", "fattr" } }) do
+  for _, promises in ipairs({ {}, { "fork" }, { "jit" }, { "fattr" }, { "fork", "jit", "fattr" } }) do -- checked: literal_needs_type
     holds_on_both(promises, cases)
   end
 end
@@ -718,7 +718,7 @@ end
 --- pidfd's signal too.
 local function test_a_scoped_filter_lets_a_signal_take_any_pid()
   local pid = 4242
-  for _, promises in ipairs({ {}, { "fork" }, { "fork", "jit", "fattr" }, { "nest" } }) do
+  for _, promises in ipairs({ {}, { "fork" }, { "fork", "jit", "fattr" }, { "nest" } }) do -- checked: literal_needs_type
     holds_on_both(promises, {
       call("kill", "allow", pid + 1, 15), call("kill", "allow", 0, 15),
       call("kill", "allow", -1, 9), call("kill", "allow", -(pid + 1), 15),
@@ -745,7 +745,7 @@ end
 --- the pid, and pidfd_send_signal is refused.
 local function test_an_unscoped_filter_keeps_a_signal_to_the_starting_pid()
   local pid = 4242
-  for _, options in ipairs({ { pid = pid }, { pid = pid, scoped = false } }) do
+  for _, options in ipairs({ { pid = pid }, { pid = pid, scoped = false } }) do -- checked: arms_differ
     holds_on_both({ "fork" }, {
       call("kill", "allow", pid, 15), call("kill", "EPERM", pid + 1, 15),
       call("kill", "EPERM", 0, 15), call("kill", "EPERM", -1, 9),
@@ -788,7 +788,7 @@ end
 --- namespace and a Landlock domain that hold what it reaches
 --- (`unix_held`), and only a unix one: an inet socket still needs `inet`.
 local function test_a_held_process_may_make_a_unix_socket_and_no_other()
-  for _, promises in ipairs({ {}, { "fork" }, { "fork", "jit", "fattr" }, { "nest" } }) do
+  for _, promises in ipairs({ {}, { "fork" }, { "fork", "jit", "fattr" }, { "nest" } }) do -- checked: literal_needs_type
     holds_on_both(promises, {
       call("socket", "allow", 1, 1, 0), call("socket", "allow", 1, 2, 0),
       call("socket", "EPERM", 2, 1, 0), call("socket", "EPERM", 10, 1, 0),
@@ -811,7 +811,7 @@ end
 --- reach, and nothing else is let through.
 local function test_a_process_that_cannot_raise_a_hard_limit_sets_its_own_limits()
   local pid = 4242
-  for _, promises in ipairs({ {}, { "fork", "jit", "fattr" }, { "nest" } }) do
+  for _, promises in ipairs({ {}, { "fork", "jit", "fattr" }, { "nest" } }) do -- checked: literal_needs_type
     holds_on_both(promises, {
       call("setrlimit", "allow", 7, 0x7000),
       call("prlimit64", "allow", 0, 7, 0x7000, 0), call("prlimit64", "allow", pid, 7, 0x7000, 0x7100),
@@ -840,7 +840,7 @@ end
 --- is held.
 local function test_a_process_in_its_own_pid_namespace_asks_after_any_pid()
   local pid = 4242
-  for _, promises in ipairs({ {}, { "fork" }, { "fork", "jit", "fattr" } }) do
+  for _, promises in ipairs({ {}, { "fork" }, { "fork", "jit", "fattr" } }) do -- checked: literal_needs_type
     holds_on_both(promises, {
       call("getpgid", "allow", pid + 1), call("getpgid", "allow", 1), call("getpgid", "allow", 0),
       call("getsid", "allow", pid + 1), call("getsid", "allow", 1),
@@ -861,15 +861,15 @@ end
 
 local function test_a_promise_is_one_of_the_four()
   for _, bad in ipairs({ "inet", "stdio", "" }) do
-    local ok = pcall(process.promise_filter, { bad }, "x86_64")
+    local ok = pcall(process.promise_filter, { bad }, "x86_64") -- checked: alternatives_as_value
     assert(not ok, bad .. " is no promise")
   end
-  local numeric: any = { 1 }
-  assert(not pcall(process.promise_filter, numeric as {string}, "x86_64"))
-  assert(not pcall(process.promise_filter, {}, "riscv64"))
-  assert(not pcall(process.promise_filter, {}, "x86_64", { pid = 0 }))
-  local text_pid: any = { pid = "1" }
-  assert(not pcall(process.promise_filter, {}, "x86_64", text_pid as raw_process.PromiseOptions))
+  local numeric: any = { 1 } -- checked: any_use
+  assert(not pcall(process.promise_filter, numeric as {string}, "x86_64")) -- checked: alternatives_as_value, cast_refused
+  assert(not pcall(process.promise_filter, {}, "riscv64")) -- checked: alternatives_as_value
+  assert(not pcall(process.promise_filter, {}, "x86_64", { pid = 0 })) -- checked: alternatives_as_value
+  local text_pid: any = { pid = "1" } -- checked: any_use
+  assert(not pcall(process.promise_filter, {}, "x86_64", text_pid as raw_process.PromiseOptions)) -- checked: alternatives_as_value, cast_refused
 end
 
 --- Every number from 0 through the reviewed table's end, with every

@@ -72,20 +72,20 @@ end
 local function test_a_limit_the_call_cannot_hold_raises(tmp: string)
   local program = assert(stand_in.build(tmp .. "/stand-in"))
   local function spawn(rlimits: any): boolean, string
-    local ok, why = pcall(process.spawn, program, { program, "print x" }, nil, nil, nil, nil, nil, false, nil,
-      { rlimits = rlimits as {string:integer} }) -- cast: a value the call must refuse
+    local ok, why = pcall(process.spawn, program, { program, "print x" }, nil, nil, nil, nil, nil, false, nil, -- checked: overload_none
+      { rlimits = rlimits as {string:integer} }) -- cast: a value the call must refuse -- checked: cast_refused
     return ok, tostring(why)
   end
   local cases: {{any}} = {
-    { { bogus = 1 }, "an rlimit is" },
-    { { nofile = "many" }, "an rlimit is an integer" },
-    { { nofile = 1.5 }, "an rlimit is an integer" },
-    { { fsize = -1 }, "an rlimit is not negative" },
-    { "nofile", "rlimits must be a table" },
-    { { [1] = 4 }, "an rlimit is" },
+    { { bogus = 1 }, "an rlimit is" }, -- checked: any_use*2
+    { { nofile = "many" }, "an rlimit is an integer" }, -- checked: any_use*2
+    { { nofile = 1.5 }, "an rlimit is an integer" }, -- checked: any_use*2
+    { { fsize = -1 }, "an rlimit is not negative" }, -- checked: any_use*2
+    { "nofile", "rlimits must be a table" }, -- checked: any_use*2
+    { { [1] = 4 }, "an rlimit is" }, -- checked: any_use*2
   }
   for _, case in ipairs(cases) do
     local ok, why = spawn(case[1])
-    assert(not ok and why:find(case[2] as string, 1, true) ~= nil, tostring(case[2]) .. ": " .. why)
+    assert(not ok and why:find(case[2] as string, 1, true) ~= nil, tostring(case[2]) .. ": " .. why) -- checked: cast_refused
   end
 end

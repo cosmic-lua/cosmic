@@ -55,7 +55,7 @@ end
 local function test_a_reader_over_a_pipe_has_no_skip(tmp: string)
   local reader, writer = fifo(tmp, "unseekable")
   local r = Stream.from_fd(reader)
-  assert(r.skip == nil)
+  assert(r.skip == nil) -- checked: compare_disjoint
   assert(sys.write(writer, "abcdef") == 6)
   assert(Stream.skip(r, 4))
   assert(r:read() == "ef")
@@ -172,7 +172,7 @@ local function test_a_wait_the_caller_gives_replaces_the_poll(tmp: string)
                                                                        events: integer, left: integer?): boolean, string
     calls = calls + 1
     assert(fd == writer and events == sys.POLLOUT and left == nil)
-    if fail ~= nil then return false, fail end
+    if fail ~= nil then return false, fail end -- checked: nil_not_allowed
     table.insert(seen, drained(reader))
     return true, ""
   end })

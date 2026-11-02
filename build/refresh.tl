@@ -540,11 +540,11 @@ local function apply(db: Sqlite.Handle, dataset: refresh.Dataset, source: refres
   end
   local version, url = was.version, was.url
   if sha256 ~= was.sha256 then
-    version = source.version ~= "" and source.version or release.version
+    version = source.version ~= "" and source.version or release.version -- checked: and_ternary
     if version == "" then
       version = "sha256:" .. sha256:sub(1, 12)
     end
-    url = source.url ~= "" and source.url or "file:" .. Fs.basename(source.path)
+    url = source.url ~= "" and source.url or "file:" .. Fs.basename(source.path) -- checked: and_ternary
   end
   local made, made_trouble = Sqlite.transact(db, function(): boolean, string
     local written, write_trouble = release.write(db)
@@ -719,7 +719,7 @@ local function run(argv: {string}): integer
     log:complain("refresh: " .. why .. "; " .. usage)
     return 2
   end
-  local parsed, parse_trouble = Flags.parse(argv, 2, assert(Cli.verbs.refresh.spec))
+  local parsed, parse_trouble = Flags.parse(argv, 2, assert(Cli.verbs.refresh.spec)) -- checked: map_field
   if parsed == nil then
     return refuse(parse_trouble)
   end

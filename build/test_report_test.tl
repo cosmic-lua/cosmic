@@ -5,7 +5,7 @@ local test_report = require("build.test_report")
 local function test_a_selector_is_printed_as_one_shell_word()
   local function shell_word(word: string): string
     local lines = test_report.failures({ { message = "failed", rerun = word } }, "")
-    return assert(lines[2]:match("^  rerun: cosmic test (.*)$"))
+    return assert(lines[2]:match("^  rerun: cosmic test (.*)$")) -- checked: nil_not_allowed
   end
   assert(shell_word("build/test_test.tl:test_x") == "build/test_test.tl:test_x")
   assert(shell_word("a b/c_test.tl:t") == "'a b/c_test.tl:t'")

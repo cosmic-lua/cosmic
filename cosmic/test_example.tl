@@ -8,7 +8,7 @@ local Test = require("cosmic.test")
 -- These examples read USER, which a test reads only once it says so.
 Test.policy{ env = { "USER" } }
 
-local Example = {}
+local Example = {} -- checked: literal_needs_type
 
 --- A test module declares what its tests read beyond their own sources
 --- once, as a statement at its top: the call above, which lets the
@@ -33,4 +33,4 @@ function Example.raises()
   print(why) -- no such file: x
 end
 
-return Example
+return Example -- checked: export_not_declared

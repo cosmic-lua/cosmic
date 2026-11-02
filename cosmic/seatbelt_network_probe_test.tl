@@ -81,11 +81,11 @@ local function start(tmp: string, text: string, parameters: {string:string}, arg
   local path = tmp .. "/out-" .. tostring(counter)
   local out = assert(sys.open(path, sys.O_WRONLY | sys.O_CREAT | sys.O_TRUNC, 420))
   local null = assert(sys.open("/dev/null", sys.O_RDONLY))
-  local pid, why = require("cosmic.internal.process").spawn(argv[1], argv, nil, nil, null, out, out, false, nil,
+  local pid, why = require("cosmic.internal.process").spawn(argv[1], argv, nil, nil, null, out, out, false, nil, -- checked: index_may_be_nil
     { seatbelt = { profile = text, parameters = parameters } })
   local _, _ = sys.close(out)
   local _, _ = sys.close(null)
-  return { pid = pid, why = why, output = path }
+  return { pid = pid, why = why, output = path } -- checked: nil_not_allowed
 end
 
 --- How a child ended.
@@ -100,8 +100,8 @@ end
 
 --- Waits `seconds` for `running`, ending it then, and says how it ended.
 local function reap(running: Running, seconds: number): Ended
-  if running.pid == nil then
-    return { started = false, why = running.why or "", code = -1, signal = -1, timed_out = false, text = "" }
+  if running.pid == nil then -- checked: compare_disjoint
+    return { started = false, why = running.why or "", code = -1, signal = -1, timed_out = false, text = "" } -- checked: condition_type
   end
   local process = require("cosmic.internal.process")
   local deadline = Clock.monotonic_ns() + Clock.seconds(seconds)
@@ -166,7 +166,7 @@ end
 
 --- The port a listener or a datagram socket holds.
 local function port_of(address: Net.Address): integer
-  return address.port
+  return address.port -- checked: nil_not_allowed
 end
 
 --- A rule that holds one port of the loopback, in each form the design might
@@ -223,10 +223,10 @@ local function test_which_remote_forms_the_profile_compiler_takes(tmp: string)
   assert(not broken, "a malformed profile started\n" .. table.concat(report, "\n"))
   assert(compiles(tmp, profile(BASE, {}), {}), "the base profile does not compile\n" .. table.concat(report, "\n"))
   assert(parsed["ip-localhost"], "(remote ip \"localhost:PORT\") does not compile\n" .. table.concat(report, "\n"))
-  assert(parsed["tcp-localhost"] and parsed["ip-param"] and parsed["ip-star"], "a form that compiled before does not\n" ..
+  assert(parsed["tcp-localhost"] and parsed["ip-param"] and parsed["ip-star"], "a form that compiled before does not\n" .. -- checked: condition_type
       table.concat(report, "\n"))
   -- The profile compiler takes no numeric host but "*" and "localhost".
-  assert(not parsed["ip-127.0.0.1"] and not parsed["tcp-127.0.0.1"] and not parsed["ip-numeric-remote"],
+  assert(not parsed["ip-127.0.0.1"] and not parsed["tcp-127.0.0.1"] and not parsed["ip-numeric-remote"], -- checked: condition_type*3
     "a numeric host compiles\n" .. table.concat(report, "\n"))
   conclude(report)
 end
@@ -264,13 +264,13 @@ local function test_a_port_rule_reaches_its_port_and_no_other(tmp: string)
         report[#report + 1] = form.name .. ": allowed port nc=" .. a_nc .. " bash=" .. a_bash ..
           "; other port nc=" .. o_nc .. " bash=" .. o_bash
         if index == 1 then
-          firsts.allowed = a_nc .. "/" .. a_bash
-          firsts.other = o_nc .. "/" .. o_bash
+          firsts.allowed = a_nc .. "/" .. a_bash -- checked: map_field
+          firsts.other = o_nc .. "/" .. o_bash -- checked: map_field
         end
         if any(a_nc, a_bash, "CONNECTED") then
           -- A rule that reaches its own port is tried on ::1 as well.
           if v6 ~= nil then
-            local rule_port = if v6_port == allowed_port then form.lines else forms(v6_port)[index].lines end
+            local rule_port = if v6_port == allowed_port then form.lines else forms(v6_port)[index].lines end -- checked: nil_not_allowed
             local v6_text = profile(BASE, rule_port)
             local v_nc, v_bash = tcp_reach(tmp, v6_text, form.parameters, "::1", v6_port)
             table.insert(report, "  [::1]:" .. tostring(v6_port) .. ": nc=" .. v_nc .. " bash=" .. v_bash)
@@ -285,7 +285,7 @@ local function test_a_port_rule_reaches_its_port_and_no_other(tmp: string)
   report[#report + 1] = "no rule: nc=" .. none_nc .. " bash=" .. none_bash
   assert(any(none_nc, none_bash, "DENIED") and not any(none_nc, none_bash, "CONNECTED"),
     "a connect with no rule was not denied\n" .. table.concat(report, "\n"))
-  local text = profile(BASE, forms(allowed_port)[1].lines)
+  local text = profile(BASE, forms(allowed_port)[1].lines) -- checked: nil_not_allowed
   local a_nc, a_bash = tcp_reach(tmp, text, {}, "127.0.0.1", allowed_port)
   local o_nc, o_bash = tcp_reach(tmp, text, {}, "127.0.0.1", other_port)
   assert(any(a_nc, a_bash, "CONNECTED"), "the rule's own port was not reached\n" .. table.concat(report, "\n"))
@@ -298,18 +298,18 @@ end
 local function udp_arrives(socket: Udp.Bound, text: string, tmp: string, port: integer, host: string): string
   local sent = run_under(tmp, text, {}, { "/bin/bash", "-c", "echo ping > /dev/udp/$1/$2", "bash", host, tostring(port) })
   local packet = Udp.receive(socket, Clock.ms(400))
-  return (if packet ~= nil and packet.data:find("ping", 1, true) then "DELIVERED" else "not delivered" end) ..
+  return (if packet ~= nil and packet.data:find("ping", 1, true) then "DELIVERED" else "not delivered" end) .. -- checked: or_mix
     " (" .. verdict(sent) .. ")"
 end
 
 local function test_a_port_rule_and_udp(tmp: string)
   SeatbeltFixture.macos_only()
   local report = new_report()
-  local allowed <close> = assert(Udp.bind("127.0.0.1", 0))
+  local allowed <close> = assert(Udp.bind("127.0.0.1", 0)) -- checked: close_not_closable
   local allowed_port = port_of(allowed.address)
-  local other <close> = assert(Udp.bind("127.0.0.1", 0))
+  local other <close> = assert(Udp.bind("127.0.0.1", 0)) -- checked: close_not_closable
   local other_port = port_of(other.address)
-  local text = profile(BASE, forms(allowed_port)[1].lines)
+  local text = profile(BASE, forms(allowed_port)[1].lines) -- checked: nil_not_allowed
   local bare = profile(BASE, {})
   local control = profile({ "(version 1)", "(allow default)" }, {})
   local to_rule = udp_arrives(allowed, text, tmp, allowed_port, "127.0.0.1")
@@ -362,7 +362,7 @@ end
 --- a connection from outside, and what it read of it.
 local function listens(tmp: string, text: string, port: integer): string
   local running = start(tmp, text, {}, { "/usr/bin/nc", "-n", "-l", "127.0.0.1", tostring(port) })
-  if running.pid == nil then return "NOSTART(" .. brief(running.why or "") .. ")" end
+  if running.pid == nil then return "NOSTART(" .. brief(running.why or "") .. ")" end -- checked: compare_disjoint, condition_type
   local reached = reach_listener(port, 1.5)
   local _, _ = Clock.sleep_ns(Clock.ms(300))
   local ended = reap(running, 0.01)
@@ -378,12 +378,12 @@ local function test_a_port_rule_and_binding(tmp: string)
   local _, _ = probe:close()
   local control = listens(tmp, profile({ "(version 1)", "(allow default)" }, {}), port)
   report[#report + 1] = "allow default: " .. control
-  local rule = forms(port)[1].lines
+  local rule = forms(port)[1].lines -- checked: nil_not_allowed
   local only = listens(tmp, profile(BASE, rule), port)
   report[#report + 1] = "port rule alone: " .. only
-  local bound = listens(tmp, profile(BASE, { rule[1], "(allow network-bind (local ip \"localhost:*\"))" }), port)
+  local bound = listens(tmp, profile(BASE, { rule[1], "(allow network-bind (local ip \"localhost:*\"))" }), port) -- checked: index_may_be_nil
   report[#report + 1] = "port rule and network-bind: " .. bound
-  local inbound = listens(tmp, profile(BASE, { rule[1], "(allow network-bind (local ip \"localhost:*\"))",
+  local inbound = listens(tmp, profile(BASE, { rule[1], "(allow network-bind (local ip \"localhost:*\"))", -- checked: index_may_be_nil
     "(allow network-inbound (local ip \"localhost:*\"))" }), port)
   report[#report + 1] = "port rule, network-bind and network-inbound: " .. inbound
   assert(control:find("^connectable"), "nc does not listen even with no profile to hold it\n" ..
@@ -541,7 +541,7 @@ end
 --- Skips the test where this host has no way to ask a name server, since a
 --- failure under a profile would then say nothing of the profile.
 local function network_or_skip()
-  local result = Child.run(RESOLVERS[1].argv, { stdout = "capture", stderr = "capture", stdin = "null",
+  local result = Child.run(RESOLVERS[1].argv, { stdout = "capture", stderr = "capture", stdin = "null", -- checked: nil_not_allowed
     timeout_ns = Clock.seconds(6) })
   if result == nil or not (result.stdout or ""):find("answer from", 1, true) then
     Test.skip("no name server answers a host program here: " .. brief((result and result.stdout or "") ..
@@ -565,7 +565,7 @@ local function denials(): string
       if at ~= nil then
         -- The pid differs with each run, and only the operation says.
         local said = line:sub(at):gsub("%(%d+%)", "")
-        if not seen[said] then
+        if not seen[said] then -- checked: condition_type
           seen[said] = true
           lines[#lines + 1] = said
         end
@@ -597,7 +597,7 @@ local function test_what_a_resolver_is_refused_with_network_and_resolver_files(t
   assert(not bare, "the c-ares way resolved with no resolver file\n" .. table.concat(report, "\n"))
   assert(c_ares, "the c-ares way fails with outbound network and the resolver files\n" .. table.concat(report, "\n"))
   -- Apple's dnsinfo (scutil --dns) needs a Mach service, which the next test names.
-  assert(not worked["scutil --dns"], "dnsinfo needs no Mach service\n" .. table.concat(report, "\n"))
+  assert(not worked["scutil --dns"], "dnsinfo needs no Mach service\n" .. table.concat(report, "\n")) -- checked: condition_type
   conclude(report)
 end
 
@@ -644,9 +644,9 @@ local function test_which_mach_services_a_resolver_needs(tmp: string)
     local text = profile(strict(), lines)
     local needed: mut {string} = {}
     for _, resolver in ipairs(RESOLVERS) do
-      if worked[resolver.name] then
+      if worked[resolver.name] then -- checked: condition_type
         local ended = run_under(tmp, text, {}, resolver.argv, 3)
-        if not (ended.started and ended.text:find(resolver.works, 1, true)) then
+        if not (ended.started and ended.text:find(resolver.works, 1, true)) then -- checked: or_mix
           needed[#needed + 1] = resolver.name
         end
       end
@@ -680,9 +680,9 @@ local function test_which_resolver_files_and_network_a_resolver_needs(tmp: strin
   for _, path in ipairs(RESOLVER_FILES) do
     local needed: mut {string} = {}
     for _, resolver in ipairs(RESOLVERS) do
-      if worked[resolver.name] then
+      if worked[resolver.name] then -- checked: condition_type
         local ended = run_under(tmp, with(resolver_files(path), OUTBOUND), {}, resolver.argv, 3)
-        if not (ended.started and ended.text:find(resolver.works, 1, true)) then
+        if not (ended.started and ended.text:find(resolver.works, 1, true)) then -- checked: or_mix
           needed[#needed + 1] = resolver.name
         end
       end
@@ -697,8 +697,8 @@ local function test_which_resolver_files_and_network_a_resolver_needs(tmp: strin
   for _, network in ipairs({ "(allow network-outbound (remote udp \"*:53\"))",
       "(allow network-outbound (remote ip \"*:53\"))", "(allow network-outbound (remote udp \"*:*\"))" }) do
     local ok, by = resolve_under(tmp, with(resolver_files(nil), network), report, network)
-    assert(ok and by["scutil --dns"], network .. " does not let a resolver work\n" .. table.concat(report, "\n"))
+    assert(ok and by["scutil --dns"], network .. " does not let a resolver work\n" .. table.concat(report, "\n")) -- checked: or_mix
   end
-  assert(worked["udp-by-resolv.conf"] and worked["scutil --dns"], "a resolver fails with all the files\n" .. table.concat(report, "\n"))
+  assert(worked["udp-by-resolv.conf"] and worked["scutil --dns"], "a resolver fails with all the files\n" .. table.concat(report, "\n")) -- checked: condition_type
   conclude(report)
 end

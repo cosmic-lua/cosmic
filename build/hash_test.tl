@@ -341,7 +341,7 @@ end
 local function test_a_bad_command_line_exits_2_and_prints_nothing(tmp: string)
   local a = file(tmp, "a", "abc")
   local sums = file(tmp, "sums", abc("sha256") .. "  " .. a .. "\n")
-  for _, words in ipairs({
+  for _, words in ipairs({ -- checked: cast_refused
       { "--sha1", "--sha256", a }, { "--quiet", a }, { "--json", "--check", sums },
       { "--check", sums, a }, { "--hmac", "a", "--hmac-file", a, a }, { "--bogus", a },
       { "--check", "" }, { "" },
@@ -357,7 +357,7 @@ local function test_a_failed_write_exits_2_in_every_mode(tmp: string)
   local a = file(tmp, "a", "abc")
   local sums = file(tmp, "sums", abc("sha256") .. "  " .. a .. "\n")
   local function full(_: string): boolean, string return false, "No space left on device" end
-  for _, words in ipairs({ { a }, { "--json", a }, { "--check", sums }, { "--check", "-" } } as {{string}}) do
+  for _, words in ipairs({ { a }, { "--json", a }, { "--check", sums }, { "--check", "-" } } as {{string}}) do -- checked: cast_refused
     local ran = run(words, abc("sha256") .. "  " .. a .. "\n", full)
     assert(ran.code == 2, table.concat(words, " ") .. ": " .. tostring(ran.code))
     assert(ran.err == "cosmic: hash: standard output: No space left on device\n", ran.err)
@@ -371,17 +371,17 @@ end
 local function pattern(total: integer, chunk: string): Stream.Reader, function(): integer
   local left = { value = total }
   local peak = { value = 0 }
-  local reader: Stream.Reader = {
+  local reader: Stream.Reader = { -- checked: literal_shape
     read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
-      peak.value = math.max(peak.value, math.floor(collectgarbage("count") as number))
-      if left.value == 0 then return nil, "" end
-      local size = math.min(left.value, max_bytes or #chunk, #chunk)
-      left.value = left.value - size
+      peak.value = math.max(peak.value, math.floor(collectgarbage("count") as number)) -- checked: cast_refused, map_field*2
+      if left.value == 0 then return nil, "" end -- checked: map_field
+      local size = math.min(left.value, max_bytes or #chunk, #chunk) -- checked: map_field
+      left.value = left.value - size -- checked: map_field*2
       return chunk:sub(1, size), ""
     end,
     close = function(): boolean, string return true, "" end,
   }
-  return reader, function(): integer return peak.value end
+  return reader, function(): integer return peak.value end -- checked: map_field
 end
 
 local function test_a_large_input_streams_in_bounded_memory()
@@ -390,9 +390,9 @@ local function test_a_large_input_streams_in_bounded_memory()
   local expected = (assert(Hash.hasher("sha256")))
   for _ = 1, total // #chunk do expected:update(chunk) end
   local raw = expected:digest()
-  local want = Codec.hex(raw as string)
+  local want = Codec.hex(raw as string) -- checked: cast_refused
   collectgarbage()
-  local before = math.floor(collectgarbage("count") as number)
+  local before = math.floor(collectgarbage("count") as number) -- checked: cast_refused
   local reader, peak = pattern(total, chunk)
   local ran = run({ "-" }, reader)
   assert(ran.code == 0 and ran.out == want .. "  -\n", ran.out .. ran.err)

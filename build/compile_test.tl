@@ -29,7 +29,7 @@ local function run(words: {string}): Ran
   for _, word in ipairs(words) do rooted = rooted or word == "--root" end
   if not rooted then
     argv[#argv + 1] = "--root"
-    argv[#argv + 1] = where[1]
+    argv[#argv + 1] = where[1] -- checked: index_may_be_nil
   end
   for _, word in ipairs(words) do argv[#argv + 1] = word end
   local ran: Ran = { code = -1, out = "", err = "" }

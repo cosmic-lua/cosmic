@@ -160,7 +160,7 @@ function alias_members.resolved<T is alias_members.Declared>(source: alias_membe
     if holder ~= nil then
       -- The first name is a type of the module's own: `Stream.X` under
       -- `type Stream = Y` is `Y.X`.
-      local onward = not concrete(holder) and alias_members.references(holder)[1] or nil
+      local onward = not concrete(holder) and alias_members.references(holder)[1] or nil -- checked: and_ternary
       local tail = reference:match("%..*$")
       if onward == nil or tail == nil or depth >= DEPTH then
         return nil, ""

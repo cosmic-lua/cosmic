@@ -70,13 +70,13 @@ local function test_inputs_by_hash(db: Sqlite.Handle): {string:PolicyRules.Decla
     if field == "line" then
       one.line = math.tointeger(tonumber(value)) or 0
     elseif field == "reads" then
-      one.reads[#one.reads + 1] = value
+      one.reads[#one.reads + 1] = value -- checked: view_written
     elseif field == "host" then
-      one.host[#one.host + 1] = value
+      one.host[#one.host + 1] = value -- checked: view_written
     elseif field == "env" then
-      one.env[#one.env + 1] = value
+      one.env[#one.env + 1] = value -- checked: view_written
     elseif field == "network" then
-      one.network[#one.network + 1] = value
+      one.network[#one.network + 1] = value -- checked: view_written
     elseif field == "tool" then
       one.tool = true
     elseif field == "lua" then
@@ -92,13 +92,13 @@ local function test_inputs_by_hash(db: Sqlite.Handle): {string:PolicyRules.Decla
     elseif field == "cpu_features" then
       one.cpu_features = true
     elseif field == "caches" then
-      one.caches[#one.caches + 1] = value
+      one.caches[#one.caches + 1] = value -- checked: view_written
     elseif field == "parent" then
       local list = one.parent or {}
       one.parent = list
-      list[#list + 1] = value
+      list[#list + 1] = value -- checked: view_written
     elseif field == "requires" then
-      one.requires[#one.requires + 1] = value
+      one.requires[#one.requires + 1] = value -- checked: view_written
     elseif field == "timeout" then
       one.timeout = math.tointeger(tonumber(value))
     end

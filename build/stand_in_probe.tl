@@ -151,7 +151,7 @@ local verbs: {string:function(string, string): integer?} = {
   ls = function(path: string): integer?
     local names, trouble = Fs.list(path)
     if names == nil then return failed(path, trouble) end
-    table.sort(names)
+    table.sort(names) -- checked: overload_none -- untyped: call
     local lines: mut {string} = {}
     for _, name in ipairs(names) do lines[#lines + 1] = name .. "\n" end
     return put_all(1, table.concat(lines))
@@ -168,7 +168,7 @@ local verbs: {string:function(string, string): integer?} = {
       if held == nil then return failed(target:sub(2), trouble) end
       named = String.trim(held)
     end
-    local pid = target == "" and sys.getpid() or number(named)
+    local pid = target == "" and sys.getpid() or number(named) -- checked: and_ternary
     if pid == nil then return failed("signal", "no process " .. named) end
     -- kill(2) takes 0 for its own group and -1 for every process this
     -- user may signal: a script names a group by its number.
@@ -190,7 +190,7 @@ local verbs: {string:function(string, string): integer?} = {
     local _, _ = Fs.put(2, "probe: signal: SIG" .. name .. " sent to itself did not end it in " ..
         Time.format_duration({ ns = SIGNAL_WAIT_NS }) .. "\n")
     sys.exit(SIGNAL_MISSED)
-    return SIGNAL_MISSED
+    return SIGNAL_MISSED -- checked: unreachable
   end,
   trap = function(status: string): integer?
     local opened, trouble = probe.guard, ""
@@ -306,7 +306,7 @@ local verbs: {string:function(string, string): integer?} = {
     for fd = 3, 1023 do
       -- fstat raises for the retained artifact descriptor, which is no socket.
       local ok, stat = pcall(sys.fstat, fd)
-      if ok and stat ~= nil and stat.mode & 0xF000 == 0xC000 then count = count + 1 end
+      if ok and stat ~= nil and stat.mode & 0xF000 == 0xC000 then count = count + 1 end -- checked: any_use
     end
     return put_all(1, "sockets " .. tostring(count) .. "\n")
   end,
@@ -474,7 +474,7 @@ local verbs: {string:function(string, string): integer?} = {
       local _, _ = sys.rename(b, a)
       local _, _ = sys.rename(a .. ".t", b)
     end
-    return nil
+    return nil -- checked: unreachable
   end,
   chmod = function(path: string, word: string): integer?
     local bits = math.tointeger(tonumber(word, 8))
@@ -572,7 +572,7 @@ local function run_script(script: string, args: {string}, dir: string): integer
     local line: string = String.trim(each)
     local only, guarded = line:match("^%[([^%]]*)%]%s+(.*)$")
     if only ~= nil and guarded ~= nil then
-      line = only == args[1] and guarded or ""
+      line = only == args[1] and guarded or "" -- checked: and_ternary
     end
     if line ~= "" then
       local commands, operators = chained(line)

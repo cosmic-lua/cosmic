@@ -59,6 +59,7 @@ function Programs.codes(lowered: Declarations.Lowered): string
   return table.concat(out, " ")
 end
 
+-- checked: field_fixed
 Programs.stream_source = [[
 local record Stream
   interface Reader
@@ -68,6 +69,7 @@ end
 return Stream
 ]]
 
+-- checked: field_fixed
 Programs.fixture_source = [[
 local type Stream = require("cosmic.stream")
 local record Node is {Node}

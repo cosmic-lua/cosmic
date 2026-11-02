@@ -91,7 +91,7 @@ end
 verb.MAX_BYTES = 1048576
 verb.MAX_COUNT = 10000000
 
-local spec = Cli.verbs.rand.spec or {}
+local spec = Cli.verbs.rand.spec or {} -- checked: literal_needs_type, map_field
 
 local usage = "cosmic rand uuid [--v4|--v7] [-n N] | token [--bytes N] [--hex|--base64url] | " ..
   "int [-n N] [--seed S] [--] <lo> <hi> | pick [-n N] [--seed S] [file|-] | shuffle [--seed S] [file|-] | " ..
@@ -321,8 +321,8 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     return bare.refused
   end
   local request: Request = found
-  local draw_entropy = to.entropy or Rand.entropy
-  local now_ns = to.now_ns or Clock.now_ns
+  local draw_entropy = to.entropy or Rand.entropy -- checked: condition_type
+  local now_ns = to.now_ns or Clock.now_ns -- checked: condition_type
 
   -- THE ONE READ OF THE OPERATING SYSTEM'S ENTROPY. Every value that
   -- may be a secret is made from bytes this returns; a seeded
@@ -334,7 +334,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   end
   local drawn: Drawn = { pool = "", used = 0 }
   local function fetch(count: integer): string
-    local bytes, why = draw_entropy(count)
+    local bytes, why = draw_entropy(count) -- untyped: call
     if bytes == nil or #bytes ~= count then
       drawn.broken = why ~= "" and why or "short read"
       error("entropy", 0)
@@ -431,7 +431,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
       return uuid_text(bytes:sub(1, 6) .. string.char(b6) .. bytes:sub(8, 8) ..
           string.char(b8) .. bytes:sub(10))
     end
-    local ns = now_ns()
+    local ns = now_ns() -- untyped: call
     local stamp = ((ns // 1000000) << 12) | ((ns % 1000000) * 4096 // 1000000)
     if stamp <= last_v7 then stamp = last_v7 + 1 end
     last_v7 = stamp
@@ -453,7 +453,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
       end
     elseif command == "token" then
       local bytes = secret(request.bytes)
-      local text = request.encoding == "hex" and Codec.hex(bytes) or Codec.base64url(bytes)
+      local text = request.encoding == "hex" and Codec.hex(bytes) or Codec.base64url(bytes) -- checked: and_ternary
       if not emit(text) then
         return 2
       end
@@ -539,7 +539,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     end
     error(result, 0)
   end
-  return result
+  return result -- checked: any_use
 end
 
 --- The `rand` verb as [`build/verb_list.tl`] lists it. It reads no tree,

@@ -147,7 +147,7 @@ local function test_a_page_counts_the_links_to_its_symbol(dir: string)
   local function page(query: string): string
     local found = assert(docs.lookup(view, query))
     assert(#found == 1, query .. ": " .. tostring(#found))
-    return table.concat(assert(docs.render(view, found[1])), "\n")
+    return table.concat(assert(docs.render(view, found[1])), "\n") -- checked: index_may_be_nil
   end
   -- Two links on one line count once, as `cosmic uses` lists them.
   local write = page("Fs.write")
@@ -418,13 +418,13 @@ local function test_a_files_links_and_headings_sign_the_projection(tmp: string)
   local function staged(): work.Staged
     -- Modification and change times must both be past their timestamp tick.
     local now = Clock.now_ns
-    Clock.now_ns = function(): integer return now() + Clock.seconds(3) end
+    Clock.now_ns = function(): integer return now() + Clock.seconds(3) end -- checked: field_fixed
     local ok, stage, trouble = pcall(work.stage, handle, { own = false })
-    Clock.now_ns = now
+    Clock.now_ns = now -- checked: field_fixed
     assert(ok, tostring(stage))
     assert(stage, trouble)
     assert(work.commit(handle))
-    return stage
+    return stage -- checked: any_use
   end
   local function signed(): string
     local result = assert(importer.compile(handle, "link-index-test"))
@@ -739,14 +739,14 @@ local function test_a_projects_links_to_the_standard_library_are_rows(tmp: strin
         "greet.tl 1 47 greet cosmic.fs write",
       })
   local handles = assert(assert(stdlib.databases)())
-  local view = assert(docs.view({ db, handles[1] }, { false, true }))
+  local view = assert(docs.view({ db, handles[1] }, { false, true })) -- checked: index_may_be_nil
   local listed: mut {string} = {}
   for _, use in ipairs((assert(docs.uses(view, "cosmic.fs.read")))) do
     listed[#listed + 1] = use.from_file .. ":" .. tostring(use.line) .. (if use.link then " link" else "" end)
   end
   same(listed, { "README.md:1 link", "cosmic/fs.tl:5 link", "greet.tl:1 link" })
   local found = assert(docs.lookup(view, "cosmic.fs.read"))
-  local page = table.concat(assert(docs.render(view, found[1])), "\n")
+  local page = table.concat(assert(docs.render(view, found[1])), "\n") -- checked: index_may_be_nil
   assert(page:find("\n  linked from 3 places; cosmic uses Fs.read", 1, true) ~= nil, page)
   assert(db:close())
 end

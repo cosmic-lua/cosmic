@@ -101,7 +101,7 @@ local function test_a_test_module_hands_its_tests_back_and_none_is_unused()
   local source = "local function test_a(): integer\n  return 1\nend\nlocal function test_b(): integer\n  return 2\nend\n"
   local made = assert(generated(source, "", "test", { "test_a", "test_b" }))
   assert(made.lua:find("\nreturn { test_a = test_a, test_b = test_b }\n", 1, true) ~= nil, made.lua)
-  local tests = value_of(made.lua) as {string: function(): integer}
+  local tests = value_of(made.lua) as {string: function(): integer} -- checked: cast_refused
   assert(tests.test_a() == 1 and tests.test_b() == 2)
   -- the same module is not a test: its functions are unused
   local plain, why = generated(source)
@@ -237,7 +237,8 @@ end
 local function test_the_options_of_cosmics_own_tree_are_its_declarations_and_ceilings_and_a_project_has_none_to_name()
   local own = assert(Pipeline.options(".", true))
   assert(#own.globals.sources == 2)
-  assert((Ceilings.of(own.ceilings, "checked")["build/tree_checks.tl view_written"] or 0) > 0, "the tree's ceilings are not read")
+  assert(Ceilings.by_marks(own.ceilings, "checked") and Ceilings.by_marks(own.ceilings, "untyped"),
+    "the tree's ceilings are not read")
   assert(next(own.ceilings.stages) ~= nil and own.types)
   assert(own.project == nil and own.ceilings.none == nil)
   -- A project's are the declarations the tool carries, which a worker's store of the modules a test reads does not: either the
@@ -434,7 +435,7 @@ local function test_a_staged_project_is_built_from_its_inputs_and_compiles_to_wh
       local made = assert(Pipeline.generate(m, pipeline))
       assert(#made.bytecode > 0)
       if m.path == "m" then
-        assert((value_of(made.lua) as {string: function(integer): integer}).double(21) == 42)
+        assert((value_of(made.lua) as {string: function(integer): integer}).double(21) == 42) -- checked: cast_refused
       else
         assert(made.lua:find("return { test_m = test_m }", 1, true) ~= nil)
       end
@@ -541,9 +542,9 @@ end
 
 local function test_a_guide_example_is_forgiven_the_shadowing_of_print_and_no_other_name()
   local function shadow(name: string): Driver.Problem
-    return { code = "shadows", msg = "local `" .. name .. "` shadows the global `" .. name .. "`", fix = "", y = 1, x = 1, offset = 0 } as Driver.Problem
+    return { code = "shadows", msg = "local `" .. name .. "` shadows the global `" .. name .. "`", fix = "", y = 1, x = 1, offset = 0 } as Driver.Problem -- checked: arms_differ, cast_refused
   end
-  local result = { scope_errors = { shadow("print"), shadow("printer"), shadow("println") } } as Driver.Outcome
+  local result = { scope_errors = { shadow("print"), shadow("printer"), shadow("println") } } as Driver.Outcome -- checked: cast_refused
   Pipeline.discounted(result)
   assert(#result.scope_errors == 2 and result.scope_errors[1].msg:find("`printer`", 1, true) ~= nil and
       result.scope_errors[2].msg:find("`println`", 1, true) ~= nil)
@@ -741,7 +742,7 @@ local function test_a_record_test_is_written_as_the_fork_writes_it_for_the_tree_
     "  return false\nend\nreturn f\n"
   local made = assert(generated(source, "[checked]\nm.tl is_on_record 1\nm.tl export_not_declared 1\n"))
   assert(made.lua:find('if type(v) == "table" then', 1, true) ~= nil, made.lua)
-  local f = value_of(made.lua) as function(any): boolean
+  local f = value_of(made.lua) as function(any): boolean -- checked: cast_refused
   assert(f({ n = 1 }) == true and f("s") == false)
   -- the ceiling is held: a test the pins do not count is refused
   local over, why = generated(source, "[checked]\nm.tl export_not_declared 1\n")

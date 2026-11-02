@@ -70,8 +70,8 @@ local function test_a_start_past_the_descriptor_limit_names_it(tmp: string)
   sys.close(null)
   assert(ok, tostring(child))
   assert(child == nil, "started past the limit")
-  assert(trouble:find("handed descriptor 255", 1, true) ~= nil and
-      trouble:find("RLIMIT_NOFILE's soft limit of 256", 1, true) ~= nil, trouble)
+  assert(trouble:find("handed descriptor 255", 1, true) ~= nil and -- checked: nil_not_allowed
+      trouble:find("RLIMIT_NOFILE's soft limit of 256", 1, true) ~= nil, trouble) -- checked: nil_not_allowed
 end
 
 --- A refused option is blamed on the line that passed it, not on a line
@@ -79,10 +79,10 @@ end
 --- caller's caller.
 local function test_a_refused_option_names_the_caller_s_line()
   for _, opts in ipairs({
-      { stdout = "bad" } as Child.Options,
-      { cwd = "/tmp\0bad" } as Child.Options,
-      { cwd = "" } as Child.Options,
-      { timeout_ns = -1 } as Child.Options,
+      { stdout = "bad" } as Child.Options, -- checked: cast_refused
+      { cwd = "/tmp\0bad" } as Child.Options, -- checked: cast_refused
+      { cwd = "" } as Child.Options, -- checked: cast_refused
+      { timeout_ns = -1 } as Child.Options, -- checked: cast_refused
   }) do
     local ok, why: boolean, any = pcall(function()
       local _, _ = Child.run({ "/bin/sh" }, opts)
@@ -109,11 +109,11 @@ local function test_a_raise_names_the_module()
     function() local _, _ = Child.start({}) end,
     function() local _, _ = Child.run({}) end,
     function() local _, _ = Child.wait_any({}) end,
-    function() local _, _ = Child.start({ "/bin/sh" }, { capture_limit = 0 } as Child.Options) end,
+    function() local _, _ = Child.start({ "/bin/sh" }, { capture_limit = 0 } as Child.Options) end, -- checked: cast_refused
     function()
-      local _, _ = Child.start({ "/bin/sh" }, { env = { [""] = "x" } } as Child.Options)
+      local _, _ = Child.start({ "/bin/sh" }, { env = { [""] = "x" } } as Child.Options) -- checked: cast_refused
     end,
-    function() local _, _ = Child.start({ "/bin/sh" }, { fds = { [2] = 1 } } as Child.Options) end,
+    function() local _, _ = Child.start({ "/bin/sh" }, { fds = { [2] = 1 } } as Child.Options) end, -- checked: cast_refused
     function() local _, _ = Child.run({ "/bin/sh" }, { cwd = "" }) end,
   }
   local says = { "argv is empty", "argv is empty", "no handles to wait for", "capture_limit is out of range",
@@ -121,27 +121,27 @@ local function test_a_raise_names_the_module()
     "cwd is empty; leave it nil to start in this process's directory" }
   for i, call in ipairs(raising) do
     local ok, why: boolean, any = pcall(call)
-    assert(not ok and tostring(why):find(": child: " .. says[i], 1, true) ~= nil,
-      says[i] .. ": " .. tostring(why))
+    assert(not ok and tostring(why):find(": child: " .. says[i], 1, true) ~= nil, -- checked: nil_not_allowed
+      says[i] .. ": " .. tostring(why)) -- checked: nil_not_allowed
   end
 end
 
 local function test_run_refuses_a_stream()
-  for _, opts in ipairs({
+  for _, opts in ipairs({ -- checked: cast_refused
       { stdin = "stream" }, { stdout = "stream" }, { stderr = "stream" },
   } as {Child.Options}) do
     Test.raises(function() Child.run({ "/bin/sh", "-c", "exit 0" }, opts) end, "Child.start")
   end
-  assert(not pcall(Child.start, { "/bin/sh" }, { stdin = "stream", input = "x" } as Child.Options))
+  assert(not pcall(Child.start, { "/bin/sh" }, { stdin = "stream", input = "x" } as Child.Options)) -- checked: alternatives_as_value, cast_refused
 end
 
 local function test_options_are_validated()
-  assert(not pcall(Child.start, { "/bin/sh" }, { stdin = "capture" } as Child.Options))
-  assert(not pcall(Child.start, { "/bin/sh" }, { stdout = "stdout" } as Child.Options))
-  assert(not pcall(Child.start, { "/bin/sh" }, { stdin = "null", input = "x" } as Child.Options))
-  assert(not pcall(Child.start, { "/bin/sh" }, { fds = { [2] = 1 } } as Child.Options))
-  assert(not pcall(Child.start, { "/bin/sh" }, { fds = { [256] = 1 } } as Child.Options))
-  assert(not pcall(Child.start, { "/bin/sh" }, { capture_limit = 0 } as Child.Options))
+  assert(not pcall(Child.start, { "/bin/sh" }, { stdin = "capture" } as Child.Options)) -- checked: alternatives_as_value, cast_refused
+  assert(not pcall(Child.start, { "/bin/sh" }, { stdout = "stdout" } as Child.Options)) -- checked: alternatives_as_value, cast_refused
+  assert(not pcall(Child.start, { "/bin/sh" }, { stdin = "null", input = "x" } as Child.Options)) -- checked: alternatives_as_value, cast_refused
+  assert(not pcall(Child.start, { "/bin/sh" }, { fds = { [2] = 1 } } as Child.Options)) -- checked: alternatives_as_value, cast_refused
+  assert(not pcall(Child.start, { "/bin/sh" }, { fds = { [256] = 1 } } as Child.Options)) -- checked: alternatives_as_value, cast_refused
+  assert(not pcall(Child.start, { "/bin/sh" }, { capture_limit = 0 } as Child.Options)) -- checked: alternatives_as_value, cast_refused
 end
 
 --- Bad IDs and namespace combinations are rejected before opening any
@@ -151,20 +151,20 @@ local function test_credentials_reject_invalid_ids_and_namespace_options()
     {}, { user = 1 }, { group = 1 }, { user = 0, group = 1 },
     { user = 1, group = 0 }, { user = -1, group = 1 },
     { user = 4294967295, group = 1 }, { user = 1, group = 4294967295 },
-    { user = 1.5, group = 1 } as Child.Credentials,
+    { user = 1.5, group = 1 } as Child.Credentials, -- checked: cast_refused
   }
   for _, credentials in ipairs(bad) do
     Test.raises(function() Child.start({ "/never-started" }, { credentials = credentials }) end, "credentials need integer user and group")
   end
-  for _, sandbox in ipairs({
-      { unveil = { reads = {} } }, { offline = true }, { user = 1 }, { group = 1 },
+  for _, sandbox in ipairs({ -- checked: arms_differ, cast_refused
+      { unveil = { reads = {} } }, { offline = true }, { user = 1 }, { group = 1 }, -- checked: literal_needs_type
   } as {Child.Sandbox}) do
     local ok, why = pcall(Child.start, { "/never-started" },
       { credentials = { user = 1, group = 1 }, sandbox = sandbox })
-    assert(not ok and tostring(why):find("credentials exclude sandbox", 1, true), tostring(why))
+    assert(not ok and tostring(why):find("credentials exclude sandbox", 1, true), tostring(why)) -- checked: or_mix
   end
   local ok, why = pcall(Child.start, { "/never-started" },
     { credentials = { user = 1, group = 1 }, policy = {} })
-  assert(not ok and tostring(why):find("policy and credentials exclude each other", 1, true),
+  assert(not ok and tostring(why):find("policy and credentials exclude each other", 1, true), -- checked: or_mix
     tostring(why))
 end

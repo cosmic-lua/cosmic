@@ -34,8 +34,8 @@ local function run(source: string, truthy?: function(e: Ast.Exp): boolean): any,
   local result = generated(source, truthy)
   local first = result.errors[1]
   assert(#result.errors == 0, if first ~= nil then first.msg else "" end)
-  local env: {string: any} = { print = print, pcall = pcall, error = error, select = select, table = table, math = math,
-    type = type, ipairs = ipairs, pairs = pairs }
+  local env: {string: any} = { print = print, pcall = pcall, error = error, select = select, table = table, math = math, -- checked: any_use*4, overload_value*2
+    type = type, ipairs = ipairs, pairs = pairs } -- checked: any_use*3
   local chunk = assert(load(result.text, "=t", "t", env))
   return chunk()
 end
@@ -1080,7 +1080,7 @@ local function run_classes(source: string): any, any, any, any, any
   local first = result.errors[1]
   assert(#result.errors == 0, if first ~= nil then first.msg else "" end)
   -- No `setmetatable` and no `getmetatable`: a class reaches the metatable through the reserved form alone.
-  local env: {string: any} = { tostring = tostring, pcall = pcall, error = error, select = select, ipairs = ipairs }
+  local env: {string: any} = { tostring = tostring, pcall = pcall, error = error, select = select, ipairs = ipairs } -- checked: any_use*3, overload_value*2
   local chunk = assert(load(result.text, "=t", "t", env))
   return chunk()
 end
@@ -1271,7 +1271,7 @@ local function test_a_class_declared_inside_another_type_is_refused_where_it_is(
     "end",
     "return Outer"))
   assert(#result.errors == 1 and result.errors[1].code == "class_nested_refused" and result.errors[1].y == 2,
-    #result.errors > 0 and result.errors[1].code or "none")
+    #result.errors > 0 and result.errors[1].code or "none") -- checked: and_ternary
   local refusal = assert(result.errors[1], "the refusal of the nested class")
   assert(refusal.msg:find("Inner", 1, true) ~= nil and refusal.fix ~= "")
   local deeper = generated(program(
@@ -1628,7 +1628,7 @@ local function test_continue_in_nested_loops_jumps_to_the_loop_it_is_in()
     "end",
     "return table.concat(out, \",\")")
   local text = generated(source).text
-  local env: {string: any} = { table = table, tostring = tostring }
+  local env: {string: any} = { table = table, tostring = tostring } -- checked: any_use*2
   local chunk = assert(load(text, "=t", "t", env))
   assert(chunk() == "11,13,1,21,23,31,33,3", text)
 end
@@ -1801,7 +1801,7 @@ local function test_a_name_of_another_module_is_tested_for_what_the_checker_reso
       end
     end
     Ast.children(node, function(child: Ast.Node)
-      nodes[#nodes + 1] = child
+      nodes[#nodes + 1] = child -- checked: view_written
     end)
   end
   local without = Codegen.generate(parsed.chunk, scoped)

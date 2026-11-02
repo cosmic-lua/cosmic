@@ -68,8 +68,8 @@ end
 
 local function edge(cidr: string, first: string, last: string, below?: string, below_ok?: boolean,
                     above?: string, above_ok?: boolean): Edge
-  return { cidr = cidr, first = first, last = last, below = below, below_ok = below_ok or false,
-    above = above, above_ok = above_ok or false }
+  return { cidr = cidr, first = first, last = last, below = below, below_ok = below_ok or false, -- checked: condition_type
+    above = above, above_ok = above_ok or false } -- checked: condition_type
 end
 
 local EDGES <const>: {Edge} = {

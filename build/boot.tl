@@ -88,16 +88,16 @@ local function read_stamp(text: string, records: string): Stamp?, string
       return nil, "the stage's stamp lacks " .. field
     end
   end
-  if values.records ~= Hash.hex_sha256(records) then
+  if values.records ~= Hash.hex_sha256(records) then -- checked: map_field
     return nil, "the stage's stamp is for other target records"
   end
-  return { carried = values.carried, staged = {
-    files = math.tointeger(values.files) or 0,
-    parsed = math.tointeger(values.parsed) or 0,
-    parses_shared = math.tointeger(values.parses_shared) or 0,
-    compiled = math.tointeger(values.compiled) or 0,
-    modules_shared = math.tointeger(values.modules_shared) or 0,
-    elapsed_ms = math.tointeger(values.elapsed_ms) or 0,
+  return { carried = values.carried, staged = { -- checked: map_field
+    files = math.tointeger(values.files) or 0, -- checked: map_field
+    parsed = math.tointeger(values.parsed) or 0, -- checked: map_field
+    parses_shared = math.tointeger(values.parses_shared) or 0, -- checked: map_field
+    compiled = math.tointeger(values.compiled) or 0, -- checked: map_field
+    modules_shared = math.tointeger(values.modules_shared) or 0, -- checked: map_field
+    elapsed_ms = math.tointeger(values.elapsed_ms) or 0, -- checked: map_field
   } }, ""
 end
 
@@ -415,7 +415,7 @@ local function boot(root: string, argv: {string}): integer
   end
 
   local output_directory = slot(9)
-  local output = output_directory ~= nil and build_paths.under(output_directory) or working
+  local output = output_directory ~= nil and build_paths.under(output_directory) or working -- checked: and_ternary
   local selected_configuration = 1
   local manifest_records = records
   local checked_path = slot(7)

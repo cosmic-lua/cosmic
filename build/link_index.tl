@@ -154,7 +154,7 @@ function link_index.running(): link_index.Library
       if not ok then
         return nil, "the standard library a project's links name: " .. tostring(all)
       end
-      return { all[#all] }, ""
+      return { all[#all] }, "" -- checked: any_use*2
     end,
   }
 end
@@ -192,7 +192,7 @@ local function remembering(root: string, memo: link_index.Memo,
         memo.kinds[path] = disk.kind(path) or ""
       end
       local kind = memo.kinds[path]
-      return kind ~= "" and kind or nil
+      return kind ~= "" and kind or nil -- checked: and_ternary
     end,
     read = function(path: string): string?
       local kept = memo.reads[path]

@@ -91,7 +91,7 @@ local SIZE <const>: {string:integer} = {
   ["sha3-224"] = 28, ["sha3-256"] = 32, ["sha3-384"] = 48, ["sha3-512"] = 64,
 }
 
-local spec = Cli.verbs.hash.spec or {}
+local spec = Cli.verbs.hash.spec or {} -- checked: literal_needs_type, map_field
 
 local usage = "cosmic hash [--sha256 | --sha512 | --sha1 | --md5 | ...] [--json] " ..
   "[--hmac <key> | --hmac-file <path>] [<file>|-]...; " ..
@@ -162,24 +162,24 @@ function verb.parse_sums(text: string, digest_size: integer): verb.Sums
       -- blank or a comment
     else
       local escaped = line:sub(1, 1) == "\\"
-      local body = escaped and line:sub(2) or line
-      local digest = body:sub(1, width)
-      if #digest ~= width or not digest:match("^%x+$") then
+      local body = escaped and line:sub(2) or line -- checked: and_ternary
+      local digest = body:sub(1, width) -- untyped: call
+      if #digest ~= width or not digest:match("^%x+$") then -- untyped: call
         refuse("improperly formatted: no " .. tostring(width) .. "-digit hex digest")
-      elseif body:sub(width + 1, width + 1) ~= " " or not body:sub(width + 2, width + 2):match("^[ *]$") then
+      elseif body:sub(width + 1, width + 1) ~= " " or not body:sub(width + 2, width + 2):match("^[ *]$") then -- untyped: call*3
         refuse("improperly formatted: no space and marker after the digest")
       elseif #body < width + 3 then
         refuse("improperly formatted: no file name")
       else
-        local written = body:sub(width + 3)
+        local written = body:sub(width + 3) -- untyped: call
         local name: string? = written
         if escaped then name = unescape(written) end
         if name == nil then
           refuse("improperly formatted: bad escape in the file name")
         else
           table.insert(sums.entries, {
-            digest = digest:lower(), name = name, line = number,
-            binary = body:sub(width + 2, width + 2) == "*",
+            digest = digest:lower(), name = name, line = number, -- untyped: call
+            binary = body:sub(width + 2, width + 2) == "*", -- untyped: call
           })
         end
       end
@@ -233,7 +233,7 @@ local function arguments(argv: {string}): Request?, string
   local request: Request = {
     algorithm = chosen[1] or "sha256",
     files = parsed.words, check = parsed.values["--check"],
-    warning = "", quiet = parsed.set["--quiet"] or false, json = parsed.set["--json"] or false,
+    warning = "", quiet = parsed.set["--quiet"] or false, json = parsed.set["--json"] or false, -- checked: condition_type*2
   }
   local request_check = request.check
   if request_check == "" then return nil, "--check needs a sums file, or - for standard input" end
@@ -424,7 +424,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     complain(tostring(unread) .. " listed " .. (if unread == 1 then "file" else "files" end) .. " could not be read")
   end
   if #sums.bad > 0 then return 2 end
-  return (failed > 0 or unread > 0) and bare.failed or bare.ok
+  return (failed > 0 or unread > 0) and bare.failed or bare.ok -- checked: and_ternary
 end
 
 --- The `hash` verb as [`build/verb_list.tl`] lists it. Reads the files it

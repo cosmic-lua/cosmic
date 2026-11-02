@@ -205,7 +205,7 @@ local function value(g: Gen, pipe: types.Pipeline, dot: Dot, raw?: boolean): str
   for _, field in ipairs(pipe.path) do
     written = member(written, field)
     expr = member(expr, field)
-    local held = if not raw then g.bound[written] else nil end
+    local held = if not raw then g.bound[written] else nil end -- checked: condition_type
     if held ~= nil then
       expr = held
     end
@@ -301,7 +301,7 @@ local function new_dot(g: Gen): Dot
 end
 
 --- Writes an `if` or a `with`, or a `range`.
-local function block(g: Gen, node: types.Node, dot: Dot)
+local function block(g: Gen, node: types.Node, dot: Dot) -- checked: not_assigned
   to_line(g, node.line)
   if node.kind == "range" then
     -- While its body runs, a range holds five of the function's locals (the

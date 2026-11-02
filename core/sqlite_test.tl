@@ -23,13 +23,13 @@ end
 
 --- Asserts calling `fn` with `...` raises rather than returning.
 local function raises(fn: any, ...: any)
-  local ok = pcall(fn as function(...: any): (any...), ...)
+  local ok = pcall(fn as function(...: any): (any...), ...) -- checked: alternatives_as_value, cast_refused
   assert(not ok, "the call must raise")
 end
 
 --- Asserts calling `fn` with `...` raises, and the message holds `says`.
 local function raises_saying(says: string, fn: any, ...: any)
-  local ok, why = pcall(fn as function(...: any): (any...), ...)
+  local ok, why = pcall(fn as function(...: any): (any...), ...) -- checked: cast_refused
   assert(not ok, "the call must raise")
   assert(tostring(why):find(says, 1, true) ~= nil, tostring(why))
 end
@@ -279,10 +279,10 @@ local function test_a_finalized_statement_raises_from_every_method()
   assert(select("#", statement:finalize()) == 0, "finalizing returns nothing")
   assert(select("#", statement:finalize()) == 0, "finalizing twice is harmless")
   for _, method in ipairs({ "step", "columns", "reset", "rewind", "parameters" }) do
-    raises_saying("sqlite: the statement is closed", (statement as {string: any})[method], statement)
+    raises_saying("sqlite: the statement is closed", (statement as {string: any})[method], statement) -- checked: cast_refused
   end
   for _, method in ipairs({ "bind_null", "name", "kind", "integer", "number", "bytes" }) do
-    raises_saying("sqlite: the statement is closed", (statement as {string: any})[method], statement, 1)
+    raises_saying("sqlite: the statement is closed", (statement as {string: any})[method], statement, 1) -- checked: cast_refused
   end
   raises_saying("sqlite: the statement is closed", statement.bind_integer, statement, 1, 1)
   raises_saying("sqlite: the statement is closed", statement.bind_number, statement, 1, 1.0)
@@ -320,16 +320,16 @@ end
 local function test_existing_only_open_never_creates_a_missing_database(tmp: string)
   for _, path in ipairs({ tmp .. "/missing.db", tmp .. "/missing/db" }) do
     failed(Sqlite.open(path, { writable = true, create = false }))
-    assert(not Fs.exists(path))
+    assert(not Fs.exists(path)) -- checked: condition_type
   end
-  assert(not Fs.exists(tmp .. "/missing"))
+  assert(not Fs.exists(tmp .. "/missing")) -- checked: condition_type
   local path = tmp .. "/removed.db"
   local made = assert(Sqlite.open(path, { writable = true }))
   assert(made:exec("CREATE TABLE t (a)"))
   assert(made:close())
   assert(Fs.remove(path))
   failed(Sqlite.open(path, { writable = true, create = false }))
-  assert(not Fs.exists(path))
+  assert(not Fs.exists(path)) -- checked: condition_type
 end
 
 --- Existing-only is writable, including WAL; it is not immutable mode.
@@ -363,7 +363,7 @@ end
 --- Creation defaults stay compatible and never make a read-only open writable.
 local function test_create_is_only_an_option_of_writable_open(tmp: string)
   for i, options in ipairs({ { writable = true }, { writable = true, create = true } }) do
-    local db = assert(Sqlite.open(tmp .. "/created-" .. tostring(i), options))
+    local db = assert(Sqlite.open(tmp .. "/created-" .. tostring(i), options)) -- checked: not_assignable
     assert(db:exec("CREATE TABLE t (a)"))
     assert(db:close())
   end
@@ -371,7 +371,7 @@ local function test_create_is_only_an_option_of_writable_open(tmp: string)
     local path = tmp .. "/readonly.db"
     failed(Sqlite.open(path, { create = create }))
     failed(Sqlite.open(path, { create = create, immutable = true }))
-    assert(not Fs.exists(path))
+    assert(not Fs.exists(path)) -- checked: condition_type
     raises(Sqlite.open, path, { writable = true, immutable = true, create = create })
   end
 end
@@ -420,13 +420,13 @@ local function test_a_column_outside_the_current_row_raises()
   local handle = memory()
   local statement = prepared(handle, "SELECT 1, 'two'")
   for _, method in ipairs({ "kind", "integer", "number", "bytes" }) do
-    raises((statement as {string: any})[method], statement, 0)
+    raises((statement as {string: any})[method], statement, 0) -- checked: cast_refused
   end
   assert(statement:step() == "row")
   assert(statement:integer(0) == 1 and statement:bytes(1) == "two")
   for _, method in ipairs({ "kind", "integer", "number", "bytes" }) do
-    raises((statement as {string: any})[method], statement, 2)
-    raises((statement as {string: any})[method], statement, -1)
+    raises((statement as {string: any})[method], statement, 2) -- checked: cast_refused
+    raises((statement as {string: any})[method], statement, -1) -- checked: cast_refused
   end
   assert(statement:step() == "done")
   raises(statement.integer, statement, 0)

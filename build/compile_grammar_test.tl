@@ -61,14 +61,14 @@ end
 local function module_of_dir(dir: string, name: string): any
   local env: mut {string: any} = {}
   local made: mut {string: any} = {}
-  env["require"] = function(wanted: string): any
+  env["require"] = function(wanted: string): any -- checked: any_use
     if made[wanted] == nil then
       local text = (assert(Fs.read(dir .. "/" .. wanted .. ".lua")))
       made[wanted] = assert(load(text, "=" .. wanted, "t", env))()
     end
     return made[wanted]
   end
-  setmetatable(env, { __index = _G })
+  setmetatable(env, { __index = _G }) -- checked: setmetatable_call, unchecked_binding
   local text = (assert(Fs.read(dir .. "/" .. name .. ".lua")))
   return assert(load(text, "=" .. name, "t", env))()
 end
@@ -296,7 +296,7 @@ local function test_a_test_for_an_enum_is_a_test_for_its_values(tmp: string)
   local ran = run({ file(tmp, "enum.tl", text) })
   assert(ran.code == 0, ran.err)
   local test = value_of(ran.out)
-  assert(test is IsColor, "not a function")
+  assert(test is IsColor, "not a function") -- checked: is_on_record
   assert(test("red") == true and test("blue") == false)
 end
 
@@ -368,7 +368,7 @@ local function test_a_test_for_an_alias_of_another_file_is_a_test_for_what_it_st
     local ran = run({ "-o", tmp .. "/out", first, second })
     assert(ran.code == 0, ran.err)
     local kind = module_of_dir(tmp .. "/out", "use")
-    assert(kind is Kinder, "not a function")
+    assert(kind is Kinder, "not a function") -- checked: is_on_record
     assert(kind("a") == "name" and kind(3) == "count" and kind(3.5) == "other" and kind(true) == "flag", "values")
     assert(kind(function(): integer return 1 end) == "action" and kind({ 1 }) == "other" and kind(nil) == "other", "others")
   end
@@ -423,7 +423,7 @@ local function test_an_is_test_of_an_enum_of_another_file_tests_its_values(tmp: 
   local ran = run({ "-o", tmp .. "/out", defs, user })
   assert(ran.code == 0, ran.err)
   local test = module_of_dir(tmp .. "/out", "user")
-  assert(test is IsColor, "not a function")
+  assert(test is IsColor, "not a function") -- checked: is_on_record
   assert(test("red") == true and test("blue") == false)
 end
 

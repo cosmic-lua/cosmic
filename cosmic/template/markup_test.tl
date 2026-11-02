@@ -6,13 +6,13 @@ local markup = require("cosmic.template.markup")
 -- places that judge a slot differently.
 local function test_a_place_key_reads_every_field_of_the_place()
   local base = markup.start((assert(dialect.resolve({}, dialect.registry))))
-  local fields = base as {string: any}
+  local fields = base as {string: any} -- checked: cast_refused
   local count = 0
   for field, value in pairs(fields) do
     -- The template's dialects are the same at every place of it.
     if field ~= "dialect" then
       count = count + 1
-      local other = markup.copy(base) as {string: any}
+      local other = markup.copy(base) as {string: any} -- checked: cast_refused
       if value is string then
         other[field] = value .. "x"
       elseif value is boolean then
@@ -20,7 +20,7 @@ local function test_a_place_key_reads_every_field_of_the_place()
       elseif value is integer then
         other[field] = value + 1
       end
-      assert(markup.key(other as markup.Place) ~= markup.key(base), "the key leaves out " .. field)
+      assert(markup.key(other as markup.Place) ~= markup.key(base), "the key leaves out " .. field) -- checked: cast_refused
     end
   end
   assert(count >= 26, count)

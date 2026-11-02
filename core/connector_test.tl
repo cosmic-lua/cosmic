@@ -172,9 +172,9 @@ local function test_mixed_tables_keep_each_range_at_its_own_stride()
 end
 local function test_invalid_numeric_endpoints_cannot_start_a_connector()
   local pair = ConnectorEnds.connector_pair()
-  for _, endpoint in ipairs({ { host = "localhost", port = 80 }, { host = "127.1", port = 80 },
-      { host = "0177.0.0.1", port = 80 }, { host = "127.0.0.1\0evil", port = 80 },
-      { host = "fe80::1%lo", port = 80 }, { host = "*", port = 80 }, { host = "127.0.0.1", port = -1 } }) do
+  for _, endpoint in ipairs({ { host = "localhost", port = 80 }, { host = "127.1", port = 80 }, -- checked: arms_differ*2
+      { host = "0177.0.0.1", port = 80 }, { host = "127.0.0.1\0evil", port = 80 }, -- checked: arms_differ*2
+      { host = "fe80::1%lo", port = 80 }, { host = "*", port = 80 }, { host = "127.0.0.1", port = -1 } }) do -- checked: arms_differ*3
     Test.raises(function() process.connector_start({ endpoint }, pair.connector, 500, nil) end)
   end
   assert(sys.close(pair.controller))
@@ -248,7 +248,7 @@ local function test_a_public_connector_refuses_what_its_lists_hold_without_conne
     -- A neighbour of an address is refused only by a prefix that holds it,
     -- and the stream is in step.
     local wide = public.deny[1] == "126.0.0.0/7" or public.deny[1] == "127.0.0.0/8"
-    assert(public_ask(pair.controller, "127.0.0.2", 0) == (wide and DENIED or 0))
+    assert(public_ask(pair.controller, "127.0.0.2", 0) == (wide and DENIED or 0)) -- checked: and_ternary
     finish(pair, child)
   end
 end
@@ -304,7 +304,7 @@ local function test_public_lists_that_are_no_prefixes_cannot_start_a_connector()
     Test.raises(function() process.connector_start({}, pair.connector, 500, public) end)
   end
   -- A table that is empty is for a public connector alone.
-  assert(not pcall(process.connector_start, {}, pair.connector, 500, nil))
+  assert(not pcall(process.connector_start, {}, pair.connector, 500, nil)) -- checked: alternatives_as_value
   assert(sys.close(pair.controller))
   assert(sys.close(pair.connector))
 end

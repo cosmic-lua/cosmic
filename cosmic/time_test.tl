@@ -6,7 +6,7 @@ local NS <const> = 1000000000
 
 local function civil(year: integer, month: integer, day: integer, hour?: integer, minute?: integer,
                      second?: integer, ns?: integer): Time.CivilFields
-  return { year = year, month = month, day = day, hour = hour or 0, minute = minute or 0,
+  return { year = year, month = month, day = day, hour = hour or 0, minute = minute or 0, -- checked: literal_shape
     second = second or 0, ns = ns or 0 }
 end
 
@@ -67,7 +67,7 @@ local function test_leap_years_follow_the_gregorian_rule()
   assert(Time.from_civil(civil(2000, 2, 29)))
   assert(Time.from_civil(civil(2024, 2, 29)))
   local v, why = Time.from_civil(civil(1900, 2, 29))
-  assert(v == nil and why:find("day 29", 1, true), why)
+  assert(v == nil and why:find("day 29", 1, true), why) -- checked: or_mix
   v, why = Time.from_civil(civil(2100, 2, 29))
   assert(v == nil and why ~= "", why)
   v, why = Time.from_civil(civil(2026, 2, 29))
@@ -97,19 +97,19 @@ end
 --- range: it raises, naming the field and the caller.
 local function test_from_civil_raises_for_a_field_that_is_no_integer()
   local float_year = civil(2026, 1, 1)
-  float_year.year = 2026.0 as integer
+  float_year.year = 2026.0 as integer -- checked: cast_refused
   local ok, why: boolean, any = pcall(Time.from_civil, float_year)
-  assert(not ok and tostring(why):find("time: year is not an integer: float 2026.0", 1, true),
+  assert(not ok and tostring(why):find("time: year is not an integer: float 2026.0", 1, true), -- checked: or_mix
     tostring(why))
   local absent = civil(2026, 1, 1)
-  absent.month = nil
+  absent.month = nil -- checked: nil_not_allowed
   ok, why = pcall(Time.from_civil, absent)
-  assert(not ok and tostring(why):find("time: month is not an integer: nil nil", 1, true),
+  assert(not ok and tostring(why):find("time: month is not an integer: nil nil", 1, true), -- checked: or_mix
     tostring(why))
   local fraction = civil(2026, 1, 1)
-  fraction.ns = 0.5 as integer
+  fraction.ns = 0.5 as integer -- checked: cast_refused
   ok, why = pcall(Time.from_civil, fraction, Time.UTC)
-  assert(not ok and tostring(why):find("time: ns is not an integer", 1, true), tostring(why))
+  assert(not ok and tostring(why):find("time: ns is not an integer", 1, true), tostring(why)) -- checked: or_mix
   assert(Time.from_civil(civil(2026, 1, 1)) ~= nil)
 end
 
@@ -133,8 +133,8 @@ local function test_from_civil_refuses_what_an_integer_cannot_hold()
     assert((v ~= nil) == e.fits, why)
     if not e.fits then assert(why:find("outside", 1, true), why) end
   end
-  assert(Time.from_civil(edges[1].fields) == math.mininteger)
-  assert(Time.from_civil(edges[3].fields) == math.maxinteger)
+  assert(Time.from_civil(edges[1].fields) == math.mininteger) -- checked: nil_not_allowed
+  assert(Time.from_civil(edges[3].fields) == math.maxinteger) -- checked: nil_not_allowed
 end
 
 local function test_format_writes_a_fraction_only_when_there_is_one()
@@ -186,7 +186,7 @@ end
 
 local function test_parse_says_there_are_no_leap_seconds()
   local got, why = Time.parse_rfc3339("2026-09-25T04:09:60Z")
-  assert(got == nil and why:find("second 60 is not 0 through 59", 1, true), why)
+  assert(got == nil and why:find("second 60 is not 0 through 59", 1, true), why) -- checked: or_mix
 end
 
 local function test_parse_refuses_what_rfc3339_does_not_say()
@@ -231,7 +231,7 @@ local function test_add_calendar_moves_years_months_then_days()
     { duration = {}, overflow = "reject", want = "2024-01-31T10:20:30.5Z" },
   }
   for _, case in ipairs(cases) do
-    local moved = assert(Time.add_calendar(from, case.duration, nil, { overflow = case.overflow as Time.Overflow }))
+    local moved = assert(Time.add_calendar(from, case.duration, nil, { overflow = case.overflow as Time.Overflow })) -- checked: cast_refused
     assert(Time.format_rfc3339(moved) == case.want, Time.format_rfc3339(moved) .. " not " .. case.want)
   end
   local leap_day = at("2024-02-29T00:00:00Z")
@@ -256,7 +256,7 @@ local function test_add_calendar_adds_the_exact_part_last()
   none, why = Time.add_calendar(math.mininteger + 5, { ns = -6 })
   assert(none == nil and why:find("outside", 1, true) ~= nil, why)
   assert(Time.add_calendar(math.maxinteger - 5, { ns = 5 }) == math.maxinteger)
-  Test.raises(function() Time.add_calendar(0, { ns = 1.5 as integer }) end, "time: ns is not an integer")
+  Test.raises(function() Time.add_calendar(0, { ns = 1.5 as integer }) end, "time: ns is not an integer") -- checked: cast_refused
 end
 
 --- The calendar part may leave the range on the way when the exact part
@@ -277,12 +277,12 @@ local function test_add_calendar_refuses_a_day_its_month_lacks_by_default()
   -- A step past the range on the way is not refused: the result is what counts.
   local back = assert(Time.add_calendar(at("2262-01-01T00:00:00Z"), { years = 10, days = -3652 }))
   assert(Time.format_rfc3339(back) == "2262-01-01T00:00:00Z", Time.format_rfc3339(back))
-  assert(not pcall(Time.add_calendar, 0, { days = 1 }, nil, { overflow = "Clamp" as Time.Overflow }))
+  assert(not pcall(Time.add_calendar, 0, { days = 1 }, nil, { overflow = "Clamp" as Time.Overflow })) -- checked: alternatives_as_value, cast_refused
   none, why = Time.add_calendar(at("2262-01-01T00:00:00Z"), { years = 1 })
   assert(none == nil and why:find("outside", 1, true) ~= nil, why)
   none, why = Time.add_calendar(at("1678-01-01T00:00:00Z"), { days = -200 })
   assert(none == nil and why:find("outside", 1, true) ~= nil, why)
-  Test.raises(function() Time.add_calendar(0, { months = 1.5 as integer }) end, "time: months is not an integer")
+  Test.raises(function() Time.add_calendar(0, { months = 1.5 as integer }) end, "time: months is not an integer") -- checked: cast_refused
   none, why = Time.add_calendar(0, { years = math.maxinteger })
   assert(none == nil and why:find("years", 1, true) ~= nil, why)
 end
@@ -362,7 +362,7 @@ end
 
 local function test_between_spans_the_whole_range()
   local far = assert(Time.between(math.mininteger, math.maxinteger))
-  assert(far.years == 584 and far.months == 6, ("%d %d"):format(far.years, far.months))
+  assert(far.years == 584 and far.months == 6, ("%d %d"):format(far.years, far.months)) -- checked: nil_not_allowed*2
 end
 
 --- What a malformed RFC 3339 or HTTP text is told, by where it goes wrong.

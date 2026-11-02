@@ -18,8 +18,8 @@ local function nested_cosmic_environment(): {string:string}
   local environment = Env.all()
   -- These hooks belong to the portable test's outer Cosmic startups. A
   -- nested fixture has no matching FIFO handshake and must not inherit them.
-  environment.COSMIC_PORTABLE_STARTUP_TEST_READY = nil
-  environment.COSMIC_PORTABLE_STARTUP_TEST_GO = nil
+  environment.COSMIC_PORTABLE_STARTUP_TEST_READY = nil -- checked: map_field
+  environment.COSMIC_PORTABLE_STARTUP_TEST_GO = nil -- checked: map_field
   return environment
 end
 

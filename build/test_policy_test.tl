@@ -142,5 +142,5 @@ end
 local function test_a_workers_policy_has_the_runners_descriptor_limit()
   local shaped = test_policy.worker(plan_of({}, {}, {}, {}), effective())
   local held = sys.getrlimit(sys.RLIMIT_NOFILE)
-  assert(shaped ~= nil and held ~= nil and assert(shaped.limits).open_files == math.min(held.hard, 1048576))
+  assert(shaped ~= nil and held ~= nil and assert(shaped.limits).open_files == math.min(held.hard, 1048576)) -- checked: compare_disjoint
 end

@@ -116,7 +116,7 @@ local function test_processes_confined_apart_report_apart(tmp: string)
   local reads: mut {string} = {}
   for _, path in ipairs(confine.itself()) do reads[#reads + 1] = path end
   for _, path in ipairs({ "/proc", "/dev/null" }) do
-    if Fs.exists(path) then reads[#reads + 1] = path end
+    if Fs.exists(path) then reads[#reads + 1] = path end -- checked: condition_type
   end
   assert(Fs.write(tmp .. "/parent/parent.tl", [[
 local Child = require("cosmic.child")
@@ -191,7 +191,7 @@ local function test_a_process_of_another_build_does_not_report(tmp: string)
     local dir = assert(value:match("[^:]*$"), "a value ends in a path")
     assert(Fs.mkdirs(dir))
     local env = this_program.environment()
-    env.COSMIC_COVERAGE_CHILDREN = value
+    env.COSMIC_COVERAGE_CHILDREN = value -- checked: map_field
     local started = this_program.program({ "-e", "return 0" },
       { env = env, cwd = tmp, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
     local r = assert(Child.run(started.argv, started.options))

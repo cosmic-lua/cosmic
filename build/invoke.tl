@@ -146,19 +146,19 @@ function invoke.run(args: {string}, opts: invoke.Options): invoke.Result
     local env = opts.env
     if env ~= nil then
       local given_env: {string:string} = env
-      sys.getenv = function(name: string): string? return given_env[name] end
-      sys.environ = function(): {string:string}
+      sys.getenv = function(name: string): string? return given_env[name] end -- checked: field_fixed
+      sys.environ = function(): {string:string} -- checked: field_fixed
         local copy: mut {string:string} = {}
         for name, value in pairs(given_env) do copy[name] = value end
         return copy
       end
     end
-    sys.exit = function(_?: integer) refuse("sys.exit") end
-    sys.execve = function(_: string, _: {string}, _: {string:string}):
+    sys.exit = function(_?: integer) refuse("sys.exit") end -- checked: field_fixed
+    sys.execve = function(_: string, _: {string}, _: {string:string}): -- checked: field_fixed
         boolean, string, integer
       refuse("sys.execve")
     end
-    Store.attach = function(_: string, _?: Store.AttachOptions): boolean, string
+    Store.attach = function(_: string, _?: Store.AttachOptions): boolean, string -- checked: field_fixed
       refuse("Store.attach")
     end
     Store.alone(function()
@@ -168,7 +168,7 @@ function invoke.run(args: {string}, opts: invoke.Options): invoke.Result
         -- uncaught error -- its source position and the catalog's
         -- guidance (core/main.c's `failed`) -- once a binding hands them
         -- to Lua.
-        local message = (answer is string or answer is number) and tostring(answer) or "failed"
+        local message = (answer is string or answer is number) and tostring(answer) or "failed" -- checked: and_ternary
         logger.log:complain(message)
         return
       end
@@ -184,8 +184,8 @@ function invoke.run(args: {string}, opts: invoke.Options): invoke.Result
     return ""
   end)
 
-  sys.getenv, sys.environ = getenv, environ
-  sys.exit, sys.execve, Store.attach = exit, execve, attach
+  sys.getenv, sys.environ = getenv, environ -- checked: field_fixed*2
+  sys.exit, sys.execve, Store.attach = exit, execve, attach -- checked: field_fixed*3
   local out_back, out_back_trouble = sys.dup2(saved_out, 1)
   local err_back, err_back_trouble = sys.dup2(saved_err, 2)
   local back, back_trouble = sys.chdir(here)

@@ -126,7 +126,7 @@ local function test_no_tree_source_reads_what_a_suite_forgets()
   for _, dir in ipairs({ "build", "cosmic", "core", "test", "eval", "cmd", "doc" }) do
     for _, path in ipairs((assert(Fs.walk(dir)))) do
       local relative = dir .. "/" .. path
-      if relative ~= "build/ci_tree_test.tl" and relative:match("%.tl$") or relative:match("%.lua$") or relative:match("%.[ch]$") then
+      if relative ~= "build/ci_tree_test.tl" and relative:match("%.tl$") or relative:match("%.lua$") or relative:match("%.[ch]$") then -- checked: and_ternary
         for _, name in ipairs(forgotten(names, (assert(Fs.read(relative))), sets_what_it_reads[relative] or {})) do
           found[#found + 1] = relative .. ": " .. name
         end

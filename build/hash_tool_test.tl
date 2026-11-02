@@ -45,7 +45,7 @@ local function test_a_large_file_streams(tmp: string)
   local expected = (assert(Stream.hashing("md5")))
   for _ = 1, 16 do assert(expected:write(chunk)) end
   local raw = expected:digest()
-  local hex = Codec.hex(raw as string)
+  local hex = Codec.hex(raw as string) -- checked: cast_refused
   assert(ran.out == hex .. "  big\n", ran.out)
 end
 

@@ -316,8 +316,8 @@ local function reads_unassigned(code: string): boolean
       error(stopped, 0)
     end,
   }
-  local chunk = assert(load("local function f()\n  local x\n" .. code .. "\nend\nreturn f", "oracle", "t", hooks as table))
-  local run = chunk() as function()
+  local chunk = assert(load("local function f()\n  local x\n" .. code .. "\nend\nreturn f", "oracle", "t", hooks as table)) -- checked: cast_refused
+  local run = chunk() as function() -- checked: cast_refused
   local pending: mut {{boolean}} = { {} }
   local runs = 0
   while #pending > 0 and not o.bad do

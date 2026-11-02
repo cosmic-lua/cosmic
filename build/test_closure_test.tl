@@ -51,5 +51,5 @@ end
 --- A module of the core, which no file of the tree is, loads.
 local function test_a_module_of_the_core_loads()
   local sys: any = dynamic_require("cosmic", "sys")
-  assert(sys is {string:any} and sys.getpid ~= nil)
+  assert(sys is {string:any} and sys.getpid ~= nil) -- checked: is_on_record, map_field
 end

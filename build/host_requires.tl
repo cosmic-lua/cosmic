@@ -426,20 +426,20 @@ local function program_key(path: string, search: string?): string?, string
     return "sha256:" .. hex_sha256(opened.data)
   end
   key = key .. ";interpreter=" .. interpreter_digest(words[1])
-  if words[1] ~= nil and words[1]:match("/env$") ~= nil then
+  if words[1] ~= nil and words[1]:match("/env$") ~= nil then -- checked: nil_not_allowed
     local index = 2
     while words[index] ~= nil do
       local word = words[index]
       if word == "-u" or word == "-C" or word == "--unset" or word == "--chdir" then
         index = index + 2
-      elseif word:sub(1, 1) == "-" or word:match("^[%w_]+=") ~= nil then
+      elseif word:sub(1, 1) == "-" or word:match("^[%w_]+=") ~= nil then -- checked: nil_not_allowed*2
         index = index + 1
       else
         break
       end
     end
     if words[index] ~= nil then
-      local found, _ = find_program(words[index], search)
+      local found, _ = find_program(words[index], search) -- checked: index_may_be_nil
       key = key .. ";runs=" .. interpreter_digest(found)
     end
   end
@@ -625,14 +625,14 @@ function host_requires.answer(host: host_requires.Host, names: {string},
         cached = { name = name, class = "host", kind = "refused", key = "", why = why }
       else
         local entry = (entries or table_of)[spec.base]
-        local has = entry.platform_has
+        local has = entry.platform_has -- checked: nil_not_allowed
         if spec.class == "platform" and has == nil then
           error("host_requires: " .. spec.base .. " is a platform requirement with no platform_has", 0)
         end
         if has ~= nil and spec.class == "platform" and not has(host) then
           cached = { name = name, class = spec.class, kind = "na", key = "", why = spec.base .. ": this platform has none" }
         else
-          local found = entry.probe(spec.argument, host)
+          local found = entry.probe(spec.argument, host) -- checked: nil_not_allowed
           if found.present then
             cached = { name = name, class = spec.class, kind = "present", key = found.text, why = "" }
           else

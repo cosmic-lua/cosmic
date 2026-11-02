@@ -92,7 +92,7 @@ local function test_digests_match_published_vectors()
   for _, v in ipairs(vectors) do
     assert(Codec.hex(Hash.digest(v.algorithm, v.message)) == v.digest, v.algorithm)
   end
-  assert(Hash.hex_sha256("abc") == vectors[4].digest)
+  assert(Hash.hex_sha256("abc") == vectors[4].digest) -- checked: nil_not_allowed
 end
 
 local function test_hmac_matches_published_vectors()
@@ -184,9 +184,9 @@ local function test_incremental_hmac_is_finished_by_digest()
   local mac = assert(Hash.hmac_hasher("sha256", "key"))
   mac:update("abc")
   assert(mac:digest() == Hash.hmac("sha256", "key", "abc"))
-  assert(not pcall(mac.update, mac, "more"))
-  assert(not pcall(mac.digest, mac))
-  assert(not pcall(Hash.hmac_hasher, "nonesuch" as Hash.Algorithm, "key"))
+  assert(not pcall(mac.update, mac, "more")) -- checked: alternatives_as_value
+  assert(not pcall(mac.digest, mac)) -- checked: alternatives_as_value
+  assert(not pcall(Hash.hmac_hasher, "nonesuch" as Hash.Algorithm, "key")) -- checked: alternatives_as_value, cast_refused
   do local _abandoned <close> = assert(Hash.hmac_hasher("sha256", "key")) end
 end
 
@@ -194,20 +194,20 @@ local function test_incremental_hmac_throws_naming_the_finished_hasher()
   local mac = assert(Hash.hmac_hasher("sha256", "key"))
   assert(mac:digest())
   local ok, trouble = pcall(function(): string, string
-    return mac:digest()
+    return mac:digest() -- checked: nil_not_allowed
   end)
-  assert(not ok and tostring(trouble):find("hash: the hasher is finished", 1, true), tostring(trouble))
-  local updated = pcall(mac.update, mac, "more")
+  assert(not ok and tostring(trouble):find("hash: the hasher is finished", 1, true), tostring(trouble)) -- checked: or_mix
+  local updated = pcall(mac.update, mac, "more") -- checked: alternatives_as_value
   assert(not updated)
   local _, why = pcall(function(): any
     mac:update("more")
-    return nil
+    return nil -- checked: any_use
   end)
   assert(tostring(why):find("hash: the hasher is finished", 1, true), tostring(why))
 end
 
 local function test_incremental_hmac_raises_on_an_unknown_algorithm()
-  local ok, trouble = pcall(Hash.hmac_hasher, "sha0" as Hash.Algorithm, "key")
+  local ok, trouble = pcall(Hash.hmac_hasher, "sha0" as Hash.Algorithm, "key") -- checked: cast_refused
   assert(not ok)
   assert(tostring(trouble):find("hash: no such digest algorithm", 1, true), tostring(trouble))
 end
@@ -227,8 +227,8 @@ local function test_a_closed_incremental_hmac_is_finished()
     mac:update("abc")
     kept = mac
   end
-  assert(not pcall(kept.update, kept, "more"))
-  assert(not pcall(kept.digest, kept))
+  assert(not pcall(kept.update, kept, "more")) -- checked: alternatives_as_value
+  assert(not pcall(kept.digest, kept)) -- checked: alternatives_as_value
   -- Closing a finished one is harmless too.
   do
     local mac <close> = assert(Hash.hmac_hasher("sha3-256", "key"))
@@ -238,16 +238,16 @@ end
 
 local function test_an_incremental_hmac_revived_by_a_finalizer_is_finished()
   local saved: Hash.Hasher? = nil
-  local holder: Holder = setmetatable({} as Holder, {
+  local holder: Holder = setmetatable({} as Holder, { -- checked: cast_refused*2, setmetatable_call
     __gc = function(self: Holder) saved = self.h end,
   } as metatable<Holder>)
   holder.h = assert(Hash.hmac_hasher("sha256", "key"))
-  holder = nil
+  holder = nil -- checked: nil_not_allowed
   collectgarbage()
   collectgarbage()
   local kept = assert(saved, "the finalizer ran")
-  assert(not pcall(kept.update, kept, "abc"))
-  assert(not pcall(kept.digest, kept))
+  assert(not pcall(kept.update, kept, "abc")) -- checked: alternatives_as_value
+  assert(not pcall(kept.digest, kept)) -- checked: alternatives_as_value
 end
 
 --- Two incremental HMACs under different keys, fed alternately, do not
@@ -292,13 +292,13 @@ local function test_hmac_takes_a_key_of_any_length()
     assert(Codec.hex(Hash.hmac(case.algorithm, case.key, case.message)) == case.mac, label)
     local rows = assert(Sqlite.text_rows(db, "SELECT lower(hex(hmac(?1, ?2, ?3)))",
       { { text = case.algorithm }, { blob = case.key }, { text = case.message } }))
-    assert(rows[1]:text(1) == case.mac, "SQL, " .. label)
+    assert(rows[1]:text(1) == case.mac, "SQL, " .. label) -- checked: nil_not_allowed
   end
   db:close()
 end
 
 local function test_an_unknown_algorithm_raises()
-  local ok, trouble = pcall(Hash.digest, "sha0" as Hash.Algorithm, "abc")
+  local ok, trouble = pcall(Hash.digest, "sha0" as Hash.Algorithm, "abc") -- checked: cast_refused
   assert(not ok)
   assert(tostring(trouble):find("hash: no such digest algorithm", 1, true) ~= nil,
     tostring(trouble))
@@ -309,18 +309,18 @@ local function test_sql_knows_the_same_digests()
   for _, v in ipairs(vectors) do
     local rows = assert(Sqlite.text_rows(db,
       "SELECT lower(hex(digest(?1, ?2)))", { { text = v.algorithm }, { text = v.message } }))
-    assert(rows[1]:text(1) == v.digest, v.algorithm)
+    assert(rows[1]:text(1) == v.digest, v.algorithm) -- checked: nil_not_allowed
   end
   for _, v in ipairs(macs) do
     local rows = assert(Sqlite.text_rows(db,
       "SELECT lower(hex(hmac(?1, 'key', ?2)))", { { text = v.algorithm }, { text = fox } }))
-    assert(rows[1]:text(1) == v.mac, v.algorithm)
+    assert(rows[1]:text(1) == v.mac, v.algorithm) -- checked: nil_not_allowed
   end
   local same = assert(Sqlite.text_rows(db, "SELECT sha256('abc') = digest('sha256', 'abc')"))
-  assert(same[1]:text(1) == "1")
+  assert(same[1]:text(1) == "1") -- checked: nil_not_allowed
   local nulls = assert(Sqlite.text_rows(db,
     "SELECT digest(NULL, 'abc') IS NULL, hmac('sha256', NULL, 'abc') IS NULL"))
-  assert(nulls[1]:text(1) == "1" and nulls[1]:text(2) == "1")
+  assert(nulls[1]:text(1) == "1" and nulls[1]:text(2) == "1") -- checked: nil_not_allowed*2
   local rows, trouble = Sqlite.text_rows(db, "SELECT digest('sha0', 'abc')")
   assert(rows == nil)
   assert(trouble:find("no such digest algorithm", 1, true) ~= nil, trouble)
@@ -338,7 +338,7 @@ local function test_hasher_matches_digest_for_chunked_input()
     while pos <= #whole do
       local size = sizes[(size_i - 1) % #sizes + 1]
       size_i = size_i + 1
-      local piece = whole:sub(pos, pos + size - 1)
+      local piece = whole:sub(pos, pos + size - 1) -- checked: nil_not_allowed
       hasher:update(piece)
       pos = pos + #piece
     end
@@ -355,14 +355,14 @@ local function test_hasher_throws_after_digest()
     hasher:update("more")
   end)
   assert(not ok and tostring(trouble):find("finished", 1, true) ~= nil)
-  local ok2 = pcall(function(): string, string
-    return hasher:digest()
+  local ok2 = pcall(function(): string, string -- checked: alternatives_as_value
+    return hasher:digest() -- checked: nil_not_allowed
   end)
   assert(not ok2)
 end
 
 local function test_hasher_raises_on_an_unknown_algorithm()
-  local ok, trouble = pcall(Hash.hasher, "sha0" as Hash.Algorithm)
+  local ok, trouble = pcall(Hash.hasher, "sha0" as Hash.Algorithm) -- checked: cast_refused
   assert(not ok)
   assert(tostring(trouble):find("hash: no such digest algorithm", 1, true) ~= nil,
     tostring(trouble))
@@ -378,20 +378,20 @@ end
 
 local function test_a_hasher_revived_by_a_finalizer_is_finished()
   local saved: Hash.Hasher? = nil
-  local holder: Holder = setmetatable({} as Holder, {
+  local holder: Holder = setmetatable({} as Holder, { -- checked: cast_refused*2, setmetatable_call
     __gc = function(self: Holder) saved = self.h end,
   } as metatable<Holder>)
   holder.h = assert(Hash.hasher("sha256"))
-  holder = nil
+  holder = nil -- checked: nil_not_allowed
   collectgarbage()
   collectgarbage()
   local kept = assert(saved, "the finalizer ran")
   local ok, why = pcall(function(): any
     kept:update("abc")
-    return nil
+    return nil -- checked: any_use
   end)
-  assert(not ok and tostring(why):find("finished", 1, true), tostring(why))
-  assert(not pcall(kept.digest, kept))
+  assert(not ok and tostring(why):find("finished", 1, true), tostring(why)) -- checked: or_mix
+  assert(not pcall(kept.digest, kept)) -- checked: alternatives_as_value
 end
 
 local function test_a_closed_hasher_is_finished()
@@ -401,8 +401,8 @@ local function test_a_closed_hasher_is_finished()
     hasher:update("abc")
     kept = hasher
   end
-  assert(not pcall(kept.update, kept, "more"))
-  assert(not pcall(kept.digest, kept))
+  assert(not pcall(kept.update, kept, "more")) -- checked: alternatives_as_value
+  assert(not pcall(kept.digest, kept)) -- checked: alternatives_as_value
   -- Closing a digested hasher is harmless too.
   do
     local hasher <close> = assert(Hash.hasher("md5"))
@@ -442,18 +442,18 @@ local function test_siphash_matches_reference_vectors()
   for _, case in ipairs(siphash_vectors) do
     for i, n in ipairs(siphash_lengths) do
       local got = Codec.hex(Hash.siphash(key, message:sub(1, n), case.options))
-      assert(got == case.tags[i], tostring(n) .. " bytes: " .. got .. " ~= " .. case.tags[i])
+      assert(got == case.tags[i], tostring(n) .. " bytes: " .. got .. " ~= " .. case.tags[i]) -- checked: nil_not_allowed
     end
   end
 end
 
 local function test_siphash_refuses_a_bad_key_or_variant()
   local key = string.rep("k", 16)
-  assert(not pcall(Hash.siphash, string.rep("k", 15), "m"))
-  assert(not pcall(Hash.siphash, string.rep("k", 17), "m"))
-  assert(not pcall(Hash.siphash, key, "m", { size = 12 }))
-  assert(not pcall(Hash.siphash, key, "m", { compression = 0 }))
-  assert(not pcall(Hash.siphash, key, "m", { finalization = 65 }))
+  assert(not pcall(Hash.siphash, string.rep("k", 15), "m")) -- checked: alternatives_as_value
+  assert(not pcall(Hash.siphash, string.rep("k", 17), "m")) -- checked: alternatives_as_value
+  assert(not pcall(Hash.siphash, key, "m", { size = 12 })) -- checked: alternatives_as_value
+  assert(not pcall(Hash.siphash, key, "m", { compression = 0 })) -- checked: alternatives_as_value
+  assert(not pcall(Hash.siphash, key, "m", { finalization = 65 })) -- checked: alternatives_as_value
   assert(Hash.siphash(key, "m", {}) == Hash.siphash(key, "m",
     { compression = 2, finalization = 4, size = 8 }))
 end

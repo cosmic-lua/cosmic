@@ -31,13 +31,13 @@ local function documented(): {string:boolean}
   local names: mut {string:boolean} = {}
   local from, to = 0, #text + 1
   for heading_at, heading in text:gmatch("()\n## ([^\n]*)") do
-    if from > 0 and to > #text then to = heading_at as integer end
-    if heading == "collations" then from = heading_at as integer end
+    if from > 0 and to > #text then to = heading_at as integer end -- checked: cast_refused
+    if heading == "collations" then from = heading_at as integer end -- checked: cast_refused
   end
   assert(from > 0, GUIDE .. " has no collations heading")
   for where, name in text:gmatch("\n%- `()([^`(]+)") do
-    local in_collations = (where as integer) > from and (where as integer) < to
-    names[in_collations and collation(name:lower()) or name:lower()] = true
+    local in_collations = (where as integer) > from and (where as integer) < to -- checked: cast_refused*2
+    names[in_collations and collation(name:lower()) or name:lower()] = true -- checked: and_ternary
   end
   return names
 end
@@ -72,7 +72,7 @@ end
 local function missing(want: {string:boolean}, have: {string:boolean}): string
   local out: mut {string} = {}
   for name in pairs(want) do
-    if not have[name] then out[#out + 1] = name end
+    if not have[name] then out[#out + 1] = name end -- checked: condition_type
   end
   table.sort(out)
   return table.concat(out, "\n  ")
@@ -94,6 +94,6 @@ local function test_the_guide_is_read_as_its_entries()
       collation("decimal"), PRAGMAS }) do
     assert(names[name], "the guide's entries do not include " .. name)
   end
-  assert(not names["binary"], "a collation is read as a collation")
-  assert(not names["sqlite"], "prose in backticks outside an entry is not one")
+  assert(not names["binary"], "a collation is read as a collation") -- checked: condition_type
+  assert(not names["sqlite"], "prose in backticks outside an entry is not one") -- checked: condition_type
 end

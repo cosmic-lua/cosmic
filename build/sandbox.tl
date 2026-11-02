@@ -110,7 +110,7 @@ local NOT_EXECUTABLE <const> = 126
 --- The exit status of a program that is not there.
 local NOT_FOUND <const> = 127
 
-local spec = Cli.verbs.sandbox.spec or {}
+local spec = Cli.verbs.sandbox.spec or {} -- checked: literal_needs_type, map_field
 
 --- The longest `--timeout`, a year, well inside what a start accepts.
 local MOST_SECONDS <const> = 31536000
@@ -135,9 +135,9 @@ function verb.program_slot(argv: {string}): integer?
     if word == "--" then
       if argv[slot + 1] ~= nil then return slot + 1 end
       return nil
-    elseif word:sub(1, 1) ~= "-" or word == "-" then
+    elseif word:sub(1, 1) ~= "-" or word == "-" then -- checked: nil_not_allowed
       return slot
-    elseif not word:find("=", 1, true) and takes_value(word) then
+    elseif not word:find("=", 1, true) and takes_value(word) then -- checked: nil_not_allowed*2
       slot = slot + 1
     end
     slot = slot + 1
@@ -204,22 +204,22 @@ local function table_of(parsed: Flags.Parsed): {string:any}?, string
     if letters == nil then
       return nil, "--path takes LETTERS:PATH, as rwc:work, not " .. text
     end
-    grants[#grants + 1] = { path = path, letters = letters }
+    grants[#grants + 1] = { path = path, letters = letters } -- checked: nil_not_allowed
   end
-  if #grants > 0 then policy.grants = grants end
+  if #grants > 0 then policy.grants = grants end -- checked: map_field
   local profiles: mut {string} = {}
   if parsed.set["--system"] == true then profiles[#profiles + 1] = "system" end
   if parsed.set["--cosmic"] == true then profiles[#profiles + 1] = "cosmic" end
-  if #profiles > 0 then policy.profiles = profiles end
+  if #profiles > 0 then policy.profiles = profiles end -- checked: map_field
   local function copy(name: string, field: string)
-    if #list(name) > 0 then policy[field] = list(name) end
+    if #list(name) > 0 then policy[field] = list(name) end -- checked: any_use
   end
   copy("--isolate", "isolate")
   copy("--promise", "promises")
   copy("--connect", "connect")
   copy("--loopback", "loopback")
   copy("--env", "env")
-  if parsed.set["--tmp"] == true then policy.tmp = true end
+  if parsed.set["--tmp"] == true then policy.tmp = true end -- checked: map_field
   local set_env: mut {string:string} = {}
   for _, text in ipairs(list("--set-env")) do
     local name, value = text:match("^([^=]+)=(.*)$")
@@ -229,34 +229,34 @@ local function table_of(parsed: Flags.Parsed): {string:any}?, string
     if set_env[name] ~= nil and set_env[name] ~= value then
       return nil, "--set-env " .. name .. " is given two values"
     end
-    set_env[name] = value
+    set_env[name] = value -- checked: nil_not_allowed
   end
-  if next(set_env) ~= nil then policy.set_env = set_env end
+  if next(set_env) ~= nil then policy.set_env = set_env end -- checked: map_field
   local held: mut {string:integer} = {}
   for _, entry in ipairs(limits) do
     local name, field, least = entry[1], entry[2], math.tointeger(tonumber(entry[3]))
-    local given = list(name)
-    if #given > 1 then return nil, name .. " is given more than once" end
+    local given = list(name) -- checked: nil_not_allowed
+    if #given > 1 then return nil, name .. " is given more than once" end -- checked: nil_not_allowed
     if given[1] ~= nil then
-      local number = whole(given[1], least, math.maxinteger)
+      local number = whole(given[1], least, math.maxinteger) -- checked: index_may_be_nil, nil_not_allowed
       if number == nil then
-        return nil, name .. " takes a whole number, " .. least .. " or more, not " .. given[1]
+        return nil, name .. " takes a whole number, " .. least .. " or more, not " .. given[1] -- checked: nil_not_allowed*3
       end
-      held[field] = number
+      held[field] = number -- checked: nil_not_allowed
     end
   end
-  if next(held) ~= nil then policy.limits = held end
+  if next(held) ~= nil then policy.limits = held end -- checked: map_field
   local users = list("--user")
   if #users > 1 then return nil, "--user is given more than once" end
   if users[1] ~= nil then
-    local uid, gid = users[1]:match("^(%d+):(%d+)$")
-    if uid == nil then uid = users[1]:match("^(%d+)$") end
-    local user = uid ~= nil and whole(uid, 1, 4294967294) or nil
-    local group = gid ~= nil and whole(gid, 1, 4294967294) or nil
+    local uid, gid = users[1]:match("^(%d+):(%d+)$") -- checked: nil_not_allowed
+    if uid == nil then uid = users[1]:match("^(%d+)$") end -- checked: nil_not_allowed
+    local user = uid ~= nil and whole(uid, 1, 4294967294) or nil -- checked: and_ternary
+    local group = gid ~= nil and whole(gid, 1, 4294967294) or nil -- checked: and_ternary
     if user == nil or (gid ~= nil and group == nil) then
-      return nil, "--user takes UID or UID:GID, whole numbers from 1 to 4294967294, not " .. users[1]
+      return nil, "--user takes UID or UID:GID, whole numbers from 1 to 4294967294, not " .. users[1] -- checked: nil_not_allowed
     end
-    policy.user, policy.group = user, group
+    policy.user, policy.group = user, group -- checked: map_field*2
   end
   return policy, ""
 end
@@ -273,7 +273,7 @@ local function request_of(argv: {string}): Request?, string
   local at = verb.program_slot(argv)
   local last = if at ~= nil then at - 1 else last_slot(argv) end
   local words: mut {string} = {}
-  for slot = 2, last do words[#words + 1] = argv[slot] end
+  for slot = 2, last do words[#words + 1] = argv[slot] end -- checked: index_may_be_nil
   local parsed, trouble = Flags.parse(words, 1, spec)
   if parsed == nil then return nil, trouble end
   local policy, why = table_of(parsed)
@@ -289,10 +289,10 @@ local function request_of(argv: {string}): Request?, string
   if listed[1] ~= nil then
     local names: mut {string} = {}
     local seen: mut {string:boolean} = {}
-    for name in (listed[1] .. ","):gmatch("([^,]*),") do
+    for name in (listed[1] .. ","):gmatch("([^,]*),") do -- checked: nil_not_allowed -- untyped: call
       if name == "" then
         return nil, "--modules takes module names separated by commas, as cosmic.json,cosmic.fs, " ..
-          "not " .. listed[1]
+          "not " .. listed[1] -- checked: nil_not_allowed
       end
       if seen[name] ~= true then
         seen[name] = true
@@ -338,10 +338,10 @@ local function request_of(argv: {string}): Request?, string
   local seconds = parsed.all["--timeout"] or {}
   if #seconds > 1 then return nil, "--timeout is given more than once" end
   if seconds[1] ~= nil then
-    local number = whole(seconds[1], 1, MOST_SECONDS)
+    local number = whole(seconds[1], 1, MOST_SECONDS) -- checked: index_may_be_nil
     if number == nil then
       return nil, "--timeout takes a whole number of seconds, 1 to " .. tostring(MOST_SECONDS) ..
-        ", not " .. seconds[1]
+        ", not " .. seconds[1] -- checked: nil_not_allowed
     end
     request.timeout_ns = number * 1000000000
   end
@@ -349,7 +349,7 @@ local function request_of(argv: {string}): Request?, string
   if #cwd > 1 then return nil, "--cwd is given more than once" end
   request.cwd = cwd[1]
   if at ~= nil then
-    for slot = at, last_slot(argv) do request.argv[#request.argv + 1] = argv[slot] end
+    for slot = at, last_slot(argv) do request.argv[#request.argv + 1] = argv[slot] end -- checked: index_may_be_nil
   end
   return request, ""
 end
@@ -362,7 +362,7 @@ local function policy_of(request: Request, database: string?): Sandbox.Policy?, 
     -- The text holds the file's digest as well as its path.
     local named, named_trouble = Sandbox.database(database)
     if named == nil then return nil, named_trouble end
-    fields.database = named
+    fields.database = named -- checked: map_field
   end
   local json, json_why = Json.encode_any(fields)
   if json == nil then return nil, json_why end
@@ -389,7 +389,7 @@ local function scratch(held: mut {string}): string?, string
   local dir, why = Fs.mkdtemp("sandbox-")
   if dir == nil then return nil, why end
   held[1] = dir
-  local opened, open_why = sys.chmod(dir, tonumber("755", 8))
+  local opened, open_why = sys.chmod(dir, tonumber("755", 8)) -- checked: nil_not_allowed
   if not opened then return nil, dir .. ": " .. tostring(open_why) end
   return dir, ""
 end
@@ -442,7 +442,7 @@ local function sealed(names: {string}, opts: Store.SealOptions, held: mut {strin
     -- Store.seal raises, with its position, for a name no store holds.
     return { why = (tostring(digest):gsub("^.-:%d+: store: ", ""):gsub("^store: ", "")), refused = true }
   end
-  if digest == nil then return { why = why, refused = false } end
+  if digest == nil then return { why = why, refused = false } end -- checked: nil_not_allowed
   return { path = path, why = "", refused = false }
 end
 
@@ -477,8 +477,8 @@ local function seal_script(file: string, cwd: string?, held: mut {string}): Seal
   if chunk == nil then return { why = file .. ": " .. tostring(chunk_trouble), refused = false } end
   -- The chunk is the one the tool just loaded from code it generated, so
   -- its bytecode is its own, not a foreign file's.
-  return sealed(names, { unchecked_bytecode = true, extra = {
-    name = "main", bytecode = string.dump(chunk), source = source, requires = roots } }, held)
+  return sealed(names, { unchecked_bytecode = true, extra = { -- checked: any_use
+    name = "main", bytecode = string.dump(chunk), source = source, requires = roots } }, held) -- checked: not_assignable
 end
 
 --- What Child adds to a name it could not find, which the verb, that
@@ -583,7 +583,7 @@ local function run_here(argv: {string}, opts: Child.Options): Child.Result?, str
     local made, why = notes_pipe()
     if made == nil then return nil, "the relay's log: " .. why end
     notes = made
-    opts.relay_log = made.writer
+    opts.relay_log = made.writer -- checked: field_fixed
     terminal = { input = 0, output = 1, error = 2, notes = made.reader }
   end
   local result, why = TermRelay.run(argv, opts, terminal)
@@ -607,7 +607,7 @@ local function execute(argv: {string}, io: verb.Io?, held: mut {string}): intege
   -- run after an option or a `--`: `cosmic sandbox -- connect`.
   if argv[2] == "connect" then
     local words: mut {string} = {}
-    for slot = 3, last_slot(argv) do words[#words + 1] = argv[slot] end
+    for slot = 3, last_slot(argv) do words[#words + 1] = argv[slot] end -- checked: index_may_be_nil
     return (to.connect or connect_client.run)(words)
   end
   local request, trouble = request_of(argv)
@@ -626,14 +626,14 @@ local function execute(argv: {string}, io: verb.Io?, held: mut {string}): intege
     local modules = request_modules
     -- The first is the main, which the core runs; the rest are what it
     -- requires, as the program's whole set.
-    if preloaded(modules[1]) then
-      sealing = { why = modules[1] .. " is the core's own, which has no main to run",
+    if preloaded(modules[1]) then -- checked: index_may_be_nil
+      sealing = { why = modules[1] .. " is the core's own, which has no main to run", -- checked: nil_not_allowed
         refused = true }
     else
       sealing = sealed(stored(modules), { main = modules[1] }, held)
     end
   elseif request.closure then
-    sealing = seal_script(request.argv[2], request.cwd, held)
+    sealing = seal_script(request.argv[2], request.cwd, held) -- checked: index_may_be_nil
     -- The script is the program's main, whose arguments are the rest.
     if sealing.path ~= nil then table.remove(request.argv, 2) end
   end
@@ -641,7 +641,7 @@ local function execute(argv: {string}, io: verb.Io?, held: mut {string}): intege
     local sealing_path = sealing.path
     if sealing_path == nil then
       complain(if sealing.refused then sealing.why .. "; see `cosmic help sandbox`" else sealing.why end)
-      return sealing.refused and bare.refused or START_FAILED
+      return sealing.refused and bare.refused or START_FAILED -- checked: and_ternary
     end
     database = sealing_path
   end
@@ -666,7 +666,7 @@ local function execute(argv: {string}, io: verb.Io?, held: mut {string}): intege
     relay_log = "inherit",
   })
   if result == nil then
-    local code, said = failed_start(request.argv[1], request.cwd, started)
+    local code, said = failed_start(request.argv[1], request.cwd, started) -- checked: index_may_be_nil
     complain(said)
     return code
   end
@@ -688,12 +688,12 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   local held: mut {string} = {}
   local status = execute(argv, io, held)
   if held[1] ~= nil then
-    local _, _ = Fs.remove_tree(held[1])
+    local _, _ = Fs.remove_tree(held[1]) -- checked: index_may_be_nil
   end
   return status
 end
 
-verb.spec = {
+verb.spec = { -- checked: field_fixed
   name = "sandbox",
   guide = "a program held to what you grant it",
   tests = { "build.sandbox_test", "build.sandbox_tool_test", "build.sandbox_connect_test",

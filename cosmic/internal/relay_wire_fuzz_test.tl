@@ -41,7 +41,7 @@ local function connect_fresh(): function(string): Answer
   return function(chunk: string): Answer
     local r = reader:feed(chunk)
     return { status = r.status, consumed = r.consumed,
-      key = shown({ r.status, r.consumed, r.reason, r.http_status, r.host, r.kind, r.port, r.authorization }) }
+      key = shown({ r.status, r.consumed, r.reason, r.http_status, r.host, r.kind, r.port, r.authorization }) } -- checked: any_use*8
   end
 end
 
@@ -50,7 +50,7 @@ local function greeting_fresh(password: boolean): function(): function(string): 
     local reader = Wire.socks_greeting_reader(password)
     return function(chunk: string): Answer
       local r = reader:feed(chunk)
-      return { status = r.status, consumed = r.consumed, key = shown({ r.status, r.consumed, r.reason, r.method }) }
+      return { status = r.status, consumed = r.consumed, key = shown({ r.status, r.consumed, r.reason, r.method }) } -- checked: any_use*4
     end
   end
 end
@@ -60,7 +60,7 @@ local function auth_fresh(): function(string): Answer
   return function(chunk: string): Answer
     local r = reader:feed(chunk)
     return { status = r.status, consumed = r.consumed,
-      key = shown({ r.status, r.consumed, r.reason, r.username, r.password }) }
+      key = shown({ r.status, r.consumed, r.reason, r.username, r.password }) } -- checked: any_use*5
   end
 end
 
@@ -69,7 +69,7 @@ local function request_fresh(): function(string): Answer
   return function(chunk: string): Answer
     local r = reader:feed(chunk)
     return { status = r.status, consumed = r.consumed,
-      key = shown({ r.status, r.consumed, r.reason, r.reply, r.host, r.kind, r.port }) }
+      key = shown({ r.status, r.consumed, r.reason, r.reply, r.host, r.kind, r.port }) } -- checked: any_use*7
   end
 end
 
@@ -79,7 +79,7 @@ local function hello_fresh(): function(string): Answer
     local r = reader:feed(chunk)
     local status = if r.status == "more" then "more" elseif (r.status == "name" or r.status == "no_sni" or r.status == "encrypted_sni") then
       "done" else "refused" end
-    return { status = status, consumed = r.consumed, key = shown({ r.status, r.consumed, r.reason, r.name }) }
+    return { status = status, consumed = r.consumed, key = shown({ r.status, r.consumed, r.reason, r.name }) } -- checked: any_use*4
   end
 end
 
@@ -329,7 +329,7 @@ local function test_no_reader_raises_or_consumes_past_its_input(tmp: string)
         if not ok then
           return false, "raised " .. tostring(got)
         end
-        local answer = got as Answer
+        local answer = got as Answer -- checked: cast_refused
         if answer.status ~= "more" and answer.status ~= "done" and answer.status ~= "refused" then
           return false, "answered " .. tostring(answer.status)
         end

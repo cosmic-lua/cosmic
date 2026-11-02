@@ -16,7 +16,7 @@ Test.policy{
 
 local function lookup(dir: string, path: string?): string
   local env = this_program.environment()
-  env.PATH = path
+  env.PATH = path -- checked: map_field
   local script = [[
 local Env = require("cosmic.env")
 local Proc = require("cosmic.proc")

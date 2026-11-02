@@ -558,10 +558,10 @@ local function answers(s: Session, body: string, unanswered: function(): string)
       end
       if shown ~= nil then
         s.told_outside = true
-        handled[#handled + 1] = protocol.shown(3, shown)
+        handled[#handled + 1] = protocol.shown(3, shown) -- checked: any_use*2
       end
     end
-    return handled, told
+    return handled, told -- checked: any_use
   end
   s.err("cosmic: lsp: " .. tostring(handled))
   local id = protocol.id_of(message)
@@ -677,7 +677,7 @@ local function served(s: Session, frames: protocol.Frames,
         return waiting(frames, ahead)
       end)
       if ok then
-        sending, more = step.publications, step.checked
+        sending, more = step.publications, step.checked -- checked: any_use*2
       else
         s.err("cosmic: lsp: " .. tostring(step))
         sending, more = {}, true

@@ -41,8 +41,8 @@ end
 --- The type of the `i`th annotation of the `local` statement `stat` of a lowered source.
 local function annotation(result: Programs.Result, stat: integer, i?: integer): Types.Type
   local s = result.chunk.body.stats[stat]
-  assert((s.kind == "Local"))
-  return result.lowered.types[assert(s.types[i or 1]).id]
+  assert((s.kind == "Local")) -- checked: nil_not_allowed
+  return result.lowered.types[assert(s.types[i or 1]).id] -- checked: index_may_be_nil
 end
 
 --- Interfaces that each list the next twice with other arguments: `rungs` of them have a closure of 2^rungs.
@@ -246,7 +246,7 @@ local function test_each_code_has_an_error_with_its_message_and_fix()
   end
   -- type_too_deep and store_refused are checked below and by the property test.
   for _, code in ipairs(Declarations.codes) do
-    assert(seen[code] or code == "type_too_deep" or code == "store_refused", code .. " has no case")
+    assert(seen[code] or code == "type_too_deep" or code == "store_refused", code .. " has no case") -- checked: condition_type
   end
 end
 
@@ -259,7 +259,7 @@ local function test_the_catalog_holds_a_row_for_each_code_once()
   end
   assert(#Declarations.catalog == #Declarations.codes)
   for i, code in ipairs(Declarations.codes) do
-    assert(Declarations.catalog[i].code == code, code)
+    assert(Declarations.catalog[i].code == code, code) -- checked: nil_not_allowed
   end
 end
 
@@ -444,14 +444,14 @@ local function test_a_method_satisfies_a_function_field_and_a_mut_field_wants_a_
   local e = only(base .. "local class C is I\n  mut g: function(C)\n  function f(self)\n  end\n  function g(self)\n  end\nend\n")
   assert(e.code == "repeated_field", e.code)
   local ok = errors_of(base .. "local class C is I\n  mut g: function(C)\n  function f(self)\n  end\nend\n")
-  assert(#ok == 0, ok[1] and ok[1].msg or "")
+  assert(#ok == 0, ok[1] and ok[1].msg or "") -- checked: nil_not_allowed
   local bad = only(base .. "local class C is I\n  function f(self)\n  end\n  function g(self)\n  end\nend\n")
   assert(has(bad.msg, "`C.g` is fixed, but `I` declares it `mut`"), bad.msg)
 end
 
 local function test_a_listing_that_cycles_or_lists_what_is_no_interface_is_refused_and_dropped()
   local both = errors_of("local interface J is K\nend\nlocal interface K is J\nend\n")
-  assert(#both == 1 and both[1].code == "super_cycle" and has(both[1].msg, "`K` lists `J`, which lists `K`"), both[1] and both[1].msg or "")
+  assert(#both == 1 and both[1].code == "super_cycle" and has(both[1].msg, "`K` lists `J`, which lists `K`"), both[1] and both[1].msg or "") -- checked: nil_not_allowed
   local enum = only("local enum E \"a\" end\nlocal record R is E\nend\n")
   assert(enum.code == "super_not_interface" and has(enum.msg, "which is a enum"), enum.msg)
   -- the listing is dropped, so nothing else is said of R
@@ -464,7 +464,7 @@ local function test_a_ladder_of_listings_with_different_arguments_is_refused_as_
   assert(#errors_of(ladder(12)) == 0)
   local e = errors_of(ladder(14))
   assert(#e == 2 and e[1].code == "listing_too_large" and has(e[1].msg, "`Rung1` lists more interfaces"), #e)
-  assert(has(e[1].fix, "list fewer interfaces"))
+  assert(has(e[1].fix, "list fewer interfaces")) -- checked: nil_not_allowed
 end
 
 local function test_an_omittable_function_field_agrees_with_the_receiver_replaced_and_is_still_held_to_the_interface()
@@ -490,14 +490,14 @@ local function test_the_fix_of_a_missing_field_shows_the_types_in_the_names_the_
   local program = fresh()
   local result = Programs.lower(program, "t", "local interface I\n  a: Missing\nend\nlocal record R is I\nend\n")
   local e = result.lowered.errors[1]
-  assert(#result.lowered.errors == 1 and e.code == "interface_disagrees" and not has(e.fix, "invalid") and has(e.fix, "declare `a` in `R`"), e and e.fix or "")
+  assert(#result.lowered.errors == 1 and e.code == "interface_disagrees" and not has(e.fix, "invalid") and has(e.fix, "declare `a` in `R`"), e and e.fix or "") -- checked: nil_not_allowed
 end
 
 local function test_an_alias_in_a_function_body_or_repeated_at_the_top_is_lowered_and_held_to_the_rules()
   local body = errors_of("local function f()\n  local type A = {string?}\n  local x: A\nend\n")
-  assert(#body == 1 and body[1].code == "array_of_optional", tostring(#body) .. " " .. (body[1] and body[1].code or ""))
+  assert(#body == 1 and body[1].code == "array_of_optional", tostring(#body) .. " " .. (body[1] and body[1].code or "")) -- checked: nil_not_allowed
   local used = errors_of("local function f()\n  local type A = {integer}\n  local x: A\n  local y: A\nend\n")
-  assert(#used == 0, used[1] and used[1].msg or "")
+  assert(#used == 0, used[1] and used[1].msg or "") -- checked: nil_not_allowed
   local twice = errors_of("local type A = integer\nlocal type A = {number: string}\nlocal x: A\n")
   local codes: mut {string} = {}
   for i, e in ipairs(twice) do
@@ -505,7 +505,7 @@ local function test_an_alias_in_a_function_body_or_repeated_at_the_top_is_lowere
   end
   assert(table.concat(codes, " ") == "float_key", table.concat(codes, " "))
   local cycle = errors_of("local function f()\n  local type A = B\n  local type B = A\nend\n")
-  assert(#cycle >= 1 and cycle[1].code == "alias_cycle", cycle[1] and cycle[1].code or "none")
+  assert(#cycle >= 1 and cycle[1].code == "alias_cycle", cycle[1] and cycle[1].code or "none") -- checked: nil_not_allowed
 end
 
 local function test_an_alias_that_names_a_type_parameter_of_the_code_around_it_is_refused()
@@ -588,8 +588,8 @@ local function test_an_array_or_a_map_value_that_may_be_nil_is_invalid_and_repor
   end
   assert(invalid >= 3)
   local e = result.lowered.errors[2]
-  assert(has(e.msg, "the values of `{string: integer?}` may be nil, and `m[k] = nil` deletes the key"), e.msg)
-  assert(has(e.fix, "write `{string: integer}`"), e.fix)
+  assert(has(e.msg, "the values of `{string: integer?}` may be nil, and `m[k] = nil` deletes the key"), e.msg) -- checked: nil_not_allowed*2
+  assert(has(e.fix, "write `{string: integer}`"), e.fix) -- checked: nil_not_allowed*2
 end
 
 local function test_the_array_part_of_a_record_is_dense_too()
@@ -623,8 +623,8 @@ local function test_a_key_is_an_integer_string_boolean_enum_or_a_declaration_nev
   end
   -- the first has an unknown R besides
   assert(table.concat(codes, " ") == "float_key key_type key_type key_type key_type key_type key_type", table.concat(codes, " "))
-  assert(has(bad[2].msg, "not keyed by `any`") and has(bad[3].msg, "an optional") and has(bad[4].msg, "a collection") and
-      has(bad[5].msg, "a function"), bad[2].msg)
+  assert(has(bad[2].msg, "not keyed by `any`") and has(bad[3].msg, "an optional") and has(bad[4].msg, "a collection") and -- checked: nil_not_allowed*3
+      has(bad[5].msg, "a function"), bad[2].msg) -- checked: nil_not_allowed*2
   local instance = only("local record Set<K>\n  keys: {K: boolean}\nend\nlocal s: Set<number>\n")
   assert(instance.code == "float_key" and has(instance.msg, "`Set` keys a map by its type parameter 1"), instance.msg)
 end
@@ -637,8 +637,8 @@ local function test_a_function_typed_field_of_a_declaration_file_may_repeat_as_a
   assert(#ok.lowered.errors == 0, Programs.codes(ok.lowered))
   assert(#body_of(program, "t", "io").fields == 2)
   local bad = errors_of("global record io\n  n: integer\n  n: integer\n  mut f: function()\n  mut f: function()\nend\n", "decl")
-  assert(#bad == 2 and bad[1].code == "repeated_field" and has(bad[1].msg, "only a function-typed field of a declaration file"), bad[1] and bad[1].msg or "")
-  assert(bad[1].other ~= nil)
+  assert(#bad == 2 and bad[1].code == "repeated_field" and has(bad[1].msg, "only a function-typed field of a declaration file"), bad[1] and bad[1].msg or "") -- checked: nil_not_allowed
+  assert(bad[1].other ~= nil) -- checked: nil_not_allowed
   -- in a program none may
   local text = errors_of("local record R\n  f: function()\n  f: function()\nend\n")
   assert(#text == 1 and text[1].code == "repeated_field")
@@ -672,7 +672,7 @@ local function test_a_type_nested_past_the_store_depth_through_aliases_is_invali
       deep = true
     end
   end
-  assert(deep, e[1].code .. " " .. e[1].msg)
+  assert(deep, e[1].code .. " " .. e[1].msg) -- checked: nil_not_allowed*2
 end
 
 local function test_a_chain_of_aliases_longer_than_the_nesting_limit_is_reported_and_not_unfolded_without_end()
@@ -683,7 +683,7 @@ local function test_a_chain_of_aliases_longer_than_the_nesting_limit_is_reported
   end
   out[#out + 1] = "local type A0 = integer\nlocal x: A400\n"
   local e = errors_of(table.concat(out))
-  assert(#e >= 1 and e[1].code == "type_too_deep" and has(e[1].msg, "a chain of more than 200 aliases"), e[1] and e[1].msg or "")
+  assert(#e >= 1 and e[1].code == "type_too_deep" and has(e[1].msg, "a chain of more than 200 aliases"), e[1] and e[1].msg or "") -- checked: nil_not_allowed
 end
 
 local function test_aliases_may_be_declared_after_their_use_and_mutual_aliases_are_a_cycle()
@@ -691,7 +691,7 @@ local function test_aliases_may_be_declared_after_their_use_and_mutual_aliases_a
   local result = Programs.lower(program, "t", "local type Early = {Later}\nlocal type Later = {integer}\nlocal x: Early\n")
   assert(#result.lowered.errors == 0 and #result.scope_errors == 0, Programs.codes(result.lowered))
   local mutual = errors_of("local type A = B\nlocal type B = A\n")
-  assert(#mutual >= 1 and mutual[1].code == "alias_cycle", mutual[1] and mutual[1].code or "none")
+  assert(#mutual >= 1 and mutual[1].code == "alias_cycle", mutual[1] and mutual[1].code or "none") -- checked: nil_not_allowed
 end
 
 local function test_a_bound_is_one_interface_used_with_no_arguments()
@@ -730,7 +730,7 @@ local d: {Stream.Reader}
   assert(annotation(result, 4) == store:named(reader))
   local stream = store:find("cosmic.stream", "Stream")
   assert(stream ~= nil and annotation(result, 5) == store:named(stream))
-  local export = program.modules["cosmic.stream"].export
+  local export = program.modules["cosmic.stream"].export -- checked: nil_not_allowed
   assert(export ~= nil and export.decl == stream)
 end
 
@@ -742,15 +742,15 @@ local function test_a_name_the_imported_module_lacks_and_a_module_that_returns_n
     "local type Gone = require(\"gone\")\nlocal a: Stream.Writer\nlocal b: Plain\nlocal c: Gone\n"
   local result = Programs.lower(program, "user", source).lowered
   assert(Programs.codes(result) == "member_missing member_missing member_missing", Programs.codes(result))
-  assert(has(result.errors[1].msg, "`Stream` declares no type `Writer`"))
-  assert(has(result.errors[2].msg, "the module `plain` returns no declaration"))
-  assert(has(result.errors[3].msg, "the module `gone` that `Gone` imports is not known"))
+  assert(has(result.errors[1].msg, "`Stream` declares no type `Writer`")) -- checked: nil_not_allowed
+  assert(has(result.errors[2].msg, "the module `plain` returns no declaration")) -- checked: nil_not_allowed
+  assert(has(result.errors[3].msg, "the module `gone` that `Gone` imports is not known")) -- checked: nil_not_allowed
 end
 
 local function test_a_provider_declares_a_module_not_yet_lowered_and_a_check_waits_for_its_body()
   local program = fresh()
   local b = "local record B\n  interface I\n    n: integer\n  end\nend\nreturn B\n"
-  program.provider = function(self: Declarations.Program, module: string): boolean
+  program.provider = function(self: Declarations.Program, module: string): boolean -- checked: field_fixed
     if module ~= "b" then
       return false
     end
@@ -768,7 +768,7 @@ end
 
 local function test_an_alias_of_a_module_that_is_declared_and_not_lowered_is_unavailable()
   local program = fresh()
-  program.provider = function(self: Declarations.Program, module: string): boolean
+  program.provider = function(self: Declarations.Program, module: string): boolean -- checked: field_fixed
     if module ~= "b" then
       return false
     end
@@ -841,7 +841,7 @@ end
   assert(file ~= nil and file.kind == "userdata")
   local body = body_of(program, "decl", "FILE")
   assert(#body.methods == 1 and body.methods[1].name == "close" and #body.fields == 2)
-  assert(program.globals["FILE"] ~= nil and program:scope_globals()["FILE"].space == "both")
+  assert(program.globals["FILE"] ~= nil and program:scope_globals()["FILE"].space == "both") -- checked: nil_not_allowed
   local user = Programs.lower(program, "user", "local f: FILE\nlocal m: FILE.Mode\nlocal g: Nope\n")
   assert(#user.lowered.errors == 0 and #user.scope_errors == 1)
   assert(annotation(user, 2).tag == "named")
@@ -862,19 +862,19 @@ end
   local result = Programs.lower(program, "t", source)
   assert(#result.lowered.errors == 0, Programs.codes(result.lowered))
   local fn = result.chunk.body.stats[1]
-  assert((fn.kind == "LocalFunction"))
+  assert((fn.kind == "LocalFunction")) -- checked: nil_not_allowed
   local types = result.lowered.types
   local names: {{string}} = { { "A", "B" } }
   local param = assert(fn.fn.params[1]).type
-  assert(param ~= nil and Types.display(types[param.id], names) == "A")
+  assert(param ~= nil and Types.display(types[param.id], names) == "A") -- checked: index_may_be_nil
   local both = assert(fn.fn.body.stats[1])
   assert((both.kind == "Local"))
-  assert(Types.display(types[assert(both.types[1]).id], names) == "{A}")
+  assert(Types.display(types[assert(both.types[1]).id], names) == "{A}") -- checked: index_may_be_nil
   local f = assert(fn.fn.body.stats[2])
   assert((f.kind == "Local"))
   -- the function's own parameter is the nearest binder's, displayed under a name of its own
-  assert(Types.display(types[assert(f.types[1]).id], names) == "function<T_1>(T_1, A): B", Types.display(types[assert(f.types[1]).id], names))
-  assert(Types.display(types[fn.fn.id]) == "function<T, U>(T, U): T", Types.display(types[fn.fn.id]))
+  assert(Types.display(types[assert(f.types[1]).id], names) == "function<T_1>(T_1, A): B", Types.display(types[assert(f.types[1]).id], names)) -- checked: index_may_be_nil*2
+  assert(Types.display(types[fn.fn.id]) == "function<T, U>(T, U): T", Types.display(types[fn.fn.id])) -- checked: index_may_be_nil*2
 end
 
 local function test_a_narrowing_return_names_the_position_of_its_parameter_and_a_method_signature_is_a_type()
@@ -943,9 +943,9 @@ end
   local decl = program.store:find("t", "R")
   assert(decl ~= nil)
   local statics = program.statics[decl]
-  assert(statics ~= nil and statics.defined and statics.untyped and not statics.declared and not statics.n)
-  assert(Types.display(statics.defined.type) == "function<T>(T, p2?: string): {T}", Types.display(statics.defined.type))
-  assert(statics.untyped.type.tag == "invalid")
+  assert(statics ~= nil and statics.defined and statics.untyped and not statics.declared and not statics.n) -- checked: map_field*4
+  assert(Types.display(statics.defined.type) == "function<T>(T, p2?: string): {T}", Types.display(statics.defined.type)) -- checked: map_field*2
+  assert(statics.untyped.type.tag == "invalid") -- checked: map_field
   -- the statement of a declared field is lowered once, as any function is
   local twice = 0
   for _, e in ipairs(result.lowered.errors) do
@@ -997,10 +997,10 @@ global missing <const> = Lib.missing
   local result = Programs.lower(program, "t", source, "decl")
   assert(Programs.codes(result.lowered) == "", Programs.codes(result.lowered))
   local values = program.values
-  assert(#values.print == 1 and Types.display(values.print[1]) == "function(...: any)")
-  assert(#values.tonumber == 2 and Types.display(values.tonumber[2]) == "function(any, integer): integer?")
-  assert(Types.display(values.arg[1]) == "{string}" and Types.display(values.version[1]) == "string")
-  assert(values.missing == nil)
+  assert(#values.print == 1 and Types.display(values.print[1]) == "function(...: any)") -- checked: map_field*2
+  assert(#values.tonumber == 2 and Types.display(values.tonumber[2]) == "function(any, integer): integer?") -- checked: map_field*2
+  assert(Types.display(values.arg[1]) == "{string}" and Types.display(values.version[1]) == "string") -- checked: map_field*2
+  assert(values.missing == nil) -- checked: map_field
 end
 
 local function test_a_global_record_named_for_a_primitive_is_a_value_and_the_type_stays_the_primitive()
@@ -1008,7 +1008,7 @@ local function test_a_global_record_named_for_a_primitive_is_a_value_and_the_typ
   local library = Programs.lower(program, "std", "global record string\n  upper: function(string): string\nend\n", "decl")
   assert(Programs.codes(library.lowered) == "", Programs.codes(library.lowered))
   local entry = program.globals["string"]
-  local decl = entry ~= nil and entry.decl or nil
+  local decl = entry ~= nil and entry.decl or nil -- checked: and_ternary
   assert(decl ~= nil and decl.name == "std.string")
   local user = Programs.lower(program, "user", "local s: string\n")
   assert(#user.lowered.errors == 0)

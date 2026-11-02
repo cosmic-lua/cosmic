@@ -25,7 +25,7 @@ function String.split(text: string, separator: string): {string}
     local at, stop = text:find(separator, from, true)
     if at == nil then break end
     pieces[#pieces + 1] = text:sub(from, at - 1)
-    from = stop + 1
+    from = stop + 1 -- checked: nil_not_allowed
   end
   pieces[#pieces + 1] = text:sub(from)
   return pieces

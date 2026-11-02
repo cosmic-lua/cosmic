@@ -19,8 +19,8 @@ local function test_distinct_long_strings_with_same_source_merge_hits()
   assert(hits_of(after, name)[1] == true)
   assert(hits_of(after, name)[8193] == true, "equal source names must union their hits")
   assert(hits_of(before, name)[8193] == nil, "snapshots must not acquire later hits")
-  hits_of(after, name)[1] = nil
-  after[name] = {}
+  hits_of(after, name)[1] = nil -- checked: view_written
+  after[name] = {} -- checked: view_written
   assert(hits_of(Hits.snapshot(), name)[1] == true, "snapshot mutation must not change collection")
 end
 
@@ -46,7 +46,7 @@ local coroutine_probe = assert(load(table.concat({
   "  coroutine.yield(42)",
   "end",
 }, "\n"), "@coverage.coroutine.sessions", "t"))
-local shared_thread = coroutine.create(coroutine_probe)
+local shared_thread = coroutine.create(coroutine_probe) -- checked: overload_none
 
 local function check_fresh_session_and_coroutine()
   local before = Hits.snapshot()

@@ -893,7 +893,7 @@ local function test_searches_the_documentation_for_words(dir: string)
   local db = built(dir, fs_tree())
   local words = assert(docs.lookup(view({ db }), "whole file"))
   local exact = words.exact
-  assert(words ~= nil)
+  assert(words ~= nil) -- checked: compare_disjoint
   assert(not exact)
   assert(#words == 2, tostring(#words))
   local one = assert(docs.lookup(view({ db }), "parent directory"))
@@ -1514,7 +1514,7 @@ local function test_searches_finds_a_word_only_in_an_example(dir: string)
   }))
   local found = assert(docs.lookup(view({ db }), "hex_sha256"))
   local exact = found.exact
-  assert(found ~= nil)
+  assert(found ~= nil) -- checked: compare_disjoint
   assert(not exact)
   assert(#found == 1 and support.nth(found, 1).module == "cosmic.fs" and
       support.nth(found, 1).symbol == "Example.read",
@@ -2572,7 +2572,7 @@ local function test_a_lookup_answers_alike_with_the_indexes_or_without(dir: stri
     local looked = assert(docs.view({ db }, { public }))
     for _, query in ipairs(queries) do
       local found, trouble = docs.lookup(looked, query)
-      out[#out + 1] = query .. ": " .. (found ~= nil and listed(found) or "nil " .. trouble)
+      out[#out + 1] = query .. ": " .. (found ~= nil and listed(found) or "nil " .. trouble) -- checked: and_ternary
     end
     return out
   end

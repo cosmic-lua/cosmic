@@ -271,8 +271,8 @@ end
 --- Raises, naming the field, where `spec` is no [`Server.ServeSpec`]; an
 --- address [`Net.serve`] checks itself.
 local function checked_spec(spec: any)
-  if not spec is {any: any} then error("http: serve takes a spec table", 3) end
-  for key, value in pairs(spec) do
+  if not spec is {any: any} then error("http: serve takes a spec table", 3) end -- declared: key_type
+  for key, value in pairs(spec) do -- checked: any_use
     if not (key is string and SPEC_FIELDS[key] == true) then
       error("http: spec has no field " .. tostring(key), 3)
     end
@@ -290,14 +290,14 @@ local function checked_spec(spec: any)
       end
     end
   end
-  local listeners = spec.listeners
+  local listeners = spec.listeners -- checked: any_use
   if not listeners is {any} or #listeners == 0 then
     spec_error("listeners", "a list of one address or more")
   end
-  if type(spec.handle) ~= "function" then spec_error("handle", "a function of a request") end
-  local limits = spec.limits
+  if type(spec.handle) ~= "function" then spec_error("handle", "a function of a request") end -- checked: any_use
+  local limits = spec.limits -- checked: any_use
   if limits ~= nil then
-    if not limits is {any: any} then
+    if not limits is {any: any} then -- declared: key_type
       spec_error("limits", "a table")
     else
       for key, value in pairs(limits) do
@@ -311,10 +311,10 @@ local function checked_spec(spec: any)
     end
   end
   for _, field in ipairs({ "timeout_ns", "grace_ns", "idle_ns", "head_ns", "body_ns" }) do
-    Poll.checked_ns(spec[field], "http", "spec." .. field, 3)
+    Poll.checked_ns(spec[field], "http", "spec." .. field, 3) -- checked: any_use
   end
   for _, field in ipairs({ "on_ready", "on_stop", "on_error" }) do
-    local fn = spec[field]
+    local fn = spec[field] -- checked: any_use
     if fn ~= nil and type(fn) ~= "function" then spec_error(field, "nil or a function") end
   end
 end
@@ -322,7 +322,7 @@ end
 --- A connection read under a deadline: each read waits at most `each`,
 --- and none past `deadline`, a [`Clock.monotonic_ns`] reading (nil for
 --- none).
-local class Timed is Stream.Reader
+local class Timed is Stream.Reader -- declared: interface_disagrees
   conn: Net.Conn
   each: integer
   mut deadline?: integer
@@ -333,7 +333,7 @@ local class Timed is Stream.Reader
     if deadline ~= nil then
       local left = deadline - Clock.monotonic_ns()
       if left <= 0 then return nil, Poll.TIMEOUT end
-      if wait == nil or left < wait then wait = left end
+      if wait == nil or left < wait then wait = left end -- checked: compare_disjoint
     end
     self.conn:set_timeout(wait)
     return self.conn:read(max_bytes)
@@ -409,24 +409,24 @@ end
 --- Why `reply`, what a handler answered, is no reply the server can
 --- send, or "".
 local function reply_trouble(reply: any): string
-  if not reply is {any: any} then
+  if not reply is {any: any} then -- declared: key_type
     return "the handler answered " .. type(reply) .. ", not a Server.Reply"
   end
-  for key in pairs(reply) do
+  for key in pairs(reply) do -- checked: any_use
     if not (key is string and REPLY_FIELDS[key] == true) then
       return "the reply has no field " .. tostring(key)
     end
   end
-  local status = reply.status
+  local status = reply.status -- checked: any_use
   if not (status is integer and status >= 200 and status <= 999) then
     return "the reply's status must be an integer from 200 to 999"
   end
-  local headers = reply.headers
+  local headers = reply.headers -- checked: any_use
   if headers ~= nil then
-    if not headers is {any: any} then return "the reply's headers must be a table" end
+    if not headers is {any: any} then return "the reply's headers must be a table" end -- declared: key_type
     for name, value in pairs(headers) do
       if not name is string then return "the reply's headers must map names to strings" end
-      if value is {any: any} then
+      if value is {any: any} then -- declared: key_type
         -- A list: keys 1..n, all strings.
         local count = 0
         for key, line in pairs(value) do
@@ -445,12 +445,12 @@ local function reply_trouble(reply: any): string
       end
     end
   end
-  local body = reply.body
+  local body = reply.body -- checked: any_use
   if body ~= nil and not body is string and
-      not (body is {any: any} and type(body.read) == "function" and type(body.close) == "function") then
+      not (body is {any: any} and type(body.read) == "function" and type(body.close) == "function") then -- declared: key_type
     return "the reply's body must be nil, a string or a Stream.Reader"
   end
-  local length, close = reply.length, reply.close
+  local length, close = reply.length, reply.close -- checked: any_use*2
   if length ~= nil and not length is integer then
     return "the reply's length must be an integer"
   end
@@ -467,9 +467,9 @@ local function drop_body(reply: Server.Reply?)
   if type(reply) ~= "table" then return end
   local body = reply.body
   if body == nil then return end
-  if type(body) == "table" and not body is string and type(body.close) == "function" then
+  if type(body) == "table" and not body is string and type(body.close) == "function" then -- checked: interface_method_value, is_disjoint
     -- Protected: a close that raised once, in the reply's send, may again.
-    local _, _ = pcall(body.close, body)
+    local _, _ = pcall(body.close, body) -- checked: interface_method_value
   end
 end
 
@@ -764,8 +764,8 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
   -- interim reply after it would be read as the final reply's body.
   local interim = { continued = false, replied = false }
   local function go_on()
-    if head.continue and interim.continued ~= true and interim.replied ~= true then
-      interim.continued = true
+    if head.continue and interim.continued ~= true and interim.replied ~= true then -- checked: map_field*2
+      interim.continued = true -- checked: map_field
       conn:set_timeout(s.timeout_ns)
       local _, _ = conn:write("HTTP/1.1 100 Continue\r\n\r\n")
     end
@@ -785,7 +785,7 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
   -- it: its raise, or its reply, followed from the failed read.
   local state = body.state
   if state == "over" or state == "bad" or state == "failed" then
-    if ok then drop_body(reply) end
+    if ok then drop_body(reply) end -- checked: not_assignable
     if state ~= "failed" then
       answer(s, conn, head, if state == "over" then 413 else 400 end, (body.failure:gsub("^http: ", "")))
       linger(conn)
@@ -804,13 +804,13 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
   end
   -- A handler is a Reply only by its declaration: it may answer nothing.
   local trouble: string
-  if reply == nil then
+  if reply == nil then -- checked: compare_disjoint
     trouble = reply_trouble(reply)
   else
-    trouble = Server.check(reply, head.method)
+    trouble = Server.check(reply, head.method) -- checked: not_assignable
   end
-  if trouble ~= "" or reply == nil then
-    drop_body(reply)
+  if trouble ~= "" or reply == nil then -- checked: compare_disjoint
+    drop_body(reply) -- checked: not_assignable
     report(s, "http: " .. where .. ": " .. trouble)
     answer(s, conn, head, 500, "")
     if body.state == "open" then linger(conn) end
@@ -837,7 +837,7 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
   -- told to, or not at all. A Reader reply may read the request's body
   -- as it goes, so the client is told now; after another, what follows
   -- on the connection is unknown, and it closes.
-  if head.continue and interim.continued ~= true and body.state == "open" then
+  if head.continue and interim.continued ~= true and body.state == "open" then -- checked: map_field
     local given_body = given.body
     local sends_body = head.method ~= "HEAD" and given.status ~= 204 and given.status ~= 304
     if given_body ~= nil and not given_body is string and sends_body and not close then
@@ -846,7 +846,7 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
       close = true
     end
   end
-  interim.replied = true
+  interim.replied = true -- checked: map_field
   conn:set_timeout(s.timeout_ns)
   -- The reply is built inside the protected call, as its date is read there.
   local function send_reply(to: Net.Conn): wire.Sent
@@ -866,13 +866,13 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
   end
   -- The send answered once it did not raise.
   local result = sent
-  if result == nil then return false end
+  if result == nil then return false end -- checked: compare_disjoint
   local failed = body.state ~= "open" and body.state ~= "done"
-  if result.body_failure ~= "" and not failed then
-    report(s, "http: " .. where .. ": the reply's body: " .. result.body_failure)
+  if result.body_failure ~= "" and not failed then -- checked: field_unknown
+    report(s, "http: " .. where .. ": the reply's body: " .. result.body_failure) -- checked: field_unknown
   end
-  if result.close then
-    if result.write_failure == "" and body.state == "open" then linger(conn) end
+  if result.close then -- checked: field_unknown
+    if result.write_failure == "" and body.state == "open" then linger(conn) end -- checked: field_unknown
     return false
   end
   -- A reply Reader that read the request's body may have ended cleanly

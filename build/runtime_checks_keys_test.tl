@@ -143,6 +143,6 @@ local function test_the_module_holding_the_hook_is_compiled_without_checks(tmp: 
   assert(result ~= nil, trouble)
   local seen: mut {string:boolean} = {}
   for _, m in ipairs(result.modules) do seen[m.path] = checks_in(m) end
-  assert(seen.lib == true, "a module was not checked")
+  assert(seen.lib == true, "a module was not checked") -- checked: map_field
   assert(seen["build.test_worker"] == false, "the hook's module carries checks")
 end

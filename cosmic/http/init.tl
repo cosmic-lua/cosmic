@@ -48,7 +48,7 @@ local Stream = require("cosmic.stream")
 local type Net = require("cosmic.net")
 
 --- The body of a curl handle, which it owns.
-local class HandleReader is Stream.Reader
+local class HandleReader is Stream.Reader -- declared: interface_disagrees
   handle: raw_http.Handle
   mut closed: boolean
 
@@ -81,7 +81,7 @@ local class Response is Stream.Reader
   handle: raw_http.Handle
   --- Internal: present only on a response whose body is decoded (see `opts.decompress`).
   --- No caller reads or writes it.
-  mut skip?: function(Response, n: integer): boolean, string
+  mut skip?: function(Response, n: integer): boolean, string -- declared: interface_disagrees
 
   --- The next chunk of the body, as [`Stream.Reader`] reads it; decoded
   --- when `opts.decompress` asked for it.
@@ -1030,7 +1030,7 @@ local function raw_options(given: Http.Options?, method?: string,
   end
   local script = opts.script
   if first ~= nil and script ~= nil then script = { table.unpack(script, first) } end
-  return {
+  return { -- checked: literal_shape
     unix_socket = via and via.path,
     method = method or opts.method,
     headers = headers,
@@ -1329,7 +1329,7 @@ end
 --- `opts.body` with "GET" or "HEAD" raises: the request would not be
 --- the one asked for.
 function Http.request(method: string, url: string, opts?: Http.Options): Http.Body?, string
-  if method == nil or method == "" then
+  if method == nil or method == "" then -- checked: compare_disjoint
     error("http: Http.request's method is empty; name one, as \"GET\" or \"PUT\"", 2)
   end
   local given = opts and opts.method
@@ -1351,7 +1351,7 @@ end
 
 --- A Reader over a Response that fails with "interrupted" once
 --- `cancelled` answers true.
-local class CancellableReader is Stream.Reader
+local class CancellableReader is Stream.Reader -- declared: interface_disagrees
   response: Response
   cancelled: function(): boolean
 
@@ -1386,7 +1386,7 @@ local record PendingDownload
   __close: function(PendingDownload)
 end
 
-local pending_mt: metatable<PendingDownload> = {
+local pending_mt: metatable<PendingDownload> = { -- checked: literal_missing
   __close = function(self: PendingDownload)
     local response = self.response
     if response ~= nil then local _, _ = response:close() end
@@ -1423,7 +1423,7 @@ local function downloading(url: string, path: string,
       checks[#checks + 1] = { algorithm = algorithm, hex = wanted:lower(), hashing = hashing }
     end
   end
-  local pending <close>: PendingDownload = setmetatable({}, pending_mt)
+  local pending <close>: PendingDownload = setmetatable({}, pending_mt) -- checked: close_not_closable, setmetatable_call -- untyped: call
   -- `opts` is checked here, so a refusal is raised at `CALLER`; the open
   -- goes through [`Http.open`], which finds nothing more to refuse.
   local _, _ = raw_options(opts)

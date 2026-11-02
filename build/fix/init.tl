@@ -235,7 +235,7 @@ local refused_on_purpose <const>: string = "testdata/projects/fork_only"
 
 local function skip(entry: string): boolean
   local first = entry:match("^([^/]+)") or entry
-  if not_source[first] then
+  if not_source[first] then -- checked: condition_type
     return true
   end
   if entry == refused_on_purpose or String.starts_with(entry, refused_on_purpose .. "/") then
@@ -318,7 +318,7 @@ local function covers(root: string, files: {string}): boolean
   end
   for _, file in ipairs(all) do
     local absolute, _ = Fs.absolute(root .. "/" .. file)
-    if absolute == nil or not named[absolute] then return false end
+    if absolute == nil or not named[absolute] then return false end -- checked: condition_type
   end
   return true
 end
@@ -353,7 +353,7 @@ local function workflow_sources(dir: string, root: string): {string}?, string
   if not within and inside ~= "." then
     return {}, ""
   end
-  local base = within and dir or dir .. "/.github"
+  local base = within and dir or dir .. "/.github" -- checked: and_ternary
   local prefix = if within then "" else ".github/" end
   local st, _ = Fs.stat(base)
   if st == nil or st.kind ~= "dir" then
@@ -632,7 +632,7 @@ local function file_check_sources(databases: {Sqlite.Handle}): {string: boolean}
     end
   end
   for _, module in ipairs(file_checks) do
-    if not found[module] then
+    if not found[module] then -- checked: condition_type
       return nil, module .. " is not among the program's modules"
     end
   end
@@ -885,13 +885,13 @@ function fix.link_context(root: string, whole: boolean, own: boolean,
   local function unbuilt(): string?
     if own then return nil end
     local built_before, _ = Fs.exists(build_paths.resolve(root).projection)
-    if built_before then return nil end
+    if built_before then return nil end -- checked: condition_type
     return "the project has no projection yet (`cosmic build` or `cosmic test` makes one)"
   end
   local function close()
     for _, each in ipairs(opened) do
-      for _, handle in ipairs(each.opened or {}) do
-        local _, _ = handle:close()
+      for _, handle in ipairs(each.opened or {}) do -- checked: condition_type, literal_needs_type
+        local _, _ = handle:close() -- untyped: call
       end
     end
   end
@@ -970,7 +970,7 @@ function fix.notes(root: string, files: {string}, databases: {Sqlite.Handle},
     end
     local candidates: {near.Candidate}? = nil
     if relative ~= nil and relative:sub(1, 3) ~= "../" then
-      candidates = ready ~= nil and ready[file] or nil
+      candidates = ready ~= nil and ready[file] or nil -- checked: and_ternary
       if candidates == nil then
         local source, _ = Fs.read(file)
         if source ~= nil then
@@ -1008,7 +1008,7 @@ local function in_foreign_tree(root: string, file: string): boolean
   local absolute, _ = Fs.absolute(file)
   if absolute == nil then return false end
   local relative, _ = Fs.relative(absolute, root)
-  local first = relative ~= nil and relative:match("^([^/]+)/") or nil
+  local first = relative ~= nil and relative:match("^([^/]+)/") or nil -- checked: and_ternary
   return first ~= nil and identity.is_foreign_tree(first)
 end
 
@@ -1063,7 +1063,7 @@ end
 --- Reads the command line and the working directory into `ctx`.
 --- @return integer | nil The exit code when either is refused, else nil
 local function read_command(ctx: Fix): integer?
-  local parsed, parse_trouble = Flags.parse(ctx.argv, 2, assert(Cli.verbs.fix.spec))
+  local parsed, parse_trouble = Flags.parse(ctx.argv, 2, assert(Cli.verbs.fix.spec)) -- checked: map_field
   if parsed == nil then
     log:complain("fix: " .. parse_trouble)
     return 2
@@ -1093,7 +1093,7 @@ local function choose_files(ctx: Fix): integer?
   local paths = assert(ctx.paths)
   -- A run of `--changed` starts from the whole tree, which it narrows.
   local covered: {string} = paths
-  if ctx.changes_only then covered = {} end
+  if ctx.changes_only then covered = {} end -- checked: condition_type
   local standing, standing_trouble = tree.standing(root)
   if standing == nil then
     log:complain(standing_trouble)
@@ -1105,7 +1105,7 @@ local function choose_files(ctx: Fix): integer?
     log:complain(list_trouble)
     return 1
   end
-  if ctx.changes_only then
+  if ctx.changes_only then -- checked: condition_type
     if not picked.whole then
       log:complain("fix: --changed covers only cosmic's own tree, whose checks span files")
       return 2
@@ -1169,10 +1169,10 @@ local function check_templates(ctx: Fix)
   for _, file in ipairs(picked.templates) do
     local source, read_trouble = Fs.read(file)
     if source == nil then
-      failures[#failures + 1] = read_trouble
+      failures[#failures + 1] = read_trouble -- checked: view_written
     else
       local made, why = template.compile(source, file)
-      if made == nil then failures[#failures + 1] = why end
+      if made == nil then failures[#failures + 1] = why end -- checked: view_written
     end
   end
 end
@@ -1181,8 +1181,8 @@ end
 local function lay_out_c(ctx: Fix)
   local picked = assert(ctx.picked)
   local root = assert(ctx.root)
-  local changed: mut {string} = assert(ctx.changed)
-  local failures: mut {string} = assert(ctx.failures)
+  local changed: mut {string} = assert(ctx.changed) -- checked: view_as_mut
+  local failures: mut {string} = assert(ctx.failures) -- checked: view_as_mut
   -- The C is compiled from the root, so a path named from elsewhere is
   -- taken relative to it.
   local c_files: mut {string} = {}
@@ -1215,7 +1215,7 @@ local function lay_out_c(ctx: Fix)
       failures[#failures + 1] = file .. ": " .. layout_trouble
     elseif out ~= source then
       changed[#changed + 1] = file
-      if not ctx.checking then
+      if not ctx.checking then -- checked: condition_type
         local written, write_trouble = Fs.write(root .. "/" .. file, out)
         if not written then failures[#failures + 1] = write_trouble end
       end
@@ -1433,7 +1433,7 @@ local function promise_findings(root: string): {string}
   local _, _ = build:close()
   if declared == nil then return { "tree checks: " .. declared_trouble } end
   for key, name in pairs(c_functions.prerequisites()) do
-    declared["C function " .. key] = { name }
+    declared["C function " .. key] = { name } -- checked: view_written
   end
   local legs, legs_trouble = tree_checks.legs(root)
   if legs == nil then return { "tree checks: " .. legs_trouble } end
@@ -1658,6 +1658,9 @@ local function run_tree_checks(ctx: Fix)
         findings[#findings + 1] = "markers: " .. line
       end
       -- The ceilings only fall: the file is held to its merge base with main.
+      for _, line in ipairs(tree_checks.closure(root)) do
+        findings[#findings + 1] = "closed codes: " .. line
+      end
       local held = CeilingsBase.check(root, Env.all(), CeilingsBase.live_git(), marks.counts)
       for _, line in ipairs(held.lines) do
         findings[#findings + 1] = "ceilings: " .. line
@@ -1762,7 +1765,7 @@ local function check_links(ctx: Fix)
     local source = fix.link_context(root, picked.whole, own,
       function(verb: string): boolean, string return rebuild.here(verb, true) end,
       function(): docs.Sources return docs.databases() end)
-    linked_out = fix.links(source.context, linked, if ctx.checking then "check" else "write" end, ctx.facts)
+    linked_out = fix.links(source.context, linked, if ctx.checking then "check" else "write" end, ctx.facts) -- checked: condition_type
     source.close()
     local unbuilt = source.unbuilt
     -- A refusal the build above met already fails the run.
@@ -1776,12 +1779,12 @@ local function check_links(ctx: Fix)
   ctx.link_only = link_only
   for _, file in ipairs(linked_out.rewritten) do
     -- What the notes kept of its parse is of the text before.
-    ready[file] = nil
-    if not listed[file] then
+    ready[file] = nil -- checked: view_written
+    if not listed[file] then -- checked: condition_type
       -- Linking was the file's only change.
       link_only[file] = true
       listed[file] = true
-      changed[#changed + 1] = file
+      changed[#changed + 1] = file -- checked: view_written
     end
   end
   ctx.linked_out = linked_out
@@ -1813,7 +1816,7 @@ local function say_notes(ctx: Fix)
       relative = within
     end
     if picked.whole and relative ~= nil and tree_checks.standard(relative) then
-      findings[#findings + 1] = "near: " .. line
+      findings[#findings + 1] = "near: " .. line -- checked: view_written
     else
       log:say("fix: note  " .. line)
     end
@@ -1901,7 +1904,7 @@ local function report(ctx: Fix): integer
   end
   -- A file that does not parse is refused by its own check and by the
   -- build in the same words: the line is said once.
-  if unbuilt ~= nil and not failed[plain(unbuilt)] then
+  if unbuilt ~= nil and not failed[plain(unbuilt)] then -- checked: condition_type
     -- The new checker's refusal lists every file it refused, one per line, among them a file the new parser could not
     -- read, whose line the file's own check said already.
     local rest = ""
@@ -1918,8 +1921,8 @@ local function report(ctx: Fix): integer
   end
   local linked = link_only
   for _, file in ipairs(changed) do
-    log:say("fix: " .. (if checking then "would fix  " else "fixed  " end) .. file ..
-        (if linked[file] then " (links)" else "" end))
+    log:say("fix: " .. (if checking then "would fix  " else "fixed  " end) .. file .. -- checked: condition_type
+        (if linked[file] then " (links)" else "" end)) -- checked: condition_type
   end
   if #failures > 0 or #unlaid > 0 or #findings > 0 or #broken > 0 or #would > 0 or #redefined > 0 or
       unbuilt ~= nil or links_unbuilt ~= nil then
@@ -1954,13 +1957,13 @@ local function report(ctx: Fix): integer
     local _, _ = logger.summary("fix", table.concat(said, ", ") .. ", " .. clock.took(ctx.started))
     return 1
   end
-  if checking and #changed > 0 then
+  if checking and #changed > 0 then -- checked: condition_type
     local _, _ = logger.summary("fix", tostring(#changed) .. " of " .. plural.count(counted, "file") .. " to fix, " ..
         clock.took(ctx.started) .. "; `cosmic fix` rewrites them in place")
     return 1
   end
   local _, _ = logger.summary("fix", files_said(ctx) .. ", " .. tostring(#changed) ..
-      (if checking then " to fix, " else " fixed, " end) .. clock.took(ctx.started))
+      (if checking then " to fix, " else " fixed, " end) .. clock.took(ctx.started)) -- checked: condition_type
   return 0
 end
 
@@ -2013,7 +2016,7 @@ function fix.format_text(source: string, name: string): Format.Result
 end
 
 --- The `fix` verb as [`build/verb_list.tl`] lists it.
-fix.spec = {
+fix.spec = { -- checked: field_fixed
   name = "fix",
   summarizes_failure = true,
   guide = "none: a tree-maintenance verb, described by `cosmic help fix`; the quickstart does not cover checking a tree",

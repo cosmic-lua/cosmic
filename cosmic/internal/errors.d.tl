@@ -15,7 +15,7 @@ local record errors
   --- coroutine is closed. `level` says how many frames of the running
   --- coroutine to skip, as for `trace`; another coroutine is read from
   --- its top whatever it is.
-  trace_of: function(co: thread, message?: string, level?: integer): string
+  trace_of: function(co: thread, message?: string, level?: integer): string -- declared: thread_type
 end
 
 return errors

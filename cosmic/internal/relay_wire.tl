@@ -506,7 +506,7 @@ function relay_wire.connect_reader(): relay_wire.ConnectReader
     return nil
   end
 
-  return {
+  return { -- checked: literal_shape
     feed = function(_: relay_wire.ConnectReader, chunk: string): relay_wire.Connect
       local final = st.final
       if final ~= nil then
@@ -830,7 +830,7 @@ function relay_wire.socks_greeting_reader(password?: boolean): relay_wire.SocksG
   end, function(answer: relay_wire.SocksGreeting): boolean
     return answer.status ~= "more"
   end)
-  return { feed = function(_: relay_wire.SocksGreetingReader, chunk: string): relay_wire.SocksGreeting
+  return { feed = function(_: relay_wire.SocksGreetingReader, chunk: string): relay_wire.SocksGreeting -- checked: literal_shape
     return step(chunk)
   end }
 end
@@ -841,7 +841,7 @@ function relay_wire.socks_auth_reader(): relay_wire.SocksAuthReader
   local step = small_reader(read_auth, function(answer: relay_wire.SocksAuth): boolean
     return answer.status ~= "more"
   end)
-  return { feed = function(_: relay_wire.SocksAuthReader, chunk: string): relay_wire.SocksAuth
+  return { feed = function(_: relay_wire.SocksAuthReader, chunk: string): relay_wire.SocksAuth -- checked: literal_shape
     return step(chunk)
   end }
 end
@@ -854,7 +854,7 @@ function relay_wire.socks_request_reader(): relay_wire.SocksRequestReader
   local step = small_reader(read_request, function(answer: relay_wire.SocksRequest): boolean
     return answer.status ~= "more"
   end)
-  return { feed = function(_: relay_wire.SocksRequestReader, chunk: string): relay_wire.SocksRequest
+  return { feed = function(_: relay_wire.SocksRequestReader, chunk: string): relay_wire.SocksRequest -- checked: literal_shape
     return step(chunk)
   end }
 end
@@ -1014,7 +1014,7 @@ function relay_wire.socks_method_reader(password?: boolean): relay_wire.SocksMet
   end, function(answer: relay_wire.SocksMethodAnswer): boolean
     return answer.status ~= "more"
   end)
-  return { feed = function(_: relay_wire.SocksMethodReader, chunk: string): relay_wire.SocksMethodAnswer
+  return { feed = function(_: relay_wire.SocksMethodReader, chunk: string): relay_wire.SocksMethodAnswer -- checked: literal_shape
     return step(chunk)
   end }
 end
@@ -1027,7 +1027,7 @@ function relay_wire.socks_auth_status_reader(): relay_wire.SocksAuthStatusReader
   local step = small_reader(read_auth_answer, function(answer: relay_wire.SocksAuthAnswer): boolean
     return answer.status ~= "more"
   end)
-  return { feed = function(_: relay_wire.SocksAuthStatusReader, chunk: string): relay_wire.SocksAuthAnswer
+  return { feed = function(_: relay_wire.SocksAuthStatusReader, chunk: string): relay_wire.SocksAuthAnswer -- checked: literal_shape
     return step(chunk)
   end }
 end
@@ -1044,7 +1044,7 @@ function relay_wire.socks_answer_reader(): relay_wire.SocksAnswerReader
   local step = small_reader(read_answer, function(answer: relay_wire.SocksAnswer): boolean
     return answer.status ~= "more"
   end)
-  return { feed = function(_: relay_wire.SocksAnswerReader, chunk: string): relay_wire.SocksAnswer
+  return { feed = function(_: relay_wire.SocksAnswerReader, chunk: string): relay_wire.SocksAnswer -- checked: literal_shape
     return step(chunk)
   end }
 end
@@ -1314,7 +1314,7 @@ function relay_wire.hello_reader(): relay_wire.HelloReader
     return finish({ status = "name", consumed = consumed, name = name })
   end
 
-  return {
+  return { -- checked: literal_shape
     feed = function(_: relay_wire.HelloReader, chunk: string): relay_wire.Hello
       local final = st.final
       if final ~= nil then

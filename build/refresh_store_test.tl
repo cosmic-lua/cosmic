@@ -123,7 +123,7 @@ end
 local function test_the_carried_bundle_makes_the_same_binary(tmp: string)
   local path = program(tmp)
   local out = tmp .. "/refreshed"
-  local lines = assert(refresh.binary(path, out, { datasets.cacert }, { cacert = bundle }))
+  local lines = assert(refresh.binary(path, out, { datasets.cacert }, { cacert = bundle })) -- checked: map_field
   assert(support.nth(lines, 1):find("(as it was)", 1, true), lines[1])
   assert(Fs.read(out) == Fs.read(path), "a refresh to the carried release changed the binary")
 end
@@ -154,7 +154,7 @@ local function test_a_new_bundle_replaces_the_roots(tmp: string)
   assert(before:close())
 
   local out = tmp .. "/refreshed"
-  assert(refresh.binary(path, out, { datasets.cacert }, { cacert = file }))
+  assert(refresh.binary(path, out, { datasets.cacert }, { cacert = file })) -- checked: map_field
   local after = carried(out)
   assert(first_row(after, "SELECT count(*) FROM ca_roots"):text(1) == tostring(count - 1))
   local component = first_row(after, "SELECT version, url, sha256 FROM components WHERE name = 'cacert'")
@@ -183,7 +183,7 @@ local function test_a_tzdata_sdist_replaces_the_zones(tmp: string)
   sdist(archive, "2099.1", files)
 
   local out = tmp .. "/refreshed"
-  local lines = assert(refresh.binary(path, out, { datasets.tzdata }, { tzdata = archive }))
+  local lines = assert(refresh.binary(path, out, { datasets.tzdata }, { tzdata = archive })) -- checked: map_field
   assert(support.nth(lines, 1):find("-> 2099.1", 1, true), lines[1])
   local before = carried(path)
   local after = carried(out)
@@ -206,14 +206,14 @@ local function test_a_bad_release_writes_nothing(tmp: string)
   local archive = tmp .. "/tzdata.tar.gz"
   sdist(archive, "2099.1", { ["zoneinfo/Bad/Zone"] = "TZif not really" })
   local out = tmp .. "/refreshed"
-  local lines, trouble = refresh.binary(path, out, { datasets.tzdata }, { tzdata = archive })
+  local lines, trouble = refresh.binary(path, out, { datasets.tzdata }, { tzdata = archive }) -- checked: map_field
   assert(lines == nil and trouble:find("zone Bad/Zone", 1, true) ~= nil, trouble)
 
   -- A DER sequence, `30 03 'abc'`, that is no certificate: a binary
   -- carrying only it would trust nothing.
   local pem = tmp .. "/bad.pem"
   assert(Fs.write(pem, "Bad\n===\n-----BEGIN CERTIFICATE-----\nMANhYmM=\n-----END CERTIFICATE-----\n"))
-  lines, trouble = refresh.binary(path, out, { datasets.cacert }, { cacert = pem })
+  lines, trouble = refresh.binary(path, out, { datasets.cacert }, { cacert = pem }) -- checked: map_field
   assert(lines == nil and trouble:find("certificate 1 (Bad)", 1, true) ~= nil, trouble)
   assert(Fs.exists(out) ~= true)
 
@@ -221,7 +221,7 @@ local function test_a_bad_release_writes_nothing(tmp: string)
   -- it, and named.
   local mixed = tmp .. "/mixed.pem"
   assert(Fs.write(mixed, (assert(Fs.read(pem))) .. carried_pem(path)))
-  lines, trouble = refresh.binary(path, out, { datasets.cacert }, { cacert = mixed })
+  lines, trouble = refresh.binary(path, out, { datasets.cacert }, { cacert = mixed }) -- checked: map_field
   assert(lines ~= nil, trouble)
   assert(support.nth(lines, 1):find("left out certificate 1 (Bad)", 1, true), lines[1])
   local after = carried(out)

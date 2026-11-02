@@ -277,7 +277,7 @@ function docs_checks.rendered(db: Sqlite.Handle, exempt?: docs_checks.Exempt): {
   for _, row in ipairs(shown) do
     local module, symbol, source_symbol, signature = row:text(1), row:text(2), row:text(3), row:text(5)
     signatures[module] = signatures[module] or {}
-    table.insert(signatures[module], " " .. signature .. " ")
+    table.insert(signatures[module], " " .. signature .. " ") -- checked: overload_none -- untyped: call
     if symbol ~= source_symbol then
       local stem = assert(source_symbol:match("^[^.:]*"), "the pattern ^[^.:]* matches the empty text")
       canonical[module .. "\n" .. stem] = true

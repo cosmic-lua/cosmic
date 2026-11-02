@@ -4,7 +4,7 @@
 
 local function test_a_logger_needs_a_name()
   local Log = require("cosmic.log")
-  assert(not pcall(Log.new, ""))
+  assert(not pcall(Log.new, "")) -- checked: alternatives_as_value
   assert(Log.new("x").name == "x")
 end
 

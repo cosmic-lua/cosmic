@@ -10,10 +10,10 @@ local function test_user_resolves_root_and_copies_numeric_ids()
   assert(first.uid == 0 and math.type(first.gid) == "integer")
   local second = assert(Proc.user("root"))
   assert(first ~= second and first.uid == second.uid and first.gid == second.gid)
-  second.uid = 123
+  second.uid = 123 -- checked: field_fixed
   assert(first.uid == 0 and assert(Proc.user("root")).uid == 0)
   local fields = 0
-  for key in pairs(first as {string:any}) do
+  for key in pairs(first as {string:any}) do -- checked: cast_refused
     assert(key == "uid" or key == "gid", key)
     fields = fields + 1
   end

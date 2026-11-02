@@ -200,6 +200,6 @@ local function test_a_process_held_to_running_some_paths_runs_nothing_else(tmp: 
   local reading = assert(sys.open(elsewhere, sys.O_RDONLY))
   assert(sys.read(reading, 4) == "\x7fELF")
   sys.close(reading)
-  local bad, _ = pcall(process.landlock_restrict_execute, { 1 } as {string})
+  local bad, _ = pcall(process.landlock_restrict_execute, { 1 } as {string}) -- checked: cast_refused
   assert(not bad, "a path that is no string is refused")
 end

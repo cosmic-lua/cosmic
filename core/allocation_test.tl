@@ -61,7 +61,7 @@ local function test_a_refused_allocation_raises_and_is_counted()
   -- and nothing after a refusal outside pcall could even report.
   local allocate = function(): {string} return { string.rep("x", 100) } end
   testing.fail_allocations(0)
-  local ok = pcall(allocate)
+  local ok = pcall(allocate) -- checked: alternatives_as_value
   local refused = testing.allow_allocations()
   assert(not ok, "a refused allocation must raise")
   assert(refused >= 1, "the refusal must be counted")
@@ -116,20 +116,20 @@ local function test_open_temporary_closes_its_descriptor_whenever_an_allocation_
   local before = AllocationFixture.next_descriptor(tmp)
   -- Taken on the line that makes the call, so no hook runs between the
   -- binding's return and the test holding what it returned.
-  local received = { value = nil as sys.TemporaryFile? }
+  local received = { value = nil as sys.TemporaryFile? } -- checked: cast_refused
   local opened = { value = 0 }
   local ended = AllocationFixture.under_every_failure(function()
-    received.value = sys.open_temporary(path, 420)
+    received.value = sys.open_temporary(path, 420) -- checked: map_field
   end, function()
-    local value = received.value
+    local value = received.value -- checked: map_field
     if value ~= nil then
       sys.close(value.fd)
-      received.value = nil
-      opened.value = opened.value + 1
+      received.value = nil -- checked: map_field
+      opened.value = opened.value + 1 -- checked: map_field*2
     end
   end)
   assert(ended > 0, "building the answer allocates")
-  assert(opened.value >= 1, "the run with nothing refused opens a file")
+  assert(opened.value >= 1, "the run with nothing refused opens a file") -- checked: map_field
   collectgarbage("collect")
   local after = AllocationFixture.next_descriptor(tmp)
   assert(after == before, "a refused allocation left descriptor " .. tostring(before) .. " open")
@@ -142,7 +142,7 @@ local function test_execve_survives_every_refused_allocation(tmp: string)
   local missing = tmp .. "/no-such-program"
   local ended = AllocationFixture.under_every_failure(function()
     local ok, trouble = sys.execve(missing, { missing, "an argument" }, { NAME = "value" })
-    assert(ok == false and trouble ~= nil,
+    assert(ok == false and trouble ~= nil, -- checked: compare_disjoint
       "a program that is not there cannot run")
   end)
   assert(ended > 0, "joining the environment allocates")
@@ -153,21 +153,21 @@ local function test_pipe_leaves_no_end_open_whenever_an_allocation_fails(tmp: st
   local before = AllocationFixture.next_descriptor(tmp)
   -- Taken on the line that makes the call, and released in `settle`, so
   -- a refused coverage hook cannot fall between the two.
-  local received = { value = nil as raw_process.Pipe? }
+  local received = { value = nil as raw_process.Pipe? } -- checked: cast_refused
   local made = { value = 0 }
   local ended = AllocationFixture.under_every_failure(function()
-    received.value = process.pipe()
+    received.value = process.pipe() -- checked: map_field
   end, function()
-    local pipe = received.value
+    local pipe = received.value -- checked: map_field
     if pipe ~= nil then
       sys.close(pipe.reader)
       sys.close(pipe.writer)
-      received.value = nil
-      made.value = made.value + 1
+      received.value = nil -- checked: map_field
+      made.value = made.value + 1 -- checked: map_field*2
     end
   end)
   assert(ended > 0, "building the answer allocates")
-  assert(made.value >= 1, "the run with nothing refused makes a pipe")
+  assert(made.value >= 1, "the run with nothing refused makes a pipe") -- checked: map_field
   local after = AllocationFixture.next_descriptor(tmp)
   assert(after == before, "a refused allocation left descriptor " .. tostring(before) .. " open")
 end
@@ -180,8 +180,8 @@ local function test_net_leaves_no_descriptor_whenever_an_allocation_fails(tmp: s
   local before = AllocationFixture.next_descriptor(tmp)
   local ended = AllocationFixture.under_every_failure(function()
     local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Clock.seconds(5) }))
-    local client <close> = assert(Net.connect(server.address, { timeout_ns = Clock.seconds(5) }))
-    local accepted <close> = assert(server:accept())
+    local client <close> = assert(Net.connect(server.address, { timeout_ns = Clock.seconds(5) })) -- checked: close_not_closable
+    local accepted <close> = assert(server:accept()) -- checked: close_not_closable
     assert(client:write("hello"))
     assert(accepted:read() == "hello")
   end)
@@ -195,8 +195,8 @@ end
 local function test_udp_leaves_no_descriptor_whenever_an_allocation_fails(tmp: string)
   local before = AllocationFixture.next_descriptor(tmp)
   local ended = AllocationFixture.under_every_failure(function()
-    local server <close> = assert(Udp.bind("127.0.0.1", 0))
-    local client <close> = assert(Udp.bind("127.0.0.1", 0))
+    local server <close> = assert(Udp.bind("127.0.0.1", 0)) -- checked: close_not_closable
+    local client <close> = assert(Udp.bind("127.0.0.1", 0)) -- checked: close_not_closable
     assert(Udp.send(client, "hello", server.address))
     local packet = assert(Udp.receive(server, Clock.seconds(5)))
     assert(packet.data == "hello" and packet.address.port == client.address.port)
@@ -236,7 +236,7 @@ local function test_lookup_leaves_no_descriptor_whenever_an_allocation_fails(tmp
   local hosts = tmp .. "/hosts"
   assert(Fs.write(hosts, "192.0.2.1 a.example.test\n"))
   local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Clock.seconds(5) }))
-  local through = { { host = "127.0.0.1", port = server.address.port, index = 1 } }
+  local through = { { host = "127.0.0.1", port = server.address.port, index = 1 } } -- checked: arms_differ
   local before = AllocationFixture.next_descriptor(tmp)
   local ended = AllocationFixture.under_every_failure(function()
     local answered <close> = assert(socket.lookup("a.example.test", 5000, nil, hosts, nil))
@@ -245,11 +245,11 @@ local function test_lookup_leaves_no_descriptor_whenever_an_allocation_fails(tmp
     for _, supplied in ipairs({ true, false }) do
       local parked <close> = assert(socket.lookup("b.example.test", 5000, nil, hosts, through))
       -- A step a refusal raised in has lost no connect: the next tells it.
-      local stepped: {any} = { pcall(parked.step, parked, nil, nil) }
-      if not stepped[1] then stepped = { pcall(parked.step, parked, nil, nil) } end
+      local stepped: {any} = { pcall(parked.step, parked, nil, nil) } -- checked: overload_none
+      if not stepped[1] then stepped = { pcall(parked.step, parked, nil, nil) } end -- checked: any_use, overload_none
       assert(stepped[1], "a step raised twice")
-      local wants = stepped[6] as {raw_socket.Want}
-      assert(not stepped[2] and #wants == 1)
+      local wants = stepped[6] as {raw_socket.Want} -- checked: cast_refused
+      assert(not stepped[2] and #wants == 1) -- checked: any_use
       if supplied then
         local conn <close> = assert(socket.start({ kind = "tcp", host = "127.0.0.1", port = server.address.port }))
         assert(parked:supply(wants[1].id, conn:fd(), nil))
@@ -275,8 +275,8 @@ local function test_net_leaves_no_descriptor_or_socket_file_whenever_an_allocati
   local before = AllocationFixture.next_descriptor(tmp)
   local ended = AllocationFixture.under_every_failure(function()
     local server <close> = assert(Net.listen(Net.unix(path), { timeout_ns = Clock.seconds(5) }))
-    local client <close> = assert(Net.connect(server.address, { timeout_ns = Clock.seconds(5) }))
-    local accepted <close> = assert(server:accept())
+    local client <close> = assert(Net.connect(server.address, { timeout_ns = Clock.seconds(5) })) -- checked: close_not_closable
+    local accepted <close> = assert(server:accept()) -- checked: close_not_closable
     assert(client:write("hello"))
     assert(accepted:read() == "hello")
   end)
@@ -294,8 +294,8 @@ local function test_net_in_a_run_leaves_no_descriptor_whenever_an_allocation_fai
   local ended = AllocationFixture.under_every_failure(function()
     local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Clock.seconds(5) }))
     Poll.run(function()
-      local client <close> = assert(Net.connect(server.address, { timeout_ns = Clock.seconds(5) }))
-      local accepted <close> = assert(server:accept())
+      local client <close> = assert(Net.connect(server.address, { timeout_ns = Clock.seconds(5) })) -- checked: close_not_closable
+      local accepted <close> = assert(server:accept()) -- checked: close_not_closable
       assert(client:write("x"))
       assert(accepted:read() == "x")
     end)
@@ -426,16 +426,16 @@ end
 --- nil and a message, and leaves no block behind.
 local function test_compress_leaves_nothing_whenever_an_allocation_fails()
   local packed: mut {string: string} = {}
-  for _, format in ipairs({ "raw", "zlib", "gzip" } as {Compress.Format}) do
+  for _, format in ipairs({ "raw", "zlib", "gzip" } as {Compress.Format}) do -- checked: cast_refused
     local encoder = assert(Compress.deflater(format))
     packed[format] = assert(encoder:update(hello)) .. assert(encoder:finish())
   end
   local decodings: {Decoding} = {
-    { name = "raw", input = packed.raw,
+    { name = "raw", input = packed.raw, -- checked: map_field
       make = function(): Compress.Stream?, string return Compress.inflater("raw") end },
-    { name = "zlib", input = packed.zlib,
+    { name = "zlib", input = packed.zlib, -- checked: map_field
       make = function(): Compress.Stream?, string return Compress.inflater("zlib") end },
-    { name = "gzip", input = packed.gzip .. "trailing",
+    { name = "gzip", input = packed.gzip .. "trailing", -- checked: map_field
       make = function(): Compress.Stream?, string return Compress.inflater("gzip") end },
     { name = "xz", input = hello_xz .. "trailing",
       make = function(): Compress.Stream?, string return Compress.xz_decoder() end },
@@ -846,7 +846,7 @@ end
 local function test_json_leaves_nothing_whenever_an_allocation_fails()
   local text = '{"b": [1, 2.5, "x\\u00e9", true, null], "a": {"c": {}, "d": []}}'
   local wide: mut {string: any} = {}
-  for i = 1, 80 do wide["key" .. tostring(i)] = Json.array({ i, "value " .. tostring(i) }) end
+  for i = 1, 80 do wide["key" .. tostring(i)] = Json.array({ i, "value " .. tostring(i) }) end -- checked: any_use
   -- An object too large for a set of its keys on the C stack, whose
   -- keys go through a Lua table, holding a key twice.
   local wide_text = assert(Json.encode_any(wide)):gsub("}$", ',"key1":0}')
@@ -855,9 +855,9 @@ local function test_json_leaves_nothing_whenever_an_allocation_fails()
   local ended = AllocationFixture.under_every_failure(function()
     local value, trouble = Json.decode(text, { null_value = Json.null })
     assert(trouble == "", trouble)
-    assert(Json.encode(value) == '{"a":{"c":{},"d":[]},"b":[1,2.5,"x\xc3\xa9",true,null]}')
+    assert(Json.encode(value) == '{"a":{"c":{},"d":[]},"b":[1,2.5,"x\xc3\xa9",true,null]}') -- checked: any_use
     assert(assert(Json.encode_any(wide, { pretty = true })):sub(1, 1) == "{")
-    local lone = assert(Json.decode('["\\ud83d"]', { lone_surrogates = true })) as {string}
+    local lone = assert(Json.decode('["\\ud83d"]', { lone_surrogates = true })) as {string} -- checked: cast_refused
     assert(lone[1] == "\u{FFFD}")
     assert(Json.check(text))
     assert(assert(Json.format(text, { pretty = true })):sub(1, 1) == "{")
@@ -910,7 +910,7 @@ local function test_json_names_a_record_yyjson_could_not_allocate()
     assert(values == nil and why:match("^json: line %d: out of memory$") ~= nil, tostring(why))
     named[why] = true
   end
-  assert(named["json: line 1: out of memory"] and named["json: line 2: out of memory"],
+  assert(named["json: line 1: out of memory"] and named["json: line 2: out of memory"], -- checked: condition_type
     "each record's refusal names its line")
   -- format reads a hexadecimal number again, as a document of its own,
   -- after every read of the text: the last allocation it makes.
@@ -1049,7 +1049,7 @@ local function test_sqlite_existing_only_open_releases_every_refused_allocation(
   local statements = testing.open_statements()
   local bytes, blocks = testing.c_heap()
   for _, present in ipairs({ true, false }) do
-    local target = present and path or tmp .. "/missing.db"
+    local target = present and path or tmp .. "/missing.db" -- checked: and_ternary
     local ended = AllocationFixture.under_every_failure(function()
       local db, why = Sqlite.open(target, { writable = true, create = false })
       if present then
@@ -1083,7 +1083,7 @@ local function test_full_fsync_preserves_its_descriptor_under_allocation_failure
   assert(sys.close(fd))
   AllocationFixture.under_every_failure(function()
     local ok, why, errno = sys.full_fsync(fd)
-    assert(ok == false and why ~= "" and errno == (darwin and sys.EBADF or sys.ENOSYS))
+    assert(ok == false and why ~= "" and errno == (darwin and sys.EBADF or sys.ENOSYS)) -- checked: and_ternary
   end)
 end
 
@@ -1098,7 +1098,7 @@ local function test_spawn_credentials_refusal_leaks_no_resources(tmp: string)
   AllocationFixture.under_every_failure(function()
     local pid, _, errno = process.spawn(path, { path }, { FIXTURE = "credentials" },
       tmp, nil, nil, nil, false, nil, nil, credentials)
-    assert(pid == nil and errno ~= nil)
+    assert(pid == nil and errno ~= nil) -- checked: compare_disjoint
   end)
   assert(AllocationFixture.next_descriptor(tmp) == before, "credential refusal leaked a descriptor")
   assert(testing.c_heap() == heap, "credential refusal leaked native allocations")
@@ -1114,10 +1114,10 @@ local function test_sqlite_captured_operations_release_every_refused_allocation(
     local ended = AllocationFixture.under_every_failure(function()
       local opened = Sqlite.open_result(if present then ":memory:" else tmp .. "/absent" end)
       if present then
-        assert(opened.handle ~= nil and opened.code == Sqlite.OK)
+        assert(opened.handle ~= nil and opened.code == Sqlite.OK) -- checked: compare_disjoint
         assert(opened.handle:close())
       else
-        assert(opened.handle == nil and opened.code ~= Sqlite.OK)
+        assert(opened.handle == nil and opened.code ~= Sqlite.OK) -- checked: compare_disjoint
       end
     end)
     assert(ended > 0)
@@ -1127,7 +1127,7 @@ local function test_sqlite_captured_operations_release_every_refused_allocation(
   for _, sql in ipairs({ "SELECT ?1", "SELECT 1; SELECT * FROM missing" }) do
     local ended = AllocationFixture.under_every_failure(function()
       local prepared = db:prepare_result(sql)
-      if prepared.statement ~= nil then
+      if prepared.statement ~= nil then -- checked: compare_disjoint
         local statement = prepared.statement
         assert(statement:bind_values_result({ { text = "hello" } }).code == Sqlite.OK)
         assert(statement:step_result() == "row")
@@ -1162,7 +1162,7 @@ local function test_sqlite_captured_operations_release_every_refused_allocation(
     assert(statement:reset())
     assert(statement:bind_integer(1, 0))
     local failed = statement:step_result()
-    assert(failed is Sqlite.ExecResult and failed.code == 1 and failed.reason ~= "")
+    assert(failed is Sqlite.ExecResult and failed.code == 1 and failed.reason ~= "") -- checked: is_on_record
     statement:finalize()
   end)
   assert(ended > 0)
@@ -1176,15 +1176,15 @@ end
 --- successful acquisition too, and both must leave no descriptor behind.
 local function test_openpty_closes_both_descriptors_whenever_an_allocation_fails(tmp: string)
   local before = AllocationFixture.next_descriptor(tmp)
-  local received = { value = nil as sys.Pty? }
+  local received = { value = nil as sys.Pty? } -- checked: cast_refused
   local ended = AllocationFixture.under_every_failure(function()
-    received.value = sys.openpty()
+    received.value = sys.openpty() -- checked: map_field
   end, function()
-    local pty = received.value
+    local pty = received.value -- checked: map_field
     if pty ~= nil then
       sys.close(pty.master)
       sys.close(pty.slave)
-      received.value = nil
+      received.value = nil -- checked: map_field
     end
   end)
   assert(ended > 0, "building a pty answer allocates")

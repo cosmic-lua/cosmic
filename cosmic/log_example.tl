@@ -4,7 +4,7 @@
 
 local Log = require("cosmic.log")
 
-local Example = {}
+local Example = {} -- checked: literal_needs_type
 
 --- A command's findings, on stdout.
 function Example.say()
@@ -20,4 +20,4 @@ function Example.complain()
   assert(log.name == "notes")
 end
 
-return Example
+return Example -- checked: export_not_declared

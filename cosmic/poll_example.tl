@@ -7,7 +7,7 @@ local Fs = require("cosmic.fs")
 local Poll = require("cosmic.poll")
 local sys = require("cosmic.sys")
 
-local Example = {}
+local Example = {} -- checked: literal_needs_type
 
 --- A named pipe's two ends, neither waiting: what the examples below
 --- wait on.
@@ -119,10 +119,10 @@ function Example.kill()
   local record Lease
     __close: function(Lease)
   end
-  local lease_mt: metatable<Lease> = { __close = function() lease["released"] = true end }
+  local lease_mt: metatable<Lease> = { __close = function() lease["released"] = true end } -- checked: literal_missing
   Poll.run(function()
     local stubborn = Poll.spawn(function()
-      local _ <close> = setmetatable({} as Lease, lease_mt)
+      local _ <close> = setmetatable({} as Lease, lease_mt) -- checked: cast_refused, setmetatable_call
       while true do local _, _ = Poll.delay(Clock.seconds(60)) end
     end)
     assert(Poll.delay(0))
@@ -163,4 +163,4 @@ function Example.notifier()
   assert(table.concat(handled, ", ") == "a, b, c")
 end
 
-return Example
+return Example -- checked: export_not_declared

@@ -158,7 +158,7 @@ local function has(list: {string}, name: string): boolean
 end
 
 local function nested(scope: Scope): Scope
-  return { vars = copy(scope.vars), focus = copy(scope.focus), stale = copy(scope.stale) }
+  return { vars = copy(scope.vars), focus = copy(scope.focus), stale = copy(scope.stale) } -- checked: view_as_mut*3
 end
 
 local function add(g: Gen, text: string)
@@ -234,7 +234,7 @@ local function cond(g: Gen, scope: Scope, depth: integer, avoid: mut {string}, t
     local b, yb = cond(g, scope, depth - 1, avoid, false)
     local yes = copy(ya)
     for _, v in ipairs(yb) do
-      yes[#yes + 1] = v
+      yes[#yes + 1] = v -- checked: view_written
     end
     return a .. " and " .. b, yes
   elseif k == 5 then
@@ -249,7 +249,7 @@ end
 local gen_block: function(g: Gen, scope: Scope, n: integer)
 
 --- Draws `n` statements in the scope `scope`, which the statements add to.
-local function gen_statement(g: Gen, scope: Scope)
+local function gen_statement(g: Gen, scope: Scope) -- checked: not_assigned
   local k = g.src:int(0, if g.depth >= 3 then 7 else 13 end)
   -- Over fixed fields a quarter of the statements replace a record, since what they are for is a test of a path that a
   -- replacement then ends.
@@ -258,7 +258,7 @@ local function gen_statement(g: Gen, scope: Scope)
   end
   if k <= 1 then
     local name = fresh(g, "v")
-    local init = Fuzz.pick(g.src, { "maybe()", "maybe()", "nil", scope.vars[1] })
+    local init = Fuzz.pick(g.src, { "maybe()", "maybe()", "nil", scope.vars[1] }) -- checked: array_of_optional
     add(g, "local " .. name .. ": integer? = " .. init)
     scope.vars[#scope.vars + 1] = name
   elseif k == 2 then

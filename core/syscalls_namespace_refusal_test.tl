@@ -25,7 +25,7 @@ local function start(tmp: string, sandbox: raw_process.Sandbox, stage: string, m
       assert(why:find(stage, 1, true) ~= nil or
           (errno == sys.EPERM and stage == "this sandbox's user, mount, pid or network namespace was refused" and
             why:find("this sandbox's root could not be built", 1, true) ~= nil) or
-          (mapping and errno == sys.EPERM and why == "Operation not permitted"), why)
+          (mapping and errno == sys.EPERM and why == "Operation not permitted"), why) -- checked: condition_type
     else
       assert(errno == sys.ENOSYS and why == "Function not implemented", why)
     end

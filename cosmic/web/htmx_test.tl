@@ -64,7 +64,7 @@ local function test_an_htmx_request_without_the_optional_headers_leaves_them_nil
 end
 
 local function test_only_the_literal_true_sets_a_flag()
-  local flags = {} as {boolean}
+  local flags = {} as {boolean} -- checked: cast_refused, literal_needs_type
   through(function(req: Web.Request): Web.Response
     local seen = Htmx.request(req)
     flags = { seen.active, seen.boosted, seen.history_restore }
@@ -77,10 +77,10 @@ local function test_a_fragment_is_wanted_only_by_a_plain_htmx_request()
   local function partial(headers: {string:string}): boolean
     local answer = { value = false }
     through(function(req: Web.Request): Web.Response
-      answer.value = Htmx.partial(req)
+      answer.value = Htmx.partial(req) -- checked: map_field
       return Web.text("")
     end, headers)
-    return answer.value
+    return answer.value -- checked: map_field
   end
   assert(partial({ ["HX-Request"] = "true" }))
   assert(not partial({}))
@@ -116,10 +116,10 @@ local function test_events_are_names_alone_or_ascii_json()
   assert(not sent:find("[\128-\255]"), "the header must be ASCII")
   assert(sent:find("caf\\u00e9", 1, true) and sent:find("\\ud83d\\ude00", 1, true), sent)
   local decoded = assert(Json.decode(sent))
-  assert(decoded is {string:any})
-  local message = decoded.showMessage
+  assert(decoded is {string:any}) -- checked: is_on_record
+  local message = decoded.showMessage -- checked: map_field
   assert(message is {string:any} and message.level == "info" and message.text == "caf\u{e9} \u{1F600}")
-  local closing = decoded.closeModal
+  local closing = decoded.closeModal -- checked: map_field
   assert(closing is {string:any})
   assert(sent:find('"closeModal":{}', 1, true), sent)
   assert(header(res, "HX-Trigger-After-Swap") == "swapped")
@@ -128,11 +128,11 @@ end
 
 local function test_a_location_object_is_ascii_json_with_a_checked_path()
   local res = assert(applied({ location = { path = "/items", target = "#list", swap = "innerHTML",
-    values = { name = "\u{e9}" } } }))
+    values = { name = "\u{e9}" } } })) -- checked: any_use
   local decoded = assert(Json.decode(assert(header(res, "HX-Location"))))
-  assert(decoded is {string:any} and decoded.path == "/items" and decoded.target == "#list")
+  assert(decoded is {string:any} and decoded.path == "/items" and decoded.target == "#list") -- checked: is_on_record, map_field*2
   assert(not assert(header(res, "HX-Location")):find("[\128-\255]"))
-  local values = decoded.values
+  local values = decoded.values -- checked: map_field
   assert(values is {string:any} and values.name == "\u{e9}")
   local refused, why = applied({ location = { path = "//evil.example/x" } })
   assert(refused == nil and why:find("same-origin", 1, true) ~= nil, tostring(why))
@@ -144,8 +144,8 @@ local function test_a_redirect_must_stay_on_the_origin()
   for _, target in ipairs({ "//evil.example", "/\\evil.example", "https://evil.example/", "javascript:alert(1)",
       " /x", "", "data:text/html,x", "/a\r\nSet-Cookie: x=1" }) do
     for _, field in ipairs({ "redirect", "location", "push_url", "replace_url" }) do
-      local reply: {string:any} = { [field] = target }
-      local res, why = applied(reply as Htmx.Reply)
+      local reply: {string:any} = { [field] = target } -- checked: any_use
+      local res, why = applied(reply as Htmx.Reply) -- checked: cast_refused
       assert(res == nil, field .. " accepted " .. target)
       assert(why:find("htmx: ", 1, true) == 1, why)
     end
@@ -165,13 +165,13 @@ local function test_nothing_is_written_when_anything_is_refused()
 end
 
 local function test_selectors_swaps_and_events_are_checked()
-  for _, reply in ipairs({
+  for _, reply in ipairs({ -- checked: arms_differ, cast_refused
       { retarget = "" }, { retarget = "#a\nb" }, { reselect = "#a\0b" }, { reswap = "sideways" },
       { reswap = "innerHTMLx" }, { reswap = "" },
-      { trigger = {} }, { trigger = { { name = "" } } }, { trigger = { { name = "a,b" } } },
+      { trigger = {} }, { trigger = { { name = "" } } }, { trigger = { { name = "a,b" } } }, -- checked: literal_needs_type
       { trigger = { { name = "a\"b" } } }, { trigger = { { name = "a\nb" } } },
       { trigger = { { name = "{\"a\":1}" } } }, { trigger = { { name = "caf\u{e9}" } } },
-      { trigger = { { name = "ok", detail = { fn = print } } } },
+      { trigger = { { name = "ok", detail = { fn = print } } } }, -- checked: arms_differ
   } as {Htmx.Reply}) do
     local res, why = applied(reply)
     assert(res == nil and why:find("htmx: ", 1, true) == 1, tostring(why))
@@ -191,7 +191,7 @@ local function test_redirect_to_is_a_header_for_htmx_and_a_303_otherwise()
   local htmx = redirect({ ["HX-Request"] = "true" }, "/items")
   assert(htmx.status == 200 and htmx.body == "" and htmx.headers["hx-redirect"] == "/items")
   assert(htmx.redirect_location == nil)
-  for _, headers in ipairs({ {}, { ["HX-Request"] = "true", ["HX-Boosted"] = "true" } } as {{string:string}}) do
+  for _, headers in ipairs({ {}, { ["HX-Request"] = "true", ["HX-Boosted"] = "true" } } as {{string:string}}) do -- checked: cast_refused, literal_needs_type
     local plain = redirect(headers, "/items")
     assert(plain.status == 303 and plain.redirect_location == "/items" and plain.headers["hx-redirect"] == nil)
   end
@@ -243,7 +243,7 @@ local function config_of(markup: string): {string:any}
   end)
   content = content:gsub("&quot;", '"'):gsub("&amp;", "&")
   local config = assert(Json.decode(content))
-  assert(config is {string:any})
+  assert(config is {string:any}) -- checked: is_on_record
   return config
 end
 
@@ -283,9 +283,9 @@ local function test_head_takes_a_nonce_a_prefix_and_the_overrides_it_names()
   local markup = Html.raw(Htmx.head({ nonce = 'n"1', prefix = "/app", sse = true,
     config = { allow_eval = true, allow_script_tags = true, history_cache_size = 0 } }))
   local config = config_of(markup)
-  assert(config.allowEval == true and config.allowScriptTags == true and config.historyCacheSize == 0)
-  assert(config.inlineScriptNonce == 'n"1' and config.selfRequestsOnly == true)
-  assert(config.includeIndicatorStyles == false)
+  assert(config.allowEval == true and config.allowScriptTags == true and config.historyCacheSize == 0) -- checked: map_field*3
+  assert(config.inlineScriptNonce == 'n"1' and config.selfRequestsOnly == true) -- checked: map_field*2
+  assert(config.includeIndicatorStyles == false) -- checked: map_field
   assert(not markup:find('n"1', 1, true), "the nonce is escaped")
   assert(select(2, markup:gsub(" nonce=", "")) == 2, markup)
   assert(markup:find('src="/app/_web/htmx-', 1, true) and markup:find('src="/app/_web/htmx-ext-sse-', 1, true), markup)

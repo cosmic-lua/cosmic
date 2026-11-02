@@ -48,8 +48,8 @@ local DEFAULT_STREAM_LIMIT <const> = 128
 
 --- Raises where `spec` is no table or holds a field `known` lacks.
 local function checked(spec: any, known: {string:boolean}, what: string)
-  if not spec is {any:any} then error("web: " .. what .. " takes a table", 3) end
-  for key in pairs(spec) do
+  if not spec is {any:any} then error("web: " .. what .. " takes a table", 3) end -- declared: key_type
+  for key in pairs(spec) do -- checked: any_use
     if not (key is string and known[key] == true) then
       error(("web: %s has no field %s"):format(what, tostring(key)), 3)
     end
@@ -68,7 +68,7 @@ end
 local function raised_by(fn: function()): string?
   local ok, err = pcall(function(): any
     fn()
-    return nil
+    return nil -- checked: any_use
   end)
   if ok then return nil end
   return tostring(err)
@@ -87,8 +87,8 @@ local function on_stop(self: Types.App, fn: function())
   self.stoppers[#self.stoppers + 1] = fn
 end
 
-local app_methods = { url_for = url_for, stopping = stopping, on_stop = on_stop }
-local app_mt: metatable<Types.App> = { __index = app_methods }
+local app_methods = { url_for = url_for, stopping = stopping, on_stop = on_stop } -- checked: arms_differ
+local app_mt: metatable<Types.App> = { __index = app_methods } -- checked: literal_missing
 
 --- Compiles `spec` into an app. Raises, naming it, for a field of the
 --- wrong shape or one `spec` should not have, and for a route that cannot
@@ -114,7 +114,7 @@ function App.new(spec: Types.AppSpec): Types.App
     error("web: max_streams must be a non-negative integer", 2)
   end
   for _, hub in ipairs(hubs) do
-    if type(hub) ~= "table" or type(hub.close) ~= "function" then
+    if type(hub) ~= "table" or type(hub.close) ~= "function" then -- checked: interface_method_value
       error("web: hubs holds only what has a close method", 2)
     end
   end
@@ -135,7 +135,7 @@ function App.new(spec: Types.AppSpec): Types.App
     end
   end
   local router = Router.build(routes, Errors.terminal, kept.trailing_slash, kept.builtin)
-  local app: Types.App = { spec = kept, state = {}, router = router, stopped = false, stoppers = {},
+  local app: Types.App = { spec = kept, state = {}, router = router, stopped = false, stoppers = {}, -- checked: literal_missing
     streams = {}, stream_count = 0, stream_limit = kept.max_streams or DEFAULT_STREAM_LIMIT }
   local function dispatch(req: Types.Request): Types.Response
     local given = req.outcome
@@ -185,7 +185,7 @@ function App.new(spec: Types.AppSpec): Types.App
     -- its handler waits (a client that went away mid-upload) runs the
     -- pending closes of its coroutine and nothing after them. The bodies
     -- a reply streams are the server's to close.
-    local closing_mt: metatable<Closing> = { __close = function()
+    local closing_mt: metatable<Closing> = { __close = function() -- checked: literal_missing
       for _, body in ipairs(req.bodies) do
         local reply = answered.reply
         if reply == nil or reply.body ~= body then
@@ -193,7 +193,7 @@ function App.new(spec: Types.AppSpec): Types.App
         end
       end
     end }
-    local _closing <close>: Closing = setmetatable({}, closing_mt)
+    local _closing <close>: Closing = setmetatable({}, closing_mt) -- checked: close_not_closable, setmetatable_call -- untyped: call
     local ok, raised = pcall(function() answered.reply = stack(req) end)
     if not ok then error(raised, 0) end
     local reply = answered.reply
@@ -202,7 +202,7 @@ function App.new(spec: Types.AppSpec): Types.App
     if reply == nil then error("web: the handler stack answered no Response", 0) end
     return reply
   end
-  return setmetatable(app, app_mt)
+  return setmetatable(app, app_mt) -- checked: setmetatable_call -- untyped: call
 end
 
 --- Runs `app` over [`Server.serve`]: its lifespan first, then the server
@@ -219,14 +219,14 @@ function App.serve(app: Types.App, opts: Types.ServeOptions): boolean, string
       return false, "web: an app in development mode (Dev.app) cannot also have a trusted_proxy"
     end
     sink:line("development mode: stacks are shown and pages reload; serving on the loopback only")
-    for _, address in ipairs(opts.listeners or {}) do
+    for _, address in ipairs(opts.listeners or {}) do -- checked: condition_type, literal_needs_type
       if not loopback(address) then
         return false, "web: an app in development mode (Dev.app) serves only on the loopback"
       end
     end
   end
   if app.spec.debug == true then
-    for _, address in ipairs(opts.listeners or {}) do
+    for _, address in ipairs(opts.listeners or {}) do -- checked: condition_type, literal_needs_type
       if not loopback(address) then
         sink:line("debug is on and the app listens beyond the loopback: " ..
             "a fault shows its stack to whoever asks")
@@ -240,10 +240,10 @@ function App.serve(app: Types.App, opts: Types.ServeOptions): boolean, string
   local lifespan = app.spec.lifespan
   if lifespan ~= nil then
     local cleanup, why = lifespan(app)
-    if cleanup == nil and why ~= nil and why ~= "" then return false, why end
+    if cleanup == nil and why ~= nil and why ~= "" then return false, why end -- checked: compare_disjoint
     shutdown = cleanup
   end
-  local served = { ok = false, err = "" }
+  local served = { ok = false, err = "" } -- checked: arms_differ
   -- TODO: once Server.ServeSpec has an `on_start` run in a task before the
   -- listeners open, run the lifespan there, so it may wait on Poll.
   local ran, raised = pcall(function()

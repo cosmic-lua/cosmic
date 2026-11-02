@@ -32,7 +32,7 @@ end
 local KEYS <const> = { "a", "b", "id", "a key", "", "é", "\n", "1" }
 
 local function key(r: Recipe): string
-  return KEYS[byte(r, #KEYS) + 1]
+  return KEYS[byte(r, #KEYS) + 1] -- checked: index_may_be_nil
 end
 
 local enum Level
@@ -71,8 +71,8 @@ local WIDE <const> = Shape.record_of("Wide")
 local PLAIN <const> = Shape.record_of("Plain")
 
 local STRAYS <const>: {any} = {
-  "x", "\xff\xfe", 0, -1, math.mininteger, 1.5, 2.0, -0.0, 2.0 ^ 63, 1 / 0, 0 / 0,
-  true, false, Json.null, print,
+  "x", "\xff\xfe", 0, -1, math.mininteger, 1.5, 2.0, -0.0, 2.0 ^ 63, 1 / 0, 0 / 0, -- checked: any_use*11
+  true, false, Json.null, print, -- checked: any_use*4
 }
 
 local ANYNODE <const>: Shape.Node = { kind = "any", optional = false }
@@ -84,27 +84,27 @@ local function gen_value(r: Recipe, spec: Shape.Node, depth: integer, strict: bo
   if not strict and (byte(r, 8) == 0 or depth == 0) then
     local pick = byte(r, #STRAYS + 3)
     if pick < #STRAYS then return STRAYS[pick + 1] end
-    if pick == #STRAYS then return nil end
-    local t: mut {any: any} = {}
+    if pick == #STRAYS then return nil end -- checked: any_use
+    local t: mut {any: any} = {} -- declared: key_type
     for _ = 1, byte(r, 3) do
-      local k: any = byte(r, 2) == 0 and key(r) or byte(r, 4)
+      local k: any = byte(r, 2) == 0 and key(r) or byte(r, 4) -- checked: and_ternary
       t[k] = gen_value(r, ANYNODE, depth - 1, false)
     end
-    if byte(r, 4) == 0 and next(t) == nil then Json.array(t as {any}) end
+    if byte(r, 4) == 0 and next(t) == nil then Json.array(t as {any}) end -- checked: cast_refused
     return t
   end
   local kind = spec.kind
   if kind == "string" or kind == "any" then
-    return key(r)
+    return key(r) -- checked: any_use
   elseif kind == "number" then
-    return byte(r, 2) == 0 and byte(r, 100) or byte(r, 100) / 8
+    return byte(r, 2) == 0 and byte(r, 100) or byte(r, 100) / 8 -- checked: and_ternary
   elseif kind == "integer" then
-    return byte(r, 2) == 0 and byte(r, 100) or byte(r, 100) * 1.0
+    return byte(r, 2) == 0 and byte(r, 100) or byte(r, 100) * 1.0 -- checked: and_ternary
   elseif kind == "boolean" then
-    return byte(r, 2) == 0
+    return byte(r, 2) == 0 -- checked: any_use
   elseif kind == "one_of" then
     local values = spec.values
-    return assert(values)[byte(r, #assert(values)) + 1]
+    return assert(values)[byte(r, #assert(values)) + 1] -- checked: any_use
   elseif kind == "list" then
     local t: mut {integer: any} = {}
     for i = 1, byte(r, 4) do t[i] = gen_value(r, assert(spec.of), depth - 1, strict) end
@@ -114,30 +114,30 @@ local function gen_value(r: Recipe, spec: Shape.Node, depth: integer, strict: bo
       local list, why = Json.with_holes(t)
       answer = assert(list, why)
     end
-    return answer
+    return answer -- checked: any_use
   elseif kind == "map" then
     local t: mut {string: any} = {}
     for _ = 1, byte(r, 4) do t[key(r)] = gen_value(r, assert(spec.of), depth - 1, strict) end
-    return t
+    return t -- checked: any_use
   elseif kind == "record" then
     local t: mut {string: any} = {}
     for _, name in ipairs(names_of(spec)) do
       local field = assert(spec.fields)[name]
       local pick = byte(r, 6)
-      if pick == 0 and (field.optional or not strict) then
+      if pick == 0 and (field.optional or not strict) then -- checked: nil_not_allowed
         -- left out
-      elseif pick == 1 and field.optional then
-        t[name] = Json.null
+      elseif pick == 1 and field.optional then -- checked: nil_not_allowed
+        t[name] = Json.null -- checked: any_use
       else
-        t[name] = gen_value(r, field, depth - 1, strict)
+        t[name] = gen_value(r, field, depth - 1, strict) -- checked: nil_not_allowed
       end
     end
     -- A strict value for a strict record has no key the record lacks.
-    if byte(r, 4) == 0 and not (strict and spec.strict) then
+    if byte(r, 4) == 0 and not (strict and spec.strict) then -- checked: or_mix
       local extra = key(r)
-      if assert(spec.fields)[extra] == nil then t[extra] = "extra" end
+      if assert(spec.fields)[extra] == nil then t[extra] = "extra" end -- checked: any_use
     end
-    return t
+    return t -- checked: any_use
   end
   return STRAYS[byte(r, #STRAYS) + 1]
 end
@@ -145,18 +145,18 @@ end
 local same: function(a: any, b: any): boolean
 
 --- Whether `a` and `b` hold the same values, NaN matching NaN.
-same = function(a: any, b: any): boolean
+same = function(a: any, b: any): boolean -- checked: not_assigned
   if a is number and b is number then
     return a == b and math.type(a) == math.type(b) or (a ~= a and b ~= b)
   end
   if not (a is table) or not (b is table) then
     return rawequal(a, b)
   end
-  local ta, tb = a as {any: any}, b as {any: any}
-  for k, v in next, ta do
+  local ta, tb = a as {any: any}, b as {any: any} -- declared: key_type*2 -- checked: cast_refused*2
+  for k, v in next, ta do -- checked: overload_value
     if not same(v, rawget(tb, k)) then return false end
   end
-  for k in next, tb do
+  for k in next, tb do -- checked: overload_value
     if rawget(ta, k) == nil then return false end
   end
   return true
@@ -187,11 +187,11 @@ local function fits(v: any, spec: Shape.Node): boolean
     return false
   end
   if not (v is table) then return false end
-  local t = v as {any: any}
+  local t = v as {any: any} -- declared: key_type -- checked: cast_refused
   if kind == "list" then
     if not Json.is_array(t) then return false end
     local n = 0
-    for k, e in next, t do
+    for k, e in next, t do -- checked: overload_value
       if not (k is integer) or k < 1 or not fits(e, assert(spec.of)) then return false end
       if k > n then n = k end
     end
@@ -202,16 +202,16 @@ local function fits(v: any, spec: Shape.Node): boolean
   end
   if Json.is_array(t) then return false end
   if kind == "map" then
-    for k, e in next, t do
+    for k, e in next, t do -- checked: overload_value
       if not (k is string) or not fits(e, assert(spec.of)) then return false end
     end
     return true
   end
-  for k in next, t do
+  for k in next, t do -- checked: overload_value
     if not (k is string) or assert(spec.fields)[k] == nil then return false end
   end
   for _, name in ipairs(names_of(spec)) do
-    if not fits(rawget(t, name), assert(spec.fields)[name]) then return false end
+    if not fits(rawget(t, name), assert(spec.fields)[name]) then return false end -- checked: index_may_be_nil
   end
   return true
 end
@@ -246,22 +246,22 @@ end
 --- `value` with each hole of a list, which a null read without a stand-in
 --- leaves, written as [`Json.null`], so that it encodes.
 local function filled(value: any): any
-  if not (value is {any: any}) then return value end
+  if not (value is {any: any}) then return value end -- declared: key_type
   local top = 0
   local listed = true
-  for k in pairs(value) do
+  for k in pairs(value) do -- checked: any_use
     if k is integer and k > top then top = k elseif not (k is integer) then listed = false end
   end
-  local out: mut {any: any}
-  if Json.is_array(value) then out = Json.array() as {any: any} else out = {} end
+  local out: mut {any: any} -- declared: key_type
+  if Json.is_array(value) then out = Json.array() as {any: any} else out = {} end -- declared: key_type -- checked: cast_refused
   if listed then
     for i = 1, top do
-      local v = filled(value[i])
-      if v == nil then v = Json.null end
+      local v = filled(value[i]) -- checked: any_use
+      if v == nil then v = Json.null end -- checked: any_use
       out[i] = v
     end
   else
-    for k, v in pairs(value) do out[k] = filled(v) end
+    for k, v in pairs(value) do out[k] = filled(v) end -- checked: any_use
   end
   return out
 end
@@ -303,17 +303,17 @@ end
 local function strictly<T>(r: Recipe, typed: Shape.Typed<T>): boolean, string
   local strict = typed:strict()
   local spec = strict.node
-  local value = gen_value(r, spec, 4, true) as {any: any}
+  local value = gen_value(r, spec, 4, true) as {any: any} -- declared: key_type -- checked: cast_refused
   local fields = assert(spec.fields)
   local extra: any
   local want: string?
   if byte(r, 2) == 0 then
-    extra = byte(r, 4) - 1
-    want = ("$: want record, got the integer key %d"):format(extra as integer)
+    extra = byte(r, 4) - 1 -- checked: any_use
+    want = ("$: want record, got the integer key %d"):format(extra as integer) -- checked: cast_refused
   else
     local k = key(r)
     if fields[k] ~= nil then k = "not a field" end
-    extra = k
+    extra = k -- checked: any_use
   end
   value[extra] = STRAYS[byte(r, #STRAYS) + 1]
   local out, err = Shape.into(value, strict.spec)

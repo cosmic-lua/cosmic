@@ -27,19 +27,19 @@ local function test_a_pattern_binds_literals_params_and_the_rest()
   local router = table_of({ "/", "/about", "/items/:id", "/items/:id/tags/:tag", "/static/*path" })
   assert(route_of(router, "/") == "/" and route_of(router, "/about") == "/about")
   local item = router:match("GET", "/items/a%20b")
-  assert(item.kind == "match" and assert(item.params).id == "a b" and assert(item.route).name == "/items/:id")
+  assert(item.kind == "match" and assert(item.params).id == "a b" and assert(item.route).name == "/items/:id") -- checked: map_field
   local tag = router:match("GET", "/items/7/tags/x")
-  assert(assert(tag.params).id == "7" and assert(tag.params).tag == "x")
+  assert(assert(tag.params).id == "7" and assert(tag.params).tag == "x") -- checked: map_field*2
   assert(route_of(router, "/items") == "not_found" and route_of(router, "/items/7/tags") == "not_found")
   assert(route_of(router, "/About") == "not_found", "literals are case-sensitive")
 end
 
 local function test_the_rest_takes_zero_or_more_decoded_segments_joined()
   local router = table_of({ "/static/*path" })
-  assert(assert(router:match("GET", "/static/css/app%20x.css").params).path == "css/app x.css")
-  assert(assert(router:match("GET", "/static/a").params).path == "a")
-  assert(assert(router:match("GET", "/static").params).path == "")
-  assert(assert(router:match("GET", "/static/").params).path == "", "the rest swallows the slash: no redirect")
+  assert(assert(router:match("GET", "/static/css/app%20x.css").params).path == "css/app x.css") -- checked: map_field
+  assert(assert(router:match("GET", "/static/a").params).path == "a") -- checked: map_field
+  assert(assert(router:match("GET", "/static").params).path == "") -- checked: map_field
+  assert(assert(router:match("GET", "/static/").params).path == "", "the rest swallows the slash: no redirect") -- checked: map_field
   assert(route_of(router, "/other") == "not_found")
 end
 
@@ -52,7 +52,7 @@ local function test_the_most_specific_route_wins_whatever_the_order()
     assert(route_of(router, "/items/7/x") == "/items/*rest")
     assert(route_of(router, "/other/new") == "/:any/new")
     local first = table.remove(patterns, 1)
-    table.insert(patterns, first)
+    table.insert(patterns, first) -- checked: overload_none
   end
 end
 
@@ -111,8 +111,8 @@ local function test_strict_policy_has_no_redirect()
   local router = Web.router({ Web.get("/items", ok), Web.get("/docs/", ok) }, { trailing_slash = "strict" })
   assert(route_of(router, "/items/") == "not_found" and route_of(router, "/docs") == "not_found")
   assert(route_of(router, "/items") == "/items" and route_of(router, "/docs/") == "/docs/")
-  local loose: any = { trailing_slash = "loose" }
-  assert(Test.raises(function() Web.router({}, loose as Web.RouterOptions) end):find("trailing_slash", 1, true))
+  local loose: any = { trailing_slash = "loose" } -- checked: any_use
+  assert(Test.raises(function() Web.router({}, loose as Web.RouterOptions) end):find("trailing_slash", 1, true)) -- checked: cast_refused
 end
 
 local function test_a_noncanonical_path_is_redirected_to_its_canonical_form()
@@ -160,7 +160,7 @@ local function test_a_mount_hands_the_rest_to_its_routes_and_answers_its_own_404
   }
   local router = Web.router({ Web.get("/home", ok), Web.mount("/api", api, { name = "api" }) })
   local item = router:match("GET", "/api/items/7")
-  assert(item.kind == "match" and assert(item.params).id == "7" and assert(item.route).name == "api:item")
+  assert(item.kind == "match" and assert(item.params).id == "7" and assert(item.route).name == "api:item") -- checked: map_field
   assert(assert(item.route).pattern == "/api/items/:id")
   assert(assert(router:match("GET", "/api").route).name == "api:root")
   assert(assert(router:match("GET", "/api/v1/ping").route).pattern == "/api/v1/ping")
@@ -307,8 +307,8 @@ end
 local function test_a_mount_answers_reverse_through_its_resolver()
   local router = Web.router({ Web.mount_handler("/assets", ok, { name = "assets",
     reverse = function(prefix: string, params: {string:string}): string?, string
-      if params.path == nil then return nil, "assets: a path is needed" end
-      return prefix .. "/" .. params.path .. ".v1", ""
+      if params.path == nil then return nil, "assets: a path is needed" end -- checked: map_field
+      return prefix .. "/" .. params.path .. ".v1", "" -- checked: map_field
     end }) })
   assert(router:reverse("assets", { path = "app.css" }) == "/assets/app.css.v1")
   assert(router:reverse("assets", { path = "app.css" }, { x = "1" }) == "/assets/app.css.v1?x=1")
@@ -330,14 +330,14 @@ local function test_a_reversed_url_matches_back_to_its_params()
   for _, value in ipairs(hostile) do
     local url = assert(router:reverse("tag", { id = value, tag = "t" }))
     local found = router:match("GET", url)
-    assert(found.kind == "match" and assert(found.params).id == value and assert(found.params).tag == "t", url)
+    assert(found.kind == "match" and assert(found.params).id == value and assert(found.params).tag == "t", url) -- checked: map_field*2
     local user = assert(router:reverse("api:user", { name = value }))
-    assert(assert(router:match("GET", user).params).name == value, user)
+    assert(assert(router:match("GET", user).params).name == value, user) -- checked: map_field
   end
   local slash = assert(router:reverse("tag", { id = "a/b", tag = "t" }))
   assert(router:match("GET", slash).kind == "bad_path", "an escaped slash is refused, never another route")
   local file = assert(router:reverse("file", { path = "a/b c/d" }))
-  assert(assert(router:match("GET", file).params).path == "a/b c/d")
+  assert(assert(router:match("GET", file).params).path == "a/b c/d") -- checked: map_field
 end
 
 local function test_url_escape_html_url_part_and_reverse_agree()
@@ -366,14 +366,14 @@ local function test_a_method_the_most_specific_node_lacks_falls_back_to_the_next
     Web.put("/files/:id", ok, { name = "put" }),
   })
   local get = router:match("GET", "/files")
-  assert(get.kind == "match" and assert(get.route).name == "download" and assert(get.params).r == "", "the wildcard answers")
+  assert(get.kind == "match" and assert(get.route).name == "download" and assert(get.params).r == "", "the wildcard answers") -- checked: map_field
   assert(router:match("HEAD", "/files").kind == "match")
   assert(assert(router:match("POST", "/files").route).name == "upload")
   local other = router:match("DELETE", "/files")
   assert(other.kind == "not_allowed" and other.allow == "OPTIONS, POST",
     "405 names the most specific node's methods: " .. tostring(other.allow))
   local one = router:match("GET", "/files/7")
-  assert(one.kind == "match" and assert(one.route).name == "download" and assert(one.params).r == "7",
+  assert(one.kind == "match" and assert(one.route).name == "download" and assert(one.params).r == "7", -- checked: map_field
     "the param node lacks GET: the wildcard above it answers")
   assert(assert(router:match("PUT", "/files/7").route).name == "put")
   local nobody = router:match("PATCH", "/files/7")

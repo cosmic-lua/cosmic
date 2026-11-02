@@ -94,7 +94,7 @@ local function sandboxed_worker(tmp: string): {string}
   local argv, opts = worker.argv, worker.options
   local output = assert(sys.open(tmp .. "/said", sys.O_CREAT | sys.O_RDWR | sys.O_TRUNC, 420))
   local process = require("cosmic.internal.process")
-  local pid, trouble, errno = process.spawn(argv[1], argv, opts.env, tree, nil, output,
+  local pid, trouble, errno = process.spawn(argv[1], argv, opts.env, tree, nil, output, -- checked: index_may_be_nil
     output, false, TestSandboxFixture.spawn_fds(worker),
     { unveil = unveil, offline = true })
   if pid == nil then
@@ -138,8 +138,8 @@ local function test_a_worker_sandboxed_to_what_it_needs_starts_and_confines_its_
   -- Whether the cache holds a stamp for the core, which the worker
   -- then has to find.
   local relaunch = assert(Proc.relaunch())
-  local directory, name = relaunch.argv[1]:match("^(.*)/(core%-[^/]*)$")
-  local stamped = directory ~= nil and sys.lstat(directory .. "/.verified-" .. name) ~= nil
+  local directory, name = relaunch.argv[1]:match("^(.*)/(core%-[^/]*)$") -- checked: nil_not_allowed
+  local stamped = directory ~= nil and sys.lstat(directory .. "/.verified-" .. name) ~= nil -- checked: nil_not_allowed
   assert(not stamped or lines[2] == "stamped", said)
   -- Root that has given up CAP_SETFCAP (bit 31 of CapEff) -- as root
   -- in a sandbox has -- may not map root into a user namespace of its
@@ -149,12 +149,12 @@ local function test_a_worker_sandboxed_to_what_it_needs_starts_and_confines_its_
   local capabilities = math.tointeger(tonumber(effective:sub(-8), 16)) or 0
   local inner_root = sys.getuid() == 0 and capabilities & (1 << 31) == 0
   if inner_root then
-    assert(lines[3]:find("^refused EPERM") ~= nil, said)
+    assert(lines[3]:find("^refused EPERM") ~= nil, said) -- checked: nil_not_allowed
   elseif confine.own_proc_given() then
     assert(lines[1] == "own-proc" and lines[3] == "exited 0" and lines[4] == "in" and
         lines[5] == "hidden-absent", said)
   else
-    assert(lines[1] == "host-proc" and lines[3]:find("^refused EROFS") ~= nil, said)
+    assert(lines[1] == "host-proc" and lines[3]:find("^refused EROFS") ~= nil, said) -- checked: nil_not_allowed
   end
 end
 
@@ -172,7 +172,7 @@ local function resolved_by_names(path: string): string
     if real ~= nil then
       local resolved: string = real
       for i = #missing, 1, -1 do
-        resolved = (if resolved == "/" then "" else resolved end) .. "/" .. missing[i]
+        resolved = (if resolved == "/" then "" else resolved end) .. "/" .. missing[i] -- checked: nil_not_allowed
       end
       return resolved
     end

@@ -58,7 +58,7 @@ local function cut_by_content(input: string): string, string
   local passed, answered: mut {string}, mut {string} = {}, {}
   local from = 1
   for at = 1, #input do
-    if (input:byte(at) + at) % 5 == 0 then
+    if (input:byte(at) + at) % 5 == 0 then -- checked: nil_not_allowed
       local out, replies = filter:feed(input:sub(from, at))
       passed[#passed + 1], answered[#answered + 1] = out, replies
       from = at + 1
@@ -113,13 +113,13 @@ local function unsafe(out: string): string
       if not sgr_holds(params) then return "an SGR out of bounds" end
       length = #params + 3
     elseif seq:find("^\27%[%d?%d?%d?%d?%d?[ABCDEFGdLMP@X]") then
-      length = #seq:match("^\27%[%d*[ABCDEFGdLMP@X]")
+      length = #seq:match("^\27%[%d*[ABCDEFGdLMP@X]") -- checked: nil_not_allowed
     elseif seq:find("^\27%[%d?%d?%d?%d?%d?;?%d?%d?%d?%d?%d?[Hfr]") then
-      length = #seq:match("^\27%[[%d;]*[Hfr]")
+      length = #seq:match("^\27%[[%d;]*[Hfr]") -- checked: nil_not_allowed
     elseif seq:find("^\27%[[0-2]?J") then
-      length = #seq:match("^\27%[%d*J")
+      length = #seq:match("^\27%[%d*J") -- checked: nil_not_allowed
     elseif seq:find("^\27%[[0-2]?K") then
-      length = #seq:match("^\27%[%d*K")
+      length = #seq:match("^\27%[%d*K") -- checked: nil_not_allowed
     elseif seq:find("^\27%[[su]") or seq:find("^\27[78]") then
       length = if seq:find("^\27%[") then 3 else 2 end
     else
@@ -151,7 +151,7 @@ local function safe_holds(input: string): boolean, string
   if out:find("\27", 1, true) then Fuzz.label("a sequence passed") end
   if out:find("\27[?", 1, true) then Fuzz.label("a mode passed") end
   if input:find("\27]", 1, true) then Fuzz.label("an osc") end
-  if input:find("\27[", 1, true) and #out < #input then Fuzz.label("a sequence dropped") end
+  if input:find("\27[", 1, true) and #out < #input then Fuzz.label("a sequence dropped") end -- checked: condition_type
   if out:find("[\128-\255]") then Fuzz.label("utf-8 passed") end
   if out == "" then Fuzz.label("nothing passed") end
   return true, ""

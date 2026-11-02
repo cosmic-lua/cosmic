@@ -120,18 +120,18 @@ end
 local function test_at_reads_the_rows_from_a_path()
   local rows = assert(dataset.read("json", '{"a": {"rows": [{"id": 1}, {"id": 2}]}}',
     { at = { "a", "rows" } }))
-  assert(#rows == 2 and support.nth(rows, 2).id == 2)
+  assert(#rows == 2 and support.nth(rows, 2).id == 2) -- checked: map_field
   local none, why = dataset.read("json", '{"a": 1}', { at = { "b" } })
   assert(none == nil and why == 'json: no value at pointer "/b"', why)
   local last = assert(dataset.read("json", '{"a": [{"id": 1}, {"id": 2}]}', { at = { "a", -1 } }))
-  assert(#last == 1 and support.nth(last, 1).id == 2)
+  assert(#last == 1 and support.nth(last, 1).id == 2) -- checked: map_field
   local bad, bad_why = dataset.read("json", "{", {})
   assert(bad == nil and bad_why:find("invalid JSON", 1, true) ~= nil, bad_why)
 end
 
 local function test_ndjson_is_a_row_per_line()
   local rows = assert(dataset.read("ndjson", '{"a": 1}\n\n{"a": 2, "b": "x"}\r\n7\n'))
-  assert(#rows == 3 and support.nth(rows, 2).b == "x" and support.nth(rows, 3).value == 7)
+  assert(#rows == 3 and support.nth(rows, 2).b == "x" and support.nth(rows, 3).value == 7) -- checked: map_field*2
   local db = memory()
   local made = assert(dataset.load(db, "t", rows))
   assert(table.concat(made.columns, ",") == "a,b,value,_json")
@@ -168,7 +168,7 @@ local function test_load_refuses_what_sqlite_or_the_caller_cannot_take()
   assert(odd.name == 'we"ird name')
   local ok = Sqlite.rows(db, 'SELECT a FROM "we""ird name"')
   assert(ok ~= nil)
-  local bad, bad_why = dataset.load(db, "u", { { a = print as any } })
+  local bad, bad_why = dataset.load(db, "u", { { a = print as any } }) -- checked: cast_refused
   assert(bad == nil and bad_why:find("row 1, a: a function has no SQLite value", 1, true) ~= nil, bad_why)
   -- A refused load leaves no table behind.
   assert(not Sqlite.rows(db, "SELECT * FROM u"))
@@ -195,10 +195,10 @@ end
 
 local function test_too_many_columns_says_the_limit_and_the_count()
   local row: dataset.Row = {}
-  for index = 1, 1999 do row["k" .. tostring(index)] = index end
+  for index = 1, 1999 do row["k" .. tostring(index)] = index end -- checked: view_written
   local db = memory()
   assert(dataset.load(db, "t", { row }), "1999 keys and `_json` are 2000 columns")
-  row.extra = 1
+  row.extra = 1 -- checked: map_field
   local made, why = dataset.load(db, "u", { row })
   assert(made == nil and why == "dataset: too many columns: 2000 distinct keys, and SQLite holds at most " ..
       "2000 columns in a table (one is `_json`)", why)
@@ -253,7 +253,7 @@ end
 
 local function test_tsv_reads_tabs_and_csv_and_tsv_refuse_a_path()
   local rows = assert(dataset.read("tsv", "a\tb\n1,5\t2\n"))
-  assert(support.nth(rows, 1).a == "1,5" and support.nth(rows, 1).b == 2)
+  assert(support.nth(rows, 1).a == "1,5" and support.nth(rows, 1).b == 2) -- checked: map_field*2
   assert(dataset.format_of("x.tab") == "tsv" and dataset.format_of("X.TSV") == "tsv")
   assert(dataset.format_of("x.csv") == "csv")
   for _, name in ipairs({ "csv", "tsv" }) do
@@ -349,7 +349,7 @@ end
 --- `_json`, and read here past them, into the same table.
 local function test_load_text_copies_a_csv_up_to_500_fields()
   for _, width in ipairs({ 500, 501 }) do
-    local header, row = {}, {}
+    local header, row = {}, {} -- checked: literal_needs_type*2
     for column = 1, width do
       header[column] = "c" .. tostring(column)
       row[column] = tostring(column)

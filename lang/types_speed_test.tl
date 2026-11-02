@@ -93,7 +93,7 @@ local FORMS <const>: {string: function(n: integer)} = {
     local store = Types.new()
     local t = store.integer
     for i = 1, n * 3 do
-      t = i % 2 == 0 and store:array(t) or store:optional(store:map(store.string, t))
+      t = i % 2 == 0 and store:array(t) or store:optional(store:map(store.string, t)) -- checked: and_ternary
     end
     local _ = Types.display(t)
     local _ = Types.digest(t)
@@ -110,7 +110,7 @@ local FORMS <const>: {string: function(n: integer)} = {
     -- each, and the text is refused.
     local _ = Types.digest(t)
     local _ = Types.display(t)
-    assert(t.weight > 1000000 and not pcall(function()
+    assert(t.weight > 1000000 and not pcall(function() -- checked: alternatives_as_value
       local _ = Types.encode(t)
     end))
   end,

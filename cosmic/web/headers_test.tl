@@ -114,7 +114,7 @@ end
 
 local function test_a_policy_cannot_be_made_to_say_more_than_it_was_given()
   local function bad(directives: {string:{string}}, nonce?: string)
-    assert(not pcall(Csp.format, { directives = directives }, nonce))
+    assert(not pcall(Csp.format, { directives = directives }, nonce)) -- checked: alternatives_as_value
   end
   bad({ ["script-src"] = { "'self'; script-src *" } })
   bad({ ["script-src"] = { "'self' *" } })
@@ -171,7 +171,7 @@ local function test_without_nonce_the_key_is_empty_and_the_policy_may_not_ask_fo
   end) })
   local res = Web.test_client(app):get("/n")
   assert(seen == "" and res.headers["cache-control"] == nil)
-  assert(not pcall(Headers.middleware, { csp = { directives = { ["script-src"] = { "{nonce}" } } } }))
+  assert(not pcall(Headers.middleware, { csp = { directives = { ["script-src"] = { "{nonce}" } } } })) -- checked: alternatives_as_value
 end
 
 local function test_hsts_is_sent_only_over_https()
@@ -210,7 +210,7 @@ end
 
 local function test_options_that_cannot_work_raise()
   local function bad(opts: Headers.Options)
-    assert(not pcall(Headers.middleware, opts))
+    assert(not pcall(Headers.middleware, opts)) -- checked: alternatives_as_value
   end
   bad({ frame_options = "ALLOW-FROM x" })
   bad({ frame_options = "deny" })

@@ -462,7 +462,7 @@ local function into(handle: work.Handle, argv: {string}, settle: boolean): strin
     (Clock.monotonic_ns() - started) / Clock.seconds(1),
     plural.count(result.compiled, "module"), result.cached))
   local environment = sys.environ()
-  environment[marker] = if settle then "2" else "1" end
+  environment[marker] = if settle then "2" else "1" end -- checked: view_written
   return enter(out, argv, environment), false
 end
 
@@ -760,7 +760,7 @@ function reboot.rebuild_failed(root: string, argv: {string},
   end
   log:complain("the tool cannot compile the tree and its compiler has moved; " ..
       "booting it instead of rebuilding")
-  local booted = reboot.boot_into(root, argv, environment)
+  local booted = reboot.boot_into(root, argv, environment) -- checked: not_assignable
   -- Only a boot that failed returns: the compile failure it was to mend
   -- is then the first thing the person needs.
   log:complain(trouble)

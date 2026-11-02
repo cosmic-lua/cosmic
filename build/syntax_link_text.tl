@@ -211,7 +211,7 @@ function SyntaxLinkText.declarations(chunk: Ast.Chunk, scoped: Scopes.Scoped): L
       return known
     end
     local in_scope = Lexical.in_scope(held(), y, x, doc_line)
-    local here: mut {string: boolean} = setmetatable({}, { __index = everywhere })
+    local here: mut {string: boolean} = setmetatable({}, { __index = everywhere }) -- checked: setmetatable_call -- untyped: call
     local aliases: mut {string: string} = {}
     -- A name bound here is no alias of the top level's, whatever it is bound to.
     for name, module in pairs(top_aliases) do

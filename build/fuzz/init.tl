@@ -66,11 +66,11 @@ local Globals = require("cosmic.internal.globals")
 --- VM's one hook with coverage collection, so it holds under `cosmic test`.
 --- Loaded any other way there is none, and a check that never ends is
 --- ended by the test runner's deadline instead.
-local extra: any = select(2, ...)
+local extra: any = select(2, ...) -- checked: any_use
 local type Arm = function(count?: integer)
 local arm: Arm?
 if type(extra) == "table" then
-  arm = (extra as Budget).budget
+  arm = (extra as Budget).budget -- checked: cast_refused
 end
 
 --- What a spent budget raises (core/coverage.c). `coroutine.wrap`
@@ -246,7 +246,7 @@ local counting: Counting = {}
 --- @param name string The label
 function Fuzz.label(name: string)
   local reached = counting.reached
-  if reached ~= nil then reached[name] = true end
+  if reached ~= nil then reached[name] = true end -- checked: view_written
 end
 
 --- Runs `check` on `input` once, under the budget.
@@ -265,7 +265,7 @@ local function attempt(check: function(string): boolean, string, input: string,
     return false, "raised: " .. raised
   end
   if held ~= true then
-    return false, why ~= nil and why ~= "" and tostring(why) or "check returned false"
+    return false, why ~= nil and why ~= "" and tostring(why) or "check returned false" -- checked: and_ternary
   end
   return true, ""
 end
@@ -301,7 +301,7 @@ end
 local function corpus_failed(p: Fuzz.Property, path: string, why: string, input: string): boolean
   error(("fuzz %s: corpus input %s: %s\n  input (hex, %s): %s"):
       format(p.name, path, why, plural.count(#input, "byte"), shown(input)), 0)
-  return false
+  return false -- checked: unreachable
 end
 
 --- Checks every `.input` file in the property's corpus, in name order,
@@ -339,7 +339,7 @@ local function label_counts(counts: {string: integer}, required: {string},
                             iters: integer): string?
   local names: mut {string} = {}
   for name in pairs(counts) do names[#names + 1] = name end
-  for _, name in ipairs(required or {}) do
+  for _, name in ipairs(required or {}) do -- checked: condition_type, literal_needs_type
     if counts[name] == nil then names[#names + 1] = name end
   end
   if #names == 0 then return nil end
@@ -401,7 +401,7 @@ local function named_case(p: Fuzz.Property): string?, integer?
   local raw = text
   local name = text:match("^(.-):%-?%d+$")
   local digits = text:match(":(%-?%d+)$")
-  local n: integer? = digits ~= nil and math.tointeger(tonumber(digits)) or nil
+  local n: integer? = digits ~= nil and math.tointeger(tonumber(digits)) or nil -- checked: and_ternary
   if name == nil or not name:match("^[%w%-]+$") or n == nil then
     error(("fuzz: FUZZ_CASE=%q is not <property>:<case seed>, as a report prints it"):format(raw), 0)
   end
@@ -457,7 +457,7 @@ local function run(p: Fuzz.Property): integer
     local draws: mut {Draw} = {}
     local mine: {string: boolean} = {}
     local case = case_seed or seeds:int(math.mininteger, math.maxinteger)
-    local where = case_name ~= nil and ("FUZZ_CASE=%s:%d"):format(case_name, case) or
+    local where = case_name ~= nil and ("FUZZ_CASE=%s:%d"):format(case_name, case) or -- checked: and_ternary
       ("seed=%d iteration=%d"):format(seed, i)
     local reproduce = ("FUZZ_CASE=%s:%d (this input alone)"):format(slug(p.name), case)
     if case_name == nil then
@@ -469,8 +469,8 @@ local function run(p: Fuzz.Property): integer
       counting.reached = nil
       error(input, 0)
     end
-    if kept ~= nil then local _, _ = Fs.write(kept, input) end
-    local held, why = attempt(p.check, input, budget)
+    if kept ~= nil then local _, _ = Fs.write(kept, input) end -- checked: any_use
+    local held, why = attempt(p.check, input, budget) -- checked: any_use
     counting.reached = nil
     for name in pairs(mine) do counts[name] = (counts[name] or 0) + 1 end
     -- Raises the report of an input that failed, after shrinking it; the
@@ -481,12 +481,12 @@ local function run(p: Fuzz.Property): integer
       -- A check that fails an input once and holds for it the next time
       -- depends on something beside the input: shrinking would chase
       -- noise, so the report says so and stops.
-      local again, _ = attempt(p.check, input, budget)
+      local again, _ = attempt(p.check, input, budget) -- checked: any_use
       if again then
         error(("fuzz %s: %s: flaky: failed (%s), then held when the same input was " ..
           "checked again; it depends on something beside its input\n" ..
           "  input (%s, hex): %s\n  %s\n  reproduce: %s"):
-            format(p.name, where, reason, plural.count(#input, "byte"), shown(input),
+            format(p.name, where, reason, plural.count(#input, "byte"), shown(input), -- checked: any_use*2
               if kept ~= nil then ("kept at " .. kept) else "not kept: the property names no dir" end,
               reproduce), 0)
       end
@@ -506,7 +506,7 @@ local function run(p: Fuzz.Property): integer
       else
         -- The shrunk input failed while shrinking and held just now:
         -- report the input that first failed, and say why.
-        small, smallest = input, draws
+        small, smallest = input, draws -- checked: any_use
         flaky = "\n  flaky: the shrunk input held when checked again, so this is the input that first failed"
       end
       if kept ~= nil then local _, _ = Fs.write(kept, small) end
@@ -516,12 +516,12 @@ local function run(p: Fuzz.Property): integer
         "  %s\n  reproduce: %s\n" ..
         "  once fixed, keep it as a regression case: %s"):
           format(p.name, where, reason, plural.count(tries, "try", "tries"), plural.count(#draws, "draw"),
-            plural.count(#input, "byte"), plural.count(#smallest, "draw"), plural.count(#small, "byte"), shown(small), flaky,
+            plural.count(#input, "byte"), plural.count(#smallest, "draw"), plural.count(#small, "byte"), shown(small), flaky, -- checked: any_use
             if kept ~= nil then ("kept at " .. kept) else "not kept: the property names no dir" end,
             reproduce,
-            kept ~= nil and ("mkdir -p %s && cp %s %s"):format(corpus_of(p), kept, keep) or
+            kept ~= nil and ("mkdir -p %s && cp %s %s"):format(corpus_of(p), kept, keep) or -- checked: and_ternary
               ("write the input above to " .. keep)), 0)
-      return false
+      return false -- checked: unreachable
     end
     assert(held or failure())
   end
@@ -553,7 +553,7 @@ local function run(p: Fuzz.Property): integer
     end
     for _, name in ipairs(shared) do
       local reached_by = counts[name] or 0
-      if reached_by < shares[name] * iters then
+      if reached_by < shares[name] * iters then -- checked: nil_not_allowed
         if kept ~= nil then local _, _ = Fs.remove(kept) end
         error(("fuzz %s: seed=%d: %s of %d reached %q, under the share of %g the property " ..
           "requires: its inputs exercise it too rarely"):format(p.name, seed, plural.count(reached_by, "input"), iters, name,
@@ -580,7 +580,7 @@ function Fuzz.run(p: Fuzz.Property): integer
   local ok, n = pcall(run, p)
   counting.reached = enclosing
   if not ok then error(n, 0) end
-  return n
+  return n -- checked: any_use
 end
 
 --- Checks one input directly, under the same budget as `run`: what
@@ -595,7 +595,7 @@ end
 
 --- Draws one of `choices`, which must not be empty.
 function Fuzz.pick<T>(src: Fuzz.Source, choices: {T}): T
-  return choices[src:int(1, #choices)]
+  return choices[src:int(1, #choices)] -- checked: index_may_be_nil
 end
 
 --- Whether a generator holding `have` elements of a collection of at
@@ -644,10 +644,10 @@ function Fuzz.mutate(src: Fuzz.Source, sample: string, max_edits: integer): stri
       s = s:sub(1, at - 1) .. string.char(src:int(0, 255)) .. s:sub(at + 1)
     elseif kind == 2 then
       local at = src:int(1, #s)
-      s = s:sub(1, at - 1) .. string.char(SPECIAL[src:int(1, #SPECIAL)]) .. s:sub(at + 1)
+      s = s:sub(1, at - 1) .. string.char(SPECIAL[src:int(1, #SPECIAL)]) .. s:sub(at + 1) -- checked: index_may_be_nil
     elseif kind == 3 then
       local at = src:int(1, #s)
-      s = s:sub(1, at - 1) .. string.char(s:byte(at) ~ (1 << src:int(0, 7))) .. s:sub(at + 1)
+      s = s:sub(1, at - 1) .. string.char(s:byte(at) ~ (1 << src:int(0, 7))) .. s:sub(at + 1) -- checked: nil_not_allowed
     elseif kind == 4 then
       local at = src:int(1, #s + 1)
       s = s:sub(1, at - 1) .. string.char(src:int(0, 255)) .. s:sub(at)

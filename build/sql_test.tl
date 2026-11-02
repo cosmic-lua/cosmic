@@ -214,13 +214,13 @@ local function test_a_failed_write_stops_the_statement()
       return true, ""
     end,
     err = function(line: string) complaints[#complaints + 1] = line end,
-    summary = function(detail: string) summarized.value = detail end,
+    summary = function(detail: string) summarized.value = detail end, -- checked: map_field
   })
   assert(code == 1, code)
   assert(#lines == 3, #lines)
   assert(#complaints == 1 and complaints[1]:find("Broken pipe", 1, true) ~= nil,
     table.concat(complaints, "|"))
-  assert(summarized.value == "", "a failure was summarized: " .. summarized.value)
+  assert(summarized.value == "", "a failure was summarized: " .. summarized.value) -- checked: map_field*2
   assert(Fs.remove_tree(root))
 end
 

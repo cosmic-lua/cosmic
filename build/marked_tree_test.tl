@@ -2,6 +2,9 @@
 --- marker on its line fails, a marker whose finding has gone is stale and is mended, several codes may share a line, and
 --- code that moves keeps its markers. A marker in a fixture is written as `KEY .. " ..."` so that this file holds none.
 local Ceilings = require("build.ceilings")
+local Check = require("lang.check")
+local Declarations = require("lang.declarations")
+local Scopes = require("lang.scopes")
 local Fs = require("cosmic.fs")
 local Markers = require("build.markers")
 local Test = require("cosmic.test")
@@ -181,4 +184,33 @@ local function test_a_file_that_does_not_parse_keeps_its_markers_through_the_che
   assert(Fs.write(root .. "/build/bad.tl", source("local t: integer = 3 " .. KEY .. " not_assignable")))
   tree_checks.checked(root, nil, nil, nil, { sink = sink })
   assert(#sink.stale == 1)
+end
+
+local function test_the_closure_of_codes_fires_for_a_closed_code_held_and_an_open_code_not(dir: string)
+  local root = tree(dir, "closure", MARKED, source("local t: integer = 3.5 " .. KEY .. " not_assignable"))
+  local all: mut {string} = {}
+  local seen: mut {string: boolean} = {}
+  local function add(list: {string})
+    for _, code in ipairs(list) do
+      -- a few codes belong to two stages and are listed once
+      if code ~= "not_assignable" and seen[code] ~= true then
+        seen[code] = true
+        all[#all + 1] = code
+      end
+    end
+  end
+  add(Scopes.codes)
+  add(Declarations.codes)
+  add(Check.codes)
+  -- every other code closed, the one a marker holds open: nothing to tell
+  assert(#tree_checks.closure(root, all) == 0, joined(tree_checks.closure(root, all)))
+  -- a closed code that a marker holds
+  all[#all + 1] = "not_assignable"
+  assert(joined(tree_checks.closure(root, all)):find("not_assignable is closed and a marker or a row", 1, true) ~= nil)
+  -- a code nothing holds and nothing closes, a duplicate and a word that is no code
+  local open: mut {string} = { "nonsense_code", "arity" }
+  local told = joined(tree_checks.closure(root, open))
+  assert(told:find("nonsense_code is listed in Ceilings.closed and is no code", 1, true) ~= nil, told)
+  assert(told:find("alias_cycle has no marker or row left", 1, true) ~= nil and not ("\n" .. told):find("\narity has no marker", 1, true), told)
+  assert(joined(tree_checks.closure(root, { "arity", "arity" })):find("arity is listed twice", 1, true) ~= nil)
 end

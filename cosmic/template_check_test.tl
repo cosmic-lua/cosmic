@@ -193,12 +193,12 @@ local function load_module(lua: {string: string}, path: string): any
   local loaded: mut {string: any} = {}
   local function req(name: string): any
     if name == "cosmic.html" then
-      return Html
+      return Html -- checked: any_use
     end
     if loaded[name] == nil then
       local source = assert(lua[name], "no module " .. name)
-      local env: {string: any} = setmetatable({}, { __index = _G })
-      env.require = req
+      local env: {string: any} = setmetatable({}, { __index = _G }) -- checked: setmetatable_call, unchecked_binding
+      env.require = req -- checked: map_field
       local chunk = assert(load(source, "=" .. name, "t", env))
       loaded[name] = chunk()
     end
@@ -217,9 +217,9 @@ local function render(tmp: string, case: string, template: string, page: {string
   local lua, trouble = project(tmp, case, template)
   assert(lua ~= nil, trouble)
   local mod = load_module(lua, "page")
-  assert(mod is Loaded, "page exports no render")
+  assert(mod is Loaded, "page exports no render") -- checked: is_on_record
   local out = mod.render(page)
-  if out is Html.SafeHtml then
+  if out is Html.SafeHtml then -- checked: is_on_record
     return Html.raw(out)
   end
   assert(out is string, "render answered a " .. type(out))
@@ -231,11 +231,11 @@ local function renders(tmp: string, case: string, template: string, pages: {{str
   local lua, trouble = project(tmp, case, template)
   assert(lua ~= nil, trouble)
   local mod = load_module(lua, "page")
-  assert(mod is Loaded, "page exports no render")
+  assert(mod is Loaded, "page exports no render") -- checked: is_on_record
   local outs: mut {string} = {}
   for _, page in ipairs(pages) do
     local out = mod.render(page)
-    if out is Html.SafeHtml then
+    if out is Html.SafeHtml then -- checked: is_on_record
       outs[#outs + 1] = Html.raw(out)
     else
       assert(out is string, "render answered a " .. type(out))
@@ -262,7 +262,7 @@ end
 
 local function test_the_checker_counts_a_warning_as_a_refusal_here(tmp: string)
   local lua, trouble = build(tmp, "warning", { ["x.tl"] = "local unused = 1\nreturn {}\n" })
-  assert(lua == nil and trouble:find("unused", 1, true), tostring(trouble))
+  assert(lua == nil and trouble:find("unused", 1, true), tostring(trouble)) -- checked: or_mix
 end
 
 local function test_a_type_error_in_a_text_template_is_on_the_templates_line(tmp: string)
@@ -346,8 +346,8 @@ local function test_a_json_slot_takes_only_a_safejson_and_a_selector_slot_a_stri
 end
 
 local function test_a_json_slot_renders_attribute_safe_json_for_either_quote(tmp: string)
-  local json = assert(Html.json({ id = 7, kind = "<b>\"q\" & 'a'</b>", ["js:x"] = { "javascript:" } }))
-  local page: {string: any} = { j = json }
+  local json = assert(Html.json({ id = 7, kind = "<b>\"q\" & 'a'</b>", ["js:x"] = { "javascript:" } })) -- checked: literal_shape
+  local page: {string: any} = { j = json } -- checked: any_use
   local text = Html.raw_json(json)
   for _, quote in ipairs({ '"', "'" }) do
     local out = render(tmp, "json-" .. (if quote == '"' then "dq" else "sq" end), USE ..
@@ -366,7 +366,7 @@ local function attribute(out: string, name: string): string
   assert(value ~= nil, "no " .. name .. " in " .. out)
   local named: {string: string} = { quot = '"', amp = "&", lt = "<", gt = ">" }
   return (value:gsub("&#(%d+);", function(n: string): string
-    return string.char(tonumber(n) as integer)
+    return string.char(tonumber(n) as integer) -- checked: cast_refused
   end):gsub("&(%a+);", named))
 end
 
@@ -385,26 +385,26 @@ local function test_a_request_url_slot_is_checked_as_a_same_origin_reference(tmp
     { source = "mailto:a@b.example", want = "about:invalid" },
   }
   for index, case in ipairs(cases) do
-    local out = render(tmp, "local-" .. tostring(index), template, { url = case.source, u = Html.trust_url("https://example.com/a") })
+    local out = render(tmp, "local-" .. tostring(index), template, { url = case.source, u = Html.trust_url("https://example.com/a") }) -- checked: any_use*2
     assert(attribute(out, "hx-get") == case.want, case.source .. ": " .. out)
     -- A SafeUrl is the author's: it passes as it is.
     assert(attribute(out, "hx-push-url") == "https://example.com/a", out)
   end
   -- An href beside it still lets a web URL through: only hx-get is local.
-  local out = render(tmp, "local-href", template, { url = "https://ok.example/", u = Html.trust_url("/p") })
+  local out = render(tmp, "local-href", template, { url = "https://ok.example/", u = Html.trust_url("/p") }) -- checked: any_use*2
   assert(attribute(out, "hx-get") == "about:invalid" and attribute(out, "href") == "https://ok.example/", out)
 end
 
 local function test_a_url_part_in_an_htmx_attribute_is_escaped_as_in_an_href(tmp: string)
   local out = render(tmp, "htmx-part", USE .. "<a hx-delete=\"/i/{{.title}}/{{.n}}?q={{.cls}}\">",
-    { title = "a/b ?#", n = 7, cls = "x&y=z" })
+    { title = "a/b ?#", n = 7, cls = "x&y=z" }) -- checked: any_use*3
   assert(attribute(out, "hx-delete") == "/i/a%2Fb%20%3F%23/7?q=x%26y%3Dz", out)
 end
 
 local function test_a_selector_slot_is_escaped_as_css_identifier_text(tmp: string)
   local out = render(tmp, "selector", USE ..
       "<a hx-target=\"#row-{{.title}}\" hx-select='.c-{{.cls}} p' hx-sync=\"#f-{{.n}}:abort\">",
-    { title = "x, body", n = 12, cls = "a'b\"c>d" })
+    { title = "x, body", n = 12, cls = "a'b\"c>d" }) -- checked: any_use*3
   assert(attribute(out, "hx-target") == "#row-x\\2c \\20 body", out)
   assert(attribute(out, "hx-select") == ".c-a\\27 b\\22 c\\3e d p", out)
   -- A number is over-escaped at the start of its text, which selects the same.
@@ -442,11 +442,11 @@ local function test_a_tested_optional_field_is_read_inside_its_arm_as_a_local(tm
   local function shown(case: string, page: {string: any}): string
     return (render(tmp, case, template, page):gsub("^%s+", ""))
   end
-  local both = shown("optional-both", { error = "<b>", owner = { name = "n" }, flag = false })
+  local both = shown("optional-both", { error = "<b>", owner = { name = "n" }, flag = false }) -- checked: any_use*3
   assert(both == "<p>&lt;b&gt;</p><i>&lt;b&gt;</i>n", both)
-  assert(shown("optional-owner", { owner = { name = "o" } }) == "oo", "owner")
+  assert(shown("optional-owner", { owner = { name = "o" } }) == "oo", "owner") -- checked: any_use
   assert(shown("optional-none", {}) == "none", "none")
-  assert(shown("optional-flag", { flag = true, error = "e" }) == "<p>e</p>F", "flag")
+  assert(shown("optional-flag", { flag = true, error = "e" }) == "<p>e</p>F", "flag") -- checked: any_use*2
 end
 
 --- A test inside a test of a prefix of its path: each path is bound to its own
@@ -459,30 +459,30 @@ local function test_guards_on_nested_prefixes_build_and_render(tmp: string)
   local function trimmed(out: string?): string
     return (assert(out):gsub("^%s+", ""))
   end
-  local full = { nest = { b = { c = "B", e = { x = "X" } }, c = "C", s = "S" } }
+  local full = { nest = { b = { c = "B", e = { x = "X" } }, c = "C", s = "S" } } -- checked: arms_differ
   -- Two deep, and a sibling path read inside the inner block.
   local two = shown("nest-two", "{{if .nest}}{{if .nest.b}}{{.nest.b.c}}{{.nest.c}}{{end}}{{end}}",
-    { full, { nest = { c = "C" } }, {} })
+    { full, { nest = { c = "C" } }, {} }) -- checked: any_use*2
   assert(trimmed(two[1]) == "BC", "two")
   assert(trimmed(two[2]) == "", "two, no b")
   assert(trimmed(two[3]) == "", "two, none")
   -- Three deep.
   local three = shown("nest-three", "{{if .nest}}{{if .nest.b}}{{if .nest.b.e}}{{.nest.b.e.x}}{{end}}{{end}}{{end}}",
-    { full, { nest = { b = { c = "B" }, c = "C" } } })
+    { full, { nest = { b = { c = "B" }, c = "C" } } }) -- checked: any_use, arms_differ
   assert(trimmed(three[1]) == "X", "three")
   assert(trimmed(three[2]) == "", "three, no e")
   -- The tested path read again under the same name.
-  local same = shown("nest-same", "{{if .nest}}{{if .nest.s}}{{.nest.s}}{{end}}{{end}}", { full, { nest = { c = "C" } } })
+  local same = shown("nest-same", "{{if .nest}}{{if .nest.s}}{{.nest.s}}{{end}}{{end}}", { full, { nest = { c = "C" } } }) -- checked: any_use*2
   assert(trimmed(same[1]) == "S", "same")
   assert(trimmed(same[2]) == "", "same, no s")
   -- An inner test of a path already bound, with an `else`.
-  local twice = shown("nest-twice", "{{if .nest}}x{{if .nest.s}}{{.nest.s}}{{else}}-{{end}}{{end}}", { full, { nest = { c = "C" } } })
+  local twice = shown("nest-twice", "{{if .nest}}x{{if .nest.s}}{{.nest.s}}{{else}}-{{end}}{{end}}", { full, { nest = { c = "C" } } }) -- checked: any_use*2
   assert(trimmed(twice[1]) == "xS", "twice")
   assert(trimmed(twice[2]) == "x-", "twice, no s")
   -- In an arm of a chain, and a range over a bound path's field.
   local chain = shown("nest-chain",
     "{{if .flag}}F{{else if .nest}}{{if .nest.b}}{{.nest.b.c}}{{else}}-{{end}}{{.nest.c}}{{else}}none{{end}}",
-    { full, { nest = { c = "C" } }, {} })
+    { full, { nest = { c = "C" } }, {} }) -- checked: any_use*2
   assert(trimmed(chain[1]) == "BC", "chain")
   assert(trimmed(chain[2]) == "-C", "chain, no b")
   assert(trimmed(chain[3]) == "none", "chain, none")
@@ -497,7 +497,7 @@ local function test_a_chain_of_three_hundred_arms_builds_and_renders(tmp: string
   end
   arms[#arms + 1] = "{{else}}none{{end}}"
   local template = HEAD .. table.concat(arms)
-  local outs = renders(tmp, "arms", template, { {}, { flag = true }, { owner = { name = "n" } }, { error = "x" } })
+  local outs = renders(tmp, "arms", template, { {}, { flag = true }, { owner = { name = "n" } }, { error = "x" } }) -- checked: any_use*3
   assert((assert(outs[1]):gsub("^%s+", "")) == "none", "none")
   assert((assert(outs[2]):gsub("^%s+", "")) == "F", "flag")
   assert((assert(outs[3]):gsub("^%s+", "")) == "o1", "owner")
@@ -523,8 +523,8 @@ local function test_a_field_named_like_a_word_of_the_language_is_reached(tmp: st
 end
 
 local function test_text_mode_renders_what_it_is_given(tmp: string)
-  local page: {string: any} = { title = "<b> & \"q\"", n = 3, items = { { name = "a", n = 1 }, { name = "b", n = 2 } },
-    flag = false, owner = { name = "u" }, list = {} }
+  local page: {string: any} = { title = "<b> & \"q\"", n = 3, items = { { name = "a", n = 1 }, { name = "b", n = 2 } }, -- checked: any_use*3, arms_differ*2
+    flag = false, owner = { name = "u" }, list = {} } -- checked: any_use*2, literal_needs_type
   local out = render(tmp, "text-run", [[
 {{type Page from data}}{{mode text}}
 {{.title}} {{.n}} {{.title | fmt.upper}}
@@ -535,18 +535,18 @@ local function test_text_mode_renders_what_it_is_given(tmp: string)
 {{with .owner}}{{.name}}{{else}}none{{end}}
 ]], page)
   assert(out == "\n<b> & \"q\" 3 <B> & \"Q\"\na=1;b=2;\nuser u\nu\n", out)
-  page.flag = true
-  page.owner = nil
+  page.flag = true -- checked: map_field
+  page.owner = nil -- checked: map_field
   local again = render(tmp, "text-run2", [[
 {{type Page from data}}{{mode text}}{{if .flag}}yes{{else}}no{{end}}{{with .owner}}{{.name}}{{else}} none{{end}}]], page)
   assert(again == "yes none", again)
 end
 
 local function test_html_mode_escapes_by_place(tmp: string)
-  local page: {string: any} = { title = "<i>&", cls = "a\"b'c", n = 7, url = "javascript:alert(1)",
-    h = Html.trust("<b>x</b>"), a = Html.escape_attr("q&r"), u = Html.href("/x"), user = { name = "<u>" },
-    p = assert(Html.url_query({ { "a b", "c&d" }, { "e", ".." } })),
-    items = { { name = "p", n = 1 }, { name = "<q>", n = 2 } } }
+  local page: {string: any} = { title = "<i>&", cls = "a\"b'c", n = 7, url = "javascript:alert(1)", -- checked: any_use*4
+    h = Html.trust("<b>x</b>"), a = Html.escape_attr("q&r"), u = Html.href("/x"), user = { name = "<u>" }, -- checked: any_use*4
+    p = assert(Html.url_query({ { "a b", "c&d" }, { "e", ".." } })), -- checked: any_use
+    items = { { name = "p", n = 1 }, { name = "<q>", n = 2 } } } -- checked: any_use, arms_differ*2
   local out = render(tmp, "html-run", HEAD .. [[
 <h1 class="{{.cls}}" title='{{.a}}'>{{.title}} {{.n}} {{.h}}</h1>
 <a href="{{.url}}">{{.user.name}}</a> <a href='{{.u}}'></a>
@@ -558,7 +558,7 @@ local function test_html_mode_escapes_by_place(tmp: string)
       '<a href="/i/%3Ci%3E%26/7?a%20b=c%26d&amp;e=..&q=a%22b%27c">x</a>' ..
       '<a href=\'mailto:%3Ci%3E%26\'>y</a>\n' ..
       '<i title="1">p</i><i title="2">&lt;q&gt;</i>\n', out)
-  page.url = "/a?x=1&y=2"
+  page.url = "/a?x=1&y=2" -- checked: map_field
   local second = render(tmp, "html-run2", HEAD .. '<a href="{{.url}}">', page)
   assert(second == '\n<a href="' .. esc_attr("/a?x=1&y=2") .. '">', second)
   local text = render(tmp, "html-run3", HEAD .. '<title>{{.title}}</title><textarea>{{.n}}</textarea>', page)
@@ -566,7 +566,7 @@ local function test_html_mode_escapes_by_place(tmp: string)
 end
 
 local function test_a_module_named_like_a_global_is_not_the_global(tmp: string)
-  local page: {string: any} = { title = "abc" }
+  local page: {string: any} = { title = "abc" } -- checked: any_use
   local out = render(tmp, "global", "{{type Page from data}}{{mode text}}{{.title | util.string.upper}}", page)
   assert(out == "ABC", out)
 end
@@ -600,7 +600,7 @@ local function test_markup_from_another_template_is_a_type_error_inside_svg_math
     assert(lua == nil, outer .. ": built")
     assert(trouble:find("page.tmpl:3:", 1, true) and trouble:find("SafeHtml", 1, true), outer .. ": " .. trouble)
   end
-  local page: {string: any} = { title = "<b>&", n = 2 }
+  local page: {string: any} = { title = "<b>&", n = 2 } -- checked: any_use*2
   local out = render(tmp, "foreign-text", HEAD ..
       "<svg><text>{{.title}} {{.n}}</text></svg><math>{{.title}}</math><select><option>{{.title}}</option></select>",
     page)
@@ -613,25 +613,25 @@ local function test_markup_from_another_template_goes_into_text_outside_svg_math
     ["page.tmpl"] = HEAD .. "<p>{{. | inner.render}}</p><svg></svg><select></select>{{. | inner.render}}" })
   assert(lua ~= nil, trouble)
   local mod = load_module(lua, "page")
-  assert(mod is Loaded, "page exports no render")
-  local made = mod.render({ title = "a\"b" })
-  assert(made is Html.SafeHtml, "render answered a " .. type(made))
+  assert(mod is Loaded, "page exports no render") -- checked: is_on_record
+  local made = mod.render({ title = "a\"b" }) -- checked: any_use
+  assert(made is Html.SafeHtml, "render answered a " .. type(made)) -- checked: is_on_record
   local inner = '\n<title><img src=x onerror="a&quot;b"></title>'
   assert(Html.raw(made) == "\n<p>" .. inner .. "</p><svg></svg><select></select>" .. inner, Html.raw(made))
 end
 
 local function test_a_range_over_strings_and_a_with_over_an_optional_field(tmp: string)
-  local page: {string: any} = { list = { "a", "<" }, owner = { name = "u&" } }
+  local page: {string: any} = { list = { "a", "<" }, owner = { name = "u&" } } -- checked: any_use*2
   local out = render(tmp, "range-strings", HEAD .. "{{range .list}}[{{.}}]{{end}}" ..
       "{{with .owner}}<b>{{.name}}</b>{{else}}none{{end}}", page)
   assert(out == "\n[a][&lt;]<b>u&amp;</b>", out)
-  page.owner = nil
+  page.owner = nil -- checked: map_field
   local none = render(tmp, "with-nil", HEAD .. "{{with .owner}}<b>{{.name}}</b>{{else}}none{{end}}", page)
   assert(none == "\nnone", none)
 end
 
 local function test_a_stage_answering_a_safe_type_fits_the_slot_that_takes_it(tmp: string)
-  local page: {string: any} = { title = "/a<b" }
+  local page: {string: any} = { title = "/a<b" } -- checked: any_use
   local out = render(tmp, "stages", HEAD ..
       '<p>{{.title | fmt.markup}}</p><i title="{{.title | fmt.attr}}"></i><a href="{{.title | fmt.url}}">x</a>', page)
   assert(out == "\n<p>/a<b</p><i title=\"/a<b\"></i><a href=\"" .. esc_attr("/a<b") .. "\">x</a>", out)
@@ -644,7 +644,7 @@ local function test_a_stage_answering_a_safe_type_fits_the_slot_that_takes_it(tm
 end
 
 local function test_a_crlf_template_goes_through_the_checker_and_keeps_its_line_ends(tmp: string)
-  local page: {string: any} = { title = "t" }
+  local page: {string: any} = { title = "t" } -- checked: any_use
   local out = render(tmp, "crlf", "{{type Page from data}}\r\n<p>\r\n{{.title}}\r\n</p>\r\n", page)
   assert(out == "\r\n<p>\r\nt\r\n</p>\r\n", out)
   local text = render(tmp, "crlf-text", "{{type Page from data}}{{mode text}}\r\na\r\n{{- .title}}\r\n", page)
@@ -654,7 +654,7 @@ local function test_a_crlf_template_goes_through_the_checker_and_keeps_its_line_
 end
 
 local function test_a_repeated_attribute_is_judged_each_time(tmp: string)
-  local page: {string: any} = { url = "javascript:x" }
+  local page: {string: any} = { url = "javascript:x" } -- checked: any_use
   local out = render(tmp, "dup", HEAD .. '<a href="x" href="{{.url}}">', page)
   assert(out == '\n<a href="x" href="' .. esc_attr("about:invalid") .. '">', out)
 end
@@ -666,14 +666,14 @@ local function test_a_block_that_adds_a_bare_attribute_renders_it_only_when_its_
       '<input{{if .flag}} required{{else}} readonly{{end}} name="b">')
   assert(lua ~= nil, trouble)
   local mod = load_module(lua, "page")
-  assert(mod is Loaded, "page exports no render")
-  local on_made = mod.render({ flag = true, cls = "c\"" })
-  assert(on_made is Html.SafeHtml, "render answered a " .. type(on_made))
+  assert(mod is Loaded, "page exports no render") -- checked: is_on_record
+  local on_made = mod.render({ flag = true, cls = "c\"" }) -- checked: any_use*2
+  assert(on_made is Html.SafeHtml, "render answered a " .. type(on_made)) -- checked: is_on_record
   local on = Html.raw(on_made)
   assert(on == '\n<input type="checkbox" checked name="a"><input disabled>\n' ..
       '<option selected value="c&#34;">x</option><br hidden/>\n<input required name="b">', on)
-  local off_made = mod.render({ flag = false, cls = "c\"" })
-  assert(off_made is Html.SafeHtml, "render answered a " .. type(off_made))
+  local off_made = mod.render({ flag = false, cls = "c\"" }) -- checked: any_use*2
+  assert(off_made is Html.SafeHtml, "render answered a " .. type(off_made)) -- checked: is_on_record
   local off = Html.raw(off_made)
   assert(off == '\n<input type="checkbox" name="a"><input>\n' ..
       '<option value="c&#34;">x</option><br/>\n<input readonly name="b">', off)
@@ -708,13 +708,13 @@ local function test_a_range_runs_its_else_when_the_list_is_empty_and_reads_the_l
       "{{.title | counter.count}}" })
   assert(lua ~= nil, trouble)
   local full = load_module(lua, "page")
-  assert(full is Loaded, "page exports no render")
-  local listed = full.render({ list = { "a", "<" }, title = "none" })
-  assert(listed is Html.SafeHtml and Html.raw(listed) == "\n<ul><li>a</li><li>&lt;</li></ul>1", tostring(listed))
+  assert(full is Loaded, "page exports no render") -- checked: is_on_record
+  local listed = full.render({ list = { "a", "<" }, title = "none" }) -- checked: any_use*2
+  assert(listed is Html.SafeHtml and Html.raw(listed) == "\n<ul><li>a</li><li>&lt;</li></ul>1", tostring(listed)) -- checked: is_on_record
   local empty = load_module(lua, "page")
-  assert(empty is Loaded, "page exports no render")
-  local none = empty.render({ list = {}, title = "<none>" })
-  assert(none is Html.SafeHtml and Html.raw(none) == "\n<ul><p>&lt;none&gt;</p></ul>1", tostring(none))
+  assert(empty is Loaded, "page exports no render") -- checked: is_on_record
+  local none = empty.render({ list = {}, title = "<none>" }) -- checked: any_use, literal_needs_type
+  assert(none is Html.SafeHtml and Html.raw(none) == "\n<ul><p>&lt;none&gt;</p></ul>1", tostring(none)) -- checked: is_on_record
 end
 
 local function test_a_range_else_reads_the_enclosing_dot(tmp: string)
@@ -722,15 +722,15 @@ local function test_a_range_else_reads_the_enclosing_dot(tmp: string)
       "{{range .items}}{{.name}};{{else}}{{range .list}}{{.}}{{else}}{{.title}}{{end}}{{end}}")
   assert(lua ~= nil, trouble)
   local mod = load_module(lua, "page")
-  assert(mod is Loaded, "page exports no render")
+  assert(mod is Loaded, "page exports no render") -- checked: is_on_record
   -- TODO: type these rows as a record once a `{string: any}` field takes literals without any_use.
-  for _, case in ipairs({
-      { { items = { { name = "a", n = 1 }, { name = "b", n = 2 } } } as {string: any}, "\na;b;" },
-      { { items = {}, list = { "x", "y" } } as {string: any}, "\nxy" },
-      { { items = {}, list = {}, title = "t<" } as {string: any}, "\nt&lt;" },
+  for _, case in ipairs({ -- checked: cast_refused
+      { { items = { { name = "a", n = 1 }, { name = "b", n = 2 } } } as {string: any}, "\na;b;" }, -- checked: arms_differ*2, cast_refused
+      { { items = {}, list = { "x", "y" } } as {string: any}, "\nxy" }, -- checked: cast_refused, literal_needs_type
+      { { items = {}, list = {}, title = "t<" } as {string: any}, "\nt&lt;" }, -- checked: cast_refused, literal_needs_type*2
   } as {{any}}) do
-    local out = mod.render(case[1] as {string: any})
-    assert(out is Html.SafeHtml and Html.raw(out) == case[2], tostring(case[2]))
+    local out = mod.render(case[1] as {string: any}) -- checked: cast_refused
+    assert(out is Html.SafeHtml and Html.raw(out) == case[2], tostring(case[2])) -- checked: is_on_record
   end
   local wrong = refused(tmp, "else-dot-wrong", HEAD .. "{{range .items}}{{.name}}\n{{else}}{{.name}}{{end}}")
   assert(wrong:find("page.tmpl:3:", 1, true) and wrong:find("name", 1, true), wrong)
@@ -747,7 +747,7 @@ local function test_a_stage_answering_more_than_one_value_is_refused_in_every_po
 end
 
 local function test_an_item_loop_reads_the_root_and_a_1_based_index(tmp: string)
-  local page: {string: any} = { title = "<t>", items = { { name = "a", n = 1 }, { name = "b&", n = 2 } } }
+  local page: {string: any} = { title = "<t>", items = { { name = "a", n = 1 }, { name = "b&", n = 2 } } } -- checked: any_use*2, arms_differ*2
   local out = render(tmp, "root-index", HEAD ..
       "{{range $i, $x := .items}}<p title=\"{{$.title}}\">{{$i}}:{{$x.name}}/{{.n}} of {{$.title}}</p>{{end}}", page)
   local title = esc_attr("<t>")
@@ -761,8 +761,8 @@ local function test_the_index_is_an_integer_to_the_checker(tmp: string)
 end
 
 local function test_nested_ranges_read_the_outer_element_index_and_root(tmp: string)
-  local page: {string: any} = { title = "T", items = { { name = "a", n = 1 }, { name = "b", n = 2 } },
-    list = { "x", "y" } }
+  local page: {string: any} = { title = "T", items = { { name = "a", n = 1 }, { name = "b", n = 2 } }, -- checked: any_use*2, arms_differ*2
+    list = { "x", "y" } } -- checked: any_use
   local out = render(tmp, "nested-bindings", "{{type Page from data}}{{mode text}}" ..
       "{{range $i, $x := .items}}{{range $j, $s := $.list}}{{$i}}.{{$j}}={{$x.name}}{{$s}}{{.}}{{$.title}} {{end}}{{end}}",
     page)
@@ -772,8 +772,8 @@ end
 local function test_with_keeps_the_root_and_the_enclosing_bindings(tmp: string)
   local outs = renders(tmp, "with-bindings", "{{type Page from data}}{{mode text}}" ..
       "{{range $i, $x := .items}}{{with $.owner}}{{.name}}{{$x.name}}{{$i}}{{$.title}}{{else}}-{{$x.n}}{{end}};{{end}}", {
-        { title = "T", owner = { name = "u" }, items = { { name = "a", n = 1 }, { name = "b", n = 2 } } },
-        { title = "T", items = { { name = "a", n = 1 } } },
+        { title = "T", owner = { name = "u" }, items = { { name = "a", n = 1 }, { name = "b", n = 2 } } }, -- checked: any_use*3, arms_differ*2
+        { title = "T", items = { { name = "a", n = 1 } } }, -- checked: any_use*2, arms_differ
       })
   assert(outs[1] == "ua1T;ub2T;", outs[1])
   assert(outs[2] == "-1;", outs[2])
@@ -793,7 +793,7 @@ local function test_a_binding_named_like_a_generated_name_or_a_module_builds_and
     body[#body + 1] = "{{range $i, $" .. name .. " := .items}}{{$" .. name .. ".name | fmt.upper}}{{$i}}{{end}}"
   end
   local out = render(tmp, "binding-names", HEAD .. table.concat(body) .. "{{.title | fmt.bracket}}",
-    { title = "t", items = { { name = "a", n = 1 } } })
+    { title = "t", items = { { name = "a", n = 1 } } }) -- checked: any_use*2, arms_differ
   assert(out == "\n" .. string.rep("A1", #names) .. "[t]", out)
 end
 
@@ -805,8 +805,8 @@ local function test_a_range_with_bindings_reads_its_list_once(tmp: string)
       "{{with $.list | counter.some}}{{range $s := .}}{{$s}}{{end}}{{end}}|{{.title | counter.count}}" })
   assert(lua ~= nil, trouble)
   local mod = load_module(lua, "page")
-  assert(mod is Loaded, "page exports no render")
-  local out = mod.render({ list = { "a", "b" }, title = "" })
+  assert(mod is Loaded, "page exports no render") -- checked: is_on_record
+  local out = mod.render({ list = { "a", "b" }, title = "" }) -- checked: any_use*2
   assert(out == "1a2b|1a2b|ab|3", tostring(out))
 end
 

@@ -280,7 +280,7 @@ end
 
 local function test_a_command_line_it_cannot_read_is_refused()
   for _, words in ipairs({
-      {}, { "later" }, { "now", "extra" }, { "convert" }, { "convert", "@0", "@1" }, { "add", "@0" },
+      {}, { "later" }, { "now", "extra" }, { "convert" }, { "convert", "@0", "@1" }, { "add", "@0" }, -- checked: literal_needs_type
       { "between", "@0" }, { "now", "--days" }, { "convert", "@0", "--zone", "UTC" }, { "now", "--bogus" },
       { "between", "@0", "@1", "--days", "--months" }, { "now", "--json", "--format", "epoch" },
       { "convert", "@0", "--disambiguate", "sometimes" }, { "add", "@0", "1d", "--from", "UTC" },
@@ -309,7 +309,7 @@ local function test_a_dash_digit_option_value_is_the_users_own_word()
     local ran = run(words)
     assert(ran.code == 2 and ran.out == "", table.concat(words, " "))
     assert(ran.err:find(" -", 1, true) and not ran.err:find("\1", 1, true), ran.err)
-    assert(ran.err:find(words[#words], 1, true), ran.err)
+    assert(ran.err:find(words[#words], 1, true), ran.err) -- checked: index_may_be_nil
   end
 end
 

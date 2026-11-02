@@ -14,14 +14,14 @@ end
 local function pattern_error(pattern: string, subject: string): string
   local said: mut {string} = {}
   local functions: {function(string, string): any} = {
-    function(s: string, p: string): any return (s:find(p)) end,
-    function(s: string, p: string): any return (s:match(p)) end,
+    function(s: string, p: string): any return (s:find(p)) end, -- checked: any_use
+    function(s: string, p: string): any return (s:match(p)) end, -- checked: any_use
     function(s: string, p: string): any
       for _ in s:gmatch(p) do
       end
-      return nil
+      return nil -- checked: any_use
     end,
-    function(s: string, p: string): any return (s:gsub(p, "")) end,
+    function(s: string, p: string): any return (s:gsub(p, "")) end, -- checked: any_use
   }
   for _, each in ipairs(functions) do
     local ok, why = pcall(each, subject, pattern)
@@ -36,8 +36,8 @@ end
 local function drawer(seed: integer): function(n: integer): integer
   local held = { state = seed }
   return function(n: integer): integer
-    held.state = (held.state * 1103515245 + 12345) % 2147483648
-    return held.state % n + 1
+    held.state = (held.state * 1103515245 + 12345) % 2147483648 -- checked: map_field*2
+    return held.state % n + 1 -- checked: map_field
   end
 end
 
@@ -58,7 +58,7 @@ end
 
 --- What a problem says, or "".
 local function message(problem: Literals.Problem?): string
-  return problem ~= nil and problem.msg or ""
+  return problem ~= nil and problem.msg or "" -- checked: and_ternary
 end
 
 -- patterns -------------------------------------------------------------------------------------------------------------
@@ -188,7 +188,7 @@ local function test_a_format_the_walk_takes_is_the_one_lua_takes_and_the_other_w
     local read = Literals.format(format)
     local values: mut {any} = {}
     for i = 1, #read.kinds + 1 do
-      values[i] = 1
+      values[i] = 1 -- checked: any_use
     end
     local ok, why = pcall(string.format, format, table.unpack(values))
     local lua_refuses = not ok and (has(tostring(why), "invalid conversion") or has(tostring(why), "cannot have modifiers") or
@@ -269,15 +269,15 @@ local function codes_of(fn: string, literals: {integer: string}, plain?: string)
 end
 
 local function test_a_call_is_read_where_it_is_a_pattern_a_replacement_a_format_or_a_pack_format()
-  assert(codes_of("find", { "abc", "a)" }) == "pattern_malformed@2")
+  assert(codes_of("find", { "abc", "a)" }) == "pattern_malformed@2") -- checked: literal_shape
   assert(codes_of("match", { [2] = "(" }) == "pattern_malformed@2")
   assert(codes_of("gmatch", { [2] = "[" }) == "pattern_malformed@2")
   assert(codes_of("gsub", { [2] = "%w", [3] = "%2" }) == "pattern_malformed@3")
   assert(codes_of("gsub", { [2] = "(", [3] = "%2" }) == "pattern_malformed@2", "a replacement is read only for a pattern that is right")
-  assert(codes_of("format", { "%y" }) == "format_malformed@1")
-  assert(codes_of("pack", { "y" }) == "pack_malformed@1")
-  assert(codes_of("unpack", { "y", "" }) == "pack_malformed@1")
-  assert(codes_of("packsize", { "s" }) == "pack_malformed@1")
+  assert(codes_of("format", { "%y" }) == "format_malformed@1") -- checked: literal_shape
+  assert(codes_of("pack", { "y" }) == "pack_malformed@1") -- checked: literal_shape
+  assert(codes_of("unpack", { "y", "" }) == "pack_malformed@1") -- checked: literal_shape
+  assert(codes_of("packsize", { "s" }) == "pack_malformed@1") -- checked: literal_shape
   -- a pattern that is no literal is not read, nor one `find` is asked to take as plain text
   assert(codes_of("find", {}) == "")
   assert(codes_of("find", { [2] = "a)" }, "true") == "")
@@ -292,7 +292,7 @@ local function test_each_conversion_with_each_flag_width_and_precision_is_read_a
     for _, flag in ipairs({ "", "-", "+", "#", " ", "0", "-0", "+ " }) do
       for _, size in ipairs({ "", "5", "05", ".3", "5.3", "123", ".123", "5.", ".", "00", "99.99", "100" }) do
         local format = "%" .. flag .. size .. conversion
-        local ok, why = pcall(string.format, format, 1)
+        local ok, why = pcall(string.format, format, 1) -- checked: overload_none
         local lua_refuses = not ok and (has(tostring(why), "invalid conversion") or has(tostring(why), "cannot have modifiers"))
         assert((Literals.format(format).problem ~= nil) == lua_refuses, format .. ": " .. tostring(why))
         checked = checked + 1
@@ -303,7 +303,7 @@ local function test_each_conversion_with_each_flag_width_and_precision_is_read_a
   -- a conversion Lua finds too long: twenty flags are read, twenty-one are not
   for _, count in ipairs({ 20, 21, 22, 30 }) do
     local format = "%" .. string.rep("-", count) .. "d"
-    local ok, why = pcall(string.format, format, 1)
+    local ok, why = pcall(string.format, format, 1) -- checked: overload_none
     assert((Literals.format(format).problem ~= nil) == not ok, tostring(count) .. ": " .. tostring(why))
   end
 end
@@ -332,13 +332,13 @@ end
 --- The programs that give a literal a type, as Lua runs them: each raises, or answers the type the literal says.
 local function test_each_program_the_fork_types_from_its_literal_is_one_lua_faults_on_or_answers_as_typed()
   local function formats(format: string, ...: any): boolean
-    return (pcall(string.format, format, ...))
+    return (pcall(string.format, format, ...)) -- checked: alternatives_as_value
   end
   local function packs(format: string, ...: any): boolean
-    return (pcall(string.pack, format, ...))
+    return (pcall(string.pack, format, ...)) -- checked: alternatives_as_value
   end
   local function finds(subject: string, pattern: string): boolean
-    return (pcall(string.find, subject, pattern))
+    return (pcall(string.find, subject, pattern)) -- checked: overload_none
   end
   assert(not formats("%d", "x"))
   assert(not formats("%d", 1.5))
@@ -346,7 +346,7 @@ local function test_each_program_the_fork_types_from_its_literal_is_one_lua_faul
   assert(not formats("%f", true))
   assert(not packs("i", "x"))
   assert(not formats("%d %d", 1))
-  assert(formats("%d %s %q", 1, {}, "x"), "an argument of %s may be any value")
+  assert(formats("%d %s %q", 1, {}, "x"), "an argument of %s may be any value") -- checked: literal_needs_type
   assert(not finds("abc", "%b("))
   assert(not formats("%y", 1))
   -- a position capture is an integer

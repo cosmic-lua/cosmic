@@ -23,8 +23,8 @@ local function test_a_degenerate_grant_raises(tmp: string)
   local function raises(grants: any, extra?: {string:any}): boolean
     local sandbox: mut {string:any} = { grants = grants }
     for key, value in pairs(extra or {}) do sandbox[key] = value end
-    return not pcall(process.spawn, probe, { probe }, nil, nil, nil, nil, nil, false, nil,
-      sandbox as raw_process.Sandbox)
+    return not pcall(process.spawn, probe, { probe }, nil, nil, nil, nil, nil, false, nil, -- checked: overload_none
+      sandbox as raw_process.Sandbox) -- checked: cast_refused
   end
   assert(raises({ { path = probe, access = "rq" } }), "a letter that is none")
   assert(raises({ { path = probe, access = "" } }), "no letters")
@@ -32,11 +32,11 @@ local function test_a_degenerate_grant_raises(tmp: string)
   assert(raises({ { path = "", access = "r" } }), "an empty path")
   assert(raises({ { access = "r" } }), "no path")
   assert(raises({ { path = probe } }), "no access")
-  assert(raises({ { path = 1, access = "r" } }), "a path that is no string")
+  assert(raises({ { path = 1, access = "r" } }), "a path that is no string") -- checked: arms_differ
   assert(raises({ probe }), "a grant that is no table")
   assert(raises("r"), "grants that are no list")
   assert(raises({ { path = "a\0b", access = "r" } }), "a path with a NUL")
-  assert(raises({ { path = probe, access = "r" } }, { ruleset = 0 }), "a ruleset beside grants")
+  assert(raises({ { path = probe, access = "r" } }, { ruleset = 0 }), "a ruleset beside grants") -- checked: any_use
 end
 
 local function test_the_landlock_abi_is_a_version_or_a_refusal(_tmp: string)

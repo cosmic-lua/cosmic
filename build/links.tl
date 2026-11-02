@@ -161,7 +161,7 @@ end
 --- The file from the root that a link to `target` names: the file
 --- itself, or the one that declares its symbol.
 local function file_of(target: link_resolve.Target): string
-  return target.kind == "symbol" and target.file or target.path
+  return target.kind == "symbol" and target.file or target.path -- checked: and_ternary
 end
 
 --- What is wrong with `link`, a definition in the file at the absolute
@@ -207,15 +207,15 @@ function links.check(reader: links.Reader, resolver: link_resolve.Resolver, file
   end
   -- What the file declares, once a link asked for it.
   local own: mut {Known} = {}
-  if facts ~= nil and facts.known ~= nil then own[1] = facts.known end
-  local blocks = facts ~= nil and facts.blocks or reader.blocks(kind, source, file)
+  if facts ~= nil and facts.known ~= nil then own[1] = facts.known end -- checked: compare_disjoint
+  local blocks = facts ~= nil and facts.blocks or reader.blocks(kind, source, file) -- checked: and_ternary
   for _, link in ipairs(link_text.in_blocks(blocks)) do
     local function declared(): link_text.Declared
       local found: Known = own[1] or reader.declarations(kind, source, file)
       own[1] = found
       return found.at(link.line)
     end
-    local wrong = link.form == "definition" and misdefined(resolver, absolute, link, declared) or nil
+    local wrong = link.form == "definition" and misdefined(resolver, absolute, link, declared) or nil -- checked: and_ternary
     if wrong ~= nil then
       out[#out + 1] = file .. ":" .. tostring(link.line) .. ": link: " .. wrong
     -- A reference's target is checked where its definition is.
@@ -287,7 +287,7 @@ function links.rewrite(reader: links.Reader, resolver: link_resolve.Resolver, fi
   end
   -- What the file declares is read once a span could name something.
   local held: mut {Known} = {}
-  if facts ~= nil and facts.known ~= nil then held[1] = facts.known end
+  if facts ~= nil and facts.known ~= nil then held[1] = facts.known end -- checked: compare_disjoint
   local function known(): Known
     local found = held[1]
     if found == nil then
@@ -307,15 +307,15 @@ function links.rewrite(reader: links.Reader, resolver: link_resolve.Resolver, fi
   local by_label: mut {string: {Brackets}} = {}
   local label_target: mut {string: string} = {}
   local refused: mut {string: boolean} = {}
-  local blocks = facts ~= nil and facts.blocks or reader.blocks(kind, body, file)
+  local blocks = facts ~= nil and facts.blocks or reader.blocks(kind, body, file) -- checked: and_ternary
   for _, block in ipairs(blocks) do
     local defined: mut {string: boolean} = {}
-    if block.text:find("]:", 1, true) ~= nil then
+    if block.text:find("]:", 1, true) ~= nil then -- untyped: call
       for _, link in ipairs(link_text.parse(block.text)) do
         if link.form == "definition" then defined[link_text.label_key(link.label or "")] = true end
       end
     end
-    local starts = block.starts or {}
+    local starts = block.starts or {} -- checked: literal_needs_type
     local spans = link_text.plain_spans(block.text)
     local block_lines: mut {string} = {}
     if kind == "c" and #spans > 0 then
@@ -344,7 +344,7 @@ function links.rewrite(reader: links.Reader, resolver: link_resolve.Resolver, fi
           end
           label_target[key] = said
           by_label[key] = by_label[key] or {}
-          table.insert(by_label[key], { open = at, close = at + #span.written })
+          table.insert(by_label[key], { open = at, close = at + #span.written }) -- checked: overload_none -- untyped: call
           inserts[at] = "["
           inserts[at + #span.written] = "]"
           out.linked[#out.linked + 1] = file .. ":" .. (block.line + span.line - 1) ..
@@ -443,7 +443,7 @@ function links.rewrite(reader: links.Reader, resolver: link_resolve.Resolver, fi
     return out
   end
   if block == "" then
-    out.source = managed == "" and linked or (linked:gsub("%s+$", "") .. "\n")
+    out.source = managed == "" and linked or (linked:gsub("%s+$", "") .. "\n") -- checked: and_ternary
   else
     out.source = linked:gsub("%s+$", "") .. "\n\n" .. block .. "\n"
   end

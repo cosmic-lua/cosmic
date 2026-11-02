@@ -40,7 +40,7 @@ local function gen_rows(src: Fuzz.Source): string
     while Fuzz.more(src, count, 4) do
       count = count + 1
       fields[#fields + 1] = "p"
-      fields[#fields + 1] = src:int(0, 11) == 0 and Fuzz.bytes(src, 4) or Fuzz.pick(src, KEYS)
+      fields[#fields + 1] = src:int(0, 11) == 0 and Fuzz.bytes(src, 4) or Fuzz.pick(src, KEYS) -- checked: and_ternary
       fields[#fields + 1] = tostring(src:int(1, 14))
     end
   end
@@ -56,7 +56,7 @@ local function rows_from(input: string): {dataset.Row}
     else
       local last = rows[#rows]
       if last ~= nil then
-        last[support.nth(fields, at + 1)] = value_at(math.tointeger(tonumber(fields[at + 2])) or 1)
+        last[support.nth(fields, at + 1)] = value_at(math.tointeger(tonumber(fields[at + 2])) or 1) -- checked: view_written
       end
     end
   end
@@ -74,7 +74,7 @@ local function test_a_loaded_row_reads_back_through_json(tmp: string)
     check = function(input: string): boolean, string
       local rows = rows_from(input)
       local db = assert(Sqlite.memory())
-      local ok, made, why = pcall(dataset.load, db, "t", rows)
+      local ok, made, why = pcall(dataset.load, db, "t", rows) -- checked: overload_none
       if not ok then return false, "raised: " .. tostring(made) end
       if made == nil then
         -- A key that is not UTF-8 (which no decoder makes) cannot be
@@ -139,7 +139,7 @@ local function gen_text(src: Fuzz.Source): string
   if src:int(0, 3) == 0 then
     local parts: mut {string} = {}
     while Fuzz.more(src, #parts, 20) do
-      parts[#parts + 1] = src:int(0, 3) == 0 and Fuzz.bytes(src, 3) or Fuzz.pick(src, TOKENS)
+      parts[#parts + 1] = src:int(0, 3) == 0 and Fuzz.bytes(src, 3) or Fuzz.pick(src, TOKENS) -- checked: and_ternary
     end
     text = table.concat(parts)
   else
@@ -158,7 +158,7 @@ local function test_a_reader_is_total_on_any_text(tmp: string)
     shares = { read = 0.15, refused = 0.15 },
     check = function(input: string): boolean, string
       local fields = Fuzz.unpack(input)
-      local ok, rows, why = pcall(dataset.read, fields[1], fields[2])
+      local ok, rows, why = pcall(dataset.read, fields[1], fields[2]) -- checked: overload_none
       if not ok then return false, "raised: " .. tostring(rows) end
       if rows == nil then
         Fuzz.label("refused")
@@ -207,7 +207,7 @@ local function test_each_key_reads_back_by_its_column(tmp: string)
     check = function(input: string): boolean, string
       local rows = rows_from(input)
       local db = assert(Sqlite.memory())
-      local made = dataset.load(db, "t", rows)
+      local made = dataset.load(db, "t", rows) -- checked: not_assignable
       if made == nil then return true, "" end
       local column_of: mut {string:string} = {}
       -- The last column is the row's own `_json`, no key's.

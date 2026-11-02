@@ -419,9 +419,9 @@ local function rows_of(db: Sqlite.Handle, head: string): {Row}?, string
             line = row:integer(2),
             last = row:integer(3),
             text = row:text(4),
-            commit = blamed and row:text(6) or "",
-            author_time = blamed and row:integer(7) or 0,
-            summary = blamed and row:text(8) or "",
+            commit = blamed and row:text(6) or "", -- checked: and_ternary
+            author_time = blamed and row:integer(7) or 0, -- checked: and_ternary
+            summary = blamed and row:text(8) or "", -- checked: and_ternary
             boundary = blamed and row:integer(9) ~= 0,
           },
           sha256 = row:text(5),
@@ -511,14 +511,14 @@ local function blame_rows(db: Sqlite.Handle, root: string, head: string,
         pending[file] = {}
         order[#order + 1] = file
       end
-      table.insert(pending[file], row)
+      table.insert(pending[file], row) -- checked: overload_none -- untyped: call
     end
   end
   local lines: mut {string:{integer}} = {}
   for _, file in ipairs(order) do
     lines[file] = {}
     for _, row in ipairs((assert(pending[file], "every file in order has pending rows"))) do
-      table.insert(lines[file], row.todo.line)
+      table.insert(lines[file], row.todo.line) -- checked: overload_none -- untyped: call
     end
   end
   local blamed = blame_files(root, lines, order, run_git)
@@ -664,7 +664,7 @@ function todos.arguments(root: string, argv: {string}): todos.Arguments
   for _, word in ipairs(argv) do
     -- A path when it names one, and words to search for when not, as
     -- `cosmic docs` takes a symbol first and words after.
-    local full = word:sub(1, 1) == "/" and word or root .. "/" .. word
+    local full = word:sub(1, 1) == "/" and word or root .. "/" .. word -- checked: and_ternary
     local absolute, _ = Fs.absolute(full)
     if word ~= "" and absolute ~= nil then
       named[#named + 1] = full
@@ -703,7 +703,7 @@ function todos.run(argv: {string}, at?: string, seen?: reboot.Seen): integer
   if code ~= nil then
     return code
   end
-  local parsed, parse_trouble = Flags.parse(argv, 2, assert(Cli.verbs.todos.spec))
+  local parsed, parse_trouble = Flags.parse(argv, 2, assert(Cli.verbs.todos.spec)) -- checked: map_field
   if parsed == nil then
     log:complain("todos: " .. parse_trouble)
     return 2

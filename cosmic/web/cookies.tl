@@ -108,7 +108,7 @@ end
 function Cookies.parse(header: string?): {string:string}
   local out: mut {string:string} = {}
   if header == nil or header == "" then return out end
-  local text: string = header or ""
+  local text: string = header or "" -- checked: condition_type
   if #text > MAX_HEADER then
     -- Cut at a separator, so a cookie is never read half.
     text = text:sub(1, MAX_HEADER)

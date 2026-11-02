@@ -14,10 +14,10 @@
 
 local type NativeCoverage = require("cosmic.internal.debug")
 
-local extra: any = select(2, ...)
+local extra: any = select(2, ...) -- checked: any_use
 local native: NativeCoverage
 if type(extra) == "table" then
-  native = extra as NativeCoverage
+  native = extra as NativeCoverage -- checked: cast_refused
 else
   native = require("cosmic.internal.debug")
 end

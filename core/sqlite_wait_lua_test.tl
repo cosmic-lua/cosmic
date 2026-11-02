@@ -205,7 +205,7 @@ local function test_typed_step_captures_cancellation_before_finalize(tmp: string
   assert(cancelled.code == Sqlite.BUSY and cancelled.cancelled == true and signal == sys.SIGTERM)
   db:busy_timeout(0)
   local busy = Sqlite.run_result(db, "INSERT INTO t VALUES (2)")
-  assert(busy.code == Sqlite.BUSY and not busy.cancelled)
+  assert(busy.code == Sqlite.BUSY and not busy.cancelled) -- checked: condition_type
   assert(cancelled.cancelled == true and cancelled.reason ~= "")
   assert(db:close())
   assert(assert(held.stdin_stream):close())

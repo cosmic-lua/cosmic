@@ -63,7 +63,7 @@ local function complaints(run: function(): string): string, string
   local log = logger.log
   local complain = log.complain
   log.complain = function(_: Log.Logger, line: string): boolean, string
-    table.insert(said, line)
+    table.insert(said, line) -- checked: overload_none
     return true, ""
   end
   local ran, answer = pcall(run)
@@ -316,7 +316,7 @@ local function test_a_reading_verbs_check_waits_for_no_run_holding_the_database(
   local held = assert(Sqlite.open(paths.under((assert(paths.directory(tmp)))).working, { writable = true }))
   assert(held:exec("BEGIN IMMEDIATE"))
   local started = Clock.monotonic_ns()
-  local code = reboot.stale_exit({ [1] = "docs", [2] = "Fs.read" }, true, tmp, seen_of(tmp))
+  local code = reboot.stale_exit({ [1] = "docs", [2] = "Fs.read" }, true, tmp, seen_of(tmp)) -- checked: literal_shape
   local took = Clock.monotonic_ns() - started
   assert(held:exec("ROLLBACK"))
   assert(held:close())
@@ -343,7 +343,7 @@ local function test_a_reading_verbs_check_holds_the_tool_to_the_tree_when_the_lo
   assert(Fs.mkdirs(tmp .. "/build"))
   assert(Fs.write(tmp .. "/build/importer.tl", "return {}\n"))
   assert(work.close((assert(work.open(tmp)))))
-  local code = reboot.stale_exit({ [1] = "docs", [2] = "Fs.read" }, true, tmp, seen_of(tmp))
+  local code = reboot.stale_exit({ [1] = "docs", [2] = "Fs.read" }, true, tmp, seen_of(tmp)) -- checked: literal_shape
   assert(code == 3, tostring(code))
   local db = assert(Sqlite.open(paths.under((assert(paths.directory(tmp)))).working))
   local rows = assert(Sqlite.text_rows(db, "SELECT path FROM files WHERE path = 'build/importer.tl'"))
@@ -372,7 +372,7 @@ end
 --- so it refuses.
 local function test_a_reading_verbs_check_holds_the_tool_to_the_tree_over_a_free_database_of_another_schema(tmp: string)
   local path = own_tree_of_another_schema(tmp)
-  local code = reboot.stale_exit({ [1] = "docs", [2] = "Fs.read" }, true, tmp, seen_of(tmp))
+  local code = reboot.stale_exit({ [1] = "docs", [2] = "Fs.read" }, true, tmp, seen_of(tmp)) -- checked: literal_shape
   assert(code == 3, tostring(code))
   local db = assert(Sqlite.open(path))
   local schema = assert(Sqlite.text_rows(db, "SELECT value FROM meta WHERE key = 'schema'"))
@@ -392,7 +392,7 @@ local function test_a_reading_verbs_check_says_a_held_database_is_of_another_sch
   local held = assert(Sqlite.open(path, { writable = true }))
   assert(held:exec("BEGIN IMMEDIATE"))
   local code, all = complaints(function(): string
-    return tostring(reboot.stale_exit({ [1] = "docs", [2] = "Fs.read" }, true, tmp, seen_of(tmp)))
+    return tostring(reboot.stale_exit({ [1] = "docs", [2] = "Fs.read" }, true, tmp, seen_of(tmp))) -- checked: literal_shape
   end)
   assert(held:exec("ROLLBACK"))
   assert(held:close())

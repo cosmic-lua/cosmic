@@ -53,7 +53,7 @@ local record verb
   end
 end
 
-local spec = Cli.verbs.compile.spec or {}
+local spec = Cli.verbs.compile.spec or {} -- checked: literal_needs_type, map_field
 
 local usage = "cosmic compile [--grammar new] [--errors] [--root <dir>] [-o <dir>] <file.tl>..."
 
@@ -81,7 +81,7 @@ local function arguments(argv: {string}): Request?, string
   local request: Request = {
     files = parsed.words,
     directory = parsed.values["-o"],
-    errors = parsed.set["--errors"] or false,
+    errors = parsed.set["--errors"] or false, -- checked: condition_type
     root = parsed.values["--root"],
     grammar = parsed.values["--grammar"] or "new",
   }

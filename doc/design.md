@@ -1065,7 +1065,7 @@ row in the catalog ([`build/error_catalog.tl`]) with the rule, why the language 
 the tree is held to the rules by markers and ceilings. a finding a stage of the checker (`scoped`, `declared`, `checked`,
 and `untyped` for the calls whose callee the checker could not type) still makes in the tree is held where it occurs, by a
 trailing comment such as `-- checked: map_field` ([`build/markers.tl`]); build/ceilings.txt lists the stages held that way under
-`[marked]` and pins, per file and code, the findings of the others. a module is refused for a finding with no marker (or above
+`[marked]` and pins, per file and code, the findings of the examples a reader copies. a module is refused for a finding with no marker (or above
 its pin), a tree check fails for a marker whose finding is gone (and `cosmic fix` removes it), and the markers of a file only
 fall against the merge base, so a new violation is refused. a project outside the tree has no ceilings: every error refuses.
 

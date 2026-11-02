@@ -72,8 +72,8 @@ local function test_past_its_bound_the_least_lately_used_go(tmp: string)
   assert(shared_compiles.settle(cache, { kept = { kept("k4") }, used = { "k1" } }, 5, 2 * size))
   local left = assert(Sqlite.text_rows(cache.db, "SELECT key FROM compiled_v2 ORDER BY key"))
   shared_compiles.close(cache)
-  assert(#left == 2 and left[1]:text(1) == "k1" and left[2]:text(1) == "k4",
-    tostring(left[1] and left[1]:text(1)) .. " " .. tostring(left[2] and left[2]:text(1)))
+  assert(#left == 2 and left[1]:text(1) == "k1" and left[2]:text(1) == "k4", -- checked: nil_not_allowed
+    tostring(left[1] and left[1]:text(1)) .. " " .. tostring(left[2] and left[2]:text(1))) -- checked: nil_not_allowed*2
 end
 
 --- A real query failure mentioning malformed is not evidence that a
@@ -102,7 +102,7 @@ local function test_a_query_failure_leaves_other_connections_and_files_alone(tmp
   assert(holder:exec("CREATE TABLE healthy (value TEXT)"))
   assert(holder:exec("INSERT INTO healthy VALUES ('still usable')"))
   local reader = assert(Sqlite.open(path))
-  assert(assert(Sqlite.text_rows(reader, "SELECT value FROM healthy"))[1]:text(1) == "still usable")
+  assert(assert(Sqlite.text_rows(reader, "SELECT value FROM healthy"))[1]:text(1) == "still usable") -- checked: nil_not_allowed
   assert(reader:close())
   assert(holder:close())
   assert(Fs.stat(path .. "-wal") == nil, "the failed build kept a connection open")

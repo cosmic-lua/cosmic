@@ -117,7 +117,7 @@ function test_report.deliberate(reasons: {string}): {string}
   table.sort(order)
   local lines: mut {string} = {}
   for _, reason in ipairs(order) do
-    lines[#lines + 1] = "test: NOTHING TO CHECK  " .. plural.count(counts[reason], "test") ..
+    lines[#lines + 1] = "test: NOTHING TO CHECK  " .. plural.count(counts[reason], "test") .. -- checked: index_may_be_nil
       " passed deliberately without checking: " .. reason
   end
   return lines
@@ -163,13 +163,13 @@ function test_report.failures(failures: mut {test_report.Failure}, prefix: strin
     -- what the runner appended to the message (where its directory is
     -- kept).
     local head, rest = failure.message:match("^([^\n]*)\n?(.*)$")
-    lines[#lines + 1] = "test: FAIL  " .. head
+    lines[#lines + 1] = "test: FAIL  " .. head -- checked: nil_not_allowed
     local hint = Errors.hint(failure.message)
     if hint ~= nil then
       lines[#lines + 1] = "  hint: " .. hint
     end
     if rest ~= "" then
-      lines[#lines + 1] = rest
+      lines[#lines + 1] = rest -- checked: nil_not_allowed
     end
     local rerun = failure.rerun
     if rerun ~= nil then
@@ -353,7 +353,7 @@ function test_report.failed(failures: integer, total: integer, errors: integer,
                             elapsed: string, not_run?: integer): string
   return tostring(failures) .. " of " .. plural.count(total, "test") .. " failed, " ..
     plural.count(errors, "infrastructure error") .. ", " .. elapsed ..
-    (if (not_run or 0) > 0 then ("; " .. not_run .. " not run after the first failure") else "" end)
+    (if (not_run or 0) > 0 then ("; " .. not_run .. " not run after the first failure") else "" end) -- checked: nil_not_allowed
 end
 
 return test_report

@@ -75,7 +75,7 @@ local function start(script: string, root: string, hold_ns?: integer): Child.Han
   local started = this_program.program({ "-e", script:format(root, hold_ns or -1) },
     { stdin = "stream", stdout = "stream" })
   local child = assert(Child.start(started.argv, started.options))
-  local line, trouble = Stream.lines(child.stdout_stream as Stream.Reader):read()
+  local line, trouble = Stream.lines(child.stdout_stream as Stream.Reader):read() -- checked: cast_refused
   assert(line ~= nil, trouble)
   return child, line
 end
@@ -185,7 +185,7 @@ print(tostring(held) .. " " .. trouble)
 local function start_handed(root: string, role: string, output: string): Child.Handle
   local fd = assert(Fs.open_write(output))
   local env = this_program.environment()
-  env.COSMIC_REBUILD_LOCK_HANDED = support.build_dir(root) .. "/./rebuild.lock"
+  env.COSMIC_REBUILD_LOCK_HANDED = support.build_dir(root) .. "/./rebuild.lock" -- checked: map_field
   local started = this_program.program({ "-e", holding:format(root, role) },
     { env = env, stdout = fd, stderr = fd, process_group = true })
   local h = assert(Child.start(started.argv, started.options))

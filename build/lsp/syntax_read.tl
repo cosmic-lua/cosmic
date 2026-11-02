@@ -147,7 +147,7 @@ function syntax_read.plan_of(name: string, text: string, path: string, kind: str
   end
   local tests: mut {string} = {}
   if kind == "test" then
-    tests = analysis.tests
+    tests = analysis.tests -- checked: view_as_mut
   elseif kind == "example" then
     for _, example in ipairs(analysis.examples) do tests[#tests + 1] = example.name end
   end
@@ -251,7 +251,7 @@ function syntax_read.generated(compiled: build_module.Plan, pipeline: Pipeline.B
                                listed: function(name: string): boolean): plan.Compiled
   local made = generated_of(compiled, pipeline, hints)
   for _, refusal in ipairs(broken(pipeline, sites, listed)) do
-    made.refusals[#made.refusals + 1] = refusal
+    made.refusals[#made.refusals + 1] = refusal -- checked: view_written
   end
   return made
 end

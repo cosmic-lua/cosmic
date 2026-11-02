@@ -52,10 +52,10 @@ end
 local function test_d_unstarted() assert(true) end
 ]]))
   local env = this_program.environment()
-  env.COSMIC_TEST_SANDBOX = "0"
-  env.COSMIC_SANDBOX = nil
-  env.COSMIC_TEST_ALL = nil
-  env.COSMIC_VERDICT_CACHE = cache
+  env.COSMIC_TEST_SANDBOX = "0" -- checked: map_field
+  env.COSMIC_SANDBOX = nil -- checked: map_field
+  env.COSMIC_TEST_ALL = nil -- checked: map_field
+  env.COSMIC_VERDICT_CACHE = cache -- checked: map_field
   local function run(name: string, words: {string}, passes: boolean): string
     local output = tmp .. "/" .. name .. ".out"
     local fd = assert(Fs.open_write(output))

@@ -4,7 +4,7 @@
 
 local Coverage = require("cosmic.coverage")
 
-local Example = {}
+local Example = {} -- checked: literal_needs_type
 
 --- The lines hit between `start` and `stop`, by module path. A window
 --- already open, as under `cosmic test`, refuses a second `start`.
@@ -36,4 +36,4 @@ function Example.native_functions()
   print(#functions)
 end
 
-return Example
+return Example -- checked: export_not_declared

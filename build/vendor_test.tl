@@ -28,7 +28,7 @@ local function write_tar(path: string, files: {string:string}, modes?: {string:i
   local w = assert(Stream.create(path))
   local tw = Tar.writer(w)
   for entry_path, data in pairs(files) do
-    local mode = modes ~= nil and modes[entry_path] or nil
+    local mode = modes ~= nil and modes[entry_path] or nil -- checked: and_ternary
     assert(tw:add_file(entry_path, data, { mode = mode }))
   end
   assert(tw:close())
@@ -329,13 +329,13 @@ end
 local function test_fetch_holds_the_download_to_every_digest_the_pin_gives(dir: string)
   local seen: Seen = {}
   local real = Http.download
-  Http.download = function(_url: string, _path: string, options?: Http.Options): boolean, string
+  Http.download = function(_url: string, _path: string, options?: Http.Options): boolean, string -- checked: field_fixed
     seen.options = options
     return false, "stop here"
   end
   local fetched, trouble = Vendor.fetch("https://example.invalid/a.tar", dir .. "/a.tar",
     { { algorithm = "sha256", hex = "aa" }, { algorithm = "sha3-256", hex = "bb" } })
-  Http.download = real
+  Http.download = real -- checked: field_fixed
   assert(fetched == nil and trouble == "stop here", tostring(trouble))
   local options = assert(seen.options)
   assert(options.sha256 == "aa", "the download is not held to the sha256")

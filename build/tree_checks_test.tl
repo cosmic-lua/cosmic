@@ -372,7 +372,7 @@ local function test_a_restricted_member_used_outside_its_files_is_refused(dir: s
       "  assert(probe.has())",
       "end"),
   })
-  local rules = { ["build.probe has"] = { files = { "build/asker.tl" }, why = "ask the host" } }
+  local rules = { ["build.probe has"] = { files = { "build/asker.tl" }, why = "ask the host" } } -- checked: arms_differ
   local found = tree_checks.restricted(db, rules)
   assert(#found == 1, table.concat(found, "\n"))
   assert(support.nth(found, 1):find("^build/other_test%.tl:%d+: build%.probe has is used outside build/asker%.tl: ask the host") ~=
@@ -813,7 +813,7 @@ local function test_the_legs_are_read_from_the_capabilities_file(dir: string)
   local path = dir .. "/ci/cosmic_ci/capabilities.json"
   assert(Fs.write(path, '{"legs": {"x": ["sandbox", "nest"], "y": []}}'))
   local legs = assert(tree_checks.legs(dir))
-  assert(#legs.x == 2 and legs.x[2] == "nest" and #legs.y == 0)
+  assert(#legs.x == 2 and legs.x[2] == "nest" and #legs.y == 0) -- checked: map_field*3
   for _, bad in ipairs({ "{}", '{"legs": {"x": 1}}', "not json", "{" }) do
     assert(Fs.write(path, bad))
     local found, why = tree_checks.legs(dir)
@@ -1367,10 +1367,10 @@ local function test_the_phases_of_a_check_are_timed_for_the_files_the_memo_lacke
   local memo = assert(Sqlite.memory())
   local phases: {string: integer} = {}
   local first = table.concat(tree_checks.checked(root, {}, memo, phases), "\n")
-  assert(phases.prepare > 0 and phases.lower > 0 and phases.check > 0, first)
+  assert(phases.prepare > 0 and phases.lower > 0 and phases.check > 0, first) -- checked: map_field*3
   local again: {string: integer} = {}
   assert(table.concat(tree_checks.checked(root, {}, memo, again), "\n") == first)
-  assert(again.check == nil)
+  assert(again.check == nil) -- checked: map_field
   assert(memo:close())
 end
 

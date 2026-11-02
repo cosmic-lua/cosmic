@@ -294,8 +294,8 @@ function shared_verdicts.declared(cache: shared_verdicts.Cache,
     { text(key) })
   if rows == nil then return nil, trouble end
   if rows[1] == nil then return nil, "" end
-  return { hits = unpacked(rows[1]:text(1)),
-    elapsed_ns = math.tointeger(tonumber(rows[1]:text(2)) or 0) or 0 }, ""
+  return { hits = unpacked(rows[1]:text(1)), -- checked: nil_not_allowed
+    elapsed_ns = math.tointeger(tonumber(rows[1]:text(2)) or 0) or 0 }, "" -- checked: nil_not_allowed
 end
 
 --- The digest of the bytes of the closure store at `address`, as a run
@@ -306,7 +306,7 @@ function shared_verdicts.store_digest(cache: shared_verdicts.Cache,
     "SELECT digest FROM " .. stores .. " WHERE address = ?1", { text(address) })
   if rows == nil then return nil, trouble end
   if rows[1] == nil then return nil, "" end
-  return rows[1]:text(1), ""
+  return rows[1]:text(1), "" -- checked: nil_not_allowed
 end
 
 --- How many rows the cache holds, and how many are of a test in
@@ -335,7 +335,7 @@ end
 --- modules given them.
 function shared_verdicts.named(parts: {{string}}): string
   local named: mut {string} = {}
-  for _, part in ipairs(parts) do named[#named + 1] = part[1] .. " " .. part[2] end
+  for _, part in ipairs(parts) do named[#named + 1] = part[1] .. " " .. part[2] end -- checked: nil_not_allowed*2
   return table.concat(named, ", ")
 end
 
@@ -355,7 +355,7 @@ function shared_verdicts.held(cache: shared_verdicts.Cache): {shared_verdicts.He
   if rows == nil then return nil, trouble end
   local out: mut {shared_verdicts.Held} = {}
   for _, row in ipairs(rows) do
-    out[#out + 1] = { parts = row:text(1) or "", rows = math.tointeger(tonumber(row:text(2)) or 0) or 0 }
+    out[#out + 1] = { parts = row:text(1) or "", rows = math.tointeger(tonumber(row:text(2)) or 0) or 0 } -- checked: condition_type
   end
   return out, ""
 end
@@ -413,7 +413,7 @@ function shared_verdicts.census_line(held: {shared_verdicts.Held}): string
   for _, group in ipairs(held) do
     groups[#groups + 1] = string.format("%d %s under %s", group.rows,
       plural.noun(group.rows, "row"),
-      group.parts ~= "" and group.parts or "no parts named")
+      group.parts ~= "" and group.parts or "no parts named") -- checked: and_ternary
   end
   return "test: census: " .. table.concat(groups, "; ")
 end
@@ -480,16 +480,16 @@ function shared_verdicts.settle(cache: shared_verdicts.Cache, origin: string,
     for _, address in ipairs(addresses) do
       local ok, trouble = Sqlite.run(db, "INSERT OR REPLACE INTO " .. stores ..
           " (address, digest, used_ns) VALUES (?1, ?2, ?3)",
-        { text(address), text(stored[address]), { integer = now_ns } })
+        { text(address), text(stored[address]), { integer = now_ns } }) -- checked: index_may_be_nil
       if not ok then return false, trouble end
     end
     for _, bound in ipairs({ { declared, "key" }, { stores, "address" } }) do
       local name, key = bound[1], bound[2]
-      local aged, age_trouble = Sqlite.run(db, "DELETE FROM " .. name .. " WHERE used_ns < ?1",
+      local aged, age_trouble = Sqlite.run(db, "DELETE FROM " .. name .. " WHERE used_ns < ?1", -- checked: nil_not_allowed
         { { integer = now_ns - kept_ns } })
       if not aged then return false, age_trouble end
-      local bounded, bound_trouble = Sqlite.run(db, "DELETE FROM " .. name ..
-          " WHERE " .. key .. " IN (SELECT " .. key .. " FROM " .. name .. " " ..
+      local bounded, bound_trouble = Sqlite.run(db, "DELETE FROM " .. name .. -- checked: nil_not_allowed
+          " WHERE " .. key .. " IN (SELECT " .. key .. " FROM " .. name .. " " .. -- checked: nil_not_allowed*3
           "ORDER BY used_ns DESC LIMIT -1 OFFSET " .. tostring(shared_verdicts.rows_kept(cache.path)) .. ")")
       if not bounded then return false, bound_trouble end
     end

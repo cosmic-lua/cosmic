@@ -53,7 +53,7 @@ local function test_the_compile_cache_is_kept_only_where_others_cannot_write(tmp
       env = env, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30),
     })
     local result = assert(Child.run(started.argv, started.options))
-    return result.code
+    return result.code -- checked: nil_not_allowed
   end
   local cache = tmp .. "/cache"
   assert(run({ XDG_CACHE_HOME = cache }) == 3)
@@ -62,7 +62,7 @@ local function test_the_compile_cache_is_kept_only_where_others_cannot_write(tmp
   local st = assert(Fs.stat(cache .. "/cosmic/standalone/" .. kept[1]))
   assert(st.mode & 0x1ff == 0x180, tostring(st.mode))
   -- a planted file in a directory others can write is never run
-  assert(Fs.write(cache .. "/cosmic/standalone/" .. kept[1], "return function() return 9 end"))
+  assert(Fs.write(cache .. "/cosmic/standalone/" .. kept[1], "return function() return 9 end")) -- checked: nil_not_allowed
   assert(sys.chmod(cache .. "/cosmic/standalone", 0x1ff))
   assert(run({ XDG_CACHE_HOME = cache }) == 3)
   -- with no cache home at all, it still runs, compiling afresh
@@ -219,7 +219,7 @@ return function(argv: {string}): integer
 end
 ]]))
   local env = this_program.environment()
-  env.COSMIC_STANDALONE = "1"
+  env.COSMIC_STANDALONE = "1" -- checked: map_field
   local started = this_program.program({ script, "one", "two" }, { cwd = dir, env = env,
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
   local result = assert(Child.run(started.argv, started.options))

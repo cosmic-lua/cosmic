@@ -80,7 +80,7 @@ end
     "404 no a", "201 stored", "200 first value text/plain", "200 [] 11", "204",
   }, "\n")
   assert(result_value.stdout == expected, result_value.stdout)
-  assert(items.a == nil)
+  assert(items.a == nil) -- checked: map_field
 end
 
 --- A name with a space or a byte past ASCII, joined into a URL as
@@ -175,7 +175,7 @@ end
   end
   local port = math.tointeger(tonumber(Fs.read(marker) or ""))
   assert(port ~= nil, "the server never listened")
-  local conn <close> = assert(Net.connect(Net.tcp("127.0.0.1", port), { timeout_ns = Clock.seconds(20) }))
+  local conn <close> = assert(Net.connect(Net.tcp("127.0.0.1", port), { timeout_ns = Clock.seconds(20) })) -- checked: close_not_closable
   assert(conn:write("GET / HTTP/1.1\r\nHost: test\r\n\r\n"))
   local head = ""
   while not head:find("\r\n\r\nup", 1, true) do head = head .. assert(conn:read()) end

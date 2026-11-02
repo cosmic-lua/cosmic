@@ -53,7 +53,7 @@ local function test_no_target_raises_and_an_accepted_one_reads_as_itself(tmp: st
         if why == nil or why == "" then return false, "a refusal with no reason" end
         return true, ""
       end
-      local read = target as Grant.Target
+      local read = target as Grant.Target -- checked: cast_refused
       Fuzz.label("accepted")
       Fuzz.label(if read.kind == "any" then "any" elseif read.kind == "name" then "name" else "address" end)
       local again, why_again = Grant.parse(read.text)
@@ -80,7 +80,7 @@ local function test_every_accepted_host_is_carried_by_both_request_readers(tmp: 
       local ok, target = pcall(Grant.parse, text)
       if not ok then return false, "parse raised: " .. tostring(target) end
       if target == nil then return true, "" end
-      local read = target as Grant.Target
+      local read = target as Grant.Target -- checked: cast_refused
       if read.kind == "any" then return true, "" end
       Fuzz.label(read.kind)
       local port = if read.port == 0 then 443 else read.port end

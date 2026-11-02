@@ -39,7 +39,7 @@ local function test_a_worker_loads_what_worker_loads_names(tmp: string)
       fds = { [worker.report_fd] = "capture" }, timeout_ns = Clock.seconds(30),
     })
   local result = assert(Child.run(started.argv, started.options))
-  local report = worker.decode(result.captured[worker.report_fd])
+  local report = worker.decode(result.captured[worker.report_fd]) -- checked: index_may_be_nil
   assert(report ~= nil, tostring(result.stdout))
   assert(report.message == "build.key_parts has no test named test_none", report.message)
   local ran: mut {string:boolean} = {}
@@ -85,7 +85,7 @@ local function test_a_worker_attaches_the_store_it_is_given(tmp: string)
       fds = { [worker.report_fd] = "capture" }, timeout_ns = Clock.seconds(30),
     })
   result = assert(Child.run(started.argv, started.options))
-  local report = worker.decode(result.captured[worker.report_fd])
+  local report = worker.decode(result.captured[worker.report_fd]) -- checked: index_may_be_nil
   assert(report ~= nil, tostring(result.stdout))
   assert(report.message == "build.key_parts has no test named test_none", report.message)
   -- Given none, it resolves no build directory of its own: it refuses.

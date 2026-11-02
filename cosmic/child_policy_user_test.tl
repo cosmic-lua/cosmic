@@ -84,7 +84,7 @@ local function started_under(at: ChildPolicy.Place, limit: integer, wanted: inte
   assert(ran.code == 0, ran.said)
   local count, rest = ran.said:match("^started (%d+)(.*)\n$")
   assert(count ~= nil, ran.said)
-  return assert(math.tointeger(tonumber(count))), rest
+  return assert(math.tointeger(tonumber(count))), rest -- checked: nil_not_allowed
 end
 
 local function test_processes_holds_the_whole_sandbox_to_a_count(tmp: string)

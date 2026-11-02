@@ -52,11 +52,11 @@ local function write(fields: {string}): string?
     local kind, path, body = fields[i], fields[i + 1], fields[i + 2]
     local ok: boolean
     if kind == "file" then
-      ok = tw:add_file(path, body)
+      ok = tw:add_file(path, body) -- checked: nil_not_allowed*2
     elseif kind == "dir" then
-      ok = tw:add_dir(path)
+      ok = tw:add_dir(path) -- checked: nil_not_allowed
     else
-      ok = tw:add_symlink(path, body)
+      ok = tw:add_symlink(path, body) -- checked: nil_not_allowed*2
     end
     if not ok then return nil end
   end
@@ -75,7 +75,7 @@ local function entries_of(input: string, read: boolean): {string}?, string
   for _ = 1, 10000 do
     local e, trouble = tr:next()
     if e == nil then
-      if trouble == nil then return nil, "next: nil without a reason" end
+      if trouble == nil then return nil, "next: nil without a reason" end -- checked: compare_disjoint
       if read then Fuzz.label(if trouble == "" then "ended" else "refused" end) end
       seen[#seen + 1] = if trouble == "" then "ended" else "refused" end
       return seen, ""
@@ -187,7 +187,7 @@ local function numeric_field(src: Fuzz.Source, width: integer, v: integer): stri
     else
       b = b:sub(-width)
     end
-    return string.char(b:byte(1) | 0x80) .. b:sub(2)
+    return string.char(b:byte(1) | 0x80) .. b:sub(2) -- checked: nil_not_allowed
   elseif how == 9 then
     local b: mut {string} = { string.char(0x80 | src:int(0, 0x7f)) }
     for _ = 2, width do b[#b + 1] = string.char(src:int(0, 255)) end
@@ -290,7 +290,7 @@ local function header(src: Fuzz.Source, typeflag: string, size: integer): string
   }
   local block = table.concat(parts)
   local sum = 0
-  for i = 1, #block do sum = sum + block:byte(i) end
+  for i = 1, #block do sum = sum + block:byte(i) end -- checked: nil_not_allowed
   if src:int(0, 15) == 0 then sum = sum + src:int(1, 64) end
   return block:sub(1, 148) .. ("%06o\0 "):format(sum) .. block:sub(157)
 end
@@ -360,7 +360,7 @@ local function test_what_the_writer_writes_the_reader_reads_back(tmp: string)
         local kind, path, body = fields[i], fields[i + 1], fields[i + 2]
         local e, trouble = tr:next()
         if e == nil then return false, ("entry %d (%q): %s"):format(i // 3 + 1, path, trouble) end
-        if strip_slash(e.path) ~= strip_slash(path) then
+        if strip_slash(e.path) ~= strip_slash(path) then -- checked: nil_not_allowed
           return false, ("wrote path %q, read %q"):format(path, e.path)
         end
         if tostring(e.kind) ~= kind then

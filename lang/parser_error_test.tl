@@ -168,7 +168,7 @@ local CASES <const>: {Case} = {
 }
 
 local function first_error(case: Case): Parser.Error
-  local parsed = parse(case.source, if case.decl then "decl" else "tl" end)
+  local parsed = parse(case.source, if case.decl then "decl" else "tl" end) -- checked: condition_type
   local e = parsed.errors[1]
   assert(e ~= nil, "no error for " .. case.source)
   assert(#parsed.errors == (case.count or 1), tostring(#parsed.errors) .. " errors for " .. case.source .. ", the first " .. e.code .. ": " .. e.msg)
@@ -197,7 +197,7 @@ local function test_every_code_of_the_parser_has_a_case()
     lexer[code] = true
   end
   for _, code in ipairs(Parser.codes) do
-    assert(covered[code] or lexer[code], "no case for " .. code)
+    assert(covered[code] or lexer[code], "no case for " .. code) -- checked: condition_type
   end
 end
 

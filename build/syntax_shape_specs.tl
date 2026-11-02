@@ -170,7 +170,7 @@ local MOST_FIELDS <const> = 90
 --- The check of the record `decl` at `path`, as a function of whether a key it does not name is refused, over the checks
 --- of its fields, and the node that describes its fields. Where the record has a field of a type the generator cannot
 --- spell, nil and why.
-local function gen_record(g: Gen, t_of_decl: Type, decl: Types.Decl, path: string): Written?, string
+local function gen_record(g: Gen, t_of_decl: Type, decl: Types.Decl, path: string): Written?, string -- checked: not_assigned
   local body = decl.body
   if body == nil then return nil, path .. ": a declaration the checker did not resolve" end
   if body.array ~= nil then return nil, path .. ": a record that is also an array has no shape" end

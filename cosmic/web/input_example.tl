@@ -7,7 +7,7 @@ local Shape = require("cosmic.shape")
 local Url = require("cosmic.url")
 local Web = require("cosmic.web")
 
-local Example = {}
+local Example = {} -- checked: literal_needs_type
 
 local record Signup
   email: string
@@ -210,4 +210,4 @@ function Example.methods()
   assert(client:delete("/delete?page=7", { form = { page = "8" } }):text() == "78")
 end
 
-return Example
+return Example -- checked: export_not_declared

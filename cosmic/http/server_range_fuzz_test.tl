@@ -119,7 +119,7 @@ local function test_reading_a_range_is_total_and_within_the_representation(tmp: 
     check = function(input: string): boolean, string
       local fields = Fuzz.unpack(input)
       local header = packed(fields, 1)
-      local size = math.tointeger(tonumber(fields[2])) as integer
+      local size = math.tointeger(tonumber(fields[2])) as integer -- checked: cast_refused
       local r = Server.range(header, size)
       local first, last = well_formed(header)
       Fuzz.label(r.kind)
@@ -228,7 +228,7 @@ local function test_none_match_finds_a_tag_in_any_list_of_tags(tmp: string)
       local own = packed(fields, 1)
       if not opaque_ok(own:sub(2)) then
         Fuzz.label("no tag")
-        local ok = pcall(Server.none_match, "*", tag_of(own))
+        local ok = pcall(Server.none_match, "*", tag_of(own)) -- checked: alternatives_as_value
         if ok then return false, "an etag that is no entity tag was taken" end
         return true, ""
       end

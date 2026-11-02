@@ -20,9 +20,9 @@ local function invoke(root: string, output: string, selector: string): Child.Res
   -- only two deep, where its runner cannot run its workers as a user of
   -- their own). The rerun line it prints repeats the switch.
   local env = this_program.environment()
-  env.COSMIC_TEST_SANDBOX = "0"
+  env.COSMIC_TEST_SANDBOX = "0" -- checked: map_field
   -- What its failing tests keep stays in this test's directory.
-  env.TMPDIR = Fs.dirname(output)
+  env.TMPDIR = Fs.dirname(output) -- checked: map_field
   local started = this_program.program({ "test", selector }, {
     cwd = root, env = env, stdout = fd, stderr = fd,
     process_group = true, timeout_ns = Clock.seconds(30),
@@ -36,8 +36,8 @@ end
 local function invoke_words(root: string, output: string, words: {string}): Child.Result
   local fd = assert(Fs.open_write(output))
   local env = this_program.environment()
-  env.COSMIC_TEST_SANDBOX = "0"
-  env.TMPDIR = Fs.dirname(output)
+  env.COSMIC_TEST_SANDBOX = "0" -- checked: map_field
+  env.TMPDIR = Fs.dirname(output) -- checked: map_field
   local argv: mut {string} = { "test" }
   for _, word in ipairs(words) do argv[#argv + 1] = word end
   local started = this_program.program(argv, {
@@ -248,15 +248,15 @@ end
     -- The FAIL line keeps its `<module> <name>: <message>` shape, and
     -- the rerun line follows its block: the message, then the kept
     -- directory.
-    local block = "\ntest: FAIL  " .. case.module .. " test_unrelated: " ..
-      case.module .. ":2: unrelated test executed\n  its directory is kept: "
+    local block = "\ntest: FAIL  " .. case.module .. " test_unrelated: " .. -- checked: map_field
+      case.module .. ":2: unrelated test executed\n  its directory is kept: " -- checked: map_field
     local at = text:find(block, 1, true)
     assert(at ~= nil, text)
     local line_end = assert(text:find("\n", at + #block, true))
-    local rerun = "  rerun: COSMIC_TEST_SANDBOX=0 cosmic test " .. case.printed .. "\n"
+    local rerun = "  rerun: COSMIC_TEST_SANDBOX=0 cosmic test " .. case.printed .. "\n" -- checked: map_field
     assert(text:sub(line_end + 1, line_end + #rerun) == rerun, text)
     output = tmp .. "/rerun.out"
-    result = invoke(root, output, case.selector)
+    result = invoke(root, output, case.selector) -- checked: map_field
     local again = assert(Fs.read(output))
     assert(not result.ok, again)
     assert(again:find("unrelated test executed", 1, true), again)
@@ -419,10 +419,10 @@ local function test_a_test_without_a_directory_fails_alone(tmp: string)
   local root = project(tmp)
   local output = tmp .. "/nowhere.out"
   local environment = this_program.environment()
-  environment.TMPDIR = tmp .. "/missing"
+  environment.TMPDIR = tmp .. "/missing" -- checked: map_field
   -- Unsandboxed, as `invoke` runs one: the directory is made before a
   -- worker starts, sandboxed or not.
-  environment.COSMIC_TEST_SANDBOX = "0"
+  environment.COSMIC_TEST_SANDBOX = "0" -- checked: map_field
   local fd = assert(Fs.open_write(output))
   local started = this_program.program({ "test", "suite/selected_test.tl" }, {
     cwd = root, env = environment, stdout = fd, stderr = fd, timeout_ns = Clock.seconds(30),

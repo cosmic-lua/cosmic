@@ -63,14 +63,14 @@ local ref_exp: function(r: Reference, e: Ast.Node, env: Decl?, fn: integer)
 local ref_block: function(r: Reference, stats: {Ast.Stat}, env: Decl?, fn: integer): Decl?
 
 local function expect(r: Reference, code: string, token: integer)
-  table.insert(r.errors, code .. " " .. r.tokens.y[token] .. ":" .. tostring(Lexer.x(r.tokens, token)))
+  table.insert(r.errors, code .. " " .. r.tokens.y[token] .. ":" .. tostring(Lexer.x(r.tokens, token))) -- checked: nil_not_allowed
 end
 
 --- The environment after declaring `binding`, and the error a shadow is.
 local function push(r: Reference, env: Decl?, binding: Ast.Binding, fn: integer, readonly: boolean,
                     hidden: Decl?, copies?: boolean): Decl
   local name = binding.name
-  if not copies and name:sub(1, 1) ~= "_" and name ~= "self" and (hidden ~= nil or GLOBALS[name] ~= nil) then
+  if not copies and name:sub(1, 1) ~= "_" and name ~= "self" and (hidden ~= nil or GLOBALS[name] ~= nil) then -- checked: condition_type
     expect(r, "shadows", binding.first)
   end
   return { name = name, id = binding.id, fn = fn, readonly = readonly, next = env }
@@ -78,7 +78,7 @@ end
 
 local function use(r: Reference, n: Ast.Name, env: Decl?, fn: integer, write: boolean)
   local found = find(env, n.text)
-  r.bound[n.id] = found ~= nil and found.id or 0
+  r.bound[n.id] = found ~= nil and found.id or 0 -- checked: and_ternary
   if found == nil then
     if GLOBALS[n.text] == nil then
       expect(r, "unknown_variable", n.first)
@@ -92,7 +92,7 @@ local function use(r: Reference, n: Ast.Name, env: Decl?, fn: integer, write: bo
   end
 end
 
-local function ref_function(r: Reference, f: Ast.Fn, env: Decl?, own: Decl?)
+local function ref_function(r: Reference, f: Ast.Fn, env: Decl?, own: Decl?) -- checked: not_assigned
   local inner = env
   -- The parameters of a `local function` are declared before its name: they shadow what it hid.
   for _, p in ipairs(f.params) do
@@ -108,7 +108,7 @@ local function ref_function(r: Reference, f: Ast.Fn, env: Decl?, own: Decl?)
   ref_block(r, f.body.stats, inner, f.id)
 end
 
-ref_exp = function(r: Reference, e: Ast.Node, env: Decl?, fn: integer)
+ref_exp = function(r: Reference, e: Ast.Node, env: Decl?, fn: integer) -- checked: not_assigned
   if (e.kind == "Name") then
     use(r, e, env, fn, false)
   elseif (e.kind == "FunctionLit") then
@@ -223,7 +223,7 @@ local function naive_after(chunk: Ast.Chunk, scoped: Scopes.Scoped, r: Reference
       local after = false
       for _, w in ipairs(v.writes) do
         local assign = r.assigns[w]
-        if assign ~= nil and not r.foreign[w] and fn ~= nil then
+        if assign ~= nil and not r.foreign[w] and fn ~= nil then -- checked: condition_type
           after = after or assign.last >= fn.last
           for _, loop in ipairs(loops) do
             after = after or (loop.first > v.declared and loop.first <= math.min(assign.first, fn.first) and
@@ -341,7 +341,7 @@ local function gen_mutated(src: Fuzz.Source): string
       if edit == 1 then
         table.remove(tokens, at)
       elseif edit == 2 then
-        table.insert(tokens, at, tokens[at])
+        table.insert(tokens, at, tokens[at]) -- checked: overload_none
       elseif edit == 3 and at < n then
         local after = table.remove(tokens, at + 1)
         table.insert(tokens, at, assert(after))

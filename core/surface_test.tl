@@ -15,7 +15,7 @@ local function printed(tmp: string, fn: function()): string
   local file = assert(sys.open(path, sys.O_CREAT | sys.O_WRONLY | sys.O_TRUNC, 420))
   local saved = assert(sys.dup(1))
   assert(sys.dup2(file, 1))
-  local ok = pcall(fn)
+  local ok = pcall(fn) -- checked: alternatives_as_value
   assert(sys.dup2(saved, 1))
   sys.close(saved)
   sys.close(file)
@@ -29,7 +29,7 @@ end
 --- core built with Lua's API checks or AddressSanitizer fails here.
 local function test_print_carries_a_line_past_the_inline_buffer(tmp: string)
   local long = string.rep(".", 1100)
-  local shown = setmetatable({}, {
+  local shown = setmetatable({}, { -- checked: setmetatable_call
     __tostring = function(): string return "(a value that prints itself)" end,
   })
   local text = printed(tmp, function()
@@ -47,7 +47,7 @@ end
 --- `load` the way any Lua a program is handed would be.
 local function raised(code: string): string
   local chunk = assert(load(code, "=plain.lua", "t", Globals.table()))
-  local ok, trouble = pcall(chunk)
+  local ok, trouble = pcall(chunk) -- checked: overload_none
   assert(not ok, "expected " .. code .. " to raise")
   return tostring(trouble)
 end
@@ -103,8 +103,8 @@ local function test_a_removed_package_field_says_what_replaced_it()
   end
   local trouble = raised('return package.path .. "x"')
   assert(trouble:find("there is no file search path", 1, true) ~= nil, trouble)
-  assert(package.loaded ~= nil and package.preload ~= nil and package.searchers ~= nil)
-  assert(package.config ~= nil)
+  assert(package.loaded ~= nil and package.preload ~= nil and package.searchers ~= nil) -- checked: compare_disjoint*3
+  assert(package.config ~= nil) -- checked: compare_disjoint
   local other = assert(load("package.frobnicate = 1\nlocal seen = package.frobnicate\n" ..
       "package.frobnicate = nil\nreturn seen, package.frobnicate", "=other.lua", "t", Globals.table()))
   local seen, gone = other()
@@ -124,7 +124,7 @@ local function test_requiring_a_removed_library_says_what_replaced_it()
 end
 
 local function test_a_name_that_never_existed_is_nil()
-  local globals = _G as {string: any}
+  local globals = _G as {string: any} -- checked: cast_refused, unchecked_binding
   assert(globals["cosmic_surface_test_never_defined"] == nil)
 end
 
@@ -160,13 +160,13 @@ end
 --- traceback: the caller at level 1, its caller at 2, and past a frame that
 --- runs C (a `pcall`) the first Lua one above it; nil where the stack ends.
 local function test_where_names_a_frame_by_source_and_line()
-  local here = errors.where() as string
+  local here = errors.where() as string -- checked: cast_refused
   assert(here:match("^.-:(%d+)$") ~= nil, here)
   local function asks(level: integer): string?
     local place = errors.where(level)
     return place
   end
-  local inner = asks(1) as string
+  local inner = asks(1) as string -- checked: cast_refused
   local function number(place: string): integer
     return math.tointeger(tonumber(place:match(":(%d+)$"))) or -1
   end
@@ -175,9 +175,9 @@ local function test_where_names_a_frame_by_source_and_line()
   assert(up ~= nil and same ~= nil and number(up) == number(same), tostring(up) .. " " .. tostring(same))
   -- Level 2 from a function `pcall` runs is the `pcall`, which runs C: the
   -- first Lua frame above it is this one, at the line of the call.
-  local viewed = { value = nil as string? }
-  local ok, line = pcall(function() viewed.value = errors.where(2) end), number(errors.where() as string)
-  local viewed_value = viewed.value
+  local viewed = { value = nil as string? } -- checked: cast_refused
+  local ok, line = pcall(function() viewed.value = errors.where(2) end), number(errors.where() as string) -- checked: alternatives_as_value, cast_refused, map_field
+  local viewed_value = viewed.value -- checked: map_field
   assert(ok and viewed_value ~= nil and number(viewed_value) == line, tostring(viewed_value) .. " against " .. tostring(line))
   assert(errors.where(1000) == nil)
 end

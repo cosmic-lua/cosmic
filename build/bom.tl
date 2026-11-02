@@ -192,8 +192,8 @@ local function notice_text(directory: string, notice: bom.Notice): string?, stri
   end
   local kept: mut {string} = {}
   local number = 0
-  local ended = data:sub(-1) == "\n" and data or data .. "\n"
-  for line in ended:gmatch("([^\n]*)\n") do
+  local ended = data:sub(-1) == "\n" and data or data .. "\n" -- checked: and_ternary
+  for line in ended:gmatch("([^\n]*)\n") do -- untyped: call
     number = number + 1
     if number >= first and number <= last then
       kept[#kept + 1] = line
@@ -474,26 +474,26 @@ end
 function bom.cyclonedx(rows: {bom.Row}, subject: string, version: string): string?, string
   local components: mut {any} = {}
   for _, row in ipairs(rows) do
-    local reference: {string:any} = { type = "distribution", url = row.url }
+    local reference: {string:any} = { type = "distribution", url = row.url } -- checked: any_use*2
     local hashes: mut {any} = {}
     if row.sha256 ~= "" then
-      hashes[#hashes + 1] = { alg = "SHA-256", content = row.sha256 }
+      hashes[#hashes + 1] = { alg = "SHA-256", content = row.sha256 } -- checked: any_use
     end
     if row.sha3_256 ~= "" then
-      hashes[#hashes + 1] = { alg = "SHA3-256", content = row.sha3_256 }
+      hashes[#hashes + 1] = { alg = "SHA3-256", content = row.sha3_256 } -- checked: any_use
     end
     if #hashes > 0 then
-      reference.hashes = hashes
+      reference.hashes = hashes -- checked: map_field
     end
     local component: {string:any} = {
-      type = row.kind,
-      ["bom-ref"] = row.name,
-      name = row.name,
-      version = row.version,
-      purl = "pkg:generic/" .. escaped(row.name) .. "@" .. escaped(row.version) ..
+      type = row.kind, -- checked: any_use
+      ["bom-ref"] = row.name, -- checked: any_use
+      name = row.name, -- checked: any_use
+      version = row.version, -- checked: any_use
+      purl = "pkg:generic/" .. escaped(row.name) .. "@" .. escaped(row.version) .. -- checked: any_use
         "?download_url=" .. escaped(row.url),
-      licenses = { { expression = row.license } },
-      externalReferences = { reference },
+      licenses = { { expression = row.license } }, -- checked: any_use
+      externalReferences = { reference }, -- checked: any_use
     }
     if row.patches ~= "" then
       local listed, listed_trouble = patches_in(row)
@@ -509,9 +509,9 @@ function bom.cyclonedx(rows: {bom.Row}, subject: string, version: string): strin
       if #patched > 0 then
         notes[#notes + 1] = "patched by cosmic:\n" .. table.concat(patched, "\n")
       end
-      component.pedigree = { notes = table.concat(notes, "\n") }
+      component.pedigree = { notes = table.concat(notes, "\n") } -- checked: map_field
     end
-    components[#components + 1] = component
+    components[#components + 1] = component -- checked: any_use
   end
   return Json.encode({
     bomFormat = "CycloneDX",
@@ -519,7 +519,7 @@ function bom.cyclonedx(rows: {bom.Row}, subject: string, version: string): strin
     version = 1,
     metadata = { component = { type = "application", ["bom-ref"] = subject,
       name = subject, version = version } },
-    components = Json.array(components),
+    components = Json.array(components), -- checked: not_assignable
   }, { pretty = true })
 end
 
@@ -536,7 +536,7 @@ local function run(argv: {string}): integer
     return 0
   end
   local usage = "cosmic bom [--licenses | --json <path>]"
-  local parsed, parse_trouble = Flags.parse(argv, 2, assert(Cli.verbs.bom.spec))
+  local parsed, parse_trouble = Flags.parse(argv, 2, assert(Cli.verbs.bom.spec)) -- checked: map_field
   if parsed == nil then
     log:complain("bom: " .. parse_trouble .. "; " .. usage)
     return 2

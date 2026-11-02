@@ -24,7 +24,7 @@ end
 --- A reader of `pieces`, one a read.
 local function pieces_of(pieces: {string}): Stream.Reader
   local at: integer = 0
-  return {
+  return { -- checked: literal_shape
     read = function(_self: Stream.Reader, _max?: integer): string?, string
       at = at + 1
       return pieces[at], ""
@@ -119,7 +119,7 @@ local function test_stopping_ends_a_stream_and_runs_the_stop_functions_in_order(
   local app = Web.app{
     routes = { Web.get("/events", function(req: Web.Request): Web.Response
       local sent: boolean = false
-      return Web.stream({
+      return Web.stream({ -- checked: literal_shape
         read = function(_self: Stream.Reader, _max?: integer): string?, string
           if not sent then
             sent = true
@@ -145,12 +145,12 @@ local function test_stopping_ends_a_stream_and_runs_the_stop_functions_in_order(
   app:on_stop(function() events[#events + 1] = "app stop 3" end)
   local started = Clock.monotonic_ns()
   local sink, lines = recording()
-  app.spec.sink = sink
+  app.spec.sink = sink -- checked: field_fixed
   local ok, why = Web.serve(app, {
     listeners = { Net.tcp("127.0.0.1", 0) },
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
       local addresses_1 = assert(addresses[1], "expected addresses[1]")
-      local conn <close> = assert(Net.connect(addresses_1, { timeout_ns = Clock.seconds(5) }))
+      local conn <close> = assert(Net.connect(addresses_1, { timeout_ns = Clock.seconds(5) })) -- checked: close_not_closable
       assert(conn:write("GET /events HTTP/1.1\r\nHost: x\r\n\r\n"))
       local got = ""
       while not got:find("data: hello", 1, true) do got = got .. assert(conn:read()) end
@@ -192,14 +192,14 @@ end
 
 local function test_serve_refuses_an_option_it_does_not_have()
   local app = Web.app{ routes = {} }
-  local options: any = { listeners = { Net.tcp("127.0.0.1", 0) }, port = 80 }
-  assert(Test.raises(function() Web.serve(app, options as Web.ServeOptions) end):find("serve has no field port", 1, true))
+  local options: any = { listeners = { Net.tcp("127.0.0.1", 0) }, port = 80 } -- checked: arms_differ
+  assert(Test.raises(function() Web.serve(app, options as Web.ServeOptions) end):find("serve has no field port", 1, true)) -- checked: cast_refused
 end
 
 local function test_serve_gives_the_server_a_grace_of_ten_seconds_unless_told_otherwise()
   local graces: mut {integer} = {}
   local real = Server.serve
-  Server.serve = function(spec: Server.ServeSpec): boolean, string
+  Server.serve = function(spec: Server.ServeSpec): boolean, string -- checked: field_fixed
     local spec_grace_ns = assert(spec.grace_ns, "expected spec.grace_ns")
     graces[#graces + 1] = spec_grace_ns
     return true, ""
@@ -209,7 +209,7 @@ local function test_serve_gives_the_server_a_grace_of_ten_seconds_unless_told_ot
     assert(Web.serve(app, { listeners = { Net.tcp("127.0.0.1", 0) } }))
     assert(Web.serve(app, { listeners = { Net.tcp("127.0.0.1", 0) }, grace_ns = Clock.ms(250) }))
   end)
-  Server.serve = real
+  Server.serve = real -- checked: field_fixed
   assert(ran, tostring(err))
   assert(graces[1] == Clock.seconds(10), "the default grace: " .. tostring(graces[1]))
   assert(graces[2] == Clock.ms(250), "an explicit grace is forwarded")
@@ -217,7 +217,7 @@ end
 
 local function test_a_handler_that_ignores_stopping_is_cut_off_at_the_grace()
   local app = Web.app{ routes = { Web.get("/forever", function(_req: Web.Request): Web.Response
-    return Web.stream({
+    return Web.stream({ -- checked: literal_shape
       read = function(_self: Stream.Reader, _max?: integer): string?, string
         assert(Poll.delay(Clock.ms(5)))
         return "x", ""
@@ -231,7 +231,7 @@ local function test_a_handler_that_ignores_stopping_is_cut_off_at_the_grace()
     grace_ns = Clock.ms(200),
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
       local addresses_1 = assert(addresses[1], "expected addresses[1]")
-      local conn <close> = assert(Net.connect(addresses_1, { timeout_ns = Clock.seconds(5) }))
+      local conn <close> = assert(Net.connect(addresses_1, { timeout_ns = Clock.seconds(5) })) -- checked: close_not_closable
       assert(conn:write("GET /forever HTTP/1.1\r\nHost: x\r\n\r\n"))
       assert(conn:read())
       server:stop()
@@ -246,7 +246,7 @@ end
 local function scripted(client: Web.LoopbackClient, script: string)
   local listener <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
   local conn = assert(Net.connect(listener.address, { timeout_ns = Clock.seconds(5) }))
-  local peer <close> = assert(listener:accept())
+  local peer <close> = assert(listener:accept()) -- checked: close_not_closable
   client.conn = conn
   client.buf = ""
   if script ~= "" then assert(peer:write(script)) end

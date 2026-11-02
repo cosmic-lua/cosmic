@@ -148,7 +148,7 @@ local function test_a_macos_host_is_named_by_its_system_version(tmp: string)
   assert(darwin[3] == "", "a version beside the system's")
   local plist = tmp .. "/SystemVersion.plist"
   local system: mut {string} = {}
-  for _, path in ipairs(darwin) do system[#system + 1] = path == darwin[2] and plist or path end
+  for _, path in ipairs(darwin) do system[#system + 1] = path == darwin[2] and plist or path end -- checked: and_ternary
   local sources: declared_key.HostSources = {
     packages = {}, system = system, cpu_features = {}, machine = "arm64", sysname = "Darwin",
     status = tmp .. "/status", own_proc = false, host_id = "macos-15", uid = 501,
@@ -199,7 +199,7 @@ local function test_every_recorded_host_is_named_as_the_ci_names_it(tmp: string)
   local recorded = assert(Json.decode_array(text))
   assert(#recorded >= 30, "the recorded hosts are gone")
   for i, entry in ipairs(recorded) do
-    local vector = entry as Vector
+    local vector = entry as Vector -- checked: cast_refused
     local release, version = tmp .. "/osrelease-" .. tostring(i), tmp .. "/version-" .. tostring(i)
     local osrelease = vector.osrelease
     if osrelease ~= nil then assert(Fs.write(release, osrelease)) end
@@ -207,8 +207,8 @@ local function test_every_recorded_host_is_named_as_the_ci_names_it(tmp: string)
     if vector_version ~= nil then assert(Fs.write(version, vector_version)) end
     local features: mut {string} = {}
     if vector.sysname == "Darwin" then
-      for name, answer in pairs(vector.sysctl or {}) do
-        if answer == "1" then features[#features + 1] = darwin_features[name] end
+      for name, answer in pairs(vector.sysctl or {}) do -- checked: literal_needs_type
+        if answer == "1" then features[#features + 1] = darwin_features[name] end -- checked: index_may_be_nil
       end
     else
       features = listed(vector.cpuinfo or "")

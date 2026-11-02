@@ -171,7 +171,7 @@ local record Types
     --- Whether the path ended in "/" after its last segment.
     trailing: boolean
     --- The typed values of [`Web.key`], by key.
-    slots: {any:any}
+    slots: {any:any} -- declared: key_type
     --- The stream bodies made for this request ([`Sse.EventStream`]):
     --- the app closes those the final reply does not carry.
     bodies: mut {Stream.Reader}
@@ -565,7 +565,7 @@ local record Types
     --- The app's configuration, as given.
     spec: AppSpec
     --- Resource of the lifespan, by [`Web.key`]: `app.state[KEY] = db`.
-    state: {any:any}
+    state: {any:any} -- declared: key_type
     --- The compiled routes.
     router: Router
     --- Answers one request of the server: the server's entry point alone
@@ -590,7 +590,7 @@ local record Types
     stoppers: mut {function()}
     --- The open event streams: how to end each, by a key of its own. For
     --- [`Sse.EventStream`] alone.
-    streams: {any: function()}
+    streams: {any: function()} -- declared: key_type
     --- How many event streams are open, which `streams` holds.
     mut stream_count: integer
     --- The most [`stream_count`] may reach: the app's `max_streams`, else

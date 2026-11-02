@@ -18,8 +18,8 @@ Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx
 --- COSMIC_BUILD_HOME, so the build directory is that cache's.
 local function run(root: string, cache: string, file: string, word: string): Child.Result
   local env = this_program.environment()
-  env.XDG_CACHE_HOME = cache
-  env.COSMIC_BUILD_HOME = nil
+  env.XDG_CACHE_HOME = cache -- checked: map_field
+  env.COSMIC_BUILD_HOME = nil -- checked: map_field
   local started = this_program.program({ file, word }, { cwd = root, env = env,
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
   return (assert(Child.run(started.argv, started.options)))
@@ -36,7 +36,7 @@ local function test_a_tree_that_cannot_be_written_builds_in_the_cache(tmp: strin
   assert(Fs.write(root .. "/main.tl", 'local helper = require("helper")\n' ..
       'return function(argv: {string}): integer\n  print(helper .. (argv[1] or ""))\n  return 0\nend\n'))
   assert(Fs.write(root .. "/helper.tl", 'local greeting: string = "from "\nreturn greeting\n'))
-  assert(sys.chmod(root, tonumber("555", 8) as integer))
+  assert(sys.chmod(root, tonumber("555", 8) as integer)) -- checked: cast_refused
   local first = run(root, cache, "main.tl", "here")
   assert(first.code == 0 and first.stdout == "from here\n", tostring(first.stderr))
   local directory = assert(build_paths.directory(root, { XDG_CACHE_HOME = cache }))
@@ -46,5 +46,5 @@ local function test_a_tree_that_cannot_be_written_builds_in_the_cache(tmp: strin
   assert(#listed == 2, "it wrote into the tree it could not write")
   local again = run(root, cache, "main.tl", "again")
   assert(again.code == 0 and again.stdout == "from again\n", tostring(again.stderr))
-  assert(sys.chmod(root, tonumber("755", 8) as integer))
+  assert(sys.chmod(root, tonumber("755", 8) as integer)) -- checked: cast_refused
 end

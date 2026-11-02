@@ -119,24 +119,24 @@ end
 local function test_other_subcommands_use_the_build_s_caches()
   local got = Zig.passthrough_environment("/repo/o", { COSMIC_ZIG_GLOBAL_CACHE = "/g",
     COSMIC_ZIG_CACHE = "/p", PATH = "/bin" })
-  assert(got.ZIG_GLOBAL_CACHE_DIR == "/g" and got.ZIG_LOCAL_CACHE_DIR == "/p" and
-      got.PATH == "/bin")
+  assert(got.ZIG_GLOBAL_CACHE_DIR == "/g" and got.ZIG_LOCAL_CACHE_DIR == "/p" and -- checked: map_field*2
+      got.PATH == "/bin") -- checked: map_field
   local kept = Zig.passthrough_environment("/repo/o", { COSMIC_ZIG_GLOBAL_CACHE = "/g",
     COSMIC_ZIG_CACHE = "/p", ZIG_GLOBAL_CACHE_DIR = "/mine" })
-  assert(kept.ZIG_GLOBAL_CACHE_DIR == "/mine" and kept.ZIG_LOCAL_CACHE_DIR == "/p")
+  assert(kept.ZIG_GLOBAL_CACHE_DIR == "/mine" and kept.ZIG_LOCAL_CACHE_DIR == "/p") -- checked: map_field*2
 end
 
 --- `zig build` finds its global cache only in the environment, and
 --- uses the shared one whatever the caller named.
 local function test_build_names_its_global_cache_in_the_environment()
   local got = Zig.build_environment("/g", { ZIG_GLOBAL_CACHE_DIR = "/mine", PATH = "/bin" })
-  assert(got.ZIG_GLOBAL_CACHE_DIR == "/g" and got.PATH == "/bin")
+  assert(got.ZIG_GLOBAL_CACHE_DIR == "/g" and got.PATH == "/bin") -- checked: map_field*2
 end
 
 --- `zig build` compiles its maker in Debug, which a cache restored on
 --- another CPU model compiles again in seconds rather than minutes.
 local function test_build_compiles_its_maker_in_debug()
-  assert(Zig.build_environment("/g", {}).ZIG_DEBUG_CMD == "1")
+  assert(Zig.build_environment("/g", {}).ZIG_DEBUG_CMD == "1") -- checked: map_field
 end
 
 -- The global cache is shared: named outright, else in this user's cache
@@ -424,24 +424,24 @@ local function test_lookup_exit_status_uses_kind_without_another_lookup(tmp: str
   local real_find, real_get = Proc.find_result, Env.read
   local calls = { value = 0 }
   local reply: Proc.FindResult = { kind = "not_executable", path = "tool", reason = "tool: not found" }
-  Proc.find_result = function(_name: string, _path?: string): Proc.FindResult
-    calls.value = calls.value + 1
+  Proc.find_result = function(_name: string, _path?: string): Proc.FindResult -- checked: field_fixed
+    calls.value = calls.value + 1 -- checked: map_field*2
     return reply
   end
-  Env.read = function(name: Env.Name): string?
+  Env.read = function(name: Env.Name): string? -- checked: field_fixed
     if name == "COSMIC_ZIG" then return "tool" end
     return nil
   end
   local denied = Zig.enter({ "version" }, tmp .. "/build/zig.tl")
   reply = { kind = "not_found", reason = "tool: not executable" }
   local missing = Zig.enter({ "version" }, tmp .. "/build/zig.tl")
-  Proc.find_result, Env.read = real_find, real_get
-  assert(denied == 126 and missing == 127 and calls.value == 2)
+  Proc.find_result, Env.read = real_find, real_get -- checked: field_fixed*2
+  assert(denied == 126 and missing == 127 and calls.value == 2) -- checked: map_field
 end
 
 local function test_boot_lock_classifies_the_begin_result_not_its_reason(tmp: string)
   local real_open, real_kind = Sqlite.open, sys.flock_kind
-  sys.flock_kind = function(_fd: integer): string?, string, integer
+  sys.flock_kind = function(_fd: integer): string?, string, integer -- checked: field_fixed
     return "apart", "", 0
   end
   local outcomes: {Sqlite.ExecResult} = {
@@ -455,7 +455,7 @@ local function test_boot_lock_classifies_the_begin_result_not_its_reason(tmp: st
   -- the one table every handle shares: the lock gets a real handle, and the
   -- three methods it calls answer what the outcome says for this test alone.
   local sample = assert(Sqlite.memory())
-  local methods = (assert(getmetatable(sample)) as {string:any}).__index as {string:any}
+  local methods = (assert(getmetatable(sample)) as {string:any}).__index as {string:any} -- checked: cast_refused*2
   local real_busy, real_exec, real_close = methods.busy_timeout, methods.exec_result, methods.close
   local calls = { value = 0 }
   local closes = { value = 0 }
@@ -463,28 +463,28 @@ local function test_boot_lock_classifies_the_begin_result_not_its_reason(tmp: st
   methods.busy_timeout = function(_self: any, ns: integer) assert(ns >= 0) end
   methods.exec_result = function(_self: any, sql: string): Sqlite.ExecResult
     assert(sql == "BEGIN IMMEDIATE")
-    calls.value = calls.value + 1
-    if calls.value == 1 then return outcome end
+    calls.value = calls.value + 1 -- checked: map_field*2
+    if calls.value == 1 then return outcome end -- checked: map_field, nil_not_allowed
     return { code = Sqlite.OK, extended_code = Sqlite.OK, reason = "" }
   end
   methods.close = function(self: any): boolean, string
-    closes.value = closes.value + 1
-    return (real_close as function(any): boolean, string)(self)
+    closes.value = closes.value + 1 -- checked: map_field*2
+    return (real_close as function(any): boolean, string)(self) -- checked: cast_refused
   end
-  Sqlite.open = function(_path: string, _opts?: Sqlite.OpenOptions): Sqlite.Handle?, string
+  Sqlite.open = function(_path: string, _opts?: Sqlite.OpenOptions): Sqlite.Handle?, string -- checked: field_fixed
     return Sqlite.memory()
   end
   for i, each in ipairs(outcomes) do
-    outcome, calls.value, closes.value = each, 0, 0
+    outcome, calls.value, closes.value = each, 0, 0 -- checked: map_field*2
     statuses[i] = Zig.with_lock(support.build_dir(tmp .. "/" .. tostring(i)), {}, function(_env: {string:string}): integer
       return 7
     end)
-    attempts[#attempts + 1] = calls.value
-    closures[#closures + 1] = closes.value
+    attempts[#attempts + 1] = calls.value -- checked: map_field
+    closures[#closures + 1] = closes.value -- checked: map_field
   end
   methods.busy_timeout, methods.exec_result, methods.close = real_busy, real_exec, real_close
   assert(sample:close())
-  Sqlite.open, sys.flock_kind = real_open, real_kind
+  Sqlite.open, sys.flock_kind = real_open, real_kind -- checked: field_fixed*2
   assert(statuses[1] == 7 and attempts[1] == 2)
   assert(statuses[2] == 1 and attempts[2] == 1)
   assert(statuses[3] == 1 and attempts[3] == 1)
@@ -498,10 +498,10 @@ local function test_snapshot_names_a_same_size_rewrite_with_preserved_mtime(tmp:
   assert(Fs.set_mtime(path, 0, 0))
   local stat = sys.stat
   local tick = { value = 1 }
-  sys.stat = function(name: string): sys.Stat?, string, integer
+  sys.stat = function(name: string): sys.Stat?, string, integer -- checked: field_fixed
     local st, trouble, errno = stat(name)
     if st ~= nil and name == path then
-      return { ...st, ctime = 100, ctime_ns = tick.value }, trouble, errno
+      return { ...st, ctime = 100, ctime_ns = tick.value }, trouble, errno -- checked: map_field
     end
     return st, trouble, errno
   end
@@ -516,10 +516,10 @@ local function test_snapshot_names_a_same_size_rewrite_with_preserved_mtime(tmp:
     assert(was.ino == after.ino and was.size == after.size and
         was.mtime == after.mtime and was.mtime_ns == after.mtime_ns)
     -- A nanosecond-only change is distinct even on a coarse filesystem.
-    tick.value = 2
+    tick.value = 2 -- checked: map_field
     assert(table.concat(Zig.changed(before, (assert(Zig.snapshot(root)))), " ") == "core/a.c")
   end)
-  sys.stat = stat
+  sys.stat = stat -- checked: field_fixed
   assert(ok, tostring(trouble))
 end
 
@@ -563,7 +563,7 @@ end
 --- [`Zig.run`] with a start that sends this process SIGTERM, which the run's guard catches, and then raises: the child
 --- of build/zig_signal_tool_test.tl, which shows the guard closed (delivering the signal) and not released.
 test_child.register("raises_after_a_signal", function(_args: {string}): integer
-  Child.start = function(_argv: {string}, _options?: Child.Options): Child.Handle?, string
+  Child.start = function(_argv: {string}, _options?: Child.Options): Child.Handle?, string -- checked: field_fixed
     assert(sys.kill(sys.getpid(), sys.SIGTERM))
     error("the start raised")
   end

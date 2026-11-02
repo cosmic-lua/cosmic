@@ -25,15 +25,15 @@ Test.policy{ profiles = { "system", "cosmic" }, grants = { { path = "o/bin", let
 
 local function environment(): {string:string}
   local env = this_program.environment()
-  env.COSMIC_PORTABLE_STARTUP_TEST_READY = nil
-  env.COSMIC_PORTABLE_STARTUP_TEST_GO = nil
+  env.COSMIC_PORTABLE_STARTUP_TEST_READY = nil -- checked: map_field
+  env.COSMIC_PORTABLE_STARTUP_TEST_GO = nil -- checked: map_field
   return env
 end
 
 --- Launches this artifact with `cache` as its cache leaf.
 local function launch(program: string, cache: string, dir: string)
   local env = environment()
-  env.COSMIC_PORTABLE_CACHE = cache
+  env.COSMIC_PORTABLE_CACHE = cache -- checked: map_field
   local r = assert(Child.run({ program, "ok.tl" }, { env = env, cwd = dir,
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) }))
   assert(r.ok and r.stdout == "ok\n", tostring(r.stderr))

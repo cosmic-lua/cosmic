@@ -19,7 +19,7 @@ local function make_app(opts: Cors.Options, more?: {Web.Middleware}): Web.App
     middleware = stack,
     routes = {
       Web.get("/data", function(_req: Web.Request): Web.Response
-        ran.count = ran.count + 1
+        ran.count = ran.count + 1 -- checked: map_field*2
         return Web.json({ ok = true })
       end),
       Web.get("/shared", function(_req: Web.Request): Web.Response
@@ -35,7 +35,7 @@ local function make_app(opts: Cors.Options, more?: {Web.Middleware}): Web.App
         error("a fault")
       end),
       Web.post("/save", function(_req: Web.Request): Web.Response
-        ran.count = ran.count + 1
+        ran.count = ran.count + 1 -- checked: map_field*2
         return Web.text("saved")
       end),
     },
@@ -69,9 +69,9 @@ end
 
 local function test_a_stranger_gets_no_grant_and_the_cache_is_told_the_answer_varies()
   local client = Web.test_client(make_app{ allow_origins = { APP }, allow_credentials = true })
-  ran.count = 0
+  ran.count = 0 -- checked: map_field
   local res = client:post("/save", { headers = { Origin = "https://evil.example" } })
-  assert(res.status == 200 and ran.count == 1, "CORS is not authorization: the request still runs")
+  assert(res.status == 200 and ran.count == 1, "CORS is not authorization: the request still runs") -- checked: map_field
   assert(res.headers["access-control-allow-origin"] == nil)
   assert(res.headers["access-control-allow-credentials"] == nil)
   assert(res.headers["vary"] == "Origin")
@@ -124,9 +124,9 @@ local function test_a_wildcard_grants_any_origin_but_never_with_credentials_or_n
   assert(res.headers["access-control-allow-credentials"] == nil)
   assert(get(client, "null").headers["access-control-allow-origin"] == nil, "* does not cover null")
   assert(get(client, "not an origin").headers["access-control-allow-origin"] == nil)
-  assert(not pcall(Cors.middleware, { allow_origins = { "https://.." } }), "a host of empty labels")
-  assert(not pcall(Cors.middleware, { allow_origins = { "*" }, allow_credentials = true }))
-  assert(not pcall(Cors.middleware, { allow_origins = { "*", APP } }))
+  assert(not pcall(Cors.middleware, { allow_origins = { "https://.." } }), "a host of empty labels") -- checked: alternatives_as_value
+  assert(not pcall(Cors.middleware, { allow_origins = { "*" }, allow_credentials = true })) -- checked: alternatives_as_value
+  assert(not pcall(Cors.middleware, { allow_origins = { "*", APP } })) -- checked: alternatives_as_value
 end
 
 local function test_null_is_allowed_only_by_being_listed()
@@ -175,7 +175,7 @@ end
 local function test_a_preflight_is_answered_without_the_router()
   local client = Web.test_client(make_app{ allow_origins = { APP }, allow_credentials = true,
     allow_methods = { "GET", "POST", "DELETE" }, allow_headers = { "X-Token", "Authorization" }, max_age = 120 })
-  ran.count = 0
+  ran.count = 0 -- checked: map_field
   local res = preflight(client, APP, "DELETE", "X-Token, authorization")
   assert(res.status == 204 and res.body == "")
   assert(res.headers["access-control-allow-origin"] == APP)
@@ -184,7 +184,7 @@ local function test_a_preflight_is_answered_without_the_router()
   assert(res.headers["access-control-allow-headers"] == "x-token, authorization")
   assert(res.headers["access-control-max-age"] == "120")
   assert(res.headers["vary"] == "Origin, Access-Control-Request-Method, Access-Control-Request-Headers")
-  assert(ran.count == 0)
+  assert(ran.count == 0) -- checked: map_field
   local plain = preflight(client, APP, "POST")
   assert(plain.status == 204 and plain.headers["access-control-allow-headers"] == "X-Token, Authorization",
     "no headers asked: the configured ones")
@@ -247,7 +247,7 @@ end
 
 local function test_a_config_that_cannot_work_raises_at_construction()
   local function bad(opts: Cors.Options)
-    assert(not pcall(Cors.middleware, opts))
+    assert(not pcall(Cors.middleware, opts)) -- checked: alternatives_as_value
   end
   bad({ allow_origins = { "app.example.com" } })
   bad({ allow_origins = { "https://app.example.com/path" } })

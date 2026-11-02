@@ -11,7 +11,7 @@ local Hash = require("cosmic.hash")
 local artifact = require("build.artifact")
 -- [`build.boot`] loads the compiler's module at the top; a test has no
 -- bridge to have put it there, and a stage never gets as far as using it.
-package.loaded["build.compiler"] = {}
+package.loaded["build.compiler"] = {} -- checked: literal_needs_type, view_written
 local boot = require("build.boot")
 local build_paths = require("build.paths")
 
@@ -83,12 +83,12 @@ local function run_capturing(mode: string, records_path: string,
   local path = build_directory .. ".stderr"
   local fd = assert(Fs.open_write(path))
   local real = Fs.stderr
-  Fs.stderr = fd
+  Fs.stderr = fd -- checked: field_fixed
   local ok, code = pcall(run, mode, records_path, build_directory, extra)
-  Fs.stderr = real
+  Fs.stderr = real -- checked: field_fixed
   assert(Fs.close(fd))
   assert(ok, tostring(code))
-  return code as integer, (assert(Fs.read(path)))
+  return code as integer, (assert(Fs.read(path))) -- checked: cast_refused
 end
 
 local function tool_of(build_directory: string): string

@@ -84,7 +84,7 @@ local function least_policy(program: string, scratch: string,
     own_scratch = false, why_shared = "",
   }
   local policy = test_policy.worker(plan, effective)
-  policy.set_env = environment
+  policy.set_env = environment -- checked: field_fixed
   return policy
 end
 
@@ -158,7 +158,7 @@ function test_sandbox_probe.available(argv: {string}, env: {string:string}, fds:
   end
   local unmet = test_policy.unmet()
   if unmet ~= "" then return { ok = false, why = unmet, broken = false } end
-  local policy = least_policy(argv[1], scratch, env)
+  local policy = least_policy(argv[1], scratch, env) -- checked: index_may_be_nil
   local command: mut {string} = {}
   for i, word in ipairs(argv) do command[i] = word end
   -- As a worker whose test does not declare `tool` holds itself
@@ -184,23 +184,23 @@ local function noexec_works(): boolean, string
   local unmet = test_policy.unmet()
   if unmet ~= "" then return false, unmet end
   local launched, _ = Proc.relaunch()
-  local start: Proc.Relaunch = launched
-  if start == nil then
+  local start: Proc.Relaunch = launched -- checked: nil_not_allowed
+  if start == nil then -- checked: compare_disjoint
     local executable, trouble = Proc.executable()
     if executable == nil then return false, trouble end
     start = { argv = { executable }, env = {}, fds = {} }
   end
   local directory, directory_trouble = test_sandbox_probe.directory()
   if directory == nil then return false, directory_trouble end
-  local policy = least_policy(start.argv[1], directory, start.env)
+  local policy = least_policy(start.argv[1], directory, start.env) -- checked: index_may_be_nil
   local made, made_trouble = Fs.mkdirs(directory .. "/noexec")
   if not made then
     local _, _ = Fs.remove_tree(directory)
     return false, made_trouble
   end
   local grants = policy.grants or {}
-  grants[#grants + 1] = { path = noexec_place, from = directory .. "/noexec", letters = "rwc" }
-  policy.grants = grants
+  grants[#grants + 1] = { path = noexec_place, from = directory .. "/noexec", letters = "rwc" } -- checked: view_written
+  policy.grants = grants -- checked: field_fixed
   local command: mut {string} = {}
   for i, word in ipairs(start.argv) do command[i] = word end
   command[#command + 1] = "-e"
@@ -231,11 +231,11 @@ function test_sandbox_probe.resolve_noexec(effective: test_inputs.Effective, san
     effective.noexec_trouble = "noexec scratch requires a Linux filesystem sandbox"
     return
   end
-  local trouble = known.worker
+  local trouble = known.worker -- checked: map_field
   if trouble == nil then
     local ok, why = noexec_works()
     trouble = if ok then "" else "noexec scratch is unavailable: " .. why end
-    known.worker = trouble
+    known.worker = trouble -- checked: map_field
   end
   effective.noexec_ready, effective.noexec_trouble = trouble == "", trouble
 end

@@ -120,7 +120,7 @@ local function test_options_mean_what_they_mean_to_decode()
   assert(lone[1] == "string=\u{fffd}@", lone[1])
   local _, refused = tokens('"\\ud800"')
   assert(refused:match("surrogate"), refused)
-  assert(not pcall(Json.reader, Stream.from_string("1"), { max_depth = 0 }), "a depth below 1 raises")
+  assert(not pcall(Json.reader, Stream.from_string("1"), { max_depth = 0 }), "a depth below 1 raises") -- checked: alternatives_as_value
 end
 
 --- `value` decodes one whole value, a part of a stream too large to
@@ -133,8 +133,8 @@ local function test_value_reads_one_whole_value()
     assert(assert(r:next()).kind == "array")
     local ids: mut {integer} = {}
     while r:peek() == "object" do
-      local row = assert(r:value()) as {string: any}
-      ids[#ids + 1] = row.id as integer
+      local row = assert(r:value()) as {string: any} -- checked: cast_refused
+      ids[#ids + 1] = row.id as integer -- checked: cast_refused
       assert(Json.is_array(row.tags), "an array decodes marked, as decode marks one")
     end
     assert(r:peek() == "null" and r:value() == Json.null, "null_value stands in")
@@ -271,7 +271,7 @@ local function test_a_long_token_in_small_chunks_reads_in_linear_time()
   assert(#got[2] == #"string=@/0" + #long)
   local r = Json.reader(ChunkedReader.chunked('[{"a": "' .. long .. '"}]', 3))
   assert(assert(r:next()).kind == "array")
-  local value = assert(r:value()) as {string: string}
+  local value = assert(r:value()) as {string: string} -- checked: cast_refused
   assert(value.a == long)
 end
 
@@ -287,7 +287,7 @@ local function test_a_value_failure_under_a_long_place_reads_as_decode_names_it(
   end
   local _, err = r:value()
   local _, whole = Json.decode(text)
-  assert(err == whole and err:find('pointer ending "', 1, true), err .. " vs " .. whole)
+  assert(err == whole and err:find('pointer ending "', 1, true), err .. " vs " .. whole) -- checked: or_mix
 end
 
 -- ---- JSON5 and `#` comments ----------------------------------------
@@ -356,7 +356,7 @@ local function test_json5_forms_are_tokens()
   -- number equals, written any way `decode` reads it.
   for _, text in ipairs({ "NaN", "nan", "+NaN", "-NaN", "nAn" }) do
     local got = assert(Json.reader(Stream.from_string(text), JSON5):next())
-    local value = got.value as number
+    local value = got.value as number -- checked: cast_refused
     assert(got.kind == "number" and value ~= value, text)
     assert(Json.reader(Stream.from_string(text), JSON5):peek() == "number", text .. " peeks as a number")
   end
@@ -370,11 +370,11 @@ local function test_json5_numbers_and_strings_are_what_decode_reads()
     local want = assert(Json.decode(text, { json5 = true }))
     local got = assert(Json.reader(Stream.from_string(text), JSON5):next())
     assert(got.value == want, ("%q: %s, not %s"):format(text, tostring(got.value), tostring(want)))
-    assert(math.type(got.value as number) == math.type(want as number))
+    assert(math.type(got.value as number) == math.type(want as number)) -- checked: cast_refused*2
     local viewed = assert(Json.reader(Stream.from_string(text), JSON5):value())
     assert(viewed == want, "value reads the same")
   end
-  local nan = assert(Json.reader(Stream.from_string("NaN"), JSON5):next()).value as number
+  local nan = assert(Json.reader(Stream.from_string("NaN"), JSON5):next()).value as number -- checked: cast_refused
   assert(nan ~= nan, "NaN is not a number equal to itself")
   local big = assert(Json.reader(Stream.from_string("[0xFFFFFFFFFFFFFFFFFF]"),
     { json5 = true, big_numbers_as_strings = true }))
@@ -517,8 +517,8 @@ local function test_value_reads_json5_and_comments()
     local r = Json.reader(ChunkedReader.chunked(text, size), { json5 = true, hash_comments = true, null_value = Json.null })
     assert(assert(r:next()).kind == "object" and assert(r:next()).value == "rows")
     assert(r:peek() == "array")
-    local rows = assert(r:value()) as {{string: any}}
-    local whole = want as {string: any}
+    local rows = assert(r:value()) as {{string: any}} -- checked: cast_refused
+    local whole = want as {string: any} -- checked: cast_refused
     assert(#rows == 2 and rows[1].id == 1 and rows[1].name == "a}" and rows[2].id == 2 and whole.n == 3)
     assert(assert(r:next()).value == "n" and r:value() == 3)
     assert(assert(r:next()).kind == "end_object")
@@ -633,7 +633,7 @@ end
 local function test_a_nested_value_with_many_comments_reads_in_one_byte_chunks()
   local text = "[" .. string.rep("1, /* c */ ", 10000) .. "2]"
   local r = Json.reader(ChunkedReader.chunked("[" .. text .. "]", 1), JSON5)
-  assert(assert(r:next()).kind == "array" and #(assert(r:value()) as {integer}) == 10001)
+  assert(assert(r:next()).kind == "array" and #(assert(r:value()) as {integer}) == 10001) -- checked: cast_refused
 end
 
 --- yyjson reads JSON5's extra whitespace right after an object's `{` or
@@ -674,7 +674,7 @@ local function test_extended_whitespace_where_an_object_key_starts_is_refused()
     local r = Json.reader(Stream.from_string(text), JSON5)
     local kinds: mut {string} = {}
     while r:peek() ~= nil do kinds[#kinds + 1] = assert(r:next()).kind end
-    assert(#kinds >= 4 and assert(Json.decode(text, { json5 = true })), text)
+    assert(#kinds >= 4 and assert(Json.decode(text, { json5 = true })), text) -- checked: or_mix
   end
   -- Whitespace after a comment, or anywhere else, is read.
   for _, text in ipairs({ "{/**/\u{a0}a:1}", "{a:1,// c\n\u{a0}b:2}", "{a\u{a0}:\u{a0}1\u{a0}, 'b':2\u{a0}}",
@@ -709,7 +709,7 @@ end
 local function test_an_n_waits_for_its_next_byte()
   local chunks = { "[", "n", "", "", "an", "]" }
   local at: integer = 0
-  local source: Stream.Reader = {
+  local source: Stream.Reader = { -- checked: literal_shape
     read = function(_self: Stream.Reader, _max?: integer): string?, string
       at = at + 1
       return chunks[at], ""

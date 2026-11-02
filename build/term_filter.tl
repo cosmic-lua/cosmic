@@ -55,7 +55,7 @@
 --- UTF-8 character or a sequence cut by the end of a chunk, which waits
 --- for the next.
 
-local byte <const> = string.byte
+local byte <const> = string.byte -- checked: overload_value
 local find <const> = string.find
 local sub <const> = string.sub
 local char <const> = string.char
@@ -213,7 +213,7 @@ function TermFilter.new(): Filter
       if p == "" or count_parameters(p) > MOST_MODES or find(p, "^[%d;]+$") == nil then return end
       local listed: mut {integer} = {}
       for digits in (p .. ";"):gmatch("([^;]*);") do
-        local number = digits ~= "" and #digits <= 4 and math.tointeger(tonumber(digits)) or nil
+        local number = digits ~= "" and #digits <= 4 and math.tointeger(tonumber(digits)) or nil -- checked: and_ternary
         if number == nil or MODE_DEFAULTS[number] == nil then return end
         listed[#listed + 1] = number
       end
@@ -227,7 +227,7 @@ function TermFilter.new(): Filter
   ground = function(b: integer)
     if st.needed > 0 then
       local first = #st.held == 1
-      if b >= (first and st.low or 0x80) and b <= (first and st.high or 0xbf) then
+      if b >= (first and st.low or 0x80) and b <= (first and st.high or 0xbf) then -- checked: and_ternary*2
         st.held = st.held .. char(b)
         st.needed = st.needed - 1
         if st.needed == 0 then
@@ -291,7 +291,7 @@ function TermFilter.new(): Filter
         if last ~= nil then at = last + 1 end
       end
       if at <= size then
-        local b = byte(chunk, at)
+        local b = byte(chunk, at) -- untyped: call
         at = at + 1
         if st.state == GROUND then
           ground(b)

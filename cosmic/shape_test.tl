@@ -89,12 +89,12 @@ local function fails<T>(value: any, spec: Shape.Spec<T>, want: string)
 end
 
 local function test_a_record_answers_a_copy_of_the_fields_it_names()
-  local decoded: {string: any} = { host = "localhost", port = 8080, extra = { 1, 2 } }
+  local decoded: {string: any} = { host = "localhost", port = 8080, extra = { 1, 2 } } -- checked: any_use*3
   local s = must(Shape.into(decoded, SERVER.spec))
   assert(s.host == "localhost" and s.port == 8080 and s.tls == nil)
   assert(Json.encode_any(s) == '{"host":"localhost","port":8080}', "a field the spec does not name was kept")
   assert(not rawequal(s, decoded), "into answered the table it was given")
-  assert(decoded.extra ~= nil, "into wrote to its input")
+  assert(decoded.extra ~= nil, "into wrote to its input") -- checked: map_field
 end
 
 local function test_a_mismatch_names_its_path()
@@ -130,8 +130,8 @@ end
 
 local function test_a_list_reports_its_first_miss_in_index_order()
   local spec = Shape.list(Shape.string)
-  fails({ [1] = 1, [3] = "c" }, spec, "$[0]: want string, got integer")
-  fails({ [1] = "a", [3] = 3 }, spec, "$[1]: missing")
+  fails({ [1] = 1, [3] = "c" }, spec, "$[0]: want string, got integer") -- checked: arms_differ
+  fails({ [1] = "a", [3] = 3 }, spec, "$[1]: missing") -- checked: arms_differ
 end
 
 local function test_integer_takes_a_whole_float_and_nothing_else()
@@ -150,13 +150,13 @@ local function test_a_list_is_keyed_from_one()
   local strings = Shape.list(Shape.string)
   local l = must(Shape.into({ "a", "b" }, strings))
   assert(#l == 2 and l[2] == "b")
-  local empty = must(Shape.into({}, strings))
+  local empty = must(Shape.into({}, strings)) -- checked: literal_needs_type
   assert(#empty == 0)
   fails({ [1] = "a", [3] = "c" }, strings, "$[1]: missing")
   fails({ [2] = "b" }, strings, "$[0]: missing")
   fails({ x = "a" }, strings, '$: want list, got the string key "x"')
   fails({ [0] = "a" }, strings, "$: want list, got the integer key 0")
-  fails({ [1.5] = "a" }, strings, "$: want list, got the float key 1.5")
+  fails({ [1.5] = "a" }, strings, "$: want list, got the float key 1.5") -- checked: float_key
 end
 
 -- A list answers a JSON array, so an empty one encodes back as `[]`,
@@ -166,7 +166,7 @@ local function test_a_list_answers_a_json_array()
   local from_json = must(Shape.into(must(Json.decode("[]")), integers))
   assert(Json.is_array(from_json))
   assert(must(Json.encode(from_json)) == "[]")
-  local from_lua = must(Shape.into({}, integers))
+  local from_lua = must(Shape.into({}, integers)) -- checked: literal_needs_type
   assert(must(Json.encode(from_lua)) == "[]")
 end
 
@@ -181,25 +181,25 @@ end
 -- field that key was probably meant to be, and whatever its value.
 local function test_a_strict_record_refuses_a_key_it_does_not_name()
   local strict = SERVER:strict()
-  local s = must(Shape.into({ host = "h", port = 1, tls = Json.null }, strict.spec))
+  local s = must(Shape.into({ host = "h", port = 1, tls = Json.null }, strict.spec)) -- checked: arms_differ
   assert(s.host == "h" and s.port == 1 and s.tls == nil)
-  fails({ host = "h", prot = 1 }, strict.spec, "$.prot: unknown key")
-  fails({ host = "h", port = 1, zz = 1, ["a key"] = 1 }, strict.spec, '$[\"a key\"]: unknown key')
-  fails({ host = "h", port = 1, tlss = Json.null }, strict.spec, "$.tlss: unknown key")
-  fails({ host = "h", port = 1, [1] = "x" }, strict.spec, "$: want record, got the integer key 1")
+  fails({ host = "h", prot = 1 }, strict.spec, "$.prot: unknown key") -- checked: arms_differ
+  fails({ host = "h", port = 1, zz = 1, ["a key"] = 1 }, strict.spec, '$[\"a key\"]: unknown key') -- checked: literal_shape
+  fails({ host = "h", port = 1, tlss = Json.null }, strict.spec, "$.tlss: unknown key") -- checked: arms_differ
+  fails({ host = "h", port = 1, [1] = "x" }, strict.spec, "$: want record, got the integer key 1") -- checked: literal_shape
   fails(must(Json.decode("[]")), strict.spec, "$: want record, got array")
   -- A record the strict form is made of is made strict whatever it is nested in.
   local record Outer
     server: Server?
   end
   local OUTER <const> = Shape.record_of("Outer"):strict()
-  fails({ server = { host = "h", port = 1, extra = true } }, OUTER.spec, "$.server.extra: unknown key")
+  fails({ server = { host = "h", port = 1, extra = true } }, OUTER.spec, "$.server.extra: unknown key") -- checked: arms_differ
 end
 
 local function test_a_map_refuses_a_key_that_is_not_a_string()
   local m = must(Shape.into({ a = 1, b = 2.0 }, Shape.map(Shape.integer)))
-  assert(m.a == 1 and math.type(m.b) == "integer")
-  fails({ a = 1, [2] = 2 }, Shape.map(Shape.integer), "$: want map, got the integer key 2")
+  assert(m.a == 1 and math.type(m.b) == "integer") -- checked: map_field*2
+  fails({ a = 1, [2] = 2 }, Shape.map(Shape.integer), "$: want map, got the integer key 2") -- checked: literal_shape
 end
 
 -- [`Json.null`] is a missing value: optional admits it and answers nil,
@@ -210,7 +210,7 @@ local function test_json_null_is_a_missing_value()
   local s = must(Shape.into(must(Json.decode(text, keep)), SERVER.spec))
   assert(s.tls == nil)
   fails(must(Json.decode('{"host": null, "port": 1}', keep)), SERVER.spec, "$.host: missing")
-  fails({ host = "h", port = Json.null }, SERVER.spec, "$.port: missing")
+  fails({ host = "h", port = Json.null }, SERVER.spec, "$.port: missing") -- checked: arms_differ
   -- An array holds no hole, so a list whose elements may be missing is a map from the indexes that are there.
   local sparse = Shape.sparse_list(Shape.optional(Shape.integer))
   local l = must(Shape.into(must(Json.decode("[1, null, 3]", keep)), sparse))
@@ -248,17 +248,17 @@ local function test_one_of_admits_only_its_values()
   local v = must(Shape.into("info", level))
   assert(v == "info")
   fails("warn", level, '$: want one of "debug", "info", got "warn"')
-  fails({}, level, '$: want one of "debug", "info", got table')
+  fails({}, level, '$: want one of "debug", "info", got table') -- checked: literal_needs_type
   local raised, _ = pcall(Shape.one_of)
   assert(not raised)
 end
 
 local function test_any_passes_the_value_through()
-  local t = {}
+  local t = {} -- checked: literal_needs_type
   local v, err = Shape.into({ any = t }, Shape.record_of("Tagged").spec)
   assert(v ~= nil, err)
   -- a field of `any` may be missing, as `any` holds nil
-  local missing, why = Shape.into({}, Shape.record_of("Tagged").spec)
+  local missing, why = Shape.into({}, Shape.record_of("Tagged").spec) -- checked: literal_needs_type
   assert(missing ~= nil, why)
   local anything = must(Shape.into(t, Shape.any))
   assert(rawequal(anything, t))
@@ -299,7 +299,7 @@ end
 
 local function test_a_key_that_is_not_an_identifier_is_quoted_in_the_path()
   local spec = Shape.record_of("Odd").spec
-  assert(select(2, Shape.into({}, spec)) == '$["1st"]: missing')
+  assert(select(2, Shape.into({}, spec)) == '$["1st"]: missing') -- checked: literal_needs_type
   local function bad(key: string, want: string)
     local text = '{"1st": "x", "_ok9": "x", "a b": "x", "a-b": "x"}'
     local escaped = key:gsub("%p", "%%%0")
@@ -312,8 +312,8 @@ local function test_a_key_that_is_not_an_identifier_is_quoted_in_the_path()
 end
 
 local function test_a_cyclic_value_is_walked_as_deep_as_the_spec()
-  local t: {string: any} = { name = "loop" }
-  t.self = t
+  local t: {string: any} = { name = "loop" } -- checked: any_use
+  t.self = t -- checked: map_field
   local v, err = Shape.into(t, Shape.record_of("Looping").spec)
   assert(v ~= nil, err)
   assert(Json.encode_any(v) == '{"name":"loop","self":{"name":"loop"}}')
@@ -322,18 +322,18 @@ end
 local function test_into_answers_only_the_first_of_several_failures()
   local spec = Shape.record_of("Cfg").spec
   local value: {string: any} = {
-    port = "8080", level = "warn",
-    rows = { { id = 1 }, { id = "b" }, { id = true } },
-    tags = { b = 1, a = "x", c = true },
+    port = "8080", level = "warn", -- checked: any_use*2
+    rows = { { id = 1 }, { id = "b" }, { id = true } }, -- checked: arms_differ
+    tags = { b = 1, a = "x", c = true }, -- checked: arms_differ
   }
   fails(value, spec, "$.host: missing")
-  value.host = "h"
+  value.host = "h" -- checked: map_field
   fails(value, spec, '$.level: want one of "debug", "info", got "warn"')
-  value.level = "info"
+  value.level = "info" -- checked: map_field
   fails(value, spec, "$.port: want integer, got string")
-  value.port = 8080
+  value.port = 8080 -- checked: map_field
   fails(value, spec, "$.rows[0].id: want string, got integer")
-  value.rows = { { id = "a" } }
+  value.rows = { { id = "a" } } -- checked: map_field
   fails(value, spec, "$.tags.a: want boolean, got string")
 end
 
@@ -341,19 +341,19 @@ end
 -- its values, and the least such key in an order no address decides is
 -- the one named.
 local function test_a_refused_key_is_named_before_any_value_is_looked_at()
-  local bad: {any: any} = { a = 1, [{}] = true, [print] = true, [true] = 1, [10] = 1, [2] = 1, [1.5] = 1 }
+  local bad: {any: any} = { a = 1, [{}] = true, [print] = true, [true] = 1, [10] = 1, [2] = 1, [1.5] = 1 } -- declared: key_type
   fails(bad, Shape.map(Shape.string), "$: want map, got the float key 1.5")
-  fails({ a = 1, [10] = 1, [2] = 1 }, Shape.map(Shape.string), "$: want map, got the integer key 2")
-  local scalar_and_function: {any: any} = { [true] = 1, [print] = 1, a = 1 }
+  fails({ a = 1, [10] = 1, [2] = 1 }, Shape.map(Shape.string), "$: want map, got the integer key 2") -- checked: literal_shape
+  local scalar_and_function: {any: any} = { [true] = 1, [print] = 1, a = 1 } -- declared: key_type
   fails(scalar_and_function, Shape.map(Shape.string), "$: want map, got the boolean key true")
-  local function_only: {any: any} = { [print] = 1, a = 1 }
+  local function_only: {any: any} = { [print] = 1, a = 1 } -- declared: key_type
   fails(function_only, Shape.map(Shape.string), "$: want map, got a function key")
-  fails({ [{}] = 1 }, Shape.map(Shape.string), "$: want map, got a table key")
-  fails({ "a", x = 1, [0] = 2 }, Shape.list(Shape.integer), "$: want list, got the integer key 0")
-  fails({ "a", x = 1 }, Shape.list(Shape.integer), '$: want list, got the string key "x"')
+  fails({ [{}] = 1 }, Shape.map(Shape.string), "$: want map, got a table key") -- checked: literal_needs_type
+  fails({ "a", x = 1, [0] = 2 }, Shape.list(Shape.integer), "$: want list, got the integer key 0") -- checked: literal_shape
+  fails({ "a", x = 1 }, Shape.list(Shape.integer), '$: want list, got the string key "x"') -- checked: literal_shape
   local strict = Shape.record_of("Pair"):strict()
   fails(must(Json.decode('{"prot": 1, "hots": "h", "a": "x", "b": "x", "c": "x"}')), strict.spec, "$.hots: unknown key")
-  fails({ prot = 1, [2] = true, [1] = true }, strict.spec, "$: want record, got the integer key 1")
+  fails({ prot = 1, [2] = true, [1] = true }, strict.spec, "$: want record, got the integer key 1") -- checked: literal_shape
   fails({ nested = { prot = 1, a = 2 } }, Shape.record_of("Nested"):strict().spec, "$.nested.a: unknown key")
 end
 
@@ -389,24 +389,24 @@ local function test_a_hole_is_a_missing_element_in_every_table_that_has_one()
   assert(l[1] == 1 and l[2] == nil and l[4] == 4)
   fails(decoded, required, "$[1]: missing")
   -- Keys 1, 3 and 5, with 3 a border of the table.
-  local gappy: mut {any: any} = { 1, 2, 3 }
+  local gappy: mut {any: any} = { 1, 2, 3 } -- declared: key_type
   gappy[2] = nil
   gappy[5] = 5
   fails(gappy, required, "$[1]: missing")
   local g = must(Shape.into(gappy, optional))
   assert(g[1] == 1 and g[3] == 3 and g[5] == 5)
   -- A marked array with one far index is walked by its keys.
-  local far = must(Shape.into(Json.array({ [1 << 40] = 7 } as {any}), optional))
+  local far = must(Shape.into(Json.array({ [1 << 40] = 7 } as {any}), optional)) -- checked: cast_refused
   assert(far[1 << 40] == 7)
-  fails(Json.array({ [1 << 40] = 7 } as {any}), required, "$[0]: missing")
+  fails(Json.array({ [1 << 40] = 7 } as {any}), required, "$[0]: missing") -- checked: cast_refused
 end
 
 -- A marked array holding a key that is no positive index is refused as
 -- an unmarked table is, and nothing it holds is dropped silently.
 local function test_a_marked_array_with_a_stray_key_is_refused()
   local optional = Shape.sparse_list(Shape.optional(Shape.integer))
-  local function marked(key: any): {any: any}
-    local t: mut {any: any} = Json.array({ 1 }) as {any: any}
+  local function marked(key: any): {any: any} -- declared: key_type
+    local t: mut {any: any} = Json.array({ 1 }) as {any: any} -- declared: key_type*2 -- checked: cast_refused
     t[key] = 2
     return t
   end

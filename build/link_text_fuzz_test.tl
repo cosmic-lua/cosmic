@@ -32,7 +32,7 @@ local function gen_text(src: Fuzz.Source): string
   local blocks = src:int(0, 3) == 0
   while Fuzz.more(src, count, 24) do
     count = count + 1
-    parts[#parts + 1] = Fuzz.pick(src, blocks and src:int(0, 2) == 0 and BLOCK_PIECES or PIECES)
+    parts[#parts + 1] = Fuzz.pick(src, blocks and src:int(0, 2) == 0 and BLOCK_PIECES or PIECES) -- checked: and_ternary
   end
   local text = table.concat(parts)
   if src:int(0, 3) == 0 then return Fuzz.mutate(src, text, 3) end
@@ -58,7 +58,7 @@ local function parse_holds(input: string): boolean, string
     if line:sub(link.column, link.column) ~= "[" then
       return false, "no [ at line " .. tostring(link.line) .. ", column " .. tostring(link.column)
     end
-    if link.target == nil and link.form ~= "reference" then
+    if link.target == nil and link.form ~= "reference" then -- checked: compare_disjoint
       return false, "a " .. link.form .. " with no target"
     end
     if link.target == "" then return false, "an empty target" end
@@ -70,13 +70,13 @@ local function parse_holds(input: string): boolean, string
   end
   for number, line in ipairs(shown) do
     local was = lines[number]
-    if line ~= "" and #line ~= #was then
+    if line ~= "" and #line ~= #was then -- checked: nil_not_allowed
       return false, "without_code moved the bytes of line " .. tostring(number)
     end
     -- A line it keeps is the same, but for a comment's bytes blanked.
     for at = 1, #line do
       local c = line:sub(at, at)
-      if c ~= was:sub(at, at) and c ~= " " then
+      if c ~= was:sub(at, at) and c ~= " " then -- checked: nil_not_allowed
         return false, "without_code changed byte " .. tostring(at) .. " of line " .. tostring(number)
       end
     end

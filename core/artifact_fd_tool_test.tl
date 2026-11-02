@@ -82,7 +82,7 @@ end
 local function test_a_tool_has_the_tree_s_own_program_in_the_tree()
   local relaunch = relaunch_or_skip()
   if sys.getcwd() ~= "/tree" then Test.skip("this worker's root is not the sandbox's /tree") end
-  local slot = math.tointeger(tonumber(relaunch.env["COSMIC_PORTABLE_ARTIFACT_FD"])) as integer
+  local slot = math.tointeger(tonumber(relaunch.env["COSMIC_PORTABLE_ARTIFACT_FD"])) as integer -- checked: cast_refused
   local artifact = sys.stat("/proc/self/fd/" .. tostring(fd_of(relaunch, slot)))
   local own = sys.stat("/tree/o/bin/cosmic")
   if artifact == nil or own == nil or artifact.dev ~= own.dev or artifact.ino ~= own.ino then
@@ -140,8 +140,8 @@ local function test_a_change_through_the_artifact_descriptor_changes_nothing(tmp
   assert(sys.chmod(copy, 493))
   local before = assert(sys.stat(copy))
   local digest = Hash.hex_sha256((assert(Fs.read(copy))))
-  local slot = math.tointeger(tonumber(relaunch.env["COSMIC_PORTABLE_ARTIFACT_FD"])) as integer
-  local core_slot = math.tointeger(tonumber(relaunch.env["COSMIC_PORTABLE_CORE_FD"])) as integer
+  local slot = math.tointeger(tonumber(relaunch.env["COSMIC_PORTABLE_ARTIFACT_FD"])) as integer -- checked: cast_refused
+  local core_slot = math.tointeger(tonumber(relaunch.env["COSMIC_PORTABLE_CORE_FD"])) as integer -- checked: cast_refused
   local opened = assert(sys.open(copy, sys.O_RDONLY))
   local env: mut {string: string} = {}
   for name, value in pairs(relaunch.env) do env[name] = value end
@@ -169,8 +169,8 @@ end
 --- follows each.
 local function test_the_artifact_reached_by_names_is_not_refused(tmp: string)
   local relaunch = relaunch_or_skip()
-  local slot = math.tointeger(tonumber(relaunch.env["COSMIC_PORTABLE_ARTIFACT_FD"])) as integer
-  local core_slot = math.tointeger(tonumber(relaunch.env["COSMIC_PORTABLE_CORE_FD"])) as integer
+  local slot = math.tointeger(tonumber(relaunch.env["COSMIC_PORTABLE_ARTIFACT_FD"])) as integer -- checked: cast_refused
+  local core_slot = math.tointeger(tonumber(relaunch.env["COSMIC_PORTABLE_CORE_FD"])) as integer -- checked: cast_refused
   local copy = tmp .. "/artifact"
   assert(Fs.write(copy, (assert(Fs.read((assert(Proc.executable())))))))
   assert(sys.chmod(copy, 493))
@@ -274,7 +274,7 @@ end
 local function filled(script: string, values: {string:string}): string
   return (script:gsub("%u+", function(name: string): string
     local value = values[name]
-    return value ~= nil and string.format("%q", value) or name
+    return value ~= nil and string.format("%q", value) or name -- checked: and_ternary
   end))
 end
 
@@ -288,12 +288,12 @@ end
 --- the test made -- keeps its bytes and mode.
 local function swapped_link_changes_nothing(tmp: string, policy?: Sandbox.Policy)
   local relaunch = relaunch_or_skip()
-  local slot = math.tointeger(tonumber(relaunch.env["COSMIC_PORTABLE_ARTIFACT_FD"])) as integer
+  local slot = math.tointeger(tonumber(relaunch.env["COSMIC_PORTABLE_ARTIFACT_FD"])) as integer -- checked: cast_refused
   local through = "/proc/self/fd/" .. slot
   if sys.stat(through) == nil then
     Test.skip("the race is Linux's: this host has no /proc/self/fd")
   end
-  local core_slot = math.tointeger(tonumber(relaunch.env["COSMIC_PORTABLE_CORE_FD"])) as integer
+  local core_slot = math.tointeger(tonumber(relaunch.env["COSMIC_PORTABLE_CORE_FD"])) as integer -- checked: cast_refused
   local copy = tmp .. "/artifact"
   assert(Fs.write(copy, (assert(Fs.read((assert(Proc.executable())))))))
   assert(sys.chmod(copy, 493))
@@ -305,7 +305,7 @@ local function swapped_link_changes_nothing(tmp: string, policy?: Sandbox.Policy
   local values = { LINK = link, PLAIN = plain, THROUGH = through, STOP = stop }
   local env: mut {string: string} = {}
   for name, value in pairs(relaunch.env) do env[name] = value end
-  if policy ~= nil then policy.set_env = env end
+  if policy ~= nil then policy.set_env = env end -- checked: field_fixed
   local opened = assert(sys.open(copy, sys.O_RDONLY))
   local fds = { [slot] = opened, [core_slot] = fd_of(relaunch, core_slot) }
   local flipping = assert(Child.start({ program_of(relaunch), "--artifact", copy, "-e",
@@ -315,12 +315,12 @@ local function swapped_link_changes_nothing(tmp: string, policy?: Sandbox.Policy
   if said ~= "flipping" then
     local ended, why = flipping:wait(Clock.seconds(2))
     error("the flipper did not start: " .. tostring(said) .. "\n" ..
-        (ended ~= nil and tostring(ended.stderr) or why))
+        (ended ~= nil and tostring(ended.stderr) or why)) -- checked: and_ternary
   end
   local result = assert(Child.run({ program_of(relaunch), "--artifact", copy, "-e",
-    filled(caller, values) }, { env = policy == nil and env or nil, fds = fds, stdout = "capture",
+    filled(caller, values) }, { env = policy == nil and env or nil, fds = fds, stdout = "capture", -- checked: and_ternary
       stderr = "capture", policy = policy, timeout_ns = Clock.seconds(7) }))
-  if not Fs.exists(stop) then assert(Fs.write(stop, "")) end
+  if not Fs.exists(stop) then assert(Fs.write(stop, "")) end -- checked: condition_type
   local flipped = assert(flipping:wait())
   assert(sys.close(opened))
   assert(result.ok, tostring(result.stderr))
@@ -389,7 +389,7 @@ local function test_descriptor_receive_refuses_and_closes_an_artifact_alias(tmp:
   for name, value in pairs(relaunch.env) do env[name] = value end
   local fds: mut {integer: integer} = {}
   for target, source in pairs(relaunch.fds) do fds[target] = source end
-  local slot = math.tointeger(tonumber(env["COSMIC_PORTABLE_ARTIFACT_FD"])) as integer
+  local slot = math.tointeger(tonumber(env["COSMIC_PORTABLE_ARTIFACT_FD"])) as integer -- checked: cast_refused
   fds[slot] = copy_fd
   local file_slot = 3
   while fds[file_slot] ~= nil do file_slot = file_slot + 1 end

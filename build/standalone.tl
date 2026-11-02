@@ -151,12 +151,12 @@ end
 --- The entry point `produced` names: itself when it is a function, its
 --- `main` field when that is one, nil otherwise.
 function standalone.entry(produced: any): standalone.Main?
-  if produced is standalone.Main then
+  if produced is standalone.Main then -- checked: is_on_record
     return produced
   end
-  if produced is {string: any} then
-    local main: any = produced.main
-    if main is standalone.Main then
+  if produced is {string: any} then -- checked: is_on_record
+    local main: any = produced.main -- checked: map_field
+    if main is standalone.Main then -- checked: is_on_record
       return main
     end
   end
@@ -246,7 +246,7 @@ function standalone.run(argv: {string}, why?: string): integer
   for slot = 3, #argv do arguments[slot - 2] = assert(argv[slot]) end
   arguments[0] = file
   -- Its top level finds them in `arg`, as `lua file a b` gives them.
-  rawset(_G as {string:any}, "arg", arguments)
+  rawset(_G as {string:any}, "arg", arguments) -- checked: cast_refused, unchecked_binding
   local main = standalone.entry(chunk())
   if main == nil then
     return 0

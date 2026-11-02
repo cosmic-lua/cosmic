@@ -53,12 +53,12 @@ end
 --- of the compiler's identity. The tool's entry loads it ([`build.dispatch`]); a test that reads what it says requires it.
 local function catalog(): Catalog?
   local loaded = package.loaded["cosmic.removed"]
-  if not (loaded is {string: any}) then
+  if not (loaded is {string: any}) then -- checked: is_on_record
     return nil
   end
   local function strings(key: string): {string: string}?
     local table_of = loaded[key]
-    if table_of is {string: string} then
+    if table_of is {string: string} then -- checked: is_on_record
       return table_of
     end
     return nil
@@ -67,7 +67,7 @@ local function catalog(): Catalog?
     strings("indexed"), strings("replacements")
   local message = loaded["message"]
   if names ~= nil and members ~= nil and arguments ~= nil and replacements ~= nil and indexed ~= nil and
-      message is function(name: string, field?: string): string then
+      message is function(name: string, field?: string): string then -- checked: is_on_record
     return { names = names, members = members, arguments = arguments, indexed = indexed, replacements = replacements,
       message = message }
   end

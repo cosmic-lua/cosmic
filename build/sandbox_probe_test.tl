@@ -29,8 +29,8 @@ local function test_a_needed_part_that_fails_makes_confinement_unavailable()
   assert(text:find("| unveil | yes | **failed**: EPERM (Operation not permitted) |", 1, true), text)
   assert(text:find("| AppArmor label | docker-default (enforce) |", 1, true), text)
   assert(text:find("Confinement: **unavailable** (unveil).", 1, true), text)
-  report.parts[2].held = true
-  report.parts[1].held = false
+  report.parts[2].held = true -- checked: nil_not_allowed
+  report.parts[1].held = false -- checked: nil_not_allowed
   assert(SandboxProbe.enforceable(report))
   assert(SandboxProbe.markdown(report):find("Confinement: available.", 1, true))
 end
@@ -38,7 +38,7 @@ end
 --- A pipe in what a part said does not end its table cell early.
 local function test_a_pipe_in_a_reason_stays_in_its_cell()
   local report = without_unveil()
-  report.parts[2].said = "exited 1: a|b"
+  report.parts[2].said = "exited 1: a|b" -- checked: nil_not_allowed
   assert(SandboxProbe.markdown(report):find("exited 1: a\\|b |", 1, true))
 end
 

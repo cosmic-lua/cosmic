@@ -11,7 +11,7 @@ local Test = require("cosmic.test")
 --- whole projection holds by a key.
 Test.policy{ grants = { { path = "o/cosmic.db", letters = "r" } } }
 
-local Example = {}
+local Example = {} -- checked: literal_needs_type
 
 --- The call stack as text, under the message, for a failure a person
 --- will read.
@@ -95,4 +95,4 @@ function Example.guidance_in()
   assert(db:close())
 end
 
-return Example
+return Example -- checked: export_not_declared

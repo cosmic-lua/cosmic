@@ -7,16 +7,16 @@ local type Raw = require("cosmic.internal.assertions")
 
 --- The counting `assert`, handed to this module only when it loads from
 --- the binary's own tree (core/store.c's `raw_modules`).
-local extra: any = select(2, ...)
+local extra: any = select(2, ...) -- checked: any_use
 local raw: Raw
 if type(extra) == "table" then
-  raw = extra as Raw
+  raw = extra as Raw -- checked: cast_refused
 else
   raw = require("cosmic.internal.assertions")
 end
 
 -- Lua's own `assert`, taken before [`install`] replaces it.
-local lua_assert = assert
+local lua_assert = assert -- checked: overload_value
 
 local record assertions
   --- Lua's own `assert`, as it was when this module loaded: what the
@@ -40,9 +40,9 @@ end
 local state <const> = { installed = false }
 
 function assertions.install()
-  if state.installed == true then return end
-  state.installed = true
-  rawset(_G as {string:any}, "assert", raw.assert)
+  if state.installed == true then return end -- checked: map_field
+  state.installed = true -- checked: map_field
+  rawset(_G as {string:any}, "assert", raw.assert) -- checked: cast_refused, unchecked_binding
 end
 
 assertions.lua_assert = lua_assert

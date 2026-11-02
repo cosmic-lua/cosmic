@@ -30,8 +30,8 @@ end
 local function test_the_checked_variant_has_the_checked_cores_defines()
   local source = assert(Fs.read("build.zig"))
   local checked = c.variants[#c.variants]
-  assert(checked.name:find("checked", 1, true))
-  local defines = table.concat(checked.defines, " ")
+  assert(checked.name:find("checked", 1, true)) -- checked: nil_not_allowed
+  local defines = table.concat(checked.defines, " ") -- checked: nil_not_allowed
   for _, flag in ipairs({ "-DCOSMIC_CHECKED", "-DLUAI_ASSERT", "-DLUA_USE_APICHECK" }) do
     assert(source:find('"' .. flag .. '"', 1, true), "build.zig does not define " .. flag)
     assert(defines:find(flag, 1, true), "the checked variant does not define " .. flag)

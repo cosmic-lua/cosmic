@@ -4,7 +4,7 @@
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 
-local Example = {}
+local Example = {} -- checked: literal_needs_type
 
 --- A file database is read-only until `writable` creates it; `immutable`
 --- reads one that nothing changes while it is open, leaving no `-wal`,
@@ -193,4 +193,4 @@ function Example.vector_search()
   assert(db:close())
 end
 
-return Example
+return Example -- checked: export_not_declared

@@ -103,8 +103,8 @@ local record Channel
   new: function<T>(opts?: Options): Queue<T>
 end
 
-Channel.CLOSED = "closed"
-Channel.FULL = "full"
+Channel.CLOSED = "closed" -- checked: field_fixed
+Channel.FULL = "full" -- checked: field_fixed
 
 local DEFAULT_CAPACITY <const> = 256
 
@@ -140,7 +140,7 @@ local function pop<T>(self: State<T>): T
   self.first = self.first + 1
   self.count = self.count - 1
   if self.count == 0 then self.first = 1 end
-  return item
+  return item -- checked: nil_not_allowed
 end
 
 function State.close<T>(self: State<T>)

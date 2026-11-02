@@ -28,13 +28,13 @@ end
 local function test_an_unenforced_worker_has_the_hosts_cores()
   local inputs = { ...TestInputsFixture.effective({}), caches = { "bootstrap" } }
   local sandboxed = test_sandbox.environment({ PATH = "/bin" }, inputs)
-  assert(sandboxed.COSMIC_PORTABLE_CACHE ~= nil)
+  assert(sandboxed.COSMIC_PORTABLE_CACHE ~= nil) -- checked: map_field
   local env = test_sandbox.unenforced_environment({ PATH = "/bin" }, inputs, "/host/scratch", "/host/tree")
   assert(env["TMPDIR"] == "/host/scratch" and env["COSMIC_PORTABLE_CACHE"] == nil,
     tostring(env["COSMIC_PORTABLE_CACHE"]))
   local named = test_sandbox.unenforced_environment({ COSMIC_PORTABLE_CACHE = "/host/cores" },
     inputs, "/host/scratch", "/host/tree")
-  assert(named.COSMIC_PORTABLE_CACHE == "/host/cores", tostring(named.COSMIC_PORTABLE_CACHE))
+  assert(named.COSMIC_PORTABLE_CACHE == "/host/cores", tostring(named.COSMIC_PORTABLE_CACHE)) -- checked: map_field*2
 end
 
 --- A failure to start a sandbox where the kernel refuses a user
@@ -73,15 +73,15 @@ end
 local function test_only_a_granted_noexec_capability_supplies_its_environment()
   local inputs = { ...TestInputsFixture.effective({}), env = { COSMIC_TEST_NOEXEC = true, TMPDIR = true } }
   local host = { COSMIC_TEST_NOEXEC = "/forged", TMPDIR = "/host" }
-  assert(test_sandbox.environment(host, inputs).COSMIC_TEST_NOEXEC == nil)
+  assert(test_sandbox.environment(host, inputs).COSMIC_TEST_NOEXEC == nil) -- checked: map_field
   inputs.noexec = true
-  assert(test_sandbox.environment(host, inputs).COSMIC_TEST_NOEXEC == nil)
+  assert(test_sandbox.environment(host, inputs).COSMIC_TEST_NOEXEC == nil) -- checked: map_field
   inputs.noexec_ready = true
   local granted = test_sandbox.environment(host, inputs)
-  assert(granted.COSMIC_TEST_NOEXEC == "/noexec")
-  assert(granted.TMPDIR == test_sandbox.scratch)
-  assert(test_sandbox.unenforced_view(host, inputs).COSMIC_TEST_NOEXEC == nil)
-  assert(test_sandbox.unenforced_environment(host, inputs, "/scratch", "/tree").COSMIC_TEST_NOEXEC == nil)
+  assert(granted.COSMIC_TEST_NOEXEC == "/noexec") -- checked: map_field
+  assert(granted.TMPDIR == test_sandbox.scratch) -- checked: map_field
+  assert(test_sandbox.unenforced_view(host, inputs).COSMIC_TEST_NOEXEC == nil) -- checked: map_field
+  assert(test_sandbox.unenforced_environment(host, inputs, "/scratch", "/tree").COSMIC_TEST_NOEXEC == nil) -- checked: map_field
 end
 
 local function test_noexec_does_not_probe_an_ordinary_or_unsandboxed_worker()

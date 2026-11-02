@@ -74,17 +74,17 @@ end
 local function test_a_body_of_an_alias_is_the_type_it_names_and_nothing_else()
   local s = Types.new()
   local alias = s:declare("alias", "m", { "A" }, 0)
-  local ok = pcall(function()
+  local ok = pcall(function() -- checked: alternatives_as_value
     s:define(alias, { tparams = {}, supers = {}, fields = {}, methods = {}, values = {} })
   end)
   assert(not ok, "an alias without the type it names")
-  ok = pcall(function()
+  ok = pcall(function() -- checked: alternatives_as_value
     s:define(alias, { tparams = {}, supers = {}, fields = { { name = "x", type = s.string } }, methods = {}, values = {},
       alias = s.string })
   end)
   assert(not ok, "an alias with a field")
   local record_ = s:declare("record", "m", { "R" }, 0)
-  ok = pcall(function()
+  ok = pcall(function() -- checked: alternatives_as_value
     s:define(record_, { tparams = {}, supers = {}, fields = {}, methods = {}, values = {}, alias = s.string })
   end)
   assert(not ok, "a record that names a type")

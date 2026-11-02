@@ -158,8 +158,6 @@ allow({
 
 allow({ "build.todos.run" }, "the verb's run, which a test calls with a tree and a `reboot.Seen` to run it " ..
     "as that tree's own tool would; the verb's spec calls it with the command line alone")
-allowed["build.ceilings.closed"] = "the codes `parse` refuses a ceiling for, which build/ceilings_test.tl reads to hold the list " ..
-  "complete: a code of a stage with no row left must be in it"
 
 allow({ "build.pipeline.over" }, "the build's compile with the new checker: a build over given sources, which the " ..
     "pipeline's own tests are the callers of")
@@ -526,14 +524,14 @@ function tree_checks.unnamed_types(db: Sqlite.Handle): {string}
       by_module[row:text(1)] = {}
       order[#order + 1] = row:text(1)
     end
-    table.insert(by_module[row:text(1)], row)
+    table.insert(by_module[row:text(1)], row) -- checked: overload_none -- untyped: call
   end
   local out: mut {string} = {}
   for _, module in ipairs(order) do
     local members = assert(by_module[module], "every module of the order has its rows")
     local source = text[module] or ""
     local record = returned_record(source)
-    local body = record ~= nil and record_body(source, record) or nil
+    local body = record ~= nil and record_body(source, record) or nil -- checked: and_ternary
     local tops: mut {string:Sqlite.Row} = {}
     for _, row in ipairs(members) do
       if row:text(2) ~= "" and not row:text(2):find("[.:]") and row:text(2) ~= record and
@@ -1493,7 +1491,7 @@ function tree_checks.verbs(db: Sqlite.Handle, quickstart: string?): {string}
   local fenced = false
   for line in String.lines(quickstart or "") do
     if line:match("^```") then fenced = not fenced end
-    local heading = not fenced and line:match("^## (.+)$") or nil
+    local heading = not fenced and line:match("^## (.+)$") or nil -- checked: and_ternary
     if heading ~= nil then
       current = heading
       sections[heading] = sections[heading] or ""
@@ -1508,7 +1506,7 @@ function tree_checks.verbs(db: Sqlite.Handle, quickstart: string?): {string}
   for entry_module, field in (texts["build.verb_list"] or ""):gmatch(
       "require%(\"([%w_.]+)\"%)%.([%w_]*spec)") do
     expected[entry_module] = expected[entry_module] or {}
-    table.insert(expected[entry_module], field)
+    table.insert(expected[entry_module], field) -- checked: overload_none -- untyped: call
   end
   local found_fields: mut {string:mut {string:boolean}} = {}
 
@@ -1526,18 +1524,18 @@ function tree_checks.verbs(db: Sqlite.Handle, quickstart: string?): {string}
           found_fields[row:text(1)] = own_fields
           own_fields[field] = true
           local spec = spec_fields(row:text(3), last)
-          local name = spec.strings.name or "?"
+          local name = spec.strings.name or "?" -- checked: map_field
           if listed[row:text(1)] ~= true then
             out[#out + 1] = "`" .. name .. "` (" .. row:text(1) .. ") assigns a `spec` but " ..
               "build/verb_list.tl does not list its module, so no verb dispatches to it -- " ..
               "list it there"
           end
-          local guide = spec.strings.guide
+          local guide = spec.strings.guide -- checked: map_field
           if guide == nil then
             out[#out + 1] = "`" .. name .. "` has no guide as a string literal: name its `## ` " ..
               "heading in doc/guides/quickstart.md, or \"none: <why>\""
-          elseif guide:sub(1, 5) == "none:" then
-            if guide:sub(6):match("^%s*$") then
+          elseif guide:sub(1, 5) == "none:" then -- untyped: call
+            if guide:sub(6):match("^%s*$") then -- untyped: call*2
               out[#out + 1] = "`" .. name .. "` has no guide and gives no reason after \"none:\""
             end
           elseif quickstart ~= nil then
@@ -1551,11 +1549,11 @@ function tree_checks.verbs(db: Sqlite.Handle, quickstart: string?): {string}
                 "\"none: <why>\""
             end
           end
-          local tests = spec.lists.tests
-          if tests == nil or #tests == 0 or spec.nonliteral.tests then
+          local tests = spec.lists.tests -- checked: map_field
+          if tests == nil or #tests == 0 or spec.nonliteral.tests then -- checked: map_field
             out[#out + 1] = "`" .. name .. "` names no test module in `tests`, as string literals"
           end
-          for _, test in ipairs(tests or {}) do
+          for _, test in ipairs(tests or {}) do -- checked: literal_needs_type
             if kinds[test] ~= "test" then
               out[#out + 1] = "`" .. name .. "`'s tests name " .. test ..
                 ", which is no test module of the tree"
@@ -1728,12 +1726,12 @@ function tree_checks.public_docs(db: Sqlite.Handle, excused?: {string: string}):
         local word = text:sub(start, stop)
         local before, after = text:sub(from - 1, from - 1), text:sub(to + 1, to + 1)
         if rule.breaks(before, hit, after, modules) then
-          local key = row:text(1) .. " " .. (row:text(2) ~= "" and row:text(2) or "(module)") .. " " .. rule.name
+          local key = row:text(1) .. " " .. (row:text(2) ~= "" and row:text(2) or "(module)") .. " " .. rule.name -- checked: and_ternary
           found[key] = true
           if excused[key] == nil and seen[word] ~= true then
             seen[word] = true
             out[#out + 1] = row:text(4) .. ":" .. row:text(5) .. ": " .. row:text(1) .. " " ..
-              (row:text(2) ~= "" and row:text(2) or "(module)") .. ": its doc text has `" .. word ..
+              (row:text(2) ~= "" and row:text(2) or "(module)") .. ": its doc text has `" .. word .. -- checked: and_ternary
               "` (" .. rule.name .. " rule) -- " .. rule.fix
           end
         end
@@ -1879,7 +1877,7 @@ function tree_checks.ci_sources(root: string): {{string}}
   local out: mut {{string}} = {}
   local listed, _ = Fs.walk(root .. "/ci/cosmic_ci")
   for _, name in ipairs(listed or {}) do
-    if name:match("%.tl$") and not name:match("_test%.tl$") then
+    if name:match("%.tl$") and not name:match("_test%.tl$") then -- checked: condition_type
       local text, _ = Fs.read(root .. "/ci/cosmic_ci/" .. name)
       if text ~= nil then out[#out + 1] = { "ci/cosmic_ci/" .. name, text } end
     end
@@ -2108,7 +2106,7 @@ local function scope_outcome(file: string, source: string, declared: {string: Sc
   if memo ~= nil then
     key = check_memo.key(salt, dialect, source)
     local text = check_memo.get(memo, "scoped", key)
-    local kept = text ~= nil and kept_scopes(text, file) or nil
+    local kept = text ~= nil and kept_scopes(text, file) or nil -- checked: and_ternary
     if kept ~= nil then
       return kept
     end
@@ -2116,7 +2114,7 @@ local function scope_outcome(file: string, source: string, declared: {string: Sc
   local parsed = Parser.parse(Lexer.lex(source, file), file, dialect)
   local scoped = Scopes.build(parsed.chunk, file, declared)
   local ok, reason = ScopesCover.check(parsed.chunk, scoped, declared)
-  local outcome: ScopeOutcome = { consistent = if ok then "" else reason end, errors = scoped.errors }
+  local outcome: ScopeOutcome = { consistent = if ok then "" else reason end, errors = scoped.errors } -- checked: view_as_mut
   if memo ~= nil then
     local rows: mut {{string}} = { { "C", outcome.consistent } }
     for _, e in ipairs(scoped.errors) do
@@ -2330,7 +2328,7 @@ local function tree_of(given: {{string}}, salt: string, bindings?: {{string}}, w
   local files = TreeProgram.joined(given, written or {}).files
   local derived: mut {string: boolean} = {}
   for _, entry in ipairs(bindings or {}) do
-    files[#files + 1] = entry
+    files[#files + 1] = entry -- checked: view_written
     derived[nth(entry, 1)] = true
   end
   -- No [`TreeProgram.declared`] here: a `.d.tl` beside a `.tl`, or one that names no kind, is refused when the tree is built ([`Pipeline.build`]), which the
@@ -2342,7 +2340,7 @@ local function tree_of(given: {{string}}, salt: string, bindings?: {{string}}, w
   -- What the files that require a module read of it, by module: its digest where it has one ([`ShapeKey`]), else its text.
   local read: mut {string: string} = {}
   local store: Sqlite.Handle? = nil
-  local opened = shaping ~= nil and shaping.memo or nil
+  local opened = shaping ~= nil and shaping.memo or nil -- checked: and_ternary
   if opened ~= nil then
     local prepared, _ = check_memo.prepare(opened, "shape")
     if prepared then
@@ -2357,7 +2355,7 @@ local function tree_of(given: {{string}}, salt: string, bindings?: {{string}}, w
         file = source.filename, source = source.text, module = source.module, dialect = source.dialect,
         imports = required_modules(source.text, source.filename), key = "",
       }
-      rows[#rows + 1] = row
+      rows[#rows + 1] = row -- checked: view_written
       row_of[source] = row
       -- A module given as two files (`x.tl` and `x/init.tl`) is read from the first; the key holds both texts.
       local exact = Hash.hex_sha256(source.text)
@@ -2366,7 +2364,7 @@ local function tree_of(given: {{string}}, salt: string, bindings?: {{string}}, w
       local held = exact
       if shaping ~= nil and source.dialect == "tl" and source.pinned == "" then
         local key = check_memo.key(shaping.salt, "shape", source.text)
-        local kept = store ~= nil and check_memo.get(store, "shape", key) or nil
+        local kept = store ~= nil and check_memo.get(store, "shape", key) or nil -- checked: and_ternary
         local digest = kept or ShapeKey.digest(source.text, source.filename)
         if kept == nil and store ~= nil then
           check_memo.put(store, "shape", key, digest)
@@ -2382,7 +2380,7 @@ local function tree_of(given: {{string}}, salt: string, bindings?: {{string}}, w
   for name, source in pairs(index.by_module) do
     local row = row_of[source]
     if row ~= nil then
-      by_module[name] = row
+      by_module[name] = row -- checked: view_written
     end
   end
   -- The key of a file is its source and the sources of every module it requires, however far.
@@ -2411,7 +2409,7 @@ local function tree_of(given: {{string}}, salt: string, bindings?: {{string}}, w
     local parts: mut {string} = {}
     for _, m in ipairs(names) do
       -- The file itself is read in full; the modules it requires as the checks of it read them.
-      parts[#parts + 1] = m .. "=" .. (m == row.module and hashes[m] or read[m])
+      parts[#parts + 1] = m .. "=" .. (m == row.module and hashes[m] or read[m]) -- checked: and_ternary
     end
     -- The files of a cycle of requires reach the same modules: the file itself tells their keys apart.
     row.key = check_memo.key(salt, row.dialect, row.module .. "\n" .. table.concat(parts, "\n"))
@@ -2469,8 +2467,8 @@ local function kept_outcomes(memo: Sqlite.Handle?, kind: string, tree: Tree,
   local outcomes: mut {string: DeclareOutcome} = {}
   local missed: mut {DeclareFile} = {}
   for _, row in ipairs(tree.rows) do
-    local text = memo ~= nil and check_memo.get(memo, kind, row.key) or nil
-    local kept = text ~= nil and read(text, row.file) or nil
+    local text = memo ~= nil and check_memo.get(memo, kind, row.key) or nil -- checked: and_ternary
+    local kept = text ~= nil and read(text, row.file) or nil -- checked: and_ternary
     if kept ~= nil then
       outcomes[row.file] = kept
     else
@@ -2553,9 +2551,9 @@ function tree_checks.declared(root: string, pinned?: {string: integer}, memo?: S
     streamed(build, tree, missed, false, false, function(row: DeclareFile, result: Driver.Outcome?)
       local outcome: DeclareOutcome = { errors = {}, unjudged = true }
       if result ~= nil and not result.broken then
-        outcome = { errors = findings_of(result.declared) }
+        outcome = { errors = findings_of(result.declared) } -- checked: view_as_mut
       end
-      outcomes[row.file] = outcome
+      outcomes[row.file] = outcome -- checked: view_written
       if memo ~= nil then
         check_memo.put(memo, "declared", row.key, check_memo.encode(kept_rows(outcome)))
       end
@@ -2615,18 +2613,18 @@ function tree_checks.checked(root: string, pinned?: {string: integer}, memo?: Sq
     streamed(build, tree, missed, true, true, function(row: DeclareFile, result: Driver.Outcome?)
       local outcome: DeclareOutcome = { errors = {}, unjudged = true }
       if result ~= nil and row.dialect == "tl" and not result.broken then
-        outcome = { errors = findings_of(result.bodies) }
+        outcome = { errors = findings_of(result.bodies) } -- checked: view_as_mut
       end
-      outcomes[row.file] = outcome
+      outcomes[row.file] = outcome -- checked: view_written
       if memo ~= nil then
         check_memo.put(memo, "checked", row.key, check_memo.encode(kept_rows(outcome)))
       end
     end)
     problems = build.problems
     if phases ~= nil then
-      phases.check = build.timing.check
-      phases.prepare = build.timing.prepare
-      phases.lower = build.timing.lower
+      phases.check = build.timing.check -- checked: map_field
+      phases.prepare = build.timing.prepare -- checked: map_field
+      phases.lower = build.timing.lower -- checked: map_field
     end
   end
   if memo ~= nil then
@@ -2634,7 +2632,7 @@ function tree_checks.checked(root: string, pinned?: {string: integer}, memo?: Sq
   end
   local out = held_to_pins(tree, outcomes, "checked", Check.codes, pinned, "bodies", Ceilings.path .. "'s [checked]", marking, by_marks)
   for _, problem in ipairs(problems) do
-    table.insert(out, 1, problem)
+    table.insert(out, 1, problem) -- checked: overload_none -- untyped: call
   end
   return out
 end
@@ -2994,6 +2992,62 @@ function tree_checks.markers(root: string): Marked
   return out
 end
 
+--- The codes of the checker's stages are closed ([`Ceilings.closed`]) exactly when nothing holds them: a code with a marker or a
+--- row in the tree at `root` must not be listed, a code with none must be, and every listed code is a code of a stage, once. It
+--- is a check of the whole tree because it reads every marker, which `markers` does once. `closed` is the list to hold the tree
+--- to, [`Ceilings.closed`] by default.
+function tree_checks.closure(root: string, closed?: {string}): {string}
+  local out: mut {string} = {}
+  local read, why = Ceilings.read(root)
+  if read == nil then
+    out[1] = "reading the ceilings: " .. why
+    return out
+  end
+  local held: mut {string: boolean} = {}
+  -- a row of any stage names a code, but for `untyped`, whose rows are files
+  for stage, rows in pairs(read.stages) do
+    if stage ~= "untyped" then
+      for key in pairs(rows) do
+        local code = key:match("^%S+ (%S+)$")
+        if code ~= nil then held[code] = true end
+      end
+    end
+  end
+  for _, keys in pairs(tree_checks.markers(root).counts) do
+    for key in pairs(keys) do
+      local code = key:match(" (%S+)$")
+      if code ~= nil then held[code] = true end
+    end
+  end
+  local codes: mut {string: boolean} = {}
+  local function learn(list: {string})
+    for _, code in ipairs(list) do codes[code] = true end
+  end
+  learn(Scopes.codes)
+  learn(Declarations.codes)
+  learn(Check.codes)
+  local listed: mut {string: boolean} = {}
+  for _, code in ipairs(closed or Ceilings.closed()) do
+    if codes[code] ~= true then
+      out[#out + 1] = code .. " is listed in Ceilings.closed and is no code of a stage"
+    elseif listed[code] == true then
+      out[#out + 1] = code .. " is listed twice in Ceilings.closed"
+    elseif held[code] == true then
+      out[#out + 1] = code .. " is closed and a marker or a row of build/ceilings.txt still holds it"
+    end
+    listed[code] = true
+  end
+  local open: mut {string} = {}
+  for code in pairs(codes) do
+    if held[code] ~= true and listed[code] ~= true then open[#open + 1] = code end
+  end
+  table.sort(open)
+  for _, code in ipairs(open) do
+    out[#out + 1] = code .. " has no marker or row left: add it to Ceilings.closed in build/ceilings.tl, so that nothing holds it again"
+  end
+  return out
+end
+
 --- The calls the new checker gave no function, which no rule of the discipline judged ([`build.syntax_contracts`]'s
 --- `untyped`), counted per file of the tree and held to `pinned` (by default the `[untyped]` ceilings): a file with fewer,
 --- and a pin for a file with none, is told to lower the pin; one with more is listed, as the build itself refuses it
@@ -3133,22 +3187,22 @@ function tree_checks.run(db: Sqlite.Handle, quickstart: string?, extra?: {{strin
   local out: mut {string} = {}
   local plurals = tree_checks.plurals(db, extra, nil, read)
   for _, check in ipairs({
-      { name = "exports", lines = tree_checks.exports(db) },
-      { name = "unnamed types", lines = tree_checks.unnamed_types(db) },
-      { name = "doc anchors", lines = tree_checks.anchors(db) },
-      { name = "compiler readers", lines = tree_checks.compiler_readers(db) },
-      { name = "build directory", lines = tree_checks.build_directory(db) },
-      { name = "stand-ins", lines = tree_checks.stand_ins(db) },
-      { name = "docs queries", lines = tree_checks.queries(db) },
-      { name = "quieted", lines = tree_checks.quieted(db) },
-      { name = "restricted", lines = tree_checks.restricted(db) },
-      { name = "declarations", lines = tree_checks.declarations(db) },
-      { name = "verbs", lines = tree_checks.verbs(db, quickstart) },
-      { name = "guides", lines = tree_checks.guides(db) },
-      { name = "rendered docs", lines = docs_checks.rendered(carried or db) },
-      { name = "doc references", lines = docs_checks.references(carried or db, help) },
-      { name = "public docs", lines = tree_checks.public_docs(db) },
-      { name = "plurals", lines = plurals },
+      { name = "exports", lines = tree_checks.exports(db) }, -- checked: arms_differ
+      { name = "unnamed types", lines = tree_checks.unnamed_types(db) }, -- checked: arms_differ
+      { name = "doc anchors", lines = tree_checks.anchors(db) }, -- checked: arms_differ
+      { name = "compiler readers", lines = tree_checks.compiler_readers(db) }, -- checked: arms_differ
+      { name = "build directory", lines = tree_checks.build_directory(db) }, -- checked: arms_differ
+      { name = "stand-ins", lines = tree_checks.stand_ins(db) }, -- checked: arms_differ
+      { name = "docs queries", lines = tree_checks.queries(db) }, -- checked: arms_differ
+      { name = "quieted", lines = tree_checks.quieted(db) }, -- checked: arms_differ
+      { name = "restricted", lines = tree_checks.restricted(db) }, -- checked: arms_differ
+      { name = "declarations", lines = tree_checks.declarations(db) }, -- checked: arms_differ
+      { name = "verbs", lines = tree_checks.verbs(db, quickstart) }, -- checked: arms_differ
+      { name = "guides", lines = tree_checks.guides(db) }, -- checked: arms_differ
+      { name = "rendered docs", lines = docs_checks.rendered(carried or db) }, -- checked: arms_differ
+      { name = "doc references", lines = docs_checks.references(carried or db, help) }, -- checked: arms_differ
+      { name = "public docs", lines = tree_checks.public_docs(db) }, -- checked: arms_differ
+      { name = "plurals", lines = plurals }, -- checked: arms_differ
   }) do
     for _, line in ipairs(check.lines) do
       out[#out + 1] = check.name .. ": " .. line

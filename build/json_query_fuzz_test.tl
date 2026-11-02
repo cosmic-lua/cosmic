@@ -50,15 +50,15 @@ local function test_every_flattened_path_reads_back_and_is_selectable(tmp: strin
     check = function(packed: string): boolean, string
       local fields = Fuzz.unpack(packed)
       -- Without `null_value`, a null in an array is a hole.
-      local doc = Json.decode(fields[1], { null_value = fields[2] == "nulls" and Json.null or nil })
+      local doc = Json.decode(fields[1], { null_value = fields[2] == "nulls" and Json.null or nil }) -- checked: and_ternary, index_may_be_nil
       local ok, leaves, err = pcall(json_query.flatten, doc)
       if not ok then return false, "raised: " .. tostring(leaves) end
-      if leaves == nil then return false, "failed: " .. err end
+      if leaves == nil then return false, "failed: " .. err end -- checked: nil_not_allowed
       local every = assert(Json.select(doc, (assert(Json.query("$..*")))))
       local selectable: mut {string:boolean} = { ["$"] = true }
       for _, hit in ipairs(every) do selectable[assert(Json.path(hit.steps))] = true end
       local seen: mut {string:boolean} = {}
-      for _, leaf in ipairs(leaves as {Json.Match}) do
+      for _, leaf in ipairs(leaves as {Json.Match}) do -- checked: cast_refused
         Fuzz.label("leaves")
         local normal = assert(Json.path(leaf.steps))
         local line, line_err = json_query.flat_line(leaf.steps, leaf.value)

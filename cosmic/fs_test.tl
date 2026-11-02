@@ -23,9 +23,9 @@ local function test_path_predicates_distinguish_answers_from_errors(tmp: string)
 
   local too_long = tmp .. "/" .. string.rep("x", 300)
   local unknown, unknown_trouble = Fs.exists(too_long)
-  assert(unknown == nil and unknown_trouble:find(too_long, 1, true))
+  assert(unknown == nil and unknown_trouble:find(too_long, 1, true)) -- checked: or_mix
   local unknown_dir, unknown_dir_trouble = Fs.is_dir(too_long)
-  assert(unknown_dir == nil and unknown_dir_trouble:find(too_long, 1, true))
+  assert(unknown_dir == nil and unknown_dir_trouble:find(too_long, 1, true)) -- checked: or_mix
 end
 
 local function test_remove_tolerates_absence_but_reports_other_errors(tmp: string)
@@ -43,7 +43,7 @@ local function test_remove_tolerates_absence_but_reports_other_errors(tmp: strin
 
   local too_long = tmp .. "/" .. string.rep("x", 300)
   local failed, trouble = Fs.remove(too_long)
-  assert(not failed and trouble:find(too_long, 1, true))
+  assert(not failed and trouble:find(too_long, 1, true)) -- checked: or_mix
 end
 
 local function test_write_leaves_the_old_fixed_neighbor_untouched(tmp: string)
@@ -63,14 +63,14 @@ local function test_interleaved_writers_have_distinct_temporary_files(tmp: strin
   local real_write = sys.write
   local temporaries: mut {string} = {}
   local nested: boolean = false
-  sys.open_temporary = function(destination: string, mode?: integer): sys.TemporaryFile?, string, integer
+  sys.open_temporary = function(destination: string, mode?: integer): sys.TemporaryFile?, string, integer -- checked: field_fixed
     local file, trouble, number = real_open_temporary(destination, mode)
     if file ~= nil then
       temporaries[#temporaries + 1] = file.path
     end
     return file, trouble, number
   end
-  sys.write = function(fd: integer, data: string): integer?, string, integer
+  sys.write = function(fd: integer, data: string): integer?, string, integer -- checked: field_fixed
     if not nested then
       nested = true
       assert(Fs.write(path, "inner"))
@@ -78,8 +78,8 @@ local function test_interleaved_writers_have_distinct_temporary_files(tmp: strin
     return real_write(fd, data)
   end
   local ok, trouble = Fs.write(path, "outer")
-  sys.write = real_write
-  sys.open_temporary = real_open_temporary
+  sys.write = real_write -- checked: field_fixed
+  sys.open_temporary = real_open_temporary -- checked: field_fixed
   assert(ok, trouble)
   assert(#temporaries == 2 and temporaries[1] ~= temporaries[2])
   assert(Fs.read(path) == "outer")
@@ -91,17 +91,17 @@ local function test_write_failure_preserves_destination_and_cleans_its_temp(tmp:
   local real_write = sys.write
   local created: string = ""
   local real_open_temporary = sys.open_temporary
-  sys.open_temporary = function(destination: string, mode?: integer): sys.TemporaryFile?, string, integer
+  sys.open_temporary = function(destination: string, mode?: integer): sys.TemporaryFile?, string, integer -- checked: field_fixed
     local file, trouble, number = real_open_temporary(destination, mode)
     if file ~= nil then created = file.path end
     return file, trouble, number
   end
-  sys.write = function(_fd: integer, _data: string): integer?, string, integer
+  sys.write = function(_fd: integer, _data: string): integer?, string, integer -- checked: field_fixed
     return nil, "injected write failure", 0
   end
   local ok, trouble = Fs.write(path, "new")
-  sys.write = real_write
-  sys.open_temporary = real_open_temporary
+  sys.write = real_write -- checked: field_fixed
+  sys.open_temporary = real_open_temporary -- checked: field_fixed
   assert(not ok and trouble == path .. ": injected write failure", trouble)
   assert(Fs.read(path) == "old")
   assert(created ~= "" and Fs.exists(created) == false)
@@ -114,7 +114,7 @@ local function test_close_failure_preserves_destination_and_cleans_its_temp(tmp:
   local real_open_temporary = sys.open_temporary
   local created: string = ""
   local injected_fd: integer = -1
-  sys.open_temporary = function(destination: string, mode?: integer): sys.TemporaryFile?, string, integer
+  sys.open_temporary = function(destination: string, mode?: integer): sys.TemporaryFile?, string, integer -- checked: field_fixed
     local file, trouble, number = real_open_temporary(destination, mode)
     if file ~= nil then
       created = file.path
@@ -122,7 +122,7 @@ local function test_close_failure_preserves_destination_and_cleans_its_temp(tmp:
     end
     return file, trouble, number
   end
-  sys.close = function(fd: integer): boolean, string, integer
+  sys.close = function(fd: integer): boolean, string, integer -- checked: field_fixed
     if fd == injected_fd then
       real_close(fd)
       return false, "injected close failure", 0
@@ -131,8 +131,8 @@ local function test_close_failure_preserves_destination_and_cleans_its_temp(tmp:
     return ok, trouble, number
   end
   local ok, trouble = Fs.write(path, "new")
-  sys.close = real_close
-  sys.open_temporary = real_open_temporary
+  sys.close = real_close -- checked: field_fixed
+  sys.open_temporary = real_open_temporary -- checked: field_fixed
   assert(not ok and trouble == path .. ": injected close failure", trouble)
   assert(Fs.read(path) == "old")
   assert(created ~= "" and Fs.exists(created) == false)
@@ -144,17 +144,17 @@ local function test_rename_failure_preserves_destination_and_cleans_its_temp(tmp
   local real_rename = sys.rename
   local real_open_temporary = sys.open_temporary
   local created: string = ""
-  sys.open_temporary = function(destination: string, mode?: integer): sys.TemporaryFile?, string, integer
+  sys.open_temporary = function(destination: string, mode?: integer): sys.TemporaryFile?, string, integer -- checked: field_fixed
     local file, trouble, number = real_open_temporary(destination, mode)
     if file ~= nil then created = file.path end
     return file, trouble, number
   end
-  sys.rename = function(_from: string, _to: string): boolean, string, integer
+  sys.rename = function(_from: string, _to: string): boolean, string, integer -- checked: field_fixed
     return false, "injected rename failure", 0
   end
   local ok, trouble = Fs.write(path, "new")
-  sys.rename = real_rename
-  sys.open_temporary = real_open_temporary
+  sys.rename = real_rename -- checked: field_fixed
+  sys.open_temporary = real_open_temporary -- checked: field_fixed
   assert(not ok and trouble == path .. ": injected rename failure", trouble)
   assert(Fs.read(path) == "old")
   assert(created ~= "" and Fs.exists(created) == false)
@@ -187,11 +187,11 @@ local function test_create_failures_name_the_path_and_stay(tmp: string)
   local path = tmp .. "/target"
   local real_write = sys.write
   local file = assert(Fs.create(path))
-  sys.write = function(_fd: integer, _data: string): integer?, string, integer
+  sys.write = function(_fd: integer, _data: string): integer?, string, integer -- checked: field_fixed
     return nil, "injected write failure", 0
   end
   local ok, trouble = file:write("data")
-  sys.write = real_write
+  sys.write = real_write -- checked: field_fixed
   assert(not ok and trouble == path .. ": injected write failure", trouble)
   local again, again_trouble = file:write("data")
   assert(not again and again_trouble == trouble, again_trouble)
@@ -209,17 +209,17 @@ local function test_put_rejects_zero_progress(tmp: string)
   local path = tmp .. "/stream"
   local fd = assert(Fs.open_write(path))
   local real_write = sys.write
-  sys.write = function(_fd: integer, _data: string): integer?, string, integer
+  sys.write = function(_fd: integer, _data: string): integer?, string, integer -- checked: field_fixed
     return 0, "", 0
   end
   local ok, trouble = Fs.put(fd, "data")
-  sys.write = real_write
+  sys.write = real_write -- checked: field_fixed
   assert(Fs.close(fd))
   assert(not ok and trouble == "fs: write made no progress")
 end
 
 local function test_cache_dir_has_no_shared_fallback()
-  for _, environment in ipairs({ {}, { HOME = "" }, { XDG_CACHE_HOME = "rel", HOME = "also/rel" } }) do
+  for _, environment in ipairs({ {}, { HOME = "" }, { XDG_CACHE_HOME = "rel", HOME = "also/rel" } }) do -- checked: literal_needs_type
     local dir, trouble = Fs.cache_dir("tool", { environment = environment })
     assert(dir == nil and trouble:find("no cache directory", 1, true) ~= nil, tostring(dir))
   end
@@ -289,7 +289,7 @@ local function test_symlink_and_readlink_round_trip(tmp: string)
   assert(Fs.read(link) == "contents")
 
   local missing, missing_trouble = Fs.readlink(tmp .. "/missing")
-  assert(missing == nil and missing_trouble:find(tmp .. "/missing", 1, true))
+  assert(missing == nil and missing_trouble:find(tmp .. "/missing", 1, true)) -- checked: or_mix
 end
 
 --- The modification time is set to the nanosecond, and the access
@@ -315,7 +315,7 @@ local function test_set_mtime_defaults_to_a_whole_second_and_checks_ns(tmp: stri
   local st = assert(sys.stat(path))
   assert(st.mtime == 4000 and st.mtime_ns == 0, tostring(st.mtime) .. "." .. tostring(st.mtime_ns))
   Test.raises(function() Fs.set_mtime(path, 4000, 1000000000) end, "fs: nanoseconds are outside [0, 1e9)")
-  assert(not pcall(Fs.set_mtime, path, 4000, -1))
+  assert(not pcall(Fs.set_mtime, path, 4000, -1)) -- checked: alternatives_as_value
 end
 
 --- Why a test skips where the worker's filter refuses a setuid mode.
@@ -348,12 +348,12 @@ local function test_chmod_sets_the_bits_stat_reads_back(tmp: string)
   assert(Fs.chmod(path, 0))
   assert(assert(Fs.stat(path)).mode & 0xfff == 0)
 
-  assert(not pcall(Fs.chmod, path, -1))
-  assert(not pcall(Fs.chmod, path, 0x1000))
+  assert(not pcall(Fs.chmod, path, -1)) -- checked: alternatives_as_value
+  assert(not pcall(Fs.chmod, path, 0x1000)) -- checked: alternatives_as_value
   assert(assert(Fs.stat(path)).mode & 0xfff == 0)
 
   local missing, missing_trouble = Fs.chmod(tmp .. "/missing", 0x1a4)
-  assert(not missing and missing_trouble:find(tmp .. "/missing", 1, true))
+  assert(not missing and missing_trouble:find(tmp .. "/missing", 1, true)) -- checked: or_mix
   if refused then Test.skip(SPECIAL_BITS) end
 end
 
@@ -373,7 +373,7 @@ local function test_scratch_is_private_and_removed_when_closed(tmp: string)
   do
     local scratch <close> = assert(Fs.scratch(tmp))
     path = scratch.path
-    assert(Fs.dirname(path) == tmp and Fs.basename(path):match("^%.scratch%.%w+$"), path)
+    assert(Fs.dirname(path) == tmp and Fs.basename(path):match("^%.scratch%.%w+$"), path) -- checked: or_mix
     assert(assert(Fs.stat(path)).mode & 0x1ff == 0x1c0, "private to its user")
     assert(Fs.write(path .. "/payload", "x"))
   end
@@ -464,7 +464,7 @@ end
 local function test_scratch_in_a_missing_directory_names_it(tmp: string)
   local missing = tmp .. "/missing"
   local scratch, why = Fs.scratch(missing)
-  assert(scratch == nil and why:find(missing, 1, true), why)
+  assert(scratch == nil and why:find(missing, 1, true), why) -- checked: or_mix
   assert(Fs.exists(missing) == false)
 end
 
@@ -521,7 +521,7 @@ local function test_remove_tree_under_a_file_is_gone_and_a_trailing_slash_does_n
   assert(Fs.remove_tree(tmp .. "/link///"))
   assert(Fs.read(outside .. "/inner/keep") == "kept")
   local refused, why = Fs.remove_tree("/")
-  assert(not refused and why:find("Invalid argument", 1, true), why)
+  assert(not refused and why:find("Invalid argument", 1, true), why) -- checked: or_mix
   local also = Fs.remove_tree("///")
   assert(not also)
 end
@@ -567,13 +567,13 @@ local function test_read_takes_a_file_in_the_one_read_its_size_asks_for(tmp: str
   assert(Fs.write(path, data))
   local real_read = sys.read
   local reads: integer = 0
-  sys.read = function(fd: integer, count: integer): string?, string, integer
+  sys.read = function(fd: integer, count: integer): string?, string, integer -- checked: field_fixed
     reads = reads + 1
     return real_read(fd, count)
   end
   local read, trouble = Fs.read(path)
   local file_reads = reads
-  sys.read = real_read
+  sys.read = real_read -- checked: field_fixed
   assert(read == data, trouble)
   assert(file_reads == 2, "one read for the bytes and one for the end, not " .. tostring(file_reads))
 end
@@ -582,11 +582,11 @@ end
 local function test_write_resumes_a_short_write(tmp: string)
   local path = tmp .. "/short"
   local real_write = sys.write
-  sys.write = function(fd: integer, bytes: string): integer?, string, integer
+  sys.write = function(fd: integer, bytes: string): integer?, string, integer -- checked: field_fixed
     return real_write(fd, bytes:sub(1, 3))
   end
   local ok, trouble = Fs.write(path, "abcdefghij")
-  sys.write = real_write
+  sys.write = real_write -- checked: field_fixed
   assert(ok, trouble)
   assert(Fs.read(path) == "abcdefghij")
 end
@@ -637,7 +637,7 @@ local function test_copy_tree_refuses_an_existing_target(tmp: string)
   local copied, trouble = Fs.copy_tree(tmp .. "/from", tmp .. "/to")
   assert(not copied and trouble == tmp .. "/to: already exists", trouble)
   local missing, why = Fs.copy_tree(tmp .. "/absent", tmp .. "/new")
-  assert(not missing and why:find("absent", 1, true), why)
+  assert(not missing and why:find("absent", 1, true), why) -- checked: or_mix
 end
 
 local function test_copy_tree_copies_a_single_file(tmp: string)
@@ -670,7 +670,7 @@ end
 local function test_copy_tree_names_why_a_target_cannot_be_made(tmp: string)
   assert(Fs.write(tmp .. "/file", "f"))
   local copied, trouble = Fs.copy_tree(tmp .. "/file", tmp .. "/file/x")
-  assert(not copied and not trouble:find("already exists", 1, true) and
+  assert(not copied and not trouble:find("already exists", 1, true) and -- checked: or_mix
       trouble:find(tmp .. "/file/x", 1, true), trouble)
 end
 

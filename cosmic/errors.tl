@@ -127,7 +127,7 @@ end
 --- chunk `load` made; a file name with a space in it is not seen.
 local function lua_wrote(message: string): boolean
   local line = message:match("^[^\n]*")
-  line = line:gsub("^%S+:%d+: ", "", 1)
+  line = line:gsub("^%S+:%d+: ", "", 1) -- checked: nil_not_allowed
   line = line:gsub('^%[string ".-"%]:%d+: ', "", 1)
   return line:find("^attempt to ") ~= nil or
     line:find("^module '.-' not found") ~= nil or
@@ -247,7 +247,7 @@ end
 --- closed. One that returned, or was closed, has no frames: the text is
 --- just `stack traceback:`. For the running coroutine the first frame is
 --- the caller's, as [`trace`]'s is.
-function Errors.trace_of(co: thread, message?: string): string
+function Errors.trace_of(co: thread, message?: string): string -- declared: thread_type
   -- The binding counts this frame as level 1.
   return errors.trace_of(co, message, 2)
 end

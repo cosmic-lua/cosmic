@@ -593,7 +593,7 @@ local function checked_of(checker: Checker, document: Document): Checked
   end)
   if resolution.refusal ~= "" then
     local refused = plan.refusal_of(resolution.refusal)
-    refusals[#refusals + 1] = { line = resolution.line, column = refused.column, message = refused.message }
+    refusals[#refusals + 1] = { line = resolution.line, column = refused.column, message = refused.message } -- checked: view_written
     return checked(refusals, text, none)
   end
   local splices = resolution.splices
@@ -602,7 +602,7 @@ local function checked_of(checker: Checker, document: Document): Checked
   local reading = held.built(program, document.name, spliced, path, kind == "test")
   local compiled = syntax_read.generated(assert(subject), reading, importer_hints(checker), planned.requires,
     function(name: string): boolean return checker.source.modules[name] ~= nil end)
-  for _, refusal in ipairs(compiled.refusals) do refusals[#refusals + 1] = refusal end
+  for _, refusal in ipairs(compiled.refusals) do refusals[#refusals + 1] = refusal end -- checked: view_written
   return checked(refusals, spliced, splices, program.build:result(path, true), program.build.program)
 end
 

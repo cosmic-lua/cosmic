@@ -16,7 +16,7 @@ local function test_the_environment_points_every_proxy_client_at_the_relay()
     assert(env[name] == "socks5h://127.0.0.1:1080", name .. " is " .. tostring(env[name]))
   end
   assert(env["NODE_USE_ENV_PROXY"] == "1")
-  assert(env["NO_PROXY"] == "localhost,127.0.0.1,::1" and env.no_proxy == env["NO_PROXY"],
+  assert(env["NO_PROXY"] == "localhost,127.0.0.1,::1" and env.no_proxy == env["NO_PROXY"], -- checked: map_field
     "the sandbox's own network is direct: " .. tostring(env["NO_PROXY"]))
   assert(RelayConfig.http_port == 3128 and RelayConfig.socks_port == 1080)
 end
@@ -38,7 +38,7 @@ end
 local function test_a_policys_loopback_addresses_are_direct_too_each_once()
   local env = RelayConfig.proxy_env({ "127.0.0.1", "127.0.0.2", "127.0.0.9", "127.0.0.2" })
   assert(env["NO_PROXY"] == "localhost,127.0.0.1,::1,127.0.0.2,127.0.0.9", env["NO_PROXY"])
-  assert(env.no_proxy == env["NO_PROXY"])
+  assert(env.no_proxy == env["NO_PROXY"]) -- checked: map_field
 end
 
 --- A loopback address a `connect` target names is the host's service, which
@@ -47,7 +47,7 @@ end
 --- granted ::1 is not the sandbox's own 127.0.0.1 that `localhost` names.
 local function test_a_granted_loopback_address_is_not_direct()
   local function skipped(connect: {string}, loopback?: {string}): string
-    return RelayConfig.proxy_env(loopback or {}, nil, nil, connect).NO_PROXY
+    return RelayConfig.proxy_env(loopback or {}, nil, nil, connect).NO_PROXY -- checked: map_field
   end
   assert(skipped({ "127.0.0.1:8080" }) == "::1", skipped({ "127.0.0.1:8080" }))
   assert(skipped({ "127.0.0.1:*" }) == "::1")
@@ -70,7 +70,7 @@ local function test_a_policy_without_a_loopback_grant_has_the_same_environment()
   local plain = RelayConfig.proxy_env({ "127.0.0.2" })
   local given = RelayConfig.proxy_env({ "127.0.0.2" }, nil, nil, { "api.example.com:443", "192.0.2.1:80" })
   for name, value in pairs(plain) do assert(given[name] == value, name) end
-  assert(plain.NO_PROXY == "localhost,127.0.0.1,::1,127.0.0.2")
+  assert(plain.NO_PROXY == "localhost,127.0.0.1,::1,127.0.0.2") -- checked: map_field
 end
 
 local function test_a_variable_the_relay_sets_is_reserved_by_name()
@@ -131,7 +131,7 @@ local function test_the_hosts_addresses_are_the_local_host_entries_of_the_tables
   local found = RelayConfig.parse_addresses(FIB_TRIE, IF_INET6)
   local seen: mut {string:boolean} = {}
   for _, address in ipairs(found) do
-    assert(not seen[address], address .. " is listed twice")
+    assert(not seen[address], address .. " is listed twice") -- checked: condition_type
     seen[address] = true
   end
   assert(#found == 5, table.concat(found, " "))
@@ -139,7 +139,7 @@ local function test_the_hosts_addresses_are_the_local_host_entries_of_the_tables
       "fe80:0000:0000:0000:a000:27ff:fe4e:66a1", "2001:0db8:0000:0000:0000:0000:0000:0abc" }) do
     assert(seen[wanted], wanted .. " is missing from " .. table.concat(found, " "))
   end
-  assert(not seen["10.1.0.0"] and not seen["127.0.0.0"] and not seen["127.255.255.255"],
+  assert(not seen["10.1.0.0"] and not seen["127.0.0.0"] and not seen["127.255.255.255"], -- checked: condition_type*3
     "broadcast and network entries are no address of the host")
 end
 

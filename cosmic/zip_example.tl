@@ -8,7 +8,7 @@ local Test = require("cosmic.test")
 
 Test.policy{ cpu_features = true }
 
-local Example = {}
+local Example = {} -- checked: literal_needs_type
 
 --- A zip made in memory: `writer` over a [`Stream.collect`], each entry
 --- added in turn, and `close` writing the central directory.
@@ -96,4 +96,4 @@ function Example.file_writer()
   assert(r:close())
 end
 
-return Example
+return Example -- checked: export_not_declared

@@ -70,7 +70,7 @@ local record verb
   end
 end
 
-local spec = Cli.verbs.json.spec or {}
+local spec = Cli.verbs.json.spec or {} -- checked: literal_needs_type, map_field
 
 local usage = "cosmic json [--flat | --exists | --keys | --shape | --compact | -r] [--] [<path>] [<file>|-]" ..
   "; a file whose name begins with $ is written ./name, or follows --"
@@ -101,8 +101,8 @@ local function arguments(argv: {string}): verb.Request?, string
   if #modes > 1 then
     return nil, "name one of " .. table.concat(modes, " and ") .. ", not both"
   end
-  local raw = parsed.set["-r"] or parsed.set["--raw"] or false
-  local compact = parsed.set["--compact"] or false
+  local raw = parsed.set["-r"] or parsed.set["--raw"] or false -- checked: condition_type
+  local compact = parsed.set["--compact"] or false -- checked: condition_type
   if #modes == 1 and (raw or compact) then
     return nil, (if raw then "--raw" else "--compact" end) .. " shapes a printed value, which " ..
       modes[1] .. (if modes[1] == "--flat" then " prints in one form" else " does not print" end)
@@ -167,12 +167,12 @@ end
 --- What `--keys` prints for `value`: an object's keys, sorted, one per
 --- line, or an array's length; nil and why when it is neither.
 local function keys_of(value: any): string?, string
-  if value is {any:any} then
+  if value is {any:any} then -- declared: key_type
     local layout = Json.layout(value)
-    if layout == "array" then return tostring(rawlen(value)) .. "\n", "" end
+    if layout == "array" then return tostring(rawlen(value)) .. "\n", "" end -- checked: any_use
     if layout == "object" then
       local names: mut {string} = {}
-      for key in pairs(value) do
+      for key in pairs(value) do -- checked: any_use
         if key is string then names[#names + 1] = key end
       end
       table.sort(names)

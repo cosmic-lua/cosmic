@@ -19,10 +19,10 @@ local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
 
-local extra: any = select(2, ...)
+local extra: any = select(2, ...) -- checked: any_use
 local store: raw_store
 if type(extra) == "table" then
-  store = extra as raw_store
+  store = extra as raw_store -- checked: cast_refused
 else
   store = require("cosmic.internal.store")
 end
@@ -163,7 +163,7 @@ end
 --- carries no such file or the query failed.
 function Store.web_asset(name: string): Store.WebAsset?, string
   local databases = store.databases()
-  local rows, trouble = Sqlite.rows(databases[#databases],
+  local rows, trouble = Sqlite.rows(databases[#databases], -- checked: index_may_be_nil
     "SELECT data, sha256, sha384, version FROM web_assets WHERE name = ?1",
     { { text = name } })
   if rows == nil then
@@ -222,7 +222,7 @@ local function reserved(name: string): boolean
     return false
   end
   local search = package.searchers[#package.searchers]
-  local _, raw = search(name)
+  local _, raw = search(name) -- checked: nil_not_allowed
   return raw is table
 end
 
@@ -234,7 +234,7 @@ local function locate(name: string, required?: string): Handle?, string
   local binary_first = reserved(name)
   for step = 1, count do
     local db = databases[if binary_first then count + 1 - step else step end]
-    local rows, trouble = Sqlite.text_rows(db,
+    local rows, trouble = Sqlite.text_rows(db, -- checked: nil_not_allowed
       "SELECT 1 FROM modules WHERE path = ?1", { text(name) })
     if rows == nil then
       return nil, trouble
@@ -313,12 +313,12 @@ function Store.closure(roots: {string}, opts?: Store.ClosureOptions): {string}
     local required = required_by[#stack]
     required_by[#stack] = nil
     local name = table.remove(stack)
-    if seen[name] ~= true then
-      seen[name] = true
-      names[#names + 1] = name
-      for _, next_name in ipairs(requires_of(located(name, required), name, types)) do
+    if seen[name] ~= true then -- checked: nil_not_allowed
+      seen[name] = true -- checked: nil_not_allowed
+      names[#names + 1] = name -- checked: nil_not_allowed
+      for _, next_name in ipairs(requires_of(located(name, required), name, types)) do -- checked: nil_not_allowed*2
         stack[#stack + 1] = next_name
-        required_by[#stack] = name
+        required_by[#stack] = name -- checked: nil_not_allowed
       end
     end
   end
@@ -478,7 +478,7 @@ local function write_database(names: {string}, file: string, main: string?,
         if not added then
           return false, script.name .. ": " .. why
         end
-        for _, edge in ipairs(script.requires or {}) do
+        for _, edge in ipairs(script.requires or {}) do -- checked: condition_type, literal_needs_type
           if present[edge] == true then
             local inserted, insert_trouble = Sqlite.run(db,
               "INSERT OR IGNORE INTO imports (path, requires) VALUES (?1, ?2)",
@@ -493,7 +493,7 @@ local function write_database(names: {string}, file: string, main: string?,
       -- the roots core/http.c trusts and the files cosmic.web serves: carried
       -- only for a program that holds the module that reads them.
       if zones then
-        local copied, why = copy_rows(binary_db, db, "zoneinfo", { "name", "data" },
+        local copied, why = copy_rows(binary_db, db, "zoneinfo", { "name", "data" }, -- checked: nil_not_allowed
           "SELECT name, data FROM zoneinfo ORDER BY name")
         if not copied then
           return false, why
@@ -501,13 +501,13 @@ local function write_database(names: {string}, file: string, main: string?,
       end
       if web then
         -- A binary from before the table has none to carry.
-        local has_web, has_trouble = Sqlite.text_rows(binary_db,
+        local has_web, has_trouble = Sqlite.text_rows(binary_db, -- checked: nil_not_allowed
           "SELECT 1 FROM sqlite_master WHERE name = 'web_assets'")
         if has_web == nil then
           return false, has_trouble
         end
         if #has_web > 0 then
-          local copied, why = copy_rows(binary_db, db, "web_assets",
+          local copied, why = copy_rows(binary_db, db, "web_assets", -- checked: nil_not_allowed
             { "name", "data", "sha256", "sha384", "version" },
             "SELECT name, data, sha256, sha384, version FROM web_assets ORDER BY name")
           if not copied then
@@ -516,13 +516,13 @@ local function write_database(names: {string}, file: string, main: string?,
         end
       end
       if roots then
-        local copied, why = copy_rows(binary_db, db, "ca_roots",
+        local copied, why = copy_rows(binary_db, db, "ca_roots", -- checked: nil_not_allowed
           { "sha256", "label", "der", "distrust_after" },
           "SELECT sha256, label, der, distrust_after FROM ca_roots ORDER BY sha256")
         if not copied then
           return false, why
         end
-        copied, why = copy_rows(binary_db, db, "ca_revoked", { "kind", "name", "value" },
+        copied, why = copy_rows(binary_db, db, "ca_revoked", { "kind", "name", "value" }, -- checked: nil_not_allowed
           "SELECT kind, name, value FROM ca_revoked ORDER BY rowid")
         if not copied then
           return false, why
@@ -531,7 +531,7 @@ local function write_database(names: {string}, file: string, main: string?,
       -- What the program was made to run on and as.
       for _, pair in ipairs(identity) do
         local inserted, trouble = Sqlite.run(db,
-          "INSERT INTO meta (key, value) VALUES (?1, ?2)", { text(pair[1]), text(pair[2]) })
+          "INSERT INTO meta (key, value) VALUES (?1, ?2)", { text(pair[1]), text(pair[2]) }) -- checked: index_may_be_nil*2
         if not inserted then
           return false, trouble
         end

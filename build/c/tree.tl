@@ -332,7 +332,7 @@ end
 
 --- What a reference refers to, or nil for a node that is not one.
 function tree.referent(node: tree.Node): tree.Referent?
-  if node == nil or node.kind ~= "DeclRefExpr" then return nil end
+  if node == nil or node.kind ~= "DeclRefExpr" then return nil end -- checked: compare_disjoint
   if node.referent_asked == true then return node.referent_cache end
   local kind, id, name = node.text:match(" (%a+) (0x%x+) '([^']*)'")
   local found: tree.Referent? = nil
@@ -347,7 +347,7 @@ end
 --- `node` with every implicit conversion and parenthesis around it seen
 --- through.
 function tree.bare(node: tree.Node): tree.Node
-  while node ~= nil and (node.kind == "ImplicitCastExpr" or node.kind == "ParenExpr") and
+  while node ~= nil and (node.kind == "ImplicitCastExpr" or node.kind == "ParenExpr") and -- checked: compare_disjoint
       #node.children == 1 do
     node = node.children[1]
   end

@@ -132,7 +132,7 @@ end
 --- `trace`'s is.
 local function test_trace_of_the_running_coroutine_starts_at_its_caller()
   local function caller_frame(): string
-    local text = Errors.trace_of((coroutine.running()))
+    local text = Errors.trace_of((coroutine.running())) -- checked: field_unknown
     return text
   end
   local frames = caller_frame()
@@ -189,6 +189,6 @@ end
 --- one past the stack leaves just the heading.
 local function test_trace_refuses_a_level_below_one()
   Test.raises(function() Errors.trace(nil, 0) end, "level must be at least 1")
-  assert(not pcall(Errors.trace, nil, -1))
+  assert(not pcall(Errors.trace, nil, -1)) -- checked: alternatives_as_value
   assert(Errors.trace(nil, 1000) == "stack traceback:")
 end

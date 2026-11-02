@@ -32,7 +32,7 @@ end
 local function test_the_binary_s_database_inflates_its_source()
   local databases = Store.databases()
   local binary = databases[#databases]
-  local rows = assert(Sqlite.text_rows(binary,
+  local rows = assert(Sqlite.text_rows(binary, -- checked: nil_not_allowed
     "SELECT CAST(inflate(source) AS TEXT) FROM modules WHERE path = 'cosmic.store'"))
   assert(#rows == 1 and rows[1]:text(1) == assert(Store.source("cosmic.store")),
     "the query and Store.source read the same text")
@@ -50,9 +50,9 @@ local function test_paths_lists_the_stores_files_and_their_siblings(tmp: string)
   -- reached through a link, so its name is matched by its tail.
   local listed = Store.paths()
   local first = listed[1]
-  assert(first:sub(-#"/listed.db") == "/listed.db", first)
-  assert(listed[2] == first .. "-wal", "its write-ahead log")
-  assert(listed[3] == first .. "-shm", "its shared memory")
+  assert(first:sub(-#"/listed.db") == "/listed.db", first) -- checked: nil_not_allowed
+  assert(listed[2] == first .. "-wal", "its write-ahead log") -- checked: nil_not_allowed
+  assert(listed[3] == first .. "-shm", "its shared memory") -- checked: nil_not_allowed
   local count = #listed
   assert(count == 3 * #Store.databases(), "three files to each database, no other")
 end
@@ -102,8 +102,8 @@ local function test_alone_searches_only_the_binarys_own_database()
   local nested: boolean = true
   Store.alone(function()
     inside = #Store.databases()
-    attached = pcall(Store.attach, "/nonexistent/cosmic.db", { unchecked_bytecode = true })
-    nested = pcall(Store.alone, function() end)
+    attached = pcall(Store.attach, "/nonexistent/cosmic.db", { unchecked_bytecode = true }) -- checked: alternatives_as_value
+    nested = pcall(Store.alone, function() end) -- checked: alternatives_as_value
   end)
   assert(inside == 1, tostring(inside))
   assert(not attached and not nested)
@@ -117,7 +117,7 @@ local function test_alone_searches_only_the_binarys_own_database()
   -- More results than a C function has free slots are dropped, not kept.
   local many = assert(load("local t = {} for i = 1, 100 do t[i] = i end " ..
       "return table.unpack(t)"))
-  Store.alone(many)
+  Store.alone(many) -- checked: not_assignable
   assert(#Store.databases() == before)
   assert(Store.meta("compiler") ~= nil)
 end

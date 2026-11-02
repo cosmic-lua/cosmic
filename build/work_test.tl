@@ -16,7 +16,7 @@ local support = require("build.test_support_fixture")
 
 local function count(db: Sqlite.Handle, table_name: string): integer
   local rows = assert(Sqlite.text_rows(db, "SELECT count(*) FROM " .. table_name))
-  return math.tointeger(tonumber(support.nth(rows, 1):text(1))) as integer
+  return math.tointeger(tonumber(support.nth(rows, 1):text(1))) as integer -- checked: cast_refused
 end
 
 local function test_recording_error_rolls_back_every_table(tmp: string)
@@ -343,11 +343,11 @@ end
 --- Stage after the timestamp tick has settled, without waiting on the host clock.
 local function stage_settled(handle: work.Handle, own_tree?: boolean): work.Staged
   local now = Clock.now_ns
-  Clock.now_ns = function(): integer return now() + Clock.seconds(3) end
+  Clock.now_ns = function(): integer return now() + Clock.seconds(3) end -- checked: field_fixed
   local ok, staged, trouble = pcall(work.stage, handle, { own = own_tree == true })
-  Clock.now_ns = now
+  Clock.now_ns = now -- checked: field_fixed
   assert(ok, tostring(staged))
-  return (assert(staged, trouble))
+  return (assert(staged, trouble)) -- checked: any_use
 end
 
 --- Give the tested paths distinct change-time ticks even on a coarse filesystem.
@@ -356,18 +356,18 @@ local function with_change_time(paths: {string}, check: function(function()))
   for _, path in ipairs(paths) do tracked[path] = true end
   local stat = Fs.stat
   local tick = { value = 1 }
-  Fs.stat = function(path: string): sys.Stat?, string
+  Fs.stat = function(path: string): sys.Stat?, string -- checked: field_fixed
     local st, trouble = stat(path)
     if st ~= nil and tracked[path] == true then
-      return { ...st, ctime = 100, ctime_ns = tick.value }, trouble
+      return { ...st, ctime = 100, ctime_ns = tick.value }, trouble -- checked: map_field
     end
     return st, trouble
   end
   local ok, trouble = pcall(function(): boolean
-    check(function() tick.value = tick.value + 1 end)
+    check(function() tick.value = tick.value + 1 end) -- checked: map_field*2
     return true
   end)
-  Fs.stat = stat
+  Fs.stat = stat -- checked: field_fixed
   assert(ok, tostring(trouble))
 end
 
@@ -440,7 +440,7 @@ local function test_stage_takes_a_link_for_what_it_leads_to(tmp: string)
   local handle = assert(work.open(project))
   assert(work.stage(handle, { own = false }))
   assert(staged_bytes(handle.db, "lib/util.tl") == assert(Fs.read(tmp .. "/shared/lib/util.tl")))
-  assert(staged_bytes(handle.db, "linked_test.tl") ~= nil, "the linked test is staged")
+  assert(staged_bytes(handle.db, "linked_test.tl") ~= nil, "the linked test is staged") -- checked: compare_disjoint
   local looped = assert(Sqlite.text_rows(handle.db,
     "SELECT count(*) FROM files WHERE path LIKE 'loop/%'"))
   assert(support.nth(looped, 1):text(1) == "0", "nothing is staged through the loop")
@@ -676,10 +676,10 @@ local function test_an_unknown_change_time_never_trusts_cached_bytes(tmp: string
   assert(Fs.set_mtime(tmp .. "/probe.tl", 0, 0))
   local handle = assert(work.open(tmp))
   local stat = Fs.stat
-  Fs.stat = function(path: string): sys.Stat?, string
+  Fs.stat = function(path: string): sys.Stat?, string -- checked: field_fixed
     local st, trouble = stat(path)
     if st ~= nil then
-      local fields = st as {string:integer}
+      local fields = st as {string:integer} -- checked: cast_refused
       fields["ctime_ns"] = nil
     end
     return st, trouble
@@ -688,7 +688,7 @@ local function test_an_unknown_change_time_never_trusts_cached_bytes(tmp: string
     assert(stage_settled(handle).read == 1)
     assert(stage_settled(handle).read == 1)
   end)
-  Fs.stat = stat
+  Fs.stat = stat -- checked: field_fixed
   assert(work.close(handle))
   assert(ok, tostring(trouble))
 end
@@ -774,10 +774,10 @@ local function test_tool_discovery_fast_path_and_unknown_metadata(tmp: string)
   local handle = assert(work.open(tmp))
   assert(stage_settled(handle, true))
   local walk, read = Fs.walk_following, Fs.read
-  Fs.walk_following = function(): {string}?, string error("listed an unchanged tree") end
-  Fs.read = function(): string?, string error("read unchanged content") end
+  Fs.walk_following = function(): {string}?, string error("listed an unchanged tree") end -- checked: field_fixed
+  Fs.read = function(): string?, string error("read unchanged content") end -- checked: field_fixed
   local ok, answer = pcall(work.tool_moved, handle)
-  Fs.walk_following, Fs.read = walk, read
+  Fs.walk_following, Fs.read = walk, read -- checked: field_fixed*2
   assert(ok and answer == false, tostring(answer))
   assert(handle.db:exec("UPDATE tool_discovery SET ctime_ns = NULL WHERE path = 'core'"))
   assert(work.tool_moved(handle), "unknown change time must rescan")
@@ -795,13 +795,13 @@ local function test_tool_discovery_does_not_bless_an_addition_after_listing(tmp:
   assert(Fs.mkdirs(tmp .. "/core"))
   local handle = assert(work.open(tmp))
   local walk = Fs.walk_following
-  Fs.walk_following = function(root: string, skip?: function(string, string, Fs.Kind): boolean): {string}?, string
+  Fs.walk_following = function(root: string, skip?: function(string, string, Fs.Kind): boolean): {string}?, string -- checked: field_fixed
     local files, trouble = walk(root, skip)
     assert(Fs.write(root .. "/core/late.h", "new\n"))
     return files, trouble
   end
   local ok, staged = pcall(stage_settled, handle, true)
-  Fs.walk_following = walk
+  Fs.walk_following = walk -- checked: field_fixed
   assert(ok and staged ~= nil, tostring(staged))
   assert(work.tool_moved(handle), "metadata must precede the directory listing")
   assert(stage_settled(handle, true))

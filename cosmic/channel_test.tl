@@ -43,18 +43,18 @@ end
 
 local function test_options_are_checked_and_default_to_a_large_blocking_queue()
   Poll.run(function()
-    Test.raises(function() Channel.new({ capacity = 0 }) end, "capacity")
-    local fractional: any = { capacity = 1.5 }
-    Test.raises(function() Channel.new(fractional as Channel.Options) end, "capacity")
-    Test.raises(function() Channel.new({ overflow = "sometimes" as Channel.Overflow }) end, "overflow")
+    Test.raises(function() Channel.new({ capacity = 0 }) end, "capacity") -- checked: cannot_infer
+    local fractional: any = { capacity = 1.5 } -- checked: any_use
+    Test.raises(function() Channel.new(fractional as Channel.Options) end, "capacity") -- checked: cannot_infer, cast_refused
+    Test.raises(function() Channel.new({ overflow = "sometimes" as Channel.Overflow }) end, "overflow") -- checked: cannot_infer, cast_refused
     local queue: Channel.Queue<integer> = Channel.new()
     for i = 1, 256 do assert(queue:try_send(i)) end
     local ok, why = queue:try_send(257)
     assert(not ok and why == Channel.FULL)
-    Test.raises(function() queue:send(nil as integer) end, "nil")
+    Test.raises(function() queue:send(nil as integer) end, "nil") -- checked: cast_refused
     Test.raises(function() queue:receive(-1) end, "timeout_ns")
   end)
-  Test.raises(function() Channel.new() end, "outside Poll.run")
+  Test.raises(function() Channel.new() end, "outside Poll.run") -- checked: cannot_infer
 end
 
 local function test_block_makes_try_send_fail_and_send_time_out_when_full()
@@ -78,8 +78,8 @@ local function test_drop_oldest_keeps_the_newest_and_counts_the_drops()
     for i = 1, 7 do assert(queue:send(i)) end
     assert(queue:dropped() == 4 and queue:len() == 3)
     local got: mut {integer} = {}
-    for _ = 1, 3 do got[#got + 1] = queue:receive() as integer end
-    assert(table.concat(got as {string}, ",") == "5,6,7")
+    for _ = 1, 3 do got[#got + 1] = queue:receive() as integer end -- checked: cast_refused
+    assert(table.concat(got as {string}, ",") == "5,6,7") -- checked: cast_refused
     assert(queue:try_send(8))
     assert(queue:receive() == 8)
   end)
@@ -91,8 +91,8 @@ local function test_drop_newest_keeps_the_oldest_and_counts_the_drops()
     for i = 1, 7 do assert(queue:send(i)) end
     assert(queue:dropped() == 4 and queue:len() == 3)
     local got: mut {integer} = {}
-    for _ = 1, 3 do got[#got + 1] = queue:receive() as integer end
-    assert(table.concat(got as {string}, ",") == "1,2,3")
+    for _ = 1, 3 do got[#got + 1] = queue:receive() as integer end -- checked: cast_refused
+    assert(table.concat(got as {string}, ",") == "1,2,3") -- checked: cast_refused
   end)
 end
 
@@ -325,13 +325,13 @@ end
 local function test_close_from_a_close_handler_wakes_a_waiter()
   Poll.run(function()
     local queue: Channel.Queue<integer> = Channel.new()
-    local closing_mt: metatable<Closer> = { __close = function() queue:close() end }
+    local closing_mt: metatable<Closer> = { __close = function() queue:close() end } -- checked: literal_missing
     local got: mut {integer} = {}
     local last: mut {string} = {}
     local waiter = consumer(queue, got, last)
     assert(Poll.delay(0))
     local victim = Poll.spawn(function()
-      local _ <close> = setmetatable({} as Closer, closing_mt)
+      local _ <close> = setmetatable({} as Closer, closing_mt) -- checked: cast_refused, setmetatable_call
       local _, _ = Poll.delay(Clock.seconds(30))
     end)
     assert(Poll.delay(0))

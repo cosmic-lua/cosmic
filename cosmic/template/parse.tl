@@ -235,7 +235,7 @@ local nodes: function(p: Parser): {types.Node}?, string
 
 --- Parses the block action at the next item (`if`, `range` or `with`)
 --- through its `{{end}}`.
-local function block(p: Parser, open: types.Item): types.Node?, string
+local function block(p: Parser, open: types.Item): types.Node?, string -- checked: not_assigned
   local word = keyword(open)
   p.pos = p.pos + 1
   local bound: Bound = { first = 2 }

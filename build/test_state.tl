@@ -311,8 +311,8 @@ local record test_state
     --- lines `take_hits` has folded into `hits`, each by the table
     --- [`worker.decode`] shares among the reports that held them. Per run:
     --- a table folded into another run's `hits` is not in this one's.
-    spelled: {{integer:boolean}:string}
-    folded: {{integer:boolean}:boolean}
+    spelled: {{integer:boolean}:string} -- declared: key_type
+    folded: {{integer:boolean}:boolean} -- declared: key_type
     --- The lines of the core's C that turn on the processor's features,
     --- made once a run when a test first needs them
     --- ([`build.dispatch_sites`]). Nil until then; empty in a core without

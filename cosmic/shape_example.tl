@@ -5,7 +5,7 @@
 local Json = require("cosmic.json")
 local Shape = require("cosmic.shape")
 
-local Example = {}
+local Example = {} -- checked: literal_needs_type
 
 --- A release as JSON decodes it: `any`, until a shape says otherwise.
 --- `null_value` keeps the draft's null, which `optional` reads as nil.
@@ -167,4 +167,4 @@ function Example.any()
   assert(bad == "$[1]: want string, got integer", bad)
 end
 
-return Example
+return Example -- checked: export_not_declared

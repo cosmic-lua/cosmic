@@ -65,8 +65,8 @@ local function format_holds(input: string): boolean, string
   if #found > 0 then return false, "laid out outside the subset: " .. found[1] end
   if value_of(out) ~= value_of(input) then return false, "laid out as another value" end
   local before, after = flow.comments(input), flow.comments(out)
-  table.sort(before)
-  table.sort(after)
+  table.sort(before) -- checked: overload_none
+  table.sort(after) -- checked: overload_none
   if table.concat(before, "\n") ~= table.concat(after, "\n") then
     return false, "a comment lost or changed"
   end
@@ -99,13 +99,13 @@ local function gen_teal(src: Fuzz.Source, depth: integer): any
   if kind == 0 then
     local pick = src:int(0, 4)
     if pick == 0 then
-      return Fuzz.pick(src, { "a", "x # y", "\u{2028}", "\u{85}", "\u{e9}", "q\"\\", "" })
+      return Fuzz.pick(src, { "a", "x # y", "\u{2028}", "\u{85}", "\u{e9}", "q\"\\", "" }) -- checked: any_use
     end
-    if pick == 1 then return src:int(0, 1) == 0 end
-    if pick == 2 then return Json.null end
-    return src:int(-999, 999)
+    if pick == 1 then return src:int(0, 1) == 0 end -- checked: any_use
+    if pick == 2 then return Json.null end -- checked: any_use
+    return src:int(-999, 999) -- checked: any_use
   end
-  local out: mut {any: any} = {}
+  local out: mut {any: any} = {} -- declared: key_type
   local count = 0
   while Fuzz.more(src, count, 4) do
     count = count + 1
@@ -115,7 +115,7 @@ local function gen_teal(src: Fuzz.Source, depth: integer): any
       out[count] = gen_teal(src, depth - 1)
     end
   end
-  if kind == 2 then return Json.array(out as {any}) end
+  if kind == 2 then return Json.array(out as {any}) end -- checked: any_use, cast_refused
   return out
 end
 

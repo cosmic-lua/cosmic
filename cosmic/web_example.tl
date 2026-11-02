@@ -8,7 +8,7 @@ local Json = require("cosmic.json")
 local Stream = require("cosmic.stream")
 local Web = require("cosmic.web")
 
-local Example = {}
+local Example = {} -- checked: literal_needs_type
 
 --- A JSON API: routes are data built by [`Web.get`] and the like and compiled
 --- by [`Web.app`]; `:id` binds one segment into `req.params`; an unknown path
@@ -99,7 +99,7 @@ function Example.responses()
   assert(type(cookies) == "table" and #cookies == 2)
   local empty = Web.empty()
   assert(empty.status == 204 and empty.body == nil)
-  local problem = Web.problem(422, "qty must be a number", { field = "qty" })
+  local problem = Web.problem(422, "qty must be a number", { field = "qty" }) -- checked: any_use
   print(problem.body) -- {"detail":"qty must be a number","field":"qty","status":422,"title":"Unprocessable Content","type":"about:blank"}
   assert(Web.header(problem, "content-type") == "application/problem+json")
   local streamed = Web.stream(Stream.from_string("lines\n"), "text/plain")
@@ -297,4 +297,4 @@ function Example.client()
   end)
 end
 
-return Example
+return Example -- checked: export_not_declared

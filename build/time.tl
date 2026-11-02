@@ -80,7 +80,7 @@ end
 
 local NS <const> = 1000000000
 
-local spec = Cli.verbs.time.spec or {}
+local spec = Cli.verbs.time.spec or {} -- checked: literal_needs_type, map_field
 
 local usage = "cosmic time now [--zone Z] [--format F] [--json] | " ..
   "convert <time> [--from Z] [--to Z] [--format F] [--json] [--disambiguate H] | " ..
@@ -109,7 +109,7 @@ local function protect(argv: {string}): {string}, {string:string}
   for slot, original in ipairs(argv) do
     local word = original
     if word == "--" then ended = true end
-    local before = slot > 1 and argv[slot - 1] or ""
+    local before = slot > 1 and argv[slot - 1] or "" -- checked: and_ternary
     local option = spec[before]
     local is_value = false
     if option is Flags.Option then is_value = option.value ~= nil end
@@ -146,15 +146,15 @@ end
 local function record_of(seen: Seen): {string:any}
   local c = Time.civil(seen.ns, seen.zone)
   return {
-    epoch = seen.ns // NS,
-    rfc3339 = Time.format_rfc3339(seen.ns, seen.zone),
-    zone = if seen.zone.name == "Etc/UTC" then "UTC" else seen.zone.name end,
-    offset = c.offset,
-    abbreviation = c.abbreviation,
-    dst = c.dst,
-    year = c.year, month = c.month, day = c.day,
-    hour = c.hour, minute = c.minute, second = c.second, nanosecond = c.ns,
-    weekday = c.weekday, yday = c.yday,
+    epoch = seen.ns // NS, -- checked: any_use
+    rfc3339 = Time.format_rfc3339(seen.ns, seen.zone), -- checked: any_use
+    zone = if seen.zone.name == "Etc/UTC" then "UTC" else seen.zone.name end, -- checked: any_use
+    offset = c.offset, -- checked: any_use
+    abbreviation = c.abbreviation, -- checked: any_use
+    dst = c.dst, -- checked: any_use
+    year = c.year, month = c.month, day = c.day, -- checked: any_use*3
+    hour = c.hour, minute = c.minute, second = c.second, nanosecond = c.ns, -- checked: any_use*4
+    weekday = c.weekday, yday = c.yday, -- checked: any_use*2
   }
 end
 
@@ -234,7 +234,7 @@ local function read_input(text: string, zone: Time.Zone?,
   local year, month, day, hour, minute, tail = text:match(
     "^(%d%d%d%d)%-(%d%d)%-(%d%d)[Tt](%d%d):(%d%d)(.*)$")
   if tail ~= nil and (tail == "" or tail:match("^:%d%d$") ~= nil or tail:match("^:%d%d%.%d+$") ~= nil) then
-    local c: Time.CivilFields = {
+    local c: Time.CivilFields = { -- checked: literal_shape
       year = math.tointeger(tonumber(year)), month = math.tointeger(tonumber(month)),
       day = math.tointeger(tonumber(day)), hour = math.tointeger(tonumber(hour)),
       minute = math.tointeger(tonumber(minute)), second = 0, ns = 0,
@@ -345,7 +345,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     return refuse(("%s takes %d word%s, not %d"):format(sub, words_taken,
       if words_taken == 1 then "" else "s" end, #parsed.words - 1))
   end
-  local as_json = parsed.set["--json"] or false
+  local as_json = parsed.set["--json"] or false -- checked: condition_type
   local format = parsed.values["--format"] or "rfc3339"
   if format ~= "rfc3339" and format ~= "date" and format ~= "http" and format ~= "epoch" then
     return refuse("--format is rfc3339, date, http or epoch, not " .. format)
@@ -441,7 +441,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   local second_word = assert(parsed.words[3], "between and add take two words, which the arity check holds them to")
   local first = read_time(first_word, fallback)
   if first == nil then return bare.refused end
-  local calendar = parsed.values["--zone"] ~= nil and fallback or first.zone or fallback
+  local calendar = parsed.values["--zone"] ~= nil and fallback or first.zone or fallback -- checked: and_ternary
 
   if sub == "add" then
     local duration, why = Time.parse_duration(second_word)
@@ -468,7 +468,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   if #modes > 1 then
     return refuse("name one of " .. table.concat(modes, " and ") .. ", not both")
   end
-  local unit = #modes == 1 and modes[1]:sub(3) or "duration"
+  local unit = #modes == 1 and modes[1]:sub(3) or "duration" -- checked: and_ternary
   local value: integer | string
   if unit == "days" then
     value = local_day(second.ns, calendar) - local_day(first.ns, calendar)
@@ -502,7 +502,7 @@ end
 
 --- The `time` verb as [`build/verb_list.tl`] lists it. Reads the clock and
 --- the zones the binary carries, never the tree: never stale-checked.
-verb.spec = {
+verb.spec = { -- checked: field_fixed
   name = "time",
   guide = "a quick question about a time",
   tests = { "build.time_test", "build.time_tool_test" },

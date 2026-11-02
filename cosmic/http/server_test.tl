@@ -28,14 +28,14 @@ local record Peer
   __close: function(Peer)
 end
 
-local peer_mt: metatable<Peer> = {
-  __index = Peer,
+local peer_mt: metatable<Peer> = { -- checked: literal_missing
+  __index = Peer, -- checked: any_use
   __close = function(self: Peer) local _, _ = self.conn:close() end,
 }
 
 local function peer(address: Net.Address): Peer
   local conn = assert(Net.connect(address, { timeout_ns = Clock.seconds(5) }))
-  return setmetatable({ conn = conn, buf = "" }, peer_mt)
+  return setmetatable({ conn = conn, buf = "" }, peer_mt) -- checked: arms_differ, setmetatable_call
 end
 
 --- Reads more into `p.buf`: false at the connection's end.
@@ -184,7 +184,7 @@ end
 --- carries a Date and its Content-Length, and no Connection header.
 local function test_pipelined_requests_are_answered_in_order_on_one_connection()
   local troubles = serving(echo, function(address: Net.Address)
-    local p <close> = peer(address)
+    local p <close> = peer(address) -- checked: close_not_closable
     send(p, get("/a?x=1") .. get("/b") ..
         "PUT /c HTTP/1.1\r\nHost: test\r\nContent-Length: 3\r\n\r\nabc")
     local first, second, third = reply(p), reply(p), reply(p)
@@ -211,7 +211,7 @@ local function test_a_connection_closes_where_either_side_asks()
   end, function(address: Net.Address)
     for _, request in ipairs({ get("/", "Connection: close\r\n"), get("/bye"),
         "GET / HTTP/1.0\r\n\r\n" }) do
-      local p <close> = peer(address)
+      local p <close> = peer(address) -- checked: close_not_closable
       send(p, request .. get("/never"))
       local got = reply(p)
       assert(got.status == 200 and got.body == "ok")
@@ -227,11 +227,11 @@ end
 local function test_head_is_answered_with_no_body()
   local read_from: boolean = false
   local closed: boolean = false
-  local record Watched is Stream.Reader
+  local record Watched is Stream.Reader -- declared: interface_disagrees
     read: function(Watched, max_bytes?: integer): string?, string
     close: function(Watched): boolean, string
   end
-  local watched: Watched = setmetatable({}, { __index = {
+  local watched: Watched = setmetatable({}, { __index = { -- checked: arms_differ, setmetatable_call
     read = function(_self: Watched, _max_bytes?: integer): string?, string
       read_from = true
       return nil, ""
@@ -245,7 +245,7 @@ local function test_head_is_answered_with_no_body()
     if req.path == "/reader" then return { status = 200, body = watched, length = 42 } end
     return { status = 200, body = "hello" }
   end, function(address: Net.Address)
-    local p <close> = peer(address)
+    local p <close> = peer(address) -- checked: close_not_closable
     send(p, "HEAD / HTTP/1.1\r\nHost: test\r\n\r\n" .. "HEAD /reader HTTP/1.1\r\nHost: test\r\n\r\n" ..
         get("/"))
     local head = reply(p, "HEAD")
@@ -270,7 +270,7 @@ local function test_chunked_bodies_both_ways()
     assert(req.length == nil)
     return { status = 200, body = body }
   end, function(address: Net.Address)
-    local p <close> = peer(address)
+    local p <close> = peer(address) -- checked: close_not_closable
     send(p, "POST / HTTP/1.1\r\nHost: test\r\nTransfer-Encoding: chunked\r\n\r\n" ..
         "5;name=value\r\nhello\r\n1\r\n \r\n5\r\nworld\r\n0\r\nTrailer: x\r\n\r\n")
     local echoed = reply(p)
@@ -280,7 +280,7 @@ local function test_chunked_bodies_both_ways()
     assert(streamed.headers["transfer-encoding"] == "chunked")
     assert(streamed.headers["content-length"] == nil)
     assert(streamed.body == string.rep("z", 70000))
-    local old <close> = peer(address)
+    local old <close> = peer(address) -- checked: close_not_closable
     send(old, "GET /stream HTTP/1.0\r\n\r\n")
     local whole = reply(old)
     assert(whole.headers["transfer-encoding"] == nil and whole.headers["connection"] == "close")
@@ -298,17 +298,17 @@ local function test_100_continue()
     if req.path == "/ignore" then return { status = 200, body = "ignored" } end
     return { status = 200, body = assert(Stream.read_all(req.body)) }
   end, function(address: Net.Address)
-    local p <close> = peer(address)
+    local p <close> = peer(address) -- checked: close_not_closable
     send(p, "PUT / HTTP/1.1\r\nHost: test\r\nExpect: 100-continue\r\nContent-Length: 4\r\n\r\n")
     assert(line(p) == "HTTP/1.1 100 Continue")
     assert(line(p) == "")
     send(p, "data")
     assert(reply(p).body == "data")
-    local big <close> = peer(address)
+    local big <close> = peer(address) -- checked: close_not_closable
     send(big, "PUT / HTTP/1.1\r\nHost: test\r\nExpect: 100-continue\r\nContent-Length: 2000000\r\n\r\n")
     local refused = reply(big)
     assert(refused.status == 413 and refused.headers["connection"] == "close")
-    local ignored <close> = peer(address)
+    local ignored <close> = peer(address) -- checked: close_not_closable
     send(ignored, "PUT /ignore HTTP/1.1\r\nHost: test\r\nExpect: 100-continue\r\nContent-Length: 4\r\n\r\n")
     local got = reply(ignored)
     assert(got.status == 200 and got.body == "ignored")
@@ -326,25 +326,25 @@ local function test_each_limit_is_answered()
     handled = handled + 1
     return { status = 200, body = assert(Stream.read_all(req.body)) }
   end, function(address: Net.Address)
-    local long <close> = peer(address)
+    local long <close> = peer(address) -- checked: close_not_closable
     send(long, get("/", "X-Long: " .. string.rep("a", 2000) .. "\r\n"))
     local got = reply(long)
     assert(got.status == 431 and got.headers["connection"] == "close", tostring(got.status))
     assert(ended(long))
-    local big <close> = peer(address)
+    local big <close> = peer(address) -- checked: close_not_closable
     send(big, "PUT / HTTP/1.1\r\nHost: test\r\nContent-Length: 101\r\n\r\n")
     assert(reply(big).status == 413)
-    local chunked <close> = peer(address)
+    local chunked <close> = peer(address) -- checked: close_not_closable
     send(chunked, "PUT / HTTP/1.1\r\nHost: test\r\nTransfer-Encoding: chunked\r\n\r\n" ..
         "50\r\n" .. string.rep("x", 80) .. "\r\n50\r\n" .. string.rep("y", 80) .. "\r\n0\r\n\r\n")
     local over = reply(chunked)
     assert(over.status == 413, tostring(over.status))
     assert(handled == 1, tostring(handled))
     -- One connection at a time: a second waits, unanswered.
-    local first <close> = peer(address)
+    local first <close> = peer(address) -- checked: close_not_closable
     send(first, get("/"))
     assert(reply(first).status == 200)
-    local second <close> = peer(address)
+    local second <close> = peer(address) -- checked: close_not_closable
     send(second, get("/"))
     second.conn:set_timeout(Clock.ms(100))
     local nothing, why = second.conn:read()
@@ -361,28 +361,28 @@ end
 --- to on_error: a raise with its stack.
 local function test_a_failing_handler_is_answered_500()
   local bad: {string: any} = {
-    ["/nil"] = nil,
-    ["/owned"] = { status = 200, headers = { Date = "Thu, 01 Jan 1970 00:00:00 GMT" } },
-    ["/unsent"] = { status = 200, headers = { ["Content-Length"] = "3" } },
-    ["/mismatch"] = { status = 200, headers = { ["content-length"] = "4" }, body = "hello" },
-    ["/cr"] = { status = 200, headers = { ["X-Bad"] = "a\r\nb" } },
-    ["/nocontent"] = { status = 204, body = "not empty" },
-    ["/interim"] = { status = 101 },
-    ["/typo"] = { status = 200, header = {} },
-    ["/crlist"] = { status = 200, headers = { ["Set-Cookie"] = { "a=1", "b=2\r\nX: y" } } },
-    ["/lenlist"] = { status = 200, headers = { ["Content-Length"] = { "0" } } },
-    ["/datelist"] = { status = 200, headers = { Date = { "x" } } },
-    ["/numlist"] = { status = 200, headers = { ["Set-Cookie"] = { 1 } } },
+    ["/nil"] = nil, -- checked: any_use
+    ["/owned"] = { status = 200, headers = { Date = "Thu, 01 Jan 1970 00:00:00 GMT" } }, -- checked: arms_differ
+    ["/unsent"] = { status = 200, headers = { ["Content-Length"] = "3" } }, -- checked: arms_differ
+    ["/mismatch"] = { status = 200, headers = { ["content-length"] = "4" }, body = "hello" }, -- checked: arms_differ
+    ["/cr"] = { status = 200, headers = { ["X-Bad"] = "a\r\nb" } }, -- checked: arms_differ
+    ["/nocontent"] = { status = 204, body = "not empty" }, -- checked: arms_differ
+    ["/interim"] = { status = 101 }, -- checked: any_use
+    ["/typo"] = { status = 200, header = {} }, -- checked: any_use, literal_needs_type
+    ["/crlist"] = { status = 200, headers = { ["Set-Cookie"] = { "a=1", "b=2\r\nX: y" } } }, -- checked: arms_differ
+    ["/lenlist"] = { status = 200, headers = { ["Content-Length"] = { "0" } } }, -- checked: arms_differ
+    ["/datelist"] = { status = 200, headers = { Date = { "x" } } }, -- checked: arms_differ
+    ["/numlist"] = { status = 200, headers = { ["Set-Cookie"] = { 1 } } }, -- checked: arms_differ
   }
   local paths = { "/raise", "/nil", "/owned", "/cr", "/nocontent", "/interim", "/typo", "/unsent",
     "/mismatch", "/crlist", "/lenlist", "/datelist", "/numlist" }
   local troubles = serving(function(req: Server.Request): Server.Reply
     if req.path == "/raise" then error("the handler failed") end
     local answer: any = bad[req.path]
-    return answer as Server.Reply
+    return answer as Server.Reply -- checked: cast_refused
   end, function(address: Net.Address)
     for _, path in ipairs(paths) do
-      local p <close> = peer(address)
+      local p <close> = peer(address) -- checked: close_not_closable
       send(p, get(path))
       local got = reply(p)
       assert(got.status == 500, path .. ": " .. tostring(got.status))
@@ -423,7 +423,7 @@ local function test_a_handler_may_give_the_content_length()
     end
     return { status = 200, headers = { ["Content-Type"] = "text/plain", ["Content-Length"] = "1234" } }
   end, function(address: Net.Address)
-    local p <close> = peer(address)
+    local p <close> = peer(address) -- checked: close_not_closable
     send(p, "HEAD /size HTTP/1.1\r\nHost: test\r\n\r\n" .. "HEAD /length HTTP/1.1\r\nHost: test\r\n\r\n" ..
         "HEAD /match HTTP/1.1\r\nHost: test\r\n\r\n" .. get("/match") .. get("/reader"))
     local size = reply(p, "HEAD")
@@ -449,7 +449,7 @@ local function test_a_list_header_is_sent_as_one_line_per_element()
   local troubles = serving(function(_req: Server.Request): Server.Reply
     return { status = 200, headers = { ["Set-Cookie"] = { "a=1", "b=2" } }, body = "ok" }
   end, function(address: Net.Address)
-    local p <close> = peer(address)
+    local p <close> = peer(address) -- checked: close_not_closable
     send(p, "GET / HTTP/1.1\r\nHost: test\r\nConnection: close\r\n\r\n")
     while more(p) do end
     local first = p.buf:find("\r\nSet-Cookie: a=1\r\n", 1, true)
@@ -466,7 +466,7 @@ end
 --- timeout_ns; a connection idle past idle_ns is closed.
 local function test_a_slow_head_and_an_idle_connection_are_closed()
   serving(echo, function(address: Net.Address)
-    local slow <close> = peer(address)
+    local slow <close> = peer(address) -- checked: close_not_closable
     local started = Clock.monotonic_ns()
     local request = get("/")
     for i = 1, #request do
@@ -477,11 +477,11 @@ local function test_a_slow_head_and_an_idle_connection_are_closed()
     local got = reply(slow)
     assert(got.status == 408, tostring(got.status))
     assert(Clock.monotonic_ns() - started < Clock.seconds(2))
-    local stalled <close> = peer(address)
+    local stalled <close> = peer(address) -- checked: close_not_closable
     send(stalled, "PUT / HTTP/1.1\r\nHost: test\r\nContent-Length: 10\r\n\r\nabc")
     local timed_out = reply(stalled)
     assert(timed_out.status == 408 and timed_out.headers["connection"] == "close", tostring(timed_out.status))
-    local idle <close> = peer(address)
+    local idle <close> = peer(address) -- checked: close_not_closable
     local waited_from = Clock.monotonic_ns()
     assert(ended(idle))
     assert(Clock.monotonic_ns() - waited_from < Clock.seconds(2))
@@ -540,7 +540,7 @@ local function test_a_body_left_unread_is_dropped_before_the_next_request()
     if req.path == "/none" then return { status = 200, body = "none" } end
     return { status = 200, body = req.path }
   end, function(address: Net.Address)
-    local p <close> = peer(address)
+    local p <close> = peer(address) -- checked: close_not_closable
     send(p, "PUT /part HTTP/1.1\r\nHost: test\r\nContent-Length: 10\r\n\r\n0123456789" ..
         "PUT /none HTTP/1.1\r\nHost: test\r\nTransfer-Encoding: chunked\r\n\r\n" ..
         "4\r\nGET \r\n0\r\n\r\n" .. get("/after"))
@@ -558,14 +558,14 @@ local function test_a_malformed_request_is_answered_400()
         "POST / HTTP/1.1\r\nHost: t\r\nContent-Length: 1\r\nTransfer-Encoding: chunked\r\n\r\n",
         "GET / HTTP/1.1\r\nHost : t\r\n\r\n",
     }) do
-      local p <close> = peer(address)
+      local p <close> = peer(address) -- checked: close_not_closable
       send(p, request)
       local got = reply(p)
       assert(got.status == 400, request)
       assert(got.headers["connection"] == "close")
       assert(ended(p))
     end
-    local newer <close> = peer(address)
+    local newer <close> = peer(address) -- checked: close_not_closable
     send(newer, "GET / HTTP/2.0\r\nHost: t\r\n\r\n")
     assert(reply(newer).status == 505)
   end)
@@ -577,7 +577,7 @@ local function test_a_reader_body_short_of_its_length_closes_the_connection()
   local troubles = serving(function(_req: Server.Request): Server.Reply
     return { status = 200, body = Stream.from_string("abc"), length = 10 }
   end, function(address: Net.Address)
-    local p <close> = peer(address)
+    local p <close> = peer(address) -- checked: close_not_closable
     send(p, get("/"))
     assert(line(p) == "HTTP/1.1 200 OK")
     while more(p) do end
@@ -595,7 +595,7 @@ local function test_a_304_carries_no_length_but_one_given()
     end
     return { status = 304, headers = { ETag = '"v1"' } }
   end, function(address: Net.Address)
-    local p <close> = peer(address)
+    local p <close> = peer(address) -- checked: close_not_closable
     send(p, get("/") .. get("/sized") .. get("/"))
     local first = reply(p)
     assert(first.status == 304 and first.headers["content-length"] == nil)
@@ -613,7 +613,7 @@ local function test_a_reply_reading_the_request_body_sends_100_first()
   serving(function(req: Server.Request): Server.Reply
     return { status = 200, body = req.body }
   end, function(address: Net.Address)
-    local p <close> = peer(address)
+    local p <close> = peer(address) -- checked: close_not_closable
     send(p, "PUT / HTTP/1.1\r\nHost: test\r\nExpect: 100-continue\r\nContent-Length: 4\r\n\r\n")
     assert(line(p) == "HTTP/1.1 100 Continue")
     assert(line(p) == "")
@@ -630,11 +630,11 @@ end
 --- goes to on_error.
 local function test_a_reply_body_that_raises_closes_the_connection()
   local closed: boolean = false
-  local record Raising is Stream.Reader
+  local record Raising is Stream.Reader -- declared: interface_disagrees
     read: function(Raising, max_bytes?: integer): string?, string
     close: function(Raising): boolean, string
   end
-  local raising: Raising = setmetatable({}, { __index = {
+  local raising: Raising = setmetatable({}, { __index = { -- checked: arms_differ, setmetatable_call
     read = function(_self: Raising, _max_bytes?: integer): string?, string
       error("the body broke")
     end,
@@ -646,7 +646,7 @@ local function test_a_reply_body_that_raises_closes_the_connection()
   local troubles = serving(function(_req: Server.Request): Server.Reply
     return { status = 200, body = raising, length = 5 }
   end, function(address: Net.Address)
-    local p <close> = peer(address)
+    local p <close> = peer(address) -- checked: close_not_closable
     send(p, get("/"))
     assert(line(p) == "HTTP/1.1 200 OK")
     while more(p) do end
@@ -661,12 +661,12 @@ end
 --- bytes after it are no request to serve.
 local function test_a_body_failing_under_the_reply_closes_the_connection()
   local paths: mut {string} = {}
-  local record Lenient is Stream.Reader
+  local record Lenient is Stream.Reader -- declared: interface_disagrees
     source: Stream.Reader
     read: function(Lenient, max_bytes?: integer): string?, string
     close: function(Lenient): boolean, string
   end
-  local lenient_methods = {
+  local lenient_methods = { -- checked: arms_differ
     -- Reads every failure as the end.
     read = function(self: Lenient, max_bytes?: integer): string?, string
       local piece, _ = self.source:read(max_bytes)
@@ -675,13 +675,13 @@ local function test_a_body_failing_under_the_reply_closes_the_connection()
     end,
     close = function(_self: Lenient): boolean, string return true, "" end,
   }
-  local lenient_mt: metatable<Lenient> = { __index = lenient_methods }
+  local lenient_mt: metatable<Lenient> = { __index = lenient_methods } -- checked: literal_missing
   serving(function(req: Server.Request): Server.Reply
     paths[#paths + 1] = req.path
-    local lenient: Lenient = setmetatable({ source = req.body }, lenient_mt)
+    local lenient: Lenient = setmetatable({ source = req.body }, lenient_mt) -- checked: setmetatable_call
     return { status = 200, body = lenient }
   end, function(address: Net.Address)
-    local p <close> = peer(address)
+    local p <close> = peer(address) -- checked: close_not_closable
     send(p, "POST /up HTTP/1.1\r\nHost: t\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nabcX\r\n" ..
         get("/smuggled"))
     local got = reply(p)
@@ -701,7 +701,7 @@ local function test_a_request_carries_its_peer_address()
     return { status = 200, body = "ok" }
   end, function(address: Net.Address)
     server_port = assert(address.port, "the server reported no port")
-    local p <close> = peer(address)
+    local p <close> = peer(address) -- checked: close_not_closable
     send(p, get("/"))
     assert(reply(p).status == 200)
   end)
@@ -741,7 +741,7 @@ end
 
 --- A spec's on_stop that is no function raises, naming the field.
 local function test_a_non_function_on_stop_is_refused()
-  local ok, err = pcall(Server.serve, {
+  local ok, err = pcall(Server.serve, { -- checked: arms_differ, cast_refused
     listeners = { Net.tcp("127.0.0.1", 0) }, handle = echo, on_stop = "no",
   } as Server.ServeSpec)
   assert(not ok and tostring(err):find("spec.on_stop", 1, true) ~= nil, tostring(err))
@@ -758,7 +758,7 @@ local function test_a_handlers_error_reply_keeps_the_connection()
     if req.path == "/gone" then return { status = 410, close = true } end
     return { status = 200, body = req.path }
   end, function(address: Net.Address)
-    local p <close> = peer(address)
+    local p <close> = peer(address) -- checked: close_not_closable
     send(p, get("/missing") .. get("/bad") .. get("/busy") .. get("/after"))
     for _, want in ipairs({ 404, 400, 503, 200 }) do
       local got = reply(p)
@@ -783,7 +783,7 @@ local function test_an_unread_body_with_a_4xx_reply_still_frames()
     if req.path:find("^/refuse") then return { status = 401, body = "who" } end
     return { status = 200, body = req.path }
   end, function(address: Net.Address)
-    local p <close> = peer(address)
+    local p <close> = peer(address) -- checked: close_not_closable
     send(p, "POST /refuse HTTP/1.1\r\nHost: test\r\nContent-Length: 11\r\n\r\nGET /evil H" ..
         "POST /refuse2 HTTP/1.1\r\nHost: test\r\nTransfer-Encoding: chunked\r\n\r\n" ..
         "b\r\nGET /evil H\r\n0\r\n\r\n" .. get("/after"))
@@ -801,7 +801,7 @@ local function test_a_4xx_to_an_undroppable_body_closes()
   serving(function(_req: Server.Request): Server.Reply
     return { status = 400 }
   end, function(address: Net.Address)
-    local p <close> = peer(address)
+    local p <close> = peer(address) -- checked: close_not_closable
     send(p, "POST / HTTP/1.1\r\nHost: test\r\nTransfer-Encoding: chunked\r\n\r\n" ..
         "20\r\n" .. ("x"):rep(32) .. "\r\n0\r\n\r\n" .. get("/never"))
     local got = reply(p)
@@ -817,10 +817,10 @@ local function test_a_body_slower_than_body_ns_is_answered_408()
   local read_failed: boolean = false
   serving(function(req: Server.Request): Server.Reply
     local _, why = Stream.read_all(req.body)
-    read_failed = why ~= nil
+    read_failed = why ~= nil -- checked: compare_disjoint
     return { status = 200, body = "never" }
   end, function(address: Net.Address)
-    local p <close> = peer(address)
+    local p <close> = peer(address) -- checked: close_not_closable
     send(p, "PUT / HTTP/1.1\r\nHost: test\r\nContent-Length: 40\r\n\r\n")
     local started = Clock.monotonic_ns()
     -- Each byte is followed by a short wait for the reply, and the client
@@ -858,13 +858,13 @@ local function test_body_ns_bounds_the_drop_and_spares_what_is_in_time()
     end
     return { status = 200, body = "ok" }
   end, function(address: Net.Address)
-    local fast <close> = peer(address)
+    local fast <close> = peer(address) -- checked: close_not_closable
     send(fast, "PUT /read HTTP/1.1\r\nHost: test\r\nContent-Length: 3\r\n\r\nabc")
     assert(reply(fast).body == "abc")
     local _, _ = Poll.delay(Clock.ms(300))
     send(fast, get("/nobody"))
     assert(reply(fast).body == "ok")
-    local slow <close> = peer(address)
+    local slow <close> = peer(address) -- checked: close_not_closable
     send(slow, "PUT /skip HTTP/1.1\r\nHost: test\r\nContent-Length: 40\r\n\r\n")
     assert(reply(slow).body == "ok")
     local started = Clock.monotonic_ns()
@@ -878,7 +878,7 @@ end
 
 --- A body_ns that is no duration raises, naming the field.
 local function test_a_degenerate_body_ns_is_refused()
-  local ok, err = pcall(Server.serve, {
+  local ok, err = pcall(Server.serve, { -- checked: arms_differ, cast_refused
     listeners = { Net.tcp("127.0.0.1", 0) }, handle = echo, body_ns = -1,
   } as Server.ServeSpec)
   assert(not ok and tostring(err):find("body_ns", 1, true) ~= nil, tostring(err))
@@ -893,7 +893,7 @@ local function test_a_slow_handler_reading_a_prompt_body_gets_it()
     read = assert(Stream.read_all(req.body))
     return { status = 200, body = read }
   end, function(address: Net.Address)
-    local p <close> = peer(address)
+    local p <close> = peer(address) -- checked: close_not_closable
     send(p, "PUT / HTTP/1.1\r\nHost: test\r\nContent-Length: 3\r\n\r\n")
     local _, _ = Poll.delay(Clock.ms(50))
     send(p, "abc")
@@ -912,7 +912,7 @@ local function test_a_slow_handler_ignoring_a_prompt_body_keeps_the_connection()
     if req.path == "/slow" then assert(Poll.delay(Clock.ms(500))) end
     return { status = 200, body = req.path }
   end, function(address: Net.Address)
-    local p <close> = peer(address)
+    local p <close> = peer(address) -- checked: close_not_closable
     send(p, "PUT /slow HTTP/1.1\r\nHost: test\r\nContent-Length: 3\r\n\r\n")
     local _, _ = Poll.delay(Clock.ms(50))
     send(p, "abc")
@@ -934,7 +934,7 @@ local function test_a_refused_100_continue_closes_without_waiting()
   local troubles = serving(function(_req: Server.Request): Server.Reply
     return { status = 401, body = "who" }
   end, function(address: Net.Address)
-    local p <close> = peer(address)
+    local p <close> = peer(address) -- checked: close_not_closable
     send(p, "POST / HTTP/1.1\r\nHost: test\r\nContent-Length: 10\r\nExpect: 100-continue\r\n\r\n")
     local got = reply(p)
     assert(got.status == 401 and got.headers["connection"] == "close", tostring(got.status))
@@ -951,7 +951,7 @@ local function test_a_head_with_a_body_and_a_404_keeps_the_connection()
     if req.method == "HEAD" then return { status = 404, body = "no" } end
     return { status = 200, body = "after" }
   end, function(address: Net.Address)
-    local p <close> = peer(address)
+    local p <close> = peer(address) -- checked: close_not_closable
     send(p, "HEAD /missing HTTP/1.1\r\nHost: test\r\nContent-Length: 3\r\n\r\nabc" .. get("/after"))
     local head = reply(p, "HEAD")
     assert(head.status == 404 and head.body == "" and head.headers["connection"] == nil)

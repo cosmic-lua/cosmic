@@ -19,7 +19,7 @@ local function test_each_field_is_the_message_of_its_errno()
   }
   for _, field in ipairs(fields) do
     local name, text = field[1], field[2]
-    assert(messages[name] ~= nil, name .. " is no errno this OS names")
-    assert(messages[name] == text, name .. " says " .. messages[name] .. ", not " .. text)
+    assert(messages[name] ~= nil, name .. " is no errno this OS names") -- checked: nil_not_allowed*2
+    assert(messages[name] == text, name .. " says " .. messages[name] .. ", not " .. text) -- checked: nil_not_allowed*5
   end
 end

@@ -46,8 +46,8 @@ local function test_a_lookup_not_done_has_no_answer_and_a_closed_one_raises(tmp:
   assert(#again == 0)
   local none, _, errno = lookup:result()
   assert(none == nil and errno == socket.ETIMEDOUT)
-  assert(not pcall(lookup.step, lookup, {}, nil))
-  assert(not pcall(lookup.step, lookup, {}, { 1 }))
+  assert(not pcall(lookup.step, lookup, {}, nil)) -- checked: overload_none
+  assert(not pcall(lookup.step, lookup, {}, { 1 })) -- checked: overload_none
   -- Supplying none fails that server, and the lookup, which asks no other.
   assert(lookup:supply(want.id, nil, 0))
   local ok, _, missing = lookup:supply(want.id, nil, 0)
@@ -55,7 +55,7 @@ local function test_a_lookup_not_done_has_no_answer_and_a_closed_one_raises(tmp:
   assert(lookup:wait(50))
   lookup:close()
   lookup:close()
-  assert(not pcall(lookup.step, lookup, nil, nil))
+  assert(not pcall(lookup.step, lookup, nil, nil)) -- checked: overload_none
 end
 
 local function test_a_supplied_socket_replaces_the_stand_in(tmp: string)
@@ -75,7 +75,7 @@ local function test_a_supplied_socket_replaces_the_stand_in(tmp: string)
   local _, fds, events = lookup:step(nil, nil)
   assert(#fds == 1 and fds[1] ~= conn:fd() and #events == 1)
   assert(lookup:wait(1000))
-  local accepted <close> = assert(server:accept())
+  local accepted <close> = assert(server:accept()) -- checked: close_not_closable
   local sent = assert(accepted:read(2))
   assert(#sent == 2)
   lookup:close()

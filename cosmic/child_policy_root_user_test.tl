@@ -77,7 +77,7 @@ local function test_a_root_caller_runs_its_child_as_a_user_of_a_range_of_its_own
   local at = ChildPolicy.placed(tmp)
   local first, last = pool()
   for _, isolate in ipairs({ { "proc" }, { "file" } }) do
-    local ran = ChildPolicy.under(at.probe, { isolate = isolate, grants = { { path = at.probe, letters = "rx" },
+    local ran = ChildPolicy.under(at.probe, { isolate = isolate, grants = { { path = at.probe, letters = "rx" }, -- checked: not_assignable
       { path = at.work, letters = "r" } } }, at.work, "status-field Uid; status-field Gid")
     assert(ran.code == 0, ran.said)
     local ids = uids(ran.said)
@@ -196,7 +196,7 @@ local function test_a_root_caller_s_concurrent_sandboxes_run_as_different_users(
   for _, handle in ipairs(running) do
     local result = assert(handle:wait())
     local id = uids(result.stdout or "")[1]
-    assert(id ~= nil and id ~= 0 and not seen[id], tostring(id))
+    assert(id ~= nil and id ~= 0 and not seen[id], tostring(id)) -- checked: condition_type
     seen[id] = true
   end
 end
@@ -257,12 +257,12 @@ local function test_a_root_caller_s_named_user_meets_its_own_files_as_the_owner_
   local open = assert(sys.stat(dir .. "/open"))
   assert(open.uid == 4242 and open.gid == 4242, "open is " .. tostring(open.uid) .. ":" .. tostring(open.gid))
   local shut = ChildPolicy.under(at.probe, policy, at.work, "cat " .. dir .. "/shut")
-  assert(shut ~= nil and shut.code ~= 0 and shut.said:find("Permission denied", 1, true), shut.said)
+  assert(shut ~= nil and shut.code ~= 0 and shut.said:find("Permission denied", 1, true), shut.said) -- checked: compare_disjoint, or_mix
   local grouped = ChildPolicy.under(at.probe, policy, at.work, "cat " .. dir .. "/grouped")
-  assert(grouped ~= nil and grouped.code ~= 0 and grouped.said:find("Permission denied", 1, true),
+  assert(grouped ~= nil and grouped.code ~= 0 and grouped.said:find("Permission denied", 1, true), -- checked: compare_disjoint, or_mix
     grouped.said)
   local third = ChildPolicy.under(at.probe, policy, at.work, "append " .. dir .. "/third more")
-  assert(third ~= nil and third.code ~= 0 and third.said:find("Permission denied", 1, true), third.said)
+  assert(third ~= nil and third.code ~= 0 and third.said:find("Permission denied", 1, true), third.said) -- checked: compare_disjoint, or_mix
 end
 
 local function test_a_root_caller_s_closed_grant_is_idmapped_under_isolate_file(tmp: string)
@@ -290,8 +290,8 @@ local function test_a_root_caller_s_closed_read_only_grant_is_idmapped_and_stays
     { path = at.probe, letters = "rx" }, { path = at.work, letters = "r" },
     { path = dir, letters = "r" } } }, at.work,
     "cat " .. dir .. "/inside; create " .. dir .. "/made y")
-  assert(ran.code == 1 and ran.said:find("secret", 1, true), tostring(ran.code) .. ": " .. ran.said)
-  assert(not Fs.exists(dir .. "/made"))
+  assert(ran.code == 1 and ran.said:find("secret", 1, true), tostring(ran.code) .. ": " .. ran.said) -- checked: or_mix
+  assert(not Fs.exists(dir .. "/made")) -- checked: condition_type
 end
 
 local function test_a_root_caller_s_closed_grant_fails_naming_it_without_isolate_file(tmp: string)
@@ -314,7 +314,7 @@ local function test_a_root_caller_s_grant_no_one_may_use_fails_naming_it(tmp: st
   assert(Fs.write(locked, "x"))
   assert(sys.chmod(locked, octal("200")))
   for _, isolate in ipairs({ { "proc" }, { "file" } }) do
-    local why = ChildPolicy.refused(at.probe, { isolate = isolate, grants = {
+    local why = ChildPolicy.refused(at.probe, { isolate = isolate, grants = { -- checked: not_assignable
       { path = at.probe, letters = "rx" }, { path = at.work, letters = "r" },
       { path = locked, letters = "r" } } }, at.work)
     assert(why:find("^child: start: sandbox: grant ") and why:find(locked, 1, true), why)

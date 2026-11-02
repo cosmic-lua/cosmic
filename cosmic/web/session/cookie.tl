@@ -92,9 +92,9 @@ function SessionCookie.store(opts: SessionCookie.Options): Session.Store
       local bytes, _ = Codec.unbase64url(payload)
       if bytes == nil then return nil, "" end
       local body, _ = Json.decode(bytes, { max_depth = DEPTH })
-      if not body is {string:any} then return nil, "" end
-      local created, expires, values = body.c, body.e, body.d
-      if body.v ~= VERSION or not created is integer or not expires is integer or
+      if not body is {string:any} then return nil, "" end -- checked: is_on_record
+      local created, expires, values = body.c, body.e, body.d -- checked: map_field*3
+      if body.v ~= VERSION or not created is integer or not expires is integer or -- checked: map_field
           not values is {string:any} then
         return nil, ""
       end
@@ -104,7 +104,7 @@ function SessionCookie.store(opts: SessionCookie.Options): Session.Store
     save = function(_: Session.Store, _previous: string, data: Session.Data,
                     _changes: Session.Changes, _now: integer, cookie: string): string?, string
       local values: {string:any} = data.values
-      local text, why = Json.encode_any({ v = VERSION, c = data.created, e = data.expires, d = values },
+      local text, why = Json.encode_any({ v = VERSION, c = data.created, e = data.expires, d = values }, -- checked: arms_differ
         { max_depth = DEPTH })
       if text == nil then return nil, "cannot encode the session: " .. why end
       local payload = Codec.base64url(text)

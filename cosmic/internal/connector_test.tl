@@ -241,10 +241,10 @@ local function test_adopted_connector_gives_up_a_stream_that_passes_the_wrong_de
         Clock.seconds(1)))
       local serving = stand_in(pair.connector, function(tag: integer, _: string)
         assert(sys.write(pair.connector, string.pack(">I4I4", tag, 0)) == 8)
-        assert(socket.sendfds(pair.connector, { case[1] as integer }))
+        assert(socket.sendfds(pair.connector, { case[1] as integer })) -- checked: cast_refused
       end)
       local conn, why = dial(connector, "127.0.0.1", 9, Clock.seconds(1))
-      assert(conn == nil and why:find(case[2] as string, 1, true) ~= nil, tostring(why))
+      assert(conn == nil and why:find(case[2] as string, 1, true) ~= nil, tostring(why)) -- checked: cast_refused
       assert(connector:ended(), "the connector is given up after: " .. why)
       local again, trouble = dial(connector, "127.0.0.1", 9, Clock.seconds(1))
       assert(again == nil and trouble == "net: the connector has ended", tostring(trouble))
@@ -498,7 +498,7 @@ local function test_adopted_connector_refuses_what_is_no_descriptor_or_table()
   local ok, why = pcall(Connector.adopted, -1)
   assert(not ok and tostring(why):find("fd must be a descriptor", 1, true) ~= nil, tostring(why))
   local pair = ConnectorEnds.connector_pair()
-  ok, why = pcall(Connector.adopted, pair.controller, { { host = "127.0.0.1" } } as {raw_process.ConnectorEndpoint})
+  ok, why = pcall(Connector.adopted, pair.controller, { { host = "127.0.0.1" } } as {raw_process.ConnectorEndpoint}) -- checked: cast_refused
   assert(not ok and tostring(why):find("endpoints[1] must be a host and a port", 1, true) ~= nil, tostring(why))
   assert(sys.close(pair.controller) and sys.close(pair.connector))
   -- A descriptor that is open but no stream cannot be made nonblocking where it is not open.

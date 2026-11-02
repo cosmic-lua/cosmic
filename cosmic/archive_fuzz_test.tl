@@ -83,21 +83,21 @@ local function build(fields: {string}, outside: string): string?
   if format == "zip" then
     local zw = Zip.writer(out, { deterministic = true })
     for i = 4, #fields, 3 do
-      local path = place(fields[i + 1])
-      if fields[i] == "dir" then zw:add_dir(path) else zw:add_file(path, fields[i + 2]) end
+      local path = place(fields[i + 1]) -- checked: index_may_be_nil
+      if fields[i] == "dir" then zw:add_dir(path) else zw:add_file(path, fields[i + 2]) end -- checked: index_may_be_nil
     end
     if not zw:close() then return nil end
     return out:result()
   end
   local tw = Tar.writer(out, { deterministic = true })
   for i = 4, #fields, 3 do
-    local kind, path = fields[i], place(fields[i + 1])
+    local kind, path = fields[i], place(fields[i + 1]) -- checked: index_may_be_nil
     if kind == "file" then
-      tw:add_file(path, fields[i + 2])
+      tw:add_file(path, fields[i + 2]) -- checked: index_may_be_nil
     elseif kind == "dir" then
       tw:add_dir(path)
     else
-      tw:add_symlink(path, place(fields[i + 2]))
+      tw:add_symlink(path, place(fields[i + 2])) -- checked: index_may_be_nil
     end
   end
   if not tw:close() then return nil end
@@ -105,7 +105,7 @@ local function build(fields: {string}, outside: string): string?
   if format == "tar.gz" then
     local enc = Compress.deflater("gzip")
     if enc == nil then return nil end
-    local head = enc:update(archive) as string
+    local head = enc:update(archive) as string -- checked: cast_refused
     local tail = enc:finish()
     if tail == nil then return nil end
     archive = head .. tail
@@ -168,8 +168,8 @@ local function test_extraction_stays_inside_its_destination(tmp: string)
       Fuzz.label("built")
       local file = case .. "/archive"
       assert(Fs.write(file, archive))
-      local strip_components: integer = if fields[3] == "1" then 1 else nil end
-      local strip_prefix: string = if fields[3] == "a" then "a" else nil end
+      local strip_components: integer = if fields[3] == "1" then 1 else nil end -- checked: nil_not_allowed
+      local strip_prefix: string = if fields[3] == "a" then "a" else nil end -- checked: nil_not_allowed
       -- A shrunk input may hold any string here; extract treats every
       -- mode but "create" as "skip".
       local mode: Archive.Links = if fields[2] == "create" then "create" else "skip" end
@@ -195,7 +195,7 @@ local function test_extraction_stays_inside_its_destination(tmp: string)
         end
       end
       for _, rel in ipairs(written or {}) do
-        if rel:sub(1, 1) == "/" or ("/" .. rel .. "/"):find("/../", 1, true) then
+        if rel:sub(1, 1) == "/" or ("/" .. rel .. "/"):find("/../", 1, true) then -- checked: or_mix
           return false, "reported writing " .. rel
         end
       end
@@ -311,11 +311,11 @@ end
 local function chunked(bytes: string): Stream.Reader
   local at: integer = 1
   local turn: integer = 0
-  local r: Stream.Reader = {
+  local r: Stream.Reader = { -- checked: literal_shape
     read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
       if at > #bytes then return nil, "" end
       turn = turn + 1
-      local size = bytes:byte(turn % math.max(#bytes, 1) + 1) % 300 + 1
+      local size = bytes:byte(turn % math.max(#bytes, 1) + 1) % 300 + 1 -- checked: nil_not_allowed
       if max_bytes ~= nil and max_bytes < size then size = max_bytes end
       local chunk = bytes:sub(at, at + size - 1)
       at = at + #chunk
@@ -348,7 +348,7 @@ local function test_open_stream_answers_as_open_does_for_the_same_bytes(tmp: str
         if src:int(0, 1) == 1 then
           local enc = Compress.deflater("gzip")
           if enc ~= nil then
-            local head = enc:update(sample) as string
+            local head = enc:update(sample) as string -- checked: cast_refused
             local tail = enc:finish()
             if tail ~= nil then sample = head .. tail end
           end
@@ -518,7 +518,7 @@ local function build_capped(fields: {string}): string?, {integer}
   if fields[1] == "tar.gz" then
     local enc = Compress.deflater("gzip")
     if enc == nil then return nil, sizes end
-    local head = enc:update(archive) as string
+    local head = enc:update(archive) as string -- checked: cast_refused
     local tail = enc:finish()
     if tail == nil then return nil, sizes end
     archive = head .. tail
@@ -530,12 +530,12 @@ end
 --- states are the archive's to lie about, so a limit that read them
 --- alone would pass any body.
 local function understating(reader: Archive.Reader): Archive.Reader
-  local r: Archive.Reader = {
+  local r: Archive.Reader = { -- checked: literal_shape
     next = function(_self: Archive.Reader): Archive.Entry?, string
       local entry, why = reader:next()
       if entry == nil then return nil, why end
       local real: Archive.Entry = entry
-      local lie: Archive.Entry = {
+      local lie: Archive.Entry = { -- checked: literal_shape
         path = real.path, kind = real.kind, mode = real.mode, size = 0, mtime = real.mtime,
         linkpath = real.linkpath,
         open = function(_self: Archive.Entry): Stream.Reader?, string return real:open() end,
@@ -569,7 +569,7 @@ local function test_extraction_stays_under_its_byte_limits(tmp: string)
       local archive: string = built
       local file = case .. "/archive"
       assert(Fs.write(file, archive))
-      local per_file, total = limit_of(fields[2]), limit_of(fields[3])
+      local per_file, total = limit_of(fields[2]), limit_of(fields[3]) -- checked: index_may_be_nil*2
       local opts: Archive.ExtractOptions = { max_entry_bytes = per_file, max_bytes = total }
 
       -- What the limits allow, from the sizes the archive was built of.
@@ -609,7 +609,7 @@ local function test_extraction_stays_under_its_byte_limits(tmp: string)
           return false, "refused as '" .. trouble .. "', not '" .. table.concat(says, "' or '") .. "'"
         end
         local names = Fs.list(dest) or {}
-        table.sort(names)
+        table.sort(names) -- checked: overload_none
         local want: mut {string} = {}
         for i = 1, kept do want[i] = "f" .. tostring(i) end
         table.sort(want)
