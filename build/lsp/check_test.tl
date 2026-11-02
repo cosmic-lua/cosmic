@@ -259,8 +259,7 @@ end
 --- `x.tl` beside `x/init.tl` are one module, which the build refuses ([`build.analysis_schema.sharing`]): each of the two documents
 --- is told so at its first line, in the build's words, whichever is open, both from the first stage (cold) and when the pair
 --- appears after a good stage (warm); deleting one file clears it. A file that requires `x` finds no module cold, but warm still
---- reads the `x.tl` last staged: the editor serves the last good stage silently while a stage is refused (a `TODO:` in
---- [`build.lsp.source`]), which this test pins so that the fix to it is seen.
+--- reads the `x.tl` last staged, and says so ([`build.lsp.source.banner`]).
 local function test_two_files_of_one_module_are_refused_in_each_document()
   local words = "x.tl and x/init.tl both answer to import path 'x'; delete or rename one"
   local outer = "local record X\n  n: integer\nend\nreturn X\n"
@@ -299,8 +298,9 @@ local function test_two_files_of_one_module_are_refused_in_each_document()
       assert(Fs.write(root .. "/x/init.tl", inner))
       local seen = last_told(send({ session_fixture.changed_on_disk(root, "x/init.tl"), table.unpack(opened) }))
       assert(seen["x.tl"] == words .. "|1" and seen["init.tl"] == words .. "|1", label .. ": " .. tostring(seen["x.tl"]))
-      -- Not the editor's last word: the requiring file reads the stage before the pair, which it does not say.
-      assert(seen["main.tl"] == "|0", label .. ": " .. tostring(seen["main.tl"]))
+      -- The requiring file still reads the stage before the pair, and says so.
+      assert(seen["main.tl"] == "the build refuses this tree: " .. words .. "; modules are as last staged|1",
+        label .. ": " .. tostring(seen["main.tl"]))
     end
     -- One file is deleted: the pair is gone and the requiring file reads the one that is left.
     assert(Fs.remove(root .. "/x/init.tl"))
@@ -309,6 +309,80 @@ local function test_two_files_of_one_module_are_refused_in_each_document()
     local seen = last_told(after)
     assert(seen["x.tl"] == "|0" and seen["main.tl"] == "|0", label .. ": " .. tostring(seen["x.tl"]) .. "," .. tostring(seen["main.tl"]))
   end
+end
+
+--- While the stage is refused every open document of the project is told the build's refusal at its first line, one error, and
+--- what it is answered from: the modules as last staged, or, cold, none. The banner changes with the refusal and clears with it,
+--- on every document. A document the refusal names is told its own message alone.
+local function test_every_open_document_is_told_the_refusal_while_the_stage_is_refused()
+  local record = "local record X\n  n: integer\nend\nreturn X\n"
+  local other_record = "local record X\n  m: string\nend\nreturn X\n"
+  local clean = "local n: integer = 1\nreturn n\n"
+  local user = 'local X = require("x")\nlocal v: X = { n = 1 }\nreturn v\n'
+  local x_said = "the build refuses this tree: x.tl and x/init.tl both answer to import path 'x'; delete or rename one; "
+  local z_said = "the build refuses this tree: z.tl and z/init.tl both answer to import path 'z'; delete or rename one; "
+  local function last_told(ran: session_fixture.Ran): {string:string}
+    local seen: mut {string:string} = {}
+    for _, published in ipairs(publications(ran)) do
+      local d = published.diagnostics[1]
+      seen[assert(published.uri:match("[^/]*$"))] = (if d ~= nil then d.message else "" end) .. "|" ..
+        tostring(#published.diagnostics)
+    end
+    return seen
+  end
+  -- Warm: a good stage, then the pair appears.
+  local root = project()
+  assert(Fs.mkdirs(root .. "/x"))
+  assert(Fs.write(root .. "/x.tl", record))
+  assert(Fs.write(root .. "/main.tl", user))
+  assert(Fs.write(root .. "/clean.tl", clean))
+  local send = serving(root)
+  local good = send({ initialize(root), open(root, "x.tl", record), open(root, "main.tl", user),
+    open(root, "clean.tl", clean) })
+  assert(counts(good) == "0,0,0", messages_of(nth(good, 1)) .. messages_of(nth(good, 2)) .. messages_of(nth(good, 3)))
+  assert(Fs.write(root .. "/x/init.tl", other_record))
+  local warm = last_told(send({ session_fixture.changed_on_disk(root, "x/init.tl") }))
+  assert(warm["clean.tl"] == x_said .. "modules are as last staged|1", tostring(warm["clean.tl"]))
+  assert(warm["main.tl"] == x_said .. "modules are as last staged|1", tostring(warm["main.tl"]))
+  assert(warm["x.tl"] == "x.tl and x/init.tl both answer to import path 'x'; delete or rename one|1", tostring(warm["x.tl"]))
+  -- The refusal changes: the banner is the new one on every document.
+  assert(Fs.remove(root .. "/x/init.tl"))
+  assert(Fs.mkdirs(root .. "/z"))
+  assert(Fs.write(root .. "/z.tl", record))
+  assert(Fs.write(root .. "/z/init.tl", other_record))
+  local changed = last_told(send({ session_fixture.changed_on_disk(root, "x/init.tl"),
+    session_fixture.changed_on_disk(root, "z.tl") }))
+  assert(changed["clean.tl"] == z_said .. "modules are as last staged|1", tostring(changed["clean.tl"]))
+  assert(changed["main.tl"] == z_said .. "modules are as last staged|1", tostring(changed["main.tl"]))
+  -- It clears: every document is clear again.
+  assert(Fs.remove(root .. "/z/init.tl"))
+  local cleared = last_told(send({ session_fixture.changed_on_disk(root, "z/init.tl") }))
+  assert(cleared["clean.tl"] == "|0" and cleared["main.tl"] == "|0", tostring(cleared["clean.tl"]) .. "," .. tostring(cleared["main.tl"]))
+  -- Cold: the pair is there from the first stage, so no module is staged and a clean file says why.
+  local cold_root = project()
+  assert(Fs.mkdirs(cold_root .. "/x"))
+  assert(Fs.write(cold_root .. "/x.tl", record))
+  assert(Fs.write(cold_root .. "/x/init.tl", other_record))
+  assert(Fs.write(cold_root .. "/clean.tl", clean))
+  local cold_send = serving(cold_root)
+  local cold = last_told(cold_send({ initialize(cold_root), open(cold_root, "clean.tl", clean) }))
+  assert(cold["clean.tl"] == x_said .. "no module is staged yet|1", tostring(cold["clean.tl"]))
+  assert(Fs.remove(cold_root .. "/x/init.tl"))
+  local cold_cleared = last_told(cold_send({ session_fixture.changed_on_disk(cold_root, "x/init.tl") }))
+  assert(cold_cleared["clean.tl"] == "|0", tostring(cold_cleared["clean.tl"]))
+end
+
+--- Two declaration files of one module are told in the words of the derive that refused them, as two sources are.
+local function test_two_declaration_files_of_one_module_are_told_the_derives_words()
+  local root = project()
+  assert(Fs.mkdirs(root .. "/x"))
+  local declaration = "--- @kind binding\nlocal record X\n  n: integer\nend\nreturn X\n"
+  assert(Fs.write(root .. "/x.d.tl", declaration))
+  assert(Fs.write(root .. "/x/init.d.tl", declaration))
+  local ran = served(root, { initialize(root), open(root, "x.d.tl", declaration), open(root, "x/init.d.tl", declaration) })
+  local words = "x.d.tl and x/init.d.tl both answer to import path 'x'; delete or rename one"
+  assert(only(nth(ran, 1)).message == words, messages_of(nth(ran, 1)))
+  assert(only(nth(ran, 2)).message == words, messages_of(nth(ran, 2)))
 end
 
 --- A third file of the module (`x.d.tl` beside `x.tl` and `x/init.tl`) leaves each document one message: the two sources are

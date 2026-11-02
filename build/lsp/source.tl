@@ -627,9 +627,6 @@ local function refreshed(src: source.View)
     return
   end
   if staged == nil then
-    -- TODO: the editor serves the last good stage silently while a stage is refused (a `require` of a refused pair's module
-    -- still reads the file last staged, and a cold start finds no module); this waits on the editor naming the refusal on
-    -- every open document.
     src.err("cosmic: lsp: not staged, answering from the tree as last staged: " .. trouble)
     src.trouble = trouble
   else
@@ -638,6 +635,15 @@ local function refreshed(src: source.View)
   end
   src.pending, src.told_busy = false, false
   listed(src, staged ~= nil)
+end
+
+--- What every open document of the project is told while the last stage staged nothing, or nil when it did: the build's own
+--- refusal, and what the modules the editor answers from are, the tree as last staged or none, since none was. A document a
+--- refusal names is told [`source.refusal`] instead.
+function source.banner(src: source.View): string?
+  if src.trouble == "" then return nil end
+  local held = if next(src.modules) ~= nil then "modules are as last staged" else "no module is staged yet" end
+  return "the build refuses this tree: " .. src.trouble .. "; " .. held
 end
 
 --- Whether the last stage staged nothing.
@@ -677,7 +683,8 @@ function source.refusal(src: source.View, name: string, text?: string): string?
     return Driver.pairing(declaration, code, module)
   end
   if src.trouble ~= "" and declaration ~= nil and second ~= nil and (name == declaration or name == second) then
-    return Driver.doubling(declaration, second, module)
+    -- As the derive words it, which is the text of the stage that refused them ([`source.banner`]).
+    return AnalysisSchema.sharing(declaration .. " and " .. second, module)
   end
   if text ~= nil and name:match("%.d%.tl$") ~= nil then
     local unnamed = Driver.naming(name, text, source.standing(src).own)

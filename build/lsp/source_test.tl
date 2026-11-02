@@ -464,7 +464,10 @@ local function test_a_stage_that_fails_answers_from_the_last()
   assert(ran.err:find("cosmic: lsp: not staged, answering from the tree as last staged", 1, true),
     ran.err)
   assert(ran.tally.stages == 1, tostring(ran.tally.stages))
-  assert(counts(ran) == "0", "as last staged: " .. counts(ran))
+  -- The document still reads the modules as last staged, and is told the build's refusal.
+  local told = only(nth(ran, 2))
+  assert(told.message:find("the build refuses this tree: lib/broken.tl:1:7: ", 1, true) == 1 and
+      told.message:find("; modules are as last staged", 1, true) ~= nil, told.message)
 end
 
 --- How many times `ran` showed the person a message.
