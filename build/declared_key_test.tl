@@ -4,7 +4,6 @@
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
-local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
 local Analyzer = require("build.syntax_analyzer")
 local type PolicyRules = require("build.policy_rules")
@@ -25,6 +24,8 @@ local support = require("build.test_support_fixture")
 --- build/declared_key.tl's `package_databases`.
 Test.policy{
   grants = {
+    { path = "build/declared_key.tl", letters = "r" },
+    { path = "build/test_inputs.tl", letters = "r" },
     { path = "/etc/os-release", letters = "r" },
     { path = "/etc/passwd", letters = "r" },
     { path = "/lib/apk/db/installed", letters = "r" },
@@ -290,13 +291,13 @@ end
 --- The fields of `record`, a record `module` declares (`Spec`,
 --- `Effective`), as the build's catalog of its docs lists them
 --- ([`build.syntax_analyzer`], which fills o/cosmic.db's `docs`), in the order
---- the source declares them: read off the module's source, so a field
+--- the source declares them: read off the module's file, so a field
 --- added to the record is listed here with no edit to this test. A
 --- field whose type is a record (or a map of them) the walk does not
 --- enter gets one coarse change, not one per field of its own: walk
 --- such a record here as `Effective` is.
 local function fields_of(module: string, record: string): {string}
-  local source = assert(Store.source(module))
+  local source = assert(Fs.read((module:gsub("%.", "/")) .. ".tl"))
   local analysis = assert(Analyzer.analyze(source, module))
   local out: mut {string} = {}
   for _, entry in ipairs(analysis.docs) do

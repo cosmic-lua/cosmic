@@ -63,7 +63,7 @@ local function text_of(i: integer, shaped: boolean): string
   lines[#lines + 1] = "local box: Box = { n = total }"
   if shaped then
     lines[#lines + 1] = "local witness = Shape.record_of(\"Box\")"
-    lines[#lines + 1] = "if witness == nil then"
+    lines[#lines + 1] = "if witness.name == \"\" then"
     lines[#lines + 1] = "  box.n = 0"
     lines[#lines + 1] = "end"
   end
