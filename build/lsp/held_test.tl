@@ -79,6 +79,24 @@ local function test_the_session_holds_one_program_for_all_its_checks()
   end
 end
 
+local function test_an_edit_lowers_the_document_again_and_not_the_standard_library_or_what_it_reads()
+  local root = helped()
+  local checker = checker_at(root)
+  local main = document_of(root, "main.tl", MAIN)
+  check.opened(checker, main)
+  assert(#check.diagnose(checker, main, "utf-16") == 0)
+  local program = assert(checker.program)
+  local lowered = program.build.timing.lowerings
+  assert(lowered > 2, "the first check lowers the library, the helper and the document")
+  for n = 1, 3 do
+    check.set_text(main, MAIN .. "-- " .. tostring(n) .. "\n")
+    assert(#check.diagnose(checker, main, "utf-16") == 0)
+    assert(checker.program == program, "the program was made again")
+    assert(program.build.timing.lowerings == lowered + n,
+      ("edit %d lowered %d modules, one was wanted"):format(n, program.build.timing.lowerings - lowered - n + 1))
+  end
+end
+
 --- What a session at `root` publishes of `first`, then of `second` once `between` has run: one session, so the program it holds
 --- is the one the first batch made.
 local function then_(root: string, first: {string}, between: function(), second: {string}): session_fixture.Ran
