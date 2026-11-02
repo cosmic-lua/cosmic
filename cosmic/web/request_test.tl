@@ -5,7 +5,7 @@ local Stream = require("cosmic.stream")
 local Web = require("cosmic.web")
 
 --- An app with one route that records the request it was given.
-local function recording(spec?: Web.AppSpec): Web.App, {Web.Request}
+local function recording(spec?: Web.AppSpec): Web.App, mut {Web.Request}
   local seen: mut {Web.Request} = {}
   local routes: {Web.Route} = {
     Web.route({ "GET", "POST" }, "/items/:id", function(req: Web.Request): Web.Response

@@ -2578,9 +2578,9 @@ function tree_checks.pipeline(root: string, build_db: Sqlite.Handle, memo?: Sqli
     "lang/check_codes.tl", "lang/warnings.tl", "lang/prelude.d.tl", "lang/stdlib.d.tl",
     "build/check_memo.tl", "build/driver.tl", "build/tree_checks.tl", "build/tree_program.tl",
     "build/syntax_shape_specs.tl", "build/pipeline.tl", "build/pipeline_check.tl",
-    "build/gen_syscalls.tl", "build/compile_grammar.tl", "lang/codegen.tl", "lang/truthy.tl", "lang/fact_wraps.tl",
+    "build/gen_syscalls.tl", "build/compile_grammar.tl", "build/main_locals.tl", "build/lua_tail.tl", "lang/codegen.tl", "lang/truthy.tl", "lang/fact_wraps.tl",
     "lang/boundaries.tl", "lang/boundary_checks.tl",
-    "core/syscalls.h", "core/process.h", "core/socket.h" }, "pipeline 3")
+    "core/syscalls.h", "core/process.h", "core/socket.h" }, "pipeline 4")
   local tree = tree_of(files, salt, TreeProgram.bindings_of(root), written, shaping_of(root, memo))
   -- The ceilings are not in the salt: each file's answer is keyed by those held under its own name ([`PipelineCheck.keyed`]).
   local given: mut {string: boolean} = {}
@@ -2648,7 +2648,7 @@ local loaders: {string: string} = {
   ["build/database_start_fixture.tl"] = "the modules of a fixture database, compiled by the build and loaded to test a start",
   ["build/fuzz/init.tl"] = "the constant chunk `return __cosmic_tc`, the hook a checked run defines",
   ["build/load_module.tl"] = "the named loader: the constant chunk `return require((...))`",
-  ["build/lua_tail.tl"] = "the Lua the compiler wrote, loaded in an environment of its own to dump its bytecode",
+  ["build/lua_tail.tl"] = "the Lua the compiler wrote, loaded in an environment of its own to dump its bytecode or to probe its locals",
   ["build/sandbox.tl"] = "the script the checker compiled ([`build.standalone`]'s `code`), as the main of a sealed program",
   ["build/standalone.tl"] = "the Lua the checker compiled from a file or a `-e` chunk, or kept from such a compile",
   ["build/test_worker.tl"] = "the constant chunk that reads a value's metatable in the form the compiler writes",

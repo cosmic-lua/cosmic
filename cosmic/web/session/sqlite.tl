@@ -59,7 +59,7 @@ local record Backing
   table: string
   sweep_interval: integer
   sweep_limit: integer
-  swept: integer
+  mut swept: integer
 end
 
 --- The backing of each store made here, which goes with the store.
@@ -166,10 +166,12 @@ local function find(store: Backing, token: string, now: integer): Sqlite.Row?, s
 end
 
 --- The values a row's JSON holds; nil for text that is not an object.
-local function values_of(text: string): {string:any}?
+local function values_of(text: string): mut {string:any}?
   local value, _ = Json.decode(text, { max_depth = Session.MAX_DEPTH })
-  if value is {string:any} then return value end
-  return nil
+  if not value is {string:any} then return nil end
+  local out: mut {string:any} = {}
+  for key, entry in pairs(value) do out[key] = entry end
+  return out
 end
 
 local function load_session(self: Session.Store, token: string, now: integer, _cookie: string): Session.Data?, string

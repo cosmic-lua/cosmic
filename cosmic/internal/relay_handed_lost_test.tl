@@ -45,7 +45,7 @@ local WAIT <const> = Clock.seconds(1)
 --- another: a connect that hangs holds up none of the rest, each asked
 --- with its own time.
 local function test_requests_are_asked_of_the_connector_at_once_each_with_its_own_time()
-  local log: {string} = {}
+  local log: mut {string} = {}
   Poll.run(function()
     local connect = Relay.handed({ connector = fake("one", log, Clock.ms(200)) })
     local tasks: mut {Poll.Task} = {}
@@ -68,7 +68,7 @@ end
 --- The relay asks the connector by the address itself, whatever the
 --- table or the public lists make of it.
 local function test_the_connector_is_asked_by_address()
-  local log: {string} = {}
+  local log: mut {string} = {}
   Poll.run(function()
     local connect = Relay.handed({ connector = fake("one", log) })
     local conn, why = connect("127.0.0.1", 443, WAIT)
@@ -82,7 +82,7 @@ end
 --- A connector that ends under a request fails that request with why it
 --- did, and is told to `lost` once; later requests fail at once.
 local function test_a_connector_that_ends_under_a_request_is_told_to_lost_once()
-  local log: {string} = {}
+  local log: mut {string} = {}
   local told: mut {string} = {}
   Poll.run(function()
     local connect = Relay.handed({ connector = fake("dies", log, 0, true),
@@ -99,7 +99,7 @@ local function test_a_connector_that_ends_under_a_request_is_told_to_lost_once()
 end
 
 local function test_a_connector_ended_already_is_told_to_lost_once_and_asked_nothing()
-  local log: {string} = {}
+  local log: mut {string} = {}
   local told: mut {string} = {}
   Poll.run(function()
     local connect = Relay.handed({ connector = fake("gone", log, 0, false, true),

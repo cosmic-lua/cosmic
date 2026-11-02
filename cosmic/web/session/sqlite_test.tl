@@ -9,16 +9,16 @@ local function open(opts?: SessionSqlite.Options): Session.Store, Sqlite.Handle
   return assert(SessionSqlite.store(db, opts)), db
 end
 
-local function fresh(values: {string:any}, expires?: integer): Session.Data
+local function fresh(values: mut {string:any}, expires?: integer): Session.Data
   return { values = values, created = 100, expires = expires or 1000 }
 end
 
-local function changed(set: {string:any}): Session.Changes
+local function changed(set: mut {string:any}): Session.Changes
   return { set = set, removed = {} }
 end
 
 --- Saves a new session holding `values` at time 100 and answers its id.
-local function create(store: Session.Store, values: {string:any}, expires?: integer): string
+local function create(store: Session.Store, values: mut {string:any}, expires?: integer): string
   return (assert(store:save("", fresh(values, expires), changed(values), 100, "session")))
 end
 

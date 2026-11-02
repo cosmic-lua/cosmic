@@ -73,7 +73,7 @@ end
 
 --- A case of a `.dat` file.
 local record Case
-  input: string
+  mut input: string
   tree: mut {string}
   --- Whether the case is not a plain document parse (a fragment's
   --- context, scripting on or off), which its tree is made under.
