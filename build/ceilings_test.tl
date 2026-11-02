@@ -17,13 +17,6 @@ local function has(text: string?, needle: string): boolean
   return text ~= nil and text:find(needle, 1, true) ~= nil
 end
 
---- No file configures the stages: they are these four, in the order a comment writes them, and each is held by markers.
-local function test_the_stages_markers_hold_are_the_four_of_the_checker()
-  local stages: mut {string} = {}
-  for _, stage in ipairs(Ceilings.markable()) do stages[#stages + 1] = tostring(stage) end
-  assert(table.concat(stages, " ") == "scoped declared untyped checked", table.concat(stages, " "))
-end
-
 --- A project holds no marker: its findings are all refused, and the lines say the count alone, not what a marker holds.
 local function test_a_markerless_text_lists_every_finding_without_a_marker_to_add()
   local errors = { finding("nil_not_allowed", 4), finding("nil_not_allowed", 9), finding("view_written", 2) }

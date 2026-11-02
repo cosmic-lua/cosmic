@@ -7,7 +7,7 @@
 --- merge base with main. A code that no marker holds is closed ([`Ceilings.closed`]): no marker holds it, so the tree keeps its
 --- rule with no exceptions.
 ---
---- There is no file of counts: the stages are these four ([`Ceilings.markable`]) and nothing configures them, so a stage cannot
+--- There is no file of counts: the stages are these four ([`Ceilings.Stage`]) and nothing configures them, so a stage cannot
 --- be taken out of the list and given rows. A project outside cosmic's tree is held to no marker: every finding refuses.
 local Markers = require("build.markers")
 local String = require("cosmic.string")
@@ -44,9 +44,6 @@ local record Ceilings
   --- The words of that finding: what it is and what to do.
   mut untyped_message: string
   mut untyped_fix: string
-
-  --- The stages that markers hold: those whose findings have a line.
-  markable: function(): {Stage}
 
   --- A place where a finding and a marker disagree, for the check that tells it and the fix that mends it.
   type Spot = Markers.Spot
@@ -165,16 +162,9 @@ function Ceilings.closed(): {string}
   return CLOSED_CODES
 end
 
---- The stages that markers hold, in the order a comment writes them.
-local MARKABLE_LIST <const>: {Ceilings.Stage} = { "scoped", "declared", "untyped", "checked" }
-
 Ceilings.untyped_code = "call"
 Ceilings.untyped_message = "a call the checker gave no function, which no rule of the discipline judged"
 Ceilings.untyped_fix = "type what it calls through"
-
-function Ceilings.markable(): {Ceilings.Stage}
-  return MARKABLE_LIST
-end
 
 function Ceilings.marked(stage: Ceilings.Stage, file: string, text: string, errors: {Ceilings.Finding}, codes: {string},
                          what: string, markerless?: boolean): Ceilings.Judged
