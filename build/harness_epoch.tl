@@ -123,7 +123,7 @@ harness_epoch.acknowledged = {
 
   ["build.test_inputs"] = "4ecd43f3df4ab0e907fa3957cd1124b97797760fe3d9a2021b7f466bacdfe25d",
 
-  ["build.test_key"] = "1cde404400e65179ada446b091f32fccc777d5c16fe516321d59ab8f5d232c9b",
+  ["build.test_key"] = "14b7f2cc3e6392543505a9f685ed4c54e92a7b8fadcf859ebd520a80ddf360e5",
 
   ["build.test_policy"] = "b1eda91fc78d4da9c2216a5a78b3394c64e7bcf51cacb3d4469bc053ade829ea",
 
