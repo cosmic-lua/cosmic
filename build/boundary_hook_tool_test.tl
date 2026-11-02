@@ -10,7 +10,7 @@ local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
-local HookToolFixture = require("build.hook_tool_fixture")
+local TestSandboxFixture = require("build.test_sandbox_fixture")
 local build_paths = require("build.paths")
 
 --- The program itself, which this test starts; it carries the declarations of the standard library.
@@ -77,7 +77,7 @@ end
 --- Runs the program with `words` in `root`, unsandboxed (a sandbox nested in this test's own may be refused where the
 --- host nests only two deep), compiling with the new checker, and answers what it said.
 local function invoke(root: string, tmp: string, words: {string}): Child.Result, string
-  local ran = HookToolFixture.invoke(root, tmp, words)
+  local ran = TestSandboxFixture.invoke(root, tmp, words)
   return ran.result, ran.text
 end
 

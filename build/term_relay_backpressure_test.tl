@@ -11,6 +11,7 @@ local Poll = require("cosmic.poll")
 local Test = require("cosmic.test")
 local TermRelay = require("build.term_relay")
 local sys = require("cosmic.sys")
+local Termios = require("build.termios_fixture")
 
 --- The system's own paths, which the program's shell is run from.
 Test.policy{ env = { "TMPDIR" }, profiles = { "system" } }
@@ -18,20 +19,6 @@ Test.policy{ env = { "TMPDIR" }, profiles = { "system" } }
 --- A relay that waits on the terminal for longer than this has stopped
 --- serving it (a run that is not stuck takes about a second, the stall of 1 s included).
 local BOUND_MS <const> = 4000
-
---- Two termios states are the same terminal setting. A BSD kernel
---- (macOS) sets PENDIN in the local flags by itself as a terminal leaves
---- raw mode, so it is left out there, from the fourth 8-byte word.
-local PENDIN <const> = 0x20000000
-local function same(a: string, b: string): boolean
-  if a == b then return true end
-  if (assert(sys.uname())).sysname ~= "Darwin" or #a ~= #b or #a < 32 then return false end
-  local function plain(state: string): string
-    local flags = string.unpack("<I8", state, 25)
-    return state:sub(1, 24) .. string.pack("<I8", flags & ~PENDIN) .. state:sub(33)
-  end
-  return plain(a) == plain(b)
-end
 
 local record Caller
   master: integer
@@ -76,7 +63,7 @@ local function test_a_signal_is_served_while_the_terminal_takes_no_output()
   assert(result.signal == sys.SIGTERM, "the program was ended by " .. tostring(result.signal))
   assert(took < BOUND_MS, tostring(took) .. " ms")
   assert(outer:release() == sys.SIGTERM, "the relay's guard caught the signal")
-  assert(same(caller.before, (assert(sys.tcgetattr(caller.slave)))), "the termios was not restored")
+  assert(Termios.same(caller.before, (assert(sys.tcgetattr(caller.slave)))), "the termios was not restored")
   assert(blocking(caller.slave), "the terminal was left non-blocking")
   finish(caller)
 end
@@ -105,7 +92,7 @@ local function test_a_program_that_ends_does_not_wait_for_a_terminal_that_takes_
   end
   assert(held < 400000, "the stalled output was delivered whole: " .. tostring(held))
   assert(took < BOUND_MS, tostring(took) .. " ms")
-  assert(same(caller.before, (assert(sys.tcgetattr(caller.slave)))), "the termios was not restored")
+  assert(Termios.same(caller.before, (assert(sys.tcgetattr(caller.slave)))), "the termios was not restored")
   assert(blocking(caller.slave), "the terminal was left non-blocking")
   finish(caller)
 end

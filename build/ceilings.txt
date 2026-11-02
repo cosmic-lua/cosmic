@@ -5742,6 +5742,8 @@ build/archive.tl literal_shape 1
 
 build/archive_test.tl literal_shape 5
 
+build/chunked_reader_fixture.tl literal_shape 1
+
 build/codec_test.tl literal_shape 3
 
 build/declared_types_test.tl literal_shape 1

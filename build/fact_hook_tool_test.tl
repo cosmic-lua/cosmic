@@ -11,7 +11,7 @@ local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
 local Pipeline = require("build.pipeline")
-local HookToolFixture = require("build.hook_tool_fixture")
+local TestSandboxFixture = require("build.test_sandbox_fixture")
 local build_paths = require("build.paths")
 
 --- Whether a module of the database file at `path` holds `needle` in its bytecode, which the database stores
@@ -99,7 +99,7 @@ end
 --- Runs the program with `words` in `root`, unsandboxed (a sandbox nested in this test's own may be refused where the
 --- host nests only two deep), compiling with the new checker, and answers what it said.
 local function invoke(root: string, tmp: string, words: {string}): Child.Result, string
-  local ran = HookToolFixture.invoke(root, tmp, words)
+  local ran = TestSandboxFixture.invoke(root, tmp, words)
   return ran.result, ran.text
 end
 

@@ -1,4 +1,4 @@
-local FifoFixture = require("build.fifo_fixture")
+local support = require("build.test_support_fixture")
 local Poll = require("cosmic.poll")
 local sys = require("cosmic.sys")
 local Clock = require("cosmic.clock")
@@ -9,7 +9,7 @@ local process = require("cosmic.internal.process")
 --- The two ends of a named pipe in `dir`, neither waiting: the reading
 --- end open first, as a pipe with no reader refuses a nonblocking writer.
 local function fifo(dir: string, name: string): integer, integer
-  local ends = FifoFixture.fifo(dir, name)
+  local ends = support.fifo(dir, name)
   return ends.reader, ends.writer
 end
 

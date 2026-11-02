@@ -10,9 +10,10 @@
 -- silently where the run is not a portable artifact, to a module that
 -- declares `requires = { "portable" }` (build/host_names.tl names it), so such
 -- a run counts them not applicable. It waits on a fixture module that shares
--- `effective`, [`scratch_in`] and `holds` with this one, which both modules need.
+-- [`scratch_in`] and `holds` with this one, which both modules need.
 
 local type Sandbox = require("cosmic.sandbox")
+local TestInputsFixture = require("build.test_inputs_fixture")
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
@@ -29,14 +30,6 @@ Test.policy{
   profiles = { "cosmic", "system" },
   grants = { { path = "o/bin", letters = "rx" } },
 }
-
---- An `Effective` holding `files` of the tree and nothing else declared.
-local function effective(files: {string}): test_inputs.Effective
-  local out: test_inputs.Effective = { files = {}, reads = {}, host = {}, env = {}, network = {},
-    tool = false, store = false }
-  for _, file in ipairs(files) do out.files[file] = true end
-  return out
-end
 
 --- Makes `tmp`/scratch, a scratch directory laid out as build.test_key's
 --- `scratch` lays one out -- `real`, and `tmp` a link to it -- and
@@ -56,7 +49,7 @@ local function test_a_plan_for_the_policy_leaves_the_system_and_proc_to_the_poli
   local root, scratch = tmp .. "/root", scratch_in(tmp)
   assert(Fs.mkdirs(support.build_dir(root) .. "/bin"))
   assert(Fs.write(support.build_dir(root) .. "/cosmic.db", "x"))
-  local inputs = effective({})
+  local inputs = TestInputsFixture.effective({})
   inputs.system, inputs.tool = true, true
   inputs.host = { "/proc", "/dev/urandom" }
   local policy = test_sandbox.plan(root, scratch, inputs, {})
@@ -79,7 +72,7 @@ local function test_a_plan_rebound_to_another_scratch_is_the_plan_made_for_it(tm
   assert(Fs.write(support.build_dir(root) .. "/cosmic.db", "x"))
   assert(Fs.write(root .. "/a.tl", "x"))
   for _, own in ipairs({ true, false }) do
-    local inputs = effective({ "a.tl" })
+    local inputs = TestInputsFixture.effective({ "a.tl" })
     -- A cache the module declares makes its scratch directory a bind of the host's.
     if not own then inputs.tool = true end
     local suffix = tostring(own)
@@ -198,9 +191,9 @@ local function test_a_plan_for_a_nesting_worker_grants_the_artifact_only_with_st
   local root, scratch = tmp .. "/root", scratch_in(tmp)
   assert(Fs.mkdirs(support.build_dir(root) .. "/bin"))
   assert(Fs.write(support.build_dir(root) .. "/cosmic.db", "x"))
-  local bare = effective({})
+  local bare = TestInputsFixture.effective({})
   bare.nests = true
-  local storing = effective({})
+  local storing = TestInputsFixture.effective({})
   storing.nests, storing.store = true, true
   local plain = test_sandbox.plan(root, scratch, bare, {})
   local with = test_sandbox.plan(root, scratch, storing, {})
@@ -230,7 +223,7 @@ local function test_a_plan_gives_a_scratch_of_its_own_only_where_no_host_directo
     assert(made.trouble == "", made.trouble)
     return made
   end
-  local bare = effective({})
+  local bare = TestInputsFixture.effective({})
   local own = planned(bare)
   assert(own.own_scratch and own.why_shared == "", own.why_shared)
   assert(#(assert(own.sandbox.unveil).writes or {}) == 0 and (assert(own.sandbox.unveil).at or {})[scratch] == nil)
@@ -245,16 +238,16 @@ local function test_a_plan_gives_a_scratch_of_its_own_only_where_no_host_directo
   assert(tmp_grant ~= nil and tmp_grant.letters == "rwxc")
   -- A module that nests has no Landlock ruleset, and its root alone holds its
   -- sockets: a scratch directory of its own too.
-  local nests = effective({})
+  local nests = TestInputsFixture.effective({})
   nests.nests = true
   assert(planned(nests).own_scratch)
   -- A file read is no directory.
-  local file = effective({})
+  local file = TestInputsFixture.effective({})
   file.reads = { "file.txt" }
   assert(planned(file).own_scratch)
   -- Each declaration that puts a directory in the root keeps the host's.
   local function shared(change: function(test_inputs.Effective), word: string)
-    local inputs = effective({})
+    local inputs = TestInputsFixture.effective({})
     change(inputs)
     local made = planned(inputs)
     assert(not made.own_scratch and made.why_shared:find(word, 1, true) ~= nil, word .. ": " .. made.why_shared)

@@ -1,11 +1,18 @@
 --- Small helpers the tests of the tree each need: an element they know is
 --- there, a list that holds a string, a fresh build directory, the open
---- descriptors and a small project. Test support.
+--- descriptors, a named pipe and a small project. Test support.
 
 local Fs = require("cosmic.fs")
+local Sqlite = require("cosmic.sqlite")
+local sys = require("cosmic.sys")
 local build_paths = require("build.paths")
 
 local record test_support_fixture
+  --- The two ends of a pipe.
+  record Ends
+    reader: integer
+    writer: integer
+  end
 end
 
 --- The element of `list` at `index`, which the case knows is there.
@@ -74,6 +81,32 @@ function test_support_fixture.write_project(root: string, whom: string)
     "return greet",
     "",
   }, "\n")))
+end
+
+--- The two ends of a named pipe in `dir`, neither waiting: the reading
+--- end open first, as a pipe with no reader refuses a nonblocking writer.
+--- @param dir where to make it
+--- @param name its name there
+--- @return the descriptors of its ends
+function test_support_fixture.fifo(dir: string, name: string): test_support_fixture.Ends
+  local path = dir .. "/" .. name
+  assert(sys.mkfifo(path, 384))
+  local reader = assert(sys.open(path, sys.O_RDONLY | sys.O_NONBLOCK, 0))
+  local writer = assert(sys.open(path, sys.O_WRONLY | sys.O_NONBLOCK, 0))
+  return { reader = reader, writer = writer }
+end
+
+--- A temporary root whose o/cosmic.db holds one small table, `t`, of rows that need quoting.
+--- @return the root
+function test_support_fixture.sql_project(): string
+  local root = assert(Fs.mkdtemp("cosmic-sql-test-"))
+  assert(test_support_fixture.build_dir(root))
+  local db = assert(Sqlite.open(test_support_fixture.build_dir(root) .. "/cosmic.db", { writable = true }))
+  assert(db:exec("CREATE TABLE t (a, b); INSERT INTO t VALUES " ..
+      "(1, 'one'), (NULL, x'00ff'), (1.5, 'tab' || char(9) || 'and\\'), (2.0, ''), " ..
+      "(3, char(27) || '[31m' || char(127) || '\\N')"))
+  assert(db:close())
+  return root
 end
 
 return test_support_fixture

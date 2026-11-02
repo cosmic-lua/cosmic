@@ -2,7 +2,7 @@
 --- non-blocking descriptor waits for it through [`Poll.wait`], bounded
 --- by `timeout_ns`, in a task of [`Poll.run`] or out of one.
 
-local FifoFixture = require("build.fifo_fixture")
+local support = require("build.test_support_fixture")
 local Clock = require("cosmic.clock")
 local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
@@ -12,7 +12,7 @@ local Test = require("cosmic.test")
 --- The two ends of a named pipe in `dir`, neither waiting: the reading
 --- end open first, as a pipe with no reader refuses a nonblocking writer.
 local function fifo(dir: string, name: string): integer, integer
-  local ends = FifoFixture.fifo(dir, name)
+  local ends = support.fifo(dir, name)
   return ends.reader, ends.writer
 end
 

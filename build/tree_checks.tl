@@ -2727,9 +2727,12 @@ function tree_checks.test_returns(root: string): {string}
   return out
 end
 
---- The helpers of a test or fixture file that may stay a copy of another file's, as `<file>:<name>` and why. A copy
---- is moved into a shared fixture instead; an entry goes once no other file holds a copy of it.
--- TODO: once cosmic-lua/cosmic#3533 merges and these tests call build/tool_fixture.tl's `cosmic`, drop these entries.
+-- TODO: once cosmic-lua/cosmic#3533 merges and these tests call build/tool_fixture.tl's `cosmic`, drop these entries and,
+-- the table being empty, the allowance with them.
+
+--- The helpers of a test or fixture file that may stay a copy of another file's, as `<file>:<name>` and why: every
+--- copy of a set is named, or the set is refused. A copy is moved into a shared fixture instead; an entry goes once no
+--- other file holds a copy of it.
 local cloned_helpers: {string: string} = {
   ["build/archive_tool_test.tl:cosmic"] = "cosmic-lua/cosmic#3533 moves it into build/tool_fixture.tl",
   ["build/codec_tool_test.tl:cosmic"] = "cosmic-lua/cosmic#3533 moves it into build/tool_fixture.tl",
@@ -2737,18 +2740,14 @@ local cloned_helpers: {string: string} = {
   ["build/json_tool_test.tl:cosmic"] = "cosmic-lua/cosmic#3533 moves it into build/tool_fixture.tl",
   ["build/rand_tool_test.tl:cosmic"] = "cosmic-lua/cosmic#3533 moves it into build/tool_fixture.tl",
   ["build/sql_tool_test.tl:cosmic"] = "cosmic-lua/cosmic#3533 moves it into build/tool_fixture.tl",
-  -- TODO: once the product's pty relay check (ci/fixtures/self_driven_test.tl) shows a script under test/terminal/
-  -- can require a fixture of build/, move `same` into one and drop this entry.
-  ["build/term_relay_backpressure_test.tl:same"] = "test/terminal/relay.tl holds the same function: it is a script " ..
-    "the CI fixture runs on the product with a pty, which no test here can run to prove a require of build/ resolves",
 }
 
---- The fewest tokens a helper has for [`test_clones`] to compare it. The copies the tree held ran from about 30 tokens
---- to a screen; 80 is where what is left is a whole helper (a process runner, a project writer) a change can move, and
---- below about 30 a wrapper that two files write alike is no copy of the other.
--- TODO: once the 89 sets of copies of 30 tokens or more between files (list them with `CLONE_TOKENS` lowered) are moved
--- into shared fixtures, lower `CLONE_TOKENS` to 30.
-local CLONE_TOKENS = 80
+-- TODO: once the helpers copied between files below `CLONE_TOKENS` are moved into shared fixtures, lower it to 30.
+
+--- The fewest tokens a helper has for [`test_clones`] to compare it. Copies ran from about 30 tokens to a screen: below
+--- about 30 a wrapper that two files write alike is no copy of the other, and 70 is the lowest where the copies the tree
+--- held were few enough for one change to move (a process runner, a project writer).
+local CLONE_TOKENS = 70
 
 --- A helper [`test_clones`] has read: where it is, and whether its file is a test or a fixture.
 local record CloneSite
@@ -2756,8 +2755,6 @@ local record CloneSite
   line: integer
   name: string
   held: boolean
-  --- The helper's text.
-  text: string
 end
 
 --- Each top-level `local function` that is no test, of a `*_test.tl` or `*_fixture.tl` file under `root`, written
@@ -2774,75 +2771,86 @@ function tree_checks.test_clones(root: string, copies?: {string: string}, thresh
   local least = threshold or CLONE_TOKENS
   local out: mut {string} = {}
   local used: mut {string: boolean} = {}
-  -- The cuts that read alike, by their key; only those that share one are lexed.
-  local alike: mut {string: mut {CloneSite}} = {}
-  local keys: mut {string} = {}
+  -- A helper is read only where its head ([`TestClones`]'s `scan`) is another file's too, and one of the two is a test or
+  -- a fixture.
+  local scans: mut {string: TestClones.Scan} = {}
+  local candidates: mut {string} = {}
+  local in_files: mut {string: mut {string: boolean}} = {}
+  local held_key: mut {string: boolean} = {}
   for _, entry in ipairs(sources) do
     local file, text = entry[1], entry[2]
     if file ~= nil and text ~= nil and text:find("local function", 1, true) ~= nil then
       local held = file:match("_test%.tl$") ~= nil or file:match("_fixture%.tl$") ~= nil
-      for _, cut in ipairs(TestClones.cuts(text, least)) do
-        local group: mut {CloneSite} = alike[cut.key] or {}
-        if alike[cut.key] == nil then
-          alike[cut.key] = group
-          keys[#keys + 1] = cut.key
-        end
-        group[#group + 1] = { file = file, line = cut.line, name = cut.name, held = held, text = cut.text }
+      local scan = TestClones.scan(text)
+      scans[file] = scan
+      candidates[#candidates + 1] = file
+      for _, head in ipairs(scan.heads) do
+        local files: mut {string: boolean} = in_files[head.key] or {}
+        in_files[head.key] = files
+        files[file] = true
+        if held then held_key[head.key] = true end
       end
     end
   end
   local groups: mut {string: mut {CloneSite}} = {}
   local order: mut {string} = {}
-  for _, key in ipairs(keys) do
-    local group = assert(alike[key])
-    local holds = false
-    for _, site in ipairs(group) do
-      if site.held then holds = true end
-    end
-    if #group >= 2 and holds then
-      for _, site in ipairs(group) do
-        local words = TestClones.tokens(site.text, site.file)
-        if words ~= nil and #words >= least then
-          local joined = table.concat(words, "\1")
-          local same: mut {CloneSite} = groups[joined] or {}
-          if groups[joined] == nil then
-            groups[joined] = same
-            order[#order + 1] = joined
+  for _, file in ipairs(candidates) do
+    local scan = assert(scans[file])
+    local held = file:match("_test%.tl$") ~= nil or file:match("_fixture%.tl$") ~= nil
+    for _, head in ipairs(scan.heads) do
+      local files = assert(in_files[head.key])
+      local count = 0
+      for _ in pairs(files) do count = count + 1 end
+      if count >= 2 and held_key[head.key] == true then
+        local helper, cut_trouble = TestClones.read(scan, head, file)
+        if helper == nil then
+          out[#out + 1] = file .. ":" .. tostring(head.line) .. ": cannot read " .. head.name ..
+            " to check it is no copy: " .. cut_trouble
+        elseif helper.size >= least then
+          local group: mut {CloneSite} = groups[helper.body] or {}
+          if groups[helper.body] == nil then
+            groups[helper.body] = group
+            order[#order + 1] = helper.body
           end
-          same[#same + 1] = site
+          group[#group + 1] = { file = file, line = helper.line, name = helper.name, held = held }
         end
       end
     end
   end
   for _, body in ipairs(order) do
     local group = assert(groups[body])
-    local kept: mut {CloneSite} = {}
-    local tests = 0
     local files: mut {string: boolean} = {}
     local distinct = 0
+    local tests = false
+    local refused: mut {CloneSite} = {}
+    local excused_sites: mut {CloneSite} = {}
     for _, site in ipairs(group) do
-      local key = site.file .. ":" .. site.name
-      if excused[key] ~= nil then
-        used[key] = true
+      if files[site.file] ~= true then
+        files[site.file] = true
+        distinct = distinct + 1
+      end
+      if site.held then tests = true end
+      if excused[site.file .. ":" .. site.name] ~= nil then
+        excused_sites[#excused_sites + 1] = site
       else
-        kept[#kept + 1] = site
-        if site.held then tests = tests + 1 end
-        if files[site.file] ~= true then
-          files[site.file] = true
-          distinct = distinct + 1
-        end
+        refused[#refused + 1] = site
       end
     end
-    if distinct >= 2 and tests >= 1 then
-      local others: mut {string} = {}
-      for i = 2, #kept do
-        local site = assert(kept[i])
-        others[#others + 1] = site.file .. ":" .. tostring(site.line) .. " (" .. site.name .. ")"
+    -- A copy is a copy wherever it is: a set the allowance names stays excused only while it holds no site it does not name.
+    if distinct >= 2 and tests then
+      for _, site in ipairs(excused_sites) do used[site.file .. ":" .. site.name] = true end
+      if #refused > 0 then
+        local first = assert(group[1])
+        local others: mut {string} = {}
+        for i = 2, #group do
+          local site = assert(group[i])
+          others[#others + 1] = site.file .. ":" .. tostring(site.line) .. " (" .. site.name .. ")"
+        end
+        out[#out + 1] = first.file .. ":" .. tostring(first.line) .. ": " .. first.name ..
+          " is copied token for token in " .. table.concat(others, ", ") .. ": move it into a shared fixture " ..
+          "(build/test_support_fixture.tl, build/test_sandbox_fixture.tl, build/child_policy_fixture.tl ...) that " ..
+          "each requires"
       end
-      local first = assert(kept[1])
-      out[#out + 1] = first.file .. ":" .. tostring(first.line) .. ": " .. first.name .. " is copied token for token in " ..
-        table.concat(others, ", ") .. ": move it into a shared fixture (build/test_support_fixture.tl, " ..
-        "build/test_sandbox_fixture.tl, build/child_policy_fixture.tl ...) that each requires"
     end
   end
   local stale: mut {string} = {}

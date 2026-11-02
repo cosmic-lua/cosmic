@@ -3,6 +3,9 @@
 
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
+local Test = require("cosmic.test")
+local sys = require("cosmic.sys")
+local process = require("cosmic.internal.process")
 
 local record connector_fixture
   --- A running echo server.
@@ -32,6 +35,29 @@ function connector_fixture.echo_server(): connector_fixture.Echo
     end
   end)
   return { listener = listener, task = task }
+end
+
+--- Ends the test where this host has no native connector confinement; fails it where the confined setup is wrong.
+function connector_fixture.require_native_connector()
+  local result, why, number = process.connector_probe({ host = "127.0.0.1", port = 9 }, "pointer")
+  if result == nil and (number == sys.ENOSYS or number == sys.EOPNOTSUPP) then
+    Test.skip("this host has no native connector confinement: " .. why)
+  end
+  assert(result == sys.EPERM, "native connector setup failed: " .. tostring(why))
+end
+
+--- Reads exactly `count` bytes.
+--- @param conn the connection to read
+--- @param count how many bytes
+--- @return what was read
+function connector_fixture.read_exact(conn: Net.Conn, count: integer): string
+  local out = ""
+  while #out < count do
+    local data, why = conn:read(count - #out)
+    assert(data ~= nil, "the connection ended after " .. tostring(#out) .. " of " .. tostring(count) .. " bytes: " .. why)
+    out = out .. data
+  end
+  return out
 end
 
 return connector_fixture

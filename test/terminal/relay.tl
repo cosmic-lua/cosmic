@@ -26,6 +26,7 @@ local Fs = require("cosmic.fs")
 local Poll = require("cosmic.poll")
 local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
+local Termios = require("build.termios_fixture")
 
 local exe = assert(Proc.executable())
 
@@ -37,22 +38,6 @@ local record Caller
   mut shown: string
 end
 
---- Whether two termios states (opaque bytes from tcgetattr) are the same
---- terminal setting. A BSD kernel (macOS) sets PENDIN in the local flags
---- by itself as a terminal leaves raw mode for canonical, so a restored
---- state differs from the one saved by that flag alone: it is left out,
---- from the local flags, the fourth of Darwin's 8-byte words.
-local PENDIN <const> = 0x20000000
-local function same(a: string, b: string): boolean
-  if a == b then return true end
-  if (assert(sys.uname())).sysname ~= "Darwin" or #a ~= #b or #a < 32 then return false end
-  local function plain(state: string): string
-    local flags = string.unpack("<I8", state, 25)
-    return state:sub(1, 24) .. string.pack("<I8", flags & ~PENDIN) .. state:sub(33)
-  end
-  return plain(a) == plain(b)
-end
-
 local function hex(bytes: string): string
   return (bytes:gsub(".", function(c: string): string
     return string.format("%02x", assert(c:byte()))
@@ -61,7 +46,7 @@ end
 
 --- The terminal's state is as it was at the start.
 local function restored(caller: Caller): boolean
-  return same((assert(sys.tcgetattr(caller.slave))), caller.before)
+  return Termios.same((assert(sys.tcgetattr(caller.slave))), caller.before)
 end
 
 local function termios_note(caller: Caller, what: string): string

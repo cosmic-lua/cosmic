@@ -7,11 +7,11 @@
 --- wherever the program does; what a run of workers under one sees is in
 --- `test_sandbox_run_tool_test.tl`.
 
+local TestInputsFixture = require("build.test_inputs_fixture")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
 local this_program = require("build.this_program")
-local test_inputs = require("build.test_inputs")
 local test_sandbox = require("build.test_sandbox")
 local fixture = require("build.test_sandbox_fixture")
 local Test = require("cosmic.test")
@@ -25,14 +25,6 @@ Test.policy{
   grants = { { path = "o/bin", letters = "rx" } },
   promises = { "nest" },
 }
-
---- An `Effective` holding `files` of the tree and nothing else declared.
-local function effective(files: {string}): test_inputs.Effective
-  local out: test_inputs.Effective = { files = {}, reads = {}, host = {}, env = {}, network = {},
-    tool = false, store = false }
-  for _, file in ipairs(files) do out.files[file] = true end
-  return out
-end
 
 --- Makes `tmp`/scratch, a scratch directory laid out as build.test_key's
 --- `scratch` lays one out -- `real`, and `tmp` a link to it -- and
@@ -60,7 +52,7 @@ local function test_a_path_another_bind_shows_is_not_bound_again(tmp: string)
   assert(Fs.write(tmp .. "/elsewhere/y.tl", "y"))
   assert(sys.symlink(tmp .. "/elsewhere/y.tl", root .. "/data/y.tl"))
   assert(Fs.write(dir .. "/given", "h"))
-  local inputs = effective({ "data/x.tl", "data/y.tl" })
+  local inputs = TestInputsFixture.effective({ "data/x.tl", "data/y.tl" })
   inputs.reads = { "data" }
   inputs.host = { dir, dir .. "/given" }
   local plan = test_sandbox.plan(root, scratch, inputs, {})
@@ -88,7 +80,7 @@ local function test_the_tree_s_own_program_is_named_in_the_tree(tmp: string)
     assert(Fs.mkdirs(made))
   end
   assert(Fs.write(support.build_dir(other) .. "/bin/cosmic", "p"))
-  local inputs = effective({})
+  local inputs = TestInputsFixture.effective({})
   inputs.tool = true
   local relaunch, _ = Proc.relaunch()
   local executable, _ = Proc.executable()
@@ -109,7 +101,7 @@ local function test_the_tree_s_own_program_is_named_in_the_tree(tmp: string)
   local plan = test_sandbox.plan(tree, scratch, inputs, {})
   assert(plan.program == test_sandbox.output .. "/bin/cosmic", tostring(plan.program))
   -- A worker that is not a tool keeps the runner's name.
-  local plain = test_sandbox.plan(tree, scratch, effective({}), {})
+  local plain = test_sandbox.plan(tree, scratch, TestInputsFixture.effective({}), {})
   assert(plain.program == nil, tostring(plain.program))
   local unveil = assert(plan.sandbox.unveil)
   assert(support.holds(unveil.reads, support.build_dir(tree) .. "/bin") and (unveil.at or {})[support.build_dir(tree) .. "/bin"] ==
@@ -134,7 +126,7 @@ local function test_a_plan_gives_the_tree_at_tree_and_the_scratch_at_its_padded_
   end
   local host = dir .. "/given"
   assert(Fs.write(host, "h"))
-  local inputs = effective({ "a/x.tl", "a/missing.tl" })
+  local inputs = TestInputsFixture.effective({ "a/x.tl", "a/missing.tl" })
   inputs.reads = { "data/", "../outside" }
   inputs.host = { host }
   local plan = test_sandbox.plan(root, scratch, inputs, {})
