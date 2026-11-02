@@ -401,6 +401,37 @@ local function test_a_call_typed_since_the_last_parse_is_typed_with_the_type_arg
   assert(offered(base, base:sub(1, -13) .. 'local _ = first(many).|\n', { "x", "y", "origin" }) == "x,y")
 end
 
+local function test_a_name_is_narrowed_at_the_cursor_where_another_statement_does_not_parse()
+  -- A statement that is broken elsewhere (an unclosed call above, a `local` with no value below, a stray `)`) is left out of
+  -- the text the checker reads, so the cursor's statement has the checker's narrowing.
+  local typed = NARROW:gsub("local _ = 1", "local _ = x.|", 1)
+  assert(offered(NARROW, typed:gsub("^", "print(\n"), { "meow", "bark" }) == "meow")
+  assert(offered(NARROW, typed:gsub("return a", "local z =\nreturn a"), { "meow", "bark" }) == "meow")
+  local dog = NARROW:gsub("x is Cat", "x is Dog", 1):gsub("local _ = 1", "local _ = x.|", 1)
+  assert(offered(NARROW, dog:gsub("return a", "local z = )\nreturn a"), { "meow", "bark" }) == "bark")
+  assert(offered(NARROW, dog:gsub("^", "print(\n"), { "meow", "bark" }) == "bark")
+end
+
+local function test_a_generic_call_is_typed_where_another_statement_does_not_parse()
+  local base = POINT .. 'local function first<T>(list: {T}): T\n  return list[1]\nend\nlocal many: {Point} = { p }\nlocal _ = 1\n'
+  local head = POINT .. 'local function first<T>(list: {T}): T\n  return list[1]\nend\nlocal many: {Point} = { p }\n'
+  assert(offered(base, head .. 'local _ = first(many).|\nlocal z = )\n', { "x", "y", "origin" }) == "x,y")
+  assert(offered(base, head .. 'print(\nfirst(many).|\n', { "x", "y", "origin" }) == "x,y")
+end
+
+local function test_a_name_declared_since_is_offered_where_another_statement_does_not_parse()
+  local base = POINT .. 'local _ = 1\n'
+  assert(offered(base, POINT .. 'local fresh = 2\nlocal _ = fre|\nlocal z = )\n', { "fresh", "p" }) == "fresh")
+  assert(offered(base, POINT .. 'local q: Point = Point.origin()\nlocal _ = q.|\nlocal z = )\n', { "x", "y" }) == "x,y")
+end
+
+local function test_a_string_is_offered_the_members_of_string_as_a_receiver()
+  local base = 'local s = "x"\nlocal _ = s\n'
+  assert(offered(base, 'local s = "x"\nlocal _ = ("x"):|\n', { "len", "sub", "nope" }) == "len,sub")
+  assert(offered(base, 'local s = "x"\nlocal _ = s:|\n', { "len", "sub", "nope" }) == "len,sub")
+  assert(offered(base, 'local s = "x"\n("x"):|\n', { "len", "sub", "nope" }) == "len,sub")
+end
+
 local function test_a_name_declared_since_the_last_parse_is_offered_and_typed()
   local base = POINT .. 'local _ = 1\n'
   assert(offered(base, POINT .. 'local q: Point = Point.origin()\nlocal _ = q.|\n', { "x", "y" }) == "x,y")
