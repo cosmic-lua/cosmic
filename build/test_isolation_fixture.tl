@@ -16,9 +16,9 @@ end
 --- its workers unsandboxed (`COSMIC_TEST_SANDBOX=0`), since what they
 --- check is the runner's own handling of what a worker reads and leaves
 --- of the host, which a sandbox would not let it reach.
-function fixture.environment(): {string:string}
+function fixture.environment(): mut {string:string}
   local env = this_program.environment()
-  env.COSMIC_TEST_SANDBOX = "0"
+  env["COSMIC_TEST_SANDBOX"] = "0"
   return env
 end
 
@@ -120,8 +120,8 @@ function fixture.hung_runs(tmp: string, probe: string?, sandbox_workers: boolean
     local output = here .. "/run.out"
     -- The failing tests' directories are kept; they are kept here.
     local env = fixture.environment()
-    env.TMPDIR = here .. "/temp"
-    env.COSMIC_TEST_SANDBOX = mode
+    env["TMPDIR"] = here .. "/temp"
+    env["COSMIC_TEST_SANDBOX"] = mode
     assert(Fs.mkdirs(assert(env["TMPDIR"])))
     local started = Clock.monotonic_ns()
     -- Every test's deadline counts from its worker's start, so the two

@@ -253,14 +253,14 @@ local function test_a_host_path_that_is_the_trees_is_refused_in_either_mode(tmp:
   assert(Fs.write(product .. "/given.txt", "given"))
   assert(Fs.write(product .. "/sibling.txt", "sibling"))
   local env = this_program.environment()
-  env.COSMIC_VERDICT_CACHE = "0"
-  env.COSMIC_TEST_ALL = nil
-  env.COSMIC_SANDBOX = nil
-  env.COSMIC_TEST_SANDBOX = nil
+  env["COSMIC_VERDICT_CACHE"] = "0"
+  env["COSMIC_TEST_ALL"] = nil
+  env["COSMIC_SANDBOX"] = nil
+  env["COSMIC_TEST_SANDBOX"] = nil
   -- The tree's: refused before the test starts, in either mode.
   fixture.host_test(root, product, root .. "/suite/given.txt")
   for _, mode in ipairs({ "0", "" }) do
-    env.COSMIC_TEST_SANDBOX = mode ~= "" and mode or nil
+    env["COSMIC_TEST_SANDBOX"] = mode ~= "" and mode or nil
     local inside, inside_ok = run(root, tmp .. "/inside" .. mode, env)
     assert(not inside_ok and inside:find(root .. "/suite/given.txt is the tree's", 1, true) ~= nil and
         not inside:find("read|", 1, true), inside)
@@ -280,13 +280,13 @@ local function test_an_unsandboxed_run_reads_the_tree_and_a_platform_with_no_san
   local root, hidden = tmp .. "/root", tmp .. "/hidden"
   fixture.view_suite(tmp, root, hidden)
   local env = this_program.environment()
-  env.COSMIC_VERDICT_CACHE = "0"
-  env.COSMIC_TEST_ALL = nil
-  env.COSMIC_SANDBOX = nil
-  env.DECLARED_VAR = "d"
-  env.UNDECLARED_VAR = "u"
+  env["COSMIC_VERDICT_CACHE"] = "0"
+  env["COSMIC_TEST_ALL"] = nil
+  env["COSMIC_SANDBOX"] = nil
+  env["DECLARED_VAR"] = "d"
+  env["UNDECLARED_VAR"] = "u"
   local real_root = assert(Fs.absolute(root))
-  env.COSMIC_TEST_SANDBOX = "0"
+  env["COSMIC_TEST_SANDBOX"] = "0"
   local text, ok = run(root, tmp .. "/plain", env)
   assert(not ok, text)
   assert(text:find("; unsandboxed (COSMIC_TEST_SANDBOX=0), keyed by declared inputs, " ..
@@ -303,7 +303,7 @@ local function test_an_unsandboxed_run_reads_the_tree_and_a_platform_with_no_san
   -- Branches on the platform: where it can sandbox, the run does, and that
   -- is checked by the module that requires a nest.
   if assert(sys.uname()).sysname ~= "Linux" then
-    env.COSMIC_TEST_SANDBOX = nil
+    env["COSMIC_TEST_SANDBOX"] = nil
     text, ok = run(root, tmp .. "/sandboxed", env)
     assert(not ok, text)
     -- And why, in the head line alone: the summary points back to it rather
@@ -315,7 +315,7 @@ local function test_an_unsandboxed_run_reads_the_tree_and_a_platform_with_no_san
         "(see the head line), keyed by declared inputs, sharing no verdicts\n", 1, true) ~= nil and
         #summary < 300, summary)
     -- Required, the run fails instead.
-    env.COSMIC_TEST_SANDBOX = "1"
+    env["COSMIC_TEST_SANDBOX"] = "1"
     local required: string? = nil
     required, ok = run(root, tmp .. "/required", env)
     assert(not ok and required:find("COSMIC_TEST_SANDBOX=1, but no worker can be sandboxed here",

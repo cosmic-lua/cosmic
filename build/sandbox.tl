@@ -110,7 +110,7 @@ local NOT_EXECUTABLE <const> = 126
 --- The exit status of a program that is not there.
 local NOT_FOUND <const> = 127
 
-local spec = Cli.verbs.sandbox.spec or {}
+local spec = assert(Cli.verbs["sandbox"]).spec or {}
 
 --- The longest `--timeout`, a year, well inside what a start accepts.
 local MOST_SECONDS <const> = 31536000
@@ -118,7 +118,8 @@ local MOST_SECONDS <const> = 31536000
 --- Whether a flag of `spec` takes a value, read as [`Flags.parse`] does.
 local function takes_value(name: string): boolean
   local entry = spec[name]
-  return entry is Flags.Option and entry.value ~= nil
+  if entry == nil or entry is boolean then return false end
+  return entry.value ~= nil
 end
 
 --- The slot of the program in `argv` (the verb at slot 1): the first word
@@ -162,10 +163,28 @@ local limits <const>: {{string}} = {
   { "--processes", "processes", "1" },
 }
 
+--- The fields of a policy's JSON the flags give; `isolate` and `promises`
+--- hold the flags' words, which [`PolicyJson.decode`] checks.
+local record PolicyFields
+  mut grants?: {{string:string}}
+  mut profiles?: {string}
+  mut isolate?: {string}
+  mut promises?: {string}
+  mut connect?: {string}
+  mut loopback?: {string}
+  mut env?: {string}
+  mut tmp?: boolean
+  mut set_env?: {string:string}
+  mut limits?: {string:integer}
+  mut user?: integer
+  mut group?: integer
+  mut database?: Sandbox.Database
+end
+
 --- What the line holds besides the policy.
 local record Request
-  --- The policy the flags give, as the table a policy's JSON holds.
-  policy: {string:any}
+  --- The policy the flags give.
+  policy: PolicyFields
   --- `--database`'s path as given, or nil.
   mut database?: string
   --- `--modules`' names, the first the main, or nil.
@@ -184,9 +203,9 @@ local record Request
   argv: mut {string}
 end
 
---- The policy `parsed` names, as the table a policy's JSON holds.
-local function table_of(parsed: Flags.Parsed): {string:any}?, string
-  local policy: mut {string:any} = {}
+--- The policy `parsed` names, as the fields a policy's JSON holds.
+local function table_of(parsed: Flags.Parsed): PolicyFields?, string
+  local policy: PolicyFields = {}
   local function list(name: string): {string}
     return parsed.all[name] or {}
   end
@@ -211,14 +230,14 @@ local function table_of(parsed: Flags.Parsed): {string:any}?, string
   if parsed.set["--system"] == true then profiles[#profiles + 1] = "system" end
   if parsed.set["--cosmic"] == true then profiles[#profiles + 1] = "cosmic" end
   if #profiles > 0 then policy.profiles = profiles end
-  local function copy(name: string, field: string)
-    if #list(name) > 0 then policy[field] = list(name) end
+  local function some(name: string): {string}?
+    return if #list(name) > 0 then list(name) else nil end
   end
-  copy("--isolate", "isolate")
-  copy("--promise", "promises")
-  copy("--connect", "connect")
-  copy("--loopback", "loopback")
-  copy("--env", "env")
+  policy.isolate = some("--isolate")
+  policy.promises = some("--promise")
+  policy.connect = some("--connect")
+  policy.loopback = some("--loopback")
+  policy.env = some("--env")
   if parsed.set["--tmp"] == true then policy.tmp = true end
   local set_env: mut {string:string} = {}
   for _, text in ipairs(list("--set-env")) do

@@ -124,7 +124,7 @@ local function against(args: {string}, body: function(relay: Net.Conn, send: fun
         end
       end, timeout_ns))
     end)
-    local relay = { value = nil as Net.Conn? }
+    local relay: support.Cell<Net.Conn> = {}
     -- However the body ends, the listener and the connection are closed, so
     -- that one failing test leaves nothing for the next.
     local ok, trouble = pcall(function()
@@ -173,8 +173,8 @@ local function asked(relay: Net.Conn): string
 end
 
 local function test_a_name_is_asked_for_as_a_name_and_the_bytes_go_both_ways()
-  local request = { value = nil as string? }
-  local seen_end = { value = false }
+  local request: support.Cell<string> = {}
+  local seen_end: support.Cell<boolean> = { value = false }
   local ran = against({ "api.github.com", "443" }, function(relay: Net.Conn, send: function(string), finish: function())
     request.value = asked(relay)
     -- The relay's first bytes of the tunnel come in the same write as its answer.
@@ -197,7 +197,7 @@ local function test_a_name_is_asked_for_as_a_name_and_the_bytes_go_both_ways()
 end
 
 local function test_an_address_is_asked_for_as_an_address()
-  local request = { value = nil as string? }
+  local request: support.Cell<string> = {}
   local ran = against({ "127.0.0.2", "22" }, function(relay: Net.Conn, _: function(string), finish: function())
     request.value = asked(relay)
     assert(relay:write(RelayWire.socks_reply("succeeded")))
@@ -206,7 +206,7 @@ local function test_an_address_is_asked_for_as_an_address()
   end)
   assert(ran.code == 0, table.concat(ran.complaints))
   assert(request.value == "\5\1\0\1\127\0\0\2\0\22", "an address of type 1")
-  local ipv6 = { value = nil as string? }
+  local ipv6: support.Cell<string> = {}
   assert(against({ "::1", "22" }, function(relay: Net.Conn, _: function(string), finish: function())
     ipv6.value = asked(relay)
     assert(relay:write(RelayWire.socks_reply("succeeded")))
@@ -321,7 +321,7 @@ end
 
 local function test_nothing_listening_is_a_failure_naming_the_relay(_: string)
   -- A port that was just listened at and is shut: nothing is there.
-  local port = { value = nil as integer? }
+  local port: support.Cell<integer> = {}
   Poll.run(function()
     local listener = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
     port.value = listener.address.port
@@ -373,9 +373,9 @@ local function asked_with_login(relay: Net.Conn, verdict: string): string, strin
 end
 
 local function test_a_userinfo_is_sent_as_the_username_and_password_percent_decoded()
-  local user = { value = nil as string? }
-  local password = { value = nil as string? }
-  local request = { value = nil as string? }
+  local user: support.Cell<string> = {}
+  local password: support.Cell<string> = {}
+  local request: support.Cell<string> = {}
   local ran = against({ "api.github.com", "443" }, function(relay: Net.Conn, _: function(string), finish: function())
     user.value, password.value, request.value = asked_with_login(relay, "\1\0")
     assert(relay:write(RelayWire.socks_reply("succeeded") .. "banner"))
@@ -387,7 +387,7 @@ local function test_a_userinfo_is_sent_as_the_username_and_password_percent_deco
   assert(request.value == "\5\1\0\3\14api.github.com\1\187", "the request follows the login")
   assert(ran.out == "banner" and #ran.complaints == 0, ran.out .. table.concat(ran.complaints))
   -- An empty user name is sent as a name the relay takes.
-  local named = { value = nil as string? }
+  local named: support.Cell<string> = {}
   local anonymous = against({ "h", "1" }, function(relay: Net.Conn)
     named.value = asked_with_login(relay, "\1\0")
     assert(relay:write(RelayWire.socks_reply("refused")))
@@ -397,7 +397,7 @@ end
 
 local function test_a_relay_that_refuses_the_token_exits_1_naming_it_and_never_the_password()
   local secret <const> = "SECRET-token-1234"
-  local seen = { value = nil as string? }
+  local seen: support.Cell<string> = {}
   local ran = against({ "host.example", "22" }, function(relay: Net.Conn)
     local _, got = asked_with_login(relay, "\1\1")
     seen.value = got

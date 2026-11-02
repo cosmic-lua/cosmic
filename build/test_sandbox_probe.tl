@@ -224,18 +224,18 @@ end
 --- `effective.noexec_ready`, and `noexec_trouble` where it is not. The
 --- probe runs once a run, its answer kept in `known`.
 function test_sandbox_probe.resolve_noexec(effective: test_inputs.Effective, sandboxed: boolean,
-                                           known: {string:string})
+                                           known: mut {string:string})
   effective.noexec_ready, effective.noexec_trouble = false, ""
   if effective.noexec ~= true then return end
   if not sandboxed then
     effective.noexec_trouble = "noexec scratch requires a Linux filesystem sandbox"
     return
   end
-  local trouble = known.worker
+  local trouble = known["worker"]
   if trouble == nil then
     local ok, why = noexec_works()
     trouble = if ok then "" else "noexec scratch is unavailable: " .. why end
-    known.worker = trouble
+    known["worker"] = trouble
   end
   effective.noexec_ready, effective.noexec_trouble = trouble == "", trouble
 end

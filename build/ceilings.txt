@@ -2150,8 +2150,6 @@ build/declared_key_fuzz_test.tl map_field 19
 
 build/declared_key_test.tl map_field 8
 
-build/declared_sandboxed_test.tl map_field 3
-
 build/declared_unenforced_fixture.tl map_field 6
 
 build/declared_unenforced_test.tl map_field 2
@@ -2225,16 +2223,6 @@ build/runtime_checks_keys_test.tl map_field 1
 
 build/runtime_checks_tool_test.tl map_field 2
 
-build/sandbox.tl map_field 9
-
-build/sandbox_connect_test.tl map_field 25
-
-build/sandbox_connect_tool_test.tl map_field 14
-
-build/sandbox_test.tl map_field 11
-
-build/sandboxed_verdicts_test.tl map_field 33
-
 build/sealed_worker_test.tl map_field 3
 
 build/shared_compiles_tool_test.tl map_field 9
@@ -2242,8 +2230,6 @@ build/shared_compiles_tool_test.tl map_field 9
 build/shared_parses_test.tl map_field 2
 
 build/shared_parses_tool_test.tl map_field 5
-
-build/shared_verdicts_tool_test.tl map_field 55
 
 build/sql.tl map_field 1
 
@@ -2261,17 +2247,11 @@ build/test.tl map_field 8
 
 build/test_bail_tool_test.tl map_field 2
 
-build/test_cancelled_verdicts_tool_test.tl map_field 4
-
 build/test_closure_test.tl map_field 1
 
 build/test_closure_tool_test.tl map_field 1
 
 build/test_inputs_test.tl map_field 7
-
-build/test_isolation_fixture.tl map_field 3
-
-build/test_isolation_tool_test.tl map_field 24
 
 build/test_key.tl map_field 6
 
@@ -2282,20 +2262,6 @@ build/test_policy_plan_tool_test.tl map_field 5
 build/test_policy_tool_test.tl map_field 13
 
 build/test_requires_tool_test.tl map_field 10
-
-build/test_sandbox.tl map_field 13
-
-build/test_sandbox_probe.tl map_field 2
-
-build/test_sandbox_run_tool_test.tl map_field 36
-
-build/test_sandbox_system_confined_test.tl map_field 3
-
-build/test_sandbox_system_hint_test.tl map_field 4
-
-build/test_sandbox_test.tl map_field 9
-
-build/test_sandbox_tool_test.tl map_field 13
 
 build/test_selection_test.tl map_field 10
 
@@ -2823,7 +2789,7 @@ build/lsp/session.tl any_use 5
 
 build/rand.tl any_use 1
 
-build/sandbox.tl any_use 2
+build/sandbox.tl any_use 1
 
 build/sandbox_probe.tl any_use 1
 
@@ -3137,17 +3103,13 @@ build/rebuild_lock_lua_test.tl cast_refused 1
 
 build/run_build_dir_tool_test.tl cast_refused 2
 
-build/sandbox_connect_test.tl cast_refused 11
-
-build/sandbox_connect_tool_test.tl cast_refused 6
+build/sandbox_connect_test.tl cast_refused 1
 
 
-build/sandbox_test.tl cast_refused 4
+build/sandbox_test.tl cast_refused 3
 
 
 build/standalone.tl cast_refused 1
-
-build/test_sandbox_system_confined_test.tl cast_refused 1
 
 build/test_worker.tl cast_refused 2
 
@@ -4579,7 +4541,7 @@ build/test_key.tl and_ternary 13
 
 build/test_policy.tl and_ternary 2
 
-build/test_sandbox.tl and_ternary 7
+build/test_sandbox.tl and_ternary 6
 
 build/test_sandbox_tool_test.tl and_ternary 1
 
@@ -5324,9 +5286,7 @@ build/paths_test.tl literal_needs_type 1
 
 build/rand.tl literal_needs_type 1
 
-build/sandbox.tl literal_needs_type 1
-
-build/sandbox_test.tl literal_needs_type 2
+build/sandbox_test.tl literal_needs_type 1
 
 build/shared_compiles.tl literal_needs_type 2
 

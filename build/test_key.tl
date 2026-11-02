@@ -1859,7 +1859,7 @@ function test_key.gather(rec: Recording, from: Gather): string?
   for _, m in ipairs(selected_modules) do
     rec.closures[m.path] = test_inputs.modules(m, by_path, declarations, type_only)
   end
-  local noexec_probes: {string:string} = {}
+  local noexec_probes: mut {string:string} = {}
   for _, m in ipairs(selected_modules) do
     local effective = test_inputs.effective(m, by_path, declarations, type_only)
     effective.cache_paths = caches_of(rec, m)

@@ -15,6 +15,7 @@ local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
 local Proc = require("cosmic.proc")
 local Test = require("cosmic.test")
+local support = require("build.test_support_fixture")
 local searchable = require("build.searchable")
 local this_program = require("build.this_program")
 local ChildPolicy = require("build.child_policy_fixture")
@@ -83,8 +84,8 @@ end
 --- what `body` returned, the bytes the server heard, and its port.
 local function serving(body: function(port: integer, heard: {string}): Ran): Ran, {string}, integer
   local heard: mut {string} = {}
-  local answered = { value = nil as Ran? }
-  local at = { value = nil as integer? }
+  local answered: support.Cell<Ran> = {}
+  local at: support.Cell<integer> = {}
   Poll.run(function()
     local listener = assert(Net.listen(Net.tcp("127.0.0.2", 0)))
     local task = echoing(listener, function(data: string) heard[#heard + 1] = data end)
@@ -144,10 +145,10 @@ end
 --- What a proxy of the caller's is given: the line of its CONNECT and the
 --- bytes it carries, answered `echo:` as the servers do.
 local function test_a_callers_https_proxy_is_the_relays_upstream(tmp: string)
-  local made = { value = nil as Ran? }
-  local request = { value = nil as string? }
-  local carried = { value = nil as string? }
-  local at = { value = nil as integer? }
+  local made: support.Cell<Ran> = {}
+  local request: support.Cell<string> = {}
+  local carried: support.Cell<string> = {}
+  local at: support.Cell<integer> = {}
   Poll.run(function()
     local listener = assert(Net.listen(Net.tcp("127.0.0.2", 0)))
     local proxy = assert(listener.address.port)
@@ -176,17 +177,17 @@ local function test_a_callers_https_proxy_is_the_relays_upstream(tmp: string)
       local _, _ = conn:close()
     end)
     local env = this_program.environment()
-    env.https_proxy = "http://127.0.0.2:" .. tostring(proxy)
+    env["https_proxy"] = "http://127.0.0.2:" .. tostring(proxy)
     made.value = verb(tmp, client("through.example:443", "through.example", 443), "ping", env)
     task:cancel()
     assert(listener:close())
   end)
   local ran, proxy = assert(made.value), assert(at.value)
-  assert(ran.code == 0, ran.code .. ": " .. ran.err)
+  assert(ran.code == 0, tostring(ran.code) .. ": " .. ran.err)
   assert(request.value == "CONNECT through.example:443 HTTP/1.1", "the proxy was asked: " .. tostring(request.value))
   assert(carried.value == "ping" and ran.out == "echo:ping", "the bytes went through it: " .. ran.out)
   -- Said once, as the relay starts, on the verb's standard error.
-  local note = "upstream proxy 127.0.0.2:" .. proxy .. ": it resolves the names it is asked for"
+  local note = "upstream proxy 127.0.0.2:" .. tostring(proxy) .. ": it resolves the names it is asked for"
   local first, last = ran.err:find(note, 1, true)
   assert(first ~= nil, ran.err)
   assert(ran.err:find(note, last, true) == nil, "said once: " .. ran.err)

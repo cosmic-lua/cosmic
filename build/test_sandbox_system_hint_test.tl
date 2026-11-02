@@ -84,10 +84,10 @@ local function test_declared()
 end
 ]]))
   local env = this_program.environment()
-  env.COSMIC_VERDICT_CACHE = "0"
-  env.COSMIC_TEST_ALL = nil
-  env.COSMIC_SANDBOX = nil
-  env.COSMIC_TEST_SANDBOX = nil
+  env["COSMIC_VERDICT_CACHE"] = "0"
+  env["COSMIC_TEST_ALL"] = nil
+  env["COSMIC_SANDBOX"] = nil
+  env["COSMIC_TEST_SANDBOX"] = nil
   local output = tmp .. "/out"
   local fd = assert(Fs.open_write(output))
   local started = this_program.program({ "test", "--all" }, {
