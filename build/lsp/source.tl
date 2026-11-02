@@ -470,21 +470,12 @@ local function listed(src: source.View, staged: boolean)
   end
   local modules: mut {string:Module} = {}
   local files: mut {string:Module} = {}
-  -- Two files of one path and the same sort (two sources, or two declarations) are refused by the derive
-  -- ([`build.derivation`]), which picks neither; no module is listed for the path while they stand, so a `require` of it finds
-  -- none and its documents are told why ([`source.refusal`]).
-  local doubled: mut {string:boolean} = {}
-  local sorts: mut {string:boolean} = {}
   for _, row in ipairs(rows) do
     local found: Module = { path = row:text(1), file = row:text(2), kind = row:text(3),
       source_hash = row:text(4), origin = row:text(5) }
     if modules[found.path] == nil then modules[found.path] = found end
-    local sort = found.path .. "\0" .. tostring(AnalysisSchema.is_declaration(found.kind))
-    if sorts[sort] == true then doubled[found.path] = true end
-    sorts[sort] = true
     files[found.file] = found
   end
-  for path, _ in pairs(doubled) do modules[path] = nil end
   local requires: mut {string:mut {string}} = {}
   local named_rows, _ = Sqlite.text_rows(db,
     "SELECT source_hash, name FROM requires WHERE ?1 = 1 ORDER BY source_hash, ordinal",
@@ -635,6 +626,9 @@ local function refreshed(src: source.View)
     return
   end
   if staged == nil then
+    -- TODO: the editor serves the last good stage silently while a stage is refused (a `require` of a refused pair's module
+    -- still reads the file last staged, and a cold start finds no module); this waits on the editor naming the refusal on
+    -- every open document.
     src.err("cosmic: lsp: not staged, answering from the tree as last staged: " .. trouble)
     src.trouble = trouble
   else
