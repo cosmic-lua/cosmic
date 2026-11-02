@@ -507,6 +507,29 @@ local function test_a_test_returning_early_is_refused(dir: string)
   assert(found[2]:find("^build/guard_test.tl:3: test_guarded returns early %(`if ... then return end`%)"), found[2])
 end
 
+--- A module whose main chunk holds more locals than the limit is refused with its file and count; one at the limit, and
+--- one with few lines that start a `local`, are not.
+local function test_a_main_chunk_over_the_limit_is_refused(dir: string)
+  local function put(file: string, text: string)
+    assert(Fs.mkdirs(dir .. "/" .. (file:match("^(.*)/[^/]*$") or ".")))
+    assert(Fs.write(dir .. "/" .. file, text))
+  end
+  local function locals(count: integer): string
+    local lines: mut {string} = {}
+    for index = 1, count do
+      lines[#lines + 1] = "local v" .. tostring(index) .. " = " .. tostring(index)
+    end
+    return table.concat(lines, "\n") .. "\n"
+  end
+  put("lang/full.tl", locals(11))
+  put("lang/edge.tl", locals(10))
+  put("lang/few.tl", locals(2))
+  local found = tree_checks.main_locals(dir, 10)
+  assert(#found == 1, table.concat(found, "\n"))
+  assert(found[1]:find("^lang/full.tl: the main chunk holds 11 locals, over 10 %(Lua allows 200"), found[1])
+  assert(#tree_checks.main_locals(dir) == 0)
+end
+
 --- A declaration that requires only declarations passes; one that requires a module is refused.
 local function test_a_declaration_that_requires_a_module_is_refused(dir: string)
   local db = fixture.database(dir, {

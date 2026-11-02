@@ -61,6 +61,7 @@ local ShapeKey = require("build.shape_key")
 local Scopes = require("lang.scopes")
 local SyntaxNode = require("build.syntax_node")
 local TestReturns = require("build.test_returns")
+local MainLocals = require("build.main_locals")
 local ScopesCover = require("lang.scopes_cover")
 local Warnings = require("lang.warnings")
 local TreeProgram = require("build.tree_program")
@@ -2721,6 +2722,43 @@ function tree_checks.test_returns(root: string): {string}
           out[#out + 1] = file .. ":" .. tostring(site[1]) .. ": " .. tostring(site[2]) .. " returns early (`" ..
             tostring(site[3]) .. "`), which passes having checked nothing: declare `requires`, or call " ..
             "`Test.skip(reason)` (doc/testing.md, \"skipping\"), after which nothing runs"
+        end
+      end
+    end
+  end
+  return out
+end
+
+--- The most locals the main chunk of a module of the tree may hold ([`MainLocals`]). Lua allows 200, and a file at the limit
+--- builds alone but fails once two changes that each add a top-level local are merged, so the check keeps well clear.
+local MAIN_LOCALS_LIMIT <const> = 180
+
+--- Each `.tl` file of the tree under `root` whose main chunk holds more than `limit` locals ([`MainLocals`]) as
+--- `<file>: the main chunk holds <n> locals, over <limit> (Lua allows 200) ...`. Past the limit a module builds only while no two
+--- changes add a top-level local together: group helpers into a table (`function Group.name`) or move them to a module of
+--- their own. A file with fewer than half the limit of lines that start a `local` is not parsed.
+function tree_checks.main_locals(root: string, limit?: integer): {string}
+  local sources, trouble = sources_of(root)
+  if sources == nil then
+    return { "reading the sources: " .. trouble }
+  end
+  local most = limit or MAIN_LOCALS_LIMIT
+  local out: mut {string} = {}
+  for _, entry in ipairs(sources) do
+    local file, text = entry[1], entry[2]
+    if file ~= nil and text ~= nil then
+      local _, starts = ("\n" .. text):gsub("\nlocal ", "")
+      if starts >= most // 2 then
+        local chunk, parse_trouble = SyntaxNode.parse(text, file)
+        if chunk == nil then
+          out[#out + 1] = file .. ": cannot read it to count its main-chunk locals: " .. parse_trouble
+        else
+          local held = MainLocals.of_chunk(chunk)
+          if held > most then
+            out[#out + 1] = file .. ": the main chunk holds " .. tostring(held) .. " locals, over " .. tostring(most) ..
+              " (Lua allows 200, and changes that each add one merge into a file that fails to build): group related " ..
+              "helpers into a table with `function Group.name(...)`, or move them to a module of their own"
+          end
         end
       end
     end

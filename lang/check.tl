@@ -1434,9 +1434,13 @@ end
 
 -- Table literals ----------------------------------------------------------------------------
 
+--- The checks of a table literal against the type it is written for, and the type it has where none is written.
+local record TableLiterals
+end
+
 --- Checks the values of the items of a literal that has no shape to be checked against, so that what is in them
 --- is checked.
-local function items_unshaped(ctx: Ctx, items: {Ast.Item})
+function TableLiterals.items_unshaped(ctx: Ctx, items: {Ast.Item})
   ctx.lenient = ctx.lenient + 1
   for _, item in ipairs(items) do
     if (item.kind == "Keyed") then
@@ -1452,7 +1456,7 @@ local function items_unshaped(ctx: Ctx, items: {Ast.Item})
 end
 
 --- The kinds of item a literal holds: "positional", "named", "keyed", "mixed" or "empty".
-local function shape_of(items: {Ast.Item}): string
+function TableLiterals.shape_of(items: {Ast.Item}): string
   local shape = "empty"
   for _, item in ipairs(items) do
     local kind = if (item.kind == "Positional") then "positional" elseif (item.kind == "Named") then "named" else "keyed" end
@@ -1466,7 +1470,7 @@ local function shape_of(items: {Ast.Item}): string
 end
 
 --- The values of the positional items of `items`.
-local function positional_values(items: {Ast.Item}): {Ast.Exp}
+function TableLiterals.positional_values(items: {Ast.Item}): {Ast.Exp}
   local out: mut {Ast.Exp} = {}
   for _, item in ipairs(items) do
     if (item.kind == "Positional") then
@@ -1477,17 +1481,17 @@ local function positional_values(items: {Ast.Item}): {Ast.Exp}
 end
 
 --- Whether a map is keyed by `k`: the key types of [`lang.declarations`].
-local function valid_key(k: Type): boolean
+function TableLiterals.valid_key(k: Type): boolean
   local tag = k.tag
   return tag == "integer" or tag == "string" or tag == "boolean" or k.tag == "invalid" or
     ((k.tag == "named") and k.decl.kind ~= "enum" or is_enum(k))
 end
 
 --- A literal with no type expected: an array or a map of the join of its items.
-local function literal_inferred(ctx: Ctx, e: Ast.Table): Type
+function TableLiterals.literal_inferred(ctx: Ctx, e: Ast.Table): Type
   local store = ctx.store
   local items = e.items
-  local shape = shape_of(items)
+  local shape = TableLiterals.shape_of(items)
   if shape == "empty" then
     if ctx.lenient > 0 then
       return ctx.invalid
@@ -1498,11 +1502,11 @@ local function literal_inferred(ctx: Ctx, e: Ast.Table): Type
   elseif shape == "mixed" then
     report(ctx, "literal_shape", e, "this literal mixes positional, named and keyed items, which no array or map holds",
       "write one kind of item, or declare a record and write its fields by name")
-    items_unshaped(ctx, items)
+    TableLiterals.items_unshaped(ctx, items)
     return ctx.invalid
   end
   if shape == "positional" then
-    local types = values_of(ctx, positional_values(items), nil, nil)
+    local types = values_of(ctx, TableLiterals.positional_values(items), nil, nil)
     local all = types.types
     local tail = types.tail
     if tail ~= nil then
@@ -1549,7 +1553,7 @@ local function literal_inferred(ctx: Ctx, e: Ast.Table): Type
       "key by `integer`, and convert a float with `math.tointeger(n)` or `math.floor(n)`")
     return ctx.invalid
   end
-  if not valid_key(key) then
+  if not TableLiterals.valid_key(key) then
     report(ctx, "literal_shape", e, "the keys of this literal are " .. tq(ctx, key) .. ", which no map is keyed by",
       "key by `integer`, `string`, `boolean`, an enum, or a record, class, interface or userdata")
     return ctx.invalid
@@ -1563,14 +1567,14 @@ local function literal_inferred(ctx: Ctx, e: Ast.Table): Type
 end
 
 --- An item of the wrong shape for what the literal is checked against.
-local function wrong_shape(ctx: Ctx, item: Ast.Node, got: string, want: Type, fix: string)
+function TableLiterals.wrong_shape(ctx: Ctx, item: Ast.Node, got: string, want: Type, fix: string)
   report(ctx, "literal_shape", item, "this " .. got .. " item cannot be in a literal of " .. tq(ctx, want), fix,
     { show(ctx, want) })
 end
 
 --- Checks the values `vals` of the positional items `exps` against `element`: each, the `T...` a last item ends in,
 --- and the lists of a last item that answers several (which are no values).
-local function check_elements(ctx: Ctx, exps: {Ast.Exp}, vals: Values, element: Type, of: string)
+function TableLiterals.check_elements(ctx: Ctx, exps: {Ast.Exp}, vals: Values, element: Type, of: string)
   for i, t in ipairs(vals.types) do
     local _ = expect(ctx, exps[math.min(i, #exps)], t, element, " as an element of " .. of)
   end
@@ -1584,31 +1588,31 @@ local function check_elements(ctx: Ctx, exps: {Ast.Exp}, vals: Values, element: 
 end
 
 --- A literal checked against an array type.
-local function literal_array(ctx: Ctx, e: Ast.Table, want: Types.Array): Type
+function TableLiterals.literal_array(ctx: Ctx, e: Ast.Table, want: Types.Array): Type
   local reported = false
   for _, item in ipairs(e.items) do
     if not ((item.kind == "Positional")) and not reported then
       reported = true
-      wrong_shape(ctx, item, if (item.kind == "Named") then "named" else "keyed" end, want,
+      TableLiterals.wrong_shape(ctx, item, if (item.kind == "Named") then "named" else "keyed" end, want,
         "write the elements by position, or declare a record for the named fields")
     end
   end
   if reported then
-    items_unshaped(ctx, e.items)
+    TableLiterals.items_unshaped(ctx, e.items)
     return ctx.invalid
   end
-  local exps = positional_values(e.items)
-  check_elements(ctx, exps, values_of(ctx, exps, nil, want.element), want.element, tq(ctx, want))
+  local exps = TableLiterals.positional_values(e.items)
+  TableLiterals.check_elements(ctx, exps, values_of(ctx, exps, nil, want.element), want.element, tq(ctx, want))
   return ctx.store:array(want.element, true)
 end
 
 --- A literal checked against a map type.
-local function literal_map(ctx: Ctx, e: Ast.Table, want: Types.Map): Type
+function TableLiterals.literal_map(ctx: Ctx, e: Ast.Table, want: Types.Map): Type
   local store = ctx.store
   for _, item in ipairs(e.items) do
     if (item.kind == "Positional") then
-      wrong_shape(ctx, item, "positional", want, "write `[key] = value` or `name = value` items")
-      items_unshaped(ctx, e.items)
+      TableLiterals.wrong_shape(ctx, item, "positional", want, "write `[key] = value` or `name = value` items")
+      TableLiterals.items_unshaped(ctx, e.items)
       return ctx.invalid
     elseif (item.kind == "Named") then
       local k = string_value(ctx, item, item.name, want.key)
@@ -1626,7 +1630,7 @@ local function literal_map(ctx: Ctx, e: Ast.Table, want: Types.Map): Type
 end
 
 --- The field of `n` called `name`, not a method.
-local function plain_field(ctx: Ctx, n: Named, name: string): Member?
+function TableLiterals.plain_field(ctx: Ctx, n: Named, name: string): Member?
   local index = members_index(ctx, n.decl, n.value)
   local list = index ~= nil and index.by_name[name] or nil
   if list ~= nil and not list[1].method then
@@ -1636,7 +1640,7 @@ local function plain_field(ctx: Ctx, n: Named, name: string): Member?
 end
 
 --- The field a literal item names: `name = v`, or `["name"] = v`.
-local function item_name(item: Ast.Item): string?
+function TableLiterals.item_name(item: Ast.Item): string?
   if (item.kind == "Named") then
     return item.name
   elseif (item.kind == "Keyed") then
@@ -1652,7 +1656,7 @@ end
 --- class is one of this module's (its module is this one, or a module of a declaration in a function's body, which is
 --- this one with `@` and the node's id after it, [`lang.declarations`]), and is no member of another type, which has
 --- no table of its own at run time.
-local function out_of_reach(ctx: Ctx, decl: Decl): string
+function TableLiterals.out_of_reach(ctx: Ctx, decl: Decl): string
   if decl.module:gsub("@.*$", "") ~= ctx.input.module then
     return "a class of the module " .. quoted(decl.module) .. ", whose metatable only that module reaches"
   elseif decl.module:find("@", 1, true) ~= nil then
@@ -1668,7 +1672,7 @@ local function out_of_reach(ctx: Ctx, decl: Decl): string
 end
 
 --- The fix for a class out of reach: made, or tested, by a function of the class in the module that has its table.
-local function reach_fix(ctx: Ctx, decl: Decl, function_name: string): string
+function TableLiterals.reach_fix(ctx: Ctx, decl: Decl, function_name: string): string
   if decl.module == ctx.input.module and ctx.declared[decl] ~= true and #decl.names == 1 then
     return "move the declaration of " .. quoted(decl.name) .. " above this, or make the value with a function of the " ..
       "class declared after it"
@@ -1684,16 +1688,16 @@ end
 --- that is not omittable given (a class names every field), each value checked against its field. A literal of a
 --- class of this module is noted for the code generator, which writes the class literal; the table of a class of
 --- another module is out of reach, so it is refused.
-local function literal_record(ctx: Ctx, e: Ast.Table, n: Named): Type
+function TableLiterals.literal_record(ctx: Ctx, e: Ast.Table, n: Named): Type
   local body = n.decl.body
   local index = members_index(ctx, n.decl, false)
   if body == nil or index == nil then
-    items_unshaped(ctx, e.items)
+    TableLiterals.items_unshaped(ctx, e.items)
     return n
   end
   local is_class = n.decl.kind == "class"
   if is_class then
-    local why = out_of_reach(ctx, n.decl)
+    local why = TableLiterals.out_of_reach(ctx, n.decl)
     if why == "" then
       ctx.literals[e.id] = n.decl
       if ctx.load.waiting > 0 then
@@ -1705,7 +1709,7 @@ local function literal_record(ctx: Ctx, e: Ast.Table, n: Named): Type
       end
     else
       report(ctx, "class_scope", e, "this literal makes a value of " .. quoted(n.decl.name) .. ", " .. why,
-        reach_fix(ctx, n.decl, "make the value in " .. quoted(n.decl.module) .. " with a function of the class (`function " ..
+        TableLiterals.reach_fix(ctx, n.decl, "make the value in " .. quoted(n.decl.module) .. " with a function of the class (`function " ..
             n.decl.name .. ".new(...): " .. n.decl.name .. "`), and call it here"), { show(ctx, n) })
     end
   end
@@ -1714,10 +1718,10 @@ local function literal_record(ctx: Ctx, e: Ast.Table, n: Named): Type
   local array_part = index.array
   local shaped = true
   for _, item in ipairs(e.items) do
-    local name = item_name(item)
+    local name = TableLiterals.item_name(item)
     if name ~= nil and not ((item.kind == "Positional")) then
       local value = (item.kind == "Named") and item.value or (item.kind == "Keyed") and item.value or nil
-      local field = plain_field(ctx, n, name)
+      local field = TableLiterals.plain_field(ctx, n, name)
       if field == nil then
         local close = nearest(name, names_of(ctx, n))
         report(ctx, "literal_unknown", item, owner .. " has no field " .. quoted(name) ..
@@ -1739,17 +1743,17 @@ local function literal_record(ctx: Ctx, e: Ast.Table, n: Named): Type
     else
       if shaped then
         shaped = false
-        wrong_shape(ctx, item, if (item.kind == "Positional") then "positional" else "keyed" end, n,
+        TableLiterals.wrong_shape(ctx, item, if (item.kind == "Positional") then "positional" else "keyed" end, n,
           "write the fields of " .. owner .. " by name: `field = value`")
       end
-      items_unshaped(ctx, { item })
+      TableLiterals.items_unshaped(ctx, { item })
     end
   end
   if array_part ~= nil then
-    local exps = positional_values(e.items)
+    local exps = TableLiterals.positional_values(e.items)
     if #exps > 0 then
       local element = put_in(ctx, n, array_part)
-      check_elements(ctx, exps, values_of(ctx, exps, nil, element), element, owner)
+      TableLiterals.check_elements(ctx, exps, values_of(ctx, exps, nil, element), element, owner)
     end
   end
   local missing: mut {string} = {}
@@ -1776,7 +1780,7 @@ end
 
 --- The member of the union `u` that the literal `e` is, or nil with the error reported. `written` is `u` as the program
 --- names it, where `u` is the type a recursive alias names.
-local function literal_member(ctx: Ctx, e: Ast.Table, u: Union, written: Type): Type?
+function TableLiterals.literal_member(ctx: Ctx, e: Ast.Table, u: Union, written: Type): Type?
   -- Every type of `types` quoted once, in order, without the `nil`: the arms of a type a message names.
   local function arms_named(types: {Type}): {string}
     local out: mut {string} = {}
@@ -1861,13 +1865,13 @@ local function literal_member(ctx: Ctx, e: Ast.Table, u: Union, written: Type): 
   -- candidate has an enum there, as a tag is. Another member with the value too is `untagged_union` where the union is
   -- declared, and leaves the literal ambiguous here.
   for _, item in ipairs(e.items) do
-    local name = item_name(item)
+    local name = TableLiterals.item_name(item)
     local value = (item.kind == "Named") and peel(item.value) or (item.kind == "Keyed") and peel(item.value) or nil
     if name ~= nil and value ~= nil and (value.kind == "String") then
       local tagged: mut {Type} = {}
       local everywhere = true
       for _, m in ipairs(candidates) do
-        local field = (m.tag == "named") and plain_field(ctx, m, name) or nil
+        local field = (m.tag == "named") and TableLiterals.plain_field(ctx, m, name) or nil
         local t = field ~= nil and field.type or nil
         local body = t ~= nil and (t.tag == "named") and t.decl.kind == "enum" and t.decl.body or nil
         if body == nil then
@@ -1920,7 +1924,7 @@ end
 
 --- A table literal. Checked against a type it is a record, a class, an array or a map as that type is; with no type it
 --- is an array or a map of the join of its items.
-local function table_literal(ctx: Ctx, e: Ast.Table, expected: Type?): Type
+function TableLiterals.table_literal(ctx: Ctx, e: Ast.Table, expected: Type?): Type
   -- Reports each key a table literal gives a second time: a name (`a = 1`), a constant key (`["a"]`, `[1]`, `[true]`), or the
   -- place of a positional item (`{ "x", [1] = "y" }`). The second value would replace the first, whatever type the literal is
   -- checked against, so this stands apart from the shape of the literal. A name and the same string as a key are one key.
@@ -1953,21 +1957,21 @@ local function table_literal(ctx: Ctx, e: Ast.Table, expected: Type?): Type
     end
   end
   if expected == nil or ctx.lenient > 0 then
-    return literal_inferred(ctx, e)
+    return TableLiterals.literal_inferred(ctx, e)
   end
   local want = ctx.store:non_nil(expected)
   if want.tag == "invalid" then
-    items_unshaped(ctx, e.items)
+    TableLiterals.items_unshaped(ctx, e.items)
     return want
   elseif want.tag == "any" or want.tag == "never" then
-    return literal_inferred(ctx, e)
+    return TableLiterals.literal_inferred(ctx, e)
   end
   local written = want
   want = Types.unfold(want)
   if (want.tag == "union") then
-    local member = literal_member(ctx, e, want, written)
+    local member = TableLiterals.literal_member(ctx, e, want, written)
     if member == nil then
-      items_unshaped(ctx, e.items)
+      TableLiterals.items_unshaped(ctx, e.items)
       return ctx.invalid
     end
     want = member
@@ -1978,10 +1982,10 @@ local function table_literal(ctx: Ctx, e: Ast.Table, expected: Type?): Type
       report(ctx, "literal_shape", e, "a table literal cannot make " .. tq(ctx, want) .. ", the table of the functions of " ..
           quoted(want.decl.name),
         "write a value of " .. quoted(want.decl.name) .. " where one is wanted, or the declaration itself", { show(ctx, want) })
-      items_unshaped(ctx, e.items)
+      TableLiterals.items_unshaped(ctx, e.items)
       return ctx.invalid
     elseif kind == "record" or kind == "class" then
-      return literal_record(ctx, e, want)
+      return TableLiterals.literal_record(ctx, e, want)
     end
     local advised = Check.advice[want.decl.module .. " " .. want.decl.name]
     report(ctx, "literal_shape", e, "a table literal cannot make " .. tq(ctx, want) .. ", " ..
@@ -1989,16 +1993,16 @@ local function table_literal(ctx: Ctx, e: Ast.Table, expected: Type?): Type
       if kind == "interface" then (if advised ~= nil then advised else "make the value with a class that lists " ..
           quoted(want.decl.name) .. " (`class C is " .. want.decl.name .. "`)" end) else "write a value of " ..
           quoted(want.decl.name) end, { show(ctx, want) })
-    items_unshaped(ctx, e.items)
+    TableLiterals.items_unshaped(ctx, e.items)
     return ctx.invalid
   elseif (want.tag == "array") then
-    return literal_array(ctx, e, want)
+    return TableLiterals.literal_array(ctx, e, want)
   elseif (want.tag == "map") then
-    return literal_map(ctx, e, want)
+    return TableLiterals.literal_map(ctx, e, want)
   end
   report(ctx, "literal_shape", e, "a table literal cannot make " .. tq(ctx, want),
     "write a value of " .. tq(ctx, want), { show(ctx, want) })
-  items_unshaped(ctx, e.items)
+  TableLiterals.items_unshaped(ctx, e.items)
   return ctx.invalid
 end
 
@@ -2419,8 +2423,12 @@ end
 
 -- Operators ------------------------------------------------------------------------------------
 
+--- The checks of the operands of an operator: what each takes, and the error where it is refused.
+local record Operands
+end
+
 --- Reports that the operand `node`, of type `t`, is not what `op` takes.
-local function bad_operand(ctx: Ctx, node: Ast.Node, t: Type, op: string, takes: string, fix: string)
+function Operands.bad_operand(ctx: Ctx, node: Ast.Node, t: Type, op: string, takes: string, fix: string)
   local s = subject(ctx, node)
   if t.tag == "any" then
     report(ctx, "any_use", node, s .. " is untrusted data (`any`), and " .. quoted(op) .. " takes " .. takes,
@@ -2440,7 +2448,7 @@ end
 
 --- What `t` is as an operand of a number operator: 1 `integer`, 2 `number`, 0 anything else (reported unless it is
 --- `invalid`).
-local function arithmetic_operand(ctx: Ctx, node: Ast.Node, t: Type, op: string): integer
+function Operands.arithmetic_operand(ctx: Ctx, node: Ast.Node, t: Type, op: string): integer
   local tag = t.tag
   if tag == "integer" or tag == "never" then
     return 1
@@ -2452,7 +2460,7 @@ local function arithmetic_operand(ctx: Ctx, node: Ast.Node, t: Type, op: string)
   local inner = nilable(t) and ctx.store:non_nil(t) or t
   local fix = if is_text(t) then "convert it with `tonumber(" .. text_of(ctx, node) .. ")`" else
     "use a number: " .. quoted(op) .. " converts nothing" end
-  bad_operand(ctx, node, t, op, "numbers", fix)
+  Operands.bad_operand(ctx, node, t, op, "numbers", fix)
   if nilable(t) and inner.tag == "integer" then
     return 1
   elseif nilable(t) and inner.tag == "number" then
@@ -2462,7 +2470,7 @@ local function arithmetic_operand(ctx: Ctx, node: Ast.Node, t: Type, op: string)
 end
 
 --- Whether `t` is an `integer`, as the operand of a bit operator; reports it where not.
-local function integer_operand(ctx: Ctx, node: Ast.Node, t: Type, op: string): boolean
+function Operands.integer_operand(ctx: Ctx, node: Ast.Node, t: Type, op: string): boolean
   if t.tag == "integer" or t.tag == "never" then
     return true
   elseif t.tag == "invalid" then
@@ -2470,12 +2478,12 @@ local function integer_operand(ctx: Ctx, node: Ast.Node, t: Type, op: string): b
   end
   local fix = if t.tag == "number" then "convert it with `math.tointeger(" .. text_of(ctx, node) .. ")` or `math.floor(" ..
       text_of(ctx, node) .. ")`" else "use an integer: " .. quoted(op) .. " converts nothing" end
-  bad_operand(ctx, node, t, op, "integers", fix)
+  Operands.bad_operand(ctx, node, t, op, "integers", fix)
   return false
 end
 
 --- Whether `t` is a string, as an operand of `..`; reports it where not.
-local function string_operand(ctx: Ctx, node: Ast.Node, t: Type): boolean
+function Operands.string_operand(ctx: Ctx, node: Ast.Node, t: Type): boolean
   if is_text(t) or t.tag == "never" then
     return true
   end
@@ -2500,12 +2508,12 @@ local function string_operand(ctx: Ctx, node: Ast.Node, t: Type): boolean
       { show(ctx, t) })
     return false
   end
-  bad_operand(ctx, node, t, "..", "strings", "convert it to a string first: `tostring(" .. text_of(ctx, node) .. ")`")
+  Operands.bad_operand(ctx, node, t, "..", "strings", "convert it to a string first: `tostring(" .. text_of(ctx, node) .. ")`")
   return false
 end
 
 --- Whether `t` has a length: a string, an array, a record with an array part.
-local function length_operand(ctx: Ctx, node: Ast.Node, t: Type): boolean
+function Operands.length_operand(ctx: Ctx, node: Ast.Node, t: Type): boolean
   if is_text(t) or (t.tag == "array") or t.tag == "never" then
     return true
   elseif t.tag == "invalid" then
@@ -2516,14 +2524,14 @@ local function length_operand(ctx: Ctx, node: Ast.Node, t: Type): boolean
       return true
     end
   end
-  bad_operand(ctx, node, t, "#", "a string or an array", if (t.tag == "map") then
+  Operands.bad_operand(ctx, node, t, "#", "a string or an array", if (t.tag == "map") then
     "a map has no length: keep a count, or use an array" else "take the length of a string or an array" end)
   return false
 end
 
 --- Whether the type of an `==` operand and another may be equal: they overlap, some member of one is below some member
 --- of the other. `any` and `invalid` overlap everything; a type variable overlaps itself and nil.
-local function overlaps(ctx: Ctx, a: Type, b: Type): boolean
+function Operands.overlaps(ctx: Ctx, a: Type, b: Type): boolean
   if a == b or a.tag == "any" or b.tag == "any" or a.tag == "invalid" or b.tag == "invalid" or a.tag == "never" or
       b.tag == "never" then
     return true
@@ -2880,7 +2888,7 @@ function Tests.tag_values(ctx: Ctx, m: Type, name: string): {string}?
   if not ((m.tag == "named")) or m.value or (m.decl.kind ~= "record" and m.decl.kind ~= "class") then
     return nil
   end
-  local field = plain_field(ctx, m, name)
+  local field = TableLiterals.plain_field(ctx, m, name)
   if field ~= nil and field.mut == true then
     return nil
   end
@@ -2964,8 +2972,12 @@ function Tests.tag_field(ctx: Ctx, list: {Type}): string?, {string}?
   return nil, nil
 end
 
+--- The flow states a test of a place leaves where it holds and where it fails, and the note that a test narrowed.
+local record Narrowing
+end
+
 --- Notes that the read `node` of a place declared `declared` has the type `narrowed`, for a run that checks it.
-local function note_narrowed(ctx: Ctx, node: Ast.Node, declared: Type, narrowed: Type)
+function Narrowing.note_narrowed(ctx: Ctx, node: Ast.Node, declared: Type, narrowed: Type)
   if ctx.quiet > 0 then
     return
   end
@@ -3028,7 +3040,7 @@ end
 
 --- `f` where the place is known to have the type `t`. A type no value has makes the edge unreachable, with the place
 --- kept at it so that the code there reads it as `never` and reports nothing of it.
-local function narrowed_flow(f: Flow.State, place: Place, t: Type): Flow.State
+function Narrowing.narrowed_flow(f: Flow.State, place: Place, t: Type): Flow.State
   if t.tag == "never" then
     return Flow.dead(Flow.narrow(f, place.key, t, place.declared))
   end
@@ -3037,7 +3049,7 @@ end
 
 --- `f` where a test that the place is of type `t` holds. A test no value of the place can pass has been refused for
 --- that (`compare_disjoint`, `is_disjoint`), so what follows it keeps what was known and reports nothing more.
-local function when_true(f: Flow.State, place: Place, t: Type): Flow.State
+function Narrowing.when_true(f: Flow.State, place: Place, t: Type): Flow.State
   if t.tag == "never" then
     return f
   end
@@ -3330,11 +3342,11 @@ local function index_read(ctx: Ctx, node: Ast.Index, object: Type): Type
     local maybe = store:optional(element)
     if Tests.length_proves(ctx, node.object, node.key) then
       -- Checked at run time like a narrowed local: a length fact has no other check.
-      note_narrowed(ctx, node, maybe, element)
+      Narrowing.note_narrowed(ctx, node, maybe, element)
       return element
     end
     if Writes.counted_read(ctx, node) then
-      note_narrowed(ctx, node, maybe, element)
+      Narrowing.note_narrowed(ctx, node, maybe, element)
       return element
     end
     return maybe
@@ -3385,7 +3397,7 @@ end
 --- the members whose tag enum still has the value, each with all its values. The false edge notes that the tag is not
 --- the value, and drops a member once every value of its enum has been noted on the path, so that a chain of tests
 --- over the values of a member leaves the rest.
-local function tag_edges(ctx: Ctx, f: Flow.State, field: Ast.Field, lit: string): Flow.State, Flow.State
+function Narrowing.tag_edges(ctx: Ctx, f: Flow.State, field: Ast.Field, lit: string): Flow.State, Flow.State
   local p = place_of(ctx, f, field.object)
   if p == nil then
     return f, f
@@ -3441,15 +3453,15 @@ local function tag_edges(ctx: Ctx, f: Flow.State, field: Ast.Field, lit: string)
       end
     end
   end
-  local after = narrowed_flow(f, p, store:union(no))
+  local after = Narrowing.narrowed_flow(f, p, store:union(no))
   for _, m in ipairs(noted) do
     after = Flow.narrow(after, tag_key(m, lit), store.boolean, store.integer)
   end
-  return when_true(f, p, store:union(yes)), after
+  return Narrowing.when_true(f, p, store:union(yes)), after
 end
 
 --- The edges of `type(x) == "kind"`.
-local function type_edges(ctx: Ctx, f: Flow.State, call: Ast.Call, kind: string): Flow.State, Flow.State
+function Narrowing.type_edges(ctx: Ctx, f: Flow.State, call: Ast.Call, kind: string): Flow.State, Flow.State
   local callee = call.callee
   local subject_arg = call.args[1]
   if not ((callee.kind == "Name")) or callee.binding ~= nil or callee.text ~= "type" or #call.args ~= 1 or subject_arg == nil then
@@ -3460,27 +3472,27 @@ local function type_edges(ctx: Ctx, f: Flow.State, call: Ast.Call, kind: string)
     return f, f
   end
   local cur = current(f, p)
-  return narrowed_flow(f, p, Tests.by_kind(ctx, cur, kind, true)), narrowed_flow(f, p, Tests.by_kind(ctx, cur, kind, false))
+  return Narrowing.narrowed_flow(f, p, Tests.by_kind(ctx, cur, kind, true)), Narrowing.narrowed_flow(f, p, Tests.by_kind(ctx, cur, kind, false))
 end
 
 --- The edges of `a == b`.
-local function compare_edges(ctx: Ctx, f: Flow.State, node: Ast.Binary): Flow.State, Flow.State
+function Narrowing.compare_edges(ctx: Ctx, f: Flow.State, node: Ast.Binary): Flow.State, Flow.State
   local l, r = peel(node.left), peel(node.right)
   local yes, no = f, f
   if (r.kind == "Nil") or (l.kind == "Nil") then
     local p = place_of(ctx, f, (r.kind == "Nil") and l or r)
     if p ~= nil then
       local cur = current(f, p)
-      yes, no = when_true(f, p, Tests.nil_of(ctx, cur)), narrowed_flow(f, p, Tests.not_nil_of(ctx, cur))
+      yes, no = Narrowing.when_true(f, p, Tests.nil_of(ctx, cur)), Narrowing.narrowed_flow(f, p, Tests.not_nil_of(ctx, cur))
     end
   elseif (r.kind == "String") and (l.kind == "Call") then
-    yes, no = type_edges(ctx, f, l, r.value)
+    yes, no = Narrowing.type_edges(ctx, f, l, r.value)
   elseif (l.kind == "String") and (r.kind == "Call") then
-    yes, no = type_edges(ctx, f, r, l.value)
+    yes, no = Narrowing.type_edges(ctx, f, r, l.value)
   elseif (r.kind == "String") and (l.kind == "Field") then
-    yes, no = tag_edges(ctx, f, l, r.value)
+    yes, no = Narrowing.tag_edges(ctx, f, l, r.value)
   elseif (l.kind == "String") and (r.kind == "Field") then
-    yes, no = tag_edges(ctx, f, r, l.value)
+    yes, no = Narrowing.tag_edges(ctx, f, r, l.value)
   elseif (l.kind == "Unary") or (r.kind == "Unary") then
     yes, no = Tests.length_edges(ctx, f, "==", l, r)
   end
@@ -3492,7 +3504,7 @@ end
 
 --- The edges of a name or a field used as a condition: an optional is not nil when true, and nil when false unless
 --- what it holds may be false.
-local function truthy_edges(ctx: Ctx, f: Flow.State, e: Ast.Node): Flow.State, Flow.State
+function Narrowing.truthy_edges(ctx: Ctx, f: Flow.State, e: Ast.Node): Flow.State, Flow.State
   local p = place_of(ctx, f, e)
   if p == nil then
     return f, f
@@ -3509,18 +3521,18 @@ local function truthy_edges(ctx: Ctx, f: Flow.State, e: Ast.Node): Flow.State, F
       falsy = cur
     end
   end
-  return narrowed_flow(f, p, kept), narrowed_flow(f, p, falsy)
+  return Narrowing.narrowed_flow(f, p, kept), Narrowing.narrowed_flow(f, p, falsy)
 end
 
 --- The edges of a test that the place `p` is a `tested`. `is table` tests that it is a table of any shape, the standard
 --- library's record `table` being the type of its functions and no type of a value: it narrows as `type(v) == "table"`.
-local function is_edges(ctx: Ctx, f: Flow.State, p: Place, tested: Type): Flow.State, Flow.State
+function Narrowing.is_edges(ctx: Ctx, f: Flow.State, p: Place, tested: Type): Flow.State, Flow.State
   local cur = current(f, p)
   local library = ctx.program.globals["table"]
   if (tested.tag == "named") and library ~= nil and tested.decl == library.decl then
-    return when_true(f, p, Tests.by_kind(ctx, cur, "table", true)), narrowed_flow(f, p, Tests.by_kind(ctx, cur, "table", false))
+    return Narrowing.when_true(f, p, Tests.by_kind(ctx, cur, "table", true)), Narrowing.narrowed_flow(f, p, Tests.by_kind(ctx, cur, "table", false))
   end
-  return when_true(f, p, Tests.keep_is(ctx, cur, tested)), narrowed_flow(f, p, Tests.drop_is(ctx, cur, tested))
+  return Narrowing.when_true(f, p, Tests.keep_is(ctx, cur, tested)), Narrowing.narrowed_flow(f, p, Tests.drop_is(ctx, cur, tested))
 end
 
 --- The edges of the condition `e` in the state `f`: the states where it is true and where it is false. The test of a
@@ -3548,7 +3560,7 @@ edges = function(ctx: Ctx, f: Flow.State, e: Ast.Node): Flow.State, Flow.State
       local ry, rn = edges(ctx, ln, at.right)
       return merge(ctx, ly, ry), rn
     elseif op == "==" or op == "~=" then
-      return compare_edges(ctx, f, at)
+      return Narrowing.compare_edges(ctx, f, at)
     elseif op == "<" or op == "<=" or op == ">" or op == ">=" then
       return Tests.length_edges(ctx, f, op, at.left, at.right)
     end
@@ -3556,15 +3568,15 @@ edges = function(ctx: Ctx, f: Flow.State, e: Ast.Node): Flow.State, Flow.State
     local p = place_of(ctx, f, at.value)
     local tested = ctx.lowered.types[at.type.id]
     if p ~= nil and tested ~= nil then
-      return is_edges(ctx, f, p, tested)
+      return Narrowing.is_edges(ctx, f, p, tested)
     end
   elseif (at.kind == "Name") or (at.kind == "Field") then
-    return truthy_edges(ctx, f, at)
+    return Narrowing.truthy_edges(ctx, f, at)
   elseif (at.kind == "Call") or (at.kind == "MethodCall") then
     local g = ctx.guards[at.id]
     local p = g ~= nil and place_of(ctx, f, g.arg) or nil
     if g ~= nil and p ~= nil then
-      return is_edges(ctx, f, p, g.to)
+      return Narrowing.is_edges(ctx, f, p, g.to)
     end
   elseif (at.kind == "Boolean") then
     if at.value then
@@ -3582,10 +3594,14 @@ local DIVISION <const>: {string: boolean} = { ["/"] = true, ["^"] = true }
 local BITWISE <const>: {string: boolean} = { ["&"] = true, ["|"] = true, ["~"] = true, ["<<"] = true, [">>"] = true }
 local ORDERED <const>: {string: boolean} = { ["<"] = true, [">"] = true, ["<="] = true, [">="] = true }
 
+--- The checks of a binary or unary operator, and of the `is` test and the `if` expression.
+local record Operators
+end
+
 --- `a == b` and `a ~= b`: both sides overlap, else the test is dead.
-local function equality(ctx: Ctx, node: Ast.Binary, left: Type, right: Type)
+function Operators.equality(ctx: Ctx, node: Ast.Binary, left: Type, right: Type)
   Tests.type_name(ctx, node)
-  if not overlaps(ctx, left, right) then
+  if not Operands.overlaps(ctx, left, right) then
     report(ctx, "compare_disjoint", node, subject(ctx, node.left) .. " is " .. tq(ctx, left) .. " and " ..
         subject(ctx, node.right) .. " is " .. tq(ctx, right) .. ", which share no value: the test is never " ..
         (if node.op == "==" then "true" else "false" end),
@@ -3594,7 +3610,7 @@ local function equality(ctx: Ctx, node: Ast.Binary, left: Type, right: Type)
 end
 
 --- `a < b` and the rest: two numbers or two strings.
-local function ordered(ctx: Ctx, node: Ast.Binary, left: Type, right: Type)
+function Operators.ordered(ctx: Ctx, node: Ast.Binary, left: Type, right: Type)
   local l, r = left, right
   local function number(t: Type): boolean
     return t.tag == "integer" or t.tag == "number"
@@ -3609,19 +3625,19 @@ local function ordered(ctx: Ctx, node: Ast.Binary, left: Type, right: Type)
   if number(l) or is_text(l) then
     local wanted = if number(l) then "a number" else "a string" end
     if nilable(r) or r.tag == "any" or (r.tag == "var") then
-      bad_operand(ctx, node.right, r, node.op, wanted .. ", as its left operand is", fix)
+      Operands.bad_operand(ctx, node.right, r, node.op, wanted .. ", as its left operand is", fix)
     else
-      bad_operand(ctx, node.right, r, node.op, wanted .. ", as its left operand is", fix)
+      Operands.bad_operand(ctx, node.right, r, node.op, wanted .. ", as its left operand is", fix)
     end
   elseif number(r) or is_text(r) then
-    bad_operand(ctx, node.left, l, node.op, (if number(r) then "a number" else "a string" end) .. ", as its right operand is", fix)
+    Operands.bad_operand(ctx, node.left, l, node.op, (if number(r) then "a number" else "a string" end) .. ", as its right operand is", fix)
   else
-    bad_operand(ctx, node.left, l, node.op, "numbers or strings", fix)
+    Operands.bad_operand(ctx, node.left, l, node.op, "numbers or strings", fix)
   end
 end
 
 --- `a or b`: both booleans, or a `T?` replaced by a default of its own type.
-local function disjunction(ctx: Ctx, node: Ast.Binary, left: Type, expected: Type?): Type
+function Operators.disjunction(ctx: Ctx, node: Ast.Binary, left: Type, expected: Type?): Type
   local store = ctx.store
   local left_kind = if left.tag == "invalid" then "bad" else condition_kind(ctx, node.left, left, true) end
   if left_kind == "bad" then
@@ -3666,7 +3682,7 @@ local function disjunction(ctx: Ctx, node: Ast.Binary, left: Type, expected: Typ
 end
 
 --- `a and b`: both booleans, or a `T?` guarding a value, which is optional.
-local function conjunction(ctx: Ctx, node: Ast.Binary, left: Type, expected: Type?): Type
+function Operators.conjunction(ctx: Ctx, node: Ast.Binary, left: Type, expected: Type?): Type
   local store = ctx.store
   local left_kind = if left.tag == "invalid" then "bad" else condition_kind(ctx, node.left, left) end
   if left_kind == "bad" then
@@ -3703,7 +3719,7 @@ end
 --- `a and b` and `a or b` whose left operand has type `left`: the right operand is evaluated under the state where the
 --- left is true (`and`) or false (`or`), and what follows has the states of both ways out met: the left's short cut and
 --- the right operand's end, which a call that never returns does not reach.
-local function logical(ctx: Ctx, node: Ast.Binary, left: Type, expected: Type?): Type
+function Operators.logical(ctx: Ctx, node: Ast.Binary, left: Type, expected: Type?): Type
   local is_and = node.op == "and"
   local ly, ln = edges(ctx, ctx.flow, node.left)
   local into, short = ly, ln
@@ -3713,9 +3729,9 @@ local function logical(ctx: Ctx, node: Ast.Binary, left: Type, expected: Type?):
   ctx.flow = into
   local result: Type
   if is_and then
-    result = conjunction(ctx, node, left, expected)
+    result = Operators.conjunction(ctx, node, left, expected)
   else
-    result = disjunction(ctx, node, left, expected)
+    result = Operators.disjunction(ctx, node, left, expected)
   end
   local after = ctx.flow
   local ry, rn = edges(ctx, after, node.right)
@@ -3730,56 +3746,56 @@ local function logical(ctx: Ctx, node: Ast.Binary, left: Type, expected: Type?):
 end
 
 --- A binary expression whose left operand has type `left`.
-local function binary(ctx: Ctx, node: Ast.Binary, left: Type, expected: Type?): Type
+function Operators.binary(ctx: Ctx, node: Ast.Binary, left: Type, expected: Type?): Type
   local store = ctx.store
   local op = node.op
   if op == "or" or op == "and" then
-    return logical(ctx, node, left, expected)
+    return Operators.logical(ctx, node, left, expected)
   end
   local right = expr(ctx, node.right, (op == "==" or op == "~=") and left or nil)
   if op == ".." then
-    local l, r = string_operand(ctx, node.left, left), string_operand(ctx, node.right, right)
+    local l, r = Operands.string_operand(ctx, node.left, left), Operands.string_operand(ctx, node.right, right)
     return (l and r) and store.string or ctx.invalid
   elseif ARITHMETIC[op] == true or DIVISION[op] == true then
-    local l, r = arithmetic_operand(ctx, node.left, left, op), arithmetic_operand(ctx, node.right, right, op)
+    local l, r = Operands.arithmetic_operand(ctx, node.left, left, op), Operands.arithmetic_operand(ctx, node.right, right, op)
     if l == 0 or r == 0 then
       return ctx.invalid
     end
     return (l == 1 and r == 1 and ARITHMETIC[op]) and store.integer or store.number
   elseif BITWISE[op] == true then
-    local l, r = integer_operand(ctx, node.left, left, op), integer_operand(ctx, node.right, right, op)
+    local l, r = Operands.integer_operand(ctx, node.left, left, op), Operands.integer_operand(ctx, node.right, right, op)
     return (l and r) and store.integer or ctx.invalid
   elseif ORDERED[op] == true then
-    ordered(ctx, node, left, right)
+    Operators.ordered(ctx, node, left, right)
     return store.boolean
   end
   local left_node = node.left
   if (left_node.kind == "String") and has_enum(ctx, right) then
     local _ = string_literal(ctx, left_node, right)
   end
-  equality(ctx, node, left, right)
+  Operators.equality(ctx, node, left, right)
   return store.boolean
 end
 
 --- A unary expression whose operand has type `operand`.
-local function unary(ctx: Ctx, node: Ast.Unary, operand: Type): Type
+function Operators.unary(ctx: Ctx, node: Ast.Unary, operand: Type): Type
   local op = node.op
   if op == "not" then
     local _ = condition_kind(ctx, node.operand, operand)
     return ctx.store.boolean
   elseif op == "#" then
-    return length_operand(ctx, node.operand, operand) and ctx.store.integer or ctx.invalid
+    return Operands.length_operand(ctx, node.operand, operand) and ctx.store.integer or ctx.invalid
   elseif op == "-" then
-    local c = arithmetic_operand(ctx, node.operand, operand, "-")
+    local c = Operands.arithmetic_operand(ctx, node.operand, operand, "-")
     return c == 1 and ctx.store.integer or c == 2 and ctx.store.number or ctx.invalid
   end
-  return integer_operand(ctx, node.operand, operand, "~") and ctx.store.integer or ctx.invalid
+  return Operands.integer_operand(ctx, node.operand, operand, "~") and ctx.store.integer or ctx.invalid
 end
 
 --- Whether a value of type `value` may be a `tested`: some member of one is below some member of the other (a class
 --- below the interface the value is of, a number below `number`), as for `==`. `any`, `invalid` and a type variable,
 --- which the code around may instantiate as the type, overlap everything.
-local function testable(ctx: Ctx, value: Type, tested: Type): boolean
+function Operators.testable(ctx: Ctx, value: Type, tested: Type): boolean
   if value == tested or value.tag == "any" or tested.tag == "any" or value.tag == "invalid" or tested.tag == "invalid" or
       value.tag == "never" or tested.tag == "never" then
     return true
@@ -3796,7 +3812,7 @@ local function testable(ctx: Ctx, value: Type, tested: Type): boolean
 end
 
 --- `e is T`: a test of a run-time tag.
-local function is_test(ctx: Ctx, node: Ast.IsTest, value: Type): Type
+function Operators.is_test(ctx: Ctx, node: Ast.IsTest, value: Type): Type
   local store = ctx.store
   local tested = ctx.lowered.types[node.type.id] or ctx.invalid
   if tested.tag == "invalid" or value.tag == "invalid" then
@@ -3816,10 +3832,10 @@ local function is_test(ctx: Ctx, node: Ast.IsTest, value: Type): Type
   if (tested.tag == "named") and tested.decl.kind ~= "enum" and tested.decl.kind ~= "class" then
     local word = KIND_WORDS[tested.decl.kind] or "type"
     refuse((if word == "interface" then "an " else "a " end) .. word .. " leaves nothing to test")
-  elseif (tested.tag == "named") and tested.decl.kind == "class" and out_of_reach(ctx, tested.decl) ~= "" then
+  elseif (tested.tag == "named") and tested.decl.kind == "class" and TableLiterals.out_of_reach(ctx, tested.decl) ~= "" then
     report(ctx, "class_scope", node, "`is " .. show(ctx, tested) .. "` tests the metatable of " ..
-        out_of_reach(ctx, tested.decl),
-      reach_fix(ctx, tested.decl, "test in " .. quoted(tested.decl.module) .. " with a function of the class (`function " ..
+        TableLiterals.out_of_reach(ctx, tested.decl),
+      TableLiterals.reach_fix(ctx, tested.decl, "test in " .. quoted(tested.decl.module) .. " with a function of the class (`function " ..
           tested.decl.name .. ".owns(v: any): boolean`), and call it here"), { show(ctx, tested) })
   elseif (tested.tag == "named") and tested.decl.kind == "class" and #tested.args > 0 then
     refuse("the metatable tells the class and not its type arguments")
@@ -3831,7 +3847,7 @@ local function is_test(ctx: Ctx, node: Ast.IsTest, value: Type): Type
     refuse("the tag says `table` and the elements go unchecked")
   end
   -- A test the rules refuse is reported once, for that.
-  if #ctx.errors == before and not testable(ctx, value, tested) then
+  if #ctx.errors == before and not Operators.testable(ctx, value, tested) then
     report(ctx, "is_disjoint", node, subject(ctx, node) .. " is always false: " .. subject(ctx, node.value) .. " is " ..
         tq(ctx, value) .. ", and no value of it is " .. tq(ctx, tested),
       "this test is always false: remove it and the branch it guards, or test a type that " .. subject(ctx, node.value) ..
@@ -3842,7 +3858,7 @@ end
 
 --- An `if` expression: conditions, and arms with a common type. Each arm is evaluated under the state where its
 --- condition holds and those before it do not.
-local function if_expression(ctx: Ctx, node: Ast.IfExp, expected: Type?): Type
+function Operators.if_expression(ctx: Ctx, node: Ast.IfExp, expected: Type?): Type
   local types: mut {Type} = {}
   local ends: mut {Flow.State} = {}
   for _, arm in ipairs(node.arms) do
@@ -5625,7 +5641,7 @@ local function after_call(ctx: Ctx, node: Ast.Node, callee: Ast.Exp?, alts: {Alt
   if narrows.asserts then
     local p = place_of(ctx, ctx.flow, target)
     if p ~= nil then
-      local yes, _ = is_edges(ctx, ctx.flow, p, narrows.to)
+      local yes, _ = Narrowing.is_edges(ctx, ctx.flow, p, narrows.to)
       ctx.flow = yes
     end
   else
@@ -5761,7 +5777,7 @@ local function read_name(ctx: Ctx, e: Ast.Name): Type
     local key = path_key(ctx, e)
     local fact = key ~= nil and ctx.flow.facts[key] or nil
     if fact ~= nil then
-      note_narrowed(ctx, e, fact.declared, fact.type)
+      Narrowing.note_narrowed(ctx, e, fact.declared, fact.type)
       return fact.type
     end
   end
@@ -5786,13 +5802,13 @@ local function leaf(ctx: Ctx, e: Ast.Exp, expected: Type?): Type
   elseif (e.kind == "Paren") then
     return expr(ctx, e.inner, expected)
   elseif (e.kind == "Table") then
-    return table_literal(ctx, e, expected)
+    return TableLiterals.table_literal(ctx, e, expected)
   elseif (e.kind == "FunctionLit") then
     return function_literal(ctx, e, expected)
   elseif (e.kind == "Unary") then
-    return unary(ctx, e, expr(ctx, e.operand, nil))
+    return Operators.unary(ctx, e, expr(ctx, e.operand, nil))
   elseif (e.kind == "IfExp") then
-    return if_expression(ctx, e, expected)
+    return Operators.if_expression(ctx, e, expected)
   elseif (e.kind == "Vararg") then
     local rest = vararg_rest(ctx, e)
     return rest.tag == "invalid" and rest or store:optional(rest)
@@ -5851,7 +5867,7 @@ end
 --- Applies the chain node `n` to the type `t` of its first operand.
 local function apply(ctx: Ctx, n: Ast.Exp, t: Type, expected: Type?, wants_lists: boolean): Type, {Alt}?
   if (n.kind == "Binary") then
-    return binary(ctx, n, t, expected), nil
+    return Operators.binary(ctx, n, t, expected), nil
   elseif (n.kind == "Field") then
     ctx.field_node, ctx.field_base = n, t
     local base = readable(ctx, n.object, t, "it has no field " .. quoted(n.name) .. " to read")
@@ -5864,7 +5880,7 @@ local function apply(ctx: Ctx, n: Ast.Exp, t: Type, expected: Type?, wants_lists
       local key = path_key(ctx, n)
       local fact = key ~= nil and ctx.flow.facts[key] or nil
       if fact ~= nil then
-        note_narrowed(ctx, n, fact.declared, fact.type)
+        Narrowing.note_narrowed(ctx, n, fact.declared, fact.type)
         return fact.type, nil
       end
     end
@@ -5907,7 +5923,7 @@ local function apply(ctx: Ctx, n: Ast.Exp, t: Type, expected: Type?, wants_lists
     end
     return first_value(ctx, n, alts), nil
   elseif (n.kind == "IsTest") then
-    return is_test(ctx, n, t), nil
+    return Operators.is_test(ctx, n, t), nil
   elseif (n.kind == "Cast") then
     report(ctx, "cast_refused", n, "`as` is not in the language: " .. subject(ctx, n) .. " changes a type by no check",
       "validate the value with a [`cosmic.shape`] validator, test it with `is` or a guard, or delete the cast")
@@ -7311,7 +7327,7 @@ end
 
 local function numeric_bound(ctx: Ctx, e: Ast.Exp, what: string): integer
   local t = expr(ctx, e, nil)
-  return arithmetic_operand(ctx, e, t, "for " .. what)
+  return Operands.arithmetic_operand(ctx, e, t, "for " .. what)
 end
 
 local function for_numeric(ctx: Ctx, s: Ast.ForNum)
