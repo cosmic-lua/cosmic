@@ -291,7 +291,7 @@ end
 --- rest from its "/" on -- or nil for a path not beneath it.
 local function beneath(path: string, dir: string): string?
   if path == dir then return "" end
-  if dir == "/" then return path:sub(1, 1) == "/" and path or nil end -- checked: and_ternary
+  if dir == "/" then return if path:sub(1, 1) == "/" then path else nil end end
   if String.starts_with(path, dir .. "/") then return path:sub(#dir + 1) end
   return nil
 end
@@ -306,7 +306,7 @@ end
 local function shown_by(path: string, reads: {string}, at: {string:string}): boolean
   local placed = at[path] or path
   for _, other in ipairs(reads) do
-    local rest = other ~= path and beneath(path, other) or nil -- checked: and_ternary
+    local rest = if other ~= path then beneath(path, other) else nil end
     if rest ~= nil and rest ~= "" and beneath(placed, at[other] or other) == rest then
       local real, other_real = confine.resolution(path), confine.resolution(other)
       if real ~= "" and other_real ~= "" and beneath(real, other_real) == rest then
@@ -569,7 +569,7 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
   -- Each file above the project, read-only at its relative path beneath
   -- [`parent_place`]. A file the host lacks is none, as the test
   -- finds ([`test_inputs.resolve`] fails its tests before it starts).
-  local above = #(effective.parent or {}) > 0 and test_inputs.parent_directory(root) or "" -- checked: and_ternary
+  local above = if #(effective.parent or {}) > 0 then test_inputs.parent_directory(root) else "" end
   for _, relative in ipairs(effective.parent or {}) do
     local source = above .. "/" .. relative
     -- One host path is bound at one place: a file the plan gives already
@@ -671,7 +671,7 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
     sandbox = { unveil = { reads = reads, writes = writes, at = at }, offline = true },
     env = test_sandbox.environment(environment, effective),
     over = over,
-    trouble = refused ~= "" and refused or made and "" or "a cache it declares: " .. trouble, -- checked: or_mix, and_ternary
+    trouble = if refused ~= "" then refused elseif made then "" else "a cache it declares: " .. trouble end,
     program = program,
     runs = runs,
     own_scratch = own_scratch,
@@ -697,7 +697,7 @@ function test_sandbox.rebind(plan: test_sandbox.Plan, from: string, scratch: str
   for _, path in ipairs(unveil.reads) do reads[#reads + 1] = path end
   local writes: mut {string} = {}
   for _, path in ipairs(unveil.writes or {}) do
-    writes[#writes + 1] = path == from and scratch or path -- checked: and_ternary
+    writes[#writes + 1] = if path == from then scratch else path end
   end
   local at: mut {string:string} = {}
   for path, inside in pairs(unveil.at or {}) do at[path == from and scratch or path] = inside end -- checked: and_ternary

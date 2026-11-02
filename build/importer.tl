@@ -206,8 +206,8 @@ local analyzer_roots: {string} = {
 function importer.analyzer_modules(code?: importer.Code): {string}?, string
   -- A name at a time ([`Store.requires`]), not a query of a handle on
   -- the binary's database, which would read every module's rows.
-  local requires = code ~= nil and code.requires or Store.requires -- checked: and_ternary
-  local source_of = code ~= nil and code.source or Store.source -- checked: and_ternary
+  local requires = if code ~= nil then code.requires else Store.requires end
+  local source_of = if code ~= nil then code.source else Store.source end
   local reached: mut {string:boolean} = {}
   local stack: mut {string} = {}
   for _, name in ipairs(analyzer_roots) do stack[#stack + 1] = name end
@@ -215,7 +215,7 @@ function importer.analyzer_modules(code?: importer.Code): {string}?, string
     local name = table.remove(stack)
     if name ~= nil and reached[name] ~= true then
       reached[name] = true
-      local required, trouble = requires(name) -- untyped: call
+      local required, trouble = requires(name)
       if required == nil then return nil, trouble end
       for _, next_name in ipairs(required) do stack[#stack + 1] = next_name end
     end
@@ -224,7 +224,7 @@ function importer.analyzer_modules(code?: importer.Code): {string}?, string
   for name in pairs(reached) do
     -- What the binary holds a module or a declaration of: what
     -- [`Store.source`] answers, of a name no hold holds.
-    local source, _ = source_of(name) -- untyped: call
+    local source, _ = source_of(name)
     if source ~= nil then names[#names + 1] = name end
   end
   table.sort(names)
@@ -304,14 +304,14 @@ end
 --- readers reach (build.withheld, build.syntax_contracts and the rules,
 --- through build.pipeline) still parses again.
 function importer.analyzer_identity(code?: importer.Code): string
-  local parts: mut {string} = { code ~= nil and code.basis or Store.meta("runtime_basis") or "" } -- checked: and_ternary
+  local parts: mut {string} = { (if code ~= nil then code.basis else Store.meta("runtime_basis") end) or "" }
   local modules, _ = importer.analyzer_modules(code)
   if modules == nil then
     return "binary " .. (Store.meta("boot_hash") or "")
   end
-  local source_of = code ~= nil and code.source or Store.source -- checked: and_ternary
+  local source_of = if code ~= nil then code.source else Store.source end
   for _, name in ipairs(modules) do
-    local source, _ = source_of(name) -- untyped: call
+    local source, _ = source_of(name)
     if source == nil then
       return "binary " .. (Store.meta("boot_hash") or "")
     end
@@ -374,7 +374,7 @@ local function recorded_analyzer(db: Sqlite.Handle): string?, string
   if last == nil then
     return nil, trouble
   end
-  return #last > 0 and last[1]:text(1) or "", "" -- checked: and_ternary
+  return if #last > 0 then last[1]:text(1) else "" end, ""
 end
 
 --- Forgets every derived row: every parse, and every derivation but
@@ -638,7 +638,7 @@ local function take_parses(handle: work.Handle, shared: importer.Shared, sources
   if widths == nil then return nil, widths_trouble end
   for _, source in ipairs(sources) do
     local found = shared.parse(identity, source.source_hash, source.mapped)
-    local rows = found ~= nil and derivation.unpacked_parse(found.rows, widths) or nil -- checked: and_ternary
+    local rows = if found ~= nil then derivation.unpacked_parse(found.rows, widths) else nil end
     if found ~= nil and rows ~= nil then
       -- One the tables refuse is left to the parse, which says why.
       local put, _ = derivation.put_parse(db, source.source_hash, found.requires, rows)

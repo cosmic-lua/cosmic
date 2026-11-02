@@ -109,7 +109,7 @@ local function protect(argv: {string}): {string}, {string:string}
   for slot, original in ipairs(argv) do
     local word = original
     if word == "--" then ended = true end
-    local before = slot > 1 and argv[slot - 1] or "" -- checked: and_ternary
+    local before = (if slot > 1 then argv[slot - 1] else nil end) or ""
     local option = spec[before]
     local is_value = false
     if option is Flags.Option then is_value = option.value ~= nil end

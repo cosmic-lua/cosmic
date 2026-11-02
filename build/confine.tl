@@ -534,7 +534,7 @@ function confine.worker_unveil(cwd: string?, scratch: string,
   local withheld = ""
   if with_program ~= true and program ~= nil then
     local launched, _ = Proc.relaunch()
-    local core = launched ~= nil and launched.argv[1] or program -- checked: and_ternary
+    local core = (if launched ~= nil then launched.argv[1] else nil end) or program
     local a, _ = asked.stat(program)
     local b, _ = asked.stat(core)
     if a == nil or b == nil or a.dev ~= b.dev or a.ino ~= b.ino then withheld = program end
@@ -844,7 +844,7 @@ local function led_to(path: string): string?
     end
     local parent, last = head:match("^(.*)/([^/]+)$")
     if parent == nil or last == ".." then return nil end
-    rest = rest == "" and last or last .. "/" .. rest -- checked: and_ternary, nil_not_allowed
+    rest = if rest == "" then last else last .. "/" .. rest end -- checked: nil_not_allowed
     head = parent
   end
   return nil
@@ -958,7 +958,7 @@ local function unseen(path: string, use: confine.Use): string?
   if fd == nil then return nil end
   local head, _ = asked.read(fd, 256)
   local _, _ = asked.close(fd)
-  local interpreter = head ~= nil and head:match("^#!%s*(/[^%s]+)") or nil -- checked: and_ternary
+  local interpreter = if head ~= nil then head:match("^#!%s*(/[^%s]+)") else nil end
   if interpreter == nil or interpreter == path then return nil end
   local why = unseen(interpreter, "starts")
   if why == nil then return nil end
@@ -1053,19 +1053,19 @@ local function enter(own?: {string}, sandboxed?: boolean): Leave, {string}
     -- process as a confinement does. It is read as the core reads it,
     -- raw, and a plain copy is what the core is given, so what is
     -- judged of it is what holds the process.
-    local plain = sandbox ~= nil and plain_sandbox(sandbox) or nil -- checked: and_ternary
+    local plain = if sandbox ~= nil then plain_sandbox(sandbox) else nil end
     -- A root of its own, which a worker held by a Landlock ruleset
     -- cannot make: refused outright, naming `nests`.
     local holder = held_by()
     -- A policy's sandbox that makes a root, a procfs or a network namespace
     -- is refused so as well: it is not copied ([`plain_sandbox`]).
-    local kind = sandbox ~= nil and plain == nil and policy_kind(sandbox) or "" -- checked: and_ternary
+    local kind = if sandbox ~= nil and plain == nil then policy_kind(sandbox) else "" end
     if holder ~= nil and ((plain ~= nil and plain.unveil ~= nil) or
         kind == "rooted" or kind == "isolating" or
         (sandbox == nil and declared_by.confinement ~= nil)) then
       return nil, refuse_nesting(path, holder), sys.EPERM
     end
-    local must = declared_by.confinement ~= nil and declared_by.strict or nil -- checked: and_ternary
+    local must = if declared_by.confinement ~= nil then declared_by.strict else nil end
     if plain ~= nil and plain.unveil ~= nil and plain.offline == true then
       local pid, trouble, errno = spawn(path, argv, environment, cwd, stdin, stdout, stderr,
         process_group, fds, plain, credentials, terminal)
@@ -1172,7 +1172,7 @@ local function enter(own?: {string}, sandboxed?: boolean): Leave, {string}
         -- confine now, but one of them run where COSMIC_PORTABLE_CACHE
         -- is named through a link still needs it.
         local cache = (given_environment or asked.environ()).COSMIC_PORTABLE_CACHE -- checked: map_field
-        local leads = cache ~= nil and led_to(cache) or nil -- checked: and_ternary
+        local leads = if cache ~= nil then led_to(cache) else nil end
         if leads ~= nil and leads ~= cache then
           local renamed: mut {string:string} = {}
           for name, value in pairs(given_environment or asked.environ()) do

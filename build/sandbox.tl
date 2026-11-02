@@ -269,8 +269,8 @@ local function table_of(parsed: Flags.Parsed): PolicyFields?, string
   if users[1] ~= nil then
     local uid, gid = users[1]:match("^(%d+):(%d+)$") -- checked: nil_not_allowed
     if uid == nil then uid = users[1]:match("^(%d+)$") end -- checked: nil_not_allowed
-    local user = uid ~= nil and whole(uid, 1, 4294967294) or nil -- checked: and_ternary
-    local group = gid ~= nil and whole(gid, 1, 4294967294) or nil -- checked: and_ternary
+    local user = if uid ~= nil then whole(uid, 1, 4294967294) else nil end
+    local group = if gid ~= nil then whole(gid, 1, 4294967294) else nil end
     if user == nil or (gid ~= nil and group == nil) then
       return nil, "--user takes UID or UID:GID, whole numbers from 1 to 4294967294, not " .. users[1] -- checked: nil_not_allowed
     end
@@ -659,7 +659,7 @@ local function execute(argv: {string}, io: verb.Io?, held: mut {string}): intege
     local sealing_path = sealing.path
     if sealing_path == nil then
       complain(if sealing.refused then sealing.why .. "; see `cosmic help sandbox`" else sealing.why end)
-      return sealing.refused and bare.refused or START_FAILED -- checked: and_ternary
+      return if sealing.refused then bare.refused else START_FAILED end
     end
     database = sealing_path
   end

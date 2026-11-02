@@ -849,8 +849,8 @@ local function run(argv: {string}): integer
         ", " .. clock.took(started))
     return exit_status.uncompiled
   end
-  local wrote = #outputs > 0 and table.concat(outputs, ", ") or -- checked: and_ternary
-    "no executable: no cmd/<name>/main.tl in the tree"
+  local wrote = if #outputs > 0 then table.concat(outputs, ", ") else
+    "no executable: no cmd/<name>/main.tl in the tree" end
   local _, _ = logger.summary("build", wrote .. ", " .. clock.took(started))
   return 0
 end

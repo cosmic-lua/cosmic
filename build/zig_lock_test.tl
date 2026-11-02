@@ -172,7 +172,7 @@ local function test_a_snapshot_exception_releases_mains_lock(tmp: string)
   assert(Fs.write(fake, "", 0x1ed))
   local get, snapshot = Env.read, Zig.snapshot
   Env.read = function(name: Env.Name): string? -- checked: field_fixed
-    return name == "COSMIC_ZIG" and fake or get(name) -- checked: and_ternary
+    return if name == "COSMIC_ZIG" then fake else get(name) end
   end
   Zig.snapshot = function(): {string:string}?, string -- checked: field_fixed
     error("snapshot failed", 0)

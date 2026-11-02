@@ -353,7 +353,7 @@ local function workflow_sources(dir: string, root: string): {string}?, string
   if not within and inside ~= "." then
     return {}, ""
   end
-  local base = within and dir or dir .. "/.github" -- checked: and_ternary
+  local base = if within then dir else dir .. "/.github" end
   local prefix = if within then "" else ".github/" end
   local st, _ = Fs.stat(base)
   if st == nil or st.kind ~= "dir" then
@@ -970,7 +970,7 @@ function fix.notes(root: string, files: {string}, databases: {Sqlite.Handle},
     end
     local candidates: {near.Candidate}? = nil
     if relative ~= nil and relative:sub(1, 3) ~= "../" then
-      candidates = ready ~= nil and ready[file] or nil -- checked: and_ternary
+      candidates = if ready ~= nil then ready[file] else nil end
       if candidates == nil then
         local source, _ = Fs.read(file)
         if source ~= nil then
@@ -1008,7 +1008,7 @@ local function in_foreign_tree(root: string, file: string): boolean
   local absolute, _ = Fs.absolute(file)
   if absolute == nil then return false end
   local relative, _ = Fs.relative(absolute, root)
-  local first = relative ~= nil and relative:match("^([^/]+)/") or nil -- checked: and_ternary
+  local first = if relative ~= nil then relative:match("^([^/]+)/") else nil end
   return first ~= nil and identity.is_foreign_tree(first)
 end
 

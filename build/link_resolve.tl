@@ -92,7 +92,7 @@ local function kind_at(resolver: link_resolve.Resolver, path: string): string?
     cached = resolver.context.kind(path) or ""
     resolver.kinds[path] = cached
   end
-  return cached ~= "" and cached or nil -- checked: and_ternary
+  return if cached ~= "" then cached else nil end
 end
 
 --- Whether the code point `code` is a pictograph or a mark that
@@ -160,7 +160,7 @@ function link_resolve.anchors(text: string): {string: boolean}
       heading(String.trim(previous))
       previous = nil
     else
-      previous = line:match("%S") ~= nil and line or nil -- checked: and_ternary
+      previous = if line:match("%S") ~= nil then line else nil end
     end
     for _, attribute in ipairs({ "id", "name" }) do
       for name in line:gmatch("<a%s[^>]-" .. attribute .. "%s*=%s*[\"']([^\"']+)[\"']") do
@@ -237,14 +237,14 @@ local function located(resolver: link_resolve.Resolver, from: string, target: st
   for _, base in ipairs(bases) do
     local path = normalized(base .. "/" .. target)
     local reason: string? = nil
-    local relative = path ~= nil and path:sub(#root + 2) or "" -- checked: and_ternary
+    local relative = if path ~= nil then path:sub(#root + 2) else "" end
     if path == nil or not within(path, root) then
       reason = "it lies outside the project's root"
-    elseif relative == "o" or relative:sub(1, 2) == "o/" then -- untyped: call
+    elseif relative == "o" or relative:sub(1, 2) == "o/" then
       -- Refused before it is looked at, so a stale build's output
       -- never enters what a projection is signed by ([`build.link_index`]).
       reason = "it is under o/, a stale build directory"
-    elseif ("/" .. relative .. "/"):find("/.git/", 1, true) then -- untyped: call
+    elseif ("/" .. relative .. "/"):find("/.git/", 1, true) then
       -- Git's own metadata, not the project's: in a worktree `.git` is a
       -- file, so a path through it resolves in one checkout and not
       -- another. Refused before it is looked at, as `o/` is.

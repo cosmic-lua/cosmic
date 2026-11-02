@@ -162,24 +162,24 @@ function verb.parse_sums(text: string, digest_size: integer): verb.Sums
       -- blank or a comment
     else
       local escaped = line:sub(1, 1) == "\\"
-      local body = escaped and line:sub(2) or line -- checked: and_ternary
-      local digest = body:sub(1, width) -- untyped: call
-      if #digest ~= width or not digest:match("^%x+$") then -- untyped: call
+      local body = if escaped then line:sub(2) else line end
+      local digest = body:sub(1, width)
+      if #digest ~= width or not digest:match("^%x+$") then
         refuse("improperly formatted: no " .. tostring(width) .. "-digit hex digest")
-      elseif body:sub(width + 1, width + 1) ~= " " or not body:sub(width + 2, width + 2):match("^[ *]$") then -- untyped: call*3
+      elseif body:sub(width + 1, width + 1) ~= " " or not body:sub(width + 2, width + 2):match("^[ *]$") then
         refuse("improperly formatted: no space and marker after the digest")
       elseif #body < width + 3 then
         refuse("improperly formatted: no file name")
       else
-        local written = body:sub(width + 3) -- untyped: call
+        local written = body:sub(width + 3)
         local name: string? = written
         if escaped then name = unescape(written) end
         if name == nil then
           refuse("improperly formatted: bad escape in the file name")
         else
           table.insert(sums.entries, {
-            digest = digest:lower(), name = name, line = number, -- untyped: call
-            binary = body:sub(width + 2, width + 2) == "*", -- untyped: call
+            digest = digest:lower(), name = name, line = number,
+            binary = body:sub(width + 2, width + 2) == "*",
           })
         end
       end
@@ -424,7 +424,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     complain(tostring(unread) .. " listed " .. (if unread == 1 then "file" else "files" end) .. " could not be read")
   end
   if #sums.bad > 0 then return 2 end
-  return (failed > 0 or unread > 0) and bare.failed or bare.ok -- checked: and_ternary
+  return if failed > 0 or unread > 0 then bare.failed else bare.ok end
 end
 
 --- The `hash` verb as [`build/verb_list.tl`] lists it. Reads the files it
