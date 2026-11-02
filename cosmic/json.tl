@@ -1163,8 +1163,8 @@ end
 --- `decode` counts it) or a table that contains itself. To diff a decoded
 --- value, check it with [`Json.to_value`] first.
 ---
----     local want = { name = "cosmic", tags = Json.array({ "lua" }), n = 1 }
----     local got = { name = "cosmic", tags = Json.array({ "lua", "teal" }), n = 1.0 }
+---     local want: Json.Value = { name = "cosmic", tags = Json.array({ "lua" }), n = 1 }
+---     local got: Json.Value = { name = "cosmic", tags = Json.array({ "lua", "teal" }), n = 1.0 }
 ---     local differences = Json.diff(want, got)
 ---     assert(#differences == 1 and differences[1].path == "/tags/1" and differences[1].got == "teal")
 function Json.diff(want: Json.Value, got: Json.Value): {Json.Difference}
