@@ -169,16 +169,16 @@ end
 
 local function test_a_failed_write_exits_2_and_says_so()
   for _, words in ipairs({ { "hex" }, { "base64", "-d" } } as {{string}}) do -- checked: cast_refused
-    local complaints = { value = "" }
+    local complaints = ""
     local argv: mut {string} = { "codec" }
     for _, word in ipairs(words) do argv[#argv + 1] = word end
     local code = codec.run(argv, {
       out = function(_: string): boolean, string return false, "No space left on device" end,
-      err = function(line: string) complaints.value = complaints.value .. line .. "\n" end, -- checked: map_field*2
+      err = function(line: string) complaints = complaints .. line .. "\n" end,
       stdin = function(): string?, string return "Zm9v", "" end,
     })
     assert(code == 2, code)
-    assert(complaints.value == "cosmic: codec: standard output: No space left on device\n", complaints.value) -- checked: map_field*2
+    assert(complaints == "cosmic: codec: standard output: No space left on device\n", complaints)
   end
 end
 
@@ -190,11 +190,11 @@ end
 --- rest.
 local function stream(words: {string}, chunk: string, rounds: integer, expect: string, newline: boolean):
     integer, boolean, number, number
-  local sent = { value = 0 }
+  local sent = 0
   local input: Stream.Reader = { -- checked: literal_shape
     read = function(_self: Stream.Reader, _max_bytes?: integer): string?, string
-      if sent.value == rounds then return nil, "" end -- checked: map_field
-      sent.value = sent.value + 1 -- checked: map_field*2
+      if sent == rounds then return nil, "" end
+      sent = sent + 1
       return chunk, ""
     end,
     close = function(_self: Stream.Reader): boolean, string
@@ -204,11 +204,11 @@ local function stream(words: {string}, chunk: string, rounds: integer, expect: s
   collectgarbage()
   collectgarbage()
   local base = collectgarbage("count")
-  local written = { value = 0 }
-  local writes = { value = 0 }
-  local early = { value = 0.0 }
-  local late = { value = 0.0 }
-  local same = { value = true }
+  local written = 0
+  local writes = 0
+  local early = 0.0
+  local late = 0.0
+  local same = true
   local repeated = expect:rep(2)
   local argv: mut {string} = { "codec" }
   for _, word in ipairs(words) do argv[#argv + 1] = word end
@@ -217,23 +217,23 @@ local function stream(words: {string}, chunk: string, rounds: integer, expect: s
     out = function(text: string): boolean, string
       local body = text
       if newline and body:sub(-1) == "\n" then body = body:sub(1, -2) end
-      local from = written.value % #expect -- checked: map_field
-      if repeated:sub(from + 1, from + #body) ~= body then same.value = false end -- checked: map_field
-      written.value = written.value + #body -- checked: map_field*2
-      writes.value = writes.value + 1 -- checked: map_field*2
+      local from = written % #expect
+      if repeated:sub(from + 1, from + #body) ~= body then same = false end
+      written = written + #body
+      writes = writes + 1
       collectgarbage()
       local grown = collectgarbage("count") - base
-      if writes.value <= 4 then -- checked: map_field
-        early.value = math.max(early.value, grown) -- checked: map_field*2
+      if writes <= 4 then
+        early = math.max(early, grown)
       else
-        late.value = math.max(late.value, grown) -- checked: map_field*2
+        late = math.max(late, grown)
       end
       return true, ""
     end,
     err = function(line: string) error(line) end,
   })
   assert(code == 0, code)
-  return written.value, same.value, early.value, late.value -- checked: map_field*4
+  return written, same, early, late
 end
 
 local function test_a_large_stream_is_coded_in_bounded_memory()
@@ -272,14 +272,14 @@ end
 --- A Reader that gives `text` a few bytes a read, one to four in turn,
 --- as a pipe does.
 local function trickle(text: string): Stream.Reader
-  local at = { value = 1 }
-  local turn = { value = 0 }
+  local at = 1
+  local turn = 0
   local reader: Stream.Reader = { -- checked: literal_shape
     read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
-      if at.value > #text then return nil, "" end -- checked: map_field
-      turn.value = turn.value % 4 + 1 -- checked: map_field*2
-      local piece = text:sub(at.value, at.value + math.min(turn.value, max_bytes or turn.value) - 1) -- checked: map_field*4
-      at.value = at.value + #piece -- checked: map_field*2
+      if at > #text then return nil, "" end
+      turn = turn % 4 + 1
+      local piece = text:sub(at, at + math.min(turn, max_bytes or turn) - 1)
+      at = at + #piece
       return piece, ""
     end,
     close = function(_self: Stream.Reader): boolean, string
@@ -317,12 +317,12 @@ local function test_short_reads_do_not_release_what_a_refusal_would_take_back()
 end
 
 local function test_an_encoder_writes_as_it_reads_but_a_decoder_holds_a_chunk()
-  local writes = { value = 0 }
-  local sent = { value = 0 }
+  local writes = 0
+  local sent = 0
   local input: Stream.Reader = { -- checked: literal_shape
     read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
-      if sent.value == 3 then return nil, "" end -- checked: map_field
-      sent.value = sent.value + 1 -- checked: map_field*2
+      if sent == 3 then return nil, "" end
+      sent = sent + 1
       return ("a"):rep(max_bytes or 1), ""
     end,
     close = function(_self: Stream.Reader): boolean, string
@@ -333,8 +333,8 @@ local function test_an_encoder_writes_as_it_reads_but_a_decoder_holds_a_chunk()
   local code = codec.run({ "codec", "hex" }, {
     input = function(): Stream.Reader?, string return input, "" end,
     out = function(_text: string): boolean, string
-      writes.value = writes.value + 1 -- checked: map_field*2
-      seen[#seen + 1] = sent.value -- checked: map_field
+      writes = writes + 1
+      seen[#seen + 1] = sent
       return true, ""
     end,
     err = function(line: string) error(line) end,
@@ -345,12 +345,12 @@ local function test_an_encoder_writes_as_it_reads_but_a_decoder_holds_a_chunk()
 end
 
 local function test_no_input_given_is_an_error_not_a_crash()
-  local complaint = { value = "" }
+  local complaint = ""
   local code = codec.run({ "codec", "hex" }, {
     out = function(_text: string): boolean, string return true, "" end,
-    err = function(line: string) complaint.value = line end, -- checked: map_field
+    err = function(line: string) complaint = line end,
   })
-  assert(code == 2 and complaint.value:find("^cosmic: codec: "), complaint.value) -- checked: map_field*2
+  assert(code == 2 and complaint:find("^cosmic: codec: ") ~= nil, complaint)
 end
 
 local NAMES <const>: {codec.Name} = { "hex", "base64", "base64url" }
@@ -504,29 +504,29 @@ local function test_a_long_stream_takes_bounded_memory()
     -- The peak growth (KiB) of live memory over the first `warm` chunks, and over the
     -- rest: a coder that kept what it saw would climb the whole way.
     local early, late = 0.0, 0.0
-    local held = { value = "" }
-    local matched = { value = 0 }
+    local held = ""
+    local matched = 0
     local function drain()
-      while #held.value >= #chunk do -- checked: map_field
-        assert(String.starts_with(held.value, chunk), name) -- checked: map_field
-        held.value = held.value:sub(#chunk + 1) -- checked: map_field*2
-        matched.value = matched.value + 1 -- checked: map_field*2
+      while #held >= #chunk do
+        assert(String.starts_with(held, chunk), name)
+        held = held:sub(#chunk + 1)
+        matched = matched + 1
       end
     end
     -- The decoder is fed what the encoder writes, and its output is
     -- compared with what went in, a chunk at a time and not kept.
     for round = 1, rounds do
       local text = assert(enc:update(chunk))
-      held.value = held.value .. assert(dec:update(text)) -- checked: map_field*2
+      held = held .. assert(dec:update(text))
       drain()
       collectgarbage()
       local grown = collectgarbage("count") - base
       if round <= warm then early = math.max(early, grown) else late = math.max(late, grown) end
     end
     local text = assert(enc:finish())
-    held.value = held.value .. assert(dec:update(text)) .. assert(dec:finish()) -- checked: map_field*2
+    held = held .. assert(dec:update(text)) .. assert(dec:finish())
     drain()
-    assert(held.value == "" and matched.value == rounds, name) -- checked: map_field*2
+    assert(held == "" and matched == rounds, name)
     assert(early < 128 and late < early + 64,
       ("%s grew %.0f KiB, then %.0f KiB, over %d KiB of input"):format(
         name, early, late, #chunk * rounds // 1024))
