@@ -111,7 +111,7 @@ function standalone.code(file: string, source: string, variables?: {string:strin
       return nil, file .. ": " .. trouble
     end
     if own == true then
-      options = { globals = options.globals, ceilings = options.ceilings, types = options.types,
+      options = { globals = options.globals, types = options.types,
         standard = Pipeline.carried_own(), project = options.project }
     end
     local generated, generate_trouble = Pipeline.lone(file, source, options)

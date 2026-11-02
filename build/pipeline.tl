@@ -1,5 +1,5 @@
 --- The build's compile with the new checker ([`build.grammar_mode`]): a module of the staged tree is read, checked against
---- its ceilings and written as Lua and bytecode by [`build.driver`] and [`lang.codegen`]. [`Pipeline.generate`] answers what
+--- its markers and written as Lua and bytecode by [`build.driver`] and [`lang.codegen`]. [`Pipeline.generate`] answers what
 --- [`build.importer`] asks of a compile, and [`Pipeline.derive`] writes the rows of a parse.
 ---
 --- THE PROGRAM is every module of the staged tree (the `inputs` of the working database), in the new grammar, set up as the
@@ -13,17 +13,17 @@
 --- A project written in a form only the fork read is refused with the new checker's words and fix
 --- ([`build.error_catalog`], [`build.error_render`]).
 ---
---- A MODULE IS REFUSED for a count of errors above its ceiling ([`build.ceilings`]), for any warning, for a text that does
---- not parse and for a construct the generator does not write. The
---- ceilings are held by the tree's checks as they are here; the other refusals are listed in build.pipeline.residue.
+--- A MODULE IS REFUSED for an error with no marker on its line ([`build.ceilings`]), for any warning, for a text that does
+--- not parse and for a construct the generator does not write. The markers are held by the tree's checks as they are here;
+--- the other refusals are listed in build.pipeline.residue.
 ---
---- A MODULE IS KEYED by the ceilings that hold it too ([`Pipeline.pinned`]), and the whole compile by the code that reads
---- ([`Pipeline.coded`]), so that a pin or an edit to the checker judges a module another run compiled again. The standard
---- library the module was checked against is in the compiler's identity ([`build.identity`]).
+--- A MODULE IS KEYED by its text, markers and all, and the whole compile by the code that reads ([`Pipeline.coded`]), so that
+--- an edit to a module or to the checker judges a module another run compiled again. The standard library the module was
+--- checked against is in the compiler's identity ([`build.identity`]).
 --
 -- TODO: point to what `cosmic docs` answers for a name and to the worked example of a form in the lines of a warning, as
 -- [`build.error_render`]'s `lines` does with the databases it is given, once [`Driver.Build`] answers the problems over their
--- ceilings and not only the lines that list them: the lines of an error carry the pointer ([`Pipeline.generate`]'s `hints`),
+-- markers and not only the lines that list them: the lines of an error carry the pointer ([`Pipeline.generate`]'s `hints`),
 -- which the lines of a warning and of a text that does not parse do not.
 local AnalysisSchema = require("build.analysis_schema")
 local Ceilings = require("build.ceilings")
@@ -64,21 +64,19 @@ local record Pipeline
   record Options
     --- The standard library's declarations, which every module's globals are made of ([`build.tree_program`]).
     globals: TreeProgram.Globals
-    --- The ceilings that hold the modules: none for a project outside cosmic's tree, whose every error refuses.
-    ceilings: Ceilings.Table
     --- Whether the checker keeps the type of each node, which the readers of the type report need.
     mut types: boolean
     --- Answers the `cosmic.*` modules the tree does not hold, each its stub or its source: [`Pipeline.carried`] where
     --- not given.
     mut standard: Driver.Provider?
-    --- Whether the tree is a project outside cosmic's own, whose checker is its own. Absent for cosmic's tree.
+    --- Whether the tree is a project outside cosmic's own, whose checker is its own and which no marker holds: every error
+    --- refuses. Absent for cosmic's tree, whose markers hold what they mark.
     project: boolean?
   end
 
-  --- A build over the tree and its ceilings.
+  --- A build over the tree.
   record Built
     build: Driver.Build
-    ceilings: Ceilings.Table
     --- The sources of the tree and the modules they answer to, which a build that reads the stub of a standard-library module
     --- in place of its source is made from.
     index: Driver.Index
@@ -100,17 +98,17 @@ local record Pipeline
   end
 
   --- The options for the tree at `root`, `own` when it is cosmic's own ([`build.tree`]): the declarations and the
-  --- ceilings it holds; in any other tree, a project's, the declarations of the standard library the tool carries
-  --- ([`build.checker_declarations`]) and no ceiling, so that every error of the checker refuses. nil and why where the
+  --- markers it holds; in any other tree, a project's, the declarations of the standard library the tool carries
+  --- ([`build.checker_declarations`]) and no marker, so that every error of the checker refuses. nil and why where the
   --- tool carries none of the declarations (a tool older than this one: boot it again).
   options: function(root: string, own: boolean): Options?, string
 
   --- The options for a project outside cosmic's tree, whose globals are the declarations `texts` ([`Pipeline.options`] gives
-  --- the ones the tool carries): no ceilings, so every error of the checker refuses.
+  --- the ones the tool carries): no markers, so every error of the checker refuses.
   project: function(texts: CheckerDeclarations.Texts): Options
 
   --- The options for a source that is no tree's (a lone file, a generated source): the declarations the tool carries
-  --- ([`build.checker_declarations`]) and no ceilings. nil and why where the tool carries none.
+  --- ([`build.checker_declarations`]) and no markers. nil and why where the tool carries none.
   alone: function(): Options?, string
 
   --- The Lua of the source `text`, which is the file `file`, checked as a module of its own that requires only what the
@@ -145,7 +143,7 @@ local record Pipeline
   --- ([`build.standard_text`]'s `own`): what `cosmic -e` types its chunk against.
   carried_own: function(): Driver.Provider
 
-  --- A build over the modules of `entries`: pairs of a file and its text, with the module and the name the ceilings are kept
+  --- A build over the modules of `entries`: pairs of a file and its text, with the module and the name its findings are told
   --- under for a source written from another file ([`Driver.index`]). `kinds` says of each file what the working database
   --- says of its input (`test`, ...); a `test` has its functions called from outside. `stubs` gives the stub of a
   --- standard-library module, by module, which a build otherwise makes of what it read of it.
@@ -156,7 +154,7 @@ local record Pipeline
   build: function(db: Sqlite.Handle, options: Options, refusal?: Refusal): Built?, string
 
   --- The Lua and the bytecode of the module `m`, checked and written by the new checker: nil and why where the module is refused. A module is refused for a count over its ceiling
-  --- ([`Driver.Build.held`]), a warning, a call no rule of the discipline judged beyond its `[untyped]` ceiling, and the
+  --- ([`Driver.Build.held`]), a warning, a call no rule of the discipline judged with no `untyped` marker, and the
   --- generator's own refusals; and the compile holds besides:
   --- a module of the error-slot discipline to it ([`build.syntax_contracts`]), a standard-library module to its stub
   --- ([`build.syntax_stub`]), and it finds the record-field uses `cosmic uses` lists ([`build.syntax_receivers`]). With
@@ -191,11 +189,6 @@ local record Pipeline
   --- carries: the identity of a boot, which runs the tree's own code under a bootstrap release that carries another. nil and
   --- why where the tree is not parsed.
   coded_of: function(tool: string, db: Sqlite.Handle): string?, string
-
-  --- The digest of the ceilings that hold each file, by file, every stage together: the compile of a module is keyed by the
-  --- one of its file, so that a pin that falls judges the module again. A file with no ceiling has none. A module written
-  --- from another file (a guide, a template) is the file it is written from, which its ceilings are kept under.
-  pinned: function(ceilings: Ceilings.Table): {string: string}
 
   --- Reads the sources `fresh` ([`build.derivation`]'s `fresh`) as written, and writes the rows of each ([`build.syntax_derivation`])
   --- into `db` beside the others. A source that does not parse is listed in `broken` when given and stops the derive
@@ -250,7 +243,7 @@ end
 function Pipeline.project(texts: CheckerDeclarations.Texts): Pipeline.Options
   return {
     globals = TreeProgram.globals(texts.prelude, texts.stdlib),
-    ceilings = { stages = {}, none = true }, types = true, standard = nil, project = true,
+    types = true, standard = nil, project = true,
   }
 end
 
@@ -275,13 +268,9 @@ function Pipeline.options(root: string, own: boolean): Pipeline.Options?, string
   if stdlib == nil then
     return nil, stdlib_why
   end
-  local ceilings, ceilings_why = Ceilings.read(root)
-  if ceilings == nil then
-    return nil, ceilings_why
-  end
   return {
     globals = TreeProgram.globals(prelude, stdlib),
-    ceilings = ceilings, types = true, standard = nil, project = nil,
+    types = true, standard = nil, project = nil,
   }, ""
 end
 
@@ -336,7 +325,7 @@ function Pipeline.over(entries: {{string}}, kinds: {string: string}, options: Pi
   local standard = options.standard or Pipeline.carried()
   return {
     build = TreeProgram.build(index, options.globals, options.types, nil, standard,
-      TreeProgram.meant(index, options.project ~= true)), ceilings = options.ceilings, index = index,
+      TreeProgram.meant(index, options.project ~= true)), index = index,
     globals = options.globals, standard = standard, types = options.types, given = stubs or {}, stubs = nil, stubbed = nil,
     project = options.project,
   }
@@ -355,7 +344,7 @@ local function entries_of(db: Sqlite.Handle, own: boolean, refusal?: Pipeline.Re
   for _, row in ipairs(rows) do
     local file, path, kind, origin, source = row:text(1), row:text(2), row:text(3), row:text(4), row:text(5)
     if origin == "syscalls" then
-      -- The declaration is the file of the module, named for the header it is written from in the ceilings.
+      -- The declaration is the file of the module, named for the header it is written from.
       local named = (path:gsub("%.", "/")) .. ".d.tl"
       entries[#entries + 1] = { named, source, path, file }
       kinds[named] = kind
@@ -521,24 +510,6 @@ function Pipeline.coded_of(tool: string, db: Sqlite.Handle): string?, string
   return Hash.hex_sha256(tool .. "\0" .. identity(staged_code(db))), ""
 end
 
-function Pipeline.pinned(ceilings: Ceilings.Table): {string: string}
-  local lines: mut {string: mut {string}} = {}
-  for stage, held in pairs(ceilings.stages) do
-    for key, count in pairs(held) do
-      local file = key:match("^(%S+)") or key
-      local list = lines[file] or {}
-      lines[file] = list
-      table.insert(list, stage .. " " .. key .. " " .. tostring(count))
-    end
-  end
-  local out: mut {string: string} = {}
-  for file, list in pairs(lines) do
-    table.sort(list)
-    out[file] = Hash.hex_sha256(table.concat(list, "\n"))
-  end
-  return out
-end
-
 function Pipeline.catalog(db: Sqlite.Handle, schema: string): integer?, string
   return ErrorCatalog.insert(db, schema)
 end
@@ -702,7 +673,7 @@ local function generated_of(m: Module, built: Pipeline.Built, facts?: boolean, j
       lines[#lines + 1] = ErrorRender.line(m.file, p)
     end
   else
-    for _, line in ipairs(build:held(result, built.ceilings)) do
+    for _, line in ipairs(build:held(result, built.project ~= true)) do
       lines[#lines + 1] = line
     end
     for _, w in ipairs(result.warnings) do
@@ -754,8 +725,7 @@ local function generated_of(m: Module, built: Pipeline.Built, facts?: boolean, j
   if Rules.applies(m.kind, m.generated) then
     local read = SyntaxContracts.check(subject, nil, SyntaxContracts.declared_in(built.index))
     local problems = read.problems
-    local allowed = Ceilings.of(built.ceilings, "untyped")[m.file] or 0
-    if built.ceilings.none ~= true and Ceilings.by_marks(built.ceilings, "untyped") then
+    if built.project ~= true then
       -- Held by markers at the lines of the calls, in the text of the module itself.
       local findings: mut {Ceilings.Finding} = {}
       for _, line in ipairs(read.untyped_lines) do
@@ -774,17 +744,10 @@ local function generated_of(m: Module, built: Pipeline.Built, facts?: boolean, j
         joined[#joined + 1] = line
       end
       problems = joined
-    elseif read.untyped > allowed then
+    elseif read.untyped > 0 then
       local calls = String.counted(read.untyped, "call")
-      if built.ceilings.none == true then
-        problems[#problems + 1] = m.file .. ": " .. calls .. " the checker gave no function, " .. -- checked: view_written
-          "which no rule of the discipline judged: type what it calls through"
-      else
-        local message = m.file .. ": " .. calls .. " the checker gave no function, " ..
-          "which no rule of the discipline judged, pinned " .. tostring(allowed) ..
-          "; type what it calls through rather than raise the pin (build/ceilings.txt's [untyped])"
-        problems[#problems + 1] = message -- checked: view_written
-      end
+      problems[#problems + 1] = m.file .. ": " .. calls .. " the checker gave no function, " .. -- checked: view_written
+        "which no rule of the discipline judged: type what it calls through"
     end
     if #problems > 0 and judged ~= false then
       return nil, table.concat(problems, "\n")
@@ -907,9 +870,7 @@ function Pipeline.checked_alone(file: string, text: string, options: Pipeline.Op
     -- What the file returns is its entry point ([`build.standalone`]) or, for a chunk of `cosmic -e`, its exit code, which
     -- nothing requires and so no declaration needs to describe: the one error a lone file is allowed, at every `return`,
     -- whatever it returns.
-    local entry: Ceilings.Table = { stages = { checked = { [file .. " export_not_declared"] = math.maxinteger } },
-      none = true }
-    for _, line in ipairs(build:held(result, entry)) do
+    for _, line in ipairs(build:held(result, false, { checked = { "export_not_declared" } })) do
       told[#told + 1] = line
     end
     note_stages(stages, "scoped", result.scope_errors)

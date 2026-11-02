@@ -67,7 +67,6 @@ local function test_a_boot_names_its_analyzer_as_the_tool_it_writes()
   assert(Fs.mkdirs(root .. "/lang"))
   assert(Fs.write(root .. "/lang/prelude.d.tl", (assert(Fs.read("lang/prelude.d.tl")))))
   assert(Fs.write(root .. "/lang/stdlib.d.tl", (assert(Fs.read("lang/stdlib.d.tl")))))
-  assert(Fs.write(root .. "/build/ceilings.txt", "[marked]\nscoped declared untyped checked\n"))
 
   -- The tool: what a build of the tree writes, read as the binary reads
   -- its own database (core/store.c's `requires` and `source`).
@@ -214,7 +213,6 @@ local function test_the_code_that_reads_leaves_out_what_build_pipeline_names_for
   assert(Fs.mkdirs(root .. "/lang"))
   assert(Fs.write(root .. "/lang/prelude.d.tl", (assert(Fs.read("lang/prelude.d.tl")))))
   assert(Fs.write(root .. "/lang/stdlib.d.tl", (assert(Fs.read("lang/stdlib.d.tl")))))
-  assert(Fs.write(root .. "/build/ceilings.txt", "[marked]\nscoped declared untyped checked\n"))
   local function record_of(name: string): string
     return "local record " .. name .. "\n  mut n: integer\nend\n" .. name .. ".n = 0\nreturn " .. name .. "\n"
   end

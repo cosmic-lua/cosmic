@@ -426,7 +426,6 @@ local function own_tree(root: string): identity.Fingerprint
   assert(Fs.mkdirs(root .. "/lang"))
   local prelude = assert(Fs.read("lang/prelude.d.tl"))
   local stdlib = assert(Fs.read("lang/stdlib.d.tl"))
-  assert(Fs.write(root .. "/build/ceilings.txt", "[marked]\nscoped declared untyped checked\n"))
   assert(Fs.write(root .. "/lang/prelude.d.tl", prelude))
   assert(Fs.write(root .. "/lang/stdlib.d.tl", stdlib))
   assert(Fs.mkdirs(build_paths.resolve(root).bin))

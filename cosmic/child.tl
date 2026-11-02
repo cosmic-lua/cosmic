@@ -223,8 +223,8 @@ local record Credentials
   group?: integer
 end
 
--- TODO: the child tests that set a field of an [`Options`] or [`rules.Policy`] after making it are `field_fixed` (pinned in
--- build/ceilings.txt for cosmic/child_*_test.tl), once they build each record whole, which needs no `mut` on a public
+-- TODO: the child tests that set a field of an [`Options`] or [`rules.Policy`] after making it are `field_fixed` (held by
+-- markers in cosmic/child_*_test.tl), once they build each record whole, which needs no `mut` on a public
 -- record.
 local record Options
   --- The child's whole environment, by name: it replaces this process's

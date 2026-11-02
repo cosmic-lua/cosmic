@@ -29,7 +29,7 @@ local sys = require("cosmic.sys")
 local type raw_compress = require("cosmic.internal.compress")
 
 -- TODO: the tests that replace `read` or `close` of a Reader or `write`, `close` or `abort` of a Writer assign through
--- these interfaces (`field_fixed`, pinned in build/ceilings.txt for stream_test, tar_test, zip_test and others), once
+-- these interfaces (`field_fixed`, held by markers in stream_test, tar_test, zip_test and others), once
 -- they make a test double that implements the interface instead of patching a real one.
 local record Stream
   interface Reader
@@ -44,8 +44,8 @@ local record Stream
     close: function(Reader): boolean, string
     -- TODO: declare `skip?:` here and in each Reader that has it (and `pending?:` of Transform), and test `r.skip ~= nil` before
     -- each `r:skip(n)`, once the Readers' declarations change together (an implementer repeats the `?` exactly): until then the
-    -- new checker reports the tests of `reader.skip == nil` and `t.pending ~= nil` as `compare_disjoint`, pinned in
-    -- build/ceilings.txt.
+    -- new checker reports the tests of `reader.skip == nil` and `t.pending ~= nil` as `compare_disjoint`, held by
+    -- markers.
 
     --- Present only on a Reader that can move forward without reading
     --- (one over a regular file): skips `n` bytes, failing when that

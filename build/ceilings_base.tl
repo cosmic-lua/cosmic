@@ -185,7 +185,7 @@ end
 
 --- The lines that refuse the markers `held` of the tree where a file holds more of a code than the merge base held in its
 --- markers, or nil and why where the base cannot be read. A moved line keeps its marker and so
---- its count; a marker is never added, as a pin never rose. The count of a file is its own: a marker of a file renamed or split
+--- its count; a marker is never added. The count of a file is its own: a marker of a file renamed or split
 --- is new where it lands.
 local function marks_rise(root: string, base: string, held: CeilingsBase.Held, git: CeilingsBase.Git):
     {string}?, string
