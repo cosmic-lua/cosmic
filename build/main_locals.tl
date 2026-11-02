@@ -10,22 +10,32 @@ local LuaTail = require("build.lua_tail")
 
 local record MainLocals
   --- The most locals the main chunk of `lua` holds at one point, nested blocks included, if that is more than `limit`; else
-  --- nil, as for `lua` that does not compile. One load answers the common case.
+  --- nil, as for `lua` that does not compile, or that Lua refuses for another reason than too many locals (such as too many
+  --- registers). One load answers the common case.
   over: function(lua: string, limit: integer): integer?
 end
 
 --- Lua's limit on the locals of a function.
 local LIMIT <const> = 200
 
+--- Whether Lua's words `trouble` are the refusal for too many locals, and no other (a chunk that needs too many registers is
+--- refused in other words, and the locals in front of it can be what brings that on).
+local function crowded(trouble: string): boolean
+  return trouble:find("too many local variables", 1, true) ~= nil
+end
+
+--- The locals the main chunk of `lua` holds, found by the most that fit in front of it; nil where it does not compile
+--- alone. A refusal that is no word of too many locals is taken as a fit: it is the registers, not the locals, that ran out.
 local function count(lua: string): integer?
-  if not LuaTail.fits_with(lua, 0) then
+  local alone, _ = LuaTail.fits_with(lua, 0)
+  if not alone then
     return nil
   end
-  -- The greatest n that fits is the limit less the chunk's locals: search for it.
   local low, high = 0, LIMIT
   while low < high do
     local middle = (low + high + 1) // 2
-    if LuaTail.fits_with(lua, middle) then
+    local fits, trouble = LuaTail.fits_with(lua, middle)
+    if fits or not crowded(trouble) then
       low = middle
     else
       high = middle - 1
@@ -35,7 +45,9 @@ local function count(lua: string): integer?
 end
 
 function MainLocals.over(lua: string, limit: integer): integer?
-  if LuaTail.fits_with(lua, LIMIT - limit) then
+  local fits, trouble = LuaTail.fits_with(lua, LIMIT - limit)
+  -- A refusal for registers is no count of locals: it is left alone, and so is a chunk Lua refuses on its own.
+  if fits or not crowded(trouble) then
     return nil
   end
   local held = count(lua)

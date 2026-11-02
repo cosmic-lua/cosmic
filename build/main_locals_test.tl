@@ -1,6 +1,7 @@
 --- Tests of [`build.main_locals`]: the locals of the Lua the generator writes are counted by probing it, so each choice of
 --- the generator (a class table, an import read as a value, a `<const>` folded) is in the count by construction.
 local Grammar = require("build.compile_grammar")
+local LuaTail = require("build.lua_tail")
 local MainLocals = require("build.main_locals")
 local Test = require("cosmic.test")
 
@@ -94,4 +95,19 @@ local function test_names_are_counted_however_many_stand_in_a_line()
   assert(MainLocals.over(wide(101, 1), 100) == 101)
   assert(MainLocals.over(wide(200, 50), 0) == 200)
   assert(MainLocals.over(wide(201, 50), 0) == nil)
+end
+
+local function test_a_refusal_for_registers_is_no_count_of_locals()
+  local arguments: mut {string} = {}
+  for index = 1, 175 do
+    arguments[#arguments + 1] = tostring(index)
+  end
+  -- 60 locals and a call of 175 arguments compile, but not with 20 more locals in front: the registers run out first.
+  local lua = wide(60, 20) .. "return f(" .. table.concat(arguments, ", ") .. ")\n"
+  local fits, _ = LuaTail.fits_with(lua, 0)
+  local spare, why = LuaTail.fits_with(lua, 20)
+  assert(fits and not spare and why:find("too many local variables", 1, true) == nil, why)
+  -- Under a limit of 100, 100 more locals in front leave the call no registers: not a count of locals, so nothing is told.
+  assert(MainLocals.over(lua, 100) == nil)
+  assert(MainLocals.over(wide(60, 20), 50) == 60)
 end

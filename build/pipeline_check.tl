@@ -7,6 +7,12 @@
 --- The pipeline refuses a module for more than a count: a translation that does not parse, a warning, a construct the
 --- generator cannot write. No ceiling counts these, so a module refused so is listed with the code of the first line of its
 --- refusal.
+---
+--- It also holds the Lua the generator writes for each module to a limit on the locals of its main chunk ([`build.main_locals`]),
+--- since the Lua is written here. That covers the modules the working database stages that the generator writes Lua for: not
+--- the tree of `ci/` (a project of its own, which the database does not stage), not a declaration file, and not a module the
+--- checker or the generator refuses for something else (listed as above, with no Lua to count). A module over a ceiling is
+--- still counted. A chunk Lua refuses for its registers and not its locals is left alone ([`build.main_locals`]'s `over`).
 
 local CompileGrammar = require("build.compile_grammar")
 local MainLocals = require("build.main_locals")
@@ -176,6 +182,13 @@ local function asked(build_db: Sqlite.Handle, options: Pipeline.Options, rows: {
           end
         end
       end
+      -- A module over a ceiling is still held to the limit on its locals, where the generator writes its Lua.
+      if counted and row.dialect == "tl" and result ~= nil and not result.broken then
+        local emitted = CompileGrammar.emit(build, result, nil, true, true)
+        if emitted.code ~= nil then
+          held = MainLocals.over(emitted.code, MAIN_LOCALS_LIMIT)
+        end
+      end
       over[row.file] = counted
       if code ~= "" then
         other[row.file] = code
@@ -183,13 +196,31 @@ local function asked(build_db: Sqlite.Handle, options: Pipeline.Options, rows: {
       if held ~= nil then
         main_locals[row.file] = held
       end
-      answers[row.key] = if counted then "O" elseif code ~= "" then "R " .. code elseif held ~= nil then "M " .. tostring(held) else "N" end
+      local base = if counted then "O" elseif code ~= "" then "R " .. code else "N" end
+      answers[row.key] = if held ~= nil then base .. " M " .. tostring(held) else base end
     end
   end
   -- The modules in the order they require one another, each forgotten once it is answered: the syntax of the whole tree is
   -- not held at once.
   local out = TreeProgram.stream(build, index, names, true, judge)
   return { over = over, other = other, answers = answers, locals = main_locals }, out
+end
+
+--- What a memo entry says: the answer it keeps (`O`, `N`, `-` or `R <code>`) and the locals over the limit it adds (`... M <n>`).
+--- Nothing where none is kept, and for an entry that is none of these, which is asked again.
+local function recall(kept: string?): string?, integer?
+  if kept == nil then
+    return nil, nil
+  end
+  local base, digits = kept:match("^(.-) M (%d+)$")
+  local answer = base or kept
+  if answer ~= "O" and answer ~= "N" and answer ~= "-" and answer:match("^R %S+$") == nil then
+    return nil, nil
+  end
+  if digits == nil then
+    return answer, nil
+  end
+  return answer, math.tointeger(tonumber(digits))
 end
 
 function PipelineCheck.compare(
@@ -240,16 +271,16 @@ function PipelineCheck.compare(
     if memo ~= nil then
       kept = check_memo.get(memo, "pipeline", row.key)
     end
-    if kept ~= nil then
-      if kept ~= "-" then
-        over[row.file] = kept == "O"
+    local base, held = recall(kept)
+    if base ~= nil then
+      if base ~= "-" then
+        over[row.file] = base == "O"
       end
-      if kept:sub(1, 2) == "R " then
-        other[row.file] = kept:sub(3)
+      if base:sub(1, 2) == "R " then
+        other[row.file] = base:sub(3)
       end
-      if kept:sub(1, 2) == "M " then
-        local stored = math.tointeger(tonumber(kept:sub(3)))
-        main_locals[row.file] = stored or 0
+      if held ~= nil then
+        main_locals[row.file] = held
       end
     else
       missed[#missed + 1] = row
