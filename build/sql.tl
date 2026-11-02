@@ -425,9 +425,9 @@ local function ndjson_writer(): Writer
         return nil, unnamable_key
       end
       if whole_json then
-        local text = statement:kind(0) == "text" and statement:bytes(0) or nil -- checked: and_ternary
+        local text = if statement:kind(0) == "text" then statement:bytes(0) else nil end
         local object, _ = Json.decode_object(text or "")
-        if text == nil or text:find("[\r\n]") ~= nil or object == nil then -- untyped: call
+        if text == nil or text:find("[\r\n]") ~= nil or object == nil then
           return nil, "_json is not a JSON object's text on one line"
         end
         return text, ""
@@ -773,7 +773,7 @@ local function describe(db: Sqlite.Handle, tables: {dataset.Table}): {string}?, 
         types[#types + 1] = row:text(1)
       end
       local name = plain(column)
-      local line = "  " .. name .. string.rep(" ", width - #name) .. "  " .. (#types > 0 and table.concat(types, "|") or "-") -- checked: and_ternary
+      local line = "  " .. name .. string.rep(" ", width - #name) .. "  " .. (if #types > 0 then table.concat(types, "|") else "-" end)
       local original = each.renamed[column]
       if original ~= nil then
         line = line .. "  (the key " .. plain(Json.quote(original)) .. ")"

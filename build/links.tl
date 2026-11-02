@@ -161,7 +161,7 @@ end
 --- The file from the root that a link to `target` names: the file
 --- itself, or the one that declares its symbol.
 local function file_of(target: link_resolve.Target): string
-  return target.kind == "symbol" and target.file or target.path -- checked: and_ternary
+  return if target.kind == "symbol" then target.file else target.path end
 end
 
 --- What is wrong with `link`, a definition in the file at the absolute
@@ -208,14 +208,14 @@ function links.check(reader: links.Reader, resolver: link_resolve.Resolver, file
   -- What the file declares, once a link asked for it.
   local own: mut {Known} = {}
   if facts ~= nil and facts.known ~= nil then own[1] = facts.known end -- checked: compare_disjoint
-  local blocks = facts ~= nil and facts.blocks or reader.blocks(kind, source, file) -- checked: and_ternary
+  local blocks = if facts ~= nil then facts.blocks else reader.blocks(kind, source, file) end
   for _, link in ipairs(link_text.in_blocks(blocks)) do
     local function declared(): link_text.Declared
       local found: Known = own[1] or reader.declarations(kind, source, file)
       own[1] = found
       return found.at(link.line)
     end
-    local wrong = link.form == "definition" and misdefined(resolver, absolute, link, declared) or nil -- checked: and_ternary
+    local wrong = if link.form == "definition" then misdefined(resolver, absolute, link, declared) else nil end
     if wrong ~= nil then
       out[#out + 1] = file .. ":" .. tostring(link.line) .. ": link: " .. wrong
     -- A reference's target is checked where its definition is.
@@ -443,7 +443,7 @@ function links.rewrite(reader: links.Reader, resolver: link_resolve.Resolver, fi
     return out
   end
   if block == "" then
-    out.source = managed == "" and linked or (linked:gsub("%s+$", "") .. "\n") -- checked: and_ternary
+    out.source = if managed == "" then linked else linked:gsub("%s+$", "") .. "\n" end
   else
     out.source = linked:gsub("%s+$", "") .. "\n\n" .. block .. "\n"
   end

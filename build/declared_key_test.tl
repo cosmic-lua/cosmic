@@ -782,7 +782,7 @@ local function test_only_a_closure_that_reads_the_compiler_is_keyed_by_it(tmp: s
   tree(tmp)
   local function run_under(compiler: string, closure: {string}): string
     return key_of(tmp, { ...spec(), closure_store = "the same store",
-      compiler = declared_key.reads_compiler(closure) and compiler or "" }) -- checked: and_ternary
+      compiler = if declared_key.reads_compiler(closure) then compiler else "" end })
   end
   local plain = { "suite.lib", "suite.t_test" }
   assert(run_under("one compiler", plain) == run_under("another compiler", plain))
