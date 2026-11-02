@@ -1171,6 +1171,16 @@ local function starts_item(): boolean
     (is_field_word() and peek_text(1) == "=")
 end
 
+--- Whether the token after the `...` at the current position of a table item begins the expression `...` spreads, rather than
+--- following the vararg `...` as `,`, `}` or an operator does (`{ ... - 1 }`, `{ ... .. s }`). Lua has no
+--- expression that a `...` is followed by, so a token that begins one is no continuation of the vararg.
+local function begins_spread(): boolean
+  local k = peek_kind(1)
+  local t = peek_text(1)
+  return k == "identifier" or k == "string" or k == "integer" or k == "number" or t == "(" or t == "{" or t == "nil" or
+    t == "true" or t == "false" or t == "function" or t == "if" or t == "not" or t == "#"
+end
+
 local function parse_table(): Ast.Exp
   local open = S.pos
   advance()
@@ -1191,14 +1201,11 @@ local function parse_table(): Ast.Exp
       advance()
       local value = parse_expression()
       items[#items + 1] = { kind = "Named", id = 0, first = first, last = S.pos - 1, name = name, value = value }
+    elseif S.text == "..." and begins_spread() then
+      advance()
+      local value = parse_expression()
+      items[#items + 1] = { kind = "Spread", id = 0, first = first, last = S.pos - 1, value = value }
     else
-      -- TODO: once the table spread `{ ...c, a = 2 }` is in the grammar, parse it here and drop this diagnostic.
-      if S.text == "..." and peek_kind(1) == "identifier" then
-        local spread = peek_text(1)
-        report("unexpected_token", S.pos, "a table constructor has no spread yet: `..." .. spread .. "` is not a field",
-          "write each field of `" .. spread .. "` in the constructor: `{ a = " .. spread .. ".a, b = " .. spread .. ".b, c = 2 }`")
-        advance()
-      end
       local value = parse_expression()
       items[#items + 1] = { kind = "Positional", id = 0, first = first, last = S.pos - 1, value = value }
     end

@@ -234,7 +234,7 @@ function compile_grammar.emit(build: Driver.Build, result: Driver.Outcome, facts
     for _ in pairs(boundary_checks) do check_count = check_count + 1 end
   end
   local generated = Codegen.generate(result.chunk, result.scoped, result.never_false, classes, Check.enums(lowered), wraps, kinds,
-    served == true, boundary_checks)
+    served == true, boundary_checks, checked.spreads)
   local lines: mut {string} = {}
   for _, e in ipairs(generated.errors) do
     lines[#lines + 1] = tostring(e.y) .. ":" .. tostring(e.x) .. ": " .. e.msg .. " (" .. e.code .. "): " .. e.fix
