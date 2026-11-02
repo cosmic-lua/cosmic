@@ -199,7 +199,7 @@ local function disagreements(module: string, source: string, raw: any,
       end
     else
       local mt = members(getmetatable(instance))
-      local index = mt.__index -- checked: map_field
+      local index = mt["__index"]
       local methods: mut {string: any} = {}
       local metamethods: mut {string: any} = {}
       if index == mt then
@@ -250,23 +250,23 @@ end
 
 local makers: {string: function(raw: {string: any}): Made} = {
   compress = function(raw: {string: any}): Made
-    local stream = assert(call(raw.inflater, "raw")) -- checked: map_field
+    local stream = assert(call(raw["inflater"], "raw"))
     return { instances = { Stream = stream }, release = nothing }
   end,
   hash = function(raw: {string: any}): Made
-    local hasher = assert(call(raw.hasher, "sha256")) -- checked: map_field
+    local hasher = assert(call(raw["hasher"], "sha256"))
     return { instances = { Hasher = hasher }, release = nothing }
   end,
   html = function(raw: {string: any}): Made
-    return { instances = { SafeHtml = call(raw.escape, "<"), SafeAttr = call(raw.escape_attr, "<"), -- checked: map_field*2
-      SafeUrl = call(raw.href, "/"), SafeUrlPart = call(raw.url_part, "x"), SafeJson = call(raw.trust_json, "1") }, -- checked: map_field*3
+    return { instances = { SafeHtml = call(raw["escape"], "<"), SafeAttr = call(raw["escape_attr"], "<"),
+      SafeUrl = call(raw["href"], "/"), SafeUrlPart = call(raw["url_part"], "x"), SafeJson = call(raw["trust_json"], "1") },
       release = nothing }
   end,
   http = function(raw: {string: any}): Made
-    local handle = assert(call(raw.open, "http://declarations.invalid/", -- checked: map_field
+    local handle = assert(call(raw["open"], "http://declarations.invalid/",
       { script = { reply() } }))
     return { instances = { Handle = handle },
-      release = function() call(members(handle).close, handle) end } -- checked: map_field
+      release = function() call(members(handle)["close"], handle) end }
   end,
   json = function(raw: {string: any}): Made
     return { instances = { Null = raw["null"] }, release = nothing }
@@ -274,13 +274,13 @@ local makers: {string: function(raw: {string: any}): Made} = {
   socket = function(raw: {string: any}): Made
     -- A TCP listener on the worker's own loopback: a unix one needs a `u`
     -- grant the policy path cannot give below Landlock ABI 9.
-    local socket = assert(call(raw.listen, { kind = "tcp", host = "127.0.0.1", port = 0 }, 1)) -- checked: arms_differ, map_field
+    local socket = assert(call(raw["listen"], { kind = "tcp", host = "127.0.0.1", port = 0 }, 1)) -- checked: arms_differ
     -- A numeric address answers itself, so the lookup opens nothing.
-    local lookup = assert(call(raw.lookup, "127.0.0.1", -1)) -- checked: map_field
+    local lookup = assert(call(raw["lookup"], "127.0.0.1", -1))
     return { instances = { Socket = socket, Lookup = lookup },
       release = function()
-        call(members(socket).close, socket) -- checked: map_field
-        call(members(lookup).close, lookup) -- checked: map_field
+        call(members(socket)["close"], socket)
+        call(members(lookup)["close"], lookup)
       end }
   end,
   xml = function(raw: {string: any}): Made
@@ -291,12 +291,12 @@ local makers: {string: function(raw: {string: any}): Made} = {
     return { instances = { Corpus = call(raw["corpus"], 4) }, release = nothing }
   end,
   sqlite = function(raw: {string: any}): Made
-    local handle = assert(call(raw.open, ":memory:", true)) -- checked: map_field
-    local statement = assert(call(members(handle).prepare, handle, "SELECT 1")) -- checked: map_field
+    local handle = assert(call(raw["open"], ":memory:", true))
+    local statement = assert(call(members(handle)["prepare"], handle, "SELECT 1"))
     return { instances = { Handle = handle, Statement = statement },
       release = function()
-        call(members(statement).finalize, statement) -- checked: map_field
-        call(members(handle).close, handle) -- checked: map_field
+        call(members(statement)["finalize"], statement)
+        call(members(handle)["close"], handle)
       end }
   end,
 }

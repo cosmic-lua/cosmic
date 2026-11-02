@@ -139,6 +139,23 @@ local function test_cpu_features_is_read_into_the_declaration()
   assert(why:find("takes true or false", 1, true) ~= nil, why)
 end
 
+--- `store_text` is a flag of its own, as `cpu_features` is: read into the declaration and into no other flag.
+local function test_store_text_is_read_into_the_declaration()
+  local function read(body: string): PolicyRules.Declared?, string
+    local found, why = Analyzer.analyze('local Test = require("cosmic.test")\n' .. body ..
+        "\nlocal function test_a() end\n", "p_test.tl")
+    if found == nil then return nil, why end
+    return found.inputs, ""
+  end
+  local on = assert(read("Test.policy{ store_text = true }"))
+  assert(on.store_text == true and on.cpu_features ~= true and not on.store)
+  assert(assert(read("Test.policy{ store_text = false }")).store_text == false)
+  assert(assert(read("Test.policy{ cpu_features = true }")).store_text == false)
+  assert(assert(read("Test.policy{ tmp = true }")).store_text == false)
+  local _, why = read("Test.policy{ store_text = 3 }")
+  assert(why:find("takes true or false", 1, true) ~= nil, why)
+end
+
 local function test_a_policy_is_read_into_the_declaration_it_stands_for()
   local source = 'local Test = require("cosmic.test")\nTest.policy{ profiles = { "cosmic" }, loopback = { "127.0.0.1" },\n' ..
     '  grants = { { path = "o/bin", letters = "rx" }, { path = "testdata", letters = "r" } }, env = { "HOME" } }\n'

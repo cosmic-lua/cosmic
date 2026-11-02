@@ -144,17 +144,17 @@ end
 local function test_an_address_is_read_once(tmp: string)
   unix_socket.skip_if_refused(tmp)
   local path = tmp .. "/s.sock"
-  local reads = { value = 0 }
+  local reads = 0
   local fickle: metatable<raw_socket.Address> = { -- checked: literal_missing
     __index = function(_: raw_socket.Address, key: string): any -- checked: any_use
       if key == "kind" then return "unix" end -- checked: any_use
       if key ~= "path" then return nil end -- checked: any_use
-      reads.value = reads.value + 1 -- checked: map_field*2
-      return reads.value == 1 and path or nil -- checked: and_ternary, map_field
+      reads = reads + 1
+      return reads == 1 and path or nil -- checked: and_ternary
     end,
   }
   local listener = assert(raw.listen(setmetatable({} as raw_socket.Address, fickle), 1)) -- checked: cast_refused, setmetatable_call
-  assert(reads.value == 1, "the path was read " .. reads.value .. " times") -- checked: map_field*2
+  assert(reads == 1, "the path was read " .. tostring(reads) .. " times")
   assert(Fs.stat(path) ~= nil, "no socket file")
   assert(listener:close())
   assert(Fs.stat(path) == nil, "the socket file was left")

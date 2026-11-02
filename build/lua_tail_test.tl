@@ -40,6 +40,15 @@ local function test_stripped_bytecode_ignores_what_the_core_does_not_run()
   assert(plain == stripped("local renamed = 1\nreturn renamed\n"), "a local's name moved it")
   assert(plain ~= stripped("local x = 2\nreturn x\n"), "a constant did not move it")
   assert(plain ~= stripped("local x = 1\nreturn x, x\n"), "an instruction did not move it")
+  -- Nor does where a function is defined, which `string.dump` keeps of a stripped chunk: its line, and
+  -- the padding the code that follows needs.
+  local function defined(lead: string): string
+    return stripped(lead .. "local function f(a) return a + 1 end\nreturn function(b) return f(b) end\n")
+  end
+  assert(defined("") == defined("\n\n-- note\n"), "a function that moved down the file moved it")
+  assert(defined("") == defined(string.rep("\n", 300)), "a function that moved a long way moved it")
+  assert(load(defined("\n\n"), "=m", "b", {}) ~= nil, "it is no chunk Lua loads")
+  assert(defined("") ~= stripped("local function f(a) return a + 2 end\nreturn function(b) return f(b) end\n"))
   -- Which the unstripped chunks differ in, or the cases above show nothing.
   assert(LuaTail.bytecode_of("local x = 1\nreturn x\n", "m", "m.tl") ~=
       LuaTail.bytecode_of("\n\nlocal x = 1\nreturn x\n", "m", "m.tl"))

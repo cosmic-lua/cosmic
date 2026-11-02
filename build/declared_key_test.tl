@@ -374,7 +374,7 @@ local function full_spec(hostdir: string): declared_key.Spec
     env = { DECLARED = true }, network = { ["127.0.0.1"] = true },
     tool = true, lua = true, nests = true, noexec = true,
     noexec_ready = true, noexec_trouble = "no reason", store = true, system = true,
-    cpu_features = true,
+    cpu_features = true, store_text = true, pure = true,
     caches = { "zig" }, cache_paths = { hostdir .. "/cache" }, parent = { "absent.txt" },
     unresolved = "no reason",
   }
@@ -480,6 +480,10 @@ local function test_every_field_of_a_spec_moves_it(tmp: string)
     function(s: declared_key.Spec): any return s.effective end, key, effective_changes, { -- checked: any_use
       noexec_trouble = "diagnostic only: the noexec grant itself is keyed, and no pass is " ..
         "kept when it is unavailable",
+      store_text = declaration .. ": which store the worker is given is keyed by " ..
+        "`closure_store`, and `pure` by `files` and `module_key` (build.test_key's `declared_of`)",
+      pure = "which files and store the worker is given, each keyed as it is (`files`, " ..
+        "`closure_store`, `module_key`)",
       cpu_features = declaration .. ", and the spec's `cpu`, the features themselves, which a " ..
         "module that declares it alone holds (build.test_key's `declared_of`)",
       env = declaration .. ", and `environment` by what the worker is given",

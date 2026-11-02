@@ -73,6 +73,14 @@ local record test_inputs
     --- ([`declared_key.host_cpu`]): the outcome of its tests may turn on them
     --- ([`cosmic.test`]'s `cpu_features`).
     mut cpu_features?: boolean
+    --- Whether its worker is given the text-derived rows of its closure's store
+    --- ([`cosmic.test`]'s `store_text`).
+    mut store_text?: boolean
+    --- Whether its worker is given the pure store ([`build.closure_store`]'s `write`)
+    --- and the source file of its own module alone: the run holds the pure store
+    --- ([`test_inputs.effective`]'s `pure_store`) and it declares none of `store`,
+    --- `store_text`, `lua` and `tool` ([`test_inputs.is_pure`]).
+    mut pure?: boolean
     --- The host caches declared, by name ([`build.caches`]), and where
     --- they are on this host, once the runner resolves them: empty until
     --- then.
@@ -191,7 +199,8 @@ local corpora <const> = "testdata/fuzz/"
 --- them in the bytes of the closure store that carries them beside it ([`build.closure_store`]'s `declared_beside`).
 local function closure(m: Module, by_path: {string:Module},
                        declarations: {string:string},
-                       type_only?: {string:{string:boolean}}): {string}, boolean, {string}
+                       type_only?: {string:{string:boolean}},
+                       own_file_only?: boolean): {string}, boolean, {string}
   local seen: mut {string:boolean} = {}
   local files: mut {string} = {}
   local names: mut {string} = {}
@@ -205,7 +214,7 @@ local function closure(m: Module, by_path: {string:Module},
     local here = assert(table.remove(stack))
     if seen[here.path] ~= true then
       seen[here.path] = true
-      files[#files + 1] = here.file
+      if own_file_only ~= true or here == m then files[#files + 1] = here.file end
       names[#names + 1] = here.path
       local erased = type_only ~= nil and type_only[here.path] or {} -- checked: and_ternary, literal_needs_type
       for _, name in ipairs(here.requires) do
@@ -256,12 +265,32 @@ function test_inputs.modules(m: Module, by_path: {string:Module},
   return names
 end
 
+--- Whether a test that declares `declared` is given the pure store
+--- ([`build.closure_store`]'s `write`), where the run holds it (`held`): one
+--- that declares none of `store`, which reads the whole projection, `store_text`,
+--- which reads the text of its closure's store, and `lua` and `tool`, which start
+--- the program, whose checker types a chunk against the sources and stubs of the
+--- store it is given.
+function test_inputs.is_pure(declared: PolicyRules.Declared?, held?: boolean): boolean
+  if held ~= true then return false end
+  if declared == nil then return true end
+  return not (declared.store or declared.store_text == true or declared.lua or declared.tool)
+end
+
 --- `m`'s default inputs and its declared ones together: `by_path` is
 --- every module the build compiled, by path, and `declarations` every
 --- declaration file of the tree (`<path>.d.tl`), by import path.
+---
+--- `pure_store` says the run gives a test that declares none of `store`,
+--- `store_text`, `lua` and `tool` (the last two start the program, whose checker
+--- types against the closure's text) the pure store ([`build.closure_store`]), which holds no text
+--- of the modules it imports: such a test is given, and its key holds, the
+--- source file of its own module and the declarations it requires, and not
+--- the source files of the modules it imports.
 function test_inputs.effective(m: Module, by_path: {string:Module},
                                declarations: {string:string},
-                               type_only?: {string:{string:boolean}}): test_inputs.Effective
+                               type_only?: {string:{string:boolean}},
+                               pure_store?: boolean): test_inputs.Effective
   local parent: mut {string} = {}
   local caches: mut {string} = {}
   local out: test_inputs.Effective = {
@@ -271,7 +300,10 @@ function test_inputs.effective(m: Module, by_path: {string:Module},
     system = false, cpu_features = false, caches = caches, parent = parent,
     cache_paths = {}, unresolved = "",
   }
-  local files, fuzzes = closure(m, by_path, declarations, type_only)
+  local declares = m.inputs
+  local pure = test_inputs.is_pure(declares, pure_store)
+  out.pure = pure
+  local files, fuzzes = closure(m, by_path, declarations, type_only, pure)
   for _, file in ipairs(files) do out.files[file] = true end
   -- Every corpus, not only the ones the module names: a property's
   -- name may be computed, and corpora are small.
@@ -289,6 +321,7 @@ function test_inputs.effective(m: Module, by_path: {string:Module},
     out.noexec = declared.noexec == true
     out.system = declared.system == true
     out.cpu_features = declared.cpu_features == true
+    out.store_text = declared.store_text == true
     for _, relative in ipairs(declared.parent or {}) do parent[#parent + 1] = relative end
     -- A cache is declared with the variables that locate it.
     for _, name in ipairs(declared.caches or {}) do -- checked: condition_type, literal_needs_type
@@ -430,6 +463,7 @@ function test_inputs.canonical(maybe: PolicyRules.Declared?): string
   if declared.store then lines[#lines + 1] = "store true" end
   if declared.system then lines[#lines + 1] = "system true" end
   if declared.cpu_features == true then lines[#lines + 1] = "cpu_features true" end
+  if declared.store_text == true then lines[#lines + 1] = "store_text true" end
   list("caches", declared.caches or {}) -- checked: condition_type, literal_needs_type
   list("parent", declared.parent or {})
   list("requires", declared.requires or {}) -- checked: condition_type, literal_needs_type
@@ -450,7 +484,7 @@ function test_inputs.as_declared(needs: inputs.Needs?): PolicyRules.Declared?
     nests = needs.nests == true,
     noexec = needs.noexec == true,
     store = needs.store == true, system = needs.system == true,
-    cpu_features = needs.cpu_features == true,
+    cpu_features = needs.cpu_features == true, store_text = needs.store_text == true,
     caches = needs.caches or {}, parent = needs.parent or {}, requires = needs.requires or {},
     timeout = needs.timeout }
 end

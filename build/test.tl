@@ -2054,7 +2054,7 @@ local function make_recording(ctx: Run)
     closure_sets = {}, plans = {}, spelled = {}, folded = {}, type_only = {},
     closures = {}, tree_names = {}, effective = {},
     stores = {}, built = {}, store_digests = {}, store_kept = {}, store_names = {},
-    store_bases = {}, store_mismatched = {}, sealed = {},
+    store_bases = {}, store_owns = {}, store_mismatched = {}, sealed = {},
     sealed_written = 0, sealed_bytes = 0, sealed_ns = 0,
     written = 0, written_bytes = 0, writing_ns = 0,
     rerun_prefix = (if sandbox_mode == "on" then (test_sandbox.switch .. "=1 ") elseif
