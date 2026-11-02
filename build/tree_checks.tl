@@ -62,6 +62,7 @@ local Scopes = require("lang.scopes")
 local SyntaxNode = require("build.syntax_node")
 local TestReturns = require("build.test_returns")
 local MainLocals = require("build.main_locals")
+local plural = require("build.plural")
 local ScopesCover = require("lang.scopes_cover")
 local Warnings = require("lang.warnings")
 local TreeProgram = require("build.tree_program")
@@ -2755,7 +2756,7 @@ function tree_checks.main_locals(root: string, limit?: integer): {string}
         else
           local held = MainLocals.of_chunk(chunk)
           if held > most then
-            out[#out + 1] = file .. ": the main chunk holds " .. tostring(held) .. " locals, over " .. tostring(most) ..
+            out[#out + 1] = file .. ": the main chunk holds " .. plural.count(held, "local") .. ", over " .. tostring(most) ..
               " (Lua allows 200, and changes that each add one merge into a file that fails to build): group related " ..
               "helpers into a table with `function Group.name(...)`, or move them to a module of their own"
           end
