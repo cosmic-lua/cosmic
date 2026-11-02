@@ -61,7 +61,7 @@ stands on another checkout's pass.
   a share that ran on an image with another kernel. It never reaches a
   row of another processor's features (below). Unset, a run reuses only
   the rows of its own host's keys.
-- The new checker is the tool's only one: [`build.pipeline`] reads the tree, checks it against its ceilings and writes
+- The new checker is the tool's only one: [`build.pipeline`] reads the tree, checks it against its markers and ceilings and writes
   the Lua. `COSMIC_GRAMMAR` takes `new` or nothing ([`build.grammar_mode`]); `teal`, the grammar of the fork that was
   deleted, is refused, pointing to the project guide, which says how to rewrite a project to the new one. A project outside cosmic's own
   has no ceilings: every error refuses, its globals are the declarations of the standard library the tool carries

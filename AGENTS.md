@@ -98,6 +98,18 @@ would have waited, it says so once and answers from what is there, so
 Look things up with the tool, not grep: `bin/cosmic docs <symbol or
 words>`, `uses <symbol>`, `db`, `sql '<statement>'`, `todos <paths>`.
 
+## held findings
+
+The checker still finds things in the tree that no rewrite has removed
+yet, and each is held where it occurs by a marker, a trailing comment
+such as `-- checked: map_field`, in place of a count in a shared file
+([`doc/contributing.md`], "ceilings only fall"). A finding with no marker
+fails; a new marker is refused against the merge base; a marker whose
+finding is gone is stale, and `bin/cosmic fix .` removes it. A change
+that removes findings runs `fix .` and commits what it wrote.
+[`build/ceilings.txt`] holds only what markers cannot (`[examples]`) and
+the stages not yet moved to markers, as pins to lower.
+
 ## tests
 
 [`doc/testing.md`] holds the rules. The ones an agent needs most:
@@ -150,6 +162,7 @@ procedure.
 [`bin/verify-codesign`]: bin/verify-codesign
 [`bin/zig`]: bin/zig
 [`build.fix.format`]: build/fix/format.tl
+[`build/ceilings.txt`]: build/ceilings.txt
 [`build/flow.tl`]: build/flow.tl
 [`build/harness_epoch.tl`]: build/harness_epoch.tl
 [`build/paths.tl`]: build/paths.tl

@@ -23,7 +23,8 @@
 --- another, a build holds one module's syntax at a time and not the tree's.
 ---
 --- The ceilings ([`build.ceilings`]) are enforced for a module by [`Driver.Build.held`]: a count of errors of a code
---- above its ceiling is refused, with the same words as the check of the tree. A module that did not parse is refused
+--- above its ceiling, or an error with no marker on its line for a stage held by markers, is refused, with the same words
+--- as the check of the tree. A module that did not parse is refused
 --- for that alone.
 ---
 --- Its callers are [`build.tree_checks`], `cosmic compile` ([`build.compile_grammar`]) and the pipeline of the
@@ -1211,6 +1212,17 @@ function Driver.new(options: Driver.Options): Driver.Build
       local findings: mut {Ceilings.Finding} = {}
       for _, p in ipairs(list) do
         findings[#findings + 1] = { code = p.code, y = p.y, x = p.x, msg = p.msg, fix = p.fix }
+      end
+      if ceilings.none ~= true and Ceilings.by_marks(ceilings, name) then
+        -- The markers are comments of the text itself; a text the build writes from another file has none.
+        local text = source.text
+        if source.pinned ~= "" then
+          text = ""
+        end
+        for _, line in ipairs(Ceilings.marked(name, file, text, findings, codes, what).lines) do
+          out[#out + 1] = line
+        end
+        return
       end
       local held = Ceilings.over(file, findings, codes, Ceilings.of(ceilings, name), what, ceilings.none)
       for _, line in ipairs(held.lines) do

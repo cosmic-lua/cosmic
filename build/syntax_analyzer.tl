@@ -17,6 +17,7 @@ local AnalysisSchema = require("build.analysis_schema")
 local Ast = require("lang.ast")
 local Lexer = require("lang.lexer")
 local Lexical = require("build.syntax_scopes")
+local Markers = require("build.markers")
 local Node = require("build.syntax_node")
 local PolicyRules = require("build.policy_rules")
 local Scopes = require("lang.scopes")
@@ -311,7 +312,8 @@ local function line_at(lines: {string}, y: integer): string
   if line == nil then
     return ""
   end
-  return String.trim(line)
+  -- A marker of the checker ([`build.markers`]) is no part of what the line declares.
+  return String.trim(Markers.bare(line))
 end
 
 --- The name a path of names spells, `Thing.Box`.

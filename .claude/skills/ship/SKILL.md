@@ -39,11 +39,13 @@ default and is dropped from what to change.
    the pin bump once the prerelease exists; otherwise say the pin was
    left alone.
 
-Removing code can lower a count that [`build/ceilings.txt`] pins, and
-the whole-tree check refuses a pin above its count. Changing a harness
-module needs nothing recorded (every key holds its code); a change the
-modules' code does not show bumps `epoch` in [`build/harness_epoch.tl`],
-as [`doc/testing.md`] says. The pins are found by
+Removing code can leave a marker stale (the `-- checked: ...` comment
+that holds a finding of the checker on its line, see "ceilings only fall"
+in [`doc/contributing.md`]); `bin/cosmic fix .` removes it, and the
+whole-tree check refuses it until then. Changing a harness module needs
+nothing recorded (every key holds its code); a change the modules' code
+does not show bumps `epoch` in [`build/harness_epoch.tl`], as
+[`doc/testing.md`] says. Both are found by
 `bin/cosmic fix --check .` and the tests, run as step 2 and the guide's
 "check before pushing" say.
 
@@ -65,8 +67,8 @@ implementing subagent of its own, in its own worktree and branch.
   session: it fixes or relays CI failures and, once a PR merges, cleans
   up its worktree, branch and build directory.
 - Before starting, list the files each change will touch. Changes that
-  share one (a test helper, a signature many callers pass, the same line
-  of [`build/ceilings.txt`], the `epoch` line of
+  share one (a test helper, a signature many callers pass, the `epoch`
+  line of
   [`build/harness_epoch.tl`]) go one after another: the later starts
   from main once the earlier merges, or merges `origin/main` as the
   guide says, since the merge queue drops a PR on any conflict and does
@@ -111,7 +113,6 @@ Before saying "no findings", list what you checked.
 ```
 
 [`AGENTS.md`]: ../../../AGENTS.md
-[`build/ceilings.txt`]: ../../../build/ceilings.txt
 [`build/harness_epoch.tl`]: ../../../build/harness_epoch.tl
 [`doc/contributing.md`]: ../../../doc/contributing.md
 [`doc/testing.md`]: ../../../doc/testing.md
