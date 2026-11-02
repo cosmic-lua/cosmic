@@ -552,12 +552,11 @@ local function test_a_program_serves_the_static_files_it_carries(tmp: string)
   assert(out:find("false\t2\t" .. tostring(#css) .. "\ttext/css; charset=utf-8\ttrue\ttrue\t6\tnil\tnil\n", 1, true), out)
 end
 
---- `cosmic build` with the new checker (`COSMIC_GRAMMAR=new`, `grammar` here) compiles the project with it: a project written in
---- the new grammar (`mut`, a class, `T?`) builds, and the program it makes runs. The fork does not read it.
+--- A project written in the new grammar (`mut`, a class, `T?`) builds, and the program it makes runs.
 local function test_a_project_in_the_new_grammar_becomes_an_executable_with_the_new_checker(tmp: string)
   local root = tmp .. "/new"
   assert(Fs.copy_tree("testdata/projects/new_grammar", root))
-  local names, trouble = embed.tree(root, true, nil, "new")
+  local names, trouble = embed.tree(root, true)
   assert(names ~= nil and #names == 1 and names[1] == "tally", trouble)
   local r = assert(Child.run({ support.build_dir(root) .. "/bin/tally", "b", "a", "c" }, {
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) }))
@@ -571,7 +570,7 @@ local function test_a_project_the_new_checker_refuses_is_not_built(tmp: string)
   assert(Fs.copy_tree("testdata/projects/fork_only", root))
   assert(Fs.mkdirs(root .. "/cmd/x"))
   assert(Fs.write(root .. "/cmd/x/main.tl", "return function(): integer return 0 end\n"))
-  local names, trouble = embed.tree(root, true, nil, "new")
+  local names, trouble = embed.tree(root, true)
   assert(names == nil, "built a project the new checker refuses")
   assert(trouble:find("lookup.tl:10:12: nil is given as return value 1, where `Entry` is wanted (nil_not_allowed): give a value, " ..
       "or declare what takes it `Entry?`", 1, true) ~= nil, tostring(trouble))
@@ -642,7 +641,7 @@ local function test_an_executable_trusts_the_minimal_roots_unless_told(tmp: stri
   assert(bad:find('COSMIC_CA_ROOTS names "everything", not minimal or mozilla', 1, true) ~= nil, bad)
   assert(bad:find("refused", 1, true) ~= nil, bad)
 
-  assert(embed.tree(tmp, true, nil, nil, "mozilla"))
+  assert(embed.tree(tmp, true, nil, "mozilla"))
   assert(run_with(out, {}) == "mozilla\ntrusted\n")
   assert(run_with(out, { COSMIC_CA_ROOTS = "minimal" }) == "minimal\nrefused\n")
 end

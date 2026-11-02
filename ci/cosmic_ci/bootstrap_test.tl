@@ -2,7 +2,6 @@ local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
-local Grammar = require("cosmic_ci.grammar")
 local Predicate = require("cosmic_ci.fs_predicate")
 local Hash = require("cosmic.hash")
 local Maps = require("cosmic_ci.maps")
@@ -21,8 +20,8 @@ Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx
 local function environment(extra?: {string:string}): {string:string}
   local values = Maps.without(Env.all(), { "COSMIC_BOOTSTRAP",
     "COSMIC_BOOTSTRAP_VERIFY", "COSMIC_BOOTSTRAP_ATTEMPTS" })
-  if extra then return Grammar.driver(Maps.with(values, extra)) end
-  return Grammar.driver(values)
+  if extra then return Maps.with(values, extra) end
+  return values
 end
 
 --- How long a spawned driver.tl may take. It compiles every cosmic_ci

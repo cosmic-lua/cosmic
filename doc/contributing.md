@@ -246,7 +246,7 @@ every `TODO:` the release unblocks, which
 that the pin was left alone.
 
 the pin is also the seed a boot compiles the tool's compiler from: a
-`build.zig` step runs the release's `cosmic compile --grammar new` over the
+`build.zig` step runs the release's `cosmic compile` over the
 files of [`build/seed.txt`] ([`build/seed.tl`] and what it requires), and the
 bridge ([`core/bridge.lua`]) loads the Lua it writes as the boot's first
 stage. The first stage compiles the same files again from the tree (the
