@@ -701,10 +701,10 @@ local function fresh_codes(files: {{string}}, names: {string}): string
   return table.concat(out, " ")
 end
 
-local function test_a_module_required_by_an_alias_name_is_forgotten_with_the_module_replaced()
+local function test_a_nested_module_required_by_its_path_is_forgotten_with_the_module_replaced()
   local files: mut {{string}} = {
     { "lib/box.tl", RECORD },
-    { "use.tl", "local Box = require(\"box\")\nlocal b: Box = { n = 1 }\nreturn b\n" },
+    { "use.tl", "local Box = require(\"lib.box\")\nlocal b: Box = { n = 1 }\nreturn b\n" },
     { "other.tl", "local record O\nend\nreturn O\n" },
   }
   local build = build_of(files)
