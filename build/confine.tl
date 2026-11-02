@@ -18,6 +18,7 @@ local sys = require("cosmic.sys")
 local type raw_process = require("cosmic.internal.process")
 
 local process = require("cosmic.internal.process")
+local socket = require("cosmic.internal.socket")
 
 --- The process table's questions of this host, as this module loads.
 local sandbox_platform, may_map_ids, own_proc, landlock_abi = process.sandbox_platform,
@@ -27,6 +28,7 @@ local sandbox_platform, may_map_ids, own_proc, landlock_abi = process.sandbox_pl
 --- stand-in for it (see `enter`) is put in its place.
 local own_spawn = process.spawn
 local unix_socket, close_socket = process.unix_socket, sys.close
+local listen, datagram = socket.listen, socket.datagram
 
 local record confine
   --- What a test declares the processes it starts need, beyond the
@@ -447,6 +449,36 @@ function confine.unix_socket_available(): boolean, string
     error("the Unix socket creation probe failed: " .. why, 0)
   end
   return false, why
+end
+
+--- Whether this host permits loopback sockets: a TCP listener bound to
+--- 127.0.0.1 at a port the kernel chooses, and a UDP socket bound the
+--- same way. Both are tried, since a host may refuse one kind alone, and
+--- the name [`build.host_requires`] answers for is the pair. A refusal
+--- answers absent (EPERM or EACCES, or EAFNOSUPPORT, EPROTONOSUPPORT or
+--- ENOSYS, as a filter of address families answers), as does a network
+--- namespace with no loopback address up (EADDRNOTAVAIL). Any other
+--- failure cannot tell whether loopback is permitted, so it raises.
+function confine.loopback_available(): boolean, string
+  local function absent(errno: integer): boolean
+    return errno == sys.EPERM or errno == sys.EACCES or errno == sys.EAFNOSUPPORT or
+      errno == sys.EPROTONOSUPPORT or errno == sys.ENOSYS or sys.errno_name(errno) == "EADDRNOTAVAIL"
+  end
+  local listener, why, errno = listen({ kind = "tcp", host = "127.0.0.1", port = 0 }, 1)
+  if listener == nil then
+    if not absent(errno) then error("the loopback TCP probe failed: " .. why, 0) end
+    return false, "TCP " .. why
+  end
+  local closed, close_trouble = listener:close()
+  if not closed then error("closing the loopback TCP probe: " .. close_trouble, 0) end
+  local udp, udp_why, udp_errno = datagram({ kind = "udp", host = "127.0.0.1", port = 0 })
+  if udp == nil then
+    if not absent(udp_errno) then error("the loopback UDP probe failed: " .. udp_why, 0) end
+    return false, "UDP " .. udp_why
+  end
+  local udp_closed, udp_close_trouble = udp:close()
+  if not udp_closed then error("closing the loopback UDP probe: " .. udp_close_trouble, 0) end
+  return true, ""
 end
 
 --- What a sandboxed worker of this very program -- `cosmic test`'s,

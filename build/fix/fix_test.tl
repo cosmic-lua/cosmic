@@ -513,6 +513,33 @@ local function test_nothing_under_static_is_chosen(tmp: string)
   end
 end
 
+--- `ci/` is a project of its own, which the tree's run does not check: a path named in or below it is refused, saying where to
+--- check it, and not reported as a file with nothing to fix. A project outside cosmic's own tree has no such directory.
+local function test_a_path_in_a_tree_of_its_own_is_refused_not_passed_as_checked(tmp: string)
+  local own = tmp .. "/own"
+  assert(Fs.mkdirs(own .. "/core"))
+  assert(Fs.mkdirs(own .. "/build"))
+  assert(Fs.mkdirs(own .. "/ci/cosmic_ci"))
+  assert(Fs.write(own .. "/build/importer.tl", "return {}\n"))
+  assert(Fs.write(own .. "/ci/cosmic_ci/a.tl", "return 1\n"))
+  assert(Fs.write(own .. "/main.tl", "return 1\n"))
+  for _, path in ipairs({ own .. "/ci/cosmic_ci/a.tl", own .. "/ci/cosmic_ci", own .. "/ci" }) do
+    local named = assert(chosen(own, { path }, true))
+    assert(#named.files == 0 and #named.refused == 1, path .. ": " .. table.concat(named.refused, " "))
+    assert(named.refused[1]:find("in ci/, a project of its own", 1, true) ~= nil and
+        named.refused[1]:find("with ci/ as the working directory", 1, true) ~= nil, named.refused[1])
+  end
+  -- `--changed` refuses the same paths: its list is checked by [`fix.foreign_paths`].
+  local listed = fix.foreign_paths(own, { own .. "/main.tl", own .. "/ci/cosmic_ci/a.tl", own .. "/ci" })
+  assert(#listed == 2 and listed[1]:find("ci/cosmic_ci/a.tl: in ci/, a project of its own", 1, true) ~= nil and
+      listed[2]:find("with ci/ as the working directory", 1, true) ~= nil, table.concat(listed, "\n"))
+  -- A project that is not cosmic's own has no tree of its own inside it.
+  assert(Fs.mkdirs(tmp .. "/project/ci"))
+  assert(Fs.write(tmp .. "/project/ci/a.tl", "return 1\n"))
+  local elsewhere = assert(chosen(tmp .. "/project", { tmp .. "/project/ci/a.tl" }, false))
+  assert(#elsewhere.refused == 0 and #elsewhere.files == 1, table.concat(elsewhere.refused, " "))
+end
+
 --- A Teal file of `source` in `tmp`, laid out by [`fix.lay_out_source`] (`checking`, `kept` and `layout` as it takes
 --- them), and what it did.
 local function laid_in(tmp: string, name: string, source: string, checking: boolean, kept?: laid.Kept,
