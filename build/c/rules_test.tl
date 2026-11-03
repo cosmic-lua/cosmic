@@ -48,6 +48,7 @@ local root = assert(Fs.absolute("."))
 --- The one outcome [`c.check`] gives for the one file a test hands it: it
 --- returns an outcome for every path it is given.
 local function only_outcome(outcomes: {c.Outcome}): c.Outcome
+  assert(#outcomes == 1, ("c.check gave %d outcomes for one file"):format(#outcomes))
   return Array.at(outcomes, 1)
 end
 
