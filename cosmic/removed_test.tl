@@ -48,7 +48,7 @@ local function test_every_replacement_is_for_a_removed_name()
     local name, field = dotted:match("^([%a_]+)%.([%a_]+)$")
     if name == "package" then
       -- `package` is no removed name: only its four removed fields are.
-      assert(package_fields[field], dotted) -- checked: nil_not_allowed
+      assert(field ~= nil and package_fields[field] == true, dotted)
       assert(Removed.names.package == nil) -- checked: map_field
     else
       assert(name ~= nil and Removed.names[name] ~= nil, dotted)
@@ -87,10 +87,10 @@ end
 local function test_every_removed_member_is_gone_from_its_module()
   for dotted in pairs(Removed.members) do
     local module, member = dotted:match("^(cosmic%.[%w_]+)%.([%w_]+)$")
-    assert(module ~= nil, dotted)
+    assert(module ~= nil and member ~= nil, dotted)
     local loaded = modules[module]
     assert(loaded ~= nil, module .. " is not among this test's modules: add it")
-    assert(loaded is {string: any} and loaded[member] == nil, dotted) -- checked: is_on_record, nil_not_allowed
+    assert(loaded is {string: any} and loaded[member] == nil, dotted) -- checked: is_on_record
   end
 end
 
@@ -133,7 +133,7 @@ local function test_every_quoted_function_exists_in_the_module_it_names()
         checked = checked + 1
       end
       if module ~= nil and not field:find("^%u") then
-        if not (module == gone_module and field:lower() == gone:lower()) then -- checked: nil_not_allowed
+        if not (gone ~= nil and module == gone_module and field:lower() == gone:lower()) then
           local loaded = modules[module]
           if loaded == nil and unreachable[module] then -- checked: or_mix
             -- Unreachable from here; see `unreachable`.
@@ -174,13 +174,15 @@ local function test_the_removed_json_lookups_name_the_path_api()
     assert(not instead:find("[1]", 1, true), "a 1-based path: " .. instead)
   end
   for _, member in ipairs({ "flatten", "flat_line", "describe" }) do
-    assert(Removed.members["cosmic.json." .. member]:find("build.json_query", 1, true), member) -- checked: nil_not_allowed
+    local instead = Removed.members["cosmic.json." .. member]
+    assert(instead ~= nil and instead:find("build.json_query", 1, true) ~= nil, member)
   end
   assert(Removed.members["cosmic.json.get"] == nil and Removed.members["cosmic.json.select"] == nil)
 end
 
 local function test_the_removed_csv_functions_name_what_to_use_instead()
-  assert(Removed.members["cosmic.csv.rows"]:find("Csv.table", 1, true)) -- checked: nil_not_allowed
+  local rows = Removed.members["cosmic.csv.rows"]
+  assert(rows ~= nil and rows:find("Csv.table", 1, true) ~= nil)
   assert(Removed.members["cosmic.csv.encode"] == nil)
 end
 
@@ -242,7 +244,8 @@ local function test_the_removed_raw_pipe_names_the_stdin_stream()
     assert(instead ~= nil and instead:find('stdin = "stream"', 1, true) ~= nil and
         not instead:find('"pipe"', 1, true), member)
   end
-  assert(Removed.members["cosmic.sys.pipe"]:find("h.stdin_stream", 1, true)) -- checked: nil_not_allowed
+  local pipe = Removed.members["cosmic.sys.pipe"]
+  assert(pipe ~= nil and pipe:find("h.stdin_stream", 1, true) ~= nil)
 end
 
 --- A program that called a removed calendar function or type is told what

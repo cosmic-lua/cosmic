@@ -7,6 +7,7 @@
 --- option is refused before a start, and a sandboxed worker has no sh
 --- to find, so a refusal that regressed fails the case either way.
 
+local Array = require("cosmic.array")
 local Test = require("cosmic.test")
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
@@ -70,8 +71,8 @@ local function test_a_start_past_the_descriptor_limit_names_it(tmp: string)
   sys.close(null)
   assert(ok, tostring(child))
   assert(child == nil, "started past the limit")
-  assert(trouble:find("handed descriptor 255", 1, true) ~= nil and -- checked: nil_not_allowed
-      trouble:find("RLIMIT_NOFILE's soft limit of 256", 1, true) ~= nil, trouble) -- checked: nil_not_allowed
+  assert(trouble ~= nil and trouble:find("handed descriptor 255", 1, true) ~= nil and
+      trouble:find("RLIMIT_NOFILE's soft limit of 256", 1, true) ~= nil, trouble)
 end
 
 --- A refused option is blamed on the line that passed it, not on a line
@@ -120,8 +121,10 @@ local function test_a_raise_names_the_module()
     "cwd is empty; leave it nil to start in this process's directory" }
   for i, call in ipairs(raising) do
     local ok, why: boolean, any = pcall(call)
-    assert(not ok and tostring(why):find(": child: " .. says[i], 1, true) ~= nil, -- checked: nil_not_allowed
-      says[i] .. ": " .. tostring(why)) -- checked: nil_not_allowed
+    -- `says` holds one line for each call of `raising`.
+    local expected = Array.at(says, i)
+    assert(not ok and tostring(why):find(": child: " .. expected, 1, true) ~= nil,
+      expected .. ": " .. tostring(why))
   end
 end
 
