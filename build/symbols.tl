@@ -244,7 +244,7 @@ local function refuse_withheld(db: Sqlite.Handle, table_name: string)
   local rows, _ = Sqlite.text_rows(db, "SELECT 1 FROM meta WHERE key = 'pure_store'")
   if rows ~= nil and #rows > 0 then
     error("the `" .. table_name .. "` of the store is withheld, so a hint cannot be read from it: a test whose compile " ..
-      "words a hint (a refusal naming a symbol or a docs command) declares `Test.policy { store_text = true }`", 0)
+        "words a hint (a refusal naming a symbol or a docs command) declares `Test.policy { store_text = true }`", 0)
   end
 end
 
