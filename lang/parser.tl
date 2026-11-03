@@ -2101,9 +2101,9 @@ local function parse_function_statement(): Ast.Stat
       break
     end
   end
-  local joined = path[1] and path[1].text or "" -- checked: nil_not_allowed
+  local joined = path[1] and path[1].text or ""
   if colon then
-    local method = path[#path] and path[#path].text or "m" -- checked: nil_not_allowed
+    local method = path[#path] and path[#path].text or "m"
     report("method_in_record", first, "`" .. quoted_text(first, S.pos - 1) .. "` is not in the grammar: a method is declared in its class",
       "declare it inside its class as `function " .. method .. "(self, ...)`")
   elseif #path == 1 then

@@ -91,6 +91,8 @@ local rebuild = require("build.rebuild")
 local type tree = require("build.tree")
 local syntax_read = require("build.lsp.syntax_read")
 local work = require("build.work")
+-- Declares what text this module reads ([`build.code_walk`]'s `markers`): all.
+local _ = require("build.reads.all")
 
 local record source
   --- A module as the working database lists it (the `inputs` view).

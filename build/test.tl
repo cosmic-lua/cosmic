@@ -777,7 +777,7 @@ end
 --- one whose o/ is removed is too.
 local function checkout_id(records: Sqlite.Handle, root: string, now_ns: integer): string
   local rows, _ = Sqlite.text_rows(records, "SELECT value FROM meta WHERE key = 'checkout'")
-  if rows ~= nil and rows[1] ~= nil then return rows[1]:text(1) end -- checked: nil_not_allowed
+  if rows ~= nil and rows[1] ~= nil then return rows[1]:text(1) end
   local made = hex_sha256(root .. "\0" .. tostring(now_ns) .. "\0" ..
       tostring(Clock.monotonic_ns()) .. "\0" .. tostring({})) -- checked: literal_needs_type
   local _, _ = Sqlite.run(records, "INSERT OR REPLACE INTO meta (key, value) VALUES ('checkout', ?1)",

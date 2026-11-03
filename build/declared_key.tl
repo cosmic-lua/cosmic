@@ -227,7 +227,8 @@ local record declared_key
     --- their module's path.
     group: string
     --- The module's `graph_key` ([`build.positions`]): its key less the
-    --- compiler.
+    --- compiler. For a test given the pure store, "pure": the store's bytes
+    --- are in `closure_store`, and the graph's key moves with a comment.
     module_key: string
     runtime: string
     --- The compiler's identity as the running tool's `meta` names it --
@@ -800,7 +801,7 @@ local function tree(digests: declared_key.Digests, path: string, programs?: bool
       end
     end
     walk(path, "", 0)
-    if refused[1] ~= nil then return "refused " .. refused[1] end -- checked: nil_not_allowed
+    if refused[1] ~= nil then return "refused " .. refused[1] end
     return "dir " .. hex_sha256(table.concat(lines, "\n"))
   end)
 end

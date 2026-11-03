@@ -72,6 +72,8 @@ local worker = require("build.test_worker")
 local log = require("build.logger").log
 local bind = require("build.bind")
 local type State = require("build.test_state")
+-- Declares what text this module reads ([`build.code_walk`]'s `markers`): the stubs and places the sealed program's digest holds.
+local _ = require("build.reads.all")
 
 local record test_key
   --- What of the running binary a run holds of the code a worker runs,
@@ -952,11 +954,10 @@ local function declared_of(rec: Recording, m: Module, id: string, host?: string)
   end
   local key, why = declared_key.compute(digests_of(rec), {
     id = id, group = m.path, runtime = rec.runtime,
-    -- The pure store holds all of the closure a test can observe and its address
-    -- is the digest of what that holds ([`closure_store.address`]); the graph's
-    -- key is over the closure's sources, which a comment moves.
-    module_key = if effective.pure == true then ("pure " .. assert(rec.stores[m.path]))
-      else assert(m.graph_key) end,
+    -- The pure store holds all of the closure a test can observe, and `closure_store` below holds its bytes; the
+    -- graph's key is over the closure's sources, which a comment moves. Its address is no part of the key, as no
+    -- store's is: it holds the writer's salt, which a store of the same bytes does not.
+    module_key = if effective.pure == true then "pure" else assert(m.graph_key) end,
     compiler = (if reads_compiler(rec, m) then rec.compiler else nil end) or "",
     host = host or rec.host, -- checked: nil_not_allowed
     cpu = if effective.cpu_features == true then rec.cpu else nil end,
@@ -1119,7 +1120,7 @@ end
 local function address_stores(rec: Recording, modules: {Module},
                               by_path: {string:Module},
                               declarations: {string:string}): boolean, string
-  local basis, trouble = closure_store.basis(projection_of(rec), rec.pure_store)
+  local basis, trouble = closure_store.basis(projection_of(rec), rec.sandbox)
   if basis == nil then return false, trouble end
   rec.basis = basis
   -- The code that writes a store, and the core that runs it -- SQLite
@@ -1135,7 +1136,8 @@ local function address_stores(rec: Recording, modules: {Module},
       local names = rec.closures[m.path] or
         test_inputs.modules(m, by_path, declarations, rec.type_only)
       rec.closures[m.path] = names
-      if test_inputs.is_pure(declared, rec.pure_store) then
+      local effective = rec.effective[m.path]
+      if effective ~= nil and effective.pure == true then
         local address = closure_store.address(basis, names, salt, m.path)
         rec.stores[m.path] = address
         rec.store_owns[address] = m.path
@@ -1352,7 +1354,7 @@ local function sealing_for(rec: Recording): Sealing?, string
   if launched == nil or launched.argv[2] ~= "--artifact" or launched.argv[3] == nil then
     return refuse("this program is no portable artifact to take its database from")
   end
-  local bytes, read_trouble = Fs.read(launched.argv[3]) -- checked: index_may_be_nil
+  local bytes, read_trouble = Fs.read(launched.argv[3])
   if bytes == nil then return refuse(launched.argv[3] .. ": " .. read_trouble) end -- checked: nil_not_allowed
   local parts, split_trouble = artifact.split(bytes)
   if parts == nil then return refuse(launched.argv[3] .. ": " .. split_trouble) end -- checked: nil_not_allowed
@@ -1487,9 +1489,24 @@ local function write_sealed(sealing: Sealing, store: string, whole: string, out:
       if held == nil then return false, held_trouble end
       local absent: mut {string:boolean} = { web_assets = true, stubs = true, places = true }
       for _, row in ipairs(held) do absent[row:text(1)] = nil end
+      -- A pure closure store leaves out the tables of text-derived rows ([`build.closure_store`]'s `write`).
+      local carried, carried_trouble = Sqlite.text_rows(db,
+        "SELECT name FROM closure.sqlite_master WHERE name = 'places'")
+      if carried == nil then return false, carried_trouble end
+      local left_out = #carried == 0
       for _, statement in ipairs(sealed_fill) do
         local reads = statement:match("program%.([%w_]+)")
-        if reads == nil or absent[reads] ~= true then
+        local from_closure = statement:match("closure%.([%w_]+)")
+        if (reads == nil or absent[reads] ~= true) and not (left_out and from_closure == "places") then
+          local done, done_trouble = db:exec(statement)
+          if not done then return false, done_trouble end
+        end
+      end
+      if left_out then
+        -- A pure worker's database says so and holds no `places`, the closure's rows being withheld: a query of it fails,
+        -- as the readers of a missing text table refuse ([`build.symbols`]'s `refuse_withheld`).
+        for _, statement in ipairs({ "DROP TABLE main.places",
+            "INSERT INTO main.meta (key, value) VALUES ('pure_store', X'31')" }) do
           local done, done_trouble = db:exec(statement)
           if not done then return false, done_trouble end
         end
@@ -1902,17 +1919,12 @@ function test_key.gather(rec: Recording, from: Gather): string?
   rec.type_only = type_only
   -- Only a sandboxed worker is held to the store and the files it is given: unsandboxed, it reads the real tree,
   -- which a key without the imports' sources would not follow.
-  --
-  -- TODO: make the pure store the default (drop this switch) once every test module that fails under it
-  -- (`COSMIC_TEST_PURE_STORE=1 bin/cosmic test`) declares what it reads: `store_text` for one whose subject is
-  -- the text of the store, `reads` for one that reads the source file of a module it imports.
-  rec.pure_store = Env.read("COSMIC_TEST_PURE_STORE") == "1" and rec.sandbox
   for _, m in ipairs(selected_modules) do
     rec.closures[m.path] = test_inputs.modules(m, by_path, declarations, type_only)
   end
   local noexec_probes: mut {string:string} = {}
   for _, m in ipairs(selected_modules) do
-    local effective = test_inputs.effective(m, by_path, declarations, type_only, rec.pure_store)
+    local effective = test_inputs.effective(m, by_path, declarations, type_only, rec.sandbox)
     effective.cache_paths = caches_of(rec, m)
     test_inputs.resolve(effective, tree_roots(rec))
     test_sandbox_probe.resolve_noexec(effective, rec.sandbox, noexec_probes)

@@ -22,6 +22,7 @@ local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
+local CodeWalk = require("build.code_walk")
 local sys = require("cosmic.sys")
 local identity = require("build.identity")
 local type tree = require("build.tree")
@@ -32,6 +33,8 @@ local bind = require("build.bind")
 local link_files = require("build.link_files")
 local rebuild_lock = require("build.rebuild_lock")
 local log = require("build.logger").log
+-- Declares what text this module reads ([`build.code_walk`]'s `markers`): links.
+local _ = require("build.reads.links")
 
 local record work
   --- One file of `web_assets`: its name in the table, its bytes, their
@@ -1870,22 +1873,10 @@ local function links_finder(db: Sqlite.Handle): string?, string
   if recorded["links_boot"] == boot_hash and recorded["links_by"] ~= nil then
     return recorded["links_by"], ""
   end
-  local reached: mut {string:boolean} = {}
-  local stack: mut {string} = { "build.link_files" }
-  while #stack > 0 do
-    local name = table.remove(stack)
-    if name ~= nil and reached[name] ~= true then
-      reached[name] = true
-      local required, trouble = Store.requires(name)
-      if required == nil then
-        return nil, trouble
-      end
-      for _, next_name in ipairs(required) do stack[#stack + 1] = next_name end
-    end
+  local names, reach_trouble = CodeWalk.reach(CodeWalk.links, Store.requires)
+  if names == nil then
+    return nil, reach_trouble
   end
-  local names: mut {string} = {}
-  for name in pairs(reached) do names[#names + 1] = name end
-  table.sort(names)
   local parts: mut {string} = {}
   for _, name in ipairs(names) do
     local source, _ = Store.source(name)

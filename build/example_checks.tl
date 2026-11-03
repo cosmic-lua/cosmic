@@ -32,6 +32,8 @@ local String = require("cosmic.string")
 local doctest = require("build.doctest")
 local symbols = require("build.symbols")
 local type Pipeline = require("build.pipeline")
+-- Declares what text this module reads ([`build.code_walk`]'s `markers`): the docs, examples, uses or links of the database it is handed.
+local _ = require("build.reads.all")
 
 local record example_checks
 end

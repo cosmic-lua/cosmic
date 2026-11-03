@@ -629,7 +629,7 @@ function Arrays.test(g: Gen, s: string): string, integer
   local n = g.src:int(1, 6)
   local k, below = tostring(n), tostring(n - 1)
   local len = "#" .. s
-  local form = g.src:int(0, 7)
+  local form = g.src:int(0, 8)
   if form == 0 then
     return len .. " >= " .. k, n
   elseif form == 1 then
@@ -644,6 +644,8 @@ function Arrays.test(g: Gen, s: string): string, integer
     return len .. " >= " .. k .. " and #tostring(eater) > 0", n
   elseif form == 6 then
     return len .. " ~= 0", 1
+  elseif form == 7 then
+    return s .. "[" .. k .. "] ~= nil", n
   end
   return len .. " >= " .. k .. " and #tostring(total) > 0", n
 end

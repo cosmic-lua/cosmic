@@ -237,6 +237,17 @@ function symbols.used_where(alias: string): string
     owned .. "))"
 end
 
+--- Raises where `db` is a test's pure store ([`build.closure_store`]'s `write`), which leaves the tables of text-derived rows
+--- out: a hint asked of it would answer as no match and a test would pass on that. A binary from before the table
+--- answers no match, as a hint may.
+local function refuse_withheld(db: Sqlite.Handle, table_name: string)
+  local rows, _ = Sqlite.text_rows(db, "SELECT 1 FROM meta WHERE key = 'pure_store'")
+  if rows ~= nil and #rows > 0 then
+    error("the `" .. table_name .. "` of the store is withheld, so a hint cannot be read from it: a test whose compile " ..
+        "words a hint (a refusal naming a symbol or a docs command) declares `Test.policy { store_text = true }`", 0)
+  end
+end
+
 --- Every symbol `query` names exactly, across `databases` (searched in
 --- order, the tree's own last projection ahead of the binary's), each
 --- as the `symbol` column reads, already qualified by its record
@@ -257,6 +268,7 @@ function symbols.named(databases: {Sqlite.Handle}, public: {boolean},
         public_docs("d.module", public[index] == true) ..
         " ORDER BY module, symbol",
       { { text = query } })
+    if rows == nil then refuse_withheld(db, "docs") end
     if rows ~= nil then
       for _, row in ipairs(rows) do
         local name = if row:text(2) ~= "" then row:text(2) else row:text(1) end
@@ -314,6 +326,7 @@ function symbols.has_example_query(databases: {Sqlite.Handle}, public: {boolean}
       local binds: mut {Sqlite.Value} = { { text = lookup.first } }
       if lookup.second ~= nil then binds[#binds + 1] = { text = lookup.second } end
       local rows, _ = Sqlite.text_rows(db, lookup.sql, binds)
+      if rows == nil then refuse_withheld(db, "examples") end
       if rows ~= nil then
         for _, row in ipairs(rows) do
           if owners[row:text(1)] == index then return true end

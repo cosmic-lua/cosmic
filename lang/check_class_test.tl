@@ -15,7 +15,7 @@ local function refused(source: string, codes: string, msg?: string, modules?: {s
   local r = Programs.run(source, modules, declared)
   assert(#r.before == 0, table.concat(r.before, " ") .. " in\n" .. source)
   assert(Programs.codes(r) == codes, "wanted " .. codes .. ", got " .. Programs.codes(r) .. " in\n" .. source .. "\n" ..
-      (r.errors[1] ~= nil and r.errors[1].msg or "")) -- checked: and_ternary, nil_not_allowed
+      (r.errors[1] ~= nil and r.errors[1].msg or "")) -- checked: and_ternary
   if msg ~= nil then
     assert(r.errors[1].msg:find(msg, 1, true) ~= nil, r.errors[1].msg .. "\nwanted " .. msg) -- checked: nil_not_allowed*2
   end
@@ -24,7 +24,7 @@ end
 --- Checks that `source` has no error.
 local function accepted(source: string, modules?: {string: string}, declared?: {string: string})
   local r = Programs.run(source, modules, declared)
-  assert(#r.before == 0 and #r.errors == 0, table.concat(r.before, " ") .. (r.errors[1] ~= nil and r.errors[1].msg or "") .. -- checked: and_ternary, nil_not_allowed
+  assert(#r.before == 0 and #r.errors == 0, table.concat(r.before, " ") .. (r.errors[1] ~= nil and r.errors[1].msg or "") .. -- checked: and_ternary
       " in\n" .. source)
 end
 

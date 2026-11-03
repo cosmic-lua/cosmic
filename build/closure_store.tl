@@ -23,6 +23,7 @@
 --- only the addresses of the stores whose rows it moves.
 
 local Clock = require("cosmic.clock")
+local CodeWalk = require("build.code_walk")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local lua_tail = require("build.lua_tail")
@@ -98,6 +99,12 @@ local record closure_store
     --- The names each module's stub requires, by path ([`required_by`]): the checker types a stub
     --- from the stubs of those, so a module a kept stub requires is kept too.
     text_edges: mut {string:{string}}
+    --- The digest of each module's source (inflated, so the compressor moves none), by path: what the pure store
+    --- holds of a module whose source it keeps ([`source_kept`]). Empty unless the run holds the pure store.
+    sources: mut {string:string}
+    --- The modules each module requires, by path (the `imports` rows), which [`source_kept`] walks from a
+    --- walk's roots. Empty unless the run holds the pure store.
+    edges: mut {string:{string}}
   end
 end
 
@@ -269,7 +276,7 @@ local function memo_token(whole: string, pure?: boolean): string?
   if Clock.now_ns() - math.max(written, changed) < 2000000000 then return nil end
   local code, _ = Store.bytecode("build.closure_store")
   if code == nil then return nil end
-  return table.concat({ if pure == true then "basis-memo-2-pure" else "basis-memo-2" end, Hash.hex_sha256(code), st.size, st.ino, st.dev, written, changed }, " ")
+  return table.concat({ if pure == true then "basis-memo-3-pure" else "basis-memo-3" end, Hash.hex_sha256(code), st.size, st.ino, st.dev, written, changed }, " ")
 end
 
 --- Where a read of a kept basis is, and the basis it made.
@@ -301,7 +308,7 @@ local function remembered(whole: string, token: string): closure_store.Basis?
     if next_string() ~= token then return end
     local out: closure_store.Basis = {
       modules = {}, shared = next_string(), kinds = {}, pairable = {}, decls = {}, decl_requires = {},
-      pure = {}, stripped = {}, bytecode = {}, pure_decls = {}, texts = {}, text_edges = {}, type_requires = {},
+      pure = {}, stripped = {}, bytecode = {}, pure_decls = {}, texts = {}, text_edges = {}, type_requires = {}, sources = {}, edges = {},
     }
     for _ = 1, next_count() do
       local path = next_string()
@@ -335,6 +342,16 @@ local function remembered(whole: string, token: string): closure_store.Basis?
       for i = 1, next_count() do required[i] = next_string() end
       out.decl_requires[path] = required
       out.pure_decls[path] = next_string()
+    end
+    for _ = 1, next_count() do
+      local path = next_string()
+      out.sources[path] = next_string()
+    end
+    for _ = 1, next_count() do
+      local path = next_string()
+      local required: mut {string} = {}
+      for i = 1, next_count() do required[i] = next_string() end
+      out.edges[path] = required
     end
     if reading.at ~= #data + 1 then return end
     reading.basis = out
@@ -392,6 +409,21 @@ local function remember(whole: string, token: string, basis: closure_store.Basis
     put_count(#required)
     for _, name in ipairs(required) do put_string(name) end
     put_string(basis.pure_decls[path] or "")
+  end
+  local sourced = 0
+  for _ in pairs(basis.sources) do sourced = sourced + 1 end
+  put_count(sourced)
+  for path, digest in pairs(basis.sources) do
+    put_string(path)
+    put_string(digest)
+  end
+  local listed = 0
+  for _ in pairs(basis.edges) do listed = listed + 1 end
+  put_count(listed)
+  for path, required in pairs(basis.edges) do
+    put_string(path)
+    put_count(#required)
+    for _, name in ipairs(required) do put_string(name) end
   end
   local aside = memo_path(whole) .. "." .. tostring(Proc.pid()) .. ".building"
   local written, _ = Fs.write(aside, table.concat(parts))
@@ -466,7 +498,7 @@ local function read_basis(whole: string, pure?: boolean): closure_store.Basis?, 
     local basis: closure_store.Basis = {
       modules = {}, shared = Hash.hex_sha256("closure-store-8\n" .. shared_row:text(1)),
       kinds = {}, pairable = {}, decls = {}, decl_requires = {},
-      pure = {}, stripped = {}, bytecode = {}, pure_decls = {}, texts = {}, text_edges = {}, type_requires = {},
+      pure = {}, stripped = {}, bytecode = {}, pure_decls = {}, texts = {}, text_edges = {}, type_requires = {}, sources = {}, edges = {},
     }
     for _, row in ipairs(rows) do
       local line: mut {string} = { row:text(2) }
@@ -509,6 +541,21 @@ local function read_basis(whole: string, pure?: boolean): closure_store.Basis?, 
       for _, row in ipairs(sourced) do
         basis.type_requires[row:text(1)] = type_requires(row:text(2))
       end
+      -- What a walk of the code that reads module text ([`build.code_walk`]) is hashed from.
+      local hashed, hashed_trouble = Sqlite.text_rows(db,
+        "SELECT path, lower(hex(sha256(inflate(source)))) FROM modules WHERE kind NOT IN ('test', 'example') " ..
+          "AND length(source) > 0 ORDER BY path")
+      if hashed == nil then return nil, hashed_trouble end
+      for _, row in ipairs(hashed) do basis.sources[row:text(1)] = row:text(2) end
+      local imported, imported_trouble = Sqlite.text_rows(db, "SELECT path, requires FROM imports ORDER BY path, requires")
+      if imported == nil then return nil, imported_trouble end
+      local lists: mut {string:mut {string}} = {}
+      for _, row in ipairs(imported) do
+        local list: mut {string} = lists[row:text(1)] or {}
+        lists[row:text(1)] = list
+        table.insert(list, row:text(2))
+      end
+      for path, list in pairs(lists) do basis.edges[path] = list end
     end
     for _, row in ipairs(pure_rows) do
       local path = row:text(1)
@@ -648,6 +695,42 @@ local function text_kept(basis: closure_store.Basis, names: {string}, roots: {st
   return out
 end
 
+--- Whether the test or example whose closure is `names` imports a module that declares it reads `word`
+--- ([`build.code_walk`]'s `markers`).
+local function declares(names: {string}, word: string): boolean
+  local present: mut {string:boolean} = {}
+  for _, name in ipairs(names) do present[name] = true end
+  for marker, spelled in pairs(CodeWalk.markers) do
+    if spelled == word and present[marker] == true then return true end
+  end
+  return false
+end
+
+--- The modules whose source the pure store of the closure `names` keeps, sorted: those of each walk
+--- ([`build.code_walk`]) that a module of `names` declares it reads, the walk taken over the whole projection's
+--- imports as the identity takes it of the binary's, so a module a walk reaches by a type alone is kept though the
+--- closure leaves it out. A module the walk reaches that the projection holds no source of is left out, as an absent
+--- module is of the identity.
+local function source_kept(basis: closure_store.Basis, names: {string}): {string}
+  local seen: mut {string:boolean} = {}
+  local out: mut {string} = {}
+  for _, word in ipairs(CodeWalk.walks) do
+    if declares(names, word) then
+      local reached, _ = CodeWalk.reach(word, function(name: string): {string}?, string
+        return basis.edges[name] or {}, ""
+      end)
+      for _, name in ipairs(reached or {}) do
+        if seen[name] ~= true and (basis.sources[name] ~= nil or basis.decls[name] ~= nil) then
+          seen[name] = true
+          out[#out + 1] = name
+        end
+      end
+    end
+  end
+  table.sort(out)
+  return out
+end
+
 --- The modules of `basis` the example module `name` could be paired
 --- with by its name ([`build.writer`]'s `insert_examples`): each that it
 --- is less `_example`, or that it starts with, followed by `_`. Which
@@ -708,6 +791,10 @@ function closure_store.address(basis: closure_store.Basis, names: {string},
     local pure: mut {string} = { basis.shared, salt, "pure " .. own }
     for _, name in ipairs(text_kept(basis, names, basis.type_requires[own] or {})) do
       pure[#pure + 1] = digest_of_line("text " .. name .. " " .. assert(basis.texts[name], "a stored name has its text's digest"))
+    end
+    for _, name in ipairs(source_kept(basis, names)) do
+      local held = basis.pure_decls[name] or assert(basis.sources[name], "a kept source has its digest")
+      pure[#pure + 1] = digest_of_line("source " .. name .. " " .. held)
     end
     for _, name in ipairs(stored(basis, names)) do
       local held = if name == own then basis.bytecode[name] else basis.stripped[name] end
@@ -813,16 +900,40 @@ local function closed_pure(): {string}
       "WHERE path IN temp.wanted ORDER BY path",
     -- What the checker reads of a standard-library module ([`build.standard_text`]).
     "INSERT INTO main.stubs SELECT * FROM whole.stubs WHERE path IN temp.kept ORDER BY path",
+    -- The modules whose source it keeps ([`source_kept`]) beside the closure's, with no bytecode where the closure
+    -- leaves them out, so that requiring one finds a chunk that does not load and not a module that runs.
+    "INSERT INTO main.modules (path, file, kind, source_hash, key, bytecode, tests, source) " ..
+      "SELECT path, file, kind, source_hash, X'', X'', tests, source FROM whole.modules " ..
+      "WHERE path IN temp.sourced AND path NOT IN temp.wanted ORDER BY path",
+    "UPDATE main.modules SET source_hash = (SELECT w.source_hash FROM whole.modules w WHERE w.path = main.modules.path), " ..
+      "source = (SELECT w.source FROM whole.modules w WHERE w.path = main.modules.path) " ..
+      "WHERE path IN temp.sourced AND path IN temp.wanted",
     "INSERT INTO main.imports SELECT * FROM whole.imports " ..
-      "WHERE path IN temp.wanted AND requires IN temp.wanted ORDER BY path, requires",
+      "WHERE (path IN temp.wanted OR path IN temp.sourced) AND (requires IN temp.wanted OR requires IN temp.sourced) " ..
+      "ORDER BY path, requires",
     "INSERT INTO main.decl_imports SELECT * FROM whole.decl_imports " ..
       "WHERE path IN temp.wanted OR path IN temp.declared ORDER BY path, requires",
     "INSERT INTO main.bound SELECT * FROM whole.bound " ..
       "WHERE path IN temp.wanted OR path IN temp.declared ORDER BY path, name",
     "INSERT INTO main.decls SELECT * FROM whole.decls WHERE path IN temp.declared " ..
       "ORDER BY path",
+    "INSERT OR IGNORE INTO main.decls SELECT * FROM whole.decls WHERE path IN temp.sourced ORDER BY path",
   }
 end
+
+--- The statements that leave the tables of text-derived rows out of a pure store ([`closure_store.write`]), the
+--- virtual tables first. Each moves with a comment, a blank line or a moved line of the module it describes: `docs`,
+--- `examples`, `links` and `uses` hold its comments, examples and lines, `places` the line and column of each name,
+--- and `catalog` the lines of the error sites its modules document (its `code` rows, the checker's static data, are
+--- of no test that reads module text). `stubs` stays: it holds the rows of the modules a test names
+--- ([`text_kept`]) and the sources withheld otherwise fail ([`Store.withheld`]). The `pure_store` row says so to a
+--- reader that would otherwise answer a missing table as a missing hint ([`build.symbols`]).
+local withheld_tables: {string} = {
+  "DROP TABLE main.docs_fts", "DROP TABLE main.catalog_fts", "DROP TABLE main.examples_fts",
+  "DROP TABLE main.docs", "DROP TABLE main.catalog", "DROP TABLE main.examples", "DROP TABLE main.links",
+  "DROP TABLE main.uses", "DROP TABLE main.places",
+  "INSERT OR REPLACE INTO main.meta (key, value) VALUES ('pure_store', X'31')",
+}
 
 --- Writes at `path` a database holding the projection's `uses` rows
 --- keyed by the module that makes them, for [`closure_store.write`] to
@@ -909,6 +1020,7 @@ function closure_store.write(whole: string, out: string, names: {string},
     statements[#statements + 1] = "CREATE TEMP TABLE wanted (path TEXT PRIMARY KEY)"
     statements[#statements + 1] = "CREATE TEMP TABLE declared (path TEXT PRIMARY KEY)"
     statements[#statements + 1] = "CREATE TEMP TABLE kept (path TEXT PRIMARY KEY)"
+    statements[#statements + 1] = "CREATE TEMP TABLE sourced (path TEXT PRIMARY KEY)"
     for _, statement in ipairs(statements) do
       local ok, failure = db:exec(statement)
       if not ok then return false, failure end
@@ -926,6 +1038,10 @@ function closure_store.write(whole: string, out: string, names: {string},
     if own ~= nil then
       for _, name in ipairs(text_kept(basis, names, basis.type_requires[own] or {})) do
         local ok, failure = Sqlite.run(db, "INSERT INTO temp.kept (path) VALUES (?1)", { text(name) })
+        if not ok then return false, failure end
+      end
+      for _, name in ipairs(source_kept(basis, names)) do
+        local ok, failure = Sqlite.run(db, "INSERT INTO temp.sourced (path) VALUES (?1)", { text(name) })
         if not ok then return false, failure end
       end
     end
@@ -952,8 +1068,14 @@ function closure_store.write(whole: string, out: string, names: {string},
         if not ok then return false, failure end
       end
       if own ~= nil then
+        -- The tables of text-derived rows are left out, not left empty: a query of one fails ("no such table")
+        -- rather than answers nothing, so a test that reads text it was not given cannot pass on an empty answer.
+        for _, statement in ipairs(withheld_tables) do
+          local ok, failure = db:exec(statement)
+          if not ok then return false, failure end
+        end
         local held, held_trouble = Sqlite.rows(db,
-          "SELECT path, inflate(bytecode) FROM main.modules WHERE path <> ?1", { text(own) })
+          "SELECT path, inflate(bytecode) FROM main.modules WHERE path <> ?1 AND path IN temp.wanted", { text(own) })
         if held == nil then return false, held_trouble end
         for _, row in ipairs(held) do
           local stripped, why = lua_tail.stripped(row:blob(2), row:text(1))

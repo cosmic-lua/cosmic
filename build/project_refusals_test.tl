@@ -6,6 +6,9 @@ local Node = require("build.syntax_node")
 local Scopes = require("lang.scopes")
 local Test = require("cosmic.test")
 
+-- A snippet below requires cosmic.store, whose stub the checker types it from.
+local type _store = require("cosmic.store")
+
 Test.policy{}
 
 --- What `source` is told, as the lines of the check, with no declared globals: a use of one is a global all the same.

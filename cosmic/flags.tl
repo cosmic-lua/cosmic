@@ -194,42 +194,42 @@ function Flags.parse(argv: {string}, from: integer,
   local options = true
   while argv[cursor] ~= nil do
     local word = argv[cursor]
-    if not options or word == "-" or word:sub(1, 1) ~= "-" then -- checked: nil_not_allowed
-      parsed.words[#parsed.words + 1] = word -- checked: nil_not_allowed
+    if not options or word == "-" or word:sub(1, 1) ~= "-" then
+      parsed.words[#parsed.words + 1] = word
     elseif word == "--" then
       options = false
-    elseif word:sub(2, 2) == "-" or spec[word] ~= nil or whole(word) then -- checked: nil_not_allowed*3
-      local name, value = word:match("^(%-%-?[^=]+)=(.*)$") -- checked: nil_not_allowed
+    elseif word:sub(2, 2) == "-" or spec[word] ~= nil or whole(word) then
+      local name, value = word:match("^(%-%-?[^=]+)=(.*)$")
       if name == nil then name = word end
-      local entry = spec[name] -- checked: nil_not_allowed
+      local entry = spec[name]
       if entry == nil then
-        return nil, "no such option: " .. name -- checked: nil_not_allowed
+        return nil, "no such option: " .. name
       elseif takes_value(entry) then
-        local trouble = valued(name, value, if #name > 2 then "=" else "" end) -- checked: nil_not_allowed*2
+        local trouble = valued(name, value, if #name > 2 then "=" else "" end)
         if trouble ~= "" then
           return nil, trouble
         end
       elseif value ~= nil then
-        return nil, name .. " takes no value" -- checked: nil_not_allowed
+        return nil, name .. " takes no value"
       else
-        flag(name) -- checked: nil_not_allowed
+        flag(name)
       end
-    elseif spec[word:sub(1, 2)] == nil then -- checked: nil_not_allowed
-      return nil, "no such option: " .. word -- checked: nil_not_allowed
+    elseif spec[word:sub(1, 2)] == nil then
+      return nil, "no such option: " .. word
     else
       local at = 2
-      while at <= #word do -- checked: nil_not_allowed
-        local letter = word:sub(at, at) -- checked: nil_not_allowed
+      while at <= #word do
+        local letter = word:sub(at, at)
         local name = "-" .. letter
         local entry = spec[name]
         if letter == "=" then
-          return nil, "-" .. word:sub(at - 1, at - 1) .. " takes no value" -- checked: nil_not_allowed
+          return nil, "-" .. word:sub(at - 1, at - 1) .. " takes no value"
         elseif not letter:match("^%w$") then
-          return nil, "no such option: " .. word -- checked: nil_not_allowed
+          return nil, "no such option: " .. word
         elseif entry == nil then
-          return nil, "no such option: " .. name .. " in " .. word -- checked: nil_not_allowed
+          return nil, "no such option: " .. name .. " in " .. word
         elseif takes_value(entry) then
-          local rest = word:sub(at + 1) -- checked: nil_not_allowed
+          local rest = word:sub(at + 1)
           local trouble = valued(name, if rest ~= "" then rest else nil end, "")
           if trouble ~= "" then
             return nil, trouble
@@ -397,7 +397,7 @@ function Flags.asks_help(argv: {string}, from: integer,
   local slot = from
   while argv[slot] ~= nil and argv[slot] ~= "--" do
     local word = argv[slot]
-    if (word == "--help" or word == "-h") and spec[word] == nil then -- checked: nil_not_allowed
+    if (word == "--help" or word == "-h") and spec[word] == nil then
       return true
     end
     slot = slot + 1

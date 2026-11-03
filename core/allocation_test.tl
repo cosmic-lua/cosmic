@@ -49,8 +49,9 @@ local unix_socket = require("build.unix_socket")
 local Vector = require("cosmic.vector")
 local Xml = require("cosmic.xml")
 
---- The socket cases listen on the worker's own loopback.
-Test.policy{ cpu_features = true, requires = { "checked" }, loopback = { "127.0.0.1" } }
+--- The socket cases listen on the worker's own loopback. `store_text`: the source lookup inflates the row of
+--- [`cosmic.compress`]'s source, which a pure store withholds.
+Test.policy{ cpu_features = true, requires = { "checked" }, loopback = { "127.0.0.1" }, store_text = true }
 
 local process = require("cosmic.internal.process")
 

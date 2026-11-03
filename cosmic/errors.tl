@@ -160,7 +160,17 @@ function Errors.guidance_in(handle: Sqlite.Handle, message: string): string?
       "ON catalog.id = catalog_fts.rowid " ..
       "WHERE catalog_fts MATCH ?1 ORDER BY bm25(catalog_fts) LIMIT 1",
     { { text = query } })
-  if rows == nil or #rows == 0 then
+  if rows == nil then
+    -- A test's pure store leaves the catalog out ([`build.closure_store`]): that is no database without guidance, which
+    -- answers none, but a store a test was not given the text of, and the lookup says so.
+    local pure, _ = Sqlite.text_rows(handle, "SELECT 1 FROM meta WHERE key = 'pure_store'")
+    if pure ~= nil and #pure > 0 then
+      error("the catalog of the store is withheld, so guidance on an error cannot be read from it: a test that reads " ..
+          "the guidance of an error declares `Test.policy { store_text = true }`", 0)
+    end
+    return nil
+  end
+  if #rows == 0 then
     return nil
   end
   local row = rows[1]

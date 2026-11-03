@@ -34,6 +34,9 @@ local Shape = require("cosmic.shape")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local check_memo = require("build.check_memo")
+local CodeWalk = require("build.code_walk")
+-- Declares what text this module reads ([`build.code_walk`]'s `markers`): the docs, uses and places of the projection it checks.
+local _ = require("build.reads.all")
 local closure_store = require("build.closure_store")
 local ContractRules = require("build.contract_rules")
 local declared_key = require("build.declared_key")
@@ -2926,6 +2929,212 @@ function tree_checks.untyped(root: string, memo?: Sqlite.Handle, marking?: Ceili
   return out
 end
 
+--- The tables of text-derived rows that a pure store ([`build.closure_store`]) leaves out, so a query of one fails there.
+--- `stubs` is not among them: a pure store keeps those of the modules a test names, and the module it lacks fails by name.
+local text_tables <const>: {string:boolean} = {
+  docs = true, uses = true, links = true, examples = true, catalog = true, places = true,
+}
+
+--- The string literals of the Teal `source`, comments left out and a run of literals joined by `..` as one, so a statement
+--- built in pieces reads whole. A `--` inside a literal is part of it.
+local function literal_runs(source: string): {string}
+  local runs: mut {string} = {}
+  local current = ""
+  local open = false
+  local joining = false
+  local function flush()
+    if open then
+      local run = current
+      runs[#runs + 1] = run
+    end
+    current, open, joining = "", false, false
+  end
+  local function add(literal: string)
+    if open and not joining then flush() end
+    current, open, joining = current .. literal, true, false
+  end
+  local at, size = 1, #source
+  while at <= size do
+    local c = source:sub(at, at)
+    local long_open = source:match("^%[(=*)%[", at)
+    if source:sub(at, at + 1) == "--" then
+      local comment_open = source:match("^%-%-%[(=*)%[", at)
+      local ends = "\n"
+      if comment_open ~= nil then ends = "]" .. comment_open .. "]" end
+      local _, to = source:find(ends, at, true)
+      at = (to or size) + 1
+    elseif c == '"' or c == "'" then
+      local parts: mut {string} = {}
+      at = at + 1
+      while at <= size and source:sub(at, at) ~= c do
+        local d = source:sub(at, at)
+        if d == "\\" then
+          parts[#parts + 1] = source:sub(at + 1, at + 1)
+          at = at + 2
+        else
+          parts[#parts + 1] = d
+          at = at + 1
+        end
+      end
+      at = at + 1
+      add(table.concat(parts))
+    elseif long_open ~= nil then
+      local start = at + #long_open + 2
+      local from, to = source:find("]" .. long_open .. "]", start, true)
+      add(source:sub(start, (from or size + 1) - 1))
+      at = (to or size) + 1
+    elseif c == "." and source:sub(at + 1, at + 1) == "." then
+      if open and not joining then joining = true else flush() end
+      at = at + 2
+    elseif c:find("%s") ~= nil then
+      at = at + 1
+    else
+      flush()
+      at = at + 1
+    end
+  end
+  flush()
+  return runs
+end
+
+--- The word of a table in a `FROM` or `JOIN` item, without its schema (`main.catalog`) or `_fts` (the full-text table of
+--- one), and only its first word: `docs d` is `docs`.
+local function table_of(item: string): string
+  local name = item:match("^%s*([%w_%.]+)") or ""
+  name = name:gsub("^[%w_]+%.", "")
+  name = name:gsub("_fts$", "")
+  return name
+end
+
+--- Whether one SQL fragment `run` reads a table of [`text_tables`]: it follows a `FROM` (and a comma-separated list after it)
+--- or a `JOIN`. A fragment is SQL when it holds `select`, or `from` a table is followed by a clause (`where`, `join`,
+--- `order`, ...): prose that says "Read from links" is neither.
+local function reads_text_table(run: string): boolean
+  local lowered = run:lower()
+  local sql = lowered:find("%f[%w_]select%f[^%w_]") ~= nil
+  local clauses <const> = { "where", "join", "on", "order", "group", "limit", "left", "inner", "union", "having" }
+  local at = 1
+  while true do
+    local _, to = lowered:find("%f[%w_]from%s+", at)
+    local _, joined = lowered:find("%f[%w_]join%s+", at)
+    local found = to
+    local after_join = false
+    if joined ~= nil and (found == nil or joined < found) then found, after_join = joined, true end
+    if found == nil then return false end
+    local rest = lowered:sub(found + 1)
+    local cut = #rest + 1
+    local ended = false
+    for _, clause in ipairs(clauses) do
+      local from = rest:find("%f[%w_]" .. clause .. "%f[^%w_]")
+      if from ~= nil and from < cut then cut, ended = from, true end
+    end
+    local close = rest:find("[;%)]")
+    if close ~= nil and close < cut then cut, ended = close, true end
+    local list = rest:sub(1, cut - 1)
+    if sql or ended then
+      local items: mut {string} = { list }
+      if not after_join then
+        items = {}
+        for item in (list .. ","):gmatch("([^,]*),") do items[#items + 1] = item end
+      end
+      for _, item in ipairs(items) do
+        if text_tables[table_of(item)] == true then return true end
+      end
+    end
+    at = found + 1
+  end
+end
+
+--- Whether `source` runs SQL that reads text a pure store withholds: a table of [`text_tables`], or the source of a module or
+--- a declaration (`modules` or `decls` read beside a `source` column). A statement whose table is built at run time
+--- (`"FROM " .. name`) is not seen.
+local function queries_text(source: string): boolean
+  for _, run in ipairs(literal_runs(source)) do
+    if reads_text_table(run) then return true end
+    local lowered = run:lower()
+    if lowered:find("%f[%w_]source%f[^%w_]") ~= nil and
+        (lowered:find("from%s+modules%f[^%w_]") ~= nil or lowered:find("from%s+decls%f[^%w_]") ~= nil) then
+      return true
+    end
+  end
+  return false
+end
+
+--- The readers of text that need no declaration, each with why: a reader that is given a handle on the projection or the
+--- working database and not the store a test is given, or whose read fails loudly in the pure store. Each
+--- is a module that would otherwise be refused by [`tree_checks.text_readers`].
+local text_read_allowed <const>: {string:string} = {
+  ["build.checker_declarations"] = "reads the declarations of the globals and the standard library, which a closure store adds for a closure that holds this module ([`build.closure_store`]'s `declared_beside`), so its read is never short",
+  ["build.plans"] = "asks the stub or source of a standard-library module a compile names; the pure store holds the stubs a test names and fails for the rest ([`Store.withheld`])",
+  ["build.standard_text"] = "serves the stub or source of a standard-library module; the pure store holds the stubs a test names and fails for the rest ([`Store.withheld`])",
+  ["build.closure_store"] = "reads the projection it writes the stores of, which a test is never given and which no test's store holds",
+  ["build.perf"] = "a standalone script a release program runs; its SQL is the argument of a `cosmic sql` it starts and times against a project's own store, not a read of the store a test is given, and it cannot require a module of the tree it benchmarks",
+  ["build.writer"] = "writes the projection from the working database it is handed, whose tables a test's store never holds",
+  ["build.symbols"] = "words a hint of a refusal from the docs and examples of the databases it is handed; in a pure store those tables are absent and it raises ([`build.symbols`]'s `refuse_withheld`)",
+  ["cosmic.errors"] = "asks the catalog for the guidance on an error; a pure store has no catalog and the lookup raises there ([`Errors.guidance_in`]); a standard-library module, which cannot require a module of the build",
+}
+
+-- TODO: see a table named at run time (`"FROM " .. name`), which a scan of literals cannot, once the checker answers
+-- the value a string expression holds.
+
+--- Each module of `db` that is no test and reads module text without declaring it, as `<module> reads text (<how>) and
+--- requires none of build.reads.*`.
+---
+--- This is a lint, not what makes the pure store sound: a read of text the pure store withholds fails there (a source
+--- is withheld, a table is absent), so a reader the lint misses fails the test that reaches it and is declared then. The lint finds
+--- most readers early. A module declares what it reads by requiring one of [`build.code_walk`]'s `markers` by value (a
+--- `local type` require is erased), which a test's closure follows ([`build.closure_store`]'s pure store keeps what the
+--- closure declares); `excusing` (by default [`text_read_allowed`]) excuses a reader with a reason. The reads taken as
+--- text: [`Store.source`] and [`Store.withheld`], which answer a module's source; and SQL that reads a table of
+--- [`text_tables`] or the source of a module, in any module that names it (a handle handed on is read by whoever
+--- queries it). A module that runs a statement it is handed (`cosmic sql`) cannot be told apart by what it names, and
+--- declares [`build.reads.all`] by hand.
+function tree_checks.text_readers(db: Sqlite.Handle, excusing?: {string:string}): {string}
+  local excused = excusing or text_read_allowed
+  local imported, imported_trouble = Sqlite.text_rows(db, "SELECT path, requires FROM imports ORDER BY path, requires")
+  if imported == nil then return { "reading the imports: " .. imported_trouble } end
+  local modules, trouble = Sqlite.text_rows(db,
+    "SELECT path, CAST(inflate(source) AS TEXT) FROM modules WHERE kind NOT IN ('test', 'example') ORDER BY path")
+  if modules == nil then return { "reading the modules: " .. trouble } end
+  local source_of: mut {string:string} = {}
+  for _, row in ipairs(modules) do source_of[row:text(1)] = row:text(2) end
+  local called, called_trouble = Sqlite.text_rows(db,
+    "SELECT DISTINCT from_module, symbol FROM uses WHERE module = 'cosmic.store' " ..
+      "AND symbol IN ('source', 'withheld') ORDER BY from_module, symbol")
+  if called == nil then return { "reading the uses: " .. called_trouble } end
+  local how: mut {string:string} = {}
+  for _, row in ipairs(called) do
+    local path = row:text(1)
+    if source_of[path] ~= nil and path ~= "cosmic.store" and how[path] == nil then
+      how[path] = "Store." .. row:text(2)
+    end
+  end
+  for path, source in pairs(source_of) do
+    if how[path] == nil and path ~= "cosmic.store" and queries_text(source) then
+      how[path] = "SQL of a text table"
+    end
+  end
+  local out: mut {string} = {}
+  for path, symbol in pairs(how) do
+    local declared = CodeWalk.markers[path] ~= nil or excused[path] ~= nil
+    for _, row in ipairs(imported) do
+      local required = row:text(2)
+      -- A `local type` require is erased, and a test's closure leaves the edge out.
+      if row:text(1) == path and CodeWalk.markers[required] ~= nil and
+          (source_of[path] or ""):find("local%s+type%s+[%w_]+%s*=%s*require%s*%(?%s*[\"']" ..
+                (required:gsub("%.", "%%.")) .. "[\"']") == nil then
+        declared = true
+      end
+    end
+    if not declared then
+      out[#out + 1] = path .. " reads text (" .. symbol .. ") and requires none of build.reads.*: require the one that " ..
+        "names what it reads (build/reads/), `all` where nothing narrower is true"
+    end
+  end
+  table.sort(out)
+  return out
+end
+
 --- Every check over the projection `db`, each line one failure,
 --- prefixed with the check's name; none when the tree passes them all.
 --- The plurals are checked with `extra` sources besides the projection's.
@@ -2940,6 +3149,9 @@ function tree_checks.run(db: Sqlite.Handle, quickstart: string?, extra?: {{strin
                          help?: {string: string}, read?: {string: tree_checks.Plurals}): {string}
   local out: mut {string} = {}
   local plurals = tree_checks.plurals(db, extra, nil, read)
+  for _, line in ipairs(tree_checks.text_readers(db)) do
+    out[#out + 1] = "text readers: " .. line
+  end
   for _, check in ipairs({
       { name = "exports", lines = tree_checks.exports(db) }, -- checked: arms_differ
       { name = "unnamed types", lines = tree_checks.unnamed_types(db) }, -- checked: arms_differ

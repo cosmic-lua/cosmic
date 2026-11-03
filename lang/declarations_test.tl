@@ -444,14 +444,14 @@ local function test_a_method_satisfies_a_function_field_and_a_mut_field_wants_a_
   local e = only(base .. "local class C is I\n  mut g: function(C)\n  function f(self)\n  end\n  function g(self)\n  end\nend\n")
   assert(e.code == "repeated_field", e.code)
   local ok = errors_of(base .. "local class C is I\n  mut g: function(C)\n  function f(self)\n  end\nend\n")
-  assert(#ok == 0, ok[1] and ok[1].msg or "") -- checked: nil_not_allowed
+  assert(#ok == 0, ok[1] and ok[1].msg or "")
   local bad = only(base .. "local class C is I\n  function f(self)\n  end\n  function g(self)\n  end\nend\n")
   assert(has(bad.msg, "`C.g` is fixed, but `I` declares it `mut`"), bad.msg)
 end
 
 local function test_a_listing_that_cycles_or_lists_what_is_no_interface_is_refused_and_dropped()
   local both = errors_of("local interface J is K\nend\nlocal interface K is J\nend\n")
-  assert(#both == 1 and both[1].code == "super_cycle" and has(both[1].msg, "`K` lists `J`, which lists `K`"), both[1] and both[1].msg or "") -- checked: nil_not_allowed
+  assert(#both == 1 and both[1].code == "super_cycle" and has(both[1].msg, "`K` lists `J`, which lists `K`"), both[1] and both[1].msg or "")
   local enum = only("local enum E \"a\" end\nlocal record R is E\nend\n")
   assert(enum.code == "super_not_interface" and has(enum.msg, "which is a enum"), enum.msg)
   -- the listing is dropped, so nothing else is said of R
@@ -495,9 +495,9 @@ end
 
 local function test_an_alias_in_a_function_body_or_repeated_at_the_top_is_lowered_and_held_to_the_rules()
   local body = errors_of("local function f()\n  local type A = {string?}\n  local x: A\nend\n")
-  assert(#body == 1 and body[1].code == "array_of_optional", tostring(#body) .. " " .. (body[1] and body[1].code or "")) -- checked: nil_not_allowed
+  assert(#body == 1 and body[1].code == "array_of_optional", tostring(#body) .. " " .. (body[1] and body[1].code or ""))
   local used = errors_of("local function f()\n  local type A = {integer}\n  local x: A\n  local y: A\nend\n")
-  assert(#used == 0, used[1] and used[1].msg or "") -- checked: nil_not_allowed
+  assert(#used == 0, used[1] and used[1].msg or "")
   local twice = errors_of("local type A = integer\nlocal type A = {number: string}\nlocal x: A\n")
   local codes: mut {string} = {}
   for i, e in ipairs(twice) do
@@ -505,7 +505,7 @@ local function test_an_alias_in_a_function_body_or_repeated_at_the_top_is_lowere
   end
   assert(table.concat(codes, " ") == "float_key", table.concat(codes, " "))
   local cycle = errors_of("local function f()\n  local type A = B\n  local type B = A\nend\n")
-  assert(#cycle >= 1 and cycle[1].code == "alias_cycle", cycle[1] and cycle[1].code or "none") -- checked: nil_not_allowed
+  assert(#cycle >= 1 and cycle[1].code == "alias_cycle", cycle[1] and cycle[1].code or "none")
 end
 
 local function test_an_alias_that_names_a_type_parameter_of_the_code_around_it_is_refused()
@@ -637,7 +637,7 @@ local function test_a_function_typed_field_of_a_declaration_file_may_repeat_as_a
   assert(#ok.lowered.errors == 0, Programs.codes(ok.lowered))
   assert(#body_of(program, "t", "io").fields == 2)
   local bad = errors_of("global record io\n  n: integer\n  n: integer\n  mut f: function()\n  mut f: function()\nend\n", "decl")
-  assert(#bad == 2 and bad[1].code == "repeated_field" and has(bad[1].msg, "only a function-typed field of a declaration file"), bad[1] and bad[1].msg or "") -- checked: nil_not_allowed
+  assert(#bad == 2 and bad[1].code == "repeated_field" and has(bad[1].msg, "only a function-typed field of a declaration file"), bad[1] and bad[1].msg or "")
   assert(bad[1].other ~= nil) -- checked: nil_not_allowed
   -- in a program none may
   local text = errors_of("local record R\n  f: function()\n  f: function()\nend\n")
@@ -683,7 +683,7 @@ local function test_a_chain_of_aliases_longer_than_the_nesting_limit_is_reported
   end
   out[#out + 1] = "local type A0 = integer\nlocal x: A400\n"
   local e = errors_of(table.concat(out))
-  assert(#e >= 1 and e[1].code == "type_too_deep" and has(e[1].msg, "a chain of more than 200 aliases"), e[1] and e[1].msg or "") -- checked: nil_not_allowed
+  assert(#e >= 1 and e[1].code == "type_too_deep" and has(e[1].msg, "a chain of more than 200 aliases"), e[1] and e[1].msg or "")
 end
 
 local function test_aliases_may_be_declared_after_their_use_and_mutual_aliases_are_a_cycle()
@@ -691,7 +691,7 @@ local function test_aliases_may_be_declared_after_their_use_and_mutual_aliases_a
   local result = Programs.lower(program, "t", "local type Early = {Later}\nlocal type Later = {integer}\nlocal x: Early\n")
   assert(#result.lowered.errors == 0 and #result.scope_errors == 0, Programs.codes(result.lowered))
   local mutual = errors_of("local type A = B\nlocal type B = A\n")
-  assert(#mutual >= 1 and mutual[1].code == "alias_cycle", mutual[1] and mutual[1].code or "none") -- checked: nil_not_allowed
+  assert(#mutual >= 1 and mutual[1].code == "alias_cycle", mutual[1] and mutual[1].code or "none")
 end
 
 local function test_a_bound_is_one_interface_used_with_no_arguments()

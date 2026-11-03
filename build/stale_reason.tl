@@ -7,6 +7,8 @@ local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local plural = require("build.plural")
 local work = require("build.work")
+-- Declares what text this module reads ([`build.code_walk`]'s `markers`): all.
+local _ = require("build.reads.all")
 
 local record stale_reason
 end

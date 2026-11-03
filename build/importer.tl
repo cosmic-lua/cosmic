@@ -24,6 +24,7 @@ local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
 local GrammarMode = require("build.grammar_mode")
 local Store = require("cosmic.store")
+local CodeWalk = require("build.code_walk")
 local identities = require("build.identity")
 -- The pipeline is required where a build in the new grammar asks for it: `cosmic boot` compiles what the tool requires at load
 -- with the bootstrap release, whose checker reads the new checker's closure otherwise than the tree's does.
@@ -36,6 +37,9 @@ local bind = require("build.bind")
 
 local plans = require("build.plans")
 local derivation = require("build.derivation")
+-- Declares what text this module reads ([`build.code_walk`]'s `markers`): analyzer, receivers.
+local _ = require("build.reads.analyzer")
+local _ = require("build.reads.receivers")
 
 local type Module = plans.Module
 local type Source = derivation.Source
@@ -182,18 +186,10 @@ local type Hints = importer.Hints
 importer.prune_references =
   "DELETE FROM typed_refs WHERE key NOT IN (SELECT +key FROM compiled)"
 
---- The derivation and the extractors, generators and parser it calls:
---- the roots of
---- [`importer.analyzer_modules`]. "The analyzer" in these names is that
+--- The derivation and the extractors, generators and parser it calls: the roots of
+--- [`importer.analyzer_modules`] ([`build.code_walk`]'s `analyzer_roots`). "The analyzer" in these names is that
 --- whole set, of which the source analyzer [`build.syntax_analyzer`] is one.
---- Each is a root of the compiler's identity too ([`build.identity`]'s
---- `compiler_roots`), so a parse made again is a compile made again. The schema of the
---- rows a parse stores ([`build.analysis_schema`]) is among them: what a
---- source parses to is recorded in its columns.
-local analyzer_roots: {string} = {
-  "build.derivation", "build.analysis_schema", "build.bind",
-  "build.doctest", "build.gen_syscalls", "build.link_text",
-}
+local analyzer_roots: {string} = CodeWalk.analyzer_roots
 
 --- The modules whose code decides what the analysis tables record: the
 --- derivation and every module that its extractors, generators and
@@ -215,20 +211,10 @@ local function walk_analyzer(code?: importer.Code): Walk
   -- the binary's database, which would read every module's rows.
   local requires = if code ~= nil then code.requires else Store.requires end
   local source_of = if code ~= nil then code.source else Store.source end
-  local reached: mut {string:boolean} = {}
-  local stack: mut {string} = {}
-  for _, name in ipairs(analyzer_roots) do stack[#stack + 1] = name end
-  while #stack > 0 do
-    local name = table.remove(stack)
-    if name ~= nil and reached[name] ~= true then
-      reached[name] = true
-      local required, trouble = requires(name)
-      if required == nil then return { names = nil, trouble = trouble, withheld = false } end
-      for _, next_name in ipairs(required) do stack[#stack + 1] = next_name end
-    end
-  end
+  local reached, reach_trouble = CodeWalk.reach(CodeWalk.analyzer, requires)
+  if reached == nil then return { names = nil, trouble = reach_trouble, withheld = false } end
   local names: mut {string} = {}
-  for name in pairs(reached) do
+  for _, name in ipairs(reached) do
     -- What the binary holds a module or a declaration of: what
     -- [`Store.source`] answers, of a name no hold holds.
     local source, _ = source_of(name)
@@ -473,7 +459,7 @@ end
 local function receivers_identity(db: Sqlite.Handle): string?, string
   local booting = Store.meta("boot_hash") == nil
   local parts: mut {string} = {}
-  for _, name in ipairs({ "build.syntax_receivers", "build.syntax_contracts" }) do
+  for _, name in ipairs(CodeWalk.receivers_modules) do
     local source: string? = nil
     if booting then
       local rows, trouble = Sqlite.text_rows(db, "SELECT source FROM inputs WHERE path = ?1", { text(name) })

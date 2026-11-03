@@ -28,6 +28,7 @@
 local AnalysisSchema = require("build.analysis_schema")
 local Ceilings = require("build.ceilings")
 local CheckerDeclarations = require("build.checker_declarations")
+local CodeWalk = require("build.code_walk")
 local CompileGrammar = require("build.compile_grammar")
 local Ast = require("lang.ast")
 local Rules = require("build.contract_rules")
@@ -52,6 +53,8 @@ local TreeProgram = require("build.tree_program")
 local standard_text = require("build.standard_text")
 local type Plans = require("build.plans")
 local type Derivation = require("build.derivation")
+-- Declares what text this module reads ([`build.code_walk`]'s `markers`): pipeline, stubs.
+local _ = require("build.reads.pipeline")
 local type Module = Plans.Module
 
 local record Pipeline
@@ -393,35 +396,19 @@ local record Reader
   requires: function(name: string): {string}
 end
 
---- What this module requires for a type alone (`local type`), which `requires` records though none of it runs here, and
---- why the identity of the code that reads ([`Pipeline.coded`]) leaves it out. Only this module's own require is left
---- out: one that another module of the walk requires is in it. Every key `coded` names but a parse's holds each of these
---- through the compiler's identity ([`build.identity`]'s `compiler_roots`), and a parse's holds the analyzer's modules
---- by source ([`build.importer`]'s `analyzer_identity`).
-local type_only <const>: {string:string} = {
-  ["build.plans"] = "the `Module` and `Generated` types of what a compile plans and keeps; build.importer runs the plan",
-  ["build.derivation"] = "the types of what a parse is handed and tallies (`Fresh`, `Parses`, `Source`); it runs the " ..
-    "parse, and is a root of the analyzer's identity",
-}
-
---- The identity of the code that reads and checks ([`Pipeline.coded`]), over the modules `reader` answers for.
+--- The identity of the code that reads and checks ([`Pipeline.coded`]), over the modules `reader` answers for: each module
+--- of [`build.code_walk`]'s walk from this one by its name and its source. What the walk leaves out of this module's own
+--- requires, and why, is [`CodeWalk.type_only`].
 local function identity(reader: Reader): string
+  local names, trouble = CodeWalk.reach(CodeWalk.pipeline, function(name: string): {string}?, string
+    return reader.requires(name), ""
+  end)
+  assert(names, trouble)
   local parts: mut {string} = {}
-  local seen: mut {string: boolean} = {}
-  local stack: mut {string} = { "build.pipeline" }
-  while #stack > 0 do
-    local name = assert(table.remove(stack))
-    if seen[name] ~= true and (name:sub(1, 5) == "lang." or name:sub(1, 6) == "build.") then
-      seen[name] = true
-      local source = reader.source(name)
-      if source ~= nil then
-        parts[#parts + 1] = name .. "\n" .. source
-      end
-      for _, next_name in ipairs(reader.requires(name)) do
-        if name ~= "build.pipeline" or type_only[next_name] == nil then
-          stack[#stack + 1] = next_name
-        end
-      end
+  for _, name in ipairs(names) do
+    local source = reader.source(name)
+    if source ~= nil then
+      parts[#parts + 1] = name .. "\n" .. source
     end
   end
   table.sort(parts)
