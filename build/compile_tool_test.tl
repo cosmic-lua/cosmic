@@ -50,7 +50,7 @@ local function test_json_value_refusals_carry_the_librarys_advice(tmp: string)
   local ran = tool_fixture.cosmic(tmp, { "compile", "--errors", "a.tl" })
   assert(ran.code == 0, ran.err)
   assert(ran.err:find("write an empty array as `Json.array()`", 1, true), ran.err)
-  assert(ran.err:find("`Json.Value` is `boolean`", 1, true) and ran.err:find("for a record or a class of your own, call `Json.encode_any`", 1, true), ran.err)
+  assert(ran.err:find("`Json.Value` is `Json.Null`", 1, true) and ran.err:find("for a record or a class of your own, call `Json.encode_any`", 1, true), ran.err)
   assert(not ran.err:find("`json.Value`", 1, true), ran.err)
 end
 
