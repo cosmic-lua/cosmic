@@ -88,7 +88,7 @@ local function test_a_name_is_resolved_against_the_globals_given()
   local scoped = Node.scope(chunk, "t.tl", { b = { space = "value", const = true } })
   assert(#scoped.errors == 0 and scoped.globals["b"] ~= nil)
   local bare = Node.scope(chunk, "t.tl")
-  assert(bare.errors[1] ~= nil and bare.errors[1].code == "unknown_variable") -- checked: nil_not_allowed
+  assert(bare.errors[1] ~= nil and bare.errors[1].code == "unknown_variable")
 end
 
 local function required(source: string): string

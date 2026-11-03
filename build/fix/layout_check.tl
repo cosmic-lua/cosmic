@@ -132,7 +132,7 @@ local function tokens_of(source: string): string
     if item.kind == "comment" then
       -- The token the comment is kept on: the next one.
       local next_at = i + 1
-      while items[next_at] ~= nil and (items[next_at] or item).kind == "comment" do
+      while items[next_at] ~= nil and items[next_at].kind == "comment" do
         next_at = next_at + 1
       end
       comments[#comments + 1] = string.format("%d:%s", #tokens + (if moved[next_at] == true then 1 else 0 end), item.text)

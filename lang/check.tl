@@ -2892,8 +2892,12 @@ local record Tests
   --- The edges of `left op right` (not `~=`) where one side is `#place`, the place holds an array, and the other is an
   --- integer literal: the states where it holds and where it fails, each knowing the least length that gives.
   length_edges: function(ctx: Ctx, f: Flow.State, op: string, left: Ast.Node, right: Ast.Node): Flow.State, Flow.State
+  --- The state where `e`, a read `object[key]` of an array whose elements are not nil, is not nil: the array has the key,
+  --- so it is at least that long where `key` is an integer literal of 1 or more or `#object`, and it has the key the local
+  --- `key` holds, which only a read at that local relies on. `f` itself where `e` is no such read.
+  has_element: function(ctx: Ctx, f: Flow.State, e: Ast.Node): Flow.State
   --- Whether the read `object[key]` of an array is an element it has: `key` is an integer literal, or `#object`, and the
-  --- flow has the array at least that long.
+  --- flow has the array at least that long, or a local the flow has the array hold as a key.
   length_proves: function(ctx: Ctx, object: Ast.Exp, key: Ast.Exp): boolean
   --- Whether a call of `callee` runs no code of the program whatever it is given: `assert` and `type` of the standard library.
   quiet_callee: function(callee: Ast.Exp?): boolean
@@ -3273,11 +3277,13 @@ end
 --
 -- An array holds the keys 1 to `#t` and no others (`array_of_optional` and `array_hole` keep it so), so `t[n]` is an element
 -- wherever `#t` is at least `n`. A test of `#place` against an integer literal gives the flow that fact for the first
--- indexes ([`Flow.know_length`]) of a place that holds an array: a local, or fixed fields from one. The fact stands until
--- code runs that may shorten an array: a call (but `assert`, `type` and an inert call [`Tests.inert_callee`], which run no
--- code of the program), a write of a literal nil to an index (the array may be under another name), the iterator of a
--- generic `for` and the scope of a `<close>` local, whose handler runs when it ends. A function made at the point does not
--- inherit it ([`Flow.enter`]), and an assignment to the place takes it away like any fact of the place.
+-- indexes ([`Flow.know_length`]) of a place that holds an array: a local, or fixed fields from one. So does a test that
+-- `place[k]` is not nil ([`Tests.has_element`]), for a literal `k` of 1 or more or `#place`; for a local `k` it gives that
+-- the array has the key `k` holds ([`Flow.know_key`]), until `k` is assigned. The fact stands until code runs that may
+-- shorten an array: a call (but `assert`, `type` and an inert call [`Tests.inert_callee`], which run no code of the
+-- program), a write of a literal nil to an index (the array may be under another name), the iterator of a generic `for`
+-- and the scope of a `<close>` local, whose handler runs when it ends. A function made at the point does not inherit it
+-- ([`Flow.enter`]), and an assignment to the place takes it away like any fact of the place.
 --
 -- A `table.move` that may copy a nil or leave a hole is refused (`array_hole`, [`Writes.move_dense`]), so a move keeps the
 -- density this relies on.
@@ -3344,6 +3350,38 @@ function Tests.length_edges(ctx: Ctx, f: Flow.State, op: string, left: Ast.Node,
   return Tests.know_length(ctx, f, p, yes), Tests.know_length(ctx, f, p, no)
 end
 
+function Tests.has_element(ctx: Ctx, f: Flow.State, e: Ast.Node): Flow.State
+  local at = peel(e)
+  if not (at.kind == "Index") or ctx.closers > 0 then
+    return f
+  end
+  local p = place_of(ctx, f, at.object)
+  if p == nil then
+    return f
+  end
+  local t = ctx.store:non_nil(current(f, p))
+  -- An array whose element may be nil may have holes: a key it has shows no length.
+  if not (t.tag == "array") or nilable(t.element) then
+    return f
+  end
+  local key = peel(at.key)
+  if (key.kind == "Integer") and key.value >= 1 then
+    return Tests.know_length(ctx, f, p, key.value)
+  elseif (key.kind == "Unary") and key.op == "#" then
+    local same = place_of(ctx, f, key.operand)
+    if same ~= nil and same.key == p.key then
+      return Tests.know_length(ctx, f, p, 1)
+    end
+  elseif (key.kind == "Name") then
+    local id = key.binding
+    if id ~= nil then
+      -- Only the read of the same key: the local may hold 0 where an array is not dense.
+      return Flow.know_key(f, p.key, id, ctx.store.boolean, ctx.store.integer)
+    end
+  end
+  return f
+end
+
 function Tests.length_proves(ctx: Ctx, object: Ast.Exp, key: Ast.Exp): boolean
   local f = ctx.flow
   if next(f.lens) == nil then
@@ -3360,6 +3398,9 @@ function Tests.length_proves(ctx: Ctx, object: Ast.Exp, key: Ast.Exp): boolean
     -- The last element is there where the first is.
     local same = place_of(ctx, f, at.operand)
     return same ~= nil and same.key == p.key and Flow.knows_length(f, p.key, 1)
+  elseif (at.kind == "Name") then
+    local id = at.binding
+    return id ~= nil and Flow.knows_key(f, p.key, id)
   end
   return false
 end
@@ -3606,6 +3647,8 @@ function Narrowing.compare_edges(ctx: Ctx, f: Flow.State, node: Ast.Binary): Flo
     if p ~= nil then
       local cur = current(f, p)
       yes, no = Narrowing.when_true(f, p, Tests.nil_of(ctx, cur)), Narrowing.narrowed_flow(f, p, Tests.not_nil_of(ctx, cur))
+    else
+      no = Tests.has_element(ctx, f, if r.kind == "Nil" then l else r end)
     end
   elseif (r.kind == "String") and (l.kind == "Call") then
     yes, no = Narrowing.type_edges(ctx, f, l, r.value)
@@ -3625,11 +3668,11 @@ function Narrowing.compare_edges(ctx: Ctx, f: Flow.State, node: Ast.Binary): Flo
 end
 
 --- The edges of a name or a field used as a condition: an optional is not nil when true, and nil when false unless
---- what it holds may be false.
+--- what it holds may be false. An index read of an array when true shows the array has the key ([`Tests.has_element`]).
 function Narrowing.truthy_edges(ctx: Ctx, f: Flow.State, e: Ast.Node): Flow.State, Flow.State
   local p = place_of(ctx, f, e)
   if p == nil then
-    return f, f
+    return Tests.has_element(ctx, f, e), f
   end
   local cur = current(f, p)
   if not nilable(cur) then
@@ -3692,7 +3735,7 @@ edges = function(ctx: Ctx, f: Flow.State, e: Ast.Node): Flow.State, Flow.State -
     if p ~= nil and tested ~= nil then
       return Narrowing.is_edges(ctx, f, p, tested)
     end
-  elseif (at.kind == "Name") or (at.kind == "Field") then
+  elseif (at.kind == "Name") or (at.kind == "Field") or (at.kind == "Index") then
     return Narrowing.truthy_edges(ctx, f, at)
   elseif (at.kind == "Call") or (at.kind == "MethodCall") then
     local g = ctx.guards[at.id]
@@ -4080,8 +4123,8 @@ local function function_type(ctx: Ctx, fn: Ast.Fn, expected: Type?, name: string
     if written ~= nil then
       t = written
     elseif not p.variadic and ex ~= nil and ex.params[j] ~= nil then
-      t = ex.params[j].type -- checked: nil_not_allowed
-      omittable = omittable or ex.params[j].omittable == true -- checked: nil_not_allowed
+      t = ex.params[j].type
+      omittable = omittable or ex.params[j].omittable == true
     elseif p.variadic and ex_rest ~= nil then
       t = ex_rest
     else
@@ -4261,7 +4304,7 @@ local function function_body(ctx: Ctx, params: {Ast.Param}, body: Ast.Block, ft:
       j = j + 1
       local binding = p.name
       if binding ~= nil then
-        ctx.vars[binding.id] = f ~= nil and f.params[j] ~= nil and f.params[j].type or ctx.invalid -- checked: and_ternary, nil_not_allowed
+        ctx.vars[binding.id] = f ~= nil and f.params[j] ~= nil and f.params[j].type or ctx.invalid -- checked: and_ternary
         local given: Types.Param? = nil
         if f ~= nil then
           given = f.params[j]
@@ -4924,7 +4967,7 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
   local store = ctx.store
   local solver = Generics.new(store, c, Calls.hooks(ctx))
   if recv ~= nil and c.params[1] ~= nil then
-    Generics.match(solver, c.params[1].type, recv, "into", 0) -- checked: nil_not_allowed
+    Generics.match(solver, c.params[1].type, recv, "into", 0)
   end
   for i = 1, prep.count do
     local t = prep.known[i]
