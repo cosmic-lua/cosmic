@@ -54,9 +54,9 @@ print("confined")
 ]]
   -- The child runs the core on the worker's own database, which it reads.
   local reads = confine.itself()
-  -- A portable artifact's relaunch is `<core> --artifact <path>`.
-  local artifact = Array.at(relaunch.argv, 3)
-  reads[#reads + 1] = artifact
+  -- [`sealed_or_skip`] answers only a relaunch of `<core> --database <path>`.
+  local database = Array.at(relaunch.argv, 3)
+  reads[#reads + 1] = database
   confine.must_confine({ reads = reads })
   local result, trouble = Child.run(argv, { env = relaunch.env, fds = relaunch.fds,
     stdout = "capture", stderr = "capture" })
