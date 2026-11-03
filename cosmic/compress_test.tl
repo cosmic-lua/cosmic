@@ -552,7 +552,7 @@ local function test_a_closed_stream_is_finished_and_keeps_rest()
   -- Closing a finished stream, or closing twice, is harmless.
   for _, case in ipairs(every_kind()) do
     local s <close> = case.make()
-    local closer = assert(getmetatable(s as {any: any})).__close as function(any, any) -- declared: key_type -- checked: cast_refused*2
+    local closer = assert(getmetatable(s as {any: any}), "a stream has a metatable").__close as function(any, any) -- declared: key_type -- checked: cast_refused*2
     closer(s, nil)
     closer(s, nil)
   end
