@@ -81,12 +81,12 @@ end
 local function span(n: number, unit_ns: integer, name: string): integer
   local kind = math.type(n)
   if kind == "integer" then
-    local count = math.tointeger(n)
+    local count = assert(math.tointeger(n), "n is an integer by math.type, so it converts")
     local most = math.maxinteger // unit_ns
-    if count > most or count < -most then -- checked: nil_not_allowed*2
-      error(("clock: %s(%d) is outside what an integer of nanoseconds holds"):format(name, count), 3) -- checked: nil_not_allowed
+    if count > most or count < -most then
+      error(("clock: %s(%d) is outside what an integer of nanoseconds holds"):format(name, count), 3)
     end
-    return count * unit_ns -- checked: nil_not_allowed
+    return count * unit_ns
   else
     -- A count like 1.005 has no exact binary form, so its product is
     -- only near a whole number: within a few units in the last place.
