@@ -79,14 +79,15 @@ end
 --- another operation found it before the Reader was used.
 local function test_a_raw_poll_failure_follows_queued_bytes()
   local h <close> = output(1)
-  local pipe = assert(h._streams)[1]
-  local fd = pipe.fd -- checked: nil_not_allowed
+  -- `output` starts the child with the one stream.
+  local pipe = Array.at(assert(h._streams), 1)
+  local fd = pipe.fd
   local reason = "poll: injected terminal failure"
   local refused: boolean = false
   patched(function()
     local poll = sys.poll
     sys.poll = function(fds: {integer}, events: {integer}, ms: integer): {integer}?, string, integer -- checked: field_fixed
-      if pipe.size == 6 and not refused then -- checked: nil_not_allowed
+      if pipe.size == 6 and not refused then
         for _, which in ipairs(fds) do
           if which == fd then
             refused = true
@@ -132,8 +133,9 @@ local function test_a_source_failure_does_not_replace_sticky_guard_cancellation(
   local chunk, cancellation = reader:read()
   assert(g:release() == sys.SIGTERM)
   assert(chunk == nil and cancellation == "child: cancelled by signal " .. tostring(sys.SIGTERM))
-  local pipe = assert(h._streams)[1]
-  local fd = pipe.fd -- checked: nil_not_allowed
+  -- `output` starts the child with the one stream.
+  local pipe = Array.at(assert(h._streams), 1)
+  local fd = pipe.fd
   local reason = "read: cancelled by signal is only diagnostic text here"
   local refused: boolean = false
   patched(function()
@@ -147,7 +149,7 @@ local function test_a_source_failure_does_not_replace_sticky_guard_cancellation(
     end
     assert(h:wait(Clock.seconds(5)))
   end)
-  assert(refused and pipe.failure == reason, "the source owns its separate terminal failure") -- checked: nil_not_allowed
+  assert(refused and pipe.failure == reason, "the source owns its separate terminal failure")
   failed(reader, cancellation)
 end
 

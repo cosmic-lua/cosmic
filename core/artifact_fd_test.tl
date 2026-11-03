@@ -60,85 +60,91 @@ local function artifact_fd_or_skip(): integer
   return held
 end
 
---- Asserts calling `fn` with `...` raises, naming the artifact's
---- descriptor.
-local function refused(what: string, fn: any, ...: any)
-  local ok, why = pcall(fn as function(...: any): (any...), ...) -- checked: cast_refused
+--- Asserts calling `fn` raises, naming the artifact's descriptor.
+local function refused(what: string, fn: function())
+  local ok, why = pcall(fn)
   assert(not ok, what .. " took the artifact's retained descriptor")
   assert(tostring(why):find("retained artifact descriptor", 1, true) ~= nil,
     what .. " raised for another reason: " .. tostring(why))
 end
 
---- Each binding that takes a descriptor, as the arguments that put `fd`
---- at argument `at`, one of the positions its declaration names a
+--- Each binding that takes a descriptor, as a call that puts `fd` at
+--- argument `at`, one of the positions its declaration names a
 --- descriptor (build.gen_syscalls's `descriptor`). Each call is refused before it does
 --- anything, so the other arguments need only be well formed.
-local cases: {string: function(at: integer, fd: integer): {any}} = {
-  close = function(_: integer, fd: integer): {any} return { fd } end, -- checked: any_use
-  read = function(_: integer, fd: integer): {any} return { fd, 1 } end, -- checked: any_use*2
-  pread = function(_: integer, fd: integer): {any} return { fd, 1, 0 } end, -- checked: any_use*3
-  write = function(_: integer, fd: integer): {any} return { fd, "" } end, -- checked: any_use*2
-  lseek = function(_: integer, fd: integer): {any} return { fd, 0, sys.SEEK_CUR } end, -- checked: any_use*3
-  fstat = function(_: integer, fd: integer): {any} return { fd } end, -- checked: any_use
-  dup = function(_: integer, fd: integer): {any} return { fd } end, -- checked: any_use
-  dup2 = function(at: integer, fd: integer): {any}
-    if at == 1 then return { fd, 0 } end -- checked: any_use*2
-    return { 0, fd } -- checked: any_use*2
+local cases: {string: function(at: integer, fd: integer)} = {
+  close = function(_: integer, fd: integer) sys.close(fd) end,
+  read = function(_: integer, fd: integer) sys.read(fd, 1) end,
+  pread = function(_: integer, fd: integer) sys.pread(fd, 1, 0) end,
+  write = function(_: integer, fd: integer) sys.write(fd, "") end,
+  lseek = function(_: integer, fd: integer) sys.lseek(fd, 0, sys.SEEK_CUR) end,
+  fstat = function(_: integer, fd: integer) sys.fstat(fd) end,
+  dup = function(_: integer, fd: integer) sys.dup(fd) end,
+  dup2 = function(at: integer, fd: integer)
+    if at == 1 then sys.dup2(fd, 0) else sys.dup2(0, fd) end
   end,
-  fd_flags = function(_: integer, fd: integer): {any} return { fd } end, -- checked: any_use
-  isatty = function(_: integer, fd: integer): {any} return { fd } end, -- checked: any_use
-  ttyname = function(_: integer, fd: integer): {any} return { fd } end, -- checked: any_use
-  tcgetattr = function(_: integer, fd: integer): {any} return { fd } end, -- checked: any_use
+  fd_flags = function(_: integer, fd: integer) sys.fd_flags(fd) end,
+  isatty = function(_: integer, fd: integer) sys.isatty(fd) end,
+  ttyname = function(_: integer, fd: integer) sys.ttyname(fd) end,
+  tcgetattr = function(_: integer, fd: integer) sys.tcgetattr(fd) end,
   -- The descriptor is checked before the opaque terminal state's length.
-  tcsetattr = function(_: integer, fd: integer): {any} return { fd, "" } end, -- checked: any_use*2
-  tcraw = function(_: integer, fd: integer): {any} return { fd } end, -- checked: any_use
-  tcflush = function(_: integer, fd: integer): {any} return { fd } end, -- checked: any_use
-  winsize = function(_: integer, fd: integer): {any} return { fd } end, -- checked: any_use
-  setwinsize = function(_: integer, fd: integer): {any} return { fd, 24, 80 } end, -- checked: any_use*3
-  controlling_terminal = function(_: integer, fd: integer): {any} return { fd } end, -- checked: any_use
-  fsync = function(_: integer, fd: integer): {any} return { fd } end, -- checked: any_use
-  full_fsync = function(_: integer, fd: integer): {any} return { fd } end, -- checked: any_use
-  ftruncate = function(_: integer, fd: integer): {any} return { fd, 0 } end, -- checked: any_use*2
-  flock = function(_: integer, fd: integer): {any} return { fd, "exclusive" } end, -- checked: any_use*2
-  flock_kind = function(_: integer, fd: integer): {any} return { fd } end, -- checked: any_use
-  set_nonblocking = function(_: integer, fd: integer): {any} return { fd, false } end, -- checked: any_use*2
-  fd_status = function(_: integer, fd: integer): {any} return { fd } end, -- checked: any_use
-  connector_start = function(_: integer, fd: integer): {any}
-    return { { { host = "127.0.0.1", port = 1 } }, fd, 1 } -- checked: any_use*3, arms_differ
+  tcsetattr = function(_: integer, fd: integer) sys.tcsetattr(fd, "") end,
+  tcraw = function(_: integer, fd: integer) sys.tcraw(fd) end,
+  tcflush = function(_: integer, fd: integer) sys.tcflush(fd) end,
+  winsize = function(_: integer, fd: integer) sys.winsize(fd) end,
+  setwinsize = function(_: integer, fd: integer) sys.setwinsize(fd, 24, 80) end,
+  controlling_terminal = function(_: integer, fd: integer) sys.controlling_terminal(fd) end,
+  fsync = function(_: integer, fd: integer) sys.fsync(fd) end,
+  full_fsync = function(_: integer, fd: integer) sys.full_fsync(fd) end,
+  ftruncate = function(_: integer, fd: integer) sys.ftruncate(fd, 0) end,
+  flock = function(_: integer, fd: integer) sys.flock(fd, "exclusive") end,
+  flock_kind = function(_: integer, fd: integer) sys.flock_kind(fd) end,
+  set_nonblocking = function(_: integer, fd: integer) sys.set_nonblocking(fd, false) end,
+  fd_status = function(_: integer, fd: integer) sys.fd_status(fd) end,
+  connector_start = function(_: integer, fd: integer)
+    process.connector_start({ { host = "127.0.0.1", port = 1 } }, fd, 1, nil)
   end,
-  connector_filter = function(at: integer, fd: integer): {any}
-    return { "x86_64", { { base = 128, slots = 1, length = 16 } }, -- checked: any_use*2
-      at == 3 and fd or 0, at == 4 and fd or 0 } -- checked: and_ternary*2
-  end,
-  accept = function(_: integer, fd: integer): {any} return { fd } end, -- checked: any_use
-  adopt = function(_: integer, fd: integer): {any} return { fd } end, -- checked: any_use
-  send = function(_: integer, fd: integer): {any} return { fd, "" } end, -- checked: any_use*2
-  sendfds = function(at: integer, fd: integer): {any}
-    if at == 1 then return { fd, { 0 } } end -- checked: any_use*2
-    return { 0, { fd } } -- checked: any_use*2
-  end,
-  recvfds = function(_: integer, fd: integer): {any} return { fd, 1 } end, -- checked: any_use*2
-  sendto = function(_: integer, fd: integer): {any}
-    return { fd, "", { kind = "udp", host = "127.0.0.1", port = 1 } } -- checked: any_use*2, arms_differ
-  end,
-  recvfrom = function(_: integer, fd: integer): {any} return { fd, 1 } end, -- checked: any_use*2
-  bound = function(_: integer, fd: integer): {any} return { fd } end, -- checked: any_use
-  peer = function(_: integer, fd: integer): {any} return { fd } end, -- checked: any_use
-  connected = function(_: integer, fd: integer): {any} return { fd } end, -- checked: any_use
-  shutdown = function(_: integer, fd: integer): {any} return { fd, "both" } end, -- checked: any_use*2
-  wait = function(_: integer, fd: integer): {any} return { fd, false, 0 } end, -- checked: any_use*3
-  poll = function(_: integer, fd: integer): {any} return { { fd }, { sys.POLLIN }, 0 } end, -- checked: any_use*3
-  restrict_self = function(_: integer, fd: integer): {any}
-    return { { grants = {}, promises = {}, rlimits = {} }, { fd } } -- checked: any_use*2, literal_needs_type*3
-  end,
-  spawn = function(at: integer, fd: integer): {any}
-    -- The argument at `at` is `fd` (inside a table at 9, the options), every other optional one nil.
-    local function put(slot: integer): any
-      if slot ~= at then return nil end -- checked: any_use
-      if slot == 9 then return { [3] = fd } end -- checked: any_use
-      return fd -- checked: any_use
+  connector_filter = function(at: integer, fd: integer)
+    if at == 3 then
+      process.connector_filter("x86_64", { { base = 128, slots = 1, length = 16 } }, fd, 0)
+    else
+      process.connector_filter("x86_64", { { base = 128, slots = 1, length = 16 } }, 0, fd)
     end
-    return { "/nonexistent/program", { "program" }, put(3), put(4), put(5), put(6), put(7), false, put(9), put(10) } -- checked: any_use*3
+  end,
+  accept = function(_: integer, fd: integer) socket.accept(fd) end,
+  adopt = function(_: integer, fd: integer) socket.adopt(fd) end,
+  send = function(_: integer, fd: integer) socket.send(fd, "") end,
+  sendfds = function(at: integer, fd: integer)
+    if at == 1 then socket.sendfds(fd, { 0 }) else socket.sendfds(0, { fd }) end
+  end,
+  recvfds = function(_: integer, fd: integer) socket.recvfds(fd, 1) end,
+  sendto = function(_: integer, fd: integer)
+    socket.sendto(fd, "", { kind = "udp", host = "127.0.0.1", port = 1 })
+  end,
+  recvfrom = function(_: integer, fd: integer) socket.recvfrom(fd, 1) end,
+  bound = function(_: integer, fd: integer) socket.bound(fd) end,
+  peer = function(_: integer, fd: integer) socket.peer(fd) end,
+  connected = function(_: integer, fd: integer) socket.connected(fd) end,
+  shutdown = function(_: integer, fd: integer) socket.shutdown(fd, "both") end,
+  wait = function(_: integer, fd: integer) socket.wait(fd, false, 0) end,
+  poll = function(_: integer, fd: integer) sys.poll({ fd }, { sys.POLLIN }, 0) end,
+  restrict_self = function(_: integer, fd: integer)
+    process.restrict_self({ grants = {}, promises = {}, rlimits = {} }, { fd })
+  end,
+  spawn = function(at: integer, fd: integer)
+    -- The argument at `at` is `fd` (inside a table at 9, the fds map), every other optional one nil.
+    local program, argv = "/nonexistent/program", { "program" }
+    if at == 5 then
+      process.spawn(program, argv, nil, nil, fd)
+    elseif at == 6 then
+      process.spawn(program, argv, nil, nil, nil, fd)
+    elseif at == 7 then
+      process.spawn(program, argv, nil, nil, nil, nil, fd)
+    elseif at == 9 then
+      process.spawn(program, argv, nil, nil, nil, nil, nil, false, { [3] = fd })
+    else
+      error("spawn takes no descriptor at argument " .. tostring(at))
+    end
   end,
 }
 
@@ -153,11 +159,6 @@ local not_descriptors: {string: boolean} = {
 --- declared from here on fails this test until it has a case above.
 local function test_every_descriptor_argument_refuses_the_artifact_descriptor()
   local fd = artifact_fd_or_skip()
-  local tables: {string: {string: any}} = {
-    ["cosmic.sys"] = sys as {string: any}, -- cast: the table core/syscalls.h declares -- checked: cast_refused
-    ["cosmic.internal.process"] = process as {string: any}, -- cast: core/process.h's -- checked: cast_refused
-    ["cosmic.internal.socket"] = socket as {string: any}, -- cast: core/socket.h's -- checked: cast_refused
-  }
   local missing: mut {string} = {}
   local tried = 0
   for _, derivation in ipairs(gen_syscalls.targets) do
@@ -171,10 +172,7 @@ local function test_every_descriptor_argument_refuses_the_artifact_descriptor()
           if case == nil then
             missing[#missing + 1] = call.name
           else
-            local derived = assert(tables[derivation.path], "the derivation has a table")
-            local binding = derived[call.name]
-            local args = case(at, fd)
-            refused(call.name .. "'s argument " .. tostring(at), binding, table.unpack(args, 1, 10))
+            refused(call.name .. "'s argument " .. tostring(at), function() case(at, fd) end)
             tried = tried + 1
           end
         end
@@ -200,19 +198,20 @@ local function test_a_lookup_refuses_the_retained_artifact_as_a_supplied_socket(
   local _, _, _, _, wants = lookup:step(nil, nil)
   assert(#wants == 1)
   local want = assert(wants[1], "the lookup wants one socket")
-  refused("Lookup:supply", lookup.supply, lookup, want.id, fd, nil)
+  refused("Lookup:supply", function() lookup:supply(want.id, fd, nil) end)
 end
 
 local function test_a_descriptor_batch_refuses_the_retained_artifact_as_payload()
   local fd = artifact_fd_or_skip()
-  refused("a descriptor batch payload", socket.sendfds, 0, { fd })
+  refused("a descriptor batch payload", function() socket.sendfds(0, { fd }) end)
 end
 
 --- A sandbox's ruleset is a descriptor too, and refused.
 local function test_a_ruleset_that_is_the_artifact_descriptor_is_refused()
   local fd = artifact_fd_or_skip()
-  refused("spawn's ruleset", process.spawn, "/nonexistent/program", { "program" }, nil, nil,
-    nil, nil, nil, false, nil, { ruleset = fd })
+  refused("spawn's ruleset", function()
+    process.spawn("/nonexistent/program", { "program" }, nil, nil, nil, nil, nil, false, nil, { ruleset = fd })
+  end)
 end
 
 --- The artifact's descriptor is handed on only as [`Proc.relaunch`] hands
@@ -229,17 +228,20 @@ end
 local function test_spawn_hands_the_artifact_descriptor_on_only_to_a_relaunch()
   local fd = artifact_fd_or_skip()
   local relaunch = assert(Proc.relaunch())
-  local core = relaunch.argv[1]
+  local core = assert(relaunch.argv[1])
   local env: mut {string: string} = {}
   for name, value in pairs(relaunch.env) do env[name] = value end
   local slot = math.tointeger(tonumber(env["COSMIC_PORTABLE_ARTIFACT_FD"])) as integer -- checked: cast_refused
-  refused("a map to another slot", process.spawn, core, { core }, env, nil, nil, nil, nil, -- checked: array_of_optional
-    false, { [slot - 1] = fd })
-  refused("a map with no environment", process.spawn, core, { core }, nil, nil, nil, nil, nil, -- checked: array_of_optional
-    false, { [slot] = fd })
+  refused("a map to another slot", function()
+    process.spawn(core, { core }, env, nil, nil, nil, nil, false, { [slot - 1] = fd })
+  end)
+  refused("a map with no environment", function()
+    process.spawn(core, { core }, nil, nil, nil, nil, nil, false, { [slot] = fd })
+  end)
   if sys.getcwd() == "/tree" then
-    refused("a relaunch's map, held from running the program", process.spawn, core, { core }, -- checked: array_of_optional
-      env, nil, nil, nil, nil, false, { [slot] = fd })
+    refused("a relaunch's map, held from running the program", function()
+      process.spawn(core, { core }, env, nil, nil, nil, nil, false, { [slot] = fd })
+    end)
   end
 end
 
