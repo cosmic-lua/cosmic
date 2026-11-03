@@ -274,8 +274,9 @@
         # rows alone. A test whose key holds the launcher (a `tool` or
         # `store` test, whose portable verdict is its own) in share 2/2
         # therefore runs again on every run the key has moved on; a
-        # sealed test stands on the native suite's row, which the leg
-        # saves.
+        # sealed test is meant to stand on the native suite's row, but
+        # its program part differs (run 41688461540), so it runs too
+        # (the TODO at `suite_verdicts`, ci/cosmic_ci/orchestration.tl).
         # TODO: save share 2/2's verdicts for main, once the alpine leg
         # can merge them into its own save (driver.tl verdicts-merge of
         # an artifact this job uploads), which needs the leg to wait on
@@ -1019,8 +1020,8 @@
         # the legs'. The queue's slowest leg falls by about 100 s, and
         # linux-x86_64 becomes its critical path. Every other leg runs
         # its own. The regressions' verdicts (fixtures.db) are no longer
-        # saved from alpine-x86_64: none ever stood, their keys holding
-        # the host's features and identity.
+        # saved from alpine-x86_64: none stood in run 41688461540, their
+        # keys holding the runner's host features and identity.
         # The regressions and the portable suite read nothing of what the
         # other writes: the fixtures stand on fixtures.db, beside
         # verdicts.db, which the verdict cache restores and saves with it,

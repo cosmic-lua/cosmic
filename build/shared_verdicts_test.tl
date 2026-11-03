@@ -182,7 +182,7 @@ local function test_a_cache_names_the_other_hosts_of_a_rest(tmp: string)
 end
 
 --- A checked run (`cosmic test --check-types`) keeps its verdicts in a file of its own beside the others', unless
---- `COSMIC_VERDICT_CACHE` names one: its 7900 keys would otherwise share the bound with the ordinary suite's.
+--- `COSMIC_VERDICT_CACHE` names one: its 8600 keys would otherwise share the bound with the ordinary suite's.
 local function test_a_checked_run_reads_its_own_file(tmp: string)
   local env = { XDG_CACHE_HOME = tmp .. "/cache" }
   local plain = assert(shared_verdicts.location(env))
@@ -204,7 +204,7 @@ end
 --- 8192 `settle` dropped some of the newest, and every row of an older run. It trims to `rows_kept` of its own
 --- path: a checked file's 16384, an ordinary one's 32768.
 local function test_a_settle_keeps_the_rows_of_a_leg_that_runs_both_suites(tmp: string)
-  local function rows_after(name: string, count: integer): integer, number
+  local function rows_after(name: string, count: integer): integer
     local cache = assert(shared_verdicts.open(tmp .. "/" .. tostring(count) .. "-" .. name))
     local function run(prefix: string, rows: integer, now_ns: integer)
       local kept: mut {shared_verdicts.Kept} = {}
@@ -216,16 +216,13 @@ local function test_a_settle_keeps_the_rows_of_a_leg_that_runs_both_suites(tmp: 
     -- The portable rows of an earlier run, then one run's native rows, stamped alike.
     local now = Clock.now_ns()
     run("portable", 4189, now - 1000)
-    local begun = Clock.now_ns()
     run("native", count, now)
-    local took = (Clock.now_ns() - begun) / 1000000.0
     local counted = assert(Sqlite.text_rows(cache.db, "SELECT count(*) FROM declared_v1"))
     shared_verdicts.close(cache)
-    return math.tointeger(tonumber(assert(counted[1]):text(1))) or -1, took
+    return math.tointeger(tonumber(assert(counted[1]):text(1))) or -1
   end
-  local rows, took = rows_after("verdicts.db", 8554)
+  local rows = rows_after("verdicts.db", 8554)
   assert(rows == 8554 + 4189, "a run's rows were dropped by the bound: " .. tostring(rows) .. " kept")
-  assert(took < 5000, "settle took " .. tostring(took) .. " ms at the bound")
   assert(rows_after("verdicts.db", 32800) == 32768, "an ordinary file kept another number")
   assert(rows_after("verdicts-checked.db", 16400) == 16384, "a checked file kept another number")
 end

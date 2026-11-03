@@ -478,8 +478,8 @@ the leg's critical path was 982 s to the job's 364 (run 41688461540), so
 the queue's slowest leg falls by about 100 s (linux-x86_64 becomes
 critical), and the job builds the same product on the same image, whose
 bytes the join holds to the legs'. Their verdicts (`fixtures.db`) are no
-longer saved from alpine-x86_64; none ever stood, their keys holding the
-host's features and identity. It skips what the leg proves for the same
+longer saved from alpine-x86_64; none stood in run 41688461540: their keys
+hold the runner's host features and identity. It skips what the leg proves for the same
 bytes and host: the pinned driver's check and its relay to the queue's
 next run, the native suite and its boundary, the credential proofs, and
 the darwin suite. It saves no cache and seeds nothing
@@ -487,8 +487,10 @@ the darwin suite. It saves no cache and seeds nothing
 bootstrap cache is the one save left, which the action makes on main
 under the leg's key as the leg does), so main keeps no verdict of a test
 in the second half that only a portable run reaches (a test whose key
-holds the launcher); a sealed test stands on the native suite's row,
-which the leg saves.
+holds the launcher). A sealed test is meant to stand on the native
+suite's row, which the leg saves, but its key's program part differs
+between the suites (run 41688461540), so it runs in the portable suite
+too (the TODO at `suite_verdicts`, ci/cosmic_ci/orchestration.tl).
 
 A share is not a whole run (`cosmic test --shard`), and a whole run alone
 makes three checks: that some test enters each C function, the probe of

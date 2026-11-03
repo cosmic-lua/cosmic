@@ -113,12 +113,18 @@ local variable <const>: Env.Name = "COSMIC_VERDICT_CACHE"
 --- times that is left for a suite that grows and for the rows of keys that
 --- moved, which the newest-first order drops before any this run used (CI
 --- keeps only the rows a run used, `verdicts-trim`, so the file it saves
---- stays near 12800 rows).
+--- is the run's: some 8600 rows on aarch64 and macOS, 12800 on alpine and,
+--- on a push to main, some 17000 on linux-x86_64, which runs the whole
+--- portable suite. A row is some 3.8 KB live, so a full file is 125 to
+--- 150 MB. Nothing trims a local file but age and this bound;
+--- `cosmic cache trim verdicts PATH` cuts one to the rows a run used).
 local kept_rows <const> = 32768
 
---- How many rows a file of a checked run's verdicts keeps ([`shared_verdicts.rows_kept`]): twice
---- the suite, since the suite has some 7900 tests and a key that moves leaves its old row until
---- the trim. The checked suite runs alone in its file, so it needs no more.
+--- How many rows a file of a checked run's verdicts keeps ([`shared_verdicts.rows_kept`]): about
+--- twice the suite, which has some 8600 tests, since a key that moves leaves its old row until
+--- the trim. The checked suite runs alone in its file, so it needs no more. Only a name ending
+--- `-checked.db`, or `narrowing.db`, gets it: ci.yml's checked jobs save `checked.db`, which
+--- the trim keeps to the rows its run used and which takes the ordinary bound.
 local kept_checked_rows <const> = 16384
 
 --- How long a row no run relies on is kept: thirty days.
