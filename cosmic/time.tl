@@ -29,6 +29,7 @@
 --- zone?)` and `format_rfc3339(ns, zone?, opts?)`. Each reads the UTC
 --- calendar without a zone.
 
+local Array = require("cosmic.array")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Number = require("cosmic.number")
@@ -268,7 +269,7 @@ end
 local MONTH_DAYS <const> = { 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 }
 
 local function month_days(y: integer, m: integer): integer
-  return if m == 2 and leap(y) then 29 else MONTH_DAYS[m] end -- checked: nil_not_allowed
+  return if m == 2 and leap(y) then 29 else Array.at(MONTH_DAYS, m) end
 end
 
 --- Why `value`, the field `name`, is not an integer from `lo` through
@@ -493,12 +494,13 @@ end
 local function read_fraction(cur: Cursor): integer
   if cur.why ~= nil then return 0 end
   local digits = cur.text:match("^%d*", cur.at)
-  if #digits == 0 or #digits > 9 then -- checked: nil_not_allowed*2
-    fail(cur, ("fraction at byte %d: expected 1 to 9 digits, not %d"):format(cur.at, #digits)) -- checked: nil_not_allowed
+  if digits == nil or #digits == 0 or #digits > 9 then
+    fail(cur, ("fraction at byte %d: expected 1 to 9 digits, not %d"):format(cur.at,
+      if digits == nil then 0 else #digits end))
     return 0
   end
-  cur.at = cur.at + #digits -- checked: nil_not_allowed
-  return fraction_ns(digits) -- checked: nil_not_allowed
+  cur.at = cur.at + #digits
+  return fraction_ns(digits)
 end
 
 --- Fails when any text is left past the cursor.
@@ -540,6 +542,15 @@ local record Rule
   mut time: integer
 end
 
+--- The two changes of one year under a POSIX TZ string, as seconds since
+--- the epoch.
+local record Changes
+  --- Daylight saving time starts.
+  dst_start: integer
+  --- It ends, and standard time returns.
+  dst_end: integer
+end
+
 --- A POSIX TZ string (POSIX.1-2017 8.3, with RFC 8536's version 3
 --- extensions): standard time, and daylight saving time with the rules
 --- it starts and ends by, if there is any.
@@ -550,7 +561,7 @@ local record Posix
   mut finish?: Rule
   --- Each year's two changes, as seconds since the epoch, once worked
   --- out: at most one per year a moment can fall in.
-  years: mut {integer:{integer}}
+  years: mut {integer:Changes}
 end
 
 --- Everything a zone knows: the moments its offset changed, what it was
@@ -652,15 +663,17 @@ local function posix_kind(p: Posix, s: integer): Kind
   for y = year - 2, year + 1 do
     local changes = p.years[y]
     if changes == nil then
-      changes = { rule_day(start, y) * DAY + start.time - p.std.offset,
-        rule_day(stop, y) * DAY + stop.time - dst.offset }
+      changes = {
+        dst_start = rule_day(start, y) * DAY + start.time - p.std.offset,
+        dst_end = rule_day(stop, y) * DAY + stop.time - dst.offset,
+      }
       p.years[y] = changes
     end
-    if changes[2] <= s and changes[2] > best then -- checked: nil_not_allowed*2
-      best, starts = changes[2], false -- checked: index_may_be_nil
+    if changes.dst_end <= s and changes.dst_end > best then
+      best, starts = changes.dst_end, false
     end
-    if changes[1] <= s and changes[1] >= best then -- checked: nil_not_allowed*2
-      best, starts = changes[1], true -- checked: index_may_be_nil
+    if changes.dst_start <= s and changes.dst_start >= best then
+      best, starts = changes.dst_start, true
     end
   end
   return if starts then dst else p.std end
@@ -670,7 +683,8 @@ end
 local function kind_at(rules: Rules, s: integer): Kind
   local t = rules.transitions
   local n = #t
-  if n == 0 or s < t[1] then -- checked: nil_not_allowed
+  local earliest = t[1]
+  if earliest == nil or s < earliest then
     local footer = rules.footer
     -- RFC 8536 3.2: with no transitions, the footer holds for every
     -- moment; before the first, local time type 0 does.
@@ -678,13 +692,13 @@ local function kind_at(rules: Rules, s: integer): Kind
     return rules.first
   end
   local footer = rules.footer
-  if s > t[n] and footer ~= nil then return posix_kind(footer, s) end -- checked: nil_not_allowed
+  if s > Array.at(t, n) and footer ~= nil then return posix_kind(footer, s) end
   local lo, hi = 1, n
   while lo < hi do
     local mid = (lo + hi + 1) // 2
-    if t[mid] <= s then lo = mid else hi = mid - 1 end -- checked: nil_not_allowed
+    if Array.at(t, mid) <= s then lo = mid else hi = mid - 1 end
   end
-  return rules.kinds[lo] -- checked: index_may_be_nil
+  return Array.at(rules.kinds, lo)
 end
 
 --- Every offset `rules` give some moment within two days of `s`
@@ -707,10 +721,10 @@ local function offsets_near(rules: Rules, s: integer): {integer}
   local first, last = 1, #t + 1
   while first < last do
     local mid = (first + last) // 2
-    if t[mid] > lo then last = mid else first = mid + 1 end -- checked: nil_not_allowed
+    if Array.at(t, mid) > lo then last = mid else first = mid + 1 end
   end
-  while first <= #t and t[first] <= hi do -- checked: nil_not_allowed
-    add(rules.kinds[first]) -- checked: index_may_be_nil
+  while first <= #t and Array.at(t, first) <= hi do
+    add(Array.at(rules.kinds, first))
     first = first + 1
   end
   local footer = rules.footer
@@ -853,8 +867,8 @@ end
 
 --- The big-endian unsigned 32-bit integer at `at` in `s`.
 local function u32(s: string, at: integer): integer
-  local a, b, c, d = s:byte(at, at + 3)
-  return (a << 24) | (b << 16) | (c << 8) | d -- checked: nil_not_allowed*4
+  return (String.byte_at(s, at) << 24) | (String.byte_at(s, at + 1) << 16) |
+    (String.byte_at(s, at + 2) << 8) | String.byte_at(s, at + 3)
 end
 
 --- The big-endian signed 32-bit integer at `at` in `s`.
@@ -869,9 +883,19 @@ local function i64(s: string, at: integer): integer
   return (u32(s, at) << 32) | u32(s, at + 4)
 end
 
---- A TZif file's counts, from the header at `at`: `isutcnt`,
---- `isstdcnt`, `leapcnt`, `timecnt`, `typecnt` and `charcnt`.
-local function tzif_counts(data: string, at: integer): {integer}?, string
+--- The six counts of a TZif header, as RFC 8536 names them with `cnt` cut
+--- off.
+local record Counts
+  isut: integer
+  isstd: integer
+  leap: integer
+  time: integer
+  type: integer
+  char: integer
+end
+
+--- A TZif file's counts, from the header at `at`.
+local function tzif_counts(data: string, at: integer): Counts?, string
   if #data < at + 43 then
     return nil, ("truncated: a TZif header at byte %d needs 44 bytes, and %d remain"):format(at,
       #data - at + 1)
@@ -879,9 +903,10 @@ local function tzif_counts(data: string, at: integer): {integer}?, string
   if data:sub(at, at + 3) ~= "TZif" then
     return nil, ("expected \"TZif\" at byte %d"):format(at)
   end
-  local counts: mut {integer} = {}
-  for i = 1, 6 do counts[i] = u32(data, at + 16 + 4 * i) end
-  return counts, ""
+  return {
+    isut = u32(data, at + 20), isstd = u32(data, at + 24), leap = u32(data, at + 28),
+    time = u32(data, at + 32), type = u32(data, at + 36), char = u32(data, at + 40),
+  }, ""
 end
 
 --- A TZif file (RFC 8536, versions 1 through 4) as [`Rules`], or nil and
@@ -901,8 +926,8 @@ local function parse_tzif(data: string): Rules?, string
   local at, size = 45, 4
   if version ~= 0 then
     local isut, isstd, leaps, times, types, chars =
-      counts[1], counts[2], counts[3], counts[4], counts[5], counts[6]
-    local second = at + times * 5 + types * 6 + chars + leaps * 8 + isstd + isut -- checked: nil_not_allowed*6
+      counts.isut, counts.isstd, counts.leap, counts.time, counts.type, counts.char
+    local second = at + times * 5 + types * 6 + chars + leaps * 8 + isstd + isut
     counts, why = tzif_counts(data, second)
     if counts == nil then return nil, "the version 2 header: " .. why end
     if data:byte(second + 4) ~= version then
@@ -912,92 +937,94 @@ local function parse_tzif(data: string): Rules?, string
     at, size = second + 44, 8
   end
   local isut, isstd, leaps, times, types, chars =
-    counts[1], counts[2], counts[3], counts[4], counts[5], counts[6]
+    counts.isut, counts.isstd, counts.leap, counts.time, counts.type, counts.char
   if types == 0 then return nil, "typecnt is 0: a zone has at least one local time type" end
   if chars == 0 then return nil, "charcnt is 0: a zone has at least one abbreviation" end
   if isut ~= 0 and isut ~= types then
-    return nil, ("isutcnt %d is neither 0 nor typecnt, %d"):format(isut, types) -- checked: nil_not_allowed*2
+    return nil, ("isutcnt %d is neither 0 nor typecnt, %d"):format(isut, types)
   end
   if isstd ~= 0 and isstd ~= types then
-    return nil, ("isstdcnt %d is neither 0 nor typecnt, %d"):format(isstd, types) -- checked: nil_not_allowed*2
+    return nil, ("isstdcnt %d is neither 0 nor typecnt, %d"):format(isstd, types)
   end
   if leaps ~= 0 then
-    return nil, ("%d leap second records: cosmic time has no leap seconds"):format(leaps) -- checked: nil_not_allowed
+    return nil, ("%d leap second records: cosmic time has no leap seconds"):format(leaps)
   end
-  local length = times * (size + 1) + types * 6 + chars + isstd + isut -- checked: nil_not_allowed*5
+  local length = times * (size + 1) + types * 6 + chars + isstd + isut
   if at + length - 1 > #data then
     return nil, ("truncated: the data block at byte %d needs %s, and %d remain"):format(at,
       String.counted(length, "byte"), #data - at + 1)
   end
 
   local transitions: mut {integer} = {}
-  for i = 1, times do -- checked: nil_not_allowed
+  local previous: integer? = nil
+  for i = 1, times do
     local t = if size == 8 then i64(data, at) else i32(data, at) end
-    if i > 1 and t <= transitions[i - 1] then -- checked: nil_not_allowed
+    if previous ~= nil and t <= previous then
       return nil, ("transition %d at byte %d is not after the one before it"):format(i, at)
     end
     transitions[#transitions + 1] = t
+    previous = t
     at = at + size
   end
   local indices: mut {integer} = {}
-  for i = 1, times do -- checked: nil_not_allowed
-    local index = data:byte(at)
-    if index >= types then -- checked: nil_not_allowed
-      return nil, ("transition %d names local time type %d, and there are %d"):format(i, index, types) -- checked: nil_not_allowed*2
+  for i = 1, times do
+    local index = String.byte_at(data, at)
+    if index >= types then
+      return nil, ("transition %d names local time type %d, and there are %d"):format(i, index, types)
     end
-    indices[i] = index + 1 -- checked: nil_not_allowed
+    indices[i] = index + 1
     at = at + 1
   end
   local kinds: mut {Kind} = {}
-  local names_at = at + types * 6 -- checked: nil_not_allowed
+  local names_at = at + types * 6
   -- An index is one byte, and cosmic caps an abbreviation at 255 bytes
   -- -- its own limit, far past tzcode's 50 for all of them -- so only
   -- the first 511 bytes of the abbreviations can hold one: each index's
   -- NUL is found in one pass back over them, never by a search that
   -- could run the length of the file once per type.
-  local window = math.min(chars, 511) -- checked: overload_none -- untyped: call
+  local window = math.min(chars, 511)
   local nul_after: mut {integer:integer} = {}
   local next_nul: integer? = nil
   for k = window - 1, 0, -1 do
-    if data:byte(names_at + k) == 0 then next_nul = k end -- checked: not_assignable, overload_none -- untyped: call
-    nul_after[k] = next_nul -- checked: float_key, nil_not_allowed
+    if data:byte(names_at + k) == 0 then next_nul = k end
+    if next_nul ~= nil then nul_after[k] = next_nul end
   end
   local abbreviations: mut {integer:string} = {}
-  for i = 1, types do -- checked: nil_not_allowed
-    local offset, dst, name = i32(data, at), data:byte(at + 4), data:byte(at + 5)
+  for i = 1, types do
+    local offset, dst, name = i32(data, at), String.byte_at(data, at + 4), String.byte_at(data, at + 5)
     if offset < -89999 or offset > 93599 then
       return nil, ("local time type %d's offset %d is not -89999 through 93599"):format(i - 1, offset)
     end
-    if dst > 1 then -- checked: nil_not_allowed
-      return nil, ("local time type %d's isdst %d is not 0 or 1"):format(i - 1, dst) -- checked: nil_not_allowed
+    if dst > 1 then
+      return nil, ("local time type %d's isdst %d is not 0 or 1"):format(i - 1, dst)
     end
-    if name >= chars then -- checked: nil_not_allowed
+    if name >= chars then
       return nil, ("local time type %d's abbreviation index %d is past charcnt, %d"):format(i - 1,
-        name, chars) -- checked: nil_not_allowed*2
+        name, chars)
     end
-    local abbreviation = abbreviations[name] -- checked: nil_not_allowed
+    local abbreviation = abbreviations[name]
     if abbreviation == nil then
-      local nul = nul_after[name] -- checked: nil_not_allowed
-      if nul == nil or nul - name > 255 then -- checked: nil_not_allowed
+      local nul = nul_after[name]
+      if nul == nil or nul - name > 255 then
         return nil, ("local time type %d's abbreviation has no NUL within 255 bytes and before " ..
           "the end of the abbreviations"):format(i - 1)
       end
-      abbreviation = data:sub(names_at + name, names_at + nul - 1) -- checked: nil_not_allowed
-      abbreviations[name] = abbreviation -- checked: nil_not_allowed
+      abbreviation = data:sub(names_at + name, names_at + nul - 1)
+      abbreviations[name] = abbreviation
     end
     kinds[i] = { offset = offset, dst = dst == 1, abbreviation = abbreviation }
     at = at + 6
   end
-  at = at + chars -- checked: nil_not_allowed
-  for i = 1, isstd + isut do -- checked: nil_not_allowed*2
+  at = at + chars
+  for i = 1, isstd + isut do
     if String.byte_at(data, at) > 1 then
       return nil, ("indicator %d at byte %d is not 0 or 1"):format(i, at)
     end
     at = at + 1
   end
-  local rules: Rules = { transitions = transitions, kinds = {}, first = kinds[1] } -- checked: index_may_be_nil
-  for i = 1, times do -- checked: nil_not_allowed
-    local kind = assert(kinds[indices[i]]) -- checked: index_may_be_nil
+  local rules: Rules = { transitions = transitions, kinds = {}, first = Array.at(kinds, 1) }
+  for _, index in ipairs(indices) do
+    local kind = Array.at(kinds, index)
     rules.kinds[#rules.kinds + 1] = kind
   end
 
@@ -1384,13 +1411,14 @@ local function resolve(c: Time.CivilFields, zone: Time.Zone?, how: Time.Disambig
   -- the latest the offset after it.
   local offsets = offsets_near(rules, s)
   local found: mut {integer} = {}
-  local lowest, highest = offsets[1], offsets[1]
+  -- [`offsets_near`] answers at least the offset at `s - 2 * DAY`.
+  local lowest, highest = Array.at(offsets, 1), Array.at(offsets, 1)
   for _, offset in ipairs(offsets) do
     if kind_at(rules, s - offset).offset == offset then found[#found + 1] = s - offset end
-    lowest, highest = math.min(lowest, offset), math.max(highest, offset) -- checked: overload_none*2 -- untyped: call*2
+    lowest, highest = math.min(lowest, offset), math.max(highest, offset)
   end
   table.sort(found)
-  local before, after = kind_at(rules, s - highest).offset, kind_at(rules, s - lowest).offset -- checked: nil_not_allowed*2
+  local before, after = kind_at(rules, s - highest).offset, kind_at(rules, s - lowest).offset
   local chosen: integer?
   if #found == 0 then
     if how == "reject" then
@@ -1904,7 +1932,7 @@ function Time.parse_http(text: string): integer?, string
     c.month = name_of(cur, MONTHS, "a month name")
     expect(cur, "-", "after the month")
     local year = read_digits(cur, 2, "year")
-    c.year = if year ~= nil then year + (if year >= 69 then 1900 else 2000 end) else nil end -- checked: compare_disjoint, nil_not_allowed
+    c.year = year + (if year >= 69 then 1900 else 2000 end)
     expect(cur, " ", "after the year")
     clock_into(cur, c)
     expect(cur, " GMT", "after the time")
@@ -1940,7 +1968,8 @@ function Time.parse_duration(text: string): Time.Duration?, string
   if at > #text then return refuse("expected a duration such as 1y2mo3d4h5m6s, not nothing") end
   local units = { "y", "mo", "d", "h", "m", "s" }
   local seen = 0
-  local values: mut {integer: integer} = { [1] = 0, [2] = 0, [3] = 0, [4] = 0, [5] = 0, [6] = 0 }
+  -- By unit; one the text does not spell is 0.
+  local values: mut {integer:integer} = {}
   local fraction = 0
   while at <= #text do
     local digits = text:match("^%d+", at)
@@ -1979,14 +2008,14 @@ function Time.parse_duration(text: string): Time.Duration?, string
     end
     seen = unit
     values[unit] = assert(number)
-    at = at + #units[unit] -- checked: nil_not_allowed
+    at = at + #Array.at(units, unit)
   end
-  local seconds = values[4] * 3600 + values[5] * 60 + values[6] -- checked: nil_not_allowed*3
+  local seconds = (values[4] or 0) * 3600 + (values[5] or 0) * 60 + (values[6] or 0)
   if seconds > MAX_SPAN_S or (seconds == MAX_SPAN_S and fraction > math.maxinteger % NS) then
     return refuse("the hours, minutes and seconds are more than 292 years")
   end
   return {
-    years = sign * values[1], months = sign * values[2], days = sign * values[3], -- checked: nil_not_allowed*3
+    years = sign * (values[1] or 0), months = sign * (values[2] or 0), days = sign * (values[3] or 0),
     ns = sign * (seconds * NS + fraction),
   }, ""
 end
