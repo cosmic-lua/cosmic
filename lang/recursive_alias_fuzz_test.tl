@@ -83,8 +83,11 @@ local function test_a_type_is_below_the_alias_when_the_definition_of_a_json_valu
       local count = 1 + (draws[1] or 0) % 4
       for k = 1, count do
         local part: mut {integer} = {}
-        for i = 2 + (k - 1) * 17, #draws do
-          part[#part + 1] = draws[i] -- checked: index_may_be_nil
+        local first = 2 + (k - 1) * 17
+        for i, draw in ipairs(draws) do
+          if i >= first then
+            part[#part + 1] = draw
+          end
         end
         local t = TypesPrograms.generate(w.store, w.fixture, part)
         local want = defined(t, v, null)

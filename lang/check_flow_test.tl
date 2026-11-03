@@ -3,6 +3,7 @@
 --- is also run as the Lua [`lang.codegen`] writes, with each narrowed read checked ([`Programs.execute`]), so a fact that
 --- is wrong fails here as the nil or the wrong value it would be at run time. A program that would fail at run time if
 --- a rule had a hole is held refused beside the one that stands.
+local Array = require("cosmic.array")
 local Programs = require("lang.check_programs")
 local Test = require("cosmic.test")
 
@@ -143,9 +144,10 @@ local function test_an_assignment_drops_the_fact_and_names_itself()
   local body = "local s = find()\nif s == nil then\n  return\nend\ns = find()\nprint(#s)\n"
   local r = Programs.run(PRELUDE .. "local function f()\n" .. body .. "end\n")
   assert(Programs.codes(r) == "narrowing_dropped", Programs.codes(r))
-  local e = r.errors[1]
-  assert(e.msg:find("the assignment at 17:1 dropped that", 1, true) or e.msg:find("dropped that", 1, true), e.msg) -- checked: nil_not_allowed*3
-  assert(e.other ~= nil and e.fix:find("test `s` again after the assignment at", 1, true) ~= nil, e.fix) -- checked: nil_not_allowed*3
+  -- the code asserted above is of an error, so there is one
+  local e = Array.at(r.errors, 1)
+  assert(e.msg:find("the assignment at 17:1 dropped that", 1, true) or e.msg:find("dropped that", 1, true), e.msg)
+  assert(e.other ~= nil and e.fix:find("test `s` again after the assignment at", 1, true) ~= nil, e.fix)
   -- The value assigned narrows it to the view of its type, and a value that may be nil narrows it to nothing.
   stands("local s = find()\nif s == nil then\n  s = \"x\"\nend\nprint(#s)\n", "2")
   refused("local s = find()\nif s == nil then\n  s = find()\nend\nprint(#s)\n", "nil_not_allowed")
@@ -417,10 +419,11 @@ end
 
 local function test_a_function_declared_ahead_that_calls_itself_is_told_to_declare_it_where_it_is_defined()
   local r = Programs.run("local function g()\n  local walk: function(integer)\n  walk = function(n: integer)\n    if n > 0 then\n      walk(n - 1)\n    end\n  end\nend\n")
-  local e = r.errors[1]
-  assert(e.code == "not_assigned" and e.fix:find("local function walk(...)", 1, true) ~= nil, e.fix) -- checked: nil_not_allowed
+  local e = Array.at(r.errors, 1) -- the program is refused, and the assert below names the code
+  assert(e.code == "not_assigned" and e.fix:find("local function walk(...)", 1, true) ~= nil, e.fix)
   local other = Programs.run("local function g()\n  local walk: function(integer)\n  local function once(n: integer)\n    walk(n)\n  end\n  walk = once\nend\n")
-  assert(other.errors[1].fix:find("functions of a record", 1, true), other.errors[1].fix) -- checked: nil_not_allowed*2
+  local told = Array.at(other.errors, 1).fix -- the program is refused
+  assert(told:find("functions of a record", 1, true), told)
 end
 
 -- the flow by code -----------------------------------------------------------------------------------------------

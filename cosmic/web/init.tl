@@ -151,11 +151,11 @@ local record Web
   stream: function(body: Stream.Reader, content_type: string,
       opts?: Types.ResponseOptions): Types.Response
   --- Answers with an RFC 9457 problem body: see [`Response.problem`].
-  problem: function(status: integer, detail?: string, extra?: {string:any}): Types.Response
+  problem: function(status: integer, detail?: string, extra?: {string: Json.Value}): Types.Response
   --- Ends the request with an error status from anywhere, with a detail the
   --- error page shows; it returns a response only to type-check
   --- `return Web.abort(404)`: see [`Response.abort`].
-  abort: function(status: integer, detail?: string, extra?: {string:any}): Types.Response
+  abort: function(status: integer, detail?: string, extra?: {string: Json.Value}): Types.Response
   --- Reads the first value of a response header, in any case: see [`Response.header`].
   header: function(res: Types.Response, name: string): string?
   --- Replaces a response header, whatever case it was set in; raises for

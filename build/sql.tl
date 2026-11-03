@@ -437,18 +437,18 @@ local function ndjson_writer(): Writer
       local members: mut {string} = {}
       for index = 0, width - 1 do
         local kind = statement:kind(index)
-        local value: any = Json.null -- checked: any_use
+        local value: Json.Value = Json.null
         if kind == "integer" then
-          value = statement:integer(index) -- checked: any_use
+          value = statement:integer(index)
         elseif kind == "number" then
-          value = statement:number(index) -- checked: any_use
+          value = statement:number(index)
         elseif kind == "text" then
-          value = statement:bytes(index) -- checked: any_use
+          value = statement:bytes(index)
         elseif kind == "blob" then
           return nil, "column " .. tostring((index + 1)) .. " is a blob, which JSON has no value for; " ..
             "select its hex() or base64()"
         end
-        local encoded, trouble = Json.encode_any(value)
+        local encoded, trouble = Json.encode(value)
         if encoded == nil then
           return nil, "column " .. tostring((index + 1)) .. ": " .. trouble
         end

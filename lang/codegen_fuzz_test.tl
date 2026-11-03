@@ -4,6 +4,7 @@
 --- (but for what Lua itself refuses in a program drawn without regard to it), and every line of the source is a line of
 --- the Lua. The properties that run a program compare it with plain Lua. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs
 --- (build/fuzz/init.tl).
+local Array = require("cosmic.array")
 local Codegen = require("lang.codegen")
 local Fuzz = require("build.fuzz")
 local Lexer = require("lang.lexer")
@@ -36,14 +37,14 @@ end
 --- A token written to the program. A line break may stand before it in place of the blank, except before a token a
 --- break would change the meaning of: a `(` or `{` or a string begins a call, an argument or a statement.
 local function add(g: Gen, ...: string)
-  for i = 1, select("#", ...) do
-    local token = (select(i, ...))
-    local first = token:sub(1, 1) -- checked: nil_not_allowed
+  local tokens: {string} = { ... }
+  for _, token in ipairs(tokens) do
+    local first = token:sub(1, 1)
     local sticky = first == "(" or first == "{" or first == "\"" or first == "[" or first == "'" or token == "\n"
     if g.breaks and not sticky and #g.out > 0 and g.out[#g.out] ~= "\n" and g.src:int(1, 9) == 1 then
       g.out[#g.out + 1] = "\n"
     end
-    g.out[#g.out + 1] = token -- checked: nil_not_allowed
+    g.out[#g.out + 1] = token
   end
 end
 
@@ -81,7 +82,8 @@ local function gen_params(g: Gen)
     if i > 1 then
       add(g, ",")
     end
-    add(g, NAMES[i]) -- checked: index_may_be_nil
+    -- `n` is at most 3 and `NAMES` holds eight names.
+    add(g, Array.at(NAMES, i))
     if g.src:int(1, 3) > 1 then
       add(g, ":")
       gen_type(g)
@@ -497,14 +499,17 @@ local function runs_like_an_if_statement(input: string): boolean, string
   local arms: mut {string} = {}
   local statement: mut {string} = {}
   for i = 1, #parts - 1, 2 do
-    arms[#arms + 1] = (if i == 1 then "if " else "elseif " end) .. parts[i] .. " then " .. parts[i + 1] -- checked: nil_not_allowed*2
-    statement[#statement + 1] = (if i == 1 then "if " else "elseif " end) .. parts[i] .. " then return (" .. parts[i + 1] .. ")" -- checked: nil_not_allowed*2
+    -- `i` and `i + 1` are at most `#parts - 1` and `#parts`.
+    local condition, value = Array.at(parts, i), Array.at(parts, i + 1)
+    arms[#arms + 1] = (if i == 1 then "if " else "elseif " end) .. condition .. " then " .. value
+    statement[#statement + 1] = (if i == 1 then "if " else "elseif " end) .. condition .. " then return (" .. value .. ")"
   end
-  local last = parts[#parts]
+  -- `gmatch` finds at least one part in `input .. "\n"`.
+  local last = Array.at(parts, #parts)
   local new = "local n = 0\nlocal x = 5\nlocal function side(v: any): any\n  n = n + 1\n  return v\nend\n" ..
-    "local r = " .. table.concat(arms, " ") .. " else " .. last .. " end\nreturn r, n\n" -- checked: nil_not_allowed
+    "local r = " .. table.concat(arms, " ") .. " else " .. last .. " end\nreturn r, n\n"
   local reference = "local n = 0\nlocal x = 5\nlocal function side(v) n = n + 1 return v end\n" ..
-    "local r = (function() " .. table.concat(statement, " ") .. " else return (" .. last .. ") end end)()\nreturn r, n\n" -- checked: nil_not_allowed
+    "local r = (function() " .. table.concat(statement, " ") .. " else return (" .. last .. ") end end)()\nreturn r, n\n"
   return same_run(new, reference)
 end
 
@@ -528,7 +533,7 @@ end
 --- A loop whose pass `continue`s, and may end in a `return`, runs as the loop written with the plain Lua `goto`.
 local function runs_like_a_goto(input: string): boolean, string
   local variant, n, m, ends, nested = input:match("^(%a+) (%d+) (%d+) (%d) (%d)$")
-  if variant == nil then
+  if variant == nil or n == nil or m == nil or ends == nil or nested == nil then
     return true, ""
   end
   local last = if ends == "1" then "    return acc\n" else "" end
@@ -536,18 +541,18 @@ local function runs_like_a_goto(input: string): boolean, string
   local closing: string
   local step = ""
   if variant == "for" then
-    opening, closing = "  for i = 1, " .. n .. " do\n", "  end\n" -- checked: nil_not_allowed
+    opening, closing = "  for i = 1, " .. n .. " do\n", "  end\n"
   elseif variant == "while" then
-    opening, closing, step = "  local i = 0\n  while i < " .. n .. " do\n", "  end\n", "    i = i + 1\n" -- checked: nil_not_allowed
+    opening, closing, step = "  local i = 0\n  while i < " .. n .. " do\n", "  end\n", "    i = i + 1\n"
   else
-    opening, closing, step = "  local i = 0\n  repeat\n", "  until i >= " .. n .. "\n", "    i = i + 1\n" -- checked: nil_not_allowed
+    opening, closing, step = "  local i = 0\n  repeat\n", "  until i >= " .. n .. "\n", "    i = i + 1\n"
   end
   -- A loop inside, which also `continue`s, so that each label is its own.
   local inner = if nested == "1" then "    for j = 1, 2 do\n      if j == 1 then continue end\n      acc = acc + 100\n    end\n" else "" end
   local inner_plain = if nested == "1" then "    for j = 1, 2 do\n      if j == 1 then goto continue end\n      acc = acc + 100\n      ::continue::\n    end\n" else "" end
   local function body(skip: string, label: string, tail: string, nest: string): string
     return "local function f(): integer\n  local acc = 0\n" .. opening .. step .. nest ..
-      "    if i % " .. m .. " == 0 then " .. skip .. " end\n    acc = acc + i\n" .. tail .. label .. closing .. -- checked: nil_not_allowed
+      "    if i % " .. m .. " == 0 then " .. skip .. " end\n    acc = acc + i\n" .. tail .. label .. closing ..
       "  return acc\nend\nreturn f()\n"
   end
   local plain = body("goto continue", "    ::continue::\n", if ends == "1" then "    do return acc end\n" else "" end, inner_plain)
