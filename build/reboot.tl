@@ -44,6 +44,8 @@ local tree = require("build.tree")
 local work = require("build.work")
 local writer = require("build.writer")
 local log = require("build.logger").log
+-- Declares what text this module reads ([`build.code_walk`]'s `markers`): all.
+local _ = require("build.reads.all")
 
 local record reboot
   --- How the tree stands against the running binary.

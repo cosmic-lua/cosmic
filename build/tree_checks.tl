@@ -34,6 +34,7 @@ local Shape = require("cosmic.shape")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local check_memo = require("build.check_memo")
+local CodeWalk = require("build.code_walk")
 local closure_store = require("build.closure_store")
 local ContractRules = require("build.contract_rules")
 local declared_key = require("build.declared_key")
@@ -2968,6 +2969,76 @@ function tree_checks.untyped(root: string, memo?: Sqlite.Handle, marking?: Ceili
   return out
 end
 
+--- The tables of text-derived rows ([`build.closure_store`]'s pure store keeps none) a query names.
+local text_tables <const>: {string} = { "docs", "uses", "links", "examples", "catalog", "stubs", "places" }
+
+--- Whether `source` queries text a pure store withholds: a text-derived table, or the source of a module or a declaration.
+local function queries_text(source: string): boolean
+  local code = source:gsub("%-%-[^\n]*", "")
+  local lowered = code:lower()
+  for _, name in ipairs(text_tables) do
+    for _, keyword in ipairs({ "from", "join", "into" }) do
+      if lowered:find(keyword .. "%s+" .. name .. "%f[^%w_]") ~= nil then return true end
+    end
+  end
+  for _, name in ipairs({ "modules", "decls" }) do
+    if lowered:find("from%s+" .. name .. "%f[^%w_]") ~= nil and lowered:find("source", 1, true) ~= nil then
+      return true
+    end
+  end
+  return false
+end
+
+--- Each module of `db` that is no test and reads module text without declaring it, as `<module> reads text (<how>) and
+--- requires none of build.reads.*`: a module declares what it reads by requiring one of [`build.code_walk`]'s `markers`
+--- by value (a `local type` require is erased), which a test's closure follows ([`build.closure_store`]'s pure store keeps what its closure declares).
+--- The calls taken as reads of text: [`Store.source`] and [`Store.withheld`], which answer a module's source; and
+--- [`Store.databases`] and [`Store.attach`] from a module whose source names a text-derived table or the source of a module
+--- in a query, since the handle they give is the store's own database. A module that runs a statement it is handed
+--- (`cosmic sql`) cannot be told apart by what it names, and declares [`build.reads.all`] by hand.
+function tree_checks.text_readers(db: Sqlite.Handle): {string}
+  local imported, imported_trouble = Sqlite.text_rows(db, "SELECT path, requires FROM imports ORDER BY path, requires")
+  if imported == nil then return { "reading the imports: " .. imported_trouble } end
+  local modules, trouble = Sqlite.text_rows(db,
+    "SELECT path, CAST(inflate(source) AS TEXT) FROM modules WHERE kind NOT IN ('test', 'example') ORDER BY path")
+  if modules == nil then return { "reading the modules: " .. trouble } end
+  local source_of: mut {string:string} = {}
+  for _, row in ipairs(modules) do source_of[row:text(1)] = row:text(2) end
+  local called, called_trouble = Sqlite.text_rows(db,
+    "SELECT DISTINCT from_module, symbol FROM uses WHERE module = 'cosmic.store' " ..
+      "AND symbol IN ('source', 'withheld', 'databases', 'attach') ORDER BY from_module, symbol")
+  if called == nil then return { "reading the uses: " .. called_trouble } end
+  local how: mut {string:string} = {}
+  for _, row in ipairs(called) do
+    local path, symbol = row:text(1), row:text(2)
+    local source = source_of[path]
+    if source ~= nil and path ~= "cosmic.store" and CodeWalk.markers[path] == nil and how[path] == nil then
+      if symbol == "source" or symbol == "withheld" or queries_text(source) then
+        how[path] = "Store." .. symbol
+      end
+    end
+  end
+  local out: mut {string} = {}
+  for path, symbol in pairs(how) do
+    local declared = false
+    for _, row in ipairs(imported) do
+      local required = row:text(2)
+      -- A `local type` require is erased, and a test's closure leaves the edge out.
+      if row:text(1) == path and CodeWalk.markers[required] ~= nil and
+          (source_of[path] or ""):find("local%s+type%s+[%w_]+%s*=%s*require%s*%(?%s*[\"']" ..
+                (required:gsub("%.", "%%.")) .. "[\"']") == nil then
+        declared = true
+      end
+    end
+    if not declared then
+      out[#out + 1] = path .. " reads text (" .. symbol .. ") and requires none of build.reads.*: require the one that " ..
+        "names what it reads (build/reads/), `all` where nothing narrower is true"
+    end
+  end
+  table.sort(out)
+  return out
+end
+
 --- Every check over the projection `db`, each line one failure,
 --- prefixed with the check's name; none when the tree passes them all.
 --- The plurals are checked with `extra` sources besides the projection's.
@@ -2992,6 +3063,7 @@ function tree_checks.run(db: Sqlite.Handle, quickstart: string?, extra?: {{strin
       { name = "docs queries", lines = tree_checks.queries(db) }, -- checked: arms_differ
       { name = "quieted", lines = tree_checks.quieted(db) }, -- checked: arms_differ
       { name = "restricted", lines = tree_checks.restricted(db) }, -- checked: arms_differ
+      { name = "text readers", lines = tree_checks.text_readers(db) }, -- checked: arms_differ
       { name = "declarations", lines = tree_checks.declarations(db) }, -- checked: arms_differ
       { name = "verbs", lines = tree_checks.verbs(db, quickstart) }, -- checked: arms_differ
       { name = "guides", lines = tree_checks.guides(db) }, -- checked: arms_differ

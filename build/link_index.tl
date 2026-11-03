@@ -44,6 +44,8 @@ local link_text = require("build.link_text")
 local symbol_index = require("build.symbol_index")
 local symbols = require("build.symbols")
 local String = require("cosmic.string")
+-- Declares what text this module reads ([`build.code_walk`]'s `markers`): all.
+local _ = require("build.reads.all")
 
 local record link_index
   --- One link as a parse or the stage recorded it, with the module

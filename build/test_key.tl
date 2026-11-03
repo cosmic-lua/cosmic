@@ -1135,7 +1135,8 @@ local function address_stores(rec: Recording, modules: {Module},
       local names = rec.closures[m.path] or
         test_inputs.modules(m, by_path, declarations, rec.type_only)
       rec.closures[m.path] = names
-      if test_inputs.is_pure(declared, rec.pure_store) then
+      local effective = rec.effective[m.path]
+      if effective ~= nil and effective.pure == true then
         local address = closure_store.address(basis, names, salt, m.path)
         rec.stores[m.path] = address
         rec.store_owns[address] = m.path

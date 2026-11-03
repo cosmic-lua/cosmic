@@ -1,19 +1,14 @@
---- Which modules the identities of the code that reads and checks name, and how each one's text is digested.
+--- Which modules the identities of the code that reads and checks hash the source of.
 ---
---- Three identities hold the text of the code that decides what a compile or a parse stores: the checker's readers
+--- Three identities hold the source of the code that decides what a compile or a parse stores: the checker's readers
 --- ([`build.pipeline`]'s `coded`), the analyzer ([`build.importer`]'s `analyzer_identity`) and the readers of the
---- record-field uses (`receivers_identity`). Each is a walk from roots over `require`, and its value ([`value`]) is a
---- hash of each module's name and the digest of its source. A test's pure store ([`build.closure_store`]) withholds
---- every module's text, so the writer of the store computes that value of the whole projection and keeps it in the
---- store's `meta` ([`held`]) for each walk whose roots the test's closure holds, which the identity then reads in
---- place of the text. This module holds the roots, the rules and the formula of the walks, which the identities and the
---- store's writer both use, so that what the store keeps is what the identity would have named.
+--- record-field uses (`receivers_identity`). Each is a walk from roots over `require`, defined here once, so that the
+--- identities and the writer of a test's pure store ([`build.closure_store`]) reach the same modules: the pure store
+--- keeps the source of exactly the walks a test's closure declares it reads ([`build.reads.all`] and its siblings).
 ---
 --- TODO: key these identities on the code they run and not on its text, so that a comment in a module of a walk moves
---- no key (the pure store would then keep a digest of the module's tokens, not its source hash), once the token digest
---- of a module exists.
-local Hash = require("cosmic.hash")
-local Store = require("cosmic.store")
+--- no key (the pure store would then keep a digest of the module's tokens and not its source), once the token digest of
+--- a module exists.
 
 local record Walks
   --- The walk of the checker's readers, from [`build.pipeline`].
@@ -22,12 +17,23 @@ local record Walks
   analyzer: string
   --- The walk of the readers of the record-field uses.
   receivers: string
+  --- The walk of the code that finds the links of the files ([`build.work`]'s `links_finder`).
+  links: string
+  --- Every walk, in a fixed order.
+  walks: {string}
 
   --- The modules the analyzer walks from: the derivation and the extractors, generators and parser it calls. Each is a
   --- root of the compiler's identity too ([`build.identity`]'s `compiler_roots`), so a parse made again is a compile
   --- made again. The schema of the rows a parse stores ([`build.analysis_schema`]) is among them: what a source parses
   --- to is recorded in its columns.
   analyzer_roots: {string}
+
+  --- The modules a module declares what text it reads by requiring (a value `require`, which the closure of a test follows),
+  --- each with the word it declares ([`build.reads.all`] and its siblings): `pipeline`, `analyzer`, `receivers` and `links` for the walks of this
+  --- module, whose sources a pure store keeps; `stubs` for the stubs of the standard-library modules a test names
+  --- ([`build.standard_text`]); `declarations` for a reader of the declarations alone, which every store keeps; and `all`
+  --- for a reader of any text, which gives a test the full store.
+  markers: {string:string}
 
   --- The modules whose text the receivers' identity holds, in the order it holds them.
   receivers_modules: {string}
@@ -46,27 +52,13 @@ local record Walks
 
   --- The modules that start the walk `which`: the identity is named only where one of them is in the store.
   roots_of: function(which: string): {string}
-
-  --- The name of the walk `which`'s identity over `requires` and the `digest` of each module's text (nil for a module
-  --- held by no one): the hash of each module the walk reaches by its name and digest, in the order of the names. A module
-  --- with no digest is left out of the walks of the checker's readers and of the analyzer, as an absent module is; the
-  --- walk of the receivers' readers names none, for it needs both. Nil and why where `requires` failed, nil and "" for
-  --- that.
-  value: function(which: string, requires: function(string): {string}?, string,
-                  digest: function(string): string?): string?, string
-
-  --- What the running binary holds of the walk `which`'s value ([`value`]) in its `meta`: the pure store of a test whose
-  --- closure holds the walk's roots ([`build.closure_store`]) keeps it, for it withholds the text it is made of. Nil in
-  --- every other binary, whose identity is made of the modules it carries.
-  held: function(which: string): string?
-
-  --- The key the value of the walk `which` is kept under in a pure store's `meta`.
-  meta_key: function(which: string): string
 end
 
 local pipeline <const> = "pipeline"
 local analyzer <const> = "analyzer"
 local receivers <const> = "receivers"
+local links <const> = "links"
+local walks <const>: {string} = { pipeline, analyzer, receivers, links }
 
 local analyzer_roots <const>: {string} = {
   "build.derivation", "build.analysis_schema", "build.bind",
@@ -81,9 +73,15 @@ local type_only <const>: {string:string} = {
     "parse, and is a root of the analyzer's identity",
 }
 
+local markers <const>: {string:string} = {
+  ["build.reads.pipeline"] = pipeline, ["build.reads.analyzer"] = analyzer, ["build.reads.receivers"] = receivers, ["build.reads.links"] = links,
+  ["build.reads.stubs"] = "stubs", ["build.reads.declarations"] = "declarations", ["build.reads.all"] = "all",
+}
+
 local function roots_of(which: string): {string}
   if which == pipeline then return { "build.pipeline" } end
   if which == analyzer then return analyzer_roots end
+  if which == links then return { "build.link_files" } end
   return receivers_modules
 end
 
@@ -117,35 +115,9 @@ local function reach(which: string, requires: function(string): {string}?, strin
   return names, ""
 end
 
-local function value(which: string, requires: function(string): {string}?, string,
-                     digest: function(string): string?): string?, string
-  local names, trouble = reach(which, requires)
-  if names == nil then return nil, trouble end
-  local parts: mut {string} = {}
-  for _, name in ipairs(names) do
-    local named = digest(name)
-    if named ~= nil then
-      parts[#parts + 1] = name .. "\n" .. named
-    elseif which == receivers then
-      return nil, ""
-    end
-  end
-  return Hash.hex_sha256(table.concat(parts, "\n\0\n")), ""
-end
-
---- The key the value of the walk `which` is kept under in a pure store's `meta`.
-local function meta_key(which: string): string
-  return "code_walk:" .. which
-end
-
-local function held(which: string): string?
-  return Store.meta(meta_key(which))
-end
-
 local CodeWalk: Walks = {
-  pipeline = pipeline, analyzer = analyzer, receivers = receivers, analyzer_roots = analyzer_roots,
-  receivers_modules = receivers_modules, type_only = type_only, reach = reach, roots_of = roots_of, value = value,
-  held = held, meta_key = meta_key,
+  pipeline = pipeline, analyzer = analyzer, receivers = receivers, links = links, walks = walks, analyzer_roots = analyzer_roots,
+  receivers_modules = receivers_modules, markers = markers, type_only = type_only, reach = reach, roots_of = roots_of,
 }
 
 return CodeWalk

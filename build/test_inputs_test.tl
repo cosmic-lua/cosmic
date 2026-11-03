@@ -348,6 +348,26 @@ local function test_a_pure_test_is_given_only_its_own_source_file()
       "lib.declared lib.deep lib.helper lib.thing_test")
 end
 
+--- A test whose closure holds a module that declares it reads any text (requires [`build.reads.all`]) is given the full
+--- store, as one that declares `store_text` is: the test says nothing, and its imports say what they read. A module that
+--- declares a narrower read leaves the test pure.
+local function test_a_module_declaring_it_reads_all_text_makes_its_importers_not_pure()
+  local function pure_with(marker: string): boolean
+    local m, by_path = tree()
+    local reader = module("lib.reader", "lib/reader.tl", { marker })
+    by_path[reader.path] = reader
+    by_path[marker] = module(marker, "build/reads/x.tl", {})
+    local helper = assert(by_path["lib.helper"])
+    helper.requires = { "lib.deep", "lib.declared", "lib.reader" }
+    return test_inputs.effective(m, by_path, staged, nil, true).pure == true
+  end
+  assert(pure_with("build.reads.all") == false, "a reader of all text is given the full store")
+  assert(pure_with("build.reads.pipeline") == true, "a reader of a walk is given the pure store")
+  assert(pure_with("build.reads.declarations") == true)
+  local plain, plain_by_path = tree()
+  assert(test_inputs.effective(plain, plain_by_path, staged, nil, true).pure == true)
+end
+
 --- `store_text` is a part of a declaration's canonical text, so a test
 --- that declares it is keyed apart from one that does not.
 local function test_store_text_is_part_of_the_canonical_text()

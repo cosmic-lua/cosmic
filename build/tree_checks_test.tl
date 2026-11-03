@@ -427,6 +427,50 @@ local function test_a_module_requiring_the_loader_outside_the_entry_and_the_work
   assert(all:find("\nbuild%.plugin: requires") ~= nil and all:find("\nbuild%.probing: requires") ~= nil, all)
 end
 
+--- A module that reads the store's text (its sources, or its text-derived tables) without requiring one of the
+--- `build.reads.*` modules by value is refused, naming it; requiring one by value passes, and requiring one by type
+--- alone does not, since a test's closure leaves that edge out. A test, and a module that only reads rows no text
+--- table holds, are none.
+local function test_a_module_reading_store_text_without_declaring_it_is_refused(dir: string)
+  local function reads(name: string, body: string, requires?: string): {string}
+    return { name, source(
+      'local Store = require("cosmic.store")',
+      requires or "",
+      "local record reader",
+      "end",
+      body,
+      "return reader") }
+  end
+  local files: mut {string:string} = {
+    ["build/reads/all.tl"] = source("--- @public", "local record all", "end", "return all"),
+    ["build/reads/pipeline.tl"] = source("--- @public", "local record pipeline", "end", "return pipeline"),
+  }
+  local cases = {
+    reads("build/undeclared.tl", "function reader.run(): string? local s, _ = Store.source(\"x\") return s end"),
+    reads("build/declared.tl", "function reader.run(): string? local s, _ = Store.source(\"x\") return s end",
+      'local _ = require("build.reads.all")'),
+    reads("build/typed.tl", "function reader.run(): string? local s, _ = Store.source(\"x\") return s end",
+      'local type _ = require("build.reads.all")'),
+    reads("build/withheld.tl", "function reader.run(): string? local w, _ = Store.withheld(\"x\") return w end"),
+    reads("build/queries.tl",
+      'function reader.run(): string local _ = Store.databases() return "SELECT symbol FROM docs" end'),
+    reads("build/counts.tl", "function reader.run(): integer return #Store.databases() end"),
+  }
+  for _, case in ipairs(cases) do
+    local path, text = case[1], case[2]
+    if path ~= nil and text ~= nil then files[path] = text end
+  end
+  local db = fixture.database(dir, files)
+  local found = tree_checks.text_readers(db)
+  local joined = table.concat(found, "\n")
+  for _, name in ipairs({ "build.undeclared", "build.typed", "build.withheld", "build.queries" }) do
+    assert(joined:find(name .. " reads text", 1, true) ~= nil, name .. " is refused: " .. joined)
+  end
+  for _, name in ipairs({ "build.declared", "build.counts" }) do
+    assert(joined:find(name .. " reads", 1, true) == nil, name .. " is not: " .. joined)
+  end
+end
+
 --- A module outside the list that reads `package` is refused, whether it indexes it, reads a field or holds it under
 --- another name; a field called `package`, a table key and text are no read; a test is not held to the list.
 local function test_a_module_reading_package_outside_the_list_is_refused(dir: string)

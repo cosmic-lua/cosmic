@@ -32,6 +32,7 @@ local sys = require("cosmic.sys")
 local confine = require("build.confine")
 local this_program = require("build.this_program")
 local cache_names = require("build.cache_names")
+local CodeWalk = require("build.code_walk")
 local type PolicyRules = require("build.policy_rules")
 local type inputs = require("build.inputs")
 local type positions = require("build.positions")
@@ -302,6 +303,12 @@ function test_inputs.effective(m: Module, by_path: {string:Module},
   }
   local declares = m.inputs
   local pure = test_inputs.is_pure(declares, pure_store)
+  if pure then
+    -- A module that declares it reads any text ([`build.code_walk`]'s `markers`) in the closure gives the test the full store.
+    for _, name in ipairs(test_inputs.modules(m, by_path, declarations, type_only)) do
+      if CodeWalk.markers[name] == "all" then pure = false end
+    end
+  end
   out.pure = pure
   local files, fuzzes = closure(m, by_path, declarations, type_only, pure)
   for _, file in ipairs(files) do out.files[file] = true end

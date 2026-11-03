@@ -37,6 +37,9 @@ local bind = require("build.bind")
 
 local plans = require("build.plans")
 local derivation = require("build.derivation")
+-- Declares what text this module reads ([`build.code_walk`]'s `markers`): analyzer, receivers.
+local _ = require("build.reads.analyzer")
+local _ = require("build.reads.receivers")
 
 local type Module = plans.Module
 local type Source = derivation.Source
@@ -208,20 +211,10 @@ local function walk_analyzer(code?: importer.Code): Walk
   -- the binary's database, which would read every module's rows.
   local requires = if code ~= nil then code.requires else Store.requires end
   local source_of = if code ~= nil then code.source else Store.source end
-  local reached: mut {string:boolean} = {}
-  local stack: mut {string} = {}
-  for _, name in ipairs(analyzer_roots) do stack[#stack + 1] = name end
-  while #stack > 0 do
-    local name = table.remove(stack)
-    if name ~= nil and reached[name] ~= true then
-      reached[name] = true
-      local required, trouble = requires(name)
-      if required == nil then return { names = nil, trouble = trouble, withheld = false } end
-      for _, next_name in ipairs(required) do stack[#stack + 1] = next_name end
-    end
-  end
+  local reached, reach_trouble = CodeWalk.reach(CodeWalk.analyzer, requires)
+  if reached == nil then return { names = nil, trouble = reach_trouble, withheld = false } end
   local names: mut {string} = {}
-  for name in pairs(reached) do
+  for _, name in ipairs(reached) do
     -- What the binary holds a module or a declaration of: what
     -- [`Store.source`] answers, of a name no hold holds.
     local source, _ = source_of(name)
@@ -322,14 +315,6 @@ end
 --- through build.pipeline) still parses again.
 local function analyzer_named(code?: importer.Code): string?, string
   local parts: mut {string} = { (if code ~= nil then code.basis else Store.meta("runtime_basis") end) or "" }
-  if code == nil then
-    -- A pure test store keeps the value of the walk, which withholds the text it is made of.
-    local held = CodeWalk.held(CodeWalk.analyzer)
-    if held ~= nil then
-      parts[#parts + 1] = held
-      return Hash.hex_sha256(table.concat(parts, "\n\0\n")), ""
-    end
-  end
   local walk = walk_analyzer(code)
   local modules = walk.names
   if modules == nil then
@@ -338,17 +323,13 @@ local function analyzer_named(code?: importer.Code): string?, string
     return "binary " .. (Store.meta("boot_hash") or ""), ""
   end
   local source_of = if code ~= nil then code.source else Store.source end
-  local requires = if code ~= nil then code.requires else Store.requires end
-  local value, value_trouble = CodeWalk.value(CodeWalk.analyzer, requires, function(name: string): string?
+  for _, name in ipairs(modules) do
     local source, _ = source_of(name)
-    if source == nil then return nil end
-    return Hash.hex_sha256(source)
-  end)
-  if value == nil then
-    if value_trouble ~= "" then return nil, value_trouble end
-    return "binary " .. (Store.meta("boot_hash") or ""), ""
+    if source == nil then
+      return "binary " .. (Store.meta("boot_hash") or ""), ""
+    end
+    parts[#parts + 1] = name .. "\n" .. source
   end
-  parts[#parts + 1] = value
   return Hash.hex_sha256(table.concat(parts, "\n\0\n")), ""
 end
 
@@ -477,48 +458,34 @@ end
 --- source it carries.
 local function receivers_identity(db: Sqlite.Handle): string?, string
   local booting = Store.meta("boot_hash") == nil
-  if not booting then
-    -- A pure test store keeps the value of the walk, which withholds the text it is made of.
-    local held = CodeWalk.held(CodeWalk.receivers)
-    if held ~= nil then return held, "" end
-  end
-  local missing: mut {string} = {}
-  local query_trouble: mut {string} = {}
-  local value, value_trouble = CodeWalk.value(CodeWalk.receivers, function(_: string): {string}?, string
-    return {}, ""
-  end, function(name: string): string?
+  local parts: mut {string} = {}
+  for _, name in ipairs(CodeWalk.receivers_modules) do
     local source: string? = nil
     if booting then
       local rows, trouble = Sqlite.text_rows(db, "SELECT source FROM inputs WHERE path = ?1", { text(name) })
       if rows == nil then
-        query_trouble[1] = trouble
-        return nil
+        return nil, trouble
       end
       local first = rows[1]
-      if first ~= nil then source = first:text(1) end
+      if first ~= nil then
+        source = first:text(1)
+      end
     else
-      source = (Store.source(name))
+      local carried, _ = Store.source(name)
+      source = carried
     end
     if source == nil then
-      missing[1] = name
-      return nil
+      if not booting then
+        -- Held without its source is no binary that lacks the module.
+        local withheld, withheld_trouble = Store.withheld(name)
+        if withheld_trouble ~= "" then return nil, withheld_trouble end
+        if withheld ~= nil then return nil, withheld end
+      end
+      return "binary " .. (Store.meta("boot_hash") or ""), ""
     end
-    return Hash.hex_sha256(source)
-  end)
-  if value == nil then
-    if value_trouble ~= "" then return nil, value_trouble end
-    local failed = query_trouble[1]
-    if failed ~= nil then return nil, failed end
-    local absent = missing[1]
-    if not booting and absent ~= nil then
-      -- Held without its source is no binary that lacks the module.
-      local withheld, withheld_trouble = Store.withheld(absent)
-      if withheld_trouble ~= "" then return nil, withheld_trouble end
-      if withheld ~= nil then return nil, withheld end
-    end
-    return "binary " .. (Store.meta("boot_hash") or ""), ""
+    parts[#parts + 1] = source
   end
-  return value, ""
+  return Hash.hex_sha256(table.concat(parts, "\n\0\n")), ""
 end
 
 --- Forgets every compile, and the record-field uses found with it, when the code that finds those uses has changed since:

@@ -3,6 +3,8 @@
 
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
+-- Declares what text this module reads ([`build.code_walk`]'s `markers`): stubs.
+local _ = require("build.reads.stubs")
 
 local record standard_text
   --- What is read for a standard-library module: [`standard_text.of`].

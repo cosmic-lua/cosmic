@@ -12,6 +12,8 @@ local AnalysisSchema = require("build.analysis_schema")
 local bind = require("build.bind")
 local standard_text = require("build.standard_text")
 local type module = require("build.module")
+-- Declares what text this module reads ([`build.code_walk`]'s `markers`): stubs.
+local _ = require("build.reads.stubs")
 local type Module = module.Plan
 
 local record plans

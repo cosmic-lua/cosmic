@@ -316,3 +316,89 @@ local function test_the_modules_a_test_names_for_its_snippets_are_its_top_level_
   local named = table.concat(basis.type_requires["greet_test"] or {}, " ")
   assert(named == "cosmic.zip cosmic.tar", named)
 end
+
+--- The project of a test, `walk_test`, that requires [`build.pipeline`] and [`build.paths`], and the projection of it at
+--- `out`. [`build.pipeline`] requires `build.helper` and declares it reads the walk of the checker's readers
+--- ([`build.reads.pipeline`]), so those and the declaration are the walk; [`build.paths`] is an import outside it. `edits`
+--- gives a line a module opens with.
+local function walked(root: string, out: string, edits: {string:string})
+  assert(Fs.mkdirs(root .. "/build/reads"))
+  local function put(path: string, body: string)
+    assert(Fs.write(root .. "/" .. path .. ".tl", (edits[path] or "-- as written") .. "\n" .. body))
+  end
+  put("build/reads/pipeline", "--- @public\nlocal record reads\n  reads: string\nend\nlocal declared: reads = { reads = \"pipeline\" }\nreturn declared\n")
+  put("build/helper", "local record helper\nend\nfunction helper.name(): string\n  return \"helper\"\nend\nreturn helper\n")
+  put("build/paths", "local record paths\nend\nfunction paths.name(): string\n  return \"paths\"\nend\nreturn paths\n")
+  put("build/pipeline", table.concat({
+    'local helper = require("build.helper")',
+    'local _ = require("build.reads.pipeline")',
+    "local record pipeline",
+    "end",
+    "function pipeline.name(): string",
+    "  return helper.name()",
+    "end",
+    "return pipeline",
+    "",
+  }, "\n"))
+  put("walk_test", table.concat({
+    'local pipeline = require("build.pipeline")',
+    'local paths = require("build.paths")',
+    "local function test_names()",
+    "  assert(pipeline.name() ~= paths.name())",
+    "end",
+    "",
+  }, "\n"))
+  local handle = assert(work.open(root))
+  assert(work.stage(handle, { own = false }))
+  local result = assert(importer.compile(handle, "closure-store-pure-test"))
+  assert(writer.write_result(handle, out, result))
+  assert(work.close(handle))
+end
+
+local walk_names <const> = { "build.helper", "build.paths", "build.pipeline", "build.reads.pipeline", "walk_test" }
+
+--- The pure address of the closure of `walk_test` in the project `walked` writes, with `edits`, and its store.
+local function walk_store(root: string, tmp: string, name: string, edits: {string:string}): string, Sqlite.Handle
+  walked(root, tmp .. "/" .. name .. "-whole.db", edits)
+  local basis = assert(closure_store.basis(tmp .. "/" .. name .. "-whole.db", true))
+  assert(closure_store.write(tmp .. "/" .. name .. "-whole.db", tmp .. "/" .. name .. ".db", walk_names, basis, nil,
+    "walk_test"))
+  local opened = assert(Sqlite.open(tmp .. "/" .. name .. ".db"))
+  return closure_store.address(basis, walk_names, "salt", "walk_test"), opened
+end
+
+--- A module that declares it reads a walk of the code that reads text (requires [`build.reads.pipeline`]) has the walk's
+--- sources kept in the pure store of a test that imports it, and its address holds them: a comment in a module of the
+--- walk moves the address, and one in an import outside it does not.
+local function test_a_pure_store_keeps_the_sources_of_the_walks_its_closure_declares(tmp: string)
+  local plain, store = walk_store(tmp .. "/a", tmp, "plain", {})
+  local function sourced(db: Sqlite.Handle, path: string): boolean
+    local rows = assert(Sqlite.text_rows(db, "SELECT length(source) FROM modules WHERE path = ?1", { { text = path } }))
+    return support.nth(rows, 1):text(1) ~= "0"
+  end
+  assert(sourced(store, "build.pipeline") and sourced(store, "build.helper"), "the walk's sources are kept")
+  assert(not sourced(store, "build.paths"), "an import outside the walk keeps no source")
+  assert(not sourced(store, "walk_test"), "the test's own source is not kept")
+  assert(store:close())
+  local outside, outside_store = walk_store(tmp .. "/b", tmp, "outside", { ["build/paths"] = "-- a comment" })
+  assert(outside == plain, "a comment in an import outside the walk moved the address")
+  assert(outside_store:close())
+  local inside, inside_store = walk_store(tmp .. "/c", tmp, "inside", { ["build/helper"] = "-- a comment" })
+  assert(inside ~= plain, "a comment in a module of the walk left the address as it was")
+  assert(inside_store:close())
+  local root, root_store = walk_store(tmp .. "/d", tmp, "root", { ["build/pipeline"] = "-- a comment" })
+  assert(root ~= plain and root ~= inside, "a comment in the walk's root left the address as it was")
+  assert(root_store:close())
+end
+
+--- A closure that declares no read keeps no source: the same project with the declaration left out holds no source
+--- and its address ignores a comment in [`build.pipeline`].
+local function test_a_closure_that_declares_no_read_keeps_no_source(tmp: string)
+  local undeclared: {string} = { "build.helper", "build.paths", "build.pipeline", "walk_test" }
+  local function address(root: string, name: string, edits: {string:string}): string
+    walked(root, tmp .. "/" .. name .. ".db", edits)
+    local basis = assert(closure_store.basis(tmp .. "/" .. name .. ".db", true))
+    return closure_store.address(basis, undeclared, "salt", "walk_test")
+  end
+  assert(address(tmp .. "/a", "a", {}) == address(tmp .. "/b", "b", { ["build/pipeline"] = "-- a comment" }))
+end

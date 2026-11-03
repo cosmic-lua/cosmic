@@ -53,6 +53,9 @@ local TreeProgram = require("build.tree_program")
 local standard_text = require("build.standard_text")
 local type Plans = require("build.plans")
 local type Derivation = require("build.derivation")
+-- Declares what text this module reads ([`build.code_walk`]'s `markers`): pipeline, stubs.
+local _ = require("build.reads.pipeline")
+local _ = require("build.reads.stubs")
 local type Module = Plans.Module
 
 local record Pipeline
@@ -388,35 +391,42 @@ function Pipeline.build(db: Sqlite.Handle, options: Pipeline.Options, refusal?: 
   return Pipeline.over(entries, kinds, options), ""
 end
 
---- Where the identity of the code finds the digest of a module's text and what it requires.
+--- Where the identity of the code finds a module's source and what it requires.
 local record Reader
-  digest: function(name: string): string?
+  source: function(name: string): string?
   requires: function(name: string): {string}
 end
 
---- The identity of the code that reads and checks ([`Pipeline.coded`]), over the modules `reader` answers for: each
---- module of [`build.code_walk`]'s walk from [`build.pipeline`] by its name and the digest of its text. What the walk
---- leaves out of [`build.pipeline`]'s own requires, and why, is [`CodeWalk.type_only`].
+--- The identity of the code that reads and checks ([`Pipeline.coded`]), over the modules `reader` answers for: each module
+--- of [`build.code_walk`]'s walk from this one by its name and its source. What the walk leaves out of this module's own
+--- requires, and why, is [`CodeWalk.type_only`].
 local function identity(reader: Reader): string
-  local value, trouble = CodeWalk.value(CodeWalk.pipeline, function(name: string): {string}?, string
+  local names, trouble = CodeWalk.reach(CodeWalk.pipeline, function(name: string): {string}?, string
     return reader.requires(name), ""
-  end, reader.digest)
-  local named = assert(value, trouble)
-  return named
+  end)
+  assert(names, trouble)
+  local parts: mut {string} = {}
+  for _, name in ipairs(names) do
+    local source = reader.source(name)
+    if source ~= nil then
+      parts[#parts + 1] = name .. "\n" .. source
+    end
+  end
+  table.sort(parts)
+  return Hash.hex_sha256(table.concat(parts, "\n\0\n"))
 end
 
 --- The code as the running binary carries it.
 local carried_code: Reader = {
-  digest = function(name: string): string?
+  source = function(name: string): string?
     local source, _ = Store.source(name)
     if source == nil then
       -- Held without its source is no module the identity may leave out.
       local withheld, trouble = Store.withheld(name)
       if trouble ~= "" then error(trouble, 0) end
       if withheld ~= nil then error(withheld, 0) end
-      return nil
     end
-    return Hash.hex_sha256(source)
+    return source
   end,
   requires = function(name: string): {string}
     local required, _ = Store.requires(name)
@@ -428,7 +438,7 @@ local carried_code: Reader = {
 --- not carry. A declaration is no code, and the binary answers no source for one.
 local function staged_code(db: Sqlite.Handle): Reader
   return {
-    digest = function(name: string): string?
+    source = function(name: string): string?
       local rows, _ = Sqlite.text_rows(db, "SELECT source FROM inputs WHERE path = ?1 AND " .. AnalysisSchema.not_declaration("kind") .. " LIMIT 1", { { text = name } })
       if rows == nil then
         return nil
@@ -437,7 +447,7 @@ local function staged_code(db: Sqlite.Handle): Reader
       if row == nil then
         return nil
       end
-      return Hash.hex_sha256(row:text(1))
+      return row:text(1)
     end,
     requires = function(name: string): {string}
       local rows, _ = Sqlite.text_rows(db,
@@ -463,7 +473,7 @@ function Pipeline.discounted(result: Driver.Outcome)
 end
 
 --- The identity of the code the running binary carries, which nothing in this process changes: read once, rather than
---- hashing the checker's closure again for each compile of a process that compiles many trees.
+--- hashing the sources of the checker's closure again for each compile of a process that compiles many trees.
 local record Remembered
   mut code: string?
 end
@@ -473,8 +483,7 @@ local carried_identity: Remembered = { code = nil }
 function Pipeline.coded(tool: string): string
   local code = carried_identity.code
   if code == nil then
-    -- A pure test store keeps the value of the walk, which withholds the text it is made of.
-    code = CodeWalk.held(CodeWalk.pipeline) or identity(carried_code)
+    code = identity(carried_code)
     carried_identity.code = code
   end
   return Hash.hex_sha256(tool .. "\0" .. code)
