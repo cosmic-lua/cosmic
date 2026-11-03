@@ -172,7 +172,7 @@ local function test_values_of_every_type_survive_the_cookie_store()
         local s = Session.of(req)
         s:set("i", 42)
         s:set("b", true)
-        s:set("t", { a = { 1, 2 }, b = "x" }) -- checked: arms_differ
+        s:set("t", { a = { 1, 2 }, b = "x" })
         return Web.text("ok")
       end),
       Web.get("/back", function(req: Web.Request): Web.Response
