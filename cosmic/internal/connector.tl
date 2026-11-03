@@ -486,11 +486,11 @@ local CONNECTOR_DEFAULT_NS <const> = Clock.seconds(10)
 
 -- How [`cosmic.net`] judges an address, which it hands over as it loads.
 local record Registered
-  mut address_trouble: function(address: any): string
+  mut address_trouble: function(address: raw_socket.Address): string
 end
 
 local registered: Registered = {
-  address_trouble = function(_address: any): string
+  address_trouble = function(_address: raw_socket.Address): string
     error("address_trouble is called before cosmic.net registers it")
   end,
 }
@@ -715,8 +715,8 @@ local record Leaf
   --- The most endpoints a connector's table holds.
   MAX_ENDPOINTS: integer
 
-  register: function(trouble: function(address: any): string)
-  checked_endpoints: function(endpoints: any, empty: boolean, level: integer): {raw_process.ConnectorEndpoint}
+  register: function(trouble: function(address: raw_socket.Address): string)
+  checked_endpoints: function(endpoints: {raw_process.ConnectorEndpoint}, empty: boolean, level: integer): {raw_process.ConnectorEndpoint}
   checked_timeout_ms: function(timeout_ns: integer?, level: integer): integer
   start: function(endpoints: {raw_process.ConnectorEndpoint}, timeout_ms: integer,
     public?: raw_process.ConnectorPublic): Process?, string
@@ -763,27 +763,26 @@ end
 --- Hands this module how [`cosmic.net`] judges an `address`, as it loads: a
 --- connector is used only once cosmic.net is loaded, for [`Net.connector`]
 --- is how a program gets one.
-function Leaf.register(trouble: function(address: any): string)
+function Leaf.register(trouble: function(address: raw_socket.Address): string)
   registered.address_trouble = trouble
 end
 
 --- `endpoints` as a copy, so the caller's later changes to its table reach
 --- neither the checks here nor a process started again; it raises, at
---- `level` above the caller, for one that is no list of 1 through 128
---- endpoints (0 where `empty`).
-function Leaf.checked_endpoints(endpoints: any, empty: boolean, level: integer): {raw_process.ConnectorEndpoint}
+--- `level` above the caller, for a list of other than 1 through 128
+--- endpoints (0 where `empty`) or an endpoint with a port out of range.
+function Leaf.checked_endpoints(endpoints: {raw_process.ConnectorEndpoint}, empty: boolean, level: integer):
+    {raw_process.ConnectorEndpoint}
   local least = if empty then 0 else 1 end
-  if not endpoints is {any} or #endpoints < least or #endpoints > Leaf.MAX_ENDPOINTS then -- checked: is_on_record
+  if #endpoints < least or #endpoints > Leaf.MAX_ENDPOINTS then
     error(string.format("net: endpoints must be from %d to %d, all numeric", least, Leaf.MAX_ENDPOINTS), level + 1)
   end
   local kept: mut {raw_process.ConnectorEndpoint} = {}
   for i, entry in ipairs(endpoints) do
-    local host, port: any, any
-    if entry is {string: any} then host, port = entry.host, entry.port end -- checked: is_on_record, map_field*2
-    if not host is string or not port is integer or port < 0 or port > 65535 then -- checked: not_assigned*2
+    if entry.port < 0 or entry.port > 65535 then
       error("net: endpoints[" .. tostring(i) .. "] must be a host and a port from 0 to 65535", level + 1)
     end
-    kept[i] = { host = host, port = port }
+    kept[i] = { host = entry.host, port = entry.port }
   end
   return kept
 end

@@ -144,7 +144,7 @@ local record Stream
     ---
     --- An empty write differs: with `hold` it is skipped, no write and
     --- the codec not called, whereas without `hold` `write("")` still
-    --- calls `update("")`. A negative or non-integer `hold` raises.
+    --- calls `update("")`. A negative `hold` raises.
     hold?: integer
   end
 
@@ -1451,8 +1451,8 @@ end
 function Stream.transform_writer(writer: Stream.Writer, codec: Stream.Transform,
                                  opts?: Stream.TransformWriterOptions): Stream.Writer
   local hold = if opts ~= nil then opts.hold or 0 else 0 end
-  if math.type(hold) ~= "integer" or hold < 0 then
-    error("stream: hold must be an integer of at least 0", 2)
+  if hold < 0 then
+    error("stream: hold must be at least 0", 2)
   end
   local w: TransformWriter = { writer = writer, codec = codec, hold = hold,
     closed = false, failed = nil, held = {} }

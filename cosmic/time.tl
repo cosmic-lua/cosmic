@@ -272,27 +272,13 @@ local function month_days(y: integer, m: integer): integer
   return if m == 2 and leap(y) then 29 else Array.at(MONTH_DAYS, m) end
 end
 
---- Why `value`, the field `name`, is not an integer from `lo` through
---- `hi`, or nil when it is.
+--- Why `value`, the field `name`, is not from `lo` through `hi`, or nil
+--- when it is.
 local function outside(name: string, value: integer, lo: integer, hi: integer): string?
-  if math.type(value) ~= "integer" then
-    return ("%s is not an integer: %s %s"):format(name, math.type(value) or type(value),
-      tostring(value))
-  end
   if value < lo or value > hi then
     return ("%s %d is not %d through %d"):format(name, value, lo, hi)
   end
   return nil
-end
-
---- Raises, blaming the caller of the public function that calls this, for
---- a field `name` whose `value` is no integer: a float such as 2026.0, or
---- an absent field.
-local function integral(name: string, value: any)
-  if math.type(value) ~= "integer" then
-    error(("time: %s is not an integer: %s %s"):format(name, math.type(value) or type(value),
-      tostring(value)), 3)
-  end
 end
 
 --- The seconds the fields of `c` name on the UTC calendar, or nil and
@@ -1383,19 +1369,10 @@ function Time.civil(ns: integer, zone?: Time.Zone): Time.Civil
   return c
 end
 
-local DISAMBIGUATIONS <const>: {string:boolean} = {
-  reject = true, earlier = true, later = true, compatible = true,
-}
-
---- `given`, "reject" when nil; raises, blaming the caller of the
---- function that asks, for one that is none of [`Disambiguation`]'s.
-local function disambiguation_of(given: Time.Disambiguation?): Time.Disambiguation
-  local how: Time.Disambiguation = given or "reject"
-  if DISAMBIGUATIONS[how] ~= true then
-    error("time: disambiguation is \"reject\", \"earlier\", \"later\" or \"compatible\", not " ..
-        tostring(how), 3)
-  end
-  return how
+--- `opts.disambiguation`, "reject" when there is none.
+local function disambiguation_in(opts: Time.AddOptions?): Time.Disambiguation
+  if opts == nil then return "reject" end
+  return opts.disambiguation or "reject"
 end
 
 --- The whole seconds since the epoch the local time of `c` names on the
@@ -1448,25 +1425,16 @@ end
 --- The nanoseconds `c` names on the calendar of `zone`, UTC's by
 --- default, or nil and which field is out of its range (month 13,
 --- February 30, hour 24), or that the moment is outside what an integer
---- holds. A field that is no integer (a float such as 2026.0 included,
---- or one `c` lacks) raises. Nothing is normalized: day 32 is refused,
+--- holds. Nothing is normalized: day 32 is refused,
 --- not carried into the next month. For a plain date, [`Time.parse_date`]
 --- answers its first moment. A local time a zone skipped or
 --- passed twice is resolved as `opts.disambiguation` says, and refused
 --- by default, naming the
 --- change; passed twice, the moment whose offset is `c.offset` is taken
 --- whatever the disambiguation, so `from_civil(civil(ns, zone), zone)`
---- is always `ns`. Raises for a `disambiguation` that is none of
---- [`Disambiguation`]'s, or a `zone` no function here made.
+--- is always `ns`. Raises for a `zone` no function here made.
 function Time.from_civil(c: Time.CivilFields, zone?: Time.Zone, opts?: Time.AddOptions): integer?, string
-  local how = disambiguation_of(if opts ~= nil then opts.disambiguation else nil end)
-  integral("year", c.year)
-  integral("month", c.month)
-  integral("day", c.day)
-  integral("hour", c.hour)
-  integral("minute", c.minute)
-  integral("second", c.second)
-  integral("ns", c.ns)
+  local how = disambiguation_in(opts)
   local s, why = resolve(c, zone, how)
   if s == nil then return refuse(why) end
   local ns, range_why = instant(s, c.ns)
@@ -1487,25 +1455,17 @@ end
 --- reached is in a gap or a fold the disambiguation refuses, when a
 --- field is past its bound (which only keeps the arithmetic from
 --- wrapping), or when the result is outside the range. Raises for a
---- field that is no integer, an `overflow` or a `disambiguation` that is
---- none of its type's, or a `zone` no function here made.
+--- `zone` no function here made.
 function Time.add_calendar(ns: integer, duration: Time.Duration, zone?: Time.Zone,
                            opts?: Time.AddOptions): integer?, string
   local years, months, days = duration.years or 0, duration.months or 0, duration.days or 0
   local exact = duration.ns or 0
-  integral("years", years)
-  integral("months", months)
-  integral("days", days)
-  integral("ns", exact)
   local why = outside("years", years, -10000, 10000) or outside("months", months, -120000, 120000) or
     outside("days", days, -3650000, 3650000) or
     outside("ns", exact, math.mininteger, math.maxinteger)
   if why ~= nil then return refuse(why) end
   local overflow = if opts ~= nil and opts.overflow ~= nil then opts.overflow else "reject" end
-  if overflow ~= "reject" and overflow ~= "clamp" then
-    error("time: overflow is \"reject\" or \"clamp\", not " .. tostring(overflow), 2)
-  end
-  local how = disambiguation_of(if opts ~= nil then opts.disambiguation else nil end)
+  local how = disambiguation_in(opts)
   local c = Time.civil(ns, zone)
   local index = c.year * 12 + (c.month - 1) + years * 12 + months
   c.year, c.month = index // 12, index % 12 + 1

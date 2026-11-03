@@ -54,7 +54,7 @@ local function test_empty_fields_and_a_trailing_delimiter()
   assert(parsed("a,b,\n") == "a|b|")
   assert(parsed("a,b,") == "a|b|")
   assert(parsed(",\n") == "|")
-  assert(#assert(Csv.parse("a,b,\n"))[1] == 3) -- checked: nil_not_allowed
+  assert(#Array.at(assert(Csv.parse("a,b,\n")), 1) == 3)
   assert(parsed('a,""\n') == "a|")
 end
 
@@ -68,7 +68,7 @@ local function test_delimiters_tab_and_semicolon()
   assert(parsed("a\tb,c\n1\t2\n", { delimiter = "\t" }) == "a|b,c;1|2")
   assert(parsed('a;"b;c";d\n', { delimiter = ";" }) == "a|b;c|d")
   assert(parsed("a,b\n", { delimiter = ";" }) == "a,b")
-  assert(parsed("a|b\n", { delimiter = "|" }) == "a|b" and #assert(Csv.parse("a|b\n", { delimiter = "|" }))[1] == 2) -- checked: nil_not_allowed
+  assert(parsed("a|b\n", { delimiter = "|" }) == "a|b" and #Array.at(assert(Csv.parse("a|b\n", { delimiter = "|" })), 1) == 2)
   assert(parsed("a.b\n", { delimiter = "." }) == "a|b")
   assert(parsed("a1b\n", { delimiter = "1" }) == "a|b")
   -- Not a tail call, which would leave no frame here to name.
@@ -89,9 +89,6 @@ local function test_delimiters_tab_and_semicolon()
       assert(tostring(message):find("csv_test", 1, true), "named where it was called: " .. tostring(message))
     end
   end
-  local wrong = { delimiter = 1 } as any as Csv.Options -- checked: cast_refused*2
-  local ok, message = pcall(readers[1], "a", wrong) -- checked: overload_none
-  assert(not ok and tostring(message):find("not a number", 1, true) ~= nil, tostring(message))
 end
 
 local function test_a_lone_carriage_return_is_data()
@@ -213,10 +210,10 @@ end
 
 local function test_headers_are_renamed_deterministically()
   local rows = assert(rows_of("a,a,A,,,a_2,a\n1,2,3,4,5,6,7\n"))
-  local row = rows[1]
+  local row = Array.at(rows, 1)
   -- a, a_2 (from the second a), A_3 (a and a_2 are taken), _, __2, then a_2 is
   -- taken so the sixth `a_2` is `a_2_2`, and the last `a` is a_4.
-  assert(row.a == "1" and row.a_2 == "2" and row.A_3 == "3" and row._ == "4" and row.__2 == "5", "renamed") -- checked: map_field*5, nil_not_allowed
+  assert(row.a == "1" and row.a_2 == "2" and row.A_3 == "3" and row._ == "4" and row.__2 == "5", "renamed") -- checked: map_field*5
   assert(row.a_2_2 == "6" and row.a_4 == "7") -- checked: map_field*2
   local nul = assert(rows_of("x\0y,b\n1,2\n"))
   assert(Array.at(nul, 1)["x\0y"] == nil and Array.at(nul, 1).x_y == "1", "a NUL in a name is _") -- checked: map_field

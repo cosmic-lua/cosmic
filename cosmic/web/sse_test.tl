@@ -127,8 +127,6 @@ local function test_format_event_refuses_a_field_that_would_start_another()
   assert(Test.raises(function() local _ = Sse.format_event({ id = "a\0b" }) end):find("NUL", 1, true))
   assert(Test.raises(function() local _ = Sse.format_event({ event = "a\rb" }) end):find("event must not hold", 1, true))
   assert(Test.raises(function() local _ = Sse.format_event({ retry = -1 }) end):find("retry", 1, true))
-  local fractional: any = { retry = 1.5 } -- checked: any_use
-  assert(Test.raises(function() local _ = Sse.format_event(fractional as Sse.Event) end):find("retry", 1, true)) -- checked: cast_refused
 end
 
 local function test_event_helpers_name_the_event_and_escape_nothing_themselves()
@@ -211,8 +209,6 @@ end
 local function test_options_are_checked()
   assert(Test.raises(function() local _ = Sse.new_hub({ overflow = "block" }) end):find("overflow must be", 1, true))
   assert(Test.raises(function() local _ = Sse.new_hub({ replay = -1 }) end):find("replay", 1, true))
-  local unknown: any = { nope = 1 } -- checked: any_use
-  assert(Test.raises(function() local _ = Sse.new_hub(unknown as Sse.HubOptions) end):find("no option nope", 1, true)) -- checked: cast_refused
   assert(Test.raises(function() Web.app{ max_streams = -1 } end):find("max_streams", 1, true))
 end
 
@@ -599,9 +595,9 @@ local function test_a_bad_option_closes_the_source_it_was_given()
   local app = Web.app{ routes = { Web.get("/s", function(req: Web.Request): Web.Response
     local queue: Channel.Queue<Sse.Event> = Channel.new()
     queues[#queues + 1] = queue
-    local wrong: any = { retry_ms = -1 } -- checked: any_use
-    if #queues == 2 then wrong = { initial = { { id = "a\nb" } } } end -- checked: any_use
-    return Sse.EventStream(req, Sse.from_queue(queue), wrong as Sse.EventStreamOptions) -- checked: cast_refused
+    local wrong: Sse.EventStreamOptions = { retry_ms = -1 }
+    if #queues == 2 then wrong = { initial = { { id = "a\nb" } } } end
+    return Sse.EventStream(req, Sse.from_queue(queue), wrong)
   end) }, sink = { line = function(_self: Web.Sink, _text: string) end } }
   Web.with_client(app, function(client: Web.TestClient)
     assert(client:get("/s").status == 500 and client:get("/s").status == 500)

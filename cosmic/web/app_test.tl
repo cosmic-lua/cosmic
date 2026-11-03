@@ -378,11 +378,6 @@ local function test_access_log_options_choose_the_sink_format_and_what_to_skip()
   assert(formatted_lines[1] == "GET 200 timed")
 end
 
-local function test_an_app_refuses_a_spec_with_a_field_it_does_not_have()
-  local spec: any = { routes = {}, middlewares = {} } -- checked: any_use, literal_needs_type*2
-  assert(Test.raises(function() Web.app(spec as Web.AppSpec) end):find("app has no field middlewares", 1, true)) -- checked: cast_refused
-end
-
 local function test_a_missing_handler_or_bad_registration_raises_when_the_app_is_built()
   local ok, err = pcall(function(): any
     Web.app{ routes = { Web.get("/a", hello), Web.get("/a", hello) } }
