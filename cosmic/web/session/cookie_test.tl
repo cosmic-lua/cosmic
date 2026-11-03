@@ -146,11 +146,5 @@ local function test_the_keys_are_copied_when_the_store_is_made()
   local token = sign(store, { user = "ada" })
   keys[1] = OLD
   assert(store:load(token, 1500, "session") ~= nil, "changing the list afterwards changes no key")
-<<<<<<< HEAD
   assert(sign(store, { user = "ada" }) == token)
-  local ok, why = pcall(SessionCookie.store, { keys = { NEW, 42 as any as string } }) -- checked: cast_refused*2
-  assert(not ok and tostring(why):find("key 2 is a number", 1, true) ~= nil, tostring(why))
-=======
-  assert(sign(store, { user = "ada" }) == token) -- checked: any_use
->>>>>>> origin/main
 end
