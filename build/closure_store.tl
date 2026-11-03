@@ -23,6 +23,7 @@
 --- only the addresses of the stores whose rows it moves.
 
 local Clock = require("cosmic.clock")
+local CodeWalk = require("build.code_walk")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local lua_tail = require("build.lua_tail")
@@ -87,6 +88,10 @@ local record closure_store
     --- types, with no bytecode to say what it does), the names it binds and
     --- the edges the checker follows from it; not its docs or links.
     pure_decls: mut {string:string}
+    --- The value of each walk of the code that reads and checks ([`build.code_walk`]'s `value`), by walk, over
+    --- the whole projection: what the pure store keeps in its `meta` for a test whose closure holds the walk's roots,
+    --- which withholds the text the value is made of. A walk with no value (a module it needs is not held) has none.
+    walks: mut {string:string}
   end
 end
 
@@ -192,7 +197,7 @@ local function memo_token(whole: string, pure?: boolean): string?
   if Clock.now_ns() - math.max(written, changed) < 2000000000 then return nil end
   local code, _ = Store.bytecode("build.closure_store")
   if code == nil then return nil end
-  return table.concat({ if pure == true then "basis-memo-2-pure" else "basis-memo-2" end, Hash.hex_sha256(code), st.size, st.ino, st.dev, written, changed }, " ")
+  return table.concat({ if pure == true then "basis-memo-3-pure" else "basis-memo-3" end, Hash.hex_sha256(code), st.size, st.ino, st.dev, written, changed }, " ")
 end
 
 --- Where a read of a kept basis is, and the basis it made.
@@ -224,7 +229,7 @@ local function remembered(whole: string, token: string): closure_store.Basis?
     if next_string() ~= token then return end
     local out: closure_store.Basis = {
       modules = {}, shared = next_string(), kinds = {}, pairable = {}, decls = {}, decl_requires = {},
-      pure = {}, stripped = {}, bytecode = {}, pure_decls = {},
+      pure = {}, stripped = {}, bytecode = {}, pure_decls = {}, walks = {},
     }
     for _ = 1, next_count() do
       local path = next_string()
@@ -245,6 +250,10 @@ local function remembered(whole: string, token: string): closure_store.Basis?
       for i = 1, next_count() do required[i] = next_string() end
       out.decl_requires[path] = required
       out.pure_decls[path] = next_string()
+    end
+    for _ = 1, next_count() do
+      local which = next_string()
+      out.walks[which] = next_string()
     end
     if reading.at ~= #data + 1 then return end
     reading.basis = out
@@ -286,6 +295,13 @@ local function remember(whole: string, token: string, basis: closure_store.Basis
     for _, name in ipairs(required) do put_string(name) end
     put_string(basis.pure_decls[path] or "")
   end
+  local walked = 0
+  for _ in pairs(basis.walks) do walked = walked + 1 end
+  put_count(walked)
+  for which, value in pairs(basis.walks) do
+    put_string(which)
+    put_string(value)
+  end
   local aside = memo_path(whole) .. "." .. tostring(Proc.pid()) .. ".building"
   local written, _ = Fs.write(aside, table.concat(parts))
   if written then
@@ -293,6 +309,45 @@ local function remember(whole: string, token: string, basis: closure_store.Basis
     if moved then return end
   end
   local _, _ = Fs.remove(aside)
+end
+
+--- The value of each walk of the code that reads and checks ([`build.code_walk`]) over the projection `db`, by walk: a
+--- module's digest is that of its source, a declaration's ahead of a module's, as [`Store.source`] answers it. A walk
+--- that needs a module `db` does not hold has none.
+local function walk_values(db: Sqlite.Handle, out: mut {string:string}): boolean, string
+  local rows, trouble = Sqlite.text_rows(db, "SELECT path, requires FROM imports ORDER BY path, requires")
+  if rows == nil then return false, trouble end
+  local imports: mut {string:mut {string}} = {}
+  for _, row in ipairs(rows) do
+    local path = row:text(1)
+    local list: mut {string} = imports[path] or {}
+    imports[path] = list
+    table.insert(list, row:text(2))
+  end
+  local failure = ""
+  local function digest(name: string): string?
+    for _, table_name in ipairs({ "decls", "modules" }) do
+      local found, found_trouble = Sqlite.text_rows(db,
+        "SELECT lower(hex(sha256(inflate(source)))) FROM " .. table_name .. " WHERE path = ?1 AND length(source) > 0",
+        { text(name) })
+      if found == nil then
+        failure = found_trouble
+        return nil
+      end
+      local first = found[1]
+      if first ~= nil then return first:text(1) end
+    end
+    return nil
+  end
+  for _, which in ipairs({ CodeWalk.pipeline, CodeWalk.analyzer, CodeWalk.receivers }) do
+    local value, why = CodeWalk.value(which, function(name: string): {string}?, string
+      return imports[name] or {}, ""
+    end, digest)
+    if failure ~= "" then return false, failure end
+    if value == nil and why ~= "" then return false, why end
+    if value ~= nil then out[which] = value end
+  end
+  return true, ""
 end
 
 --- The basis of the closure stores of the projection at `whole`, read from
@@ -359,7 +414,7 @@ local function read_basis(whole: string, pure?: boolean): closure_store.Basis?, 
     local basis: closure_store.Basis = {
       modules = {}, shared = Hash.hex_sha256("closure-store-8\n" .. shared_row:text(1)),
       kinds = {}, pairable = {}, decls = {}, decl_requires = {},
-      pure = {}, stripped = {}, bytecode = {}, pure_decls = {},
+      pure = {}, stripped = {}, bytecode = {}, pure_decls = {}, walks = {},
     }
     for _, row in ipairs(rows) do
       local line: mut {string} = { row:text(2) }
@@ -405,6 +460,10 @@ local function read_basis(whole: string, pure?: boolean): closure_store.Basis?, 
       basis.decl_requires[row:text(1)] = closure_store.required_by(row:text(3))
       basis.pure_decls[row:text(1)] = "decl " .. row:text(1) .. " " .. row:text(2) .. " " ..
         (bound[row:text(1)] or "") .. " " .. (edges[row:text(1)] or "")
+    end
+    if pure == true then
+      local walked, walk_trouble = walk_values(db, basis.walks)
+      if not walked then return nil, walk_trouble end
     end
     return basis, ""
   end
@@ -548,6 +607,23 @@ end
 --- addresses of the same rows -- an edit to the writer's comments, say
 --- -- name stores of the same bytes, which a key holds alike.
 ---
+--- The walks of the code that reads and checks ([`build.code_walk`]) whose value a pure store of the closure `names` keeps:
+--- those with a root in it and a value, in a fixed order. A test whose closure holds none of a walk's roots never names
+--- its identity.
+local function held_walks(basis: closure_store.Basis, names: {string}): {string}
+  local present: mut {string:boolean} = {}
+  for _, name in ipairs(stored(basis, names)) do present[name] = true end
+  local out: mut {string} = {}
+  for _, which in ipairs({ CodeWalk.pipeline, CodeWalk.analyzer, CodeWalk.receivers }) do
+    local rooted = false
+    for _, root in ipairs(CodeWalk.roots_of(which)) do
+      if present[root] == true then rooted = true end
+    end
+    if rooted and basis.walks[which] ~= nil then out[#out + 1] = which end
+  end
+  return out
+end
+
 --- With `own`, the address of the pure store ([`closure_store.write`]): the
 --- digest of what that holds, which is each module's line of `basis.pure`
 --- with its bytecode stripped of debug information -- `own`'s, the test's
@@ -565,6 +641,9 @@ function closure_store.address(basis: closure_store.Basis, names: {string},
     end
     for _, name in ipairs(declared(basis, names)) do
       pure[#pure + 1] = digest_of_line((assert(basis.pure_decls[name], "a declared name has its pure line")))
+    end
+    for _, which in ipairs(held_walks(basis, names)) do
+      pure[#pure + 1] = "walk " .. which .. " " .. assert(basis.walks[which], "a held walk has its value")
     end
     return Hash.hex_sha256(table.concat(pure, "\n"))
   end
@@ -789,6 +868,11 @@ function closure_store.write(whole: string, out: string, names: {string},
         if not ok then return false, failure end
       end
       if own ~= nil then
+        for _, which in ipairs(held_walks(basis, names)) do
+          local ok, failure = Sqlite.run(db, "INSERT INTO main.meta (key, value) VALUES (?1, ?2)",
+            { text(CodeWalk.meta_key(which)), text((assert(basis.walks[which], "a held walk has its value"))) })
+          if not ok then return false, failure end
+        end
         local held, held_trouble = Sqlite.rows(db,
           "SELECT path, inflate(bytecode) FROM main.modules WHERE path <> ?1", { text(own) })
         if held == nil then return false, held_trouble end

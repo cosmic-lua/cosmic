@@ -24,6 +24,7 @@ local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
 local GrammarMode = require("build.grammar_mode")
 local Store = require("cosmic.store")
+local CodeWalk = require("build.code_walk")
 local identities = require("build.identity")
 -- The pipeline is required where a build in the new grammar asks for it: `cosmic boot` compiles what the tool requires at load
 -- with the bootstrap release, whose checker reads the new checker's closure otherwise than the tree's does.
@@ -182,18 +183,10 @@ local type Hints = importer.Hints
 importer.prune_references =
   "DELETE FROM typed_refs WHERE key NOT IN (SELECT +key FROM compiled)"
 
---- The derivation and the extractors, generators and parser it calls:
---- the roots of
---- [`importer.analyzer_modules`]. "The analyzer" in these names is that
+--- The derivation and the extractors, generators and parser it calls: the roots of
+--- [`importer.analyzer_modules`] ([`build.code_walk`]'s `analyzer_roots`). "The analyzer" in these names is that
 --- whole set, of which the source analyzer [`build.syntax_analyzer`] is one.
---- Each is a root of the compiler's identity too ([`build.identity`]'s
---- `compiler_roots`), so a parse made again is a compile made again. The schema of the
---- rows a parse stores ([`build.analysis_schema`]) is among them: what a
---- source parses to is recorded in its columns.
-local analyzer_roots: {string} = {
-  "build.derivation", "build.analysis_schema", "build.bind",
-  "build.doctest", "build.gen_syscalls", "build.link_text",
-}
+local analyzer_roots: {string} = CodeWalk.analyzer_roots
 
 --- The modules whose code decides what the analysis tables record: the
 --- derivation and every module that its extractors, generators and
@@ -329,6 +322,14 @@ end
 --- through build.pipeline) still parses again.
 local function analyzer_named(code?: importer.Code): string?, string
   local parts: mut {string} = { (if code ~= nil then code.basis else Store.meta("runtime_basis") end) or "" }
+  if code == nil then
+    -- A pure test store keeps the value of the walk, which withholds the text it is made of.
+    local held = CodeWalk.held(CodeWalk.analyzer)
+    if held ~= nil then
+      parts[#parts + 1] = held
+      return Hash.hex_sha256(table.concat(parts, "\n\0\n")), ""
+    end
+  end
   local walk = walk_analyzer(code)
   local modules = walk.names
   if modules == nil then
@@ -337,13 +338,17 @@ local function analyzer_named(code?: importer.Code): string?, string
     return "binary " .. (Store.meta("boot_hash") or ""), ""
   end
   local source_of = if code ~= nil then code.source else Store.source end
-  for _, name in ipairs(modules) do
+  local requires = if code ~= nil then code.requires else Store.requires end
+  local value, value_trouble = CodeWalk.value(CodeWalk.analyzer, requires, function(name: string): string?
     local source, _ = source_of(name)
-    if source == nil then
-      return "binary " .. (Store.meta("boot_hash") or ""), ""
-    end
-    parts[#parts + 1] = name .. "\n" .. source
+    if source == nil then return nil end
+    return Hash.hex_sha256(source)
+  end)
+  if value == nil then
+    if value_trouble ~= "" then return nil, value_trouble end
+    return "binary " .. (Store.meta("boot_hash") or ""), ""
   end
+  parts[#parts + 1] = value
   return Hash.hex_sha256(table.concat(parts, "\n\0\n")), ""
 end
 
@@ -472,34 +477,48 @@ end
 --- source it carries.
 local function receivers_identity(db: Sqlite.Handle): string?, string
   local booting = Store.meta("boot_hash") == nil
-  local parts: mut {string} = {}
-  for _, name in ipairs({ "build.syntax_receivers", "build.syntax_contracts" }) do
+  if not booting then
+    -- A pure test store keeps the value of the walk, which withholds the text it is made of.
+    local held = CodeWalk.held(CodeWalk.receivers)
+    if held ~= nil then return held, "" end
+  end
+  local missing: mut {string} = {}
+  local query_trouble: mut {string} = {}
+  local value, value_trouble = CodeWalk.value(CodeWalk.receivers, function(_: string): {string}?, string
+    return {}, ""
+  end, function(name: string): string?
     local source: string? = nil
     if booting then
       local rows, trouble = Sqlite.text_rows(db, "SELECT source FROM inputs WHERE path = ?1", { text(name) })
       if rows == nil then
-        return nil, trouble
+        query_trouble[1] = trouble
+        return nil
       end
       local first = rows[1]
-      if first ~= nil then
-        source = first:text(1)
-      end
+      if first ~= nil then source = first:text(1) end
     else
-      local carried, _ = Store.source(name)
-      source = carried
+      source = (Store.source(name))
     end
     if source == nil then
-      if not booting then
-        -- Held without its source is no binary that lacks the module.
-        local withheld, withheld_trouble = Store.withheld(name)
-        if withheld_trouble ~= "" then return nil, withheld_trouble end
-        if withheld ~= nil then return nil, withheld end
-      end
-      return "binary " .. (Store.meta("boot_hash") or ""), ""
+      missing[1] = name
+      return nil
     end
-    parts[#parts + 1] = source
+    return Hash.hex_sha256(source)
+  end)
+  if value == nil then
+    if value_trouble ~= "" then return nil, value_trouble end
+    local failed = query_trouble[1]
+    if failed ~= nil then return nil, failed end
+    local absent = missing[1]
+    if not booting and absent ~= nil then
+      -- Held without its source is no binary that lacks the module.
+      local withheld, withheld_trouble = Store.withheld(absent)
+      if withheld_trouble ~= "" then return nil, withheld_trouble end
+      if withheld ~= nil then return nil, withheld end
+    end
+    return "binary " .. (Store.meta("boot_hash") or ""), ""
   end
-  return Hash.hex_sha256(table.concat(parts, "\n\0\n")), ""
+  return value, ""
 end
 
 --- Forgets every compile, and the record-field uses found with it, when the code that finds those uses has changed since:
