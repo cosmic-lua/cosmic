@@ -199,30 +199,35 @@ local function test_a_checked_run_reads_its_own_file(tmp: string)
   assert(shared_verdicts.rows_kept("/ci/verdicts/checked.db") == 32768, "the sanitized core's suite keeps the ordinary bound")
 end
 
+--- Settles the portable rows of an earlier run and then `count` native rows of one run, stamped alike, into a new
+--- file named `name` under `tmp`, and answers the rows the file keeps.
+local function rows_after(tmp: string, name: string, count: integer): integer
+  local cache = assert(shared_verdicts.open(tmp .. "/" .. tostring(count) .. "-" .. name))
+  local function run(prefix: string, rows: integer, now_ns: integer)
+    local kept: mut {shared_verdicts.Kept} = {}
+    for i = 1, rows do
+      kept[#kept + 1] = { key = prefix .. tostring(i), test = "t" .. tostring(i), hits = "", elapsed_ns = 1 }
+    end
+    assert(shared_verdicts.settle(cache, "origin", { kept = kept, used = {}, failed = {} }, now_ns))
+  end
+  local now = Clock.now_ns()
+  run("portable", 4189, now - 1000)
+  run("native", count, now)
+  local counted = assert(Sqlite.text_rows(cache.db, "SELECT count(*) FROM declared_v1"))
+  shared_verdicts.close(cache)
+  return math.tointeger(tonumber(assert(counted[1]):text(1))) or -1
+end
+
 --- A file keeps the rows of one whole run on a leg that runs both suites in it: the native suite's 8554 rows,
 --- all stamped with one time, and the 4189 the portable suite stands on under its own keys. Under the old bound of
---- 8192 `settle` dropped some of the newest, and every row of an older run. It trims to `rows_kept` of its own
---- path: a checked file's 16384, an ordinary one's 32768.
+--- 8192 `settle` dropped some of the newest, and every row of an older run.
 local function test_a_settle_keeps_the_rows_of_a_leg_that_runs_both_suites(tmp: string)
-  local function rows_after(name: string, count: integer): integer
-    local cache = assert(shared_verdicts.open(tmp .. "/" .. tostring(count) .. "-" .. name))
-    local function run(prefix: string, rows: integer, now_ns: integer)
-      local kept: mut {shared_verdicts.Kept} = {}
-      for i = 1, rows do
-        kept[#kept + 1] = { key = prefix .. tostring(i), test = "t" .. tostring(i), hits = "", elapsed_ns = 1 }
-      end
-      assert(shared_verdicts.settle(cache, "origin", { kept = kept, used = {}, failed = {} }, now_ns))
-    end
-    -- The portable rows of an earlier run, then one run's native rows, stamped alike.
-    local now = Clock.now_ns()
-    run("portable", 4189, now - 1000)
-    run("native", count, now)
-    local counted = assert(Sqlite.text_rows(cache.db, "SELECT count(*) FROM declared_v1"))
-    shared_verdicts.close(cache)
-    return math.tointeger(tonumber(assert(counted[1]):text(1))) or -1
-  end
-  local rows = rows_after("verdicts.db", 8554)
+  local rows = rows_after(tmp, "verdicts.db", 8554)
   assert(rows == 8554 + 4189, "a run's rows were dropped by the bound: " .. tostring(rows) .. " kept")
-  assert(rows_after("verdicts.db", 32800) == 32768, "an ordinary file kept another number")
-  assert(rows_after("verdicts-checked.db", 16400) == 16384, "a checked file kept another number")
+end
+
+--- A file past its bound trims to `rows_kept` of its path, the oldest first. The checked file's 16384 stands for
+--- both bounds: they share the trim, and an ordinary file's 32768 would take twice the rows to show it.
+local function test_a_settle_trims_a_file_to_its_bound(tmp: string)
+  assert(rows_after(tmp, "verdicts-checked.db", 16400) == 16384, "a checked file kept another number")
 end
