@@ -3,6 +3,7 @@
 --- refuses to encode what JSON cannot say rather than writing something
 --- else.
 
+local Array = require("cosmic.array")
 local Hash = require("cosmic.hash")
 local Json = require("cosmic.json")
 local Test = require("cosmic.test")
@@ -272,7 +273,8 @@ local function test_duplicate_keys_are_refused()
   many[#many + 1] = '"k3": 0'
   local wide = "{" .. table.concat(many, ", ") .. "}"
   local _, at = wide:find('"k7": 0', 1, true)
-  assert(decode_failure(wide) == ("json: duplicate key at line 1, column %d (pointer \"/k7\")"):format(at - 6), -- checked: nil_not_allowed
+  assert(at ~= nil, "the text holds the repeated member")
+  assert(decode_failure(wide) == ("json: duplicate key at line 1, column %d (pointer \"/k7\")"):format(at - 6),
     "an object too large to compare pair by pair names the first repeat in the text")
   for _, size in ipairs({ 8, 9, 64, 65 }) do
     local members: mut {string} = {}
@@ -541,9 +543,10 @@ local function test_any_bytes_are_answered()
   for i = 1, 2000 do
     local text: string
     if i % 2 == 0 then
-      local base = seeds[pick(1, #seeds)]
-      local at = pick(1, #base) -- checked: nil_not_allowed
-      text = base:sub(1, at - 1) .. string.char(pick(0, 255)) .. base:sub(at + 1) -- checked: nil_not_allowed*2
+      -- `pick(1, #seeds)` is a position of `seeds`.
+      local base = Array.at(seeds, pick(1, #seeds))
+      local at = pick(1, #base)
+      text = base:sub(1, at - 1) .. string.char(pick(0, 255)) .. base:sub(at + 1)
     else
       local bytes: mut {string} = {}
       for j = 1, pick(0, 12) do bytes[j] = string.char(pick(0, 255)) end
