@@ -98,7 +98,7 @@ local function test_a_fetch_interrupted_mid_body_leaves_no_file(tmp: string)
   local started = this_program.program({ "fetch", "-o", tmp .. "/target", url },
     { cwd = tmp, stdout = "null", stderr = "capture" })
   local child <close> = assert(Child.start(started.argv, started.options))
-  local conn <close> = assert(server:accept()) -- checked: close_not_closable
+  local conn <close> = assert(server:accept())
   local request = ""
   while not request:find("\r\n\r\n", 1, true) do
     request = request .. assert(conn:read())

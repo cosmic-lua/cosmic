@@ -99,7 +99,7 @@ local function test_a_program_nobody_granted_does_not_start_and_the_failure_name
   -- Read without run names what is missing.
   local read, trouble = Child.start({ probe, "print hi" },
     { policy = { grants = { { path = probe, letters = "r" } } } })
-  assert(read == nil and trouble:find("not granted x:", 1, true), trouble) -- checked: or_mix
+  assert(read == nil and trouble:find("not granted x:", 1, true) ~= nil, trouble)
 end
 
 local function test_an_interpreter_must_be_granted_too(tmp: string)
@@ -108,13 +108,13 @@ local function test_an_interpreter_must_be_granted_too(tmp: string)
   assert(Fs.write(tmp .. "/scripts/run", "#!" .. probe .. "\nprint scripted\n", 493))
   local policy: Sandbox.Policy = { grants = { { path = tmp .. "/scripts", letters = "rx" } } }
   local none, why = Child.start({ tmp .. "/scripts/run" }, { policy = policy })
-  assert(none == nil and why:find("interpreter", 1, true) and why:find(assert(sys.realpath(probe)), 1, true), why) -- checked: or_mix
+  assert(none == nil and why:find("interpreter", 1, true) ~= nil and why:find(assert(sys.realpath(probe)), 1, true) ~= nil, why)
 end
 
 local function test_a_program_named_without_a_path_must_be_found(tmp: string)
   local probe = stand_in_of(tmp)
   local none, why = Child.start({ "no-such-program-here" }, { policy = { grants = itself(probe) } })
-  assert(none == nil and why:find("no-such-program-here", 1, true), why) -- checked: or_mix
+  assert(none == nil and why:find("no-such-program-here", 1, true) ~= nil, why)
 end
 
 local function test_env_beside_a_policy_raises(tmp: string)
@@ -123,7 +123,7 @@ local function test_env_beside_a_policy_raises(tmp: string)
     Child.start({ probe }, { policy = { grants = itself(probe) }, env = {} })
   end, "policy and env exclude each other")
   local other, trouble = pcall(Child.start, { probe }, { policy = {}, sandbox = { offline = true } })
-  assert(not other and tostring(trouble):find("policy and sandbox", 1, true), tostring(trouble)) -- checked: or_mix
+  assert(not other and tostring(trouble):find("policy and sandbox", 1, true) ~= nil, tostring(trouble))
 end
 
 local function test_a_policy_that_is_not_met_fails_naming_the_field(tmp: string)
@@ -151,7 +151,7 @@ local function test_a_policy_that_is_not_met_fails_naming_the_field(tmp: string)
   local from = grants()
   from[#from + 1] = { path = "/data", letters = "r", from = "/srv/data" }
   local none, why = Child.start({ probe }, { policy = { grants = from } })
-  assert(none == nil and why:find('grant "/data"', 1, true) and why:find("from", 1, true), why) -- checked: or_mix
+  assert(none == nil and why:find('grant "/data"', 1, true) ~= nil and why:find("from", 1, true) ~= nil, why)
   assert(why:find('isolate "file"', 1, true), why)
 end
 
@@ -189,7 +189,7 @@ local function test_a_relay_log_is_null_inherit_or_a_descriptor(tmp: string)
   for _, value in ipairs({ -1, 4294967296 }) do
     wrong.relay_log = (value as any) as Child.RelayLog -- cast: a descriptor that is none -- checked: cast_refused*2, field_fixed
     local refused_ok, refused_why = pcall(Child.start, { probe }, wrong)
-    assert(not refused_ok and tostring(refused_why):find("or a descriptor", 1, true), tostring(value)) -- checked: or_mix
+    assert(not refused_ok and tostring(refused_why):find("or a descriptor", 1, true) ~= nil, tostring(value))
   end
 end
 
@@ -211,9 +211,9 @@ end
 local function test_a_policy_that_does_not_merge_fails_naming_the_field(tmp: string)
   local probe = stand_in_of(tmp)
   local none, why = Child.start({ probe }, { policy = { grants = { { path = probe, letters = "q" } } } })
-  assert(none == nil and why:find("$.grants[0].letters", 1, true), why) -- checked: or_mix
+  assert(none == nil and why:find("$.grants[0].letters", 1, true) ~= nil, why)
   local profile, trouble = Child.start({ probe }, { policy = { profiles = { "bogus" } } })
-  assert(profile == nil and trouble:find("bogus", 1, true), trouble) -- checked: or_mix
+  assert(profile == nil and trouble:find("bogus", 1, true) ~= nil, trouble)
 end
 
 local function test_a_policy_of_too_many_grants_fails_before_it_makes_anything(tmp: string)

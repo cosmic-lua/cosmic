@@ -195,7 +195,7 @@ local function test_extraction_stays_inside_its_destination(tmp: string)
         end
       end
       for _, rel in ipairs(written or {}) do
-        if rel:sub(1, 1) == "/" or ("/" .. rel .. "/"):find("/../", 1, true) then -- checked: or_mix
+        if rel:sub(1, 1) == "/" or ("/" .. rel .. "/"):find("/../", 1, true) ~= nil then
           return false, "reported writing " .. rel
         end
       end

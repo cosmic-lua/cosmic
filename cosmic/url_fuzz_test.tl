@@ -74,7 +74,7 @@ local function test_unescape_is_total_and_exact(tmp: string)
           return false, "refused with " .. why
         end
         local at = math.tointeger(tonumber(why:match("byte (%d+)")))
-        if input:sub(at, at) ~= "%" or input:find("^%x%x", at + 1) then -- checked: nil_not_allowed*2, or_mix
+        if input:sub(at, at) ~= "%" or input:find("^%x%x", at + 1) ~= nil then -- checked: nil_not_allowed*2
           return false, "refused naming the wrong byte: " .. why
         end
         Fuzz.label("refused")
@@ -139,7 +139,7 @@ local function test_segments_answer_no_climb_and_read_back_escaped_names(tmp: st
         if part:sub(1, 1) == "e" then
           local name = part:sub(2)
           pieces[#pieces + 1] = Url.escape(name)
-          if name == "" or name == "." or name == ".." or name:find("[/\0]") then -- checked: or_mix
+          if name == "" or name == "." or name == ".." or name:find("[/\0]") ~= nil then
             only_names = false
           else
             names[#names + 1] = name
@@ -162,7 +162,7 @@ local function test_segments_answer_no_climb_and_read_back_escaped_names(tmp: st
       end
       if why ~= "" then return false, "answered with a reason: " .. why end
       for _, seg in ipairs(segs) do
-        if seg == "" or seg == "." or seg == ".." or seg:find("[/\0]") then -- checked: or_mix
+        if seg == "" or seg == "." or seg == ".." or seg:find("[/\0]") ~= nil then
           return false, ("%q answered the segment %q"):format(path, seg)
         end
       end
@@ -205,7 +205,7 @@ local function test_parse_is_total(tmp: string)
       if not parts.scheme:find("^[a-z][a-z0-9+.-]*$") then
         return false, "scheme " .. parts.scheme
       end
-      if parts.host == "" or parts.host ~= parts.host:lower() or parts.host:find("[@%[%]/?#]") then -- checked: or_mix
+      if parts.host == "" or parts.host ~= parts.host:lower() or parts.host:find("[@%[%]/?#]") ~= nil then
         return false, "host " .. parts.host
       end
       local port = parts.port

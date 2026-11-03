@@ -1,6 +1,7 @@
 --- [`Time.parse_duration`] and [`Time.format_duration`], a [`Time.Duration`]'s
 --- text. The fuzz properties are in time_duration_fuzz_test.tl.
 
+local Test = require("cosmic.test")
 local Time = require("cosmic.time")
 
 local NS <const> = 1000000000
@@ -41,5 +42,5 @@ local function test_a_duration_writes_the_text_it_reads()
   assert(Time.format_duration(duration("0s")) == "0s")
   assert(Time.format_duration({ months = 14 }) == "14mo")
   assert(Time.format_duration(duration("1.500s")) == "1.5s")
-  assert(not pcall(Time.format_duration, { days = 1, months = -1 }), "mixed signs") -- checked: alternatives_as_value
+  Test.raises(function() Time.format_duration({ days = 1, months = -1 }) end) -- mixed signs
 end

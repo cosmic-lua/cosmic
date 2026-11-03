@@ -92,10 +92,10 @@ local function test_isolate_file_gives_a_root_of_only_what_is_granted(tmp: strin
   assert(read.code == 0 and read.said == "alpha\n", tostring(read.code) .. ": " .. read.said)
   -- What is not granted is not there: not refused, absent.
   local other = ChildPolicy.under(at.probe, policy, at.work, "cat " .. tmp .. "/other/b")
-  assert(other.code == 1 and other.said:find("No such file or directory", 1, true), other.said) -- checked: or_mix
+  assert(other.code == 1 and other.said:find("No such file or directory", 1, true) ~= nil, other.said)
   assert(not other.said:find("Permission denied", 1, true), other.said)
   local host = ChildPolicy.under(at.probe, policy, at.work, "present /etc")
-  assert(host.code == 1 and host.said:find("not there", 1, true), host.said) -- checked: or_mix
+  assert(host.code == 1 and host.said:find("not there", 1, true) ~= nil, host.said)
   -- A grant read-only is not written.
   local blind = ChildPolicy.under(at.probe, policy, at.work, "create ro/new x")
   assert(blind.code == 1 and (blind.said:find("denied", 1, true) or -- checked: or_mix
@@ -103,7 +103,7 @@ local function test_isolate_file_gives_a_root_of_only_what_is_granted(tmp: strin
   -- The directories the grants stand in exist, to reach them, and are
   -- not themselves granted: Landlock refuses listing one.
   local listed = ChildPolicy.under(at.probe, policy, at.work, "ls /tmp")
-  assert(listed.code == 1 and listed.said:find("Permission denied", 1, true), listed.said) -- checked: or_mix
+  assert(listed.code == 1 and listed.said:find("Permission denied", 1, true) ~= nil, listed.said)
 end
 
 --- A start takes a grant for each path a sandbox unveils (`UNVEIL_MAX`), as
@@ -148,7 +148,7 @@ local function test_isolate_file_has_a_proc_of_its_own_holding_its_own_processes
   local found = pids(listed.said)
   assert(#found == 2 and found[1] == 1 and found[2] == 2, listed.said)
   local own = ChildPolicy.under(at.probe, policy, at.work, "status-field Pid")
-  assert(own.code == 0 and own.said:find("^Pid:%s+2\n"), own.said) -- checked: or_mix
+  assert(own.code == 0 and own.said:find("^Pid:%s+2\n") ~= nil, own.said)
   -- The host's /proc/sys and the like are not in a procfs of this pid space.
   local sys_dir = ChildPolicy.under(at.probe, policy, at.work, "present /proc/sys")
   assert(sys_dir.code == 1, sys_dir.said)
@@ -165,7 +165,7 @@ local function test_a_grant_with_from_appears_at_its_name_and_the_host_path_does
   local read = ChildPolicy.under(at.probe, policy, at.work, "cat /data/c")
   assert(read.code == 0 and read.said == "gamma\n", tostring(read.code) .. ": " .. read.said)
   local host = ChildPolicy.under(at.probe, policy, at.work, "cat " .. tmp .. "/hostdata/c")
-  assert(host.code == 1 and host.said:find("No such file or directory", 1, true), host.said) -- checked: or_mix
+  assert(host.code == 1 and host.said:find("No such file or directory", 1, true) ~= nil, host.said)
   -- The mount point is the sandbox's own: the host has no /data made.
   local made = Fs.stat("/data")
   assert(made == nil)
@@ -191,7 +191,7 @@ local function test_a_writable_grant_is_mounted_noexec_unless_it_is_granted_x(tm
   assert(not options("grwcx"):find("noexec", 1, true), options("grwcx"))
   assert(options("grwcx"):find("rw", 1, true))
   -- A read-only grant may still be mapped executable, a library's way.
-  assert(not options("gr"):find("noexec", 1, true) and options("gr"):find("ro", 1, true)) -- checked: or_mix
+  assert(not options("gr"):find("noexec", 1, true) and options("gr"):find("ro", 1, true) ~= nil)
   -- It writes where it may.
   local wrote = ChildPolicy.under(at.probe, policy, at.work, "create " .. tmp .. "/grwc/n x && cat " ..
       tmp .. "/grwc/n")
@@ -204,11 +204,11 @@ local function test_tmp_under_isolate_file_is_a_tmpfs_of_the_sandboxs_own(tmp: s
   local mounts = ChildPolicy.under(at.probe, policy, at.work, "cat /proc/self/mountinfo")
   local held = mount_at(mounts.said, "/tmp")
   assert(held ~= nil, mounts.said)
-  assert(held[2] == "tmpfs" and held[1]:find("noexec", 1, true), held[1]) -- checked: nil_not_allowed, or_mix
+  assert(held[2] == "tmpfs" and held[1]:find("noexec", 1, true) ~= nil, held[1]) -- checked: nil_not_allowed
   assert(held[3]:find("size=262144k", 1, true), held[3]) -- checked: nil_not_allowed
   local used = ChildPolicy.under(at.probe, policy, at.work,
     "env-of TMPDIR && create /tmp/n x && cat /tmp/n && ls /tmp")
-  assert(used.code == 0 and used.said:find("^TMPDIR=/tmp\nx\n") and used.said:find("\nn\n"), -- checked: or_mix
+  assert(used.code == 0 and used.said:find("^TMPDIR=/tmp\nx\n") ~= nil and used.said:find("\nn\n") ~= nil,
     used.said)
   -- Nothing of it is on the host: a tmpfs of the sandbox's own.
   local mine = Fs.list(tmp)
@@ -227,14 +227,14 @@ local function test_a_grant_of_tmp_with_x_makes_the_sandboxs_own_tmp_executable(
     promises = { "fattr", "fork" }, grants = at.grants }
   local refused = ChildPolicy.under(at.probe, plain, at.work, script)
   -- No letters of its own: noexec, and a TMPDIR beneath /tmp that set_env names stays.
-  assert(refused.code ~= 0 and refused.said:find("TMPDIR=/tmp/mine\n", 1, true), refused.said) -- checked: or_mix
+  assert(refused.code ~= 0 and refused.said:find("TMPDIR=/tmp/mine\n", 1, true) ~= nil, refused.said)
   local run_here: Sandbox.Policy = { isolate = { "file" }, tmp = true, set_env = { TMPDIR = "/tmp/mine" },
     promises = { "fattr", "fork" }, grants = ChildPolicy.with(at.grants, { path = "/tmp", letters = "rwxc" }) }
   local mounts = ChildPolicy.under(at.probe, run_here, at.work, "cat /proc/self/mountinfo")
   local held = mount_at(mounts.said, "/tmp")
   assert(held ~= nil and held[2] == "tmpfs" and not held[1]:find("noexec", 1, true), mounts.said) -- checked: nil_not_allowed
   local ran = ChildPolicy.under(at.probe, run_here, at.work, script)
-  assert(ran.code == 0 and ran.said:find("^TMPDIR=/tmp/mine\n"), ran.said) -- checked: or_mix
+  assert(ran.code == 0 and ran.said:find("^TMPDIR=/tmp/mine\n") ~= nil, ran.said)
   -- A TMPDIR outside /tmp is /tmp, as it was.
   local elsewhere: Sandbox.Policy = { isolate = { "file" }, tmp = true, set_env = { TMPDIR = "/var/x" },
     grants = at.grants }
@@ -265,10 +265,10 @@ local function test_isolate_proc_alone_has_its_own_proc_and_the_hosts_files_by_g
   assert(granted.code == 0 and granted.said == "beta\n", granted.said)
   local ungranted = ChildPolicy.under(at.probe, { isolate = { "proc" }, grants = at.grants }, at.work,
     "cat " .. tmp .. "/other/b")
-  assert(ungranted.code == 1 and ungranted.said:find("Permission denied", 1, true), ungranted.said) -- checked: or_mix
+  assert(ungranted.code == 1 and ungranted.said:find("Permission denied", 1, true) ~= nil, ungranted.said)
   -- tmp is a host directory here, as without isolate.
   local made = ChildPolicy.under(at.probe, { ...policy, tmp = true }, at.work, "env-of TMPDIR")
-  assert(made.code == 0 and made.said:find("^TMPDIR=/", 1) and not made.said:find("^TMPDIR=/tmp\n"), -- checked: or_mix
+  assert(made.code == 0 and made.said:find("^TMPDIR=/", 1) ~= nil and not made.said:find("^TMPDIR=/tmp\n"),
     made.said)
 end
 
@@ -285,7 +285,7 @@ local function test_loopback_gives_a_network_of_its_own_the_host_does_not_share(
   assert(inside.code == 0 and inside.said == "connected\n", inside.said)
   -- ... and cannot reach the host's, whose port it names.
   local across = ChildPolicy.under(at.probe, policy, at.work, "connect-tcp 127.0.0.1 " .. tostring(port))
-  assert(across.said ~= "connected\n" and across.said:find("refused", 1, true), across.said) -- checked: or_mix
+  assert(across.said ~= "connected\n" and across.said:find("refused", 1, true) ~= nil, across.said)
   assert(host:close())
   -- With isolate file as well.
   local rooted = ChildPolicy.under(at.probe, { loopback = { "127.0.0.1" }, isolate = { "file" },
@@ -296,7 +296,7 @@ end
 local function test_inet_sockets_stay_refused_without_loopback(tmp: string)
   local at = placed(tmp)
   local plain = ChildPolicy.under(at.probe, { grants = at.grants }, at.work, "loopback-tcp 127.0.0.1")
-  assert(plain.said ~= "connected\n" and plain.said:find("not permitted", 1, true), plain.said) -- checked: or_mix
+  assert(plain.said ~= "connected\n" and plain.said:find("not permitted", 1, true) ~= nil, plain.said)
   -- A unix grant gives the network namespace and unix sockets, not inet ones.
   local socket = tmp .. "/inet.sock"
   unix_socket.skip_if_refused(tmp)
@@ -305,7 +305,7 @@ local function test_inet_sockets_stay_refused_without_loopback(tmp: string)
     grants = ChildPolicy.with(at.bare, { path = socket, letters = "u" }) }, at.home,
     "loopback-tcp 127.0.0.1")
   assert(server:close())
-  assert(unix ~= nil and unix.said ~= "connected\n" and unix.said:find("not permitted", 1, true), -- checked: compare_disjoint, or_mix
+  assert(unix ~= nil and unix.said ~= "connected\n" and unix.said:find("not permitted", 1, true) ~= nil, -- checked: compare_disjoint
     unix and unix.said) -- checked: condition_type
 end
 
@@ -321,7 +321,7 @@ local function test_a_u_grant_under_isolate_file_reaches_the_socket_bound_into_t
   -- Not granted, the socket is not in the root at all, nor may it make one.
   local without = ChildPolicy.under(at.probe, { isolate = { "file" }, grants = at.bare }, at.home,
     "connect " .. socket)
-  assert(without.said ~= "connected\n" and without.said:find("not permitted", 1, true), without.said) -- checked: or_mix
+  assert(without.said ~= "connected\n" and without.said:find("not permitted", 1, true) ~= nil, without.said)
   assert(server:close())
 end
 
@@ -380,7 +380,7 @@ local function test_a_root_of_files_and_its_own_tmp_makes_unix_sockets_without_u
     grants = at.bare }, at.home, script)
   assert(alone.code == 0 and alone.said == "connected\n", alone.said)
   local isolated = ChildPolicy.under(at.probe, { isolate = { "file" }, tmp = true, grants = at.bare }, at.home, script)
-  assert(isolated ~= nil and isolated.said:find("not permitted", 1, true), "no network of its own: " .. -- checked: compare_disjoint, or_mix
+  assert(isolated ~= nil and isolated.said:find("not permitted", 1, true) ~= nil, "no network of its own: " .. -- checked: compare_disjoint
       tostring(isolated and isolated.said)) -- checked: condition_type
   local abi, _ = require("cosmic.internal.process").landlock_abi()
   local shown = ChildPolicy.under(at.probe, { isolate = { "file" }, tmp = true, loopback = { "127.0.0.1" },
@@ -418,7 +418,7 @@ local function test_the_system_profiles_devices_are_in_the_root(tmp: string)
   local null = ChildPolicy.under(at.probe, policy, at.work, "cat /dev/null && present /dev/zero")
   assert(null.code == 0 and null.said == "", null.said)
   local tty = ChildPolicy.under(at.probe, policy, at.work, "present /dev/tty")
-  assert(tty.code == 1 and tty.said:find("not there", 1, true), tty.said) -- checked: or_mix
+  assert(tty.code == 1 and tty.said:find("not there", 1, true) ~= nil, tty.said)
 end
 
 --- A step of building the root that fails for a reason of its own says so,
@@ -470,5 +470,5 @@ local function test_a_refused_namespace_fails_naming_the_remedy(tmp: string)
       ran.said:find("unprivileged user namespaces", 1, true), ran.said)
   assert(ran.said:find("kernel.unprivileged_userns_clone", 1, true) and
       ran.said:find("kernel.apparmor_restrict_unprivileged_userns", 1, true), ran.said)
-  assert(String.starts_with(ran.said, "child: start: ") or ran.said:find("start: ", 1, true), ran.said) -- checked: or_mix
+  assert(String.starts_with(ran.said, "child: start: ") or ran.said:find("start: ", 1, true) ~= nil, ran.said)
 end

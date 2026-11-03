@@ -178,7 +178,7 @@ local function test_a_template_and_a_teal_file_at_one_import_path_are_refused(tm
       trouble:find("import path 'page'", 1, true), trouble)
   local dir, dir_trouble = project(tmp, "twice-dir", { ["data.tl"] = DATA,
     ["pages/init.tmpl"] = HEAD .. "x", ["pages.tl"] = "return {}\n" })
-  assert(dir == nil and dir_trouble:find("import path 'pages'", 1, true), tostring(dir_trouble)) -- checked: or_mix
+  assert(dir == nil and dir_trouble:find("import path 'pages'", 1, true) ~= nil, tostring(dir_trouble))
 end
 
 local function test_editing_a_template_makes_its_module_again(tmp: string)
@@ -197,7 +197,7 @@ local function test_editing_a_template_makes_its_module_again(tmp: string)
   assert(mod.render({ title = "t" }) == "two t!", tostring(mod.render({ title = "t" })))
   write(root, { ["page.tmpl"] = "{{type Page from data}}{{mode text}}{{.nope}}" })
   local third, third_trouble = compile(root)
-  assert(third == nil and third_trouble:find("page.tmpl:1:", 1, true), tostring(third_trouble)) -- checked: or_mix
+  assert(third == nil and third_trouble:find("page.tmpl:1:", 1, true) ~= nil, tostring(third_trouble))
 end
 
 --- What the checker said about the field a template's slot reads, built

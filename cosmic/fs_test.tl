@@ -23,9 +23,9 @@ local function test_path_predicates_distinguish_answers_from_errors(tmp: string)
 
   local too_long = tmp .. "/" .. string.rep("x", 300)
   local unknown, unknown_trouble = Fs.exists(too_long)
-  assert(unknown == nil and unknown_trouble:find(too_long, 1, true)) -- checked: or_mix
+  assert(unknown == nil and unknown_trouble:find(too_long, 1, true) ~= nil)
   local unknown_dir, unknown_dir_trouble = Fs.is_dir(too_long)
-  assert(unknown_dir == nil and unknown_dir_trouble:find(too_long, 1, true)) -- checked: or_mix
+  assert(unknown_dir == nil and unknown_dir_trouble:find(too_long, 1, true) ~= nil)
 end
 
 local function test_remove_tolerates_absence_but_reports_other_errors(tmp: string)
@@ -43,7 +43,7 @@ local function test_remove_tolerates_absence_but_reports_other_errors(tmp: strin
 
   local too_long = tmp .. "/" .. string.rep("x", 300)
   local failed, trouble = Fs.remove(too_long)
-  assert(not failed and trouble:find(too_long, 1, true)) -- checked: or_mix
+  assert(not failed and trouble:find(too_long, 1, true) ~= nil)
 end
 
 local function test_write_leaves_the_old_fixed_neighbor_untouched(tmp: string)
@@ -289,7 +289,7 @@ local function test_symlink_and_readlink_round_trip(tmp: string)
   assert(Fs.read(link) == "contents")
 
   local missing, missing_trouble = Fs.readlink(tmp .. "/missing")
-  assert(missing == nil and missing_trouble:find(tmp .. "/missing", 1, true)) -- checked: or_mix
+  assert(missing == nil and missing_trouble:find(tmp .. "/missing", 1, true) ~= nil)
 end
 
 --- The modification time is set to the nanosecond, and the access
@@ -315,7 +315,7 @@ local function test_set_mtime_defaults_to_a_whole_second_and_checks_ns(tmp: stri
   local st = assert(sys.stat(path))
   assert(st.mtime == 4000 and st.mtime_ns == 0, tostring(st.mtime) .. "." .. tostring(st.mtime_ns))
   Test.raises(function() Fs.set_mtime(path, 4000, 1000000000) end, "fs: nanoseconds are outside [0, 1e9)")
-  assert(not pcall(Fs.set_mtime, path, 4000, -1)) -- checked: alternatives_as_value
+  Test.raises(function() Fs.set_mtime(path, 4000, -1) end)
 end
 
 --- Why a test skips where the worker's filter refuses a setuid mode.
@@ -348,12 +348,12 @@ local function test_chmod_sets_the_bits_stat_reads_back(tmp: string)
   assert(Fs.chmod(path, 0))
   assert(assert(Fs.stat(path)).mode & 0xfff == 0)
 
-  assert(not pcall(Fs.chmod, path, -1)) -- checked: alternatives_as_value
-  assert(not pcall(Fs.chmod, path, 0x1000)) -- checked: alternatives_as_value
+  Test.raises(function() Fs.chmod(path, -1) end)
+  Test.raises(function() Fs.chmod(path, 0x1000) end)
   assert(assert(Fs.stat(path)).mode & 0xfff == 0)
 
   local missing, missing_trouble = Fs.chmod(tmp .. "/missing", 0x1a4)
-  assert(not missing and missing_trouble:find(tmp .. "/missing", 1, true)) -- checked: or_mix
+  assert(not missing and missing_trouble:find(tmp .. "/missing", 1, true) ~= nil)
   if refused then Test.skip(SPECIAL_BITS) end
 end
 
@@ -373,7 +373,7 @@ local function test_scratch_is_private_and_removed_when_closed(tmp: string)
   do
     local scratch <close> = assert(Fs.scratch(tmp))
     path = scratch.path
-    assert(Fs.dirname(path) == tmp and Fs.basename(path):match("^%.scratch%.%w+$"), path) -- checked: or_mix
+    assert(Fs.dirname(path) == tmp and Fs.basename(path):match("^%.scratch%.%w+$") ~= nil, path)
     assert(assert(Fs.stat(path)).mode & 0x1ff == 0x1c0, "private to its user")
     assert(Fs.write(path .. "/payload", "x"))
   end
@@ -464,7 +464,7 @@ end
 local function test_scratch_in_a_missing_directory_names_it(tmp: string)
   local missing = tmp .. "/missing"
   local scratch, why = Fs.scratch(missing)
-  assert(scratch == nil and why:find(missing, 1, true), why) -- checked: or_mix
+  assert(scratch == nil and why:find(missing, 1, true) ~= nil, why)
   assert(Fs.exists(missing) == false)
 end
 
@@ -521,7 +521,7 @@ local function test_remove_tree_under_a_file_is_gone_and_a_trailing_slash_does_n
   assert(Fs.remove_tree(tmp .. "/link///"))
   assert(Fs.read(outside .. "/inner/keep") == "kept")
   local refused, why = Fs.remove_tree("/")
-  assert(not refused and why:find("Invalid argument", 1, true), why) -- checked: or_mix
+  assert(not refused and why:find("Invalid argument", 1, true) ~= nil, why)
   local also = Fs.remove_tree("///")
   assert(not also)
 end
@@ -637,7 +637,7 @@ local function test_copy_tree_refuses_an_existing_target(tmp: string)
   local copied, trouble = Fs.copy_tree(tmp .. "/from", tmp .. "/to")
   assert(not copied and trouble == tmp .. "/to: already exists", trouble)
   local missing, why = Fs.copy_tree(tmp .. "/absent", tmp .. "/new")
-  assert(not missing and why:find("absent", 1, true), why) -- checked: or_mix
+  assert(not missing and why:find("absent", 1, true) ~= nil, why)
 end
 
 local function test_copy_tree_copies_a_single_file(tmp: string)

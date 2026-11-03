@@ -94,7 +94,7 @@ end
   local started = this_program.program({ "--standalone", script, url, marker },
     { stdout = "capture", stderr = "capture" })
   local child <close> = assert(Child.start(started.argv, started.options))
-  local conn <close> = assert(server:accept()) -- checked: close_not_closable
+  local conn <close> = assert(server:accept())
   local head = ""
   while not head:find("\r\n\r\n", 1, true) do head = head .. assert(conn:read()) end
   serve(conn, head)
@@ -177,7 +177,7 @@ end
     local died = child:wait(Clock.seconds(5))
     error(refused .. ": " .. tostring(died ~= nil and died.stderr)) -- checked: or_mix
   end
-  local conn <close> = accepted -- checked: close_not_closable
+  local conn <close> = accepted
   local request = ""
   while not request:find("\r\n\r\n", 1, true) do request = request .. assert(conn:read()) end
   local head_end = request:find("\r\n\r\n", 1, true) + 3 -- checked: nil_not_allowed

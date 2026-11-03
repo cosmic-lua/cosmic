@@ -29,13 +29,13 @@ local function test_the_constructors_refuse_what_is_no_span_an_integer_holds()
     for _, bad in ipairs({ 1e-12, 0 / 0, math.huge, -math.huge, -- checked: cast_refused
         math.maxinteger, math.mininteger + 1, 2 ^ 62 } as {number}) do
       local ok, err = pcall(make, bad)
-      assert(not ok and tostring(err):find(name, 1, true), name .. " " .. tostring(bad)) -- checked: or_mix
+      assert(not ok and tostring(err):find(name, 1, true) ~= nil, name .. " " .. tostring(bad))
     end
   end
   local ok, err = pcall(Clock.ms, 0.0000001)
-  assert(not ok and tostring(err):find("not a whole number of nanoseconds", 1, true), tostring(err)) -- checked: or_mix
+  assert(not ok and tostring(err):find("not a whole number of nanoseconds", 1, true) ~= nil, tostring(err))
   ok, err = pcall(Clock.seconds, math.maxinteger // NS + 1)
-  assert(not ok and tostring(err):find("outside what an integer", 1, true), tostring(err)) -- checked: or_mix
+  assert(not ok and tostring(err):find("outside what an integer", 1, true) ~= nil, tostring(err))
 end
 
 --- A span as the count of a unit that covers it: rounded up, so a span

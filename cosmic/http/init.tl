@@ -488,7 +488,7 @@ local class DecodingReader is Stream.Reader
   mut head: string
   mut ended: boolean
   mut failed?: string
-  mut skip: function(DecodingReader, n: integer): boolean, string
+  skip?: function(DecodingReader, n: integer): boolean, string
 
   --- Fails the reader for good, as every Reader here does after an error.
   function fail(self, why: string): nil, string

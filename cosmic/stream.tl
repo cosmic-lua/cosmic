@@ -42,16 +42,14 @@ local record Stream
     read: function(Reader, max_bytes?: integer): string?, string
     --- Releases what the Reader holds. Safe to call more than once.
     close: function(Reader): boolean, string
-    -- TODO: declare `skip?:` here and in each Reader that has it (and `pending?:` of Transform), and test `r.skip ~= nil` before
-    -- each `r:skip(n)`, once the Readers' declarations change together (an implementer repeats the `?` exactly): until then the
-    -- new checker reports the tests of `reader.skip == nil` and `t.pending ~= nil` as `compare_disjoint`, held by
-    -- markers.
+    -- TODO: declare `skip?:` (set nil in the constructor) in each Reader that lacks it (the `declared: interface_disagrees`
+    -- rows), and `pending?:` of Transform.
 
     --- Present only on a Reader that can move forward without reading
     --- (one over a regular file): skips `n` bytes, failing when that
     --- would pass the end of the file. A caller checks for it and
     --- falls back to reading and discarding.
-    mut skip: function(Reader, n: integer): boolean, string
+    skip?: function(Reader, n: integer): boolean, string
   end
 
   interface Writer
@@ -483,7 +481,7 @@ local class FdReader is Stream.Reader
   -- The file's size, which `skip` checks the new position against; set
   -- with `skip`, only on a regular file.
   mut size?: integer
-  mut skip: function(FdReader, n: integer): boolean, string
+  skip?: function(FdReader, n: integer): boolean, string
 
   function read(self, max_bytes?: integer): string?, string
     local failed = self.failed
@@ -558,13 +556,11 @@ local function file_skip(self: FdReader, n: integer): boolean, string
 end
 
 local function make_fd_reader(fd: integer, owned: boolean, opts: Stream.FdOptions): Stream.Reader
-  local r: FdReader = { fd = fd, owned = owned, released = false, opts = opts, -- checked: literal_missing
-    ended = false, closed = false, failed = nil, size = nil }
   local st, _ = sys.fstat(fd)
-  if st ~= nil and st.kind == "file" then
-    r.size = st.size
-    r.skip = file_skip
-  end
+  local size = if st ~= nil and st.kind == "file" then st.size else nil end
+  local r: FdReader = { fd = fd, owned = owned, released = false, opts = opts,
+    ended = false, closed = false, failed = nil, size = size,
+    skip = if size ~= nil then file_skip else nil end }
   return r
 end
 
@@ -797,7 +793,7 @@ end
 --- first.
 function Stream.skip(reader: Stream.Reader, n: integer): boolean, string
   if n <= 0 then return true, "" end
-  if reader.skip ~= nil then return reader:skip(n) end -- checked: compare_disjoint
+  if reader.skip ~= nil then return reader:skip(n) end
   local left = n
   while left > 0 do
     local want = left
