@@ -313,10 +313,6 @@ local function checked_spec(spec: any)
   for _, field in ipairs({ "timeout_ns", "grace_ns", "idle_ns", "head_ns", "body_ns" }) do
     Poll.checked_ns(spec[field], "http", "spec." .. field, 3) -- checked: any_use
   end
-  for _, field in ipairs({ "on_ready", "on_stop", "on_error" }) do
-    local fn = spec[field] -- checked: any_use
-    if fn ~= nil and type(fn) ~= "function" then spec_error(field, "nil or a function") end
-  end
 end
 
 --- A connection read under a deadline: each read waits at most `each`,

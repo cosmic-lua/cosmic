@@ -190,12 +190,6 @@ local function test_serve_warns_when_debug_meets_a_listener_beyond_the_loopback(
   assert(#quiet == 0)
 end
 
-local function test_serve_refuses_an_option_it_does_not_have()
-  local app = Web.app{ routes = {} }
-  local options: any = { listeners = { Net.tcp("127.0.0.1", 0) }, port = 80 } -- checked: arms_differ
-  assert(Test.raises(function() Web.serve(app, options as Web.ServeOptions) end):find("serve has no field port", 1, true)) -- checked: cast_refused
-end
-
 local function test_serve_gives_the_server_a_grace_of_ten_seconds_unless_told_otherwise()
   local graces: mut {integer} = {}
   local real = Server.serve

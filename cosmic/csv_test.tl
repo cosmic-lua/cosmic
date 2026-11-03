@@ -89,9 +89,6 @@ local function test_delimiters_tab_and_semicolon()
       assert(tostring(message):find("csv_test", 1, true), "named where it was called: " .. tostring(message))
     end
   end
-  local wrong = { delimiter = 1 } as any as Csv.Options -- checked: cast_refused*2
-  local ok, message = pcall(readers[1], "a", wrong) -- checked: overload_none
-  assert(not ok and tostring(message):find("not a number", 1, true) ~= nil, tostring(message))
 end
 
 local function test_a_lone_carriage_return_is_data()

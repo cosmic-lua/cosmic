@@ -64,9 +64,6 @@ local casts: {string: string} = {
   ["cosmic/shape.tl:trust"] =
     "the one cast from any, to the `{A}` of a list, of a dense table of what the element spec checked, " ..
     "which Json.with_holes has just marked a JSON array",
-  ["cosmic/sqlite.tl:checked"] =
-    "a caller's parameter table is checked for keys its " ..
-    "declaration does not name, which only a map view of it lists",
   ["cosmic/web/dev.tl:injected"] =
     "a reply is copied by every key it holds, so a field the record " ..
     "gains later is kept; a record with fields of different types " ..

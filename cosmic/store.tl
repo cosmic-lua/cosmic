@@ -314,14 +314,11 @@ end
 --- A name computed at run time is none: the build refuses one
 --- (`computed_require`), and a program that gets one past it fails when
 --- it runs sealed. Raises naming a root, or a module a root requires,
---- that no searched database holds, and for a `roots` that is not a list.
+--- that no searched database holds.
 ---
 ---     local names = Store.closure({ "cosmic.json" })
 ---     print(#names, names[1])
 function Store.closure(roots: {string}, opts?: Store.ClosureOptions): {string}
-  if type(roots) ~= "table" then
-    error("store: closure: roots is a list of module names, not a " .. type(roots), 2)
-  end
   local types = opts ~= nil and opts.types == true
   local seen: mut {string:boolean} = {}
   local names: mut {string} = {}
@@ -612,7 +609,7 @@ end
 --- The modules of a sealed database are the program's own, and run with
 --- the trust any program the user can read runs with, raw bindings
 --- included: seal only what the user chose to run. Raises when `names`
---- is not a non-empty list, names a module no searched database holds,
+--- is empty, names a module no searched database holds,
 --- or `opts.main` is not among them; otherwise nil and why for a failure
 --- to write, when the store records no `runtime_basis`, or when this process
 --- has no core digest to record (one run from source, with no core of its
@@ -623,7 +620,7 @@ end
 function Store.seal(names: {string}, path?: string,
                     opts?: Store.SealOptions): string?, string
   local script = if opts ~= nil then opts.extra else nil end
-  if type(names) ~= "table" or (#names == 0 and script == nil) then
+  if #names == 0 and script == nil then
     error("store: seal: names is a non-empty list of module names", 2)
   end
   local sorted: mut {string} = {}

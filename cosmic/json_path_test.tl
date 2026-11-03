@@ -231,7 +231,6 @@ local function test_steps_count_from_a_holes_highest_position()
   local last = assert(Json.select(holed, (assert(Json.query("$[-1]")))))
   assert(#last == 1 and last[1].value == "c" and last[1].steps[1] == 3)
   assert(failure(Json.get(holed, { 0 })) == "json: step 1 is 0: positions count from 1, or from -1 at the end")
-  assert(failure(Json.get(holed, { 1.5 } as Json.Steps)) == "json: step 1 is 1.5, neither a name nor an integer") -- checked: cast_refused
   assert(failure(Json.path({ "\xff" })) == "json: step 1 is a name that is not UTF-8")
   assert(failure(Json.pointer({ "a", "\xff" })) == "json: step 2 is a name that is not UTF-8")
 end

@@ -45,39 +45,26 @@ local function test_mismatched_parameters_do_not_execute()
     local rows, failure = Sqlite.text_rows(db, "SELECT ?1, ?2", values)
     assert(rows == nil and failure == case.says, tostring(failure))
   end
-  -- A list with a gap is no literal of a list type, so it is built untyped.
-  local gap: any = { [2] = {} } -- checked: any_use, literal_needs_type
-  local gapped = gap as {Sqlite.Value} -- checked: cast_refused
-  local gap_ok, gap_why = Sqlite.run(db, "INSERT INTO items VALUES (?1, ?2)", gapped)
-  assert(not gap_ok and gap_why == "sqlite: parameter 1 has no value (use {} for NULL)", tostring(gap_why))
-  local gap_rows, gap_failure = Sqlite.text_rows(db, "SELECT ?1, ?2", gapped)
-  assert(gap_rows == nil and gap_failure == gap_why, tostring(gap_failure))
   local rows = assert(Sqlite.text_rows(db, "SELECT count(*) FROM items"))
   assert(first_row(rows):text(1) == "0")
   assert(db:close())
 end
 
---- A Value of no valid shape, or a key that is no position, is a
+--- A Value of more than one field, or a text that holds a NUL, is a
 --- mistake in the call, so it raises, naming the caller, and nothing runs.
 local function test_malformed_values_raise_and_do_not_execute()
   local db = assert(Sqlite.memory())
   assert(db:exec("CREATE TABLE items (a, b)"))
   local record Case
-    values: any
+    values: {Sqlite.Value}
     says: string
   end
   local malformed: {Case} = {
-    { values = { 1, {} }, says = "parameter 1 is no Value table" }, -- checked: any_use, literal_needs_type
-    { values = { { integer = 1, text = "one" }, {} }, says = "parameter 1 has more than one Value field" }, -- checked: any_use, arms_differ, literal_needs_type
-    { values = { { typo = "one" }, {} }, says = "parameter 1 has an unknown Value field: typo" }, -- checked: any_use, literal_needs_type
-    { values = { { null = true } }, says = "parameter 1 has an unknown Value field: null (use {} for NULL)" }, -- checked: any_use
-    { values = { {}, {}, typo = {} }, says = "values holds the key typo" }, -- checked: literal_shape
-    { values = { {}, {}, [0] = {} }, says = "values holds the key 0" }, -- checked: literal_shape
-    { values = { { integers = { 1, 2.5 } }, {} }, says = "element 2 of parameter 1's integers is not of its type" }, -- checked: any_use, literal_needs_type
-    { values = { { texts = { "a\0b" } }, {} }, says = "element 1 of parameter 1's texts holds a NUL" }, -- checked: any_use, literal_needs_type
+    { values = { { integer = 1, text = "one" }, {} }, says = "parameter 1 has more than one Value field" },
+    { values = { { texts = { "a\0b" } }, {} }, says = "element 1 of parameter 1's texts holds a NUL" },
   }
   for _, case in ipairs(malformed) do
-    local values = case.values as {Sqlite.Value} -- checked: cast_refused
+    local values = case.values
     local calls: {function()} = {
       function() local _, _ = Sqlite.run(db, "INSERT INTO items VALUES (?1, ?2)", values) end,
       function() local _, _ = Sqlite.rows(db, "SELECT ?1, ?2", values) end,

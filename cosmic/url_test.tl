@@ -1,5 +1,4 @@
 local Url = require("cosmic.url")
-local Test = require("cosmic.test")
 local StringList = require("build.string_list_fixture")
 
 local function test_escape_keeps_only_the_unreserved_bytes()
@@ -277,10 +276,6 @@ local function test_encode_query_writes_plus_for_space_and_round_trips()
   for i, p in ipairs(pairs_) do
     assert(q.pairs[i].name == p.name and q.pairs[i].value == p.value) -- checked: nil_not_allowed*2
   end
-end
-
-local function test_encode_query_raises_on_a_value_that_is_no_string()
-  Test.raises(function() Url.encode_query({ { name = "a", value = 1 as string } }) end) -- checked: cast_refused
 end
 
 --- RFC 3986's own examples (section 5.4), normal and abnormal, against

@@ -304,15 +304,12 @@ end
 --- `list` written as a query string or urlencoded body, `name=value`
 --- joined by `&`, a space as `+` and every byte but the unreserved ones
 --- ([`Url.escape`]) percent-escaped, so that [`Url.decode_query`] reads
---- back the same pairs. Raises when a name or value is not a string.
+--- back the same pairs.
 --- @param list {Pair} The pairs, in the order to write
 --- @return string The encoded text
 function Url.encode_query(list: {Url.Pair}): string
   local out: mut {string} = {}
   for i, pair in ipairs(list) do
-    if type(pair.name) ~= "string" or type(pair.value) ~= "string" then
-      error(("Url.encode_query: pair %d needs a string name and value"):format(i), 2)
-    end
     local name = Url.escape(pair.name):gsub("%%20", "+")
     local value = Url.escape(pair.value):gsub("%%20", "+")
     out[i] = name .. "=" .. value

@@ -53,16 +53,12 @@ local DEPTH <const> = Session.MAX_DEPTH + 1
 --- @return Session.Store The store
 function SessionCookie.store(opts: SessionCookie.Options): Session.Store
   local supplied = opts.keys
-  if type(supplied) ~= "table" or #supplied < 1 or #supplied > 5 then
+  if #supplied < 1 or #supplied > 5 then
     error("session: the cookie store needs one to five keys", 2)
   end
   -- A copy, so changing the caller's list later changes no key in use.
   local keys: mut {string} = {}
-  for i = 1, #supplied do
-    local key = supplied[i]
-    if type(key) ~= "string" then
-      error(("session: key %d is a %s, not a string"):format(i, type(key)), 2)
-    end
+  for i, key in ipairs(supplied) do
     local ok, why = Secret.check(key)
     if not ok then error(("session: key %d: %s"):format(i, why), 2) end
     keys[#keys + 1] = key

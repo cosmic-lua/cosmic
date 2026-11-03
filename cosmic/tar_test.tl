@@ -97,23 +97,21 @@ local function test_deterministic_mode_zeroes_mtime_uid_and_gid()
   assert(entry.mtime == 0 and entry.uid == 0 and entry.gid == 0)
 end
 
-local function test_a_size_below_zero_or_no_integer_raises()
+local function test_a_size_below_zero_raises()
   local w = Tar.writer(Stream.collect())
-  for _, size in ipairs({ -1, 1.5 } as {number}) do -- checked: cast_refused
-    local ok, why: boolean, any = pcall(function()
-      local _, _ = w:add_file("f", Stream.from_string("abc"), { size = size as integer }) -- checked: cast_refused
-    end)
-    assert(not ok and tostring(why):find("tar: opts.size must be an integer of at least 0", 1, true) ~= nil,
-      tostring(why))
-    assert(tostring(why):find("tar_test", 1, true), "blames the caller: " .. tostring(why))
-  end
+  local ok, why: boolean, any = pcall(function()
+    local _, _ = w:add_file("f", Stream.from_string("abc"), { size = -1 })
+  end)
+  assert(not ok and tostring(why):find("tar: opts.size must be at least 0", 1, true) ~= nil,
+    tostring(why))
+  assert(tostring(why):find("tar_test", 1, true), "blames the caller: " .. tostring(why))
   -- Whatever the body, and before any other refusal of the call.
   for _, call in ipairs({ -- checked: cast_refused
       function() local _, _ = w:add_file("f", "abc", { size = -1 }) end,
       function() local _, _ = w:add_file("dir/", "abc", { size = -1 }) end,
   } as {function()}) do
-    local ok, why: boolean, any = pcall(call)
-    assert(not ok and tostring(why):find("tar: opts.size must be an integer of at least 0", 1, true) ~= nil,
+    ok, why = pcall(call)
+    assert(not ok and tostring(why):find("tar: opts.size must be at least 0", 1, true) ~= nil,
       tostring(why))
   end
   assert(w:add_file("g", "x"))
