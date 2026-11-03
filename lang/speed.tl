@@ -9,7 +9,9 @@
 --- only, so each side is the least of several samples, each sample long enough
 --- to read, the samples of the two sides taken in turn so that it falls on
 --- both. The comparison is made after every pair of samples and while it fails
---- more are taken: it fails only if every pair does. A limit under the cost of
+--- more are taken: it fails only if every pair does, and only after the pairs have used a few seconds of CPU time,
+--- so that a stretch of load that slows one side for longer than a dozen pairs (a neighbour of a shared runner, which
+--- slows the side with the larger working set most) is waited out and not mistaken for a cost. A limit under the cost of
 --- a quadratic form (16 times for four times the input) therefore still catches
 --- one.
 local Clock = require("cosmic.clock")
@@ -21,8 +23,8 @@ local record Speed
   least: function(work: function()): integer
 
   --- Whether `scaled` costs at most `limit` times what `base` costs, or `false` and the least
-  --- times of the pairs of samples it took. `most_pairs` (12 by default) is how many pairs it
-  --- takes before it fails.
+  --- times of the pairs of samples it took. It takes at least `most_pairs` (12 by default) pairs before it fails, and
+  --- where `most_pairs` is not given, keeps on until the pairs have used a few seconds of CPU time.
   within: function(base: function(), scaled: function(), limit: integer, most_pairs?: integer): boolean, string
 end
 
@@ -33,6 +35,8 @@ local SAMPLES <const> = 5
 local PAIRS <const> = 12
 --- The longest a sample of the base side of `within` is made, in nanoseconds, to cap its time.
 local LONGEST <const> = 20000000
+--- The CPU time, in nanoseconds, that the pairs of `within` use before it fails where it was not given a count of pairs.
+local BUDGET <const> = 5000000000
 --- The fewest pairs of samples `within` takes before it passes.
 local FEWEST_PAIRS <const> = 3
 --- The most runs a sample makes, for work that takes almost no time.
@@ -78,9 +82,15 @@ function Speed.within(base: function(), scaled: function(), limit: integer, most
   -- side's least keeps falling toward its true cost, and the comparison is made after every pair:
   -- a pass ends it, and only a form that is over the limit at its true cost takes every pair. A
   -- pass waits for a few pairs, so that one slow sample of the base alone cannot pass a form.
-  for pair = 1, most_pairs or PAIRS do
-    small = math.min(small, elapsed(base, base_runs) // base_runs)
-    large = math.min(large, elapsed(scaled, scaled_runs) // scaled_runs)
+  local spent = 0
+  local pair = 0
+  while pair < (most_pairs or PAIRS) or (most_pairs == nil and spent < BUDGET) do
+    pair = pair + 1
+    local base_total = elapsed(base, base_runs)
+    local scaled_total = elapsed(scaled, scaled_runs)
+    spent = spent + base_total + scaled_total
+    small = math.min(small, base_total // base_runs)
+    large = math.min(large, scaled_total // scaled_runs)
     if pair >= FEWEST_PAIRS and large <= limit * small then
       return true, ""
     end
