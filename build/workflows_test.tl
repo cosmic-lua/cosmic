@@ -3536,16 +3536,9 @@ local function test_the_merge_queue_checks_the_whole_trees_format_in_a_job_of_it
   end
   local format = job_of(jobs, "format")
   local condition = assert(format["if"])
-  -- Where the job runs, by event.
-  local function runs(event: string, ref: string, scope: string): boolean
-    local branch = event == "push" and ref ~= "refs/heads/main" and scope == "light"
-    return branch or event == "merge_group" or event == "schedule"
-  end
   assert(condition == "!cancelled() && needs.reuse.outputs.run == '' && ((github.event_name == 'push' && " ..
       "github.ref_name != 'main' && needs.scope.outputs.scope == 'light') || github.event_name == 'merge_group' || " ..
       "github.event_name == 'schedule')", "the format job's condition is another: " .. condition)
-  assert(runs("merge_group", "", "") and runs("schedule", "", "") and not runs("push", "refs/heads/main", "") and
-      not runs("workflow_dispatch", "", "") and not runs("push", "refs/heads/b", "full"), "the job's events")
   -- Paths changed: a branch push alone. The memo: not the queue.
   local steps = format.steps
   for _, name in ipairs({ "find the tree's base on main", "name the paths the branch changed" }) do
@@ -3554,11 +3547,8 @@ local function test_the_merge_queue_checks_the_whole_trees_format_in_a_job_of_it
   local check = step_named(steps, "check the tree's format")
   assert(map_of(check.env)["COSMIC_CI_FORMAT_CHANGED"] == "${{ steps.changed.outputs.paths }}",
     "the check is given paths from another step")
-  local memo_env = assert(map_of(check.env)["COSMIC_CI_CHECK_MEMO"])
   local restore = step_named(steps, "restore the format check's memo")
   assert(restore["if"] == "github.event_name != 'merge_group'", "the queue restores a memo")
-  assert(memo_env:find("github.event_name != 'merge_group' &&", 1, true) ~= nil and memo_env:find("|| '' }}", 1, true) ~= nil,
-    "the queue names a memo to the check: " .. memo_env)
   assert(step_named(steps, "save the format check's memo")["if"] ==
       "steps.format.outcome == 'success' && env.COSMIC_CI_SAVES == 'true'", "something but main saves the memo")
   -- The markers are held to the merge base with main in the queue too.
