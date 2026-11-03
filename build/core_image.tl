@@ -68,8 +68,14 @@ local function field(bytes: string, at: integer, width: integer): integer
   return (string.unpack("<i8", bytes, at))
 end
 
+--- A segment's place in the file: where it starts and how many bytes it holds.
+local record Segment
+  offset: integer
+  size: integer
+end
+
 --- Where, in `bytes`, each segment of the 64-bit little-endian ELF
---- executable it is lies, as {offset, size} pairs, with its program
+--- executable it is lies, as Segment records, with its program
 --- headers' offset and count -- where it is one whose image is all a
 --- run can turn on: an executable or a shared object (e_type EXEC or
 --- DYN) with a segment to load, carrying DWARF (a `.debug_*` section,
@@ -77,11 +83,6 @@ end
 --- in its program headers, a segment, a section or its section
 --- headers, each within the file, so that nothing a loader might read
 --- hides in bytes a key leaves out. nil where it is not so, in any part.
-local record Segment
-  offset: integer
-  size: integer
-end
-
 local record Layout
   phoff: integer
   phnum: integer

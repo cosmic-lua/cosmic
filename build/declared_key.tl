@@ -1059,8 +1059,9 @@ function declared_key.dispatched(machine?: string): {string}
     for name in pairs(dispatched) do sorted[#sorted + 1] = name end
   else
     local kept = dispatched[machine]
-    -- TODO: once build/dispatched_features_test.tl tests the list this answers with no machine
-    -- before it reads it, declare the return an optional list and drop this marker.
+    -- TODO: once build/dispatched_features_test.tl narrows the no-machine call of
+    -- declared_key.dispatched it iterates (and drops that line's stale compare_disjoint
+    -- marker), declare this return an optional list and drop this marker.
     if kept == nil then return nil end -- checked: nil_not_allowed
     for flag in pairs(kept) do sorted[#sorted + 1] = flag end
   end
