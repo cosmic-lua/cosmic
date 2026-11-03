@@ -78,7 +78,7 @@ conflict with the parent's squash.
 - a documentation-only edit needs no test run, but still
   `bin/cosmic fix` on the doc. comments follow [`doc/writing.md`].
 
-## ceilings only fall
+## markers only fall
 
 the checker still finds things in the tree that a rewrite has not
 removed yet. each is held where it occurs, by a marker: a trailing
@@ -97,9 +97,8 @@ line below it. [`build/markers.tl`] has the rules.
   never the fix, and none is ever added.
 - a new rule of the checker that finds existing code lands with that code
   fixed. a marker written by hand for it (`-- <stage>: <code>`) is
-  refused against the merge base, which held none of its code, and the
-  ceilings file takes no row (it lists the four stages and refuses any
-  other text).
+  refused against the merge base, which held none of its code, and no
+  file of counts exists to take a row.
 - a marker whose finding is gone is stale. `bin/cosmic fix .` removes
   it, and `fix --check` and the tree check name it. run `fix .` after
   a change that removes findings and commit what it wrote.
@@ -119,16 +118,18 @@ line below it. [`build/markers.tl`] has the rules.
   change that moves a finding to another line moves its marker, and a
   marker left behind is stale where the finding is no longer.
 
-a code none of whose findings remain is closed: add it to
-`Ceilings.closed` in [`build/ceilings.tl`], and a marker naming it is
-refused from then on.
+a code none of whose findings remain is closed by that alone: no list
+names it. a marker for a code no file held a marker of at the merge base
+is refused by the ratchet, which says the rule has no exceptions and to
+fix the code, so taking a code's last marker closes it, and a new rule of
+the checker starts closed.
 
 The examples a reader copies (`*_example.tl`) hold their findings by
 markers too: a marker is part of the text `cosmic docs` shows, and
 `cosmic fix --check .` refuses a finding with none and a marker whose
 finding is gone. A code block of a guide holds none, since a reader copies
 the block: a finding there is fixed, and so is one in a file under
-`ci/testdata`. [`build/ceilings.txt`] lists the marked stages and has no row.
+`ci/testdata`.
 
 ## teal layout
 
@@ -310,8 +311,6 @@ the tool named can be older than the tree's generator.
 [`bin/zig`]: ../bin/zig
 [`build.boot`]: ../build/boot.tl
 [`build.fix.format`]: ../build/fix/format.tl
-[`build/ceilings.tl`]: ../build/ceilings.tl
-[`build/ceilings.txt`]: ../build/ceilings.txt
 [`build/ceilings_base.tl`]: ../build/ceilings_base.tl
 [`build/markers.tl`]: ../build/markers.tl
 [`build/paths.tl`]: ../build/paths.tl

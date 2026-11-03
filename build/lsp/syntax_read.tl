@@ -182,8 +182,10 @@ function syntax_read.plan_of(name: string, text: string, path: string, kind: str
     known = known }
 end
 
---- Whether `line` counts the errors of a code ([`build.ceilings.over`]: `file: 2 errors of arity in its bodies; follow the fix
+--- Whether `line` counts the errors of a code ([`build.ceilings.marked`]: `file: 2 errors of arity in its bodies; follow the fix
 --- above`), which a list of the errors in an editor, each at its place, has no use for.
+-- TODO: drop this reader of the checker's prose once [`Driver.Build.held`] answers the spots of [`build.ceilings.marked`] beside its
+-- lines, so that a list of errors in an editor is made of the errors and no count line is there to leave out.
 local function counts_errors(line: string): boolean
   return line:match("^[^:\n]*: %d+ errors? of [%a][%w_]* in its [%a ]+[;,]") ~= nil or
     line:match("^[^:\n]*: %d+ errors? of [%a][%w_]* in its %a+ on line %d+[;,]") ~= nil
@@ -236,7 +238,9 @@ local function generated_of(compiled: build_module.Plan, pipeline: Pipeline.Buil
       lines[#lines + 1] = ErrorRender.line(compiled.file, problem)
     end
   else
-    for _, line in ipairs(build:held(outcome, pipeline.ceilings)) do lines[#lines + 1] = line end
+    for _, line in ipairs(build:held(outcome, pipeline.project ~= true)) do
+      lines[#lines + 1] = line
+    end
     for _, warning in ipairs(outcome.warnings) do
       lines[#lines + 1] = ErrorRender.line(compiled.file, warning)
     end

@@ -1,7 +1,7 @@
-# The Teal files a fixture, a step or a script of CI has the running product compile at run time with no ceiling: a file
+# The Teal files a fixture, a step or a script of CI has the running product compile at run time with no marker: a file
 # the product runs by a path outside its working directory is built as a project of its own, and a file run
 # `--standalone` stands alone, so the checker holds either to every rule, where `bin/cosmic fix --check .` holds the tree's
-# files to build/ceilings.txt. A pin on one of them passes that check and stops the run, so each has none:
+# files to their markers. A marker on one of them passes that check and stops the run, so each has none:
 # build/ci_tree_test.tl holds the list to it. One path a line from the checkout's root, with what a `#` starts and
 # blank lines left out.
 #

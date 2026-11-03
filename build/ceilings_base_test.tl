@@ -181,7 +181,7 @@ local function test_a_checkout_without_git_or_origin_main_is_skipped_saying_so_a
   answers.status["merge-base HEAD origin/main"] = 0
   answers.printed["merge-base HEAD origin/main"] = BASE .. "\n"
   local verdict = CeilingsBase.check(root, {}, git_of(answers, { calls = {} }), held)
-  assert(#verdict.lines == 1 and has(verdict.lines[1], "1 of its markers hold checked map_field and the merge base held 0"),
+  assert(#verdict.lines == 1 and has(verdict.lines[1], "1 of its markers hold checked map_field and no file held one at the merge base"),
     table.concat(verdict.lines, "\n"))
 end
 
@@ -194,7 +194,7 @@ local function test_a_file_with_more_markers_of_a_code_than_the_base_is_refused(
   local held: CeilingsBase.Held = { ["build/a.tl"] = { ["checked map_field"] = 2, ["checked any_use"] = 1 } }
   local verdict = CeilingsBase.check(root, ci({ COSMIC_CEILINGS_BASE = BASE }), git_of(base, { calls = {} }), held)
   assert(#verdict.lines == 2, table.concat(verdict.lines, "\n"))
-  assert(has(verdict.lines[1], "build/a.tl: 1 of its markers hold checked any_use and the merge base held 0"),
+  assert(has(verdict.lines[1], "build/a.tl: 1 of its markers hold checked any_use and no file held one at the merge base"),
     verdict.lines[1])
   assert(has(verdict.lines[2], "2 of its markers hold checked map_field and the merge base held 1"), verdict.lines[2])
 end
@@ -251,4 +251,19 @@ local function test_code_that_moved_keeps_its_count_of_markers_and_passes(tmp: s
   local refused = CeilingsBase.check(root, ci({ COSMIC_CEILINGS_BASE = BASE }), git_of(base, { calls = {} }), held)
   assert(#refused.lines == 1 and has(refused.lines[1], "3 of its markers hold checked map_field and the merge base " ..
       "held 2"), table.concat(refused.lines, "\n"))
+end
+
+--- A marker for a code no file held a marker of at the merge base is told that its rule has no exceptions, which replaces the
+--- list of closed codes: a code with no marker is closed by that. A code some other file holds is told as a count that only falls.
+local function test_a_marker_for_a_code_no_file_held_is_told_the_rule_has_no_exceptions(tmp: string)
+  local root = tree_with(tmp)
+  local base = marked_base({ ["build/a.tl"] = "f() " .. KEY .. " map_field\n" })
+  local held: CeilingsBase.Held = { ["build/a.tl"] = { ["checked map_field"] = 1, ["checked arity"] = 1 },
+    ["build/b.tl"] = { ["checked map_field"] = 1 } }
+  local verdict = CeilingsBase.check(root, ci({ COSMIC_CEILINGS_BASE = BASE }), git_of(base, { calls = {} }), held)
+  assert(#verdict.lines == 2, table.concat(verdict.lines, "\n"))
+  assert(has(verdict.lines[1], "build/a.tl: 1 of its markers hold checked arity and no file held one at the merge base: " ..
+      "this rule has no exceptions, so fix the code and write no marker"), verdict.lines[1])
+  assert(has(verdict.lines[2], "build/b.tl: 1 of its markers hold checked map_field and the merge base held 0; a marker is " ..
+      "never added"), verdict.lines[2])
 end

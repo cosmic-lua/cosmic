@@ -184,9 +184,9 @@ local function base_marks(root: string, base: string, held: CeilingsBase.Held, g
 end
 
 --- The lines that refuse the markers `held` of the tree where a file holds more of a code than the merge base held in its
---- markers, or nil and why where the base cannot be read. A moved line keeps its marker and so
---- its count; a marker is never added, as a pin never rose. The count of a file is its own: a marker of a file renamed or split
---- is new where it lands.
+--- markers, or nil and why where the base cannot be read. A moved line keeps its marker and so its count; a marker is never
+--- added, and one for a code no file held at the base (a closed code) says its rule has no exceptions. The count of a file is
+--- its own: a marker of a file renamed or split is new where it lands.
 local function marks_rise(root: string, base: string, held: CeilingsBase.Held, git: CeilingsBase.Git):
     {string}?, string
   local was, why = base_marks(root, base, held, git)
@@ -198,6 +198,13 @@ local function marks_rise(root: string, base: string, held: CeilingsBase.Held, g
     files[#files + 1] = file
   end
   table.sort(files)
+  -- The codes some file held a marker of at the base: a code in none is closed, and its rule has no exceptions.
+  local anywhere: mut {string: boolean} = {}
+  for _, counts in pairs(was) do
+    for key in pairs(counts) do
+      anywhere[key] = true
+    end
+  end
   local out: mut {string} = {}
   for _, file in ipairs(files) do
     local codes: mut {string} = {}
@@ -211,6 +218,10 @@ local function marks_rise(root: string, base: string, held: CeilingsBase.Held, g
       if now > before then
         local line = file .. ": " .. tostring(now) .. " of its markers hold " .. code .. " and the merge base held " ..
           tostring(before) .. "; a marker is never added and a count only falls: fix the finding instead"
+        if anywhere[code] ~= true then
+          line = file .. ": " .. tostring(now) .. " of its markers hold " .. code .. " and no file held one at the merge base: " ..
+            "this rule has no exceptions, so fix the code and write no marker"
+        end
         out[#out + 1] = line
       end
     end

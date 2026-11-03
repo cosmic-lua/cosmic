@@ -2,7 +2,6 @@
 --- providers, each module's errors and warnings and type report, a test module's functions, and a module held to its
 --- ceilings.
 local Ast = require("lang.ast")
-local Ceilings = require("build.ceilings")
 local Check = require("lang.check")
 local Codegen = require("lang.codegen")
 local Declarations = require("lang.declarations")
@@ -42,11 +41,6 @@ local function codes_of(list: {Driver.Problem}): string
     out[#out + 1] = p.code
   end
   return table.concat(out, " ")
-end
-
---- The ceilings of a few stages: `declared`, `scoped` and `checked` each a table of `<file> <code>` to the count.
-local function pins(declared: {string: integer}, scoped: {string: integer}, checked: {string: integer}): Ceilings.Table
-  return { stages = { declared = declared, scoped = scoped, checked = checked }, none = nil }
 end
 
 local RECORD <const> = "local record Box\n  n: integer\nend\nreturn Box\n"
@@ -292,44 +286,82 @@ local function test_the_test_functions_of_a_test_module_are_called_from_outside_
   assert(#plain.warnings == 2, "outside a test module a function nothing calls is unused: " .. codes_of(plain.warnings))
 end
 
---- Errors of the module `m`: four of `not_assignable` (no ceiling says otherwise) and a declaration's `float_key`.
+--- Errors of the module `m`: four of `not_assignable` and a declaration's `float_key`, each on a line of its own.
 local FOUR <const> = "local a: integer = 1.5\nlocal b: integer = 2.5\nlocal c: integer = 3.5\nlocal d: integer = 4.5\n" ..
   "local m: {number: integer} = {}\nreturn m\n"
 
-local function test_a_count_above_its_ceiling_is_refused_with_the_places_and_what_it_is_pinned_at()
+--- `FOUR`, each finding with the marker of its stage on its line.
+local FOUR_MARKED <const> = "local a: integer = 1.5 -- checked: not_assignable\nlocal b: integer = 2.5 -- checked: not_assignable\n" ..
+  "local c: integer = 3.5 -- checked: not_assignable\nlocal d: integer = 4.5 -- checked: not_assignable\n" ..
+  "local m: {number: integer} = {} -- declared: float_key\nreturn m\n"
+
+local function test_an_error_with_no_marker_is_refused_with_its_place_and_the_marker_it_lacks()
   local build = build_of({ { "m.tl", FOUR } })
   local result = assert(build:result("m", true))
-  local lines = build:held(result, pins({}, {}, {}))
-  assert(#lines == 7, table.concat(lines, "\n"))
+  local lines = build:held(result, true)
+  assert(#lines == 10, table.concat(lines, "\n"))
   assert(support.nth(lines, 1):find("m.tl:5:", 1, true) and support.nth(lines, 1):find("(float_key)", 1, true), lines[1])
-  assert(lines[2] == "m.tl: 1 error of float_key in its declarations, pinned 0; follow the fix above rather than raise the pin", lines[2])
-  assert(lines[#lines] == "m.tl: 4 errors of not_assignable in its bodies, pinned 0; follow the fix above rather than raise the pin",
+  assert(lines[2] == "m.tl: 1 error of float_key in its declarations on line 5, marked 0; follow the fix above rather than add a marker",
+    lines[2])
+  assert(lines[#lines] == "m.tl: 1 error of not_assignable in its bodies on line 4, marked 0; follow the fix above rather than add a marker",
     lines[#lines])
-  local declared = { ["m.tl float_key"] = 1 }
-  local fewer = build:held(result, pins(declared, {}, { ["m.tl not_assignable"] = 3 }))
-  assert(#fewer == 5, table.concat(fewer, "\n"))
-  assert(fewer[5] == "m.tl: 4 errors of not_assignable in its bodies, pinned 3; follow the fix above rather than raise the pin")
-  assert(#build:held(result, pins(declared, {}, { ["m.tl not_assignable"] = 4 })) == 0)
-  assert(#build:held(result, pins(declared, {}, { ["m.tl not_assignable"] = 9 })) == 0,
-    "a ceiling above the count refuses nothing; the check of the tree tells it to fall")
 end
 
-local function test_the_scope_builders_errors_are_held_to_their_own_stage_of_ceilings()
-  local build = build_of({ { "m.tl", "local record R\nend\nlocal x = 1\ndo\n  local x = 2\n  print(x)\nend\nprint(x)\nreturn R\n" } })
+local function test_a_marker_on_the_line_of_an_error_holds_it_and_only_that_error()
+  local build = build_of({ { "m.tl", FOUR_MARKED } })
+  local result = assert(build:result("m", true))
+  assert(#build:held(result, true) == 0, table.concat(build:held(result, true), "\n"))
+  -- the marker of another stage holds nothing: `float_key` here is a finding of `declared`
+  local wrong = build_of({ { "m.tl", (FOUR_MARKED:gsub("%-%- declared: float_key", "-- checked: float_key")) } })
+  local told = wrong:held(assert(wrong:result("m", true)), true)
+  assert(#told > 0 and table.concat(told, "\n"):find("(float_key)", 1, true) ~= nil, table.concat(told, "\n"))
+  -- one marker less leaves that line refused
+  local fewer = build_of({ { "m.tl", (FOUR_MARKED:gsub("local d: integer = 4.5 %-%- checked: not_assignable", "local d: integer = 4.5", 1)) } })
+  local left = fewer:held(assert(fewer:result("m", true)), true)
+  assert(#left == 2 and left[2]:find("on line 4, marked 0", 1, true) ~= nil, table.concat(left, "\n"))
+end
+
+--- A project holds no marker: its errors are refused whatever its text marks.
+local function test_a_project_is_held_by_no_marker()
+  local build = build_of({ { "m.tl", FOUR_MARKED } })
+  local told = build:held(assert(build:result("m", true)), false)
+  assert(#told == 10, table.concat(told, "\n"))
+  for _, line in ipairs(told) do
+    assert(not line:find("marker", 1, true), "no marker to add in a project: " .. line)
+  end
+end
+
+local function test_an_error_of_a_free_code_is_not_refused_in_its_stage_alone()
+  local build = build_of({ { "m.tl", FOUR } })
+  local result = assert(build:result("m", true))
+  local told = build:held(result, false, { checked = { "not_assignable" } })
+  assert(#told == 2 and told[2]:find("float_key", 1, true) ~= nil, table.concat(told, "\n"))
+  assert(#build:held(result, false, { checked = { "not_assignable" }, declared = { "float_key" } }) == 0)
+  -- `float_key` is a finding of `declared` here: free in `checked` it is still refused, and a code free in a stage that
+  -- does not have it frees nothing
+  local other = build:held(result, false, { checked = { "float_key", "not_assignable" } })
+  assert(#other == 2 and other[2]:find("1 error of float_key in its declarations", 1, true) ~= nil, table.concat(other, "\n"))
+  assert(#build:held(result, false, { scoped = { "not_assignable" } }) == 10)
+end
+
+local function test_the_scope_builders_errors_are_a_stage_of_their_own_held_by_their_markers()
+  local text = "local record R\nend\nlocal x = 1\ndo\n  local x = 2\n  print(x)\nend\nprint(x)\nreturn R\n"
+  local build = build_of({ { "m.tl", text } })
   local result = assert(build:result("m", true))
   assert(codes_of(result.scope_errors) == "shadows", codes_of(result.errors))
-  assert(#build:held(result, pins({}, {}, {})) == 2)
-  assert(#build:held(result, pins({}, { ["m.tl shadows"] = 1 }, {})) == 0)
+  assert(#build:held(result, true) == 2)
+  local marked = build_of({ { "m.tl", (text:gsub("  local x = 2\n", "  local x = 2 -- scoped: shadows\n")) } })
+  assert(#marked:held(assert(marked:result("m", true)), true) == 0)
 end
 
 local function test_a_module_that_does_not_parse_is_refused_for_its_syntax_alone()
   local build = build_of({ { "m.tl", "local x = = 1\n" } })
   local result = assert(build:result("m", true))
-  local lines = build:held(result, pins({}, {}, { ["m.tl not_assignable"] = 99 }))
+  local lines = build:held(result, true)
   assert(#lines >= 1, table.concat(lines, "\n"))
   assert(support.nth(lines, 1):find("m.tl:1:", 1, true), table.concat(lines, "\n"))
   for _, line in ipairs(lines) do
-    assert(not line:find("pinned", 1, true), "a syntax error has no ceiling: " .. line)
+    assert(not line:find("marker", 1, true), "a syntax error has no marker: " .. line)
   end
 end
 
@@ -347,7 +379,7 @@ local function test_the_driver_checks_what_the_checker_does_alone()
     got[#got + 1] = e.code .. tostring(e.y) .. ":" .. tostring(e.x)
   end
   assert(#want >= 2 and table.concat(got, " ") == table.concat(want, " "), table.concat(got, " ") .. " / " .. table.concat(want, " "))
-  assert(#Check.codes > 0 and Ceilings.path == "build/ceilings.txt")
+  assert(#Check.codes > 0)
 end
 
 local function test_a_declaration_answers_to_its_whole_module_name_whichever_file_comes_first()
@@ -556,15 +588,15 @@ end
 
 local function test_a_module_whose_bodies_were_not_checked_is_told_so_by_held_and_a_declaration_file_is_not()
   local build = build_of({ { "m.tl", FOUR }, { "d.d.tl", "local record D\n  n: integer\nend\nreturn D\n" } })
-  local unchecked = build:held(assert(build:result("m", false)), pins({}, {}, {}))
+  local unchecked = build:held(assert(build:result("m", false)), true)
   assert(#unchecked >= 1, "told")
   assert(unchecked[#unchecked]:find("m.tl: its bodies were not checked", 1, true) ~= nil, table.concat(unchecked, "\n"))
-  assert(#build:held(assert(build:result("d", false)), pins({}, {}, {})) == 0)
-  local checked = build:held(assert(build:result("m", true)), pins({}, {}, {}))
+  assert(#build:held(assert(build:result("d", false)), true) == 0)
+  local checked = build:held(assert(build:result("m", true)), true)
   assert(#checked > 2 and not checked[#checked]:find("not checked", 1, true))
 end
 
-local function test_a_source_written_from_another_file_is_the_module_it_says_and_is_pinned_under_the_name_it_gives()
+local function test_a_source_written_from_another_file_is_the_module_it_says_and_is_told_under_the_name_it_gives()
   local text = "local record Box\n  n: integer\nend\nlocal bad: integer = 3.5\nreturn Box\n"
   local index = Driver.index({
     { "doc/guides/x.md", text, "doc.guides.x" },
@@ -577,15 +609,15 @@ local function test_a_source_written_from_another_file_is_the_module_it_says_and
   assert(sys.filename == "gen/sys.d.tl" and sys.pinned == "core/sys.h" and sys.dialect == "decl")
   local build = Driver.new({ globals = {}, adjust = nil, external = {}, types = false })
   build:provide(Driver.files(index))
-  -- a guide is held under the file it comes from
+  -- a guide's findings are told under the file it comes from, and no marker holds them: the text the build writes from
+  -- another file has none
   local result = assert(build:result("doc.guides.x", true))
-  assert(#build:held(result, pins({}, {}, { ["doc/guides/x.md not_assignable"] = 1 })) == 0)
-  assert(#build:held(result, pins({}, {}, { ["x.md not_assignable"] = 1 })) == 2)
-  -- a declaration written from a header is held under the header
+  local told = build:held(result, true)
+  assert(#told == 2 and told[1]:find("^doc/guides/x.md:4:") ~= nil, table.concat(told, "\n"))
+  -- a declaration written from a header is told under the header
   local declared = assert(build:result("cosmic.sys", false))
   assert(codes_of(declared.declared) == "float_key", codes_of(declared.errors))
-  assert(#build:held(declared, pins({ ["core/sys.h float_key"] = 1 }, {}, {})) == 0)
-  local refused = build:held(declared, pins({ ["gen/sys.d.tl float_key"] = 1 }, {}, {}))
+  local refused = build:held(declared, true)
   assert(#refused == 2, table.concat(refused, "\n"))
   assert(assert(refused[2]):find("^core/sys.h: 1 error of float_key") ~= nil, table.concat(refused, "\n"))
 end

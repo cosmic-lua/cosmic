@@ -1,8 +1,6 @@
---- The tests of [`build.pipeline`]: a module read, checked against its ceilings and written as Lua and bytecode by the
+--- The tests of [`build.pipeline`]: a module read, checked against its markers and written as Lua and bytecode by the
 --- new checker. The Lua is run, and compared with what the generator writes alone ([`lang.codegen`]) over the files of the tree.
 local ShapeStub = require("build.shape_stub")
-local Ceilings = require("build.ceilings")
-local CeilingsFixture = require("build.ceilings_fixture")
 local Codegen = require("lang.codegen")
 local CompileGrammar = require("build.compile_grammar")
 local Driver = require("build.driver")
@@ -25,7 +23,7 @@ local work = require("build.work")
 Test.policy{ grants = {
   { path = "core", letters = "r" }, { path = "lang/ast.tl", letters = "r" }, { path = "lang/types.tl", letters = "r" },
   { path = "cosmic/removed_example.tl", letters = "r" }, { path = "lang/stdlib.d.tl", letters = "r" },
-  { path = "lang/prelude.d.tl", letters = "r" }, { path = "build/ceilings.txt", letters = "r" },
+  { path = "lang/prelude.d.tl", letters = "r" },
   { path = "build/importer.tl", letters = "r" }, { path = "build/plural.tl", letters = "r" },
   { path = "build/bind.tl", letters = "r" }, { path = "build/digest.tl", letters = "r" },
   { path = "build/clock.tl", letters = "r" }, { path = "build/assertions.tl", letters = "r" },
@@ -36,25 +34,24 @@ Test.policy{ grants = {
 --- The standard library of the checker's own tests, as the globals of every module, and the `cosmic.*` modules the cases name.
 local STANDARD <const>: {string: string} = ShapeStub.standard()
 
---- The ceilings `text` holds, with no code closed: a program here has the errors the checker finds in it, whatever codes
---- the tree has closed.
-local function ceilings(text: string): Ceilings.Table
-  return CeilingsFixture.rows(text)
-end
-
-local function options(pins: string): Pipeline.Options
+local function options(): Pipeline.Options
   return {
     globals = {
       sources = { Driver.declarations("std", "std.d.tl", Programs.library, {}) },
       adjust = function(_globals: {string: Scopes.Global}) end,
     },
-    ceilings = ceilings(pins), types = true, standard = Driver.stubs(STANDARD), project = nil,
+    types = true, standard = Driver.stubs(STANDARD), project = nil,
   }
 end
 
---- The ceiling of a module that returns a value no declaration describes, which the new checker refuses and the programs
+--- The marker of a module that returns a value no declaration describes, which the new checker refuses and the programs
 --- below, written to be run as Lua as well, do.
-local EXPORT <const> = "[checked]\nm.tl export_not_declared 1\n"
+local EXPORT <const> = "checked: export_not_declared"
+
+--- `source` with `marker` (`checked: any_use`) at the end of its last line, where a program here has the finding it holds.
+local function marked(source: string, marker: string): string
+  return (source:gsub("\n+$", "")) .. " -- " .. marker .. "\n"
+end
 
 --- The plan of the module `path` that is the file `file` of kind `kind`, as the stage plans one.
 local function module_of(path: string, file: string, kind: string, source: string, tests: {string}): plans.Module
@@ -64,9 +61,9 @@ local function module_of(path: string, file: string, kind: string, source: strin
   }
 end
 
---- What the pipeline answers for one module `source` of the file `m.tl`, under the ceilings `pins`.
-local function generated(source: string, pins?: string, kind?: string, tests?: {string}): plans.Generated?, string
-  local pipeline = Pipeline.over({ { "m.tl", source } }, { ["m.tl"] = kind or "module" }, options(pins or ""))
+--- What the pipeline answers for one module `source` of the file `m.tl`; its markers are in its text.
+local function generated(source: string, kind?: string, tests?: {string}): plans.Generated?, string
+  local pipeline = Pipeline.over({ { "m.tl", source } }, { ["m.tl"] = kind or "module" }, options())
   return Pipeline.generate(module_of("m", "m.tl", kind or "module", source, tests or {}), pipeline)
 end
 
@@ -77,7 +74,7 @@ end
 
 local function test_a_module_is_checked_written_and_dumped_and_the_lua_and_the_bytecode_run()
   local source = "local record Box\n  n: integer\nend\nlocal function make(n: integer): Box\n  return { n = n }\nend\nreturn make(41).n + 1\n"
-  local made = assert(generated(source, EXPORT))
+  local made = assert(generated(marked(source, EXPORT)))
   assert(value_of(made.lua) == 42 and not made.refused and #made.references == 0)
   assert(assert(load(made.bytecode, "=m", "b", {}))() == 42)
   assert(made.bytecode:sub(1, 4) == "\27Lua")
@@ -85,9 +82,10 @@ end
 
 local function test_an_import_read_as_a_value_stays_a_require_and_one_never_read_is_not_loaded()
   local dep = "local record Dep\n  n: integer\nend\nlocal d: Dep = { n = 3 }\nreturn d\n"
-  local function lua_of(source: string): string
+  local function lua_of(plain: string): string
+    local source = marked(plain, EXPORT)
     local pipeline = Pipeline.over({ { "dep.tl", dep }, { "m.tl", source } }, { ["dep.tl"] = "module", ["m.tl"] = "module" },
-      options(EXPORT))
+      options())
     local made, why = Pipeline.generate(module_of("m", "m.tl", "module", source, {}), pipeline)
     assert(made ~= nil, tostring(why))
     return made.lua
@@ -100,7 +98,7 @@ end
 
 local function test_a_test_module_hands_its_tests_back_and_none_is_unused()
   local source = "local function test_a(): integer\n  return 1\nend\nlocal function test_b(): integer\n  return 2\nend\n"
-  local made = assert(generated(source, "", "test", { "test_a", "test_b" }))
+  local made = assert(generated(source, "test", { "test_a", "test_b" }))
   assert(made.lua:find("\nreturn { test_a = test_a, test_b = test_b }\n", 1, true) ~= nil, made.lua)
   local tests = value_of(made.lua) as {string: function(): integer} -- checked: cast_refused
   assert(tests.test_a() == 1 and tests.test_b() == 2)
@@ -109,24 +107,27 @@ local function test_a_test_module_hands_its_tests_back_and_none_is_unused()
   assert(plain == nil and why:find("unused_function", 1, true) ~= nil, tostring(why))
 end
 
-local function test_a_count_over_its_ceiling_is_refused_with_the_words_of_the_check_of_the_tree()
+local function test_an_error_with_no_marker_is_refused_with_the_words_of_the_check_of_the_tree()
   local source = "local n: string = 1\nreturn n\n"
   local made, why = generated(source)
   assert(made == nil)
   assert(why:find("^m.tl: the compiler refused it\nm.tl:1:") ~= nil, why)
   assert(why:find("(not_assignable)", 1, true) ~= nil and
-      why:find("m.tl: 1 error of not_assignable in its bodies, pinned 0; follow the fix above rather than raise the pin", 1, true) ~= nil, why)
-  -- the pin lets the module in, and the Lua is written line for line all the same
-  local pinned = assert(generated(source, "[checked]\nm.tl not_assignable 1\n"))
-  assert(value_of(pinned.lua) == 1)
-  assert(generated(source, "[checked]\nm.tl not_assignable 5\n") ~= nil)
-  -- a pin for another code, or another file, holds nothing of it
-  assert(generated(source, "[checked]\nm.tl nil_not_allowed 1\n") == nil)
-  assert(generated(source, "[checked]\nn.tl not_assignable 1\n") == nil)
+      why:find("m.tl: 1 error of not_assignable in its bodies on line 1, marked 0; follow the fix above rather than add a marker",
+        1, true) ~= nil, why)
+  -- the marker lets the module in, and the Lua is written line for line all the same
+  local held = "local n: string = 1 -- checked: not_assignable\nreturn n\n"
+  local held_made = assert(generated(held))
+  assert(value_of(held_made.lua) == 1)
+  -- a marker for another code holds nothing of it, and a marker whose finding is gone is refused as well
+  local wrong, wrong_why = generated((held:gsub("not_assignable", "nil_not_allowed")))
+  assert(wrong == nil and wrong_why:find("(not_assignable)", 1, true) ~= nil, tostring(wrong_why))
+  -- a marker above what the line has is stale, which the check of the tree tells and the compile lets in
+  assert(generated("local n: string = 1 -- checked: not_assignable*2\nreturn n\n") ~= nil)
 end
 
 local function test_a_warning_refuses_a_module_with_the_checkers_words()
-  local made, why = generated("local unused = 1\nreturn 2\n", EXPORT)
+  local made, why = generated(marked("local unused = 1\nreturn 2\n", EXPORT))
   assert(made == nil and why:find("^m.tl: the compiler refused it\nm.tl:1:7: ") ~= nil, tostring(why))
   assert(why:find("(unused_variable)", 1, true) ~= nil, why)
 end
@@ -143,7 +144,7 @@ local PROGRAMS <const>: {string} = {
 
 local function test_the_lua_the_pipeline_writes_answers_what_the_program_answers_as_lua()
   for _, program in ipairs(PROGRAMS) do
-    local made, why = generated(program, "[checked]\nm.tl export_not_declared 1\nm.tl and_ternary 5\n")
+    local made, why = generated(marked(program, EXPORT .. ", and_ternary"))
     assert(made ~= nil, program .. tostring(why))
     local want = { assert(load(program, "=plain", "t"))() }
     local got = { value_of(made.lua) }
@@ -153,8 +154,8 @@ end
 
 local function test_an_if_expression_over_a_value_that_is_never_false_is_not_written_as_a_call()
   -- the middle is a cast to a string: no literal, so only what [`Truthy.never_false`] knows of it keeps the `and` and `or`
-  local made = assert(generated("local n = 3\nlocal y: any = \"v\"\nlocal s: string = n > 2 and (y as string) or \"z\"\nreturn s\n",
-    "[checked]\nm.tl cast_refused 1\nm.tl any_use 1\n", "example"))
+  local made = assert(generated("local n = 3\nlocal y: any = \"v\" -- checked: any_use\n" ..
+      "local s: string = n > 2 and (y as string) or \"z\" -- checked: cast_refused\nreturn s\n", "example"))
   assert(made.lua:find("function", 1, true) == nil, made.lua)
   assert(value_of(made.lua) == "v")
 end
@@ -173,21 +174,22 @@ local function test_a_record_the_build_describes_is_resolved_in_the_text_the_che
   local refused, why = generated(source)
   assert(refused == nil and why:find("(export_not_declared)", 1, true) ~= nil and
       why:find("nil_not_allowed", 1, true) == nil, tostring(why))
-  local pipeline = Pipeline.over({ { "m.tl", source } }, { ["m.tl"] = "module" }, options("[checked]\nm.tl export_not_declared 1\n"))
+  source = marked(source, EXPORT)
+  local pipeline = Pipeline.over({ { "m.tl", source } }, { ["m.tl"] = "module" }, options())
   local made = assert(Pipeline.generate(module_of("m", "m.tl", "module", source, {}), pipeline))
   assert(made.lua:find("record_of(\"R\", ", 1, true) ~= nil, made.lua)
   -- the module is retired when it is written, and read again from the text it was given
   assert(pipeline.build:result("m", true) == nil)
   assert(assert(pipeline.build:parsed("m")).text == source)
   -- a module without such a call is read once, as it was
-  local plain = Pipeline.over({ { "p.tl", "return 1\n" } }, { ["p.tl"] = "module" },
-    options("[checked]\np.tl export_not_declared 1\n"))
-  assert(Pipeline.generate(module_of("p", "p.tl", "module", "return 1\n", {}), plain) ~= nil)
-  assert(assert(plain.build:parsed("p")).text == "return 1\n")
+  local one = marked("return 1\n", EXPORT)
+  local plain = Pipeline.over({ { "p.tl", one } }, { ["p.tl"] = "module" }, options())
+  assert(Pipeline.generate(module_of("p", "p.tl", "module", one, {}), plain) ~= nil)
+  assert(assert(plain.build:parsed("p")).text == one)
 end
 
 local function test_a_module_the_build_lacks_is_refused_by_name()
-  local pipeline = Pipeline.over({ { "m.tl", "return 1\n" } }, {}, options(""))
+  local pipeline = Pipeline.over({ { "m.tl", "return 1\n" } }, {}, options())
   local made, why = Pipeline.generate(module_of("gone", "gone.tl", "module", "return 1\n", {}), pipeline)
   assert(made == nil and why == "gone.tl: the new checker's build has no module gone", tostring(why))
 end
@@ -211,7 +213,7 @@ local function test_the_lua_over_the_files_of_the_tree_is_the_generators()
   local lines = 0
   for _, file in ipairs(CORPUS) do
     local source = assert(Fs.read(file))
-    local pipeline = Pipeline.over({ { file, source } }, {}, options(""))
+    local pipeline = Pipeline.over({ { file, source } }, {}, options())
     local module = file:gsub("%.tl$", ""):gsub("/", ".")
     pipeline.build:lower({ module })
     local result = assert(pipeline.build:result(module, true))
@@ -235,27 +237,24 @@ local function test_the_lua_over_the_files_of_the_tree_is_the_generators()
   end
 end
 
-local function test_the_options_of_cosmics_own_tree_are_its_declarations_and_ceilings_and_a_project_has_none_to_name()
+local function test_the_options_of_cosmics_own_tree_are_its_declarations_and_a_project_holds_no_marker()
   local own = assert(Pipeline.options(".", true))
   assert(#own.globals.sources == 2)
-  assert(Ceilings.by_marks(own.ceilings, "checked") and Ceilings.by_marks(own.ceilings, "untyped"),
-    "the tree's ceilings are not read")
   assert(own.types)
-  assert(own.project == nil and own.ceilings.none == nil)
+  assert(own.project == nil)
   -- A project's are the declarations the tool carries, which a worker's store of the modules a test reads does not: either the
   -- options are the project's, or the tool is told to boot again.
   local project, why = Pipeline.options("/nonexistent-project-root", false)
   if project == nil then
     assert(why:find("this tool carries no declarations of the standard library", 1, true) ~= nil, tostring(why))
   else
-    assert(project.project == true and #project.globals.sources == 2 and project.ceilings.none == true)
+    assert(project.project == true and #project.globals.sources == 2)
   end
 end
 
 local function test_the_options_of_a_project_are_the_texts_it_is_given_and_no_ceiling()
   local project = Pipeline.project({ prelude = "do\n   global interface any\n   end\nend\n", stdlib = "do\nend\n" })
-  assert(project.project == true and project.types and project.ceilings.none == true)
-  assert(next(project.ceilings.stages) == nil, "a project has no ceilings")
+  assert(project.project == true and project.types)
   assert(#project.globals.sources == 2)
   local stdlib = assert(project.globals.sources[2])
   assert(stdlib.filename == "lang/stdlib.d.tl" and stdlib.module == "lang.stdlib")
@@ -266,67 +265,73 @@ local function test_a_lone_file_takes_the_declarations_the_tool_carries_and_no_c
   if lone == nil then
     assert(why:find("this tool carries no declarations of the standard library", 1, true) ~= nil, tostring(why))
   else
-    assert(lone.project == true and #lone.globals.sources == 2 and lone.ceilings.none == true)
+    assert(lone.project == true and #lone.globals.sources == 2)
   end
 end
 
 local function test_a_lone_file_is_checked_with_no_ceiling_and_written_as_lua_that_runs()
-  local made = assert(Pipeline.lone("script.tl", "local function twice(n: integer): integer\n  return n * 2\nend\nreturn twice(21)\n", options("")))
+  local made = assert(Pipeline.lone("script.tl", "local function twice(n: integer): integer\n  return n * 2\nend\nreturn twice(21)\n", options()))
   assert(value_of(made) == 42, made)
   -- what it returns is its entry point, which no declaration describes
-  local entry = assert(Pipeline.lone("entry.tl", "return function(): integer\n  return 7\nend\n", options("")))
+  local entry = assert(Pipeline.lone("entry.tl", "return function(): integer\n  return 7\nend\n", options()))
   assert(entry:find("return function", 1, true) ~= nil, entry)
 end
 
 local function test_a_lone_file_may_return_at_more_than_one_place()
   local made = assert(Pipeline.lone("exits.tl",
-    "local n = 0\nif n == 0 then\n  return 3\nend\nreturn 4\n", options("")))
+    "local n = 0\nif n == 0 then\n  return 3\nend\nreturn 4\n", options()))
   assert(value_of(made) == 3, made)
   -- the allowance is for the returns alone: the mistake beside them is told
   local refused, told = Pipeline.lone("exits.tl", "local n: string = 1\nif n == \"\" then\n  return 3\nend\nreturn 4\n",
-    options(""))
+    options())
   assert(refused == nil and told:find("(not_assignable)", 1, true) ~= nil and
       told:find("(export_not_declared)", 1, true) == nil, tostring(told))
 end
 
 local function test_a_lone_file_is_refused_for_an_error_a_warning_and_a_syntax_error_in_the_checkers_words()
-  local code, why = Pipeline.lone("bad.tl", "local n: string = 1\nreturn n\n", options(""))
+  local code, why = Pipeline.lone("bad.tl", "local n: string = 1\nreturn n\n", options())
   assert(code == nil and why:find("^bad.tl:1:") ~= nil and why:find("(not_assignable)", 1, true) ~= nil, tostring(why))
-  -- a file alone has no ceilings to raise: its refusal never speaks of a pin
-  assert(why:find("bad.tl: 1 error of not_assignable in its bodies; follow the fix above", 1, true) ~= nil, why)
+  -- a file alone has no marker to add: its refusal never speaks of one
+  assert(why:find("bad.tl: 1 error of not_assignable in its bodies on line 1; follow the fix above", 1, true) ~= nil, why)
   assert(why:find("pin", 1, true) == nil, why)
   -- a warning refuses as an error does
-  local warned, warning = Pipeline.lone("warn.tl", "local unused = 1\nreturn 2\n", options(""))
+  local warned, warning = Pipeline.lone("warn.tl", "local unused = 1\nreturn 2\n", options())
   assert(warned == nil and warning:find("^warn.tl:1:7: ") ~= nil and warning:find("(unused_variable)", 1, true) ~= nil, tostring(warning))
   -- the entry point is the one error allowed: another beside it is told
-  local both, told = Pipeline.lone("both.tl", "local n: string = 1\nreturn function(): integer\n  return n\nend\n", options(""))
+  local both, told = Pipeline.lone("both.tl", "local n: string = 1\nreturn function(): integer\n  return n\nend\n", options())
   assert(both == nil and told:find("(not_assignable)", 1, true) ~= nil and told:find("(export_not_declared)", 1, true) == nil, tostring(told))
   -- a text that does not parse is told in the words of the translation
-  local broken, syntax = Pipeline.lone("tuple.tl", "local t: {{string, integer}}\nreturn t\n", options(""))
+  local broken, syntax = Pipeline.lone("tuple.tl", "local t: {{string, integer}}\nreturn t\n", options())
   assert(broken == nil and syntax:find("^tuple.tl:1:") ~= nil and syntax:find("(tuple_type)", 1, true) ~= nil, tostring(syntax))
 end
 
 local function test_a_lone_file_keeps_an_import_it_never_reads_and_a_module_of_the_tree_does_not()
   local text = "local type _shape = require(\"cosmic.shape\")\nreturn 7\n"
-  local kept = assert(Pipeline.lone("script.tl", text, options("")))
+  local kept = assert(Pipeline.lone("script.tl", text, options()))
   assert(kept:find("require(\"cosmic.shape\")", 1, true) ~= nil, kept)
-  local served = assert(generated(text, EXPORT))
+  local served = assert(generated(marked(text, EXPORT)))
   assert(served.lua:find("require", 1, true) == nil, served.lua)
 end
 
---- A project's error is listed without the pin it has not got, and cosmic's own with it.
-local function test_a_project_is_told_its_errors_without_a_pin_to_raise()
+--- A project's error is listed without the marker it has not got, and cosmic's own with it.
+local function test_a_project_is_told_its_errors_without_a_marker_to_add()
   local source = "local n: string = 1\nreturn n\n"
   local project = Pipeline.project({ prelude = "do\nend\n", stdlib = "do\nend\n" })
   local made, why = Pipeline.generate(module_of("m", "m.tl", "module", source, {}),
     Pipeline.over({ { "m.tl", source } }, { ["m.tl"] = "module" }, project))
   assert(made == nil)
   assert(why:find("(not_assignable)", 1, true) ~= nil and
-      why:find("1 error of not_assignable in its bodies; follow the fix above", 1, true) ~= nil, tostring(why))
-  assert(why:find("pinned", 1, true) == nil and why:find("ceilings.txt", 1, true) == nil, tostring(why))
+      why:find("1 error of not_assignable in its bodies on line 1; follow the fix above", 1, true) ~= nil, tostring(why))
+  assert(why:find("marker", 1, true) == nil, tostring(why))
+  -- a project holds no marker: the text that marks the finding does not hold it
+  local held_source = "local n: string = 1 -- checked: not_assignable\nreturn n\n"
+  local still, still_why = Pipeline.generate(module_of("m", "m.tl", "module", held_source, {}),
+    Pipeline.over({ { "m.tl", held_source } }, { ["m.tl"] = "module" }, project))
+  assert(still == nil and still_why:find("1 error of not_assignable in its bodies on line 1; follow the fix above", 1, true) ~= nil,
+    tostring(still_why))
   local _, own_why = generated(source)
-  assert(own_why:find("1 error of not_assignable in its bodies, pinned 0; follow the fix above rather than " ..
-      "raise the pin", 1, true) ~= nil, tostring(own_why))
+  assert(own_why:find("1 error of not_assignable in its bodies on line 1, marked 0; follow the fix above rather than " ..
+      "add a marker", 1, true) ~= nil, tostring(own_why))
 end
 
 --- The error-slot rules bind a project in the new mode: the fork holds only cosmic's own tree to them, and the pipeline holds
@@ -346,7 +351,7 @@ local function test_a_project_is_held_to_the_error_slot_rules()
   local made, why = Pipeline.generate(module_of("m", "m.tl", "module", breach, {}),
     Pipeline.over({ { "m.tl", breach } }, { ["m.tl"] = "module" }, project))
   assert(made == nil and why:find("M.of: an exported function answers one result", 1, true) ~= nil, tostring(why))
-  assert(why:find("pinned", 1, true) == nil, tostring(why))
+  assert(why:find("marker", 1, true) == nil, tostring(why))
   -- the same function answering a value or a reason is held
   local fine = table.concat({
     "local record M",
@@ -427,7 +432,7 @@ local function test_a_staged_project_is_built_from_its_inputs_and_compiles_to_wh
   local handle = assert(work.open(root))
   assert(work.stage(handle, { own = false }))
   assert(importer.derive(handle))
-  local pipeline = assert(Pipeline.build(handle.db, options("")))
+  local pipeline = assert(Pipeline.build(handle.db, options()))
   local modules = assert(plans.collect(handle.db))
   local seen: mut {string: boolean} = {}
   for _, m in ipairs(modules) do
@@ -454,7 +459,7 @@ end
 --- The contract refusals of the compile for `source`: what it says of the module beyond the prelude's lines.
 local function compile_says(source: string): string
   local text = Fixture.PRELUDE .. source .. "\nuse(get, put, name, pair, complain, lead, maybe, sget, log)\n"
-  local made, why = generated(text, "", "module")
+  local made, why = generated(text, "module")
   assert(made == nil, "the compile accepts:\n" .. source)
   return why
 end
@@ -506,11 +511,11 @@ end
 
 local function test_a_unjudged_compile_keeps_a_breach_for_the_tool_it_builds_and_marks_it_refused()
   local text = Fixture.PRELUDE .. "local v = get()\nuse(v)\nuse(get, put, name, pair, complain, lead, maybe, sget, log)\n"
-  local pipeline = Pipeline.over({ { "m.tl", text } }, { ["m.tl"] = "module" }, options(""))
+  local pipeline = Pipeline.over({ { "m.tl", text } }, { ["m.tl"] = "module" }, options())
   local m = module_of("m", "m.tl", "module", text, {})
   local kept = assert(Pipeline.generate(m, pipeline, false, false))
   assert(kept.refused and #kept.lua > 0)
-  local pipeline_again = Pipeline.over({ { "m.tl", text } }, { ["m.tl"] = "module" }, options(""))
+  local pipeline_again = Pipeline.over({ { "m.tl", text } }, { ["m.tl"] = "module" }, options())
   local refused, why = Pipeline.generate(m, pipeline_again, false, true)
   assert(refused == nil and why:find("its error slot is dropped", 1, true) ~= nil, tostring(why))
 end
@@ -528,12 +533,12 @@ local function test_a_refused_call_points_to_the_worked_example_when_the_docs_ho
       "VALUES ('cosmic.fs', 'generics_functions_returns', 'Calls.', 'cosmic/fs.tl', 9, 'local x = 1')"))
   assert(db:exec("INSERT INTO examples_fts(examples_fts) VALUES ('rebuild')"))
   local text = "local function f(a: integer): integer\n  return a\nend\nreturn f(1, 2)\n"
-  local pipeline = Pipeline.over({ { "m.tl", text } }, { ["m.tl"] = "module" }, options(""))
+  local pipeline = Pipeline.over({ { "m.tl", text } }, { ["m.tl"] = "module" }, options())
   local m = module_of("m", "m.tl", "module", text, {})
   local bare, bare_why = Pipeline.generate(m, pipeline)
   assert(bare == nil and bare_why:find("(arity)", 1, true) ~= nil and not bare_why:find("see also", 1, true), tostring(bare_why))
   -- a module is written once by a build: this reads the same text in another
-  local again = Pipeline.over({ { "m.tl", text } }, { ["m.tl"] = "module" }, options(""))
+  local again = Pipeline.over({ { "m.tl", text } }, { ["m.tl"] = "module" }, options())
   local pointed, why = Pipeline.generate(m, again, false, true, function(): {Sqlite.Handle}, {boolean}
     return { db }, { false }
   end)
@@ -554,19 +559,19 @@ end
 local function test_a_test_or_an_example_or_a_generated_module_is_not_held_to_the_discipline()
   local text = Fixture.PRELUDE .. "local v = get()\nuse(v)\nuse(get, put, name, pair, complain, lead, maybe, sget, log)\n"
   for _, kind in ipairs({ "test", "example" }) do
-    local made, why = generated(text, "", kind, if kind == "test" then { "test_none" } else {} end)
+    local made, why = generated(text, kind, if kind == "test" then { "test_none" } else {} end)
     assert(made ~= nil or why:find("error slot", 1, true) == nil, tostring(why))
   end
 end
 
---- A calls the checker gave no function is held to the ceiling of `[untyped]`, and a type error to its own.
-local function test_a_call_the_checker_could_not_type_is_held_to_its_untyped_ceiling()
-  local source = "local missing: string = 1\nlocal function f(): integer\n  return missing()\nend\nreturn f\n"
-  local made, why = generated(source, "[checked]\nm.tl not_assignable 1\nm.tl not_callable 1\n")
-  assert(made == nil and why:find("1 call the checker gave no function, which no rule of the discipline judged, pinned 0", 1, true) ~= nil,
-    tostring(why))
-  local allowed = generated(source, "[checked]\nm.tl not_assignable 1\nm.tl not_callable 1\n[untyped]\nm.tl 1\n")
-  assert(allowed ~= nil)
+--- A call the checker gave no function is held by an `untyped` marker, and a type error by its own.
+local function test_a_call_the_checker_could_not_type_is_held_by_its_untyped_marker()
+  local source = "local sys = require(\"cosmic.sys\") -- checked: unchecked_binding\nlocal v = sys.unlink(\"x\")\n" ..
+    "return v -- checked: export_not_declared\n"
+  local made, why = generated(source)
+  assert(made == nil and why:find("1 error of call in its calls on line 2, marked 0", 1, true) ~= nil, tostring(why))
+  local allowed, allowed_why = generated((source:gsub('sys.unlink%("x"%)', 'sys.unlink("x") -- untyped: call')))
+  assert(allowed ~= nil, tostring(allowed_why))
 end
 
 local function test_a_standard_library_module_is_held_to_its_stub()
@@ -574,7 +579,7 @@ local function test_a_standard_library_module_is_held_to_its_stub()
   local stub = table.concat({ "local record Box", "  n: integer", "end", "return Box", "" }, "\n")
   local entries: {{string}} = { { "cosmic/box.tl", source } }
   local kinds: {string: string} = { ["cosmic/box.tl"] = "module" }
-  local pipeline = Pipeline.over(entries, kinds, options(""), { ["cosmic.box"] = stub })
+  local pipeline = Pipeline.over(entries, kinds, options(), { ["cosmic.box"] = stub })
   local m = module_of("cosmic.box", "cosmic/box.tl", "module", source, {})
   m.stub = { text = stub, pruned = true }
   local made, why = Pipeline.generate(m, pipeline)
@@ -583,15 +588,15 @@ local function test_a_standard_library_module_is_held_to_its_stub()
   -- a stub that keeps every statement is no stub
   local unpruned = module_of("cosmic.box", "cosmic/box.tl", "module", source, {})
   unpruned.stub = { text = source, pruned = false }
-  local whole, whole_why = Pipeline.generate(unpruned, Pipeline.over(entries, kinds, options(""), { ["cosmic.box"] = stub }))
+  local whole, whole_why = Pipeline.generate(unpruned, Pipeline.over(entries, kinds, options(), { ["cosmic.box"] = stub }))
   assert(whole == nil and whole_why:find("its stub keeps every statement", 1, true) ~= nil, tostring(whole_why))
   -- a run that does not judge keeps the compile for the tool it builds, marked
-  local kept = assert(Pipeline.generate(m, Pipeline.over(entries, kinds, options(""), { ["cosmic.box"] = stub }), false, false))
+  local kept = assert(Pipeline.generate(m, Pipeline.over(entries, kinds, options(), { ["cosmic.box"] = stub }), false, false))
   assert(kept.refused)
   -- the stub that types the module as its source does holds it
   local fine = module_of("cosmic.box", "cosmic/box.tl", "module", source, {})
   fine.stub = { text = source, pruned = true }
-  local held = assert(Pipeline.generate(fine, Pipeline.over(entries, kinds, options(""), { ["cosmic.box"] = source })))
+  local held = assert(Pipeline.generate(fine, Pipeline.over(entries, kinds, options(), { ["cosmic.box"] = source })))
   assert(not held.refused)
 end
 
@@ -599,7 +604,7 @@ end
 local function written_in_order(first: string, first_text: string, second: string, second_text: string): string, string
   local entries: {{string}} = { { first .. ".tl", first_text }, { second .. ".tl", second_text } }
   local kinds: {string: string} = { [first .. ".tl"] = "module", [second .. ".tl"] = "module" }
-  local pipeline = Pipeline.over(entries, kinds, options(""))
+  local pipeline = Pipeline.over(entries, kinds, options())
   local one, why_one = Pipeline.generate(module_of(first, first .. ".tl", "module", first_text, {}), pipeline)
   local two, why_two = Pipeline.generate(module_of(second, second .. ".tl", "module", second_text, {}), pipeline)
   if one == nil or two == nil then
@@ -640,7 +645,7 @@ end
 
 local function test_a_module_is_written_once_by_a_build_and_asked_twice_it_says_why()
   local source = "local record Box\n  n: integer\nend\nlocal b: Box = { n = 1 }\nreturn b\n"
-  local pipeline = Pipeline.over({ { "m.tl", source } }, { ["m.tl"] = "module" }, options(""))
+  local pipeline = Pipeline.over({ { "m.tl", source } }, { ["m.tl"] = "module" }, options())
   local m = module_of("m", "m.tl", "module", source, {})
   assert(Pipeline.generate(m, pipeline) ~= nil)
   local again, why = Pipeline.generate(m, pipeline)
@@ -659,10 +664,10 @@ local function test_a_module_asked_for_before_the_module_it_requires_is_written_
     assert(made ~= nil, tostring(why))
     return made.lua
   end
-  local first = Pipeline.over(entries, kinds, options(""))
+  local first = Pipeline.over(entries, kinds, options())
   local dep_first = lua_of(first, "dep", dep)
   local user_second = lua_of(first, "user", user)
-  local second = Pipeline.over(entries, kinds, options(""))
+  local second = Pipeline.over(entries, kinds, options())
   local user_first = lua_of(second, "user", user)
   local dep_second = lua_of(second, "dep", dep)
   assert(dep_first == dep_second and user_second == user_first)
@@ -674,7 +679,7 @@ local function test_a_standard_library_module_asked_for_before_the_stub_module_i
   local entries: {{string}} = { { "cosmic/a.tl", a }, { "cosmic/b.tl", b } }
   local kinds: {string: string} = { ["cosmic/a.tl"] = "module", ["cosmic/b.tl"] = "module" }
   local stubs: {string: string} = { ["cosmic.a"] = a, ["cosmic.b"] = b }
-  local pipeline = Pipeline.over(entries, kinds, options(""), stubs)
+  local pipeline = Pipeline.over(entries, kinds, options(), stubs)
   local ma = module_of("cosmic.a", "cosmic/a.tl", "module", a, {})
   ma.stub = { text = a, pruned = true }
   local mb = module_of("cosmic.b", "cosmic/b.tl", "module", b, {})
@@ -715,7 +720,7 @@ local function test_a_stub_that_types_a_module_otherwise_than_its_source_is_refu
     local kinds: {string: string} = { ["cosmic/box.tl"] = "module" }
     local m = module_of("cosmic.box", "cosmic/box.tl", "module", source, {})
     m.stub = { text = stub, pruned = true }
-    local made, why = Pipeline.generate(m, Pipeline.over(entries, kinds, options(""), { ["cosmic.box"] = stub }))
+    local made, why = Pipeline.generate(m, Pipeline.over(entries, kinds, options(), { ["cosmic.box"] = stub }))
     assert(made == nil and why:find("the stub a project's checker reads in its place", 1, true) ~= nil, "accepted:\n" .. stub)
   end
 end
@@ -726,10 +731,10 @@ local function test_the_record_field_uses_of_a_module_are_found_through_the_type
       "local record Shape", "  record Point", "    x: integer", "  end", "  origin: function(): Shape.Point", "end",
       "function Shape.origin(): Shape.Point", "  return { x = 0 }", "end", "return Shape", "" }, "\n") },
     { "user.tl", table.concat({
-      'local Shape = require("cosmic.shape_of")', "local p = Shape.origin()", "return p.x + 1", "" }, "\n") },
+      'local Shape = require("cosmic.shape_of")', "local p = Shape.origin()", "return p.x + 1 -- " .. EXPORT, "" }, "\n") },
   }
   local pipeline = Pipeline.over(entries, { ["cosmic/shape_of.tl"] = "module", ["user.tl"] = "module" },
-    options("[checked]\nuser.tl export_not_declared 1\n"))
+    options())
   local user = assert(entries[2])
   local m = module_of("user", "user.tl", "module", assert(user[2]), {})
   local made = assert(Pipeline.generate(m, pipeline))
@@ -738,15 +743,16 @@ local function test_the_record_field_uses_of_a_module_are_found_through_the_type
     tostring(#made.references) .. " uses")
 end
 
-local function test_a_record_test_is_written_as_the_fork_writes_it_for_the_tree_and_refused_for_a_program_without_a_ceiling()
+local function test_a_record_test_is_written_as_the_fork_writes_it_for_the_tree_and_refused_for_a_program_without_a_marker()
   local source = "local record R\n  n: integer\nend\nlocal function f(v: R | string): boolean\n  if v is R then\n    return v.n > 0\n  end\n" ..
     "  return false\nend\nreturn f\n"
-  local made = assert(generated(source, "[checked]\nm.tl is_on_record 1\nm.tl export_not_declared 1\n"))
+  local held = source:gsub("if v is R then", "if v is R then -- checked: is_on_record", 1)
+  local made = assert(generated(marked(held, EXPORT)))
   assert(made.lua:find('if type(v) == "table" then', 1, true) ~= nil, made.lua)
   local f = value_of(made.lua) as function(any): boolean -- checked: cast_refused
   assert(f({ n = 1 }) == true and f("s") == false)
-  -- the ceiling is held: a test the pins do not count is refused
-  local over, why = generated(source, "[checked]\nm.tl export_not_declared 1\n")
+  -- the marker is held: a test no marker holds is refused
+  local over, why = generated(marked(source, EXPORT))
   assert(over == nil and why:find("(is_on_record)", 1, true) ~= nil, tostring(why))
 end
 
@@ -766,11 +772,11 @@ local function test_into_answers_the_records_type_and_no_annotation_can_say_anot
       "local function show(a: R?, b: string, c: Other): string",
       "  return tostring(a) .. b .. c.s",
       "end",
-      "return show(got, err, other)",
+      "return show(got, err, other) -- " .. EXPORT,
       "",
     }, "\n")
   end
-  local options_of = options("[checked]\nm.tl export_not_declared 1\n")
+  local options_of = options()
   local function compiled(annotation: string): plans.Generated?, string
     local source = with_annotation(annotation)
     local pipeline = Pipeline.over({ { "m.tl", source } }, { ["m.tl"] = "module" }, options_of)

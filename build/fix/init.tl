@@ -1615,9 +1615,6 @@ local function run_tree_checks(ctx: Fix)
         findings[#findings + 1] = "markers: " .. line
       end
       -- The markers only fall: each file's are held to its merge base with main.
-      for _, line in ipairs(tree_checks.closure(root)) do
-        findings[#findings + 1] = "closed codes: " .. line
-      end
       local held = CeilingsBase.check(root, Env.all(), CeilingsBase.live_git(), marks.counts)
       for _, line in ipairs(held.lines) do
         findings[#findings + 1] = "ceilings: " .. line
@@ -1632,19 +1629,19 @@ local function run_tree_checks(ctx: Fix)
       Memprobe.mark("tree checks: before the memoed checks")
       timing.began = Clock.monotonic_ns()
       tree_begin(timing, "scopes", "1 of 5")
-      for _, line in ipairs(tree_checks.scoped(root, nil, memo, marking)) do
+      for _, line in ipairs(tree_checks.scoped(root, memo, marking)) do
         findings[#findings + 1] = "scopes: " .. line
       end
       tree_took(timing, "scopes")
       Memprobe.mark("tree checks: scopes")
       tree_begin(timing, "declarations", "2 of 5")
-      for _, line in ipairs(tree_checks.declared(root, nil, memo, marking)) do
+      for _, line in ipairs(tree_checks.declared(root, memo, marking)) do
         findings[#findings + 1] = "declarations: " .. line
       end
       tree_took(timing, "declarations")
       Memprobe.mark("tree checks: declarations")
       tree_begin(timing, "checker", "3 of 5")
-      for _, line in ipairs(tree_checks.checked(root, nil, memo, nil, marking)) do
+      for _, line in ipairs(tree_checks.checked(root, memo, nil, marking)) do
         findings[#findings + 1] = "checker: " .. line
       end
       tree_took(timing, "checker")
@@ -1657,7 +1654,7 @@ local function run_tree_checks(ctx: Fix)
       Memprobe.mark("tree checks: pipeline")
       -- The new checker's own count of the calls no rule judged.
       tree_begin(timing, "untyped", "5 of 5")
-      for _, line in ipairs(tree_checks.untyped(root, nil, memo, marking)) do
+      for _, line in ipairs(tree_checks.untyped(root, memo, marking)) do
         findings[#findings + 1] = "untyped: " .. line
       end
       tree_took(timing, "untyped")

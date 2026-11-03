@@ -95,13 +95,13 @@ local function test_the_checker_refuses_a_file_with_a_place_a_code_and_the_repla
     trouble)
 end
 
---- A file run alone has no ceilings to raise, so its refusal never speaks of a pin.
-local function test_a_refusal_of_a_file_alone_speaks_of_no_pin(tmp: string)
+--- A file run alone has no marker to add, so its refusal never speaks of one.
+local function test_a_refusal_of_a_file_alone_speaks_of_no_marker(tmp: string)
   local variables = { XDG_CACHE_HOME = tmp .. "/cache" }
   local code, trouble = standalone.code("bad.tl", "local n: integer = \"no\"\nreturn n\n", variables)
   assert(code == nil and trouble:find("(not_assignable)", 1, true) ~= nil, tostring(trouble))
-  assert(trouble:find("pin", 1, true) == nil, trouble)
-  assert(trouble:find("1 error of not_assignable in its bodies; follow the fix above", 1, true) ~= nil, trouble)
+  assert(trouble:find("marker", 1, true) == nil, trouble)
+  assert(trouble:find("1 error of not_assignable in its bodies on line 1; follow the fix above", 1, true) ~= nil, trouble)
 end
 
 --- The modules a file requires are read by the checker that compiles it ([`standalone.requires`], which `cosmic sandbox --closure`

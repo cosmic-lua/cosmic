@@ -10,7 +10,7 @@
 --- readable, no public doc citing the build or carrying a TODO, no
 --- literal plural after a number, no test returning early (a skip is [`Test.skip`]), every file under ci/testdata
 --- type-checking standalone, and every `.tl` file scoping, lowering and checking in the new checker's grammar but for
---- what the ceilings pin. Each asks the tree's projection,
+--- what the markers hold. Each asks the tree's projection,
 --- `cosmic.db`, which holds every module's docs, uses, imports,
 --- examples and source.
 ---
@@ -159,19 +159,11 @@ allow({
 allow({ "build.todos.run" }, "the verb's run, which a test calls with a tree and a `reboot.Seen` to run it " ..
     "as that tree's own tool would; the verb's spec calls it with the command line alone")
 
--- TODO: delete this entry with build/ceilings.txt and its parser, once the file is deleted (the last part of the change
--- that deletes it): [`Ceilings.parse`] is used by nothing but its tests until then.
-allow({ "build.ceilings.parse" }, "tested directly: the layout of the ceilings file, which `Ceilings.read` parses and the " ..
-    "tests give text of their own")
-
 allow({ "build.pipeline.over" }, "the build's compile with the new checker: a build over given sources, which the " ..
     "pipeline's own tests are the callers of")
 
 allow({ "build.pipeline.project" }, "tested directly: the options of a project given the texts of the declarations (a worker's " ..
     "store holds none of the tool's)")
-
-allow({ "build.pipeline_check.keyed", "build.pipeline_check.whole" }, "tested directly: the key of a module's answer by the " ..
-    "ceilings held under its own name, and the digest of every ceiling that keys the rest")
 
 allowed["build.driver.stubs"] = "the provider of modules whose stub text is given, which the build's wiring gives the stubs " ..
   "the projection carries; tested directly over fixture text"
@@ -1891,29 +1883,6 @@ function tree_checks.ci_sources(root: string): {{string}}
   return out
 end
 
---- The ceilings of `stage` for the tree at `root`: `given` where a caller passes its own, else [`Ceilings.path`]'s.
-local function ceilings_for(root: string, stage: Ceilings.Stage, given: {string: integer}?): {string: integer}?, string
-  if given ~= nil then
-    return given, ""
-  end
-  local read, why = Ceilings.read(root)
-  if read == nil then
-    return nil, why
-  end
-  return Ceilings.of(read, stage), ""
-end
-
---- Whether the check of `stage` for the tree at `root` is held by markers: the stage is listed under `[marked]` in the ceilings
---- file ([`Ceilings.by_marks`]). Where a caller gives its own counts (`given`) it is held by them. A
---- tree without a ceilings file has no ceilings and no marker holds anything.
-local function marked_for(root: string, stage: Ceilings.Stage, given: {string: integer}?): boolean
-  if given ~= nil then
-    return false
-  end
-  local read, _ = Ceilings.read(root)
-  return read ~= nil and Ceilings.by_marks(read, stage)
-end
-
 --- The sink of `marking`, if it has one.
 local function sink_of(marking: Ceilings.Marking?): Ceilings.Sink?
   if marking == nil then
@@ -1962,7 +1931,7 @@ end
 --- No leg runs these with `--standalone`: they are copied into fixture directories and run there, `cmd/*/main.tl` as
 --- modules of a project the candidate builds, `retained_probe.tl` and `work_db_integrity.tl` as files, and
 --- `runtime_test.tl` by `cosmic test`. Each requires `cosmic.*` modules alone and is held to a build's own strictness,
---- which a file alone is checked under ([`Pipeline.alone`]: the declarations the tool carries, and no ceiling), so a
+--- which a file alone is checked under ([`Pipeline.alone`]: the declarations the tool carries, and no marker), so a
 --- refusal that would otherwise be met only when a leg runs it is met here; `cosmic fix --check` in `ci/` only parses
 --- them. Each is read as written, and every finding of the checker is told: no marker or count holds one. A test module's
 --- unused functions are no complaint (a test runner calls them); any other file's unused locals are.
@@ -1993,8 +1962,10 @@ function tree_checks.ci_testdata(root: string): {string}
         if not (testy and unused_warning(line)) then
           local y, x, msg, code, fix = line:match("^[^:]+:(%d+):(%d+): (.-) %(([%a_]+)%): (.*)$")
           if code == nil or msg == nil or fix == nil then
-            -- The checker's own count of a code ("2 errors of x in its bodies") is told again, against the ceiling, below.
-            if line:match("^[^:]+: %d+ errors? of [%a_]+ in its %a+; follow the fix above$") == nil then
+            -- The checker's own count of a code ("2 errors of x in its bodies") is told again, by the markers, below.
+            -- TODO: take the findings of [`Pipeline.checked_alone`] as the spots of [`build.ceilings.marked`] and not parse its
+            -- prose here, once it answers them beside its lines; a changed wording tells a count twice, which fails closed.
+            if line:match("^[^:]+: %d+ errors? of [%a_]+ in its %a+ on line %d+; follow the fix above$") == nil then
               out[#out + 1] = if line:sub(1, #name + 1) == name .. ":" then file .. line:sub(#name + 1) else line end
             end
           else
@@ -2007,7 +1978,7 @@ function tree_checks.ci_testdata(root: string): {string}
           end
         end
       end
-      for _, line in ipairs(Ceilings.over(file, findings, codes, {}, "bodies", true).lines) do
+      for _, line in ipairs(Ceilings.marked("checked", file, "", findings, codes, "bodies", true).lines) do
         out[#out + 1] = line
       end
       if made.code == nil and #made.lines == 0 then
@@ -2109,24 +2080,15 @@ local function scope_outcome(file: string, source: string, declared: {string: Sc
 end
 
 --- Every `.tl` file of the tree, scoped ([`lang.scopes`]) in the new checker's grammar: the names it resolves must agree
---- with the tree ([`lang.scopes_cover`]), and its errors are the ones `pinned` (by default the `[scoped]` ceilings of
---- [`build.ceilings`]) counts, no more. A file with more errors of a code than pinned is listed with each,
---- their places and fix; one with fewer, and a pin for a file with none, is told to lower the pin.
+--- with the tree ([`lang.scopes_cover`]), and its errors are the ones its markers hold ([`build.ceilings`]), no more: an error
+--- with no marker on its line is listed with its place and fix, and a marker that holds more than its line has is stale.
 --- The sources are the `.tl` files under `root` ([`sources_of`]).
-function tree_checks.scoped(root: string, pinned?: {string: integer}, memo?: Sqlite.Handle,
-                            marking?: Ceilings.Marking): {string}
-  local ceilings, why = ceilings_for(root, "scoped", pinned)
-  if ceilings == nil then
-    return { "reading the ceilings: " .. why }
-  end
-  local by_marks = marked_for(root, "scoped", pinned)
-  pinned = ceilings
+function tree_checks.scoped(root: string, memo?: Sqlite.Handle, marking?: Ceilings.Marking): {string}
   local files, trouble = sources_of(root)
   if files == nil then
     return { "reading the sources: " .. trouble }
   end
   local out: mut {string} = {}
-  local found: mut {string: integer} = {}
   local given = TreeProgram.tree_globals(root)
   local declared = Driver.globals(given.sources, given.adjust)
   local salt = check_memo.salt(root, { "lang/ast.tl", "lang/lexer.tl", "lang/parser.tl", "lang/scopes.tl",
@@ -2142,51 +2104,17 @@ function tree_checks.scoped(root: string, pinned?: {string: integer}, memo?: Sql
     if outcome.consistent ~= "" then
       out[#out + 1] = file .. ": its scopes are not consistent with its tree: " .. outcome.consistent
     end
-    local by_code: mut {string: mut {Scopes.Error}} = {}
+    local findings: mut {Ceilings.Finding} = {}
     for _, e in ipairs(outcome.errors) do
-      local held = by_code[e.code] or {}
-      held[#held + 1] = e
-      by_code[e.code] = held
+      findings[#findings + 1] = { code = e.code, y = e.y, x = e.x, msg = e.msg, fix = e.fix }
     end
-    if by_marks then
-      local findings: mut {Ceilings.Finding} = {}
-      for _, e in ipairs(outcome.errors) do
-        findings[#findings + 1] = { code = e.code, y = e.y, x = e.x, msg = e.msg, fix = e.fix }
-      end
-      for _, line in ipairs(told_marks(file, Ceilings.marked("scoped", file, source, findings, Scopes.codes, "scopes"),
-          sink_of(marking))) do
-        out[#out + 1] = line
-      end
-    end
-    for _, code in ipairs(Scopes.codes) do
-      local errors = by_code[code]
-      if errors ~= nil and not by_marks then
-        local key = file .. " " .. code
-        found[key] = #errors
-        local limit = pinned[key] or 0
-        if #errors > limit then
-          for _, e in ipairs(errors) do
-            out[#out + 1] = file .. ":" .. tostring(e.y) .. ":" .. tostring(e.x) .. ": " .. e.msg .. " (" .. code .. "): " .. e.fix
-          end
-          out[#out + 1] = file .. ": " .. String.counted(#errors, "error") .. " of " .. code .. " in its scopes, pinned " ..
-            tostring(limit) .. "; follow the fix above rather than raise the pin"
-        end
-      end
+    for _, line in ipairs(told_marks(file, Ceilings.marked("scoped", file, source, findings, Scopes.codes, "scopes"),
+        sink_of(marking))) do
+      out[#out + 1] = line
     end
   end
   if memo ~= nil then
     check_memo.finish(memo, "scoped")
-  end
-  local keys: mut {string} = {}
-  for key in pairs(pinned) do keys[#keys + 1] = key end
-  table.sort(keys)
-  for _, key in ipairs(keys) do
-    local count = found[key] or 0
-    local limit = lookup_in(pinned, key)
-    if count < limit and not by_marks then
-      out[#out + 1] = key .. ": pinned " .. tostring(limit) .. " but " .. tostring(count) ..
-        " found; lower the pin in " .. Ceilings.path .. "'s [scoped]"
-    end
   end
   return out
 end
@@ -2448,37 +2376,20 @@ local function kept_outcomes(memo: Sqlite.Handle?, kind: string, tree: Tree,
   return outcomes, missed
 end
 
---- The lines that list the errors over their ceilings ([`Ceilings.over`]): the errors of each code of each file are held
---- to `pinned`, a file with more than pinned is listed with each, one with fewer and a pin for a code the file lacks is
---- told to lower the pin. `what` says what the errors are of in the message, and `where` which ceilings to lower.
-local function held_to_pins(tree: Tree, outcomes: {string: DeclareOutcome}, stage: Ceilings.Stage, codes: {string},
-                            pinned: {string: integer}, what: string, where: string, marking: Ceilings.Marking?,
-                            by_marks: boolean): {string}
+--- The lines that list the errors no marker holds ([`build.ceilings.marked`]): the errors of each code of each file are held to the
+--- markers of their lines, an error with none is listed with its place and fix, and a marker that holds more than its line
+--- has is stale. `what` says what the errors are of in the message.
+local function held_by_markers(tree: Tree, outcomes: {string: DeclareOutcome}, stage: Ceilings.Stage, codes: {string},
+                               what: string, marking: Ceilings.Marking?): {string}
   local out: mut {string} = {}
-  local found: mut {string: integer} = {}
   for _, row in ipairs(tree.rows) do
     local outcome = lookup_in(outcomes, row.file)
-    if by_marks then
-      -- A file the stage could not judge keeps its markers: neither held nor stale.
-      if outcome.unjudged ~= true then
-        for _, line in ipairs(told_marks(row.file, Ceilings.marked(stage, row.file, row.source, outcome.errors, codes, what),
-            sink_of(marking))) do
-          out[#out + 1] = line
-        end
-      end
-    else
-      local held = Ceilings.over(row.file, outcome.errors, codes, pinned, what)
-      for _, line in ipairs(held.lines) do
+    -- A file the stage could not judge keeps its markers: neither held nor stale.
+    if outcome.unjudged ~= true then
+      for _, line in ipairs(told_marks(row.file, Ceilings.marked(stage, row.file, row.source, outcome.errors, codes, what),
+          sink_of(marking))) do
         out[#out + 1] = line
       end
-      for key, n in pairs(held.found) do
-        found[key] = n
-      end
-    end
-  end
-  if not by_marks then
-    for _, line in ipairs(Ceilings.fallen(found, pinned, where)) do
-      out[#out + 1] = line
     end
   end
   return out
@@ -2486,19 +2397,11 @@ end
 
 --- Every `.tl` file of the tree, its declarations and annotations lowered ([`lang.declarations`]) in the new
 --- checker's grammar, but for the files of a `testdata` directory, and counting nothing of a file that does not parse:
---- the errors are the ones `pinned` (by default the `[declared]` ceilings of [`build.ceilings`]) counts, no more. A file with more errors of a
---- code than pinned is listed with each, their places and fix; one with fewer, and a pin for a file with none,
---- is told to lower the pin. The declaration files [`lang/prelude.d.tl`] and [`lang/stdlib.d.tl`] declare the
+--- the errors are the ones its markers hold ([`build.ceilings`]), no more: one with no marker on its line is listed with its
+--- place and fix, and a marker that holds more than its line has is stale. The declaration files [`lang/prelude.d.tl`] and [`lang/stdlib.d.tl`] declare the
 --- globals; every other file imports the modules it names from the whole tree, so the answer for a file is
 --- kept in `memo` under the sources of every module it requires, directly or not.
-function tree_checks.declared(root: string, pinned?: {string: integer}, memo?: Sqlite.Handle,
-                              marking?: Ceilings.Marking): {string}
-  local ceilings, why = ceilings_for(root, "declared", pinned)
-  if ceilings == nil then
-    return { "reading the ceilings: " .. why }
-  end
-  local by_marks = marked_for(root, "declared", pinned)
-  pinned = ceilings
+function tree_checks.declared(root: string, memo?: Sqlite.Handle, marking?: Ceilings.Marking): {string}
   local files, trouble = sources_of(root)
   if files == nil then
     return { "reading the sources: " .. trouble }
@@ -2532,9 +2435,7 @@ function tree_checks.declared(root: string, pinned?: {string: integer}, memo?: S
   if memo ~= nil then
     check_memo.finish(memo, "declared")
   end
-  local out = held_to_pins(tree, outcomes, "declared", Declarations.codes, pinned, "declarations",
-    Ceilings.path .. "'s [declared]", marking, by_marks)
-  return out
+  return held_by_markers(tree, outcomes, "declared", Declarations.codes, "declarations", marking)
 end
 
 local function kept_checks(text: string, _file: string): DeclareOutcome?
@@ -2544,21 +2445,12 @@ end
 --- Every `.tl` file of the tree, lowered as [`declared`] has it and then checked
 --- ([`lang.check`]): every expression and statement of its bodies typed, without flow. The files left out are those
 --- of [`declared`], the declaration files (which have no bodies) and the files that do not parse. The
---- errors are the ones `pinned` (by default the `[checked]` ceilings of [`build.ceilings`]) counts, no more: a file with more errors of a code than
---- pinned is listed with each, their places and fix; one with fewer, and a pin for a file with none, is told to lower
---- the pin. The pins are ceilings that each rewrite and each later piece of the checker
---- lowers, and none is raised, but for a file that did not parse and now does, which is pinned at what it has.
---- The answer for a file is kept in `memo` under the sources of every module it requires,
+--- errors are the ones its markers hold ([`build.ceilings`]), no more: one with no marker on its line is listed with its place
+--- and fix, and a marker that holds more than its line has is stale. The answer for a file is kept in `memo` under the sources of every module it requires,
 --- directly or not, and of the checker. `phases`, when given, gets the nanoseconds spent parsing and scoping
 --- (`prepare`), lowering (`lower`) and checking (`check`) the files the memo lacked.
-function tree_checks.checked(root: string, pinned?: {string: integer}, memo?: Sqlite.Handle,
-                             phases?: {string: integer}, marking?: Ceilings.Marking): {string}
-  local ceilings, why = ceilings_for(root, "checked", pinned)
-  if ceilings == nil then
-    return { "reading the ceilings: " .. why }
-  end
-  local by_marks = marked_for(root, "checked", pinned)
-  pinned = ceilings
+function tree_checks.checked(root: string, memo?: Sqlite.Handle, phases?: {string: integer},
+                             marking?: Ceilings.Marking): {string}
   local files, trouble = sources_of(root)
   if files == nil then
     return { "reading the sources: " .. trouble }
@@ -2600,7 +2492,7 @@ function tree_checks.checked(root: string, pinned?: {string: integer}, memo?: Sq
   if memo ~= nil then
     check_memo.finish(memo, "checked")
   end
-  local out = held_to_pins(tree, outcomes, "checked", Check.codes, pinned, "bodies", Ceilings.path .. "'s [checked]", marking, by_marks)
+  local out = held_by_markers(tree, outcomes, "checked", Check.codes, "bodies", marking)
   for _, problem in ipairs(problems) do
     table.insert(out, 1, problem) -- checked: overload_none -- untyped: call
   end
@@ -2629,15 +2521,10 @@ function tree_checks.pipeline(root: string, build_db: Sqlite.Handle, memo?: Sqli
     "lang/boundaries.tl", "lang/boundary_checks.tl",
     "core/syscalls.h", "core/process.h", "core/socket.h" }, "pipeline 4")
   local tree = tree_of(files, salt, TreeProgram.bindings_of(root), written, shaping_of(root, memo))
-  -- The ceilings are not in the salt: each file's answer is keyed by those held under its own name ([`PipelineCheck.keyed`]).
-  local given: mut {string: boolean} = {}
-  for _, entry in ipairs(files) do
-    given[entry[1] or ""] = true
-  end
   return PipelineCheck.compare(root, build_db, memo, #tree.rows, function(index: integer): PipelineCheck.Row
     local row = assert(tree.rows[index])
-    return { file = row.file, module = row.module, dialect = row.dialect, key = row.key, plain = given[row.file] == true }
-  end, tree_checks.declared(root, nil, memo), tree_checks.checked(root, nil, memo))
+    return { file = row.file, module = row.module, dialect = row.dialect, key = row.key }
+  end, tree_checks.declared(root, memo), tree_checks.checked(root, memo))
 end
 
 --- The files that may read `package`, tests apart: the table that holds the loaded modules, the searchers that find them, `preload`,
@@ -2915,45 +2802,26 @@ function tree_checks.test_clones(root: string, threshold?: integer): {string}
   return out
 end
 
---- What [`tree_checks.markers`] found: the lines that refuse, and the markers each file holds of each code the ceilings file
---- has a marked stage for, which the ratchet holds to the merge base ([`build.ceilings_base`]).
+--- What [`tree_checks.markers`] found: the lines that refuse, and the markers each file holds of each code, which the ratchet
+--- holds to the merge base ([`build.ceilings_base`]).
 local record Marked
   mut lines: mut {string}
   --- File to code to the count of findings its markers hold.
   mut counts: mut {string: {string: integer}}
 end
 
---- The markers of the tree at `root`, when its ceilings file lists a stage under `[marked]`. The counts are of the codes of the marked stages alone, by file: the ratchet's side of the tree.
+--- The markers of the tree at `root`: the counts of each file's markers by `<stage> <code>`, the ratchet's side of the tree.
 function tree_checks.markers(root: string): Marked
   local out: Marked = { lines = {}, counts = {} }
-  local read, _ = Ceilings.read(root)
-  if read == nil then
-    return out
-  end
-  local any = false
-  for _, stage in ipairs(Ceilings.markable()) do
-    if Ceilings.by_marks(read, stage) then any = true end
-  end
-  if not any then
-    return out
-  end
   local files, trouble = sources_of(root)
   if files == nil then
-    local said = "reading the sources: " .. trouble
-    out.lines[1] = said
+    out.lines[1] = "reading the sources: " .. trouble
     return out
   end
   for _, entry in ipairs(files) do
     local file, source = nth(entry, 1), nth(entry, 2)
     if Markers.mentions(source) then
-      local held: mut {string: integer} = {}
-      for key, n in pairs(Markers.counts(source, file)) do
-        for _, stage in ipairs(Ceilings.markable()) do
-          if key:sub(1, #tostring(stage) + 1) == tostring(stage) .. " " and Ceilings.by_marks(read, stage) then
-            held[key] = n
-          end
-        end
-      end
+      local held = Markers.counts(source, file)
       if next(held) ~= nil then
         out.counts[file] = held
       end
@@ -2962,76 +2830,12 @@ function tree_checks.markers(root: string): Marked
   return out
 end
 
---- The codes of the checker's stages are closed ([`Ceilings.closed`]) exactly when nothing holds them: a code with a marker or a
---- row in the tree at `root` must not be listed, a code with none must be, and every listed code is a code of a stage, once. It
---- is a check of the whole tree because it reads every marker, which `markers` does once. `closed` is the list to hold the tree
---- to, [`Ceilings.closed`] by default.
-function tree_checks.closure(root: string, closed?: {string}): {string}
-  local out: mut {string} = {}
-  local read, why = Ceilings.read(root)
-  if read == nil then
-    out[1] = "reading the ceilings: " .. why
-    return out
-  end
-  local held: mut {string: boolean} = {}
-  -- a row of any stage names a code, but for `untyped`, whose rows are files
-  for stage, rows in pairs(read.stages) do
-    if stage ~= "untyped" then
-      for key in pairs(rows) do
-        local code = key:match("^%S+ (%S+)$")
-        if code ~= nil then held[code] = true end
-      end
-    end
-  end
-  for _, keys in pairs(tree_checks.markers(root).counts) do
-    for key in pairs(keys) do
-      local code = key:match(" (%S+)$")
-      if code ~= nil then held[code] = true end
-    end
-  end
-  local codes: mut {string: boolean} = {}
-  local function learn(list: {string})
-    for _, code in ipairs(list) do codes[code] = true end
-  end
-  learn(Scopes.codes)
-  learn(Declarations.codes)
-  learn(Check.codes)
-  local listed: mut {string: boolean} = {}
-  for _, code in ipairs(closed or Ceilings.closed()) do
-    if codes[code] ~= true then
-      out[#out + 1] = code .. " is listed in Ceilings.closed and is no code of a stage"
-    elseif listed[code] == true then
-      out[#out + 1] = code .. " is listed twice in Ceilings.closed"
-    elseif held[code] == true then
-      out[#out + 1] = code .. " is closed and a marker or a row of build/ceilings.txt still holds it"
-    end
-    listed[code] = true
-  end
-  local open: mut {string} = {}
-  for code in pairs(codes) do
-    if held[code] ~= true and listed[code] ~= true then open[#open + 1] = code end
-  end
-  table.sort(open)
-  for _, code in ipairs(open) do
-    out[#out + 1] = code .. " has no marker or row left: add it to Ceilings.closed in build/ceilings.tl, so that nothing holds it again"
-  end
-  return out
-end
-
 --- The calls the new checker gave no function, which no rule of the discipline judged ([`build.syntax_contracts`]'s
---- `untyped`), counted per file of the tree and held to `pinned` (by default the `[untyped]` ceilings): a file with fewer,
---- and a pin for a file with none, is told to lower the pin; one with more is listed, as the build itself refuses it
---- ([`build.pipeline`]'s `generate`). The count is the port's alone, over the program the pipeline reads ([`build.tree_program`],
+--- `untyped`), held by the markers at the lines of the calls (`-- untyped: call`): a call with no marker on its line is listed,
+--- as the build itself refuses it ([`build.pipeline`]'s `generate`), and a marker that holds more than its line has is stale. The count is the port's alone, over the program the pipeline reads ([`build.tree_program`],
 --- its calls of [`Shape.record_of`] resolved). The answer for a
 --- file is kept in `memo` under its source and those of every module it requires, and of the checker.
-function tree_checks.untyped(root: string, pinned?: {string: integer}, memo?: Sqlite.Handle,
-                             marking?: Ceilings.Marking): {string}
-  local given, why = ceilings_for(root, "untyped", pinned)
-  if given == nil then
-    return { "reading the ceilings: " .. why }
-  end
-  local by_marks = marked_for(root, "untyped", pinned)
-  local ceilings: {string: integer} = given
+function tree_checks.untyped(root: string, memo?: Sqlite.Handle, marking?: Ceilings.Marking): {string}
   local files, trouble = sources_of(root)
   if files == nil then
     return { "reading the sources: " .. trouble }
@@ -3054,15 +2858,9 @@ function tree_checks.untyped(root: string, pinned?: {string: integer}, memo?: Sq
   -- The line of each of those calls, by file, for the markers.
   local at: mut {string: {integer}} = {}
   local missed: mut {DeclareFile} = {}
-  -- A file this check does not count keeps its pin as it stands, which only a count can call stale.
-  local function stands(file: string)
-    local pin = ceilings[file]
-    if pin ~= nil then found[file] = pin end
-  end
   for _, row in ipairs(tree.rows) do
     if row.dialect ~= "tl" or not SyntaxContracts.applies(row.file) then
       -- Not held to the discipline: nothing is counted of it.
-      stands(row.file)
     else
       local count: integer? = nil
       if memo ~= nil then
@@ -3092,8 +2890,7 @@ function tree_checks.untyped(root: string, pinned?: {string: integer}, memo?: Sq
       local subject: Report.Subject? = nil
       if result ~= nil then subject = Report.of(build.program, result) end
       if subject == nil then
-        -- A module the checker kept no report of is refused elsewhere ([`checked`]); its pin stands.
-        stands(row.file)
+        -- A module the checker kept no report of is refused elsewhere ([`checked`]).
         return
       end
       local read = SyntaxContracts.check(subject, nil, SyntaxContracts.declared_in(tree.index))
@@ -3111,33 +2908,20 @@ function tree_checks.untyped(root: string, pinned?: {string: integer}, memo?: Sq
     check_memo.finish(memo, "untyped")
   end
   local out: mut {string} = {}
-  if by_marks then
-    for _, row in ipairs(tree.rows) do
-      -- A file this check does not count has no findings and its markers are not judged: they may be of a check that did not run.
-      local lines = at[row.file]
-      if lines ~= nil then
-        local findings: mut {Ceilings.Finding} = {}
-        for _, line in ipairs(lines) do
-          findings[#findings + 1] = { code = Ceilings.untyped_code, y = line, x = 1, msg = Ceilings.untyped_message,
-            fix = Ceilings.untyped_fix }
-        end
-        for _, line in ipairs(told_marks(row.file, Ceilings.marked("untyped", row.file, row.source, findings,
-            { Ceilings.untyped_code }, "calls"), sink_of(marking))) do
-          out[#out + 1] = line
-        end
+  for _, row in ipairs(tree.rows) do
+    -- A file this check does not count has no findings and its markers are not judged: they may be of a check that did not run.
+    local lines = at[row.file]
+    if lines ~= nil then
+      local findings: mut {Ceilings.Finding} = {}
+      for _, line in ipairs(lines) do
+        findings[#findings + 1] = { code = Ceilings.untyped_code, y = line, x = 1, msg = Ceilings.untyped_message,
+          fix = Ceilings.untyped_fix }
+      end
+      for _, line in ipairs(told_marks(row.file, Ceilings.marked("untyped", row.file, row.source, findings,
+          { Ceilings.untyped_code }, "calls"), sink_of(marking))) do
+        out[#out + 1] = line
       end
     end
-    return out
-  end
-  for _, row in ipairs(tree.rows) do
-    local count, pin = found[row.file], ceilings[row.file] or 0
-    if count ~= nil and count > pin then
-      out[#out + 1] = row.file .. ": " .. String.counted(count, "call") .. " the checker gave no function, which " ..
-        "no rule of the discipline judged, pinned " .. tostring(pin) .. "; type what it calls through rather than raise the pin"
-    end
-  end
-  for _, line in ipairs(Ceilings.fallen(found, ceilings, Ceilings.path .. "'s [untyped]")) do
-    out[#out + 1] = line
   end
   return out
 end

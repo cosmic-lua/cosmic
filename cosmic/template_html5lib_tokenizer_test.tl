@@ -21,6 +21,7 @@
 --- by the tree-construction test alone.
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
+local Shape = require("cosmic.shape")
 local Template = require("cosmic.template")
 local Test = require("cosmic.test")
 
@@ -789,15 +790,42 @@ local record Reach
   failures: mut {string}
 end
 
+--- A test case of a fixture file. A token of `output` is an array whose parts differ by its kind (and may be `null`), so it
+--- is read through [`Json.get`].
+local record Case
+  description: string
+  input: string
+  output: {any}
+  initialStates?: {string}
+  lastStartTag?: string
+  doubleEscaped?: boolean
+end
+
+--- A fixture file: the cases it holds, if it holds `tests` (xmlViolation.test holds others, which are not run).
+local record Suite tests?: {Case} end
+
+local SUITE <const> = Shape.record_of("Suite")
+
+--- Part `at` of the token `item`, which [`Json.get`] answers nil for where it holds `null`.
+local function part(item: any, at: integer): any
+  return (Json.get(item, { at }))
+end
+
+--- Part `at` of the token `item`, which a token holds as a string there.
+local function text_of(item: any, at: integer): string
+  local v = part(item, at)
+  assert(v is string, "part " .. tostring(at) .. " of a token is a string, not a " .. type(v))
+  return v
+end
+
 --- The tokens a case expects, as `tokenize` writes them.
 local function expected_tokens(output: {any}): {string}
   local tokens: mut {string} = {}
   local chars = ""
-  for _, raw in ipairs(output) do
-    local item = raw as {any} -- checked: cast_refused
-    local kind = item[1] as string -- checked: cast_refused
+  for _, item in ipairs(output) do
+    local kind = text_of(item, 1)
     if kind == "Character" then
-      chars = chars .. (item[2] as string) -- checked: cast_refused
+      chars = chars .. text_of(item, 2)
     else
       if chars ~= "" then
         tokens[#tokens + 1] = "C:" .. chars
@@ -805,16 +833,18 @@ local function expected_tokens(output: {any}): {string}
       end
       if kind == "StartTag" then
         local attrs: mut {string: string} = {}
-        for k, v in pairs(item[3] as {string: any}) do -- checked: cast_refused
-          attrs[k] = v as string -- checked: cast_refused
+        local given = assert(Json.to_object(part(item, 3)))
+        for k, v in pairs(given) do
+          assert(v is string, "an attribute of a token is a string")
+          attrs[k] = v
         end
-        tokens[#tokens + 1] = tag_text("S", item[2] as string, attrs, item[4] == true) -- checked: cast_refused
+        tokens[#tokens + 1] = tag_text("S", text_of(item, 2), attrs, part(item, 4) == true)
       elseif kind == "EndTag" then
-        tokens[#tokens + 1] = "E:" .. (item[2] as string) -- checked: cast_refused
+        tokens[#tokens + 1] = "E:" .. text_of(item, 2)
       elseif kind == "ProcessingInstruction" then
-        tokens[#tokens + 1] = "P:" .. (item[2] as string) .. ":" .. (item[3] as string) -- checked: cast_refused*2
+        tokens[#tokens + 1] = "P:" .. text_of(item, 2) .. ":" .. text_of(item, 3)
       elseif kind == "Comment" then
-        tokens[#tokens + 1] = "M:" .. (item[2] as string) -- checked: cast_refused
+        tokens[#tokens + 1] = "M:" .. text_of(item, 2)
       else
         tokens[#tokens + 1] = "D"
       end
@@ -922,27 +952,13 @@ local function test_a_slot_is_accepted_only_where_the_tokenizer_is_in_the_state_
   for _, file in ipairs(files) do
     if file:find("%.test$") then
       local text = assert(Fs.read(DIRECTORY .. "/" .. file))
-      local document = assert(Json.decode(text, { lone_surrogates = true })) as {string: any} -- checked: cast_refused
-      -- The XML-violation cases give the tokens of a coercing consumer.
-      document.xmlViolationTests = nil
-      for _, list in pairs(document) do
-        for _, raw in ipairs(list as {any}) do -- checked: cast_refused
-          local case = raw as {string: any} -- checked: cast_refused
-          local input = case.input
-          local output = case.output
-          if input is string and output is {any} and case.doubleEscaped == nil then
-            local states = case.initialStates
-            local initials: {string} = {}
-            if states is {string} then
-              initials = states
-            else
-              initials = { "Data state" }
-            end
-            local last = case.lastStartTag
-            for _, initial in ipairs(initials) do
-              check_case(tostring(case.description), input, initial, last is string and last or nil,
-                output, reach)
-            end
+      local suite = assert(SUITE:decode_into(text, { lone_surrogates = true }))
+      -- The XML-violation cases give the tokens of a coercing consumer, and are left out of [`Suite`].
+      for _, case in ipairs(suite.tests or {}) do
+        if case.doubleEscaped == nil then
+          local initials = case.initialStates or { "Data state" }
+          for _, initial in ipairs(initials) do
+            check_case(case.description, case.input, initial, case.lastStartTag, case.output, reach)
           end
         end
       end

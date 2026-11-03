@@ -300,21 +300,21 @@ local function darwin_flush_case(tmp: string, empty: boolean, fail: boolean)
   local real_uname, real_flush = sys.uname, sys.full_fsync
   local real_sync, real_rename = Fs.fsync, Fs.rename
   local raw, fs = sys as {string:any}, Fs as {string:any} -- checked: cast_refused*2
-  local syncs = { value = 0 }
-  local flushes = { value = 0 }
-  local owner = { value = -1 }
-  local renamed = { value = false }
+  local syncs = 0
+  local flushes = 0
+  local owner = -1
+  local renamed = false
   raw.uname = function(): sys.Uname
     return { ...assert(real_uname()), sysname = "Darwin" }
   end
   fs.fsync = function(fd: integer): boolean, string
-    assert(flushes.value == 0 or renamed.value == true, "payload fsync followed the device flush") -- checked: map_field*2
-    syncs.value = syncs.value + 1 -- checked: map_field*2
+    assert(flushes == 0 or renamed == true, "payload fsync followed the device flush")
+    syncs = syncs + 1
     return real_sync(fd)
   end
   raw.full_fsync = function(fd: integer): boolean, string, integer
-    flushes.value, owner.value = flushes.value + 1, fd -- checked: map_field*3
-    assert(syncs.value > 0 and renamed.value ~= true, "full flush preceded payload sync or followed rename") -- checked: map_field*2
+    flushes, owner = flushes + 1, fd
+    assert(syncs > 0 and renamed ~= true, "full flush preceded payload sync or followed rename")
     local st = assert(sys.fstat(fd))
     assert(st.kind == "file", "full flush used a directory descriptor")
     local found = false
@@ -331,24 +331,24 @@ local function darwin_flush_case(tmp: string, empty: boolean, fail: boolean)
     return true, "", 0
   end
   fs.rename = function(from: string, to: string): boolean, string
-    assert(flushes.value == 1 and not fail, "payload published without a successful full flush") -- checked: map_field
-    renamed.value = true -- checked: map_field
+    assert(flushes == 1 and not fail, "payload published without a successful full flush")
+    renamed = true
     return real_rename(from, to)
   end
   local ok, problem = pcall(function(): boolean
     local path, trouble = Patch.prepare(root, "lib", cache)
-    assert(flushes.value == 1, "device flush missing or repeated") -- checked: map_field
-    assert(sys.fstat(owner.value) == nil, "scratch owner descriptor leaked") -- checked: map_field
+    assert(flushes == 1, "device flush missing or repeated")
+    assert(sys.fstat(owner) == nil, "scratch owner descriptor leaked")
     if fail then
       assert(path == nil and trouble:find("injected full flush failure", 1, true) ~= nil, trouble)
-      assert(renamed.value ~= true, "failed device flush published a tree") -- checked: map_field
+      assert(renamed ~= true, "failed device flush published a tree")
       assert(table.concat(assert(Fs.list(cache)), ",") == ".scratch-gate",
         "failed device flush left a payload or scratch owner")
     else
-      assert(path ~= nil and renamed.value, trouble) -- checked: map_field
-      local before = syncs.value -- checked: map_field
+      assert(path ~= nil and renamed, trouble)
+      local before = syncs
       assert(Patch.prepare(root, "lib", cache) == path)
-      assert(flushes.value == 1 and syncs.value == before, "warm hit flushed again") -- checked: map_field*2
+      assert(flushes == 1 and syncs == before, "warm hit flushed again")
     end
     return true
   end)

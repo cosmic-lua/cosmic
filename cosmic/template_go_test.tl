@@ -684,10 +684,13 @@ local function test_an_empty_action_at_any_byte_boundary_leaves_raw_text_slots_a
   assert(#wrong == 0, table.concat(wrong, "\n"))
 end
 
+--- The data the templates below read.
+local record Page n?: integer x?: string e?: {string} end
+
 --- What `body`, an html template, renders to for `page`: the module generated
 --- in the new grammar, written as Lua by [`build.compile_grammar`] (which writes it
 --- whether or not the checker likes what it reads), run against the real [`cosmic.html`].
-local function render(body: string, page: {string: any}): string
+local function render(body: string, page: Page): string
   local out, why = Template.compile(HEAD .. body, "t.tmpl", { dialects = nil })
   assert(out ~= nil, why)
   local compiled = assert(CompileGrammar.compile({ { path = "t.tl", relative = "t.tl", text = out, declaration = false } })[1])
@@ -741,21 +744,21 @@ local RENDERED <const>: {Rendered} = {
 }
 
 local function test_a_number_is_a_text_slot_as_go_prints_a_non_string_value()
-  assert(render("{{.n}}", { n = 42 }) == "42") -- checked: any_use
-  assert(render("<p>{{.n}}</p>", { n = 7 }) == "<p>7</p>") -- checked: any_use
-  assert(render("<p title=\"{{.n}}\">", { n = 7 }) == "<p title=\"" .. attr("7") .. "\">") -- checked: any_use
+  assert(render("{{.n}}", { n = 42 }) == "42")
+  assert(render("<p>{{.n}}</p>", { n = 7 }) == "<p>7</p>")
+  assert(render("<p title=\"{{.n}}\">", { n = 7 }) == "<p title=\"" .. attr("7") .. "\">")
 end
 
 local function test_a_range_else_renders_as_go_renders_it()
   -- TestEscape: rangeElse, whose list is empty.
-  assert(render("{{range .e}}{{.}}{{else}}{{.x}}{{end}}", { e = {}, x = "<Hello>" }) == "&lt;Hello&gt;") -- checked: any_use, literal_needs_type
-  assert(render("{{range .e}}{{.}}{{else}}{{.x}}{{end}}", { e = { "<a>", "b" }, x = "c" }) == "&lt;a&gt;b") -- checked: any_use*2
+  assert(render("{{range .e}}{{.}}{{else}}{{.x}}{{end}}", { e = {}, x = "<Hello>" }) == "&lt;Hello&gt;")
+  assert(render("{{range .e}}{{.}}{{else}}{{.x}}{{end}}", { e = { "<a>", "b" }, x = "c" }) == "&lt;a&gt;b")
 end
 
 local function test_hostile_values_are_rendered_for_the_place_they_land_in()
   local wrong: mut {string} = {}
   for _, case in ipairs(RENDERED) do
-    local got = render(case.source, { x = case.x }) -- checked: any_use
+    local got = render(case.source, { x = case.x })
     if got ~= case.want then
       wrong[#wrong + 1] = case.source .. " with " .. string.format("%q", case.x) .. " gave " ..
         string.format("%q", got) .. ", not " .. string.format("%q", case.want)
@@ -771,10 +774,10 @@ local EVERY_BYTE <const> = "\0\1\2\3\4\5\6\7\8\9\10\11\12\13\14\15\16\17\18\19\2
 
 local function test_no_byte_gets_out_of_a_quoted_place_unescaped()
   for _, body in ipairs({ "<p>{{.x}}</p>", "<textarea>{{.x}}</textarea>", "<p title=\"{{.x}}\">", "<p title='{{.x}}'>" }) do
-    local got = render(body, { x = EVERY_BYTE }) -- checked: any_use
+    local got = render(body, { x = EVERY_BYTE })
     local inner = got:gsub("^<%w+[^>]*>", ""):gsub("</?%w+>$", "")
     assert(not inner:find("[<>\"']"), body .. " let a markup byte through: " .. string.format("%q", got))
   end
-  local url = render("<a href=\"{{.x}}\">", { x = EVERY_BYTE }) -- checked: any_use
+  local url = render("<a href=\"{{.x}}\">", { x = EVERY_BYTE })
   assert(url == "<a href=\"" .. INVALID .. "\">", url)
 end

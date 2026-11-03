@@ -3,7 +3,6 @@
 --- `ci.yml` skips wherever its marker's key, which hashes none of these
 --- sources, found an earlier pass: here each verdict is keyed by the
 --- sources it reads, so a change to one runs it again on every leg.
-local Ceilings = require("build.ceilings")
 local Fs = require("cosmic.fs")
 local Markers = require("build.markers")
 local Shape = require("cosmic.shape")
@@ -79,7 +78,7 @@ local sets_what_it_reads: {string:{string:boolean}} = {
     COSMIC_CI_PORTABLE_SHARD = true, COSMIC_CI_PORTABLE_SHARES = true,
     GITHUB_OUTPUT = true, GITHUB_ENV = true,
     RUNNER_TEMP = true },
-  -- The check that the ceilings only fall reads the run's own variables, in the tool's `fix --check` and not in a suite's
+  -- The check that the markers only fall reads the run's own variables, in the tool's `fix --check` and not in a suite's
   -- worker; its test gives them to the check as a table.
   ["build/ceilings_base.tl"] = { COSMIC_CEILINGS_BASE = true, COSMIC_CI_BASE_SHA = true, COSMIC_CI_EVENT = true, GITHUB_EVENT_NAME = true,
     GITHUB_REF = true, GITHUB_ACTIONS = true },
@@ -159,9 +158,8 @@ local function test_the_darwin_list_names_test_modules_of_the_tree()
   end
 end
 
---- ci/strict-files.txt lists the files the running product compiles at run time with no ceiling to stand on. `fix --check .`
---- passes a file with a pin; the product's run of it stops at the first finding, so a file there has no pin in any stage
---- of build/ceilings.txt, and no marker.
+--- ci/strict-files.txt lists the files the running product compiles at run time with no marker to stand on. `fix --check .`
+--- passes a file with a marker; the product's run of it stops at the first finding, so a file there has no marker.
 local function strict_files(): {string}
   local files: mut {string} = {}
   for line in (assert(Fs.read("ci/strict-files.txt"))):gmatch("[^\n]+") do
@@ -171,27 +169,18 @@ local function strict_files(): {string}
   return files
 end
 
-local function test_a_file_run_without_ceilings_has_none_pinned()
+local function test_a_file_run_without_markers_has_none()
   local files = strict_files()
-  assert(#files > 0, "the list of files run without ceilings names none")
-  local pinned = assert(Ceilings.read("."))
+  assert(#files > 0, "the list of files run without markers names none")
   local seen: mut {string:boolean} = {}
   for _, file in ipairs(files) do
     assert(seen[file] ~= true, file .. ": listed twice")
     seen[file] = true
     local st = Fs.stat(file)
     assert(st ~= nil and st.kind == "file", file .. ": no such file")
-    for stage, keys in pairs(pinned.stages) do
-      for key, count in pairs(keys) do
-        assert(key ~= file and key:sub(1, #file + 1) ~= file .. " ",
-          file .. " is compiled by the running product without ceilings, so it has none: [" .. stage .. "] pins " ..
-            tostring(count) .. " (" .. key .. "); fix the finding rather than raise the pin")
-      end
-    end
-    -- nor a marker, which holds a finding the same way
     local text = assert(Fs.read(file))
     local marked = Markers.counts(text, file)
-    assert(next(marked) == nil, file .. " is compiled by the running product without ceilings, so it has no marker for a " ..
+    assert(next(marked) == nil, file .. " is compiled by the running product without markers, so it has none for a " ..
         "finding; fix the finding rather than hold it")
   end
 end

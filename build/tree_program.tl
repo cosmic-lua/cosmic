@@ -1,11 +1,11 @@
 --- The program the new checker is measured over, and the one the build's own pipeline ([`build.pipeline`]) checks a module
 --- against: which files are modules, how the standard library's declarations reach the checker, which bindings of C are typed.
---- The ceilings of [`build.ceilings`] hold for a [`build.driver`] build configured as [`TreeProgram.build`] configures it, so
---- [`build.tree_checks`], which counts the errors the pins allow, and [`Driver.Build.held`], which refuses what they do not,
---- both configure it here, and read the same program: the same sources ([`TreeProgram.index`]) and
+--- The markers of [`build.ceilings`] hold for a [`build.driver`] build configured as [`TreeProgram.build`] configures it, so
+--- [`build.tree_checks`], which lists the errors no marker holds, and [`Driver.Build.held`], which refuses them, both
+--- configure it here, and read the same program: the same sources ([`TreeProgram.index`]) and
 --- with the same calls of [`Shape.record_of`] resolved ([`TreeProgram.splice`]), the same globals and bindings. A check of
---- the whole tree holds them to it: for every module the working database stages, the tree's checks refuse it for a count
---- over a ceiling exactly when the pipeline does, and the modules the pipeline refuses for more than a count are named
+--- the whole tree holds them to it: for every module the working database stages, the tree's checks refuse it for an error
+--- no marker holds exactly when the pipeline does, and the modules the pipeline refuses for more than that are named
 --- ([`build.pipeline_check`]).
 ---
 --- The globals are the declarations of the Lua standard library ([`lang/stdlib.d.tl`]) and the prelude ([`lang/prelude.d.tl`]),
@@ -32,7 +32,7 @@ local record TreeProgram
   end
 
   --- The sources of `entries`: pairs of a path below the root and its text, or with the module and the name the
-  --- ceilings are kept under as well for a source the build writes from another file ([`Driver.index`]), all in the new
+  --- findings are told under as well for a source the build writes from another file ([`Driver.index`]), all in the new
   --- grammar, less the programs of a `testdata/` directory. `kinds` says of a file what the working database says
   --- of its input; a `test` has its functions called from outside.
   index: function(entries: {{string}}, kinds: {string: string}): Driver.Index
@@ -74,7 +74,7 @@ local record TreeProgram
 
   --- The declarations of the bindings of C ([`cosmic.sys`], the raw process and socket tables), written from the headers under
   --- `root` as the build derives them ([`build.gen_syscalls`]), as the entries [`TreeProgram.index`] takes: the file they stand
-  --- for, the module, and the header the ceilings are kept under; none where the tree has no header.
+  --- for, the module, and the header it is told under; none where the tree has no header.
   bindings_of: function(root: string): {{string}}
 
   --- The Teal the build writes from the doc guides (`doc/guides/*.md`, [`build.doctest`]) and the templates (`*.tmpl`,
@@ -287,7 +287,7 @@ end
 --
 -- TODO: have build.gen_syscalls write `mut` on the fields of a binding's table that a program writes (a stand-in's), once
 -- a header's `@field` line can say which they are: it writes no `mut`, so a write to a stand-in's field (field_fixed) is
--- refused, and the [checked] ceilings of the files that use the bindings hold those counts.
+-- refused, and the `checked` markers of the files that use the bindings hold those findings.
 function TreeProgram.bindings_of(root: string): {{string}}
   local out: mut {{string}} = {}
   for _, derivation in ipairs(gen_syscalls.targets) do

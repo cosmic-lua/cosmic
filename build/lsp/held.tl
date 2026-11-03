@@ -128,7 +128,7 @@ function held.built(self: Program, file: string, text: string, module: string, t
   local index = Driver.index({ { file, text, module } }, none, function(_: string, _: string): Driver.Extra
     return { tests = tests }
   end)
-  return { build = self.build, ceilings = self.options.ceilings, index = index, globals = self.options.globals,
+  return { build = self.build, index = index, globals = self.options.globals,
     standard = self.standard, types = true, given = {}, stubs = nil, stubbed = nil, project = self.options.project }
 end
 

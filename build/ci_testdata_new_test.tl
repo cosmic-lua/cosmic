@@ -1,7 +1,6 @@
 --- [`build.tree_checks`]'s `ci_testdata` with the new checker ([`build.pipeline`]): a file under `ci/testdata` that does
 --- not check is named with its line in the checker's words. It needs the declarations of the standard library that the
 --- program itself carries, which a policy of the profile "cosmic" gives a worker.
-local Ceilings = require("build.ceilings")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local tree_checks = require("build.tree_checks")
@@ -46,19 +45,16 @@ local function test_a_tree_without_testdata_has_nothing_to_say(dir: string)
   assert(#tree_checks.ci_testdata(dir .. "/nowhere") == 0)
 end
 
---- Every finding of the new checker in a file under ci/testdata is told: no marker or count holds one, so a new finding fails.
-local function test_a_finding_is_told_whatever_a_ceilings_file_says(dir: string)
+--- Every finding of the new checker in a file under ci/testdata is told: no marker holds one, so a new finding fails.
+local function test_a_finding_is_told_though_its_line_carries_a_marker(dir: string)
   local root = dir .. "/tree"
-  assert(Fs.mkdirs(root .. "/build"))
   assert(Fs.mkdirs(root .. "/ci/testdata"))
-  assert(Fs.write(root .. "/ci/testdata/bad.tl", "local x: integer = \"s\" -- checked: not_assignable\nreturn x\n"))
+  assert(Fs.write(root .. "/ci/testdata/bad.tl", "local x: integer = \"s\"\nreturn x\n"))
   local bare = table.concat(tree_checks.ci_testdata(root), "\n")
   assert(bare:find("ci/testdata/bad.tl:1:", 1, true) ~= nil and
-      bare:find("1 error of not_assignable in its bodies; follow the fix above", 1, true) ~= nil, bare)
-  -- a marker on the line holds nothing, and a row of the old `[testdata]` section is no row the file may hold
-  assert(Fs.write(root .. "/build/ceilings.txt", "[marked]\nscoped declared untyped checked\n\n[testdata]\nci/testdata/bad.tl not_assignable 1\n"))
-  local pinned = table.concat(tree_checks.ci_testdata(root), "\n")
-  assert(pinned == bare, pinned)
-  local read, why = Ceilings.read(root)
-  assert(read == nil and why:find("[testdata] is no section of this file", 1, true) ~= nil, tostring(why))
+      bare:find("1 error of not_assignable in its bodies on line 1; follow the fix above", 1, true) ~= nil, bare)
+  -- a marker on the line holds nothing
+  assert(Fs.write(root .. "/ci/testdata/bad.tl", "local x: integer = \"s\" -- checked: not_assignable\nreturn x\n"))
+  local marked = table.concat(tree_checks.ci_testdata(root), "\n")
+  assert(marked == bare, marked)
 end

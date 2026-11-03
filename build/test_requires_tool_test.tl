@@ -46,10 +46,10 @@ end
 --- with `extra` set in its environment.
 local function run(root: string, extra?: {string:string}): string, integer
   local env = this_program.environment()
-  env.COSMIC_TEST_SANDBOX = "0" -- checked: map_field
-  env.COSMIC_SANDBOX = nil -- checked: map_field
-  env.COSMIC_CI_REQUIRE_SANDBOX = nil -- checked: map_field
-  env.COSMIC_TEST_PROMISES, env.COSMIC_TEST_LEG = nil, nil -- checked: map_field*2
+  env["COSMIC_TEST_SANDBOX"] = "0"
+  env["COSMIC_SANDBOX"] = nil
+  env["COSMIC_CI_REQUIRE_SANDBOX"] = nil
+  env["COSMIC_TEST_PROMISES"], env["COSMIC_TEST_LEG"] = nil, nil
   for name, value in pairs(extra or {}) do env[name] = value end
   local started = this_program.program({ "test" }, {
     cwd = root, env = env, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(90),
@@ -112,7 +112,7 @@ error("a module that is not applicable must not load")
 local function test_c() assert(true) end
 ]]))
   for i, extra in ipairs({ {}, {}, { COSMIC_SANDBOX = "must" }, { COSMIC_CI_REQUIRE_SANDBOX = "1" } }) do -- checked: literal_needs_type*2
-    extra.COSMIC_TEST_PLATFORM = "other"
+    extra["COSMIC_TEST_PLATFORM"] = "other"
     local out, code = run(root, extra)
     assert(code == 0, out)
     assert(out:find("test: N/A  artifact_test test_a: requires portable: portable: this platform has none\n", 1, true), out)
@@ -193,17 +193,17 @@ error("a module with an absent requirement must not load")
         out:find("the leg linux-test promises nest", 1, true), out)
     assert(not out:find("FAIL  plain_test", 1, true) and not out:find("must not load", 1, true), out)
     -- Without a leg's name, the run is named.
-    extra.COSMIC_TEST_LEG = nil -- checked: map_field
+    extra["COSMIC_TEST_LEG"] = nil
     out, code = run(root, extra)
     assert(code ~= 0 and out:find("this run promises nest", 1, true) ~= nil, out)
     -- Not promised: the same absences fail nothing.
-    extra.COSMIC_TEST_PROMISES = "sandbox,userns" -- checked: map_field
+    extra["COSMIC_TEST_PROMISES"] = "sandbox,userns"
     out, code = run(root, extra)
     assert(code == 0, out)
     assert(out:find("test: N/A  linux_test test_a: requires nest: ", 1, true), out)
     -- A run that is not held ignores what the leg promised.
-    extra.COSMIC_TEST_PROMISES = "nest,proc" -- checked: map_field
-    extra.COSMIC_SANDBOX, extra.COSMIC_CI_REQUIRE_SANDBOX = nil, nil -- checked: map_field*2
+    extra["COSMIC_TEST_PROMISES"] = "nest,proc"
+    extra["COSMIC_SANDBOX"], extra["COSMIC_CI_REQUIRE_SANDBOX"] = nil, nil
     out, code = run(root, extra)
     assert(code == 0 and out:find("N/A  linux_test test_a", 1, true), out) -- checked: or_mix
   end

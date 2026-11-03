@@ -1102,23 +1102,23 @@ local function test_a_program_is_keyed_by_what_it_runs_as(tmp: string)
     local program = declared_key.program_identity(declared_key.digests(root), { tool })
     return program, key_of(root, { ...s, program = program })
   end
-  local meta: {string:string} = { boot_hash = "one", projected = "one", writer = "w", compiler = "c" }
+  local meta: mut {string:string} = { boot_hash = "one", projected = "one", writer = "w", compiler = "c" }
   program_at(tool, "core one", meta, "bytecode one")
   local program, key = keys()
   -- Rebuilt for an edit no binary carries: its bytes move, not its key.
   local bytes = assert(Fs.read(tool))
-  meta.boot_hash, meta.projected = "two", "two" -- checked: map_field*2
+  meta["boot_hash"], meta["projected"] = "two", "two"
   program_at(tool, "core one", meta, "bytecode one")
   assert(assert(Fs.read(tool)) ~= bytes, "the rebuilt program's bytes did not move")
   local rebuilt_program, rebuilt_key = keys()
   assert(rebuilt_program == program, "boot_hash and projected moved the program")
   assert(rebuilt_key == key, "boot_hash and projected moved the key")
   -- Any other row of its meta does.
-  meta.writer = "another writer" -- checked: map_field
+  meta["writer"] = "another writer"
   program_at(tool, "core one", meta, "bytecode one")
   local writer_program, writer_key = keys()
   assert(writer_program ~= program and writer_key ~= key, "the writer left the key")
-  meta.writer = "w" -- checked: map_field
+  meta["writer"] = "w"
   -- A carried module.
   program_at(tool, "core one", meta, "bytecode two")
   local module_program, module_key = keys()
@@ -1132,13 +1132,13 @@ local function test_a_program_is_keyed_by_what_it_runs_as(tmp: string)
     "the image left the program")
   assert(image_key ~= key and image_key ~= module_key, "the image left the key")
   -- A text's bytes after a NUL, where SQLite's quote() would end it.
-  meta.note = "a\0one" -- checked: map_field
+  meta["note"] = "a\0one"
   program_at(tool, "core one", meta, "bytecode one")
   local one_program = keys()
-  meta.note = "a\0two" -- checked: map_field
+  meta["note"] = "a\0two"
   program_at(tool, "core one", meta, "bytecode one")
   assert(keys() ~= one_program, "a text's bytes after a NUL left the program")
-  meta.note = nil -- checked: map_field
+  meta["note"] = nil
   -- A file in o/bin that is no artifact is keyed by its contents.
   program_at(tool, "core one", meta, "bytecode one")
   assert(select(2, keys()) == key)

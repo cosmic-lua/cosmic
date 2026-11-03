@@ -243,27 +243,31 @@ end
 -- paths to the key alone.
 local function spec_of(d: Drawn, host: string): declared_key.Spec
   local files: mut {string:boolean} = {}
-  for _, file in ipairs(d.lists.files) do files[file] = true end -- checked: map_field
+  for _, file in ipairs(list_of(d, "files")) do files[file] = true end
   local hosts: mut {string} = {}
-  for _, path in ipairs(d.lists.hosts) do hosts[#hosts + 1] = host .. "/" .. path end -- checked: map_field
-  local environment: mut {string:string} = {}
-  local env = d.lists.environment -- checked: map_field
-  for i = 1, #env - 1, 2 do environment[env[i]] = env[i + 1] end
-  local required: mut {string:string} = {}
-  local asked = d.lists.requires -- checked: map_field
-  for i = 1, #asked - 1, 2 do required[asked[i]] = asked[i + 1] end
+  for _, path in ipairs(list_of(d, "hosts")) do hosts[#hosts + 1] = host .. "/" .. path end
+  local function named(list: {string}): mut {string:string}
+    local out: mut {string:string} = {}
+    for i = 1, #list - 1, 2 do out[support.nth(list, i)] = support.nth(list, i + 1) end
+    return out
+  end
+  local environment = named(list_of(d, "environment"))
+  local required = named(list_of(d, "requires"))
   local effective: test_inputs.Effective = {
-    files = files, reads = d.lists.reads, host = hosts, env = {}, network = {}, -- checked: map_field
+    files = files, reads = list_of(d, "reads"), host = hosts, env = {}, network = {},
     tool = true, store = false, system = true, caches = {},
     cache_paths = {},
   }
   local s = d.scalars
+  local function scalar(name: string): string
+    return (assert(s[name], name .. " is a scalar every drawn spec holds"))
+  end
   return {
-    id = s.id, group = "group", module_key = s.module_key, runtime = s.runtime, -- checked: map_field*3
-    compiler = s.compiler, epoch = "1-00000000", timeout_ns = Clock.seconds(30), program = s.program, host = s.host, -- checked: map_field*3
-    system = s.system, launcher = s.launcher, declaration = s.declaration, -- checked: map_field*3
+    id = scalar("id"), group = "group", module_key = scalar("module_key"), runtime = scalar("runtime"),
+    compiler = scalar("compiler"), epoch = "1-00000000", timeout_ns = Clock.seconds(30), program = s["program"], host = scalar("host"),
+    system = s["system"], launcher = s["launcher"], declaration = scalar("declaration"),
     effective = effective, environment = environment, requires = required, runs_tool = false,
-    closure_store = s.closure_store, tree = s.tree, -- checked: map_field*2
+    closure_store = s["closure_store"], tree = s["tree"],
   }
 end
 
@@ -312,8 +316,8 @@ local function test_a_variable_named_twice_packs_as_its_last_value()
     return min
   end })
   local other = copy(one)
-  one.lists.environment = { "X", "a", "X", "b" } -- checked: map_field
-  other.lists.environment = { "X", "b" } -- checked: map_field
+  one.lists["environment"] = { "X", "a", "X", "b" }
+  other.lists["environment"] = { "X", "b" }
   assert(pack(one) == pack(other), "one environment packed as two")
-  assert(spec_of(unpack(pack(one)), "/host").environment.X == "b") -- checked: map_field
+  assert(spec_of(unpack(pack(one)), "/host").environment["X"] == "b")
 end
