@@ -246,7 +246,7 @@ local function test_each_code_has_an_error_with_its_message_and_fix()
   end
   -- type_too_deep and store_refused are checked below and by the property test.
   for _, code in ipairs(Declarations.codes) do
-    assert(seen[code] or code == "type_too_deep" or code == "store_refused", code .. " has no case") -- checked: condition_type
+    assert(seen[code] == true or code == "type_too_deep" or code == "store_refused", code .. " has no case")
   end
 end
 

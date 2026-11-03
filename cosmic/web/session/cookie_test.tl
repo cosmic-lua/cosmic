@@ -25,7 +25,7 @@ local function test_a_session_round_trips_with_its_dates()
   local token = sign(store, { user = "ada", n = 7, nested = { 1, 2 } }) -- checked: any_use*3
   local got = assert(store:load(token, 1500, "session"))
   assert(got.values["user"] == "ada" and got.values["n"] == 7 and got.created == 1000 and got.expires == 2000)
-  assert(not got.stale and not store.revocable) -- checked: condition_type
+  assert(got.stale ~= true and not store.revocable)
   local empty = assert(store:load(sign(store, {}), 1500, "session"))
   assert(next(empty.values) == nil)
 end
@@ -57,9 +57,9 @@ local function test_a_token_under_an_old_key_verifies_and_is_marked_stale()
   local rotated = SessionCookie.store{ keys = { NEW, OLD } }
   local token = sign(old, { user = "ada" }) -- checked: any_use
   local got = assert(rotated:load(token, 1500, "session"))
-  assert(got.stale and got.values["user"] == "ada") -- checked: condition_type
+  assert(got.stale == true and got.values["user"] == "ada")
   local fresh = sign(rotated, { user = "ada" }) -- checked: any_use
-  assert(not assert(rotated:load(fresh, 1500, "session")).stale) -- checked: condition_type
+  assert(assert(rotated:load(fresh, 1500, "session")).stale ~= true)
   assert(old:load(fresh, 1500, "session") == nil, "a retired key cannot sign what is read as new")
   local retired = SessionCookie.store{ keys = { NEW } }
   assert(retired:load(token, 1500, "session") == nil, "a key left out of the list is not accepted")

@@ -131,7 +131,7 @@ local function test_the_hosts_addresses_are_the_local_host_entries_of_the_tables
   local found = RelayConfig.parse_addresses(FIB_TRIE, IF_INET6)
   local seen: mut {string:boolean} = {}
   for _, address in ipairs(found) do
-    assert(not seen[address], address .. " is listed twice") -- checked: condition_type
+    assert(seen[address] ~= true, address .. " is listed twice")
     seen[address] = true
   end
   assert(#found == 5, table.concat(found, " "))
@@ -139,7 +139,7 @@ local function test_the_hosts_addresses_are_the_local_host_entries_of_the_tables
       "fe80:0000:0000:0000:a000:27ff:fe4e:66a1", "2001:0db8:0000:0000:0000:0000:0000:0abc" }) do
     assert(seen[wanted], wanted .. " is missing from " .. table.concat(found, " "))
   end
-  assert(not seen["10.1.0.0"] and not seen["127.0.0.0"] and not seen["127.255.255.255"], -- checked: condition_type*3
+  assert(seen["10.1.0.0"] ~= true and seen["127.0.0.0"] ~= true and seen["127.255.255.255"] ~= true,
     "broadcast and network entries are no address of the host")
 end
 

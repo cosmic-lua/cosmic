@@ -170,7 +170,7 @@ local function test_a_refusal_names_the_position_of_the_member_that_failed()
     assert(index ~= nil and given.members[index] == case.second and r.sub == case.second, Relation.trace(r))
     seen[index] = true
   end
-  assert(seen[1] and seen[2]) -- checked: condition_type
+  assert(seen[1] == true and seen[2] == true)
 end
 
 local function test_a_type_is_below_a_union_when_below_a_member()
@@ -974,7 +974,7 @@ local function test_a_pair_that_two_parents_reach_in_one_request_is_explained_un
     assert(alternative.code == "number_for_integer" and alternative.sub == s.number and alternative.super == s.integer)
     indexes[index] = true
   end
-  assert(indexes[1] and indexes[2]) -- checked: condition_type
+  assert(indexes[1] == true and indexes[2] == true)
   -- and the same pair asked directly is explained from its own root
   assert(steps(refusal(w, s.number, s.integer)) == "")
 end
@@ -1199,7 +1199,7 @@ local function test_a_refusal_names_the_position_of_the_alternative_that_failed(
     assert(alt ~= nil and alt.items[1] == failing, Relation.trace(r))
     seen[index] = true
   end
-  assert(seen[1] and seen[2]) -- checked: condition_type
+  assert(seen[1] == true and seen[2] == true)
 end
 
 local function test_a_rest_step_names_the_position_it_stands_at()
@@ -1417,7 +1417,7 @@ local function test_a_failing_alternative_is_named_by_its_position_whichever_it_
     assert(reason.path[1].kind == "alternative" and alt ~= nil and alt.items[2] == failing, Relation.trace(reason)) -- checked: nil_not_allowed
     seen[index] = true
   end
-  assert(seen[1] and seen[2]) -- checked: condition_type
+  assert(seen[1] == true and seen[2] == true)
 end
 
 local function test_a_rest_step_names_a_position_inside_the_parameters()

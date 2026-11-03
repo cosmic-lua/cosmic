@@ -430,7 +430,7 @@ local function test_user_id_differs_for_serials_a_pool_apart_less_than_its_size(
   local seen: mut {integer:boolean} = {}
   for serial = 100, 100 + 4095 do
     local id = assert(Sandbox.user_id(FULL, FULL, serial))
-    assert(not seen[id], "serial " .. tostring(serial) .. " repeats " .. tostring(id)) -- checked: condition_type
+    assert(seen[id] ~= true, "serial " .. tostring(serial) .. " repeats " .. tostring(id))
     seen[id] = true
   end
   assert(assert(Sandbox.user_id(FULL, FULL, 5)) == assert(Sandbox.user_id(FULL, FULL, 5 + 4096)))

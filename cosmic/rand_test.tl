@@ -50,7 +50,7 @@ local function test_uniform_draws_within_range_from_any_bit_source()
   -- Both ends are reachable, and a modulo would favor 0 (2^64 % 3 = 1):
   -- rejection keeps the three within a loose band of 1000 each.
   for v = 0, 2 do
-    assert(seen[v] and seen[v] > 850 and seen[v] < 1150, "biased: " .. tostring(v) .. " x" .. tostring(seen[v])) -- checked: condition_type, nil_not_allowed*2
+    assert(seen[v] ~= nil and seen[v] > 850 and seen[v] < 1150, "biased: " .. tostring(v) .. " x" .. tostring(seen[v])) -- checked: nil_not_allowed*2
   end
   assert(Rand.uniform(draw, -4, -4) == -4)
   assert(Rand.uniform(draw, math.mininteger, math.mininteger + 1) <= math.mininteger + 1)

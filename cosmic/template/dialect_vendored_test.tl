@@ -20,7 +20,7 @@ local function names_in(source: string, family: string): {string}
   local seen: mut {string:boolean} = {}
   local names: mut {string} = {}
   for name in source:gmatch("%f[%w-](" .. family .. "[%a-]*)") do
-    if not seen[name] then -- checked: condition_type
+    if seen[name] ~= true then
       seen[name] = true
       names[#names + 1] = name
     end

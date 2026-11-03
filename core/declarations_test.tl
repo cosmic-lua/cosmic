@@ -208,7 +208,7 @@ local function disagreements(module: string, source: string, raw: any,
         for key, value in pairs(mt) do
           if key:sub(1, 2) ~= "__" then
             methods[key] = value
-          elseif not undeclared_metamethods[key] then -- checked: condition_type
+          elseif undeclared_metamethods[key] ~= true then
             metamethods[key] = value
           end
         end
@@ -220,7 +220,7 @@ local function disagreements(module: string, source: string, raw: any,
           methods = members(index) -- checked: view_as_mut
         end
         for key, value in pairs(mt) do
-          if not undeclared_metamethods[key] then metamethods[key] = value end -- checked: condition_type
+          if undeclared_metamethods[key] ~= true then metamethods[key] = value end
         end
       end
       if type(index) ~= "function" then
@@ -332,7 +332,7 @@ end
 --- a plain one is what `require` answers by its name, and the others are
 --- what the store hands the first wrapper that takes them.
 local function raw_module(name: string): any
-  if preloaded[name] then -- checked: condition_type
+  if preloaded[name] == true then
     local open = package.preload["cosmic.internal." .. name]
     assert(open ~= nil, "cosmic.internal." .. name .. " is not preloaded")
     return open("cosmic.internal." .. name)

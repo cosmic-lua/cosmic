@@ -106,14 +106,14 @@ local function test_busy_and_locked_are_distinct_and_no_operation_is_retried(tmp
   local second = assert(Sqlite.open(path, { writable = true }))
   second:busy_timeout(0)
   local busy = Sqlite.run_result(second, "INSERT INTO t VALUES (2)")
-  assert(busy.code == Sqlite.BUSY and not busy.cancelled) -- checked: condition_type
+  assert(busy.code == Sqlite.BUSY and busy.cancelled ~= true)
   assert(first:exec("ROLLBACK"))
   local rows = Sqlite.rows_result(first, "SELECT count(*) FROM t")
   assert(first_row(assert(rows.rows)):integer(1) == 1)
   local reader = assert(first:prepare("SELECT * FROM t"))
   assert(reader:step_result() == "row")
   local locked = Sqlite.run_result(first, "DROP TABLE t")
-  assert(locked.code == Sqlite.LOCKED and not locked.cancelled) -- checked: condition_type
+  assert(locked.code == Sqlite.LOCKED and locked.cancelled ~= true)
   reader:finalize()
   assert(first:close() and second:close())
 end

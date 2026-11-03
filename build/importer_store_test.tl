@@ -40,7 +40,7 @@ local function write_fixture(case: string, files: {string:string}): string?, str
   end
   for filename, source in pairs(files) do
     local parent = filename:match("^(.+)/[^/]+$")
-    if parent and not Fs.mkdirs(root .. "/" .. parent) then -- checked: condition_type
+    if parent ~= nil and not Fs.mkdirs(root .. "/" .. parent) then
       return nil, root .. "/" .. parent .. ": could not create fixture directory"
     end
     local ok: boolean
@@ -338,7 +338,7 @@ local function test_an_edit_to_an_embedded_source_moves_the_key_of_what_reaches_
     standard_text.of = function(name: string): standard_text.Standard?
       local found = of(name)
       if found ~= nil and name == edited then
-        return { text = flipped and found.text or found.text .. "\n-- edited\n", -- checked: condition_type
+        return { text = if flipped == true then found.text else found.text .. "\n-- edited\n" end,
           stubbed = (flipped == true) ~= found.stubbed }
       end
       return found

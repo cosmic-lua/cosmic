@@ -615,7 +615,7 @@ local function strict(cut?: boolean): Stream.Transform
       return chunk:upper(), ""
     end,
     finish = function(_self: Stream.Transform): string?, string
-      if cut then return nil, "cut short" end -- checked: condition_type
+      if cut == true then return nil, "cut short" end
       return ".", ""
     end,
   }

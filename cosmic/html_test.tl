@@ -461,7 +461,7 @@ local function css_escape(s: string): string
     local leading_digit = c:find("^%d$") and (i == 1 or (i == 2 and s:sub(1, 1) == "-"))
     if byte == 0 then
       out[#out + 1] = "\xef\xbf\xbd"
-    elseif byte >= 128 or (c:find("^[%w_-]$") and not leading_digit and not (c == "-" and #s == 1)) then -- checked: condition_type*2, nil_not_allowed
+    elseif byte >= 128 or (c:find("^[%w_-]$") ~= nil and leading_digit ~= true and not (c == "-" and #s == 1)) then -- checked: nil_not_allowed
       out[#out + 1] = c
     else
       out[#out + 1] = ("\\%x "):format(byte) -- checked: nil_not_allowed

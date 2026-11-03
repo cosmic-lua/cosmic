@@ -1181,7 +1181,7 @@ local function cuts(src: string): {string}
   end
   local out: mut {string} = { src }
   for i = 1, #src do
-    if literal[i] and literal[i - 1] ~= false and literal[i + 1] ~= false then -- checked: condition_type
+    if literal[i] == true and literal[i - 1] ~= false and literal[i + 1] ~= false then
       local byte = src:sub(i, i):gsub('[\\"]', "\\%0")
       out[#out + 1] = src:sub(1, i - 1) .. "{{if .cut}}{{end}}" .. src:sub(i)
       out[#out + 1] = src:sub(1, i - 1) .. '{{"' .. byte .. '"}}' .. src:sub(i + 1)

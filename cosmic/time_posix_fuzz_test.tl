@@ -25,7 +25,7 @@ do
       "America/Santiago", "Africa/Casablanca", "Antarctica/Troll", "America/Scoresbysund" }) do
     local data = assert(Store.zoneinfo(name))
     local footer = data:match("\n([^\n]*)\n$")
-    if footer ~= nil and footer ~= "" and not seen[footer] then -- checked: condition_type
+    if footer ~= nil and footer ~= "" and seen[footer] ~= true then
       seen[footer] = true
       samples[#samples + 1] = footer
     end

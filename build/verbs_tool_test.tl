@@ -65,7 +65,7 @@ local function refuses_what_it_does_not_take(tmp: string, which: function(string
   for _, verb in ipairs(Cli.order) do
     if passthrough[verb] == nil and which(verb) then
       local result = verbs_fixture.expect(tree, verb, { verb, "--no-such-flag" }, 2)
-      local err = result.stderr or "" -- checked: condition_type
+      local err = result.stderr
       assert(err:find("--no-such-flag", 1, true), err)
       local extra = surplus[verb]
       if extra is {string} then -- checked: is_on_record
@@ -90,7 +90,7 @@ end
 local function test_each_selector_must_match(tmp: string)
   local tree = verbs_fixture.write_tree(tmp)
   local result = verbs_fixture.run(tree, { "test", "good", "nothing_here" })
-  local err = result.stderr or "" -- checked: condition_type
+  local err = result.stderr
   assert(result.code == 1, err)
   assert(err:find("no test module matches: nothing_here", 1, true), err)
   assert(not err:find("good", 1, true), err)
@@ -99,7 +99,7 @@ end
 local function test_a_timeout_that_would_wrap_is_refused(tmp: string)
   local tree = verbs_fixture.write_tree(tmp)
   local result = verbs_fixture.expect(tree, "test", { "test", "--timeout", "99999999999999999", "good" }, 2)
-  local err = result.stderr or "" -- checked: condition_type
+  local err = result.stderr
   assert(err:find("--timeout must be at most", 1, true), err)
 end
 

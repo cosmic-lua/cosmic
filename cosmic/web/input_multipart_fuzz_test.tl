@@ -96,7 +96,7 @@ local function test_any_multipart_body_is_bounded_and_leaves_no_file(tmp: string
       local read = assert(outcome, "the handler read nothing")
       local invalid = read.invalid
       if invalid ~= nil then
-        if read.value ~= nil or not ALLOWED[invalid.status] then -- checked: condition_type
+        if read.value ~= nil or ALLOWED[invalid.status] ~= true then
           return false, "a bad refusal: " .. tostring(invalid.status)
         end
         Fuzz.label("refused_" .. tostring(invalid.status))

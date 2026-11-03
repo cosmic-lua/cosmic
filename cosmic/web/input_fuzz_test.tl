@@ -103,7 +103,7 @@ local function test_binding_never_raises_and_answers_a_value_or_every_error(tmp:
         return false, ("a refusal of status %d with %d errors"):format(bad.status, #bad.errors)
       end
       for _, e in ipairs(bad.errors) do
-        if e.source ~= "form" or e.message == "" or not KNOWN_CODES[e.code] or e.pointer ~= nil then -- checked: condition_type
+        if e.source ~= "form" or e.message == "" or KNOWN_CODES[e.code] ~= true or e.pointer ~= nil then
           return false, ("a bad error: %s/%s/%s"):format(e.source, e.field, e.code)
         end
       end

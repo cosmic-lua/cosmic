@@ -516,7 +516,7 @@ end
 local function test_every_code_is_catalogued_once_with_the_lexers_first()
   local seen: mut {string: boolean} = {}
   for _, code in ipairs(Parser.codes) do
-    assert(not seen[code], "twice: " .. code) -- checked: condition_type
+    assert(seen[code] ~= true, "twice: " .. code)
     seen[code] = true
   end
   for i, code in ipairs(Lexer.codes) do

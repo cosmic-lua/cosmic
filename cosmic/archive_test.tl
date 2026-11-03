@@ -1243,7 +1243,7 @@ local function test_create_writes_nothing_at_the_path_until_close(tmp: string)
     local path = tmp .. "/" .. name
     local w = assert(Archive.create(path))
     assert(w:add_file("x", "y"))
-    assert(not Fs.exists(path), name .. ": there before close") -- checked: condition_type
+    assert(Fs.exists(path) ~= true, name .. ": there before close")
     assert(w:close())
     assert(Fs.exists(path), name)
   end

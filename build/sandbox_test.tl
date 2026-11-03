@@ -36,7 +36,7 @@ local record Answer
 end
 
 local function finished(code: integer?, signal?: integer, timed_out?: boolean): Child.Result
-  return { code = code, signal = signal, ok = code == 0, timed_out = timed_out or false, -- checked: condition_type
+  return { code = code, signal = signal, ok = code == 0, timed_out = timed_out == true,
     captured = {}, truncated = false }
 end
 
