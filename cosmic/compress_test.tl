@@ -7,6 +7,7 @@ local Codec = require("cosmic.codec")
 local Compress = require("cosmic.compress")
 local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
+local String = require("cosmic.string")
 local Test = require("cosmic.test")
 
 Test.policy{ cpu_features = true }
@@ -169,7 +170,9 @@ end
 local function test_bits_that_name_no_code_are_refused()
   -- The one code the table holds decodes.
   local dec = assert(Compress.inflater("raw"))
-  local out, trouble = drive(dec, EOB_ONLY .. "\31")
+  local out: string?
+  local trouble: string
+  out, trouble = drive(dec, EOB_ONLY .. "\31")
   assert(out == "" and trouble == "", trouble)
   -- The bits no code has, followed by 8 bytes (read on the fast
   -- path), 2 or 3 (the slow path, which has enough to decode with), or
@@ -189,14 +192,14 @@ local function test_bits_that_name_no_code_are_refused()
   for _, case in ipairs(cases) do
     local tail, want = case.tail, case.want
     dec = assert(Compress.inflater("raw"))
-    out, trouble = dec:update(EOB_ONLY .. "\95" .. tail) -- checked: nil_not_allowed
-    if out ~= nil then -- checked: compare_disjoint
+    out, trouble = dec:update(EOB_ONLY .. "\95" .. tail)
+    if out ~= nil then
       assert(out == "" and not dec:pending(), tostring(#tail) .. ": " .. tostring(#out) .. " bytes out")
-      out, trouble = dec:finish() -- checked: nil_not_allowed
+      out, trouble = dec:finish()
     end
     -- The patch's own words, not the ratio check's, which would also
     -- stop a decoder answering zeros, but only after a window of them.
-    assert(out == nil and (trouble == want or want == "truncated" and trouble:find(want, 1, true) ~= nil), -- checked: compare_disjoint
+    assert(out == nil and (trouble == want or want == "truncated" and trouble:find(want, 1, true) ~= nil),
       tostring(#tail) .. ": " .. trouble)
   end
 end
@@ -490,19 +493,20 @@ local function test_every_success_carries_an_empty_error()
   assert(last == "" and ltrouble == "", ltrouble)
 end
 
--- Each kind of stream, freshly made, and a first chunk for it.
+-- How to make each kind of stream, and a first chunk for it. A stream made
+-- on demand is held by nothing else, so a test can let go of it.
 local record Kind
-  mut stream: Compress.Stream
+  make: function(): Compress.Stream
   chunk: string
 end
 
 local function every_kind(): {Kind}
   return {
-    { stream = gzip_decoder(), chunk = hello_gz },
-    { stream = bz2_decoder(), chunk = hello_bz2 },
-    { stream = xz_decoder(), chunk = hello_xz },
-    { stream = (assert(Compress.inflater("zlib"))), chunk = "x\156\203" },
-    { stream = (assert(Compress.deflater("gzip"))), chunk = "hello" },
+    { make = gzip_decoder, chunk = hello_gz },
+    { make = bz2_decoder, chunk = hello_bz2 },
+    { make = xz_decoder, chunk = hello_xz },
+    { make = function(): Compress.Stream return (assert(Compress.inflater("zlib"))) end, chunk = "x\156\203" },
+    { make = function(): Compress.Stream return (assert(Compress.deflater("gzip"))) end, chunk = "hello" },
   }
 end
 
@@ -513,15 +517,14 @@ end
 local function test_a_stream_revived_by_a_finalizer_is_finished()
   for _, case in ipairs(every_kind()) do
     local saved: Compress.Stream? = nil
-    local holder: Holder = setmetatable({} as Holder, { -- checked: cast_refused*2, setmetatable_call
+    local holder: Holder? = setmetatable({} as Holder, { -- checked: cast_refused*2, setmetatable_call
       __gc = function(self: Holder) saved = self.s end,
     } as metatable<Holder>)
-    holder.s = case.stream
+    if holder ~= nil then holder.s = case.make() end
     -- The stream is collected in the same cycle as the table whose
     -- finalizer hands it back: an update on it must not read freed
     -- codec state.
-    case.stream = nil -- checked: nil_not_allowed
-    holder = nil -- checked: nil_not_allowed
+    holder = nil
     collectgarbage()
     collectgarbage()
     local kept = assert(saved, "the finalizer ran")
@@ -548,8 +551,8 @@ local function test_a_closed_stream_is_finished_and_keeps_rest()
   Test.raises(function() kept:finish() end)
   -- Closing a finished stream, or closing twice, is harmless.
   for _, case in ipairs(every_kind()) do
-    local s <close> = case.stream
-    local closer = getmetatable(s as {any: any}).__close as function(any, any) -- declared: key_type -- checked: cast_refused*2, nil_not_allowed
+    local s <close> = case.make()
+    local closer = assert(getmetatable(s as {any: any})).__close as function(any, any) -- declared: key_type -- checked: cast_refused*2
     closer(s, nil)
     closer(s, nil)
   end
@@ -749,7 +752,7 @@ local function test_one_shot_deflate_frames_as_its_format_says()
   assert(gz:sub(1, 2) == "\31\139", "no gzip magic")
   local raw = assert(Compress.deflate("raw", plain))
   local zl = assert(Compress.deflate("zlib", plain))
-  assert(zl:byte(1) & 0x0F == 8, "no zlib header") -- checked: nil_not_allowed
+  assert(String.byte_at(zl, 1) & 0x0F == 8, "no zlib header")
   for format, packed in pairs({ gzip = gz, raw = raw, zlib = zl } as {Compress.Format: string}) do -- checked: cast_refused
     assert(Compress.inflate(format, packed) == plain, format)
     local dec = assert(Compress.inflater(format))
@@ -801,14 +804,19 @@ local function test_sql_deflate_and_inflate_speak_raw_deflate()
     "SELECT deflate(NULL) IS NULL, inflate(NULL) IS NULL"))
   assert(Array.at(nulls, 1):text(1) == "1" and Array.at(nulls, 1):text(2) == "1")
   local stream = assert(Compress.deflate("raw", text))
-  for _, case in ipairs({
-      { stream:sub(1, #stream - 4), "truncated deflate stream" },
-      { stream .. "\0", "the deflate stream is followed by more bytes" },
-      { "\xff\xff\xff\xff", "the deflate stream is damaged" },
-  }) do
-    local rows, trouble = Sqlite.rows(db, "SELECT inflate(?1)", { { blob = case[1] } })
-    assert(rows == nil, case[2])
-    assert(trouble:find(case[2], 1, true) ~= nil, trouble) -- checked: index_may_be_nil
+  local record Damaged
+    blob: string
+    why: string
+  end
+  local damaged: {Damaged} = {
+    { blob = stream:sub(1, #stream - 4), why = "truncated deflate stream" },
+    { blob = stream .. "\0", why = "the deflate stream is followed by more bytes" },
+    { blob = "\xff\xff\xff\xff", why = "the deflate stream is damaged" },
+  }
+  for _, case in ipairs(damaged) do
+    local rows, trouble = Sqlite.rows(db, "SELECT inflate(?1)", { { blob = case.blob } })
+    assert(rows == nil, case.why)
+    assert(trouble:find(case.why, 1, true) ~= nil, trouble)
   end
   assert(db:close())
 end
