@@ -8,6 +8,7 @@
 --- consistent with the tree whatever errors they make, and never raise or run
 --- past the instruction budget. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs
 --- (build/fuzz/init.tl).
+local Array = require("cosmic.array")
 local Ast = require("lang.ast")
 local Cover = require("lang.scopes_cover")
 local Fuzz = require("build.fuzz")
@@ -63,7 +64,8 @@ local ref_exp: function(r: Reference, e: Ast.Node, env: Decl?, fn: integer)
 local ref_block: function(r: Reference, stats: {Ast.Stat}, env: Decl?, fn: integer): Decl?
 
 local function expect(r: Reference, code: string, token: integer)
-  table.insert(r.errors, code .. " " .. r.tokens.y[token] .. ":" .. tostring(Lexer.x(r.tokens, token))) -- checked: nil_not_allowed
+  -- `token` is a token of `r.tokens`, which the parser numbered from the same stream.
+  table.insert(r.errors, code .. " " .. tostring(Array.at(r.tokens.y, token)) .. ":" .. tostring(Lexer.x(r.tokens, token)))
 end
 
 --- The environment after declaring `binding`, and the error a shadow is.
