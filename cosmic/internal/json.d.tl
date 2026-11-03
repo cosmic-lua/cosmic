@@ -65,6 +65,7 @@ local record json
   -- The same for a table kept by position, which may hold a hole (JSON
   -- Lines with a `null` line).
   array: function(t: {integer: any}): {any}
+  array: function<T>(t: {integer: T}): {T}
   -- Marks `t`, a table with no metatable, as an array that may have
   -- holes when `holey` is true, else as an array, and answers it.
   with_holes: function<T>(t: {integer: T}, holey: boolean): {integer: T}

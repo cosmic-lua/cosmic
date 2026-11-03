@@ -124,7 +124,7 @@ local function problem_of(res: Types.Response): Problem
 end
 
 local function test_problem_is_rfc_9457_json_with_the_reason_as_its_title()
-  local res = Response.problem(404, "no such item", { errors = Json.array({ "x" }), status = 1 }) -- checked: any_use*2
+  local res = Response.problem(404, "no such item", { errors = Json.array({ "x" }), status = 1 })
   assert(Response.header(res, "Content-Type") == "application/problem+json")
   local body = problem_of(res)
   assert(body.type == "about:blank" and body.title == "Not Found" and body.status == 404)
@@ -192,7 +192,7 @@ end
 
 local function test_abort_raises_a_tagged_table_the_exception_layer_reads()
   local ok, err = pcall(function(): any
-    Response.abort(404, "gone", { code = "x" }) -- checked: any_use
+    Response.abort(404, "gone", { code = "x" })
     return nil -- checked: any_use
   end)
   assert(not ok)
@@ -217,7 +217,7 @@ local function test_a_json_failure_names_json_once()
   cycle.loop = cycle
   local message = Test.raises(function() Response.json(cycle) end) -- checked: not_assignable
   assert(message:find("web: json: ", 1, true) and not message:find("json: json:", 1, true), message)
-  local problem = Test.raises(function() Response.problem(500, "x", { bad = cycle }) end) -- checked: any_use
+  local problem = Test.raises(function() Response.problem(500, "x", { bad = 0 / 0 }) end)
   assert(problem:find("web: problem: ", 1, true) and not problem:find("json: json:", 1, true), problem)
 end
 

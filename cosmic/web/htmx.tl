@@ -463,26 +463,26 @@ function Htmx.stop_polling(body?: Html.SafeHtml): Types.Response
 end
 
 --- The configuration of every page: the keys are htmx's own.
-local function config_of(opts: Htmx.HeadOptions): {string: any}
+local function config_of(opts: Htmx.HeadOptions): {string: Json.Value}
   local config = opts.config or {}
-  local out: {string: any} = {
-    allowEval = config.allow_eval == true, -- checked: any_use
-    allowScriptTags = config.allow_script_tags == true, -- checked: any_use
-    includeIndicatorStyles = false, -- checked: any_use
-    selfRequestsOnly = true, -- checked: any_use
-    responseHandling = { -- checked: any_use
-      { code = "204", swap = false }, -- checked: arms_differ
-      { code = "[23]..", swap = true }, -- checked: arms_differ
-      { code = "422", swap = true, error = true }, -- checked: arms_differ
-      { code = "[45]..", swap = false, error = true }, -- checked: arms_differ
-      { code = "...", swap = false }, -- checked: arms_differ
-    },
+  local handling: {Json.Value} = {
+    { code = "204", swap = false },
+    { code = "[23]..", swap = true },
+    { code = "422", swap = true, error = true },
+    { code = "[45]..", swap = false, error = true },
+    { code = "...", swap = false },
+  }
+  local out: mut {string: Json.Value} = {
+    allowEval = config.allow_eval == true,
+    allowScriptTags = config.allow_script_tags == true,
+    includeIndicatorStyles = false,
+    selfRequestsOnly = true,
+    responseHandling = handling,
   }
   local history_cache_size = config.history_cache_size
-  -- TODO: once the config is a record that encodes to JSON, these are fields: a key write of a typed value into this `{string: any}` is any_use.
-  if history_cache_size ~= nil then out.historyCacheSize = history_cache_size end -- checked: map_field
+  if history_cache_size ~= nil then out["historyCacheSize"] = history_cache_size end
   local nonce = opts.nonce
-  if nonce ~= nil then out.inlineScriptNonce = nonce end -- checked: map_field
+  if nonce ~= nil then out["inlineScriptNonce"] = nonce end
   return out
 end
 

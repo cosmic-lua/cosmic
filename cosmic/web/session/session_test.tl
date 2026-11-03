@@ -1,4 +1,5 @@
 local Cookies = require("cosmic.web.cookies")
+local Json = require("cosmic.json")
 local Secret = require("cosmic.web.secret")
 local Session = require("cosmic.web.session")
 local SessionCookie = require("cosmic.web.session.cookie")
@@ -90,7 +91,7 @@ local function make_app(opts: Session.Options, spec?: Web.AppSpec): Web.App
       return Web.abort(403)
     end),
     Web.post("/bad", function(req: Web.Request): Web.Response
-      Session.of(req):set("f", print)
+      Session.of(req):set("f", "\xff")
       return Web.text("unreachable")
     end),
     Web.post("/clear", function(req: Web.Request): Web.Response
@@ -171,15 +172,16 @@ local function test_values_of_every_type_survive_the_cookie_store()
         local s = Session.of(req)
         s:set("i", 42)
         s:set("b", true)
-        s:set("t", { a = { 1, 2 }, b = "x" }) -- checked: arms_differ
+        s:set("t", { a = { 1, 2 }, b = "x" })
         return Web.text("ok")
       end),
       Web.get("/back", function(req: Web.Request): Web.Response
         local s = Session.of(req)
         local t = s:get("t")
-        assert(t is {string:any}) -- checked: is_on_record
+        local fields, _ = Json.to_object(t)
+        assert(fields, "expected the stored object")
         return Web.text(tostring(s:get_integer("i")) .. tostring(s:get_boolean("b")) .. tostring(s:get_string("i")) ..
-            tostring(s:get_integer("b")) .. tostring(t["b"]))
+            tostring(s:get_integer("b")) .. tostring(fields["b"]))
       end),
     },
   }
@@ -305,7 +307,7 @@ local function test_a_value_that_is_not_json_raises_at_the_set()
     middleware = { Session.middleware(options(cookie_store())) },
     routes = { Web.get("/", function(req: Web.Request): Web.Response
       local s = Session.of(req)
-      local _, f = pcall(function() s:set("f", print) end)
+      local _, f = pcall(function() s:set("f", "\xff") end)
       local _, e = pcall(function() s:set("", 1) end)
       local _, r = pcall(function() s:set("_flash", 1) end)
       reasons = { tostring(f), tostring(e), tostring(r) }
@@ -505,9 +507,9 @@ local function test_the_session_survives_in_a_secret_key_from_the_environment_sh
 end
 
 --- A value nested `levels` arrays deep.
-local function nest(levels: integer): any
-  local value: any = 1 -- checked: any_use
-  for _ = 1, levels do value = { value } end -- checked: any_use
+local function nest(levels: integer): Json.Value
+  local value: Json.Value = 1
+  for _ = 1, levels do value = { value } end
   return value
 end
 

@@ -6,15 +6,15 @@ local Summarize = require("eval.summarize")
 local arena <const> = "/work/arena"
 local repo <const> = "/src/cosmic"
 
-local function call(id: string, name: string, input: {string: any}): string
-  return (assert(Json.encode_any({ type = "assistant", message = { content = { -- checked: arms_differ
+local function call(id: string, name: string, input: {string: Json.Value}): string
+  return (assert(Json.encode({ type = "assistant", message = { content = {
     { type = "text", text = "thinking" },
-    { type = "tool_use", id = id, name = name, input = input }, -- checked: arms_differ
+    { type = "tool_use", id = id, name = name, input = input },
   } } })))
 end
 
-local function answer(id: string, content: any, is_error?: boolean): string
-  return (assert(Json.encode_any({ type = "user", message = { content = { -- checked: arms_differ
+local function answer(id: string, content: Json.Value, is_error?: boolean): string
+  return (assert(Json.encode({ type = "user", message = { content = {
     { type = "tool_result", tool_use_id = id, content = content,
       is_error = is_error or false }, -- checked: condition_type
   } } })))
@@ -26,11 +26,11 @@ end
 
 local function test_the_first_lines_count_the_run()
   local text = lines({
-    call("1", "Bash", { command = "cosmic docs Fs.nope" }), -- checked: any_use
+    call("1", "Bash", { command = "cosmic docs Fs.nope" }),
     answer("1", "docs: FAIL\nNo exact symbol match", true),
-    call("2", "Bash", { command = "cosmic test" }), -- checked: any_use
+    call("2", "Bash", { command = "cosmic test" }),
     answer("2", { { type = "text", text = "build: ok" }, { type = "text", text = "test: PASS" } }),
-    call("3", "Bash", { command = "cosmic test" }), -- checked: any_use
+    call("3", "Bash", { command = "cosmic test" }),
     answer("3", "test: PASS"),
     (assert(Json.encode({ type = "result", num_turns = 7, duration_ms = 90000,
       total_cost_usd = 0.125 }))),
@@ -45,7 +45,7 @@ end
 --- `docs: FAIL` does.
 local function test_a_docs_miss_summary_counts()
   local text = lines({
-    call("1", "Bash", { command = "cosmic docs Fs.nope" }), -- checked: any_use
+    call("1", "Bash", { command = "cosmic docs Fs.nope" }),
     answer("1", "docs: nothing named or documented as 'Fs.nope', 9 ms", true),
   })
   local report = Summarize.report(text, arena, repo)
@@ -79,7 +79,7 @@ local function test_an_input_that_is_no_object_is_reported_not_read_as_nothing()
 end
 
 local function test_a_run_without_a_result_says_it_may_have_timed_out()
-  local text = lines({ call("1", "Bash", { command = "true" }), "not json", "3", "" }) -- checked: any_use
+  local text = lines({ call("1", "Bash", { command = "true" }), "not json", "3", "" })
   assert(Summarize.report(text, arena, repo) == lines({
     "turns=null tools=1 minutes=null cost=null (no result event: timed out?)",
     "failed_calls=0 docs_misses=0 first_green_test_call=null journal_writes=0",
@@ -88,12 +88,12 @@ end
 
 local function test_a_journal_write_is_a_write_an_edit_or_a_shell_redirection()
   local text = lines({
-    call("1", "Write", { file_path = arena .. "/project/JOURNAL.md", content = "x" }), -- checked: any_use*2
-    call("2", "Edit", { file_path = "JOURNAL.md" }), -- checked: any_use
-    call("3", "Bash", { command = "echo x >> JOURNAL.md" }), -- checked: any_use
-    call("4", "Bash", { command = "echo x | tee -a notes/JOURNAL.md" }), -- checked: any_use
-    call("5", "Bash", { command = "cat JOURNAL.md" }), -- checked: any_use
-    call("6", "Read", { file_path = "JOURNAL.md" }), -- checked: any_use
+    call("1", "Write", { file_path = arena .. "/project/JOURNAL.md", content = "x" }),
+    call("2", "Edit", { file_path = "JOURNAL.md" }),
+    call("3", "Bash", { command = "echo x >> JOURNAL.md" }),
+    call("4", "Bash", { command = "echo x | tee -a notes/JOURNAL.md" }),
+    call("5", "Bash", { command = "cat JOURNAL.md" }),
+    call("6", "Read", { file_path = "JOURNAL.md" }),
   })
   local report = Summarize.report(text, arena, repo)
   assert(report:find("journal_writes=4", 1, true), report)
@@ -101,11 +101,11 @@ end
 
 local function test_paths_outside_the_arena_are_listed_once_and_sorted()
   local text = lines({
-    call("1", "Bash", { command = "ls /b/x /a/y /b/x " .. arena .. " " .. arena .. -- checked: any_use
+    call("1", "Bash", { command = "ls /b/x /a/y /b/x " .. arena .. " " .. arena ..
         "/project/ok " .. arena .. "x/near /usr/bin/env /usr /tmp//w" }),
     -- A file's contents are not where the call acts.
-    call("2", "Write", { file_path = arena .. "/f", content = "/etc/secret /elsewhere" }), -- checked: any_use*2
-    call("3", "Grep", { pattern = "x", path = "/opt/y" }), -- checked: any_use*2
+    call("2", "Write", { file_path = arena .. "/f", content = "/etc/secret /elsewhere" }),
+    call("3", "Grep", { pattern = "x", path = "/opt/y" }),
   })
   local report = Summarize.report(text, arena, repo)
   assert(report == lines({
@@ -119,7 +119,7 @@ local function test_paths_outside_the_arena_are_listed_once_and_sorted()
 end
 
 --- The lines of the report after the two that count the run, for one call.
-local function findings(name: string, input: {string: any}, in_arena?: string): string
+local function findings(name: string, input: {string: Json.Value}, in_arena?: string): string
   local text = call("1", name, input) .. "\n"
   local report = Summarize.report(text, in_arena or arena, repo)
   return (report:gsub("^[^\n]*\n[^\n]*\n", ""))
@@ -159,13 +159,13 @@ local function test_text_that_is_not_a_path_is_not_reported()
     "cd /work/arena/project/sub; ls ../; cat ../project/x",
   }
   for _, command in ipairs(quiet) do
-    local got = findings("Bash", { command = command }) -- checked: any_use
+    local got = findings("Bash", { command = command })
     assert(got == "", command .. " -> " .. got)
   end
-  assert(findings("Grep", { pattern = "/foo/bar", path = "src" }) == "") -- checked: any_use*2
-  assert(findings("Glob", { pattern = "**/*.tl", path = "." }) == "") -- checked: any_use*2
-  assert(findings("Read", { file_path = "notes.md" }) == "") -- checked: any_use
-  assert(findings("Write", { file_path = arena .. "/project/x" }) == "") -- checked: any_use
+  assert(findings("Grep", { pattern = "/foo/bar", path = "src" }) == "")
+  assert(findings("Glob", { pattern = "**/*.tl", path = "." }) == "")
+  assert(findings("Read", { file_path = "notes.md" }) == "")
+  assert(findings("Write", { file_path = arena .. "/project/x" }) == "")
 end
 
 local function test_a_path_that_leaves_the_arena_is_reported()
@@ -237,21 +237,21 @@ local function test_a_path_that_leaves_the_arena_is_reported()
   }
   for _, case in ipairs(cases) do
     local command = assert(case[1], "a case has a command")
-    local got = findings("Bash", { command = command }) -- checked: any_use
+    local got = findings("Bash", { command = command })
     assert(got == case[2], command .. " -> " .. got)
   end
-  assert(findings("Read", { file_path = "/mnt/skills/x" }) == "BREACH: /mnt/skills/x\n") -- checked: any_use
-  assert(findings("Edit", { file_path = "../../x" }) == "outside-arena: /work/x\n") -- checked: any_use
-  assert(findings("Glob", { pattern = "/root/**" }) == "BREACH: /root/**\n") -- checked: any_use
-  assert(findings("Glob", { pattern = "~/x/*" }) == "outside-arena: ~/x/*\n") -- checked: any_use
-  assert(findings("Glob", { pattern = "../../*.tl" }) == "outside-arena: /work/*.tl\n") -- checked: any_use
-  assert(findings("Grep", { pattern = "x", glob = "../../*.tl" }) == "outside-arena: /work/*.tl\n") -- checked: any_use*2
-  assert(findings("Grep", { pattern = "x", glob = "*.tl" }) == "") -- checked: any_use*2
-  assert(findings("Glob", { pattern = "*.tl", path = "/srv/d" }) == "outside-arena: /srv/d\n") -- checked: any_use*2
-  assert(findings("Grep", { pattern = "x", path = "/etc/claude-code" }) == -- checked: any_use*2
+  assert(findings("Read", { file_path = "/mnt/skills/x" }) == "BREACH: /mnt/skills/x\n")
+  assert(findings("Edit", { file_path = "../../x" }) == "outside-arena: /work/x\n")
+  assert(findings("Glob", { pattern = "/root/**" }) == "BREACH: /root/**\n")
+  assert(findings("Glob", { pattern = "~/x/*" }) == "outside-arena: ~/x/*\n")
+  assert(findings("Glob", { pattern = "../../*.tl" }) == "outside-arena: /work/*.tl\n")
+  assert(findings("Grep", { pattern = "x", glob = "../../*.tl" }) == "outside-arena: /work/*.tl\n")
+  assert(findings("Grep", { pattern = "x", glob = "*.tl" }) == "")
+  assert(findings("Glob", { pattern = "*.tl", path = "/srv/d" }) == "outside-arena: /srv/d\n")
+  assert(findings("Grep", { pattern = "x", path = "/etc/claude-code" }) ==
       "BREACH: /etc/claude-code\n")
   -- From a deep arena, `..` reaches the other arenas.
-  assert(findings("Bash", { command = "cd ../../.." }, "/tmp/cosmic-evals/m/claude/run-001") == -- checked: any_use
+  assert(findings("Bash", { command = "cd ../../.." }, "/tmp/cosmic-evals/m/claude/run-001") ==
       "BREACH: /tmp/cosmic-evals/m\n")
 end
 
@@ -265,7 +265,7 @@ end
 local function test_only_a_cosmic_test_run_is_green()
   local function green(command: string, output: string): string?
     local report = Summarize.report(
-      call("1", "Bash", { command = command }) .. "\n" .. answer("1", output) .. "\n", arena, repo) -- checked: any_use
+      call("1", "Bash", { command = command }) .. "\n" .. answer("1", output) .. "\n", arena, repo)
     return report:match("first_green_test_call=(%w+)")
   end
   local pass <const> = "build: ok\ntest: PASS (3 ran)"
@@ -294,16 +294,16 @@ local function test_only_a_cosmic_test_run_is_green()
   assert(green("cosmic test", passed) == "1")
   assert(green("cosmic test", "test: 1 of 3 tests failed, 0 infrastructure errors, 9 ms") == "null")
   assert(green("cosmic test; echo 'test: 3 tests passed in 1 module'", passed) == "null")
-  local failed = Summarize.report(call("1", "Bash", { command = "cosmic test" }) .. "\n" .. -- checked: any_use
+  local failed = Summarize.report(call("1", "Bash", { command = "cosmic test" }) .. "\n" ..
       answer("1", pass, true) .. "\n", arena, repo)
   assert(failed:find("first_green_test_call=null", 1, true), failed)
 end
 
 local function test_a_mention_of_the_repository_or_skills_is_contamination()
   local text = lines({
-    call("1", "Read", { file_path = repo .. "/README.md" }), -- checked: any_use
-    call("2", "Bash", { command = "ls ~/.claude/skills" }), -- checked: any_use
-    call("3", "Write", { file_path = "x", content = "see ~/.claude/plugins" }), -- checked: any_use*2
+    call("1", "Read", { file_path = repo .. "/README.md" }),
+    call("2", "Bash", { command = "ls ~/.claude/skills" }),
+    call("3", "Write", { file_path = "x", content = "see ~/.claude/plugins" }),
   })
   local report = Summarize.report(text, arena, repo)
   local marks: mut {string} = {}
@@ -317,7 +317,7 @@ end
 local function test_a_lone_surrogate_does_not_lose_the_line()
   -- Claude Code cuts a tool's output in the middle of an emoji.
   local text = lines({
-    call("1", "Bash", { command = "cosmic test" }), -- checked: any_use
+    call("1", "Bash", { command = "cosmic test" }),
     '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"1",' ..
       '"content":"test: PASS \\ud83d","is_error":false}]}}',
   })
@@ -330,7 +330,7 @@ local function test_a_line_python_reads_is_read()
   local text = table.concat({
     '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"1","name":"Bash",' ..
       '"input":{"command":"ls /deep","x":' .. deep .. '}}]}}',
-    call("2", "Bash", { command = "ls /cr" }), -- checked: any_use
+    call("2", "Bash", { command = "ls /cr" }),
   }, "\r") .. "\r"
   local report = Summarize.report(text, arena, repo)
   assert(report:find("tools=2", 1, true), report)
@@ -339,10 +339,10 @@ end
 
 local function test_is_error_counts_as_python_would()
   local text = lines({
-    call("1", "Bash", { command = "a" }), answer("1", "x", false), -- checked: any_use
-    call("2", "Bash", { command = "b" }), -- checked: any_use
+    call("1", "Bash", { command = "a" }), answer("1", "x", false),
+    call("2", "Bash", { command = "b" }),
     '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"2","content":"x","is_error":0}]}}',
-    call("3", "Bash", { command = "c" }), -- checked: any_use
+    call("3", "Bash", { command = "c" }),
     '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"3","content":"x","is_error":"yes"}]}}',
   })
   local report = Summarize.report(text, arena, repo)

@@ -104,7 +104,7 @@ function Example.responses()
   assert(type(cookies) == "table" and #cookies == 2)
   local empty = Web.empty()
   assert(empty.status == 204 and empty.body == nil)
-  local problem = Web.problem(422, "qty must be a number", { field = "qty" }) -- checked: any_use
+  local problem = Web.problem(422, "qty must be a number", { field = "qty" })
   print(problem.body) -- {"detail":"qty must be a number","field":"qty","status":422,"title":"Unprocessable Content","type":"about:blank"}
   assert(Web.header(problem, "content-type") == "application/problem+json")
   local streamed = Web.stream(Stream.from_string("lines\n"), "text/plain")
