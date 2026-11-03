@@ -774,7 +774,7 @@ end
 
 --- A node's value, as `cosmic.json` reads it ([`Json.null`] for null), or
 --- nil and why it reads as none.
-function flow.value(node: flow.Node): any?, string
+function flow.value(node: flow.Node): Json.Value?, string
   return Json.decode(inline_text(node), { json5 = true, null_value = Json.null })
 end
 
@@ -873,10 +873,10 @@ end
 --- the old item, or nil for one to add.
 local function paired(old: {flow.Item}, new: {any}): {integer: flow.Item}
   local a, b: mut {string}, mut {string} = {}, {}
-  local old_values: mut {integer: any} = {}
+  local old_values: mut {integer: Json.Value} = {}
   for i, item in ipairs(old) do
     local value, trouble = flow.value(item.value)
-    old_values[i] = value
+    if value ~= nil then old_values[i] = value end
     a[i] = encoded(value, trouble, i)
   end
   for j, value in ipairs(new) do b[j] = encoded(value, "", j) end

@@ -19,9 +19,9 @@ local function honest(what: string, fn: function())
   assert(#found == 0, what .. ": " .. tostring(#found) .. " violations:\n" .. table.concat(found, "\n"))
 end
 
-local function call(id: string, name: string, input: {string: any}): string
-  return (assert(Json.encode_any({ type = "assistant", message = { content = { -- checked: arms_differ
-    { type = "tool_use", id = id, name = name, input = input }, -- checked: arms_differ
+local function call(id: string, name: string, input: {string: Json.Value}): string
+  return (assert(Json.encode({ type = "assistant", message = { content = {
+    { type = "tool_use", id = id, name = name, input = input },
   } } })))
 end
 
@@ -32,13 +32,13 @@ end
 local function test_the_report_answers_what_it_declares_for_every_kind_of_path()
   honest("summarize", function()
     local text = table.concat({
-      call("1", "Bash", { command = "cat /work/arena/a ~/b $HOME/c ${HOME}/d ~root/e /usr/lib/f /src/cosmic/g" }), -- checked: any_use
-      call("2", "Bash", { command = "grep -F -e pat -- /tmp/h ../i /var/j; sed -n 1p k; awk -F/ '{print $1}' l" }), -- checked: any_use
-      call("3", "Bash", { command = "sh -c 'cat /etc/passwd' ; echo VAR=$HOME http://x/y 12/3 \"a b\"" }), -- checked: any_use
-      call("4", "Grep", { pattern = "x", path = "/work/arena/project", glob = "*.tl" }), -- checked: any_use*3
-      call("5", "Glob", { pattern = "/home/user/*.md", path = "/work/arena" }), -- checked: any_use*2
-      call("6", "Read", { file_path = "/proc/1/root/x" }), -- checked: any_use
-      call("7", "Write", { file_path = "/work/arena/project/CLAUDE.md", content = "x" }), -- checked: any_use*2
+      call("1", "Bash", { command = "cat /work/arena/a ~/b $HOME/c ${HOME}/d ~root/e /usr/lib/f /src/cosmic/g" }),
+      call("2", "Bash", { command = "grep -F -e pat -- /tmp/h ../i /var/j; sed -n 1p k; awk -F/ '{print $1}' l" }),
+      call("3", "Bash", { command = "sh -c 'cat /etc/passwd' ; echo VAR=$HOME http://x/y 12/3 \"a b\"" }),
+      call("4", "Grep", { pattern = "x", path = "/work/arena/project", glob = "*.tl" }),
+      call("5", "Glob", { pattern = "/home/user/*.md", path = "/work/arena" }),
+      call("6", "Read", { file_path = "/proc/1/root/x" }),
+      call("7", "Write", { file_path = "/work/arena/project/CLAUDE.md", content = "x" }),
     }, "\n") .. "\n"
     local _ = Summarize.report(text, "/work/arena", "/src/cosmic")
     local _ = Summarize.paths("Bash", { command = "cat ~/x ~user/y $HOME" }, "/work/arena/project")

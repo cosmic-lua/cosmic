@@ -229,16 +229,16 @@ local function list(file: string, as_json: boolean, to: verb.Io): Outcome
   return with_entries(file, to, function(entries: {Archive.Entry}): Outcome
     local text: string
     if as_json then
-      local rows = Json.array()
+      local rows: mut {Json.Value} = {}
       for _, entry in ipairs(entries) do
-        local row: {string:any} = {
-          path = entry.path, type = entry.kind, size = entry.size, -- checked: any_use*3
-          mode = string.format("%04o", entry.mode & 0xfff), mtime = entry.mtime, -- checked: any_use*2
+        local row: mut {string: Json.Value} = {
+          path = entry.path, type = entry.kind, size = entry.size,
+          mode = string.format("%04o", entry.mode & 0xfff), mtime = entry.mtime,
         }
-        if entry.linkpath ~= "" then row.linkpath = entry.linkpath end -- checked: map_field
-        rows[#rows + 1] = row -- checked: not_assignable, view_written
+        if entry.linkpath ~= "" then row["linkpath"] = entry.linkpath end
+        rows[#rows + 1] = row
       end
-      local encoded, encode_why = Json.encode(rows, { pretty = true })
+      local encoded, encode_why = Json.encode(Json.array(rows), { pretty = true })
       if encoded == nil then return fail(bare.refused, encode_why) end
       text = encoded .. "\n"
     else

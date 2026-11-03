@@ -1,6 +1,7 @@
 local Csrf = require("cosmic.web.csrf")
 local Cors = require("cosmic.web.cors")
 local Html = require("cosmic.html")
+local Json = require("cosmic.json")
 local Input = require("cosmic.web.input")
 local Session = require("cosmic.web.session")
 local Stream = require("cosmic.stream")
@@ -17,7 +18,7 @@ local function memory_store(): Session.Store
     load = function(_self: Session.Store, token: string, now: integer, _cookie: string): Session.Data?, string
       local row = rows[token]
       if row == nil or row.expires <= now then return nil, "" end
-      local values: mut {string:any} = {}
+      local values: mut {string: Json.Value} = {}
       for k, v in pairs(row.values) do values[k] = v end
       return { values = values, created = row.created, expires = row.expires }, ""
     end,
@@ -29,7 +30,7 @@ local function memory_store(): Session.Store
         id = "id" .. tostring(count)
         rows[previous] = nil
       end
-      local values: mut {string:any} = {}
+      local values: mut {string: Json.Value} = {}
       for k, v in pairs(data.values) do values[k] = v end
       rows[id] = { values = values, created = data.created, expires = data.expires }
       return id, ""

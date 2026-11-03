@@ -94,29 +94,32 @@ local function test_format_refuses_or_lays_out_a_fixed_point(tmp: string)
 end
 
 --- A Teal value [`flow.from`] takes, drawn.
-local function gen_teal(src: Fuzz.Source, depth: integer): any
+local function gen_teal(src: Fuzz.Source, depth: integer): Json.Value
   local kind = if depth <= 0 then 0 else src:int(0, 2) end
   if kind == 0 then
     local pick = src:int(0, 4)
     if pick == 0 then
-      return Fuzz.pick(src, { "a", "x # y", "\u{2028}", "\u{85}", "\u{e9}", "q\"\\", "" }) -- checked: any_use
+      return Fuzz.pick(src, { "a", "x # y", "\u{2028}", "\u{85}", "\u{e9}", "q\"\\", "" })
     end
-    if pick == 1 then return src:int(0, 1) == 0 end -- checked: any_use
-    if pick == 2 then return Json.null end -- checked: any_use
-    return src:int(-999, 999) -- checked: any_use
+    if pick == 1 then return src:int(0, 1) == 0 end
+    if pick == 2 then return Json.null end
+    return src:int(-999, 999)
   end
-  local out: mut {any: any} = {} -- declared: key_type
   local count = 0
+  if kind == 1 then
+    local members: mut {string: Json.Value} = {}
+    while Fuzz.more(src, count, 4) do
+      count = count + 1
+      members[Fuzz.pick(src, { "a", "b", "name", "on", "runs-on", "steps", "a b", "Yes" })] = gen_teal(src, depth - 1)
+    end
+    return members
+  end
+  local items: mut {Json.Value} = {}
   while Fuzz.more(src, count, 4) do
     count = count + 1
-    if kind == 1 then
-      out[Fuzz.pick(src, { "a", "b", "name", "on", "runs-on", "steps", "a b", "Yes" })] = gen_teal(src, depth - 1)
-    else
-      out[count] = gen_teal(src, depth - 1)
-    end
+    items[#items + 1] = gen_teal(src, depth - 1)
   end
-  if kind == 2 then return Json.array(out as {any}) end -- checked: any_use, cast_refused
-  return out
+  return Json.array(items)
 end
 
 local function test_write_makes_a_laid_out_text_of_its_value(tmp: string)
@@ -124,7 +127,7 @@ local function test_write_makes_a_laid_out_text_of_its_value(tmp: string)
     name = "flow write",
     dir = tmp,
     gen = function(src: Fuzz.Source): string
-      return (assert(Json.encode_any(gen_teal(src, 3))))
+      return (assert(Json.encode(gen_teal(src, 3))))
     end,
     check = function(input: string): boolean, string
       local value, _ = Json.decode(input, { null_value = Json.null })

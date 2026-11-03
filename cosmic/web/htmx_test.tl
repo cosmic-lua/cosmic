@@ -254,15 +254,13 @@ local function test_stop_polling_is_a_286_the_server_accepts()
 end
 
 --- The `content` of the htmx-config meta tag in `markup`, entities decoded.
-local function config_of(markup: string): {string:any}
+local function config_of(markup: string): {string: Json.Value}
   local content = assert(markup:match('<meta name="htmx%-config" content="([^"]*)">'))
   content = content:gsub("&#(%d+);", function(code: string): string
     return string.char(assert(math.tointeger(tonumber(code))))
   end)
   content = content:gsub("&quot;", '"'):gsub("&amp;", "&")
-  local config = assert(Json.decode(content))
-  assert(config is {string:any}) -- checked: is_on_record
-  return config
+  return (assert(Json.decode_object(content)))
 end
 
 local PLAN_CONFIG <const> = [[{ "allowEval": false, "allowScriptTags": false, "includeIndicatorStyles": false,

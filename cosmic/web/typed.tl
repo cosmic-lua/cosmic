@@ -116,12 +116,14 @@ local function check_path(pattern: string, spec: Shape.Node?)
 end
 
 --- The errors of `inv` as the `errors` member of a problem body.
-local function problem_errors(inv: Types.Invalid): any
-  local list: mut {any} = {}
+local function problem_errors(inv: Types.Invalid): Json.Value
+  local list: mut {Json.Value} = {}
   for _, e in ipairs(inv.errors) do
-    list[#list + 1] = { source = e.source, field = e.field, pointer = e.pointer, message = e.message, code = e.code } -- checked: array_of_optional
+    local entry: mut {string: Json.Value} = { source = e.source, field = e.field, message = e.message, code = e.code }
+    if e.pointer ~= nil then entry["pointer"] = e.pointer end
+    list[#list + 1] = entry
   end
-  return Json.array(list) -- checked: any_use, not_assignable
+  return Json.array(list)
 end
 
 --- The default answer for `inv`: a problem body for a client that prefers
