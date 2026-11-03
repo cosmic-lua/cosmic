@@ -81,7 +81,7 @@ local function test_a_database_that_is_not_there_fails_the_start(tmp: string)
   local executable = assert(Proc.executable())
   local result, why = Child.run({ executable, executable }, { policy = { profiles = { "system" },
     database = { path = tmp .. "/absent.db" } }, stdout = "capture", stderr = "capture" })
-  assert(result == nil and why:find("absent.db", 1, true), tostring(why)) -- checked: or_mix
+  assert(result == nil and why:find("absent.db", 1, true) ~= nil, tostring(why))
 end
 
 --- The child may not write the database it runs on, by open or beside it:

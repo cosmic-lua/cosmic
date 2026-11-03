@@ -3,6 +3,7 @@
 --- in shorthand form, and a value's shape.
 
 local Json = require("cosmic.json")
+local Test = require("cosmic.test")
 local json_query = require("build.json_query")
 
 --- The value `text` decodes to, or a failed assertion naming why.
@@ -46,9 +47,9 @@ local function test_describe_scalars_empties_and_null()
   assert(json_query.describe(decoded('{"a": {}, "b": [], "c": null}', { null_value = Json.null })) ==
       "{a: {}, b: [0], c: null}")
   assert(json_query.describe(decoded('{"odd key": 1}')) == '{"odd key": number}', json_query.describe(decoded('{"odd key": 1}')))
-  assert(not pcall(json_query.describe, {}, { max_depth = -1 })) -- checked: alternatives_as_value, literal_needs_type
+  Test.raises(function() json_query.describe({}, { max_depth = -1 }) end) -- checked: literal_needs_type
   local fraction: any = 1.5 -- checked: any_use
-  assert(not pcall(json_query.describe, {}, { max_depth = fraction as integer })) -- checked: alternatives_as_value, cast_refused, literal_needs_type
+  Test.raises(function() json_query.describe({}, { max_depth = fraction as integer }) end) -- checked: cast_refused, literal_needs_type
 end
 
 --- `?` and a depth cut, objects merged across nested arrays, holes.

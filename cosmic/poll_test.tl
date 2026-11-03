@@ -1155,7 +1155,7 @@ local function test_a_wait_raises_while_the_run_closes_its_tasks(tmp: string)
     assert(Poll.delay(0))
     error("the run fails", 0)
   end)
-  assert(not ok and tostring(err):find("the run fails", 1, true), tostring(err)) -- checked: or_mix
+  assert(not ok and tostring(err):find("the run fails", 1, true) ~= nil, tostring(err))
   assert(trouble:find("Poll.wait while Poll.run closes its tasks", 1, true), trouble)
   sys.close(reader)
   sys.close(writer)

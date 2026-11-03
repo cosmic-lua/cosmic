@@ -1189,7 +1189,7 @@ local function test_poll_watches_past_a_thousand_descriptors()
       ": " .. tostring(trouble))
   fds[#fds + 1] = -1
   events[#events + 1] = sys.POLLIN
-  assert(not pcall(sys.poll, { -2 }, { sys.POLLIN }, 0), "a descriptor below -1 raises") -- checked: alternatives_as_value
+  Test.raises(function() sys.poll({ -2 }, { sys.POLLIN }, 0) end) -- a descriptor below -1 raises
   local revents, failure = sys.poll(fds, events, 0)
   assert(revents ~= nil, failure)
   assert(#revents == wanted + 1, "one answer per descriptor, not " .. tostring(#revents))
@@ -1356,8 +1356,8 @@ local function test_umask_withholds_bits_and_answers_the_last(tmp: string)
   sys.umask(before)
   if not ok then error(failure) end
   assert(failure, "umask did not answer the mask it replaced")
-  assert(not pcall(sys.umask, -1)) -- checked: alternatives_as_value
-  assert(not pcall(sys.umask, 0x200)) -- checked: alternatives_as_value
+  Test.raises(function() sys.umask(-1) end)
+  Test.raises(function() sys.umask(0x200) end)
 end
 
 local function test_entropy_and_ftruncate_answer_their_contracts(tmp: string)
@@ -1566,7 +1566,7 @@ local function test_an_errno_is_named_as_errno_h_names_it()
   end
   assert(sys.errno_name(0) == nil and sys.errno_name(-1) == nil)
   assert(sys.errno_message(-1) == "No error information")
-  assert(not pcall(sys.errno_name, "ENOENT" as integer), "a name is not a number") -- checked: alternatives_as_value, cast_refused
+  Test.raises(function() sys.errno_name("ENOENT" as integer) end) -- checked: cast_refused
 end
 
 --- Every errno a macOS call can fail with is named and worded, those

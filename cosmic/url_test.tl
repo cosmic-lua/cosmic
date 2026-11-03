@@ -166,11 +166,11 @@ local function test_parse_refuses_a_space_or_control_byte_naming_url_escape()
   assert(p == nil)
   assert(why == "url: the URL holds a space at byte 11; escape a path segment or query value with Url.escape", why)
   p, why = Url.parse("http://h/\0")
-  assert(p == nil and why:find("holds a NUL at byte 10;", 1, true), why) -- checked: or_mix
+  assert(p == nil and why:find("holds a NUL at byte 10;", 1, true) ~= nil, why)
   p, why = Url.parse("http://h/?a=\n")
-  assert(p == nil and why:find("holds control byte 0x0a at byte 13;", 1, true), why) -- checked: or_mix
+  assert(p == nil and why:find("holds control byte 0x0a at byte 13;", 1, true) ~= nil, why)
   p, why = Url.parse("http://h\127/")
-  assert(p == nil and why:find("holds control byte 0x7f at byte 9;", 1, true), why) -- checked: or_mix
+  assert(p == nil and why:find("holds control byte 0x7f at byte 9;", 1, true) ~= nil, why)
 end
 
 local function test_parse_keeps_bytes_past_ascii_as_written()

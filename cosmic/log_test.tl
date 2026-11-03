@@ -1,10 +1,11 @@
+local Test = require("cosmic.test")
 --- [`cosmic.log`]'s loggers, in this process: a name is required, and a
 --- write says whether it landed. cosmic/log_tool_test.tl holds where
 --- each line goes, which a script run by this program shows.
 
 local function test_a_logger_needs_a_name()
   local Log = require("cosmic.log")
-  assert(not pcall(Log.new, "")) -- checked: alternatives_as_value
+  Test.raises(function() Log.new("") end)
   assert(Log.new("x").name == "x")
 end
 

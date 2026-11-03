@@ -1,4 +1,5 @@
 local Flags = require("cosmic.flags")
+local Test = require("cosmic.test")
 
 local spec: {string:boolean} = { ["--check"] = false, ["--jobs"] = true }
 
@@ -187,7 +188,7 @@ local function test_help_of_a_command_says_options_where_its_usage_is_unwritten(
       "usage: prog run <file>" .. lines)
   assert(Flags.help({ spec = described, usage = "" }, "prog run") == "usage: prog run" .. lines)
   assert(Flags.help({ about = "Runs." }, "prog run") == "usage: prog run\n\nRuns.")
-  assert(not pcall(Flags.help, {}, "")) -- checked: alternatives_as_value
+  Test.raises(function() Flags.help({}, "") end)
 end
 
 local function test_asks_help_stops_at_the_double_dash_and_defers_to_the_spec()
@@ -234,7 +235,7 @@ local function test_dispatch_runs_the_command_with_its_own_options()
   local refused, trouble = Flags.dispatch({ "clean", "--jobs=2" }, 1, commands, "prog")
   assert(refused == nil and trouble == "clean: no such option: --jobs; usage: prog clean", trouble)
   assert(#ran == 2)
-  assert(not pcall(Flags.dispatch, { "x" }, 1, {}, "prog")) -- checked: alternatives_as_value
+  Test.raises(function() Flags.dispatch({ "x" }, 1, {}, "prog") end)
 end
 
 local function test_dispatch_refuses_a_command_with_no_run()
@@ -335,7 +336,7 @@ local function test_a_one_dash_option_named_whole_takes_a_value_after_equals()
 end
 
 local function test_a_described_value_needs_a_name()
-  assert(not pcall(Flags.parse, {}, 1, { ["-o"] = { value = "" } })) -- checked: alternatives_as_value
+  Test.raises(function() Flags.parse({}, 1, { ["-o"] = { value = "" } }) end)
 end
 
 local function test_help_aligns_by_characters_not_bytes()

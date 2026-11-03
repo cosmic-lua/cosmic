@@ -13,6 +13,7 @@ local type raw_process = require("cosmic.internal.process")
 -- test's import closure, and the store has it to hand it from.
 local type _ = require("cosmic.child")
 
+local Test = require("cosmic.test")
 local process = require("cosmic.internal.process")
 
 local AUDIT: {string: integer} = { x86_64 = 0xc000003e, aarch64 = 0xc00000b7 }
@@ -865,11 +866,13 @@ local function test_a_promise_is_one_of_the_four()
     assert(not ok, bad .. " is no promise")
   end
   local numeric: any = { 1 } -- checked: any_use
-  assert(not pcall(process.promise_filter, numeric as {string}, "x86_64")) -- checked: alternatives_as_value, cast_refused
-  assert(not pcall(process.promise_filter, {}, "riscv64")) -- checked: alternatives_as_value
-  assert(not pcall(process.promise_filter, {}, "x86_64", { pid = 0 })) -- checked: alternatives_as_value
+  Test.raises(function() process.promise_filter(numeric as {string}, "x86_64") end) -- checked: cast_refused
+  Test.raises(function() process.promise_filter({}, "riscv64") end)
+  Test.raises(function() process.promise_filter({}, "x86_64", { pid = 0 }) end)
   local text_pid: any = { pid = "1" } -- checked: any_use
-  assert(not pcall(process.promise_filter, {}, "x86_64", text_pid as raw_process.PromiseOptions)) -- checked: alternatives_as_value, cast_refused
+  Test.raises(function()
+    process.promise_filter({}, "x86_64", text_pid as raw_process.PromiseOptions) -- checked: cast_refused
+  end)
 end
 
 --- Every number from 0 through the reviewed table's end, with every
