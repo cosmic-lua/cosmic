@@ -1,3 +1,4 @@
+local Array = require("cosmic.array")
 --- Proves the streaming codecs round-trip, decode published vectors,
 --- and refuse corrupt or truncated input rather than answering with
 --- something wrong.
@@ -786,19 +787,19 @@ local function test_sql_deflate_and_inflate_speak_raw_deflate()
   for _, input in ipairs({ text, "", "x" }) do
     local rows = assert(Sqlite.rows(db,
       "SELECT deflate(?1), inflate(deflate(?1))", { { text = input } }))
-    local stored = rows[1]:blob(1) -- checked: nil_not_allowed
+    local stored = Array.at(rows, 1):blob(1)
     assert(stored == assert(Compress.deflate("raw", input)),
       "SQL and Compress deflate alike")
     assert(assert(Compress.inflate("raw", stored)) == input)
-    assert(rows[1]:kind(2) == "blob" and rows[1]:blob(2) == input) -- checked: nil_not_allowed*2
+    assert(Array.at(rows, 1):kind(2) == "blob" and Array.at(rows, 1):blob(2) == input)
     local back = assert(Sqlite.rows(db, "SELECT inflate(?1)",
       { { blob = assert(Compress.deflate("raw", input)) } }))
-    assert(back[1]:blob(1) == input, "SQL inflates what Compress deflated") -- checked: nil_not_allowed
+    assert(Array.at(back, 1):blob(1) == input, "SQL inflates what Compress deflated")
   end
   assert(#assert(Compress.deflate("raw", text)) < #text // 10)
   local nulls = assert(Sqlite.text_rows(db,
     "SELECT deflate(NULL) IS NULL, inflate(NULL) IS NULL"))
-  assert(nulls[1]:text(1) == "1" and nulls[1]:text(2) == "1") -- checked: nil_not_allowed*2
+  assert(Array.at(nulls, 1):text(1) == "1" and Array.at(nulls, 1):text(2) == "1")
   local stream = assert(Compress.deflate("raw", text))
   for _, case in ipairs({
       { stream:sub(1, #stream - 4), "truncated deflate stream" },
