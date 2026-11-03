@@ -1,5 +1,6 @@
 --- Tests of [`build.syntax_node`]: a source read into the new syntax tree, a node's place and bytes, the walk in source
 --- order, the parent of each node, and the modules a file requires.
+local Array = require("cosmic.array")
 local Ast = require("lang.ast")
 local Node = require("build.syntax_node")
 local Test = require("cosmic.test")
@@ -23,8 +24,8 @@ end
 
 local function test_a_node_reads_its_place_from_its_tokens()
   local chunk = parsed("local x = f(1,\n  2)\n")
-  local stat = chunk.body.stats[1]
-  assert((stat.kind == "Local")) -- checked: nil_not_allowed
+  local stat = Array.at(chunk.body.stats, 1)
+  assert((stat.kind == "Local"))
   local span = Node.span(chunk, stat)
   assert(span.y == 1 and span.x == 1 and span.yend == 2 and span.xend == 4, tostring(span.y) .. ":" .. tostring(span.x))
   local range = Node.range(chunk, stat)
@@ -74,8 +75,8 @@ local function test_the_parent_of_each_node_is_the_node_that_holds_it()
   local chunk = parsed("local x = f(1)\n")
   local parents = Node.parents(chunk)
   assert(parents[Node.base(chunk).id] == nil)
-  local stat = chunk.body.stats[1]
-  assert((stat.kind == "Local")) -- checked: nil_not_allowed
+  local stat = Array.at(chunk.body.stats, 1)
+  assert((stat.kind == "Local"))
   local call = assert(stat.values[1])
   assert((call.kind == "Call"))
   assert(parents[Node.base(call).id] == stat and parents[Node.base(assert(call.args[1])).id] == call)

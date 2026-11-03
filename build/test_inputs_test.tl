@@ -158,16 +158,20 @@ local function test_a_host_path_that_cannot_be_given_is_named()
     return assert(effective.unresolved)
   end
   local said = "Test.policy grant of the host path "
-  local wants: {{string}} = {
-    { "/fixture/tree/x", said .. '"/fixture/tree/x": /fixture/tree/x is the tree\'s' },
-    { "/fixture/tree", said .. '"/fixture/tree": /fixture/tree is the tree\'s' },
-    { "/real/tree/sub/f", "/real/tree/sub/f is the tree's" },
-    { "/fixture", "/fixture holds the tree" },
-    { "/", "/ holds the tree" },
+  local record Want
+    host: string
+    says: string
+  end
+  local wants: {Want} = {
+    { host = "/fixture/tree/x", says = said .. '"/fixture/tree/x": /fixture/tree/x is the tree\'s' },
+    { host = "/fixture/tree", says = said .. '"/fixture/tree": /fixture/tree is the tree\'s' },
+    { host = "/real/tree/sub/f", says = "/real/tree/sub/f is the tree's" },
+    { host = "/fixture", says = "/fixture holds the tree" },
+    { host = "/", says = "/ holds the tree" },
   }
   for _, want in ipairs(wants) do
-    local why = trouble({ "/fixture/written", want[1] }) -- checked: index_may_be_nil
-    assert(why:find(want[2], 1, true), assert(want[1]) .. ": " .. why) -- checked: index_may_be_nil
+    local why = trouble({ "/fixture/written", want.host })
+    assert(why:find(want.says, 1, true), want.host .. ": " .. why)
   end
   assert(trouble({ "/fixture/written", "/fixture/product/f", "/proc" }) == "")
 end

@@ -10,6 +10,7 @@
 --- and that runs on no database fails the test, as does one in a run whose
 --- program is no portable artifact, which the run's summary says; an
 --- unmarked worker on none is skipped.
+local Array = require("cosmic.array")
 local Env = require("cosmic.env")
 local Globals = require("cosmic.internal.globals")
 local Proc = require("cosmic.proc")
@@ -42,13 +43,15 @@ local function absent(name: string)
   for _, db in ipairs(Store.databases()) do
     local rows = assert(Sqlite.text_rows(db,
       "SELECT count(*) FROM modules WHERE path = ?1", { { text = name } }))
-    assert(rows[1]:text(1) == "0", name .. ": a database holds its row") -- checked: nil_not_allowed
+    assert(Array.at(rows, 1):text(1) == "0", name .. ": a database holds its row")
   end
   -- The searchers behind the runner's own hold on `require`, which stands
   -- first only while the test runs.
-  for i = 2, #package.searchers do
-    local loader = package.searchers[i](name) -- checked: nil_not_allowed
-    assert(type(loader) ~= "function", name .. ": a searcher loads it")
+  for i, searcher in ipairs(package.searchers) do
+    if i >= 2 then
+      local loader = searcher(name)
+      assert(type(loader) ~= "function", name .. ": a searcher loads it")
+    end
   end
 end
 
