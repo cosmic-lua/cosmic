@@ -486,11 +486,11 @@ local CONNECTOR_DEFAULT_NS <const> = Clock.seconds(10)
 
 -- How [`cosmic.net`] judges an address, which it hands over as it loads.
 local record Registered
-  mut address_trouble: function(address: any): string
+  mut address_trouble: function(address: raw_socket.Address): string
 end
 
 local registered: Registered = {
-  address_trouble = function(_address: any): string
+  address_trouble = function(_address: raw_socket.Address): string
     error("address_trouble is called before cosmic.net registers it")
   end,
 }
@@ -715,7 +715,7 @@ local record Leaf
   --- The most endpoints a connector's table holds.
   MAX_ENDPOINTS: integer
 
-  register: function(trouble: function(address: any): string)
+  register: function(trouble: function(address: raw_socket.Address): string)
   checked_endpoints: function(endpoints: {raw_process.ConnectorEndpoint}, empty: boolean, level: integer): {raw_process.ConnectorEndpoint}
   checked_timeout_ms: function(timeout_ns: integer?, level: integer): integer
   start: function(endpoints: {raw_process.ConnectorEndpoint}, timeout_ms: integer,
@@ -763,7 +763,7 @@ end
 --- Hands this module how [`cosmic.net`] judges an `address`, as it loads: a
 --- connector is used only once cosmic.net is loaded, for [`Net.connector`]
 --- is how a program gets one.
-function Leaf.register(trouble: function(address: any): string)
+function Leaf.register(trouble: function(address: raw_socket.Address): string)
   registered.address_trouble = trouble
 end
 

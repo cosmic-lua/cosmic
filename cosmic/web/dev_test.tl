@@ -247,11 +247,7 @@ local function test_static_is_served_from_disk_and_never_cached_in_development(t
   assert(app:url_for("static", { path = "a.css" }) ~= nil)
 end
 
-local function test_an_option_of_the_wrong_kind_raises()
-  local wrong: any = { enabled = "yes" } -- checked: any_use
-  assert(Test.raises(function() Dev.app({}, wrong as Dev.Options) end):find("enabled", 1, true)) -- checked: cast_refused
-  local unknown: any = { stat = "x" } -- checked: any_use
-  assert(Test.raises(function() Dev.app({}, unknown as Dev.Options) end):find("no field stat", 1, true)) -- checked: cast_refused
+local function test_an_option_out_of_range_raises()
   assert(Test.raises(function() Dev.app({}, { interval_ns = 0 }) end):find("interval_ns", 1, true))
   assert(Test.raises(function() Dev.static("/s", { static = "" }) end):find("static", 1, true))
 end

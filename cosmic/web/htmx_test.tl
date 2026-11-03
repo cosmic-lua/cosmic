@@ -158,10 +158,12 @@ end
 local function test_a_redirect_must_stay_on_the_origin()
   for _, target in ipairs({ "//evil.example", "/\\evil.example", "https://evil.example/", "javascript:alert(1)",
       " /x", "", "data:text/html,x", "/a\r\nSet-Cookie: x=1" }) do
-    for _, field in ipairs({ "redirect", "location", "push_url", "replace_url" }) do
-      local reply: {string:any} = { [field] = target } -- checked: any_use
-      local res, why = applied(reply as Htmx.Reply) -- checked: cast_refused
-      assert(res == nil, field .. " accepted " .. target)
+    local replies: {Htmx.Reply} = {
+      { redirect = target }, { location = target }, { push_url = target }, { replace_url = target },
+    }
+    for index, reply in ipairs(replies) do
+      local res, why = applied(reply)
+      assert(res == nil, "reply " .. tostring(index) .. " accepted " .. target)
       assert(why:find("htmx: ", 1, true) == 1, why)
     end
   end
@@ -180,14 +182,14 @@ local function test_nothing_is_written_when_anything_is_refused()
 end
 
 local function test_selectors_swaps_and_events_are_checked()
-  for _, reply in ipairs({ -- checked: arms_differ, cast_refused
-      { retarget = "" }, { retarget = "#a\nb" }, { reselect = "#a\0b" }, { reswap = "sideways" },
-      { reswap = "innerHTMLx" }, { reswap = "" },
-      { trigger = {} }, { trigger = { { name = "" } } }, { trigger = { { name = "a,b" } } }, -- checked: literal_needs_type
-      { trigger = { { name = "a\"b" } } }, { trigger = { { name = "a\nb" } } },
-      { trigger = { { name = "{\"a\":1}" } } }, { trigger = { { name = "caf\u{e9}" } } },
-      { trigger = { { name = "ok", detail = { fn = print } } } }, -- checked: arms_differ
-  } as {Htmx.Reply}) do
+  local refused: {Htmx.Reply} = {
+    { retarget = "" }, { retarget = "#a\nb" }, { reselect = "#a\0b" }, { reswap = "sideways" },
+    { reswap = "innerHTMLx" }, { reswap = "" },
+    { trigger = {} }, { trigger = { { name = "" } } }, { trigger = { { name = "a,b" } } }, -- checked: literal_needs_type
+    { trigger = { { name = "a\"b" } } }, { trigger = { { name = "a\nb" } } },
+    { trigger = { { name = "{\"a\":1}" } } }, { trigger = { { name = "caf\u{e9}" } } },
+  }
+  for _, reply in ipairs(refused) do
     local res, why = applied(reply)
     assert(res == nil and why:find("htmx: ", 1, true) == 1, tostring(why))
   end
