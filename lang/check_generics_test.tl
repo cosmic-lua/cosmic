@@ -557,6 +557,38 @@ local function test_a_bound_a_passed_generic_function_does_not_meet_is_bound_unm
       "local ok, r = pcall(label, p)\nprint(ok, r is string)\n", "true\ttrue")
 end
 
+-- Every generic function argument whose bound a type fails is waived together when the call is asked again: waiving only
+-- the first leaves the second to refuse the call as `overload_none`.
+local function test_every_passed_generic_function_with_an_unmet_bound_is_named_once()
+  local head = "local interface Named\n  name: string\nend\nlocal record Plain\n  name: string\nend\n" ..
+    "local function label<T is Named>(x: T): string\n  return x.name\nend\n" ..
+    "local function note<E is Named>(e: E): string\n  return \"n\"\nend\nlocal p: Plain = { name = \"ann\" }\n"
+  local both = Programs.run(HEAD .. head .. "local ok, r = xpcall(label, note, p)\nprint(ok, r)\n")
+  local first = both.errors[1]
+  assert(Programs.codes(both) == "bound_unmet", Programs.codes(both))
+  assert(#both.errors == 1 and first ~= nil and first.msg:find("argument 1", 1, true) ~= nil and
+      first.msg:find("argument 2", 1, true) ~= nil, Programs.codes(both))
+  -- a bound that fails in one argument names that argument alone, whichever it is, and is reported once
+  local loose = "local function pass<E>(e: E): string\n  return \"n\"\nend\n"
+  local only_first = Programs.run(HEAD .. head .. loose .. "local ok, r = xpcall(label, pass, p)\nprint(ok, r)\n")
+  local one = only_first.errors[1]
+  assert(Programs.codes(only_first) == "bound_unmet" and #only_first.errors == 1 and one ~= nil and
+      one.msg:find("argument 1", 1, true) ~= nil and one.msg:find("argument 2", 1, true) == nil, Programs.codes(only_first))
+  local only_second = Programs.run(HEAD .. head .. loose ..
+      "local class Person is Named\n  name: string\nend\nlocal q: Person = { name = \"bo\" }\n" ..
+      "local ok, r = xpcall(label, note, q)\nprint(ok, r)\n")
+  local two = only_second.errors[1]
+  assert(Programs.codes(only_second) == "bound_unmet" and #only_second.errors == 1 and two ~= nil and
+      two.msg:find("argument 2", 1, true) ~= nil and two.msg:find("argument 1", 1, true) == nil, Programs.codes(only_second))
+  -- a literal argument that is wrong on its own is reported beside the bound, each once: the refusal never rests on the
+  -- bound alone, and the post-accept check of the literal is not run again for the waived instance
+  local literal = Programs.run(HEAD .. head ..
+      "local ok, r = xpcall(label, function(e: any): string return 1 end, p)\nprint(ok, r)\n")
+  assert(Programs.codes(literal) == "bound_unmet not_assignable" and #literal.errors == 2, Programs.codes(literal))
+  -- a call that is refused for another reason too stays `overload_none`, with every bound waived
+  refused(head .. "local ok, r = xpcall(label, note, p, 5)\nprint(ok, r)\n", "overload_none")
+end
+
 local function test_an_iterator_that_is_a_generic_function_is_solved_by_the_state_and_the_control_value()
   local head = "local function step<T>(xs: {T}, at: integer?): (integer?, T?)\n  return nil, nil\nend\n"
   assert(type_of(head .. "local names: {string} = { \"a\" }\nfor i, v in step, names, nil do\n  local seen = v\nend\n", "seen") == "string?")
