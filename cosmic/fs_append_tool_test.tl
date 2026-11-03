@@ -41,8 +41,9 @@ local function test_append_concurrent_processes_preserve_both_ordered_streams(tm
   local data = assert(Fs.read(tmp .. "/log"))
   assert(#data == 14000)
   for name, index in data:gmatch("([ab]):(%d%d%d%d)\n") do
-    assert(tonumber(index) == next_index[name])
-    next_index[name] = next_index[name] + 1 -- checked: nil_not_allowed
+    local expected = assert(next_index[name], "the pattern matches only a and b")
+    assert(tonumber(index) == expected)
+    next_index[name] = expected + 1
   end
   assert(next_index.a == 1001 and next_index.b == 1001) -- checked: map_field*2
 end

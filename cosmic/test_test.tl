@@ -30,7 +30,7 @@ end
 --- `module`'s table, whose fields a runner installs, as its untyped self.
 local function fields_of(module: any): {string:any}
   if module is {string:any} then return module end -- checked: is_on_record
-  return nil -- checked: nil_not_allowed
+  error("fields_of: the module is not a table with string keys", 2)
 end
 
 --- `skip` records its reason with the runner and raises what the runner
