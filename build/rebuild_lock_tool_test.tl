@@ -6,6 +6,7 @@
 --- build/rebuild_lock_lua_test.tl's; the rest is in
 --- `rebuild_lock_test.tl`.
 
+local Array = require("cosmic.array")
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
@@ -264,7 +265,8 @@ local function test_a_waiting_projection_keeps_its_compiled_snapshot(tmp: string
         local db = assert(Sqlite.open(alternate))
         local rows = assert(Sqlite.text_rows(db,
           "SELECT inflate(source) FROM modules WHERE path = 'main'"))
-        assert(rows[1]:text(1) == 'print("replacement")\n') -- checked: nil_not_allowed
+        -- The one module `main` is stored once.
+        assert(Array.at(rows, 1):text(1) == 'print("replacement")\n')
         assert(db:close())
       else
         assert(Fs.write(root .. "/main.tl", 'local broken: string = 42\nprint(broken)\n'))
@@ -282,10 +284,10 @@ local function test_a_waiting_projection_keeps_its_compiled_snapshot(tmp: string
       local db = assert(Sqlite.open(support.build_dir(root) .. "/cosmic.db"))
       local rows = assert(Sqlite.text_rows(db,
         "SELECT inflate(source) FROM modules WHERE path = 'main'"))
-      assert(rows[1]:text(1) == original, "published another run's source") -- checked: nil_not_allowed
+      assert(Array.at(rows, 1):text(1) == original, "published another run's source")
       local signed = assert(Sqlite.text_rows(db,
         "SELECT value FROM meta WHERE key = 'projected'"))
-      assert(signed[1]:text(1) == first_signature, "published another run's signature") -- checked: nil_not_allowed
+      assert(Array.at(signed, 1):text(1) == first_signature, "published another run's signature")
       assert(db:close())
     end)
     rebuild_lock.release()

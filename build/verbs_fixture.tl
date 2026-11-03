@@ -68,7 +68,9 @@ function verbs_fixture.run(dir: string, args: {string}): invoke.Result
   })
   local result, trouble = Child.run(started.argv, started.options)
   local ran = assert(result, trouble)
-  return { code = ran.code, stdout = ran.stdout or "", stderr = ran.stderr or "" } -- checked: nil_not_allowed
+  -- `code` is nil only where a signal ended the command, which no test of a verb expects.
+  local code = assert(ran.code, "the command was ended by signal " .. tostring(ran.signal))
+  return { code = code, stdout = ran.stdout or "", stderr = ran.stderr or "" }
 end
 
 --- The last line of `text`, or "" when it has none.

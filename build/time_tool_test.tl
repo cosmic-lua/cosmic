@@ -25,7 +25,9 @@ local function cosmic(dir: string, words: {string}, tz?: string): Ran
     cwd = dir, env = env, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30),
   })
   local result = assert(Child.run(started.argv, started.options))
-  return { code = result.code, out = result.stdout or "", err = result.stderr or "" } -- checked: nil_not_allowed
+  local code = result.code
+  assert(code ~= nil, "a signal ended the run: " .. tostring(result.signal))
+  return { code = code, out = result.stdout or "", err = result.stderr or "" }
 end
 
 local function test_now_prints_the_time_and_no_summary(tmp: string)

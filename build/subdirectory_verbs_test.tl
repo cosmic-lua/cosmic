@@ -19,8 +19,10 @@ Test.policy{
 --- `cosmic <args>` in `dir`, built without the shared cache, which lives
 --- outside the test's own directory.
 local function cosmic(dir: string, args: {string}): invoke.Result
-  return invoke.run(args, { cwd = dir,
-    env = { COSMIC_BUILD_CACHE = "0", COSMIC_BUILD_HOME = Env.get("COSMIC_BUILD_HOME") } }) -- checked: nil_not_allowed
+  local env: mut {string:string} = { COSMIC_BUILD_CACHE = "0" }
+  local home = Env.get("COSMIC_BUILD_HOME")
+  if home ~= nil then env["COSMIC_BUILD_HOME"] = home end
+  return invoke.run(args, { cwd = dir, env = env })
 end
 
 --- A project at `tmp/project` built at its root, with a module and a

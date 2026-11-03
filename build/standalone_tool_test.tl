@@ -3,6 +3,7 @@
 --- start this program, its core and retained descriptor, only to run a
 --- file standalone, so they declare `lua`; the in-process compiles are in `standalone_test.tl`.
 
+local Array = require("cosmic.array")
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local this_program = require("build.this_program")
@@ -53,16 +54,19 @@ local function test_the_compile_cache_is_kept_only_where_others_cannot_write(tmp
       env = env, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30),
     })
     local result = assert(Child.run(started.argv, started.options))
-    return result.code -- checked: nil_not_allowed
+    local code = result.code
+    assert(code ~= nil, "a signal ended the run: " .. tostring(result.signal))
+    return code
   end
   local cache = tmp .. "/cache"
   assert(run({ XDG_CACHE_HOME = cache }) == 3)
   local kept = assert(Fs.list(cache .. "/cosmic/standalone"))
   assert(#kept == 1, tostring(#kept))
-  local st = assert(Fs.stat(cache .. "/cosmic/standalone/" .. kept[1]))
+  local name = Array.at(kept, 1)
+  local st = assert(Fs.stat(cache .. "/cosmic/standalone/" .. name))
   assert(st.mode & 0x1ff == 0x180, tostring(st.mode))
   -- a planted file in a directory others can write is never run
-  assert(Fs.write(cache .. "/cosmic/standalone/" .. kept[1], "return function() return 9 end")) -- checked: nil_not_allowed
+  assert(Fs.write(cache .. "/cosmic/standalone/" .. name, "return function() return 9 end"))
   assert(sys.chmod(cache .. "/cosmic/standalone", 0x1ff))
   assert(run({ XDG_CACHE_HOME = cache }) == 3)
   -- with no cache home at all, it still runs, compiling afresh

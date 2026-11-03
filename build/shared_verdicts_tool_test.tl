@@ -9,6 +9,7 @@
 --- explicit cache: their assertions concern cache handling, not isolation.
 --- They declare `tool` because they start this program.
 
+local Array = require("cosmic.array")
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
@@ -220,8 +221,9 @@ local function test_a_checkout_runs_what_no_shared_verdict_answers_for(tmp: stri
   -- And what the cache held: rows under the parts the runs keeping
   -- them said, these among them.
   local said_parts = parts:match("test: key parts: ([^\n]*)")
+  assert(said_parts ~= nil, parts)
   assert(parts:find("test: census: %d+ rows? under ") and
-      parts:find("under " .. said_parts, 1, true) ~= nil, parts) -- checked: nil_not_allowed
+      parts:find("under " .. said_parts, 1, true) ~= nil, parts)
 end
 
 --- A run that chooses only an edited module runs its tests and says
@@ -607,7 +609,7 @@ local function test_a_cache_of_another_shape_is_done_without(tmp: string)
   local named = assert(Sqlite.text_rows(probe.db,
     "SELECT name FROM sqlite_schema WHERE type = 'table' AND name LIKE 'declared%'"))
   shared_verdicts.close(probe)
-  assert(db:exec("CREATE TABLE " .. named[1]:text(1) .. " (x TEXT)")) -- checked: nil_not_allowed
+  assert(db:exec("CREATE TABLE " .. Array.at(named, 1):text(1) .. " (x TEXT)"))
   local before = assert(Fs.stat(other))
   env["COSMIC_VERDICT_CACHE"] = other
   checkout(tmp .. "/third", "one\n")
@@ -619,7 +621,7 @@ local function test_a_cache_of_another_shape_is_done_without(tmp: string)
   assert(db:exec("CREATE TABLE healthy (value TEXT)"))
   assert(db:exec("INSERT INTO healthy VALUES ('still usable')"))
   local reader = assert(Sqlite.open(other))
-  assert(assert(Sqlite.text_rows(reader, "SELECT value FROM healthy"))[1]:text(1) == "still usable") -- checked: nil_not_allowed
+  assert(Array.at(assert(Sqlite.text_rows(reader, "SELECT value FROM healthy")), 1):text(1) == "still usable")
   assert(reader:close())
   assert(db:close())
 end

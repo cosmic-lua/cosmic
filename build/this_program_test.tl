@@ -1,5 +1,6 @@
 --- How a test starts this very program (build.this_program's `program`).
 
+local Array = require("cosmic.array")
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
@@ -136,8 +137,8 @@ if cmdline ~= nil then print(cmdline:match("^[^%z]*")) else print("") end
   if Fs.exists("/proc/self/cmdline") ~= true then
     Test.skip("this host has no /proc/self/cmdline")
   end
-  assert(r.stdout == relaunch.argv[1] .. "\n", tostring(r.stdout) .. " is no relaunch of " .. -- checked: nil_not_allowed
-      relaunch.argv[1]) -- checked: nil_not_allowed
+  local program = Array.at(relaunch.argv, 1)
+  assert(r.stdout == program .. "\n", tostring(r.stdout) .. " is no relaunch of " .. program)
 end
 
 --- Under a policy `program` is the command line a policy start takes,

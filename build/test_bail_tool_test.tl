@@ -3,6 +3,7 @@
 --- test leaves a marker file, so a test that started is told from one
 --- that did not.
 
+local Array = require("cosmic.array")
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
@@ -89,7 +90,9 @@ local function test_a_bailing_run_starts_no_test_after_the_first_failure(tmp: st
   local db = assert(Sqlite.open(build_db))
   local rows = assert(Sqlite.text_rows(db, "SELECT test, passed FROM runs ORDER BY test"))
   assert(db:close())
-  assert(#rows == 1 and rows[1]:text(1) == "test_a_fails" and rows[1]:text(2) == "0", -- checked: nil_not_allowed
+  assert(#rows == 1, "the run kept a verdict for a test that did not start")
+  local only = Array.at(rows, 1)
+  assert(only:text(1) == "test_a_fails" and only:text(2) == "0",
     "the run kept a verdict for a test that did not start")
 
   local again = invoke(fresh, other .. "/again.out", {})
@@ -112,6 +115,8 @@ local function test_a_test_in_flight_at_the_first_failure_finishes(tmp: string)
   local db = assert(Sqlite.open(assert(build_paths.directory(root)) .. "/build.db"))
   local rows = assert(Sqlite.text_rows(db, "SELECT test, passed FROM runs ORDER BY test"))
   assert(db:close())
-  assert(#rows == 2 and rows[1]:text(1) == "test_a_fails" and rows[1]:text(2) == "0" and -- checked: nil_not_allowed
-      rows[2]:text(1) == "test_b_passes" and rows[2]:text(2) == "1", "the runs kept: " .. tostring(#rows)) -- checked: nil_not_allowed*2
+  assert(#rows == 2, "the runs kept: " .. tostring(#rows))
+  local first, second = Array.at(rows, 1), Array.at(rows, 2)
+  assert(first:text(1) == "test_a_fails" and first:text(2) == "0" and
+      second:text(1) == "test_b_passes" and second:text(2) == "1", "the runs kept: " .. tostring(#rows))
 end
