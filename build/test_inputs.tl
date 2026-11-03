@@ -79,8 +79,10 @@ local record test_inputs
     mut store_text?: boolean
     --- Whether its worker is given the pure store ([`build.closure_store`]'s `write`)
     --- and the source file of its own module alone: the run holds the pure store
-    --- ([`test_inputs.effective`]'s `pure_store`) and it declares none of `store`,
-    --- `store_text`, `lua` and `tool` ([`is_pure`]).
+    --- ([`test_inputs.effective`]'s `pure_store`), it declares none of `store`,
+    --- `store_text`, `lua` and `tool` ([`is_pure`]), and no module of its closure
+    --- declares it reads any text (requires [`build.reads.all`]), which gives it the
+    --- store of its closure with its text.
     mut pure?: boolean
     --- The host caches declared, by name ([`build.caches`]), and where
     --- they are on this host, once the runner resolves them: empty until
@@ -284,10 +286,12 @@ end
 ---
 --- `pure_store` says the run gives a test that declares none of `store`,
 --- `store_text`, `lua` and `tool` (the last two start the program, whose checker
---- types against the closure's text) the pure store ([`build.closure_store`]), which holds no text
---- of the modules it imports: such a test is given, and its key holds, the
---- source file of its own module and the declarations it requires, and not
---- the source files of the modules it imports.
+--- types against the closure's text) the pure store ([`build.closure_store`]), which holds the
+--- source only of what its closure declares it reads (the walks of [`build.reads.pipeline`] and its siblings) and the stubs
+--- a test names, and leaves out the tables of text-derived rows: such a test is given, and its key holds, the
+--- source file of its own module and the declarations it requires, and not the source files of the modules it imports.
+--- A test whose closure holds a module that requires [`build.reads.all`] is given the store of its closure with its
+--- text, as one that declares `store_text` is, and `pure` says it is not.
 function test_inputs.effective(m: Module, by_path: {string:Module},
                                declarations: {string:string},
                                type_only?: {string:{string:boolean}},

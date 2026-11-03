@@ -317,12 +317,17 @@ declares neither `store` nor `store_text` is given a pure store instead:
   [`build.reads.analyzer`], [`build.reads.receivers`] or [`build.reads.links`]
   ([`build.code_walk`] holds the walks), and a test importing it is given the
   source of the modules that walk reaches, which its key holds. A module that
-  reads any text ([`build.reads.all`]: docs, uses, places, the language server) gives
-  every test importing it the full store, as `store_text` does. A module that
-  calls [`Store.source`] or [`Store.withheld`], or queries a text table of
-  [`Store.databases()`], must require one ([`build.reads.declarations`] for a
-  reader of declarations alone, [`build.reads.stubs`] for the stubs a test
-  names); `cosmic fix --check .` refuses one that does not;
+  reads any other text ([`build.reads.all`]: docs, uses, places, the language
+  server) demotes every test importing it: the test is given the store of its
+  closure with its text, keyed by its bytes, as `store_text` does for a test
+  that declares it;
+- the tables of text-derived rows (`docs`, `uses`, `links`, `examples`,
+  `places`, `catalog` and their full-text tables) are left out, not left empty:
+  a query of one fails with "no such table", and so does a hint
+  ([`build.symbols`]) asked of a store that has none. The catalog is withheld
+  because most of it, the rows of the error sites each module documents, moves
+  with the lines of the module; the checker's own codes (`kind = 'code'`) do not,
+  but no test that reads module text wants them alone;
 - the bytecode of each module it imports stripped of its debug
   information ([`build.lua_tail`]'s `stripped`, which also writes the line
   each function is defined on as 0), and its own module's as the build made it;
@@ -347,6 +352,14 @@ never kept: a test whose subject is the language server, `cosmic docs` or a
 module's declared places declares `store_text`. A test that starts the program (`lua`,
 `tool`) is given the store of its closure, text included, as a `store_text` test is; only
 `store` is given the whole projection.
+
+What makes the store sound is that a read of text it withholds fails: a source
+is withheld ([`Store.withheld`]) and a table is absent. `cosmic fix --check .`
+also runs a lint, `text_readers` ([`build.tree_checks`]), that finds most
+modules that read text and asks them to declare it, so the failure is met
+early; a reader it misses (a table named at run time) is met by the first test
+that reaches it, which declares `store_text` or whose module declares the
+read. The lint is a heuristic and no part of the guarantee.
 
 The pure store is held for a sandboxed worker alone: unsandboxed, a worker
 reads the real tree, which a key without the imports' sources would not follow.
@@ -858,14 +871,13 @@ Other rules:
 [`build.pipeline`]: ../build/pipeline.tl
 [`build.reads.all`]: ../build/reads/all.tl
 [`build.reads.analyzer`]: ../build/reads/analyzer.tl
-[`build.reads.declarations`]: ../build/reads/declarations.tl
 [`build.reads.links`]: ../build/reads/links.tl
 [`build.reads.pipeline`]: ../build/reads/pipeline.tl
 [`build.reads.receivers`]: ../build/reads/receivers.tl
-[`build.reads.stubs`]: ../build/reads/stubs.tl
 [`build.rebuild`]: ../build/rebuild.tl
 [`build.sandboxed_verdicts_test`]: ../build/sandboxed_verdicts_test.tl
 [`build.standard_text`]: ../build/standard_text.tl
+[`build.symbols`]: ../build/symbols.tl
 [`build.test_child`]: ../build/test_child.tl
 [`build.test_returns`]: ../build/test_returns.tl
 [`build.test_sandbox_probe`]: ../build/test_sandbox_probe.tl
@@ -910,8 +922,6 @@ Other rules:
 [`lang/check_assigned_fuzz_test.tl`]: ../lang/check_assigned_fuzz_test.tl
 [`lang/check_flow_fuzz_test.tl`]: ../lang/check_flow_fuzz_test.tl
 [`lang/check_total_fuzz_test.tl`]: ../lang/check_total_fuzz_test.tl
-[`Store.databases()`]: ../cosmic/store.tl
-[`Store.source`]: ../cosmic/store.tl
 [`Store.withheld`]: ../cosmic/store.tl
 [`sys.cpu_features`]: ../core/syscalls.h
 [`Test.passed_unchecked`]: ../cosmic/test.tl

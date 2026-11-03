@@ -1,14 +1,16 @@
 --- Which modules the identities of the code that reads and checks hash the source of.
 ---
---- Three identities hold the source of the code that decides what a compile or a parse stores: the checker's readers
---- ([`build.pipeline`]'s `coded`), the analyzer ([`build.importer`]'s `analyzer_identity`) and the readers of the
---- record-field uses (`receivers_identity`). Each is a walk from roots over `require`, defined here once, so that the
---- identities and the writer of a test's pure store ([`build.closure_store`]) reach the same modules: the pure store
---- keeps the source of exactly the walks a test's closure declares it reads ([`build.reads.all`] and its siblings).
----
---- TODO: key these identities on the code they run and not on its text, so that a comment in a module of a walk moves
---- no key (the pure store would then keep a digest of the module's tokens and not its source), once the token digest of
---- a module exists.
+--- Four identities hold the source of the code that decides what a compile or a parse stores: the checker's readers
+--- ([`build.pipeline`]'s `coded`), the analyzer ([`build.importer`]'s `analyzer_identity`), the readers of the
+--- record-field uses (`receivers_identity`) and the code that finds the links of the files ([`build.work`]'s
+--- `links_finder`). Each is a walk from roots over `require`, defined here once, so that the identities and the writer
+--- of a test's pure store ([`build.closure_store`]) reach the same modules: the pure store keeps the source of exactly the
+--- walks a test's closure declares it reads (it requires [`build.reads.pipeline`], `analyzer`, `receivers` or `links`).
+
+-- TODO: hash the tokens of each module of a walk, not its source, in the four identities (build.pipeline's `identity`,
+-- build.importer's `analyzer_named` and `receivers_identity`, build.work's `links_finder`) once a comment-insensitive
+-- fingerprint of a module exists, so that a comment in a module of a walk moves no key; the pure store would then keep
+-- that fingerprint in place of the source.
 
 local record Walks
   --- The walk of the checker's readers, from [`build.pipeline`].
@@ -45,9 +47,9 @@ local record Walks
   --- analyzer's modules ([`analyzer_roots`]).
   type_only: {string:string}
 
-  --- The modules the walk `which` ([`pipeline`], [`analyzer`] or [`receivers`]) reaches over `requires`, sorted: a
-  --- module of the walk of the checker's readers is one of `lang.` or `build.` only. Nil and why where `requires`
-  --- failed.
+  --- The modules the walk `which` ([`pipeline`], [`analyzer`], [`receivers`] or [`links`]) reaches over `requires`,
+  --- sorted: a module of the walk of the checker's readers is one of `lang.` or `build.` only, and the walk of the
+  --- receivers' readers is its two modules, followed no further. Nil and why where `requires` failed.
   reach: function(which: string, requires: function(string): {string}?, string): {string}?, string
 
   --- The modules that start the walk `which`: the identity is named only where one of them is in the store.

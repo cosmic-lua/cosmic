@@ -3073,6 +3073,9 @@ local text_read_allowed <const>: {string:string} = {
   ["cosmic.errors"] = "asks the catalog for guidance on an error, a diagnostic that takes none from a database without the table; a standard-library module, which cannot require a module of the build",
 }
 
+-- TODO: see a table named at run time (`"FROM " .. name`), which a scan of literals cannot, once the checker answers
+-- the value a string expression holds.
+
 --- Each module of `db` that is no test and reads module text without declaring it, as `<module> reads text (<how>) and
 --- requires none of build.reads.*`.
 ---
@@ -3085,9 +3088,6 @@ local text_read_allowed <const>: {string:string} = {
 --- [`text_tables`] or the source of a module, in any module that names it (a handle handed on is read by whoever
 --- queries it). A module that runs a statement it is handed (`cosmic sql`) cannot be told apart by what it names, and
 --- declares [`build.reads.all`] by hand.
----
---- TODO: see a table named at run time (`"FROM " .. name`), which a literal scan cannot, once the checker answers the
---- value a string expression holds.
 function tree_checks.text_readers(db: Sqlite.Handle, excusing?: {string:string}): {string}
   local excused = excusing or text_read_allowed
   local imported, imported_trouble = Sqlite.text_rows(db, "SELECT path, requires FROM imports ORDER BY path, requires")

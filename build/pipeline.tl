@@ -396,8 +396,6 @@ local record Reader
   requires: function(name: string): {string}
 end
 
--- TODO: hash the tokens of each module here, not its source, once a comment-insensitive fingerprint of a module exists, so that a comment in
--- a module of the walk moves no key and no test of its importers runs again ([`build.code_walk`] names the walks).
 --- The identity of the code that reads and checks ([`Pipeline.coded`]), over the modules `reader` answers for: each module
 --- of [`build.code_walk`]'s walk from this one by its name and its source. What the walk leaves out of this module's own
 --- requires, and why, is [`CodeWalk.type_only`].

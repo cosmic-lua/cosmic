@@ -313,8 +313,6 @@ end
 --- build.tree compiles again and parses nothing again. What the checker's
 --- readers reach (build.withheld, build.syntax_contracts and the rules,
 --- through build.pipeline) still parses again.
--- TODO: hash the tokens of each module here, not its source, once a comment-insensitive fingerprint of a module exists, so that a
--- comment in a module of the walk moves no key ([`build.code_walk`] names the walk).
 local function analyzer_named(code?: importer.Code): string?, string
   local parts: mut {string} = { (if code ~= nil then code.basis else Store.meta("runtime_basis") end) or "" }
   local walk = walk_analyzer(code)
