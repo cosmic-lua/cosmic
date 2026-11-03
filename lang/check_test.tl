@@ -1,6 +1,7 @@
 --- Tests of [`lang.check`]: a case for each code it reports, with the place, message and fix; programs that stand;
 --- the types of names; and the programs the fork accepts that build/teal_test.tl pins and the new checker refuses, as
 --- the questions of expressions they are.
+local Array = require("cosmic.array")
 local Check = require("lang.check")
 local Codes = require("lang.check_codes")
 local Programs = require("lang.check_programs")
@@ -11,6 +12,12 @@ Test.policy{}
 
 local function has(text: string, part: string): boolean
   return text:find(part, 1, true) ~= nil
+end
+
+--- A place in a source, counted from 1.
+local record Place
+  line: integer
+  column: integer
 end
 
 --- A case for each code: a source with one mistake, and what its message and fix say.
@@ -24,7 +31,7 @@ local record Case
   --- The codes it has, when it has more than its own.
   codes?: string
   --- The line and column of the error.
-  at?: {integer}
+  at?: Place
 end
 
 local RECORD <const> = "local record R\n  name: string\n  n: integer\nend\n"
@@ -32,7 +39,7 @@ local FIND <const> = "local function find(): string?\n  return nil\nend\n"
 
 local CASES <const>: {Case} = {
   {
-    code = "not_assignable", source = "local n: integer = 3.5\n", at = { 1, 20 },
+    code = "not_assignable", source = "local n: integer = 3.5\n", at = { line = 1, column = 20 },
     msg = "`3.5` is `number`, where `integer` is wanted as the value of `n`",
     fix = "convert with `math.tointeger(3.5)` or `math.floor(3.5)`, or declare what takes it `number`",
   },
@@ -41,7 +48,7 @@ local CASES <const>: {Case} = {
     msg = "`a` is `A`, where `B` is wanted as the value of `b`", fix = "pass a value of type `B`, or change the declaration to `A`",
   },
   {
-    code = "nil_not_allowed", source = FIND .. "local s: string = find()\n", at = { 4, 19 },
+    code = "nil_not_allowed", source = FIND .. "local s: string = find()\n", at = { line = 4, column = 19 },
     msg = "`find()` is `string?`, so it may be nil, where `string` is wanted as the value of `s`",
     fix = "take the value with `local v = assert(find())`, or test it first",
   },
@@ -50,7 +57,7 @@ local CASES <const>: {Case} = {
     msg = "nil is given as the value of `s`, where `string` is wanted", fix = "declare what takes it `string?`",
   },
   {
-    code = "index_may_be_nil", source = "local xs: {string} = {}\nlocal s: string = xs[1]\n", at = { 2, 19 },
+    code = "index_may_be_nil", source = "local xs: {string} = {}\nlocal s: string = xs[1]\n", at = { line = 2, column = 19 },
     msg = "`xs[1]` is `string?` (an index read may be nil), where `string` is wanted",
     fix = "iterate with `for _, v in ipairs(xs)`",
   },
@@ -81,20 +88,20 @@ local CASES <const>: {Case} = {
     msg = "`v` is untrusted data (`any`), and `#` takes a string or an array", fix = "test its tag",
   },
   {
-    code = "view_written", source = "local function f(xs: {integer})\n  xs[#xs + 1] = 1\nend\n", at = { 2, 3 },
+    code = "view_written", source = "local function f(xs: {integer})\n  xs[#xs + 1] = 1\nend\n", at = { line = 2, column = 3 },
     msg = "`xs` is a view `{integer}`, so `xs[#xs + 1]` cannot be assigned",
     fix = "declare `xs` `mut {integer}` where it is made or received",
   },
   {
-    code = "field_fixed", source = RECORD .. "local r: R = { name = \"a\", n = 1 }\nr.n = 2\n", at = { 6, 1 },
+    code = "field_fixed", source = RECORD .. "local r: R = { name = \"a\", n = 1 }\nr.n = 2\n", at = { line = 6, column = 1 },
     msg = "`R.n` is fixed: it is not declared `mut`", fix = "declare `mut n: integer` in `R`, or make a new `R`",
   },
   {
-    code = "array_hole", source = "local xs: mut {integer} = {}\nxs[2] = 2\n", at = { 2, 1 },
+    code = "array_hole", source = "local xs: mut {integer} = {}\nxs[2] = 2\n", at = { line = 2, column = 1 },
     msg = "`xs[2]` may leave a hole in the array `xs`", fix = "append with `xs[#xs + 1] = v` or `table.insert`",
   },
   {
-    code = "float_key", source = "local xs: mut {integer} = {}\nlocal i: number = 1.5\nlocal v = xs[i]\n", at = { 3, 14 },
+    code = "float_key", source = "local xs: mut {integer} = {}\nlocal i: number = 1.5\nlocal v = xs[i]\n", at = { line = 3, column = 14 },
     msg = "`i` is a `number`, and `xs` is keyed by `integer`", fix = "convert it: `math.tointeger(i)` or `math.floor(i)`",
     codes = "float_key",
   },
@@ -132,7 +139,7 @@ local CASES <const>: {Case} = {
     fix = "write a function of the one you mean: `function(...) return string.gsub(...) end`",
   },
   {
-    code = "arity", source = "local function f(a: integer)\nend\nf(1, 2)\n", at = { 3, 1 },
+    code = "arity", source = "local function f(a: integer)\nend\nf(1, 2)\n", at = { line = 3, column = 1 },
     msg = "`f` takes 1 argument, but 2 are given", fix = "remove the extra argument",
   },
   {
@@ -145,24 +152,24 @@ local CASES <const>: {Case} = {
     fix = "pass arguments one overload accepts, in its order: function(string, string, string, p4?: integer)",
   },
   {
-    code = "cannot_infer", source = "local function empty<T>(): mut {T}\n  return {}\nend\nlocal xs = empty()\n", at = { 4, 12 },
+    code = "cannot_infer", source = "local function empty<T>(): mut {T}\n  return {}\nend\nlocal xs = empty()\n", at = { line = 4, column = 12 },
     msg = "`empty` is generic, and nothing fixes its type parameter `T`",
     fix = "type the result, so the call is expected to have the type (`local v: T = empty(...)`)",
   },
   {
     code = "infer_conflict", source = "local function pick<T>(a: T, b: T): T\n  return a\nend\nlocal n = 1\nlocal s = \"a\"\nlocal x = pick(n, s)\n",
-    at = { 6, 19 }, msg = "`T` of `pick` is `integer` from argument 1 and `string` from argument 2, which have no common type",
+    at = { line = 6, column = 19 }, msg = "`T` of `pick` is `integer` from argument 1 and `string` from argument 2, which have no common type",
     fix = "pass values of one type to `pick`, or convert argument 2 to `integer`",
   },
   {
     code = "bound_unmet",
     source = "local interface Named\n  name: string\nend\nlocal record Plain\n  name: string\nend\n" ..
       "local function label<T is Named>(x: T): string\n  return x.name\nend\nlocal p: Plain = { name = \"a\" }\nlocal s = label(p)\n",
-    at = { 11, 11 }, msg = "`Plain` is the type parameter `T` of `label`, which is bounded by `Named`",
+    at = { line = 11, column = 11 }, msg = "`Plain` is the type parameter `T` of `label`, which is bounded by `Named`",
     fix = "list the interface in the declaration of `Plain` (`is Named`)",
   },
   {
-    code = "return_arity", source = "local function f(): integer, string\n  return 1\nend\n", at = { 2, 3 },
+    code = "return_arity", source = "local function f(): integer, string\n  return 1\nend\n", at = { line = 2, column = 3 },
     msg = "this returns 1 value, where the function answers 2 values", fix = "return 2 values",
   },
   {
@@ -183,7 +190,7 @@ local CASES <const>: {Case} = {
     msg = "`f()` answers one of 2 lists of values, which is no value", fix = "match the call: `match f() do",
   },
   {
-    code = "value_count", source = "local a, b = 1\n", at = { 1, 1 },
+    code = "value_count", source = "local a, b = 1\n", at = { line = 1, column = 1 },
     msg = "this gives 1 value to 2 names, so the last name is nil", fix = "give 2 values",
   },
   {
@@ -191,16 +198,16 @@ local CASES <const>: {Case} = {
     msg = "`...` is used in a function that has no rest parameter", fix = "declare the rest parameter `...: T`",
   },
   {
-    code = "param_untyped", source = "local function f(a)\nend\n", at = { 1, 18 },
+    code = "param_untyped", source = "local function f(a)\nend\n", at = { line = 1, column = 18 },
     msg = "the parameter `a` of `f` has no type, and no function type is expected here to give it one",
     fix = "write the type: `a: T`",
   },
   {
-    code = "local_untyped", source = "local x\n", at = { 1, 7 },
+    code = "local_untyped", source = "local x\n", at = { line = 1, column = 7 },
     msg = "`x` has no type and no value", fix = "write its type: `local x: T` (`T?` if it may stay unset)",
   },
   {
-    code = "condition_type", source = "local s = \"a\"\nif s then\nend\n", at = { 2, 4 },
+    code = "condition_type", source = "local s = \"a\"\nif s then\nend\n", at = { line = 2, column = 4 },
     msg = "`s` is `string`, which is no boolean or optional, so it is no condition", fix = "write the test: `s ~= \"\"`",
   },
   {
@@ -217,12 +224,12 @@ local CASES <const>: {Case} = {
     fix = "give a default of `string`",
   },
   {
-    code = "and_ternary", source = "local c = true\nlocal x = c and 1 or 2\n", at = { 2, 11 },
+    code = "and_ternary", source = "local c = true\nlocal x = c and 1 or 2\n", at = { line = 2, column = 11 },
     msg = "`c and 1 or 2` is a ternary: it answers `2` when `1` is false or nil",
     fix = "use the `if` expression: `if c then 1 else 2 end`",
   },
   {
-    code = "concat_type", source = "local n = 1\nlocal s = \"a\" .. n\n", at = { 2, 18 },
+    code = "concat_type", source = "local n = 1\nlocal s = \"a\" .. n\n", at = { line = 2, column = 18 },
     msg = "`n` is `integer`, and `..` takes strings", fix = "write `tostring(n)` or `string.format(\"%d\", n)`",
   },
   {
@@ -249,21 +256,21 @@ local CASES <const>: {Case} = {
     fix = "test a tag (`x.kind == \"...\"`), declare a class",
   },
   {
-    code = "is_disjoint", source = "local function f(n: integer): boolean\n  return n is string\nend\n", at = { 2, 10 },
+    code = "is_disjoint", source = "local function f(n: integer): boolean\n  return n is string\nend\n", at = { line = 2, column = 10 },
     msg = "`n is string` is always false: `n` is `integer`, and no value of it is `string`",
     fix = "this test is always false: remove it and the branch it guards, or test a type that `n` can have (`integer`)",
   },
   {
     code = "interface_method_value",
     source = "local interface Sized\n  size: function(self: Sized): integer\nend\nlocal function f(s: Sized)\n  local g = s.size\nend\n",
-    at = { 5, 13 }, msg = "`s.size` reads the method `size` of the interface `Sized` as a value",
+    at = { line = 5, column = 13 }, msg = "`s.size` reads the method `size` of the interface `Sized` as a value",
     fix = "call it as `s:size(...)`",
   },
   {
     code = "static_before_definition",
     source = "local class C\n  n: integer\nend\nlocal x: C = { n = 1 }\nlocal k = C.twice(x)\n" ..
       "function C.twice(self: C): integer\n  return 1\nend\n",
-    at = { 5, 11 }, msg = "`C.twice` reads the function `C.twice` before the statement that defines it has run",
+    at = { line = 5, column = 11 }, msg = "`C.twice` reads the function `C.twice` before the statement that defines it has run",
     fix = "move the statement `function C.twice(...)` above this use",
   },
   {
@@ -272,7 +279,7 @@ local CASES <const>: {Case} = {
     fix = "make a value with a table literal typed as the type (`local v: C = { ... }`)",
   },
   {
-    code = "class_scope", source = "local type K = require(\"other\")\nlocal k: K = { n = 1 }\n", at = { 2, 14 },
+    code = "class_scope", source = "local type K = require(\"other\")\nlocal k: K = { n = 1 }\n", at = { line = 2, column = 14 },
     modules = { other = "local class K\n  n: integer\nend\nreturn K\n" },
     msg = "this literal makes a value of `K`, a class of the module `other`, whose metatable only that module reaches",
     fix = "make the value in `other` with a function of the class (`function K.new(...): K`)",
@@ -283,16 +290,16 @@ local CASES <const>: {Case} = {
     fix = "declare `function __close(self)` as a method on the class or userdata record `c` holds",
   },
   {
-    code = "setmetatable_call", source = "local t = setmetatable({}, {})\n", at = { 1, 11 },
+    code = "setmetatable_call", source = "local t = setmetatable({}, {})\n", at = { line = 1, column = 11 },
     msg = "a program has no `setmetatable`: the metatable of a value is the compiler's",
     fix = "declare a `class` with the methods and write the value as a table literal typed as the class",
   },
   {
-    code = "enum_member", source = "local enum E \"a\" \"b\" end\nlocal e: E = \"c\"\n", at = { 2, 14 },
+    code = "enum_member", source = "local enum E \"a\" \"b\" end\nlocal e: E = \"c\"\n", at = { line = 2, column = 14 },
     msg = "`\"c\"` is not a member of `E`", fix = "write `\"a\"` or `\"b\"`",
   },
   {
-    code = "literal_missing", source = RECORD .. "local r: R = { name = \"a\" }\n", at = { 5, 14 },
+    code = "literal_missing", source = RECORD .. "local r: R = { name = \"a\" }\n", at = { line = 5, column = 14 },
     msg = "this literal of `R` leaves out `n`", fix = "add `n` to the literal",
   },
   {
@@ -325,7 +332,7 @@ local CASES <const>: {Case} = {
     msg = "the key 1 is written twice in this literal", fix = "remove the second 1, or give the two different keys",
   },
   {
-    code = "literal_needs_type", source = "local t = {}\n", at = { 1, 11 },
+    code = "literal_needs_type", source = "local t = {}\n", at = { line = 1, column = 11 },
     msg = "this literal has no items and no type to make it from", fix = "declare the type: `local name: mut {T} = {}`",
   },
   {
@@ -352,92 +359,92 @@ local CASES <const>: {Case} = {
     msg = "the project has no module `nope`", fix = "require a module of the project",
   },
   {
-    code = "export_not_declared", source = "local t = { 1 }\nreturn t\n", at = { 2, 1 },
+    code = "export_not_declared", source = "local t = { 1 }\nreturn t\n", at = { line = 2, column = 1 },
     msg = "this module returns `t`, which no declaration describes", fix = "return a record, class, interface or enum of the module",
   },
   {
-    code = "missing_return", source = "local function f(): integer\n  local x = 1\nend\n", at = { 2, 3 },
+    code = "missing_return", source = "local function f(): integer\n  local x = 1\nend\n", at = { line = 2, column = 3 },
     msg = "control can reach the end of this function, which answers (integer), with no `return`",
     fix = "end every path with a `return` of (integer) (or `error(...)`)",
   },
   {
-    code = "missing_return", source = "local function f(): never\n  local x = 1\nend\n", at = { 2, 3 },
+    code = "missing_return", source = "local function f(): never\n  local x = 1\nend\n", at = { line = 2, column = 3 },
     msg = "this function is declared `never`, and control can reach its end",
     fix = "end every path with `error(...)` or a call of a function that never returns",
   },
   {
-    code = "not_assigned", source = "local x: integer\nlocal y = x\n", at = { 2, 11 },
+    code = "not_assigned", source = "local x: integer\nlocal y = x\n", at = { line = 2, column = 11 },
     msg = "`x` is read before every path assigns it: `local x` was given no value",
     fix = "assign `x` on every path before this read, give it a value where it is declared (`local x: integer = ...`), " ..
       "or declare it `integer?`",
   },
   {
-    code = "unreachable", source = "local function f()\n  error(\"x\")\n  print(2)\nend\n", at = { 3, 3 },
+    code = "unreachable", source = "local function f()\n  error(\"x\")\n  print(2)\nend\n", at = { line = 3, column = 3 },
     msg = "control never reaches this statement: what comes before it ends the block",
     fix = "remove it, or move it before the `return`, `break`, `continue`",
   },
   {
-    code = "narrowing_dropped", at = { 8, 11 },
+    code = "narrowing_dropped", at = { line = 8, column = 11 },
     source = FIND .. "local function f(): integer\n  local s = find()\n  if s == nil then return 0 end\n  s = find()\n" ..
       "  return #s\nend\n",
     msg = "(a test showed it was not nil, and the assignment at 7:3 dropped that)",
     fix = "test `s` again after the assignment at 7:3 (`if s == nil then return nil, why end`)",
   },
   {
-    code = "narrows_unproved", source = "local function is_text(v: any): v is string\n  return true\nend\n", at = { 2, 3 },
+    code = "narrows_unproved", source = "local function is_text(v: any): v is string\n  return true\nend\n", at = { line = 2, column = 3 },
     msg = "this function is declared `v is string`, and `true` does not show it when true: `v` is then `any`",
     fix = "return a test that decides `string` (`return v is T`",
   },
   {
-    code = "iterator_extra", at = { 5, 23 },
+    code = "iterator_extra", at = { line = 5, column = 23 },
     source = "local function it(): function(): integer\n  return function(): integer return 1 end\nend\nlocal f = it()\n" ..
       "for x in f, nil, nil, 3 do\n  print(x)\nend\n",
     msg = "a generic `for` takes an iterator, a state and a first control value", fix = "write at most three expressions",
   },
   {
-    code = "iterator_variables", at = { 5, 11 },
+    code = "iterator_variables", at = { line = 5, column = 11 },
     source = "local m: {string: integer} = {}\nlocal function pairs_of(): function(): (string, integer)\n  return function(): (string, integer) return \"a\", 1 end\nend\nfor a, b, c in pairs_of() do\nend\n",
     msg = "`c` is variable 3 of a `for`", fix = "name no more variables than the iterator answers",
   },
   {
-    code = "pattern_malformed", at = { 1, 24 }, source = "local x = (\"abc\"):find(\"a)\")\nprint(x)\n",
+    code = "pattern_malformed", at = { line = 1, column = 24 }, source = "local x = (\"abc\"):find(\"a)\")\nprint(x)\n",
     msg = "the pattern of `find` is malformed: `)` closes no capture (at character 2), and Lua raises \"invalid pattern capture\"",
     fix = "escape it as `%)` to match the character, or open the capture with `(` before it",
   },
   {
-    code = "format_malformed", at = { 1, 25 }, source = "local x = string.format(\"%y\", 1)\nprint(x)\n",
+    code = "format_malformed", at = { line = 1, column = 25 }, source = "local x = string.format(\"%y\", 1)\nprint(x)\n",
     msg = "the format of `string.format` is malformed: `%y` is no conversion of `string.format` (at character 1), and Lua raises " ..
       "\"invalid conversion '%y' to 'format'\"",
     fix = "write `%d` or `%i` for an integer, `%f`, `%e` or `%g` for a number, `%s` for text",
   },
   {
-    code = "pack_malformed", at = { 1, 23 }, source = "local x = string.pack(\"X\", 1)\nprint(x)\n",
+    code = "pack_malformed", at = { line = 1, column = 23 }, source = "local x = string.pack(\"X\", 1)\nprint(x)\n",
     msg = "the format of `string.pack` is malformed: `X` aligns to nothing (at character 1), and Lua raises \"invalid next option " ..
       "for option 'X'\"",
     fix = "follow `X` with an option of a size, such as `Xi4`",
   },
   {
-    code = "gsub_key", at = { 2, 30 }, source = "local repl: {integer: string} = {}\nlocal s = (\"abc\"):gsub(\"%w\", repl)\nprint(s)\n",
+    code = "gsub_key", at = { line = 2, column = 30 }, source = "local repl: {integer: string} = {}\nlocal s = (\"abc\"):gsub(\"%w\", repl)\nprint(s)\n",
     msg = "the table of `gsub` is looked up with the captured text, a `string` as the key, and its keys are `integer`",
     fix = "declare the table `{string: string}`, or capture a position with `()` for integer keys",
   },
   {
-    code = "paren_is", at = { 2, 11 }, source = "local x: integer | string = 1\nlocal y = (x) is integer\nprint(y)\n",
+    code = "paren_is", at = { line = 2, column = 11 }, source = "local x: integer | string = 1\nlocal y = (x) is integer\nprint(y)\n",
     msg = "`(x) is ...` tests a value: the parentheses make `x` no place, so the test narrows nothing",
     fix = "write `x is integer` without the parentheses, so that the test narrows it",
   },
   {
-    code = "type_name", at = { 2, 15 }, source = "local x = 1\nif type(x) == \"int\" then\n  print(x)\nend\n",
+    code = "type_name", at = { line = 2, column = 15 }, source = "local x = 1\nif type(x) == \"int\" then\n  print(x)\nend\n",
     msg = "`type` never answers \"int\": it answers nil, boolean, number, string, table, function, thread or userdata, so the test is always false",
     fix = "compare with a name `type` answers; `math.type(x)` tells \"integer\" from \"float\"",
   },
   {
-    code = "assign_repeated", source = "local x = 1\nx, x = 2, 3\n", at = { 2, 4 },
+    code = "assign_repeated", source = "local x = 1\nx, x = 2, 3\n", at = { line = 2, column = 4 },
     msg = "`x` is assigned twice by one statement, and Lua leaves the order of the two open",
     fix = "assign `x` once, or in two statements in the order you mean",
   },
   {
-    code = "match_missing", at = { 3, 1 },
+    code = "match_missing", at = { line = 3, column = 1 },
     source = "local f: function(): (true, integer) | (false, string) = function() return true, 1 end\nlocal n = 0\nmatch f() do\n  | (true, v) then n = v\nend\n",
     msg = "this `match` takes no arm for the list `(false, string)` the call may answer", fix = "add the arm `| (false, v2) then ...`",
   },
@@ -448,13 +455,13 @@ local CASES <const>: {Case} = {
     fix = "delete the arm, or change its `true` and `false` to take a list no arm before it takes",
   },
   {
-    code = "match_pattern", at = { 3, 6 },
+    code = "match_pattern", at = { line = 3, column = 6 },
     source = "local f: function(): (boolean, integer) = function() return true, 1 end\nmatch f() do\n  | (true, v) then print(v)\nend\n",
     msg = "this pattern tests position 1 with `true`, and the list `(boolean, integer)` has `boolean` there",
     fix = "test only the positions that are `true` or `false` in the lists the call answers",
   },
   {
-    code = "unchecked_binding", source = "local sys = require(\"cosmic.sys\")\n", at = { 1, 13 },
+    code = "unchecked_binding", source = "local sys = require(\"cosmic.sys\")\n", at = { line = 1, column = 13 },
     msg = "the module `cosmic.sys` is a binding of C that has no declarations",
     fix = "call the library function that wraps the binding (`cosmic docs <name>` names it) in place of the raw binding; the bindings of C are typed once the checker reads them from declaration files",
   },
@@ -472,21 +479,22 @@ local function test_each_case_has_its_error_with_place_message_and_fix()
     elseif Programs.codes(r) ~= (case.codes or case.code) then
       problems[#problems + 1] = label .. ": has " .. Programs.codes(r) .. (if r.errors[1] ~= nil then " (" .. r.errors[1].msg .. ")" else "" end)
     else
-      local e = r.errors[#r.errors]
+      -- `codes` matched a code the case names, so the program has an error
+      local e = Array.at(r.errors, #r.errors)
       for _, each in ipairs(r.errors) do
         if each.code == case.code then
           e = each
         end
       end
-      if not has(e.msg, case.msg) then -- checked: nil_not_allowed
-        problems[#problems + 1] = label .. ": msg " .. e.msg .. "\n    wanted " .. case.msg -- checked: nil_not_allowed
+      if not has(e.msg, case.msg) then
+        problems[#problems + 1] = label .. ": msg " .. e.msg .. "\n    wanted " .. case.msg
       end
-      if not has(e.fix, case.fix) then -- checked: nil_not_allowed
-        problems[#problems + 1] = label .. ": fix " .. e.fix .. "\n    wanted " .. case.fix -- checked: nil_not_allowed
+      if not has(e.fix, case.fix) then
+        problems[#problems + 1] = label .. ": fix " .. e.fix .. "\n    wanted " .. case.fix
       end
       local at = case.at
-      if at ~= nil and (e.y ~= at[1] or e.x ~= at[2]) then -- checked: nil_not_allowed*2
-        problems[#problems + 1] = label .. ": at " .. tostring(e.y) .. ":" .. tostring(e.x) .. ", wanted " .. at[1] .. ":" .. at[2] -- checked: nil_not_allowed*4
+      if at ~= nil and (e.y ~= at.line or e.x ~= at.column) then
+        problems[#problems + 1] = label .. ": at " .. tostring(e.y) .. ":" .. tostring(e.x) .. ", wanted " .. tostring(at.line) .. ":" .. tostring(at.column)
       end
     end
   end
@@ -801,15 +809,22 @@ local function test_a_pcall_taken_as_a_value_in_a_test_file_names_test_raises()
   end
 end
 
+--- A program of `STANDING` with its name.
+local record Named
+  name: string
+  source: string
+end
+
 local function test_programs_that_follow_the_rules_check_clean()
-  local names: mut {string} = {}
-  for name in pairs(STANDING) do
-    names[#names + 1] = name
+  local programs: mut {Named} = {}
+  for name, source in pairs(STANDING) do
+    programs[#programs + 1] = { name = name, source = source }
   end
-  table.sort(names)
+  table.sort(programs, function(a: Named, b: Named): boolean return a.name < b.name end)
   local problems: mut {string} = {}
-  for _, name in ipairs(names) do
-    local r = Programs.run(STANDING[name], MODULES) -- checked: index_may_be_nil
+  for _, program in ipairs(programs) do
+    local name = program.name
+    local r = Programs.run(program.source, MODULES)
     local found: mut {string} = {}
     for _, e in ipairs(r.errors) do
       found[#found + 1] = tostring(e.y) .. ":" .. tostring(e.x) .. " " .. e.code .. " " .. e.msg
@@ -921,9 +936,9 @@ local c = ("x"):gsub("a", function(c: integer): string return "" end)
 ]])
   assert(#r.before == 0 and Programs.codes(r) == "not_assignable", Programs.codes(r))
   assert(Types.display(Programs.var(r, "a")) == "string" and Types.display(Programs.var(r, "n")) == "integer")
-  local e = r.errors[1]
-  assert(e.y == 3 and has(e.msg, "`function(c: integer): string return \"\" end` is `function(integer): string`, where " .. -- checked: nil_not_allowed*2
-      "`function(string): string` is wanted as argument 2"), e.msg) -- checked: nil_not_allowed
+  local e = Array.at(r.errors, 1) -- the code asserted above is of an error
+  assert(e.y == 3 and has(e.msg, "`function(c: integer): string return \"\" end` is `function(integer): string`, where " ..
+      "`function(string): string` is wanted as argument 2"), e.msg)
 end
 
 local function test_a_function_literal_takes_its_returns_from_the_position_and_the_body_is_checked_against_them()
@@ -976,7 +991,9 @@ local x: integer = R.defined(1)
 local y: string = R.defined(1)
 ]])
   assert(#r.before == 0 and Programs.codes(r) == "not_assignable not_assignable", Programs.codes(r))
-  assert(r.errors[1].y == 4 and has(r.errors[1].msg, "as the declaration of `R.declared`"), r.errors[1].msg) -- checked: nil_not_allowed*3
+  -- the code asserted above is of two errors
+  local first = Array.at(r.errors, 1)
+  assert(first.y == 4 and has(first.msg, "as the declaration of `R.declared`"), first.msg)
 end
 
 local function test_a_global_value_a_declaration_file_gives_and_a_global_record_are_typed_from_the_declarations()
@@ -1062,7 +1079,9 @@ local function test_a_write_through_a_union_or_onto_a_string_is_refused()
   assert(codes_of(source .. "  u.x = \"wrong\"\nend\n") == "field_fixed")
   assert(codes_of(source .. "  s.upper = nil\nend\n") == "field_fixed")
   local r = Programs.run(source .. "  u.x = 1\nend\n")
-  assert(has(r.errors[1].fix, "narrow the value to one record, then write its `mut` field"), r.errors[1].fix) -- checked: nil_not_allowed*2
+  -- the program is refused, and the first error carries the fix read below
+  local fix = Array.at(r.errors, 1).fix
+  assert(has(fix, "narrow the value to one record, then write its `mut` field"), fix)
 end
 
 local function test_the_tail_a_return_ends_in_is_held_to_the_return_list()
@@ -1075,7 +1094,7 @@ local function test_the_tail_a_return_ends_in_is_held_to_the_return_list()
   assert(g("string?, string?", "tailed()") == "", g("string?, string?", "tailed()"))
   assert(g("string?", "\"a\", tailed()") == "return_arity", g("string?", "\"a\", tailed()"))
   local r = Programs.run("local function g(...: string): string\n  return ...\nend\n")
-  assert(#r.before == 0 and Programs.codes(r) == "nil_not_allowed" and has(r.errors[1].fix, "varargs end in nil")) -- checked: nil_not_allowed
+  assert(#r.before == 0 and Programs.codes(r) == "nil_not_allowed" and has(Array.at(r.errors, 1).fix, "varargs end in nil"))
   assert(codes_of("local function g(...: string): string?\n  return ...\nend\n") == "")
 end
 
@@ -1775,8 +1794,9 @@ local function silent_invalids(first: integer, last: integer, standing: boolean)
     end
   end
   for i = first, math.min(last, #CASES) do
-    local case = CASES[i]
-    hold("case " .. tostring(i) .. " " .. case.code, case.source, case.modules) -- checked: nil_not_allowed*3
+    -- every caller starts at 1, and the loop ends at `#CASES`
+    local case = Array.at(CASES, i)
+    hold("case " .. tostring(i) .. " " .. case.code, case.source, case.modules)
   end
   if standing then
     for name, source in pairs(STANDING) do
@@ -2053,8 +2073,9 @@ local function test_the_types_a_literal_gives_are_held_to_the_arguments_and_the_
   assert(#said == #want)
   local wrong: mut {string} = {}
   for i, each in ipairs(want) do
+    -- `said` has as many entries as `want`, asserted above
     if said[i] ~= each then
-      wrong[#wrong + 1] = tostring(i) .. ": " .. said[i] .. " (wanted " .. each .. ")" -- checked: nil_not_allowed
+      wrong[#wrong + 1] = tostring(i) .. ": " .. Array.at(said, i) .. " (wanted " .. each .. ")"
     end
   end
   assert(#wrong == 0, table.concat(wrong, "; "))
