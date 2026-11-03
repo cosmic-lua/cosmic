@@ -108,7 +108,8 @@ line below it. [`build/markers.tl`] has the rules.
   main, so a marker cannot be added, and one that is written over a
   line that moved is not new. it reads the base with git alone (`git
   grep` and `git cat-file`), with no run of the checker. CI runs it on
-  every branch push and in the merge queue, where it fails when no base
+  every branch push and in the merge queue, against the merge base with
+  main and never the entry ahead in the queue, where it fails when no base
   can be found (GitHub could not name it: run the job again), and
   `bin/cosmic fix --check .` runs it locally against `git merge-base HEAD
   origin/main`, saying so when there is no `origin/main` (`git fetch
