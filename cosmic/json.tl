@@ -326,7 +326,7 @@ local record Json
   ---
   --- The fork reads this declaration, and every parameter that takes it, as `any`; the new checker reads `string | number | boolean |
   --- Json.Null | {Json.Value} | {string: Json.Value}`.
-  type Value = raw_json.Value
+  type Value = string | number | boolean | Json.Null | {Json.Value} | {string: Json.Value}
 
   --- A path to one value inside another, as Lua steps: each a member's
   --- name (a string) or an array's position (an integer), counted from
@@ -421,6 +421,30 @@ local function refuse(why: string): nil, string
   return nil, "json: " .. why
 end
 
+--- `v` as a map of values, or nil when it is none.
+local function members_of(v: any): {string: Json.Value}?
+  if v is {string: Json.Value} then return v end -- checked: is_on_record
+  return nil
+end
+
+--- `v` as a list of values, or nil when it is none.
+local function items_of(v: any): {Json.Value}?
+  if v is {Json.Value} then return v end -- checked: is_on_record
+  return nil
+end
+
+--- `v`, which the core decoded or any other value, as a [`Json.Value`] when it is one of its arms (a table by its tag
+--- alone, as [`Json.decode`] builds it), else nil: the one place the raw `any` of the core is told.
+local function value_of(v: any): Json.Value?
+  if v is string then return v end
+  if v is number then return v end
+  if v is boolean then return v end
+  if rawequal(v, Json.null) then return Json.null end
+  local object = members_of(v)
+  if object == nil or Json.layout(object) == "mixed" then return nil end
+  return object
+end
+
 --- [`raw.decode`] of `text` under `opts`; `record`, when given, is the
 --- JSON Lines line `text` is, which a failure names.
 local function decode_with(text: string, opts: Json.DecodeOptions, record?: integer,
@@ -430,7 +454,7 @@ local function decode_with(text: string, opts: Json.DecodeOptions, record?: inte
     opts.big_numbers_as_strings, opts.lone_surrogates, record, opts.hash_comments,
     opts.duplicate_keys)
   if err ~= "" then return refuse(err) end
-  return value, ""
+  return value_of(value), ""
 end
 
 --- Parses JSON text into the value it holds, and "". nil and a message,
@@ -447,7 +471,7 @@ function Json.decode(text: string, opts?: Json.DecodeOptions): Json.Value?, stri
   if opts == nil then
     local value, err = raw.decode(text)
     if err ~= "" then return refuse(err) end
-    return value, ""
+    return value_of(value), ""
   end
   return decode_with(text, opts)
 end
@@ -461,18 +485,6 @@ local function kind(v: any): string
     return if raw.is_array(v) then "array" else "object" end
   end
   return type(v)
-end
-
---- `v` as a map of values, or nil when it is none.
-local function members_of(v: any): {string: Json.Value}?
-  if v is {string: Json.Value} then return v end -- checked: is_on_record
-  return nil
-end
-
---- `v` as a list of values, or nil when it is none.
-local function items_of(v: any): {Json.Value}?
-  if v is {Json.Value} then return v end -- checked: is_on_record
-  return nil
 end
 
 --- The object `text` holds, as a map, and "". nil and a message when
@@ -625,7 +637,7 @@ end
 --- already has a metatable of its own.
 function Json.array(t?: {Json.Value}): {Json.Value}
   if t == nil then
-    return raw.array()
+    return raw.array() -- checked: any_use
   end
   return raw.array(t)
 end
@@ -1264,18 +1276,6 @@ function Json.from_pointer(value: any, text: string): Json.Steps?, string
     if stop > #text then return steps, "" end
     start = stop + 1
   end
-end
-
---- `v`, a decoded value or any other, as a [`Json.Value`] when it is one
---- of its arms (a table by its tag alone, as [`Json.decode`] builds it), else nil.
-local function value_of(v: any): Json.Value?
-  if v is string then return v end
-  if v is number then return v end
-  if v is boolean then return v end
-  if rawequal(v, Json.null) then return Json.null end
-  local t = table_of(v)
-  if t == nil or container(t) == "mixed" then return nil end
-  return members_of(v)
 end
 
 --- The value `steps` reach in `value`, and "". A negative position
@@ -2151,7 +2151,7 @@ local function scalar(self: TokenReader, text: string, column: integer, closer?:
       "unexpected character, expected ',' or '" .. closer .. "'")
   end
   if err ~= "" then return stop(self, "json: " .. err) end
-  return value, ""
+  return value_of(value), ""
 end
 
 --- The unquoted key at `self.at`, which JSON5 allows: the bytes of an
@@ -2505,7 +2505,7 @@ local class TokenReader is Json.Reader
     local value, err = raw.decode(text, self.null_value, self.max_depth, self.json5,
       self.big, self.lone, nil, self.hash, self.duplicate_keys, line, column, path, #self.frames)
     if err ~= "" then return stop(self, "json: " .. err) end
-    return value, ""
+    return value_of(value), ""
   end
 end
 

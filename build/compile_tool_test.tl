@@ -50,8 +50,30 @@ local function test_json_value_refusals_carry_the_librarys_advice(tmp: string)
   local ran = tool_fixture.cosmic(tmp, { "compile", "--errors", "a.tl" })
   assert(ran.code == 0, ran.err)
   assert(ran.err:find("write an empty array as `Json.array()`", 1, true), ran.err)
-  assert(ran.err:find("`Json.Value` is `Json.Null`", 1, true) and ran.err:find("for a record or a class of your own, call `Json.encode_any`", 1, true), ran.err)
-  assert(not ran.err:find("`json.Value`", 1, true), ran.err)
+  assert(ran.err:find("`Json.Value` is `", 1, true) and ran.err:find("for a record or a class of your own, call `Json.encode_any`", 1, true), ran.err)
+  assert(not ran.err:find("json.Value", 1, true), ran.err)
+end
+
+--- The refusals about a decoded value's collections name [`Json.Value`], never the core's own spelling.
+local function test_refusals_about_decoded_collections_name_json_value(tmp: string)
+  assert(Fs.write(tmp .. "/c.tl", "local Json = require(\"cosmic.json\")\n" ..
+      "local function fill(m: mut {string: Json.Value}) m[\"x\"] = 1 end\n" ..
+      "local obj = assert(Json.decode_object(\"{}\"))\nfill(obj)\n" ..
+      "local items: mut {Json.Value} = {}\nlocal narrow: mut {string | number} = items\nreturn narrow\n"))
+  local ran = tool_fixture.cosmic(tmp, { "compile", "--errors", "c.tl" })
+  assert(ran.code == 0, ran.err)
+  assert(ran.err:find("(view_as_mut)", 1, true) and ran.err:find("(invariant_mut)", 1, true), ran.err)
+  assert(ran.err:find("Json.Value", 1, true) and not ran.err:find("json.Value", 1, true), ran.err)
+end
+
+--- A user's own record called `json` is untouched: its types keep their names.
+local function test_a_users_json_record_keeps_its_names(tmp: string)
+  assert(Fs.write(tmp .. "/d.tl", "local record json\n  record Config\n    name: string\n  end\n  enum Mode \"a\" \"b\" end\nend\n" ..
+      "local c: json.Config = { name = 1 }\nlocal m: json.Mode = \"z\"\nreturn { c, m }\n"))
+  local ran = tool_fixture.cosmic(tmp, { "compile", "--errors", "d.tl" })
+  assert(ran.code == 0, ran.err)
+  assert(ran.err:find("`json.Config`", 1, true) and ran.err:find("`json.Mode`", 1, true), ran.err)
+  assert(not ran.err:find("Json.", 1, true), ran.err)
 end
 
 local function test_help_names_the_verb_and_its_options(tmp: string)

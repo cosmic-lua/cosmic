@@ -203,13 +203,10 @@ end
 Check.codes = Codes.codes
 Check.catalog = Codes.catalog
 Check.advice = {
-  ["cosmic.internal.json json.Value empty"] = "write an empty array as `Json.array()`, which encodes as `[]`, and an empty object as a typed " ..
-    "local (`local none: {string: Json.Value} = {}`): an unmarked empty table encodes as `{}`",
   ["cosmic.json Json.Value empty"] = "write an empty array as `Json.array()`, which encodes as `[]`, and an empty object as a typed " ..
     "local (`local none: {string: Json.Value} = {}`): an unmarked empty table encodes as `{}`",
   ["cosmic.time Time.CivilFields"] = "write the literal where it is typed as the record that lists it: `local wall: Time.Wall = " ..
     "{ ... }`, or `Time.Civil`; for a date alone, `Time.parse_date(text, zone)` reads one",
-  ["cosmic.internal.json json.Value"] = "for a record or a class of your own, call `Json.encode_any`, which takes any value",
   ["cosmic.json Json.Value"] = "for a record or a class of your own, call `Json.encode_any`, which takes any value",
 }
 
@@ -457,10 +454,8 @@ local function quoted(s: string): string
   return "`" .. s .. "`"
 end
 
---- The text of `t` in a message. The library's raw JSON declaration (`cosmic.internal.json`, whose record is `json`)
---- declares [`Json.Value`] and [`Json.Null`] for `cosmic.json` to name, and a user writes them as `Json.`.
 local function show(ctx: Ctx, t: Type): string
-  return (Types.display(t, ctx.binders):gsub("%f[%w_]json%.(%u)", "Json.%1"))
+  return Types.display(t, ctx.binders)
 end
 
 local function tq(ctx: Ctx, t: Type): string
