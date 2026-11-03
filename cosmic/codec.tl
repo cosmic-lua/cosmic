@@ -91,7 +91,9 @@ local function alphabet(chars: string, class: string): Alphabet
     a.value[String.byte_at(chars, i)] = i - 1
   end
   for v = 0, 4095 do
-    a.pair[v] = a.char[v >> 6] .. a.char[v & 63] -- checked: nil_not_allowed*2
+    local high = assert(a.char[v >> 6], "char holds every index 0 to 63")
+    local low = assert(a.char[v & 63], "char holds every index 0 to 63")
+    a.pair[v] = high .. low
   end
   return a
 end
@@ -110,7 +112,8 @@ local function encode(a: Alphabet, s: string, pad: boolean): string
   local whole = n - n % 3
   for i = 1, whole, 3 do
     local b1, b2, b3 = s:byte(i, i + 2)
-    local v = (b1 << 16) | (b2 << 8) | b3 -- checked: nil_not_allowed*3
+    assert(b1 and b2 and b3, "i + 2 is at most whole, which is at most #s")
+    local v = (b1 << 16) | (b2 << 8) | b3
     local first, second = assert(pair[v >> 12]), assert(pair[v & 4095])
     out[#out + 1] = first
     out[#out + 1] = second
@@ -145,7 +148,10 @@ local function expand(value: {integer:integer}, s: string, whole: integer, out: 
     local last = math.min(first + BATCH - 1, whole)
     for i = first, last, 4 do
       local c1, c2, c3, c4 = s:byte(i, i + 3)
-      local v = (value[c1] << 18) | (value[c2] << 12) | (value[c3] << 6) | value[c4] -- checked: nil_not_allowed*8
+      assert(c1 and c2 and c3 and c4, "i + 3 is at most whole, which is at most #s")
+      local v1, v2, v3, v4 = value[c1], value[c2], value[c3], value[c4]
+      assert(v1 and v2 and v3 and v4, "decode's class test passed every character before n")
+      local v = (v1 << 18) | (v2 << 12) | (v3 << 6) | v4
       buf[#buf + 1] = v >> 16
       buf[#buf + 1] = (v >> 8) & 255
       buf[#buf + 1] = v & 255
@@ -186,7 +192,10 @@ local function decode(a: Alphabet, s: string, padded: boolean, name: string): st
   local left = n - whole
   if left == 2 then
     local c1, c2 = s:byte(n - 1, n)
-    local v = (value[c1] << 6) | value[c2] -- checked: nil_not_allowed*4
+    assert(c1 and c2, "left is 2, so n - 1 and n are in s")
+    local v1, v2 = value[c1], value[c2]
+    assert(v1 and v2, "decode's class test passed every character before n")
+    local v = (v1 << 6) | v2
     if v & 15 ~= 0 then
       return refuse(("%s text ends in nonzero padding bits"):format(name))
     end
@@ -194,7 +203,10 @@ local function decode(a: Alphabet, s: string, padded: boolean, name: string): st
     out[#out + 1] = last
   elseif left == 3 then
     local c1, c2, c3 = s:byte(n - 2, n)
-    local v = (value[c1] << 12) | (value[c2] << 6) | value[c3] -- checked: nil_not_allowed*6
+    assert(c1 and c2 and c3, "left is 3, so n - 2 to n are in s")
+    local v1, v2, v3 = value[c1], value[c2], value[c3]
+    assert(v1 and v2 and v3, "decode's class test passed every character before n")
+    local v = (v1 << 12) | (v2 << 6) | v3
     if v & 3 ~= 0 then
       return refuse(("%s text ends in nonzero padding bits"):format(name))
     end
