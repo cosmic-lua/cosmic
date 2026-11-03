@@ -149,7 +149,7 @@ local EOCD_FIELDS <const> = { "c4", "I2", "I2", "I2", "I2", "I4", "I4", "I2" }
 --- values are a record of their own, so each can be made hostile.
 local record Rec
   fields: {string}
-  mut values: {any}
+  mut values: {string | integer}
   tail?: string
 end
 
@@ -256,7 +256,7 @@ local function gen_laid_out(src: Fuzz.Source): string
       before = string.pack("<I2s2", 0xCAFE, junk)
     end
     local fmts: mut {string} = { "I2", "I2" }
-    local vals: mut {any} = { 1, 8 * #wide } -- checked: any_use*2
+    local vals: mut {string | integer} = { 1, 8 * #wide } -- checked: any_use*2
     for _, v in ipairs(wide) do
       fmts[#fmts + 1] = "i8"
       vals[#vals + 1] = v -- checked: any_use
@@ -315,11 +315,11 @@ local function gen_laid_out(src: Fuzz.Source): string
       at = src:int(if r.fields[1] == "c4" then 2 else 1 end, #r.fields) -- checked: nil_not_allowed*2
     end
     if at ~= nil then
-      local made: mut {any} = {}
+      local made: mut {string | integer} = {}
       for k, value in ipairs(r.values) do -- checked: nil_not_allowed
         if k == at then
-          local replaced = hostile(src, value as integer, r.fields[at], marks) -- checked: cast_refused, index_may_be_nil, nil_not_allowed
-          made[#made + 1] = replaced -- checked: any_use
+          -- Only an integer field is made hostile: the signature, a string, is left.
+          made[#made + 1] = if value is integer then hostile(src, value, r.fields[at], marks) else value end -- checked: index_may_be_nil, nil_not_allowed
         else
           made[#made + 1] = value
         end
