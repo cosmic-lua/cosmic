@@ -23,11 +23,11 @@ local record CodeFingerprint
   --- `normal(normal(s)) == normal(s)`. That is what lets a test's pure store ([`build.closure_store`]) keep this in place of a
   --- walked module's source, and the identity come out as it does of the source.
   ---
-  --- A space is the one separator that cannot occur between tokens as written, and cannot join two into one; a token that
-  --- holds a space (a string, a long string) is read whole, so what is written back reads as the tokens it came from. One
-  --- line, not a token to a line, because the parser reads a line break as the end of a call. Raises, with the first error
-  --- of the lexer, where `source` does not lex: a source that is no code is no module to name, and a digest of what is left
-  --- of it would name two sources alike.
+  --- A space ends a token whichever two meet, and one inside a token (a string, a long string) is part of that token, which
+  --- the lexer reads whole, so the form reads back as the tokens it was made of and two sources have one form only if they
+  --- have the same tokens. It is one line, not a token to a line, because the parser reads a line break as the end of a
+  --- call. Raises, with the first error of the lexer, where `source` does not lex: a source that is no code is no module to
+  --- name, and a digest of what is left of it would name two sources alike.
   normal: function(source: string, name: string): string
 
   --- The hex SHA-256 of [`CodeFingerprint.normal`] of `source`, under the version of this form.
