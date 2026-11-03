@@ -1,6 +1,7 @@
 --- The shipped module key remains unique and non-null, and a lookup
 --- by name does not need unrelated modules' large payloads.
 
+local Array = require("cosmic.array")
 local Sqlite = require("cosmic.sqlite")
 local schema = require("build.schema")
 
@@ -38,15 +39,21 @@ local function test_module_names_are_indexed_apart_from_their_payloads()
   end
   local plan = assert(Sqlite.text_rows(db,
     "EXPLAIN QUERY PLAN SELECT path FROM modules WHERE path = 'middle'"))
-  assert(#plan == 1 and plan[1]:text(4):find("COVERING INDEX", 1, true) ~= nil,
-    "finding a module name reaches the table's payload: " .. table.concat(plan[1]:texts(), " ")) -- checked: nil_not_allowed
+  assert(#plan == 1)
+  local plan_row = Array.at(plan, 1)
+  assert(plan_row:text(4):find("COVERING INDEX", 1, true) ~= nil,
+    "finding a module name reaches the table's payload: " .. table.concat(plan_row:texts(), " "))
   local lookup = "SELECT bytecode, kind FROM main.modules WHERE path = ?1"
   local search = assert(Sqlite.text_rows(db, "EXPLAIN QUERY PLAN " .. lookup,
     { { text = "middle" } }))
-  assert(#search == 1 and search[1]:text(4):find("SEARCH", 1, true) ~= nil and
-      search[1]:text(4):find("USING INDEX", 1, true) ~= nil, table.concat(search[1]:texts(), " ")) -- checked: nil_not_allowed*2
+  assert(#search == 1)
+  local search_row = Array.at(search, 1)
+  assert(search_row:text(4):find("SEARCH", 1, true) ~= nil and
+      search_row:text(4):find("USING INDEX", 1, true) ~= nil, table.concat(search_row:texts(), " "))
   local found = assert(Sqlite.rows(db, lookup, { { text = "middle" } }))
-  assert(#found == 1 and found[1]:blob(1) == payload and found[1]:text(2) == "module") -- checked: nil_not_allowed
+  assert(#found == 1)
+  local found_row = Array.at(found, 1)
+  assert(found_row:blob(1) == payload and found_row:text(2) == "module")
   local rows = assert(Sqlite.text_rows(db,
     "SELECT file, kind, length(bytecode), length(source) FROM modules WHERE path = 'middle'"))
   assert(#rows == 1 and table.concat(rows[1]:texts(), "|") == "middle.tl|module|36864|65536")
@@ -56,7 +63,7 @@ local function test_module_names_are_indexed_apart_from_their_payloads()
 end
 
 local function digest_of(db: Sqlite.Handle, sql: string): string
-  return assert(Sqlite.text_rows(db, sql))[1]:text(1) -- checked: nil_not_allowed
+  return Array.at(assert(Sqlite.text_rows(db, sql)), 1):text(1)
 end
 
 --- The data tables' digest holds the web assets, and leaves them out for a

@@ -283,7 +283,9 @@ local function test_a_settled_source_rewrite_runs_new_bytecode(tmp: string)
       timeout_ns = Clock.seconds(60) })
     local result = assert(Child.run(started.argv, started.options))
     assert(result.ok, (result.stdout or "") .. (result.stderr or ""))
-    return result.stdout -- checked: nil_not_allowed
+    local stdout = result.stdout
+    assert(stdout ~= nil, "the run captured no stdout")
+    return stdout
   end
   assert(run() == "OLD\n")
   local handle = assert(work.open(tmp))

@@ -6,6 +6,7 @@
 --- `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
 
 local Fuzz = require("build.fuzz")
+local Array = require("cosmic.array")
 local Time = require("cosmic.time")
 local time_verb = require("build.time")
 
@@ -35,7 +36,7 @@ end
 
 local function input_is_total(input: string): boolean, string
   local fields = Fuzz.unpack(input)
-  local zone = assert(Time.zone(fields[2])) -- checked: index_may_be_nil
+  local zone = assert(Time.zone(Array.at(fields, 2)))
   local ok, got, why = pcall(time_verb.parse_input, fields[1], zone, fields[3] as Time.Disambiguation) -- checked: cast_refused, overload_none
   if not ok then return false, "raised: " .. tostring(got) end
   if got == nil then
@@ -44,12 +45,12 @@ local function input_is_total(input: string): boolean, string
     return true, ""
   end
   Fuzz.label("read")
-  local text = fields[1]
-  if text:sub(1, 1) == "@" then -- checked: nil_not_allowed
+  local text = Array.at(fields, 1)
+  if text:sub(1, 1) == "@" then
     Fuzz.label("epoch")
-  elseif #text == 10 then -- checked: nil_not_allowed
+  elseif #text == 10 then
     Fuzz.label("date")
-  elseif not text:find("[Zz+%-]", 11) then -- checked: nil_not_allowed
+  elseif not text:find("[Zz+%-]", 11) then
     Fuzz.label("local")
   else
     Fuzz.label("rfc3339")

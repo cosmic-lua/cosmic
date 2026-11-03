@@ -318,13 +318,14 @@ local function test_what_start_and_run_leave_running_runs_on(tmp: string)
   for _, how in ipairs({ "start " .. late .. " started", "run " .. probe .. " start " .. late ..
         " ran" }) do
     local word = how:match("(%S+)$")
+    assert(word ~= nil, how)
     -- In no group of its own, which a wait would end with it.
     local r = assert(Child.run({ probe, how .. "; print gone on" },
       { env = {}, process_group = false, stdout = "capture", timeout_ns = Clock.seconds(30) }))
     assert(r.ok and r.stdout == "gone on\n", tostring(r.stdout))
-    assert(Fs.exists(tmp .. "/bin/done-" .. word) ~= true, "it did not wait") -- checked: nil_not_allowed
-    assert(Fs.write(tmp .. "/bin/go-" .. word, "")) -- checked: nil_not_allowed
-    await(tmp .. "/bin/done-" .. word) -- checked: nil_not_allowed
+    assert(Fs.exists(tmp .. "/bin/done-" .. word) ~= true, "it did not wait")
+    assert(Fs.write(tmp .. "/bin/go-" .. word, ""))
+    await(tmp .. "/bin/done-" .. word)
   end
 end
 

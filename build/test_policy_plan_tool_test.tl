@@ -14,6 +14,7 @@
 
 local type Sandbox = require("cosmic.sandbox")
 local TestInputsFixture = require("build.test_inputs_fixture")
+local Array = require("cosmic.array")
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
@@ -157,7 +158,7 @@ end
     return
   end
   assert(Fs.mkdirs(tmp .. "/beside/ci"))
-  assert(Fs.symlink(launched.argv[3], tmp .. "/beside/cosmic")) -- checked: index_may_be_nil
+  assert(Fs.symlink(Array.at(launched.argv, 3), tmp .. "/beside/cosmic"))
   local started = this_program.program({ "-e", script })
   local root, scratch = tmp .. "/beside/ci", scratch_in(tmp)
   local env = started.options.env or {}
@@ -185,7 +186,8 @@ local function test_a_plan_for_a_nesting_worker_grants_the_artifact_only_with_st
     Test.skip("this program is no portable artifact")
     return
   end
-  local artifact = launched.argv[3]
+  -- A portable artifact's relaunch is `<core> --artifact <path>`, checked above.
+  local artifact = Array.at(launched.argv, 3)
   local root, scratch = tmp .. "/root", scratch_in(tmp)
   assert(Fs.mkdirs(support.build_dir(root) .. "/bin"))
   assert(Fs.write(support.build_dir(root) .. "/cosmic.db", "x"))
@@ -196,9 +198,9 @@ local function test_a_plan_for_a_nesting_worker_grants_the_artifact_only_with_st
   local plain = test_sandbox.plan(root, scratch, bare, {})
   local with = test_sandbox.plan(root, scratch, storing, {})
   assert(with.trouble == "", with.trouble)
-  assert(support.holds(assert(with.sandbox.unveil).reads, artifact), table.concat(assert(with.sandbox.unveil).reads, " ")) -- checked: nil_not_allowed
-  assert(with.runs[artifact] ~= true, "the artifact is read, not run") -- checked: nil_not_allowed
-  assert(not support.holds(assert(plain.sandbox.unveil).reads, artifact), -- checked: nil_not_allowed
+  assert(support.holds(assert(with.sandbox.unveil).reads, artifact), table.concat(assert(with.sandbox.unveil).reads, " "))
+  assert(with.runs[artifact] ~= true, "the artifact is read, not run")
+  assert(not support.holds(assert(plain.sandbox.unveil).reads, artifact),
     table.concat(assert(plain.sandbox.unveil).reads, " "))
   assert(test_policy.worker(plain, bare) ~= nil) -- checked: compare_disjoint
   assert(test_policy.worker(with, storing) ~= nil) -- checked: compare_disjoint
