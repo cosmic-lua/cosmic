@@ -157,8 +157,7 @@ local function test_the_functions_refuse_what_is_not_theirs()
   local mixed: {any} = { Html.trust("a"), attr } -- checked: any_use
   ok, why = attempt(Html.concat, mixed)
   assert(not ok and tostring(why):find("element 2 is not a SafeHtml", 1, true) ~= nil, tostring(why))
-  local strings: {any} = { "a" } -- checked: any_use
-  ok, why = attempt(Html.concat, strings)
+  ok, why = attempt(Html.concat, { "a" })
   assert(not ok and tostring(why):find("element 1 is not a SafeHtml", 1, true) ~= nil, tostring(why))
   assert(not attempt(Html.concat, "a"))
   assert(not attempt(Html.trust, 1))
