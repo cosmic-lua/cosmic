@@ -346,7 +346,7 @@ local function run(argv: {string}): integer
   return listen(root, listeners)
 end
 
-lsp.spec = { -- checked: field_fixed
+lsp.spec = {
   name = "lsp",
   run = run,
   bare = true,

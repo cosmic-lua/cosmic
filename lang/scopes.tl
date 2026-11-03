@@ -243,7 +243,7 @@ local record Scopes
   codes: {Code}
 end
 
-Scopes.primitives = { -- checked: field_fixed
+Scopes.primitives = {
   any = true, boolean = true, integer = true, never = true, number = true, string = true, thread = true,
 }
 
@@ -1563,7 +1563,7 @@ function Scopes.in_scope(scoped: Scopes.Scoped, at: integer): {string: Scopes.Va
   return out
 end
 
-Scopes.codes = { -- checked: field_fixed
+Scopes.codes = {
   "unknown_variable", "unknown_type", "shadows", "const_assigned", "not_a_value", "not_a_type",
   "unknown_parameter", "env_reserved", "primitive_type_name",
 }

@@ -1,3 +1,4 @@
+local Array = require("cosmic.array")
 local Codec = require("cosmic.codec")
 
 --- RFC 4648 section 10's test vectors: the input, its base16, and its
@@ -14,14 +15,14 @@ local VECTORS <const> = {
 
 local function test_hex_matches_rfc4648_in_lowercase()
   for _, v in ipairs(VECTORS) do
-    assert(Codec.hex(v[1]) == v[2]:lower(), v[1]) -- checked: index_may_be_nil, nil_not_allowed
+    assert(Codec.hex(Array.at(v, 1)) == Array.at(v, 2):lower(), Array.at(v, 1))
   end
 end
 
 local function test_unhex_reads_either_case()
   for _, v in ipairs(VECTORS) do
-    assert(Codec.unhex(v[2]) == v[1], v[2]) -- checked: index_may_be_nil
-    assert(Codec.unhex(v[2]:lower()) == v[1], v[2]) -- checked: nil_not_allowed
+    assert(Codec.unhex(Array.at(v, 2)) == Array.at(v, 1), Array.at(v, 2))
+    assert(Codec.unhex(Array.at(v, 2):lower()) == Array.at(v, 1), Array.at(v, 2))
   end
   assert(Codec.unhex("aBcD") == "\xab\xcd")
 end
@@ -50,16 +51,16 @@ end
 
 local function test_base64_matches_rfc4648()
   for _, v in ipairs(VECTORS) do
-    assert(Codec.base64(v[1]) == v[3], v[1]) -- checked: index_may_be_nil
-    local out, why = Codec.unbase64(v[3]) -- checked: index_may_be_nil
+    assert(Codec.base64(Array.at(v, 1)) == Array.at(v, 3), Array.at(v, 1))
+    local out, why = Codec.unbase64(Array.at(v, 3))
     assert(out == v[1] and why == "", v[3])
   end
 end
 
 local function test_base64url_is_unpadded_and_url_safe()
   for _, v in ipairs(VECTORS) do
-    local bare = (v[3]:gsub("=", "")) -- checked: nil_not_allowed
-    assert(Codec.base64url(v[1]) == bare, v[1]) -- checked: index_may_be_nil
+    local bare = (Array.at(v, 3):gsub("=", ""))
+    assert(Codec.base64url(Array.at(v, 1)) == bare, Array.at(v, 1))
     assert(Codec.unbase64url(bare) == v[1], bare)
   end
   assert(Codec.base64("\xfb\xff") == "+/8=")

@@ -557,7 +557,7 @@ local DECL_KINDS <const>: {string: Types.DeclKind} = {
 --- as one. It bounds every recursion over a type, so that no type or text exhausts the stack.
 local MAX_DEPTH <const> = 1000
 
-Types.max_depth = MAX_DEPTH -- checked: field_fixed
+Types.max_depth = MAX_DEPTH
 
 --- The most types of text [`Types.encode`] writes.
 local TEXT_LIMIT <const> = 100000
@@ -757,8 +757,8 @@ local function written(t: Type): string
   return render(t, encode_text)
 end
 
-Types.digest = digest_text -- checked: field_fixed
-Types.encode = written -- checked: field_fixed
+Types.digest = digest_text
+Types.encode = written
 
 -- Display ----------------------------------------------------------------------
 

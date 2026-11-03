@@ -1,3 +1,4 @@
+local Array = require("cosmic.array")
 --- The cases of cosmic/store_test.tl that read the store beyond their
 --- module's closure, through [`Store.databases()`]: the handles it hands
 --- out, the binary's own database among them, and the binary's alone
@@ -51,8 +52,8 @@ local function test_paths_lists_the_stores_files_and_their_siblings(tmp: string)
   local listed = Store.paths()
   local first = listed[1]
   assert(first:sub(-#"/listed.db") == "/listed.db", first) -- checked: nil_not_allowed
-  assert(listed[2] == first .. "-wal", "its write-ahead log") -- checked: nil_not_allowed
-  assert(listed[3] == first .. "-shm", "its shared memory") -- checked: nil_not_allowed
+  assert(Array.at(listed, 2) == first .. "-wal", "its write-ahead log") -- checked: nil_not_allowed
+  assert(Array.at(listed, 3) == first .. "-shm", "its shared memory") -- checked: nil_not_allowed
   local count = #listed
   assert(count == 3 * #Store.databases(), "three files to each database, no other")
 end

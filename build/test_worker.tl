@@ -1463,7 +1463,7 @@ function worker.run(argv: {string}): integer
       if argv[i] == "--tree" and into == closure then
         into = tree
       else
-        into[argv[i]] = true -- checked: index_may_be_nil
+        into[argv[i]] = true
       end
       i = i + 1
     end

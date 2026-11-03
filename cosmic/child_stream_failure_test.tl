@@ -1,3 +1,4 @@
+local Array = require("cosmic.array")
 --- A streamed child's queued bytes precede its terminal I/O failure.
 
 local Child = require("cosmic.child")
@@ -49,7 +50,7 @@ local function test_a_read_failure_follows_queued_stdout_and_stderr()
   for _, child_fd in ipairs({ 1, 2 }) do
     local h <close> = output(child_fd)
     local reader = assert(if child_fd == 1 and h.stdout_stream ~= nil then h.stdout_stream else h.stderr_stream end)
-    local fd = assert(h._streams)[1].fd -- checked: nil_not_allowed
+    local fd = Array.at(assert(h._streams), 1).fd
     local reason = "read: injected terminal failure"
     local bytes: integer = 0
     local refused: boolean = false
@@ -154,7 +155,7 @@ end
 --- failure nor EOF, so the output remains readable.
 local function test_transient_read_errors_leave_the_stream_readable()
   local h <close> = output(1)
-  local fd = assert(h._streams)[1].fd -- checked: nil_not_allowed
+  local fd = Array.at(assert(h._streams), 1).fd
   local transient: integer = 0
   patched(function()
     local read = sys.read
@@ -179,7 +180,7 @@ end
 local function test_a_failed_pump_does_not_close_a_reused_descriptor()
   local h <close> = output(1)
   local reader = assert(h.stdout_stream)
-  local fd = assert(h._streams)[1].fd -- checked: nil_not_allowed
+  local fd = Array.at(assert(h._streams), 1).fd
   local replacement: integer? = nil
   local ok, why: boolean, any = pcall(function()
     patched(function()

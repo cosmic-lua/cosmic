@@ -470,7 +470,7 @@ local function test_each_case_has_its_error_with_place_message_and_fix()
     if #r.before > 0 then
       problems[#problems + 1] = label .. ": the source has " .. table.concat(r.before, " ")
     elseif Programs.codes(r) ~= (case.codes or case.code) then
-      problems[#problems + 1] = label .. ": has " .. Programs.codes(r) .. (if r.errors[1] ~= nil then " (" .. r.errors[1].msg .. ")" else "" end) -- checked: nil_not_allowed
+      problems[#problems + 1] = label .. ": has " .. Programs.codes(r) .. (if r.errors[1] ~= nil then " (" .. r.errors[1].msg .. ")" else "" end)
     else
       local e = r.errors[#r.errors]
       for _, each in ipairs(r.errors) do
@@ -893,7 +893,7 @@ local up = ("a"):upper()
 local count = m.count
 local pick = m.f(1)
 ]], { m = "local record M\n  count: integer\nend\nfunction M.f(a: integer): integer\n  return a\nend\nreturn M\n" })
-  assert(#r.before == 0 and #r.errors == 0, Programs.codes(r) .. (r.errors[1] ~= nil and r.errors[1].msg or "")) -- checked: and_ternary, nil_not_allowed
+  assert(#r.before == 0 and #r.errors == 0, Programs.codes(r) .. (r.errors[1] ~= nil and r.errors[1].msg or "")) -- checked: and_ternary
   local got = shown(r, { "item", "rest", "first", "i", "j", "k", "x", "up", "count", "pick" })
   local want: {string: string} = {
     item = "Item", rest = "string?", first = "number?", i = "integer", j = "integer", k = "number", x = "number",
@@ -1119,7 +1119,7 @@ local function test_a_returned_local_declared_with_a_type_of_an_imported_module_
     mu = "local T = require(\"mt\")\nlocal x: T = { n = 1 }\nreturn x\n",
   }
   local r = Programs.run("local U = require(\"mu\")\nlocal v: integer = U.n\n", modules)
-  assert(#r.before == 0 and Programs.codes(r) == "", Programs.codes(r) .. (r.errors[1] ~= nil and r.errors[1].msg or "")) -- checked: and_ternary, nil_not_allowed
+  assert(#r.before == 0 and Programs.codes(r) == "", Programs.codes(r) .. (r.errors[1] ~= nil and r.errors[1].msg or "")) -- checked: and_ternary
   assert(r.program.modules.mu.export ~= nil) -- checked: map_field
 end
 
@@ -1449,6 +1449,60 @@ local function test_code_that_may_shorten_an_array_ends_what_a_length_test_showe
   reads("if #zs > 0 then\n  while n < 3 do\n    n = zs[1]\n    n = n + 1\n  end\nend\n", "")
   -- a test inside a condition is the state of its operand: a call before the test is before it
   reads("local ok = #zs > 0 and none() == nil and zs[1] + 1 == 2\n", "nil_not_allowed")
+end
+
+-- An array has no key but 1 to `#t`, so an element that is not nil shows the array is that long, as a length test does.
+local function test_a_nil_test_of_an_element_shows_the_array_has_its_key()
+  reads("if xs[1] ~= nil then\n  n = xs[1]\nend\n", "")
+  reads("if xs[2] ~= nil then\n  n = xs[1] + xs[2]\nend\n", "")
+  reads("if nil ~= xs[3] then\n  n = xs[3]\nend\n", "")
+  reads("if not (xs[1] == nil) then\n  n = xs[1] + xs[#xs]\nend\n", "")
+  reads("if xs[#xs] ~= nil then\n  n = xs[1]\nend\n", "")
+  -- the test that leaves, the element as a condition, and the right operand of `and`
+  reads("if xs[2] == nil then\n  return\nend\nn = xs[2]\n", "")
+  reads("if xs[1] then\n  n = xs[1]\nend\n", "")
+  reads("local ok = xs[1] ~= nil and xs[1] + 1 == 2\n", "")
+  -- a local key: the read at that local, while it holds the key
+  reads("local i = 1\nwhile xs[i] ~= nil do\n  n = n + xs[i]\n  i = i + 1\nend\n", "")
+  reads("for i = 1, 3 do\n  if zs[i] ~= nil then\n    n = zs[i]\n  end\nend\n", "")
+  local box = "local record Box\n  items: {integer}\nend\nlocal box: Box = { items = { 1 } }\n"
+  reads(box .. "if box.items[1] ~= nil then\n  n = box.items[1]\nend\n", "")
+end
+
+local function test_a_nil_test_of_an_element_shows_no_more_than_the_key_it_reads()
+  reads("if xs[1] ~= nil then\n  n = xs[2]\nend\n", "index_may_be_nil")
+  reads("if xs[1] == nil then\n  n = xs[1]\nend\n", "index_may_be_nil")
+  reads("if xs[0] ~= nil then\n  n = xs[1]\nend\n", "index_may_be_nil")
+  reads("if ys[1] ~= nil then\n  n = xs[1]\nend\n", "index_may_be_nil")
+  reads("local ok = xs[1] ~= nil or xs[1] + 1 == 2\n", "nil_not_allowed")
+  -- a local key may be 0 where an array has holes, so it shows no first element, and no other key
+  reads("local i = 0\nif xs[i] ~= nil then\n  n = xs[1]\nend\n", "index_may_be_nil")
+  reads("local i = 1\nif xs[i] ~= nil then\n  n = xs[i + 1]\nend\n", "index_may_be_nil")
+  reads("local i, j = 1, 1\nif xs[i] ~= nil then\n  n = xs[j]\nend\n", "index_may_be_nil")
+  -- the local assigned, alone or with another
+  reads("local i = 1\nif xs[i] ~= nil then\n  i = i + 1\n  n = xs[i]\nend\n", "index_may_be_nil")
+  reads("local i, j = 1, 2\nif xs[i] ~= nil then\n  i, j = j, i\n  n = xs[i]\nend\n", "index_may_be_nil")
+  -- a map has no length
+  reads("local m: {integer: integer} = { [1] = 1, [3] = 3 }\nif m[3] ~= nil then\n  n = m[1]\nend\n", "index_may_be_nil")
+  -- code that may shorten the array, the array under another name, and a function made there
+  reads("if zs[1] ~= nil then\n  touch()\n  n = zs[1]\nend\n", "index_may_be_nil")
+  reads("local i = 1\nif zs[i] ~= nil then\n  table.remove(zs)\n  n = zs[i]\nend\n", "index_may_be_nil")
+  reads("if zs[1] ~= nil then\n  local ws: mut {integer} = zs\n  ws[#ws] = nil\n  n = zs[1]\nend\n", "index_may_be_nil")
+  reads("if zs[1] ~= nil then\n  for _ in none do\n  end\n  n = zs[1]\nend\n", "index_may_be_nil")
+  reads("if zs[1] ~= nil then\n  local read = function(): integer\n    return zs[1]\n  end\nend\n", "index_may_be_nil")
+  reads("if zs[1] ~= nil then\n  do\n    local c <close> = nil\n  end\n  n = zs[1]\nend\n", "index_may_be_nil")
+  reads("local i = 1\nwhile zs[i] ~= nil do\n  touch()\n  n = n + zs[i]\n  i = i + 1\nend\n", "nil_not_allowed")
+  reads("if xs[1] ~= nil then\n  xs = ys\n  n = xs[1]\nend\n", "index_may_be_nil")
+  reads("local alias = xs\nif xs[1] ~= nil then\n  n = alias[1]\nend\n", "index_may_be_nil")
+  -- an array of a type variable may have holes, as `{ ... }` has where a caller gives nil for `T`, so neither a nil test
+  -- nor a length test shows its elements
+  for _, test in ipairs({ "t[3] ~= nil", "#t >= 3" }) do
+    local got = codes_of("local function mark<T>(d: T, ...: T): T\n  local t = { ... }\n  if " .. test .. " then\n" ..
+        "    return t[1]\n  end\n  return d\nend\n")
+    assert(got == "index_may_be_nil", got .. " for " .. test)
+  end
+  assert(codes_of("local function sum<T>(d: T, xs: {T}): T\n  for i = 1, #xs do\n    d = xs[i]\n  end\n  return d\nend\n") ==
+      "index_may_be_nil")
 end
 
 -- A value of a class that declares `__tostring` runs code of the program where `tostring` meets it, and that code may shorten

@@ -578,14 +578,14 @@ local function key_of(pattern: string): string?
   return if read.captures[1] == "position" then "integer" else "string" end
 end
 
-Literals.pattern = read_pattern -- checked: field_fixed
-Literals.replacement = read_replacement -- checked: field_fixed
-Literals.format = read_format -- checked: field_fixed
-Literals.pack = read_pack -- checked: field_fixed
-Literals.check = check -- checked: field_fixed
-Literals.functions = { -- checked: field_fixed
+Literals.pattern = read_pattern
+Literals.replacement = read_replacement
+Literals.format = read_format
+Literals.pack = read_pack
+Literals.check = check
+Literals.functions = {
   find = true, match = true, gmatch = true, gsub = true, format = true, pack = true, unpack = true, packsize = true,
 }
-Literals.key = key_of -- checked: field_fixed
+Literals.key = key_of
 
 return Literals

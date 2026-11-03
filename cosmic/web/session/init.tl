@@ -199,9 +199,9 @@ local record Session
   MAX_DEPTH: integer
 end
 
-Session.KEY = Request.key("session") -- checked: field_fixed
-Session.MAX_DEPTH = 16 -- checked: field_fixed
-Session.CSRF_KEY = "_csrf" -- checked: field_fixed
+Session.KEY = Request.key("session")
+Session.MAX_DEPTH = 16
+Session.CSRF_KEY = "_csrf"
 
 local DAY <const> = 86400
 local MAX_FLASHES <const> = 10

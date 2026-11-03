@@ -136,9 +136,9 @@ function verb.program_slot(argv: {string}): integer?
     if word == "--" then
       if argv[slot + 1] ~= nil then return slot + 1 end
       return nil
-    elseif word:sub(1, 1) ~= "-" or word == "-" then -- checked: nil_not_allowed
+    elseif word:sub(1, 1) ~= "-" or word == "-" then
       return slot
-    elseif not word:find("=", 1, true) and takes_value(word) then -- checked: nil_not_allowed*2
+    elseif not word:find("=", 1, true) and takes_value(word) then
       slot = slot + 1
     end
     slot = slot + 1
@@ -256,7 +256,7 @@ local function table_of(parsed: Flags.Parsed): PolicyFields?, string
     local given = list(name) -- checked: nil_not_allowed
     if #given > 1 then return nil, name .. " is given more than once" end -- checked: nil_not_allowed
     if given[1] ~= nil then
-      local number = whole(given[1], least, math.maxinteger) -- checked: nil_not_allowed, index_may_be_nil
+      local number = whole(given[1], least, math.maxinteger) -- checked: nil_not_allowed
       if number == nil then
         return nil, name .. " takes a whole number, " .. least .. " or more, not " .. given[1] -- checked: nil_not_allowed*3
       end
@@ -267,8 +267,8 @@ local function table_of(parsed: Flags.Parsed): PolicyFields?, string
   local users = list("--user")
   if #users > 1 then return nil, "--user is given more than once" end
   if users[1] ~= nil then
-    local uid, gid = users[1]:match("^(%d+):(%d+)$") -- checked: nil_not_allowed
-    if uid == nil then uid = users[1]:match("^(%d+)$") end -- checked: nil_not_allowed
+    local uid, gid = users[1]:match("^(%d+):(%d+)$")
+    if uid == nil then uid = users[1]:match("^(%d+)$") end
     local user = if uid ~= nil then whole(uid, 1, 4294967294) else nil end
     local group = if gid ~= nil then whole(gid, 1, 4294967294) else nil end
     if user == nil or (gid ~= nil and group == nil) then
@@ -307,7 +307,7 @@ local function request_of(argv: {string}): Request?, string
   if listed[1] ~= nil then
     local names: mut {string} = {}
     local seen: mut {string:boolean} = {}
-    for name in (listed[1] .. ","):gmatch("([^,]*),") do -- checked: nil_not_allowed -- untyped: call
+    for name in (listed[1] .. ","):gmatch("([^,]*),") do
       if name == "" then
         return nil, "--modules takes module names separated by commas, as cosmic.json,cosmic.fs, " ..
           "not " .. listed[1] -- checked: nil_not_allowed
@@ -356,7 +356,7 @@ local function request_of(argv: {string}): Request?, string
   local seconds = parsed.all["--timeout"] or {}
   if #seconds > 1 then return nil, "--timeout is given more than once" end
   if seconds[1] ~= nil then
-    local number = whole(seconds[1], 1, MOST_SECONDS) -- checked: index_may_be_nil
+    local number = whole(seconds[1], 1, MOST_SECONDS)
     if number == nil then
       return nil, "--timeout takes a whole number of seconds, 1 to " .. tostring(MOST_SECONDS) ..
         ", not " .. seconds[1] -- checked: nil_not_allowed
@@ -706,12 +706,12 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   local held: mut {string} = {}
   local status = execute(argv, io, held)
   if held[1] ~= nil then
-    local _, _ = Fs.remove_tree(held[1]) -- checked: index_may_be_nil
+    local _, _ = Fs.remove_tree(held[1])
   end
   return status
 end
 
-verb.spec = { -- checked: field_fixed
+verb.spec = {
   name = "sandbox",
   guide = "a program held to what you grant it",
   tests = { "build.sandbox_test", "build.sandbox_tool_test", "build.sandbox_connect_test",
