@@ -78,8 +78,8 @@ local record test_inputs
     --- ([`cosmic.test`]'s `store_text`).
     mut store_text?: boolean
     --- Whether its worker is given the pure store ([`build.closure_store`]'s `write`)
-    --- and the source file of its own module alone: the run holds the pure store
-    --- ([`test_inputs.effective`]'s `pure_store`), it declares none of `store`,
+    --- and the source file of its own module alone: the run is sandboxed
+    --- ([`test_inputs.effective`]'s `sandboxed`), it declares none of `store`,
     --- `store_text`, `lua` and `tool` ([`is_pure`]), and no module of its closure
     --- declares it reads any text (requires [`build.reads.all`]), which gives it the
     --- store of its closure with its text.
@@ -269,7 +269,7 @@ function test_inputs.modules(m: Module, by_path: {string:Module},
 end
 
 --- Whether a test that declares `declared` is given the pure store
---- ([`build.closure_store`]'s `write`), where the run holds it (`held`): one
+--- ([`build.closure_store`]'s `write`), where the run is sandboxed (`held`): one
 --- that declares none of `store`, which reads the whole projection, `store_text`,
 --- which reads the text of its closure's store, and `lua` and `tool`, which start
 --- the program, whose checker types a chunk against the sources and stubs of the
@@ -284,7 +284,7 @@ end
 --- every module the build compiled, by path, and `declarations` every
 --- declaration file of the tree (`<path>.d.tl`), by import path.
 ---
---- `pure_store` says the run gives a test that declares none of `store`,
+--- `sandboxed` says the run is sandboxed, which gives a test that declares none of `store`,
 --- `store_text`, `lua` and `tool` (the last two start the program, whose checker
 --- types against the closure's text) the pure store ([`build.closure_store`]), which holds the
 --- source only of what its closure declares it reads (the walks of [`build.reads.pipeline`] and its siblings) and the stubs
@@ -295,7 +295,7 @@ end
 function test_inputs.effective(m: Module, by_path: {string:Module},
                                declarations: {string:string},
                                type_only?: {string:{string:boolean}},
-                               pure_store?: boolean): test_inputs.Effective
+                               sandboxed?: boolean): test_inputs.Effective
   local parent: mut {string} = {}
   local caches: mut {string} = {}
   local out: test_inputs.Effective = {
@@ -306,7 +306,7 @@ function test_inputs.effective(m: Module, by_path: {string:Module},
     cache_paths = {}, unresolved = "",
   }
   local declares = m.inputs
-  local pure = is_pure(declares, pure_store)
+  local pure = is_pure(declares, sandboxed)
   if pure then
     -- A module that declares it reads any text ([`build.code_walk`]'s `markers`) in the closure gives the test the full store.
     for _, name in ipairs(test_inputs.modules(m, by_path, declarations, type_only)) do
