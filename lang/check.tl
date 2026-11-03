@@ -4972,6 +4972,13 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
         end
         -- The instance is taken only if every type parameter is solved, none conflicts, and each meets its bound.
         local meets = #solved == #given_fn.tparams and #sub.conflicts == 0
+        -- Whether the callee's own declaration gives the function every parameter type, whatever its type parameters
+        -- are: nothing the call passes can change a type found for the function, and no bound it fails can be met here.
+        local fixed = #seen.params == #wanted_fn.params
+        for k, w in ipairs(wanted_fn.params) do
+          local got = seen.params[k]
+          if got == nil or got.type ~= w.type then fixed = false end
+        end
         -- Every bound a type fails, so that one message names them all.
         local said: mut {string} = {}
         local fixes: mut {string} = {}
@@ -4982,13 +4989,21 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
             local wanted_bound = "`is " .. show(ctx, bound) .. "`"
             local fix = "pass a type that declares " .. wanted_bound
             -- Only a type the program declares can be given the interface.
-            if held.tag == "named" and (held.decl.kind == "record" or held.decl.kind == "class" or
-                held.decl.kind == "interface") then
+            local declarable = held.tag == "named" and (held.decl.kind == "record" or held.decl.kind == "class" or
+              held.decl.kind == "interface")
+            if declarable then
               fix = "declare " .. wanted_bound .. " on " .. tq(ctx, held) .. ", or " .. fix
+            end
+            local why = tq(ctx, held) .. " does not declare " .. wanted_bound
+            if fixed and not declarable and held.tag ~= "var" then
+              -- No declaration gives this type the interface, and the call cannot pass another.
+              why = "the declaration of " .. quoted(callee) .. " gives it " .. tq(ctx, held) .. ", so this argument cannot " ..
+                "satisfy the bound here"
+              fix = "pass a function whose type parameter is not bounded by " .. tq(ctx, bound)
             end
             said[#said + 1] = tq(ctx, held) .. " is the type parameter " .. quoted(Types.letter(k - 1)) ..
               " of the function passed as argument " .. tostring(i) .. " of " .. quoted(callee) .. ", which is bounded by " ..
-              tq(ctx, bound) .. ", and " .. tq(ctx, held) .. " does not declare " .. wanted_bound
+              tq(ctx, bound) .. ", and " .. why
             fixes[#fixes + 1] = fix
             shown[#shown + 1] = show(ctx, held)
             shown[#shown + 1] = show(ctx, bound)
@@ -5096,9 +5111,13 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
         ", which is bounded by " .. tq(ctx, bound) .. ", and " .. tq(ctx, held) .. " does not list it"
       problems[#problems + 1] = msg
       if loud then
+        -- Only a type the program declares, or a type variable of the caller, can be given the interface.
+        local declarable = held.tag == "var" or (held.tag == "named" and (held.decl.kind == "record" or
+          held.decl.kind == "class" or held.decl.kind == "interface"))
         report(ctx, "bound_unmet", node, msg,
-          "list the interface in the declaration of " .. tq(ctx, held) .. " (`is " .. show(ctx, bound) .. "`), or pass a " ..
-            "type that does", { show(ctx, held), show(ctx, bound) })
+          (if declarable then "list the interface in the declaration of " .. tq(ctx, held) .. " (`is " .. show(ctx, bound) ..
+              "`), or pass a type that does" else "pass a type that lists `is " .. show(ctx, bound) .. "`" end),
+          { show(ctx, held), show(ctx, bound) })
       end
       Calls.replace_type(given, i, ctx.invalid)
     end
@@ -5242,6 +5261,9 @@ local function apply_overloads(ctx: Ctx, node: Ast.Node, callee: string, cands: 
   local known, pending, tail, count = prep.known, prep.pending, prep.tail, prep.count
   local reasons: mut {string} = {}
   local unmet: Unmet? = nil
+  -- Set when two candidates each reach `bound_unmet` with a different message: the order of the overloads does not say
+  -- which the call meant, so none is named.
+  local ambiguous = false
   for _, declared in ipairs(cands) do
 
     if (declared.tag == "fn") then
@@ -5343,8 +5365,13 @@ local function apply_overloads(ctx: Ctx, node: Ast.Node, callee: string, cands: 
             fixes[#fixes + 1] = u.fix
             for _, t in ipairs(u.shown) do shown[#shown + 1] = t end
           end
-          unmet = unmet or { message = table.concat(said, "; "), fix = table.concat(fixes, "; "), shown = shown,
-            arg = first.arg, instance = first.instance }
+          local message = table.concat(said, "; ")
+          if unmet == nil then
+            unmet = { message = message, fix = table.concat(fixes, "; "), shown = shown, arg = first.arg,
+              instance = first.instance }
+          elseif unmet.message ~= message then
+            ambiguous = true
+          end
         end
       end
       if failure == "" then
@@ -5426,8 +5453,9 @@ local function apply_overloads(ctx: Ctx, node: Ast.Node, callee: string, cands: 
     end
   end
   local first = reasons[1]
-  -- `unmet` is set only for a candidate that the bound alone kept from being taken: meeting it would accept the call.
-  if unmet ~= nil then
+  -- `unmet` is set only for a candidate that the bound alone kept from being taken: meeting it would accept the call. Several
+  -- candidates that say alike are one answer.
+  if unmet ~= nil and not ambiguous then
     report(ctx, "bound_unmet", node, unmet.message, unmet.fix, unmet.shown)
     return unknown_lists(ctx)
   end

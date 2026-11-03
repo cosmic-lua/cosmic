@@ -589,6 +589,63 @@ local function test_every_passed_generic_function_with_an_unmet_bound_is_named_o
   refused(head .. "local ok, r = xpcall(label, note, p, 5)\nprint(ok, r)\n", "overload_none")
 end
 
+--- Overloads of a declared module `m` to pass generic functions to, for the tests below. A callee with one declaration
+--- is not asked again with the waiver, so `y` has a second, of another arity.
+local OVERLOADS <const> = "local record m\n" ..
+  "  f: function<A, B>((function(A): string), (function(B): string), A, B)\n" ..
+  "  f: function<A>((function(A): string), (function(A): string), (function(A): string), A)\n" ..
+  "  y: function<A, B, C>((function(A): B), (function(B): C), (function(C): string), A)\n" ..
+  "  y: function<A>((function(A): string), A)\n" ..
+  "end\nreturn m\n"
+
+local NAMED <const> = "local m = require(\"m\")\nlocal interface Named\n  name: string\nend\n" ..
+  "local class Person is Named\n  name: string\nend\nlocal record Plain\n  name: string\nend\n" ..
+  "local function label<T is Named>(x: T): string\n  return x.name\nend\n" ..
+  "local function note<T is Named>(x: T): string\n  return \"n\"\nend\n" ..
+  "local function sname<T is Named>(x: T): string\n  return x.name\nend\n" ..
+  "local function ident<T is Named>(x: T): T\n  return x\nend\n" ..
+  "local function mk<T is Named>(x: T): Person\n  return { name = x.name }\nend\n" ..
+  "local p: Plain = { name = \"ann\" }\n"
+
+local function overloads(call: string): Programs.Run
+  return Programs.run(HEAD .. NAMED .. call, nil, { m = OVERLOADS })
+end
+
+-- Two overloads that each reach `bound_unmet` with different bounds: the order of the overloads does not say which the
+-- call meant, so the call is `overload_none`, as it is without the waiver. Overloads that say alike are one answer.
+local function test_two_overloads_that_reach_different_bounds_name_none()
+  local r = overloads("m.f(label, note, sname, p)\n")
+  assert(Programs.codes(r) == "overload_none" and #r.errors == 1, Programs.codes(r))
+end
+
+-- A function whose parameter type is the result of the one before it is found one run after that one is waived, so
+-- every run the chain needs is made: stopping after the second misses the third argument.
+local function test_a_chain_of_passed_generic_functions_is_waived_to_its_end()
+  local chain = overloads("m.y(ident, ident, sname, p)\n")
+  local e = chain.errors[1]
+  assert(Programs.codes(chain) == "bound_unmet" and #chain.errors == 1 and e ~= nil and e.msg:find("argument 1", 1, true) ~= nil and
+      e.msg:find("argument 2", 1, true) ~= nil and e.msg:find("argument 3", 1, true) ~= nil, Programs.codes(chain))
+  -- `mk` answers a `Person`, which meets the bound: only the first argument fails it
+  local cut = overloads("m.y(mk, ident, sname, p)\n")
+  local c = cut.errors[1]
+  assert(Programs.codes(cut) == "bound_unmet" and #cut.errors == 1 and c ~= nil and c.msg:find("argument 1", 1, true) ~= nil and
+      c.msg:find("argument 2", 1, true) == nil and c.msg:find("argument 3", 1, true) == nil, Programs.codes(cut))
+end
+
+-- A bound no declaration can meet is not worded as one to declare: `xpcall`'s handler is given `any`, and a type the
+-- callee's declaration fixes cannot be changed by the call.
+local function test_a_bound_nothing_can_meet_does_not_say_declare_it()
+  local head = "local interface Named\n  name: string\nend\nlocal function note<E is Named>(e: E): string\n  return \"n\"\nend\n"
+  local handler = Programs.run(HEAD .. head .. "local ok, r = xpcall(print, note)\nprint(ok, r)\n")
+  local h = handler.errors[1]
+  assert(Programs.codes(handler) == "bound_unmet" and h ~= nil and h.msg:find("cannot satisfy the bound here", 1, true) ~= nil and
+      h.msg:find("does not declare", 1, true) == nil and h.fix:find("declare", 1, true) == nil, h and h.msg or Programs.codes(handler))
+  local direct = Programs.run(HEAD .. head .. "local function label<T is Named>(x: T): string\n  return \"\"\nend\nprint(label(1))\n")
+  local d = direct.errors[1]
+  assert(Programs.codes(direct) == "bound_unmet" and d ~= nil and d.fix:find("list the interface", 1, true) == nil and
+      d.fix:find("pass a type that lists `is Named`", 1, true) ~= nil, d and d.fix or Programs.codes(direct))
+end
+
 local function test_an_iterator_that_is_a_generic_function_is_solved_by_the_state_and_the_control_value()
   local head = "local function step<T>(xs: {T}, at: integer?): (integer?, T?)\n  return nil, nil\nend\n"
   assert(type_of(head .. "local names: {string} = { \"a\" }\nfor i, v in step, names, nil do\n  local seen = v\nend\n", "seen") == "string?")
