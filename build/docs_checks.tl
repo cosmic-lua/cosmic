@@ -15,6 +15,8 @@ local String = require("cosmic.string")
 local docs = require("build.docs")
 local symbols = require("build.symbols")
 local writer = require("build.writer")
+-- Declares what text this module reads ([`build.code_walk`]'s `markers`): the docs, examples, uses or links of the database it is handed.
+local _ = require("build.reads.all")
 
 local record docs_checks
   --- What `rendered` lets stand, each with its reason.

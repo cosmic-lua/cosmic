@@ -37,6 +37,8 @@ local logger = require("build.logger")
 local log = logger.log
 local bind = require("build.bind")
 local verb_spec = require("build.verb_spec")
+-- Declares what text this module reads ([`build.code_walk`]'s `markers`): all.
+local _ = require("build.reads.all")
 
 local record docs
   --- The verbs' registrations: see build/verb_spec.tl.

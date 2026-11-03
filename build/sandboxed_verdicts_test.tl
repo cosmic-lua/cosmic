@@ -1029,6 +1029,36 @@ end
   assert(changed:find("2 ran, 2 stood", 1, true), changed)
 end
 
+--- A test whose closure holds a module that declares it reads any text (requires [`build.reads.all`]) is given the store
+--- of its closure with its text and keyed by its bytes, as one that declares `store_text` is: a comment in that module
+--- runs it, where a comment in a module it imports only for what it does runs nothing.
+local function test_a_test_importing_a_reader_of_all_text_is_not_given_the_pure_store(tmp: string)
+  local root = tmp .. "/root"
+  checkout(root)
+  assert(Fs.mkdirs(root .. "/build/reads"))
+  assert(Fs.write(root .. "/build/reads/all.tl", "--- @public\nlocal record all\nend\nlocal declared: all = {}\nreturn declared\n"))
+  assert(Fs.write(root .. "/suite/reader.tl", 'local _ = require("build.reads.all")\nlocal record Reader\nend\nreturn Reader\n'))
+  assert(Fs.write(root .. "/suite/reader_test.tl", [[
+local Reader = require("suite.reader")
+
+local function test_reader()
+  assert(type(Reader) == "table")
+end
+]]))
+  local env = environment(tmp .. "/cache/verdicts.db", nil, true)
+  local first = run(root, tmp .. "/first.out", env)
+  skip_if_unsandboxed(first)
+  assert(first:find("4 ran, 0 stood", 1, true), first)
+  assert(Fs.write(root .. "/suite/lib.tl",
+    "-- a note\n\nlocal record Lib\n  value: integer\nend\nlocal lib: Lib = { value = 1 }\nreturn lib\n"))
+  local imported = run(root, tmp .. "/imported.out", env)
+  assert(imported:find("0 ran, 4 stood", 1, true), imported)
+  assert(Fs.write(root .. "/suite/reader.tl",
+    '-- a note\nlocal _ = require("build.reads.all")\nlocal record Reader\nend\nreturn Reader\n'))
+  local noted = run(root, tmp .. "/noted.out", env)
+  assert(noted:find("1 ran, 3 stood", 1, true), noted)
+end
+
 --- The pure store is held for a sandboxed worker alone: an unsandboxed worker reads the
 --- real tree, so a comment in an imported module still runs the tests that import it.
 local function test_a_pure_store_is_not_held_for_an_unsandboxed_run(tmp: string)

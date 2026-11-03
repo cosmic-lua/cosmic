@@ -51,6 +51,8 @@ local dataset = require("build.dataset")
 local logger = require("build.logger")
 local verb_spec = require("build.verb_spec")
 local work = require("build.work")
+-- Declares what text this module reads ([`build.code_walk`]'s `markers`): all.
+local _ = require("build.reads.all")
 
 local log = logger.log
 
