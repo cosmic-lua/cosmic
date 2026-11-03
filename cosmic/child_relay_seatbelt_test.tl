@@ -618,7 +618,7 @@ local function test_a_policy_with_connect_may_not_set_a_proxy_variable(tmp: stri
   local handle, why = Child.start({ assert(Proc.executable()), "wait" }, { policy = {
     database = { path = sealed_client(tmp) }, profiles = { "system" }, connect = { "127.0.0.1:9" },
     set_env = { HTTPS_PROXY = "http://elsewhere:1" } } })
-  assert(handle == nil and why:find("HTTPS_PROXY is set by the relay", 1, true), tostring(why)) -- checked: or_mix
+  assert(handle == nil and why:find("HTTPS_PROXY is set by the relay", 1, true) ~= nil, tostring(why))
 end
 
 --- The relay's own policy reads the database it runs on and the resolver's

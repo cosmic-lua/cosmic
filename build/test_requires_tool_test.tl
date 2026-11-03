@@ -205,7 +205,7 @@ error("a module with an absent requirement must not load")
     extra["COSMIC_TEST_PROMISES"] = "nest,proc"
     extra["COSMIC_SANDBOX"], extra["COSMIC_CI_REQUIRE_SANDBOX"] = nil, nil
     out, code = run(root, extra)
-    assert(code == 0 and out:find("N/A  linux_test test_a", 1, true), out) -- checked: or_mix
+    assert(code == 0 and out:find("N/A  linux_test test_a", 1, true) ~= nil, out)
   end
 end
 

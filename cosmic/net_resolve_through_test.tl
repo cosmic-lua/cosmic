@@ -340,7 +340,7 @@ local function test_a_name_server_the_connector_lacks_is_refused_before_anything
   found, why = Net.resolve("example.test", { connector = dns, servers = { { host = "127.0.0.1", port = 53 } } })
   assert(found == nil and why == "net: the connector is closed", why)
   local stand_in: any = { connect = function() end } -- checked: any_use
-  assert(not pcall(Net.resolve, "example.test", { connector = stand_in as Net.Connector })) -- checked: alternatives_as_value, cast_refused
+  Test.raises(function() Net.resolve("example.test", { connector = stand_in as Net.Connector }) end) -- checked: cast_refused
 end
 
 --- The connector made of the name servers resolv.conf names is confined
@@ -649,10 +649,10 @@ end
 
 local function test_name_servers_and_an_adopted_connector_refuse_what_is_out_of_range()
   local zero: any = 0 -- checked: any_use
-  assert(not pcall(RelayStart.name_servers, { resolve = zero as integer })) -- checked: alternatives_as_value, cast_refused
-  assert(not pcall(RelayStart.name_servers, { resolve = -1 })) -- checked: alternatives_as_value
+  Test.raises(function() RelayStart.name_servers({ resolve = zero as integer }) end) -- checked: cast_refused
+  Test.raises(function() RelayStart.name_servers({ resolve = -1 }) end)
   local pair = ConnectorEnds.connector_pair()
-  assert(not pcall(Connector.adopted, pair.controller, nil, false, 5)) -- checked: alternatives_as_value
+  Test.raises(function() Connector.adopted(pair.controller, nil, false, 5) end)
   assert(not pcall(Connector.adopted, pair.controller, nil, false, Clock.seconds(61))) -- checked: alternatives_as_value
   assert(sys.close(pair.controller))
   assert(sys.close(pair.connector))

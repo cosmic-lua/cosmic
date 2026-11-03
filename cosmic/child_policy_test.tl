@@ -66,10 +66,10 @@ local function test_a_granted_path_is_read_and_its_sibling_is_not(tmp: string)
   local read = under(probe, policy, "cat " .. tmp .. "/ro/a")
   assert(read.code == 0 and read.said == "alpha\n", tostring(read.code) .. ": " .. read.said)
   local sibling = under(probe, policy, "cat " .. tmp .. "/other/b")
-  assert(sibling.code == 1 and sibling.said:find(DENIED, 1, true), "refused: " .. sibling.said) -- checked: or_mix
+  assert(sibling.code == 1 and sibling.said:find(DENIED, 1, true) ~= nil, "refused: " .. sibling.said)
   -- Nothing is written where only read is given.
   local blind = under(probe, policy, "create " .. tmp .. "/ro/new x")
-  assert(blind.code == 1 and blind.said:find(DENIED, 1, true), blind.said) -- checked: or_mix
+  assert(blind.code == 1 and blind.said:find(DENIED, 1, true) ~= nil, blind.said)
 end
 
 local function test_a_relative_grant_is_relative_to_the_childs_directory(tmp: string)
@@ -80,7 +80,7 @@ local function test_a_relative_grant_is_relative_to_the_childs_directory(tmp: st
   local read = under(probe, policy, "cat ro/a", { cwd = tmp .. "/work" })
   assert(read.code == 0 and read.said == "alpha\n", tostring(read.code) .. ": " .. read.said)
   local shut = under(probe, policy, "cat shut/b", { cwd = tmp .. "/work" })
-  assert(shut.code == 1 and shut.said:find(DENIED, 1, true), shut.said) -- checked: or_mix
+  assert(shut.code == 1 and shut.said:find(DENIED, 1, true) ~= nil, shut.said)
 end
 
 local function test_a_grant_of_a_path_that_is_not_there_fails_naming_it(tmp: string)
@@ -163,12 +163,12 @@ local function test_tmp_is_made_writable_named_by_tmpdir_and_removed(tmp: string
     "env-of TMPDIR; write $TMPDIR/note hello; cat $TMPDIR/note; mkdirs $TMPDIR/sub/deeper; create $TMPDIR/sub/deeper/f x")
   assert(out.code == 0, out.said)
   local dir = out.said:match("^TMPDIR=([^\n]+)\n")
-  assert(dir ~= nil and out.said:find("\nhello\n", 1, true), out.said) -- checked: or_mix
+  assert(dir ~= nil and out.said:find("\nhello\n", 1, true) ~= nil, out.said)
   assert(dir:find("cosmic-sandbox-", 1, true), dir)
   assert(Fs.exists(dir) == false, dir .. " was left behind")
   -- A sibling of it is not the child's.
   local sibling = under(probe, policy, "write " .. tmp .. "/outside x")
-  assert(sibling.code == 1 and sibling.said:find(DENIED, 1, true), sibling.said) -- checked: or_mix
+  assert(sibling.code == 1 and sibling.said:find(DENIED, 1, true) ~= nil, sibling.said)
   assert(Fs.exists(tmp .. "/outside") == false)
   -- No tmp, no TMPDIR.
   local without = under(probe, { grants = itself(probe) }, "env-of TMPDIR")

@@ -81,16 +81,16 @@ local function test_a_module_outside_the_closure_is_not_found()
   assert(ok, err)
   skip_unless_sandboxed()
   ok, _, err = run({ "-e", "local Zip = require('cosmic.zip') print(Zip)" })
-  assert(not ok and err:find("no module `cosmic.zip`", 1, true), err) -- checked: or_mix
+  assert(not ok and err:find("no module `cosmic.zip`", 1, true) ~= nil, err)
 end
 
 --- A verb runs no module the key does not hold: it fails to find them.
 local function test_a_verb_is_not_found()
   skip_unless_sandboxed()
   local ok, _, err = run({ "test", "--help" })
-  assert(not ok and err:find("no module", 1, true), err) -- checked: or_mix
+  assert(not ok and err:find("no module", 1, true) ~= nil, err)
   ok, _, err = run({ "help" })
-  assert(not ok and err:find("no module", 1, true), err) -- checked: or_mix
+  assert(not ok and err:find("no module", 1, true) ~= nil, err)
 end
 
 --- What a child starts in turn runs the same artifact, given an

@@ -4,6 +4,7 @@
 --- raise. What they do inside a sandbox is
 --- cosmic/child_policy_nest_calls_test.tl's.
 
+local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
 local testing = require("cosmic.internal.testing")
 
@@ -30,5 +31,5 @@ local function test_the_sandbox_calls_answer_true_or_an_errno(tmp: string)
   ok, why, errno = testing.chroot(missing)
   assert(not ok, "a chroot into nothing")
   shaped("chroot", ok, why, errno)
-  assert(not pcall(testing.mount, nil, missing, nil, -1), "negative mount flags raise") -- checked: alternatives_as_value
+  Test.raises(function() testing.mount(nil, missing, nil, -1) end) -- negative mount flags raise
 end

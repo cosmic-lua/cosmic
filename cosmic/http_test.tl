@@ -282,9 +282,9 @@ local function test_a_space_or_control_byte_before_the_path_is_refused_naming_it
   assert(got == nil and why == "http: the URL holds a space at byte 10, in its user info; " ..
       "a user name or password goes in through Url.escape", why)
   got, why = Http.request("PUT", "cosmic\n.test/a b", { script = {} })
-  assert(got == nil and why:find("control byte 0x0a at byte 7, in its host,", 1, true), why) -- checked: or_mix
+  assert(got == nil and why:find("control byte 0x0a at byte 7, in its host,", 1, true) ~= nil, why)
   got, why = Http.get("http:/co smic.test/a", { script = {} })
-  assert(got == nil and why:find("a space at byte 9, in its host,", 1, true), why) -- checked: or_mix
+  assert(got == nil and why:find("a space at byte 9, in its host,", 1, true) ~= nil, why)
 end
 
 local function test_a_url_escaped_with_url_escape_is_sent_as_written()
@@ -871,7 +871,7 @@ local function test_a_download_checks_every_digest_it_is_given(tmp: string)
   local other = tmp .. "/other.bin"
   local bad, bad_why = Http.download(url, other, { script = { reply("200 OK", "", "hello") },
     sha256 = s256, sha512 = string.rep("0", 128) })
-  assert(not bad and bad_why:find("sha512 mismatch: want " .. string.rep("0", 128) .. ", got " .. s512, 1, true), bad_why) -- checked: or_mix
+  assert(not bad and bad_why:find("sha512 mismatch: want " .. string.rep("0", 128) .. ", got " .. s512, 1, true) ~= nil, bad_why)
   assert(Fs.stat(other) == nil, "the target was created")
   for _, name in ipairs((assert(Fs.list(tmp)))) do
     assert(name == "two.bin", "left behind: " .. name)
@@ -887,7 +887,7 @@ local function test_a_download_with_only_a_sha512_checks_that_alone(tmp: string)
   local other = tmp .. "/wrong512.bin"
   local zeros = string.rep("0", 128)
   local bad, bad_why = Http.download(url, other, { script = { reply("200 OK", "", "hello") }, sha512 = zeros })
-  assert(not bad and bad_why:find("sha512 mismatch: want " .. zeros .. ", got " .. s512, 1, true), bad_why) -- checked: or_mix
+  assert(not bad and bad_why:find("sha512 mismatch: want " .. zeros .. ", got " .. s512, 1, true) ~= nil, bad_why)
   assert(not bad_why:find("sha256", 1, true), bad_why)
   assert(Fs.stat(other) == nil, "the target was created")
 end
@@ -905,7 +905,7 @@ local function test_a_download_with_a_sha3_256_checks_it(tmp: string)
   local zeros = string.rep("0", 64)
   local bad, bad_why = Http.download(url, other, { script = { reply("200 OK", "", "hello") },
     sha256 = Hash.hex_sha256("hello"), sha3_256 = zeros })
-  assert(not bad and bad_why:find("sha3-256 mismatch: want " .. zeros .. ", got " .. sha3, 1, true), bad_why) -- checked: or_mix
+  assert(not bad and bad_why:find("sha3-256 mismatch: want " .. zeros .. ", got " .. sha3, 1, true) ~= nil, bad_why)
   assert(Fs.stat(other) == nil, "the target was created")
 end
 
@@ -1139,7 +1139,7 @@ local function test_request_refuses_what_it_would_not_send_as_asked()
       HEAD = { body = "x", script = script }, -- checked: arms_differ
   } as {string:Http.Options}) do
     local ok, why = pcall(Http.request, method, url, opts)
-    assert(not ok and tostring(why):find("Http.request", 1, true), method .. ": " .. tostring(why)) -- checked: or_mix
+    assert(not ok and tostring(why):find("Http.request", 1, true) ~= nil, method .. ": " .. tostring(why))
   end
   local got, trouble = Http.request("PUT", url, { method = "PUT", script = script })
   assert(got ~= nil and got.status == 200, trouble)
@@ -1347,7 +1347,7 @@ local function test_a_method_that_is_false_is_refused_not_taken_for_none()
   local script = { reply("200 OK", "") }
   local opts = { method = false, script = script } as any as Http.Options -- checked: arms_differ, cast_refused*2
   local ok, why = pcall(Http.get, url, opts)
-  assert(not ok and tostring(why):find("Http.request", 1, true), tostring(why)) -- checked: or_mix
+  assert(not ok and tostring(why):find("Http.request", 1, true) ~= nil, tostring(why))
   ok, why = pcall(Http.request, "PUT", url, opts)
-  assert(not ok and tostring(why):find("leave opts.method out", 1, true), tostring(why)) -- checked: or_mix
+  assert(not ok and tostring(why):find("leave opts.method out", 1, true) ~= nil, tostring(why))
 end

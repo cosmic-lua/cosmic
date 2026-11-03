@@ -104,7 +104,7 @@ local function test_a_test_in_flight_at_the_first_failure_finishes(tmp: string)
   local root = project(tmp, { "a_fails", "b_passes", "c_passes", "d_passes" })
   local result = invoke(root, tmp .. "/two.out", { "--bail" }, "2")
   local text = assert(Fs.read(tmp .. "/two.out"))
-  assert(not result.ok and text:find("test: FAIL  suite.bail_test test_a_fails", 1, true), text) -- checked: or_mix
+  assert(not result.ok and text:find("test: FAIL  suite.bail_test test_a_fails", 1, true) ~= nil, text)
   assert(text:find("2 not run after the first failure", 1, true), text)
   assert(marked(tmp, "a_fails") and marked(tmp, "b_passes"), "the in-flight test did not finish")
   assert(not marked(tmp, "c_passes") and not marked(tmp, "d_passes"),

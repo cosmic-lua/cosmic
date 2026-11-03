@@ -43,7 +43,7 @@ local function test_the_system_profile_lets_a_host_program_read_what_is_granted(
   local said, code = cat(policy, tmp .. "/ro/a")
   assert(code == 0 and said == "alpha\n", tostring(code) .. ": " .. said)
   local sibling, status = cat(policy, tmp .. "/other/b")
-  assert(status ~= 0 and sibling:find("Permission denied", 1, true), sibling) -- checked: or_mix
+  assert(status ~= 0 and sibling:find("Permission denied", 1, true) ~= nil, sibling)
   -- The profile reaches the system's own files and no other of the host's.
   if sys.stat("/etc/passwd") ~= nil then
     local passwd, found = cat(policy, "/etc/passwd")

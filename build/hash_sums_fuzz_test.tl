@@ -104,7 +104,9 @@ local function test_parse_sums_is_total_on_any_bytes(tmp: string)
       local got = sums as hash.Sums -- checked: cast_refused
       if #got.entries > 0 then Fuzz.label("entry") end
       if #got.bad > 0 then Fuzz.label("refused") end
-      if input:find("^%s*#") or input:find("\n\n") or input == "" then Fuzz.label("skipped") end -- checked: or_mix
+      if input:find("^%s*#") ~= nil or input:find("\n\n") ~= nil or input == "" then
+        Fuzz.label("skipped")
+      end
       local last = 0
       for _, entry in ipairs(got.entries) do
         if #entry.digest ~= 64 or not entry.digest:match("^%x+$") or entry.digest:lower() ~= entry.digest then

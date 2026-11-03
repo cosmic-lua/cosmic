@@ -1,6 +1,7 @@
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
 local Address = require("cosmic.relay.address")
+local Test = require("cosmic.test")
 
 --- The addresses `found` holds, one "family address" each, sorted.
 local function listed(found: {Net.Resolved}): {string}
@@ -65,10 +66,14 @@ local function test_a_name_the_resolver_cannot_take_fails_and_a_degenerate_argum
   assert(found == nil and why == "Invalid argument", why)
   found, why = Net.resolve("example.test", { hosts_file = tmp .. "/x\0y" })
   assert(found == nil and why == "Invalid argument", why)
-  assert(not pcall(Net.resolve, "example.test", { timeout_ns = -1 })) -- checked: alternatives_as_value
-  assert(not pcall(Net.resolve, "example.test", { servers = {} })) -- checked: alternatives_as_value
-  assert(not pcall(Net.resolve, "example.test", { servers = { { host = "127.0.0.1", port = 70000 } } })) -- checked: alternatives_as_value
-  assert(not pcall(Net.resolve, "example.test", { servers = { { host = "127.0.0.1", port = 0 } } })) -- checked: alternatives_as_value
+  Test.raises(function() Net.resolve("example.test", { timeout_ns = -1 }) end)
+  Test.raises(function() Net.resolve("example.test", { servers = {} }) end)
+  Test.raises(function()
+    Net.resolve("example.test", { servers = { { host = "127.0.0.1", port = 70000 } } })
+  end)
+  Test.raises(function()
+    Net.resolve("example.test", { servers = { { host = "127.0.0.1", port = 0 } } })
+  end)
 end
 
 --- A name of 254 bytes (253 and a trailing dot) is the longest asked of

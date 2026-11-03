@@ -655,7 +655,7 @@ local function tokenize(input: string, initial: string, last_tag: string): Run
   elseif s == "markup_declaration" then
     m.comment = ""
     emit_comment()
-  elseif s == "bogus_comment" or s:find("^comment") then -- checked: or_mix
+  elseif s == "bogus_comment" or s:find("^comment") ~= nil then
     emit_comment()
   elseif s == "doctype" then
     flush()
@@ -872,7 +872,7 @@ local function check_case(
     description: string, input: string, initial: string, last_tag: string?,
     output: {any}, reach: Reach)
   local state = STATES[initial]
-  if state == nil or input:find("{{", 1, true) or input:find("[&%z\r]") then -- checked: or_mix
+  if state == nil or input:find("{{", 1, true) ~= nil or input:find("[&%z\r]") ~= nil then
     return
   end
   local wrapper, last = "", last_tag
