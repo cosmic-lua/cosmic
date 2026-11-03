@@ -677,6 +677,8 @@ end
 --- ([`build.standard_text`]), and no more: a module the test imports only otherwise keeps its
 --- bytecode, stripped, and no text.
 local function text_kept(basis: closure_store.Basis, names: {string}, roots: {string}): {string}
+  -- TODO: keep these only for a closure that holds a module declaring `stubs` ([`build.code_walk`]'s `markers`), as the sources of
+  -- a walk are kept, once every reader of a stub declares it and the tests of this module name the declaration.
   local held: mut {string:boolean} = {}
   for _, name in ipairs(stored(basis, names)) do held[name] = true end
   local seen: mut {string:boolean} = {}
