@@ -485,4 +485,26 @@ local function test_any_other_write_of_a_fixed_field_of_a_module_table_is_refuse
   refused("local Other = require(\"other\")\nOther.size = 3\nreturn Other\n", "field_fixed export_not_declared", nil, other)
   -- a field the record does not declare
   refused(TABLE .. "M.sise = 3\nreturn M\n", "field_unknown", "nearest `size`")
+  -- after a `return` that may hand the table out first, or a function statement that gave the field
+  refused(TABLE .. "local function early(): boolean\n  return false\nend\nif early() then\n  return M\nend\nM.size = 3\n" ..
+      "return M\n", "field_fixed")
+  refused("local record F\n  f: function(): integer\nend\nfunction F.f(): integer\n  return 1\nend\n" ..
+      "F.f = function(): integer\n  return 2\nend\nreturn F\n", "field_fixed")
+  refused(TABLE .. "M.size, M.size = 1, 2\nreturn M\n", "field_fixed")
+  -- of a table the module does not return as itself
+  refused(TABLE .. "local N = M\nN.size = 3\nreturn N\n", "field_fixed export_not_declared")
+  refused(TABLE .. "local M = M\nM.size = 3\nreturn M\n", "field_fixed export_not_declared")
+  refused(TABLE .. "M.size = 3\nreturn M, 1\n", "field_fixed export_not_declared")
+  refused(TABLE .. "M.size = 3\nreturn (M)\n", "field_fixed export_not_declared")
+end
+
+local function test_a_field_of_the_table_read_as_the_module_loads_is_given_above_the_use()
+  local given = "M.size = 3\nM.name = \"m\"\n"
+  refused(TABLE .. "local n = M.size\n" .. given .. "return M\n", "static_before_definition", "reads `M.size` before")
+  refused(TABLE .. "M.name = \"m\"\nM.size = #M.name + M.size\nreturn M\n", "static_before_definition",
+    "move the statement `M.size = ...` above")
+  refused(TABLE .. "local function size(): integer\n  return M.size\nend\nlocal n = size()\n" .. given .. "return M\n",
+    "static_before_definition", "it reads `M.size`")
+  accepted(TABLE .. given .. "local n: integer = M.size\nreturn M\n")
+  accepted(TABLE .. "local function size(): integer\n  return M.size\nend\n" .. given .. "local n = size()\nreturn M\n")
 end

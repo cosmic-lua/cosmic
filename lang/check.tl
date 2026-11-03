@@ -333,7 +333,7 @@ local record Ctx
   --- The same for a declaration used as a value, which also has its statics.
   value_members: {Decl: Members}
   --- The `function R.m(...)` statements at the top of the module that the walk has not passed, by declaration and name.
-  pending: mut {Decl: {string: boolean}}
+  pending: mut {Decl: mut {string: boolean}}
   --- What the functions read of those statics, for the functions the module runs as it loads ([`lang.load_order`]).
   mut load: LoadOrder.State
   --- The local the module's last statement returns where it is a record of the module's own, the module's table, and nil
@@ -342,6 +342,11 @@ local record Ctx
   module_table: integer?
   top: {integer: boolean}
   initialized: mut {string: boolean}
+  --- The fields of the module's table that a statement `M.f = v` of the chunk gives, which `pending` names as a function
+  --- statement's are named; and whether a `return` of the chunk outside any function has been passed, which may have handed
+  --- the table out before the last statement.
+  given: mut {string: boolean}
+  mut handed: boolean
   --- The id of the function being walked, 0 in the chunk.
   mut within: integer
   --- The class each table literal of a class is a literal of, by the id of its node.
@@ -2222,6 +2227,20 @@ local function field_unknown(ctx: Ctx, node: Ast.Node, t: Type, name: string)
       "declare " .. quoted(name) .. " in " .. owner end, { show(ctx, t) })
 end
 
+--- How a message names the static `name` of `decl` that a statement of the module has yet to give, and that statement:
+--- a `function R.m(...)`, or an `M.f = v` that gives the module's table a value ([`inits_module`]).
+local function static_words(ctx: Ctx, decl: Decl, name: string): string, string
+  local owner = decl.name .. "." .. name
+  local binding = ctx.module_table
+  if binding ~= nil and ctx.given[name] == true then
+    local entry = ctx.lowered.entries[binding]
+    if entry ~= nil and entry.decl == decl then
+      return quoted(owner), quoted(owner .. " = ...")
+    end
+  end
+  return "the function " .. quoted(owner), "`function " .. owner .. "(...)`"
+end
+
 --- The type of the field or method `name` of the value of type `t`, reported where it has none. `node` is the
 --- expression that reads it; it holds the overloads of the field in `ctx.cands` when it has several.
 local function member_read(ctx: Ctx, node: Ast.Node, t: Type, name: string): Type
@@ -2236,11 +2255,12 @@ local function member_read(ctx: Ctx, node: Ast.Node, t: Type, name: string): Typ
     local as_declared = t.value or decl.kind == "class" or decl.kind == "interface"
     if waiting ~= nil and waiting[name] == true and as_declared then
       if ctx.within == 0 then
-        -- The module's own code that runs as it loads reads the function before the statement that defines it has run.
-        report(ctx, "static_before_definition", node, subject(ctx, node) .. " reads the function " ..
-            quoted(decl.name .. "." .. name) .. " before the statement that defines it has run",
-          "move the statement `function " .. decl.name .. "." .. name .. "(...)` above this use, or use it in a function " ..
-            "that runs after the module has loaded", { show(ctx, t) })
+        -- The module's own code that runs as it loads reads the static before the statement that defines it has run.
+        local what, statement = static_words(ctx, decl, name)
+        report(ctx, "static_before_definition", node, subject(ctx, node) .. " reads " .. what ..
+            " before the statement that defines it has run",
+          "move the statement " .. statement .. " above this use, or use it in a function that runs after the module has " ..
+            "loaded", { show(ctx, t) })
       else
         LoadOrder.read(ctx.load, ctx.within, { decl = decl, name = name, first = base_of(node).first })
       end
@@ -6898,17 +6918,15 @@ local function writable_base(ctx: Ctx, object: Ast.Exp): Type?
   return readable(ctx, object, t, "it has no member to write")
 end
 
--- TODO: refuse a read of `M.f` that runs as the module loads above the statement that gives it, as `static_before_definition`
--- does above a `function M.f(...)` statement (`ctx.pending`), once its messages word a value as well as a function: such a
--- read finds nil today, as it did while these writes were held by markers.
-
 --- Whether `target`, of the statement `s`, gives the module's table its field, as a `function M.f(...)` statement does. `s`
 --- is a statement of the chunk itself, so it runs once, as the module loads, before the last statement `return M` hands the
---- table to `require`; `M` is the very local that statement returns, not another name that may hold another table; and no
---- statement before gave the field. Its value is checked against the field's type all the same.
+--- table to `require`, and no `return` of the chunk has been passed that may hand it out before; `M` is the very local that
+--- statement returns, not another name that may hold another table; and no statement before gave the field, this or a
+--- `function M.f(...)`. Its value is checked against the field's type all the same, and a read of the field as the module
+--- loads above the statement is `static_before_definition` ([`assign_statement`]).
 local function inits_module(ctx: Ctx, s: Ast.Assign, target: Ast.Field): boolean
   local object = target.object
-  if not (ctx.top[s.id] == true and (object.kind == "Name") and object.binding ~= nil and
+  if not (ctx.top[s.id] == true and not ctx.handed and (object.kind == "Name") and object.binding ~= nil and
       object.binding == ctx.module_table and ctx.initialized[target.name] ~= true) then
     return false
   end
@@ -7182,6 +7200,30 @@ local function check_assignment(ctx: Ctx, s: Ast.Assign): Values?
   return vals
 end
 
+--- Notes the fields of the module's table that the statement `s` of the chunk gives, once its values are evaluated: a read
+--- of one as the module loads is no longer before the statement that gives it.
+local function given_by(ctx: Ctx, s: Ast.Assign)
+  if ctx.top[s.id] ~= true then
+    return
+  end
+  for _, target in ipairs(s.targets) do
+    if (target.kind == "Field") then
+      local object = target.object
+      if (object.kind == "Name") and object.binding ~= nil and object.binding == ctx.module_table then
+        local base = name_value(ctx, object)
+        local waiting: mut {string: boolean}? = nil
+        if (base.tag == "named") then
+          waiting = ctx.pending[base.decl]
+        end
+        if waiting ~= nil and waiting[target.name] == true then
+          ctx.load.waiting = ctx.load.waiting - 1
+          waiting[target.name] = nil
+        end
+      end
+    end
+  end
+end
+
 --- An assignment: the values are evaluated and checked, then each local assigned is another value than it was. Its
 --- facts and the facts of the paths from it are gone ([`Flow.State`]), it is assigned from here on, and it is known
 --- to have the view of the type of the value ([`value_narrowing`]).
@@ -7206,6 +7248,7 @@ local function assign_statement(ctx: Ctx, s: Ast.Assign)
     end
   end
   local vals = check_assignment(ctx, s)
+  given_by(ctx, s)
   for i, target in ipairs(s.targets) do
     -- A nil at an index may take the last element of an array, whatever name the array has.
     if (target.kind == "Index") then
@@ -7409,6 +7452,9 @@ end
 --- narrowing must show it here.
 local function return_statement(ctx: Ctx, s: Ast.Return)
   check_return(ctx, s)
+  if ctx.within == 0 then
+    ctx.handed = true
+  end
   narrows_proved(ctx, s, s.values[1])
   ctx.flow = Flow.dead(ctx.flow)
 end
@@ -7716,6 +7762,9 @@ local function function_statement(ctx: Ctx, s: Ast.Function)
   end
   local owner = name_value(ctx, head)
   local waiting = (owner.tag == "named") and ctx.pending[owner.decl] or nil -- checked: and_ternary
+  if #s.path == 2 and head.binding ~= nil and head.binding == ctx.module_table then
+    ctx.initialized[s.path[2].text] = true
+  end
   if waiting ~= nil and #s.path == 2 then
     if waiting[s.path[2].text] == true then
       ctx.load.waiting = ctx.load.waiting - 1
@@ -8092,7 +8141,7 @@ function Check.check(program: Declarations.Program, input: Declarations.Input, l
     end, function(_node: Ast.Node, _spelled: string, _found: LoadOrder.Found) end),
     literals = {}, spreads = {}, declared = {}, union_fields = {}, spine = {},
     ternaries = {}, invalid = store.invalid, nil_type = store:atom("nil"), flow = Flow.start(), unfixed_now = {}, assigning = {}, quiet = 0, closers = 0, callee_module = "", member_module = "", moves = {},
-    loops = {}, keys = {}, edges = {}, guards = {}, top = tops, module_table = module_table(input, lowered), initialized = {}, reads = {}, unfixed = {}, narrowed = {}, inert = {}, boundaries = {}, types = {}, callees = {}, consts = {}, starts = {}, library = {}, typed = typed ~= false, warnings = {},
+    loops = {}, keys = {}, edges = {}, guards = {}, top = tops, module_table = module_table(input, lowered), initialized = {}, given = {}, handed = false, reads = {}, unfixed = {}, narrowed = {}, inert = {}, boundaries = {}, types = {}, callees = {}, consts = {}, starts = {}, library = {}, typed = typed ~= false, warnings = {},
     unite = function(a: Type, b: Type): Type
       return store:union({ a, b })
     end,
@@ -8111,7 +8160,7 @@ function Check.check(program: Declarations.Program, input: Declarations.Input, l
     return waiting ~= nil and waiting[name] == true
   end, function(node: Ast.Node, spelled: string, found: LoadOrder.Found)
     local read = found.read
-    local owner = read.decl.name .. "." .. read.name
+    local what, statement = static_words(ctx, read.decl, read.name)
     local through = ""
     if #found.via > 0 then
       local names: mut {string} = {}
@@ -8121,9 +8170,9 @@ function Check.check(program: Declarations.Program, input: Declarations.Input, l
       through = " through " .. table.concat(names, ", ")
     end
     report(ctx, "static_before_definition", node, spelled .. " is called, or handed to code that may call it, as " ..
-        "the module loads, and" .. through .. " it reads the function " .. quoted(owner) .. " (line " ..
+        "the module loads, and" .. through .. " it reads " .. what .. " (line " ..
         tostring(Lexer.y(ctx.tokens, read.first)) .. ") before the statement that defines it has run",
-      "move the statement `function " .. owner .. "(...)` above this use of " .. spelled .. ", or use " ..
+      "move the statement " .. statement .. " above this use of " .. spelled .. ", or use " ..
         spelled .. " in a function that runs after the module has loaded")
   end)
   -- The locals each function reads from outside, and those an assignment may change after the function is made, from the
@@ -8158,6 +8207,35 @@ function Check.check(program: Declarations.Program, input: Declarations.Input, l
         end
         names[assert(top.path[2]).text] = true -- checked: view_written
         ctx.pending[decl] = names
+      end
+    end
+  end
+  -- A statement `M.f = v` of the chunk gives the module's table its field as a function statement does.
+  local table_entry: Declarations.Entry? = nil
+  if ctx.module_table ~= nil then
+    table_entry = lowered.entries[ctx.module_table]
+  end
+  local table_decl: Decl? = nil
+  if table_entry ~= nil then
+    table_decl = table_entry.decl
+  end
+  for _, top in ipairs(input.chunk.body.stats) do
+    if table_decl ~= nil and (top.kind == "Assign") then
+      for _, target in ipairs(top.targets) do
+        local object: Ast.Exp? = nil
+        if (target.kind == "Field") then
+          object = target.object
+        end
+        if object ~= nil and (object.kind == "Name") and object.binding ~= nil and object.binding == ctx.module_table and
+            (target.kind == "Field") then
+          local names = ctx.pending[table_decl] or {}
+          if names[target.name] ~= true then
+            ctx.load.waiting = ctx.load.waiting + 1
+            ctx.given[target.name] = true
+          end
+          names[target.name] = true -- checked: view_written
+          ctx.pending[table_decl] = names
+        end
       end
     end
   end
