@@ -5,6 +5,7 @@
 --- back as the same steps, reaching the same value. `FUZZ_SEED` and
 --- `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
 
+local Array = require("cosmic.array")
 local Fuzz = require("build.fuzz")
 local Json = require("cosmic.json")
 
@@ -112,18 +113,19 @@ end
 --- first of as many elements as the step counts back.
 local function holder(steps: Json.Steps, builds: {string}, i: integer): any
   if i > #steps then return "leaf" end -- checked: any_use
-  local step = steps[i]
+  -- `i <= #steps` was just tested.
+  local step = Array.at(steps, i)
   if step is string then
     return { [step] = holder(steps, builds, i + 1), other = 0 } -- checked: literal_shape
   end
   local list: mut {any: any} = if builds[i] == "h" then {} else Json.array() as {any: any} end -- declared: key_type*2 -- checked: cast_refused
-  if step < 0 then -- checked: nil_not_allowed
+  if step < 0 then
     list[1] = holder(steps, builds, i + 1)
-    for k = 2, -step do list[k] = k end -- checked: nil_not_allowed
+    for k = 2, -step do list[k] = k end
     return list
   end
-  for k = 1, step - 1 do -- checked: nil_not_allowed
-    if not (builds[i] == "h" and k == step - 1) then list[k] = k end -- checked: nil_not_allowed
+  for k = 1, step - 1 do
+    if not (builds[i] == "h" and k == step - 1) then list[k] = k end
   end
   list[step] = holder(steps, builds, i + 1)
   return list
@@ -319,11 +321,12 @@ end
 --- and as holes.
 local function selection_holds(input: string): boolean, string
   local fields = Fuzz.unpack(input)
-  local text, holes, query = fields[1], fields[2] == "holes", fields[3]
+  -- [`gen_selection`] packs three fields: the document, "holes" or not, the query.
+  local text, holes, query = Array.at(fields, 1), Array.at(fields, 2) == "holes", Array.at(fields, 3)
   -- A document of `null` alone decodes to nil: test the message.
-  local doc, derr = Json.decode(text, { null_value = if not holes then Json.null else nil end }) -- checked: nil_not_allowed
+  local doc, derr = Json.decode(text, { null_value = if not holes then Json.null else nil end })
   if derr ~= "" then return false, "a drawn document does not decode: " .. derr end
-  local parsed, qerr = Json.query(query) -- checked: nil_not_allowed
+  local parsed, qerr = Json.query(query)
   if parsed == nil then return false, "a drawn query does not read: " .. qerr end
   local q: Json.Query = parsed
   local nodes: {Json.Match} = { { steps = {}, value = doc } }
@@ -350,7 +353,7 @@ local function selection_holds(input: string): boolean, string
   for i, n in ipairs(nodes) do want[i] = assert(Json.path(n.steps)) end
   for i, m in ipairs(found) do got[i] = assert(Json.path(m.steps)) end
   local a, b = table.concat(got, " "), table.concat(want, " ")
-  if a ~= b then return false, query .. " on " .. text .. ":\n got  " .. a .. "\n want " .. b end -- checked: nil_not_allowed*2
+  if a ~= b then return false, query .. " on " .. text .. ":\n got  " .. a .. "\n want " .. b end
   Fuzz.label(if #found > 0 then "selected" else "selected nothing" end)
   return true, ""
 end
