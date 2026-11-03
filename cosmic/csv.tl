@@ -177,13 +177,12 @@ end
 --- The delimiter an option names, `,` for nil. Raises, naming the caller of
 --- the function that calls this, when it is not one byte or is a quote or a
 --- line break.
-local function delimiter_of(named: any): string
+local function delimiter_of(named: string?): string
   if named == nil then
     return ","
   end
-  if not (named is string) or #named ~= 1 then
-    error("csv: the delimiter is one byte, not " ..
-        (if named is string then "a string of length " .. tostring(#named) else "a " .. type(named) end), 3)
+  if #named ~= 1 then
+    error("csv: the delimiter is one byte, not a string of length " .. tostring(#named), 3)
   end
   if named == '"' or named == "\r" or named == "\n" then
     error("csv: the delimiter cannot be a quote or a line break", 3)

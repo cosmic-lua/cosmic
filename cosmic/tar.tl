@@ -720,8 +720,8 @@ local class EntryWriter is Tar.Writer
                     fopts?: Stream.EntryOptions): boolean, string
     fopts = fopts or {}
     local given = fopts.size
-    if given ~= nil and (math.type(given) ~= "integer" or given < 0) then
-      error("tar: opts.size must be an integer of at least 0", 2)
+    if given ~= nil and given < 0 then
+      error("tar: opts.size must be at least 0", 2)
     end
     local size: integer
     if given ~= nil then

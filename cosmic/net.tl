@@ -762,7 +762,11 @@ function Net.connector(endpoints: {Net.Endpoint}, opts?: Net.ConnectorOptions): 
   if public == nil and #endpoints == 0 then
     error("net: a connector needs endpoints, opts.public, or both", 2)
   end
-  return Leaf.connector(Leaf.checked_endpoints(endpoints, public ~= nil, 2), timeout_ms, public)
+  local listed: mut {Leaf.Endpoint} = {}
+  for i, endpoint in ipairs(endpoints) do
+    listed[i] = { host = endpoint.host, port = endpoint.port }
+  end
+  return Leaf.connector(Leaf.checked_endpoints(listed, public ~= nil, 2), timeout_ms, public)
 end
 
 Leaf.register(address_trouble)

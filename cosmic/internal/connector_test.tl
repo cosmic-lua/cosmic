@@ -498,7 +498,7 @@ local function test_adopted_connector_refuses_what_is_no_descriptor_or_table()
   local ok, why = pcall(Connector.adopted, -1)
   assert(not ok and tostring(why):find("fd must be a descriptor", 1, true) ~= nil, tostring(why))
   local pair = ConnectorEnds.connector_pair()
-  ok, why = pcall(Connector.adopted, pair.controller, { { host = "127.0.0.1" } } as {raw_process.ConnectorEndpoint}) -- checked: cast_refused
+  ok, why = pcall(Connector.adopted, pair.controller, { { host = "127.0.0.1", port = 65536 } })
   assert(not ok and tostring(why):find("endpoints[1] must be a host and a port", 1, true) ~= nil, tostring(why))
   assert(sys.close(pair.controller) and sys.close(pair.connector))
   -- A descriptor that is open but no stream cannot be made nonblocking where it is not open.

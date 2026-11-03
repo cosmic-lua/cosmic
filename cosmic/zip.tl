@@ -1189,8 +1189,8 @@ local class EntryWriter is Zip.Writer
                     fopts?: Zip.EntryOptions): boolean, string
     fopts = fopts or {}
     local size = fopts.size
-    if size ~= nil and (math.type(size) ~= "integer" or size < 0) then
-      error("zip: opts.size must be an integer of at least 0", 2)
+    if size ~= nil and size < 0 then
+      error("zip: opts.size must be at least 0", 2)
     end
     -- A trailing `/` is what marks a directory: a file of that name
     -- would read back as one.
@@ -1202,8 +1202,8 @@ local class EntryWriter is Zip.Writer
   function file_writer(self, path: string, fopts?: Zip.EntryOptions): Stream.Writer?, string
     fopts = fopts or {}
     local size = fopts.size
-    if size ~= nil and (math.type(size) ~= "integer" or size < 0) then
-      error("zip: opts.size must be an integer of at least 0", 2)
+    if size ~= nil and size < 0 then
+      error("zip: opts.size must be at least 0", 2)
     end
     if path:sub(-1) == "/" then return nil, "zip: a file's path ends in /: " .. path end
     local method_name: Zip.Method = fopts.method or "deflate"

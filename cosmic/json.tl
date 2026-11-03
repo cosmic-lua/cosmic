@@ -785,13 +785,10 @@ end
 
 --- Why step `i` of a path is none, or nil when it is one: a name that
 --- is UTF-8, or an integer.
-local function bad_step(i: integer, step: any): string?
+local function bad_step(i: integer, step: string | integer): string?
   if step is string then
     if utf8.len(step) == nil then return ("step %d is a name that is not UTF-8"):format(i) end
     return nil
-  end
-  if math.type(step) ~= "integer" then
-    return ("step %d is %s, neither a name nor an integer"):format(i, tostring(step))
   end
   if step == 0 then
     return ("step %d is 0: positions count from 1, or from -1 at the end"):format(i)
@@ -1010,7 +1007,7 @@ end
 --- `steps` as a JSON Pointer (RFC 6901), and "": `/users/2/name`, each
 --- position counted from 0. nil and a message for a step a pointer
 --- cannot say, one counted from the end, or for one that is no step: 0,
---- a number that is no integer, or a name that is not UTF-8.
+--- or a name that is not UTF-8.
 ---
 ---     assert(Json.pointer({ "users", 3, "a/b" }) == "/users/2/a~1b")
 function Json.pointer(steps: Json.Steps): string?, string
@@ -1296,8 +1293,8 @@ end
 --- `$['users'][2]['name']`, each position counted from 0, a member's
 --- name always in single quotes. A step counted from the end is written
 --- `[-1]`, which a query reads as the same element but no normalized
---- path holds. nil and a message for a step that is no step: 0, a
---- number that is no integer, or a name that is not UTF-8.
+--- path holds. nil and a message for a step that is no step: 0,
+--- or a name that is not UTF-8.
 ---
 ---     assert(Json.path({ "users", 3, "it's" }) == "$['users'][2]['it\\'s']")
 function Json.path(steps: Json.Steps): string?, string
