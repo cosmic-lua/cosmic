@@ -2235,7 +2235,7 @@ local function static_words(ctx: Ctx, decl: Decl, name: string): string, string
   if binding ~= nil and ctx.given[name] == true then
     local entry = ctx.lowered.entries[binding]
     if entry ~= nil and entry.decl == decl then
-      return quoted(owner), quoted(owner .. " = ...")
+      return "the value " .. quoted(owner), quoted(owner .. " = ...")
     end
   end
   return "the function " .. quoted(owner), "`function " .. owner .. "(...)`"
@@ -8219,6 +8219,17 @@ function Check.check(program: Declarations.Program, input: Declarations.Input, l
   if table_entry ~= nil then
     table_decl = table_entry.decl
   end
+  -- Only a fixed field: a `mut` one may be given first in a block or a function, which no statement of the chunk waits on.
+  local fixed: mut {string: boolean} = {}
+  local body: Types.Body? = nil
+  if table_decl ~= nil then
+    body = table_decl.body
+  end
+  if body ~= nil then
+    for _, f in ipairs(body.fields) do
+      fixed[f.name] = f.mut ~= true
+    end
+  end
   for _, top in ipairs(input.chunk.body.stats) do
     if table_decl ~= nil and (top.kind == "Assign") then
       for _, target in ipairs(top.targets) do
@@ -8227,7 +8238,7 @@ function Check.check(program: Declarations.Program, input: Declarations.Input, l
           object = target.object
         end
         if object ~= nil and (object.kind == "Name") and object.binding ~= nil and object.binding == ctx.module_table and
-            (target.kind == "Field") then
+            (target.kind == "Field") and fixed[target.name] == true then
           local names = ctx.pending[table_decl] or {}
           if names[target.name] ~= true then
             ctx.load.waiting = ctx.load.waiting + 1
