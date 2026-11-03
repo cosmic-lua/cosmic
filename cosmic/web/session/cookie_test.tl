@@ -30,6 +30,17 @@ local function test_a_session_round_trips_with_its_dates()
   assert(next(empty.values) == nil)
 end
 
+--- A [`Json.null`] the session saved, in an array and in an object, nested too, loads back as [`Json.null`]: a session the
+--- server wrote is never refused for what it holds.
+local function test_a_null_inside_an_array_or_an_object_loads_back_as_null()
+  local store = SessionCookie.store{ keys = { NEW } }
+  local saved: mut {string: Json.Value} = { list = { 1, Json.null, 3 }, obj = { a = Json.null, b = 1 },
+    nested = { { x = { Json.null } }, { 1, { 2 } } } }
+  local got = assert(store:load(sign(store, saved), 1500, "session"))
+  assert(Json.encode(got.values) == '{"list":[1,null,3],"nested":[{"x":[null]},[1,[2]]],"obj":{"a":null,"b":1}}', Json.encode(got.values))
+  assert(got.values["obj"] ~= nil and Json.get(got.values, { "obj", "a" }) == Json.null)
+end
+
 local function test_flipping_any_character_of_a_token_makes_it_anonymous()
   local store = SessionCookie.store{ keys = { NEW } }
   local token = sign(store, { user = "ada" })

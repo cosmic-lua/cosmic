@@ -167,7 +167,7 @@ end
 
 --- The values a row's JSON holds; nil for text that is not an object.
 local function values_of(text: string): mut {string: Json.Value}?
-  local value, _ = Json.decode_object(text, { max_depth = Session.MAX_DEPTH })
+  local value, _ = Json.decode_object(text, { max_depth = Session.MAX_DEPTH, null_value = Json.null })
   if value == nil then return nil end
   local out: mut {string: Json.Value} = {}
   for key, entry in pairs(value) do out[key] = entry end

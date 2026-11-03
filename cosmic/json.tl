@@ -67,7 +67,10 @@
 --- what the checker cannot see into: a record or a class of your own.
 --- It encodes by the same rules, and what is not JSON is the same
 --- error, found when it runs and not before. What [`Json.decode`] and
---- [`Json.get`] answer is a [`Json.Value`], so [`Json.encode`] takes it.
+--- [`Json.get`] answer is a [`Json.Value`], but a `null` decodes to nothing
+--- unless `null_value = Json.null` is given, and nothing in an array is a hole,
+--- which [`Json.encode`] refuses: decode with `null_value = Json.null` for a
+--- value it takes back.
 ---
 --- To explore a document whose shape is not known, `Json.encode_any(v,
 --- { pretty = true })` dumps a value, and [`Json.decode_object`] and
@@ -323,7 +326,7 @@ local record Json
   ---
   --- The fork reads this declaration, and every parameter that takes it, as `any`; the new checker reads `string | number | boolean |
   --- Json.Null | {Json.Value} | {string: Json.Value}`.
-  type Value = raw_json.Value
+  type Value = string | number | boolean | Json.Null | {Json.Value} | {string: Json.Value}
 
   --- A path to one value inside another, as Lua steps: each a member's
   --- name (a string) or an array's position (an integer), counted from

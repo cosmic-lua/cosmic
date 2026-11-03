@@ -879,8 +879,8 @@ local function nested_present(q: Url.Query, prefix: string): boolean
   return false
 end
 
--- TODO: type the binder's tree as [`Json.Value`] once a list that keeps a hole ([`Json.with_holes`]) is one: no
--- [`Json.Value`] has a hole, and an optional item sent as nothing stays one.
+-- TODO: type the binder's tree as [`Json.Value`] once a list that keeps a hole ([`Json.with_holes`]) is one: the binder
+-- leaves a hole where an optional list item was sent as nothing, and no [`Json.Value`] has a hole.
 local function bind_list(w: Walk, field: string, spec: Shape.Node): any
   local values = w.q.by_name[field]
   if values == nil then

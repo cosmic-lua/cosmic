@@ -207,7 +207,7 @@ Check.advice = {
     "local (`local none: {string: Json.Value} = {}`): an unmarked empty table encodes as `{}`",
   ["cosmic.time Time.CivilFields"] = "write the literal where it is typed as the record that lists it: `local wall: Time.Wall = " ..
     "{ ... }`, or `Time.Civil`; for a date alone, `Time.parse_date(text, zone)` reads one",
-  ["cosmic.json Json.Value"] = "for a record or a class of your own, or a value you decoded, call `Json.encode_any`, which takes any value",
+  ["cosmic.json Json.Value"] = "for a record or a class of your own, call `Json.encode_any`, which takes any value",
 }
 
 -- State ----------------------------------------------------------------------------------

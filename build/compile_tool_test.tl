@@ -43,6 +43,17 @@ local function test_a_require_of_a_named_file_is_typed_from_it(tmp: string)
   assert(Fs.exists(tmp .. "/out/lib.lua") == true and Fs.exists(tmp .. "/out/main.lua") == true)
 end
 
+--- The library's own advice rides on the refusals of [`Json.Value`], which is named as a user writes it.
+local function test_json_value_refusals_carry_the_librarys_advice(tmp: string)
+  assert(Fs.write(tmp .. "/a.tl", "local Json = require(\"cosmic.json\")\nlocal a = Json.encode({})\n" ..
+      "local b = Json.encode({ f = print })\nreturn { a, b }\n"))
+  local ran = tool_fixture.cosmic(tmp, { "compile", "--errors", "a.tl" })
+  assert(ran.code == 0, ran.err)
+  assert(ran.err:find("write an empty array as `Json.array()`", 1, true), ran.err)
+  assert(ran.err:find("`Json.Value` is `boolean`", 1, true) and ran.err:find("for a record or a class of your own, call `Json.encode_any`", 1, true), ran.err)
+  assert(not ran.err:find("`json.Value`", 1, true), ran.err)
+end
+
 local function test_help_names_the_verb_and_its_options(tmp: string)
   local ran = tool_fixture.cosmic(tmp, { "compile", "--help" })
   assert(ran.code == 0, ran.err)

@@ -31,8 +31,9 @@
 --- handler changed, as a handler may flash and answer 422 on purpose.
 ---
 --- Values are [`Json.Value`]s, so the checker refuses any other at the call;
---- `set` still raises for one that nests too deep or is not UTF-8, so the
---- trace is the handler's. A nested table that `get`
+--- `set` still raises for one that nests too deep, is not UTF-8 or holds a NaN
+--- or an infinity, so the trace is the handler's. A [`Json.null`] kept in the session
+--- reads back as [`Json.null`] from either store. A nested table that `get`
 --- returns is the session's own: change it, then `set` it again, or the
 --- change is not saved. Two requests that change the session at once (htmx
 --- loading three fragments) race: the signed cookie keeps whichever
