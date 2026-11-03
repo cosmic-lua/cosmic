@@ -124,6 +124,8 @@ local commands: {string:Command} = {
     usage = "", handler = QueueStage.stage_command },
   ["merge-base"] = { about = "name the main commit this run's tree grew from, whose verdicts the restore takes",
     usage = "", handler = CommitVerdicts.merge_base_command },
+  ["ceilings-base"] = { about = "name the merge base of this commit with main, which the format check holds the markers to",
+    usage = "", handler = CommitVerdicts.ceilings_base_command },
   ["leg-host-id"] = { about = "name the leg's host, and its verdict cache, from its container or runner and its processor features",
     usage = "NAME IMAGE RUNNER STARTED", handler = HostId.command },
   ["changed-paths"] = { about = "name the paths this branch changed since its base on main, for a light run's format check",
