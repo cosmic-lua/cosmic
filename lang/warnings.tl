@@ -100,13 +100,13 @@ local record Warnings
                 msg: string, fix: string)
 end
 
-Warnings.codes = { -- checked: field_fixed
+Warnings.codes = {
   "unused_variable", "unused_argument", "unused_function", "unused_type", "unread", "method_dot",
 }
 
 local UNUSED_FIX <const> = "name it `_` or `_<name>` to say it is meant to be unused, or remove it"
 
-Warnings.catalog = { -- checked: field_fixed
+Warnings.catalog = {
   {
     code = "unused_variable", kind = "unused", rule = "names are used",
     why = "a local, loop variable or match binding that nothing reads or assigns is dead code, or a name the program " ..

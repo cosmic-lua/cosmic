@@ -23,8 +23,8 @@ local NONE <const>: Shape.Typed<Types.None> = Shape.record_of("cosmic.web.types.
 --- The body slot of a route that reads none.
 local NO_BODY <const>: Types.Body<Types.None> = { kind = "none", typed = NONE }
 
-Typed.NONE = NONE -- checked: field_fixed
-Typed.no_body = NO_BODY -- checked: field_fixed
+Typed.NONE = NONE
+Typed.no_body = NO_BODY
 
 --- What a handler is given for a slot the route does not read: the empty
 --- [`Web.None`] its spec builds from no fields.

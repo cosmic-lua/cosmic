@@ -229,7 +229,7 @@ local record Codes
   row: function(code: Code): Row?
 end
 
-Codes.codes = { -- checked: field_fixed
+Codes.codes = {
   "not_assignable", "nil_not_allowed", "index_may_be_nil", "view_as_mut", "invariant_mut", "record_as_map",
   "declaration_value", "any_use", "view_written", "field_fixed", "array_hole", "float_key", "field_unknown", "map_field",
   "record_index", "not_indexable", "not_callable", "overload_value", "interface_method_value", "static_before_definition", "arity", "overload_none", "cannot_infer", "infer_conflict",
@@ -251,7 +251,7 @@ local WAITING <const> = "the checker types this form when it reads the declarati
   "until then its result is `invalid`, which " ..
   "relates to every type, so the form is reported where it stands and a silent `invalid` is never made"
 
-Codes.catalog = { -- checked: field_fixed
+Codes.catalog = {
   {
     code = "not_assignable", rule = "the relation",
     why = "a value stands where a type is wanted only if its type is below it: nothing converts, widens or is " ..

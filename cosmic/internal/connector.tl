@@ -732,7 +732,7 @@ local record Leaf
     function(index: integer, port: integer, deadline: integer?): Resolv.Connection?, string
 end
 
-Leaf.MAX_ENDPOINTS = 128 -- checked: field_fixed
+Leaf.MAX_ENDPOINTS = 128
 
 --- The 1-based index of `connector`'s first table endpoint that allows `port` at `host`, or nil for none.
 function Leaf.find(connector: Served, host: string, port: integer): integer?
@@ -799,7 +799,7 @@ function Leaf.checked_timeout_ms(timeout_ns: integer?, level: integer): integer
   return (chosen + 999999) // 1000000
 end
 
-Leaf.start = start -- checked: field_fixed
+Leaf.start = start
 
 --- Starts a connector of the table `endpoints` (and `public`'s lists, if
 --- given) that waits `timeout_ms` to connect: the [`Net.Connector`] over

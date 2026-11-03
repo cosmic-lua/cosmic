@@ -139,7 +139,7 @@ local record Codegen
   codes: {Code}
 end
 
-Codegen.codes = { "class_nested_refused" } -- checked: field_fixed
+Codegen.codes = { "class_nested_refused" }
 
 function Codegen.compared(lua: string): string
   return (lua:gsub("::continue:: ?", ""):gsub("[ \t]+\n", "\n"))

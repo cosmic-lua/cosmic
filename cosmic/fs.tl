@@ -1002,8 +1002,8 @@ function Fs.relative(path: string, directory: string): string?, string
   return rest, ""
 end
 
-Fs.stdin = 0 -- checked: field_fixed
-Fs.stdout = 1 -- checked: field_fixed
-Fs.stderr = 2 -- checked: field_fixed
+Fs.stdin = 0
+Fs.stdout = 1
+Fs.stderr = 2
 
 return Fs

@@ -840,10 +840,10 @@ local function new_hub(opts?: Sse.HubOptions): Sse.Hub
   return hub
 end
 
-Sse.format_event = format_event -- checked: field_fixed
-Sse.last_event_id = last_event_id -- checked: field_fixed
-Sse.from_queue = from_queue -- checked: field_fixed
-Sse.EventStream = event_stream -- checked: field_fixed
-Sse.new_hub = new_hub -- checked: field_fixed
+Sse.format_event = format_event
+Sse.last_event_id = last_event_id
+Sse.from_queue = from_queue
+Sse.EventStream = event_stream
+Sse.new_hub = new_hub
 
 return Sse

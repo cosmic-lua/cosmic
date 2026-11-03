@@ -87,7 +87,7 @@ local record Headers
   NONCE: Types.Key<string>
 end
 
-Headers.NONCE = Request.key("csp-nonce") -- checked: field_fixed
+Headers.NONCE = Request.key("csp-nonce")
 
 --- A header line to write to a response.
 local record Header
