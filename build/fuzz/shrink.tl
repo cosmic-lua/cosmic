@@ -5,6 +5,8 @@
 --- as long as the input they build still fails, keeping only a candidate
 --- strictly simpler than the best so far, so it always ends.
 
+local Array = require("cosmic.array")
+
 local record Shrink
   --- One integer a generator drew, and the range it asked for.
   record Draw
@@ -42,8 +44,9 @@ end
 --- the first that differs lower in its range.
 local function simpler(a: {Shrink.Draw}, b: {Shrink.Draw}): boolean
   if #a ~= #b then return #a < #b end
-  for i = 1, #a do
-    local x, y = offset(a[i]), offset(b[i]) -- checked: index_may_be_nil*2
+  -- `a` and `b` have the same length here.
+  for i, draw in ipairs(a) do
+    local x, y = offset(draw), offset(Array.at(b, i))
     if x ~= y then return math.ult(x, y) end
   end
   return false
@@ -149,22 +152,24 @@ function Shrink.shrink(draws: {Shrink.Draw}, fails: Shrink.Fails,
     end
     local i = 1
     while i <= #search.best and search.proposals < max_tries do
-      local d = search.best[i]
-      local delta = offset(d) -- checked: nil_not_allowed
+      -- The loop tests `i <= #search.best`. A reduction below keeps `i`
+      -- in range: it goes on only while `#search.best == count`.
+      local d = Array.at(search.best, i)
+      local delta = offset(d)
       if delta ~= 0 and settled[i] ~= key(Shrink.values_of(search.best)) then
         local count = #search.best
         local before = search.best
-        local values = values_with(search.best, i, d.min) -- checked: nil_not_allowed
+        local values = values_with(search.best, i, d.min)
         if try(values) then
           improved = true
         else
-          while #search.best == count and search.best[i].min == d.min and search.proposals < max_tries do -- checked: nil_not_allowed*2
+          while #search.best == count and Array.at(search.best, i).min == d.min and search.proposals < max_tries do
             local previous = search.best
             -- Probe disconnected failing regions across the full width;
             -- passing midpoints do not rule out smaller failures.
-            local half = offset(search.best[i]) >> 1 -- checked: index_may_be_nil
+            local half = offset(Array.at(search.best, i)) >> 1
             while half ~= 0 and #search.best == count and search.proposals < max_tries do
-              values = values_with(search.best, i, d.min + half) -- checked: nil_not_allowed
+              values = values_with(search.best, i, d.min + half)
               if try(values) then improved = true end
               half = half >> 1
             end
@@ -172,11 +177,11 @@ function Shrink.shrink(draws: {Shrink.Draw}, fails: Shrink.Fails,
             -- Revisit halves when this changes the high end: a different
             -- sequence can expose another disconnected failing region.
             local low = 0
-            while #search.best == count and search.best[i].min == d.min and search.proposals < max_tries do -- checked: nil_not_allowed*2
-              local high = offset(search.best[i]) -- checked: index_may_be_nil
+            while #search.best == count and Array.at(search.best, i).min == d.min and search.proposals < max_tries do
+              local high = offset(Array.at(search.best, i))
               if not math.ult(low, high) or high - low == 1 then break end
               local middle = low + ((high - low) >> 1)
-              values = values_with(search.best, i, d.min + middle) -- checked: nil_not_allowed
+              values = values_with(search.best, i, d.min + middle)
               if try(values) then improved = true else low = middle end
             end
             if search.best == previous then break end
@@ -188,8 +193,10 @@ function Shrink.shrink(draws: {Shrink.Draw}, fails: Shrink.Fails,
         local unchanged = #search.best == count
         if unchanged then
           for j, old in ipairs(before) do
-            local now = search.best[j]
-            if now.min ~= old.min or now.max ~= old.max or (j ~= i and now.value ~= old.value) then -- checked: nil_not_allowed*3
+            -- `unchanged` still holds `#search.best == count`, the length of
+            -- `before`, which `j` walks.
+            local now = Array.at(search.best, j)
+            if now.min ~= old.min or now.max ~= old.max or (j ~= i and now.value ~= old.value) then
               unchanged = false
               break
             end
