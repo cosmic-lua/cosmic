@@ -3718,19 +3718,20 @@ local function test_alpine_x86_64s_regressions_run_in_its_portable_share_job()
   local step = step_named(assert(ci_workflow().jobs["platform"]).steps,
     "run runtime, launcher, rebuild, and identity regressions")
   assert(step["if"] == FULL .. " && " .. FIXTURES_WHERE, "the regressions run on " .. tostring(step["if"]))
-  local condition = "${{ " .. FIXTURES_WHERE .. " }}"
+  -- The step's own condition less the scope, which `platform_legs("full")` stands for: whatever
+  -- event a full run is of (the queue, a push of full scope, the scheduled and a manual run),
+  -- it has these legs, and the condition reads only the leg's values.
+  local condition = "${{ " .. assert(step["if"]):sub(#FULL + #" && " + 1) .. " }}"
   for _, name in ipairs({ "alpine-x86_64", "linux-x86_64", "linux-aarch64", "macos-aarch64" }) do
-    for _, case in ipairs(EVENTS) do
-      local jobs: mut {string} = {}
-      for _, leg in pairs(platform_legs("full")) do
-        if leg["name"] == name and evaluate(condition, leg, assert(case[1]), assert(case[2])) == true then
-          jobs[#jobs + 1] = leg["shard"] or ""
-        end
+    local jobs: mut {string} = {}
+    for _, leg in pairs(platform_legs("full")) do
+      if leg["name"] == name and evaluate(condition, leg, "merge_group", "refs/heads/main") == true then
+        jobs[#jobs + 1] = leg["shard"] or ""
       end
-      assert(#jobs == 1, name .. " runs its regressions in " .. tostring(#jobs) .. " jobs on a " .. assert(case[1]) .. " run")
-      assert((jobs[1] == "portable-2/2") == (name == "alpine-x86_64"),
-        name .. " runs its regressions in the job of shard '" .. tostring(jobs[1]) .. "'")
     end
+    assert(#jobs == 1, name .. " runs its regressions in " .. tostring(#jobs) .. " jobs")
+    assert((jobs[1] == "portable-2/2") == (name == "alpine-x86_64"),
+      name .. " runs its regressions in the job of shard '" .. tostring(jobs[1]) .. "'")
   end
 end
 

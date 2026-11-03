@@ -9,9 +9,10 @@
 --- (COSMIC_CI_CHECKED_SUITE; cosmic_ci/orchestration.tl's
 --- `suite_verdicts`).
 ---
---- A file bounds itself at 8192 rows and thirty days, some 3 KB a row
+--- A file bounds itself at 32768 rows and thirty days, some 3 KB a row
 --- (the lines each test hit, deflated, most of it), and SQLite keeps
---- the pages its bound frees: 32 MB where it is full. A row is keyed by
+--- the pages its bound frees: 100 MB where it is full, which a leg's
+--- file, trimmed to what its run used (some 12800 rows), is not. A row is keyed by
 --- everything its test was given, the harness and the runtime among
 --- them, which every change to build/ moves. So most of what a file
 --- holds is under keys no later run reaches, and a leg's save of both

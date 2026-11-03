@@ -286,7 +286,7 @@ end
 --- suite's rows when the file is its own. The checked narrowing run's
 --- (`narrowing`) is another: its rows are keyed by the checked
 --- compile, share no key with the others, and the tool bounds that
---- name at twice the rows of the others (build/shared_verdicts.tl's
+--- name at 16384 rows, the checked suite's (build/shared_verdicts.tl's
 --- `rows_kept`).
 function Orchestration.suite_verdicts(env: {string:string}, name: string): string
   local shared = env["COSMIC_VERDICT_CACHE"] or ""

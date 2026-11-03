@@ -1013,10 +1013,14 @@
         # fixture's among them, surfaces that much sooner. On
         # alpine-x86_64 they run in the job that runs the portable
         # suite's second half and not in the leg: that job has some
-        # 480 s of work to the leg's 980 (run 41688461540: 364 s and
+        # 470 s of work to the leg's 980 (run 41688461540: 364 s and
         # 982 s, the regressions 109 s of the leg's), and it builds the
         # same product on the same image, whose bytes the join holds to
-        # the legs'. Every other leg runs its own.
+        # the legs'. The queue's slowest leg falls by about 100 s, and
+        # linux-x86_64 becomes its critical path. Every other leg runs
+        # its own. The regressions' verdicts (fixtures.db) are no longer
+        # saved from alpine-x86_64: none ever stood, their keys holding
+        # the host's features and identity.
         # The regressions and the portable suite read nothing of what the
         # other writes: the fixtures stand on fixtures.db, beside
         # verdicts.db, which the verdict cache restores and saves with it,
@@ -1027,14 +1031,6 @@
           run: "cosmic-driver cosmic_ci/driver.tl platform fixtures",
         },
 
-        # TODO: find why the leg's half of the suite stood on none of its
-        # 4276 tests where the share's stood 2377 (run 41688461540): the
-        # native suite runs first in the leg and may push main's rows of the
-        # portable run out of verdicts.db, which keeps 8192. Once a leg's log
-        # shows the census (`test: census`) of its rows under the portable
-        # run's key, keep those rows (a bound that holds both suites, or a
-        # file of the portable suite's own) and the leg's half drops to the
-        # share's cost, some 200 s of its 260.
         {
           name: "run the product suite from fresh tracked source",
           id: "portable-suite",
