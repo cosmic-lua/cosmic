@@ -216,6 +216,15 @@ local function commented(source: string): string
   return source .. "-- a fixed-point fixture\n"
 end
 
+-- A statement added before the module's `return`: a token edit. Comments and layout move no
+-- identity (the tokens of build/code_fingerprint.tl are what they hash), so a case that means to
+-- move the compiler's or the writer's identity edits a token.
+local function moved(source: string): string
+  local at = source:find("\nreturn [%w_]+\n$")
+  assert(at ~= nil, "a fixed-point fixture module does not end in a return")
+  return source:sub(1, at) .. "local _fixed_point_fixture = 1\n" .. source:sub(at + 1)
+end
+
 -- The runner starts a file's tests in the order they are declared, as
 -- many at once as it has workers. The first case that shares compiles
 -- (`outside`) fills the group's file; one that starts after it ends
@@ -243,7 +252,7 @@ end
 -- that redefine the identity alike compile under the redefined identity
 -- what the first already had.
 local function test_a_rebuilt_compiler_lands_on_the_booted_tool(tmp: string)
-  run_fixed_point_case(tmp, "compiler", "build/plans.tl", commented, true, false)
+  run_fixed_point_case(tmp, "compiler", "build/plans.tl", moved, true, false)
 end
 
 -- `build.positions` is in neither identity, though build.writer
@@ -297,7 +306,17 @@ end
 
 -- `build.clock` is in the writer's identity and not the compiler's.
 local function test_a_rebuilt_writer_lands_on_the_booted_tool(tmp: string)
-  run_fixed_point_case(tmp, "writer", "build/clock.tl", commented, true, true)
+  run_fixed_point_case(tmp, "writer", "build/clock.tl", moved, true, true)
+end
+
+-- A comment in a module of the compiler's identity, or of the writer's, redefines neither: the
+-- stale tool rebuilds once, and its database, keyed by the same identities, stands.
+local function test_a_comment_in_a_compiler_module_needs_no_settling(tmp: string)
+  run_fixed_point_case(tmp, "compiler-comment", "build/plans.tl", commented, false, true)
+end
+
+local function test_a_comment_in_a_writer_module_needs_no_settling(tmp: string)
+  run_fixed_point_case(tmp, "writer-comment", "build/clock.tl", commented, false, true)
 end
 
 -- An edit to what the tool's fingerprint covers (`build.identity`'s

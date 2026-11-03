@@ -456,9 +456,15 @@ end
 
 --- What a pure store keeps in place of the source of the walked module `name`: its tokens ([`build.code_fingerprint`]),
 --- which the identities of the walks hash the same of as of the source. A module with none is kept as one space, which
---- lexes to none and is not the empty source [`Store.withheld`] reads as withheld. Raises where the source does not lex.
+--- lexes to none and is not the empty source [`Store.withheld`] reads as withheld. A source that does not lex is kept as it is,
+--- which [`CodeFingerprint.of`] digests as it digests the source.
 local function kept_text(source: string, name: string): string
-  local tokens = CodeFingerprint.normal(source, name)
+  local box: mut {string} = {}
+  local ok, _ = pcall(function()
+    box[1] = CodeFingerprint.normal(source, name)
+  end)
+  local tokens = box[1]
+  if not ok or tokens == nil then return source end
   if tokens == "" then return " " end
   return tokens
 end

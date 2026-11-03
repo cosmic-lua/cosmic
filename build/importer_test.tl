@@ -1729,7 +1729,7 @@ local function identities_of(root: string): {string}
   local found = assert(identity.record_identities(handle.db))
   local analyzer = importer.analyzer_identity((assert(importer.tree_code(handle))))
   work.close(handle)
-  return { found.compiler, analyzer }
+  return { found.compiler, analyzer, found.writer }
 end
 
 --- Edits the file `path` under `root` so that it differs: a statement before the `return` of a module of the fixture, and
@@ -1819,9 +1819,33 @@ local function test_a_comment_or_the_layout_of_an_analyzer_module_leaves_the_ana
     local relaid = identities_of(root)
     assert(relaid[2] == before[2], "a comment or the layout of " .. path .. " moved the analyzer identity")
     assert(relaid[1] == before[1], "a comment or the layout of " .. path .. " moved the compiler identity")
+    assert(relaid[3] == before[3], "a comment or the layout of " .. path .. " moved the writer identity")
     edit(root, path)
     assert(identities_of(root)[2] ~= before[2], "an edit to " .. path .. " did not move the analyzer identity")
   end
+end
+
+--- A module of the compiler's identity that does not lex still has its identities taken, so the compile goes on to refuse it
+--- with the lexer's position (`file:line:col`, the code) and not stop on the identity.
+local function test_a_module_of_the_compiler_that_does_not_lex_is_refused_with_its_position()
+  local root = identity_fixture("identity-unlexed")
+  assert(Fs.write(root .. "/build/plans.tl", "local record M\nend\nM.uses = {};\nreturn M\n"))
+  local handle = assert(work.open(root))
+  assert(work.stage(handle, { own = true }))
+  local derived, derive_trouble = importer.derive(handle)
+  local found = assert(identity.record_identities(handle.db))
+  local said: mut {string} = { derive_trouble }
+  if derived then
+    local result, trouble = importer.compile(handle, found.compiler)
+    said[#said + 1] = trouble
+    if result ~= nil then
+      for _, refused in ipairs(result.refused) do said[#said + 1] = refused end
+    end
+  end
+  work.close(handle)
+  local text = table.concat(said, "\n")
+  assert(text:find("build/plans.tl", 1, true) ~= nil and text:find("semicolon", 1, true) ~= nil, text)
+  assert(text:find("does not lex", 1, true) == nil, text)
 end
 
 --- The compiler's identity holds what a compile or a parse runs to

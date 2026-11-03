@@ -96,19 +96,21 @@ local function test_a_form_is_its_own_form()
   end
 end
 
---- A source that does not lex raises, and names the module, rather than giving a form that two broken sources share.
-local function test_a_source_that_does_not_lex_raises()
+--- A source that does not lex has no form: `normal` raises, and names the module. Its digest is taken of the source itself, apart
+--- from every digest of tokens, so an identity over a module with a syntax error is still taken and the compile refuses the
+--- module with the lexer's own position.
+local function test_a_source_that_does_not_lex_has_no_form_but_a_digest()
   for _, source in ipairs({ "local s = 'unterminated\n", "local s = [[unterminated", "local x = 1;", "::label::", "local x = 1 @" }) do
     local ok, why = pcall(function(): string
       return normal(source, "build.thing")
     end)
     assert(not ok, source .. " gave a form")
     assert(tostring(why):find("build.thing does not lex", 1, true) ~= nil, tostring(why))
-    ok, why = pcall(function(): string
-      return of(source, "build.thing")
-    end)
-    assert(not ok, source .. " gave a digest")
+    local digest = of(source, "build.thing")
+    assert(#digest == 64 and digest == of(source, "build.thing"))
+    assert(digest ~= of(source .. " ", "build.thing"), "a byte of a source that does not lex left its digest")
   end
+  assert(of("local x = 1;", "m") ~= of("local x = 1", "m"))
 end
 
 --- The digest is a hex SHA-256 and names the form's version, so it is not the digest of the form alone.
