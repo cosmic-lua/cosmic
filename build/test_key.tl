@@ -1352,7 +1352,7 @@ local function sealing_for(rec: Recording): Sealing?, string
   if launched == nil or launched.argv[2] ~= "--artifact" or launched.argv[3] == nil then
     return refuse("this program is no portable artifact to take its database from")
   end
-  local bytes, read_trouble = Fs.read(launched.argv[3]) -- checked: index_may_be_nil
+  local bytes, read_trouble = Fs.read(launched.argv[3])
   if bytes == nil then return refuse(launched.argv[3] .. ": " .. read_trouble) end -- checked: nil_not_allowed
   local parts, split_trouble = artifact.split(bytes)
   if parts == nil then return refuse(launched.argv[3] .. ": " .. split_trouble) end -- checked: nil_not_allowed

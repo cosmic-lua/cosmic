@@ -73,7 +73,7 @@ local function test_past_its_bound_the_least_lately_used_go(tmp: string)
   local left = assert(Sqlite.text_rows(cache.db, "SELECT key FROM compiled_v2 ORDER BY key"))
   shared_compiles.close(cache)
   assert(#left == 2 and left[1]:text(1) == "k1" and left[2]:text(1) == "k4", -- checked: nil_not_allowed
-    tostring(left[1] and left[1]:text(1)) .. " " .. tostring(left[2] and left[2]:text(1))) -- checked: nil_not_allowed*2
+    tostring(left[1] and left[1]:text(1)) .. " " .. tostring(left[2] and left[2]:text(1)))
 end
 
 --- A real query failure mentioning malformed is not evidence that a

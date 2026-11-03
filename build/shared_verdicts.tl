@@ -294,7 +294,7 @@ function shared_verdicts.declared(cache: shared_verdicts.Cache,
     { text(key) })
   if rows == nil then return nil, trouble end
   if rows[1] == nil then return nil, "" end
-  return { hits = unpacked(rows[1]:text(1)), -- checked: nil_not_allowed
+  return { hits = unpacked(rows[1]:text(1)),
     elapsed_ns = math.tointeger(tonumber(rows[1]:text(2)) or 0) or 0 }, "" -- checked: nil_not_allowed
 end
 
@@ -306,7 +306,7 @@ function shared_verdicts.store_digest(cache: shared_verdicts.Cache,
     "SELECT digest FROM " .. stores .. " WHERE address = ?1", { text(address) })
   if rows == nil then return nil, trouble end
   if rows[1] == nil then return nil, "" end
-  return rows[1]:text(1), "" -- checked: nil_not_allowed
+  return rows[1]:text(1), ""
 end
 
 --- How many rows the cache holds, and how many are of a test in

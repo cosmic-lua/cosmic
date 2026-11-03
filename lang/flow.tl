@@ -65,8 +65,8 @@ local record Flow
   --- `f` where control does not arrive.
   dead: function(f: State): State
 
-  --- `f` after an assignment to the local `id` ([`Scopes.Var.id`]): its fact and the facts of the paths from it are
-  --- gone, `why` says where, and it is assigned.
+  --- `f` after an assignment to the local `id` ([`Scopes.Var.id`]): its fact, the facts of the paths from it and
+  --- the facts that an array has the key it holds are gone, `why` says where, and it is assigned.
   assign: function(f: State, id: integer, why: Scopes.Place?): State
 
   --- `f` after the local `id` is declared: it is a place of its own, with no fact and no memory of an assignment, and
@@ -105,6 +105,13 @@ local record Flow
   --- Whether `f` knows the array at the place `key` has at least `n` elements.
   knows_length: function(f: State, key: string, n: integer): boolean
 
+  --- `f` knowing that the array at the place `key` has the key the local `id` holds: a fact of its length like those of
+  --- [`Flow.know_length`], which an assignment to `id` also takes away.
+  know_key: function(f: State, key: string, id: integer, marker: Type, declared: Type): State
+
+  --- Whether `f` knows the array at the place `key` has the key the local `id` holds.
+  knows_key: function(f: State, key: string, id: integer): boolean
+
   --- `f` without the facts of the lengths of arrays: control passes code that may shorten any array.
   forget_lengths: function(f: State): State
 end
@@ -126,6 +133,15 @@ local MOST <const> = 16
 
 function Flow.knows_length(f: Flow.State, key: string, n: integer): boolean
   return n >= 1 and n <= MOST and next(f.lens) ~= nil and f.lens[key .. LENGTH .. tostring(n)] ~= nil
+end
+
+--- The key of the fact that the array at `key` has the key the local `id` holds.
+local function key_fact(key: string, id: integer): string
+  return key .. LENGTH .. ".@" .. tostring(id)
+end
+
+function Flow.knows_key(f: Flow.State, key: string, id: integer): boolean
+  return next(f.lens) ~= nil and f.lens[key_fact(key, id)] ~= nil
 end
 
 function Flow.root(key: string): integer
@@ -218,6 +234,19 @@ function Flow.know_length(f: Flow.State, key: string, n: integer, marker: Type, 
   return made(f.live, f.facts, f.paths, lens, f.unset, f.unsets, f.gone)
 end
 
+function Flow.know_key(f: Flow.State, key: string, id: integer, marker: Type, declared: Type): Flow.State
+  local at = key_fact(key, id)
+  if f.lens[at] ~= nil then
+    return f
+  end
+  local lens: mut {string: Flow.Fact} = {}
+  for k, fact in pairs(f.lens) do
+    lens[k] = fact
+  end
+  lens[at] = { type = marker, declared = declared }
+  return made(f.live, f.facts, f.paths, lens, f.unset, f.unsets, f.gone)
+end
+
 function Flow.dead(f: Flow.State): Flow.State
   if not f.live then
     return f
@@ -231,7 +260,13 @@ local function is_rooted(key: string, id: integer): boolean
   return key == own or key:sub(1, #own + 1) == own .. "."
 end
 
---- `f` without the facts rooted in `id`, and without the tombstones of its places. Where `why` is given the places
+--- Whether `key` is a fact of a length about the key the local `id` holds ([`Flow.know_key`]).
+local function keyed_by(key: string, id: integer): boolean
+  local own = ".@" .. tostring(id)
+  return key:sub(-#own) == own and key:find(LENGTH, 1, true) ~= nil
+end
+
+--- `f` without the facts rooted in `id` or of the keys it holds, and without the tombstones of its places. Where `why` is given the places
 --- that held a fact keep a tombstone of it.
 local function without(f: Flow.State, id: integer, why: Scopes.Place?): Flow.State
   if next(f.facts) == nil and next(f.lens) == nil and next(f.gone) == nil then
@@ -245,7 +280,7 @@ local function without(f: Flow.State, id: integer, why: Scopes.Place?): Flow.Sta
   end
   local doomed_lens: mut {string} = {}
   for k in pairs(f.lens) do
-    if is_rooted(k, id) then
+    if is_rooted(k, id) or keyed_by(k, id) then
       doomed_lens[#doomed_lens + 1] = k
     end
   end
@@ -273,7 +308,7 @@ local function without(f: Flow.State, id: integer, why: Scopes.Place?): Flow.Sta
   if #doomed_lens > 0 then
     local rest: mut {string: Flow.Fact} = {}
     for k, fact in pairs(lens) do
-      if not is_rooted(k, id) then
+      if not (is_rooted(k, id) or keyed_by(k, id)) then
         rest[k] = fact
       end
     end

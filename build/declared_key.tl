@@ -800,7 +800,7 @@ local function tree(digests: declared_key.Digests, path: string, programs?: bool
       end
     end
     walk(path, "", 0)
-    if refused[1] ~= nil then return "refused " .. refused[1] end -- checked: nil_not_allowed
+    if refused[1] ~= nil then return "refused " .. refused[1] end
     return "dir " .. hex_sha256(table.concat(lines, "\n"))
   end)
 end

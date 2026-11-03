@@ -470,7 +470,7 @@ function Csv.table(text: string, opts?: Csv.Options): Csv.Table?, string
   end
   local records, lines = scan.records, scan.lines
   local first = 1
-  while records[first] ~= nil and #records[first] == 0 do -- checked: nil_not_allowed
+  while records[first] ~= nil and #records[first] == 0 do
     first = first + 1
   end
   local rows: mut {{string:string}} = {}
@@ -478,7 +478,7 @@ function Csv.table(text: string, opts?: Csv.Options): Csv.Table?, string
   if records[first] == nil then
     return { columns = {}, rows = rows, lines = began }, ""
   end
-  local names = Csv.column_names(records[first]) -- checked: index_may_be_nil
+  local names = Csv.column_names(records[first])
   local last = #records
   if #names == 1 then
     -- Blank lines after the last record are the file's end.
