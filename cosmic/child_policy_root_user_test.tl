@@ -196,7 +196,7 @@ local function test_a_root_caller_s_concurrent_sandboxes_run_as_different_users(
   for _, handle in ipairs(running) do
     local result = assert(handle:wait())
     local id = uids(result.stdout or "")[1]
-    assert(id ~= nil and id ~= 0 and not seen[id], tostring(id)) -- checked: condition_type
+    assert(id ~= nil and id ~= 0 and seen[id] ~= true, tostring(id))
     seen[id] = true
   end
 end
@@ -291,7 +291,7 @@ local function test_a_root_caller_s_closed_read_only_grant_is_idmapped_and_stays
     { path = dir, letters = "r" } } }, at.work,
     "cat " .. dir .. "/inside; create " .. dir .. "/made y")
   assert(ran.code == 1 and ran.said:find("secret", 1, true) ~= nil, tostring(ran.code) .. ": " .. ran.said)
-  assert(not Fs.exists(dir .. "/made")) -- checked: condition_type
+  assert(Fs.exists(dir .. "/made") ~= true)
 end
 
 local function test_a_root_caller_s_closed_grant_fails_naming_it_without_isolate_file(tmp: string)

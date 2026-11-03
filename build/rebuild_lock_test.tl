@@ -120,7 +120,7 @@ end
 --- A process holds one checkout's lock at once: another's is refused,
 --- by name, rather than taken as the one it holds.
 local function test_a_holder_is_refused_another_checkouts_lock(tmp: string)
-  assert(support.build_dir(tmp .. "/one") and support.build_dir(tmp .. "/two")) -- checked: condition_type
+  assert(support.build_dir(tmp .. "/one") ~= support.build_dir(tmp .. "/two"))
   assert(rebuild_lock.take(tmp .. "/one", 0, "test") == "held")
   local taken, trouble = rebuild_lock.take(tmp .. "/two", 0, "test")
   rebuild_lock.release()

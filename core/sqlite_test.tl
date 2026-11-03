@@ -320,16 +320,16 @@ end
 local function test_existing_only_open_never_creates_a_missing_database(tmp: string)
   for _, path in ipairs({ tmp .. "/missing.db", tmp .. "/missing/db" }) do
     failed(Sqlite.open(path, { writable = true, create = false }))
-    assert(not Fs.exists(path)) -- checked: condition_type
+    assert(Fs.exists(path) ~= true)
   end
-  assert(not Fs.exists(tmp .. "/missing")) -- checked: condition_type
+  assert(Fs.exists(tmp .. "/missing") ~= true)
   local path = tmp .. "/removed.db"
   local made = assert(Sqlite.open(path, { writable = true }))
   assert(made:exec("CREATE TABLE t (a)"))
   assert(made:close())
   assert(Fs.remove(path))
   failed(Sqlite.open(path, { writable = true, create = false }))
-  assert(not Fs.exists(path)) -- checked: condition_type
+  assert(Fs.exists(path) ~= true)
 end
 
 --- Existing-only is writable, including WAL; it is not immutable mode.
@@ -371,7 +371,7 @@ local function test_create_is_only_an_option_of_writable_open(tmp: string)
     local path = tmp .. "/readonly.db"
     failed(Sqlite.open(path, { create = create }))
     failed(Sqlite.open(path, { create = create, immutable = true }))
-    assert(not Fs.exists(path)) -- checked: condition_type
+    assert(Fs.exists(path) ~= true)
     raises(Sqlite.open, path, { writable = true, immutable = true, create = create })
   end
 end

@@ -75,7 +75,7 @@ local function test_the_sandbox_unveils_the_arena_and_the_hosts_runtime_alone()
   local reads = Solve.host_reads({ SSL_CERT_FILE = "/ca/bundle.crt", NODE_EXTRA_CA_CERTS = "relative" })
   local missing: {string:boolean} = { ["/lib64"] = true }
   local unveil = Solve.unveil("/r", program, reads, function(path: string): boolean
-    return not missing[path] -- checked: condition_type
+    return missing[path] ~= true
   end)
   local given: mut {string:boolean} = {}
   for _, path in ipairs(unveil.reads) do given[path] = true end
@@ -84,7 +84,7 @@ local function test_the_sandbox_unveils_the_arena_and_the_hosts_runtime_alone()
     assert(given[path], path)
   end
   for _, path in ipairs({ "/lib64", "relative", "/home", "/root", "/sys", "/tmp", "/r", "/r/project" }) do
-    assert(not given[path], path) -- checked: condition_type
+    assert(given[path] ~= true, path)
   end
   local writes = table.concat(assert(unveil.writes), " ")
   assert(writes == "/r/project /r/tmp /r/config /r/home", writes)

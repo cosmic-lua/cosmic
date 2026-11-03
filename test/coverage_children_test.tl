@@ -116,7 +116,7 @@ local function test_processes_confined_apart_report_apart(tmp: string)
   local reads: mut {string} = {}
   for _, path in ipairs(confine.itself()) do reads[#reads + 1] = path end
   for _, path in ipairs({ "/proc", "/dev/null" }) do
-    if Fs.exists(path) then reads[#reads + 1] = path end -- checked: condition_type
+    if Fs.exists(path) == true then reads[#reads + 1] = path end
   end
   assert(Fs.write(tmp .. "/parent/parent.tl", [[
 local Child = require("cosmic.child")

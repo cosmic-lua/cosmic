@@ -306,7 +306,7 @@ local function test_inet_sockets_stay_refused_without_loopback(tmp: string)
     "loopback-tcp 127.0.0.1")
   assert(server:close())
   assert(unix ~= nil and unix.said ~= "connected\n" and unix.said:find("not permitted", 1, true) ~= nil, -- checked: compare_disjoint
-    unix and unix.said) -- checked: condition_type
+    unix.said)
 end
 
 local function test_a_u_grant_under_isolate_file_reaches_the_socket_bound_into_the_root(tmp: string)
@@ -381,7 +381,7 @@ local function test_a_root_of_files_and_its_own_tmp_makes_unix_sockets_without_u
   assert(alone.code == 0 and alone.said == "connected\n", alone.said)
   local isolated = ChildPolicy.under(at.probe, { isolate = { "file" }, tmp = true, grants = at.bare }, at.home, script)
   assert(isolated ~= nil and isolated.said:find("not permitted", 1, true) ~= nil, "no network of its own: " .. -- checked: compare_disjoint
-      tostring(isolated and isolated.said)) -- checked: condition_type
+      tostring(isolated.said))
   local abi, _ = require("cosmic.internal.process").landlock_abi()
   local shown = ChildPolicy.under(at.probe, { isolate = { "file" }, tmp = true, loopback = { "127.0.0.1" },
     grants = at.grants }, at.work, script)

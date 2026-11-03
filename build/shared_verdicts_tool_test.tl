@@ -209,8 +209,8 @@ local function test_a_checkout_runs_what_no_shared_verdict_answers_for(tmp: stri
   -- key of every test that does not declare `store` when it moves.
   assert(Fs.write(tmp .. "/first/suite/data.txt", "five\n"))
   local asked = said("asked", tmp .. "/first", "4 ran, 1 stood", { "--census" })
-  assert(asked:find("test: shared verdicts: none of 4 tests looked up stood", 1, true) and -- checked: condition_type
-      asked:find("runtime %x+, compiler %x+, harness %x+") and
+  assert(asked:find("test: shared verdicts: none of 4 tests looked up stood", 1, true) ~= nil and
+      asked:find("runtime %x+, compiler %x+, harness %x+") ~= nil and
       asked:find("launcher %x+") ~= nil and asked:find(", store " .. ("%x"):rep(12)) ~= nil,
     asked)
   -- With nothing looked up, it says the parts alone.

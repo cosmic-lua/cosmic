@@ -284,7 +284,7 @@ local function test_zone_names_are_checked_before_any_file_is_read()
   local z, why = Time.zone("Nowhere/Nothing")
   assert(z == nil and why:find("Nowhere/Nothing", 1, true) ~= nil, why)
   local names = assert(Store.zone_names())
-  assert(names["America/New_York"] and not names["Nowhere/Nothing"]) -- checked: condition_type*2
+  assert(names["America/New_York"] == true and names["Nowhere/Nothing"] ~= true)
   assert(not why:find("zoneinfo", 1, true), "the reason names no host path: " .. why)
   -- Asked again, the answer is remembered rather than looked for.
   local again, again_why = Time.zone("Nowhere/Nothing")

@@ -54,7 +54,7 @@ local function test_exec_hands_on_sigpipe_at_its_default(tmp: string)
     Test.skip("a native start has nothing to relaunch")
     return
   end
-  if not Fs.exists("/proc/self/status") then -- checked: condition_type
+  if Fs.exists("/proc/self/status") ~= true then
     Test.skip("this host has no /proc/self/status to ask")
     return
   end

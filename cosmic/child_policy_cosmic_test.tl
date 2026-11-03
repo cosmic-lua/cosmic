@@ -124,7 +124,7 @@ local function test_a_policy_may_build_the_tree_around_the_file(tmp: string)
       tostring(built.stdout) .. tostring(built.stderr))
   assert(Fs.exists(build_paths.required(work, { COSMIC_BUILD_HOME = home }) .. "/build.db"),
     "the tree was not built in its build directory")
-  assert(not Fs.exists(work .. "/o"), "the tree was built into o/") -- checked: condition_type
+  assert(Fs.exists(work .. "/o") ~= true, "the tree was built into o/")
   local refused = ran({ work .. "/run.tl", "beside" }, { profiles = { "cosmic" }, grants = {
     { path = work, letters = "r" } } }, work)
   assert(refused.code ~= 0 and tostring(refused.stderr):find("COSMIC_STANDALONE=0", 1, true) ~= nil,

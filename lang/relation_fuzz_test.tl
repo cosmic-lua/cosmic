@@ -342,7 +342,7 @@ local function relation_pool(w: World, draws: {integer}, count: integer, vars: b
   local out: {Type} = {}
   local seen: {integer: boolean} = {}
   local function add(t: Type)
-    if not seen[t.id] then -- checked: condition_type
+    if seen[t.id] ~= true then
       seen[t.id] = true -- checked: view_written
       out[#out + 1] = t -- checked: view_written
     end
@@ -384,7 +384,7 @@ local function pool(w: World, draws: {integer}): {Type}
   local out: {Type} = {}
   local seen: {integer: boolean} = {}
   local function add(t: Type)
-    if not seen[t.id] then -- checked: condition_type
+    if seen[t.id] ~= true then
       seen[t.id] = true -- checked: view_written
       out[#out + 1] = t -- checked: view_written
     end
@@ -1129,9 +1129,9 @@ local function test_a_pair_with_variables_is_settled_for_its_binders_and_the_rel
         end
         for _, a in ipairs(types) do
           for _, b in ipairs(types) do
-            if answers[a.id][b.id] then -- checked: condition_type, nil_not_allowed
+            if answers[a.id][b.id] == true then -- checked: nil_not_allowed
               for _, c in ipairs(types) do
-                if answers[b.id][c.id] and not answers[a.id][c.id] then -- checked: condition_type*2, nil_not_allowed*2
+                if answers[b.id][c.id] == true and answers[a.id][c.id] ~= true then -- checked: nil_not_allowed*2
                   return false, Types.display(a) .. " is below " .. Types.display(b) .. ", which is below " ..
                     Types.display(c) .. " under " .. tostring(count) .. " binders, and a is not below c"
                 end

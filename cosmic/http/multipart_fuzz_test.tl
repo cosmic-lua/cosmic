@@ -198,7 +198,9 @@ local function test_a_well_formed_body_round_trips_under_any_chunking(tmp: strin
         if p.body == "" then Fuzz.label("empty_body") end
         if p.body:find("\r\n", 1, true) then Fuzz.label("crlf_in_body") end
         if p.body:find("--", 1, true) then Fuzz.label("bare_dashes") end
-        if p.body:find("\r\n--", 1, true) and chunk < 8 then Fuzz.label("split_delimiter") end -- checked: condition_type
+        if p.body:find("\r\n--", 1, true) ~= nil and chunk < 8 then
+          Fuzz.label("split_delimiter")
+        end
       end
       return true, ""
     end,

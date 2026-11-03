@@ -910,7 +910,7 @@ local function test_json_names_a_record_yyjson_could_not_allocate()
     assert(values == nil and why:match("^json: line %d: out of memory$") ~= nil, tostring(why))
     named[why] = true
   end
-  assert(named["json: line 1: out of memory"] and named["json: line 2: out of memory"], -- checked: condition_type
+  assert(named["json: line 1: out of memory"] == true and named["json: line 2: out of memory"] == true,
     "each record's refusal names its line")
   -- format reads a hexadecimal number again, as a document of its own,
   -- after every read of the text: the last allocation it makes.

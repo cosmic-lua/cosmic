@@ -320,7 +320,7 @@ local function swapped_link_changes_nothing(tmp: string, policy?: Sandbox.Policy
   local result = assert(Child.run({ program_of(relaunch), "--artifact", copy, "-e",
     filled(caller, values) }, { env = policy == nil and env or nil, fds = fds, stdout = "capture", -- checked: and_ternary
       stderr = "capture", policy = policy, timeout_ns = Clock.seconds(7) }))
-  if not Fs.exists(stop) then assert(Fs.write(stop, "")) end -- checked: condition_type
+  if Fs.exists(stop) ~= true then assert(Fs.write(stop, "")) end
   local flipped = assert(flipping:wait())
   assert(sys.close(opened))
   assert(result.ok, tostring(result.stderr))

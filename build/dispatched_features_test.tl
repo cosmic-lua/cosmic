@@ -181,7 +181,7 @@ local function test_asking_keeps_what_a_line_at_a_time_would()
     end
     local found: mut {string} = {}
     for i, line in ipairs(lines) do
-      if kept[i] then found[#found + 1] = line end -- checked: condition_type
+      if kept[i] == true then found[#found + 1] = line end
     end
     return found
   end
@@ -214,7 +214,7 @@ local function test_every_library_build_zig_compiles_is_walked()
   local count = 0
   for library in source:gmatch('patched%(b, trees, "([%w_%-]+)"%)') do
     count = count + 1
-    assert(walked[library] or NOT_C[library], "build.zig compiles vendor/" .. library .. -- checked: condition_type
+    assert(walked[library] == true or NOT_C[library] == true, "build.zig compiles vendor/" .. library ..
         ", which this test does not walk: add it to LIBRARIES and to Test.policy")
   end
   assert(count >= #LIBRARIES, "build.zig names " .. tostring(count) .. " patched trees")

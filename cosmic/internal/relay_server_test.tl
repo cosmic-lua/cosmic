@@ -160,7 +160,7 @@ local function start(tmp: string, opts: Options): Rig
   local http, socks, mixed: Net.Listener?, Net.Listener?, Net.Listener?
   local at_http, at_socks: Net.Address, Net.Address
   local listeners: {Net.Listener}
-  if opts.mixed then -- checked: condition_type
+  if opts.mixed == true then
     mixed = listen_here()
     at_http, at_socks, listeners = mixed.address, mixed.address, { mixed }
   else

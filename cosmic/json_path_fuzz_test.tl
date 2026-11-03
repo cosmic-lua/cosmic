@@ -233,7 +233,7 @@ local function gen_document(src: Fuzz.Source, depth: integer): string
   local used: mut {string: boolean} = {}
   while Fuzz.more(src, #parts, 3) do
     local name = Fuzz.pick(src, { "a", "b", "c" })
-    if not used[name] then -- checked: condition_type
+    if used[name] ~= true then
       used[name] = true
       parts[#parts + 1] = '"' .. name .. '":' .. gen_document(src, depth + 1)
     end

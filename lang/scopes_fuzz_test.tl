@@ -70,7 +70,7 @@ end
 local function push(r: Reference, env: Decl?, binding: Ast.Binding, fn: integer, readonly: boolean,
                     hidden: Decl?, copies?: boolean): Decl
   local name = binding.name
-  if not copies and name:sub(1, 1) ~= "_" and name ~= "self" and (hidden ~= nil or GLOBALS[name] ~= nil) then -- checked: condition_type
+  if copies ~= true and name:sub(1, 1) ~= "_" and name ~= "self" and (hidden ~= nil or GLOBALS[name] ~= nil) then
     expect(r, "shadows", binding.first)
   end
   return { name = name, id = binding.id, fn = fn, readonly = readonly, next = env }
@@ -223,7 +223,7 @@ local function naive_after(chunk: Ast.Chunk, scoped: Scopes.Scoped, r: Reference
       local after = false
       for _, w in ipairs(v.writes) do
         local assign = r.assigns[w]
-        if assign ~= nil and not r.foreign[w] and fn ~= nil then -- checked: condition_type
+        if assign ~= nil and r.foreign[w] ~= true and fn ~= nil then
           after = after or assign.last >= fn.last
           for _, loop in ipairs(loops) do
             after = after or (loop.first > v.declared and loop.first <= math.min(assign.first, fn.first) and

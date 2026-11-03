@@ -219,7 +219,7 @@ local function gen_statement(g: Gen, depth: integer, indent: string) -- checked:
   elseif k == 4 then
     local names: mut {string} = {}
     for _, v in ipairs(g.vars) do
-      if v.type == "integer" and v.params == nil and not v.readonly then -- checked: condition_type
+      if v.type == "integer" and v.params == nil and v.readonly ~= true then
         names[#names + 1] = v.name
       end
     end
