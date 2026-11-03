@@ -8,6 +8,7 @@
 --- tests skip.
 --- Until a compile writes the boundary checks (build/type_watch.tl), they skip in a checked run too.
 
+local Array = require("cosmic.array")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local TypeWatch = require("build.type_watch")
@@ -69,10 +70,11 @@ local function test_the_c_tree_answers_what_the_dump_leaves_out()
     assert(#tree.parse(dump, "/tree") == 2)
     local decls = tree.parse(dump)
     assert(#decls == 2)
-    local body = decls[1].children[1]
-    local call = body.children[1] -- checked: nil_not_allowed
-    assert(tree.callee(call) == nil and tree.operator(body) == nil) -- checked: nil_not_allowed*2
-    assert(tree.referent(call) == nil) -- checked: nil_not_allowed
+    -- The dump holds the function, its body and the call in it.
+    local body = Array.at(Array.at(decls, 1).children, 1)
+    local call = Array.at(body.children, 1)
+    assert(tree.callee(call) == nil and tree.operator(body) == nil)
+    assert(tree.referent(call) == nil)
   end)
 end
 

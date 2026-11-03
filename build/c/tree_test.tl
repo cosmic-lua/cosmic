@@ -1,6 +1,7 @@
 --- Reading clang's text dump: positions written only as far as they
 --- differ, and only the tree's own declarations kept.
 
+local Array = require("cosmic.array")
 local tree = require("build.c.tree")
 
 local dump = table.concat({
@@ -26,15 +27,18 @@ end
 --- declaration after it is on core/a.c's line 9, not lua.h's.
 local function test_an_abbreviated_position_reads_against_the_last()
   local decls = tree.parse(dump)
-  local fn = decls[1]
-  local param = fn.children[1] -- checked: nil_not_allowed
-  assert(param.file == "core/a.c" and param.line == 4 and param.col == 14) -- checked: nil_not_allowed
-  local ret = fn.children[2].children[1] -- checked: nil_not_allowed*2
-  assert(ret.line == 6 and ret.col == 3) -- checked: nil_not_allowed*2
-  local cast = ret.children[1] -- checked: nil_not_allowed
-  assert(cast.file == "core/a.c" and cast.line == 6 and cast.col == 10) -- checked: nil_not_allowed
+  -- The dump above holds the function with its parameter and body, the
+  -- body its return, the return its cast.
+  local fn = Array.at(decls, 1)
+  local param = Array.at(fn.children, 1)
+  assert(param.file == "core/a.c" and param.line == 4 and param.col == 14)
+  local ret = Array.at(Array.at(fn.children, 2).children, 1)
+  assert(ret.line == 6 and ret.col == 3)
+  local cast = Array.at(ret.children, 1)
+  assert(cast.file == "core/a.c" and cast.line == 6 and cast.col == 10)
   assert(tree.type_of(cast) == "int")
-  assert(decls[2].file == "core/a.c" and decls[2].line == 9) -- checked: nil_not_allowed*2
+  local var = Array.at(decls, 2)
+  assert(var.file == "core/a.c" and var.line == 9)
 end
 
 local function test_a_sugared_type_reads_both_ways()
@@ -79,11 +83,12 @@ local function test_each_part_of_a_nested_range_is_read()
     "`-VarDecl 0x4 <col:2, col:9> col:5 y 'int'",
   }, "\n"))
   assert(#decls == 2, "kept " .. tostring(#decls))
-  local paren = decls[1].children[1]
-  assert(paren.file == "<scratch space>" and paren.line == 1, tostring(paren.file)) -- checked: nil_not_allowed
+  local paren = Array.at(Array.at(decls, 1).children, 1)
+  assert(paren.file == "<scratch space>" and paren.line == 1, tostring(paren.file))
   assert(paren.text == "'int'", paren.text)
-  assert(decls[2].file == "core/a.c" and decls[2].line == 3 and decls[2].col == 2,
-    tostring(decls[2].file) .. ":" .. tostring(decls[2].line))
+  local var = Array.at(decls, 2)
+  assert(var.file == "core/a.c" and var.line == 3 and var.col == 2,
+    tostring(var.file) .. ":" .. tostring(var.line))
 end
 
 --- A dropped declaration's line whose name is placed in a file called
