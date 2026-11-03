@@ -19,9 +19,9 @@ local function honest(what: string, fn: function())
   assert(#found == 0, what .. ": " .. tostring(#found) .. " violations:\n" .. table.concat(found, "\n"))
 end
 
-local function call(id: string, name: string, input: {string: any}): string
-  return (assert(Json.encode_any({ type = "assistant", message = { content = { -- checked: arms_differ
-    { type = "tool_use", id = id, name = name, input = input }, -- checked: arms_differ
+local function call(id: string, name: string, input: {string: Json.Value}): string
+  return (assert(Json.encode({ type = "assistant", message = { content = {
+    { type = "tool_use", id = id, name = name, input = input },
   } } })))
 end
 

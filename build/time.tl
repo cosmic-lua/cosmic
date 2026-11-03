@@ -143,19 +143,21 @@ end
 
 --- The record `--json` prints for a moment: its epoch, RFC 3339 text, zone,
 --- offset and civil fields.
-local function record_of(seen: Seen): {string:any}
+local function record_of(seen: Seen): {string: Json.Value}
   local c = Time.civil(seen.ns, seen.zone)
-  return {
-    epoch = seen.ns // NS, -- checked: any_use
-    rfc3339 = Time.format_rfc3339(seen.ns, seen.zone), -- checked: any_use
-    zone = if seen.zone.name == "Etc/UTC" then "UTC" else seen.zone.name end, -- checked: any_use
-    offset = c.offset, -- checked: any_use
-    abbreviation = c.abbreviation, -- checked: any_use
-    dst = c.dst, -- checked: any_use
-    year = c.year, month = c.month, day = c.day, -- checked: any_use*3
-    hour = c.hour, minute = c.minute, second = c.second, nanosecond = c.ns, -- checked: any_use*4
-    weekday = c.weekday, yday = c.yday, -- checked: any_use*2
+  local out: mut {string: Json.Value} = {
+    epoch = seen.ns // NS,
+    rfc3339 = Time.format_rfc3339(seen.ns, seen.zone),
+    offset = c.offset,
+    abbreviation = c.abbreviation,
+    dst = c.dst,
+    year = c.year, month = c.month, day = c.day,
+    hour = c.hour, minute = c.minute, second = c.second, nanosecond = c.ns,
+    weekday = c.weekday, yday = c.yday,
   }
+  local zone = if seen.zone.name == "Etc/UTC" then "UTC" else seen.zone.name end
+  if zone ~= nil then out["zone"] = zone end
+  return out
 end
 
 --- `ns` as seconds since 1970, with a fraction when it has one, signed as
@@ -396,7 +398,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   end
   local function print_seen(seen: Seen, digits?: integer): integer
     if as_json then
-      local encoded, why = Json.encode_any(record_of(seen), { pretty = true })
+      local encoded, why = Json.encode(record_of(seen), { pretty = true })
       if encoded == nil then
         complain(why)
         return bare.refused
@@ -486,7 +488,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     value = if unit == "months" then (span.years or 0) * 12 + (span.months or 0) else Time.format_duration(span) end
   end
   if as_json then
-    local encoded, why = Json.encode_any({
+    local encoded, why = Json.encode({
       unit = unit, value = value,
       from = record_of({ ns = first.ns, zone = calendar }),
       to = record_of({ ns = second.ns, zone = calendar }),

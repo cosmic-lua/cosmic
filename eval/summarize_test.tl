@@ -6,15 +6,15 @@ local Summarize = require("eval.summarize")
 local arena <const> = "/work/arena"
 local repo <const> = "/src/cosmic"
 
-local function call(id: string, name: string, input: {string: any}): string
-  return (assert(Json.encode_any({ type = "assistant", message = { content = { -- checked: arms_differ
+local function call(id: string, name: string, input: {string: Json.Value}): string
+  return (assert(Json.encode({ type = "assistant", message = { content = {
     { type = "text", text = "thinking" },
-    { type = "tool_use", id = id, name = name, input = input }, -- checked: arms_differ
+    { type = "tool_use", id = id, name = name, input = input },
   } } })))
 end
 
-local function answer(id: string, content: any, is_error?: boolean): string
-  return (assert(Json.encode_any({ type = "user", message = { content = { -- checked: arms_differ
+local function answer(id: string, content: Json.Value, is_error?: boolean): string
+  return (assert(Json.encode({ type = "user", message = { content = {
     { type = "tool_result", tool_use_id = id, content = content,
       is_error = is_error or false }, -- checked: condition_type
   } } })))
@@ -119,7 +119,7 @@ local function test_paths_outside_the_arena_are_listed_once_and_sorted()
 end
 
 --- The lines of the report after the two that count the run, for one call.
-local function findings(name: string, input: {string: any}, in_arena?: string): string
+local function findings(name: string, input: {string: Json.Value}, in_arena?: string): string
   local text = call("1", name, input) .. "\n"
   local report = Summarize.report(text, in_arena or arena, repo)
   return (report:gsub("^[^\n]*\n[^\n]*\n", ""))

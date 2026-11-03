@@ -2,6 +2,7 @@
 --- pages, and the terminal that answers what the router could not route.
 
 local Html = require("cosmic.html")
+local type Json = require("cosmic.json")
 local Response = require("cosmic.web.response")
 local Server = require("cosmic.http.server")
 local Types = require("cosmic.web.types")
@@ -51,7 +52,7 @@ end
 --- The default answer: a problem body for a client that prefers JSON, else
 --- a page.
 local function default_answer(req: Types.Request, status: integer, detail: string?,
-                              extra: {string:any}?): Types.Response
+                              extra: {string: Json.Value}?): Types.Response
   if wants_json(req) then return Response.problem(status, detail, extra) end
   return page(status, detail, nil)
 end
@@ -60,7 +61,7 @@ end
 --- `error_view`, else the default one chosen by the request's Accept;
 --- `headers` (an `Allow`) are set on it.
 local function respond(req: Types.Request, status: integer, detail?: string,
-                       extra?: {string:any}, headers?: {string:string}): Types.Response
+                       extra?: {string: Json.Value}, headers?: {string:string}): Types.Response
   local spec = req.app.spec
   local res: Types.Response
   local error_pages = spec.error_pages

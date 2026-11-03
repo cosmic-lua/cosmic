@@ -19,7 +19,7 @@ local record Response
     --- What to tell the client, or nil.
     detail?: string
     --- More members of a problem body.
-    extra?: {string:any}
+    extra?: {string: Json.Value}
   end
 end
 
@@ -339,19 +339,18 @@ end
 --- `title` included, replace the defaults.
 --- @param status integer The status
 --- @param detail string | nil What the client may be told
---- @param extra {string:any} | nil More members
+--- @param extra {string: Json.Value} | nil More members
 --- @return Types.Response The response
-function Response.problem(status: integer, detail?: string, extra?: {string:any}): Types.Response
+function Response.problem(status: integer, detail?: string, extra?: {string: Json.Value}): Types.Response
   check_status(status, 3)
   local reason = Server.reason(status)
-  local body: mut {string:any} = { type = "about:blank", title = reason ~= "" and reason or "Error" } -- checked: and_ternary, any_use
+  local body: mut {string: Json.Value} = { type = "about:blank", title = if reason ~= "" then reason else "Error" end }
   if extra ~= nil then
     for name, value in pairs(extra) do body[name] = value end
   end
-  -- TODO: once the problem body is a record that takes extra members, these are fields: a key write into this `{string: any}` is any_use.
-  body.status = status -- checked: map_field
-  body.detail = detail -- checked: map_field
-  local text, why = Json.encode_any(body)
+  body["status"] = status
+  if detail ~= nil then body["detail"] = detail end
+  local text, why = Json.encode(body)
   if text == nil then error("web: problem: " .. unprefixed(why), 2) end
   return { status = status, headers = { ["Content-Type"] = "application/problem+json",
     ["X-Content-Type-Options"] = "nosniff" }, body = text }
@@ -363,9 +362,9 @@ end
 --- `return Web.abort(404)` type-checks.
 --- @param status integer The status
 --- @param detail string | nil What the client may be told
---- @param extra {string:any} | nil More members of a problem body
+--- @param extra {string: Json.Value} | nil More members of a problem body
 --- @return Types.Response Never
-function Response.abort(status: integer, detail?: string, extra?: {string:any}): Types.Response
+function Response.abort(status: integer, detail?: string, extra?: {string: Json.Value}): Types.Response
   if not (math.type(status) == "integer" and status >= 400 and status <= 599) then
     error("web: abort takes an error status, from 400 to 599", 2)
   end
@@ -378,12 +377,12 @@ end
 --- @return Response.Abort | nil The abort
 function Response.aborted(err: any): Response.Abort?
   if not (err is {string:any} and err["web_abort"] == true) then return nil end -- checked: is_on_record
-  -- TODO: once the raised abort is a class, `extra` is a field: `extra is {string: any}` of an `any` read is is_on_record.
+  -- TODO: once the raised abort is a class, `extra` is a field: `extra is {string: Json.Value}` of an `any` read is is_on_record.
   local status, detail, extra = err["status"], err["detail"], err.extra -- checked: map_field
   if not status is integer then return nil end
   local abort: Response.Abort = { web_abort = true, status = status }
   if detail is string then abort.detail = detail end -- checked: field_fixed
-  if extra is {string:any} then abort.extra = extra end -- checked: field_fixed
+  if extra is {string: Json.Value} then abort.extra = extra end -- checked: field_fixed
   return abort
 end
 
