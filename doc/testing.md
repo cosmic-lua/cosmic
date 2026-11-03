@@ -309,7 +309,7 @@ declares neither `store` nor `store_text` is given a pure store instead:
   the stubs require, among the modules of its closure. The checker types a
   snippet from a module's stub and follows only the stub's requires
   ([`build.standard_text`]), so these are all it reads, and the source of no
-  module is kept. A stub is the module's declared types without its comments;
+  module is kept. A stub is the module's declared types, with no comment or body, each token at its source line and column;
 - the bytecode of each module it imports stripped of its debug
   information ([`build.lua_tail`]'s `stripped`, which also writes the line
   each function is defined on as 0), and its own module's as the build made it;
@@ -319,14 +319,15 @@ declares neither `store` nor `store_text` is given a pure store instead:
 Its key holds the digest of exactly that, the stubs kept included, so an edit to an imported module
 that changes no bytecode (a comment, a blank line, a renamed local, a function
 that moved down the file) runs no test of its importers again, and one that
-changes what the module does runs them. A comment in a module the test names
-runs nothing, since its stub drops it; a change to its declared types, or to
-those of a module its stub requires, runs the test: name only the modules a snippet
-needs. A `require` by value names none, so [`cosmic.test`] and the modules a test
+changes what the module does runs them. In a module the test names, a comment
+at the end of a line it already has runs nothing, but one on a line of its own, a
+blank line, or a body that gains or loses lines moves every token below it, and with it the stub and the key;
+so does a change to its declared types, or to those of a module its stub requires. Name only
+the modules a snippet needs. A `require` by value names none, so [`cosmic.test`] and the modules a test
 runs keep stable keys.
 
 A snippet that requires a standard-library module the test does not name finds
-its stub withheld, and the test fails saying so: name the module in the test, as
+its stub withheld (the message says so, and says to name the module), and the test fails: name the module in the test, as
 `local type _ = require("cosmic.x")` beside any `require` by value. A statement in a comment
 or a long string (a snippet the test checks) names nothing. The docs, places and uses of a module are
 never kept: a test whose subject is the language server, `cosmic docs` or a

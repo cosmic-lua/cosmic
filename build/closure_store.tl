@@ -494,7 +494,8 @@ local function read_basis(whole: string, pure?: boolean): closure_store.Basis?, 
       if found == nil then return nil, pure_trouble end
       pure_rows = found
       -- What the checker reads of a standard-library module is its stub ([`build.standard_text`]); the
-      -- stub keeps no comment, so these digests and edges move with a module's declared types alone.
+      -- stub keeps no comment but keeps every token at its source line and column ([`build.syntax_stub`]),
+      -- so these digests move with a module's declared types and with a line added or removed above them.
       local stubbed, stubbed_trouble = Sqlite.text_rows(db,
         "SELECT path, lower(hex(sha256(inflate(source)))), CAST(inflate(source) AS TEXT) FROM stubs ORDER BY path")
       if stubbed == nil then return nil, stubbed_trouble end
