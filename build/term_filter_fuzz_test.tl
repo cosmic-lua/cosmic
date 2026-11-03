@@ -8,6 +8,7 @@
 --- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
 
 local Fuzz = require("build.fuzz")
+local String = require("cosmic.string")
 local TermFilter = require("build.term_filter")
 
 --- Pieces that reach each part of the filter: the introducers, the
@@ -58,7 +59,7 @@ local function cut_by_content(input: string): string, string
   local passed, answered: mut {string}, mut {string} = {}, {}
   local from = 1
   for at = 1, #input do
-    if (input:byte(at) + at) % 5 == 0 then -- checked: nil_not_allowed
+    if (String.byte_at(input, at) + at) % 5 == 0 then
       local out, replies = filter:feed(input:sub(from, at))
       passed[#passed + 1], answered[#answered + 1] = out, replies
       from = at + 1
@@ -93,6 +94,14 @@ local function sgr_holds(text: string): boolean
   return count <= 32
 end
 
+--- How long the start of `seq` is that `pattern` matches. The caller has
+--- found that start with a stricter pattern, so `pattern` matches it too.
+local function matched_length(seq: string, pattern: string): integer
+  local start = seq:match(pattern)
+  assert(start ~= nil, "no match of " .. pattern .. " where the caller's pattern matched")
+  return #start
+end
+
 --- Why `out` is not what the filter may pass, or "" when it is: every
 --- ESC begins a listed sequence, written whole, and nothing else but
 --- valid UTF-8 and the controls that pass is left.
@@ -113,13 +122,13 @@ local function unsafe(out: string): string
       if not sgr_holds(params) then return "an SGR out of bounds" end
       length = #params + 3
     elseif seq:find("^\27%[%d?%d?%d?%d?%d?[ABCDEFGdLMP@X]") then
-      length = #seq:match("^\27%[%d*[ABCDEFGdLMP@X]") -- checked: nil_not_allowed
+      length = matched_length(seq, "^\27%[%d*[ABCDEFGdLMP@X]")
     elseif seq:find("^\27%[%d?%d?%d?%d?%d?;?%d?%d?%d?%d?%d?[Hfr]") then
-      length = #seq:match("^\27%[[%d;]*[Hfr]") -- checked: nil_not_allowed
+      length = matched_length(seq, "^\27%[[%d;]*[Hfr]")
     elseif seq:find("^\27%[[0-2]?J") then
-      length = #seq:match("^\27%[%d*J") -- checked: nil_not_allowed
+      length = matched_length(seq, "^\27%[%d*J")
     elseif seq:find("^\27%[[0-2]?K") then
-      length = #seq:match("^\27%[%d*K") -- checked: nil_not_allowed
+      length = matched_length(seq, "^\27%[%d*K")
     elseif seq:find("^\27%[[su]") or seq:find("^\27[78]") then
       length = if seq:find("^\27%[") then 3 else 2 end
     else

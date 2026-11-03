@@ -352,26 +352,25 @@ function shared_compiles.look(cache: shared_compiles.Cache,
   if rows == nil then return nil, trouble end
   local row = rows[1]
   if row == nil then return nil, "" end
-  local parts: mut {string} = {}
-  for index = 1, 3 do
+  local function inflated_part(index: integer): string?
     local packed_part = bytes_at(row, index)
-    local part: string? = nil
-    if packed_part ~= nil then
-      local inflated, _ = Compress.inflate("raw", packed_part)
-      part = inflated
-    end
-    if part == nil then break end
-    parts[index] = part
+    if packed_part == nil then return nil end
+    local inflated, _ = Compress.inflate("raw", packed_part)
+    return inflated
   end
+  -- Each part is read only when the ones before it were found.
+  local lua_text = inflated_part(1)
+  local bytecode_text = if lua_text ~= nil then inflated_part(2) else nil end
+  local refs_text = if bytecode_text ~= nil then inflated_part(3) else nil end
   local references: {SyntaxReceivers.Reference}? = nil
   local fact_wraps, parameter_checks = 0, 0
-  local refs_text = parts[3]
-  if #parts == 3 and refs_text ~= nil then
+  if refs_text ~= nil then
     references = unpacked(refs_text)
     fact_wraps, parameter_checks = checks_of(refs_text)
   end
   local stored = text_at(row, 4)
-  if references == nil or stored ~= digest_of(parts[1], parts[2], parts[3]) then -- checked: index_may_be_nil*3
+  if references == nil or lua_text == nil or bytecode_text == nil or refs_text == nil or
+      stored ~= digest_of(lua_text, bytecode_text, refs_text) then
     -- Only the row read, by its digest: a good one a build writes under
     -- the key meanwhile stays. Best effort: a busy file leaves it for the
     -- next build that looks, and the cache stays on.
@@ -380,7 +379,7 @@ function shared_compiles.look(cache: shared_compiles.Cache,
       { text(key), if stored ~= nil then text(stored) else {} end })
     return nil, ""
   end
-  return { lua = parts[1], bytecode = parts[2], references = references, fact_wraps = fact_wraps, -- checked: index_may_be_nil*2
+  return { lua = lua_text, bytecode = bytecode_text, references = references, fact_wraps = fact_wraps,
     parameter_checks = parameter_checks }, ""
 end
 
@@ -472,20 +471,29 @@ local function evict(db: Sqlite.Handle, now_ns: integer, bound_bytes: integer): 
       " UNION ALL SELECT 'p', rowid, size, used_ns FROM " .. parsed .. ")) WHERE total > ?1",
     { { integer = bound_bytes } })
   if over == nil then return false, trouble end
-  local ids: mut {string:mut {string}} = { c = {}, p = {} }
+  local compiled_ids: mut {string} = {}
+  local parsed_ids: mut {string} = {}
   for _, row in ipairs(over) do
-    local list = ids[row:text(1)]
+    local tab = row:text(1)
     local second = row:text(2)
-    list[#list + 1] = second -- checked: nil_not_allowed*2
-  end
-  for tab, name in pairs({ c = compiled, p = parsed }) do
-    if #ids[tab] > 0 then -- checked: nil_not_allowed
-      local ok, delete_trouble = Sqlite.run(db, "DELETE FROM " .. name ..
-          " WHERE rowid IN (SELECT value FROM json_each(?1))",
-        { text("[" .. table.concat(ids[tab], ",") .. "]") }) -- checked: index_may_be_nil
-      if not ok then return false, delete_trouble end
+    if tab == "c" then
+      compiled_ids[#compiled_ids + 1] = second
+    elseif tab == "p" then
+      parsed_ids[#parsed_ids + 1] = second
+    else
+      error("the eviction query answered the table tag " .. tab .. ", not 'c' or 'p'")
     end
   end
+  local function drop(name: string, list: {string}): boolean, string
+    if #list == 0 then return true, "" end
+    return Sqlite.run(db, "DELETE FROM " .. name ..
+        " WHERE rowid IN (SELECT value FROM json_each(?1))",
+      { text("[" .. table.concat(list, ",") .. "]") })
+  end
+  local dropped, drop_trouble = drop(compiled, compiled_ids)
+  if not dropped then return false, drop_trouble end
+  dropped, drop_trouble = drop(parsed, parsed_ids)
+  if not dropped then return false, drop_trouble end
   return true, ""
 end
 
@@ -529,13 +537,15 @@ function shared_compiles.settle(cache: shared_compiles.Cache, owed: shared_compi
     end
     for _, one in ipairs(parses) do
       local key = one.key
-      local where: {Sqlite.Value} = { text(key.analyzer), text(key.source_hash),
-        { integer = if key.mapped then 1 else 0 end } }
+      local analyzer_value = text(key.analyzer)
+      local source_value = text(key.source_hash)
+      local mapped_value: Sqlite.Value = { integer = if key.mapped then 1 else 0 end }
+      local where: {Sqlite.Value} = { analyzer_value, source_value, mapped_value }
       local requires = packed_requires(one.made.requires)
       local ok, trouble = Sqlite.run(db,
         "INSERT OR REPLACE INTO " .. parsed .. " (analyzer, source_hash, mapped, requires, rows, " ..
           "digest, size, used_ns) VALUES (?1, ?2, ?3, ?4, deflate(?5), ?6, 0, ?7)",
-        { where[1], where[2], where[3], text(requires), { blob = one.made.rows }, -- checked: index_may_be_nil*3
+        { analyzer_value, source_value, mapped_value, text(requires), { blob = one.made.rows },
           text(parse_digest(key, requires, one.made.rows)), { integer = now_ns } })
       if not ok then return false, trouble end
       ok, trouble = Sqlite.run(db, "UPDATE " .. parsed ..
