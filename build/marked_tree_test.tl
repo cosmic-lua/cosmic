@@ -2,9 +2,6 @@
 --- marker on its line fails, a marker whose finding has gone is stale and is mended, several codes may share a line, and
 --- code that moves keeps its markers. A marker in a fixture is written as `KEY .. " ..."` so that this file holds none.
 local Ceilings = require("build.ceilings")
-local Check = require("lang.check")
-local Declarations = require("lang.declarations")
-local Scopes = require("lang.scopes")
 local Fs = require("cosmic.fs")
 local Markers = require("build.markers")
 local Test = require("cosmic.test")
@@ -128,14 +125,15 @@ local function test_the_findings_no_marker_holds_are_told_and_collected_for_the_
   assert(file["checked not_assignable"] == 2 and #counted.lines == 0, joined(counted.lines))
 end
 
-local function test_a_comment_that_is_no_marker_is_left_alone_and_a_closed_code_is_never_held(dir: string)
+local function test_a_comment_that_is_no_marker_is_left_alone_and_a_marker_of_a_code_nothing_else_holds_is_counted_for_the_ratchet(dir: string)
   local root = tree(dir, "prose", source("local t = 1 " .. KEY .. " done"))
   local told = tree_checks.markers(root)
   assert(#told.lines == 0 and next(told.counts) == nil, "a word that is no code is prose")
-  -- `shadows` is closed: the tree keeps its rule with no exceptions, so a marker does not hold it
-  local closed = tree(dir, "closed", source("local x = 1", "local x = 2 -- scoped: shadows", "return x"))
-  local found = joined(tree_checks.scoped(closed))
-  assert(found:find("(shadows)", 1, true) and found:find("shadows is closed", 1, true), found)
+  -- no list closes `shadows`: the marker holds its finding here, and is counted, which is how the ratchet sees it against a merge
+  -- base that held none ([`build.ceilings_base`])
+  local marked = tree(dir, "unclosed", source("local x = 1", "local x = 2 -- scoped: shadows", "return x"))
+  assert(#tree_checks.scoped(marked) == 0, joined(tree_checks.scoped(marked)))
+  assert(assert(tree_checks.markers(marked).counts["build/bad.tl"])["scoped shadows"] == 1)
 end
 
 local function test_the_calls_the_checker_gave_no_function_are_held_by_untyped_markers_at_their_lines(dir: string)
@@ -175,35 +173,6 @@ local function test_a_file_that_does_not_parse_keeps_its_markers_through_the_che
   assert(Fs.write(root .. "/build/bad.tl", source("local t: integer = 3 " .. KEY .. " not_assignable")))
   tree_checks.checked(root, nil, nil, { sink = sink })
   assert(#sink.stale == 1)
-end
-
-local function test_the_closure_of_codes_fires_for_a_closed_code_held_and_an_open_code_not(dir: string)
-  local root = tree(dir, "closure", source("local t: integer = 3.5 " .. KEY .. " not_assignable"))
-  local all: mut {string} = {}
-  local seen: mut {string: boolean} = {}
-  local function add(list: {string})
-    for _, code in ipairs(list) do
-      -- a few codes belong to two stages and are listed once
-      if code ~= "not_assignable" and seen[code] ~= true then
-        seen[code] = true
-        all[#all + 1] = code
-      end
-    end
-  end
-  add(Scopes.codes)
-  add(Declarations.codes)
-  add(Check.codes)
-  -- every other code closed, the one a marker holds open: nothing to tell
-  assert(#tree_checks.closure(root, all) == 0, joined(tree_checks.closure(root, all)))
-  -- a closed code that a marker holds
-  all[#all + 1] = "not_assignable"
-  assert(joined(tree_checks.closure(root, all)):find("not_assignable is closed and a marker still holds it", 1, true) ~= nil)
-  -- a code nothing holds and nothing closes, a duplicate and a word that is no code
-  local open: mut {string} = { "nonsense_code", "arity" }
-  local told = joined(tree_checks.closure(root, open))
-  assert(told:find("nonsense_code is listed in Ceilings.closed and is no code", 1, true) ~= nil, told)
-  assert(told:find("alias_cycle has no marker left", 1, true) ~= nil and not ("\n" .. told):find("\narity has no marker", 1, true), told)
-  assert(joined(tree_checks.closure(root, { "arity", "arity" })):find("arity is listed twice", 1, true) ~= nil)
 end
 
 --- Nothing reads the file the tree once held its counts in, so one left in a tree configures nothing: a row in it holds no

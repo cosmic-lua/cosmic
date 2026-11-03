@@ -1143,7 +1143,7 @@ end
 --- their pins with the place, the message and the fix; the globals are the ones the tree's
 --- declaration file declares; the fork's files are not read; a pin above what the tree has is
 --- told to fall.
-local function test_a_name_the_scope_builder_cannot_resolve_is_refused_with_its_fix_and_a_marker_holds_neither_closed_code(dir: string)
+local function test_a_name_the_scope_builder_cannot_resolve_is_refused_with_its_fix_unless_a_marker_holds_it(dir: string)
   local root = dir .. "/scoperoot"
   assert(Fs.mkdirs(root .. "/build"))
   assert(Fs.mkdirs(root .. "/lang"))
@@ -1160,12 +1160,14 @@ local function test_a_name_the_scope_builder_cannot_resolve_is_refused_with_its_
     found)
   assert(not found:find("ok.tl", 1, true) and not found:find("lang/stdlib.d.tl", 1, true) and
       not found:find("vendor", 1, true) and not found:find("print", 1, true), found)
-  -- both codes are closed: no marker holds them, and a marker on their lines is refused for it
+  -- a marker on each line holds each finding, and the one of a line with none is still told
   assert(Fs.write(root .. "/build/bad.tl", source("local x = 1", "local x = 2 -- scoped: shadows", "print(y) -- scoped: unknown_variable",
     "return x")))
-  local marked = table.concat(tree_checks.scoped(root), "\n")
-  assert(marked:find("build/bad.tl:2: shadows is closed", 1, true) and marked:find("build/bad.tl:3: unknown_variable is closed", 1, true) and
-      marked:find("(shadows)", 1, true) and marked:find("(unknown_variable)", 1, true), marked)
+  local marked = tree_checks.scoped(root)
+  assert(#marked == 0, table.concat(marked, "\n"))
+  assert(Fs.write(root .. "/build/bad.tl", source("local x = 1", "local x = 2 -- scoped: shadows", "print(y)", "return x")))
+  local one = table.concat(tree_checks.scoped(root), "\n")
+  assert(one:find("build/bad.tl:3:7: `y` is not declared (unknown_variable)", 1, true) and not one:find("(shadows)", 1, true), one)
 end
 
 --- A declaration the lowering refuses is listed with the place, the message and the fix, unless a marker holds it; a

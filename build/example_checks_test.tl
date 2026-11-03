@@ -278,17 +278,16 @@ local function test_a_marker_holds_no_more_than_it_counts(dir: string)
     table.concat(found, "\n"))
 end
 
---- A closed code has no exceptions: a marker for it holds nothing, and is refused for it.
-local function test_a_marker_for_a_closed_code_holds_nothing(dir: string)
+--- A marker holds a finding in the shown text whatever its code: that no new marker may hold a code no marker held is the
+--- ratchet's, against the merge base, as it is for a file of the tree.
+local function test_a_marker_holds_a_finding_in_the_shown_text_whatever_its_code(dir: string)
   local found = found_in(dir, source(
     "local record Example end",
     "function Example.use()",
     "  print(Missing) -- scoped: unknown_variable",
     "end",
     "return Example"))
-  local told = table.concat(found, "\n")
-  assert(told:find("(unknown_variable)", 1, true) ~= nil and
-      told:find("unknown_variable is closed: the tree keeps this rule with no exceptions", 1, true) ~= nil, told)
+  assert(#found == 0, table.concat(found, "\n"))
 end
 
 --- A guide's block is copied whole, so it holds no marker: its finding is told whatever the block says.
