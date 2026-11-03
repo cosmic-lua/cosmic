@@ -332,7 +332,6 @@ local function test_a_pure_test_is_given_only_its_own_source_file()
     local files: mut {string} = {}
     for file in pairs(effective.files) do files[#files + 1] = file end
     table.sort(files)
-    assert(effective.pure == test_inputs.is_pure(inputs, pure))
     return table.concat(files, " ")
   end
   assert(files_of(nil, true) == "lib/declared.d.tl lib/thing_test.tl", files_of(nil, true))

@@ -2940,7 +2940,7 @@ local function queries_text(source: string): boolean
     end
   end
   for _, name in ipairs({ "modules", "decls" }) do
-    if lowered:find("from%s+" .. name .. "%f[^%w_]") ~= nil and lowered:find("source", 1, true) ~= nil then
+    if lowered:find("from%s+" .. name .. "%f[^%w_]") ~= nil and lowered:find("%f[%w_]source%f[^%w_]") ~= nil then
       return true
     end
   end
@@ -3011,6 +3011,9 @@ function tree_checks.run(db: Sqlite.Handle, quickstart: string?, extra?: {{strin
                          help?: {string: string}, read?: {string: tree_checks.Plurals}): {string}
   local out: mut {string} = {}
   local plurals = tree_checks.plurals(db, extra, nil, read)
+  for _, line in ipairs(tree_checks.text_readers(db)) do
+    out[#out + 1] = "text readers: " .. line
+  end
   for _, check in ipairs({
       { name = "exports", lines = tree_checks.exports(db) }, -- checked: arms_differ
       { name = "unnamed types", lines = tree_checks.unnamed_types(db) }, -- checked: arms_differ
@@ -3021,7 +3024,6 @@ function tree_checks.run(db: Sqlite.Handle, quickstart: string?, extra?: {{strin
       { name = "docs queries", lines = tree_checks.queries(db) }, -- checked: arms_differ
       { name = "quieted", lines = tree_checks.quieted(db) }, -- checked: arms_differ
       { name = "restricted", lines = tree_checks.restricted(db) }, -- checked: arms_differ
-      { name = "text readers", lines = tree_checks.text_readers(db) }, -- checked: arms_differ
       { name = "declarations", lines = tree_checks.declarations(db) }, -- checked: arms_differ
       { name = "verbs", lines = tree_checks.verbs(db, quickstart) }, -- checked: arms_differ
       { name = "guides", lines = tree_checks.guides(db) }, -- checked: arms_differ

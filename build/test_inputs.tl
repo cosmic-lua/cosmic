@@ -80,7 +80,7 @@ local record test_inputs
     --- Whether its worker is given the pure store ([`build.closure_store`]'s `write`)
     --- and the source file of its own module alone: the run holds the pure store
     --- ([`test_inputs.effective`]'s `pure_store`) and it declares none of `store`,
-    --- `store_text`, `lua` and `tool` ([`test_inputs.is_pure`]).
+    --- `store_text`, `lua` and `tool` ([`is_pure`]).
     mut pure?: boolean
     --- The host caches declared, by name ([`build.caches`]), and where
     --- they are on this host, once the runner resolves them: empty until
@@ -272,7 +272,7 @@ end
 --- which reads the text of its closure's store, and `lua` and `tool`, which start
 --- the program, whose checker types a chunk against the sources and stubs of the
 --- store it is given.
-function test_inputs.is_pure(declared: PolicyRules.Declared?, held?: boolean): boolean
+local function is_pure(declared: PolicyRules.Declared?, held?: boolean): boolean
   if held ~= true then return false end
   if declared == nil then return true end
   return not (declared.store or declared.store_text == true or declared.lua or declared.tool)
@@ -302,7 +302,7 @@ function test_inputs.effective(m: Module, by_path: {string:Module},
     cache_paths = {}, unresolved = "",
   }
   local declares = m.inputs
-  local pure = test_inputs.is_pure(declares, pure_store)
+  local pure = is_pure(declares, pure_store)
   if pure then
     -- A module that declares it reads any text ([`build.code_walk`]'s `markers`) in the closure gives the test the full store.
     for _, name in ipairs(test_inputs.modules(m, by_path, declarations, type_only)) do
