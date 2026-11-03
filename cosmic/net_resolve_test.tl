@@ -43,16 +43,24 @@ end
 local function test_a_numeric_literal_answers_itself_without_a_query()
   -- The only server is a port nothing listens at, so a query would fail.
   local opts: Net.ResolveOptions = { servers = { { host = "127.0.0.1", port = 9 } }, timeout_ns = 1 }
-  for _, case in ipairs({
-      { "127.0.0.1", "ipv4" }, { "255.255.255.255", "ipv4" }, { "::1", "ipv6" },
-      { "2001:db8::1", "ipv6" }, { "::ffff:192.0.2.1", "ipv6" },
-  }) do
-    local found, why = Net.resolve(case[1], opts) -- checked: index_may_be_nil
-    assert(found ~= nil and why == "", case[1] .. ": " .. why) -- checked: nil_not_allowed
-    assert(#found == 1 and found[1].address == case[1] and found[1].family == case[2], case[1])
+  local record Literal
+    address: string
+    family: string
+  end
+  local literals: {Literal} = {
+    { address = "127.0.0.1", family = "ipv4" }, { address = "255.255.255.255", family = "ipv4" },
+    { address = "::1", family = "ipv6" }, { address = "2001:db8::1", family = "ipv6" },
+    { address = "::ffff:192.0.2.1", family = "ipv6" },
+  }
+  for _, case in ipairs(literals) do
+    local found, why = Net.resolve(case.address, opts)
+    assert(found ~= nil and why == "", case.address .. ": " .. why)
+    assert(#found == 1 and found[1].address == case.address and found[1].family == case.family, case.address)
   end
   -- Written back as inet_ntop writes it.
-  assert(assert(Net.resolve("2001:0db8:0:0:0:0:0:1", opts))[1].address == "2001:db8::1") -- checked: nil_not_allowed
+  local written = assert(Net.resolve("2001:0db8:0:0:0:0:0:1", opts))
+  local only = written[1]
+  assert(only ~= nil and only.address == "2001:db8::1")
 end
 
 local function test_a_name_the_resolver_cannot_take_fails_and_a_degenerate_argument_raises(tmp: string)

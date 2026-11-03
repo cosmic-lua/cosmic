@@ -24,6 +24,7 @@
 ---   attribute's elsewhere, and none for code (`on...`, `style`).
 ---
 --- A refusal is never wrong, so it is never checked.
+local Array = require("cosmic.array")
 local Fs = require("cosmic.fs")
 local Template = require("cosmic.template")
 local Test = require("cosmic.test")
@@ -168,10 +169,10 @@ end
 --- A line of the tree: how deep it is and what it says.
 local function split(line: string): integer, string
   local indent, body = line:match("^| ( *)(.*)$")
-  if indent == nil then
+  if indent == nil or body == nil then
     return -1, line
   end
-  return #indent // 2, body -- checked: nil_not_allowed
+  return #indent // 2, body
 end
 
 --- What a line of the tree says, less its depth.
@@ -192,12 +193,13 @@ local function ancestors(tree: {string}, at: integer, depth: integer): {Element}
   local list: mut {Element} = {}
   local below = depth
   for up = at - 1, 1, -1 do
-    local d, body = split(tree[up]) -- checked: index_may_be_nil
+    -- `at` is a line of `tree`, so every earlier `up` is too.
+    local d, body = split(Array.at(tree, up))
     if d >= 0 and d < below then
       below = d
       local ns, name = body:match("^<(%a+) ([^>]+)>$")
-      if ns == "svg" or ns == "math" then
-        list[#list + 1] = { name = name:lower(), foreign = true } -- checked: nil_not_allowed
+      if name ~= nil and (ns == "svg" or ns == "math") then
+        list[#list + 1] = { name = name:lower(), foreign = true }
       else
         local plain = body:match("^<([^ >]+)>$")
         if plain ~= nil then
@@ -354,8 +356,8 @@ local function check_case(file: string, case: Case, reach: Reach)
   local named: mut {string: string | boolean} = {}
   for _, line in ipairs(tree) do
     local name, value = body_of(line):match('^([^%s="<]+ ?[^%s="<]*)="(.*)"$')
-    if name ~= nil then
-      named[value] = if named[value] == nil or named[value] == name then name else false end -- checked: nil_not_allowed*3
+    if name ~= nil and value ~= nil then
+      named[value] = if named[value] == nil or named[value] == name then name else false end
     end
   end
   local closer: string? = nil
@@ -417,20 +419,20 @@ local function check_case(file: string, case: Case, reach: Reach)
           fail(reach, file, kind, cut, input, "the tree has a comment there")
         end)
       end
-    elseif name ~= nil and value ~= "" and not value:find("[\"']") and count(input, value) == 1 and -- checked: nil_not_allowed*2
-        named[value] == name then -- checked: nil_not_allowed
-      local start = assert(input:find(value, 1, true)) -- checked: nil_not_allowed
+    elseif name ~= nil and value ~= nil and value ~= "" and not value:find("[\"']") and count(input, value) == 1 and
+        named[value] == name then
+      local start = assert(input:find(value, 1, true))
       local quote = input:sub(start - 1, start - 1)
       local written = (name:gsub(" ", ":")):lower()
       local before = input:sub(start - 2 - #written, start - 2):lower()
       local use: string? = nil
-      if (quote == '"' or quote == "'") and input:sub(start + #value, start + #value) == quote and -- checked: nil_not_allowed*2
+      if (quote == '"' or quote == "'") and input:sub(start + #value, start + #value) == quote and
           before == written .. "=" and owner_of(tree, at, depth) ~= nil then
         use = closed()
       end
       if use ~= nil then
         reach.values = reach.values + 1
-        try(input, use, start - 1, #value, reach, function(kind: string, cut: integer) -- checked: nil_not_allowed
+        try(input, use, start - 1, #value, reach, function(kind: string, cut: integer)
           note(reach, "value", kind)
           if is_code(written) then
             fail(reach, file, kind, cut, input, "the tree has the value of the code attribute " .. name)

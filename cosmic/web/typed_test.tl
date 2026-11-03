@@ -285,18 +285,6 @@ local function test_registration_refuses_a_body_on_get_and_a_spec_text_cannot_ca
   Web.patch_typed("/x", Web.input(Web.NONE, Web.NONE, Web.no_body), empty_handler)
 end
 
-local function test_the_slots_refuse_what_is_not_a_spec()
-  local nothing: any = {} -- checked: literal_needs_type
-  local why = Test.raises(function()
-    Web.json_body(nothing as Shape.Typed<NewItem>) -- checked: cast_refused
-  end)
-  assert(why:find("takes the result of Shape.record_of", 1, true), why)
-  why = Test.raises(function()
-    Web.input(PATH, Web.NONE, nothing as Web.Body<Web.None>) -- checked: cast_refused
-  end)
-  assert(why:find("Web.json_body", 1, true), why)
-end
-
 local function test_a_typed_route_sits_in_a_mount_and_is_found_by_name()
   local app = Web.app{ routes = {
     Web.mount("/api", {

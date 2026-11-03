@@ -79,7 +79,8 @@ local function test_a_repeated_option_keeps_every_value_and_its_order()
   local got = parsed({ "x", "--jobs=1", "--check", "--jobs", "2", "--check" })
   assert(got.values["--jobs"] == "2")
   local jobs = got.all["--jobs"]
-  assert(#jobs == 2 and Array.at(jobs, 1) == "1" and Array.at(jobs, 2) == "2") -- checked: nil_not_allowed*3
+  assert(jobs ~= nil, "--jobs was given")
+  assert(#jobs == 2 and Array.at(jobs, 1) == "1" and Array.at(jobs, 2) == "2")
   assert(table.concat(got.given, " ") == "--jobs --check --jobs --check")
   assert(got.all["--check"] == nil)
 end
@@ -208,7 +209,10 @@ local function test_dispatch_runs_the_command_with_its_own_options()
     build = {
       spec = { ["--jobs"] = true },
       run = function(got: Flags.Parsed): integer
-        ran[#ran + 1] = "build " .. got.values["--jobs"] .. " " .. got.words[1] -- checked: nil_not_allowed*2
+        local jobs = got.values["--jobs"]
+        assert(jobs ~= nil, "build was given --jobs")
+        local word = Array.at(got.words, 1)
+        ran[#ran + 1] = "build " .. jobs .. " " .. word
         return 3
       end,
     },
@@ -329,7 +333,8 @@ end
 local function test_a_one_dash_option_named_whole_takes_a_value_after_equals()
   local whole: {string:boolean | Flags.Option} = { ["-std"] = true, ["-é"] = true, ["-n"] = true }
   local got = assert(Flags.parse({ "-std=-x", "-é=c99", "-std", "c11" }, 1, whole))
-  assert(got.all["-std"][1] == "-x" and got.all["-std"][2] == "c11" and got.values["-é"] == "c99") -- checked: nil_not_allowed*2
+  local std = got.all["-std"]
+  assert(std ~= nil and std[1] == "-x" and std[2] == "c11" and got.values["-é"] == "c99")
   local _, why = Flags.parse({ "-std", "-x" }, 1, whole)
   assert(why == "-std needs a value, not -x; give one that begins with \"-\" as -std=-x", why)
   -- One letter is a cluster, as getopt reads it: the "=" is the value's.

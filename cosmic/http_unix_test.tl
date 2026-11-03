@@ -2,6 +2,7 @@
 --- client holds its thread while it waits, so it runs in a child of this
 --- program against a server here, as cosmic/http/server_tool_test.tl's do.
 
+local Array = require("cosmic.array")
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
@@ -45,7 +46,7 @@ local function across(tmp: string, client: string): string, string
       return { status = 200, body = "body of " .. req.path }
     end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
-      local started = this_program.program({ "--standalone", script, assert(addresses[1].path) }, -- checked: nil_not_allowed
+      local started = this_program.program({ "--standalone", script, assert(Array.at(addresses, 1).path) },
         { stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
       ran.value = assert(Child.run(started.argv, started.options))
       server:stop()

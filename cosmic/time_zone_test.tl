@@ -176,10 +176,6 @@ local function test_disambiguation_resolves_gaps_and_folds()
     assert(Time.from_civil(civil(2026, 7, 1, 12), ny, { disambiguation = how }) ==
         at("2026-07-01T16:00:00Z"))
   end
-  local ok, err = pcall(Time.from_civil, gap, ny, { disambiguation = "nearest" as Time.Disambiguation }) -- checked: cast_refused
-  assert(not ok and tostring(err):find("disambiguation", 1, true) ~= nil, tostring(err))
-  ok, err = pcall(Time.from_civil, gap, nil, { disambiguation = "nearest" as Time.Disambiguation }) -- checked: cast_refused
-  assert(not ok, "an unknown disambiguation raises without a zone too")
 end
 
 --- A local time a zone passes twice is read back as the moment it came
@@ -648,9 +644,6 @@ local function test_add_calendar_keeps_local_time_across_a_change()
   local month = assert(Time.add_calendar(at("2026-01-31T15:00:00Z"), { months = 1 },
     ny, { overflow = "clamp" }))
   assert(Time.format_rfc3339(month, ny) == "2026-02-28T10:00:00-05:00")
-  local ok, err = pcall(Time.add_calendar, 0, { days = 1 }, ny,
-    { disambiguation = "nearest" as Time.Disambiguation }) -- checked: cast_refused
-  assert(not ok and tostring(err):find("disambiguation", 1, true) ~= nil, tostring(err))
 end
 
 local function test_between_follows_the_zones_calendar()

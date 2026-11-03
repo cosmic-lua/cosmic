@@ -783,13 +783,9 @@ local function read_request(buf: string): relay_wire.SocksRequest
 end
 
 --- The reply to a request: `which`, with the bound address 0.0.0.0:0, as
---- the relay never gives the program one. Raises on a reply it does not
---- know.
+--- the relay never gives the program one.
 function relay_wire.socks_reply(which: relay_wire.SocksReply): string
-  local code = SOCKS_CODES[which]
-  if code == nil then
-    error("socks_reply: unknown reply " .. tostring(which), 2)
-  end
+  local code = assert(SOCKS_CODES[which], "every reply has a code")
   return "\5" .. string.char(code) .. "\0\1\0\0\0\0\0\0"
 end
 

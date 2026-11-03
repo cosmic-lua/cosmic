@@ -1,4 +1,5 @@
 local unix_socket = require("build.unix_socket")
+local Array = require("cosmic.array")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
@@ -308,19 +309,6 @@ local function test_a_degenerate_read_or_shutdown_raises_at_the_caller()
   assert(accepted:shutdown("read"), "a refused call must not end the direction")
 end
 
---- `reclaim` is gone: a listen that sets it raises, naming the removal,
---- rather than listen without it.
-local function test_listen_refuses_the_removed_reclaim_option(tmp: string)
-  local options: any = { reclaim = true } -- checked: any_use
-  local address = Net.unix(tmp .. "/s.sock")
-  local ok, why: boolean, any = pcall(function()
-    local _, _ = Net.listen(address, options as Net.ListenOptions) -- checked: cast_refused
-  end)
-  assert(not ok and tostring(why):find("^cosmic%.net_test:%d+: net: ListenOptions.reclaim is gone: ") ~= nil,
-    tostring(why))
-  assert(Fs.stat(tmp .. "/s.sock") == nil and Fs.stat(tmp .. "/s.sock.lock") == nil)
-end
-
 --- A listener's `address` is the one given, built again by [`Net.unix`]:
 --- a unix one keeps its path and nothing else.
 local function test_a_unix_listeners_address_is_built_again_from_its_path(tmp: string)
@@ -411,7 +399,8 @@ local function test_a_path_that_names_no_socket_file_is_refused(tmp: string)
   local held, held_why = Net.listen(Net.unix(nul))
   assert(held == nil and held_why == nul .. ": Invalid argument", held_why)
   assert(Fs.stat(tmp .. "/a") == nil, "a shorter name was bound")
-  for _, address in ipairs({ Net.unix(""), Net.tcp("127.0.0.1", 65536), { kind = "pipe" } as Net.Address }) do -- checked: cast_refused
+  local pipe: Net.Address = { kind = "pipe" }
+  for _, address in ipairs({ Net.unix(""), Net.tcp("127.0.0.1", 65536), pipe }) do
     local listen_ok, listen_why = pcall(Net.listen, address)
     assert(not listen_ok and tostring(listen_why):find("net: address must be ", 1, true) == 1,
       tostring(listen_why))
@@ -558,10 +547,12 @@ local function test_in_a_run_a_server_serves_connections_at_once()
       clients[i] = assert(Net.connect(server.address, { timeout_ns = Clock.seconds(5) }))
     end
     for i = 3, 1, -1 do
-      assert(clients[i]:write("c" .. tostring(i) .. "\n")) -- checked: nil_not_allowed
-      local appended = assert(Stream.lines(clients[i]):read()) -- checked: index_may_be_nil
+      -- The loop above filled `clients` 1 to 3.
+      local client = Array.at(clients, i)
+      assert(client:write("c" .. tostring(i) .. "\n"))
+      local appended = assert(Stream.lines(client):read())
       answered[#answered + 1] = appended
-      assert(clients[i]:close()) -- checked: nil_not_allowed
+      assert(client:close())
     end
   end)
   assert(table.concat(answered, ",") == "re c3,re c2,re c1", table.concat(answered, ","))

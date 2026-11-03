@@ -28,11 +28,11 @@ local record json_query
   end
 end
 
---- `given`, a `max_depth`, when it is an integer from `least` to `most`
---- (no upper bound when `most` is nil); otherwise raises, naming the
---- caller `level` frames above the function that calls this one.
-local function checked_depth(given: any, least: integer, most: integer?, level: integer): integer
-  if not (given is integer) or given < least or (most ~= nil and given > most) then
+--- `given`, a `max_depth`, when it is from `least` to `most` (no upper
+--- bound when `most` is nil); otherwise raises, naming the caller `level`
+--- frames above the function that calls this one.
+local function checked_depth(given: integer, least: integer, most: integer?, level: integer): integer
+  if given < least or (most ~= nil and given > most) then
     local range = if most ~= nil then "from " .. tostring(least) .. " to " .. tostring(most) else "of at least " .. tostring(least) end
     error("json: max_depth must be an integer " .. range, level + 1)
   end
@@ -59,7 +59,7 @@ end
 --- its JSON Pointer when nesting passes `max_depth` (default
 --- [`Json.default_depth`]), a table contains itself, or a table's keys
 --- mix strings and integers or are neither, as `encode` would refuse
---- it. Raises when `max_depth` is not an integer from 1 to
+--- it. Raises when `max_depth` is not from 1 to
 --- [`Json.depth_limit`].
 ---
 ---     local doc = assert(Json.decode('{"a": [1, {"b": []}]}'))
@@ -304,7 +304,7 @@ end
 --- same value always gives the same text.
 --- An array with holes (a decoded `null` without `null_value`) has no
 --- reliable length: decode with `null_value = Json.null` to describe one.
---- Raises when `max_depth` is not an integer of at least 0.
+--- Raises when `max_depth` is under 0.
 ---
 ---     print(json_query.describe(assert(Json.decode('{"ids": [1, 2], "ok": true}'))))
 ---     -- {ids: [2 x number], ok: boolean}

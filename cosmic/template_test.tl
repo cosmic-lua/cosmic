@@ -529,10 +529,10 @@ local function test_without_use_htmx_only_the_script_and_json_attributes_are_ref
     local src = HEAD .. "<a " .. case.source .. ">"
     local out, why = Template.compile(src, "t.tmpl")
     local attr = case.source:match("^[%w:-]+")
-    if attr == "hx-trigger" or attr == "hx-vars" or attr == "hx-on:click" or attr == "hx-vals" or
-        attr == "hx-headers" or attr == "hx-request" or attr == "hx-ws" then
+    if attr ~= nil and (attr == "hx-trigger" or attr == "hx-vars" or attr == "hx-on:click" or attr == "hx-vals" or
+        attr == "hx-headers" or attr == "hx-request" or attr == "hx-ws") then
       assert(out == nil, case.source)
-      assert(why:find("'" .. attr .. "' attribute", 1, true), why) -- checked: nil_not_allowed
+      assert(why:find("'" .. attr .. "' attribute", 1, true), why)
     else
       -- A plain attribute, attribute-escaped as before.
       assert(out ~= nil, case.source .. ": " .. why)
@@ -546,12 +546,13 @@ end
 local function test_every_attribute_is_classified_alike_in_upper_case_and_with_data()
   for _, case in ipairs(HTMX_CLASSES) do
     local name, rest = case.source:match("^([%w:-]+)(.*)$")
-    for _, spelled in ipairs({ name:upper(), "data-" .. name, "DATA-" .. name:upper() }) do -- checked: nil_not_allowed*3
-      local src = HEAD .. "{{use htmx}}\n<a " .. spelled .. rest .. ">" -- checked: nil_not_allowed
+    assert(name ~= nil and rest ~= nil, case.source .. " does not begin with an attribute name")
+    for _, spelled in ipairs({ name:upper(), "data-" .. name, "DATA-" .. name:upper() }) do
+      local src = HEAD .. "{{use htmx}}\n<a " .. spelled .. rest .. ">"
       if case.want == "" then
         refused(src)
       else
-        assert(Array.at(helpers_called(compiled(src)), 1) == case.want, spelled .. rest) -- checked: nil_not_allowed
+        assert(Array.at(helpers_called(compiled(src)), 1) == case.want, spelled .. rest)
       end
     end
   end

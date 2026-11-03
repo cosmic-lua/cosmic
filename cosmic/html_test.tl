@@ -4,6 +4,7 @@
 --- hold to their types.
 local Html = require("cosmic.html")
 local Snippet = require("build.snippet_fixture")
+local String = require("cosmic.string")
 local Test = require("cosmic.test")
 local Url = require("cosmic.url")
 
@@ -457,14 +458,14 @@ local function css_escape(s: string): string
   local out: mut {string} = {}
   for i = 1, #s do
     local c = s:sub(i, i)
-    local byte = c:byte()
+    local byte = String.byte_at(s, i)
     local leading_digit = c:find("^%d$") and (i == 1 or (i == 2 and s:sub(1, 1) == "-"))
     if byte == 0 then
       out[#out + 1] = "\xef\xbf\xbd"
-    elseif byte >= 128 or (c:find("^[%w_-]$") ~= nil and leading_digit ~= true and not (c == "-" and #s == 1)) then -- checked: nil_not_allowed
+    elseif byte >= 128 or (c:find("^[%w_-]$") ~= nil and leading_digit ~= true and not (c == "-" and #s == 1)) then
       out[#out + 1] = c
     else
-      out[#out + 1] = ("\\%x "):format(byte) -- checked: nil_not_allowed
+      out[#out + 1] = ("\\%x "):format(byte)
     end
   end
   return table.concat(out)

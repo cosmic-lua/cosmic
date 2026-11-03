@@ -24,7 +24,8 @@ local function dotted_quad(host: string): boolean
   local a, b, c, d = host:match("^(%d+)%.(%d+)%.(%d+)%.(%d+)$")
   if a == nil then return false end
   for _, part in ipairs({ a, b, c, d }) do -- checked: array_of_optional
-    if (#part > 1 and part:sub(1, 1) == "0") or tonumber(part) > 255 then return false end -- checked: nil_not_allowed
+    local value = tonumber(part)
+    if (#part > 1 and part:sub(1, 1) == "0") or value == nil or value > 255 then return false end
   end
   return true
 end

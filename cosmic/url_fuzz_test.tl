@@ -7,6 +7,7 @@
 --- reads back the parts a URL was built from. `FUZZ_SEED` and
 --- `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
 
+local Array = require("cosmic.array")
 local Fuzz = require("build.fuzz")
 local Url = require("cosmic.url")
 
@@ -74,7 +75,10 @@ local function test_unescape_is_total_and_exact(tmp: string)
           return false, "refused with " .. why
         end
         local at = math.tointeger(tonumber(why:match("byte (%d+)")))
-        if input:sub(at, at) ~= "%" or input:find("^%x%x", at + 1) ~= nil then -- checked: nil_not_allowed*2
+        if at == nil then
+          return false, "refused without naming a byte: " .. why
+        end
+        if input:sub(at, at) ~= "%" or input:find("^%x%x", at + 1) ~= nil then
           return false, "refused naming the wrong byte: " .. why
         end
         Fuzz.label("refused")
@@ -82,7 +86,9 @@ local function test_unescape_is_total_and_exact(tmp: string)
       end
       if why ~= "" then return false, "decoded with a reason: " .. why end
       local again = input:gsub("%%(%x%x)", function(hex: string): string
-        return string.char(math.tointeger(tonumber(hex, 16))) -- checked: nil_not_allowed
+        local byte = math.tointeger(tonumber(hex, 16))
+        assert(byte, "the pattern `%x%x` holds two hex digits")
+        return string.char(byte)
       end)
       if again ~= bytes then return false, ("decoded to %q, not %q"):format(bytes, again) end
       Fuzz.label("decoded")
@@ -302,8 +308,14 @@ local function test_encode_query_decodes_back_to_the_same_pairs(tmp: string)
     check = function(input: string): boolean, string
       local fields = Fuzz.unpack(input)
       local want: mut {Url.Pair} = {}
-      for i = 1, #fields - 1, 2 do
-        want[#want + 1] = { name = fields[i], value = fields[i + 1] } -- checked: index_may_be_nil*2
+      local pending: string? = nil
+      for _, field in ipairs(fields) do
+        if pending == nil then
+          pending = field
+        else
+          want[#want + 1] = { name = pending, value = field }
+          pending = nil
+        end
       end
       local text = Url.encode_query(want)
       if text:find("[^A-Za-z0-9._~%%&=+-]") then
@@ -316,12 +328,14 @@ local function test_encode_query_decodes_back_to_the_same_pairs(tmp: string)
       end
       local seen: mut {string:integer} = {}
       for i, p in ipairs(want) do
-        local got = q.pairs[i]
-        if got.name ~= p.name or got.value ~= p.value then -- checked: nil_not_allowed*2
-          return false, ("pair %d of %q read as %q=%q"):format(i, text, got.name, got.value) -- checked: nil_not_allowed*2
+        -- `#q.pairs == #want` was checked above.
+        local got = Array.at(q.pairs, i)
+        if got.name ~= p.name or got.value ~= p.value then
+          return false, ("pair %d of %q read as %q=%q"):format(i, text, got.name, got.value)
         end
-        seen[p.name] = (seen[p.name] or 0) + 1
-        if Url.query_all(q, p.name)[seen[p.name]] ~= p.value then -- checked: index_may_be_nil
+        local count = (seen[p.name] or 0) + 1
+        seen[p.name] = count
+        if Url.query_all(q, p.name)[count] ~= p.value then
           return false, ("by_name misses pair %d of %q"):format(i, text)
         end
       end
@@ -357,20 +371,25 @@ local function test_decode_query_is_total_and_keeps_what_it_reads(tmp: string)
       local mode = math.tointeger(tonumber(f[1])) or 0
       local text = f[2] or ""
       local opts: Url.QueryOptions = { lenient = mode & 1 == 1, utf8 = mode & 2 == 0, max_pairs = 6 }
-      local ok, q, why = pcall(Url.decode_query, text, opts)
-      if not ok then return false, "raised: " .. tostring(q) end
+      local decoded: Url.Query?
+      local reason = ""
+      local ok, raised = pcall(function() decoded, reason = Url.decode_query(text, opts) end)
+      if not ok then return false, "raised: " .. tostring(raised) end
+      -- Fresh locals: the closure assigns the two above, which stops the
+      -- checker narrowing them.
+      local q, why = decoded, reason
       if q == nil then
-        if not why:find("^url: ") then return false, "refused with " .. why end -- checked: nil_not_allowed*2
+        if not why:find("^url: ") then return false, "refused with " .. why end
         Fuzz.label("refused")
         return true, ""
       end
-      if why ~= "" or #q.pairs > 6 then return false, "decoded with a reason or past the cap" end -- checked: any_use
+      if why ~= "" or #q.pairs > 6 then return false, "decoded with a reason or past the cap" end
       local total = 0
-      for name, values in pairs(q.by_name) do -- checked: any_use
+      for name, values in pairs(q.by_name) do
         if #values == 0 then return false, "empty list for " .. name end
         total = total + #values
       end
-      if total ~= #q.pairs then return false, "by_name and pairs disagree" end -- checked: any_use
+      if total ~= #q.pairs then return false, "by_name and pairs disagree" end
       Fuzz.label("decoded")
       return true, ""
     end,

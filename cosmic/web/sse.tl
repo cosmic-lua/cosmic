@@ -172,7 +172,7 @@ local record Sse
   format_event: function(ev: Event): string
 
   --- A hub with no subscribers and no events kept. Raises for an option
-  --- it does not take or one of the wrong kind.
+  --- out of range.
   new_hub: function(opts?: HubOptions): Hub
 
   --- The `Last-Event-ID` the client sent.
@@ -238,7 +238,7 @@ local function format_event(ev: Sse.Event): string
   end
   local retry = ev.retry
   if retry ~= nil and retry ~= 0 then
-    if math.type(retry) ~= "integer" or retry < 0 then
+    if retry < 0 then
       error("sse: retry must be a positive integer of milliseconds", 2)
     end
     out[#out + 1] = ("retry: %d\n"):format(retry)
@@ -430,39 +430,17 @@ function Body.close(self: Body): boolean, string
   return true, ""
 end
 
-local EVENT_STREAM_FIELDS <const>: {string:boolean} = {
-  heartbeat_ns = true, retry_ms = true, initial = true, headers = true, max_age_ns = true, on_close = true,
-}
-
---- Why `value` is no integer of at least `least`; nil when it is, or nil.
+--- Why `value` is under `least`; nil when it is not, or nil.
 local function not_counted(what: string, value: integer?, least: integer): string?
-  if value ~= nil and (math.type(value) ~= "integer" or value < least) then
+  if value ~= nil and value < least then
     return ("sse: %s must be an integer of at least %d"):format(what, least)
   end
   return nil
 end
 
---- Why `given` is no table or holds a field `known` lacks; nil when fine.
-local function not_checked(given: any, known: {string:boolean}, what: string): string?
-  if given == nil then return nil end
-  if not given is {any:any} then return "sse: " .. what .. " takes a table of options" end -- declared: key_type
-  for key in pairs(given) do -- checked: any_use
-    if not (key is string and known[key] == true) then
-      return ("sse: %s has no option %s"):format(what, tostring(key))
-    end
-  end
-  return nil
-end
-
---- Raises unless `value` is nil or an integer of at least `least`.
+--- Raises unless `value` is nil or at least `least`.
 local function counted(what: string, value: integer?, least: integer)
   local why = not_counted(what, value, least)
-  if why ~= nil then error(why, 3) end
-end
-
---- Raises where `given` is no table or holds a field `known` lacks.
-local function checked(given: any, known: {string:boolean}, what: string)
-  local why = not_checked(given, known, what)
   if why ~= nil then error(why, 3) end
 end
 
@@ -498,7 +476,6 @@ local function event_stream(req: Types.Request, source: Sse.EventSource,
       error(why, 3)
     end
   end
-  bad(not_checked(opts, EVENT_STREAM_FIELDS, "EventStream"))
   local given: Sse.EventStreamOptions = opts or {}
   bad(not_counted("heartbeat_ns", given.heartbeat_ns, 0))
   bad(not_counted("retry_ms", given.retry_ms, 0))
@@ -598,11 +575,6 @@ local record State is Sse.Hub
   close: function(State)
   attach: function(State, app: Types.App)
 end
-
-local HUB_FIELDS <const>: {string:boolean} = {
-  replay = true, queue = true, overflow = true, max_per_topic = true, max_total = true,
-  max_event_bytes = true,
-}
 
 local function topic_of(self: State, name: string): Topic
   local topic = self.topics[name]
@@ -815,10 +787,9 @@ function State.attach(self: State, app: Types.App)
   app:on_stop(function() self:close() end)
 end
 
---- A hub with no subscribers and no events kept. Raises for an option it
---- does not take or one of the wrong kind.
+--- A hub with no subscribers and no events kept. Raises for an option out
+--- of range.
 local function new_hub(opts?: Sse.HubOptions): Sse.Hub
-  checked(opts, HUB_FIELDS, "new_hub")
   local given: Sse.HubOptions = opts or {}
   counted("replay", given.replay, 0)
   counted("queue", given.queue, 1)

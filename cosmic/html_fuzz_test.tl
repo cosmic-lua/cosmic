@@ -185,8 +185,9 @@ end
 --- `?` or `#` without an allowed scheme is refused too.
 local function url_expected(text: string): string
   if not url_is_safe(text) then return "about:invalid" end
-  local head = text:match("^[^/?#]*")
-  if head:find(":", 1, true) ~= nil and scheme_of(text) == nil then return "about:invalid" end -- checked: nil_not_allowed
+  local delimiter = text:find("[/?#]")
+  local head = if delimiter == nil then text else text:sub(1, delimiter - 1) end
+  if head:find(":", 1, true) ~= nil and scheme_of(text) == nil then return "about:invalid" end
   return text
 end
 

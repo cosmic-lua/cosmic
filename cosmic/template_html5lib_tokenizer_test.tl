@@ -19,6 +19,7 @@
 --- (`<textarea>`, `<script>`, `<svg>` and the like) is not checked here,
 --- since the data's tokenizer does not switch: those slots are covered
 --- by the tree-construction test alone.
+local Array = require("cosmic.array")
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
 local Shape = require("cosmic.shape")
@@ -72,17 +73,22 @@ local function is_space(c: string): boolean
   return c == " " or c == "\t" or c == "\n" or c == "\f" or c == "\r"
 end
 
+local record NamedValue
+  name: string
+  value: string
+end
+
 --- The canonical text of a tag token: its name, its attributes in name
 --- order and whether it closes itself.
 local function tag_text(kind: string, name: string, attrs: {string: string}, self: boolean): string
-  local names: mut {string} = {}
-  for k in pairs(attrs) do
-    names[#names + 1] = k
+  local named: mut {NamedValue} = {}
+  for k, v in pairs(attrs) do
+    named[#named + 1] = { name = k, value = v }
   end
-  table.sort(names)
+  table.sort(named, function(a: NamedValue, b: NamedValue): boolean return a.name < b.name end)
   local parts: mut {string} = {}
-  for _, k in ipairs(names) do
-    parts[#parts + 1] = k .. "=" .. attrs[k] -- checked: nil_not_allowed
+  for _, attr in ipairs(named) do
+    parts[#parts + 1] = attr.name .. "=" .. attr.value
   end
   return kind .. ":" .. name .. ":" .. table.concat(parts, "&") .. (if self then ":/" else "" end)
 end
@@ -684,14 +690,17 @@ local STATES <const>: {string: string} = {
 --- The element whose start tag puts the tree builder's tokenizer in the
 --- state, by default and in the ones a case may say its last start tag
 --- was.
-local WRAPPERS <const>: {string: {string: boolean}} = {
-  rcdata = { textarea = true, title = true },
-  rawtext = { xmp = true, iframe = true, noembed = true, noframes = true, style = true },
-  script = { script = true },
-  plaintext = { plaintext = true },
-}
-local DEFAULT_WRAPPER <const>: {string: string} = {
-  rcdata = "textarea", rawtext = "xmp", script = "script", plaintext = "plaintext",
+local record Wrapping
+  --- The element the tree builder is taken to be in by default.
+  default: string
+  --- Every element a case may name as its last start tag.
+  names: {string: boolean}
+end
+local WRAPPERS <const>: {string: Wrapping} = {
+  rcdata = { default = "textarea", names = { textarea = true, title = true } },
+  rawtext = { default = "xmp", names = { xmp = true, iframe = true, noembed = true, noframes = true, style = true } },
+  script = { default = "script", names = { script = true } },
+  plaintext = { default = "plaintext", names = { plaintext = true } },
 }
 
 --- The attributes that take one URL, as the HTML standard lists them: a
@@ -882,12 +891,13 @@ local function check_case(
   -- stands only if its tokens are the same.
   local borrowed = false
   if state ~= "data" then
+    local wrapping = assert(WRAPPERS[state], "STATES names the state " .. state .. ", which WRAPPERS does not")
     local named: string
-    if last ~= nil and WRAPPERS[state][last] then -- checked: nil_not_allowed, or_mix
+    if last ~= nil and wrapping.names[last] then -- checked: or_mix
       named = last
     else
       borrowed = last ~= nil
-      named = DEFAULT_WRAPPER[state] -- checked: index_may_be_nil
+      named = wrapping.default
     end
     last = named
     wrapper = "<" .. named .. ">"
@@ -907,7 +917,9 @@ local function check_case(
   if state ~= "data" then
     from = #input
     for at = 0, #input do
-      if run.states[at + 1]:sub(1, #state) ~= state then -- checked: nil_not_allowed
+      -- `tokenize` pushes one entry for each byte it reads, so `states`,
+      -- `attrs` and `tails` hold `#input + 1` entries.
+      if Array.at(run.states, at + 1):sub(1, #state) ~= state then
         from = at
         break
       end
@@ -934,10 +946,10 @@ local function check_case(
       reach.positions = reach.positions + 1
       if out ~= nil then
         local kind = kind_of(out)
-        local where = run.states[at + 1]
-        local key = where .. "/" .. kind -- checked: nil_not_allowed
+        local where = Array.at(run.states, at + 1)
+        local key = where .. "/" .. kind
         reach.accepted[key] = (reach.accepted[key] or 0) + 1
-        if not allowed(where, kind, run.attrs[at + 1], run.tails[at + 1], last or "") then -- checked: index_may_be_nil*2, nil_not_allowed
+        if not allowed(where, kind, Array.at(run.attrs, at + 1), Array.at(run.tails, at + 1), last or "") then
           table.insert(reach.failures, ("%s (%s): slot %s at %d of %q: tokenizer is in %s"):format(
             description, initial, kind, at, input, where))
         end
