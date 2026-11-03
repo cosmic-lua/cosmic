@@ -87,8 +87,7 @@ function SessionCookie.store(opts: SessionCookie.Options): Session.Store
       if verified == nil then return nil, "" end
       local bytes, _ = Codec.unbase64url(payload)
       if bytes == nil then return nil, "" end
-      local decoded, _ = Json.decode(bytes, { max_depth = DEPTH })
-      local body, _ = Json.to_object(decoded)
+      local body, _ = Json.decode_object(bytes, { max_depth = DEPTH })
       if body == nil then return nil, "" end
       local created, expires = body["c"], body["e"]
       if body["v"] ~= VERSION or not created is integer or not expires is integer then
