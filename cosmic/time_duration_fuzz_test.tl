@@ -5,6 +5,7 @@
 --- accepts formats to text that parses to the same one. `FUZZ_SEED` and
 --- `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
 
+local Array = require("cosmic.array")
 local Fuzz = require("build.fuzz")
 local Time = require("cosmic.time")
 
@@ -26,10 +27,12 @@ local function gen_duration_text(src: Fuzz.Source): string
   while at < 6 and Fuzz.more(src, #parts, 6) do
     at = at + src:int(1, 6 - at)
     local n = tostring(gen_number(src))
-    if units[at] == "s" and src:int(0, 2) == 0 then
+    -- `at` is 1 to 6 here: the loop advances it from 0 by 1 to `6 - at`.
+    local unit = Array.at(units, at)
+    if unit == "s" and src:int(0, 2) == 0 then
       n = n .. "." .. tostring(src:int(0, 999999999))
     end
-    parts[#parts + 1] = n .. units[at] -- checked: nil_not_allowed
+    parts[#parts + 1] = n .. unit
   end
   return table.concat(parts)
 end

@@ -340,7 +340,7 @@ end
 
 local function test_between_spans_the_whole_range()
   local far = assert(Time.between(math.mininteger, math.maxinteger))
-  assert(far.years == 584 and far.months == 6, ("%d %d"):format(far.years, far.months)) -- checked: nil_not_allowed*2
+  assert(far.years == 584 and far.months == 6, ("%s %s"):format(tostring(far.years), tostring(far.months)))
 end
 
 --- What a malformed RFC 3339 or HTTP text is told, by where it goes wrong.

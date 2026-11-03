@@ -32,7 +32,8 @@ local function cat(policy: Sandbox.Policy, file: string): string, integer
     end
     error("the start was refused: " .. why)
   end
-  return result.stdout, result.code or -1 -- checked: nil_not_allowed
+  local out = assert(result.stdout, "stdout = \"capture\" captures it")
+  return out, result.code or -1
 end
 
 local function test_the_system_profile_lets_a_host_program_read_what_is_granted(tmp: string)

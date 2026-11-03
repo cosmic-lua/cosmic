@@ -294,7 +294,11 @@ local field_path, index_path = FieldPath.field, FieldPath.index
 --- What a value is, for a message: the Lua type, with integer and float
 --- told apart, and arrays by their JSON name.
 local function kind_of(v: any): string
-  if v is number then return math.type(v) end -- checked: nil_not_allowed
+  -- A number is an integer or a float, so `math.type` answers.
+  if v is number then
+    local kind = assert(math.type(v), "a number is an integer or a float")
+    return kind
+  end
   if Json.is_array(v) then return "array" end
   return type(v)
 end
