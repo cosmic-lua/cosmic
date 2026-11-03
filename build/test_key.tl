@@ -954,11 +954,10 @@ local function declared_of(rec: Recording, m: Module, id: string, host?: string)
   end
   local key, why = declared_key.compute(digests_of(rec), {
     id = id, group = m.path, runtime = rec.runtime,
-    -- The pure store holds all of the closure a test can observe and its address
-    -- is the digest of what that holds ([`closure_store.address`]); the graph's
-    -- key is over the closure's sources, which a comment moves.
-    module_key = if effective.pure == true then ("pure " .. assert(rec.stores[m.path]))
-      else assert(m.graph_key) end,
+    -- The pure store holds all of the closure a test can observe, and `closure_store` below holds its bytes; the
+    -- graph's key is over the closure's sources, which a comment moves. Its address is no part of the key, as no
+    -- store's is: it holds the writer's salt, which a store of the same bytes does not.
+    module_key = if effective.pure == true then "pure" else assert(m.graph_key) end,
     compiler = (if reads_compiler(rec, m) then rec.compiler else nil end) or "",
     host = host or rec.host, -- checked: nil_not_allowed
     cpu = if effective.cpu_features == true then rec.cpu else nil end,
@@ -1121,7 +1120,7 @@ end
 local function address_stores(rec: Recording, modules: {Module},
                               by_path: {string:Module},
                               declarations: {string:string}): boolean, string
-  local basis, trouble = closure_store.basis(projection_of(rec), rec.pure_store)
+  local basis, trouble = closure_store.basis(projection_of(rec), rec.sandbox)
   if basis == nil then return false, trouble end
   rec.basis = basis
   -- The code that writes a store, and the core that runs it -- SQLite
@@ -1920,17 +1919,12 @@ function test_key.gather(rec: Recording, from: Gather): string?
   rec.type_only = type_only
   -- Only a sandboxed worker is held to the store and the files it is given: unsandboxed, it reads the real tree,
   -- which a key without the imports' sources would not follow.
-  --
-  -- TODO: make the pure store the default (drop this switch) once every test module that fails under it
-  -- (`COSMIC_TEST_PURE_STORE=1 bin/cosmic test`) declares what it reads: `store_text` for one whose subject is
-  -- the text of the store, `reads` for one that reads the source file of a module it imports.
-  rec.pure_store = Env.read("COSMIC_TEST_PURE_STORE") == "1" and rec.sandbox
   for _, m in ipairs(selected_modules) do
     rec.closures[m.path] = test_inputs.modules(m, by_path, declarations, type_only)
   end
   local noexec_probes: mut {string:string} = {}
   for _, m in ipairs(selected_modules) do
-    local effective = test_inputs.effective(m, by_path, declarations, type_only, rec.pure_store)
+    local effective = test_inputs.effective(m, by_path, declarations, type_only, rec.sandbox)
     effective.cache_paths = caches_of(rec, m)
     test_inputs.resolve(effective, tree_roots(rec))
     test_sandbox_probe.resolve_noexec(effective, rec.sandbox, noexec_probes)

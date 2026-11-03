@@ -156,7 +156,7 @@ local record Test
     --- `cosmic.*` sources and declarations from that store: a module the
     --- snippet requires goes in the test's closure
     --- (`local type _ = require(...)`), or the test declares `store`.
-    --- Under `COSMIC_TEST_PURE_STORE=1` the checker reads the stub of a `cosmic.*`
+    --- In a sandboxed run the checker reads the stub of a `cosmic.*`
     --- module the test names with a top-level `local type _ = require(...)` (and of
     --- those that stub requires), which its key holds; no other text is kept: a
     --- test whose subject is a module's docs, places or uses declares `store_text`.

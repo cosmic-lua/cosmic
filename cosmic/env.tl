@@ -73,9 +73,6 @@ local record Env
     "COSMIC_TEST_PLATFORM"
     --- The requirements the CI leg promises.
     "COSMIC_TEST_PROMISES"
-    --- "1" gives a sandboxed test that declares neither `store` nor `store_text` the
-    --- pure store: none of its imported modules' text, keyed by what it holds.
-    "COSMIC_TEST_PURE_STORE"
     --- "0" runs workers unsandboxed, "1" requires a sandbox.
     "COSMIC_TEST_SANDBOX"
     --- For a test of the runner alone: the core the store is keyed to.

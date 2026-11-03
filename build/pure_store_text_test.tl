@@ -1,5 +1,5 @@
 --- A test that type-checks a snippet against the standard library, under the pure store
---- (COSMIC_TEST_PURE_STORE=1, [`build.closure_store`]'s `write`): the store keeps the text the checker
+--- (the sandboxed default, [`build.closure_store`]'s `write`): the store keeps the text the checker
 --- reads of the modules the test requires itself, and of those it follows to type them, so the checker
 --- answers as it does from the whole store, while it withholds the text of every other module.
 
