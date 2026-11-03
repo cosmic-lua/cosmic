@@ -51,12 +51,14 @@ local VECTORS <const>: {string:{string}} = {
 local function test_rfc_4648_vectors_encode_and_decode(_tmp: string)
   for name, texts in pairs(VECTORS) do
     for index, plain in ipairs(PLAIN) do
+      local encoded = texts[index]
+      assert(encoded ~= nil, name .. " has no vector for the plain text at " .. tostring(index))
       local enc = run({ name }, plain)
-      assert(enc.code == 0 and enc.out == texts[index] .. "\n" and enc.err == "", -- checked: nil_not_allowed
+      assert(enc.code == 0 and enc.out == encoded .. "\n" and enc.err == "",
         name .. " " .. plain .. ": " .. enc.out .. enc.err)
-      local dec = run({ name, "-d" }, texts[index])
+      local dec = run({ name, "-d" }, encoded)
       assert(dec.code == 0 and dec.out == plain and dec.err == "",
-        name .. " -d " .. texts[index] .. ": " .. dec.out .. dec.err) -- checked: nil_not_allowed
+        name .. " -d " .. encoded .. ": " .. dec.out .. dec.err)
     end
   end
 end
@@ -430,22 +432,27 @@ local function test_chunked_decoding_equals_the_whole_string_at_every_cut()
   end
 end
 
-local REFUSED <const>: {{string}} = {
-  { "hex", "abc" }, { "hex", "66zz" }, { "hex", "6g6" }, { "hex", "zz6" },
-  { "base64", "Zg" }, { "base64", "Zg=" }, { "base64", "Z=g=" }, { "base64", "Zm9v====" },
-  { "base64", "Zg==Zg==" }, { "base64", "Zh==" }, { "base64", "Zm9-" }, { "base64", "Zm-" },
-  { "base64", "Zg=x" }, { "base64", "Zg\xff=" }, { "base64", "Zm9v\nZm9v" }, { "base64", "Z===" },
-  { "base64", "Zm8=Zm8=" }, { "base64", "=Zm9" }, { "base64", "Zm9vZg==" .. "=" },
-  { "base64url", "Zm9vY" }, { "base64url", "Zg==" }, { "base64url", "Zh" }, { "base64url", "Zm+v" },
-  { "base64url", "Zm9v_\xff" }, { "base64url", "Zm8=" }, { "base64url", "Zm9vZ-8x=" },
+local record Refusal
+  name: string
+  text: string
+end
+
+local REFUSED <const>: {Refusal} = {
+  { name = "hex", text = "abc" }, { name = "hex", text = "66zz" }, { name = "hex", text = "6g6" }, { name = "hex", text = "zz6" },
+  { name = "base64", text = "Zg" }, { name = "base64", text = "Zg=" }, { name = "base64", text = "Z=g=" }, { name = "base64", text = "Zm9v====" },
+  { name = "base64", text = "Zg==Zg==" }, { name = "base64", text = "Zh==" }, { name = "base64", text = "Zm9-" }, { name = "base64", text = "Zm-" },
+  { name = "base64", text = "Zg=x" }, { name = "base64", text = "Zg\xff=" }, { name = "base64", text = "Zm9v\nZm9v" }, { name = "base64", text = "Z===" },
+  { name = "base64", text = "Zm8=Zm8=" }, { name = "base64", text = "=Zm9" }, { name = "base64", text = "Zm9vZg==" .. "=" },
+  { name = "base64url", text = "Zm9vY" }, { name = "base64url", text = "Zg==" }, { name = "base64url", text = "Zh" }, { name = "base64url", text = "Zm+v" },
+  { name = "base64url", text = "Zm9v_\xff" }, { name = "base64url", text = "Zm8=" }, { name = "base64url", text = "Zm9vZ-8x=" },
 }
 
 local function test_a_refusal_says_the_same_at_every_cut()
   for _, case in ipairs(REFUSED) do
-    local name, text = case[1] as codec.Name, case[2] -- checked: cast_refused
-    local bytes, want = whole_decode(name, text) -- checked: nil_not_allowed
-    assert(bytes == nil and want ~= "", name .. " " .. text) -- checked: nil_not_allowed
-    for _, pieces in ipairs(cuts(text)) do -- checked: nil_not_allowed
+    local name, text = case.name as codec.Name, case.text -- checked: cast_refused
+    local bytes, want = whole_decode(name, text)
+    assert(bytes == nil and want ~= "", name .. " " .. text)
+    for _, pieces in ipairs(cuts(text)) do
       local got, why = through(codec.decoder(name), pieces)
       assert(got == nil and why == want,
         ("%s cut %q: %q, want %q"):format(name, table.concat(pieces, "|"), tostring(why), want))
