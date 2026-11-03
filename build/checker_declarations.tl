@@ -11,8 +11,6 @@ local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
--- Declares what text this module reads ([`build.code_walk`]'s `markers`): declarations.
-local _ = require("build.reads.declarations")
 
 local record CheckerDeclarations
   --- The two texts, the prelude and the standard library's declarations.

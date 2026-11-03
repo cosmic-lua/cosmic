@@ -923,6 +923,20 @@ local function closed_pure(): {string}
   }
 end
 
+--- The statements that leave the tables of text-derived rows out of a pure store ([`closure_store.write`]), the
+--- virtual tables first. Each moves with a comment, a blank line or a moved line of the module it describes: `docs`,
+--- `examples`, `links` and `uses` hold its comments, examples and lines, `places` the line and column of each name,
+--- and `catalog` the lines of the error sites its modules document (its `code` rows, the checker's static data, are
+--- of no test that reads module text). `stubs` stays: it holds the rows of the modules a test names
+--- ([`text_kept`]) and the sources withheld otherwise fail ([`Store.withheld`]). The `pure_store` row says so to a
+--- reader that would otherwise answer a missing table as a missing hint ([`build.symbols`]).
+local withheld_tables: {string} = {
+  "DROP TABLE main.docs_fts", "DROP TABLE main.catalog_fts", "DROP TABLE main.examples_fts",
+  "DROP TABLE main.docs", "DROP TABLE main.catalog", "DROP TABLE main.examples", "DROP TABLE main.links",
+  "DROP TABLE main.uses", "DROP TABLE main.places",
+  "INSERT OR REPLACE INTO main.meta (key, value) VALUES ('pure_store', X'31')",
+}
+
 --- Writes at `path` a database holding the projection's `uses` rows
 --- keyed by the module that makes them, for [`closure_store.write`] to
 --- find a closure's by that module: the projection's own table is keyed by
@@ -1056,6 +1070,12 @@ function closure_store.write(whole: string, out: string, names: {string},
         if not ok then return false, failure end
       end
       if own ~= nil then
+        -- The tables of text-derived rows are left out, not left empty: a query of one fails ("no such table")
+        -- rather than answers nothing, so a test that reads text it was not given cannot pass on an empty answer.
+        for _, statement in ipairs(withheld_tables) do
+          local ok, failure = db:exec(statement)
+          if not ok then return false, failure end
+        end
         local held, held_trouble = Sqlite.rows(db,
           "SELECT path, inflate(bytecode) FROM main.modules WHERE path <> ?1 AND path IN temp.wanted", { text(own) })
         if held == nil then return false, held_trouble end

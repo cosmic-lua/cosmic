@@ -13,6 +13,7 @@ local lua_tail = require("build.lua_tail")
 local Lexer = require("lang.lexer")
 local Parser = require("lang.parser")
 local stub = require("build.syntax_stub")
+local symbols = require("build.symbols")
 local work = require("build.work")
 local writer = require("build.writer")
 local support = require("build.test_support_fixture")
@@ -130,9 +131,14 @@ local function test_a_pure_store_holds_no_text(tmp: string)
   assert(count(full, "SELECT count(*) FROM docs") ~= "0", "the plain store has no docs, so this shows nothing")
   assert(count(full, "SELECT count(*) FROM modules WHERE length(source) > 0") == "2")
   local pure = assert(Sqlite.open(tmp .. "/pure.db"))
-  for _, table_name in ipairs({ "docs", "uses", "links", "examples", "catalog", "stubs", "places" }) do
-    assert(count(pure, "SELECT count(*) FROM " .. table_name) == "0", table_name .. " holds rows in the pure store")
+  for _, table_name in ipairs({ "docs", "uses", "links", "examples", "catalog", "places", "docs_fts", "examples_fts",
+      "catalog_fts" }) do
+    local rows, why = Sqlite.text_rows(pure, "SELECT count(*) FROM " .. table_name)
+    assert(rows == nil and why:find("no such table", 1, true) ~= nil,
+      table_name .. " is in the pure store, where a query of it answers nothing and does not fail")
   end
+  assert(count(pure, "SELECT count(*) FROM stubs") == "0", "the stubs a test names are the only ones kept")
+  assert(count(pure, "SELECT count(*) FROM meta WHERE key = 'pure_store'") == "1", "the store does not say it is pure")
   assert(count(pure, "SELECT count(*) FROM modules WHERE length(source) > 0 OR length(source_hash) > 0") == "0",
     "the pure store holds a module's source")
   assert(count(pure, "SELECT count(*) FROM modules") == "2")
@@ -146,6 +152,11 @@ local function test_a_pure_store_holds_no_text(tmp: string)
     "an imported module's bytecode is not stripped of its debug information")
   assert(bytecode(pure, "greet") ~= imported, "the build's bytecode carried no debug information, so this shows nothing")
   assert(bytecode(pure, "greet_test") == bytecode(full, "greet_test"), "the test's own bytecode was stripped")
+  -- A hint asked of the pure store raises, and of the full one answers: no match is not an answer of a store without the table.
+  local ok, why = pcall(symbols.named, { pure }, { false }, "wave")
+  assert(not ok and tostring(why):find("withheld", 1, true) ~= nil, "a hint of a pure store was answered with no match")
+  local found = symbols.named({ full }, { false }, "wave")
+  assert(#found == 1 and found[1] == "greet.wave", "the full store answered " .. table.concat(found, " "))
   assert(full:close())
   assert(pure:close())
 end
@@ -239,7 +250,8 @@ local function test_a_pure_store_keeps_the_stubs_of_the_modules_its_test_names(t
   assert(count("SELECT count(*) FROM modules WHERE length(source) > 0 OR length(source_hash) > 0") == "0",
     "the pure store holds a module's source")
   for _, table_name in ipairs({ "docs", "uses", "links", "examples", "catalog", "places" }) do
-    assert(count("SELECT count(*) FROM " .. table_name) == "0", table_name .. " holds rows in the pure store")
+    local rows, why = Sqlite.text_rows(db, "SELECT count(*) FROM " .. table_name)
+    assert(rows == nil and why:find("no such table", 1, true) ~= nil, table_name .. " is in the pure store")
   end
   assert(db:close())
   local _, bare = texted_store(tmp .. "/b", tmp, "bare", none, false)
@@ -329,12 +341,15 @@ local function walked(root: string, out: string, edits: {string:string})
   put("build/reads/pipeline", "--- @public\nlocal record reads\n  reads: string\nend\nlocal declared: reads = { reads = \"pipeline\" }\nreturn declared\n")
   put("build/helper", "local record helper\nend\nfunction helper.name(): string\n  return \"helper\"\nend\nreturn helper\n")
   put("build/paths", "local record paths\nend\nfunction paths.name(): string\n  return \"paths\"\nend\nreturn paths\n")
+  put("build/typed", "local record typed\nend\nreturn typed\n")
   put("build/pipeline", table.concat({
     'local helper = require("build.helper")',
+    'local type typed = require("build.typed")',
     'local _ = require("build.reads.pipeline")',
     "local record pipeline",
     "end",
     "function pipeline.name(): string",
+    "  local _: typed? = nil",
     "  return helper.name()",
     "end",
     "return pipeline",
@@ -378,6 +393,11 @@ local function test_a_pure_store_keeps_the_sources_of_the_walks_its_closure_decl
   end
   assert(sourced(store, "build.pipeline") and sourced(store, "build.helper"), "the walk's sources are kept")
   assert(not sourced(store, "build.paths"), "an import outside the walk keeps no source")
+  -- A module the walk reaches by a type alone is no part of the closure: its source is kept, its code is not, so
+  -- requiring it finds a chunk that does not load and not a module that runs.
+  assert(sourced(store, "build.typed"), "a module the walk reaches by a type alone keeps no source")
+  local code = assert(Sqlite.text_rows(store, "SELECT length(bytecode) FROM modules WHERE path = 'build.typed'"))
+  assert(support.nth(code, 1):text(1) == "0", "a module outside the closure keeps its code")
   assert(not sourced(store, "walk_test"), "the test's own source is not kept")
   assert(store:close())
   local outside, outside_store = walk_store(tmp .. "/b", tmp, "outside", { ["build/paths"] = "-- a comment" })
@@ -386,6 +406,9 @@ local function test_a_pure_store_keeps_the_sources_of_the_walks_its_closure_decl
   local inside, inside_store = walk_store(tmp .. "/c", tmp, "inside", { ["build/helper"] = "-- a comment" })
   assert(inside ~= plain, "a comment in a module of the walk left the address as it was")
   assert(inside_store:close())
+  local typed, typed_store = walk_store(tmp .. "/e", tmp, "typed", { ["build/typed"] = "-- a comment" })
+  assert(typed ~= plain, "a comment in a module the walk reaches by a type alone left the address as it was")
+  assert(typed_store:close())
   local root, root_store = walk_store(tmp .. "/d", tmp, "root", { ["build/pipeline"] = "-- a comment" })
   assert(root ~= plain and root ~= inside, "a comment in the walk's root left the address as it was")
   assert(root_store:close())

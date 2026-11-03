@@ -500,6 +500,8 @@ local J = require("cosmic.json")
 local H = require("cosmic.hash")
 local S = require("cosmic.store")
 local Sqlite = require("cosmic.sqlite")
+-- Declares what text this module reads ([`build.code_walk`]'s `markers`): the docs, examples, uses or links of the database it is handed.
+local _ = require("build.reads.all")
 local c = assert(A.trusted_core())
 local basis = S.meta("runtime_basis") or ""
 local boot = S.meta("boot_hash") or ""

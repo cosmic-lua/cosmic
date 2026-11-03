@@ -72,8 +72,8 @@ local worker = require("build.test_worker")
 local log = require("build.logger").log
 local bind = require("build.bind")
 local type State = require("build.test_state")
--- Declares what text this module reads ([`build.code_walk`]'s `markers`): the stubs the sealed program's digest holds.
-local _ = require("build.reads.stubs")
+-- Declares what text this module reads ([`build.code_walk`]'s `markers`): the stubs and places the sealed program's digest holds.
+local _ = require("build.reads.all")
 
 local record test_key
   --- What of the running binary a run holds of the code a worker runs,
@@ -1490,9 +1490,15 @@ local function write_sealed(sealing: Sealing, store: string, whole: string, out:
       if held == nil then return false, held_trouble end
       local absent: mut {string:boolean} = { web_assets = true, stubs = true, places = true }
       for _, row in ipairs(held) do absent[row:text(1)] = nil end
+      -- A pure closure store leaves out the tables of text-derived rows ([`build.closure_store`]'s `write`).
+      local carried, carried_trouble = Sqlite.text_rows(db,
+        "SELECT name FROM closure.sqlite_master WHERE name = 'places'")
+      if carried == nil then return false, carried_trouble end
+      local left_out = #carried == 0
       for _, statement in ipairs(sealed_fill) do
         local reads = statement:match("program%.([%w_]+)")
-        if reads == nil or absent[reads] ~= true then
+        local from_closure = statement:match("closure%.([%w_]+)")
+        if (reads == nil or absent[reads] ~= true) and not (left_out and from_closure == "places") then
           local done, done_trouble = db:exec(statement)
           if not done then return false, done_trouble end
         end

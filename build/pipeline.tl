@@ -55,7 +55,6 @@ local type Plans = require("build.plans")
 local type Derivation = require("build.derivation")
 -- Declares what text this module reads ([`build.code_walk`]'s `markers`): pipeline, stubs.
 local _ = require("build.reads.pipeline")
-local _ = require("build.reads.stubs")
 local type Module = Plans.Module
 
 local record Pipeline

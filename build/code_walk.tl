@@ -75,7 +75,7 @@ local type_only <const>: {string:string} = {
 
 local markers <const>: {string:string} = {
   ["build.reads.pipeline"] = pipeline, ["build.reads.analyzer"] = analyzer, ["build.reads.receivers"] = receivers, ["build.reads.links"] = links,
-  ["build.reads.stubs"] = "stubs", ["build.reads.declarations"] = "declarations", ["build.reads.all"] = "all",
+  ["build.reads.all"] = "all",
 }
 
 local function roots_of(which: string): {string}
