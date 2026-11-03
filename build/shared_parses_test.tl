@@ -106,10 +106,14 @@ local function test_a_boot_takes_only_the_parses_its_own_analyzer_made(tmp: stri
   assert(taken.parsed == 0 and taken.shared == count, tostring(taken.parsed) .. " " .. tostring(taken.shared))
   assert(taken_named == named and taken_rows == rows, taken_rows .. "\n--\n" .. rows)
   assert(rows:find("globals 1\n", 1, true) ~= nil, rows)
+  -- A comment in an analyzer module is no edit to the analyzer: the name is as it was.
+  analyzer_checkout(tmp .. "/commented", { ["build/thing.tl"] = analyzer_source("build/thing.tl") .. "-- edited\n" })
+  local _, commented_named = boot(tmp .. "/commented", path)
+  assert(commented_named == named, "a comment in an analyzer module moved the name of the analyzer")
   -- An analyzer module edited that no root is: the roots' parses are
   -- the cache's, but the rows they name the analyzer by reach the edit,
   -- so the name is another, and nothing is taken.
-  local edited = { ["build/thing.tl"] = analyzer_source("build/thing.tl") .. "-- edited\n" }
+  local edited = { ["build/thing.tl"] = (analyzer_source("build/thing.tl"):gsub("thing.n = 2", "thing.n = 3")) }
   analyzer_checkout(tmp .. "/edited", edited)
   local declined, declined_named, declined_rows = boot(tmp .. "/edited", path)
   assert(declined.parsed == count and declined.shared == 0,
@@ -188,7 +192,7 @@ local function test_a_boot_the_cache_knows_nothing_of_parses_the_tree(tmp: strin
   analyzer_checkout(tmp .. "/first", { ["build/other.tl"] = "local x = 1\nreturn x\n" })
   local _, named = boot(tmp .. "/first", path)
   analyzer_checkout(tmp .. "/second", {
-    ["build/derivation.tl"] = analyzer_source("build/derivation.tl") .. "-- another\n",
+    ["build/derivation.tl"] = (analyzer_source("build/derivation.tl"):gsub("ast.n %+ thing.n", "ast.n + thing.n + 1")),
   })
   local parses, second_named = boot(tmp .. "/second", path)
   assert(parses.shared == 0 and second_named ~= named)
