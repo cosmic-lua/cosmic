@@ -16,8 +16,8 @@ local function test_a_tcp_listener_at_port_zero_names_the_port_it_has()
   assert(address.kind == "tcp" and address.host == "127.0.0.1", address.host)
   local listening = assert(address.port)
   assert(listening > 0 and listening <= 65535, tostring(listening))
-  local client <close> = assert(Net.connect(address, { timeout_ns = Clock.seconds(5) })) -- checked: close_not_closable
-  local accepted <close> = assert(server:accept()) -- checked: close_not_closable
+  local client <close> = assert(Net.connect(address, { timeout_ns = Clock.seconds(5) }))
+  local accepted <close> = assert(server:accept())
   assert(client:write("ping"))
   assert(client:shutdown("write"))
   assert(assert(Stream.read_all(accepted)) == "ping")
@@ -163,7 +163,7 @@ local function test_a_server_names_what_it_bound_and_serves_every_listener(tmp: 
       bound = addresses
       assert(server.addresses == addresses)
       for _, address in ipairs(addresses) do
-        local conn <close> = assert(Net.connect(address, { timeout_ns = Clock.seconds(5) })) -- checked: close_not_closable
+        local conn <close> = assert(Net.connect(address, { timeout_ns = Clock.seconds(5) }))
         assert(conn:write(address.kind .. "\n"))
         local appended = assert(Stream.lines(conn):read())
         answers[#answers + 1] = appended
@@ -192,7 +192,7 @@ local function test_a_server_names_what_it_bound_and_serves_two_tcp_listeners()
       bound = addresses
       assert(server.addresses == addresses)
       for _, address in ipairs(addresses) do
-        local conn <close> = assert(Net.connect(address, { timeout_ns = Clock.seconds(5) })) -- checked: close_not_closable
+        local conn <close> = assert(Net.connect(address, { timeout_ns = Clock.seconds(5) }))
         assert(conn:write(address.kind .. "\n"))
         local appended = assert(Stream.lines(conn):read())
         answers[#answers + 1] = appended

@@ -176,7 +176,7 @@ local record Relay
     --- addresses a grant names literally and the upstream's, and, where a
     --- grant names a host the relay reaches directly, it is public
     --- ([`Net.connector`]'s `public`) for the addresses those names
-    --- resolve to. [`Net.Connector.connect`] asks the table first, so an
+    --- resolve to. A [`Net.Connector`]'s `connect` asks the table first, so an
     --- address the table holds is reached whatever the public lists refuse.
     mut connector?: Net.Connector
     --- Told why the first time a request finds the connector has ended:

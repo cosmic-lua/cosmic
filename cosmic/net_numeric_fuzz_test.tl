@@ -40,7 +40,7 @@ local function test_numeric_hosts_match_the_strict_syntax_before_binding(tmp: st
       local expected = dotted_quad(host)
       local bound, why = Udp.bind(host, 0)
       if bound ~= nil then
-        Udp.close(bound)
+        bound:close()
         if not expected then return false, "bound an invalid numeric host" end
         Fuzz.label("bound")
       else

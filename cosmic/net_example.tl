@@ -20,8 +20,8 @@ local Example = {} -- checked: literal_needs_type
 function Example.listen()
   do
     local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Clock.seconds(5) }))
-    local client <close> = assert(Net.connect(server.address)) -- checked: close_not_closable
-    local conn <close> = assert(server:accept()) -- checked: close_not_closable
+    local client <close> = assert(Net.connect(server.address))
+    local conn <close> = assert(server:accept())
     assert(client:write("ping\n"))
     local line = assert(Stream.lines(conn):read())
     print(line)
@@ -29,30 +29,26 @@ function Example.listen()
   end
 end
 
--- TODO: hold these in `<close>` locals once a Conn is a class the checker
--- finds `__close` on (the `close_not_closable` markers of this file).
-
 --- A request and its answer: `shutdown("write")` tells the server the
 --- request is whole while the client still reads what comes back. This
 --- suits a request that ends at end of file. After a framed request (HTTP,
 --- a length prefix) do not half-close: a server may take the half-close as
 --- the client closing and answer nothing. For HTTP over a unix socket use
---- [`Http.request`] with `via`. Each end is closed by hand: the checker
---- refuses `<close>` on a [`Net.Conn`].
+--- [`Http.request`] with `via`. The server's end is closed when its block
+--- ends, which the client's read of the answer waits for.
 function Example.connect()
-  local server = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Clock.seconds(5) }))
-  local client = assert(Net.connect(server.address, { timeout_ns = Clock.seconds(5) }))
+  local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Clock.seconds(5) }))
+  local client <close> = assert(Net.connect(server.address, { timeout_ns = Clock.seconds(5) }))
   assert(client:write("status"))
   assert(client:shutdown("write"))
-  local conn = assert(server:accept())
-  local request = assert(Stream.read_all(conn))
-  assert(conn:write(if request == "status" then "ok" else "unknown" end))
-  assert(conn:close())
+  do
+    local conn <close> = assert(server:accept())
+    local request = assert(Stream.read_all(conn))
+    assert(conn:write(if request == "status" then "ok" else "unknown" end))
+  end
   local answer = assert(Stream.read_all(client))
   print(answer)
   assert(answer == "ok", answer)
-  assert(client:close())
-  assert(server:close())
 end
 
 --- A TCP server on the loopback at a port the kernel chose, which the
@@ -60,8 +56,8 @@ end
 function Example.tcp()
   local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Clock.seconds(5) }))
   print(assert(server.address.port) > 0)
-  local client <close> = assert(Net.connect(server.address, { timeout_ns = Clock.seconds(5) })) -- checked: close_not_closable
-  local conn <close> = assert(server:accept()) -- checked: close_not_closable
+  local client <close> = assert(Net.connect(server.address, { timeout_ns = Clock.seconds(5) }))
+  local conn <close> = assert(server:accept())
   assert(client:write("hello"))
   assert(assert(conn:read()) == "hello")
 end
@@ -82,8 +78,8 @@ function Example.accept()
         end)
       end
     end)
-    local quiet <close> = assert(Net.connect(server.address, { timeout_ns = Clock.seconds(5) })) -- checked: close_not_closable
-    local client <close> = assert(Net.connect(server.address, { timeout_ns = Clock.seconds(5) })) -- checked: close_not_closable
+    local quiet <close> = assert(Net.connect(server.address, { timeout_ns = Clock.seconds(5) }))
+    local client <close> = assert(Net.connect(server.address, { timeout_ns = Clock.seconds(5) }))
     assert(client:write("world\n"))
     local greeting = assert(Stream.lines(client):read())
     print(greeting)
@@ -107,7 +103,7 @@ function Example.serve()
       for line in lines:each() do assert(conn:write(line .. "\n")) end
     end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
-      local client <close> = assert(Net.connect(assert(addresses[1]), { timeout_ns = Clock.seconds(5) })) -- checked: close_not_closable
+      local client <close> = assert(Net.connect(assert(addresses[1]), { timeout_ns = Clock.seconds(5) }))
       assert(client:write("hello\n"))
       local answer = assert(Stream.lines(client):read())
       print(answer)

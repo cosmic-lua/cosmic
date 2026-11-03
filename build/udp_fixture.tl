@@ -8,16 +8,29 @@ local type raw_socket = require("cosmic.internal.socket")
 
 local raw = require("cosmic.internal.socket")
 
-local record udp_fixture
-  --- A UDP socket bound by [`udp_fixture.bind`].
-  record Bound
-    --- Where it is bound, with the port the kernel chose for port 0.
-    address: raw_socket.Address
-    socket: raw_socket.Socket
-    fd: integer
-    mut open: boolean
-    __close: function(Bound)
+--- A UDP socket bound by [`udp_fixture.bind`]. A class, so a `<close>` local holds one.
+local class Bound
+  --- Where it is bound, with the port the kernel chose for port 0.
+  address: raw_socket.Address
+  socket: raw_socket.Socket
+  fd: integer
+  mut open: boolean
+
+  --- Closes it, ending a wait on it. Safe to call more than once.
+  function close(self)
+    if not self.open then return end
+    self.open = false
+    Poll.closing(self.fd)
+    local _, _ = self.socket:close()
   end
+
+  function __close(self)
+    self:close()
+  end
+end
+
+local record udp_fixture
+  type Bound = Bound
 
   --- What a DNS query asks, as [`udp_fixture.question`] reads it.
   record Asked
@@ -28,16 +41,6 @@ local record udp_fixture
     after: integer
   end
 end
-
---- Closes `bound`, ending a wait on it. Safe to call more than once.
-function udp_fixture.close(bound: udp_fixture.Bound)
-  if not bound.open then return end
-  bound.open = false
-  Poll.closing(bound.fd)
-  local _, _ = bound.socket:close()
-end
-
-local bound_mt: metatable<udp_fixture.Bound> = { __close = udp_fixture.close } -- checked: literal_missing
 
 --- Binds a UDP socket at `host` and `port` (0 for one the kernel chooses),
 --- or answers nil and why not: a name is never looked up, which the
@@ -53,9 +56,7 @@ function udp_fixture.bind(host: string, port: integer): udp_fixture.Bound?, stri
     local _, _ = socket:close()
     return nil, trouble
   end
-  local bound: udp_fixture.Bound = setmetatable({ -- checked: arms_differ, setmetatable_call -- untyped: call
-    address = address, socket = socket, fd = socket:fd(), open = true,
-  }, bound_mt)
+  local bound: Bound = { address = address, socket = socket, fd = socket:fd(), open = true }
   return bound, ""
 end
 

@@ -305,9 +305,9 @@ end
 local function test_a_port_rule_and_udp(tmp: string)
   SeatbeltFixture.macos_only()
   local report = new_report()
-  local allowed <close> = assert(Udp.bind("127.0.0.1", 0)) -- checked: close_not_closable
+  local allowed <close> = assert(Udp.bind("127.0.0.1", 0))
   local allowed_port = port_of(allowed.address)
-  local other <close> = assert(Udp.bind("127.0.0.1", 0)) -- checked: close_not_closable
+  local other <close> = assert(Udp.bind("127.0.0.1", 0))
   local other_port = port_of(other.address)
   local text = profile(BASE, forms(allowed_port)[1].lines) -- checked: nil_not_allowed
   local bare = profile(BASE, {})
@@ -324,7 +324,7 @@ local function test_a_port_rule_and_udp(tmp: string)
   if v6 ~= nil then
     table.insert(report, "udp [::1]:" .. tostring(allowed_port) .. " (rule's number): " ..
         udp_arrives(v6, text, tmp, allowed_port, "::1"))
-    Udp.close(v6)
+    v6:close()
   else
     report[#report + 1] = "udp ::1: no socket to send to"
   end

@@ -42,7 +42,6 @@
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Poll = require("cosmic.poll")
-local sys = require("cosmic.sys")
 local errors = require("cosmic.internal.errors")
 local Resolv = require("cosmic.internal.relay_resolv")
 local Connection = require("cosmic.internal.connection")
@@ -55,138 +54,16 @@ local type raw_socket = require("cosmic.internal.socket")
 
 local raw = require("cosmic.internal.socket")
 
-local DEFAULT_READ <const> = 64 * 1024
+local waited = Connection.waited
 
-local waited = Leaf.waited
-
--- How a connection or a listener is made. Each is a record of its own
--- ([`SocketConn`], [`SocketListener`]) implementing the public interface it
--- answers, so one costs one table and no closure: its methods are defined
--- once, on the record, which an object reaches through `__index`, and its
--- state is in fields. The note on how an object is made in
+-- How a listener is made: a class ([`SocketListener`]) implementing the public
+-- interface it answers, so one costs one table and no closure: its methods are
+-- defined once, on the class, which an object reaches through `__index`, and
+-- its state is in fields. (A connection is the class [`Connection.Conn`] of
+-- cosmic/internal/connection.tl.) The note on how an object is made in
 -- cosmic/stream.tl says why Teal makes the public types interfaces. One
 -- dropped unclosed needs no __gc: its socket, which only the object
 -- holds, is closed by the collector.
-
-local class SocketConn is Connection.Conn -- declared: interface_disagrees
-  socket: raw_socket.Socket
-  fd: integer
-  mut open: boolean
-  -- Set by [`set_timeout`], and read by each wait, so a change reaches a
-  -- wait the next read or write starts. Nil for no limit.
-  mut limit?: integer
-  -- Each direction's sticky failure, "" until one: once a read or a
-  -- write fails for good, every later one of it says so.
-  mut read_failure: string
-  mut write_failure: string
-
-  function set_timeout(self, wait_ns: integer?)
-    Poll.checked_ns(wait_ns, "net", "timeout_ns", 2)
-    self.limit = wait_ns
-  end
-
-  -- TODO: make a Conn's `read` and `write` the Reader and Writer
-  -- Stream.from_fd and Stream.to_fd answer over the socket
-  -- ({ nonblocking = true, timeout_ns }), collapsing the write loop here into
-  -- theirs, once the TODO in `waited` (cosmic/internal/connector.tl) is done: a wait outside a task here
-  -- ends at a signal a Signal.guard caught ("interrupted", which net_test's
-  -- cases hold), which Poll.wait cannot see. Their `wait` option could
-  -- carry `waited`, but `write` also sends through raw.send, which never
-  -- raises SIGPIPE where sys.write may, and reads the timeout [`set_timeout`]
-  -- changes on every call, which an option fixes when the object is made.
-  function read(self, max_bytes?: integer): string?, string
-    if max_bytes ~= nil and max_bytes <= 0 then
-      error("net: read's max_bytes must be positive", 2)
-    end
-    if not self.open then return nil, "net: the connection is closed" end
-    if self.read_failure ~= "" then return nil, self.read_failure end
-    local fd = self.fd
-    while true do
-      local data, why, errno = sys.read(fd, max_bytes or DEFAULT_READ)
-      if data == "" then return nil, "" end
-      if data ~= nil then return data, "" end
-      if errno ~= raw.EAGAIN then
-        self.read_failure = why
-        return nil, why
-      end
-      -- Nothing was taken: a deadline or a signal leaves the next
-      -- read to try again.
-      local ready, waiting = waited(fd, false, self.limit)
-      if not ready then return nil, waiting end
-      -- Another task may have closed the connection while this one
-      -- waited in a run, and its descriptor gone to another socket.
-      if not self.open then return nil, "net: the connection is closed" end
-    end
-  end
-
-  function write(self, data: string): boolean, string
-    if not self.open then return false, "net: the connection is closed" end
-    if self.write_failure ~= "" then return false, self.write_failure end
-    local fd = self.fd
-    local from = 1
-    while from <= #data do
-      local sent, why, errno = raw.send(fd, data, from)
-      if sent ~= nil then
-        from = from + sent
-      elseif errno ~= raw.EAGAIN then
-        self.write_failure = why
-        return false, why
-      else
-        local ready, waiting = waited(fd, true, self.limit)
-        if not ready then
-          self.write_failure = waiting
-          return false, waiting
-        end
-        if not self.open then return false, "net: the connection is closed" end
-      end
-    end
-    return true, ""
-  end
-
-  function peer(self): raw_socket.Address?, string
-    if not self.open then return nil, "net: the connection is closed" end
-    local address, why = raw.peer(self.fd)
-    if address == nil then return nil, why end
-    return address, ""
-  end
-
-  function shutdown(self, how: Connection.Shutdown): boolean, string
-    -- The type refuses a wrong `how` in checked code; this is for a caller
-    -- the checker does not read.
-    if how ~= "read" and how ~= "write" and how ~= "both" then
-      error("net: how must be \"read\", \"write\" or \"both\"", 2)
-    end
-    if not self.open then return false, "net: the connection is closed" end
-    local ok, why = raw.shutdown(self.fd, how)
-    if not ok then return false, why end
-    return true, ""
-  end
-
-  function close(self): boolean, string
-    if not self.open then return true, "" end
-    self.open = false
-    Poll.closing(self.fd)
-    local ok, why = self.socket:close()
-    if not ok then return false, why end
-    return true, ""
-  end
-
-  function abort(self): boolean, string
-    return self:close()
-  end
-
-  function __close(self)
-    local _, _ = self:close()
-  end
-end
-
---- The connection over `socket`.
-local function new_conn(socket: raw_socket.Socket, timeout_ns: integer?): SocketConn
-  local conn: SocketConn = {
-    socket = socket, fd = socket:fd(), open = true, limit = timeout_ns,
-    read_failure = "", write_failure = "" }
-  return conn
-end
 
 --- What `address` is called in a failure: its path, or its host and
 --- port, an IPv6 host in brackets.
@@ -230,7 +107,7 @@ local class SocketListener
     local fd = self.fd
     while true do
       local connection, why, errno = raw.accept(fd)
-      if connection ~= nil then return new_conn(connection, self.limit), "" end
+      if connection ~= nil then return Connection.new(connection, self.limit), "" end
       if errno ~= raw.EAGAIN then return nil, why end
       local ready, waiting = waited(fd, false, wait_ns)
       if not ready then return nil, waiting end
@@ -266,17 +143,17 @@ local record Net
   --- it.
   type Conn = Connection.Conn
 
-  --- The direction [`Conn.shutdown`] ends: "read", "write" or "both".
+  --- The direction a [`Conn`]'s `shutdown` ends: "read", "write" or "both".
   type Shutdown = Connection.Shutdown
 
-  --- What [`Net.connect`] and [`Connector.connect`] take.
+  --- What [`Net.connect`] and a [`Connector`]'s `connect` take.
   type ConnectOptions = Connection.ConnectOptions
 
   --- Connects to numeric TCP addresses through the sandbox's native
   --- connector process, answered by [`Net.connector`]: a process confined
   --- to the endpoints it was given and, if so made, to a public list,
   --- which connects a socket and passes it back over a private stream.
-  type Connector = Connection.Connector
+  type Connector = Leaf.Served
 
   record ListenOptions
     --- How long `accept` waits, in nanoseconds, from 0; nil for no
@@ -783,7 +660,7 @@ function Net.connect(address: Net.Address, opts?: Net.ConnectOptions): Net.Conn?
   if socket == nil then
     return nil, named(address) .. ": " .. said(assert(attempt.trouble), assert(attempt.errno), address)
   end
-  return new_conn(socket, timeout_ns), ""
+  return Connection.new(socket, timeout_ns), ""
 end
 
 resolved_through = function(name: string, opts: Net.ResolveOptions): {Net.Resolved}?, string
@@ -866,7 +743,7 @@ end
 --- table past the limit raises.
 ---
 --- With `opts.public` the process also connects to any numeric address
---- the endpoints lack, which [`Connector.connect`] asks it for by address
+--- the endpoints lack, which a [`Connector`]'s `connect` asks it for by address
 --- and port: public-only with no endpoints, mixed with some. The process
 --- judges the address itself, with the lists
 --- `public` carries -- `deny`, the numeric "address/bits" prefixes it
@@ -888,7 +765,7 @@ function Net.connector(endpoints: {Net.Endpoint}, opts?: Net.ConnectorOptions): 
   return Leaf.connector(Leaf.checked_endpoints(endpoints, public ~= nil, 2), timeout_ms, public)
 end
 
-Leaf.register(new_conn, address_trouble)
+Leaf.register(address_trouble)
 
 --- The fields a [`Net.ServeSpec`] may hold, so a misspelt one raises
 --- rather than being ignored.
@@ -1040,7 +917,7 @@ local function serve_conn(s: Serving, conn: Net.Conn) -- checked: not_assigned
   s.open = s.open + 1
   local task: Poll.Task?
   task = Poll.spawn(function()
-    local held <close> = conn -- checked: close_not_closable
+    local held <close> = conn
     local ok, trouble: boolean, any = xpcall(s.spec.serve, traced, held) -- checked: any_use
     local _, _ = held:close()
     s.open = s.open - 1
@@ -1059,7 +936,7 @@ local function accept_loop(s: Serving, a: Accepting)
     local socket, why, errno = raw.accept(a.fd)
     if socket ~= nil then
       a.failing = 0
-      serve_conn(s, new_conn(socket, s.spec.timeout_ns))
+      serve_conn(s, Connection.new(socket, s.spec.timeout_ns))
     elseif errno == raw.EAGAIN then
       a.failing = 0
       -- `stop` cancels this wait, as it does the pause below.
