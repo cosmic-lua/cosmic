@@ -548,14 +548,35 @@ local function test_a_suite_stands_on_verdicts_in_a_push_or_merge_queue()
     "a merge queue run with a base and a harness change")
 end
 
---- ci.yml names the merge queue's base for a platform job (COSMIC_CI_BASE_SHA), which the format check holds
---- the markers of the tree against.
-local function test_the_platform_job_names_the_merge_queue_base()
+--- ci.yml holds the markers of the tree to the merge base with main in every job that runs the format check (the platform leg
+--- that runs it, and `format`): a step finds it (driver.tl ceilings-base, with the queue's base_ref) and another names it
+--- COSMIC_CEILINGS_BASE. No job names the queue's own base for the markers: merge_group.base_sha is the entry ahead, whose markers
+--- the commit already holds, so a marker one entry adds would pass the entries behind it.
+local function test_the_format_check_holds_the_markers_to_the_merge_base_with_main_not_the_queues_base()
   local text = assert(Fs.read(Test.parent(".github/workflows/ci.yml")))
-  local platform = assert(CiWorkflow.parse(text).jobs["platform"])
-  local env = assert(platform.env)
-  assert(env["COSMIC_CI_BASE_SHA"] == "${{ github.event.merge_group.base_sha || needs.scope.outputs.base }}",
-    "ci.yml's platform job names no merge queue base: " .. tostring(env["COSMIC_CI_BASE_SHA"]))
+  local workflow = CiWorkflow.parse(text)
+  for _, name in ipairs({ "platform", "format" }) do
+    local job = assert(workflow.jobs[name], name)
+    local found = false
+    local named = false
+    for _, step in ipairs(job.steps or {}) do
+      local env = step.env or {}
+      if step.id == "ceilings-base" then
+        found = true
+        assert(step.run == "cosmic-driver cosmic_ci/driver.tl ceilings-base", name .. ": " .. tostring(step.run))
+        assert(env["BASE_REF"] == "${{ github.event.merge_group.base_ref }}" and env["QUEUE_BASE"] == nil,
+          name .. ": the step does not ask for the merge base with the queue's branch, or takes the queue's base")
+      end
+      if step.run ~= nil and step.run:find("COSMIC_CEILINGS_BASE", 1, true) ~= nil then
+        named = true
+        assert(env["BASE"] == "${{ steps.ceilings-base.outputs.sha }}", name .. ": COSMIC_CEILINGS_BASE is named from " ..
+            tostring(env["BASE"]))
+      end
+    end
+    assert(found and named, name .. " names no base for the markers")
+    local env = job.env or {}
+    assert(env["COSMIC_CEILINGS_BASE"] == nil, name .. " sets COSMIC_CEILINGS_BASE in its environment")
+  end
 end
 
 --- The portable suite keeps its verdicts in the native suite's file,
