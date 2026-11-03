@@ -162,7 +162,8 @@ local function test_a_pure_store_holds_no_text(tmp: string)
   local no_guidance, no_guidance_why = pcall(errors.guidance_in, pure, "the file could not be opened for reading here")
   assert(not no_guidance and tostring(no_guidance_why):find("withheld", 1, true) ~= nil,
     "a lookup of guidance in a pure store was answered with none")
-  assert(pcall(errors.guidance_in, full, "the file could not be opened for reading here"), "the full store raised")
+  -- The full store answers (with no guidance, or some) and does not raise.
+  local _ = errors.guidance_in(full, "the file could not be opened for reading here")
   local found = symbols.named({ full }, { false }, "wave")
   assert(#found == 1 and found[1] == "greet.wave", "the full store answered " .. table.concat(found, " "))
   assert(full:close())
