@@ -1,3 +1,4 @@
+local Array = require("cosmic.array")
 --- [`Store.closure`] and [`Store.seal`], over databases of the test's own
 --- attached ahead of the binary's, and the binary's for what only it
 --- carries. It reads the store's handles ([`Store.databases()`]), as
@@ -132,7 +133,7 @@ local function count_of(path: string, table_name: string): integer
   local db = assert(Sqlite.open(path))
   local rows = assert(Sqlite.text_rows(db, "SELECT count(*) FROM " .. table_name))
   assert(db:close())
-  return math.tointeger(rows[1]:text(1)) as integer -- checked: cast_refused, nil_not_allowed
+  return math.tointeger(Array.at(rows, 1):text(1)) as integer -- checked: cast_refused
 end
 
 --- Two seals of one set, even in another order or with a name twice,
@@ -166,7 +167,7 @@ local function test_seal_holds_exactly_the_named_modules(tmp: string)
   assert(meta.runtime_basis ~= nil and meta.runtime_basis == Store.meta("runtime_basis")) -- checked: map_field*2
   assert(count_of(path, "zoneinfo") == 0 and count_of(path, "ca_roots") == 0)
   local keys = assert(Sqlite.text_rows(assert(Sqlite.open(path)), "SELECT hex(key) FROM modules"))
-  assert(keys[1]:text(1) == "", "a module's compile key is not carried") -- checked: nil_not_allowed
+  assert(Array.at(keys, 1):text(1) == "", "a module's compile key is not carried")
 end
 
 --- The binary's modules are copied from the binary, not from an
@@ -184,7 +185,7 @@ local function test_seal_takes_a_reserved_name_from_the_binary(tmp: string)
   local db = assert(Sqlite.open(path))
   local rows = assert(Sqlite.text_rows(db, "SELECT inflate(bytecode) FROM modules"))
   assert(db:close())
-  assert(rows[1]:text(1) == assert(Store.bytecode("cosmic.codec")), "the binary's own bytecode") -- checked: nil_not_allowed
+  assert(Array.at(rows, 1):text(1) == assert(Store.bytecode("cosmic.codec")), "the binary's own bytecode")
 end
 
 --- A sealed module's bytecode is stored deflated: a module of the binary
@@ -234,9 +235,9 @@ local function test_seal_carries_the_web_assets_only_for_cosmic_web_htmx(tmp: st
   local rows = assert(Sqlite.text_rows(db,
     "SELECT name, sha256, sha384, version FROM web_assets ORDER BY name"))
   assert(db:close())
-  assert(rows[2]:text(1) == "htmx.min.js") -- checked: nil_not_allowed
+  assert(Array.at(rows, 2):text(1) == "htmx.min.js")
   local own = assert(Store.web_asset("htmx.min.js"))
-  assert(rows[2]:text(2) == own.sha256 and rows[2]:text(3) == own.sha384 and rows[2]:text(4) == own.version) -- checked: nil_not_allowed*3
+  assert(Array.at(rows, 2):text(2) == own.sha256 and Array.at(rows, 2):text(3) == own.sha384 and Array.at(rows, 2):text(4) == own.version)
 end
 
 local function test_seal_refuses_what_it_cannot_carry(tmp: string)
@@ -286,8 +287,8 @@ local function test_seal_carries_an_extra_module_as_the_main(tmp: string)
     "SELECT kind, inflate(bytecode) = ?1, inflate(source) FROM modules WHERE path = 'main' " ..
       "UNION ALL SELECT value, '', '' FROM meta WHERE key = 'main'", { { blob = extra.bytecode } }))
   assert(db:close())
-  assert(rows[1]:text(1) == "main" and rows[1]:text(2) == "1" and rows[1]:text(3) == "return 1\n") -- checked: nil_not_allowed*3
-  assert(rows[2]:text(1) == "main", "the extra module is the database's main") -- checked: nil_not_allowed
+  assert(Array.at(rows, 1):text(1) == "main" and Array.at(rows, 1):text(2) == "1" and Array.at(rows, 1):text(3) == "return 1\n")
+  assert(Array.at(rows, 2):text(1) == "main", "the extra module is the database's main")
   assert(digest == (assert(Store.seal({ "fixture.leaf" }, tmp .. "/again.db", { extra = extra, unchecked_bytecode = true }))))
   -- A script that requires nothing is a program of no sealed names.
   assert(Store.seal({}, tmp .. "/alone.db", { extra = extra, unchecked_bytecode = true }))
@@ -363,14 +364,14 @@ local function test_seal_carries_the_checkers_edges(tmp: string)
   assert(Store.seal({ "cosmic.time" }, path))
   local query = "SELECT requires FROM decl_imports WHERE path = 'cosmic.time' ORDER BY requires"
   local databases = Store.databases()
-  local want = assert(Sqlite.text_rows(databases[#databases], query)) -- checked: index_may_be_nil
+  local want = assert(Sqlite.text_rows(Array.at(databases, #databases), query))
   local sealed = assert(Sqlite.open(path))
   local got = assert(Sqlite.text_rows(sealed, query))
   assert(sealed:close())
   assert(#want > 1, "cosmic.time requires nothing")
   assert(#got == #want, "the sealed database holds " .. tostring(#got) .. " edges, not " .. tostring(#want))
   for index, row in ipairs(want) do
-    assert(got[index]:text(1) == row:text(1), row:text(1)) -- checked: nil_not_allowed
+    assert(Array.at(got, index):text(1) == row:text(1), row:text(1))
   end
 end
 
@@ -394,12 +395,12 @@ local function test_seal_schema_is_the_builds(tmp: string)
     assert(#want > 0, name .. " is not a table of the schema")
     assert(#want == #got, name .. ": columns differ")
     for index, row in ipairs(want) do
-      assert(table.concat(row:texts(), " ") == table.concat(got[index]:texts(), " "), name .. ": " .. row:text(1)) -- checked: nil_not_allowed
+      assert(table.concat(row:texts(), " ") == table.concat(Array.at(got, index):texts(), " "), name .. ": " .. row:text(1))
     end
   end
   for _, pragma in ipairs({ "page_size", "auto_vacuum" }) do
-    assert(assert(Sqlite.text_rows(reference, "SELECT * FROM pragma_" .. pragma))[1]:text(1) == -- checked: nil_not_allowed
-        assert(Sqlite.text_rows(sealed, "SELECT * FROM pragma_" .. pragma))[1]:text(1), pragma) -- checked: nil_not_allowed
+    assert(Array.at(assert(Sqlite.text_rows(reference, "SELECT * FROM pragma_" .. pragma)), 1):text(1) ==
+        Array.at(assert(Sqlite.text_rows(sealed, "SELECT * FROM pragma_" .. pragma)), 1):text(1), pragma)
   end
   assert(sealed:close())
   assert(reference:close())
