@@ -493,8 +493,9 @@ end
 --- the cursor has failed.
 local function read_fraction(cur: Cursor): integer
   if cur.why ~= nil then return 0 end
-  local digits = cur.text:match("^%d*", cur.at)
-  if digits == nil or #digits == 0 or #digits > 9 then
+  -- No match is no digit here, which the message counts as 0.
+  local digits = cur.text:match("^%d+", cur.at)
+  if digits == nil or #digits > 9 then
     fail(cur, ("fraction at byte %d: expected 1 to 9 digits, not %d"):format(cur.at,
       if digits == nil then 0 else #digits end))
     return 0
@@ -1949,6 +1950,16 @@ end
 --- still fit an integer.
 local MAX_SPAN_S <const> = math.maxinteger // NS
 
+--- The fields of a duration text, each the number written before its unit.
+local record Spelled
+  mut years: integer
+  mut months: integer
+  mut days: integer
+  mut hours: integer
+  mut minutes: integer
+  mut seconds: integer
+end
+
 --- The duration `text` spells, or nil and why. It is an optional sign
 --- and then each of `y`, `mo`, `d`, `h`, `m` and `s` at most once, in
 --- that order, after a whole number (the seconds may have a fraction
@@ -1968,8 +1979,8 @@ function Time.parse_duration(text: string): Time.Duration?, string
   if at > #text then return refuse("expected a duration such as 1y2mo3d4h5m6s, not nothing") end
   local units = { "y", "mo", "d", "h", "m", "s" }
   local seen = 0
-  -- By unit; one the text does not spell is 0.
-  local values: mut {integer:integer} = {}
+  -- What the text spells, 0 for a unit it leaves out.
+  local spelled: Spelled = { years = 0, months = 0, days = 0, hours = 0, minutes = 0, seconds = 0 }
   local fraction = 0
   while at <= #text do
     local digits = text:match("^%d+", at)
@@ -2007,15 +2018,28 @@ function Time.parse_duration(text: string): Time.Duration?, string
         units[unit], at))
     end
     seen = unit
-    values[unit] = assert(number)
+    local value = assert(number)
+    if unit == 1 then
+      spelled.years = value
+    elseif unit == 2 then
+      spelled.months = value
+    elseif unit == 3 then
+      spelled.days = value
+    elseif unit == 4 then
+      spelled.hours = value
+    elseif unit == 5 then
+      spelled.minutes = value
+    else
+      spelled.seconds = value
+    end
     at = at + #Array.at(units, unit)
   end
-  local seconds = (values[4] or 0) * 3600 + (values[5] or 0) * 60 + (values[6] or 0)
+  local seconds = spelled.hours * 3600 + spelled.minutes * 60 + spelled.seconds
   if seconds > MAX_SPAN_S or (seconds == MAX_SPAN_S and fraction > math.maxinteger % NS) then
     return refuse("the hours, minutes and seconds are more than 292 years")
   end
   return {
-    years = sign * (values[1] or 0), months = sign * (values[2] or 0), days = sign * (values[3] or 0),
+    years = sign * spelled.years, months = sign * spelled.months, days = sign * spelled.days,
     ns = sign * (seconds * NS + fraction),
   }, ""
 end
