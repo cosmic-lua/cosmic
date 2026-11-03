@@ -634,7 +634,7 @@ COSMIC_SYSCALL(getifaddrs, 0);
 
 /*
  * --- Reads a clock, in nanoseconds.
- * ---@param clock integer one of `CLOCK_REALTIME`, `CLOCK_MONOTONIC`
+ * ---@param clock integer one of `CLOCK_REALTIME`, `CLOCK_MONOTONIC`, `CLOCK_PROCESS_CPUTIME_ID` or `CLOCK_THREAD_CPUTIME_ID`
  * ---@return integer|nil nanoseconds the reading, or nil on failure
  * ---@return string error what went wrong, when nanoseconds is nil
  * ---@return integer errno the error number, when nanoseconds is nil
@@ -977,6 +977,8 @@ COSMIC_SYSCALL(poll, 3);
  * ---@field SEEK_END integer seek from the end
  * ---@field CLOCK_REALTIME integer the wall clock, which can step
  * ---@field CLOCK_MONOTONIC integer a clock that only moves forward
+ * ---@field CLOCK_PROCESS_CPUTIME_ID integer the CPU time of every thread of this process, which a sleep or another process's load does not advance
+ * ---@field CLOCK_THREAD_CPUTIME_ID integer the CPU time of the calling thread alone
  * ---@field ENOENT integer there is no such file
  * ---@field EEXIST integer the name is already taken
  * ---@field EACCES integer permission was refused
@@ -1035,6 +1037,8 @@ COSMIC_CONSTANT(SEEK_CUR)
 COSMIC_CONSTANT(SEEK_END)
 COSMIC_CONSTANT(CLOCK_REALTIME)
 COSMIC_CONSTANT(CLOCK_MONOTONIC)
+COSMIC_CONSTANT(CLOCK_PROCESS_CPUTIME_ID)
+COSMIC_CONSTANT(CLOCK_THREAD_CPUTIME_ID)
 COSMIC_CONSTANT(ENOENT)
 COSMIC_CONSTANT(EEXIST)
 COSMIC_CONSTANT(EACCES)
