@@ -1316,8 +1316,9 @@ local function test_the_checked_suite_runs_in_jobs_of_its_own_and_the_format_che
   assert(env["COSMIC_CI_CHECKED_SUITE"] == "skip", "a leg runs the checked suite: " ..
       tostring(env["COSMIC_CI_CHECKED_SUITE"]))
   local format = assert(env["COSMIC_CI_FORMAT"], "ci.yml's platform job sets no COSMIC_CI_FORMAT")
-  local one = format:match("^%${{ matrix%.name == '([%w_-]+)' && 'run' || 'skip' }}$")
-  assert(one and legs[one], "COSMIC_CI_FORMAT runs on no one leg of the matrix: " .. format)
+  local one = format:match("^%${{ %(matrix%.name == '([%w_-]+)' && github%.event_name != 'merge_group'%) && " ..
+      "'run' || 'skip' }}$")
+  assert(one and legs[one], "COSMIC_CI_FORMAT runs on no one leg of the matrix, or in the queue: " .. format)
   local function env_of(job: CiWorkflow.Job): {string: string}
     return assert(job.env)
   end
