@@ -8205,7 +8205,7 @@ function Check.check(program: Declarations.Program, input: Declarations.Input, l
         if names[assert(top.path[2]).text] ~= true then
           ctx.load.waiting = ctx.load.waiting + 1
         end
-        names[assert(top.path[2]).text] = true -- checked: view_written
+        names[assert(top.path[2]).text] = true
         ctx.pending[decl] = names
       end
     end
@@ -8233,7 +8233,7 @@ function Check.check(program: Declarations.Program, input: Declarations.Input, l
             ctx.load.waiting = ctx.load.waiting + 1
             ctx.given[target.name] = true
           end
-          names[target.name] = true -- checked: view_written
+          names[target.name] = true
           ctx.pending[table_decl] = names
         end
       end
