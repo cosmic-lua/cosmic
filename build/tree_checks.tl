@@ -3068,6 +3068,7 @@ local text_read_allowed <const>: {string:string} = {
   ["build.plans"] = "asks the stub or source of a standard-library module a compile names; the pure store holds the stubs a test names and fails for the rest ([`Store.withheld`])",
   ["build.standard_text"] = "serves the stub or source of a standard-library module; the pure store holds the stubs a test names and fails for the rest ([`Store.withheld`])",
   ["build.closure_store"] = "reads the projection it writes the stores of, which a test is never given and which no test's store holds",
+  ["build.perf"] = "a standalone script a release program runs; its SQL is the argument of a `cosmic sql` it starts and times against a project's own store, not a read of the store a test is given, and it cannot require a module of the tree it benchmarks",
   ["build.writer"] = "writes the projection from the working database it is handed, whose tables a test's store never holds",
   ["build.symbols"] = "words a hint of a refusal from the docs and examples of the databases it is handed; in a pure store those tables are absent and it raises ([`build.symbols`]'s `refuse_withheld`)",
   ["cosmic.errors"] = "asks the catalog for the guidance on an error; a pure store has no catalog and the lookup raises there ([`Errors.guidance_in`]); a standard-library module, which cannot require a module of the build",

@@ -15,8 +15,6 @@ local Json = require("cosmic.json")
 local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
 local sys = require("cosmic.sys")
--- Declares what text this module reads ([`build.code_walk`]'s `markers`): the docs, examples, uses or links of the database it is handed.
-local _ = require("build.reads.all")
 
 local record Perf
   record Interval
