@@ -1,6 +1,7 @@
 --- Tests of [`build.coverage.syntax_lines`]: the executable lines of a source in the new grammar, and the
 --- `executable` table [`build.work`]'s schema adds so a run where a module's source has not changed answers from
 --- `build.db` instead of reparsing it.
+local Array = require("cosmic.array")
 local Hits = require("build.coverage_hits")
 local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
@@ -11,7 +12,8 @@ Test.policy{}
 
 local function count(db: Sqlite.Handle, table_name: string): integer
   local rows = assert(Sqlite.text_rows(db, "SELECT count(*) FROM " .. table_name))
-  return assert(math.tointeger(tonumber(rows[1]:text(1)))) -- checked: nil_not_allowed
+  -- `count(*)` answers exactly one row.
+  return assert(math.tointeger(tonumber(Array.at(rows, 1):text(1))))
 end
 
 local function same_lines(a: {integer: boolean}, b: {integer: boolean}): boolean

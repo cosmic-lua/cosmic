@@ -1,3 +1,4 @@
+local Array = require("cosmic.array")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
@@ -147,7 +148,7 @@ local function test_a_page_counts_the_links_to_its_symbol(dir: string)
   local function page(query: string): string
     local found = assert(docs.lookup(view, query))
     assert(#found == 1, query .. ": " .. tostring(#found))
-    return table.concat(assert(docs.render(view, found[1])), "\n") -- checked: index_may_be_nil
+    return table.concat(assert(docs.render(view, Array.at(found, 1))), "\n")
   end
   -- Two links on one line count once, as `cosmic uses` lists them.
   local write = page("Fs.write")
@@ -738,14 +739,15 @@ local function test_a_projects_links_to_the_standard_library_are_rows(tmp: strin
         "greet.tl 1 47 greet cosmic.fs write",
       })
   local handles = assert(assert(stdlib.databases)())
-  local view = assert(docs.view({ db, handles[1] }, { false, true })) -- checked: index_may_be_nil
+  -- `library` lists the one database it was given.
+  local view = assert(docs.view({ db, Array.at(handles, 1) }, { false, true }))
   local listed: mut {string} = {}
   for _, use in ipairs((assert(docs.uses(view, "cosmic.fs.read")))) do
     listed[#listed + 1] = use.from_file .. ":" .. tostring(use.line) .. (if use.link then " link" else "" end)
   end
   same(listed, { "README.md:1 link", "cosmic/fs.tl:5 link", "greet.tl:1 link" })
   local found = assert(docs.lookup(view, "cosmic.fs.read"))
-  local page = table.concat(assert(docs.render(view, found[1])), "\n") -- checked: index_may_be_nil
+  local page = table.concat(assert(docs.render(view, Array.at(found, 1))), "\n")
   assert(page:find("\n  linked from 3 places; cosmic uses Fs.read", 1, true) ~= nil, page)
   assert(db:close())
 end

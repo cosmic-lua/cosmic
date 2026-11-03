@@ -1,4 +1,5 @@
 --- Bare maintenance and help must not inspect or rebuild a candidate project.
+local Array = require("cosmic.array")
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
@@ -50,7 +51,9 @@ local function test_busy_cache_cancellation_is_prompt_and_preserves_file(tmp: st
   assert(result.timed_out, "the live writer must block maintenance")
   assert(Fs.stat(path) ~= nil)
   db = assert(Sqlite.open(path))
-  assert(assert(Sqlite.text_rows(db, "SELECT value FROM untouched"))[1]:text(1) == "keep") -- checked: nil_not_allowed
+  local untouched = assert(Sqlite.text_rows(db, "SELECT value FROM untouched"))
+  assert(#untouched == 1, "the table holds its one row")
+  assert(Array.at(untouched, 1):text(1) == "keep")
   assert(db:close())
 end
 

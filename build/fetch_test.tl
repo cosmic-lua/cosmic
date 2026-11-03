@@ -131,7 +131,8 @@ local function test_head_prints_the_status_and_headers()
   assert(ran.code == 0, ran.err)
   assert(ran.out:find("^HTTP 200\n"), ran.out)
   assert(ran.out:find("x-one: 1\n", 1, true) and ran.out:find("a-two: b\n", 1, true), ran.out)
-  assert(ran.out:find("a-two", 1, true) < ran.out:find("x-one", 1, true), "sorted: " .. ran.out) -- checked: nil_not_allowed
+  local a_two, x_one = ran.out:find("a-two", 1, true), ran.out:find("x-one", 1, true)
+  assert(a_two ~= nil and x_one ~= nil and a_two < x_one, "sorted: " .. ran.out)
   assert(not ran.out:find("body", 1, true), ran.out)
 end
 

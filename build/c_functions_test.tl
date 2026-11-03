@@ -21,17 +21,23 @@ end
 --- One function the core's exemptions name: the VFS never writes.
 local exempt <const> = "core/vfs.c:file_write"
 
-local function test_an_exempt_function_is_not_a_failure()
+local function split_exempt(): string, string
   local path, name = exempt:match("^(.-):([^:]+)$")
-  local tally = c_functions.tally({ fn(path, 1, name) }, {}) -- checked: nil_not_allowed*2
+  assert(path ~= nil and name ~= nil, "the exemption is written path:name")
+  return path, name
+end
+
+local function test_an_exempt_function_is_not_a_failure()
+  local path, name = split_exempt()
+  local tally = c_functions.tally({ fn(path, 1, name) }, {})
   assert(tally.exempted == 1 and #tally.unentered == 0 and #tally.stale == 0)
 end
 
 --- An exempt function a test entered after all is named as stale, and
 --- counted as entered rather than exempt.
 local function test_an_exempt_function_entered_is_stale()
-  local path, name = exempt:match("^(.-):([^:]+)$")
-  local tally = c_functions.tally({ fn(path, 1, name) }, { [path] = { [1] = true } }) -- checked: nil_not_allowed*3
+  local path, name = split_exempt()
+  local tally = c_functions.tally({ fn(path, 1, name) }, { [path] = { [1] = true } })
   assert(tally.entered == 1 and tally.exempted == 0)
   assert(#tally.stale == 1 and tally.stale[1] == exempt)
 end

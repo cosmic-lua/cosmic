@@ -2,6 +2,7 @@
 --- declares, at its caller, in the summary and in the working database, and changes no verdict (a project outside
 --- cosmic/); and neither it nor the variable that asks for it puts a check into what `cosmic build` writes.
 
+local Array = require("cosmic.array")
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
@@ -124,8 +125,9 @@ local function test_a_checked_run_reports_a_false_value_and_changes_no_verdict(t
 
   local rows = violations(root)
   assert(#rows == 1, tostring(#rows) .. " rows")
-  assert(table.concat(rows[1]:texts(), " | ") == "parameter | greet_test.tl:5 | parameter name of function (greet.tl:6) | string|nil | integer | 1",
-    table.concat(rows[1]:texts(), " | ")) -- checked: nil_not_allowed
+  local row = Array.at(rows, 1)
+  assert(table.concat(row:texts(), " | ") == "parameter | greet_test.tl:5 | parameter name of function (greet.tl:6) | string|nil | integer | 1",
+    table.concat(row:texts(), " | "))
 
   -- The same variable asks for the same.
   local variable, variable_text = invoke(root, tmp, { "test" }, { COSMIC_TEST_CHECK_TYPES = "1" })
