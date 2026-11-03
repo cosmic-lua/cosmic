@@ -3,9 +3,7 @@
 -- function answers `value, ""` on success and `nil, error` on failure.
 --- @kind binding
 
-local type Json = require("cosmic.json")
-
-local record json
+local record Json
   -- The type of `null`: JSON `null`'s stand-in, a userdata with nothing to
   -- read or call.
   record Null
@@ -37,12 +35,12 @@ local record json
   -- arrays and objects are open
   -- around it there, and count toward `max_depth`, which they must be
   -- fewer than.
-  decode: function(text: string, null?: Json.Null, max_depth?: integer,
+  decode: function(text: string, null?: Null, max_depth?: integer,
                    json5?: boolean, big_as_string?: boolean,
                    lone_surrogates?: boolean, record?: integer,
                    hash_comments?: boolean,
                    duplicate_keys?: boolean, line?: integer, column?: integer,
-                   prefix?: string, opened?: integer): Json.Value?, string
+                   prefix?: string, opened?: integer): Value?, string
   -- true and "" when `decode` would read `text` under the same
   -- options; else false and the message it would fail with. It builds
   -- no value.
@@ -66,11 +64,11 @@ local record json
   encode: function(value: any, pretty?: boolean, max_depth?: integer, ascii?: boolean): string?, string
   -- Marks `t`, or a new table, as a JSON array and answers it. Raises
   -- when `t` has another metatable.
-  array: function(): {Json.Value}
+  array: function(): {Value}
   array: function<T>(t: {T}): {T}
   -- The same for a table kept by position, which may hold a hole (JSON
   -- Lines with a `null` line).
-  array: function(t: {integer: Json.Value}): {Json.Value}
+  array: function(t: {integer: Value}): {Value}
   -- Marks `t`, a table with no metatable, as an array that may have
   -- holes when `holey` is true, else as an array, and answers it.
   with_holes: function<T>(t: {integer: T}, holey: boolean): {integer: T}
@@ -84,4 +82,4 @@ local record json
   depth_limit: integer
 end
 
-return json
+return Json

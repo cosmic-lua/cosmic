@@ -326,7 +326,7 @@ local record Json
   ---
   --- The fork reads this declaration, and every parameter that takes it, as `any`; the new checker reads `string | number | boolean |
   --- Json.Null | {Json.Value} | {string: Json.Value}`.
-  type Value = string | number | boolean | Json.Null | {Json.Value} | {string: Json.Value}
+  type Value = raw_json.Value
 
   --- A path to one value inside another, as Lua steps: each a member's
   --- name (a string) or an array's position (an integer), counted from
