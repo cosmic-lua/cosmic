@@ -468,7 +468,11 @@ end
 --- The integer a string of octal digits spells.
 local function octal(digits: string): integer
   local value = 0
-  for at = 1, #digits do value = value * 8 + (String.byte_at(digits, at) - 48) end
+  for at = 1, #digits do
+    local digit = String.byte_at(digits, at) - 48
+    assert(digit >= 0 and digit <= 7, "an octal mode is written in digits 0 to 7")
+    value = value * 8 + digit
+  end
   return value
 end
 

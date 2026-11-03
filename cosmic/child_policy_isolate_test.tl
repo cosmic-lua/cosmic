@@ -85,14 +85,14 @@ local function mount_at(text: string, point: string): Mount?
     if left ~= nil and right ~= nil then
       local fields: mut {string} = {}
       for word in left:gmatch("%S+") do fields[#fields + 1] = word end
-      local options = fields[6]
-      if fields[5] == point and options ~= nil then
+      if fields[5] == point then
         local rest: mut {string} = {}
         for word in right:gmatch("%S+") do rest[#rest + 1] = word end
-        local fstype, super = rest[1], rest[3]
-        if fstype ~= nil and super ~= nil then
-          return { options = options, fstype = fstype, super = super }
-        end
+        -- A mountinfo line names its options, fstype and super options.
+        local options = assert(fields[6], "a mountinfo line names its options")
+        local fstype = assert(rest[1], "a mountinfo line names its fstype")
+        local super = assert(rest[3], "a mountinfo line names its super options")
+        return { options = options, fstype = fstype, super = super }
       end
     end
   end
