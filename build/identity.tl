@@ -462,6 +462,10 @@ local function requires_in(db: Sqlite.Handle): function(string): {string}?, stri
   end
 end
 
+-- TODO: hash the tokens of each module ([`build.code_fingerprint`]) in place of its source hash here, as the identities of
+-- [`build.code_walk`]'s walks do, once the staged `inputs` carry a fingerprint of the tokens of each source, so that a
+-- comment in a module of the compiler's identity or the writer's compiles nothing again.
+
 --- The hash of the source hash of each of `names` the tree holds, by
 --- path, then `extra`, an SQL expression.
 local function hash_of(db: Sqlite.Handle, names: {string}, extra: string): string?, string

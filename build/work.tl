@@ -22,6 +22,7 @@ local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
+local CodeFingerprint = require("build.code_fingerprint")
 local CodeWalk = require("build.code_walk")
 local sys = require("cosmic.sys")
 local identity = require("build.identity")
@@ -1843,8 +1844,9 @@ end
 --- of the tool that runs it, kept in `meta` as `links_by` and
 --- `links_boot`. A tool whose boot hash is `links_boot` runs the code
 --- `links_by` names. Any other tool names it by a hash of each module
---- `require` reaches from [`build.link_files`], by name and source as
---- the binary holds it, so that only an edit to that code reads every
+--- `require` reaches from [`build.link_files`], by name and the tokens
+--- of its source ([`build.code_fingerprint`]) as the binary holds it, so
+--- that only an edit to that code, not to a comment in it, reads every
 --- file's links again. A boot runs the tree's own code and carries no
 --- database: it names its code by the boot hash of the tool it writes
 --- ([`identity.record_fingerprint`]'s `boot`), which it keeps as
@@ -1886,7 +1888,7 @@ local function links_finder(db: Sqlite.Handle): string?, string
       if withheld_trouble ~= "" then return nil, withheld_trouble end
       if withheld ~= nil then return nil, withheld end
     end
-    parts[#parts + 1] = name .. "\n" .. (source or "")
+    parts[#parts + 1] = name .. "\n" .. (if source ~= nil then CodeFingerprint.of(source, name) else "" end)
   end
   local finder = Hash.hex_sha256(table.concat(parts, "\n\0\n"))
   local ok, trouble = Sqlite.run(db,

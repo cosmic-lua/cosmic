@@ -1,5 +1,6 @@
 --- The tests of [`build.pipeline`]: a module read, checked against its markers and written as Lua and bytecode by the
 --- new checker. The Lua is run, and compared with what the generator writes alone ([`lang.codegen`]) over the files of the tree.
+local CodeFingerprint = require("build.code_fingerprint")
 local ShapeStub = require("build.shape_stub")
 local Codegen = require("lang.codegen")
 local CompileGrammar = require("build.compile_grammar")
@@ -397,9 +398,22 @@ local function test_the_code_that_reads_is_named_from_the_staged_tree(tmp: strin
   end
   -- a module the pipeline does not reach moves nothing; one it reaches, directly or not, moves it
   assert(again("build/other.tl", "return 3\n") == first, "a module the pipeline does not reach moved the identity")
+  -- a comment, a doc comment, a blank line and the layout of one it reaches, directly or not, move nothing
+  local relaid = "--- a doc comment\n\n-- a comment\nlocal   Check =\n  require(\"lang.check\")\n\n\nreturn Check -- a tail\n"
+  assert(again("build/reader.tl", relaid) == first, "a comment or the layout of a module the pipeline requires moved the identity")
+  assert(again("lang/check.tl", "-- a comment\n\nreturn   1 -- a tail\n") == first,
+    "a comment or the layout of a module it reaches through another moved the identity")
+  -- what a pure store keeps of a module in place of its source names it alike
+  local kept = CodeFingerprint.normal("local Check = require(\"lang.check\")\nreturn Check\n", "build.reader")
+  assert(again("build/reader.tl", kept) == first, "the tokens of a module name it otherwise than its source")
   local reader = again("build/reader.tl", "local Check = require(\"lang.check\")\nreturn Check, 1\n")
   assert(reader ~= first, "an edit to a module the pipeline requires did not move the identity")
   assert(again("lang/check.tl", "return 4\n") ~= reader, "an edit to a module it reaches through another did not move the identity")
+  -- a string and a number are tokens: the written form of either moves it
+  local literal = again("lang/check.tl", "return \"a\"\n")
+  assert(again("lang/check.tl", "return \"b\"\n") ~= literal, "the contents of a string did not move the identity")
+  literal = again("lang/check.tl", "return 1\n")
+  assert(again("lang/check.tl", "return 1.0\n") ~= literal, "the written form of a number did not move the identity")
   assert(work.close(handle))
 end
 

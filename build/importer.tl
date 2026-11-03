@@ -24,6 +24,7 @@ local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
 local GrammarMode = require("build.grammar_mode")
 local Store = require("cosmic.store")
+local CodeFingerprint = require("build.code_fingerprint")
 local CodeWalk = require("build.code_walk")
 local identities = require("build.identity")
 -- The pipeline is required where a build in the new grammar asks for it: `cosmic boot` compiles what the tool requires at load
@@ -300,7 +301,9 @@ function importer.tree_code(handle: work.Handle): importer.Code?, string
 end
 
 --- The identity of the analyzer `code` holds: the runtime basis it runs
---- on, and the source of every one of [`importer.analyzer_modules`].
+--- on, and the tokens of the source ([`build.code_fingerprint`]) of every
+--- one of [`importer.analyzer_modules`], so that a comment in one moves
+--- nothing.
 --- `code` defaults to the running binary's, the code actually deriving;
 --- in a stale tool rebuilding itself that is older than the tree's. A
 --- boot names the tree's ([`importer.tree_code`]), the code it runs, so
@@ -328,7 +331,7 @@ local function analyzer_named(code?: importer.Code): string?, string
     if source == nil then
       return "binary " .. (Store.meta("boot_hash") or ""), ""
     end
-    parts[#parts + 1] = name .. "\n" .. source
+    parts[#parts + 1] = name .. "\n" .. CodeFingerprint.of(source, name)
   end
   return Hash.hex_sha256(table.concat(parts, "\n\0\n")), ""
 end
@@ -454,8 +457,8 @@ local function forget_stale_analysis(handle: work.Handle): boolean?, string
 end
 
 --- The identity of the code that finds the record-field uses and judges the discipline beside the checker
---- ([`build.syntax_receivers`], [`build.syntax_contracts`]): a boot names them by the tree's source, a built tool by the
---- source it carries.
+--- ([`build.syntax_receivers`], [`build.syntax_contracts`]): a boot names them by the tokens ([`build.code_fingerprint`]) of the
+--- tree's source, a built tool by those of the source it carries.
 local function receivers_identity(db: Sqlite.Handle): string?, string
   local booting = Store.meta("boot_hash") == nil
   local parts: mut {string} = {}
@@ -483,7 +486,7 @@ local function receivers_identity(db: Sqlite.Handle): string?, string
       end
       return "binary " .. (Store.meta("boot_hash") or ""), ""
     end
-    parts[#parts + 1] = source
+    parts[#parts + 1] = CodeFingerprint.of(source, name)
   end
   return Hash.hex_sha256(table.concat(parts, "\n\0\n")), ""
 end

@@ -1732,10 +1732,24 @@ local function identities_of(root: string): {string}
   return { found.compiler, analyzer }
 end
 
---- Appends a comment to the file `path` under `root`.
+--- Edits the file `path` under `root` so that it differs: a statement before the `return` of a module of the fixture, and
+--- a line at the end of anything else (a pin, a patch).
 local function edit(root: string, path: string)
   local source = assert(Fs.read(root .. "/" .. path))
-  assert(Fs.write(root .. "/" .. path, source .. "-- edited\n"))
+  if path:sub(-3) == ".tl" then
+    local at = assert(source:find("return M", 1, true), path .. " has not the fixture's return")
+    assert(Fs.write(root .. "/" .. path, source:sub(1, at - 1) .. "M.uses = {}\n" .. source:sub(at)))
+  else
+    assert(Fs.write(root .. "/" .. path, source .. "-- edited\n"))
+  end
+end
+
+--- Edits the file `path` under `root` in what no code is made of: a comment above and below it, a blank line, and the
+--- layout of its lines.
+local function relay(root: string, path: string)
+  local source = assert(Fs.read(root .. "/" .. path))
+  local spaced = source:gsub("\n", "\n\n  ")
+  assert(Fs.write(root .. "/" .. path, "-- edited\n\n" .. spaced .. "\n-- edited\n"))
 end
 
 --- An edit to a module a compile and a parse do not run to decide what
@@ -1791,6 +1805,20 @@ local function test_compiler_identity_follows_what_shapes_a_compile()
       assert(after[2] == before[2], "an edit to " .. path .. ", which no parse runs, moved the analyzer identity")
     end
     seen[support.nth(after, 1)] = path
+  end
+end
+
+--- A comment, a blank line or the layout of an analyzer module moves the analyzer's identity ([`importer.analyzer_identity`])
+--- no more than an edit to a module it does not run: it hashes the tokens of each module
+--- ([`build.code_fingerprint`]), so a parse made with the code as it was stands.
+local function test_a_comment_or_the_layout_of_an_analyzer_module_leaves_the_analyzer_identity()
+  local root = identity_fixture("identity-relayed")
+  for _, path in ipairs({ "build/derivation.tl", "build/analysis_schema.tl", "build/bind.tl", "build/cache_names.tl" }) do
+    local before = identities_of(root)
+    relay(root, path)
+    assert(identities_of(root)[2] == before[2], "a comment or the layout of " .. path .. " moved the analyzer identity")
+    edit(root, path)
+    assert(identities_of(root)[2] ~= before[2], "an edit to " .. path .. " did not move the analyzer identity")
   end
 end
 
@@ -1853,6 +1881,7 @@ local function test_the_compiler_modules_are_closed_under_require()
     ["build.pipeline"] = "the compile with the new checker, keyed by the code that reads it " ..
       "(`Pipeline.coded`) and not by the compiler's identity, which a default run keeps",
     ["build.code_walk"] = "names which modules the identities of the code that reads hash, and which a test's store keeps",
+    ["build.code_fingerprint"] = "names the tokens of a module that those identities hash; it decides what the keys are, and no compile stores it",
     ["build.reads.analyzer"] = "a declaration of what text this module reads, which a test's store follows; no code",
     ["build.reads.receivers"] = "a declaration of what text this module reads, which a test's store follows; no code",
   }
@@ -1935,6 +1964,7 @@ local function test_the_writer_modules_are_closed_under_require()
     ["build.grammar_mode"] = "names the grammar a build reads (COSMIC_GRAMMAR), which only the new grammar's compile consults",
     ["build.positions"] = "fails a whole build before any key is looked up, and stores nothing",
     ["build.code_walk"] = "names which modules the identities of the code that reads hash, and which a test's store keeps",
+    ["build.code_fingerprint"] = "names the tokens of a module that those identities hash; it decides what the keys are, and no projection stores it",
     ["build.reads.analyzer"] = "a declaration of what text a module reads, which a test's store follows; no code",
     ["build.reads.receivers"] = "a declaration of what text a module reads, which a test's store follows; no code",
     ["build.reads.links"] = "a declaration of what text a module reads, which a test's store follows; no code",
@@ -2374,4 +2404,47 @@ local function test_a_build_directory_with_one_count_column_gains_the_other()
   assert(again.compiled == 0 and again.cached == 1, "the half-migrated file's compile did not stand")
   local checked = compile_counted(root, true)
   assert(checked.parameter_checks > 0)
+end
+
+--- A project of [`build/syntax_receivers.tl`], [`build/syntax_contracts.tl`] and a module of its own, compiled, and the name the
+--- compile leaves as `receivers` in `meta` ([`build.importer`]'s `receivers_identity`): the name of the code that finds the
+--- record-field uses, which every compile is kept under. A binary without a boot hash, as a test's sealed database is, is
+--- a boot, and names it from the staged tree.
+local function receivers_named(case: string, receivers: string, contracts: string): string
+  local root = write_fixture("receivers-" .. case, {
+    ["build/importer.tl"] = "local record Stub end\nreturn Stub\n",
+    ["build/syntax_receivers.tl"] = receivers,
+    ["build/syntax_contracts.tl"] = contracts,
+    ["own.tl"] = "local record Own\nend\nreturn Own\n",
+  })
+  local handle = assert(work.open(assert(root)))
+  assert(work.stage(handle, { own = true }))
+  assert(importer.derive(handle))
+  local identities = assert(identity.record_identities(handle.db))
+  assert(importer.compile(handle, identities.compiler))
+  local rows = assert(Sqlite.text_rows(handle.db, "SELECT value FROM meta WHERE key = 'receivers'"))
+  work.close(handle)
+  return support.nth(rows, 1):text(1)
+end
+
+--- The code that finds the record-field uses is named by the tokens of build.syntax_receivers and build.syntax_contracts
+--- ([`build.code_fingerprint`]): a comment, a blank line or the layout of either names it as before, so no compile is
+--- forgotten for one, and a token names it anew.
+local function test_the_code_that_finds_record_field_uses_is_named_by_its_tokens()
+  if Store.meta("boot_hash") ~= nil then
+    Test.skip("the binary carries a boot hash, so the name is taken from the sources it carries and not the staged tree's")
+  end
+  local receivers = "local record Receivers\n  n: integer\nend\nlocal r: Receivers = { n = 1 }\nreturn r\n"
+  local contracts = "local record Contracts\n  s: string\nend\nlocal c: Contracts = { s = 'a b' }\nreturn c\n"
+  local staged = receivers_named("staged", receivers, contracts)
+  assert(#staged == 64, staged)
+  local relaid_receivers = "--- a doc comment\n\n-- a comment\nlocal record Receivers\n\n  n: integer\nend\n" ..
+    "local r:   Receivers = { n = 1 } -- a tail\n\n\nreturn r\n"
+  local relaid_contracts = "-- a comment\nlocal record Contracts s: string end local c: Contracts = { s = 'a b' }\nreturn c\n"
+  assert(receivers_named("relaid", relaid_receivers, relaid_contracts) == staged,
+    "a comment or the layout of the code moved its name")
+  local moved_receivers = receivers_named("number", (receivers:gsub("n = 1", "n = 2")), contracts)
+  assert(moved_receivers ~= staged, "a number of the code did not move its name")
+  local moved_contracts = receivers_named("string", receivers, (contracts:gsub("'a b'", "'a  b'")))
+  assert(moved_contracts ~= staged and moved_contracts ~= moved_receivers, "the contents of a string did not move its name")
 end

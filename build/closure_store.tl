@@ -23,6 +23,7 @@
 --- only the addresses of the stores whose rows it moves.
 
 local Clock = require("cosmic.clock")
+local CodeFingerprint = require("build.code_fingerprint")
 local CodeWalk = require("build.code_walk")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
@@ -99,8 +100,10 @@ local record closure_store
     --- The names each module's stub requires, by path ([`required_by`]): the checker types a stub
     --- from the stubs of those, so a module a kept stub requires is kept too.
     text_edges: mut {string:{string}}
-    --- The digest of each module's source (inflated, so the compressor moves none), by path: what the pure store
-    --- holds of a module whose source it keeps ([`source_kept`]). Empty unless the run holds the pure store.
+    --- The digest of each module's tokens ([`build.code_fingerprint`]'s `normal`, of the source inflated, so the compressor
+    --- moves none), by path: what the pure store holds of a module whose source it keeps ([`source_kept`]), which it keeps
+    --- as those tokens. Only the modules some walk of [`build.code_walk`] reaches have one. Empty unless the run holds the
+    --- pure store.
     sources: mut {string:string}
     --- The modules each module requires, by path (the `imports` rows), which [`source_kept`] walks from a
     --- walk's roots. Empty unless the run holds the pure store.
@@ -263,9 +266,8 @@ end
 
 --- What says the projection at `whole` is the file a kept basis was made
 --- of, and this code the code that made it: the file's size, inode,
---- modification and change times, and the digest of this module's
---- bytecode. Nil where there is nothing to say it by, and nil too while
---- the file is younger than two seconds: a write inside the tick of the
+--- modification and change times, and the digests of the bytecode of this module and of the code that reads the tokens of a
+--- source. Nil where there is nothing to say it by, and nil too while the file is younger than two seconds: a write inside the tick of the
 --- clock that stamped it would leave all of these as they were, so a
 --- basis is kept only of a file already older than that.
 local function memo_token(whole: string, pure?: boolean): string?
@@ -274,9 +276,14 @@ local function memo_token(whole: string, pure?: boolean): string?
   local written = st.mtime * 1000000000 + st.mtime_ns
   local changed = st.ctime * 1000000000 + st.ctime_ns
   if Clock.now_ns() - math.max(written, changed) < 2000000000 then return nil end
-  local code, _ = Store.bytecode("build.closure_store")
-  if code == nil then return nil end
-  return table.concat({ if pure == true then "basis-memo-3-pure" else "basis-memo-3" end, Hash.hex_sha256(code), st.size, st.ino, st.dev, written, changed }, " ")
+  -- A basis holds digests of tokens ([`read_basis`]), so the code that reads them is among what made it.
+  local made: mut {string} = {}
+  for _, name in ipairs({ "build.closure_store", "build.code_fingerprint", "lang.lexer" }) do
+    local code, _ = Store.bytecode(name)
+    if code == nil then return nil end
+    made[#made + 1] = Hash.hex_sha256(code)
+  end
+  return table.concat({ if pure == true then "basis-memo-4-pure" else "basis-memo-4" end, table.concat(made, "+"), st.size, st.ino, st.dev, written, changed }, " ")
 end
 
 --- Where a read of a kept basis is, and the basis it made.
@@ -434,6 +441,28 @@ local function remember(whole: string, token: string, basis: closure_store.Basis
   local _, _ = Fs.remove(aside)
 end
 
+--- The modules some walk of [`build.code_walk`] reaches over `edges` (the `imports` rows, by path), the walks taken as the
+--- identities take them ([`source_kept`] takes one walk at a time).
+local function walked_modules(edges: {string:{string}}): {string:boolean}
+  local walked: mut {string:boolean} = {}
+  for _, word in ipairs(CodeWalk.walks) do
+    local reached, _ = CodeWalk.reach(word, function(name: string): {string}?, string
+      return edges[name] or {}, ""
+    end)
+    for _, name in ipairs(reached or {}) do walked[name] = true end
+  end
+  return walked
+end
+
+--- What a pure store keeps in place of the source of the walked module `name`: its tokens ([`build.code_fingerprint`]),
+--- which the identities of the walks hash the same of as of the source. A module with none is kept as one space, which
+--- lexes to none and is not the empty source [`Store.withheld`] reads as withheld. Raises where the source does not lex.
+local function kept_text(source: string, name: string): string
+  local tokens = CodeFingerprint.normal(source, name)
+  if tokens == "" then return " " end
+  return tokens
+end
+
 --- The basis of the closure stores of the projection at `whole`, read from
 --- every row of it.
 local function read_basis(whole: string, pure?: boolean): closure_store.Basis?, string
@@ -541,12 +570,6 @@ local function read_basis(whole: string, pure?: boolean): closure_store.Basis?, 
       for _, row in ipairs(sourced) do
         basis.type_requires[row:text(1)] = type_requires(row:text(2))
       end
-      -- What a walk of the code that reads module text ([`build.code_walk`]) is hashed from.
-      local hashed, hashed_trouble = Sqlite.text_rows(db,
-        "SELECT path, lower(hex(sha256(inflate(source)))) FROM modules WHERE kind NOT IN ('test', 'example') " ..
-          "AND length(source) > 0 ORDER BY path")
-      if hashed == nil then return nil, hashed_trouble end
-      for _, row in ipairs(hashed) do basis.sources[row:text(1)] = row:text(2) end
       local imported, imported_trouble = Sqlite.text_rows(db, "SELECT path, requires FROM imports ORDER BY path, requires")
       if imported == nil then return nil, imported_trouble end
       local lists: mut {string:mut {string}} = {}
@@ -556,6 +579,19 @@ local function read_basis(whole: string, pure?: boolean): closure_store.Basis?, 
         table.insert(list, row:text(2))
       end
       for path, list in pairs(lists) do basis.edges[path] = list end
+      -- What a walk of the code that reads module text ([`build.code_walk`]) is hashed from: the tokens of each module
+      -- some walk reaches, which is all a store keeps of it (`write`).
+      local walked = walked_modules(basis.edges)
+      local hashed, hashed_trouble = Sqlite.text_rows(db,
+        "SELECT path, CAST(inflate(source) AS TEXT) FROM modules WHERE kind NOT IN ('test', 'example') " ..
+          "AND length(source) > 0 ORDER BY path")
+      if hashed == nil then return nil, hashed_trouble end
+      for _, row in ipairs(hashed) do
+        local path = row:text(1)
+        if walked[path] == true then
+          basis.sources[path] = Hash.hex_sha256(kept_text(row:text(2), path))
+        end
+      end
     end
     for _, row in ipairs(pure_rows) do
       local path = row:text(1)
@@ -706,7 +742,7 @@ local function declares(names: {string}, word: string): boolean
   return false
 end
 
---- The modules whose source the pure store of the closure `names` keeps, sorted: those of each walk
+--- The modules whose source the pure store of the closure `names` keeps, as its tokens ([`kept_text`]), sorted: those of each walk
 --- ([`build.code_walk`]) that a module of `names` declares it reads, the walk taken over the whole projection's
 --- imports as the identity takes it of the binary's, so a module a walk reaches by a type alone is kept though the
 --- closure leaves it out. A module the walk reaches that the projection holds no source of is left out, as an absent
@@ -781,8 +817,8 @@ end
 --- With `own`, the address of the pure store ([`closure_store.write`]): the
 --- digest of what that holds, which is each module's line of `basis.pure`
 --- with its bytecode stripped of debug information -- `own`'s, the test's
---- module, with it -- and each declaration's, and the kept stubs. It moves
---- with a module's bytecode and what its rows say. A comment, blank line
+--- module, with it -- and each declaration's, the kept stubs, and the tokens of the modules whose source it keeps
+--- ([`source_kept`]). It moves with a module's bytecode and what its rows say. A comment, blank line
 --- or moved line moves it only in a module whose stub it keeps, as a
 --- stub keeps each token at its line.
 function closure_store.address(basis: closure_store.Basis, names: {string},
@@ -1003,7 +1039,8 @@ end
 --- With `own`, the name of the test module the store is for, it is the
 --- pure store instead: nothing in it moves with a comment, a blank line
 --- or a moved line but the stubs it keeps, which keep each token at its
---- line. The modules' source and source hash are empty, the
+--- line. The modules' source and source hash are empty but for the modules a walk reaches ([`source_kept`]), which keep
+--- their tokens ([`kept_text`]) as their source, so a comment in one moves nothing; the
 --- stubs, places, docs, uses, links, examples and catalog tables hold no
 --- rows, but for the stubs of the standard-library modules the test module names with
 --- a top-level `local type _ = require(...)` ([`type_requires`]) and those their stubs require
@@ -1072,6 +1109,17 @@ function closure_store.write(whole: string, out: string, names: {string},
         -- rather than answers nothing, so a test that reads text it was not given cannot pass on an empty answer.
         for _, statement in ipairs(withheld_tables) do
           local ok, failure = db:exec(statement)
+          if not ok then return false, failure end
+        end
+        -- A module whose source it keeps ([`source_kept`]) is kept as its tokens, with the hash of those as its source hash.
+        local walked, walked_trouble = Sqlite.text_rows(db,
+          "SELECT path, CAST(inflate(source) AS TEXT) FROM main.modules WHERE path IN temp.sourced AND length(source) > 0")
+        if walked == nil then return false, walked_trouble end
+        for _, row in ipairs(walked) do
+          local tokens = kept_text(row:text(2), row:text(1))
+          local ok, failure = Sqlite.run(db,
+            "UPDATE main.modules SET source = deflate(?1), source_hash = sha256(?1) WHERE path = ?2",
+            { { blob = tokens }, text(row:text(1)) })
           if not ok then return false, failure end
         end
         local held, held_trouble = Sqlite.rows(db,

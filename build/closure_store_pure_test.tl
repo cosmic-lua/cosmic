@@ -4,7 +4,9 @@
 --- stands when a module it imports is edited in one of those ways and runs
 --- again when the edit changes what the module does.
 
+local CodeFingerprint = require("build.code_fingerprint")
 local Fs = require("cosmic.fs")
+local Hash = require("cosmic.hash")
 local Test = require("cosmic.test")
 local Sqlite = require("cosmic.sqlite")
 local closure_store = require("build.closure_store")
@@ -392,9 +394,9 @@ local function walk_store(root: string, tmp: string, name: string, edits: {strin
 end
 
 --- A module that declares it reads a walk of the code that reads text (requires [`build.reads.pipeline`]) has the walk's
---- sources kept in the pure store of a test that imports it, and its address holds them: a comment in a module of the
---- walk moves the address, and one in an import outside it does not.
-local function test_a_pure_store_keeps_the_sources_of_the_walks_its_closure_declares(tmp: string)
+--- sources kept in the pure store of a test that imports it, as their tokens ([`build.code_fingerprint`]): a comment, a
+--- blank line or the layout of a module of the walk moves neither the address nor the store's bytes, and a token does.
+local function test_a_pure_store_keeps_the_tokens_of_the_walks_its_closure_declares(tmp: string)
   local plain, store = walk_store(tmp .. "/a", tmp, "plain", {})
   local function sourced(db: Sqlite.Handle, path: string): boolean
     local rows = assert(Sqlite.text_rows(db, "SELECT length(source) FROM modules WHERE path = ?1", { { text = path } }))
@@ -408,19 +410,35 @@ local function test_a_pure_store_keeps_the_sources_of_the_walks_its_closure_decl
   local code = assert(Sqlite.text_rows(store, "SELECT length(bytecode) FROM modules WHERE path = 'build.typed'"))
   assert(support.nth(code, 1):text(1) == "0", "a module outside the closure keeps its code")
   assert(not sourced(store, "walk_test"), "the test's own source is not kept")
+  -- What is kept is the module's tokens, and the hash of those as its source hash.
+  local kept = assert(Sqlite.text_rows(store,
+    "SELECT CAST(inflate(source) AS TEXT), lower(hex(source_hash)) FROM modules WHERE path = 'build.helper'"))
+  local tokens = support.nth(kept, 1):text(1)
+  assert(tokens == 'local record helper end function helper . name ( ) : string return "helper" end return helper', tokens)
+  assert(support.nth(kept, 1):text(2) == Hash.hex_sha256(tokens), "the source hash is not that of the tokens kept")
+  assert(CodeFingerprint.normal(tokens, "build.helper") == tokens, "what is kept is not its own normal form")
   assert(store:close())
+  local bytes = assert(Fs.read(tmp .. "/plain.db"))
   local outside, outside_store = walk_store(tmp .. "/b", tmp, "outside", { ["build/paths"] = "-- a comment" })
   assert(outside == plain, "a comment in an import outside the walk moved the address")
   assert(outside_store:close())
-  local inside, inside_store = walk_store(tmp .. "/c", tmp, "inside", { ["build/helper"] = "-- a comment" })
-  assert(inside ~= plain, "a comment in a module of the walk left the address as it was")
-  assert(inside_store:close())
-  local typed, typed_store = walk_store(tmp .. "/e", tmp, "typed", { ["build/typed"] = "-- a comment" })
-  assert(typed ~= plain, "a comment in a module the walk reaches by a type alone left the address as it was")
-  assert(typed_store:close())
-  local root, root_store = walk_store(tmp .. "/d", tmp, "root", { ["build/pipeline"] = "-- a comment" })
-  assert(root ~= plain and root ~= inside, "a comment in the walk's root left the address as it was")
-  assert(root_store:close())
+  -- A comment, a blank line and an indent in a module of the walk, its root and one it reaches by a type alone.
+  for _, edit in ipairs({ "-- a comment", "", "      ", "--- a doc comment\n\n-- and another" }) do
+    for _, path in ipairs({ "build/helper", "build/pipeline", "build/typed" }) do
+      local name = (path:gsub("/", "-"))
+      local same, same_store = walk_store(tmp .. "/" .. name, tmp, name, { [path] = edit })
+      assert(same == plain, "a comment or the layout of " .. path .. " moved the address")
+      assert(assert(Fs.read(tmp .. "/" .. name .. ".db")) == bytes, "a comment or the layout of " .. path .. " moved the store's bytes")
+      assert(same_store:close())
+    end
+  end
+  -- A token of one of them.
+  for _, path in ipairs({ "build/helper", "build/pipeline", "build/typed" }) do
+    local name = "token-" .. (path:gsub("/", "-"))
+    local moved, moved_store = walk_store(tmp .. "/" .. name, tmp, name, { [path] = "local _edited = 1" })
+    assert(moved ~= plain, "a token in " .. path .. " left the address as it was")
+    assert(moved_store:close())
+  end
 end
 
 --- A closure that declares no read keeps no source: the same project with the declaration left out holds no source

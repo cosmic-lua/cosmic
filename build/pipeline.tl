@@ -28,6 +28,7 @@
 local AnalysisSchema = require("build.analysis_schema")
 local Ceilings = require("build.ceilings")
 local CheckerDeclarations = require("build.checker_declarations")
+local CodeFingerprint = require("build.code_fingerprint")
 local CodeWalk = require("build.code_walk")
 local CompileGrammar = require("build.compile_grammar")
 local Ast = require("lang.ast")
@@ -182,10 +183,11 @@ local record Pipeline
   discounted: function(result: Driver.Outcome)
 
   --- The tool string a compile is keyed by, given the one the harness chose ([`build.grammar_mode`]'s `tool`): that and the
-  --- identity of the code that reads and checks a source, which is the source, as the running binary carries it,
-  --- of every module of the tree (`lang.*`, `build.*`) that [`build.pipeline`] reaches. A compile or a parse made with it is
-  --- keyed by it, so that an edit to the checker or to a reader reads the tree again; the compiler's identity
-  --- ([`build.identity`]) holds none of it, so a default run is not read again for it.
+  --- identity of the code that reads and checks a source, which is the tokens of the source ([`build.code_fingerprint`]), as the
+  --- running binary carries it, of every module of the tree (`lang.*`, `build.*`) that [`build.pipeline`] reaches. A compile
+  --- or a parse made with it is keyed by it, so that an edit to the checker or to a reader reads the tree again, and a
+  --- comment or the layout of one does not; the compiler's identity ([`build.identity`]) holds none of it, so a default run
+  --- is not read again for it.
   coded: function(tool: string): string
 
   --- [`Pipeline.coded`] over the code the working database `db` stages, parsed, in place of the code the running binary
@@ -397,8 +399,9 @@ local record Reader
 end
 
 --- The identity of the code that reads and checks ([`Pipeline.coded`]), over the modules `reader` answers for: each module
---- of [`build.code_walk`]'s walk from this one by its name and its source. What the walk leaves out of this module's own
---- requires, and why, is [`CodeWalk.type_only`].
+--- of [`build.code_walk`]'s walk from this one by its name and the tokens of its source ([`build.code_fingerprint`]), so that
+--- a comment or the layout of a module moves nothing. What the walk leaves out of this module's own requires, and why, is
+--- [`CodeWalk.type_only`].
 local function identity(reader: Reader): string
   local names, trouble = CodeWalk.reach(CodeWalk.pipeline, function(name: string): {string}?, string
     return reader.requires(name), ""
@@ -408,7 +411,7 @@ local function identity(reader: Reader): string
   for _, name in ipairs(names) do
     local source = reader.source(name)
     if source ~= nil then
-      parts[#parts + 1] = name .. "\n" .. source
+      parts[#parts + 1] = name .. "\n" .. CodeFingerprint.of(source, name)
     end
   end
   table.sort(parts)

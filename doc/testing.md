@@ -317,7 +317,9 @@ declares that it reads text (below):
   uses, the links finder) requires one of [`build.reads.pipeline`],
   [`build.reads.analyzer`], [`build.reads.receivers`] or [`build.reads.links`]
   ([`build.code_walk`] holds the walks), and a test importing it is given the
-  source of the modules that walk reaches, which its key holds. A module that
+  modules that walk reaches, which its key holds, each as its tokens
+  ([`build.code_fingerprint`]): the source with its comments and layout taken
+  away, which the identities hash the same as the source. A module that
   reads any other text ([`build.reads.all`]: docs, uses, places, the language
   server) demotes every test importing it: the test is given the store of its
   closure with its text, keyed by its bytes, as `store_text` does for a test
@@ -333,9 +335,10 @@ declares that it reads text (below):
   information ([`build.lua_tail`]'s `stripped`, which also writes the line
   each function is defined on as 0), and its own module's as the build made it;
 - the source file of its own module and of the declarations it requires, and
-  not of the modules it imports.
+  not of the modules it imports. A module of a walk it declares is kept as its
+  tokens (above), in place of its source file.
 
-Its key holds the digest of exactly that, the stubs kept included, so an edit to an imported module
+Its key holds the digest of exactly that, the stubs and the tokens of the walked modules kept included, so an edit to an imported module
 that changes no bytecode (a comment, a blank line, a renamed local, a function
 that moved down the file) runs no test of its importers again, and one that
 changes what the module does runs them. In a module the test names, a comment
@@ -389,7 +392,7 @@ What a module that reads other modules' text declares: it requires the marker
 of what it reads, and every test importing it is given that, keyed by it.
 [`build.reads.pipeline`], [`build.reads.analyzer`], [`build.reads.receivers`] and
 [`build.reads.links`] ([`build.code_walk`]) name a walk of sources, and a test
-importing the module is given the sources that walk reaches. [`build.reads.all`]
+importing the module is given the tokens of the sources that walk reaches. [`build.reads.all`]
 (docs, uses, places, the language server) gives every test importing it the
 store of its closure with its text, as `store_text` does.
 
@@ -883,6 +886,7 @@ Other rules:
 [`bin/zig`]: ../bin/zig
 [`build.checker_declarations`]: ../build/checker_declarations.tl
 [`build.closure_store`]: ../build/closure_store.tl
+[`build.code_fingerprint`]: ../build/code_fingerprint.tl
 [`build.code_walk`]: ../build/code_walk.tl
 [`build.compile_grammar`]: ../build/compile_grammar.tl
 [`build.confine`]: ../build/confine.tl

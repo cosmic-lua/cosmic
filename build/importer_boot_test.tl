@@ -204,7 +204,8 @@ end
 
 --- The code that reads ([`build.pipeline`]'s `coded`) is named by the modules build.pipeline runs, not by build.plans,
 --- which it requires for a type alone: a parse is named by it ([`build.importer`]'s `running_analyzer`), so an edit
---- to build.plans, which no parse runs, would otherwise parse every source again. An edit to a module it runs moves it.
+--- to build.plans, which no parse runs, would otherwise parse every source again. An edit to a module it runs moves it,
+--- unless the edit is a comment or the layout, which the name holds no part of ([`build.code_fingerprint`]).
 local function test_the_code_that_reads_leaves_out_what_build_pipeline_names_for_a_type()
   local root = assert(Fs.mkdtemp("cosmic-importer-test-coded-"))
   for _, dir in ipairs({ "build", "core" }) do
@@ -213,8 +214,8 @@ local function test_the_code_that_reads_leaves_out_what_build_pipeline_names_for
   assert(Fs.mkdirs(root .. "/lang"))
   assert(Fs.write(root .. "/lang/prelude.d.tl", (assert(Fs.read("lang/prelude.d.tl")))))
   assert(Fs.write(root .. "/lang/stdlib.d.tl", (assert(Fs.read("lang/stdlib.d.tl")))))
-  local function record_of(name: string): string
-    return "local record " .. name .. "\n  mut n: integer\nend\n" .. name .. ".n = 0\nreturn " .. name .. "\n"
+  local function record_of(name: string, n?: integer): string
+    return "local record " .. name .. "\n  mut n: integer\nend\n" .. name .. ".n = " .. tostring(n or 0) .. "\nreturn " .. name .. "\n"
   end
   assert(Fs.write(root .. "/build/helper.tl", record_of("helper")))
   assert(Fs.write(root .. "/build/plans.tl", record_of("plans")))
@@ -231,9 +232,11 @@ local function test_the_code_that_reads_leaves_out_what_build_pipeline_names_for
     return name
   end
   local original = named()
-  assert(Fs.write(root .. "/build/plans.tl", record_of("plans") .. "-- edited\n"))
+  assert(Fs.write(root .. "/build/plans.tl", record_of("plans", 1)))
   assert(named() == original, "an edit to build.plans, which build.pipeline names for a type alone, moved its name")
-  assert(Fs.write(root .. "/build/helper.tl", record_of("helper") .. "-- edited\n"))
+  assert(Fs.write(root .. "/build/helper.tl", "-- edited\n\nlocal record helper\n\n    mut n: integer\nend\nhelper.n   =   0\nreturn helper\n-- edited\n"))
+  assert(named() == original, "a comment or the layout of a module build.pipeline runs moved its name")
+  assert(Fs.write(root .. "/build/helper.tl", record_of("helper", 1)))
   assert(named() ~= original, "an edit to a module build.pipeline runs did not move its name")
 end
 

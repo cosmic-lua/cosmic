@@ -1,16 +1,12 @@
---- Which modules the identities of the code that reads and checks hash the source of.
+--- Which modules the identities of the code that reads and checks hash the tokens of.
 ---
---- Four identities hold the source of the code that decides what a compile or a parse stores: the checker's readers
---- ([`build.pipeline`]'s `coded`), the analyzer ([`build.importer`]'s `analyzer_identity`), the readers of the
+--- Four identities hold the tokens of the source of the code that decides what a compile or a parse stores: the checker's
+--- readers ([`build.pipeline`]'s `coded`), the analyzer ([`build.importer`]'s `analyzer_identity`), the readers of the
 --- record-field uses (`receivers_identity`) and the code that finds the links of the files ([`build.work`]'s
 --- `links_finder`). Each is a walk from roots over `require`, defined here once, so that the identities and the writer
---- of a test's pure store ([`build.closure_store`]) reach the same modules: the pure store keeps the source of exactly the
+--- of a test's pure store ([`build.closure_store`]) reach the same modules: the pure store keeps the tokens of exactly the
 --- walks a test's closure declares it reads (it requires [`build.reads.pipeline`], `analyzer`, `receivers` or `links`).
-
--- TODO: hash the tokens of each module of a walk, not its source, in the four identities (build.pipeline's `identity`,
--- build.importer's `analyzer_named` and `receivers_identity`, build.work's `links_finder`) once a comment-insensitive
--- fingerprint of a module exists, so that a comment in a module of a walk moves no key; the pure store would then keep
--- that fingerprint in place of the source.
+--- The tokens are [`build.code_fingerprint`]'s, so a comment or the layout of a module of a walk moves no key and no store.
 
 local record Walks
   --- The walk of the checker's readers, from [`build.pipeline`].
@@ -32,7 +28,7 @@ local record Walks
 
   --- The modules a module declares what text it reads by requiring (a value `require`, which the closure of a test follows),
   --- each with the word it declares ([`build.reads.all`] and its siblings): `pipeline`, `analyzer`, `receivers` and `links` for the walks of this
-  --- module, whose sources a pure store keeps; `stubs` for the stubs of the standard-library modules a test names
+  --- module, whose tokens a pure store keeps; `stubs` for the stubs of the standard-library modules a test names
   --- ([`build.standard_text`]); `declarations` for a reader of the declarations alone, which every store keeps; and `all`
   --- for a reader of any text, which gives a test the full store.
   markers: {string:string}
