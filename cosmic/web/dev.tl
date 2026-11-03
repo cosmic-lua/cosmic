@@ -133,15 +133,6 @@ local DEFAULT_IGNORE <const>: {string} = {
 
 local LOCAL_HOSTS <const>: {string} = { "localhost", "127.0.0.1", "[::1]" }
 
-local OPTION_FIELDS <const>: {string:boolean} = {
-  enabled = true, static = true, interval_ns = true, boot = true,
-}
-
-local SUPERVISE_FIELDS <const>: {string:boolean} = {
-  command = true, start = true, watch = true, ignore = true, static = true, interval_ns = true,
-  grace_ns = true, log = true, on_boot = true, stop = true,
-}
-
 --- The browser's half: a reload when the process changed, a swap of the
 --- stylesheets when the stream says css. The script itself is not inline
 --- (it is served from `/_web/dev.js`); the tag that loads it carries the
@@ -214,21 +205,10 @@ local function tag(nonce: string?): string
   return '<script src="/_web/dev.js" nonce="' .. Html.raw_attr(Html.escape_attr(nonce)) .. '" defer></script>'
 end
 
---- Raises for an `opts` that is no table or holds a field `known` lacks.
-local function checked(opts: any, known: {string:boolean}, what: string)
-  if opts == nil then return end
-  if not opts is {any:any} then error("web: " .. what .. " takes a table", 3) end -- declared: key_type
-  for key in pairs(opts) do -- checked: any_use
-    if not (key is string and known[key] == true) then
-      error(("web: %s has no field %s"):format(what, tostring(key)), 3)
-    end
-  end
-end
-
---- Raises where `value` is present and no integer of at least `least`.
-local function counted(value: any, name: string, least: integer)
+--- Raises where `value` is present and under `least`.
+local function counted(value: integer?, name: string, least: integer)
   if value == nil then return end
-  if not value is integer or value < least then
+  if value < least then
     error(("web: %s must be an integer of at least %d"):format(name, least), 3)
   end
 end
@@ -502,24 +482,16 @@ local function boot_of(opts: Dev.Options?): string
 end
 
 local function checked_options(opts: Dev.Options?, level: integer)
-  checked(opts, OPTION_FIELDS, "dev")
   if opts == nil then return end
-  local enabled: any = opts.enabled -- checked: any_use
-  local static: any = opts.static -- checked: any_use
-  local boot: any = opts.boot -- checked: any_use
-  if enabled ~= nil and type(enabled) ~= "boolean" then
-    error("web: dev: enabled must be a boolean", level)
-  end
-  if static ~= nil and (type(static) ~= "string" or static == "") then
+  if opts.static == "" then
     error("web: dev: static must be a path", level)
   end
-  if boot ~= nil and type(boot) ~= "string" then error("web: dev: boot must be a string", level) end
   counted(opts.interval_ns, "dev: interval_ns", 1)
 end
 
 --- A [`Web.app`] that is in development mode when the environment says
 --- so, else the plain app: see the module. Raises as [`Web.app`] does,
---- and for a field of `opts` of the wrong kind.
+--- and for an `opts` value out of range.
 --- @param spec Types.AppSpec What the app is made of
 --- @param opts Options | nil Whether development mode is on, and where `static` is
 --- @return Types.App The app
@@ -589,7 +561,6 @@ end
 ---   cannot be read or the signals cannot be held
 --- @return string Why not
 function Dev.supervise(opts?: Dev.SuperviseOptions): boolean, string
-  checked(opts, SUPERVISE_FIELDS, "dev.supervise")
   local given: Dev.SuperviseOptions = opts or {}
   counted(given.interval_ns, "dev.supervise: interval_ns", 1)
   counted(given.grace_ns, "dev.supervise: grace_ns", 0)

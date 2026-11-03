@@ -1886,8 +1886,7 @@ local record PtyOptions
   keep_slave?: boolean
   --- The terminal's size in character cells, set before the child starts,
   --- or nil for the system's default. Given with `columns` or not at all,
-  --- each an integer in 0..65535 (an integral float such as 24.0 is
-  --- refused): anything else raises before a pty opens.
+  --- each in 0..65535: anything else raises before a pty opens.
   rows?: integer
   --- Its width, set with `rows`.
   columns?: integer
@@ -1929,12 +1928,8 @@ end
 local function descriptor(value: (integer | string)?, name: string, words: {string:boolean}):
     integer | string
   if value == nil then return "inherit" end
-  if value is string and words[value] == true then return value end
-  if value is integer and value >= 0 and value <= INT_MAX then return value end
-  if name == "stdin" and value == "pipe" then
-    error("child: stdin = \"pipe\" was removed: use \"stream\" and write through the handle's " ..
-        "stdin_stream, closing it for end of file, or `input` for bytes known in advance", 4)
-  end
+  if value is string then return value end
+  if value >= 0 and value <= INT_MAX then return value end
   local allowed: mut {string} = {}
   for word in pairs(words) do allowed[#allowed + 1] = "'" .. word .. "'" end
   table.sort(allowed)
@@ -1955,9 +1950,6 @@ end
 local function validate(argv: {string}, opts: Options)
   if #argv == 0 then error("child: argv is empty", 3) end
   for i, value in ipairs(argv) do
-    if type(value) ~= "string" then
-      error("child: argv[" .. tostring(i) .. "] must be a string", 3)
-    end
     without_nul(value, "argv[" .. tostring(i) .. "]")
   end
   local cwd = opts.cwd
@@ -1968,10 +1960,9 @@ local function validate(argv: {string}, opts: Options)
   local env = opts.env
   if env ~= nil then
     for name, value in pairs(env) do
-      if type(name) ~= "string" or name == "" or name:find("=", 1, true) ~= nil then
-        error("child: environment name is empty, non-string, or contains '='", 3)
+      if name == "" or name:find("=", 1, true) ~= nil then
+        error("child: environment name is empty or contains '='", 3)
       end
-      if type(value) ~= "string" then error("child: environment value must be a string", 3) end
       without_nul(name, "environment name")
       without_nul(value, "environment value")
     end
@@ -1981,7 +1972,6 @@ local function validate(argv: {string}, opts: Options)
   descriptor(opts.stderr, "stderr", STDERR_WORDS)
   local input = opts.input
   if input ~= nil then
-    if type(input) ~= "string" then error("child: input must be a string", 3) end
     if stdin ~= "inherit" then
       error("child: input and a stdin of its own exclude each other", 3)
     end
@@ -1989,7 +1979,7 @@ local function validate(argv: {string}, opts: Options)
   local fds = opts.fds
   if fds ~= nil then
     for number, value in pairs(fds) do
-      if not (number is integer) or number < 3 or number > 255 then
+      if number < 3 or number > 255 then
         error("child: fds keys are child descriptors from 3 to 255", 3)
       end
       descriptor(value, "fds[" .. tostring(number) .. "]", FD_WORDS)
@@ -2001,15 +1991,11 @@ local function validate(argv: {string}, opts: Options)
   end
   Poll.checked_ns(opts.timeout_ns, "child", "timeout_ns", 3)
   local logged = opts.relay_log
-  if logged ~= nil and logged ~= "null" and logged ~= "inherit" and
-      not (logged is integer and logged >= 0 and logged <= INT_MAX) then
+  if logged is integer and (logged < 0 or logged > INT_MAX) then
     error("child: relay_log must be \"null\", \"inherit\" or a descriptor", 3)
   end
   local policy = opts.policy
   if policy ~= nil then
-    if type(policy) ~= "table" then
-      error("child: policy must be a cosmic.sandbox Policy", 3)
-    end
     if opts.env ~= nil then
       error("child: policy and env exclude each other: the policy's env and set_env are the " ..
           "child's whole environment", 3)
@@ -2023,7 +2009,7 @@ local function validate(argv: {string}, opts: Options)
   local credentials = opts.credentials
   if credentials ~= nil then
     local user, group = credentials.user, credentials.group
-    if not (user is integer) or not (group is integer) or
+    if user == nil or group == nil or
         user < 1 or user > 4294967294 or group < 1 or group > 4294967294 then
       error("child: credentials need integer user and group from 1 to 4294967294", 3)
     end
@@ -2036,13 +2022,8 @@ local function validate(argv: {string}, opts: Options)
   local opts_sandbox = opts.sandbox
   if opts_sandbox ~= nil then
     local noexec_scratch = opts_sandbox.noexec_scratch
-    if noexec_scratch ~= nil then
-      if type(noexec_scratch) ~= "boolean" then
-        error("child: noexec_scratch must be a boolean", 3)
-      end
-      if noexec_scratch and opts_sandbox.unveil == nil then
-        error("child: noexec_scratch requires unveil", 3)
-      end
+    if noexec_scratch == true and opts_sandbox.unveil == nil then
+      error("child: noexec_scratch requires unveil", 3)
     end
   end
   local sandbox = opts.sandbox
@@ -4141,7 +4122,7 @@ local pty_holder_mt: metatable<PtyHolder> = { -- checked: literal_missing
 --- and `/dev/tty`, which it is not otherwise given.
 --- Nil and why where the pty cannot be opened, its size cannot be set or
 --- the start fails. A `pty.rows` or `pty.columns` that is not given with
---- the other, or is not an integer in 0..65535, raises before a pty opens.
+--- the other, or is not in 0..65535, raises before a pty opens.
 --- @param argv the program and its arguments, as [`Child.start`] takes them
 --- @param opts the start's options, naming none of the pty's streams
 --- @param pty the pty's streams and size
@@ -4151,7 +4132,7 @@ function Child.start_on_pty(argv: {string}, opts: Options, pty: PtyOptions): Pty
   validate(argv, opts)
   local streams: mut {integer:boolean} = {}
   for _, number in ipairs(pty.streams) do
-    if not (number is integer) or number < 0 or number > 2 or streams[number] == true then
+    if number < 0 or number > 2 or streams[number] == true then
       error("child: pty streams are each of 0, 1 and 2 once", 2)
     end
     streams[number] = true
@@ -4161,13 +4142,13 @@ function Child.start_on_pty(argv: {string}, opts: Options, pty: PtyOptions): Pty
       (streams[1] == true and opts.stdout ~= nil) or (streams[2] == true and opts.stderr ~= nil) then
     error("child: a stream on the pty takes no stdin, input, stdout or stderr of its own", 2)
   end
-  if (pty.rows == nil) ~= (pty.columns == nil) then
+  local rows = pty.rows
+  local columns = pty.columns
+  if (rows == nil) ~= (columns == nil) then
     error("child: a pty's rows and columns are given together", 2)
   end
-  for _, size in ipairs({ pty.rows, pty.columns }) do -- checked: array_of_optional
-    if not (size is integer) or size < 0 or size > 65535 then
-      error("child: a pty's rows and columns are each an integer in 0..65535", 2)
-    end
+  if rows ~= nil and columns ~= nil and (rows < 0 or rows > 65535 or columns < 0 or columns > 65535) then
+    error("child: a pty's rows and columns are each in 0..65535", 2)
   end
   local made, why = sys.openpty()
   if made == nil then return refuse("pty: " .. why) end
@@ -4175,8 +4156,6 @@ function Child.start_on_pty(argv: {string}, opts: Options, pty: PtyOptions): Pty
   -- return, the master unless the caller is to have it.
   local holding <close>: PtyHolder = setmetatable({ master = made.master, slave = made.slave, -- checked: arms_differ, close_not_closable, setmetatable_call -- untyped: call
     keep = false, keep_slave = false }, pty_holder_mt)
-  local rows = pty.rows
-  local columns = pty.columns
   if rows ~= nil and columns ~= nil then
     local sized, size_why = sys.setwinsize(made.master, rows, columns)
     -- TODO: test this branch once the checked core has a fault point that

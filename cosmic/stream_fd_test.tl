@@ -172,7 +172,8 @@ local function test_a_wait_the_caller_gives_replaces_the_poll(tmp: string)
                                                                        events: integer, left: integer?): boolean, string
     calls = calls + 1
     assert(fd == writer and events == sys.POLLOUT and left == nil)
-    if fail ~= nil then return false, fail end -- checked: nil_not_allowed
+    local failure = fail
+    if failure ~= nil then return false, failure end
     table.insert(seen, drained(reader))
     return true, ""
   end })

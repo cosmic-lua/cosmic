@@ -27,34 +27,12 @@ end
 local record App
 end
 
-local SPEC_FIELDS <const>: {string:boolean} = {
-  routes = true, middleware = true, lifespan = true, debug = true, trailing_slash = true,
-  trusted_hosts = true, trusted_proxy = true, error_pages = true, error_view = true, sink = true,
-  builtin = true,
-  hubs = true, max_streams = true, dev = true,
-}
-
-local SERVE_FIELDS <const>: {string:boolean} = {
-  listeners = true, limits = true, timeout_ns = true, idle_ns = true, head_ns = true,
-  body_ns = true, grace_ns = true, on_ready = true, on_stop = true,
-}
-
 --- How long requests in flight have to finish once the server stops.
 local GRACE_NS <const> = Clock.seconds(10)
 
 --- The streams an app allows when it is not served: half the server's
 --- default of 256 connections.
 local DEFAULT_STREAM_LIMIT <const> = 128
-
---- Raises where `spec` is no table or holds a field `known` lacks.
-local function checked(spec: any, known: {string:boolean}, what: string)
-  if not spec is {any:any} then error("web: " .. what .. " takes a table", 3) end -- declared: key_type
-  for key in pairs(spec) do -- checked: any_use
-    if not (key is string and known[key] == true) then
-      error(("web: %s has no field %s"):format(what, tostring(key)), 3)
-    end
-  end
-end
 
 --- Whether `address` is on the loopback: a unix socket, `::1` or a dotted
 --- 127/8 address (not a name that merely starts with "127.").
@@ -90,13 +68,11 @@ end
 local app_methods = { url_for = url_for, stopping = stopping, on_stop = on_stop } -- checked: arms_differ
 local app_mt: metatable<Types.App> = { __index = app_methods } -- checked: literal_missing
 
---- Compiles `spec` into an app. Raises, naming it, for a field of the
---- wrong shape or one `spec` should not have, and for a route that cannot
+--- Compiles `spec` into an app. Raises, naming it, for a route that cannot
 --- be registered ([`Web.router`]).
 --- @param spec Types.AppSpec What the app is made of
 --- @return Types.App The app
 function App.new(spec: Types.AppSpec): Types.App
-  checked(spec, SPEC_FIELDS, "app")
   local sink: Types.Sink = spec.sink or Middleware.stderr_sink()
   local hubs: {Types.Closable} = spec.hubs or {}
   local routes: {Types.Route} = spec.routes or {}
@@ -212,7 +188,6 @@ end
 --- @return boolean Whether the server stopped cleanly
 --- @return string Why not
 function App.serve(app: Types.App, opts: Types.ServeOptions): boolean, string
-  checked(opts, SERVE_FIELDS, "serve")
   local sink = assert(app.spec.sink)
   if app.spec.dev == true then
     if app.spec.trusted_proxy == true then
