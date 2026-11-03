@@ -4,6 +4,7 @@
 --- CONFIG_PROC_CHILDREN lacks). Each child is this program again
 --- (build/child_lua_fixture.tl), as in cosmic/child_lua_test.tl.
 
+local Array = require("cosmic.array")
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
@@ -39,7 +40,7 @@ end
 --- grants no process of a sandbox.
 local function test_end_strays_ends_a_stray_named_as_an_init(tmp: string)
   local link = tmp .. "/cosmic-init"
-  assert(Fs.symlink(this_program.program({}).argv[1], link)) -- checked: index_may_be_nil
+  assert(Fs.symlink(Array.at(this_program.program({}).argv, 1), link))
   do
     -- A group started first makes this process the subreaper it adopts
     -- the stray as.

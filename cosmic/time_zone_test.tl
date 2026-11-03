@@ -160,15 +160,19 @@ local function test_disambiguation_resolves_gaps_and_folds()
   v, why = Time.from_civil(fold, ny, { disambiguation = "reject" })
   assert(v == nil and why == "time: 2026-11-01T01:30 happens twice in America/New_York: clocks moved " ..
       "from -04:00 to -05:00; disambiguation \"earlier\" or \"later\" picks one", why)
-  local want: {Time.Disambiguation:{string}} = {
-    earlier = { "2026-03-08T06:30:00Z", "2026-11-01T05:30:00Z" },
-    later = { "2026-03-08T07:30:00Z", "2026-11-01T06:30:00Z" },
-    compatible = { "2026-03-08T07:30:00Z", "2026-11-01T05:30:00Z" },
+  local record Moments
+    gap: string
+    fold: string
+  end
+  local want: {Time.Disambiguation:Moments} = {
+    earlier = { gap = "2026-03-08T06:30:00Z", fold = "2026-11-01T05:30:00Z" },
+    later = { gap = "2026-03-08T07:30:00Z", fold = "2026-11-01T06:30:00Z" },
+    compatible = { gap = "2026-03-08T07:30:00Z", fold = "2026-11-01T05:30:00Z" },
   }
   for how, pair in pairs(want) do
     local opts: Time.AddOptions = { disambiguation = how }
-    assert(Time.from_civil(gap, ny, opts) == at(pair[1]), how) -- checked: index_may_be_nil
-    assert(Time.from_civil(fold, ny, opts) == at(pair[2]), how) -- checked: index_may_be_nil
+    assert(Time.from_civil(gap, ny, opts) == at(pair.gap), how)
+    assert(Time.from_civil(fold, ny, opts) == at(pair.fold), how)
   end
   -- An unambiguous local time is the same moment whatever is asked.
   local every: {Time.Disambiguation} = { "reject", "earlier", "later", "compatible" }
@@ -296,9 +300,17 @@ local function test_a_zone_is_read_once()
   assert(rawequal(a, b), "the second lookup answers the first zone")
 end
 
+--- One type of a tzif file: its offset east of UTC in seconds, its daylight
+--- flag, and where its abbreviation starts in the file's characters.
+local record TzifType
+  offset: integer
+  dst: integer
+  abbreviation: integer
+end
+
 --- A tzif file, as `zic` writes one: a version 1 block, and for later
 --- versions a 64-bit block and the footer after it.
-local function tzif(version: string, times: {integer}, indices: {integer}, types: {{integer}},
+local function tzif(version: string, times: {integer}, indices: {integer}, types: {TzifType},
                     chars: string, footer: string): string
   local function block(wide: boolean): string
     local parts = { "TZif", version, ("\0"):rep(15),
@@ -307,7 +319,9 @@ local function tzif(version: string, times: {integer}, indices: {integer}, types
       parts[#parts + 1] = string.pack(if wide then ">i8" else ">i4" end, t)
     end
     for _, i in ipairs(indices) do parts[#parts + 1] = string.char(i) end
-    for _, t in ipairs(types) do parts[#parts + 1] = string.pack(">i4BB", t[1], t[2], t[3]) end -- checked: index_may_be_nil*3
+    for _, t in ipairs(types) do
+      parts[#parts + 1] = string.pack(">i4BB", t.offset, t.dst, t.abbreviation)
+    end
     parts[#parts + 1] = chars
     return table.concat(parts)
   end
@@ -316,7 +330,8 @@ local function tzif(version: string, times: {integer}, indices: {integer}, types
 end
 
 local function test_tzif_reads_every_version()
-  local types = { { 3600, 0, 0 }, { 7200, 1, 4 } }
+  local types: {TzifType} = { { offset = 3600, dst = 0, abbreviation = 0 },
+    { offset = 7200, dst = 1, abbreviation = 4 } }
   local times, indices = { 0, 1000 }, { 1, 0 }
   for _, version in ipairs({ "\0", "2", "3", "4" }) do
     local z, why = Time.zone_from_tzif(tzif(version, times, indices, types, "ONE\0TWO\0", ""), "Test/Zone")
@@ -332,7 +347,7 @@ local function test_tzif_reads_every_version()
   local z = assert(Time.zone_from_tzif(tzif("2", times, indices, types, "ONE\0TWO\0", "XYZ-5"), "x"))
   assert(Time.civil(1001 * NS, z).offset == 18000)
   assert(Time.civil(1000 * NS, z).offset == 3600, "the last transition's own type at it")
-  z = assert(Time.zone_from_tzif(tzif("2", {}, {}, { { 0, 0, 0 } }, "UTC\0", "EST5EDT"), "x"))
+  z = assert(Time.zone_from_tzif(tzif("2", {}, {}, { { offset = 0, dst = 0, abbreviation = 0 } }, "UTC\0", "EST5EDT"), "x"))
   assert(Time.civil(at("2026-07-01T00:00:00Z"), z).abbreviation == "EDT")
 end
 
@@ -359,7 +374,7 @@ local function test_tzif_reads_a_real_fat_or_slim_file()
 end
 
 local function test_tzif_refuses_malformed_files()
-  local good = tzif("2", { 0 }, { 0 }, { { 0, 0, 0 } }, "UTC\0", "UTC0")
+  local good = tzif("2", { 0 }, { 0 }, { { offset = 0, dst = 0, abbreviation = 0 } }, "UTC\0", "UTC0")
   assert(Time.zone_from_tzif(good, "x"))
   local cases: {string:string} = {
     ["empty"] = "",
@@ -370,14 +385,14 @@ local function test_tzif_refuses_malformed_files()
     ["trailing"] = good .. "x",
     ["no footer newline"] = good:sub(1, -2),
     ["no types"] = tzif("2", {}, {}, {}, "UTC\0", ""),
-    ["no chars"] = tzif("2", {}, {}, { { 0, 0, 0 } }, "", ""),
-    ["unsorted"] = tzif("2", { 5, 5 }, { 0, 0 }, { { 0, 0, 0 } }, "UTC\0", ""),
-    ["type index"] = tzif("2", { 5 }, { 1 }, { { 0, 0, 0 } }, "UTC\0", ""),
-    ["isdst"] = tzif("2", {}, {}, { { 0, 2, 0 } }, "UTC\0", ""),
-    ["offset"] = tzif("2", {}, {}, { { 100000, 0, 0 } }, "UTC\0", ""),
-    ["abbreviation index"] = tzif("2", {}, {}, { { 0, 0, 4 } }, "UTC\0", ""),
-    ["abbreviation nul"] = tzif("2", {}, {}, { { 0, 0, 0 } }, "UTCX", ""),
-    ["footer"] = tzif("2", {}, {}, { { 0, 0, 0 } }, "UTC\0", "not a tz"),
+    ["no chars"] = tzif("2", {}, {}, { { offset = 0, dst = 0, abbreviation = 0 } }, "", ""),
+    ["unsorted"] = tzif("2", { 5, 5 }, { 0, 0 }, { { offset = 0, dst = 0, abbreviation = 0 } }, "UTC\0", ""),
+    ["type index"] = tzif("2", { 5 }, { 1 }, { { offset = 0, dst = 0, abbreviation = 0 } }, "UTC\0", ""),
+    ["isdst"] = tzif("2", {}, {}, { { offset = 0, dst = 2, abbreviation = 0 } }, "UTC\0", ""),
+    ["offset"] = tzif("2", {}, {}, { { offset = 100000, dst = 0, abbreviation = 0 } }, "UTC\0", ""),
+    ["abbreviation index"] = tzif("2", {}, {}, { { offset = 0, dst = 0, abbreviation = 4 } }, "UTC\0", ""),
+    ["abbreviation nul"] = tzif("2", {}, {}, { { offset = 0, dst = 0, abbreviation = 0 } }, "UTCX", ""),
+    ["footer"] = tzif("2", {}, {}, { { offset = 0, dst = 0, abbreviation = 0 } }, "UTC\0", "not a tz"),
   }
   for what, data in pairs(cases) do
     local z, why = Time.zone_from_tzif(data, "x")
@@ -442,8 +457,9 @@ local function test_tzif_with_long_abbreviations_is_read_in_linear_time()
       ratio = many_ns / math.max(few_ns, 1000000)
       if ratio < 24 then break end
     end
-    assert(ratio ~= nil and ratio < 24, ("80000 types took %d ms, 10000 %d ms: %.1fx"):format(
-      many_ns // 1000000, few_ns // 1000000, ratio)) -- checked: nil_not_allowed
+    assert(ratio ~= nil, "the loop measured nothing")
+    assert(ratio < 24, ("80000 types took %d ms, 10000 %d ms: %.1fx"):format(
+      many_ns // 1000000, few_ns // 1000000, ratio))
   end
 end
 
@@ -804,8 +820,8 @@ local function test_dates_follow_a_zones_calendar()
   assert(Time.parse_date("2026-06-01") == at("2026-06-01T00:00:00Z"))
   local havana = zone("America/Havana")
   local skipped = Time.parse_date("2026-03-08", havana)
-  assert(skipped == at("2026-03-08T05:00:00Z"), tostring(skipped))
-  assert(Time.format_rfc3339(skipped, havana) == "2026-03-08T01:00:00-04:00") -- checked: nil_not_allowed
+  assert(skipped ~= nil and skipped == at("2026-03-08T05:00:00Z"), tostring(skipped))
+  assert(Time.format_rfc3339(skipped, havana) == "2026-03-08T01:00:00-04:00")
   local v, why = Time.parse_date("2026-02-30", ny)
   assert(v == nil and why ~= "")
 end

@@ -66,7 +66,7 @@ end
 --- A child started under a profile.
 local record Running
   --- The child's pid, or nil where the start was refused.
-  pid: integer
+  pid: integer?
   --- Why the start was refused, when `pid` is nil.
   why: string
   --- The file the child's stdout and stderr go to.
@@ -86,7 +86,7 @@ local function start(tmp: string, text: string, parameters: {string:string}, arg
     { seatbelt = { profile = text, parameters = parameters } })
   local _, _ = sys.close(out)
   local _, _ = sys.close(null)
-  return { pid = pid, why = why, output = path } -- checked: nil_not_allowed
+  return { pid = pid, why = why, output = path }
 end
 
 --- How a child ended.
@@ -101,7 +101,7 @@ end
 
 --- Waits `seconds` for `running`, ending it then, and says how it ended.
 local function reap(running: Running, seconds: number): Ended
-  if running.pid == nil then -- checked: compare_disjoint
+  if running.pid == nil then
     return { started = false, why = running.why, code = -1, signal = -1, timed_out = false, text = "" }
   end
   local process = require("cosmic.internal.process")
@@ -167,7 +167,8 @@ end
 
 --- The port a listener or a datagram socket holds.
 local function port_of(address: Net.Address): integer
-  return address.port -- checked: nil_not_allowed
+  local port = assert(address.port, "a listener or datagram socket on an IP address has a port")
+  return port
 end
 
 --- A rule that holds one port of the loopback, in each form the design might
@@ -363,7 +364,7 @@ end
 --- a connection from outside, and what it read of it.
 local function listens(tmp: string, text: string, port: integer): string
   local running = start(tmp, text, {}, { "/usr/bin/nc", "-n", "-l", "127.0.0.1", tostring(port) })
-  if running.pid == nil then return "NOSTART(" .. brief(running.why) .. ")" end -- checked: compare_disjoint
+  if running.pid == nil then return "NOSTART(" .. brief(running.why) .. ")" end
   local reached = reach_listener(port, 1.5)
   local _, _ = Clock.sleep_ns(Clock.ms(300))
   local ended = reap(running, 0.01)

@@ -126,8 +126,9 @@ end
 --- messages cosmic's bindings raise); [`Errors.hint`] answers what it can. The location is `file:N: `, or `[string "..."]:N: ` for a
 --- chunk `load` made; a file name with a space in it is not seen.
 local function lua_wrote(message: string): boolean
-  local line = message:match("^[^\n]*")
-  line = line:gsub("^%S+:%d+: ", "", 1) -- checked: nil_not_allowed
+  local newline = message:find("\n", 1, true)
+  local line = if newline == nil then message else message:sub(1, newline - 1) end
+  line = line:gsub("^%S+:%d+: ", "", 1)
   line = line:gsub('^%[string ".-"%]:%d+: ', "", 1)
   return line:find("^attempt to ") ~= nil or
     line:find("^module '.-' not found") ~= nil or

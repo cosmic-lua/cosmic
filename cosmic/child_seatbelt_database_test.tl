@@ -6,6 +6,7 @@
 --- [`Test.skip`] on any other host (cosmic/child_policy_database_sandboxed_test.tl
 --- is Linux's).
 
+local Array = require("cosmic.array")
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
@@ -56,7 +57,7 @@ local function test_a_sealed_database_runs_its_main_and_requires_its_modules(tmp
   assert(out.databases == "1", tostring(out.databases)) -- checked: map_field*2
   assert(out.outside == "false", "a module outside the sealed set loaded") -- checked: map_field
   assert(out.own_file == "false", "this program's own file was read") -- checked: map_field
-  local core = assert(sys.realpath(assert(Proc.relaunch()).argv[1])) -- checked: index_may_be_nil
+  local core = assert(sys.realpath(Array.at(assert(Proc.relaunch()).argv, 1)))
   assert(out.relaunch == core .. "|--database|" .. assert(sys.realpath(path)), tostring(out.relaunch)) -- checked: map_field*2
 end
 

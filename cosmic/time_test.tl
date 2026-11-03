@@ -103,6 +103,8 @@ local function test_from_civil_raises_for_a_field_that_is_no_integer()
   assert(not ok and tostring(why):find("time: year is not an integer: float 2026.0", 1, true) ~= nil,
     tostring(why))
   local absent = civil(2026, 1, 1)
+  -- TODO: once the checker lets a test build a record that lacks a required field
+  -- (`rawset` of nil is an `array_of_optional`), build `absent` so, without this marker.
   absent.month = nil -- checked: nil_not_allowed
   ok, why = pcall(Time.from_civil, absent)
   assert(not ok and tostring(why):find("time: month is not an integer: nil nil", 1, true) ~= nil,
@@ -365,7 +367,7 @@ end
 
 local function test_between_spans_the_whole_range()
   local far = assert(Time.between(math.mininteger, math.maxinteger))
-  assert(far.years == 584 and far.months == 6, ("%d %d"):format(far.years, far.months)) -- checked: nil_not_allowed*2
+  assert(far.years == 584 and far.months == 6, ("%s %s"):format(tostring(far.years), tostring(far.months)))
 end
 
 --- What a malformed RFC 3339 or HTTP text is told, by where it goes wrong.
