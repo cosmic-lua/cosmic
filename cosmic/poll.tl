@@ -33,6 +33,7 @@
 --- which the run's own stack would not show. A task that must go on
 --- after a failure catches it itself.
 
+local Array = require("cosmic.array")
 local Clock = require("cosmic.clock")
 local errors = require("cosmic.internal.errors")
 local sys = require("cosmic.sys")
@@ -225,6 +226,12 @@ local function running(): Loop
   return (assert(ongoing.loop, "poll: no Poll.run in progress"))
 end
 
+--- The wait in slot `i` of `heap`, which holds a wait in each slot from 1 to
+--- the run's `timer_count`; every caller reads one of those.
+local function wait_at(heap: {integer: Wait}, i: integer): Wait
+  return (assert(heap[i], "poll: the timer heap holds a wait in every slot to timer_count"))
+end
+
 local function earlier(a: Wait, b: Wait): boolean
   local a_at, b_at = assert(a.at), assert(b.at)
   if a_at ~= b_at then return a_at < b_at end
@@ -238,8 +245,9 @@ local function heap_push(heap: mut {integer: Wait}, size: integer, w: Wait)
   local i = size
   while i > 1 do
     local parent = i // 2
-    if not earlier(heap[i], heap[parent]) then break end -- checked: index_may_be_nil*2
-    heap[i], heap[parent] = heap[parent], heap[i] -- checked: index_may_be_nil*2
+    local child, above = wait_at(heap, i), wait_at(heap, parent)
+    if not earlier(child, above) then break end
+    heap[i], heap[parent] = above, child
     i = parent
   end
 end
@@ -247,10 +255,10 @@ end
 local function sift_down(heap: mut {integer: Wait}, size: integer, i: integer)
   while true do
     local l, r, least = 2 * i, 2 * i + 1, i
-    if l <= size and earlier(heap[l], heap[least]) then least = l end -- checked: index_may_be_nil*2
-    if r <= size and earlier(heap[r], heap[least]) then least = r end -- checked: index_may_be_nil*2
+    if l <= size and earlier(wait_at(heap, l), wait_at(heap, least)) then least = l end
+    if r <= size and earlier(wait_at(heap, r), wait_at(heap, least)) then least = r end
     if least == i then return end
-    heap[i], heap[least] = heap[least], heap[i] -- checked: index_may_be_nil*2
+    heap[i], heap[least] = wait_at(heap, least), wait_at(heap, i)
     i = least
   end
 end
@@ -262,12 +270,12 @@ local function compact_timers()
   local heap, kept = running().timers, 0
   local size = running().timer_count
   for i = 1, size do
-    local w = heap[i]
-    if w.done == true then -- checked: nil_not_allowed
-      w.in_heap = false -- checked: nil_not_allowed
+    local w = wait_at(heap, i)
+    if w.done == true then
+      w.in_heap = false
     else
       kept = kept + 1
-      heap[kept] = w -- checked: nil_not_allowed
+      heap[kept] = w
     end
   end
   for i = size, kept + 1, -1 do heap[i] = nil end
@@ -303,33 +311,34 @@ end
 local function leave(watch: Watch)
   local loop = running()
   local fd = watch.fd
-  local entry = loop.watched[fd]
-  local watches = entry.watches -- checked: nil_not_allowed
-  local count = entry.count -- checked: nil_not_allowed
+  local entry = assert(loop.watched[fd], "poll: a descriptor stays watched until its last watch leaves")
+  local watches = entry.watches
+  local count = entry.count
   local last = assert(watches[count])
   watches[watch.index], last.index = last, watch.index
   watches[count] = nil
-  entry.count = count - 1 -- checked: nil_not_allowed
+  entry.count = count - 1
   if count == 1 then
-    local slot, top = entry.slot, loop.slots -- checked: nil_not_allowed
+    local slot, top = entry.slot, loop.slots
     local moved = assert(loop.fds[top])
     local moved_events = assert(loop.events[top])
     loop.fds[slot], loop.events[slot] = moved, moved_events
-    loop.watched[moved].slot = slot -- checked: nil_not_allowed
+    local moved_entry = assert(loop.watched[moved], "poll: every polled descriptor is watched")
+    moved_entry.slot = slot
     loop.fds[top], loop.events[top] = nil, nil
     loop.slots = top - 1
     loop.watched[fd] = nil
     return
   end
-  local left = entry.masks[watch.mask] - 1 -- checked: nil_not_allowed*2
+  local left = assert(entry.masks[watch.mask], "poll: a watch's mask is counted while it is entered") - 1
   if left > 0 then
-    entry.masks[watch.mask] = left -- checked: nil_not_allowed
+    entry.masks[watch.mask] = left
     return
   end
-  entry.masks[watch.mask] = nil -- checked: nil_not_allowed
+  entry.masks[watch.mask] = nil
   local events = 0
-  for mask in pairs(entry.masks) do events = events | mask end -- checked: nil_not_allowed
-  loop.events[entry.slot] = events -- checked: nil_not_allowed
+  for mask in pairs(entry.masks) do events = events | mask end
+  loop.events[entry.slot] = events
 end
 
 --- Takes a join's wait from the joiners of the task it waits on, the
@@ -423,7 +432,7 @@ local function park(task: State, w: Wait, timeout_ns: integer?): boolean, string
     elseif w_fds ~= nil then
       w.watches = {}
       local masks = assert(w.masks)
-      for place, fd in ipairs(w_fds) do enter(w, fd, masks[place], place) end -- checked: index_may_be_nil
+      for place, fd in ipairs(w_fds) do enter(w, fd, Array.at(masks, place), place) end
     end
     if timeout_ns ~= nil then
       w.at, w.in_heap = Clock.monotonic_ns() + timeout_ns, true
@@ -594,19 +603,19 @@ end
 --- Takes the nearest wait from the run's timers.
 local function pop_timer(): Wait
   local heap = running().timers
-  local top = heap[1]
   local size = running().timer_count
-  local last = heap[size]
+  local top = wait_at(heap, 1)
+  local last = wait_at(heap, size)
   heap[size] = nil
   size = size - 1
   running().timer_count = size
   if size > 0 then
-    heap[1] = last -- checked: nil_not_allowed
+    heap[1] = last
     sift_down(heap, size, 1)
   end
-  top.in_heap = false -- checked: nil_not_allowed
-  if top.done == true then running().stale = running().stale - 1 end -- checked: nil_not_allowed
-  return top -- checked: nil_not_allowed
+  top.in_heap = false
+  if top.done == true then running().stale = running().stale - 1 end
+  return top
 end
 
 local function began_first(a: Wait, b: Wait): boolean
@@ -793,7 +802,7 @@ end
 --- A new task running `fn`, ready to run.
 local function start(fn: function()): Poll.Task
   local state: State = {
-    co = coroutine.create(fn), loop = ongoing.loop, started = false, waiting = false, -- checked: nil_not_allowed
+    co = coroutine.create(fn), loop = running(), started = false, waiting = false,
     ended = false, killed = false, cancelled = false, shields = 0, parked = nil, joiners = {} }
   running().tasks[state.co] = state
   running().live = running().live + 1
@@ -841,8 +850,8 @@ local function close_all()
   local cos: mut {thread} = {} -- declared: thread_type
   for co in pairs(running().tasks) do cos[#cos + 1] = co end
   for _, co in ipairs(cos) do
-    local task = running().tasks[co]
-    task.ended, task.killed, task.parked = true, true, nil -- checked: nil_not_allowed*3
+    local task = assert(running().tasks[co], "poll: a task stays in tasks until it ends")
+    task.ended, task.killed, task.parked = true, true, nil
     if coroutine.status(co) == "suspended" then
       local _, _ = coroutine.close(co)
     end
@@ -888,9 +897,9 @@ end
 --- while a task is ready, until the nearest time wait, or -1 for no limit.
 local function next_timeout(): integer
   if #running().ready > 0 then return 0 end
-  while running().timer_count > 0 and running().timers[1].done == true do pop_timer() end -- checked: nil_not_allowed
+  while running().timer_count > 0 and wait_at(running().timers, 1).done == true do pop_timer() end
   if running().timer_count == 0 then return -1 end
-  local left = assert(running().timers[1].at) - Clock.monotonic_ns() -- checked: nil_not_allowed
+  local left = assert(wait_at(running().timers, 1).at) - Clock.monotonic_ns()
   if left <= 0 then return 0 end
   return math.min(Clock.ceil(left, MS), Clock.ceil(Poll.MOST_NS, MS))
 end
@@ -923,9 +932,9 @@ local function poll_once(timeout: integer)
   local hits: mut {Wait} = {}
   for slot, happened in ipairs(revents) do
     if happened ~= 0 then
-      local entry = loop.watched[assert(fds[slot])]
-      for index = 1, entry.count do -- checked: nil_not_allowed
-        local watch = assert(entry.watches[index]) -- checked: nil_not_allowed
+      local entry = assert(loop.watched[assert(fds[slot])], "poll: every polled descriptor is watched")
+      for index = 1, entry.count do
+        local watch = assert(entry.watches[index])
         local answer = happened & (watch.mask | UNASKED)
         if answer ~= 0 then
           local w = watch.wait
@@ -944,7 +953,7 @@ end
 --- Answers every time wait whose time has come.
 local function expire()
   local t = Clock.monotonic_ns()
-  while running().timer_count > 0 and (running().timers[1].done == true or assert(running().timers[1].at) <= t) do -- checked: nil_not_allowed*2
+  while running().timer_count > 0 and (wait_at(running().timers, 1).done == true or assert(wait_at(running().timers, 1).at) <= t) do
     local w = pop_timer()
     if w.done ~= true then
       if w.expiry_ok == true then wake(w, true, "") else wake(w, false, Poll.TIMEOUT) end

@@ -16,6 +16,7 @@
 --- call more than once, so a caller never has to ask which kind it
 --- holds. [`Stream.lines`] reads a Reader a line at a time.
 
+local Array = require("cosmic.array")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
@@ -501,8 +502,9 @@ local class FdReader is Stream.Reader
         return nil, ""
       end
       if not (opts.nonblocking == true and (errno == sys.EAGAIN or errno == sys.EINTR)) then
-        self.failed = if trouble ~= "" then trouble else "stream: read failed" end
-        return nil, self.failed -- checked: nil_not_allowed
+        local why = if trouble ~= "" then trouble else "stream: read failed" end
+        self.failed = why
+        return nil, why
       end
       local ready, why = wait_for(fd, sys.POLLIN, opts, deadline)
       if not ready then
@@ -529,8 +531,9 @@ local function file_skip(self: FdReader, n: integer): boolean, string
   if self.closed then return false, closed_reader end
   if n == 0 then return true, "" end
   if self.ended then
-    self.failed = "stream: skip past the end of the file"
-    return false, self.failed -- checked: nil_not_allowed
+    local why = "stream: skip past the end of the file"
+    self.failed = why
+    return false, why
   end
   local at, trouble = sys.lseek(self.fd, n, sys.SEEK_CUR)
   if at == nil then
@@ -548,8 +551,9 @@ local function file_skip(self: FdReader, n: integer): boolean, string
       self.size = size
     end
     if at > size then
-      self.failed = "stream: skip past the end of the file"
-      return false, self.failed -- checked: nil_not_allowed
+      local why = "stream: skip past the end of the file"
+      self.failed = why
+      return false, why
     end
   end
   return true, ""
@@ -643,9 +647,10 @@ local class TransformReader is Stream.Reader -- declared: interface_disagrees
     while self.at > #self.batch and not self.finished do
       local out, trouble = step(self)
       if out == nil then
-        self.failed = if trouble ~= "" then trouble else "stream: codec failed" end
+        local why = if trouble ~= "" then trouble else "stream: codec failed" end
+        self.failed = why
         self.batch, self.at = "", 1
-        return nil, self.failed -- checked: nil_not_allowed
+        return nil, why
       end
       self.batch, self.at = out, 1
     end
@@ -830,11 +835,13 @@ local class StickyWriter is Stream.Sticky
   mut failed?: string
 
   function fail(self, trouble: string): boolean, string
-    if self.failed == nil then
-      self.failed = if trouble ~= "" then trouble else self.name .. ": write failed" end
+    local failed = self.failed
+    if failed == nil then
+      failed = if trouble ~= "" then trouble else self.name .. ": write failed" end
+      self.failed = failed
       local _, _ = self.writer:abort()
     end
-    return false, self.failed -- checked: nil_not_allowed
+    return false, failed
   end
 
   function put(self, data: string): boolean, string
@@ -1107,8 +1114,9 @@ local class ToFdWriter is Stream.FdWriter
       local put, trouble, errno = sys.write(fd, piece)
       if put ~= nil then
         if put == 0 then
-          self.failed = "stream: write made no progress"
-          return false, self.failed -- checked: nil_not_allowed
+          local why = "stream: write made no progress"
+          self.failed = why
+          return false, why
         end
         at = at + put
         self.went = self.went + put
@@ -1365,7 +1373,12 @@ local function feed(self: TransformWriter, data: string): boolean, string
   local held = self.held
   table.insert(held, table.concat(parts))
   -- This write went through: the oldest held write is now safe to release.
-  if #held > hold then return emit(self, table.remove(held, 1)) end -- checked: nil_not_allowed
+  if #held > hold then
+    -- `hold` is at least 1 here, so a held write is there to release.
+    local oldest = Array.at(held, 1)
+    table.remove(held, 1)
+    return emit(self, oldest)
+  end
   return true, ""
 end
 
@@ -1415,9 +1428,10 @@ local class TransformWriter is Stream.Writer
       end
     end
     self.held = {}
-    if self.failed then
+    local failed = self.failed
+    if failed then
       local _, _ = self.writer:abort()
-      return false, self.failed -- checked: nil_not_allowed
+      return false, failed
     end
     local ok, why = self.writer:close()
     if not ok then
@@ -1475,25 +1489,27 @@ function Stream.run(t: Stream.Transform, data: string, max_bytes?: integer): str
   end
   local parts: mut {string} = {}
   local kept: integer = 0
-  --- Keeps `out`, or answers false when it takes the total past the bound.
-  local function keep(out: string): boolean
+  --- Keeps `out`, or answers why not when it takes the total past the bound.
+  local function keep(out: string): string?
     kept = kept + #out
     parts[#parts + 1] = out
-    return max_bytes == nil or kept <= max_bytes
-  end
-  local function too_much(): nil, string
-    return refuse("output is larger than " .. String.counted(max_bytes, "byte")) -- checked: nil_not_allowed
+    if max_bytes ~= nil and kept > max_bytes then
+      return "output is larger than " .. String.counted(max_bytes, "byte")
+    end
+    return nil
   end
   local out, trouble = t:update(data)
   while true do
     if out == nil then return nil, trouble end
-    if not keep(out) then return too_much() end
+    local over = keep(out)
+    if over ~= nil then return refuse(over) end
     if not holds_output(t) then break end
     out, trouble = t:update("")
   end
   local last, finish_trouble = t:finish()
   if last == nil then return nil, finish_trouble end
-  if not keep(last) then return too_much() end
+  local last_over = keep(last)
+  if last_over ~= nil then return refuse(last_over) end
   return table.concat(parts), ""
 end
 
