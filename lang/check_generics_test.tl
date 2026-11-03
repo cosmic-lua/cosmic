@@ -2,6 +2,7 @@
 --- errors when it is none or two, the bound, and a generic function used as a value. Every program the checker takes
 --- is also run as the Lua [`lang.codegen`] writes ([`Programs.execute`]) and prints what it computes; a program that
 --- would fail at run time if a rule had a hole is held refused beside the one that stands.
+local Array = require("cosmic.array")
 local Programs = require("lang.check_programs")
 local Test = require("cosmic.test")
 
@@ -91,12 +92,13 @@ end
 local function test_a_conflict_names_both_arguments_and_the_fix()
   local r = Programs.run(HEAD .. "local n = 1\nlocal s = \"a\"\nlocal x = pick(n, s)\n")
   assert(#r.errors == 1 and r.errors[1].code == "infer_conflict", Programs.codes(r))
-  local e = r.errors[1]
-  assert(e.msg:find("`T` of `pick` is `integer` from argument 1 and `string` from argument 2, which have no common type", 1, true) ~= nil, -- checked: nil_not_allowed
-    e.msg) -- checked: nil_not_allowed
-  assert(e.fix:find("pass values of one type to `pick`", 1, true) ~= nil, e.fix) -- checked: nil_not_allowed*2
+  -- The assertion above holds that there is exactly one error.
+  local e = Array.at(r.errors, 1)
+  assert(e.msg:find("`T` of `pick` is `integer` from argument 1 and `string` from argument 2, which have no common type", 1, true) ~= nil,
+    e.msg)
+  assert(e.fix:find("pass values of one type to `pick`", 1, true) ~= nil, e.fix)
   local _, lines = HEAD:gsub("\n", "")
-  assert(e.y == lines + 3 and e.x == 19, tostring(e.y) .. ":" .. tostring(e.x)) -- checked: nil_not_allowed*4
+  assert(e.y == lines + 3 and e.x == 19, tostring(e.y) .. ":" .. tostring(e.x))
 end
 
 local function test_a_mut_collection_fixes_the_type_exactly_and_the_other_arguments_are_held_to_it()
@@ -120,9 +122,10 @@ end
 local function test_a_view_given_to_a_mut_collection_nothing_else_solves_is_told_in_the_type_it_has()
   local r = Programs.run(HEAD .. "local function clear<T>(xs: mut {T}) end\nlocal v: {string} = {}\nclear(v)\n")
   assert(#r.errors == 1 and r.errors[1].code == "view_as_mut", Programs.codes(r))
-  local e = r.errors[1]
-  assert(e.msg:find("the view `{string}` is not `mut {string}`", 1, true) ~= nil, e.msg) -- checked: nil_not_allowed*2
-  assert(e.fix:find("declare `v` `mut {string}`", 1, true) ~= nil, e.fix) -- checked: nil_not_allowed*2
+  -- The assertion above holds that there is exactly one error.
+  local e = Array.at(r.errors, 1)
+  assert(e.msg:find("the view `{string}` is not `mut {string}`", 1, true) ~= nil, e.msg)
+  assert(e.fix:find("declare `v` `mut {string}`", 1, true) ~= nil, e.fix)
 end
 
 local function test_a_type_expected_that_was_reported_when_it_was_written_leaves_no_second_error()
@@ -153,9 +156,10 @@ end
 local function test_an_unsolved_parameter_is_reported_once_with_the_fix()
   local r = Programs.run(HEAD .. "local xs = empty()\n")
   assert(#r.errors == 1 and r.errors[1].code == "cannot_infer", Programs.codes(r))
-  local e = r.errors[1]
-  assert(e.msg:find("`empty` is generic, and nothing fixes its type parameter `T`", 1, true) ~= nil, e.msg) -- checked: nil_not_allowed*2
-  assert(e.fix:find("type the result", 1, true) ~= nil and e.fix:find("local v: T = empty(...)", 1, true) ~= nil, e.fix) -- checked: nil_not_allowed*3
+  -- The assertion above holds that there is exactly one error.
+  local e = Array.at(r.errors, 1)
+  assert(e.msg:find("`empty` is generic, and nothing fixes its type parameter `T`", 1, true) ~= nil, e.msg)
+  assert(e.fix:find("type the result", 1, true) ~= nil and e.fix:find("local v: T = empty(...)", 1, true) ~= nil, e.fix)
   -- A mistake in an argument already reported does not report the parameter it should have given.
   local bad = Programs.run(HEAD .. "local xs = first(nope)\n")
   assert(Programs.codes(bad) == "", Programs.codes(bad))
@@ -223,9 +227,11 @@ local function test_a_union_of_shapes_is_solved_by_its_members_or_refused_and_ne
     "    return s:upper()\n  end\n  return \"\"\nend\nlocal nums: {integer} = { 1 }\nprint(shout(nums))\n"
   local r = Programs.run(HEAD .. shout)
   assert(#r.errors == 1 and r.errors[1].code == "infer_conflict", Programs.codes(r))
-  assert(r.errors[1].msg:find("`T` of `ipairs` is `string` from argument 1 and `integer` from another type in it", 1, true) ~= nil, -- checked: nil_not_allowed
-    r.errors[1].msg) -- checked: nil_not_allowed
-  assert(r.errors[1].fix:find("narrow argument 1 to one of its types first", 1, true) ~= nil, r.errors[1].fix) -- checked: nil_not_allowed*2
+  -- The assertion above holds that there is exactly one error.
+  local conflict = Array.at(r.errors, 1)
+  assert(conflict.msg:find("`T` of `ipairs` is `string` from argument 1 and `integer` from another type in it", 1, true) ~= nil,
+    conflict.msg)
+  assert(conflict.fix:find("narrow argument 1 to one of its types first", 1, true) ~= nil, conflict.fix)
   -- The same for a union of functions, of maps, of generics, and of a mut collection.
   refused("local function f(g: (function(): integer) | (function(): string))\n  each({ 1 }, g)\n  local x = identity(g)\nend\n" ..
       "local function h(u: {integer} | {string})\n  local x = first(u)\n  local s: string = x\nend\n", "not_assignable infer_conflict")
@@ -238,7 +244,8 @@ local function test_a_union_of_shapes_is_solved_by_its_members_or_refused_and_ne
   local two = "local function two<T, U>(x: {T} | {U}): T?\n  return nil\nend\nlocal b: {integer} = { 1 }\n"
   local hole = Programs.run(HEAD .. two .. "local c = two(b)\n")
   assert(#hole.errors == 1 and hole.errors[1].code == "cannot_infer", Programs.codes(hole))
-  assert(hole.errors[1].msg:find("parameters `T`, `U` get no type from the arguments", 1, true) ~= nil, hole.errors[1].msg) -- checked: nil_not_allowed*2
+  local gap = Array.at(hole.errors, 1) -- the assertion above holds that there is exactly one error
+  assert(gap.msg:find("parameters `T`, `U` get no type from the arguments", 1, true) ~= nil, gap.msg)
   assert(#silent_invalid(two .. "local c = two(b)\n") == 0)
   -- No program of these has a variable of type `invalid` that nothing was reported for.
   for _, body in ipairs({
@@ -274,8 +281,9 @@ local function test_a_type_argument_has_to_meet_the_bound_of_its_parameter()
   refused(head .. "local p: Plain = { name = \"ann\" }\nprint(label(p))\n", "bound_unmet")
   refused(head .. "print(label(1))\n", "bound_unmet")
   local r = Programs.run(HEAD .. head .. "local p: Plain = { name = \"ann\" }\nprint(label(p))\n")
-  local e = r.errors[#r.errors]
-  assert(e.code == "bound_unmet" and e.msg:find("`Plain` is the type parameter `T` of `label`, which is bounded by `Named`", 1, true) ~= nil, -- checked: nil_not_allowed
+  -- The program is refused, so `errors` is not empty.
+  local e = Array.at(r.errors, #r.errors)
+  assert(e.code == "bound_unmet" and e.msg:find("`Plain` is the type parameter `T` of `label`, which is bounded by `Named`", 1, true) ~= nil,
     e.msg)
   assert(e.fix:find("list the interface in the declaration of `Plain` (`is Named`)", 1, true) ~= nil, e.fix)
   -- A type variable of the caller meets the bound through its own.
