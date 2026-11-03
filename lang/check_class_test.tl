@@ -2,12 +2,15 @@
 --- made by a table literal typed as it, a class's names are distinct and its `__close` and `__tostring` are held to
 --- what Lua calls, a `<close>` local holds one with a `__close`, and `is` of one is the test of its metatable. A
 --- declaration used as a value is a type of its own. The code generator's side is [`lang.codegen_test`]'s.
+local Array = require("cosmic.array")
 local Fs = require("cosmic.fs")
 local Programs = require("lang.check_programs")
 local Test = require("cosmic.test")
 local Types = require("lang.types")
 
 Test.policy{ grants = { { path = "lang/stdlib.d.tl", letters = "r" }, { path = "lang/prelude.d.tl", letters = "r" } } }
+
+-- A test reads `Array.at(r.errors, 1)` of a program it holds refused, so a program with no error fails at the read.
 
 --- Checks that `source` has exactly the errors `codes` (space separated) after the declarations, and that the first
 --- says `msg`.
@@ -17,7 +20,7 @@ local function refused(source: string, codes: string, msg?: string, modules?: {s
   assert(Programs.codes(r) == codes, "wanted " .. codes .. ", got " .. Programs.codes(r) .. " in\n" .. source .. "\n" ..
       (r.errors[1] ~= nil and r.errors[1].msg or "")) -- checked: and_ternary
   if msg ~= nil then
-    assert(r.errors[1].msg:find(msg, 1, true) ~= nil, r.errors[1].msg .. "\nwanted " .. msg) -- checked: nil_not_allowed*2
+    assert(Array.at(r.errors, 1).msg:find(msg, 1, true) ~= nil, Array.at(r.errors, 1).msg .. "\nwanted " .. msg)
   end
 end
 
@@ -68,7 +71,7 @@ local function test_a_class_is_below_the_interfaces_it_lists_and_no_other()
   accepted(head .. "local b: Bag = {}\nlocal s: Sized = b\n")
   refused(head .. "local b: Bag = {}\nlocal o: Other = b\n", "not_assignable", "`b` is `Bag`, where `Other` is wanted")
   local r = Programs.run(head .. "local b: Bag = {}\nlocal o: Other = b\n")
-  assert(r.errors[1].fix:find("list the interface in the declaration of `Bag` with `is Other`", 1, true) ~= nil, r.errors[1].fix) -- checked: nil_not_allowed*2
+  assert(Array.at(r.errors, 1).fix:find("list the interface in the declaration of `Bag` with `is Other`", 1, true) ~= nil, Array.at(r.errors, 1).fix)
 end
 
 -- a value is made by a literal -------------------------------------------------------------------------------
@@ -80,8 +83,8 @@ local function test_a_literal_of_a_class_names_every_field_a_field_not_yet_known
   accepted(head .. "local h: Handle = { fd = -1, name = nil, tries = 0 }\n")
   accepted(head .. "local h: Handle = { fd = -1, name = \"x\", tries = 0 }\n")
   local r = Programs.run(head .. "local h: Handle = { fd = 1 }\n")
-  assert(r.errors[1].fix:find("a class literal names every field", 1, true) ~= nil, r.errors[1].fix) -- checked: nil_not_allowed*2
-  assert(r.errors[1].fix:find("a `?` field as `name = nil`", 1, true) ~= nil, r.errors[1].fix) -- checked: nil_not_allowed*2
+  assert(Array.at(r.errors, 1).fix:find("a class literal names every field", 1, true) ~= nil, Array.at(r.errors, 1).fix)
+  assert(Array.at(r.errors, 1).fix:find("a `?` field as `name = nil`", 1, true) ~= nil, Array.at(r.errors, 1).fix)
   -- A record leaves a `?` field out.
   accepted("local record Plain\n  fd: integer\n  name?: string\nend\nlocal p: Plain = { fd = 1 }\n")
 end
@@ -132,7 +135,7 @@ local function test_a_class_declared_inside_another_type_has_no_table_to_make_or
   refused(head .. "local function f(v: any): boolean\n  return v is Outer.Inner\nend\n", "class_scope",
     "tests the metatable of a class declared inside `Outer`")
   local r = Programs.run(head .. "local i: Outer.Inner = { n = 1 }\n")
-  assert(r.errors[1].fix == "declare `Outer.Inner` beside the type around it, as a statement of the module", r.errors[1].fix) -- checked: nil_not_allowed*2
+  assert(Array.at(r.errors, 1).fix == "declare `Outer.Inner` beside the type around it, as a statement of the module", Array.at(r.errors, 1).fix)
   local module = Programs.run("local class Cell\n  n: integer\nend\nlocal c: Cell = { n = 1 }\n")
   assert(#module.errors == 0)
 end
@@ -144,7 +147,7 @@ local function test_a_literal_or_a_test_of_a_class_before_its_declaration_reads_
   refused("local class A\n  function mk(self): B\n    return { m = 1 }\n  end\nend\n" .. later, "class_scope",
     "a class declared further down the module")
   local r = Programs.run("local function make(): B\n  return { m = 1 }\nend\n" .. later)
-  assert(r.errors[1].fix:find("move the declaration of `B` above this", 1, true) ~= nil, r.errors[1].fix) -- checked: nil_not_allowed*2
+  assert(Array.at(r.errors, 1).fix:find("move the declaration of `B` above this", 1, true) ~= nil, Array.at(r.errors, 1).fix)
   assert(next(r.result.literals) == nil, "a literal before its class is not reported to the generator")
   -- after the declaration, in a function or in a method of the class itself, it is fine
   accepted(later .. "local function make(): B\n  return { m = 1 }\nend\n")
@@ -158,7 +161,7 @@ local function test_a_class_declared_in_a_block_has_a_table_for_each_run_so_no_l
   refused(head .. "  local function g(v: any): boolean\n    return v is B\n  end\n  return 1\nend\n", "class_scope",
     "tests the metatable of a class declared in a block")
   local r = Programs.run(head .. "  local b: B = { m = 1 }\n  return b.m\nend\n")
-  assert(r.errors[1].fix == "declare `B` at the top level of the module, as a statement of it", r.errors[1].fix) -- checked: nil_not_allowed*2
+  assert(Array.at(r.errors, 1).fix == "declare `B` at the top level of the module, as a statement of it", Array.at(r.errors, 1).fix)
 end
 
 local function test_the_table_of_a_class_has_its_methods_and_functions_and_none_of_the_fields_of_its_values()
@@ -189,14 +192,14 @@ local function test_the_error_for_a_module_typed_with_its_record_says_what_to_wr
   local field = Programs.run(record .. "local record Holder\n  circle: Circle\nend\nlocal h: Holder = { circle = Circle.unit() }\n" ..
       "local f = h.circle.unit\n")
   assert(Programs.codes(field) == "field_unknown", Programs.codes(field))
-  assert(field.errors[1].msg:find("`unit` is a function of the declaration `Circle` used as a value, and this is typed as a value of it", 1, true) ~= nil, -- checked: nil_not_allowed
-    field.errors[1].msg) -- checked: nil_not_allowed
+  assert(Array.at(field.errors, 1).msg:find("`unit` is a function of the declaration `Circle` used as a value, and this is typed as a value of it", 1, true) ~= nil,
+    Array.at(field.errors, 1).msg)
   local field_told = assert(field.errors[1]).fix
   assert(field_told:find("call it on the declaration: `Circle.unit(...)`", 1, true) ~= nil, field_told)
   assert(field_told:find("ceilings", 1, true) == nil and field_told:find("TODO", 1, true) == nil, field_told)
   -- a class says how to make a value instead
   local class = Programs.run("local class C\n  n: integer\nend\nlocal c: C = C\n")
-  assert(class.errors[1].fix:find("make a value with a table literal", 1, true) ~= nil, class.errors[1].fix) -- checked: nil_not_allowed*2
+  assert(Array.at(class.errors, 1).fix:find("make a value with a table literal", 1, true) ~= nil, Array.at(class.errors, 1).fix)
 end
 
 local function test_a_method_of_an_interface_is_called_on_its_receiver_and_never_read_as_a_value()
@@ -209,7 +212,7 @@ local function test_a_method_of_an_interface_is_called_on_its_receiver_and_never
     "`s.size` reads the method `size` of the interface `Sized` as a value, and its implementation depends on the receiver")
   refused(head .. "local x: integer = s.size(b)\n", "interface_method_value")
   local r = Programs.run(head .. "local f = s.size\n")
-  assert(r.errors[1].fix == "call it as `s:size(...)`", r.errors[1].fix) -- checked: nil_not_allowed*2
+  assert(Array.at(r.errors, 1).fix == "call it as `s:size(...)`", Array.at(r.errors, 1).fix)
   -- called on its receiver it is fine, through the interface and a bound
   accepted(head .. "local x: integer = s:size()\nlocal y: integer = b:size()\n")
   accepted(head .. "local function total<T is Sized>(v: T): integer\n  return v:size()\nend\n")
@@ -225,16 +228,16 @@ end
 local function test_calling_a_function_of_a_declaration_through_a_value_says_how_to_call_it()
   local class = "local class K\n  n: integer\nend\nfunction K.make(): K\n  return { n = 1 }\nend\nlocal k: K = K.make()\n"
   local r = Programs.run(class .. "local m = k.make\n")
-  assert(Programs.codes(r) == "field_unknown" and r.errors[1].fix == "call it on the declaration: `K.make(...)`", r.errors[1].fix) -- checked: nil_not_allowed*2
+  assert(Programs.codes(r) == "field_unknown" and Array.at(r.errors, 1).fix == "call it on the declaration: `K.make(...)`", Array.at(r.errors, 1).fix)
   local colon = Programs.run(class .. "local m = k:make()\n")
-  assert(colon.errors[1].fix == "call it on the declaration: `K.make(...)`", colon.errors[1].fix) -- checked: nil_not_allowed*2
+  assert(Array.at(colon.errors, 1).fix == "call it on the declaration: `K.make(...)`", Array.at(colon.errors, 1).fix)
   -- a record of this module read through a local or through a field has the function on its declaration
   local record = "local record Circle\n  radius: number\nend\nfunction Circle.unit(): Circle\n  return { radius = 1.0 }\nend\n" ..
     "local record Holder\n  circle: Circle\nend\nlocal c: Circle = Circle.unit()\nlocal h: Holder = { circle = c }\n"
   local local_read = Programs.run(record .. "local f = c.unit\n")
-  assert(local_read.errors[1].fix == "call it on the declaration: `Circle.unit(...)`", local_read.errors[1].fix) -- checked: nil_not_allowed*2
+  assert(Array.at(local_read.errors, 1).fix == "call it on the declaration: `Circle.unit(...)`", Array.at(local_read.errors, 1).fix)
   local field_read = Programs.run(record .. "local f = h.circle.unit\n")
-  assert(field_read.errors[1].fix == "call it on the declaration: `Circle.unit(...)`", field_read.errors[1].fix) -- checked: nil_not_allowed*2
+  assert(Array.at(field_read.errors, 1).fix == "call it on the declaration: `Circle.unit(...)`", Array.at(field_read.errors, 1).fix)
 end
 
 -- distinct names ----------------------------------------------------------------------------------------------
