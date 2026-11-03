@@ -344,16 +344,14 @@ local function test_an_error_of_a_free_code_is_not_refused_in_its_stage_alone()
   assert(#build:held(result, false, { scoped = { "not_assignable" } }) == 10)
 end
 
-local function test_the_scope_builders_errors_are_a_stage_of_their_own_and_a_closed_code_is_held_by_no_marker()
+local function test_the_scope_builders_errors_are_a_stage_of_their_own_held_by_their_markers()
   local text = "local record R\nend\nlocal x = 1\ndo\n  local x = 2\n  print(x)\nend\nprint(x)\nreturn R\n"
   local build = build_of({ { "m.tl", text } })
   local result = assert(build:result("m", true))
   assert(codes_of(result.scope_errors) == "shadows", codes_of(result.errors))
   assert(#build:held(result, true) == 2)
-  -- `shadows` is closed: the tree keeps its rule with no exceptions, so a marker holds none of it
   local marked = build_of({ { "m.tl", (text:gsub("  local x = 2\n", "  local x = 2 -- scoped: shadows\n")) } })
-  local told = table.concat(marked:held(assert(marked:result("m", true)), true), "\n")
-  assert(told:find("(shadows)", 1, true) ~= nil and told:find("shadows is closed", 1, true) ~= nil, told)
+  assert(#marked:held(assert(marked:result("m", true)), true) == 0)
 end
 
 local function test_a_module_that_does_not_parse_is_refused_for_its_syntax_alone()

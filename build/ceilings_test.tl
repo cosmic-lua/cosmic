@@ -1,9 +1,6 @@
---- Tests of [`build.ceilings`]: what a marker holds, what it does not (a marker of another stage, of a closed code, a stale
+--- Tests of [`build.ceilings`]: what a marker holds, what it does not (a marker of another stage, a stale
 --- one), and the words a finding is refused in, which a compile and the check of the tree share.
 local Ceilings = require("build.ceilings")
-local Check = require("lang.check")
-local Declarations = require("lang.declarations")
-local Scopes = require("lang.scopes")
 local Test = require("cosmic.test")
 
 Test.policy{}
@@ -29,19 +26,6 @@ local function test_a_markerless_text_lists_every_finding_without_a_marker_to_ad
   -- the same errors under a text with markers are told with what is marked
   local marked = Ceilings.marked("checked", "a.tl", text, errors, { "nil_not_allowed", "view_written" }, "bodies")
   assert(has(marked.lines[2], ", marked 0; follow the fix above rather than add a marker"), marked.lines[2])
-end
-
-local function test_every_closed_code_is_a_code_of_a_stage_once()
-  local codes: mut {string: boolean} = {}
-  for _, code in ipairs(Scopes.codes) do codes[code] = true end
-  for _, code in ipairs(Declarations.codes) do codes[code] = true end
-  for _, code in ipairs(Check.codes) do codes[code] = true end
-  local closed: mut {string: boolean} = {}
-  for _, code in ipairs(Ceilings.closed()) do
-    assert(codes[code] == true, code .. " is listed in Ceilings.closed and is no code of a stage")
-    assert(closed[code] == nil, code .. " is listed twice in Ceilings.closed")
-    closed[code] = true
-  end
 end
 
 -- The markers: a stage has its findings held at the lines they occur on. A marker in a fixture is written
@@ -110,10 +94,10 @@ local function test_a_marker_above_a_line_holds_that_line_and_moved_code_keeps_i
   assert(#left.unmarked == 0 and #left.stale == 1 or #left.lines > 0, "a marker holds the line it is on or above")
 end
 
-local function test_a_closed_code_is_held_by_no_marker()
-  local closed = "arity"
-  local source = "local b = t[k] " .. KEY .. " " .. closed .. "\n"
-  local judged = Ceilings.marked("checked", "a.tl", source, { finding(closed, 1) }, { closed }, "bodies")
-  assert(#judged.unmarked == 1, "a marker for a closed code holds nothing")
-  assert(table.concat(judged.lines, "\n"):find("on line 1, marked 0", 1, true) ~= nil, table.concat(judged.lines, "\n"))
+--- A marker holds the findings of its line whatever the code: that a code no marker held at the merge base is refused is the
+--- ratchet's ([`build.ceilings_base`]), against the base, and not the judge's, which knows no base.
+local function test_a_marker_for_a_code_no_other_marker_holds_holds_its_finding_here()
+  local source = "local b = t[k] " .. KEY .. " arity\n"
+  local judged = Ceilings.marked("checked", "a.tl", source, { finding("arity", 1) }, { "arity" }, "bodies")
+  assert(#judged.lines == 0 and #judged.unmarked == 0 and #judged.stale == 0, table.concat(judged.lines, "\n"))
 end
