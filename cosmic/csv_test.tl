@@ -1,5 +1,6 @@
 local Array = require("cosmic.array")
 local Csv = require("cosmic.csv")
+local Test = require("cosmic.test")
 
 --- Records as text, to compare: fields joined by `|`, records by `;`.
 local function show(records: {{string}}): string
@@ -84,13 +85,13 @@ local function test_delimiters_tab_and_semicolon()
   for _, bad in ipairs({ "", ",,", '"', "\n", "\r" }) do
     for _, read in ipairs(readers) do
       local ok, message = pcall(read, "a", { delimiter = bad })
-      assert(not ok and tostring(message):find("csv: the delimiter", 1, true), tostring(message)) -- checked: or_mix
+      assert(not ok and tostring(message):find("csv: the delimiter", 1, true) ~= nil, tostring(message))
       assert(tostring(message):find("csv_test", 1, true), "named where it was called: " .. tostring(message))
     end
   end
   local wrong = { delimiter = 1 } as any as Csv.Options -- checked: cast_refused*2
   local ok, message = pcall(readers[1], "a", wrong) -- checked: overload_none
-  assert(not ok and tostring(message):find("not a number", 1, true), tostring(message)) -- checked: or_mix
+  assert(not ok and tostring(message):find("not a number", 1, true) ~= nil, tostring(message))
 end
 
 local function test_a_lone_carriage_return_is_data()
@@ -136,7 +137,7 @@ local function test_a_ragged_record_is_refused_strictly_naming_its_line()
   -- Parse alone keeps them.
   assert(parsed("a,b\n1\n") == "a|b;1")
   local bad_quote, quote_why = rows_of('a\n"x\n')
-  assert(bad_quote == nil and quote_why:find("unclosed quote", 1, true), quote_why) -- checked: or_mix
+  assert(bad_quote == nil and quote_why:find("unclosed quote", 1, true) ~= nil, quote_why)
 end
 
 local function lines_of(text: string, opts?: Csv.Options): string
@@ -207,7 +208,7 @@ local function test_records_agree_with_parse_and_table_and_refuse_as_parse_does(
   end
   local none, why = Csv.records('a\n"x\n')
   assert(none == nil and why == refused('a\n"x\n'), why)
-  assert(not pcall(Csv.records, "a", { delimiter = "ab" })) -- checked: alternatives_as_value
+  Test.raises(function() Csv.records("a", { delimiter = "ab" }) end)
 end
 
 local function test_headers_are_renamed_deterministically()

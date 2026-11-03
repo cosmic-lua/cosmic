@@ -302,7 +302,7 @@ local function test_literal_text_is_rendered_byte_for_byte(tmp: string)
       local body = fields[2] or ""
       local head = if mode == "text" then "{{type T from m.t}}{{mode text}}" else "{{type T from m.t}}" end
       local out, why = Template.compile(head .. body, "t.tmpl")
-      if out == nil and mode == "html" and why:find(": the template ends ", 1, true) then -- checked: or_mix
+      if out == nil and mode == "html" and why:find(": the template ends ", 1, true) ~= nil then
         -- Markup left open is refused in html, and rendered as it stands in text.
         Fuzz.label("html")
         head = "{{type T from m.t}}{{mode text}}"
@@ -1012,7 +1012,7 @@ local function test_a_cut_in_the_text_does_not_move_where_a_slot_lands(tmp: stri
           literal:find("<style", 1, true) then
         Fuzz.label("raw text")
       end
-      if whole == nil and why:find("<script>", 1, true) then -- checked: or_mix
+      if whole == nil and why:find("<script>", 1, true) ~= nil then
         Fuzz.label("script slot refused")
       end
       Fuzz.label(if kind == 2 then "range" elseif kind == 3 then "with" elseif kind == 4 then "arms" elseif kind == 5 then "string" else "if" end)
@@ -1645,7 +1645,7 @@ local function test_a_json_slot_is_the_attribute_value_it_was_given(tmp: string)
       if read ~= Html.raw_json(json) then
         return false, "the attribute reads as " .. string.format("%q", read)
       end
-      if read:find("^%s*j") or not Json.check(read) then -- checked: or_mix
+      if read:find("^%s*j") ~= nil or not Json.check(read) then
         return false, "the value could be read as code: " .. read
       end
       if value:find("&quot;", 1, true) or value:find("&#39;", 1, true) then Fuzz.label("quoted") end

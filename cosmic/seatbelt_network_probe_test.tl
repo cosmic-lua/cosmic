@@ -647,7 +647,7 @@ local function test_which_mach_services_a_resolver_needs(tmp: string)
     for _, resolver in ipairs(RESOLVERS) do
       if worked[resolver.name] then -- checked: condition_type
         local ended = run_under(tmp, text, {}, resolver.argv, 3)
-        if not (ended.started and ended.text:find(resolver.works, 1, true)) then -- checked: or_mix
+        if not (ended.started and ended.text:find(resolver.works, 1, true) ~= nil) then
           needed[#needed + 1] = resolver.name
         end
       end
@@ -683,7 +683,7 @@ local function test_which_resolver_files_and_network_a_resolver_needs(tmp: strin
     for _, resolver in ipairs(RESOLVERS) do
       if worked[resolver.name] then -- checked: condition_type
         local ended = run_under(tmp, with(resolver_files(path), OUTBOUND), {}, resolver.argv, 3)
-        if not (ended.started and ended.text:find(resolver.works, 1, true)) then -- checked: or_mix
+        if not (ended.started and ended.text:find(resolver.works, 1, true) ~= nil) then
           needed[#needed + 1] = resolver.name
         end
       end

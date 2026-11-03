@@ -304,7 +304,7 @@ local function test_public_lists_that_are_no_prefixes_cannot_start_a_connector()
     Test.raises(function() process.connector_start({}, pair.connector, 500, public) end)
   end
   -- A table that is empty is for a public connector alone.
-  assert(not pcall(process.connector_start, {}, pair.connector, 500, nil)) -- checked: alternatives_as_value
+  Test.raises(function() process.connector_start({}, pair.connector, 500, nil) end)
   assert(sys.close(pair.controller))
   assert(sys.close(pair.connector))
 end

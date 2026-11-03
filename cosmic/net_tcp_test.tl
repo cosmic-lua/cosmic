@@ -72,11 +72,15 @@ local function test_a_host_that_is_no_address_is_refused()
     listen_why)
   local nul, nul_why = Net.connect(Net.tcp("127.0.0.1\0junk", 1))
   assert(nul == nil and nul_why:find("Invalid argument", 1, true) ~= nil, nul_why)
-  assert(not pcall(Net.connect, { kind = "tcp", host = "127.0.0.1", port = "1" } as Net.Address)) -- checked: alternatives_as_value, cast_refused
-  assert(not pcall(Net.connect, { kind = "tcp", host = "127.0.0.1", port = 1.5 } as Net.Address)) -- checked: alternatives_as_value, arms_differ, cast_refused
+  Test.raises(function()
+    Net.connect({ kind = "tcp", host = "127.0.0.1", port = "1" } as Net.Address) -- checked: cast_refused
+  end)
+  Test.raises(function()
+    Net.connect({ kind = "tcp", host = "127.0.0.1", port = 1.5 } as Net.Address) -- checked: cast_refused, arms_differ
+  end)
   assert(not pcall(Net.connect, Net.tcp("127.0.0.1", 65536))) -- checked: alternatives_as_value
   assert(not pcall(Net.connect, Net.tcp("127.0.0.1", -1))) -- checked: alternatives_as_value
-  assert(not pcall(Net.connect, { kind = "tcp", port = 1 } as Net.Address)) -- checked: alternatives_as_value, arms_differ, cast_refused
+  Test.raises(function() Net.connect({ kind = "tcp", port = 1 } as Net.Address) end) -- checked: arms_differ, cast_refused
 end
 
 --- A connection waits for room at a listener whose backlog is full, as

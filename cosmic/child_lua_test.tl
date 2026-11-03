@@ -191,16 +191,22 @@ end
 -- its option is refused before a start, and a sandboxed worker has no
 -- sh to find, so a refusal that regressed fails the case either way.
 local function test_invalid_inputs_do_not_poison_signal_guard()
-  assert(not pcall(Child.run, { "/bin/sh" }, { stdout = "bad" } as Child.Options)) -- checked: alternatives_as_value, cast_refused
-  assert(not pcall(Child.run, { "/bin/sh\0bad" })) -- checked: alternatives_as_value
-  assert(not pcall(Child.run, { "/bin/sh" }, { cwd = "/tmp\0bad" } as Child.Options)) -- checked: alternatives_as_value, cast_refused
-  assert(not pcall(Child.run, { "/bin/sh" }, -- checked: alternatives_as_value
-    { env = { ["BAD=NAME"] = "value" } } as Child.Options)) -- checked: cast_refused
-  assert(not pcall(Child.run, { "/bin/sh" }, -- checked: alternatives_as_value
-    { env = { NAME = "value\0tail" } } as Child.Options)) -- checked: cast_refused
-  assert(not pcall(Child.run, { "/bin/sh" }, -- checked: alternatives_as_value
-    { stdout = 2147483648 } as Child.Options)) -- checked: cast_refused
-  assert(not pcall(sys.kill, 2147483648, 0)) -- checked: alternatives_as_value
+  Test.raises(function() Child.run({ "/bin/sh" }, { stdout = "bad" } as Child.Options) end) -- checked: cast_refused
+  Test.raises(function() Child.run({ "/bin/sh\0bad" }) end)
+  Test.raises(function() Child.run({ "/bin/sh" }, { cwd = "/tmp\0bad" } as Child.Options) end) -- checked: cast_refused
+  Test.raises(function()
+    Child.run({ "/bin/sh" },
+      { env = { ["BAD=NAME"] = "value" } } as Child.Options) -- checked: cast_refused
+  end)
+  Test.raises(function()
+    Child.run({ "/bin/sh" },
+      { env = { NAME = "value\0tail" } } as Child.Options) -- checked: cast_refused
+  end)
+  Test.raises(function()
+    Child.run({ "/bin/sh" },
+      { stdout = 2147483648 } as Child.Options) -- checked: cast_refused
+  end)
+  Test.raises(function() sys.kill(2147483648, 0) end)
   local result = assert(Child.run(lua("")))
   assert(result.ok)
 end
@@ -297,7 +303,7 @@ local function test_a_stdin_pipe_names_the_stream_to_use()
   local ok, trouble = pcall(Child.start, { "/bin/sh" }, { stdin = "pipe" } as Child.Options) -- checked: cast_refused
   assert(not ok and tostring(trouble):find('"stream"', 1, true) ~= nil and
       tostring(trouble):find("stdin_stream", 1, true) ~= nil, tostring(trouble))
-  assert(not pcall(Child.run, { "/bin/sh" }, { stdin = "pipe" } as Child.Options)) -- checked: alternatives_as_value, cast_refused
+  Test.raises(function() Child.run({ "/bin/sh" }, { stdin = "pipe" } as Child.Options) end) -- checked: cast_refused
 end
 
 local function read_all(reader: Stream.Reader): string
@@ -481,7 +487,7 @@ end
 local function test_a_streamed_read_of_nothing_is_refused()
   local h = assert(Child.start(lua(FS .. 'Fs.put(1, "x")', nil, { stdout = "stream" })))
   local stdout = assert(h.stdout_stream)
-  assert(not pcall(stdout.read, stdout, 0)) -- checked: alternatives_as_value, interface_method_value
+  Test.raises(function() stdout:read(0) end)
   assert(read_all(stdout) == "x")
   assert(assert(h:wait(Clock.seconds(5))).ok)
 end

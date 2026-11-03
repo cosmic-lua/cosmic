@@ -68,7 +68,7 @@ local function test_leap_years_follow_the_gregorian_rule()
   assert(Time.from_civil(civil(2000, 2, 29)))
   assert(Time.from_civil(civil(2024, 2, 29)))
   local v, why = Time.from_civil(civil(1900, 2, 29))
-  assert(v == nil and why:find("day 29", 1, true), why) -- checked: or_mix
+  assert(v == nil and why:find("day 29", 1, true) ~= nil, why)
   v, why = Time.from_civil(civil(2100, 2, 29))
   assert(v == nil and why ~= "", why)
   v, why = Time.from_civil(civil(2026, 2, 29))
@@ -100,17 +100,17 @@ local function test_from_civil_raises_for_a_field_that_is_no_integer()
   local float_year = civil(2026, 1, 1)
   float_year.year = 2026.0 as integer -- checked: cast_refused
   local ok, why: boolean, any = pcall(Time.from_civil, float_year)
-  assert(not ok and tostring(why):find("time: year is not an integer: float 2026.0", 1, true), -- checked: or_mix
+  assert(not ok and tostring(why):find("time: year is not an integer: float 2026.0", 1, true) ~= nil,
     tostring(why))
   local absent = civil(2026, 1, 1)
   absent.month = nil -- checked: nil_not_allowed
   ok, why = pcall(Time.from_civil, absent)
-  assert(not ok and tostring(why):find("time: month is not an integer: nil nil", 1, true), -- checked: or_mix
+  assert(not ok and tostring(why):find("time: month is not an integer: nil nil", 1, true) ~= nil,
     tostring(why))
   local fraction = civil(2026, 1, 1)
   fraction.ns = 0.5 as integer -- checked: cast_refused
   ok, why = pcall(Time.from_civil, fraction, Time.UTC)
-  assert(not ok and tostring(why):find("time: ns is not an integer", 1, true), tostring(why)) -- checked: or_mix
+  assert(not ok and tostring(why):find("time: ns is not an integer", 1, true) ~= nil, tostring(why))
   assert(Time.from_civil(civil(2026, 1, 1)) ~= nil)
 end
 
@@ -187,7 +187,7 @@ end
 
 local function test_parse_says_there_are_no_leap_seconds()
   local got, why = Time.parse_rfc3339("2026-09-25T04:09:60Z")
-  assert(got == nil and why:find("second 60 is not 0 through 59", 1, true), why) -- checked: or_mix
+  assert(got == nil and why:find("second 60 is not 0 through 59", 1, true) ~= nil, why)
 end
 
 local function test_parse_refuses_what_rfc3339_does_not_say()
@@ -278,7 +278,9 @@ local function test_add_calendar_refuses_a_day_its_month_lacks_by_default()
   -- A step past the range on the way is not refused: the result is what counts.
   local back = assert(Time.add_calendar(at("2262-01-01T00:00:00Z"), { years = 10, days = -3652 }))
   assert(Time.format_rfc3339(back) == "2262-01-01T00:00:00Z", Time.format_rfc3339(back))
-  assert(not pcall(Time.add_calendar, 0, { days = 1 }, nil, { overflow = "Clamp" as Time.Overflow })) -- checked: alternatives_as_value, cast_refused
+  Test.raises(function()
+    Time.add_calendar(0, { days = 1 }, nil, { overflow = "Clamp" as Time.Overflow }) -- checked: cast_refused
+  end)
   none, why = Time.add_calendar(at("2262-01-01T00:00:00Z"), { years = 1 })
   assert(none == nil and why:find("outside", 1, true) ~= nil, why)
   none, why = Time.add_calendar(at("1678-01-01T00:00:00Z"), { days = -200 })

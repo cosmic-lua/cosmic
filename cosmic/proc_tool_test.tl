@@ -125,7 +125,7 @@ local function test_exec_takes_argv_and_the_whole_environment(tmp: string)
   assert(replaced == "FOO unset\n", replaced)
   local inherited = becomes(tmp, probe, 'Proc.exec({ probe, "env-of FOO" })')
   assert(inherited == "FOO=outer\n", inherited)
-  assert(not pcall(Proc.exec, {})) -- checked: alternatives_as_value
+  Test.raises(function() Proc.exec({}) end)
   local missing = tmp .. "/missing"
   local failed, trouble = Proc.exec({ missing, "x" })
   assert(not failed and trouble:find(missing .. ": ", 1, true) == 1, trouble)

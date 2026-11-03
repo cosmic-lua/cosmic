@@ -104,7 +104,7 @@ local function test_merge_checks_a_digest_against_the_value()
   local out = PolicyMerge.merged({ set_env = { A = "1" } }, digest)
   assert(assert(out.set_env).A == "1" and next(assert(out.set_env_digests)) == nil) -- checked: map_field
   local none, why = Sandbox.merge({ set_env = { A = "2" } }, digest)
-  assert(none == nil and why:find("$.set_env_digests.A", 1, true), why) -- checked: or_mix
+  assert(none == nil and why:find("$.set_env_digests.A", 1, true) ~= nil, why)
   local kept = PolicyMerge.merged(digest)
   assert(assert(kept.set_env).A == nil and assert(kept.set_env_digests).A ~= nil) -- checked: map_field*2
 end
@@ -159,7 +159,7 @@ end
 local function test_encode_raises_for_what_is_not_merged()
   Test.raises(function() PolicyJson.encode({ profiles = { "system" } }) end, "merged")
   local bad, trouble = pcall(PolicyJson.encode, { grants = { { path = "a", letters = "z" } } })
-  assert(not bad and tostring(trouble):find("$.grants[0].letters", 1, true), tostring(trouble)) -- checked: or_mix
+  assert(not bad and tostring(trouble):find("$.grants[0].letters", 1, true) ~= nil, tostring(trouble))
   assert(PolicyJson.encode({}) == "{}")
 end
 
@@ -184,9 +184,9 @@ local function test_user_and_group_round_trip_and_are_integers()
   text = PolicyJson.encode((assert(Sandbox.merge({ user = 1000, group = 100 }))))
   assert(text == '{"group":100,"user":1000}', text)
   local none, why = PolicyJson.decode('{"user":"me"}')
-  assert(none == nil and why:find("$.user", 1, true), why) -- checked: or_mix
+  assert(none == nil and why:find("$.user", 1, true) ~= nil, why)
   none, why = PolicyJson.decode('{"user":0}')
-  assert(none == nil and why:find("never root", 1, true), why) -- checked: or_mix
+  assert(none == nil and why:find("never root", 1, true) ~= nil, why)
 end
 
 local function database_of(tmp: string, text: string): string
@@ -212,12 +212,12 @@ local function test_a_database_that_changed_is_not_the_one_the_text_names(tmp: s
   local before = PolicyJson.encode(PolicyMerge.merged({ database = assert(Sandbox.database(path)) }))
   database_of(tmp, "two")
   local policy, why = PolicyJson.decode(before)
-  assert(policy == nil and why:find("$.database.sha256", 1, true), tostring(why)) -- checked: or_mix
+  assert(policy == nil and why:find("$.database.sha256", 1, true) ~= nil, tostring(why))
   assert(PolicyJson.encode(PolicyMerge.merged({ database = assert(Sandbox.database(path)) })) ~= before,
     "the digest did not move")
   assert(Fs.remove(path))
   policy, why = PolicyJson.decode(before)
-  assert(policy == nil and why:find("$.database", 1, true), tostring(why)) -- checked: or_mix
+  assert(policy == nil and why:find("$.database", 1, true) ~= nil, tostring(why))
 end
 
 local function test_a_database_text_is_held_to_its_shape(tmp: string)
@@ -230,7 +230,7 @@ local function test_a_database_text_is_held_to_its_shape(tmp: string)
   refused('{"database":{"path":"' .. path .. '","sha256":"00","more":1}}', "$.database")
   local ok, trouble = pcall(PolicyJson.encode,
     { database = { path = tmp .. "/absent.db", sha256 = string.rep("0", 64) } })
-  assert(not ok and tostring(trouble):find("absent.db", 1, true), tostring(trouble)) -- checked: or_mix
+  assert(not ok and tostring(trouble):find("absent.db", 1, true) ~= nil, tostring(trouble))
 end
 
 --- The digest lives in the policy's `database`, so a copy of a checked
@@ -247,10 +247,10 @@ local function test_a_checked_database_keeps_its_digest_through_copies_and_merge
   assert(assert(again.database).path == path and assert(again.database).sha256 == digest)
   database_of(tmp, "two")
   local ok, trouble = pcall(PolicyJson.encode, again)
-  assert(not ok and tostring(trouble):find("has changed since", 1, true), tostring(trouble)) -- checked: or_mix
+  assert(not ok and tostring(trouble):find("has changed since", 1, true) ~= nil, tostring(trouble))
   -- A path alone names no identity, and encoding does not give it one.
   ok, trouble = pcall(PolicyJson.encode, PolicyMerge.merged({ database = { path = path } }))
-  assert(not ok and tostring(trouble):find("Sandbox.database", 1, true), tostring(trouble)) -- checked: or_mix
+  assert(not ok and tostring(trouble):find("Sandbox.database", 1, true) ~= nil, tostring(trouble))
 end
 
 --- A digest cannot come apart from its path in a merge: two paths, or
@@ -265,9 +265,9 @@ local function test_merge_joins_database_digests_with_their_paths(tmp: string)
   local other = string.rep("0", 64)
   local none, why = Sandbox.merge({ database = { path = path, sha256 = digest } },
     { database = { path = path, sha256 = other } })
-  assert(none == nil and why:find("two digests", 1, true), tostring(why)) -- checked: or_mix
+  assert(none == nil and why:find("two digests", 1, true) ~= nil, tostring(why))
   local ok, bad = Sandbox.check({ database = { path = path, sha256 = "XYZ" } })
-  assert(not ok and bad:find("$.database.sha256", 1, true), bad) -- checked: or_mix
+  assert(not ok and bad:find("$.database.sha256", 1, true) ~= nil, bad)
   local absent, absent_why = Sandbox.database(tmp .. "/absent.db")
-  assert(absent == nil and absent_why:find("database", 1, true), tostring(absent_why)) -- checked: or_mix
+  assert(absent == nil and absent_why:find("database", 1, true) ~= nil, tostring(absent_why))
 end

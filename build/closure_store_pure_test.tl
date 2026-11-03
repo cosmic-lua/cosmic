@@ -5,13 +5,24 @@
 --- again when the edit changes what the module does.
 
 local Fs = require("cosmic.fs")
+local Test = require("cosmic.test")
 local Sqlite = require("cosmic.sqlite")
 local closure_store = require("build.closure_store")
 local importer = require("build.importer")
 local lua_tail = require("build.lua_tail")
+local Lexer = require("lang.lexer")
+local Parser = require("lang.parser")
+local stub = require("build.syntax_stub")
 local work = require("build.work")
 local writer = require("build.writer")
 local support = require("build.test_support_fixture")
+
+-- A fixture below names [`cosmic.zip`] and [`cosmic.tar`], which the checker types from the store's text.
+local type _zip = require("cosmic.zip")
+local type _tar = require("cosmic.tar")
+
+-- Compiling a project reads the text of the checker's own modules, and the subject is the text of a store.
+Test.policy{ store_text = true }
 
 --- The module `greet`, which `body` is the code of, with `note` above it.
 local function greet(root: string, note: string, body: string)
@@ -137,4 +148,171 @@ local function test_a_pure_store_holds_no_text(tmp: string)
   assert(bytecode(pure, "greet_test") == bytecode(full, "greet_test"), "the test's own bytecode was stripped")
   assert(full:close())
   assert(pure:close())
+end
+
+--- How the project of `texted` differs from its default: a comment `lined[name]` on a line of its own above the
+--- module, one `trailed[name]` at the end of its first line, and the type `declared[name]` its function returns.
+local record Edits
+  lined: {string:string}
+  trailed: {string:string}
+  declared: {string:string}
+end
+
+--- A project of a test, `greet_test`, that requires `greet` and `other`, `greet` requiring `leaf`, and the projection of it at `out`, in which each module has the stub the build makes of a module of
+--- the standard library ([`build.syntax_stub`]'s `made`), which keeps every token where its source has it.
+local function texted(root: string, out: string, edits: Edits)
+  assert(Fs.mkdirs(root))
+  local stubs: mut {string:string} = {}
+  local function module(name: string, requires: string, record_body: string, result: string, value: string)
+    local file = name .. ".tl"
+    local declared = edits.declared[name] or result
+    local lines: mut {string} = {}
+    local note = edits.lined[name]
+    if note ~= nil then lines[1] = note end
+    for _, line in ipairs({
+        "local record " .. name .. (edits.trailed[name] or ""),
+        record_body,
+        "end",
+        requires,
+        "function " .. name .. ".value(): " .. declared,
+        "  return " .. (if declared == "integer" then "1" else value end),
+        "end",
+        "return " .. name,
+        "",
+    }) do lines[#lines + 1] = line end
+    local text = table.concat(lines, "\n")
+    assert(Fs.write(root .. "/" .. file, text))
+    local parsed = Parser.parse(Lexer.lex(text, file), file, "tl")
+    assert(#parsed.errors == 0)
+    stubs[name] = stub.made(parsed.chunk).text
+  end
+  module("leaf", "", "  record Box\n    n: integer\n  end", "string", '"leaf"')
+  module("greet", 'local leaf = require("leaf")', "", "leaf.Box", "{ n = 1 }")
+  module("other", "", "", "string", '"other"')
+  assert(Fs.write(root .. "/greet_test.tl", table.concat({
+    'local greet = require("greet")',
+    'local other = require("other")',
+    "local function test_hello()",
+    "  assert(greet.value() ~= nil and other.value() ~= \"\")",
+    "end",
+    "",
+  }, "\n")))
+  local handle = assert(work.open(root))
+  assert(work.stage(handle, { own = false }))
+  local result = assert(importer.compile(handle, "closure-store-pure-test"))
+  assert(writer.write_result(handle, out, result))
+  assert(work.close(handle))
+  local whole = assert(Sqlite.open(out, { writable = true }))
+  for name, text in pairs(stubs) do
+    assert(Sqlite.run(whole, "INSERT OR REPLACE INTO stubs (path, source) VALUES (?1, deflate(?2))",
+      { { text = name }, { text = text } }))
+  end
+  assert(whole:close())
+end
+
+local texted_names <const> = { "greet", "leaf", "other", "greet_test" }
+
+--- The pure address and the pure store's path for `texted_names` of the project at `root` as `edits` leave it,
+--- where the test names `greet` as it would a module of the standard library it type-checks if `named`.
+local function texted_store(root: string, tmp: string, name: string, edits: Edits, named: boolean): string, string
+  texted(root, tmp .. "/" .. name .. ".whole.db", edits)
+  local basis = assert(closure_store.basis(tmp .. "/" .. name .. ".whole.db", true))
+  -- A project holds no `cosmic.*` module (the directory is reserved to the tool's own tree), so what a test names
+  -- with a `local type _ = require("cosmic.x")` is set as the scan of its source ([`closure_store.basis`]) would.
+  basis.type_requires["greet_test"] = if named then { "greet" } else {} end
+  assert(closure_store.write(tmp .. "/" .. name .. ".whole.db", tmp .. "/" .. name .. ".db", texted_names, basis, nil, "greet_test"))
+  return closure_store.address(basis, texted_names, "salt", "greet_test"), tmp .. "/" .. name .. ".db"
+end
+
+local none: Edits = { lined = {}, trailed = {}, declared = {} }
+
+--- The pure store keeps the stub of a module its test names, and of those that stub requires, and no source,
+--- source hash or other text of any module.
+local function test_a_pure_store_keeps_the_stubs_of_the_modules_its_test_names(tmp: string)
+  local _, path = texted_store(tmp .. "/a", tmp, "kept", none, true)
+  local db = assert(Sqlite.open(path))
+  local function count(query: string): string
+    return support.nth(assert(Sqlite.text_rows(db, query)), 1):text(1)
+  end
+  assert(count("SELECT group_concat(path, ' ') FROM (SELECT path FROM stubs ORDER BY path)") == "greet leaf",
+    "the stubs kept were not the named module's and the one it requires")
+  assert(count("SELECT count(*) FROM modules WHERE length(source) > 0 OR length(source_hash) > 0") == "0",
+    "the pure store holds a module's source")
+  for _, table_name in ipairs({ "docs", "uses", "links", "examples", "catalog", "places" }) do
+    assert(count("SELECT count(*) FROM " .. table_name) == "0", table_name .. " holds rows in the pure store")
+  end
+  assert(db:close())
+  local _, bare = texted_store(tmp .. "/b", tmp, "bare", none, false)
+  local unnamed = assert(Sqlite.open(bare))
+  local rows = assert(Sqlite.text_rows(unnamed, "SELECT count(*) FROM stubs"))
+  assert(support.nth(rows, 1):text(1) == "0", "a test that names no module kept a stub")
+  assert(unnamed:close())
+end
+
+--- The key follows the kept stubs, which keep every token where the source has it: a change to a kept module's
+--- declared types, a line added above it, or one added to a module its stub requires moves the address and the
+--- bytes; a comment at the end of a line it already has, or any change to a stub no kept stub requires, does not.
+local function test_a_pure_store_moves_with_the_stubs_it_keeps_and_not_with_others(tmp: string)
+  local address, path = texted_store(tmp .. "/a", tmp, "first", none, true)
+  local bytes = assert(Fs.read(path))
+  local function same(name: string, edits: Edits, named: boolean, why: string)
+    local moved, moved_path = texted_store(tmp .. "/" .. name, tmp, name, edits, named)
+    assert(moved == address and assert(Fs.read(moved_path)) == bytes, why)
+  end
+  local function moves(name: string, edits: Edits, why: string)
+    local moved, moved_path = texted_store(tmp .. "/" .. name, tmp, name, edits, true)
+    assert(moved ~= address, why .. " (the address)")
+    assert(assert(Fs.read(moved_path)) ~= bytes, why .. " (the store)")
+  end
+  same("trailing", { lined = {}, trailed = { ["greet"] = " -- noted" }, declared = {} }, true,
+    "a comment at the end of a line of a kept module moved the pure store")
+  same("elsewhere", { lined = { ["other"] = "-- noted" }, trailed = {}, declared = {} }, true,
+    "a line added to an imported module no kept stub requires moved the pure store")
+  moves("lined", { lined = { ["greet"] = "-- noted" }, trailed = {}, declared = {} },
+    "a line added above a kept module, which shifts its stub's tokens, did not move the pure store")
+  moves("followed", { lined = { ["leaf"] = "-- noted" }, trailed = {}, declared = {} },
+    "a line added to a module a kept stub requires did not move the pure store")
+  moves("changed", { lined = {}, trailed = {}, declared = { ["greet"] = "integer" } },
+    "a change to a kept module's declared types did not move the pure store")
+  -- Naming no module keeps no stub, so a line added above one moves nothing.
+  local bare, bare_path = texted_store(tmp .. "/bare", tmp, "bare", none, false)
+  local bare_lined, bare_lined_path = texted_store(tmp .. "/bare_lined", tmp, "bare_lined",
+    { lined = { ["greet"] = "-- noted" }, trailed = {}, declared = {} }, false)
+  assert(bare_lined == bare and assert(Fs.read(bare_lined_path)) == assert(Fs.read(bare_path)),
+    "a line added above a module moved the store of a test that names none")
+end
+
+--- A test names the standard-library modules a snippet it type-checks requires with a top-level
+--- `local type _ = require(...)`, a `<const>` after the name allowed; a `require` it runs by value, a statement
+--- in a comment or a long string, which a snippet it checks is, and one of another module of the tree are none of them.
+local function test_the_modules_a_test_names_for_its_snippets_are_its_top_level_local_type_requires(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/a"))
+  assert(Fs.write(tmp .. "/a/greet.tl", "local record greet\nend\nreturn greet\n"))
+  assert(Fs.write(tmp .. "/a/greet_test.tl", table.concat({
+    '-- local type _comment = require("cosmic.json")',
+    'local Fs = require("cosmic.fs")',
+    'local type _zip = require("cosmic.zip")',
+    "local type _tar <const> = require('cosmic.tar')",
+    'local type _ours = require("greet")',
+    '-- local type _hidden = require("cosmic.http")',
+    "local function test_x()",
+    "  local used = Fs.stdout",
+    "  local snippet = [[",
+    'local type _s = require("cosmic.stream")',
+    "]]",
+    "  local second = [=[",
+    'local type _t = require("cosmic.clock")',
+    "]=]",
+    '  assert(used >= 0 and snippet ~= second)',
+    "end",
+    "",
+  }, "\n")))
+  local handle = assert(work.open(tmp .. "/a"))
+  assert(work.stage(handle, { own = false }))
+  local result = assert(importer.compile(handle, "closure-store-pure-test"))
+  assert(writer.write_result(handle, tmp .. "/whole.db", result))
+  assert(work.close(handle))
+  local basis = assert(closure_store.basis(tmp .. "/whole.db", true))
+  local named = table.concat(basis.type_requires["greet_test"] or {}, " ")
+  assert(named == "cosmic.zip cosmic.tar", named)
 end

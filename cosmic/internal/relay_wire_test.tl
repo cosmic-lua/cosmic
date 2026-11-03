@@ -1,5 +1,6 @@
 local Clock = require("cosmic.clock")
 local Fixture = require("build.relay_wire_fixture")
+local Test = require("cosmic.test")
 local Wire = require("cosmic.internal.relay_wire")
 
 local function connect_head(input: string): Wire.Connect
@@ -474,8 +475,8 @@ local function test_socks_greeting_picks_the_method()
   assert(Wire.socks_method_reply(0) == "\5\0")
   assert(Wire.socks_method_reply(2) == "\5\2")
   assert(Wire.socks_method_reply(255) == "\5\255")
-  assert(not pcall(Wire.socks_method_reply, 256)) -- checked: alternatives_as_value
-  assert(not pcall(Wire.socks_method_reply, -1)) -- checked: alternatives_as_value
+  Test.raises(function() Wire.socks_method_reply(256) end)
+  Test.raises(function() Wire.socks_method_reply(-1) end)
 end
 
 local function test_socks_username_password()
@@ -585,7 +586,7 @@ local function test_socks_replies_carry_their_codes()
     assert(reply == "\5" .. string.char(case.code) .. "\0\1\0\0\0\0\0\0", case.name)
     assert(#reply == 10)
   end
-  assert(not pcall(Wire.socks_reply, "bogus" as Wire.SocksReply)) -- checked: alternatives_as_value, cast_refused
+  Test.raises(function() Wire.socks_reply("bogus" as Wire.SocksReply) end) -- checked: cast_refused
 end
 
 local function sni_of(input: string): string

@@ -606,7 +606,7 @@ local function test_a_streamed_size_of_2_gib_or_more_announces_zip64_up_front()
   -- only after the local header has gone out.
   local ok, trouble = w:add_file("big", Stream.from_string("short"),
     { method = "store", size = 1 << 32 })
-  assert(not ok and trouble:find("not 4294967296", 1, true), trouble) -- checked: or_mix
+  assert(not ok and trouble:find("not 4294967296", 1, true) ~= nil, trouble)
   local header = pieces[1]
   assert(header:sub(1, 4) == "PK\3\4") -- checked: nil_not_allowed
   assert(rd32(header, 5) & 0xFFFF == 45, "version needed") -- checked: nil_not_allowed
@@ -633,7 +633,7 @@ local function test_a_streamed_size_that_is_wrong_fails_the_write()
   for _, size in ipairs({ 4, 6 }) do
     local w = Zip.writer(Stream.collect())
     local ok, trouble = w:add_file("f", Stream.from_string("12345"), { size = size })
-    assert(not ok and trouble:find("body is 5 bytes", 1, true), trouble) -- checked: or_mix
+    assert(not ok and trouble:find("body is 5 bytes", 1, true) ~= nil, trouble)
     assert(not w:add_file("g", "x"))
     assert(not w:close())
   end
@@ -647,7 +647,7 @@ local function test_a_streamed_size_below_zero_or_no_integer_raises()
     local ok, why: boolean, any = pcall(function()
       local _, _ = w:add_file("f", Stream.from_string("abc"), { size = size as integer }) -- checked: cast_refused
     end)
-    assert(not ok and tostring(why):find("zip: opts.size must be an integer of at least 0", 1, true), -- checked: or_mix
+    assert(not ok and tostring(why):find("zip: opts.size must be an integer of at least 0", 1, true) ~= nil,
       tostring(why))
     assert(tostring(why):find("zip_test", 1, true), "blames the caller: " .. tostring(why))
   end
@@ -657,7 +657,7 @@ local function test_a_streamed_size_below_zero_or_no_integer_raises()
       function() local _, _ = w:add_file("dir/", "abc", { size = -1 }) end,
   } as {function()}) do
     local ok, why: boolean, any = pcall(call)
-    assert(not ok and tostring(why):find("zip: opts.size must be an integer of at least 0", 1, true), -- checked: or_mix
+    assert(not ok and tostring(why):find("zip: opts.size must be an integer of at least 0", 1, true) ~= nil,
       tostring(why))
   end
   assert(w:add_file("g", "x"))

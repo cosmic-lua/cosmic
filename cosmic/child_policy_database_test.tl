@@ -71,5 +71,5 @@ local function test_a_database_sealed_for_another_core_does_not_start(tmp: strin
   env.COSMIC_PORTABLE_STARTUP_TEST_GO = nil -- checked: map_field
   local r = assert(Child.run({ core, "--database", path }, { env = env,
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) }))
-  assert(not r.ok and tostring(r.stderr):find("core_sha256", 1, true), tostring(r.stderr)) -- checked: or_mix
+  assert(not r.ok and tostring(r.stderr):find("core_sha256", 1, true) ~= nil, tostring(r.stderr))
 end

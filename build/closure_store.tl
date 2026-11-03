@@ -87,6 +87,17 @@ local record closure_store
     --- types, with no bytecode to say what it does), the names it binds and
     --- the edges the checker follows from it; not its docs or links.
     pure_decls: mut {string:string}
+    --- What the pure store holds of a module its test names with `local type` ([`type_requires`]),
+    --- by path: the digest of its stub, inflated so the compressor moves none; none for a module with no stub.
+    --- Empty unless the run holds the pure store.
+    texts: mut {string:string}
+    --- The standard-library modules (`cosmic.*`) each test and example module names with a top-level
+    --- `local type _ = require("cosmic.x")`, by path ([`type_requires`]): what its pure
+    --- store keeps the text of.
+    type_requires: mut {string:{string}}
+    --- The names each module's stub requires, by path ([`required_by`]): the checker types a stub
+    --- from the stubs of those, so a module a kept stub requires is kept too.
+    text_edges: mut {string:{string}}
   end
 end
 
@@ -135,6 +146,72 @@ function closure_store.required_by(source: string): {string}
     for first, second in source:gmatch(pattern) do
       out[#out + 1] = second or first
     end
+  end
+  return out
+end
+
+--- `source` less its comments and its long strings, each long string replaced by `""` (the grammar has no
+--- long comment), so that what a
+--- test spells inside a snippet it checks is no statement of its own. Quoted strings stay, since a
+--- `require` names its module in one.
+local function without_long_text(source: string): string
+  local out: mut {string} = {}
+  local size = #source
+  local at = 1
+  while at <= size do
+    local next_at = source:find("[%-%[\"']", at)
+    if next_at == nil then
+      out[#out + 1] = source:sub(at)
+      break
+    end
+    out[#out + 1] = source:sub(at, next_at - 1)
+    at = next_at
+    local here = source:sub(at, at)
+    if here == "-" and source:sub(at + 1, at + 1) == "-" then
+      at = source:find("\n", at, true) or (size + 1)
+    elseif here == "[" then
+      local _, open_stop, level = source:find("^%[(=*)%[", at)
+      if open_stop ~= nil and level ~= nil then
+        local _, close_stop = source:find("]" .. level .. "]", open_stop + 1, true)
+        at = (close_stop or size) + 1
+        out[#out + 1] = '""'
+      else
+        out[#out + 1] = here
+        at = at + 1
+      end
+    elseif here == "-" then
+      out[#out + 1] = here
+      at = at + 1
+    else
+      local finish = at + 1
+      while finish <= size do
+        local char = source:sub(finish, finish)
+        if char == "\\" then
+          finish = finish + 2
+        elseif char == here or char == "\n" then
+          break
+        else
+          finish = finish + 1
+        end
+      end
+      out[#out + 1] = source:sub(at, finish)
+      at = finish + 1
+    end
+  end
+  return table.concat(out)
+end
+
+--- The standard-library modules (`cosmic.*`) that the test or example `source` names with a top-level
+--- `local type _ = require("cosmic.x")` (a `<const>` after the name is allowed), in the order written:
+--- the spelling [`cosmic.test`]'s `store` documents for a module a snippet the test type-checks requires.
+--- Only those, and not every `require`: a test requires [`cosmic.test`] and the modules it runs by value,
+--- which a comment in would run it again for nothing. A statement inside a comment or a long string, such
+--- as a snippet the test checks, is none. A `require` after other code on its line is missed, and the test
+--- fails naming the module whose stub is withheld.
+local function type_requires(source: string): {string}
+  local out: mut {string} = {}
+  for name in ("\n" .. without_long_text(source)):gmatch("\nlocal type [%w_]+[%s<%w>]-=%s*require%s*%(?%s*[\"']([%w_%.]+)[\"']") do
+    if name:sub(1, 7) == "cosmic." then out[#out + 1] = name end
   end
   return out
 end
@@ -224,7 +301,7 @@ local function remembered(whole: string, token: string): closure_store.Basis?
     if next_string() ~= token then return end
     local out: closure_store.Basis = {
       modules = {}, shared = next_string(), kinds = {}, pairable = {}, decls = {}, decl_requires = {},
-      pure = {}, stripped = {}, bytecode = {}, pure_decls = {},
+      pure = {}, stripped = {}, bytecode = {}, pure_decls = {}, texts = {}, text_edges = {}, type_requires = {},
     }
     for _ = 1, next_count() do
       local path = next_string()
@@ -233,6 +310,19 @@ local function remembered(whole: string, token: string): closure_store.Basis?
       out.pure[path] = next_string()
       out.stripped[path] = next_string()
       out.bytecode[path] = next_string()
+      out.texts[path] = next_string()
+    end
+    for _ = 1, next_count() do
+      local path = next_string()
+      local required: mut {string} = {}
+      for i = 1, next_count() do required[i] = next_string() end
+      out.text_edges[path] = required
+    end
+    for _ = 1, next_count() do
+      local path = next_string()
+      local required: mut {string} = {}
+      for i = 1, next_count() do required[i] = next_string() end
+      out.type_requires[path] = required
     end
     for _ = 1, next_count() do
       local name = next_string()
@@ -272,6 +362,23 @@ local function remember(whole: string, token: string, basis: closure_store.Basis
     put_string(basis.pure[path] or "")
     put_string(basis.stripped[path] or "")
     put_string(basis.bytecode[path] or "")
+    put_string(basis.texts[path] or "")
+  end
+  local edged = 0
+  for _ in pairs(basis.text_edges) do edged = edged + 1 end
+  put_count(edged)
+  for path, required in pairs(basis.text_edges) do
+    put_string(path)
+    put_count(#required)
+    for _, name in ipairs(required) do put_string(name) end
+  end
+  local typed = 0
+  for _ in pairs(basis.type_requires) do typed = typed + 1 end
+  put_count(typed)
+  for path, required in pairs(basis.type_requires) do
+    put_string(path)
+    put_count(#required)
+    for _, name in ipairs(required) do put_string(name) end
   end
   put_count(#basis.pairable)
   for _, path in ipairs(basis.pairable) do put_string(path) end
@@ -359,7 +466,7 @@ local function read_basis(whole: string, pure?: boolean): closure_store.Basis?, 
     local basis: closure_store.Basis = {
       modules = {}, shared = Hash.hex_sha256("closure-store-8\n" .. shared_row:text(1)),
       kinds = {}, pairable = {}, decls = {}, decl_requires = {},
-      pure = {}, stripped = {}, bytecode = {}, pure_decls = {},
+      pure = {}, stripped = {}, bytecode = {}, pure_decls = {}, texts = {}, text_edges = {}, type_requires = {},
     }
     for _, row in ipairs(rows) do
       local line: mut {string} = { row:text(2) }
@@ -386,6 +493,22 @@ local function read_basis(whole: string, pure?: boolean): closure_store.Basis?, 
         "SELECT path, kind, file, lower(hex(sha256(tests))), inflate(bytecode) FROM modules ORDER BY path")
       if found == nil then return nil, pure_trouble end
       pure_rows = found
+      -- What the checker reads of a standard-library module is its stub ([`build.standard_text`]); the
+      -- stub keeps no comment but keeps every token at its source line and column ([`build.syntax_stub`]),
+      -- so these digests move with a module's declared types and with a line added or removed above them.
+      local stubbed, stubbed_trouble = Sqlite.text_rows(db,
+        "SELECT path, lower(hex(sha256(inflate(source)))), CAST(inflate(source) AS TEXT) FROM stubs ORDER BY path")
+      if stubbed == nil then return nil, stubbed_trouble end
+      for _, row in ipairs(stubbed) do
+        basis.texts[row:text(1)] = row:text(2)
+        basis.text_edges[row:text(1)] = closure_store.required_by(row:text(3))
+      end
+      local sourced, sourced_trouble = Sqlite.text_rows(db,
+        "SELECT path, CAST(inflate(source) AS TEXT) FROM modules WHERE kind IN ('test', 'example') ORDER BY path")
+      if sourced == nil then return nil, sourced_trouble end
+      for _, row in ipairs(sourced) do
+        basis.type_requires[row:text(1)] = type_requires(row:text(2))
+      end
     end
     for _, row in ipairs(pure_rows) do
       local path = row:text(1)
@@ -501,6 +624,30 @@ local function declared(basis: closure_store.Basis, names: {string}): {string}
   return out
 end
 
+--- The modules of `basis` whose stub the pure store for `names` keeps because its test names them: each of
+--- `roots` ([`type_requires`]) that the store holds and has a stub of, and each of those that a kept stub
+--- requires, sorted. What the checker reads to type a snippet that requires them
+--- ([`build.standard_text`]), and no more: a module the test imports only otherwise keeps its
+--- bytecode, stripped, and no text.
+local function text_kept(basis: closure_store.Basis, names: {string}, roots: {string}): {string}
+  local held: mut {string:boolean} = {}
+  for _, name in ipairs(stored(basis, names)) do held[name] = true end
+  local seen: mut {string:boolean} = {}
+  local out: mut {string} = {}
+  local stack: mut {string} = {}
+  for _, name in ipairs(roots) do stack[#stack + 1] = name end
+  while #stack > 0 do
+    local name = table.remove(stack)
+    if name ~= nil and seen[name] ~= true and held[name] == true and basis.texts[name] ~= nil then
+      seen[name] = true
+      out[#out + 1] = name
+      for _, required in ipairs(basis.text_edges[name] or {}) do stack[#stack + 1] = required end
+    end
+  end
+  table.sort(out)
+  return out
+end
+
 --- The modules of `basis` the example module `name` could be paired
 --- with by its name ([`build.writer`]'s `insert_examples`): each that it
 --- is less `_example`, or that it starts with, followed by `_`. Which
@@ -551,13 +698,17 @@ end
 --- With `own`, the address of the pure store ([`closure_store.write`]): the
 --- digest of what that holds, which is each module's line of `basis.pure`
 --- with its bytecode stripped of debug information -- `own`'s, the test's
---- module, with it -- and each declaration's. It moves with a module's
---- bytecode and what its rows say, and with no comment, blank line or
---- moved line in a module `own` imports.
+--- module, with it -- and each declaration's, and the kept stubs. It moves
+--- with a module's bytecode and what its rows say. A comment, blank line
+--- or moved line moves it only in a module whose stub it keeps, as a
+--- stub keeps each token at its line.
 function closure_store.address(basis: closure_store.Basis, names: {string},
                                salt: string, own?: string): string
   if own ~= nil then
     local pure: mut {string} = { basis.shared, salt, "pure " .. own }
+    for _, name in ipairs(text_kept(basis, names, basis.type_requires[own] or {})) do
+      pure[#pure + 1] = digest_of_line("text " .. name .. " " .. assert(basis.texts[name], "a stored name has its text's digest"))
+    end
     for _, name in ipairs(stored(basis, names)) do
       local held = if name == own then basis.bytecode[name] else basis.stripped[name] end
       pure[#pure + 1] = digest_of_line(assert(basis.pure[name], "a stored name has its pure line") ..
@@ -650,7 +801,7 @@ end
 
 --- What [`closed`] copies, less everything text-derived: a module's source
 --- and source hash are left empty, and no doc, use, link, example, catalog
---- row, place or stub goes in. The bytecode of the modules goes in as the
+--- row, place or stub goes in, but for the stub of the modules in `temp.kept` ([`text_kept`]). The bytecode of the modules goes in as the
 --- projection has it; [`closure_store.write`] strips the debug information
 --- of all but the test's own.
 local function closed_pure(): {string}
@@ -660,6 +811,8 @@ local function closed_pure(): {string}
     "INSERT INTO main.modules (path, file, kind, source_hash, key, bytecode, tests, source) " ..
       "SELECT path, file, kind, X'', X'', bytecode, tests, X'' FROM whole.modules " ..
       "WHERE path IN temp.wanted ORDER BY path",
+    -- What the checker reads of a standard-library module ([`build.standard_text`]).
+    "INSERT INTO main.stubs SELECT * FROM whole.stubs WHERE path IN temp.kept ORDER BY path",
     "INSERT INTO main.imports SELECT * FROM whole.imports " ..
       "WHERE path IN temp.wanted AND requires IN temp.wanted ORDER BY path, requires",
     "INSERT INTO main.decl_imports SELECT * FROM whole.decl_imports " ..
@@ -737,10 +890,13 @@ end
 --- store is written once and read as it is from then on.
 ---
 --- With `own`, the name of the test module the store is for, it is the
---- pure store instead: it holds nothing that moves with a comment, a blank
---- line or a moved line. The modules' source and source hash are empty, the
+--- pure store instead: nothing in it moves with a comment, a blank line
+--- or a moved line but the stubs it keeps, which keep each token at its
+--- line. The modules' source and source hash are empty, the
 --- stubs, places, docs, uses, links, examples and catalog tables hold no
---- rows, and every module's bytecode but `own`'s is stripped of its debug
+--- rows, but for the stubs of the standard-library modules the test module names with
+--- a top-level `local type _ = require(...)` ([`type_requires`]) and those their stubs require
+--- ([`text_kept`]), which the address digests, and every module's bytecode but `own`'s is stripped of its debug
 --- information, so a test that reads such a row finds none and fails, and
 --- the store's bytes follow from [`closure_store.address`]'s pure address.
 function closure_store.write(whole: string, out: string, names: {string},
@@ -752,6 +908,7 @@ function closure_store.write(whole: string, out: string, names: {string},
     for _, statement in ipairs(schema.create("")) do statements[#statements + 1] = statement end
     statements[#statements + 1] = "CREATE TEMP TABLE wanted (path TEXT PRIMARY KEY)"
     statements[#statements + 1] = "CREATE TEMP TABLE declared (path TEXT PRIMARY KEY)"
+    statements[#statements + 1] = "CREATE TEMP TABLE kept (path TEXT PRIMARY KEY)"
     for _, statement in ipairs(statements) do
       local ok, failure = db:exec(statement)
       if not ok then return false, failure end
@@ -765,6 +922,12 @@ function closure_store.write(whole: string, out: string, names: {string},
       local ok, failure = Sqlite.run(db, "INSERT INTO temp.declared (path) VALUES (?1)",
         { text(name) })
       if not ok then return false, failure end
+    end
+    if own ~= nil then
+      for _, name in ipairs(text_kept(basis, names, basis.type_requires[own] or {})) do
+        local ok, failure = Sqlite.run(db, "INSERT INTO temp.kept (path) VALUES (?1)", { text(name) })
+        if not ok then return false, failure end
+      end
     end
     local attached, attach_trouble = Sqlite.run(db, "ATTACH DATABASE ?1 AS whole",
       { text(whole) })

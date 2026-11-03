@@ -62,7 +62,7 @@ local function test_uniform_draws_within_range_from_any_bit_source()
     return words[at] -- checked: index_may_be_nil
   end, 0, 2)
   assert(got == 1 and at == 3, "rejection: " .. tostring(got) .. " after " .. tostring(at))
-  assert(not pcall(Rand.uniform, draw, 3, 2)) -- checked: alternatives_as_value
+  Test.raises(function() Rand.uniform(draw, 3, 2) end)
 end
 
 local function test_int_spans_the_whole_integer_range()
@@ -95,7 +95,7 @@ local function test_a_degenerate_argument_raises()
   local src = Rand.new(0)
   Test.raises(function() src:int(2, 1) end, "min is greater than max")
   local ok2, err2 = pcall(src.bytes, src, -1)
-  assert(not ok2 and tostring(err2):find("count is negative", 1, true), tostring(err2)) -- checked: or_mix
+  assert(not ok2 and tostring(err2):find("count is negative", 1, true) ~= nil, tostring(err2))
 end
 
 local function test_entropy_draws_fresh_bytes()
@@ -109,8 +109,8 @@ local function test_entropy_draws_fresh_bytes()
 end
 
 local function test_entropy_refuses_a_degenerate_count()
-  assert(not pcall(Rand.entropy, -1)) -- checked: alternatives_as_value
-  assert(not pcall(Rand.entropy, (1 << 20) + 1)) -- checked: alternatives_as_value
+  Test.raises(function() Rand.entropy(-1) end)
+  Test.raises(function() Rand.entropy((1 << 20) + 1) end)
   assert(#assert(Rand.entropy(1 << 20)) == 1 << 20)
 end
 

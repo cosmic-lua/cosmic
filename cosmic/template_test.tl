@@ -763,14 +763,14 @@ local function test_a_project_dialect_replaces_the_registry()
   local out = assert(compile("<a x-link=\"{{.u}}\" data-x-link=\"/a/{{.i}}\">"))
   assert(helpers_called(out)[1] == "_lurl" and helpers_called(out)[2] == "_part", out)
   local html, why = compile("<a data-x-html=\"{{.u}}\">")
-  assert(html == nil and why:find("'data-x-html' attribute would be markup Alpine inserts", 1, true), tostring(why)) -- checked: or_mix
+  assert(html == nil and why:find("'data-x-html' attribute would be markup Alpine inserts", 1, true) ~= nil, tostring(why))
   local click, click_why = compile("<a @click=\"{{.u}}\">")
-  assert(click == nil and click_why:find("would be script", 1, true), tostring(click_why)) -- checked: or_mix
+  assert(click == nil and click_why:find("would be script", 1, true) ~= nil, tostring(click_why))
   -- The always-on refusals hold, and the built-in registry is not there.
   local on, on_why = compile("<a hx-on:click=\"{{.u}}\">")
-  assert(on == nil and on_why:find("would be script", 1, true), tostring(on_why)) -- checked: or_mix
+  assert(on == nil and on_why:find("would be script", 1, true) ~= nil, tostring(on_why))
   local gone, gone_why = Template.compile("{{type T from m.t}}{{use htmx}}\n", "t.tmpl", options)
-  assert(gone == nil and gone_why:find("unknown dialect 'htmx' (known: alpine)", 1, true), tostring(gone_why)) -- checked: or_mix
+  assert(gone == nil and gone_why:find("unknown dialect 'htmx' (known: alpine)", 1, true) ~= nil, tostring(gone_why))
   -- Two dialects must agree on an attribute they both name.
   local other: Template.Dialect = {
     name = "other",
@@ -782,7 +782,7 @@ local function test_a_project_dialect_replaces_the_registry()
   }
   local clash, clash_why = Template.compile("{{type T from m.t}}{{use alpine}}{{use other}}\n", "t.tmpl",
     { dialects = { alpine = alpine, other = other } })
-  assert(clash == nil and clash_why:find("dialects 'alpine' and 'other' give 'x-link' different rules", 1, true), -- checked: or_mix
+  assert(clash == nil and clash_why:find("dialects 'alpine' and 'other' give 'x-link' different rules", 1, true) ~= nil,
     tostring(clash_why))
 end
 

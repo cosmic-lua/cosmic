@@ -5,6 +5,7 @@
 --- something else.
 
 local Json = require("cosmic.json")
+local Test = require("cosmic.test")
 
 --- A text `input` and the `err` its reading is refused with.
 local record Said
@@ -217,7 +218,7 @@ local function test_select_refuses_what_is_not_json()
   local _, mixed = Json.select({ a = { 1, b = 2 } }, (assert(Json.query("$.a[0]")))) -- checked: literal_shape
   assert(mixed == 'json: the value at pointer "/a" is a table with mixed keys', mixed)
   local everything = assert(Json.query("$"))
-  assert(not pcall(function() Json.select({}, everything, { max_depth = 0 }) end), "a depth below 1 raises") -- checked: alternatives_as_value, literal_needs_type
+  Test.raises(function() Json.select({}, everything, { max_depth = 0 }) end) -- checked: literal_needs_type
 end
 
 --- A table with a hole counts from its highest position, as its

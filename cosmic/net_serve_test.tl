@@ -400,7 +400,7 @@ local function test_a_killed_protocols_close_cannot_wait()
   returned_at = Clock.monotonic_ns()
   local _, _ = assert(held, "the server was ready").conn:close()
   assert(wrote == "net: the connection is closed", wrote)
-  assert(#errors == 1 and errors[1]:find("while its task is killed", 1, true), -- checked: or_mix
+  assert(#errors == 1 and errors[1]:find("while its task is killed", 1, true) ~= nil,
     table.concat(errors, "\n"))
   assert(returned_at - stopped_at < Clock.seconds(5), tostring(returned_at - stopped_at))
 end

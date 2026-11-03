@@ -6,6 +6,8 @@
 local Store = require("cosmic.store")
 local invoke = require("build.invoke")
 local sys = require("cosmic.sys")
+-- The `-e` chunks below require it, which the checker types from its text: named here, the pure store keeps it.
+local type _proc = require("cosmic.proc")
 
 --- What a verb writes -- `print`'s C included -- and what it exits with
 --- come back as a started binary's would.

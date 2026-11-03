@@ -292,7 +292,7 @@ end
 
 local function test_the_checker_counts_a_warning_as_a_refusal_here(tmp: string)
   local lua, trouble = build(tmp, "warning", { ["x.tl"] = "local unused = 1\nreturn {}\n" })
-  assert(lua == nil and trouble:find("unused", 1, true), tostring(trouble)) -- checked: or_mix
+  assert(lua == nil and trouble:find("unused", 1, true) ~= nil, tostring(trouble))
 end
 
 local function test_a_type_error_in_a_text_template_is_on_the_templates_line(tmp: string)
