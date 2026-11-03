@@ -698,9 +698,10 @@ end
 --- With `own`, the address of the pure store ([`closure_store.write`]): the
 --- digest of what that holds, which is each module's line of `basis.pure`
 --- with its bytecode stripped of debug information -- `own`'s, the test's
---- module, with it -- and each declaration's. It moves with a module's
---- bytecode and what its rows say, and with no comment, blank line or
---- moved line in a module `own` imports.
+--- module, with it -- and each declaration's, and the kept stubs. It moves
+--- with a module's bytecode and what its rows say. A comment, blank line
+--- or moved line moves it only in a module whose stub it keeps, as a
+--- stub keeps each token at its line.
 function closure_store.address(basis: closure_store.Basis, names: {string},
                                salt: string, own?: string): string
   if own ~= nil then
@@ -889,8 +890,9 @@ end
 --- store is written once and read as it is from then on.
 ---
 --- With `own`, the name of the test module the store is for, it is the
---- pure store instead: it holds nothing that moves with a comment, a blank
---- line or a moved line. The modules' source and source hash are empty, the
+--- pure store instead: nothing in it moves with a comment, a blank line
+--- or a moved line but the stubs it keeps, which keep each token at its
+--- line. The modules' source and source hash are empty, the
 --- stubs, places, docs, uses, links, examples and catalog tables hold no
 --- rows, but for the stubs of the standard-library modules the test module names with
 --- a top-level `local type _ = require(...)` ([`type_requires`]) and those their stubs require
