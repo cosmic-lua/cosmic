@@ -10,6 +10,7 @@
 --- (cosmic/child_relay_test.tl is Linux's). A failure says what the program
 --- saw, the relay's decision lines and what Seatbelt denied.
 
+local Array = require("cosmic.array")
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
@@ -208,14 +209,19 @@ local function sealed_client(tmp: string): string
   return path
 end
 
+--- How many connections an echo server has taken.
+local record Tally
+  mut connections: integer
+end
+
 --- An echo server for `listener`, answering "echo:" and the four bytes each
 --- connection sends, as a task of the run, and counting the connections.
-local function echoing(listener: Net.Listener, count: mut {integer}): Poll.Task
+local function echoing(listener: Net.Listener, count: Tally): Poll.Task
   return Poll.spawn(function()
     while true do
       local conn = listener:accept()
       if conn == nil then return end
-      count[1] = count[1] + 1 -- checked: nil_not_allowed
+      count.connections = count.connections + 1
       Poll.spawn(function()
         local data = conn:read(4)
         if data ~= nil then
@@ -263,7 +269,8 @@ local function flows(tmp: string): Flows
   Poll.run(function()
     local first = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
     local second = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
-    local granted_count, ungranted_count = { 0 }, { 0 }
+    local granted_count: Tally = { connections = 0 }
+    local ungranted_count: Tally = { connections = 0 }
     local tasks = { echoing(first, granted_count), echoing(second, ungranted_count) }
     local granted, ungranted = assert(first.address.port), assert(second.address.port)
     local result, why = Child.run({ assert(Proc.executable()), "flows", tostring(granted), tostring(ungranted) },
@@ -280,7 +287,7 @@ local function flows(tmp: string): Flows
         "\nrelay: " .. relay_log)
     holds(result.ok, report)
     seen = { said = fixture.fields(result.stdout or ""), log = relay_log, granted = granted, ungranted = ungranted,
-      reached = assert(ungranted_count[1]), report = report }
+      reached = ungranted_count.connections, report = report }
   end)
   assert(sys.close(log))
   return assert(seen)
@@ -334,9 +341,9 @@ local function test_the_program_is_given_the_relay_and_its_token(tmp: string)
   SeatbeltFixture.macos_only()
   local said, report = flows(tmp).said, ""
   local token, port = tostring(said["env_HTTPS_PROXY"]):match("^http://cosmic:(%x+)@127%.0%.0%.1:(%d+)$")
-  assert(token ~= nil and #token == 64, "HTTPS_PROXY is " .. redacted(tostring(said["env_HTTPS_PROXY"])) .. report)
-  local http = "http://cosmic:" .. token .. "@127.0.0.1:" .. port -- checked: nil_not_allowed
-  local socks = "socks5h://cosmic:" .. token .. "@127.0.0.1:" .. port -- checked: nil_not_allowed
+  assert(token ~= nil and port ~= nil and #token == 64, "HTTPS_PROXY is " .. redacted(tostring(said["env_HTTPS_PROXY"])) .. report)
+  local http = "http://cosmic:" .. token .. "@127.0.0.1:" .. port
+  local socks = "socks5h://cosmic:" .. token .. "@127.0.0.1:" .. port
   for _, name in ipairs({ "HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy" }) do
     assert(said["env_" .. name] == http, name .. " is " .. redacted(tostring(said["env_" .. name])))
   end
@@ -398,7 +405,9 @@ local function run_under(held: raw_process.Seatbelt, argv: {string}, tmp: string
   local out = assert(sys.open(out_path, sys.O_WRONLY | sys.O_CREAT | sys.O_TRUNC, 384))
   local null = assert(sys.open("/dev/null", sys.O_RDONLY))
   local process = require("cosmic.internal.process")
-  local pid, why = process.spawn(argv[1], argv, { COSMIC_STANDALONE = "1" }, "/", null, out, out, false, nil, -- checked: index_may_be_nil
+  -- Every caller passes the program as the first word.
+  local program = Array.at(argv, 1)
+  local pid, why = process.spawn(program, argv, { COSMIC_STANDALONE = "1" }, "/", null, out, out, false, nil,
     { seatbelt = held })
   assert(sys.close(out))
   assert(sys.close(null))
@@ -406,7 +415,7 @@ local function run_under(held: raw_process.Seatbelt, argv: {string}, tmp: string
   local deadline = Clock.monotonic_ns() + Clock.seconds(30)
   local status = assert(process.waitpid(pid, true))
   while status.pid == 0 do
-    assert(Clock.monotonic_ns() < deadline, argv[1] .. " did not end") -- checked: nil_not_allowed
+    assert(Clock.monotonic_ns() < deadline, program .. " did not end")
     assert(Clock.sleep_ns(Clock.ms(20)))
     status = assert(process.waitpid(pid, true))
   end
@@ -501,7 +510,7 @@ local function test_the_relay_is_held_by_a_profile_of_its_own(tmp: string)
       end
     end
     assert(replaced, "no parameter names the relay's database")
-    local core = assert(sys.realpath(assert(Proc.relaunch()).argv[1])) -- checked: index_may_be_nil
+    local core = assert(sys.realpath(Array.at(assert(Proc.relaunch()).argv, 1)))
     local probe = run_under(swapped, { core, "--database", real_client, "probe", secret }, tmp)
     holds(probe.refused == "" and probe.code == 0, "the probe did not run under the relay's profile: " ..
         probe.refused .. " " .. probe.output)
@@ -525,7 +534,8 @@ local function test_a_public_name_is_resolved_and_reached_through_the_relay(tmp:
     Test.skip("this host resolves no public name: " .. resolve_why)
     return
   end
-  local reached, reach_why = Net.connect(Net.tcp(found[1].address, 443), { timeout_ns = Clock.seconds(5) }) -- checked: nil_not_allowed
+  -- [`Net.resolve`] answers at least one address, or nil and why.
+  local reached, reach_why = Net.connect(Net.tcp(Array.at(found, 1).address, 443), { timeout_ns = Clock.seconds(5) })
   if reached == nil then
     Test.skip("this host reaches no public address: " .. reach_why)
     return
