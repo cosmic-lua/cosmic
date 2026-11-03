@@ -4,8 +4,8 @@
 --- they share, a union of records with two tag values each told apart by a fixed number of tests (checked, and declared in
 --- the second guard at the end), an `if` expression of many arms, a function of many parameters called with all of
 --- them, and a run of calls each after a test of an array's length, among many narrowed places (checked, and declared in
---- the guard before the last). A chain of tests over every tag of a union, and a test of every tag joined by `or`, are held to four times the
---- members costing about the square of four (16 times) and not its cube, since each test reads what the one before
+--- the guard before the last). A chain of tests over every tag of a union, and a test of every tag joined by `or`, are held to eight times the
+--- members costing about the square of eight (64 times) and not its cube, since each test reads what the one before
 --- left.
 --- The guards of [`lang.relation`] are in [`lang.relation_speed_test`]; this module does not time it apart.
 local Check = require("lang.check")
@@ -226,24 +226,29 @@ local function test_four_times_the_input_costs_about_four_times_the_time_for_a_u
   hold({ "a union of many tagged records told apart by a fixed number of tests" })
 end
 
-local function test_four_times_the_members_costs_about_sixteen_times_for_a_chain_of_tests_over_every_tag_of_a_union()
-  -- A chain is quadratic in the members at best, each test reading the union the ones before it left: four times the
-  -- members costs 16 times, and 64 times where a test or the join of the arms asks each pair of members, or walks them
-  -- again, for each test. The limits lie between what the chain and the `or` of tests cost, and what they cost then.
+local function test_eight_times_the_members_costs_about_sixty_four_times_for_a_chain_of_tests_over_every_tag_of_a_union()
+  -- A chain is quadratic in the members at best, each test reading the union the ones before it left: eight times the
+  -- members costs at most 64 times (44 measured: the linear terms are a larger share of the small side), and 512
+  -- times where a test or the join of the arms asks each pair of members, or walks them again, for each test. The
+  -- sizes are eight times apart and not four because a slow stretch that falls on the one long run of the large side
+  -- (about 170 ms, where the small side is about 4 ms and is repeated to be read) is not taken out by a least of
+  -- samples; four times the members left only 21 times over the 13 measured, and eight times leaves 100 over 44.
+  -- Each limit is where the earlier one lay as a power of the members, about 2.2 for the chain and 2.4 for the `or`,
+  -- between what the quadratic and the cube cost.
   local limits <const>: {string: integer} = {
-    ["a union of many tagged records told apart by a chain of tests over every tag"] = 21,
-    ["a union of many tagged records told apart by one test of every tag joined by or"] = 28,
+    ["a union of many tagged records told apart by a chain of tests over every tag"] = 100,
+    ["a union of many tagged records told apart by one test of every tag joined by or"] = 150,
   }
   for name, limit in pairs(limits) do
     local form = assert(FORMS[name])
-    local small = prepare(form(5))
-    local large = prepare(form(20))
+    local small = prepare(form(3))
+    local large = prepare(form(24))
     local ok, why = Speed.within(function()
       check(small)
     end, function()
       check(large)
     end, limit)
-    assert(ok, name .. ": four times the members " .. why)
+    assert(ok, name .. ": eight times the members " .. why)
   end
 end
 
