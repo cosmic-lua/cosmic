@@ -1,3 +1,4 @@
+local Array = require("cosmic.array")
 local Signal = require("cosmic.signal")
 local unix_socket = require("build.unix_socket")
 local Clock = require("cosmic.clock")
@@ -7,6 +8,9 @@ local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
+
+-- Each case gives [`Net.serve`] its listeners, and `on_ready` gets one address per
+-- listener, so `Array.at(addresses, n)` reads the nth listener the case named.
 
 --- The servers listen on the worker's own loopback, or at a socket file where
 --- a case is about one.
@@ -64,9 +68,9 @@ local function test_several_connections_are_served_at_once()
     listeners = { Net.tcp("127.0.0.1", 0) },
     serve = echo,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
-      local first <close> = client(addresses[1]) -- checked: index_may_be_nil
-      local second <close> = client(addresses[1]) -- checked: index_may_be_nil
-      local third <close> = client(addresses[1]) -- checked: index_may_be_nil
+      local first <close> = client(Array.at(addresses, 1))
+      local second <close> = client(Array.at(addresses, 1))
+      local third <close> = client(Array.at(addresses, 1))
       for i, c in ipairs({ third, second, first }) do
         assert(c.conn:write("line " .. tostring(i) .. "\n"))
         local appended = assert(c.lines:read())
@@ -95,14 +99,14 @@ local function test_an_error_in_one_connection_leaves_the_others_served()
     end,
     on_error = function(trouble: string) troubles[#troubles + 1] = trouble end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
-      local steady <close> = client(addresses[1]) -- checked: index_may_be_nil
-      local failing <close> = client(addresses[1]) -- checked: index_may_be_nil
+      local steady <close> = client(Array.at(addresses, 1))
+      local failing <close> = client(Array.at(addresses, 1))
       assert(failing.conn:write("boom\n"))
       local gone, why = failing.lines:read()
       assert(gone == nil and why == "", why)
       assert(steady.conn:write("still\n"))
       assert(steady.lines:read() == "still")
-      local fresh <close> = client(addresses[1]) -- checked: index_may_be_nil
+      local fresh <close> = client(Array.at(addresses, 1))
       assert(fresh.conn:write("after\n"))
       later = assert(fresh.lines:read())
       server:stop()
@@ -131,15 +135,15 @@ local function test_at_the_connection_limit_accepting_waits()
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
       local second: Client
       do
-        local first <close> = client(addresses[1]) -- checked: index_may_be_nil
+        local first <close> = client(Array.at(addresses, 1))
         assert(first.conn:write("one\n"))
         assert(first.lines:read() == "one")
-        second = client(addresses[1]) -- checked: index_may_be_nil
+        second = client(Array.at(addresses, 1))
         assert(second.conn:write("two\n"))
         second.conn:set_timeout(Clock.ms(100))
-        local nothing: string
-        nothing, waiting_why = second.conn:read() -- checked: nil_not_allowed
-        assert(nothing == nil) -- checked: compare_disjoint
+        local nothing: string?
+        nothing, waiting_why = second.conn:read()
+        assert(nothing == nil)
         assert(accepted == 1, tostring(accepted))
         second.conn:set_timeout(Clock.seconds(5))
       end
@@ -160,12 +164,12 @@ local function test_timeout_ns_bounds_each_connection()
     listeners = { Net.tcp("127.0.0.1", 0) },
     timeout_ns = Clock.ms(20),
     serve = function(conn: Net.Conn)
-      local data: string
-      data, why = conn:read() -- checked: nil_not_allowed
-      assert(data == nil) -- checked: compare_disjoint
+      local data: string?
+      data, why = conn:read()
+      assert(data == nil)
     end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
-      local idle <close> = client(addresses[1]) -- checked: index_may_be_nil
+      local idle <close> = client(Array.at(addresses, 1))
       local ended, reason = idle.lines:read()
       assert(ended == nil and reason == "", reason)
       server:stop()
@@ -200,14 +204,14 @@ local function stop_drains_then_kills_after_grace_ns_at(path: string?)
       assert(conn:write(line .. "\n"))
     end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
-      local slow <close> = client(addresses[1]) -- checked: index_may_be_nil
-      stuck = client(addresses[1]) -- checked: index_may_be_nil
+      local slow <close> = client(Array.at(addresses, 1))
+      stuck = client(Array.at(addresses, 1))
       assert(slow.conn:write("slow\n"))
       while started < 2 do assert(Poll.delay(Clock.ms(1))) end
       stopped_at = Clock.monotonic_ns()
       server:stop()
-      assert(released(addresses[1]), "the listener was left") -- checked: index_may_be_nil
-      local refused, why = Net.connect(addresses[1]) -- checked: index_may_be_nil
+      assert(released(Array.at(addresses, 1)), "the listener was left")
+      local refused, why = Net.connect(Array.at(addresses, 1))
       assert(refused == nil and why:find(if path ~= nil then "No such file" else "Connection refused" end, 1, true) ~= nil, why)
       answer = assert(slow.lines:read())
     end,
@@ -326,9 +330,9 @@ local function test_a_protocol_ignoring_failures_is_killed_at_grace_ns()
     end,
     on_error = function(trouble: string) errors[#errors + 1] = trouble end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
-      local first = client(addresses[1]) -- checked: index_may_be_nil
+      local first = client(Array.at(addresses, 1))
       held[#held + 1] = first
-      local second = client(addresses[1]) -- checked: index_may_be_nil
+      local second = client(Array.at(addresses, 1))
       held[#held + 1] = second
       while started < 2 do assert(Poll.delay(Clock.ms(1))) end
       server:stop()
@@ -360,7 +364,7 @@ local function test_a_killed_protocols_close_error_is_reported()
     end,
     on_error = function(trouble: string) errors[#errors + 1] = trouble end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
-      held = client(addresses[1]) -- checked: index_may_be_nil
+      held = client(Array.at(addresses, 1))
       while not started do assert(Poll.delay(Clock.ms(1))) end
       server:stop()
     end,
@@ -396,7 +400,7 @@ local function test_a_killed_protocols_close_cannot_wait()
     end,
     on_error = function(trouble: string) errors[#errors + 1] = trouble end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
-      held = client(addresses[1]) -- checked: index_may_be_nil
+      held = client(Array.at(addresses, 1))
       while not started do assert(Poll.delay(Clock.ms(1))) end
       stopped_at = Clock.monotonic_ns()
       server:stop()
@@ -422,15 +426,15 @@ local function test_the_connection_limit_is_shared_by_every_listener()
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
       local second: Client
       do
-        local first <close> = client(addresses[1]) -- checked: index_may_be_nil
+        local first <close> = client(Array.at(addresses, 1))
         assert(first.conn:write("one\n"))
         assert(first.lines:read() == "one")
-        second = client(addresses[2]) -- checked: index_may_be_nil
+        second = client(Array.at(addresses, 2))
         assert(second.conn:write("two\n"))
         second.conn:set_timeout(Clock.ms(100))
-        local nothing: string
-        nothing, waiting_why = second.conn:read() -- checked: nil_not_allowed
-        assert(nothing == nil) -- checked: compare_disjoint
+        local nothing: string?
+        nothing, waiting_why = second.conn:read()
+        assert(nothing == nil)
         second.conn:set_timeout(Clock.seconds(5))
       end
       answer = assert(second.lines:read())
@@ -458,8 +462,8 @@ local function a_protocol_stops_its_server_at(path: string?)
     end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
       serving = server
-      bound = addresses[1]
-      local c <close> = client(addresses[1]) -- checked: index_may_be_nil
+      bound = Array.at(addresses, 1)
+      local c <close> = client(Array.at(addresses, 1))
       assert(c.conn:write("stop\n"))
       answer = assert(c.lines:read())
     end,
@@ -487,7 +491,7 @@ local function a_server_stopped_twice_before_accepting_returns_at(path: string?)
     listeners = { listener_at(path) },
     serve = function(_conn: Net.Conn) served = true end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
-      bound = addresses[1]
+      bound = Array.at(addresses, 1)
       server:stop()
       server:stop()
     end,
@@ -536,11 +540,11 @@ local function sigterm_stops_the_server_and_it_drains_at(path: string?)
       assert(conn:write(line .. "\n"))
     end,
     on_ready = function(addresses: {Net.Address}, _server: Net.Server)
-      local c <close> = client(addresses[1]) -- checked: index_may_be_nil
+      local c <close> = client(Array.at(addresses, 1))
       assert(c.conn:write("slow\n"))
       while not started do assert(Poll.delay(Clock.ms(1))) end
       assert(sys.kill(sys.getpid(), sys.SIGTERM))
-      until_released(addresses[1]) -- checked: index_may_be_nil
+      until_released(Array.at(addresses, 1))
       answer = assert(c.lines:read())
     end,
   }
@@ -578,10 +582,10 @@ local function a_second_signal_ends_the_grace_at(path: string?)
       if line == nil then stuck_why = why end
     end,
     on_ready = function(addresses: {Net.Address}, _server: Net.Server)
-      stuck = client(addresses[1]) -- checked: index_may_be_nil
+      stuck = client(Array.at(addresses, 1))
       while not started do assert(Poll.delay(Clock.ms(1))) end
       assert(sys.kill(sys.getpid(), sys.SIGINT))
-      until_released(addresses[1]) -- checked: index_may_be_nil
+      until_released(Array.at(addresses, 1))
       assert(sys.kill(sys.getpid(), sys.SIGTERM))
     end,
   })
@@ -632,7 +636,7 @@ local function test_the_longest_grace_drains_the_connections_open()
       assert(conn:write(line .. "\n"))
     end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
-      local c <close> = client(addresses[1]) -- checked: index_may_be_nil
+      local c <close> = client(Array.at(addresses, 1))
       assert(c.conn:write("slow\n"))
       assert(Poll.delay(Clock.ms(10)))
       server:stop()
@@ -670,8 +674,8 @@ local function on_stop_runs_once_at_stop_at(path: string?)
     end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
       serving = server
-      bound = addresses[1]
-      local c <close> = client(addresses[1]) -- checked: index_may_be_nil
+      bound = Array.at(addresses, 1)
+      local c <close> = client(Array.at(addresses, 1))
       assert(c.conn:write("slow\n"))
       assert(c.lines:read() == "slow")
       server:stop()
@@ -702,7 +706,7 @@ local function on_stop_runs_once_at_sigterm_at(path: string?)
     on_stop = function(_server: Net.Server) calls = calls + 1 end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
       assert(sys.kill(sys.getpid(), sys.SIGTERM))
-      until_released(addresses[1]) -- checked: index_may_be_nil
+      until_released(Array.at(addresses, 1))
       server:stop()
     end,
   })
@@ -742,7 +746,7 @@ local function stopped_with_an_idle_client(closing: boolean, grace_ns: integer):
       end
     end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
-      local made = client(addresses[1]) -- checked: index_may_be_nil
+      local made = client(Array.at(addresses, 1))
       idle_client = made
       assert(made.conn:write("hello\n"))
       assert(made.lines:read() == "hello")
@@ -786,7 +790,7 @@ local function a_raising_on_stop_reaches_on_error_and_the_server_stops_at(path: 
     on_stop = function(_server: Net.Server) error("on_stop failed") end,
     on_error = function(trouble: string) troubles[#troubles + 1] = trouble end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
-      bound = addresses[1]
+      bound = Array.at(addresses, 1)
       server:stop()
     end,
   }
@@ -822,7 +826,7 @@ local function a_second_signal_cancels_on_stops_wait_at(path: string?)
     end,
     on_ready = function(addresses: {Net.Address}, _server: Net.Server)
       assert(sys.kill(sys.getpid(), sys.SIGINT))
-      until_released(addresses[1]) -- checked: index_may_be_nil
+      until_released(Array.at(addresses, 1))
       assert(sys.kill(sys.getpid(), sys.SIGTERM))
     end,
   })
@@ -859,7 +863,7 @@ local function test_on_stop_runs_when_stopped_from_a_coroutine()
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
       serving = server
       Poll.spawn(function()
-        local c <close> = client(addresses[1]) -- checked: index_may_be_nil
+        local c <close> = client(Array.at(addresses, 1))
         assert(c.conn:write("stop\n"))
         local _, _ = c.lines:read()
       end)
@@ -885,7 +889,7 @@ local function test_the_grace_begins_once_on_stop_returns()
     on_stop = function(_server: Net.Server) assert(Poll.delay(Clock.ms(300))) end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
       Poll.spawn(function()
-        local c <close> = client(addresses[1]) -- checked: index_may_be_nil
+        local c <close> = client(Array.at(addresses, 1))
         assert(c.conn:write("slow\n"))
         assert(Poll.delay(Clock.ms(10)))
         server:stop()

@@ -7,6 +7,7 @@
 --- sent. Lookups no server answers, and those in a task beside others,
 --- run here.
 
+local Array = require("cosmic.array")
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local ConnectorEnds = require("build.connector_ends")
@@ -245,7 +246,8 @@ local function stuck_server(held: mut {function()}): {integer}
     end
   end
   assert(taken >= 1 and taken < 4, tostring(taken) .. " connections were taken")
-  return { stuck.address.port } -- checked: nil_not_allowed
+  local port = assert(stuck.address.port, "a listener at a tcp address has a port")
+  return { port }
 end
 
 --- A first name server that never takes the connection costs the
@@ -260,9 +262,11 @@ local function test_a_server_that_never_answers_its_connect_fails_over_to_the_ne
   for _, close in ipairs(held) do close() end
   assert(seen.lines[1] == "192.0.2.7,2001:db8::7", tostring(seen.lines[1]))
   assert(seen.lines[2] == "192.0.2.7,2001:db8::7", tostring(seen.lines[2]))
-  for took in seen.lines[3]:gmatch("[^,]+") do -- checked: nil_not_allowed
+  -- The child prints a line for each of its three lookups.
+  local timings = Array.at(seen.lines, 3)
+  for took in timings:gmatch("[^,]+") do
     local ms = assert(math.tointeger(tonumber(took)))
-    assert(ms >= 400 and ms < 5000, seen.lines[3] .. " ms") -- checked: nil_not_allowed
+    assert(ms >= 400 and ms < 5000, timings .. " ms")
   end
   assert(seen.datagrams == 0, tostring(seen.datagrams) .. " datagrams were sent")
 end
@@ -280,7 +284,9 @@ local function test_a_lookup_out_of_time_still_takes_the_connectors_reply(tmp: s
   for _, close in ipairs(held) do close() end
   assert(seen.lines[1] == "error " .. Poll.TIMEOUT, tostring(seen.lines[1]))
   assert(seen.lines[2] == "192.0.2.7,2001:db8::7", tostring(seen.lines[2]))
-  local first = assert(math.tointeger(tonumber(seen.lines[3]:match("^(%d+)")))) -- checked: nil_not_allowed
+  -- The child prints a line for each of its three lookups.
+  local timings = Array.at(seen.lines, 3)
+  local first = assert(math.tointeger(tonumber(timings:match("^(%d+)"))))
   assert(first >= 100 and first < 480, "the first lookup ended after " .. tostring(first) .. " ms, not at its deadline")
 end
 
@@ -323,7 +329,7 @@ local function test_an_unreachable_name_server_fails_the_lookup()
   assert(found == nil and why == "Connection refused", tostring(why))
   -- A numeric address answers itself and asks no one.
   local literal = assert(Net.resolve("192.0.2.1", { connector = dns, servers = { { host = "127.0.0.1", port = port } } }))
-  assert(#literal == 1 and literal[1].address == "192.0.2.1") -- checked: nil_not_allowed
+  assert(#literal == 1 and Array.at(literal, 1).address == "192.0.2.1")
 end
 
 local function test_a_name_server_the_connector_lacks_is_refused_before_anything_is_asked()
@@ -565,7 +571,8 @@ local function test_nameservers_reads_the_servers_resolv_conf_names(tmp: string)
   if none == nil then
     assert(trouble:find("scoped to an interface", 1, true) ~= nil, trouble)
   else
-    assert(#none == 1 and none[1].host == "127.0.0.1", none[1].host) -- checked: nil_not_allowed
+    local only = Array.at(none, 1)
+    assert(#none == 1 and only.host == "127.0.0.1", only.host)
   end
   -- None configured: the resolver's default.
   assert(missing ~= nil and #missing == 1 and missing[1].host == "127.0.0.1" and missing[1].port == 53)
@@ -584,12 +591,13 @@ local function test_the_relays_name_servers_stand_when_the_system_names_others(t
   local opts = assert(name_server_options({ resolv_conf = conf }))
   local _dns <close> = assert(opts.connector)
   local servers = assert(opts.servers)
-  assert(#servers == 1 and servers[1].host == "192.0.2.53" and servers[1].port == 53) -- checked: nil_not_allowed*2
+  local only = Array.at(servers, 1)
+  assert(#servers == 1 and only.host == "192.0.2.53" and only.port == 53)
   local system = Resolv.nameservers()
-  assert(system == nil or system[1].host ~= "192.0.2.53", "the system names the test's server") -- checked: nil_not_allowed
+  assert(system == nil or Array.at(system, 1).host ~= "192.0.2.53", "the system names the test's server")
   local found, why = Net.resolve("kept.example.test",
     { connector = opts.connector, servers = opts.servers, hosts_file = hosts, timeout_ns = Clock.seconds(5) })
-  assert(found ~= nil and #found == 1 and found[1].address == "198.51.100.9", tostring(why)) -- checked: nil_not_allowed
+  assert(found ~= nil and #found == 1 and Array.at(found, 1).address == "198.51.100.9", tostring(why))
   -- Without the servers, the lookup asks the system's, which the table lacks.
   found, why = Net.resolve("kept.example.test", { connector = opts.connector, hosts_file = hosts })
   assert(found == nil, "the system's servers were asked through the table")
@@ -610,9 +618,11 @@ local function test_the_relays_wait_leaves_the_second_server_time_to_answer(tmp:
   for _, close in ipairs(held) do close() end
   assert(seen.lines[1] == "192.0.2.7,2001:db8::7", tostring(seen.lines[1]))
   assert(seen.lines[2] == "192.0.2.7,2001:db8::7", tostring(seen.lines[2]))
-  for took in seen.lines[3]:gmatch("[^,]+") do -- checked: nil_not_allowed
+  -- The child prints a line for each of its three lookups.
+  local timings = Array.at(seen.lines, 3)
+  for took in timings:gmatch("[^,]+") do
     local ms = assert(math.tointeger(tonumber(took)))
-    assert(ms >= 1500 and ms < 5000, seen.lines[3] .. " ms") -- checked: nil_not_allowed
+    assert(ms >= 1500 and ms < 5000, timings .. " ms")
   end
 end
 
@@ -624,8 +634,9 @@ local function silent_lookup(count: integer, lookup_ms: integer)
   local held: mut {function()} = {}
   local endpoints: mut {Resolv.Endpoint} = {}
   for _ = 1, count do
-    local port = stuck_server(held)[1]
-    endpoints[#endpoints + 1] = { host = "127.0.0.1", port = port } -- checked: nil_not_allowed
+    -- [`stuck_server`] answers the one port of its listener.
+    local port = Array.at(stuck_server(held), 1)
+    endpoints[#endpoints + 1] = { host = "127.0.0.1", port = port }
   end
   local opts = assert(name_server_options({ servers = endpoints, resolve = Clock.ms(lookup_ms) }))
   local wait = math.max(500, lookup_ms // (count + 1))
@@ -709,10 +720,11 @@ local function test_a_lookup_nobody_answers_stalls_no_other_task(tmp: string)
   local hosts = tmp .. "/hosts"
   assert(Fs.write(hosts, ""))
   local silent = assert(Udp.bind("127.0.0.1", 0))
+  local silent_port = assert(silent.address.port, "a bound udp socket has a port")
   local found: {Net.Resolved}? = nil
   local why: string? = nil
   local worst, took = ticking_beside(function()
-    found, why = Net.resolve("silent.example.test", { timeout_ns = Clock.ms(600), servers = { { host = "127.0.0.1", port = silent.address.port } }, -- checked: nil_not_allowed
+    found, why = Net.resolve("silent.example.test", { timeout_ns = Clock.ms(600), servers = { { host = "127.0.0.1", port = silent_port } },
       hosts_file = hosts })
   end)
   silent:close()
@@ -773,8 +785,9 @@ local function test_a_cancelled_lookup_closes_everything_it_held(tmp: string)
   local hosts = tmp .. "/hosts"
   assert(Fs.write(hosts, ""))
   local silent = assert(Udp.bind("127.0.0.1", 0))
+  local silent_port = assert(silent.address.port, "a bound udp socket has a port")
   local waited, outcome, before, after = cancelled_lookup(
-    { timeout_ns = Clock.seconds(30), servers = { { host = "127.0.0.1", port = silent.address.port } }, hosts_file = hosts }) -- checked: nil_not_allowed
+    { timeout_ns = Clock.seconds(30), servers = { { host = "127.0.0.1", port = silent_port } }, hosts_file = hosts })
   assert(outcome == Poll.CANCELLED, outcome)
   assert(waited < 1500, "a cancelled lookup took " .. tostring(waited) .. " ms to end")
   assert(after == before, "a cancelled lookup left a descriptor open")

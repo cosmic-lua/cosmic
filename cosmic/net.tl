@@ -39,6 +39,7 @@
 --- connection, run for each one accepted at any of its listeners, whose
 --- failure closes that connection alone.
 
+local Array = require("cosmic.array")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Poll = require("cosmic.poll")
@@ -68,7 +69,10 @@ local waited = Connection.waited
 --- What `address` is called in a failure: its path, or its host and
 --- port, an IPv6 host in brackets.
 local function named(address: raw_socket.Address): string
-  if address.kind ~= "tcp" then return address.path end -- checked: nil_not_allowed
+  if address.kind ~= "tcp" then
+    local path = assert(address.path, "a unix address has the path Net.unix gave it")
+    return path
+  end
   local host = assert(address.host)
   if host:find(":", 1, true) then host = "[" .. host .. "]" end
   return host .. ":" .. tostring(address.port)
@@ -691,7 +695,9 @@ resolved_through = function(name: string, opts: Net.ResolveOptions): {Net.Resolv
       return nil, "net: the name server " .. named(Net.tcp(server.host, server.port)) ..
         " is not in the connector's table"
     end
-    servers[#servers + 1] = { host = served.endpoints[index].host, port = server.port, index = index } -- checked: nil_not_allowed
+    -- [`Leaf.find`] answered an index of `served.endpoints`.
+    local endpoint = Array.at(served.endpoints, index)
+    servers[#servers + 1] = { host = endpoint.host, port = server.port, index = index }
   end
   local found, trouble = Resolv.lookup(name, {
     timeout_ns = opts.timeout_ns,
@@ -921,7 +927,9 @@ local function serve_conn(s: Serving, conn: Net.Conn) -- checked: not_assigned
     local ok, trouble: boolean, any = xpcall(s.spec.serve, traced, held) -- checked: any_use
     local _, _ = held:close()
     s.open = s.open - 1
-    s.conns[task] = nil -- checked: nil_not_allowed
+    -- [`Poll.spawn`] runs this once serve_conn waits, after it set `task`.
+    local mine = assert(task, "serve_conn: the task runs before Poll.spawn returned it")
+    s.conns[mine] = nil
     resume_accepting(s)
     if not ok then report(s, tostring(trouble)) end
   end)
@@ -991,7 +999,9 @@ local function drain(s: Serving)
     -- writes it fails at once rather than wait; and done here, as a
     -- killed task is not resumed to do what serve_conn does after the
     -- protocol returns.
-    local _, _ = s.conns[task]:close() -- checked: nil_not_allowed
+    -- `left` was listed from `s.conns` above; only a task's own exit or this loop removes its entry.
+    local conn = assert(s.conns[task], "serve_conn: a listed task lost its connection")
+    local _, _ = conn:close()
     local killed, trouble: boolean, any = pcall(task.kill, task) -- checked: interface_method_value
     s.conns[task] = nil
     s.open = s.open - 1
