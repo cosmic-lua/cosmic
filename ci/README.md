@@ -760,9 +760,14 @@ verdicts, which would otherwise ride along whole in each save.
   core hold the check in every full run. Their `operations.db` is kept as
   `ci-driver-linux-x86_64-checked-narrowing-<part>` (the merge's as
   `ci-driver-linux-x86_64-checked-narrowing`). A full run only.
-- `format` (`linux-x86_64-format`), a light run's format check
-  (`platform format`), which a full run makes in linux-aarch64's assemble.
-  There it is `fix --check .`; on a light run it lays out only what the
+- `format` (`linux-x86_64-format`), a light run's and the merge queue's
+  format check (`platform format`), which the other full runs make in
+  linux-aarch64's assemble (`COSMIC_CI_FORMAT` is `skip` on every leg in the
+  queue). In the queue it is `fix --check .` over the merged tree, with no
+  paths changed named and no memo restored, beside legs that take 17 to 18
+  minutes (about 10 cold). The job is outside the matrix, so a format
+  failure in the queue no longer cancels the legs (`fail-fast`); the gate
+  still fails. On a light run it lays out only what the
   branch changed since its base on main
   (driver.tl changed-paths, `fix --check --changed`), whose
   tree the queue held to the whole check, and still makes every check
