@@ -1708,9 +1708,9 @@ local function test_spawn_credentials_runtime_refusal(tmp: string)
 end
 
 --- What spawn raises for `sandbox` taken as a raw table, malformed.
-local function refused_sandbox(fields: {string:any}): string
+local function refused_sandbox(fields: any): string
   local ok, trouble = pcall(process.spawn, "/missing", { "/missing" }, nil, nil, -- checked: overload_none
-    nil, nil, nil, false, nil, fields as raw_process.Sandbox) -- cast: malformed input exercises raw validation -- checked: cast_refused
+    nil, nil, nil, false, nil, fields)
   assert(not ok, "spawn took a malformed sandbox")
   return tostring(trouble)
 end
@@ -1719,39 +1719,42 @@ local function test_a_policys_sandbox_fields_are_checked_before_a_start()
   local function says(trouble: string, text: string)
     assert(trouble:find(text, 1, true), trouble)
   end
-  says(refused_sandbox({ strict = "yes" }), "strict must be a boolean") -- checked: any_use
-  says(refused_sandbox({ proc = 1 }), "proc must be a boolean") -- checked: any_use
-  says(refused_sandbox({ proc = true, unveil = { reads = { "/" } } }), -- checked: any_use*2
-    "proc and unveil exclude each other")
-  says(refused_sandbox({ sockets = { "inet" } }), "sockets require promises") -- checked: any_use
-  says(refused_sandbox({ promises = {}, sockets = { "packet" } }), "a socket family is") -- checked: any_use, literal_needs_type
-  says(refused_sandbox({ promises = {}, sockets = { "inet" } }), "sockets require offline") -- checked: any_use, literal_needs_type
-  says(refused_sandbox({ relay = { fd = 3 } }), "relay requires offline") -- checked: any_use
-  says(refused_sandbox({ relay = 3 }), "relay must be a table") -- checked: any_use
-  says(refused_sandbox({ relay = {}, offline = true }), "relay's fd must be a descriptor") -- checked: any_use, literal_needs_type
-  says(refused_sandbox({ relay = { fd = -1 }, offline = true }), "relay's fd is out of range") -- checked: any_use*2
-  says(refused_sandbox({ relay = { fd = 2 }, offline = true }), "relay's fd is out of range") -- checked: any_use*2
-  says(refused_sandbox({ relay = { fd = 3, ports = { 4000, 4000 } }, offline = true }), -- checked: any_use, arms_differ
+  says(refused_sandbox({ strict = "yes" }), "strict must be a boolean")
+  says(refused_sandbox({ proc = 1 }), "proc must be a boolean")
+  local excluded: raw_process.Sandbox = { proc = true, unveil = { reads = { "/" } } }
+  says(refused_sandbox(excluded), "proc and unveil exclude each other")
+  says(refused_sandbox({ sockets = { "inet" } }), "sockets require promises")
+  says(refused_sandbox({ promises = {}, sockets = { "packet" } }), "a socket family is") -- checked: literal_needs_type
+  says(refused_sandbox({ promises = {}, sockets = { "inet" } }), "sockets require offline") -- checked: literal_needs_type
+  says(refused_sandbox({ relay = { fd = 3 } }), "relay requires offline")
+  says(refused_sandbox({ relay = 3 }), "relay must be a table")
+  says(refused_sandbox({ relay = {}, offline = true }), "relay's fd must be a descriptor") -- checked: literal_needs_type
+  local below: raw_process.Sandbox = { relay = { fd = -1 }, offline = true }
+  says(refused_sandbox(below), "relay's fd is out of range")
+  local standard: raw_process.Sandbox = { relay = { fd = 2 }, offline = true }
+  says(refused_sandbox(standard), "relay's fd is out of range")
+  says(refused_sandbox({ relay = { fd = 3, ports = { 4000, 4000 } }, offline = true }), -- checked: arms_differ
     "a relay's two ports differ")
-  says(refused_sandbox({ relay = { fd = 3, ports = { 1 } }, offline = true }), -- checked: any_use, arms_differ
+  says(refused_sandbox({ relay = { fd = 3, ports = { 1 } }, offline = true }), -- checked: arms_differ
     "relay's ports are two ports")
-  says(refused_sandbox({ relay = { fd = 3, ports = { 1, "x" } }, offline = true }), -- checked: any_use*2, arms_differ
+  local named: {integer | string} = { 1, "x" }
+  says(refused_sandbox({ relay = { fd = 3, ports = named }, offline = true }), -- checked: arms_differ
     "a relay port is an integer")
-  says(refused_sandbox({ relay = { fd = 3, ports = { 0, 1 } }, offline = true }), -- checked: any_use, arms_differ
+  says(refused_sandbox({ relay = { fd = 3, ports = { 0, 1 } }, offline = true }), -- checked: arms_differ
     "a relay port is 1 to 65535")
-  says(refused_sandbox({ relay = { fd = 3, ports = { 1, 65536 } }, offline = true }), -- checked: any_use, arms_differ
+  says(refused_sandbox({ relay = { fd = 3, ports = { 1, 65536 } }, offline = true }), -- checked: arms_differ
     "a relay port is 1 to 65535")
-  says(refused_sandbox({ unveil = { tmp = 4096 } }), "unveil's tmp requires strict") -- checked: any_use
-  says(refused_sandbox({ promises = {}, sockets = "inet" }), "sockets must be a list") -- checked: any_use, literal_needs_type
-  says(refused_sandbox({ unveil = { tmp = 0 } }), "unveil's tmp is a size in bytes") -- checked: any_use
-  says(refused_sandbox({ unveil = { tmp = "big" } }), "unveil's tmp is a size in bytes") -- checked: any_use
-  says(refused_sandbox({ unveil = { tmp_exec = 1 } }), "unveil's tmp_exec must be a boolean") -- checked: any_use
-  says(refused_sandbox({ unveil = { tmp_exec = true } }), "unveil's tmp_exec requires tmp") -- checked: any_use
+  says(refused_sandbox({ unveil = { tmp = 4096 } }), "unveil's tmp requires strict")
+  says(refused_sandbox({ promises = {}, sockets = "inet" }), "sockets must be a list") -- checked: literal_needs_type
+  says(refused_sandbox({ unveil = { tmp = 0 } }), "unveil's tmp is a size in bytes")
+  says(refused_sandbox({ unveil = { tmp = "big" } }), "unveil's tmp is a size in bytes")
+  says(refused_sandbox({ unveil = { tmp_exec = 1 } }), "unveil's tmp_exec must be a boolean")
+  says(refused_sandbox({ unveil = { tmp_exec = true } }), "unveil's tmp_exec requires tmp")
 end
 
 local function test_unveils_binds_are_checked_before_a_start()
   local function says(binds: any, text: string)
-    local trouble = refused_sandbox({ unveil = { binds = binds } }) -- checked: any_use
+    local trouble = refused_sandbox({ unveil = { binds = binds } })
     assert(trouble:find(text, 1, true), trouble)
   end
   says("/x", "unveil's binds must be a list")
@@ -1764,15 +1767,12 @@ local function test_unveils_binds_are_checked_before_a_start()
 end
 
 local function test_noexec_scratch_requires_a_boolean_and_unveiling()
-  local invalid: {any} = { "yes", 1, {} } -- checked: any_use*2, literal_needs_type
-  for _, value in ipairs(invalid) do
-    local sandbox: raw_process.Sandbox = {}
-    local fields = sandbox as {string:any} -- cast: malformed input exercises raw validation -- checked: cast_refused
-    fields.noexec_scratch = value
-    local ok, trouble = pcall(process.spawn, "/missing", { "/missing" }, nil, nil, -- checked: overload_none
-      nil, nil, nil, false, nil, sandbox)
-    assert(not ok and tostring(trouble):find("noexec_scratch must be a boolean", 1, true) ~= nil,
-      tostring(trouble))
+  for _, trouble in ipairs({
+      refused_sandbox({ noexec_scratch = "yes" }),
+      refused_sandbox({ noexec_scratch = 1 }),
+      refused_sandbox({ noexec_scratch = { true } }),
+  }) do
+    assert(trouble:find("noexec_scratch must be a boolean", 1, true) ~= nil, trouble)
   end
   local ok, trouble = pcall(process.spawn, "/missing", { "/missing" }, nil, nil, -- checked: overload_none
     nil, nil, nil, false, nil, { noexec_scratch = true })

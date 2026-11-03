@@ -48,12 +48,12 @@ local function v6(a: integer, b: integer, c: integer, d: integer,
 end
 
 --- The name and type a query asks, or nil for a message that is none.
-local function question(query: string): string, integer, integer
+local function question(query: string): string?, integer, integer
   local labels: mut {string} = {}
   local at = 13
   while true do
     local size = query:byte(at)
-    if size == nil then return nil, 0, 0 end -- checked: nil_not_allowed
+    if size == nil then return nil, 0, 0 end
     if size == 0 then break end
     labels[#labels + 1] = query:sub(at + 1, at + size)
     at = at + size + 1
@@ -156,7 +156,7 @@ local function lookup(tmp: string, name: string, timeout_ms: integer,
       local packet, why = Udp.receive(server, Clock.ms(20))
       if packet ~= nil then
         local asked, qtype, question_end = question(packet.data)
-        assert(asked ~= nil, "a malformed query") -- checked: compare_disjoint
+        assert(asked ~= nil, "a malformed query")
         seen[#seen + 1] = tostring(qtype) .. " " .. asked
         if guarded == true and #seen == 1 then assert(child:stop(sys.SIGINT)) end
         local reply = serve(asked, qtype)

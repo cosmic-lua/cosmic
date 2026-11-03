@@ -179,10 +179,16 @@ end
   end
   local conn <close> = accepted
   local request = ""
-  while not request:find("\r\n\r\n", 1, true) do request = request .. assert(conn:read()) end
-  local head_end = request:find("\r\n\r\n", 1, true) + 3 -- checked: nil_not_allowed
-  local length = tonumber(request:sub(1, head_end):lower():match("\r\ncontent%-length: *(%d+)") or "0")
-  while #request < head_end + length do request = request .. assert(conn:read()) end -- checked: nil_not_allowed
+  local head_start = request:find("\r\n\r\n", 1, true)
+  while head_start == nil do
+    request = request .. assert(conn:read())
+    head_start = request:find("\r\n\r\n", 1, true)
+  end
+  local head_end = head_start + 3
+  -- The pattern takes digits only, and "0" is the default.
+  local length = assert(tonumber(request:sub(1, head_end):lower():match("\r\ncontent%-length: *(%d+)") or "0"),
+    "a Content-Length of digits")
+  while #request < head_end + length do request = request .. assert(conn:read()) end
   assert(conn:write("HTTP/1.1 200 OK\r\nContent-Length: 4\r\nConnection: close\r\n\r\ndone"))
   conn:close()
   local result = assert(child:wait(Clock.seconds(20)))

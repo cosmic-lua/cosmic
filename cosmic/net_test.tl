@@ -1,4 +1,5 @@
 local unix_socket = require("build.unix_socket")
+local Array = require("cosmic.array")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
@@ -546,10 +547,12 @@ local function test_in_a_run_a_server_serves_connections_at_once()
       clients[i] = assert(Net.connect(server.address, { timeout_ns = Clock.seconds(5) }))
     end
     for i = 3, 1, -1 do
-      assert(clients[i]:write("c" .. tostring(i) .. "\n")) -- checked: nil_not_allowed
-      local appended = assert(Stream.lines(clients[i]):read()) -- checked: index_may_be_nil
+      -- The loop above filled `clients` 1 to 3.
+      local client = Array.at(clients, i)
+      assert(client:write("c" .. tostring(i) .. "\n"))
+      local appended = assert(Stream.lines(client):read())
       answered[#answered + 1] = appended
-      assert(clients[i]:close()) -- checked: nil_not_allowed
+      assert(client:close())
     end
   end)
   assert(table.concat(answered, ",") == "re c3,re c2,re c1", table.concat(answered, ","))

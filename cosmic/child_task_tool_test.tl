@@ -3,6 +3,7 @@
 --- Each child is this program again, past its launcher, running a Lua
 --- chunk, as in cosmic/child_tool_test.tl.
 
+local Array = require("cosmic.array")
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
@@ -239,7 +240,8 @@ local function test_a_child_that_exited_before_its_watch_was_asked_for_is_waited
       asked = asked + 1
       local fd, _, _ = watch(pid)
       if fd ~= nil then
-        assert(assert(sys.poll({ fd }, { sys.POLLIN }, 30000))[1] & sys.POLLIN ~= 0, -- checked: nil_not_allowed
+        -- [`sys.poll`] answers the events of each descriptor it was given: one.
+        assert(Array.at(assert(sys.poll({ fd }, { sys.POLLIN }, 30000)), 1) & sys.POLLIN ~= 0,
           "the child did not exit")
         assert(sys.close(fd))
       end
@@ -671,8 +673,9 @@ local function test_two_tasks_settle_one_child_once()
     for i = 1, 2 do
       tasks[i] = Poll.spawn(function()
         local t = assert(again:try_wait())
-        assert(t.finished)
-        answers[i] = t.result -- checked: nil_not_allowed
+        local result = t.result
+        assert(t.finished and result ~= nil, "try_wait found the child finished without its result")
+        answers[i] = result
       end)
     end
     for _, task in ipairs(tasks) do assert(task:join()) end
@@ -683,7 +686,8 @@ local function test_two_tasks_settle_one_child_once()
     assert(closer:join())
     answers[4] = assert(third:wait())
   end)
-  assert(rawequal(answers[1], answers[2]) and answers[1].code == 4, "try_wait settled twice") -- checked: nil_not_allowed
+  local first, second = answers[1], answers[2]
+  assert(first ~= nil and second ~= nil and rawequal(first, second) and first.code == 4, "try_wait settled twice")
   assert(closed, "the close failed")
   assert(rawequal(answers[3], answers[4]), "a wait and a close settled twice")
 end

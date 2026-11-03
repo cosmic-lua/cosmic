@@ -2,6 +2,7 @@ local Array = require("cosmic.array")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local Sandbox = require("cosmic.sandbox")
+local String = require("cosmic.string")
 local sys = require("cosmic.sys")
 local stand_in = require("build.stand_in")
 local PolicyMerge = require("build.policy_merge_fixture")
@@ -464,48 +465,59 @@ local function described(mode: integer, kind: string, uid?: integer, gid?: integ
   return { mode = mode, kind = kind as sys.Kind, uid = uid or 0, gid = gid or 0 } as sys.Stat -- checked: cast_refused*2
 end
 
+--- The integer a string of octal digits spells.
+local function octal(digits: string): integer
+  local value = 0
+  for at = 1, #digits do
+    local digit = String.byte_at(digits, at) - 48
+    assert(digit >= 0 and digit <= 7, "an octal mode is written in digits 0 to 7")
+    value = value * 8 + digit
+  end
+  return value
+end
+
 local function test_reach_says_who_gives_a_user_that_owns_nothing_its_rights()
   -- Everyone: 0644 and 0755 files and directories.
-  assert(Sandbox.reach("r", described(tonumber("100644", 8), "file")).by == "other") -- checked: nil_not_allowed
-  assert(Sandbox.reach("rx", described(tonumber("100755", 8), "file")).by == "other") -- checked: nil_not_allowed
-  assert(Sandbox.reach("r", described(tonumber("40755", 8), "dir")).by == "other") -- checked: nil_not_allowed
+  assert(Sandbox.reach("r", described(octal("100644"), "file")).by == "other")
+  assert(Sandbox.reach("rx", described(octal("100755"), "file")).by == "other")
+  assert(Sandbox.reach("r", described(octal("40755"), "dir")).by == "other")
   -- A directory is read and entered, written and entered.
-  assert(Sandbox.reach("r", described(tonumber("40744", 8), "dir")).by == "owner") -- checked: nil_not_allowed
-  assert(Sandbox.reach("rwc", described(tonumber("40755", 8), "dir")).by == "owner") -- checked: nil_not_allowed
-  assert(Sandbox.reach("rwc", described(tonumber("40757", 8), "dir")).by == "other") -- checked: nil_not_allowed
-  assert(Sandbox.reach("w", described(tonumber("100646", 8), "file")).by == "other") -- checked: nil_not_allowed
+  assert(Sandbox.reach("r", described(octal("40744"), "dir")).by == "owner")
+  assert(Sandbox.reach("rwc", described(octal("40755"), "dir")).by == "owner")
+  assert(Sandbox.reach("rwc", described(octal("40757"), "dir")).by == "other")
+  assert(Sandbox.reach("w", described(octal("100646"), "file")).by == "other")
   -- A socket is connected to by writing.
-  assert(Sandbox.reach("u", described(tonumber("140666", 8), "socket")).by == "other") -- checked: nil_not_allowed
-  assert(Sandbox.reach("u", described(tonumber("140755", 8), "socket")).by == "owner") -- checked: nil_not_allowed
+  assert(Sandbox.reach("u", described(octal("140666"), "socket")).by == "other")
+  assert(Sandbox.reach("u", described(octal("140755"), "socket")).by == "owner")
   -- Only the owner's bits: what an idmapped mount gives.
-  assert(Sandbox.reach("rw", described(tonumber("100600", 8), "file")).by == "owner") -- checked: nil_not_allowed
-  assert(Sandbox.reach("x", described(tonumber("100700", 8), "file")).by == "owner") -- checked: nil_not_allowed
+  assert(Sandbox.reach("rw", described(octal("100600"), "file")).by == "owner")
+  assert(Sandbox.reach("x", described(octal("100700"), "file")).by == "owner")
 end
 
 local function test_reach_of_a_named_user_reads_its_own_class_alone()
-  local mine = tonumber("40700", 8)
+  local mine = octal("40700")
   -- Its own directory, 0700: the owner's bits are its own.
-  assert(Sandbox.reach("rwc", described(mine, "dir", 1000, 1000), 1000, 1000).by == "user") -- checked: nil_not_allowed
+  assert(Sandbox.reach("rwc", described(mine, "dir", 1000, 1000), 1000, 1000).by == "user")
   -- Another user's, 0700, in no group of its: only an idmapped mount gives it.
-  assert(Sandbox.reach("r", described(mine, "dir", 2000, 2000), 1000, 1000).by == "owner") -- checked: nil_not_allowed
+  assert(Sandbox.reach("r", described(mine, "dir", 2000, 2000), 1000, 1000).by == "owner")
   -- Its group's, 0750: the group's bits.
-  assert(Sandbox.reach("r", described(tonumber("40750", 8), "dir", 2000, 1000), 1000, 1000).by == "user") -- checked: nil_not_allowed
+  assert(Sandbox.reach("r", described(octal("40750"), "dir", 2000, 1000), 1000, 1000).by == "user")
   -- Its own file, 0077: open to everyone but its owner, which the kernel
   -- holds to the owner's bits.
-  local own = Sandbox.reach("r", described(tonumber("100077", 8), "file", 1000, 1000), 1000, 1000) -- checked: nil_not_allowed
+  local own = Sandbox.reach("r", described(octal("100077"), "file", 1000, 1000), 1000, 1000)
   assert(own.by == "" and own.lacks:find("its owner, user 1000,", 1, true) ~= nil, own.lacks)
   -- Its group's file, 0604: the group's bits, not everyone's.
-  local grouped = Sandbox.reach("r", described(tonumber("100604", 8), "file", 2000, 1000), 1000, 1000) -- checked: nil_not_allowed
+  local grouped = Sandbox.reach("r", described(octal("100604"), "file", 2000, 1000), 1000, 1000)
   assert(grouped.by == "owner", grouped.by)
   -- No match: as for a user that owns nothing.
-  assert(Sandbox.reach("r", described(tonumber("100644", 8), "file", 2000, 2000), 1000, 1000).by == "other") -- checked: nil_not_allowed
+  assert(Sandbox.reach("r", described(octal("100644"), "file", 2000, 2000), 1000, 1000).by == "other")
 end
 
 local function test_reach_names_what_even_the_owner_lacks()
-  local result = Sandbox.reach("rw", described(tonumber("100400", 8), "file")) -- checked: nil_not_allowed
+  local result = Sandbox.reach("rw", described(octal("100400"), "file"))
   assert(result.by == "" and result.lacks:find("0400", 1, true) ~= nil and result.lacks:find("write", 1, true) ~= nil, result.lacks)
   assert(not result.lacks:find("read", 1, true), result.lacks)
-  local both = Sandbox.reach("rx", described(tonumber("100200", 8), "file")) -- checked: nil_not_allowed
+  local both = Sandbox.reach("rx", described(octal("100200"), "file"))
   assert(both.by == "" and both.lacks:find("execute and read", 1, true) ~= nil, both.lacks)
 end
 
