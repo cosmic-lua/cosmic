@@ -1,3 +1,4 @@
+local Array = require("cosmic.array")
 local Flags = require("cosmic.flags")
 
 local spec: {string:boolean} = { ["--check"] = false, ["--jobs"] = true }
@@ -77,7 +78,7 @@ local function test_a_repeated_option_keeps_every_value_and_its_order()
   local got = parsed({ "x", "--jobs=1", "--check", "--jobs", "2", "--check" })
   assert(got.values["--jobs"] == "2")
   local jobs = got.all["--jobs"]
-  assert(#jobs == 2 and jobs[1] == "1" and jobs[2] == "2") -- checked: nil_not_allowed*3
+  assert(#jobs == 2 and Array.at(jobs, 1) == "1" and Array.at(jobs, 2) == "2") -- checked: nil_not_allowed*3
   assert(table.concat(got.given, " ") == "--jobs --check --jobs --check")
   assert(got.all["--check"] == nil)
 end

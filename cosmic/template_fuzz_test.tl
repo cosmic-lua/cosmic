@@ -1,3 +1,4 @@
+local Array = require("cosmic.array")
 --- Fuzz properties for [`cosmic.template`], which compiles text it is
 --- handed: `compile` is total on any bytes and answers source or a reason
 --- that names a line and column; a template with no action compiles to a
@@ -548,7 +549,7 @@ local function gen_sound(src: Fuzz.Source): string
       -- The first fragment is of a kind drawn first, so every kind is reached however few inputs run.
       local of: mut {{string}} = {}
       for _, unit in ipairs(UNITS) do
-        if unit[2]:find(want, 1, true) then -- checked: nil_not_allowed
+        if Array.at(unit, 2):find(want, 1, true) then
           of[#of + 1] = unit
         end
       end
@@ -899,7 +900,7 @@ local function test_a_value_cannot_get_out_of_where_a_slot_puts_it(tmp: string)
         local runs: mut {{integer}} = { { 0, 0 } }
         local at = 1
         while at <= #runs do
-          PART_RUN.calls, PART_RUN.only, PART_RUN.skip = 0, runs[at][1], runs[at][2] -- checked: index_may_be_nil*2, nil_not_allowed*2
+          PART_RUN.calls, PART_RUN.only, PART_RUN.skip = 0, Array.at(Array.at(runs, at), 1), Array.at(Array.at(runs, at), 2)
           local data: PartData = { a = payload, l = list, w = each }
           local ok, made = pcall(render, data)
           if not ok then
@@ -1455,10 +1456,10 @@ local function test_a_block_in_a_tag_adds_only_the_attributes_it_writes(tmp: str
         for _, slot in ipairs(tag.slots) do
           local want, made = slot[2], kinds[math.tointeger(tonumber(slot[1])) or 0]
           if want == "refuse" then
-            return false, "compiled slot " .. slot[1] .. " where nothing escapes it, as " .. tostring(made) .. ": " .. -- checked: nil_not_allowed
+            return false, "compiled slot " .. Array.at(slot, 1) .. " where nothing escapes it, as " .. tostring(made) .. ": " ..
               body
           elseif made ~= want then
-            return false, "slot " .. slot[1] .. " is " .. tostring(made) .. ", not " .. want .. ": " .. body -- checked: nil_not_allowed*2
+            return false, "slot " .. Array.at(slot, 1) .. " is " .. tostring(made) .. ", not " .. want .. ": " .. body -- checked: nil_not_allowed
           end
           if want ~= text then
             Fuzz.label("slot")
@@ -1470,16 +1471,16 @@ local function test_a_block_in_a_tag_adds_only_the_attributes_it_writes(tmp: str
           state ~= "selfclosing" then
         return true, ""
       end
-      if kind == "else" and read_tag(open .. n_before .. runs[1]).at == read_tag(open .. n_before .. runs[2]).at then -- checked: nil_not_allowed*2
+      if kind == "else" and read_tag(open .. n_before .. Array.at(runs, 1)).at == read_tag(open .. n_before .. Array.at(runs, 2)).at then
         return true, ""
       end
       for i = 2, #runs do
-        if tags[i].name ~= tags[1].name or tags[i].selfclosing ~= tags[1].selfclosing then -- checked: nil_not_allowed*4
+        if Array.at(tags, i).name ~= Array.at(tags, 1).name or Array.at(tags, i).selfclosing ~= Array.at(tags, 1).selfclosing then
           return false, "the block changes the tag: " .. body
         end
-        if merged(tags[i].attrs, own[1]) ~= merged(tags[1].attrs, own[i]) then -- checked: index_may_be_nil*2, nil_not_allowed*2
-          return false, "the attributes around the block differ as it runs: " .. table.concat(tags[i].attrs, " ") .. -- checked: nil_not_allowed
-            " against " .. table.concat(tags[1].attrs, " ") .. ": " .. body -- checked: nil_not_allowed
+        if merged(Array.at(tags, i).attrs, Array.at(own, 1)) ~= merged(Array.at(tags, 1).attrs, Array.at(own, i)) then
+          return false, "the attributes around the block differ as it runs: " .. table.concat(Array.at(tags, i).attrs, " ") ..
+            " against " .. table.concat(Array.at(tags, 1).attrs, " ") .. ": " .. body
         end
       end
       if arm:find("%a") then

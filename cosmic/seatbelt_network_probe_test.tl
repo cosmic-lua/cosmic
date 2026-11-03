@@ -1,3 +1,4 @@
+local Array = require("cosmic.array")
 --- A diagnostic for the macOS `connect` design (cosmic/sandbox/seatbelt.tl's
 --- `relay_port` and `serves_relay`): what Seatbelt lets a child reach on the network, said
 --- by starting children under hand-written profiles through the raw spawn's
@@ -81,7 +82,7 @@ local function start(tmp: string, text: string, parameters: {string:string}, arg
   local path = tmp .. "/out-" .. tostring(counter)
   local out = assert(sys.open(path, sys.O_WRONLY | sys.O_CREAT | sys.O_TRUNC, 420))
   local null = assert(sys.open("/dev/null", sys.O_RDONLY))
-  local pid, why = require("cosmic.internal.process").spawn(argv[1], argv, nil, nil, null, out, out, false, nil, -- checked: index_may_be_nil
+  local pid, why = require("cosmic.internal.process").spawn(Array.at(argv, 1), argv, nil, nil, null, out, out, false, nil,
     { seatbelt = { profile = text, parameters = parameters } })
   local _, _ = sys.close(out)
   local _, _ = sys.close(null)
@@ -270,7 +271,7 @@ local function test_a_port_rule_reaches_its_port_and_no_other(tmp: string)
         if any(a_nc, a_bash, "CONNECTED") then
           -- A rule that reaches its own port is tried on ::1 as well.
           if v6 ~= nil then
-            local rule_port = if v6_port == allowed_port then form.lines else forms(v6_port)[index].lines end -- checked: nil_not_allowed
+            local rule_port = if v6_port == allowed_port then form.lines else Array.at(forms(v6_port), index).lines end
             local v6_text = profile(BASE, rule_port)
             local v_nc, v_bash = tcp_reach(tmp, v6_text, form.parameters, "::1", v6_port)
             table.insert(report, "  [::1]:" .. tostring(v6_port) .. ": nc=" .. v_nc .. " bash=" .. v_bash)
@@ -285,7 +286,7 @@ local function test_a_port_rule_reaches_its_port_and_no_other(tmp: string)
   report[#report + 1] = "no rule: nc=" .. none_nc .. " bash=" .. none_bash
   assert(any(none_nc, none_bash, "DENIED") and not any(none_nc, none_bash, "CONNECTED"),
     "a connect with no rule was not denied\n" .. table.concat(report, "\n"))
-  local text = profile(BASE, forms(allowed_port)[1].lines) -- checked: nil_not_allowed
+  local text = profile(BASE, Array.at(forms(allowed_port), 1).lines)
   local a_nc, a_bash = tcp_reach(tmp, text, {}, "127.0.0.1", allowed_port)
   local o_nc, o_bash = tcp_reach(tmp, text, {}, "127.0.0.1", other_port)
   assert(any(a_nc, a_bash, "CONNECTED"), "the rule's own port was not reached\n" .. table.concat(report, "\n"))
@@ -309,7 +310,7 @@ local function test_a_port_rule_and_udp(tmp: string)
   local allowed_port = port_of(allowed.address)
   local other <close> = assert(Udp.bind("127.0.0.1", 0)) -- checked: close_not_closable
   local other_port = port_of(other.address)
-  local text = profile(BASE, forms(allowed_port)[1].lines) -- checked: nil_not_allowed
+  local text = profile(BASE, Array.at(forms(allowed_port), 1).lines)
   local bare = profile(BASE, {})
   local control = profile({ "(version 1)", "(allow default)" }, {})
   local to_rule = udp_arrives(allowed, text, tmp, allowed_port, "127.0.0.1")
@@ -378,12 +379,12 @@ local function test_a_port_rule_and_binding(tmp: string)
   local _, _ = probe:close()
   local control = listens(tmp, profile({ "(version 1)", "(allow default)" }, {}), port)
   report[#report + 1] = "allow default: " .. control
-  local rule = forms(port)[1].lines -- checked: nil_not_allowed
+  local rule = Array.at(forms(port), 1).lines
   local only = listens(tmp, profile(BASE, rule), port)
   report[#report + 1] = "port rule alone: " .. only
-  local bound = listens(tmp, profile(BASE, { rule[1], "(allow network-bind (local ip \"localhost:*\"))" }), port) -- checked: index_may_be_nil
+  local bound = listens(tmp, profile(BASE, { Array.at(rule, 1), "(allow network-bind (local ip \"localhost:*\"))" }), port)
   report[#report + 1] = "port rule and network-bind: " .. bound
-  local inbound = listens(tmp, profile(BASE, { rule[1], "(allow network-bind (local ip \"localhost:*\"))", -- checked: index_may_be_nil
+  local inbound = listens(tmp, profile(BASE, { Array.at(rule, 1), "(allow network-bind (local ip \"localhost:*\"))",
     "(allow network-inbound (local ip \"localhost:*\"))" }), port)
   report[#report + 1] = "port rule, network-bind and network-inbound: " .. inbound
   assert(control:find("^connectable"), "nc does not listen even with no profile to hold it\n" ..
@@ -541,7 +542,7 @@ end
 --- Skips the test where this host has no way to ask a name server, since a
 --- failure under a profile would then say nothing of the profile.
 local function network_or_skip()
-  local result = Child.run(RESOLVERS[1].argv, { stdout = "capture", stderr = "capture", stdin = "null", -- checked: nil_not_allowed
+  local result = Child.run(Array.at(RESOLVERS, 1).argv, { stdout = "capture", stderr = "capture", stdin = "null",
     timeout_ns = Clock.seconds(6) })
   if result == nil or not (result.stdout or ""):find("answer from", 1, true) then
     Test.skip("no name server answers a host program here: " .. brief((result and result.stdout or "") ..

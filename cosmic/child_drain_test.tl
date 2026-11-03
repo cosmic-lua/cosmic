@@ -1,3 +1,4 @@
+local Array = require("cosmic.array")
 --- Bounded output transfer preserves Reader errors and caller supervision.
 local Child = require("cosmic.child")
 local Signal = require("cosmic.signal")
@@ -284,7 +285,7 @@ end
 
 local function test_saved_source_failure_follows_prefix_and_wins_at_exact_limit()
   local h <close> = start('assert(require("cosmic.fs").put(1, "abcdef"))')
-  local fd = assert(h._streams)[1].fd -- checked: nil_not_allowed
+  local fd = Array.at(assert(h._streams), 1).fd
   local read = sys.read
   local seen: boolean = false
   sys.read = function(which: integer, count: integer): string?, string, integer -- checked: field_fixed

@@ -1,3 +1,4 @@
+local Array = require("cosmic.array")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Json = require("cosmic.json")
@@ -30,8 +31,8 @@ local function test_decode_reads_every_field()
     "limits": {"open_files": 64, "file_bytes": 0, "cpu_seconds": 9, "processes": 4}
   }]]))
   assert(assert(policy.profiles)[1] == "system")
-  assert(assert(policy.grants)[1].path == "data" and assert(policy.grants)[1].letters == "rwxcu") -- checked: nil_not_allowed*2
-  assert(assert(policy.grants)[1].from == "/srv/data") -- checked: nil_not_allowed
+  assert(Array.at(assert(policy.grants), 1).path == "data" and Array.at(assert(policy.grants), 1).letters == "rwxcu")
+  assert(Array.at(assert(policy.grants), 1).from == "/srv/data")
   assert(#assert(policy.isolate) == 2 and #assert(policy.promises) == 4 and #assert(policy.connect) == 3)
   assert(assert(policy.loopback)[2] == "127.1.2.3" and assert(policy.env)[1] == "HOME")
   assert(assert(policy.set_env)["MODE"] == "fast" and policy.tmp == true)

@@ -1,3 +1,4 @@
+local Array = require("cosmic.array")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local Sandbox = require("cosmic.sandbox")
@@ -52,8 +53,8 @@ local function test_merge_joins_the_letters_of_a_path_in_order()
     { grants = { { path = "/a", letters = "x" }, { path = "/b", letters = "c" } } },
     { grants = { { path = "/a", letters = "wr" }, { path = "/b", letters = "ur" } } })
   assert(#assert(out.grants) == 2)
-  assert(assert(out.grants)[1].path == "/a" and assert(out.grants)[1].letters == "rwx") -- checked: nil_not_allowed*2
-  assert(assert(out.grants)[2].path == "/b" and assert(out.grants)[2].letters == "rcu") -- checked: nil_not_allowed*2
+  assert(Array.at(assert(out.grants), 1).path == "/a" and Array.at(assert(out.grants), 1).letters == "rwx")
+  assert(Array.at(assert(out.grants), 2).path == "/b" and Array.at(assert(out.grants), 2).letters == "rcu")
 end
 
 local function test_merge_keeps_a_path_with_another_host_path_apart()
@@ -62,8 +63,8 @@ local function test_merge_keeps_a_path_with_another_host_path_apart()
     { path = "/a", letters = "x", from = "/x" },
   } })
   assert(#assert(out.grants) == 2)
-  assert(assert(out.grants)[1].from == nil and assert(out.grants)[1].letters == "w") -- checked: nil_not_allowed*2
-  assert(assert(out.grants)[2].from == "/x" and assert(out.grants)[2].letters == "rx") -- checked: nil_not_allowed*2
+  assert(Array.at(assert(out.grants), 1).from == nil and Array.at(assert(out.grants), 1).letters == "w")
+  assert(Array.at(assert(out.grants), 2).from == "/x" and Array.at(assert(out.grants), 2).letters == "rx")
 end
 
 local function test_merge_unions_lists_sorted_without_repeats()
@@ -204,8 +205,8 @@ local function test_a_loopback_address_a_connect_target_names_is_refused()
 end
 
 local function test_merge_takes_letters_in_any_order_where_decode_does_not()
-  assert(assert(PolicyMerge.merged({ grants = { { path = "a", letters = "xr" } } }).grants)[1].letters == "rx") -- checked: nil_not_allowed
-  assert(assert(PolicyMerge.merged({ grants = { { path = "a", letters = "rrw" } } }).grants)[1].letters == "rw") -- checked: nil_not_allowed
+  assert(Array.at(assert(PolicyMerge.merged({ grants = { { path = "a", letters = "xr" } } }).grants), 1).letters == "rx")
+  assert(Array.at(assert(PolicyMerge.merged({ grants = { { path = "a", letters = "rrw" } } }).grants), 1).letters == "rw")
 end
 
 local function test_merge_resolves_profiles_away()
@@ -241,8 +242,8 @@ local function test_profile_names_what_it_holds_and_refuses_what_it_has_not()
   local system = assert(Sandbox.profile("system"))
   assert(system.profiles == nil and system.grants ~= nil)
   local cosmic = assert(Sandbox.profile("cosmic"))
-  assert(#assert(cosmic.grants) == 1 and assert(cosmic.grants)[1].path == assert(Proc.executable())) -- checked: nil_not_allowed
-  assert(assert(cosmic.grants)[1].letters == "rx") -- checked: nil_not_allowed
+  assert(#assert(cosmic.grants) == 1 and Array.at(assert(cosmic.grants), 1).path == assert(Proc.executable()))
+  assert(Array.at(assert(cosmic.grants), 1).letters == "rx")
   local none, why = Sandbox.profile("bogus")
   assert(none == nil and why:find("unknown profile \"bogus\"", 1, true), why) -- checked: or_mix
 end
@@ -254,10 +255,10 @@ local function test_proc_profile_is_proc_on_linux_and_nothing_on_macos()
     local proc_grants = proc.grants
     assert(proc_grants == nil or #assert(proc_grants) == 0)
   else
-    assert(#assert(proc.grants) == 1 and assert(proc.grants)[1].path == "/proc" and assert(proc.grants)[1].letters == "r") -- checked: nil_not_allowed*2
+    assert(#assert(proc.grants) == 1 and Array.at(assert(proc.grants), 1).path == "/proc" and Array.at(assert(proc.grants), 1).letters == "r")
   end
   local both = assert(Sandbox.merge({ profiles = { "proc" } }, { grants = { { path = "/proc", letters = "r" } } }))
-  assert(both.profiles == nil and #assert(both.grants) == 1 and assert(both.grants)[1].path == "/proc") -- checked: nil_not_allowed
+  assert(both.profiles == nil and #assert(both.grants) == 1 and Array.at(assert(both.grants), 1).path == "/proc")
 end
 
 local function test_loaders_names_a_static_program_alone(tmp: string)
@@ -404,7 +405,7 @@ local function test_a_dot_dot_in_a_grant_path_is_refused_naming_the_field()
     assert(none == nil and trouble:find("$.grants[1].path", 1, true) and trouble:find("..", 1, true), trouble) -- checked: or_mix
   end
   -- A name that only contains dots is a name.
-  assert(assert(PolicyMerge.merged({ grants = { { path = "/a/..b/c..", letters = "r" } } }).grants)[1].path == "/a/..b/c..") -- checked: nil_not_allowed
+  assert(Array.at(assert(PolicyMerge.merged({ grants = { { path = "/a/..b/c..", letters = "r" } } }).grants), 1).path == "/a/..b/c..")
 end
 
 local FULL <const> = "         0          0 4294967295\n"

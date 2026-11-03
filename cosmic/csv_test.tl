@@ -1,3 +1,4 @@
+local Array = require("cosmic.array")
 local Csv = require("cosmic.csv")
 
 --- Records as text, to compare: fields joined by `|`, records by `;`.
@@ -41,8 +42,8 @@ end
 
 local function test_quotes_escape_and_hold_commas_and_line_breaks()
   local records = assert(Csv.parse('"a,b","say ""hi""","line\none\r\ntwo",plain\n"",x\n'))
-  assert(records[1][1] == "a,b" and records[1][2] == 'say "hi"' and records[1][3] == "line\none\r\ntwo") -- checked: nil_not_allowed*3
-  assert(records[1][4] == "plain" and records[2][1] == "" and records[2][2] == "x") -- checked: nil_not_allowed*3
+  assert(Array.at(Array.at(records, 1), 1) == "a,b" and Array.at(Array.at(records, 1), 2) == 'say "hi"' and Array.at(Array.at(records, 1), 3) == "line\none\r\ntwo")
+  assert(Array.at(Array.at(records, 1), 4) == "plain" and Array.at(Array.at(records, 2), 1) == "" and Array.at(Array.at(records, 2), 2) == "x")
   assert(parsed('"""",""""""\n') == '"|""')
   assert(parsed('"a"\r\n"b"') == "a;b")
 end
@@ -117,7 +118,7 @@ local function test_rows_key_each_record_by_the_header()
   assert(#rows == 2 and rows[1].id == "1" and rows[1].name == "Ann" and rows[2].name == "B, b") -- checked: map_field*3
   assert(#assert(rows_of("id,name\n")) == 0 and #assert(rows_of("")) == 0)
   local tabs = assert(rows_of("a\tb\n1\t2\n", { delimiter = "\t" }))
-  assert(tabs[1].b == "2") -- checked: map_field, nil_not_allowed
+  assert(Array.at(tabs, 1).b == "2") -- checked: map_field
 end
 
 local function test_a_ragged_record_is_refused_strictly_naming_its_line()
@@ -201,7 +202,7 @@ local function test_records_agree_with_parse_and_table_and_refuse_as_parse_does(
   local made = assert(Csv.table(text))
   assert(#rows == #records)
   for index, row in ipairs(rows) do
-    assert(show({ row.fields }) == show({ records[index] })) -- checked: index_may_be_nil
+    assert(show({ row.fields }) == show({ Array.at(records, index) }))
     if index > 1 then assert(row.line == made.lines[index - 1]) end
   end
   local none, why = Csv.records('a\n"x\n')
@@ -217,7 +218,7 @@ local function test_headers_are_renamed_deterministically()
   assert(row.a == "1" and row.a_2 == "2" and row.A_3 == "3" and row._ == "4" and row.__2 == "5", "renamed") -- checked: map_field*5, nil_not_allowed
   assert(row.a_2_2 == "6" and row.a_4 == "7") -- checked: map_field*2
   local nul = assert(rows_of("x\0y,b\n1,2\n"))
-  assert(nul[1]["x\0y"] == nil and nul[1].x_y == "1", "a NUL in a name is _") -- checked: map_field, nil_not_allowed*2
+  assert(Array.at(nul, 1)["x\0y"] == nil and Array.at(nul, 1).x_y == "1", "a NUL in a name is _") -- checked: map_field
 end
 
 local function test_a_large_file_reads_in_full()
@@ -227,7 +228,7 @@ local function test_a_large_file_reads_in_full()
   end
   local text = table.concat(lines, "\r\n") .. "\r\n"
   local rows = assert(rows_of(text))
-  assert(#rows == 60000 and rows[60000].id == "60000" and rows[1].note == 'note, "1" \nmore') -- checked: map_field*2, nil_not_allowed
+  assert(#rows == 60000 and Array.at(rows, 60000).id == "60000" and Array.at(rows, 1).note == 'note, "1" \nmore') -- checked: map_field*2
   -- A fault at the end is placed by the line count, quoted breaks included.
   local none, why = rows_of(text .. "9,x")
   assert(none == nil and why == "csv: line 120002, column 1: the record has 2 fields, the header 3", why)
@@ -271,7 +272,7 @@ end
 local function test_a_lone_carriage_return_at_the_end_is_data()
   assert(parsed("1,2\r") == "1|2\r")
   local rows = assert(rows_of("a,b\n1,2\r"))
-  assert(rows[1].b == "2\r") -- checked: map_field, nil_not_allowed
+  assert(Array.at(rows, 1).b == "2\r") -- checked: map_field
   assert(parsed("1,2\r\n") == "1|2")
 end
 

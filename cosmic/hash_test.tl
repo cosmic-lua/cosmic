@@ -1,3 +1,4 @@
+local Array = require("cosmic.array")
 --- Proves the digests and HMAC the core exposes against published
 --- test vectors, in Teal and in SQL alike, and that an algorithm
 --- nobody has heard of is refused rather than answered.
@@ -92,7 +93,7 @@ local function test_digests_match_published_vectors()
   for _, v in ipairs(vectors) do
     assert(Codec.hex(Hash.digest(v.algorithm, v.message)) == v.digest, v.algorithm)
   end
-  assert(Hash.hex_sha256("abc") == vectors[4].digest) -- checked: nil_not_allowed
+  assert(Hash.hex_sha256("abc") == Array.at(vectors, 4).digest)
 end
 
 local function test_hmac_matches_published_vectors()
@@ -292,7 +293,7 @@ local function test_hmac_takes_a_key_of_any_length()
     assert(Codec.hex(Hash.hmac(case.algorithm, case.key, case.message)) == case.mac, label)
     local rows = assert(Sqlite.text_rows(db, "SELECT lower(hex(hmac(?1, ?2, ?3)))",
       { { text = case.algorithm }, { blob = case.key }, { text = case.message } }))
-    assert(rows[1]:text(1) == case.mac, "SQL, " .. label) -- checked: nil_not_allowed
+    assert(Array.at(rows, 1):text(1) == case.mac, "SQL, " .. label)
   end
   db:close()
 end
@@ -309,18 +310,18 @@ local function test_sql_knows_the_same_digests()
   for _, v in ipairs(vectors) do
     local rows = assert(Sqlite.text_rows(db,
       "SELECT lower(hex(digest(?1, ?2)))", { { text = v.algorithm }, { text = v.message } }))
-    assert(rows[1]:text(1) == v.digest, v.algorithm) -- checked: nil_not_allowed
+    assert(Array.at(rows, 1):text(1) == v.digest, v.algorithm)
   end
   for _, v in ipairs(macs) do
     local rows = assert(Sqlite.text_rows(db,
       "SELECT lower(hex(hmac(?1, 'key', ?2)))", { { text = v.algorithm }, { text = fox } }))
-    assert(rows[1]:text(1) == v.mac, v.algorithm) -- checked: nil_not_allowed
+    assert(Array.at(rows, 1):text(1) == v.mac, v.algorithm)
   end
   local same = assert(Sqlite.text_rows(db, "SELECT sha256('abc') = digest('sha256', 'abc')"))
-  assert(same[1]:text(1) == "1") -- checked: nil_not_allowed
+  assert(Array.at(same, 1):text(1) == "1")
   local nulls = assert(Sqlite.text_rows(db,
     "SELECT digest(NULL, 'abc') IS NULL, hmac('sha256', NULL, 'abc') IS NULL"))
-  assert(nulls[1]:text(1) == "1" and nulls[1]:text(2) == "1") -- checked: nil_not_allowed*2
+  assert(Array.at(nulls, 1):text(1) == "1" and Array.at(nulls, 1):text(2) == "1")
   local rows, trouble = Sqlite.text_rows(db, "SELECT digest('sha0', 'abc')")
   assert(rows == nil)
   assert(trouble:find("no such digest algorithm", 1, true) ~= nil, trouble)
