@@ -299,8 +299,9 @@
         # The checked core's suite runs in a job of its own (`checked`),
         # beside the legs rather than after one of them; each leg still
         # builds and verifies the checked core (orchestration.tl's
-        # checked_suite). The format check runs on one leg, first thing
-        # in assemble; a branch push's (`light`) runs in the checked job.
+        # checked_suite). The format check runs in the `format` job on a
+        # branch push (`light`), the merge queue and the scheduled run, and
+        # first thing in linux-aarch64's assemble on the other full runs.
         COSMIC_CI_CHECKED_SUITE: "skip",
         # The slowest fixture, the same on every platform: no gating run
         # (some 275 s on the x86-64 legs), every leg on the scheduled run
@@ -333,7 +334,8 @@
         # of it lands with the scheduled run, or a push to main that
         # found no queue run to reuse.
         COSMIC_CI_PORTABLE_SUITE: "${{ ((matrix.name == 'linux-x86_64' && github.event_name != 'merge_group' && (github.event_name != 'push' || github.ref == 'refs/heads/main')) || matrix.name == 'alpine-x86_64' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'run' || 'skip' }}",
-        COSMIC_CI_FORMAT: "${{ matrix.name == 'linux-aarch64' && 'run' || 'skip' }}",
+        # Not in the queue, whose `format` job makes the same check beside the legs.
+        COSMIC_CI_FORMAT: "${{ (matrix.name == 'linux-aarch64' && github.event_name != 'merge_group') && 'run' || 'skip' }}",
         # A Linux leg fails where a confined test's sandbox does not hold
         # (phase_sandbox) and runs its suites sandboxed; macOS cannot.
         COSMIC_CI_REQUIRE_SANDBOX: "${{ matrix.image && '1' || '0' }}",
@@ -2583,7 +2585,8 @@
     },
 
     # The tree's format check, as a branch push (a light run) makes it,
-    # which a full run makes in linux-aarch64's assemble. A job of its
+    # which a full run other than the queue's makes in linux-aarch64's
+    # assemble. A job of its
     # own, beside the legs, so that its minutes are no part of any
     # other's: of what the branch changed, where it names the paths
     # (driver.tl changed-paths, `fix --check --changed`), the checks
@@ -2594,11 +2597,15 @@
     # did not change cost it nothing, where a check of the tree without
     # one takes some seven minutes. The scheduled run makes the whole
     # tree's check here for that, besides assemble's, and saves what it
-    # leaves. A job of a branch push, or of the scheduled run, where
-    # `platform` runs.
+    # leaves. The merge queue's run makes the whole tree's check here, in
+    # place of assemble's: no paths changed are named (a branch's base on
+    # main does not hold the entries ahead of it in the queue) and no memo
+    # is restored, so it is the check a cold build makes. A job of a branch
+    # push, of the queue's run or of the scheduled run, where `platform`
+    # runs.
     format: {
       needs: ["reuse", "scope"],
-      if: "!cancelled() && needs.reuse.outputs.run == '' && ((github.event_name == 'push' && github.ref_name != 'main' && needs.scope.outputs.scope == 'light') || github.event_name == 'schedule')",
+      if: "!cancelled() && needs.reuse.outputs.run == '' && ((github.event_name == 'push' && github.ref_name != 'main' && needs.scope.outputs.scope == 'light') || github.event_name == 'merge_group' || github.event_name == 'schedule')",
       name: "linux-x86_64-format",
       defaults: {run: {"working-directory": "ci", shell: "leg-shell {0}"}},
       "runs-on": "ubuntu-24.04",
@@ -2677,7 +2684,7 @@
         {
           name: "find the tree's base on main",
           id: "merge-base",
-          if: "github.event_name != 'schedule'",
+          if: "github.event_name == 'push'",
           shell: "sh",
           "continue-on-error": true,
           env: {GH_TOKEN: "${{ github.token }}", REPOSITORY: "${{ github.repository }}", SHA: "${{ github.sha }}", EVENT: "${{ github.event_name }}", REF: "${{ github.ref }}", QUEUE_BASE: "${{ github.event.merge_group.base_sha }}"},
@@ -2711,7 +2718,7 @@
         {
           name: "name the paths the branch changed",
           id: "changed",
-          if: "github.event_name != 'schedule'",
+          if: "github.event_name == 'push'",
           shell: "sh",
           "continue-on-error": true,
           env: {BASE: "${{ steps.merge-base.outputs.sha }}", OUT: "${{ runner.temp }}/changed-paths"},
@@ -2743,6 +2750,7 @@
         # nothing is ever found by it, and a miss costs the check its time.
         {
           name: "restore the format check's memo",
+          if: "github.event_name != 'merge_group'",
           uses: "actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {
             path: "${{ runner.temp }}/check-memo",
@@ -2753,7 +2761,7 @@
         {
           name: "check the tree's format",
           id: "format",
-          env: {COSMIC_CI_FORMAT_CHANGED: "${{ steps.changed.outputs.paths }}", COSMIC_CI_CHECK_MEMO: "${{ runner.temp }}/check-memo"},
+          env: {COSMIC_CI_FORMAT_CHANGED: "${{ steps.changed.outputs.paths }}", COSMIC_CI_CHECK_MEMO: "${{ github.event_name != 'merge_group' && format('{0}/check-memo', runner.temp) || '' }}"},
           run: "cosmic-driver cosmic_ci/driver.tl platform format",
         },
         # What the check left, of the whole tree: the scheduled run's alone.
@@ -3021,7 +3029,7 @@
     # `seed` legs; a `reuse` that failed or was skipped found nothing,
     # and the platform legs and the checked job ran), and likewise the
     # checked suite's shares and the checked narrowing run, which a full
-    # run makes, and the format check, which a light run's job does; a
+    # run makes, and the format check, which a light run's job does and the queue's; a
     # job the scope does not run reads as passed, and
     # on a full run it is also the provenance join, proving every leg
     # attested identical bytes. Steps, not a job of its own, which a
@@ -3045,7 +3053,7 @@
             SHARES: "${{ needs.reuse.outputs.run != '' && needs.seed.result || env.COSMIC_CI_SCOPE == 'full' && needs.checked-shard.result || 'success' }}",
             NARROWING: "${{ needs.reuse.outputs.run != '' && needs.seed.result || env.COSMIC_CI_SCOPE == 'full' && needs.checked-narrowing.result || 'success' }}",
             MERGED: "${{ needs.reuse.outputs.run != '' && needs.seed.result || env.COSMIC_CI_SCOPE == 'full' && needs.checked-narrowing-merge.result || 'success' }}",
-            FORMAT: "${{ (env.COSMIC_CI_SCOPE == 'light' || github.event_name == 'schedule') && needs.format.result || 'success' }}",
+            FORMAT: "${{ (env.COSMIC_CI_SCOPE == 'light' || github.event_name == 'schedule' || github.event_name == 'merge_group') && needs.format.result || 'success' }}",
             EVENT: "${{ github.event_name }}",
           },
           run: "echo \"queue run: ${QUEUE_RUN:-(none)}; legs: $RESULT; checked suite: $CHECKED; shares: $SHARES; checked narrowing: $NARROWING; narrowing verdicts: $MERGED; format: $FORMAT\"; [ \"$RESULT\" = success ] && [ \"$CHECKED\" = success ] && [ \"$SHARES\" = success ] && [ \"$NARROWING\" = success ] && [ \"$MERGED\" = success ] && [ \"$FORMAT\" = success ] || { [ \"$EVENT\" != merge_group ] || echo \"a failed leg cancels the other jobs of its matrix on a queue run, so those read cancelled; the one that reads failure failed\"; exit 1; }",

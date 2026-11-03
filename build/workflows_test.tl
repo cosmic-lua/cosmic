@@ -1682,8 +1682,8 @@ local function test_a_main_push_reuses_the_queue_run()
   assert(check_env["MERGED"] == "${{ " .. seeded ..
       "env.COSMIC_CI_SCOPE == 'full' && needs.checked-narrowing-merge.result || 'success' }}",
     "the join reads another narrowing merge than the one that ran: " .. tostring(check_env["MERGED"]))
-  assert(check_env["FORMAT"] == "${{ (env.COSMIC_CI_SCOPE == 'light' || github.event_name == 'schedule') && " ..
-      "needs.format.result || 'success' }}",
+  assert(check_env["FORMAT"] == "${{ (env.COSMIC_CI_SCOPE == 'light' || github.event_name == 'schedule' || " ..
+      "github.event_name == 'merge_group') && needs.format.result || 'success' }}",
     "the join reads another format check than the one that ran: " .. tostring(check_env["FORMAT"]))
   assert(assert(check).run == "echo \"queue run: ${QUEUE_RUN:-(none)}; legs: $RESULT; checked suite: $CHECKED; " ..
       "shares: $SHARES; checked narrowing: $NARROWING; narrowing verdicts: $MERGED; format: $FORMAT\"; " ..
@@ -2301,8 +2301,9 @@ local function test_the_checked_narrowing_run_and_a_light_runs_format_check_have
   assert(Json.encode_any(format["needs"]) == '["reuse","scope"]' and
       format["if"] == "!cancelled() && needs.reuse.outputs.run == '' && " ..
       "((github.event_name == 'push' && github.ref_name != 'main' && needs.scope.outputs.scope == 'light') || " ..
-      "github.event_name == 'schedule')",
-    "the format check runs elsewhere than on a branch push or the scheduled run: " .. tostring(format["if"]))
+      "github.event_name == 'merge_group' || github.event_name == 'schedule')",
+    "the format check runs elsewhere than on a branch push, the queue or the scheduled run: " ..
+      tostring(format["if"]))
   local fenv = map_of(format.env)
   assert(format["name"] == "linux-x86_64-format" and fenv["COSMIC_WORKER"] == format["name"])
   assert(fenv["COSMIC_CI_FORMAT"] == "run", "the format check is skipped")
@@ -2311,7 +2312,7 @@ local function test_the_checked_narrowing_run_and_a_light_runs_format_check_have
     function(step_name: string, theirs: string?): string?
       -- The scheduled run checks the whole tree, to leave the memo.
       if step_name == "find the tree's base on main" then
-        return "github.event_name != 'schedule'"
+        return "github.event_name == 'push'"
       end
       return theirs
     end)
@@ -2564,13 +2565,16 @@ local function test_the_format_check_starts_from_the_scheduled_runs_memo()
   assert(restored_at < checked_at and checked_at < saved_at, "the memo is restored after the check, or saved before it")
   local rwith, swith = with_of(restore), with_of(save)
   assert(rwith["key"] == key and rwith["restore-keys"] == "check-memo-v1-\n" and rwith["lookup-only"] == nil and
-      restore["if"] == nil, "the memo is restored by another key than a prefix no entry has: " .. tostring(rwith["key"]))
+      restore["if"] == "github.event_name != 'merge_group'",
+    "the memo is restored by another key than a prefix no entry has, or in the queue: " .. tostring(rwith["key"]))
   assert(swith["key"] == key and
       save["if"] == "steps.format.outcome == 'success' && env.COSMIC_CI_SAVES == 'true'",
     "the memo is saved by another run than main's scheduled one, or after a failed check: " .. tostring(save["if"]))
   local cenv = map_of(check.env)
-  assert(cenv["COSMIC_CI_CHECK_MEMO"] == path,
-    "the check is told another memo than the one restored: " .. tostring(cenv["COSMIC_CI_CHECK_MEMO"]))
+  assert(cenv["COSMIC_CI_CHECK_MEMO"] == "${{ github.event_name != 'merge_group' && " ..
+      "format('{0}/check-memo', runner.temp) || '' }}",
+    "the check is told another memo than the one restored, or one in the queue: " ..
+      tostring(cenv["COSMIC_CI_CHECK_MEMO"]))
   -- Whatever else saves a cache of memos: nothing.
   for name, job in pairs(jobs) do
     for _, step in ipairs(job.steps) do
@@ -2583,8 +2587,8 @@ local function test_the_format_check_starts_from_the_scheduled_runs_memo()
   -- The scheduled run is a full run, whose check of the tree is the whole
   -- tree's: the format job names no paths changed then.
   assert(cenv["COSMIC_CI_FORMAT_CHANGED"] == "${{ steps.changed.outputs.paths }}")
-  assert(step_with_id(steps, "changed")["if"] == "github.event_name != 'schedule'",
-    "the scheduled run's check lays out only what changed")
+  assert(step_with_id(steps, "changed")["if"] == "github.event_name == 'push'",
+    "the scheduled run's or the queue's check lays out only what changed")
 end
 
 --- A light run's format check lays out only what the branch changed
@@ -2599,11 +2603,12 @@ local function test_a_light_format_check_lays_out_only_what_the_branch_changed()
   local jobs = ci_workflow().jobs
   local steps = job_of(jobs, "format").steps
   local base, found = step_running(steps, "driver.tl merge-base")
-  assert(base["if"] == "github.event_name != 'schedule'",
-    "the format job finds its base on the scheduled run, which checks the whole tree: " .. tostring(base["if"]))
+  assert(base["if"] == "github.event_name == 'push'",
+    "the format job finds its base outside a branch push, whose other runs check the whole tree: " ..
+      tostring(base["if"]))
   assert(driver_at(steps) < found, "the format job finds its base before it has the driver")
   local named, listed = step_running(steps, "driver.tl changed-paths")
-  assert(named.id == "changed" and named["if"] == "github.event_name != 'schedule'" and named.shell == "sh" and
+  assert(named.id == "changed" and named["if"] == "github.event_name == 'push'" and named.shell == "sh" and
       named["working-directory"] == nil and named["continue-on-error"] == true,
     "the format job names what changed otherwise, or fails for it: " .. tostring(named["if"]))
   local env = map_of(named.env)
@@ -3503,6 +3508,61 @@ local function test_the_merge_queue_runs_the_portable_suite_on_alpine_x86_64_alo
   -- A branch push that runs the full scope (`scope`) runs what the queue's does.
   local branch = portable_suite_legs("push", "refs/heads/some-branch")
   assert(branch == want["merge_group"], "a full branch push runs the portable suite on " .. branch)
+end
+
+--- The merge queue makes the whole merged tree's format check in the
+--- `format` job beside the legs and not in linux-aarch64's assemble. Event
+--- by event: the queue's gate reads the job and every leg skips the check;
+--- no event but a branch push names the paths changed, and the queue
+--- restores and is given no memo; a push to main, a manual run and the
+--- scheduled run keep the check in linux-aarch64's assemble (the scheduled
+--- run also in the job) and the memo as they were.
+local function test_the_merge_queue_checks_the_whole_trees_format_in_a_job_of_its_own()
+  local jobs = ci_workflow().jobs
+  local platform_env = map_of(job_of(jobs, "platform").env)
+  local value = assert(platform_env["COSMIC_CI_FORMAT"])
+  for _, case in ipairs(EVENTS) do
+    local event = assert(case[1])
+    for name, leg in pairs(platform_legs("full")) do
+      local want = if name == "linux-aarch64" and event ~= "merge_group" then "run" else "skip" end
+      assert(evaluate(value, leg, event, assert(case[2])) == want,
+        name .. " on a " .. event .. " run answers otherwise than " .. want .. " to the format check")
+    end
+  end
+  -- A full branch push (the queue's scope) keeps it in assemble too.
+  for name, leg in pairs(platform_legs("full")) do
+    local want = if name == "linux-aarch64" then "run" else "skip" end
+    assert(evaluate(value, leg, "push", "refs/heads/some-branch") == want, name .. " on a full branch push")
+  end
+  local format = job_of(jobs, "format")
+  local condition = assert(format["if"])
+  assert(condition == "!cancelled() && needs.reuse.outputs.run == '' && ((github.event_name == 'push' && " ..
+      "github.ref_name != 'main' && needs.scope.outputs.scope == 'light') || github.event_name == 'merge_group' || " ..
+      "github.event_name == 'schedule')", "the format job's condition is another: " .. condition)
+  -- Paths changed: a branch push alone. The memo: not the queue.
+  local steps = format.steps
+  for _, name in ipairs({ "find the tree's base on main", "name the paths the branch changed" }) do
+    assert(step_named(steps, name)["if"] == "github.event_name == 'push'", name .. " runs outside a branch push")
+  end
+  local check = step_named(steps, "check the tree's format")
+  assert(map_of(check.env)["COSMIC_CI_FORMAT_CHANGED"] == "${{ steps.changed.outputs.paths }}",
+    "the check is given paths from another step")
+  local restore = step_named(steps, "restore the format check's memo")
+  assert(restore["if"] == "github.event_name != 'merge_group'", "the queue restores a memo")
+  assert(step_named(steps, "save the format check's memo")["if"] ==
+      "steps.format.outcome == 'success' && env.COSMIC_CI_SAVES == 'true'", "something but main saves the memo")
+  -- The markers are held to the merge base with main in the queue too.
+  local ceilings = step_named(steps, "find the base the markers are held to")
+  assert(ceilings["if"] == "github.event_name != 'schedule'" and
+      map_of(ceilings.env)["BASE_REF"] == "${{ github.event.merge_group.base_ref }}", "no base for the markers")
+  -- The gate needs the job and reads its result in the queue.
+  local gate = job_of(jobs, "ci")
+  local needed = false
+  for _, need in ipairs(needs_of(gate)) do needed = needed or need == "format" end
+  assert(needed, "the gate does not need the format job")
+  assert(map_of(assert(gate.steps[1]).env)["FORMAT"] == "${{ (env.COSMIC_CI_SCOPE == 'light' || " ..
+      "github.event_name == 'schedule' || github.event_name == 'merge_group') && needs.format.result || 'success' }}",
+    "the gate reads the format job elsewhere than in the queue, a light run and the scheduled run")
 end
 
 --- A full run's `portable-2/2` job runs the second half of

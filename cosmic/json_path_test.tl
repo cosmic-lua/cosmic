@@ -4,6 +4,7 @@
 --- what the subset leaves out is refused by name, never read as
 --- something else.
 
+local Array = require("cosmic.array")
 local Json = require("cosmic.json")
 local Test = require("cosmic.test")
 
@@ -206,7 +207,8 @@ local function test_select_answers_the_rfc_examples()
     "what a selector does not find selects nothing")
   local found = run("$..book[0]")
   assert(#found == 1 and Json.path(found[1].steps) == "$['store']['book'][0]")
-  assert(found[1].steps[3] == 1, "a match's steps count from 1") -- checked: nil_not_allowed
+  -- `#found == 1` was just asserted.
+  assert(Array.at(found, 1).steps[3] == 1, "a match's steps count from 1")
 end
 
 local function test_select_refuses_what_is_not_json()
@@ -255,4 +257,12 @@ local function test_a_long_place_is_named_by_its_innermost_part()
   assert(del == 'json: cannot encode a function at pointer "/a\\u007f"', del)
   local _, del_get = Json.get({ ["a\127"] = 1 }, { "a\127", 1 })
   assert(del_get == 'json: the value at pointer "/a\\u007f" is number, not an array or object', del_get)
+end
+
+--- A pointer text of 200 bytes or more with no `/` has no segment to
+--- keep; naming it raises if the message assumes one.
+local function test_a_long_text_with_no_slash_is_refused_by_name()
+  local steps, why = Json.from_pointer(Json.null, string.rep("k", 250))
+  assert(steps == nil)
+  assert(why == 'json: pointer ending "' .. string.rep("k", 41) .. '...": a JSON Pointer is empty or starts with `/`', why)
 end

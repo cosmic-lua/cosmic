@@ -1,5 +1,6 @@
 --- [`lang.speed`] passes work that costs its multiple and refuses work that costs
 --- a quadratic more, whatever a moment of load does to one side.
+local Clock = require("cosmic.clock")
 local Speed = require("lang.speed")
 local Test = require("cosmic.test")
 
@@ -43,4 +44,20 @@ end
 local function test_a_sample_of_work_that_takes_almost_no_time_is_still_read()
   assert(Speed.least(function() end) >= 0)
   assert(Speed.least(linear(10)) > 0)
+end
+
+local function test_a_stretch_of_load_longer_than_a_dozen_pairs_is_waited_out()
+  -- The large side runs five times slower for the first 400 ms of CPU time, which outlasts twelve pairs of samples
+  -- (about 150 ms): four times the linear work would be over ten times at every one of them.
+  local started = Clock.cpu_ns()
+  local work = linear(8000)
+  local ok, why = Speed.within(linear(2000), function()
+    work()
+    if Clock.cpu_ns() - started < 400000000 then
+      for _ = 1, 4 do
+        work()
+      end
+    end
+  end, 10)
+  assert(ok, why)
 end

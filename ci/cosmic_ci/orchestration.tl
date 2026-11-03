@@ -1775,8 +1775,8 @@ end
 --- tree formats and type-checks the same on every platform, so the
 --- workflow runs it on one leg, and the others set COSMIC_CI_FORMAT=skip,
 --- as COSMIC_CI_CHECKED_SUITE does the checked suite. On a branch push's
---- light run it is a phase of its own in ci.yml's `format` job, which
---- runs no native suite, off the legs' path.
+--- light run and in the merge queue it is a phase of its own in ci.yml's
+--- `format` job, which runs no native suite, off the legs' path.
 --- Where a native suite ran, `fix` writes the working database only
 --- after its boundary was checked (`local-boundary`); a job that ran
 --- none has no boundary to keep.
