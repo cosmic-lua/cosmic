@@ -319,7 +319,7 @@ end
 --- most two bytes of an unfinished base64 group; `finish` returns the
 --- rest, with the padding [`Codec.base64`] writes. The text of all the
 --- chunks together is exactly the whole-string encoder's, whatever the
---- chunking. Raises on a name it does not know.
+--- chunking.
 --- @param name hex, base64 or base64url
 --- @return verb.Coder The encoder
 function verb.encoder(name: verb.Name): verb.Coder
@@ -328,10 +328,9 @@ function verb.encoder(name: verb.Name): verb.Coder
     return c
   elseif name == "base64" then
     return base64_encoder(STANDARD)
-  elseif name == "base64url" then
+  else
     return base64_encoder(URL)
   end
-  error("codec: no such encoding: " .. tostring(name), 2)
 end
 
 --- An incremental decoder for `name`, as strict as the whole-string
@@ -340,7 +339,6 @@ end
 --- character fed, whatever the chunking. `update` returns the bytes
 --- whole groups of text spell, holding back at most three characters;
 --- `finish` returns the last bytes, or `nil` and the reason.
---- Raises on a name it does not know.
 --- @param name hex, base64 or base64url
 --- @return verb.Coder The decoder
 function verb.decoder(name: verb.Name): verb.Coder
@@ -348,10 +346,9 @@ function verb.decoder(name: verb.Name): verb.Coder
     return hex_decoder()
   elseif name == "base64" then
     return base64_decoder(STANDARD)
-  elseif name == "base64url" then
+  else
     return base64_decoder(URL)
   end
-  error("codec: no such encoding: " .. tostring(name), 2)
 end
 
 local spec = Cli.verbs.codec.spec or {} -- checked: literal_needs_type, map_field

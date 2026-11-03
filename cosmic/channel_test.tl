@@ -44,9 +44,6 @@ end
 local function test_options_are_checked_and_default_to_a_large_blocking_queue()
   Poll.run(function()
     Test.raises(function() Channel.new({ capacity = 0 }) end, "capacity") -- checked: cannot_infer
-    local fractional: any = { capacity = 1.5 } -- checked: any_use
-    Test.raises(function() Channel.new(fractional as Channel.Options) end, "capacity") -- checked: cannot_infer, cast_refused
-    Test.raises(function() Channel.new({ overflow = "sometimes" as Channel.Overflow }) end, "overflow") -- checked: cannot_infer, cast_refused
     local queue: Channel.Queue<integer> = Channel.new()
     for i = 1, 256 do assert(queue:try_send(i)) end
     local ok, why = queue:try_send(257)

@@ -6,6 +6,7 @@
 --- and written, the format chosen by the file's name, through the one
 --- writer shape tar and zip share.
 
+local Array = require("cosmic.array")
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
 local Compress = require("cosmic.compress")
@@ -615,12 +616,12 @@ local function extract_from(from: string | Archive.Reader, dest: string,
     local at: mut {string} = {}
     for i = 1, n do at[i] = assert(parts[i]) end
     local segs = components(target)
-    for k = 1, #segs - 1 do
-      local seg = segs[k]
+    for k, seg in ipairs(segs) do
+      if k >= #segs then break end
       if seg == ".." then
         at[#at] = nil
       else
-        at[#at + 1] = seg -- checked: nil_not_allowed
+        at[#at + 1] = seg
         local rel = table.concat(at, "/")
         if pending[rel] ~= nil then return true end
         local st, _ = sys.lstat(dest .. "/" .. rel)
@@ -756,8 +757,9 @@ local function extract_from(from: string | Archive.Reader, dest: string,
   -- Deepest last-listed first, so setting a directory's time is not
   -- undone by then touching something inside it.
   for i = #dir_times, 1, -1 do
-    local d = dir_times[i]
-    local _, _ = Fs.set_mtime(d.path, d.mtime) -- checked: nil_not_allowed*2
+    -- `i` runs from `#dir_times` down to 1.
+    local d = Array.at(dir_times, i)
+    local _, _ = Fs.set_mtime(d.path, d.mtime)
   end
   local _, _ = reader:close()
   return written, ""

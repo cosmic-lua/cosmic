@@ -648,8 +648,7 @@ local function test_three_silent_name_servers_time_the_lookup_out_within_its_bou
 end
 
 local function test_name_servers_and_an_adopted_connector_refuse_what_is_out_of_range()
-  local zero: any = 0 -- checked: any_use
-  Test.raises(function() RelayStart.name_servers({ resolve = zero as integer }) end) -- checked: cast_refused
+  Test.raises(function() RelayStart.name_servers({ resolve = 0 }) end)
   Test.raises(function() RelayStart.name_servers({ resolve = -1 }) end)
   local pair = ConnectorEnds.connector_pair()
   Test.raises(function() Connector.adopted(pair.controller, nil, false, 5) end)

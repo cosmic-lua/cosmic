@@ -74,8 +74,7 @@ local record Module
   -- the `stdin` field (the descriptor `stdin = "pipe"` gave), and the
   -- `"pipe"` mode itself, a value, which `members` cannot key either:
   -- the compiler refuses it as `got string "pipe", expected integer |
-  -- Stdin`, naming no module to look an entry up by, and only a run that
-  -- reaches it says to use "stream" (Child.start raises).
+  -- Stdin`, naming no module to look an entry up by.
   -- Likewise for what cosmic.net's records lost: the Conn methods `peer`
   -- (an accepted connection's peer is the `address` of the listener or
   -- the one connected to; a TCP peer's own port has no replacement) and
@@ -83,9 +82,8 @@ local record Module
   -- lines of the caller's: write, then conn:shutdown("write")), the
   -- `timeout_ns` field of Conn and Listener (assign nothing: call
   -- `conn:set_timeout(ns)` or `listener:set_timeout(ns)`), and the
-  -- ServeSpec field `workers` and the ListenOptions field `reclaim`,
-  -- whose runtime refusals (Net.serve, Net.listen) name what to do
-  -- instead; a typed table literal gets only `unknown field`.
+  -- ServeSpec field `workers` and the ListenOptions field `reclaim` (a
+  -- typed table literal gets only `unknown field`).
   -- Likewise for the spans every record held in milliseconds or seconds:
   -- `timeout_ms` (Child.Options, Net.ListenOptions, Net.ConnectOptions,
   -- Net.ServeSpec and Http.Options), `grace_ms` (Net.ServeSpec),

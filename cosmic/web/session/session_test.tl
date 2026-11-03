@@ -307,7 +307,7 @@ local function test_a_value_that_is_not_json_raises_at_the_set()
     middleware = { Session.middleware(options(cookie_store())) },
     routes = { Web.get("/", function(req: Web.Request): Web.Response
       local s = Session.of(req)
-      local _, f = pcall(function() s:set("f", print as any) end) -- checked: cast_refused
+      local _, f = pcall(function() s:set("f", "\xff") end)
       local _, e = pcall(function() s:set("", 1) end)
       local _, r = pcall(function() s:set("_flash", 1) end)
       reasons = { tostring(f), tostring(e), tostring(r) }
@@ -405,9 +405,7 @@ local function test_secure_true_names_the_cookie_host_prefixed_and_always_sets_s
 end
 
 local function test_options_that_cannot_work_are_refused_before_serving()
-  local ok, why = pcall(Session.middleware, {} as Session.Options) -- checked: cast_refused, literal_needs_type
-  assert(not ok and tostring(why):find("needs a store", 1, true) ~= nil)
-  ok, why = pcall(Session.middleware, options(cookie_store(), { max_age = 0 }))
+  local ok, why = pcall(Session.middleware, options(cookie_store(), { max_age = 0 }))
   assert(not ok and tostring(why):find("max_age", 1, true) ~= nil)
   ok, why = pcall(Session.middleware, options(cookie_store(), { cookie_name = "__Host-x" }))
   assert(not ok and tostring(why):find("__Host-", 1, true) ~= nil, tostring(why))

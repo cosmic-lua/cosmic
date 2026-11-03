@@ -140,13 +140,17 @@ local function test_save_refuses_what_load_cannot_read()
   assert(token == nil and why:find("cannot encode", 1, true) ~= nil, why)
 end
 
-local function test_the_keys_are_copied_and_checked_as_strings_when_the_store_is_made()
+local function test_the_keys_are_copied_when_the_store_is_made()
   local keys = { NEW }
   local store = SessionCookie.store{ keys = keys }
   local token = sign(store, { user = "ada" })
   keys[1] = OLD
   assert(store:load(token, 1500, "session") ~= nil, "changing the list afterwards changes no key")
+<<<<<<< HEAD
   assert(sign(store, { user = "ada" }) == token)
   local ok, why = pcall(SessionCookie.store, { keys = { NEW, 42 as any as string } }) -- checked: cast_refused*2
   assert(not ok and tostring(why):find("key 2 is a number", 1, true) ~= nil, tostring(why))
+=======
+  assert(sign(store, { user = "ada" }) == token) -- checked: any_use
+>>>>>>> origin/main
 end

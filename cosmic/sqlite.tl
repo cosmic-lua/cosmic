@@ -605,71 +605,35 @@ function Sqlite.memory(): Sqlite.Handle?, string
   return sqlite.open(":memory:", true)
 end
 
---- Raises, blaming as [`checked`] does, unless `list` holds elements 1 to
---- its length, each of the type `field` names: an integer for integers,
---- a number for numbers, a string for texts and blobs, and no NUL in a
---- text, which carray reads to its first NUL.
-local function check_array<T>(key: integer, field: string, list: {T})
-  for i = 1, rawlen(list) do
-    local element = rawget(list, i)
-    local fits: boolean
-    if field == "integers" then
-      fits = math.type(element) == "integer"
-    elseif field == "numbers" then
-      fits = type(element) == "number"
-    else
-      fits = type(element) == "string"
-    end
-    if not fits then
-      error("sqlite: element " .. tostring(i) .. " of parameter " .. tostring(key) .. "'s " .. field .. " is not of its type", 5)
-    end
-    if field == "texts" and element is string and element:find("\0", 1, true) ~= nil then
+--- Raises, blaming as [`checked`] does, when a text of `texts` holds a NUL,
+--- which carray reads to its first NUL.
+local function check_texts(key: integer, texts: {string})
+  for i, text in ipairs(texts) do
+    if text:find("\0", 1, true) ~= nil then
       error("sqlite: element " .. tostring(i) .. " of parameter " .. tostring(key) .. "'s texts holds a NUL; bind it in blobs", 5)
     end
   end
 end
 
 --- Raises, blaming the caller of the public function that calls the
---- function that calls this, unless `values` is a list of Values: each a
---- table with at most one field, named integer, number, text, blob, or an
---- array's integers, numbers, texts or blobs ({} for NULL), under keys
---- that are positions from 1. It runs before a statement is prepared, so
---- a raise leaves none to finalize. Answers the highest key, 0 for none.
+--- function that calls this, when a Value of `values` holds more than one
+--- of its fields or a text of its `texts` holds a NUL. It runs before a
+--- statement is prepared, so a raise leaves none to finalize. Answers the
+--- highest position, 0 for none.
 local function checked(values: {Sqlite.Value}): integer
-  local highest = 0
-  for key, value in pairs(values as {any: any}) do -- declared: key_type -- checked: cast_refused
-    if not (key is integer) or key < 1 then
-      error("sqlite: values holds the key " .. tostring(key) .. ", not a position from 1", 4)
-    end
-    if type(value) ~= "table" then
-      error("sqlite: parameter " .. key .. " is no Value table (use {} for NULL)", 4)
-    end
+  for key, value in ipairs(values) do
+    local texts = value.texts
+    if texts ~= nil then check_texts(key, texts) end
     local fields = 0
-    for field in pairs(value as {any: any}) do -- declared: key_type -- checked: cast_refused
-      if field ~= "integer" and field ~= "number" and field ~= "text" and field ~= "blob" and
-          field ~= "integers" and field ~= "numbers" and field ~= "texts" and field ~= "blobs" then
-        local hint = if field == "null" then " (use {} for NULL)" else "" end
-        error("sqlite: parameter " .. key .. " has an unknown Value field: " .. tostring(field) .. hint, 4)
-      end
-      fields = fields + 1
-    end
-    if key is integer then
-      local held = values[key]
-      local integers = held.integers -- checked: nil_not_allowed
-      if integers ~= nil then check_array(key, "integers", integers) end
-      local numbers = held.numbers -- checked: nil_not_allowed
-      if numbers ~= nil then check_array(key, "numbers", numbers) end
-      local texts = held.texts -- checked: nil_not_allowed
-      if texts ~= nil then check_array(key, "texts", texts) end
-      local blobs = held.blobs -- checked: nil_not_allowed
-      if blobs ~= nil then check_array(key, "blobs", blobs) end
+    for _, held in ipairs({ value.integer ~= nil, value.number ~= nil, value.text ~= nil, value.blob ~= nil,
+        value.integers ~= nil, value.numbers ~= nil, value.texts ~= nil, value.blobs ~= nil }) do
+      if held then fields = fields + 1 end
     end
     if fields > 1 then
-      error("sqlite: parameter " .. key .. " has more than one Value field", 4)
+      error("sqlite: parameter " .. tostring(key) .. " has more than one Value field", 4)
     end
-    if key > highest then highest = key end
   end
-  return highest
+  return #values
 end
 
 --- Binds SQLite parameters positionally, which [`checked`] has found

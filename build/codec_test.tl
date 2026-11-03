@@ -483,8 +483,6 @@ local function test_a_finished_coder_raises_and_an_unknown_name_is_refused()
   assert(bad:update("z") == "")
   assert(bad:finish() == nil)
   Test.raises(function() bad:finish() end)
-  Test.raises(function() codec.encoder("base32" as codec.Name) end) -- checked: cast_refused
-  Test.raises(function() codec.decoder("base32" as codec.Name) end) -- checked: cast_refused
 end
 
 local function test_a_long_stream_takes_bounded_memory()

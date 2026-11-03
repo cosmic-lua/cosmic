@@ -617,9 +617,6 @@ local router_mt: metatable<Types.Router> = { __index = router_methods } -- check
 --- @return Types.Router The router
 function Router.build(routes: {Types.Route}, terminal: Types.Handler, policy?: Types.TrailingSlash,
                       served?: boolean): Types.Router
-  if policy ~= nil and policy ~= "redirect" and policy ~= "strict" then
-    error("web: trailing_slash must be \"redirect\" or \"strict\"", 2)
-  end
   local ctx: Router.Context = {
     policy = policy or "redirect", terminal = terminal, miss = terminal, chain = {}, prefix = {},
     keep_prefix = served ~= false,

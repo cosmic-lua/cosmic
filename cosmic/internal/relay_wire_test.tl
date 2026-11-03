@@ -586,7 +586,6 @@ local function test_socks_replies_carry_their_codes()
     assert(reply == "\5" .. string.char(case.code) .. "\0\1\0\0\0\0\0\0", case.name)
     assert(#reply == 10)
   end
-  Test.raises(function() Wire.socks_reply("bogus" as Wire.SocksReply) end) -- checked: cast_refused
 end
 
 local function sni_of(input: string): string

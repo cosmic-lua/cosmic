@@ -9,6 +9,7 @@ local Codec = require("cosmic.codec")
 local Compress = require("cosmic.compress")
 local Fs = require("cosmic.fs")
 local Stream = require("cosmic.stream")
+local String = require("cosmic.string")
 local Time = require("cosmic.time")
 local Zip = require("cosmic.zip")
 local Test = require("cosmic.test")
@@ -23,7 +24,7 @@ local ZIP_B64 <const> =
 local function crc32_reference(data: string): integer
   local c = 0xFFFFFFFF
   for i = 1, #data do
-    c = c ~ data:byte(i) -- checked: nil_not_allowed
+    c = c ~ String.byte_at(data, i)
     for _ = 1, 8 do
       c = (c >> 1) ~ (0xEDB88320 & -(c & 1))
     end
@@ -72,14 +73,6 @@ local function test_deterministic_mode_uses_the_1980_epoch()
   assert(entry.mtime == 315532800, tostring(entry.mtime))
 end
 
---- A method outside Zip.Method reaches add_file only past the checker
---- (a cast, or plain Lua); the writer refuses it rather than guessing.
-local function test_an_unknown_method_is_refused()
-  local w = Zip.writer(Stream.collect(), { deterministic = true })
-  local ok, trouble = w:add_file("f", "x", { method = "lzma" as Zip.Method }) -- checked: cast_refused
-  assert(not ok and trouble == "zip: unknown method 'lzma'", trouble)
-end
-
 local function test_mode_bits_round_trip_through_external_attributes()
   local c = Stream.collect()
   local w = Zip.writer(c)
@@ -99,7 +92,8 @@ local function test_a_corrupt_body_fails_its_crc_check()
   -- flip a byte inside the stored payload, which sits right after the
   -- local header and its 1-byte name
   local at = raw:find("hello", 1, true)
-  local corrupt = raw:sub(1, at - 1) .. "x" .. raw:sub(at + 1) -- checked: nil_not_allowed*2
+  assert(at ~= nil, "the stored payload is in the archive")
+  local corrupt = raw:sub(1, at - 1) .. "x" .. raw:sub(at + 1)
   local r = assert(Zip.open_string(corrupt))
   local entry = by_path(entries_of(r), "f")
   local reader = assert(entry:open())
@@ -175,7 +169,8 @@ local function le64(n: integer): string
 end
 
 local function rd32(s: string, at: integer): integer
-  return s:byte(at) | (s:byte(at + 1) << 8) | (s:byte(at + 2) << 16) | (s:byte(at + 3) << 24) -- checked: nil_not_allowed*4
+  return String.byte_at(s, at) | (String.byte_at(s, at + 1) << 8) | (String.byte_at(s, at + 2) << 16) |
+    (String.byte_at(s, at + 3) << 24)
 end
 
 local function patch(s: string, at: integer, bytes: string): string
@@ -608,11 +603,12 @@ local function test_a_streamed_size_of_2_gib_or_more_announces_zip64_up_front()
     { method = "store", size = 1 << 32 })
   assert(not ok and trouble:find("not 4294967296", 1, true) ~= nil, trouble)
   local header = pieces[1]
-  assert(header:sub(1, 4) == "PK\3\4") -- checked: nil_not_allowed
-  assert(rd32(header, 5) & 0xFFFF == 45, "version needed") -- checked: nil_not_allowed
-  assert(header:sub(-20, -17) == le16(1) .. le16(16), "a zip64 extra field of two sizes") -- checked: nil_not_allowed
+  assert(header ~= nil, "the local header went out")
+  assert(header:sub(1, 4) == "PK\3\4")
+  assert(rd32(header, 5) & 0xFFFF == 45, "version needed")
+  assert(header:sub(-20, -17) == le16(1) .. le16(16), "a zip64 extra field of two sizes")
   -- With the field there, the header's own sizes are the sentinel.
-  assert(rd32(header, 19) == 0xFFFFFFFF and rd32(header, 23) == 0xFFFFFFFF) -- checked: nil_not_allowed*2
+  assert(rd32(header, 19) == 0xFFFFFFFF and rd32(header, 23) == 0xFFFFFFFF)
   assert(not w:close())
 end
 
@@ -641,23 +637,21 @@ end
 
 --- A size that no body could have is a mistake in the call, not a failure
 --- of the write: it raises, and the writer stays usable.
-local function test_a_streamed_size_below_zero_or_no_integer_raises()
+local function test_a_streamed_size_below_zero_raises()
   local w = Zip.writer(Stream.collect())
-  for _, size in ipairs({ -1, 1.5 } as {number}) do -- checked: cast_refused
-    local ok, why: boolean, any = pcall(function()
-      local _, _ = w:add_file("f", Stream.from_string("abc"), { size = size as integer }) -- checked: cast_refused
-    end)
-    assert(not ok and tostring(why):find("zip: opts.size must be an integer of at least 0", 1, true) ~= nil,
-      tostring(why))
-    assert(tostring(why):find("zip_test", 1, true), "blames the caller: " .. tostring(why))
-  end
+  local ok, why: boolean, any = pcall(function()
+    local _, _ = w:add_file("f", Stream.from_string("abc"), { size = -1 })
+  end)
+  assert(not ok and tostring(why):find("zip: opts.size must be at least 0", 1, true) ~= nil,
+    tostring(why))
+  assert(tostring(why):find("zip_test", 1, true), "blames the caller: " .. tostring(why))
   -- Whatever the body, and before any other refusal of the call.
   for _, call in ipairs({ -- checked: cast_refused
       function() local _, _ = w:add_file("f", "abc", { size = -1 }) end,
       function() local _, _ = w:add_file("dir/", "abc", { size = -1 }) end,
   } as {function()}) do
-    local ok, why: boolean, any = pcall(call)
-    assert(not ok and tostring(why):find("zip: opts.size must be an integer of at least 0", 1, true) ~= nil,
+    ok, why = pcall(call)
+    assert(not ok and tostring(why):find("zip: opts.size must be at least 0", 1, true) ~= nil,
       tostring(why))
   end
   assert(w:add_file("g", "x"))

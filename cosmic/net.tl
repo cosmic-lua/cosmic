@@ -235,8 +235,9 @@ local record Net
     mut connector?: Connector
   end
 
-  --- What [`Net.serve`] serves, and how. A field of the wrong shape, or
-  --- one not named here, raises, naming it.
+  --- What [`Net.serve`] serves, and how. A value out of range (no
+  --- listener, an address no listener can take, a limit under 1, a
+  --- timeout out of range) raises, naming the field.
   record ServeSpec
     --- Where to listen, one address or more: each is listened at, and
     --- each listener closed, by the server, which so owns every socket
@@ -383,15 +384,14 @@ local connecting_mt: metatable<Connecting> = { -- checked: literal_missing
 }
 
 --- Why `address` is no [`Net.Address`] a listener can take, or "".
-local function address_trouble(address: any): string
-  if not address is {any: any} then return "an address, from Net.unix or Net.tcp" end -- declared: key_type
-  local kind, path, host, port = address.kind, address.path, address.host, address.port -- checked: any_use*4
+local function address_trouble(address: Net.Address): string
+  local kind, path, host, port = address.kind, address.path, address.host, address.port
   if kind == "unix" then
-    if path is string and path ~= "" then return "" end
+    if path ~= nil and path ~= "" then return "" end
     return "a unix address whose path is a string of at least one byte"
   end
   if kind == "tcp" then
-    if host is string and port is integer and port >= 0 and port <= 65535 then return "" end
+    if host ~= nil and port ~= nil and port >= 0 and port <= 65535 then return "" end
     return "a tcp address whose host is a string and port an integer from 0 to 65535"
   end
   return "an address, from Net.unix or Net.tcp"
@@ -513,20 +513,10 @@ local function connection(address: Net.Address, timeout_ns: integer?): Attempt
   return { socket = socket }
 end
 
---- Whether `opts` sets `reclaim`, which no listen takes any more: a typed
---- table cannot say so, but a program written for it can.
-local function sets_reclaim(opts: any): boolean
-  return opts is {string: any} and opts.reclaim ~= nil -- checked: is_on_record, map_field
-end
-
 --- What [`Net.listen`] opens, with its descriptor; it raises at `level`
 --- above its caller.
 local function listening(address: Net.Address, opts: Net.ListenOptions,
                          level: integer): Opened?, string
-  if sets_reclaim(opts) then
-    error("net: ListenOptions.reclaim is gone: remove the socket file a listener left " ..
-        "behind (Fs.remove) once connecting to it is refused, then listen", level + 1)
-  end
   local unusable = address_trouble(address)
   if unusable ~= "" then error("net: address must be " .. unusable, level + 1) end
   local backlog = opts.backlog or DEFAULT_BACKLOG
@@ -762,74 +752,39 @@ function Net.connector(endpoints: {Net.Endpoint}, opts?: Net.ConnectorOptions): 
   if public == nil and #endpoints == 0 then
     error("net: a connector needs endpoints, opts.public, or both", 2)
   end
-  return Leaf.connector(Leaf.checked_endpoints(endpoints, public ~= nil, 2), timeout_ms, public)
+  local listed: mut {Leaf.Endpoint} = {}
+  for i, endpoint in ipairs(endpoints) do
+    listed[i] = { host = endpoint.host, port = endpoint.port }
+  end
+  return Leaf.connector(Leaf.checked_endpoints(listed, public ~= nil, 2), timeout_ms, public)
 end
 
 Leaf.register(address_trouble)
-
---- The fields a [`Net.ServeSpec`] may hold, so a misspelt one raises
---- rather than being ignored.
-local SPEC_FIELDS <const>: {string: boolean} = {
-  listeners = true, serve = true, limits = true, timeout_ns = true, grace_ns = true,
-  on_ready = true, on_error = true, on_stop = true,
-}
-
---- A field a spec once held, and what to do instead, so a program that
---- still sets one is told rather than only that the field is unknown.
-local REMOVED_FIELDS <const>: {string: string} = {
-  workers = "a server runs in one process, which workers = 0 asked for and is now " ..
-    "the default, so drop the key; to serve in several, start each " ..
-    "(Proc.relaunch gives the command, Child.start runs it), each listening at an " ..
-    "address of its own",
-}
 
 --- Raises for the spec's `field`, at the caller of [`Net.serve`].
 local function spec_error(field: string, must: string): never
   error("net: spec." .. field .. " must be " .. must, 4)
 end
 
---- Raises, naming the field, where `spec` is no [`Net.ServeSpec`].
-local function checked_spec(spec: any)
-  if not spec is {any: any} then error("net: serve takes a spec table", 3) end -- declared: key_type
-  for key in pairs(spec) do -- checked: any_use
-    if not (key is string and SPEC_FIELDS[key] == true) then
-      local gone = if key is string then REMOVED_FIELDS[key] else nil end
-      error("net: spec has no field " .. tostring(key) ..
-          (if gone ~= nil then ": " .. gone else "" end), 3)
-    end
-  end
-  local listeners = spec.listeners -- checked: any_use
-  if not listeners is {any} or #listeners == 0 then
+--- Raises, naming the field, where `spec` holds a value the server cannot take.
+local function checked_spec(spec: Net.ServeSpec)
+  local listeners = spec.listeners
+  if #listeners == 0 then
     spec_error("listeners", "a list of one address or more")
   end
   for i, address in ipairs(listeners) do
     local trouble = address_trouble(address)
     if trouble ~= "" then spec_error("listeners[" .. tostring(i) .. "]", trouble) end
   end
-  if type(spec.serve) ~= "function" then spec_error("serve", "a function of a connection") end -- checked: any_use
-  local limits = spec.limits -- checked: any_use
+  local limits = spec.limits
   if limits ~= nil then
-    if not limits is {any: any} then -- declared: key_type
-      spec_error("limits", "a table")
-    else
-      for key in pairs(limits) do
-        if key ~= "connections" then
-          error("net: spec.limits has no field " .. tostring(key), 3)
-        end
-      end
-      local most = limits.connections
-      if most ~= nil and not (most is integer and most >= 1) then
-        spec_error("limits.connections", "nil or an integer from 1")
-      end
+    local most = limits.connections
+    if most ~= nil and most < 1 then
+      spec_error("limits.connections", "nil or an integer from 1")
     end
   end
-  for _, field in ipairs({ "timeout_ns", "grace_ns" }) do
-    Poll.checked_ns(spec[field], "net", "spec." .. field, 3) -- checked: any_use
-  end
-  for _, field in ipairs({ "on_ready", "on_error", "on_stop" }) do
-    local fn = spec[field] -- checked: any_use
-    if fn ~= nil and type(fn) ~= "function" then spec_error(field, "nil or a function") end
-  end
+  Poll.checked_ns(spec.timeout_ns, "net", "spec.timeout_ns", 3)
+  Poll.checked_ns(spec.grace_ns, "net", "spec.grace_ns", 3)
 end
 
 --- A listener a server accepts at, and the task accepting there while
