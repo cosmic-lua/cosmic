@@ -610,13 +610,13 @@ local function split_at(body: string, cut: integer): string?
   local at = 1
   while true do
     local open, close = body:find("{{.-}}", at)
-    if open == nil then
+    if open == nil or close == nil then
       break
     end
-    if cut >= open and cut < close then -- checked: nil_not_allowed
+    if cut >= open and cut < close then
       return nil
     end
-    at = close + 1 -- checked: nil_not_allowed
+    at = close + 1
   end
   return body:sub(1, cut) .. "{{if .f}}{{end}}" .. body:sub(cut + 1)
 end
