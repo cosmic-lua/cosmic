@@ -7,6 +7,7 @@
 --- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
 
 local Archive = require("cosmic.archive")
+local Array = require("cosmic.array")
 local Compress = require("cosmic.compress")
 local Fs = require("cosmic.fs")
 local Fuzz = require("build.fuzz")
@@ -83,21 +84,26 @@ local function build(fields: {string}, outside: string): string?
   if format == "zip" then
     local zw = Zip.writer(out, { deterministic = true })
     for i = 4, #fields, 3 do
-      local path = place(fields[i + 1]) -- checked: index_may_be_nil
-      if fields[i] == "dir" then zw:add_dir(path) else zw:add_file(path, fields[i + 2]) end -- checked: index_may_be_nil
+      -- [`gen_extraction`] makes three fields per entry after the first three.
+      local path = place(Array.at(fields, i + 1))
+      if fields[i] == "dir" then
+        zw:add_dir(path)
+      else
+        zw:add_file(path, Array.at(fields, i + 2))
+      end
     end
     if not zw:close() then return nil end
     return out:result()
   end
   local tw = Tar.writer(out, { deterministic = true })
   for i = 4, #fields, 3 do
-    local kind, path = fields[i], place(fields[i + 1]) -- checked: index_may_be_nil
+    local kind, path = fields[i], place(Array.at(fields, i + 1))
     if kind == "file" then
-      tw:add_file(path, fields[i + 2]) -- checked: index_may_be_nil
+      tw:add_file(path, Array.at(fields, i + 2))
     elseif kind == "dir" then
       tw:add_dir(path)
     else
-      tw:add_symlink(path, place(fields[i + 2])) -- checked: index_may_be_nil
+      tw:add_symlink(path, place(Array.at(fields, i + 2)))
     end
   end
   if not tw:close() then return nil end
@@ -168,8 +174,8 @@ local function test_extraction_stays_inside_its_destination(tmp: string)
       Fuzz.label("built")
       local file = case .. "/archive"
       assert(Fs.write(file, archive))
-      local strip_components: integer = if fields[3] == "1" then 1 else nil end -- checked: nil_not_allowed
-      local strip_prefix: string = if fields[3] == "a" then "a" else nil end -- checked: nil_not_allowed
+      local strip_components: integer? = if fields[3] == "1" then 1 else nil end
+      local strip_prefix: string? = if fields[3] == "a" then "a" else nil end
       -- A shrunk input may hold any string here; extract treats every
       -- mode but "create" as "skip".
       local mode: Archive.Links = if fields[2] == "create" then "create" else "skip" end
@@ -315,7 +321,7 @@ local function chunked(bytes: string): Stream.Reader
     read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
       if at > #bytes then return nil, "" end
       turn = turn + 1
-      local size = bytes:byte(turn % math.max(#bytes, 1) + 1) % 300 + 1 -- checked: nil_not_allowed
+      local size = String.byte_at(bytes, turn % math.max(#bytes, 1) + 1) % 300 + 1
       if max_bytes ~= nil and max_bytes < size then size = max_bytes end
       local chunk = bytes:sub(at, at + size - 1)
       at = at + #chunk
@@ -569,7 +575,7 @@ local function test_extraction_stays_under_its_byte_limits(tmp: string)
       local archive: string = built
       local file = case .. "/archive"
       assert(Fs.write(file, archive))
-      local per_file, total = limit_of(fields[2]), limit_of(fields[3]) -- checked: index_may_be_nil*2
+      local per_file, total = limit_of(Array.at(fields, 2)), limit_of(Array.at(fields, 3))
       local opts: Archive.ExtractOptions = { max_entry_bytes = per_file, max_bytes = total }
 
       -- What the limits allow, from the sizes the archive was built of.
