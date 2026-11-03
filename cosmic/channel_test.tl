@@ -48,6 +48,7 @@ local function test_options_are_checked_and_default_to_a_large_blocking_queue()
     for i = 1, 256 do assert(queue:try_send(i)) end
     local ok, why = queue:try_send(257)
     assert(not ok and why == Channel.FULL)
+    Test.raises(function() queue:send(nil as integer) end, "nil") -- checked: cast_refused
     Test.raises(function() queue:receive(-1) end, "timeout_ns")
   end)
   Test.raises(function() Channel.new() end, "outside Poll.run") -- checked: cannot_infer

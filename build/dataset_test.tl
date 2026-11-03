@@ -168,6 +168,7 @@ local function test_load_refuses_what_sqlite_or_the_caller_cannot_take()
   assert(odd.name == 'we"ird name')
   local ok = Sqlite.rows(db, 'SELECT a FROM "we""ird name"')
   assert(ok ~= nil)
+  -- A row JSON cannot encode (NaN) is refused, naming the row.
   local bad, bad_why = dataset.load(db, "u", { { a = 0 / 0 } })
   assert(bad == nil and bad_why:find("row 1", 1, true) ~= nil, bad_why)
   -- A refused load leaves no table behind.

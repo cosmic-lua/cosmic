@@ -188,6 +188,7 @@ local function test_selectors_swaps_and_events_are_checked()
     { trigger = {} }, { trigger = { { name = "" } } }, { trigger = { { name = "a,b" } } },
     { trigger = { { name = "a\"b" } } }, { trigger = { { name = "a\nb" } } },
     { trigger = { { name = "{\"a\":1}" } } }, { trigger = { { name = "caf\u{e9}" } } },
+    { trigger = { { name = "ok", detail = { n = 0 / 0 } } } },
   }
   for _, reply in ipairs(refused) do
     local res, why = applied(reply)

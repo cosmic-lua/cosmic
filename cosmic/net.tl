@@ -235,8 +235,9 @@ local record Net
     mut connector?: Connector
   end
 
-  --- What [`Net.serve`] serves, and how. A field of the wrong shape, or
-  --- one not named here, raises, naming it.
+  --- What [`Net.serve`] serves, and how. A value out of range (no
+  --- listener, an address no listener can take, a limit under 1, a
+  --- timeout out of range) raises, naming the field.
   record ServeSpec
     --- Where to listen, one address or more: each is listened at, and
     --- each listener closed, by the server, which so owns every socket

@@ -60,7 +60,7 @@ local record Channel
   --- order they began to wait; only one task's own items keep their
   --- order.
   interface Queue<T>
-    --- Queues `item` (never nil) and notices the receiver
+    --- Queues `item` (never nil, which raises) and notices the receiver
     --- that has waited longest (which a caller that does not wait may
     --- still outrun). True once it is queued or, under a
     --- "drop_oldest" or "drop_newest" policy, once the drop has settled
@@ -175,7 +175,12 @@ local function offer<T>(self: State<T>, item: T): string
   return "full"
 end
 
+local function need_item<T>(item: T)
+  if item == nil then error("channel: send of nil", 3) end
+end
+
 function State.try_send<T>(self: State<T>, item: T): boolean, string
+  need_item(item)
   local result = offer(self, item)
   if result == "queued" then return true, "" end
   if result == "closed" then return false, Channel.CLOSED end
@@ -183,6 +188,7 @@ function State.try_send<T>(self: State<T>, item: T): boolean, string
 end
 
 function State.send<T>(self: State<T>, item: T, timeout_ns?: integer): boolean, string
+  need_item(item)
   Poll.checked_ns(timeout_ns, "channel", "timeout_ns", 2)
   local deadline = if timeout_ns ~= nil then Clock.monotonic_ns() + timeout_ns else nil end
   while true do
