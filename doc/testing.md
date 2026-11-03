@@ -301,18 +301,34 @@ without changing what the module does. Under `COSMIC_TEST_PURE_STORE=1`
 declares neither `store` nor `store_text` is given a pure store instead:
 
 - no module's source or source hash, and no row of `docs`, `uses`, `links`,
-  `examples`, `catalog`, `stubs` or `places`: a test that reads one finds none
+  `examples`, `catalog`, `stubs` or `places`, but for the exception below: a test that reads one finds none
   and fails, rather than standing on text that changed;
+- the exception to the first item, the standard-library modules (`cosmic.*`) the
+  test module names with a top-level `local type _ = require("cosmic.x")`, and
+  those the checker follows to type them (the `decl_imports` edges, among the
+  modules of its closure): each keeps its source, source hash and stub, and
+  nothing else of the first item, so a snippet the test type-checks finds the
+  declarations it requires, as from the whole store;
 - the bytecode of each module it imports stripped of its debug
   information ([`build.lua_tail`]'s `stripped`, which also writes the line
   each function is defined on as 0), and its own module's as the build made it;
 - the source file of its own module and of the declarations it requires, and
   not of the modules it imports.
 
-Its key holds the digest of exactly that, so an edit to an imported module
+Its key holds the digest of exactly that, text kept included, so an edit to an imported module
 that changes no bytecode (a comment, a blank line, a renamed local, a function
 that moved down the file) runs no test of its importers again, and one that
-changes what the module does runs them.
+changes what the module does runs them. A comment in a module the test names
+(or in one the checker follows from it) runs the test, which the checker
+could be reading: name only the modules a snippet needs. A `require` by value
+names none, so [`cosmic.test`] and the modules a test runs keep stable keys.
+
+A snippet that requires a standard-library module the test does not name finds
+its text withheld, and the test fails saying so: name the module in the test, as
+`local type _ = require("cosmic.x")`, though it requires it by value too. The docs, places and uses of a module are
+never kept: a test whose subject is the language server, `cosmic docs` or a
+module's declared places declares `store_text`. A test that starts the program (`lua`,
+`tool`) is given the whole store, which its checker types against.
 
 The pure store is held for a sandboxed worker alone: unsandboxed, a worker
 reads the real tree, which a key without the imports' sources would not follow.
@@ -847,6 +863,7 @@ Other rules:
 [`cosmic.sandbox`]: ../cosmic/sandbox/init.tl
 [`cosmic.store`]: ../cosmic/store.tl
 [`cosmic.template`]: ../cosmic/template/init.tl
+[`cosmic.test`]: ../cosmic/test.tl
 [`cosmic.vector`]: ../cosmic/vector.tl
 [`cosmic/store_seal_test.tl`]: ../cosmic/store_seal_test.tl
 [`Coverage.native_functions`]: ../cosmic/coverage.tl
