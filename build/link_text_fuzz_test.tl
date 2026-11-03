@@ -6,6 +6,7 @@
 --- but those of an HTML comment, which it blanks.
 --- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
 
+local Array = require("cosmic.array")
 local Fuzz = require("build.fuzz")
 local link_text = require("build.link_text")
 local String = require("cosmic.string")
@@ -69,14 +70,15 @@ local function parse_holds(input: string): boolean, string
     return false, "without_code made " .. tostring(#lines) .. " lines " .. tostring(#shown)
   end
   for number, line in ipairs(shown) do
-    local was = lines[number]
-    if line ~= "" and #line ~= #was then -- checked: nil_not_allowed
+    -- `#shown == #lines` above.
+    local was = Array.at(lines, number)
+    if line ~= "" and #line ~= #was then
       return false, "without_code moved the bytes of line " .. tostring(number)
     end
     -- A line it keeps is the same, but for a comment's bytes blanked.
     for at = 1, #line do
       local c = line:sub(at, at)
-      if c ~= was:sub(at, at) and c ~= " " then -- checked: nil_not_allowed
+      if c ~= was:sub(at, at) and c ~= " " then
         return false, "without_code changed byte " .. tostring(at) .. " of line " .. tostring(number)
       end
     end

@@ -43,7 +43,9 @@ local function sdist(path: string, version: string, files: {string:string})
   end
   table.sort(names)
   for _, name in ipairs(names) do
-    assert(w:add_file(("tzdata-%s/src/tzdata/%s"):format(version, name), files[name])) -- checked: index_may_be_nil
+    local content = files[name]
+    assert(content ~= nil, "`names` holds only the keys of `files`")
+    assert(w:add_file(("tzdata-%s/src/tzdata/%s"):format(version, name), content))
   end
   assert(w:close())
   assert(Fs.write(path, (assert(Compress.deflate("gzip", out:result())))))
