@@ -1,6 +1,7 @@
 --- The tool's input policy, fingerprints and semantic identities.
 --- These read the staged rows; [`build.work`] owns how they are staged.
 
+local CodeFingerprint = require("build.code_fingerprint")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local String = require("cosmic.string")
@@ -462,12 +463,8 @@ local function requires_in(db: Sqlite.Handle): function(string): {string}?, stri
   end
 end
 
--- TODO: hash the tokens of each module ([`build.code_fingerprint`]) in place of its source hash here, as the identities of
--- [`build.code_walk`]'s walks do, once the staged `inputs` carry a fingerprint of the tokens of each source, so that a
--- comment in a module of the compiler's identity or the writer's compiles nothing again.
-
---- The hash of the source hash of each of `names` the tree holds, by
---- path, then `extra`, an SQL expression.
+--- The hash of the tokens ([`build.code_fingerprint`]) of each of `names` the tree holds, by
+--- path, then `extra`, an SQL expression. A comment or the layout of a module moves nothing.
 local function hash_of(db: Sqlite.Handle, names: {string}, extra: string): string?, string
   local slots: mut {string} = {}
   local values: mut {Sqlite.Value} = {}
@@ -475,10 +472,17 @@ local function hash_of(db: Sqlite.Handle, names: {string}, extra: string): strin
     slots[#slots + 1] = "?" .. tostring(index)
     values[#values + 1] = text(name)
   end
+  local held, held_trouble = Sqlite.text_rows(db,
+    "SELECT path, source FROM inputs WHERE path IN (" .. table.concat(slots, ", ") .. ") ORDER BY path, source_hash", values)
+  if held == nil then
+    return nil, held_trouble
+  end
+  local lines: mut {string} = {}
+  for _, one in ipairs(held) do
+    lines[#lines + 1] = one:text(1) .. " " .. CodeFingerprint.of(one:text(2), one:text(1))
+  end
   local rows, trouble = Sqlite.text_rows(db,
-    "SELECT lower(hex(sha256(coalesce((SELECT group_concat(path || ' ' || " ..
-      "source_hash, char(10) ORDER BY path) FROM inputs WHERE path IN (" ..
-      table.concat(slots, ", ") .. ")), '') || char(10) || " .. extra .. ")))", values)
+    "SELECT lower(hex(sha256(?1 || char(10) || " .. extra .. ")))", { text(table.concat(lines, "\n")) })
   if rows == nil then
     return nil, trouble
   end
@@ -532,7 +536,7 @@ function identity.compiler_modules(requires: function(string): {string}?, string
 end
 
 --- The compiler's identity ([`Identities.compiler`]) over what the
---- working database holds now, recorded nowhere: the source hash of each
+--- working database holds now, recorded nowhere: the tokens of each
 --- of [`identity.compiler_modules`] the tree holds, the declarations the new checker
 --- types a program with and Lua's pins and patches.
 ---
@@ -540,7 +544,7 @@ end
 --- only a parse fills. So before [`build.importer.derive`] the walk
 --- reaches only what earlier parses found: the same modules, and so the
 --- same identity, while none of them has changed, and another whenever
---- one it reaches has, since each one's source hash is in it.
+--- one it reaches has, since each one's tokens are in it.
 ---
 --- It holds what a compile or a parse stores is a function of beyond its
 --- own key (a module's Lua, bytecode, record-field uses and refusal, and
@@ -649,7 +653,7 @@ function identity.writer_left_out(): {string:string}
 end
 
 --- The writer's identity ([`Identities.writer`]) over what the working
---- database holds now, recorded nowhere: the source hash of each of
+--- database holds now, recorded nowhere: the tokens of each of
 --- [`identity.writer_modules`] the tree holds, and the core image's hash
 --- (`image_hash`), whose SQLite writes the bytes. What a module requires
 --- is what `requires` holds of its source, as for [`compiler_identity`].

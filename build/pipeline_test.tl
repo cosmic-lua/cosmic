@@ -399,7 +399,7 @@ local function test_the_code_that_reads_is_named_from_the_staged_tree(tmp: strin
   -- a module the pipeline does not reach moves nothing; one it reaches, directly or not, moves it
   assert(again("build/other.tl", "return 3\n") == first, "a module the pipeline does not reach moved the identity")
   -- a comment, a doc comment, a blank line and the layout of one it reaches, directly or not, move nothing
-  local relaid = "--- a doc comment\n\n-- a comment\nlocal   Check =\n  require(\"lang.check\")\n\n\nreturn Check -- a tail\n"
+  local relaid = "--- a doc comment\n\n-- a comment\nlocal   Check   =   require(\"lang.check\")\n\n\nreturn Check -- a tail\n"
   assert(again("build/reader.tl", relaid) == first, "a comment or the layout of a module the pipeline requires moved the identity")
   assert(again("lang/check.tl", "-- a comment\n\nreturn   1 -- a tail\n") == first,
     "a comment or the layout of a module it reaches through another moved the identity")

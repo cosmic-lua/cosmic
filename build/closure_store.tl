@@ -278,7 +278,7 @@ local function memo_token(whole: string, pure?: boolean): string?
   if Clock.now_ns() - math.max(written, changed) < 2000000000 then return nil end
   -- A basis holds digests of tokens ([`read_basis`]), so the code that reads them is among what made it.
   local made: mut {string} = {}
-  for _, name in ipairs({ "build.closure_store", "build.code_fingerprint", "lang.lexer" }) do
+  for _, name in ipairs({ "build.closure_store", "build.code_fingerprint", "build.code_walk", "lang.lexer" }) do
     local code, _ = Store.bytecode(name)
     if code == nil then return nil end
     made[#made + 1] = Hash.hex_sha256(code)
@@ -582,15 +582,18 @@ local function read_basis(whole: string, pure?: boolean): closure_store.Basis?, 
       -- What a walk of the code that reads module text ([`build.code_walk`]) is hashed from: the tokens of each module
       -- some walk reaches, which is all a store keeps of it (`write`).
       local walked = walked_modules(basis.edges)
+      local slots: mut {string} = {}
+      local values: mut {Sqlite.Value} = {}
+      for path in pairs(walked) do
+        values[#values + 1] = text(path)
+        slots[#slots + 1] = "?" .. tostring(#values)
+      end
       local hashed, hashed_trouble = Sqlite.text_rows(db,
         "SELECT path, CAST(inflate(source) AS TEXT) FROM modules WHERE kind NOT IN ('test', 'example') " ..
-          "AND length(source) > 0 ORDER BY path")
+          "AND length(source) > 0 AND path IN (" .. table.concat(slots, ", ") .. ") ORDER BY path", values)
       if hashed == nil then return nil, hashed_trouble end
       for _, row in ipairs(hashed) do
-        local path = row:text(1)
-        if walked[path] == true then
-          basis.sources[path] = Hash.hex_sha256(kept_text(row:text(2), path))
-        end
+        basis.sources[row:text(1)] = Hash.hex_sha256(kept_text(row:text(2), row:text(1)))
       end
     end
     for _, row in ipairs(pure_rows) do

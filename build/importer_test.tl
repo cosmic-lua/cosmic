@@ -1280,7 +1280,7 @@ local function test_compiler_identity_is_the_same_on_a_fresh_database()
   assert(compiler_identity() == fresh,
     "an edit to a module only build.importer requires moved the compiler identity")
   assert(Fs.write(root .. "/build/helper.tl",
-    "local record helper\nend\nreturn helper\n-- edited\n"))
+    "local record helper\nend\nreturn helper, 1\n"))
   assert(compiler_identity() ~= fresh,
     "an edit to a module the compiler requires did not move its identity")
 end
@@ -1341,17 +1341,17 @@ local function test_writer_identity_follows_the_writer_closure()
   assert(writer_identity() == fresh,
     "an edit to a module only build.importer requires moved the writer identity")
   assert(Fs.write(root .. "/build/schema.tl",
-    "local record schema\nend\nreturn schema\n-- edited\n"))
+    "local record schema\nend\nreturn schema, 1\n"))
   local after_build = writer_identity()
   assert(after_build ~= fresh,
     "an edit to a module the writer requires did not move its identity")
   assert(Fs.write(root .. "/cosmic/codec.tl",
-    "local record codec\nend\nreturn codec\n-- edited\n"))
+    "local record codec\nend\nreturn codec, 1\n"))
   assert(writer_identity() ~= after_build,
     "an edit to a standard library module the writer requires did not move its identity")
   local before_definition = writer_identity()
   assert(Fs.write(root .. "/build/identity.tl",
-    "local record identity\nend\nreturn identity\n-- edited\n"))
+    "local record identity\nend\nreturn identity, 1\n"))
   assert(writer_identity() ~= before_definition,
     "an edit to the fingerprint and identity definitions did not move the writer identity")
 
@@ -1360,7 +1360,7 @@ local function test_writer_identity_follows_the_writer_closure()
       "schema.work = work\nreturn schema\n"))
   local through_schema = writer_identity()
   assert(Fs.write(root .. "/build/work.tl",
-    "local record work\nend\nreturn work\n-- edited again\n"))
+    "local record work\nend\nreturn work, 1\n"))
   assert(writer_identity() ~= through_schema,
     "the writer's root exclusion also excluded a dependency reached through its schema")
 
@@ -1816,7 +1816,9 @@ local function test_a_comment_or_the_layout_of_an_analyzer_module_leaves_the_ana
   for _, path in ipairs({ "build/derivation.tl", "build/analysis_schema.tl", "build/bind.tl", "build/cache_names.tl" }) do
     local before = identities_of(root)
     relay(root, path)
-    assert(identities_of(root)[2] == before[2], "a comment or the layout of " .. path .. " moved the analyzer identity")
+    local relaid = identities_of(root)
+    assert(relaid[2] == before[2], "a comment or the layout of " .. path .. " moved the analyzer identity")
+    assert(relaid[1] == before[1], "a comment or the layout of " .. path .. " moved the compiler identity")
     edit(root, path)
     assert(identities_of(root)[2] ~= before[2], "an edit to " .. path .. " did not move the analyzer identity")
   end
@@ -1964,7 +1966,6 @@ local function test_the_writer_modules_are_closed_under_require()
     ["build.grammar_mode"] = "names the grammar a build reads (COSMIC_GRAMMAR), which only the new grammar's compile consults",
     ["build.positions"] = "fails a whole build before any key is looked up, and stores nothing",
     ["build.code_walk"] = "names which modules the identities of the code that reads hash, and which a test's store keeps",
-    ["build.code_fingerprint"] = "names the tokens of a module that those identities hash; it decides what the keys are, and no projection stores it",
     ["build.reads.analyzer"] = "a declaration of what text a module reads, which a test's store follows; no code",
     ["build.reads.receivers"] = "a declaration of what text a module reads, which a test's store follows; no code",
     ["build.reads.links"] = "a declaration of what text a module reads, which a test's store follows; no code",
@@ -2440,7 +2441,7 @@ local function test_the_code_that_finds_record_field_uses_is_named_by_its_tokens
   assert(#staged == 64, staged)
   local relaid_receivers = "--- a doc comment\n\n-- a comment\nlocal record Receivers\n\n  n: integer\nend\n" ..
     "local r:   Receivers = { n = 1 } -- a tail\n\n\nreturn r\n"
-  local relaid_contracts = "-- a comment\nlocal record Contracts s: string end local c: Contracts = { s = 'a b' }\nreturn c\n"
+  local relaid_contracts = "-- a comment\nlocal record Contracts\n  s: string\nend\n\n  local c: Contracts = { s = 'a b' } -- tail\nreturn c\n"
   assert(receivers_named("relaid", relaid_receivers, relaid_contracts) == staged,
     "a comment or the layout of the code moved its name")
   local moved_receivers = receivers_named("number", (receivers:gsub("n = 1", "n = 2")), contracts)

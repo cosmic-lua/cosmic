@@ -31,14 +31,11 @@ local function test_the_code_that_finds_links_is_named_by_the_tokens_of_its_modu
   local names = assert(CodeWalk.reach(CodeWalk.links, Store.requires))
   assert(#names > 1, "the walk reaches no module")
   local by_source: mut {string} = {}
-  local by_tokens: mut {string} = {}
   for _, name in ipairs(names) do
     local source = assert(Store.source(name))
     by_source[#by_source + 1] = name .. "\n" .. CodeFingerprint.of(source, name)
-    by_tokens[#by_tokens + 1] = name .. "\n" .. CodeFingerprint.of(CodeFingerprint.normal(source, name), name)
   end
   local from_source = Hash.hex_sha256(table.concat(by_source, "\n\0\n"))
-  assert(Hash.hex_sha256(table.concat(by_tokens, "\n\0\n")) == from_source, "the tokens of a module name it otherwise than its source")
   local named = links_by(tmp .. "/project")
   assert(named == from_source, "the code that finds links is named otherwise than by the tokens of its modules")
 end

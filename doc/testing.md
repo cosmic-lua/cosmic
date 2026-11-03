@@ -318,8 +318,9 @@ declares that it reads text (below):
   [`build.reads.analyzer`], [`build.reads.receivers`] or [`build.reads.links`]
   ([`build.code_walk`] holds the walks), and a test importing it is given the
   modules that walk reaches, which its key holds, each as its tokens
-  ([`build.code_fingerprint`]): the source with its comments and layout taken
-  away, which the identities hash the same as the source. A module that
+  ([`build.code_fingerprint`]): the source with its comments, blank lines and
+  indents taken away and the line breaks between tokens kept, which the
+  identities hash the same as the source. A module that
   reads any other text ([`build.reads.all`]: docs, uses, places, the language
   server) demotes every test importing it: the test is given the store of its
   closure with its text, keyed by its bytes, as `store_text` does for a test

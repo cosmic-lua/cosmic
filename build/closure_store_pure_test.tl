@@ -414,7 +414,7 @@ local function test_a_pure_store_keeps_the_tokens_of_the_walks_its_closure_decla
   local kept = assert(Sqlite.text_rows(store,
     "SELECT CAST(inflate(source) AS TEXT), lower(hex(source_hash)) FROM modules WHERE path = 'build.helper'"))
   local tokens = support.nth(kept, 1):text(1)
-  assert(tokens == 'local record helper end function helper . name ( ) : string return "helper" end return helper', tokens)
+  assert(tokens == 'local record helper\nend\nfunction helper . name ( ) : string\nreturn "helper"\nend\nreturn helper', tokens)
   assert(support.nth(kept, 1):text(2) == Hash.hex_sha256(tokens), "the source hash is not that of the tokens kept")
   assert(CodeFingerprint.normal(tokens, "build.helper") == tokens, "what is kept is not its own normal form")
   assert(store:close())

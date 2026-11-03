@@ -17,11 +17,24 @@ local function test_a_comment_and_the_layout_of_a_source_change_nothing()
   assert(alike(plain, "-- a comment\nlocal x = 1\nreturn x\n"))
   assert(alike(plain, "--- a doc comment\n---\n--- of two lines\nlocal x = 1 -- and a tail\nreturn x\n"))
   assert(alike(plain, "\n\n\nlocal x = 1\n\n\n\nreturn x\n\n\n"))
-  assert(alike(plain, "local    x   =\n\n  1\n\treturn   x   \r\n"))
-  assert(alike(plain, "local x=1 return x"))
+  assert(alike(plain, "local    x   =   1\n\n\n\treturn   x   \r\n"))
+  assert(alike(plain, "local x = 1\n  -- a comment on its own line\n    return x -- and a trailing one\n"))
+  assert(alike(plain, "local x = 1\n\n   \n\treturn x"))
   assert(alike(plain, "#!/usr/bin/env cosmic\nlocal x = 1\nreturn x\n"))
   assert(alike("", "-- nothing but a comment\n"))
   assert(normal("-- nothing but a comment\n", "m") == "")
+end
+
+--- The parser reads a line break: a `(` that begins a line is not a call of the token before it. Joining two lines or
+--- splitting one moves the form, though the tokens are the same.
+local function test_a_line_break_between_tokens_changes_the_form()
+  assert(not alike("local x = f\n(g)()", "local x = f (g)()"))
+  assert(not alike("local x = f(g)\nreturn x", "local x = f(g) return x"))
+  assert(alike("local x = f\n(g)()", "local x = f\n\n   (g)()"))
+  assert(alike("local x = f\n(g)()", "local x = f -- a tail\n-- on its own line\n(g)()"))
+  -- a multi-line string ends on a later line than it begins: the token after it is on its last line
+  assert(alike("local x = [[a\nb]] .. y", "local x = [[a\nb]]   ..   y"))
+  assert(not alike("local x = [[a\nb]] .. y", "local x = [[a\nb]]\n.. y"))
 end
 
 --- Every token moves it: a name, a keyword, an operator, a string's contents, a number as it is written.
@@ -68,6 +81,7 @@ local function test_a_form_is_its_own_form()
   local sources: {string} = {
     "local x = 1\nreturn x\n",
     "local s = [[\n-- a\n]] .. [==[ ]] ]==] .. 'q' .. \"\\\"\"",
+    "local x = f\n(g)()\nreturn x",
     "local a = b - -c --d\nlocal e = f // g\nreturn ...",
     "local n = {1, 0x10, 1e3, 2.5, 3 // 2}\nreturn n[1]",
     "local function f(...: integer): integer?, string\n  return ...\nend\n",
