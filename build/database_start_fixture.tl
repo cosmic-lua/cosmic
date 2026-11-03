@@ -69,6 +69,12 @@ end
 
 local LIBRARY <const> = { "cosmic.store", "cosmic.proc", "cosmic.child", "cosmic.sys", "cosmic.fs" }
 
+--- A row of the `meta` table.
+local record Meta
+  key: string
+  value: string
+end
+
 --- Writes the database at `path` holding `modules`, the library they
 --- load when `made.library`, and the meta rows `made` says.
 function database_start_fixture.write_database(path: string, modules: {Module}, made: Made)
@@ -88,22 +94,24 @@ function database_start_fixture.write_database(path: string, modules: {Module}, 
     bytecode[module.name] = string.dump(chunk, true) -- checked: not_assignable
   end
   for _, module in ipairs(rows) do
+    -- Each row came from `closure` or `modules`, and both filled `bytecode` under its name.
+    local code = assert(bytecode[module.name], "no bytecode for " .. module.name)
     assert(Sqlite.run(db, "INSERT INTO modules (path, file, kind, source_hash, key, bytecode, " ..
         "tests, source) VALUES (?1, ?2, ?3, X'', X'', deflate(?4), '', X'')",
-      { text(module.name), text(module.name), text(module.kind), blob(bytecode[module.name]) })) -- checked: index_may_be_nil
+      { text(module.name), text(module.name), text(module.kind), blob(code) }))
     for _, required in ipairs(module.requires) do
       assert(Sqlite.run(db, "INSERT OR IGNORE INTO imports (path, requires) VALUES (?1, ?2)",
         { text(module.name), text(required) }))
     end
   end
-  local meta: mut {{string}} = { { "runtime_basis", "fixture-basis" } }
+  local meta: mut {Meta} = { { key = "runtime_basis", value = "fixture-basis" } }
   local main = made.main
-  if main ~= nil then meta[#meta + 1] = { "main", main } end
+  if main ~= nil then meta[#meta + 1] = { key = "main", value = main } end
   local core = made.core
-  if core ~= nil then meta[#meta + 1] = { "core_sha256", core } end
+  if core ~= nil then meta[#meta + 1] = { key = "core_sha256", value = core } end
   for _, pair in ipairs(meta) do
     assert(Sqlite.run(db, "INSERT INTO meta (key, value) VALUES (?1, ?2)",
-      { text(pair[1]), text(pair[2]) })) -- checked: index_may_be_nil*2
+      { text(pair.key), text(pair.value) }))
   end
   assert(db:close())
 end
@@ -150,7 +158,7 @@ function database_start_fixture.fields(output: string): {string:string}
   local out: mut {string:string} = {}
   for line in output:gmatch("([^\n]*)\n") do
     local name, value = line:match("^([^\t]+)\t(.*)$")
-    if name ~= nil then out[name] = value end -- checked: nil_not_allowed
+    if name ~= nil and value ~= nil then out[name] = value end
   end
   return out
 end

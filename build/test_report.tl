@@ -7,6 +7,12 @@ local String = require("cosmic.string")
 local sys = require("cosmic.sys")
 local plural = require("build.plural")
 
+--- A reason some tests gave for passing without checking, and how many gave it.
+local record Tally
+  reason: string
+  count: integer
+end
+
 local record test_report
   record Failure
     message: string
@@ -109,16 +115,19 @@ end
 --- how many gave it, sorted: they passed deliberately without checking.
 function test_report.deliberate(reasons: {string}): {string}
   local counts: mut {string:integer} = {}
-  local order: mut {string} = {}
   for _, reason in ipairs(reasons) do
-    if counts[reason] == nil then order[#order + 1] = reason end
-    counts[reason] = (counts[reason] or 0) + 1
+    local seen = counts[reason]
+    counts[reason] = if seen == nil then 1 else seen + 1 end
   end
-  table.sort(order)
+  local order: mut {Tally} = {}
+  for reason, count in pairs(counts) do order[#order + 1] = { reason = reason, count = count } end
+  table.sort(order, function(a: Tally, b: Tally): boolean
+    return a.reason < b.reason
+  end)
   local lines: mut {string} = {}
-  for _, reason in ipairs(order) do
-    lines[#lines + 1] = "test: NOTHING TO CHECK  " .. plural.count(counts[reason], "test") .. -- checked: index_may_be_nil
-      " passed deliberately without checking: " .. reason
+  for _, row in ipairs(order) do
+    lines[#lines + 1] = "test: NOTHING TO CHECK  " .. plural.count(row.count, "test") ..
+      " passed deliberately without checking: " .. row.reason
   end
   return lines
 end
@@ -162,14 +171,16 @@ function test_report.failures(failures: mut {test_report.Failure}, prefix: strin
     -- The hint goes straight under the failure's own line, ahead of
     -- what the runner appended to the message (where its directory is
     -- kept).
-    local head, rest = failure.message:match("^([^\n]*)\n?(.*)$")
-    lines[#lines + 1] = "test: FAIL  " .. head -- checked: nil_not_allowed
+    local newline = failure.message:find("\n", 1, true)
+    local head = if newline == nil then failure.message else failure.message:sub(1, newline - 1) end
+    local rest = if newline == nil then "" else failure.message:sub(newline + 1) end
+    lines[#lines + 1] = "test: FAIL  " .. head
     local hint = Errors.hint(failure.message)
     if hint ~= nil then
       lines[#lines + 1] = "  hint: " .. hint
     end
     if rest ~= "" then
-      lines[#lines + 1] = rest -- checked: nil_not_allowed
+      lines[#lines + 1] = rest
     end
     local rerun = failure.rerun
     if rerun ~= nil then
@@ -353,7 +364,7 @@ function test_report.failed(failures: integer, total: integer, errors: integer,
                             elapsed: string, not_run?: integer): string
   return tostring(failures) .. " of " .. plural.count(total, "test") .. " failed, " ..
     plural.count(errors, "infrastructure error") .. ", " .. elapsed ..
-    (if (not_run or 0) > 0 then ("; " .. not_run .. " not run after the first failure") else "" end) -- checked: nil_not_allowed
+    (if not_run ~= nil and not_run > 0 then ("; " .. tostring(not_run) .. " not run after the first failure") else "" end)
 end
 
 return test_report
