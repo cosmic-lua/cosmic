@@ -8,7 +8,7 @@ local SessionCookie = require("cosmic.web.session.cookie")
 local NEW <const> = "k3Jf9Lq0Zx7Rw2Ub8Tn5Vc1Hd6Ym4Ga0"
 local OLD <const> = "Qp8Ws2Ed5Rf7Tg1Yh3Uj6Ik9Ol0Pm4Nb"
 
-local function data(values: mut {string:any}): Session.Data
+local function data(values: mut {string: Json.Value}): Session.Data
   return { values = values, created = 1000, expires = 2000 }
 end
 
@@ -16,13 +16,13 @@ local function unchanged(): Session.Changes
   return { set = {}, removed = {} }
 end
 
-local function sign(store: Session.Store, values: mut {string:any}): string
+local function sign(store: Session.Store, values: mut {string: Json.Value}): string
   return (assert(store:save("", data(values), unchanged(), 1500, "session")))
 end
 
 local function test_a_session_round_trips_with_its_dates()
   local store = SessionCookie.store{ keys = { NEW } }
-  local token = sign(store, { user = "ada", n = 7, nested = { 1, 2 } }) -- checked: any_use*3
+  local token = sign(store, { user = "ada", n = 7, nested = { 1, 2 } })
   local got = assert(store:load(token, 1500, "session"))
   assert(got.values["user"] == "ada" and got.values["n"] == 7 and got.created == 1000 and got.expires == 2000)
   assert(got.stale ~= true and not store.revocable)
@@ -32,7 +32,7 @@ end
 
 local function test_flipping_any_character_of_a_token_makes_it_anonymous()
   local store = SessionCookie.store{ keys = { NEW } }
-  local token = sign(store, { user = "ada" }) -- checked: any_use
+  local token = sign(store, { user = "ada" })
   for i = 1, #token do
     local c = token:sub(i, i)
     local flipped = token:sub(1, i - 1) .. (if c == "A" then "B" else "A" end) .. token:sub(i + 1)
@@ -46,7 +46,7 @@ end
 
 local function test_an_expired_token_is_anonymous_at_the_instant_it_expires()
   local store = SessionCookie.store{ keys = { NEW } }
-  local token = sign(store, { user = "ada" }) -- checked: any_use
+  local token = sign(store, { user = "ada" })
   assert(store:load(token, 1999, "session") ~= nil)
   assert(store:load(token, 2000, "session") == nil)
   assert(store:load(token, 9999, "session") == nil)
@@ -55,10 +55,10 @@ end
 local function test_a_token_under_an_old_key_verifies_and_is_marked_stale()
   local old = SessionCookie.store{ keys = { OLD } }
   local rotated = SessionCookie.store{ keys = { NEW, OLD } }
-  local token = sign(old, { user = "ada" }) -- checked: any_use
+  local token = sign(old, { user = "ada" })
   local got = assert(rotated:load(token, 1500, "session"))
   assert(got.stale == true and got.values["user"] == "ada")
-  local fresh = sign(rotated, { user = "ada" }) -- checked: any_use
+  local fresh = sign(rotated, { user = "ada" })
   assert(assert(rotated:load(fresh, 1500, "session")).stale ~= true)
   assert(old:load(fresh, 1500, "session") == nil, "a retired key cannot sign what is read as new")
   local retired = SessionCookie.store{ keys = { NEW } }
@@ -67,7 +67,7 @@ end
 
 local function test_a_token_is_bound_to_its_cookie_name_and_context()
   local store = SessionCookie.store{ keys = { NEW } }
-  local token = assert(store:save("", data({ user = "ada" }), unchanged(), 1500, "session")) -- checked: any_use
+  local token = assert(store:save("", data({ user = "ada" }), unchanged(), 1500, "session"))
   assert(store:load(token, 1500, "remember") == nil)
   local other = SessionCookie.store{ keys = { NEW }, context = "another" }
   assert(other:load(token, 1500, "session") == nil)
@@ -75,7 +75,7 @@ end
 
 local function test_a_saved_session_over_the_limit_is_refused_with_the_size()
   local store = SessionCookie.store{ keys = { NEW }, max_bytes = 300 }
-  local token, why = store:save("", data({ blob = ("x"):rep(500) }), unchanged(), 1500, "session") -- checked: any_use
+  local token, why = store:save("", data({ blob = ("x"):rep(500) }), unchanged(), 1500, "session")
   assert(token == nil and why:find("cookie would be %d+ bytes %(limit 300%)") ~= nil, why)
   assert(why:find("SQLite store", 1, true))
 end
@@ -83,7 +83,7 @@ end
 local function test_a_token_over_the_limit_is_anonymous_without_decoding_it()
   local big = SessionCookie.store{ keys = { NEW }, max_bytes = 4000 }
   local small = SessionCookie.store{ keys = { NEW }, max_bytes = 100 }
-  local token = sign(big, { blob = ("x"):rep(300) }) -- checked: any_use
+  local token = sign(big, { blob = ("x"):rep(300) })
   assert(big:load(token, 1500, "session") ~= nil)
   assert(small:load(token, 1500, "session") == nil)
 end
@@ -121,14 +121,14 @@ end
 
 local function test_destroy_does_nothing_because_a_cookie_cannot_be_revoked()
   local store = SessionCookie.store{ keys = { NEW } }
-  local token = sign(store, { user = "ada" }) -- checked: any_use
+  local token = sign(store, { user = "ada" })
   assert(store:destroy(token))
   assert(store:load(token, 1500, "session") ~= nil, "the copy of the cookie is still good")
 end
 
-local function nest(levels: integer): any
-  local value: any = 1 -- checked: any_use
-  for _ = 1, levels do value = { value } end -- checked: any_use
+local function nest(levels: integer): Json.Value
+  local value: Json.Value = 1
+  for _ = 1, levels do value = { value } end
   return value
 end
 
@@ -143,10 +143,10 @@ end
 local function test_the_keys_are_copied_and_checked_as_strings_when_the_store_is_made()
   local keys = { NEW }
   local store = SessionCookie.store{ keys = keys }
-  local token = sign(store, { user = "ada" }) -- checked: any_use
+  local token = sign(store, { user = "ada" })
   keys[1] = OLD
   assert(store:load(token, 1500, "session") ~= nil, "changing the list afterwards changes no key")
-  assert(sign(store, { user = "ada" }) == token) -- checked: any_use
+  assert(sign(store, { user = "ada" }) == token)
   local ok, why = pcall(SessionCookie.store, { keys = { NEW, 42 as any as string } }) -- checked: cast_refused*2
   assert(not ok and tostring(why):find("key 2 is a number", 1, true) ~= nil, tostring(why))
 end

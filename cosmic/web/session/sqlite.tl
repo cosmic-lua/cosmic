@@ -166,10 +166,11 @@ local function find(store: Backing, token: string, now: integer): Sqlite.Row?, s
 end
 
 --- The values a row's JSON holds; nil for text that is not an object.
-local function values_of(text: string): mut {string:any}?
-  local value, _ = Json.decode(text, { max_depth = Session.MAX_DEPTH })
-  if not value is {string:any} then return nil end -- checked: is_on_record
-  local out: mut {string:any} = {}
+local function values_of(text: string): mut {string: Json.Value}?
+  local decoded, _ = Json.decode(text, { max_depth = Session.MAX_DEPTH })
+  local value, _ = Json.to_object(decoded)
+  if value == nil then return nil end
+  local out: mut {string: Json.Value} = {}
   for key, entry in pairs(value) do out[key] = entry end
   return out
 end
@@ -184,8 +185,8 @@ local function load_session(self: Session.Store, token: string, now: integer, _c
 end
 
 --- Applies `changes` to `values`.
-local function apply(values: {string:any}, changes: Session.Changes): {string:any}
-  local out: mut {string:any} = {}
+local function apply(values: {string: Json.Value}, changes: Session.Changes): {string: Json.Value}
+  local out: mut {string: Json.Value} = {}
   if changes.cleared ~= true then
     for key, value in pairs(values) do out[key] = value end
   end
@@ -212,7 +213,7 @@ local function save_session(self: Session.Store, previous: string, data: Session
     if row == nil and find_why ~= "" then return false, find_why end
     -- A session revoked while this request ran is not revived with what
     -- the request saw: only what it changed is kept.
-    local base: {string:any} = {}
+    local base: {string: Json.Value} = {}
     local created = data.created
     local subject = changes.subject
     if row ~= nil then
@@ -220,7 +221,7 @@ local function save_session(self: Session.Store, previous: string, data: Session
       if changes.regenerated ~= true then created = row:integer(2) end
       if subject == nil and row:kind(4) == "text" then subject = row:text(4) end
     end
-    local text, encode_why = Json.encode_any(apply(base, changes), { max_depth = Session.MAX_DEPTH })
+    local text, encode_why = Json.encode(apply(base, changes), { max_depth = Session.MAX_DEPTH })
     if text == nil then return false, "cannot encode the session: " .. encode_why end
     local subject_value: Sqlite.Value = if subject ~= nil then { text = subject } else {} end
     if row ~= nil and changes.regenerated ~= true then

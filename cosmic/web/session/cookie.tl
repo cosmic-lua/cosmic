@@ -91,21 +91,23 @@ function SessionCookie.store(opts: SessionCookie.Options): Session.Store
       if verified == nil then return nil, "" end
       local bytes, _ = Codec.unbase64url(payload)
       if bytes == nil then return nil, "" end
-      local body, _ = Json.decode(bytes, { max_depth = DEPTH })
-      if not body is {string:any} then return nil, "" end -- checked: is_on_record
-      -- TODO: once cosmic.shape answers a `mut {string: any}` field (`map` answers a view, and Session.Data.values is mut: view_as_mut), [`Shape.record_of`] types this body whole.
-      local created, expires, values = body["c"], body["e"], body.d -- checked: map_field
-      if body["v"] ~= VERSION or not created is integer or not expires is integer or
-          not values is {string:any} then
+      local decoded, _ = Json.decode(bytes, { max_depth = DEPTH })
+      local body, _ = Json.to_object(decoded)
+      if body == nil then return nil, "" end
+      local created, expires = body["c"], body["e"]
+      if body["v"] ~= VERSION or not created is integer or not expires is integer then
         return nil, ""
       end
+      local held, _ = Json.to_object(body["d"])
+      if held == nil then return nil, "" end
+      local values: mut {string: Json.Value} = {}
+      for key, entry in pairs(held) do values[key] = entry end
       if expires <= now then return nil, "" end
       return { values = values, created = created, expires = expires, stale = verified > 1 }, ""
     end,
     save = function(_: Session.Store, _previous: string, data: Session.Data,
                     _changes: Session.Changes, _now: integer, cookie: string): string?, string
-      local values: {string:any} = data.values
-      local text, why = Json.encode_any({ v = VERSION, c = data.created, e = data.expires, d = values }, -- checked: arms_differ
+      local text, why = Json.encode({ v = VERSION, c = data.created, e = data.expires, d = data.values },
         { max_depth = DEPTH })
       if text == nil then return nil, "cannot encode the session: " .. why end
       local payload = Codec.base64url(text)

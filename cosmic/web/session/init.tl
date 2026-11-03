@@ -30,8 +30,9 @@
 --- the time the middleware sees it, saves nothing; a 4xx keeps what the
 --- handler changed, as a handler may flash and answer 422 on purpose.
 ---
---- Values must be what [`Json.encode`] accepts; `set` raises for any other
---- at the call, so the trace is the handler's. A nested table that `get`
+--- Values are [`Json.Value`]s, so the checker refuses any other at the call;
+--- `set` still raises for one that nests too deep or is not UTF-8, so the
+--- trace is the handler's. A nested table that `get`
 --- returns is the session's own: change it, then `set` it again, or the
 --- change is not saved. Two requests that change the session at once (htmx
 --- loading three fragments) race: the signed cookie keeps whichever
@@ -66,7 +67,7 @@ local record Session
   --- What a session holds, as a store keeps it.
   record Data
     --- The values, by key.
-    mut values: mut {string:any}
+    mut values: mut {string: Json.Value}
     --- When the session began, in seconds since the epoch.
     mut created: integer
     --- When it ends, in seconds since the epoch.
@@ -80,7 +81,7 @@ local record Session
   --- replacing.
   record Changes
     --- The keys written, with their values.
-    set: mut {string:any}
+    set: mut {string: Json.Value}
     --- The keys deleted.
     removed: mut {string}
     --- Whether everything was removed first (what `set` and `removed` hold
@@ -142,7 +143,7 @@ local record Session
   --- A request's session. Its methods are called with ":".
   record Handle
     --- The value at `key`, or nil.
-    get: function(Handle, key: string): any
+    get: function(Handle, key: string): Json.Value?
     --- The value at `key` when it is a string.
     get_string: function(Handle, key: string): string?
     --- The value at `key` when it is an integer.
@@ -153,11 +154,11 @@ local record Session
     --- Raises when the value is not JSON or nests past [`Session.MAX_DEPTH`],
     --- when the key is empty or the reserved "_flash", and after the response
     --- has been built.
-    set: function(Handle, key: string, value: any)
+    set: function(Handle, key: string, value: Json.Value?)
     --- Removes `key`.
     delete: function(Handle, key: string)
     --- The value at `key`, removed.
-    pop: function(Handle, key: string): any
+    pop: function(Handle, key: string): Json.Value?
     --- Removes every value.
     clear: function(Handle)
     --- Gives the session a new id (and a new lifetime), keeping its data
@@ -300,7 +301,7 @@ local function delete_value(st: State, key: string)
   mark(st)
 end
 
-local function set_value(st: State, key: string, value: any)
+local function set_value(st: State, key: string, value: Json.Value?)
   writable(st)
   if type(key) ~= "string" or key == "" then
     error("session: a key is a non-empty string", 0)
@@ -313,7 +314,7 @@ local function set_value(st: State, key: string, value: any)
     return
   end
   -- The value sits inside the object of values, one level down.
-  local _, why = Json.encode_any(value, { max_depth = Session.MAX_DEPTH - 1 })
+  local _, why = Json.encode(value, { max_depth = Session.MAX_DEPTH - 1 })
   if why ~= nil and why ~= "" then -- checked: compare_disjoint
     error("session: cannot keep " .. key .. ": " .. why, 0)
   end
@@ -336,15 +337,21 @@ local function cut(text: string, limit: integer): string
   return text:sub(1, stop)
 end
 
-local function flashes_of(st: State): {{string:any}}
+local function flashes_of(st: State): {{string: Json.Value}}
+  local out: mut {{string: Json.Value}} = {}
   local list = st.data.values[FLASH]
-  if list is {{string:any}} then return list end -- checked: is_on_record
-  return {}
+  local items, _ = Json.to_array(list)
+  if items == nil then return out end
+  for _, each in ipairs(items) do
+    local entry, _ = Json.to_object(each)
+    if entry ~= nil then out[#out + 1] = entry end
+  end
+  return out
 end
 
 local function make_handle(st: State): Session.Handle
   local handle: Session.Handle = {
-    get = function(_: Session.Handle, key: string): any
+    get = function(_: Session.Handle, key: string): Json.Value?
       ensure(st)
       return st.data.values[key]
     end,
@@ -363,13 +370,13 @@ local function make_handle(st: State): Session.Handle
       if value is boolean then return value end
       return nil
     end,
-    set = function(_: Session.Handle, key: string, value: any)
+    set = function(_: Session.Handle, key: string, value: Json.Value?)
       set_value(st, key, value)
     end,
     delete = function(_: Session.Handle, key: string)
       delete_value(st, key)
     end,
-    pop = function(_: Session.Handle, key: string): any
+    pop = function(_: Session.Handle, key: string): Json.Value?
       writable(st)
       local value = st.data.values[key]
       delete_value(st, key)
@@ -411,12 +418,12 @@ local function make_handle(st: State): Session.Handle
       if why ~= nil and why ~= "" then -- checked: compare_disjoint
         error("session: cannot flash that: " .. why, 0)
       end
-      local list: mut {{string:any}} = {}
+      local list: mut {{string: Json.Value}} = {}
       for _, each in ipairs(flashes_of(st)) do list[#list + 1] = each end
-      list[#list + 1] = { kind = kind, text = cut(text, MAX_FLASH_BYTES) } -- checked: any_use*2
+      list[#list + 1] = { kind = kind, text = cut(text, MAX_FLASH_BYTES) }
       while #list > MAX_FLASHES do table.remove(list, 1) end
-      st.data.values[FLASH] = list -- checked: any_use
-      st.changes.set[FLASH] = list -- checked: any_use
+      st.data.values[FLASH] = list
+      st.changes.set[FLASH] = list
       remove_key(st.changes.removed, FLASH)
       mark(st)
     end,
