@@ -10,6 +10,7 @@
 local Fs = require("cosmic.fs")
 local Stream = require("cosmic.stream")
 local Codec = require("cosmic.codec")
+local Test = require("cosmic.test")
 local codec = require("build.codec")
 local String = require("cosmic.string")
 
@@ -475,15 +476,15 @@ local function test_a_finished_coder_raises_and_an_unknown_name_is_refused()
   for _, make in ipairs({ codec.encoder, codec.decoder }) do
     local c = make("base64")
     assert(c:update("") == "" and c:finish() == "")
-    assert(not pcall(function() c:update("x") end)) -- checked: alternatives_as_value
-    assert(not pcall(function() c:finish() end)) -- checked: alternatives_as_value
+    Test.raises(function() c:update("x") end)
+    Test.raises(function() c:finish() end)
   end
   local bad = codec.decoder("hex")
   assert(bad:update("z") == "")
   assert(bad:finish() == nil)
-  assert(not pcall(function() bad:finish() end)) -- checked: alternatives_as_value
-  assert(not pcall(codec.encoder, "base32" as codec.Name)) -- checked: alternatives_as_value, cast_refused
-  assert(not pcall(codec.decoder, "base32" as codec.Name)) -- checked: alternatives_as_value, cast_refused
+  Test.raises(function() bad:finish() end)
+  Test.raises(function() codec.encoder("base32" as codec.Name) end) -- checked: cast_refused
+  Test.raises(function() codec.decoder("base32" as codec.Name) end) -- checked: cast_refused
 end
 
 local function test_a_long_stream_takes_bounded_memory()

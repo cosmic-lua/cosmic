@@ -521,7 +521,9 @@ end
 --- draws for 70 members would dominate a run.
 local function spell(src: Fuzz.Source, key: string, json5: boolean, large: boolean): string
   local plain = large and src:int(0, 3) ~= 0
-  if json5 and not plain and key:match("^[%a_$][%w_$]*$") and src:int(0, 3) == 0 then return key end -- checked: or_mix
+  if json5 and not plain and key:match("^[%a_$][%w_$]*$") ~= nil and src:int(0, 3) == 0 then
+    return key
+  end
   local quote = if json5 and not plain and src:int(0, 3) == 0 then "'" else '"' end
   local varied = not plain
   local body: mut {string} = {}

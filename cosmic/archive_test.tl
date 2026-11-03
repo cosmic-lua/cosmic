@@ -653,7 +653,7 @@ local function test_extract_stops_at_max_entries(tmp: string)
   assert(Archive.extract(archive, tmp .. "/o2", { max_entries = 2 }))
   assert(Fs.read(tmp .. "/o2/b") == string.rep("b", 600))
   -- A negative limit is a mistake, not a failure to report.
-  assert(not pcall(Archive.extract, archive, tmp .. "/o3", { max_entries = -1 })) -- checked: alternatives_as_value
+  Test.raises(function() Archive.extract(archive, tmp .. "/o3", { max_entries = -1 }) end)
 end
 
 --- A tar of one file `name` whose header claims `claimed` bytes and
@@ -718,7 +718,7 @@ local function test_extract_refuses_a_zip_bomb_and_leaves_no_file(tmp: string)
   assert(why:find("archive: big is larger than max_entry_bytes (4096 bytes)", 1, true), why)
   holds_only(dest, {})
   written, why = Archive.extract(archive, tmp .. "/out2", { max_bytes = 4096 })
-  assert(written == nil and why:find("max_bytes (4096 bytes)", 1, true) and why:find("big", 1, true), why) -- checked: or_mix
+  assert(written == nil and why:find("max_bytes (4096 bytes)", 1, true) ~= nil and why:find("big", 1, true) ~= nil, why)
   holds_only(tmp .. "/out2", {})
 end
 
@@ -732,7 +732,7 @@ local function test_extract_refuses_a_tar_claiming_four_gib_by_default(tmp: stri
   -- The total is a limit of its own, whatever the per-entry one allows.
   written, why = Archive.extract(archive, tmp .. "/out2", { max_entry_bytes = math.maxinteger,
     max_bytes = 1 << 31 })
-  assert(written == nil and why:find("would write more than max_bytes (2147483648 bytes)", 1, true), why) -- checked: or_mix
+  assert(written == nil and why:find("would write more than max_bytes (2147483648 bytes)", 1, true) ~= nil, why)
   holds_only(tmp .. "/out2", {})
 end
 
@@ -749,11 +749,11 @@ local function test_extract_refuses_a_tgz_bomb_and_leaves_no_file(tmp: string)
   assert(Fs.write(archive, c:result()))
   assert(#c:result() < 8192, "the bomb is not small")
   local written, why = Archive.extract(archive, tmp .. "/out", { max_entry_bytes = 4096 })
-  assert(written == nil and why:find("archive: big is larger than max_entry_bytes", 1, true), why) -- checked: or_mix
+  assert(written == nil and why:find("archive: big is larger than max_entry_bytes", 1, true) ~= nil, why)
   -- The entry before it stays, as a failure partway leaves it.
   holds_only(tmp .. "/out", { "small" })
   written, why = Archive.extract(archive, tmp .. "/out2", { max_bytes = 100 })
-  assert(written == nil and why:find("max_bytes (100 bytes)", 1, true), why) -- checked: or_mix
+  assert(written == nil and why:find("max_bytes (100 bytes)", 1, true) ~= nil, why)
   holds_only(tmp .. "/out2", { "small" })
 end
 
@@ -810,11 +810,11 @@ local function test_extract_refusing_a_file_keeps_the_one_already_at_its_path(tm
   assert(Fs.mkdirs(dest))
   assert(Fs.write(dest .. "/a", "old"))
   local written, why = Archive.extract(archive, dest, { max_entry_bytes = 100 })
-  assert(written == nil and why:find("max_entry_bytes (100 bytes)", 1, true), tostring(why)) -- checked: or_mix
+  assert(written == nil and why:find("max_entry_bytes (100 bytes)", 1, true) ~= nil, tostring(why))
   assert(Fs.read(dest .. "/a") == "old")
   holds_only(dest, { "a" })
   written, why = Archive.extract(archive, dest, { max_bytes = 100 })
-  assert(written == nil and why:find("max_bytes (100 bytes)", 1, true), tostring(why)) -- checked: or_mix
+  assert(written == nil and why:find("max_bytes (100 bytes)", 1, true) ~= nil, tostring(why))
   assert(Fs.read(dest .. "/a") == "old")
   holds_only(dest, { "a" })
 end
@@ -841,7 +841,7 @@ local function test_extract_caps_a_file_at_exactly_max_entry_bytes(tmp: string)
   assert(Archive.extract(archive, tmp .. "/at", { max_entry_bytes = 600 }))
   assert(Fs.read(tmp .. "/at/a") == string.rep("a", 600))
   local written, why = Archive.extract(archive, tmp .. "/over", { max_entry_bytes = 599 })
-  assert(written == nil and why:find("archive: a is larger than max_entry_bytes (599 bytes)", 1, true), why) -- checked: or_mix
+  assert(written == nil and why:find("archive: a is larger than max_entry_bytes (599 bytes)", 1, true) ~= nil, why)
   holds_only(tmp .. "/over", {})
 end
 
@@ -855,13 +855,13 @@ local function test_extract_caps_all_the_files_at_exactly_max_bytes(tmp: string)
   assert(Archive.extract(archive, tmp .. "/at", { max_bytes = 1800 }))
   assert(Fs.read(tmp .. "/at/c") == string.rep("c", 600))
   local written, why = Archive.extract(archive, tmp .. "/over", { max_bytes = 1799 })
-  assert(written == nil and why:find("archive: extracting c would write more than max_bytes (1799 bytes)", 1, true), why) -- checked: or_mix
+  assert(written == nil and why:find("archive: extracting c would write more than max_bytes (1799 bytes)", 1, true) ~= nil, why)
   -- Refused before the file that passes it, after those within it.
   holds_only(tmp .. "/over", { "a", "d" })
   assert(Fs.read(tmp .. "/over/d/b") == string.rep("b", 600))
   -- A cap of its own for each file does not add up to more than the total.
   written, why = Archive.extract(archive, tmp .. "/each", { max_entry_bytes = 600, max_bytes = 1200 })
-  assert(written == nil and why:find("max_bytes (1200 bytes)", 1, true), why) -- checked: or_mix
+  assert(written == nil and why:find("max_bytes (1200 bytes)", 1, true) ~= nil, why)
 end
 
 local function test_extract_counts_only_the_files_it_writes(tmp: string)
@@ -883,7 +883,7 @@ local function test_extract_counts_only_the_files_it_writes(tmp: string)
   assert(Archive.extract(empty, tmp .. "/zero", { max_bytes = 0, max_entry_bytes = 0 }))
   assert(Fs.read(tmp .. "/zero/zero") == "")
   local none, why = Archive.extract(archive, tmp .. "/none", { max_bytes = 0 })
-  assert(none == nil and why:find("max_bytes (0 bytes)", 1, true), why) -- checked: or_mix
+  assert(none == nil and why:find("max_bytes (0 bytes)", 1, true) ~= nil, why)
 end
 
 local function test_extract_limits_reach_extract_reader_and_can_be_lifted(tmp: string)
@@ -896,9 +896,9 @@ local function test_extract_limits_reach_extract_reader_and_can_be_lifted(tmp: s
     return (assert(Archive.open_stream(Stream.from_string(sink:result()))))
   end
   local written, why = Archive.extract_reader(open(), tmp .. "/o1", { max_entry_bytes = 1999 })
-  assert(written == nil and why:find("max_entry_bytes (1999 bytes)", 1, true), why) -- checked: or_mix
+  assert(written == nil and why:find("max_entry_bytes (1999 bytes)", 1, true) ~= nil, why)
   written, why = Archive.extract_reader(open(), tmp .. "/o2", { max_bytes = 1999 })
-  assert(written == nil and why:find("max_bytes (1999 bytes)", 1, true), why) -- checked: or_mix
+  assert(written == nil and why:find("max_bytes (1999 bytes)", 1, true) ~= nil, why)
   holds_only(tmp .. "/o2", {})
   -- The limit of a whole number held as a float, and the largest one.
   assert(Archive.extract_reader(open(), tmp .. "/o3", { max_bytes = float(2000.0) }))
@@ -935,7 +935,7 @@ local function test_extract_byte_limits_that_are_not_whole_numbers_of_bytes_rais
     Archive.extract_reader(reader, tmp .. "/o", { max_bytes = -1 })
     return true
   end)
-  assert(not ok and tostring(why):find("archive_test:%d+: archive: max_bytes is negative"), tostring(why)) -- checked: or_mix
+  assert(not ok and tostring(why):find("archive_test:%d+: archive: max_bytes is negative") ~= nil, tostring(why))
   assert(reader:close())
 end
 
@@ -1064,9 +1064,9 @@ local function test_extract_reader_closes_the_reader_when_it_refuses(tmp: string
     end,
   }
   local written, why = Archive.extract_reader(counting, tmp .. "/dest")
-  assert(written == nil and why:find("unsafe entry path", 1, true), why) -- checked: or_mix
+  assert(written == nil and why:find("unsafe entry path", 1, true) ~= nil, why)
   assert(closes == 1, "closed " .. tostring(closes) .. " times")
-  assert(not pcall(Archive.extract_reader, counting, tmp .. "/dest", { max_entries = -1 })) -- checked: alternatives_as_value
+  Test.raises(function() Archive.extract_reader(counting, tmp .. "/dest", { max_entries = -1 }) end)
 end
 
 local function test_extract_resolve_in_lets_a_link_target_pass_through_the_real_destination(tmp: string)
@@ -1082,7 +1082,7 @@ local function test_extract_resolve_in_lets_a_link_target_pass_through_the_real_
       opts)
   end
   local written, why = unpack(tmp .. "/s1", { links = "create" })
-  assert(written == nil and why:find("missing directory", 1, true), why) -- checked: or_mix
+  assert(written == nil and why:find("missing directory", 1, true) ~= nil, why)
   assert(Fs.mkdirs(tmp .. "/real/held"))
   assert(unpack(tmp .. "/s2", { links = "create", resolve_in = tmp .. "/real" }))
   assert(Fs.readlink(tmp .. "/s2/via") == "held/inner")
@@ -1091,7 +1091,7 @@ local function test_extract_resolve_in_lets_a_link_target_pass_through_the_real_
   assert(Fs.mkdirs(tmp .. "/real2"))
   assert(Fs.symlink(".", tmp .. "/real2/held"))
   written, why = unpack(tmp .. "/s3", { links = "create", resolve_in = tmp .. "/real2" })
-  assert(written == nil and why:find("missing directory", 1, true), why) -- checked: or_mix
+  assert(written == nil and why:find("missing directory", 1, true) ~= nil, why)
 end
 
 --- A bad option is blamed on the caller's line, through either entry.
@@ -1300,7 +1300,7 @@ local function test_create_refuses_a_name_it_cannot_write_and_creates_nothing(tm
   }
   for name, says in pairs(cases) do
     local format, format_why = Archive.format_of(name)
-    assert(format == nil and format_why:find(says, 1, true), format_why) -- checked: or_mix
+    assert(format == nil and format_why:find(says, 1, true) ~= nil, format_why)
     local w, why = Archive.create(dir .. "/" .. name)
     assert(w == nil, name)
     assert(why:find("^archive: ") and why:find(name, 1, true) and why:find(says, 1, true), why)

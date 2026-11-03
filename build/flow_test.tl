@@ -220,8 +220,8 @@ local function test_a_tree_is_built_from_teal_values()
   local wide = flow.write({ a = { string.rep("x", 60), string.rep("y", 60) } }, { width = 80 })
   assert(wide == "{\n  a: [\n    \"" .. string.rep("x", 60) .. "\",\n    \"" .. string.rep("y", 60) ..
       "\",\n  ],\n}\n", wide)
-  assert(not pcall(flow.from, { a = 1.5 }), "a float is refused") -- checked: alternatives_as_value
-  assert(not pcall(flow.from, { [true] = 1 }), "a key that is no string is refused") -- checked: alternatives_as_value
+  Test.raises(function() flow.from({ a = 1.5 }) end) -- a float is refused
+  Test.raises(function() flow.from({ [true] = 1 }) end) -- a key that is no string is refused
 end
 
 local function test_get_and_set_find_and_change_members()
@@ -313,7 +313,7 @@ end
 local function test_values_the_subset_cannot_hold_are_refused()
   local out, why = flow.format('{"<<": {a: 1}}\n')
   assert(out == nil and why:find("merge", 1, true) ~= nil, tostring(why))
-  assert(not pcall(flow.from, { ["<<"] = 1 })) -- checked: alternatives_as_value
+  Test.raises(function() flow.from({ ["<<"] = 1 }) end)
   out, why = flow.format('{a: "x\ty"}\n')
   assert(out == nil and why:find("a tab in a string", 1, true) ~= nil, tostring(why))
   out, why = flow.format("{\n  a: 1 # c1\n  , # c2\n  b: 2,\n}\n")

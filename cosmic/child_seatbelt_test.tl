@@ -104,7 +104,7 @@ local function test_another_user_is_refused_before_a_child_starts()
   if sys.getuid() == 0 then Test.skip("root is refused") end
   local handle, why = Child.start({ "/bin/true" }, { policy = { profiles = { "system" },
     user = sys.getuid() + 1 }, stdin = "null", stdout = "null", stderr = "null" })
-  assert(handle == nil and why:find("cannot change them", 1, true), why) -- checked: or_mix
+  assert(handle == nil and why:find("cannot change them", 1, true) ~= nil, why)
 end
 
 --- The "system" profile means one thing whether the policy is started
@@ -345,7 +345,7 @@ local function test_a_terminal_that_is_not_stdins_fails_the_start_at_the_termina
   pid, why = start(SH, { SH, "-c", "exit 0" }, nil, nil, mine.slave, mine.slave, mine.slave, true,
     nil, nil, nil, "/dev/null")
   if pid ~= nil then process.waitpid(pid, false) end
-  assert(pid == nil and tostring(why):find("terminal", 1, true), tostring(why)) -- checked: or_mix
+  assert(pid == nil and tostring(why):find("terminal", 1, true) ~= nil, tostring(why))
   for _, pty in ipairs({ mine, other }) do
     assert(sys.close(pty.slave))
     assert(sys.close(pty.master))
@@ -361,5 +361,5 @@ local function test_a_seatbelt_profile_is_no_argument_where_there_is_no_seatbelt
   local process = require("cosmic.internal.process")
   local ok, why = pcall(process.spawn, "/nowhere", { "/nowhere" }, nil, nil, nil, nil, nil, false, nil, -- checked: overload_none
     { seatbelt = { profile = "(version 1)\n", parameters = {} } })
-  assert(not ok and tostring(why):find("seatbelt is macOS's", 1, true), tostring(why)) -- checked: or_mix
+  assert(not ok and tostring(why):find("seatbelt is macOS's", 1, true) ~= nil, tostring(why))
 end

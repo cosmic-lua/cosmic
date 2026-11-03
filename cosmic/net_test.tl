@@ -101,10 +101,10 @@ local function test_a_timeout_out_of_range_is_refused()
   assert(not accepting and tostring(accept_why):find("^cosmic%.net_test:%d+: net: timeout_ns must be", 1) ~= nil,
     tostring(accept_why))
   p.client:set_timeout(Clock.ms(10))
-  assert(not pcall(function() p.client:set_timeout(-1) end)) -- checked: alternatives_as_value
+  Test.raises(function() p.client:set_timeout(-1) end)
   local data, read_why = p.client:read()
   assert(data == nil and read_why == Poll.TIMEOUT, read_why)
-  assert(not pcall(Net.connect, p.server.address, { timeout_ns = -1 })) -- checked: alternatives_as_value
+  Test.raises(function() Net.connect(p.server.address, { timeout_ns = -1 }) end)
   assert(not pcall(Net.listen, Net.tcp("127.0.0.1", 0), { timeout_ns = Poll.MOST_NS + 1 })) -- checked: alternatives_as_value
   assert(not pcall(Net.listen, Net.tcp("127.0.0.1", 0), { timeout_ns = 1 << 62 })) -- checked: alternatives_as_value
 end
@@ -408,7 +408,7 @@ local function test_a_path_that_names_no_socket_file_is_refused(tmp: string)
       tostring(connect_why))
   end
   local listened, backlog_why = pcall(Net.listen, Net.unix(tmp .. "/b.sock"), { backlog = 0 })
-  assert(not listened and tostring(backlog_why):find("net: backlog must be at least 1", 1, true), -- checked: or_mix
+  assert(not listened and tostring(backlog_why):find("net: backlog must be at least 1", 1, true) ~= nil,
     tostring(backlog_why))
 end
 

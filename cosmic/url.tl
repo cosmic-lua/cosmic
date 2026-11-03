@@ -345,7 +345,7 @@ local function is_ipv6(text: string): boolean
   local v4 = text:match(":(%d+%.%d+%.%d+%.%d+)$")
   if v4 ~= nil then
     for octet in v4:gmatch("%d+") do
-      if octet:find("^0%d") or (math.tointeger(tonumber(octet)) or 256) > 255 then -- checked: or_mix
+      if octet:find("^0%d") ~= nil or (math.tointeger(tonumber(octet)) or 256) > 255 then
         return false
       end
     end

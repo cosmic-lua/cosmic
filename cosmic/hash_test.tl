@@ -184,9 +184,9 @@ local function test_incremental_hmac_is_finished_by_digest()
   local mac = assert(Hash.hmac_hasher("sha256", "key"))
   mac:update("abc")
   assert(mac:digest() == Hash.hmac("sha256", "key", "abc"))
-  assert(not pcall(mac.update, mac, "more")) -- checked: alternatives_as_value
-  assert(not pcall(mac.digest, mac)) -- checked: alternatives_as_value
-  assert(not pcall(Hash.hmac_hasher, "nonesuch" as Hash.Algorithm, "key")) -- checked: alternatives_as_value, cast_refused
+  Test.raises(function() mac:update("more") end)
+  Test.raises(function() mac:digest() end)
+  Test.raises(function() Hash.hmac_hasher("nonesuch" as Hash.Algorithm, "key") end) -- checked: cast_refused
   do local _abandoned <close> = assert(Hash.hmac_hasher("sha256", "key")) end
 end
 
@@ -196,7 +196,7 @@ local function test_incremental_hmac_throws_naming_the_finished_hasher()
   local ok, trouble = pcall(function(): string, string
     return mac:digest() -- checked: nil_not_allowed
   end)
-  assert(not ok and tostring(trouble):find("hash: the hasher is finished", 1, true), tostring(trouble)) -- checked: or_mix
+  assert(not ok and tostring(trouble):find("hash: the hasher is finished", 1, true) ~= nil, tostring(trouble))
   local updated = pcall(mac.update, mac, "more") -- checked: alternatives_as_value
   assert(not updated)
   local _, why = pcall(function(): any
@@ -227,8 +227,8 @@ local function test_a_closed_incremental_hmac_is_finished()
     mac:update("abc")
     kept = mac
   end
-  assert(not pcall(kept.update, kept, "more")) -- checked: alternatives_as_value
-  assert(not pcall(kept.digest, kept)) -- checked: alternatives_as_value
+  Test.raises(function() kept:update("more") end)
+  Test.raises(function() kept:digest() end)
   -- Closing a finished one is harmless too.
   do
     local mac <close> = assert(Hash.hmac_hasher("sha3-256", "key"))
@@ -246,8 +246,8 @@ local function test_an_incremental_hmac_revived_by_a_finalizer_is_finished()
   collectgarbage()
   collectgarbage()
   local kept = assert(saved, "the finalizer ran")
-  assert(not pcall(kept.update, kept, "abc")) -- checked: alternatives_as_value
-  assert(not pcall(kept.digest, kept)) -- checked: alternatives_as_value
+  Test.raises(function() kept:update("abc") end)
+  Test.raises(function() kept:digest() end)
 end
 
 --- Two incremental HMACs under different keys, fed alternately, do not
@@ -390,8 +390,8 @@ local function test_a_hasher_revived_by_a_finalizer_is_finished()
     kept:update("abc")
     return nil -- checked: any_use
   end)
-  assert(not ok and tostring(why):find("finished", 1, true), tostring(why)) -- checked: or_mix
-  assert(not pcall(kept.digest, kept)) -- checked: alternatives_as_value
+  assert(not ok and tostring(why):find("finished", 1, true) ~= nil, tostring(why))
+  Test.raises(function() kept:digest() end)
 end
 
 local function test_a_closed_hasher_is_finished()
@@ -401,8 +401,8 @@ local function test_a_closed_hasher_is_finished()
     hasher:update("abc")
     kept = hasher
   end
-  assert(not pcall(kept.update, kept, "more")) -- checked: alternatives_as_value
-  assert(not pcall(kept.digest, kept)) -- checked: alternatives_as_value
+  Test.raises(function() kept:update("more") end)
+  Test.raises(function() kept:digest() end)
   -- Closing a digested hasher is harmless too.
   do
     local hasher <close> = assert(Hash.hasher("md5"))
@@ -451,9 +451,9 @@ local function test_siphash_refuses_a_bad_key_or_variant()
   local key = string.rep("k", 16)
   assert(not pcall(Hash.siphash, string.rep("k", 15), "m")) -- checked: alternatives_as_value
   assert(not pcall(Hash.siphash, string.rep("k", 17), "m")) -- checked: alternatives_as_value
-  assert(not pcall(Hash.siphash, key, "m", { size = 12 })) -- checked: alternatives_as_value
-  assert(not pcall(Hash.siphash, key, "m", { compression = 0 })) -- checked: alternatives_as_value
-  assert(not pcall(Hash.siphash, key, "m", { finalization = 65 })) -- checked: alternatives_as_value
+  Test.raises(function() Hash.siphash(key, "m", { size = 12 }) end)
+  Test.raises(function() Hash.siphash(key, "m", { compression = 0 }) end)
+  Test.raises(function() Hash.siphash(key, "m", { finalization = 65 }) end)
   assert(Hash.siphash(key, "m", {}) == Hash.siphash(key, "m",
     { compression = 2, finalization = 4, size = 8 }))
 end

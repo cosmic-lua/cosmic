@@ -294,7 +294,7 @@ end
 --- `parent` raises for, whether or not a runner gives it a parent directory.
 local function test_parent_refuses_a_path_the_module_never_declared()
   local ok, why = pcall(Test.parent, "bin/cosmic-bootstrap")
-  assert(not ok and tostring(why):find("parent(\"bin/cosmic-bootstrap\") is not declared", 1, true), -- checked: or_mix
+  assert(not ok and tostring(why):find("parent(\"bin/cosmic-bootstrap\") is not declared", 1, true) ~= nil,
     tostring(why))
 end
 

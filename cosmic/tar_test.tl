@@ -103,7 +103,7 @@ local function test_a_size_below_zero_or_no_integer_raises()
     local ok, why: boolean, any = pcall(function()
       local _, _ = w:add_file("f", Stream.from_string("abc"), { size = size as integer }) -- checked: cast_refused
     end)
-    assert(not ok and tostring(why):find("tar: opts.size must be an integer of at least 0", 1, true), -- checked: or_mix
+    assert(not ok and tostring(why):find("tar: opts.size must be an integer of at least 0", 1, true) ~= nil,
       tostring(why))
     assert(tostring(why):find("tar_test", 1, true), "blames the caller: " .. tostring(why))
   end
@@ -113,7 +113,7 @@ local function test_a_size_below_zero_or_no_integer_raises()
       function() local _, _ = w:add_file("dir/", "abc", { size = -1 }) end,
   } as {function()}) do
     local ok, why: boolean, any = pcall(call)
-    assert(not ok and tostring(why):find("tar: opts.size must be an integer of at least 0", 1, true), -- checked: or_mix
+    assert(not ok and tostring(why):find("tar: opts.size must be an integer of at least 0", 1, true) ~= nil,
       tostring(why))
   end
   assert(w:add_file("g", "x"))

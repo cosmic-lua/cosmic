@@ -232,9 +232,9 @@ local function test_an_exemption_no_check_needs_is_refused()
   local unused = "which no longer needs it"
   for _, which in ipairs({ "casts", "parsing", "exempt", "modes" }) do
     local found = problems_of("use(1)", exempting(which, { "x.tl:gone" }))
-    assert(#found == 1 and found[1]:find("contracts." .. which .. " names x.tl:gone, " .. unused, 1, true), table.concat(found, "\n")) -- checked: or_mix
+    assert(#found == 1 and found[1]:find("contracts." .. which .. " names x.tl:gone, " .. unused, 1, true) ~= nil, table.concat(found, "\n"))
     local stubbed = problems_of("use(1)", exempting(which, { "build/importer.tl:generate" }))
-    assert(#stubbed == 1 and stubbed[1]:find("names build/importer.tl:generate", 1, true), table.concat(stubbed, "\n")) -- checked: or_mix
+    assert(#stubbed == 1 and stubbed[1]:find("names build/importer.tl:generate", 1, true) ~= nil, table.concat(stubbed, "\n"))
   end
 end
 

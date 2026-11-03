@@ -1137,9 +1137,9 @@ local function test_a_bound_of_another_store_is_refused_where_a_binder_is_entere
   end)
   assert(not ok and tostring(why):find("another store", 1, true) ~= nil, tostring(why))
   -- and nothing was entered
-  assert(not pcall(function() -- checked: alternatives_as_value
+  Test.raises(function()
     w.judge:leave()
-  end))
+  end)
   local holder = w.store:declare("record", "m", { "Holder" }, 1)
   w.store:define(holder, { tparams = { { name = "T", bound = named(w, "Event") } }, supers = {}, fields = {},
     methods = {}, values = {} })
@@ -1236,9 +1236,9 @@ local function test_a_bound_that_is_not_an_interface_with_no_arguments_is_refuse
       shown(bound) .. ": " .. tostring(why))
   end
   -- and nothing was entered
-  assert(not pcall(function() -- checked: alternatives_as_value
+  Test.raises(function()
     w.judge:leave()
-  end))
+  end)
   w.judge:enter({ { bound = named(w, "Event") } })
   assert(below(w, s:var(0, 0), named(w, "Event")))
   w.judge:leave()

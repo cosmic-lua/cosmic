@@ -98,9 +98,9 @@ local function test_nest_holds_files_by_the_root_alone(tmp: string)
   assert(read.code == 0 and read.said == "alpha\n", tostring(read.code) .. ": " .. read.said)
   -- Not granted, so not there; read-only where not granted `w`.
   local other = under({ at.probe, "cat " .. at.extra .. "/e" }, policy, at.work)
-  assert(other.code == 1 and other.said:find("No such file or directory", 1, true), other.said) -- checked: or_mix
+  assert(other.code == 1 and other.said:find("No such file or directory", 1, true) ~= nil, other.said)
   local ro = under({ at.probe, "create ro/b x" }, policy, at.work)
-  assert(ro.code == 1 and ro.said:find("Read-only file system", 1, true), ro.said) -- checked: or_mix
+  assert(ro.code == 1 and ro.said:find("Read-only file system", 1, true) ~= nil, ro.said)
   local rw = under({ at.probe, "create rw/b x && cat rw/b" }, policy, at.work)
   assert(rw.code == 0 and rw.said == "x\n", tostring(rw.code) .. ": " .. rw.said)
   -- What Landlock refused to run is held by the mount: a grant without `x`
@@ -108,10 +108,10 @@ local function test_nest_holds_files_by_the_root_alone(tmp: string)
   local mounts = under({ at.probe, "cat /proc/self/mountinfo" }, policy, at.work)
   assert(mounts.code == 0, mounts.said)
   local read_only = options_at(mounts.said, at.work)
-  assert(read_only ~= nil and read_only:find("ro", 1, true) and read_only:find("noexec", 1, true), -- checked: or_mix
+  assert(read_only ~= nil and read_only:find("ro", 1, true) ~= nil and read_only:find("noexec", 1, true) ~= nil,
     tostring(read_only))
   local writable = options_at(mounts.said, at.work .. "/rw")
-  assert(writable ~= nil and writable:find("rw", 1, true) and writable:find("noexec", 1, true), -- checked: or_mix
+  assert(writable ~= nil and writable:find("rw", 1, true) ~= nil and writable:find("noexec", 1, true) ~= nil,
     tostring(writable))
   local program = options_at(mounts.said, at.probe)
   assert(program ~= nil and not program:find("noexec", 1, true), tostring(program))
@@ -167,7 +167,7 @@ local function test_nest_refuses_the_runtimes_own_descriptors_rather_than_raisin
   if handle ~= nil then
     local _, _ = handle:close()
   end
-  assert(handle == nil and why:find("retains of its own", 1, true) and -- checked: or_mix
+  assert(handle == nil and why:find("retains of its own", 1, true) ~= nil and -- checked: or_mix
       why:find("nest", 1, true), tostring(why))
 end
 
@@ -177,7 +177,7 @@ local function test_a_handed_directory_is_held_by_landlock_without_nest(tmp: str
   local policy: Sandbox.Policy = { isolate = { "file" }, promises = { "fork" }, grants = at.grants }
   local ran = under({ at.probe, "cat /proc/self/fd/3/e" }, policy, at.work, { [3] = dir })
   sys.close(dir)
-  assert(ran.code == 1 and ran.said:find("Permission denied", 1, true), tostring(ran.code) .. ": " .. ran.said) -- checked: or_mix
+  assert(ran.code == 1 and ran.said:find("Permission denied", 1, true) ~= nil, tostring(ran.code) .. ": " .. ran.said)
 end
 
 --- Where a start of the program's own meets its host: the directory a root
@@ -206,7 +206,7 @@ local function test_a_nested_sandbox_is_confined_to_its_own_grants(tmp: string)
   -- Nor is the scratch it was built in, nor the first sandbox's rw directory.
   local scratch = under({ at.probe, "run-isolated " .. at.probe .. " present " .. at.scratch },
     policy, at.work)
-  assert(scratch.said:find("exit 1\n", 1, true) == 1 and scratch.said:find("not there", 1, true), -- checked: or_mix
+  assert(scratch.said:find("exit 1\n", 1, true) == 1 and scratch.said:find("not there", 1, true) ~= nil,
     scratch.said)
 end
 
