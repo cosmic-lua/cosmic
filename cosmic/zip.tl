@@ -362,8 +362,9 @@ local class SpanReader is Stream.Reader -- declared: interface_disagrees
         return nil, trouble
       end
       if #got == 0 then
-        self.failed = "zip: entry body runs past the end of the file"
-        return nil, self.failed -- checked: nil_not_allowed
+        local why = "zip: entry body runs past the end of the file"
+        self.failed = why
+        return nil, why
       end
       chunk = got
     end
@@ -396,23 +397,26 @@ local class CheckedReader is Stream.Reader -- declared: interface_disagrees
     if failed then return nil, failed end
     local chunk, trouble = self.inner:read(max_bytes)
     if chunk == nil then
+      local why: string
       if trouble ~= "" then
-        self.failed = trouble
+        why = trouble
       elseif self.seen ~= self.size then
-        self.failed = "zip: size mismatch: " .. String.counted(self.seen, "byte") .. ", recorded " ..
+        why = "zip: size mismatch: " .. String.counted(self.seen, "byte") .. ", recorded " ..
           String.counted(self.size, "byte")
       elseif (self.state or 0) ~= self.crc then
-        self.failed = "zip: crc32 mismatch"
+        why = "zip: crc32 mismatch"
       else
         return nil, ""
       end
-      return nil, self.failed -- checked: nil_not_allowed
+      self.failed = why
+      return nil, why
     end
     local seen = self.seen + #chunk
     self.seen = seen
     if seen > self.size then
-      self.failed = "zip: entry is larger than its recorded size of " .. String.counted(self.size, "byte")
-      return nil, self.failed -- checked: nil_not_allowed
+      local why = "zip: entry is larger than its recorded size of " .. String.counted(self.size, "byte")
+      self.failed = why
+      return nil, why
     end
     self.state = sums.crc32(chunk, self.state)
     return chunk, ""

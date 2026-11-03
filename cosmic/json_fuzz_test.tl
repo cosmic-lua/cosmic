@@ -9,8 +9,10 @@
 --- own C in core/json.c -- the walk from yyjson's document into Lua
 --- values, the encoder, its error paths -- and the Teal above it.
 
+local Array = require("cosmic.array")
 local Fuzz = require("build.fuzz")
 local Json = require("cosmic.json")
+local String = require("cosmic.string")
 -- TODO: once a generator can build a value that is not a Json.Value (a function, a cycle, a table of mixed keys) with a type, the `any` plumbing of this file, json_path_fuzz_test.tl and json_reader_fuzz_test.tl goes.
 
 --- Well-formed and nearly well-formed texts to mutate: every shape the
@@ -67,8 +69,9 @@ local GAPS <const>: {{string}} = {
 --- One of `lists`' strict half, or, in a text meant for JSON5, now and
 --- then one of its JSON5 half.
 local function leaf(src: Fuzz.Source, lists: {{string}}, json5: boolean): string
-  if json5 and src:int(0, 3) == 0 then return Fuzz.pick(src, lists[2]) end -- checked: index_may_be_nil
-  return Fuzz.pick(src, lists[1]) -- checked: index_may_be_nil
+  -- Every caller passes a strict half and a JSON5 half: two lists.
+  if json5 and src:int(0, 3) == 0 then return Fuzz.pick(src, Array.at(lists, 2)) end
+  return Fuzz.pick(src, Array.at(lists, 1))
 end
 
 --- A value drawn from the grammar, nested at most `depth` deep, each
@@ -197,10 +200,11 @@ local function holds_key_twice(compact: string?): boolean?
         j = j + (if compact:sub(j, j) == "\\" then 2 else 1 end)
       end
       if expecting then
-        local keys = open[#open]
+        -- A key is expected only after the `{` that pushed `open`'s last object.
+        local keys = Array.at(open, #open)
         local literal = compact:sub(i, j)
-        if keys[literal] == true then return true end -- checked: nil_not_allowed
-        keys[literal] = true -- checked: nil_not_allowed
+        if keys[literal] == true then return true end
+        keys[literal] = true
         expecting = false
       end
       i = j
@@ -387,9 +391,10 @@ local function path_into(opens: string, limit: integer): string
   end
   local kept, length = "", 0
   for i = #segments, 1, -1 do
-    if length + #segments[i] >= 200 then return 'pointer ending "' .. kept .. '"' end -- checked: nil_not_allowed
-    kept = segments[i] .. kept -- checked: nil_not_allowed
-    length = length + #segments[i] -- checked: nil_not_allowed
+    local part = Array.at(segments, i)
+    if length + #part >= 200 then return 'pointer ending "' .. kept .. '"' end
+    kept = part .. kept
+    length = length + #part
   end
   return 'pointer "' .. kept .. '"'
 end
@@ -447,7 +452,7 @@ end
 --- this copy with it.
 local function fnv(s: string): integer
   local h = 2166136261
-  for i = 1, #s do h = ((h ~ s:byte(i)) * 16777619) & 0xffffffff end -- checked: nil_not_allowed
+  for i = 1, #s do h = ((h ~ String.byte_at(s, i)) * 16777619) & 0xffffffff end
   return h
 end
 
@@ -487,7 +492,7 @@ end
 local function gap(src: Fuzz.Source, b: Built, before_key: boolean)
   if b.json5 and src:int(0, 3) == 0 then
     local choice = Fuzz.pick(src, JSON5_GAPS)
-    emit(b, if before_key and choice:byte(1) > 127 then " " else choice end) -- checked: nil_not_allowed
+    emit(b, if before_key and String.byte_at(choice, 1) > 127 then " " else choice end)
   else
     emit(b, Fuzz.pick(src, OFFICIAL_GAPS))
   end
@@ -496,22 +501,23 @@ end
 --- The ways one character of a key may be written in a quoted string,
 --- the plainest first.
 local function forms_of(ch: string, json5: boolean): {string}
-  local code = utf8.codepoint(ch)
+  -- `ch` is one character of a key, so `codepoint` reads exactly one.
+  local code = assert(utf8.codepoint(ch), "forms_of reads one character")
   local forms: mut {string} = {}
-  if code >= 32 and ch ~= '"' and ch ~= "\\" then forms[1] = ch end -- checked: nil_not_allowed
+  if code >= 32 and ch ~= '"' and ch ~= "\\" then forms[1] = ch end
   if ch == "\n" then forms[#forms + 1] = "\\n" end
   if ch == '"' then forms[#forms + 1] = '\\"' end
   if ch == "\\" then forms[#forms + 1] = "\\\\" end
   if ch == "/" then forms[#forms + 1] = "\\/" end
-  if code >= 0x10000 then -- checked: nil_not_allowed
-    local high, low = 0xd800 + ((code - 0x10000) >> 10), 0xdc00 + ((code - 0x10000) & 0x3ff) -- checked: nil_not_allowed*2
+  if code >= 0x10000 then
+    local high, low = 0xd800 + ((code - 0x10000) >> 10), 0xdc00 + ((code - 0x10000) & 0x3ff)
     forms[#forms + 1] = ("\\u%04x\\u%04x"):format(high, low)
     forms[#forms + 1] = ("\\u%04X\\u%04X"):format(high, low)
   else
-    forms[#forms + 1] = ("\\u%04x"):format(code) -- checked: nil_not_allowed
-    forms[#forms + 1] = ("\\u%04X"):format(code) -- checked: nil_not_allowed
+    forms[#forms + 1] = ("\\u%04x"):format(code)
+    forms[#forms + 1] = ("\\u%04X"):format(code)
   end
-  if json5 and code < 256 then forms[#forms + 1] = ("\\x%02x"):format(code) end -- checked: nil_not_allowed*2
+  if json5 and code < 256 then forms[#forms + 1] = ("\\x%02x"):format(code) end
   return forms
 end
 
@@ -539,7 +545,7 @@ end
 local function quoted(pointer: string): string
   return (pointer:gsub('[%c"\\]', function(c: string): string
     if c == '"' or c == "\\" then return "\\" .. c end
-    return ("\\u%04x"):format(c:byte()) -- checked: nil_not_allowed
+    return ("\\u%04x"):format(String.byte_at(c, 1))
   end))
 end
 
@@ -570,13 +576,14 @@ local function gen_object(src: Fuzz.Source, b: Built, depth: integer, path: stri
     gap(src, b, true)
     local key: string
     if count > 0 and src:int(0, if large then 30 else 6 end) < rate then
-      key = names[src:int(1, #names)] -- checked: index_may_be_nil
+      -- A member after the first: `names` holds the first member's key.
+      key = Array.at(names, src:int(1, #names))
     else
       local fresh = #names + 1
       if colliding and fresh <= #COLLIDING then
-        key = COLLIDING[fresh] -- checked: index_may_be_nil
+        key = Array.at(COLLIDING, fresh) -- `fresh <= #COLLIDING`
       elseif fresh <= #NAMES then
-        key = NAMES[fresh] -- checked: index_may_be_nil
+        key = Array.at(NAMES, fresh) -- `fresh <= #NAMES`
       else
         key = "k" .. tostring(#names)
       end
@@ -701,30 +708,31 @@ end
 
 local function repeating_holds(input: string): boolean, string
   local fields = Fuzz.unpack(input)
-  local text, as_json5, null_value = fields[1], fields[3] == "json5", fields[4] == "null"
-  local expected, labels = fields[5], fields[6]
-  for label in (if expected == "" then "no key twice" else labels end):gmatch("[^;]+") do -- checked: nil_not_allowed
+  -- [`gen_repeating`] packs six fields.
+  local text, as_json5, null_value = Array.at(fields, 1), fields[3] == "json5", fields[4] == "null"
+  local expected, labels = Array.at(fields, 5), Array.at(fields, 6)
+  for label in (if expected == "" then "no key twice" else labels end):gmatch("[^;]+") do
     Fuzz.label(label)
   end
   local opts: Json.DecodeOptions = { json5 = as_json5, null_value = if null_value then Json.null else nil end }
   local where = ("json5=%s null_value=%s"):format(tostring(as_json5), tostring(null_value))
-  local value, err = Json.decode(text, opts) -- checked: nil_not_allowed
+  local value, err = Json.decode(text, opts)
   if err ~= expected then
-    return false, where .. ": decode said \"" .. err .. "\", expected \"" .. expected .. "\"" -- checked: nil_not_allowed
+    return false, where .. ": decode said \"" .. err .. "\", expected \"" .. expected .. "\""
   end
   if expected ~= "" and value ~= nil then return false, where .. ": a refusal with a value" end
-  local ok, check_err = Json.check(text, { json5 = as_json5 }) -- checked: nil_not_allowed
+  local ok, check_err = Json.check(text, { json5 = as_json5 })
   if ok ~= (expected == "") or check_err ~= expected then
     return false, where .. ": check said \"" .. check_err .. "\""
   end
   if expected ~= "" then
-    local _, format_err = Json.format(text, { json5 = as_json5 }) -- checked: nil_not_allowed
+    local _, format_err = Json.format(text, { json5 = as_json5 })
     if format_err ~= expected then
       return false, where .. ": format said \"" .. format_err .. "\""
     end
   end
   opts.duplicate_keys = true
-  local _, allowed = Json.decode(text, opts) -- checked: nil_not_allowed
+  local _, allowed = Json.decode(text, opts)
   if allowed ~= "" then return false, where .. ": duplicate_keys refused: " .. allowed end
   return true, ""
 end
@@ -928,8 +936,11 @@ local function encode_holds(input: string): boolean, string
   local r: Recipe = { bytes = input, at = 0 }
   local opts = recipe_options(r)
   local value = recipe_value(r, 0)
-  local ok, text, err = pcall(Json.encode_any, value, opts)
-  if not ok then return false, "raised: " .. tostring(text) end
+  local encoded: string?
+  local err = ""
+  local ok, raised = pcall(function() encoded, err = Json.encode_any(value, opts) end)
+  if not ok then return false, "raised: " .. tostring(raised) end
+  local text = encoded
   Fuzz.label(if text ~= nil then "encoded" else "refused" end)
   if opts.ascii == true then
     -- `ascii` changes how a string is written, never whether the value
@@ -939,7 +950,7 @@ local function encode_holds(input: string): boolean, string
       return false, "ascii changed whether the value encodes"
     end
     if text ~= nil then
-      if text:find("[\128-\255]") then return false, "ascii wrote a byte past 0x7f: " .. text end -- checked: any_use*2
+      if text:find("[\128-\255]") then return false, "ascii wrote a byte past 0x7f: " .. text end
       Fuzz.label(if plain ~= text then "ascii escaped" else "ascii plain" end)
     end
   end
@@ -952,13 +963,13 @@ local function encode_holds(input: string): boolean, string
     end
     return true, ""
   end
-  if err ~= "" then return false, "a success with a message: " .. err end -- checked: nil_not_allowed
+  if err ~= "" then return false, "a success with a message: " .. err end
   local expected, eerr = Json.encode_any(value, { max_depth = opts.max_depth })
   if expected == nil then
     return false, "encoded laid out, but not compactly: " .. eerr
   end
-  local back, berr = Json.decode(text, { null_value = Json.null, max_depth = 1000 }) -- checked: any_use
-  if berr ~= "" then return false, "wrote what decode refuses: " .. berr .. ": " .. text end -- checked: any_use
+  local back, berr = Json.decode(text, { null_value = Json.null, max_depth = 1000 })
+  if berr ~= "" then return false, "wrote what decode refuses: " .. berr .. ": " .. text end
   local got, gerr = Json.encode_any(back, { max_depth = 1000 })
   if got ~= expected then
     return false, "did not read back the same: " .. expected .. " vs " .. tostring(got or gerr)
@@ -982,11 +993,12 @@ end
 local function scalars(input: string): string
   local parts: mut {string} = {}
   for at = 1, #input - 2, 3 do
-    local b1, b2, b3 = input:byte(at, at + 2)
-    local code = (b1 << 16 | b2 << 8 | b3) % 0x110000 -- checked: nil_not_allowed*3
+    -- `at + 2 <= #input` by the loop's bound.
+    local b1, b2, b3 = String.byte_at(input, at), String.byte_at(input, at + 1), String.byte_at(input, at + 2)
+    local code = (b1 << 16 | b2 << 8 | b3) % 0x110000
     -- Two draws in three are kept small, so that the short widths and
     -- ASCII are drawn as often as the astral planes.
-    if b1 % 3 == 1 then code = code % 0x800 elseif b1 % 3 == 2 then code = code % 0x10000 end -- checked: nil_not_allowed*2
+    if b1 % 3 == 1 then code = code % 0x800 elseif b1 % 3 == 2 then code = code % 0x10000 end
     if code >= 0xd800 and code <= 0xdfff then code = code - 0x800 end
     parts[#parts + 1] = utf8.char(code)
   end
@@ -1042,16 +1054,17 @@ local function test_the_depth_limits_are_exact(tmp: string)
     end,
     check = function(input: string): boolean, string
       local fields = Fuzz.unpack(input)
-      local opens, limit = fields[1], assert(math.tointeger(tonumber(fields[2])))
-      local closes = opens:reverse():gsub(":\"k\"{", "}"):gsub("%[", "]") -- checked: nil_not_allowed
-      local _, n = opens:gsub("[%[{]", "") -- checked: nil_not_allowed
-      local value, err = Json.decode(opens .. "1" .. closes, { max_depth = limit }) -- checked: nil_not_allowed
+      -- The generator packs the opens, then the limit.
+      local opens, limit = Array.at(fields, 1), assert(math.tointeger(tonumber(fields[2])))
+      local closes = opens:reverse():gsub(":\"k\"{", "}"):gsub("%[", "]")
+      local _, n = opens:gsub("[%[{]", "")
+      local value, err = Json.decode(opens .. "1" .. closes, { max_depth = limit })
       if n <= limit then
         if err ~= "" then
           return false, ("%d levels under a limit of %d: %s"):format(n, limit, err)
         end
       elseif value ~= nil or err ~= ("json: JSON nests deeper than %d level%s at line 1, column %d (%s)"):
-          format(limit, if limit == 1 then "" else "s" end, deepest(opens, limit + 1), path_into(opens, limit)) then -- checked: nil_not_allowed*2
+          format(limit, if limit == 1 then "" else "s" end, deepest(opens, limit + 1), path_into(opens, limit)) then
         return false, ("%d levels over a limit of %d: %s"):format(n, limit, err)
       end
       if err == "" then

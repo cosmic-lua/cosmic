@@ -5,9 +5,11 @@
 --- interop check -- `tar_test.tl` and `zip_test.tl` already cover
 --- reading what other tools wrote.
 
+local Array = require("cosmic.array")
 local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
 local Stream = require("cosmic.stream")
+local String = require("cosmic.string")
 local Tar = require("cosmic.tar")
 local Zip = require("cosmic.zip")
 local Archive = require("cosmic.archive")
@@ -51,9 +53,10 @@ local function test_open_detects_a_plain_tar_by_its_ustar_magic(tmp: string)
   local entries = assert(Archive.list(path))
   local by: mut {string:Archive.Entry} = {}
   for _, e in ipairs(entries) do by[e.path] = e end
-  assert(by["adir/"].kind == "dir") -- checked: nil_not_allowed
-  assert(by["adir/short.txt"].kind == "file" and by["adir/short.txt"].size == 11) -- checked: nil_not_allowed*2
-  assert(by["adir/link"].kind == "symlink" and by["adir/link"].linkpath == "short.txt") -- checked: nil_not_allowed*2
+  local adir, short, link = by["adir/"], by["adir/short.txt"], by["adir/link"]
+  assert(adir ~= nil and adir.kind == "dir")
+  assert(short ~= nil and short.kind == "file" and short.size == 11)
+  assert(link ~= nil and link.kind == "symlink" and link.linkpath == "short.txt")
 end
 
 local function test_a_zstd_zip_lists_and_extracts_through_archive(tmp: string)
@@ -82,8 +85,9 @@ local function test_open_detects_a_zip_by_its_local_header_signature(tmp: string
   local entries = assert(Archive.list(path))
   local by: mut {string:Archive.Entry} = {}
   for _, e in ipairs(entries) do by[e.path] = e end
-  assert(by["adir/"].kind == "dir") -- checked: nil_not_allowed
-  assert(by["adir/short.txt"].kind == "file" and by["adir/short.txt"].size == 11) -- checked: nil_not_allowed*2
+  local adir, short = by["adir/"], by["adir/short.txt"]
+  assert(adir ~= nil and adir.kind == "dir")
+  assert(short ~= nil and short.kind == "file" and short.size == 11)
 end
 
 --- The entries of `reader`, by path, and closes it.
@@ -116,8 +120,9 @@ local function test_open_stream_reads_a_plain_tar_from_a_stream_one_byte_at_a_ti
     close = function(_self: Stream.Reader): boolean, string return true, "" end,
   }
   local by = walked((assert(Archive.open_stream(source))))
-  assert(by["adir/short.txt"].size == 11) -- checked: nil_not_allowed
-  assert(by["adir/link"].linkpath == "short.txt") -- checked: nil_not_allowed
+  local short, link = by["adir/short.txt"], by["adir/link"]
+  assert(short ~= nil and short.size == 11)
+  assert(link ~= nil and link.linkpath == "short.txt")
 end
 
 local function test_open_stream_reads_gzip_xz_bzip2_and_zstd_tars()
@@ -528,8 +533,8 @@ local function nul_pax_tar(key: string, typeflag: string, name: string): string
   local pax = c2:result():sub(1, 1024)
   local block = pax:sub(1, 156) .. "x" .. pax:sub(158, 512)
   local sum = 256
-  for i = 1, 148 do sum = sum + block:byte(i) end -- checked: nil_not_allowed
-  for i = 157, 512 do sum = sum + block:byte(i) end -- checked: nil_not_allowed
+  for i = 1, 148 do sum = sum + String.byte_at(block, i) end
+  for i = 157, 512 do sum = sum + String.byte_at(block, i) end
   block = block:sub(1, 148) .. string.format("%06o", sum) .. "\0 " .. block:sub(157)
   return block .. pax:sub(513, 1024) .. ustar
 end
@@ -599,8 +604,8 @@ local function test_extract_fails_on_a_hardlink(tmp: string)
   local block = raw:sub(1025, 1536)
   block = block:sub(1, 156) .. "1" .. block:sub(158)
   local sum = 256
-  for i = 1, 148 do sum = sum + block:byte(i) end -- checked: nil_not_allowed
-  for i = 157, 512 do sum = sum + block:byte(i) end -- checked: nil_not_allowed
+  for i = 1, 148 do sum = sum + String.byte_at(block, i) end
+  for i = 157, 512 do sum = sum + String.byte_at(block, i) end
   block = block:sub(1, 148) .. string.format("%06o", sum) .. "\0 " .. block:sub(157)
   assert(Fs.write(archive, raw:sub(1, 1024) .. block .. raw:sub(1537)))
   local written, trouble = Archive.extract(archive, tmp .. "/out")
@@ -666,15 +671,15 @@ local function tar_claiming(name: string, claimed: integer): string
   local block = c:result():sub(1, 512)
   block = block:sub(1, 124) .. string.format("%011o", claimed) .. "\0" .. block:sub(137)
   local sum = 256
-  for i = 1, 148 do sum = sum + block:byte(i) end -- checked: nil_not_allowed
-  for i = 157, 512 do sum = sum + block:byte(i) end -- checked: nil_not_allowed
+  for i = 1, 148 do sum = sum + String.byte_at(block, i) end
+  for i = 157, 512 do sum = sum + String.byte_at(block, i) end
   return block:sub(1, 148) .. string.format("%06o", sum) .. "\0 " .. block:sub(157) .. "tiny"
 end
 
 --- A zip of the files `bodies` names, deflated; `bodies` is ordered.
 local function zip_of(path: string, names: {string}, bodies: {string})
   local zw = Zip.writer((assert(Stream.create(path))))
-  for i, name in ipairs(names) do assert(zw:add_file(name, bodies[i])) end -- checked: index_may_be_nil
+  for i, name in ipairs(names) do assert(zw:add_file(name, Array.at(bodies, i))) end
   assert(zw:close())
 end
 
@@ -1128,15 +1133,17 @@ local function test_one_writer_interface_packs_a_tar_and_a_zip_alike(tmp: string
   local from_zip = assert(Archive.list(tmp .. "/z.zip"))
   assert(#from_tar == 4 and #from_zip == 4)
   for i, t in ipairs(from_tar) do
-    local z = from_zip[i]
+    -- `#from_zip == #from_tar` is asserted above.
+    local z = Array.at(from_zip, i)
     -- A zip symlink's body is its target, so only a file's size is alike.
-    assert(t.path == z.path and t.kind == z.kind and t.mtime == z.mtime and -- checked: nil_not_allowed*3
-        t.linkpath == z.linkpath and (t.kind ~= "file" or t.size == z.size), -- checked: nil_not_allowed*2
-      t.path .. " differs from " .. z.path) -- checked: nil_not_allowed
+    assert(t.path == z.path and t.kind == z.kind and t.mtime == z.mtime and
+        t.linkpath == z.linkpath and (t.kind ~= "file" or t.size == z.size),
+      t.path .. " differs from " .. z.path)
     -- A zip records the permission bits of what a Unix tool made it from.
-    assert(t.mode == z.mode, t.path) -- checked: nil_not_allowed
+    assert(t.mode == z.mode, t.path)
   end
-  assert(from_zip[4].kind == "symlink" and from_zip[4].linkpath == "a.txt") -- checked: nil_not_allowed*2
+  local last = from_zip[4]
+  assert(last ~= nil and last.kind == "symlink" and last.linkpath == "a.txt")
 end
 
 --- Readers a format makes are the reader `Archive` takes, with no
@@ -1163,35 +1170,39 @@ local function test_a_tar_reader_and_a_zip_reader_are_archive_readers(tmp: strin
   end
 end
 
+local record CloseCount
+  mut count: integer
+end
+
 local function test_list_reader_lists_a_reader_to_its_end_and_closes_it()
   local sink = Stream.collect()
   local tw = Tar.writer(sink)
   assert(tw:add_file("a", "one"))
   assert(tw:add_file("b", "two"))
   assert(tw:close())
-  local function counting(inner: Archive.Reader, closes: mut {integer}): Archive.Reader
+  local function counting(inner: Archive.Reader, closes: CloseCount): Archive.Reader
     return { -- checked: literal_shape
       next = function(_self: Archive.Reader): Archive.Entry?, string return inner:next() end,
       close = function(_self: Archive.Reader): boolean, string
-        closes[1] = closes[1] + 1 -- checked: nil_not_allowed
+        closes.count = closes.count + 1
         return inner:close()
       end,
     }
   end
-  local closes = { 0 }
+  local closes: CloseCount = { count = 0 }
   local entries = assert(Archive.list_reader(counting(
     assert(Archive.open_stream(Stream.from_string(sink:result()))), closes)))
   assert(#entries == 2 and entries[1].path == "a" and entries[2].path == "b")
-  assert(closes[1] == 1, "closed " .. closes[1] .. " times") -- checked: nil_not_allowed
+  assert(closes.count == 1, "closed " .. tostring(closes.count) .. " times")
   local body, why = entries[1]:open()
   assert(body == nil and why:find("cannot be opened", 1, true) ~= nil, why)
   -- A failure partway closes it too, and is the answer.
-  closes = { 0 }
+  closes = { count = 0 }
   local cut = sink:result():sub(1, 700)
   local listed, trouble = Archive.list_reader(counting(
     assert(Archive.open_stream(Stream.from_string(cut))), closes))
   assert(listed == nil and trouble ~= "", tostring(trouble))
-  assert(closes[1] == 1, "closed " .. closes[1] .. " times") -- checked: nil_not_allowed
+  assert(closes.count == 1, "closed " .. tostring(closes.count) .. " times")
 end
 
 --- The format a name asks for, as the archive's first bytes say it:
