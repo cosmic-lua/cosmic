@@ -4361,7 +4361,7 @@ function Child.run(argv: {string}, opts?: Options): Result?, string
   if not restored then return refuse("signal restore: " .. restore_trouble) end
   local cancellation = guard:cancelled()
   if cancellation ~= 0 then
-    return nil, cleanup_trouble or wait_trouble or cancelled_by(cancellation) -- checked: condition_type
+    return nil, cleanup_trouble or (if wait_trouble ~= "" then wait_trouble else cancelled_by(cancellation) end)
   end
   if cleanup_trouble then return nil, cleanup_trouble end
   if r then return r, "" end
