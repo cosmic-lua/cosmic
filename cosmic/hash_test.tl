@@ -194,8 +194,8 @@ end
 local function test_incremental_hmac_throws_naming_the_finished_hasher()
   local mac = assert(Hash.hmac_hasher("sha256", "key"))
   assert(mac:digest())
-  local ok, trouble = pcall(function(): string, string
-    return mac:digest() -- checked: nil_not_allowed
+  local ok, trouble = pcall(function(): string?, string
+    return mac:digest()
   end)
   assert(not ok and tostring(trouble):find("hash: the hasher is finished", 1, true) ~= nil, tostring(trouble))
   local updated = pcall(mac.update, mac, "more") -- checked: alternatives_as_value
@@ -239,11 +239,11 @@ end
 
 local function test_an_incremental_hmac_revived_by_a_finalizer_is_finished()
   local saved: Hash.Hasher? = nil
-  local holder: Holder = setmetatable({} as Holder, { -- checked: cast_refused*2, setmetatable_call
+  local holder: Holder? = setmetatable({} as Holder, { -- checked: cast_refused*2, setmetatable_call
     __gc = function(self: Holder) saved = self.h end,
   } as metatable<Holder>)
-  holder.h = assert(Hash.hmac_hasher("sha256", "key"))
-  holder = nil -- checked: nil_not_allowed
+  if holder ~= nil then holder.h = assert(Hash.hmac_hasher("sha256", "key")) end
+  holder = nil
   collectgarbage()
   collectgarbage()
   local kept = assert(saved, "the finalizer ran")
@@ -337,9 +337,10 @@ local function test_hasher_matches_digest_for_chunked_input()
     local sizes = { 1, 2, 3, 5, 8, 13, 4096 }
     local size_i = 1
     while pos <= #whole do
-      local size = sizes[(size_i - 1) % #sizes + 1]
+      -- The index is 1 to #sizes.
+      local size = Array.at(sizes, (size_i - 1) % #sizes + 1)
       size_i = size_i + 1
-      local piece = whole:sub(pos, pos + size - 1) -- checked: nil_not_allowed
+      local piece = whole:sub(pos, pos + size - 1)
       hasher:update(piece)
       pos = pos + #piece
     end
@@ -356,8 +357,8 @@ local function test_hasher_throws_after_digest()
     hasher:update("more")
   end)
   assert(not ok and tostring(trouble):find("finished", 1, true) ~= nil)
-  local ok2 = pcall(function(): string, string -- checked: alternatives_as_value
-    return hasher:digest() -- checked: nil_not_allowed
+  local ok2 = pcall(function(): string?, string -- checked: alternatives_as_value
+    return hasher:digest()
   end)
   assert(not ok2)
 end
@@ -379,11 +380,11 @@ end
 
 local function test_a_hasher_revived_by_a_finalizer_is_finished()
   local saved: Hash.Hasher? = nil
-  local holder: Holder = setmetatable({} as Holder, { -- checked: cast_refused*2, setmetatable_call
+  local holder: Holder? = setmetatable({} as Holder, { -- checked: cast_refused*2, setmetatable_call
     __gc = function(self: Holder) saved = self.h end,
   } as metatable<Holder>)
-  holder.h = assert(Hash.hasher("sha256"))
-  holder = nil -- checked: nil_not_allowed
+  if holder ~= nil then holder.h = assert(Hash.hasher("sha256")) end
+  holder = nil
   collectgarbage()
   collectgarbage()
   local kept = assert(saved, "the finalizer ran")
@@ -443,7 +444,9 @@ local function test_siphash_matches_reference_vectors()
   for _, case in ipairs(siphash_vectors) do
     for i, n in ipairs(siphash_lengths) do
       local got = Codec.hex(Hash.siphash(key, message:sub(1, n), case.options))
-      assert(got == case.tags[i], tostring(n) .. " bytes: " .. got .. " ~= " .. case.tags[i]) -- checked: nil_not_allowed
+      -- Each vector holds one tag per length.
+      local want = Array.at(case.tags, i)
+      assert(got == want, tostring(n) .. " bytes: " .. got .. " ~= " .. want)
     end
   end
 end

@@ -1,3 +1,4 @@
+local Array = require("cosmic.array")
 local Codec = require("cosmic.codec")
 local Rand = require("cosmic.rand")
 local Test = require("cosmic.test")
@@ -50,7 +51,8 @@ local function test_uniform_draws_within_range_from_any_bit_source()
   -- Both ends are reachable, and a modulo would favor 0 (2^64 % 3 = 1):
   -- rejection keeps the three within a loose band of 1000 each.
   for v = 0, 2 do
-    assert(seen[v] ~= nil and seen[v] > 850 and seen[v] < 1150, "biased: " .. tostring(v) .. " x" .. tostring(seen[v])) -- checked: nil_not_allowed*2
+    local count = seen[v]
+    assert(count ~= nil and count > 850 and count < 1150, "biased: " .. tostring(v) .. " x" .. tostring(count))
   end
   assert(Rand.uniform(draw, -4, -4) == -4)
   assert(Rand.uniform(draw, math.mininteger, math.mininteger + 1) <= math.mininteger + 1)
@@ -59,7 +61,8 @@ local function test_uniform_draws_within_range_from_any_bit_source()
   local at: integer = 0
   local got = Rand.uniform(function(): integer
     at = at + 1
-    return words[at] -- checked: index_may_be_nil
+    -- Rejection ends by the third word, as the assertion below holds.
+    return Array.at(words, at)
   end, 0, 2)
   assert(got == 1 and at == 3, "rejection: " .. tostring(got) .. " after " .. tostring(at))
   Test.raises(function() Rand.uniform(draw, 3, 2) end)

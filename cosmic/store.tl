@@ -15,6 +15,7 @@
 -- back to requiring it by name, which only boot's own preload answers.
 
 local type raw_store = require("cosmic.internal.store")
+local Array = require("cosmic.array")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
@@ -184,7 +185,8 @@ end
 --- carries no such file or the query failed.
 function Store.web_asset(name: string): Store.WebAsset?, string
   local databases = store.databases()
-  local rows, trouble = Sqlite.rows(databases[#databases], -- checked: index_may_be_nil
+  -- The binary's own database is always the last of them.
+  local rows, trouble = Sqlite.rows(Array.at(databases, #databases),
     "SELECT data, sha256, sha384, version FROM web_assets WHERE name = ?1",
     { { text = name } })
   if rows == nil then
@@ -242,8 +244,8 @@ local function reserved(name: string): boolean
   if name:sub(1, 6) ~= "build." then
     return false
   end
-  local search = package.searchers[#package.searchers]
-  local _, raw = search(name) -- checked: nil_not_allowed
+  local search = Array.at(package.searchers, #package.searchers)
+  local _, raw = search(name)
   return raw is table
 end
 
@@ -254,8 +256,9 @@ local function locate(name: string, required?: string): Handle?, string
   local count = #databases
   local binary_first = reserved(name)
   for step = 1, count do
-    local db = databases[if binary_first then count + 1 - step else step end]
-    local rows, trouble = Sqlite.text_rows(db, -- checked: nil_not_allowed
+    -- `step` runs 1 to `count`, so either index is one of the databases.
+    local db = Array.at(databases, if binary_first then count + 1 - step else step end)
+    local rows, trouble = Sqlite.text_rows(db,
       "SELECT 1 FROM modules WHERE path = ?1", { text(name) })
     if rows == nil then
       return nil, trouble
@@ -327,16 +330,17 @@ function Store.closure(roots: {string}, opts?: Store.ClosureOptions): {string}
   for _, root in ipairs(roots) do
     stack[#stack + 1] = root
   end
-  while #stack > 0 do
+  while true do
     local required = required_by[#stack]
     required_by[#stack] = nil
     local name = table.remove(stack)
-    if seen[name] ~= true then -- checked: nil_not_allowed
-      seen[name] = true -- checked: nil_not_allowed
-      names[#names + 1] = name -- checked: nil_not_allowed
-      for _, next_name in ipairs(requires_of(located(name, required), name, types)) do -- checked: nil_not_allowed*2
+    if name == nil then break end
+    if seen[name] ~= true then
+      seen[name] = true
+      names[#names + 1] = name
+      for _, next_name in ipairs(requires_of(located(name, required), name, types)) do
         stack[#stack + 1] = next_name
-        required_by[#stack] = name -- checked: nil_not_allowed
+        required_by[#stack] = name
       end
     end
   end
@@ -406,13 +410,20 @@ local seal_schema: {string} = {
 local module_columns <const> = { "path", "file", "kind", "source_hash", "key",
   "bytecode", "tests", "source" }
 
+--- A row of the `meta` table a sealed program records.
+local record MetaRow
+  key: string
+  value: string
+end
+
 --- Writes the database of `names` at `file` (see [`Store.seal`]), with
 --- `identity`, the meta rows to record, and `main`. False and why on a
 --- failure.
 local function write_database(names: {string}, file: string, main: string?,
-                              identity: {{string}}, script: Store.Extra?): boolean, string
+                              identity: {MetaRow}, script: Store.Extra?): boolean, string
   local binary = Store.databases()
-  local binary_db = binary[#binary]
+  -- The binary's own database is always the last of them.
+  local binary_db = Array.at(binary, #binary)
   local present: mut {string:boolean} = {}
   for _, name in ipairs(names) do
     present[name] = true
@@ -511,7 +522,7 @@ local function write_database(names: {string}, file: string, main: string?,
       -- the roots core/http.c trusts and the files cosmic.web serves: carried
       -- only for a program that holds the module that reads them.
       if zones then
-        local copied, why = copy_rows(binary_db, db, "zoneinfo", { "name", "data" }, -- checked: nil_not_allowed
+        local copied, why = copy_rows(binary_db, db, "zoneinfo", { "name", "data" },
           "SELECT name, data FROM zoneinfo ORDER BY name")
         if not copied then
           return false, why
@@ -519,13 +530,13 @@ local function write_database(names: {string}, file: string, main: string?,
       end
       if web then
         -- A binary from before the table has none to carry.
-        local has_web, has_trouble = Sqlite.text_rows(binary_db, -- checked: nil_not_allowed
+        local has_web, has_trouble = Sqlite.text_rows(binary_db,
           "SELECT 1 FROM sqlite_master WHERE name = 'web_assets'")
         if has_web == nil then
           return false, has_trouble
         end
         if #has_web > 0 then
-          local copied, why = copy_rows(binary_db, db, "web_assets", -- checked: nil_not_allowed
+          local copied, why = copy_rows(binary_db, db, "web_assets",
             { "name", "data", "sha256", "sha384", "version" },
             "SELECT name, data, sha256, sha384, version FROM web_assets ORDER BY name")
           if not copied then
@@ -534,13 +545,13 @@ local function write_database(names: {string}, file: string, main: string?,
         end
       end
       if roots then
-        local copied, why = copy_rows(binary_db, db, "ca_roots", -- checked: nil_not_allowed
+        local copied, why = copy_rows(binary_db, db, "ca_roots",
           { "sha256", "label", "der", "distrust_after" },
           "SELECT sha256, label, der, distrust_after FROM ca_roots ORDER BY sha256")
         if not copied then
           return false, why
         end
-        copied, why = copy_rows(binary_db, db, "ca_revoked", { "kind", "name", "value" }, -- checked: nil_not_allowed
+        copied, why = copy_rows(binary_db, db, "ca_revoked", { "kind", "name", "value" },
           "SELECT kind, name, value FROM ca_revoked ORDER BY rowid")
         if not copied then
           return false, why
@@ -549,7 +560,7 @@ local function write_database(names: {string}, file: string, main: string?,
       -- What the program was made to run on and as.
       for _, pair in ipairs(identity) do
         local inserted, trouble = Sqlite.run(db,
-          "INSERT INTO meta (key, value) VALUES (?1, ?2)", { text(pair[1]), text(pair[2]) }) -- checked: index_may_be_nil*2
+          "INSERT INTO meta (key, value) VALUES (?1, ?2)", { text(pair.key), text(pair.value) })
         if not inserted then
           return false, trouble
         end
@@ -672,10 +683,11 @@ function Store.seal(names: {string}, path?: string,
   if core == nil or core == "" then
     return nil, "this process has no core digest to record"
   end
-  local identity: mut {{string}} = { { "core_sha256", core }, { "runtime_basis", basis } }
+  local identity: mut {MetaRow} = {
+    { key = "core_sha256", value = core }, { key = "runtime_basis", value = basis } }
   local image = Store.meta("image_hash")
   if image ~= nil then
-    table.insert(identity, 1, { "image_hash", image })
+    table.insert(identity, 1, { key = "image_hash", value = image })
   end
   local made_scratch, scratch_trouble = Fs.mkdtemp("seal-")
   if made_scratch == nil then
