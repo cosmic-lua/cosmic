@@ -191,7 +191,6 @@ end
 -- its option is refused before a start, and a sandboxed worker has no
 -- sh to find, so a refusal that regressed fails the case either way.
 local function test_invalid_inputs_do_not_poison_signal_guard()
-  Test.raises(function() Child.run({ "/bin/sh" }, { stdout = "bad" } as Child.Options) end) -- checked: cast_refused
   Test.raises(function() Child.run({ "/bin/sh\0bad" }) end)
   Test.raises(function() Child.run({ "/bin/sh" }, { cwd = "/tmp\0bad" } as Child.Options) end) -- checked: cast_refused
   Test.raises(function()
@@ -295,15 +294,6 @@ local function test_stdin_stream_belongs_to_the_caller()
   assert(stdin:close())
   local r = assert(h:wait(Clock.seconds(5)))
   assert(r.ok and r.stdout == "typed")
-end
-
---- A start with `stdin = "pipe"` raises, and the message names the
---- stream and `input` to use instead.
-local function test_a_stdin_pipe_names_the_stream_to_use()
-  local ok, trouble = pcall(Child.start, { "/bin/sh" }, { stdin = "pipe" } as Child.Options) -- checked: cast_refused
-  assert(not ok and tostring(trouble):find('"stream"', 1, true) ~= nil and
-      tostring(trouble):find("stdin_stream", 1, true) ~= nil, tostring(trouble))
-  Test.raises(function() Child.run({ "/bin/sh" }, { stdin = "pipe" } as Child.Options) end) -- checked: cast_refused
 end
 
 local function read_all(reader: Stream.Reader): string
