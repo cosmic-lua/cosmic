@@ -148,7 +148,9 @@ end
 function tree_root.move(argv: {string},
                         options: {string:boolean | Flags.Option}, home: string?,
                         named?: string): tree_root.Answer
-  local kind = paths[argv[1]] -- checked: index_may_be_nil
+  local verb = argv[1]
+  if verb == nil then return { refused = "", note = "" } end
+  local kind = paths[verb]
   if kind == nil then return { refused = "", note = "" } end
   local from, _ = Fs.absolute(".")
   if from == nil then return { refused = "", note = "" } end

@@ -7,6 +7,7 @@
 --- agrees with the answer, names a pair that is not related, and is the same in a judge that has
 --- settled other pairs and in another store. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs
 --- (build/fuzz/init.tl).
+local Array = require("cosmic.array")
 local Fuzz = require("build.fuzz")
 local Programs = require("lang.relation_programs")
 local Relation = require("lang.relation")
@@ -273,7 +274,8 @@ local function relation_type(c: Cursor, depth: integer): Type
   elseif n == 6 then
     return s.never
   elseif n == 7 then
-    return use(c.w, PLAIN[pick(c, #PLAIN) + 1]) -- checked: index_may_be_nil
+    -- `pick(c, n)` is below `n`.
+    return use(c.w, Array.at(PLAIN, pick(c, #PLAIN) + 1))
   elseif n == 8 then
     return s.boolean
   elseif n == 9 then
@@ -288,7 +290,7 @@ local function relation_type(c: Cursor, depth: integer): Type
   elseif n == 12 then
     return c.mistakes and s.invalid or s.integer -- checked: and_ternary
   elseif n == 13 then
-    return use(c.w, LISTED[pick(c, #LISTED) + 1], { relation_type(c, depth + 1) }) -- checked: index_may_be_nil
+    return use(c.w, Array.at(LISTED, pick(c, #LISTED) + 1), { relation_type(c, depth + 1) })
   elseif n == 14 then
     return use(c.w, "Ring", { relation_type(c, depth + 1) })
   elseif n == 15 then
@@ -391,8 +393,10 @@ local function pool(w: World, draws: {integer}): {Type}
   end
   local function slice(from: integer): {integer}
     local part: mut {integer} = {}
-    for i = from, #draws do
-      part[#part + 1] = draws[i] -- checked: index_may_be_nil
+    for i, draw in ipairs(draws) do
+      if i >= from then
+        part[#part + 1] = draw
+      end
     end
     return part
   end
@@ -692,8 +696,10 @@ local function test_a_weakening_is_above_a_type_and_a_strengthening_below_it(tmp
       local salt = draws[1] or 0
       for k = 1, 1 + (draws[2] or 0) % 3 do
         local part: mut {integer} = {}
-        for i = 3 * k, #draws do
-          part[#part + 1] = draws[i] -- checked: index_may_be_nil
+        for i, draw in ipairs(draws) do
+          if i >= 3 * k then
+            part[#part + 1] = draw
+          end
         end
         local base = TypesPrograms.generate(w.store, w.fixture, part)
         local up = weaken(w, base, salt + k)
@@ -825,12 +831,13 @@ local function test_a_judge_that_has_settled_other_pairs_and_another_store_agree
       local warmed = Relation.new(w.store)
       -- Settle the pairs in the opposite order, explaining some, so that the memo holds the pairs
       -- of a different walk.
+      -- `i` and `k` run over 1 to `#types`.
       for i = #types, 1, -1 do
         for k = #types, 1, -1 do
           if (i + k) % 2 == 0 then
-            local _ = warmed:refuse(types[i], types[k]) -- checked: index_may_be_nil*2
+            local _ = warmed:refuse(Array.at(types, i), Array.at(types, k))
           else
-            local _ = warmed:subtype(types[i], types[k]) -- checked: index_may_be_nil*2
+            local _ = warmed:subtype(Array.at(types, i), Array.at(types, k))
           end
         end
       end
@@ -844,6 +851,7 @@ local function test_a_judge_that_has_settled_other_pairs_and_another_store_agree
         end
         there[i] = decoded
       end
+      -- `there` holds a decoding for each index of `types`.
       for i, a in ipairs(types) do
         for k, b in ipairs(types) do
           local fresh = Relation.new(w.store)
@@ -851,10 +859,10 @@ local function test_a_judge_that_has_settled_other_pairs_and_another_store_agree
           if warmed:subtype(a, b) ~= answer then
             return false, Types.display(a) .. " against " .. Types.display(b) .. ": a judge that settled other pairs disagrees"
           end
-          if over:subtype(there[i], there[k]) ~= answer then -- checked: index_may_be_nil*2
+          if over:subtype(Array.at(there, i), Array.at(there, k)) ~= answer then
             return false, Types.display(a) .. " against " .. Types.display(b) .. ": another store disagrees"
           end
-          local r, there_r = fresh:refuse(a, b), over:refuse(there[i], there[k]) -- checked: index_may_be_nil*2
+          local r, there_r = fresh:refuse(a, b), over:refuse(Array.at(there, i), Array.at(there, k))
           if (r == nil) ~= (there_r == nil) or (r ~= nil and there_r ~= nil and (r.code ~= there_r.code or
               Programs.steps(r) ~= Programs.steps(there_r))) then
             return false, Types.display(a) .. " against " .. Types.display(b) .. ": another store gives another reason"
@@ -988,7 +996,10 @@ local function replay(
     elseif kind == "item" then
       if given_alt ~= nil and wanted_alt ~= nil and index ~= nil then
         local from, to = given_alt.items[index], wanted_alt.items[index]
-        a, b = from, to -- checked: nil_not_allowed*2
+        if from == nil or to == nil then
+          return nil, nil, "an item that is not there"
+        end
+        a, b = from, to
         given_alt, wanted_alt = nil, nil
       else
         return nil, nil, "skip"
@@ -1068,8 +1079,9 @@ end
 -- Variables under binders -----------------------------------------------------------------------------
 
 local function enter_all(j: Relation.Judge, scopes: {{Types.TParam}}, count: integer)
+  -- Every caller passes a `count` of at most `#scopes`.
   for i = 1, count do
-    j:enter(scopes[i]) -- checked: index_may_be_nil
+    j:enter(Array.at(scopes, i))
   end
 end
 
@@ -1096,12 +1108,13 @@ local function test_a_pair_with_variables_is_settled_for_its_binders_and_the_rel
         for other = 2, 0, -1 do
           if other ~= count then
             enter_all(history, scopes, other)
+            -- `i` and `k` run over 1 to `#types`.
             for i = #types, 1, -1 do
               for k = 1, #types do
                 if (i + k) % 3 == 0 then
-                  local _ = history:refuse(types[i], types[k]) -- checked: index_may_be_nil*2
+                  local _ = history:refuse(Array.at(types, i), Array.at(types, k))
                 else
-                  local _ = history:subtype(types[i], types[k]) -- checked: index_may_be_nil*2
+                  local _ = history:subtype(Array.at(types, i), Array.at(types, k))
                 end
               end
             end
@@ -1111,10 +1124,11 @@ local function test_a_pair_with_variables_is_settled_for_its_binders_and_the_rel
         enter_all(history, scopes, count)
         local answers: mut {integer: {integer: boolean}} = {}
         for _, a in ipairs(types) do
-          answers[a.id] = {}
+          local row: mut {integer: boolean} = {}
+          answers[a.id] = row
           for _, b in ipairs(types) do
             local answer = fresh:subtype(a, b)
-            answers[a.id][b.id] = answer -- checked: nil_not_allowed, view_written
+            row[b.id] = answer
             local who = Types.display(a) .. " against " .. Types.display(b) .. " under " .. tostring(count) .. " binders"
             if history:subtype(a, b) ~= answer then
               return false, who .. ": a judge that settled the pair under other binders disagrees"
@@ -1128,10 +1142,15 @@ local function test_a_pair_with_variables_is_settled_for_its_binders_and_the_rel
           end
         end
         for _, a in ipairs(types) do
+          -- The loop above filled a row for every type of `types`.
+          local from_a = answers[a.id]
+          assert(from_a ~= nil, "no row of answers for a type of the pool")
           for _, b in ipairs(types) do
-            if answers[a.id][b.id] == true then -- checked: nil_not_allowed
+            if from_a[b.id] == true then
+              local from_b = answers[b.id]
+              assert(from_b ~= nil, "no row of answers for a type of the pool")
               for _, c in ipairs(types) do
-                if answers[b.id][c.id] == true and answers[a.id][c.id] ~= true then -- checked: nil_not_allowed*2
+                if from_b[c.id] == true and from_a[c.id] ~= true then
                   return false, Types.display(a) .. " is below " .. Types.display(b) .. ", which is below " ..
                     Types.display(c) .. " under " .. tostring(count) .. " binders, and a is not below c"
                 end

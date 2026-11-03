@@ -9,6 +9,7 @@
 ---
 --- It prints a Markdown report, and exits 0 whatever it found: what
 --- the kernel refuses is the report, not a failure.
+local Array = require("cosmic.array")
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
 local type raw_process = require("cosmic.internal.process")
@@ -152,8 +153,10 @@ local function tried_from_outside(tmp: string, script: string, filters: string?,
   local _, _ = sys.close(ends.writer)
   local seccomp = (status_text or ""):match("\nSeccomp:%s*(%d+)")
   local count = tonumber((status_text or ""):match("\nSeccomp_filters:%s*(%d+)"))
-  local unfiltered = seccomp ~= "2" or (filters ~= nil and (count == nil or
-    count <= tonumber(filters))) -- checked: nil_not_allowed
+  -- `filters` was matched as digits where it was read.
+  local limit: number? = nil
+  if filters ~= nil then limit = assert(tonumber(filters), "filters holds digits") end
+  local unfiltered = seccomp ~= "2" or (limit ~= nil and (count == nil or count <= limit))
   local networked = devices == nil or select(2, devices:gsub(":", ":")) ~= 1
   local status, wait_trouble = process.waitpid(pid, false)
   if status == nil then return false, "waitpid: " .. wait_trouble end
@@ -278,7 +281,8 @@ function SandboxProbe.markdown(report: SandboxProbe.Report): string
   end
   lines[#lines + 1] = "\n| Host | |\n|---|---|\n"
   for _, pair in ipairs(report.host) do
-    lines[#lines + 1] = "| " .. cell(pair[1]) .. " | " .. cell(pair[2]) .. " |\n" -- checked: index_may_be_nil*2
+    -- A host row is a name and what it says ([`Report.host`]).
+    lines[#lines + 1] = "| " .. cell(Array.at(pair, 1)) .. " | " .. cell(Array.at(pair, 2)) .. " |\n"
   end
   local ok, missing = SandboxProbe.enforceable(report)
   lines[#lines + 1] = if ok then "\nConfinement: available.\n" else
