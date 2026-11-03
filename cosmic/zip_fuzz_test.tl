@@ -232,7 +232,7 @@ local function gen_laid_out(src: Fuzz.Source): string
     local crc = crc32_reference(data)
     local lfh: Rec = {
       fields = LFH_FIELDS,
-      values = { "PK\3\4", 20, 0, method, 0, 0x21, crc, #body, #data, #name, 0 }, -- checked: any_use*9
+      values = { "PK\3\4", 20, 0, method, 0, 0x21, crc, #body, #data, #name, 0 },
       tail = name .. body,
     }
     local offset = pos.value -- checked: map_field
@@ -261,18 +261,18 @@ local function gen_laid_out(src: Fuzz.Source): string
       before = string.pack("<I2s2", 0xCAFE, junk)
     end
     local fmts: mut {string} = { "I2", "I2" }
-    local vals: mut {string | integer} = { 1, 8 * #wide } -- checked: any_use*2
+    local vals: mut {string | integer} = { 1, 8 * #wide }
     for _, v in ipairs(wide) do
       fmts[#fmts + 1] = "i8"
-      vals[#vals + 1] = v -- checked: any_use
+      vals[#vals + 1] = v
     end
     local z64: Rec = { fields = fmts, values = vals, tail = "" }
     local extra_len = #before + (if #wide > 0 then #packed(z64) else 0 end)
     local comment = src:int(0, 3) == 0 and Fuzz.bytes(src, 8) or "" -- checked: and_ternary
     centrals[#centrals + 1] = {
       fields = CDFH_FIELDS,
-      values = { "PK\1\2", UNIX_MADE_BY, 20, 0, method, 0, 0x21, crc, csize, usize, #name, -- checked: any_use*9
-        extra_len, #comment, 0, 0, attrs, loff }, -- checked: any_use*4
+      values = { "PK\1\2", UNIX_MADE_BY, 20, 0, method, 0, 0x21, crc, csize, usize, #name,
+        extra_len, #comment, 0, 0, attrs, loff },
       tail = name .. before,
     }
     wides[n] = #wide > 0 and z64 or nil -- checked: and_ternary
@@ -292,16 +292,16 @@ local function gen_laid_out(src: Fuzz.Source): string
     local z64_off = pos.value -- checked: map_field
     put({
       fields = Z64_EOCD_FIELDS,
-      values = { "PK\6\6", 44, UNIX_MADE_BY, 45, 0, 0, n, n, cd_size, cd_offset }, -- checked: any_use*8
+      values = { "PK\6\6", 44, UNIX_MADE_BY, 45, 0, 0, n, n, cd_size, cd_offset },
     })
-    put({ fields = Z64_LOC_FIELDS, values = { "PK\6\7", 0, z64_off, 1 } }) -- checked: any_use*3
+    put({ fields = Z64_LOC_FIELDS, values = { "PK\6\7", 0, z64_off, 1 } })
     total, eocd_size, eocd_offset = 0xFFFF, 0xFFFFFFFF, 0xFFFFFFFF
   end
   -- A comment may hold a forged end record of its own.
   local comment = if src:int(0, 3) == 0 then "PK\5\6" .. Fuzz.bytes(src, 24) else Fuzz.bytes(src, 4) end
   put({
     fields = EOCD_FIELDS,
-    values = { "PK\5\6", 0, 0, total, total, eocd_size, eocd_offset, #comment }, -- checked: any_use*6
+    values = { "PK\5\6", 0, 0, total, total, eocd_size, eocd_offset, #comment },
     tail = comment,
   })
   marks[#marks + 1] = pos.value -- checked: map_field

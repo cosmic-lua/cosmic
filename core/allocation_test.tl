@@ -855,7 +855,7 @@ local function test_json_leaves_nothing_whenever_an_allocation_fails()
   local ended = AllocationFixture.under_every_failure(function()
     local value, trouble = Json.decode(text, { null_value = Json.null })
     assert(trouble == "", trouble)
-    assert(Json.encode(assert(value)) == '{"a":{"c":{},"d":[]},"b":[1,2.5,"x\xc3\xa9",true,null]}') -- checked: any_use
+    assert(Json.encode(assert(value)) == '{"a":{"c":{},"d":[]},"b":[1,2.5,"x\xc3\xa9",true,null]}')
     assert(assert(Json.encode_any(wide, { pretty = true })):sub(1, 1) == "{")
     local lone = assert(Json.decode('["\\ud83d"]', { lone_surrogates = true })) as {string} -- checked: cast_refused
     assert(lone[1] == "\u{FFFD}")

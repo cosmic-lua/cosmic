@@ -116,7 +116,7 @@ local function fault(req: Types.Request, trace: string): Types.Response
   if spec.debug == true then
     local message = trace:match("^[^\n]*") or trace
     if wants_json(req) then
-      return Response.problem(500, message, { trace = trace }) -- checked: any_use
+      return Response.problem(500, message, { trace = trace })
     end
     return page(500, message, trace)
   end

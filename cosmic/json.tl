@@ -426,7 +426,7 @@ local function decode_with(text: string, opts: Json.DecodeOptions, record?: inte
   local value, err = raw.decode(text, null_value, opts.max_depth, opts.json5,
     opts.big_numbers_as_strings, opts.lone_surrogates, record, opts.hash_comments,
     opts.duplicate_keys)
-  if err ~= "" then return refuse(err) end -- checked: any_use
+  if err ~= "" then return refuse(err) end
   return value, ""
 end
 
@@ -443,7 +443,7 @@ end
 function Json.decode(text: string, opts?: Json.DecodeOptions): Json.Value?, string
   if opts == nil then
     local value, err = raw.decode(text)
-    if err ~= "" then return refuse(err) end -- checked: any_use
+    if err ~= "" then return refuse(err) end
     return value, ""
   end
   return decode_with(text, opts)
@@ -1284,43 +1284,43 @@ end
 --- or a step into a value that is not an array or object, or a name
 --- into an array, or a position into an object. A member read as nil
 --- (a JSON `null` decoded without `null_value`) is not there. The value is
---- a [`Json.Value`]: a value `steps` reach that is none (a table with mixed keys) is refused.
+--- a [`Json.Value`]: a value `steps` reach that is none (a function, or a table with mixed keys) is refused.
 function Json.get(value: any, steps: Json.Steps): Json.Value?, string
   local at = value
   local reached = ""
   for i, step in ipairs(steps) do
     local bad = bad_step(i, step)
-    if bad ~= nil then return refuse(bad) end -- checked: any_use
+    if bad ~= nil then return refuse(bad) end
     local t = table_of(at)
     if t == nil then
-      return refuse(("the value at %s is %s, not an array or object"):format(at_pointer(reached), kind(at))) -- checked: any_use
+      return refuse(("the value at %s is %s, not an array or object"):format(at_pointer(reached), kind(at)))
     end
     local shape = container(t)
     if step is string then
       if shape ~= "object" then
-        return refuse(("the value at %s is %s, not an object"):format(at_pointer(reached), -- checked: any_use
+        return refuse(("the value at %s is %s, not an object"):format(at_pointer(reached),
           if shape == "array" then "an array" else "a table with mixed keys" end))
       end
       reached = reached .. "/" .. pointer_segment(step)
       at = t[step]
     else
       if shape ~= "array" then
-        return refuse(("the value at %s is %s, not an array"):format(at_pointer(reached), -- checked: any_use
+        return refuse(("the value at %s is %s, not an array"):format(at_pointer(reached),
           if shape == "object" then "an object" else "a table with mixed keys" end))
       end
       local position = step
       if position < 0 then position = last_position(t) + 1 + position end
       if position < 1 then
-        return refuse(("no element %d from the end at %s"):format(-step, at_pointer(reached))) -- checked: any_use
+        return refuse(("no element %d from the end at %s"):format(-step, at_pointer(reached)))
       end
       reached = reached .. "/" .. tostring(position - 1)
       at = t[position]
     end
-    if at == nil then return refuse("no value at " .. at_pointer(reached)) end -- checked: any_use
+    if at == nil then return refuse("no value at " .. at_pointer(reached)) end
   end
   local found = value_of(at)
   if found == nil and at ~= nil then
-    return refuse(("the value at %s is not JSON: a table with mixed keys"):format(at_pointer(reached)))
+    return refuse(("the value at %s is none JSON can hold"):format(at_pointer(reached)))
   end
   return found, ""
 end
@@ -2150,7 +2150,7 @@ local function scalar(self: TokenReader, text: string, column: integer, closer?:
     err = err:gsub("unexpected content after document",
       "unexpected character, expected ',' or '" .. closer .. "'")
   end
-  if err ~= "" then return stop(self, "json: " .. err) end -- checked: any_use
+  if err ~= "" then return stop(self, "json: " .. err) end
   return value, ""
 end
 
@@ -2196,7 +2196,7 @@ end
 -- the column back in the message.
 local function key_value(self: TokenReader, text: string, column: integer): Json.Value?, string
   -- JSON5's whitespace where a key starts is an empty key, as yyjson reads it.
-  if text == "" then return "", "" end -- checked: any_use
+  if text == "" then return "", "" end
   local value, err = raw.decode("{" .. text .. ":0}", nil, nil, true, false, self.lone, nil, false,
     false, self.line, column)
   if err ~= "" and self.buf:byte(self.at) == nil then
@@ -2211,12 +2211,12 @@ local function key_value(self: TokenReader, text: string, column: integer): Json
     local back = err:gsub("(column )(%d+)", function(label: string, n: string): string
       return label .. tostring(integer_of(n, 10) - 1)
     end, 1)
-    return stop(self, "json: " .. back) -- checked: any_use
+    return stop(self, "json: " .. back)
   end
   if value is {string: integer} then -- checked: is_on_record
-    for key in pairs(value) do return key, "" end -- checked: any_use
+    for key in pairs(value) do return key, "" end
   end
-  return stop(self, "json: an object with no key") -- checked: any_use
+  return stop(self, "json: an object with no key")
 end
 
 --- `v` as a token's value: a string, a number or a boolean, or nil.
@@ -2462,8 +2462,8 @@ local class TokenReader is Json.Reader
         return placed(self, column, "a word JSON has no literal for")
       end
       token = if text == "null" then "null" else "boolean" end
-      value = text == "true" -- checked: any_use
-      if token == "null" then value = nil end -- checked: any_use
+      value = text == "true"
+      if token == "null" then value = nil end
     else
       local err: string
       -- A number is read with the byte that ends it, as in the text: a
@@ -2482,29 +2482,29 @@ local class TokenReader is Json.Reader
   function value(self): Json.Value?, string
     local token, why = self:peek()
     if token == nil then
-      if why ~= "" then return nil, why end -- checked: any_use
-      return stop(self, "json: no value: the stream has ended") -- checked: any_use
+      if why ~= "" then return nil, why end
+      return stop(self, "json: no value: the stream has ended")
     end
     if token == "key" or token == "end_object" or token == "end_array" then
-      return fail_at(self, self.at, "expected a value") -- checked: any_use
+      return fail_at(self, self.at, "expected a value")
     end
     if token ~= "object" and token ~= "array" then
       local read, trouble = self:next()
-      if read == nil then return nil, trouble end -- checked: any_use
-      if token == "null" then return self.null_value, "" end -- checked: any_use
-      return read.value, "" -- checked: any_use
+      if read == nil then return nil, trouble end
+      if token == "null" then return self.null_value, "" end
+      return read.value, ""
     end
     begin_value(self)
     if #self.frames >= self.max_depth then
-      return fail_at(self, self.at, "JSON nests deeper than " .. String.counted(self.max_depth, "level")) -- checked: any_use
+      return fail_at(self, self.at, "JSON nests deeper than " .. String.counted(self.max_depth, "level"))
     end
     local path = pointer_of(self:steps())
     local line, column = self.line, self.before + self.at - self.line_start
     local text, trouble = container_text(self)
-    if text == nil then return nil, trouble end -- checked: any_use
+    if text == nil then return nil, trouble end
     local value, err = raw.decode(text, self.null_value, self.max_depth, self.json5,
       self.big, self.lone, nil, self.hash, self.duplicate_keys, line, column, path, #self.frames)
-    if err ~= "" then return stop(self, "json: " .. err) end -- checked: any_use
+    if err ~= "" then return stop(self, "json: " .. err) end
     return value, ""
   end
 end

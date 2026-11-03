@@ -124,7 +124,7 @@ local function problem_of(res: Types.Response): Problem
 end
 
 local function test_problem_is_rfc_9457_json_with_the_reason_as_its_title()
-  local res = Response.problem(404, "no such item", { errors = Json.array({ "x" }), status = 1 }) -- checked: any_use*2
+  local res = Response.problem(404, "no such item", { errors = Json.array({ "x" }), status = 1 })
   assert(Response.header(res, "Content-Type") == "application/problem+json")
   local body = problem_of(res)
   assert(body.type == "about:blank" and body.title == "Not Found" and body.status == 404)
@@ -192,7 +192,7 @@ end
 
 local function test_abort_raises_a_tagged_table_the_exception_layer_reads()
   local ok, err = pcall(function(): any
-    Response.abort(404, "gone", { code = "x" }) -- checked: any_use
+    Response.abort(404, "gone", { code = "x" })
     return nil -- checked: any_use
   end)
   assert(not ok)
