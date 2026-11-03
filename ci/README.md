@@ -472,10 +472,14 @@ restores and keys every cache as the leg does. `COSMIC_CI_PORTABLE_SHARD`
 gives the leg `1/2` and that job `2/2` (`cosmic test --shard`, as above),
 and the two run beside each other. The job boots, restores the verdicts
 and compiles, probes the sandbox, assembles, runs its half of the suite
-and its boundary, and attests. It skips what the leg proves for the same
+and its boundary, and attests. It runs alpine-x86_64's regressions
+(`platform fixtures`, some 110 s) in place of the leg, which skips them:
+the leg's critical path was 982 s to the job's 364 (run 41688461540), and
+the job builds the same product on the same image, whose bytes the join
+holds to the legs'. It skips what the leg proves for the same
 bytes and host: the pinned driver's check and its relay to the queue's
-next run, the native suite and its boundary, the credential proofs, the
-regressions, and the darwin suite. It saves no cache and seeds nothing
+next run, the native suite and its boundary, the credential proofs, and
+the darwin suite. It saves no cache and seeds nothing
 (`COSMIC_CI_SAVES` is false for it; the `cosmic-driver` action's
 bootstrap cache is the one save left, which the action makes on main
 under the leg's key as the leg does), so main keeps no verdict of a test

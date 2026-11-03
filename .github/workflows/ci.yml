@@ -328,8 +328,8 @@
         # alpine-x86_64 splits it in two (COSMIC_CI_PORTABLE_SHARD) so
         # that the second half runs beside the leg, in the job
         # `portable-2/2` (`shard`), on a runner of its own: the leg's
-        # critical path is its native suite, its regressions and half
-        # the portable suite, not all of it. A push to
+        # critical path is its native suite and half the portable suite,
+        # not all of it; its regressions run in that job too. A push to
         # main that reuses the queue's run runs no legs, so glibc's run
         # of it lands with the scheduled run, or a push to main that
         # found no queue run to reuse.
@@ -637,10 +637,11 @@
         # The job that runs the portable suite's second half
         # (`portable-2/2`) skips the driver check and its relay below, the
         # native suite and its boundary, the credential proofs, the
-        # regressions, the darwin suite, and every cache save and seed
+        # darwin suite, and every cache save and seed
         # (the action's bootstrap cache aside, which it saves as the leg
         # does): the
-        # alpine-x86_64 leg beside it, on the same image, runs them.
+        # alpine-x86_64 leg beside it, on the same image, runs them. It
+        # runs alpine-x86_64's regressions instead of the leg (below).
         # A marker main saved after cosmic_ci's tests passed on what they
         # read and this host; an exact hit skips the check. Looked up
         # before the tree moves, since hashFiles reads the checkout. A
@@ -1009,18 +1010,31 @@
         # Before the portable suite, whose first half the queue's alpine
         # leg runs (the whole of it took some 286 s there, run
         # 38146952746), so a regression's failure, the self-rebuild
-        # fixture's among them, surfaces that much sooner. Not in the
-        # job that runs the second half: the leg's proofs hold for it.
+        # fixture's among them, surfaces that much sooner. On
+        # alpine-x86_64 they run in the job that runs the portable
+        # suite's second half and not in the leg: that job has some
+        # 480 s of work to the leg's 980 (run 41688461540: 364 s and
+        # 982 s, the regressions 109 s of the leg's), and it builds the
+        # same product on the same image, whose bytes the join holds to
+        # the legs'. Every other leg runs its own.
         # The regressions and the portable suite read nothing of what the
         # other writes: the fixtures stand on fixtures.db, beside
         # verdicts.db, which the verdict cache restores and saves with it,
         # and unpack the source assemble archived.
         {
           name: "run runtime, launcher, rebuild, and identity regressions",
-          if: "env.COSMIC_CI_SCOPE == 'full' && matrix.shard != 'portable-2/2'",
+          if: "env.COSMIC_CI_SCOPE == 'full' && (matrix.name == 'alpine-x86_64' && matrix.shard == 'portable-2/2' || matrix.name != 'alpine-x86_64' && matrix.shard != 'portable-2/2')",
           run: "cosmic-driver cosmic_ci/driver.tl platform fixtures",
         },
 
+        # TODO: find why the leg's half of the suite stood on none of its
+        # 4276 tests where the share's stood 2377 (run 41688461540): the
+        # native suite runs first in the leg and may push main's rows of the
+        # portable run out of verdicts.db, which keeps 8192. Once a leg's log
+        # shows the census (`test: census`) of its rows under the portable
+        # run's key, keep those rows (a bound that holds both suites, or a
+        # file of the portable suite's own) and the leg's half drops to the
+        # share's cost, some 200 s of its 260.
         {
           name: "run the product suite from fresh tracked source",
           id: "portable-suite",
