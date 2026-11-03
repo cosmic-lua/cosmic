@@ -103,8 +103,8 @@ local record Channel
   new: function<T>(opts?: Options): Queue<T>
 end
 
-Channel.CLOSED = "closed" -- checked: field_fixed
-Channel.FULL = "full" -- checked: field_fixed
+Channel.CLOSED = "closed"
+Channel.FULL = "full"
 
 local DEFAULT_CAPACITY <const> = 256
 

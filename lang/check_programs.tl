@@ -110,7 +110,6 @@ local record Programs
   type_of: function(source: string, name: string): string
 end
 
--- checked: field_fixed
 Programs.library = [[
 do
   global record string

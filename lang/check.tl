@@ -200,9 +200,9 @@ local record Check
   advice: {string: string}
 end
 
-Check.codes = Codes.codes -- checked: field_fixed
-Check.catalog = Codes.catalog -- checked: field_fixed
-Check.advice = { -- checked: field_fixed
+Check.codes = Codes.codes
+Check.catalog = Codes.catalog
+Check.advice = {
   ["cosmic.json Json.Value empty"] = "write an empty array as `Json.array()`, which encodes as `[]`, and an empty object as a typed " ..
     "local (`local none: {string: Json.Value} = {}`): an unmarked empty table encodes as `{}`",
   ["cosmic.time Time.CivilFields"] = "write the literal where it is typed as the record that lists it: `local wall: Time.Wall = " ..
@@ -333,9 +333,20 @@ local record Ctx
   --- The same for a declaration used as a value, which also has its statics.
   value_members: {Decl: Members}
   --- The `function R.m(...)` statements at the top of the module that the walk has not passed, by declaration and name.
-  pending: mut {Decl: {string: boolean}}
+  pending: mut {Decl: mut {string: boolean}}
   --- What the functions read of those statics, for the functions the module runs as it loads ([`lang.load_order`]).
   mut load: LoadOrder.State
+  --- The local the module's last statement returns where it is a record of the module's own, the module's table, and nil
+  --- where it is not; the statements of the chunk itself, not of a block or function within it, by id; and the fields of
+  --- the table a statement has given ([`inits_module`]).
+  module_table: integer?
+  top: {integer: boolean}
+  initialized: mut {string: boolean}
+  --- The fields of the module's table that a statement `M.f = v` of the chunk gives, which `pending` names as a function
+  --- statement's are named; and whether a `return` of the chunk outside any function has been passed, which may have handed
+  --- the table out before the last statement.
+  given: mut {string: boolean}
+  mut handed: boolean
   --- The id of the function being walked, 0 in the chunk.
   mut within: integer
   --- The class each table literal of a class is a literal of, by the id of its node.
@@ -2216,6 +2227,20 @@ local function field_unknown(ctx: Ctx, node: Ast.Node, t: Type, name: string)
       "declare " .. quoted(name) .. " in " .. owner end, { show(ctx, t) })
 end
 
+--- How a message names the static `name` of `decl` that a statement of the module has yet to give, and that statement:
+--- a `function R.m(...)`, or an `M.f = v` that gives the module's table a value ([`inits_module`]).
+local function static_words(ctx: Ctx, decl: Decl, name: string): string, string
+  local owner = decl.name .. "." .. name
+  local binding = ctx.module_table
+  if binding ~= nil and ctx.given[name] == true then
+    local entry = ctx.lowered.entries[binding]
+    if entry ~= nil and entry.decl == decl then
+      return "the value " .. quoted(owner), quoted(owner .. " = ...")
+    end
+  end
+  return "the function " .. quoted(owner), "`function " .. owner .. "(...)`"
+end
+
 --- The type of the field or method `name` of the value of type `t`, reported where it has none. `node` is the
 --- expression that reads it; it holds the overloads of the field in `ctx.cands` when it has several.
 local function member_read(ctx: Ctx, node: Ast.Node, t: Type, name: string): Type
@@ -2230,11 +2255,12 @@ local function member_read(ctx: Ctx, node: Ast.Node, t: Type, name: string): Typ
     local as_declared = t.value or decl.kind == "class" or decl.kind == "interface"
     if waiting ~= nil and waiting[name] == true and as_declared then
       if ctx.within == 0 then
-        -- The module's own code that runs as it loads reads the function before the statement that defines it has run.
-        report(ctx, "static_before_definition", node, subject(ctx, node) .. " reads the function " ..
-            quoted(decl.name .. "." .. name) .. " before the statement that defines it has run",
-          "move the statement `function " .. decl.name .. "." .. name .. "(...)` above this use, or use it in a function " ..
-            "that runs after the module has loaded", { show(ctx, t) })
+        -- The module's own code that runs as it loads reads the static before the statement that defines it has run.
+        local what, statement = static_words(ctx, decl, name)
+        report(ctx, "static_before_definition", node, subject(ctx, node) .. " reads " .. what ..
+            " before the statement that defines it has run",
+          "move the statement " .. statement .. " above this use, or use it in a function that runs after the module has " ..
+            "loaded", { show(ctx, t) })
       else
         LoadOrder.read(ctx.load, ctx.within, { decl = decl, name = name, first = base_of(node).first })
       end
@@ -4620,9 +4646,9 @@ local record Instance
   --- The type parameters that a shape the arguments lack left with no type, and nothing else reported (the instance
   --- holds `invalid` for them).
   holes: {integer}?
-  --- Set when a generic function passed as an argument could not be taken because a type it was found for does not meet
-  --- its bound: what `bound_unmet` says of it.
-  unmet: Unmet?
+  --- One for each generic function passed as an argument that could not be taken because a type it was found for does
+  --- not meet its bound: what `bound_unmet` says of it.
+  unmets: {Unmet}?
 end
 
 --- The steps of a generic call.
@@ -4946,7 +4972,7 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
   -- A generic function passed where the callee takes a function is instantiated from the parameters the callee passes it,
   -- as far as the other arguments have solved them, and what the instance answers solves the callee's own parameters:
   -- `pcall(id, v)` answers the type of `v`, where a parameter nothing fixes would be `invalid`, which every type accepts.
-  local unmet: Unmet? = nil
+  local unmets: mut {Unmet} = {}
   for i = 1, prep.count do
     local given_fn, wanted_fn = prep.known[i], parameter_at(c, off, i)
     if given_fn ~= nil and wanted_fn ~= nil and given_fn.tag == "fn" and #given_fn.tparams > 0 and
@@ -4972,6 +4998,13 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
         end
         -- The instance is taken only if every type parameter is solved, none conflicts, and each meets its bound.
         local meets = #solved == #given_fn.tparams and #sub.conflicts == 0
+        -- Whether the callee's own declaration gives the function every parameter type, whatever its type parameters
+        -- are: nothing the call passes can change a type found for the function, and no bound it fails can be met here.
+        local fixed = #seen.params == #wanted_fn.params
+        for k, w in ipairs(wanted_fn.params) do
+          local got = seen.params[k]
+          if got == nil or got.type ~= w.type then fixed = false end
+        end
         -- Every bound a type fails, so that one message names them all.
         local said: mut {string} = {}
         local fixes: mut {string} = {}
@@ -4982,13 +5015,21 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
             local wanted_bound = "`is " .. show(ctx, bound) .. "`"
             local fix = "pass a type that declares " .. wanted_bound
             -- Only a type the program declares can be given the interface.
-            if held.tag == "named" and (held.decl.kind == "record" or held.decl.kind == "class" or
-                held.decl.kind == "interface") then
+            local declarable = held.tag == "named" and (held.decl.kind == "record" or held.decl.kind == "class" or
+              held.decl.kind == "interface")
+            if declarable then
               fix = "declare " .. wanted_bound .. " on " .. tq(ctx, held) .. ", or " .. fix
+            end
+            local why = tq(ctx, held) .. " does not declare " .. wanted_bound
+            if fixed and not declarable and held.tag ~= "var" then
+              -- No declaration gives this type the interface, and the call cannot pass another.
+              why = "the declaration of " .. quoted(callee) .. " gives it " .. tq(ctx, held) .. ", so this argument cannot " ..
+                "satisfy the bound here"
+              fix = "pass a function whose type parameter is not bounded by " .. tq(ctx, bound)
             end
             said[#said + 1] = tq(ctx, held) .. " is the type parameter " .. quoted(Types.letter(k - 1)) ..
               " of the function passed as argument " .. tostring(i) .. " of " .. quoted(callee) .. ", which is bounded by " ..
-              tq(ctx, bound) .. ", and " .. tq(ctx, held) .. " does not declare " .. wanted_bound
+              tq(ctx, bound) .. ", and " .. why
             fixes[#fixes + 1] = fix
             shown[#shown + 1] = show(ctx, held)
             shown[#shown + 1] = show(ctx, bound)
@@ -5000,8 +5041,8 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
         if #said > 0 and #solved == #given_fn.tparams and #sub.conflicts == 0 then
           local instance = Relation.specialize(store, given_fn, solved)
           if instance ~= nil and below(ctx, instance, seen) then
-            unmet = unmet or { message = table.concat(said, "; "), fix = table.concat(fixes, "; "), shown = shown, arg = i,
-              instance = instance }
+            unmets[#unmets + 1] = { message = table.concat(said, "; "), fix = table.concat(fixes, "; "), shown = shown,
+              arg = i, instance = instance }
           end
         end
         if meets then
@@ -5096,15 +5137,19 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
         ", which is bounded by " .. tq(ctx, bound) .. ", and " .. tq(ctx, held) .. " does not list it"
       problems[#problems + 1] = msg
       if loud then
+        -- Only a type the program declares, or a type variable of the caller, can be given the interface.
+        local declarable = held.tag == "var" or (held.tag == "named" and (held.decl.kind == "record" or
+          held.decl.kind == "class" or held.decl.kind == "interface"))
         report(ctx, "bound_unmet", node, msg,
-          "list the interface in the declaration of " .. tq(ctx, held) .. " (`is " .. show(ctx, bound) .. "`), or pass a " ..
-            "type that does", { show(ctx, held), show(ctx, bound) })
+          (if declarable then "list the interface in the declaration of " .. tq(ctx, held) .. " (`is " .. show(ctx, bound) ..
+              "`), or pass a type that does" else "pass a type that lists `is " .. show(ctx, bound) .. "`" end),
+          { show(ctx, held), show(ctx, bound) })
       end
       Calls.replace_type(given, i, ctx.invalid)
     end
   end
   if #problems > 0 and not loud then
-    return { why = problems[1], unmet = unmet } -- checked: literal_missing
+    return { why = problems[1], unmets = unmets } -- checked: literal_missing
   end
   local made = Relation.specialize(store, c, given)
   local sparse: Type? = nil
@@ -5120,16 +5165,16 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
       report(ctx, "array_of_optional", node, msg, "use a map `{integer: T}` for sparse data, or pass a value that is not " ..
           "optional: test it for nil first", { show(ctx, sparse) })
     end
-    return { why = msg, unmet = unmet } -- checked: literal_missing
+    return { why = msg, unmets = unmets } -- checked: literal_missing
   end
   if made == nil then
     if loud then
       report(ctx, "not_assignable", node, name .. " with these type arguments nests more than " .. tostring(Types.max_depth) ..
           " types deep", "name a part of the arguments with a record, which a type does not unfold")
     end
-    return { why = "its instance nests too deep", unmet = unmet } -- checked: literal_missing
+    return { why = "its instance nests too deep", unmets = unmets } -- checked: literal_missing
   end
-  return { fn = made, why = "", holes = holes, unmet = unmet }
+  return { fn = made, why = "", holes = holes, unmets = unmets }
 end
 
 --- An array or map type that `t` holds whose elements or values may be nil, or nil: what an instance makes of a type
@@ -5242,21 +5287,24 @@ local function apply_overloads(ctx: Ctx, node: Ast.Node, callee: string, cands: 
   local known, pending, tail, count = prep.known, prep.pending, prep.tail, prep.count
   local reasons: mut {string} = {}
   local unmet: Unmet? = nil
+  -- Set when two candidates each reach `bound_unmet` with a different message: the order of the overloads does not say
+  -- which the call meant, so none is named.
+  local ambiguous = false
   for _, declared in ipairs(cands) do
 
     if (declared.tag == "fn") then
       -- The number of arguments does not depend on the type parameters, so a candidate that takes another is not solved.
       local wrong_count = arity_problem(declared, off, count, prep.open and tail ~= nil)
-      --- Why the candidate is not taken ("" where it is), the candidate as instantiated, and the bound it met in an
+      --- Why the candidate is not taken ("" where it is), the candidate as instantiated, and the bound it met in each
       --- argument that is a generic function.
-      local function evaluate(): string, Fn, Unmet?
+      local function evaluate(): string, Fn, {Unmet}
         local c: Fn = declared
         local failure = ""
-        local own: Unmet? = nil
+        local own: {Unmet} = {}
         if wrong_count == nil and #declared.tparams > 0 then
           local solved = Calls.solve(ctx, node, callee, declared, args, prep, off, recv, expected, false)
           local made = solved.fn
-          own = solved.unmet
+          own = solved.unmets or {}
           if made == nil then
             failure = solved.why
           elseif solved.holes ~= nil and #solved.holes > 0 then
@@ -5309,13 +5357,47 @@ local function apply_overloads(ctx: Ctx, node: Ast.Node, callee: string, cands: 
       local failure, c, own = evaluate()
       -- The bound is the answer only if the call would be taken with it met: asked again with the function's instance
       -- (the bounds waived) as the argument, so that the rest of the call is held to its parameters too.
-      if failure ~= "" and own ~= nil then
-        local held = known[own.arg]
-        if held ~= nil then
-          known[own.arg] = own.instance
-          local again = evaluate()
-          known[own.arg] = held
-          if again == "" then unmet = unmet or own end
+      -- Every argument that met one is waived together, since the first run solved each independently of the others'
+      -- instances; a bound only the instances reveal joins them, and a call that fails for another reason stays refused.
+      if failure ~= "" and #own > 0 then
+        local held: mut {integer: Type} = {}
+        local waived: mut {Unmet} = {}
+        local again, found = failure, own
+        while again ~= "" do
+          local grew = false
+          for _, u in ipairs(found) do
+            local was = known[u.arg]
+            if was ~= nil and held[u.arg] == nil then
+              held[u.arg] = was
+              known[u.arg] = u.instance
+              waived[#waived + 1] = u
+              grew = true
+            end
+          end
+          if not grew then break end
+          local next_again, _next, next_found = evaluate()
+          again, found = next_again, next_found
+        end
+        for i, was in pairs(held) do
+          known[i] = was
+        end
+        local first = waived[1]
+        if again == "" and first ~= nil then
+          local said: mut {string} = {}
+          local fixes: mut {string} = {}
+          local shown: mut {string} = {}
+          for _, u in ipairs(waived) do
+            said[#said + 1] = u.message
+            fixes[#fixes + 1] = u.fix
+            for _, t in ipairs(u.shown) do shown[#shown + 1] = t end
+          end
+          local message = table.concat(said, "; ")
+          if unmet == nil then
+            unmet = { message = message, fix = table.concat(fixes, "; "), shown = shown, arg = first.arg,
+              instance = first.instance }
+          elseif unmet.message ~= message then
+            ambiguous = true
+          end
         end
       end
       if failure == "" then
@@ -5397,8 +5479,9 @@ local function apply_overloads(ctx: Ctx, node: Ast.Node, callee: string, cands: 
     end
   end
   local first = reasons[1]
-  -- `unmet` is set only for a candidate that the bound alone kept from being taken: meeting it would accept the call.
-  if unmet ~= nil then
+  -- `unmet` is set only for a candidate that the bound alone kept from being taken: meeting it would accept the call. Several
+  -- candidates that say alike are one answer.
+  if unmet ~= nil and not ambiguous then
     report(ctx, "bound_unmet", node, unmet.message, unmet.fix, unmet.shown)
     return unknown_lists(ctx)
   end
@@ -6892,6 +6975,22 @@ local function writable_base(ctx: Ctx, object: Ast.Exp): Type?
   return readable(ctx, object, t, "it has no member to write")
 end
 
+--- Whether `target`, of the statement `s`, gives the module's table its field, as a `function M.f(...)` statement does. `s`
+--- is a statement of the chunk itself, so it runs once, as the module loads, before the last statement `return M` hands the
+--- table to `require`, and no `return` of the chunk has been passed that may hand it out before; `M` is the very local that
+--- statement returns, not another name that may hold another table; and no statement before gave the field, this or a
+--- `function M.f(...)`. Its value is checked against the field's type all the same, and a read of the field as the module
+--- loads above the statement is `static_before_definition` ([`assign_statement`]).
+local function inits_module(ctx: Ctx, s: Ast.Assign, target: Ast.Field): boolean
+  local object = target.object
+  if not (ctx.top[s.id] == true and not ctx.handed and (object.kind == "Name") and object.binding ~= nil and
+      object.binding == ctx.module_table and ctx.initialized[target.name] ~= true) then
+    return false
+  end
+  ctx.initialized[target.name] = true
+  return true
+end
+
 --- The place `target` writes, reporting what may not be written. It is the `at`th target of the statement `s`, which `removes`
 --- if it is the only one and gives it a literal nil. A write to an array that is no append, or is one in a statement that runs `runs_code`, is left in `pending`.
 local function place_of_target(ctx: Ctx, s: Ast.Assign, target: Ast.Exp, at: integer, removes: boolean, runs_code: boolean,
@@ -6912,7 +7011,7 @@ local function place_of_target(ctx: Ctx, s: Ast.Assign, target: Ast.Exp, at: int
         return nil, false
       end
       local field = list[1]
-      if not field.mut then -- checked: nil_not_allowed
+      if not field.mut and not inits_module(ctx, s, target) then -- checked: nil_not_allowed
         report(ctx, "field_fixed", target, quoted(base.decl.name .. "." .. target.name) .. " is fixed: it is not declared `mut`",
           "declare `mut " .. target.name .. ": " .. show(ctx, field.type) .. "` in " .. quoted(base.decl.name) .. -- checked: nil_not_allowed
             ", or make a new " .. quoted(base.decl.name), { show(ctx, base) })
@@ -7158,6 +7257,30 @@ local function check_assignment(ctx: Ctx, s: Ast.Assign): Values?
   return vals
 end
 
+--- Notes the fields of the module's table that the statement `s` of the chunk gives, once its values are evaluated: a read
+--- of one as the module loads is no longer before the statement that gives it.
+local function given_by(ctx: Ctx, s: Ast.Assign)
+  if ctx.top[s.id] ~= true then
+    return
+  end
+  for _, target in ipairs(s.targets) do
+    if (target.kind == "Field") then
+      local object = target.object
+      if (object.kind == "Name") and object.binding ~= nil and object.binding == ctx.module_table then
+        local base = name_value(ctx, object)
+        local waiting: mut {string: boolean}? = nil
+        if (base.tag == "named") then
+          waiting = ctx.pending[base.decl]
+        end
+        if waiting ~= nil and waiting[target.name] == true then
+          ctx.load.waiting = ctx.load.waiting - 1
+          waiting[target.name] = nil
+        end
+      end
+    end
+  end
+end
+
 --- An assignment: the values are evaluated and checked, then each local assigned is another value than it was. Its
 --- facts and the facts of the paths from it are gone ([`Flow.State`]), it is assigned from here on, and it is known
 --- to have the view of the type of the value ([`value_narrowing`]).
@@ -7182,6 +7305,7 @@ local function assign_statement(ctx: Ctx, s: Ast.Assign)
     end
   end
   local vals = check_assignment(ctx, s)
+  given_by(ctx, s)
   for i, target in ipairs(s.targets) do
     -- A nil at an index may take the last element of an array, whatever name the array has.
     if (target.kind == "Index") then
@@ -7385,6 +7509,9 @@ end
 --- narrowing must show it here.
 local function return_statement(ctx: Ctx, s: Ast.Return)
   check_return(ctx, s)
+  if ctx.within == 0 then
+    ctx.handed = true
+  end
   narrows_proved(ctx, s, s.values[1])
   ctx.flow = Flow.dead(ctx.flow)
 end
@@ -7692,6 +7819,9 @@ local function function_statement(ctx: Ctx, s: Ast.Function)
   end
   local owner = name_value(ctx, head)
   local waiting = (owner.tag == "named") and ctx.pending[owner.decl] or nil -- checked: and_ternary
+  if #s.path == 2 and head.binding ~= nil and head.binding == ctx.module_table then
+    ctx.initialized[s.path[2].text] = true
+  end
   if waiting ~= nil and #s.path == 2 then
     if waiting[s.path[2].text] == true then
       ctx.load.waiting = ctx.load.waiting - 1
@@ -8030,9 +8160,35 @@ function Check.enums(lowered: Declarations.Lowered): {integer: {string}}
   return out
 end
 
+--- The local that the module's last statement, `return M`, returns where `M` is a record the module declares: the module's
+--- table, which a statement of the chunk gives its fields ([`inits_module`]). Nil where the module returns anything else.
+local function module_table(input: Declarations.Input, lowered: Declarations.Lowered): integer?
+  local export, chunk = lowered.export, input.chunk.body.stats
+  local last = chunk[#chunk]
+  if export == nil or export.instance == true or export.module ~= input.module or last == nil or
+      not ((last.kind == "Return")) or #last.values ~= 1 then
+    return nil
+  end
+  local returned = assert(last.values[1])
+  local decl = export.decl
+  if not ((returned.kind == "Name")) or returned.binding == nil or decl == nil or decl.kind ~= "record" then
+    return nil
+  end
+  local binding = assert(returned.binding)
+  local entry = lowered.entries[binding]
+  if entry == nil or entry.decl ~= decl then
+    return nil
+  end
+  return binding
+end
+
 function Check.check(program: Declarations.Program, input: Declarations.Input, lowered: Declarations.Lowered,
                      typed?: boolean): Check.Checked
   local store = program.store
+  local tops: mut {integer: boolean} = {}
+  for _, t in ipairs(input.chunk.body.stats) do
+    tops[t.id] = true
+  end
   local ctx: Ctx = { -- checked: literal_missing
     program = program, store = store, judge = program.judge, input = input, lowered = lowered, scoped = input.scoped,
     tokens = input.chunk.tokens, filename = input.filename, errors = {}, vars = {}, frames = {}, binders = {},
@@ -8042,7 +8198,7 @@ function Check.check(program: Declarations.Program, input: Declarations.Input, l
     end, function(_node: Ast.Node, _spelled: string, _found: LoadOrder.Found) end),
     literals = {}, spreads = {}, declared = {}, union_fields = {}, spine = {},
     ternaries = {}, invalid = store.invalid, nil_type = store:atom("nil"), flow = Flow.start(), unfixed_now = {}, assigning = {}, quiet = 0, closers = 0, callee_module = "", member_module = "", moves = {},
-    loops = {}, keys = {}, edges = {}, guards = {}, reads = {}, unfixed = {}, narrowed = {}, inert = {}, boundaries = {}, types = {}, callees = {}, consts = {}, starts = {}, library = {}, typed = typed ~= false, warnings = {},
+    loops = {}, keys = {}, edges = {}, guards = {}, top = tops, module_table = module_table(input, lowered), initialized = {}, given = {}, handed = false, reads = {}, unfixed = {}, narrowed = {}, inert = {}, boundaries = {}, types = {}, callees = {}, consts = {}, starts = {}, library = {}, typed = typed ~= false, warnings = {},
     unite = function(a: Type, b: Type): Type
       return store:union({ a, b })
     end,
@@ -8061,7 +8217,7 @@ function Check.check(program: Declarations.Program, input: Declarations.Input, l
     return waiting ~= nil and waiting[name] == true
   end, function(node: Ast.Node, spelled: string, found: LoadOrder.Found)
     local read = found.read
-    local owner = read.decl.name .. "." .. read.name
+    local what, statement = static_words(ctx, read.decl, read.name)
     local through = ""
     if #found.via > 0 then
       local names: mut {string} = {}
@@ -8071,9 +8227,9 @@ function Check.check(program: Declarations.Program, input: Declarations.Input, l
       through = " through " .. table.concat(names, ", ")
     end
     report(ctx, "static_before_definition", node, spelled .. " is called, or handed to code that may call it, as " ..
-        "the module loads, and" .. through .. " it reads the function " .. quoted(owner) .. " (line " ..
+        "the module loads, and" .. through .. " it reads " .. what .. " (line " ..
         tostring(Lexer.y(ctx.tokens, read.first)) .. ") before the statement that defines it has run",
-      "move the statement `function " .. owner .. "(...)` above this use of " .. spelled .. ", or use " ..
+      "move the statement " .. statement .. " above this use of " .. spelled .. ", or use " ..
         spelled .. " in a function that runs after the module has loaded")
   end)
   -- The locals each function reads from outside, and those an assignment may change after the function is made, from the
@@ -8106,8 +8262,48 @@ function Check.check(program: Declarations.Program, input: Declarations.Input, l
         if names[assert(top.path[2]).text] ~= true then
           ctx.load.waiting = ctx.load.waiting + 1
         end
-        names[assert(top.path[2]).text] = true -- checked: view_written
+        names[assert(top.path[2]).text] = true
         ctx.pending[decl] = names
+      end
+    end
+  end
+  -- A statement `M.f = v` of the chunk gives the module's table its field as a function statement does.
+  local table_entry: Declarations.Entry? = nil
+  if ctx.module_table ~= nil then
+    table_entry = lowered.entries[ctx.module_table]
+  end
+  local table_decl: Decl? = nil
+  if table_entry ~= nil then
+    table_decl = table_entry.decl
+  end
+  -- Only a fixed field: a `mut` one may be given first in a block or a function, which no statement of the chunk waits on.
+  local fixed: mut {string: boolean} = {}
+  local body: Types.Body? = nil
+  if table_decl ~= nil then
+    body = table_decl.body
+  end
+  if body ~= nil then
+    for _, f in ipairs(body.fields) do
+      fixed[f.name] = f.mut ~= true
+    end
+  end
+  for _, top in ipairs(input.chunk.body.stats) do
+    if table_decl ~= nil and (top.kind == "Assign") then
+      for _, target in ipairs(top.targets) do
+        local object: Ast.Exp? = nil
+        if (target.kind == "Field") then
+          object = target.object
+        end
+        if object ~= nil and (object.kind == "Name") and object.binding ~= nil and object.binding == ctx.module_table and
+            (target.kind == "Field") and fixed[target.name] == true then
+          local names = ctx.pending[table_decl] or {}
+          if names[target.name] ~= true then
+            ctx.load.waiting = ctx.load.waiting + 1
+            ctx.given[target.name] = true
+          end
+          names[target.name] = true
+          ctx.pending[table_decl] = names
+        end
       end
     end
   end

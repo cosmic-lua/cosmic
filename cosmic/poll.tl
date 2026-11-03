@@ -122,10 +122,10 @@ local record Poll
   MOST_NS: integer
 end
 
-Poll.TIMEOUT = "timed out" -- checked: field_fixed
-Poll.CANCELLED = "cancelled" -- checked: field_fixed
+Poll.TIMEOUT = "timed out"
+Poll.CANCELLED = "cancelled"
 
-Poll.MOST_NS = Clock.ms(0x7fffffff) -- checked: field_fixed
+Poll.MOST_NS = Clock.ms(0x7fffffff)
 --- One millisecond, which [`sys.poll`] counts its waits in.
 local MS <const> = Clock.ms(1)
 --- The highest descriptor [`sys.poll`] takes: a C `int`.

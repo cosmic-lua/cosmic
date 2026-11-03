@@ -459,3 +459,63 @@ local function test_a_record_function_read_as_the_module_loads_is_defined_above_
   accepted("local record F\n  size: function(self: F): integer\nend\nlocal f: F = { size = function(self: F): integer return 1 end }\n" ..
       "local k = f:size()\nfunction F.size(self: F): integer\n  return 2\nend\n")
 end
+
+-- the module's table given its fields as it loads -------------------------------------------------------------
+
+local TABLE <const> = "local record M\n  size: integer\n  name: string\nend\n"
+
+local function test_a_statement_of_the_module_gives_the_table_it_returns_a_fixed_field()
+  accepted(TABLE .. "M.size = 3\nM.name = \"m\"\nreturn M\n")
+  -- the value is held to the field's type all the same
+  refused(TABLE .. "M.size = \"3\"\nreturn M\n", "not_assignable", "in the assignment to `M.size`")
+end
+
+local function test_any_other_write_of_a_fixed_field_of_a_module_table_is_refused()
+  -- a function may run after `require` has handed the table out, and a block may run more than once or not at all
+  refused(TABLE .. "local function set()\n  M.size = 3\nend\nset()\nreturn M\n", "field_fixed", "`M.size` is fixed")
+  refused(TABLE .. "do\n  M.size = 3\nend\nreturn M\n", "field_fixed")
+  refused(TABLE .. "M.size = 3\nM.size = 4\nreturn M\n", "field_fixed")
+  -- through another name, of a record the module does not return, and of a module that returns no record of its own
+  refused(TABLE .. "local A = M\nA.size = 3\nreturn M\n", "field_fixed")
+  refused(TABLE .. "local record N\n  size: integer\nend\nN.size = 3\nreturn M\n", "field_fixed")
+  refused(TABLE .. "local m: M = { size = 1, name = \"m\" }\nm.size = 3\nreturn m\n", "field_fixed")
+  refused(TABLE .. "do\n  return M\nend\nM.size = 3\n", "export_not_declared unreachable field_fixed")
+  local other = { other = TABLE .. "return M\n" }
+  refused("local Other = require(\"other\")\nOther.size = 3\n", "field_fixed", nil, other)
+  refused("local Other = require(\"other\")\nOther.size = 3\nreturn Other\n", "field_fixed export_not_declared", nil, other)
+  -- a field the record does not declare
+  refused(TABLE .. "M.sise = 3\nreturn M\n", "field_unknown", "nearest `size`")
+  -- after a `return` that may hand the table out first, or a function statement that gave the field
+  refused(TABLE .. "local function early(): boolean\n  return false\nend\nif early() then\n  return M\nend\nM.size = 3\n" ..
+      "return M\n", "field_fixed")
+  refused("local record F\n  f: function(): integer\nend\nfunction F.f(): integer\n  return 1\nend\n" ..
+      "F.f = function(): integer\n  return 2\nend\nreturn F\n", "field_fixed")
+  refused(TABLE .. "M.size, M.size = 1, 2\nreturn M\n", "field_fixed")
+  refused(TABLE .. "local function early(): boolean\n  return false\nend\nif early() then\n  return\nend\nM.size = 3\n" ..
+      "return M\n", "field_fixed")
+  -- of a table the module does not return as itself
+  refused(TABLE .. "local N = M\nN.size = 3\nreturn N\n", "field_fixed export_not_declared")
+  refused(TABLE .. "local M = M\nM.size = 3\nreturn M\n", "field_fixed export_not_declared")
+  refused(TABLE .. "M.size = 3\nreturn M, 1\n", "field_fixed export_not_declared")
+  refused(TABLE .. "M.size = 3\nreturn (M)\n", "field_fixed export_not_declared")
+end
+
+local function test_a_field_of_the_table_read_as_the_module_loads_is_given_above_the_use()
+  local given = "M.size = 3\nM.name = \"m\"\n"
+  refused(TABLE .. "local n = M.size\n" .. given .. "return M\n", "static_before_definition", "reads the value `M.size` before")
+  refused(TABLE .. "M.name = \"m\"\nM.size = #M.name + M.size\nreturn M\n", "static_before_definition",
+    "move the statement `M.size = ...` above")
+  refused(TABLE .. "local function size(): integer\n  return M.size\nend\nlocal n = size()\n" .. given .. "return M\n",
+    "static_before_definition", "it reads the value `M.size`")
+  accepted(TABLE .. given .. "local n: integer = M.size\nreturn M\n")
+  accepted(TABLE .. "local function size(): integer\n  return M.size\nend\n" .. given .. "local n = size()\nreturn M\n")
+  -- a function statement that reads it runs only when called
+  accepted("local record G\n  size: integer\n  get: function(): integer\nend\nfunction G.get(): integer\n  return G.size\nend\n" ..
+      "G.size = 3\nreturn G\n")
+  -- a `mut` field may be given first in a block or a function, which no statement waits on
+  local counted = "local record M\n  size: integer\n  mut count: integer\nend\n"
+  accepted(counted .. "do\n  M.count = 1\nend\nlocal n: integer = M.count\nM.count = 2\nreturn M\n")
+  accepted(counted .. "local function c(): boolean\n  return false\nend\nif c() then\n  M.count = 1\nelse\n  M.count = 2\nend\n" ..
+      "local n: integer = M.count\nreturn M\n")
+  accepted(counted .. "local function reset()\n  M.count = 0\nend\nreset()\nM.count = M.count + 1\nreturn M\n")
+end

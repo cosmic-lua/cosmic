@@ -133,8 +133,8 @@ local record Input
   end
 end
 
-Input.FORM = Request.key("input.form") -- checked: field_fixed
-Input.JSON = Request.key("input.json") -- checked: field_fixed
+Input.FORM = Request.key("input.form")
+Input.JSON = Request.key("input.json")
 
 --- The multipart body once read, kept on the request so that a middleware,
 --- [`Input.form`] and the handler share one read and one set of files.
@@ -143,10 +143,10 @@ local MULTIPART <const>: Types.Key<Types.Parsed<Input.Multipart>> = Request.key(
 --- The largest body read unless told: a form or a JSON document, not an
 --- upload.
 local DEFAULT_MAX <const> = 64 * 1024
-Input.DEFAULT_MAX = DEFAULT_MAX -- checked: field_fixed
+Input.DEFAULT_MAX = DEFAULT_MAX
 
 local DEFAULT_MULTIPART_MAX <const> = 16 * 1024 * 1024
-Input.DEFAULT_MULTIPART_MAX = DEFAULT_MULTIPART_MAX -- checked: field_fixed
+Input.DEFAULT_MULTIPART_MAX = DEFAULT_MULTIPART_MAX
 
 local DEFAULT_FILE_MAX <const> = 8 * 1024 * 1024
 local DEFAULT_FIELD_MAX <const> = 1024 * 1024

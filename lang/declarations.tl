@@ -361,7 +361,7 @@ local record Declarations
   catalog: {Row}
 end
 
-Declarations.codes = { -- checked: field_fixed
+Declarations.codes = {
   "interface_disagrees", "super_not_interface", "super_cycle", "listing_too_large", "untagged_union",
   "array_of_optional", "float_key", "key_type", "repeated_field", "repeated_value", "type_arguments",
   "type_too_deep", "alias_cycle", "bound_not_interface", "lists_overlap", "bound_not_met", "outer_type_parameter", "member_missing",
@@ -369,7 +369,7 @@ Declarations.codes = { -- checked: field_fixed
   "unused_type_parameter", "metamethod_unknown", "array_part_map", "store_refused",
 }
 
-Declarations.catalog = { -- checked: field_fixed
+Declarations.catalog = {
   {
     code = "interface_disagrees", rule = "interface agreement",
     why = "a type conforms to an interface only by listing it with `is`, and the listing is checked once, where " ..
