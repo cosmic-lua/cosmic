@@ -38,7 +38,7 @@ local LEFT_OUT <const> = "what the grammar leaves out"
 local LEXICAL <const> = "the lexical grammar"
 local NAMESPACE <const> = "one namespace, a space per binding"
 
-SyntaxCodes.catalog = { -- checked: field_fixed
+SyntaxCodes.catalog = {
   -- the lexer
   {
     code = "label_or_goto", stage = "lexer", rule = LEFT_OUT,

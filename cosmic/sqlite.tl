@@ -1021,11 +1021,11 @@ function Sqlite.transact(handle: Sqlite.Handle,
   return true, ""
 end
 
-Sqlite.OK = 0 -- checked: field_fixed
-Sqlite.BUSY = 5 -- checked: field_fixed
-Sqlite.LOCKED = 6 -- checked: field_fixed
-Sqlite.CORRUPT = 11 -- checked: field_fixed
-Sqlite.NOTADB = 26 -- checked: field_fixed
-Sqlite.version = sqlite.version -- checked: field_fixed
+Sqlite.OK = 0
+Sqlite.BUSY = 5
+Sqlite.LOCKED = 6
+Sqlite.CORRUPT = 11
+Sqlite.NOTADB = 26
+Sqlite.version = sqlite.version
 
 return Sqlite

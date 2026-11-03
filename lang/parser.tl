@@ -2732,7 +2732,7 @@ function Parser.parse(lexed: Lexer.Lexed, name: string, dialect: Ast.Dialect): P
   return { chunk = chunk, errors = errors }
 end
 
-Parser.codes = { -- checked: field_fixed
+Parser.codes = {
   "label_or_goto", "semicolon", "long_comment", "unterminated_long_comment", "digit_separator",
   "hex_float", "malformed_number", "unterminated_string", "unterminated_long_string", "bad_escape",
   "stray_byte", "reserved_word", "nil_union", "method_in_record", "continue_outside_loop",

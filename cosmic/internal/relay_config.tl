@@ -134,11 +134,11 @@ local record relay_config
   connect_ns: integer
 end
 
-relay_config.http_port = 3128 -- checked: field_fixed
-relay_config.socks_port = 1080 -- checked: field_fixed
-relay_config.name_server_fd = 4 -- checked: field_fixed
-relay_config.connector_fd = 5 -- checked: field_fixed
-relay_config.connect_ns = 10000000000 -- checked: field_fixed
+relay_config.http_port = 3128
+relay_config.socks_port = 1080
+relay_config.name_server_fd = 4
+relay_config.connector_fd = 5
+relay_config.connect_ns = 10000000000
 
 --- The variables the relay sets for the program, which a policy with
 --- `connect` may not set itself.

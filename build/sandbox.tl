@@ -711,7 +711,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   return status
 end
 
-verb.spec = { -- checked: field_fixed
+verb.spec = {
   name = "sandbox",
   guide = "a program held to what you grant it",
   tests = { "build.sandbox_test", "build.sandbox_tool_test", "build.sandbox_connect_test",
