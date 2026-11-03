@@ -71,7 +71,7 @@ local record Server
     --- Where the request came from: the numeric TCP address of the
     --- connection's far end, as the kernel names it, and the proxy's
     --- where one sits between (no header is read). Nil where the
-    --- connection has none ([`Net.Conn.peer`] says when).
+    --- connection has none ([`Net.Conn`]'s `peer` says when).
     peer?: Net.Address
   end
 

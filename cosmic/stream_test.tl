@@ -63,6 +63,7 @@ end
 local function test_from_string_refuses_a_skip_so_large_it_would_wrap()
   local r = Stream.from_string("abcdefgh")
   assert(r:read(2) == "ab")
+  assert(r.skip ~= nil)
   local skipped, why = r:skip(math.maxinteger)
   assert(skipped == false and why ~= "", why)
   local chunk, trouble = r:read()
@@ -81,6 +82,7 @@ end
 local function test_from_string_refuses_a_negative_skip()
   local r = Stream.from_string("abcdefgh")
   assert(r:read(4) == "abcd")
+  assert(r.skip ~= nil)
   local skipped, why = r:skip(-2)
   assert(skipped == false and why ~= "", why)
   assert(r:read(1) == "e")
@@ -371,7 +373,7 @@ local function test_a_file_reader_skips_by_seeking_and_refuses_to_pass_the_end(t
   local path = tmp .. "/f"
   assert(Fs.write(path, "0123456789"))
   local r = assert(Stream.open(path))
-  assert(r.skip ~= nil) -- checked: compare_disjoint
+  assert(r.skip ~= nil)
   assert(r:skip(3))
   assert(r:read(2) == "34")
   assert(Stream.skip(r, 2))
@@ -405,7 +407,7 @@ end
 
 local function test_skip_falls_back_to_reading_for_a_reader_that_cannot_seek()
   local r = Stream.limit(Stream.from_string("abcdef"), 6)
-  assert(r.skip == nil) -- checked: compare_disjoint
+  assert(r.skip == nil)
   assert(Stream.skip(r, 4))
   assert(r:read() == "ef")
   local skipped = Stream.skip(Stream.limit(Stream.from_string("ab"), 2), 3)

@@ -150,7 +150,7 @@ local function test_stopping_ends_a_stream_and_runs_the_stop_functions_in_order(
     listeners = { Net.tcp("127.0.0.1", 0) },
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
       local addresses_1 = assert(addresses[1], "expected addresses[1]")
-      local conn <close> = assert(Net.connect(addresses_1, { timeout_ns = Clock.seconds(5) })) -- checked: close_not_closable
+      local conn <close> = assert(Net.connect(addresses_1, { timeout_ns = Clock.seconds(5) }))
       assert(conn:write("GET /events HTTP/1.1\r\nHost: x\r\n\r\n"))
       local got = ""
       while not got:find("data: hello", 1, true) do got = got .. assert(conn:read()) end
@@ -231,7 +231,7 @@ local function test_a_handler_that_ignores_stopping_is_cut_off_at_the_grace()
     grace_ns = Clock.ms(200),
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
       local addresses_1 = assert(addresses[1], "expected addresses[1]")
-      local conn <close> = assert(Net.connect(addresses_1, { timeout_ns = Clock.seconds(5) })) -- checked: close_not_closable
+      local conn <close> = assert(Net.connect(addresses_1, { timeout_ns = Clock.seconds(5) }))
       assert(conn:write("GET /forever HTTP/1.1\r\nHost: x\r\n\r\n"))
       assert(conn:read())
       server:stop()
@@ -246,7 +246,7 @@ end
 local function scripted(client: Web.LoopbackClient, script: string)
   local listener <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
   local conn = assert(Net.connect(listener.address, { timeout_ns = Clock.seconds(5) }))
-  local peer <close> = assert(listener:accept()) -- checked: close_not_closable
+  local peer <close> = assert(listener:accept())
   client.conn = conn
   client.buf = ""
   if script ~= "" then assert(peer:write(script)) end
