@@ -457,8 +457,10 @@ local function quoted(s: string): string
   return "`" .. s .. "`"
 end
 
+--- The text of `t` in a message. The library's raw JSON declaration (`cosmic.internal.json`, whose record is `json`)
+--- declares `Json.Value` and `Json.Null` for `cosmic.json` to name, and a user writes them as `Json.`.
 local function show(ctx: Ctx, t: Type): string
-  return Types.display(t, ctx.binders)
+  return (Types.display(t, ctx.binders):gsub("%f[%w_]json%.(%u)", "Json.%1"))
 end
 
 local function tq(ctx: Ctx, t: Type): string

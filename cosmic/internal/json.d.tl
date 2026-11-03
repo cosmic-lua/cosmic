@@ -3,7 +3,7 @@
 -- function answers `value, ""` on success and `nil, error` on failure.
 --- @kind binding
 
-local record Json
+local record json
   -- The type of `null`: JSON `null`'s stand-in, a userdata with nothing to
   -- read or call.
   record Null
@@ -82,4 +82,4 @@ local record Json
   depth_limit: integer
 end
 
-return Json
+return json
