@@ -7,6 +7,7 @@
 --- are told. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs
 --- (build/fuzz/init.tl).
 
+local Array = require("cosmic.array")
 local Fuzz = require("build.fuzz")
 local Json = require("cosmic.json")
 local ChunkedReader = require("build.chunked_reader_fixture")
@@ -106,19 +107,24 @@ end
 --- the failure that ended them; nil and why when the reader raised.
 local function token_lines(text: string, size: integer, opts: Json.ReaderOptions,
                            peeks?: integer): string?, string
-  local ok, result, err = pcall(function(): string, string
+  local lines = ""
+  local failure = ""
+  local ok, raised = pcall(function()
     local r = Json.reader(ChunkedReader.chunked(text, size), opts)
     local out: mut {string} = {}
     while true do
       -- A caller that peeks before it reads gets the same tokens.
       for _ = 1, peeks or 0 do r:peek() end
       local t, why = r:next()
-      if t == nil then return table.concat(out, "\n"), why end
+      if t == nil then
+        lines, failure = table.concat(out, "\n"), why
+        return
+      end
       out[#out + 1] = t.kind .. "=" .. Json.quote(tostring(t.value)) .. "@" .. assert(Json.pointer(r:steps()))
     end
   end)
-  if not ok then return nil, "raised: " .. tostring(result) end
-  return result .. "\n!" .. err, "" -- checked: any_use, nil_not_allowed
+  if not ok then return nil, "raised: " .. tostring(raised) end
+  return lines .. "\n!" .. failure, ""
 end
 
 --- The values the tokens of `text` build, each with the null stand-in;
@@ -228,58 +234,59 @@ end
 
 local function holds(input: string): boolean, string
   local fields = Fuzz.unpack(input)
-  local text, size = fields[1], assert(math.tointeger(tonumber(fields[2])))
+  -- The generator packs the text, the chunk size and the flags.
+  local text, size = Array.at(fields, 1), assert(math.tointeger(tonumber(fields[2])))
   local flags = assert(math.tointeger(tonumber(fields[3])))
   local opts, dopts = options_of(flags)
-  local whole, raised = token_lines(text, #text + 1, opts) -- checked: nil_not_allowed*2
+  local whole, raised = token_lines(text, #text + 1, opts)
   if whole == nil then return false, raised end
-  local split, split_raised = token_lines(text, size, opts) -- checked: nil_not_allowed
+  local split, split_raised = token_lines(text, size, opts)
   if split == nil then return false, split_raised end
   if split ~= whole then
     return false, "split in " .. tostring(size) .. "s:\n" .. split .. "\nwhole:\n" .. whole
   end
   for peeks = 1, 2 do
-    local peeked, peek_raised = token_lines(text, size, opts, peeks) -- checked: nil_not_allowed
+    local peeked, peek_raised = token_lines(text, size, opts, peeks)
     if peeked == nil then return false, peek_raised end
     if peeked ~= whole then
       return false, "peeking " .. tostring(peeks) .. " times:\n" .. peeked .. "\nnot:\n" .. whole
     end
   end
-  local decoded, err = Json.decode(text, dopts) -- checked: nil_not_allowed
-  local values, why = token_values(text, size, opts) -- checked: nil_not_allowed
+  local decoded, err = Json.decode(text, dopts)
+  local values, why = token_values(text, size, opts)
   if err == "" then
     Fuzz.label("decoded")
-    if flags & 1 == 1 and not Json.check(text) then Fuzz.label("json5") end -- checked: nil_not_allowed
-    if flags & 2 == 2 and not Json.check(text, { json5 = flags & 1 == 1 }) then -- checked: nil_not_allowed
+    if flags & 1 == 1 and not Json.check(text) then Fuzz.label("json5") end
+    if flags & 2 == 2 and not Json.check(text, { json5 = flags & 1 == 1 }) then
       Fuzz.label("hash")
     end
     if values == nil then return false, "decode read it, the reader refused: " .. why end
     if #values ~= 1 or not same(values[1], decoded) then
       return false, "the tokens built another value"
     end
-    local r = Json.reader(ChunkedReader.chunked(text, size), opts) -- checked: nil_not_allowed
+    local r = Json.reader(ChunkedReader.chunked(text, size), opts)
     local value, verr = r:value()
     if verr ~= "" then return false, "value refused what decode read: " .. verr end
     if not same(value, decoded) then return false, "value read another value" end
     local after, aerr = r:next()
     if after ~= nil or aerr ~= "" then return false, "a token after the one value: " .. aerr end
-    local ok, why_not = placed_after(text, size, opts) -- checked: nil_not_allowed
+    local ok, why_not = placed_after(text, size, opts)
     if not ok then return false, why_not end
   elseif values ~= nil and #values == 1 then
     return false, "the reader read one value, decode refused it: " .. err
   elseif values == nil then
     Fuzz.label("refused")
     -- Text another combination of the options reads, refused by this one.
-    if Json.check(text, { json5 = true, hash_comments = true }) then -- checked: nil_not_allowed
+    if Json.check(text, { json5 = true, hash_comments = true }) then
       Fuzz.label("refused_extended")
     end
     -- A refusal that is `decode`'s own, of a token's text, is placed
     -- where `decode` places it.
     local at_line, at_column = why:match("^json: invalid JSON at line (%d+), column (%d+): ")
-    if at_line ~= nil then
+    if at_line ~= nil and at_column ~= nil then
       Fuzz.label("placed")
       -- JSON5-specific: without json5 the same text is refused otherwise.
-      local _, plain_err = Json.decode(text, { hash_comments = flags & 2 == 2 }) -- checked: nil_not_allowed
+      local _, plain_err = Json.decode(text, { hash_comments = flags & 2 == 2 })
       if flags & 1 == 1 and plain_err ~= err then
         Fuzz.label("placed_json5")
       end
@@ -292,7 +299,7 @@ local function holds(input: string): boolean, string
       if err:find("unexpected content after document", 1, true) == nil and
           err:find("unexpected end of data", 1, true) == nil and
           (want_line ~= at_line or want_column ~= at_column) then
-        return false, "refused at " .. at_line .. ":" .. at_column .. ", decode at " .. -- checked: nil_not_allowed
+        return false, "refused at " .. at_line .. ":" .. at_column .. ", decode at " ..
           tostring(want_line) .. ":" .. tostring(want_column) .. ": " .. err
       end
     end
