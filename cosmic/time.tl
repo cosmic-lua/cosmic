@@ -629,7 +629,7 @@ end
 
 local UTC_KIND <const>: Kind = { offset = 0, abbreviation = "UTC", dst = false }
 
-Time.UTC = make_zone("UTC", { transitions = {}, kinds = {}, first = UTC_KIND, named = true }) -- checked: field_fixed
+Time.UTC = make_zone("UTC", { transitions = {}, kinds = {}, first = UTC_KIND, named = true })
 
 --- The day, as days since the epoch, `r` names in `year`.
 local function rule_day(r: Rule, year: integer): integer

@@ -405,12 +405,9 @@ local record Json
   depth_limit: integer
 end
 
--- TODO: these assignments after the [`Json`] record is made are `field_fixed`, held by markers like the
--- other modules' (channel, poll, sqlite, web/*), once the module records are built whole, each with its members,
--- where `mut` on them would let an importer swap them.
-Json.null = raw.null -- checked: field_fixed
-Json.default_depth = raw.default_depth -- checked: field_fixed
-Json.depth_limit = raw.depth_limit -- checked: field_fixed
+Json.null = raw.null
+Json.default_depth = raw.default_depth
+Json.depth_limit = raw.depth_limit
 
 --- What a failure of this module answers, nil and `why` under the
 --- module's name.

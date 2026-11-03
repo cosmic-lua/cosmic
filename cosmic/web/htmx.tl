@@ -174,8 +174,8 @@ end
 local htmx_file = carried("htmx.min.js")
 local sse_file = carried("htmx-ext-sse.min.js")
 
-Htmx.version = htmx_file.version -- checked: field_fixed
-Htmx.sse_version = sse_file.version -- checked: field_fixed
+Htmx.version = htmx_file.version
+Htmx.sse_version = sse_file.version
 
 --- The path of an asset, which carries its version so its content never
 --- changes there.

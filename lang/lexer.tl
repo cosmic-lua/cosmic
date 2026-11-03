@@ -1040,13 +1040,13 @@ function Lexer.token(tokens: Lexer.Tokens, i: integer): Lexer.Token
   }
 end
 
-Lexer.reserved = reserved_set -- checked: field_fixed
-Lexer.codes = { -- checked: field_fixed
+Lexer.reserved = reserved_set
+Lexer.codes = {
   "label_or_goto", "semicolon", "long_comment", "unterminated_long_comment",
   "digit_separator", "hex_float", "malformed_number", "unterminated_string",
   "unterminated_long_string", "bad_escape", "stray_byte",
 }
-Lexer.added = added_words -- checked: field_fixed
-Lexer.declaration_words = { "record", "interface", "class", "enum", "type" } -- checked: field_fixed
+Lexer.added = added_words
+Lexer.declaration_words = { "record", "interface", "class", "enum", "type" }
 
 return Lexer

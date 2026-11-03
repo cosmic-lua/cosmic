@@ -1017,8 +1017,8 @@ local SPEC <const>: {string: string} = {
   Userdata = "", Error = "",
 }
 
-Ast.fields = {} -- checked: field_fixed
-Ast.depths = {} -- checked: field_fixed
+Ast.fields = {}
+Ast.depths = {}
 for kind, spec in pairs(SPEC) do
   local names: mut {string} = {}
   local depths: mut {integer} = {}
