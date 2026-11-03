@@ -31,12 +31,34 @@ end
 
 --- A clock that only moves forward, for measuring elapsed duration in
 --- nanoseconds. Use it for timing in place of os.clock; it measures wall
---- duration rather than process CPU time. Raises when the clock cannot
+--- duration, so load from other processes counts: [`cpu_ns`] measures the CPU
+--- time of the calling thread. Raises when the clock cannot
 --- be read, which a host that runs cosmic at all never refuses.
 function Clock.monotonic_ns(): integer
   local reading, trouble = sys.clock_gettime(sys.CLOCK_MONOTONIC)
   if reading == nil then
     error("clock: clock_gettime(CLOCK_MONOTONIC): " .. trouble, 2)
+  end
+  return reading
+end
+
+--- The CPU time the calling thread has used, in nanoseconds: time it spent
+--- running, which a sleep, a wait, load from other processes and the time of
+--- other threads of this process do not advance. Use it to time work on this
+--- thread against other work, where [`monotonic_ns`] would count a stretch in
+--- which the host ran something else. Its zero is not a moment: only the
+--- difference of two readings on one thread means anything, and a reading
+--- taken on another thread is no reading of this one. Its resolution is the
+--- host's, which can be a microsecond or a tick coarser than [`monotonic_ns`],
+--- so time work long enough to read. Raises, saying so, when the host has no
+--- CPU clock for a thread, since a wall clock in its place would time the load
+--- on the host as well as the work: time the work with [`monotonic_ns`] then,
+--- knowing what it counts.
+function Clock.cpu_ns(): integer
+  local reading, trouble = sys.clock_gettime(sys.CLOCK_THREAD_CPUTIME_ID)
+  if reading == nil then
+    error("clock: clock_gettime(CLOCK_THREAD_CPUTIME_ID): " .. trouble ..
+        ": this host has no CPU clock for a thread; use Clock.monotonic_ns, which counts wall time", 2)
   end
   return reading
 end

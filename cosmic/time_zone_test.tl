@@ -396,8 +396,8 @@ end
 --- at the end of many bytes is refused, not searched from every type to
 --- the end, and one whose NUL is near is read in time linear in its
 --- length. The bound is on the ratio of reading 80000 types to reading
---- 10000, not on wall time, so it holds on a slow core and a loaded
---- host: linear time gives about 8, a search from every type to the end
+--- 10000, not on a time of its own, and the work is timed in CPU time, so it holds
+--- on a slow core and a loaded host: linear time gives about 8, a search from every type to the end
 --- about 64.
 local function test_tzif_with_long_abbreviations_is_read_in_linear_time()
   -- A file of `count` types; with `near`, its abbreviations hold a NUL
@@ -410,14 +410,12 @@ local function test_tzif_with_long_abbreviations_is_read_in_linear_time()
     return table.concat({ "TZif", "\0", ("\0"):rep(15),
       string.pack(">I4I4I4I4I4I4", 0, 0, 0, 0, count, count * 6), types, abbreviations })
   end
-  -- TODO: measure process CPU time here once cosmic.sys carries
-  -- clock_gettime(CLOCK_PROCESS_CPUTIME_ID) or getrusage, so scheduling
-  -- and other processes' load stop counting; until then wall time, the
-  -- least of many reads, stands in.
+  -- The read runs on this thread alone, so its CPU time is what it costs:
+  -- scheduling and other processes' load do not count.
   local function read(data: string, near: boolean): integer
-    local started = Clock.monotonic_ns()
+    local started = Clock.cpu_ns()
     local z, why = Time.zone_from_tzif(data, "x")
-    local elapsed = Clock.monotonic_ns() - started
+    local elapsed = Clock.cpu_ns() - started
     if near then
       assert(z ~= nil, why)
       assert(Time.civil(0, z).abbreviation == "CET")
