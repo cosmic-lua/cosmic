@@ -1,3 +1,4 @@
+local Array = require("cosmic.array")
 --- Proves the zip reader and writer against each other, and against a
 --- fixture made once, ahead of time, by the system `zip` -- a mix of
 --- stored and deflated entries and a symlink -- embedded as base64 so
@@ -204,7 +205,7 @@ local function test_more_than_65535_entries_round_trip_through_zip64()
   local r = assert(Zip.open_string(c:result()))
   local entries = assert(r:entries())
   assert(#entries == n, tostring(#entries))
-  assert(entries[n].path == "f" .. tostring(n)) -- checked: nil_not_allowed
+  assert(Array.at(entries, n).path == "f" .. tostring(n))
 end
 
 local function test_local_header_offsets_past_4_gib_go_in_zip64_extra_fields(tmp: string)
@@ -406,7 +407,7 @@ local function test_entries_of_a_closed_reader_cannot_be_opened(tmp: string)
   local r = assert(Zip.open(path))
   local entries = assert(r:entries())
   assert(r:close())
-  local body, trouble = entries[1]:open() -- checked: nil_not_allowed
+  local body, trouble = Array.at(entries, 1):open()
   assert(body == nil and trouble:find("closed", 1, true) ~= nil, trouble)
 end
 
@@ -463,7 +464,7 @@ local function test_next_walks_a_central_directory_many_windows_long()
     end
     count = count + 1
     assert(e.path == prefix .. tostring(count), e.path)
-    assert(e.path == listed[count].path) -- checked: nil_not_allowed
+    assert(e.path == Array.at(listed, count).path)
     if count % 997 == 0 then
       assert(Stream.read_all((assert(e:open()))) == "body " .. tostring(count))
     end
@@ -785,7 +786,7 @@ local function test_a_dos_date_no_calendar_has_is_clamped()
     local date = ((year - 1980) << 9) | (month << 5) | day
     local clock = (hour << 11) | (minute << 5) | (second // 2)
     local r = assert(Zip.open_string(patch(raw, header + 12, le16(clock) .. le16(date))))
-    return entries_of(r)[1].mtime -- checked: nil_not_allowed
+    return Array.at(entries_of(r), 1).mtime
   end
   assert(mtime_of(2021, 2, 31, 10, 20, 30) == unix(2021, 2, 28, 10, 20, 30))
   assert(mtime_of(2020, 2, 30, 10, 20, 30) == unix(2020, 2, 29, 10, 20, 30))

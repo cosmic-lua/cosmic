@@ -1,3 +1,4 @@
+local Array = require("cosmic.array")
 local Clock = require("cosmic.clock")
 local Time = require("cosmic.time")
 local Test = require("cosmic.test")
@@ -133,8 +134,8 @@ local function test_from_civil_refuses_what_an_integer_cannot_hold()
     assert((v ~= nil) == e.fits, why)
     if not e.fits then assert(why:find("outside", 1, true), why) end
   end
-  assert(Time.from_civil(edges[1].fields) == math.mininteger) -- checked: nil_not_allowed
-  assert(Time.from_civil(edges[3].fields) == math.maxinteger) -- checked: nil_not_allowed
+  assert(Time.from_civil(Array.at(edges, 1).fields) == math.mininteger)
+  assert(Time.from_civil(Array.at(edges, 3).fields) == math.maxinteger)
 end
 
 local function test_format_writes_a_fraction_only_when_there_is_one()

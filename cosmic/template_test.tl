@@ -1,3 +1,4 @@
+local Array = require("cosmic.array")
 local Template = require("cosmic.template")
 
 -- TODO: once a test can load generated Lua into a typed module (a `load` environment that takes values of several
@@ -550,7 +551,7 @@ local function test_every_attribute_is_classified_alike_in_upper_case_and_with_d
       if case.want == "" then
         refused(src)
       else
-        assert(helpers_called(compiled(src))[1] == case.want, spelled .. rest) -- checked: nil_not_allowed
+        assert(Array.at(helpers_called(compiled(src)), 1) == case.want, spelled .. rest) -- checked: nil_not_allowed
       end
     end
   end
@@ -873,8 +874,8 @@ local function test_the_module_has_the_templates_lines()
       assert(at == number, mark .. " is on line " .. tostring(at) .. " of the module:\n" .. out)
     end
   end
-  assert(lines[#lines]:find("local _module: _Module = {render = render} return _module", 1, true), "last line: " .. lines[#lines]) -- checked: nil_not_allowed*2
-  assert(lines[#lines]:find('"L20" return table.concat(parts) end local record _Module', 1, true), "last line: " .. lines[#lines]) -- checked: nil_not_allowed*2
+  assert(Array.at(lines, #lines):find("local _module: _Module = {render = render} return _module", 1, true), "last line: " .. Array.at(lines, #lines))
+  assert(Array.at(lines, #lines):find('"L20" return table.concat(parts) end local record _Module', 1, true), "last line: " .. Array.at(lines, #lines))
 end
 
 local function test_trimmed_whitespace_keeps_its_lines()
@@ -1078,9 +1079,9 @@ local function test_a_string_action_keeps_the_templates_lines()
   for line in out:gmatch("([^\n]*)\n") do
     lines[#lines + 1] = line
   end
-  assert(lines[2]:find('"L2 "', 1, true) and lines[3]:find('"{{"', 1, true), out) -- checked: nil_not_allowed*2
-  assert(lines[4]:find('" L4"', 1, true) and lines[5]:find('"x"', 1, true), out) -- checked: nil_not_allowed*2
-  assert(lines[7]:find('"L6"', 1, true), out) -- checked: nil_not_allowed
+  assert(Array.at(lines, 2):find('"L2 "', 1, true) and Array.at(lines, 3):find('"{{"', 1, true), out)
+  assert(Array.at(lines, 4):find('" L4"', 1, true) and Array.at(lines, 5):find('"x"', 1, true), out)
+  assert(Array.at(lines, 7):find('"L6"', 1, true), out)
 end
 
 local STRINGS <const>: {Refusal} = {
@@ -1415,12 +1416,12 @@ local function test_a_range_else_keeps_the_templates_lines()
   for line in out:gmatch("([^\n]*)\n") do
     lines[#lines + 1] = line
   end
-  assert(lines[2]:find("ipairs(d2) do", 1, true), lines[2]) -- checked: nil_not_allowed
-  assert(lines[3]:find('"L3 "', 1, true) and lines[3]:find("d1.x", 1, true), lines[3]) -- checked: nil_not_allowed*2
-  assert(lines[4]:find("end else", 1, true), lines[4]) -- checked: nil_not_allowed
-  assert(lines[5]:find('"L5 "', 1, true) and lines[5]:find("d.y", 1, true), lines[5]) -- checked: nil_not_allowed*2
-  assert(lines[6]:find("end end", 1, true), lines[6]) -- checked: nil_not_allowed
-  assert(lines[7]:find('"L7"', 1, true), lines[7]) -- checked: nil_not_allowed
+  assert(Array.at(lines, 2):find("ipairs(d2) do", 1, true), Array.at(lines, 2))
+  assert(Array.at(lines, 3):find('"L3 "', 1, true) and Array.at(lines, 3):find("d1.x", 1, true), Array.at(lines, 3))
+  assert(Array.at(lines, 4):find("end else", 1, true), Array.at(lines, 4))
+  assert(Array.at(lines, 5):find('"L5 "', 1, true) and Array.at(lines, 5):find("d.y", 1, true), Array.at(lines, 5))
+  assert(Array.at(lines, 6):find("end end", 1, true), Array.at(lines, 6))
+  assert(Array.at(lines, 7):find('"L7"', 1, true), Array.at(lines, 7))
 end
 
 local function test_a_range_else_is_judged_from_where_the_range_begins()
@@ -1530,10 +1531,10 @@ local function test_bindings_keep_the_templates_lines()
   for line in out:gmatch("([^\n]*)\n") do
     lines[#lines + 1] = line
   end
-  assert(lines[2]:find("for d2, _ in ipairs(d3) do", 1, true), lines[2]) -- checked: nil_not_allowed
-  assert(lines[4]:find('"L4 "', 1, true) and lines[4]:find("= d2 ", 1, true), lines[4]) -- checked: nil_not_allowed*2
-  assert(lines[6]:find('"L6 "', 1, true) and lines[6]:find("= d.y ", 1, true), lines[6]) -- checked: nil_not_allowed*2
-  assert(lines[8]:find('"L8"', 1, true), lines[8]) -- checked: nil_not_allowed
+  assert(Array.at(lines, 2):find("for d2, _ in ipairs(d3) do", 1, true), Array.at(lines, 2))
+  assert(Array.at(lines, 4):find('"L4 "', 1, true) and Array.at(lines, 4):find("= d2 ", 1, true), Array.at(lines, 4))
+  assert(Array.at(lines, 6):find('"L6 "', 1, true) and Array.at(lines, 6):find("= d.y ", 1, true), Array.at(lines, 6))
+  assert(Array.at(lines, 8):find('"L8"', 1, true), Array.at(lines, 8))
 end
 
 --- Template source, the line and column it is refused at, and what the

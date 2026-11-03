@@ -1,3 +1,4 @@
+local Array = require("cosmic.array")
 --- Fuzz properties for [`cosmic.csv`], which reads untrusted bytes: what
 --- [`Csv.encode`] writes `parse` reads back, in any of the delimiters;
 --- `parse` and `table` are total on any bytes, and what they read is a fixed point
@@ -68,13 +69,13 @@ local function records_from(input: string): string, {{string}}
   for index = 2, #parts do
     if parts[index] == "r" then
       started = false
-    elseif parts[index]:sub(1, 1) == "f" then -- checked: nil_not_allowed
+    elseif Array.at(parts, index):sub(1, 1) == "f" then
       if not started then
         current = {}
         records[#records + 1] = current
         started = true
       end
-      table.insert(current, parts[index]:sub(2)) -- checked: nil_not_allowed
+      table.insert(current, Array.at(parts, index):sub(2))
     end
   end
   return parts[1] or ",", records
@@ -83,9 +84,9 @@ end
 local function same(a: {{string}}, b: {{string}}): boolean
   if #a ~= #b then return false end
   for number, record in ipairs(a) do
-    if #record ~= #b[number] then return false end -- checked: nil_not_allowed
+    if #record ~= #Array.at(b, number) then return false end
     for index, value in ipairs(record) do
-      if value ~= b[number][index] then return false end -- checked: nil_not_allowed
+      if value ~= Array.at(Array.at(b, number), index) then return false end
     end
   end
   return true
@@ -170,13 +171,13 @@ local function test_parse_and_table_are_total_on_any_bytes(tmp: string)
         return true, ""
       end
       Fuzz.label("read")
-      local located = Csv.records(fields[2], options) -- checked: index_may_be_nil
-      local made = Csv.table(fields[2], options) -- checked: index_may_be_nil
+      local located = Csv.records(Array.at(fields, 2), options)
+      local made = Csv.table(Array.at(fields, 2), options)
       if located == nil or #located ~= #records then
         return false, "records disagrees with parse"
       end
       for index, row in ipairs(located) do
-        if not same({ row.fields }, { records[index] }) or (index > 1 and row.line <= located[index - 1].line) then -- checked: nil_not_allowed
+        if not same({ row.fields }, { Array.at(records, index) }) or (index > 1 and row.line <= Array.at(located, index - 1).line) then
           return false, "records differs from parse at record " .. tostring(index)
         end
       end
@@ -187,12 +188,12 @@ local function test_parse_and_table_are_total_on_any_bytes(tmp: string)
           return false, "table has " .. tostring(#made.lines) .. " rows"
         end
         for index, began in ipairs(made.lines) do
-          if located[index + 1].line ~= began then -- checked: nil_not_allowed
-            return false, "record " .. tostring(index + 1) .. " at line " .. tostring(located[index + 1].line) .. ", table's " .. tostring(began) -- checked: nil_not_allowed
+          if Array.at(located, index + 1).line ~= began then
+            return false, "record " .. tostring(index + 1) .. " at line " .. tostring(Array.at(located, index + 1).line) .. ", table's " .. tostring(began)
           end
         end
       end
-      local text = encode(records, fields[1]) -- checked: index_may_be_nil
+      local text = encode(records, Array.at(fields, 1))
       local again = Csv.parse(text, options)
       if again == nil or not same(again, records) then
         return false, "not a fixed point: " .. text
@@ -312,7 +313,7 @@ local function test_a_one_column_file_reads_back_its_rows(tmp: string)
         return false, tostring(#rows) .. " rows for " .. tostring(#values) .. " in " .. text
       end
       for index, value in ipairs(values) do
-        if rows[index].h ~= value then -- checked: map_field, nil_not_allowed
+        if Array.at(rows, index).h ~= value then -- checked: map_field
           return false, "row " .. tostring(index) .. " differs in " .. text
         end
         if value == "" then Fuzz.label("empty row") end
@@ -407,11 +408,11 @@ local function test_each_row_is_at_the_line_its_record_was_written_on(tmp: strin
       local line = 1
       local index = 3
       while index <= #parts do
-        local ending = parts[index]:sub(2) -- checked: nil_not_allowed
+        local ending = Array.at(parts, index):sub(2)
         local fields: mut {string} = {}
         index = index + 1
-        while index <= #parts and parts[index]:sub(1, 1) == "f" do -- checked: nil_not_allowed
-          fields[#fields + 1] = parts[index]:sub(2) -- checked: nil_not_allowed
+        while index <= #parts and Array.at(parts, index):sub(1, 1) == "f" do
+          fields[#fields + 1] = Array.at(parts, index):sub(2)
           index = index + 1
         end
         if #fields > 0 then
@@ -422,7 +423,7 @@ local function test_each_row_is_at_the_line_its_record_was_written_on(tmp: strin
           local record = table.concat(texts, delimiter)
           if #out > 1 then
             expected[#expected + 1] = line
-            written[#written + 1] = texts[1] -- checked: index_may_be_nil
+            written[#written + 1] = Array.at(texts, 1)
           end
           -- A blank line in a one-column file is a row, not a gap.
           local blank = ending == "b" and width > 1
@@ -440,15 +441,15 @@ local function test_each_row_is_at_the_line_its_record_was_written_on(tmp: strin
       if #made.lines ~= #made.rows or #made.rows ~= #expected then
         return false, tostring(#made.lines) .. " lines, " .. tostring(#made.rows) .. " rows, " .. tostring(#expected) .. " written"
       end
-      local starts: mut {integer} = { #out[1] + 1 } -- checked: nil_not_allowed
+      local starts: mut {integer} = { #Array.at(out, 1) + 1 }
       for at in text:gmatch("\n()") do starts[#starts + 1] = at end
       for number, began in ipairs(made.lines) do
         if began ~= expected[number] then
-          return false, "row " .. tostring(number) .. " at line " .. tostring(began) .. ", written at " .. expected[number] -- checked: nil_not_allowed
+          return false, "row " .. tostring(number) .. " at line " .. tostring(began) .. ", written at " .. tostring(Array.at(expected, number))
         end
         if number > 1 and began <= made.lines[number - 1] then return false, "lines do not rise" end -- checked: nil_not_allowed
         local first = written[number]
-        if text:sub(starts[began], starts[began] + #first - 1) ~= first then -- checked: index_may_be_nil, nil_not_allowed*2
+        if text:sub(Array.at(starts, began), Array.at(starts, began) + #first - 1) ~= first then -- checked: nil_not_allowed
           return false, "line " .. tostring(began) .. " does not begin with row " .. tostring(number) .. "'s first field"
         end
       end
@@ -468,7 +469,7 @@ local function gen_load(src: Fuzz.Source): string
   if src:int(0, 3) == 0 then
     text = "a\n" .. string.rep("b", src:int(1018, 1030)) .. "\n" .. text -- checked: nil_not_allowed
   end
-  return Fuzz.pack({ if src:int(0, 1) == 0 then "text" else "path" end, text, fields[1] }) -- checked: index_may_be_nil, nil_not_allowed
+  return Fuzz.pack({ if src:int(0, 1) == 0 then "text" else "path" end, text, Array.at(fields, 1) }) -- checked: nil_not_allowed
 end
 
 --- What [`Csv.load`] copies with `raw` is what [`Csv.table`] reads, row for
@@ -505,7 +506,7 @@ local function test_load_reads_what_table_reads(tmp: string)
       end
       local _, _ = db:exec("DROP TABLE IF EXISTS loaded")
       local temps = assert(Sqlite.text_rows(db, "SELECT count(*) FROM sqlite_temp_schema"))
-      if temps[1]:text(1) ~= "0" then return false, "load left its CSV table behind" end -- checked: nil_not_allowed
+      if Array.at(temps, 1):text(1) ~= "0" then return false, "load left its CSV table behind" end
       if text:find("\0", 1, true) ~= nil then -- checked: nil_not_allowed
         Fuzz.label("a NUL")
         if copied ~= nil then
@@ -529,9 +530,9 @@ local function test_load_reads_what_table_reads(tmp: string)
       end
       for number, row in ipairs(made.rows) do
         for index, column in ipairs(made.columns) do
-          if cells[number]:text(index) ~= row[column] then -- checked: nil_not_allowed
+          if Array.at(cells, number):text(index) ~= row[column] then
             return false, string.format("load read row %d column %d of %q as %q, table as %q",
-              number, index, text, tostring(cells[number]:text(index)), row[column]) -- checked: nil_not_allowed
+              number, index, text, tostring(Array.at(cells, number):text(index)), row[column])
           end
         end
       end

@@ -1,3 +1,4 @@
+local Array = require("cosmic.array")
 local support = require("build.test_support_fixture")
 local Poll = require("cosmic.poll")
 local sys = require("cosmic.sys")
@@ -227,17 +228,17 @@ local function test_many_tasks_wait_on_descriptors_at_once(tmp: string)
   Poll.run(function()
     for i = 1, count do
       Poll.spawn(function()
-        assert(Poll.readable(readers[i], Clock.seconds(5))) -- checked: index_may_be_nil
-        got[i] = assert(sys.read(readers[i], 16)) -- checked: index_may_be_nil
+        assert(Poll.readable(Array.at(readers, i), Clock.seconds(5)))
+        got[i] = assert(sys.read(Array.at(readers, i), 16))
       end)
     end
     assert(Poll.delay(0))
-    for i = count, 1, -1 do assert(assert(sys.write(writers[i], tostring(i))) > 0) end -- checked: index_may_be_nil
+    for i = count, 1, -1 do assert(assert(sys.write(Array.at(writers, i), tostring(i))) > 0) end
   end)
   for i = 1, count do
     assert(got[i] == tostring(i), "task " .. tostring(i) .. " read " .. tostring(got[i]))
-    sys.close(readers[i]) -- checked: index_may_be_nil
-    sys.close(writers[i]) -- checked: index_may_be_nil
+    sys.close(Array.at(readers, i))
+    sys.close(Array.at(writers, i))
   end
 end
 
@@ -839,18 +840,18 @@ local function test_waits_sharing_descriptors_come_and_go(tmp: string)
         waiting[i] = row
         for r = 1, 3 do
           local task = Poll.spawn(function()
-            local ok, why = Poll.readable(readers[i], Clock.seconds(5)) -- checked: index_may_be_nil
+            local ok, why = Poll.readable(Array.at(readers, i), Clock.seconds(5))
             table.insert(seen, tostring(i) .. "r" .. tostring(r) .. (if ok then "" else " " .. why end))
           end)
           row[#row + 1] = task
         end
         Poll.spawn(function()
           -- The writer is writable, but this wait does not ask that.
-          answers[i] = assert(Poll.ready({ readers[i], writers[i] }, { sys.POLLIN, 0 }, Clock.seconds(5))) -- checked: index_may_be_nil*2
+          answers[i] = assert(Poll.ready({ Array.at(readers, i), Array.at(writers, i) }, { sys.POLLIN, 0 }, Clock.seconds(5)))
           table.insert(seen, tostring(i) .. "q")
         end)
         Poll.spawn(function()
-          assert(Poll.writable(writers[i], Clock.seconds(5))) -- checked: index_may_be_nil
+          assert(Poll.writable(Array.at(writers, i), Clock.seconds(5)))
           table.insert(seen, tostring(i) .. "w")
         end)
       end
@@ -869,11 +870,11 @@ local function test_waits_sharing_descriptors_come_and_go(tmp: string)
           waiting[i][2]:cancel() -- checked: nil_not_allowed*2
           at_once[#at_once + 1] = tostring(i) .. "r2 " .. Poll.CANCELLED
         elseif how == 1 then
-          Poll.closing(readers[i]) -- checked: index_may_be_nil
+          Poll.closing(Array.at(readers, i))
           for r = 1, 3 do at_once[#at_once + 1] = tostring(i) .. "r" .. tostring(r) end
           at_once[#at_once + 1] = tostring(i) .. "q"
         else
-          assert(sys.write(writers[i], "x") == 1) -- checked: index_may_be_nil
+          assert(sys.write(Array.at(writers, i), "x") == 1)
           for r = 1, 3 do written[#written + 1] = tostring(i) .. "r" .. tostring(r) end
           written[#written + 1] = tostring(i) .. "q"
         end
@@ -887,7 +888,7 @@ local function test_waits_sharing_descriptors_come_and_go(tmp: string)
       for i = 1, count do
         local how = (i + round) % 3
         if how == 0 then
-          assert(sys.write(writers[i], "x") == 1) -- checked: index_may_be_nil
+          assert(sys.write(Array.at(writers, i), "x") == 1)
           table.insert(expected, tostring(i) .. "r1")
           table.insert(expected, tostring(i) .. "r3")
           table.insert(expected, tostring(i) .. "q")
@@ -900,13 +901,13 @@ local function test_waits_sharing_descriptors_come_and_go(tmp: string)
         local first = if how == 1 then sys.POLLNVAL else sys.POLLIN end
         assert(answers[i][1] & first ~= 0 and answers[i][2] == 0, -- checked: nil_not_allowed*3
           tostring(i) .. ": " .. answers[i][1] .. " " .. answers[i][2]) -- checked: nil_not_allowed*4
-        if how ~= 1 then assert(sys.read(readers[i], 16) == "x") end -- checked: index_may_be_nil
+        if how ~= 1 then assert(sys.read(Array.at(readers, i), 16) == "x") end
       end
     end
   end)
   for i = 1, count do
-    sys.close(readers[i]) -- checked: index_may_be_nil
-    sys.close(writers[i]) -- checked: index_may_be_nil
+    sys.close(Array.at(readers, i))
+    sys.close(Array.at(writers, i))
   end
 end
 
@@ -1253,13 +1254,13 @@ local function test_a_killed_waiter_is_removed_and_the_next_one_is_woken()
   Poll.run(function()
     local notifier = Poll.notifier()
     local tasks = spawn_waiters(notifier, 3, order)
-    tasks[1]:kill() -- checked: nil_not_allowed
+    Array.at(tasks, 1):kill()
     assert(notifier:waiting() == 2)
     notifier:notify_one()
-    assert(tasks[2]:join()) -- checked: nil_not_allowed
+    assert(Array.at(tasks, 2):join())
     assert(#order == 1 and order[1] == 2)
     notifier:notify_all()
-    assert(tasks[3]:join()) -- checked: nil_not_allowed
+    assert(Array.at(tasks, 3):join())
   end)
 end
 
@@ -1339,8 +1340,8 @@ local function test_a_notice_for_a_waiter_killed_before_it_runs_passes_on()
     end
     assert(Poll.delay(0))
     notifier:notify_one()
-    tasks[1]:kill() -- checked: nil_not_allowed
-    assert(tasks[2]:join(Clock.seconds(30))) -- checked: nil_not_allowed
+    Array.at(tasks, 1):kill()
+    assert(Array.at(tasks, 2):join(Clock.seconds(30)))
     assert(#woken == 1 and woken[1] == 2)
   end)
 end
@@ -1360,10 +1361,10 @@ local function test_a_notice_for_a_waiter_killed_in_the_same_batch_passes_on()
     assert(notifier:waiting() == 2)
     -- Ready before the notice, so it runs ahead of the woken waiter in
     -- the one batch and kills it there.
-    local killer = Poll.spawn(function() tasks[1]:kill() end) -- checked: nil_not_allowed
+    local killer = Poll.spawn(function() Array.at(tasks, 1):kill() end)
     notifier:notify_one()
     assert(killer:join(Clock.seconds(30)))
-    assert(tasks[2]:join(Clock.seconds(30))) -- checked: nil_not_allowed
+    assert(Array.at(tasks, 2):join(Clock.seconds(30)))
     assert(#woken == 1 and woken[1] == 2)
   end)
 end
