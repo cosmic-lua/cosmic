@@ -4,6 +4,7 @@
 --- build/shared_verdicts_tool_test.tl holds the runs of `cosmic test`
 --- that share their verdicts through it.
 
+local Array = require("cosmic.array")
 local Clock = require("cosmic.clock")
 local Sqlite = require("cosmic.sqlite")
 local shared_verdicts = require("build.shared_verdicts")
@@ -73,8 +74,11 @@ local function test_a_census_names_the_parts_the_rows_were_kept_under(tmp: strin
   assert(shared_verdicts.settle(cache, "second", { parts = "runtime r2, harness e2-00000000-t60000",
     kept = {}, used = { "old", "k1" }, failed = {} }, Clock.now_ns()))
   local held = assert(shared_verdicts.held(cache))
-  assert(#held == 2 and held[1].rows == 2 and held[1].parts == now, held[1].parts) -- checked: nil_not_allowed
-  assert(held[2].rows == 1 and held[2].parts == "runtime r2, harness e2-00000000-t60000", held[2].parts)
+  assert(#held == 2)
+  local newest = Array.at(held, 1)
+  assert(newest.rows == 2 and newest.parts == now, newest.parts)
+  local older = Array.at(held, 2)
+  assert(older.rows == 1 and older.parts == "runtime r2, harness e2-00000000-t60000", older.parts)
   shared_verdicts.close(cache)
 end
 
@@ -95,8 +99,8 @@ local function test_a_verdict_is_kept_by_its_key_alone(tmp: string)
   cache = assert(shared_verdicts.open(path))
   local tables = assert(Sqlite.text_rows(cache.db,
     "SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name"))
-  assert(#tables == 3 and tables[1]:text(1) == "declared_v1" and tables[2]:text(1) == "stores_v1" and -- checked: nil_not_allowed
-      tables[3]:text(1) == "verdicts_v4", "an earlier format's table was dropped: " .. tostring(#tables)) -- checked: nil_not_allowed
+  assert(#tables == 3 and tables[1]:text(1) == "declared_v1" and Array.at(tables, 2):text(1) == "stores_v1" and
+      Array.at(tables, 3):text(1) == "verdicts_v4", "an earlier format's table was dropped: " .. tostring(#tables))
   assert(shared_verdicts.declared(cache, "declared") == nil)
   assert(shared_verdicts.settle(cache, "first", { kept = { {
     key = "declared", test = "suite/t_test.tl test_t", hits = "suite/t_test.tl\t1,2,5\n",
@@ -182,8 +186,7 @@ local function test_a_cache_names_the_other_hosts_of_a_rest(tmp: string)
 end
 
 --- A checked run (`cosmic test --check-types`) keeps its verdicts in a file of its own beside the others', unless
---- `COSMIC_VERDICT_CACHE` names one, and that file keeps twice as many rows: its 7900 keys would otherwise share
---- the bound of 8192 with the ordinary suite's.
+--- `COSMIC_VERDICT_CACHE` names one: its 8600 keys would otherwise share the bound with the ordinary suite's.
 local function test_a_checked_run_reads_its_own_file(tmp: string)
   local env = { XDG_CACHE_HOME = tmp .. "/cache" }
   local plain = assert(shared_verdicts.location(env))
@@ -196,24 +199,39 @@ local function test_a_checked_run_reads_its_own_file(tmp: string)
   assert(shared_verdicts.location({ COSMIC_VERDICT_CACHE = "0" }, true) == nil)
   assert(shared_verdicts.rows_kept(checked) == 16384)
   assert(shared_verdicts.rows_kept("/ci/verdicts/narrowing.db") == 16384)
-  assert(shared_verdicts.rows_kept(plain) == 8192)
-  assert(shared_verdicts.rows_kept("/ci/verdicts/checked.db") == 8192, "the sanitized core's suite keeps the old bound")
+  assert(shared_verdicts.rows_kept(plain) == 32768)
+  assert(shared_verdicts.rows_kept("/ci/verdicts/checked.db") == 32768, "the sanitized core's suite keeps the ordinary bound")
 end
 
---- A file of a checked run's verdicts keeps its rows past the 8192 an ordinary file keeps: what a run owes it is
---- trimmed to `rows_kept` of its own path.
-local function test_a_settle_trims_to_the_bound_of_its_file(tmp: string)
-  local function rows_after(name: string): integer
-    local cache = assert(shared_verdicts.open(tmp .. "/" .. name))
+--- Settles the portable rows of an earlier run and then `count` native rows of one run, stamped alike, into a new
+--- file named `name` under `tmp`, and answers the rows the file keeps.
+local function rows_after(tmp: string, name: string, count: integer): integer
+  local cache = assert(shared_verdicts.open(tmp .. "/" .. tostring(count) .. "-" .. name))
+  local function run(prefix: string, rows: integer, now_ns: integer)
     local kept: mut {shared_verdicts.Kept} = {}
-    for i = 1, 8200 do
-      kept[#kept + 1] = { key = "k" .. tostring(i), test = "t" .. tostring(i), hits = "", elapsed_ns = 1 }
+    for i = 1, rows do
+      kept[#kept + 1] = { key = prefix .. tostring(i), test = "t" .. tostring(i), hits = "", elapsed_ns = 1 }
     end
-    assert(shared_verdicts.settle(cache, "origin", { kept = kept, used = {}, failed = {} }, Clock.now_ns()))
-    local counted = assert(Sqlite.text_rows(cache.db, "SELECT count(*) FROM declared_v1"))
-    shared_verdicts.close(cache)
-    return math.tointeger(tonumber(assert(counted[1]):text(1))) or -1
+    assert(shared_verdicts.settle(cache, "origin", { kept = kept, used = {}, failed = {} }, now_ns))
   end
-  assert(rows_after("verdicts.db") == 8192, "an ordinary file kept another number")
-  assert(rows_after("verdicts-checked.db") == 8200, "a checked file was trimmed to the ordinary bound")
+  local now = Clock.now_ns()
+  run("portable", 4189, now - 1000)
+  run("native", count, now)
+  local counted = assert(Sqlite.text_rows(cache.db, "SELECT count(*) FROM declared_v1"))
+  shared_verdicts.close(cache)
+  return math.tointeger(tonumber(assert(counted[1]):text(1))) or -1
+end
+
+--- A file keeps the rows of one whole run on a leg that runs both suites in it: the native suite's 8554 rows,
+--- all stamped with one time, and the 4189 the portable suite stands on under its own keys. Under the old bound of
+--- 8192 `settle` dropped some of the newest, and every row of an older run.
+local function test_a_settle_keeps_the_rows_of_a_leg_that_runs_both_suites(tmp: string)
+  local rows = rows_after(tmp, "verdicts.db", 8554)
+  assert(rows == 8554 + 4189, "a run's rows were dropped by the bound: " .. tostring(rows) .. " kept")
+end
+
+--- A file past its bound trims to `rows_kept` of its path, the oldest first. The checked file's 16384 stands for
+--- both bounds: they share the trim, and an ordinary file's 32768 would take twice the rows to show it.
+local function test_a_settle_trims_a_file_to_its_bound(tmp: string)
+  assert(rows_after(tmp, "verdicts-checked.db", 16400) == 16384, "a checked file kept another number")
 end

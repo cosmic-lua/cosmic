@@ -1,3 +1,4 @@
+local Array = require("cosmic.array")
 local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
@@ -99,7 +100,7 @@ local function test_fill_writes_one_row_per_distinct_certificate(tmp: string)
   assert(#rows == 2, "a certificate listed twice is one root")
   local first, second = Hash.sha256("\5\6"), Hash.sha256("\7")
   local low = if first < second then "0506" else "07" end
-  assert(rows[1]:text(3) == low, "rows go in in digest order") -- checked: nil_not_allowed
+  assert(Array.at(rows, 1):text(3) == low, "rows go in in digest order")
   for _, row in ipairs(rows) do
     local der = if row:text(3) == "0506" then "\5\6" else "\7" end
     assert(row:text(1) == Codec.hex(Hash.sha256(der)):upper(), "a row is keyed by its digest")
@@ -129,9 +130,11 @@ local function test_the_tree_s_bundle_becomes_a_row_per_certificate()
     "SELECT count(*), count(*) FILTER (WHERE label = ''), " ..
       "count(*) FILTER (WHERE sha256 <> sha256(der)) FROM ca_roots"))
   assert(db:close())
-  assert(tonumber(counted[1]:text(1)) == blocks, counted[1]:text(1) .. " rows for " .. tostring(blocks)) -- checked: nil_not_allowed*2
-  assert(counted[1]:text(2) == "0", "every root of the bundle is labelled") -- checked: nil_not_allowed
-  assert(counted[1]:text(3) == "0", "each row is keyed by its certificate's digest") -- checked: nil_not_allowed
+  -- An aggregate query answers one row.
+  local totals = Array.at(counted, 1)
+  assert(tonumber(totals:text(1)) == blocks, totals:text(1) .. " rows for " .. tostring(blocks))
+  assert(totals:text(2) == "0", "every root of the bundle is labelled")
+  assert(totals:text(3) == "0", "each row is keyed by its certificate's digest")
 end
 
 --- `bytes` as certdata.txt writes a `MULTILINE_OCTAL` value: `\ooo`

@@ -464,7 +464,11 @@ local function test_boot_lock_classifies_the_begin_result_not_its_reason(tmp: st
   methods.exec_result = function(_self: any, sql: string): Sqlite.ExecResult
     assert(sql == "BEGIN IMMEDIATE")
     calls = calls + 1
-    if calls == 1 then return outcome end -- checked: nil_not_allowed
+    if calls == 1 then
+      local first = outcome
+      assert(first ~= nil, "the loop sets the outcome before it takes the lock")
+      return first
+    end
     return { code = Sqlite.OK, extended_code = Sqlite.OK, reason = "" }
   end
   methods.close = function(self: any): boolean, string

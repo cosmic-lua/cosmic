@@ -273,12 +273,21 @@ end
 --- artifact it ran under, so it reruns under the portable build. A
 --- worker run on a sealed database of its closure never sees an
 --- artifact (build/test_key.tl's `seals`); its key holds the core and the
---- sealed inputs in the launcher's place, so the same key under either
---- artifact stands for the same run, and the portable suite stands on
---- the native suite's verdict rather than running the test twice. A
---- test module that reads the launcher or artifact without being
+--- sealed inputs in the launcher's place, which would let the same key
+--- under either artifact stand for the same run, and the portable suite
+--- stand on the native suite's verdict rather than run the test twice.
+--- It does not yet: in run 41688461540 the portable keys carried
+--- program 192772bba885 and the native ones ca6afce0919a, so no sealed
+--- portable test stood on a native row (the portable suite's rows share
+--- the file, and its bound, with the native suite's). A test
+--- module that reads the launcher or artifact without being
 --- unsealed fails `cosmic fix --check .` (build/tree_checks.tl's
 --- `sealed_launch`).
+---
+--- TODO: have a sealed worker's key leave out the `program` part, so the
+--- portable suite stands on the native suite's rows: it waits on a change
+--- to build/declared_key.tl's parts that moves the key of no test that
+--- reads its own program.
 ---
 --- Nor is the checked suite's file either's (`checked`): the local
 --- suite's rows would crowd the checked suite's toward the file's bound,
@@ -286,7 +295,7 @@ end
 --- suite's rows when the file is its own. The checked narrowing run's
 --- (`narrowing`) is another: its rows are keyed by the checked
 --- compile, share no key with the others, and the tool bounds that
---- name at twice the rows of the others (build/shared_verdicts.tl's
+--- name at 16384 rows, the checked suite's (build/shared_verdicts.tl's
 --- `rows_kept`).
 function Orchestration.suite_verdicts(env: {string:string}, name: string): string
   local shared = env["COSMIC_VERDICT_CACHE"] or ""

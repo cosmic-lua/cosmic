@@ -1,5 +1,6 @@
 --- Correctness probes for [`build.syntax_match`]: the metavariables, what a pattern leaves unset, a capture in every
 --- position the grammar has one, and the predicate of a capture.
+local Array = require("cosmic.array")
 local Ast = require("lang.ast")
 local Match = require("build.syntax_match")
 local Node = require("build.syntax_node")
@@ -20,6 +21,13 @@ end
 --- The nodes of `source` that `pattern_source` matches, in source order.
 local function hits(pattern_source: string, source: string): {Match.Hit}
   return Match.find_all(pattern_ok(pattern_source), parse_ok(source), parse_ok(source))
+end
+
+--- The capture `name` of `hit`.
+local function capture(hit: Match.Hit, name: string): Match.Capture
+  local cap = hit.caps[name]
+  assert(cap ~= nil, "no capture " .. name)
+  return cap
 end
 
 local function count(pattern_source: string, source: string): integer
@@ -85,9 +93,9 @@ local function test_a_rest_capture_takes_the_rest_of_a_list_none_included()
   local chunk = parse_ok("f(1, 2, 3)\nf()\ng(1)")
   local found = Match.find_all(pattern_ok("f($$$ARGS)"), chunk, chunk)
   assert(#found == 2)
-  assert(#found[1].caps["___ARGS"].nodes == 3 and #found[2].caps["___ARGS"].nodes == 0) -- checked: nil_not_allowed*2
+  assert(#capture(found[1], "___ARGS").nodes == 3 and #capture(Array.at(found, 2), "___ARGS").nodes == 0)
   local some = Match.find_all(pattern_ok("f($A, $$$REST)"), chunk, chunk)
-  assert(#some == 1 and #some[1].caps["___REST"].nodes == 2) -- checked: nil_not_allowed
+  assert(#some == 1 and #capture(some[1], "___REST").nodes == 2)
 end
 
 local function test_a_rest_capture_in_a_block_is_written_as_a_call()
@@ -95,7 +103,7 @@ local function test_a_rest_capture_in_a_block_is_written_as_a_call()
   assert(pattern == nil and why ~= "")
   local chunk = parse_ok("if a then print(1)\nprint(2) end")
   local found = Match.find_all(pattern_ok("if $C then $$$BODY() end"), chunk, chunk)
-  assert(#found == 1 and #found[1].caps["___BODY"].nodes == 2) -- checked: nil_not_allowed
+  assert(#found == 1 and #capture(found[1], "___BODY").nodes == 2)
 end
 
 local function test_a_table_item_rest_and_an_empty_table()
@@ -126,7 +134,7 @@ end
 local function test_a_capture_predicate_restricts_what_a_capture_binds()
   local chunk = parse_ok("test_a()\nrun()")
   local found = Match.find_all(pattern_ok("$F:^test_()"), chunk, chunk)
-  assert(#found == 1 and Match.text(chunk, "test_a()\nrun()", found[1].caps["_F"]) == "test_a") -- checked: index_may_be_nil
+  assert(#found == 1 and Match.text(chunk, "test_a()\nrun()", capture(found[1], "_F")) == "test_a")
   -- a compound node has no one token to test
   assert(count("f($X:^a)", "f(a.b)") == 0 and count("f($X:^a)", "f(ab)") == 1)
 end

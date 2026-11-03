@@ -196,29 +196,37 @@ end
 --- the output beside the hint. That every query advertised is answered by
 --- the tree's docs is held by `cosmic fix --check .` ([`build.tree_checks`]).
 local function test_language_errors_name_relevant_checked_docs()
-  local cases: {string:{string}} = {
+  local record Case
+    source: string
+    diagnostic: string
+    topic: string
+  end
+  local cases: {string:Case} = {
     wrong_arguments = {
-      "return function(): integer\n  return string.find(\"abc\")\nend\n",
-      "`string.find` takes 2 to 4 arguments, but 1 is given (arity)", "generics_functions_returns",
+      source = "return function(): integer\n  return string.find(\"abc\")\nend\n",
+      diagnostic = "`string.find` takes 2 to 4 arguments, but 1 is given (arity)",
+      topic = "generics_functions_returns",
     },
     record_field = {
-      "local record R\nend\nreturn function(): integer\n" ..
+      source = "local record R\nend\nreturn function(): integer\n" ..
         "  local r: R = {}\n  return r.y\nend\n",
-      "`R` has no field `y` (field_unknown)", "records_interfaces_methods",
+      diagnostic = "`R` has no field `y` (field_unknown)",
+      topic = "records_interfaces_methods",
     },
     builtin_argument_type = {
-      "return function(n: number): integer?\n  return string.byte(\"a\", n)\nend\n",
-      "no overload of `string.byte` takes the arguments (string, number) (overload_none)", "generics_functions_returns",
+      source = "return function(n: number): integer?\n  return string.byte(\"a\", n)\nend\n",
+      diagnostic = "no overload of `string.byte` takes the arguments (string, number) (overload_none)",
+      topic = "generics_functions_returns",
     },
   }
   for name, case in pairs(cases) do
     local root = assert(write_fixture("language-hint-" .. name,
-      { ["thing.tl"] = case[1] })) -- checked: index_may_be_nil
+      { ["thing.tl"] = case.source }))
     local result, trouble = importer_fixture.compile_fixture(root)
     assert(result == nil, "expected " .. name .. " to refuse the compile")
     assert(trouble:find("thing.tl:", 1, true) ~= nil, trouble)
-    assert(trouble:find(case[2], 1, true) ~= nil, trouble) -- checked: index_may_be_nil
-    assert(trouble:find("cosmic docs " .. assert(case[3]), 1, true) ~= nil, trouble)
+    assert(trouble:find(case.diagnostic, 1, true) ~= nil, trouble)
+    assert(trouble:find("cosmic docs " .. case.topic, 1, true) ~= nil, trouble)
   end
 end
 
