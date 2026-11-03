@@ -5,8 +5,11 @@
 ---
 --- Where the base comes from, in order:
 ---
---- 1. `COSMIC_CEILINGS_BASE`, then `COSMIC_CI_BASE_SHA`: a commit CI names, the merge queue's base or the main commit a
----    branch push grew from (.github/workflows/ci.yml). A name that is no commit is a failure, not a skip.
+--- 1. `COSMIC_CEILINGS_BASE`: a commit CI names, the merge base of the run's commit with main (.github/workflows/ci.yml, from
+---    `driver.tl ceilings-base`), for a branch push, a manual run of a branch and the merge queue alike. The queue's own base
+---    (`merge_group.base_sha`, `COSMIC_CI_BASE_SHA`) is no base here: it is the commit of the entry ahead, which already
+---    holds that entry's markers, so a marker added by one entry would pass the entries behind it. A name that is no commit is
+---    a failure, not a skip.
 --- 2. In a checkout of a developer, `git merge-base HEAD origin/main`.
 ---
 --- Where no base can be named the check does not hold the file, and says why in its note, but only where none can
@@ -198,11 +201,11 @@ local function marks_rise(root: string, base: string, held: CeilingsBase.Held, g
     files[#files + 1] = file
   end
   table.sort(files)
-  -- The codes some file held a marker of at the base: a code in none is closed, and its rule has no exceptions.
+  -- The codes some file held a marker of at the base, in any stage: a code in none is closed, and its rule has no exceptions.
   local anywhere: mut {string: boolean} = {}
   for _, counts in pairs(was) do
     for key in pairs(counts) do
-      anywhere[key] = true
+      anywhere[key:match(" (%S+)$") or key] = true
     end
   end
   local out: mut {string} = {}
@@ -218,7 +221,7 @@ local function marks_rise(root: string, base: string, held: CeilingsBase.Held, g
       if now > before then
         local line = file .. ": " .. tostring(now) .. " of its markers hold " .. code .. " and the merge base held " ..
           tostring(before) .. "; a marker is never added and a count only falls: fix the finding instead"
-        if anywhere[code] ~= true then
+        if anywhere[code:match(" (%S+)$") or code] ~= true then
           line = file .. ": " .. tostring(now) .. " of its markers hold " .. code .. " and no file held one at the merge base: " ..
             "this rule has no exceptions, so fix the code and write no marker"
         end
@@ -232,11 +235,11 @@ end
 function CeilingsBase.check(root: string, env: {string:string}, git: CeilingsBase.Git, held?: CeilingsBase.Held):
     CeilingsBase.Verdict
   local in_ci = env["GITHUB_ACTIONS"] == "true"
-  local base = named(env, { "COSMIC_CEILINGS_BASE", "COSMIC_CI_BASE_SHA" })
+  local base = named(env, { "COSMIC_CEILINGS_BASE" })
   if base ~= "" and not full_hash(base) then
     if in_ci then
-      return failed("the base CI names is `" .. base .. "`, no full commit hash (COSMIC_CEILINGS_BASE or " ..
-          "COSMIC_CI_BASE_SHA; `unknown` is a base GitHub could not name); run the job again, or fix where the workflow finds the base")
+      return failed("the base CI names is `" .. base .. "`, no full commit hash (COSMIC_CEILINGS_BASE; " ..
+          "`unknown` is a base GitHub could not name); run the job again, or fix where the workflow finds the base")
     end
     base = ""
   end
@@ -245,7 +248,7 @@ function CeilingsBase.check(root: string, env: {string:string}, git: CeilingsBas
       if mains_own(env) then
         return skipped("this is a run of main itself, whose changes the merge queue held to their base")
       end
-      return failed("CI names no base (COSMIC_CEILINGS_BASE, COSMIC_CI_BASE_SHA) for this run, which holds a change; " ..
+      return failed("CI names no base (COSMIC_CEILINGS_BASE) for this run, which holds a change; " ..
           "a run that cannot find its base fails and is run again, since skipping the check there would let a raise through")
     end
     local inside, _ = git(root, { "rev-parse", "--git-dir" })

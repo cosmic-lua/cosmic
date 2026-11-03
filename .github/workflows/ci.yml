@@ -71,8 +71,9 @@
     # list, and no driver), which keeps it to a runner's start and some
     # seconds. Its `base`, set only where it chose `full`, is the main commit
     # the branch grew from: the legs take it as the merge queue's base
-    # (COSMIC_CI_BASE_SHA), against which the format check holds
-    # the markers of the tree as the queue's does.
+    # (COSMIC_CI_BASE_SHA), the commit whose verdicts they stand on. The
+    # markers of the tree are held to the merge base with main (driver.tl
+    # ceilings-base) on every path, the queue's run included.
     # TODO: name what else only the queue's legs prove, once a record of the
     # queue's failures says which changed paths they follow: of the queue
     # failures read when this list was written, the alpine native and
@@ -531,6 +532,25 @@
           "continue-on-error": true,
           env: {GH_TOKEN: "${{ github.token }}", REPOSITORY: "${{ github.repository }}", SHA: "${{ github.sha }}", EVENT: "${{ github.event_name }}", REF: "${{ github.ref }}", QUEUE_BASE: "${{ github.event.merge_group.base_sha }}"},
           run: "cosmic-driver cosmic_ci/driver.tl merge-base",
+        },
+
+        # The leg that runs the format check (COSMIC_CI_FORMAT) holds the markers of the tree to the merge base of the
+        # commit with main, never to the queue's own base (build/ceilings_base.tl); `format` says why.
+        {
+          name: "find the base the markers are held to",
+          id: "ceilings-base",
+          if: "env.COSMIC_CI_FORMAT == 'run'",
+          shell: "sh",
+          "continue-on-error": true,
+          env: {GH_TOKEN: "${{ github.token }}", REPOSITORY: "${{ github.repository }}", SHA: "${{ github.sha }}", EVENT: "${{ github.event_name }}", REF: "${{ github.ref }}", BASE_REF: "${{ github.event.merge_group.base_ref }}"},
+          run: "cosmic-driver cosmic_ci/driver.tl ceilings-base",
+        },
+        {
+          name: "name the base the ceilings are held to",
+          if: "steps.ceilings-base.outputs.sha != ''",
+          shell: "sh",
+          env: {BASE: "${{ steps.ceilings-base.outputs.sha }}"},
+          run: "echo \"COSMIC_CEILINGS_BASE=$BASE\" >> \"$GITHUB_ENV\"",
         },
 
         # Every run restores the verdicts main saved for this host at the
@@ -2664,14 +2684,24 @@
           run: "cosmic-driver cosmic_ci/driver.tl merge-base",
         },
         # The base the format check holds the markers of the tree to (build/ceilings_base.tl): a marker only
-        # falls, so a marker added since the tree's base on main fails the check. Where the
-        # step above found no base this sets none, and the check fails, since skipping it there would let a
-        # raise through whenever GitHub could not name the base; run the job again.
+        # falls, so a marker added since the tree's merge base with main fails the check. It is the merge base with
+        # main on every path, the queue's run included: the queue's own base (merge_group.base_sha) is the entry ahead,
+        # whose markers the run's commit already holds. Where the step finds none this sets none, and the check fails,
+        # since skipping it there would let a raise through whenever GitHub could not name the base; run the job again.
+        {
+          name: "find the base the markers are held to",
+          id: "ceilings-base",
+          if: "github.event_name != 'schedule'",
+          shell: "sh",
+          "continue-on-error": true,
+          env: {GH_TOKEN: "${{ github.token }}", REPOSITORY: "${{ github.repository }}", SHA: "${{ github.sha }}", EVENT: "${{ github.event_name }}", REF: "${{ github.ref }}", BASE_REF: "${{ github.event.merge_group.base_ref }}"},
+          run: "cosmic-driver cosmic_ci/driver.tl ceilings-base",
+        },
         {
           name: "name the base the ceilings are held to",
-          if: "steps.merge-base.outputs.sha != ''",
+          if: "steps.ceilings-base.outputs.sha != ''",
           shell: "sh",
-          env: {BASE: "${{ steps.merge-base.outputs.sha }}"},
+          env: {BASE: "${{ steps.ceilings-base.outputs.sha }}"},
           run: "echo \"COSMIC_CEILINGS_BASE=$BASE\" >> \"$GITHUB_ENV\"",
         },
         # What a branch changed since that base, whose tree main's run
