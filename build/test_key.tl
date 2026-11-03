@@ -1503,6 +1503,15 @@ local function write_sealed(sealing: Sealing, store: string, whole: string, out:
           if not done then return false, done_trouble end
         end
       end
+      if left_out then
+        -- A pure worker's database says so and holds no `places`, the closure's rows being withheld: a query of it fails,
+        -- as the readers of a missing text table refuse ([`build.symbols`]'s `refuse_withheld`).
+        for _, statement in ipairs({ "DROP TABLE main.places",
+            "INSERT INTO main.meta (key, value) VALUES ('pure_store', X'31')" }) do
+          local done, done_trouble = db:exec(statement)
+          if not done then return false, done_trouble end
+        end
+      end
       for _, pair in ipairs(meta) do
         local inserted, insert_trouble = Sqlite.run(db,
           "INSERT INTO main.meta (key, value) VALUES (?1, ?2)",
