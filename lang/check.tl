@@ -2892,10 +2892,14 @@ local record Tests
   --- The edges of `left op right` (not `~=`) where one side is `#place`, the place holds an array, and the other is an
   --- integer literal: the states where it holds and where it fails, each knowing the least length that gives.
   length_edges: function(ctx: Ctx, f: Flow.State, op: string, left: Ast.Node, right: Ast.Node): Flow.State, Flow.State
-  --- The state where `e`, a read `object[key]` of an array whose elements are not nil, is not nil: the array has the key,
-  --- so it is at least that long where `key` is an integer literal of 1 or more or `#object`, and it has the key the local
-  --- `key` holds, which only a read at that local relies on. `f` itself where `e` is no such read.
+  --- The state where `e`, a read `object[key]` of an array, is not nil: the array has the key, so it is at least that long
+  --- where `key` is an integer literal of 1 or more or `#object`, and it has the key the local `key` holds, which only a
+  --- read at that local relies on. `f` itself where `e` is no such read.
   has_element: function(ctx: Ctx, f: Flow.State, e: Ast.Node): Flow.State
+  --- Whether an array of `element` holds the keys 1 to its length, which every length fact and counted loop relies on: no
+  --- member of `element` is nil at run time. `any` may be nil, and so may a type variable, which stands for any type a
+  --- caller gives (`mark<T>(...: T)` called with an optional), so `{ ... }` of such a vararg may have holes.
+  dense: function(ctx: Ctx, element: Type): boolean
   --- Whether the read `object[key]` of an array is an element it has: `key` is an integer literal, or `#object`, and the
   --- flow has the array at least that long, or a local the flow has the array hold as a key.
   length_proves: function(ctx: Ctx, object: Ast.Exp, key: Ast.Exp): boolean
@@ -3275,15 +3279,16 @@ end
 
 -- What a test of the length of an array shows, and what an index read may rely on.
 --
--- An array holds the keys 1 to `#t` and no others (`array_of_optional` and `array_hole` keep it so), so `t[n]` is an element
--- wherever `#t` is at least `n`. A test of `#place` against an integer literal gives the flow that fact for the first
--- indexes ([`Flow.know_length`]) of a place that holds an array: a local, or fixed fields from one. So does a test that
--- `place[k]` is not nil ([`Tests.has_element`]), for a literal `k` of 1 or more or `#place`; for a local `k` it gives that
--- the array has the key `k` holds ([`Flow.know_key`]), until `k` is assigned. The fact stands until code runs that may
--- shorten an array: a call (but `assert`, `type` and an inert call [`Tests.inert_callee`], which run no code of the
--- program), a write of a literal nil to an index (the array may be under another name), the iterator of a generic `for`
--- and the scope of a `<close>` local, whose handler runs when it ends. A function made at the point does not inherit it
--- ([`Flow.enter`]), and an assignment to the place takes it away like any fact of the place.
+-- An array holds the keys 1 to `#t` and no others (`array_of_optional` and `array_hole` keep it so) where its element is
+-- never nil at run time ([`Tests.dense`]), so `t[n]` is an element wherever `#t` is at least `n`. A test of `#place`
+-- against an integer literal gives the flow that fact for the first indexes ([`Flow.know_length`]) of a place that holds
+-- an array: a local, or fixed fields from one. So does a test that `place[k]` is not nil ([`Tests.has_element`]), for a
+-- literal `k` of 1 or more or `#place`; for a local `k` it gives that the array has the key `k` holds ([`Flow.know_key`]),
+-- until `k` is assigned. The fact stands until code runs that may shorten an array: a call (but `assert`, `type` and an
+-- inert call [`Tests.inert_callee`], which run no code of the program), a write of a literal nil to an index (the array
+-- may be under another name), the iterator of a generic `for` and the scope of a `<close>` local, whose handler runs when
+-- it ends. A function made at the point does not inherit it ([`Flow.enter`]), and an assignment to the place takes it
+-- away like any fact of the place.
 --
 -- A `table.move` that may copy a nil or leave a hole is refused (`array_hole`, [`Writes.move_dense`]), so a move keeps the
 -- density this relies on.
@@ -3359,9 +3364,7 @@ function Tests.has_element(ctx: Ctx, f: Flow.State, e: Ast.Node): Flow.State
   if p == nil then
     return f
   end
-  local t = ctx.store:non_nil(current(f, p))
-  -- An array whose element may be nil may have holes: a key it has shows no length.
-  if not (t.tag == "array") or nilable(t.element) then
+  if not (ctx.store:non_nil(current(f, p)).tag == "array") then
     return f
   end
   local key = peel(at.key)
@@ -3380,6 +3383,18 @@ function Tests.has_element(ctx: Ctx, f: Flow.State, e: Ast.Node): Flow.State
     end
   end
   return f
+end
+
+function Tests.dense(ctx: Ctx, element: Type): boolean
+  -- TODO: take an array of a type variable as dense once a type argument may be held to exclude nil (a bound, or a
+  -- refusal of an optional type argument where `{ ... }` of a `...: T` vararg is made): any caller may give nil now, so a
+  -- `{T}` loses the length facts and counted loops a `{integer}` has.
+  for _, m in ipairs(members_of(ctx.store, element)) do
+    if m.tag == "var" or not Writes.present(m) then
+      return false
+    end
+  end
+  return true
 end
 
 function Tests.length_proves(ctx: Ctx, object: Ast.Exp, key: Ast.Exp): boolean
@@ -3503,12 +3518,13 @@ local function index_read(ctx: Ctx, node: Ast.Index, object: Type): Type
       element = view(store, element)
     end
     local maybe = store:optional(element)
-    if Tests.length_proves(ctx, node.object, node.key) then
+    local dense = Tests.dense(ctx, t.element)
+    if dense and Tests.length_proves(ctx, node.object, node.key) then
       -- Checked at run time like a narrowed local: a length fact has no other check.
       Narrowing.note_narrowed(ctx, node, maybe, element)
       return element
     end
-    if Writes.counted_read(ctx, node) then
+    if dense and Writes.counted_read(ctx, node) then
       Narrowing.note_narrowed(ctx, node, maybe, element)
       return element
     end

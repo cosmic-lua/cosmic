@@ -1494,6 +1494,15 @@ local function test_a_nil_test_of_an_element_shows_no_more_than_the_key_it_reads
   reads("local i = 1\nwhile zs[i] ~= nil do\n  touch()\n  n = n + zs[i]\n  i = i + 1\nend\n", "nil_not_allowed")
   reads("if xs[1] ~= nil then\n  xs = ys\n  n = xs[1]\nend\n", "index_may_be_nil")
   reads("local alias = xs\nif xs[1] ~= nil then\n  n = alias[1]\nend\n", "index_may_be_nil")
+  -- an array of a type variable may have holes, as `{ ... }` has where a caller gives nil for `T`, so neither a nil test
+  -- nor a length test shows its elements
+  for _, test in ipairs({ "t[3] ~= nil", "#t >= 3" }) do
+    local got = codes_of("local function mark<T>(d: T, ...: T): T\n  local t = { ... }\n  if " .. test .. " then\n" ..
+        "    return t[1]\n  end\n  return d\nend\n")
+    assert(got == "index_may_be_nil", got .. " for " .. test)
+  end
+  assert(codes_of("local function sum<T>(d: T, xs: {T}): T\n  for i = 1, #xs do\n    d = xs[i]\n  end\n  return d\nend\n") ==
+      "index_may_be_nil")
 end
 
 -- A value of a class that declares `__tostring` runs code of the program where `tostring` meets it, and that code may shorten
