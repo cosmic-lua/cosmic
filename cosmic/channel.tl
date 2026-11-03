@@ -136,11 +136,13 @@ end
 
 local function pop<T>(self: State<T>): T
   local item = self.items[self.first]
+  -- `pop` runs only with `count > 0`, so the slot at `first` holds an item.
+  if item == nil then error("channel: no item at the head of a non-empty queue", 2) end
   self.items[self.first] = nil
   self.first = self.first + 1
   self.count = self.count - 1
   if self.count == 0 then self.first = 1 end
-  return item -- checked: nil_not_allowed
+  return item
 end
 
 function State.close<T>(self: State<T>)

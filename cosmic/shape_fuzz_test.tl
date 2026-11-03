@@ -5,6 +5,7 @@
 --- walk that succeeds and every way it can fail are reached.
 --- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
 
+local Array = require("cosmic.array")
 local Fuzz = require("build.fuzz")
 local Json = require("cosmic.json")
 local Shape = require("cosmic.shape")
@@ -32,7 +33,8 @@ end
 local KEYS <const> = { "a", "b", "id", "a key", "", "é", "\n", "1" }
 
 local function key(r: Recipe): string
-  return KEYS[byte(r, #KEYS) + 1] -- checked: index_may_be_nil
+  -- `byte` answers 0 to `#KEYS - 1`.
+  return Array.at(KEYS, byte(r, #KEYS) + 1)
 end
 
 local enum Level
@@ -122,14 +124,15 @@ local function gen_value(r: Recipe, spec: Shape.Node, depth: integer, strict: bo
   elseif kind == "record" then
     local t: mut {string: any} = {}
     for _, name in ipairs(names_of(spec)) do
-      local field = assert(spec.fields)[name]
+      -- [`names_of`] lists the keys of `spec.fields`.
+      local field = assert(assert(spec.fields)[name], "names_of lists only keys of spec.fields")
       local pick = byte(r, 6)
-      if pick == 0 and (field.optional or not strict) then -- checked: nil_not_allowed
+      if pick == 0 and (field.optional or not strict) then
         -- left out
-      elseif pick == 1 and field.optional then -- checked: nil_not_allowed
+      elseif pick == 1 and field.optional then
         t[name] = Json.null -- checked: any_use
       else
-        t[name] = gen_value(r, field, depth - 1, strict) -- checked: nil_not_allowed
+        t[name] = gen_value(r, field, depth - 1, strict)
       end
     end
     -- A strict value for a strict record has no key the record lacks.
@@ -211,7 +214,9 @@ local function fits(v: any, spec: Shape.Node): boolean
     if not (k is string) or assert(spec.fields)[k] == nil then return false end
   end
   for _, name in ipairs(names_of(spec)) do
-    if not fits(rawget(t, name), assert(spec.fields)[name]) then return false end -- checked: index_may_be_nil
+    -- [`names_of`] lists the keys of `spec.fields`.
+    local field = assert(assert(spec.fields)[name], "names_of lists only keys of spec.fields")
+    if not fits(rawget(t, name), field) then return false end
   end
   return true
 end

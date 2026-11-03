@@ -9,6 +9,7 @@
 --- a zone whose offset is fixed `add_calendar` adds back to the second
 --- moment. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
 
+local Array = require("cosmic.array")
 local Fuzz = require("build.fuzz")
 local Time = require("cosmic.time")
 
@@ -96,18 +97,21 @@ local SAMPLES <const> = {
 }
 
 local function parse_holds(input: string): boolean, string
-  local ok, ns, why = pcall(Time.parse_rfc3339, input)
-  if not ok then return false, "raised: " .. tostring(ns) end
+  local parsed: integer?
+  local why = ""
+  local ok, raised = pcall(function() parsed, why = Time.parse_rfc3339(input) end)
+  if not ok then return false, "raised: " .. tostring(raised) end
+  local ns = parsed
   if ns == nil then
     Fuzz.label("refused")
     if why == "" then return false, "refused without a reason" end
     return true, ""
   end
   Fuzz.label("parsed")
-  if why ~= "" then return false, "parsed with a reason: " .. why end -- checked: nil_not_allowed
-  local again, again_why = Time.parse_rfc3339(Time.format_rfc3339(ns)) -- checked: any_use
+  if why ~= "" then return false, "parsed with a reason: " .. why end
+  local again, again_why = Time.parse_rfc3339(Time.format_rfc3339(ns))
   if again ~= ns then
-    return false, ("%q parsed as %d, whose text parsed as %s: %s"):format(input, ns, -- checked: any_use
+    return false, ("%q parsed as %d, whose text parsed as %s: %s"):format(input, ns,
       tostring(again), again_why)
   end
   return true, ""
@@ -129,6 +133,7 @@ end
 local DAY_NS <const> = 86400 * NS
 local MONTHS <const> = { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct",
   "Nov", "Dec" }
+-- [`Time.civil`] answers a weekday from 1 (Monday) to 7, as many as `DAYS` holds.
 local DAYS <const> = { "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
   "Sunday" }
 
@@ -163,7 +168,7 @@ local function http_round_trips(input: string): boolean, string
   local day = (" %d"):format(c.day):sub(-2)
   if c.day < 10 then Fuzz.label("one-digit day") end
   local clock = ("%02d:%02d:%02d"):format(c.hour, c.minute, c.second)
-  ok, why = parses_as(Time.parse_http, ("%s %s %s %s %04d"):format(DAYS[c.weekday]:sub(1, 3), -- checked: nil_not_allowed
+  ok, why = parses_as(Time.parse_http, ("%s %s %s %s %04d"):format(Array.at(DAYS, c.weekday):sub(1, 3),
     MONTHS[c.month], day, clock, c.year), second, ns)
   if not ok then return false, why end
   if c.year >= 1969 and c.year <= 2068 then
@@ -194,24 +199,28 @@ local TEXT_SAMPLES <const> = {
 }
 
 local function text_parse_holds(input: string): boolean, string
-  local ok, ns, why = pcall(Time.parse_http, input)
-  if not ok then return false, "parse_http raised: " .. tostring(ns) end
+  local parsed: integer?
+  local why = ""
+  local ok, raised = pcall(function() parsed, why = Time.parse_http(input) end)
+  if not ok then return false, "parse_http raised: " .. tostring(raised) end
+  local ns = parsed
   if ns ~= nil then
     Fuzz.label("http parsed")
-    if why ~= "" then return false, "parse_http parsed with a reason: " .. why end -- checked: nil_not_allowed
-    if ns % NS ~= 0 or Time.parse_http(Time.format_http(ns)) ~= ns then -- checked: any_use*2
-      return false, ("%q parsed as %d, which does not come back"):format(input, ns) -- checked: any_use
+    if why ~= "" then return false, "parse_http parsed with a reason: " .. why end
+    if ns % NS ~= 0 or Time.parse_http(Time.format_http(ns)) ~= ns then
+      return false, ("%q parsed as %d, which does not come back"):format(input, ns)
     end
   elseif why == "" then
     return false, "parse_http refused without a reason"
   end
-  ok, ns, why = pcall(Time.parse_date, input)
-  if not ok then return false, "parse_date raised: " .. tostring(ns) end
+  ok, raised = pcall(function() parsed, why = Time.parse_date(input) end)
+  if not ok then return false, "parse_date raised: " .. tostring(raised) end
+  ns = parsed
   if ns ~= nil then
     Fuzz.label("date parsed")
-    if why ~= "" then return false, "parse_date parsed with a reason: " .. why end -- checked: nil_not_allowed
-    if ns % DAY_NS ~= 0 or Time.parse_date(Time.format_date(ns)) ~= ns then -- checked: any_use*2
-      return false, ("%q parsed as %d, which does not come back"):format(input, ns) -- checked: any_use
+    if why ~= "" then return false, "parse_date parsed with a reason: " .. why end
+    if ns % DAY_NS ~= 0 or Time.parse_date(Time.format_date(ns)) ~= ns then
+      return false, ("%q parsed as %d, which does not come back"):format(input, ns)
     end
   elseif why == "" then
     return false, "parse_date refused without a reason"

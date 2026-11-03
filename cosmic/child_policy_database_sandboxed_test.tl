@@ -128,6 +128,9 @@ local function test_a_decoded_policy_refuses_a_database_that_changed_since(tmp: 
   assert(started == nil and why:find("has changed since", 1, true) ~= nil, tostring(why))
 end
 
+--- Mode 0666 in decimal.
+local WORLD_WRITABLE <const> = 6 * 64 + 6 * 8 + 6
+
 --- A sealed program run under `nest` by `mode` (see the probe in `MAIN`) with
 --- `policy` beside the database: what it printed; the test is skipped where the
 --- host gives no sandbox. The database is writable by anyone, so that only the
@@ -135,7 +138,7 @@ end
 local function under_nest(tmp: string, mode: string, policy: Sandbox.Policy): {string:string}
   local path = tmp .. "/sealed.db"
   fixture.seal(tmp, path)
-  assert(Fs.chmod(path, tonumber("666", 8))) -- checked: nil_not_allowed
+  assert(Fs.chmod(path, WORLD_WRITABLE))
   -- Where a start of the child's own builds the root it makes.
   searchable.open(tmp)
   local scratch = tmp .. "/scratch"

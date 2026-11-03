@@ -89,7 +89,9 @@ local function test_the_check_answers_the_record_and_drops_what_it_does_not_name
   assert(profile ~= nil, err)
   assert(profile.name == "Ada" and profile.address.floor == 2)
   assert(profile.nickname == nil and profile.previous == nil)
-  assert(profile.by_key["home"].street == "Oak" and profile.inner.deep["k"][2] == 2) -- checked: nil_not_allowed*2
+  local home, deep_k = profile.by_key["home"], profile.inner.deep["k"]
+  assert(home ~= nil and deep_k ~= nil, "the decoded profile holds a home and a deep k")
+  assert(home.street == "Oak" and deep_k[2] == 2)
   assert((profile as {string: any}).unlisted == nil, "a key the record lacks was kept") -- checked: cast_refused
 end
 
