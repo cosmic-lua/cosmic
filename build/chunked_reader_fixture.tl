@@ -9,7 +9,7 @@ local record chunked_reader_fixture
 end
 
 local class Chunked is Stream.Reader
-  mut skip: function(Chunked, n: integer): boolean, string
+  skip?: function(Chunked, n: integer): boolean, string
   text: string
   mut at: integer
   size: integer
@@ -52,7 +52,7 @@ function chunked_reader_fixture.chunked(text: string, size: integer, last?: stri
 end
 
 local class Dripped is Stream.Reader
-  mut skip: function(Dripped, n: integer): boolean, string
+  skip?: function(Dripped, n: integer): boolean, string
   inner: Stream.Reader
   most: integer
 
@@ -65,10 +65,10 @@ local class Dripped is Stream.Reader
   end
 end
 
---- Skips `n` bytes of what `self` hands out, as the reader it wraps does. A [`Stream.Reader`] declares `skip`, so a
---- class that is one has it.
+--- Skips `n` bytes of what `self` hands out, as the reader it wraps does.
 local function dripped_skip(self: Dripped, n: integer): boolean, string
-  return self.inner:skip(n)
+  if self.inner.skip ~= nil then return self.inner:skip(n) end
+  return Stream.skip(self.inner, n)
 end
 
 --- A Reader over `text` that hands out at most `n` bytes a read.

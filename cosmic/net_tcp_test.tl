@@ -16,8 +16,8 @@ local function test_a_tcp_listener_at_port_zero_names_the_port_it_has()
   assert(address.kind == "tcp" and address.host == "127.0.0.1", address.host)
   local listening = assert(address.port)
   assert(listening > 0 and listening <= 65535, tostring(listening))
-  local client <close> = assert(Net.connect(address, { timeout_ns = Clock.seconds(5) })) -- checked: close_not_closable
-  local accepted <close> = assert(server:accept()) -- checked: close_not_closable
+  local client <close> = assert(Net.connect(address, { timeout_ns = Clock.seconds(5) }))
+  local accepted <close> = assert(server:accept())
   assert(client:write("ping"))
   assert(client:shutdown("write"))
   assert(assert(Stream.read_all(accepted)) == "ping")
@@ -72,11 +72,15 @@ local function test_a_host_that_is_no_address_is_refused()
     listen_why)
   local nul, nul_why = Net.connect(Net.tcp("127.0.0.1\0junk", 1))
   assert(nul == nil and nul_why:find("Invalid argument", 1, true) ~= nil, nul_why)
-  assert(not pcall(Net.connect, { kind = "tcp", host = "127.0.0.1", port = "1" } as Net.Address)) -- checked: alternatives_as_value, cast_refused
-  assert(not pcall(Net.connect, { kind = "tcp", host = "127.0.0.1", port = 1.5 } as Net.Address)) -- checked: alternatives_as_value, arms_differ, cast_refused
+  Test.raises(function()
+    Net.connect({ kind = "tcp", host = "127.0.0.1", port = "1" } as Net.Address) -- checked: cast_refused
+  end)
+  Test.raises(function()
+    Net.connect({ kind = "tcp", host = "127.0.0.1", port = 1.5 } as Net.Address) -- checked: cast_refused, arms_differ
+  end)
   assert(not pcall(Net.connect, Net.tcp("127.0.0.1", 65536))) -- checked: alternatives_as_value
   assert(not pcall(Net.connect, Net.tcp("127.0.0.1", -1))) -- checked: alternatives_as_value
-  assert(not pcall(Net.connect, { kind = "tcp", port = 1 } as Net.Address)) -- checked: alternatives_as_value, arms_differ, cast_refused
+  Test.raises(function() Net.connect({ kind = "tcp", port = 1 } as Net.Address) end) -- checked: arms_differ, cast_refused
 end
 
 --- A connection waits for room at a listener whose backlog is full, as
@@ -163,7 +167,7 @@ local function test_a_server_names_what_it_bound_and_serves_every_listener(tmp: 
       bound = addresses
       assert(server.addresses == addresses)
       for _, address in ipairs(addresses) do
-        local conn <close> = assert(Net.connect(address, { timeout_ns = Clock.seconds(5) })) -- checked: close_not_closable
+        local conn <close> = assert(Net.connect(address, { timeout_ns = Clock.seconds(5) }))
         assert(conn:write(address.kind .. "\n"))
         local appended = assert(Stream.lines(conn):read())
         answers[#answers + 1] = appended
@@ -192,7 +196,7 @@ local function test_a_server_names_what_it_bound_and_serves_two_tcp_listeners()
       bound = addresses
       assert(server.addresses == addresses)
       for _, address in ipairs(addresses) do
-        local conn <close> = assert(Net.connect(address, { timeout_ns = Clock.seconds(5) })) -- checked: close_not_closable
+        local conn <close> = assert(Net.connect(address, { timeout_ns = Clock.seconds(5) }))
         assert(conn:write(address.kind .. "\n"))
         local appended = assert(Stream.lines(conn):read())
         answers[#answers + 1] = appended

@@ -5,6 +5,7 @@
 
 local Hash = require("cosmic.hash")
 local Json = require("cosmic.json")
+local Test = require("cosmic.test")
 -- TODO: once a test can build a value its type refuses without a cast, the casts left here go: a marked array with a string key, an array with an element at 1 << 40, `max_depth = 1.5`, a map holding `print`, and [`Json.null`] indexed as a table (json_path_test.tl keeps one: the step 1.5 in Json.Steps).
 
 --- The bits of a double, in hex, and the shortest text RFC 8785 writes it as.
@@ -410,13 +411,12 @@ local function test_depth_limits()
   local cycle: mut {Json.Value} = {}
   cycle[1] = cycle
   assert(encode_failure(cycle, { max_depth = 5 }):match("contain itself"), "a cycle fails")
-  assert(not pcall(Json.decode, "1", { max_depth = 0 }), "a limit below 1 raises") -- checked: alternatives_as_value
+  Test.raises(function() Json.decode("1", { max_depth = 0 }) end) -- a limit below 1 raises
   assert(Json.default_depth == 64 and Json.depth_limit == 1000, "the core's limits")
   assert(Json.encode(1, { max_depth = Json.depth_limit }) == "1", "the limit itself is allowed")
-  assert(not pcall(Json.encode, 1, { max_depth = Json.depth_limit + 1 }), -- checked: alternatives_as_value
-    "a limit past the most raises")
+  Test.raises(function() Json.encode(1, { max_depth = Json.depth_limit + 1 }) end) -- a limit past the most raises
   local fractional: any = { max_depth = 1.5 } -- checked: any_use
-  assert(not pcall(Json.encode, 1, fractional as Json.EncodeOptions), "a fractional limit raises") -- checked: alternatives_as_value, cast_refused
+  Test.raises(function() Json.encode(1, fractional as Json.EncodeOptions) end) -- checked: cast_refused
 end
 
 local function test_pretty()

@@ -23,15 +23,15 @@ local function test_terminal_failures_keep_their_declared_shapes()
 end
 
 local function test_terminal_degenerate_arguments_raise()
-  assert(not pcall(sys.tcsetattr, -1, "")) -- checked: alternatives_as_value
-  assert(not pcall(sys.setwinsize, -1, -1, 80)) -- checked: alternatives_as_value
-  assert(not pcall(sys.setwinsize, -1, 24, 65536)) -- checked: alternatives_as_value
-  assert(not pcall(sys.tcgetattr, 0x100000000)) -- checked: alternatives_as_value
-  assert(not pcall(sys.tcraw, 0x100000000)) -- checked: alternatives_as_value
-  assert(not pcall(sys.tcflush, 0x100000000)) -- checked: alternatives_as_value
-  assert(not pcall(sys.winsize, 0x100000000)) -- checked: alternatives_as_value
-  assert(not pcall(sys.setwinsize, 0x100000000, 24, 80)) -- checked: alternatives_as_value
-  assert(not pcall(sys.controlling_terminal, 0x100000000)) -- checked: alternatives_as_value
+  Test.raises(function() sys.tcsetattr(-1, "") end)
+  Test.raises(function() sys.setwinsize(-1, -1, 80) end)
+  Test.raises(function() sys.setwinsize(-1, 24, 65536) end)
+  Test.raises(function() sys.tcgetattr(0x100000000) end)
+  Test.raises(function() sys.tcraw(0x100000000) end)
+  Test.raises(function() sys.tcflush(0x100000000) end)
+  Test.raises(function() sys.winsize(0x100000000) end)
+  Test.raises(function() sys.setwinsize(0x100000000, 24, 80) end)
+  Test.raises(function() sys.controlling_terminal(0x100000000) end)
 end
 
 local function test_non_terminal_is_refused_without_changing_session(tmp: string)
@@ -68,7 +68,7 @@ local function test_ttyname_names_a_slave_and_refuses_a_descriptor_that_is_none(
   local fd = assert(sys.open(tmp .. "/ordinary", sys.O_CREAT | sys.O_RDWR, 384))
   value_failure(sys.ttyname(fd))
   assert(sys.close(fd))
-  assert(not pcall(sys.ttyname, 0x100000000)) -- checked: alternatives_as_value
+  Test.raises(function() sys.ttyname(0x100000000) end)
   local pty, _ = sys.openpty()
   if pty == nil then Test.skip("this worker has no pty devices to open") end
   assert(pty)

@@ -63,6 +63,7 @@ end
 local function test_from_string_refuses_a_skip_so_large_it_would_wrap()
   local r = Stream.from_string("abcdefgh")
   assert(r:read(2) == "ab")
+  assert(r.skip ~= nil)
   local skipped, why = r:skip(math.maxinteger)
   assert(skipped == false and why ~= "", why)
   local chunk, trouble = r:read()
@@ -81,6 +82,7 @@ end
 local function test_from_string_refuses_a_negative_skip()
   local r = Stream.from_string("abcdefgh")
   assert(r:read(4) == "abcd")
+  assert(r.skip ~= nil)
   local skipped, why = r:skip(-2)
   assert(skipped == false and why ~= "", why)
   assert(r:read(1) == "e")
@@ -98,7 +100,7 @@ end
 
 local function test_open_missing_file_fails(tmp: string)
   local r, trouble = Stream.open(tmp .. "/missing")
-  assert(r == nil and trouble:find(tmp, 1, true)) -- checked: or_mix
+  assert(r == nil and trouble:find(tmp, 1, true) ~= nil)
 end
 
 local function test_from_fd_does_not_close_the_descriptor(tmp: string)
@@ -137,7 +139,7 @@ end
 local function test_read_exact_fails_short_of_the_target()
   local r = Stream.from_string("abc")
   local chunk, trouble = Stream.read_exact(r, 5)
-  assert(chunk == nil and trouble:find("wanted 5", 1, true)) -- checked: or_mix
+  assert(chunk == nil and trouble:find("wanted 5", 1, true) ~= nil)
 end
 
 local function test_read_exact_of_zero_never_touches_the_reader()
@@ -371,7 +373,7 @@ local function test_a_file_reader_skips_by_seeking_and_refuses_to_pass_the_end(t
   local path = tmp .. "/f"
   assert(Fs.write(path, "0123456789"))
   local r = assert(Stream.open(path))
-  assert(r.skip ~= nil) -- checked: compare_disjoint
+  assert(r.skip ~= nil)
   assert(r:skip(3))
   assert(r:read(2) == "34")
   assert(Stream.skip(r, 2))
@@ -405,7 +407,7 @@ end
 
 local function test_skip_falls_back_to_reading_for_a_reader_that_cannot_seek()
   local r = Stream.limit(Stream.from_string("abcdef"), 6)
-  assert(r.skip == nil) -- checked: compare_disjoint
+  assert(r.skip == nil)
   assert(Stream.skip(r, 4))
   assert(r:read() == "ef")
   local skipped = Stream.skip(Stream.limit(Stream.from_string("ab"), 2), 3)
@@ -804,7 +806,7 @@ local function test_transform_writer_raises_on_a_hold_that_is_not_a_whole_count(
   for _, bad in ipairs({ -1, 1.5, "1", true } as {any}) do -- checked: arms_differ, cast_refused
     local ok, trouble = pcall(Stream.transform_writer, recording(), strict(),
       { hold = bad as integer }) -- checked: cast_refused
-    assert(not ok and tostring(trouble):find("hold must be an integer of at least 0", 1, true), -- checked: or_mix
+    assert(not ok and tostring(trouble):find("hold must be an integer of at least 0", 1, true) ~= nil,
       tostring(trouble))
   end
 end
@@ -1059,7 +1061,7 @@ local function test_rest_after_a_raise_keeps_the_start_of_a_line()
   }
   local lines = Stream.lines(r)
   assert(lines:read() == "a")
-  assert(not pcall(lines.read, lines)) -- checked: alternatives_as_value, interface_method_value
+  Test.raises(function() lines:read() end)
   local got = assert(Stream.read_all(lines:rest()))
   assert(got == "partial\nbody", got)
 end
@@ -1180,7 +1182,7 @@ end
 local function test_copy_n_fails_on_a_short_reader_and_on_either_side_failing()
   local c = Stream.collect()
   local ok, why = Stream.copy_n(Stream.from_string("abc"), c, 10)
-  assert(not ok and why:find("stated size", 1, true) and why:find("wanted 10 bytes, got 3", 1, true), why) -- checked: or_mix
+  assert(not ok and why:find("stated size", 1, true) ~= nil and why:find("wanted 10 bytes, got 3", 1, true) ~= nil, why)
   assert(c:result() == "abc")
   ok, why = Stream.copy_n(chunked({ "ab" }, "disk on fire"), Stream.collect(), 10)
   assert(not ok and why == "disk on fire", why)

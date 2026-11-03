@@ -189,6 +189,6 @@ end
 --- one past the stack leaves just the heading.
 local function test_trace_refuses_a_level_below_one()
   Test.raises(function() Errors.trace(nil, 0) end, "level must be at least 1")
-  assert(not pcall(Errors.trace, nil, -1)) -- checked: alternatives_as_value
+  Test.raises(function() Errors.trace(nil, -1) end)
   assert(Errors.trace(nil, 1000) == "stack traceback:")
 end

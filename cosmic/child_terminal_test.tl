@@ -36,7 +36,7 @@ local function test_start_on_pty_validates_the_size_before_opening_a_pty()
     for _ = 1, 4 do
       local ok, trouble = pcall(Child.start_on_pty, { "/bin/true" }, {},
         { streams = { 1 }, rows = size.rows as integer, columns = size.columns as integer }) -- checked: cast_refused*2, map_field*2
-      assert(not ok and tostring(trouble):find(why, 1, true), tostring(trouble)) -- checked: or_mix
+      assert(not ok and tostring(trouble):find(why, 1, true) ~= nil, tostring(trouble))
     end
   end
   raises({ rows = -1, columns = 80 }, "0..65535") -- checked: any_use*2

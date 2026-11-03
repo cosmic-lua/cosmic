@@ -111,7 +111,7 @@ local function test_gzip_corrupt_crc_is_refused()
   local vector = "\31\139\8\0\0\0\0\0\2\3\203\72\205\201\201\215\81\72\206\47\206\205\76\86\4\0\92\110\87\199\14\0\0\0"
   local dec = assert(Compress.inflater("gzip"))
   local _, trouble = drive(dec, vector)
-  assert(trouble ~= "" and trouble:find("CRC", 1, true), trouble) -- checked: or_mix
+  assert(trouble ~= "" and trouble:find("CRC", 1, true) ~= nil, trouble)
 end
 
 local function test_zlib_and_raw_truncated_input_errors_on_finish()
@@ -525,7 +525,7 @@ local function test_a_stream_revived_by_a_finalizer_is_finished()
     collectgarbage()
     local kept = assert(saved, "the finalizer ran")
     Test.raises(function() kept:update(case.chunk) end, "compress: the stream is finished")
-    assert(not pcall(kept.finish, kept)) -- checked: alternatives_as_value
+    Test.raises(function() kept:finish() end)
     assert(not kept:pending())
     assert(kept:rest() == "")
   end
@@ -543,8 +543,8 @@ local function test_a_closed_stream_is_finished_and_keeps_rest()
     assert(dec:update(hello_gz .. "TRAILER") == "hello, cosmic!")
   end
   assert(kept:rest() == "TRAILER" and kept:done())
-  assert(not pcall(kept.update, kept, "")) -- checked: alternatives_as_value
-  assert(not pcall(kept.finish, kept)) -- checked: alternatives_as_value
+  Test.raises(function() kept:update("") end)
+  Test.raises(function() kept:finish() end)
   -- Closing a finished stream, or closing twice, is harmless.
   for _, case in ipairs(every_kind()) do
     local s <close> = case.stream
@@ -639,7 +639,7 @@ local function test_xz_stream_padding_is_skipped_but_ragged_nuls_are_rest()
   every_split(xz_decoder, hello_xz .. "\0\0\0\0junk", "hello, cosmic!", "junk")
   every_split(xz_decoder, hello_xz .. "\0\0", "hello, cosmic!", "\0\0")
   local out, trouble = xz_decoder():update(hello_xz .. "\0\0" .. hello_xz)
-  assert(out == nil and trouble:find("padding", 1, true), trouble) -- checked: or_mix
+  assert(out == nil and trouble:find("padding", 1, true) ~= nil, trouble)
 end
 
 local function test_xz_memory_limit_is_enforced()
@@ -689,11 +689,11 @@ local function test_the_first_member_must_carry_the_magic()
 end
 
 local function test_argument_shape_errors_raise()
-  assert(not pcall(Compress.inflater, "brotli" as Compress.Format)) -- checked: alternatives_as_value, cast_refused
-  assert(not pcall(Compress.deflater, "brotli" as Compress.Format)) -- checked: alternatives_as_value, cast_refused
-  assert(not pcall(Compress.deflater, "raw", 11)) -- checked: alternatives_as_value
-  assert(not pcall(Compress.deflater, "raw", -1)) -- checked: alternatives_as_value
-  assert(not pcall(Compress.xz_decoder, 0)) -- checked: alternatives_as_value
+  Test.raises(function() Compress.inflater("brotli" as Compress.Format) end) -- checked: cast_refused
+  Test.raises(function() Compress.deflater("brotli" as Compress.Format) end) -- checked: cast_refused
+  Test.raises(function() Compress.deflater("raw", 11) end)
+  Test.raises(function() Compress.deflater("raw", -1) end)
+  Test.raises(function() Compress.xz_decoder(0) end)
   local low_window, _ = pcall(Compress.zstd_decoder, 1023)
   assert(not low_window)
   local low_level, _ = pcall(Compress.zstd_encoder, 0)
@@ -704,7 +704,7 @@ local function test_argument_shape_errors_raise()
   assert((Compress.zstd_encoder(1)))
   assert((Compress.zstd_encoder(19)))
   local dec = assert(Compress.inflater("raw"))
-  assert(not pcall(dec.update, dec, "x", 0)) -- checked: alternatives_as_value
+  Test.raises(function() dec:update("x", 0) end)
   assert((Compress.deflater("raw", 0)))
   assert((Compress.deflater("raw", 10)))
 end
@@ -712,8 +712,8 @@ end
 local function test_a_failed_stream_throws_afterward()
   local dec = bz2_decoder()
   assert(dec:update("garbage") == nil)
-  assert(not pcall(dec.update, dec, "")) -- checked: alternatives_as_value
-  assert(not pcall(dec.finish, dec)) -- checked: alternatives_as_value
+  Test.raises(function() dec:update("") end)
+  Test.raises(function() dec:finish() end)
 end
 
 local function test_one_shot_deflate_and_inflate_round_trip()
@@ -723,9 +723,9 @@ local function test_one_shot_deflate_and_inflate_round_trip()
   assert(Compress.inflate("zlib", packed) == plain)
   assert(Compress.inflate("zlib", packed, #plain) == plain)
   local out, trouble = Compress.inflate("zlib", packed, #plain - 1)
-  assert(out == nil and trouble:find("larger than", 1, true), trouble) -- checked: or_mix
+  assert(out == nil and trouble:find("larger than", 1, true) ~= nil, trouble)
   out, trouble = Compress.inflate("zlib", packed .. "x")
-  assert(out == nil and trouble:find("trailing", 1, true), trouble) -- checked: or_mix
+  assert(out == nil and trouble:find("trailing", 1, true) ~= nil, trouble)
   out, trouble = Compress.inflate("zlib", packed:sub(1, -2))
   assert(out == nil and trouble == "compress: truncated compressed stream", trouble)
   assert(Compress.inflate("zlib", (assert(Compress.deflate("zlib", "")))) == "")
@@ -759,7 +759,7 @@ local function test_one_shot_deflate_frames_as_its_format_says()
   -- stream nor a gzip one.
   assert(Compress.inflate("raw", zl) == nil)
   assert(Compress.inflate("gzip", zl) == nil)
-  assert(not pcall(Compress.deflate, "lz4" as Compress.Format, plain)) -- checked: alternatives_as_value, cast_refused
+  Test.raises(function() Compress.deflate("lz4" as Compress.Format, plain) end) -- checked: cast_refused
 end
 
 --- Without a level, the one-shot deflate compresses as a streaming

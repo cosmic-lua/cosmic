@@ -136,12 +136,18 @@ local function test_a_base_that_is_not_a_full_hash_fails(tmp: string)
   assert(#short.lines == 1 and has(short.lines[1], "no full commit hash"), table.concat(short.lines, "\n"))
 end
 
-local function test_the_base_a_workflow_names_for_the_markers_wins_over_the_queues(tmp: string)
+--- The merge queue's own base is the entry ahead, which holds that entry's markers already: no variable of the queue names the
+--- base of the markers, whatever else is set, and a run that names none fails closed.
+local function test_the_queues_base_is_no_base_for_the_markers(tmp: string)
   local root = tree_with(tmp)
+  local queue = ci({ COSMIC_CI_EVENT = "merge_group", COSMIC_CI_BASE_SHA = BASE })
+  local verdict = CeilingsBase.check(root, queue, git_of(holding(), { calls = {} }))
+  assert(#verdict.lines == 1 and has(verdict.lines[1], "CI names no base (COSMIC_CEILINGS_BASE)"), table.concat(verdict.lines, "\n"))
+  -- the base the workflow names for the markers is the one held to, whatever the queue says
   local other = "1111111111111111111111111111111111111111"
-  local verdict = CeilingsBase.check(root, ci({ COSMIC_CEILINGS_BASE = BASE, COSMIC_CI_BASE_SHA = other }),
-    git_of(holding(), { calls = {} }))
-  assert(#verdict.lines == 0 and has(verdict.note, "0123456789ab"), table.concat(verdict.lines, "\n") .. verdict.note)
+  local named = ci({ COSMIC_CI_EVENT = "merge_group", COSMIC_CI_BASE_SHA = other, COSMIC_CEILINGS_BASE = BASE })
+  local held = CeilingsBase.check(root, named, git_of(holding(), { calls = {} }))
+  assert(#held.lines == 0 and has(held.note, "0123456789ab"), table.concat(held.lines, "\n") .. held.note)
 end
 
 local function test_a_run_of_ci_that_holds_a_change_and_names_no_base_fails(tmp: string)
@@ -266,4 +272,16 @@ local function test_a_marker_for_a_code_no_file_held_is_told_the_rule_has_no_exc
       "this rule has no exceptions, so fix the code and write no marker"), verdict.lines[1])
   assert(has(verdict.lines[2], "build/b.tl: 1 of its markers hold checked map_field and the merge base held 0; a marker is " ..
       "never added"), verdict.lines[2])
+end
+
+--- A code the merge base held in another stage is not closed: a marker for it in this stage is told as a count that only falls.
+local function test_a_code_held_at_the_base_in_another_stage_is_not_told_to_have_no_exceptions(tmp: string)
+  local root = tree_with(tmp)
+  local base = marked_base({ ["build/a.tl"] = "f() -- declared: float_key\n" })
+  local held: CeilingsBase.Held = { ["build/a.tl"] = { ["declared float_key"] = 1 }, ["build/b.tl"] = { ["checked float_key"] = 1 } }
+  local verdict = CeilingsBase.check(root, ci({ COSMIC_CEILINGS_BASE = BASE }), git_of(base, { calls = {} }), held)
+  assert(#verdict.lines == 1, table.concat(verdict.lines, "\n"))
+  assert(has(verdict.lines[1], "build/b.tl: 1 of its markers hold checked float_key and the merge base held 0; a marker is " ..
+      "never added and a count only falls"), verdict.lines[1])
+  assert(not has(verdict.lines[1], "no exceptions"), verdict.lines[1])
 end

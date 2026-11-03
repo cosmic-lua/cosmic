@@ -47,7 +47,7 @@ local function test_a_raise_inside_update_leaves_the_stream_finished()
     if not ok then
       raised = raised + 1
       local again, why = pcall(dec.update, dec, "")
-      assert(not again and tostring(why):find("finished", 1, true), tostring(why)) -- checked: or_mix
+      assert(not again and tostring(why):find("finished", 1, true) ~= nil, tostring(why))
     end
   end
   assert(raised > 0)

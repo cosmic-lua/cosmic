@@ -1,5 +1,6 @@
 local Cors = require("cosmic.web.cors")
 local Csrf = require("cosmic.web.csrf")
+local Test = require("cosmic.test")
 local Web = require("cosmic.web")
 
 local APP <const> = "https://app.example.com"
@@ -124,9 +125,9 @@ local function test_a_wildcard_grants_any_origin_but_never_with_credentials_or_n
   assert(res.headers["access-control-allow-credentials"] == nil)
   assert(get(client, "null").headers["access-control-allow-origin"] == nil, "* does not cover null")
   assert(get(client, "not an origin").headers["access-control-allow-origin"] == nil)
-  assert(not pcall(Cors.middleware, { allow_origins = { "https://.." } }), "a host of empty labels") -- checked: alternatives_as_value
-  assert(not pcall(Cors.middleware, { allow_origins = { "*" }, allow_credentials = true })) -- checked: alternatives_as_value
-  assert(not pcall(Cors.middleware, { allow_origins = { "*", APP } })) -- checked: alternatives_as_value
+  Test.raises(function() Cors.middleware({ allow_origins = { "https://.." } }) end) -- a host of empty labels
+  Test.raises(function() Cors.middleware({ allow_origins = { "*" }, allow_credentials = true }) end)
+  Test.raises(function() Cors.middleware({ allow_origins = { "*", APP } }) end)
 end
 
 local function test_null_is_allowed_only_by_being_listed()
@@ -247,7 +248,7 @@ end
 
 local function test_a_config_that_cannot_work_raises_at_construction()
   local function bad(opts: Cors.Options)
-    assert(not pcall(Cors.middleware, opts)) -- checked: alternatives_as_value
+    Test.raises(function() Cors.middleware(opts) end)
   end
   bad({ allow_origins = { "app.example.com" } })
   bad({ allow_origins = { "https://app.example.com/path" } })

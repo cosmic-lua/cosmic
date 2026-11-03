@@ -5,6 +5,7 @@ local ChunkedReaderFixture = require("build.chunked_reader_fixture")
 local Clock = require("cosmic.clock")
 local Multipart = require("cosmic.http.multipart")
 local Stream = require("cosmic.stream")
+local Test = require("cosmic.test")
 
 local B <const> = "----WebKitFormBoundary7MA4YWxkTrZu0gW"
 
@@ -262,7 +263,7 @@ local function test_a_failed_parser_stays_failed_and_a_part_body_reports_it()
   local next_got, again = reader:next_part()
   assert(next_got == nil and again:find("before the closing") ~= nil)
   assert(reader:close())
-  assert(not pcall(got.body.read, got.body, 0)) -- checked: alternatives_as_value, interface_method_value
+  Test.raises(function() got.body:read(0) end)
 end
 
 local function test_a_source_failure_is_passed_on_as_it_was_given()
