@@ -395,6 +395,27 @@ local function test_connect_refuses_what_is_no_tcp_address_or_timeout()
   assert(connector:close())
 end
 
+--- A connector a `<close>` local holds is ended where the local goes out of scope, and its process reaped.
+local function test_a_connector_held_by_a_close_local_is_ended_with_its_scope()
+  require_native_connector()
+  local pid: integer
+  local kept: Net.Connector
+  do
+    local connector <close> = assert(Net.connector({ { host = "127.0.0.1", port = 9 } }))
+    kept = connector
+    assert(not connector:ended())
+  end
+  assert(kept:ended(), "the connector is still serving")
+  local connected, why = kept:connect(Net.tcp("127.0.0.1", 9))
+  assert(connected == nil and why == "net: the connector is closed", why)
+  do
+    local started <close> = assert(Connector.start({ { host = "127.0.0.1", port = 9 } }, 1000))
+    pid = assert(started.pid)
+    assert(sys.kill(pid, 0), "the connector is running")
+  end
+  assert(not sys.kill(pid, 0), "the process was not ended and reaped with its scope")
+end
+
 local function test_a_connector_dropped_unclosed_is_ended_when_collected()
   require_native_connector()
   local before = descriptor_count()

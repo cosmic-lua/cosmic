@@ -180,8 +180,8 @@ local function test_net_leaves_no_descriptor_whenever_an_allocation_fails(tmp: s
   local before = AllocationFixture.next_descriptor(tmp)
   local ended = AllocationFixture.under_every_failure(function()
     local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Clock.seconds(5) }))
-    local client <close> = assert(Net.connect(server.address, { timeout_ns = Clock.seconds(5) })) -- checked: close_not_closable
-    local accepted <close> = assert(server:accept()) -- checked: close_not_closable
+    local client <close> = assert(Net.connect(server.address, { timeout_ns = Clock.seconds(5) }))
+    local accepted <close> = assert(server:accept())
     assert(client:write("hello"))
     assert(accepted:read() == "hello")
   end)
@@ -195,8 +195,8 @@ end
 local function test_udp_leaves_no_descriptor_whenever_an_allocation_fails(tmp: string)
   local before = AllocationFixture.next_descriptor(tmp)
   local ended = AllocationFixture.under_every_failure(function()
-    local server <close> = assert(Udp.bind("127.0.0.1", 0)) -- checked: close_not_closable
-    local client <close> = assert(Udp.bind("127.0.0.1", 0)) -- checked: close_not_closable
+    local server <close> = assert(Udp.bind("127.0.0.1", 0))
+    local client <close> = assert(Udp.bind("127.0.0.1", 0))
     assert(Udp.send(client, "hello", server.address))
     local packet = assert(Udp.receive(server, Clock.seconds(5)))
     assert(packet.data == "hello" and packet.address.port == client.address.port)
@@ -275,8 +275,8 @@ local function test_net_leaves_no_descriptor_or_socket_file_whenever_an_allocati
   local before = AllocationFixture.next_descriptor(tmp)
   local ended = AllocationFixture.under_every_failure(function()
     local server <close> = assert(Net.listen(Net.unix(path), { timeout_ns = Clock.seconds(5) }))
-    local client <close> = assert(Net.connect(server.address, { timeout_ns = Clock.seconds(5) })) -- checked: close_not_closable
-    local accepted <close> = assert(server:accept()) -- checked: close_not_closable
+    local client <close> = assert(Net.connect(server.address, { timeout_ns = Clock.seconds(5) }))
+    local accepted <close> = assert(server:accept())
     assert(client:write("hello"))
     assert(accepted:read() == "hello")
   end)
@@ -294,8 +294,8 @@ local function test_net_in_a_run_leaves_no_descriptor_whenever_an_allocation_fai
   local ended = AllocationFixture.under_every_failure(function()
     local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Clock.seconds(5) }))
     Poll.run(function()
-      local client <close> = assert(Net.connect(server.address, { timeout_ns = Clock.seconds(5) })) -- checked: close_not_closable
-      local accepted <close> = assert(server:accept()) -- checked: close_not_closable
+      local client <close> = assert(Net.connect(server.address, { timeout_ns = Clock.seconds(5) }))
+      local accepted <close> = assert(server:accept())
       assert(client:write("x"))
       assert(accepted:read() == "x")
     end)

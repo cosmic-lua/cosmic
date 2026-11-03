@@ -141,7 +141,7 @@ local function lookup(tmp: string, name: string, timeout_ms: integer,
                       guarded?: boolean): {string}, {string}
   local script = tmp .. "/resolve.tl"
   assert(Fs.write(script, guarded and GUARDED or SCRIPT)) -- checked: condition_type
-  local server <close> = assert(Udp.bind("127.0.0.1", 0)) -- checked: close_not_closable
+  local server <close> = assert(Udp.bind("127.0.0.1", 0))
   local started = this_program.program({ "--standalone", script, name,
     tostring(server.address.port), tostring(timeout_ms) },
     { stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })

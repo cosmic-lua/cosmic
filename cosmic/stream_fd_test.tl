@@ -55,7 +55,7 @@ end
 local function test_a_reader_over_a_pipe_has_no_skip(tmp: string)
   local reader, writer = fifo(tmp, "unseekable")
   local r = Stream.from_fd(reader)
-  assert(r.skip == nil) -- checked: compare_disjoint
+  assert(r.skip == nil)
   assert(sys.write(writer, "abcdef") == 6)
   assert(Stream.skip(r, 4))
   assert(r:read() == "ef")
