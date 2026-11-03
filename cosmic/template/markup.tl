@@ -481,7 +481,7 @@ end
 
 --- `p`'s phase and attribute as `alts` holds them.
 local function alt_key(p: Place): string
-  return p.phase .. ":" .. (ATTRIBUTED[p.phase] and p.attr or "") -- checked: condition_type
+  return p.phase .. ":" .. (if ATTRIBUTED[p.phase] == true then p.attr else "" end)
 end
 
 --- The keys in `set` other than `p`'s own, as `alts` holds them.

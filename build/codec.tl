@@ -603,8 +603,8 @@ local function arguments(argv: {string}): Request?, string
     return nil, ("no such encoding: %s; there are %s"):format(words[1], table.concat(names, ", "))
   end
   local request: Request = {
-    name = name, decode = parsed.set["-d"] or parsed.set["--decode"] or false, -- checked: condition_type
-    wrap = 0, lenient = parsed.set["--lenient"] or false, -- checked: condition_type
+    name = name, decode = parsed.set["-d"] == true or parsed.set["--decode"] == true,
+    wrap = 0, lenient = parsed.set["--lenient"] == true,
   }
   if #words > 2 then
     return nil, "give an encoding and a file at most, not " .. plural.count(#words, "word")

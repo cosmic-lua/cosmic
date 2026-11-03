@@ -355,7 +355,7 @@ function shared_verdicts.held(cache: shared_verdicts.Cache): {shared_verdicts.He
   if rows == nil then return nil, trouble end
   local out: mut {shared_verdicts.Held} = {}
   for _, row in ipairs(rows) do
-    out[#out + 1] = { parts = row:text(1) or "", rows = math.tointeger(tonumber(row:text(2)) or 0) or 0 } -- checked: condition_type
+    out[#out + 1] = { parts = row:text(1), rows = math.tointeger(tonumber(row:text(2)) or 0) or 0 }
   end
   return out, ""
 end

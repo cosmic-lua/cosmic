@@ -733,7 +733,7 @@ function Lexer.lex(source: string, name: string): Lexer.Lexed
     elseif c == 6 then
       local x = pos - line_start + 1
       local s = find(source, if b == 34 then "[\"\\\r\n]" else "['\\\r\n]" end, pos + 1)
-      if s and byte(source, s) == b then -- checked: condition_type -- untyped: call
+      if s ~= nil and byte(source, s) == b then -- untyped: call
         -- No escape and no line break: the common string, on one line.
         kind = "string"
         text = sub(source, pos, s)

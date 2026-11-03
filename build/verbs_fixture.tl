@@ -89,18 +89,18 @@ end
 --- a verdict line, `verb: PASS` or `verb: FAIL`.
 function verbs_fixture.expect(dir: string, verb: string, args: {string}, code: integer): invoke.Result
   local result = verbs_fixture.run(dir, args)
-  local out, err = result.stdout or "", result.stderr or "" -- checked: condition_type*2
+  local out, err = result.stdout, result.stderr
   local shown = table.concat(args, " ") .. " exited " .. tostring(result.code) ..
     "\nstdout:\n" .. out .. "\nstderr:\n" .. err
   assert(result.code == code, shown)
-  for line in (out .. "\n" .. err):gmatch("[^\n]+") do -- untyped: call
+  for line in (out .. "\n" .. err):gmatch("[^\n]+") do
     assert(line ~= verb .. ": PASS" and line ~= verb .. ": FAIL" and
         not String.starts_with(line, verb .. ": PASS (") and
         not String.starts_with(line, verb .. ": FAIL ("), "a verdict line in " .. shown)
   end
   if code == 2 then
     assert(out == "" and err ~= "", "expected a complaint and no output from " .. shown)
-    for line in err:gmatch("[^\n]+") do -- untyped: call
+    for line in err:gmatch("[^\n]+") do
       assert(not String.starts_with(line, verb .. ": "), "a summary of a refusal in " .. shown)
     end
   elseif verb == "test" then
@@ -114,7 +114,7 @@ function verbs_fixture.expect(dir: string, verb: string, args: {string}, code: i
     assert(err ~= "", "expected stderr to say why from " .. shown)
     local spec = verb_list.find(verb)
     if spec == nil or spec.summarizes_failure ~= true then
-      for line in err:gmatch("[^\n]+") do -- untyped: call
+      for line in err:gmatch("[^\n]+") do
         assert(not String.starts_with(line, verb .. ": "), "a summary of a failure in " .. shown)
       end
     end

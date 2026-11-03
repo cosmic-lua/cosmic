@@ -101,8 +101,8 @@ local function arguments(argv: {string}): verb.Request?, string
   if #modes > 1 then
     return nil, "name one of " .. table.concat(modes, " and ") .. ", not both"
   end
-  local raw = parsed.set["-r"] or parsed.set["--raw"] or false -- checked: condition_type
-  local compact = parsed.set["--compact"] or false -- checked: condition_type
+  local raw = parsed.set["-r"] == true or parsed.set["--raw"] == true
+  local compact = parsed.set["--compact"] == true
   if #modes == 1 and (raw or compact) then
     return nil, (if raw then "--raw" else "--compact" end) .. " shapes a printed value, which " ..
       modes[1] .. (if modes[1] == "--flat" then " prints in one form" else " does not print" end)

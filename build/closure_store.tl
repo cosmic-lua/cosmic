@@ -503,7 +503,7 @@ local function read_basis(whole: string, pure?: boolean): closure_store.Basis?, 
     for _, row in ipairs(rows) do
       local line: mut {string} = { row:text(2) }
       for i, digests in ipairs(carried) do
-        line[#line + 1] = digests[by_file[i] and row:text(3) or row:text(1)] or "" -- checked: condition_type
+        line[#line + 1] = digests[if by_file[i] == true then row:text(3) else row:text(1) end] or ""
       end
       basis.modules[row:text(1)] = table.concat(line, "\t")
       local kind = row:text(2):match("^[^\t]*\t([^\t]*)")

@@ -255,7 +255,7 @@ local function delimited(name: string, delimiter: string): function(text: string
     for index, record in ipairs(made.rows) do
       local row: dataset.Row = {}
       for key, cell in pairs(record) do
-        row[key] = opts.raw and cell or cell_of(cell) -- checked: condition_type, view_written
+        row[key] = if opts.raw == true then cell else cell_of(cell) end -- checked: view_written
       end
       rows[index] = row -- checked: view_written
     end

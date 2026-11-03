@@ -374,7 +374,7 @@ local function invalid(p: rules.Policy, exact: boolean): string
       end
     end
     local digest = given.sha256
-    if digest ~= nil and not (digest:find("^%x+$") and #digest == 64 and digest:lower() == digest) then -- checked: condition_type
+    if digest ~= nil and not (digest:find("^%x+$") ~= nil and #digest == 64 and digest:lower() == digest) then
       return at({ "database", "sha256" }, "a digest is 64 lowercase hex digits")
     end
     local found, trouble = sys.stat(path)
