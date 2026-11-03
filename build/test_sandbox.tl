@@ -201,7 +201,7 @@ function test_sandbox.environment(environment: {string:string},
   local out: mut {string:string} = {}
   for name in pairs(effective.env) do out[name] = environment[name] end -- checked: index_may_be_nil
   out["COSMIC_TEST_NOEXEC"], out["COSMIC_TEST_PARENT"] = nil, nil
-  if effective.noexec_ready then out["COSMIC_TEST_NOEXEC"] = "/noexec" end -- checked: condition_type
+  if effective.noexec_ready == true then out["COSMIC_TEST_NOEXEC"] = "/noexec" end
   if #(effective.parent or {}) > 0 then out["COSMIC_TEST_PARENT"] = parent_place end
   out["TMPDIR"] = test_sandbox.scratch
   out["COSMIC_BUILD_HOME"] = build_home

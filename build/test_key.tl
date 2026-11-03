@@ -1207,25 +1207,25 @@ local function store_at(rec: Recording, address: string, names: {string},
   local path = rec.built[address]
   if path ~= nil then return path, "" end
   local directory = stores_directory(rec.root)
-  path = directory .. "/" .. (base and base_name(address) or (address .. ".db")) -- checked: condition_type
-  local there, _ = sys.stat(path) -- checked: nil_not_allowed
+  path = directory .. "/" .. (if base == true then base_name(address) else address .. ".db" end)
+  local there, _ = sys.stat(path)
   if there == nil then
     local made, trouble = Fs.mkdirs(directory)
     if not made then return nil, directory .. ": " .. trouble end
     local started = Clock.monotonic_ns()
     local extraction, extraction_trouble = extraction_for(rec)
     if extraction == nil then return nil, extraction_trouble end
-    local written, write_trouble = closure_store.write(projection_of(rec), path, names, assert(rec.basis), -- checked: nil_not_allowed
+    local written, write_trouble = closure_store.write(projection_of(rec), path, names, assert(rec.basis),
       extraction, own)
     if not written then return nil, "the store of its closure: " .. write_trouble end
     if base ~= true then
       rec.writing_ns = rec.writing_ns + (Clock.monotonic_ns() - started)
-      local wrote, _ = sys.stat(path) -- checked: nil_not_allowed
+      local wrote, _ = sys.stat(path)
       rec.written = rec.written + 1
       rec.written_bytes = rec.written_bytes + (if wrote ~= nil then wrote.size else 0 end)
     end
   end
-  rec.built[address] = path -- checked: nil_not_allowed
+  rec.built[address] = path
   return path, ""
 end
 
@@ -1710,7 +1710,7 @@ local function verify_sample(rec: Recording)
   if #addresses == 0 then return end
   table.sort(addresses)
   local started = Clock.monotonic_ns()
-  local address = addresses[(rec.run or 0) % #addresses + 1] -- checked: condition_type
+  local address = addresses[rec.run % #addresses + 1]
   local path = stores_directory(rec.root) .. "/" .. address .. ".verify.db" -- checked: nil_not_allowed
   local made, _ = Fs.mkdirs(stores_directory(rec.root))
   local written, trouble = false, "no stores directory"
@@ -1730,10 +1730,10 @@ local function verify_sample(rec: Recording)
     local data, read_trouble = Fs.read(path)
     local digest = if data ~= nil then hex_sha256(data) else "unreadable: " .. read_trouble end
     local kept = rec.store_digests[address] -- checked: nil_not_allowed
-    if digest ~= kept and not rec.store_mismatched[address] then -- checked: condition_type, nil_not_allowed
+    if digest ~= kept and rec.store_mismatched[address] ~= true then -- checked: nil_not_allowed
       rec.store_mismatched[address] = true -- checked: nil_not_allowed
-      local other = stores_directory(rec.root) .. "/" .. (rec.store_bases[address] and -- checked: condition_type, nil_not_allowed
-        base_name(address) or (address .. ".db")) -- checked: nil_not_allowed*2
+      local other = stores_directory(rec.root) .. "/" .. (if rec.store_bases[address] == true then -- checked: nil_not_allowed
+        base_name(address) else address .. ".db" end) -- checked: nil_not_allowed*2
       local there, _ = sys.stat(other)
       mismatched(rec, address, path, digest, kept, there ~= nil and other or -- checked: nil_not_allowed*2
           "the store this run keyed its tests by", true)

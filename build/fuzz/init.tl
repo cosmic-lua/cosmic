@@ -339,7 +339,7 @@ local function label_counts(counts: {string: integer}, required: {string},
                             iters: integer): string?
   local names: mut {string} = {}
   for name in pairs(counts) do names[#names + 1] = name end
-  for _, name in ipairs(required or {}) do -- checked: condition_type, literal_needs_type
+  for _, name in ipairs(required) do
     if counts[name] == nil then names[#names + 1] = name end
   end
   if #names == 0 then return nil end

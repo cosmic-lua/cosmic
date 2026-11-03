@@ -702,7 +702,7 @@ local function entry(digests: declared_key.Digests, path: string, follow: boolea
   if st.kind == "file" then
     local runnable = st.mode & 73 ~= 0 -- 0o111
     return "file", (if runnable then "file+x " else "file " end) ..
-      (if programs then ("program " .. program(digests, path, st)) else contents(digests, path, st) end) -- checked: condition_type
+      (if programs == true then ("program " .. program(digests, path, st)) else contents(digests, path, st) end)
   elseif st.kind == "link" then
     local target, _ = sys.readlink(path)
     return "link", "link " .. (target or "unreadable")
@@ -765,7 +765,7 @@ end
 --- `bounds` ([`leads_out`]), the tree where nil.
 local function tree(digests: declared_key.Digests, path: string, programs?: boolean,
                     bounds?: {string}): string
-  local tag = (if programs then "p\0" elseif bounds ~= nil then "v\0" else "t\0" end) .. path -- checked: condition_type
+  local tag = (if programs == true then "p\0" elseif bounds ~= nil then "v\0" else "t\0" end) .. path
   return once(digests, tag, function(): string
     local kind, answer = entry(digests, path, true, programs)
     if kind ~= "dir" then return answer end
@@ -904,8 +904,8 @@ function declared_key.preimage(digests: declared_key.Digests,
   for _, name in ipairs(required) do
     lines[#lines + 1] = part("requires", name, answers[name]) -- checked: index_may_be_nil
   end
-  if effective.noexec then -- checked: condition_type
-    lines[#lines + 1] = part("noexec", if effective.noexec_ready then "granted" else "unavailable" end, "") -- checked: condition_type
+  if effective.noexec == true then
+    lines[#lines + 1] = part("noexec", if effective.noexec_ready == true then "granted" else "unavailable" end, "")
   end
   local launcher = spec.launcher
   if launcher ~= nil then lines[#lines + 1] = part("launcher", launcher, "") end
@@ -957,7 +957,7 @@ function declared_key.preimage(digests: declared_key.Digests,
     if plain == "o/cosmic.db" and projection_file ~= nil and projection_file ~= "cosmic.db" then
       path = digests.output .. "/" .. projection_file
     end
-    if not seen[plain] then -- checked: condition_type
+    if seen[plain] ~= true then
       seen[plain] = true
       local answer = if path ~= "" then tree(digests, path) else "outside" end
       if answer:sub(1, 8) == "refused " then return nil, answer:sub(9) end
@@ -971,12 +971,12 @@ function declared_key.preimage(digests: declared_key.Digests,
   -- the package database stands for what they hold.
   local installed = effective.system
   for _, path in ipairs(hosts) do
-    if not seen[path] then -- checked: condition_type
+    if seen[path] ~= true then
       seen[path] = true
       lines[#lines + 1] = part("h", path, host(digests, path))
     end
   end
-  if installed then lines[#lines + 1] = part("system", spec.system or "", "") end -- checked: condition_type
+  if installed == true then lines[#lines + 1] = part("system", spec.system or "", "") end
   -- Each file above the project by its relative path and contents, never
   -- by where the project is.
   local parents: mut {string} = {}
@@ -1189,7 +1189,7 @@ function declared_key.host_split(digests: declared_key.Digests,
       local seen: mut {integer:boolean} = {}
       local sorted: mut {integer} = {}
       for _, group in ipairs(groups) do
-        if not seen[group] then seen[group], sorted[#sorted + 1] = true, group end -- checked: condition_type
+        if seen[group] ~= true then seen[group], sorted[#sorted + 1] = true, group end
       end
       table.sort(sorted)
       local named: mut {string} = {}
@@ -1433,7 +1433,7 @@ function declared_key.system_identity(digests: declared_key.Digests,
   end
   local system_id = from.system_id or sys.getenv(system_variable) or ""
   lines[#lines + 1] = "system " .. system_id
-  if walk then -- checked: condition_type
+  if walk == true then
     lines[#lines + 1] = "walked " .. remembered_walk(digests, walked_paths(from.walked or confine.system_paths),
       packages)
   end
@@ -1491,7 +1491,7 @@ function declared_key.harness(names: {string}, sources: {string:string}): string
   local seen: mut {string:boolean} = {}
   local lines: mut {string} = {}
   for _, name in ipairs(names) do
-    if sources[name] ~= nil and not seen[name] then -- checked: condition_type
+    if sources[name] ~= nil and seen[name] ~= true then
       seen[name] = true
       lines[#lines + 1] = name .. " " .. sources[name] -- checked: nil_not_allowed
     end

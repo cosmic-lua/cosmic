@@ -81,7 +81,7 @@ local function arguments(argv: {string}): Request?, string
   local request: Request = {
     files = parsed.words,
     directory = parsed.values["-o"],
-    errors = parsed.set["--errors"] or false, -- checked: condition_type
+    errors = parsed.set["--errors"] == true,
     root = parsed.values["--root"],
     grammar = parsed.values["--grammar"] or "new",
   }

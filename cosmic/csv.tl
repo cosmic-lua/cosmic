@@ -638,7 +638,7 @@ function Csv.load(handle: Sqlite.Handle, name: string, source: Csv.Source): Csv.
     if #names == 1 then
       cell = "coalesce(" .. cell .. ", '')"
     end
-    local entry = source.raw and cell or typed(cell) -- checked: condition_type
+    local entry = if source.raw == true then cell else typed(cell) end
     cells[#cells + 1] = entry
   end
   -- Blank lines are read as `table` reads them, and a record short of the

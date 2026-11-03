@@ -907,7 +907,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
       complain(bare.empty_file .. "; " .. usage)
       return bare.refused
     end
-    outcome = list(words[2], flags.set["--json"] or false, to) -- checked: condition_type
+    outcome = list(words[2], flags.set["--json"] == true, to)
   elseif action == "extract" then
     local archive_file = words[2]
     if archive_file == nil then
@@ -922,7 +922,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     for slot = 3, #words do
       members[#members + 1] = words[slot]
     end
-    outcome = extract(archive_file, flags.values["-C"] or ".", flags.set["--force"] or false, -- checked: condition_type
+    outcome = extract(archive_file, flags.values["-C"] or ".", flags.set["--force"] == true,
       members, to)
   else
     local output = words[2]
@@ -934,7 +934,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     for slot = 3, #words do
       paths[#paths + 1] = words[slot]
     end
-    outcome = create(output, paths, flags.set["--reproducible"] or false, to) -- checked: condition_type
+    outcome = create(output, paths, flags.set["--reproducible"] == true, to)
   end
   if outcome.why ~= "" then complain(outcome.why) end
   return outcome.code

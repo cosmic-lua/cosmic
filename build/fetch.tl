@@ -318,8 +318,8 @@ function verb.run(argv: {string}, io?: verb.Io): integer
       end
     end
   end
-  local head = parsed.set["--head"] or false -- checked: condition_type
-  local as_json = parsed.set["--json"] or false -- checked: condition_type
+  local head = parsed.set["--head"] == true
+  local as_json = parsed.set["--json"] == true
   if as_json and not head then
     return refuse("--json shapes what --head prints")
   end
@@ -351,7 +351,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     end
   end
   local options: Http.Options = { script = to.script, roots = roots, ca = ca, pin = pins }
-  options.redirect_protocols = verb.redirect_protocols(url, parsed.set["--allow-downgrade"] or false) -- checked: condition_type, field_fixed
+  options.redirect_protocols = verb.redirect_protocols(url, parsed.set["--allow-downgrade"] == true) -- checked: field_fixed
   local function failed_status(status: integer): integer
     complain(shown .. ": HTTP " .. tostring(status))
     return bare.failed

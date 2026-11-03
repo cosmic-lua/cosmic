@@ -193,7 +193,7 @@ local function parse(records: string, cores: {string:string},
       return nil, "generated target id is outside the u32 range"
     end
     local identity = tostring(target_id) .. ":" .. tostring(configuration_id)
-    if identities[identity] then -- checked: condition_type
+    if identities[identity] == true then
       return nil, "duplicate generated target/configuration record"
     end
     local image = cores[target]
@@ -300,7 +300,7 @@ local function launcher(targets: {Target}, test_hooks: boolean,
     if selected_configuration == nil or
         target.configuration_id == selected_configuration then
       local system = target.uname_os .. ":" .. target.uname_arch
-      if systems[system] then -- checked: condition_type
+      if systems[system] == true then
         return nil, "duplicate generated uname record for launcher configuration"
       end
       systems[system] = true

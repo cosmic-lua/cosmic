@@ -625,7 +625,7 @@ local function item(it: Ast.Item): Output
   local y = line_of(it.first)
   local out = new(y)
   if (it.kind == "Named") then
-    add_child(out, text(y, if RESERVED_FIELDS[it.name] then "[\"" .. it.name .. "\"]" else it.name end)) -- checked: condition_type
+    add_child(out, text(y, if RESERVED_FIELDS[it.name] == true then "[\"" .. it.name .. "\"]" else it.name end))
     put(out, " = ")
     add_child(out, exp(it.value))
   elseif (it.kind == "Keyed") then
@@ -927,7 +927,7 @@ local function combine(e: Ast.Exp, left: Output): Output
   elseif (e.kind == "Field") then
     local out = new(line_of(e.object.last + 1))
     add_child(out, left, "", G.indent)
-    if RESERVED_FIELDS[e.name] then -- checked: condition_type
+    if RESERVED_FIELDS[e.name] == true then
       add_child(out, text(line_of(e.last), "[\"" .. e.name .. "\"]"), "", G.indent)
     else
       put(out, ".")
@@ -1666,7 +1666,7 @@ stat = function(s: Ast.Stat): Output
     local out = new(y)
     local name = assert(s.path[#s.path])
     local head = assert(s.path[1])
-    if RESERVED_FIELDS[name.text] then -- checked: condition_type
+    if RESERVED_FIELDS[name.text] == true then
       -- `function R.goto()` is no Lua 5.5.
       add_child(out, text(line_of(head.first), head.text))
       add_child(out, text(line_of(name.first), "[\"" .. name.text .. "\"]"))

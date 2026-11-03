@@ -781,7 +781,7 @@ local function members_index(ctx: Ctx, decl: Decl, value: boolean): Members?
     -- A function field that every value holds and no statement gives the table of the functions is not in that table.
     if not (value and (decl.kind == "class" or absent[f.name] == true)) then
       local list = index.by_name[f.name] or {}
-      list[#list + 1] = { type = f.type, mut = f.mut or false, method = false } -- checked: condition_type, view_written
+      list[#list + 1] = { type = f.type, mut = f.mut == true, method = false } -- checked: view_written
       index.by_name[f.name] = list
     end
   end

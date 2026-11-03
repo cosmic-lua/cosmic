@@ -382,7 +382,7 @@ local function loop_body(g: Gen, v: Vis, depth: integer, label: string?, facts?:
     n = n + 1
     stmt(g, inner, depth)
   end
-  if label and g.jumped[label] then -- checked: condition_type
+  if label ~= nil and g.jumped[label] == true then
     g.depth = g.depth - 1
     add(g, "::" .. label .. "::")
     g.depth = g.depth + 1

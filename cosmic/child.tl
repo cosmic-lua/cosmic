@@ -709,7 +709,7 @@ end
 --- meanwhile guards the waits that come after it.
 local function slice(deadline: integer?, handles: {Handle}): integer?
   local most = POLL_NS
-  if exits_seen(handles) then most = reaping.adopting and REAP_NS or -1 end -- checked: condition_type
+  if exits_seen(handles) then most = if reaping.adopting == true then REAP_NS else -1 end end
   if deadline == nil then return most end
   local remaining = deadline - now()
   if remaining <= 0 then return nil end
@@ -1574,7 +1574,7 @@ local function drain(self: Handle, opts: DrainOptions): DrainResult
     if stopped ~= nil then return stopped end
     if timeout_ns ~= 0 and now() >= deadline then return result("timeout") end
     local moved = false
-    local first = self._drain_next or 1 -- checked: condition_type
+    local first = self._drain_next
     for offset = 0, #pipes - 1 do
       local index = (first + offset - 1) % #pipes + 1
       stopped = control() or complete()
@@ -2048,10 +2048,10 @@ local function validate(argv: {string}, opts: Options)
   local sandbox = opts.sandbox
   local unveil = sandbox and sandbox.unveil
   if unveil ~= nil then
-    for _, list in ipairs({ unveil.reads or {}, unveil.writes or {} }) do -- checked: condition_type, literal_needs_type
+    for _, list in ipairs({ unveil.reads, unveil.writes or {} }) do
       for _, path in ipairs(list) do
         without_nul(path, "an unveiled path")
-        if path:sub(1, 1) ~= "/" then error("child: an unveiled path must be absolute", 3) end -- untyped: call
+        if path:sub(1, 1) ~= "/" then error("child: an unveiled path must be absolute", 3) end
       end
     end
   end
@@ -2095,7 +2095,7 @@ local function capture(wiring: Wiring, child_fd: integer, streamed?: boolean): i
   if not nonblocking then return nil, nonblocking_trouble end
   wiring.streams[#wiring.streams + 1] = {
     fd = ends.reader, child_fd = child_fd, chunks = {}, queue = {}, size = 0, truncated = false,
-    streamed = streamed or false, head = 1, tail = 0, reader_closed = false, consuming = false, -- checked: condition_type
+    streamed = streamed == true, head = 1, tail = 0, reader_closed = false, consuming = false,
   }
   return ends.writer, ""
 end
@@ -2453,7 +2453,7 @@ local function root_of(merged: Rules.Policy, base: string, idmap: {integer: bool
     local writable = lettered(grant.letters, "w") or lettered(grant.letters, "c")
     binds[#binds + 1] = { path = named(grant.from or grant.path, base),
       at = if grant.from ~= nil then name else nil end, writable = writable,
-      noexec = (writable or nest) and not lettered(grant.letters, "x"), idmap = idmap[index] or nil } -- checked: condition_type
+      noexec = (writable or nest) and not lettered(grant.letters, "x"), idmap = idmap[index] == true }
   end
   if proc then reads[1] = "/proc" end
   local tmp: integer?
@@ -3832,7 +3832,7 @@ local function start(argv: {string}, opts: Options, pty?: Pty, serves_relay?: in
       noexec_scratch = opts_sandbox.noexec_scratch == true, user = opts_sandbox.user,
       group = opts_sandbox.group }
     if given ~= nil then
-      sandbox.unveil = { reads = given.reads or {}, writes = given.writes or {}, at = given.at } -- checked: condition_type, field_fixed, literal_needs_type
+      sandbox.unveil = { reads = given.reads, writes = given.writes or {}, at = given.at } -- checked: field_fixed
     end
   end
   local credentials: raw_process.Credentials?
@@ -3948,7 +3948,7 @@ local function start(argv: {string}, opts: Options, pty?: Pty, serves_relay?: in
   local run_argv = if held ~= nil and held.argv ~= nil then held.argv else argv end
   -- The pty's path is the terminal where stdin is on it.
   local terminal: boolean | string = false
-  if pty ~= nil and pty.streams[0] == true then terminal = pty.name or true end -- checked: condition_type
+  if pty ~= nil and pty.streams[0] == true then terminal = pty.name end
   local called, pid, trouble, errno = pcall(raw.spawn, path, run_argv, env, cwd, -- checked: overload_none -- untyped: call
     slots[0], slots[1], slots[2], grouped, extra, sandbox, credentials, terminal)
   if not called then
@@ -4359,7 +4359,7 @@ function Child.run(argv: {string}, opts?: Options): Result?, string
   if not restored then return refuse("signal restore: " .. restore_trouble) end
   local cancellation = guard:cancelled()
   if cancellation ~= 0 then
-    return nil, cleanup_trouble or wait_trouble or cancelled_by(cancellation) -- checked: condition_type
+    return nil, cleanup_trouble or wait_trouble
   end
   if cleanup_trouble then return nil, cleanup_trouble end
   if r then return r, "" end
