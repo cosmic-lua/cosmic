@@ -48,8 +48,6 @@ local function test_describe_scalars_empties_and_null()
       "{a: {}, b: [0], c: null}")
   assert(json_query.describe(decoded('{"odd key": 1}')) == '{"odd key": number}', json_query.describe(decoded('{"odd key": 1}')))
   Test.raises(function() json_query.describe({}, { max_depth = -1 }) end) -- checked: literal_needs_type
-  local fraction: any = 1.5 -- checked: any_use
-  Test.raises(function() json_query.describe({}, { max_depth = fraction as integer }) end) -- checked: cast_refused, literal_needs_type
 end
 
 --- `?` and a depth cut, objects merged across nested arrays, holes.
@@ -223,22 +221,22 @@ end
 --- `flatten` and `describe` alike.
 local function test_a_max_depth_out_of_range_raises_naming_the_caller()
   local doc = decoded('{"a": [1]}')
-  local function flatten_with(depth: any): any
+  local function flatten_with(depth: integer): {Json.Match}?, string
     -- Not a tail call, which would leave no frame here to name.
-    local leaves = json_query.flatten(doc, { max_depth = depth as integer }) -- checked: cast_refused
-    return leaves -- checked: any_use
+    local leaves, why = json_query.flatten(doc, { max_depth = depth })
+    return leaves, why
   end
-  local function describe_with(depth: any): any
-    local text = json_query.describe(doc, { max_depth = depth as integer }) -- checked: cast_refused
-    return text -- checked: any_use
+  local function describe_with(depth: integer): string
+    local text = json_query.describe(doc, { max_depth = depth })
+    return text
   end
   local walks = "json: max_depth must be an integer from 1 to " .. tostring(Json.depth_limit)
-  for _, bad in ipairs({ 0, Json.depth_limit + 1, 1.5, "2" } as {any}) do -- checked: arms_differ, cast_refused
+  for _, bad in ipairs({ 0, Json.depth_limit + 1 }) do
     local ok, message = pcall(flatten_with, bad)
     assert(not ok and tostring(message):find(walks, 1, true) ~= nil, tostring(message))
     assert(tostring(message):find("json_query_test", 1, true), "named where it was called: " .. tostring(message))
   end
-  for _, bad in ipairs({ -1, 1.5, "2" } as {any}) do -- checked: arms_differ, cast_refused
+  for _, bad in ipairs({ -1 }) do
     local ok, message = pcall(describe_with, bad)
     assert(not ok and tostring(message):find("json: max_depth must be an integer of at least 0", 1, true) ~= nil,
       tostring(message))

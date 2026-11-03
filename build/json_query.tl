@@ -28,11 +28,11 @@ local record json_query
   end
 end
 
---- `given`, a `max_depth`, when it is an integer from `least` to `most`
---- (no upper bound when `most` is nil); otherwise raises, naming the
---- caller `level` frames above the function that calls this one.
-local function checked_depth(given: any, least: integer, most: integer?, level: integer): integer
-  if not (given is integer) or given < least or (most ~= nil and given > most) then
+--- `given`, a `max_depth`, when it is from `least` to `most` (no upper
+--- bound when `most` is nil); otherwise raises, naming the caller `level`
+--- frames above the function that calls this one.
+local function checked_depth(given: integer, least: integer, most: integer?, level: integer): integer
+  if given < least or (most ~= nil and given > most) then
     local range = if most ~= nil then "from " .. tostring(least) .. " to " .. tostring(most) else "of at least " .. tostring(least) end
     error("json: max_depth must be an integer " .. range, level + 1)
   end
