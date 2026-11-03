@@ -1285,7 +1285,7 @@ end
 function Zip.writer(w: Stream.Writer, opts?: Zip.WriterOptions): Zip.Writer
   opts = opts or {}
   local zw: EntryWriter = {
-    sink = Stream.sticky(w, "zip"), deterministic = opts.deterministic or false, -- checked: condition_type
+    sink = Stream.sticky(w, "zip"), deterministic = opts.deterministic == true,
     offset = opts.offset or 0, cd_parts = {}, count = 0, open = nil,
   }
   return zw

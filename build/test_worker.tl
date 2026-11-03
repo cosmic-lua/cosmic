@@ -859,7 +859,7 @@ function worker.encode(report: worker.Report): string
   }
   encode_hits(lines, "load-hit", report.load_hits)
   encode_hits(lines, "test-hit", report.test_hits)
-  for _, name in ipairs(report.modules or {}) do table.insert(lines, "module " .. hex(name)) end -- checked: condition_type, literal_needs_type
+  for _, name in ipairs(report.modules) do table.insert(lines, "module " .. hex(name)) end
   local skipped = report.skipped
   if skipped ~= nil and skipped ~= "" then
     table.insert(lines, "skipped " .. hex(skipped))
@@ -1168,7 +1168,7 @@ function worker.invocation(given: worker.Invocation): worker.Command
   for name, value in pairs(given.env) do env[name] = value end
   for name, value in pairs(given.start.env) do env[name] = value end
   env.COSMIC_COVERAGE_STARTUP = "1" -- checked: map_field
-  env.COSMIC_TEST_TYPES = if given.checks then "1" else nil end -- checked: condition_type, map_field
+  env.COSMIC_TEST_TYPES = if given.checks == true then "1" else nil end -- checked: map_field
   local fds: mut {integer:integer | string} = { [worker.report_fd] = "capture" }
   for number, fd in pairs(given.start.fds) do fds[number] = fd end
   local given_policy = given.policy

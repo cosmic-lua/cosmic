@@ -205,7 +205,7 @@ local function value(g: Gen, pipe: types.Pipeline, dot: Dot, raw?: boolean): str
   for _, field in ipairs(pipe.path) do
     written = member(written, field)
     expr = member(expr, field)
-    local held = if not raw then g.bound[written] else nil end -- checked: condition_type
+    local held = if raw ~= true then g.bound[written] else nil end
     if held ~= nil then
       expr = held
     end

@@ -406,7 +406,7 @@ local function whole(cwd: string, files: {string}): boolean
     named[file] = true
   end
   for _, file in ipairs(all) do
-    if String.ends_with(file, ".c") and not named[file] then return false end -- checked: condition_type
+    if String.ends_with(file, ".c") and named[file] ~= true then return false end
   end
   return true
 end
@@ -431,7 +431,7 @@ local function sensitive(root: string, cwd: string, file: string, variant: c.Var
   local function visit(path: string, stack: mut {string: boolean}): boolean
     local remembered = memo[path]
     if remembered ~= nil then return remembered end
-    if stack[path] then return false end -- checked: condition_type
+    if stack[path] == true then return false end
     stack[path] = true
     local text, _ = Fs.read(path)
     local found = text == nil
@@ -448,7 +448,7 @@ local function sensitive(root: string, cwd: string, file: string, variant: c.Var
         for _, dir in ipairs({ Fs.dirname(path), root .. "/core" }) do
           local header = dir .. "/" .. name
           local present, _ = Fs.exists(header)
-          if present then -- checked: condition_type
+          if present == true then
             if visit(header, stack) then found = true end
             break
           end
@@ -626,7 +626,7 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer, s
     local reads: mut {string} = {}
     local seen: mut {string: boolean} = {}
     local function give(path: string)
-      if not seen[path] then -- checked: condition_type
+      if seen[path] ~= true then
         seen[path] = true
         reads[#reads + 1] = path
       end
@@ -743,7 +743,7 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer, s
       local kept: mut {rules.Finding} = {}
       for _, f in ipairs(o_findings) do
         local key = f.file .. ":" .. tostring(f.line) .. ":" .. f.rule
-        if not seen[key] then -- checked: condition_type
+        if seen[key] ~= true then
           seen[key] = true
           kept[#kept + 1] = f
         end

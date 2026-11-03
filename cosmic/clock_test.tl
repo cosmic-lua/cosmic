@@ -66,3 +66,41 @@ end
 local function test_sleep_ns_refuses_a_negative_span()
   Test.raises(function() Clock.sleep_ns(-1) end)
 end
+
+--- Work that keeps the thread running for about `span` nanoseconds of wall time.
+local function busy_for(span: integer)
+  local until_ns = Clock.monotonic_ns() + span
+  local sum = 0
+  while Clock.monotonic_ns() < until_ns do
+    for i = 1, 1000 do
+      sum = sum + i % 7
+    end
+  end
+  assert(sum >= 0)
+end
+
+local function test_cpu_ns_does_not_go_back()
+  local last = Clock.cpu_ns()
+  assert(math.type(last) == "integer" and last >= 0)
+  for _ = 1, 1000 do
+    local now = Clock.cpu_ns()
+    assert(now >= last, tostring(last) .. " then " .. tostring(now))
+    last = now
+  end
+end
+
+local function test_cpu_ns_advances_while_the_thread_runs()
+  local before = Clock.cpu_ns()
+  busy_for(Clock.ms(50))
+  local used = Clock.cpu_ns() - before
+  -- Under load the thread may be given less than the wall time it spans, so only a share of it is asked for.
+  assert(used >= Clock.ms(10), "used " .. tostring(used) .. " ns of CPU in 50 ms of running")
+end
+
+local function test_cpu_ns_does_not_count_a_sleep()
+  local wall_before, cpu_before = Clock.monotonic_ns(), Clock.cpu_ns()
+  assert(Clock.sleep_ns(Clock.ms(200)))
+  local wall, cpu = Clock.monotonic_ns() - wall_before, Clock.cpu_ns() - cpu_before
+  assert(wall >= Clock.ms(200), tostring(wall))
+  assert(cpu < wall // 4, "slept " .. tostring(wall) .. " ns of wall time and used " .. tostring(cpu) .. " ns of CPU")
+end

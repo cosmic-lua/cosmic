@@ -1629,7 +1629,7 @@ local function declare_all(ctx: Ctx)
         end
       end
     elseif SKIP[node.kind] ~= true then
-      local transparent = TRANSPARENT[node.kind] or (node.kind == "Do" and ctx.decl_file) -- checked: condition_type
+      local transparent = TRANSPARENT[node.kind] == true or (node.kind == "Do" and ctx.decl_file)
       local below: Place = place
       if not transparent then
         below = { names = {}, module = "", top = false }

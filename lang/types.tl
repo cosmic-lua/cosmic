@@ -1278,7 +1278,7 @@ Types.Store.array = function(self: Store, element: Type, mutable?: boolean): Typ
   local array: Array = {
     tag = "array", atom = false, id = 0, owner = self.owner, digest = "", open = 0, has_mut = false,
     weight = 1, height = 1,
-    element = element, mut = mutable or false, -- checked: condition_type
+    element = element, mut = mutable == true,
   }
   return intern(self, array)
 end
@@ -1289,7 +1289,7 @@ Types.Store.map = function(self: Store, key: Type, value: Type, mutable?: boolea
   local map: Map = {
     tag = "map", atom = false, id = 0, owner = self.owner, digest = "", open = 0, has_mut = false,
     weight = 1, height = 1,
-    key = key, value = value, mut = mutable or false, -- checked: condition_type
+    key = key, value = value, mut = mutable == true,
   }
   return intern(self, map)
 end
@@ -1344,7 +1344,7 @@ Types.Store.named = function(self: Store, decl: Decl, args?: {Type}, value?: boo
   local named: Named = {
     tag = "named", atom = false, id = 0, owner = self.owner, digest = "", open = 0, has_mut = false,
     weight = 1, height = 1,
-    decl = decl, args = copied, value = value or false, -- checked: condition_type
+    decl = decl, args = copied, value = value == true,
   }
   local made = intern(self, named)
   if arity == nil and made == named then
@@ -1409,8 +1409,8 @@ Types.Store.fn = function(self: Store, spec: FnSpec): Type -- checked: field_unk
   local params: mut {Param} = {}
   for i, p in ipairs(spec.params or {}) do
     owned(self, p.type)
-    local omittable = p.omittable or false -- checked: condition_type
-    params[i] = { type = omittable and self:optional(p.type) or p.type, omittable = omittable }
+    local omittable = p.omittable == true
+    params[i] = { type = if omittable then self:optional(p.type) else p.type end, omittable = omittable }
   end
   local rest = spec.rest
   if rest ~= nil then
@@ -1712,9 +1712,9 @@ local function normal_body(store: Store, decl: Decl, body: Body): Body
   end
   for _, field in ipairs(body.fields) do
     owned(store, field.type)
-    local omittable = field.omittable or false -- checked: condition_type
-    local t = omittable and store:optional(field.type) or field.type
-    made.fields[#made.fields + 1] = { name = field.name, type = t, mut = field.mut or false, omittable = omittable } -- checked: condition_type
+    local omittable = field.omittable == true
+    local t = if omittable then store:optional(field.type) else field.type end
+    made.fields[#made.fields + 1] = { name = field.name, type = t, mut = field.mut == true, omittable = omittable }
     roots[#roots + 1] = t
   end
   local array = body.array

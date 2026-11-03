@@ -1877,7 +1877,7 @@ function tree_checks.ci_sources(root: string): {{string}}
   local out: mut {{string}} = {}
   local listed, _ = Fs.walk(root .. "/ci/cosmic_ci")
   for _, name in ipairs(listed or {}) do
-    if name:match("%.tl$") and not name:match("_test%.tl$") then -- checked: condition_type
+    if name:match("%.tl$") ~= nil and name:match("_test%.tl$") == nil then
       local text, _ = Fs.read(root .. "/ci/cosmic_ci/" .. name)
       if text ~= nil then out[#out + 1] = { "ci/cosmic_ci/" .. name, text } end
     end
