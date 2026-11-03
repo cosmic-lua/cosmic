@@ -3,6 +3,7 @@
 --- reads of the modules the test requires itself, and of those it follows to type them, so the checker
 --- answers as it does from the whole store, while it withholds the text of every other module.
 
+local Store = require("cosmic.store")
 local standalone = require("build.standalone")
 -- The modules the snippets require, named as [`cosmic.test`] documents: by `local type`.
 local type _fs = require("cosmic.fs")
@@ -11,6 +12,12 @@ local type _zip = require("cosmic.zip")
 --- [`standalone.compile`] with its cache in the test's own directory.
 local function compile(tmp: string, source: string): standalone.Main?, string
   return standalone.compile("x.tl", source, { XDG_CACHE_HOME = tmp .. "/cache" })
+end
+
+--- This is the pure store: the source of [`cosmic.stream`], which the test does not name and [`cosmic.zip`] requires, is
+--- withheld, where the full closure store would hold it.
+local function test_the_store_is_the_pure_one()
+  assert(Store.withheld("cosmic.stream") ~= nil, "the source of a module the test does not name is not withheld")
 end
 
 local function test_a_snippet_that_requires_a_module_the_test_requires_is_typed(tmp: string)

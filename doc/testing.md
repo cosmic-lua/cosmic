@@ -380,8 +380,10 @@ What a test declares to be given more than the pure store:
   of the tree.
 - a read grant (`grants = { { path = "build/zig.tl", letters = "r" } }`) for a
   file of the tree that a process it starts reads, such as [`build/zig.tl`],
-  which [`bin/zig`] runs and the compiler is handed: the pure store holds no module's source file but its own,
-  so an undeclared read of one fails ("No such file").
+  which [`bin/zig`] hands to `cosmic-bootstrap --standalone`. A sandboxed
+  worker is given the files of the tree its test declares and its closure
+  supplies, and a pure store's rows supply no module's source file, so an
+  undeclared read of one fails ("No such file").
 
 What a module that reads other modules' text declares: it requires the marker
 of what it reads, and every test importing it is given that, keyed by it.

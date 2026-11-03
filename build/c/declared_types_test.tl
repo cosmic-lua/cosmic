@@ -22,6 +22,7 @@ Test.policy{
     { path = "bin/cosmic-bootstrap", letters = "r" },
     { path = "bin/zig", letters = "r" },
     { path = "bin/zig.pin", letters = "r" },
+    { path = "build/zig.tl", letters = "r" },
     { path = "ci/cosmic-driver.pin", letters = "r" },
     { path = "ci/bootstrap-files.txt", letters = "r" },
     { path = "core/", letters = "r" },

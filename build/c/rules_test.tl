@@ -8,8 +8,8 @@ local rules = require("build.c.rules")
 local tree = require("build.c.tree")
 
 --- The core's C and the headers it includes, which zig parses to a syntax
---- tree, and what bin/zig reads to find or fetch zig (it runs build/zig.tl,
---- which the compiler is handed, so the test grants the file), which the
+--- tree, and what bin/zig reads to find or fetch zig (it hands build/zig.tl
+--- to the bootstrap cosmic, a file the closure does not supply), which the
 --- system's `sh` runs; the bootstrap cosmic and zig, and the caches zig
 --- builds in, which it writes.
 Test.policy{
