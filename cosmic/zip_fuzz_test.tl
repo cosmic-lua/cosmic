@@ -3,9 +3,11 @@
 --- or runs away -- and what the writer writes, the reader reads back.
 --- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
 
+local Array = require("cosmic.array")
 local Compress = require("cosmic.compress")
 local Fuzz = require("build.fuzz")
 local Stream = require("cosmic.stream")
+local String = require("cosmic.string")
 local Zip = require("cosmic.zip")
 
 local PARTS <const> = { "a", "b", "dir", "x.txt", "é", "a b", "..", ".", "" }
@@ -15,7 +17,7 @@ local PARTS <const> = { "a", "b", "dir", "x.txt", "é", "a b", "..", ".", "" }
 local function crc32_reference(data: string): integer
   local c = 0xFFFFFFFF
   for i = 1, #data do
-    c = c ~ data:byte(i) -- checked: nil_not_allowed
+    c = c ~ String.byte_at(data, i)
     for _ = 1, 8 do
       c = (c >> 1) ~ (0xEDB88320 & -(c & 1))
     end
@@ -53,7 +55,10 @@ local function write(fields: {string}): string?
   local out = Stream.collect()
   local zw = Zip.writer(out, { deterministic = true })
   for i = 1, #fields, 4 do
-    local kind, path, name, body = fields[i], fields[i + 1], fields[i + 2], fields[i + 3]
+    -- [`gen_entries`] makes four fields per entry, and a shrunk input is
+    -- generated again from fewer draws, never cut.
+    local kind, path, name, body =
+      Array.at(fields, i), Array.at(fields, i + 1), Array.at(fields, i + 2), Array.at(fields, i + 3)
     -- A shrunk input may name no method at all, which the writer
     -- would refuse.
     if kind == "file" and name ~= "store" and name ~= "deflate" and name ~= "zstd" then
@@ -64,13 +69,13 @@ local function write(fields: {string}): string?
     if kind == "file" then
       -- Half the bodies go in streamed, with a data descriptor: the
       -- reader, which goes by the central directory, must read both alike.
-      if #body % 2 == 0 then -- checked: nil_not_allowed
-        ok = zw:add_file(path, Stream.from_string(body), { method = method }) -- checked: nil_not_allowed*2
+      if #body % 2 == 0 then
+        ok = zw:add_file(path, Stream.from_string(body), { method = method })
       else
-        ok = zw:add_file(path, body, { method = method }) -- checked: nil_not_allowed*2
+        ok = zw:add_file(path, body, { method = method })
       end
     else
-      ok = zw:add_dir(path) -- checked: nil_not_allowed
+      ok = zw:add_dir(path)
     end
     if not ok then return nil end
   end
@@ -275,9 +280,10 @@ local function gen_laid_out(src: Fuzz.Source): string
   end
 
   local cd_offset = pos.value -- checked: map_field
-  for i = 1, n do
-    put(centrals[i]) -- checked: index_may_be_nil
-    if wides[i] ~= nil then put(wides[i]) end -- checked: index_may_be_nil
+  for i, central in ipairs(centrals) do
+    put(central)
+    local wide = wides[i]
+    if wide ~= nil then put(wide) end
     put({ fields = {}, values = {}, tail = comments[i] })
   end
   local cd_size = pos.value - cd_offset -- checked: map_field
@@ -303,28 +309,29 @@ local function gen_laid_out(src: Fuzz.Source): string
   local edits = 0
   while Fuzz.more(src, edits, 3) do
     edits = edits + 1
-    local r = recs[src:int(1, #recs)]
+    -- The end record is always put, so `recs` is not empty.
+    local r = Array.at(recs, src:int(1, #recs))
     local at: integer?
     if n > 0 and src:int(0, 2) == 0 then
       -- An entry's local header offset, which only reading its body
       -- follows: few of the fields drawn at random are one.
-      r = centrals[src:int(1, n)]
+      r = Array.at(centrals, src:int(1, n))
       at = #CDFH_FIELDS
-    elseif #r.fields > 0 then -- checked: nil_not_allowed
+    elseif #r.fields > 0 then
       -- Leave the signature, the one field every check starts from.
-      at = src:int(if r.fields[1] == "c4" then 2 else 1 end, #r.fields) -- checked: nil_not_allowed*2
+      at = src:int(if r.fields[1] == "c4" then 2 else 1 end, #r.fields)
     end
     if at ~= nil then
       local made: mut {any} = {}
-      for k, value in ipairs(r.values) do -- checked: nil_not_allowed
+      for k, value in ipairs(r.values) do
         if k == at then
-          local replaced = hostile(src, value as integer, r.fields[at], marks) -- checked: cast_refused, index_may_be_nil, nil_not_allowed
+          local replaced = hostile(src, value as integer, Array.at(r.fields, at), marks) -- checked: cast_refused
           made[#made + 1] = replaced -- checked: any_use
         else
           made[#made + 1] = value
         end
       end
-      r.values = made -- checked: nil_not_allowed
+      r.values = made
     end
   end
 
@@ -360,10 +367,11 @@ local function test_what_the_writer_writes_the_reader_reads_back(tmp: string)
       local zr, trouble = Zip.open_string(archive)
       if zr == nil then return false, "open: " .. trouble end
       for i = 1, #fields, 4 do
-        local kind, path, body = fields[i], fields[i + 1], fields[i + 3]
+        -- Four fields per entry, as in `write`.
+        local kind, path, body = Array.at(fields, i), Array.at(fields, i + 1), Array.at(fields, i + 3)
         local e, ntrouble = zr:next()
         if e == nil then return false, ("entry %d (%q): %s"):format(i // 4 + 1, path, ntrouble) end
-        if (e.path:gsub("/+$", "")) ~= (path:gsub("/+$", "")) then -- checked: nil_not_allowed
+        if (e.path:gsub("/+$", "")) ~= (path:gsub("/+$", "")) then
           return false, ("wrote path %q, read %q"):format(path, e.path)
         end
         if tostring(e.kind) ~= kind then

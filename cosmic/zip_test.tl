@@ -9,6 +9,7 @@ local Codec = require("cosmic.codec")
 local Compress = require("cosmic.compress")
 local Fs = require("cosmic.fs")
 local Stream = require("cosmic.stream")
+local String = require("cosmic.string")
 local Time = require("cosmic.time")
 local Zip = require("cosmic.zip")
 local Test = require("cosmic.test")
@@ -23,7 +24,7 @@ local ZIP_B64 <const> =
 local function crc32_reference(data: string): integer
   local c = 0xFFFFFFFF
   for i = 1, #data do
-    c = c ~ data:byte(i) -- checked: nil_not_allowed
+    c = c ~ String.byte_at(data, i)
     for _ = 1, 8 do
       c = (c >> 1) ~ (0xEDB88320 & -(c & 1))
     end
@@ -99,7 +100,8 @@ local function test_a_corrupt_body_fails_its_crc_check()
   -- flip a byte inside the stored payload, which sits right after the
   -- local header and its 1-byte name
   local at = raw:find("hello", 1, true)
-  local corrupt = raw:sub(1, at - 1) .. "x" .. raw:sub(at + 1) -- checked: nil_not_allowed*2
+  assert(at ~= nil, "the stored payload is in the archive")
+  local corrupt = raw:sub(1, at - 1) .. "x" .. raw:sub(at + 1)
   local r = assert(Zip.open_string(corrupt))
   local entry = by_path(entries_of(r), "f")
   local reader = assert(entry:open())
@@ -175,7 +177,8 @@ local function le64(n: integer): string
 end
 
 local function rd32(s: string, at: integer): integer
-  return s:byte(at) | (s:byte(at + 1) << 8) | (s:byte(at + 2) << 16) | (s:byte(at + 3) << 24) -- checked: nil_not_allowed*4
+  return String.byte_at(s, at) | (String.byte_at(s, at + 1) << 8) | (String.byte_at(s, at + 2) << 16) |
+    (String.byte_at(s, at + 3) << 24)
 end
 
 local function patch(s: string, at: integer, bytes: string): string
@@ -608,11 +611,12 @@ local function test_a_streamed_size_of_2_gib_or_more_announces_zip64_up_front()
     { method = "store", size = 1 << 32 })
   assert(not ok and trouble:find("not 4294967296", 1, true) ~= nil, trouble)
   local header = pieces[1]
-  assert(header:sub(1, 4) == "PK\3\4") -- checked: nil_not_allowed
-  assert(rd32(header, 5) & 0xFFFF == 45, "version needed") -- checked: nil_not_allowed
-  assert(header:sub(-20, -17) == le16(1) .. le16(16), "a zip64 extra field of two sizes") -- checked: nil_not_allowed
+  assert(header ~= nil, "the local header went out")
+  assert(header:sub(1, 4) == "PK\3\4")
+  assert(rd32(header, 5) & 0xFFFF == 45, "version needed")
+  assert(header:sub(-20, -17) == le16(1) .. le16(16), "a zip64 extra field of two sizes")
   -- With the field there, the header's own sizes are the sentinel.
-  assert(rd32(header, 19) == 0xFFFFFFFF and rd32(header, 23) == 0xFFFFFFFF) -- checked: nil_not_allowed*2
+  assert(rd32(header, 19) == 0xFFFFFFFF and rd32(header, 23) == 0xFFFFFFFF)
   assert(not w:close())
 end
 
