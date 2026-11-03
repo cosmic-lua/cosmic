@@ -1967,7 +1967,7 @@ function fix.format_text(source: string, name: string): Format.Result
 end
 
 --- The `fix` verb as [`build/verb_list.tl`] lists it.
-fix.spec = { -- checked: field_fixed
+fix.spec = {
   name = "fix",
   summarizes_failure = true,
   guide = "none: a tree-maintenance verb, described by `cosmic help fix`; the quickstart does not cover checking a tree",

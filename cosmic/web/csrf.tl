@@ -102,8 +102,8 @@ local record Csrf
   HEADER: string
 end
 
-Csrf.FIELD = "csrf_token" -- checked: field_fixed
-Csrf.HEADER = "X-CSRF-Token" -- checked: field_fixed
+Csrf.FIELD = "csrf_token"
+Csrf.HEADER = "X-CSRF-Token"
 
 --- How many bytes of a form body are read to find the token.
 local PEEK <const> = 16384

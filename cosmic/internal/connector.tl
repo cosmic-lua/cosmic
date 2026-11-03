@@ -736,8 +736,8 @@ local record Leaf
   waited: function(fd: integer, writable: boolean, timeout_ns: integer?): boolean, string
 end
 
-Leaf.MAX_ENDPOINTS = 128 -- checked: field_fixed
-Leaf.waited = waited -- checked: field_fixed
+Leaf.MAX_ENDPOINTS = 128
+Leaf.waited = waited
 
 --- Hands this module how [`cosmic.net`] makes a connection of a connected
 --- `socket` (waiting `timeout_ns` on its reads and writes) and judges an
@@ -780,7 +780,7 @@ function Leaf.checked_timeout_ms(timeout_ns: integer?, level: integer): integer
   return (chosen + 999999) // 1000000
 end
 
-Leaf.start = start -- checked: field_fixed
+Leaf.start = start
 
 --- Starts a connector of the table `endpoints` (and `public`'s lists, if
 --- given) that waits `timeout_ms` to connect: the [`Net.Connector`] over

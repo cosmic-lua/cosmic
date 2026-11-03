@@ -502,7 +502,7 @@ end
 
 --- The `time` verb as [`build/verb_list.tl`] lists it. Reads the clock and
 --- the zones the binary carries, never the tree: never stale-checked.
-verb.spec = { -- checked: field_fixed
+verb.spec = {
   name = "time",
   guide = "a quick question about a time",
   tests = { "build.time_test", "build.time_tool_test" },

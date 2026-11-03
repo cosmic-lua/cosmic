@@ -459,3 +459,30 @@ local function test_a_record_function_read_as_the_module_loads_is_defined_above_
   accepted("local record F\n  size: function(self: F): integer\nend\nlocal f: F = { size = function(self: F): integer return 1 end }\n" ..
       "local k = f:size()\nfunction F.size(self: F): integer\n  return 2\nend\n")
 end
+
+-- the module's table given its fields as it loads -------------------------------------------------------------
+
+local TABLE <const> = "local record M\n  size: integer\n  name: string\nend\n"
+
+local function test_a_statement_of_the_module_gives_the_table_it_returns_a_fixed_field()
+  accepted(TABLE .. "M.size = 3\nM.name = \"m\"\nreturn M\n")
+  -- the value is held to the field's type all the same
+  refused(TABLE .. "M.size = \"3\"\nreturn M\n", "not_assignable", "in the assignment to `M.size`")
+end
+
+local function test_any_other_write_of_a_fixed_field_of_a_module_table_is_refused()
+  -- a function may run after `require` has handed the table out, and a block may run more than once or not at all
+  refused(TABLE .. "local function set()\n  M.size = 3\nend\nset()\nreturn M\n", "field_fixed", "`M.size` is fixed")
+  refused(TABLE .. "do\n  M.size = 3\nend\nreturn M\n", "field_fixed")
+  refused(TABLE .. "M.size = 3\nM.size = 4\nreturn M\n", "field_fixed")
+  -- through another name, of a record the module does not return, and of a module that returns no record of its own
+  refused(TABLE .. "local A = M\nA.size = 3\nreturn M\n", "field_fixed")
+  refused(TABLE .. "local record N\n  size: integer\nend\nN.size = 3\nreturn M\n", "field_fixed")
+  refused(TABLE .. "local m: M = { size = 1, name = \"m\" }\nm.size = 3\nreturn m\n", "field_fixed")
+  refused(TABLE .. "do\n  return M\nend\nM.size = 3\n", "export_not_declared unreachable field_fixed")
+  local other = { other = TABLE .. "return M\n" }
+  refused("local Other = require(\"other\")\nOther.size = 3\n", "field_fixed", nil, other)
+  refused("local Other = require(\"other\")\nOther.size = 3\nreturn Other\n", "field_fixed export_not_declared", nil, other)
+  -- a field the record does not declare
+  refused(TABLE .. "M.sise = 3\nreturn M\n", "field_unknown", "nearest `size`")
+end

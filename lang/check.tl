@@ -200,9 +200,9 @@ local record Check
   advice: {string: string}
 end
 
-Check.codes = Codes.codes -- checked: field_fixed
-Check.catalog = Codes.catalog -- checked: field_fixed
-Check.advice = { -- checked: field_fixed
+Check.codes = Codes.codes
+Check.catalog = Codes.catalog
+Check.advice = {
   ["cosmic.json Json.Value empty"] = "write an empty array as `Json.array()`, which encodes as `[]`, and an empty object as a typed " ..
     "local (`local none: {string: Json.Value} = {}`): an unmarked empty table encodes as `{}`",
   ["cosmic.time Time.CivilFields"] = "write the literal where it is typed as the record that lists it: `local wall: Time.Wall = " ..
@@ -336,6 +336,12 @@ local record Ctx
   pending: mut {Decl: {string: boolean}}
   --- What the functions read of those statics, for the functions the module runs as it loads ([`lang.load_order`]).
   mut load: LoadOrder.State
+  --- The local the module's last statement returns where it is a record of the module's own, the module's table, and nil
+  --- where it is not; the statements of the chunk itself, not of a block or function within it, by id; and the fields of
+  --- the table a statement has given ([`inits_module`]).
+  module_table: integer?
+  top: {integer: boolean}
+  initialized: mut {string: boolean}
   --- The id of the function being walked, 0 in the chunk.
   mut within: integer
   --- The class each table literal of a class is a literal of, by the id of its node.
@@ -6892,6 +6898,24 @@ local function writable_base(ctx: Ctx, object: Ast.Exp): Type?
   return readable(ctx, object, t, "it has no member to write")
 end
 
+-- TODO: refuse a read of `M.f` that runs as the module loads above the statement that gives it, as `static_before_definition`
+-- does above a `function M.f(...)` statement (`ctx.pending`), once its messages word a value as well as a function: such a
+-- read finds nil today, as it did while these writes were held by markers.
+
+--- Whether `target`, of the statement `s`, gives the module's table its field, as a `function M.f(...)` statement does. `s`
+--- is a statement of the chunk itself, so it runs once, as the module loads, before the last statement `return M` hands the
+--- table to `require`; `M` is the very local that statement returns, not another name that may hold another table; and no
+--- statement before gave the field. Its value is checked against the field's type all the same.
+local function inits_module(ctx: Ctx, s: Ast.Assign, target: Ast.Field): boolean
+  local object = target.object
+  if not (ctx.top[s.id] == true and (object.kind == "Name") and object.binding ~= nil and
+      object.binding == ctx.module_table and ctx.initialized[target.name] ~= true) then
+    return false
+  end
+  ctx.initialized[target.name] = true
+  return true
+end
+
 --- The place `target` writes, reporting what may not be written. It is the `at`th target of the statement `s`, which `removes`
 --- if it is the only one and gives it a literal nil. A write to an array that is no append, or is one in a statement that runs `runs_code`, is left in `pending`.
 local function place_of_target(ctx: Ctx, s: Ast.Assign, target: Ast.Exp, at: integer, removes: boolean, runs_code: boolean,
@@ -6912,7 +6936,7 @@ local function place_of_target(ctx: Ctx, s: Ast.Assign, target: Ast.Exp, at: int
         return nil, false
       end
       local field = list[1]
-      if not field.mut then -- checked: nil_not_allowed
+      if not field.mut and not inits_module(ctx, s, target) then -- checked: nil_not_allowed
         report(ctx, "field_fixed", target, quoted(base.decl.name .. "." .. target.name) .. " is fixed: it is not declared `mut`",
           "declare `mut " .. target.name .. ": " .. show(ctx, field.type) .. "` in " .. quoted(base.decl.name) .. -- checked: nil_not_allowed
             ", or make a new " .. quoted(base.decl.name), { show(ctx, base) })
@@ -8030,9 +8054,35 @@ function Check.enums(lowered: Declarations.Lowered): {integer: {string}}
   return out
 end
 
+--- The local that the module's last statement, `return M`, returns where `M` is a record the module declares: the module's
+--- table, which a statement of the chunk gives its fields ([`inits_module`]). Nil where the module returns anything else.
+local function module_table(input: Declarations.Input, lowered: Declarations.Lowered): integer?
+  local export, chunk = lowered.export, input.chunk.body.stats
+  local last = chunk[#chunk]
+  if export == nil or export.instance == true or export.module ~= input.module or last == nil or
+      not ((last.kind == "Return")) or #last.values ~= 1 then
+    return nil
+  end
+  local returned = assert(last.values[1])
+  local decl = export.decl
+  if not ((returned.kind == "Name")) or returned.binding == nil or decl == nil or decl.kind ~= "record" then
+    return nil
+  end
+  local binding = assert(returned.binding)
+  local entry = lowered.entries[binding]
+  if entry == nil or entry.decl ~= decl then
+    return nil
+  end
+  return binding
+end
+
 function Check.check(program: Declarations.Program, input: Declarations.Input, lowered: Declarations.Lowered,
                      typed?: boolean): Check.Checked
   local store = program.store
+  local tops: mut {integer: boolean} = {}
+  for _, t in ipairs(input.chunk.body.stats) do
+    tops[t.id] = true
+  end
   local ctx: Ctx = { -- checked: literal_missing
     program = program, store = store, judge = program.judge, input = input, lowered = lowered, scoped = input.scoped,
     tokens = input.chunk.tokens, filename = input.filename, errors = {}, vars = {}, frames = {}, binders = {},
@@ -8042,7 +8092,7 @@ function Check.check(program: Declarations.Program, input: Declarations.Input, l
     end, function(_node: Ast.Node, _spelled: string, _found: LoadOrder.Found) end),
     literals = {}, spreads = {}, declared = {}, union_fields = {}, spine = {},
     ternaries = {}, invalid = store.invalid, nil_type = store:atom("nil"), flow = Flow.start(), unfixed_now = {}, assigning = {}, quiet = 0, closers = 0, callee_module = "", member_module = "", moves = {},
-    loops = {}, keys = {}, edges = {}, guards = {}, reads = {}, unfixed = {}, narrowed = {}, inert = {}, boundaries = {}, types = {}, callees = {}, consts = {}, starts = {}, library = {}, typed = typed ~= false, warnings = {},
+    loops = {}, keys = {}, edges = {}, guards = {}, top = tops, module_table = module_table(input, lowered), initialized = {}, reads = {}, unfixed = {}, narrowed = {}, inert = {}, boundaries = {}, types = {}, callees = {}, consts = {}, starts = {}, library = {}, typed = typed ~= false, warnings = {},
     unite = function(a: Type, b: Type): Type
       return store:union({ a, b })
     end,
