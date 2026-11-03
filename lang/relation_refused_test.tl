@@ -83,7 +83,7 @@ local function test_a_never_function_is_below_a_returning_one_only_where_the_pla
   for _, kind in ipairs({ "array", "map", "union", "mut array", "mut map", "generic" }) do
     local ok = covariant[kind] == true
     -- the type itself, in a return and as a parameter
-    local forward = { wrap(kind, dies), wrap(kind, returns) }
+    local forward_never, forward_returns = wrap(kind, dies), wrap(kind, returns)
     for _, place in ipairs({ "return", "parameter" }) do
       local function mk(t: Types.Type): Types.Type
         if place == "return" then
@@ -91,7 +91,7 @@ local function test_a_never_function_is_below_a_returning_one_only_where_the_pla
         end
         return nothing(w, { t })
       end
-      local given_never, given_returns = mk(forward[1]), mk(forward[2]) -- checked: index_may_be_nil*2
+      local given_never, given_returns = mk(forward_never), mk(forward_returns)
       -- a parameter swaps: the function over the returning container takes the never one
       local expect_forward = place == "return" and ok
       local expect_back = place == "parameter" and ok
@@ -146,21 +146,27 @@ local function test_a_container_of_never_functions_is_not_a_container_of_returni
   local s = w.store
   local dies = s:fn({ rets = {} })
   local may_return = s:fn({})
-  local pairs_of: {{Types.Type}} = {
-    { s:array(dies, true), s:array(may_return, true) },
-    { s:map(s.string, dies, true), s:map(s.string, may_return, true) },
-    { s:array(s:array(dies, true), true), s:array(s:array(may_return, true), true) },
-    { s:array(s:array(dies)), s:array(s:array(may_return)) },
+  local record Containers
+    --- The container of functions that never return.
+    dying: Types.Type
+    --- The same container of functions that may return.
+    returning: Types.Type
+  end
+  local array_of: Containers = { dying = s:array(dies, true), returning = s:array(may_return, true) }
+  local map_of: Containers = { dying = s:map(s.string, dies, true), returning = s:map(s.string, may_return, true) }
+  local nested: Containers = {
+    dying = s:array(s:array(dies, true), true), returning = s:array(s:array(may_return, true), true),
   }
-  refused(w, pairs_of[1][1], pairs_of[1][2], "invariant_mut", "element") -- checked: index_may_be_nil*2, nil_not_allowed*2
-  refused(w, pairs_of[1][2], pairs_of[1][1], "invariant_mut", "element") -- checked: index_may_be_nil*2, nil_not_allowed*2
-  refused(w, pairs_of[2][1], pairs_of[2][2], "invariant_mut", "value") -- checked: index_may_be_nil*2, nil_not_allowed*2
-  refused(w, pairs_of[2][2], pairs_of[2][1], "invariant_mut", "value") -- checked: index_may_be_nil*2, nil_not_allowed*2
-  refused(w, pairs_of[3][1], pairs_of[3][2], "invariant_mut", "element") -- checked: index_may_be_nil*2, nil_not_allowed*2
-  refused(w, pairs_of[3][2], pairs_of[3][1], "invariant_mut", "element") -- checked: index_may_be_nil*2, nil_not_allowed*2
+  local view: Containers = { dying = s:array(s:array(dies)), returning = s:array(s:array(may_return)) }
+  refused(w, array_of.dying, array_of.returning, "invariant_mut", "element")
+  refused(w, array_of.returning, array_of.dying, "invariant_mut", "element")
+  refused(w, map_of.dying, map_of.returning, "invariant_mut", "value")
+  refused(w, map_of.returning, map_of.dying, "invariant_mut", "value")
+  refused(w, nested.dying, nested.returning, "invariant_mut", "element")
+  refused(w, nested.returning, nested.dying, "invariant_mut", "element")
   -- the view of views is covariant and cannot be written
-  assert(below(w, pairs_of[4][1], pairs_of[4][2])) -- checked: index_may_be_nil*2, nil_not_allowed*2
-  refused(w, pairs_of[4][2], pairs_of[4][1], "may_return", "element > element > alternative 1") -- checked: index_may_be_nil*2, nil_not_allowed*2
+  assert(below(w, view.dying, view.returning))
+  refused(w, view.returning, view.dying, "may_return", "element > element > alternative 1")
   -- a generic record
   refused(w, named(w, "List", { dies }), named(w, "List", { may_return }), "invariant_generic", "argument 1")
   refused(w, named(w, "List", { may_return }), named(w, "List", { dies }), "invariant_generic", "argument 1")
