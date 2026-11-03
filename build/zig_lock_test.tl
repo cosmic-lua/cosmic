@@ -49,7 +49,7 @@ if wait < 0 then Fs.take(Fs.stdin, 1) else Clock.sleep_ns(wait) end
 ]]
 
 local function start(root: string, wait_ns: integer, flock?: boolean): Child.Handle, string
-  local started = this_program.program({ "-e", (flock and flock_tool or sql_tool):format(support.build_dir(root), wait_ns) }, -- checked: condition_type
+  local started = this_program.program({ "-e", (if flock == true then flock_tool else sql_tool end):format(support.build_dir(root), wait_ns) },
     { stdin = "stream", stdout = "stream", stderr = "capture" })
   local child = assert(Child.start(started.argv, started.options))
   local line = assert(Stream.lines(assert(child.stdout_stream)):read())

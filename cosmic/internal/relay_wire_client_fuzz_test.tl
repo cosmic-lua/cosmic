@@ -269,7 +269,7 @@ local function test_a_username_and_password_the_client_writes_are_read_back_by_t
       if message == nil then
         if fits then return false, "refused what fits: " .. why end
         if why == "" then return false, "refused without saying why" end
-        if why:find(password, 1, true) and #password > 3 then -- checked: condition_type
+        if why:find(password, 1, true) ~= nil and #password > 3 then
           return false, "the reason holds the password"
         end
         Fuzz.label("refused")

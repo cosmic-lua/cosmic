@@ -126,8 +126,8 @@ local function fake(fails: {string: boolean}, lay_fails: {string: boolean}): Fak
       if verb == "summarize" then return { code = 0, text = "turns=1\n" } end
       if verb == "notes" or verb == "kv" or verb == "pack" or verb == "ledger" then
         local failed = fails[task]
-        return { code = if failed then 1 else 0 end, text = "check: logs " .. arg_of(argv, 2) .. "/grades/1\ncheck: " .. -- checked: condition_type
-            (if failed then "FAIL" else "PASS" end) .. "\n" } -- checked: condition_type
+        return { code = if failed == true then 1 else 0 end, text = "check: logs " .. arg_of(argv, 2) .. "/grades/1\ncheck: " ..
+            (if failed == true then "FAIL" else "PASS" end) .. "\n" }
       end
       if verb == "result" then
         local code = argv[#argv - 2 + 0]

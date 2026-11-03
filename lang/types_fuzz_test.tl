@@ -48,7 +48,7 @@ end
 
 -- The labels a type reaches, so that a property that needs a form finds out when none is drawn.
 local function label_all(t: Types.Type, seen: mut {integer: boolean})
-  if seen[t.id] then -- checked: condition_type
+  if seen[t.id] == true then
     return
   end
   seen[t.id] = true
@@ -142,13 +142,13 @@ local function union_not_normal(t: Types.Union): string
     end
     previous = d
   end
-  if tags["integer"] and tags["number"] then -- checked: condition_type
+  if tags["integer"] == true and tags["number"] == true then
     return "integer beside number in " .. Types.display(t)
   end
-  if (tags["true"] or tags["false"]) and tags["boolean"] then -- checked: condition_type
+  if (tags["true"] == true or tags["false"] == true) and tags["boolean"] == true then
     return "true or false beside boolean in " .. Types.display(t)
   end
-  if tags["true"] and tags["false"] then -- checked: condition_type
+  if tags["true"] == true and tags["false"] == true then
     return "true beside false in " .. Types.display(t)
   end
   if enum and tags["string"] == true then
@@ -159,7 +159,7 @@ end
 
 --- Why `t`, or a type inside it, is not in normal form, or "".
 local function not_normal(t: Types.Type, seen: mut {integer: boolean}): string
-  if seen[t.id] then -- checked: condition_type
+  if seen[t.id] == true then
     return ""
   end
   seen[t.id] = true
@@ -277,7 +277,7 @@ local function flags(t: Types.Type): integer, boolean
 end
 
 local function flags_wrong(t: Types.Type, seen: mut {integer: boolean}): string
-  if seen[t.id] then -- checked: condition_type
+  if seen[t.id] == true then
     return ""
   end
   seen[t.id] = true

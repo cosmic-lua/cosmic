@@ -553,7 +553,7 @@ end
 local function test_every_code_has_a_row_with_a_rule_a_reason_and_a_fix_and_the_catalog_names_each_once()
   local owned: mut {string: boolean} = {}
   for _, row in ipairs(Check.catalog) do
-    assert(not owned[row.code], row.code .. " is in the catalog twice") -- checked: condition_type
+    assert(owned[row.code] ~= true, row.code .. " is in the catalog twice")
     owned[row.code] = true
     assert(row.rule ~= "" and row.why ~= "" and row.fix ~= "")
   end

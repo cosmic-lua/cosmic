@@ -102,7 +102,7 @@ end
 --- Waits `seconds` for `running`, ending it then, and says how it ended.
 local function reap(running: Running, seconds: number): Ended
   if running.pid == nil then -- checked: compare_disjoint
-    return { started = false, why = running.why or "", code = -1, signal = -1, timed_out = false, text = "" } -- checked: condition_type
+    return { started = false, why = running.why, code = -1, signal = -1, timed_out = false, text = "" }
   end
   local process = require("cosmic.internal.process")
   local deadline = Clock.monotonic_ns() + Clock.seconds(seconds)
@@ -224,10 +224,10 @@ local function test_which_remote_forms_the_profile_compiler_takes(tmp: string)
   assert(not broken, "a malformed profile started\n" .. table.concat(report, "\n"))
   assert(compiles(tmp, profile(BASE, {}), {}), "the base profile does not compile\n" .. table.concat(report, "\n"))
   assert(parsed["ip-localhost"], "(remote ip \"localhost:PORT\") does not compile\n" .. table.concat(report, "\n"))
-  assert(parsed["tcp-localhost"] and parsed["ip-param"] and parsed["ip-star"], "a form that compiled before does not\n" .. -- checked: condition_type
+  assert(parsed["tcp-localhost"] == true and parsed["ip-param"] == true and parsed["ip-star"] == true, "a form that compiled before does not\n" ..
       table.concat(report, "\n"))
   -- The profile compiler takes no numeric host but "*" and "localhost".
-  assert(not parsed["ip-127.0.0.1"] and not parsed["tcp-127.0.0.1"] and not parsed["ip-numeric-remote"], -- checked: condition_type*3
+  assert(parsed["ip-127.0.0.1"] ~= true and parsed["tcp-127.0.0.1"] ~= true and parsed["ip-numeric-remote"] ~= true,
     "a numeric host compiles\n" .. table.concat(report, "\n"))
   conclude(report)
 end
@@ -363,7 +363,7 @@ end
 --- a connection from outside, and what it read of it.
 local function listens(tmp: string, text: string, port: integer): string
   local running = start(tmp, text, {}, { "/usr/bin/nc", "-n", "-l", "127.0.0.1", tostring(port) })
-  if running.pid == nil then return "NOSTART(" .. brief(running.why or "") .. ")" end -- checked: compare_disjoint, condition_type
+  if running.pid == nil then return "NOSTART(" .. brief(running.why) .. ")" end -- checked: compare_disjoint
   local reached = reach_listener(port, 1.5)
   local _, _ = Clock.sleep_ns(Clock.ms(300))
   local ended = reap(running, 0.01)
@@ -566,7 +566,7 @@ local function denials(): string
       if at ~= nil then
         -- The pid differs with each run, and only the operation says.
         local said = line:sub(at):gsub("%(%d+%)", "")
-        if not seen[said] then -- checked: condition_type
+        if seen[said] ~= true then
           seen[said] = true
           lines[#lines + 1] = said
         end
@@ -598,7 +598,7 @@ local function test_what_a_resolver_is_refused_with_network_and_resolver_files(t
   assert(not bare, "the c-ares way resolved with no resolver file\n" .. table.concat(report, "\n"))
   assert(c_ares, "the c-ares way fails with outbound network and the resolver files\n" .. table.concat(report, "\n"))
   -- Apple's dnsinfo (scutil --dns) needs a Mach service, which the next test names.
-  assert(not worked["scutil --dns"], "dnsinfo needs no Mach service\n" .. table.concat(report, "\n")) -- checked: condition_type
+  assert(worked["scutil --dns"] ~= true, "dnsinfo needs no Mach service\n" .. table.concat(report, "\n"))
   conclude(report)
 end
 
@@ -645,7 +645,7 @@ local function test_which_mach_services_a_resolver_needs(tmp: string)
     local text = profile(strict(), lines)
     local needed: mut {string} = {}
     for _, resolver in ipairs(RESOLVERS) do
-      if worked[resolver.name] then -- checked: condition_type
+      if worked[resolver.name] == true then
         local ended = run_under(tmp, text, {}, resolver.argv, 3)
         if not (ended.started and ended.text:find(resolver.works, 1, true) ~= nil) then
           needed[#needed + 1] = resolver.name
@@ -681,7 +681,7 @@ local function test_which_resolver_files_and_network_a_resolver_needs(tmp: strin
   for _, path in ipairs(RESOLVER_FILES) do
     local needed: mut {string} = {}
     for _, resolver in ipairs(RESOLVERS) do
-      if worked[resolver.name] then -- checked: condition_type
+      if worked[resolver.name] == true then
         local ended = run_under(tmp, with(resolver_files(path), OUTBOUND), {}, resolver.argv, 3)
         if not (ended.started and ended.text:find(resolver.works, 1, true) ~= nil) then
           needed[#needed + 1] = resolver.name
@@ -700,6 +700,6 @@ local function test_which_resolver_files_and_network_a_resolver_needs(tmp: strin
     local ok, by = resolve_under(tmp, with(resolver_files(nil), network), report, network)
     assert(ok and by["scutil --dns"], network .. " does not let a resolver work\n" .. table.concat(report, "\n")) -- checked: or_mix
   end
-  assert(worked["udp-by-resolv.conf"] and worked["scutil --dns"], "a resolver fails with all the files\n" .. table.concat(report, "\n")) -- checked: condition_type
+  assert(worked["udp-by-resolv.conf"] == true and worked["scutil --dns"] == true, "a resolver fails with all the files\n" .. table.concat(report, "\n"))
   conclude(report)
 end

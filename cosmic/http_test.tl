@@ -437,7 +437,7 @@ local function test_download_removes_its_temporary_file_on_a_mismatch(tmp: strin
     script = { reply("200 OK", "", "not what was promised") } })
   assert(not ok)
   assert(trouble:find("mismatch", 1, true) ~= nil, trouble)
-  assert(not Fs.exists(path) and #assert(Fs.list(tmp)) == 0) -- checked: condition_type
+  assert(Fs.exists(path) ~= true and #assert(Fs.list(tmp)) == 0)
 end
 
 local function test_download_removes_its_temporary_file_on_a_truncated_body(tmp: string)
@@ -446,7 +446,7 @@ local function test_download_removes_its_temporary_file_on_a_truncated_body(tmp:
     "HTTP/1.1 200 OK\r\nContent-Length: 100\r\nConnection: close\r\n\r\nonly ten b",
   } })
   assert(not ok)
-  assert(not Fs.exists(path) and #assert(Fs.list(tmp)) == 0) -- checked: condition_type
+  assert(Fs.exists(path) ~= true and #assert(Fs.list(tmp)) == 0)
 end
 
 local function test_download_names_its_path_when_it_cannot_make_the_file(tmp: string)

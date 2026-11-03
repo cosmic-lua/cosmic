@@ -193,7 +193,7 @@ local FORMS <const>: {string: function(n: integer)} = {
     local seen: {Relation.Refusal: boolean} = {}
     local counted = { count = 0 }
     local function walk(r: Relation.Refusal)
-      if not seen[r] then -- checked: condition_type
+      if seen[r] ~= true then
         seen[r] = true -- checked: view_written
         counted.count = counted.count + 1 -- checked: map_field*2
         for _, alternative in ipairs(r.alternatives or {}) do

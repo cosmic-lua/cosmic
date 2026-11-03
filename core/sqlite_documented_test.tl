@@ -72,7 +72,7 @@ end
 local function missing(want: {string:boolean}, have: {string:boolean}): string
   local out: mut {string} = {}
   for name in pairs(want) do
-    if not have[name] then out[#out + 1] = name end -- checked: condition_type
+    if have[name] ~= true then out[#out + 1] = name end
   end
   table.sort(out)
   return table.concat(out, "\n  ")
@@ -94,6 +94,6 @@ local function test_the_guide_is_read_as_its_entries()
       collation("decimal"), PRAGMAS }) do
     assert(names[name], "the guide's entries do not include " .. name)
   end
-  assert(not names["binary"], "a collation is read as a collation") -- checked: condition_type
-  assert(not names["sqlite"], "prose in backticks outside an entry is not one") -- checked: condition_type
+  assert(names["binary"] ~= true, "a collation is read as a collation")
+  assert(names["sqlite"] ~= true, "prose in backticks outside an entry is not one")
 end

@@ -50,7 +50,7 @@ local function test_an_arena_stays_outside_the_repository_through_a_link(dir: st
   assert(Fs.symlink(dir .. "/repo", dir .. "/link"))
   laid, trouble = Arena.lay(eval, "t", binary, dir .. "/link/run")
   assert(laid == nil and trouble == "put the arena outside the repository", trouble)
-  assert(not Fs.exists(dir .. "/repo/run")) -- checked: condition_type
+  assert(Fs.exists(dir .. "/repo/run") ~= true)
 end
 
 local function test_a_task_and_an_executable_are_required(dir: string)
@@ -76,11 +76,11 @@ local function test_a_refusal_through_a_link_makes_nothing_inside_the_repository
   assert(Fs.symlink(dir .. "/repo", dir .. "/link"))
   local laid, trouble = Arena.lay(eval, "t", binary, dir .. "/link/new/deeper/run")
   assert(laid == nil and trouble == "put the arena outside the repository", trouble)
-  assert(not Fs.exists(dir .. "/repo/new")) -- checked: condition_type
+  assert(Fs.exists(dir .. "/repo/new") ~= true)
   assert(Fs.mkdirs(dir .. "/out"))
   laid, trouble = Arena.lay(eval, "t", binary, dir .. "/out/gone/../../repo/run")
   assert(laid == nil and trouble == "put the arena outside the repository", trouble)
-  assert(not Fs.exists(dir .. "/repo/run")) -- checked: condition_type
+  assert(Fs.exists(dir .. "/repo/run") ~= true)
 end
 
 -- TODO: hold a task's paths to the same rule. Mirror's `sub/b.bin`,

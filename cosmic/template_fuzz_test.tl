@@ -1445,7 +1445,7 @@ local function test_a_block_in_a_tag_adds_only_the_attributes_it_writes(tmp: str
         local text = if (lead ~= "" or (tag.name == "svg" and not tag.selfclosing)) then "ftext" else "text" end
         if lead ~= "" then
           for _, a in ipairs(tag.attrs) do
-            if FONT_BREAKS[a:match("^[^=]*")] then -- checked: condition_type, nil_not_allowed
+            if FONT_BREAKS[a:match("^[^=]*")] == true then -- checked: nil_not_allowed
               text = "refuse"
             end
           end
@@ -1666,7 +1666,7 @@ local function spelled(src: Fuzz.Source, name: string): string
   local out = name:gsub("%a", function(c: string): string
     return if src:int(0, 1) == 0 then c:lower() else c:upper() end
   end)
-  return if name:find("^hx%-") and src:int(0, 1) == 0 then "data-" .. out else out end -- checked: condition_type
+  return if name:find("^hx%-") ~= nil and src:int(0, 1) == 0 then "data-" .. out else out end
 end
 
 local function gen_script_attr(src: Fuzz.Source): string

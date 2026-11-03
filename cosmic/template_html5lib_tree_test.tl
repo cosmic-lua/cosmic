@@ -222,7 +222,7 @@ local function text_trouble(kind: string, up: {Element}): string?
     return nil
   end
   if kind == "rtext" then
-    if parent.foreign or not RCDATA[parent.name] then -- checked: condition_type
+    if parent.foreign or RCDATA[parent.name] ~= true then
       return "rtext but it is not in an HTML textarea or title"
     end
     return nil
@@ -231,7 +231,7 @@ local function text_trouble(kind: string, up: {Element}): string?
   end
   if parent.name == "script" or parent.name == "style" then
     return "text in raw text"
-  elseif not parent.foreign and (RAW[parent.name] or RCDATA[parent.name]) then -- checked: condition_type
+  elseif not parent.foreign and (RAW[parent.name] == true or RCDATA[parent.name] == true) then
     return "text in raw text or RCDATA"
   end
   local html_below = false
@@ -242,7 +242,7 @@ local function text_trouble(kind: string, up: {Element}): string?
       return "text, which takes markup, inside " .. element.name
     end
     if element.foreign then
-      if INTEGRATION[element.name] then -- checked: condition_type
+      if INTEGRATION[element.name] == true then
         return "text in or under " .. element.name .. ", where a browser reads HTML"
       elseif html_below then
         return "text in an HTML element inside foreign content"
@@ -273,7 +273,7 @@ local function foreign_names(tree: {string}): {string}
   local names: mut {string} = {}
   for _, line in ipairs(tree) do
     local name = body_of(line):match("^<%a+ ([^>]+)>$")
-    if name ~= nil and not seen[name] and #names < 5 then -- checked: condition_type
+    if name ~= nil and seen[name] ~= true and #names < 5 then
       seen[name] = true
       names[#names + 1] = name
     end
@@ -434,7 +434,7 @@ local function check_case(file: string, case: Case, reach: Reach)
           note(reach, "value", kind)
           if is_code(written) then
             fail(reach, file, kind, cut, input, "the tree has the value of the code attribute " .. name)
-          elseif URL_ATTRS[written] then -- checked: condition_type
+          elseif URL_ATTRS[written] == true then
             if kind ~= "url" and kind ~= "part" then
               fail(reach, file, kind, cut, input, "the tree has the value of the URL attribute " .. name)
             end
@@ -452,7 +452,7 @@ local function test_a_slot_is_accepted_only_where_the_tree_has_text_or_an_attrib
     accepted = {}, failures = {} }
   for _, file in ipairs((assert(Fs.list(DIRECTORY)))) do
     -- The scripted files give the tree a script's changes to it make.
-    if file:find("%.dat$") and not file:find("^scripted_") then -- checked: condition_type
+    if file:find("%.dat$") ~= nil and not file:find("^scripted_") then
       local text = assert(Fs.read(DIRECTORY .. "/" .. file))
       for _, case in ipairs(cases_of(text)) do
         check_case(file, case, reach)

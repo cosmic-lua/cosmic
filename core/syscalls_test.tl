@@ -1685,7 +1685,7 @@ local function test_spawn_credentials_runtime_refusal(tmp: string)
   local pid, trouble, errno = process.spawn(probe, { probe, "append " .. marker .. " wrong" },
     nil, tmp .. "/absent", nil, nil, nil, false, nil, nil, { user = 65532, group = 65532 })
   failed(pid, trouble, errno)
-  assert(not Fs.exists(marker)) -- checked: condition_type
+  assert(Fs.exists(marker) ~= true)
 end
 
 --- What spawn raises for `sandbox` taken as a raw table, malformed.

@@ -570,7 +570,7 @@ local function gen_match(src: Fuzz.Source): string
   local seen: mut {string: boolean} = {}
   while Fuzz.more(src, #arms, 2) do
     local arm = Fuzz.pick(src, { "T", "F" })
-    if not seen[arm] then -- checked: condition_type
+    if seen[arm] ~= true then
       seen[arm] = true
       arms[#arms + 1] = arm
     end
@@ -601,9 +601,9 @@ local function runs_like_an_if_on_the_flag(input: string): boolean, string
     "local function g(ok: boolean): string\n  match f(ok, \"v\") do\n" .. table.concat(lines, "\n") ..
     "\n  end\n  return \"none\"\nend\nreturn g(true), g(false)\n"
   local function expect(flag: string): string
-    if has[flag] then -- checked: condition_type
+    if has[flag] == true then
       return flag:lower() .. "v"
-    elseif has["C"] then -- checked: condition_type
+    elseif has["C"] == true then
       return "cv"
     end
     return "none"

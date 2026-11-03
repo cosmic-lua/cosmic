@@ -151,7 +151,7 @@ local function safe_holds(input: string): boolean, string
   if out:find("\27", 1, true) then Fuzz.label("a sequence passed") end
   if out:find("\27[?", 1, true) then Fuzz.label("a mode passed") end
   if input:find("\27]", 1, true) then Fuzz.label("an osc") end
-  if input:find("\27[", 1, true) and #out < #input then Fuzz.label("a sequence dropped") end -- checked: condition_type
+  if input:find("\27[", 1, true) ~= nil and #out < #input then Fuzz.label("a sequence dropped") end
   if out:find("[\128-\255]") then Fuzz.label("utf-8 passed") end
   if out == "" then Fuzz.label("nothing passed") end
   return true, ""

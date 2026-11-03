@@ -161,7 +161,7 @@ local function test_every_call_outside_the_explicit_allowlist_is_refused()
       if number >= 0 then allowed[number] = true end
     end
     for number = 0, 1024 do
-      if not allowed[number] then -- checked: condition_type
+      if allowed[number] ~= true then
         assert(run(code, audit_of(architecture), number, { CONTROL, BASE, 16 }) == REFUSE,
           architecture .. " unexpectedly allowed syscall " .. tostring(number))
       end

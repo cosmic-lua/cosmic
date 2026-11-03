@@ -739,7 +739,7 @@ local function allowed(state: string, kind: string, attr: string, tail: string, 
   elseif state == "value_dq" or state == "value_sq" then
     if is_code(attr) then
       return false
-    elseif URL_ATTRS[attr] then -- checked: condition_type
+    elseif URL_ATTRS[attr] == true then
       return kind == "url" or kind == "part"
     end
     return kind == "attr" or ((kind == "url" or kind == "part") and attr == "archive")

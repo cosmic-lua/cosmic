@@ -199,7 +199,7 @@ local function holds_key_twice(compact: string?): boolean?
       if expecting then
         local keys = open[#open]
         local literal = compact:sub(i, j)
-        if keys[literal] then return true end -- checked: condition_type, nil_not_allowed
+        if keys[literal] == true then return true end -- checked: nil_not_allowed
         keys[literal] = true -- checked: nil_not_allowed
         expecting = false
       end
@@ -562,7 +562,7 @@ local function gen_object(src: Fuzz.Source, b: Built, depth: integer, path: stri
   local names: mut {string} = {}
   local spelling: mut {string: string} = {}
   local shape: Shape = { count = 0 }
-  local rate = if b.quiet and not large then 0 else Fuzz.pick(src, if large then { 0, 3, 4, 4 } else { 0, 2, 3, 4, 5 } end) end -- checked: condition_type
+  local rate = if b.quiet == true and not large then 0 else Fuzz.pick(src, if large then { 0, 3, 4, 4 } else { 0, 2, 3, 4, 5 } end) end
   local colliding = src:int(0, 3) == 0
   local count = 0
   while count < size or (not exact and Fuzz.more(src, count, most)) do
@@ -931,7 +931,7 @@ local function encode_holds(input: string): boolean, string
   local ok, text, err = pcall(Json.encode_any, value, opts)
   if not ok then return false, "raised: " .. tostring(text) end
   Fuzz.label(if text ~= nil then "encoded" else "refused" end)
-  if opts.ascii then -- checked: condition_type
+  if opts.ascii == true then
     -- `ascii` changes how a string is written, never whether the value
     -- encodes, and the text has no byte past 0x7f.
     local plain = Json.encode_any(value, { pretty = opts.pretty, max_depth = opts.max_depth })
@@ -946,7 +946,7 @@ local function encode_holds(input: string): boolean, string
   if text == nil then
     if not (err is string) or err == "" then return false, "a failure without a message" end
     -- A path too long to tell whole names its innermost part.
-    if err:find(" at ", 1, true) and not err:find(' at pointer "', 1, true) and -- checked: condition_type
+    if err:find(" at ", 1, true) ~= nil and not err:find(' at pointer "', 1, true) and
         not err:find(' at pointer ending "', 1, true) then
       return false, "a location that is not a pointer: " .. err
     end

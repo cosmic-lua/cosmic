@@ -22,7 +22,7 @@ end
 
 local function test_options_and_words_are_told_apart()
   local got = parsed({ "fix", "a.tl", "--check", "b.tl" })
-  assert(got.set["--check"] and #got.words == 2) -- checked: condition_type
+  assert(got.set["--check"] == true and #got.words == 2)
   assert(got.words[1] == "a.tl" and got.words[2] == "b.tl")
   assert(next(got.values) == nil)
 end
@@ -37,7 +37,7 @@ end
 
 local function test_a_double_dash_ends_the_options()
   local got = parsed({ "x", "--", "--check", "-" })
-  assert(not got.set["--check"] and #got.words == 2 and got.words[1] == "--check") -- checked: condition_type
+  assert(got.set["--check"] ~= true and #got.words == 2 and got.words[1] == "--check")
   assert(parsed({ "x", "-" }).words[1] == "-")
 end
 
@@ -64,7 +64,7 @@ local function test_reading_starts_at_the_slot_given()
   local got = parsed({ "x", "--check" })
   assert(got.set["--check"])
   local all = assert(Flags.parse({ "--check", "w" }, 1, spec))
-  assert(all.set["--check"] and all.words[1] == "w") -- checked: condition_type
+  assert(all.set["--check"] == true and all.words[1] == "w")
 end
 
 local function test_a_spec_names_only_options()
@@ -72,7 +72,7 @@ local function test_a_spec_names_only_options()
     assert(not pcall(Flags.parse, { "x" }, 1, { [key] = false }), key) -- checked: alternatives_as_value
   end
   local short = assert(Flags.parse({ "x", "-v", "-n", "3" }, 2, { ["-v"] = false, ["-n"] = true }))
-  assert(short.set["-v"] and short.values["-n"] == "3") -- checked: condition_type
+  assert(short.set["-v"] == true and short.values["-n"] == "3")
 end
 
 local function test_a_repeated_option_keeps_every_value_and_its_order()
@@ -88,10 +88,10 @@ local short: {string:boolean} = { ["-v"] = false, ["-q"] = false, ["-n"] = true 
 
 local function test_one_letter_options_cluster_and_take_the_rest_as_a_value()
   local got = assert(Flags.parse({ "-vq", "a" }, 1, short))
-  assert(got.set["-v"] and got.set["-q"] and got.words[1] == "a") -- checked: condition_type
+  assert(got.set["-v"] == true and got.set["-q"] == true and got.words[1] == "a")
   assert(assert(Flags.parse({ "-n3" }, 1, short)).values["-n"] == "3")
   got = assert(Flags.parse({ "-vn3", "a" }, 1, short))
-  assert(got.set["-v"] and got.values["-n"] == "3" and got.words[1] == "a") -- checked: condition_type
+  assert(got.set["-v"] == true and got.values["-n"] == "3" and got.words[1] == "a")
   got = assert(Flags.parse({ "-vn", "3", "a" }, 1, short))
   assert(got.values["-n"] == "3" and got.words[1] == "a")
   assert(assert(Flags.parse({ "-nvq" }, 1, short)).values["-n"] == "vq")
@@ -102,10 +102,10 @@ end
 local function test_a_spec_may_name_a_one_dash_option_whole()
   local whole: mut {string:boolean} = { ["-v"] = false, ["-verbose"] = false }
   local got = assert(Flags.parse({ "-verbose" }, 1, whole))
-  assert(got.set["-verbose"] and not got.set["-v"]) -- checked: condition_type*2
+  assert(got.set["-verbose"] == true and got.set["-v"] ~= true)
   whole["-e"] = false
   got = assert(Flags.parse({ "-ve" }, 1, whole))
-  assert(got.set["-v"] and got.set["-e"] and not got.set["-verbose"]) -- checked: condition_type*2
+  assert(got.set["-v"] == true and got.set["-e"] == true and got.set["-verbose"] ~= true)
   whole["-é"] = false
   assert(assert(Flags.parse({ "-é" }, 1, whole)).set["-é"])
   local _, why = Flags.parse({ "-vé" }, 1, whole)
@@ -153,7 +153,7 @@ local function test_a_spec_may_describe_its_options()
     ["--plain"] = true,
   }
   local got = assert(Flags.parse({ "-q", "--out", "o.txt", "--plain", "p" }, 1, described))
-  assert(got.set["-q"] and got.values["--out"] == "o.txt" and got.values["--plain"] == "p") -- checked: condition_type
+  assert(got.set["-q"] == true and got.values["--out"] == "o.txt" and got.values["--plain"] == "p")
   local _, why = Flags.parse({ "-q=1" }, 1, described)
   assert(why == "-q takes no value", why)
 end

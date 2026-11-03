@@ -60,7 +60,7 @@ end
 local function test_a_missing_database_resets_but_is_no_evidence(dir: string)
   local path = dir .. "/o/build.db"
   assert(Grader.reset_evidence(path))
-  assert(not Fs.exists(path)) -- checked: condition_type
+  assert(Fs.exists(path) ~= true)
   local evidence, trouble = Grader.evidence(path)
   assert(evidence == nil and trouble:find("no build database", 1, true) ~= nil, trouble)
 end
@@ -106,7 +106,7 @@ local function test_a_failed_build_does_not_run_an_earlier_binary(dir: string)
   assert(said:find("check: ok   " .. dir .. "/bin/cosmic test\n", 1, true), said)
   assert(said:find("check: FAIL " .. dir .. "/bin/cosmic build\n", 1, true), said)
   assert(said:find("skip " .. dir .. "/project/o/bin/notes: cosmic build failed", 1, true), said)
-  assert(not Fs.exists(dir .. "/empty"), "the earlier binary was run") -- checked: condition_type
+  assert(Fs.exists(dir .. "/empty") ~= true, "the earlier binary was run")
   assert(Fs.exists(dir .. "/project/o/bin/notes"), "the solver's binary was removed")
 end
 
@@ -125,7 +125,7 @@ local function test_a_build_that_did_not_write_notes_does_not_run_an_earlier_one
   assert(said:find("check: ok   " .. dir .. "/bin/cosmic build\n", 1, true), said)
   assert(said:find("check: FAIL cosmic build did not produce " .. dir .. "/project/o/bin/notes", 1, true),
     said)
-  assert(not Fs.exists(dir .. "/empty"), "the earlier binary was run") -- checked: condition_type
+  assert(Fs.exists(dir .. "/empty") ~= true, "the earlier binary was run")
 end
 
 --- The grader asks the arena's cosmic where it builds the project, and
@@ -177,7 +177,7 @@ local function test_a_failed_build_runs_no_binary_for_any_task(dir: string)
     assert(Fs.remove(dir .. "/project/o/bin/" .. name))
     assert(Fs.remove(dir .. "/project/o/bin/" .. name .. ".do"))
   end
-  assert(not Fs.exists(dir .. "/empty"), "a binary was run") -- checked: condition_type
+  assert(Fs.exists(dir .. "/empty") ~= true, "a binary was run")
 end
 
 local function test_an_unknown_task_is_a_usage_error()
@@ -249,7 +249,7 @@ local function test_a_project_with_a_journal_passes_that_check(dir: string)
   assert(said:find("check: ok   JOURNAL.md kept, as TASK.md's journal contract asks\n", 1, true), said)
   assert(said:find("check: ok   " .. dir .. "/bin/cosmic fix --check\n", 1, true), said)
   assert(Fs.read(dir .. "/project/JOURNAL.md") == "**Log**\n\n1. tried it\n")
-  assert(not Fs.exists(dir .. "/JOURNAL.md.aside")) -- checked: condition_type
+  assert(Fs.exists(dir .. "/JOURNAL.md.aside") ~= true)
 end
 
 --- A journal an earlier, killed grading left aside is put back before
@@ -350,11 +350,11 @@ local function test_a_hidden_test_runs_on_a_copy_and_reports_each_failure(dir: s
   local listed = assert(Fs.read(dir .. "/grades/1/check-5.out"))
   assert(listed:find("kv_api_test.tl\n", 1, true) and listed:find("kv.tl\n", 1, true), listed)
   assert(not listed:find("\no\n", 1, true) and not listed:match("^o\n"), listed)
-  assert(not Fs.exists(dir .. "/project/kv_api_test.tl"), "the hidden test reached the project") -- checked: condition_type
-  assert(not Fs.exists(dir .. "/project/leftover.txt"), "the copy's writes reached the project") -- checked: condition_type
+  assert(Fs.exists(dir .. "/project/kv_api_test.tl") ~= true, "the hidden test reached the project")
+  assert(Fs.exists(dir .. "/project/leftover.txt") ~= true, "the copy's writes reached the project")
   assert(Fs.read(dir .. "/project/o/marker") == "built\n")
   local copy = String.trim((assert(Fs.read(dir .. "/copy.txt"))))
-  assert(copy ~= dir .. "/project" and not Fs.exists(copy), "the copy is left at " .. copy) -- checked: condition_type
+  assert(copy ~= dir .. "/project" and Fs.exists(copy) ~= true, "the copy is left at " .. copy)
 end
 
 local function test_cosmic_test_steps_run_unsandboxed_whatever_the_caller_holds()
@@ -424,7 +424,7 @@ local function test_a_regrade_keeps_the_evidence_of_the_one_before(dir: string)
   assert(Grader.next_logs(dir) == dir .. "/grades/2")
   assert(Fs.read(dir .. "/grades/1/check-1.out") == "first\n")
   assert(Grader.next_logs(dir) == dir .. "/grades/3", "each call makes its directory")
-  assert(Fs.is_dir(dir .. "/grades/2") and Fs.is_dir(dir .. "/grades/3")) -- checked: condition_type
+  assert(Fs.is_dir(dir .. "/grades/2") == true and Fs.is_dir(dir .. "/grades/3") == true)
 end
 
 --- A grade's cosmic runs with its HOME and cache home inside the arena,

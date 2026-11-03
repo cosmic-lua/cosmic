@@ -78,9 +78,9 @@ local function test_another_user_or_group_is_refused_naming_what_differs()
     return Seatbelt.credentials_unmet(assert(Sandbox.merge(policy)), user, group)
   end
   local why = unmet({ user = 6, group = 7 }, 5, 7)
-  assert(why:find("^user 6:") and not why:find("group 7", 1, true) and not why:find("nil", 1, true), why) -- checked: condition_type
+  assert(why:find("^user 6:") ~= nil and not why:find("group 7", 1, true) and not why:find("nil", 1, true), why)
   why = unmet({ user = 5, group = 8 }, 5, 7)
-  assert(why:find("^group 8") and not why:find("user 5", 1, true) and not why:find("nil", 1, true), why) -- checked: condition_type
+  assert(why:find("^group 8") ~= nil and not why:find("user 5", 1, true) and not why:find("nil", 1, true), why)
   why = unmet({ user = 6, group = 8 }, 5, 7)
   assert(why:find("user 6, group 8", 1, true), why)
   assert(unmet({ user = 5, group = 7 }, 5, 7) == "" and unmet({}, 5, 7) == "")

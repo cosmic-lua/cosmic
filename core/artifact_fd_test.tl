@@ -166,7 +166,7 @@ local function test_every_descriptor_argument_refuses_the_artifact_descriptor()
     for _, call in ipairs(found.calls) do
       for at, parameter in ipairs(call.parameters) do
         if gen_syscalls.descriptor(parameter) and
-            not not_descriptors[call.name] then -- checked: condition_type
+            not_descriptors[call.name] ~= true then
           local case = cases[call.name]
           if case == nil then
             missing[#missing + 1] = call.name

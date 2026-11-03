@@ -110,7 +110,7 @@ local function write_fixture(case: string, files: {string:string}): string?, str
   end
   for filename, source in pairs(all) do
     local parent = filename:match("^(.+)/[^/]+$")
-    if parent and not Fs.mkdirs(root .. "/" .. parent) then -- checked: condition_type
+    if parent ~= nil and not Fs.mkdirs(root .. "/" .. parent) then
       return nil, root .. "/" .. parent .. ": could not create fixture directory"
     end
     local ok: boolean
@@ -1866,7 +1866,7 @@ local function test_the_compiler_modules_are_closed_under_require()
     assert(file ~= nil, name .. " is in the compiler's identity but is no module of the tree's")
     local source = assert(Fs.read(file))
     for _, required in ipairs(requires_of(source, file)) do
-      local ours = (required:match("^build%.") or required:match("^cosmic%.")) and -- checked: condition_type
+      local ours = (required:match("^build%.") ~= nil or required:match("^cosmic%.") ~= nil) and
         not required:match("^cosmic%.internal%.") and tree_file_of(required) ~= nil
       if ours and covered[required] ~= true then
         if name == "build.importer" and left_out[required] ~= nil then

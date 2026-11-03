@@ -75,7 +75,7 @@ local function test_closure_follows_requires_transitively(tmp: string)
   local stack: mut {string} = { "cosmic.json" }
   while #stack > 0 do
     local name = table.remove(stack)
-    if not expected[name] then -- checked: condition_type, nil_not_allowed
+    if expected[name] ~= true then -- checked: nil_not_allowed
       expected[name] = true -- checked: nil_not_allowed
       for _, required in ipairs((assert(Store.requires(name)))) do -- checked: nil_not_allowed
         stack[#stack + 1] = required

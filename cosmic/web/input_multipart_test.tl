@@ -75,7 +75,7 @@ local function post(body: string, fn: function(req: Web.Request): Web.Response, 
   end } }
   local raw: Server.Request = { method = "POST", target = "/x", path = "/x", query = "", version = "HTTP/1.1",
     headers = { host = "x", ["content-type"] = content_type or FORM_TYPE },
-    body = Stream.from_string(body), length = if not chunked then #body else nil end } -- checked: condition_type
+    body = Stream.from_string(body), length = if chunked ~= true then #body else nil end }
   return app.handle(raw)
 end
 

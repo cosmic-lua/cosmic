@@ -140,7 +140,7 @@ local function lookup(tmp: string, name: string, timeout_ms: integer,
                       serve: function(string, integer): Reply?,
                       guarded?: boolean): {string}, {string}
   local script = tmp .. "/resolve.tl"
-  assert(Fs.write(script, guarded and GUARDED or SCRIPT)) -- checked: condition_type
+  assert(Fs.write(script, if guarded == true then GUARDED else SCRIPT end))
   local server <close> = assert(Udp.bind("127.0.0.1", 0))
   local started = this_program.program({ "--standalone", script, name,
     tostring(server.address.port), tostring(timeout_ms) },
@@ -158,7 +158,7 @@ local function lookup(tmp: string, name: string, timeout_ms: integer,
         local asked, qtype, question_end = question(packet.data)
         assert(asked ~= nil, "a malformed query") -- checked: compare_disjoint
         seen[#seen + 1] = tostring(qtype) .. " " .. asked
-        if guarded and #seen == 1 then assert(child:stop(sys.SIGINT)) end -- checked: condition_type
+        if guarded == true and #seen == 1 then assert(child:stop(sys.SIGINT)) end
         local reply = serve(asked, qtype)
         if reply ~= nil then
           assert(Udp.send(server, response(packet.data, reply, question_end), packet.address))

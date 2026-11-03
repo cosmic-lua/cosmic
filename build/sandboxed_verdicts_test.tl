@@ -1161,6 +1161,6 @@ local function test_a_run_that_writes_no_store_checks_one(tmp: string)
   end
   assert(db:close())
   local checked = run(root, tmp .. "/checked.out", env, nil, true)
-  assert(checked:find("must follow from its address alone", 1, true) and -- checked: condition_type
-      checked:find("%.db has %x+") ~= nil and checked:find("test: %d+ of %d+ tests? failed"), checked)
+  assert(checked:find("must follow from its address alone", 1, true) ~= nil and
+      checked:find("%.db has %x+") ~= nil and checked:find("test: %d+ of %d+ tests? failed") ~= nil, checked)
 end

@@ -60,7 +60,7 @@ end
 
 local function test_without_development_mode_the_app_is_the_plain_one()
   local app = Dev.app({ routes = routes(), sink = quiet() }, { enabled = false })
-  assert(not app.spec.dev and not app.spec.debug) -- checked: condition_type*2
+  assert(app.spec.dev ~= true and app.spec.debug ~= true)
   Web.with_client(app, function(client: Web.TestClient)
     assert(get(client, "/").body == "<html><body><p>hi</p></body></html>")
     assert(get(client, "/_web/dev.js").status == 404)
@@ -72,7 +72,7 @@ end
 
 local function test_a_page_gets_the_script_before_its_last_body_end()
   local app = Dev.app({ routes = routes(), sink = quiet() }, { enabled = true })
-  assert(app.spec.dev and app.spec.debug) -- checked: condition_type
+  assert(app.spec.dev == true and app.spec.debug == true)
   Web.with_client(app, function(client: Web.TestClient)
     local page = get(client, "/")
     assert(page.body == "<html><body><p>hi</p>" .. TAG .. "</body></html>")
@@ -225,9 +225,9 @@ end
 
 local function test_the_plain_app_and_a_debug_app_are_left_to_the_caller()
   local app = Web.app{ routes = routes(), debug = true, sink = quiet() }
-  assert(not app.spec.dev) -- checked: condition_type
+  assert(app.spec.dev ~= true)
   local plain = Dev.app({ routes = routes(), sink = quiet() }, { enabled = false })
-  assert(not plain.spec.dev) -- checked: condition_type
+  assert(plain.spec.dev ~= true)
 end
 
 local function test_static_is_served_from_disk_and_never_cached_in_development(tmp: string)
