@@ -4,10 +4,17 @@
 --- answers as it does from the whole store, while it withholds the text of every other module.
 
 local Store = require("cosmic.store")
+local Test = require("cosmic.test")
 local standalone = require("build.standalone")
 -- The modules the snippets require, named as [`cosmic.test`] documents: by `local type`.
 local type _fs = require("cosmic.fs")
 local type _zip = require("cosmic.zip")
+
+-- The pure store is given to a sandboxed test alone: unsandboxed, the test reads the whole store and has nothing of
+-- this to check.
+Test.policy{
+  requires = { "sandbox" },
+}
 
 --- [`standalone.compile`] with its cache in the test's own directory.
 local function compile(tmp: string, source: string): standalone.Main?, string
