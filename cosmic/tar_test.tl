@@ -8,6 +8,7 @@
 local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
 local Stream = require("cosmic.stream")
+local String = require("cosmic.string")
 local Tar = require("cosmic.tar")
 
 local GNU_TAR_B64 <const> =
@@ -182,8 +183,8 @@ end
 
 local function recompute_checksum(block: string): string
   local sum = 256
-  for i = 1, 148 do sum = sum + block:byte(i) end -- checked: nil_not_allowed
-  for i = 157, 512 do sum = sum + block:byte(i) end -- checked: nil_not_allowed
+  for i = 1, 148 do sum = sum + String.byte_at(block, i) end
+  for i = 157, 512 do sum = sum + String.byte_at(block, i) end
   local checksum = string.format("%06o", sum) .. "\0 "
   return block:sub(1, 148) .. checksum .. block:sub(157)
 end
@@ -235,7 +236,7 @@ local function test_a_base256_mtime_at_either_end_of_the_integer_range_is_read()
   for _, n in ipairs({ math.maxinteger, math.mininteger }) do
     -- A positive value's first byte needs the marker bit set.
     local field = base256_field_12(n)
-    field = string.char(field:byte(1) | 0x80) .. field:sub(2) -- checked: nil_not_allowed
+    field = string.char(String.byte_at(field, 1) | 0x80) .. field:sub(2)
     local entry = assert(Tar.reader(Stream.from_string(with_field_12(137, field))):next())
     assert(entry.mtime == n, tostring(entry.mtime))
   end
@@ -354,9 +355,10 @@ local function pax_rec(key: string, value: string): string
   return tostring(len) .. rec
 end
 
-local function test_global_pax_headers_keep_only_the_keys_the_reader_uses()
-  -- Forty global headers, each naming a distinct 256 KiB key, would
-  -- stay in memory for the reader's lifetime if every key were kept.
+--- An archive of forty global pax headers, each naming a distinct
+--- 256 KiB key, then one file. The pieces it joins go out of scope on
+--- return, so only the reader holds the archive.
+local function global_pax_archive(): string
   local parts: mut {string} = {}
   local big = string.rep("v", 256 * 1024)
   for i = 1, 40 do
@@ -367,8 +369,13 @@ local function test_global_pax_headers_keep_only_the_keys_the_reader_uses()
   local mtime = pax_rec("mtime", "12345")
   table.insert(parts, header("PaxHeaders/g", "g", #sparse + #mtime) .. padded(sparse .. mtime))
   table.insert(parts, header("f", "0", 0) .. END)
-  local r = Tar.reader(Stream.from_string(table.concat(parts)))
-  parts = nil -- checked: nil_not_allowed
+  return table.concat(parts)
+end
+
+local function test_global_pax_headers_keep_only_the_keys_the_reader_uses()
+  -- Forty global headers, each naming a distinct 256 KiB key, would
+  -- stay in memory for the reader's lifetime if every key were kept.
+  local r = Tar.reader(Stream.from_string(global_pax_archive()))
   collectgarbage()
   local before = collectgarbage("count")
   local entry, trouble = r:next()
@@ -617,7 +624,7 @@ local function test_a_header_checksum_counts_unsigned_bytes_and_its_own_field_as
   local block = c:result():sub(1, 512)
   local expected = 8 * 32
   for i = 1, 512 do
-    if i < 149 or i > 156 then expected = expected + block:byte(i) end -- checked: nil_not_allowed
+    if i < 149 or i > 156 then expected = expected + String.byte_at(block, i) end
   end
   assert(expected > 20 * 255)
   assert(tonumber(block:sub(149, 154), 8) == expected, block:sub(149, 156))

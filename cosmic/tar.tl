@@ -413,8 +413,9 @@ end
 --- Keeps `trouble` as the reader's failure, or "tar: read failed" when
 --- it is "", and answers it.
 local function fail(self: EntryReader, trouble: string): nil, string
-  self.failed = if trouble ~= "" then trouble else "tar: read failed" end
-  return nil, self.failed -- checked: nil_not_allowed
+  local why = if trouble ~= "" then trouble else "tar: read failed" end
+  self.failed = why
+  return nil, why
 end
 
 --- What [`Tar.reader`] answers. Its entries' bodies share its state:
@@ -543,8 +544,9 @@ local class BodyReader is Stream.Reader -- declared: interface_disagrees
     if want > left then want = left end
     local chunk, rtrouble = state.src:read(want)
     if chunk == nil then
-      self.failed = if rtrouble ~= "" then rtrouble else "tar: truncated archive" end
-      return nil, self.failed -- checked: nil_not_allowed
+      local why = if rtrouble ~= "" then rtrouble else "tar: truncated archive" end
+      self.failed = why
+      return nil, why
     end
     self.left = left - #chunk
     state.pending_skip = state.pending_skip - #chunk

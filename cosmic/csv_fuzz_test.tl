@@ -443,13 +443,17 @@ local function test_each_row_is_at_the_line_its_record_was_written_on(tmp: strin
       end
       local starts: mut {integer} = { #Array.at(out, 1) + 1 }
       for at in text:gmatch("\n()") do starts[#starts + 1] = at end
+      local previous: integer? = nil
       for number, began in ipairs(made.lines) do
         if began ~= expected[number] then
           return false, "row " .. tostring(number) .. " at line " .. tostring(began) .. ", written at " .. tostring(Array.at(expected, number))
         end
-        if number > 1 and began <= made.lines[number - 1] then return false, "lines do not rise" end -- checked: nil_not_allowed
-        local first = written[number]
-        if text:sub(Array.at(starts, began), Array.at(starts, began) + #first - 1) ~= first then -- checked: nil_not_allowed
+        if previous ~= nil and began <= previous then return false, "lines do not rise" end
+        previous = began
+        -- `written` and `expected` grow together, and `#made.rows == #expected`.
+        local first = Array.at(written, number)
+        local start = Array.at(starts, began)
+        if text:sub(start, start + #first - 1) ~= first then
           return false, "line " .. tostring(began) .. " does not begin with row " .. tostring(number) .. "'s first field"
         end
       end
@@ -465,11 +469,12 @@ end
 --- buffer from a file.
 local function gen_load(src: Fuzz.Source): string
   local fields = Fuzz.unpack(gen_text(src))
-  local text = fields[2]
+  -- [`gen_text`] packs a delimiter, then the text.
+  local text = Array.at(fields, 2)
   if src:int(0, 3) == 0 then
-    text = "a\n" .. string.rep("b", src:int(1018, 1030)) .. "\n" .. text -- checked: nil_not_allowed
+    text = "a\n" .. string.rep("b", src:int(1018, 1030)) .. "\n" .. text
   end
-  return Fuzz.pack({ if src:int(0, 1) == 0 then "text" else "path" end, text, Array.at(fields, 1) }) -- checked: nil_not_allowed
+  return Fuzz.pack({ if src:int(0, 1) == 0 then "text" else "path" end, text, Array.at(fields, 1) })
 end
 
 --- What [`Csv.load`] copies with `raw` is what [`Csv.table`] reads, row for
@@ -487,17 +492,19 @@ local function test_load_reads_what_table_reads(tmp: string)
     gen = gen_load,
     check = function(input: string): boolean, string
       local fields = Fuzz.unpack(input)
-      local how, text = fields[1], fields[2]
+      -- [`gen_load`] packs the way, the text and the delimiter; an input kept
+      -- before inputs held a delimiter has the first two.
+      local how, text = Array.at(fields, 1), Array.at(fields, 2)
       -- An input kept before inputs held a delimiter reads with a comma.
       local delimiter = fields[3] or ","
       local source: Csv.Source = { raw = true, delimiter = delimiter }
       if how == "text" then
         source.text = text
       else
-        assert(Fs.write(path, text)) -- checked: nil_not_allowed
+        assert(Fs.write(path, text))
         source.path = path
       end
-      local made, refused = Csv.table(text, { delimiter = delimiter }) -- checked: nil_not_allowed
+      local made, refused = Csv.table(text, { delimiter = delimiter })
       local loaded, why = Csv.load(db, "loaded", source)
       local copied = loaded and loaded.count
       local cells: Sqlite.Rows = {}
@@ -507,7 +514,7 @@ local function test_load_reads_what_table_reads(tmp: string)
       local _, _ = db:exec("DROP TABLE IF EXISTS loaded")
       local temps = assert(Sqlite.text_rows(db, "SELECT count(*) FROM sqlite_temp_schema"))
       if Array.at(temps, 1):text(1) ~= "0" then return false, "load left its CSV table behind" end
-      if text:find("\0", 1, true) ~= nil then -- checked: nil_not_allowed
+      if text:find("\0", 1, true) ~= nil then
         Fuzz.label("a NUL")
         if copied ~= nil then
           return false, string.format("load read %q, which holds a NUL", text)

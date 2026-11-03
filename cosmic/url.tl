@@ -21,6 +21,8 @@
 --- Nothing here raises on its text: a failure answers `nil` and why,
 --- under the module's name.
 
+local String = require("cosmic.string")
+
 local record Url
   --- An absolute URL's parts, as [`Url.parse`] reads them. The scheme
   --- and host are lowercased; the user info, path, query and fragment
@@ -324,9 +326,9 @@ local function unescaped_byte(text: string): string
   if at == nil then
     return ""
   end
-  local byte = text:byte(at)
+  local byte = String.byte_at(text, at)
   local what = if byte == 32 then "a space" elseif byte == 0 then "a NUL" else
-    ("control byte 0x%02x"):format(byte) end -- checked: nil_not_allowed
+    ("control byte 0x%02x"):format(byte) end
   return ("url: the URL holds %s at byte %d; escape a path segment or query value with Url.escape"):
     format(what, at)
 end
@@ -384,15 +386,21 @@ local function read_host(parts: Url.Parts, text: string): boolean, string
   end
   local host, rest: string, string
   if text:sub(1, 1) == "[" then
-    host, rest = text:match("^%[([^%]]*)%](.*)$") -- checked: nil_not_allowed*2
-    if host == nil then -- checked: compare_disjoint
+    local inner, tail = text:match("^%[([^%]]*)%](.*)$")
+    if inner == nil or tail == nil then
       return bad("an IPv6 host is missing its closing ']'")
     end
+    host, rest = inner, tail
     if not is_ipv6(host) then
       return bad("the host in brackets is not an IPv6 address")
     end
   else
-    host, rest = text:match("^([^:]*)(.*)$") -- checked: nil_not_allowed*2
+    local colon = text:find(":", 1, true)
+    if colon == nil then
+      host, rest = text, ""
+    else
+      host, rest = text:sub(1, colon - 1), text:sub(colon)
+    end
     if rest:find(":", 2, true) then
       return bad("the host holds more than one ':'; an IPv6 address goes in brackets, as http://[::1]/")
     end
@@ -414,13 +422,23 @@ local function read_host(parts: Url.Parts, text: string): boolean, string
   if digits:find("%D") then
     return bad("the port holds a byte other than a digit")
   end
-  local value = digits:match("^0*(%d*)$")
+  local value = (digits:gsub("^0+", ""))
   local port = math.tointeger(tonumber(value)) or 0
-  if #value > 5 or port > 65535 then -- checked: nil_not_allowed
+  if #value > 5 or port > 65535 then
     return bad("the port is not a number from 0 to 65535")
   end
   parts.port = port
   return true, ""
+end
+
+--- The index of the last byte of `text` before its first match of the
+--- pattern `stop` at or after `from`; `#text` when there is none.
+local function last_before(text: string, stop: string, from: integer): integer
+  local found = text:find(stop, from)
+  if found == nil then
+    return #text
+  end
+  return found - 1
 end
 
 --- A URI reference's five parts (RFC 3986, appendix B): each nil where
@@ -555,25 +573,27 @@ function Url.parse(text: string): Url.Parts?, string
     return nil, unescaped
   end
   local _, scheme_end, scheme = text:find("^(%a[%w+.-]*)://")
-  if scheme == nil then
+  if scheme == nil or scheme_end == nil then
     return refuse("the URL does not start with a scheme and '://', as https://example.com/ does")
   end
-  local _, authority_end, authority = text:find("^([^/?#]*)", scheme_end + 1) -- checked: nil_not_allowed
-  local _, path_end, path = text:find("^([^?#]*)", authority_end + 1) -- checked: nil_not_allowed
-  local parts: Url.Parts = { scheme = scheme:lower(), host = "", path = path } -- checked: nil_not_allowed
+  local authority_end = last_before(text, "[/?#]", scheme_end + 1)
+  local authority = text:sub(scheme_end + 1, authority_end)
+  local path_end = last_before(text, "[?#]", authority_end + 1)
+  local path = text:sub(authority_end + 1, path_end)
+  local parts: Url.Parts = { scheme = scheme:lower(), host = "", path = path }
   local hostport = authority
-  local at = authority:find("@", 1, true) -- checked: nil_not_allowed
+  local at = authority:find("@", 1, true)
   if at ~= nil then
-    if authority:find("@", at + 1, true) then -- checked: nil_not_allowed
+    if authority:find("@", at + 1, true) then
       return refuse("the authority holds more than one '@'; escape the user info with Url.escape")
     end
-    parts.userinfo, hostport = authority:sub(1, at - 1), authority:sub(at + 1) -- checked: nil_not_allowed*2
+    parts.userinfo, hostport = authority:sub(1, at - 1), authority:sub(at + 1)
   end
-  local ok, why = read_host(parts, hostport) -- checked: nil_not_allowed
+  local ok, why = read_host(parts, hostport)
   if not ok then
     return nil, why
   end
-  local rest = text:sub(path_end + 1) -- checked: nil_not_allowed
+  local rest = text:sub(path_end + 1)
   local hash = rest:find("#", 1, true)
   if hash ~= nil then
     parts.fragment, rest = rest:sub(hash + 1), rest:sub(1, hash - 1)
