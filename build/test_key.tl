@@ -72,6 +72,8 @@ local worker = require("build.test_worker")
 local log = require("build.logger").log
 local bind = require("build.bind")
 local type State = require("build.test_state")
+-- Declares what text this module reads ([`build.code_walk`]'s `markers`): the stubs the sealed program's digest holds.
+local _ = require("build.reads.stubs")
 
 local record test_key
   --- What of the running binary a run holds of the code a worker runs,
