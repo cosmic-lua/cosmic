@@ -35,22 +35,12 @@ end
 --- The methods whose request may carry a body.
 local BODY_METHODS <const>: {string:boolean} = { POST = true, PUT = true, PATCH = true, DELETE = true }
 
---- Raises unless `t` is what [`Shape.record_of`] answers.
-local function need_typed(t: any, what: string)
-  local spec: any = nil -- checked: any_use
-  if t is {string:any} then spec = t["spec"] end -- checked: is_on_record
-  if not (spec is {string:any}) then -- checked: is_on_record
-    error(("web: %s takes the result of Shape.record_of"):format(what), 3)
-  end
-end
-
 --- A body slot for a JSON body: the Content-Type must be `application/json`
 --- (or `application/*+json`), and a failure answers a problem body by
 --- default.
 --- @param t Shape.Typed<B> The body's record and spec
 --- @return Types.Body<B> The slot
 function Typed.json_body<B>(t: Shape.Typed<B>): Types.Body<B>
-  need_typed(t, "json_body")
   return { kind = "json", typed = t }
 end
 
@@ -59,7 +49,6 @@ end
 --- @param t Shape.Typed<B> The body's record and spec
 --- @return Types.Body<B> The slot
 function Typed.form_body<B>(t: Shape.Typed<B>): Types.Body<B>
-  need_typed(t, "form_body")
   return { kind = "form", typed = t }
 end
 
@@ -81,7 +70,6 @@ end
 -- `record_of` field may name; until then a handler reads the files from
 -- `Input.multipart(req)`.
 function Typed.multipart_body<B>(t: Shape.Typed<B>): Types.Body<B>
-  need_typed(t, "multipart_body")
   return { kind = "multipart", typed = t }
 end
 
@@ -92,12 +80,6 @@ end
 --- @param body Types.Body<B> The body
 --- @return Types.Input<P,Q,B> The bundle
 function Typed.input<P,Q,B>(path: Shape.Typed<P>, query: Shape.Typed<Q>, body: Types.Body<B>): Types.Input<P,Q,B>
-  need_typed(path, "input's path")
-  need_typed(query, "input's query")
-  local slot: any = body -- checked: any_use
-  if not (slot is {string:any}) or slot["typed"] == nil then -- checked: is_on_record
-    error("web: input's body takes Web.json_body, Web.form_body, Web.multipart_body or Web.no_body", 2)
-  end
   return { path = path, query = query, body = body }
 end
 
@@ -182,7 +164,6 @@ end
 --- @return Types.Route The route
 function Typed.route_typed<P,Q,B>(methods: string | {string}, pattern: string, input: Types.Input<P,Q,B>,
                                   fn: function(Types.Request, P, Q, B): Types.Response, opts?: Types.RouteOptions): Types.Route
-  need_typed(input.path, "route_typed's path")
   local has_path = not rawequal(input.path, NONE)
   local has_query = not rawequal(input.query, NONE)
   local kind = input.body.kind

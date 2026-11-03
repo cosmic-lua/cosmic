@@ -489,11 +489,8 @@ end
 --- @param opts Session.Options The store and the cookie
 --- @return Types.Middleware The middleware
 function Session.middleware(opts: Session.Options): Types.Middleware
-  if type(opts) ~= "table" or opts.store == nil then -- checked: compare_disjoint
-    error("session: Session.middleware needs a store (SessionCookie.store or SessionSqlite.store)", 0)
-  end
   local max_age = opts.max_age or 14 * DAY
-  if math.type(max_age) ~= "integer" or max_age < 1 then
+  if max_age < 1 then
     error("session: max_age is a number of seconds, at least 1", 0)
   end
   local cookie: string

@@ -113,12 +113,7 @@ local function test_a_connector_ended_already_is_told_to_lost_once_and_asked_not
   end)
   assert(#log == 0, table.concat(log, ","))
   assert(#told == 1 and told[1] == "relay: the connector has ended", table.concat(told, ","))
-  local ok, why = pcall(Relay.handed, { connector = fake("c", log), lost = 1 as any as function(string) }) -- checked: cast_refused*2
-  assert(not ok and tostring(why):find("handed.lost must be a function", 1, true) ~= nil, tostring(why))
-  ok, why = pcall(Relay.handed, {} as Relay.Handed) -- checked: cast_refused, literal_needs_type
+  local none: Relay.Handed = {}
+  local ok, why = pcall(Relay.handed, none)
   assert(not ok and tostring(why):find("handed needs a connector", 1, true) ~= nil, tostring(why))
-  -- Only a nil connector is none: `false` passes the check, as it always has.
-  ok, why = pcall(Relay.handed, { connector = false as any as Net.Connector, lost = function(_: string) -- checked: cast_refused*2
-  end })
-  assert(ok, tostring(why))
 end

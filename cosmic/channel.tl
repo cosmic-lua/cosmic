@@ -232,14 +232,14 @@ function State.dropped<T>(self: State<T>): integer return self.drops end
 --- A new empty queue for the tasks of the running [`Poll.run`]; `T`
 --- comes from the declaration it is bound to
 --- (`local q: Channel.Queue<string> = Channel.new()`). It raises outside a
---- run (in [`Poll.notifier`]'s words), and for options it does not take.
+--- run (in [`Poll.notifier`]'s words), and for a capacity under 1.
 function Channel.new<T>(opts?: Channel.Options): Channel.Queue<T>
   local capacity = DEFAULT_CAPACITY
   local overflow: Channel.Overflow = "block"
   if opts ~= nil then
     local opts_capacity = opts.capacity
     if opts_capacity ~= nil then
-      if math.type(opts_capacity) ~= "integer" or opts_capacity < 1 then
+      if opts_capacity < 1 then
         error("channel: capacity must be an integer of at least 1", 2)
       end
       capacity = opts_capacity
@@ -247,10 +247,6 @@ function Channel.new<T>(opts?: Channel.Options): Channel.Queue<T>
     local opts_overflow = opts.overflow
     if opts_overflow ~= nil then
       overflow = opts_overflow
-      if overflow ~= "block" and overflow ~= "drop_oldest" and overflow ~= "drop_newest" and
-          overflow ~= "close" then
-        error("channel: overflow must be \"block\", \"drop_oldest\", \"drop_newest\" or \"close\"", 2)
-      end
     end
   end
   local queue: State<T> = {

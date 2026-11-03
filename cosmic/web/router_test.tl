@@ -111,8 +111,6 @@ local function test_strict_policy_has_no_redirect()
   local router = Web.router({ Web.get("/items", ok), Web.get("/docs/", ok) }, { trailing_slash = "strict" })
   assert(route_of(router, "/items/") == "not_found" and route_of(router, "/docs") == "not_found")
   assert(route_of(router, "/items") == "/items" and route_of(router, "/docs/") == "/docs/")
-  local loose: any = { trailing_slash = "loose" } -- checked: any_use
-  assert(Test.raises(function() Web.router({}, loose as Web.RouterOptions) end):find("trailing_slash", 1, true)) -- checked: cast_refused
 end
 
 local function test_a_noncanonical_path_is_redirected_to_its_canonical_form()

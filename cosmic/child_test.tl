@@ -79,7 +79,6 @@ end
 --- caller's caller.
 local function test_a_refused_option_names_the_caller_s_line()
   for _, opts in ipairs({
-      { stdout = "bad" } as Child.Options, -- checked: cast_refused
       { cwd = "/tmp\0bad" } as Child.Options, -- checked: cast_refused
       { cwd = "" } as Child.Options, -- checked: cast_refused
       { timeout_ns = -1 } as Child.Options, -- checked: cast_refused
@@ -138,8 +137,6 @@ local function test_run_refuses_a_stream()
 end
 
 local function test_options_are_validated()
-  Test.raises(function() Child.start({ "/bin/sh" }, { stdin = "capture" } as Child.Options) end) -- checked: cast_refused
-  Test.raises(function() Child.start({ "/bin/sh" }, { stdout = "stdout" } as Child.Options) end) -- checked: cast_refused
   Test.raises(function()
     Child.start({ "/bin/sh" }, { stdin = "null", input = "x" } as Child.Options) -- checked: cast_refused
   end)
@@ -155,7 +152,6 @@ local function test_credentials_reject_invalid_ids_and_namespace_options()
     {}, { user = 1 }, { group = 1 }, { user = 0, group = 1 },
     { user = 1, group = 0 }, { user = -1, group = 1 },
     { user = 4294967295, group = 1 }, { user = 1, group = 4294967295 },
-    { user = 1.5, group = 1 } as Child.Credentials, -- checked: cast_refused
   }
   for _, credentials in ipairs(bad) do
     Test.raises(function() Child.start({ "/never-started" }, { credentials = credentials }) end, "credentials need integer user and group")

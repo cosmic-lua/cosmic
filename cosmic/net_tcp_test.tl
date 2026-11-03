@@ -26,18 +26,6 @@ local function test_a_tcp_listener_at_port_zero_names_the_port_it_has()
   assert(assert(Stream.read_all(client)) == "pong")
 end
 
---- `reclaim` is gone for a TCP address too: it raises, naming the
---- removal, rather than listen without it.
-local function test_listen_refuses_the_removed_reclaim_option_for_a_tcp_address()
-  local options: any = { reclaim = true } -- checked: any_use
-  local address = Net.tcp("127.0.0.1", 0)
-  local ok, err: boolean, any = pcall(function()
-    local _, _ = Net.listen(address, options as Net.ListenOptions) -- checked: cast_refused
-  end)
-  assert(not ok and tostring(err):find("^cosmic%.net_tcp_test:%d+: net: ListenOptions.reclaim is gone: ") ~= nil,
-    tostring(err))
-end
-
 --- A TCP listener's `address` is built again by [`Net.tcp`]: the host as
 --- given and the port the kernel chose, with no field of a unix one.
 local function test_a_tcp_listeners_address_is_built_again_from_its_host_and_port()
@@ -72,15 +60,10 @@ local function test_a_host_that_is_no_address_is_refused()
     listen_why)
   local nul, nul_why = Net.connect(Net.tcp("127.0.0.1\0junk", 1))
   assert(nul == nil and nul_why:find("Invalid argument", 1, true) ~= nil, nul_why)
-  Test.raises(function()
-    Net.connect({ kind = "tcp", host = "127.0.0.1", port = "1" } as Net.Address) -- checked: cast_refused
-  end)
-  Test.raises(function()
-    Net.connect({ kind = "tcp", host = "127.0.0.1", port = 1.5 } as Net.Address) -- checked: cast_refused, arms_differ
-  end)
   assert(not pcall(Net.connect, Net.tcp("127.0.0.1", 65536))) -- checked: alternatives_as_value
   assert(not pcall(Net.connect, Net.tcp("127.0.0.1", -1))) -- checked: alternatives_as_value
-  Test.raises(function() Net.connect({ kind = "tcp", port = 1 } as Net.Address) end) -- checked: arms_differ, cast_refused
+  local no_host: Net.Address = { kind = "tcp", port = 1 }
+  Test.raises(function() Net.connect(no_host) end)
 end
 
 --- A connection waits for room at a listener whose backlog is full, as

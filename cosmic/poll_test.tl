@@ -867,7 +867,7 @@ local function test_waits_sharing_descriptors_come_and_go(tmp: string)
       for i = 1, count do
         local how = (i + round) % 3
         if how == 0 then
-          waiting[i][2]:cancel() -- checked: nil_not_allowed*2
+          Array.at(assert(waiting[i], "every wait of the round has its tasks recorded"), 2):cancel()
           at_once[#at_once + 1] = tostring(i) .. "r2 " .. Poll.CANCELLED
         elseif how == 1 then
           Poll.closing(Array.at(readers, i))
@@ -899,8 +899,10 @@ local function test_waits_sharing_descriptors_come_and_go(tmp: string)
       for i = 1, count do
         local how = (i + round) % 3
         local first = if how == 1 then sys.POLLNVAL else sys.POLLIN end
-        assert(answers[i][1] & first ~= 0 and answers[i][2] == 0, -- checked: nil_not_allowed*3
-          tostring(i) .. ": " .. answers[i][1] .. " " .. answers[i][2]) -- checked: nil_not_allowed*4
+        local pair = assert(answers[i], tostring(i) .. ": the ready wait recorded no answers")
+        local on_reader, on_writer = Array.at(pair, 1), Array.at(pair, 2)
+        assert(on_reader & first ~= 0 and on_writer == 0,
+          tostring(i) .. ": " .. tostring(on_reader) .. " " .. tostring(on_writer))
         if how ~= 1 then assert(sys.read(Array.at(readers, i), 16) == "x") end
       end
     end
@@ -1272,8 +1274,8 @@ local function test_a_queue_pattern_loses_no_item()
     local consumer = Poll.spawn(function()
       while #got < 3 do
         while #queue == 0 do assert(notifier:wait(Clock.seconds(30))) end
-        local appended = table.remove(queue, 1)
-        got[#got + 1] = appended -- checked: nil_not_allowed
+        local appended = assert(table.remove(queue, 1), "the wait above returns with an item queued")
+        got[#got + 1] = appended
       end
     end)
     -- Queued before the consumer first waits, and in a burst.
