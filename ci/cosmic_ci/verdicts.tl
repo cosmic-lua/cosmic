@@ -9,9 +9,13 @@
 --- (COSMIC_CI_CHECKED_SUITE; cosmic_ci/orchestration.tl's
 --- `suite_verdicts`).
 ---
---- A file bounds itself at 8192 rows and thirty days, some 3 KB a row
---- (the lines each test hit, deflated, most of it), and SQLite keeps
---- the pages its bound frees: 32 MB where it is full. A row is keyed by
+--- A file bounds itself at 32768 rows and thirty days, some 3.8 KB a
+--- row live (the lines each test hit, deflated, most of it), and SQLite
+--- keeps the pages its bound frees: 125 to 150 MB where it is full. A
+--- leg's file, trimmed to what its run used, is not: some 8600 rows on
+--- aarch64 and macOS, 12800 on alpine and 17000 on linux-x86_64 on a
+--- push to main, which runs the whole portable suite. Locally nothing
+--- trims but age and the bound (`cosmic cache trim verdicts PATH`). A row is keyed by
 --- everything its test was given, the harness and the runtime among
 --- them, which every change to build/ moves. So most of what a file
 --- holds is under keys no later run reaches, and a leg's save of both
