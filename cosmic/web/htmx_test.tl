@@ -185,7 +185,7 @@ local function test_selectors_swaps_and_events_are_checked()
   local refused: {Htmx.Reply} = {
     { retarget = "" }, { retarget = "#a\nb" }, { reselect = "#a\0b" }, { reswap = "sideways" },
     { reswap = "innerHTMLx" }, { reswap = "" },
-    { trigger = {} }, { trigger = { { name = "" } } }, { trigger = { { name = "a,b" } } }, -- checked: literal_needs_type
+    { trigger = {} }, { trigger = { { name = "" } } }, { trigger = { { name = "a,b" } } },
     { trigger = { { name = "a\"b" } } }, { trigger = { { name = "a\nb" } } },
     { trigger = { { name = "{\"a\":1}" } } }, { trigger = { { name = "caf\u{e9}" } } },
   }

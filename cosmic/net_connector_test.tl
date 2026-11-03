@@ -672,7 +672,7 @@ local function test_a_connectors_table_is_a_copy()
 end
 
 local function test_a_connector_refuses_what_a_host_cannot_confine_or_a_table_that_is_no_table()
-  local ok, why = pcall(Net.connector, {}) -- checked: literal_needs_type
+  local ok, why = pcall(Net.connector, {})
   assert(not ok and tostring(why):find("needs endpoints, opts.public, or both", 1, true) ~= nil, tostring(why))
   -- An empty table is public-only; it needs a host that confines the process.
   if ok == false then
@@ -687,12 +687,12 @@ local function test_a_connector_refuses_what_a_host_cannot_confine_or_a_table_th
   for port = 1, 129 do many[port] = { host = "127.0.0.1", port = port } end
   ok, why = pcall(Net.connector, many)
   assert(not ok and tostring(why):find("endpoints must be from 1 to 128", 1, true) ~= nil, tostring(why))
-  ok, why = pcall(Net.connector, { { host = "127.0.0.1", port = 65536 } }) -- checked: arms_differ
+  ok, why = pcall(Net.connector, { { host = "127.0.0.1", port = 65536 } })
   assert(not ok and tostring(why):find("endpoints[1]", 1, true) ~= nil, tostring(why))
-  ok, why = pcall(Net.connector, { { host = "127.0.0.1", port = 9 } }, { timeout_ns = 0 }) -- checked: arms_differ
+  ok, why = pcall(Net.connector, { { host = "127.0.0.1", port = 9 } }, { timeout_ns = 0 })
   assert(not ok and tostring(why):find("timeout_ns must be", 1, true) ~= nil, tostring(why))
   -- A host that is no numeric address raises, as the core's does.
-  ok, why = pcall(Net.connector, { { host = "localhost", port = 80 } }) -- checked: arms_differ
+  ok, why = pcall(Net.connector, { { host = "localhost", port = 80 } })
   assert(not ok, "a name is no endpoint")
   -- Where the connector cannot be confined it says so, whatever the table.
   local result, trouble = Connector.start({ { host = "127.0.0.1", port = 80 } }, 1000)
