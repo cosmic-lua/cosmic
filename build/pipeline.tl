@@ -305,6 +305,11 @@ local function withheld_or_absent(module: string): string?
     error(trouble, 0)
   end
   if withheld ~= nil then
+    -- A standard-library module is served from its stub, which a test keeps by naming the module.
+    if module:sub(1, 7) == "cosmic." then
+      error(withheld .. "; or, to type a snippet that requires it, a test names it with `local type _ = require(\"" ..
+          module .. "\")` at its top level", 0)
+    end
     error(withheld, 0)
   end
   return nil

@@ -148,11 +148,14 @@ local function test_a_pure_store_holds_no_text(tmp: string)
 end
 
 --- A project of a test, `greet_test`, that requires `greet` and `other`, `greet` requiring `leaf`, and
---- the projection of it at `out`, in which `greet` has a stub, as a module of the standard library does.
---- `edited` names the comment at the head of each module it keys.
-local function texted(root: string, out: string, edited: {string:string})
+--- the projection of it at `out`, in which each module has a stub, as a module of the standard library does.
+--- `edited` names the comment at the head of a module's source, `declared` the type its stub declares for its function (a stub
+--- is the module's declared types, with no comment; the source is as it was, so the bytecode is).
+local function texted(root: string, out: string, edited: {string:string}, declared: {string:string})
   assert(Fs.mkdirs(root))
+  local stubs: mut {string:string} = {}
   local function module(name: string, requires: string)
+    local result_type = declared[name] or "string"
     assert(Fs.write(root .. "/" .. name .. ".tl", table.concat({
       edited[name] or "",
       "local record " .. name,
@@ -164,6 +167,14 @@ local function texted(root: string, out: string, edited: {string:string})
       "return " .. name,
       "",
     }, "\n")))
+    stubs[name] = table.concat({
+      requires,
+      "local record " .. name,
+      "  value: function(): " .. result_type,
+      "end",
+      "return " .. name,
+      "",
+    }, "\n")
   end
   module("leaf", "")
   module("greet", 'local _leaf = require("leaf")')
@@ -182,16 +193,21 @@ local function texted(root: string, out: string, edited: {string:string})
   assert(writer.write_result(handle, out, result))
   assert(work.close(handle))
   local whole = assert(Sqlite.open(out, { writable = true }))
-  assert(Sqlite.run(whole, "INSERT OR REPLACE INTO stubs (path, source) SELECT 'greet', deflate(source) FROM modules WHERE path = 'greet'"))
+  for name, stub in pairs(stubs) do
+    assert(Sqlite.run(whole, "INSERT OR REPLACE INTO stubs (path, source) VALUES (?1, deflate(?2))",
+      { { text = name }, { text = stub } }))
+  end
   assert(whole:close())
 end
 
 local texted_names <const> = { "greet", "greet_test", "leaf", "other" }
 
 --- The pure address and the pure store's path for `texted_names` of the project at `root` with `edited`
---- comments, where the test names `kept` as it would the modules of the standard library it type-checks.
-local function texted_store(root: string, tmp: string, name: string, edited: {string:string}, kept: {string}): string, string
-  texted(root, tmp .. "/" .. name .. ".whole.db", edited)
+--- comments and `declared` types, where the test names `kept` as it would the modules of the standard library it
+--- type-checks.
+local function texted_store(root: string, tmp: string, name: string, edited: {string:string},
+                            declared: {string:string}, kept: {string}): string, string
+  texted(root, tmp .. "/" .. name .. ".whole.db", edited, declared)
   local basis = assert(closure_store.basis(tmp .. "/" .. name .. ".whole.db", true))
   -- What the test names with `local type` is a standard-library module's, which the project here has none of.
   basis.type_requires["greet_test"] = kept
@@ -199,54 +215,58 @@ local function texted_store(root: string, tmp: string, name: string, edited: {st
   return closure_store.address(basis, texted_names, "salt", "greet_test"), tmp .. "/" .. name .. ".db"
 end
 
---- The pure store keeps the source, source hash and stub of a module its test requires, and of those it
---- requires that the checker follows to type it, and nothing of the others.
-local function test_a_pure_store_keeps_the_text_of_the_modules_its_test_requires(tmp: string)
-  local _, path = texted_store(tmp .. "/a", tmp, "kept", {}, { "greet" })
+--- The pure store keeps the stub of a module its test names, and of those that stub requires, and no source,
+--- source hash or other text of any module.
+local function test_a_pure_store_keeps_the_stubs_of_the_modules_its_test_names(tmp: string)
+  local _, path = texted_store(tmp .. "/a", tmp, "kept", {}, {}, { "greet" })
   local db = assert(Sqlite.open(path))
-  local function sourced(): string
-    local rows = assert(Sqlite.text_rows(db,
-      "SELECT group_concat(path, ' ') FROM (SELECT path FROM modules WHERE length(source) > 0 AND length(source_hash) > 0 ORDER BY path)"))
-    return support.nth(rows, 1):text(1)
+  local function count(query: string): string
+    return support.nth(assert(Sqlite.text_rows(db, query)), 1):text(1)
   end
-  assert(sourced() == "greet leaf", "the text kept was " .. sourced())
-  local stubs = assert(Sqlite.text_rows(db, "SELECT group_concat(path, ' ') FROM stubs"))
-  assert(support.nth(stubs, 1):text(1) == "greet")
+  assert(count("SELECT group_concat(path, ' ') FROM (SELECT path FROM stubs ORDER BY path)") == "greet leaf",
+    "the stubs kept were not the named module's and the one it requires")
+  assert(count("SELECT count(*) FROM modules WHERE length(source) > 0 OR length(source_hash) > 0") == "0",
+    "the pure store holds a module's source")
   for _, table_name in ipairs({ "docs", "uses", "links", "examples", "catalog", "places" }) do
-    local rows = assert(Sqlite.text_rows(db, "SELECT count(*) FROM " .. table_name))
-    assert(support.nth(rows, 1):text(1) == "0", table_name .. " holds rows in the pure store")
+    assert(count("SELECT count(*) FROM " .. table_name) == "0", table_name .. " holds rows in the pure store")
   end
   assert(db:close())
-  local _, bare = texted_store(tmp .. "/b", tmp, "bare", {}, {})
+  local _, bare = texted_store(tmp .. "/b", tmp, "bare", {}, {}, {})
   local none = assert(Sqlite.open(bare))
-  local rows = assert(Sqlite.text_rows(none, "SELECT count(*) FROM modules WHERE length(source) > 0"))
-  assert(support.nth(rows, 1):text(1) == "0", "a test that requires no module of the standard library kept text")
+  local rows = assert(Sqlite.text_rows(none, "SELECT count(*) FROM stubs"))
+  assert(support.nth(rows, 1):text(1) == "0", "a test that names no module kept a stub")
   assert(none:close())
 end
 
---- A comment in a module whose text the store keeps moves its address and its bytes; one in a module the
---- test imports and the checker does not follow from those leaves both as they were.
-local function test_a_pure_store_moves_with_a_comment_in_a_kept_module_and_not_in_another(tmp: string)
-  local address, path = texted_store(tmp .. "/a", tmp, "first", {}, { "greet" })
+--- The key follows the kept stubs: a change to a kept module's declared types moves the address and the bytes,
+--- as does one to a module its stub requires; a comment in a kept module, which its stub drops, a change to
+--- a module the test imports and no kept stub requires, and a change to a stub of a store that names none,
+--- leave both as they were.
+local function test_a_pure_store_moves_with_the_declared_types_of_a_kept_module_and_not_with_others(tmp: string)
+  local address, path = texted_store(tmp .. "/a", tmp, "first", {}, {}, { "greet" })
   local bytes = assert(Fs.read(path))
-  local other, other_path = texted_store(tmp .. "/b", tmp, "other", { other = "-- noted" }, { "greet" })
-  assert(other == address, "a comment in an imported module the checker does not follow moved the pure address")
-  assert(assert(Fs.read(other_path)) == bytes, "a comment in an imported module the checker does not follow moved the pure store")
-  local kept, kept_path = texted_store(tmp .. "/c", tmp, "kept", { greet = "-- noted" }, { "greet" })
-  assert(kept ~= address, "a comment in a kept module did not move the pure address")
-  assert(assert(Fs.read(kept_path)) ~= bytes, "a comment in a kept module did not move the pure store")
-  local followed, followed_path = texted_store(tmp .. "/d", tmp, "followed", { leaf = "-- noted" }, { "greet" })
-  assert(followed ~= address, "a comment in a module a kept module requires did not move the pure address")
+  local noted, noted_path = texted_store(tmp .. "/b", tmp, "noted", { greet = "-- noted\n\n-- again" }, {}, { "greet" })
+  assert(noted == address, "a comment in a kept module, which its stub drops, moved the pure address")
+  assert(assert(Fs.read(noted_path)) == bytes, "a comment in a kept module moved the pure store")
+  local other, other_path = texted_store(tmp .. "/c", tmp, "other", {}, { other = "integer" }, { "greet" })
+  assert(other == address and assert(Fs.read(other_path)) == bytes,
+    "a change to an imported module no kept stub requires moved the pure store")
+  local changed, changed_path = texted_store(tmp .. "/d", tmp, "changed", {}, { greet = "integer" }, { "greet" })
+  assert(changed ~= address, "a change to a kept module's declared types did not move the pure address")
+  assert(assert(Fs.read(changed_path)) ~= bytes, "a change to a kept module's declared types did not move the pure store")
+  local followed, followed_path = texted_store(tmp .. "/e", tmp, "followed", {}, { leaf = "integer" }, { "greet" })
+  assert(followed ~= address, "a change to a module a kept stub requires did not move the pure address")
   assert(assert(Fs.read(followed_path)) ~= bytes)
-  -- Naming no module keeps none, so the same comment moves nothing.
-  local bare, _ = texted_store(tmp .. "/e", tmp, "bare", {}, {})
-  local bare_noted, _ = texted_store(tmp .. "/f", tmp, "bare_noted", { greet = "-- noted" }, {})
-  assert(bare_noted == bare, "a comment moved the address of a store that keeps no text")
+  -- Naming no module keeps no stub, so the same change moves nothing but the bytecode it changes.
+  local bare_from, bare_from_path = texted_store(tmp .. "/f", tmp, "bare_from", {}, {}, {})
+  assert(bare_from ~= address, "the stubs kept moved nothing, so this shows nothing")
+  local bare_noted = texted_store(tmp .. "/g", tmp, "bare_noted", { greet = "-- noted" }, {}, {})
+  assert(bare_noted == bare_from and assert(Fs.read(tmp .. "/bare_noted.db")) == assert(Fs.read(bare_from_path)))
 end
 
 --- A test names the standard-library modules a snippet it type-checks requires with a top-level
---- `local type _ = require(...)`; a `require` it runs by value, one a comment or a snippet spells, and one of
---- another module of the tree are none of them.
+--- `local type _ = require(...)`, a `<const>` after the name allowed; a `require` it runs by value, a statement
+--- in a comment or a long string, which a snippet it checks is, and one of another module of the tree are none of them.
 local function test_the_modules_a_test_names_for_its_snippets_are_its_top_level_local_type_requires(tmp: string)
   assert(Fs.mkdirs(tmp .. "/a"))
   assert(Fs.write(tmp .. "/a/greet.tl", "local record greet\nend\nreturn greet\n"))
@@ -254,12 +274,18 @@ local function test_the_modules_a_test_names_for_its_snippets_are_its_top_level_
     '-- local type _comment = require("cosmic.json")',
     'local Fs = require("cosmic.fs")',
     'local type _zip = require("cosmic.zip")',
-    "local type _tar = require('cosmic.tar')",
+    "local type _tar <const> = require('cosmic.tar')",
     'local type _ours = require("greet")',
+    '-- local type _hidden = require("cosmic.http")',
     "local function test_x()",
     "  local used = Fs.stdout",
-    '  local snippet = [[local type _s = require("cosmic.stream")]]',
-    "  assert(used >= 0 and snippet ~= \"\")",
+    "  local snippet = [[",
+    'local type _s = require("cosmic.stream")',
+    "]]",
+    "  local second = [=[",
+    'local type _t = require("cosmic.clock")',
+    "]=]",
+    '  assert(used >= 0 and snippet ~= second)',
     "end",
     "",
   }, "\n")))
@@ -269,6 +295,6 @@ local function test_the_modules_a_test_names_for_its_snippets_are_its_top_level_
   assert(writer.write_result(handle, tmp .. "/whole.db", result))
   assert(work.close(handle))
   local basis = assert(closure_store.basis(tmp .. "/whole.db", true))
-  assert(table.concat(basis.type_requires["greet_test"] or {}, " ") == "cosmic.zip cosmic.tar",
-    table.concat(basis.type_requires["greet_test"] or {}, " "))
+  local named = table.concat(basis.type_requires["greet_test"] or {}, " ")
+  assert(named == "cosmic.zip cosmic.tar", named)
 end
