@@ -341,10 +341,10 @@ local function test_a_post_body_outlives_the_options_that_held_it()
   -- the far end have to be the ones given. The reply leaves the
   -- connection open, or curl would stop sending once it was read.
   local size = 8 * 1024 * 1024
-  local opts: Http.Options = { method = "POST", body = string.rep("A", size),
+  local opts: Http.Options? = { method = "POST", body = string.rep("A", size),
     headers = { Expect = "" }, script = { "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok" } }
   local response = assert(Http.open(url, opts))
-  opts = nil -- checked: nil_not_allowed
+  opts = nil
   collectgarbage()
   collectgarbage()
   local churn: mut {string} = {}

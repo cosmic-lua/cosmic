@@ -2,11 +2,13 @@
 --- carries, apart from cosmic/http_test.tl's so those stand while the
 --- tree moves.
 
+local Array = require("cosmic.array")
 local Codec = require("cosmic.codec")
 local Hash = require("cosmic.hash")
 local Http = require("cosmic.http")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
+local String = require("cosmic.string")
 local Test = require("cosmic.test")
 
 --- `store`: the carried roots are read through [`Store.databases()`].
@@ -30,7 +32,8 @@ end
 --- A root the binary's own database carries (`ca_roots`), as DER.
 local function carried_root(label: string): string
   local databases = Store.databases()
-  local rows = assert(Sqlite.text_rows(databases[#databases], -- checked: index_may_be_nil
+  -- The binary carries at least one database; the newest is last.
+  local rows = assert(Sqlite.text_rows(Array.at(databases, #databases),
     "SELECT hex(der) FROM ca_roots WHERE label = ?1", { { text = label } }))
   assert(#rows == 1, label .. " is not among the binary's CA roots")
   return (assert(Codec.unhex(rows[1]:text(1))))
@@ -47,7 +50,7 @@ local function test_an_https_peer_is_verified_against_the_carried_roots()
   assert(trusted:find("Common Name", 1, true), trusted)
   assert(not trusted:find("not correctly signed", 1, true),
     "a carried root is not trusted: " .. trusted)
-  local broken = root:sub(1, -2) .. string.char(root:byte(-1) ~ 1) -- checked: nil_not_allowed
+  local broken = root:sub(1, -2) .. string.char(String.byte_at(root, #root) ~ 1)
   local _, refused = Http.open("https://cosmic.test/", { script = { first_flight(broken) }, roots = "mozilla" })
   assert(refused:find("not correctly signed by the trusted CA", 1, true), refused)
   -- Trusting every root the binary carries, the carried roots may be what
@@ -65,7 +68,7 @@ end
 --- and say why.
 local function test_check_certificate_reads_what_the_binary_trusts()
   local databases = Store.databases()
-  local roots = assert(Sqlite.rows(databases[#databases], "SELECT der, label FROM ca_roots")) -- checked: index_may_be_nil
+  local roots = assert(Sqlite.rows(Array.at(databases, #databases), "SELECT der, label FROM ca_roots"))
   assert(#roots > 0)
   for _, row in ipairs(roots) do
     local ok, why = Http.check_certificate(row:blob(1))

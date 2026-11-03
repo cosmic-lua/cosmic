@@ -62,23 +62,37 @@ local function pids(listing: string): {integer}
   local found: mut {integer} = {}
   for line in listing:gmatch("[^\n]+") do
     local number = tonumber(line)
-    if number ~= nil then found[#found + 1] = math.tointeger(number) end -- checked: nil_not_allowed
+    local whole = if number ~= nil then math.tointeger(number) else nil end
+    if whole ~= nil then found[#found + 1] = whole end
   end
   return found
 end
 
---- The mount at `point` in a /proc/self/mountinfo `text`: its options, its
---- file system's type and that file system's own options, or nil.
-local function mount_at(text: string, point: string): {string}?
+--- A mount of /proc/self/mountinfo.
+local record Mount
+  --- The mount's options.
+  options: string
+  --- Its file system's type.
+  fstype: string
+  --- Its file system's own options.
+  super: string
+end
+
+--- The mount at `point` in a /proc/self/mountinfo `text`, or nil.
+local function mount_at(text: string, point: string): Mount?
   for line in text:gmatch("[^\n]+") do
     local left, right = line:match("^(.-) %- (.*)$")
-    if left ~= nil then
+    if left ~= nil and right ~= nil then
       local fields: mut {string} = {}
       for word in left:gmatch("%S+") do fields[#fields + 1] = word end
       if fields[5] == point then
         local rest: mut {string} = {}
-        for word in right:gmatch("%S+") do rest[#rest + 1] = word end -- checked: nil_not_allowed
-        return { fields[6], rest[1], rest[3] } -- checked: index_may_be_nil*3
+        for word in right:gmatch("%S+") do rest[#rest + 1] = word end
+        -- A mountinfo line names its options, fstype and super options.
+        local options = assert(fields[6], "a mountinfo line names its options")
+        local fstype = assert(rest[1], "a mountinfo line names its fstype")
+        local super = assert(rest[3], "a mountinfo line names its super options")
+        return { options = options, fstype = fstype, super = super }
       end
     end
   end
@@ -185,7 +199,7 @@ local function test_a_writable_grant_is_mounted_noexec_unless_it_is_granted_x(tm
     local real = assert(sys.realpath(tmp .. "/" .. name))
     local held = mount_at(mounts.said, real)
     assert(held ~= nil, name .. " is not mounted: " .. mounts.said)
-    return held[1] -- checked: index_may_be_nil
+    return held.options
   end
   assert(options("grwc"):find("noexec", 1, true) and options("grwc"):find("rw", 1, true))
   assert(not options("grwcx"):find("noexec", 1, true), options("grwcx"))
@@ -204,8 +218,8 @@ local function test_tmp_under_isolate_file_is_a_tmpfs_of_the_sandboxs_own(tmp: s
   local mounts = ChildPolicy.under(at.probe, policy, at.work, "cat /proc/self/mountinfo")
   local held = mount_at(mounts.said, "/tmp")
   assert(held ~= nil, mounts.said)
-  assert(held[2] == "tmpfs" and held[1]:find("noexec", 1, true) ~= nil, held[1]) -- checked: nil_not_allowed
-  assert(held[3]:find("size=262144k", 1, true), held[3]) -- checked: nil_not_allowed
+  assert(held.fstype == "tmpfs" and held.options:find("noexec", 1, true) ~= nil, held.options)
+  assert(held.super:find("size=262144k", 1, true), held.super)
   local used = ChildPolicy.under(at.probe, policy, at.work,
     "env-of TMPDIR && create /tmp/n x && cat /tmp/n && ls /tmp")
   assert(used.code == 0 and used.said:find("^TMPDIR=/tmp\nx\n") ~= nil and used.said:find("\nn\n") ~= nil,
@@ -232,7 +246,7 @@ local function test_a_grant_of_tmp_with_x_makes_the_sandboxs_own_tmp_executable(
     promises = { "fattr", "fork" }, grants = ChildPolicy.with(at.grants, { path = "/tmp", letters = "rwxc" }) }
   local mounts = ChildPolicy.under(at.probe, run_here, at.work, "cat /proc/self/mountinfo")
   local held = mount_at(mounts.said, "/tmp")
-  assert(held ~= nil and held[2] == "tmpfs" and not held[1]:find("noexec", 1, true), mounts.said) -- checked: nil_not_allowed
+  assert(held ~= nil and held.fstype == "tmpfs" and not held.options:find("noexec", 1, true), mounts.said)
   local ran = ChildPolicy.under(at.probe, run_here, at.work, script)
   assert(ran.code == 0 and ran.said:find("^TMPDIR=/tmp/mine\n") ~= nil, ran.said)
   -- A TMPDIR outside /tmp is /tmp, as it was.

@@ -273,9 +273,13 @@ local function option_lines(spec: {string:boolean | Flags.Option}): {string}
     if bare_a ~= bare_b then return bare_a < bare_b end
     return a < b
   end)
-  local heads: mut {string} = {}
+  local record Head
+    name: string
+    text: string
+  end
+  local heads: mut {Head} = {}
   local width = 0
-  for index, name in ipairs(names) do
+  for _, name in ipairs(names) do
     local entry = spec[name]
     local head = name
     local value = if entry is Flags.Option then entry.value else nil end -- checked: is_on_record
@@ -284,21 +288,21 @@ local function option_lines(spec: {string:boolean | Flags.Option}): {string}
     elseif entry == true then
       head = name .. " <value>"
     end
-    heads[index] = head
+    heads[#heads + 1] = { name = name, text = head }
     if columns(head) > width then width = columns(head) end
   end
   local lines: mut {string} = {}
-  for index, name in ipairs(names) do
-    local entry = spec[name]
+  for _, head in ipairs(heads) do
+    local entry = spec[head.name]
     local about = if entry is Flags.Option then entry.about else nil end -- checked: is_on_record
     if entry ~= nil and is_required(entry) then
       about = if about ~= nil and about ~= "" then about .. " (required)" else "(required)" end
     end
     if about ~= nil and about ~= "" then
-      lines[#lines + 1] = "  " .. heads[index] .. string.rep(" ", width - columns(heads[index])) .. -- checked: index_may_be_nil, nil_not_allowed
+      lines[#lines + 1] = "  " .. head.text .. string.rep(" ", width - columns(head.text)) ..
         "  " .. about
     else
-      lines[#lines + 1] = "  " .. heads[index] -- checked: nil_not_allowed
+      lines[#lines + 1] = "  " .. head.text
     end
   end
   return lines
@@ -354,13 +358,17 @@ end
 
 --- The help of `program` as a whole: its commands, each with its about.
 local function commands_help(program: string, commands: {string:Flags.Command}): string
-  local names: mut {string} = {}
+  local record Row
+    name: string
+    about: string?
+  end
+  local rows: mut {Row} = {}
   local width = 0
-  for name in pairs(commands) do
-    names[#names + 1] = name
+  for name, command in pairs(commands) do
+    rows[#rows + 1] = { name = name, about = command.about }
     if columns(name) > width then width = columns(name) end
   end
-  table.sort(names)
+  table.sort(rows, function(a: Row, b: Row): boolean return a.name < b.name end)
   local any_options = false
   for _, command in pairs(commands) do
     local spec = command.spec
@@ -368,8 +376,8 @@ local function commands_help(program: string, commands: {string:Flags.Command}):
   end
   local usage = "usage: " .. program .. " <command>" .. (if any_options then " [options]" else "" end)
   local lines: mut {string} = { usage, "", "commands:" }
-  for _, name in ipairs(names) do
-    local about = commands[name].about -- checked: nil_not_allowed
+  for _, row in ipairs(rows) do
+    local name, about = row.name, row.about
     if about ~= nil and about ~= "" then
       lines[#lines + 1] = "  " .. name .. string.rep(" ", width - columns(name)) .. "  " .. about
     else
@@ -455,10 +463,12 @@ function Flags.dispatch(argv: {string}, from: integer,
     end
     if asked == nil then
       return { code = 0, help = commands_help(program, commands) }, ""
-    elseif commands[asked] == nil then
+    end
+    local asked_command = commands[asked]
+    if asked_command == nil then
       return nil, "no such command: " .. asked
     end
-    return { code = 0, help = Flags.help(commands[asked], program .. " " .. asked) }, "" -- checked: index_may_be_nil
+    return { code = 0, help = Flags.help(asked_command, program .. " " .. asked) }, ""
   end
   if name == nil then
     local names: mut {string} = {}
