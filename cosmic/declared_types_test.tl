@@ -194,10 +194,10 @@ end
 local function test_a_template_that_starts_with_blank_text_answers_what_it_declares()
   honest("template", function()
     local _, _ = Template.compile("{{type T from m.t}}\n{{mode html}}\nhello", "t.tmpl")
-    _, _ = Template.compile("\n{{type T from m.t}}\nhello", "t.tmpl") -- checked: nil_not_allowed
-    _, _ = Template.compile("hello", "t.tmpl") -- checked: nil_not_allowed
-    _, _ = Template.compile("{{type T from m.t}}", "t.tmpl") -- checked: nil_not_allowed
-    _, _ = Template.compile("", "t.tmpl") -- checked: nil_not_allowed
+    local _, _ = Template.compile("\n{{type T from m.t}}\nhello", "t.tmpl")
+    local _, _ = Template.compile("hello", "t.tmpl")
+    local _, _ = Template.compile("{{type T from m.t}}", "t.tmpl")
+    local _, _ = Template.compile("", "t.tmpl")
   end)
 end
 

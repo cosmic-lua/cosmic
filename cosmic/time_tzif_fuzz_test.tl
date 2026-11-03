@@ -8,6 +8,7 @@
 --- and arbitrary bytes. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs
 --- (build/fuzz/init.tl).
 
+local Array = require("cosmic.array")
 local Fuzz = require("build.fuzz")
 local Store = require("cosmic.store")
 local Clock = require("cosmic.clock")
@@ -76,9 +77,12 @@ local function write(version: string, times: {integer}, indices: {integer}, type
     for i = 1, count do
       parts[#parts + 1] = string.pack(if wide then ">i8" else ">i4" end, times[i])
     end
-    for i = 1, count do parts[#parts + 1] = string.char(indices[i] - 1) end -- checked: nil_not_allowed
+    -- `draw` appends to `times` and `indices` together, and `count` is
+    -- at most `#times`.
+    for i = 1, count do parts[#parts + 1] = string.char(Array.at(indices, i) - 1) end
     for _, t in ipairs(types) do
-      parts[#parts + 1] = string.pack(">i4BB", t.offset, if t.dst then 1 else 0 end, at[t.abbreviation]) -- checked: index_may_be_nil
+      local start = assert(at[t.abbreviation], "the first loop gave every abbreviation a start")
+      parts[#parts + 1] = string.pack(">i4BB", t.offset, if t.dst then 1 else 0 end, start)
     end
     parts[#parts + 1] = table.concat(chars)
     return table.concat(parts)
@@ -221,7 +225,9 @@ local function reads_back(input: string): boolean, string
   Fuzz.label("read")
   local types: mut {Type} = {}
   for offset, dst, abbreviation in types_text:gmatch("(%S+) (%S+) (%S+)\n") do
-    types[#types + 1] = { offset = math.tointeger(offset), dst = dst == "true", abbreviation = abbreviation } -- checked: nil_not_allowed
+    -- `gen` below wrote the offset with `%d`.
+    types[#types + 1] = { offset = assert(math.tointeger(offset), "an offset is an integer"),
+      dst = dst == "true", abbreviation = abbreviation }
   end
   local function holds(ns: integer, t: Type): string?
     local c = Time.civil(ns, zone)
@@ -238,14 +244,16 @@ local function reads_back(input: string): boolean, string
   end
   local first = true
   for s, index in times_text:gmatch("(%S+) (%S+)\n") do
-    local seconds, i = math.tointeger(s), math.tointeger(index)
+    -- `gen` below wrote both with `%d`.
+    local seconds = assert(math.tointeger(s), "a transition time is an integer")
+    local i = assert(math.tointeger(index), "a type index is an integer")
     -- Only moments an integer of nanoseconds holds can be asked about.
-    if seconds > math.mininteger // NS + 1 and seconds < math.maxinteger // NS then -- checked: nil_not_allowed*2
+    if seconds > math.mininteger // NS + 1 and seconds < math.maxinteger // NS then
       if first then
-        local wrong = holds((seconds - 1) * NS, types[1]) -- checked: index_may_be_nil, nil_not_allowed
+        local wrong = holds((seconds - 1) * NS, Array.at(types, 1))
         if wrong ~= nil then return false, "before the first transition, " .. wrong end
       end
-      local wrong = holds(seconds * NS, types[i]) -- checked: index_may_be_nil, nil_not_allowed*2
+      local wrong = holds(seconds * NS, Array.at(types, i))
       if wrong ~= nil then return false, wrong end
       Fuzz.label("transition")
     end
@@ -261,7 +269,9 @@ local function test_a_written_file_reads_back_as_drawn(tmp: string)
     gen = function(src: Fuzz.Source): string
       local drawn = draw(src)
       local times: mut {string} = {}
-      for i, t in ipairs(drawn.times) do times[i] = ("%d %d\n"):format(t, drawn.indices[i]) end -- checked: index_may_be_nil
+      for i, t in ipairs(drawn.times) do
+        times[i] = ("%d %d\n"):format(t, Array.at(drawn.indices, i))
+      end
       local types: mut {string} = {}
       for i, t in ipairs(drawn.types) do
         types[i] = ("%d %s %s\n"):format(t.offset, tostring(t.dst), t.abbreviation)

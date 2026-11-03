@@ -329,6 +329,12 @@ local QUEUE_FAIL_FAST <const> = "${{ github.event_name == 'merge_group' }}"
 --- leg's proofs cover.
 local NOT_SHARE <const> = "matrix.shard != 'portable-2/2'"
 
+--- Where the regressions (`platform fixtures`) run: in alpine-x86_64's
+--- portable share and in no other job of that leg's name, and in the leg of
+--- every other name.
+local FIXTURES_WHERE <const> = "(matrix.name == 'alpine-x86_64' && matrix.shard == 'portable-2/2' || " ..
+  "matrix.name != 'alpine-x86_64' && matrix.shard != 'portable-2/2')"
+
 --- `condition`, a platform step's `if`, without [`NOT_SHARE`]: what the
 --- step runs on in the legs (empty for a step with none).
 local function without_share(condition: string?): string
@@ -3627,7 +3633,8 @@ local function test_the_portable_share_job_saves_nothing()
   for _, step in ipairs(platform.steps) do
     local condition = step["if"] or ""
     local uses = step.uses or ""
-    if condition:find(NOT_SHARE, 1, true) ~= nil then
+    -- The regressions run in the share, not in the leg, on alpine-x86_64.
+    if condition:find(NOT_SHARE, 1, true) ~= nil and condition:find(FIXTURES_WHERE, 1, true) == nil then
       excluded[#excluded + 1] = assert(step.name)
     end
     local keeps = uses:find("actions/cache/save@", 1, true) ~= nil or uses:find("actions/upload-artifact@", 1, true) ~= nil
@@ -3655,7 +3662,6 @@ local function test_the_portable_share_job_saves_nothing()
     "prove the ordinary credential transition",
     "prune the zig build outputs no step vouches for",
     "run release Cosmic's native suite",
-    "run runtime, launcher, rebuild, and identity regressions",
     "run the darwin suite",
     "upload the CI driver check for the run behind in the queue",
     "upload the attested product",
@@ -3702,6 +3708,33 @@ local function test_the_join_compares_the_portable_share_with_the_legs()
     "the join expects share attestations: " .. tostring(map_of(compare.env)["COSMIC_CI_PORTABLE_SHARES"]))
 end
 
+--- The regressions (`platform fixtures`) run in the leg of every platform
+--- but alpine-x86_64, whose leg is the queue's longest: there they run in
+--- its portable share job, which has the slack and builds the same product
+--- on the same image (the join holds its bytes to the legs'). On a full run
+--- each leg name has them in exactly one job, and the share's `name` is the
+--- leg's, so it restores and keys every cache as the leg does.
+local function test_alpine_x86_64s_regressions_run_in_its_portable_share_job()
+  local step = step_named(assert(ci_workflow().jobs["platform"]).steps,
+    "run runtime, launcher, rebuild, and identity regressions")
+  assert(step["if"] == FULL .. " && " .. FIXTURES_WHERE, "the regressions run on " .. tostring(step["if"]))
+  -- The step's own condition less the scope, which `platform_legs("full")` stands for: whatever
+  -- event a full run is of (the queue, a push of full scope, the scheduled and a manual run),
+  -- it has these legs, and the condition reads only the leg's values.
+  local condition = "${{ " .. assert(step["if"]):sub(#FULL + #" && " + 1) .. " }}"
+  for _, name in ipairs({ "alpine-x86_64", "linux-x86_64", "linux-aarch64", "macos-aarch64" }) do
+    local jobs: mut {string} = {}
+    for _, leg in pairs(platform_legs("full")) do
+      if leg["name"] == name and evaluate(condition, leg, "merge_group", "refs/heads/main") == true then
+        jobs[#jobs + 1] = leg["shard"] or ""
+      end
+    end
+    assert(#jobs == 1, name .. " runs its regressions in " .. tostring(#jobs) .. " jobs")
+    assert((jobs[1] == "portable-2/2") == (name == "alpine-x86_64"),
+      name .. " runs its regressions in the job of shard '" .. tostring(jobs[1]) .. "'")
+  end
+end
+
 --- A leg that skips the portable suite still runs the step (the driver
 --- records the artifact's digest there, and says it skipped the suite),
 --- its regressions on the portable product, and its attestation and
@@ -3721,8 +3754,12 @@ local function test_a_leg_that_skips_the_portable_suite_still_attests_what_it_ra
     local upload = with_of(step)["name"] == "portable-product-${{ matrix.name }}"
     if phase == "portable" or phase == "fixtures" or phase == "attest" or upload then
       local key = if upload then "upload" else phase end
-      assert(without_share(step["if"]) == FULL, assert(key) .. " runs on another condition than a full run's: " ..
-          tostring(step["if"]))
+      -- The regressions run in the share on alpine-x86_64 and in the leg elsewhere
+      -- (test_alpine_x86_64s_regressions_run_in_its_portable_share_job).
+      local want = FULL
+      if phase == "fixtures" then want = FULL .. " && " .. FIXTURES_WHERE end
+      assert(without_share(step["if"]) == want or step["if"] == want, assert(key) ..
+          " runs on another condition than a full run's: " .. tostring(step["if"]))
       assert(not assert(Json.encode_any(step)):find("PORTABLE_SUITE", 1, true), assert(key) .. " turns on the portable suite's switch")
       seen[assert(key)] = true
       if phase == "attest" then

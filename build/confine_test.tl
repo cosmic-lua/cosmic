@@ -94,7 +94,9 @@ local function sandboxed_worker(tmp: string): {string}
   local argv, opts = worker.argv, worker.options
   local output = assert(sys.open(tmp .. "/said", sys.O_CREAT | sys.O_RDWR | sys.O_TRUNC, 420))
   local process = require("cosmic.internal.process")
-  local pid, trouble, errno = process.spawn(argv[1], argv, opts.env, tree, nil, output, -- checked: index_may_be_nil
+  local program = argv[1]
+  assert(program ~= nil, "this_program.program answered an empty argv")
+  local pid, trouble, errno = process.spawn(program, argv, opts.env, tree, nil, output,
     output, false, TestSandboxFixture.spawn_fds(worker),
     { unveil = unveil, offline = true })
   if pid == nil then
@@ -138,8 +140,10 @@ local function test_a_worker_sandboxed_to_what_it_needs_starts_and_confines_its_
   -- Whether the cache holds a stamp for the core, which the worker
   -- then has to find.
   local relaunch = assert(Proc.relaunch())
-  local directory, name = relaunch.argv[1]:match("^(.*)/(core%-[^/]*)$") -- checked: nil_not_allowed
-  local stamped = directory ~= nil and sys.lstat(directory .. "/.verified-" .. name) ~= nil -- checked: nil_not_allowed
+  local launched = relaunch.argv[1]
+  assert(launched ~= nil, "Proc.relaunch answered an empty argv")
+  local directory, name = launched:match("^(.*)/(core%-[^/]*)$")
+  local stamped = directory ~= nil and name ~= nil and sys.lstat(directory .. "/.verified-" .. name) ~= nil
   assert(not stamped or lines[2] == "stamped", said)
   -- Root that has given up CAP_SETFCAP (bit 31 of CapEff) -- as root
   -- in a sandbox has -- may not map root into a user namespace of its
@@ -148,13 +152,14 @@ local function test_a_worker_sandboxed_to_what_it_needs_starts_and_confines_its_
   local effective = status:match("\nCapEff:%s*(%x+)") or "0"
   local capabilities = math.tointeger(tonumber(effective:sub(-8), 16)) or 0
   local inner_root = sys.getuid() == 0 and capabilities & (1 << 31) == 0
+  local third = lines[3]
   if inner_root then
-    assert(lines[3]:find("^refused EPERM") ~= nil, said) -- checked: nil_not_allowed
+    assert(third ~= nil and third:find("^refused EPERM") ~= nil, said)
   elseif confine.own_proc_given() then
     assert(lines[1] == "own-proc" and lines[3] == "exited 0" and lines[4] == "in" and
         lines[5] == "hidden-absent", said)
   else
-    assert(lines[1] == "host-proc" and lines[3]:find("^refused EROFS") ~= nil, said) -- checked: nil_not_allowed
+    assert(lines[1] == "host-proc" and third ~= nil and third:find("^refused EROFS") ~= nil, said)
   end
 end
 
@@ -171,9 +176,10 @@ local function resolved_by_names(path: string): string
     local real, _ = sys.realpath(at)
     if real ~= nil then
       local resolved: string = real
-      for i = #missing, 1, -1 do
-        resolved = (if resolved == "/" then "" else resolved end) .. "/" .. missing[i] -- checked: nil_not_allowed
-      end
+      -- `missing` runs from the last name to the first.
+      local suffix = ""
+      for _, missing_name in ipairs(missing) do suffix = "/" .. missing_name .. suffix end
+      if #missing > 0 then resolved = (if resolved == "/" then "" else resolved end) .. suffix end
       return resolved
     end
     local parent = Fs.dirname(at)
