@@ -48,6 +48,7 @@
 --- names a label fails when too few did, so one whose inputs mostly
 --- stop there is found out too.
 
+local Array = require("cosmic.array")
 local Clock = require("cosmic.clock")
 local Codec = require("cosmic.codec")
 local Env = require("cosmic.env")
@@ -339,7 +340,7 @@ local function label_counts(counts: {string: integer}, required: {string},
                             iters: integer): string?
   local names: mut {string} = {}
   for name in pairs(counts) do names[#names + 1] = name end
-  for _, name in ipairs(required or {}) do -- checked: condition_type, literal_needs_type
+  for _, name in ipairs(required) do
     if counts[name] == nil then names[#names + 1] = name end
   end
   if #names == 0 then return nil end
@@ -406,6 +407,12 @@ local function named_case(p: Fuzz.Property): string?, integer?
     error(("fuzz: FUZZ_CASE=%q is not <property>:<case seed>, as a report prints it"):format(raw), 0)
   end
   return name, n
+end
+
+--- A label of `shares` and the share of the inputs it must reach.
+local record SharedLabel
+  name: string
+  share: number
 end
 
 --- `run`'s work, with no labels being counted when it starts.
@@ -534,11 +541,11 @@ local function run(p: Fuzz.Property): integer
   local is_named: mut {string: boolean} = {}
   for _, name in ipairs(p.requires or {}) do named[#named + 1], is_named[name] = name, true end
   local shares = p.shares or {}
-  local shared: mut {string} = {}
-  for name in pairs(shares) do shared[#shared + 1] = name end
-  table.sort(shared)
-  for _, name in ipairs(shared) do
-    if is_named[name] ~= true then named[#named + 1] = name end
+  local shared: mut {SharedLabel} = {}
+  for name, share in pairs(shares) do shared[#shared + 1] = { name = name, share = share } end
+  table.sort(shared, function(x, y): boolean return x.name < y.name end)
+  for _, label in ipairs(shared) do
+    if is_named[label.name] ~= true then named[#named + 1] = label.name end
   end
   local line = label_counts(counts, named, iters)
   if line ~= nil then print(("fuzz %s: labels: %s"):format(p.name, line)) end
@@ -551,13 +558,14 @@ local function run(p: Fuzz.Property): integer
           "its inputs do not exercise what it is meant to"):format(p.name, seed, iters, name), 0)
       end
     end
-    for _, name in ipairs(shared) do
+    for _, label in ipairs(shared) do
+      local name = label.name
       local reached_by = counts[name] or 0
-      if reached_by < shares[name] * iters then -- checked: nil_not_allowed
+      if reached_by < label.share * iters then
         if kept ~= nil then local _, _ = Fs.remove(kept) end
         error(("fuzz %s: seed=%d: %s of %d reached %q, under the share of %g the property " ..
           "requires: its inputs exercise it too rarely"):format(p.name, seed, plural.count(reached_by, "input"), iters, name,
-            shares[name]), 0)
+            label.share), 0)
       end
     end
   end
@@ -595,7 +603,7 @@ end
 
 --- Draws one of `choices`, which must not be empty.
 function Fuzz.pick<T>(src: Fuzz.Source, choices: {T}): T
-  return choices[src:int(1, #choices)] -- checked: index_may_be_nil
+  return Array.at(choices, src:int(1, #choices))
 end
 
 --- Whether a generator holding `have` elements of a collection of at
@@ -644,10 +652,10 @@ function Fuzz.mutate(src: Fuzz.Source, sample: string, max_edits: integer): stri
       s = s:sub(1, at - 1) .. string.char(src:int(0, 255)) .. s:sub(at + 1)
     elseif kind == 2 then
       local at = src:int(1, #s)
-      s = s:sub(1, at - 1) .. string.char(SPECIAL[src:int(1, #SPECIAL)]) .. s:sub(at + 1) -- checked: index_may_be_nil
+      s = s:sub(1, at - 1) .. string.char(Array.at(SPECIAL, src:int(1, #SPECIAL))) .. s:sub(at + 1)
     elseif kind == 3 then
       local at = src:int(1, #s)
-      s = s:sub(1, at - 1) .. string.char(s:byte(at) ~ (1 << src:int(0, 7))) .. s:sub(at + 1) -- checked: nil_not_allowed
+      s = s:sub(1, at - 1) .. string.char(String.byte_at(s, at) ~ (1 << src:int(0, 7))) .. s:sub(at + 1)
     elseif kind == 4 then
       local at = src:int(1, #s + 1)
       s = s:sub(1, at - 1) .. string.char(src:int(0, 255)) .. s:sub(at)

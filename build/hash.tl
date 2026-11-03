@@ -233,7 +233,7 @@ local function arguments(argv: {string}): Request?, string
   local request: Request = {
     algorithm = chosen[1] or "sha256",
     files = parsed.words, check = parsed.values["--check"],
-    warning = "", quiet = parsed.set["--quiet"] or false, json = parsed.set["--json"] or false, -- checked: condition_type*2
+    warning = "", quiet = parsed.set["--quiet"] == true, json = parsed.set["--json"] == true,
   }
   local request_check = request.check
   if request_check == "" then return nil, "--check needs a sums file, or - for standard input" end

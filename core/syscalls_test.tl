@@ -900,6 +900,25 @@ local function test_clocks_read_and_the_monotonic_one_advances()
   assert(after - before >= 2000000, "slept " .. tostring((after - before)) .. "ns")
 end
 
+local function test_the_cpu_clocks_read_and_a_sleep_does_not_advance_them()
+  for _, which in ipairs({ sys.CLOCK_PROCESS_CPUTIME_ID, sys.CLOCK_THREAD_CPUTIME_ID }) do
+    assert(which ~= sys.CLOCK_REALTIME and which ~= sys.CLOCK_MONOTONIC)
+    local before = assert(sys.clock_gettime(which))
+    local sum = 0
+    for i = 1, 200000 do
+      sum = sum + i % 7
+    end
+    assert(sum >= 0)
+    local worked = assert(sys.clock_gettime(which))
+    assert(worked > before, "no CPU time passed: " .. tostring(before) .. " then " .. tostring(worked))
+    local wall = assert(sys.clock_gettime(sys.CLOCK_MONOTONIC))
+    assert(sys.nanosleep(100000000))
+    local rested = assert(sys.clock_gettime(which))
+    local slept = assert(sys.clock_gettime(sys.CLOCK_MONOTONIC)) - wall
+    assert(slept >= 100000000 and rested - worked < slept // 4, "a sleep of " .. tostring(slept) .. " ns used " .. tostring(rested - worked))
+  end
+end
+
 local function test_clock_gettime_refuses_an_unknown_clock()
   failed(sys.clock_gettime(12345))
 end

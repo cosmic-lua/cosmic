@@ -509,7 +509,7 @@ function Htmx.head(opts?: Htmx.HeadOptions): Html.SafeHtml
   opts = opts or {}
   local prefix = opts.prefix
   if prefix ~= nil and prefix ~= "" and
-      not (prefix:find("^/[%w._~/-]*$") and not prefix:find("^//") and prefix:sub(-1) ~= "/") then -- checked: condition_type
+      not (prefix:find("^/[%w._~/-]*$") ~= nil and prefix:find("^//") == nil and prefix:sub(-1) ~= "/") then
     error("htmx: head: the prefix is a path on this origin without a trailing slash, like /app", 2)
   end
   local nonce = opts.nonce

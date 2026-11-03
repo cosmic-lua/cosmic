@@ -691,7 +691,7 @@ end
 --- blank nor a comment opens with `{` or `[`.
 function flow.is_flow(text: string): boolean
   for row in text:gmatch("[^\n]*") do
-    if row:match("%S") and not row:match("^%s*#") then -- checked: condition_type
+    if row:match("%S") ~= nil and row:match("^%s*#") == nil then
       return row:match("^%s*[{[]") ~= nil
     end
   end

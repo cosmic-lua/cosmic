@@ -249,7 +249,7 @@ local function pushes(name: string): boolean
   if name:match("^lua_push") or name:match("^lua_new") or name:match("^lua_rawget") then
     return true
   end
-  if name:match("^lua_get") and name ~= "lua_gettop" and name ~= "lua_getallocf" then -- checked: condition_type
+  if name:match("^lua_get") ~= nil and name ~= "lua_gettop" and name ~= "lua_getallocf" then
     return true
   end
   return pushing[name] == true
@@ -1319,7 +1319,7 @@ local function checked_positions(fn: Function, bound: {integer: integer},
     local name = if n.kind == "CallExpr" then tree.callee(n) else nil end
     if name ~= nil then
       local args = arguments(n)
-      if descriptor_checks[name] then -- checked: condition_type
+      if descriptor_checks[name] == true then
         local second = args[2]
         local at = if second ~= nil then value(second) else nil end
         if at ~= nil then out[at] = true end

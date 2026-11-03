@@ -1,6 +1,7 @@
 --- Each rule over a small C file that breaks it and one that keeps it,
 --- checked the way `cosmic fix` checks the core: through clang's dump.
 
+local Array = require("cosmic.array")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local c = require("build.c")
@@ -44,12 +45,18 @@ Test.policy{
 
 local root = assert(Fs.absolute("."))
 
+--- The one outcome [`c.check`] gives for the one file a test hands it: it
+--- returns an outcome for every path it is given.
+local function only_outcome(outcomes: {c.Outcome}): c.Outcome
+  return Array.at(outcomes, 1)
+end
+
 --- The findings in `source`, written as `case.c` under `tmp`.
 local function findings(tmp: string, source: string): {rules.Finding}
   assert(Fs.write(tmp .. "/case.c", source))
-  local outcome = c.check(root, { "case.c" }, tmp)[1]
-  local outcome_findings = outcome.findings -- checked: nil_not_allowed
-  assert(outcome_findings ~= nil, outcome.trouble) -- checked: nil_not_allowed
+  local outcome = only_outcome(c.check(root, { "case.c" }, tmp))
+  local outcome_findings = outcome.findings
+  assert(outcome_findings ~= nil, outcome.trouble)
   return outcome_findings
 end
 
@@ -273,9 +280,9 @@ end
 
 local function test_c_clang_cannot_read_is_refused(tmp: string)
   assert(Fs.write(tmp .. "/case.c", "int f(void) { return undeclared; }\n"))
-  local outcome = c.check(root, { "case.c" }, tmp)[1]
-  assert(outcome.findings == nil) -- checked: nil_not_allowed
-  assert(assert(outcome.trouble):find("undeclared", 1, true) ~= nil, outcome.trouble) -- checked: nil_not_allowed*2
+  local outcome = only_outcome(c.check(root, { "case.c" }, tmp))
+  assert(outcome.findings == nil)
+  assert(assert(outcome.trouble):find("undeclared", 1, true) ~= nil, outcome.trouble)
 end
 
 --- A pointer into a string counted from the top is good only while the
@@ -667,8 +674,10 @@ int total (void) { return ours(1) + 5; }
 local function test_a_shared_function_only_its_file_uses_is_found(tmp: string)
   local found = only(checked(tmp, two_files, { "a.c", "b.c" }), "single-file")
   one(found, "single-file", 1)
-  assert(found[1].file == "shared.h" and found[1].within == "mine", -- checked: nil_not_allowed*2
-    found[1].file .. " " .. found[1].within) -- checked: nil_not_allowed*2
+  -- `one` asserted exactly one finding.
+  local finding = Array.at(found, 1)
+  assert(finding.file == "shared.h" and finding.within == "mine",
+    finding.file .. " " .. finding.within)
 end
 
 --- With one file of two checked, what the other refers to is not
@@ -681,9 +690,9 @@ end
 --- checked from wherever the kept part begins.
 local function test_a_tree_larger_than_the_limit_is_refused(tmp: string)
   assert(Fs.write(tmp .. "/case.c", header .. "int f(void) { return 0; }\n"))
-  local outcome = c.check(root, { "case.c" }, tmp, 4096)[1]
-  assert(outcome.findings == nil, "a cut tree was checked") -- checked: nil_not_allowed
-  assert(assert(outcome.trouble):find("larger than 4096", 1, true) ~= nil, outcome.trouble) -- checked: nil_not_allowed*2
+  local outcome = only_outcome(c.check(root, { "case.c" }, tmp, 4096))
+  assert(outcome.findings == nil, "a cut tree was checked")
+  assert(assert(outcome.trouble):find("larger than 4096", 1, true) ~= nil, outcome.trouble)
 end
 
 --- A file that could not be read leaves what it refers to unknown, so
@@ -696,8 +705,8 @@ local function test_an_unreadable_file_says_nothing_of_sharing(tmp: string)
     assert(Fs.write(tmp .. "/" .. name, source))
   end
   local outcomes = c.check(root, { "a.c", "b.c" }, tmp)
-  assert(outcomes[2].findings == nil, "b.c was read") -- checked: nil_not_allowed
-  none(only(assert(outcomes[1].findings), "single-file")) -- checked: nil_not_allowed
+  assert(Array.at(outcomes, 2).findings == nil, "b.c was read")
+  none(only(assert(Array.at(outcomes, 1).findings), "single-file"))
 end
 
 --- A compiler reads nothing it was not given: a header named by a path
@@ -712,9 +721,9 @@ local function test_a_compiler_reads_no_path_it_was_not_given(tmp: string)
   -- compiler to that; an unsandboxed one's is confined in a root of its
   -- own, where the kernel gives one.
   local sandboxed = root == "/tree"
-  local outcome = c.check(root, { "case.c" }, tmp)[1]
-  local trouble = outcome.trouble -- checked: nil_not_allowed
-  local not_found = outcome.findings == nil and trouble ~= nil and -- checked: nil_not_allowed
+  local outcome = only_outcome(c.check(root, { "case.c" }, tmp))
+  local trouble = outcome.trouble
+  local not_found = outcome.findings == nil and trouble ~= nil and
     trouble:find("AGENTS.md' file not found", 1, true) ~= nil
   if not sandboxed and not not_found then
     -- The kernel could confine none: the compiler read what it found,
@@ -722,8 +731,8 @@ local function test_a_compiler_reads_no_path_it_was_not_given(tmp: string)
     Test.skip("a compiler ran unconfined, and read " .. root .. "/AGENTS.md")
     return
   end
-  assert(outcome.findings == nil, "the header was read") -- checked: nil_not_allowed
-  assert(assert(outcome.trouble):find("AGENTS.md' file not found", 1, true), outcome.trouble) -- checked: nil_not_allowed*2
+  assert(outcome.findings == nil, "the header was read")
+  assert(assert(outcome.trouble):find("AGENTS.md' file not found", 1, true), outcome.trouble)
 end
 
 --- A violation under a guard of one target or of the checked core is
@@ -731,7 +740,7 @@ end
 local function guarded(tmp: string, condition: string): c.Outcome
   assert(Fs.write(tmp .. "/case.c", '#include "lauxlib.h"\n#if ' .. condition ..
       '\nint f(lua_State *L) { return (int)luaL_checkinteger(L, 1); }\n#endif\n'))
-  return c.check(root, { "case.c" }, tmp)[1] -- checked: index_may_be_nil
+  return only_outcome(c.check(root, { "case.c" }, tmp))
 end
 
 local function test_a_violation_under_each_target_is_found(tmp: string)
@@ -755,15 +764,15 @@ end
 --- file that includes it.
 local function test_a_file_no_guard_reaches_is_checked_once(tmp: string)
   assert(Fs.write(tmp .. "/case.c", "int total(void) { return 1; }\n"))
-  local variants = assert(c.check(root, { "case.c" }, tmp)[1].variants) -- checked: nil_not_allowed
+  local variants = assert(only_outcome(c.check(root, { "case.c" }, tmp)).variants)
   assert(#variants == 1, table.concat(variants, ","))
   assert(Fs.write(tmp .. "/guard.h", "#ifdef __APPLE__\n#endif\n"))
   assert(Fs.write(tmp .. "/case.c", '#include "guard.h"\nint total(void) { return 1; }\n'))
-  variants = assert(c.check(root, { "case.c" }, tmp)[1].variants) -- checked: nil_not_allowed
+  variants = assert(only_outcome(c.check(root, { "case.c" }, tmp)).variants)
   assert(#variants == #c.variants - 1, table.concat(variants, ","))
   assert(Fs.write(tmp .. "/guard.h", "#ifdef COSMIC_CHECKED\n#endif\n"))
-  variants = assert(c.check(root, { "case.c" }, tmp)[1].variants) -- checked: nil_not_allowed
-  assert(variants[#variants] == c.variants[#c.variants].name, table.concat(variants, ",")) -- checked: nil_not_allowed
+  variants = assert(only_outcome(c.check(root, { "case.c" }, tmp)).variants)
+  assert(variants[#variants] == Array.at(c.variants, #c.variants).name, table.concat(variants, ","))
   assert(#variants == 2, table.concat(variants, ","))
 end
 
@@ -771,7 +780,7 @@ end
 local function test_a_variant_that_cannot_compile_a_file_is_named(tmp: string)
   assert(Fs.write(tmp .. "/case.c",
     "#ifdef __APPLE__\nint broken = ;\n#endif\nint total(void) { return 1; }\n"))
-  local outcome = c.check(root, { "case.c" }, tmp)[1]
-  assert(outcome.findings == nil) -- checked: nil_not_allowed
-  assert(assert(outcome.trouble):find("aarch64-macos: ", 1, true), outcome.trouble) -- checked: nil_not_allowed*2
+  local outcome = only_outcome(c.check(root, { "case.c" }, tmp))
+  assert(outcome.findings == nil)
+  assert(assert(outcome.trouble):find("aarch64-macos: ", 1, true), outcome.trouble)
 end

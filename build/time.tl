@@ -345,7 +345,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     return refuse(("%s takes %d word%s, not %d"):format(sub, words_taken,
       if words_taken == 1 then "" else "s" end, #parsed.words - 1))
   end
-  local as_json = parsed.set["--json"] or false -- checked: condition_type
+  local as_json = parsed.set["--json"] == true
   local format = parsed.values["--format"] or "rfc3339"
   if format ~= "rfc3339" and format ~= "date" and format ~= "http" and format ~= "epoch" then
     return refuse("--format is rfc3339, date, http or epoch, not " .. format)

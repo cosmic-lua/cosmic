@@ -1,3 +1,4 @@
+local Array = require("cosmic.array")
 local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
@@ -191,7 +192,8 @@ local function test_shrink_cuts_and_lowers_draws()
   for i, v in ipairs({ 3, 90, 2, 55, 1 }) do draws[i] = { min = 0, max = 100, value = v } end
   local shrunk = shrink.shrink(draws, fails, 1000)
   local best, tries = shrunk.draws, shrunk.tries
-  assert(#best == 1 and best[1].value == 7, ("%d draws, first %d"):format(#best, best[1].value)) -- checked: nil_not_allowed
+  assert(#best == 1, ("%d draws"):format(#best))
+  assert(Array.at(best, 1).value == 7, ("first %d"):format(Array.at(best, 1).value))
   assert(tries > 0 and tries <= 1000)
   local capped = shrink.shrink(draws, fails, 3).tries
   assert(capped == 3)
@@ -420,9 +422,9 @@ local function test_a_case_checks_the_one_input_it_names(tmp: string)
   local err = report({ name = "one case", iters = 200, gen = any_bytes, check = no_nul })
   local case = assert(err:match("reproduce: FUZZ_CASE=(%S+)"), err)
   local first: string?
-  for i = 1, #seen do
-    if seen[i]:find("\0", 1, true) then -- checked: nil_not_allowed
-      first = seen[i]
+  for _, input in ipairs(seen) do
+    if input:find("\0", 1, true) then
+      first = input
       break
     end
   end

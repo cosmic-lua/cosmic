@@ -459,7 +459,7 @@ local function fresh_keys(path: string, restored: string, expected: {string:Shap
     local tables, table_why = inspect(db, "compiles", expected)
     if tables == nil then return nil, table_why end
     for _, entry in ipairs(tables) do
-      if entry.name:match("^compiled_v%d+$") and not entry.supported then -- checked: condition_type
+      if entry.name:match("^compiled_v%d+$") ~= nil and not entry.supported then
         return nil, "cannot compare unknown compile format " .. entry.name
       end
     end

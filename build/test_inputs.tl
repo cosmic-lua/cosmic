@@ -335,7 +335,7 @@ function test_inputs.effective(m: Module, by_path: {string:Module},
     out.store_text = declared.store_text == true
     for _, relative in ipairs(declared.parent or {}) do parent[#parent + 1] = relative end
     -- A cache is declared with the variables that locate it.
-    for _, name in ipairs(declared.caches or {}) do -- checked: condition_type, literal_needs_type
+    for _, name in ipairs(declared.caches) do
       caches[#caches + 1] = name
       for _, variable in ipairs(cache_names.variables(name)) do out.env[variable] = true end
     end
@@ -475,9 +475,9 @@ function test_inputs.canonical(maybe: PolicyRules.Declared?): string
   if declared.system then lines[#lines + 1] = "system true" end
   if declared.cpu_features == true then lines[#lines + 1] = "cpu_features true" end
   if declared.store_text == true then lines[#lines + 1] = "store_text true" end
-  list("caches", declared.caches or {}) -- checked: condition_type, literal_needs_type
+  list("caches", declared.caches)
   list("parent", declared.parent or {})
-  list("requires", declared.requires or {}) -- checked: condition_type, literal_needs_type
+  list("requires", declared.requires)
   if declared.timeout ~= nil then
     local line = "timeout " .. tostring(declared.timeout)
     lines[#lines + 1] = line

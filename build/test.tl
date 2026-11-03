@@ -2132,7 +2132,7 @@ local function require_of_host(ctx: Run): integer?
     table.sort(names)
     local asked, trouble = pcall(function()
       local answers = host_requires.answer(probed, names)
-      ctx.c_unavailable = c_functions.unavailable(answers, ctx.held and ctx.promises or nil) -- checked: condition_type
+      ctx.c_unavailable = c_functions.unavailable(answers, (if ctx.held == true then ctx.promises else nil end))
       for _, answer in ipairs(answers) do
         if answer.kind == "refused" then
           rec.errors[#rec.errors + 1] = "C coverage requires " .. answer.name .. ": " .. answer.why
@@ -2228,7 +2228,7 @@ local function look_up_verdicts(ctx: Run)
       { "host kernel", declared_key.host_kernel() },
       { "host", assert(rec.host):sub(1, 12) },
       { "system", (rec.system or ""):sub(1, 12) },
-      { "runtime", hex_sha256(rec.runtime or ""):sub(1, 12) }, -- checked: condition_type
+      { "runtime", hex_sha256(rec.runtime):sub(1, 12) },
       { "compiler", (rec.compiler or ""):sub(1, 12) },
       -- The key's harness parts, its epoch and timeout, as one word.
       { "harness", test_key.harness_word(rec.epoch, rec.timeout_ns) },

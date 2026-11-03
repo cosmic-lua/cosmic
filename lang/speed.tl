@@ -1,17 +1,22 @@
 --- The timing the speed tests of `lang/` share. A speed test holds one piece of
---- work to a multiple of another and never to a clock, so that a slow machine
---- slows both sides alike. A moment of load can still fall on one side only, so
---- each side is the least of several samples, each sample long enough to read,
---- the samples of the two sides taken in turn so that load falls on both. The
---- comparison is made after every pair of samples and while it fails more are
---- taken: it fails only if every pair does. A limit under the
---- cost of a quadratic form (16 times for four times the input) therefore still
---- catches one.
+--- work to a multiple of another and never to a time of its own, so that a slow
+--- machine slows both sides alike. Work is timed in the CPU time of the thread
+--- that runs it ([`cosmic.clock`]'s `cpu_ns`), not in wall time, so that a
+--- process the host runs beside the test adds nothing to either side: on a
+--- shared runner a wall clock counts the stretches in which the test was not
+--- running at all. What load still does is slow the CPU time itself (a shared
+--- cache, a sibling hardware thread), and a moment of it can fall on one side
+--- only, so each side is the least of several samples, each sample long enough
+--- to read, the samples of the two sides taken in turn so that it falls on
+--- both. The comparison is made after every pair of samples and while it fails
+--- more are taken: it fails only if every pair does. A limit under the cost of
+--- a quadratic form (16 times for four times the input) therefore still catches
+--- one.
 local Clock = require("cosmic.clock")
 
 local record Speed
-  --- The least time, in nanoseconds, that one run of `work` takes over five samples.
-  --- A sample repeats `work` until it has taken a few milliseconds, which a clock reads without
+  --- The least CPU time, in nanoseconds, that one run of `work` takes over five samples.
+  --- A sample repeats `work` until it has taken a few milliseconds, which the CPU clock reads without
   --- much error.
   least: function(work: function()): integer
 
@@ -21,7 +26,7 @@ local record Speed
   within: function(base: function(), scaled: function(), limit: integer, most_pairs?: integer): boolean, string
 end
 
---- The time a sample takes at least, in nanoseconds.
+--- The CPU time a sample takes at least, in nanoseconds.
 local FLOOR <const> = 5000000
 local SAMPLES <const> = 5
 --- The most pairs of samples `within` takes by default: a pass ends it sooner.
@@ -34,14 +39,14 @@ local FEWEST_PAIRS <const> = 3
 local MOST_RUNS <const> = 2000
 
 local function elapsed(work: function(), runs: integer): integer
-  local started = Clock.monotonic_ns()
+  local started = Clock.cpu_ns()
   for _ = 1, runs do
     work()
   end
-  return Clock.monotonic_ns() - started
+  return Clock.cpu_ns() - started
 end
 
---- The time of the first run of `work`, which is cold and is not a sample.
+--- The CPU time of the first run of `work`, which is cold and is not a sample.
 local function first_run(work: function()): integer
   return math.max(elapsed(work, 1), 1)
 end
