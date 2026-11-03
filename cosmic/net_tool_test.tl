@@ -5,6 +5,7 @@
 --- (as a CI runner can start it), where the same write passes whether
 --- the socket's send asks for no signal or not.
 
+local Array = require("cosmic.array")
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
@@ -69,7 +70,7 @@ local function test_a_protocol_runs_a_child_under_the_server_s_guard()
       assert(conn:write((if r ~= nil then tostring(r.code) else why end) .. "\n"))
     end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
-      local conn <close> = assert(Net.connect(addresses[1], { timeout_ns = Clock.seconds(30) })) -- checked: index_may_be_nil
+      local conn <close> = assert(Net.connect(Array.at(addresses, 1), { timeout_ns = Clock.seconds(30) }))
       answer = assert(Stream.lines(conn):read())
       server:stop()
     end,
