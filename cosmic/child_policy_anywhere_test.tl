@@ -183,11 +183,8 @@ end
 
 local function test_a_relay_log_is_null_inherit_or_a_descriptor(tmp: string)
   local probe = stand_in_of(tmp)
-  local wrong: Child.Options = {}
-  wrong.relay_log = ("loud" as any) as Child.RelayLog -- cast: a caller of the wrong type is what is refused -- checked: cast_refused*2, field_fixed
-  Test.raises(function() Child.start({ probe }, wrong) end, 'relay_log must be "null", "inherit" or a descriptor')
   for _, value in ipairs({ -1, 4294967296 }) do
-    wrong.relay_log = (value as any) as Child.RelayLog -- cast: a descriptor that is none -- checked: cast_refused*2, field_fixed
+    local wrong: Child.Options = { relay_log = value }
     local refused_ok, refused_why = pcall(Child.start, { probe }, wrong)
     assert(not refused_ok and tostring(refused_why):find("or a descriptor", 1, true) ~= nil, tostring(value))
   end

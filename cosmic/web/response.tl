@@ -182,8 +182,8 @@ end
 
 --- Raises, for the constructor's caller, where `status` is no status the
 --- server can send: [`Server.Reply`] takes an integer from 200 to 999.
-local function check_status(status: any, level: integer)
-  if not (status is integer and status >= 200 and status <= 999) then
+local function check_status(status: integer, level: integer)
+  if status < 200 or status > 999 then
     error("web: a response's status must be an integer from 200 to 999, not " .. tostring(status), level)
   end
 end

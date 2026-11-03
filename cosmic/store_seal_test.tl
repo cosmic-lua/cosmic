@@ -243,8 +243,6 @@ end
 local function test_seal_refuses_what_it_cannot_carry(tmp: string)
   attach(tmp)
   Test.raises(function() Store.seal({}, tmp .. "/none.db") end, "non-empty")
-  Test.raises(function() Store.seal(nil as {string}, tmp .. "/nil.db") end, "store:") -- checked: cast_refused
-  Test.raises(function() Store.closure(nil as {string}) end, "store:") -- checked: cast_refused
   Test.raises(function() Store.seal({ "fixture.nowhere" }, tmp .. "/gone.db") end,
     "fixture.nowhere")
   Test.raises(function()

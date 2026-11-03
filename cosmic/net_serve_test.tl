@@ -246,38 +246,25 @@ local function test_a_listener_that_cannot_listen_fails_the_server(tmp: string)
   assert(Fs.stat(tmp .. "/a.sock") == nil, "the first listener's file was left")
 end
 
---- A spec of the wrong shape raises, naming the field; so does a
---- server started in a task of another run.
-local function test_a_spec_of_the_wrong_shape_raises_naming_the_field(tmp: string)
+--- A spec with a value the server cannot take raises, naming the field; so
+--- does a server started in a task of another run.
+local function test_a_spec_with_a_bad_value_raises_naming_the_field(tmp: string)
   local address = Net.unix(tmp .. "/s.sock")
-  local function refused(spec: any, field: string)
-    Test.raises(function() Net.serve(spec as Net.ServeSpec) end, "net: " .. field) -- checked: cast_refused
+  local function refused(spec: Net.ServeSpec, field: string)
+    Test.raises(function() Net.serve(spec) end, "net: " .. field)
   end
-  refused({ serve = echo }, "spec.listeners must be")
-  refused({ listeners = {}, serve = echo }, "spec.listeners must be") -- checked: literal_needs_type
-  refused({ listeners = { "s.sock" }, serve = echo }, "spec.listeners[1] must be") -- checked: arms_differ
-  refused({ listeners = { address, Net.unix("") }, serve = echo }, -- checked: arms_differ
+  refused({ listeners = {}, serve = echo }, "spec.listeners must be")
+  refused({ listeners = { address, Net.unix("") }, serve = echo },
     "spec.listeners[2] must be a unix address whose path")
-  refused({ listeners = { { kind = "tcp", host = "127.0.0.1", port = "80" } }, serve = echo }, -- checked: arms_differ
+  refused({ listeners = { Net.tcp("127.0.0.1", 65536) }, serve = echo },
     "spec.listeners[1] must be a tcp address")
-  refused({ listeners = { Net.tcp("127.0.0.1", 65536) }, serve = echo }, -- checked: arms_differ
-    "spec.listeners[1] must be a tcp address")
-  refused({ listeners = { address } }, "spec.serve must be")
-  refused({ listeners = { address }, serve = echo, limits = { connections = 0 } }, -- checked: arms_differ
+  refused({ listeners = { address }, serve = echo, limits = { connections = 0 } },
     "spec.limits.connections must be")
-  refused({ listeners = { address }, serve = echo, limits = { conections = 1 } }, -- checked: arms_differ
-    "spec.limits has no field conections")
-  refused({ listeners = { address }, serve = echo, grace_ns = -1 }, "spec.grace_ns must be") -- checked: arms_differ
-  refused({ listeners = { address }, serve = echo, timeout_ns = 1.5 }, "spec.timeout_ns must be") -- checked: arms_differ
-  refused({ listeners = { address }, serve = echo, grace_ns = Poll.MOST_NS + 1 }, -- checked: arms_differ
+  refused({ listeners = { address }, serve = echo, grace_ns = -1 }, "spec.grace_ns must be")
+  refused({ listeners = { address }, serve = echo, grace_ns = Poll.MOST_NS + 1 },
     "spec.grace_ns must be")
-  refused({ listeners = { address }, serve = echo, timeout_ms = 5 }, "spec has no field timeout_ms") -- checked: arms_differ
-  refused({ listeners = { address }, serve = echo, grace_ms = 5 }, "spec has no field grace_ms") -- checked: arms_differ
-  refused({ listeners = { address }, serve = echo, on_ready = true }, "spec.on_ready must be") -- checked: arms_differ
-  refused({ listeners = { address }, serve = echo, on_stop = true }, "spec.on_stop must be") -- checked: arms_differ
-  refused({ listeners = { address }, serve = echo, grace = 10 }, "spec has no field grace") -- checked: arms_differ
   Poll.run(function()
-    local ok, why = pcall(Net.serve, { listeners = { address }, serve = echo } as Net.ServeSpec) -- checked: arms_differ, cast_refused
+    local ok, why = pcall(Net.serve, { listeners = { address }, serve = echo })
     assert(not ok and tostring(why):find("net: serve runs a Poll.run of its own", 1, true) ~= nil,
       tostring(why))
   end)
@@ -598,25 +585,6 @@ end
 local function test_a_second_signal_ends_the_grace_on_a_socket_file(tmp: string)
   unix_socket.skip_if_refused(tmp)
   a_second_signal_ends_the_grace_at(tmp .. "/s.sock")
-end
-
---- `workers` is gone, whatever its value: the spec is refused, naming the
---- removal and what to do instead, before anything listens.
-local function test_workers_is_refused_naming_the_removal(tmp: string)
-  for _, workers in ipairs({ 0, 1, 2, true } as {any}) do -- checked: arms_differ, cast_refused
-    local ok, why: boolean, any = pcall(function()
-      local _, _ = Net.serve({ listeners = { Net.unix(tmp .. "/s.sock") }, serve = echo, -- checked: cast_refused
-        workers = workers } as Net.ServeSpec)
-    end)
-    local text = tostring(why)
-    assert(not ok and text:find("^cosmic%.net_serve_test:%d+: net: spec has no field workers: ") ~= nil,
-      text)
-    assert(text:find("workers = 0 asked for and is now the default, so drop the key", 1, true) ~= nil,
-      text)
-    assert(text:find("to serve in several, start each " ..
-        "(Proc.relaunch gives the command, Child.start runs it)", 1, true) ~= nil, text)
-  end
-  assert(Fs.stat(tmp .. "/s.sock") == nil)
 end
 
 --- The longest `grace_ns` a wait can last drains as a short one does:

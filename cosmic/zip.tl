@@ -1124,10 +1124,10 @@ local class BodyWriter is Stream.Writer
   end
 end
 
---- Why `self` takes no entry at `path` by `method_name` now, or "": it
---- failed or closed, an entry written a piece at a time is still open, or
---- the path or the method is one no archive holds.
-local function refusal_of(self: EntryWriter, path: string, method_name: Zip.Method): string
+--- Why `self` takes no entry at `path` now, or "": it failed or closed, an
+--- entry written a piece at a time is still open, or the path is one no
+--- archive holds.
+local function refusal_of(self: EntryWriter, path: string): string
   local usable, why = self.sink:usable()
   if not usable then return why end
   local open = self.open
@@ -1135,9 +1135,6 @@ local function refusal_of(self: EntryWriter, path: string, method_name: Zip.Meth
   local refusal = nul_refusal(path, "in a path")
   if refusal ~= "" then return refusal end
   if #path > PATH_LIMIT then return "zip: path longer than 65535 bytes" end
-  if METHOD_NUMBERS[method_name] == nil then
-    return "zip: unknown method '" .. method_name .. "'"
-  end
   return ""
 end
 
@@ -1147,7 +1144,7 @@ end
 local function put_entry(self: EntryWriter, path: string, body: string | Stream.Reader,
                          method_name: Zip.Method, type_bits: integer, mode: integer, mtime: integer,
                          hint?: integer): boolean, string
-  local refusal = refusal_of(self, path, method_name)
+  local refusal = refusal_of(self, path)
   if refusal ~= "" then return false, refusal end
   local method = assert(METHOD_NUMBERS[method_name])
   local dos_date, dos_time = 0x21, 0
@@ -1193,8 +1190,8 @@ local class EntryWriter is Zip.Writer
                     fopts?: Zip.EntryOptions): boolean, string
     fopts = fopts or {}
     local size = fopts.size
-    if size ~= nil and (math.type(size) ~= "integer" or size < 0) then
-      error("zip: opts.size must be an integer of at least 0", 2)
+    if size ~= nil and size < 0 then
+      error("zip: opts.size must be at least 0", 2)
     end
     -- A trailing `/` is what marks a directory: a file of that name
     -- would read back as one.
@@ -1206,12 +1203,12 @@ local class EntryWriter is Zip.Writer
   function file_writer(self, path: string, fopts?: Zip.EntryOptions): Stream.Writer?, string
     fopts = fopts or {}
     local size = fopts.size
-    if size ~= nil and (math.type(size) ~= "integer" or size < 0) then
-      error("zip: opts.size must be an integer of at least 0", 2)
+    if size ~= nil and size < 0 then
+      error("zip: opts.size must be at least 0", 2)
     end
     if path:sub(-1) == "/" then return nil, "zip: a file's path ends in /: " .. path end
     local method_name: Zip.Method = fopts.method or "deflate"
-    local refusal = refusal_of(self, path, method_name)
+    local refusal = refusal_of(self, path)
     if refusal ~= "" then return nil, refusal end
     local dos_date, dos_time = 0x21, 0
     if not self.deterministic then dos_date, dos_time = unix_to_dos(fopts.mtime or 0) end

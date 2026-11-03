@@ -361,7 +361,7 @@ function dataset.read(name: string, text: string, opts?: dataset.ReadOptions): d
 end
 
 --- One value as a bound parameter, or nil and why.
-local function bound(value: any): Sqlite.Value?, string
+local function bound(value: Json.Value?): Sqlite.Value?, string
   if value == Json.null or value == nil then
     return {}, ""
   elseif value is string then
@@ -372,14 +372,13 @@ local function bound(value: any): Sqlite.Value?, string
     return { integer = value }, ""
   elseif value is number then
     return { number = value }, ""
-  elseif value is table then
+  else
     local text, trouble = Json.encode_any(value)
     if text == nil then
       return nil, trouble
     end
     return { text = text }, ""
   end
-  return nil, "a " .. type(value) .. " has no SQLite value"
 end
 
 --- The names SQLite would otherwise take for itself: the row's own

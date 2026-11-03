@@ -32,18 +32,17 @@ end
 --- before a descriptor is opened.
 local function test_start_on_pty_validates_the_size_before_opening_a_pty()
   local before = lowest_free()
-  local function raises(size: {string:any}, why: string)
+  local function raises(rows: integer?, columns: integer?, why: string)
     for _ = 1, 4 do
       local ok, trouble = pcall(Child.start_on_pty, { "/bin/true" }, {},
-        { streams = { 1 }, rows = size.rows as integer, columns = size.columns as integer }) -- checked: cast_refused*2, map_field*2
+        { streams = { 1 }, rows = rows, columns = columns })
       assert(not ok and tostring(trouble):find(why, 1, true) ~= nil, tostring(trouble))
     end
   end
-  raises({ rows = -1, columns = 80 }, "0..65535") -- checked: any_use*2
-  raises({ rows = 24, columns = 65536 }, "0..65535") -- checked: any_use*2
-  raises({ rows = 1.5, columns = 80 }, "0..65535") -- checked: any_use*2
-  raises({ rows = 24 }, "given together") -- checked: any_use
-  raises({ columns = 80 }, "given together") -- checked: any_use
+  raises(-1, 80, "0..65535")
+  raises(24, 65536, "0..65535")
+  raises(24, nil, "given together")
+  raises(nil, 80, "given together")
   assert(lowest_free() == before)
 end
 

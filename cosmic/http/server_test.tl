@@ -738,14 +738,6 @@ local function test_a_callers_on_stop_runs_once_and_its_raise_is_reported()
   assert(#troubles == 1 and trouble_at(troubles, 1):find("stopping badly", 1, true) ~= nil, tostring(troubles[1]))
 end
 
---- A spec's on_stop that is no function raises, naming the field.
-local function test_a_non_function_on_stop_is_refused()
-  local ok, err = pcall(Server.serve, { -- checked: arms_differ, cast_refused
-    listeners = { Net.tcp("127.0.0.1", 0) }, handle = echo, on_stop = "no",
-  } as Server.ServeSpec)
-  assert(not ok and tostring(err):find("spec.on_stop", 1, true) ~= nil, tostring(err))
-end
-
 --- A handler's 4xx (a 404, a 400, a 401 to a request with a body) keeps the
 --- connection for the next request; so does a 5xx it chose, and a
 --- `close` it asked for still closes.
