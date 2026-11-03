@@ -219,14 +219,14 @@ function App.serve(app: Types.App, opts: Types.ServeOptions): boolean, string
       return false, "web: an app in development mode (Dev.app) cannot also have a trusted_proxy"
     end
     sink:line("development mode: stacks are shown and pages reload; serving on the loopback only")
-    for _, address in ipairs(opts.listeners) do
+    for _, address in ipairs(opts.listeners or {}) do -- checked: condition_type, literal_needs_type
       if not loopback(address) then
         return false, "web: an app in development mode (Dev.app) serves only on the loopback"
       end
     end
   end
   if app.spec.debug == true then
-    for _, address in ipairs(opts.listeners) do
+    for _, address in ipairs(opts.listeners or {}) do -- checked: condition_type, literal_needs_type
       if not loopback(address) then
         sink:line("debug is on and the app listens beyond the loopback: " ..
             "a fault shows its stack to whoever asks")

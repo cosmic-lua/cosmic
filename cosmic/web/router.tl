@@ -275,7 +275,7 @@ local function add_leaf(route: Types.Route, ctx: Router.Context, root: Types.Nod
   local full_pattern = pattern_text(full_segments, slash)
   local stack: mut {Types.Middleware} = {}
   for _, mw in ipairs(ctx.chain) do stack[#stack + 1] = mw end
-  for _, mw in ipairs(route.middleware) do stack[#stack + 1] = mw end
+  for _, mw in ipairs(route.middleware or {}) do stack[#stack + 1] = mw end -- checked: condition_type, literal_needs_type
   local handler = Middleware.compose(stack, assert(route.handler))
   local full_name = if route.name ~= "" then ctx.name_prefix .. route.name else "" end
   local info: Types.RouteInfo = { name = full_name, pattern = full_pattern, methods = route.methods }
@@ -316,7 +316,7 @@ local function add_mount(route: Types.Route, ctx: Router.Context, root: Types.No
   local full_prefix = pattern_text(full_segments, false)
   local own: mut {Types.Middleware} = {}
   for _, mw in ipairs(ctx.chain) do own[#own + 1] = mw end
-  for _, mw in ipairs(route.middleware) do own[#own + 1] = mw end
+  for _, mw in ipairs(route.middleware or {}) do own[#own + 1] = mw end -- checked: condition_type, literal_needs_type
   if route.name ~= "" and route.name:find(":", 1, true) ~= nil then
     refuse(what, "a mount's name holds no ':'")
   end

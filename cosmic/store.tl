@@ -499,7 +499,7 @@ local function write_database(names: {string}, file: string, main: string?,
         if not added then
           return false, script.name .. ": " .. why
         end
-        for _, edge in ipairs(script.requires) do
+        for _, edge in ipairs(script.requires or {}) do -- checked: condition_type, literal_needs_type
           if present[edge] == true then
             local inserted, insert_trouble = Sqlite.run(db,
               "INSERT OR IGNORE INTO imports (path, requires) VALUES (?1, ?2)",

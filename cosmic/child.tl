@@ -2048,10 +2048,10 @@ local function validate(argv: {string}, opts: Options)
   local sandbox = opts.sandbox
   local unveil = sandbox and sandbox.unveil
   if unveil ~= nil then
-    for _, list in ipairs({ unveil.reads, unveil.writes or {} }) do
+    for _, list in ipairs({ unveil.reads or {}, unveil.writes or {} }) do -- checked: condition_type, literal_needs_type
       for _, path in ipairs(list) do
         without_nul(path, "an unveiled path")
-        if path:sub(1, 1) ~= "/" then error("child: an unveiled path must be absolute", 3) end
+        if path:sub(1, 1) ~= "/" then error("child: an unveiled path must be absolute", 3) end -- untyped: call
       end
     end
   end
@@ -2062,7 +2062,7 @@ end
 local record Pty
   slave: integer
   --- The slave's path.
-  name: string
+  name?: string
   streams: {integer:boolean}
 end
 
@@ -3832,7 +3832,7 @@ local function start(argv: {string}, opts: Options, pty?: Pty, serves_relay?: in
       noexec_scratch = opts_sandbox.noexec_scratch == true, user = opts_sandbox.user,
       group = opts_sandbox.group }
     if given ~= nil then
-      sandbox.unveil = { reads = given.reads, writes = given.writes or {}, at = given.at } -- checked: field_fixed
+      sandbox.unveil = { reads = given.reads or {}, writes = given.writes or {}, at = given.at } -- checked: condition_type, field_fixed, literal_needs_type
     end
   end
   local credentials: raw_process.Credentials?
@@ -3948,7 +3948,9 @@ local function start(argv: {string}, opts: Options, pty?: Pty, serves_relay?: in
   local run_argv = if held ~= nil and held.argv ~= nil then held.argv else argv end
   -- The pty's path is the terminal where stdin is on it.
   local terminal: boolean | string = false
-  if pty ~= nil and pty.streams[0] == true then terminal = pty.name end
+  if pty ~= nil and pty.streams[0] == true then
+    terminal = if pty.name ~= nil then pty.name else true end
+  end
   local called, pid, trouble, errno = pcall(raw.spawn, path, run_argv, env, cwd, -- checked: overload_none -- untyped: call
     slots[0], slots[1], slots[2], grouped, extra, sandbox, credentials, terminal)
   if not called then
@@ -4189,7 +4191,7 @@ function Child.start_on_pty(argv: {string}, opts: Options, pty: PtyOptions): Pty
     if found == nil then return refuse("pty: " .. name_why) end
     slave_path = found
   end
-  local started, trouble = start(argv, opts, { slave = made.slave, streams = streams, name = slave_path }) -- checked: nil_not_allowed
+  local started, trouble = start(argv, opts, { slave = made.slave, streams = streams, name = slave_path })
   if started == nil then return nil, trouble end
   holding.keep = true
   holding.keep_slave = pty.keep_slave == true
@@ -4359,7 +4361,7 @@ function Child.run(argv: {string}, opts?: Options): Result?, string
   if not restored then return refuse("signal restore: " .. restore_trouble) end
   local cancellation = guard:cancelled()
   if cancellation ~= 0 then
-    return nil, cleanup_trouble or wait_trouble
+    return nil, cleanup_trouble or wait_trouble or cancelled_by(cancellation) -- checked: condition_type
   end
   if cleanup_trouble then return nil, cleanup_trouble end
   if r then return r, "" end
