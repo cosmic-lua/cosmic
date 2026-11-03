@@ -132,16 +132,20 @@ local function test_run_refuses_a_stream()
   } as {Child.Options}) do
     Test.raises(function() Child.run({ "/bin/sh", "-c", "exit 0" }, opts) end, "Child.start")
   end
-  assert(not pcall(Child.start, { "/bin/sh" }, { stdin = "stream", input = "x" } as Child.Options)) -- checked: alternatives_as_value, cast_refused
+  Test.raises(function()
+    Child.start({ "/bin/sh" }, { stdin = "stream", input = "x" } as Child.Options) -- checked: cast_refused
+  end)
 end
 
 local function test_options_are_validated()
-  assert(not pcall(Child.start, { "/bin/sh" }, { stdin = "capture" } as Child.Options)) -- checked: alternatives_as_value, cast_refused
-  assert(not pcall(Child.start, { "/bin/sh" }, { stdout = "stdout" } as Child.Options)) -- checked: alternatives_as_value, cast_refused
-  assert(not pcall(Child.start, { "/bin/sh" }, { stdin = "null", input = "x" } as Child.Options)) -- checked: alternatives_as_value, cast_refused
-  assert(not pcall(Child.start, { "/bin/sh" }, { fds = { [2] = 1 } } as Child.Options)) -- checked: alternatives_as_value, cast_refused
-  assert(not pcall(Child.start, { "/bin/sh" }, { fds = { [256] = 1 } } as Child.Options)) -- checked: alternatives_as_value, cast_refused
-  assert(not pcall(Child.start, { "/bin/sh" }, { capture_limit = 0 } as Child.Options)) -- checked: alternatives_as_value, cast_refused
+  Test.raises(function() Child.start({ "/bin/sh" }, { stdin = "capture" } as Child.Options) end) -- checked: cast_refused
+  Test.raises(function() Child.start({ "/bin/sh" }, { stdout = "stdout" } as Child.Options) end) -- checked: cast_refused
+  Test.raises(function()
+    Child.start({ "/bin/sh" }, { stdin = "null", input = "x" } as Child.Options) -- checked: cast_refused
+  end)
+  Test.raises(function() Child.start({ "/bin/sh" }, { fds = { [2] = 1 } } as Child.Options) end) -- checked: cast_refused
+  Test.raises(function() Child.start({ "/bin/sh" }, { fds = { [256] = 1 } } as Child.Options) end) -- checked: cast_refused
+  Test.raises(function() Child.start({ "/bin/sh" }, { capture_limit = 0 } as Child.Options) end) -- checked: cast_refused
 end
 
 --- Bad IDs and namespace combinations are rejected before opening any
@@ -161,10 +165,10 @@ local function test_credentials_reject_invalid_ids_and_namespace_options()
   } as {Child.Sandbox}) do
     local ok, why = pcall(Child.start, { "/never-started" },
       { credentials = { user = 1, group = 1 }, sandbox = sandbox })
-    assert(not ok and tostring(why):find("credentials exclude sandbox", 1, true), tostring(why)) -- checked: or_mix
+    assert(not ok and tostring(why):find("credentials exclude sandbox", 1, true) ~= nil, tostring(why))
   end
   local ok, why = pcall(Child.start, { "/never-started" },
     { credentials = { user = 1, group = 1 }, policy = {} })
-  assert(not ok and tostring(why):find("policy and credentials exclude each other", 1, true), -- checked: or_mix
+  assert(not ok and tostring(why):find("policy and credentials exclude each other", 1, true) ~= nil,
     tostring(why))
 end

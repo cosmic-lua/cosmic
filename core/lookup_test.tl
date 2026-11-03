@@ -75,7 +75,7 @@ local function test_a_supplied_socket_replaces_the_stand_in(tmp: string)
   local _, fds, events = lookup:step(nil, nil)
   assert(#fds == 1 and fds[1] ~= conn:fd() and #events == 1)
   assert(lookup:wait(1000))
-  local accepted <close> = assert(server:accept()) -- checked: close_not_closable
+  local accepted <close> = assert(server:accept())
   local sent = assert(accepted:read(2))
   assert(#sent == 2)
   lookup:close()

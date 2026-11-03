@@ -128,7 +128,7 @@ local function test_invalid_bounds_and_sink_mapping_consume_nothing()
       { stderr = out, max_bytes = 4, timeout_ns = 0 }, -- checked: arms_differ
       { stdout = out, stderr = out, max_bytes = 4, timeout_ns = 0 }, -- checked: arms_differ
   }) do
-    assert(not pcall(function() h:drain(bad) end)) -- checked: alternatives_as_value
+    Test.raises(function() h:drain(bad) end)
   end
   assert(finish(h, options(out)) == 4 and out:result() == "safe")
 end
@@ -138,7 +138,7 @@ local function test_explicit_reader_and_handle_close_refuse_drain()
     local h <close> = start('return 0')
     if reader_close then assert(assert(h.stdout_stream):close()) else assert(h:close()) end
     local got = h:drain(options(Stream.collect()))
-    assert(got ~= nil and got.kind == "failed" and got.reason:find("closed", 1, true)) -- checked: compare_disjoint, or_mix
+    assert(got ~= nil and got.kind == "failed" and got.reason:find("closed", 1, true) ~= nil) -- checked: compare_disjoint
   end
 end
 
@@ -242,8 +242,8 @@ local function test_a_parked_drain_refuses_another_read_and_drain()
   Poll.run(function()
     local task = Poll.spawn(function() h:drain(options(Stream.collect())) end)
     assert(Poll.delay(0))
-    assert(not pcall(function() assert(h.stdout_stream):read() end)) -- checked: alternatives_as_value
-    assert(not pcall(function() h:drain(options(Stream.collect(), nil, 0)) end)) -- checked: alternatives_as_value
+    Test.raises(function() assert(h.stdout_stream):read() end)
+    Test.raises(function() h:drain(options(Stream.collect(), nil, 0)) end)
     task:kill()
     assert(assert(h.stdin_stream):close())
     local data, why = assert(h.stdout_stream):read()

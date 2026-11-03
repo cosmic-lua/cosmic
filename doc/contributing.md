@@ -108,7 +108,8 @@ line below it. [`build/markers.tl`] has the rules.
   main, so a marker cannot be added, and one that is written over a
   line that moved is not new. it reads the base with git alone (`git
   grep` and `git cat-file`), with no run of the checker. CI runs it on
-  every branch push and in the merge queue, where it fails when no base
+  every branch push and in the merge queue, against the merge base with
+  main and never the entry ahead in the queue, where it fails when no base
   can be found (GitHub could not name it: run the job again), and
   `bin/cosmic fix --check .` runs it locally against `git merge-base HEAD
   origin/main`, saying so when there is no `origin/main` (`git fetch
@@ -118,9 +119,11 @@ line below it. [`build/markers.tl`] has the rules.
   change that moves a finding to another line moves its marker, and a
   marker left behind is stale where the finding is no longer.
 
-a code none of whose findings remain is closed: add it to
-`Ceilings.closed` in [`build/ceilings.tl`], and a marker naming it is
-refused from then on.
+a code none of whose findings remain is closed by that alone: no list
+names it. a marker for a code no file held a marker of at the merge base
+is refused by the ratchet, which says the rule has no exceptions and to
+fix the code, so taking a code's last marker closes it, and a new rule of
+the checker starts closed.
 
 The examples a reader copies (`*_example.tl`) hold their findings by
 markers too: a marker is part of the text `cosmic docs` shows, and
@@ -309,7 +312,6 @@ the tool named can be older than the tree's generator.
 [`bin/zig`]: ../bin/zig
 [`build.boot`]: ../build/boot.tl
 [`build.fix.format`]: ../build/fix/format.tl
-[`build/ceilings.tl`]: ../build/ceilings.tl
 [`build/ceilings_base.tl`]: ../build/ceilings_base.tl
 [`build/markers.tl`]: ../build/markers.tl
 [`build/paths.tl`]: ../build/paths.tl

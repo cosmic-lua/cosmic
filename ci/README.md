@@ -421,8 +421,11 @@ holds the list to what the caches and the driver check hash, so it
 cannot drift from them, and the script to `full` wherever it cannot tell
 (a failed compare, a diff of 300 files). A full branch push runs the
 queue's jobs (the checked shares and the narrowing run
-too); the script's merge base is the leg's `COSMIC_CI_BASE_SHA`, which the
-format check holds the markers of the tree against. It saves
+too); the script's merge base is the leg's `COSMIC_CI_BASE_SHA`, the commit
+whose verdicts it stands on. The format check holds the markers of the tree to
+the merge base with main on every path (`driver.tl ceilings-base`, which names it
+`COSMIC_CEILINGS_BASE`), the queue's run included: the queue's own base is the
+entry ahead, whose markers the run's commit already holds. It saves
 nothing, runs the portable suite on alpine-x86_64 alone as the queue
 does, and its format check is assemble's, not the `format` job's.
 

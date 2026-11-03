@@ -175,7 +175,7 @@ end
   end
   local port = math.tointeger(tonumber(Fs.read(marker) or ""))
   assert(port ~= nil, "the server never listened")
-  local conn <close> = assert(Net.connect(Net.tcp("127.0.0.1", port), { timeout_ns = Clock.seconds(20) })) -- checked: close_not_closable
+  local conn <close> = assert(Net.connect(Net.tcp("127.0.0.1", port), { timeout_ns = Clock.seconds(20) }))
   assert(conn:write("GET / HTTP/1.1\r\nHost: test\r\n\r\n"))
   local head = ""
   while not head:find("\r\n\r\nup", 1, true) do head = head .. assert(conn:read()) end

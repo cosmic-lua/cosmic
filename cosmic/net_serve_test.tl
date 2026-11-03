@@ -41,21 +41,19 @@ local function released(address: Net.Address): boolean
 end
 
 --- A client of `address`, and the lines it reads.
-local record Client
+local class Client
   conn: Net.Conn
   lines: Stream.Lines
-  __close: function(Client)
-end
 
-local client_mt: metatable<Client> = { -- checked: literal_missing
-  __close = function(self: Client)
+  function __close(self)
     local _, _ = self.conn:close()
-  end,
-}
+  end
+end
 
 local function client(address: Net.Address): Client
   local conn = assert(Net.connect(address, { timeout_ns = Clock.seconds(5) }))
-  return setmetatable({ conn = conn, lines = Stream.lines(conn) }, client_mt) -- checked: arms_differ, setmetatable_call
+  local made: Client = { conn = conn, lines = Stream.lines(conn) }
+  return made
 end
 
 --- Connections are served at once, each in a task of its own: the last
@@ -66,9 +64,9 @@ local function test_several_connections_are_served_at_once()
     listeners = { Net.tcp("127.0.0.1", 0) },
     serve = echo,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
-      local first <close> = client(addresses[1]) -- checked: close_not_closable, index_may_be_nil
-      local second <close> = client(addresses[1]) -- checked: close_not_closable, index_may_be_nil
-      local third <close> = client(addresses[1]) -- checked: close_not_closable, index_may_be_nil
+      local first <close> = client(addresses[1]) -- checked: index_may_be_nil
+      local second <close> = client(addresses[1]) -- checked: index_may_be_nil
+      local third <close> = client(addresses[1]) -- checked: index_may_be_nil
       for i, c in ipairs({ third, second, first }) do
         assert(c.conn:write("line " .. tostring(i) .. "\n"))
         local appended = assert(c.lines:read())
@@ -97,14 +95,14 @@ local function test_an_error_in_one_connection_leaves_the_others_served()
     end,
     on_error = function(trouble: string) troubles[#troubles + 1] = trouble end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
-      local steady <close> = client(addresses[1]) -- checked: close_not_closable, index_may_be_nil
-      local failing <close> = client(addresses[1]) -- checked: close_not_closable, index_may_be_nil
+      local steady <close> = client(addresses[1]) -- checked: index_may_be_nil
+      local failing <close> = client(addresses[1]) -- checked: index_may_be_nil
       assert(failing.conn:write("boom\n"))
       local gone, why = failing.lines:read()
       assert(gone == nil and why == "", why)
       assert(steady.conn:write("still\n"))
       assert(steady.lines:read() == "still")
-      local fresh <close> = client(addresses[1]) -- checked: close_not_closable, index_may_be_nil
+      local fresh <close> = client(addresses[1]) -- checked: index_may_be_nil
       assert(fresh.conn:write("after\n"))
       later = assert(fresh.lines:read())
       server:stop()
@@ -133,7 +131,7 @@ local function test_at_the_connection_limit_accepting_waits()
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
       local second: Client
       do
-        local first <close> = client(addresses[1]) -- checked: close_not_closable, index_may_be_nil
+        local first <close> = client(addresses[1]) -- checked: index_may_be_nil
         assert(first.conn:write("one\n"))
         assert(first.lines:read() == "one")
         second = client(addresses[1]) -- checked: index_may_be_nil
@@ -167,7 +165,7 @@ local function test_timeout_ns_bounds_each_connection()
       assert(data == nil) -- checked: compare_disjoint
     end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
-      local idle <close> = client(addresses[1]) -- checked: close_not_closable, index_may_be_nil
+      local idle <close> = client(addresses[1]) -- checked: index_may_be_nil
       local ended, reason = idle.lines:read()
       assert(ended == nil and reason == "", reason)
       server:stop()
@@ -202,7 +200,7 @@ local function stop_drains_then_kills_after_grace_ns_at(path: string?)
       assert(conn:write(line .. "\n"))
     end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
-      local slow <close> = client(addresses[1]) -- checked: close_not_closable, index_may_be_nil
+      local slow <close> = client(addresses[1]) -- checked: index_may_be_nil
       stuck = client(addresses[1]) -- checked: index_may_be_nil
       assert(slow.conn:write("slow\n"))
       while started < 2 do assert(Poll.delay(Clock.ms(1))) end
@@ -286,8 +284,18 @@ local function test_a_spec_of_the_wrong_shape_raises_naming_the_field(tmp: strin
   assert(Fs.stat(tmp .. "/s.sock") == nil)
 end
 
-local record Closer
-  __close: function(Closer)
+--- A value that runs `on_close` when a `<close>` variable holding it goes out of scope.
+local class Closer
+  on_close: function()
+
+  function __close(self)
+    self.on_close()
+  end
+end
+
+local function closer(on_close: function()): Closer
+  local made: Closer = { on_close = on_close }
+  return made
 end
 
 --- A protocol that ignores every failure and waits on, on its
@@ -299,13 +307,12 @@ local function test_a_protocol_ignoring_failures_is_killed_at_grace_ns()
   local errors: mut {string} = {}
   local started: integer = 0
   local closed: integer = 0
-  local closer_mt: metatable<Closer> = { __close = function() closed = closed + 1 end } -- checked: literal_missing
   local held: mut {Client} = {}
   assert(Net.serve{
     listeners = { Net.tcp("127.0.0.1", 0) },
     grace_ns = Clock.ms(20),
     serve = function(conn: Net.Conn)
-      local _ <close> = setmetatable({} as Closer, closer_mt) -- checked: cast_refused, setmetatable_call
+      local _ <close> = closer(function() closed = closed + 1 end)
       started = started + 1
       local reads = started == 1
       while true do
@@ -342,13 +349,12 @@ end
 local function test_a_killed_protocols_close_error_is_reported()
   local errors: mut {string} = {}
   local started: boolean = false
-  local raiser_mt: metatable<Closer> = { __close = function() error("broken close", 0) end } -- checked: literal_missing
   local held: Client? = nil
   assert(Net.serve{
     listeners = { Net.tcp("127.0.0.1", 0) },
     grace_ns = 0,
     serve = function(_conn: Net.Conn)
-      local _ <close> = setmetatable({} as Closer, raiser_mt) -- checked: cast_refused, setmetatable_call
+      local _ <close> = closer(function() error("broken close", 0) end)
       started = true
       assert(Poll.delay(Clock.seconds(60)))
     end,
@@ -380,12 +386,11 @@ local function test_a_killed_protocols_close_cannot_wait()
     listeners = { Net.tcp("127.0.0.1", 0) },
     grace_ns = Clock.ms(50),
     serve = function(conn: Net.Conn)
-      local farewell_mt: metatable<Closer> = { __close = function() -- checked: literal_missing
+      local _ <close> = closer(function()
         local _, why = conn:write(string.rep("x", 8 * 1024 * 1024))
         wrote = why
         assert(Poll.delay(0))
-      end }
-      local _ <close> = setmetatable({} as Closer, farewell_mt) -- checked: cast_refused, setmetatable_call
+      end)
       started = true
       while true do local _, _ = Poll.delay(Clock.seconds(60)) end
     end,
@@ -400,7 +405,7 @@ local function test_a_killed_protocols_close_cannot_wait()
   returned_at = Clock.monotonic_ns()
   local _, _ = assert(held, "the server was ready").conn:close()
   assert(wrote == "net: the connection is closed", wrote)
-  assert(#errors == 1 and errors[1]:find("while its task is killed", 1, true), -- checked: or_mix
+  assert(#errors == 1 and errors[1]:find("while its task is killed", 1, true) ~= nil,
     table.concat(errors, "\n"))
   assert(returned_at - stopped_at < Clock.seconds(5), tostring(returned_at - stopped_at))
 end
@@ -417,7 +422,7 @@ local function test_the_connection_limit_is_shared_by_every_listener()
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
       local second: Client
       do
-        local first <close> = client(addresses[1]) -- checked: close_not_closable, index_may_be_nil
+        local first <close> = client(addresses[1]) -- checked: index_may_be_nil
         assert(first.conn:write("one\n"))
         assert(first.lines:read() == "one")
         second = client(addresses[2]) -- checked: index_may_be_nil
@@ -454,7 +459,7 @@ local function a_protocol_stops_its_server_at(path: string?)
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
       serving = server
       bound = addresses[1]
-      local c <close> = client(addresses[1]) -- checked: close_not_closable, index_may_be_nil
+      local c <close> = client(addresses[1]) -- checked: index_may_be_nil
       assert(c.conn:write("stop\n"))
       answer = assert(c.lines:read())
     end,
@@ -531,7 +536,7 @@ local function sigterm_stops_the_server_and_it_drains_at(path: string?)
       assert(conn:write(line .. "\n"))
     end,
     on_ready = function(addresses: {Net.Address}, _server: Net.Server)
-      local c <close> = client(addresses[1]) -- checked: close_not_closable, index_may_be_nil
+      local c <close> = client(addresses[1]) -- checked: index_may_be_nil
       assert(c.conn:write("slow\n"))
       while not started do assert(Poll.delay(Clock.ms(1))) end
       assert(sys.kill(sys.getpid(), sys.SIGTERM))
@@ -627,7 +632,7 @@ local function test_the_longest_grace_drains_the_connections_open()
       assert(conn:write(line .. "\n"))
     end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
-      local c <close> = client(addresses[1]) -- checked: close_not_closable, index_may_be_nil
+      local c <close> = client(addresses[1]) -- checked: index_may_be_nil
       assert(c.conn:write("slow\n"))
       assert(Poll.delay(Clock.ms(10)))
       server:stop()
@@ -666,7 +671,7 @@ local function on_stop_runs_once_at_stop_at(path: string?)
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
       serving = server
       bound = addresses[1]
-      local c <close> = client(addresses[1]) -- checked: close_not_closable, index_may_be_nil
+      local c <close> = client(addresses[1]) -- checked: index_may_be_nil
       assert(c.conn:write("slow\n"))
       assert(c.lines:read() == "slow")
       server:stop()
@@ -854,7 +859,7 @@ local function test_on_stop_runs_when_stopped_from_a_coroutine()
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
       serving = server
       Poll.spawn(function()
-        local c <close> = client(addresses[1]) -- checked: close_not_closable, index_may_be_nil
+        local c <close> = client(addresses[1]) -- checked: index_may_be_nil
         assert(c.conn:write("stop\n"))
         local _, _ = c.lines:read()
       end)
@@ -880,7 +885,7 @@ local function test_the_grace_begins_once_on_stop_returns()
     on_stop = function(_server: Net.Server) assert(Poll.delay(Clock.ms(300))) end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
       Poll.spawn(function()
-        local c <close> = client(addresses[1]) -- checked: close_not_closable, index_may_be_nil
+        local c <close> = client(addresses[1]) -- checked: index_may_be_nil
         assert(c.conn:write("slow\n"))
         assert(Poll.delay(Clock.ms(10)))
         server:stop()

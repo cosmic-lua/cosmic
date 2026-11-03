@@ -306,7 +306,7 @@ local function test_the_upstream_is_resolved_once_and_an_ungranted_name_never(tm
     serving:cancel()
     watching:cancel()
     assert(listener:close())
-    Udp.close(udp)
+    udp:close()
   end)
   table.sort(queries)
   assert(table.concat(lines, "|") == "upstream 127.0.0.1|api.test:443 200|api.test:443 200|api.test:443 200|" ..

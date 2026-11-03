@@ -4,8 +4,8 @@
 --- [`Ceilings.marked`] judges a file against its markers: a finding with no marker on its line is refused, by a compile of the
 --- module and by the check of the tree, and a marker whose finding is gone is stale, which the check of the tree tells and
 --- `cosmic fix` removes. The markers only fall: [`build.ceilings_base`] holds each file's count of each code to the file at the
---- merge base with main. A code that no marker holds is closed ([`Ceilings.closed`]): no marker holds it, so the tree keeps its
---- rule with no exceptions.
+--- merge base with main, so a code with no marker at the merge base is held by none: a marker for it is refused as a new one,
+--- and the rule has no exceptions. No list of such codes is kept: they are the codes the markers of the tree do not hold.
 ---
 --- There is no file of counts: the stages are these four ([`Ceilings.Stage`]) and nothing configures them, so a stage cannot
 --- be taken out of the list and given rows. A project outside cosmic's tree is held to no marker: every finding refuses.
@@ -29,14 +29,6 @@ local record Ceilings
     msg: string
     fix: string
   end
-
-  --- The codes that no marker may hold: each has no marker left in any stage, so the tree keeps its rule with no exceptions.
-  --- It is a list and not "every code that has no marker", because a marker for such a code would be the marker: only a list
-  --- stays closed against the text it is asked to judge. The list is held to its meaning by [`build/ceilings_test.tl`] and
-  --- the check of the tree ([`tree_checks.closure`]): a code of a stage with no marker must be listed, so that the change that
-  --- removes a code's last marker closes it, and a listed code must be a code of some stage. A new code of a stage starts with
-  --- no marker, so it is listed with the change that adds it.
-  closed: function(): {string}
 
   --- The pseudo code of a call the checker gave no function ([`build.syntax_contracts`]'s `untyped`), the one finding of the
   --- stage `untyped`: a marker (`-- untyped: call`) names it as it names a code of the checker.
@@ -66,7 +58,7 @@ local record Ceilings
   --- What [`Ceilings.marked`] found of one file.
   record Judged
     --- The refusals, listed: each finding that has no marker, with its place, message and fix, then a line that says how many
-    --- there are at the line and what the marker holds; and a marker of a closed code.
+    --- there are at the line and what the marker holds.
     lines: {string}
     --- The findings no marker holds, by line and code.
     unmarked: {Spot}
@@ -80,86 +72,6 @@ local record Ceilings
   --- no marker holds) the lines do not point to a marker.
   marked: function(stage: Stage, file: string, text: string, errors: {Finding}, codes: {string}, what: string,
                    markerless?: boolean): Judged
-end
-
-local CLOSED_CODES <const>: {string} = {
-  "alias_cycle",
-  "arity",
-  "array_hole",
-  "array_part_map",
-  "assign_repeated",
-  "bound_not_interface",
-  "bound_not_met",
-  "bound_unmet",
-  "class_scope",
-  "concat_type",
-  "const_assigned",
-  "declaration_value",
-  "enum_member",
-  "env_reserved",
-  "format_malformed",
-  "generic_op",
-  "gsub_key",
-  "infer_conflict",
-  "invariant_mut",
-  "iterator_extra",
-  "iterator_variables",
-  "listing_too_large",
-  "lists_overlap",
-  "literal_ambiguous",
-  "literal_repeated",
-  "literal_spread",
-  "local_untyped",
-  "match_missing",
-  "match_pattern",
-  "match_redundant",
-  "metamethod_signature",
-  "metamethod_unknown",
-  "narrowing_dropped",
-  "narrows_unproved",
-  "not_a_type",
-  "not_a_value",
-  "not_callable",
-  "not_indexable",
-  "operand_type",
-  "optional_generic",
-  "optional_metamethod",
-  "outer_type_parameter",
-  "pack_malformed",
-  "param_untyped",
-  "paren_is",
-  "pattern_malformed",
-  "primitive_type_name",
-  "record_as_map",
-  "record_index",
-  "repeated_field",
-  "repeated_value",
-  "require_unknown",
-  "return_arity",
-  "return_unexpected",
-  "shadows",
-  "static_before_definition",
-  "store_refused",
-  "super_cycle",
-  "super_not_interface",
-  "type_arguments",
-  "type_name",
-  "type_too_deep",
-  "unknown_parameter",
-  "unknown_type",
-  "unknown_variable",
-  "unused_type_parameter",
-  "value_count",
-  "vararg_outside",
-}
-
-local CLOSED: mut {string: boolean} = {}
-for _, code in ipairs(CLOSED_CODES) do
-  CLOSED[code] = true
-end
-
-function Ceilings.closed(): {string}
-  return CLOSED_CODES
 end
 
 Ceilings.untyped_code = "call"
@@ -213,11 +125,7 @@ function Ceilings.marked(stage: Ceilings.Stage, file: string, text: string, erro
       local list = on[code]
       if list ~= nil then
         local marked_n = (held[line] or {})[code] or 0
-        -- A closed code has no exceptions: a marker for it holds nothing.
         local allowed = marked_n
-        if CLOSED[code] == true then
-          allowed = 0
-        end
         if #list > allowed then
           for _, e in ipairs(list) do
             out[#out + 1] = file .. ":" .. tostring(e.y) .. ":" .. tostring(e.x) .. ": " .. e.msg .. " (" .. code .. "): " .. e.fix
@@ -247,9 +155,6 @@ function Ceilings.marked(stage: Ceilings.Stage, file: string, text: string, erro
         local has = #(((found[line] or {})[code]) or {})
         if n > has then
           stale[#stale + 1] = { file = file, line = line, stage = tostring(stage), code = code, count = n - has }
-        elseif CLOSED[code] == true then
-          out[#out + 1] = file .. ":" .. tostring(line) .. ": " .. code .. " is closed: the tree keeps this rule with no " ..
-            "exceptions; a marker holds none of it, so fix the code"
         end
       end
     end

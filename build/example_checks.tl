@@ -25,7 +25,6 @@
 --- marker in an example file is the marker its chunk is judged by. A finding with no marker on its line is refused, and so
 --- is a marker whose finding is gone. A guide's block holds no marker (a reader copies the block), so any finding in one
 --- is refused.
-local Ceilings = require("build.ceilings")
 local Fs = require("cosmic.fs")
 local Markers = require("build.markers")
 local Sqlite = require("cosmic.sqlite")
@@ -164,11 +163,6 @@ local function is_count(line: string): boolean
   return line:match(": %d+ errors? of [%a][%w_]* in its %a+ on line %d+; follow the fix above$") ~= nil
 end
 
-local CLOSED: mut {string: boolean} = {}
-for _, code in ipairs(Ceilings.closed()) do
-  CLOSED[code] = true
-end
-
 --- The stage of the finding at `place`, from what the checker told ([`Pipeline.Alone`]'s `stages`): "" where it has none (a
 --- warning, a finding two stages report at one place), which no marker holds.
 local function stage_of(stages: {string: string}, place: Place): string
@@ -177,8 +171,7 @@ end
 
 --- `lines`, the findings of the checker over `text` (the chunk `where` names), less what the markers of `text` hold: the
 --- findings of a code of a stage on a line that the markers of that stage do not hold, each told with a count, and each
---- marker that holds more of a code than its line has. `marks` is false for a guide's block, which carries none. A closed
---- code ([`Ceilings.closed`]) is held by no marker.
+--- marker that holds more of a code than its line has. `marks` is false for a guide's block, which carries none.
 local function held(where: string, text: string, lines: {string}, stages: {string: string}, marks: boolean): {string}
   local out: mut {string} = {}
   -- The findings and the markers by line and `<stage> <code>`.
@@ -214,9 +207,6 @@ local function held(where: string, text: string, lines: {string}, stages: {strin
     end
   end
   local function allowed(y: integer, key: string): integer
-    if CLOSED[assert(key:match("^%S* (%S+)$"))] == true then
-      return 0
-    end
     return (marked[y] or {})[key] or 0
   end
   local told: mut {string: boolean} = {}
@@ -256,10 +246,7 @@ local function held(where: string, text: string, lines: {string}, stages: {strin
       local n = assert(assert(marked[y])[key])
       local has = (found[y] or {})[key] or 0
       local code = assert(key:match("^%S* (%S+)$"))
-      if CLOSED[code] == true then
-        out[#out + 1] = where .. ": line " .. tostring(y) .. " of the text shown: " .. code .. " is closed: the tree keeps " ..
-          "this rule with no exceptions; a marker holds none of it, so fix the code"
-      elseif n > has then
+      if n > has then
         out[#out + 1] = where .. ": line " .. tostring(y) .. " of the text shown: its marker holds " ..
           String.counted(n - has, "finding") .. " of " .. code .. " that the line no longer has; remove the marker"
       end

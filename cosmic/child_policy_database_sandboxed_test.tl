@@ -90,13 +90,13 @@ local function test_a_database_policy_refuses_another_program_and_this_ones_own_
   fixture.seal(tmp, path)
   local executable = assert(Proc.executable())
   local other, why = Child.start({ "/bin/sh", "-c", "true" }, { policy = { database = { path = path } } })
-  assert(other == nil and why:find("is not this program", 1, true), tostring(why)) -- checked: or_mix
+  assert(other == nil and why:find("is not this program", 1, true) ~= nil, tostring(why))
   local file, file_why = Child.start({ executable, "x" }, { policy = { database = { path = path },
     grants = { { path = executable, letters = "r" } } } })
-  assert(file == nil and file_why:find("own file", 1, true), tostring(file_why)) -- checked: or_mix
+  assert(file == nil and file_why:find("own file", 1, true) ~= nil, tostring(file_why))
   local above, above_why = Child.start({ executable, "x" }, { policy = { database = { path = path },
     grants = { { path = assert(executable:match("^(.*)/[^/]+$")), letters = "r" } } } })
-  assert(above == nil and above_why:find("own file", 1, true), tostring(above_why)) -- checked: or_mix
+  assert(above == nil and above_why:find("own file", 1, true) ~= nil, tostring(above_why))
   -- The profile that grants the program's file is left out beside a
   -- database, so it refuses nothing.
   local profiled, profile_why = Child.run({ executable, executable },
@@ -125,7 +125,7 @@ local function test_a_decoded_policy_refuses_a_database_that_changed_since(tmp: 
   local bytes = assert(Fs.read(path))
   assert(Fs.write(path, bytes .. "x"))
   local started, why = Child.start({ executable, executable }, { policy = policy })
-  assert(started == nil and why:find("has changed since", 1, true), tostring(why)) -- checked: or_mix
+  assert(started == nil and why:find("has changed since", 1, true) ~= nil, tostring(why))
 end
 
 --- A sealed program run under `nest` by `mode` (see the probe in `MAIN`) with

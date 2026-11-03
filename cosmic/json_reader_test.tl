@@ -287,7 +287,7 @@ local function test_a_value_failure_under_a_long_place_reads_as_decode_names_it(
   end
   local _, err = r:value()
   local _, whole = Json.decode(text)
-  assert(err == whole and err:find('pointer ending "', 1, true), err .. " vs " .. whole) -- checked: or_mix
+  assert(err == whole and err:find('pointer ending "', 1, true) ~= nil, err .. " vs " .. whole)
 end
 
 -- ---- JSON5 and `#` comments ----------------------------------------

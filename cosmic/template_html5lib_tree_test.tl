@@ -344,7 +344,7 @@ end
 
 local function check_case(file: string, case: Case, reach: Reach)
   local input, tree = case.input, case.tree
-  if case.other or input:find("{{", 1, true) or input:find("[&%z\r]") then -- checked: or_mix
+  if case.other or input:find("{{", 1, true) ~= nil or input:find("[&%z\r]") ~= nil then
     return
   end
   reach.cases = reach.cases + 1
