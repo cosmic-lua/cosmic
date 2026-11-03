@@ -229,9 +229,11 @@ end
 local function test_four_times_the_members_costs_about_sixteen_times_for_a_chain_of_tests_over_every_tag_of_a_union()
   -- A chain is quadratic in the members at best, each test reading the union the ones before it left: four times the
   -- members costs 16 times, and 64 times where a test or the join of the arms asks each pair of members, or walks them
-  -- again, for each test. The limits lie between what the chain and the `or` of tests cost, and what they cost then.
+  -- again, for each test. Both cost about 13 to 14 times when the machine is quiet (the smaller input fits in the cache
+  -- better) and about 50 times with the cube, so one limit lies between them with room on both sides: a sustained
+  -- slowdown of the larger input alone, as on a shared runner, took 22 times once.
   local limits <const>: {string: integer} = {
-    ["a union of many tagged records told apart by a chain of tests over every tag"] = 21,
+    ["a union of many tagged records told apart by a chain of tests over every tag"] = 28,
     ["a union of many tagged records told apart by one test of every tag joined by or"] = 28,
   }
   for name, limit in pairs(limits) do
