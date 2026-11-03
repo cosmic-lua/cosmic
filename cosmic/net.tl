@@ -686,7 +686,7 @@ resolved_through = function(name: string, opts: Net.ResolveOptions): {Net.Resolv
   end
   local servers: mut {raw_socket.ThroughServer} = {}
   for _, server in ipairs(listed) do
-    local index = served:find(server.host, server.port)
+    local index = Leaf.find(served, server.host, server.port)
     if index == nil then
       return nil, "net: the name server " .. named(Net.tcp(server.host, server.port)) ..
         " is not in the connector's table"
@@ -699,14 +699,14 @@ resolved_through = function(name: string, opts: Net.ResolveOptions): {Net.Resolv
     through = servers,
     connect = function(index: integer, port: integer, deadline: integer?):
       Resolv.Connection?, string
-      local socket, why = served:through(index, port, deadline)
+      local socket, why = Leaf.through(served, index, port, deadline)
       if socket == nil then return nil, why end
       return { fd = socket:fd(), release = function() local _, _ = socket:close() end }, ""
     end,
   })
   if found == nil then
     -- A stream given up fails every connect after it: its words say why.
-    return nil, served:lost() or trouble
+    return nil, Leaf.lost(served) or trouble
   end
   return found, ""
 end

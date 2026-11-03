@@ -42,10 +42,8 @@ local record Stream
     read: function(Reader, max_bytes?: integer): string?, string
     --- Releases what the Reader holds. Safe to call more than once.
     close: function(Reader): boolean, string
-    -- TODO: declare `skip?:` in each Reader that does not yet (the classes whose `declared: interface_disagrees` markers this
-    -- file and its callers hold, which lack `skip`: a class that lists this interface repeats an omittable field exactly, so each
-    -- declares `mut skip?:` and sets it nil in its constructor), and `pending?:` of Transform, once the Readers' and Transform's
-    -- declarations change together.
+    -- TODO: declare `skip?:` (set nil in the constructor) in each Reader that lacks it (the `declared: interface_disagrees`
+    -- rows), and `pending?:` of Transform.
 
     --- Present only on a Reader that can move forward without reading
     --- (one over a regular file): skips `n` bytes, failing when that

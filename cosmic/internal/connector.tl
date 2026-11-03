@@ -571,6 +571,17 @@ local function channel_of_served(self: Served): Channel?, string
   return self.channel, ""
 end
 
+--- The 1-based index of the table's first endpoint that allows `port`
+--- at `host`, or nil for none.
+local function find(self: Served, host: string, port: integer): integer?
+  for i, entry in ipairs(self.endpoints) do
+    if same_host(entry.host, host) and endpoint_allows(entry, port) then return i end
+  end
+  return nil
+end
+
+-- The connector over a [`Process`]'s control stream: it asks the process for the sockets it passes and
+-- answers them as connections.
 --- Connects to numeric TCP addresses through the sandbox's native
 --- connector process, answered by [`Net.connector`]: a process confined
 --- to the endpoints it was given and, if so made, to a public list,
@@ -580,37 +591,27 @@ end
 --- that hangs holds up no other. A connector with endpoints and a public
 --- list keeps 16 of those for each kind of request against the other, so
 --- a flood of one never keeps the other waiting.
----
---- The connector over a [`Process`]'s control stream: it asks the process for the sockets it passes and
---- answers them as connections. A class, so a `<close>` local holds one.
+--- A class, so a `<close>` local holds one.
 local class Served
-  -- The endpoints the process is confined to, in order; empty for a
-  -- public-only connector.
+  --- Internal: the endpoints the process is confined to, in order; empty for a
+  --- public-only connector. No caller reads or writes it.
   endpoints: {raw_process.ConnectorEndpoint}
-  -- The connector's wait to connect, in milliseconds.
+  --- Internal: the connector's wait to connect, in milliseconds. No caller reads or writes it.
   timeout_ms: integer
-  -- What a public process refuses, kept to start it again; nil for a
-  -- connector whose process is not public.
+  --- Internal: what a public process refuses, kept to start it again; nil for a
+  --- connector whose process is not public. No caller reads or writes it.
   public?: raw_process.ConnectorPublic
-  -- Whether the process serves an inherited stream, which is never started
-  -- again.
+  --- Internal: whether the process serves an inherited stream, which is never started
+  --- again. No caller reads or writes it.
   inherited?: boolean
-  -- Whether its process takes public requests.
+  --- Internal: whether its process takes public requests. No caller reads or writes it.
   accepts_public: boolean
-  -- The stream of the process serving a table, nil before its first
-  -- start; one lost is replaced at the next request where the process is
-  -- this one's to start.
+  --- Internal: the stream of the process serving a table, nil before its first
+  --- start; one lost is replaced at the next request where the process is
+  --- this one's to start. No caller reads or writes it.
   mut channel?: Channel
+  --- Internal: whether `close` has not been called. No caller reads or writes it.
   mut open: boolean
-
-  --- The 1-based index of the table's first endpoint that allows `port`
-  --- at `host`, or nil for none.
-  function find(self, host: string, port: integer): integer?
-    for i, entry in ipairs(self.endpoints) do
-      if same_host(entry.host, host) and endpoint_allows(entry, port) then return i end
-    end
-    return nil
-  end
 
   --- Connects to `address`, a [`Net.tcp`] one: the connection, or nil
   --- and why ([`Poll.TIMEOUT`], "Connection refused", the connector's
@@ -650,7 +651,7 @@ local class Served
     local body: string
     local refusal = ""
     local kind = ""
-    local index = self:find(target, port)
+    local index = find(self, target, port)
     if index ~= nil then
       local entry = self.endpoints[index]
       assert(entry, "connector: find answers an index of the table")
@@ -674,27 +675,6 @@ local class Served
     local socket, asked = ask(channel, body, host, port, deadline, refusal, kind)
     if socket == nil then return nil, asked end
     return Connection.new(socket, conn_ns), ""
-  end
-
-  --- A socket connected to the table's endpoint `index` at `port`, by
-  --- `deadline` (nil for the connector's wait and a second more).
-  function through(self, index: integer, port: integer, deadline: integer?): raw_socket.Socket?, string
-    local channel, why = channel_of_served(self)
-    if channel == nil then return nil, why end
-    -- The lookup gives each connect until its deadline; one given up on is
-    -- still answered, its socket closed, so the stream stays in step.
-    local entry = self.endpoints[index]
-    if entry == nil then
-      return nil, "net: the connector's table has no entry " .. tostring(index)
-    end
-    return ask(channel, own_wait_body(index, port), entry.host, port,
-      deadline or Clock.monotonic_ns() + Clock.ms(self.timeout_ms) + CONNECTOR_GRACE_NS, "", "")
-  end
-
-  --- Why the stream is lost, or nil while it is in step or not started.
-  function lost(self): string?
-    local channel = self.channel
-    return if channel ~= nil then channel.lost else nil end
   end
 
   --- Whether the connector serves no request any more: it is closed, or
@@ -745,11 +725,40 @@ local record Leaf
   adopted: function(fd: integer, held?: {raw_process.ConnectorEndpoint}, public?: boolean, timeout_ns?: integer):
     Served?, string
   served: function(connector: Served?): Served?
+  find: function(connector: Served, host: string, port: integer): integer?
+  through: function(connector: Served, index: integer, port: integer, deadline: integer?): raw_socket.Socket?, string
+  lost: function(connector: Served): string?
   connects: function(fd: integer, servers: {raw_socket.ThroughServer}, reply_ns: integer):
     function(index: integer, port: integer, deadline: integer?): Resolv.Connection?, string
 end
 
 Leaf.MAX_ENDPOINTS = 128 -- checked: field_fixed
+
+--- The 1-based index of `connector`'s first table endpoint that allows `port` at `host`, or nil for none.
+function Leaf.find(connector: Served, host: string, port: integer): integer?
+  return find(connector, host, port)
+end
+
+--- A socket connected to the table's endpoint `index` at `port`, by
+--- `deadline` (nil for the connector's wait and a second more).
+function Leaf.through(self: Served, index: integer, port: integer, deadline: integer?): raw_socket.Socket?, string
+  local channel, why = channel_of_served(self)
+  if channel == nil then return nil, why end
+  -- The lookup gives each connect until its deadline; one given up on is
+  -- still answered, its socket closed, so the stream stays in step.
+  local entry = self.endpoints[index]
+  if entry == nil then
+    return nil, "net: the connector's table has no entry " .. tostring(index)
+  end
+  return ask(channel, own_wait_body(index, port), entry.host, port,
+    deadline or Clock.monotonic_ns() + Clock.ms(self.timeout_ms) + CONNECTOR_GRACE_NS, "", "")
+end
+
+--- Why the stream is lost, or nil while it is in step or not started.
+function Leaf.lost(self: Served): string?
+  local channel = self.channel
+  return if channel ~= nil then channel.lost else nil end
+end
 
 --- Hands this module how [`cosmic.net`] judges an `address`, as it loads: a
 --- connector is used only once cosmic.net is loaded, for [`Net.connector`]
@@ -845,8 +854,7 @@ function Leaf.adopted(fd: integer, held?: {raw_process.ConnectorEndpoint}, publi
   return connector, ""
 end
 
---- The [`Served`] behind `connector`, or nil for one this module did not
---- make.
+--- `connector` itself if this module made it (a map from each to itself), nil otherwise.
 function Leaf.served(connector: Served?): Served?
   if connector == nil then return nil end
   return made[connector]

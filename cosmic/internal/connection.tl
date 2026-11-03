@@ -70,7 +70,7 @@ local class SocketConn is Duplex
   mut read_failure: string
   --- Internal: see `read_failure`.
   mut write_failure: string
-  --- Never present: a connection reads and discards, as [`Stream.skip`] does.
+  --- Never present: [`Stream.skip`] reads and discards a connection's bytes.
   skip?: function(SocketConn, n: integer): boolean, string
 
   --- Sets how long a `read` or a `write` waits, in nanoseconds, from 0;
