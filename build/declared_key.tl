@@ -381,7 +381,13 @@ end
 --- back would answer the hash it had before.
 function declared_key.digests(root: string, remembered?: {{string}}): declared_key.Digests
   local hashed: mut {string:string} = {}
-  for _, row in ipairs(remembered or {}) do hashed[row[1]] = row[2] .. "\0" .. row[3] end -- checked: index_may_be_nil, nil_not_allowed*2
+  for _, row in ipairs(remembered or {}) do
+    local path, said, hash = row[1], row[2], row[3]
+    if path == nil or said == nil or hash == nil then
+      error("declared_key: a remembered row is a path, what lstat said and a hash", 2)
+    end
+    hashed[path] = said .. "\0" .. hash
+  end
   local real, _ = sys.realpath(root)
   local output = build_directory(root)
   local real_output, _ = sys.realpath(output)
@@ -394,12 +400,14 @@ end
 --- each file this run looked up whose hash it holds, by path, sorted.
 function declared_key.kept(digests: declared_key.Digests): {{string}}
   local out: mut {{string}} = {}
-  for path in pairs(digests.used) do
+  local paths: mut {string} = {}
+  for path in pairs(digests.used) do paths[#paths + 1] = path end
+  table.sort(paths)
+  for _, path in ipairs(paths) do
     local was = digests.hashed[path]
     local said, hash = (was or ""):match("^([^\0]*)\0(%x+)$")
-    if said ~= nil then out[#out + 1] = { path, said, hash } end -- checked: nil_not_allowed
+    if said ~= nil and hash ~= nil then out[#out + 1] = { path, said, hash } end
   end
-  table.sort(out, function(a: {string}, b: {string}): boolean return a[1] < b[1] end) -- checked: nil_not_allowed
   return out
 end
 
@@ -503,7 +511,9 @@ local function carried_digest(database: string): string?, string
             trouble = digest_trouble
             break
           end
-          lines[#lines + 1] = "rows " .. row:text(2) .. " " .. digest[1]:text(1) -- checked: nil_not_allowed
+          -- A query of aggregates alone answers one row.
+          local hashed_rows = assert(digest[1], "an aggregate query answers one row")
+          lines[#lines + 1] = "rows " .. row:text(2) .. " " .. hashed_rows:text(1)
         end
       end
       local _, _ = db:close()
@@ -527,7 +537,8 @@ local function remembered(digests: declared_key.Digests, name: string, st: sys.S
   for _, was in ipairs({ digests.this_run[name] or "", digests.hashed[name] or "" }) do
     if was:sub(1, #said + 1) == said .. "\0" then return was:sub(#said + 2) end
   end
-  local data, _ = Fs.read(name:match("^[^\0]*\0(.*)$")) -- checked: nil_not_allowed
+  local file = assert(name:match("^[^\0]*\0(.*)$"), "a remembered name holds a NUL before its file's path")
+  local data, _ = Fs.read(file)
   digests.read = digests.read + 1
   if data == nil then return "unreadable" end
   local hash = compute(data)
@@ -902,7 +913,9 @@ function declared_key.preimage(digests: declared_key.Digests,
   for name in pairs(answers) do required[#required + 1] = name end
   table.sort(required)
   for _, name in ipairs(required) do
-    lines[#lines + 1] = part("requires", name, answers[name]) -- checked: index_may_be_nil
+    -- `required` lists the keys of `answers`, which nothing changes here.
+    local answer = assert(answers[name], "a name listed from the keys of answers has an answer")
+    lines[#lines + 1] = part("requires", name, answer)
   end
   if effective.noexec == true then
     lines[#lines + 1] = part("noexec", if effective.noexec_ready == true then "granted" else "unavailable" end, "")
@@ -992,7 +1005,9 @@ function declared_key.preimage(digests: declared_key.Digests,
   for name in pairs(spec.environment) do names[#names + 1] = name end
   table.sort(names)
   for _, name in ipairs(names) do
-    lines[#lines + 1] = part("e", name, held_value(spec.environment[name], digests)) -- checked: index_may_be_nil
+    -- `names` lists the keys of `spec.environment`, which nothing changes here.
+    local value = assert(spec.environment[name], "a name listed from the keys of the environment has a value")
+    lines[#lines + 1] = part("e", name, held_value(value, digests))
   end
   return table.concat(lines, "\n"), ""
 end
@@ -1044,6 +1059,8 @@ function declared_key.dispatched(machine?: string): {string}
     for name in pairs(dispatched) do sorted[#sorted + 1] = name end
   else
     local kept = dispatched[machine]
+    -- TODO: once build/dispatched_features_test.tl tests the list this answers with no machine
+    -- before it reads it, declare the return an optional list and drop this marker.
     if kept == nil then return nil end -- checked: nil_not_allowed
     for flag in pairs(kept) do sorted[#sorted + 1] = flag end
   end
@@ -1179,11 +1196,11 @@ function declared_key.host_split(digests: declared_key.Digests,
     -- Groups, each group once, sorted, since the system lists them in
     -- an order of its own. A list that cannot be read keys apart from
     -- every one that can.
-    local groups: {integer} = from.groups -- checked: nil_not_allowed
+    local groups: {integer}? = from.groups
     local trouble: string?
-    if groups == nil then groups, trouble = sys.getgroups() end -- checked: compare_disjoint, nil_not_allowed
+    if groups == nil then groups, trouble = sys.getgroups() end
     lines[#lines + 1] = "gid " .. tostring(from.gid or sys.getgid())
-    if groups == nil then -- checked: compare_disjoint
+    if groups == nil then
       lines[#lines + 1] = "groups unread: " .. tostring(trouble)
     else
       local seen: mut {integer:boolean} = {}
@@ -1358,7 +1375,7 @@ local function remembered_walk(digests: declared_key.Digests, paths: {string},
   digests.used[name] = true
   local was = digests.hashed[name]
   local said, hash = (was or ""):match("^([^\0]*)\0(%x+)$")
-  if said ~= nil then
+  if said ~= nil and hash ~= nil then
     local still = said:sub(1, #packages + 1) == packages .. "\n"
     if still then
       for line in said:sub(#packages + 2):gmatch("[^\n]+") do
@@ -1370,7 +1387,7 @@ local function remembered_walk(digests: declared_key.Digests, paths: {string},
         end
       end
     end
-    if still then return hash end -- checked: nil_not_allowed
+    if still then return hash end
   end
   local walked, directories, latest = walk_system(paths)
   digests.read = digests.read + 1
@@ -1459,8 +1476,9 @@ function declared_key.host_kernel(sources?: declared_key.HostSources): string
   for i = 2, 3 do
     -- None ("", macOS's version) is read as nothing, as in [`host_identity`].
     local text: string? = nil
-    if (system[i] or "") ~= "" then
-      local read, _ = Fs.read(system[i]) -- checked: index_may_be_nil
+    local path = system[i]
+    if path ~= nil and path ~= "" then
+      local read, _ = Fs.read(path)
       text = read
     end
     parts[#parts + 1] = text or ""
@@ -1491,9 +1509,10 @@ function declared_key.harness(names: {string}, sources: {string:string}): string
   local seen: mut {string:boolean} = {}
   local lines: mut {string} = {}
   for _, name in ipairs(names) do
-    if sources[name] ~= nil and seen[name] ~= true then
+    local source = sources[name]
+    if source ~= nil and seen[name] ~= true then
       seen[name] = true
-      lines[#lines + 1] = name .. " " .. sources[name] -- checked: nil_not_allowed
+      lines[#lines + 1] = name .. " " .. source
     end
   end
   table.sort(lines)

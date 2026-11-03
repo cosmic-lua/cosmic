@@ -38,6 +38,12 @@ local plural = require("build.plural")
 local shared_sqlite = require("build.shared_sqlite")
 local cache_formats = require("build.cache_formats")
 
+--- A table of the cache and the column it is keyed by.
+local record Bound
+  name: string
+  key: string
+end
+
 local record shared_verdicts
   --- An open cache.
   record Cache
@@ -308,9 +314,10 @@ function shared_verdicts.declared(cache: shared_verdicts.Cache,
     "SELECT CAST(inflate(hits) AS TEXT), elapsed_ns FROM " .. declared .. " WHERE key = ?1",
     { text(key) })
   if rows == nil then return nil, trouble end
-  if rows[1] == nil then return nil, "" end
-  return { hits = unpacked(rows[1]:text(1)),
-    elapsed_ns = math.tointeger(tonumber(rows[1]:text(2)) or 0) or 0 }, "" -- checked: nil_not_allowed
+  local row = rows[1]
+  if row == nil then return nil, "" end
+  return { hits = unpacked(row:text(1)),
+    elapsed_ns = math.tointeger(tonumber(row:text(2)) or 0) or 0 }, ""
 end
 
 --- The digest of the bytes of the closure store at `address`, as a run
@@ -350,7 +357,13 @@ end
 --- modules given them.
 function shared_verdicts.named(parts: {{string}}): string
   local named: mut {string} = {}
-  for _, part in ipairs(parts) do named[#named + 1] = part[1] .. " " .. part[2] end -- checked: nil_not_allowed*2
+  for _, part in ipairs(parts) do
+    local name, digest = part[1], part[2]
+    if name == nil or digest == nil then
+      error("shared_verdicts: a part is a name and a digest, in order", 2)
+    end
+    named[#named + 1] = name .. " " .. digest
+  end
   return table.concat(named, ", ")
 end
 
@@ -493,18 +506,21 @@ function shared_verdicts.settle(cache: shared_verdicts.Cache, origin: string,
     -- was reported by the run as an error ([`build.test_key`]'s
     -- `mismatched`), which says the run's replaces it.
     for _, address in ipairs(addresses) do
+      -- `addresses` holds the keys of `stored`, which nothing changes here.
+      local digest = assert(stored[address], "an address listed from the keys of stored has a digest")
       local ok, trouble = Sqlite.run(db, "INSERT OR REPLACE INTO " .. stores ..
           " (address, digest, used_ns) VALUES (?1, ?2, ?3)",
-        { text(address), text(stored[address]), { integer = now_ns } }) -- checked: index_may_be_nil
+        { text(address), text(digest), { integer = now_ns } })
       if not ok then return false, trouble end
     end
-    for _, bound in ipairs({ { declared, "key" }, { stores, "address" } }) do
-      local name, key = bound[1], bound[2]
-      local aged, age_trouble = Sqlite.run(db, "DELETE FROM " .. name .. " WHERE used_ns < ?1", -- checked: nil_not_allowed
+    local bounds: {Bound} = { { name = declared, key = "key" }, { name = stores, key = "address" } }
+    for _, bound in ipairs(bounds) do
+      local name, key = bound.name, bound.key
+      local aged, age_trouble = Sqlite.run(db, "DELETE FROM " .. name .. " WHERE used_ns < ?1",
         { { integer = now_ns - kept_ns } })
       if not aged then return false, age_trouble end
-      local bounded, bound_trouble = Sqlite.run(db, "DELETE FROM " .. name .. -- checked: nil_not_allowed
-          " WHERE " .. key .. " IN (SELECT " .. key .. " FROM " .. name .. " " .. -- checked: nil_not_allowed*3
+      local bounded, bound_trouble = Sqlite.run(db, "DELETE FROM " .. name ..
+          " WHERE " .. key .. " IN (SELECT " .. key .. " FROM " .. name .. " " ..
           "ORDER BY used_ns DESC LIMIT -1 OFFSET " .. tostring(shared_verdicts.rows_kept(cache.path)) .. ")")
       if not bounded then return false, bound_trouble end
     end
