@@ -4620,9 +4620,9 @@ local record Instance
   --- The type parameters that a shape the arguments lack left with no type, and nothing else reported (the instance
   --- holds `invalid` for them).
   holes: {integer}?
-  --- Set when a generic function passed as an argument could not be taken because a type it was found for does not meet
-  --- its bound: what `bound_unmet` says of it.
-  unmet: Unmet?
+  --- One for each generic function passed as an argument that could not be taken because a type it was found for does
+  --- not meet its bound: what `bound_unmet` says of it.
+  unmets: {Unmet}?
 end
 
 --- The steps of a generic call.
@@ -4946,7 +4946,7 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
   -- A generic function passed where the callee takes a function is instantiated from the parameters the callee passes it,
   -- as far as the other arguments have solved them, and what the instance answers solves the callee's own parameters:
   -- `pcall(id, v)` answers the type of `v`, where a parameter nothing fixes would be `invalid`, which every type accepts.
-  local unmet: Unmet? = nil
+  local unmets: mut {Unmet} = {}
   for i = 1, prep.count do
     local given_fn, wanted_fn = prep.known[i], parameter_at(c, off, i)
     if given_fn ~= nil and wanted_fn ~= nil and given_fn.tag == "fn" and #given_fn.tparams > 0 and
@@ -4972,6 +4972,13 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
         end
         -- The instance is taken only if every type parameter is solved, none conflicts, and each meets its bound.
         local meets = #solved == #given_fn.tparams and #sub.conflicts == 0
+        -- Whether the callee's own declaration gives the function every parameter type, whatever its type parameters
+        -- are: nothing the call passes can change a type found for the function, and no bound it fails can be met here.
+        local fixed = #seen.params == #wanted_fn.params
+        for k, w in ipairs(wanted_fn.params) do
+          local got = seen.params[k]
+          if got == nil or got.type ~= w.type then fixed = false end
+        end
         -- Every bound a type fails, so that one message names them all.
         local said: mut {string} = {}
         local fixes: mut {string} = {}
@@ -4982,13 +4989,21 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
             local wanted_bound = "`is " .. show(ctx, bound) .. "`"
             local fix = "pass a type that declares " .. wanted_bound
             -- Only a type the program declares can be given the interface.
-            if held.tag == "named" and (held.decl.kind == "record" or held.decl.kind == "class" or
-                held.decl.kind == "interface") then
+            local declarable = held.tag == "named" and (held.decl.kind == "record" or held.decl.kind == "class" or
+              held.decl.kind == "interface")
+            if declarable then
               fix = "declare " .. wanted_bound .. " on " .. tq(ctx, held) .. ", or " .. fix
+            end
+            local why = tq(ctx, held) .. " does not declare " .. wanted_bound
+            if fixed and not declarable and held.tag ~= "var" then
+              -- No declaration gives this type the interface, and the call cannot pass another.
+              why = "the declaration of " .. quoted(callee) .. " gives it " .. tq(ctx, held) .. ", so this argument cannot " ..
+                "satisfy the bound here"
+              fix = "pass a function whose type parameter is not bounded by " .. tq(ctx, bound)
             end
             said[#said + 1] = tq(ctx, held) .. " is the type parameter " .. quoted(Types.letter(k - 1)) ..
               " of the function passed as argument " .. tostring(i) .. " of " .. quoted(callee) .. ", which is bounded by " ..
-              tq(ctx, bound) .. ", and " .. tq(ctx, held) .. " does not declare " .. wanted_bound
+              tq(ctx, bound) .. ", and " .. why
             fixes[#fixes + 1] = fix
             shown[#shown + 1] = show(ctx, held)
             shown[#shown + 1] = show(ctx, bound)
@@ -5000,8 +5015,8 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
         if #said > 0 and #solved == #given_fn.tparams and #sub.conflicts == 0 then
           local instance = Relation.specialize(store, given_fn, solved)
           if instance ~= nil and below(ctx, instance, seen) then
-            unmet = unmet or { message = table.concat(said, "; "), fix = table.concat(fixes, "; "), shown = shown, arg = i,
-              instance = instance }
+            unmets[#unmets + 1] = { message = table.concat(said, "; "), fix = table.concat(fixes, "; "), shown = shown,
+              arg = i, instance = instance }
           end
         end
         if meets then
@@ -5096,15 +5111,19 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
         ", which is bounded by " .. tq(ctx, bound) .. ", and " .. tq(ctx, held) .. " does not list it"
       problems[#problems + 1] = msg
       if loud then
+        -- Only a type the program declares, or a type variable of the caller, can be given the interface.
+        local declarable = held.tag == "var" or (held.tag == "named" and (held.decl.kind == "record" or
+          held.decl.kind == "class" or held.decl.kind == "interface"))
         report(ctx, "bound_unmet", node, msg,
-          "list the interface in the declaration of " .. tq(ctx, held) .. " (`is " .. show(ctx, bound) .. "`), or pass a " ..
-            "type that does", { show(ctx, held), show(ctx, bound) })
+          (if declarable then "list the interface in the declaration of " .. tq(ctx, held) .. " (`is " .. show(ctx, bound) ..
+              "`), or pass a type that does" else "pass a type that lists `is " .. show(ctx, bound) .. "`" end),
+          { show(ctx, held), show(ctx, bound) })
       end
       Calls.replace_type(given, i, ctx.invalid)
     end
   end
   if #problems > 0 and not loud then
-    return { why = problems[1], unmet = unmet } -- checked: literal_missing
+    return { why = problems[1], unmets = unmets } -- checked: literal_missing
   end
   local made = Relation.specialize(store, c, given)
   local sparse: Type? = nil
@@ -5120,16 +5139,16 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
       report(ctx, "array_of_optional", node, msg, "use a map `{integer: T}` for sparse data, or pass a value that is not " ..
           "optional: test it for nil first", { show(ctx, sparse) })
     end
-    return { why = msg, unmet = unmet } -- checked: literal_missing
+    return { why = msg, unmets = unmets } -- checked: literal_missing
   end
   if made == nil then
     if loud then
       report(ctx, "not_assignable", node, name .. " with these type arguments nests more than " .. tostring(Types.max_depth) ..
           " types deep", "name a part of the arguments with a record, which a type does not unfold")
     end
-    return { why = "its instance nests too deep", unmet = unmet } -- checked: literal_missing
+    return { why = "its instance nests too deep", unmets = unmets } -- checked: literal_missing
   end
-  return { fn = made, why = "", holes = holes, unmet = unmet }
+  return { fn = made, why = "", holes = holes, unmets = unmets }
 end
 
 --- An array or map type that `t` holds whose elements or values may be nil, or nil: what an instance makes of a type
@@ -5242,21 +5261,24 @@ local function apply_overloads(ctx: Ctx, node: Ast.Node, callee: string, cands: 
   local known, pending, tail, count = prep.known, prep.pending, prep.tail, prep.count
   local reasons: mut {string} = {}
   local unmet: Unmet? = nil
+  -- Set when two candidates each reach `bound_unmet` with a different message: the order of the overloads does not say
+  -- which the call meant, so none is named.
+  local ambiguous = false
   for _, declared in ipairs(cands) do
 
     if (declared.tag == "fn") then
       -- The number of arguments does not depend on the type parameters, so a candidate that takes another is not solved.
       local wrong_count = arity_problem(declared, off, count, prep.open and tail ~= nil)
-      --- Why the candidate is not taken ("" where it is), the candidate as instantiated, and the bound it met in an
+      --- Why the candidate is not taken ("" where it is), the candidate as instantiated, and the bound it met in each
       --- argument that is a generic function.
-      local function evaluate(): string, Fn, Unmet?
+      local function evaluate(): string, Fn, {Unmet}
         local c: Fn = declared
         local failure = ""
-        local own: Unmet? = nil
+        local own: {Unmet} = {}
         if wrong_count == nil and #declared.tparams > 0 then
           local solved = Calls.solve(ctx, node, callee, declared, args, prep, off, recv, expected, false)
           local made = solved.fn
-          own = solved.unmet
+          own = solved.unmets or {}
           if made == nil then
             failure = solved.why
           elseif solved.holes ~= nil and #solved.holes > 0 then
@@ -5309,13 +5331,47 @@ local function apply_overloads(ctx: Ctx, node: Ast.Node, callee: string, cands: 
       local failure, c, own = evaluate()
       -- The bound is the answer only if the call would be taken with it met: asked again with the function's instance
       -- (the bounds waived) as the argument, so that the rest of the call is held to its parameters too.
-      if failure ~= "" and own ~= nil then
-        local held = known[own.arg]
-        if held ~= nil then
-          known[own.arg] = own.instance
-          local again = evaluate()
-          known[own.arg] = held
-          if again == "" then unmet = unmet or own end
+      -- Every argument that met one is waived together, since the first run solved each independently of the others'
+      -- instances; a bound only the instances reveal joins them, and a call that fails for another reason stays refused.
+      if failure ~= "" and #own > 0 then
+        local held: mut {integer: Type} = {}
+        local waived: mut {Unmet} = {}
+        local again, found = failure, own
+        while again ~= "" do
+          local grew = false
+          for _, u in ipairs(found) do
+            local was = known[u.arg]
+            if was ~= nil and held[u.arg] == nil then
+              held[u.arg] = was
+              known[u.arg] = u.instance
+              waived[#waived + 1] = u
+              grew = true
+            end
+          end
+          if not grew then break end
+          local next_again, _next, next_found = evaluate()
+          again, found = next_again, next_found
+        end
+        for i, was in pairs(held) do
+          known[i] = was
+        end
+        local first = waived[1]
+        if again == "" and first ~= nil then
+          local said: mut {string} = {}
+          local fixes: mut {string} = {}
+          local shown: mut {string} = {}
+          for _, u in ipairs(waived) do
+            said[#said + 1] = u.message
+            fixes[#fixes + 1] = u.fix
+            for _, t in ipairs(u.shown) do shown[#shown + 1] = t end
+          end
+          local message = table.concat(said, "; ")
+          if unmet == nil then
+            unmet = { message = message, fix = table.concat(fixes, "; "), shown = shown, arg = first.arg,
+              instance = first.instance }
+          elseif unmet.message ~= message then
+            ambiguous = true
+          end
         end
       end
       if failure == "" then
@@ -5397,8 +5453,9 @@ local function apply_overloads(ctx: Ctx, node: Ast.Node, callee: string, cands: 
     end
   end
   local first = reasons[1]
-  -- `unmet` is set only for a candidate that the bound alone kept from being taken: meeting it would accept the call.
-  if unmet ~= nil then
+  -- `unmet` is set only for a candidate that the bound alone kept from being taken: meeting it would accept the call. Several
+  -- candidates that say alike are one answer.
+  if unmet ~= nil and not ambiguous then
     report(ctx, "bound_unmet", node, unmet.message, unmet.fix, unmet.shown)
     return unknown_lists(ctx)
   end
