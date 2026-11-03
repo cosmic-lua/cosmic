@@ -7,13 +7,15 @@ local Test = require("cosmic.test")
 local c = require("build.c")
 
 --- The core's C and the headers it includes, which zig parses to a syntax tree, and what bin/zig reads to find or fetch
---- zig, which the system's `sh` runs; the bootstrap cosmic and zig, and the caches zig builds in, which it writes.
+--- zig (it hands build/zig.tl to the bootstrap cosmic, a file the closure does not supply), which the system's `sh` runs;
+--- the bootstrap cosmic and zig, and the caches zig builds in, which it writes.
 Test.policy{
   profiles = { "system" },
   grants = {
     { path = "bin/cosmic-bootstrap", letters = "r" },
     { path = "bin/zig", letters = "r" },
     { path = "bin/zig.pin", letters = "r" },
+    { path = "build/zig.tl", letters = "r" },
     { path = "ci/cosmic-driver.pin", letters = "r" },
     { path = "ci/bootstrap-files.txt", letters = "r" },
     { path = "core/", letters = "r" },

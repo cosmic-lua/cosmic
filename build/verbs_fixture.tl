@@ -43,7 +43,7 @@ local function needs_a_process(args: {string}): string?
   end
   if args[1] == "test" and not asks_help then
     return "it starts a process for each test, and coverage this one is keeping"
-  elseif args[1] == "--standalone" or (args[1] ~= nil and args[1]:match("%.tl$") ~= nil) then -- checked: nil_not_allowed
+  elseif args[1] == "--standalone" or (args[1] ~= nil and args[1]:match("%.tl$") ~= nil) then
     return "a file run loads its tree's modules into the process"
   end
   return nil

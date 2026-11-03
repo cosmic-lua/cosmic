@@ -153,7 +153,7 @@ local function marked(argv: {string}): {string}
     local slot = 3
     while argv[slot] ~= nil do
       local word = argv[slot]
-      if word == nil or word == "--" then break end
+      if word == "--" then break end
       if word == "-n" or word == "--seed" then
         slot = slot + 1
       elseif word:match("^%-%d+$") then

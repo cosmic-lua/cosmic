@@ -182,23 +182,23 @@ function tree_root.move(argv: {string},
     local word = argv[slot]
     if not literal and word == "--" then
       literal = true
-    elseif not literal and word:sub(1, 1) == "-" and word ~= "-" then -- checked: nil_not_allowed
-      local option = options[word] -- checked: nil_not_allowed
-      if option is Flags.Option and option.value ~= nil and word:find("=", 1, true) == nil then -- checked: is_on_record, nil_not_allowed
+    elseif not literal and word:sub(1, 1) == "-" and word ~= "-" then
+      local option = options[word]
+      if option is Flags.Option and option.value ~= nil and word:find("=", 1, true) == nil then -- checked: is_on_record
         slot = slot + 1
       end
     else
       seen = seen + 1
       local name = word
-      if argv[1] == "test" then name = word:match("^(.-):[^:/]*$") or word end -- checked: nil_not_allowed
+      if argv[1] == "test" then name = word:match("^(.-):[^:/]*$") or word end
       local takes = kind == "all" or (kind == "rest" and seen > 1)
       if not takes and kind == "named" then
-        local there, _ = Fs.exists(name) -- checked: nil_not_allowed
+        local there, _ = Fs.exists(name)
         takes = there == true
       end
       if takes then
-        local rewritten = from_root(name, from, root) -- checked: nil_not_allowed
-        rewrites[slot] = rewritten .. word:sub(#name + 1) -- checked: nil_not_allowed*2
+        local rewritten = from_root(name, from, root)
+        rewrites[slot] = rewritten .. word:sub(#name + 1)
       end
     end
     slot = slot + 1

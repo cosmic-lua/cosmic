@@ -84,6 +84,8 @@ local link_text = require("build.link_text")
 local symbol_index = require("build.symbol_index")
 local symbols = require("build.symbols")
 local String = require("cosmic.string")
+-- Declares what text this module reads ([`build.code_walk`]'s `markers`): the docs, examples, uses or links of the database it is handed.
+local _ = require("build.reads.all")
 
 --- The byte positions of a link's brackets in a Markdown file: where its `[` and its `]` go.
 local record Brackets

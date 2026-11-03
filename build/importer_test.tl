@@ -1852,6 +1852,9 @@ local function test_the_compiler_modules_are_closed_under_require()
       "(`importer.own_tool`): what it decides is in every key, and no compile stores it",
     ["build.pipeline"] = "the compile with the new checker, keyed by the code that reads it " ..
       "(`Pipeline.coded`) and not by the compiler's identity, which a default run keeps",
+    ["build.code_walk"] = "names which modules the identities of the code that reads hash, and which a test's store keeps",
+    ["build.reads.analyzer"] = "a declaration of what text this module reads, which a test's store follows; no code",
+    ["build.reads.receivers"] = "a declaration of what text this module reads, which a test's store follows; no code",
   }
   assert(covered["build.importer"] ~= true, "cache coordination and diagnostics entered compiler identity")
   local used: mut {string:boolean} = {}
@@ -1931,6 +1934,11 @@ local function test_the_writer_modules_are_closed_under_require()
     ["build.importer"] = "coordinates semantic operations and cache transport, and renders diagnostics",
     ["build.grammar_mode"] = "names the grammar a build reads (COSMIC_GRAMMAR), which only the new grammar's compile consults",
     ["build.positions"] = "fails a whole build before any key is looked up, and stores nothing",
+    ["build.code_walk"] = "names which modules the identities of the code that reads hash, and which a test's store keeps",
+    ["build.reads.analyzer"] = "a declaration of what text a module reads, which a test's store follows; no code",
+    ["build.reads.receivers"] = "a declaration of what text a module reads, which a test's store follows; no code",
+    ["build.reads.links"] = "a declaration of what text a module reads, which a test's store follows; no code",
+    ["build.reads.pipeline"] = "a declaration of what text a module reads, which a test's store follows; no code",
     ["build.todo_scan"] = "fills the TODO tables, which no projection carries",
     ["build.patch"] = "parses a patch record only for the TODO rows build.todo_scan " ..
       "fills, which no projection carries",

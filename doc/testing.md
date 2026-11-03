@@ -296,9 +296,10 @@ refuses a module of the tree outside the closure.
 A test's key holds the store of its closure, and a comment, a blank line or
 a moved line of an imported module changes that store's rows (the source,
 the docs, the uses with their lines, the debug information of the bytecode)
-without changing what the module does. Under `COSMIC_TEST_PURE_STORE=1`
-(off by default; [`build.closure_store`]'s `write` with `own`) a test that
-declares neither `store` nor `store_text` is given a pure store instead:
+without changing what the module does. So a sandboxed test is given a pure
+store by default ([`build.closure_store`]'s `write` with `own`), unless it
+declares `store`, `store_text`, `lua` or `tool`, or a module of its closure
+declares that it reads text (below):
 
 - no module's source or source hash, and no row of `docs`, `uses`, `links`,
   `examples`, `catalog`, `stubs` or `places`, but for the exception below: a test that reads one finds none
@@ -310,6 +311,24 @@ declares neither `store` nor `store_text` is given a pure store instead:
   snippet from a module's stub and follows only the stub's requires
   ([`build.standard_text`]), so these are all it reads, and the source of no
   module is kept. A stub is the module's declared types, with no comment or body, each token at its source line and column;
+- the exception to the first item, the sources of what a module in the closure
+  declares it reads: a module that hashes other modules' sources into an
+  identity (the checker's readers, the analyzer, the readers of the record-field
+  uses, the links finder) requires one of [`build.reads.pipeline`],
+  [`build.reads.analyzer`], [`build.reads.receivers`] or [`build.reads.links`]
+  ([`build.code_walk`] holds the walks), and a test importing it is given the
+  source of the modules that walk reaches, which its key holds. A module that
+  reads any other text ([`build.reads.all`]: docs, uses, places, the language
+  server) demotes every test importing it: the test is given the store of its
+  closure with its text, keyed by its bytes, as `store_text` does for a test
+  that declares it;
+- the tables of text-derived rows (`docs`, `uses`, `links`, `examples`,
+  `places`, `catalog` and their full-text tables) are left out, not left empty:
+  a query of one fails with "no such table", and so does a hint
+  ([`build.symbols`]) asked of a store that has none. The catalog is withheld
+  because most of it, the rows of the error sites each module documents, moves
+  with the lines of the module; the checker's own codes (`kind = 'code'`) do not,
+  but no test that reads module text wants them alone;
 - the bytecode of each module it imports stripped of its debug
   information ([`build.lua_tail`]'s `stripped`, which also writes the line
   each function is defined on as 0), and its own module's as the build made it;
@@ -335,13 +354,44 @@ module's declared places declares `store_text`. A test that starts the program (
 `tool`) is given the store of its closure, text included, as a `store_text` test is; only
 `store` is given the whole projection.
 
+What makes the store sound is that a read of text it withholds fails: a source
+is withheld ([`Store.withheld`]) and a table is absent. `cosmic fix --check .`
+also runs a lint, `text_readers` ([`build.tree_checks`]), that finds most
+modules that read text and asks them to declare it, so the failure is met
+early; a reader it misses (a table named at run time) is met by the first test
+that reaches it, which declares `store_text` or whose module declares the
+read. The lint is a heuristic and no part of the guarantee.
+
 The pure store is held for a sandboxed worker alone: unsandboxed, a worker
 reads the real tree, which a key without the imports' sources would not follow.
 
-A test whose subject is the text of the store (the checker typing a snippet
-of the tree's sources, `cosmic docs`, the language server, the uses and
-catalog) declares `Test.policy { store_text = true }` and is given today's
-store, keyed by its bytes.
+What a test declares to be given more than the pure store:
+
+- `Test.policy { store_text = true }`: the store of its closure with its text
+  (docs, uses, places, catalog, sources), keyed by its bytes. For a test whose
+  subject is the text of the store: the checker typing a snippet of the tree's
+  sources, `cosmic docs`, the language server, the uses and catalog. A comment
+  in any module of its closure runs it again.
+- a top-level `local type _ = require("cosmic.x")`: the stub of that
+  standard-library module, for a test that type-checks a snippet requiring it.
+- `lua` or `tool`: the program starts, and its checker types against the
+  closure's text, so the test is given the store of its closure with its text.
+- `store`: the whole projection, for a test of one module that reads the rest
+  of the tree.
+- a read grant (`grants = { { path = "build/zig.tl", letters = "r" } }`) for a
+  file of the tree that a process it starts reads, such as [`build/zig.tl`],
+  which [`bin/zig`] hands to `cosmic-bootstrap --standalone`. A sandboxed
+  worker is given the files of the tree its test declares and its closure
+  supplies, and a pure store's rows supply no module's source file, so an
+  undeclared read of one fails ("No such file").
+
+What a module that reads other modules' text declares: it requires the marker
+of what it reads, and every test importing it is given that, keyed by it.
+[`build.reads.pipeline`], [`build.reads.analyzer`], [`build.reads.receivers`] and
+[`build.reads.links`] ([`build.code_walk`]) name a walk of sources, and a test
+importing the module is given the sources that walk reaches. [`build.reads.all`]
+(docs, uses, places, the language server) gives every test importing it the
+store of its closure with its text, as `store_text` does.
 
 A test does not assert a position inside code it imports: a line number of
 the module's own code in a message or a traceback, `debug.getinfo`'s
@@ -829,8 +879,10 @@ Other rules:
   deep, those tests call [`Test.skip`].
 
 [`bin/cosmic`]: ../bin/cosmic
+[`bin/zig`]: ../bin/zig
 [`build.checker_declarations`]: ../build/checker_declarations.tl
 [`build.closure_store`]: ../build/closure_store.tl
+[`build.code_walk`]: ../build/code_walk.tl
 [`build.compile_grammar`]: ../build/compile_grammar.tl
 [`build.confine`]: ../build/confine.tl
 [`build.example_checks`]: ../build/example_checks.tl
@@ -842,9 +894,15 @@ Other rules:
 [`build.lua_tail`]: ../build/lua_tail.tl
 [`build.paths`]: ../build/paths.tl
 [`build.pipeline`]: ../build/pipeline.tl
+[`build.reads.all`]: ../build/reads/all.tl
+[`build.reads.analyzer`]: ../build/reads/analyzer.tl
+[`build.reads.links`]: ../build/reads/links.tl
+[`build.reads.pipeline`]: ../build/reads/pipeline.tl
+[`build.reads.receivers`]: ../build/reads/receivers.tl
 [`build.rebuild`]: ../build/rebuild.tl
 [`build.sandboxed_verdicts_test`]: ../build/sandboxed_verdicts_test.tl
 [`build.standard_text`]: ../build/standard_text.tl
+[`build.symbols`]: ../build/symbols.tl
 [`build.test_child`]: ../build/test_child.tl
 [`build.test_returns`]: ../build/test_returns.tl
 [`build.test_sandbox_probe`]: ../build/test_sandbox_probe.tl
@@ -862,6 +920,7 @@ Other rules:
 [`build/test_key.tl`]: ../build/test_key.tl
 [`build/test_state.tl`]: ../build/test_state.tl
 [`build/type_watch.tl`]: ../build/type_watch.tl
+[`build/zig.tl`]: ../build/zig.tl
 [`Check.Checked.narrowed`]: ../lang/check.tl
 [`ci/cosmic_ci/capabilities.json`]: ../ci/cosmic_ci/capabilities.json
 [`ci/README.md`]: ../ci/README.md
@@ -889,6 +948,7 @@ Other rules:
 [`lang/check_assigned_fuzz_test.tl`]: ../lang/check_assigned_fuzz_test.tl
 [`lang/check_flow_fuzz_test.tl`]: ../lang/check_flow_fuzz_test.tl
 [`lang/check_total_fuzz_test.tl`]: ../lang/check_total_fuzz_test.tl
+[`Store.withheld`]: ../cosmic/store.tl
 [`sys.cpu_features`]: ../core/syscalls.h
 [`Test.passed_unchecked`]: ../cosmic/test.tl
 [`Test.policy`]: ../cosmic/test.tl

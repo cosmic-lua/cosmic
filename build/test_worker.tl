@@ -273,7 +273,7 @@ local SECOND_NS <const> = 1000 * 1000 * 1000
 --- table, which follows `local type` requires Teal erases and requires
 --- inside functions no worker calls.
 worker.loads = {
-  "build.assertions", "build.cache_names", "build.confine", "build.key_parts", "build.load_module",
+  "build.assertions", "build.cache_names", "build.code_walk", "build.confine", "build.key_parts", "build.load_module",
   "build.test_inputs",
   "build.test_worker", "build.this_program", "cmd.cosmic.main", "cosmic.coverage",
   "cosmic.env", "cosmic.fs", "cosmic.proc", "cosmic.test",
@@ -1463,7 +1463,7 @@ function worker.run(argv: {string}): integer
       if argv[i] == "--tree" and into == closure then
         into = tree
       else
-        into[argv[i]] = true -- checked: index_may_be_nil
+        into[argv[i]] = true
       end
       i = i + 1
     end

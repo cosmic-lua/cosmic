@@ -32,6 +32,7 @@ local sys = require("cosmic.sys")
 local confine = require("build.confine")
 local this_program = require("build.this_program")
 local cache_names = require("build.cache_names")
+local CodeWalk = require("build.code_walk")
 local type PolicyRules = require("build.policy_rules")
 local type inputs = require("build.inputs")
 local type positions = require("build.positions")
@@ -77,9 +78,11 @@ local record test_inputs
     --- ([`cosmic.test`]'s `store_text`).
     mut store_text?: boolean
     --- Whether its worker is given the pure store ([`build.closure_store`]'s `write`)
-    --- and the source file of its own module alone: the run holds the pure store
-    --- ([`test_inputs.effective`]'s `pure_store`) and it declares none of `store`,
-    --- `store_text`, `lua` and `tool` ([`test_inputs.is_pure`]).
+    --- and the source file of its own module alone: the run is sandboxed
+    --- ([`test_inputs.effective`]'s `sandboxed`), it declares none of `store`,
+    --- `store_text`, `lua` and `tool` ([`is_pure`]), and no module of its closure
+    --- declares it reads any text (requires [`build.reads.all`]), which gives it the
+    --- store of its closure with its text.
     mut pure?: boolean
     --- The host caches declared, by name ([`build.caches`]), and where
     --- they are on this host, once the runner resolves them: empty until
@@ -266,12 +269,12 @@ function test_inputs.modules(m: Module, by_path: {string:Module},
 end
 
 --- Whether a test that declares `declared` is given the pure store
---- ([`build.closure_store`]'s `write`), where the run holds it (`held`): one
+--- ([`build.closure_store`]'s `write`), where the run is sandboxed (`held`): one
 --- that declares none of `store`, which reads the whole projection, `store_text`,
 --- which reads the text of its closure's store, and `lua` and `tool`, which start
 --- the program, whose checker types a chunk against the sources and stubs of the
 --- store it is given.
-function test_inputs.is_pure(declared: PolicyRules.Declared?, held?: boolean): boolean
+local function is_pure(declared: PolicyRules.Declared?, held?: boolean): boolean
   if held ~= true then return false end
   if declared == nil then return true end
   return not (declared.store or declared.store_text == true or declared.lua or declared.tool)
@@ -281,16 +284,18 @@ end
 --- every module the build compiled, by path, and `declarations` every
 --- declaration file of the tree (`<path>.d.tl`), by import path.
 ---
---- `pure_store` says the run gives a test that declares none of `store`,
+--- `sandboxed` says the run is sandboxed, which gives a test that declares none of `store`,
 --- `store_text`, `lua` and `tool` (the last two start the program, whose checker
---- types against the closure's text) the pure store ([`build.closure_store`]), which holds no text
---- of the modules it imports: such a test is given, and its key holds, the
---- source file of its own module and the declarations it requires, and not
---- the source files of the modules it imports.
+--- types against the closure's text) the pure store ([`build.closure_store`]), which holds the
+--- source only of what its closure declares it reads (the walks of [`build.reads.pipeline`] and its siblings) and the stubs
+--- a test names, and leaves out the tables of text-derived rows: such a test is given, and its key holds, the
+--- source file of its own module and the declarations it requires, and not the source files of the modules it imports.
+--- A test whose closure holds a module that requires [`build.reads.all`] is given the store of its closure with its
+--- text, as one that declares `store_text` is, and `pure` says it is not.
 function test_inputs.effective(m: Module, by_path: {string:Module},
                                declarations: {string:string},
                                type_only?: {string:{string:boolean}},
-                               pure_store?: boolean): test_inputs.Effective
+                               sandboxed?: boolean): test_inputs.Effective
   local parent: mut {string} = {}
   local caches: mut {string} = {}
   local out: test_inputs.Effective = {
@@ -301,7 +306,13 @@ function test_inputs.effective(m: Module, by_path: {string:Module},
     cache_paths = {}, unresolved = "",
   }
   local declares = m.inputs
-  local pure = test_inputs.is_pure(declares, pure_store)
+  local pure = is_pure(declares, sandboxed)
+  if pure then
+    -- A module that declares it reads any text ([`build.code_walk`]'s `markers`) in the closure gives the test the full store.
+    for _, name in ipairs(test_inputs.modules(m, by_path, declarations, type_only)) do
+      if CodeWalk.markers[name] == "all" then pure = false end
+    end
+  end
   out.pure = pure
   local files, fuzzes = closure(m, by_path, declarations, type_only, pure)
   for _, file in ipairs(files) do out.files[file] = true end

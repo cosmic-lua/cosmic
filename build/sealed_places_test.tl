@@ -10,6 +10,9 @@ local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local Test = require("cosmic.test")
 
+-- The subject is the places the sealed database carries, which a pure store leaves out.
+Test.policy{ store_text = true }
+
 local function test_a_sealed_database_holds_the_places_of_the_closure_s_modules()
   local relaunch = Proc.relaunch()
   if relaunch == nil or relaunch.argv[2] ~= "--database" then
