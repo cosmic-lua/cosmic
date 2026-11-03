@@ -183,7 +183,9 @@ local function test_an_edit_parses_only_what_it_edited(tmp: string)
   local env = environment(tmp)
   checkout(tmp .. "/first")
   built_as(tmp .. "/first", env, "4 sources parsed;")
-  checkout(tmp .. "/edited", { ["c.tl"] = project["c.tl"] .. "-- edited\n" }) -- checked: nil_not_allowed
+  local c_source = project["c.tl"]
+  assert(c_source ~= nil, "the project holds c.tl")
+  checkout(tmp .. "/edited", { ["c.tl"] = c_source .. "-- edited\n" })
   built_as(tmp .. "/edited", env, "; 1 source parsed, 3 taken from another checkout;")
 end
 

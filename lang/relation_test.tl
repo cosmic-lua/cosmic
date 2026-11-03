@@ -2,6 +2,7 @@
 --- with the reason each refusal carries. The programs the old
 --- checker accepted and this one must refuse are in [`lang.relation_refused_test`], and the
 --- properties over random types in [`lang.relation_fuzz_test`].
+local Array = require("cosmic.array")
 local Programs = require("lang.relation_programs")
 local Relation = require("lang.relation")
 local Test = require("cosmic.test")
@@ -27,6 +28,18 @@ local below = Programs.below
 local refusal = Programs.refusal
 local refused = Programs.refused
 local code_of = Programs.code_of
+
+--- The first step of a refusal's path. Every refusal these tests read it from names a step.
+local function first_step(r: Relation.Refusal): Relation.Step
+  return Array.at(r.path, 1)
+end
+
+--- The fixture's declaration of `name`.
+local function declaration(w: Programs.World, name: string): Types.Decl
+  local decl = w.fixture.decls[name]
+  assert(decl ~= nil, "the fixture declares " .. name)
+  return decl
+end
 
 -- identity and bottom -----------------------------------------------------------------------
 
@@ -143,7 +156,7 @@ local function test_a_union_is_below_a_type_when_each_member_is()
   assert(below(w, s:union({ s.integer, s.string }), s:union({ s.number, s.string })))
   assert(below(w, s:union({ s.integer, s.string }), s:union({ s.number, s.string, named(w, "Node") })))
   local r = refusal(w, s:union({ s.integer, s.string }), s.number)
-  assert(r.path[1].kind == "member" and r.sub == s.string and r.super == s.number, Relation.trace(r)) -- checked: nil_not_allowed
+  assert(first_step(r).kind == "member" and r.sub == s.string and r.super == s.number, Relation.trace(r))
   assert(r.code == "mismatch")
 end
 
@@ -166,7 +179,7 @@ local function test_a_refusal_names_the_position_of_the_member_that_failed()
     local given = s:union({ case.first, case.second })
     assert((given.tag == "union"))
     local r = refusal(w, given, case.target)
-    local index = r.path[1].index -- checked: nil_not_allowed
+    local index = first_step(r).index
     assert(index ~= nil and given.members[index] == case.second and r.sub == case.second, Relation.trace(r))
     seen[index] = true
   end
@@ -185,7 +198,7 @@ local function test_a_type_is_below_a_union_when_below_a_member()
   local alternatives = r.alternatives
   assert(alternatives ~= nil and #alternatives == 2)
   for _, alternative in ipairs(alternatives) do
-    assert(alternative.path[1].kind == "target_alternative" and alternative.sub == s.integer) -- checked: nil_not_allowed
+    assert(first_step(alternative).kind == "target_alternative" and alternative.sub == s.integer)
   end
 end
 
@@ -364,9 +377,9 @@ local function test_a_class_is_as_nominal_as_a_record_and_a_declaration_used_as_
   refused(w, s:named(one), s:named(two), "nominal")
   refused(w, s:named(one), s:named(plain), "nominal")
   refused(w, s:named(plain), s:named(one), "nominal")
-  local file, node = s:named(w.fixture.decls["File"]), named(w, "Node") -- checked: index_may_be_nil
-  local file_value = s:named(w.fixture.decls["File"], {}, true) -- checked: index_may_be_nil
-  local node_value = s:named(w.fixture.decls["Node"], {}, true) -- checked: index_may_be_nil
+  local file, node = s:named(declaration(w, "File")), named(w, "Node")
+  local file_value = s:named(declaration(w, "File"), {}, true)
+  local node_value = s:named(declaration(w, "Node"), {}, true)
   assert(below(w, file_value, file_value) and below(w, file_value, s:optional(file_value)))
   refused(w, file_value, file, "declaration_value")
   refused(w, file, file_value, "declaration_value")
@@ -552,7 +565,7 @@ local function test_a_function_wanted_with_alternatives_takes_one_that_gives_any
   assert(below(w, result({ yes, s.string }, { no, s.any }), wanted))
   assert(below(w, result({ yes, s.string }, { no, s.any }), result({ no, s.any }, { yes, s.string })))
   local r = refusal(w, result({ yes, s.string }, { no, s.any }), result({ yes, s.string }))
-  assert(r.code == "mismatch" and r.path[1].kind == "alternative", Relation.trace(r)) -- checked: nil_not_allowed
+  assert(r.code == "mismatch" and first_step(r).kind == "alternative", Relation.trace(r))
 end
 
 local function test_a_function_whose_alternative_matches_none_says_why_for_each()
@@ -566,7 +579,7 @@ local function test_a_function_whose_alternative_matches_none_says_why_for_each(
   local alternatives = r.alternatives
   assert(alternatives ~= nil and #alternatives == 2)
   for _, alternative in ipairs(alternatives) do
-    assert(alternative.path[1].kind == "target_alternative") -- checked: nil_not_allowed
+    assert(first_step(alternative).kind == "target_alternative")
   end
   -- With one alternative wanted the reason is the one part that differs.
   local only = s:fn({ rets = { { items = { yes, s.string } } } })
@@ -675,9 +688,10 @@ local function test_a_method_has_no_receiver_exemption()
   assert(r.sub == reader and r.super == file)
   assert(below(w, func(w, { reader }, {}), func(w, { file }, {})))
   -- the function of an interface field is compared as any function
-  local reader_body = w.fixture.decls["Stream.Reader"].body -- checked: nil_not_allowed
+  local reader_body = declaration(w, "Stream.Reader").body
   assert(reader_body ~= nil)
-  local read = reader_body.fields[1].type -- checked: nil_not_allowed
+  -- `read` is the first field of the interface in the fixture.
+  local read = Array.at(reader_body.fields, 1).type
   assert(below(w, read, func(w, { file, s:optional(s.integer) }, { s:optional(s.string) })))
   refused(w, func(w, { file, s:optional(s.integer) }, { s:optional(s.string) }), read, "nominal", "parameter 1")
 end
@@ -894,8 +908,8 @@ local function test_the_binder_of_a_declaration_is_its_type_parameters_and_their
   w.judge:enter(Relation.binder(bounded))
   assert(below(w, s:var(0, 0), ordered))
   w.judge:leave()
-  assert(#Relation.binder(w.fixture.decls["Pair"]) == 2) -- checked: index_may_be_nil
-  assert(#Relation.binder(w.fixture.decls["Node"]) == 0) -- checked: index_may_be_nil
+  assert(#Relation.binder(declaration(w, "Pair")) == 2)
+  assert(#Relation.binder(declaration(w, "Node")) == 0)
 end
 
 local function test_leaving_without_entering_raises()
@@ -969,7 +983,7 @@ local function test_a_pair_that_two_parents_reach_in_one_request_is_explained_un
   assert(alternatives ~= nil and #alternatives == 2)
   local indexes: mut {integer: boolean} = {}
   for _, alternative in ipairs(alternatives) do
-    local index = alternative.path[1].index -- checked: nil_not_allowed
+    local index = first_step(alternative).index
     assert(index ~= nil and steps(alternative) == "target_alternative " .. tostring(index) .. " > item 1", steps(alternative))
     assert(alternative.code == "number_for_integer" and alternative.sub == s.number and alternative.super == s.integer)
     indexes[index] = true
@@ -1007,15 +1021,16 @@ local function test_a_ladder_of_interfaces_that_each_list_the_next_twice_has_a_c
     end
     s:define(rung, { tparams = { { name = "T" } }, supers = supers, fields = {}, methods = {}, values = {} }) -- checked: view_as_mut
   end
-  local top = s:named(rungs[1], { s.integer }) -- checked: index_may_be_nil
+  -- `rungs` holds an entry for each of 1 to 14.
+  local top = s:named(Array.at(rungs, 1), { s.integer })
   assert((top.tag == "named"))
   local listing = w.judge:listed(top)
   assert(#listing.types == 4096 and not listing.complete, #listing.types)
   -- the listings the judge holds are related, and the others are refused
-  assert(below(w, top, s:named(rungs[2], { s:array(s.integer) }))) -- checked: index_may_be_nil
+  assert(below(w, top, s:named(Array.at(rungs, 2), { s:array(s.integer) })))
   refused(w, top, named(w, "Event"), "not_listed")
   -- a ladder of fewer rungs is whole
-  local middle = s:named(rungs[10], { s.integer }) -- checked: index_may_be_nil
+  local middle = s:named(Array.at(rungs, 10), { s.integer })
   assert((middle.tag == "named"))
   local short = w.judge:listed(middle)
   assert(#short.types == 30 and short.complete, #short.types)
@@ -1057,7 +1072,8 @@ local function test_a_listing_whose_argument_is_as_deep_as_the_store_allows_ends
   for _ = 1, 980 do
     deep = s:array(deep)
   end
-  local top = s:named(rungs[1], { deep }) -- checked: index_may_be_nil
+  -- `rungs` holds an entry for each of 1 to 40.
+  local top = s:named(Array.at(rungs, 1), { deep })
   assert((top.tag == "named"))
   local listing = w.judge:listed(top)
   assert(#listing.types > 1 and #listing.types < 39 and not listing.complete, #listing.types)
@@ -1193,8 +1209,8 @@ local function test_a_refusal_names_the_position_of_the_alternative_that_failed(
     local given = s:fn({ rets = { { items = { yes, s.string } }, { items = { failing, s.string } } } })
     assert((given.tag == "fn"))
     local r = refusal(w, given, wanted)
-    local index = r.path[1].index -- checked: nil_not_allowed
-    assert(r.path[1].kind == "alternative" and index ~= nil, Relation.trace(r)) -- checked: nil_not_allowed
+    local index = first_step(r).index
+    assert(first_step(r).kind == "alternative" and index ~= nil, Relation.trace(r))
     local alt = given.rets[index]
     assert(alt ~= nil and alt.items[1] == failing, Relation.trace(r))
     seen[index] = true
@@ -1209,13 +1225,13 @@ local function test_a_rest_step_names_the_position_it_stands_at()
   local given = s:fn({ params = { { type = s.integer, omittable = true } } })
   local wanted = s:fn({ rest = s.number })
   local r = refused(w, given, wanted, "union_none", "rest 1")
-  assert(r.path[1].index == 1) -- checked: nil_not_allowed
+  assert(first_step(r).index == 1)
   -- the rest parameters of both, from the position after the last parameter of either
   r = refused(w, s:fn({ rest = s.integer }), s:fn({ rest = s.number }), "number_for_integer", "rest 1")
-  assert(r.path[1].index == 1) -- checked: nil_not_allowed
+  assert(first_step(r).index == 1)
   r = refused(w, s:fn({ params = { { type = s.string }, { type = s.number, omittable = true } }, rest = s.integer }),
     s:fn({ params = { { type = s.string } }, rest = s.number }), "number_for_integer", "rest 3")
-  assert(r.path[1].index == 3) -- checked: nil_not_allowed
+  assert(first_step(r).index == 3)
 end
 
 -- an open decode, a bound, an undefined binder -------------------------------------------------------
@@ -1357,25 +1373,27 @@ local function test_a_chain_of_listings_longer_than_a_closure_holds_is_followed_
   local decls: mut {Types.Decl} = {}
   local uses: mut {Types.Type} = {}
   for i = 1, 4200 do
-    decls[i] = s:declare("interface", "m", { "Long" .. tostring(i) }, 0)
-    uses[i] = s:named(decls[i]) -- checked: index_may_be_nil
+    local decl = s:declare("interface", "m", { "Long" .. tostring(i) }, 0)
+    decls[i] = decl
+    uses[i] = s:named(decl)
   end
   -- Defined from the top down, so that the store's check for a cycle stops at a declaration it has no
   -- body for and does not walk the chain below each one (4200 steps each, which took seconds).
+  -- Both arrays hold an entry for each of 1 to 4200.
   for i = 4200, 1, -1 do
-    s:define(decls[i], { tparams = {}, supers = if i > 1 then { uses[i - 1] } else {} end, fields = {}, methods = {}, -- checked: index_may_be_nil*2
+    s:define(Array.at(decls, i), { tparams = {}, supers = if i > 1 then { Array.at(uses, i - 1) } else {} end, fields = {}, methods = {},
       values = {} })
   end
-  assert(below(w, uses[4200], uses[200])) -- checked: index_may_be_nil*2
-  assert(below(w, uses[4200], uses[105])) -- checked: index_may_be_nil*2
-  refused(w, uses[4200], uses[100], "not_listed") -- checked: index_may_be_nil*2
-  refused(w, uses[4200], uses[1], "not_listed") -- checked: index_may_be_nil*2
+  assert(below(w, Array.at(uses, 4200), Array.at(uses, 200)))
+  assert(below(w, Array.at(uses, 4200), Array.at(uses, 105)))
+  refused(w, Array.at(uses, 4200), Array.at(uses, 100), "not_listed")
+  refused(w, Array.at(uses, 4200), Array.at(uses, 1), "not_listed")
 end
 
 local function test_a_chain_of_generic_interfaces_that_pass_their_argument_on_is_followed_to_its_end()
   local w = world()
   local s = w.store
-  -- 100 generic interfaces, each listing the next with its own argument.
+  -- 100 generic interfaces, each listing the next with its own argument: `decls` holds an entry for 1 to 100.
   local decls: mut {Types.Decl} = {}
   for i = 1, 100 do
     decls[i] = s:declare("interface", "m", { "G" .. tostring(i) }, 1)
@@ -1383,15 +1401,15 @@ local function test_a_chain_of_generic_interfaces_that_pass_their_argument_on_is
   for i = 1, 100 do
     local supers: mut {Types.Type} = {}
     if i < 100 then
-      supers[1] = s:named(decls[i + 1], { s:var(0, 0) }) -- checked: index_may_be_nil
+      supers[1] = s:named(Array.at(decls, i + 1), { s:var(0, 0) })
     end
-    s:define(decls[i], { tparams = { { name = "T" } }, supers = supers, fields = {}, methods = {}, values = {} }) -- checked: index_may_be_nil
+    s:define(Array.at(decls, i), { tparams = { { name = "T" } }, supers = supers, fields = {}, methods = {}, values = {} })
   end
   local root = s:declare("class", "m", { "UnderG" }, 0)
-  s:define(root, { tparams = {}, supers = { s:named(decls[1], { s.integer }) }, fields = {}, methods = {}, -- checked: index_may_be_nil
+  s:define(root, { tparams = {}, supers = { s:named(Array.at(decls, 1), { s.integer }) }, fields = {}, methods = {},
     values = {} })
-  assert(below(w, s:named(root), s:named(decls[100], { s.integer }))) -- checked: index_may_be_nil
-  refused(w, s:named(root), s:named(decls[100], { s.string }), "not_listed") -- checked: index_may_be_nil
+  assert(below(w, s:named(root), s:named(Array.at(decls, 100), { s.integer })))
+  refused(w, s:named(root), s:named(Array.at(decls, 100), { s.string }), "not_listed")
 end
 
 local function test_a_failing_alternative_is_named_by_its_position_whichever_it_is()
@@ -1411,10 +1429,10 @@ local function test_a_failing_alternative_is_named_by_its_position_whichever_it_
     assert((one.tag == "fn"))
     local reason = refusal(w, one, wanted)
     assert(reason.code == "return_unmatched", Relation.trace(reason))
-    local index = reason.path[1].index -- checked: nil_not_allowed
+    local index = first_step(reason).index
     assert(index ~= nil)
     local alt = one.rets[index]
-    assert(reason.path[1].kind == "alternative" and alt ~= nil and alt.items[2] == failing, Relation.trace(reason)) -- checked: nil_not_allowed
+    assert(first_step(reason).kind == "alternative" and alt ~= nil and alt.items[2] == failing, Relation.trace(reason))
     seen[index] = true
   end
   assert(seen[1] == true and seen[2] == true)
@@ -1427,5 +1445,5 @@ local function test_a_rest_step_names_a_position_inside_the_parameters()
   local given = s:fn({ params = { { type = s.string }, { type = s.integer, omittable = true } } })
   local wanted = s:fn({ params = { { type = s.string } }, rest = s.number })
   local r = refused(w, given, wanted, "union_none", "rest 2")
-  assert(r.path[1].index == 2) -- checked: nil_not_allowed
+  assert(first_step(r).index == 2)
 end

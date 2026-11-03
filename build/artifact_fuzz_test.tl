@@ -25,8 +25,16 @@ local function big(s: string, at: integer, width: integer): integer
   return v
 end
 
---- The trailer's fields, as {offset in the trailer, width}.
-local TRAILER_FIELDS <const> = { { 9, 4 }, { 13, 4 }, { 17, 8 }, { 25, 8 }, { 33, 8 }, { 41, 8 } }
+--- One field of the trailer: where it starts in the trailer and its width.
+local record TrailerField
+  offset: integer
+  width: integer
+end
+
+local TRAILER_FIELDS <const>: {TrailerField} = {
+  { offset = 9, width = 4 }, { offset = 13, width = 4 }, { offset = 17, width = 8 },
+  { offset = 25, width = 8 }, { offset = 33, width = 8 }, { offset = 41, width = 8 },
+}
 
 local function gen(programs: {string}): function(Fuzz.Source): string
   return function(src: Fuzz.Source): string
@@ -37,9 +45,9 @@ local function gen(programs: {string}): function(Fuzz.Source): string
       local what = src:int(1, 4)
       if what == 1 then
         local f = Fuzz.pick(src, TRAILER_FIELDS)
-        local at = #bytes - 48 + f[1] -- checked: nil_not_allowed
-        local near = big(bytes, at, f[2]) -- checked: index_may_be_nil
-        bytes = set_field(bytes, at, f[2], Fuzz.pick(src, { 0, 1, near - 1, near + 1, -- checked: index_may_be_nil
+        local at = #bytes - 48 + f.offset
+        local near = big(bytes, at, f.width)
+        bytes = set_field(bytes, at, f.width, Fuzz.pick(src, { 0, 1, near - 1, near + 1,
           near + 4096, -1, math.mininteger, #bytes }))
       elseif what == 2 then
         bytes = bytes:sub(1, -49) .. Fuzz.mutate(src, bytes:sub(-48), 3)

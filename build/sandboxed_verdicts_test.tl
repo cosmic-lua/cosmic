@@ -13,6 +13,7 @@
 --- `tool` runs again when the tool does -- when what the tool runs as
 --- does, not when only the rows every edit of the tree moves do.
 
+local Array = require("cosmic.array")
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
@@ -628,7 +629,8 @@ end
     "SELECT group_concat(path, ' ') FROM (SELECT path FROM runs " ..
       "WHERE run_at_ns = (SELECT max(run_at_ns) FROM runs) ORDER BY path)"))
   assert(db:close())
-  assert(rows[1]:text(1) == "core.allocation_test", "ran under another compiler: " .. rows[1]:text(1)) -- checked: nil_not_allowed*2
+  local row = Array.at(rows, 1)
+  assert(row:text(1) == "core.allocation_test", "ran under another compiler: " .. row:text(1))
 end
 
 --- A processor of other features (stood in for by COSMIC_TEST_CPU_SALT) runs only the modules that
@@ -796,7 +798,7 @@ end
       "SELECT group_concat(path, ' ') FROM (SELECT path FROM runs " ..
         "WHERE run_at_ns = (SELECT max(run_at_ns) FROM runs) ORDER BY path)"))
     assert(db:close())
-    return rows[1]:text(1) -- checked: nil_not_allowed
+    return Array.at(rows, 1):text(1)
   end
   local plain = run(root, tmp .. "/plain.out", env)
   assert(plain:find("2 ran, 0 stood", 1, true), "a checked pass stood for an unchecked run: " .. plain)

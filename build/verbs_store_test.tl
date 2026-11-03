@@ -142,8 +142,9 @@ local function test_help_is_a_short_index_of_every_verb(tmp: string)
   assert(lines < 60, tostring(lines) .. " lines:\n" .. all)
   for _, verb in ipairs(Cli.order) do
     local command = Cli.verbs[verb]
-    assert(all:find(assert(command.usage) .. "  ", 1, true), verb .. " is not in the index:\n" .. all) -- checked: nil_not_allowed
-    assert(all:find(assert(command.about), 1, true), verb .. " has no line:\n" .. all) -- checked: nil_not_allowed
+    assert(command ~= nil, verb .. " is in Cli.order but has no command")
+    assert(all:find(assert(command.usage) .. "  ", 1, true), verb .. " is not in the index:\n" .. all)
+    assert(all:find(assert(command.about), 1, true), verb .. " has no line:\n" .. all)
   end
   -- A usage follows the word that names its verb, or what is typed
   -- where a verb has no word of its own.

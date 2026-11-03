@@ -3,6 +3,7 @@
 --- file of several gets its own output. build/compile_tool_test.tl starts the program for what a process alone shows, and
 --- build/compile_grammar_test.tl holds the pipeline it runs.
 
+local Array = require("cosmic.array")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local compile = require("build.compile")
@@ -29,7 +30,7 @@ local function run(words: {string}): Ran
   for _, word in ipairs(words) do rooted = rooted or word == "--root" end
   if not rooted then
     argv[#argv + 1] = "--root"
-    argv[#argv + 1] = where[1] -- checked: index_may_be_nil
+    argv[#argv + 1] = Array.at(where, 1) -- `file` records the directory before a test runs `compile`
   end
   for _, word in ipairs(words) do argv[#argv + 1] = word end
   local ran: Ran = { code = -1, out = "", err = "" }

@@ -6,6 +6,7 @@
 --- cosmic/json_path_fuzz_test.tl. `FUZZ_SEED` and `FUZZ_ITERS` pick the
 --- inputs (build/fuzz/init.tl).
 
+local Array = require("cosmic.array")
 local Fuzz = require("build.fuzz")
 local Json = require("cosmic.json")
 local json_query = require("build.json_query")
@@ -50,15 +51,19 @@ local function test_every_flattened_path_reads_back_and_is_selectable(tmp: strin
     check = function(packed: string): boolean, string
       local fields = Fuzz.unpack(packed)
       -- Without `null_value`, a null in an array is a hole.
-      local doc = Json.decode(fields[1], { null_value = if fields[2] == "nulls" then Json.null else nil end }) -- checked: index_may_be_nil
-      local ok, leaves, err = pcall(json_query.flatten, doc)
-      if not ok then return false, "raised: " .. tostring(leaves) end
-      if leaves == nil then return false, "failed: " .. err end -- checked: nil_not_allowed
+      -- `gen` packs the document and its mode, two fields.
+      local doc = Json.decode(Array.at(fields, 1), { null_value = if fields[2] == "nulls" then Json.null else nil end })
+      local leaves: {Json.Match}?
+      local err = ""
+      local ok, raised = pcall(function() leaves, err = json_query.flatten(doc) end)
+      if not ok then return false, "raised: " .. tostring(raised) end
+      local flat = leaves
+      if flat == nil then return false, "failed: " .. err end
       local every = assert(Json.select(doc, (assert(Json.query("$..*")))))
       local selectable: mut {string:boolean} = { ["$"] = true }
       for _, hit in ipairs(every) do selectable[assert(Json.path(hit.steps))] = true end
       local seen: mut {string:boolean} = {}
-      for _, leaf in ipairs(leaves as {Json.Match}) do -- checked: cast_refused
+      for _, leaf in ipairs(flat) do
         Fuzz.label("leaves")
         local normal = assert(Json.path(leaf.steps))
         local line, line_err = json_query.flat_line(leaf.steps, leaf.value)

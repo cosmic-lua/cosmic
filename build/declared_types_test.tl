@@ -9,6 +9,7 @@
 --- and build/confine_declared_types_test.tl, which declare what they read.
 --- Until a compile writes the boundary checks (build/type_watch.tl), they skip in a checked run too.
 
+local Array = require("cosmic.array")
 local Clock = require("cosmic.clock")
 local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
@@ -76,7 +77,8 @@ local function test_a_cache_with_a_table_of_no_known_shape_is_as_declared(tmp: s
     assert(db:exec("CREATE TABLE compiled_v99 (key TEXT PRIMARY KEY, lua BLOB)"))
     assert(db:close())
     local result = maintenance.run({ family = "compiles", paths = { path }, since_ns = Clock.seconds(1), whole = false })
-    assert(result.complete and #result.report.files[1].unknown_tables == 1) -- checked: nil_not_allowed
+    -- The run names one database, so its report holds one file.
+    assert(result.complete and #Array.at(result.report.files, 1).unknown_tables == 1)
   end)
 end
 

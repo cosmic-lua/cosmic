@@ -208,7 +208,11 @@ local function test_every_recorded_host_is_named_as_the_ci_names_it(tmp: string)
     local features: mut {string} = {}
     if vector.sysname == "Darwin" then
       for name, answer in pairs(vector.sysctl or {}) do -- checked: literal_needs_type
-        if answer == "1" then features[#features + 1] = darwin_features[name] end -- checked: index_may_be_nil
+        if answer == "1" then
+          local feature = darwin_features[name]
+          assert(feature ~= nil, "the vector names a sysctl that `darwin_features` lacks: " .. name)
+          features[#features + 1] = feature
+        end
       end
     else
       features = listed(vector.cpuinfo or "")

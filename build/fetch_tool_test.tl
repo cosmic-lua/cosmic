@@ -24,7 +24,9 @@ local function cosmic(dir: string, words: {string}): integer, string, string
     cwd = dir, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30),
   })
   local result = assert(Child.run(started.argv, started.options))
-  return result.code, result.stdout or "", result.stderr or "" -- checked: nil_not_allowed
+  local code = result.code
+  assert(code ~= nil, "the program exited rather than being killed by a signal")
+  return code, result.stdout or "", result.stderr or ""
 end
 
 local function test_a_refusal_is_two_and_prints_no_summary(tmp: string)
