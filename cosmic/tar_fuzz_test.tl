@@ -3,8 +3,10 @@
 --- or runs away -- and what the writer writes, the reader reads back.
 --- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
 
+local Array = require("cosmic.array")
 local Fuzz = require("build.fuzz")
 local Stream = require("cosmic.stream")
+local String = require("cosmic.string")
 local Tar = require("cosmic.tar")
 
 --- Path components a tar header has to carry: a name too long for the
@@ -49,14 +51,15 @@ local function write(fields: {string}): string?
   local out = Stream.collect()
   local tw = Tar.writer(out, { deterministic = true })
   for i = 1, #fields, 3 do
-    local kind, path, body = fields[i], fields[i + 1], fields[i + 2]
+    -- [`gen_entries`] makes fields in threes.
+    local kind, path, body = fields[i], Array.at(fields, i + 1), Array.at(fields, i + 2)
     local ok: boolean
     if kind == "file" then
-      ok = tw:add_file(path, body) -- checked: nil_not_allowed*2
+      ok = tw:add_file(path, body)
     elseif kind == "dir" then
-      ok = tw:add_dir(path) -- checked: nil_not_allowed
+      ok = tw:add_dir(path)
     else
-      ok = tw:add_symlink(path, body) -- checked: nil_not_allowed*2
+      ok = tw:add_symlink(path, body)
     end
     if not ok then return nil end
   end
@@ -187,7 +190,7 @@ local function numeric_field(src: Fuzz.Source, width: integer, v: integer): stri
     else
       b = b:sub(-width)
     end
-    return string.char(b:byte(1) | 0x80) .. b:sub(2) -- checked: nil_not_allowed
+    return string.char(String.byte_at(b, 1) | 0x80) .. b:sub(2)
   elseif how == 9 then
     local b: mut {string} = { string.char(0x80 | src:int(0, 0x7f)) }
     for _ = 2, width do b[#b + 1] = string.char(src:int(0, 255)) end
@@ -290,7 +293,7 @@ local function header(src: Fuzz.Source, typeflag: string, size: integer): string
   }
   local block = table.concat(parts)
   local sum = 0
-  for i = 1, #block do sum = sum + block:byte(i) end -- checked: nil_not_allowed
+  for i = 1, #block do sum = sum + String.byte_at(block, i) end
   if src:int(0, 15) == 0 then sum = sum + src:int(1, 64) end
   return block:sub(1, 148) .. ("%06o\0 "):format(sum) .. block:sub(157)
 end
@@ -357,10 +360,11 @@ local function test_what_the_writer_writes_the_reader_reads_back(tmp: string)
       Fuzz.label("written")
       local tr = Tar.reader(Stream.from_string(archive))
       for i = 1, #fields, 3 do
-        local kind, path, body = fields[i], fields[i + 1], fields[i + 2]
+        -- [`gen_entries`] makes fields in threes.
+        local kind, path, body = fields[i], Array.at(fields, i + 1), Array.at(fields, i + 2)
         local e, trouble = tr:next()
         if e == nil then return false, ("entry %d (%q): %s"):format(i // 3 + 1, path, trouble) end
-        if strip_slash(e.path) ~= strip_slash(path) then -- checked: nil_not_allowed
+        if strip_slash(e.path) ~= strip_slash(path) then
           return false, ("wrote path %q, read %q"):format(path, e.path)
         end
         if tostring(e.kind) ~= kind then

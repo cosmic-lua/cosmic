@@ -1,3 +1,4 @@
+local Array = require("cosmic.array")
 local Url = require("cosmic.url")
 local Test = require("cosmic.test")
 local StringList = require("build.string_list_fixture")
@@ -275,7 +276,8 @@ local function test_encode_query_writes_plus_for_space_and_round_trips()
   local q = decoded(text, { utf8 = false })
   assert(#q.pairs == #pairs_)
   for i, p in ipairs(pairs_) do
-    assert(q.pairs[i].name == p.name and q.pairs[i].value == p.value) -- checked: nil_not_allowed*2
+    local got = Array.at(q.pairs, i)
+    assert(got.name == p.name and got.value == p.value)
   end
 end
 
