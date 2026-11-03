@@ -364,21 +364,15 @@ end
 --- with its own `timeout_ns`, so a connect that hangs holds up no other
 --- until the connector's capacity is in use. Once it has
 --- ended, a connection fails saying so, and `handed.lost` is told the
---- first time. A `handed` with no connector or a `lost` that is no
---- function raises.
+--- first time. A `handed` with no connector raises.
 --- @param handed Relay.Handed The connector
 --- @return Relay.Connector What [`Relay.Spec.connector`] takes
 function Relay.handed(handed: Relay.Handed): Relay.Connector
-  local given: Net.Connector? = nil
-  if type(handed) == "table" then given = handed.connector end
-  if given == nil then
+  local connector = handed.connector
+  if connector == nil then
     error("relay: handed needs a connector", 2)
   end
-  if handed.lost ~= nil and type(handed.lost) ~= "function" then
-    error("relay: handed.lost must be a function", 2)
-  end
-  -- A copy that takes the type of the checked one, for the functions below.
-  local connector, lost = given, handed.lost
+  local lost = handed.lost
   local told: boolean = false
   --- Tells `lost`, the first time, that the connector has ended.
   local function ended(): string
@@ -1314,28 +1308,19 @@ end
 
 --- Raises, naming the field, where `up` is no usable upstream.
 local function checked_upstream(up: Relay.Upstream)
-  if type(up) ~= "table" then error("relay: spec.upstream must be a table", 3) end
-  if type(up.host) ~= "string" or up.host == "" or up.host:find("[%c%s]") ~= nil then
+  if up.host == "" or up.host:find("[%c%s]") ~= nil then
     error("relay: spec.upstream.host must be a host name or address", 3)
   end
-  if math.type(up.port) ~= "integer" or up.port < 1 or up.port > 65535 then
+  if up.port < 1 or up.port > 65535 then
     error("relay: spec.upstream.port must be a port from 1 to 65535", 3)
   end
   local authorization = up.authorization
-  if authorization ~= nil and (type(authorization) ~= "string" or authorization:find("[%c]") ~= nil) then
+  if authorization ~= nil and authorization:find("[%c]") ~= nil then
     error("relay: spec.upstream.authorization must be a header value with no control bytes", 3)
-  end
-  if type(up.no_proxy) ~= "table" then
-    error("relay: spec.upstream.no_proxy must be a list of strings", 3)
-  end
-  for _, entry in ipairs(up.no_proxy) do
-    if type(entry) ~= "string" then
-      error("relay: spec.upstream.no_proxy must be a list of strings", 3)
-    end
   end
   local addresses = up.addresses
   if addresses ~= nil then
-    if type(addresses) ~= "table" or #addresses == 0 then
+    if #addresses == 0 then
       error("relay: spec.upstream.addresses must be a list of one numeric address or more", 3)
     end
     for _, address in ipairs(addresses) do
@@ -1346,10 +1331,10 @@ local function checked_upstream(up: Relay.Upstream)
   end
 end
 
---- `given`, or `default` where it is nil; raises where it is no integer from 1.
+--- `given`, or `default` where it is nil; raises where it is under 1.
 local function chosen(given: integer?, default: integer, name: string): integer
   if given == nil then return default end
-  if math.type(given) ~= "integer" or given < 1 then
+  if given < 1 then
     error(("relay: %s must be an integer from 1"):format(name), 3)
   end
   return given
@@ -1359,51 +1344,18 @@ end
 --- returns once they are taken. [`Child.start`] runs it for a policy's
 --- `connect`, in a process of its own ([`cosmic.internal.relay_main`]) whose
 --- listeners the sandbox bound in the program's network. Raises where the spec is no spec: no
---- listener or `connector`, a grant that is no string, a timeout or limit
---- that is no positive integer, an own address that is no address.
+--- listener, a timeout or limit under 1, an own address that is no address.
 --- @param spec Relay.Spec What to serve
 --- @return Relay.Serving The running relay
 function Relay.start(spec: Relay.Spec): Relay.Serving
-  if type(spec) ~= "table" then error("relay: start takes a spec table", 2) end
-  local mixed = spec.mixed
-  if mixed ~= nil and type(mixed) ~= "table" then
-    error("relay: spec.mixed must be a list of listeners", 2)
-  end
   if spec.http == nil and spec.socks == nil and #(spec.mixed or {}) == 0 then
     error("relay: spec needs an http, a socks or a mixed listener", 2)
-  end
-  if type(spec.connector) ~= "function" then
-    error("relay: spec.connector must be a function", 2)
-  end
-  if type(spec.grants) ~= "table" then
-    error("relay: spec.grants must be a list of host:port", 2)
-  end
-  for _, grant in ipairs(spec.grants) do
-    if type(grant) ~= "string" then error("relay: spec.grants must hold strings", 2) end
-  end
-  local function table_or_nil(value: any, field: string)
-    if value ~= nil and type(value) ~= "table" then
-      error(("relay: spec.%s must be a table"):format(field), 3)
-    end
-  end
-  table_or_nil(spec.timeouts, "timeouts")
-  table_or_nil(spec.limits, "limits")
-  table_or_nil(spec.resolve, "resolve")
-  local unresolved = spec.unresolved
-  if unresolved ~= nil and type(unresolved) ~= "string" then
-    error("relay: spec.unresolved must be a string", 2)
-  end
-  table_or_nil(spec.own_addresses, "own_addresses")
-  table_or_nil(spec.tls_ports, "tls_ports")
-  if spec.lost ~= nil and type(spec.lost) ~= "function" then
-    error("relay: spec.lost must be a function", 2)
   end
   local upstream = spec.upstream
   if upstream ~= nil then checked_upstream(upstream) end
   if not Poll.in_task() then error("relay: start runs in a task of Poll.run", 2) end
   local token = spec.token
-  if token ~= nil and (type(token) ~= "string" or #token < 16 or #token > 255 or
-      token:find("[%c\127]") ~= nil) then
+  if token ~= nil and (#token < 16 or #token > 255 or token:find("[%c\127]") ~= nil) then
     error("relay: spec.token must be a string of 16 to 255 bytes with no control byte (draw 128 bits or more)", 2)
   end
   local given_timeouts: Relay.Timeouts = spec.timeouts or {}
@@ -1423,7 +1375,7 @@ function Relay.start(spec: Relay.Spec): Relay.Serving
   }
   local tls: mut {integer: boolean} = {}
   for _, port in ipairs(spec.tls_ports or DEFAULT_TLS_PORTS) do
-    if math.type(port) ~= "integer" or port < 1 or port > 65535 then
+    if port < 1 or port > 65535 then
       error("relay: spec.tls_ports must hold ports from 1 to 65535", 2)
     end
     tls[port] = true
