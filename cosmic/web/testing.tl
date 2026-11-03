@@ -208,7 +208,7 @@ local function text(self: Response): string
   return self.body
 end
 
-local function json(self: Response): any?, string
+local function json(self: Response): Json.Value?, string
   local value, why = Json.decode(self.body)
   if why ~= "" then return nil, why end -- checked: any_use
   return value, ""

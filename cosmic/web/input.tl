@@ -91,7 +91,7 @@ local record Input
   --- [`Input.form`] so that a middleware and the handler share one decode.
   FORM: Types.Key<Url.Query>
   --- The JSON body once decoded, kept the same way by [`Input.json`].
-  JSON: Types.Key<any>
+  JSON: Types.Key<Json.Value>
   --- The body limit when `max_bytes` is not given, 64 KiB.
   DEFAULT_MAX: integer
   --- The body limit of [`Input.multipart`] when `max_bytes` is not given,
@@ -727,8 +727,8 @@ end
 --- the decode under [`Input.JSON`].
 --- @param req Types.Request The request
 --- @param opts Types.InputOptions | nil The limit
---- @return Types.Parsed<any> The value, or status 400, 408, 413, 415, or 422 for an empty body
-function Input.json(req: Types.Request, opts?: Types.InputOptions): Types.Parsed<any>
+--- @return Types.Parsed<Json.Value> The value, or status 400, 408, 413, 415, or 422 for an empty body
+function Input.json(req: Types.Request, opts?: Types.InputOptions): Types.Parsed<Json.Value>
   local text, bad = body_text(req, "json", opts)
   if text == nil then return { invalid = bad } end
   local cached = req:get(Input.JSON)
@@ -879,6 +879,8 @@ local function nested_present(q: Url.Query, prefix: string): boolean
   return false
 end
 
+-- TODO: type the binder's tree as [`Json.Value`] once a list that keeps a hole ([`Json.with_holes`]) is one: no
+-- [`Json.Value`] has a hole, and an optional item sent as nothing stays one.
 local function bind_list(w: Walk, field: string, spec: Shape.Node): any
   local values = w.q.by_name[field]
   if values == nil then

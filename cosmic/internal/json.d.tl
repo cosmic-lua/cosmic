@@ -10,6 +10,10 @@ local record json
     userdata
   end
 
+  -- What JSON can hold: [`Json.Value`] of cosmic/json.tl, which declares it
+  -- again for its users.
+  type Value = string | number | boolean | Null | {Value} | {string: Value}
+
   -- The value `text` holds. JSON `null` is `null` when given, and nil
   -- when not. nil and a message, naming the line and column, when the
   -- text is not one RFC 8259 JSON value (JSON5 when `json5`; either
@@ -31,12 +35,12 @@ local record json
   -- arrays and objects are open
   -- around it there, and count toward `max_depth`, which they must be
   -- fewer than.
-  decode: function(text: string, null?: any, max_depth?: integer,
+  decode: function(text: string, null?: Null, max_depth?: integer,
                    json5?: boolean, big_as_string?: boolean,
                    lone_surrogates?: boolean, record?: integer,
                    hash_comments?: boolean,
                    duplicate_keys?: boolean, line?: integer, column?: integer,
-                   prefix?: string, opened?: integer): any?, string
+                   prefix?: string, opened?: integer): Value?, string
   -- true and "" when `decode` would read `text` under the same
   -- options; else false and the message it would fail with. It builds
   -- no value.
@@ -60,11 +64,11 @@ local record json
   encode: function(value: any, pretty?: boolean, max_depth?: integer, ascii?: boolean): string?, string
   -- Marks `t`, or a new table, as a JSON array and answers it. Raises
   -- when `t` has another metatable.
-  array: function(): {any}
+  array: function(): {Value}
   array: function<T>(t: {T}): {T}
   -- The same for a table kept by position, which may hold a hole (JSON
   -- Lines with a `null` line).
-  array: function(t: {integer: any}): {any}
+  array: function(t: {integer: Value}): {Value}
   -- Marks `t`, a table with no metatable, as an array that may have
   -- holes when `holey` is true, else as an array, and answers it.
   with_holes: function<T>(t: {integer: T}, holey: boolean): {integer: T}

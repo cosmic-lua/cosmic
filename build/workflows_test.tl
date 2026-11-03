@@ -383,7 +383,7 @@ end
 --- overwriting what an earlier entry added, or, where it contradicts
 --- all of them, a combination of its own, which no later entry is
 --- added to. With no dimension, each entry is a combination.
-local function expand(matrix: {string: any}, scope: string): {{string: string}}
+local function expand(matrix: {string: Json.Value}, scope: string): {{string: string}}
   local dims: mut {string} = {}
   for key in pairs(matrix) do
     if key ~= "include" and key ~= "exclude" then dims[#dims + 1] = key end
@@ -453,7 +453,7 @@ end
 
 --- A job's matrix legs on a run of `scope`, as [`expand`] gives them.
 local function legs_of(job: Job, scope: string): {{string: string}}
-  return expand(assert(assert(job.strategy).matrix), scope)
+  return expand(assert(Json.to_object(assert(assert(job.strategy).matrix))), scope)
 end
 
 --- [`expand`] gives the combinations GitHub's docs give for their

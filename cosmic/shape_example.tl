@@ -7,9 +7,9 @@ local Shape = require("cosmic.shape")
 
 local Example = {} -- checked: literal_needs_type
 
---- A release as JSON decodes it: `any`, until a shape says otherwise.
+--- A release as JSON decodes it: a [`Json.Value`], until a shape says otherwise.
 --- `null_value` keeps the draft's null, which `optional` reads as nil.
-local function decoded(): any
+local function decoded(): Json.Value?
   local text = '{"tag": "v1", "draft": null, "assets": ["lua", "zip"], "author": "someone"}'
   local value, err = Json.decode(text, { null_value = Json.null })
   assert(err == "", err)
