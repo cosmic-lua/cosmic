@@ -1794,7 +1794,7 @@ local function silent_invalids(first: integer, last: integer, standing: boolean)
     end
   end
   for i = first, math.min(last, #CASES) do
-    -- every caller starts at 1, and the loop ends at `#CASES`
+    -- every caller passes a `first` of at least 1, and the loop stops at `#CASES`
     local case = Array.at(CASES, i)
     hold("case " .. tostring(i) .. " " .. case.code, case.source, case.modules)
   end
