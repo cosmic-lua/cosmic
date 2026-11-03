@@ -425,7 +425,7 @@ local function test_a_files_links_and_headings_sign_the_projection(tmp: string)
     assert(ok, tostring(stage))
     assert(stage, trouble)
     assert(work.commit(handle))
-    return stage -- checked: any_use
+    return stage
   end
   local function signed(): string
     local result = assert(importer.compile(handle, "link-index-test"))

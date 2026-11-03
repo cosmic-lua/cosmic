@@ -347,7 +347,7 @@ local function stage_settled(handle: work.Handle, own_tree?: boolean): work.Stag
   local ok, staged, trouble = pcall(work.stage, handle, { own = own_tree == true })
   Clock.now_ns = now -- checked: field_fixed
   assert(ok, tostring(staged))
-  return (assert(staged, trouble)) -- checked: any_use
+  return (assert(staged, trouble))
 end
 
 --- Give the tested paths distinct change-time ticks even on a coarse filesystem.
@@ -802,7 +802,7 @@ local function test_tool_discovery_does_not_bless_an_addition_after_listing(tmp:
   end
   local ok, staged = pcall(stage_settled, handle, true)
   Fs.walk_following = walk -- checked: field_fixed
-  assert(ok and staged ~= nil, tostring(staged))
+  assert(ok, tostring(staged))
   assert(work.tool_moved(handle), "metadata must precede the directory listing")
   assert(stage_settled(handle, true))
   assert(work.tool_moved(handle) == false)

@@ -1188,10 +1188,10 @@ local function test_a_type_with_a_mistake_in_it_is_related_without_raising_and_e
           if (w.judge:refuse(a, b) == nil) ~= answer then
             return false, who .. ": the reason disagrees"
           end
-          if (a.tag == "invalid" or b.tag == "invalid") and not answer then -- checked: any_use
+          if (a.tag == "invalid" or b.tag == "invalid") and not answer then
             return false, who .. ": a mistake already reported is reported again"
           end
-          Fuzz.label(if answer then "holds" else "refused" end) -- checked: any_use
+          Fuzz.label(if answer then "holds" else "refused" end)
           if Types.encode(a):find("invalid", 1, true) ~= nil then
             Fuzz.label("with a mistake")
           end

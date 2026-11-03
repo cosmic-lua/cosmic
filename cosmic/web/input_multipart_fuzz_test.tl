@@ -90,7 +90,9 @@ local function test_any_multipart_body_is_bounded_and_leaves_no_file(tmp: string
         body = Stream.from_string(text), length = if not chunked then #text else nil end }
       local ok, reply = pcall(app.handle, raw)
       if not ok then return false, "raised: " .. tostring(reply) end
-      if reply.status ~= 204 then return false, "the handler faulted: " .. reply.status end -- checked: any_use*2
+      if reply.status ~= 204 then
+        return false, "the handler faulted: " .. tostring(reply.status)
+      end
       local left = assert(Fs.list(uploads))
       if #left ~= 0 then return false, "left behind: " .. table.concat(left, ", ") end
       local read = assert(outcome, "the handler read nothing")

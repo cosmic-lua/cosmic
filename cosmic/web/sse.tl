@@ -405,7 +405,7 @@ function Body.read(self: Body, max_bytes?: integer): string?, string
         finish(self, "failed: " .. tostring(text))
         return nil, ""
       end
-      self.pending = text -- checked: any_use
+      self.pending = text
     elseif why == Poll.TIMEOUT then
       local deadline = self.deadline
       if deadline == nil or Clock.monotonic_ns() < deadline then

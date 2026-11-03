@@ -118,7 +118,7 @@ local function test_no_text_raises_the_parser_or_the_check(tmp: string)
       local bytes = parsed as {integer}? -- checked: cast_refused
       if bytes == nil then
         Fuzz.label("rejected")
-        if allowed then return false, "allowed text that is no address" end -- checked: any_use
+        if allowed then return false, "allowed text that is no address" end
         if picked ~= nil then return false, "selected text that is no address" end
         return true, ""
       end
@@ -127,7 +127,7 @@ local function test_no_text_raises_the_parser_or_the_check(tmp: string)
       for _, b in ipairs(bytes) do
         if math.type(b) ~= "integer" or b < 0 or b > 255 then return false, "byte out of range" end
       end
-      if not allowed then -- checked: any_use
+      if not allowed then
         return false, "an address its own grant does not open: " .. tostring(why)
       end
       return true, tostring(reason)

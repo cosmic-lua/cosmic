@@ -82,10 +82,10 @@ local function test_format_event_makes_one_event_with_the_fields_given_and_no_ot
       if expect_refusal then
         return false, "formatted an event a field of which cannot be carried"
       end
-      if out:find("\r", 1, true) then return false, "a CR in the output" end -- checked: any_use
+      if out:find("\r", 1, true) then return false, "a CR in the output" end
       if out == "" then return true, "" end
       Fuzz.label("formatted")
-      if out:sub(-2) ~= "\n\n" or out:find("\n\n", 1, true) ~= #out - 1 then -- checked: any_use*3
+      if out:sub(-2) ~= "\n\n" or out:find("\n\n", 1, true) ~= #out - 1 then
         return false, "a blank line before the end of the event"
       end
       local seen: mut {string: integer} = {}
@@ -93,15 +93,17 @@ local function test_format_event_makes_one_event_with_the_fields_given_and_no_ot
       local comment: mut {string} = {}
       local id: string? = nil
       local event: string? = nil
-      for line in out:sub(1, -3):gmatch("[^\n]*") do -- checked: any_use
+      for line in out:sub(1, -3):gmatch("[^\n]*") do
         local name, value = line:match("^(%a+): (.*)$")
         if line:sub(1, 2) == ": " then
           comment[#comment + 1] = line:sub(3)
-        elseif name == "data" then
-          data[#data + 1] = value
-        elseif name == "event" or name == "id" or name == "retry" then
-          seen[name] = (seen[name] or 0) + 1
-          if name == "id" then id = value elseif name == "event" then event = value end
+        elseif name ~= nil and value ~= nil and (name == "data" or name == "event" or name == "id" or name == "retry") then
+          if name == "data" then
+            data[#data + 1] = value
+          else
+            seen[name] = (seen[name] or 0) + 1
+            if name == "id" then id = value elseif name == "event" then event = value end
+          end
         else
           return false, ("a line that is no field this event holds: %q"):format(line)
         end

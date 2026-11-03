@@ -173,11 +173,11 @@ end
 
 --- One decode, under pcall: nil and why when it broke its contract,
 --- else what it answered.
-local function decode_once(input: string, opts: Json.DecodeOptions, where: string): boolean, any, string
+local function decode_once(input: string, opts: Json.DecodeOptions, where: string): boolean, Json.Value?, string
   local ok, value, err = pcall(Json.decode, input, opts)
-  if not ok then return false, nil, where .. ": raised: " .. tostring(value) end -- checked: any_use
-  if not (err is string) then return false, nil, where .. ": no message slot" end -- checked: any_use
-  if err ~= "" and value ~= nil then return false, nil, where .. ": a failure with a value" end -- checked: any_use
+  if not ok then return false, nil, where .. ": raised: " .. tostring(value) end
+  if not (err is string) then return false, nil, where .. ": no message slot" end
+  if err ~= "" and value ~= nil then return false, nil, where .. ": a failure with a value" end
   return true, value, err
 end
 
@@ -1100,8 +1100,8 @@ local function test_json_lines_are_total_and_round_trip(tmp: string)
         return true, ""
       end
       local written: mut {string} = {}
-      for i = 1, #values do -- checked: any_use
-        local line, eerr = Json.encode_any(finite(values[i])) -- checked: any_use
+      for i = 1, #values do
+        local line, eerr = Json.encode_any(finite(values[i]))
         if line == nil then
           return false, "decoded line " .. tostring(i) .. " did not encode: " .. eerr
         end

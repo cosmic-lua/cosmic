@@ -1495,8 +1495,8 @@ end
 local function end_or_kill(self: Handle): Result?, string
   local ok, r, why = pcall(end_child, self)
   if ok then
-    if r == nil then return nil, why end -- checked: nil_not_allowed
-    return r, "" -- checked: any_use
+    if r == nil then return nil, why end
+    return r, ""
   end
   local _, _ = sys.kill(target(self), sys.SIGKILL)
   for _ = 1, 100 do
@@ -3492,11 +3492,11 @@ local function nest_descriptors(slots: {integer:integer}): string
       return what .. " is one this runtime retains of its own (its artifact or core), which " ..
         "promises \"nest\" cannot hand a program: it is a file open for reading alone"
     end
-    if st ~= nil and st.kind == "dir" then -- checked: any_use
+    if st ~= nil and st.kind == "dir" then
       return what .. " is a directory, which promises \"nest\" cannot hand a program: " ..
         "with Landlock given up, /proc/self/fd/" .. string.format("%d", number) .. " opens every file beneath " ..
         "it and, by .., above it, and the root of its own holds no descriptor"
-    elseif st ~= nil and st.kind == "file" then -- checked: any_use
+    elseif st ~= nil and st.kind == "file" then
       local info, _ = Fs.read("/proc/self/fdinfo/" .. tostring(fd))
       local flags = if info ~= nil then info:match("flags:%s*(%d+)") else nil end
       local mode = if flags ~= nil then (math.tointeger(tonumber(flags, 8)) or 0) & 3 else nil end
@@ -3608,7 +3608,7 @@ local function prepare_relay(connect: {string}, opts: Options, seatbelt: boolean
     local looked, terminal = pcall(isatty, logged)
     if not looked then
       return nil, "relay_log " .. tostring(logged) .. " is a descriptor this program keeps for itself"
-    elseif terminal then -- checked: any_use
+    elseif terminal then
       return nil, "relay_log " .. tostring(logged) .. " is a terminal, which a sandboxed relay may not hold as its " ..
         "standard error: give a pipe, or \"inherit\" where this process's standard error is not one"
     end
@@ -4018,7 +4018,7 @@ local function start(argv: {string}, opts: Options, pty?: Pty, serves_relay?: in
       kill_relay(relay.handle)
       local _, _ = sys.kill(target(h), sys.SIGKILL)
       local _, _ = end_or_kill(h)
-      return refuse("start: sandbox: relay: " .. serve_trouble) -- checked: nil_not_allowed
+      return refuse("start: sandbox: relay: " .. serve_trouble)
     end
   end
   return h, ""

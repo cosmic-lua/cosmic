@@ -44,7 +44,10 @@
 --- `v is T`, `type(v) == "..."`, a tag compared with a literal (`v.kind == "a"`), a call of a function declared `v is T`,
 --- `not`, `and` and `or` of these, `assert(c)` and a call of a function declared `asserts v is T`, and by a branch
 --- that ends its block (`return`, `break`, `continue`, a call of a function declared `never`). `if` and `match` meet
---- the ends of their arms; a loop is walked to a fixed point, its head being where the entry and the back edge meet.
+--- the ends of their arms; the locals of `local ok, r = f()` where `f` answers lists that begin with `true` and `false`
+--- (`pcall`, `xpcall`, a function declared so) are tied, and `ok`, `not ok` and `ok == true` narrow `r` to the lists
+--- that `ok` selects until a local of the statement is assigned ([`Tie`]); a loop is walked to a fixed point, its head
+--- being where the entry and the back edge meet.
 --- An assignment drops the fact of the local and of the paths from it, then narrows the local to the view of the value's
 --- type where that is below the declared type (an initializer likewise). A function
 --- starts from the facts of the code around it except those of a local assigned after the function is made
@@ -290,6 +293,23 @@ local record Edges
   no: Flow.State
 end
 
+--- A local tied to the first of its statement: the type it has in the lists that begin with `true`, and in those that
+--- begin with `false`.
+local record TieSlot
+  id: integer
+  yes: Type
+  no: Type
+end
+
+--- The locals a `local` statement bound to the values of one call whose lists are told apart by a first value of `true` or
+--- `false` (`local ok, r = pcall(f)`): the test of the first narrows the others to the lists that first value selects.
+local record Tie
+  --- The id of the first local, which holds the tag.
+  first: integer
+  --- The others, in order.
+  rest: {TieSlot}
+end
+
 --- A function being checked.
 local record Frame
   --- What it may return: a set of lists. Empty, it never returns.
@@ -402,6 +422,10 @@ local record Ctx
   edges: mut {integer: Edges}
   --- The calls that narrow an argument, by the id of the node.
   guards: mut {integer: Guarded}
+  --- The ties of the locals of a `local` statement, by the id of its first local ([`Tie`]).
+  ties: mut {integer: Tie}
+  --- The member reads, by the id of the node, of a member of the standard library's `coroutine` record.
+  coroutine_reads: mut {integer: boolean}
   --- By the id of a function: the locals it reads from outside (named where it is made), and those an assignment may
   --- change after it is made ([`Scopes.Capture.after`]), which no fact of the code around it holds inside it.
   reads: mut {integer: {Scopes.Var}}
@@ -2251,6 +2275,10 @@ local function member_read(ctx: Ctx, node: Ast.Node, t: Type, name: string): Typ
   if (t.tag == "named") and not (is_enum(t) and called) then
     local decl = t.decl
     ctx.member_module = decl.module
+    local coroutines = ctx.program.globals["coroutine"]
+    if coroutines ~= nil and coroutines.decl == decl then
+      ctx.coroutine_reads[node.id] = true
+    end
     local waiting = ctx.pending[decl]
     local as_declared = t.value or decl.kind == "class" or decl.kind == "interface"
     if waiting ~= nil and waiting[name] == true and as_declared then
@@ -3702,6 +3730,23 @@ function Narrowing.compare_edges(ctx: Ctx, f: Flow.State, node: Ast.Binary): Flo
     yes, no = Narrowing.tag_edges(ctx, f, r, l.value)
   elseif (l.kind == "Unary") or (r.kind == "Unary") then
     yes, no = Tests.length_edges(ctx, f, "==", l, r)
+  elseif r.kind == "Boolean" or l.kind == "Boolean" then
+    local value = true
+    local tested: Ast.Node = l
+    if r.kind == "Boolean" then
+      value = r.value
+    elseif l.kind == "Boolean" then
+      value = l.value
+      tested = r
+    end
+    local tied_yes, tied_no = Narrowing.tie_edges(ctx, f, tested)
+    if tied_yes ~= nil and tied_no ~= nil then
+      if value then
+        yes, no = tied_yes, tied_no
+      else
+        yes, no = tied_no, tied_yes
+      end
+    end
   end
   if node.op == "==" then
     return yes, no
@@ -3709,9 +3754,59 @@ function Narrowing.compare_edges(ctx: Ctx, f: Flow.State, node: Ast.Binary): Flo
   return no, yes
 end
 
+--- The key of the fact that the local `id` is tied to the others of its statement: rooted in the local, so that an
+--- assignment to it, a new declaration of it, or a function made before an assignment to it takes the fact away, and a join
+--- keeps it only where both paths have it.
+local function tie_key(ctx: Ctx, id: integer): string
+  return id_key(ctx, id) .. ".#tie"
+end
+
+--- The edges of a test of the first local of a tie (`if ok`, `ok == true`): where it is `true`, the others are the types
+--- of the lists that begin with `true` (and where `false`, of those that begin with `false`), as far as that narrows what
+--- they hold. Nil where `e` is no such local, or where one of the locals has been assigned since the statement.
+function Narrowing.tie_edges(ctx: Ctx, f: Flow.State, e: Ast.Node): Flow.State?, Flow.State?
+  local at = peel(e)
+  if at.kind ~= "Name" then
+    return nil, nil
+  end
+  local id = at.binding
+  local tie = if id ~= nil then ctx.ties[id] else nil end
+  if tie == nil or place_of(ctx, f, at) == nil or f.facts[tie_key(ctx, tie.first)] == nil then
+    return nil, nil
+  end
+  for _, slot in ipairs(tie.rest) do
+    if f.facts[tie_key(ctx, slot.id)] == nil or ctx.unfixed_now[slot.id] == true then
+      return nil, nil
+    end
+  end
+  local yes, no = f, f
+  for _, slot in ipairs(tie.rest) do
+    local declared = ctx.vars[slot.id]
+    if declared ~= nil then
+      local key = id_key(ctx, slot.id)
+      local cur = declared
+      local fact = f.facts[key]
+      if fact ~= nil then
+        cur = fact.type
+      end
+      if accepts(ctx, slot.yes, cur) then
+        yes = Narrowing.narrowed_flow(yes, { key = key, declared = declared }, slot.yes)
+      end
+      if accepts(ctx, slot.no, cur) then
+        no = Narrowing.narrowed_flow(no, { key = key, declared = declared }, slot.no)
+      end
+    end
+  end
+  return yes, no
+end
+
 --- The edges of a name or a field used as a condition: an optional is not nil when true, and nil when false unless
 --- what it holds may be false. An index read of an array when true shows the array has the key ([`Tests.has_element`]).
 function Narrowing.truthy_edges(ctx: Ctx, f: Flow.State, e: Ast.Node): Flow.State, Flow.State
+  local tied_yes, tied_no = Narrowing.tie_edges(ctx, f, e)
+  if tied_yes ~= nil and tied_no ~= nil then
+    return tied_yes, tied_no
+  end
   local p = place_of(ctx, f, e)
   if p == nil then
     return Tests.has_element(ctx, f, e), f
@@ -6490,6 +6585,68 @@ local function declare_local(ctx: Ctx, id: integer, unset: boolean)
   ctx.flow = Flow.declare(ctx.flow, id, unset)
 end
 
+--- Ties the locals of `s` when they take all the values of one call whose lists begin with `true` in some and `false` in the
+--- rest (`local ok, r = pcall(f)`): the first is then the tag of the lists, and the others hold what the list it selects
+--- gives them, until any of the locals is assigned ([`Narrowing.tie_edges`]). The tie is a fact of each local, so it ends
+--- wherever a fact of a local ends. A local that a function assigns is no place, and ties nothing.
+local function tie_locals(ctx: Ctx, s: Ast.Local, vals: Values, errors: integer)
+  local alts = vals.lists
+  local head = s.bindings[1]
+  if alts == nil or head == nil or #s.values ~= 1 or #s.bindings < 2 or #ctx.errors ~= errors then
+    return
+  end
+  local call = peel(s.values[1])
+  -- TODO: tie the results of the standard library's `coroutine` functions too, once the runtime provides the typed
+  -- `coroutine` library that lang/stdlib.d.tl declares: its `resume` is declared to answer the body's value, and the
+  -- runtime's own `coroutine.resume` answers none to a body that is not given a handle. Keyed on the declaration, so
+  -- an alias (`local co = coroutine`) is excluded too, as it is the same record, and a record of the program's own
+  -- named `coroutine` is tied.
+  if ctx.coroutine_reads[call.id] == true or (call.kind == "Call" and ctx.coroutine_reads[call.callee.id] == true) then
+    return
+  end
+  -- An argument whose type was refused (`invalid`) made overload resolution take the overload that fits what is left
+  -- of it, whose lists say nothing of the function: tying them would cascade that error into the tests of the results.
+  if call.kind == "Call" or call.kind == "MethodCall" then
+    for _, given in ipairs(call.args) do
+      local at = peel(given)
+      local id = if at.kind == "Name" then at.binding else nil end
+      local held = if id ~= nil then ctx.vars[id] else nil end
+      if held ~= nil and held.tag == "invalid" then
+        return
+      end
+    end
+  end
+  for _, b in ipairs(s.bindings) do
+    local v = ctx.scoped.vars[b.id]
+    if v == nil or v.closure_assigned or PLACE_KINDS[v.kind] ~= true then
+      return
+    end
+  end
+  local selected: mut {Alt} = {}
+  local rejected: mut {Alt} = {}
+  for _, alt in ipairs(alts) do
+    local first = alt.items[1]
+    if first == nil or (first.tag ~= "true" and first.tag ~= "false") then
+      return
+    end
+    local into = if first.tag == "true" then selected else rejected end
+    into[#into + 1] = alt
+  end
+  if #selected == 0 or #rejected == 0 then
+    return
+  end
+  local rest: mut {TieSlot} = {}
+  for i, b in ipairs(s.bindings) do
+    if i > 1 then
+      rest[#rest + 1] = { id = b.id, yes = column(ctx, selected, i), no = column(ctx, rejected, i) }
+    end
+  end
+  ctx.ties[head.id] = { first = head.id, rest = rest }
+  for _, b in ipairs(s.bindings) do
+    ctx.flow = Flow.narrow(ctx.flow, tie_key(ctx, b.id), ctx.store.boolean, ctx.store.integer)
+  end
+end
+
 --- `local a, b: T, U = f(), g()`.
 local function local_statement(ctx: Ctx, s: Ast.Local)
   local n = #s.bindings
@@ -6521,6 +6678,7 @@ local function local_statement(ctx: Ctx, s: Ast.Local)
       end
     end
   end
+  local reported = #ctx.errors
   local vals = values_of(ctx, s.values, wants, nil)
   local counted = check_counts(ctx, s, n, vals, #s.values, "name")
   for i, b in ipairs(s.bindings) do
@@ -6563,6 +6721,9 @@ local function local_statement(ctx: Ctx, s: Ast.Local)
       check_closable(ctx, b, ctx.vars[b.id]) -- checked: index_may_be_nil
       Tests.closes(ctx)
     end
+  end
+  if counted and next(wants) == nil then
+    tie_locals(ctx, s, vals, reported)
   end
 end
 
@@ -8257,7 +8418,7 @@ function Check.check(program: Declarations.Program, input: Declarations.Input, l
     end, function(_node: Ast.Node, _spelled: string, _found: LoadOrder.Found) end),
     literals = {}, spreads = {}, declared = {}, union_fields = {}, spine = {},
     ternaries = {}, invalid = store.invalid, nil_type = store:atom("nil"), flow = Flow.start(), unfixed_now = {}, assigning = {}, quiet = 0, closers = 0, callee_module = "", member_module = "", moves = {},
-    loops = {}, keys = {}, edges = {}, guards = {}, top = tops, module_table = module_table(input, lowered), initialized = {}, given = {}, handed = false, reads = {}, unfixed = {}, narrowed = {}, inert = {}, boundaries = {}, types = {}, callees = {}, consts = {}, starts = {}, library = {}, typed = typed ~= false, warnings = {},
+    loops = {}, keys = {}, edges = {}, guards = {}, ties = {}, coroutine_reads = {}, top = tops, module_table = module_table(input, lowered), initialized = {}, given = {}, handed = false, reads = {}, unfixed = {}, narrowed = {}, inert = {}, boundaries = {}, types = {}, callees = {}, consts = {}, starts = {}, library = {}, typed = typed ~= false, warnings = {},
     unite = function(a: Type, b: Type): Type
       return store:union({ a, b })
     end,

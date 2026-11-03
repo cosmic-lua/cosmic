@@ -306,7 +306,7 @@ local verbs: {string:function(string, string): integer?} = {
     for fd = 3, 1023 do
       -- fstat raises for the retained artifact descriptor, which is no socket.
       local ok, stat = pcall(sys.fstat, fd)
-      if ok and stat ~= nil and stat.mode & 0xF000 == 0xC000 then count = count + 1 end -- checked: any_use
+      if ok and stat ~= nil and stat.mode & 0xF000 == 0xC000 then count = count + 1 end
     end
     return put_all(1, "sockets " .. tostring(count) .. "\n")
   end,

@@ -135,7 +135,7 @@ local function immediate(db: Sqlite.Handle, work: function(): boolean, string): 
     local _, _ = Sqlite.run(db, "ROLLBACK")
     error(ok, 0)
   end
-  if not ok then -- checked: any_use
+  if not ok then
     local _, _ = Sqlite.run(db, "ROLLBACK")
     assert(why, "session: a transaction that answers false says why")
     return false, why
