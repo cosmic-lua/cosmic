@@ -11,7 +11,7 @@ local KEY <const> = "k3Jf9Lq0Zx7Rw2Ub8Tn5Vc1Hd6Ym4Ga0"
 local store = SessionCookie.store{ keys = { KEY } }
 
 local function test_an_arbitrary_token_never_loads_and_never_raises(tmp: string)
-  local good = assert(store:save("", { values = { user = "ada" }, created = 1, expires = 100 }, -- checked: any_use
+  local good = assert(store:save("", { values = { user = "ada" }, created = 1, expires = 100 },
     { set = {}, removed = {} }, 1, "session"))
   Fuzz.run({
     name = "session cookie token",
@@ -49,7 +49,7 @@ local function test_what_the_store_signs_it_loads_back(tmp: string)
     check = function(input: string): boolean, string
       local fields = Fuzz.unpack(input)
       local text, n = fields[1], math.tointeger(tonumber(fields[2])) or 1
-      local data: Session.Data = { values = { text = text, n = n }, created = 1, expires = 100 } -- checked: any_use*2
+      local data: Session.Data = { values = { text = assert(text), n = n }, created = 1, expires = 100 }
       local token = store:save("", data, { set = {}, removed = {} }, 1, "session")
       if token == nil then
         -- Bytes that are not UTF-8 are not JSON: refused, never signed.

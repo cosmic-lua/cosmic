@@ -81,16 +81,25 @@ local record Session
 end
 
 local sessions: mut {string: Session} = {}
-local counter: mut {integer} = { 0 }
-local standard: mut {string} = {}
+--- The count of the programs run, which names the next one.
+local record Counter
+  mut value: integer
+end
+--- The declarations of the standard library, read once.
+local record Standard
+  prelude: string
+  stdlib: string
+end
+
+local counter: Counter = { value = 0 }
+local standard_library: Standard? = nil
 local bindings: mut {string: string} = {}
 
 function Fixture.subject(source: string, modules?: {string: string}): Report.Subject
-  if standard[1] == nil then
-    local prelude = assert(Fs.read("lang/prelude.d.tl"))
-    local stdlib = assert(Fs.read("lang/stdlib.d.tl"))
-    standard[1] = prelude
-    standard[#standard + 1] = stdlib
+  local standard = standard_library
+  if standard == nil then
+    standard = { prelude = assert(Fs.read("lang/prelude.d.tl")), stdlib = assert(Fs.read("lang/stdlib.d.tl")) }
+    standard_library = standard
     -- The bindings of C are typed from the declarations the build derives from their headers, as the tree checks have them.
     for _, derivation in ipairs(GenSyscalls.targets) do
       local text = assert(GenSyscalls.declaration(assert(Fs.read(derivation.target.header)), derivation.target))
@@ -112,20 +121,21 @@ function Fixture.subject(source: string, modules?: {string: string}): Report.Sub
   table.sort(names)
   local key: mut {string} = {}
   for _, module in ipairs(names) do
-    key[#key + 1] = module .. "\n" .. all[module] -- checked: nil_not_allowed
+    -- `names` holds the keys of `all`, which nothing has changed since.
+    key[#key + 1] = module .. "\n" .. assert(all[module], "a key of `all` has a value")
   end
   -- The modules of a session are lowered with the first program, and stay in its program.
   local kept = table.concat(key, "\0")
   local held = sessions[kept]
   local given_modules: {string: string} = all
   if held == nil then
-    held = { run = Programs.session(standard[1], standard[2], {}) } -- checked: index_may_be_nil*2
+    held = { run = Programs.session(standard.prelude, standard.stdlib, {}) }
     sessions[kept] = held
   else
     given_modules = {}
   end
-  counter[1] = counter[1] + 1 -- checked: nil_not_allowed
-  local module = "t" .. tostring(counter[1])
+  counter.value = counter.value + 1
+  local module = "t" .. tostring(counter.value)
   local run = held.run(source, module, given_modules)
   local types: mut {integer: Types.Type} = {}
   for id, t in pairs(run.lowered.types) do

@@ -5,6 +5,7 @@
 --- duration does. build/time_tool_test.tl starts the program for what a
 --- process alone shows.
 
+local Array = require("cosmic.array")
 local Time = require("cosmic.time")
 local time_verb = require("build.time")
 
@@ -309,7 +310,7 @@ local function test_a_dash_digit_option_value_is_the_users_own_word()
     local ran = run(words)
     assert(ran.code == 2 and ran.out == "", table.concat(words, " "))
     assert(ran.err:find(" -", 1, true) and not ran.err:find("\1", 1, true), ran.err)
-    assert(ran.err:find(words[#words], 1, true), ran.err) -- checked: index_may_be_nil
+    assert(ran.err:find(Array.at(words, #words), 1, true), ran.err)
   end
 end
 

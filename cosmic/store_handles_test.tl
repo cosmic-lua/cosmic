@@ -32,8 +32,8 @@ end
 --- [`Store.source`] does.
 local function test_the_binary_s_database_inflates_its_source()
   local databases = Store.databases()
-  local binary = databases[#databases]
-  local rows = assert(Sqlite.text_rows(binary, -- checked: nil_not_allowed
+  local binary = Array.at(databases, #databases)
+  local rows = assert(Sqlite.text_rows(binary,
     "SELECT CAST(inflate(source) AS TEXT) FROM modules WHERE path = 'cosmic.store'"))
   assert(#rows == 1 and rows[1]:text(1) == assert(Store.source("cosmic.store")),
     "the query and Store.source read the same text")
@@ -50,10 +50,10 @@ local function test_paths_lists_the_stores_files_and_their_siblings(tmp: string)
   -- The one attached last is searched first. The tmp directory may be
   -- reached through a link, so its name is matched by its tail.
   local listed = Store.paths()
-  local first = listed[1]
-  assert(first:sub(-#"/listed.db") == "/listed.db", first) -- checked: nil_not_allowed
-  assert(Array.at(listed, 2) == first .. "-wal", "its write-ahead log") -- checked: nil_not_allowed
-  assert(Array.at(listed, 3) == first .. "-shm", "its shared memory") -- checked: nil_not_allowed
+  local first = Array.at(listed, 1)
+  assert(first:sub(-#"/listed.db") == "/listed.db", first)
+  assert(Array.at(listed, 2) == first .. "-wal", "its write-ahead log")
+  assert(Array.at(listed, 3) == first .. "-shm", "its shared memory")
   local count = #listed
   assert(count == 3 * #Store.databases(), "three files to each database, no other")
 end

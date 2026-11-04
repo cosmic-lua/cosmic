@@ -4,6 +4,7 @@
 --- build/shared_verdicts_tool_test.tl holds the runs of `cosmic test`
 --- that share their verdicts through it.
 
+local Array = require("cosmic.array")
 local Clock = require("cosmic.clock")
 local Sqlite = require("cosmic.sqlite")
 local shared_verdicts = require("build.shared_verdicts")
@@ -73,8 +74,11 @@ local function test_a_census_names_the_parts_the_rows_were_kept_under(tmp: strin
   assert(shared_verdicts.settle(cache, "second", { parts = "runtime r2, harness e2-00000000-t60000",
     kept = {}, used = { "old", "k1" }, failed = {} }, Clock.now_ns()))
   local held = assert(shared_verdicts.held(cache))
-  assert(#held == 2 and held[1].rows == 2 and held[1].parts == now, held[1].parts) -- checked: nil_not_allowed
-  assert(held[2].rows == 1 and held[2].parts == "runtime r2, harness e2-00000000-t60000", held[2].parts)
+  assert(#held == 2)
+  local newest = Array.at(held, 1)
+  assert(newest.rows == 2 and newest.parts == now, newest.parts)
+  local older = Array.at(held, 2)
+  assert(older.rows == 1 and older.parts == "runtime r2, harness e2-00000000-t60000", older.parts)
   shared_verdicts.close(cache)
 end
 
@@ -95,8 +99,8 @@ local function test_a_verdict_is_kept_by_its_key_alone(tmp: string)
   cache = assert(shared_verdicts.open(path))
   local tables = assert(Sqlite.text_rows(cache.db,
     "SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name"))
-  assert(#tables == 3 and tables[1]:text(1) == "declared_v1" and tables[2]:text(1) == "stores_v1" and -- checked: nil_not_allowed
-      tables[3]:text(1) == "verdicts_v4", "an earlier format's table was dropped: " .. tostring(#tables)) -- checked: nil_not_allowed
+  assert(#tables == 3 and tables[1]:text(1) == "declared_v1" and Array.at(tables, 2):text(1) == "stores_v1" and
+      Array.at(tables, 3):text(1) == "verdicts_v4", "an earlier format's table was dropped: " .. tostring(#tables))
   assert(shared_verdicts.declared(cache, "declared") == nil)
   assert(shared_verdicts.settle(cache, "first", { kept = { {
     key = "declared", test = "suite/t_test.tl test_t", hits = "suite/t_test.tl\t1,2,5\n",

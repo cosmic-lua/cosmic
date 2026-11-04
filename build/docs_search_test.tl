@@ -43,8 +43,9 @@ end
 local function names(view: docs.View, query: string): {string}
   local found = assert(docs.lookup(view, query))
   local out: mut {string} = {}
-  for index = 1, math.min(3, #found) do
-    out[#out + 1] = shown(found[index]) -- checked: index_may_be_nil
+  for _, entry in ipairs(found) do
+    if #out == 3 then break end
+    out[#out + 1] = shown(entry)
   end
   return out
 end

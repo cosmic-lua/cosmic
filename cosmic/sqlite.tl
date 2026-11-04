@@ -876,6 +876,8 @@ local function prepared_result(handle: Sqlite.Handle, sql: string,
   end
   if bound.code ~= Sqlite.OK then -- checked: any_use
     statement:finalize()
+    -- TODO: once cosmic/internal/sqlite.d.tl declares `statement` of a PrepareResult optional
+    -- (this file's doc of PrepareResult says "with `statement` only on success"), drop this marker.
     opened.statement = nil -- checked: field_fixed, nil_not_allowed
     copy_outcome(bound, opened) -- checked: any_use
   end
@@ -975,6 +977,9 @@ function Sqlite.transact(handle: Sqlite.Handle,
   end
   if not ok then -- checked: any_use
     local _, _ = handle:exec("ROLLBACK")
+    -- TODO: once Sqlite.transact can capture `work`'s declared results without a closure
+    -- (a closure becomes the caller an `error(msg, 2)` in `work` blames, so the text changes
+    -- under pcall), return `why` unmarked; pcall widens it to an optional.
     return false, why -- checked: nil_not_allowed
   end
   local committed, failure = handle:exec("COMMIT")

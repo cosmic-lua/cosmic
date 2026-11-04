@@ -472,28 +472,28 @@ end
 --- distribution reference it came from: it is upstream's as published,
 --- which a patched or modified component's code no longer is.
 function bom.cyclonedx(rows: {bom.Row}, subject: string, version: string): string?, string
-  local components: mut {any} = {}
+  local components: mut {Json.Value} = {}
   for _, row in ipairs(rows) do
-    local reference: {string:any} = { type = "distribution", url = row.url } -- checked: any_use*2
-    local hashes: mut {any} = {}
+    local reference: mut {string: Json.Value} = { type = "distribution", url = row.url }
+    local hashes: mut {Json.Value} = {}
     if row.sha256 ~= "" then
-      hashes[#hashes + 1] = { alg = "SHA-256", content = row.sha256 } -- checked: any_use
+      hashes[#hashes + 1] = { alg = "SHA-256", content = row.sha256 }
     end
     if row.sha3_256 ~= "" then
-      hashes[#hashes + 1] = { alg = "SHA3-256", content = row.sha3_256 } -- checked: any_use
+      hashes[#hashes + 1] = { alg = "SHA3-256", content = row.sha3_256 }
     end
     if #hashes > 0 then
-      reference.hashes = hashes -- checked: map_field
+      reference["hashes"] = Json.array(hashes)
     end
-    local component: {string:any} = {
-      type = row.kind, -- checked: any_use
-      ["bom-ref"] = row.name, -- checked: any_use
-      name = row.name, -- checked: any_use
-      version = row.version, -- checked: any_use
-      purl = "pkg:generic/" .. escaped(row.name) .. "@" .. escaped(row.version) .. -- checked: any_use
+    local component: mut {string: Json.Value} = {
+      type = row.kind,
+      ["bom-ref"] = row.name,
+      name = row.name,
+      version = row.version,
+      purl = "pkg:generic/" .. escaped(row.name) .. "@" .. escaped(row.version) ..
         "?download_url=" .. escaped(row.url),
-      licenses = { { expression = row.license } }, -- checked: any_use
-      externalReferences = { reference }, -- checked: any_use
+      licenses = { { expression = row.license } },
+      externalReferences = { reference },
     }
     if row.patches ~= "" then
       local listed, listed_trouble = patches_in(row)
@@ -509,9 +509,9 @@ function bom.cyclonedx(rows: {bom.Row}, subject: string, version: string): strin
       if #patched > 0 then
         notes[#notes + 1] = "patched by cosmic:\n" .. table.concat(patched, "\n")
       end
-      component.pedigree = { notes = table.concat(notes, "\n") } -- checked: map_field
+      component["pedigree"] = { notes = table.concat(notes, "\n") }
     end
-    components[#components + 1] = component -- checked: any_use
+    components[#components + 1] = component
   end
   return Json.encode({
     bomFormat = "CycloneDX",
@@ -519,7 +519,7 @@ function bom.cyclonedx(rows: {bom.Row}, subject: string, version: string): strin
     version = 1,
     metadata = { component = { type = "application", ["bom-ref"] = subject,
       name = subject, version = version } },
-    components = Json.array(components), -- checked: not_assignable
+    components = Json.array(components),
   }, { pretty = true })
 end
 

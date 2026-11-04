@@ -539,26 +539,26 @@ end
 --- by its device and inode.
 local record Above
   key: string
-  up: Above
+  up?: Above
 end
 
 --- A directory still to list, by its path relative to the root, and
 --- the directories it is inside.
 local record Pending
   relative: string
-  above: Above
+  above?: Above
 end
 
 --- Both walks: [`Fs.walk`], and with `follow`, [`Fs.walk_following`].
 local function walk(root: string, follow: boolean,
                     skip?: function(string, string, Fs.Kind): boolean): {string}?, string
   local found: mut {string} = {}
-  local pending: mut {Pending} = { { relative = "", above = nil } } -- checked: nil_not_allowed
+  local pending: mut {Pending} = { { relative = "", above = nil } }
   while #pending > 0 do
-    local next_one = table.remove(pending)
-    local relative = next_one.relative -- checked: nil_not_allowed
+    local next_one = assert(table.remove(pending), "pending is not empty inside the loop")
+    local relative = next_one.relative
     local directory = if relative == "" then root else root .. "/" .. relative end
-    local above = next_one.above -- checked: nil_not_allowed
+    local above = next_one.above
     local inside = true
     if follow then
       local st, stat_trouble = sys.stat(directory)
@@ -567,7 +567,7 @@ local function walk(root: string, follow: boolean,
       end
       local key = tostring(st.dev) .. ":" .. tostring(st.ino)
       local up = above
-      while up ~= nil and inside do -- checked: compare_disjoint
+      while up ~= nil and inside do
         inside = up.key ~= key
         up = up.up
       end
@@ -583,8 +583,8 @@ local function walk(root: string, follow: boolean,
     end
     for _, name in ipairs(sorted_names(entries)) do
       local entry = if relative == "" then name else relative .. "/" .. name end
-      local kind = entries[name]
-      if skip == nil or not skip(entry, name, kind) then -- checked: nil_not_allowed
+      local kind = assert(entries[name], "name is one of sorted_names(entries)")
+      if skip == nil or not skip(entry, name, kind) then
         if kind == "link" and follow then
           local st, _ = sys.stat(directory .. "/" .. name)
           kind = if st ~= nil then st.kind else "other" end

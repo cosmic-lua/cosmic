@@ -11,6 +11,7 @@ local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
+local String = require("cosmic.string")
 local Test = require("cosmic.test")
 local RelayWire = require("cosmic.internal.relay_wire")
 local TypeWatch = require("build.type_watch")
@@ -87,14 +88,14 @@ local function tunnels(userinfo?: string)
       assert(bytes(relay, 3) == "\5\1\2")
       assert(relay:write(RelayWire.socks_method_reply(2)))
       assert(bytes(relay, 1) == "\1")
-      bytes(relay, bytes(relay, 1):byte(1)) -- checked: nil_not_allowed
-      bytes(relay, bytes(relay, 1):byte(1)) -- checked: nil_not_allowed
+      bytes(relay, String.byte_at(bytes(relay, 1), 1))
+      bytes(relay, String.byte_at(bytes(relay, 1), 1))
       assert(relay:write("\1\0"))
     end
     local head = bytes(relay, 4)
     assert(head:byte(4) == 3)
     local length = bytes(relay, 1)
-    bytes(relay, length:byte(1) + 2) -- checked: nil_not_allowed
+    bytes(relay, String.byte_at(length, 1) + 2)
     assert(relay:write(RelayWire.socks_reply("succeeded")))
     ended.value = true -- checked: map_field
     assert(relay:shutdown("write"))

@@ -816,7 +816,7 @@ local record Suite tests?: {Case} end
 local SUITE <const> = Shape.record_of("Suite")
 
 --- Part `at` of the token `item`, which [`Json.get`] answers nil for where it holds `null`.
-local function part(item: any, at: integer): any
+local function part(item: any, at: integer): Json.Value?
   return (Json.get(item, { at }))
 end
 

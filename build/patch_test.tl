@@ -106,18 +106,23 @@ local function test_an_empty_replace_deletes()
 end
 
 local function test_a_malformed_record_is_refused_by_name()
-  for _, case in ipairs({
-      { "note: n\n--- find\na\n--- replace\nb\n--- end\n", "expected a 'file: ' line" },
-      { "file: a\n--- find\na\n--- replace\nb\n--- end\n", "expected a 'note: ' line" },
-      { "file: a\nnote: \n--- find\na\n--- replace\nb\n--- end\n", "the note says nothing" },
-      { "file: a\nnote: n\na\n--- replace\nb\n--- end\n", "no '--- find' line" },
-      { "file: a\nnote: n\n--- find\na\nb\n--- end\n", "no '--- replace' line" },
-      { "file: a\nnote: n\n--- find\na\n--- replace\nb\n", "no '--- end' line" },
-      { "file: a\nnote: n\n--- find\n--- replace\nb\n--- end\n", "the find block is empty" },
-  }) do
-    local parsed, err = Patch.parse(case[1], "bad.txt") -- checked: index_may_be_nil
+  local record Case
+    text: string
+    refusal: string
+  end
+  local cases: {Case} = {
+    { text = "note: n\n--- find\na\n--- replace\nb\n--- end\n", refusal = "expected a 'file: ' line" },
+    { text = "file: a\n--- find\na\n--- replace\nb\n--- end\n", refusal = "expected a 'note: ' line" },
+    { text = "file: a\nnote: \n--- find\na\n--- replace\nb\n--- end\n", refusal = "the note says nothing" },
+    { text = "file: a\nnote: n\na\n--- replace\nb\n--- end\n", refusal = "no '--- find' line" },
+    { text = "file: a\nnote: n\n--- find\na\nb\n--- end\n", refusal = "no '--- replace' line" },
+    { text = "file: a\nnote: n\n--- find\na\n--- replace\nb\n", refusal = "no '--- end' line" },
+    { text = "file: a\nnote: n\n--- find\n--- replace\nb\n--- end\n", refusal = "the find block is empty" },
+  }
+  for _, case in ipairs(cases) do
+    local parsed, err = Patch.parse(case.text, "bad.txt")
     assert(parsed == nil and err:find("bad.txt", 1, true) ~= nil and
-        err:find(case[2], 1, true) ~= nil, case[2] .. ": " .. err) -- checked: index_may_be_nil, nil_not_allowed
+        err:find(case.refusal, 1, true) ~= nil, case.refusal .. ": " .. err)
   end
 end
 

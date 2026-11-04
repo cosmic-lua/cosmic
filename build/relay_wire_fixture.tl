@@ -23,7 +23,8 @@ end
 --- The bytes the hex digits of `text` spell.
 function relay_wire_fixture.bytes(text: string): string
   return (text:gsub("%x%x", function(pair: string): string
-    return string.char(math.tointeger(tonumber(pair, 16))) -- checked: nil_not_allowed
+    -- The pattern matched two hex digits, so `tonumber` reads them.
+    return string.char((assert(math.tointeger(tonumber(pair, 16)), "two hex digits are an integer")))
   end))
 end
 
@@ -119,7 +120,7 @@ function relay_wire_fixture.ipv6_bytes(text: string): string
   local function side(part: string): {integer}
     local out: mut {integer} = {}
     for piece in part:gmatch("[^:]+") do
-      out[#out + 1] = math.tointeger(tonumber(piece, 16)) -- checked: nil_not_allowed
+      out[#out + 1] = assert(math.tointeger(tonumber(piece, 16)), "an IPv6 piece is hex digits: " .. piece)
     end
     return out
   end

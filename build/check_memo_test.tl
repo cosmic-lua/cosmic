@@ -1,6 +1,7 @@
 --- The memo of [`build.check_memo`]: rows survive being written as text, a key
 --- moves with the salt, the dialect and the bytes, and a run keeps the rows it
 --- used.
+local Array = require("cosmic.array")
 local Sqlite = require("cosmic.sqlite")
 local check_memo = require("build.check_memo")
 
@@ -13,7 +14,7 @@ local function test_rows_with_tabs_breaks_and_backslashes_come_back_as_written()
   assert(#back == 2 and #back[1] == 5 and #back[2] == 5, #back)
   for i, row in ipairs(rows) do
     for j, field in ipairs(row) do
-      assert(back[i][j] == field, tostring(i) .. "," .. tostring(j)) -- checked: nil_not_allowed
+      assert(Array.at(Array.at(back, i), j) == field, tostring(i) .. "," .. tostring(j))
     end
   end
   assert(#check_memo.decode("") == 0)

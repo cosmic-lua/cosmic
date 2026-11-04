@@ -3,6 +3,7 @@
 --- its module otherwise than the source fails the build, and a projection
 --- missing one is refused. The fixture is a tree [`build.tree`] takes for
 --- cosmic's own.
+local Array = require("cosmic.array")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Hash = require("cosmic.hash")
@@ -85,11 +86,13 @@ local function test_the_tool_carries_each_standard_module_s_stub(tmp: string)
   local rows = assert(Sqlite.text_rows(db,
     "SELECT path, CAST(inflate(source) AS TEXT) FROM stubs ORDER BY path"))
   assert(db:close())
-  assert(#rows == 1 and rows[1]:text(1) == "cosmic.thing",
+  assert(#rows == 1)
+  local row = Array.at(rows, 1)
+  assert(row:text(1) == "cosmic.thing",
     "the stubs carried are those of the standard library's modules alone")
   local parsed = Parser.parse(Lexer.lex(thing, "cosmic/thing.tl"), "cosmic/thing.tl", "tl")
   assert(#parsed.errors == 0)
-  assert(rows[1]:text(2) == stub.made(parsed.chunk).text, rows[1]:text(2)) -- checked: nil_not_allowed*2
+  assert(row:text(2) == stub.made(parsed.chunk).text, row:text(2))
 end
 
 --- The places ([`build.syntax_places`]) of the standard library's modules are in the projection and in the tool, for

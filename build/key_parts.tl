@@ -54,7 +54,9 @@ local function unhex(text: string): string?, string
   end
   local at = text:find("[^0-9a-fA-F]")
   if at ~= nil then
-    return nil, ("byte 0x%02x at %d is not a hex digit"):format(text:byte(at), at) -- checked: nil_not_allowed
+    -- `at` is where `find` met a character, so it is inside `text`.
+    local byte = assert(text:byte(at), "find answered a position outside the text")
+    return nil, ("byte 0x%02x at %d is not a hex digit"):format(byte, at)
   end
   return (text:gsub("..", byte_of_hex)), ""
 end

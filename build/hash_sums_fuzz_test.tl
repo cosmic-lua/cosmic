@@ -36,12 +36,12 @@ local function test_a_formatted_line_reads_back(tmp: string)
       local lines: mut {string} = {}
       local names: mut {string} = {}
       local digests: mut {string} = {}
-      for i = 2, #fields do
-        if fields[i] ~= "" then
+      for i, field in ipairs(fields) do
+        if i >= 2 and field ~= "" then
           local digest = Codec.hex(string.rep(string.char((i * 37) % 256), size))
-          names[#names + 1], digests[#digests + 1] = fields[i], digest -- checked: index_may_be_nil
-          lines[#lines + 1] = hash.format_line(digest, fields[i]) -- checked: index_may_be_nil
-          Fuzz.label(if fields[i]:find("[\\\n\r]") then "escaped name" else "plain name" end) -- checked: nil_not_allowed
+          names[#names + 1], digests[#digests + 1] = field, digest
+          lines[#lines + 1] = hash.format_line(digest, field)
+          Fuzz.label(if field:find("[\\\n\r]") then "escaped name" else "plain name" end)
         end
       end
       if #lines > 1 then Fuzz.label("several lines") end

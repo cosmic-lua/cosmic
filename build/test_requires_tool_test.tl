@@ -55,7 +55,9 @@ local function run(root: string, extra?: {string:string}): string, integer
     cwd = root, env = env, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(90),
   })
   local result = assert(Child.run(started.argv, started.options))
-  return (result.stdout or "") .. (result.stderr or ""), result.code -- checked: nil_not_allowed
+  local code = result.code
+  assert(code ~= nil, "a signal ended the run: " .. tostring(result.signal))
+  return (result.stdout or "") .. (result.stderr or ""), code
 end
 
 --- A present requirement lets the module run, under a key that holds the

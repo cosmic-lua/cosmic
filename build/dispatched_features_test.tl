@@ -146,7 +146,11 @@ local function asking(text: string): {string}
   for j in pairs(kept) do numbers[#numbers + 1] = j end
   table.sort(numbers)
   local found: mut {string} = {}
-  for _, j in ipairs(numbers) do found[#found + 1] = kept[j] end -- checked: index_may_be_nil
+  for _, j in ipairs(numbers) do
+    local line = kept[j]
+    assert(line ~= nil, "`numbers` holds only the keys of `kept`")
+    found[#found + 1] = line
+  end
   return found
 end
 
@@ -250,8 +254,15 @@ end
 local function test_every_feature_a_site_reads_is_keyed()
   local want: mut {string:mut {string:boolean}} = {}
   local function add(machine: string, flags: {string})
-    want[machine] = want[machine] or {}
-    for _, flag in ipairs(flags) do want[machine][flag] = true end -- checked: nil_not_allowed
+    local known = want[machine]
+    local wanted: mut {string:boolean}
+    if known == nil then
+      wanted = {}
+      want[machine] = wanted
+    else
+      wanted = known
+    end
+    for _, flag in ipairs(flags) do wanted[flag] = true end
   end
   for _, site in pairs(SITES) do
     for machine, flags in pairs(site.reads) do add(machine, flags) end

@@ -185,7 +185,9 @@ local POINTED <const> = assert(Json.decode('{"a": [1, {"b": null, "": [true]}], 
   { null_value = Json.null }))
 
 local function pointer_holds(input: string): boolean, string
-  local ok, raised = pcall(Json.from_pointer, POINTED, input)
+  local ok, raised = pcall(function(): Json.Steps?, string
+    return Json.from_pointer(POINTED, input)
+  end)
   if not ok then return false, "from_pointer raised: " .. tostring(raised) end
   local steps, err = Json.from_pointer(POINTED, input)
   if steps == nil then
@@ -329,7 +331,8 @@ local function selection_holds(input: string): boolean, string
   local parsed, qerr = Json.query(query)
   if parsed == nil then return false, "a drawn query does not read: " .. qerr end
   local q: Json.Query = parsed
-  local nodes: {Json.Match} = { { steps = {}, value = doc } }
+  -- `$` selects the document itself: the reference starts from what select answers for it.
+  local nodes: {Json.Match} = assert(Json.select(doc, (assert(Json.query("$")))))
   for _, seg in ipairs(q.segments) do
     local out: mut {Json.Match} = {}
     for _, node in ipairs(nodes) do

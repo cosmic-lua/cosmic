@@ -166,7 +166,8 @@ end
 --- `text` with each `%XX` replaced by its byte.
 local function percent_decoded(text: string): string
   return (text:gsub("%%(%x%x)", function(hex: string): string
-    return string.char(tonumber(hex, 16)) -- checked: nil_not_allowed
+    -- The pattern matched two hex digits, so `tonumber` reads them.
+    return string.char((assert(tonumber(hex, 16), "two hex digits are an integer")))
   end))
 end
 
@@ -191,11 +192,11 @@ local function proxy_of(io: sandbox_connect.Io): Proxy?, string
   end
   if userinfo == nil then return { port = port }, "" end
   local user, password = userinfo:match("^([^:]*):(.*)$")
-  if user == nil or password == "" then
+  if user == nil or password == nil or password == "" then
     return nil, "the userinfo of ALL_PROXY is not user:token (the token is the password, percent-encoded)"
   end
   user = percent_decoded(user)
-  return { port = port, user = if user ~= "" then user else "cosmic" end, password = percent_decoded(password) }, "" -- checked: nil_not_allowed
+  return { port = port, user = if user ~= "" then user else "cosmic" end, password = percent_decoded(password) }, ""
 end
 
 --- Passes standard input to `conn` and `conn` to standard output, `first`

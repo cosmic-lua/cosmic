@@ -2,6 +2,7 @@
 --- [`Shape.record_of`], and what it refuses, by field.
 local Driver = require("build.driver")
 local Node = require("build.syntax_node")
+local Array = require("cosmic.array")
 local Programs = require("lang.check_programs")
 local ShapeSpecs = require("build.syntax_shape_specs")
 local Test = require("cosmic.test")
@@ -30,7 +31,8 @@ local function build_of(files: {string: string}): Driver.Build
     entries[#entries + 1] = { name, text }
   end
   table.sort(entries, function(a: {string}, b: {string}): boolean
-    return a[1] < b[1] -- checked: nil_not_allowed
+    -- Each entry is the `{ name, text }` pair pushed above.
+    return Array.at(a, 1) < Array.at(b, 1)
   end)
   local index = Driver.index(entries, function(_file: string): boolean
     return false
@@ -47,7 +49,9 @@ end
 --- The source of the module `main` after the build resolved its `record_of` calls, or what it refused, in a project of
 --- `files` (name to text).
 local function resolved(files: {string: string}): string?, string
-  return ShapeSpecs.resolve(build_of(files), "main", "main.tl", files["main.tl"]) -- checked: index_may_be_nil
+  local main = files["main.tl"]
+  assert(main ~= nil, "the project holds main.tl")
+  return ShapeSpecs.resolve(build_of(files), "main", "main.tl", main)
 end
 
 --- A module that declares `declaration` and asks for the spec of its record `R` (or the `call`).

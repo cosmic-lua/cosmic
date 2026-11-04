@@ -2,6 +2,7 @@
 --- picks by default, and what that database answers and refuses
 --- (build/sql_test.tl holds the rest).
 
+local Array = require("cosmic.array")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
@@ -87,8 +88,9 @@ local function test_the_default_is_the_project_database_else_the_binarys_own()
   -- A PRAGMA it refuses is answered with what a query can tell instead.
   local code, said = run(root, { "--store", "PRAGMA table_info(modules)" })
   assert(code == 1 and #said.out == 0)
-  assert(said.err[1]:find("not authorized; the binary's own database answers a query", -- checked: nil_not_allowed
-    1, true) ~= nil, said.err[1])
+  local refusal = Array.at(said.err, 1)
+  assert(refusal:find("not authorized; the binary's own database answers a query",
+    1, true) ~= nil, refusal)
   -- A plain SQLite failure is not the authorizer's refusal, and gets no hint.
   code, said = run(root, { "--store", "SELEC 1" })
   assert(code == 1 and #said.err == 1 and said.err[1]:find("syntax error", 1, true) ~= nil and

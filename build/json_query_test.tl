@@ -2,12 +2,13 @@
 --- leaf of a value as a `path = value` line, its path a JSONPath query
 --- in shorthand form, and a value's shape.
 
+local Array = require("cosmic.array")
 local Json = require("cosmic.json")
 local Test = require("cosmic.test")
 local json_query = require("build.json_query")
 
 --- The value `text` decodes to, or a failed assertion naming why.
-local function decoded(text: string, opts?: Json.DecodeOptions): any
+local function decoded(text: string, opts?: Json.DecodeOptions): Json.Value?
   local value, err = Json.decode(text, opts)
   assert(err == "", "decode failed on " .. text .. ": " .. err)
   return value
@@ -186,16 +187,21 @@ local function test_every_flat_path_reads_back_to_its_leaf()
   end
 end
 
+--- What `counted` tallies.
+local record Counter
+  mut walked: integer
+end
+
 --- `value` with every table replaced by an empty one that answers for it,
---- and counts in `counter[1]` each time it is walked by `pairs`: one for
+--- and counts in `counter.walked` each time it is walked by `pairs`: one for
 --- every container a walk lays out, so a test can bound the work a walk
 --- does by what it counted, not by how long it took.
-local function counted(value: any, counter: mut {integer}): any
+local function counted(value: any, counter: Counter): any
   if not (value is {any:any}) then return value end -- declared: key_type
   local copy: mut {any:any} = {} -- declared: key_type
   for key, member in pairs(value) do copy[key] = counted(member, counter) end -- checked: any_use
   local walk_copy = function(): function(): (any, any)
-    counter[1] = counter[1] + 1 -- checked: nil_not_allowed
+    counter.walked = counter.walked + 1
     local at = { value = nil as any } -- checked: cast_refused
     return function(): any, any
       local key, member = next(copy, at.value) -- checked: map_field
@@ -209,12 +215,12 @@ end
 local function test_flatten_of_a_large_document_lays_out_each_container_once()
   local rows: mut {any} = {}
   for i = 1, 25000 do rows[#rows + 1] = { id = i, tags = { "a", "b" }, ["in"] = { id = -i } } end -- checked: literal_shape
-  local counter = { 0 }
+  local counter: Counter = { walked = 0 }
   local leaves = assert(json_query.flatten(counted({ rows = Json.array(rows) }, counter))) -- checked: not_assignable
   assert(#leaves == 100000, #leaves)
-  assert(json_query.flat_line(leaves[1].steps, 1) == "$.rows[0].id = 1" and
-      json_query.flat_line(leaves[4].steps, 1) == "$.rows[0].tags[1] = 1") -- checked: nil_not_allowed
-  assert(counter[1] == 75002, "laid out " .. counter[1] .. " containers") -- checked: nil_not_allowed
+  assert(json_query.flat_line(Array.at(leaves, 1).steps, 1) == "$.rows[0].id = 1" and
+      json_query.flat_line(Array.at(leaves, 4).steps, 1) == "$.rows[0].tags[1] = 1")
+  assert(counter.walked == 75002, "laid out " .. tostring(counter.walked) .. " containers")
 end
 
 --- A depth outside what a walk takes raises, naming the caller, for

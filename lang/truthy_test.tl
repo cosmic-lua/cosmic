@@ -1,5 +1,6 @@
 --- Tests of [`lang.truthy`]: the expressions the rule takes as neither false nor nil from their syntax, and those it leaves
 --- to a function called on the spot.
+local Array = require("cosmic.array")
 local Ast = require("lang.ast")
 local Lexer = require("lang.lexer")
 local Parser = require("lang.parser")
@@ -12,8 +13,8 @@ Test.policy{}
 local function expression(text: string): Ast.Exp
   local parsed = Parser.parse(Lexer.lex("return " .. text .. "\n", "t.tl"), "t.tl", "tl")
   assert(#parsed.errors == 0, text)
-  local stat = parsed.chunk.body.stats[1]
-  assert((stat.kind == "Return"), text) -- checked: nil_not_allowed
+  local stat = Array.at(parsed.chunk.body.stats, 1) -- `return` and a text parse to one statement
+  assert((stat.kind == "Return"), text)
   return (assert(stat.values[1], text))
 end
 

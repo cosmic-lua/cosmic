@@ -333,12 +333,12 @@ end
 --- module has loaded, and whose `skipped` is called with the reason
 --- each `skip` is given and answers the value `skip` raises to end the
 --- test (nothing, to let it go on). Nil when none is installed.
-local function runner_in(module: any): {string:any}
+local function runner_in(module: any): {string:any}?
   if module is {string:any} then -- checked: is_on_record
     local installed = module.__runner -- checked: map_field
     if installed is {string:any} then return installed end
   end
-  return nil -- checked: nil_not_allowed
+  return nil
 end
 
 local record Declared
@@ -364,7 +364,7 @@ end
 --- as the module loads.
 local function declare(needs: Test.Needs)
   local installed = runner_in(Test)
-  if installed ~= nil and installed.loaded == true then -- checked: compare_disjoint, map_field
+  if installed ~= nil and installed.loaded == true then -- checked: map_field
     error("test: policy is called at the top of a test module, while it loads", 3)
   end
   local called_at = declared.called_at
@@ -375,7 +375,7 @@ local function declare(needs: Test.Needs)
   declared.called_at = caller()
   declared.parents = {}
   for _, relative in ipairs(needs.parent or {}) do declared.parents[relative] = true end
-  local handed = installed ~= nil and installed.handed or nil -- checked: compare_disjoint, map_field
+  local handed = installed ~= nil and installed.handed or nil -- checked: map_field
   if handed is function(Test.Needs) then handed(needs) end -- untyped: call
 end
 
@@ -862,7 +862,7 @@ function Test.parent(relative: string): string
         "{ path = \"/parent/%s\", letters = \"r\" } in Test.policy", relative, relative), 2)
   end
   local installed = runner_in(Test)
-  local base = installed ~= nil and installed.parent or nil -- checked: compare_disjoint, map_field
+  local base = installed ~= nil and installed.parent or nil -- checked: map_field
   if not (base is string) then
     error("test: parent is given by a runner only, and this one gives none", 2)
   end
@@ -909,7 +909,7 @@ end
 function Test.skip(reason: string)
   if reason == "" then error("test: skip's reason is empty", 2) end
   local installed = runner_in(Test)
-  if installed == nil then return end -- checked: compare_disjoint
+  if installed == nil then return end
   if installed.loaded ~= true then -- checked: map_field
     error("test: skip is called from a test as it runs, not as its module loads", 2)
   end
@@ -933,7 +933,7 @@ end
 function Test.passed_unchecked(reason: string)
   if reason == "" then error("test: passed_unchecked's reason is empty", 2) end
   local installed = runner_in(Test)
-  if installed == nil then return end -- checked: compare_disjoint
+  if installed == nil then return end
   local deliberate = installed.deliberate -- checked: map_field
   if deliberate is function(string) then deliberate(reason) end -- untyped: call
 end

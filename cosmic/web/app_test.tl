@@ -256,7 +256,7 @@ end
 local function test_abort_answers_its_status_and_detail_in_the_negotiated_form()
   local app = Web.app{ routes = {
     Web.get("/gone", function(_req: Web.Request): Web.Response
-      return Web.abort(410, "removed <b>", { reason = "x" }) -- checked: any_use
+      return Web.abort(410, "removed <b>", { reason = "x" })
     end),
     Web.get("/down", function(_req: Web.Request): Web.Response
       return Web.abort(503)

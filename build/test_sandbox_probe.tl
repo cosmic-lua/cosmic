@@ -30,6 +30,7 @@
 --- starts the probe, is in them alone, since it applies every worker's
 --- sandbox ([`build.test_key`]'s `harness_alone`).
 
+local Array = require("cosmic.array")
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
@@ -158,7 +159,9 @@ function test_sandbox_probe.available(argv: {string}, env: {string:string}, fds:
   end
   local unmet = test_policy.unmet()
   if unmet ~= "" then return { ok = false, why = unmet, broken = false } end
-  local policy = least_policy(argv[1], scratch, env) -- checked: index_may_be_nil
+  -- A command line leads with the executable ([`Proc.Relaunch`]'s `argv`, which the runner passes).
+  local program = Array.at(argv, 1)
+  local policy = least_policy(program, scratch, env)
   local command: mut {string} = {}
   for i, word in ipairs(argv) do command[i] = word end
   -- As a worker whose test does not declare `tool` holds itself
@@ -166,7 +169,7 @@ function test_sandbox_probe.available(argv: {string}, env: {string:string}, fds:
   -- sandboxed, since what such a test would run no key holds.
   command[#command + 1] = "-e"
   command[#command + 1] = 'local Confine = require("build.confine") ' ..
-    "local ok, why = Confine.forbid_running(Confine.itself(), { " .. string.format("%q", argv[1]) ..
+    "local ok, why = Confine.forbid_running(Confine.itself(), { " .. string.format("%q", program) ..
     " }) if not ok then error(why) end"
   return ran_under(command, fds, policy)
 end
@@ -184,15 +187,17 @@ local function noexec_works(): boolean, string
   local unmet = test_policy.unmet()
   if unmet ~= "" then return false, unmet end
   local launched, _ = Proc.relaunch()
-  local start: Proc.Relaunch = launched -- checked: nil_not_allowed
-  if start == nil then -- checked: compare_disjoint
+  local start: Proc.Relaunch
+  if launched == nil then
     local executable, trouble = Proc.executable()
     if executable == nil then return false, trouble end
     start = { argv = { executable }, env = {}, fds = {} }
+  else
+    start = launched
   end
   local directory, directory_trouble = test_sandbox_probe.directory()
   if directory == nil then return false, directory_trouble end
-  local policy = least_policy(start.argv[1], directory, start.env) -- checked: index_may_be_nil
+  local policy = least_policy(Array.at(start.argv, 1), directory, start.env)
   local made, made_trouble = Fs.mkdirs(directory .. "/noexec")
   if not made then
     local _, _ = Fs.remove_tree(directory)

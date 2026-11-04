@@ -4,6 +4,7 @@
 --- ([`build.importer`]'s `booting`): the row moves with every file of
 --- the tree, so no key can hold it, and a worker on a sealed database
 --- carries none. build/importer_test.tl holds the importer's other cases.
+local Array = require("cosmic.array")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
@@ -81,7 +82,7 @@ local function test_a_boot_names_its_analyzer_as_the_tool_it_writes()
   local based_on = assert(Sqlite.text_rows(out,
     "SELECT value FROM meta WHERE key = 'runtime_basis'"))
   local binary: importer.Code = {
-    basis = based_on[1]:text(1), -- checked: nil_not_allowed
+    basis = Array.at(based_on, 1):text(1), -- the boot wrote one `runtime_basis` row
     requires = function(name: string): {string}?, string
       local rows, trouble = Sqlite.text_rows(out,
         "SELECT requires FROM imports WHERE path = ?1 ORDER BY requires",
@@ -142,7 +143,8 @@ local function test_a_boot_names_its_analyzer_as_the_tool_it_writes()
     -- ([`build.pipeline`]'s `coded_of`), which the binary running this test is not.
     local named = assert(pipeline.coded_of(after, again.db))
     work.close(again)
-    return before, after, recorded[1]:text(1), planted[1]:text(1) == "1", named -- checked: nil_not_allowed*2
+    -- `meta` keys `analyzer` once, and `count(*)` answers one row.
+    return before, after, Array.at(recorded, 1):text(1), Array.at(planted, 1):text(1) == "1", named
   end
   -- The first boot after the suite's own binary derived: that binary's
   -- rows go, and the boot names its own as the tool does.
@@ -158,7 +160,9 @@ local function test_a_boot_names_its_analyzer_as_the_tool_it_writes()
   before, after, recorded, kept, named = boot()
   assert(recorded == named and kept, "a boot forgot what a boot of the same tree derived")
 
-  assert(Fs.write(root .. "/build/other.tl", files["build/other.tl"] .. "-- edited\n")) -- checked: nil_not_allowed
+  local other = files["build/other.tl"]
+  assert(other ~= nil, "the tree holds build/other.tl")
+  assert(Fs.write(root .. "/build/other.tl", other .. "-- edited\n"))
   before, after, recorded, kept, named = boot()
   assert(before == tool and after == tool and recorded == named,
     "an edit outside the analyzer moved its name")

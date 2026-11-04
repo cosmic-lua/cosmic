@@ -2,6 +2,7 @@
 --- which is a Landlock ruleset and so a host with Landlock's
 --- (`requires`: only Linux has it).
 
+local Array = require("cosmic.array")
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
@@ -26,10 +27,11 @@ Test.policy{
 --- lasts for good.
 local function test_forbid_running_within_refuses_the_program_by_every_name(tmp: string)
   local sibling = assert(stand_in.build(tmp .. "/sibling/stand-in"))
-  local program = confine.itself()[1]
+  -- `itself` lists the running program first.
+  local program = Array.at(confine.itself(), 1)
   assert(Fs.mkdirs(tmp .. "/links"))
-  assert(Fs.symlink(program, tmp .. "/links/program")) -- checked: nil_not_allowed
-  local within = { Fs.dirname(sibling), tmp .. "/links", Fs.dirname(program) } -- checked: nil_not_allowed
+  assert(Fs.symlink(program, tmp .. "/links/program"))
+  local within = { Fs.dirname(sibling), tmp .. "/links", Fs.dirname(program) }
   local chunk = string.format([=[
 local Child = require("cosmic.child")
 local confine = require("build.confine")

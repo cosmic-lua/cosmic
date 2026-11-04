@@ -1,6 +1,7 @@
 --- The SQLite file the shared caches keep (build/shared_sqlite.tl):
 --- opened in write-ahead mode, with a bounded wait on other writers.
 
+local Array = require("cosmic.array")
 local Signal = require("cosmic.signal")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
@@ -20,14 +21,17 @@ local function test_an_open_cache_is_in_wal_mode_and_prepared(tmp: string)
   local path = tmp .. "/cache.db"
   local db = assert(shared_sqlite.open(path, prepare))
   local mode = assert(Sqlite.text_rows(db, "PRAGMA journal_mode"))
-  assert(mode[1]:text(1) == "wal", mode[1]:text(1)) -- checked: nil_not_allowed*2
+  local mode_row = Array.at(mode, 1)
+  assert(mode_row:text(1) == "wal", mode_row:text(1))
   local timeout = assert(Sqlite.text_rows(db, "PRAGMA busy_timeout"))
-  assert(timeout[1]:text(1) == "10000", "busy timeout " .. timeout[1]:text(1)) -- checked: nil_not_allowed*2
+  local timeout_row = Array.at(timeout, 1)
+  assert(timeout_row:text(1) == "10000", "busy timeout " .. timeout_row:text(1))
   assert(Sqlite.text_rows(db, "SELECT key FROM kept"))
   db:close()
   local waiting = assert(shared_sqlite.open(path, prepare, Clock.ms(50)))
   timeout = assert(Sqlite.text_rows(waiting, "PRAGMA busy_timeout"))
-  assert(timeout[1]:text(1) == "50", "busy timeout " .. timeout[1]:text(1)) -- checked: nil_not_allowed*2
+  timeout_row = Array.at(timeout, 1)
+  assert(timeout_row:text(1) == "50", "busy timeout " .. timeout_row:text(1))
   waiting:close()
   -- The last connection closed, SQLite removes the log; one left open
   -- by a failed open would keep it.

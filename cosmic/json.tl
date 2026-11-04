@@ -1,4 +1,5 @@
---- JSON text to Lua values and back. What `decode` answers is `any`:
+--- JSON text to Lua values and back. What `decode` answers is a [`Json.Value`],
+--- the closed union of what JSON can hold: narrow it with `is`, or
 --- to read it as a record of your own, check it with [`cosmic.shape`]
 --- -- `Shape.record_of("Job"):into(value)` answers a `Job`, or the path
 --- of the first field that does not fit -- rather than casting fields
@@ -63,9 +64,13 @@
 --- in the call (`Json.encode({ name = "x", tags = { "a" } })`) or a map
 --- of your own is checked, and a function, a record, a class or a nil is
 --- refused where it is written. [`Json.encode_any`] takes `any`, for
---- what the checker cannot see into: a record or a class of your own and
---- a value you decoded. It encodes by the same rules, and what is not
---- JSON is the same error, found when it runs and not before.
+--- what the checker cannot see into: a record or a class of your own.
+--- It encodes by the same rules, and what is not JSON is the same
+--- error, found when it runs and not before. What [`Json.decode`] and
+--- [`Json.get`] answer is a [`Json.Value`], but a `null` decodes to nothing
+--- unless `null_value = Json.null` is given, and nothing in an array is a hole,
+--- which [`Json.encode`] refuses: decode with `null_value = Json.null` for a
+--- value it takes back.
 ---
 --- To explore a document whose shape is not known, `Json.encode_any(v,
 --- { pretty = true })` dumps a value, and [`Json.decode_object`] and
@@ -177,8 +182,8 @@ local record Json
   --- What `decode` may be told. Every field is optional.
   record DecodeOptions
     --- What to put where the text says `null`, so a Lua table can hold
-    --- it. [`Json.null`] is the usual choice: it encodes back as `null`.
-    mut null_value?: Json.Value
+    --- it. Only [`Json.null`], the stand-in that encodes back as `null`.
+    mut null_value?: Json.Null
     --- How many arrays and objects may nest, 1 to [`Json.depth_limit`]
     --- (1000; default [`Json.default_depth`], 64).
     max_depth?: integer
@@ -278,7 +283,7 @@ local record Json
     --- Read `#` line comments, as `decode` does, with or without `json5`.
     hash_comments?: boolean
     --- What `value` puts where the text says `null`.
-    null_value?: Json.Value
+    null_value?: Json.Null
   end
 
   --- A reader of JSON text a token at a time, from [`Json.reader`]. A
@@ -302,7 +307,7 @@ local record Json
     --- reader must be where a value goes: not at a key, a closing
     --- bracket or the end, which it refuses. A `null` is nil unless
     --- `null_value` says otherwise, so test the message.
-    value: function(Reader): any?, string
+    value: function(Reader): Json.Value?, string
     --- Where the reader is, as steps: the array or object it is in and
     --- the element or member it read last, each position counted from 1.
     --- [`Json.pointer`] and [`Json.path`] spell them.
@@ -317,7 +322,7 @@ local record Json
   --- What JSON can say, as a Lua value: a string, a number, a boolean, [`Json.null`], an array of these
   --- or an object of these, nested as deep as [`Json.depth_limit`] allows. [`Json.encode`] and `Web.json`
   --- take it, so `Json.encode({ name = "x", n = 1, tags = { "a", "b" } })` is checked as it is written.
-  --- A record, a class, a decoded `any` or a nil is none of its arms: see [`Json.encode_any`].
+  --- A record, a class or a nil is none of its arms: see [`Json.encode_any`]. What [`Json.decode`] answers is a [`Json.Value`].
   ---
   --- The fork reads this declaration, and every parameter that takes it, as `any`; the new checker reads `string | number | boolean |
   --- Json.Null | {Json.Value} | {string: Json.Value}`.
@@ -416,32 +421,57 @@ local function refuse(why: string): nil, string
   return nil, "json: " .. why
 end
 
+--- `v` as a map of values, or nil when it is none.
+local function members_of(v: any): {string: Json.Value}?
+  if v is {string: Json.Value} then return v end -- checked: is_on_record
+  return nil
+end
+
+--- `v` as a list of values, or nil when it is none.
+local function items_of(v: any): {Json.Value}?
+  if v is {Json.Value} then return v end -- checked: is_on_record
+  return nil
+end
+
+--- `v`, which the core decoded or any other value, as a [`Json.Value`] when it is one of its arms (a table by its tag
+--- alone, as [`Json.decode`] builds it), else nil: the one place the raw `any` of the core is told.
+local function value_of(v: any): Json.Value?
+  if v is string then return v end
+  if v is number then return v end
+  if v is boolean then return v end
+  if rawequal(v, Json.null) then return Json.null end
+  local object = members_of(v)
+  if object == nil or Json.layout(object) == "mixed" then return nil end
+  return object
+end
+
 --- [`raw.decode`] of `text` under `opts`; `record`, when given, is the
 --- JSON Lines line `text` is, which a failure names.
 local function decode_with(text: string, opts: Json.DecodeOptions, record?: integer,
-                           null_value?: Json.Value): any?, string
+                           null_value?: Json.Null): Json.Value?, string
   if null_value == nil then null_value = opts.null_value end
   local value, err = raw.decode(text, null_value, opts.max_depth, opts.json5,
     opts.big_numbers_as_strings, opts.lone_surrogates, record, opts.hash_comments,
     opts.duplicate_keys)
-  if err ~= "" then return refuse(err) end -- checked: any_use
-  return value, ""
+  if err ~= "" then return refuse(err) end
+  return value_of(value), ""
 end
 
 --- Parses JSON text into the value it holds, and "". nil and a message,
 --- naming the line and column, when the text is not one JSON value,
 --- holds an object with a key twice, or nests past `max_depth`. The
---- value is `any`. To read it as a record of your own, check it with
+--- value is a [`Json.Value`] (nil for a `null` unless `null_value` is
+--- given). To read it as a record of your own, check it with
 --- [`cosmic.shape`], whose `Shape.record_of("Job"):into(value)` answers
 --- a `Job`, or nil and the path of the first field that does not fit,
 --- where `value.cmd as {string}` checks nothing and a wrong field fails
 --- later, far from the text. To check only the outermost value, narrow
 --- it with `is`, or use [`decode_object`] or [`decode_array`].
-function Json.decode(text: string, opts?: Json.DecodeOptions): any?, string
+function Json.decode(text: string, opts?: Json.DecodeOptions): Json.Value?, string
   if opts == nil then
     local value, err = raw.decode(text)
-    if err ~= "" then return refuse(err) end -- checked: any_use
-    return value, ""
+    if err ~= "" then return refuse(err) end
+    return value_of(value), ""
   end
   return decode_with(text, opts)
 end
@@ -459,26 +489,28 @@ end
 
 --- The object `text` holds, as a map, and "". nil and a message when
 --- the text is not JSON, or its outermost value is not an object.
-function Json.decode_object(text: string, opts?: Json.DecodeOptions): {string: any}?, string
+function Json.decode_object(text: string, opts?: Json.DecodeOptions): {string: Json.Value}?, string
   local value, err = Json.decode(text, opts)
   if err ~= "" then
     return nil, err
   end
-  if value is {string: any} and not raw.is_array(value) then -- checked: is_on_record
-    return value, ""
+  local object = members_of(value)
+  if object ~= nil and not raw.is_array(object) then
+    return object, ""
   end
   return refuse("expected a JSON object, got " .. kind(value))
 end
 
 --- The array `text` holds, as a list, and "". nil and a message when
 --- the text is not JSON, or its outermost value is not an array.
-function Json.decode_array(text: string, opts?: Json.DecodeOptions): {any}?, string
+function Json.decode_array(text: string, opts?: Json.DecodeOptions): {Json.Value}?, string
   local value, err = Json.decode(text, opts)
   if err ~= "" then
     return nil, err
   end
-  if value is {any} and raw.is_array(value) then -- checked: is_on_record
-    return value, ""
+  local list = items_of(value)
+  if list ~= nil and raw.is_array(list) then
+    return list, ""
   end
   return refuse("expected a JSON array, got " .. kind(value))
 end
@@ -573,8 +605,8 @@ end
 --- end in `\r\n`. nil and a message naming the line when one is not
 --- JSON. `opts` applies to every line; a `null` line leaves a hole
 --- unless `null_value` is given.
-function Json.decode_lines(text: string, opts?: Json.DecodeOptions): {any}?, string
-  local values: mut {integer: any} = {}
+function Json.decode_lines(text: string, opts?: Json.DecodeOptions): {Json.Value}?, string
+  local values: mut {integer: Json.Value} = {}
   local number = 0
   local count = 0
   local line_opts: Json.DecodeOptions = opts or {}
@@ -589,7 +621,7 @@ function Json.decode_lines(text: string, opts?: Json.DecodeOptions): {any}?, str
       if err ~= "" then
         return nil, err
       end
-      values[count] = value
+      if value ~= nil then values[count] = value end
     end
   end
   return raw.array(values), ""
@@ -1251,41 +1283,46 @@ end
 --- the first step that reaches nothing: a member or element not there,
 --- or a step into a value that is not an array or object, or a name
 --- into an array, or a position into an object. A member read as nil
---- (a JSON `null` decoded without `null_value`) is not there.
-function Json.get(value: any, steps: Json.Steps): any?, string
+--- (a JSON `null` decoded without `null_value`) is not there. The value is
+--- a [`Json.Value`]: a value `steps` reach that is none (a function, or a table with mixed keys) is refused.
+function Json.get(value: any, steps: Json.Steps): Json.Value?, string
   local at = value
   local reached = ""
   for i, step in ipairs(steps) do
     local bad = bad_step(i, step)
-    if bad ~= nil then return refuse(bad) end -- checked: any_use
+    if bad ~= nil then return refuse(bad) end
     local t = table_of(at)
     if t == nil then
-      return refuse(("the value at %s is %s, not an array or object"):format(at_pointer(reached), kind(at))) -- checked: any_use
+      return refuse(("the value at %s is %s, not an array or object"):format(at_pointer(reached), kind(at)))
     end
     local shape = container(t)
     if step is string then
       if shape ~= "object" then
-        return refuse(("the value at %s is %s, not an object"):format(at_pointer(reached), -- checked: any_use
+        return refuse(("the value at %s is %s, not an object"):format(at_pointer(reached),
           if shape == "array" then "an array" else "a table with mixed keys" end))
       end
       reached = reached .. "/" .. pointer_segment(step)
       at = t[step]
     else
       if shape ~= "array" then
-        return refuse(("the value at %s is %s, not an array"):format(at_pointer(reached), -- checked: any_use
+        return refuse(("the value at %s is %s, not an array"):format(at_pointer(reached),
           if shape == "object" then "an object" else "a table with mixed keys" end))
       end
       local position = step
       if position < 0 then position = last_position(t) + 1 + position end
       if position < 1 then
-        return refuse(("no element %d from the end at %s"):format(-step, at_pointer(reached))) -- checked: any_use
+        return refuse(("no element %d from the end at %s"):format(-step, at_pointer(reached)))
       end
       reached = reached .. "/" .. tostring(position - 1)
       at = t[position]
     end
-    if at == nil then return refuse("no value at " .. at_pointer(reached)) end -- checked: any_use
+    if at == nil then return refuse("no value at " .. at_pointer(reached)) end
   end
-  return at, ""
+  local found = value_of(at)
+  if found == nil and at ~= nil then
+    return refuse(("the value at %s is none JSON can hold"):format(at_pointer(reached)))
+  end
+  return found, ""
 end
 
 --- The control characters a normalized path writes by a short escape.
@@ -2104,7 +2141,7 @@ end
 --- One scalar token's text, starting at `column`, read as `decode`
 --- reads it; a failure is placed where the token is. It names no path:
 --- only a key twice or nesting does, which a scalar cannot hold.
-local function scalar(self: TokenReader, text: string, column: integer, closer?: string): any?, string
+local function scalar(self: TokenReader, text: string, column: integer, closer?: string): Json.Value?, string
   local value, err = raw.decode(text, nil, nil, self.json5, self.big, self.lone, nil, false, false,
     self.line, column)
   if err ~= "" and closer ~= nil then
@@ -2113,8 +2150,8 @@ local function scalar(self: TokenReader, text: string, column: integer, closer?:
     err = err:gsub("unexpected content after document",
       "unexpected character, expected ',' or '" .. closer .. "'")
   end
-  if err ~= "" then return stop(self, "json: " .. err) end -- checked: any_use
-  return value, ""
+  if err ~= "" then return stop(self, "json: " .. err) end
+  return value_of(value), ""
 end
 
 --- The unquoted key at `self.at`, which JSON5 allows: the bytes of an
@@ -2157,9 +2194,9 @@ end
 -- TODO: read the key with a binding of its own, once [`raw.decode`] can
 -- decode an identifier by itself: this wraps it in an object and moves
 -- the column back in the message.
-local function key_value(self: TokenReader, text: string, column: integer): any?, string
+local function key_value(self: TokenReader, text: string, column: integer): Json.Value?, string
   -- JSON5's whitespace where a key starts is an empty key, as yyjson reads it.
-  if text == "" then return "", "" end -- checked: any_use
+  if text == "" then return "", "" end
   local value, err = raw.decode("{" .. text .. ":0}", nil, nil, true, false, self.lone, nil, false,
     false, self.line, column)
   if err ~= "" and self.buf:byte(self.at) == nil then
@@ -2174,12 +2211,12 @@ local function key_value(self: TokenReader, text: string, column: integer): any?
     local back = err:gsub("(column )(%d+)", function(label: string, n: string): string
       return label .. tostring(integer_of(n, 10) - 1)
     end, 1)
-    return stop(self, "json: " .. back) -- checked: any_use
+    return stop(self, "json: " .. back)
   end
   if value is {string: integer} then -- checked: is_on_record
-    for key in pairs(value) do return key, "" end -- checked: any_use
+    for key in pairs(value) do return key, "" end
   end
-  return stop(self, "json: an object with no key") -- checked: any_use
+  return stop(self, "json: an object with no key")
 end
 
 --- `v` as a token's value: a string, a number or a boolean, or nil.
@@ -2296,7 +2333,7 @@ local class TokenReader is Json.Reader
   lone: boolean
   json5: boolean
   hash: boolean
-  null_value: Json.Value?
+  null_value: Json.Null?
   --- The bytes read and not yet passed, from `at`; `before` is how many
   --- the stream gave ahead of `buf`.
   mut buf: string
@@ -2379,7 +2416,7 @@ local class TokenReader is Json.Reader
         text, trouble = string_text(self, column)
       end
       if text == nil then return nil, trouble end
-      local key: any
+      local key: Json.Value?
       local err: string
       if bare then
         key, err = key_value(self, text, column)
@@ -2419,14 +2456,14 @@ local class TokenReader is Json.Reader
       end
     end
     if text == nil then return nil, trouble end
-    local value: any
+    local value: Json.Value?
     if token == "boolean" or token == "null" then
       if text ~= "true" and text ~= "false" and text ~= "null" then
         return placed(self, column, "a word JSON has no literal for")
       end
       token = if text == "null" then "null" else "boolean" end
-      value = text == "true" -- checked: any_use
-      if token == "null" then value = nil end -- checked: any_use
+      value = text == "true"
+      if token == "null" then value = nil end
     else
       local err: string
       -- A number is read with the byte that ends it, as in the text: a
@@ -2442,33 +2479,33 @@ local class TokenReader is Json.Reader
     return { kind = token, value = leaf(value) }, ""
   end
 
-  function value(self): any?, string
+  function value(self): Json.Value?, string
     local token, why = self:peek()
     if token == nil then
-      if why ~= "" then return nil, why end -- checked: any_use
-      return stop(self, "json: no value: the stream has ended") -- checked: any_use
+      if why ~= "" then return nil, why end
+      return stop(self, "json: no value: the stream has ended")
     end
     if token == "key" or token == "end_object" or token == "end_array" then
-      return fail_at(self, self.at, "expected a value") -- checked: any_use
+      return fail_at(self, self.at, "expected a value")
     end
     if token ~= "object" and token ~= "array" then
       local read, trouble = self:next()
-      if read == nil then return nil, trouble end -- checked: any_use
-      if token == "null" then return self.null_value, "" end -- checked: any_use
-      return read.value, "" -- checked: any_use
+      if read == nil then return nil, trouble end
+      if token == "null" then return self.null_value, "" end
+      return read.value, ""
     end
     begin_value(self)
     if #self.frames >= self.max_depth then
-      return fail_at(self, self.at, "JSON nests deeper than " .. String.counted(self.max_depth, "level")) -- checked: any_use
+      return fail_at(self, self.at, "JSON nests deeper than " .. String.counted(self.max_depth, "level"))
     end
     local path = pointer_of(self:steps())
     local line, column = self.line, self.before + self.at - self.line_start
     local text, trouble = container_text(self)
-    if text == nil then return nil, trouble end -- checked: any_use
+    if text == nil then return nil, trouble end
     local value, err = raw.decode(text, self.null_value, self.max_depth, self.json5,
       self.big, self.lone, nil, self.hash, self.duplicate_keys, line, column, path, #self.frames)
-    if err ~= "" then return stop(self, "json: " .. err) end -- checked: any_use
-    return value, ""
+    if err ~= "" then return stop(self, "json: " .. err) end
+    return value_of(value), ""
   end
 end
 
