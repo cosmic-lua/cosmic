@@ -114,8 +114,8 @@ local entered: mut {Entry} = {}
 --- one a test runs of its own inside its sandboxed worker's knows no
 --- sandbox, but the worker's does.
 local function in_sandbox(): boolean
-  for at = #entered, 1, -1 do
-    if entered[at].sandboxed then return true end -- checked: nil_not_allowed
+  for _, each in ipairs(entered) do
+    if each.sandboxed then return true end
   end
   return false
 end
@@ -385,10 +385,11 @@ function confine.itself(): mut {string}
   local launched, _ = Proc.relaunch()
   if launched ~= nil then
     local core = launched.argv[1]
-    program[#program + 1] = core -- checked: nil_not_allowed
-    local directory, name = core:match("^(.*)/(core%-[^/]*)$") -- checked: nil_not_allowed
-    if directory ~= nil then
-      local stamp = directory .. "/.verified-" .. name -- checked: nil_not_allowed
+    assert(core, "Proc.relaunch's argv leads with the program it starts")
+    program[#program + 1] = core
+    local directory, name = core:match("^(.*)/(core%-[^/]*)$")
+    if directory ~= nil and name ~= nil then
+      local stamp = directory .. "/.verified-" .. name
       local there, _ = asked.lstat(stamp)
       if there ~= nil and there.kind == "file" then program[#program + 1] = stamp end
     end
@@ -636,11 +637,13 @@ end
 --- (see `enter`), or nil: where a process it starts makes its
 --- temporary files (build.this_program's `environment`).
 function confine.test_directory(): string?
-  for at = #entered, 1, -1 do
-    local own = entered[at].own[1] -- checked: nil_not_allowed
-    if own ~= nil then return own end
+  -- The innermost stand-in is the last entered, so the last one with a directory wins.
+  local innermost: string? = nil
+  for _, each in ipairs(entered) do
+    local own = each.own[1]
+    if own ~= nil then innermost = own end
   end
-  return nil
+  return innermost
 end
 
 --- What an absolute path resolves to, links and all, when it is read:
@@ -843,8 +846,8 @@ local function led_to(path: string): string?
       return (if real == "/" then "" else real end) .. "/" .. rest
     end
     local parent, last = head:match("^(.*)/([^/]+)$")
-    if parent == nil or last == ".." then return nil end
-    rest = if rest == "" then last else last .. "/" .. rest end -- checked: nil_not_allowed
+    if parent == nil or last == nil or last == ".." then return nil end
+    rest = if rest == "" then last else last .. "/" .. rest end
     head = parent
   end
   return nil

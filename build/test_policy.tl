@@ -128,7 +128,8 @@ end
 --- The letters a read of the plan at host path `path` is granted: `rx` for
 --- what the plan says is run (`runs`), what a device allows, else `r`.
 local function letters_of(path: string, inside: string, runs: {string:boolean}): string
-  if devices[inside] ~= nil then return devices[inside] end -- checked: index_may_be_nil
+  local device = devices[inside]
+  if device ~= nil then return device end
   if runs[path] == true then return "rx" end
   return "r"
 end
