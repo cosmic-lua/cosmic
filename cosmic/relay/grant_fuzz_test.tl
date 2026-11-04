@@ -50,7 +50,7 @@ local function test_no_target_raises_and_an_accepted_one_reads_as_itself(tmp: st
       if not ok then return false, "parse raised: " .. tostring(target) end
       if target == nil then
         Fuzz.label("refused")
-        if why == nil or why == "" then return false, "a refusal with no reason" end
+        if why == "" then return false, "a refusal with no reason" end
         return true, ""
       end
       local read = target as Grant.Target -- checked: cast_refused

@@ -112,7 +112,7 @@ end
 local function started(spec: Relay.Spec): Relay.Serving?, string
   local ok, server = pcall(Relay.start, spec)
   if not ok then return nil, tostring(server) end
-  return server, "" -- checked: any_use
+  return server, ""
 end
 
 --- `rows` as the endpoints [`Net`] takes.

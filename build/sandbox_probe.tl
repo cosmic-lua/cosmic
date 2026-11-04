@@ -301,7 +301,7 @@ function SandboxProbe.main(_argv: {string}): integer
   local called, outcome = pcall(SandboxProbe.run, tmp)
   local _, _ = Fs.remove_tree(tmp)
   if not called then error(outcome, 0) end
-  assert(Fs.put(Fs.stdout, SandboxProbe.markdown(outcome))) -- checked: any_use
+  assert(Fs.put(Fs.stdout, SandboxProbe.markdown(outcome)))
   return 0
 end
 

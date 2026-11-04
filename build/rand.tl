@@ -539,7 +539,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     end
     error(result, 0)
   end
-  return result -- checked: any_use
+  return result
 end
 
 --- The `rand` verb as [`build/verb_list.tl`] lists it. It reads no tree,

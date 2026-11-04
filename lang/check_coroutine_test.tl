@@ -107,3 +107,16 @@ local function test_a_handle_yields_only_for_the_coroutine_it_was_made_for()
   assert(x.ran and x.fault == nil, Programs.codes(x.run) .. " " .. tostring(x.fault))
   assert(table.concat(x.printed, ",") == "refused", table.concat(x.printed, ","))
 end
+
+local function test_the_results_of_the_standard_coroutine_functions_are_not_tied_but_a_name_of_the_programs_own_is()
+  local head = "local co = coroutine.create(function(_y: Yielder<string, string>, s: string): string\n  return s\nend)\n"
+  -- The declared library gives the body a handle that the runtime's does not, so `v` is nil at run time: no tie.
+  refused(head .. "local ok, v = coroutine.resume(co, \"hi\")\nif ok then\n  print(#v)\nend\n", "any_use")
+  refused(head .. "local alias = coroutine\nlocal ok, v = alias.resume(co, \"hi\")\nif ok then\n  print(#v)\nend\n", "any_use")
+  -- A function of the program's own named like one (a program cannot name anything `coroutine`: it shadows the global).
+  stands("local record Own\n  resume: function(): (true, integer) | (false, string)\nend\n" ..
+      "local function r(): (true, integer) | (false, string)\n  return true, 4\nend\nlocal mine: Own = { resume = r }\n" ..
+      "local ok, v = mine.resume()\nif ok then\n  print(v + 1)\nend\n", "5")
+  -- A protected call and a function of the program's own still tie.
+  stands("local function f(): integer\n  return 1\nend\nlocal ok, v = pcall(f)\nif ok then\n  print(v + 1)\nend\n", "2")
+end

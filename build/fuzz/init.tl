@@ -266,7 +266,7 @@ local function attempt(check: function(string): boolean, string, input: string,
     return false, "raised: " .. raised
   end
   if held ~= true then
-    return false, if why ~= nil and why ~= "" then tostring(why) else "check returned false" end
+    return false, if why ~= "" then why else "check returned false" end
   end
   return true, ""
 end
@@ -476,8 +476,8 @@ local function run(p: Fuzz.Property): integer
       counting.reached = nil
       error(input, 0)
     end
-    if kept ~= nil then local _, _ = Fs.write(kept, input) end -- checked: any_use
-    local held, why = attempt(p.check, input, budget) -- checked: any_use
+    if kept ~= nil then local _, _ = Fs.write(kept, input) end
+    local held, why = attempt(p.check, input, budget)
     counting.reached = nil
     for name in pairs(mine) do counts[name] = (counts[name] or 0) + 1 end
     -- Raises the report of an input that failed, after shrinking it; the
@@ -488,12 +488,12 @@ local function run(p: Fuzz.Property): integer
       -- A check that fails an input once and holds for it the next time
       -- depends on something beside the input: shrinking would chase
       -- noise, so the report says so and stops.
-      local again, _ = attempt(p.check, input, budget) -- checked: any_use
+      local again, _ = attempt(p.check, input, budget)
       if again then
         error(("fuzz %s: %s: flaky: failed (%s), then held when the same input was " ..
           "checked again; it depends on something beside its input\n" ..
           "  input (%s, hex): %s\n  %s\n  reproduce: %s"):
-            format(p.name, where, reason, plural.count(#input, "byte"), shown(input), -- checked: any_use*2
+            format(p.name, where, reason, plural.count(#input, "byte"), shown(input),
               if kept ~= nil then ("kept at " .. kept) else "not kept: the property names no dir" end,
               reproduce), 0)
       end
@@ -513,7 +513,7 @@ local function run(p: Fuzz.Property): integer
       else
         -- The shrunk input failed while shrinking and held just now:
         -- report the input that first failed, and say why.
-        small, smallest = input, draws -- checked: any_use
+        small, smallest = input, draws
         flaky = "\n  flaky: the shrunk input held when checked again, so this is the input that first failed"
       end
       if kept ~= nil then local _, _ = Fs.write(kept, small) end
@@ -523,7 +523,7 @@ local function run(p: Fuzz.Property): integer
         "  %s\n  reproduce: %s\n" ..
         "  once fixed, keep it as a regression case: %s"):
           format(p.name, where, reason, plural.count(tries, "try", "tries"), plural.count(#draws, "draw"),
-            plural.count(#input, "byte"), plural.count(#smallest, "draw"), plural.count(#small, "byte"), shown(small), flaky, -- checked: any_use
+            plural.count(#input, "byte"), plural.count(#smallest, "draw"), plural.count(#small, "byte"), shown(small), flaky,
             if kept ~= nil then ("kept at " .. kept) else "not kept: the property names no dir" end,
             reproduce,
             if kept ~= nil then ("mkdir -p %s && cp %s %s"):format(corpus_of(p), kept, keep) else
@@ -588,7 +588,7 @@ function Fuzz.run(p: Fuzz.Property): integer
   local ok, n = pcall(run, p)
   counting.reached = enclosing
   if not ok then error(n, 0) end
-  return n -- checked: any_use
+  return n
 end
 
 --- Checks one input directly, under the same budget as `run`: what

@@ -752,8 +752,8 @@ local function write_coverage(handle: Sqlite.Handle, modules: {Module},
   if not called then
     return 0, 0, tostring(made)
   end
-  if not made then -- checked: any_use
-    return 0, 0, trouble -- checked: nil_not_allowed
+  if not made then
+    return 0, 0, trouble
   end
   return totals.hit, totals.lines, "" -- checked: map_field*2
 end

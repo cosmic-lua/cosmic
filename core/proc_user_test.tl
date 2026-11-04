@@ -70,7 +70,7 @@ local function test_user_releases_buffers_under_every_allocation_refusal()
       assert(after_bytes == bytes and after_blocks == blocks, "lookup left its buffer allocated")
       if refused == 0 then
         assert(ok and (user ~= nil) == case.found)
-        if user ~= nil then assert(user.uid == 0) end -- checked: any_use
+        if user ~= nil then assert(user.uid == 0) end
         assert(after > 0, "lookup allocates")
         completed = true
         break

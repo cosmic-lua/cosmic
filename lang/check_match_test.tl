@@ -184,3 +184,80 @@ local function test_xpcall_answers_what_the_message_handler_answers_on_failure()
   refused(raising .. "match xpcall(risky, code) do\n  | (true, v) then print(v)\n  | (false, n) then print(n + 1)\nend\n", "operand_type")
   stands(raising .. "match xpcall(risky, code) do\n  | (true, v) then print(v)\n  | (false, n) then print(n)\nend\n", "error in error handling")
 end
+
+-- locals bound to the lists of one call -------------------------------------------------------------------------
+
+local TIED <const> = [[
+local function coin(): boolean
+  return true
+end
+local other_good, w = either(false)
+]]
+
+local function test_a_test_of_the_first_local_narrows_the_others_to_the_list_it_selects()
+  refused("local good, v = either(true)\nprint(v + 1)\n", "operand_type")
+  stands("local good, v = either(true)\nif good then\n  print(v + 1)\nelse\n  print(v .. \"!\")\nend\n", "2")
+  stands("local good, v = either(false)\nif not good then\n  print(v .. \"!\")\nend\n", "lost!")
+  stands("local good, v = either(true)\nprint(good and v + 1 == 2)\n", "true")
+  stands("local good, v = either(true)\nassert(good)\nprint(v + 1)\n", "2")
+  stands("local good, v = either(true)\nif good == true then\n  print(v + 1)\nend\nif good == false then\n  print(v .. \"!\")\nend\n", "2")
+  stands("local good, v = either(false)\nif good ~= true then\n  print(v .. \"!\")\nend\n", "lost!")
+  stands("local function f(): integer\n  local good, v = either(true)\n  if not good then\n    return 0\n  end\n  return v + 1\nend\nprint(f())\n", "2")
+  assert(type_of("local good, v = either(true)\nif good then\n  local seen = v\nend\n", "seen") == "integer")
+  assert(type_of("local good, v = either(true)\nif not good then\n  local seen = v\nend\n", "seen") == "string")
+  -- The wrong list is refused.
+  refused("local good, v = either(true)\nif good then\n  print(v .. \"!\")\nend\n", "concat_type")
+  refused("local good, v = either(true)\nif not good then\n  print(v + 1)\nend\n", "operand_type")
+end
+
+local function test_the_locals_of_a_list_of_three_values_are_tied_too()
+  stands("local good, n, s = triple()\nif good then\n  print(n + 1, s .. \"!\")\nend\n", "2\tx!")
+  assert(type_of("local good, n, s = triple()\nif not good then\n  local seen = n\nend\n", "seen") == "string")
+  assert(type_of("local good, n, s = triple()\nif not good then\n  local seen = s\nend\n", "seen") == "nil")
+end
+
+local function test_a_protected_call_ties_its_locals()
+  local head = "local function f(n: integer): integer\n  return n + 1\nend\nlocal function handler(e: any): string\n  return \"handled\"\nend\n"
+  stands(head .. "local good, v = pcall(f, 1)\nif good then\n  print(v + 1)\nend\n", "3")
+  stands(head .. "local good, v = pcall(f, 1)\nif not good then\n  print(tostring(v))\nelse\n  print(v + 1)\nend\n", "3")
+  refused(head .. "local good, v = pcall(f, 1)\nif not good then\n  print(v .. \"\")\nend\n", "any_use")
+  refused(head .. "local good, v = pcall(f, 1)\nprint(v + 1)\n", "any_use")
+  stands(head .. "local good, v = xpcall(f, handler, 1)\nif good then\n  print(v + 1)\nelse\n  print(v .. \"!\")\nend\n", "3")
+  assert(type_of(head .. "local good, v = xpcall(f, handler, 1)\nif not good then\n  local seen = v\nend\n", "seen") == "string")
+end
+
+local function test_an_assignment_to_any_of_the_locals_ends_the_tie()
+  refused(TIED .. "local good, v = either(true)\ngood = coin()\nif good then\n  print(v + 1)\nend\n", "operand_type")
+  refused(TIED .. "local good, v = either(true)\nv = w\nif good then\n  print(v + 1)\nend\n", "operand_type")
+  refused(TIED .. "local good, v = either(true)\ngood, v = coin(), w\nif good then\n  print(v + 1)\nend\n", "operand_type")
+  refused(TIED .. "local good, v = either(true)\nv, good = w, true\nif good then\n  print(v + 1)\nend\n", "operand_type")
+  -- A test before the assignment narrowed with the tie; after it the locals are tied to nothing.
+  refused(TIED .. "local good, v = either(true)\nif good then\n  print(v + 1)\nend\ngood, v = other_good, w\nif good then\n  print(v + 1)\nend\n", "operand_type")
+end
+
+local function test_a_join_keeps_the_tie_only_where_no_path_assigned_a_local()
+  stands(TIED .. "local good, v = either(true)\nif coin() then\n  print(\"x\")\nend\nif good then\n  print(v + 1)\nend\n", "x,2")
+  refused(TIED .. "local good, v = either(true)\nif coin() then\n  v = w\nend\nif good then\n  print(v + 1)\nend\n", "operand_type")
+  refused(TIED .. "local good, v = either(true)\nif coin() then\n  good = other_good\nend\nif good then\n  print(v + 1)\nend\n", "operand_type")
+  -- A test inside a branch narrows there, and the narrowing is gone after the branch.
+  refused(TIED .. "local good, v = either(true)\nif coin() then\n  if not good then\n    return\n  end\nend\nprint(v + 1)\n", "operand_type")
+end
+
+local function test_a_loop_keeps_the_tie_only_if_its_body_assigns_none_of_the_locals()
+  stands(TIED .. "local good, v = either(true)\nfor i = 1, 2 do\n  if good then\n    print(v + i)\n  end\nend\n", "2,3")
+  refused(TIED .. "local good, v = either(true)\nfor i = 1, 2 do\n  if good then\n    print(v + i)\n  end\n  v = w\nend\n", "operand_type")
+  refused(TIED .. "local good, v = either(true)\nwhile coin() do\n  if good then\n    print(v + 1)\n  end\n  good = other_good\nend\n", "operand_type")
+  -- A statement in a loop ties its locals again each time round.
+  stands("for i = 1, 2 do\n  local good, v = either(i == 1)\n  if good then\n    print(v + 1)\n  else\n    print(v .. \"!\")\n  end\nend\n", "2,lost!")
+end
+
+local function test_a_function_that_assigns_a_local_leaves_it_untied()
+  refused(TIED .. "local good, v = either(true)\nlocal function poke()\n  v = w\nend\npoke()\nif good then\n  print(v + 1)\nend\n", "operand_type")
+  refused(TIED .. "local good, v = either(true)\nlocal function poke()\n  good = other_good\nend\npoke()\nif good then\n  print(v + 1)\nend\n", "operand_type")
+  -- A function that only reads them sees them as they were when it was made, and a test inside it narrows.
+  stands("local good, v = either(true)\nlocal function use(): integer\n  if good then\n    return v + 1\n  end\n  return 0\nend\nprint(use())\n", "2")
+end
+
+local function test_a_name_in_a_test_that_is_no_first_local_narrows_nothing()
+  refused("local function lists(): (true, integer) | (false, string)\n  return true, 1\nend\nlocal good, v = lists()\nlocal again = good\nif again then\n  print(v + 1)\nend\n", "operand_type")
+end

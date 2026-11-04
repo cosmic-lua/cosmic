@@ -50,10 +50,10 @@ local function total(tz: string): boolean, string
   end
   Fuzz.label("read")
   for _, ns in ipairs(PROBES) do
-    local civil_ok, c = pcall(Time.civil, ns, zone) -- checked: overload_none
+    local civil_ok, c = pcall(Time.civil, ns, zone)
     if not civil_ok then return false, ("civil(%d) raised: %s"):format(ns, tostring(c)) end
     if c.dst then Fuzz.label("daylight saving time") end
-    local from_ok, back = pcall(Time.from_civil, c, zone) -- checked: overload_none
+    local from_ok, back = pcall(Time.from_civil, c, zone)
     if not from_ok then
       return false, ("from_civil of civil(%d) raised: %s"):format(ns, tostring(back))
     end

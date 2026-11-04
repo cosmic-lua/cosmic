@@ -398,7 +398,7 @@ local function test_direct_tree_does_not_request_a_device_flush(tmp: string)
   end
   local ok, result, trouble = pcall(Patch.tree, tmp .. "/source", "lib", tmp .. "/direct")
   raw.full_fsync = real
-  assert(ok and result, trouble or tostring(result)) -- checked: or_mix
+  assert(ok and result, trouble or tostring(result))
 end
 
 --- A raise while a tree is placed must leave no scratch directory and no descriptor: the scratch owner is held open

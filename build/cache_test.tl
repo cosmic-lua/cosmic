@@ -205,9 +205,9 @@ local function test_failed_retired_file_removal_withholds_save_digest(tmp: strin
   end
   local ok, result = pcall(function(): maintenance.Result return trim(path, "compiles", 5) end)
   Fs.remove = original -- checked: field_fixed
-  assert(ok and not result.complete and result.report.digest == nil) -- checked: any_use*2
-  assert(result.report.files[1].reason == "injected unlink failure") -- checked: any_use
-  assert(#result.report.files[1].removed_set_aside == 0) -- checked: any_use
+  assert(ok and not result.complete and result.report.digest == nil)
+  assert(support.nth(result.report.files, 1).reason == "injected unlink failure")
+  assert(#support.nth(result.report.files, 1).removed_set_aside == 0)
   assert(Fs.read(retired) == "retired" and count(path, "compiled_v2") == 1)
 end
 
@@ -223,8 +223,8 @@ local function test_retired_file_disappearance_before_inspection_is_harmless(tmp
   end
   local ok, result = pcall(function(): maintenance.Result return trim(path, "compiles", 5) end)
   Fs.list = original -- checked: field_fixed
-  assert(ok and result.complete and result.report.files[1].state == "missing") -- checked: any_use*2
-  assert(#result.report.files[1].removed_set_aside == 0) -- checked: any_use
+  assert(ok and result.complete and support.nth(result.report.files, 1).state == "missing")
+  assert(#support.nth(result.report.files, 1).removed_set_aside == 0)
   assert(Fs.stat(retired) == nil)
 end
 
@@ -242,9 +242,9 @@ local function test_failed_retired_file_inspection_withholds_save_digest(tmp: st
   end
   local ok, result = pcall(function(): maintenance.Result return trim(path, "compiles", 5) end)
   sys.lstat = original -- checked: field_fixed
-  assert(ok and not result.complete and result.report.digest == nil) -- checked: any_use*2
-  assert(result.report.files[1].reason == "injected lstat failure") -- checked: any_use
-  assert(#result.report.files[1].removed_set_aside == 0) -- checked: any_use
+  assert(ok and not result.complete and result.report.digest == nil)
+  assert(support.nth(result.report.files, 1).reason == "injected lstat failure")
+  assert(#support.nth(result.report.files, 1).removed_set_aside == 0)
   assert(Fs.read(retired) == "retired" and count(path, "compiled_v2") == 1)
 end
 
@@ -300,8 +300,8 @@ local function test_failed_delete_rolls_back_earlier_tables(tmp: string)
   local ok, result = pcall(function(): maintenance.Result return trim(path, "compiles", 5) end)
   Sqlite.run = original -- checked: field_fixed
   assert(ok)
-  assert(not result.complete and result.report.digest == nil) -- checked: any_use*2
-  assert(result.report.files[1].removed == 0 and result.report.files[1].kept == 2) -- checked: any_use*2
+  assert(not result.complete and result.report.digest == nil)
+  assert(support.nth(result.report.files, 1).removed == 0 and support.nth(result.report.files, 1).kept == 2)
   assert(count(path, "compiled_v2") == 1 and count(path, "parsed_v1") == 1)
 end
 
@@ -349,7 +349,7 @@ local function test_disappearance_before_open_does_not_recreate_database(tmp: st
   end
   local ok, result = pcall(function(): maintenance.Result return trim(path, "compiles", 5) end)
   Sqlite.open = original -- checked: field_fixed
-  assert(ok and not result.complete and result.report.digest == nil) -- checked: any_use*2
+  assert(ok and not result.complete and result.report.digest == nil)
   assert(Fs.stat(path) == nil)
 end
 
@@ -366,8 +366,8 @@ local function test_busy_checkpoint_row_suppresses_save_digest(tmp: string)
   end
   local ok, result = pcall(function(): maintenance.Result return trim(path, "verdicts") end)
   Sqlite.rows = original -- checked: field_fixed
-  assert(ok and not result.complete and result.report.digest == nil) -- checked: any_use*2
-  assert(result.report.files[1].reason:find("checkpoint", 1, true)) -- checked: any_use
+  assert(ok and not result.complete and result.report.digest == nil)
+  assert(support.nth(result.report.files, 1).reason:find("checkpoint", 1, true))
 end
 
 --- Captured from the pre-migration CI feed_rows/digest on the same fixture,
@@ -399,8 +399,8 @@ local function test_vacuum_failure_reports_already_committed_row_counts(tmp: str
   end
   local ok, result = pcall(function(): maintenance.Result return trim(path, "compiles", 5) end)
   Sqlite.run = original -- checked: field_fixed
-  assert(ok and not result.complete and result.report.digest == nil) -- checked: any_use*2
-  assert(result.report.files[1].kept == 1 and result.report.files[1].removed == 1) -- checked: any_use*2
+  assert(ok and not result.complete and result.report.digest == nil)
+  assert(support.nth(result.report.files, 1).kept == 1 and support.nth(result.report.files, 1).removed == 1)
   assert(count(path, "compiled_v2") == 1, "the delete committed before compaction failed")
 end
 
@@ -412,7 +412,7 @@ local function test_one_failed_verdict_file_suppresses_the_aggregate_save(tmp: s
   assert(Fs.write(broken, "unreadable active cache"))
   local result = maintenance.run({ family = "verdicts", paths = { healthy, broken }, whole = true })
   assert(not result.complete and result.report.digest == nil and result.report.fresh == nil)
-  assert(#result.report.files == 2 and result.report.files[1].state == "kept" and
-      result.report.files[1].kept == 1 and result.report.files[2].state == "failed")
+  assert(#result.report.files == 2 and support.nth(result.report.files, 1).state == "kept" and
+      support.nth(result.report.files, 1).kept == 1 and support.nth(result.report.files, 2).state == "failed")
   assert(count(healthy, "stores_v1") == 1 and Fs.read(broken) == "unreadable active cache")
 end

@@ -1853,7 +1853,7 @@ function test_key.ask_host(rec: Recording, modules: {Module},
       local asked, answers = pcall(host_requires.answer, probed, names)
       local found: {host_requires.Answer} = {}
       if asked then
-        found = answers -- checked: any_use
+        found = answers
       else
         -- A probe that cannot tell (a file it may not read) is no answer: the
         -- modules that name it fail, saying why, and the run goes on.

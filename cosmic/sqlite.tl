@@ -799,7 +799,7 @@ function Sqlite.map<T>(handle: Sqlite.Handle, sql: string, values: {Sqlite.Value
       statement:finalize()
       error("sqlite: map: project answered nil for a row; answer a value", 2)
     end
-    out[#out + 1] = made -- checked: any_use
+    out[#out + 1] = made
   end
 end
 
@@ -874,12 +874,12 @@ local function prepared_result(handle: Sqlite.Handle, sql: string,
     statement:finalize()
     error(bound, 0)
   end
-  if bound.code ~= Sqlite.OK then -- checked: any_use
+  if bound.code ~= Sqlite.OK then
     statement:finalize()
     -- TODO: once cosmic/internal/sqlite.d.tl declares `statement` of a PrepareResult optional
     -- (this file's doc of PrepareResult says "with `statement` only on success"), drop this marker.
     opened.statement = nil -- checked: field_fixed, nil_not_allowed
-    copy_outcome(bound, opened) -- checked: any_use
+    copy_outcome(bound, opened)
   end
   return opened
 end
@@ -975,12 +975,9 @@ function Sqlite.transact(handle: Sqlite.Handle,
     local _, _ = handle:exec("ROLLBACK")
     error(ok, 0)
   end
-  if not ok then -- checked: any_use
+  if not ok then
     local _, _ = handle:exec("ROLLBACK")
-    -- TODO: once Sqlite.transact can capture `work`'s declared results without a closure
-    -- (a closure becomes the caller an `error(msg, 2)` in `work` blames, so the text changes
-    -- under pcall), return `why` unmarked; pcall widens it to an optional.
-    return false, why -- checked: nil_not_allowed
+    return false, why
   end
   local committed, failure = handle:exec("COMMIT")
   if not committed then
