@@ -356,6 +356,7 @@ end
 local gmatch, lua_match = string.gmatch, string.match
 local lua_type, math_type = type, math.type
 local lua_char, lua_error = string.char, error
+local lua_ipairs, lua_remove = ipairs, table.remove
 -- These are overloaded in the library, so each is declared with the one signature the hook calls it by.
 local lua_byte: function(string, integer): integer? = string.byte -- checked: overload_value
 local lua_gsub: function(string, string, any): string, integer = string.gsub -- checked: overload_value
@@ -398,21 +399,29 @@ local tally = 0
 local function parse_check(text: string): Check
   local fields: mut {string} = {}
   for field in gmatch(text .. ";", "([^;]*);") do fields[#fields + 1] = field end
-  local check: Check = { kind = fields[1], at = fields[2], name = "", n = 0, labels = {}, -- checked: index_may_be_nil*2
+  -- A spec is `kind;place;...`, so a text with no place is no spec: the parse raises, and `hook` reports it unreadable.
+  local spec_kind, spec_at = fields[1], fields[2]
+  if spec_kind == nil or spec_at == nil then lua_error("a check of no place") end
+  local check: Check = { kind = spec_kind, at = spec_at, name = "", n = 0, labels = {},
     declared = {}, kinds = {}, integral = {}, memo = {} }
   if check.kind ~= "p" and check.kind ~= "r" and check.kind ~= "f" then
     error("a check of no kind")
   end
-  local first = 3
+  -- What is left of `fields` after the kind, the place and any name is one field for each position.
+  lua_remove(fields, 1)
+  lua_remove(fields, 1)
   if check.kind == "p" or check.kind == "f" then
-    check.name = fields[3] -- checked: index_may_be_nil
-    first = 4
+    local name = fields[1]
+    if name == nil then lua_error("a check of no name") end
+    check.name = name
+    lua_remove(fields, 1)
   end
-  for i = first, #fields do
-    local index = i - first + 1
-    local label, declared = fields[i], fields[i]
+  for index, field in lua_ipairs(fields) do
+    local label, declared = field, field
     if check.kind == "p" then
-      label, declared = lua_match(fields[i], "^([^=]*)=(.*)$") -- checked: index_may_be_nil
+      local parameter, kinds_text = lua_match(field, "^([^=]*)=(.*)$")
+      if parameter == nil or kinds_text == nil then lua_error("a parameter of no kinds") end
+      label, declared = parameter, kinds_text
     elseif check.kind == "r" then
       label = "return value " .. tostring(index)
     else
@@ -420,11 +429,11 @@ local function parse_check(text: string): Check
     end
     check.n = index
     check.memo[#check.memo + 1] = {}
-    check.labels[#check.labels + 1] = label -- checked: nil_not_allowed
+    check.labels[#check.labels + 1] = label
     if declared ~= "-" then
       local kinds: mut {string:boolean} = {}
       local integer, number = false, false
-      for kind in gmatch(declared, "[^|]+") do -- checked: nil_not_allowed
+      for kind in gmatch(declared, "[^|]+") do
         if kind == "integer" then
           integer = true
         else
@@ -437,7 +446,7 @@ local function parse_check(text: string): Check
         check.integral[index] = true
       end
       check.kinds[index] = kinds
-      check.declared[index] = declared -- checked: nil_not_allowed
+      check.declared[index] = declared
     end
   end
   checks[text] = check
@@ -472,7 +481,12 @@ end
 
 local function note(check: Check, index: integer, value: any, absent: boolean)
   local actual = lua_type(value)
-  if actual == "number" then actual = math_type(value) end -- checked: nil_not_allowed
+  if actual == "number" then
+    local subtype = math_type(value)
+    -- `assert` is no call to make here: the test's count of them is read after it ran, and this runs inside it.
+    if subtype == nil then lua_error("a number has an integer or float subtype", 0) end
+    actual = subtype
+  end
   if absent then actual = "absent" end
   local at = check.at
   if check.kind == "p" then
@@ -482,24 +496,33 @@ local function note(check: Check, index: integer, value: any, absent: boolean)
     -- frame and names its own caller).
     at = raw_errors.where(5) or "?"
   end
-  local sites = check.memo[index][actual] or {} -- checked: nil_not_allowed
-  check.memo[index][actual] = sites -- checked: nil_not_allowed
+  -- [`parse_check`] gives each position `hook` notes (1 to `check.n`) a memo, a label and, where it checks a kind, a declaration.
+  local by_kind = check.memo[index]
+  if by_kind == nil then lua_error("a violation is noted at a position of its check", 0) end
+  local sites = by_kind[actual] or {}
+  by_kind[actual] = sites
   local known = sites[at]
   if known ~= nil then
     again(known)
     latest.met = known
     return
   end
+  local label = check.labels[index]
+  if label == nil then lua_error("a position of a check has a label", 0) end
+  local declared = check.declared[index]
+  if declared == nil then
+    lua_error("a position that met a kind its check refuses declares kinds", 0)
+  end
   local target: string
   if check.kind == "p" then
-    target = "parameter " .. check.labels[index] .. " of " .. check.name .. " (" .. check.at .. ")" -- checked: nil_not_allowed
+    target = "parameter " .. label .. " of " .. check.name .. " (" .. check.at .. ")"
   elseif check.kind == "r" then
-    target = check.labels[index] -- checked: index_may_be_nil
+    target = label
   else
     target = "field " .. check.name
   end
   local met: worker.Violation = { kind = if check.kind == "p" then "parameter" elseif check.kind == "r" then "return" else "field" end,
-    at = at, target = target, declared = check.declared[index], actual = actual, count = 1 } -- checked: index_may_be_nil
+    at = at, target = target, declared = declared, actual = actual, count = 1 }
   keep(sites, at, met)
   latest.met = met
 end
@@ -545,7 +568,11 @@ local function verify(fact: Fact, value: any): any
   end
   if not broken then return value end
   local actual = kind
-  if actual == "number" then actual = math_type(value) end -- checked: nil_not_allowed
+  if actual == "number" then
+    local subtype = math_type(value)
+    if subtype == nil then lua_error("a number has an integer or float subtype", 0) end
+    actual = subtype
+  end
   lua_error("fact violated at " .. fact.at .. ": " .. fact.name .. " is " .. actual ..
       ", the checker proved " .. fact.declared, 0)
 end
@@ -575,7 +602,9 @@ local function hook(_: integer, text: string, ...: any): any...
     if malformed[text] ~= true then
       if lua_byte(text, 1) == 110 then
         if lua_pcall(parse_fact, text) then
-          return verify(facts[text], (...)) -- checked: index_may_be_nil
+          local parsed = facts[text]
+          if parsed == nil then lua_error("a fact spec that parsed is kept in facts", 0) end
+          return verify(parsed, (...))
         end
         malformed[text] = true
         note_unreadable("a fact spec", text)
@@ -813,7 +842,10 @@ local function encode_hits(lines: mut {string}, tag: string, hits: Coverage.Hits
   table.sort(paths)
   for _, path in ipairs(paths) do
     local numbers: mut {integer} = {}
-    for line in pairs(hits[path]) do numbers[#numbers + 1] = line end -- checked: index_may_be_nil
+    -- `path` is a key of `hits`, listed above.
+    local hit_lines = hits[path]
+    if hit_lines == nil then lua_error("a path listed from hits is in hits", 0) end
+    for line in pairs(hit_lines) do numbers[#numbers + 1] = line end
     table.sort(numbers)
     local text: mut {string} = {}
     for i, line in ipairs(numbers) do text[i] = tostring(line) end
@@ -916,6 +948,8 @@ function worker.decode(text: string): worker.Report?, string
       finished = true
     else
       local tag, rest = line:match("^(%S+) ?(.*)$")
+      -- A line that begins with a space has no tag, and is as unknown as one with a tag that is none of these.
+      if tag == nil or rest == nil then return nil, "an unknown line: " .. line end
       if tag == "loaded" then
         report.loaded = rest == "1"
       elseif tag == "passed" then
@@ -923,46 +957,48 @@ function worker.decode(text: string): worker.Report?, string
       elseif tag == "elapsed" then
         report.elapsed_ns = math.tointeger(tonumber(rest)) or 0
       elseif tag == "message" then
-        report.message = unhex(rest) or "" -- checked: nil_not_allowed
+        report.message = unhex(rest) or ""
       elseif tag == "load-hit" or tag == "test-hit" then
         local into = tag == "load-hit" and report.load_hits or report.test_hits -- checked: and_ternary
-        local known = decoded_hits[rest] -- checked: nil_not_allowed
+        local known = decoded_hits[rest]
         if known == nil then
-          local path, numbers = rest:match("^([0-9a-f]*) ([0-9,]*)$") -- checked: nil_not_allowed
+          local path, numbers = rest:match("^([0-9a-f]*) ([0-9,]*)$")
           local decoded = if path ~= nil then unhex(path) else nil end
-          if decoded == nil then return nil, "a malformed hit: " .. line end
+          if decoded == nil or numbers == nil then return nil, "a malformed hit: " .. line end
           local per_line: mut {integer:boolean} = {}
-          for number in numbers:gmatch("%d+") do -- checked: nil_not_allowed
+          for number in numbers:gmatch("%d+") do
             per_line[math.tointeger(tonumber(number)) or 0] = true
           end
           known = { path = decoded, lines = per_line }
-          decoded_hits[rest] = known -- checked: nil_not_allowed
+          decoded_hits[rest] = known
         end
         into[known.path] = known.lines
       elseif tag == "module" then
-        local decoded = unhex(rest) -- checked: nil_not_allowed
+        local decoded = unhex(rest)
         if decoded == nil or decoded == "" then return nil, "a malformed module: " .. line end
         report.modules[#report.modules + 1] = decoded
       elseif tag == "skipped" then
-        local decoded = unhex(rest) -- checked: nil_not_allowed
+        local decoded = unhex(rest)
         if decoded == nil or decoded == "" then return nil, "a malformed skip: " .. line end
         report.skipped = decoded
       elseif tag == "deliberate" then
-        local decoded = unhex(rest) -- checked: nil_not_allowed
+        local decoded = unhex(rest)
         if decoded == nil or decoded == "" then return nil, "a malformed deliberate: " .. line end
         report.deliberate = decoded
       elseif tag == "violation" then
-        local packed, count = rest:match("^([0-9a-f]+) (%d+)$") -- checked: nil_not_allowed
+        local packed, count = rest:match("^([0-9a-f]+) (%d+)$")
         local decoded = if packed ~= nil then unhex(packed) else nil end
         local kind, at, target, declared, actual: string?, string?, string?, string?, string?
         if decoded ~= nil then
           kind, at, target, declared, actual =
             decoded:match("^([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)$")
         end
-        if actual == nil then return nil, "a malformed violation: " .. line end
+        if kind == nil or at == nil or target == nil or declared == nil or actual == nil then
+          return nil, "a malformed violation: " .. line
+        end
         local met = report.violations or {}
         report.violations = met
-        local entry: worker.Violation = { kind = kind, at = at, target = target, declared = declared, -- checked: nil_not_allowed*4
+        local entry: worker.Violation = { kind = kind, at = at, target = target, declared = declared,
           actual = actual, count = math.tointeger(tonumber(count)) or 1 }
         met[#met + 1] = entry -- checked: view_written
       elseif tag == "checked" then
@@ -1044,6 +1080,9 @@ local function hold_requires(module_path: string, closure: {string:boolean},
   -- nothing of the name.
   local function gate(name: string): (function(arg1?: string, arg2?: any): (any), any)
     local why = refusal(name, module_path, closure, tree)
+    -- TODO: drop `nil_not_allowed` from this line once lang/stdlib.d.tl:314 declares the loader a `package.searchers`
+    -- entry returns as optional: it declares one always, so returning none, as a searcher that knows nothing of the name
+    -- does, is refused here (`any_use` stays).
     if why == nil then return nil, nil end -- checked: any_use, nil_not_allowed
     return function(_?: string, _?: any): any
       -- Level 3: the caller of `require`, past this loader and it.
@@ -1251,7 +1290,10 @@ function worker.judge(judging: worker.Judging): worker.Judgement
         tostring(judging.timeout_ns // SECOND_NS) .. " s; " ..
         (if judging.sandboxed then "its pid namespace" else "its process group" end) .. " was ended" }
   end
-  local report, decode_trouble = worker.decode(result.captured[worker.report_fd]) -- checked: index_may_be_nil
+  local captured = result.captured[worker.report_fd]
+  local report: worker.Report? = nil
+  local decode_trouble = "no report"
+  if captured ~= nil then report, decode_trouble = worker.decode(captured) end
   if report == nil then
     return { passed = false, skipped = "", message = "the test process " .. ending(result) ..
         " before it reported (" .. decode_trouble .. ")" }
@@ -1406,11 +1448,12 @@ function worker.run(argv: {string}): integer
       first = first + 2 + count
     end
   end
-  if argv[2] == "--worker-no-tool" or argv[2] == "--worker-held" then
-    local no_tool = argv[2] == "--worker-no-tool"
+  local holding = argv[2]
+  if holding ~= nil and (holding == "--worker-no-tool" or holding == "--worker-held") then
+    local no_tool = holding == "--worker-no-tool"
     local forbidden, forbid_trouble = confine.forbid_running(if no_tool then confine.itself() else {} end, runs)
     if not forbidden then
-      complain("test " .. argv[2] .. ": this program cannot be held by a Landlock " .. -- checked: nil_not_allowed
+      complain("test " .. holding .. ": this program cannot be held by a Landlock " ..
           "ruleset: " .. forbid_trouble)
       return 2
     end
@@ -1439,15 +1482,15 @@ function worker.run(argv: {string}): integer
       return 2
     end
   end
-  if argv[first] ~= "--store" or argv[first + 1] == nil then
+  local db_path = argv[first + 1]
+  if argv[first] ~= "--store" or db_path == nil then
     complain("test --worker: --store needs a path")
     return 2
   end
-  local db_path = argv[first + 1]
   first = first + 2
-  local attached, attach_trouble = store.attach(db_path) -- checked: nil_not_allowed
+  local attached, attach_trouble = store.attach(db_path)
   if not attached then
-    complain(db_path .. ": " .. attach_trouble) -- checked: nil_not_allowed
+    complain(db_path .. ": " .. attach_trouble)
     return 2
   end
   -- Without a closure, a call as it is.
@@ -1543,8 +1586,10 @@ function worker.run(argv: {string}): integer
   runner.loaded = true
   if load_session ~= nil then
     local hits, _ = Coverage.stop(load_session)
-    report.load_hits = hits -- checked: nil_not_allowed
-    child_into = hits
+    if hits ~= nil then
+      report.load_hits = hits
+      child_into = hits
+    end
   end
   local needs = loaded and test_inputs.canonical(test_inputs.as_declared(handed_over.handed)) or "" -- checked: and_ternary
   if loaded and needs ~= expected_needs then
@@ -1576,8 +1621,10 @@ function worker.run(argv: {string}): integer
       local finished = monotonic_ns()
       if test_session ~= nil then
         local hits, _ = Coverage.stop(test_session)
-        report.test_hits = hits -- checked: nil_not_allowed
-        child_into = hits or child_into
+        if hits ~= nil then
+          report.test_hits = hits
+          child_into = hits
+        end
       end
       -- A test that skipped ends by raising `ended_by_skip`: it passed as far
       -- as it ran, and `report.skipped` says it checked less than it exists to.
