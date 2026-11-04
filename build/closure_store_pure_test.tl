@@ -417,6 +417,18 @@ local function test_a_pure_store_keeps_the_tokens_of_the_walks_its_closure_decla
   assert(tokens == 'local record helper\nend\nfunction helper . name ( ) : string\nreturn "helper"\nend\nreturn helper', tokens)
   assert(support.nth(kept, 1):text(2) == Hash.hex_sha256(tokens), "the source hash is not that of the tokens kept")
   assert(CodeFingerprint.normal(tokens, "build.helper") == tokens, "what is kept is not its own normal form")
+  -- It carries the digest of each module it keeps ([`build.fingerprints`]), exactly that of the source the projection held,
+  -- which the projection's writer made of it and the pure store copied.
+  local whole = assert(Sqlite.open(tmp .. "/plain-whole.db"))
+  local carried = assert(Sqlite.text_rows(store, "SELECT path, fingerprint FROM fingerprints ORDER BY path"))
+  assert(#carried >= 3, "the pure store carries a digest of the modules it keeps")
+  for _, row in ipairs(carried) do
+    local held = assert(Sqlite.text_rows(whole,
+      "SELECT CAST(inflate(source) AS TEXT) FROM modules WHERE path = ?1", { { text = row:text(1) } }))
+    assert(row:text(2) == CodeFingerprint.of(support.nth(held, 1):text(1), row:text(1)),
+      "the digest the pure store carries of " .. row:text(1) .. " is not that of its source")
+  end
+  assert(whole:close())
   assert(store:close())
   local bytes = assert(Fs.read(tmp .. "/plain.db"))
   local outside, outside_store = walk_store(tmp .. "/b", tmp, "outside", { ["build/paths"] = "-- a comment" })

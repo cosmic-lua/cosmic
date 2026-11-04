@@ -33,6 +33,10 @@ local record Walks
   --- for a reader of any text, which gives a test the full store.
   markers: {string:string}
 
+  --- The modules some walk reaches over `edges` (the `imports` rows, by path), the walks taken as the identities take
+  --- them: what a tool's projection carries a fingerprint of ([`build.fingerprints`]) and a pure store keeps the tokens of.
+  walked: function(edges: {string:{string}}): {string:boolean}
+
   --- The modules whose text the receivers' identity holds, in the order it holds them.
   receivers_modules: {string}
 
@@ -113,8 +117,19 @@ local function reach(which: string, requires: function(string): {string}?, strin
   return names, ""
 end
 
+local function walked(edges: {string:{string}}): {string:boolean}
+  local out: mut {string:boolean} = {}
+  for _, word in ipairs(walks) do
+    local reached, _ = reach(word, function(name: string): {string}?, string
+      return edges[name] or {}, ""
+    end)
+    for _, name in ipairs(reached or {}) do out[name] = true end
+  end
+  return out
+end
+
 local CodeWalk: Walks = {
-  pipeline = pipeline, analyzer = analyzer, receivers = receivers, links = links, walks = walks, analyzer_roots = analyzer_roots,
+  pipeline = pipeline, analyzer = analyzer, receivers = receivers, links = links, walks = walks, walked = walked, analyzer_roots = analyzer_roots,
   receivers_modules = receivers_modules, markers = markers, type_only = type_only, reach = reach, roots_of = roots_of,
 }
 

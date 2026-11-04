@@ -22,7 +22,7 @@ local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
-local CodeFingerprint = require("build.code_fingerprint")
+local Fingerprints = require("build.fingerprints")
 local CodeWalk = require("build.code_walk")
 local sys = require("cosmic.sys")
 local identity = require("build.identity")
@@ -1881,14 +1881,15 @@ local function links_finder(db: Sqlite.Handle): string?, string
   end
   local parts: mut {string} = {}
   for _, name in ipairs(names) do
-    local source, _ = Store.source(name)
-    if source == nil then
+    local fingerprint, kept_trouble = Fingerprints.carried(name)
+    if kept_trouble ~= "" then return nil, kept_trouble end
+    if fingerprint == nil then
       -- A module held without its source is not one that is absent: it would hash as empty.
       local withheld, withheld_trouble = Store.withheld(name)
       if withheld_trouble ~= "" then return nil, withheld_trouble end
       if withheld ~= nil then return nil, withheld end
     end
-    parts[#parts + 1] = name .. "\n" .. (if source ~= nil then CodeFingerprint.of(source, name) else "" end)
+    parts[#parts + 1] = name .. "\n" .. (fingerprint or "")
   end
   local finder = Hash.hex_sha256(table.concat(parts, "\n\0\n"))
   local ok, trouble = Sqlite.run(db,

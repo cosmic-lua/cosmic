@@ -441,19 +441,6 @@ local function remember(whole: string, token: string, basis: closure_store.Basis
   local _, _ = Fs.remove(aside)
 end
 
---- The modules some walk of [`build.code_walk`] reaches over `edges` (the `imports` rows, by path), the walks taken as the
---- identities take them ([`source_kept`] takes one walk at a time).
-local function walked_modules(edges: {string:{string}}): {string:boolean}
-  local walked: mut {string:boolean} = {}
-  for _, word in ipairs(CodeWalk.walks) do
-    local reached, _ = CodeWalk.reach(word, function(name: string): {string}?, string
-      return edges[name] or {}, ""
-    end)
-    for _, name in ipairs(reached or {}) do walked[name] = true end
-  end
-  return walked
-end
-
 --- What a pure store keeps in place of the source of the walked module `name`: its tokens ([`build.code_fingerprint`]),
 --- which the identities of the walks hash the same of as of the source. A module with none is kept as one space, which
 --- lexes to none and is not the empty source [`Store.withheld`] reads as withheld. A source that does not lex is kept as it is,
@@ -583,19 +570,37 @@ local function read_basis(whole: string, pure?: boolean): closure_store.Basis?, 
       for path, list in pairs(lists) do basis.edges[path] = list end
       -- What a walk of the code that reads module text ([`build.code_walk`]) is hashed from: the tokens of each module
       -- some walk reaches, which is all a store keeps of it (`write`).
-      local walked = walked_modules(basis.edges)
+      local walked = CodeWalk.walked(basis.edges)
       local slots: mut {string} = {}
       local values: mut {Sqlite.Value} = {}
       for path in pairs(walked) do
         values[#values + 1] = text(path)
         slots[#slots + 1] = "?" .. tostring(#values)
       end
-      local hashed, hashed_trouble = Sqlite.text_rows(db,
-        "SELECT path, CAST(inflate(source) AS TEXT) FROM modules WHERE kind NOT IN ('test', 'example') " ..
-          "AND length(source) > 0 AND path IN (" .. table.concat(slots, ", ") .. ") ORDER BY path", values)
-      if hashed == nil then return nil, hashed_trouble end
-      for _, row in ipairs(hashed) do
-        basis.sources[row:text(1)] = Hash.hex_sha256(kept_text(row:text(2), row:text(1)))
+      -- The digest the projection carries of each ([`build.fingerprints`]), so that none is lexed here; a projection that
+      -- carries none of one is read as the digest of its source.
+      local kept_digests, kept_trouble = Sqlite.text_rows(db,
+        "SELECT path, fingerprint FROM fingerprints WHERE path IN (" .. table.concat(slots, ", ") .. ")", values)
+      if kept_digests == nil then return nil, kept_trouble end
+      for _, row in ipairs(kept_digests) do basis.sources[row:text(1)] = row:text(2) end
+      local missing: mut {string} = {}
+      for path in pairs(walked) do
+        if basis.sources[path] == nil then missing[#missing + 1] = path end
+      end
+      if #missing > 0 then
+        local made_slots: mut {string} = {}
+        local made_values: mut {Sqlite.Value} = {}
+        for _, path in ipairs(missing) do
+          made_values[#made_values + 1] = text(path)
+          made_slots[#made_slots + 1] = "?" .. tostring(#made_values)
+        end
+        local hashed, hashed_trouble = Sqlite.text_rows(db,
+          "SELECT path, CAST(inflate(source) AS TEXT) FROM modules WHERE kind NOT IN ('test', 'example') " ..
+            "AND length(source) > 0 AND path IN (" .. table.concat(made_slots, ", ") .. ") ORDER BY path", made_values)
+        if hashed == nil then return nil, hashed_trouble end
+        for _, row in ipairs(hashed) do
+          basis.sources[row:text(1)] = CodeFingerprint.of(row:text(2), row:text(1))
+        end
       end
     end
     for _, row in ipairs(pure_rows) do
@@ -949,6 +954,8 @@ local function closed_pure(): {string}
     "UPDATE main.modules SET source_hash = (SELECT w.source_hash FROM whole.modules w WHERE w.path = main.modules.path), " ..
       "source = (SELECT w.source FROM whole.modules w WHERE w.path = main.modules.path) " ..
       "WHERE path IN temp.sourced AND path IN temp.wanted",
+    -- The digests the identities of the code hash ([`build.fingerprints`]), of the modules whose source it keeps.
+    "INSERT INTO main.fingerprints SELECT * FROM whole.fingerprints WHERE path IN temp.sourced ORDER BY path",
     "INSERT INTO main.imports SELECT * FROM whole.imports " ..
       "WHERE (path IN temp.wanted OR path IN temp.sourced) AND (requires IN temp.wanted OR requires IN temp.sourced) " ..
       "ORDER BY path, requires",
@@ -1122,7 +1129,11 @@ function closure_store.write(whole: string, out: string, names: {string},
         if walked == nil then return false, walked_trouble end
         for _, row in ipairs(walked) do
           local tokens = kept_text(row:text(2), row:text(1))
-          local ok, failure = Sqlite.run(db,
+          -- Where the projection carries no digest of it, the digest of the source it had (the same of its tokens).
+          local ok, failure = Sqlite.run(db, "INSERT OR IGNORE INTO main.fingerprints (path, fingerprint) VALUES (?1, ?2)",
+            { text(row:text(1)), text(CodeFingerprint.of(row:text(2), row:text(1))) })
+          if not ok then return false, failure end
+          ok, failure = Sqlite.run(db,
             "UPDATE main.modules SET source = deflate(?1), source_hash = sha256(?1) WHERE path = ?2",
             { { blob = tokens }, text(row:text(1)) })
           if not ok then return false, failure end

@@ -17,6 +17,8 @@
 local AnalysisSchema = require("build.analysis_schema")
 local build_paths = require("build.paths")
 local CheckerDeclarations = require("build.checker_declarations")
+local CodeWalk = require("build.code_walk")
+local Fingerprints = require("build.fingerprints")
 local clock = require("build.clock")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
@@ -732,6 +734,39 @@ local function find_reused(db: Sqlite.Handle): boolean
   return true
 end
 
+--- Writes the `fingerprints` of the projection ([`build.fingerprints`]): the digest of the tokens of the source of each
+--- module and declaration some walk of the code that reads module text reaches ([`build.code_walk`]'s `walked`) that the
+--- projection holds, so that a process running the tool names that code without lexing it. The source is the working
+--- database's, which is the source the row of `modules` or `decls` holds deflated.
+local function put_fingerprints(db: Sqlite.Handle): boolean, string
+  local edges: mut {string:mut {string}} = {}
+  local imported, imported_trouble = Sqlite.text_rows(db, "SELECT path, requires FROM out.imports ORDER BY path, requires")
+  if imported == nil then return false, imported_trouble end
+  for _, row in ipairs(imported) do
+    local list: mut {string} = edges[row:text(1)] or {}
+    edges[row:text(1)] = list
+    table.insert(list, row:text(2))
+  end
+  local held, held_trouble = Sqlite.text_rows(db, "SELECT path FROM out.modules UNION SELECT path FROM out.decls")
+  if held == nil then return false, held_trouble end
+  local walked = CodeWalk.walked(edges)
+  local names: mut {string} = {}
+  for _, row in ipairs(held) do
+    if walked[row:text(1)] == true then names[#names + 1] = row:text(1) end
+  end
+  table.sort(names)
+  for _, name in ipairs(names) do
+    local fingerprint, trouble = Fingerprints.staged(db, name)
+    if fingerprint == nil then
+      return false, if trouble ~= "" then trouble else name .. ": the projection holds it and the inputs do not" end
+    end
+    local ok, why = Sqlite.run(db, "INSERT INTO out.fingerprints (path, fingerprint) VALUES (?1, ?2)",
+      { text(name), text(fingerprint) })
+    if not ok then return false, why end
+  end
+  return true, ""
+end
+
 --- Fills the attached `out` schema within the working transaction, signed
 --- `signature` by the writer whose identity is `by`, and naming the
 --- compiler whose identity keyed its modules (`result.tool`) as
@@ -779,6 +814,10 @@ local function project(handle: work.Handle,
     if not ok then
       return false, failure
     end
+  end
+  local fingered, finger_trouble = put_fingerprints(db)
+  if not fingered then
+    return false, finger_trouble
   end
   -- The declarations the new checker types a project against ([`build.checker_declarations`]), which only cosmic's own tree
   -- holds: a tool carries them, a project's projection does not.
@@ -1228,6 +1267,8 @@ local carry: {string} = {
     "WHERE path NOT IN dropped ORDER BY path, requires",
   dropped_modules .. "INSERT INTO main.bound SELECT * FROM whole.bound " ..
     "WHERE path NOT IN dropped ORDER BY path, name",
+  dropped_modules .. "INSERT INTO main.fingerprints SELECT * FROM whole.fingerprints " ..
+    "WHERE path NOT IN dropped ORDER BY path",
   "INSERT INTO main.decls SELECT * FROM whole.decls ORDER BY path",
   "INSERT INTO main.stubs SELECT * FROM whole.stubs ORDER BY path",
   "INSERT INTO main.places SELECT * FROM whole.places ORDER BY module, ordinal",

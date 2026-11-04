@@ -44,6 +44,10 @@ local record CodeFingerprint
   --- syntax error must still be taken, so that the compile refuses the module with the lexer's `file:line:col`. Such a digest
   --- names no build, since a refused compile is never kept, and moves with any byte of the source.
   of: function(source: string, name: string): string
+
+  --- The version of the form, which a stored digest is kept under ([`build.fingerprints`]): a digest made under another is
+  --- no digest of this form.
+  version: string
 end
 
 --- The prefix of the digest of a source that does not lex ([`CodeFingerprint.of`]), which no digest of tokens carries.
@@ -51,6 +55,8 @@ local unlexed <const> = "code-fingerprint-unlexed"
 
 --- The version of the form; a change to what `normal` writes moves every digest.
 local form <const> = "code-fingerprint-2"
+
+CodeFingerprint.version = form
 
 --- The normal forms made in this process, by source. A test's process writes the pure store of each closure that declares a
 --- walk, and the identities are taken more than once, so each source is read once.

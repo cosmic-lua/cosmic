@@ -1258,6 +1258,7 @@ local sealed_schema <const>: {string} = {
   "CREATE TABLE decl_imports (path TEXT NOT NULL, requires TEXT NOT NULL, " ..
     "PRIMARY KEY (path, requires)) WITHOUT ROWID",
   "CREATE TABLE decls (path TEXT PRIMARY KEY, source BLOB NOT NULL) WITHOUT ROWID",
+  "CREATE TABLE fingerprints (path TEXT PRIMARY KEY NOT NULL, fingerprint TEXT NOT NULL) WITHOUT ROWID",
   "CREATE TABLE stubs (path TEXT PRIMARY KEY, source BLOB NOT NULL) WITHOUT ROWID",
   "CREATE TABLE places (module TEXT NOT NULL, ordinal INTEGER NOT NULL, symbol TEXT NOT NULL, " ..
     "kind TEXT NOT NULL, line INTEGER NOT NULL, column INTEGER NOT NULL, length INTEGER NOT NULL, " ..
@@ -1303,6 +1304,9 @@ local sealed_fill <const>: {string} = {
   "INSERT OR IGNORE INTO main.modules SELECT path, file, kind, source_hash, X'', bytecode, '', " ..
     "source FROM program.modules WHERE path IN temp.extra ORDER BY path",
   "INSERT INTO main.decls SELECT path, source FROM closure.decls ORDER BY path",
+  -- The digests of the tokens of the modules and declarations it holds that some walk reaches ([`build.fingerprints`]).
+  "INSERT INTO main.fingerprints SELECT path, fingerprint FROM whole.fingerprints WHERE path IN " ..
+    "(SELECT path FROM main.modules UNION SELECT path FROM main.decls) ORDER BY path",
   "INSERT INTO main.stubs SELECT path, source FROM closure.stubs ORDER BY path",
   "INSERT OR IGNORE INTO main.stubs SELECT path, source FROM program.stubs " ..
     "WHERE path IN temp.extra AND path NOT IN (SELECT path FROM closure.modules) ORDER BY path",

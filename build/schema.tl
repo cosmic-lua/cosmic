@@ -51,6 +51,11 @@ local tables: {Definition} = {
                   tests TEXT NOT NULL,
                   source BLOB NOT NULL)]] },
 
+  -- The digest of the tokens of the source of each module and declaration some walk of the code that reads module text
+  -- reaches ([`build.code_walk`], [`build.fingerprints`]), by path, so that no process that names that code lexes it.
+  -- Empty in a project's projection, which holds none of it.
+  { name = "fingerprints", body = "(path TEXT PRIMARY KEY NOT NULL, fingerprint TEXT NOT NULL) WITHOUT ROWID" },
+
   { name = "imports", body = [[(path TEXT NOT NULL,
                   requires TEXT NOT NULL,
                   PRIMARY KEY (path, requires)) WITHOUT ROWID]] },

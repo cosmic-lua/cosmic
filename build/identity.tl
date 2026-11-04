@@ -1,7 +1,7 @@
 --- The tool's input policy, fingerprints and semantic identities.
 --- These read the staged rows; [`build.work`] owns how they are staged.
 
-local CodeFingerprint = require("build.code_fingerprint")
+local Fingerprints = require("build.fingerprints")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local String = require("cosmic.string")
@@ -466,20 +466,9 @@ end
 --- The hash of the tokens ([`build.code_fingerprint`]) of each of `names` the tree holds, by
 --- path, then `extra`, an SQL expression. A comment or the layout of a module moves nothing.
 local function hash_of(db: Sqlite.Handle, names: {string}, extra: string): string?, string
-  local slots: mut {string} = {}
-  local values: mut {Sqlite.Value} = {}
-  for index, name in ipairs(names) do
-    slots[#slots + 1] = "?" .. tostring(index)
-    values[#values + 1] = text(name)
-  end
-  local held, held_trouble = Sqlite.text_rows(db,
-    "SELECT path, source FROM inputs WHERE path IN (" .. table.concat(slots, ", ") .. ") ORDER BY path, source_hash", values)
-  if held == nil then
+  local lines, held_trouble = Fingerprints.staged_lines(db, names)
+  if lines == nil then
     return nil, held_trouble
-  end
-  local lines: mut {string} = {}
-  for _, one in ipairs(held) do
-    lines[#lines + 1] = one:text(1) .. " " .. CodeFingerprint.of(one:text(2), one:text(1))
   end
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT lower(hex(sha256(?1 || char(10) || " .. extra .. ")))", { text(table.concat(lines, "\n")) })

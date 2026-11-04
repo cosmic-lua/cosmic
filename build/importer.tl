@@ -25,6 +25,7 @@ local Sqlite = require("cosmic.sqlite")
 local GrammarMode = require("build.grammar_mode")
 local Store = require("cosmic.store")
 local CodeFingerprint = require("build.code_fingerprint")
+local Fingerprints = require("build.fingerprints")
 local CodeWalk = require("build.code_walk")
 local identities = require("build.identity")
 -- The pipeline is required where a build in the new grammar asks for it: `cosmic boot` compiles what the tool requires at load
@@ -60,6 +61,9 @@ local record importer
     basis: string
     requires: function(string): {string}?, string
     source: function(string): string?, string
+    --- The digest of a module's tokens ([`build.fingerprints`]), where the code keeps it: the tree's does, so the
+    --- sources are not lexed again by each process. Made of `source` where it is absent.
+    fingerprint?: function(string): string?, string
   end
 
   record Result
@@ -192,6 +196,19 @@ importer.prune_references =
 --- whole set, of which the source analyzer [`build.syntax_analyzer`] is one.
 local analyzer_roots: {string} = CodeWalk.analyzer_roots
 
+--- The digest of the tokens of the module `name` in `code` ([`build.fingerprints`]): the running binary's where it is none, nil
+--- for a module it holds no source of, and nil and why where the query failed.
+local function fingerprint_of(code: importer.Code?, name: string): string?, string
+  if code == nil then return Fingerprints.carried(name) end
+  if code.fingerprint ~= nil then
+    local found, _ = code.fingerprint(name)
+    return found, ""
+  end
+  local source, _ = code.source(name)
+  if source == nil then return nil, "" end
+  return CodeFingerprint.of(source, name), ""
+end
+
 --- The modules whose code decides what the analysis tables record: the
 --- derivation and every module that its extractors, generators and
 --- parser reach through `require`,
@@ -211,15 +228,17 @@ local function walk_analyzer(code?: importer.Code): Walk
   -- A name at a time ([`Store.requires`]), not a query of a handle on
   -- the binary's database, which would read every module's rows.
   local requires = if code ~= nil then code.requires else Store.requires end
-  local source_of = if code ~= nil then code.source else Store.source end
   local reached, reach_trouble = CodeWalk.reach(CodeWalk.analyzer, requires)
   if reached == nil then return { names = nil, trouble = reach_trouble, withheld = false } end
   local names: mut {string} = {}
   for _, name in ipairs(reached) do
     -- What the binary holds a module or a declaration of: what
     -- [`Store.source`] answers, of a name no hold holds.
-    local source, _ = source_of(name)
-    if source ~= nil then
+    local held, held_trouble = fingerprint_of(code, name)
+    if held == nil and held_trouble ~= "" then
+      return { names = nil, trouble = held_trouble, withheld = false }
+    end
+    if held ~= nil then
       names[#names + 1] = name
     elseif code == nil then
       -- A module the binary holds without its source (a pure test store)
@@ -297,7 +316,11 @@ function importer.tree_code(handle: work.Handle): importer.Code?, string
     end
     return rows[1]:text(1), ""
   end
-  return { basis = basis, requires = requires, source = source }, ""
+  -- Made once for a source, and kept in the working database ([`build.fingerprints`]).
+  local function fingerprint(name: string): string?, string
+    return Fingerprints.staged(db, name)
+  end
+  return { basis = basis, requires = requires, source = source, fingerprint = fingerprint }, ""
 end
 
 --- The identity of the analyzer `code` holds: the runtime basis it runs
@@ -325,13 +348,13 @@ local function analyzer_named(code?: importer.Code): string?, string
     if walk.withheld then return nil, walk.trouble end
     return "binary " .. (Store.meta("boot_hash") or ""), ""
   end
-  local source_of = if code ~= nil then code.source else Store.source end
   for _, name in ipairs(modules) do
-    local source, _ = source_of(name)
-    if source == nil then
+    local fingerprint, trouble = fingerprint_of(code, name)
+    if fingerprint == nil then
+      if trouble ~= "" then return nil, trouble end
       return "binary " .. (Store.meta("boot_hash") or ""), ""
     end
-    parts[#parts + 1] = name .. "\n" .. CodeFingerprint.of(source, name)
+    parts[#parts + 1] = name .. "\n" .. fingerprint
   end
   return Hash.hex_sha256(table.concat(parts, "\n\0\n")), ""
 end
@@ -463,21 +486,19 @@ local function receivers_identity(db: Sqlite.Handle): string?, string
   local booting = Store.meta("boot_hash") == nil
   local parts: mut {string} = {}
   for _, name in ipairs(CodeWalk.receivers_modules) do
-    local source: string? = nil
+    local fingerprint: string? = nil
     if booting then
-      local rows, trouble = Sqlite.text_rows(db, "SELECT source FROM inputs WHERE path = ?1", { text(name) })
-      if rows == nil then
+      local staged, trouble = Fingerprints.staged(db, name)
+      if staged == nil and trouble ~= "" then
         return nil, trouble
       end
-      local first = rows[1]
-      if first ~= nil then
-        source = first:text(1)
-      end
+      fingerprint = staged
     else
-      local carried, _ = Store.source(name)
-      source = carried
+      local carried, carried_trouble = Fingerprints.carried(name)
+      if carried_trouble ~= "" then return nil, carried_trouble end
+      fingerprint = carried
     end
-    if source == nil then
+    if fingerprint == nil then
       if not booting then
         -- Held without its source is no binary that lacks the module.
         local withheld, withheld_trouble = Store.withheld(name)
@@ -486,7 +507,7 @@ local function receivers_identity(db: Sqlite.Handle): string?, string
       end
       return "binary " .. (Store.meta("boot_hash") or ""), ""
     end
-    parts[#parts + 1] = CodeFingerprint.of(source, name)
+    parts[#parts + 1] = fingerprint
   end
   return Hash.hex_sha256(table.concat(parts, "\n\0\n")), ""
 end

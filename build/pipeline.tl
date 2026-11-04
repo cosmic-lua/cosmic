@@ -28,7 +28,7 @@
 local AnalysisSchema = require("build.analysis_schema")
 local Ceilings = require("build.ceilings")
 local CheckerDeclarations = require("build.checker_declarations")
-local CodeFingerprint = require("build.code_fingerprint")
+local Fingerprints = require("build.fingerprints")
 local CodeWalk = require("build.code_walk")
 local CompileGrammar = require("build.compile_grammar")
 local Ast = require("lang.ast")
@@ -394,7 +394,8 @@ end
 
 --- Where the identity of the code finds a module's source and what it requires.
 local record Reader
-  source: function(name: string): string?
+  --- The digest of a module's tokens ([`build.fingerprints`]), nil for a module the binary or the tree holds no source of.
+  fingerprint: function(name: string): string?
   requires: function(name: string): {string}
 end
 
@@ -409,9 +410,9 @@ local function identity(reader: Reader): string
   assert(names, trouble)
   local parts: mut {string} = {}
   for _, name in ipairs(names) do
-    local source = reader.source(name)
-    if source ~= nil then
-      parts[#parts + 1] = name .. "\n" .. CodeFingerprint.of(source, name)
+    local fingerprint = reader.fingerprint(name)
+    if fingerprint ~= nil then
+      parts[#parts + 1] = name .. "\n" .. fingerprint
     end
   end
   table.sort(parts)
@@ -420,15 +421,16 @@ end
 
 --- The code as the running binary carries it.
 local carried_code: Reader = {
-  source = function(name: string): string?
-    local source, _ = Store.source(name)
-    if source == nil then
+  fingerprint = function(name: string): string?
+    local fingerprint, kept_trouble = Fingerprints.carried(name)
+    if kept_trouble ~= "" then error(kept_trouble, 0) end
+    if fingerprint == nil then
       -- Held without its source is no module the identity may leave out.
       local withheld, trouble = Store.withheld(name)
       if trouble ~= "" then error(trouble, 0) end
       if withheld ~= nil then error(withheld, 0) end
     end
-    return source
+    return fingerprint
   end,
   requires = function(name: string): {string}
     local required, _ = Store.requires(name)
@@ -440,16 +442,9 @@ local carried_code: Reader = {
 --- not carry. A declaration is no code, and the binary answers no source for one.
 local function staged_code(db: Sqlite.Handle): Reader
   return {
-    source = function(name: string): string?
-      local rows, _ = Sqlite.text_rows(db, "SELECT source FROM inputs WHERE path = ?1 AND " .. AnalysisSchema.not_declaration("kind") .. " LIMIT 1", { { text = name } })
-      if rows == nil then
-        return nil
-      end
-      local row = rows[1]
-      if row == nil then
-        return nil
-      end
-      return row:text(1)
+    fingerprint = function(name: string): string?
+      local fingerprint, _ = Fingerprints.staged(db, name, true)
+      return fingerprint
     end,
     requires = function(name: string): {string}
       local rows, _ = Sqlite.text_rows(db,
