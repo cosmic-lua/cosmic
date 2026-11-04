@@ -199,7 +199,10 @@ local parent_place <const> = "/tree-up"
 function test_sandbox.environment(environment: {string:string},
                                   effective: test_inputs.Effective): mut {string:string}
   local out: mut {string:string} = {}
-  for name in pairs(effective.env) do out[name] = environment[name] end -- checked: index_may_be_nil
+  for name in pairs(effective.env) do
+    local value = environment[name]
+    if value ~= nil then out[name] = value end
+  end
   out["COSMIC_TEST_NOEXEC"], out["COSMIC_TEST_PARENT"] = nil, nil
   if effective.noexec_ready == true then out["COSMIC_TEST_NOEXEC"] = "/noexec" end
   if #(effective.parent or {}) > 0 then out["COSMIC_TEST_PARENT"] = parent_place end
@@ -474,7 +477,10 @@ function test_sandbox.plan(root: string, scratch: string, effective: test_inputs
     -- The artifact is run only where the module declares `tool`: a worker that
     -- nests is given it to read alone, where it is given it at all (below).
     if executable ~= nil and effective.tool then runs[executable] = true end
-    if launched ~= nil then runs[launched.argv[1]] = true end -- checked: index_may_be_nil
+    if launched ~= nil then
+      local relaunched = assert(launched.argv[1], "Proc.relaunch's argv leads with the program it starts")
+      runs[relaunched] = true
+    end
   end
   for _, path in ipairs(base.reads) do
     if path == "/proc" then

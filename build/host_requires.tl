@@ -625,14 +625,17 @@ function host_requires.answer(host: host_requires.Host, names: {string},
         cached = { name = name, class = "host", kind = "refused", key = "", why = why }
       else
         local entry = (entries or table_of)[spec.base]
-        local has = entry.platform_has -- checked: nil_not_allowed
+        if entry == nil then
+          error("host_requires: " .. spec.base .. " is a requirement host_names accepts but has no entry", 0)
+        end
+        local has = entry.platform_has
         if spec.class == "platform" and has == nil then
           error("host_requires: " .. spec.base .. " is a platform requirement with no platform_has", 0)
         end
         if has ~= nil and spec.class == "platform" and not has(host) then
           cached = { name = name, class = spec.class, kind = "na", key = "", why = spec.base .. ": this platform has none" }
         else
-          local found = entry.probe(spec.argument, host) -- checked: nil_not_allowed
+          local found = entry.probe(spec.argument, host)
           if found.present then
             cached = { name = name, class = spec.class, kind = "present", key = found.text, why = "" }
           else

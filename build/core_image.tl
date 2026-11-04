@@ -68,8 +68,14 @@ local function field(bytes: string, at: integer, width: integer): integer
   return (string.unpack("<i8", bytes, at))
 end
 
+--- A segment's place in the file: where it starts and how many bytes it holds.
+local record Segment
+  offset: integer
+  size: integer
+end
+
 --- Where, in `bytes`, each segment of the 64-bit little-endian ELF
---- executable it is lies, as {offset, size} pairs, with its program
+--- executable it is lies, as Segment records, with its program
 --- headers' offset and count -- where it is one whose image is all a
 --- run can turn on: an executable or a shared object (e_type EXEC or
 --- DYN) with a segment to load, carrying DWARF (a `.debug_*` section,
@@ -80,7 +86,7 @@ end
 local record Layout
   phoff: integer
   phnum: integer
-  segments: {{integer}}
+  segments: {Segment}
 end
 
 local function layout(bytes: string): Layout?
@@ -98,14 +104,14 @@ local function layout(bytes: string): Layout?
   end
   local reach = math.max(phoff + phnum * program_header_length,
     shoff + shnum * section_header_length)
-  local segments: mut {{integer}} = {}
+  local segments: mut {Segment} = {}
   local loads = false
   for index = 0, phnum - 1 do
     local at = phoff + index * program_header_length
     local offset, size = field(bytes, at + 9, 8), field(bytes, at + 33, 8)
     if offset < 0 or size < 0 or offset > #bytes - size then return nil end
     if field(bytes, at + 1, 4) == 1 then loads = true end
-    segments[#segments + 1] = { offset, size }
+    segments[#segments + 1] = { offset = offset, size = size }
     reach = math.max(reach, offset + size)
   end
   if not loads then return nil end
@@ -158,13 +164,13 @@ function core_image.digest(bytes: string): string?
   hasher:update(header)
   hasher:update(bytes:sub(found.phoff + 1, found.phoff + found.phnum * program_header_length))
   for _, segment in ipairs(found.segments) do
-    local offset, size = segment[1], segment[2]
-    hasher:update(string.pack(">I8", size)) -- checked: nil_not_allowed
-    if offset < header_length then -- checked: nil_not_allowed
-      hasher:update(header:sub(offset + 1, math.min(header_length, offset + size))) -- checked: nil_not_allowed*3
-      hasher:update(bytes:sub(header_length + 1, offset + size)) -- checked: nil_not_allowed*2
+    local offset, size = segment.offset, segment.size
+    hasher:update(string.pack(">I8", size))
+    if offset < header_length then
+      hasher:update(header:sub(offset + 1, math.min(header_length, offset + size)))
+      hasher:update(bytes:sub(header_length + 1, offset + size))
     else
-      hasher:update(bytes:sub(offset + 1, offset + size)) -- checked: nil_not_allowed*3
+      hasher:update(bytes:sub(offset + 1, offset + size))
     end
   end
   local digest, _ = hasher:digest()
