@@ -222,14 +222,15 @@ local function closure(m: Module, by_path: {string:Module},
       local erased = type_only ~= nil and type_only[here.path] or {} -- checked: and_ternary, literal_needs_type
       for _, name in ipairs(here.requires) do
         local other = by_path[name]
+        local declared = declarations[name]
         if name == "build.fuzz" then fuzzes = true end
         if erased[name] then
           -- Loads nothing, so no part of the closure.
         elseif other ~= nil and seen[name] ~= true then
           stack[#stack + 1] = other
-        elseif other == nil and declarations[name] ~= nil and seen[name] ~= true then
+        elseif other == nil and declared ~= nil and seen[name] ~= true then
           seen[name] = true
-          files[#files + 1] = declarations[name] -- checked: index_may_be_nil
+          files[#files + 1] = declared
           names[#names + 1] = name
         end
       end

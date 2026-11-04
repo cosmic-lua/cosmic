@@ -527,6 +527,12 @@ local record Located
   identity: string
 end
 
+--- The bytes a core's or stub's entry stores, and the digest it says they hash to.
+local record Range
+  stored: string
+  digest: string
+end
+
 --- What of `head`, an artifact's bytes ahead of its database (`split`),
 --- a verdict's key holds. It is `head` itself, unless a core its
 --- manifest names carries debug information (build.core_image), which is
@@ -564,7 +570,7 @@ function artifact.keyed_head(head: string): string
   local imaged = false
   local entries: mut {string} = {}
   local gaps: mut {string} = {}
-  local ranges: mut {{string}} = {}
+  local ranges: mut {Range} = {}
   local cores: mut {Located} = {}
   local stubs: mut {string:Located} = {}
   for _ = 1, count do
@@ -596,7 +602,7 @@ function artifact.keyed_head(head: string): string
       gaps[#gaps + 1] = head:sub(was_end + 1, offset)
     end
     local stored = head:sub(offset + 1, offset + stored_length)
-    ranges[#ranges + 1] = { stored, stored_digest }
+    ranges[#ranges + 1] = { stored = stored, digest = stored_digest }
     local keyed: string
     if kind == kind_stub then
       keyed = "s" .. digest
@@ -624,7 +630,7 @@ function artifact.keyed_head(head: string): string
   end
   if not imaged then return head end
   for _, range in ipairs(ranges) do
-    if sha256(range[1]) ~= range[2] then return head end -- checked: index_may_be_nil
+    if sha256(range.stored) ~= range.digest then return head end
   end
   gaps[#gaps + 1] = head:sub(was_end + 1, manifest_offset)
   for _, gap in ipairs(gaps) do

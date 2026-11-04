@@ -42,7 +42,8 @@ function this_program.environment(): mut {string:string}
     if name == "TMPDIR" and own ~= nil then
       out[name] = own
     else
-      out[name] = sys.getenv(name) -- checked: nil_not_allowed
+      local value = sys.getenv(name)
+      if value ~= nil then out[name] = value end
     end
   end
   return out
@@ -106,8 +107,9 @@ function this_program.program(args: {string}, opts?: Child.Options): this_progra
   for _, word in ipairs(args) do argv[#argv + 1] = word end
   local env: mut {string:string}?
   if given.policy == nil then
-    env = {}
-    for name, value in pairs(given.env or Env.all()) do env[name] = value end -- checked: nil_not_allowed
+    local fresh: mut {string:string} = {}
+    for name, value in pairs(given.env or Env.all()) do fresh[name] = value end
+    env = fresh
   end
   local fds: mut {integer:integer | string} = {}
   for number, fd in pairs(given.fds or {}) do fds[number] = fd end

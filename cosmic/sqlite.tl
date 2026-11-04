@@ -876,6 +876,8 @@ local function prepared_result(handle: Sqlite.Handle, sql: string,
   end
   if bound.code ~= Sqlite.OK then
     statement:finalize()
+    -- TODO: once cosmic/internal/sqlite.d.tl declares `statement` of a PrepareResult optional
+    -- (this file's doc of PrepareResult says "with `statement` only on success"), drop this marker.
     opened.statement = nil -- checked: field_fixed, nil_not_allowed
     copy_outcome(bound, opened)
   end
