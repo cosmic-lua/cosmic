@@ -178,6 +178,10 @@ function Generics.new(store: Store, fn: Fn, hooks: Generics.Hooks): Generics.Sol
   }
 end
 
+-- TODO: once Generics.Solver keeps each bound with the position it came from, in a record, or Generics.Conflict takes
+-- optional positions: the calls of `conflict` in `bind` and [`Generics.value`] read `lower_at`, `upper_at` and `exact_at` by
+-- index, and a lower bound that [`Generics.expect`] sets from a hint has no position, so no test or assert can name an
+-- invariant there; their markers stay.
 local function conflict(s: Generics.Solver, index: integer, first: Type, second: Type, first_at: integer, second_at: integer,
                         exact: boolean)
   for _, c in ipairs(s.conflicts) do
