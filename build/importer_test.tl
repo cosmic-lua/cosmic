@@ -1001,12 +1001,12 @@ local function test_compiler_identity_follows_the_compiler_not_the_stdlib()
   end
   local original = identities()
   assert(identities()[1] == original[1], "a second open of the same tree moved the identity")
-  assert(Fs.write(root .. "/cosmic/fs.tl", "local record Fs\nend\nreturn Fs\n-- edited\n"))
+  assert(Fs.write(root .. "/cosmic/fs.tl", "local record Fs\nend\nreturn Fs, 1\n"))
   local after_stdlib = identities()
   assert(after_stdlib[1] == original[1], "a stdlib edit moved the compiler identity")
   assert(after_stdlib[2] == original[2], "a stdlib edit moved the runtime basis")
   assert(Fs.write(root .. "/cosmic/removed.tl",
-    "local record Removed\nend\nreturn Removed\n-- edited\n"))
+    "local record Removed\nend\nreturn Removed, 1\n"))
   local after_removed = identities()
   assert(after_removed[1] == original[1], "an edit to cosmic.removed moved the compiler identity")
   assert(after_removed[2] == original[2], "an edit to cosmic.removed moved the runtime basis")
@@ -1276,7 +1276,7 @@ local function test_compiler_identity_is_the_same_on_a_fresh_database()
   local warm = compiler_identity()
   assert(warm == fresh, "a second open of the same tree moved the compiler identity")
   assert(Fs.write(root .. "/build/other.tl",
-    "local record other\nend\nreturn other\n-- edited\n"))
+    "local record other\nend\nreturn other, 1\n"))
   assert(compiler_identity() == fresh,
     "an edit to a module only build.importer requires moved the compiler identity")
   assert(Fs.write(root .. "/build/helper.tl",
@@ -1330,14 +1330,14 @@ local function test_writer_identity_follows_the_writer_closure()
   local fresh = writer_identity()
   assert(writer_identity() == fresh, "a second open of the same tree moved the writer identity")
   assert(Fs.write(root .. "/build/work.tl",
-    "local record work\nend\nreturn work\n-- edited\n"))
+    "local record work\nend\nreturn work, 1\n"))
   assert(writer_identity() == fresh, "an edit to staging moved the writer identity")
   assert(Fs.write(root .. "/build/importer.tl",
     "local helper = require(\"build.helper\")\nlocal record importer\nend\n" ..
-      "importer.helper = helper\nreturn importer\n-- edited\n"))
+      "importer.helper = helper\nreturn importer, 1\n"))
   assert(writer_identity() == fresh, "an edit to build.importer moved the writer identity")
   assert(Fs.write(root .. "/build/helper.tl",
-    "local record helper\nend\nreturn helper\n-- edited\n"))
+    "local record helper\nend\nreturn helper, 1\n"))
   assert(writer_identity() == fresh,
     "an edit to a module only build.importer requires moved the writer identity")
   assert(Fs.write(root .. "/build/schema.tl",
@@ -1360,7 +1360,7 @@ local function test_writer_identity_follows_the_writer_closure()
       "schema.work = work\nreturn schema\n"))
   local through_schema = writer_identity()
   assert(Fs.write(root .. "/build/work.tl",
-    "local record work\nend\nreturn work, 1\n"))
+    "local record work\nend\nreturn work, 2\n"))
   assert(writer_identity() ~= through_schema,
     "the writer's root exclusion also excluded a dependency reached through its schema")
 

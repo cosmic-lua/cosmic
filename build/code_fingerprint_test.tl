@@ -119,3 +119,12 @@ local function test_the_digest_is_a_hex_sha256_of_the_versioned_form()
   assert(#digest == 64 and digest:find("^%x+$") ~= nil, digest)
   assert(of("return 1", "m") == digest and of("return 2", "m") ~= digest)
 end
+
+--- `tokens` gives nil and the lexer's error for a source that does not lex, and the form of one that does. That it raises
+--- any other error is not tested: the checker takes a source only as a string, and a stub of the lexer is refused.
+local function test_tokens_names_a_lex_failure_and_the_form_otherwise()
+  local made, why = CodeFingerprint.tokens("local x = 1;", "build.thing")
+  assert(made == nil and why ~= "", "a source with a ';' gave a form")
+  local good, _ = CodeFingerprint.tokens("local x = 1 -- c\n", "build.thing")
+  assert(good == normal("local x = 1", "build.thing"))
+end

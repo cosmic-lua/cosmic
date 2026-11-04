@@ -35,6 +35,10 @@ local record CodeFingerprint
   --- code is no module to name, and a digest of what is left of it would name two sources alike.
   normal: function(source: string, name: string): string
 
+  --- [`CodeFingerprint.normal`] of `source`, or nil and the lexer's first error where `source` does not lex. It falls back on
+  --- nothing else: any other error is a bug and raises, so it stays visible.
+  tokens: function(source: string, name: string): string?, string
+
   --- The hex SHA-256 of [`CodeFingerprint.normal`] of `source`, under the version of this form. Where `source` does not lex it
   --- is the hex SHA-256 of the source itself under another prefix, and does not raise: an identity over a module with a
   --- syntax error must still be taken, so that the compile refuses the module with the lexer's `file:line:col`. Such a digest
@@ -60,14 +64,12 @@ local remembered: Remembered = { forms = {}, count = 0 }
 --- The most sources `remembered` holds before it starts over.
 local LIMIT <const> = 1024
 
-function CodeFingerprint.normal(source: string, name: string): string
+function CodeFingerprint.tokens(source: string, name: string): string?, string
   local held = remembered.forms[source]
-  if held ~= nil then return held end
+  if held ~= nil then return held, "" end
   local lexed = Lexer.lex(source, name)
   local first = lexed.errors[1]
-  if first ~= nil then
-    error("code-fingerprint: " .. name .. " does not lex: " .. first.msg, 0)
-  end
+  if first ~= nil then return nil, first.msg end
   local texts: mut {string} = {}
   local ended = 0
   for i = 1, Lexer.count(lexed.tokens) do
@@ -87,16 +89,20 @@ function CodeFingerprint.normal(source: string, name: string): string
   end
   remembered.forms[source] = made
   remembered.count = remembered.count + 1
+  return made, ""
+end
+
+function CodeFingerprint.normal(source: string, name: string): string
+  local made, why = CodeFingerprint.tokens(source, name)
+  if made == nil then
+    error("code-fingerprint: " .. name .. " does not lex: " .. why, 0)
+  end
   return made
 end
 
 function CodeFingerprint.of(source: string, name: string): string
-  local box: mut {string} = {}
-  local ok, _ = pcall(function()
-    box[1] = CodeFingerprint.normal(source, name)
-  end)
-  local made = box[1]
-  if not ok or made == nil then
+  local made, _ = CodeFingerprint.tokens(source, name)
+  if made == nil then
     -- A source that does not lex has no tokens to name. It is the source that names it, so the compile goes on and refuses
     -- the module with the position of the error, which a raise here would hide; a refused compile is never kept.
     return Hash.hex_sha256(unlexed .. "\n" .. source)

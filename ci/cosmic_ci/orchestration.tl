@@ -490,11 +490,15 @@ local self_rebuild_per_test_timeout_s <const> = "300"
 -- compiler's identity and then the product's. On a four-core x86-64
 -- host, with an every-core product and the tree of October 31 (1107
 -- modules), they took 158 to 168 s beside the file's other tests, their
--- settles 58 to 61 s. The other four share one file of compiles made
+-- settles 58 to 61 s. The other six share one file of compiles made
 -- afresh each run (COSMIC_FIXTURE_SHARED_COMPILES): the first compiles
--- the tree cold in 97 s, and the rest, started after it, only what their
--- edits move, in 32 to 36 s. So the file ends about when the last
--- compiler case does: 206 s on four workers. The x86-64 legs take 1.23
+-- the tree cold in 97 s, and the other five, started after it, only what
+-- their edits move, in 32 to 36 s (the two comment cases settle nothing
+-- and take the least). On four workers the first's worker runs two of
+-- them and each worker the compiler cases leave runs one, so the file
+-- ends about a sharing case after the last compiler case does: 206 s.
+-- The two comment cases added no time to the file, only to the work, and
+-- the 440 s group bound stands: 1.6 times the 275 s of the slowest leg. The x86-64 legs take 1.23
 -- (linux-x86_64) to 1.28 (alpine-x86_64) times that host's time on a
 -- cold rebuild (134 s on October 31 and 139 s on October 30, against
 -- 109 s) and 1.30 to 1.35 times on a settle (84 to 87 s against 63 to 66

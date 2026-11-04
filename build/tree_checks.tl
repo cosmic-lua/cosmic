@@ -104,6 +104,7 @@ allowed["build.dataset.read"] = "the reader load_text composes and falls back on
   "over each format's text, and with load the reference load_text's fuzz property is held to"
 
 allowed["cosmic.hash.file"] = "the raw-digest form of hex_file, which is its only caller outside tests"
+allowed["build.code_fingerprint.normal"] = "the form of a source that raises where it does not lex, which the tests of the fingerprint and the pure stores hold to; `tokens` is what the identities use"
 
 allowed["build.searchable.share"] = "opens one file or directory to every user for the tests of a policy's child; build/child_policy_fixture.tl imports the module for `open`, so the tests' own uses no longer earn `share`"
 

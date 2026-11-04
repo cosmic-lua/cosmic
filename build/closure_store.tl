@@ -459,12 +459,8 @@ end
 --- lexes to none and is not the empty source [`Store.withheld`] reads as withheld. A source that does not lex is kept as it is,
 --- which [`CodeFingerprint.of`] digests as it digests the source.
 local function kept_text(source: string, name: string): string
-  local box: mut {string} = {}
-  local ok, _ = pcall(function()
-    box[1] = CodeFingerprint.normal(source, name)
-  end)
-  local tokens = box[1]
-  if not ok or tokens == nil then return source end
+  local tokens, _ = CodeFingerprint.tokens(source, name)
+  if tokens == nil then return source end
   if tokens == "" then return " " end
   return tokens
 end
