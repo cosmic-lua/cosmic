@@ -356,6 +356,7 @@ end
 local gmatch, lua_match = string.gmatch, string.match
 local lua_type, math_type = type, math.type
 local lua_char, lua_error = string.char, error
+local lua_ipairs, lua_remove = ipairs, table.remove
 -- These are overloaded in the library, so each is declared with the one signature the hook calls it by.
 local lua_byte: function(string, integer): integer? = string.byte -- checked: overload_value
 local lua_gsub: function(string, string, any): string, integer = string.gsub -- checked: overload_value
@@ -400,26 +401,26 @@ local function parse_check(text: string): Check
   for field in gmatch(text .. ";", "([^;]*);") do fields[#fields + 1] = field end
   -- A spec is `kind;place;...`, so a text with no place is no spec: the parse raises, and `hook` reports it unreadable.
   local spec_kind, spec_at = fields[1], fields[2]
-  if spec_kind == nil or spec_at == nil then error("a check of no place") end
+  if spec_kind == nil or spec_at == nil then lua_error("a check of no place") end
   local check: Check = { kind = spec_kind, at = spec_at, name = "", n = 0, labels = {},
     declared = {}, kinds = {}, integral = {}, memo = {} }
   if check.kind ~= "p" and check.kind ~= "r" and check.kind ~= "f" then
     error("a check of no kind")
   end
   -- What is left of `fields` after the kind, the place and any name is one field for each position.
-  table.remove(fields, 1)
-  table.remove(fields, 1)
+  lua_remove(fields, 1)
+  lua_remove(fields, 1)
   if check.kind == "p" or check.kind == "f" then
     local name = fields[1]
-    if name == nil then error("a check of no name") end
+    if name == nil then lua_error("a check of no name") end
     check.name = name
-    table.remove(fields, 1)
+    lua_remove(fields, 1)
   end
-  for index, field in ipairs(fields) do
+  for index, field in lua_ipairs(fields) do
     local label, declared = field, field
     if check.kind == "p" then
       local parameter, kinds_text = lua_match(field, "^([^=]*)=(.*)$")
-      if parameter == nil or kinds_text == nil then error("a parameter of no kinds") end
+      if parameter == nil or kinds_text == nil then lua_error("a parameter of no kinds") end
       label, declared = parameter, kinds_text
     elseif check.kind == "r" then
       label = "return value " .. tostring(index)
@@ -481,7 +482,10 @@ end
 local function note(check: Check, index: integer, value: any, absent: boolean)
   local actual = lua_type(value)
   if actual == "number" then
-    actual = assert(math_type(value), "a number has an integer or float subtype")
+    local subtype = math_type(value)
+    -- `assert` is no call to make here: the test's count of them is read after it ran, and this runs inside it.
+    if subtype == nil then lua_error("a number has an integer or float subtype", 0) end
+    actual = subtype
   end
   if absent then actual = "absent" end
   local at = check.at
@@ -493,7 +497,8 @@ local function note(check: Check, index: integer, value: any, absent: boolean)
     at = raw_errors.where(5) or "?"
   end
   -- [`parse_check`] gives each position `hook` notes (1 to `check.n`) a memo, a label and, where it checks a kind, a declaration.
-  local by_kind = assert(check.memo[index], "a violation is noted at a position of its check")
+  local by_kind = check.memo[index]
+  if by_kind == nil then lua_error("a violation is noted at a position of its check", 0) end
   local sites = by_kind[actual] or {}
   by_kind[actual] = sites
   local known = sites[at]
@@ -502,8 +507,12 @@ local function note(check: Check, index: integer, value: any, absent: boolean)
     latest.met = known
     return
   end
-  local label = assert(check.labels[index], "a position of a check has a label")
-  local declared = assert(check.declared[index], "a position that met a kind its check refuses declares kinds")
+  local label = check.labels[index]
+  if label == nil then lua_error("a position of a check has a label", 0) end
+  local declared = check.declared[index]
+  if declared == nil then
+    lua_error("a position that met a kind its check refuses declares kinds", 0)
+  end
   local target: string
   if check.kind == "p" then
     target = "parameter " .. label .. " of " .. check.name .. " (" .. check.at .. ")"
@@ -560,7 +569,9 @@ local function verify(fact: Fact, value: any): any
   if not broken then return value end
   local actual = kind
   if actual == "number" then
-    actual = assert(math_type(value), "a number has an integer or float subtype")
+    local subtype = math_type(value)
+    if subtype == nil then lua_error("a number has an integer or float subtype", 0) end
+    actual = subtype
   end
   lua_error("fact violated at " .. fact.at .. ": " .. fact.name .. " is " .. actual ..
       ", the checker proved " .. fact.declared, 0)
@@ -591,7 +602,9 @@ local function hook(_: integer, text: string, ...: any): any...
     if malformed[text] ~= true then
       if lua_byte(text, 1) == 110 then
         if lua_pcall(parse_fact, text) then
-          return verify(assert(facts[text], "a fact spec that parsed is kept in facts"), (...))
+          local parsed = facts[text]
+          if parsed == nil then lua_error("a fact spec that parsed is kept in facts", 0) end
+          return verify(parsed, (...))
         end
         malformed[text] = true
         note_unreadable("a fact spec", text)
@@ -830,7 +843,8 @@ local function encode_hits(lines: mut {string}, tag: string, hits: Coverage.Hits
   for _, path in ipairs(paths) do
     local numbers: mut {integer} = {}
     -- `path` is a key of `hits`, listed above.
-    local hit_lines = assert(hits[path], "a path listed from hits is in hits")
+    local hit_lines = hits[path]
+    if hit_lines == nil then lua_error("a path listed from hits is in hits", 0) end
     for line in pairs(hit_lines) do numbers[#numbers + 1] = line end
     table.sort(numbers)
     local text: mut {string} = {}
@@ -1066,8 +1080,9 @@ local function hold_requires(module_path: string, closure: {string:boolean},
   -- nothing of the name.
   local function gate(name: string): (function(arg1?: string, arg2?: any): (any), any)
     local why = refusal(name, module_path, closure, tree)
-    -- TODO: return no loader as a searcher that knows nothing of the name does, without the marker, once lang/stdlib.d.tl
-    -- declares the loader of `package.searchers` optional: it declares one always, so `nil` is refused here and in `guarded`.
+    -- TODO: drop `nil_not_allowed` from this line once lang/stdlib.d.tl:314 declares the loader a `package.searchers`
+    -- entry returns as optional: it declares one always, so returning none, as a searcher that knows nothing of the name
+    -- does, is refused here (`any_use` stays).
     if why == nil then return nil, nil end -- checked: any_use, nil_not_allowed
     return function(_?: string, _?: any): any
       -- Level 3: the caller of `require`, past this loader and it.
