@@ -54,14 +54,6 @@ local function test_manifest_digest()
   end
 end
 
-local function test_expects_four()
-  assert(Prerelease.expects_four("4\n") and Prerelease.expects_four("4") and
-      Prerelease.expects_four("4\n\n"))
-  for _, bad in ipairs({ "3\n", " 4\n", "4 \n", "04\n", "", "\n4\n" }) do
-    assert(not Prerelease.expects_four(bad), bad)
-  end
-end
-
 --- The release text.
 local function test_release_text_is_the_shell_scripts()
   local digest = string.rep("ab", 32)
@@ -190,7 +182,6 @@ local function products(dir: string, bytes: string): string
     local built = ArtifactRow.with(bytes, product .. "/lane.db", "/runners/" .. lane .. "/work/cosmic")
     write(product .. "/cosmic", built)
     write(product .. "/executed-cosmic.sha256", Hash.hex_sha256(without_row(product, bytes)) .. "  cosmic\n")
-    write(product .. "/expected-platforms", "4\n")
   end
   return dir
 end
@@ -253,15 +244,9 @@ local function test_stage_refuses_what_the_lanes_disagree_on(tmp: string)
       assert(Fs.symlink(p .. "/elsewhere", p .. "/portable-product-linux-x86_64"))
       assert(Fs.mkdirs(p .. "/portable-product-other"))
     end,
-    ["no file expected-platforms"] = function(p: string)
-      assert(Fs.remove(p .. "/portable-product-alpine-x86_64/expected-platforms"))
-    end,
     ["no file executed-cosmic.sha256"] = function(p: string)
       local manifest = p .. "/portable-product-linux-aarch64/executed-cosmic.sha256"
       assert(Fs.remove(manifest) and Fs.mkdirs(manifest))
-    end,
-    ["expected-platforms is not 4"] = function(p: string)
-      write(p .. "/portable-product-macos-aarch64/expected-platforms", "3\n")
     end,
     ["not `<sha256>  cosmic`"] = function(p: string)
       local manifest = p .. "/portable-product-alpine-x86_64/executed-cosmic.sha256"

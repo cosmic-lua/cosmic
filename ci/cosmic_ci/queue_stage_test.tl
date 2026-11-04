@@ -8,6 +8,7 @@ local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local CiWorkflow = require("cosmic_ci.ci_workflow")
 local QueueStage = require("cosmic_ci.queue_stage")
+local Shape = require("cosmic.shape")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local Clock = require("cosmic.clock")
@@ -300,18 +301,19 @@ end
 local HEX64 <const> = "95301174f75ffeb84a42bb8a48da9110e55de69d2379ca686f538663fe25529d"
 
 --- Whether leg `leg` runs in a container (its matrix `image`), in ci.yml's
---- platform matrix: an entry of its name, else the entry that names
---- none (alpine-x86_64's, which adds to every leg).
+--- platform matrix: its entry in the list a run of every leg takes, the
+--- last the `include` expression chooses between.
 local function in_container(leg: string): boolean
   local platform = assert(workflow()["platform"])
-  local image: string?
-  for _, entry in ipairs(assert(assert(assert(platform.strategy).matrix).include)) do
+  local include = assert(assert(platform.strategy).matrix).include
+  assert(include is string, "the platform job's include is no expression")
+  local full = assert(include:match("|| '(%[[^']-%])'%) }}$"), "the legs are no run's choice: " .. include)
+  local entries, why: {{string: string}}?, string = Shape.decode_into(full, Shape.list(Shape.map(Shape.string)))
+  assert(entries ~= nil, why)
+  for _, entry in ipairs(entries) do
     if entry["name"] == leg then return entry["image"] ~= "" end
-    local named = entry["image"]
-    if entry["name"] == nil and named is string then image = named end
   end
-  assert(image ~= nil, "no platform leg " .. leg)
-  return image ~= ""
+  error("no platform leg " .. leg)
 end
 
 --- Each runner image a leg's run names, `<ImageOS>-<ImageVersion>` as
@@ -398,13 +400,16 @@ end
 --- for it), `seed` reads back on that leg's own runner, and no other
 --- leg's: linux-aarch64's driver marker, whose image holds a third
 --- `-`-joined part, was once dropped, so each of its queue legs ran the
---- driver check again.
+--- driver check again (the queue runs linux-x86_64's leg alone now, and
+--- its checked jobs).
 local function test_seed_reads_every_key_each_leg_stages(tmp: string)
   local ci = workflow()
   local platform, checked = assert(ci["platform"]), assert(ci["checked"])
   local platform_steps = assert(platform.steps)
   local checked_steps = assert(checked.steps)
-  local legs = assert(assert(assert(assert(ci["seed"]).strategy).matrix).include)
+  local legs, why: {{string: any}}?, string = Shape.into(assert(assert(assert(assert(ci["seed"]).strategy).matrix).include),
+    Shape.list(Shape.map(Shape.any)))
+  assert(legs ~= nil, "seed's legs: " .. why)
   local staged: mut {string: string} = {}
   for _, leg in ipairs(legs) do
     local name = leg["name"]

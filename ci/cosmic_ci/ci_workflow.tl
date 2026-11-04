@@ -13,9 +13,10 @@ local record CiWorkflow
     env?: {string:string}
     with?: {string:any}
   end
+  --- A matrix's `include`: a list of entries, or, for the platform
+  --- job, the expression that chooses one for the kind of run.
   record Matrix
-    name?: string
-    include?: {{string:any}}
+    include?: any
   end
   record Strategy
     matrix?: CiWorkflow.Matrix

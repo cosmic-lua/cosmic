@@ -682,7 +682,7 @@ seeded source. A check must hold for all of them. The module doc of
 - `FUZZ_SEED` and `FUZZ_ITERS` (64 by default) choose the inputs.
 - `FUZZ_SECONDS` bounds the seconds a property spends drawing (none by
   default): past them, with 64 inputs drawn, it stops, says how many it
-  drew and is held to those. The nightly `fuzz.yml` sets 120, for the
+  drew and is held to those. The weekly `fuzz.yml` sets 120, for the
   properties whose every input costs a tenth of a second or more.
   Prefer it to a `max_iters` guessed from a measurement.
 - A failure is shrunk and kept in the test's directory.
@@ -696,7 +696,7 @@ seeded source. A check must hold for all of them. The module doc of
   share of drawn inputs that must reach a label, set well under what a
   run reaches. Neither is held when `FUZZ_ITERS` is below 64.
 - CI runs that gate a merge set `FUZZ_ITERS=0` and draw nothing. The
-  nightly `fuzz.yml` fuzzes every property on the checked core with a
+  weekly `fuzz.yml` fuzzes every property on the checked core with a
   seed of its own. A failure is a red run whose summary lists it.
 - Once a failure is fixed, keep its input in
   `testdata/fuzz/<property>/` as the report says. `run` checks that

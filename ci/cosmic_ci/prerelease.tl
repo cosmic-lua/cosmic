@@ -108,12 +108,6 @@ local function substituted(text: string): string
   return (text:gsub("\n+$", ""))
 end
 
---- Whether an expected-platforms file says 4: its text, trailing newlines
---- aside, is exactly "4", as `test "$(cat f)" = 4` would test it.
-function Prerelease.expects_four(text: string): boolean
-  return substituted(text) == "4"
-end
-
 --- The digest an executed-cosmic.sha256 manifest names: its text,
 --- trailing newlines aside, is exactly `<64 lowercase hex>  cosmic`.
 --- nil and why otherwise.
@@ -293,11 +287,9 @@ function Prerelease.stage(s: Prerelease.Stage)
   local digest: string? = nil
   for _, lane in ipairs(LANES) do
     local product = s.products .. "/portable-product-" .. lane
-    for _, name in ipairs({ "cosmic", "executed-cosmic.sha256", "expected-platforms" }) do
+    for _, name in ipairs({ "cosmic", "executed-cosmic.sha256" }) do
       assert(is_file(product .. "/" .. name), product .. ": no file " .. name)
     end
-    assert(Prerelease.expects_four(read(product .. "/expected-platforms")),
-      product .. ": expected-platforms is not 4")
     local lane_digest, why = Prerelease.manifest_digest(read(product .. "/executed-cosmic.sha256"))
     assert(lane_digest ~= nil, product .. "/executed-cosmic.sha256: " .. why)
     local bytes = ArtifactRow.with(read(product .. "/cosmic"), scratch, nil)

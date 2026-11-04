@@ -862,7 +862,7 @@ file.
 what the declared key leaves out, each with a `TODO:` where its fix goes:
 
 - *the clock*: a test whose verdict turns on the date stands on one reached
-  another day. CI's scheduled run, which stands on nothing, runs it daily.
+  another day. CI's scheduled run, which stands on nothing, runs it weekly.
 - *what the host has installed*: what the system's own paths hold, for a test
   that declares `system`, is keyed by the package database, the image
   `COSMIC_SYSTEM_ID` names, and a walk of their files by mode, size and
