@@ -253,7 +253,10 @@ function test.nearest(name: string, names: {string}): {string}
     return a < b
   end)
   local out: mut {string} = {}
-  for i = 1, math.min(#ranked, shown_names) do out[#out + 1] = ranked[i] end -- checked: index_may_be_nil
+  for i, name_here in ipairs(ranked) do
+    if i > shown_names then break end
+    out[#out + 1] = name_here
+  end
   return out
 end
 
@@ -436,25 +439,36 @@ function test.prune_history(handle: Sqlite.Handle, run: integer): boolean, strin
       "AND ran_at_ns NOT IN (SELECT ran_at_ns FROM coverage_by_test)")
 end
 
+--- A map entry carried with its key, so a sorted walk of the keys needs no second lookup.
+local record Keyed<T>
+  key: string
+  value: T
+end
+
+--- Orders [`Keyed`] entries by key; the keys of one map are distinct.
+local function by_key<T>(a: Keyed<T>, b: Keyed<T>): boolean
+  return a.key < b.key
+end
+
 --- One test's hits as `coverage_by_test` holds them: a line per module,
 --- in path order, the path, a tab, then the lines it hit, ascending and
 --- comma-separated. Module paths hold neither tabs nor newlines. A row
 --- [`take_hits`] writes may name a module twice, its load's hits and its
 --- test's, which [`decode_hits`] folds together.
 local function encode_hits(test_hits: Coverage.Hits): string
-  local paths: mut {string} = {}
-  for path in pairs(test_hits) do
-    paths[#paths + 1] = path
+  local entries: mut {Keyed<{integer:boolean}>} = {}
+  for path, per_line in pairs(test_hits) do
+    entries[#entries + 1] = { key = path, value = per_line }
   end
-  table.sort(paths)
+  table.sort(entries, by_key)
   local out: mut {string} = {}
-  for _, path in ipairs(paths) do
+  for _, entry in ipairs(entries) do
     local lines: mut {integer} = {}
-    for line in pairs(test_hits[path]) do -- checked: index_may_be_nil
+    for line in pairs(entry.value) do
       lines[#lines + 1] = line
     end
     table.sort(lines)
-    out[#out + 1] = path .. "\t" .. table.concat(lines, ",") .. "\n"
+    out[#out + 1] = entry.key .. "\t" .. table.concat(lines, ",") .. "\n"
   end
   return table.concat(out)
 end
@@ -643,25 +657,25 @@ local function write_coverage(handle: Sqlite.Handle, modules: {Module},
   -- observes it answers every line a block begins on, and a line is hit
   -- when some window's hits name it (see [`Coverage.native_lines`]).
   local by_source: mut {string: Module} = {}
-  local sorted_paths: mut {string} = {}
+  local sorted_native: mut {Keyed<{integer:boolean}>} = {}
   for _, m in ipairs(modules) do
     by_source[m.path] = m
   end
-  for path in pairs(native_lines) do
+  for path, native in pairs(native_lines) do
     if by_source[path] == nil then
-      sorted_paths[#sorted_paths + 1] = path
+      sorted_native[#sorted_native + 1] = { key = path, value = native }
     end
   end
   -- `coverage` is WITHOUT ROWID, keyed (ran_at_ns, path, line):
   -- rows written in key order append at the right edge of the B-tree
   -- instead of splitting pages at random positions, which alone is
   -- most of the cost of writing them in hash order.
-  table.sort(sorted_paths)
-  local test_names: mut {string} = {}
-  for test_name in pairs(by_test) do
-    test_names[#test_names + 1] = test_name
+  table.sort(sorted_native, by_key)
+  local test_rows: mut {Keyed<string>} = {}
+  for test_name, test_hits in pairs(by_test) do
+    test_rows[#test_rows + 1] = { key = test_name, value = test_hits }
   end
-  table.sort(test_names)
+  table.sort(test_rows, by_key)
   local write_rows = function(): boolean, string
     -- The modules in one statement; the core's C one at a time below.
     local hit_lines, executable_lines, module_trouble = write_module_coverage(handle,
@@ -683,10 +697,11 @@ local function write_coverage(handle: Sqlite.Handle, modules: {Module},
     if module_trouble ~= "" then return false, module_trouble end
     totals["hit"] = (totals["hit"] or 0) + hit_lines
     totals["lines"] = (totals["lines"] or 0) + executable_lines
-    for _, path in ipairs(sorted_paths) do
+    for _, native in ipairs(sorted_native) do
+      local path = native.key
       local hit_here = hits[path] or {}
       local per_line: coverage_report.LineHits = {}
-      for line in pairs(native_lines[path]) do -- checked: index_may_be_nil
+      for line in pairs(native.value) do
         per_line[line] = hit_here[line] == true -- checked: view_written
       end
       local lines = sorted_lines(per_line) -- checked: any_use
@@ -720,13 +735,14 @@ local function write_coverage(handle: Sqlite.Handle, modules: {Module},
         end
       end
     end
-    for _, test_name in ipairs(test_names) do
+    for _, test_row in ipairs(test_rows) do
+      local test_name = test_row.key
       local ok, write_trouble = per_test:bind_integer(1, run_at_ns)
       if ok then
         ok, write_trouble = per_test:bind_text(2, test_name)
       end
       if ok then
-        ok, write_trouble = per_test:bind_text(3, by_test[test_name]) -- checked: index_may_be_nil
+        ok, write_trouble = per_test:bind_text(3, test_row.value)
       end
       if not ok then
         return false, write_trouble
@@ -746,14 +762,15 @@ local function write_coverage(handle: Sqlite.Handle, modules: {Module},
   -- lines itself throws. Turn that exception into the same infrastructure
   -- error returned by an unsuccessful insert so the caller aborts the whole
   -- recording transaction.
-  local called, made, trouble = pcall(write_rows)
+  local made, trouble = false, ""
+  local called, raised = pcall(function() made, trouble = write_rows() end)
   coverage:finalize()
   per_test:finalize()
   if not called then
-    return 0, 0, tostring(made)
+    return 0, 0, tostring(raised)
   end
-  if not made then -- checked: any_use
-    return 0, 0, trouble -- checked: nil_not_allowed
+  if not made then
+    return 0, 0, trouble
   end
   return totals.hit, totals.lines, "" -- checked: map_field*2
 end
@@ -865,20 +882,20 @@ function test.take_hits(hits: Coverage.Hits, unowned: Coverage.Hits,
                         load_hits: Coverage.Hits, test_hits: Coverage.Hits): string
   local out: mut {string} = {}
   for _, taken in ipairs({ load_hits, test_hits }) do
-    local paths: mut {string} = {}
-    for path in pairs(taken) do
-      if unowned[path] == nil then paths[#paths + 1] = path end
+    local entries: mut {Keyed<{integer:boolean}>} = {}
+    for path, per_line in pairs(taken) do
+      if unowned[path] == nil then entries[#entries + 1] = { key = path, value = per_line } end
     end
-    table.sort(paths)
-    for _, path in ipairs(paths) do
-      local per_line = taken[path]
+    table.sort(entries, by_key)
+    for _, entry in ipairs(entries) do
+      local path, per_line = entry.key, entry.value
       if not folded[per_line] then
         folded[per_line] = true
         local into = hits[path] or {}
         hits[path] = into -- checked: view_written
-        for line in pairs(per_line) do into[line] = true end -- checked: nil_not_allowed, view_written
+        for line in pairs(per_line) do into[line] = true end -- checked: view_written
       end
-      out[#out + 1] = spell(spelled, path, per_line) -- checked: nil_not_allowed
+      out[#out + 1] = spell(spelled, path, per_line)
     end
   end
   return table.concat(out)
@@ -891,7 +908,9 @@ local function take_violations(rec: Recording, id: string, reported: worker.Repo
     -- A frame a traceback names by its module's name, as the file it was
     -- read from, as a statement the compiler placed is.
     local named, line = met.at:match("^([%w_%.]+):(%d+)$")
-    if named ~= nil and rec.files[named] ~= nil then met.at = rec.files[named] .. ":" .. line end -- checked: nil_not_allowed*2
+    local file: string? = nil
+    if named ~= nil then file = rec.files[named] end
+    if file ~= nil and line ~= nil then met.at = file .. ":" .. line end
     local key = table.concat({ met.kind, met.at, met.target, met.declared, met.actual }, "\t")
     local known = rec.violations[key]
     if known ~= nil then
@@ -1190,10 +1209,11 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: State.Limits,
   while next_job <= #jobs or #running > 0 do
     while #running < limits.jobs and next_job <= #jobs and
         not (bail == true and #rec.failures > failures_before) do
-      local job = jobs[next_job]
+      -- The loop's own test holds `next_job <= #jobs`.
+      local job = assert(jobs[next_job], "next_job is within jobs")
       next_job = next_job + 1
-      if launch(rec, job) then -- checked: nil_not_allowed
-        running[#running + 1] = job -- checked: nil_not_allowed
+      if launch(rec, job) then
+        running[#running + 1] = job
       end
     end
     if #running == 0 then break end
@@ -1201,7 +1221,7 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: State.Limits,
       cancelled = guard:cancelled()
       if cancelled ~= 0 then break end
     end
-    local earliest = assert(running[1].deadline_ns) -- checked: nil_not_allowed
+    local earliest = math.maxinteger
     local handles: mut {Child.Handle} = {}
     for i, job in ipairs(running) do
       handles[i] = assert(job.handle)
@@ -1332,13 +1352,15 @@ local function limits_of(values: {string:string}): State.Limits?, string
     if seconds == nil then return nil, trouble end
     limits.timeout_ns = Clock.seconds(seconds)
   end
-  if values["--timeout"] ~= nil then
-    local seconds, trouble = seconds_of(values["--timeout"], "--timeout") -- checked: index_may_be_nil
+  local timeout_flag = values["--timeout"]
+  if timeout_flag ~= nil then
+    local seconds, trouble = seconds_of(timeout_flag, "--timeout")
     if seconds == nil then return nil, trouble end
     limits.timeout_ns = Clock.seconds(seconds)
   end
-  if values["--jobs"] ~= nil then
-    local jobs, trouble = positive(values["--jobs"], "--jobs") -- checked: index_may_be_nil
+  local jobs_flag = values["--jobs"]
+  if jobs_flag ~= nil then
+    local jobs, trouble = positive(jobs_flag, "--jobs")
     if jobs == nil then return nil, trouble end
     limits.jobs = jobs
   end
@@ -1560,8 +1582,9 @@ local function read_command(ctx: Run): integer?
     end
     ctx.floors = { min = floor_values["--min"], min_file = floor_values["--min-file"] }
   end
-  if parsed.values["--shard"] ~= nil then
-    local chosen, shard_trouble = test.shard(parsed.values["--shard"]) -- checked: index_may_be_nil
+  local shard_flag = parsed.values["--shard"]
+  if shard_flag ~= nil then
+    local chosen, shard_trouble = test.shard(shard_flag)
     if chosen == nil then
       log:complain("test: " .. shard_trouble)
       return 2
@@ -1848,6 +1871,12 @@ local function build_tree(ctx: Run): integer?
   return nil
 end
 
+--- The tests a selected module runs. The selection sets a module's entry
+--- of `selected_tests` whenever it keeps the module, and drops both together.
+local function chosen_tests(selected_tests: {string:{string}}, m: Module): {string}
+  return (assert(selected_tests[m.path], "a selected module has an entry in selected_tests"))
+end
+
 --- The tests the selectors and the shard choose, each selector held to
 --- matching one. The exit code to stop with, or nil to go on.
 local function select_tests(ctx: Run): integer?
@@ -1932,13 +1961,15 @@ local function select_tests(ctx: Run): integer?
   if shard ~= nil then
     local ids: mut {string} = {}
     for _, m in ipairs(selected_modules) do
-      for _, name in ipairs(selected_tests[m.path]) do ids[#ids + 1] = m.path .. " " .. name end -- checked: index_may_be_nil
+      for _, name in ipairs(chosen_tests(selected_tests, m)) do
+        ids[#ids + 1] = m.path .. " " .. name
+      end
     end
     local dealt = test.dealt(ids, shard)
     local kept: mut {Module} = {}
     for _, m in ipairs(selected_modules) do
       local names: mut {string} = {}
-      for _, name in ipairs(selected_tests[m.path]) do -- checked: index_may_be_nil
+      for _, name in ipairs(chosen_tests(selected_tests, m)) do
         if dealt[m.path .. " " .. name] == true then names[#names + 1] = name end
       end
       if #names > 0 then
@@ -2043,10 +2074,10 @@ local function make_recording(ctx: Run)
     parameter_checks = assert(ctx.result).parameter_checks, violation_met = {}, violators = {}, violator_ns = {},
     failures = failures, errors = errors, outputs = {}, reruns = {},
     show_output = ctx.show_output == true, shown = {},
-    failed = {}, skips = {}, unchecked = {}, deliberate = {}, stopped = {}, held = ctx.held, nas = {}, unmet = {}, answered = {}, -- checked: nil_not_allowed
+    failed = {}, skips = {}, unchecked = {}, deliberate = {}, stopped = {}, held = ctx.held == true, nas = {}, unmet = {}, answered = {},
     hits = hits, by_test = by_test, unowned = unowned, own_tree = ctx.own_tree == true, tally = tally, not_run = 0,
     owed = { kept = {}, used = {}, failed = {}, stores = {} }, shared_keys = {},
-    consult_shared = ctx.consult, -- checked: nil_not_allowed
+    consult_shared = ctx.consult == true,
     accept_foreign = ctx.accept_foreign == true and ctx.consult == true and ctx.sandboxed == true,
     origin = checkout_id(records, assert(ctx_root), ctx.run_at_ns),
     views = {}, caches = {}, unkeyed = {},
@@ -2191,7 +2222,7 @@ local function look_up_verdicts(ctx: Run)
   local keyed_count, looked_count, found_count, ran_here = 0, 0, 0, 0
   for _, m in ipairs(selected_modules) do
     local unmet = rec.unmet[m.path]
-    for _, name in ipairs(selected_tests[m.path]) do -- checked: index_may_be_nil
+    for _, name in ipairs(chosen_tests(selected_tests, m)) do
       local id = m.path .. " " .. name
       if unmet ~= nil then
         settle_unmet(rec, m, name, id, unmet)
@@ -2247,7 +2278,8 @@ local function look_up_verdicts(ctx: Run)
     end
     local runs_tool = false
     for _, m in ipairs(selected_modules) do
-      if rec.effective[m.path] ~= nil and rec.effective[m.path].tool then runs_tool = true end -- checked: nil_not_allowed
+      local effective = rec.effective[m.path]
+      if effective ~= nil and effective.tool then runs_tool = true end
     end
     if runs_tool then
       table.insert(parts, { "program", test_key.program_of(rec):sub(1, 12) })
@@ -2291,7 +2323,7 @@ local function look_up_verdicts(ctx: Run)
   test_key.close_keying(rec)
   local tests = 0
   for _, m in ipairs(selected_modules) do
-    if rec.unmet[m.path] == nil then tests = tests + #selected_tests[m.path] end -- checked: nil_not_allowed
+    if rec.unmet[m.path] == nil then tests = tests + #chosen_tests(selected_tests, m) end
   end
   -- Workers that would run on a sealed database but run the whole
   -- program, as this one is no portable artifact to take its database from.
@@ -2300,7 +2332,7 @@ local function look_up_verdicts(ctx: Run)
     local effective = rec.effective[m.path]
     if rec.unmet[m.path] == nil and rec.stores[m.path] ~= nil and effective ~= nil and
         not (effective.store or effective.tool) and not test_key.seals(rec, m) then
-      unsealed = unsealed + #selected_tests[m.path] -- checked: nil_not_allowed
+      unsealed = unsealed + #chosen_tests(selected_tests, m)
     end
   end
   if unsealed > 0 then
@@ -2310,12 +2342,12 @@ local function look_up_verdicts(ctx: Run)
   log:say(string.format(keying .. "%s keyed by their declared inputs in %.1f ms (%s read)",
     plural.count(tests, "test"), test_key.digests_of(rec).spent_ns / 1e6,
     plural.count(test_key.digests_of(rec).read, "file")))
-  local unkeyed: mut {string} = {}
-  for path in pairs(rec.unkeyed) do unkeyed[#unkeyed + 1] = path end
-  table.sort(unkeyed)
-  for _, path in ipairs(unkeyed) do
-    log:say(keying .. path .. " has no key, so its tests run every time: " ..
-        rec.unkeyed[path]) -- checked: nil_not_allowed
+  local unkeyed: mut {Keyed<string>} = {}
+  for path, why in pairs(rec.unkeyed) do unkeyed[#unkeyed + 1] = { key = path, value = why } end
+  table.sort(unkeyed, by_key)
+  for _, entry in ipairs(unkeyed) do
+    log:say(keying .. entry.key .. " has no key, so its tests run every time: " ..
+        entry.value)
   end
 end
 
@@ -2397,6 +2429,13 @@ local function execute(ctx: Run): integer?
   return nil
 end
 
+--- The violation `key` of `rec.violation_order` names. [`take_violations`]
+--- records a key in `violation_order` and `violation_tests` only as it
+--- records the violation itself.
+local function violation_of(rec: Recording, key: string): worker.Violation
+  return (assert(rec.violations[key], "a key of violation_order has a violation"))
+end
+
 --- Keeps what a checked run's workers reported in the working database's
 --- `type_violations`, one row to a distinct violation, replacing the last
 --- checked run's: the table holds the latest report, which
@@ -2406,13 +2445,13 @@ local function keep_violations(records: Sqlite.Handle, rec: Recording,
   local cleared, clear_trouble = records:exec("DELETE FROM type_violations")
   if not cleared then return false, clear_trouble end
   for _, key in ipairs(rec.violation_order) do
-    local met = rec.violations[key]
+    local met = violation_of(rec, key)
     local saved, save_trouble = Sqlite.run(records,
       "INSERT INTO type_violations (ran_at_ns, kind, site, target, declared, actual, " ..
         "count, test) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-      { { integer = run_at_ns }, text(met.kind), text(met.at), text(met.target), -- checked: nil_not_allowed*3
-        text(met.declared), text(met.actual), { integer = met.count }, -- checked: nil_not_allowed*3
-        text(rec.violation_tests[key]) }) -- checked: index_may_be_nil
+      { { integer = run_at_ns }, text(met.kind), text(met.at), text(met.target),
+        text(met.declared), text(met.actual), { integer = met.count },
+        text((assert(rec.violation_tests[key], "a key of violation_order has a test"))) })
     if not saved then return false, save_trouble end
   end
   local cleared_tests, clear_tests_trouble = records:exec("DELETE FROM type_violation_tests")
@@ -2454,10 +2493,10 @@ local function say_violations(rec: Recording)
   local total, places = 0, 0
   local seen: mut {string:boolean} = {}
   for _, key in ipairs(rec.violation_order) do
-    local met = rec.violations[key]
-    total = total + met.count -- checked: nil_not_allowed
-    if seen[met.at] ~= true then -- checked: nil_not_allowed
-      seen[met.at] = true -- checked: nil_not_allowed
+    local met = violation_of(rec, key)
+    total = total + met.count
+    if seen[met.at] ~= true then
+      seen[met.at] = true
       places = places + 1
     end
   end
@@ -2483,14 +2522,15 @@ local function say_violations(rec: Recording)
   local order: mut {string} = {}
   for i, key in ipairs(rec.violation_order) do order[i] = key end
   table.sort(order, function(a: string, b: string): boolean
-    local ca, cb = rec.violations[a].count, rec.violations[b].count -- checked: nil_not_allowed*2
+    local ca, cb = violation_of(rec, a).count, violation_of(rec, b).count
     if ca ~= cb then return ca > cb end
     return a < b
   end)
-  for i = 1, math.min(SAMPLE_VIOLATIONS, #order) do
-    local met = rec.violations[order[i]] -- checked: index_may_be_nil
-    log:say(string.format("test:   %s: %s declared %s got %s (%s)", met.at, met.target, -- checked: nil_not_allowed*2
-      met.declared, met.actual, plural.count(met.count, "time"))) -- checked: nil_not_allowed*3
+  for i, key in ipairs(order) do
+    if i > SAMPLE_VIOLATIONS then break end
+    local met = violation_of(rec, key)
+    log:say(string.format("test:   %s: %s declared %s got %s (%s)", met.at, met.target,
+      met.declared, met.actual, plural.count(met.count, "time")))
   end
 end
 
