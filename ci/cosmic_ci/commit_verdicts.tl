@@ -156,10 +156,11 @@ function CommitVerdicts.ceilings_base(env: {string:string}, host: Github.Host): 
   end
   local event, ref = env["EVENT"] or "", env["REF"] or ""
   local base = ""
-  -- A run of main itself is held to nothing (its changes were held in the queue); a branch push, a manual run of a branch and the
-  -- queue's run each ask for the merge base of the commit with main. The queue's own base (`merge_group.base_sha`) is the entry
+  -- A run of main itself is held to nothing (its changes were held in the queue); a pull request's run, a manual run of a
+  -- branch and the queue's run each ask for the merge base of the commit with main. The queue's own base (`merge_group.base_sha`) is the entry
   -- ahead, whose markers the commit already holds, so it is never named here.
-  local asks = event == "merge_group" or ((event == "push" or event == "workflow_dispatch") and ref ~= "refs/heads/main")
+  local asks = event == "merge_group" or event == "pull_request" or
+    ((event == "push" or event == "workflow_dispatch") and ref ~= "refs/heads/main")
   local main = main_of(event, env["BASE_REF"] or "")
   if asks and main ~= nil then
     local pages = Github.ask(host, "repos/" .. (env["REPOSITORY"] or "") .. "/compare/" .. main .. "..." .. (env["SHA"] or "") ..

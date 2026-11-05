@@ -395,7 +395,15 @@ runs no job a branch's push would. The runs:
 - **a push to a branch** runs nothing. The merge queue tests every change
   before it lands, and the author's local checks (`bin/cosmic fix`,
   `bin/cosmic test`, `ci/run-local`) are the branch's
-  (the tree's `doc/contributing.md`). A **manual run**
+  (the tree's `doc/contributing.md`).
+- **a pull request** runs one light job, `pull-request`, which reports the
+  `ci` check the merge queue requires of the pull request before it takes
+  it: the tree booted on linux-x86_64's host and its format check, which
+  builds and type-checks the tree, lays out only the paths the pull
+  request changed since its merge base with main (driver.tl
+  changed-paths, `fix --check --changed`), and makes every check spanning
+  files (the tree checks, the links, the markers held to that base) over
+  the whole tree. No suite, and it saves nothing. A **manual run**
   (`workflow_dispatch`) of the branch runs what main's run does, every
   leg: the way to prove a change to what the other legs prove before it
   queues.

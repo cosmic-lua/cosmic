@@ -215,7 +215,10 @@ removed lines in `git diff origin/main...HEAD | grep '^-.*TODO:'`.
 main takes changes only through the merge queue, which runs CI on the
 queued merge commit ([`.github/workflows/ci.yml`] runs on
 `merge_group`). a push to a branch runs no CI: the checks above, run
-locally, are the branch's. enable auto-merge, and watch the queue's run.
+locally, are the branch's. a pull request runs one light check, the `ci`
+check the queue requires of it: the tree booted and `fix --check` of
+what it changed, with the checks spanning files over the whole tree.
+enable auto-merge, and watch the queue's run.
 start a next PR that depends on this one only once it has merged.
 
 on a failure, find the cause, fix it in the worktree, re-run the checks

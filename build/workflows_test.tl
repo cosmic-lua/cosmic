@@ -1368,7 +1368,7 @@ local function test_a_main_push_reuses_the_queue_run()
   -- a push to main) or failed, as where it found nothing: without a
   -- status function, a job whose need was skipped is skipped too. Which
   -- legs run is the matrix's (test_each_kind_of_run_has_its_legs).
-  assert(Json.encode_any(platform.needs) == '"reuse"' and platform["if"] == "!cancelled()",
+  assert(Json.encode_any(platform.needs) == '"reuse"' and platform["if"] == "!cancelled() && github.event_name != 'pull_request'",
     "the platform legs run other than on every run: " .. tostring(platform["if"]))
   assert(seed.needs == "reuse" and seed["if"] == "needs.reuse.outputs.run != ''",
     "seed runs other than where a queue run was found: " .. tostring(seed["if"]))
@@ -1529,13 +1529,13 @@ local function test_a_main_push_reuses_the_queue_run()
   local join = job_of(jobs, "ci")
   local needs = needs_of(join)
   assert(table.concat(needs, ",") ==
-      "reuse,platform,checked,checked-shard,checked-narrowing,checked-narrowing-merge,seed",
+      "reuse,pull-request,platform,checked,checked-shard,checked-narrowing,checked-narrowing-merge,seed",
     "the join needs " .. table.concat(needs, ","))
   -- The join passes on the legs, which run on every run, the checked job
   -- and its shares, and the checked narrowing run, or `seed`'s in their
   -- place where a queue run was found, and on nothing of `reuse`'s but
   -- its output.
-  local check = join.steps[1]
+  local check = step_named(join.steps, "every leg passed")
   local check_env = map_of(assert(check).env)
   assert(check_env["RESULT"] == "${{ needs.platform.result }}",
     "the join reads the legs that ran: " .. tostring(check_env["RESULT"]))
@@ -1809,7 +1809,7 @@ local function test_the_checked_suite_is_gathered_in_a_job_of_its_own_on_linux_x
     "the checked job waits on " .. tostring((Json.encode_any(checked["needs"]))))
   -- Past a failed share it runs only where it saves (main's push, the
   -- weekly run), to take the failed test's pass out of the cache, and fails.
-  assert(checked["if"] == "!cancelled() && needs.reuse.outputs.run == '' && " ..
+  assert(checked["if"] == "!cancelled() && github.event_name != 'pull_request' && needs.reuse.outputs.run == '' && " ..
       "(needs.checked-shard.result != 'failure' || github.event_name == 'push' || github.event_name == 'schedule')",
     "the checked job runs other than where the legs do, unless a share failed off a saving run: " ..
       tostring(checked["if"]))
@@ -1820,7 +1820,7 @@ local function test_the_checked_suite_is_gathered_in_a_job_of_its_own_on_linux_x
       failing_at < running_at, "the checked job does not fail, before its suite, where a share failed")
   local gather_minutes = math.tointeger(checked["timeout-minutes"])
   assert(gather_minutes ~= nil and gather_minutes <= 20, "the checked job's time is not sized for a gather")
-  assert(platform["if"] == "!cancelled()", tostring(platform["if"]))
+  assert(platform["if"] == "!cancelled() && github.event_name != 'pull_request'", tostring(platform["if"]))
   local penv, cenv = map_of(platform.env), map_of(checked.env)
   assert(penv["COSMIC_CI_CHECKED_SUITE"] == "skip", "a leg runs the checked suite: " ..
       tostring(penv["COSMIC_CI_CHECKED_SUITE"]))
@@ -1924,7 +1924,7 @@ local function test_the_checked_suite_runs_in_shares_that_a_job_gathers()
   local platform, checked = job_of(jobs, "platform"), job_of(jobs, "checked")
   local shard = assert(job_of(jobs, "checked-shard"), "no job runs a share of the checked suite")
   assert(Json.encode_any(shard["needs"]) == '"reuse"' and
-      shard["if"] == "!cancelled() && needs.reuse.outputs.run == ''",
+      shard["if"] == "!cancelled() && github.event_name != 'pull_request' && needs.reuse.outputs.run == ''",
     "a share runs elsewhere than where linux-x86_64's leg runs: " .. tostring(shard["if"]))
   local strategy = assert(shard.strategy)
   local parts, parts_err: {integer}?, string = Shape.into(assert(strategy.matrix)["part"], Shape.list(Shape.integer))
@@ -2220,7 +2220,7 @@ local function test_the_narrowing_merge_saves_the_verdicts_the_shares_kept()
   local merging = job_of(jobs, "checked-narrowing-merge")
   assert(table.concat(needs_of(merging), ",") == "reuse,checked-narrowing",
     "the narrowing merge waits on " .. table.concat(needs_of(merging), ","))
-  assert(merging["if"] == "!cancelled() && needs.reuse.outputs.run == ''" ..
+  assert(merging["if"] == "!cancelled() && github.event_name != 'pull_request' && needs.reuse.outputs.run == ''" ..
       " && (needs.checked-narrowing.result != 'failure' || github.event_name == 'push' || " ..
       "github.event_name == 'schedule')",
     "the narrowing merge runs elsewhere than a saving run past a failed share, or the queue's: " .. tostring(merging["if"]))
@@ -3291,7 +3291,7 @@ local function test_the_join_compares_the_portable_share_with_the_legs()
     -- The second try (test_a_gating_download_is_tried_twice) runs on the first's failure alone.
     if name == "portable-share-alpine-x86_64" and step["continue-on-error"] == true then
       downloads = downloads + 1
-      assert(step["if"] == "github.event_name != 'merge_group'", "the share's attestation is downloaded on " .. tostring(step["if"]))
+      assert(step["if"] == "github.event_name != 'merge_group' && github.event_name != 'pull_request'", "the share's attestation is downloaded on " .. tostring(step["if"]))
       assert(param(step, "path") == "${{ runner.temp }}/cosmic-ci/products/portable-share-alpine-x86_64",
         "the share's attestation is downloaded to " .. param(step, "path"))
     end
@@ -3612,4 +3612,54 @@ local function test_a_gating_download_is_tried_twice()
     end
   end
   assert(retries > 0, "no retried download found: the test reads nothing")
+end
+
+--- A pull request runs one job, `pull-request`, the light check: the tree
+--- booted on linux-x86_64's host and its format check over the paths the
+--- pull request changed since its merge base with main (`fix --check
+--- --changed`, every check spanning files over the whole tree), with the
+--- markers held to that base. It saves nothing, and every other job but
+--- the gate skips a pull request's run; the gate reads its result alone,
+--- so the `ci` check the merge queue requires of a pull request is it.
+local function test_a_pull_request_runs_the_light_check_alone()
+  local ci = ci_workflow()
+  assert(ci["on"]["pull_request"] ~= nil, "a pull request runs nothing")
+  local jobs = ci.jobs
+  local pr = job_of(jobs, "pull-request")
+  assert(pr["if"] == "github.event_name == 'pull_request'", "the light check runs on " .. tostring(pr["if"]))
+  local env = map_of(pr.env)
+  assert(env["COSMIC_CI_FORMAT"] == "run" and env["COSMIC_WORKER"] == pr["name"], "the light check's switches")
+  local phases: mut {string} = {}
+  for _, step in ipairs(pr.steps) do
+    local phase = (step.run or ""):match("driver%.tl platform ([%w-]+)")
+    if phase ~= nil then phases[#phases + 1] = phase end
+    assert((step.uses or ""):find("actions/cache/save@", 1, true) == nil, "the light check saves a cache")
+  end
+  assert(table.concat(phases, " ") == "boot format", "the light check runs " .. table.concat(phases, " "))
+  local base = step_named(pr.steps, "find the base the markers are held to")
+  assert(base["if"] == nil and (base.run or ""):find("driver.tl ceilings-base", 1, true) ~= nil, "no base for the markers")
+  local changed = step_named(pr.steps, "name the paths the pull request changed")
+  assert(map_of(changed.env)["BASE"] == "${{ steps.ceilings-base.outputs.sha }}" and
+      (changed.run or ""):find("driver.tl changed-paths", 1, true) ~= nil, "the paths changed are named from another base")
+  assert(map_of(step_named(pr.steps, "check the tree's format").env)["COSMIC_CI_FORMAT_CHANGED"] ==
+      "${{ steps.changed.outputs.paths }}", "the check is not given the paths changed")
+  for name, job in pairs(jobs) do
+    if name ~= "pull-request" and name ~= "ci" then
+      local condition = job["if"] or ""
+      local skips = condition:find("github.event_name != 'pull_request'", 1, true) ~= nil or
+        condition:find("github.event_name == 'push'", 1, true) ~= nil or
+        condition:find("needs.reuse.outputs.run != ''", 1, true) ~= nil
+      assert(skips, name .. " runs on a pull request: " .. condition)
+    end
+  end
+  local gate = job_of(jobs, "ci")
+  local first = assert(gate.steps[1])
+  assert(first["if"] == "github.event_name == 'pull_request'" and map_of(first.env)["RESULT"] == "${{ needs.pull-request.result }}",
+    "the gate reads another result on a pull request")
+  for i = 2, #gate.steps do
+    local condition = assert(gate.steps[i])["if"] or ""
+    assert(condition:find("github.event_name != 'pull_request'", 1, true) ~= nil or
+        condition:find("steps.", 1, true) ~= nil,
+      "the gate's step " .. tostring(i) .. " runs on a pull request: " .. condition)
+  end
 end

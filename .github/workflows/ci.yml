@@ -10,6 +10,9 @@
     # testing every change before it lands (ci/README.md's "what runs
     # where"). A manual run of a branch is the way to test one first.
     push: {branches: ["main"]},
+    # A pull request runs one light job (`pull-request`), which reports
+    # the `ci` check the merge queue requires of the pull request.
+    pull_request: {},
     # main takes changes only through the merge queue, which waits on
     # these checks for the queued merge commit.
     merge_group: {},
@@ -110,7 +113,7 @@
     # run all four.
     platform: {
       needs: "reuse",
-      if: "!cancelled()",
+      if: "!cancelled() && github.event_name != 'pull_request'",
       # The leg's name is the check's; a full run's second share of
       # alpine-x86_64's portable suite is alpine-x86_64-portable-share.
       name: "${{ matrix.shard == 'portable-2/2' && format('{0}-portable-share', matrix.name) || matrix.name }}",
@@ -1162,7 +1165,7 @@
     # failed.
     checked: {
       needs: ["reuse", "checked-shard"],
-      if: "!cancelled() && needs.reuse.outputs.run == '' && (needs.checked-shard.result != 'failure' || github.event_name == 'push' || github.event_name == 'schedule')",
+      if: "!cancelled() && github.event_name != 'pull_request' && needs.reuse.outputs.run == '' && (needs.checked-shard.result != 'failure' || github.event_name == 'push' || github.event_name == 'schedule')",
       name: "linux-x86_64-checked",
       defaults: {run: {"working-directory": "ci", shell: "leg-shell {0}"}},
       "runs-on": "ubuntu-24.04",
@@ -1520,7 +1523,7 @@
     # the zig build outputs and compiles.
     "checked-shard": {
       needs: "reuse",
-      if: "!cancelled() && needs.reuse.outputs.run == ''",
+      if: "!cancelled() && github.event_name != 'pull_request' && needs.reuse.outputs.run == ''",
       name: "linux-x86_64-checked-shard-${{ matrix.part }}",
       defaults: {run: {"working-directory": "ci", shell: "leg-shell {0}"}},
       # A failed share cancels the others on the queue's run, as a failed
@@ -1840,7 +1843,7 @@
     # files, which makes no such check. A full run only.
     "checked-narrowing": {
       needs: "reuse",
-      if: "!cancelled() && needs.reuse.outputs.run == ''",
+      if: "!cancelled() && github.event_name != 'pull_request' && needs.reuse.outputs.run == ''",
       name: "linux-x86_64-checked-narrowing-${{ matrix.part }}",
       defaults: {run: {"working-directory": "ci", shell: "leg-shell {0}"}},
       strategy: {"fail-fast": false, matrix: {part: [1, 2]}},
@@ -2161,7 +2164,7 @@
     # and builds nothing. A full run only.
     "checked-narrowing-merge": {
       needs: ["reuse", "checked-narrowing"],
-      if: "!cancelled() && needs.reuse.outputs.run == '' && (needs.checked-narrowing.result != 'failure' || github.event_name == 'push' || github.event_name == 'schedule')",
+      if: "!cancelled() && github.event_name != 'pull_request' && needs.reuse.outputs.run == '' && (needs.checked-narrowing.result != 'failure' || github.event_name == 'push' || github.event_name == 'schedule')",
       name: "linux-x86_64-checked-narrowing",
       defaults: {run: {"working-directory": "ci", shell: "leg-shell {0}"}},
       "runs-on": "ubuntu-24.04",
@@ -2388,6 +2391,194 @@
       ],
     },
 
+    # A pull request's check, the light one: no suite, the tree booted on
+    # linux-x86_64's host and its format check (`fix --check`), which
+    # builds and type-checks the tree, lays out only what the pull request
+    # changed since its merge base with main (driver.tl changed-paths,
+    # `fix --check --changed`), and makes every check spanning files (the
+    # tree checks, the links, the markers held to that base) over the
+    # whole tree. Where a path changed is part of what checks each file
+    # (the layout, the C rules, the compiler, the core), or the paths cannot
+    # be named, it checks the whole tree. The merge queue runs the gating
+    # suites; this is what reports the `ci` check on the pull request
+    # itself, which the queue requires before it takes the change.
+    "pull-request": {
+      if: "github.event_name == 'pull_request'",
+      name: "linux-x86_64-pull-request",
+      defaults: {run: {"working-directory": "ci", shell: "leg-shell {0}"}},
+      "runs-on": "ubuntu-24.04",
+      permissions: {contents: "read", packages: "read"},
+      "timeout-minutes": 30,
+      env: {
+        COSMIC_WORKER: "linux-x86_64-pull-request",
+        TARGET: "x86_64-linux-musl",
+        COSMIC_CI_FORMAT: "run",
+        COSMIC_CI_REQUIRE_SANDBOX: "1",
+        COSMIC_CI_DECLARED_KEYS: "0",
+        COSMIC_CI_EVENT: "${{ github.event_name }}",
+      },
+      steps: [
+        {
+          uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd", # v6
+          # The pull request's merge commit and its parents.
+          with: {"fetch-depth": 2},
+        },
+        {
+          name: "start the leg's container",
+          "working-directory": ".",
+          shell: "sh",
+          env: {IMAGE: "ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a", TOKEN: "${{ secrets.GITHUB_TOKEN }}", ACTOR: "${{ github.actor }}"},
+          run: "sh .github/scripts/leg-container.sh start \"$IMAGE\"",
+        },
+        {
+          name: "create the unprivileged builder",
+          "working-directory": "/",
+          shell: "leg-shell --root {0}",
+          run: "useradd -m -o -u \"$(stat -c %u \"$GITHUB_WORKSPACE\")\" runner",
+        },
+        # What linux-x86_64's leg restores and saves, restored alone.
+        {
+          name: "restore the pinned zig",
+          id: "zig-restore",
+          uses: "actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
+          with: {
+            path: "${{ runner.temp }}/cache/cosmic/zig",
+            key: "zig-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bin/zig.pin', 'patch/zig-lib/**') }}",
+          },
+        },
+        {
+          name: "name the zig build cache, and the run's start",
+          id: "names",
+          uses: "./.github/actions/cache-names",
+          with: {leg: "linux-x86_64"},
+        },
+        {
+          name: "restore zig build outputs",
+          id: "zig-cache-restore",
+          uses: "actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
+          with: {
+            path: "${{ runner.temp }}/zig-build",
+            key: "${{ steps.names.outputs.vendor }}full-${{ steps.names.outputs.core }}-${{ github.run_id }}-${{ github.run_attempt }}",
+            "restore-keys": "${{ steps.names.outputs.vendor }}full-${{ steps.names.outputs.core }}-\n${{ steps.names.outputs.vendor }}full-\n${{ steps.names.outputs.vendor }}\n",
+            "lookup-only": "${{ github.event_name == 'schedule' }}",
+          },
+        },
+        {
+          name: "restore zig build outputs of another vendor part",
+          if: "github.ref != 'refs/heads/main' && steps.zig-cache-restore.outputs.cache-matched-key == ''",
+          uses: "actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
+          with: {
+            path: "${{ runner.temp }}/zig-build",
+            key: "${{ steps.zig-cache-restore.outputs.cache-primary-key }}",
+            "restore-keys": "zig-build-linux-x86_64-\n",
+          },
+        },
+        {
+          name: "bootstrap the pinned CI driver",
+          id: "driver",
+          uses: "./.github/actions/cosmic-driver",
+          with: {"zig-cache": true, shell: "leg-shell {0}"},
+        },
+        # The base the format check holds the markers of the tree to (build/ceilings_base.tl): a marker only
+        # falls, so a marker added since the tree's merge base with main fails the check. It is the merge base with
+        # main on every path, the queue's run included: the queue's own base (merge_group.base_sha) is the entry ahead,
+        # whose markers the run's commit already holds. Where the step finds none this sets none, and the check fails,
+        # since skipping it there would let a raise through whenever GitHub could not name the base; run the job again.
+        {
+          name: "find the base the markers are held to",
+          id: "ceilings-base",
+          shell: "sh",
+          "continue-on-error": true,
+          env: {GH_TOKEN: "${{ github.token }}", REPOSITORY: "${{ github.repository }}", SHA: "${{ github.sha }}", EVENT: "${{ github.event_name }}", REF: "${{ github.ref }}", BASE_REF: "${{ github.event.merge_group.base_ref }}"},
+          run: "cosmic-driver cosmic_ci/driver.tl ceilings-base",
+        },
+        {
+          name: "name the base the ceilings are held to",
+          if: "steps.ceilings-base.outputs.sha != ''",
+          shell: "sh",
+          env: {BASE: "${{ steps.ceilings-base.outputs.sha }}"},
+          run: "echo \"COSMIC_CEILINGS_BASE=$BASE\" >> \"$GITHUB_ENV\"",
+        },
+        # What the pull request changed since that base, whose tree main's
+        # runs held to the whole format check. Where it names none, the
+        # check covers the whole tree.
+        {
+          name: "name the paths the pull request changed",
+          id: "changed",
+          if: "steps.ceilings-base.outputs.sha != ''",
+          shell: "sh",
+          "continue-on-error": true,
+          env: {BASE: "${{ steps.ceilings-base.outputs.sha }}", OUT: "${{ runner.temp }}/changed-paths"},
+          run: "cosmic-driver cosmic_ci/driver.tl changed-paths",
+        },
+        {
+          name: "restore compiles and parses",
+          id: "compiles-restore",
+          uses: "actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
+          with: {
+            path: "${{ runner.temp }}/build-cache",
+            key: "compiles-linux-x86_64-",
+            "restore-keys": "compiles-linux-x86_64-\n",
+          },
+        },
+        # To a path of this commit's and this job's own, as a leg's tree
+        # moves, after every hashFiles, which reads the checkout.
+        {
+          name: "move the tree to a path of its own",
+          run: "cosmic-driver cosmic_ci/driver.tl place-tree",
+        },
+        {
+          name: "build release Cosmic",
+          id: "boot",
+          run: "cosmic-driver cosmic_ci/driver.tl platform boot",
+        },
+        {
+          name: "check the tree's format",
+          id: "format",
+          env: {COSMIC_CI_FORMAT_CHANGED: "${{ steps.changed.outputs.paths }}"},
+          run: "cosmic-driver cosmic_ci/driver.tl platform format",
+        },
+        {
+          name: "summarize worker operations",
+          if: "always() && steps.driver.outcome == 'success'",
+          run: "cosmic-driver cosmic_ci/driver.tl summarize",
+        },
+        {
+          name: "preserve CI driver database",
+          if: "always()",
+          uses: "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f", # v7
+          with: {
+            name: "ci-driver-linux-x86_64-pull-request",
+            path: "${{ runner.temp }}/cosmic-ci/operations.db",
+            "if-no-files-found": "ignore",
+            "retention-days": 7,
+          },
+        },
+        {
+          name: "describe the leg's container",
+          if: "failure()",
+          "working-directory": "/",
+          shell: "sh",
+          run: "docker inspect cosmic-leg || :; docker logs cosmic-leg || :",
+        },
+        {
+          name: "remove the leg's container",
+          if: "always()",
+          "working-directory": "/",
+          shell: "sh",
+          run: "docker rm -f cosmic-leg || :",
+        },
+        # Before checkout's post step, whose git refuses the repository
+        # at another path (driver.tl place-tree).
+        {
+          name: "move the tree back to where it was checked out",
+          if: "always() && steps.driver.outcome == 'success'",
+          shell: "sh",
+          run: "cosmic-driver cosmic_ci/driver.tl place-tree --restore",
+        },
+      ],
+    },
+
     # On a push to main whose commit passed the merge queue, the runner
     # of the queue's leg, linux-x86_64, saves what that leg of the queue's
     # run would have saved had it been main's (driver.tl queue-stage),
@@ -2596,7 +2787,7 @@
     # leg, or main's four, linux-x86_64's relayed by `seed` where it
     # reuses the queue's run.
     ci: {
-      needs: ["reuse", "platform", "checked", "checked-shard", "checked-narrowing", "checked-narrowing-merge", "seed"],
+      needs: ["reuse", "pull-request", "platform", "checked", "checked-shard", "checked-narrowing", "checked-narrowing-merge", "seed"],
       if: "always()",
       "runs-on": "ubuntu-24.04",
       "timeout-minutes": 5,
@@ -2604,8 +2795,16 @@
         COSMIC_WORKER: "provenance",
       },
       steps: [
+        # A pull request's run is its light job alone.
+        {
+          name: "the pull request's check passed",
+          if: "github.event_name == 'pull_request'",
+          env: {RESULT: "${{ needs.pull-request.result }}"},
+          run: "echo \"pull request check: $RESULT\"; [ \"$RESULT\" = success ]",
+        },
         {
           name: "every leg passed",
+          if: "github.event_name != 'pull_request'",
           env: {
             QUEUE_RUN: "${{ needs.reuse.outputs.run }}",
             RESULT: "${{ needs.platform.result }}",
@@ -2618,16 +2817,19 @@
           run: "echo \"queue run: ${QUEUE_RUN:-(none)}; legs: $RESULT; checked suite: $CHECKED; shares: $SHARES; checked narrowing: $NARROWING; narrowing verdicts: $MERGED\"; [ \"$RESULT\" = success ] && [ \"$CHECKED\" = success ] && [ \"$SHARES\" = success ] && [ \"$NARROWING\" = success ] && [ \"$MERGED\" = success ] || { [ \"$EVENT\" != merge_group ] || echo \"a failed leg cancels the other jobs of its matrix on a queue run, so those read cancelled; the one that reads failure failed\"; exit 1; }",
         },
         {
+          if: "github.event_name != 'pull_request'",
           uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd", # v6
         },
         {
           name: "bootstrap the pinned provenance driver",
           id: "driver",
+          if: "github.event_name != 'pull_request'",
           uses: "./.github/actions/cosmic-driver",
         },
         {
           name: "download the products to compare",
           id: "products-download",
+          if: "github.event_name != 'pull_request'",
           "continue-on-error": true,
           uses: "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c", # v8
           with: {pattern: "portable-product-*", path: "${{ runner.temp }}/cosmic-ci/products"},
@@ -2653,7 +2855,7 @@
         {
           name: "download the portable share's attestation",
           id: "share-download",
-          if: "github.event_name != 'merge_group'",
+          if: "github.event_name != 'merge_group' && github.event_name != 'pull_request'",
           "continue-on-error": true,
           uses: "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c", # v8
           with: {name: "portable-share-alpine-x86_64", path: "${{ runner.temp }}/cosmic-ci/products/portable-share-alpine-x86_64"},
@@ -2672,6 +2874,7 @@
         },
         {
           name: "compare the Cosmic bytes executed on every native host",
+          if: "github.event_name != 'pull_request'",
           "working-directory": "ci",
           # How many products and portable shares the run has: the
           # queue's one leg and no share; every other run's four legs,
@@ -2691,7 +2894,7 @@
         },
         {
           name: "preserve provenance operations",
-          if: "always()",
+          if: "always() && github.event_name != 'pull_request'",
           uses: "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f", # v7
           with: {
             name: "provenance-operations",

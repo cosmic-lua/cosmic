@@ -1,11 +1,11 @@
---- The paths a branch changed since its base on main, for a light run's
---- format check (ci.yml's `format` job), which lays out only those and
+--- The paths a pull request changed since its base on main, for its
+--- format check (ci.yml's `pull-request` job), which lays out only those and
 --- makes every check spanning files over the whole tree (`cosmic fix
 --- --check --changed`, through cosmic_ci's orchestration):
 ---
 ---     BASE=<commit> OUT=<file> cosmic-driver cosmic_ci/driver.tl changed-paths
 ---
---- BASE is the tree's base on main (`merge-base`), whose tree main's own
+--- BASE is the tree's merge base with main (`ceilings-base`), whose tree main's own
 --- run held to the whole tree's check. `changed-paths` fetches that one
 --- commit into the checkout (from origin, with the credentials
 --- actions/checkout keeps), writes every path HEAD adds, changes or

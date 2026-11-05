@@ -1746,16 +1746,15 @@ end
 --- The format check's command, below: `fix --check .`, or, where
 --- COSMIC_CI_FORMAT_CHANGED names a file, one path a line, of what
 --- changed since the tree's base on main, which passed the whole tree's
---- check (driver.tl changed-paths), `fix --check --changed` of those
+--- check (driver.tl changed-paths, ci.yml's pull request check), `fix --check --changed` of those
 --- paths, which lays out only them yet makes every check spanning files
 --- over the whole tree, and lays out all of it where a path named is part
 --- of what checks each file. A file that cannot be read checks the whole
 --- tree.
--- TODO: remove COSMIC_CI_FORMAT_CHANGED and driver.tl changed-paths, the
--- format phase's memo (COSMIC_CI_CHECK_MEMO) and COSMIC_CI_SHARD, with
--- their tests: ci.yml's light run of a branch's push set them, and no
--- job sets them since a branch's push stopped running CI. Kept while a
--- return of some CI on a branch's push is still weighed.
+-- TODO: remove the format phase's memo (COSMIC_CI_CHECK_MEMO) and
+-- COSMIC_CI_SHARD, with their tests: ci.yml's light run of a branch's
+-- push set them, and no job sets them since a branch's push stopped
+-- running CI (a pull request's check names its changed paths alone).
 local function format_command(root: string): {string}
   local command = { BuildPaths.directory(root) .. "/bin/cosmic", "fix", "--check" }
   local listed = Env.get("COSMIC_CI_FORMAT_CHANGED") or ""
