@@ -430,7 +430,7 @@ local function test_a_tool_test_stands_across_a_rebuild_that_moved_nothing_it_ca
 end
 
 --- A test that declares `tool` stands across a rebuild of the tool at another path: CI places each commit's
---- checkout at a path of its own, and the tool records it (`built_from`). A sandboxed worker never sees that path.
+--- checkout at a path of its own, and the tool records it (`built_from`). A sandboxed worker sees it only through /proc mount info, which no test reads.
 local function test_a_tool_test_stands_across_a_rebuild_at_another_path(tmp: string)
   local rebuild, ran = tool_project(tmp)
   rebuild("INSERT OR REPLACE INTO meta (key, value) VALUES ('built_from', '/ci/one/checkout')")

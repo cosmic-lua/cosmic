@@ -458,13 +458,22 @@ local not_tree_wide <const> = "key NOT IN ('boot_hash', 'projected')"
 --- `built_from`, the checkout's own path ([`build.identity`]'s
 --- `record_fingerprint`), is left out of what a key holds, but when it
 --- is "/tree". Every other row holds a digest or a module's name. A
---- sandboxed worker sees the tree at "/tree" and never the path it was
---- built at, so nothing a worker does turns on that path but whether it
---- is the worker's own root (build.tree's `standing_of`), which only
---- "/tree" is. An unsandboxed worker sees the real path, and its key
---- holds where the tree is ([`Spec`]'s `tree`). CI puts each commit's
---- checkout at a path of its own, so a key that held the path would
---- stand on no verdict another checkout reached.
+--- sandboxed worker sees the tree at "/tree" and the path it was built
+--- at only through /proc mount info, which no test reads, so nothing a
+--- worker does turns on that path but whether it is the worker's own
+--- root (build.tree's `standing_of`), which "/tree" is. "/tree" is the
+--- only fixed root covered: a worker also sees "/tree-up", "/program"
+--- and a padded scratch directory, and a tool built at one of those
+--- would answer differently. No build directory is placed there.
+--- An unsandboxed worker sees the real path, and its key holds where the
+--- tree is ([`Spec`]'s `tree`). CI puts each commit's checkout at a path
+--- of its own, so a key that held the path would stand on no verdict
+--- another checkout reached.
+-- TODO: hold the other fixed roots a worker sees as "/tree" is held,
+-- once a nested run that shares a verdict cache with its parent is known
+-- to be placed at one: today only a checkout at one of them, which CI
+-- and `bin/zig build boot` never make, could key alike and answer
+-- differently.
 local not_placed <const> = "NOT (key = 'built_from' AND value <> '/tree')"
 
 --- The digest of every row the SQLite database `database` holds, and
@@ -841,9 +850,16 @@ end
 --- What the file at `path`, o/cosmic.db as a `store` worker is given it,
 --- holds, for a key: the digest of its rows, but for the `meta` row that
 --- names the checkout it was written in ([`not_placed`]), so the same
---- tree written at another path keys the same. A file that is no
---- database is keyed by its bytes, as any other file. Remembered in
---- `digests` under a name of its own.
+--- tree written at another path keys the same. A store test is keyed by
+--- rows, not bytes, so two projections with the same rows on different
+--- pages key the same. That is sound: a worker reads the file through
+--- SQLite, which answers from rows, and the digest holds each row's
+--- rowid, type and bytes in order. A file that is no database is keyed
+--- by its bytes, as any other file. Remembered in `digests` under a
+--- name of its own.
+-- TODO: decide `boot_hash` and `projected`, which still move every store
+-- test on any edit to the tree, with the meta-key registry (hash-design.md
+-- PR 3), which says for each meta row which consumer observes it.
 local function projection(digests: declared_key.Digests, path: string): string
   local st, _ = sys.stat(path)
   if st == nil or st.kind ~= "file" then return tree(digests, path) end
