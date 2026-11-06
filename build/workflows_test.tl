@@ -1453,6 +1453,11 @@ local QUEUE_SKIPS <const> = "github.event_name != 'merge_group' && github.event_
 --- What a pull request skips beside.
 local PR_SKIPS <const> = "github.event_name != 'pull_request'"
 
+--- The format check's runs: linux-x86_64's, on every run but main's push
+--- and the daily one.
+local FORMAT_RUNS <const> = "matrix.name == 'linux-x86_64' && github.event_name != 'push' && " ..
+  "github.event.schedule != '41 3 * * 1-6'"
+
 --- The phases the platform job's steps run on a run that skips the steps
 --- whose condition holds `skips`: the portable boundary runs where the
 --- portable suite did.
@@ -1470,8 +1475,9 @@ local function phases_unless(steps: {Step}, skips: string): string
 end
 
 --- In the merge queue, the leg boots, runs its native suite and its
---- boundary, checks the pinned driver, the bootstrap's scripts and the
---- tree's format, and probes the sandbox: everything past that (assemble,
+--- boundary, checks the bootstrap's scripts, the tree's format and,
+--- where the change reaches its tests, the pinned driver, and probes the
+--- sandbox: everything past that (assemble,
 --- the regressions, the portable suite, the attestation and the product,
 --- the credential proofs, the declared-types tests) is main's, and so are
 --- the checked and narrowing jobs, which the queue skips.
@@ -1489,13 +1495,36 @@ local function test_the_merge_queue_runs_the_native_suite_and_the_format_check_a
   end
   local suite = step_named(steps, "run release Cosmic's native suite")
   assert(suite["if"] == PR_SKIPS, "the native suite is skipped on some run but a pull request's: " .. tostring(suite["if"]))
-  local check = step_running(steps, "cosmic-driver test cosmic_ci")
-  assert(check["if"] == PR_SKIPS and map_of(check.env)["COSMIC_TEST_SANDBOX"] == "0",
-    "the pinned driver is checked on some runs alone")
   local format = step_named(steps, "check the tree's format")
-  assert(format["if"] == "matrix.name == 'linux-x86_64'" and map_of(format.env)["COSMIC_CI_FORMAT"] == "run" and
+  assert(format["if"] == FORMAT_RUNS and map_of(format.env)["COSMIC_CI_FORMAT"] == "run" and
       map_of(job_of(jobs, "platform").env)["COSMIC_CI_FORMAT"] == "skip",
     "the format check runs elsewhere than on linux-x86_64, or in assemble too")
+end
+
+--- Main moves only through the merge queue, so main's push tests the very
+--- commit the queue just checked: it repeats neither the format check nor
+--- the pinned driver's, which the daily, weekly and a manual run make on
+--- every leg. The queue checks the pinned driver only where what the
+--- commit changed reaches what its tests read (ci/ and .github/), or where
+--- the paths changed are not known.
+local function test_mains_push_repeats_nothing_the_queue_checked()
+  local steps = job_of(ci_workflow().jobs, "platform").steps
+  local base = step_named(steps, "find the base the markers are held to")
+  assert(base["if"] == FORMAT_RUNS, "the markers' base is found on main's push: " .. tostring(base["if"]))
+  local check = step_running(steps, "cosmic-driver test cosmic_ci")
+  assert(check["if"] == "github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || " ..
+      "steps.reach.outputs.driver == 'run'" and map_of(check.env)["COSMIC_TEST_SANDBOX"] == "0",
+    "the pinned driver is checked on other runs: " .. tostring(check["if"]))
+  local reach, at = step_with_id(steps, "reach")
+  local _, check_at = step_named(steps, "check the pinned CI driver")
+  local _, changed_at = step_with_id(steps, "changed")
+  assert(changed_at < at and at < check_at, "the driver's check is asked of the paths changed out of order")
+  assert(reach["if"] == "matrix.name == 'linux-x86_64' && github.event_name == 'merge_group'" and
+      map_of(reach.env)["PATHS"] == "${{ steps.changed.outputs.paths }}" and
+      (reach.run or ""):find("[ -z \"$PATHS\" ] || grep -qE '^(ci|\\.github)/' \"$PATHS\"", 1, true) ~= nil,
+    "the queue asks otherwise whether the change reaches the driver's tests")
+  local islands = step_named(steps, "type-check the bootstrap's scripts on the pinned driver")
+  assert(islands["if"] == "matrix.name == 'linux-x86_64' && github.event_name != 'push'", "the bootstrap's scripts")
 end
 
 --- Only main's push and the weekly run save a cache (COSMIC_CI_SAVES):
@@ -1577,14 +1606,15 @@ local function test_a_pull_request_runs_the_light_check_alone()
   local steps = job_of(ci.jobs, "platform").steps
   local phases = phases_unless(steps, PR_SKIPS)
   assert(phases == "boot format", "a pull request's leg runs " .. phases)
-  local changed = step_named(steps, "name the paths the pull request changed")
-  assert(changed["if"] == "matrix.name == 'linux-x86_64' && github.event_name == 'pull_request' && " ..
+  local changed = step_named(steps, "name the paths the commit changed")
+  assert(changed["if"] == "matrix.name == 'linux-x86_64' && (github.event_name == 'merge_group' || " ..
+      "github.event_name == 'pull_request') && " ..
       "steps.ceilings-base.outputs.sha != ''" and map_of(changed.env)["BASE"] == "${{ steps.ceilings-base.outputs.sha }}" and
       (changed.run or ""):find("driver.tl changed-paths", 1, true) ~= nil, "the paths changed are named otherwise")
   assert(map_of(step_named(steps, "check the tree's format").env)["COSMIC_CI_FORMAT_CHANGED"] ==
       "${{ steps.changed.outputs.paths }}", "the check is not given the paths changed")
   local base = step_named(steps, "find the base the markers are held to")
-  assert(base["if"] == "matrix.name == 'linux-x86_64'", "the markers are held to no base on a pull request")
+  assert(base["if"] == FORMAT_RUNS, "the markers are held to no base on a pull request")
   assert(names_of(platform_legs("queue")) == "linux-x86_64", "a pull request's legs")
   for _, name in ipairs({ "checked", "narrowing" }) do
     assert(job_of(ci.jobs, name)["if"] == QUEUE_SKIPS, name .. " runs on a pull request")
