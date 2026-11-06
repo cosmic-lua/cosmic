@@ -397,15 +397,23 @@ are where CI answers for everything. A branch's push runs nothing.
   probes the sandbox. Nothing else: no assemble, regressions, portable
   suite or product, and no checked or narrowing job, which read as passed
   in the gate, as on a pull request.
-- **a push to main**, **the weekly run** and **a manual run** run all four
-  legs whole (the native suite, the credential proofs, assemble, the
-  regressions, the portable suite, the attestation and the product), the
-  checked core's whole suite (`checked`) and the whole suite on a checked
-  run (`narrowing`), and the gate compares the four products
-  (`COSMIC_CI_PRODUCTS=4`), which prerelease.yml publishes from main's
-  run. A failure only those show turns main red after the change has
-  landed, to be fixed or reverted at once. The weekly run also stands on
-  no verdict (`COSMIC_CI_EVENT`) and runs the fixed-point regression.
+- **a push to main** runs three legs whole, every leg but macOS (the
+  native suite, the credential proofs, assemble, the regressions, the
+  portable suite, the attestation and the product), the checked core's
+  whole suite (`checked`) and the whole suite on a checked run
+  (`narrowing`), and the gate compares the three products
+  (`COSMIC_CI_PRODUCTS=3`). It publishes nothing. A failure only these
+  show turns main red after the change has landed, to be fixed or
+  reverted at once.
+- **the daily scheduled run** and **a manual run** run all that and the
+  macOS leg, and the gate compares the four products, which
+  prerelease.yml publishes: a prerelease is tested on all four legs, and
+  at most a day behind main. The daily run stands on the verdicts main's
+  pushes left, as a push does (`COSMIC_CI_EVENT`); Sunday's, the weekly
+  run, stands on none, runs the fixed-point regression, and builds zig's
+  caches cold. macOS keys its verdicts by the tree's path, which a
+  scheduled run chooses by the commit, so its leg runs every test each
+  day and saves none.
 
 Each job is a plain sequence of steps on one runner: no job relays
 verdicts, markers or products to another run, none is split into shares,
@@ -413,26 +421,26 @@ and none waits on another but the gate. That costs main's run its wall
 clock, which no one waits on, rather than runner minutes; the queue's one
 leg takes the time of its boot and native suite.
 
-`COSMIC_CI_SAVES` is `true` only for a push to main and the weekly run, the
-only runs that save a cache, and is decided in the top-level `env`. The
+`COSMIC_CI_SAVES` is `true` only for a push to main and the scheduled runs,
+the only runs that save a cache, and is decided in the top-level `env`. The
 driver does not read it (it is `COSMIC_CI_*`, which a suite's workers are
 never given).
 
-The platform job's `include` is an expression that chooses one of two
+The platform job's `include` is an expression that chooses one of three
 lists by the kind of run (linux-x86_64 alone for the queue and a pull
-request, all four legs otherwise), each listing every leg whole: an `include` entry
-naming a leg no dimension holds would start that leg anyway (GitHub adds
-an entry that fits no combination as one of its own). build/workflows_test.tl
-reads both as GitHub would.
+request, every leg but macOS for a push to main, all four otherwise),
+each listing every leg whole: an `include` entry naming a leg no
+dimension holds would start that leg anyway (GitHub adds an entry that
+fits no combination as one of its own). build/workflows_test.tl reads all
+three as GitHub would.
 
-A newer manual run supersedes a branch's, but every main run finishes (a
-prerelease is published only from a completed run) and main's pushes run
+A newer manual run supersedes a branch's, but every main run finishes and
+main's pushes run
 one at a time, in one concurrency group, so the caches they save land in
 commit order. GitHub keeps one pending run per group and cancels it when a
 third arrives, so a commit that lands while main is busy and another run
-waits gets no run and no prerelease; a pin moves to a later one. The
-weekly run has a group of its own: pending behind a push, the next push
-would cancel it. A manual run has a group per ref: it saves nothing, so in
+waits gets no run. The scheduled runs have a group of their own: pending
+behind a push, the next push would cancel one. A manual run has a group per ref: it saves nothing, so in
 main's group it could cancel a pending push, or be cancelled by one.
 Batching the merge queue (its group size, a repository setting) divides
 the queue's and main's runs by the group's size.

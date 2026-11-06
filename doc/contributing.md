@@ -227,12 +227,12 @@ and push. never skip or disable a test to get green.
 the queue's run is a light, fast gate: linux-x86_64's native suite and
 the tree's format check. everything else (the other legs, assemble, the
 regressions and product suite, the checked suite and the checked
-narrowing run) runs on main's push after the merge, so a failure only
-those show turns main red after the change lands; fix it, or revert the
-change, at once. a change to what they prove more than the native suite
+narrowing run) runs on main's push after the merge, and macOS in main's
+daily scheduled run, so a failure only those show turns main red after
+the change lands; fix it, or revert the change, at once. a change to what they prove more than the native suite
 does (ci/, bin/, the core's C, `build.zig`, vendor/ and patch/, the
 harness's epoch, the artifact, launcher and boot modules, a darwin
-branch, code the checked core or a checked run would catch) runs CI on
+branch or anything macOS-specific, code the checked core or a checked run would catch) runs CI on
 its branch first: a manual run (`workflow_dispatch` on the branch, from
 the Actions tab or `gh workflow run ci.yml --ref <branch>`) runs what
 main's run does.
