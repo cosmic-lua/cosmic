@@ -163,7 +163,7 @@ promises lean on come first:
     messages, and it asks for an `id` only of the drafts that carry the tag,
     which a record would ask of every release.
   - the workflow files, read as JSON5 and cast to maps in
-    [`ci/cosmic_ci/queue_stage_test.tl`], [`build/workflows_test.tl`] and
+    [`build/workflows_test.tl`] and
     `ci/cosmic_ci/orchestration_test.tl`: a record per job, step and matrix
     entry would restate GitHub's schema for the few keys a test reads.
   - readers that are lenient on purpose ([`eval/summarize.tl`] reads a
@@ -425,7 +425,6 @@ four-producer provenance join.
 [`Child.end_strays`]: ../cosmic/child.tl
 [`ci/cosmic-driver.pin`]: ../ci/cosmic-driver.pin
 [`ci/cosmic_ci/prerelease.tl`]: ../ci/cosmic_ci/prerelease.tl
-[`ci/cosmic_ci/queue_stage_test.tl`]: ../ci/cosmic_ci/queue_stage_test.tl
 [`core/coverage.c`]: ../core/coverage.c
 [`core/json.c`]: ../core/json.c
 [`cosmic.fs`]: ../cosmic/fs.tl

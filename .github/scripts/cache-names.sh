@@ -6,6 +6,4 @@ set -eu
 
 echo "vendor=zig-build-$LEG-$VENDOR-" >> "$GITHUB_OUTPUT"
 echo "core=$CORE" >> "$GITHUB_OUTPUT"
-echo "image=${ImageOS:-}-${ImageVersion:-}" >> "$GITHUB_OUTPUT"
 echo "since=$(date +%s)" >> "$GITHUB_OUTPUT"
-echo "compiles=compiles-branch-$LEG-$COMPILER-" >> "$GITHUB_OUTPUT"

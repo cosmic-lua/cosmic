@@ -10,7 +10,6 @@
 --- the tree the modules it runs require.
 
 local Codec = require("cosmic.codec")
-local Fs = require("cosmic.fs")
 local Rand = require("cosmic.rand")
 local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
@@ -31,8 +30,7 @@ local support = require("build.test_support_fixture")
 --- `timeout`: the test that swaps each of the harness's 40-odd modules in
 --- turn asks for the digests of the whole tree once per module, 0.3 s each
 --- on an idle host, and the full suite runs it beside thousands of others.
-Test.policy{ grants = { { path = "o/cosmic.db", letters = "r" },
-  { path = "ci/harness-files.txt", letters = "r" } }, timeout = 120 }
+Test.policy{ grants = { { path = "o/cosmic.db", letters = "r" } }, timeout = 120 }
 
 local projection = build_paths.resolve(".").projection
 
@@ -323,35 +321,6 @@ local function test_the_guard_holds_the_epoch_to_its_retired_tokens()
   local resolved, still = applied(line, append, after)
   assert(resolved:match("^9%-") and resolved ~= epoch, resolved)
   assert(epoch_trouble(resolved, still) == nil, tostring(epoch_trouble(resolved, still)))
-end
-
---- CI's queue-ahead step takes nothing from the run ahead where the change edits a file of the harness
---- (ci/cosmic_ci/queue_seed.tl), which it reads from ci/harness-files.txt, since ci/ cannot
---- call this module. The list is the files of the harness's modules and of build/harness_epoch.tl.
-local function test_the_list_of_the_harness_files_is_the_harness()
-  local db = assert(Sqlite.open(projection))
-  local found, trouble = test_key.harness(db)
-  assert(found ~= nil, trouble)
-  local expected: mut {string} = { "build/harness_epoch.tl" }
-  local seen: mut {string:boolean} = { ["build/harness_epoch.tl"] = true }
-  for _, name in ipairs(found.names) do
-    local rows = assert(Sqlite.text_rows(db, "SELECT file FROM modules WHERE path = ?1", { { text = name } }))
-    local file = support.nth(rows, 1):text(1)
-    if seen[file] ~= true then
-      seen[file] = true
-      expected[#expected + 1] = file
-    end
-  end
-  db:close()
-  table.sort(expected)
-  local listed: mut {string} = {}
-  for line in (assert(Fs.read("ci/harness-files.txt"))):gmatch("[^\n]+") do
-    if not line:find("^%s*#") then listed[#listed + 1] = line end
-  end
-  table.sort(listed)
-  assert(table.concat(listed, "\n") == table.concat(expected, "\n"),
-    "ci/harness-files.txt lists the harness's files other than they are; it holds, one to a line " ..
-      "after its comment:\n" .. table.concat(expected, "\n"))
 end
 
 --- A require the harness never follows: cosmic's main hands the
