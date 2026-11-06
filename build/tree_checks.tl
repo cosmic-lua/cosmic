@@ -237,6 +237,9 @@ allowed["build.identity.writer_modules"] = "what build/importer_test.tl holds th
   "writer's identity, the compiler's, or neither with a reason"
 allowed["build.identity.writer_left_out"] = "what build/importer_test.tl holds to the " ..
   "requires of the writer's roots"
+allowed["build.test_key.sealed_meta"] = "what build/sealed_meta_test.tl holds the rows of a " ..
+  "sealed database to: the value of a row its worker reads, the marker of one it does not, and a " ..
+  "refusal where the process has no value to hand on"
 allowed["build.reboot.carries_tree_code"] = "what build/reboot_test.tl holds to " ..
   "the modules a tree holds and the binary carries"
 allowed["build.declared_key.preimage"] = "what build/declared_key_fuzz_test.tl " ..
@@ -699,9 +702,20 @@ end
 
 --- Whether `line` reads one of the `meta` rows `entry.keys` by its quoted
 --- name, as [`Store.meta`] takes it (or a function of the module that
---- passes it on, `meta_of`), and, where `entry.dynamic` holds, a row by a
---- name no reader can see: [`Store.meta`] called with anything but a string.
+--- passes it on, `meta_of`); or reads a row by a name no reader can see:
+--- [`Store.meta`] called with anything but a string, or with a string and
+--- more (`"image_" .. rest`); or takes [`Store.meta`] as a value, in code,
+--- (after an `=`, a `,` or a `(`), where an alias or a callback would read
+--- any row. A declaration of the
+--- function is none of these.
+---
+-- TODO: see a read of a row in SQL over a handle [`Store.databases`] answers,
+-- which a scan of lines cannot tell from one over any other database, once
+-- the checker answers which module opens a handle from the store's databases.
+-- Until then the store's loud refusal ([`Store.meta`] raises for a withheld
+-- row) is the backstop for a read by name; a query of the handle finds no row.
 local function reads(line: string, entry: key_parts.MetaReaders): boolean
+  if line:find("^%s*function ") ~= nil then return false end
   for _, name in ipairs(entry.keys) do
     for _, quote in ipairs({ '"', "'" }) do
       for _, call in ipairs({ "meta", "meta_of" }) do
@@ -709,7 +723,23 @@ local function reads(line: string, entry: key_parts.MetaReaders): boolean
       end
     end
   end
-  return entry.dynamic and line:find("Store%.meta%(%s*[^\"'%s]") ~= nil and line:find("^%s*function ") == nil
+  if line:find("Store%.meta%(%s*[^\"'%s]") ~= nil then return true end
+  if line:find("Store%.meta%(%s*[\"'][^\"']*[\"']%s*%.%.") ~= nil then return true end
+  if line:find("^%s*%-%-") == nil then
+    local at = 1
+    while true do
+      local first, last = line:find("Store%.meta", at, false)
+      if first == nil or last == nil then break end
+      local rest = line:sub(last + 1)
+      local before = line:sub(1, first - 1)
+      if rest:find("^%s*%(") == nil and rest:find("^[%w_\"'`]") == nil and
+          before:find("[=,(]%s*$") ~= nil and before:find("==%s*$") == nil then
+        return true
+      end
+      at = last + 1
+    end
+  end
+  return false
 end
 
 --- Each module of `db` that reads a row of the group `group` of

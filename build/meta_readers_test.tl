@@ -6,6 +6,7 @@
 
 local fixture = require("build.docs_fixture")
 local tree_checks = require("build.tree_checks")
+local support = require("build.test_support_fixture")
 
 --- A module of one line, `line`, after its require.
 local function module_of(line: string): string
@@ -33,12 +34,11 @@ local function test_a_read_of_the_compiler_is_seen(dir: string)
 end
 
 --- A read of `image_hash` by a quoted name, through [`Store.meta`] or a
---- function that passes the name on, is seen; one by a name that is no
---- string literal is not (a worker without the row is answered nil, where
---- the compiler's identity would be answered by the tool). A module the
---- group's lists name, as a reader or a carrier, is not refused, and one
---- they name that reads none is stale. A read of the compiler's identity
---- is no read of it.
+--- function that passes the name on, is seen; so is one by a name that is
+--- no string literal, one by a name joined to more, and [`Store.meta`] taken
+--- as a value (an alias). A module the group's lists name, as a reader or a
+--- carrier, is not refused, and one they name that reads none is stale. A
+--- read of the compiler's identity by its name is no read of the image.
 local function test_a_read_of_the_image_hash_is_seen(dir: string)
   local call = "Store.meta"
   local db = fixture.database(dir, {
@@ -46,16 +46,27 @@ local function test_a_read_of_the_image_hash_is_seen(dir: string)
     ["build/quoted.tl"] = module_of("local image = " .. call .. "( 'image_hash' )"),
     ["build/passed.tl"] = module_of("local image = meta_of" .. '("image_hash", seen)'),
     ["build/keyed.tl"] = module_of("local key = 'x'\nlocal value = " .. call .. "(key)"),
+    ["build/joined.tl"] = module_of("local value = " .. call .. '("image_" .. rest)'),
+    ["build/aliased.tl"] = module_of("local meta = " .. call .. "\nlocal value = meta(\"x\")"),
     ["build/compiler.tl"] = module_of("local tool = " .. call .. '("compiler")'),
     ["build/declares.tl"] = module_of("function " .. call .. "(key: string): string? end"),
+    ["build/quiet.tl"] = module_of("-- " .. call .. " is the store's, and " .. call .. "(x) in a comment"),
   })
-  local found = tree_checks.meta_readers(db, "image_hash", { "build.reader", "build.gone" })
-  assert(#found == 3, table.concat(found, "\n"))
-  assert(found[1]:find("^build%.passed reads the meta row image_hash, but") ~= nil, found[1])
-  assert(found[2]:find("^build%.quoted reads the meta row image_hash, but") ~= nil, found[2])
-  assert(found[3]:find("^build%.gone is named in") ~= nil, found[3])
-  assert(#tree_checks.meta_readers(db, "image_hash", { "build.reader", "build.quoted", "build.passed" }) == 0)
-  local compiler = tree_checks.meta_readers(db, "compiler", { "build.compiler", "build.keyed" })
+  local named = { "build.reader", "build.quoted", "build.passed", "build.gone" }
+  local found = tree_checks.meta_readers(db, "image_hash", named)
+  assert(#found == 5, table.concat(found, "\n"))
+  local wanted = { "aliased", "joined", "keyed" }
+  for i, name in ipairs(wanted) do
+    assert(support.nth(found, i):find("^build%." .. name .. " reads the meta row image_hash, but") ~= nil,
+      table.concat(found, "\n"))
+  end
+  assert(support.nth(found, 5):find("^build%.gone is named in") ~= nil, table.concat(found, "\n"))
+  assert(support.nth(found, 4):find("^build%.quiet reads") ~= nil, table.concat(found, "\n"))
+  local all = { "build.reader", "build.quoted", "build.passed", "build.keyed", "build.joined", "build.aliased",
+    "build.quiet" }
+  assert(#tree_checks.meta_readers(db, "image_hash", all) == 0)
+  local compiler = tree_checks.meta_readers(db, "compiler", { "build.compiler", "build.keyed", "build.joined",
+    "build.aliased", "build.quiet" })
   assert(#compiler == 0, table.concat(compiler, "\n"))
 end
 

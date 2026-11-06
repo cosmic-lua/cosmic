@@ -608,6 +608,7 @@ local function test_a_closure_store_holds_the_image_hash_only_for_a_reader(tmp: 
       assert(closure_store.write(whole, tmp .. "/" .. tag .. name .. ".db", closure, basis))
       out[name .. " bytes"] = assert(Fs.read(tmp .. "/" .. tag .. name .. ".db"))
       out[name .. " image"] = meta_of(tmp .. "/" .. tag .. name .. ".db", "image_hash") or "none"
+      out[name .. " marker"] = meta_of(tmp .. "/" .. tag .. name .. ".db", "withheld_meta") or "none"
     end
     return out
   end
@@ -623,6 +624,11 @@ local function test_a_closure_store_holds_the_image_hash_only_for_a_reader(tmp: 
     assert(one[name .. " address"] == two[name .. " address"], name .. ": image_hash moved the address")
     assert(one[name .. " bytes"] == two[name .. " bytes"], name .. ": image_hash moved the store's bytes")
   end
+  -- In its place the same marker, whatever the row holds, so no edit moves a byte of it.
+  assert(one["plain marker"] == "image_hash" and one["base marker"] == "image_hash",
+    "a store that withholds image_hash does not say so")
+  assert(one["reader marker"] == "none" and two["reader marker"] == "none",
+    "a store that holds image_hash says it withholds it")
   assert(one["plain address"] ~= one["reader address"])
 end
 

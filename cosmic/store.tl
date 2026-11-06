@@ -119,8 +119,21 @@ function Store.bytecode(name: string): string?, string
 end
 
 --- One entry of the meta table, which is where a build records what it
---- decided. Nil when no database holds that key.
+--- decided. Nil when no database holds that key. Raises for a key the
+--- store withholds: a test's store names the rows it leaves out in its
+--- `withheld_meta` row (one key a line), and a read of one of them is an
+--- error, not an answer, since a caller would take a nil for a missing
+--- row and carry on.
 function Store.meta(key: string): string?
+  local withheld = store.meta("withheld_meta")
+  if withheld ~= nil and key ~= "withheld_meta" then
+    for name in withheld:gmatch("[^\n]+") do
+      if name == key then
+        error("meta " .. key .. " is withheld from this test's store: a module that reads it " ..
+            "is declared in build/key_parts.tl's meta_readers", 2)
+      end
+    end
+  end
   return store.meta(key)
 end
 
@@ -589,7 +602,8 @@ end
 --- those modules, and the `meta` rows a program needs to run: its
 --- `core_sha256` (the digest of the core that seals, which a core started
 --- on the file refuses to run unless it is its own), `runtime_basis` and
---- `image_hash`, and `main` when `opts.main` names
+--- `image_hash` (a store that withholds it from a test seals its
+--- `withheld_meta` row in its place, not the value), and `main` when `opts.main` names
 --- the module to run (one of `names`). Only the `imports` rows between
 --- the names given go along. Nothing else of the store goes
 --- along -- no docs, tests, catalog or notices -- except the time zones,
@@ -685,8 +699,14 @@ function Store.seal(names: {string}, path?: string,
   end
   local identity: mut {MetaRow} = {
     { key = "core_sha256", value = core }, { key = "runtime_basis", value = basis } }
-  local image = Store.meta("image_hash")
-  if image ~= nil then
+  -- The rows are read raw, as the store holds them: a test's store that
+  -- withholds `image_hash` (its `withheld_meta` row names it) seals the
+  -- same marker in its place, and one that holds the value seals the value.
+  local withheld = store.meta("withheld_meta")
+  local image = store.meta("image_hash")
+  if withheld ~= nil then
+    table.insert(identity, 1, { key = "withheld_meta", value = withheld })
+  elseif image ~= nil then
     table.insert(identity, 1, { key = "image_hash", value = image })
   end
   local made_scratch, scratch_trouble = Fs.mkdtemp("seal-")

@@ -36,6 +36,12 @@ local schema = require("build.schema")
 local String = require("cosmic.string")
 
 local record closure_store
+  --- The `meta` row that names the keys a store withholds from a test, and
+  --- what it holds where the store withholds `image_hash` ([`Store.meta`]
+  --- raises for a key it names).
+  mut withheld_row: string
+  mut withheld_text: string
+
   --- What every closure store a projection yields is a function of,
   --- read once from the projection ([`closure_store.basis`]).
   ---
@@ -141,13 +147,32 @@ local closure_meta <const> = "('main', 'runtime_basis')"
 --- `meta_readers`). It is the digest of the core's inputs and the
 --- compiler's seed files, so it moves with an edit to any of them: a store
 --- that held it for every closure would be written again, and every test
---- run again, for an edit no test of it reads. A worker given none finds
---- no row, and [`Store.meta`] answers nil.
+--- run again, for an edit no test of it reads. A worker given none finds no
+--- row, and in its place a `withheld_meta` row (`withheld_row`) names it:
+--- [`Store.meta`] raises for a key it names, where a nil would read as a row
+--- the build never wrote. The marker is the same bytes in every such
+--- store, so an edit that moves the row's value moves nothing of it.
 local gated_meta <const> = "image_hash"
+
+--- The `meta` row that names the keys a store withholds, and what it holds
+--- in a store that withholds `gated_meta`: a list of keys, one a line.
+closure_store.withheld_row = "withheld_meta"
+closure_store.withheld_text = gated_meta
 
 --- Whether a store of the closure `names` holds the `gated_meta` row.
 local function carries_image(names: {string}): boolean
   return key_parts.reads_meta(names, gated_meta)
+end
+
+--- The statement that fills a store's `meta`: the rows of `closure_meta`, and
+--- the `gated_meta` row where `image`, else the marker that withholds it.
+local function meta_statement(image: boolean): string
+  if image then
+    return "INSERT INTO main.meta SELECT * FROM whole.meta WHERE key IN " .. closure_meta ..
+      " OR key = '" .. gated_meta .. "' ORDER BY key"
+  end
+  return "INSERT INTO main.meta SELECT * FROM whole.meta WHERE key IN " .. closure_meta ..
+    " UNION ALL SELECT '" .. closure_store.withheld_row .. "', '" .. closure_store.withheld_text .. "' ORDER BY key"
 end
 
 --- The names `source`, a declaration's, requires: each literal name
@@ -868,8 +893,7 @@ end
 --- the projection's writer decides and no digest holds, sets no id.
 local function closed(uses_from: string, image: boolean): {string}
   return {
-    "INSERT INTO main.meta SELECT * FROM whole.meta WHERE key IN " .. closure_meta ..
-      (if image then " OR key = '" .. gated_meta .. "'" else "" end) .. " ORDER BY key",
+    meta_statement(image),
     -- Every column but the key, which holds the compiler's identity: no
     -- worker reads a store's keys, and its address holds what the
     -- compiler made instead ([`Basis`]).
@@ -924,8 +948,7 @@ end
 --- of all but the test's own.
 local function closed_pure(image: boolean): {string}
   return {
-    "INSERT INTO main.meta SELECT * FROM whole.meta WHERE key IN " .. closure_meta ..
-      (if image then " OR key = '" .. gated_meta .. "'" else "" end) .. " ORDER BY key",
+    meta_statement(image),
     "INSERT INTO main.modules (path, file, kind, source_hash, key, bytecode, tests, source) " ..
       "SELECT path, file, kind, X'', X'', bytecode, tests, X'' FROM whole.modules " ..
       "WHERE path IN temp.wanted ORDER BY path",

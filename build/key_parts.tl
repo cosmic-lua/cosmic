@@ -35,12 +35,6 @@ local record key_parts
     --- was given, so a test that runs one needs no row and is keyed by
     --- none beyond the store's own bytes.
     carriers: {string}
-    --- Whether a read by a name that is not spelled out (a [`Store.meta`] of a variable)
-    --- counts as a read of the group, for [`build.tree_checks`]. It does
-    --- where a worker that misses the reader would be answered by the
-    --- running tool with a value no key holds (the compiler's identity),
-    --- and does not where a closure without a reader finds no row.
-    dynamic: boolean
   end
 end
 
@@ -162,18 +156,30 @@ local compiler_readers <const>: {string} = {
 ---   seed files ([`build.identity`]), which an edit to a seed file moves.
 ---   A closure store carries it, and a sealed database copies it, only
 ---   for a closure that holds a reader ([`build.closure_store`]'s
----   `address`), so the store's bytes in the key hold it exactly where
----   it is read. Any other worker finds no such row, and [`Store.meta`]
----   answers nil: a read the map misses fails, and does not stand on a
----   value no key holds. [`build.reboot`] compares the tool's with the
----   tree's. [`cosmic.store`]'s `seal` and [`build.test_key`]'s sealed
----   database copy what they find, and so are carriers.
+---   `address`). The store's value comes from the projection and the
+---   sealed database's from the running tool; they are equal, since a
+---   tool whose core differs from the tree's boots before it tests. A
+---   sealed worker reads the sealed database's, the store's bytes in the
+---   key hold the other, and a store whose closure holds no reader holds
+---   a `withheld_meta` row naming the key in its place: [`Store.meta`]
+---   raises for it, so a read the map misses fails loudly, never as a
+---   nil that a caller takes for a missing row or as a value no key
+---   holds. [`build.reboot`] compares the tool's with the tree's.
+---   [`cosmic.store`]'s `seal` and [`build.test_key`]'s sealed database
+---   hand on what they find (the marker, in a store that withholds it),
+---   and so are carriers. So are the tests that swap [`Store.meta`] for a
+---   stand-in and put it back, for either group: they read no row of the
+---   store.
 local meta_readers <const>: {string:key_parts.MetaReaders} = {
   compiler = {
-    keys = { "compiler", "compiled_by" }, readers = compiler_readers, carriers = {}, dynamic = true,
+    keys = { "compiler", "compiled_by" }, readers = compiler_readers, carriers = {
+      "build.importer_boot_test", "build.shared_parses_test", "cosmic.web.assets_test",
+    },
   },
   image_hash = {
-    keys = { "image_hash" }, readers = { "build.reboot" }, carriers = { "cosmic.store" }, dynamic = false,
+    keys = { "image_hash" }, readers = { "build.reboot" },
+    carriers = { "build.importer_boot_test", "build.shared_parses_test", "build.test_key",
+      "cosmic.store", "cosmic.web.assets_test" },
   },
 }
 

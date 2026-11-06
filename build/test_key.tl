@@ -810,7 +810,10 @@ end
 --- processes in roots of its own (`nests`) is sealed too, its policy
 --- carrying `nest` beside the `database`. Its key holds the
 --- core in place of the launcher ([`declared_of`]), which no such worker
---- runs. Every other worker runs the program.
+--- runs. Every other worker runs the program. It is given the closure's
+--- store all the same, ahead of the tool's own database, so a row the store
+--- withholds (`image_hash` from a closure that reads none) is refused there
+--- too: [`Store.meta`] checks the store's marker before it looks the row up.
 function test_key.seals(rec: Recording, m: Module): boolean
   local effective = rec.effective[m.path]
   if rec.launcher == nil or rec.stores == nil or rec.stores[m.path] == nil or -- checked: compare_disjoint
@@ -1442,35 +1445,51 @@ function test_key.drop_sealing(rec: Recording)
   if not gone then log:complain("test: " .. sealing.directory .. ": " .. trouble) end
 end
 
+--- The meta rows a sealed database of a worker holds, as `read` answers
+--- them for the running process ([`Store.meta`]): the digest of this core,
+--- which a core started on the file checks, the module that runs, the
+--- runtime's basis, the digest of the core's inputs where the worker's
+--- closure reads it (`with_image`, as its closure store holds it), else the
+--- marker that withholds it, as its store does, and the compiler's identity
+--- where its key holds it (`with_compiler`). Nil and why where the process
+--- has no core digest or basis, or none of the image a worker reads.
+function test_key.sealed_meta(with_compiler: boolean, with_image: boolean,
+                              read: function(key: string): string?): {{string}}?, string
+  local core = read("host_image")
+  local basis = read("runtime_basis")
+  if core == nil or core == "" or basis == nil or basis == "" then
+    return nil, "this process has no core digest or runtime basis to record"
+  end
+  local meta: mut {{string}} = { { "core_sha256", core }, { "main", "cmd.cosmic.main" },
+    { "runtime_basis", basis } }
+  if with_image then
+    local image = read("image_hash")
+    if image == nil or image == "" then
+      return nil, "this process has no image_hash to record, which this worker's closure reads"
+    end
+    meta[#meta + 1] = { "image_hash", image }
+  else
+    meta[#meta + 1] = { closure_store.withheld_row, closure_store.withheld_text }
+  end
+  if with_compiler then
+    for _, key in ipairs({ "compiler", "compiled_by" }) do
+      local value = read(key)
+      if value ~= nil then meta[#meta + 1] = { key, value } end
+    end
+  end
+  return meta, ""
+end
+
 --- Writes the sealed database of the closure store at `store`, which was
 --- written from the projection `whole`, to `out`: [`sealed_fill`]'s
 --- statements over them and the program's own database (`sealing`), the
 --- modules every worker loads ([`worker.loads`]) going along, and the meta
---- rows the core on a database reads: the digest of this core, which it
---- checks, the runtime's basis and image, the compiler's identity where
---- the worker's key holds it (`with_compiler`), the digest of the core's
---- inputs where its closure reads it (`with_image`, as its closure store
---- holds it), and the module that runs. Written aside and moved into
---- place, so one at `out` is whole.
+--- rows the core on a database reads ([`test_key.sealed_meta`]). Written
+--- aside and moved into place, so one at `out` is whole.
 local function write_sealed(sealing: Sealing, store: string, whole: string, out: string,
                             with_compiler: boolean, with_image: boolean): boolean, string
-  local core = Store.meta("host_image")
-  local basis = Store.meta("runtime_basis")
-  if core == nil or core == "" or basis == nil or basis == "" then
-    return false, "this process has no core digest or runtime basis to record"
-  end
-  local meta: mut {{string}} = { { "core_sha256", core }, { "main", "cmd.cosmic.main" },
-    { "runtime_basis", basis } }
-  local copied: mut {string} = {}
-  if with_image then copied[#copied + 1] = "image_hash" end
-  if with_compiler then
-    copied[#copied + 1] = "compiler"
-    copied[#copied + 1] = "compiled_by"
-  end
-  for _, key in ipairs(copied) do
-    local value = Store.meta(key)
-    if value ~= nil then meta[#meta + 1] = { key, value } end
-  end
+  local meta, meta_trouble = test_key.sealed_meta(with_compiler, with_image, Store.meta)
+  if meta == nil then return false, meta_trouble end
   local aside = out .. ".building"
   local _, _ = Fs.remove(aside)
   local opened, open_trouble = Sqlite.open(aside, { writable = true })
