@@ -429,6 +429,19 @@ local function test_a_tool_test_stands_across_a_rebuild_that_moved_nothing_it_ca
   ran("0 ran, 2 stood")
 end
 
+--- A test that declares `tool` stands across a rebuild of the tool at another path: CI places each commit's
+--- checkout at a path of its own, and the tool records it (`built_from`). A sandboxed worker sees it only through /proc mount info, which no test reads.
+local function test_a_tool_test_stands_across_a_rebuild_at_another_path(tmp: string)
+  local rebuild, ran = tool_project(tmp)
+  rebuild("INSERT OR REPLACE INTO meta (key, value) VALUES ('built_from', '/ci/one/checkout')")
+  ran("0 ran, 2 stood")
+  rebuild("INSERT OR REPLACE INTO meta (key, value) VALUES ('built_from', '/ci/another/place')")
+  ran("0 ran, 2 stood")
+  -- "/tree" is where a worker's own root is: a tool built there answers differently in a sandbox.
+  rebuild("INSERT OR REPLACE INTO meta (key, value) VALUES ('built_from', '/tree')")
+  ran("1 ran, 1 stood")
+end
+
 --- A test that declares `tool` runs again when a module the tool
 --- carries moves; one that does not declare it stands.
 local function test_a_tool_test_runs_again_when_a_module_the_tool_carries_moves(tmp: string)
