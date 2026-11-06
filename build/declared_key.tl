@@ -50,7 +50,7 @@
 ---   import graph's kinds and sources, the standard library's included;
 --- - the compiler's identity ([`build.identity`]'s `Identities`), as the
 ---   running tool names it, only where the module's import closure holds
----   a module that reads it (`compiler_readers`), which a worker's
+---   a module that reads it ([`build.key_parts`]' `meta_readers`), which a worker's
 ---   [`Store.meta`] answers from the tool's own database --
 ---   COSMIC_TEST_COMPILER_SALT, for a test alone, stands in for a
 ---   compiler of another identity that makes the same bytecode;
@@ -191,7 +191,6 @@ local build_directory = build_paths.required
 
 local record declared_key
   --- build.key_parts', answered as this module's own.
-  mut compiler_readers: {string}
   mut reads_compiler: function(closure: {string}): boolean
 
   --- What a run knows of the files it keys, kept for the run.
@@ -344,7 +343,6 @@ end
 -- so a worker loads none of this module: taken here, and the compiler's
 -- readers answered as this module's own, so no caller of them moves.
 local key_part, tree_name = key_parts.key_part, key_parts.tree_name
-declared_key.compiler_readers = key_parts.compiler_readers
 declared_key.reads_compiler = key_parts.reads_compiler
 
 --- What every key begins with, which names how its parts are computed:

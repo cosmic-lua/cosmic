@@ -593,8 +593,8 @@ end
 --- A compiler of another identity that makes the same bytecode --
 --- stood in for by COSMIC_TEST_COMPILER_SALT, under which the tree is
 --- compiled again -- moves no key but that of a test whose closure
---- reads the compiler's identity (build/declared_key.tl's
---- `compiler_readers`, which the fixture's [`core.allocation_test`]
+--- reads the compiler's identity (build/key_parts.tl's
+--- `meta_readers`, which the fixture's [`core.allocation_test`]
 --- stands in for by its name): the module's key the key holds is the
 --- compiler's graph key, the store's bytes hold what the compiler made,
 --- and the compiler itself only where it is read.
@@ -631,6 +631,43 @@ end
   assert(db:close())
   local row = Array.at(rows, 1)
   assert(row:text(1) == "core.allocation_test", "ran under another compiler: " .. row:text(1))
+end
+
+--- A worker is given the digest of the core's inputs and the compiler's seed
+--- files (`image_hash`) only where its closure holds a reader of it
+--- (build/key_parts.tl's `meta_readers`, which the fixture's
+--- [`build.reboot`] stands in for by its name): else [`Store.meta`] answers nil,
+--- in its closure store and in its sealed database, and the key holds no
+--- such row. Ran, `--all`, both have the row they are keyed by.
+local function test_a_worker_is_given_the_image_hash_only_where_its_closure_reads_it(tmp: string)
+  local root = tmp .. "/root"
+  assert(Fs.mkdirs(root .. "/suite"))
+  assert(Fs.mkdirs(root .. "/build"))
+  assert(Fs.write(root .. "/build/reboot.tl", "local record Reboot\n  value: integer\nend\nlocal reboot: Reboot = { value = 1 }\nreturn reboot\n"))
+  -- The row is named apart from the call, so this module's own source reads none.
+  local function sourced(text: string): string
+    return (text:gsub("ROW", '"image_' .. 'hash"'))
+  end
+  assert(Fs.write(root .. "/suite/plain_test.tl", sourced([[
+local Store = require("cosmic.store")
+
+local function test_plain()
+  assert(Store.meta(ROW) == nil, "a closure that reads no such row was given it")
+end
+]])))
+  assert(Fs.write(root .. "/suite/reads_test.tl", sourced([[
+local Store = require("cosmic.store")
+local reboot = require("build.reboot")
+
+local function test_reads()
+  assert(reboot.value == 1)
+  assert(Store.meta(ROW) ~= nil, "a closure that reads the row was not given it")
+end
+]])))
+  local env = environment(tmp .. "/cache/verdicts.db")
+  local first = run(root, tmp .. "/first.out", env)
+  skip_if_unsandboxed(first)
+  assert(first:find("2 ran, 0 stood", 1, true), first)
 end
 
 --- A processor of other features (stood in for by COSMIC_TEST_CPU_SALT) runs only the modules that

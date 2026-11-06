@@ -237,10 +237,10 @@ local function test_an_unnamed_reader_of_the_compiler_is_refused(dir: string)
       "local tool = Store.meta" .. "(\"compiler\")",
       "return { tool = tool }"),
   })
-  local found = tree_checks.compiler_readers(db, {})
-  assert(#found == 1 and found[1]:find("^build%.reader reads the compiler's identity") ~= nil,
+  local found = tree_checks.meta_readers(db, "compiler", {})
+  assert(#found == 1 and found[1]:find("^build%.reader reads the meta row compiler/compiled_by") ~= nil,
     table.concat(found, "\n"))
-  found = tree_checks.compiler_readers(db, { "build.reader" })
+  found = tree_checks.meta_readers(db, "compiler", { "build.reader" })
   assert(#found == 0, table.concat(found, "\n"))
 end
 
@@ -947,7 +947,7 @@ local function test_a_run_names_each_check(dir: string)
   for _, line in ipairs(tree_checks.run(db, "")) do
     seen[line:match("^([^:]+): ") or line] = true
   end
-  for _, name in ipairs({ "exports", "doc anchors", "compiler readers", "stand-ins",
+  for _, name in ipairs({ "exports", "doc anchors", "compiler readers", "image_hash readers", "stand-ins",
       "docs queries", "quieted", "rendered docs", "doc references", "text readers" }) do
     assert(seen[name], name .. " reported nothing on a projection that has none of the tree")
   end

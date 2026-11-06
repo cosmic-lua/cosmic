@@ -61,6 +61,7 @@ local test_policy = require("build.test_policy")
 local test_sandbox = require("build.test_sandbox")
 local test_sandbox_probe = require("build.test_sandbox_probe")
 local declared_key = require("build.declared_key")
+local key_parts = require("build.key_parts")
 local artifact = require("build.artifact")
 local hashing = require("build.digest")
 local lua_tail = require("build.lua_tail")
@@ -870,6 +871,17 @@ local function reads_compiler(rec: Recording, m: Module): boolean
     rec.effective[m.path].lua)) -- checked: nil_not_allowed
 end
 
+--- Whether a worker of `m`'s tests is given the digest of the core's inputs
+--- and the compiler's seed files (`image_hash`), which its closure store
+--- holds exactly where its closure holds a reader of it
+--- ([`build.key_parts`]'s `meta_readers`): else it finds no such row, in the
+--- store or in its sealed database. Unlike the compiler's identity, the
+--- closure is searched whole, what `lua` adds to it included: a child
+--- can reach [`cosmic.store`] and ask.
+local function reads_image(rec: Recording, m: Module): boolean
+  return key_parts.reads_meta(rec.closures[m.path] or {}, "image_hash")
+end
+
 --- The digest of the modules of the program's own database that the tree
 --- lacks -- the standard library, in a project's tree -- by path, source
 --- hash, bytecode, stub and the edges the checker follows from it
@@ -1436,10 +1448,12 @@ end
 --- modules every worker loads ([`worker.loads`]) going along, and the meta
 --- rows the core on a database reads: the digest of this core, which it
 --- checks, the runtime's basis and image, the compiler's identity where
---- the worker's key holds it (`with_compiler`), and the module that
---- runs. Written aside and moved into place, so one at `out` is whole.
+--- the worker's key holds it (`with_compiler`), the digest of the core's
+--- inputs where its closure reads it (`with_image`, as its closure store
+--- holds it), and the module that runs. Written aside and moved into
+--- place, so one at `out` is whole.
 local function write_sealed(sealing: Sealing, store: string, whole: string, out: string,
-                            with_compiler: boolean): boolean, string
+                            with_compiler: boolean, with_image: boolean): boolean, string
   local core = Store.meta("host_image")
   local basis = Store.meta("runtime_basis")
   if core == nil or core == "" or basis == nil or basis == "" then
@@ -1447,8 +1461,13 @@ local function write_sealed(sealing: Sealing, store: string, whole: string, out:
   end
   local meta: mut {{string}} = { { "core_sha256", core }, { "main", "cmd.cosmic.main" },
     { "runtime_basis", basis } }
-  for _, key in ipairs(if with_compiler then { "image_hash", "compiler", "compiled_by" } else
-      { "image_hash" } end) do
+  local copied: mut {string} = {}
+  if with_image then copied[#copied + 1] = "image_hash" end
+  if with_compiler then
+    copied[#copied + 1] = "compiler"
+    copied[#copied + 1] = "compiled_by"
+  end
+  for _, key in ipairs(copied) do
     local value = Store.meta(key)
     if value ~= nil then meta[#meta + 1] = { key, value } end
   end
@@ -1569,7 +1588,8 @@ local function sealed_for(rec: Recording, m: Module): string?, string
   local store, store_trouble = given_store(rec, m)
   if store == nil then return nil, store_trouble end
   local path = sealing.directory .. "/" .. name .. ".db"
-  local written, trouble = write_sealed(sealing, store, projection_of(rec), path, with_compiler)
+  local written, trouble = write_sealed(sealing, store, projection_of(rec), path, with_compiler,
+    reads_image(rec, m))
   if not written then return nil, "its sealed database: " .. trouble end
   local wrote, stat_trouble = sys.stat(path)
   if wrote == nil then return nil, "its sealed database: " .. path .. ": " .. stat_trouble end

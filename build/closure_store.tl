@@ -26,6 +26,7 @@ local Clock = require("cosmic.clock")
 local CodeWalk = require("build.code_walk")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
+local key_parts = require("build.key_parts")
 local lua_tail = require("build.lua_tail")
 local Proc = require("cosmic.proc")
 local Store = require("cosmic.store")
@@ -50,6 +51,8 @@ local record closure_store
   --- docs, of its links, of the names it binds and of its edges, and it
   --- records the declarations it requires. A digest covers what
   --- every store holds alike: the `meta` rows it keeps (`closure_meta`).
+  --- The row a store holds only where its closure reads it
+  --- (`gated_meta`) has a digest of its own.
   ---
   --- What the compiler made of a module is held by what it made, not by
   --- the compiler's identity ([`build.identity`]'s `Identities`). That moves
@@ -60,6 +63,10 @@ local record closure_store
   record Basis
     modules: mut {string:string}
     shared: string
+    --- The digest of the `gated_meta` row, of "" where the projection has
+    --- none. The address and the store hold it only for a closure that
+    --- reads it ([`closure_store.address`]).
+    image: string
     --- Each module's kind, by path.
     kinds: mut {string:string}
     --- The modules an example can be paired with -- neither tests nor
@@ -126,8 +133,22 @@ end
 --- next database [`Store.meta`] searches; what writes a closure store is
 --- named in its address instead ([`closure_store.address`]'s `salt`), and
 --- a test whose closure reads the compiler's identity is keyed by the
---- tool's ([`build.declared_key`]'s `compiler_readers`).
-local closure_meta <const> = "('image_hash', 'main', 'runtime_basis')"
+--- tool's ([`build.key_parts`]' `meta_readers`).
+local closure_meta <const> = "('main', 'runtime_basis')"
+
+--- The `meta` row a closure store holds only where its import closure holds
+--- a module that reads it (`image_hash` in [`build.key_parts`]'
+--- `meta_readers`). It is the digest of the core's inputs and the
+--- compiler's seed files, so it moves with an edit to any of them: a store
+--- that held it for every closure would be written again, and every test
+--- run again, for an edit no test of it reads. A worker given none finds
+--- no row, and [`Store.meta`] answers nil.
+local gated_meta <const> = "image_hash"
+
+--- Whether a store of the closure `names` holds the `gated_meta` row.
+local function carries_image(names: {string}): boolean
+  return key_parts.reads_meta(names, gated_meta)
+end
 
 --- The names `source`, a declaration's, requires: each literal name
 --- handed to `require` -- `local type t = require("name")`, as a
@@ -276,7 +297,7 @@ local function memo_token(whole: string, pure?: boolean): string?
   if Clock.now_ns() - math.max(written, changed) < 2000000000 then return nil end
   local code, _ = Store.bytecode("build.closure_store")
   if code == nil then return nil end
-  return table.concat({ if pure == true then "basis-memo-3-pure" else "basis-memo-3" end, Hash.hex_sha256(code), st.size, st.ino, st.dev, written, changed }, " ")
+  return table.concat({ if pure == true then "basis-memo-4-pure" else "basis-memo-4" end, Hash.hex_sha256(code), st.size, st.ino, st.dev, written, changed }, " ")
 end
 
 --- Where a read of a kept basis is, and the basis it made.
@@ -307,7 +328,7 @@ local function remembered(whole: string, token: string): closure_store.Basis?
   pcall(function()
     if next_string() ~= token then return end
     local out: closure_store.Basis = {
-      modules = {}, shared = next_string(), kinds = {}, pairable = {}, decls = {}, decl_requires = {},
+      modules = {}, shared = next_string(), image = next_string(), kinds = {}, pairable = {}, decls = {}, decl_requires = {},
       pure = {}, stripped = {}, bytecode = {}, pure_decls = {}, texts = {}, text_edges = {}, type_requires = {}, sources = {}, edges = {},
     }
     for _ = 1, next_count() do
@@ -368,6 +389,7 @@ local function remember(whole: string, token: string, basis: closure_store.Basis
   local function put_count(value: integer) table.insert(parts, string.pack("<I4", value)) end
   put_string(token)
   put_string(basis.shared)
+  put_string(basis.image)
   -- In the order `pairs` has them: a reader takes them by name.
   local modules = 0
   for _ in pairs(basis.modules) do modules = modules + 1 end
@@ -484,6 +506,10 @@ local function read_basis(whole: string, pure?: boolean): closure_store.Basis?, 
         "ORDER BY key) FROM meta WHERE key IN " .. closure_meta .. "), '')")
     if shared == nil then return nil, shared_trouble end
     local shared_row = assert(shared[1], "the shared meta query answers one row")
+    local image, image_trouble = Sqlite.text_rows(db,
+      "SELECT coalesce((SELECT lower(hex(value)) FROM meta WHERE key = '" .. gated_meta .. "'), '')")
+    if image == nil then return nil, image_trouble end
+    local image_row = assert(image[1], "the gated meta query answers one row")
     local decl_rows, decl_trouble = Sqlite.text_rows(db,
       "SELECT path, lower(hex(sha256(source))), CAST(inflate(source) AS TEXT) FROM decls " ..
         "ORDER BY path")
@@ -496,7 +522,8 @@ local function read_basis(whole: string, pure?: boolean): closure_store.Basis?, 
       "SELECT path FROM modules WHERE kind NOT IN ('test', 'example') ORDER BY path")
     if names == nil then return nil, names_trouble end
     local basis: closure_store.Basis = {
-      modules = {}, shared = Hash.hex_sha256("closure-store-8\n" .. shared_row:text(1)),
+      modules = {}, shared = Hash.hex_sha256("closure-store-9\n" .. shared_row:text(1)),
+      image = Hash.hex_sha256("closure-store-9 " .. gated_meta .. "\n" .. image_row:text(1)),
       kinds = {}, pairable = {}, decls = {}, decl_requires = {},
       pure = {}, stripped = {}, bytecode = {}, pure_decls = {}, texts = {}, text_edges = {}, type_requires = {}, sources = {}, edges = {},
     }
@@ -767,7 +794,8 @@ end
 --- digest of everything its bytes follow from -- its modules' lines,
 --- the modules each example module among them could be paired with
 --- (`candidates`), its declarations' lines (`declared`), the basis's
---- shared digest, and `salt`, which names the code that writes it
+--- shared digest, the digest of the `gated_meta` row where `names` holds a
+--- module that reads it, and `salt`, which names the code that writes it
 --- ([`build.test`] passes a digest of this module's and build.schema's
 --- sources and bytecode, and nothing of the projection's writer, whose
 --- edits leave a store's bytes alone). An edit to a module or a
@@ -789,6 +817,7 @@ function closure_store.address(basis: closure_store.Basis, names: {string},
                                salt: string, own?: string): string
   if own ~= nil then
     local pure: mut {string} = { basis.shared, salt, "pure " .. own }
+    if carries_image(names) then pure[#pure + 1] = "meta " .. gated_meta .. " " .. basis.image end
     for _, name in ipairs(text_kept(basis, names, basis.type_requires[own] or {})) do
       pure[#pure + 1] = digest_of_line("text " .. name .. " " .. assert(basis.texts[name], "a stored name has its text's digest"))
     end
@@ -807,6 +836,7 @@ function closure_store.address(basis: closure_store.Basis, names: {string},
     return Hash.hex_sha256(table.concat(pure, "\n"))
   end
   local lines: mut {string} = { basis.shared, salt }
+  if carries_image(names) then lines[#lines + 1] = "meta " .. gated_meta .. " " .. basis.image end
   for _, name in ipairs(stored(basis, names)) do
     lines[#lines + 1] = digest_of_line((assert(basis.modules[name], "a stored name has its line")))
     if basis.kinds[name] == "example" then
@@ -827,7 +857,8 @@ end
 --- (`declared`), the names they bind, their docs and links; and of both,
 --- every edge the checker follows (`decl_imports`), which
 --- [`build.plans`] reads of a standard-library module on a sealed
---- database ([`build.test`]'s `sealed_fill`); and the `meta` rows `closure_meta` keeps. The zones, CA
+--- database ([`build.test`]'s `sealed_fill`); and the `meta` rows `closure_meta` keeps, and with `image`
+--- the `gated_meta` row. The zones, CA
 --- roots, components and notices are left out: the core, [`cosmic.time`]
 --- and [`build.bom`] read those from the tool's own database alone.
 --- Each table's rows go in by what the address digests of them
@@ -835,10 +866,10 @@ end
 --- (and file) first, then in the projection's order within one, which
 --- the address digests; the projection's order across modules, which
 --- the projection's writer decides and no digest holds, sets no id.
-local function closed(uses_from: string): {string}
+local function closed(uses_from: string, image: boolean): {string}
   return {
     "INSERT INTO main.meta SELECT * FROM whole.meta WHERE key IN " .. closure_meta ..
-      " ORDER BY key",
+      (if image then " OR key = '" .. gated_meta .. "'" else "" end) .. " ORDER BY key",
     -- Every column but the key, which holds the compiler's identity: no
     -- worker reads a store's keys, and its address holds what the
     -- compiler made instead ([`Basis`]).
@@ -891,10 +922,10 @@ end
 --- row, place or stub goes in, but for the stub of the modules in `temp.kept` ([`text_kept`]). The bytecode of the modules goes in as the
 --- projection has it; [`closure_store.write`] strips the debug information
 --- of all but the test's own.
-local function closed_pure(): {string}
+local function closed_pure(image: boolean): {string}
   return {
     "INSERT INTO main.meta SELECT * FROM whole.meta WHERE key IN " .. closure_meta ..
-      " ORDER BY key",
+      (if image then " OR key = '" .. gated_meta .. "'" else "" end) .. " ORDER BY key",
     "INSERT INTO main.modules (path, file, kind, source_hash, key, bytecode, tests, source) " ..
       "SELECT path, file, kind, X'', X'', bytecode, tests, X'' FROM whole.modules " ..
       "WHERE path IN temp.wanted ORDER BY path",
@@ -1013,6 +1044,7 @@ end
 function closure_store.write(whole: string, out: string, names: {string},
                              basis: closure_store.Basis, extraction?: string,
                              own?: string): boolean, string
+  local image = carries_image(names)
   local function fill(db: Sqlite.Handle): boolean, string
     local statements: mut {string} = {}
     for _, statement in ipairs(schema.settings("")) do statements[#statements + 1] = statement end
@@ -1059,7 +1091,7 @@ function closure_store.write(whole: string, out: string, names: {string},
       uses_from = "extracted.uses"
     end
     local made, refused = Sqlite.transact(db, function(): boolean, string
-      for _, statement in ipairs(if own ~= nil then closed_pure() else closed(uses_from) end) do
+      for _, statement in ipairs(if own ~= nil then closed_pure(image) else closed(uses_from, image) end) do
         local ok, failure = db:exec(statement)
         if not ok then return false, failure end
       end
