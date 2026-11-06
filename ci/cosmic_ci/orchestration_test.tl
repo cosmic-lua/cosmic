@@ -1169,12 +1169,12 @@ local function platform_legs_and_env(): {string: {string: string}}, {string: str
 end
 
 --- The fixed-point regression, the slowest fixture on every leg, runs
---- only on the scheduled run (COSMIC_CI_FIXED_POINT).
-local function test_the_fixed_point_fixture_runs_only_on_the_scheduled_run()
+--- only on the weekly scheduled run, Sunday's (COSMIC_CI_FIXED_POINT).
+local function test_the_fixed_point_fixture_runs_only_on_the_weekly_run()
   local _, env = platform_legs_and_env()
   local value = assert(env["COSMIC_CI_FIXED_POINT"], "ci.yml's platform job sets no COSMIC_CI_FIXED_POINT")
-  assert(value == "${{ github.event_name == 'schedule' && 'run' || 'skip' }}",
-    "the fixed-point fixture runs on more than the scheduled run, or not on it: " .. value)
+  assert(value == "${{ github.event.schedule == '41 3 * * 0' && 'run' || 'skip' }}",
+    "the fixed-point fixture runs on more than the weekly run, or not on it: " .. value)
 end
 
 --- Every leg of every run with legs past the native suite runs the

@@ -17,13 +17,16 @@
     # the `ci` check for the queued merge commit.
     merge_group: {},
     workflow_dispatch: {},
-    # Every week, every test run whatever stood (COSMIC_CI_EVENT): for
+    # Every day, the run that tests macOS and publishes a prerelease
+    # (prerelease.yml): every leg and job, on the verdicts main's pushes
+    # left. On Sundays (the second line), also every test run whatever
+    # stood (COSMIC_CI_EVENT), and zig's caches built cold: for
     # what no key answers for (the clock, a flake).
     # TODO: tell the maintainers of a red scheduled run: GitHub notifies
     # only whoever last edited this cron line. A step that opens (or
     # comments on) an issue when a scheduled run fails would, once one is
     # wanted over the checks' page.
-    schedule: [{cron: "41 3 * * 0"}],
+    schedule: [{cron: "41 3 * * 1-6"}, {cron: "41 3 * * 0"}],
   },
 
   permissions: {contents: "read"},
@@ -49,8 +52,9 @@
     # bytes it ran uploaded for the join. The merge queue runs
     # linux-x86_64's native suite and the tree's format check, and no more:
     # a light, fast gate. A pull request runs lighter still, linux-x86_64's
-    # boot and the format check of what it changed. Every other run (main's
-    # push, the weekly run, a manual run) runs all four legs whole.
+    # boot and the format check of what it changed. A push to main runs
+    # three legs whole, all but macOS; the daily scheduled run and a
+    # manual run run all four, macOS among them.
     platform: {
       name: "${{ matrix.name }}",
       defaults: {run: {"working-directory": "ci", shell: "${{ matrix.image && 'leg-shell {0}' || 'sh' }}"}},
@@ -64,7 +68,7 @@
         # unprivileged `runner` through `leg-shell`
         # (.github/scripts/leg-container.sh); macOS has none.
         matrix: {
-          include: "${{ fromJSON((github.event_name == 'merge_group' || github.event_name == 'pull_request') && '[{\"name\": \"linux-x86_64\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}]' || '[{\"name\": \"linux-x86_64\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"linux-aarch64\", \"runner\": \"ubuntu-24.04-arm\", \"target\": \"aarch64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"macos-aarch64\", \"runner\": \"macos-15\", \"target\": \"aarch64-macos\", \"image\": \"\"}, {\"name\": \"alpine-x86_64\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-alpine@sha256:bfb230da47e113566e34d8b6a2fa1a7f60ac8b40be4e6a3212f08fcb743e9f72\"}]') }}",
+          include: "${{ fromJSON((github.event_name == 'merge_group' || github.event_name == 'pull_request') && '[{\"name\": \"linux-x86_64\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}]' || github.event_name == 'push' && '[{\"name\": \"linux-x86_64\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"linux-aarch64\", \"runner\": \"ubuntu-24.04-arm\", \"target\": \"aarch64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"alpine-x86_64\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-alpine@sha256:bfb230da47e113566e34d8b6a2fa1a7f60ac8b40be4e6a3212f08fcb743e9f72\"}]' || '[{\"name\": \"linux-x86_64\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"linux-aarch64\", \"runner\": \"ubuntu-24.04-arm\", \"target\": \"aarch64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"macos-aarch64\", \"runner\": \"macos-15\", \"target\": \"aarch64-macos\", \"image\": \"\"}, {\"name\": \"alpine-x86_64\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-alpine@sha256:bfb230da47e113566e34d8b6a2fa1a7f60ac8b40be4e6a3212f08fcb743e9f72\"}]') }}",
         },
       },
       "runs-on": "${{ matrix.runner }}",
@@ -79,8 +83,8 @@
         COSMIC_CI_CHECKED_SUITE: "skip",
         COSMIC_CI_FORMAT: "skip",
         # The slowest fixture, the same on every platform (some 275 s on
-        # the x86-64 legs): the weekly run alone (phase_fixtures).
-        COSMIC_CI_FIXED_POINT: "${{ github.event_name == 'schedule' && 'run' || 'skip' }}",
+        # the x86-64 legs): the weekly run (Sunday's) alone (phase_fixtures).
+        COSMIC_CI_FIXED_POINT: "${{ github.event.schedule == '41 3 * * 0' && 'run' || 'skip' }}",
         # The small fixtures run beside the self-driven one, within one
         # worker budget of the leg's processors (phase_fixtures,
         # `fixture_lanes`): the two Linux legs whose fixture step the
@@ -93,9 +97,10 @@
         # Linux leg's sandbox holds the same declaration, so one that lies
         # fails there first.
         COSMIC_CI_DECLARED_KEYS: "${{ matrix.image && '0' || '1' }}",
-        # Pushes and the merge queue stand on verdicts; a manual and the
-        # scheduled run run every test (orchestration.tl's `stands`).
-        COSMIC_CI_EVENT: "${{ github.event_name }}",
+        # Pushes, the merge queue and the daily scheduled run stand on
+        # verdicts; a manual and the weekly run (Sunday's) run every test
+        # (orchestration.tl's `stands`).
+        COSMIC_CI_EVENT: "${{ github.event_name == 'schedule' && github.event.schedule != '41 3 * * 0' && 'push' || github.event_name }}",
       },
       steps: [
         {
@@ -165,7 +170,8 @@
         # this TODO.
         # The newest of this leg's entries main saved for this vendor part:
         # of this core part, else any. The weekly run restores nothing and
-        # builds cold, which bounds what an entry carries.
+        # builds cold, which bounds what an entry carries; the daily ones
+        # restore as a push does.
         {
           name: "restore zig build outputs",
           id: "zig-cache-restore",
@@ -174,7 +180,7 @@
             path: "${{ runner.temp }}/zig-build",
             key: "${{ steps.names.outputs.vendor }}full-${{ steps.names.outputs.core }}-${{ github.run_id }}-${{ github.run_attempt }}",
             "restore-keys": "${{ steps.names.outputs.vendor }}full-${{ steps.names.outputs.core }}-\n${{ steps.names.outputs.vendor }}full-\n${{ steps.names.outputs.vendor }}\n",
-            "lookup-only": "${{ github.event_name == 'schedule' }}",
+            "lookup-only": "${{ github.event.schedule == '41 3 * * 0' }}",
           },
         },
         # Off main, the leg's newest entry of any vendor part; a second
@@ -371,7 +377,7 @@
         # reads (cosmic_ci/zig_prune.tl): only before main's save.
         {
           name: "prune the zig build outputs no step vouches for",
-          if: "always() && steps.assemble.outcome == 'success' && env.COSMIC_CI_SAVES == 'true' && (github.event_name == 'schedule' || !startsWith(steps.zig-cache-restore.outputs.cache-matched-key, format('{0}full-', steps.names.outputs.vendor)))",
+          if: "always() && steps.assemble.outcome == 'success' && env.COSMIC_CI_SAVES == 'true' && (github.event.schedule == '41 3 * * 0' || !startsWith(steps.zig-cache-restore.outputs.cache-matched-key, format('{0}full-', steps.names.outputs.vendor)))",
           run: "cosmic-driver cosmic_ci/driver.tl zig-prune",
         },
         {
@@ -476,9 +482,9 @@
         },
         # Whatever failed (a failing verdict takes a passing one out),
         # where the rows differ from the entry restored. Not the macOS
-        # leg's weekly run: its keys hold the tree's path, which that run
-        # chooses by the commit (driver.tl place-tree), so its rows would
-        # answer no gating run, whose path the leg alone chooses.
+        # leg's scheduled runs: its keys hold the tree's path, which such a
+        # run chooses by the commit (driver.tl place-tree), so its rows
+        # would answer no other run.
         {
           name: "save test verdicts",
           if: "always() && steps.verdicts-trim.outputs.digest != '' && !(github.event_name == 'schedule' && env.COSMIC_CI_DECLARED_KEYS == '1') && steps.verdicts-restore.outputs.cache-matched-key != format('{0}{1}', steps.host-id.outputs.verdicts, steps.verdicts-trim.outputs.digest)",
@@ -504,7 +510,7 @@
         # of this vendor part; and on the weekly run, which built cold.
         {
           name: "save zig build outputs",
-          if: "always() && steps.assemble.outcome == 'success' && env.COSMIC_CI_SAVES == 'true' && (github.event_name == 'schedule' || !startsWith(steps.zig-cache-restore.outputs.cache-matched-key, format('{0}full-', steps.names.outputs.vendor)))",
+          if: "always() && steps.assemble.outcome == 'success' && env.COSMIC_CI_SAVES == 'true' && (github.event.schedule == '41 3 * * 0' || !startsWith(steps.zig-cache-restore.outputs.cache-matched-key, format('{0}full-', steps.names.outputs.vendor)))",
           uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {
             path: "${{ runner.temp }}/zig-build",
@@ -527,7 +533,7 @@
     # (orchestration.tl's checked_suite, bounded by
     # `checked_suite_timeout_ns`), and the bounded performance fixture, on
     # linux-x86_64's host, beside the legs. Not in the merge queue: main's
-    # push, the weekly and a manual run. Its verdicts are kept under a
+    # push, the scheduled and a manual run. Its verdicts are kept under a
     # cache name of its own on that host.
     checked: {
       if: "github.event_name != 'merge_group' && github.event_name != 'pull_request'",
@@ -542,7 +548,7 @@
         COSMIC_CI_CHECKED_SUITE: "run",
         COSMIC_CI_REQUIRE_SANDBOX: "1",
         COSMIC_CI_DECLARED_KEYS: "0",
-        COSMIC_CI_EVENT: "${{ github.event_name }}",
+        COSMIC_CI_EVENT: "${{ github.event_name == 'schedule' && github.event.schedule != '41 3 * * 0' && 'push' || github.event_name }}",
       },
       steps: [
         {
@@ -586,7 +592,8 @@
         },
         # The newest of this leg's entries main saved for this vendor part:
         # of this core part, else any. The weekly run restores nothing and
-        # builds cold, which bounds what an entry carries.
+        # builds cold, which bounds what an entry carries; the daily ones
+        # restore as a push does.
         {
           name: "restore zig build outputs",
           id: "zig-cache-restore",
@@ -595,7 +602,7 @@
             path: "${{ runner.temp }}/zig-build",
             key: "${{ steps.names.outputs.vendor }}full-${{ steps.names.outputs.core }}-${{ github.run_id }}-${{ github.run_attempt }}",
             "restore-keys": "${{ steps.names.outputs.vendor }}full-${{ steps.names.outputs.core }}-\n${{ steps.names.outputs.vendor }}full-\n${{ steps.names.outputs.vendor }}\n",
-            "lookup-only": "${{ github.event_name == 'schedule' }}",
+            "lookup-only": "${{ github.event.schedule == '41 3 * * 0' }}",
           },
         },
         # Off main, the leg's newest entry of any vendor part; a second
@@ -736,9 +743,9 @@
         },
         # Whatever failed (a failing verdict takes a passing one out),
         # where the rows differ from the entry restored. Not the macOS
-        # leg's weekly run: its keys hold the tree's path, which that run
-        # chooses by the commit (driver.tl place-tree), so its rows would
-        # answer no gating run, whose path the leg alone chooses.
+        # leg's scheduled runs: its keys hold the tree's path, which such a
+        # run chooses by the commit (driver.tl place-tree), so its rows
+        # would answer no other run.
         {
           name: "save test verdicts",
           if: "always() && steps.verdicts-trim.outputs.digest != '' && !(github.event_name == 'schedule' && env.COSMIC_CI_DECLARED_KEYS == '1') && steps.verdicts-restore.outputs.cache-matched-key != format('{0}{1}', steps.host-id.outputs.verdicts, steps.verdicts-trim.outputs.digest)",
@@ -768,7 +775,7 @@
         TARGET: "x86_64-linux-musl",
         COSMIC_CI_REQUIRE_SANDBOX: "1",
         COSMIC_CI_DECLARED_KEYS: "0",
-        COSMIC_CI_EVENT: "${{ github.event_name }}",
+        COSMIC_CI_EVENT: "${{ github.event_name == 'schedule' && github.event.schedule != '41 3 * * 0' && 'push' || github.event_name }}",
       },
       steps: [
         {
@@ -812,7 +819,8 @@
         },
         # The newest of this leg's entries main saved for this vendor part:
         # of this core part, else any. The weekly run restores nothing and
-        # builds cold, which bounds what an entry carries.
+        # builds cold, which bounds what an entry carries; the daily ones
+        # restore as a push does.
         {
           name: "restore zig build outputs",
           id: "zig-cache-restore",
@@ -821,7 +829,7 @@
             path: "${{ runner.temp }}/zig-build",
             key: "${{ steps.names.outputs.vendor }}full-${{ steps.names.outputs.core }}-${{ github.run_id }}-${{ github.run_attempt }}",
             "restore-keys": "${{ steps.names.outputs.vendor }}full-${{ steps.names.outputs.core }}-\n${{ steps.names.outputs.vendor }}full-\n${{ steps.names.outputs.vendor }}\n",
-            "lookup-only": "${{ github.event_name == 'schedule' }}",
+            "lookup-only": "${{ github.event.schedule == '41 3 * * 0' }}",
           },
         },
         # Off main, the leg's newest entry of any vendor part; a second
@@ -954,9 +962,9 @@
         },
         # Whatever failed (a failing verdict takes a passing one out),
         # where the rows differ from the entry restored. Not the macOS
-        # leg's weekly run: its keys hold the tree's path, which that run
-        # chooses by the commit (driver.tl place-tree), so its rows would
-        # answer no gating run, whose path the leg alone chooses.
+        # leg's scheduled runs: its keys hold the tree's path, which such a
+        # run chooses by the commit (driver.tl place-tree), so its rows
+        # would answer no other run.
         {
           name: "save test verdicts",
           if: "always() && steps.verdicts-trim.outputs.digest != '' && !(github.event_name == 'schedule' && env.COSMIC_CI_DECLARED_KEYS == '1') && steps.verdicts-restore.outputs.cache-matched-key != format('{0}{1}', steps.host-id.outputs.verdicts, steps.verdicts-trim.outputs.digest)",
@@ -972,8 +980,9 @@
     # The one check a ruleset requires: it fails when a leg, the checked
     # suite or the checked narrowing run failed or was cancelled (the two
     # read as passed in the merge queue and on a pull request, which skip
-    # them), and on main's runs it is the provenance join, proving the four
-    # legs attested identical bytes.
+    # them), and on main's runs it is the provenance join, proving the legs
+    # attested identical bytes: a push's three, the scheduled and a manual
+    # run's four.
     ci: {
       needs: ["platform", "checked", "narrowing"],
       if: "always()",
@@ -1024,7 +1033,7 @@
           name: "compare the Cosmic bytes executed on every native host",
           if: "github.event_name != 'merge_group' && github.event_name != 'pull_request'",
           "working-directory": "ci",
-          env: {COSMIC_CI_PRODUCTS: "4"},
+          env: {COSMIC_CI_PRODUCTS: "${{ github.event_name == 'push' && '3' || '4' }}"},
           run: "cosmic-driver cosmic_ci/driver.tl provenance",
         },
         {

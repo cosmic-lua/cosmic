@@ -302,10 +302,11 @@ local function map_of(map: {string: string}?): {string: string}
 end
 
 --- The kinds of run the platform job's legs differ by, in the order its
---- `include` expression chooses between them: the merge queue's, and every
---- other (main's push, the weekly and a manual run).
+--- `include` expression chooses between them: the merge queue's and a pull
+--- request's (`queue`), a push to main's (`push`), and every other (`full`:
+--- the scheduled and a manual run).
 local KIND_CHOICE <const> = "^%${{ fromJSON%(%(github%.event_name == 'merge_group' || github%.event_name == 'pull_request'%) && " ..
-  "'(%[[^']-%])' || '(%[[^']-%])'%) }}$"
+  "'(%[[^']-%])' || github%.event_name == 'push' && '(%[[^']-%])' || '(%[[^']-%])'%) }}$"
 
 local function strings_of(value: any, what: string): {string}
   local list, err: {string}?, string = Shape.into(value, Shape.list(Shape.string))
@@ -395,10 +396,10 @@ local function expand(matrix: {string: Json.Value}, kind: string): {{string: str
   local created: mut {{string: string}} = {}
   local include: Json.Value? = matrix["include"]
   if include is string then
-    local queue, full = include:match(KIND_CHOICE)
+    local queue, push, full = include:match(KIND_CHOICE)
     assert(full ~= nil, "the include is chosen other than by the kind of run: " .. include)
-    local chosen = if kind == "queue" then queue else full end
-    assert(kind == "queue" or kind == "full", "no kind of run " .. kind)
+    local chosen = if kind == "queue" then queue elseif kind == "push" then push else full end
+    assert(kind == "queue" or kind == "push" or kind == "full", "no kind of run " .. kind)
     include = assert(Json.decode(assert(chosen)))
   end
   for _, entry in ipairs(entries_of(include)) do
@@ -1335,7 +1336,7 @@ local function test_every_leg_has_its_promises_and_no_other_does()
   local promised: mut {string: boolean} = {}
   for name in pairs(loaded.legs) do promised[name] = true end
   local ran: mut {string: boolean} = {}
-  for _, kind in ipairs({ "queue", "full" }) do
+  for _, kind in ipairs({ "queue", "push", "full" }) do
     for name in pairs(platform_legs(kind)) do ran[name] = true end
   end
   ran[assert(map_of(assert(ci_workflow().jobs["narrowing"]).env)["COSMIC_WORKER"])] = true
@@ -1410,14 +1411,16 @@ local function test_a_gating_download_is_tried_twice()
   assert(retries > 0, "no retried download found: the test reads nothing")
 end
 
---- The merge queue runs linux-x86_64's leg alone, a light and fast gate;
---- every other run all four legs. A leg has the same values whatever the
+--- The merge queue runs linux-x86_64's leg alone, a light and fast gate; a
+--- push to main every leg but macOS, which the daily scheduled run and a
+--- manual run add, the runs prerelease.yml publishes from. A leg has the same values whatever the
 --- run, every entry sets the same values, and alpine-x86_64,
 --- linux-x86_64's runner and target in the alpine image, is the only leg in
 --- that image.
 local function test_each_kind_of_run_has_its_legs()
-  local queue, full = platform_legs("queue"), platform_legs("full")
+  local queue, push, full = platform_legs("queue"), platform_legs("push"), platform_legs("full")
   assert(names_of(queue) == "linux-x86_64", "the queue's legs: " .. names_of(queue))
+  assert(names_of(push) == "alpine-x86_64 linux-aarch64 linux-x86_64", "a push's legs: " .. names_of(push))
   assert(names_of(full) == "alpine-x86_64 linux-aarch64 linux-x86_64 macos-aarch64",
     "a full run's legs: " .. names_of(full))
   local keys <const>: {string} = { "name", "runner", "target", "image" }
@@ -1427,8 +1430,9 @@ local function test_each_kind_of_run_has_its_legs()
     assert(count == #keys, name .. " sets other values than " .. table.concat(keys, ", "))
     for _, key in ipairs(keys) do
       assert(leg[key] ~= nil, name .. " has no " .. key)
-      local other = queue[name]
-      assert(other == nil or other[key] == leg[key], name .. "'s " .. key .. " differs between runs")
+      for _, other in ipairs({ queue[name] or leg, push[name] or leg }) do
+        assert(other[key] == leg[key], name .. "'s " .. key .. " differs between runs")
+      end
     end
     local alpine = assert(leg["image"]):find("^ghcr%.io/cosmic%-lua/cosmic%-ci%-alpine@sha256:") ~= nil
     assert(alpine == (name == "alpine-x86_64"), name .. "'s image: " .. assert(leg["image"]))
@@ -1524,7 +1528,9 @@ end
 --- The gate (`ci`, the one check a ruleset requires) needs every job and
 --- fails on any that failed or was cancelled; the checked and narrowing
 --- jobs read as passed in the merge queue, which skips them. On every
---- other run it compares the four legs' products.
+--- other run it compares the legs' products: a push's three, the
+--- scheduled and a manual run's four, which prerelease.yml publishes from
+--- alone.
 local function test_the_gate_needs_every_job_and_compares_four_products()
   local jobs = ci_workflow().jobs
   local gate = job_of(jobs, "ci")
@@ -1538,13 +1544,22 @@ local function test_the_gate_needs_every_job_and_compares_four_products()
       "needs.narrowing.result }}",
     "the gate reads other results")
   local compare = step_named(gate.steps, "compare the Cosmic bytes executed on every native host")
-  assert(compare["if"] == QUEUE_SKIPS and map_of(compare.env)["COSMIC_CI_PRODUCTS"] == "4",
-    "the join compares other than main's four products")
-  local products = 0
-  for _, leg in pairs(platform_legs("full")) do
-    if leg["name"] ~= nil then products = products + 1 end
+  assert(compare["if"] == QUEUE_SKIPS and
+      map_of(compare.env)["COSMIC_CI_PRODUCTS"] == "${{ github.event_name == 'push' && '3' || '4' }}",
+    "the join compares other than main's products: " .. tostring(map_of(compare.env)["COSMIC_CI_PRODUCTS"]))
+  local function count(legs: {string: {string: string}}): integer
+    local n = 0
+    for _ in pairs(legs) do n = n + 1 end
+    return n
   end
-  assert(products == 4, "a full run has " .. tostring(products) .. " legs")
+  assert(count(platform_legs("push")) == 3 and count(platform_legs("full")) == 4, "the runs' legs")
+  -- prerelease.yml publishes four lanes, so only from a run of all four:
+  -- the scheduled and a manual run of main, never a push.
+  local prerelease = assert(Fs.read(DIR .. "/prerelease.yml"))
+  assert(prerelease:find("(github.event.workflow_run.event == 'schedule' || " ..
+      "github.event.workflow_run.event == 'workflow_dispatch')", 1, true) ~= nil and
+      prerelease:find("workflow_run.event == 'push'", 1, true) == nil,
+    "prerelease.yml publishes from a run of fewer than four legs")
   for name in pairs(jobs) do
     assert(name == "platform" or name == "checked" or name == "narrowing" or name == "ci", "ci.yml has a job " .. name)
   end
