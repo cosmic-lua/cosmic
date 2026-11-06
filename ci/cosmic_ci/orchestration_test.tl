@@ -1131,7 +1131,10 @@ local function test_the_checked_suite_runs_in_jobs_of_its_own_and_the_format_che
     local run = step.run or ""
     if run:find("driver.tl platform format", 1, true) ~= nil then
       formats = formats + 1
-      assert(step["if"] == "matrix.name == 'linux-x86_64'" and assert(step.env)["COSMIC_CI_FORMAT"] == "run",
+      -- linux-x86_64's, on every run but main's push and the daily one,
+      -- whose commit the merge queue checked.
+      assert(step["if"] == "matrix.name == 'linux-x86_64' && github.event_name != 'push' && " ..
+          "github.event.schedule != '41 3 * * 1-6'" and assert(step.env)["COSMIC_CI_FORMAT"] == "run",
         "the format check runs on another leg, or is skipped: " .. tostring(step["if"]))
     end
   end
