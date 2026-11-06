@@ -1149,6 +1149,41 @@ local function test_a_program_is_keyed_by_what_it_runs_as(tmp: string)
   assert(select(2, keys()) ~= other, "a file of o/bin's contents left the key")
 end
 
+--- The path a tool was built at is no part of what it runs as: CI places each commit's checkout at a path of its
+--- own, and a sandboxed worker sees the tree at /tree, never that path. The exception is "/tree" itself, the one
+--- value a worker's own root can equal (build.tree's `standing_of`), which the key keeps.
+local function test_a_program_built_at_another_path_keys_the_same(tmp: string)
+  tree(tmp)
+  assert(Fs.mkdirs(support.build_dir(tmp) .. "/bin"))
+  local root = assert(Fs.absolute(tmp))
+  local tool = support.build_dir(root) .. "/bin/cosmic"
+  local s = spec()
+  s.effective.tool = true
+  local function keys(): string, string
+    local program = declared_key.program_identity(declared_key.digests(root), { tool })
+    return program, key_of(root, { ...s, program = program })
+  end
+  local meta: mut {string:string} = { boot_hash = "one", writer = "w", built_from = "/ci/one/checkout" }
+  program_at(tool, "core one", meta, "bytecode one")
+  local program, key = keys()
+  local bytes = assert(Fs.read(tool))
+  meta["built_from"] = "/ci/another/place/entirely"
+  program_at(tool, "core one", meta, "bytecode one")
+  assert(assert(Fs.read(tool)) ~= bytes, "the tool's bytes did not move")
+  local moved_program, moved_key = keys()
+  assert(moved_program == program, "the path the tool was built at moved the program")
+  assert(moved_key == key, "the path the tool was built at moved the key")
+  -- A worker's own root is the one path that is not left out.
+  meta["built_from"] = "/tree"
+  program_at(tool, "core one", meta, "bytecode one")
+  local own_program, own_key = keys()
+  assert(own_program ~= program and own_key ~= key, "built at /tree left the key")
+  -- And the path is the only row left out: a carried module still moves it.
+  meta["built_from"] = "/ci/another/place/entirely"
+  program_at(tool, "core one", meta, "bytecode two")
+  assert(keys() ~= program, "a carried module left the program")
+end
+
 --- What runs an artifact's core is keyed for every test of a run the
 --- artifact starts, whether it runs the program or not: a launcher,
 --- manifest or core ahead of the database moves a key that declares no
@@ -1259,6 +1294,49 @@ local function stored(checks: string?, projection_file: string?): declared_key.S
     environment = { DECLARED = "d", TMPDIR = "/tmp" },
     checks = checks, projection_file = projection_file,
   }
+end
+
+--- A projection at `path` holding `meta` and one module, `cosmic.thing`, whose source is `source`.
+local function projection_at(path: string, meta: {string:string}, source: string)
+  local _, _ = Fs.remove(path)
+  local db = assert(Sqlite.open(path, { writable = true }))
+  assert(db:exec("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL); " ..
+      "CREATE TABLE modules (path TEXT PRIMARY KEY, source BLOB NOT NULL)"))
+  local keys: mut {string} = {}
+  for key in pairs(meta) do keys[#keys + 1] = key end
+  table.sort(keys)
+  for _, key in ipairs(keys) do
+    assert(Sqlite.run(db, "INSERT INTO meta (key, value) VALUES (?1, ?2)", { { text = key }, { text = meta[key] } }))
+  end
+  assert(Sqlite.run(db, "INSERT INTO modules (path, source) VALUES ('cosmic.thing', ?1)", { { blob = source } }))
+  assert(db:close())
+end
+
+--- The projection a `store` worker is given holds the path of the checkout it was written in (`built_from`).
+--- The same tree written at another path keys the same, as a tool built at another path does, while any other
+--- row moves it. A worker whose own root is "/tree" is the exception, as for a tool.
+local function test_a_projection_written_at_another_path_keys_the_same(tmp: string)
+  tree(tmp)
+  assert(support.build_dir(tmp))
+  local projection = support.build_dir(tmp) .. "/cosmic.db"
+  local whole = stored(nil, nil)
+  local meta: mut {string:string} = { boot_hash = "one", writer = "w", built_from = "/ci/one/checkout" }
+  projection_at(projection, meta, "return 1")
+  local before = key_of(tmp, whole)
+  local bytes = assert(Fs.read(projection))
+  meta["built_from"] = "/ci/another/place/entirely"
+  projection_at(projection, meta, "return 1")
+  assert(assert(Fs.read(projection)) ~= bytes, "the projection's bytes did not move")
+  assert(key_of(tmp, whole) == before, "the path the projection was written at moved a store worker's key")
+  meta["built_from"] = "/tree"
+  projection_at(projection, meta, "return 1")
+  assert(key_of(tmp, whole) ~= before, "a projection written at /tree left the key")
+  meta["built_from"] = "/ci/another/place/entirely"
+  projection_at(projection, meta, "return 2")
+  assert(key_of(tmp, whole) ~= before, "a module's source left the key")
+  meta["writer"] = "another writer"
+  projection_at(projection, meta, "return 1")
+  assert(key_of(tmp, whole) ~= before, "another row of the meta left the key")
 end
 
 --- A checked run's key holds the file its worker is given at o/cosmic.db, where its module declares `store`:
