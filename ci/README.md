@@ -387,89 +387,70 @@ index's `name@digest`, and appends it to `GITHUB_STEP_SUMMARY`.
 
 `.github/workflows/ci.yml` says what each step does; this is why.
 
-### scope, saves and concurrency
+### what runs where
 
-The workflow decides two things once. `COSMIC_CI_SCOPE` is `full` for the
-merge queue, main (a push, the scheduled run) and a manual run, and for a
-branch push whose change touches what a light run leaves unproved (below);
-it is `light` for any other branch push. It is decided by the `scope`
-job, which only a branch push runs, and each job that reads it passes the
-job's output on as its own `COSMIC_CI_SCOPE` (a workflow-level `env` cannot
-read a job): `full` unless the output says `light`, so a run the job did
-not decide, or could not, takes the wider scope. `COSMIC_CI_SAVES`
-is `true` only for a push to main and the scheduled run, the only runs
-whose platform legs save a cache (a push to main that reuses the queue's
-run saves through `seed`, below), and is decided in the top-level `env`.
-The driver reads neither (both are `COSMIC_CI_*`, which a suite's workers
-are never given).
+CI spends a runner's minutes only where a run decides something, and
+runs no job a branch's push would. The runs:
 
-A light run leaves out the queue's alpine leg, regressions, product suite,
-assemble, checked shares and provenance, and a change to what those read
-fails in the queue alone, a pass and a requeue later (PR #3176's
-`all_cores`, a requirement name the pinned driver the alpine fixtures run
-did not know; build, ci/ and core changes failing in the regressions or
-assemble). So the `scope` job asks GitHub for the branch's files (a
-compare with main, `.github/scripts/branch-scope.sh`; no checkout beyond
-two files, and no driver) and chooses `full` where one is named by
-`.github/scripts/branch-scope.txt`: ci/, bin/, the workflow, its actions
-and scripts, what zig's caches hash (the core's C, `build.zig`, vendor/,
-patch/), the harness's epoch file and the artifact, launcher, boot and
-requirement-vocabulary modules of build/. A change to docs, or to any
-test or module that list does not name, runs light, and the job's cost
-there is a runner's start and some seconds. build/branch_scope_test.tl
-holds the list to what the caches and the driver check hash, so it
-cannot drift from them, and the script to `full` wherever it cannot tell
-(a failed compare, a diff of 300 files). A full branch push runs the
-queue's jobs (the checked shares and the narrowing run
-too); the script's merge base is the leg's `COSMIC_CI_BASE_SHA`, the commit
-whose verdicts it stands on. The format check holds the markers of the tree to
-the merge base with main on every path (`driver.tl ceilings-base`, which names it
-`COSMIC_CEILINGS_BASE`), the queue's run included: the queue's own base is the
-entry ahead, whose markers the run's commit already holds. It saves
-nothing, runs the portable suite on alpine-x86_64 alone as the queue
-does, and its format check is assemble's, not the `format` job's.
+- **a push to a branch** runs nothing. The merge queue tests every change
+  before it lands, and the author's local checks (`bin/cosmic fix`,
+  `bin/cosmic test`, `ci/run-local`) are the branch's
+  (the tree's `doc/contributing.md`).
+- **a pull request** runs one light job, `pull-request`, which reports the
+  `ci` check the merge queue requires of the pull request before it takes
+  it: the tree booted on linux-x86_64's host and its format check, which
+  builds and type-checks the tree, lays out only the paths the pull
+  request changed since its merge base with main (driver.tl
+  changed-paths, `fix --check --changed`), and makes every check spanning
+  files (the tree checks, the links, the markers held to that base) over
+  the whole tree. No suite, and it saves nothing. A **manual run**
+  (`workflow_dispatch`) of the branch runs what main's run does, every
+  leg: the way to prove a change to what the other legs prove before it
+  queues.
+- **the merge queue** (`merge_group`) gates a merge on linux-x86_64 alone:
+  its leg, which also makes the tree's format check in its assemble
+  (`COSMIC_CI_FORMAT`), the checked suite's shares and gathering job, and
+  the checked narrowing run. It runs no portable suite: the leg builds
+  the portable bytes, runs its regressions on them and attests them, and
+  the join compares the one product (`COSMIC_CI_PRODUCTS=1`).
+- **a push to main** after the queue's merge finds that run (`reuse`),
+  and `seed` saves what its linux-x86_64 leg and checked jobs kept and
+  relays that leg's product, while `platform` runs the other three legs,
+  linux-aarch64, macos-aarch64 and alpine-x86_64 (with its portable share),
+  on the merged commit: the join compares all four products, and
+  prerelease.yml publishes them. A failure only those legs show turns main
+  red after the change has landed, to be fixed or reverted at once. A
+  push to main that finds no queue run runs every leg and job.
+- **the scheduled run**, weekly, runs every leg and job, every test
+  whatever stood (`COSMIC_CI_EVENT`), for what no key answers for.
 
-A `light` run has three platform legs, not four: alpine-x86_64, which
-is linux-x86_64's runner and target in another image, runs on every
-`full` run, the merge queue's among them. A matrix cannot read `env`, so
-the legs' `name` list tests the scope's condition again (the `scope`
-job's output) and takes one
-of two lists. The matrix's `include` adds each leg's values by name,
-and an entry naming a leg the list leaves out would start that leg
-anyway (GitHub adds an entry that fits no combination as one of its
-own, `exclude` or not); so alpine-x86_64's entry names no leg, comes
-first and is added to every leg, and each later entry overwrites all of
-its values for its own leg (build/workflows_test.tl expands the matrix
-as GitHub does, for either scope).
+`COSMIC_CI_SAVES` is `true` only for a push to main and the scheduled run,
+the only runs whose jobs save a cache (a push to main that reuses the
+queue's run saves linux-x86_64's and the checked jobs' through `seed`,
+below), and is decided in the top-level `env`. The driver does not read
+it (it is `COSMIC_CI_*`, which a suite's workers are never given).
 
-A `light` run also splits linux-x86_64's native suite, the longest of
-its legs' (some 114 s after an edit to a carried module, 190 to 205 s
-after a core change, where linux-aarch64's takes 83 s and 120 to 131 s),
-between two legs: the matrix's `shard` dimension gives every leg `1/2`
-and `2/2`, its `exclude` drops the second of every leg but
-linux-x86_64, and `COSMIC_CI_SHARD` passes the share on to that leg's
-two jobs alone (`linux-x86_64` and `linux-x86_64-shard`), whose native
-suites run `cosmic test --shard 1/2` and `2/2`. The harness deals the
-chosen tests in turn, in sorted order, so the two run each test once
-between them whatever either restored; a deal by recorded cost would
-turn on the verdict cache each restored, which two runners need not
-restore alike. Each job is linux-x86_64's in all but the share: its
-runner, image, caches and verdict cache, so the same key parts, and
-the gate (`ci`) needs both. Neither checks that every C function is
-entered, which only a whole run answers (linux-aarch64's and
-macos-aarch64's light runs still do, and every leg of a `full` run).
-A light run saves no verdicts, so neither share's stands for the
-other's. A `full` run's legs run their native suites whole (`shard` is
-empty).
+The legs differ by the kind of run, which a matrix dimension cannot
+narrow: an `include` entry naming a leg no dimension holds starts that
+leg anyway (GitHub adds an entry that fits no combination as one of its
+own, `exclude` or not). So the platform job's `include` is an expression
+that chooses one of three lists by the kind of run, each listing every
+job whole (build/workflows_test.tl reads all three as GitHub would).
 
-A `full` run splits alpine-x86_64's portable suite (the queue's longest
-leg: its native suite, regressions and the whole portable suite ran in
-series) in two. The `shard` dimension holds `portable-2/2` as well on a
-`full` run, its `exclude` drops that value for every leg but
-alpine-x86_64, and the one job it leaves, `alpine-x86_64-portable-share`,
-is the leg's on its runner and image with the leg's `name`, so it
+This saves most of the runner minutes a merged change cost before
+(2026-11): a branch's pushes ran a light scope of three legs, and a full
+one where they touched what only the queue's legs proved, about a third
+of all minutes; and each queue run ran four legs, four checked shares and
+a format job of its own, some 140 runner minutes. Batching the merge queue (its group size, a repository
+setting) divides the queue's and main's runs by the group's size.
+
+Every run with an alpine-x86_64 leg splits its portable suite (its
+native suite, regressions and the whole portable suite ran in series) in
+two. The job `alpine-x86_64-portable-share`, an entry of `shard`
+`portable-2/2`, is the leg's on its runner and image with the leg's
+`name`, so it
 restores and keys every cache as the leg does. `COSMIC_CI_PORTABLE_SHARD`
-gives the leg `1/2` and that job `2/2` (`cosmic test --shard`, as above),
+gives the leg `1/2` and that job `2/2` (`cosmic test --shard`),
 and the two run beside each other. The job boots, restores the verdicts
 and compiles, probes the sandbox, assembles, runs its half of the suite
 and its boundary, and attests. It runs alpine-x86_64's regressions
@@ -501,25 +482,26 @@ so it answers the first two for the portable run too, and the digests
 are a cache of the run's own working database, which no verdict reads.
 
 The job uploads no `portable-product-*`, which prerelease.yml counts four
-of and `seed` relays. The legs' `attest` writes `expected-platforms` as
-the job count less `COSMIC_CI_PORTABLE_SHARES` (1 on a `full` run). The
-job uploads the bytes it ran, their `executed-cosmic.sha256` and the
-share it ran as `portable-share-alpine-x86_64`; the leg's product holds
-its own share in `portable-share`. The `ci` join downloads the job's
-artifact where the platform job ran, hashes the bytes as it does a
+of and `seed` relays. The join is told how many products the run has
+(`COSMIC_CI_PRODUCTS`: the queue's one, every other run's four) and how
+many share attestations (`COSMIC_CI_PORTABLE_SHARES`: none in the queue,
+one elsewhere); no leg counts them. The job uploads the bytes it ran,
+their `executed-cosmic.sha256` and the share it ran as
+`portable-share-alpine-x86_64`; the leg's product holds its own share in
+`portable-share`. The `ci` join downloads the job's artifact on every run
+but the queue's, hashes the bytes as it does a
 leg's, holds the digest to the legs', and requires, across the leg and
 the jobs, each share `1/N` to `N/N` exactly once; it fails on a missing,
 extra, duplicated or different one.
 
-A newer push supersedes a branch's run, but every main run finishes (a
+A newer manual run supersedes a branch's, but every main run finishes (a
 prerelease is published only from a completed run) and main's pushes
 run one at a time, in one concurrency group, so the caches they save
 land in commit order and a restore's newest entry is never an older
 commit's saved late. GitHub keeps one pending run per group and cancels
 it when a third arrives, so a commit that lands while main is busy and
 another run waits gets no run and no prerelease; a pin moves to a later
-one. A push that reuses the queue's run takes a minute or two, so that
-needs three landings that close together. The scheduled run has a
+one. The scheduled run has a
 group of its own: pending behind a push, the next push would cancel it.
 Running beside main's pushes its saves can land after a newer
 commit's, which costs the next run only the rows that commit moved,
@@ -571,7 +553,7 @@ entry saved under `gh-readonly-queue/` is that ref's alone), and
 prerelease.yml publishes a main run's products, so the push still
 saves and still carries the products, both taken from the queue's run:
 
-- Each leg of a queue run that passed keeps what main would save
+- The leg of a queue run that passed keeps what main would save
   (`driver.tl queue-stage`): its trimmed verdicts and compiles, where
   they differ from the entry it restored, the driver check's marker,
   where the check ran, with `seed.keys` naming the key each is saved
@@ -586,42 +568,41 @@ saves and still carries the products, both taken from the queue's run:
 - A push to main first runs `reuse` (`driver.tl queue-find`), which asks
   the API for a `merge_group` run of ci.yml on a
   `gh-readonly-queue/main/` branch whose `head_sha` is the push's, that
-  completed with success and holds an unexpired `seed-<leg>` for every
-  leg and the checked job. The queue lands the merge as its `ci` check passes, a moment
+  completed with success and holds an unexpired `seed-<leg>` for its
+  leg and the checked jobs. The queue lands the merge as its `ci` check passes, a moment
   before its run completes, so a run still in progress, or an API call
   that failed, is asked after again, every 20 s up to six times, each
   call cut off at 15 s; the job's timeout is held above that budget. A
   lookup that fails, or times out, is none: the legs run, and the join
   reads only theirs.
-- Where it finds one, the platform legs and the checked job are
-  skipped, and `seed`, on each leg's own runner (an entry's version
+- Where it finds one, linux-x86_64's leg and the checked jobs are
+  skipped, the other three legs run (`platform`), and `seed`, on the
+  queue leg's own runner (an entry's version
   hashes its path, the runner's), saves that leg's seed under the keys
   it names and uploads the queue's `portable-product-<leg>` as this
   run's; its checked entry saves the checked job's verdicts and relays
   no product. After the relay, and failing nothing, it saves the leg's
   zig build outputs, unless an entry of their core and vendor part is
   there already (an earlier queue run's of the same core). The `ci` join
-  compares those products as it does a platform run's, reading `seed`'s
-  result in place of the legs' and the checked job's, and
+  compares that product with the three legs' as it does a platform
+  run's, reading `seed`'s result in place of the checked jobs', and
   prerelease.yml publishes them
   unchanged. The prerelease's `source.json` names this run, whose
   `reuse` summary names the queue's run that built and tested the
   product (the `TODO:` on `seed`'s relay).
 - Where it finds none (a direct push, or a lookup that failed), and on
   the scheduled and a manual run, which skip `reuse`, the legs run the
-  full scope and save as before. Only a push to main runs `reuse`: a
-  branch push shows it as a skipped check rather than hold its legs
-  for a runner's start with nothing to do (seconds, up to about 100 s
-  in a burst of runs); the legs' `!cancelled()` runs them past a
-  skipped `reuse` as past one that found nothing. `seed` too shows as
-  a skipped check on a branch push (a `TODO:`), as do `prune` and
-  `invalidate`, which act on main alone.
+  whole and save as before. Only a push to main runs `reuse`: every
+  other run skips it rather than hold its legs for a runner's start
+  with nothing to do (seconds, up to about 100 s in a burst of runs);
+  the legs' `!cancelled()` runs them past a skipped `reuse` as past one
+  that found nothing.
 
 What the push gives up is a second run of the same commit: a flake the
-queue's run missed is no longer caught on main, where the nightly run
+queue's run missed is no longer caught on main, where the weekly scheduled run
 still runs every test. A seed decides only how many tests stand: every
 row is keyed by its own inputs. The zig build outputs are seeded once
-per core or vendor change: without them only the nightly saved any,
+per core or vendor change: without them only the weekly run saved any,
 and each queue run after a change to `core/` compiled the core again
 on every leg and for the checked build, some four to five minutes of
 the gate, where one that restores an entry of its own core boots in
@@ -683,18 +664,18 @@ fixtures use; a leg that skips the suite removes a `checked.db` from its
 verdicts, which would otherwise ride along whole in each save.
 
 - `checked-shard` (`linux-x86_64-checked-shard-<part>`), a share of the
-  suite each, four jobs of one matrix, on a full run where the legs run.
+  suite each, two jobs of one matrix, wherever linux-x86_64's leg runs.
   It builds the checked core and the format decoder the contract's
   fixture would have left (`platform checked-build`), and runs its
   share of the suite (`platform checked`, `cosmic test --shard I/N`,
-  `COSMIC_CI_CHECKED_SHARD`; as a light run's linux-x86_64 legs split
-  their native suite). The harness deals the tests in turn in sorted
-  order, so a share is a quarter of them and of the time whatever any
-  restored. The share's bound is its own, 600 s
+  `COSMIC_CI_CHECKED_SHARD`). The harness deals the tests in turn in
+  sorted order, so a share is half of them and of the time whatever any
+  restored. The share's bound is its own, 1200 s
   (`checked_shard_timeout_ns`): the suite's 1096 s where no verdict
-  stood and 1504 s at the slowest are 274 and 376 s a share, and the
-  job's 25 minutes hold its three minutes' build and that bound with
-  room. It restores its verdicts as the whole suite's job did, from
+  stood and 1504 s at the slowest are 548 and 752 s a share, and the
+  job's 30 minutes hold its three minutes' build and that bound with
+  room. Two shares, not four: each repeats some three and a half
+  minutes of a runner's start, restores, boot and checked build. It restores its verdicts as the whole suite's job did, from
   the entry of the tree's base on main, and in the merge queue takes
   the verdicts of the same part of the run ahead (`queue-ahead`,
   `verdicts-linux-x86_64-checked-shard-<part>`). It trims what it
@@ -703,13 +684,13 @@ verdicts, which would otherwise ride along whole in each save.
   checks no C function is entered by some test, which only a whole run
   answers; it saves and seeds nothing. Its `operations.db` is kept as
   `ci-driver-linux-x86_64-checked-shard-<part>`.
-- `checked` (`linux-x86_64-checked`) gathers them, after all four
+- `checked` (`linux-x86_64-checked`) gathers them, after both
   passed (`needs`; a failed share skips it, and `ci` fails on the
-  share), except in a run that saves (main's push, the nightly): there it
+  share), except in a run that saves (main's push, the weekly run): there it
   runs past a failed share, runs no test, fails, and saves the shares' rows (a
   failed share keeps its own, without the failed test's), so main's newest entry
   no longer holds that test's pass. It builds the checked core again (`COSMIC_CI_CHECKED_SUITE=gather`)
-  and merges the four artifacts into a verdict cache that holds
+  and merges the two artifacts into a verdict cache that holds
   nothing of main's (its restore only looks the entry up, which the
   save compares with), then runs the whole suite, on which every test
   stands (`stands` takes it for a run that gathers: not `--all`, not `--no-shared`, even where the
@@ -743,7 +724,7 @@ verdicts, which would otherwise ride along whole in each save.
   shares' verdicts of the run ahead too (two `queue-ahead` calls of a minute
   at most each, `READY_SECONDS` 660, the later share's start plus its
   boot and tests where none stood). It runs the tests whose key moved
-  (`stands`: a push and the queue; not the nightly or a manual run, which run
+  (`stands`: a push and the queue; not the weekly run or a manual run, which run
   every test), says in
   `--census` which key parts moved for the rest, trims to the rows its run
   used and keeps them as `verdicts-linux-x86_64-checked-narrowing-shard-<part>`.
@@ -755,7 +736,7 @@ verdicts, which would otherwise ride along whole in each save.
   the merged ones, which the trim would leave whole, the merge stamping them
   used at 0), trims as `checked` does, seeds (`seed-linux-x86_64-checked-narrowing`,
   in `LEGS`) and saves the one entry on `COSMIC_CI_SAVES`. Past a failed share it
-  runs where it saves (a push to main, the nightly) to fail and take the failed
+  runs where it saves (a push to main, the weekly run) to fail and take the failed
   test's pass out of main's newest entry, and is skipped in the merge queue. The
   `ci` gate reads its result beside the shares'; `prune` and `invalidate` wait
   on it. The pinned driver's `verdicts-merge` and `verdicts-trim` apply no row
@@ -769,47 +750,19 @@ verdicts, which would otherwise ride along whole in each save.
   core hold the check in every full run. Their `operations.db` is kept as
   `ci-driver-linux-x86_64-checked-narrowing-<part>` (the merge's as
   `ci-driver-linux-x86_64-checked-narrowing`). A full run only.
-- `format` (`linux-x86_64-format`), a light run's and the merge queue's
-  format check (`platform format`), which the other full runs make in
-  linux-aarch64's assemble (`COSMIC_CI_FORMAT` is `skip` on every leg in the
-  queue). In the queue it is `fix --check .` over the merged tree, with no
-  paths changed named and no memo restored, beside legs that take 17 to 18
-  minutes (about 10 cold). The job is outside the matrix, so a format
-  failure in the queue no longer cancels the legs (`fail-fast`); the gate
-  still fails. On a light run it lays out only what the
-  branch changed since its base on main
-  (driver.tl changed-paths, `fix --check --changed`), whose
-  tree the queue held to the whole check, and still makes every check
-  spanning files -- the tree checks, the links, the asserts -- over the
-  whole tree. Where a path changed is part of what
-  checks each file alone (the layout, the C rules, the compiler, the
-  core), or the paths cannot be named, it checks the whole tree. That
-  check takes some seven minutes in a fresh build directory, which holds
-  no memo of what the check found in each file (build/check_memo.tl,
-  `translate-check.db`). So the job restores the newest memo its ref can
-  read, `check-memo-v1-<run>` by its prefix (a branch's restore takes
-  main's), `COSMIC_CI_CHECK_MEMO` names it to the phase, which puts it where the
-  check reads it and leaves the check's own beside it; and the
-  scheduled run, which runs this job too, with no paths changed, checks the whole tree
-  and saves what it left. A row is keyed by the file's bytes and the
-  check's own sources, so a memo a day old answers for every file the branch
-  did not change, and a miss costs only the check's time. A branch saves none, and
-  an entry unread for a week is evicted.
-
-On a branch push (`light`), which runs no checked suite, the shares and
-the narrowing run do not run, and `checked` runs only the pinned CI
-driver's check (`cosmic-driver test cosmic_ci`, 27 to 54 s a leg where
-it ran), which a light run's legs skip, and which it skips too where
-main's linux-x86_64 leg left its marker for the same key (that leg's
-host, named again under the leg's name, and what the key hashes): no
-boot, so it ends in a minute or two. Beside it `format` boots and checks the
-format, so that the check, which took longer than the legs, is no
-part of another job's path.
+The tree's format check (`platform format`, `fix --check .`) has no job
+of its own: it is the first thing linux-x86_64's assemble does in the
+merge queue (`COSMIC_CI_FORMAT`), where that is the one leg, and
+linux-aarch64's on every other run with no queue run behind it. Its job
+of its own, which checked only a branch's changed paths on a light run
+and started from the scheduled run's memo, went with the branch's runs;
+in the queue it cost a runner's start, restores and boot to save the
+leg some minutes.
 
 The jobs restore linux-x86_64's zig build outputs and compiles, which
 that leg saves, and save neither. Each keeps its `operations.db`, under
-its own name. The `ci` join requires them all, a job a scope does not
-run counting as passed, and `report` counts them with the legs. Each
+its own name. The `ci` join requires them all (`seed`'s result standing
+for them where a push to main reuses the queue's run), and `report` counts them with the legs. Each
 moves its tree to a path of the commit's own, as a leg's does: the checked core
 runs the harness, the boot's staging and `tool.tl entry` unsandboxed
 at that path, so a path of another length each commit varies what the
@@ -892,19 +845,17 @@ everywhere else. Only `COSMIC_CI_SAVES` runs (and `seed`, for a push
 that reuses the queue's run) save the verdicts, the
 compiles and parses, the zig build outputs and the driver check's
 marker (the pinned zig and the driver's bootstrap are saved by any run
-that misses their exact key, which names only the pin). A branch or the
-merge queue restores main's and saves nothing but one thing: a PR's
-later pushes stand on main's entries, not its earlier push's. GitHub
-searches a ref's own entries before main's, so a branch's entry saved
-before only main saved still wins over main's newer one under the same
-prefix.
+that misses their exact key, which names only the pin). A manual run of
+a branch and the merge queue restore main's and save nothing.
 
-That one thing is a branch's compiles. A change to the compiler (the
+A branch's push, when it ran CI, saved one thing, its compiles, which no
+run saves now (the `TODO:` at the compiles' restore in ci.yml takes the
+rest of it out): A change to the compiler (the
 Teal compiler's patches, the build's modules a compile
 runs: build.identity's `compiler_identity`) moves every compile's key, so
 main's entry answers none of a branch that makes one, and each of its
 pushes compiled the whole tree again (some 40 s a boot, on each leg and
-the checked job). So a branch's push (`light`) whose builds compiled
+the checked job). So a branch's push whose builds compiled
 more than 50 modules its restored entry lacked (`compiles-trim`'s
 `fresh`) saves its trimmed compiles under
 `compiles-branch-<leg>-<compiler>-<digest>`, where `<compiler>` hashes
@@ -1000,7 +951,7 @@ part (the queue's result, above), so once per core change too.
 The scheduled run restores nothing, compiles cold and saves a compact
 entry. zig never prunes its cache, and a save carries all its run
 restored, so a day's core changes each saved one that held the last's,
-until the nightly's cold build: at a day's end macOS's entry was 561 MB
+until the weekly run's cold build: at a day's end macOS's entry was 561 MB
 compressed (1.8 GB on disk) and linux-x86_64's 867 MB, where the
 entries of 2026-09-29, before the queue seeded them, were 118 to 142 MB;
 and every leg's first step, the restore, took 9 to 19 s on Linux and
@@ -1026,7 +977,7 @@ main run builds cold (minutes a leg), and a queue run that lands on a
 core change not yet on main (the run ahead's) compiles it again,
 incrementally. Where assemble fails on the first main run after a vendor change,
 nothing is saved, so every main run builds vendor/ cold until one
-passes assemble or the nightly saves; a branch stays warm through the
+passes assemble or the weekly run saves; a branch stays warm through the
 restore of another vendor part.
 
 A run of main or the queue that restored an entry of its own vendor and

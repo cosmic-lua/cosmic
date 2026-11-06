@@ -107,8 +107,8 @@ line below it. [`build/markers.tl`] has the rules.
   refuses a file that holds more than it did at the merge base with
   main, so a marker cannot be added, and one that is written over a
   line that moved is not new. it reads the base with git alone (`git
-  grep` and `git cat-file`), with no run of the checker. CI runs it on
-  every branch push and in the merge queue, against the merge base with
+  grep` and `git cat-file`), with no run of the checker. CI runs it in
+  the merge queue (and on main's runs), against the merge base with
   main and never the entry ahead in the queue, where it fails when no base
   can be found (GitHub could not name it: run the job again), and
   `bin/cosmic fix --check .` runs it locally against `git merge-base HEAD
@@ -212,23 +212,32 @@ removed lines in `git diff origin/main...HEAD | grep '^-.*TODO:'`.
 
 ## merge
 
-main takes changes only through the merge queue, which runs CI again
-on the queued merge commit ([`.github/workflows/ci.yml`] runs on
-`merge_group`). enable auto-merge, and watch both the branch's run and
-the queue's. start a next PR that depends on this one only once it has
-merged.
+main takes changes only through the merge queue, which runs CI on the
+queued merge commit ([`.github/workflows/ci.yml`] runs on
+`merge_group`). a push to a branch runs no CI: the checks above, run
+locally, are the branch's. a pull request runs one light check, the `ci`
+check the queue requires of it: the tree booted and `fix --check` of
+what it changed, with the checks spanning files over the whole tree.
+enable auto-merge, and watch the queue's run.
+start a next PR that depends on this one only once it has merged.
 
 on a failure, find the cause, fix it in the worktree, re-run the checks
 and push. never skip or disable a test to get green.
 
-a branch push whose change touches what only the queue's legs prove (ci/,
-the build and core inputs, the harness's epoch, the artifact and launcher
-modules: [`.github/scripts/branch-scope.txt`]) runs the queue's scope on the
-branch, so those failures show there, and it takes about as long as the
-queue's run does; any other branch push runs the light scope.
+the queue's run gates the merge on linux-x86_64 alone: its leg, the
+checked suite and the checked narrowing run. the other legs
+(linux-aarch64, macos-aarch64, alpine-x86_64) and the product suite run
+on main's push after the merge, so a failure only they show turns main
+red after the change lands; fix it, or revert the change, at once. a
+change to what those legs prove more than linux-x86_64 does (ci/, bin/,
+the core's C, `build.zig`, vendor/ and patch/, the harness's epoch, the
+artifact, launcher and boot modules, a darwin branch) runs CI on its
+branch first: a manual run (`workflow_dispatch` on the branch, from the
+Actions tab or `gh workflow run ci.yml --ref <branch>`) runs every leg,
+as main's run does.
 
 a queue run tests the change merged with every entry ahead of it, so it
-can fail where the branch's run passed. when it fails building, on a
+can fail where the branch's checks passed. when it fails building, on a
 type error in code the change did not touch, it has met another change:
 never queue the same head again. find the entry it met (the error names
 its code); if that entry is still queued, wait for it to land or leave.
@@ -302,7 +311,6 @@ a standing entry would always fail, and the pinned boot (unset
 the pin move. a difference not listed fails the boot under any seed, since
 the tool named can be older than the tree's generator.
 
-[`.github/scripts/branch-scope.txt`]: ../.github/scripts/branch-scope.txt
 [`.github/workflows/ci.yml`]: ../.github/workflows/ci.yml
 [`AGENTS.md`]: ../AGENTS.md
 [`bin/cosmic-bootstrap`]: ../bin/cosmic-bootstrap

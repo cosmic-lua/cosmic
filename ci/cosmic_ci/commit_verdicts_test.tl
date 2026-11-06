@@ -86,12 +86,14 @@ local function test_the_queue_holds_the_markers_to_the_merge_base_with_main_not_
   assert(verdicts == "sha=" .. (QUEUE["QUEUE_BASE"] or "") .. "\n", verdicts)
 end
 
---- A branch's push and a manual run of a branch ask the same; main's own runs and a run that names no branch of the queue ask
+--- A branch's push, a pull request's run and a manual run of a branch ask the same; main's own runs and a run that names no branch of the queue ask
 --- nothing and name none, which fails the check where it must hold a base.
 local function test_a_branch_run_asks_for_its_merge_base_and_main_and_an_unnamed_queue_ask_nothing()
   local answer = '{"merge_base_commit":{"sha":"' .. BASE .. '"}}'
-  for _, event in ipairs({ "push", "workflow_dispatch" }) do
-    local output, _, calls = ceilings_base({ EVENT = event, REF = "refs/heads/topic", SHA = SHA, REPOSITORY = "o/r" }, answer)
+  for _, case in ipairs({ { "push", "refs/heads/topic" }, { "workflow_dispatch", "refs/heads/topic" },
+      { "pull_request", "refs/pull/1/merge" } }) do
+    local event = assert(case[1])
+    local output, _, calls = ceilings_base({ EVENT = event, REF = assert(case[2]), SHA = SHA, REPOSITORY = "o/r" }, answer)
     assert(output == "sha=" .. BASE .. "\n" and #calls == 1 and calls[1] == "GET repos/o/r/compare/main..." .. SHA .. "?per_page=1",
       event .. ": " .. output .. table.concat(calls, "\n"))
   end

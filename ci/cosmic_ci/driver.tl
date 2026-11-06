@@ -128,7 +128,7 @@ local commands: {string:Command} = {
     usage = "", handler = CommitVerdicts.ceilings_base_command },
   ["leg-host-id"] = { about = "name the leg's host, and its verdict cache, from its container or runner and its processor features",
     usage = "NAME IMAGE RUNNER STARTED", handler = HostId.command },
-  ["changed-paths"] = { about = "name the paths this branch changed since its base on main, for a light run's format check",
+  ["changed-paths"] = { about = "name the paths this branch changed since its base on main, for a format check of those alone",
     usage = "", handler = ChangedPaths.command },
   ["prune-commit-verdicts"] = { about = "delete main's commit-keyed verdicts and the branches' compiles a day old",
     usage = "", handler = CommitVerdicts.prune_command },

@@ -79,11 +79,8 @@ local record ShareAttestationCase
 end
 local record AttestCase
   name: string
-  total: string
-  shares: string
   --- The share the portable phase recorded.
   ran?: string
-  expected?: string
 end
 local record PortableShareCase
   name: string
@@ -196,8 +193,7 @@ local function test_provenance_failures_are_durable(tmp: string)
     assert(Fs.mkdirs(product))
     assert(Fs.write(product .. "/cosmic", Fixture.synthetic(tmp .. "/lane.db", "/runner-" .. name .. "/cosmic")))
     local digest = Hash.hex_sha256(Fixture.stripped(product .. "/cosmic", tmp .. "/lane.db"))
-    assert(Fs.write(product .. "/executed-cosmic.sha256", digest .. "  cosmic\n") and
-        Fs.write(product .. "/expected-platforms", "2\n"))
+    assert(Fs.write(product .. "/executed-cosmic.sha256", digest .. "  cosmic\n"))
   end
 
   -- Each scenario gets its own RUNNER_TEMP: the operations database and
@@ -210,15 +206,17 @@ local function test_provenance_failures_are_durable(tmp: string)
     return runner_temp
   end
 
+  -- The run's two legs (COSMIC_CI_PRODUCTS, as ci.yml's join names them).
+  local two: {string:string} = { COSMIC_CI_PRODUCTS = "2" }
   local good_runner_temp = seeded_runner_temp("good")
   assert(Fixture.call("good-provenance", append(base, { "provenance" }), project,
-    tmp .. "/logs", context(candidate, good_runner_temp)).result.ok)
+    tmp .. "/logs", context(candidate, good_runner_temp, two)).result.ok)
 
   local bad_runner_temp = seeded_runner_temp("bad")
   assert(Fs.write(bad_runner_temp .. "/cosmic-ci/products/portable-product-b/cosmic",
     Fixture.synthetic(tmp .. "/lane.db", "/runner-b/cosmic", "changed")))
   assert(not Fixture.call("bad-provenance", append(base, { "provenance" }), project,
-    tmp .. "/logs", context(candidate, bad_runner_temp)).result.ok)
+    tmp .. "/logs", context(candidate, bad_runner_temp, two)).result.ok)
 
   local summary = tmp .. "/bad-summary.md"
   assert(Fixture.call("summarize", append(base, { "summarize" }), project,
@@ -232,22 +230,36 @@ local function test_provenance_failures_are_durable(tmp: string)
     corrupt_runner_temp .. "/cosmic-ci/products/portable-product-b/executed-cosmic.sha256",
     "corrupt\n"))
   assert(not Fixture.call("corrupt-attestation", append(base, { "provenance" }), project,
-    tmp .. "/logs", context(candidate, corrupt_runner_temp)).result.ok)
+    tmp .. "/logs", context(candidate, corrupt_runner_temp, two)).result.ok)
 
   -- No product to compare is told so, rather than counted in a message
   -- built before the check.
   local empty_runner_temp = tmp .. "/empty-runner-temp"
   assert(Fs.mkdirs(empty_runner_temp .. "/cosmic-ci/products"))
   local empty = Fixture.call("empty-provenance", append(base, { "provenance" }), project,
-    tmp .. "/logs", context(candidate, empty_runner_temp))
+    tmp .. "/logs", context(candidate, empty_runner_temp, two))
   assert(not empty.result.ok)
   assert(assert(Fs.read(empty.err)):find("no product to compare", 1, true) ~= nil)
+
+  -- A run that names more legs than uploaded a product, or fewer, fails:
+  -- the merge queue's one and main's four.
+  for _, count in ipairs({ "1", "3" }) do
+    local counted_runner_temp = seeded_runner_temp("counted-" .. count)
+    local counted = Fixture.call("counted-provenance-" .. count, append(base, { "provenance" }), project,
+      tmp .. "/logs", context(candidate, counted_runner_temp, { COSMIC_CI_PRODUCTS = count }))
+    assert(not counted.result.ok, count .. " products expected of two")
+    assert(assert(Fs.read(counted.err)):find("found 2", 1, true) ~= nil, Fixture.read(counted.err))
+  end
+  local unnamed = Fixture.call("unnamed-provenance", append(base, { "provenance" }), project,
+    tmp .. "/logs", context(candidate, seeded_runner_temp("unnamed")))
+  assert(not unnamed.result.ok and assert(Fs.read(unnamed.err)):find("COSMIC_CI_PRODUCTS", 1, true) ~= nil,
+    "a join told no count of products answered " .. Fixture.read(unnamed.err))
 
   local missing_runner_temp = seeded_runner_temp("missing")
   assert(Fs.remove(
     missing_runner_temp .. "/cosmic-ci/products/portable-product-b/executed-cosmic.sha256"))
   assert(not Fixture.call("missing-attestation", append(base, { "provenance" }), project,
-    tmp .. "/logs", context(candidate, missing_runner_temp)).result.ok)
+    tmp .. "/logs", context(candidate, missing_runner_temp, two)).result.ok)
 end
 
 --- The job that runs another share of a leg's portable suite uploads the
@@ -268,8 +280,7 @@ local function test_provenance_holds_a_portable_share_to_the_legs_bytes(tmp: str
     assert(Fs.mkdirs(product))
     assert(Fs.write(product .. "/cosmic", Fixture.synthetic(tmp .. "/lane.db", "/runner-" .. name .. "/cosmic")))
     digest = Hash.hex_sha256(Fixture.stripped(product .. "/cosmic", tmp .. "/lane.db"))
-    assert(Fs.write(product .. "/executed-cosmic.sha256", digest .. "  cosmic\n") and
-        Fs.write(product .. "/expected-platforms", "2\n"))
+    assert(Fs.write(product .. "/executed-cosmic.sha256", digest .. "  cosmic\n"))
   end
   local good = digest .. "  cosmic\n"
   local cases: {ShareAttestationCase} = {
@@ -304,22 +315,21 @@ local function test_provenance_holds_a_portable_share_to_the_legs_bytes(tmp: str
       if case.half ~= nil then assert(Fs.write(dir .. "/portable-share", case.half .. "\n")) end
     end
     local outcome = Fixture.call("share-" .. case.name, append(base, { "provenance" }), project,
-      tmp .. "/logs", context(candidate, runner_temp, { COSMIC_CI_PORTABLE_SHARES = case.shares }))
+      tmp .. "/logs", context(candidate, runner_temp, { COSMIC_CI_PORTABLE_SHARES = case.shares, COSMIC_CI_PRODUCTS = "2" }))
     assert(outcome.result.ok == case.ok, case.name .. ": the join answered " ..
         tostring(outcome.result.ok) .. ": " .. Fixture.read(outcome.err))
   end
 end
 
---- The legs' `attest` writes the number of products to expect, the job
---- count (`strategy.job-total`) less the jobs that run a share of a
---- leg's portable suite and upload none (COSMIC_CI_PORTABLE_SHARES), so
---- that prerelease.yml still finds its four lanes.
-local function test_attest_expects_the_products_without_the_share_jobs(tmp: string)
+--- The legs' `attest` writes the digest of the bytes it ran and the share
+--- of the portable suite it ran (`none` where it ran the whole suite or
+--- none), for the join to hold the shares to the suite; how many products
+--- a run has is the join's to know (COSMIC_CI_PRODUCTS), not a leg's.
+local function test_attest_records_the_share_it_ran(tmp: string)
   local base, project = command(tmp)
   local cases: {AttestCase} = {
-    { name = "whole", total = "4", shares = "", expected = "4\n" },
-    { name = "shared", total = "5", shares = "1", ran = "2/2\n", expected = "4\n" },
-    { name = "all-shares", total = "5", shares = "5" },
+    { name = "whole" },
+    { name = "shared", ran = "2/2\n" },
   }
   for _, case in ipairs(cases) do
     local fake = tmp .. "/attest-" .. case.name
@@ -338,18 +348,14 @@ local function test_attest_expects_the_products_without_the_share_jobs(tmp: stri
         Fs.write(diagnostics .. "/portable-artifact.before.sha256", executed) and
         Fs.write(diagnostics .. "/portable-artifact.after.sha256", executed))
     if case.ran ~= nil then assert(Fs.write(diagnostics .. "/portable-share", case.ran)) end
-    local outcome = Fixture.call("attest-" .. case.name, append(base, { "platform", "attest", case.total }),
-      project, tmp .. "/logs", context(fake, runner_temp, {
-        TARGET = "x86_64-linux-musl", COSMIC_CI_PORTABLE_SHARES = case.shares,
-      }))
-    assert(outcome.result.ok == (case.expected ~= nil), case.name .. ": attest answered " ..
+    local outcome = Fixture.call("attest-" .. case.name, append(base, { "platform", "attest" }),
+      project, tmp .. "/logs", context(fake, runner_temp, { TARGET = "x86_64-linux-musl" }))
+    assert(outcome.result.ok, case.name .. ": attest answered " ..
         tostring(outcome.result.ok) .. ": " .. Fixture.read(outcome.err))
-    if case.expected ~= nil then
-      assert(Fs.read(product .. "/expected-platforms") == case.expected, case.name .. ": expected " ..
-          tostring((Fs.read(product .. "/expected-platforms"))))
-      assert(Fs.read(product .. "/portable-share") == (case.ran or "none\n"), case.name .. ": the share attested is " ..
-          tostring((Fs.read(product .. "/portable-share"))))
-    end
+    assert(Fs.exists(product .. "/expected-platforms") ~= true, case.name .. ": attest counted the run's products")
+    assert(Fs.read(product .. "/executed-cosmic.sha256") ~= nil, case.name .. ": no digest attested")
+    assert(Fs.read(product .. "/portable-share") == (case.ran or "none\n"), case.name .. ": the share attested is " ..
+        tostring((Fs.read(product .. "/portable-share"))))
   end
 end
 
@@ -548,14 +554,14 @@ local function test_a_suite_stands_on_verdicts_in_a_push_or_merge_queue()
     "a merge queue run with a base and a harness change")
 end
 
---- ci.yml holds the markers of the tree to the merge base with main in every job that runs the format check (the platform leg
---- that runs it, and `format`): a step finds it (driver.tl ceilings-base, with the queue's base_ref) and another names it
+--- ci.yml holds the markers of the tree to the merge base with main in the job that runs the format check (the platform leg
+--- that runs it, the merge queue's among them): a step finds it (driver.tl ceilings-base, with the queue's base_ref) and another names it
 --- COSMIC_CEILINGS_BASE. No job names the queue's own base for the markers: merge_group.base_sha is the entry ahead, whose markers
 --- the commit already holds, so a marker one entry adds would pass the entries behind it.
 local function test_the_format_check_holds_the_markers_to_the_merge_base_with_main_not_the_queues_base()
   local text = assert(Fs.read(Test.parent(".github/workflows/ci.yml")))
   local workflow = CiWorkflow.parse(text)
-  for _, name in ipairs({ "platform", "format" }) do
+  for _, name in ipairs({ "platform" }) do
     local job = assert(workflow.jobs[name], name)
     local found = false
     local named = false
@@ -1272,27 +1278,21 @@ local function test_the_native_suite_writes_its_row_and_a_lost_row_fails_nothing
   end
 end
 
---- ci.yml's platform legs on a full run, by name: each of the `name`
---- list a full run takes, with the values of every `include` entry
---- that names it or names no leg, a later one's over an earlier one's
---- (build/workflows_test.tl expands the matrix as GitHub does, for a
---- light run too).
+--- ci.yml's platform legs on a full run, by name: the entries of the
+--- `include` list a run that is neither the merge queue's nor one that
+--- reuses it takes, the last of the three the expression chooses
+--- between (build/workflows_test.tl reads all three), less the job that
+--- runs a share of a leg's portable suite.
 local function full_run_legs(platform: CiWorkflow.Job): {string: {string: string}}
   local matrix = assert(assert(platform.strategy).matrix)
-  local full = assert(assert(matrix.name):match("&& '(%[.-%])' ||"), "the legs' names are no scope's choice")
+  local include = matrix.include
+  assert(include is string, "the platform job's include is no expression")
+  local full = assert(include:match("|| '(%[[^']-%])'%) }}$"), "the legs are no run's choice: " .. include)
+  local entries, why: {{string: string}}?, string = Shape.decode_into(full, Shape.list(Shape.map(Shape.string)))
+  assert(entries ~= nil, why)
   local legs: mut {string: {string: string}} = {}
-  local names, why: {string}?, string = Shape.decode_into(full, Shape.list(Shape.string))
-  assert(names ~= nil, why)
-  for _, name in ipairs(names) do
-    local leg: mut {string: string} = { name = name }
-    for _, entry in ipairs(assert(matrix.include)) do
-      if entry["name"] == nil or entry["name"] == name then
-        for key, value in pairs(entry) do
-          if value is string then leg[key] = value end
-        end
-      end
-    end
-    legs[name] = leg
+  for _, entry in ipairs(entries) do
+    if entry["shard"] == "" then legs[assert(entry["name"])] = entry end
   end
   return legs
 end
@@ -1305,8 +1305,8 @@ end
 --- runs in another. Each runs the phases that build what it reads: run
 --- after a leg's own suites, the suite would make that leg the run's
 --- longest. The format check, which answers the same on every leg, runs
---- on one, in a full run's assemble; a branch push's light run makes it
---- in the `format` job after its boot, off the legs' path.
+--- on one, in its assemble: linux-x86_64's in the merge queue, its one
+--- leg, and linux-aarch64's on a run with no queue run behind it.
 local function test_the_checked_suite_runs_in_jobs_of_its_own_and_the_format_check_on_one_leg()
   local text = assert(Fs.read(Test.parent(".github/workflows/ci.yml")))
   local jobs = CiWorkflow.parse(text).jobs
@@ -1316,9 +1316,11 @@ local function test_the_checked_suite_runs_in_jobs_of_its_own_and_the_format_che
   assert(env["COSMIC_CI_CHECKED_SUITE"] == "skip", "a leg runs the checked suite: " ..
       tostring(env["COSMIC_CI_CHECKED_SUITE"]))
   local format = assert(env["COSMIC_CI_FORMAT"], "ci.yml's platform job sets no COSMIC_CI_FORMAT")
-  local one = format:match("^%${{ %(matrix%.name == '([%w_-]+)' && github%.event_name != 'merge_group'%) && " ..
+  local queued, one = format:match("^%${{ %(%(matrix%.name == '([%w_-]+)' && github%.event_name == 'merge_group'%) || " ..
+      "%(matrix%.name == '([%w_-]+)' && github%.event_name != 'merge_group' && needs%.reuse%.outputs%.run == ''%)%) && " ..
       "'run' || 'skip' }}$")
-  assert(one and legs[one], "COSMIC_CI_FORMAT runs on no one leg of the matrix, or in the queue: " .. format)
+  assert(queued == "linux-x86_64" and one ~= nil and legs[one] ~= nil,
+    "COSMIC_CI_FORMAT runs on no one leg of the matrix, or not on the queue's: " .. format)
   local function env_of(job: CiWorkflow.Job): {string: string}
     return assert(job.env)
   end
@@ -1330,7 +1332,7 @@ local function test_the_checked_suite_runs_in_jobs_of_its_own_and_the_format_che
       if run ~= nil then phase = run:match("driver%.tl platform ([%w-]+)$") end
       if phase ~= nil then phases[#phases + 1] = phase end
       if phase == "performance-checked" then
-        assert(step["if"] == "env.COSMIC_CI_SCOPE == 'full'", "the performance fixture runs outside the full scope")
+        assert(step["if"] == nil, "the performance fixture runs on some runs alone: " .. tostring(step["if"]))
       end
     end
     return table.concat(phases, " ")
@@ -1354,8 +1356,7 @@ local function test_the_checked_suite_runs_in_jobs_of_its_own_and_the_format_che
   assert(narrowing_share ~= nil and
       narrowing_share:match("^%${{ matrix%.part }}/%${{ strategy%.job%-total }}$") ~= nil,
     "a checked narrowing job does not run a share of the suite")
-  local light = assert(jobs["format"], "ci.yml has no format job")
-  assert(phases_of(light) == "boot format", "the format job runs the phases " .. phases_of(light))
+  assert(jobs["format"] == nil, "ci.yml's format check has a job of its own")
 end
 
 --- ci.yml's platform job's legs, by name, and its environment.
@@ -1391,25 +1392,24 @@ local function test_the_self_rebuild_fixture_runs_on_two_legs_and_on_every_sched
 end
 
 --- The portable suite runs on the two x86-64 legs of a push to main
---- (COSMIC_CI_PORTABLE_SUITE), a glibc host and a musl one, on the musl
---- one alone in the merge queue, whose glibc leg builds the same bytes
---- (and in a branch push that runs the full scope, as the queue does),
---- and on every leg of the scheduled run and a manual one.
+--- (COSMIC_CI_PORTABLE_SUITE), a glibc host and a musl one, on neither
+--- in the merge queue, whose one leg, the glibc one, builds the bytes
+--- main's musl leg then runs it on, and on every leg of the scheduled
+--- run and a manual one.
 local function test_the_portable_suite_runs_on_two_legs_and_on_every_scheduled_one()
   local legs, env = platform_legs_and_env()
   local value = assert(env["COSMIC_CI_PORTABLE_SUITE"], "ci.yml's platform job sets no COSMIC_CI_PORTABLE_SUITE")
   local one, two = value:match("^%${{ %(%(matrix%.name == '([%w_-]+)' && " ..
-      "github%.event_name != 'merge_group' && %(github%.event_name != 'push' || " ..
-      "github%.ref == 'refs/heads/main'%)%) || " ..
+      "github%.event_name != 'merge_group'%) || " ..
       "matrix%.name == '([%w_-]+)' || github%.event_name == 'schedule' || " ..
       "github%.event_name == 'workflow_dispatch'%) && 'run' || 'skip' }}$")
   assert(one ~= nil and two ~= nil and one ~= two and legs[one] ~= nil and legs[two] ~= nil,
-    "the portable suite runs on no two legs of a push to main, on more than " ..
-      "one of the merge queue, or not on every leg of the scheduled and a manual run: " .. value)
+    "the portable suite runs on no two legs of a push to main, on the merge queue's, " ..
+      "or not on every leg of the scheduled and a manual run: " .. value)
   assert(assert(assert(legs[one])["target"]):sub(1, 7) == "x86_64-" and assert(assert(legs[two])["target"]):sub(1, 7) == "x86_64-",
     "the portable suite runs on a leg of a gating run that is no x86-64 one: " .. value)
-  -- Both Linux legs, the queue's in the Alpine (musl) image, the other
-  -- not (glibc).
+  -- Both Linux legs, the second in the Alpine (musl) image, which the
+  -- queue does not run, the other not (glibc).
   assert(assert(legs[one])["image"] ~= "" and assert(assert(legs[one])["image"]):find("alpine", 1, true) == nil and
       assert(assert(legs[two])["image"]):find("alpine", 1, true) ~= nil,
     "the portable suite's gating legs are not a glibc host and, in the queue too, a musl one: " .. value)
@@ -2033,9 +2033,9 @@ end
 --- none, and a list the caller set is left alone.
 local function test_a_leg_is_given_the_requirements_it_promises()
   local Orchestration = require("cosmic_ci.orchestration")
-  local linux: {string:string} = { COSMIC_WORKER = "linux-x86_64-shard" }
+  local linux: {string:string} = { COSMIC_WORKER = "linux-x86_64" }
   linux = Orchestration.promise(linux)
-  assert(linux["COSMIC_TEST_LEG"] == "linux-x86_64-shard")
+  assert(linux["COSMIC_TEST_LEG"] == "linux-x86_64")
   assert(("," .. assert(linux["COSMIC_TEST_PROMISES"]) .. ","):find(",nest,", 1, true), linux["COSMIC_TEST_PROMISES"])
   local mac: {string:string} = { COSMIC_WORKER = "macos-aarch64" }
   mac = Orchestration.promise(mac)

@@ -75,7 +75,7 @@ local sets_what_it_reads: {string:{string:boolean}} = {
     COSMIC_CI_SCOPE = true, COSMIC_CI_CHECKED_SUITE = true, COSMIC_CI_FORMAT = true, COSMIC_CI_EVENT = true,
     COSMIC_CI_BASE_SHA = true, COSMIC_CI_FORMAT_CHANGED = true, COSMIC_CI_SHARD = true,
     COSMIC_CI_CHECKED_SHARD = true, COSMIC_CI_NARROWING_SHARD = true, COSMIC_CI_CHECK_MEMO = true, COSMIC_CI_PORTABLE_SUITE = true,
-    COSMIC_CI_PORTABLE_SHARD = true, COSMIC_CI_PORTABLE_SHARES = true,
+    COSMIC_CI_PORTABLE_SHARD = true, COSMIC_CI_PORTABLE_SHARES = true, COSMIC_CI_PRODUCTS = true,
     GITHUB_OUTPUT = true, GITHUB_ENV = true,
     RUNNER_TEMP = true },
   -- The check that the markers only fall reads the run's own variables, in the tool's `fix --check` and not in a suite's
@@ -84,8 +84,6 @@ local sets_what_it_reads: {string:{string:boolean}} = {
     GITHUB_REF = true, GITHUB_ACTIONS = true },
   ["build/ceilings_base_test.tl"] = { COSMIC_CEILINGS_BASE = true, COSMIC_CI_BASE_SHA = true, COSMIC_CI_EVENT = true, GITHUB_EVENT_NAME = true,
     GITHUB_REF = true, GITHUB_ACTIONS = true },
-  -- Names GITHUB_OUTPUT as the file it gives the script it runs, as a step's environment does.
-  ["build/branch_scope_test.tl"] = { GITHUB_OUTPUT = true },
 }
 
 --- The names of variables a suite forgets that `text`, a source,

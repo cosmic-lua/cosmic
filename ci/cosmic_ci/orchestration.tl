@@ -528,14 +528,16 @@ local checked_suite_timeout_ns <const> = Clock.seconds(1500)
 --- of them and, the slow ones being spread across the modules, about a
 --- Nth of the time. The whole suite takes 1096 s where no verdict stands
 --- and 1504 s in the slowest of the merge queue's runs of 23 October 2026
---- (past `checked_suite_timeout_ns`), which a share of four takes in 274
---- and 376 s. The bound is 600 s, 1.6 times the slowest share seen, where
+--- (past `checked_suite_timeout_ns`), which a share of two takes in 548
+--- and 752 s. The bound is 1200 s, 1.6 times the slowest share, where
 --- the whole suite's was no more than the slowest run itself, and 2.2
 --- times a share of the run where nothing stood. It is the share's own,
---- not the whole suite's divided by four: the share restores its verdicts,
+--- not the whole suite's halved: the share restores its verdicts,
 --- builds and checks the checked core as the whole suite's job did, and
---- gains nothing from another share's time.
-local checked_shard_timeout_ns <const> = Clock.seconds(600)
+--- gains nothing from another share's time. (A share of four, 274 and
+--- 376 s, was bound to 600 s, until ci.yml ran two to spend fewer
+--- runners' minutes.)
+local checked_shard_timeout_ns <const> = Clock.seconds(1200)
 --- The checked suite's gathering run (COSMIC_CI_CHECKED_SUITE=gather,
 --- ci.yml's `checked` job): the whole suite on the verdicts the shares
 --- kept, where every test stands, so that only what a whole run answers is
@@ -1666,10 +1668,10 @@ end
 --- The native suite, on the tree `boot` built: the `build` phase
 --- without its boot, which ci.yml's legs run apart so that what comes
 --- between (the verdicts of the merge queue's run ahead) waits on
---- nothing the boot does. Where COSMIC_CI_SHARD names a share (`I/N`,
---- a branch push's linux-x86_64 legs), only that share of its tests
---- (`cosmic test --shard`): the leg that runs each other share runs the
---- rest, on the same host.
+--- nothing the boot does. Where COSMIC_CI_SHARD names a share (`I/N`),
+--- only that share of its tests (`cosmic test --shard`): the leg that
+--- runs each other share runs the rest, on the same host. No ci.yml leg
+--- names one now (the TODO at [`format_command`]).
 local function phase_local_suite(p: PlatformContext): integer
   return suite(p.operation, "local", BuildPaths.directory(p.root) .. "/bin/cosmic", p.local_diagnostics,
     nil, named("COSMIC_CI_SHARD"))
@@ -1744,11 +1746,15 @@ end
 --- The format check's command, below: `fix --check .`, or, where
 --- COSMIC_CI_FORMAT_CHANGED names a file, one path a line, of what
 --- changed since the tree's base on main, which passed the whole tree's
---- check (driver.tl changed-paths, on a light run), `fix
---- --check --changed` of those paths, which lays out only them yet makes
---- every check spanning files over the whole tree, and lays out all of
---- it where a path named is part of what checks each file. A file that
---- cannot be read checks the whole tree.
+--- check (driver.tl changed-paths, ci.yml's pull request check), `fix --check --changed` of those
+--- paths, which lays out only them yet makes every check spanning files
+--- over the whole tree, and lays out all of it where a path named is part
+--- of what checks each file. A file that cannot be read checks the whole
+--- tree.
+-- TODO: remove the format phase's memo (COSMIC_CI_CHECK_MEMO) and
+-- COSMIC_CI_SHARD, with their tests: ci.yml's light run of a branch's
+-- push set them, and no job sets them since a branch's push stopped
+-- running CI (a pull request's check names its changed paths alone).
 local function format_command(root: string): {string}
   local command = { BuildPaths.directory(root) .. "/bin/cosmic", "fix", "--check" }
   local listed = Env.get("COSMIC_CI_FORMAT_CHANGED") or ""
@@ -1783,9 +1789,8 @@ end
 --- type-checks the tree). It is the first thing assemble does, where a
 --- tree formats and type-checks the same on every platform, so the
 --- workflow runs it on one leg, and the others set COSMIC_CI_FORMAT=skip,
---- as COSMIC_CI_CHECKED_SUITE does the checked suite. On a branch push's
---- light run and in the merge queue it is a phase of its own in ci.yml's
---- `format` job, which runs no native suite, off the legs' path.
+--- as COSMIC_CI_CHECKED_SUITE does the checked suite: linux-x86_64's
+--- in the merge queue, linux-aarch64's on main's and the other runs.
 --- Where a native suite ran, `fix` writes the working database only
 --- after its boundary was checked (`local-boundary`); a job that ran
 --- none has no boundary to keep.
@@ -2307,15 +2312,6 @@ local function phase_attest(p: PlatformContext): integer
   assert(Hash.hex_sha256(ArtifactRow.with(read(portable_d .. "/cosmic-portable"), without, nil)) == attested,
     "executed artifact attestation differs")
   write(product .. "/executed-cosmic.sha256", attested .. "  cosmic\n")
-  -- The job count `trailing` holds includes the jobs that run a share of
-  -- a leg's portable suite and upload no product
-  -- (COSMIC_CI_PORTABLE_SHARES).
-  local total = math.tointeger(tonumber(assert(p.trailing)))
-  local shares = math.tointeger(tonumber(named("COSMIC_CI_PORTABLE_SHARES") or "0"))
-  assert(total ~= nil and shares ~= nil and shares >= 0 and total > shares,
-    "invalid job count " .. tostring(p.trailing) .. " for COSMIC_CI_PORTABLE_SHARES=" ..
-      tostring(named("COSMIC_CI_PORTABLE_SHARES")))
-  write(product .. "/expected-platforms", tostring(total - shares) .. "\n")
   -- Which share of the portable suite ran here, for the join to hold the shares to
   -- all of them ([`provenance_impl`]).
   local ran = portable_d .. "/portable-share"
@@ -2369,7 +2365,10 @@ local function platform_impl(phase: string, p: PlatformContext): integer
 end
 
 --- Compares the bytes every `portable-product-<leg>` directory of
---- `products` says it executed, and holds each `portable-share-<job>`
+--- `products` says it executed, of which there must be `expected` (the
+--- run's legs: ci.yml names how many, COSMIC_CI_PRODUCTS, the merge
+--- queue's one and main's four, one of those relayed from the queue's
+--- run where main's reuses it), and holds each `portable-share-<job>`
 --- directory to the same digest. A job that runs another share of a
 --- leg's portable suite (COSMIC_CI_PORTABLE_SHARES of them, ci.yml's
 --- alpine-x86_64 portable share) uploads the bytes it ran, which are
@@ -2377,10 +2376,9 @@ end
 --- ran a share (`portable-share` in its directory: `I/N`) names the
 --- share it ran, and where shares are expected they must be exactly
 --- 1/N to N/N, once each, N being the shares plus the leg.
-local function provenance_impl(c: Context, products: string, shares: integer): integer
+local function provenance_impl(c: Context, products: string, expected: integer, shares: integer): integer
   local entries = assert(Fs.list(products))
   local count = 0
-  local expected: integer? = nil
   local baseline: string? = nil
   local share_digests: mut {string} = {}
   local halves: mut {string} = {}
@@ -2408,16 +2406,12 @@ local function provenance_impl(c: Context, products: string, shares: integer): i
     elseif name:match("^portable%-product%-.+") then
       local p = products .. "/" .. name
       local att = p .. "/executed-cosmic.sha256"
-      local exp = p .. "/expected-platforms"
-      assert(exists(att) and exists(exp) and exists(p .. "/cosmic"), "incomplete product: " .. p)
+      assert(exists(att) and exists(p .. "/cosmic"), "incomplete product: " .. p)
       local line = read(att)
       local digest = line:match("^([0-9a-f]+)  cosmic\n$")
       assert(digest and #digest == 64, "invalid attestation: " .. att)
       assert(Hash.hex_sha256(ArtifactRow.with(read(p .. "/cosmic"), p .. "/provenance.db", nil)) == digest,
         "changed artifact: " .. p)
-      local n = math.tointeger(assert(tonumber(read(exp))))
-      assert(n and n > 0, "invalid expected count")
-      if expected then assert(expected == n, "inconsistent expected count") else expected = n end
       if baseline then
         assert(baseline == digest, "worker artifact hashes differ")
       else
@@ -2427,7 +2421,7 @@ local function provenance_impl(c: Context, products: string, shares: integer): i
       note_half(p, false)
     end
   end
-  assert(expected ~= nil, "no product to compare")
+  assert(count > 0, "no product to compare")
   assert(count == expected, "expected " .. Plural.count(expected, "product") .. ", found " .. tostring(count))
   assert(#share_digests == shares, "expected " .. Plural.count(shares, "share attestation") ..
       ", found " .. tostring(#share_digests))
@@ -2483,7 +2477,9 @@ function Orchestration.provenance(_a: {string}): integer
   return run_phase(c, "provenance", function(): integer
     local shares = math.tointeger(tonumber(named("COSMIC_CI_PORTABLE_SHARES") or "0"))
     assert(shares ~= nil and shares >= 0, "invalid COSMIC_CI_PORTABLE_SHARES")
-    return provenance_impl(c, ctx.products, shares)
+    local expected = math.tointeger(tonumber(named("COSMIC_CI_PRODUCTS") or ""))
+    assert(expected ~= nil and expected > 0, "invalid COSMIC_CI_PRODUCTS")
+    return provenance_impl(c, ctx.products, expected, shares)
   end)
 end
 

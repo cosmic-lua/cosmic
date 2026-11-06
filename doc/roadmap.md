@@ -56,7 +56,7 @@ defines the target; once something ships, it leaves this file.
 
 design.md promises that the parsers facing untrusted input are fuzzed.
 [`build.fuzz`] runs every `*_fuzz_test.tl` property on every `cosmic test`, and
-`fuzz.yml` reruns them deep on the checked core each night.
+`fuzz.yml` reruns them deep on the checked core each week.
 curl, c-ares and yyjson are fuzzed upstream; record that as their evidence
 rather than fuzzing them here. [`core/json.c`]'s own walk into Lua values and
 its encoder are fuzzed here, in [`cosmic/json_fuzz_test.tl`].
