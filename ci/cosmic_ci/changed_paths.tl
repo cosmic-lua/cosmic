@@ -1,12 +1,14 @@
---- The paths a pull request changed since its base on main, for its
---- format check (ci.yml's `pull-request` job), which lays out only those and
---- makes every check spanning files over the whole tree (`cosmic fix
---- --check --changed`, through cosmic_ci's orchestration):
+--- The paths a pull request or the merge queue's commit changed since its
+--- base on main, for its format check (ci.yml's platform leg on
+--- linux-x86_64), which lays out only those and makes every check spanning
+--- files over the whole tree (`cosmic fix --check --changed`, through
+--- cosmic_ci's orchestration), and, in the queue, for whether the leg checks
+--- the pinned driver:
 ---
 ---     BASE=<commit> OUT=<file> cosmic-driver cosmic_ci/driver.tl changed-paths
 ---
---- BASE is the tree's merge base with main (`ceilings-base`), whose tree main's own
---- run held to the whole tree's check. `changed-paths` fetches that one
+--- BASE is the tree's merge base with main (`ceilings-base`), whose tree the
+--- queue held to the check, as it holds every commit main moves to. `changed-paths` fetches that one
 --- commit into the checkout (from origin, with the credentials
 --- actions/checkout keeps), writes every path HEAD adds, changes or
 --- removes since it to OUT, one a line, and `paths=<OUT>` to

@@ -250,11 +250,66 @@
           name: "move the tree to a path of its own",
           run: "cosmic-driver cosmic_ci/driver.tl place-tree",
         },
+        # The tree's format check (`fix --check .`), the same on every
+        # host: linux-x86_64's, on a pull request, in the merge queue, on
+        # the weekly and on a manual run. Never on main's push or the
+        # daily run: main moves only through the queue, whose check of the
+        # very commit passed. It holds the markers of the tree to the
+        # merge base of the commit with main (build/ceilings_base.tl): a
+        # marker only falls. Never to the queue's own base
+        # (merge_group.base_sha), the entry ahead, whose markers the
+        # commit already holds. Where the base step finds none the check
+        # fails, rather than let a raise through; run it again.
+        {
+          name: "find the base the markers are held to",
+          id: "ceilings-base",
+          if: "matrix.name == 'linux-x86_64' && github.event_name != 'push' && github.event.schedule != '41 3 * * 1-6'",
+          shell: "sh",
+          "continue-on-error": true,
+          env: {GH_TOKEN: "${{ github.token }}", REPOSITORY: "${{ github.repository }}", SHA: "${{ github.sha }}", EVENT: "${{ github.event_name }}", REF: "${{ github.ref }}", BASE_REF: "${{ github.event.merge_group.base_ref }}"},
+          run: "cosmic-driver cosmic_ci/driver.tl ceilings-base",
+        },
+        {
+          name: "name the base the ceilings are held to",
+          if: "steps.ceilings-base.outputs.sha != ''",
+          shell: "sh",
+          env: {BASE: "${{ steps.ceilings-base.outputs.sha }}"},
+          run: "echo \"COSMIC_CEILINGS_BASE=$BASE\" >> \"$GITHUB_ENV\"",
+        },
+        # On a pull request and in the queue, what the commit changed
+        # since that base, whose tree the queue held to the check: the
+        # check lays out only these and makes every check spanning files
+        # over the whole tree (driver.tl changed-paths, `fix --check
+        # --changed`), and the queue checks the pinned driver only where
+        # they reach what its tests read. Where it names none, both cover
+        # everything.
+        {
+          name: "name the paths the commit changed",
+          id: "changed",
+          if: "matrix.name == 'linux-x86_64' && (github.event_name == 'merge_group' || github.event_name == 'pull_request') && steps.ceilings-base.outputs.sha != ''",
+          shell: "sh",
+          "continue-on-error": true,
+          env: {BASE: "${{ steps.ceilings-base.outputs.sha }}", OUT: "${{ runner.temp }}/changed-paths"},
+          run: "cosmic-driver cosmic_ci/driver.tl changed-paths",
+        },
+        # cosmic_ci's tests read ci/ and, of the tree around it,
+        # .github/workflows/ci.yml alone (their Test.policy grants).
+        {
+          name: "ask whether the change reaches the CI driver's tests",
+          id: "reach",
+          if: "matrix.name == 'linux-x86_64' && github.event_name == 'merge_group'",
+          shell: "sh",
+          env: {PATHS: "${{ steps.changed.outputs.paths }}"},
+          run: "if [ -z \"$PATHS\" ] || grep -qE '^(ci|\\.github)/' \"$PATHS\"; then echo driver=run >> \"$GITHUB_OUTPUT\"; fi",
+        },
         # --all, unsandboxed: cosmic_ci's tests start the host's own
-        # programs and are not all declared to run sandboxed.
+        # programs and are not all declared to run sandboxed. Every leg
+        # of the daily, weekly and a manual run; in the queue, where the
+        # change reaches them; never on main's push, whose commit the
+        # queue checked.
         {
           name: "check the pinned CI driver",
-          if: "github.event_name != 'pull_request'",
+          if: "github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || steps.reach.outputs.driver == 'run'",
           env: {COSMIC_VERDICT_CACHE: "0", COSMIC_TEST_SANDBOX: "0"},
           run: "cosmic-driver test cosmic_ci",
         },
@@ -262,7 +317,7 @@
         # driver too, each file ci/bootstrap-files.txt lists.
         {
           name: "type-check the bootstrap's scripts on the pinned driver",
-          if: "matrix.name == 'linux-x86_64'",
+          if: "matrix.name == 'linux-x86_64' && github.event_name != 'push'",
           run: "cosmic-driver cosmic_ci/driver.tl check-islands",
         },
         {
@@ -281,46 +336,9 @@
           if: "github.event_name != 'pull_request'",
           run: "cosmic-driver cosmic_ci/driver.tl platform local-boundary",
         },
-        # The tree's format check (`fix --check .`), the same on every
-        # host: linux-x86_64's, on every run. It holds the markers of the
-        # tree to the merge base of the commit with main
-        # (build/ceilings_base.tl): a marker only falls. Never to the
-        # queue's own base (merge_group.base_sha), the entry ahead, whose
-        # markers the commit already holds. Where the base step finds none
-        # the check fails, rather than let a raise through; run it again.
-        {
-          name: "find the base the markers are held to",
-          id: "ceilings-base",
-          if: "matrix.name == 'linux-x86_64'",
-          shell: "sh",
-          "continue-on-error": true,
-          env: {GH_TOKEN: "${{ github.token }}", REPOSITORY: "${{ github.repository }}", SHA: "${{ github.sha }}", EVENT: "${{ github.event_name }}", REF: "${{ github.ref }}", BASE_REF: "${{ github.event.merge_group.base_ref }}"},
-          run: "cosmic-driver cosmic_ci/driver.tl ceilings-base",
-        },
-        {
-          name: "name the base the ceilings are held to",
-          if: "steps.ceilings-base.outputs.sha != ''",
-          shell: "sh",
-          env: {BASE: "${{ steps.ceilings-base.outputs.sha }}"},
-          run: "echo \"COSMIC_CEILINGS_BASE=$BASE\" >> \"$GITHUB_ENV\"",
-        },
-        # On a pull request, what it changed since that base, whose tree
-        # main's runs held to the whole check: the check lays out only
-        # these and makes every check spanning files over the whole tree
-        # (driver.tl changed-paths, `fix --check --changed`). Where it
-        # names none, the check covers the whole tree.
-        {
-          name: "name the paths the pull request changed",
-          id: "changed",
-          if: "matrix.name == 'linux-x86_64' && github.event_name == 'pull_request' && steps.ceilings-base.outputs.sha != ''",
-          shell: "sh",
-          "continue-on-error": true,
-          env: {BASE: "${{ steps.ceilings-base.outputs.sha }}", OUT: "${{ runner.temp }}/changed-paths"},
-          run: "cosmic-driver cosmic_ci/driver.tl changed-paths",
-        },
         {
           name: "check the tree's format",
-          if: "matrix.name == 'linux-x86_64'",
+          if: "matrix.name == 'linux-x86_64' && github.event_name != 'push' && github.event.schedule != '41 3 * * 1-6'",
           env: {COSMIC_CI_FORMAT: "run", COSMIC_CI_FORMAT_CHANGED: "${{ steps.changed.outputs.paths }}"},
           run: "cosmic-driver cosmic_ci/driver.tl platform format",
         },

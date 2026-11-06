@@ -1555,8 +1555,8 @@ end
 
 --- The format check's command, below: `fix --check .`, or, where
 --- COSMIC_CI_FORMAT_CHANGED names a file, one path a line, of what a pull
---- request changed since its merge base with main, which passed the whole
---- tree's check (driver.tl changed-paths, ci.yml's pull request check),
+--- request or the queue's commit changed since its merge base with main,
+--- which the queue checked (driver.tl changed-paths, ci.yml's platform leg),
 --- `fix --check --changed` of those paths, which lays out only them yet
 --- makes every check spanning files over the whole tree, and lays out all
 --- of it where a path named is part of what checks each file. A file that

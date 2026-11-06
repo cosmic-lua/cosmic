@@ -225,7 +225,7 @@ on a failure, find the cause, fix it in the worktree, re-run the checks
 and push. never skip or disable a test to get green.
 
 the queue's run is a light, fast gate: linux-x86_64's native suite and
-the tree's format check. everything else (the other legs, assemble, the
+the format check of what the change touched. everything else (the other legs, assemble, the
 regressions and product suite, the checked suite and the checked
 narrowing run) runs on main's push after the merge, and macOS in main's
 daily scheduled run, so a failure only those show turns main red after

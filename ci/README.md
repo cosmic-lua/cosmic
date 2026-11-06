@@ -392,9 +392,12 @@ are where CI answers for everything. A branch's push runs nothing.
   that base among them, over the whole tree). No suite, and it saves
   nothing.
 - **the merge queue** (`merge_group`) runs linux-x86_64's leg alone: it
-  boots the tree, checks the pinned CI driver and the bootstrap's scripts,
-  runs the native suite and its boundary, checks the tree's format, and
-  probes the sandbox. Nothing else: no assemble, regressions, portable
+  boots the tree, checks the bootstrap's scripts, runs the native suite
+  and its boundary, checks the tree's format over the paths the commit
+  changed since main, as a pull request does, checks the pinned CI driver
+  where those reach what its tests read (`ci/`, `.github/`), and probes
+  the sandbox. Main moves only through the queue, so its check of what
+  changed holds main's whole tree. Nothing else: no assemble, regressions, portable
   suite or product, and no checked or narrowing job, which read as passed
   in the gate, as on a pull request.
 - **a push to main** runs three legs whole, every leg but macOS (the
@@ -402,7 +405,10 @@ are where CI answers for everything. A branch's push runs nothing.
   portable suite, the attestation and the product), the checked core's
   whole suite (`checked`) and the whole suite on a checked run
   (`narrowing`), and the gate compares the three products
-  (`COSMIC_CI_PRODUCTS=3`). It publishes nothing. A failure only these
+  (`COSMIC_CI_PRODUCTS=3`). It publishes nothing. It repeats neither
+  the format check nor the pinned driver's, which the queue made of the
+  very commit; the daily run checks the driver on every leg, and the
+  weekly and a manual run check the whole tree's format too. A failure only these
   show turns main red after the change has landed, to be fixed or
   reverted at once.
 - **the daily scheduled run** and **a manual run** run all that and the
