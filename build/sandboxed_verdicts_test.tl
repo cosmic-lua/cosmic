@@ -657,15 +657,15 @@ local function test_a_worker_is_given_the_image_hash_only_where_its_closure_read
   assert(Fs.mkdirs(root .. "/suite"))
   assert(Fs.mkdirs(root .. "/build"))
   assert(Fs.write(root .. "/build/reboot.tl", "local record Reboot\n  value: integer\nend\nlocal reboot: Reboot = { value = 1 }\nreturn reboot\n"))
-  -- The row is named apart from the call, so this module's own source reads none.
+  -- The call is spelled apart, so this module's own source reads none.
   local function sourced(text: string): string
-    return (text:gsub("ROW", '"image_' .. 'hash"'))
+    return (text:gsub("READ", 'Store.' .. 'meta("image_' .. 'hash")'))
   end
   assert(Fs.write(root .. "/suite/plain_test.tl", sourced([[
 local Store = require("cosmic.store")
 
 local function test_plain()
-  assert(Store.meta(ROW) == nil, "a closure that reads no such row was given it")
+  assert(READ == nil, "a closure that reads no such row was given it")
 end
 ]])))
   assert(Fs.write(root .. "/suite/reads_test.tl", sourced([[
@@ -674,7 +674,7 @@ local reboot = require("build.reboot")
 
 local function test_reads()
   assert(reboot.value == 1)
-  assert(Store.meta(ROW) ~= nil, "a closure that reads the row was not given it")
+  assert(READ ~= nil, "a closure that reads the row was not given it")
 end
 ]])))
   local env = environment(tmp .. "/cache/verdicts.db")

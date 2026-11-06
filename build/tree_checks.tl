@@ -704,7 +704,9 @@ end
 local function reads(line: string, entry: key_parts.MetaReaders): boolean
   for _, name in ipairs(entry.keys) do
     for _, quote in ipairs({ '"', "'" }) do
-      if line:find("meta[%w_]*%(%s*" .. quote .. name .. quote) ~= nil then return true end
+      for _, call in ipairs({ "meta", "meta_of" }) do
+        if line:find(call .. "%(%s*" .. quote .. name .. quote) ~= nil then return true end
+      end
     end
   end
   return entry.dynamic and line:find("Store%.meta%(%s*[^\"'%s]") ~= nil and line:find("^%s*function ") == nil

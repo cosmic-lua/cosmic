@@ -35,7 +35,7 @@ local record key_parts
     --- was given, so a test that runs one needs no row and is keyed by
     --- none beyond the store's own bytes.
     carriers: {string}
-    --- Whether a read by a name that is not spelled out (`Store.meta(key)`)
+    --- Whether a read by a name that is not spelled out (a [`Store.meta`] of a variable)
     --- counts as a read of the group, for [`build.tree_checks`]. It does
     --- where a worker that misses the reader would be answered by the
     --- running tool with a value no key holds (the compiler's identity),
