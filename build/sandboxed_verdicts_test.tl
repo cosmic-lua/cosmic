@@ -654,7 +654,9 @@ end
 --- and in the sealed database, and [`Store.meta`] raises for it where a nil
 --- would read as a row never written. [`Store.seal`] in such a worker seals
 --- the marker, without raising. A worker that is not sealed finds the closure
---- store ahead of the tool's own database and is refused alike.
+--- store ahead of the tool's own database and is refused alike: the module
+--- that declares `tool` is such a worker, run sandboxed or not. (A run with
+--- the sandbox off seals the others still when the tool is a portable artifact.)
 local function test_a_worker_is_given_the_image_hash_only_where_its_closure_reads_it(tmp: string)
   local root = tmp .. "/root"
   assert(Fs.mkdirs(root .. "/suite"))
@@ -689,6 +691,19 @@ local function test_a_seal_hands_the_marker_on(tmp: string)
   assert(not text:find("image_hash=", 1, true), text)
 end
 ]])))
+  -- A module that declares `tool` runs on the tool's own database, not a sealed one.
+  assert(Fs.write(root .. "/suite/tool_test.tl", sourced([[
+local Store = require("cosmic.store")
+local Test = require("cosmic.test")
+
+Test.policy { profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
+
+local function test_a_read_is_refused_unsealed()
+  local ok, trouble = pcall(function(): string? return READ end)
+  assert(not ok, "a closure that reads no such row was answered")
+  assert(tostring(trouble):find("is withheld from this test's store", 1, true), tostring(trouble))
+end
+]])))
   assert(Fs.write(root .. "/suite/reads_test.tl", sourced([[
 local Store = require("cosmic.store")
 local reboot = require("build.reboot")
@@ -702,10 +717,10 @@ end
   local env = environment(tmp .. "/cache/verdicts.db")
   local first = run(root, tmp .. "/first.out", env)
   skip_if_unsandboxed(first)
-  assert(first:find("3 ran, 0 stood", 1, true), first)
+  assert(first:find("4 ran, 0 stood", 1, true), first)
   env["COSMIC_TEST_SANDBOX"] = "0"
   local bare = run(root, tmp .. "/bare.out", env, { "--all" }, true)
-  assert(bare:find("3 ran", 1, true) and not bare:find("FAIL", 1, true), bare)
+  assert(bare:find("4 ran", 1, true) and not bare:find("FAIL", 1, true), bare)
   assert(not bare:find("; sandboxed", 1, true), "the run was sandboxed, so it checked nothing unsealed: " .. bare)
 end
 
