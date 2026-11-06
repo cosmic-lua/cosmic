@@ -39,7 +39,7 @@ local CodeWalk = require("build.code_walk")
 local _ = require("build.reads.all")
 local closure_store = require("build.closure_store")
 local ContractRules = require("build.contract_rules")
-local declared_key = require("build.declared_key")
+local key_parts = require("build.key_parts")
 local docs = require("build.docs")
 local docs_checks = require("build.docs_checks")
 local ErrorRender = require("build.error_render")
@@ -237,6 +237,9 @@ allowed["build.identity.writer_modules"] = "what build/importer_test.tl holds th
   "writer's identity, the compiler's, or neither with a reason"
 allowed["build.identity.writer_left_out"] = "what build/importer_test.tl holds to the " ..
   "requires of the writer's roots"
+allowed["build.test_key.sealed_meta"] = "what build/sealed_meta_test.tl holds the rows of a " ..
+  "sealed database to: the value of a row its worker reads, the marker of one it does not, and a " ..
+  "refusal where the process has no value to hand on"
 allowed["build.reboot.carries_tree_code"] = "what build/reboot_test.tl holds to " ..
   "the modules a tree holds and the binary carries"
 allowed["build.declared_key.preimage"] = "what build/declared_key_fuzz_test.tl " ..
@@ -697,29 +700,65 @@ function tree_checks.anchors(db: Sqlite.Handle, expected?: {string}): {string}
   return out
 end
 
---- Whether `line` reads the compiler's identity, or a `meta` row by a
---- name no reader can see: [`Store.meta`] called with anything but a
---- string.
-local function reads(line: string): boolean
-  for _, name in ipairs({ "compiler", "compiled_by" }) do
+--- Whether `line` reads one of the `meta` rows `entry.keys` by its quoted
+--- name, as [`Store.meta`] takes it (or a function of the module that
+--- passes it on, `meta_of`); or reads a row by a name no reader can see:
+--- [`Store.meta`] called with anything but a string, or with a string and
+--- more (`"image_" .. rest`); or takes [`Store.meta`] as a value, in code,
+--- (after an `=`, a `,` or a `(`), where an alias or a callback would read
+--- any row. A declaration of the
+--- function is none of these.
+---
+-- TODO: see a read of a row in SQL over a handle [`Store.databases`] answers,
+-- which a scan of lines cannot tell from one over any other database, once
+-- the checker answers which module opens a handle from the store's databases.
+-- Until then the store's loud refusal ([`Store.meta`] raises for a withheld
+-- row) is the backstop for a read by name; a query of the handle finds no row.
+local function reads(line: string, entry: key_parts.MetaReaders): boolean
+  if line:find("^%s*function ") ~= nil then return false end
+  for _, name in ipairs(entry.keys) do
     for _, quote in ipairs({ '"', "'" }) do
-      if line:find("meta%(%s*" .. quote .. name .. quote .. "%s*%)") ~= nil then return true end
+      for _, call in ipairs({ "meta", "meta_of" }) do
+        if line:find(call .. "%(%s*" .. quote .. name .. quote) ~= nil then return true end
+      end
     end
   end
-  return line:find("Store%.meta%(%s*[^\"'%s]") ~= nil and line:find("^%s*function ") == nil
+  if line:find("Store%.meta%(%s*[^\"'%s]") ~= nil then return true end
+  if line:find("Store%.meta%(%s*[\"'][^\"']*[\"']%s*%.%.") ~= nil then return true end
+  if line:find("^%s*%-%-") == nil then
+    local at = 1
+    while true do
+      local first, last = line:find("Store%.meta", at, false)
+      if first == nil or last == nil then break end
+      local rest = line:sub(last + 1)
+      local before = line:sub(1, first - 1)
+      if rest:find("^%s*%(") == nil and rest:find("^[%w_\"'`]") == nil and
+          before:find("[=,(]%s*$") ~= nil and before:find("==%s*$") == nil then
+        return true
+      end
+      at = last + 1
+    end
+  end
+  return false
 end
 
---- Each module of `db` that reads the compiler's identity through
---- [`Store.meta`] and `named` (by default [`build.declared_key`]'s
---- [`compiler_readers`]) does not name, and then each it names that no
---- longer reads it.
+--- Each module of `db` that reads a row of the group `group` of
+--- [`build.key_parts`]' [`meta_readers`] (`compiler`, `image_hash`) through
+--- [`Store.meta`] and `named` (by default the group's `readers` and
+--- `carriers`) does not name, and then each it names that no longer reads
+--- one.
 ---
---- A closure store carries no such row ([`build.closure_store`]), so a
---- worker's read of it is answered by the running tool, and only a
---- test whose closure holds a named reader is keyed by the tool's
---- identity. A reader the list misses would leave a verdict standing
---- that turned on a compiler no key held.
-function tree_checks.compiler_readers(db: Sqlite.Handle, named?: {string}): {string}
+--- A worker is given such a row only where its closure holds a reader the
+--- map names ([`build.key_parts`]'s `reads_meta`): the compiler's identity
+--- is answered by the running tool and held in the key of that test alone,
+--- and a closure store carries `image_hash` for it alone. A reader the map
+--- misses would leave a verdict standing that turned on a value no key
+--- held, or be given no row.
+function tree_checks.meta_readers(db: Sqlite.Handle, group: string, named?: {string}): {string}
+  local entry = key_parts.meta_group(group)
+  if entry == nil then
+    return { group .. " is no group of build/key_parts.tl's `meta_readers`" }
+  end
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT path, CAST(inflate(source) AS TEXT) FROM modules ORDER BY path")
   if rows == nil then
@@ -728,26 +767,34 @@ function tree_checks.compiler_readers(db: Sqlite.Handle, named?: {string}): {str
   local found: mut {string: boolean} = {}
   for _, row in ipairs(rows) do
     for line in String.lines(row:text(2)) do
-      if reads(line) then
+      if reads(line, entry) then
         found[row:text(1)] = true
         break
       end
     end
   end
   local listed: mut {string: boolean} = {}
-  for _, name in ipairs(named or declared_key.compiler_readers) do listed[name] = true end
+  local names: mut {string} = {}
+  if named ~= nil then
+    for _, name in ipairs(named) do names[#names + 1] = name end
+  else
+    for _, name in ipairs(entry.readers) do names[#names + 1] = name end
+    for _, name in ipairs(entry.carriers) do names[#names + 1] = name end
+  end
+  for _, name in ipairs(names) do listed[name] = true end
+  local what = table.concat(entry.keys, "/")
   local missing, stale: mut {string}, mut {string} = {}, {}
   for name in pairs(found) do
     if listed[name] ~= true then
-      missing[#missing + 1] = name .. " reads the compiler's identity, but " ..
-        "build/key_parts.tl's `compiler_readers` does not name it, so no key " ..
+      missing[#missing + 1] = name .. " reads the meta row " .. what .. ", but " ..
+        "build/key_parts.tl's `meta_readers." .. group .. "` does not name it, so no key " ..
         "of a test that runs it holds it"
     end
   end
   for name in pairs(listed) do
     if found[name] ~= true then
       stale[#stale + 1] = name .. " is named in build/key_parts.tl's " ..
-        "`compiler_readers`, but no longer reads the compiler's identity -- remove it"
+        "`meta_readers." .. group .. "`, but no longer reads the meta row " .. what .. " -- remove it"
     end
   end
   table.sort(missing)
@@ -3152,11 +3199,14 @@ function tree_checks.run(db: Sqlite.Handle, quickstart: string?, extra?: {{strin
   for _, line in ipairs(tree_checks.text_readers(db)) do
     out[#out + 1] = "text readers: " .. line
   end
+  for _, line in ipairs(tree_checks.meta_readers(db, "image_hash")) do
+    out[#out + 1] = "image_hash readers: " .. line
+  end
   for _, check in ipairs({
       { name = "exports", lines = tree_checks.exports(db) }, -- checked: arms_differ
       { name = "unnamed types", lines = tree_checks.unnamed_types(db) }, -- checked: arms_differ
       { name = "doc anchors", lines = tree_checks.anchors(db) }, -- checked: arms_differ
-      { name = "compiler readers", lines = tree_checks.compiler_readers(db) }, -- checked: arms_differ
+      { name = "compiler readers", lines = tree_checks.meta_readers(db, "compiler") }, -- checked: arms_differ
       { name = "build directory", lines = tree_checks.build_directory(db) }, -- checked: arms_differ
       { name = "stand-ins", lines = tree_checks.stand_ins(db) }, -- checked: arms_differ
       { name = "docs queries", lines = tree_checks.queries(db) }, -- checked: arms_differ

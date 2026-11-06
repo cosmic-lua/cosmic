@@ -1656,7 +1656,7 @@ end
 --- identity the build that made this binary recorded (its `meta`'s
 --- `compiler`), so a project's rows made by another compiler are compiled
 --- again. A worker's read of it is answered by the running tool
---- ([`build.key_parts`]' `compiler_readers` names this module for it).
+--- ([`build.key_parts`]' `meta_readers` names this module for it).
 function importer.own_tool(): string
   return GrammarMode.tool(Store.meta("compiler") or "")
 end

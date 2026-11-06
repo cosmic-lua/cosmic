@@ -606,8 +606,8 @@ end
 --- A compiler of another identity that makes the same bytecode --
 --- stood in for by COSMIC_TEST_COMPILER_SALT, under which the tree is
 --- compiled again -- moves no key but that of a test whose closure
---- reads the compiler's identity (build/declared_key.tl's
---- `compiler_readers`, which the fixture's [`core.allocation_test`]
+--- reads the compiler's identity (build/key_parts.tl's
+--- `meta_readers`, which the fixture's [`core.allocation_test`]
 --- stands in for by its name): the module's key the key holds is the
 --- compiler's graph key, the store's bytes hold what the compiler made,
 --- and the compiler itself only where it is read.
@@ -644,6 +644,84 @@ end
   assert(db:close())
   local row = Array.at(rows, 1)
   assert(row:text(1) == "core.allocation_test", "ran under another compiler: " .. row:text(1))
+end
+
+--- A worker is given the digest of the core's inputs and the compiler's seed
+--- files (`image_hash`) only where its closure holds a reader of it
+--- (build/key_parts.tl's `meta_readers`, which the fixture's
+--- [`build.reboot`] stands in for by its name): else its store holds a
+--- `withheld_meta` row naming it in the value's place, in the closure store
+--- and in the sealed database, and [`Store.meta`] raises for it where a nil
+--- would read as a row never written. [`Store.seal`] in such a worker seals
+--- the marker, without raising. A worker that is not sealed finds the closure
+--- store ahead of the tool's own database and is refused alike: the module
+--- that declares `tool` is such a worker, run sandboxed or not. (A run with
+--- the sandbox off seals the others still when the tool is a portable artifact.)
+local function test_a_worker_is_given_the_image_hash_only_where_its_closure_reads_it(tmp: string)
+  local root = tmp .. "/root"
+  assert(Fs.mkdirs(root .. "/suite"))
+  assert(Fs.mkdirs(root .. "/build"))
+  assert(Fs.write(root .. "/build/reboot.tl", "local record Reboot\n  value: integer\nend\nlocal reboot: Reboot = { value = 1 }\nreturn reboot\n"))
+  assert(Fs.write(root .. "/suite/lib.tl", "local record Lib\n  value: integer\nend\nlocal lib: Lib = { value = 1 }\nreturn lib\n"))
+  -- The call is spelled apart, so this module's own source reads none.
+  local function sourced(text: string): string
+    return (text:gsub("READ", 'Store.' .. 'meta("image_' .. 'hash")'))
+  end
+  assert(Fs.write(root .. "/suite/plain_test.tl", sourced([[
+local Sqlite = require("cosmic.sqlite")
+local Store = require("cosmic.store")
+local lib = require("suite.lib")
+
+local function test_a_read_is_refused()
+  local ok, trouble = pcall(function(): string? return READ end)
+  assert(not ok, "a closure that reads no such row was answered")
+  assert(tostring(trouble):find("is withheld from this test's store", 1, true), tostring(trouble))
+end
+
+local function test_a_seal_hands_the_marker_on(tmp: string)
+  assert(lib.value == 1)
+  assert(Store.seal({ "suite.lib" }, tmp .. "/sealed.db"))
+  local db = assert(Sqlite.open(tmp .. "/sealed.db"))
+  local rows = assert(Sqlite.text_rows(db, "SELECT key || '=' || CAST(value AS TEXT) FROM meta ORDER BY key"))
+  assert(db:close())
+  local seen: mut {string} = {}
+  for _, row in ipairs(rows) do seen[#seen + 1] = row:text(1) end
+  local text = table.concat(seen, " ")
+  assert(text:find("withheld_meta=image_hash", 1, true), text)
+  assert(not text:find("image_hash=", 1, true), text)
+end
+]])))
+  -- A module that declares `tool` runs on the tool's own database, not a sealed one.
+  assert(Fs.write(root .. "/suite/tool_test.tl", sourced([[
+local Store = require("cosmic.store")
+local Test = require("cosmic.test")
+
+Test.policy { profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
+
+local function test_a_read_is_refused_unsealed()
+  local ok, trouble = pcall(function(): string? return READ end)
+  assert(not ok, "a closure that reads no such row was answered")
+  assert(tostring(trouble):find("is withheld from this test's store", 1, true), tostring(trouble))
+end
+]])))
+  assert(Fs.write(root .. "/suite/reads_test.tl", sourced([[
+local Store = require("cosmic.store")
+local reboot = require("build.reboot")
+
+local function test_reads()
+  assert(reboot.value == 1)
+  assert(READ ~= nil, "a closure that reads the row was not given it")
+  assert(Store.meta("withheld_meta") == nil, "a store that holds the row withholds it")
+end
+]])))
+  local env = environment(tmp .. "/cache/verdicts.db")
+  local first = run(root, tmp .. "/first.out", env)
+  skip_if_unsandboxed(first)
+  assert(first:find("4 ran, 0 stood", 1, true), first)
+  env["COSMIC_TEST_SANDBOX"] = "0"
+  local bare = run(root, tmp .. "/bare.out", env, { "--all" }, true)
+  assert(bare:find("4 ran", 1, true) and not bare:find("FAIL", 1, true), bare)
+  assert(not bare:find("; sandboxed", 1, true), "the run was sandboxed, so it checked nothing unsealed: " .. bare)
 end
 
 --- A processor of other features (stood in for by COSMIC_TEST_CPU_SALT) runs only the modules that

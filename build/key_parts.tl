@@ -1,7 +1,8 @@
 --- The parts of a verdict key a worker spells too: how one contribution
 --- is framed ([`key_part`]), how a path names the tree ([`tree_name`]), and
---- which modules read the compiler's identity (`compiler_readers`,
---- [`reads_compiler`]). build.declared_key computes a key from them and
+--- which modules read a `meta` row a worker is not always given
+--- (`meta_readers`, [`reads_meta`]), the compiler's identity among them
+--- ([`reads_compiler`]). build.declared_key computes a key from them and
 --- answers the compiler's readers as its own, so their callers need not
 --- know they live here; a worker (build.test_worker) takes them from
 --- here, and so loads none of what the rest of a key takes to compute --
@@ -18,7 +19,23 @@ local relative = Fs.relative
 local record key_parts
   mut hex: function(data: string): string
   mut unhex: function(text: string): string?, string
-  mut compiler_readers: {string}
+
+  --- The modules of the tree that read one group of `meta` rows
+  --- ([`Store.meta`]) which a worker is given only where its closure
+  --- holds one of them: the reader map's entry.
+  record MetaReaders
+    --- The rows the group is: a module that reads one of them is named
+    --- in `readers` or `carriers`.
+    keys: {string}
+    --- The modules whose tests need the row's value. A test whose
+    --- closure holds one is given the row, and its key holds it.
+    readers: {string}
+    --- The modules that read the row only to hand it on (a copy of the
+    --- database a worker made): what they hand on is what the worker
+    --- was given, so a test that runs one needs no row and is keyed by
+    --- none beyond the store's own bytes.
+    carriers: {string}
+  end
 end
 
 --- Every byte to its two lowercase hex digits, and every pair of hex
@@ -116,30 +133,81 @@ function key_parts.tree_name(path: string, tree: string, output?: string): strin
   return tree_marker .. "/" .. rest
 end
 
---- The modules of the tree that read the compiler's identity
---- ([`Store.meta`]'s `compiler` or `compiled_by`), which a closure store
---- does not carry: a worker's reads of it are answered from the running
---- tool's own `meta`, so a test whose closure holds one of them is keyed
---- by the tool's (build.declared_key's [`Spec.compiler`]).
---- [`build.tree_checks`] refuses the tree when a module of it reads it and
---- is not named here.
+--- The compiler's identity ([`Store.meta`]'s `compiler` or `compiled_by`),
+--- which a closure store does not carry: a worker's reads of it are
+--- answered from the running tool's own `meta`, so a test whose closure
+--- holds one of its readers is keyed by the tool's (build.declared_key's
+--- [`Spec.compiler`]).
 local compiler_readers <const>: {string} = {
   "build.embed", "build.importer", "build.reboot",
   "build.rebuild", "build.test_key", "build.tree_checks", "core.allocation_test",
   "cosmic.store_handles_test", "doc.guides.portable-runtime",
 }
 
-key_parts.compiler_readers = compiler_readers
+--- The meta rows a worker is given only where its closure holds a
+--- module that reads them, by group: one entry for each, so that a row
+--- added to the map is one more entry and not a rule of its own.
+--- [`build.tree_checks`] refuses the tree when a module of it reads a
+--- row of a group (a [`Store.meta`] of its name, or of a name that is
+--- not spelled out) and is named in neither of the group's lists.
+---
+--- - `compiler`: held by the tool's own value in the key (`compiler`).
+--- - `image_hash`: the digest of the core's inputs and the compiler's
+---   seed files ([`build.identity`]), which an edit to a seed file moves.
+---   A closure store carries it, and a sealed database copies it, only
+---   for a closure that holds a reader ([`build.closure_store`]'s
+---   `address`). The store's value comes from the projection and the
+---   sealed database's from the running tool; they are equal, since a
+---   tool whose core differs from the tree's boots before it tests. A
+---   sealed worker reads the sealed database's, the store's bytes in the
+---   key hold the other, and a store whose closure holds no reader holds
+---   a `withheld_meta` row naming the key in its place: [`Store.meta`]
+---   raises for it, so a read the map misses fails loudly, never as a
+---   nil that a caller takes for a missing row or as a value no key
+---   holds. [`build.reboot`] compares the tool's with the tree's.
+---   [`cosmic.store`]'s `seal` and [`build.test_key`]'s sealed database
+---   hand on what they find (the marker, in a store that withholds it),
+---   and so are carriers. So are the tests that swap [`Store.meta`] for a
+---   stand-in and put it back, for either group: they read no row of the
+---   store.
+local meta_readers <const>: {string:key_parts.MetaReaders} = {
+  compiler = {
+    keys = { "compiler", "compiled_by" }, readers = compiler_readers, carriers = {
+      "build.importer_boot_test", "build.shared_parses_test", "cosmic.web.assets_test",
+    },
+  },
+  image_hash = {
+    keys = { "image_hash" }, readers = { "build.reboot" },
+    carriers = { "build.importer_boot_test", "build.shared_parses_test", "build.test_key",
+      "cosmic.store", "cosmic.web.assets_test" },
+  },
+}
+
+--- The entry of `meta_readers` for the group `group`, or nil for a group
+--- the map lacks.
+function key_parts.meta_group(group: string): key_parts.MetaReaders?
+  return meta_readers[group]
+end
 
 --- Whether an import closure, the names of its modules, holds a module
---- that reads the compiler's identity (`compiler_readers`).
-function key_parts.reads_compiler(closure: {string}): boolean
+--- that reads the meta rows of `group` (a key of `meta_readers`).
+function key_parts.reads_meta(closure: {string}, group: string): boolean
+  local entry = meta_readers[group]
+  if entry == nil then
+    error("key_parts: reads_meta: no group " .. group .. " among the meta readers", 2)
+  end
   local readers: mut {string:boolean} = {}
-  for _, name in ipairs(compiler_readers) do readers[name] = true end
+  for _, name in ipairs(entry.readers) do readers[name] = true end
   for _, name in ipairs(closure) do
     if readers[name] == true then return true end
   end
   return false
+end
+
+--- Whether an import closure holds a module that reads the compiler's
+--- identity (`meta_readers`'s `compiler`).
+function key_parts.reads_compiler(closure: {string}): boolean
+  return key_parts.reads_meta(closure, "compiler")
 end
 
 return key_parts

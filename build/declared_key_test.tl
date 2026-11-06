@@ -775,7 +775,7 @@ end
 --- none, under compilers of two identities that made the same bytecode
 --- -- the same store, the same harness -- share a key.
 local function test_only_a_closure_that_reads_the_compiler_is_keyed_by_it(tmp: string)
-  local reader = support.nth(declared_key.compiler_readers, 1)
+  local reader = support.nth(assert(key_parts.meta_group("compiler")).readers, 1)
   assert(declared_key.reads_compiler({ "suite.lib", reader, "suite.t_test" }))
   assert(not declared_key.reads_compiler({ "suite.lib", "suite.t_test" }))
   assert(not declared_key.reads_compiler({}))

@@ -61,6 +61,7 @@ local test_policy = require("build.test_policy")
 local test_sandbox = require("build.test_sandbox")
 local test_sandbox_probe = require("build.test_sandbox_probe")
 local declared_key = require("build.declared_key")
+local key_parts = require("build.key_parts")
 local artifact = require("build.artifact")
 local hashing = require("build.digest")
 local lua_tail = require("build.lua_tail")
@@ -809,7 +810,10 @@ end
 --- processes in roots of its own (`nests`) is sealed too, its policy
 --- carrying `nest` beside the `database`. Its key holds the
 --- core in place of the launcher ([`declared_of`]), which no such worker
---- runs. Every other worker runs the program.
+--- runs. Every other worker runs the program. It is given the closure's
+--- store all the same, ahead of the tool's own database, so a row the store
+--- withholds (`image_hash` from a closure that reads none) is refused there
+--- too: [`Store.meta`] checks the store's marker before it looks the row up.
 function test_key.seals(rec: Recording, m: Module): boolean
   local effective = rec.effective[m.path]
   if rec.launcher == nil or rec.stores == nil or rec.stores[m.path] == nil or -- checked: compare_disjoint
@@ -868,6 +872,17 @@ local function reads_compiler(rec: Recording, m: Module): boolean
   if rec.stores[m.path] == nil then return false end
   return declared_key.reads_compiler(test_inputs.compiler_sought(rec.closures[m.path] or {},
     rec.effective[m.path].lua)) -- checked: nil_not_allowed
+end
+
+--- Whether a worker of `m`'s tests is given the digest of the core's inputs
+--- and the compiler's seed files (`image_hash`), which its closure store
+--- holds exactly where its closure holds a reader of it
+--- ([`build.key_parts`]'s `meta_readers`): else it finds no such row, in the
+--- store or in its sealed database. Unlike the compiler's identity, the
+--- closure is searched whole, what `lua` adds to it included: a child
+--- can reach [`cosmic.store`] and ask.
+local function reads_image(rec: Recording, m: Module): boolean
+  return key_parts.reads_meta(rec.closures[m.path] or {}, "image_hash")
 end
 
 --- The digest of the modules of the program's own database that the tree
@@ -1430,28 +1445,51 @@ function test_key.drop_sealing(rec: Recording)
   if not gone then log:complain("test: " .. sealing.directory .. ": " .. trouble) end
 end
 
+--- The meta rows a sealed database of a worker holds, as `read` answers
+--- them for the running process ([`Store.meta`]): the digest of this core,
+--- which a core started on the file checks, the module that runs, the
+--- runtime's basis, the digest of the core's inputs where the worker's
+--- closure reads it (`with_image`, as its closure store holds it), else the
+--- marker that withholds it, as its store does, and the compiler's identity
+--- where its key holds it (`with_compiler`). Nil and why where the process
+--- has no core digest or basis, or none of the image a worker reads.
+function test_key.sealed_meta(with_compiler: boolean, with_image: boolean,
+                              read: function(key: string): string?): {{string}}?, string
+  local core = read("host_image")
+  local basis = read("runtime_basis")
+  if core == nil or core == "" or basis == nil or basis == "" then
+    return nil, "this process has no core digest or runtime basis to record"
+  end
+  local meta: mut {{string}} = { { "core_sha256", core }, { "main", "cmd.cosmic.main" },
+    { "runtime_basis", basis } }
+  if with_image then
+    local image = read("image_hash")
+    if image == nil or image == "" then
+      return nil, "this process has no image_hash to record, which this worker's closure reads"
+    end
+    meta[#meta + 1] = { "image_hash", image }
+  else
+    meta[#meta + 1] = { closure_store.withheld_row, closure_store.withheld_text }
+  end
+  if with_compiler then
+    for _, key in ipairs({ "compiler", "compiled_by" }) do
+      local value = read(key)
+      if value ~= nil then meta[#meta + 1] = { key, value } end
+    end
+  end
+  return meta, ""
+end
+
 --- Writes the sealed database of the closure store at `store`, which was
 --- written from the projection `whole`, to `out`: [`sealed_fill`]'s
 --- statements over them and the program's own database (`sealing`), the
 --- modules every worker loads ([`worker.loads`]) going along, and the meta
---- rows the core on a database reads: the digest of this core, which it
---- checks, the runtime's basis and image, the compiler's identity where
---- the worker's key holds it (`with_compiler`), and the module that
---- runs. Written aside and moved into place, so one at `out` is whole.
+--- rows the core on a database reads ([`test_key.sealed_meta`]). Written
+--- aside and moved into place, so one at `out` is whole.
 local function write_sealed(sealing: Sealing, store: string, whole: string, out: string,
-                            with_compiler: boolean): boolean, string
-  local core = Store.meta("host_image")
-  local basis = Store.meta("runtime_basis")
-  if core == nil or core == "" or basis == nil or basis == "" then
-    return false, "this process has no core digest or runtime basis to record"
-  end
-  local meta: mut {{string}} = { { "core_sha256", core }, { "main", "cmd.cosmic.main" },
-    { "runtime_basis", basis } }
-  for _, key in ipairs(if with_compiler then { "image_hash", "compiler", "compiled_by" } else
-      { "image_hash" } end) do
-    local value = Store.meta(key)
-    if value ~= nil then meta[#meta + 1] = { key, value } end
-  end
+                            with_compiler: boolean, with_image: boolean): boolean, string
+  local meta, meta_trouble = test_key.sealed_meta(with_compiler, with_image, Store.meta)
+  if meta == nil then return false, meta_trouble end
   local aside = out .. ".building"
   local _, _ = Fs.remove(aside)
   local opened, open_trouble = Sqlite.open(aside, { writable = true })
@@ -1569,7 +1607,8 @@ local function sealed_for(rec: Recording, m: Module): string?, string
   local store, store_trouble = given_store(rec, m)
   if store == nil then return nil, store_trouble end
   local path = sealing.directory .. "/" .. name .. ".db"
-  local written, trouble = write_sealed(sealing, store, projection_of(rec), path, with_compiler)
+  local written, trouble = write_sealed(sealing, store, projection_of(rec), path, with_compiler,
+    reads_image(rec, m))
   if not written then return nil, "its sealed database: " .. trouble end
   local wrote, stat_trouble = sys.stat(path)
   if wrote == nil then return nil, "its sealed database: " .. path .. ": " .. stat_trouble end

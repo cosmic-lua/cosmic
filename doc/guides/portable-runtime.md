@@ -485,9 +485,10 @@ local Env = require("cosmic.env")
 local Proc = require("cosmic.proc")
 local Store = require("cosmic.store")
 
-for _, key in ipairs({ "host", "host_image", "runtime", "runtime_basis" }) do
-  assert(Store.meta(key) ~= nil and Store.meta(key) ~= "", key)
-end
+assert(Store.meta("host") ~= nil and Store.meta("host") ~= "", "host")
+assert(Store.meta("host_image") ~= nil and Store.meta("host_image") ~= "", "host_image")
+assert(Store.meta("runtime") ~= nil and Store.meta("runtime") ~= "", "runtime")
+assert(Store.meta("runtime_basis") ~= nil and Store.meta("runtime_basis") ~= "", "runtime_basis")
 assert(Store.meta("runtime_context") == "portable-v1")
 assert(Store.meta("artifact") == Proc.executable())
 for _, name in ipairs({ "COSMIC_PORTABLE_ARTIFACT_FD", "COSMIC_PORTABLE_CORE_FD",
