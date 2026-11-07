@@ -763,23 +763,22 @@ local function relaid(kind: string, linked: string): string?, string
   return linked, ""
 end
 
---- The files of the tree at `root` by name, as [`Context.named_files`] answers: those the walk for links finds
---- ([`link_files.walk`]), less what `left_alone` says the tree ignores. Walked once, when first asked: only a path that
---- names no file asks.
+--- The files of the tree at `root` by name, as [`Context.named_files`] answers: each a link may name, so none under
+--- the root's `o/` or a `.git`, nor what `left_alone` says the tree ignores, whose directories are not walked. Walked
+--- once, when first asked: only a path that names no file asks.
 local function named_files(root: string, left_alone: function(string): boolean): function(string): {string}
   local by_name: mut {string: mut {string}} = {}
   local walked = false
   return function(basename: string): {string}
     if not walked then
       walked = true
-      local files, _ = link_files.walk(root)
+      local files, _ = Fs.walk(root, function(entry: string, name: string): boolean
+        return entry == "o" or name == ".git" or left_alone(entry)
+      end)
       for _, file in ipairs(files or {}) do
-        if not left_alone(file) then
-          local name = Fs.basename(file)
-          local list: mut {string} = by_name[name] or {}
-          list[#list + 1] = file
-          by_name[name] = list
-        end
+        local list: mut {string} = by_name[Fs.basename(file)] or {}
+        list[#list + 1] = file
+        by_name[Fs.basename(file)] = list
       end
     end
     return by_name[basename] or {}
@@ -937,7 +936,16 @@ function fix.link_context(root: string, whole: boolean, own: boolean,
   end
   -- The build that failed left the last one's symbols as they were.
   context.stale = function(): string?
-    return assert(source, "the link context was asked before it was made").unbuilt
+    local why = assert(source, "the link context was asked before it was made").unbuilt
+    if why == nil then return nil end
+    local files: mut {string} = {}
+    for file in pairs(not_built) do files[#files + 1] = file end
+    if #files == 0 then
+      return "the build fails (" .. (why:match("^[^\n]*") or why) .. ")"
+    end
+    table.sort(files)
+    return "the build refuses " .. table.concat(files, ", ", 1, math.min(#files, 3)) ..
+      (if #files > 3 then " and " .. tostring(#files - 3) .. " more" else "" end)
   end
   source = { context = context, close = close }
   return source

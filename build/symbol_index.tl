@@ -173,9 +173,11 @@ end
 
 --- `rows` as the symbols a link names, one to a declaration: a module's
 --- rows of one source symbol are one, the exported row standing for the
---- rest. A function a record declares as a field and its file defines
---- (`function RunDb.f`) has two rows, the field's lent the definition
---- and the definition's own, which would make one declaration two answers.
+--- rest. A function the module's record declares as a field and its file
+--- defines (`function RunDb.years`) has an exported row (`years`) and the
+--- definition's (`RunDb.years`); one of a record the module does not
+--- export has the field's and the definition's ([`Stored.text`]). Either
+--- pair would make one declaration two answers.
 local function symbols(rows: {symbol_index.Row}): {link_resolve.Symbol}
   local chosen: mut {string: symbol_index.Row} = {}
   for _, row in ipairs(rows) do

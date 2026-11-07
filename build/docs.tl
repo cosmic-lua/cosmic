@@ -485,9 +485,9 @@ end
 --- symbol's last name alone (`read`, matching every `X.read` and
 --- `X:read`), or a module's own row ([`cosmic.fs`]).
 local function named(db: Sqlite.Handle, public: boolean, query: string): {docs.Entry}?, string
-  -- TODO: a function a record declares as a field and its file defines has two rows, the field's lent the definition
-  -- and the definition's own, so `cosmic docs` shows it twice; one row from [`build.syntax_analyzer`] would make it one
-  -- answer here, as [`build.symbol_index`] makes it one for a link.
+  -- TODO: a function a record declares as a field and its file defines has two rows of one source symbol (`years` and
+  -- `RunDb.years`), so `cosmic docs` shows it twice. Fix: [`build.syntax_analyzer`] writes one row for it, and this
+  -- answers once, as [`build.symbol_index`] answers a link; nothing blocks it.
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT " .. columns .. " FROM docs d WHERE " .. symbols.named_where("d") ..
       " AND " .. symbols.shown_in(db, "d", public) .. " ORDER BY d.module, d.id",

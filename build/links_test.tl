@@ -634,21 +634,23 @@ local function test_a_module_docs_knows_nothing_of_says_so()
   })
 end
 
---- Where the symbols are an earlier build's, a name of a module of the tree they lack is not known yet, through an alias
---- or in full: the tree may declare it now. A name of no module of the tree still names nothing.
+--- Where the symbols are an earlier build's, a name of a module of the tree that build has no row of is not known yet,
+--- through an alias or in full: the module is new and may declare it. A module that build holds answers as it did, and a
+--- name of no module of the tree still names nothing.
 local function test_a_link_checked_against_an_earlier_build_is_not_known_yet()
   local source = lines(
     "local F = require(\"fresh\")",
-    "-- [`F.thing`], [`fresh.thing`], [`fresh.sub.thing`] and [`gone.thing`].",
+    "-- [`F.thing`], [`fresh.thing`], [`fresh.sub.thing`], [`other.nope`] and [`gone.thing`].",
     "return F")
-  local context = world({ ["/p/fresh.tl"] = "" })
-  context.stale = function(): string? return "typed.tl: the compiler refused it" end
-  local later = "not known yet: the tree did not build, so links are checked against its last build; fix the build " ..
-    "error first"
+  local context = world({ ["/p/fresh.tl"] = "", ["/p/other.tl"] = "" }, { other = { "other" } })
+  context.stale = function(): string? return "the build refuses typed.tl" end
+  local later = "not known yet: fresh is new since the last build, which links are checked against while the build " ..
+    "refuses typed.tl; fix that first"
   same(checked(context, "/p/a.tl", "teal", source), {
     "/p/a.tl:2: link: F.thing does not resolve (" .. later .. ")",
     "/p/a.tl:2: link: fresh.thing does not resolve (" .. later .. ")",
     "/p/a.tl:2: link: fresh.sub.thing does not resolve (" .. later .. ")",
+    "/p/a.tl:2: link: other.nope does not resolve (no declaration, symbol or file by that name)",
     "/p/a.tl:2: link: gone.thing does not resolve (no declaration, symbol or file by that name)",
   })
   context.stale = function(): string? return nil end
@@ -656,6 +658,7 @@ local function test_a_link_checked_against_an_earlier_build_is_not_known_yet()
     "/p/a.tl:2: link: F.thing does not resolve (fresh has no thing)",
     "/p/a.tl:2: link: fresh.thing does not resolve (no declaration, symbol or file by that name)",
     "/p/a.tl:2: link: fresh.sub.thing does not resolve (no declaration, symbol or file by that name)",
+    "/p/a.tl:2: link: other.nope does not resolve (no declaration, symbol or file by that name)",
     "/p/a.tl:2: link: gone.thing does not resolve (no declaration, symbol or file by that name)",
   })
 end

@@ -55,8 +55,9 @@ local record link_resolve
     --- `kind` then answers nil for: no fresh checkout has it.
     mut ignored?: function(relative: string): boolean
     --- Why what `symbols` and `member` hold is an earlier build's than
-    --- the tree's, so a name they lack may be one the tree declares now;
-    --- nil where it is the tree's. Asked once either has answered.
+    --- the tree's, as a clause (`"the build refused typed.tl"`), so a
+    --- module new since then is one they know nothing of; nil where it
+    --- is the tree's. Asked once either has answered.
     mut stale?: function(): string?
     --- The files of the tree named `basename`, each from the root: what
     --- a path that names no file may have meant. Nil where the context
@@ -501,11 +502,22 @@ local function tree_module(resolver: link_resolve.Resolver, name: string): strin
 end
 
 --- Why a name of the module `module`, a module of the tree, names nothing where what the symbols hold is an earlier
---- build's ([`Context.stale`]): the name may be one the tree declares now. Nil where the symbols are the tree's.
+--- build's ([`Context.stale`]) and that build has no row of the module: it is new since, and the name may be one it
+--- declares. A module the earlier build holds answers as it did then, a name it lacks failing for its own reason.
 local function stale_for(resolver: link_resolve.Resolver, module: string?): string?
+  -- TODO: a module changed since the earlier build answers as it was then, so a name added to it fails as naming
+  -- nothing; say it is not known yet once the context can compare a file with what that build read of it.
   local stale = resolver.context.stale
-  if stale == nil or module == nil or stale() == nil then return nil end
-  return "not known yet: the tree did not build, so links are checked against its last build; fix the build error first"
+  if stale == nil or module == nil then return nil end
+  local why = stale()
+  if why == nil then return nil end
+  -- Asked by the module's name, the symbols answer its own row or first row, and any symbol of another module that
+  -- ends in that name.
+  for _, symbol in ipairs(symbols_named(resolver, module)) do
+    if symbol.module == module then return nil end
+  end
+  return "not known yet: " .. module .. " is new since the last build, which links are checked against while " ..
+    why .. "; fix that first"
 end
 
 --- `symbol` as a link spells it alone, other than as [`link_resolve.spelled`] does, or nil where the context names no
