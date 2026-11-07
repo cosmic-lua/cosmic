@@ -277,3 +277,30 @@ local function test_the_standalone_hint_stays_for_a_file_that_requires_only_cosm
   assert(result.code == 4 and (result.stderr or ""):find("cosmic --standalone x.tl", 1, true) ~= nil,
     tostring(result.stderr))
 end
+
+--- A file run that requires a module of a project from below its root, or from outside it, builds a smaller tree,
+--- which holds no such module: the refusal names the tree it built and the rule that chose it.
+local function test_a_require_the_tree_does_not_hold_names_the_tree_and_its_rule(tmp: string)
+  local root = tree_of(tmp, "rooted", { ["m.tl"] = "local record M\n  n: integer\nend\nlocal m: M = { n = 1 }\nreturn m\n",
+    ["scratch/x.tl"] = 'local m = require("m")\nprint(m.n)\n' })
+  assert(Fs.mkdirs(tmp .. "/elsewhere"))
+  local from_root = run_in(root, "scratch/x.tl")
+  assert(from_root.code == 0 and from_root.stdout == "1\n", tostring(from_root.stdout) .. tostring(from_root.stderr))
+  local below = run_in(root .. "/scratch", "x.tl")
+  local said = tostring(below.stderr)
+  assert(below.code == 4 and said:find("(require_unknown)", 1, true) ~= nil, said)
+  assert(said:find("this run built the tree [^\n]*/rooted/scratch, the working directory, which holds the file; " ..
+      "a module is named from the tree's root, so if the file belongs to a project elsewhere, run it from that " ..
+      "project's root\n") ~= nil, said)
+  local outside = run_in(tmp .. "/elsewhere", root .. "/scratch/x.tl")
+  said = tostring(outside.stderr)
+  assert(outside.code == 4 and said:find("this run built the tree [^\n]*/rooted/scratch, the file's own directory, " ..
+      "since the working directory does not hold the file;") ~= nil, said)
+end
+
+--- A refusal of another code gets no tree hint: the tree held every module the file names.
+local function test_the_tree_hint_is_left_off_a_refusal_of_another_code(tmp: string)
+  local result = run_in(tree_of(tmp, "typed", { ["x.tl"] = TYPE_ERROR }), "x.tl")
+  assert(result.code == 4 and (result.stderr or ""):find("this run built the tree", 1, true) == nil,
+    tostring(result.stderr))
+end
