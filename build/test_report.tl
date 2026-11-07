@@ -261,13 +261,31 @@ function test_report.build(counts: test_report.Build, elapsed: string): string
     elapsed
 end
 
+--- How many modules `stale` names: those whose standing hits a run dropped,
+--- numbered in a text other than the run's ([`build.test`]'s `decode_hits`).
+function test_report.partial(stale: {string:boolean}): integer
+  local count = 0
+  for _ in pairs(stale) do count = count + 1 end
+  return count
+end
+
+--- What the coverage line and a floor's failure say of a figure missing the
+--- hits of `partial` modules, after a "; ".
+local function partial_note(partial: integer): string
+  return "partial: hits of " .. plural.count(partial, "module") ..
+    " came from runs on other text; `--all` reruns them"
+end
+
 --- The coverage line. Coverage is informational unless the run asked for a
 --- floor (`floored`, `--min` or `--min-file`), which [`test_report.floor`]
---- holds it to; the runner separately enforces C-function entry.
-function test_report.coverage(hit: integer, total: integer, floored?: boolean): string
+--- holds it to; the runner separately enforces C-function entry. A figure
+--- that left out the standing hits of `partial` modules says so: it is at
+--- most what the tests reach.
+function test_report.coverage(hit: integer, total: integer, floored?: boolean, partial?: integer): string
   local percentage = if total > 0 then (hit * 100.0 / total) else 0.0 end
   local note = if floored ~= true then "; informational, never a failure" elseif total == 0 then
     "; no lines to cover, so a floor holds vacuously" else "" end
+  if (partial or 0) > 0 then note = note .. "; " .. partial_note(partial or 0) end
   return string.format("test: coverage %.1f%% (%d/%d %s%s)",
     percentage, hit, total, plural.noun(total, "line"), note)
 end
@@ -305,15 +323,25 @@ end
 --- lines, `files` among them: the total under `--min`, and each file of
 --- `files` that has lines under `--min-file`, by path. Each is a failure
 --- line, and the clause is what the summary carries.
+---
+--- `stale` names the modules whose standing hits the run dropped, numbered in
+--- another text: a figure without them is at most the true one, so one at a
+--- floor is met, and one under it fails all the same, its line and clause
+--- saying the figure is partial, since only a run of those tests (`--all`)
+--- has the figure a floor can pass or fail on.
 function test_report.floor(hit: integer, total: integer, files: {test_report.FileLines},
-                           floors: test_report.Floors): test_report.Shortfall
+                           floors: test_report.Floors, stale?: {string:boolean}): test_report.Shortfall
   local lines: mut {string} = {}
   local clauses: mut {string} = {}
+  local dropped = stale or {}
+  local partial = test_report.partial(dropped)
   local min = floors.min
   if min ~= nil and under(hit, total, min) then
-    lines[#lines + 1] = string.format("test: FAIL  coverage: %s%% (%d/%d %s) is under --min %g%%",
-      shown(hit, total), hit, total, plural.noun(total, "line"), min)
-    clauses[#clauses + 1] = string.format("%s%% under --min %g%%", shown(hit, total), min)
+    local note = if partial > 0 then "; " .. partial_note(partial) else "" end
+    lines[#lines + 1] = string.format("test: FAIL  coverage: %s%% (%d/%d %s%s) is under --min %g%%",
+      shown(hit, total), hit, total, plural.noun(total, "line"), note, min)
+    clauses[#clauses + 1] = string.format("%s%% under --min %g%%%s", shown(hit, total), min,
+      if partial > 0 then " on a partial figure" else "" end)
   end
   local least = floors.min_file
   if least ~= nil then
@@ -324,12 +352,19 @@ function test_report.floor(hit: integer, total: integer, files: {test_report.Fil
     table.sort(sorted, function(a: test_report.FileLines, b: test_report.FileLines): boolean
       return a.path < b.path
     end)
+    local partial_files = 0
     for _, file in ipairs(sorted) do
-      lines[#lines + 1] = string.format("test: FAIL  coverage: %s %s%% (%d/%d %s) is under --min-file %g%%",
-        file.path, shown(file.hit, file.lines), file.hit, file.lines, plural.noun(file.lines, "line"), least)
+      local note = ""
+      if dropped[file.path] == true then
+        partial_files = partial_files + 1
+        note = "; partial: its hits came from runs on other text; `--all` reruns them"
+      end
+      lines[#lines + 1] = string.format("test: FAIL  coverage: %s %s%% (%d/%d %s%s) is under --min-file %g%%",
+        file.path, shown(file.hit, file.lines), file.hit, file.lines, plural.noun(file.lines, "line"), note, least)
     end
     if #sorted > 0 then
-      clauses[#clauses + 1] = string.format("%s under --min-file %g%%", plural.count(#sorted, "file"), least)
+      clauses[#clauses + 1] = string.format("%s under --min-file %g%%%s", plural.count(#sorted, "file"), least,
+        if partial_files > 0 then " (" .. tostring(partial_files) .. " on a partial figure)" else "" end)
     end
   end
   if #clauses == 0 then return { lines = lines, clause = "" } end

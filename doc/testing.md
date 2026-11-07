@@ -566,11 +566,27 @@ part of the lines. A floor on a failing run is judged and named beside the failu
 
 A test whose verdict stands brings the lines it hit when it ran (the
 `coverage_by_test` rows of that run, or the ones another checkout shared).
-A run that stands entirely on verdicts therefore has the coverage of the
-runs that earned them, and a floor holds for it as for a run that ran every
-test. A test that is skipped or not applicable on the host reaches nothing
-of the lines it covers elsewhere, so the same floor can differ between
-hosts: state a floor from the measurements of the host that gates the merge.
+A row names, beside each module's lines, the text they are numbered in (a
+prefix of the module's source hash). A comment, a blank line or a moved
+line of a harness module moves no key ([changing the
+harness](#changing-the-harness)), so the text a standing row's lines were
+numbered in can be gone: a row's lines of a module are credited only while
+its text is the one the row names, and a row that names none, written by an
+older tool, credits no module. A run that dropped some says so:
+
+```text
+test: coverage 61.2% (127363/208103 lines; partial: hits of 3 modules came from runs on other text; `--all` reruns them)
+```
+
+Without them the figure is at most what the tests reach, so a floor it
+meets is met, and one it is under fails as any floor does, its lines and
+the summary saying the figure is partial: `--all` has the figure to judge
+it on. A run that stands on verdicts earned on the text it runs has the
+coverage of the runs that earned them, and a floor holds for it as for a
+run that ran every test. A test that is skipped or not applicable on the
+host reaches nothing of the lines it covers elsewhere, so the same floor
+can differ between hosts: state a floor from the measurements of the host
+that gates the merge.
 
 ## run-time type checks
 
@@ -815,8 +831,17 @@ cosmic sql --build "SELECT path, count(*) AS lines, sum(hit > 0) AS hit
   GROUP BY path ORDER BY hit * 1.0 / lines LIMIT 10"
 ```
 
-`coverage_by_test` holds the lines each test reached. The run's own
-`test: coverage` line is informational and never a failure.
+`coverage_by_test` holds the lines each test reached, each module's beside
+the text they are numbered in. The run's own `test: coverage` line is
+informational and never a failure.
+
+A sandboxed test given the pure store ([the pure store](#the-pure-store))
+reaches no line of a module it imports: that bytecode carries no line
+information. Its lines are those of its own module, of the harness and of
+the core's C, and an imported module's lines count only where a test given
+its text reaches them (one unsandboxed, or declaring `store`, `store_text`,
+`lua` or `tool`). So a sandboxed run's figure is under the share of lines
+its tests execute: [`build/codec_test.tl`] credits none of [`build.codec`]'s.
 
 ## other hazards
 
@@ -911,6 +936,7 @@ Other rules:
 [`build.checker_declarations`]: ../build/checker_declarations.tl
 [`build.closure_store`]: ../build/closure_store.tl
 [`build.code_walk`]: ../build/code_walk.tl
+[`build.codec`]: ../build/codec.tl
 [`build.compile_grammar`]: ../build/compile_grammar.tl
 [`build.confine`]: ../build/confine.tl
 [`build.example_checks`]: ../build/example_checks.tl
@@ -938,6 +964,7 @@ Other rules:
 [`build.test_worker`]: ../build/test_worker.tl
 [`build.this_program`]: ../build/this_program.tl
 [`build.tree_checks`]: ../build/tree_checks.tl
+[`build/codec_test.tl`]: ../build/codec_test.tl
 [`build/declared_key.tl`]: ../build/declared_key.tl
 [`build/dispatch_sites.tl`]: ../build/dispatch_sites.tl
 [`build/dispatched_features_test.tl`]: ../build/dispatched_features_test.tl

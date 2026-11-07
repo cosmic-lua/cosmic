@@ -186,6 +186,15 @@ local record test_state
     --- The core's C when the tree is not cosmic's own: its hits are kept
     --- out of every record of the run (see `write_coverage`).
     unowned: Coverage.Hits
+    --- The text each counted path's hit lines are numbered in, by path
+    --- ([`build.test`]'s `identities`): what a test's row writes beside each
+    --- module's lines, and what a row's lines must still name to be credited.
+    identities: {string:string}
+    --- The paths whose credited hits were dropped, numbered in another text
+    --- or in a row too old to name one: what makes the coverage figure partial.
+    stale: mut {string:boolean}
+    --- Whether a progress line has said where every test's time is.
+    mut timed: boolean
     tally: Tally
     --- Whether the run is checked (`--check-types`), and what its workers
     --- reported of the values that crossed a typed boundary as a kind the

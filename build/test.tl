@@ -466,55 +466,94 @@ local function by_key<T>(a: Keyed<T>, b: Keyed<T>): boolean
   return a.key < b.key
 end
 
---- One test's hits as `coverage_by_test` holds them: a line per module,
---- in path order, the path, a tab, then the lines it hit, ascending and
---- comma-separated. Module paths hold neither tabs nor newlines. A row
---- [`take_hits`] writes may name a module twice, its load's hits and its
---- test's, which [`decode_hits`] folds together.
-local function encode_hits(test_hits: Coverage.Hits): string
-  local entries: mut {Keyed<{integer:boolean}>} = {}
-  for path, per_line in pairs(test_hits) do
-    entries[#entries + 1] = { key = path, value = per_line }
-  end
-  table.sort(entries, by_key)
-  local out: mut {string} = {}
-  for _, entry in ipairs(entries) do
-    local lines: mut {integer} = {}
-    for line in pairs(entry.value) do
-      lines[#lines + 1] = line
+--- How many hexadecimal digits of a module's source hash a row of hits
+--- names its text by: two texts of one module that share a prefix this long
+--- are not met by chance, and a row names one for every module it holds.
+local identity_digits <const> = 16
+
+--- The text each module of `modules` is, by path, as a row of hits names
+--- it ([`row_line`]): a prefix of its source hash. A path no module
+--- has (the core's C) is not among them: its lines are those of the core
+--- the runtime every key holds is.
+function test.identities(modules: {Module}): {string:string}
+  local out: mut {string:string} = {}
+  for _, m in ipairs(modules) do out[m.path] = m.source_hash:sub(1, identity_digits) end
+  return out
+end
+
+--- One module's line of a test's row of hits, as `coverage_by_test` and
+--- the shared verdicts hold it: the path, a space, the text its lines are
+--- numbered in (`identities`' entry, or "-" for a path that is no module),
+--- a tab, then the lines it hit, ascending and comma-separated. A path
+--- holds no tab or newline but may hold a space, so the text is read as the
+--- last word alone, and only as `identity_digits` hex digits or "-"
+--- ([`text_of`]). A line numbers what a text held: a
+--- comment that moves a harness module's lines moves no key
+--- ([`test_key.harness`] is of stripped bytecode), so a standing row can
+--- name lines the text has since moved, and [`test.decode_hits`] credits a
+--- line only where its text is still this run's.
+local function row_line(identities: {string:string}, path: string, lines: {integer}): string
+  return path .. " " .. (identities[path] or "-") .. "\t" .. table.concat(lines, ",") .. "\n"
+end
+
+--- The text a lines' head names (as [`row_line`] writes it): a module's
+--- `identity_digits` hex digits, or "-" for a path that is no module, after
+--- the path and a space. A head that ends in neither is a row from before
+--- rows named their text, the whole of it the path, which names no text
+--- (nil), so an old row's path that holds a space is never misread.
+local hex_text <const> = "^(.+) (" .. string.rep("%x", identity_digits) .. ")$"
+local function text_of(head: string): string, string?
+  local path, named = head:match(hex_text)
+  if path ~= nil and named ~= nil then return path, named end
+  local plain = head:match("^(.+) %-$")
+  if plain ~= nil then return plain, "-" end
+  return head, nil
+end
+
+--- Folds every line `encoded` (a row [`test.take_hits`] wrote) names into
+--- `hits`, but for a module of `identities` whose line names another text,
+--- or none (a row written before rows named their text): its lines would
+--- land on the wrong ones of this run's text. Each such module's path goes
+--- in `stale`, which makes the run's figure partial. A path that is no
+--- module is folded as it stands: the key holds its text. Returns the
+--- lines of `encoded` but those of a path `unowned` names, as written.
+function test.decode_hits(encoded: string, hits: Coverage.Hits, identities: {string:string},
+                          stale: mut {string:boolean}, unowned?: Coverage.Hits): string
+  local kept: mut {string} = {}
+  for head, lines in encoded:gmatch("([^\t\n]+)\t([^\n]*)\n") do
+    local path, named = text_of(head)
+    local known = identities[path]
+    local owned = unowned == nil or unowned[path] == nil
+    if owned then kept[#kept + 1] = head .. "\t" .. lines .. "\n" end
+    if owned and known ~= nil and named ~= known then
+      stale[path] = true
+    elseif owned then
+      local per_line = hits[path]
+      if per_line == nil then
+        per_line = {}
+        hits[path] = per_line -- checked: view_written
+      end
+      for line in lines:gmatch("%d+") do
+        per_line[math.tointeger(tonumber(line)) or 0] = true -- checked: view_written
+      end
     end
-    table.sort(lines)
-    out[#out + 1] = entry.key .. "\t" .. table.concat(lines, ",") .. "\n"
   end
-  return table.concat(out)
+  return table.concat(kept)
 end
 
 -- TODO: have [`Coverage.Hits`] write its lines through, so `hits` here and in [`merge_hits`] and [`take_hits`] can be written, once
 -- `Hits` in cosmic/internal/debug.d.tl is `{string: mut {integer: boolean}}`.
-
---- Folds every line `encoded` (as [`encode_hits`] writes it) names into
---- `hits`.
-local function decode_hits(encoded: string, hits: Coverage.Hits)
-  for path, lines in encoded:gmatch("([^\t\n]+)\t([^\n]*)\n") do
-    local per_line = hits[path]
-    if per_line == nil then
-      per_line = {}
-      hits[path] = per_line -- checked: view_written
-    end
-    for line in lines:gmatch("%d+") do
-      per_line[math.tointeger(tonumber(line)) or 0] = true -- checked: view_written
-    end
-  end
-end
 
 --- Resolves every run `credited` names against `coverage_by_test`,
 --- folding the lines its named tests hit into `hits`: only the run-wide
 --- union of hit lines per module matters to [`write_coverage`], never
 --- which test hit which line. One query per run credited, each naming
 --- only the tests this run actually still owes it, rather than one per
---- standing verdict.
+--- standing verdict. A module whose lines a row numbers in a text other
+--- than `identities` names is dropped and named in `stale` ([`test.decode_hits`]).
 local function credit_hits(handle: Sqlite.Handle, credited: test.Credited,
-                           hits: Coverage.Hits): string
+                           hits: Coverage.Hits, identities: {string:string},
+                           stale: mut {string:boolean}): string
   for run_at_ns, tests in pairs(credited) do
     local placeholders: mut {string} = {}
     local args: mut {Sqlite.Value} = { { integer = run_at_ns } }
@@ -529,7 +568,7 @@ local function credit_hits(handle: Sqlite.Handle, credited: test.Credited,
       return trouble
     end
     for _, row in ipairs(rows) do
-      decode_hits(row:text(1), hits)
+      local _ = test.decode_hits(row:text(1), hits, identities, stale)
     end
   end
   return ""
@@ -630,7 +669,7 @@ end
 ---
 --- Also writes, for every test that ran, which of the lines it hit into
 --- `coverage_by_test`, one row a test, tagged with the test's identity
---- ("path name", as `by_test` is keyed) and its hits as [`encode_hits`]
+--- ("path name", as `by_test` is keyed) and its hits as [`test.take_hits`]
 --- wrote them when it finished. A test whose verdict stood is not in
 --- `by_test`, since its row from the run that produced the verdict
 --- still stands for it.
@@ -842,19 +881,17 @@ end
 --- checkout reached under its declared key (`found`, whose lookup says to
 --- share it: [`test_key.lookup`]): as this run's own, with the lines that
 --- run hit, so a later run of this checkout stands on it without the
---- shared cache.
+--- shared cache. Its row is kept as that run wrote it, the lines of a
+--- module numbered in another text among them, so a later run standing
+--- on it drops them and says so again.
 local function share(rec: Recording, m: Module, name: string, id: string,
                      found: test_key.Lookup)
   local key, elsewhere = assert(found.key), assert(found.elsewhere)
   rec.tally.cached = rec.tally.cached + 1
   rec.tally.shared = rec.tally.shared + 1
   local hit: Coverage.Hits = {}
-  decode_hits(elsewhere.hits, hit)
-  for path in pairs(rec.unowned) do
-    hit[path] = nil -- checked: view_written
-  end
+  rec.by_test[id] = test.decode_hits(elsewhere.hits, hit, rec.identities, rec.stale, rec.unowned)
   merge_hits(rec.hits, hit)
-  rec.by_test[id] = encode_hits(hit)
   local kept, keep_trouble = record_run(rec.records, m.path, name, true, "",
     Clock.now_ns(), run_key(key, key), rec.run_at_ns, elsewhere.elapsed_ns)
   if not kept then
@@ -867,16 +904,16 @@ local function share(rec: Recording, m: Module, name: string, id: string,
 end
 
 --- A module's hit lines as a row of `coverage_by_test` holds them
---- ([`encode_hits`]'s line), kept in `spelled` by the table
+--- ([`row_line`]), kept in `spelled` by the table
 --- [`worker.decode`] shares among the reports that held them.
 local function spell(spelled: mut {{integer:boolean}:string}, path: string, -- declared: key_type
-                     per_line: {integer:boolean}): string
+                     per_line: {integer:boolean}, identities: {string:string}): string
   local row = spelled[per_line]
   if row == nil then
     local lines: mut {integer} = {}
     for line in pairs(per_line) do lines[#lines + 1] = line end
     table.sort(lines)
-    row = path .. "\t" .. table.concat(lines, ",") .. "\n"
+    row = row_line(identities, path, lines)
     spelled[per_line] = row
   end
   return row
@@ -885,8 +922,9 @@ end
 --- Folds the hits of a finished worker, those its load made and those its
 --- test did (the tables [`worker.decode`] shares, never changed here), into
 --- `hits` but for the modules `unowned` names (the core's), and answers the
---- test's own `coverage_by_test` row, in [`encode_hits`]'s form but with
---- a module the load and the test both hit on a line of each. A worker's
+--- test's own `coverage_by_test` row, a [`row_line`] a module, each
+--- naming the text `identities` says it is, and a module the load and the
+--- test both hit on a line of each. A worker's
 --- load hits are the same lines in every worker of a module, so each is
 --- folded once and spelled once, whatever the number of tests: the work
 --- of one test is its own few lines. `folded` and `spelled` remember
@@ -895,7 +933,8 @@ end
 function test.take_hits(hits: Coverage.Hits, unowned: Coverage.Hits,
                         folded: mut {{integer:boolean}:boolean}, -- declared: key_type
                         spelled: {{integer:boolean}:string}, -- declared: key_type
-                        load_hits: Coverage.Hits, test_hits: Coverage.Hits): string
+                        load_hits: Coverage.Hits, test_hits: Coverage.Hits,
+                        identities: {string:string}): string
   local out: mut {string} = {}
   for _, taken in ipairs({ load_hits, test_hits }) do
     local entries: mut {Keyed<{integer:boolean}>} = {}
@@ -911,7 +950,7 @@ function test.take_hits(hits: Coverage.Hits, unowned: Coverage.Hits,
         hits[path] = into -- checked: view_written
         for line in pairs(per_line) do into[line] = true end -- checked: view_written
       end
-      out[#out + 1] = spell(spelled, path, per_line)
+      out[#out + 1] = spell(spelled, path, per_line, identities)
     end
   end
   return table.concat(out)
@@ -945,6 +984,20 @@ local function take_violations(rec: Recording, id: string, reported: worker.Repo
   rec.violations_dropped = rec.violations_dropped + unrecorded
 end
 
+--- Where every test's time is: the time each took when it last ran, a
+--- standing verdict's that of the run that earned it.
+local times_query <const> = "cosmic sql --build \"select path, test, elapsed_ns/1000000 as ms " ..
+  "from runs order by elapsed_ns desc limit 20\""
+
+--- What a progress line says of `longest`, the longest-running tests
+--- ([`progress.longest`]), and, on the first such line of a run (`said`
+--- false), where every test's time is: the line comes every half minute,
+--- and the query is long.
+function test.longest_detail(longest: string, said: boolean): string
+  if said then return "longest running: " .. longest end
+  return "longest running: " .. longest .. "; every test's time: " .. times_query
+end
+
 --- How long a test runs before its end is said on a line of its own.
 local slow_ns <const> = Clock.minutes(5)
 --- How many of the longest-running tests a progress line names.
@@ -965,7 +1018,8 @@ local function running_detail(rec: Recording, running: {Job}): string
   end
   local longest = progress.longest(under_way, Clock.monotonic_ns(), named)
   if longest ~= "" then
-    parts[#parts + 1] = "longest running: " .. longest
+    parts[#parts + 1] = test.longest_detail(longest, rec.timed)
+    rec.timed = true
   end
   return table.concat(parts, "; ")
 end
@@ -1113,7 +1167,7 @@ local function finish(rec: Recording, job: Job, result: Child.Result?,
       if rec.violators[id] ~= nil then rec.violator_ns[id] = elapsed end
     end
     rec.by_test[id] = test.take_hits(rec.hits, rec.unowned, rec.folded, rec.spelled,
-      reported.load_hits, reported.test_hits)
+      reported.load_hits, reported.test_hits, rec.identities)
   end
   -- Keyed by what it was given: its declared inputs, as they were
   -- before it started -- and still are, or the verdict describes no
@@ -2093,7 +2147,8 @@ local function make_recording(ctx: Run)
     failures = failures, errors = errors, outputs = {}, reruns = {},
     show_output = ctx.show_output == true, shown = {},
     failed = {}, skips = {}, unchecked = {}, deliberate = {}, stopped = {}, held = ctx.held == true, nas = {}, unmet = {}, answered = {},
-    hits = hits, by_test = by_test, unowned = unowned, own_tree = ctx.own_tree == true, tally = tally, not_run = 0,
+    hits = hits, by_test = by_test, unowned = unowned,
+    identities = test.identities(assert(ctx.result).modules), stale = {}, timed = false, own_tree = ctx.own_tree == true, tally = tally, not_run = 0,
     owed = { kept = {}, used = {}, failed = {}, stores = {} }, shared_keys = {},
     consult_shared = ctx.consult == true,
     accept_foreign = ctx.accept_foreign == true and ctx.consult == true and ctx.sandboxed == true,
@@ -2555,7 +2610,8 @@ end
 --- The executable lines of each file this run wrote to `coverage`, and how
 --- many were hit: the figures a per-file floor holds the run to. A standing
 --- verdict's lines are among them ([`credit_hits`]), so a run that stood
---- entirely on verdicts has the same figures as the run that earned them.
+--- entirely on verdicts has the same figures as the runs that earned them,
+--- but for a module whose lines have moved since (`stale`).
 local function file_lines(handle: Sqlite.Handle, run_at_ns: integer): {test_report.FileLines}?, string
   local rows, trouble = Sqlite.text_rows(handle,
     "SELECT path, count(*), sum(hit) FROM coverage WHERE ran_at_ns = ?1 GROUP BY path",
@@ -2589,7 +2645,7 @@ local function settle(ctx: Run)
   end
   ctx.total = tally.ran + tally.cached + tally.na
 
-  local credit_trouble = credit_hits(records, assert(ctx.credited), hits)
+  local credit_trouble = credit_hits(records, assert(ctx.credited), hits, rec.identities, rec.stale)
   if credit_trouble ~= "" then
     errors[#errors + 1] = "coverage credit: " .. credit_trouble
   end
@@ -2659,7 +2715,7 @@ local function settle(ctx: Run)
       ctx.shortfall = { lines = { "test: coverage floor not judged: the run did not finish (" ..
           plural.count(rec.not_run, "test") .. " not started after the first failure)" }, clause = "" }
     else
-      ctx.shortfall = test_report.floor(cov_hit, cov_total, files, floors)
+      ctx.shortfall = test_report.floor(cov_hit, cov_total, files, floors, rec.stale)
     end
   end
   if rec.checks then
@@ -2710,7 +2766,7 @@ local function settle(ctx: Run)
   ctx.refusals = test.refusals_of(result.refused, assert(ctx.selectors))
   ctx.cascade = test.cascade(result.refused, result.refusal_roots or {}, assert(ctx.selectors))
 
-  ctx.cov_line = test_report.coverage(cov_hit, cov_total, ctx.floors ~= nil)
+  ctx.cov_line = test_report.coverage(cov_hit, cov_total, ctx.floors ~= nil, test_report.partial(rec.stale))
 end
 
 --- Says each place the run's coverage fell short of its floors.
