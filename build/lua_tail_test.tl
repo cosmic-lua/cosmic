@@ -105,7 +105,8 @@ local function test_a_numbered_chunk_moves_with_no_text_and_its_lines_are_placed
 end
 
 --- The source line of each instruction, in a numbered chunk's order: the chunk's own, then those of each function
---- it defines; a line no statement is on holds none, and a chunk with no line information is refused.
+--- it defines, and the line each such function is defined on; a line no statement is on holds none, and a chunk
+--- with no line information is refused.
 local function test_each_instruction_is_placed_at_the_line_of_its_statement()
   local source = "local x = 1\n\nlocal function f()\n  return x\nend\nreturn f()\n"
   local bytecode = assert(LuaTail.bytecode_of(source, "m", "m.tl"))
@@ -118,6 +119,14 @@ local function test_each_instruction_is_placed_at_the_line_of_its_statement()
   -- `f`'s own: its `return` and the `end` it closes on, after the chunk's.
   assert(lines[#lines - 2] == 4 and lines[#lines] == 5 and lines[1] == 1,
     "the instructions of a function the chunk defines are not after the chunk's: " .. table.concat(lines, ","))
+  -- `f` is defined on line 3, and its instructions follow the chunk's own, which end on its last line.
+  local defines = assert(LuaTail.defined_lines(bytecode, "m"))
+  local before, defined_on = next(defines)
+  assert(defined_on == 3 and next(defines, before) == nil and before ~= nil and lines[before] == 6 and
+      lines[before + 1] == 4, "f is not defined on its line, after the chunk's instructions")
+  -- A numbered chunk says `f` is defined on the line of that count, which is what a traceback names it by.
+  local numbered_defines = assert(LuaTail.defined_lines(assert(LuaTail.numbered(bytecode, "m")), "m"))
+  assert(numbered_defines[before] == LuaTail.ordinal_base + before)
   local refused, why = LuaTail.instruction_lines(assert(LuaTail.stripped(bytecode, "m")), "m")
   assert(refused == nil and why:find("m", 1, true) ~= nil, tostring(why))
 end

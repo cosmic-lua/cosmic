@@ -134,6 +134,15 @@ local record test_state
   record Placed
     from: {integer:boolean}
     to: {integer:boolean}
+    --- Whether every line of `from` is in `to`.
+    whole: boolean
+  end
+
+  --- A worker's hits with their lines placed ([`build.test`]'s `place_hits`), and whether every line was: where one
+  --- was not, its test's row lacks lines it reached.
+  record Placing
+    hits: {string:{integer:boolean}}
+    whole: boolean
   end
 
   record Recording
@@ -330,12 +339,14 @@ local record test_state
     spelled: {{integer:boolean}:string} -- declared: key_type
     folded: {{integer:boolean}:boolean} -- declared: key_type
     --- The source line of each instruction of each module whose hits a
-    --- worker of a pure store numbered by instruction, by path, read from
-    --- the projection as each is first met; the tables of those hits placed
+    --- worker of a pure store numbered by instruction, and the line each of
+    --- its functions is defined on, by path, read from the projection as
+    --- each is first met; the tables of those hits placed
     --- at their source lines, by path, a few of the latest each; and why
     --- the hits of a module could not be placed, by path
     --- ([`build.test`]'s `place_hits`).
     instruction_lines: mut {string:{integer}}
+    defined_lines: mut {string:{integer:integer}}
     placed: mut {string:mut {Placed}}
     unplaced: mut {string:string}
     --- The lines of the core's C that turn on the processor's features,

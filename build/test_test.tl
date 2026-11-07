@@ -126,43 +126,69 @@ local function test_a_pure_stores_instruction_ordinals_are_placed_at_this_runs_l
   local placed: mut {string:mut {test_state.Placed}} = {}
   local unplaced: mut {string:string} = {}
   local plain: {string:{integer:boolean}} = { ["build.lib_test"] = { [2] = true } }
-  assert(test.place_hits(plain, modules, lines_of, placed, unplaced) == plain, "hits with no ordinal were made again")
+  local same = test.place_hits(plain, modules, lines_of, placed, unplaced)
+  assert(same.hits == plain and same.whole, "hits with no ordinal were made again")
   local loaded: {integer:boolean} = { [base + 1] = true, [base + 3] = true }
   local hits: {string:{integer:boolean}} = { ["build.lib"] = loaded, ["build.lib_test"] = { [2] = true } }
-  local out = test.place_hits(hits, modules, lines_of, placed, unplaced)
+  local placing = test.place_hits(hits, modules, lines_of, placed, unplaced)
+  local out = placing.hits
+  assert(placing.whole, "hits every one of which was placed are said not to be")
   local lib = assert(out["build.lib"], "the library's hits are dropped")
   assert(lib[4] == true and lib[9] == true and lib[base + 1] == nil and lib[1] == nil, "an ordinal is not placed at its line")
   assert(out["build.lib_test"] == hits["build.lib_test"], "the test's own lines were made again")
-  local again = test.place_hits({ ["build.lib"] = loaded }, modules, lines_of, placed, unplaced)
+  local again = test.place_hits({ ["build.lib"] = loaded }, modules, lines_of, placed, unplaced).hits
   assert(again["build.lib"] == lib and asked == 1, "the same table of hits was placed twice")
   assert(next(unplaced) == nil)
-  local past = test.place_hits({ ["build.lib"] = { [base + 4] = true, [5] = true } }, modules,
-    lines_of, placed, unplaced)
-  local kept = assert(past["build.lib"])
+  local past_hits: {integer:boolean} = { [base + 4] = true, [5] = true }
+  local past = test.place_hits({ ["build.lib"] = past_hits }, modules, lines_of, placed, unplaced)
+  local kept = assert(past.hits["build.lib"])
+  assert(not past.whole, "hits some of which were dropped are said to be whole")
+  -- The same table again, remembered placed, is still said not to be whole: its test keeps no verdict either.
+  assert(not test.place_hits({ ["build.lib"] = past_hits }, modules, lines_of, placed, unplaced).whole, "a remembered table some of whose hits were dropped is said to be whole")
   assert(kept[5] == true and kept[4] == nil and kept[9] == nil, "an ordinal past the instructions was put on a line")
   assert(unplaced["build.lib"] ~= nil, "an ordinal past the instructions was dropped unsaid")
   local gone = test.place_hits({ ["build.gone"] = { [base + 1] = true } }, modules, lines_of, placed, unplaced)
-  assert(next(assert(gone["build.gone"])) == nil and unplaced["build.gone"] == "no module of the projection")
+  assert(next(assert(gone.hits["build.gone"])) == nil and unplaced["build.gone"] == "no module of the projection")
+  assert(not gone.whole)
+  -- The run says so, a line each, with why, and that no verdict of a test that reached them is kept.
+  local said = test.unplaced_errors(unplaced)
+  assert(#said == 2 and said[1] == "coverage: the hits of build.gone are not placed at its lines: no module of " ..
+      "the projection; no verdict of a test that reached them is kept", table.concat(said, "\n"))
+  assert(said[2]:find("^coverage: the hits of build%.lib are not placed at its lines: line %d+ is past " ..
+      "the module's 3 instructions") ~= nil, table.concat(said, "\n"))
+  assert(#test.unplaced_errors({}) == 0)
   -- A chunk the test numbers itself is no module of the run, and its lines are kept as no module's are.
   local own: {string:{integer:boolean}} = { ["m"] = { [base + 1] = true } }
-  assert(test.place_hits(own, modules, lines_of, placed, unplaced) == own and unplaced["m"] == nil)
+  local own_out = test.place_hits(own, modules, lines_of, placed, unplaced)
+  assert(own_out.hits == own and own_out.whole and unplaced["m"] == nil)
 end
 
 --- A failure's message says a position of a pure store's import as an instruction's ordinal, which is shown at the
---- module's file and the line this run's text has it on; a position of another chunk is left as it is.
+--- module's file and the line this run's text has it on, and a traceback's frame of a function at the line it is
+--- defined on, not that of the instruction before its first; a position of another chunk, or one no function
+--- starts at, is left as it is.
 local function test_a_position_of_a_numbered_chunk_is_shown_at_its_source_line()
   local base = lua_tail.ordinal_base
   local function lines_of(path: string): {integer}?, string
     if path == "build.lib" then return { 4, 9 }, "" end
     return nil, "no module of the projection"
   end
+  -- The function whose first instruction is the second is defined on line 8, the line before the one it runs.
+  local function defined_of(path: string): {integer:integer}?, string
+    if path == "build.lib" then return { [1] = 8 }, "" end
+    return nil, "no module of the projection"
+  end
   local files = { ["build.lib"] = "build/lib.tl", ["build.gone"] = "build/gone.tl" }
   local said = "build.lib:" .. tostring(base + 2) .. ": attempt to index a nil value\n" ..
     "  build.lib_test:7: in function <build.lib_test:5>\n  build.gone:" .. tostring(base + 1) .. ": in upvalue\n" ..
-    "  build.lib:" .. tostring(base + 3) .. ": past the instructions"
-  local shown = test.placed_positions(said, files, lines_of)
+    "  build.lib:" .. tostring(base + 3) .. ": past the instructions\n" ..
+    "  build.lib:" .. tostring(base + 2) .. ": in function <build.lib:" .. tostring(base + 1) .. ">\n" ..
+    "  build.lib:" .. tostring(base + 2) .. ": in function <build.lib:" .. tostring(base + 2) .. ">"
+  local shown = test.placed_positions(said, files, lines_of, defined_of)
   assert(shown == "build/lib.tl:9: attempt to index a nil value\n  build.lib_test:7: in function <build.lib_test:5>\n" ..
-      "  build.gone:" .. tostring(base + 1) .. ": in upvalue\n  build.lib:" .. tostring(base + 3) .. ": past the instructions",
+      "  build.gone:" .. tostring(base + 1) .. ": in upvalue\n  build.lib:" .. tostring(base + 3) .. ": past the instructions\n" ..
+      "  build/lib.tl:9: in function <build/lib.tl:8>\n" ..
+      "  build/lib.tl:9: in function <build.lib:" .. tostring(base + 2) .. ">",
     shown)
 end
 

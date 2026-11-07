@@ -399,8 +399,11 @@ store of its closure with its text, as `store_text` does.
 A test does not assert a position inside code it imports: a line number of
 the module's own code in a message or a traceback, `debug.getinfo`'s
 `currentline` or `linedefined`. In a pure store it is an instruction's
-number, not a line of the text (the runner shows a failure's at the
-module's line), and it moves with each instruction added above it. Match the message without its position,
+number, not a line of the text, and it moves with each instruction added
+above it. The runner says one at the module's file and line, by this run's
+text, in the message of a test it shows and records in `runs` and in the
+output it shows (`--show-output`, a failure's): an instruction's, and in a
+traceback's `function <module:line>` the line that function is defined on. Match the message without its position,
 or write the source the test asserts about in the test itself (a fixture
 string compiled by the test), whose lines it chooses.
 
@@ -847,8 +850,9 @@ this run's text has it on ([`build.lua_tail`]'s `instruction_lines`): the
 text whose source hash the row names. A comment above those lines later
 lets the verdict stand, and its row's lines of that module are dropped as
 numbered in other text (the figure is partial) until the test runs again.
-An instruction the runner cannot place is a failure of the run, never a
-line of another text.
+An instruction the runner cannot place is an error of the run, never a
+line of another text, and no verdict of a test that reached it is kept, so
+no later run stands on a row that lacks its lines.
 
 ## other hazards
 

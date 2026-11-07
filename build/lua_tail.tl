@@ -39,6 +39,12 @@ local record LuaTail
   --- where `bytecode` is not a chunk of that shape or carries no line information.
   instruction_lines: function(bytecode: string, name: string): {integer}?, string
 
+  --- The source line each function `bytecode` defines is defined on (where a traceback names it, `function
+  --- <name:line>`), by the number of instructions [`numbered`] counts before the function's first: the line a
+  --- numbered chunk says that function is defined on, less `ordinal_base`. The chunk's own function, defined on no
+  --- line, is not among them. Nil and why as for [`instruction_lines`].
+  defined_lines: function(bytecode: string, name: string): {integer:integer}?, string
+
   --- Whether `code` compiles with `spare` locals declared in front of it, and where it does not, Lua's words: "too many local
   --- variables" where the locals are past 200 (a function may hold that many), and another message for anything else, such
   --- as a chunk that needs too many registers, which the locals in front can cause and are no count of locals. The chunk is
@@ -466,25 +472,37 @@ function LuaTail.numbered(bytecode: string, name: string): string?, string
       return nil, name .. ": instruction " .. tostring(ordinal) .. " of the numbered chunk is on line " .. tostring(line)
     end
   end
+  local defines, defines_trouble = LuaTail.defined_lines(dump(again, false), name)
+  if defines == nil then return nil, defines_trouble end
+  for before, line in pairs(defines) do
+    if line ~= LuaTail.ordinal_base + before then
+      return nil, name .. ": the function after instruction " .. tostring(before) ..
+        " of the numbered chunk is defined on line " .. tostring(line)
+    end
+  end
   return numbered, ""
 end
 
-function LuaTail.instruction_lines(bytecode: string, name: string): {integer}?, string
+--- The source line of each instruction of `bytecode` ([`LuaTail.instruction_lines`]) and the line each function it
+--- defines is defined on ([`LuaTail.defined_lines`]).
+local function lines_of(bytecode: string, name: string): {integer}?, {integer:integer}, string
   local walk: Walk = { dumped = bytecode, name = name, at = 1, emitted = 0, parts = {} }
   local placed: mut {integer:integer} = {}
+  local defines: mut {integer:integer} = {}
   local counted = 0
-  local function read()
+  local function read(main: boolean)
     local defined = take_varint(walk)
     take_varint(walk)
     take(walk, 3)
     local count = take_varint(walk)
     local first = counted
     counted = counted + count
+    if not main then defines[first] = defined end
     skip_padding(walk, 4)
     take(walk, count * 4)
     take_constants(walk)
     take(walk, 3 * take_varint(walk))
-    for _ = 1, take_varint(walk) do read() end
+    for _ = 1, take_varint(walk) do read(false) end
     take_string(walk)
     local steps = take(walk, take_varint(walk))
     if #steps ~= count then error(said(walk, "no line for each instruction"), 0) end
@@ -522,16 +540,28 @@ function LuaTail.instruction_lines(bytecode: string, name: string): {integer}?, 
     end
     take(walk, #bytecode_header)
     take(walk, 1)
-    read()
+    read(true)
     if walk.at ~= #bytecode + 1 then error(said(walk, "bytes after the chunk"), 0) end
   end)
-  if not ok then return nil, tostring(trouble) end
+  if not ok then return nil, {}, tostring(trouble) end
   -- Placed out of order, since a function's lines follow those of the functions it defines.
   local lines: mut {integer} = {}
   for ordinal = 1, counted do
     lines[#lines + 1] = assert(placed[ordinal], "every instruction is placed")
   end
+  return lines, defines, ""
+end
+
+function LuaTail.instruction_lines(bytecode: string, name: string): {integer}?, string
+  local lines, _, trouble = lines_of(bytecode, name)
+  if lines == nil then return nil, trouble end
   return lines, ""
+end
+
+function LuaTail.defined_lines(bytecode: string, name: string): {integer:integer}?, string
+  local lines, defines, trouble = lines_of(bytecode, name)
+  if lines == nil then return nil, trouble end
+  return defines, ""
 end
 
 function LuaTail.fits_with(code: string, spare: integer): boolean, string
