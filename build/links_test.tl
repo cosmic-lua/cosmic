@@ -326,6 +326,43 @@ local function test_a_required_alias_names_its_modules_members()
   })
 end
 
+--- A link into a module the build made for it refused says so, rather than that the module lacks the member: what the
+--- symbols hold of it is an earlier build's. A module that built still lacks what it lacks.
+local function test_a_link_into_a_module_that_did_not_build_says_so()
+  local source = lines(
+    "local M = require(\"m\")",
+    "-- [`M.two`] and [`m.three`], beside [`Fs.nope`].",
+    "local Fs = require(\"cosmic.fs\")",
+    "return M")
+  local context = world({}, {}, { ["m.one"] = { "m.one" } })
+  context.refused = function(module: string): boolean return module == "m" end
+  same(checked(context, "/p/a.tl", "teal", source), {
+    "/p/a.tl:2: link: M.two does not resolve (m did not build, so its symbols are unknown; fix it first)",
+    "/p/a.tl:2: link: m.three does not resolve (m did not build, so its symbols are unknown; fix it first)",
+    "/p/a.tl:2: link: Fs.nope does not resolve (cosmic.fs has no nope)",
+  })
+end
+
+--- A path the tree ignores stays refused, saying why: no fresh checkout has it.
+local function test_a_link_to_an_ignored_path_says_it_is_build_output()
+  local context = world({ ["/p/a.md"] = "", ["/p/out/results.db"] = "", ["/p/node_modules/x/README.md"] = "" })
+  local kind = context.kind
+  local function ignored(relative: string): boolean
+    return relative:sub(1, 4) == "out/" or relative:sub(1, 13) == "node_modules/"
+  end
+  context.kind = function(path: string): string?
+    if ignored(path:sub(4)) then return nil end
+    return kind(path)
+  end
+  context.ignored = ignored
+  same(checked(context, "/p/a.md", "markdown", "[r](out/results.db) [n](node_modules/x/README.md)\n"), {
+    "/p/a.md:1: link: out/results.db does not resolve (it is ignored build output (.gitignore), absent from a fresh " ..
+      "checkout: link the source or rule that makes it, or write it as code text)",
+    "/p/a.md:1: link: node_modules/x/README.md does not resolve (it is under node_modules/, absent from a fresh " ..
+      "checkout: link the source that names the package, or write it as code text)",
+  })
+end
+
 --- A comment sees an alias where Lua has it in scope: after its
 --- declaration, to the end of the block that declares it.
 local function test_an_alias_in_one_function_names_nothing_in_another()

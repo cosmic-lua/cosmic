@@ -794,6 +794,8 @@ function fix.links(context: link_resolve.Context, files: {string}, mode?: string
     member = context.member,
     real = context.real,
     unbuilt = context.unbuilt,
+    refused = context.refused,
+    ignored = left_alone,
   }
   local resolver = link_resolve.resolver(guarded)
   local out: mut {string} = {}
@@ -864,18 +866,25 @@ end
 --- has run (one that failed, or a `rebuild_here` that made none) has no
 --- symbols of its own yet, which the context says rather than failing
 --- links to them. `close` closes what was opened. A build that fails
---- leaves why in `unbuilt`.
+--- leaves why in `unbuilt`, and the files it refused, which `refused`
+--- names once it has run ([`rebuild.refused`]), are the modules the
+--- context says did not build ([`Context.refused`]).
 function fix.link_context(root: string, whole: boolean, own: boolean,
                           rebuild_here: function(string): boolean, string,
-                          databases: function(): docs.Sources): fix.LinkSource
+                          databases: function(): docs.Sources,
+                          refused?: function(): {string}): fix.LinkSource
   local opened: mut {docs.Sources} = {}
   local source: fix.LinkSource?
+  local not_built: mut {string: boolean} = {}
   local function open(): docs.View?, string
     if not whole then
       local rebuilt, rebuild_trouble = rebuild_here("fix")
       if not rebuilt then
         -- Opened only once the context below is made and holds this source.
         leave_why(assert(source, "the link context opened before it was made"), rebuild_trouble)
+        if refused ~= nil then
+          for _, file in ipairs(refused()) do not_built[file] = true end
+        end
       end
     end
     local found = databases()
@@ -895,7 +904,13 @@ function fix.link_context(root: string, whole: boolean, own: boolean,
       end
     end
   end
-  source = { context = links.context(root, open, unbuilt), close = close }
+  local context = links.context(root, open, unbuilt)
+  -- A module's file is its name's path, or the `init.tl` of the directory it names.
+  context.refused = function(module: string): boolean
+    local path = module:gsub("%.", "/")
+    return not_built[path .. ".tl"] == true or not_built[path .. "/init.tl"] == true
+  end
+  source = { context = context, close = close }
   return source
 end
 
@@ -1715,7 +1730,7 @@ local function check_links(ctx: Fix)
     -- Built even where no build has been made yet, so that a link resolves alike whether or not a `cosmic test` ran first.
     local source = fix.link_context(root, picked.whole, own,
       function(verb: string): boolean, string return rebuild.here(verb, true) end,
-      function(): docs.Sources return docs.databases() end)
+      function(): docs.Sources return docs.databases() end, rebuild.refused)
     linked_out = fix.links(source.context, linked, if ctx.checking == true then "check" else "write" end, ctx.facts)
     source.close()
     local unbuilt = source.unbuilt

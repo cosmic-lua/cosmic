@@ -49,6 +49,7 @@ local link_text = require("build.link_text")
 local host_names = require("build.host_names")
 local identity = require("build.identity")
 local importer = require("build.importer")
+local refusals = require("build.refusals")
 local Ast = require("lang.ast")
 local Check = require("lang.check")
 local Ceilings = require("build.ceilings")
@@ -110,6 +111,8 @@ allowed["build.searchable.share"] = "opens one file or directory to every user f
 allowed["build.shared_verdicts.rows_kept"] = "the bound a file of a checked run's verdicts keeps, which the file's name decides; the settle of the same module applies it, and a test holds the names to it"
 allowed["build.test_key.requirements"] = "the names a module requires of its host, `loopback` derived from its declared addresses, which `ask_host` asks and a test holds to the derivation"
 allowed["build.test_key.met_nothing"] = "whether a checked run's report holds a violation, which `judge` asks and a test holds to the report's two clauses (a row, and rows that went unrecorded)"
+allowed["build.work.lock_holder_in"] = "the reading of /proc/locks `holding` names a lock's holder by, which a test " ..
+  "holds to lines a sandboxed worker's /proc cannot show it"
 allowed["build.memprobe.enabled"] = "the switch `COSMIC_MEMPROBE` sets for a run, which a test turns on to read the line a mark writes"
 
 allowed["build.type_watch.skip_reason"] = "the reason `during` skips with, which a test reads for a checked and a plain run " ..
@@ -1342,7 +1345,7 @@ function tree_checks.projection(root: string, standing: tree_standing.Standing):
   local refused = result.refused
   if #refused > 0 then
     local _, _ = work.close(handle)
-    return nil, "the tree does not build:\n" .. table.concat(refused, "\n")
+    return nil, "the tree does not build:\n" .. refusals.text(refused, result.refusal_roots or {})
   end
   local path = build_paths.resolve(root).projection
   local written, write_trouble = writer.write_result(handle, path, result)

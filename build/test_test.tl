@@ -49,6 +49,24 @@ local function test_a_named_file_that_did_not_compile_is_shown_the_refusals_it_r
   assert(#none.lines == 0 and none.matched["build/absent_test.tl"] == nil)
 end
 
+--- A run shows the refusals it fails for with the roots apart from the files that only require one: all of them for a
+--- run that names nothing, and for one that names files, theirs and the roots they rest on.
+local function test_a_run_shows_the_refusals_it_fails_for_roots_apart_from_dependents()
+  local lines = {
+    "build/one_test.tl: not compiled: it requires build.one, which the new checker refused",
+    "build/one.tl: the compiler refused it\nbuild/one.tl:1:1: wrong (code): fix",
+    "build/two.tl: the compiler refused it\nbuild/two.tl:1:1: also wrong (code): fix",
+    "build/mid.tl: not compiled: it requires build.one, which the new checker refused",
+  }
+  local roots = { ["build/one_test.tl"] = { 2 }, ["build/one.tl"] = { 2 }, ["build/two.tl"] = { 3 },
+    ["build/mid.tl"] = { 2, 3 } }
+  local whole = test.cascade(lines, roots, {})
+  assert(#whole.roots == 2 and whole.roots[1] == lines[2], table.concat(whole.roots, "|"))
+  assert(table.concat(whole.dependents, " ") == "build/one_test.tl build/mid.tl")
+  local named = test.cascade(lines, roots, { "build/one_test.tl" })
+  assert(#named.roots == 1 and named.roots[1] == lines[2] and table.concat(named.dependents) == "build/one_test.tl")
+end
+
 local function test_selection_is_exact_or_at_a_directory_boundary()
   assert(test.matches("build.test_test", "build.test_test", "build/test_test.tl"))
   assert(test.matches("build/test_test.tl", "build.test_test", "build/test_test.tl"))

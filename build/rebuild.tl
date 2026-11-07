@@ -11,6 +11,7 @@ local Store = require("cosmic.store")
 local String = require("cosmic.string")
 local clock = require("build.clock")
 local importer = require("build.importer")
+local refusals = require("build.refusals")
 local GrammarMode = require("build.grammar_mode")
 local shared_compiles = require("build.shared_compiles")
 local tree = require("build.tree")
@@ -146,7 +147,17 @@ end
 --- the verb went on without holding the tool to the tree
 --- ([`reboot.unchecked`]), a lookup's builds nothing, and the caller reads
 --- what is there.
+--- The files the last build of this process refused ([`rebuild.refused`]).
+local last_refused: mut {string} = {}
+
+--- The files the last build this process made with [`rebuild.here`] refused, for what they hold or for requiring one
+--- that was, by their paths from the project's root: none where it built, or before it ran.
+function rebuild.refused(): {string}
+  return last_refused
+end
+
 local function project(root: string, verb: string, start: boolean, carried?: string): boolean, string
+  last_refused = {}
   local found, found_trouble = where(root, carried)
   if found == nil then return false, found_trouble end
   if unchecked(root) then
@@ -193,10 +204,14 @@ local function project(root: string, verb: string, start: boolean, carried?: str
   -- The new checker goes on past a module it refuses, to name them all; the answer is the last build's, with the words of
   -- the refusal, rather than a projection without the modules that were refused.
   local unexpected = result.refused
+  for _, line in ipairs(unexpected) do
+    local file = line:match("^([^:\n]+)") or line
+    last_refused[#last_refused + 1] = file
+  end
   if #unexpected > 0 then
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, result.compiled, result.cached, "FAIL")
     local _, _ = work.close(handle)
-    if start then return false, table.concat(unexpected, "\n") end
+    if start then return false, refusals.text(unexpected, result.refusal_roots or {}) end
     -- A lookup says it in a line a call, naming the first module with a
     -- refusal of its own: the refusals are for the verbs that build on
     -- purpose, which is where they are shown. Its last build may be none,

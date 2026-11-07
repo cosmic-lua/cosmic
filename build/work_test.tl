@@ -19,6 +19,26 @@ local function count(db: Sqlite.Handle, table_name: string): integer
   return math.tointeger(tonumber(support.nth(rows, 1):text(1))) as integer -- checked: cast_refused
 end
 
+--- The holder of a write lock is read from /proc/locks by the file's
+--- device, inode and first byte, and only from a holder's line: a line
+--- of a process blocked waiting for the lock names a waiter, and a pid 0
+--- one the reader's pid namespace cannot see.
+local function test_the_holder_of_a_write_lock_is_the_process_proc_locks_says_holds_it()
+  local locks = table.concat({
+    "1: POSIX  ADVISORY  WRITE 4939 fe:00:821653 120 120",
+    "2: POSIX  ADVISORY  READ 77 fe:00:876668 120 120",
+    "3: POSIX  ADVISORY  WRITE 78 fe:01:876668 120 120",
+    "4: POSIX  ADVISORY  WRITE 79 fe:00:876668 128 128",
+    "4: -> POSIX  ADVISORY  WRITE 80 fe:00:876668 120 120",
+    "5: POSIX  ADVISORY  WRITE 9976 fe:00:876668 120 120",
+    "6: POSIX  ADVISORY  READ 9976 fe:00:876668 124 124",
+  }, "\n") .. "\n"
+  assert(work.lock_holder_in(locks, 0xfe00, 876668, 120) == 9976)
+  assert(work.lock_holder_in(locks, 0xfe00, 876668, 1073741825) == nil)
+  assert(work.lock_holder_in("1: POSIX  ADVISORY  WRITE 0 fe:00:876668 120 120\n", 0xfe00, 876668, 120) == nil)
+  assert(work.lock_holder_in("1: -> POSIX  ADVISORY  WRITE 80 fe:00:876668 120 120\n", 0xfe00, 876668, 120) == nil)
+end
+
 local function test_recording_error_rolls_back_every_table(tmp: string)
   local handle = assert(work.open(tmp))
   assert(work.commit(handle))

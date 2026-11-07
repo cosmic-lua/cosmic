@@ -61,8 +61,11 @@ local function test_a_project_written_in_forms_the_new_grammar_refuses_is_refuse
   -- a function assigned to a path of two dots
   assert(text:find("cache.tl:8:1: `function Kv.Lru.get` has more than one dot (function_path): assign the function to the " ..
       "field: `Kv.Lru.get = function(...) ... end`", 1, true) ~= nil, text)
-  -- what requires a refused module is told so, and no test ran
-  assert(text:find("lookup_test.tl: not compiled: it requires lookup, which the new checker refused", 1, true) ~= nil, text)
+  -- what requires a refused module is told so, after the refusals it rests on, and no test ran
+  local collapsed = text:find("test: FAIL  not compiled, since each requires a module refused above: cache_test.tl, lookup_test.tl",
+    1, true)
+  local rested = text:find("lookup.tl:10:12:", 1, true)
+  assert(collapsed ~= nil and rested ~= nil and rested < collapsed, text)
   assert(text:find("test: 4 of 4 tests failed", 1, true) ~= nil, text)
   -- a project has no pins to raise: nothing in its errors speaks of one
   assert(text:find("pinned", 1, true) == nil and text:find("add a marker", 1, true) == nil, text)

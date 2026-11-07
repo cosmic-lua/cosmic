@@ -415,6 +415,23 @@ local function test_links_keep_why_their_build_failed(tmp: string)
   end
 end
 
+--- A link into a module the build made for it refused says that module did not build, by the files the build names as
+--- refused: a module's own file or its directory's `init.tl`.
+local function test_a_link_into_a_module_the_build_refused_says_it_did_not_build(tmp: string)
+  local root = assert(Fs.absolute(tmp))
+  assert(Fs.write(root .. "/a.md", "[`m.one`] [`lib.two`] [`fine.three`]\n"))
+  local source = fix.link_context(root, false, true,
+    function(_: string): boolean, string return false, "m.tl: the compiler refused it" end,
+    function(): docs.Sources return { handles = {}, public = {}, opened = {} } end,
+    function(): {string} return { "m.tl", "lib/init.tl" } end)
+  local found = fix.links(source.context, { root .. "/a.md" })
+  source.close()
+  local said = table.concat(found.broken, "\n")
+  assert(said:find("m.one does not resolve (m did not build, so its symbols are unknown; fix it first)", 1, true), said)
+  assert(said:find("lib.two does not resolve (lib did not build", 1, true), said)
+  assert(said:find("fine.three does not resolve (no declaration, symbol or file by that name)", 1, true), said)
+end
+
 --- A project that has not been built checks no link against symbols,
 --- and says so once as a note rather than failing each: a name in
 --- full, and a member of a module through its alias alike.

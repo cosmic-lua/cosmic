@@ -391,7 +391,11 @@ local function test_a_boot_names_a_holder_as_the_tool_does(tmp: string)
     contents[#contents + 1] = "1\n" .. role .. "\n"
   end
   for _, text in ipairs(contents) do
-    assert(Fs.write(support.build_dir(root) .. "/rebuild.lock.pid", text))
+    local file = support.build_dir(root) .. "/rebuild.lock.pid"
+    assert(Fs.write(file, text))
+    -- Ten minutes old, so the time a holder has held the lock reads the
+    -- same in both however long apart they look.
+    assert(Fs.set_mtime(file, Clock.now_ns() // Clock.seconds(1) - 600))
     local output = build_paths.required(root)
     assert(Zig.holder(output) == rebuild_lock.holder(root), text .. ": " ..
         Zig.holder(output) .. " against " .. rebuild_lock.holder(root))

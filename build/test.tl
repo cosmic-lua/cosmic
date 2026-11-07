@@ -132,6 +132,7 @@ local coverage_report = require("build.coverage")
 local c_functions = require("build.c_functions")
 local dispatch_sites = require("build.dispatch_sites")
 local importer = require("build.importer")
+local Refusals = require("build.refusals")
 local exit_status = require("build.exit_status")
 local type Module = importer.Module
 local GrammarMode = require("build.grammar_mode")
@@ -305,6 +306,25 @@ function test.refusals_of(lines: {string}, selectors: {string}): {string}
     end
   end
   return out
+end
+
+--- What a run shows of the compile's refusals `lines` ([`importer.Result`]'s `refused`) it fails for
+--- ([`test.refusals_of`]): the diagnostics of the files refused for what they hold, those the chosen lines rest on among
+--- them, apart from the files left out only for requiring one ([`refusals.cascade`]). `roots` is
+--- [`importer.Result`]'s `refusal_roots`.
+function test.cascade(lines: {string}, roots: {string:{integer}}, selectors: {string}): Refusals.Cascade
+  local chosen: mut {integer:boolean} = {}
+  for position, line in ipairs(lines) do
+    local file = line:match("^([^:\n]+)") or line
+    local named = #selectors == 0
+    for _, selector in ipairs(selectors) do
+      if test.matches(selector, module_of_file(file), file) then
+        named = true
+      end
+    end
+    if named then chosen[position] = true end
+  end
+  return Refusals.cascade(lines, roots, chosen)
 end
 
 --- What a run that names files shows of the compile's refusals `lines` ([`importer.Result`]'s `refused`) for the
@@ -1450,6 +1470,8 @@ local record Run
   --- The compile's refusals this run fails for ([`importer.Result`]'s `refused`): all of them, or with selectors those of the
   --- files they choose.
   mut refusals?: {string}
+  --- How `refusals` are shown ([`test.cascade`]).
+  mut cascade?: Refusals.Cascade
   mut forced?: boolean
   mut consult?: boolean
   --- Whether a verdict is also looked up under the key of another host of
@@ -2685,13 +2707,12 @@ local function settle(ctx: Run)
 
   -- A module [`importer.compile`] refused ran no tests at all; every
   -- other module still compiled and ran above, so this only turns the
-  -- overall verdict to FAIL, one line per refusal, rather than aborting
-  -- the whole run the way an unrelated compile error still does.
-  local refusals = test.refusals_of(result.refused, assert(ctx.selectors))
-  for _, line in ipairs(refusals) do
-    failures[#failures + 1] = line
-  end
-  ctx.refusals = refusals
+  -- overall verdict to FAIL, counting one failure per refusal, rather
+  -- than aborting the whole run the way an unrelated compile error still
+  -- does. They are said ahead of the failures, the diagnostics the
+  -- others rest on first ([`report`]).
+  ctx.refusals = test.refusals_of(result.refused, assert(ctx.selectors))
+  ctx.cascade = test.cascade(result.refused, result.refusal_roots or {}, assert(ctx.selectors))
 
   ctx.cov_line = test_report.coverage(cov_hit, cov_total, ctx.floors ~= nil)
 end
@@ -2716,7 +2737,8 @@ local function report(ctx: Run): integer
   local rec, tally = assert(ctx.rec), assert(ctx.tally)
   local failures, errors = assert(ctx.failures), assert(ctx.errors)
   local total, started = assert(ctx.total), assert(ctx.started)
-  if #failures == 0 and #errors == 0 then
+  local refused = assert(ctx.refusals)
+  if #failures == 0 and #errors == 0 and #refused == 0 then
     if total == 0 then
       log:say("test: nothing to run: a test is a top-level `local function " ..
           "test_*` of a *_test.tl file, or a function of the `Example` " ..
@@ -2739,6 +2761,14 @@ local function report(ctx: Run): integer
   say_skips(rec)
   say_violations(rec)
   say_shown(rec, tally)
+  local cascade = ctx.cascade
+  local counted: string? = nil
+  if cascade ~= nil then
+    say_failures(rec, cascade.roots)
+    local collapsed = Refusals.collapsed(cascade)
+    if collapsed ~= nil then log:say("test: FAIL  " .. collapsed) end
+    counted = Refusals.counted(cascade)
+  end
   say_failures(rec, failures)
   for _, line in ipairs(errors) do
     log:say("test: ERROR  " .. assert(ctx.records_path) .. ": " .. line)
@@ -2748,11 +2778,12 @@ local function report(ctx: Run): integer
     say_shortfall(ctx)
     for _, function_line in ipairs(assert(ctx.function_lines)) do log:say(function_line) end
   end
-  local _, _ = log:say("test: " .. test_report.failed(#failures, total + #assert(ctx.refusals),
+  if counted ~= nil then log:say("test: " .. counted) end
+  local _, _ = log:say("test: " .. test_report.failed(#failures + #refused, total + #refused,
     #errors, clock.took(started) .. assert(ctx.sandbox_summary) .. assert(ctx.share_summary) ..
       (if #errors == 0 then floor_clause(ctx) else "" end), rec.not_run))
   -- A refused module outranks a failing test: the tests ran on a tree that did not compile.
-  return if #assert(ctx.refusals) > 0 then exit_status.uncompiled else 1 end
+  return if #refused > 0 then exit_status.uncompiled else 1 end
 end
 
 --- The exit code of a run that stopped at `code` after the compile: [`exit_status.uncompiled`] in place of a 1 where a
