@@ -7366,8 +7366,10 @@ function Writes.runs_code(s: Ast.Assign): boolean
 end
 
 --- The `array_hole` error of a write at an index that may leave a hole in an array, whether the array is `mut` or a view
---- (a view's write is also a `view_written`, so one run names both).
-function Writes.report_hole(ctx: Ctx, p: Pending)
+--- (a view's write is also a `view_written`, so one run names both). The statement has the values `vals`. The fix offers
+--- the range test of [`Writes.ranges_of`] only where it would let the write stand: a value that is not nil written to a
+--- local at an integer local.
+function Writes.report_hole(ctx: Ctx, vals: Values, p: Pending)
   local target = p.target
   if Writes.is_append(target) then
     report(ctx, "array_hole", target, subject(ctx, target) .. " is written by a statement that calls a function, which " ..
@@ -7375,12 +7377,19 @@ function Writes.report_hole(ctx: Ctx, p: Pending)
       "call first and write after: `local v = f()`, then `" .. text_of(ctx, target) .. " = v`", { show(ctx, p.base) })
   else
     local t = text_of(ctx, target.object)
-    local key = peel(target.key)
-    local i = if key.kind == "Name" then key.text else "i" end
+    local key, object = peel(target.key), peel(target.object)
+    local written = value_at(ctx, vals, p.at)
+    local guard = ""
+    if key.kind == "Name" and key.binding ~= nil and object.kind == "Name" and object.binding ~= nil and p.integral and
+        written ~= nil and Writes.present(written) then
+      local i = key.text
+      guard = "overwrite an element inside `if " .. i .. " >= 1 and " .. i .. " <= #" .. t .. " then` (a block that " ..
+        "calls no function but `math`'s, writes nil to no table, writes `" .. t .. "` at no other key and assigns " ..
+        "neither `" .. i .. "` nor `" .. t .. "`), "
+    end
     report(ctx, "array_hole", target, subject(ctx, target) .. " may leave a hole in the array " .. p.owner,
-      "append with `" .. t .. "[#" .. t .. " + 1] = v` or `table.insert`, overwrite an element inside `if " .. i ..
-        " >= 1 and " .. i .. " <= #" .. t .. " then` (a block that calls nothing and leaves `" .. i .. "` and `" .. t ..
-        "` alone), remove with `table.remove`, or key a map `{integer: T}` for sparse data", { show(ctx, p.base) })
+      "append with `" .. t .. "[#" .. t .. " + 1] = v` or `table.insert`, " .. guard .. "remove with `table.remove`, " ..
+        "or key a map `{integer: T}` for sparse data", { show(ctx, p.base) })
   end
 end
 
@@ -7432,7 +7441,7 @@ local function check_assignment(ctx: Ctx, s: Ast.Assign): Values?
           " cannot be assigned", "declare " .. owner .. " " .. destination .. " where it is made or received", { show(ctx, base) })
     end
     if not Writes.leaves_no_hole(ctx, vals, p) then
-      Writes.report_hole(ctx, p)
+      Writes.report_hole(ctx, vals, p)
     end
   end
   local counted = check_counts(ctx, s, #s.targets, vals, s.values, "target")

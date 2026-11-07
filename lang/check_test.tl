@@ -1352,6 +1352,22 @@ end
 local function test_the_fix_of_a_write_that_may_leave_a_hole_shows_the_range_test_of_its_index()
   local e = first_error("local xs: mut {integer} = {}\nlocal function put(id: integer)\n  xs[id] = 1\nend\n", "array_hole")
   assert(has(e.fix, "overwrite an element inside `if id >= 1 and id <= #xs then`"), e.fix)
+  assert(has(e.fix, "calls no function but `math`'s, writes nil to no table"), e.fix)
+  -- where the range test could not let the write stand, the fix does not offer it
+  local function fix_of(source: string): string
+    return first_error(source, "array_hole").fix
+  end
+  local head = "local xs: mut {integer} = {}\nlocal m: integer? = nil\n"
+  for _, write in ipairs({
+      "local function put(k: integer)\n  xs[k + 1] = 2\nend\n",
+      "local function put(k: integer)\n  xs[k] = m\nend\n",
+      "local function put(k: integer)\n  xs[k] = nil\nend\n",
+      "local function put(k: number)\n  xs[k] = 2\nend\n",
+      "local record Box\n  mut items: mut {integer}\nend\nlocal function put(b: Box, k: integer)\n  b.items[k] = 2\nend\n",
+  }) do
+    local fix = fix_of(head .. write)
+    assert(has(fix, "append with `") and not has(fix, "overwrite an element"), write .. ": " .. fix)
+  end
 end
 
 local function test_a_map_read_that_may_be_nil_is_told_a_missing_key_not_an_array_fix()

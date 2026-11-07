@@ -26,14 +26,15 @@ that names only them keeps working as cosmic changes; the other tables of
   - `path`: the test module, by module name (`tally_test`, or
     `lib.parse_test` for `lib/parse_test.tl`).
   - `test`: the test function's name.
-  - `passed`: 1 for a pass, 0 for a failure or a test that cannot run on
-    this host.
-  - `message`: why it failed, or "" for a pass.
+  - `passed`: 1 for a pass, 0 for a failure, a skip, a pass that called no
+    `assert`, or a test that cannot run on this host.
+  - `message`: why it did not pass, or "" for a pass.
   - `elapsed_ns`: how long the test took, in nanoseconds, in the run that
     reached its verdict. A test whose verdict stood was not run again, so
     its time is that earlier run's.
   - `run_at_ns`: when the run that reached the verdict started, in
-    nanoseconds since the epoch.
+    nanoseconds since the epoch. A verdict taken from another checkout's run
+    holds the time of the run that took it.
 - `coverage` holds one row per executable line of the project, for each of
   the latest few runs:
   - `ran_at_ns`: when that run started. The latest run's rows are those
@@ -48,8 +49,9 @@ row for every line of the project, hit only by the tests it ran.
 A sandboxed run (the default on Linux) counts today the lines of each test
 module alone, not those of the modules it imports. To measure a module's
 coverage, run every test unsandboxed: `COSMIC_TEST_SANDBOX=0 cosmic test --all`.
-`--all` runs again the tests whose verdicts stand, which bring no hits of
-their own otherwise.
+A test whose verdict stands brings the hits of the run that reached it, so
+a verdict a sandboxed run reached brings none of the imported modules'
+lines; `--all` runs those tests again.
 
 ## slowest tests
 
@@ -86,7 +88,9 @@ cosmic sql --build "SELECT path, sum(hit) AS hit, count(*) AS lines FROM coverag
 ```
 
 `cosmic test` prints the whole project's share as its `test: coverage` line,
-and `--min` and `--min-file` make a floor of it (`cosmic help test`).
+and `--min` and `--min-file` make a floor of it (`cosmic help test`). Under
+the sandbox a module the tests import has no hits, so `--min-file` fails it
+however well it is tested: judge a floor on an unsandboxed run.
 
 ## trying it
 
