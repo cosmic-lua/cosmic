@@ -287,32 +287,11 @@ local function module_of_file(file: string): string
   return (file:gsub("%.tl$", ""):gsub("/", "."))
 end
 
---- Of the compile's refusals `lines` ([`importer.Result`]'s `refused`, each beginning with its file), those a run fails
---- for: all of them for a run that names no test, and for one that does the refusals of the files its selectors choose. A test
---- module that requires a refused module is refused itself, which a selector that names it says, so a refusal elsewhere in the
---- tree is no failure of that run.
-function test.refusals_of(lines: {string}, selectors: {string}): {string}
-  local out: mut {string} = {}
-  for _, line in ipairs(lines) do
-    local file = line:match("^([^:\n]+)") or line
-    local named = #selectors == 0
-    for _, selector in ipairs(selectors) do
-      if test.matches(selector, module_of_file(file), file) then
-        named = true
-      end
-    end
-    if named then
-      out[#out + 1] = line
-    end
-  end
-  return out
-end
-
---- What a run shows of the compile's refusals `lines` ([`importer.Result`]'s `refused`) it fails for
---- ([`test.refusals_of`]): the diagnostics of the files refused for what they hold, those the chosen lines rest on among
---- them, apart from the files left out only for requiring one ([`refusals.cascade`]). `roots` is
---- [`importer.Result`]'s `refusal_roots`.
-function test.cascade(lines: {string}, roots: {string:{integer}}, selectors: {string}): Refusals.Cascade
+--- The positions in the compile's refusals `lines` ([`importer.Result`]'s `refused`, each beginning with its file) of
+--- those a run fails for: all of them for a run that names no test, and for one that does the refusals of the files its
+--- selectors choose. A test module that requires a refused module is refused itself, which a selector that names it says,
+--- so a refusal elsewhere in the tree is no failure of that run.
+local function failing(lines: {string}, selectors: {string}): {integer:boolean}
   local chosen: mut {integer:boolean} = {}
   for position, line in ipairs(lines) do
     local file = line:match("^([^:\n]+)") or line
@@ -324,7 +303,24 @@ function test.cascade(lines: {string}, roots: {string:{integer}}, selectors: {st
     end
     if named then chosen[position] = true end
   end
-  return Refusals.cascade(lines, roots, chosen)
+  return chosen
+end
+
+--- Of the compile's refusals `lines`, those a run fails for ([`failing`]).
+function test.refusals_of(lines: {string}, selectors: {string}): {string}
+  local chosen = failing(lines, selectors)
+  local out: mut {string} = {}
+  for position, line in ipairs(lines) do
+    if chosen[position] == true then out[#out + 1] = line end
+  end
+  return out
+end
+
+--- What a run shows of the compile's refusals `lines` it fails for ([`failing`]): the diagnostics of the files refused
+--- for what they hold, those the chosen lines rest on among them, apart from the files left out only for requiring one
+--- ([`refusals.cascade`]). `roots` is [`importer.Result`]'s `refusal_roots`.
+function test.cascade(lines: {string}, roots: {string:{integer}}, selectors: {string}): Refusals.Cascade
+  return Refusals.cascade(lines, roots, failing(lines, selectors))
 end
 
 --- What a run that names files shows of the compile's refusals `lines` ([`importer.Result`]'s `refused`) for the

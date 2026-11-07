@@ -62,7 +62,7 @@ local function test_a_project_written_in_forms_the_new_grammar_refuses_is_refuse
   assert(text:find("cache.tl:8:1: `function Kv.Lru.get` has more than one dot (function_path): assign the function to the " ..
       "field: `Kv.Lru.get = function(...) ... end`", 1, true) ~= nil, text)
   -- what requires a refused module is told so, after the refusals it rests on, and no test ran
-  local collapsed = text:find("test: FAIL  not compiled, since each requires a module refused above: cache_test.tl, lookup_test.tl",
+  local collapsed = text:find("test: FAIL  not compiled, since each requires a refused module, directly or through another: cache_test.tl, lookup_test.tl",
     1, true)
   local rested = text:find("lookup.tl:10:12:", 1, true)
   assert(collapsed ~= nil and rested ~= nil and rested < collapsed, text)

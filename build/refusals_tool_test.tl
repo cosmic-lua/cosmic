@@ -51,7 +51,7 @@ local function test_fix_shows_the_refusal_first_and_its_dependents_in_one_line(t
   local root = project(tmp)
   local result, text = ran(root, tmp, { "fix", "b.tl" })
   assert(not result.ok, text)
-  in_order(text, { "a.tl:4:10:", "not compiled, since each requires a module refused above: b.tl, b_test.tl",
+  in_order(text, { "a.tl:4:10:", "not compiled, since each requires a refused module, directly or through another: b.tl, b_test.tl",
     "1 file refused on its own, 2 not compiled because they require one", "fix: " })
   assert(not text:find("b.tl: not compiled: it requires a", 1, true), text)
 end
@@ -61,7 +61,7 @@ local function test_a_whole_test_run_counts_the_files_refused_and_those_that_req
   local result, text = ran(root, tmp, { "test" })
   assert(result.code == 4, text)
   in_order(text, { "test: FAIL  a.tl: the compiler refused it", "a.tl:4:10:",
-    "test: FAIL  not compiled, since each requires a module refused above: b.tl, b_test.tl",
+    "test: FAIL  not compiled, since each requires a refused module, directly or through another: b.tl, b_test.tl",
     "test: 1 file refused on its own, 2 not compiled because they require one", "test: 3 of 3 tests failed" })
   assert(not text:find("b_test.tl: not compiled: it requires b", 1, true), text)
 end

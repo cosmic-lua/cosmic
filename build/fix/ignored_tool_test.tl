@@ -61,8 +61,8 @@ local function test_an_ignored_target_is_no_link_and_an_ignored_directory_is_not
   assert(assert(Fs.read(root .. "/node_modules/p/R.md")) == "See [`gone`].\n")
 end
 
---- A link written to an ignored path stays refused, and says why: it is build output a fresh checkout lacks.
-local function test_a_link_to_an_ignored_path_is_refused_as_build_output(tmp: string)
+--- A link written to an ignored path stays refused, and says why: a fresh checkout lacks it.
+local function test_a_link_to_an_ignored_path_is_refused_as_ignored(tmp: string)
   local root = project(tmp, "project", true)
   assert(Fs.write(root .. "/README.md", "Writes [gen](out/gen.txt).\n"))
   local result = run(root, { "fix", "README.md" })

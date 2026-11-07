@@ -114,7 +114,7 @@ local function test_a_view_written_a_nil_not_taken_and_an_unused_name_are_refuse
   local result, text = tested(root, tmp, "new")
   refusal(result, text, { "counter.tl:", "(view_written): declare `seen` `mut {string}` where it is made or received",
     "(unused_variable): name it `_` or `_unused`",
-    "test: FAIL  not compiled, since each requires a module refused above: cmd/tally/main.tl, counter_test.tl" })
+    "test: FAIL  not compiled, since each requires a refused module, directly or through another: cmd/tally/main.tl, counter_test.tl" })
   local nil_root = copy_of(tmp, "nil")
   planted(nil_root, "counter.tl", "  seen: mut {string}\n", "  seen: mut {string}?\n")
   local nil_result, nil_text = tested(nil_root, tmp, "new")
@@ -126,7 +126,7 @@ local function test_a_template_refused_names_its_line_and_the_fix(tmp: string)
   planted(root, "report.tmpl", "<h1>{{.title}}</h1>", "<h1>{{.nope}}</h1>")
   local result, text = tested(root, tmp, "new")
   refusal(result, text, { "report.tmpl:2:", "`data.Report` has no field `nope`, nearest `note` (field_unknown): write `note`",
-    "test: FAIL  not compiled, since each requires a module refused above: counter_test.tl" })
+    "test: FAIL  not compiled, since each requires a refused module, directly or through another: counter_test.tl" })
   -- a condition on a string is no condition, and the fix is said in the template's terms
   local string_root = copy_of(tmp, "string")
   planted(string_root, "report.tmpl", "{{with .note}}<p>{{.}}</p>{{end}}", "{{if .title}}<p>x</p>{{end}}")

@@ -49,15 +49,27 @@ function refusals.cascade(lines: {string}, roots: {string:{integer}}, chosen?: {
     end
   end
   local out: mut {string} = {}
+  local leaning: mut {string:boolean} = {}
   local files: mut {string:boolean} = {}
   local own = 0
   for position, line in ipairs(lines) do
+    if is_root[position] ~= true then leaning[file_of(line)] = true end
     if shown[position] == true then
       out[#out + 1] = line
-      if files[file_of(line)] ~= true then
+      if not any and files[file_of(line)] ~= true then
         files[file_of(line)] = true
         own = own + 1
       end
+    end
+  end
+  -- One refusal may hold out several files (sources alike are one), each refused on its own.
+  for file, positions in pairs(roots) do
+    if leaning[file] ~= true then
+      local held = false
+      for _, position in ipairs(positions) do
+        if shown[position] == true then held = true end
+      end
+      if held then own = own + 1 end
     end
   end
   return { roots = out, dependents = dependents, own = own }
@@ -73,7 +85,7 @@ function refusals.collapsed(cascade: refusals.Cascade): string?
     named[#named + 1] = file
   end
   local more = #dependents - #named
-  return "not compiled, since each requires a module refused above: " .. table.concat(named, ", ") ..
+  return "not compiled, since each requires a refused module, directly or through another: " .. table.concat(named, ", ") ..
     (if more > 0 then ", and " .. tostring(more) .. " more" else "" end)
 end
 

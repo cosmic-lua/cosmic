@@ -32,7 +32,7 @@ local record link_resolve
     read: function(path: string): string?
     --- Each symbol `query` names (step 2). Nil and why when the
     --- databases cannot be read.
-    mut symbols: function(query: string): {Symbol}?, string
+    symbols: function(query: string): {Symbol}?, string
     --- The symbols of `module` whose name is `member`.
     member: function(module: string, member: string): {Symbol}?, string
     --- The absolute `path` with every symbolic link in it followed, or
@@ -47,7 +47,7 @@ local record link_resolve
     --- answered. Nil where no build was made.
     mut refused?: function(module: string): boolean
     --- Whether the tree ignores the path `relative` to the root, which
-    --- `kind` then answers nil for: build output no fresh checkout has.
+    --- `kind` then answers nil for: no fresh checkout has it.
     mut ignored?: function(relative: string): boolean
   end
 
@@ -395,19 +395,21 @@ local record TargetFields
 end
 
 --- Why a name in full `dotted` names nothing known, where the build made for this resolution refused the module it is
---- of ([`Context.refused`]): that module is `dotted`'s longest prefix the symbols know as a module, or failing that the
---- longest the build refused. A module that built answers for its own members even under a parent that did not. Nil
---- where it built, or where no build was made.
+--- of ([`Context.refused`]): that module is `dotted`'s longest prefix that is a module of the tree, its file `p.tl` or
+--- `p/init.tl` there, or that the build refused. A module that built answers for its own members even under a parent
+--- that did not, whether or not an earlier build knew it. Nil where it built, or where no build was made.
 local function refused_prefix(resolver: link_resolve.Resolver, dotted: string): string?
   local refused = resolver.context.refused
   if refused == nil then return nil end
+  local root = resolver.context.root
   local module = dotted
   while true do
     if refused(module) then
       return module .. " did not build, so its symbols are unknown; fix it first"
     end
-    for _, symbol in ipairs(symbols_named(resolver, module)) do
-      if symbol.module == module then return nil end
+    local path = root .. "/" .. (module:gsub("%.", "/"))
+    if kind_at(resolver, path .. ".tl") == "file" or kind_at(resolver, path .. "/init.tl") == "file" then
+      return nil
     end
     local shorter = module:match("^(.+)%.[^.]+$")
     if shorter == nil then return nil end
@@ -480,6 +482,10 @@ function link_resolve.resolve(resolver: link_resolve.Resolver, from: string, tar
     local module = if first ~= nil then own.aliases[first] else nil end
     if module ~= nil and rest ~= nil then
       local members = members_named(resolver, module, rest)
+      local not_built = refused_prefix(resolver, module)
+      if #members == 0 and not_built ~= nil then
+        return nil, not_built
+      end
       -- Unbuilt, the members of a module the symbols do not know yet
       -- (the project's own) may be ones the build would record, as for
       -- a name in full below; a known module's (the standard library's)
@@ -488,10 +494,6 @@ function link_resolve.resolve(resolver: link_resolve.Resolver, from: string, tar
           #symbols_named(resolver, module) == 0 then
         resolver.unchecked = resolver.unchecked + 1
         return nil, ""
-      end
-      local not_built = refused_prefix(resolver, module)
-      if #members == 0 and not_built ~= nil then
-        return nil, not_built
       end
       local spelled: mut {string} = {}
       for _, member in ipairs(members) do spelled[#spelled + 1] = link_resolve.spelled(member) end
@@ -523,16 +525,17 @@ function link_resolve.resolve(resolver: link_resolve.Resolver, from: string, tar
   if file ~= nil then
     found[#found + 1] = "the file " .. shown(resolver, file)
   end
-  -- A shortcut names a symbol; an inline link, a path first.
-  if #found == 0 and name ~= nil and not bare and not path_first and resolver.context.unbuilt() ~= nil then
-    resolver.unchecked = resolver.unchecked + 1
-    return nil, ""
-  end
+  -- A module the build refused is said so whether or not the symbols are complete.
   if #found == 0 and name ~= nil and not bare then
     local not_built = refused_prefix(resolver, (name:gsub(":", ".")))
     if not_built ~= nil then
       return nil, not_built
     end
+  end
+  -- A shortcut names a symbol; an inline link, a path first.
+  if #found == 0 and name ~= nil and not bare and not path_first and resolver.context.unbuilt() ~= nil then
+    resolver.unchecked = resolver.unchecked + 1
+    return nil, ""
   end
   if #found > 1 and file ~= nil then
     table.sort(found)
