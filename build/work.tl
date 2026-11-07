@@ -37,6 +37,18 @@ local log = require("build.logger").log
 local _ = require("build.reads.links")
 
 local record work
+  --- How the tool stands against the working database of `root` read
+  --- without writing it ([`work.tool_read_unwritten`]).
+  enum Unwritten
+    --- Its recorded files and discovery directories stand as recorded, and
+    --- the boot hash the last stage recorded is the one asked about.
+    "fresh"
+    --- Anything else: something moved, the hash differs or none is
+    --- recorded, or the database is missing or cannot be read. Only a stage
+    --- can tell more.
+    "unknown"
+  end
+
   --- A file by its device, as a stat gives it, and its inode.
   record Place
     dev: integer
@@ -1473,19 +1485,55 @@ end
 --- Whether the tool's recorded files or discovery directories moved. The
 --- same walk that stages inputs records its directories, so a new input
 --- invalidates the fast path without listing an unchanged tree again.
-function work.tool_moved(handle: work.Handle): boolean?, string
+local function tool_moved_in(db: Sqlite.Handle, root: string): boolean?, string
   for _, table_name in ipairs({ "tool", "tool_discovery" }) do
-    local known, trouble = known_in(handle.db, table_name)
+    local known, trouble = known_in(db, table_name)
     if known == nil then return nil, trouble end
     if table_name == "tool_discovery" and known[""] == nil then return true, "" end
     for path in pairs(known) do
-      local st, _ = Fs.stat(handle.root .. "/" .. path)
+      local st, _ = Fs.stat(root .. "/" .. path)
       if st == nil then return true, "" end
       local mtime_ns = Clock.seconds(st.mtime) + st.mtime_ns
       if moved(known, path, st, mtime_ns) then return true, "" end -- checked: view_as_mut
     end
   end
   return false, ""
+end
+
+function work.tool_moved(handle: work.Handle): boolean?, string
+  return tool_moved_in(handle.db, handle.root)
+end
+
+--- Whether the tool's recorded inputs in the working database of `root`
+--- stand as [`work.tool_moved`] would find them, and the boot hash its
+--- last stage recorded is `boot_hash`, read without writing anything
+--- there: no run is counted and nothing is committed, so a run holding
+--- the tree to a boundary (CI's, which hashes the file and its
+--- write-ahead log across steps) sees them as they were. With no log
+--- beside it the file is opened immutable, which makes none; with one,
+--- another connection has it open, and it is read through the log
+--- read-only, which writes neither. What a run outside the tree asks of
+--- the checkout its tool was built from ([`build.reboot.stale_exit`]).
+function work.tool_read_unwritten(root: string, boot_hash: string): work.Unwritten
+  local directory, _ = build_paths.optional(root)
+  if directory == nil then return "unknown" end
+  local path = build_paths.under(directory).working
+  local present, _ = Fs.exists(path)
+  if present ~= true then return "unknown" end
+  local logged, _ = Fs.exists(path .. "-wal")
+  local db, _ = Sqlite.open(path, { immutable = logged ~= true })
+  if db == nil then return "unknown" end
+  local schema, _ = schema_of(db)
+  local answer: work.Unwritten = "unknown"
+  if schema == version then
+    local moved_now, _ = tool_moved_in(db, root)
+    if moved_now == false then
+      local recorded, _ = identity.recorded_boot_hash(db)
+      if recorded ~= nil and recorded == boot_hash then answer = "fresh" end
+    end
+  end
+  local _, _ = db:close()
+  return answer
 end
 
 --- Writes one file's row: its stat, with the modification time kept

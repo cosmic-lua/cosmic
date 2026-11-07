@@ -15,6 +15,9 @@ local stand_in = require("build.stand_in")
 local logger = require("build.logger")
 local work = require("build.work")
 local sys = require("cosmic.sys")
+local identity = require("build.identity")
+local pipeline = require("build.pipeline")
+local GrammarMode = require("build.grammar_mode")
 
 --- A core change boots unless COSMIC_AUTO_BOOT is "0".
 --- How the test runner's tool, which is not built from any tree of a test, is seen at `root`, a tree it is told was
@@ -563,4 +566,41 @@ local function test_a_project_run_leaves_a_checkout_another_run_holds_alone(tmp:
   assert(busy == "nil", busy)
   assert(busy_said == "", busy_said)
   assert(not staged_in(checkout, "build/importer.tl"), "a project run staged a checkout whose database is held")
+end
+
+--- A project run whose tool is fresh against its checkout leaves the
+--- checkout's working database as it was, byte for byte: it reads it
+--- without opening it as a stage does, which would count a run and commit.
+--- CI hashes that file across the steps after its suite, which a project
+--- run (the integrity check's `cosmic work_db_integrity.tl`, in a directory
+--- of its own) must not change.
+local function test_a_fresh_project_run_leaves_the_checkouts_database_unwritten(tmp: string)
+  local checkout = tmp .. "/checkout"
+  assert(Fs.mkdirs(checkout .. "/core"))
+  assert(Fs.mkdirs(checkout .. "/build"))
+  assert(Fs.write(checkout .. "/build/importer.tl", "return {}\n"))
+  local project = tmp .. "/project"
+  assert(Fs.mkdirs(project))
+  local layout = paths.resolve(checkout)
+  assert(Fs.mkdirs(layout.bin))
+  -- Past the settle window, so the stage trusts the files' stats.
+  assert(sys.nanosleep(Clock.seconds(3)))
+  -- Staged and fingerprinted, as the check before a verb leaves a tree whose tool is fresh.
+  local handle = assert(work.open(checkout))
+  assert(work.stage(handle, { own = true }))
+  local fingerprint = assert(identity.record_fingerprint(handle.db, checkout))
+  assert(work.close(handle))
+  -- Settled: its database written and compiled by the code it carries.
+  local settled: {string:string} = { built_from = assert(tree.built_from(checkout)), boot_hash = fingerprint.boot,
+    written_by = "this writer", writer = "this writer", compiler = "this compiler",
+    compiled_by = pipeline.coded(GrammarMode.tool("this compiler")) }
+  local own: reboot.Seen = { tool = layout.tool, environment = {}, meta = settled }
+  local before = assert(Fs.read(layout.working))
+  local code, said = complaints(function(): string
+    return tostring(reboot.recheck({ "x.tl" }, project, own))
+  end)
+  assert(code == "nil" and said == "", code .. " " .. said)
+  assert(Fs.read(layout.working) == before, "a project run with a fresh tool wrote the checkout's database")
+  local logged, _ = Fs.exists(layout.working .. "-wal")
+  assert(logged ~= true, "a project run left a write-ahead log beside the checkout's database")
 end

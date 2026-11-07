@@ -1053,6 +1053,16 @@ function reboot.stale_exit(argv: {string}, reads?: boolean, root?: string,
     if elsewhere ~= false then
       return nil
     end
+    -- The checkout's working database is read first without writing it
+    -- ([`work.tool_read_unwritten`]): opened as a stage opens it, it would
+    -- count a run and commit, so a project run with a fresh tool would
+    -- change the checkout's database, which nothing outside it asked to.
+    -- Only a tool that may be stale, or unsettled, opens it for the stage
+    -- and the guard below.
+    local unwritten = work.tool_read_unwritten(home, meta_of("boot_hash", seen) or "")
+    if unwritten == "fresh" and not unsettled(seen) then
+      return nil
+    end
     away, at, standing, waits_for_none = home, home, home_standing, true
   end
   local handle: work.Handle
