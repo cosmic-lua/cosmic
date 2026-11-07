@@ -129,6 +129,13 @@ local record test_state
     count: integer
   end
 
+  --- One table of hits of a module as a worker reported it, `from`, and the same lines placed at their source lines,
+  --- `to` ([`build.test`]'s `place_hits`).
+  record Placed
+    from: {integer:boolean}
+    to: {integer:boolean}
+  end
+
   record Recording
     records: Sqlite.Handle
     root: string
@@ -322,6 +329,15 @@ local record test_state
     --- a table folded into another run's `hits` is not in this one's.
     spelled: {{integer:boolean}:string} -- declared: key_type
     folded: {{integer:boolean}:boolean} -- declared: key_type
+    --- The source line of each instruction of each module whose hits a
+    --- worker of a pure store numbered by instruction, by path, read from
+    --- the projection as each is first met; the tables of those hits placed
+    --- at their source lines, by path, a few of the latest each; and why
+    --- the hits of a module could not be placed, by path
+    --- ([`build.test`]'s `place_hits`).
+    instruction_lines: mut {string:{integer}}
+    placed: mut {string:mut {Placed}}
+    unplaced: mut {string:string}
     --- The lines of the core's C that turn on the processor's features,
     --- made once a run when a test first needs them
     --- ([`build.dispatch_sites`]). Nil until then; empty in a core without

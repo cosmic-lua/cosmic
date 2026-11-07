@@ -8,6 +8,8 @@ local Sqlite = require("cosmic.sqlite")
 local type PolicyRules = require("build.policy_rules")
 local type plans = require("build.plans")
 local test = require("build.test")
+local type test_state = require("build.test_state")
+local lua_tail = require("build.lua_tail")
 local test_key = require("build.test_key")
 local work = require("build.work")
 local worker = require("build.test_worker")
@@ -104,6 +106,64 @@ local function test_a_modules_load_and_test_hits_are_two_lines_of_its_row()
   assert(again == row)
   -- A path that is no module of the run (the core's C) names no text: the key holds it.
   assert(test.take_hits({}, {}, {}, {}, { ["core/a.c"] = { [2] = true } }, {}, texts) == "core/a.c -\t2\n")
+end
+
+--- A worker given a pure store reports the lines of an imported module's numbered chunk as instruction ordinals
+--- ([`lua_tail.numbered`]), placed at the source lines this run's text gives each instruction; a module's own lines
+--- and those of a module with no ordinal are left as they are, the same table for the same table, and an ordinal
+--- that cannot be placed is dropped and named, never put on another line.
+local function test_a_pure_stores_instruction_ordinals_are_placed_at_this_runs_lines()
+  local base = lua_tail.ordinal_base
+  local lines: {string:{integer}} = { ["build.lib"] = { 4, 4, 9 } }
+  local asked = 0
+  local function lines_of(path: string): {integer}?, string
+    asked = asked + 1
+    local known = lines[path]
+    if known == nil then return nil, "no module of the projection" end
+    return known, ""
+  end
+  local modules = { ["build.lib"] = "0123abcd", ["build.lib_test"] = "4567cdef", ["build.gone"] = "89abcdef" }
+  local placed: mut {string:mut {test_state.Placed}} = {}
+  local unplaced: mut {string:string} = {}
+  local plain: {string:{integer:boolean}} = { ["build.lib_test"] = { [2] = true } }
+  assert(test.place_hits(plain, modules, lines_of, placed, unplaced) == plain, "hits with no ordinal were made again")
+  local loaded: {integer:boolean} = { [base + 1] = true, [base + 3] = true }
+  local hits: {string:{integer:boolean}} = { ["build.lib"] = loaded, ["build.lib_test"] = { [2] = true } }
+  local out = test.place_hits(hits, modules, lines_of, placed, unplaced)
+  local lib = assert(out["build.lib"], "the library's hits are dropped")
+  assert(lib[4] == true and lib[9] == true and lib[base + 1] == nil and lib[1] == nil, "an ordinal is not placed at its line")
+  assert(out["build.lib_test"] == hits["build.lib_test"], "the test's own lines were made again")
+  local again = test.place_hits({ ["build.lib"] = loaded }, modules, lines_of, placed, unplaced)
+  assert(again["build.lib"] == lib and asked == 1, "the same table of hits was placed twice")
+  assert(next(unplaced) == nil)
+  local past = test.place_hits({ ["build.lib"] = { [base + 4] = true, [5] = true } }, modules,
+    lines_of, placed, unplaced)
+  local kept = assert(past["build.lib"])
+  assert(kept[5] == true and kept[4] == nil and kept[9] == nil, "an ordinal past the instructions was put on a line")
+  assert(unplaced["build.lib"] ~= nil, "an ordinal past the instructions was dropped unsaid")
+  local gone = test.place_hits({ ["build.gone"] = { [base + 1] = true } }, modules, lines_of, placed, unplaced)
+  assert(next(assert(gone["build.gone"])) == nil and unplaced["build.gone"] == "no module of the projection")
+  -- A chunk the test numbers itself is no module of the run, and its lines are kept as no module's are.
+  local own: {string:{integer:boolean}} = { ["m"] = { [base + 1] = true } }
+  assert(test.place_hits(own, modules, lines_of, placed, unplaced) == own and unplaced["m"] == nil)
+end
+
+--- A failure's message says a position of a pure store's import as an instruction's ordinal, which is shown at the
+--- module's file and the line this run's text has it on; a position of another chunk is left as it is.
+local function test_a_position_of_a_numbered_chunk_is_shown_at_its_source_line()
+  local base = lua_tail.ordinal_base
+  local function lines_of(path: string): {integer}?, string
+    if path == "build.lib" then return { 4, 9 }, "" end
+    return nil, "no module of the projection"
+  end
+  local files = { ["build.lib"] = "build/lib.tl", ["build.gone"] = "build/gone.tl" }
+  local said = "build.lib:" .. tostring(base + 2) .. ": attempt to index a nil value\n" ..
+    "  build.lib_test:7: in function <build.lib_test:5>\n  build.gone:" .. tostring(base + 1) .. ": in upvalue\n" ..
+    "  build.lib:" .. tostring(base + 3) .. ": past the instructions"
+  local shown = test.placed_positions(said, files, lines_of)
+  assert(shown == "build/lib.tl:9: attempt to index a nil value\n  build.lib_test:7: in function <build.lib_test:5>\n" ..
+      "  build.gone:" .. tostring(base + 1) .. ": in upvalue\n  build.lib:" .. tostring(base + 3) .. ": past the instructions",
+    shown)
 end
 
 --- A standing row's lines are credited only for the modules whose text it

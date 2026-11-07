@@ -46,15 +46,14 @@ that names only them keeps working as cosmic changes; the other tables of
 A run that names test files (`cosmic test tally_test.tl`) writes a coverage
 row for every line of the project, hit only by the tests it ran.
 
-A sandboxed run (the default on Linux) counts today the lines of each test
-module alone, not those of the modules it imports. To measure a module's
-coverage, run every test unsandboxed: `COSMIC_TEST_SANDBOX=0 cosmic test --all`.
-A test whose verdict stands brings the hits of the run that reached it, so
-a verdict a sandboxed run reached brings none of the imported modules'
-lines; `--all` runs those tests again. A module's hits count only on the
-text they were counted on: where that text has changed since, they are
-left out, and the coverage line says the figure is partial until `--all`
-runs those tests again.
+A run counts the lines its tests reach in every module, the ones they
+import included, sandboxed (the default on Linux) or not. A test whose
+verdict stands brings the hits of the run that reached it. A module's hits
+count only on the text they were counted on: where that text has changed
+since, they are left out, and the coverage line says the figure is partial
+until `--all` runs those tests again. A comment or a blank line added to a
+module a sandboxed test imports runs no test, so it leaves that module's
+figure partial until then.
 
 ## slowest tests
 
@@ -91,9 +90,9 @@ cosmic sql --build "SELECT path, sum(hit) AS hit, count(*) AS lines FROM coverag
 ```
 
 `cosmic test` prints the whole project's share as its `test: coverage` line,
-and `--min` and `--min-file` make a floor of it (`cosmic help test`). Under
-the sandbox a module the tests import has no hits, so `--min-file` fails it
-however well it is tested: judge a floor on an unsandboxed run.
+and `--min` and `--min-file` make a floor of it (`cosmic help test`). A
+partial figure is at most what the tests reach: judge a floor after
+`--all`.
 
 ## trying it
 
