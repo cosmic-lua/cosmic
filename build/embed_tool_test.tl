@@ -900,7 +900,8 @@ local function test_a_position_breach_holds_out_the_program_resting_on_it(tmp: s
   local bin = support.build_dir(tmp) .. "/bin"
   assert(built.code == 4 and built.stdout == bin .. "/one\n", tostring(built.code) .. built.stdout .. built.stderr)
   assert(built.stderr:find("a.tl: lib.hidden is private to lib/", 1, true) ~= nil, built.stderr)
-  assert(built.stderr:find("mid.tl: not compiled: it requires a", 1, true) ~= nil, built.stderr)
+  -- `a` is held out for its position, not refused by the checker: the line says only that it did not build.
+  assert(built.stderr:find("mid.tl: not compiled: it requires a, which did not build", 1, true) ~= nil, built.stderr)
   assert(built.stderr:find("two (cmd/two/main.tl) was not built", 1, true) ~= nil, built.stderr)
   assert(Fs.exists(bin .. "/two") == false, "the held-out program's earlier executable stood")
 end

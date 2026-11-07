@@ -266,6 +266,13 @@ local record Unknown
   guess_at: Scopes.Place?
 end
 
+-- A type declared inside another, which a name outside it reaches only qualified.
+local record Nested
+  --- The name written in full from the scope around the outermost declaration: `Tree.Node`.
+  qualified: string
+  token: integer
+end
+
 -- A type name that no declaration holds yet, waiting for the scope it is in to end.
 local record Pending
   node: Ast.TypeName
@@ -324,6 +331,9 @@ local record State
   mut defer: boolean
   --- The type names met so far that no declaration holds, to look for in the scope that ends.
   mut pending: mut {Pending}
+  --- The type declarations being walked, outermost first, and the first nested type of each name.
+  mut enclosing: mut {string}
+  mut nested_types: mut {string: Nested}
 end
 
 -- The most nearest-name searches a run makes: a run of many unknown names does not cost a scan of the scope for each.
@@ -336,6 +346,7 @@ local S: State = { -- checked: literal_missing
   loop_parent = {}, loop_level = {}, vars = {}, list = {}, resolved = {}, globals = {}, global_writes = {},
   errors = {}, unknown = {}, guessed = 0, assign_end = 0, write_end = {}, write_loop = {}, captured = {},
   made = {}, entry_of = {}, spine = {}, top = 0, defer = false, pending = {}, own = nil, floor = math.maxinteger,
+  enclosing = {}, nested_types = {},
 }
 
 local function base_of(node: Ast.Node): Ast.Base
@@ -351,6 +362,7 @@ local function reset(tokens: Lexer.Tokens, name: string, declared: {string: Scop
   S.write_end, S.write_loop, S.captured, S.made, S.entry_of = {}, {}, {}, {}, {}
   S.spine, S.top, S.global_names, S.defer, S.pending, S.own = {}, 0, nil, false, {}, nil
   S.floor = math.maxinteger
+  S.enclosing, S.nested_types = {}, {}
 end
 
 local function quoted(name: string): string
@@ -1238,6 +1250,9 @@ typedecl = function(d: Ast.Node, nested: boolean) -- checked: not_assigned
     v = declare(name, KINDS[d.kind], name.first, not nested, nil, scope == "global") -- checked: index_may_be_nil
     v.nested = nested -- checked: field_fixed
   end
+  if nested and S.nested_types[name.name] == nil then
+    S.nested_types[name.name] = { qualified = table.concat(S.enclosing, ".") .. "." .. name.name, token = name.first }
+  end
   if (d.kind == "Import") and v ~= nil then
     v.module = d.module -- checked: field_fixed
   end
@@ -1247,6 +1262,12 @@ typedecl = function(d: Ast.Node, nested: boolean) -- checked: not_assigned
   local deferring = S.defer
   S.defer = true
   open(base_of(d).last)
+  -- A declaration that is not a member (one in a method's body) starts a qualified name of its own.
+  local outer = S.enclosing
+  if not nested then
+    S.enclosing = {}
+  end
+  S.enclosing[#S.enclosing + 1] = name.name
   walk_typeparams(typeparams)
   walk_types(supers)
   if array ~= nil then
@@ -1265,6 +1286,8 @@ typedecl = function(d: Ast.Node, nested: boolean) -- checked: not_assigned
       typedecl(m, true)
     end
   end
+  S.enclosing[#S.enclosing] = nil
+  S.enclosing = outer
   close()
   S.defer = deferring
   if d.kind == "Alias" then
@@ -1480,7 +1503,15 @@ local function unknown_errors()
     local fix: string
     local other: Scopes.Place? = nil
     local code: Scopes.Code = "unknown_variable"
-    if u.what == "type" then
+    local nested = S.nested_types[name]
+    if u.what == "type" and nested ~= nil then
+      code = "unknown_type"
+      msg = "the type " .. quoted(name) .. " is not in scope here: it is nested in " ..
+        quoted(nested.qualified:sub(1, #nested.qualified - #name - 1)) .. " (" .. shown(nested.token) .. ")"
+      fix = hint .. "write " .. quoted(nested.qualified) .. ", or alias it above with `local type " .. name .. " = " ..
+        nested.qualified .. "`"
+      other = place_of(nested.token)
+    elseif u.what == "type" then
       code = "unknown_type"
       msg = "the type " .. quoted(name) .. " is not declared"
       fix = hint .. "declare it above with `local record " .. name .. " ... end`, `local enum " .. name ..

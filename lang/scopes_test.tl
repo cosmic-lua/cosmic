@@ -330,6 +330,21 @@ local function test_an_unknown_type_is_told_how_to_declare_it()
       "`number`, `string` and `thread` with no declaration")
 end
 
+--- A nested type named outside its record is told to qualify it, not to declare a type that already exists.
+local function test_a_nested_type_named_outside_its_record_is_told_its_qualified_name()
+  local e = one_error("local record Tree\n  record Node\n    value: integer\n  end\nend\nlocal function f(n: Node): integer\n" ..
+      "  return n.value\nend\nreturn f")
+  assert(e.code == "unknown_type" and e.y == 6 and e.x == 21, e.code)
+  assert(e.msg == "the type `Node` is not in scope here: it is nested in `Tree` (2:10)", e.msg)
+  assert(e.fix == "write `Tree.Node`, or alias it above with `local type Node = Tree.Node`", e.fix)
+  assert(place(e) == "2:10")
+  local deep = one_error("local record A\n  record B\n    enum C \"x\" end\n  end\nend\nlocal c: C = \"x\"\nreturn c")
+  assert(deep.msg == "the type `C` is not in scope here: it is nested in `A.B` (3:10)", deep.msg)
+  assert(deep.fix == "write `A.B.C`, or alias it above with `local type C = A.B.C`", deep.fix)
+  -- Inside the record, the nested name stays in scope.
+  assert(errors("local record Tree\n  record Node\n    kids: {Node}\n  end\n  root: Node\nend\nreturn Tree") == "")
+end
+
 local function test_a_declaration_whose_name_is_visible_shadows_it()
   local e = one_error("local x = 1\nlocal x = 2\nprint(x)")
   assert(e.code == "shadows" and e.y == 2 and e.x == 7)
