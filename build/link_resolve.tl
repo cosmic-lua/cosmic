@@ -19,6 +19,11 @@ local record link_resolve
     --- The file that declares it, from the root; nil or `""` when the
     --- context does not say.
     file?: string
+    --- What it is, as `docs` holds it (`"module"`, `"function"`), and
+    --- its name as its file declares it (`source_symbol`); nil where
+    --- the context does not say.
+    kind?: string
+    source?: string
   end
 
   --- What resolution reads beyond the file, so a test can hand it a
@@ -49,6 +54,14 @@ local record link_resolve
     --- Whether the tree ignores the path `relative` to the root, which
     --- `kind` then answers nil for: no fresh checkout has it.
     mut ignored?: function(relative: string): boolean
+    --- Why what `symbols` and `member` hold is an earlier build's than
+    --- the tree's, so a name they lack may be one the tree declares now;
+    --- nil where it is the tree's. Asked once either has answered.
+    mut stale?: function(): string?
+    --- The files of the tree named `basename`, each from the root: what
+    --- a path that names no file may have meant. Nil where the context
+    --- cannot list them.
+    mut named_files?: function(basename: string): {string}
   end
 
   --- Resolves links, remembering what it looked up.
@@ -235,7 +248,11 @@ end
 --- none there: the reason the first place gives, of none, the root's
 --- `o/` (a stale build directory an older tool wrote), a `.git` (git's
 --- metadata), a path the tree ignores ([`Context.ignored`]), a place
---- outside the root, or a link that leads out of it.
+--- outside the root, or a link that leads out of it. Only the first
+--- place can be outside: `../x` from `doc/` is `x`, absent, whatever
+--- `../x` from the root is. A path with a `/` that is nowhere it was
+--- looked for says where that was; any other may be a name as well, and
+--- gets the reason a name does.
 local function located(resolver: link_resolve.Resolver, from: string, target: string): string?, string
   local root = resolver.context.root
   local ignores = resolver.context.ignored
@@ -244,12 +261,13 @@ local function located(resolver: link_resolve.Resolver, from: string, target: st
     table.insert(bases, 1, Fs.dirname(from))
   end
   local why: string? = nil
-  for _, base in ipairs(bases) do
+  local absent: mut {string} = {}
+  for index, base in ipairs(bases) do
     local path = normalized(base .. "/" .. target)
     local reason: string? = nil
     local relative = if path ~= nil then path:sub(#root + 2) else "" end
     if path == nil or not within(path, root) then
-      reason = "it lies outside the project's root"
+      if index == 1 then reason = "it lies outside the project's root" end
     elseif relative == "o" or relative:sub(1, 2) == "o/" then
       -- Refused before it is looked at, so a stale build's output
       -- never enters what a projection is signed by ([`build.link_index`]).
@@ -274,10 +292,55 @@ local function located(resolver: link_resolve.Resolver, from: string, target: st
       else
         return path, ""
       end
+    elseif absent[#absent] ~= relative then
+      absent[#absent + 1] = relative
     end
     if why == nil and reason ~= nil then why = reason end
   end
+  if why == nil and #absent > 0 and target:find("/", 1, true) ~= nil then
+    why = "no file at " .. table.concat(absent, " or ")
+  end
   return nil, why or "no declaration, symbol or file by that name"
+end
+
+--- `path`, from the root, as a link from the file at `from` spells it:
+--- relative to `from`'s directory.
+local function relative_from(resolver: link_resolve.Resolver, from: string, path: string): string
+  local root = resolver.context.root
+  local here: mut {string} = {}
+  for part in Fs.dirname(from):sub(#root + 2):gmatch("[^/]+") do here[#here + 1] = part end
+  local there: mut {string} = {}
+  for part in path:gmatch("[^/]+") do there[#there + 1] = part end
+  local shared = 0
+  while shared < #here and shared < #there - 1 and here[shared + 1] == there[shared + 1] do
+    shared = shared + 1
+  end
+  local out: mut {string} = {}
+  for _ = shared + 1, #here do out[#out + 1] = ".." end
+  for at, part in ipairs(there) do
+    if at > shared then out[#out + 1] = part end
+  end
+  return table.concat(out, "/")
+end
+
+--- Whether `content` is shaped as a path: the characters of one, and a
+--- `/` or an extension.
+local function path_shaped(content: string): boolean
+  return content:match("^[%w_%-%./]+$") ~= nil and
+    (content:find("/", 1, true) ~= nil or content:match("%.%a%w*$") ~= nil)
+end
+
+--- What a path `target`, linked from the file at `from` and naming no
+--- file, may have meant: `"; <path> has that name: link it as <link>"`
+--- where exactly one file of the tree has its last part's name
+--- ([`Context.named_files`]), else `""`.
+local function elsewhere(resolver: link_resolve.Resolver, from: string, target: string): string
+  local listed = resolver.context.named_files
+  local basename = target:match("([^/]+)$")
+  if listed == nil or basename == nil or basename == "." or basename == ".." then return "" end
+  local named = listed(basename)
+  if #named ~= 1 then return "" end
+  return "; " .. named[1] .. " has that name: link it as " .. relative_from(resolver, from, named[1])
 end
 
 --- `path` as the project's root sees it.
@@ -417,6 +480,87 @@ local function refused_prefix(resolver: link_resolve.Resolver, dotted: string): 
   end
 end
 
+--- The file of the tree that holds the module `module`, from the root: `p.tl` or `p/init.tl`; nil where neither is.
+local function module_file(resolver: link_resolve.Resolver, module: string): string?
+  local path = (module:gsub("%.", "/"))
+  for _, file in ipairs({ path .. ".tl", path .. "/init.tl" }) do
+    if kind_at(resolver, resolver.context.root .. "/" .. file) == "file" then return file end
+  end
+  return nil
+end
+
+--- The longest prefix of the dotted `name` that is a module of the tree ([`module_file`]), or nil.
+local function tree_module(resolver: link_resolve.Resolver, name: string): string?
+  local module = name
+  while true do
+    if module_file(resolver, module) ~= nil then return module end
+    local shorter = module:match("^(.+)%.[^.]+$")
+    if shorter == nil then return nil end
+    module = shorter
+  end
+end
+
+--- Why a name of the module `module`, a module of the tree, names nothing where what the symbols hold is an earlier
+--- build's ([`Context.stale`]): the name may be one the tree declares now. Nil where the symbols are the tree's.
+local function stale_for(resolver: link_resolve.Resolver, module: string?): string?
+  local stale = resolver.context.stale
+  if stale == nil or module == nil or stale() == nil then return nil end
+  return "not known yet: the tree did not build, so links are checked against its last build; fix the build error first"
+end
+
+--- `symbol` as a link spells it alone, other than as [`link_resolve.spelled`] does, or nil where the context names no
+--- other: a module's own row by its file, `./<file>`; any other by its module and its name as its file declares it,
+--- where that names `symbol` and nothing else.
+local function respelled(resolver: link_resolve.Resolver, symbol: link_resolve.Symbol, spelled: string): string?
+  if symbol.symbol == "" then
+    local file = symbol.file
+    if file ~= nil and file ~= "" then return "./" .. file end
+    return nil
+  end
+  local source = symbol.source
+  if source == nil or source == "" then return nil end
+  local other = symbol.module .. "." .. source:gsub(":", ".")
+  if other == spelled then return nil end
+  local found = symbols_named(resolver, other)
+  local only = found[1]
+  if #found == 1 and only ~= nil and only.module == symbol.module and only.symbol == symbol.symbol then
+    return other
+  end
+  return nil
+end
+
+--- Why the symbols `candidates`, more than one, are not one answer to the name `written`, where spelling one in full
+--- would not tell it from the rest: two spell alike, or one is spelled as written. Each is named by its kind and file,
+--- with how a link spells it alone where one can. Nil where each has a spelling of its own, which [`one_of`] says.
+local function alike(resolver: link_resolve.Resolver, written: string, candidates: {link_resolve.Symbol}): string?
+  if #candidates < 2 then return nil end
+  local count: mut {string: integer} = {}
+  local clash = false
+  for _, symbol in ipairs(candidates) do
+    local spelled = link_resolve.spelled(symbol)
+    local times = (count[spelled] or 0) + 1
+    count[spelled] = times
+    if times > 1 or spelled == written then clash = true end
+  end
+  if not clash then return nil end
+  local each: mut {string} = {}
+  local first = link_resolve.spelled((assert(candidates[1], "two candidates at least")))
+  local same = true
+  for _, symbol in ipairs(candidates) do
+    local spelled = link_resolve.spelled(symbol)
+    if spelled ~= first then same = false end
+    local kind = if symbol.symbol == "" then "module" else symbol.kind or "symbol" end
+    local file = symbol.file
+    local said = "the " .. kind .. " " .. spelled .. (if file ~= nil and file ~= "" then " (" .. file .. ")" else "" end)
+    local other = if count[spelled] == 1 and spelled ~= written then spelled
+      else respelled(resolver, symbol, spelled) end
+    each[#each + 1] = said .. (if other ~= nil then ", write " .. other else ", spelled no other way" end)
+  end
+  table.sort(each)
+  return "it names " .. tostring(#candidates) .. (if same then " spelled alike: " else ": " end) ..
+    table.concat(each, "; ", 1, math.min(#each, 5)) .. (if #each > 5 then "; ..." else "" end)
+end
+
 --- What `target`, linked from the file at the absolute path `from`,
 --- resolves to; nil and why when it resolves to nothing or to more
 --- than one thing. `declared` gives what that file declares where the
@@ -466,6 +610,7 @@ function link_resolve.resolve(resolver: link_resolve.Resolver, from: string, tar
   end
   local found: mut {string} = {}
   local symbols: mut {string: link_resolve.Symbol} = {}
+  local candidates: mut {link_resolve.Symbol} = {}
   local name = link_text.name_of(target)
   local bare = name ~= nil and name:find("[.:]") == nil
   if name ~= nil then
@@ -495,9 +640,13 @@ function link_resolve.resolve(resolver: link_resolve.Resolver, from: string, tar
         resolver.unchecked = resolver.unchecked + 1
         return nil, ""
       end
+      local provisional = if #members == 0 then stale_for(resolver, tree_module(resolver, module)) else nil end
+      if provisional ~= nil then
+        return nil, provisional
+      end
       local spelled: mut {string} = {}
       for _, member in ipairs(members) do spelled[#spelled + 1] = link_resolve.spelled(member) end
-      local problem = one_of(spelled, module .. " has no " .. rest)
+      local problem = alike(resolver, dotted, members) or one_of(spelled, module .. " has no " .. rest)
       if problem ~= nil then
         return nil, problem
       end
@@ -510,7 +659,12 @@ function link_resolve.resolve(resolver: link_resolve.Resolver, from: string, tar
     -- written in full, so a link does not start naming another thing
     -- when some module comes to document a name of its own.
     if bare then
-      if file == nil then
+      local held_in = if file == nil then module_file(resolver, dotted) else nil end
+      if held_in ~= nil then
+        -- The module's name is already in full: only its file is left to link.
+        why = "a name alone links only to a declaration of its own file, and " .. dotted ..
+          " is a module: link its file `" .. held_in .. "`"
+      elseif file == nil then
         why = "a name alone links only to a declaration of its own file; " ..
           "write another module's symbol in full (`module.member`)"
       end
@@ -519,6 +673,7 @@ function link_resolve.resolve(resolver: link_resolve.Resolver, from: string, tar
         local full = link_resolve.spelled(symbol)
         found[#found + 1] = full
         symbols[full] = symbol
+        candidates[#candidates + 1] = symbol
       end
     end
   end
@@ -537,10 +692,31 @@ function link_resolve.resolve(resolver: link_resolve.Resolver, from: string, tar
     resolver.unchecked = resolver.unchecked + 1
     return nil, ""
   end
+  if #found == 0 and name ~= nil and not bare then
+    local dotted = name:gsub(":", ".")
+    local provisional = stale_for(resolver, tree_module(resolver, dotted))
+    if provisional ~= nil then
+      return nil, provisional
+    end
+    local held_in = module_file(resolver, dotted)
+    if held_in ~= nil then
+      return nil, dotted .. " is a module of the tree with no doc comment, so docs knows nothing of it: give " ..
+        held_in .. " a leading `---`, or link the file `" .. held_in .. "`"
+    end
+  end
   if #found > 1 and file ~= nil then
     table.sort(found)
     return nil, "it names " .. tostring(#found) .. ": " .. table.concat(found, ", ") ..
       "; write ./" .. shown(resolver, file) .. " for the file, or the symbol in full"
+  end
+  if #found > 1 and name ~= nil then
+    local problem = alike(resolver, (name:gsub(":", ".")), candidates)
+    if problem ~= nil then
+      return nil, problem
+    end
+  end
+  if #found == 0 and file == nil and path_shaped(unescaped(path)) then
+    why = why .. elsewhere(resolver, from, unescaped(path))
   end
   local problem = one_of(found, why)
   if problem ~= nil then
@@ -592,13 +768,6 @@ local FILE_EXTENSIONS <const>: {string: boolean} = {
   tl = true, lua = true, c = true, h = true, zig = true, md = true, sh = true, yml = true,
   yaml = true, json = true, txt = true, pin = true, tsv = true, py = true, toml = true,
 }
-
---- Whether `content` is shaped as a path: the characters of one, and a
---- `/` or an extension.
-local function path_shaped(content: string): boolean
-  return content:match("^[%w_%-%./]+$") ~= nil and
-    (content:find("/", 1, true) ~= nil or content:match("%.%a%w*$") ~= nil)
-end
 
 --- What a plain code span holding `content`, in the file at the
 --- absolute path `from`, is to become a link to, by the rule `cosmic

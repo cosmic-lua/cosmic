@@ -69,7 +69,8 @@ local function test_a_lookup_builds_nothing_in_an_unbuilt_directory(tmp: string)
   local made, made_trouble = Fs.exists(build_paths.required(stray))
   assert(made ~= nil, made_trouble)
   assert(not made, "a directory never built gets a build directory")
-  assert(result.stderr:find("has not been built", 1, true), result.stderr)
+  assert(result.stderr:find("has not been built; `cosmic build`, `cosmic test` or `cosmic fix` first", 1, true),
+    result.stderr)
   assert(not result.stdout:find("Notes", 1, true), result.stdout)
 end
 

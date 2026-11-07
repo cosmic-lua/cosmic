@@ -432,6 +432,30 @@ local function test_a_link_into_a_module_the_build_refused_says_it_did_not_build
   assert(said:find("fine.three does not resolve (no declaration, symbol or file by that name)", 1, true), said)
 end
 
+--- A link into a module of the tree that built, where the build made for it failed, is not known yet: the symbols are
+--- the last build's, which may predate the module. Where that build succeeds the same link names nothing.
+local function test_a_link_checked_against_the_last_build_is_not_known_yet(tmp: string)
+  local root = assert(Fs.absolute(tmp))
+  assert(Fs.write(root .. "/a.md", "[`fresh.thing`]\n"))
+  assert(Fs.write(root .. "/fresh.tl", "--- Fresh.\nlocal record fresh\nend\nreturn fresh\n"))
+  local function said(ok: boolean): string
+    local source = fix.link_context(root, false, true,
+      function(_: string): boolean, string
+        return ok, if ok then "" else "typed.tl: the compiler refused it" end
+      end,
+      function(): docs.Sources return { handles = {}, public = {}, opened = {} } end,
+      function(): {string} return { "typed.tl" } end)
+    local found = fix.links(source.context, { root .. "/a.md" })
+    source.close()
+    return table.concat(found.broken, "\n")
+  end
+  local stale = said(false)
+  assert(stale:find("fresh.thing does not resolve (not known yet: the tree did not build, so links are checked " ..
+      "against its last build; fix the build error first)", 1, true), stale)
+  local built = said(true)
+  assert(built:find("fresh.thing does not resolve (no declaration, symbol or file by that name)", 1, true), built)
+end
+
 --- A project that has not been built checks no link against symbols,
 --- and says so once as a note rather than failing each: a name in
 --- full, and a member of a module through its alias alike.

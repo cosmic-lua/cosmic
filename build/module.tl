@@ -27,7 +27,7 @@ local record module
     --- source: [`build.importer.compile`] widens its warning discount for
     --- exactly this module, and only this one, to cover the one
     --- `print`-shadowing warning that generated shape always carries --
-    --- see `Pipeline.generate` ([`build.pipeline`]).
+    --- see [`Pipeline.generate`] ([`build.pipeline`]).
     generated?: boolean
     mut key?: string
     --- `key` less the compiler: the digest of the kinds and sources of
