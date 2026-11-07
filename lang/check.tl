@@ -396,6 +396,11 @@ local record Ctx
   mut spill: string?
   --- The loops being walked, innermost last.
   mut loops: mut {Loop}
+  --- The reads of a map, by the id of the node: an index read that may be nil there is a missing key, not a key past
+  --- the end ([`index_fix`]).
+  map_reads: mut {integer: boolean}
+  --- The range tests of the arms of `if` being walked ([`Writes.ranges_of`]), innermost last.
+  mut ranges: mut {Fill}
   --- The key of each local's place, by id.
   keys: mut {integer: string}
   --- The edges of the `and`s and `or`s evaluated, by the id of the node.
@@ -861,11 +866,16 @@ local KIND_WORDS <const>: {Types.DeclKind: string} = {
 
 -- Refusals -----------------------------------------------------------------------------------
 
---- The fix for a read `e` of an index that may be nil. The counted loop is offered only where it could apply: an array that
---- is a local name, read at a name. [`Array.at`] and `assert` take any array and key; `or <default>` is steered from.
+--- The fix for a read `e` of an index that may be nil. A map's key may be missing, so its read is tested, taken with
+--- `assert` or given a default. For an array, the counted loop is offered only where it could apply: an array that is a
+--- local name, read at a name. [`Array.at`] and `assert` take any array and key; `or <default>` is steered from.
 local function index_fix(ctx: Ctx, e: Ast.Index): string
   local xs, key = text_of(ctx, e.object), text_of(ctx, e.key)
   local read = text_of(ctx, e)
+  if ctx.map_reads[e.id] == true then
+    return "test it (`local v = " .. read .. " if v ~= nil then ... end`), take it with `assert(" .. read .. ")` where " ..
+      "the key must be there, or write `" .. read .. " or <default>` where a missing key means that default"
+  end
   local object, at = peel(e.object), peel(e.key)
   local parts = "iterate with `for _, v in ipairs(" .. xs .. ")`, "
   if object.kind == "Name" and at.kind == "Name" then
@@ -3556,6 +3566,7 @@ local function index_read(ctx: Ctx, node: Ast.Index, object: Type): Type
     end
     return maybe
   elseif (t.tag == "map") then
+    ctx.map_reads[node.id] = true
     local k = expr(ctx, node.key, t.key)
     local _ = key_ok(ctx, node.key, k, t.key, subject(ctx, node.object))
     local value = t.value
@@ -4383,8 +4394,8 @@ local function function_body(ctx: Ctx, params: {Ast.Param}, body: Ast.Block, ft:
   ctx.lenient = 0
   local outer_within = ctx.within
   ctx.within = fn_id
-  local outer, outer_loops = ctx.flow, ctx.loops
-  ctx.flow, ctx.loops = Flow.enter(outer, ctx.unfixed[fn_id]), {}
+  local outer, outer_loops, outer_ranges = ctx.flow, ctx.loops, ctx.ranges
+  ctx.flow, ctx.loops, ctx.ranges = Flow.enter(outer, ctx.unfixed[fn_id]), {}, {}
   local outer_unfixed = ctx.unfixed_now
   local unfixed_now: mut {integer: boolean} = {}
   for id in pairs(outer_unfixed) do
@@ -4419,7 +4430,7 @@ local function function_body(ctx: Ctx, params: {Ast.Param}, body: Ast.Block, ft:
       narrows_proved(ctx, at, nil)
     end
   end
-  ctx.flow, ctx.loops = outer, outer_loops
+  ctx.flow, ctx.loops, ctx.ranges = outer, outer_loops, outer_ranges
   ctx.lenient = saved
   ctx.within = outer_within
   ctx.frames[#ctx.frames] = nil
@@ -6612,6 +6623,8 @@ local record Pending
   base: Type
   --- The write is to a view: its `view_written` waits for the values, which tell whether the write may leave a hole.
   view: boolean
+  --- The key is an integer, so a key in the range `1` to `#t` is a key of the array ([`Writes.ranges_of`]).
+  integral: boolean
 end
 
 --- Whether the statements `body` of a loop leave the number of elements of the array held by the local `array` from falling
@@ -6730,6 +6743,102 @@ function Writes.fill_of(s: Ast.ForNum): Fill?
     unit = given.kind == "Integer" and given.value == 1
   end
   return { var = s.var.id, object = object, unit = unit }
+end
+
+--- The comparison that holds when the operands of another are swapped: `k <= i` is `i >= k`.
+local TURNED <const>: {string: string} = { ["<="] = ">=", ["<"] = ">", [">="] = "<=", [">"] = "<" }
+
+--- A bound that a comparison sets on a local integer ([`Writes.bound`]).
+local record Bound
+  --- The id of the binding of the local bounded.
+  var: integer
+  --- The local `t` of an upper bound `#t`, or nil for a lower bound of 1.
+  array?: Ast.Exp
+end
+
+--- The bound that the comparison `e` sets on a local, if it is written in one of the forms of a range test: a lower bound
+--- of 1 for `i >= k` with a literal `k` of 1 or more, or `i > k` with one of 0 or more; an upper bound of `#t` for
+--- `i <= #t` or `i < #t` with `t` a local. Either operand may come first (`1 <= i`, `#t >= i`).
+function Writes.bound(e: Ast.Node): Bound?
+  local at = peel(e)
+  if at.kind ~= "Binary" then
+    return nil
+  end
+  local op: string = at.op
+  local left, right = peel(at.left), peel(at.right)
+  -- `k <= i` is `i >= k`: the local goes on the left.
+  if right.kind == "Name" and left.kind ~= "Name" then
+    left, right, op = right, left, TURNED[op] or ""
+  end
+  if left.kind ~= "Name" then
+    return nil
+  end
+  local var = left.binding
+  if var == nil then
+    return nil
+  end
+  if right.kind == "Integer" then
+    if (op == ">=" and right.value >= 1) or (op == ">" and right.value >= 0) then
+      return { var = var }
+    end
+  elseif right.kind == "Unary" and right.op == "#" and (op == "<=" or op == "<") then
+    local array = peel(right.operand)
+    if array.kind == "Name" and array.binding ~= nil then
+      return { var = var, array = array }
+    end
+  end
+  return nil
+end
+
+--- What the condition `cond` of an `if` arm with the block `body` knows of the keys of arrays: for each local `t` and local
+--- `i` that the condition bounds from both sides (`i >= 1 and i <= #t`, among the operands of a chain of `and`), where
+--- [`Writes.keeps_length`] says neither the condition nor the block can change the length of `t`, assign `t` or assign
+--- `i`, `i` is a key `t` has in the whole block, so a value that is not nil written at it overwrites an element
+--- ([`Writes.leaves_no_hole`], which also wants `i` an integer).
+---
+--- Why it holds. The block runs only where every operand of the chain was true when it was evaluated, so `1 <= i <= #t`
+--- then. A comparison of an integer and a length runs no code, and [`Writes.keeps_length`] refuses the code that could
+--- run after it: a call, an iterator, a `__close`, a write of nil or at another key of `t`, and an assignment of `t` or
+--- `i`. So `t` keeps every element it had and `i` its value, in the block and in the operands of the chain evaluated after
+--- the bounds. A function made in the block may run when `t` is shorter: its body starts with no range
+--- ([`function_body`]).
+function Writes.ranges_of(cond: Ast.Exp, body: Ast.Block): {Fill}
+  local operands: mut {Ast.Node} = {}
+  local waiting: mut {Ast.Exp} = { cond }
+  while #waiting > 0 do
+    local e = peel(assert(waiting[#waiting]))
+    waiting[#waiting] = nil
+    if e.kind == "Binary" and e.op == "and" then
+      waiting[#waiting + 1] = e.right
+      waiting[#waiting + 1] = e.left
+    else
+      operands[#operands + 1] = e
+    end
+  end
+  local low: mut {integer: boolean} = {}
+  local highs: mut {Bound} = {}
+  for _, operand in ipairs(operands) do
+    local bound = Writes.bound(operand)
+    if bound ~= nil and bound.array == nil then
+      low[bound.var] = true
+    elseif bound ~= nil then
+      highs[#highs + 1] = bound
+    end
+  end
+  local out: mut {Fill} = {}
+  for _, high in ipairs(highs) do
+    local array = high.array
+    local object = if array ~= nil then peel(array) else nil end
+    local held: integer? = nil
+    if object ~= nil and object.kind == "Name" then
+      held = object.binding
+    end
+    if array ~= nil and held ~= nil and low[high.var] == true and Writes.keeps_length(cond, held, high.var) and
+        Writes.keeps_length(body, held, high.var) then
+      out[#out + 1] = { var = high.var, object = array, unit = true }
+    end
+  end
+  return out
 end
 
 --- Whether `node`, a read of an array, reads it at the index of a loop that counts its keys ([`Writes.fill_of`]) from a
@@ -7116,6 +7225,7 @@ local function place_of_target(ctx: Ctx, s: Ast.Assign, target: Ast.Exp, at: int
     if (base.tag == "array") then
       local k = expr(ctx, target.key, store.integer)
       local _ = key_ok(ctx, target.key, k, store.integer, owner)
+      local integral = below(ctx, k, store.integer)
       if not base.mut then
         if (removes and Writes.is_length_of(target.key, target.object)) or
             (Writes.is_append(target) and not (runs_code and Writes.may_shorten(ctx, target.object, s))) then
@@ -7124,14 +7234,14 @@ local function place_of_target(ctx: Ctx, s: Ast.Assign, target: Ast.Exp, at: int
             "declare " .. owner .. " `mut " .. show(ctx, base) .. "` where it is made or received", { show(ctx, base) })
         else
           -- The values say whether the write may leave a hole, which is an `array_hole` beside this error: see below.
-          pending[#pending + 1] = { target = target, at = at, owner = owner, base = base, view = true }
+          pending[#pending + 1] = { target = target, at = at, owner = owner, base = base, view = true, integral = integral }
         end
       elseif removes and Writes.is_length_of(target.key, target.object) then
         -- The last element goes, so the elements left are the first ones. Of several targets, another may write the key
         -- the length names after this one is gone (`t[#t], t[#t + 1] = nil, v`).
         return base.element, true
       elseif not Writes.is_append(target) or (runs_code and Writes.may_shorten(ctx, target.object, s)) then
-        pending[#pending + 1] = { target = target, at = at, owner = owner, base = base, view = false }
+        pending[#pending + 1] = { target = target, at = at, owner = owner, base = base, view = false, integral = integral }
       end
       return base.element, false
     elseif (base.tag == "map") then
@@ -7190,12 +7300,13 @@ end
 ---   - at the index of a loop over `1` to the length of the array ([`Writes.fill_of`]), which has that element,
 ---   - at the index of a loop that counts from 1 by 1 and writes the array in every pass ([`Writes.grow_in`]), which has
 ---     the keys before it,
+---   - at an integer `i` in the block of an `if` whose condition holds `i >= 1 and i <= #t` ([`Writes.ranges_of`]),
 --- overwrites an element and leaves the others where they are. A nil would take an element out of the middle, and a write at
 --- the length (`t[#t] = v`) is at 0 where the array is empty, which is no key of an array.
 ---
---- A write in a function made inside the loop (`saved = function() u[i] = 1 end`) is refused only because the body of a
---- function does not inherit `ctx.loops` (([`function_body`])), which holds the loop's fill; [`Writes.keeps_length`] does not
---- decide it. Keep the two apart: a closure may run when the array is shorter.
+--- A write in a function made inside the loop (`saved = function() u[i] = 1 end`) or the block is refused only because the
+--- body of a function does not inherit `ctx.loops` or `ctx.ranges` ([`function_body`]), which hold the fill and the
+--- range; [`Writes.keeps_length`] does not decide it. Keep the two apart: a closure may run when the array is shorter.
 function Writes.leaves_no_hole(ctx: Ctx, vals: Values, p: Pending): boolean
   local written = value_at(ctx, vals, p.at)
   if written == nil or not Writes.present(written) then
@@ -7219,6 +7330,11 @@ function Writes.leaves_no_hole(ctx: Ctx, vals: Values, p: Pending): boolean
       end
       local grow = loop.grow
       if grow ~= nil and array ~= nil and key.binding == grow.var and grow.arrays[array] == true then
+        return true
+      end
+    end
+    for _, range in ipairs(ctx.ranges) do
+      if p.integral and key.binding == range.var and Writes.same_place(range.object, target.object) then
         return true
       end
     end
@@ -7258,9 +7374,13 @@ function Writes.report_hole(ctx: Ctx, p: Pending)
         "may shorten the array " .. p.owner .. " after the key is computed and leave a hole",
       "call first and write after: `local v = f()`, then `" .. text_of(ctx, target) .. " = v`", { show(ctx, p.base) })
   else
+    local t = text_of(ctx, target.object)
+    local key = peel(target.key)
+    local i = if key.kind == "Name" then key.text else "i" end
     report(ctx, "array_hole", target, subject(ctx, target) .. " may leave a hole in the array " .. p.owner,
-      "append with `" .. text_of(ctx, target.object) .. "[#" .. text_of(ctx, target.object) .. " + 1] = v` or " ..
-        "`table.insert`, remove with `table.remove`, or key a map `{integer: T}` for sparse data", { show(ctx, p.base) })
+      "append with `" .. t .. "[#" .. t .. " + 1] = v` or `table.insert`, overwrite an element inside `if " .. i ..
+        " >= 1 and " .. i .. " <= #" .. t .. " then` (a block that calls nothing and leaves `" .. i .. "` and `" .. t ..
+        "` alone), remove with `table.remove`, or key a map `{integer: T}` for sparse data", { show(ctx, p.base) })
   end
 end
 
@@ -7942,7 +8062,14 @@ local function if_statement(ctx: Ctx, s: Ast.If)
     local _ = condition(ctx, arm.cond)
     local yes, no = edges(ctx, ctx.flow, arm.cond)
     ctx.flow = yes
+    local ranges = Writes.ranges_of(arm.cond, arm.body)
+    for _, range in ipairs(ranges) do
+      ctx.ranges[#ctx.ranges + 1] = range
+    end
     block(ctx, arm.body)
+    for _ = 1, #ranges do
+      ctx.ranges[#ctx.ranges] = nil
+    end
     ends[#ends + 1] = ctx.flow
     ctx.flow = no
   end
@@ -8277,7 +8404,7 @@ function Check.check(program: Declarations.Program, input: Declarations.Input, l
     end, function(_node: Ast.Node, _spelled: string, _found: LoadOrder.Found) end),
     literals = {}, spreads = {}, declared = {}, union_fields = {}, spine = {},
     ternaries = {}, invalid = store.invalid, nil_type = store:atom("nil"), flow = Flow.start(), unfixed_now = {}, assigning = {}, quiet = 0, closers = 0, callee_module = "", member_module = "", moves = {},
-    loops = {}, keys = {}, edges = {}, guards = {}, top = tops, module_table = module_table(input, lowered), initialized = {}, given = {}, handed = false, reads = {}, unfixed = {}, narrowed = {}, inert = {}, boundaries = {}, types = {}, callees = {}, consts = {}, starts = {}, library = {}, typed = typed ~= false, warnings = {},
+    loops = {}, ranges = {}, map_reads = {}, keys = {}, edges = {}, guards = {}, top = tops, module_table = module_table(input, lowered), initialized = {}, given = {}, handed = false, reads = {}, unfixed = {}, narrowed = {}, inert = {}, boundaries = {}, types = {}, callees = {}, consts = {}, starts = {}, library = {}, typed = typed ~= false, warnings = {},
     unite = function(a: Type, b: Type): Type
       return store:union({ a, b })
     end,

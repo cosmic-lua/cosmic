@@ -1290,6 +1290,80 @@ local function test_a_loop_over_the_keys_of_an_array_writes_them_only_while_it_l
   assert(has(codes_of(head .. "for n = 1, #xs do\nend\nlocal n: integer = 1\nxs[n] = v\n"), "array_hole"))
 end
 
+local function test_a_write_inside_a_range_test_of_its_index_overwrites_only_while_nothing_moves_the_index_or_the_length()
+  local head = "local xs: mut {integer} = {}\nlocal v: integer = 3\nlocal m: integer? = nil\nlocal c = true\n" ..
+    "local function shrink(): integer\n  table.remove(xs)\n  return 1\nend\n"
+  local function guarded(cond: string, body: string): string
+    return codes_of(head .. "local function put(i: integer)\n  if " .. cond .. " then\n" .. body .. "\n  end\nend\n")
+  end
+  -- accepted: both bounds, either side of each comparison, in either order, among other operands of a chain of `and`
+  assert(guarded("i >= 1 and i <= #xs", "    xs[i] = v") == "")
+  assert(guarded("1 <= i and i <= #xs", "    xs[i] = v") == "")
+  assert(guarded("#xs >= i and i >= 1", "    xs[i] = v") == "")
+  assert(guarded("c and (i >= 1) and (i <= #xs) and c", "    xs[i] = v") == "")
+  -- `i > 0` is `i >= 1` for an integer, and `i < #xs` is inside the array too
+  assert(guarded("i > 0 and i <= #xs", "    xs[i] = v") == "")
+  assert(guarded("i >= 1 and i < #xs", "    xs[i] = v") == "")
+  assert(guarded("i >= 1 and #xs > i", "    xs[i] = v") == "")
+  -- a read and another write at the index leave the length alone
+  assert(guarded("i >= 1 and i <= #xs", "    local old = xs[i]\n    xs[i] = v\n    xs[i] = v + 1") == "")
+  -- the guard of an `elseif` arm holds in its block
+  assert(codes_of(head .. "local function put(i: integer)\n  if c then\n  elseif i >= 1 and i <= #xs then\n    xs[i] = v\n" ..
+      "  end\nend\n") == "")
+  -- refused: one bound alone, a bound that admits 0 or a key past the end, or a bound of another array or local
+  assert(guarded("i >= 1", "    xs[i] = v") == "array_hole")
+  assert(guarded("i <= #xs", "    xs[i] = v") == "array_hole")
+  assert(guarded("i >= 0 and i <= #xs", "    xs[i] = v") == "array_hole")
+  assert(guarded("i > -1 and i <= #xs", "    xs[i] = v") == "array_hole")
+  assert(guarded("i >= 1 and i <= #xs + 1", "    xs[i] = v") == "array_hole")
+  assert(guarded("i >= 1 and i - 1 <= #xs", "    xs[i] = v") == "array_hole")
+  assert(guarded("i >= 1 and i <= #xs", "    local ys: mut {integer} = {}\n    ys[i] = v") == "array_hole")
+  assert(guarded("i >= 1 and i <= #xs", "    local j = i + 1\n    xs[j] = v") == "array_hole")
+  -- an `or` does not hold both bounds, nor does a negation, nor the `else` of the test
+  assert(guarded("i >= 1 and i <= #xs or c", "    xs[i] = v") == "array_hole")
+  assert(guarded("not (i < 1) and i <= #xs", "    xs[i] = v") == "array_hole")
+  assert(codes_of(head .. "local function put(i: integer)\n  if i >= 1 and i <= #xs then\n  else\n    xs[i] = v\n  end\nend\n") ==
+      "array_hole")
+  -- a nil, or a value that may be nil, takes an element out of the middle
+  assert(has(guarded("i >= 1 and i <= #xs", "    xs[i] = nil"), "array_hole"))
+  assert(has(guarded("i >= 1 and i <= #xs", "    xs[i] = m"), "array_hole"))
+  -- the block moves the index, shortens the array, writes it elsewhere, assigns it, or calls what may do any of that
+  assert(guarded("i >= 1 and i <= #xs", "    i = i + 1\n    xs[i] = v") == "array_hole")
+  assert(guarded("i >= 1 and i <= #xs", "    xs[i] = v\n    i = 2") == "array_hole")
+  assert(guarded("i >= 1 and i <= #xs", "    table.remove(xs)\n    xs[i] = v") == "array_hole")
+  assert(guarded("i >= 1 and i <= #xs", "    table.insert(xs, v)\n    xs[i] = v") == "array_hole")
+  assert(has(guarded("i >= 1 and i <= #xs", "    xs[#xs] = nil\n    xs[i] = v"), "array_hole"))
+  assert(guarded("i >= 1 and i <= #xs", "    xs = {}\n    xs[i] = v") == "array_hole")
+  assert(guarded("i >= 1 and i <= #xs", "    xs[i] = shrink()") == "array_hole")
+  assert(guarded("i >= 1 and i <= #xs", "    local n = shrink()\n    xs[i] = n") == "array_hole")
+  assert(guarded("i >= 1 and i <= #xs and shrink() > 0", "    xs[i] = v") == "array_hole")
+  -- an alias may be shortened where the array is not named
+  assert(has(guarded("i >= 1 and i <= #xs", "    local ys: mut {integer} = xs\n    ys[#ys] = nil\n    xs[i] = v"), "array_hole"))
+  -- a function made in the block may run when the array is shorter
+  assert(guarded("i >= 1 and i <= #xs", "    local f = function()\n      xs[i] = v\n    end") == "array_hole")
+  -- a write after the block is outside the test
+  assert(codes_of(head .. "local function put(i: integer)\n  if i >= 1 and i <= #xs then\n  end\n  xs[i] = v\nend\n") ==
+      "array_hole")
+  -- a `number` index is no key of an array, whatever its bounds
+  assert(has(codes_of(head .. "local function put(i: number)\n  if i >= 1 and i <= #xs then\n    xs[i] = v\n  end\nend\n"),
+    "array_hole"))
+end
+
+local function test_the_fix_of_a_write_that_may_leave_a_hole_shows_the_range_test_of_its_index()
+  local e = first_error("local xs: mut {integer} = {}\nlocal function put(id: integer)\n  xs[id] = 1\nend\n", "array_hole")
+  assert(has(e.fix, "overwrite an element inside `if id >= 1 and id <= #xs then`"), e.fix)
+end
+
+local function test_a_map_read_that_may_be_nil_is_told_a_missing_key_not_an_array_fix()
+  local e = first_error("local spans: {string: integer} = {}\nlocal function at(a: string): integer\n  return spans[a]\nend\n",
+    "index_may_be_nil")
+  assert(has(e.fix, "`assert(spans[a])` where the key must be there"), e.fix)
+  assert(not has(e.fix, "ipairs") and not has(e.fix, "Array.at"), e.fix)
+  -- an array's read keeps the array's fix
+  local a = first_error("local xs: {integer} = {}\nlocal function at(i: integer): integer\n  return xs[i]\nend\n", "index_may_be_nil")
+  assert(has(a.fix, "Array.at(xs, i)"), a.fix)
+end
+
 local function test_a_loop_that_counts_from_one_and_writes_an_array_it_alone_names_in_every_pass_fills_it()
   local head = "local n: integer = 3\nlocal c: boolean = true\nlocal m: integer? = nil\nlocal src: {integer} = { 4, 5 }\n" ..
     "local function f(k: integer): integer\n  return k * 2\nend\n" ..
