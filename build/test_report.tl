@@ -242,11 +242,16 @@ function test_report.missing_relative_paths(message: string): {string}
 end
 
 --- What a failure says of `path`, a file of the tree the test read without
---- declaring it: it is in the tree, not in the sandbox the test runs in.
+--- declaring it: it is in the tree, not in the sandbox the test runs in. A
+--- file in a directory is told the directory's grant too, for a test that
+--- reads more of it.
 function test_report.tree_hint(path: string): string
+  local dir = path:match("^(.+)/[^/]+$")
   return path .. " is not in this test's sandbox, though it is in the tree: grant it in " ..
-    "Test.policy { grants = { { path = \"" .. path .. "\", letters = \"r\" } } } " ..
-    "(see cosmic docs cosmic.test)"
+    "Test.policy { grants = { { path = \"" .. path .. "\", letters = \"r\" } } }" ..
+    (if dir ~= nil then ", or, for a test that reads more of " .. dir .. "/, grant the directory: " ..
+        "{ path = \"" .. dir .. "/\", letters = \"r\" }" else "" end) ..
+    " (see cosmic docs cosmic.test)"
 end
 
 --- Compilation and staging counts, including reuse from another checkout.
@@ -276,27 +281,24 @@ local function partial_note(partial: integer): string
     " came from runs on other text; `--all` reruns them"
 end
 
---- The coverage line. Coverage is informational unless the run asked for a
---- floor (`floored`, `--min` or `--min-file`), which [`test_report.floor`]
---- holds it to; the runner separately enforces C-function entry. A figure
---- that left out the standing hits of `partial` modules says so: it is at
---- most what the tests reach.
-function test_report.coverage(hit: integer, total: integer, floored?: boolean, partial?: integer): string
-  local percentage = if total > 0 then (hit * 100.0 / total) else 0.0 end
-  local note = if floored ~= true then "; informational, never a failure" elseif total == 0 then
-    "; no lines to cover, so a floor holds vacuously" else "" end
-  if (partial or 0) > 0 then note = note .. "; " .. partial_note(partial or 0) end
-  return string.format("test: coverage %.1f%% (%d/%d %s%s)",
-    percentage, hit, total, plural.noun(total, "line"), note)
-end
+--- The most decimals a floor may have: a figure held to it prints to as
+--- many ([`places`]), and the check compares in millionths of a percent
+--- ([`under`]), so each is exact.
+local MOST_DECIMALS <const> = 4
 
 --- The percentage `text` writes for the flag `flag`, from 0 to 100 with an
---- optional decimal part, or nil and why. The words `tonumber` takes beyond
---- that (hexadecimal, an exponent, `inf`, `nan`) are no percentage.
+--- optional decimal part of at most [`MOST_DECIMALS`] digits, or nil and
+--- why. The words `tonumber` takes beyond that (hexadecimal, an exponent,
+--- `inf`, `nan`) are no percentage.
 function test_report.percent(text: string, flag: string): number?, string
   local number = if text:match("^%d+$") or text:match("^%d+%.%d+$") then tonumber(text) else nil end
   if number == nil or number > 100 then
     return nil, flag .. " must be a percentage from 0 to 100, not " .. text
+  end
+  local decimals = text:match("%.(%d+)$")
+  if decimals ~= nil and #decimals > MOST_DECIMALS then
+    return nil, flag .. " takes at most " .. plural.count(MOST_DECIMALS, "decimal") .. ", which a figure prints to " ..
+      "and the check compares exactly, not " .. text
   end
   return number + 0.0, ""
 end
@@ -311,12 +313,45 @@ local function under(hit: integer, lines: integer, least: number): boolean
   return hit * 100000000 < math.floor(least * 1000000 + 0.5) * lines
 end
 
---- `hit` of `lines` as a percentage to one decimal, rounded down: a figure
---- the check found under a floor never prints as reaching it (1599/2000 is
---- 79.9%, not 80.0%).
-local function shown(hit: integer, lines: integer): string
-  if lines == 0 then return "0.0" end
-  return string.format("%.1f", (hit * 1000 // lines) / 10)
+--- 10 to the power of each count of decimals a figure prints with, 1 to
+--- [`MOST_DECIMALS`].
+local SCALES <const>: {integer} = { 10, 100, 1000, 10000 }
+
+--- How many decimals a figure held to `floor` shows: as many as the floor
+--- has, and one at least, so a figure under a floor of 97.35 shows 97.34,
+--- never 97.3. A floor has at most [`MOST_DECIMALS`] ([`test_report.percent`]).
+local function places(floor?: number): integer
+  if floor == nil then return 1 end
+  for decimals, scale in ipairs(SCALES) do
+    local scaled = floor * scale
+    if math.abs(scaled - math.floor(scaled + 0.5)) < 1e-6 then return decimals end
+  end
+  return MOST_DECIMALS
+end
+
+--- `hit` of `lines` as a percentage to `decimals` decimals (1 to
+--- [`MOST_DECIMALS`]), rounded down: a figure the check found under a floor
+--- never prints as reaching it (1599/2000 is 79.9%, not 80.0%). Worked in
+--- integers, so no figure rounds up in its printing.
+local function shown(hit: integer, lines: integer, decimals: integer): string
+  local scale = assert(SCALES[decimals], "a figure prints with 1 to MOST_DECIMALS decimals")
+  local scaled = if lines == 0 then 0 else hit * 100 * scale // lines end
+  return tostring(scaled // scale) .. "." .. string.format("%0" .. tostring(decimals) .. "d", scaled % scale)
+end
+
+--- The coverage line. Coverage is informational unless the run asked for a
+--- floor (`floors`, `--min` or `--min-file`), which [`test_report.floor`]
+--- holds it to; the runner separately enforces C-function entry. Its figure
+--- is the one a failure under `--min` prints ([`shown`]): rounded down, to
+--- as many decimals as that floor has, one at least. A figure that left out
+--- the standing hits of `partial` modules says so: it is at most what the
+--- tests reach.
+function test_report.coverage(hit: integer, total: integer, floors?: test_report.Floors, partial?: integer): string
+  local note = if floors == nil then "; informational, never a failure" elseif total == 0 then
+    "; no lines to cover, so a floor holds vacuously" else "" end
+  if (partial or 0) > 0 then note = note .. "; " .. partial_note(partial or 0) end
+  return string.format("test: coverage %s%% (%d/%d %s%s)",
+    shown(hit, total, places(if floors ~= nil then floors.min else nil end)), hit, total, plural.noun(total, "line"), note)
 end
 
 --- What fell short of `floors` for a run that hit `hit` of `total` executable
@@ -339,8 +374,8 @@ function test_report.floor(hit: integer, total: integer, files: {test_report.Fil
   if min ~= nil and under(hit, total, min) then
     local note = if partial > 0 then "; " .. partial_note(partial) else "" end
     lines[#lines + 1] = string.format("test: FAIL  coverage: %s%% (%d/%d %s%s) is under --min %g%%",
-      shown(hit, total), hit, total, plural.noun(total, "line"), note, min)
-    clauses[#clauses + 1] = string.format("%s%% under --min %g%%%s", shown(hit, total), min,
+      shown(hit, total, places(min)), hit, total, plural.noun(total, "line"), note, min)
+    clauses[#clauses + 1] = string.format("%s%% under --min %g%%%s", shown(hit, total, places(min)), min,
       if partial > 0 then " on a partial figure" else "" end)
   end
   local least = floors.min_file
@@ -360,7 +395,7 @@ function test_report.floor(hit: integer, total: integer, files: {test_report.Fil
         note = "; partial: its hits came from runs on other text; `--all` reruns them"
       end
       lines[#lines + 1] = string.format("test: FAIL  coverage: %s %s%% (%d/%d %s%s) is under --min-file %g%%",
-        file.path, shown(file.hit, file.lines), file.hit, file.lines, plural.noun(file.lines, "line"), note, least)
+        file.path, shown(file.hit, file.lines, places(least)), file.hit, file.lines, plural.noun(file.lines, "line"), note, least)
     end
     if #sorted > 0 then
       clauses[#clauses + 1] = string.format("%s under --min-file %g%%%s", plural.count(#sorted, "file"), least,
@@ -374,7 +409,8 @@ end
 --- A passing run's summary, after `test: `: an outcome a reader sees
 --- at a glance, then the figures. A figure the summary adds goes after
 --- `stood`: CI's driver reads the figures before it by their places
---- (ci/cosmic_ci/suite_output.tl).
+--- (ci/cosmic_ci/suite_output.tl). A run where none ran and some stood
+--- says why, and how to run them, last of the figures.
 function test_report.passed(counts: test_report.Passed, elapsed: string): string
   local unchecked, na = counts.unchecked or 0, counts.na or 0
   return plural.count(counts.total, "test") .. " passed in " ..
@@ -386,6 +422,10 @@ function test_report.passed(counts: test_report.Passed, elapsed: string): string
     (if na > 0 then (tostring(na) .. " n/a (this platform has none of what they check), ") else "" end) ..
     (if counts.every > 0 then (tostring(counts.every) .. " run every time (no key holds them), ") else "" end) ..
     (if counts.shared > 0 then (tostring(counts.shared) .. " of them on another checkout's verdict, ") else "" end) ..
+    (if counts.ran == 0 and counts.cached > 0 then (if counts.cached == 1 then
+      "none ran, as nothing the test that stood is keyed on changed since its verdict (--all runs it), " else
+      "none ran, as nothing the tests that stood are keyed on changed since their verdicts (--all runs them), " end)
+      else "" end) ..
     elapsed
 end
 

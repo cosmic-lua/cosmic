@@ -66,6 +66,17 @@ local function test_the_holder_of_the_write_lock_is_named_only_as_far_as_the_hos
   assert(said({ locks = "", shm = shm, file = file, own = 1 }) == unnamed)
 end
 
+--- A run that waits for the write lock names what it is doing and why it waits, since a verb that only reads does
+--- not; one told nothing of what it is doing says only that it waits.
+local function test_a_wait_for_the_write_lock_names_what_waits_and_why()
+  local holding = "another cosmic run holds the write lock of /b/build.db"
+  local why = "; waiting for it, since one run at a time writes the tree's build in that file (docs, uses and todos " ..
+    "read its last build and do not wait)"
+  assert(work.waiting_line(holding, "fix") == "fix: " .. holding .. why, work.waiting_line(holding, "fix"))
+  assert(work.waiting_line(holding, "running hello.tl") == "running hello.tl: " .. holding .. why)
+  assert(work.waiting_line(holding) == holding .. "; waiting for it")
+end
+
 local function test_recording_error_rolls_back_every_table(tmp: string)
   local handle = assert(work.open(tmp))
   assert(work.commit(handle))

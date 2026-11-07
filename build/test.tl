@@ -1909,7 +1909,7 @@ local function hold_checkout(ctx: Run): integer?
     return 1
   end
   ctx.own_tree = standing.own
-  local handle, open_trouble = work.open(root)
+  local handle, open_trouble = work.open(root, nil, "test")
   if handle == nil then
     log:complain(open_trouble)
     return 1
@@ -2926,7 +2926,7 @@ local function settle(ctx: Run)
   ctx.refusals = test.refusals_of(result.refused, assert(ctx.selectors))
   ctx.cascade = test.cascade(result.refused, result.refusal_roots or {}, assert(ctx.selectors))
 
-  ctx.cov_line = test_report.coverage(cov_hit, cov_total, ctx.floors ~= nil, test_report.partial(rec.stale))
+  ctx.cov_line = test_report.coverage(cov_hit, cov_total, ctx.floors, test_report.partial(rec.stale))
 end
 
 --- Says each place the run's coverage fell short of its floors.

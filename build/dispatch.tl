@@ -472,7 +472,7 @@ local function run(file: string, argv: {string}): integer
       return code
     end
   end
-  local handle, open_trouble = work.open(root)
+  local handle, open_trouble = work.open(root, nil, "running " .. file)
   if handle == nil then
     log:complain(open_trouble)
     return 1

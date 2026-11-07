@@ -123,10 +123,10 @@ end
 --- `root`'s working database, opened as a build opens it, waiting for
 --- another run that holds it, where `wait`; otherwise opened only where
 --- no run holds it ([`work.try_open_older`]), with no handle where one does
---- or where it is of a newer schema than this tool's.
-local function opened_for(root: string, wait: boolean): work.Opening?, string
+--- or where it is of a newer schema than this tool's. A wait names `verb` ([`work.waiting_line`]).
+local function opened_for(root: string, wait: boolean, verb: string): work.Opening?, string
   if not wait then return work.try_open_older(root) end
-  local handle, trouble = work.open(root)
+  local handle, trouble = work.open(root, nil, verb)
   if handle == nil then return nil, trouble end
   return { handle = handle, other_schema = nil }, ""
 end
@@ -175,7 +175,7 @@ local function project(root: string, verb: string, start: boolean, carried?: str
   local grammar_trouble = GrammarMode.refusal()
   if grammar_trouble ~= nil then return false, grammar_trouble end
   local started = Clock.monotonic_ns()
-  local opening, open_trouble = opened_for(root, start)
+  local opening, open_trouble = opened_for(root, start, verb)
   if opening == nil then return false, open_trouble end
   local handle = opening.handle
   if handle == nil then

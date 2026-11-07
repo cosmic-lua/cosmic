@@ -547,7 +547,7 @@ it names in the message. Compare a typed record field by field.
 ## coverage floor
 
 Every run reports the share of executable lines the tests reached,
-`test: coverage 90.9% (184277/202824 lines; informational, never a failure)`:
+`test: coverage 90.8% (184277/202824 lines; informational, never a failure)`:
 the Teal of the tree and, in cosmic's own tree, the core's C. By itself it
 never fails a run. Two flags make it a gate:
 
@@ -555,19 +555,22 @@ never fails a run. Two flags make it a gate:
 - `--min-file PCT` fails it when any one file's coverage is under `PCT`.
   Each file under it is named with its percentage.
 
-`PCT` is a number from 0 to 100, with an optional decimal part (`76`,
-`76.5`), given as `--min 76` or `--min=76`. A coverage at the floor is not under it,
-and a failure prints its figure rounded down, so 1599 of 2000 lines is 79.9%, never
-80.0%. A tree or file with no line to cover is under no floor. A floor not met fails the
-run as a failing test does, with status 1 (not the 4 of a tree that does
-not compile). It lists each shortfall as a `test: FAIL  coverage: ...` line
+`PCT` is a number from 0 to 100, with an optional decimal part of at most
+four digits (`76`, `76.5`), given as `--min 76` or `--min=76`. A coverage at
+the floor is not under it. A figure prints rounded down, so 1599 of 2000
+lines is 79.9%, never 80.0%, to as many decimals as its floor has and one at
+least: the coverage line and the failure under `--min` to `--min`'s, each
+file's failure to `--min-file`'s, so under `--min 97.35` a coverage of
+97.349% prints as 97.34% on both. A tree or file with no line to cover is
+under no floor. A floor not met fails the run as a failing test does, with
+status 1 (not the 4 of a tree that does not compile). It lists each shortfall as a `test: FAIL  coverage: ...` line
 and names them in the summary line:
 
 ```text
-test: coverage 77.8% (7/9 lines)
-test: FAIL  coverage: 77.8% (7/9 lines) is under --min 100%
-test: FAIL  coverage: lib 66.7% (4/6 lines) is under --min-file 80%
-test: 1 test passed in 1 module; ...; coverage floor not met: 77.8% under --min 100%, 1 file under --min-file 80%
+test: coverage 77.7% (7/9 lines)
+test: FAIL  coverage: 77.7% (7/9 lines) is under --min 100%
+test: FAIL  coverage: lib 66.6% (4/6 lines) is under --min-file 80%
+test: 1 test passed in 1 module; ...; coverage floor not met: 77.7% under --min 100%, 1 file under --min-file 80%
 ```
 
 A floor is over every line of the tree, so a run that names tests or a

@@ -139,6 +139,12 @@ local record Cli
   --- turns off that shared cache alone: a verdict of this checkout still
   --- stands, and only `--all` runs its test again.
   ---
+  --- An edit to a test file, a comment included, runs its tests again; a
+  --- comment in a module it imports runs them again only where the test is
+  --- given that module's text, as one is that declares `store_text` or
+  --- `store`, starts the program or runs unsandboxed: doc/testing.md ("the
+  --- pure store") names every case.
+  ---
   --- A test function is given a fresh directory (`<scratch>/tmp`); TMPDIR is
   --- its scratch directory, `<scratch>`, so [`Fs.mkdtemp`] makes a sibling of
   --- it. The scratch directory is removed after a pass, and kept after a
