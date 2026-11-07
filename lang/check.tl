@@ -368,6 +368,8 @@ local record Ctx
   mut cand_node: Ast.Node?
   --- The `or` that has an `and` for its left operand, by the id of the `and`.
   ternaries: mut {integer: Ast.Binary}
+  --- The calls whose one value was taken where they may answer more, by id: `or` after one cuts the rest.
+  spare: mut {integer: boolean}
   --- The offsets of the names the scope builder reported unknown, once asked for.
   mut unknown: {integer: boolean}?
   invalid: Type
@@ -1394,6 +1396,9 @@ local function first_value(ctx: Ctx, node: Ast.Node, alts: {Alt}): Type
     return ctx.invalid
   end
   local alt = alts[1]
+  if #alt.items > 1 or alt.tail ~= nil then
+    ctx.spare[base_of(node).id] = true
+  end
   local first = alt.items[1]
   if first ~= nil then
     return first
@@ -2741,7 +2746,7 @@ local function condition_kind(ctx: Ctx, node: Ast.Node, t: Type, default?: Ast.B
     local place = peel(node).kind
     -- `or` cuts a call to its first value, so deleting it could return or pass the values after it. `...` is always
     -- optional and never reaches here.
-    local cut = if node.kind == "Call" or node.kind == "MethodCall" then "replace `" ..
+    local cut = if ctx.spare[base_of(node).id] == true then "replace `" ..
         text_of(ctx, default) .. "` with `(" .. text_of(ctx, node) .. ")`, which keeps only the first value, as `or` did" else
       "delete `or ...`" end
     fix = s .. " is never nil" .. (if place == "Name" or place == "Field" then " here (a test before may have narrowed it)" else "" end) ..
@@ -8423,7 +8428,7 @@ function Check.check(program: Declarations.Program, input: Declarations.Input, l
       return false
     end, function(_node: Ast.Node, _spelled: string, _found: LoadOrder.Found) end),
     literals = {}, spreads = {}, declared = {}, union_fields = {}, spine = {},
-    ternaries = {}, invalid = store.invalid, nil_type = store:atom("nil"), flow = Flow.start(), unfixed_now = {}, assigning = {}, quiet = 0, closers = 0, callee_module = "", member_module = "", moves = {},
+    ternaries = {}, spare = {}, invalid = store.invalid, nil_type = store:atom("nil"), flow = Flow.start(), unfixed_now = {}, assigning = {}, quiet = 0, closers = 0, callee_module = "", member_module = "", moves = {},
     loops = {}, ranges = {}, map_reads = {}, keys = {}, edges = {}, guards = {}, top = tops, module_table = module_table(input, lowered), initialized = {}, given = {}, handed = false, reads = {}, unfixed = {}, narrowed = {}, inert = {}, boundaries = {}, types = {}, callees = {}, consts = {}, starts = {}, library = {}, typed = typed ~= false, warnings = {},
     unite = function(a: Type, b: Type): Type
       return store:union({ a, b })

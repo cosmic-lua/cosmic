@@ -563,9 +563,16 @@ local function test_the_needless_default_of_a_call_is_replaced_by_parentheses_no
   assert(has(e.fix, "is never nil, so the default is never used"), e.fix)
   assert(has(e.fix, "replace `string.gsub(x, \" \", \"\") or \"\"` with `(string.gsub(x, \" \", \"\"))`"), e.fix)
   assert(not has(e.fix, "delete `or ...`"), e.fix)
-  local method = first_error("local function f(x: string): string\n  local s = x:upper() or \"\"\n  return s\nend\n",
+  local method = first_error("local function f(x: string): string\n  local s = x:gsub(\"a\", \"b\") or \"\"\n  return s\nend\n",
     "condition_type")
-  assert(has(method.fix, "with `(x:upper())`"), method.fix)
+  assert(has(method.fix, "with `(x:gsub(\"a\", \"b\"))`"), method.fix)
+  -- A call that answers one value loses nothing to the deletion.
+  local one = first_error("local function f(x: string): string\n  local s = x:upper() or \"\"\n  return s\nend\n",
+    "condition_type")
+  assert(has(one.fix, "delete `or ...`") and not has(one.fix, "replace"), one.fix)
+  local tailed = first_error("local function g(): string, string...\n  return \"a\"\nend\n" ..
+      "local function f(): string\n  return g() or \"\"\nend\n", "condition_type")
+  assert(has(tailed.fix, "with `(g())`"), tailed.fix)
   -- A call already in parentheses answers one value: the default goes.
   local paren = first_error("local function f(x: string): string\n  return (x:upper()) or \"\"\nend\n", "condition_type")
   assert(has(paren.fix, "delete `or ...`"), paren.fix)

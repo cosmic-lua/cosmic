@@ -264,6 +264,8 @@ local record Unknown
   --- The nearest name there is, and the place of its declaration, "" where it is a declared global.
   guess: string
   guess_at: Scopes.Place?
+  --- For a type, the nested types of its name whose qualified name reaches them from the use.
+  nested?: {Nested}
 end
 
 -- A type declared inside another, which a name outside it reaches only qualified.
@@ -271,6 +273,8 @@ local record Nested
   --- The name written in full from the scope around the outermost declaration: `Tree.Node`.
   qualified: string
   token: integer
+  --- The outermost declaration, which the qualified name reaches only where it is visible.
+  outer: Scopes.Var
 end
 
 -- A type name that no declaration holds yet, waiting for the scope it is in to end.
@@ -331,9 +335,11 @@ local record State
   mut defer: boolean
   --- The type names met so far that no declaration holds, to look for in the scope that ends.
   mut pending: mut {Pending}
-  --- The type declarations being walked, outermost first, and the first nested type of each name.
+  --- The type declarations being walked, outermost first, and the binding of the outermost.
   mut enclosing: mut {string}
-  mut nested_types: mut {string: Nested}
+  mut enclosing_var: Scopes.Var?
+  --- The nested types of each name, in the order they are declared.
+  mut nested_types: mut {string: mut {Nested}}
 end
 
 -- The most nearest-name searches a run makes: a run of many unknown names does not cost a scan of the scope for each.
@@ -362,7 +368,7 @@ local function reset(tokens: Lexer.Tokens, name: string, declared: {string: Scop
   S.write_end, S.write_loop, S.captured, S.made, S.entry_of = {}, {}, {}, {}, {}
   S.spine, S.top, S.global_names, S.defer, S.pending, S.own = {}, 0, nil, false, {}, nil
   S.floor = math.maxinteger
-  S.enclosing, S.nested_types = {}, {}
+  S.enclosing, S.enclosing_var, S.nested_types = {}, nil, {}
 end
 
 local function quoted(name: string): string
@@ -816,7 +822,14 @@ end
 -- The type name `t` that nothing declares.
 local function unknown_type(t: Ast.TypeName, head: string)
   local guess, at = nearest(head, true)
-  S.unknown[#S.unknown + 1] = { token = t.first, name = head, what = "type", guess = guess, guess_at = at }
+  -- A nested type is offered by its qualified name only where the outermost declaration is visible.
+  local reached: mut {Nested} = {}
+  for _, n in ipairs(S.nested_types[head] or {}) do
+    if lookup(n.outer.name) == n.outer then
+      reached[#reached + 1] = n
+    end
+  end
+  S.unknown[#S.unknown + 1] = { token = t.first, name = head, what = "type", guess = guess, guess_at = at, nested = reached }
 end
 
 -- Looks for the pending type names that the scope at `depth`, which ends, declares; what it does not
@@ -1250,8 +1263,12 @@ typedecl = function(d: Ast.Node, nested: boolean) -- checked: not_assigned
     v = declare(name, KINDS[d.kind], name.first, not nested, nil, scope == "global") -- checked: index_may_be_nil
     v.nested = nested -- checked: field_fixed
   end
-  if nested and S.nested_types[name.name] == nil then
-    S.nested_types[name.name] = { qualified = table.concat(S.enclosing, ".") .. "." .. name.name, token = name.first }
+  local outermost = S.enclosing_var
+  if nested and outermost ~= nil then
+    local entry: Nested = { qualified = table.concat(S.enclosing, ".") .. "." .. name.name, token = name.first, outer = outermost }
+    local list: mut {Nested} = S.nested_types[name.name] or {}
+    list[#list + 1] = entry
+    S.nested_types[name.name] = list
   end
   if (d.kind == "Import") and v ~= nil then
     v.module = d.module -- checked: field_fixed
@@ -1263,9 +1280,9 @@ typedecl = function(d: Ast.Node, nested: boolean) -- checked: not_assigned
   S.defer = true
   open(base_of(d).last)
   -- A declaration that is not a member (one in a method's body) starts a qualified name of its own.
-  local outer = S.enclosing
+  local outer, outer_var = S.enclosing, S.enclosing_var
   if not nested then
-    S.enclosing = {}
+    S.enclosing, S.enclosing_var = {}, v
   end
   S.enclosing[#S.enclosing + 1] = name.name
   walk_typeparams(typeparams)
@@ -1287,7 +1304,7 @@ typedecl = function(d: Ast.Node, nested: boolean) -- checked: not_assigned
     end
   end
   S.enclosing[#S.enclosing] = nil
-  S.enclosing = outer
+  S.enclosing, S.enclosing_var = outer, outer_var
   close()
   S.defer = deferring
   if d.kind == "Alias" then
@@ -1447,6 +1464,15 @@ local function settle(v: Scopes.Var)
   end
 end
 
+-- `items` in prose: "a", "a and b", "a, b and c", with `last` (" and ") before the last.
+local function listed(items: {string}, last?: string): string
+  local final = items[#items] or ""
+  if #items <= 1 then
+    return final
+  end
+  return table.concat(items, ", ", 1, #items - 1) .. (last or " and ") .. final
+end
+
 -- The errors of the names no binding or declared global holds.
 local function unknown_errors()
   if #S.unknown == 0 then
@@ -1503,14 +1529,20 @@ local function unknown_errors()
     local fix: string
     local other: Scopes.Place? = nil
     local code: Scopes.Code = "unknown_variable"
-    local nested = S.nested_types[name]
-    if u.what == "type" and nested ~= nil then
+    local nested = u.nested or {}
+    local first = nested[1]
+    if u.what == "type" and first ~= nil then
       code = "unknown_type"
-      msg = "the type " .. quoted(name) .. " is not in scope here: it is nested in " ..
-        quoted(nested.qualified:sub(1, #nested.qualified - #name - 1)) .. " (" .. shown(nested.token) .. ")"
-      fix = hint .. "write " .. quoted(nested.qualified) .. ", or alias it above with `local type " .. name .. " = " ..
-        nested.qualified .. "`"
-      other = place_of(nested.token)
+      local homes: mut {string} = {}
+      local spelled: mut {string} = {}
+      for _, n in ipairs(nested) do
+        homes[#homes + 1] = quoted(n.qualified:sub(1, #n.qualified - #name - 1)) .. " (" .. shown(n.token) .. ")"
+        spelled[#spelled + 1] = quoted(n.qualified)
+      end
+      msg = "the type " .. quoted(name) .. " is not in scope here: it is nested in " .. listed(homes)
+      fix = hint .. "write " .. listed(spelled, " or ") .. ", or alias " .. (if #nested > 1 then "the one meant" else "it" end) ..
+        " above with `local type " .. name .. " = " .. first.qualified .. "`"
+      other = place_of(first.token)
     elseif u.what == "type" then
       code = "unknown_type"
       msg = "the type " .. quoted(name) .. " is not declared"
