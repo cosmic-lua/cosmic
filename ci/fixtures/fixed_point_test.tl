@@ -246,12 +246,18 @@ local function test_a_rebuilt_compiler_lands_on_the_booted_tool(tmp: string)
   run_fixed_point_case(tmp, "compiler", "build/plans.tl", commented, true, false)
 end
 
--- `build.positions` is in neither identity, though build.writer
--- reaches it (through build.importer, which the writer's identity
--- leaves out): the stale tool's compiler and writer are the tree's, and
--- each rebuild is final.
+-- `build.importer` is in neither identity, though build.writer
+-- requires it (the writer's identity leaves it out), nor in the code a
+-- compile is keyed by (build.pipeline's `coded`, which a rebuilt
+-- tool's `compiled_by` is held to): the stale tool's compiler and writer
+-- are the tree's, and each rebuild is final. build.positions, which
+-- build.tree_program requires for its hints, is in that code.
+-- TODO: nothing holds this module outside the two identities and
+-- `coded`: a require that brings it into build.pipeline's walk fails this
+-- case only on Sunday's scheduled run. A test of the three walks, run on
+-- every change, would fail on the require itself.
 local function test_a_self_rebuild_lands_on_the_booted_tool(tmp: string)
-  run_fixed_point_case(tmp, "outside", "build/positions.tl", commented, false, true)
+  run_fixed_point_case(tmp, "outside", "build/importer.tl", commented, false, true)
 end
 
 -- An edit to how the compiler's identity is defined (`build.identity`'s
