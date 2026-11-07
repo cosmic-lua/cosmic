@@ -330,11 +330,11 @@ declares that it reads text (below):
   with the lines of the module; the checker's own codes (`kind = 'code'`) do not,
   but no test that reads module text wants them alone;
 - the bytecode of each module it imports stripped of its debug
-  information and given a line for each instruction in its place
-  ([`build.lua_tail`]'s `numbered`): the `k`th instruction of the chunk
-  is on line 16777216 + `k`, whatever line of the text it came from, and
-  each function is defined on the line before its first. Its own module's
-  bytecode is as the build made it;
+  information and numbered by instruction ([`build.lua_tail`]'s
+  `numbered`): each function names its module as its source, and each but
+  the chunk's own is defined on line 16777216 + `k`, `k` the number of the
+  chunk's instructions before its first, whatever line of the text it came
+  from. Its own module's bytecode is as the build made it;
 - the source file of its own module and of the declarations it requires, and
   not of the modules it imports.
 
@@ -398,12 +398,14 @@ store of its closure with its text, as `store_text` does.
 
 A test does not assert a position inside code it imports: a line number of
 the module's own code in a message or a traceback, `debug.getinfo`'s
-`currentline` or `linedefined`. In a pure store it is an instruction's
-number, not a line of the text, and it moves with each instruction added
-above it. The runner says one at the module's file and line, by this run's
-text, in the message of a test it shows and records in `runs` and in the
-output it shows (`--show-output`, a failure's): an instruction's, and in a
-traceback's `function <module:line>` the line that function is defined on. Match the message without its position,
+`currentline` or `linedefined`. In a pure store a message or a traceback
+says no line of an imported module's code, and a function's `linedefined`
+is the number of an instruction, not a line of the text, which moves with
+each instruction added above it. The runner shows a traceback's
+`function <module:line>` at the module's file and the line that function
+is defined on in this run's text, in the message of a test it shows and
+records in `runs` and in the output it shows (`--show-output`, a
+failure's). Match the message without its position,
 or write the source the test asserts about in the test itself (a fixture
 string compiled by the test), whose lines it chooses.
 
@@ -844,10 +846,13 @@ informational and never a failure.
 
 A sandboxed test given the pure store ([the pure store](#the-pure-store))
 reaches the lines of the modules it imports as an unsandboxed one does. Their
-bytecode numbers each instruction rather than its line, so a comment moves
-no key, and the runner places each instruction a worker reports at the line
-this run's text has it on ([`build.lua_tail`]'s `instruction_lines`): the
-text whose source hash the row names. A comment above those lines later
+bytecode carries no line, so a comment moves no key. The core counts each
+instruction of such a function as it is about to run, by its number in the
+chunk (core/coverage.c, told by Lua through `patch/lua/`'s instruction
+coverage, after an instruction budget has had its turn, so an instruction
+a budget stops before is not counted), and the runner places each at the
+line this run's text has it on ([`build.lua_tail`]'s `instruction_lines`):
+the text whose source hash the row names. A comment above those lines later
 lets the verdict stand, and its row's lines of that module are dropped as
 numbered in other text (the figure is partial) until the test runs again.
 An instruction the runner cannot place is an error of the run, never a

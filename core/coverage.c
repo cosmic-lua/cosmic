@@ -337,6 +337,56 @@ static void budget_hook (lua_State *L, Collector *collector) {
   lua_error(L);
 }
 
+/* The line a function with no line information (a pure store's import,
+ * numbered by instruction: build/lua_tail.tl's `numbered`) counts its
+ * instruction `pc` on: the ordinal of the instruction in its chunk, past
+ * ORDINAL_BASE, which build/lua_tail.tl's `ordinal_base` names too. A
+ * numbered function but the chunk's own is defined on the ordinal before
+ * its first instruction; the chunk's own, on line 0, starts the count. */
+#define ORDINAL_BASE (1u << 24)
+
+/* What Lua tells of each instruction a function with no line information
+ * is about to run (patch/lua/11-instruction-coverage-defined.txt, which
+ * defines it), declared here since the core's C is read against the
+ * unpatched tree. */
+extern int (*luaG_instructionline) (lua_State *L, const Proto *p, int pc);
+
+/* Lua's luaG_instructionline,
+ * while a window collects: marks the instruction `pc` of `p`, a function
+ * with no line information, on its ordinal line. Called before every such
+ * instruction, it runs nothing that can allocate or raise: a source or a
+ * page the collector does not hold yet is left to the line hook, which
+ * this answers the line for and which makes them. A function with no
+ * source (a chunk stripped whole) names nothing to count it under. */
+static int instruction_line (lua_State *L, const Proto *p, int pc) {
+  Collector *collector = current_collector(L);
+  TString *name = p->source;
+  if (!collector || !collector->active || !name) return 0;
+  unsigned first = p->linedefined > 0 ? (unsigned)p->linedefined : ORDINAL_BASE;
+  unsigned line = first + (unsigned)pc + 1;
+  /* The line hook's lookups of the source and the page, but for making
+   * either: this runs before every instruction. */
+  HitSource *source = collector->last_source;
+  if (!source || source->source != name) {
+    unsigned bucket = ((uintptr_t)name >> 3) % SOURCE_BUCKETS;
+    source = collector->buckets[bucket];
+    while (source && source->source != name) source = source->next;
+    if (!source) return (int)line;
+    collector->last_source = source;
+  }
+  unsigned index = line / PAGE_BITS;
+  HitPage *page = source->last_page;
+  if (!page || page->index != index) {
+    page = source->pages;
+    while (page && page->index != index) page = page->next;
+    if (!page) return (int)line;
+    source->last_page = page;
+  }
+  unsigned offset = line % PAGE_BITS;
+  page->bits[offset / 64] |= UINT64_C(1) << (offset % 64);
+  return 0;
+}
+
 /* The line hook, and the count hook of a budget. Lua is pinned with the
  * core, so the hook reads the running closure's source straight from its
  * internals: lua_getinfo("S") would format a display name on every line.
@@ -418,6 +468,9 @@ static void install_hook (lua_State *L, Collector *collector) {
     count = collector->budget;
   }
   lua_sethook(L, mask ? native_line_hook : NULL, mask, count);
+  /* Lua asks it only while a line hook is set, and it counts nothing
+   * while no window collects, so it stays set from the first. */
+  luaG_instructionline = instruction_line;
 }
 
 /* start(): hooks lines and begins a collection. */

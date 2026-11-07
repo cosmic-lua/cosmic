@@ -1,0 +1,12 @@
+file: src/ldebug.c
+note: Coverage of a function with no line information (a pure store's import, numbered by instruction: build/lua_tail.tl's `numbered`) is counted by instruction, not by line. core/coverage.c, which declares this itself (the core's C is read against the unpatched tree), sets it while it collects, and `luaG_traceexec` tells it each instruction such a function is about to run while a line hook is set (patch/lua/12-instruction-coverage-run.txt). It marks the instruction where it can without running the GC and answers 0, or answers a line for the line hook, which then marks it. A call of it is far cheaper than the line hook it spares, which luaD_hook calls only after saving and restoring the state's stack and frame.
+--- find
+static const char *funcnamefromcall (lua_State *L, CallInfo *ci,
+                                                   const char **name);
+--- replace
+static const char *funcnamefromcall (lua_State *L, CallInfo *ci,
+                                                   const char **name);
+
+
+int (*luaG_instructionline) (lua_State *L, const Proto *p, int pc) = NULL;
+--- end

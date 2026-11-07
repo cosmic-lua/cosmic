@@ -1,5 +1,6 @@
 --- The tests of [`build.lua_tail`]: the tail a test module's Lua gets and the bytecode of any module's, whichever compiler wrote it.
 local LuaTail = require("build.lua_tail")
+local Hits = require("build.coverage_hits")
 local Test = require("cosmic.test")
 
 Test.policy{}
@@ -56,15 +57,19 @@ local function test_stripped_bytecode_ignores_what_the_core_does_not_run()
   assert(refused == nil and why:find("m", 1, true) ~= nil, tostring(why))
 end
 
---- The module `m` with `lead` above it: a function of more instructions than Lua places between two absolute
---- lines, which fails on its last line, and a chunk that calls it.
-local function raising(lead: string): string
-  local body: mut {string} = { lead, "local function count(x)" }
-  for _ = 1, 150 do body[#body + 1] = "  x = x + 1" end
-  body[#body + 1] = "  return x.field"
-  body[#body + 1] = "end"
-  body[#body + 1] = "return count(0)"
-  return table.concat(body, "\n") .. "\n"
+--- A module with `lead` above it: a function that takes one branch of two, and a chunk that calls it.
+local function branching(lead: string): string
+  return lead .. table.concat({
+    "local function count(x, flag)",
+    "  if flag then",
+    "    x = x + 1",
+    "  else",
+    "    x = x - 1",
+    "  end",
+    "  return x",
+    "end",
+    "return count(0, true)",
+  }, "\n") .. "\n"
 end
 
 --- The line of `source` the statement `statement` is on.
@@ -78,29 +83,40 @@ local function line_of(source: string, statement: string): integer
 end
 
 --- Numbered, a chunk is the same for two sources that differ in a comment, a blank line or where a function
---- sits, as a stripped one is, and runs as the chunk does; a line Lua reports of it is an instruction's ordinal,
---- past the base, which the chunk compiled from either text places at that text's own line.
-local function test_a_numbered_chunk_moves_with_no_text_and_its_lines_are_placed_by_each_text()
-  local plain_source = raising("")
-  local noted_source = raising("-- a note\n\n\n-- another")
-  local plain = assert(LuaTail.bytecode_of(plain_source, "m", "m.tl"))
-  local noted = assert(LuaTail.bytecode_of(noted_source, "m", "m.tl"))
+--- sits, as a stripped one is, runs as the chunk does, and says no position in what it raises. The core counts
+--- each instruction of it that runs (core/coverage.c, under the window build.test has open around this test) at
+--- its ordinal, past the base, which the chunk compiled from either text places at that text's own lines: the
+--- branch it took is reached, and the one it did not is not.
+local function test_a_numbered_chunk_moves_with_no_text_and_its_instructions_are_counted_by_each_text()
+  local plain_source = branching("")
+  local noted_source = branching("-- a note\n\n\n-- another\n")
+  local plain = assert(LuaTail.bytecode_of(plain_source, "lua_tail_numbered_probe", "probe.tl"))
+  local noted = assert(LuaTail.bytecode_of(noted_source, "lua_tail_numbered_probe", "probe.tl"))
   assert(plain ~= noted, "the chunks differ in no line, so this shows nothing")
-  local numbered = assert(LuaTail.numbered(plain, "m"))
-  assert(numbered == assert(LuaTail.numbered(noted, "m")), "a comment and blank lines moved the numbered chunk")
-  local banged = (raising(""):gsub("x %+ 1", "x + 2"))
-  assert(numbered ~= assert(LuaTail.numbered(assert(LuaTail.bytecode_of(banged, "m", "m.tl")), "m")),
-    "a constant did not move the numbered chunk")
-  local chunk = assert(load(numbered, "=m", "b", {}))
-  local ok, why = pcall(function() chunk() end)
-  assert(not ok, "the chunk did not raise")
-  assert(tostring(why):match(": attempt to index a number value") ~= nil, tostring(why))
-  local reported = assert(math.tointeger(tonumber(tostring(why):match("^m:(%d+): "))), tostring(why))
-  assert(reported > LuaTail.ordinal_base, "the line Lua reports is no instruction's ordinal: " .. tostring(why))
+  local numbered = assert(LuaTail.numbered(plain, "lua_tail_numbered_probe"))
+  assert(numbered == assert(LuaTail.numbered(noted, "lua_tail_numbered_probe")),
+    "a comment and blank lines moved the numbered chunk")
+  local changed = (branching(""):gsub("x %+ 1", "x + 2"))
+  assert(numbered ~= assert(LuaTail.numbered(assert(LuaTail.bytecode_of(changed, "lua_tail_numbered_probe",
+    "probe.tl")), "lua_tail_numbered_probe")), "a constant did not move the numbered chunk")
+  local chunk = assert(load(numbered, "=lua_tail_numbered_probe", "b", {}))
+  local ok, ran = pcall(function(): any return chunk() end)
+  assert(ok and ran == 1, "the numbered chunk does not run as the chunk does: " .. tostring(ran))
+  local failing = assert(load(assert(LuaTail.numbered(assert(LuaTail.bytecode_of("local x = 1\nreturn x.field\n",
+    "lua_tail_numbered_failing", "failing.tl")), "lua_tail_numbered_failing")), "=lua_tail_numbered_failing", "b", {}))
+  local raised, why = pcall(function() failing() end)
+  assert(not raised and tostring(why):find("%d%d%d%d%d") == nil, "a numbered chunk said a position: " .. tostring(why))
+  local counted = assert(Hits.snapshot()["lua_tail_numbered_probe"], "no instruction of the numbered chunk was counted")
   for bytecode, source in pairs({ [plain] = plain_source, [noted] = noted_source }) do
-    local lines = assert(LuaTail.instruction_lines(bytecode, "m"))
-    assert(lines[reported - LuaTail.ordinal_base] == line_of(source, "  return x.field"),
-      "the ordinal Lua reported is not placed at the line that raised")
+    local lines = assert(LuaTail.instruction_lines(bytecode, "lua_tail_numbered_probe"))
+    local reached: mut {integer:boolean} = {}
+    for line in pairs(counted) do
+      assert(line > LuaTail.ordinal_base, "a numbered instruction was counted on a line of no ordinal")
+      reached[assert(lines[line - LuaTail.ordinal_base], "an ordinal past the chunk's instructions")] = true
+    end
+    assert(reached[line_of(source, "    x = x + 1")] == true, "the branch taken is not reached")
+    assert(reached[line_of(source, "  return x")] == true, "the function's return is not reached")
+    assert(reached[line_of(source, "    x = x - 1")] == nil, "the branch not taken is reached")
   end
 end
 

@@ -21,17 +21,19 @@ local record LuaTail
   --- `bytecode` is not a chunk Lua loads.
   stripped: function(bytecode: string, name: string): string?, string
 
-  --- `bytecode`, a chunk of the module `name` as [`bytecode_of`] made it, [`stripped`] and then given a line for
-  --- each instruction, which no text decides: the `k`th instruction of the chunk, counting each function's before
-  --- those of the functions it defines, is on line `ordinal_base + k`, and each function but the chunk's own is
-  --- defined on the line before its first. So the chunk is the same for two versions of a module that differ in a
-  --- comment, a blank line or where a function sits, as [`stripped`]'s is, and the coverage hook still sees each
-  --- instruction it runs, which [`instruction_lines`] of the chunk as compiled from this text places at a source
-  --- line. Nil and why where `bytecode` is not a chunk Lua loads.
+  --- `bytecode`, a chunk of the module `name` as [`bytecode_of`] made it, [`stripped`] and then numbered by
+  --- instruction, which no text decides: each function names `@name` as its source, and each but the chunk's own is
+  --- defined on line `ordinal_base + k`, where `k` is the number of instructions before its first, counting each
+  --- function's before those of the functions it defines. With no line information, the core counts such a
+  --- function's `j`th instruction as it runs on line `ordinal_base + k + j` (the chunk's own as `k` 0: core/coverage.c,
+  --- through patch/lua/'s instruction coverage), which [`instruction_lines`] of the chunk as compiled from this text
+  --- places at a source line. So the chunk is the same for two versions of a module that differ in a comment, a blank
+  --- line or where a function sits, as [`stripped`]'s is. Nil and why where `bytecode` is not a chunk Lua loads.
   numbered: function(bytecode: string, name: string): string?, string
 
-  --- What a line of a chunk [`numbered`] made is past: a line from `ordinal_base + 1` up is an instruction's
-  --- ordinal, never a source's line, since no source holds this many.
+  --- What a line the core counts of a chunk [`numbered`] made is past: a line from `ordinal_base + 1` up is an
+  --- instruction's ordinal, never a source's line, since no source holds this many. core/coverage.c's `ORDINAL_BASE`
+  --- is the same.
   ordinal_base: integer
 
   --- The source line of each instruction of `bytecode`, a chunk of the module `name` as [`bytecode_of`] made it,
@@ -42,7 +44,8 @@ local record LuaTail
   --- The source line each function `bytecode` defines is defined on (where a traceback names it, `function
   --- <name:line>`), by the number of instructions [`numbered`] counts before the function's first: the line a
   --- numbered chunk says that function is defined on, less `ordinal_base`. The chunk's own function, defined on no
-  --- line, is not among them. Nil and why as for [`instruction_lines`].
+  --- line, is not among them. Of a chunk with line information or none, as [`numbered`] makes; nil and why where
+  --- `bytecode` is not a chunk of that shape.
   defined_lines: function(bytecode: string, name: string): {integer:integer}?, string
 
   --- Whether `code` compiles with `spare` locals declared in front of it, and where it does not, Lua's words: "too many local
@@ -231,12 +234,8 @@ end
 
 LuaTail.ordinal_base = 1 << 24
 
---- Lua's own limits on a function's relative line information (lcode.c's `LIMLINEDIFF` and ldebug.h's `MAXIWTHABS`
---- and `ABSLINEINFO`): a step of a line as large as the first, or the instruction past the second since the last
---- absolute line, is held as an absolute line, the step's byte saying so with the third. [`numbered`] places them
---- as lcode.c's `savelineinfo` does, since ldebug.c's `getbaseline` reads a line by where they fall.
-local line_step_limit <const> = 0x80
-local absolute_every <const> = 128
+--- The byte of a function's relative line information that says its line is held as an absolute one (ldebug.h's
+--- `ABSLINEINFO`).
 local absolute_mark <const> = 0x80
 
 --- A walk of the dump `dumped` of the module `name`, in the shape ldump.c writes it (the format 1 of
@@ -330,7 +329,7 @@ local function take_constants(walk: Walk): string
   return walk.dumped:sub(started, walk.at - 1)
 end
 
---- `plain`, a chunk [`LuaTail.stripped`] wrote, with each instruction on the line of its ordinal (see
+--- `plain`, a chunk [`LuaTail.stripped`] wrote, numbered by instruction (see
 --- [`LuaTail.numbered`]).
 local function numbered_lines(plain: string, name: string): string?, string
   local walk: Walk = { dumped = plain, name = name, at = 1, emitted = 0, parts = {} }
@@ -411,36 +410,8 @@ local function numbered_lines(plain: string, name: string): string?, string
         error(said(walk, "debug information in a stripped chunk"), 0)
       end
     end
-    -- As lcode.c's `savelineinfo` writes them, from the line the function is defined on.
-    local steps: mut {string} = {}
-    local absolute: mut {string} = {}
-    local previous, since = defined, 0
-    for pc = 0, count - 1 do
-      local line = LuaTail.ordinal_base + first + pc + 1
-      local step = line - previous
-      local held = math.abs(step) >= line_step_limit
-      if not held then
-        held = since >= absolute_every
-        since = since + 1
-      end
-      if held then
-        absolute[#absolute + 1] = string.pack("<i4i4", pc, line)
-        steps[#steps + 1] = string.char(absolute_mark)
-        since = 1
-      else
-        steps[#steps + 1] = string.char(step & 0xff)
-      end
-      previous = line
-    end
-    put(walk, varint_of(count))
-    put(walk, table.concat(steps))
-    put(walk, varint_of(#absolute))
-    if #absolute > 0 then
-      pad(walk, 4)
-      put(walk, table.concat(absolute))
-    end
-    put(walk, varint_of(0))
-    put(walk, varint_of(0))
+    -- No line information: the core counts such a function by instruction (core/coverage.c).
+    for _ = 1, 4 do put(walk, varint_of(0)) end
   end
   local ok, trouble = pcall(function()
     put(walk, take(walk, #bytecode_header))
@@ -465,12 +436,10 @@ function LuaTail.numbered(bytecode: string, name: string): string?, string
   if back ~= plain then
     return nil, name .. ": the chunk with its instructions numbered is not the chunk"
   end
-  local lines, lines_trouble = LuaTail.instruction_lines(dump(again, false), name)
-  if lines == nil then return nil, lines_trouble end
-  for ordinal, line in ipairs(lines) do
-    if line ~= LuaTail.ordinal_base + ordinal then
-      return nil, name .. ": instruction " .. tostring(ordinal) .. " of the numbered chunk is on line " .. tostring(line)
-    end
+  -- Lua reads it with no line information, and each function on the line it was given.
+  local unread, _ = LuaTail.instruction_lines(dump(again, false), name)
+  if unread ~= nil then
+    return nil, name .. ": the numbered chunk carries line information"
   end
   local defines, defines_trouble = LuaTail.defined_lines(dump(again, false), name)
   if defines == nil then return nil, defines_trouble end
@@ -490,6 +459,7 @@ local function lines_of(bytecode: string, name: string): {integer}?, {integer:in
   local placed: mut {integer:integer} = {}
   local defines: mut {integer:integer} = {}
   local counted = 0
+  local lineless = false
   local function read(main: boolean)
     local defined = take_varint(walk)
     take_varint(walk)
@@ -505,7 +475,9 @@ local function lines_of(bytecode: string, name: string): {integer}?, {integer:in
     for _ = 1, take_varint(walk) do read(false) end
     take_string(walk)
     local steps = take(walk, take_varint(walk))
-    if #steps ~= count then error(said(walk, "no line for each instruction"), 0) end
+    -- A stripped or numbered function holds none; one holds them all or none.
+    if #steps == 0 and count > 0 then lineless = true end
+    if #steps ~= count and #steps ~= 0 then error(said(walk, "no line for each instruction"), 0) end
     local absolute: mut {integer:integer} = {}
     local held = take_varint(walk)
     if held > 0 then
@@ -516,7 +488,7 @@ local function lines_of(bytecode: string, name: string): {integer}?, {integer:in
       end
     end
     local line = defined
-    for pc = 0, count - 1 do
+    for pc = 0, #steps - 1 do
       local step = assert(steps:byte(pc + 1), "a step for each instruction, counted above")
       if step == absolute_mark then
         local at = absolute[pc]
@@ -544,6 +516,7 @@ local function lines_of(bytecode: string, name: string): {integer}?, {integer:in
     if walk.at ~= #bytecode + 1 then error(said(walk, "bytes after the chunk"), 0) end
   end)
   if not ok then return nil, {}, tostring(trouble) end
+  if lineless then return nil, defines, said(walk, "no line information") end
   -- Placed out of order, since a function's lines follow those of the functions it defines.
   local lines: mut {integer} = {}
   for ordinal = 1, counted do
@@ -560,7 +533,9 @@ end
 
 function LuaTail.defined_lines(bytecode: string, name: string): {integer:integer}?, string
   local lines, defines, trouble = lines_of(bytecode, name)
-  if lines == nil then return nil, trouble end
+  if lines == nil and trouble:find("no line information", 1, true) == nil then
+    return nil, trouble
+  end
   return defines, ""
 end
 

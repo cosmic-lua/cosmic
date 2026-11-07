@@ -26,7 +26,7 @@ local function test_a_report_carries_what_its_worker_loaded()
   local back = assert(worker.decode(worker.encode(passing({ "build.a", "cosmic.fs", "string" }))))
   assert(#back.modules == 3 and back.modules[1] == "build.a" and back.modules[3] == "string")
   -- A report of another shape, an older worker's, is none.
-  local older = worker.encode(passing({})):gsub("^cosmic%-test%-report%-4", "cosmic-test-report-3")
+  local older = worker.encode(passing({})):gsub("^cosmic%-test%-report%-5", "cosmic-test-report-4")
   assert(worker.decode(older) == nil)
 end
 
@@ -51,6 +51,32 @@ local function test_a_line_of_hits_read_twice_is_one_table()
   assert(first_tested[7] == true and second_tested[9] == true)
   local malformed = worker.encode(passing({})):gsub("\nend\n$", "\ntest-hit zz 1\nend\n")
   assert(worker.decode(malformed) == nil)
+end
+
+--- A module's lines are written as runs of consecutive lines, dense ones (a pure store's import, a line an
+--- instruction) walked rather than sorted, and read back whole; a run that ends before it starts is no report.
+local function test_hits_are_written_as_runs_of_lines_and_read_back_whole()
+  local report = passing({})
+  local dense: mut {integer:boolean} = {}
+  for line = 16777217, 16777300 do dense[line] = true end
+  dense[16777250] = nil
+  local sparse: {integer:boolean} = { [1] = true, [2] = true, [900] = true, [40000] = true }
+  report.load_hits = { ["build.a"] = dense, ["build.b"] = sparse }
+  local text = worker.encode(report)
+  assert(text:find(" 16777217%-16777249,16777251%-16777300\n") ~= nil, text)
+  assert(text:find(" 1%-2,900,40000\n") ~= nil, text)
+  local back = assert(worker.decode(text))
+  local a = assert(back.load_hits["build.a"])
+  local b = assert(back.load_hits["build.b"])
+  local count = 0
+  for line in pairs(a) do
+    count = count + 1
+    assert(dense[line] == true, "a line was read that was not written: " .. tostring(line))
+  end
+  assert(count == 83 and a[16777250] == nil, "the dense lines were not read back whole")
+  assert(b[1] == true and b[2] == true and b[900] == true and b[40000] == true and b[3] == nil)
+  local backwards = text:gsub(" 1%-2,900,40000\n", " 2-1\n")
+  assert(worker.decode(backwards) == nil, "a run that ends before it starts was read")
 end
 
 --- A pass whose worker ran a module of the tree the tool carries that

@@ -238,7 +238,7 @@ end
 
 worker.report_fd = 3
 
-local HEADER <const> = "cosmic-test-report-4"
+local HEADER <const> = "cosmic-test-report-5"
 -- A second in nanoseconds, which a timeout is counted in: cosmic.clock,
 -- whose `seconds` this is, is no module the harness may reach
 -- (build/harness_epoch.tl's `library`).
@@ -845,10 +845,35 @@ local function encode_hits(lines: mut {string}, tag: string, hits: Coverage.Hits
     -- `path` is a key of `hits`, listed above.
     local hit_lines = hits[path]
     if hit_lines == nil then lua_error("a path listed from hits is in hits", 0) end
-    for line in pairs(hit_lines) do numbers[#numbers + 1] = line end
-    table.sort(numbers)
+    local count, low, high = 0, math.maxinteger, math.mininteger
+    for line in pairs(hit_lines) do
+      count = count + 1
+      if line < low then low = line end
+      if line > high then high = line end
+    end
+    -- In order: by a walk from the lowest to the highest where they are as dense as the instructions a pure
+    -- store's import runs (each counted on a line of its own), else sorted.
+    if count > 0 and high - low < 4 * count then
+      for line = low, high do
+        if hit_lines[line] == true then numbers[#numbers + 1] = line end
+      end
+    else
+      for line in pairs(hit_lines) do numbers[#numbers + 1] = line end
+      table.sort(numbers)
+    end
+    -- Each run of consecutive lines as its first and last, `first-last`.
     local text: mut {string} = {}
-    for i, line in ipairs(numbers) do text[i] = tostring(line) end
+    local at = 1
+    while at <= #numbers do
+      local first = assert(numbers[at], "a line at each place up to the count")
+      local last = first
+      while numbers[at + 1] == last + 1 do
+        at = at + 1
+        last = last + 1
+      end
+      text[#text + 1] = if last > first then tostring(first) .. "-" .. tostring(last) else tostring(first) end
+      at = at + 1
+    end
     table.insert(lines, tag .. " " .. hex(path) .. " " .. table.concat(text, ","))
   end
 end
@@ -962,12 +987,19 @@ function worker.decode(text: string): worker.Report?, string
         local into = tag == "load-hit" and report.load_hits or report.test_hits -- checked: and_ternary
         local known = decoded_hits[rest]
         if known == nil then
-          local path, numbers = rest:match("^([0-9a-f]*) ([0-9,]*)$")
+          local path, numbers = rest:match("^([0-9a-f]*) ([0-9,%-]*)$")
           local decoded = if path ~= nil then unhex(path) else nil end
           if decoded == nil or numbers == nil then return nil, "a malformed hit: " .. line end
           local per_line: mut {integer:boolean} = {}
-          for number in numbers:gmatch("%d+") do
-            per_line[math.tointeger(tonumber(number)) or 0] = true
+          for item in numbers:gmatch("[^,]+") do
+            local low, high = item:match("^(%d+)%-(%d+)$")
+            if low == nil then low, high = item:match("^(%d+)$"), nil end
+            local from = math.tointeger(tonumber(low))
+            local to = if high ~= nil then math.tointeger(tonumber(high)) else from end
+            if from == nil or to == nil or to < from then
+              return nil, "a malformed hit: " .. line
+            end
+            for number = from, to do per_line[number] = true end
           end
           known = { path = decoded, lines = per_line }
           decoded_hits[rest] = known
