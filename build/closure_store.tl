@@ -91,7 +91,8 @@ local record closure_store
     pure: mut {string:string}
     --- The digest of each module's bytecode with the debug information
     --- stripped ([`lua_tail.stripped`]), by path: what the pure store holds
-    --- of every module but its test's own.
+    --- of every module but its test's own, numbered by instruction
+    --- ([`lua_tail.numbered`], a function of it).
     stripped: mut {string:string}
     --- The digest of each module's whole bytecode, debug information
     --- included (inflated, so the compressor moves none), by path: what the
@@ -945,7 +946,7 @@ end
 --- and source hash are left empty, and no doc, use, link, example, catalog
 --- row, place or stub goes in, but for the stub of the modules in `temp.kept` ([`text_kept`]). The bytecode of the modules goes in as the
 --- projection has it; [`closure_store.write`] strips the debug information
---- of all but the test's own.
+--- of all but the test's own and numbers it by instruction.
 local function closed_pure(image: boolean): {string}
   return {
     meta_statement(image),
@@ -1042,6 +1043,11 @@ local function sync(path: string): boolean, string
   return true, ""
 end
 
+--- The chunk [`lua_tail.numbered`] made of each module's bytecode, by the module's path and the digest of that
+--- bytecode: the same in every pure store that holds the module, and some three times the work of writing the rest
+--- of a store where each store numbered its modules again.
+local numbered_chunks: mut {string:string} = {}
+
 --- Writes at `out` the closure store for `names` (see
 --- [`closure_store.address`]) of the projection at `whole`, whose basis
 --- is `basis`: what a sandboxed worker of a test whose module's import
@@ -1064,11 +1070,9 @@ end
 --- ([`text_kept`]), which the address digests, and every module's bytecode but `own`'s is stripped of its debug
 --- information, so a test that reads such a row finds none and fails, and
 --- the store's bytes follow from [`closure_store.address`]'s pure address.
----
--- TODO: give the coverage hook the lines of the imported modules of a pure store (their line information kept out of
--- the address, or their hits mapped back by each module's own text): stripped bytecode reports no line, so a sandboxed
--- run records no hit in any module but the test's own (`cosmic test cosmic/clock_test.tl` leaves every line of
--- [`cosmic.clock`] at 0 in `coverage`).
+--- The stripped bytecode is numbered by instruction ([`lua_tail.numbered`]), a function of the stripped
+--- bytecode the address digests, so the coverage hook still sees each instruction an imported module runs, which
+--- the runner places at the line of the run's own text ([`build.test`]'s `place_hits`).
 function closure_store.write(whole: string, out: string, names: {string},
                              basis: closure_store.Basis, extraction?: string,
                              own?: string): boolean, string
@@ -1138,10 +1142,17 @@ function closure_store.write(whole: string, out: string, names: {string},
           "SELECT path, inflate(bytecode) FROM main.modules WHERE path <> ?1 AND path IN temp.wanted", { text(own) })
         if held == nil then return false, held_trouble end
         for _, row in ipairs(held) do
-          local stripped, why = lua_tail.stripped(row:blob(2), row:text(1))
-          if stripped == nil then return false, why end
+          local code = row:blob(2)
+          local chunk_key = row:text(1) .. "\0" .. Hash.hex_sha256(code)
+          local numbered = numbered_chunks[chunk_key]
+          if numbered == nil then
+            local made, why = lua_tail.numbered(code, row:text(1))
+            if made == nil then return false, why end
+            numbered_chunks[chunk_key] = made
+            numbered = made
+          end
           local ok, failure = Sqlite.run(db, "UPDATE main.modules SET bytecode = deflate(?1) WHERE path = ?2",
-            { { blob = stripped }, text(row:text(1)) })
+            { { blob = numbered }, text(row:text(1)) })
           if not ok then return false, failure end
         end
       end
