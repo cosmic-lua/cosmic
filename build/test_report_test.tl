@@ -136,6 +136,31 @@ local function test_a_floor_names_each_file_and_the_total_that_fall_short()
   assert(#test_report.floor(1600, 2000, {}, { min = 80.0 }).lines == 0)
 end
 
+--- A figure that left out the standing hits of modules whose text moved
+--- says it is partial. It is at most the true one, so a floor it meets is
+--- met; one under a floor fails, saying the figure is partial and naming the
+--- files it holds whose hits were dropped.
+local function test_a_partial_figure_says_so_and_fails_a_floor_it_is_under()
+  local note = "partial: hits of 2 modules came from runs on other text; `--all` reruns them"
+  assert(test_report.partial({ a = true, b = true }) == 2)
+  assert(test_report.coverage(1, 4, false, 2) ==
+      "test: coverage 25.0% (1/4 lines; informational, never a failure; " .. note .. ")")
+  assert(test_report.coverage(1, 4, true, 2) == "test: coverage 25.0% (1/4 lines; " .. note .. ")")
+  assert(test_report.coverage(1, 4, true, 0) == "test: coverage 25.0% (1/4 lines)")
+  local stale = { ["b.m"] = true, ["c.m"] = true }
+  local met = test_report.floor(3, 4, { { path = "b.m", hit = 3, lines = 4 } }, { min = 75.0, min_file = 75.0 }, stale)
+  assert(#met.lines == 0 and met.clause == "", "a partial figure at the floor meets it")
+  local files: {test_report.FileLines} = { { path = "a.m", hit = 1, lines = 4 }, { path = "b.m", hit = 1, lines = 4 } }
+  local short = test_report.floor(2, 8, files, { min = 50.0, min_file = 50.0 }, stale)
+  assert(table.concat(short.lines, "\n") ==
+      "test: FAIL  coverage: 25.0% (2/8 lines; " .. note .. ") is under --min 50%\n" ..
+      "test: FAIL  coverage: a.m 25.0% (1/4 lines) is under --min-file 50%\n" ..
+      "test: FAIL  coverage: b.m 25.0% (1/4 lines; partial: its hits came from runs on other text; " ..
+      "`--all` reruns them) is under --min-file 50%", table.concat(short.lines, "\n"))
+  assert(short.clause == "coverage floor not met: 25.0% under --min 50% on a partial figure, " ..
+      "2 files under --min-file 50% (1 on a partial figure)", short.clause)
+end
+
 --- A decimal floor a file meets exactly holds, though `64.4 * 250` rounds above 16100 in floating point.
 local function test_a_decimal_floor_met_exactly_holds()
   local at = test_report.floor(161, 250, { { path = "f.tl", hit = 161, lines = 250 } }, { min = 64.4, min_file = 64.4 })

@@ -108,7 +108,42 @@ local function test_a_standing_verdict_still_credits_its_coverage(tmp: string)
   assert(by_run[1]:text(1) ~= "0" and support.nth(by_run, 2):text(1) == support.nth(by_run, 1):text(1),
     "the standing run credited " .. support.nth(by_run, 2):text(1) .. " lines, not " .. support.nth(by_run, 1):text(1))
   assert(#credits == 1, "expected one coverage_by_test row for the one test")
-  assert(credits[1]:text(2):find("suite.helper\t", 1, true), support.nth(credits, 1):text(2))
+  -- The helper's lines name the text they are numbered in, a prefix of its source hash.
+  assert(credits[1]:text(2):find("suite%.helper %x+\t"), support.nth(credits, 1):text(2))
+end
+
+--- A standing row credits a module's lines only while the module's text is
+--- the one the row names: a comment that moves a harness module's lines moves
+--- no key, so the lines a row names can have moved. A row naming another text,
+--- or none (written by an older tool), credits none of the module's lines,
+--- and the coverage line says the figure is partial.
+local function test_a_standing_row_numbered_in_another_text_credits_none_of_its_lines(tmp: string)
+  local root = project(tmp)
+  for case, named in ipairs({ "suite.helper 0000000000000000\t", "suite.helper\t" }) do
+    local first = tmp .. "/first-" .. tostring(case) .. ".out"
+    local ran = invoke_words(root, first, { "--all", "suite/selected_test.tl" })
+    assert(ran.ok, assert(Fs.read(first)))
+    local db = assert(Sqlite.open(support.build_dir(root) .. "/build.db", { writable = true }))
+    local rows = assert(Sqlite.text_rows(db, "SELECT ran_at_ns, test, hits FROM coverage_by_test " ..
+        "WHERE ran_at_ns = (SELECT max(ran_at_ns) FROM coverage_by_test)"))
+    local row = support.nth(rows, 1)
+    local moved, count = row:text(3):gsub("suite%.helper %x+\t", named)
+    assert(count == 1, row:text(3))
+    assert(Sqlite.run(db, "UPDATE coverage_by_test SET hits = ?1 WHERE ran_at_ns = ?2 AND test = ?3",
+      { { text = moved }, { integer = math.tointeger(tonumber(row:text(1))) or 0 }, { text = row:text(2) } }))
+    assert(db:close())
+    local output = tmp .. "/stood-" .. tostring(case) .. ".out"
+    local stood = invoke(root, output, "suite/selected_test.tl")
+    local text = assert(Fs.read(output))
+    assert(stood.ok, text)
+    assert(text:find("0 ran, 1 stood", 1, true), text)
+    assert(text:find("partial: hits of 1 module came from runs on other text; `--all` reruns them", 1, true), text)
+    db = assert(Sqlite.open(support.build_dir(root) .. "/build.db"))
+    local hit = assert(Sqlite.text_rows(db, "SELECT sum(hit) FROM coverage WHERE path = 'suite.helper' " ..
+        "AND ran_at_ns = (SELECT max(ran_at_ns) FROM coverage)"))
+    assert(db:close())
+    assert(support.nth(hit, 1):text(1) == "0", "credited " .. support.nth(hit, 1):text(1) .. " lines of another text")
+  end
 end
 
 --- A snapshot holds every executable line of a module, ascending, with

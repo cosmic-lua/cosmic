@@ -82,25 +82,75 @@ local function test_selection_is_exact_or_at_a_directory_boundary()
 end
 
 --- A worker's load hits and test hits of one module are two lines of its
---- row, the run's hits hold their union, and a table taken before is
---- not folded or spelled again.
+--- row, each naming the module's text, the run's hits hold their union, and
+--- a table taken before is not folded or spelled again.
 local function test_a_modules_load_and_test_hits_are_two_lines_of_its_row()
   local hits: mut {string:mut {integer:boolean}} = {}
   local folded: {{integer:boolean}:boolean} = {} -- declared: key_type
   local spelled: {{integer:boolean}:string} = {} -- declared: key_type
   local loaded: {integer:boolean} = { [3] = true, [1] = true }
+  local texts = { ["build.a"] = "0123abcd" }
   local row = test.take_hits(hits, { ["core"] = {} }, folded, spelled,
-    { ["build.a"] = loaded, ["core"] = { [9] = true } }, { ["build.a"] = { [7] = true } })
-  assert(row == "build.a\t1,3\nbuild.a\t7\n", row)
+    { ["build.a"] = loaded, ["core"] = { [9] = true } }, { ["build.a"] = { [7] = true } }, texts)
+  assert(row == "build.a 0123abcd\t1,3\nbuild.a 0123abcd\t7\n", row)
   local taken = assert(hits["build.a"], "build.a is taken")
   assert(taken[1] == true and taken[3] == true and taken[7] == true)
   assert(hits["core"] == nil)
   taken[1] = nil
-  row = test.take_hits(hits, {}, folded, spelled, { ["build.a"] = loaded }, {})
+  row = test.take_hits(hits, {}, folded, spelled, { ["build.a"] = loaded }, {}, texts)
   local retaken = hits["build.a"]
-  assert(row == "build.a\t1,3\n" and retaken ~= nil and retaken[1] == nil, "a taken table is folded once")
-  local again = test.take_hits({}, {}, {}, {}, { ["build.a"] = loaded }, {})
+  assert(row == "build.a 0123abcd\t1,3\n" and retaken ~= nil and retaken[1] == nil, "a taken table is folded once")
+  local again = test.take_hits({}, {}, {}, {}, { ["build.a"] = loaded }, {}, texts)
   assert(again == row)
+  -- A path that is no module of the run (the core's C) names no text: the key holds it.
+  assert(test.take_hits({}, {}, {}, {}, { ["core/a.c"] = { [2] = true } }, {}, texts) == "core/a.c -\t2\n")
+end
+
+--- A standing row's lines are credited only for the modules whose text it
+--- names is still this run's. A comment that moves a harness module's lines
+--- moves no key, so a row written before it numbers lines the text no longer
+--- has there: those are dropped and the module named stale, as is every
+--- module of a row too old to name its text. The core's C is credited as it
+--- stands, its text held by the key.
+local function test_standing_hits_of_a_module_whose_text_moved_are_dropped_and_counted()
+  local function module(path: string, hash: string): plans.Module
+    return { path = path, file = path, kind = "lib", source = "", source_hash = hash, requires = {}, tests = {}, inputs = nil }
+  end
+  local texts = test.identities({ module("build.moved", string.rep("b", 64)),
+    module("build.same", string.rep("c", 64)) })
+  assert(texts["build.same"] == string.rep("c", 16), texts["build.same"])
+  local row = "build.moved " .. string.rep("a", 16) .. "\t4,5\n" ..
+    "build.same " .. string.rep("c", 16) .. "\t1,2\n" ..
+    "core/a.c -\t9\n" .. "core/b.c\t8\n" ..
+    "build.old\t3\n"
+  local hits: mut {string:mut {integer:boolean}} = {}
+  local stale: mut {string:boolean} = {}
+  local kept = test.decode_hits(row, hits, texts, stale)
+  assert(hits["build.moved"] == nil, "a module numbered in another text is credited no line")
+  local same = assert(hits["build.same"], "a module of the same text is credited")
+  assert(same[1] == true and same[2] == true)
+  assert(assert(hits["core/a.c"])[9] == true and assert(hits["core/b.c"])[8] == true,
+    "the core's C is credited as it stands")
+  assert(stale["build.moved"] == true and stale["build.same"] == nil, "the moved module is stale")
+  assert(hits["build.old"] ~= nil and stale["build.old"] == nil,
+    "a path that is no module of this run is no figure's, and folded as it stands")
+  -- A row from before rows named their text names a module of this run: stale.
+  local before: mut {string:boolean} = {}
+  local _ = test.decode_hits("build.same\t1,2\n", {}, texts, before)
+  assert(before["build.same"] == true, "a row naming no text credits no module")
+  assert(kept == row, "the row is kept as written, so a run standing on it drops the same lines: " .. kept)
+  -- A share keeps no line of the core's C another project owns.
+  local unowned_kept = test.decode_hits(row, {}, texts, {}, { ["core/a.c"] = {}, ["core/b.c"] = {} })
+  assert(unowned_kept:find("core/", 1, true) == nil and unowned_kept:find("build.moved", 1, true) ~= nil, unowned_kept)
+end
+
+--- The first progress line of a run that names the longest-running tests
+--- points at where every test's time is; the later ones do not.
+local function test_the_first_longest_running_line_says_where_every_tests_time_is()
+  local first = test.longest_detail("a 31 s", false)
+  assert(first:find("^longest running: a 31 s; every test's time: cosmic sql %-%-build \"select ") ~= nil, first)
+  assert(first:find("from runs order by elapsed_ns desc", 1, true), first)
+  assert(test.longest_detail("a 61 s", true) == "longest running: a 61 s")
 end
 
 --- `--shard I/N` names one of N shares, from 1; nothing else does.
