@@ -104,3 +104,87 @@ local function test_cpu_ns_does_not_count_a_sleep()
   assert(wall >= Clock.ms(200), tostring(wall))
   assert(cpu < wall // 4, "slept " .. tostring(wall) .. " ns of wall time and used " .. tostring(cpu) .. " ns of CPU")
 end
+
+local function test_a_span_in_a_loop_adds_each_pass_to_its_name()
+  local spans: Clock.Spans = {}
+  for _ = 1, 3 do
+    local _pass <close> = Clock.span(spans, "pass")
+    assert(Clock.sleep_ns(Clock.ms(2)))
+  end
+  local pass = assert(spans["pass"])
+  assert(pass.count == 3, tostring(pass.count))
+  assert(pass.wall_ns >= Clock.ms(6), tostring(pass.wall_ns))
+  -- A sleep runs nothing, so it takes far less CPU time than wall time.
+  assert(pass.cpu_ns >= 0 and pass.cpu_ns < pass.wall_ns, tostring(pass.cpu_ns))
+end
+
+local function test_a_span_counts_the_cpu_time_of_work()
+  local spans: Clock.Spans = {}
+  do
+    local _work <close> = Clock.span(spans, "work")
+    busy_for(Clock.ms(50))
+  end
+  local work = assert(spans["work"])
+  -- Under load the thread may be given less than the wall time it spans, so only a share of it is asked for.
+  assert(work.count == 1 and work.cpu_ns >= Clock.ms(10), tostring(work.cpu_ns))
+end
+
+local function test_an_outer_span_holds_the_time_of_the_spans_inside_it()
+  local spans: Clock.Spans = {}
+  do
+    local _outer <close> = Clock.span(spans, "outer")
+    for _ = 1, 2 do
+      local _inner <close> = Clock.span(spans, "inner")
+      assert(Clock.sleep_ns(Clock.ms(2)))
+    end
+  end
+  local outer, inner = assert(spans["outer"]), assert(spans["inner"])
+  assert(outer.count == 1 and inner.count == 2)
+  assert(outer.wall_ns >= inner.wall_ns and inner.wall_ns >= Clock.ms(4), tostring(outer.wall_ns))
+end
+
+local function test_a_span_an_error_ends_still_adds_its_time()
+  local spans: Clock.Spans = {}
+  local ok, why = pcall(function()
+    local _failing <close> = Clock.span(spans, "failing")
+    error("the work failed")
+  end)
+  assert(not ok and tostring(why):find("the work failed", 1, true) ~= nil, tostring(why))
+  assert(assert(spans["failing"]).count == 1)
+end
+
+local function test_report_lists_the_names_by_wall_time_then_by_name()
+  local spans: Clock.Spans = {
+    quick = { count = 1, wall_ns = 1000000, cpu_ns = 500000 },
+    slow = { count = 12, wall_ns = 35201000, cpu_ns = 30002000 },
+    also = { count = 2, wall_ns = 1000000, cpu_ns = 0 },
+  }
+  local lines = Clock.report(spans)
+  assert(#lines == 3, table.concat(lines, "\n"))
+  assert(lines[1] == "slow   12 spans, 35.201 ms wall, 30.002 ms cpu", lines[1])
+  assert(lines[2] == "also   2 spans, 1.000 ms wall, 0.000 ms cpu", lines[2])
+  assert(lines[3] == "quick  1 span, 1.000 ms wall, 0.500 ms cpu", lines[3])
+  assert(#Clock.report({}) == 0)
+end
+
+local function test_report_pads_a_name_longer_than_a_format_width_takes()
+  local long = ("n"):rep(150)
+  local spans: Clock.Spans = {
+    [long] = { count = 1, wall_ns = 2000000, cpu_ns = 0 },
+    short = { count = 1, wall_ns = 1000000, cpu_ns = 0 },
+  }
+  local lines = Clock.report(spans)
+  assert(lines[1] == long .. "  1 span, 2.000 ms wall, 0.000 ms cpu", lines[1])
+  assert(lines[2] == "short" .. (" "):rep(145) .. "  1 span, 1.000 ms wall, 0.000 ms cpu", lines[2])
+end
+
+local function test_report_pads_a_name_by_its_characters()
+  local spans: Clock.Spans = {
+    ["\u{e9}t\u{e9}"] = { count = 1, wall_ns = 2000000, cpu_ns = 0 },
+    long = { count = 1, wall_ns = 1000000, cpu_ns = 0 },
+  }
+  local lines = Clock.report(spans)
+  -- "été" is three characters in five bytes, so it takes one space to reach "long".
+  assert(lines[1] == "\u{e9}t\u{e9}   1 span, 2.000 ms wall, 0.000 ms cpu", lines[1])
+  assert(lines[2] == "long  1 span, 1.000 ms wall, 0.000 ms cpu", lines[2])
+end

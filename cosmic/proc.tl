@@ -8,6 +8,7 @@ local sys = require("cosmic.sys")
 local type raw_process = require("cosmic.internal.process")
 
 local raw = require("cosmic.internal.process")
+local source_run = require("cosmic.internal.source_run")
 
 local record Proc
   --- A named account's numeric user and primary group identifiers.
@@ -52,6 +53,12 @@ local record Proc
     --- The working directory this process started in, for the child's
     --- [`Child.Options.cwd`]; nil where it could not be read then.
     cwd?: string
+    --- Under a source run (`cosmic <file.tl>`), the file's absolute path;
+    --- nil in any other process: a built program, `-e`, `--standalone`, a
+    --- test. `argv` starts cosmic itself, so a child given `argv` and its own
+    --- words runs a verb of cosmic's; one given `argv`, then `script`, then
+    --- its words and `cwd` runs this program again (see [`Proc.relaunch`]).
+    script?: string
   end
 end
 
@@ -111,6 +118,28 @@ function Proc.cpu_count(): integer
   return sys.cpu_count()
 end
 
+--- The start [`Proc.relaunch`] answers, before a source run's script is
+--- added to it.
+local function started(): Proc.Relaunch?, string
+  local found, trouble = raw.relaunch(ARTIFACT_FD, CORE_FD)
+  if found == nil then return nil, trouble end
+  local database = found.database
+  if database ~= nil then
+    return { argv = { found.path, "--database", database }, env = {}, fds = {}, cwd = found.cwd }, ""
+  end
+  if found.host == true then
+    return { argv = { found.path }, env = {}, fds = {}, cwd = found.cwd }, ""
+  end
+  -- One core descriptor serves every relaunch; it is closed on exec, so
+  -- nothing but a child it is handed to ever inherits it.
+  return {
+    argv = { found.path, "--artifact", assert(found.artifact) },
+    env = assert(found.environment),
+    fds = { [ARTIFACT_FD] = assert(found.artifact_fd), [CORE_FD] = assert(found.core_fd) },
+    cwd = found.cwd,
+  }, ""
+end
+
 --- How to start this same program again exactly: the same native core,
 --- artifact, and database this process runs, executed directly with the
 --- private startup contract its launcher would give it, so the child
@@ -123,29 +152,31 @@ end
 --- child's own arguments to `argv`, add `env` to its environment, and pass
 --- `fds` to [`Child.start`]. Returns nil and why when this process has no
 --- artifact to start again, or its executable or core cannot be reopened.
+---
+--- Under a source run (`cosmic <file.tl>`) the program is cosmic: `argv`
+--- starts cosmic, as a script that drives cosmic's verbs needs, and
+--- `script` names the file. To run the script again, put `script` after
+--- `argv` and before the child's own arguments, and start the child in
+--- `cwd`: a file run builds the working directory's tree when the file is
+--- under it, else the file's own directory, so a child started elsewhere
+--- builds another tree, where the project's modules may not be. Each such
+--- child checks the tree and runs the source as it is when the child
+--- starts.
 function Proc.relaunch(): Proc.Relaunch?, string
   local relaunch = cached.relaunch
-  if relaunch ~= nil then return relaunch, "" end
-  local found, trouble = raw.relaunch(ARTIFACT_FD, CORE_FD)
-  if found == nil then return nil, trouble end
-  local database = found.database
-  if database ~= nil then
-    cached.relaunch = { argv = { found.path, "--database", database }, env = {}, fds = {}, cwd = found.cwd }
-    return cached.relaunch, ""
+  if relaunch == nil then
+    local found, trouble = started()
+    if found == nil then return nil, trouble end
+    relaunch = found
   end
-  if found.host == true then
-    cached.relaunch = { argv = { found.path }, env = {}, fds = {}, cwd = found.cwd }
-    return cached.relaunch, ""
+  -- Read on each call: one the tool makes before it loads the file finds
+  -- no script yet.
+  local script = source_run.script
+  if relaunch.script ~= script then
+    relaunch = { argv = relaunch.argv, env = relaunch.env, fds = relaunch.fds, cwd = relaunch.cwd, script = script }
   end
-  -- One core descriptor serves every relaunch; it is closed on exec, so
-  -- nothing but a child it is handed to ever inherits it.
-  cached.relaunch = {
-    argv = { found.path, "--artifact", assert(found.artifact) },
-    env = assert(found.environment),
-    fds = { [ARTIFACT_FD] = assert(found.artifact_fd), [CORE_FD] = assert(found.core_fd) },
-    cwd = found.cwd,
-  }
-  return cached.relaunch, ""
+  cached.relaunch = relaunch
+  return relaunch, ""
 end
 
 -- The search list `find` uses when PATH is unset, as execvp does.

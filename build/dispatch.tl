@@ -306,14 +306,14 @@ local function index_help(): string
   return table.concat(lines, "\n") .. "\n"
 end
 
---- The directory a path sits in, absolute.
-local function directory_of(path: string): string?, string
-  local Fs = require("cosmic.fs")
-  local resolved, trouble = Fs.absolute(path)
-  if resolved == nil then
-    return nil, trouble
-  end
-  return Fs.dirname(resolved), ""
+--- The tree a file run builds, and why it is that one.
+local record Root
+  --- The tree's directory, absolute.
+  dir: string
+  --- Which rule chose it, as a hint names it: the working directory, or the file's own directory.
+  chosen: string
+  --- The file run, absolute.
+  file: string
 end
 
 --- The tree a file run builds: the working directory when the file
@@ -321,7 +321,7 @@ end
 --- builds the project as `test` and `build` do and the file reaches
 --- the rest of it; the file's own directory otherwise, so a file
 --- anywhere else runs on its own.
-local function root_of(file: string): string?, string
+local function root_of(file: string): Root?, string
   local Fs = require("cosmic.fs")
   local resolved, trouble = Fs.absolute(file)
   if resolved == nil then
@@ -329,9 +329,13 @@ local function root_of(file: string): string?, string
   end
   local here, _ = Fs.absolute(".")
   if here ~= nil and Fs.within(resolved, here) then
-    return here, ""
+    return { dir = here, chosen = "the working directory, which holds the file", file = resolved }, ""
   end
-  return directory_of(file)
+  return {
+    dir = Fs.dirname(resolved),
+    chosen = "the file's own directory, since the working directory does not hold the file",
+    file = resolved,
+  }, ""
 end
 
 --- The module a file is, as its path relative to the root says: a
@@ -344,6 +348,8 @@ local function module_of(root: string, file: string): string?, string
   if resolved == nil then
     return nil, trouble
   end
+  -- TODO: refuse a tree of `/` (a file run from `/`, or of a file there) with a message that says to run the file
+  -- from its project's root, before staging it: `root .. "/"` is `//` there, so a file under it is said not to be.
   if not String.starts_with(resolved, root .. "/") then
     return nil, file .. " is not inside " .. root
   end
@@ -393,6 +399,22 @@ local function with_standalone_hint(trouble: string, file: string, name: string)
     "`cosmic --standalone " .. file .. "` (or COSMIC_STANDALONE=1) runs the file alone"
 end
 
+--- `trouble`, the reason a file run's build failed, with a line naming the tree the run built and the rule that chose
+--- it where the checker found a `require` of a module the tree does not hold (`require_unknown`): a file run from
+--- below its project's root, or from outside it, builds a smaller tree, which holds no module the file names from the
+--- project's root. The line says only what the run knows; which project the file belongs to, it cannot tell.
+local function with_tree_hint(trouble: string, root: Root): string
+  if trouble:find("(require_unknown)", 1, true) == nil then
+    return trouble
+  end
+  -- TODO: leave out the checker's "did you mean" of `trouble` where this hint is given, once lang/check.tl's
+  -- `require_unknown` suggestion can be told the project's root: from a directory above the project it names the
+  -- module from the run's tree (`proj.m`), a require that works only from there.
+  return trouble .. "\n" .. "cosmic: this run built the tree " .. root.dir .. ", " .. root.chosen ..
+    "; a module is named from the tree's root, so if the file belongs to a project elsewhere, run it from that " ..
+    "project's root"
+end
+
 --- Runs a file. The file is a module: it is required once its tree is
 --- built, with its arguments (below) set in the global `arg` before its
 --- top level runs, and if what it returns is a function, that function is
@@ -423,11 +445,12 @@ local function run(file: string, argv: {string}): integer
   local build_paths = require("build.paths")
   local work = require("build.work")
   local writer = require("build.writer")
-  local root, trouble = root_of(file)
-  if root == nil then
+  local tree_root, trouble = root_of(file)
+  if tree_root == nil then
     log:complain(trouble)
     return 1
   end
+  local root = tree_root.dir
   local name, why = module_of(root, file)
   if name == nil then
     log:complain(why)
@@ -477,7 +500,7 @@ local function run(file: string, argv: {string}): integer
   local result, compile_trouble = importer.compile_for(handle, tool, name, shared_compiles.for_build(), outcome)
   if result == nil then
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
-    local hinted = with_standalone_hint(compile_trouble, file, name)
+    local hinted = with_tree_hint(with_standalone_hint(compile_trouble, file, name), tree_root)
     local _, _ = work.close(handle)
     log:complain(hinted)
     return if outcome.refused then exit_status.uncompiled else 1 end
@@ -529,6 +552,8 @@ local function run(file: string, argv: {string}): integer
   -- The file's top level, which `require` hands its own name and loader
   -- data as `...`, finds its words in `arg`, as `lua file a b` gives them.
   rawset(_G as {string:any}, "arg", arguments) -- checked: cast_refused, unchecked_binding
+  -- What [`Proc.relaunch`] answers as `script`, so the program can start itself again.
+  require("cosmic.internal.source_run").script = tree_root.file
   local load_module = require("build.load_module")
   local entry = standalone.entry(load_module.load(name))
   if entry ~= nil then
