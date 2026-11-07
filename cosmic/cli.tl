@@ -632,8 +632,16 @@ local record Cli
   --- or `cosmic`, each module the page lists. Filter it by composing,
   --- as `cosmic json` does: `cosmic docs --json Fs.read Fs.write |
   --- cosmic sql --from docs=- --as ndjson "SELECT symbol, line FROM
-  --- docs WHERE kind = 'function'"`. The
-  --- tree is found as `test` finds it
+  --- docs WHERE kind = 'function'"`. A doc is the run of comment
+  --- lines directly above a declaration, a record's field or an
+  --- enum's value: its `---` lines where it has any, else its `--`
+  --- lines, less TODO lines and the build's `--- @` tags. A
+  --- trailing comment and a comment inside a table constructor are
+  --- none, so a table's entries are documented by the record that
+  --- types it. A function declared as a field of the record a module
+  --- returns, and defined as `function Record.f`, shows the field's
+  --- doc unless the definition has a `---` doc of its own, and is
+  --- placed at the definition. The tree is found as `test` finds it
   docs: string
   --- `cosmic uses <sym> [path...]`: every place that refers to a
   --- symbol, as file:line -- only those under the paths, when given --
