@@ -23,7 +23,10 @@ defines the target; once something ships, it leaves this file.
   literal or a local never reassigned), where a write to any index drops
   every index place; `is` tests a field as it does a local; `x is A | B | C`
   guards all its members, not the last pair; an assignment drops the place
-  assigned and its extensions only (`r.f = v` keeps `r.foo`).
+  assigned and its extensions only (`r.f = v` keeps `r.foo`). a range test
+  `i >= 1 and i <= #t` lets a write `t[i] = v` stand in its block
+  ([`Writes.ranges_of`]); a read `t[i]` there is still `T?`, where the same
+  test could make it `T` as a counted loop's index does ([`Writes.counted_read`]).
 - make a metamethod's run a call wherever it can happen, which the checker
   tells today by the operator or index it dispatches from: reading a
   declared field of a record that declares `__index` or `__newindex` runs
@@ -51,6 +54,27 @@ defines the target; once something ships, it leaves this file.
   `cosmic/coverage/SENSITIVITY.md` is a useful model: establish a floor from CI
   measurements and record why root access, a terminal, a free port, or a
   platform feature changes it.
+
+## measuring
+
+- a sampling profiler taken by the tool, not by the program. a program
+  installs no hook (`debug.sethook` is refused, [`cosmic.removed`]), and the
+  harness already runs a hook of its own for coverage ([`cosmic.coverage`],
+  [`core/coverage.c`]), so the tool can sample where it counts lines:
+  `cosmic test --profile <selector>` would sample the tests it selects, and
+  `cosmic --profile <file.tl>` a file run, writing each function's and line's
+  self time into a table of `build.db` that `cosmic sql --build` reads beside
+  `runs` and `coverage` ([doc/guides/measuring.md](guides/measuring.md)).
+  [`Clock.span`] times the regions a builder marks by hand until then.
+- pin [`Proc.relaunch`] under a source run (`cosmic <file.tl>`) to the build
+  of the parent: each child it starts checks the tree again and runs the
+  source as it is when the child starts, so a child can run other code than
+  its parent, and every child pays for the check. a child would run the
+  parent's compiled program instead, named by the relaunch.
+- relaunch a `--standalone` run: [`Proc.relaunch`] gives it no `script`, so
+  a child cannot run the file again. it would record the file and carry the
+  `--standalone` word in `argv`, so the child runs the file alone, as its
+  parent did.
 
 ## untrusted input
 
@@ -425,8 +449,10 @@ four-producer provenance join.
 [`Child.end_strays`]: ../cosmic/child.tl
 [`ci/cosmic-driver.pin`]: ../ci/cosmic-driver.pin
 [`ci/cosmic_ci/prerelease.tl`]: ../ci/cosmic_ci/prerelease.tl
+[`Clock.span`]: ../cosmic/clock.tl
 [`core/coverage.c`]: ../core/coverage.c
 [`core/json.c`]: ../core/json.c
+[`cosmic.coverage`]: ../cosmic/coverage.tl
 [`cosmic.fs`]: ../cosmic/fs.tl
 [`cosmic.html`]: ../cosmic/html.tl
 [`cosmic.http.server`]: ../cosmic/http/server.tl
@@ -437,6 +463,7 @@ four-producer provenance join.
 [`cosmic.net`]: ../cosmic/net.tl
 [`cosmic.relay.address`]: ../cosmic/relay/address.tl
 [`cosmic.relay.grant`]: ../cosmic/relay/grant.tl
+[`cosmic.removed`]: ../cosmic/removed.tl
 [`cosmic.sandbox`]: ../cosmic/sandbox/init.tl
 [`cosmic.shape`]: ../cosmic/shape.tl
 [`cosmic.template`]: ../cosmic/template/init.tl
@@ -458,6 +485,7 @@ four-producer provenance join.
 [`lang/flow.tl`]: ../lang/flow.tl
 [`lang/stdlib.d.tl`]: ../lang/stdlib.d.tl
 [`Net.serve`]: ../cosmic/net.tl
+[`Proc.relaunch`]: ../cosmic/proc.tl
 [`Sandbox.Limits`]: ../cosmic/sandbox/init.tl
 [`Sandbox.Policy`]: ../cosmic/sandbox/init.tl
 [`Server.none_match`]: ../cosmic/http/server.tl
@@ -473,3 +501,5 @@ four-producer provenance join.
 [`Url.parse`]: ../cosmic/url.tl
 [`Url.Parts`]: ../cosmic/url.tl
 [`Url.segments`]: ../cosmic/url.tl
+[`Writes.counted_read`]: ../lang/check.tl
+[`Writes.ranges_of`]: ../lang/check.tl
