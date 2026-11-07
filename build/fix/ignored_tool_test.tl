@@ -68,7 +68,7 @@ local function test_a_link_to_an_ignored_path_is_refused_as_build_output(tmp: st
   local result = run(root, { "fix", "README.md" })
   local said = assert(result.stdout)
   assert(not result.ok, said)
-  assert(said:find("link: out/gen.txt does not resolve (it is ignored build output (.gitignore), absent from a fresh " ..
+  assert(said:find("link: out/gen.txt does not resolve (it is ignored (.gitignore), so absent from a fresh " ..
       "checkout: link the source or rule that makes it, or write it as code text)", 1, true) ~= nil, said)
 end
 

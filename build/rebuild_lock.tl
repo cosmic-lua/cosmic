@@ -134,7 +134,7 @@ local elapsed = rebuild_lock.elapsed
 --- The age, not a time written in it, is what a reader goes by, so a
 --- file of the two lines `pid` and role an older tool writes says it too,
 --- and that tool still reads this one's.
-function rebuild_lock.held_for(path: string): string?
+local function held_for(path: string): string?
   local st, _ = sys.stat(path)
   if st == nil then return nil end
   local held_ns = Clock.now_ns() - (st.mtime * Clock.seconds(1) + st.mtime_ns)
@@ -310,7 +310,7 @@ end
 --- checkout -- names what that namespace called it, not a process here.
 --- A holder that names no role, as a tool from before roles did, is
 --- taken to be rebuilding. A holder named by its pid is said to have held
---- the lock as long as its file is old ([`rebuild_lock.held_for`]): "...
+--- the lock as long as its file is old ([`held_for`]): "...
 --- is running its tests (it has held the lock for 4 min)", which tells a
 --- long run from one that has stopped.
 function rebuild_lock.holder(root: string): string
@@ -331,7 +331,7 @@ function rebuild_lock.holder(root: string): string
     local alive, _ = sys.kill(pid, 0)
     if alive then
       who = "another cosmic run (pid " .. tostring(pid) .. ")"
-      local age = rebuild_lock.held_for(file)
+      local age = held_for(file)
       if age ~= nil then since = " (it has held the lock for " .. age .. ")" end
     end
   end

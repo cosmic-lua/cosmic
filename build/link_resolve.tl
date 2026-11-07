@@ -32,7 +32,7 @@ local record link_resolve
     read: function(path: string): string?
     --- Each symbol `query` names (step 2). Nil and why when the
     --- databases cannot be read.
-    symbols: function(query: string): {Symbol}?, string
+    mut symbols: function(query: string): {Symbol}?, string
     --- The symbols of `module` whose name is `member`.
     member: function(module: string, member: string): {Symbol}?, string
     --- The absolute `path` with every symbolic link in it followed, or
@@ -263,8 +263,8 @@ local function located(resolver: link_resolve.Resolver, from: string, target: st
       reason = if ("/" .. relative .. "/"):find("/node_modules/", 1, true) ~= nil then
         "it is under node_modules/, absent from a fresh checkout: link the source that names the package, or write " ..
           "it as code text" else
-        "it is ignored build output (.gitignore), absent from a fresh checkout: link the source or rule that makes it, " ..
-          "or write it as code text" end
+        "it is ignored (.gitignore), so absent from a fresh checkout: link the source or rule that makes it, or " ..
+          "write it as code text" end
     elseif kind_at(resolver, path) ~= nil then
       local real_root = resolver.real_root or resolver.context.real(root) or root
       resolver.real_root = real_root
@@ -395,8 +395,9 @@ local record TargetFields
 end
 
 --- Why a name in full `dotted` names nothing known, where the build made for this resolution refused the module it is
---- of, or that module itself: the longest such module's ([`Context.refused`]). Nil where it built, or where no build was
---- made.
+--- of ([`Context.refused`]): that module is `dotted`'s longest prefix the symbols know as a module, or failing that the
+--- longest the build refused. A module that built answers for its own members even under a parent that did not. Nil
+--- where it built, or where no build was made.
 local function refused_prefix(resolver: link_resolve.Resolver, dotted: string): string?
   local refused = resolver.context.refused
   if refused == nil then return nil end
@@ -404,6 +405,9 @@ local function refused_prefix(resolver: link_resolve.Resolver, dotted: string): 
   while true do
     if refused(module) then
       return module .. " did not build, so its symbols are unknown; fix it first"
+    end
+    for _, symbol in ipairs(symbols_named(resolver, module)) do
+      if symbol.module == module then return nil end
     end
     local shorter = module:match("^(.+)%.[^.]+$")
     if shorter == nil then return nil end

@@ -113,6 +113,8 @@ allowed["build.test_key.requirements"] = "the names a module requires of its hos
 allowed["build.test_key.met_nothing"] = "whether a checked run's report holds a violation, which `judge` asks and a test holds to the report's two clauses (a row, and rows that went unrecorded)"
 allowed["build.work.lock_holder_in"] = "the reading of /proc/locks `holding` names a lock's holder by, which a test " ..
   "holds to lines a sandboxed worker's /proc cannot show it"
+allowed["build.work.holder_line"] = "what `holding` says of what it read of the host, which a test holds to hosts " ..
+  "a sandboxed worker cannot be"
 allowed["build.memprobe.enabled"] = "the switch `COSMIC_MEMPROBE` sets for a run, which a test turns on to read the line a mark writes"
 
 allowed["build.type_watch.skip_reason"] = "the reason `during` skips with, which a test reads for a checked and a plain run " ..

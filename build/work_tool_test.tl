@@ -79,7 +79,7 @@ local function test_a_build_waiting_for_the_write_lock_names_its_holder_and_how_
   local path = build_paths.under(held.dir).working
   local locks, _ = Fs.read("/proc/locks")
   local shm, _ = sys.stat(path .. "-shm")
-  if locks == nil or shm == nil or work.lock_holder_in(locks, shm.dev, shm.ino, 120) ~= sys.getpid() then
+  if locks == nil or shm == nil or work.lock_holder_in(locks, { dev = shm.dev, ino = shm.ino }, 120) ~= sys.getpid() then
     assert(work.abort(held))
     Test.skip("/proc/locks is missing, as from a sandboxed worker's /proc, or does not show this process's own lock")
   end

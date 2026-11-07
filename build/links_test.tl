@@ -343,6 +343,26 @@ local function test_a_link_into_a_module_that_did_not_build_says_so()
   })
 end
 
+--- A module that built answers for its own members though a module above it did not: the link names what it lacks.
+local function test_a_link_into_a_module_that_built_under_one_that_did_not_says_what_it_lacks()
+  local source = lines(
+    "local S = require(\"m.sub\")",
+    "-- [`S.nope`] and [`m.sub.nope`], beside [`m.gone`].",
+    "return S")
+  local context = world({}, {}, { ["m.sub.one"] = { "m.sub.one" } })
+  local symbols = context.symbols
+  context.symbols = function(query: string): {link_resolve.Symbol}?, string
+    if query == "m.sub" then return { { module = "m.sub", symbol = "" } }, "" end
+    return symbols(query)
+  end
+  context.refused = function(module: string): boolean return module == "m" end
+  same(checked(context, "/p/a.tl", "teal", source), {
+    "/p/a.tl:2: link: S.nope does not resolve (m.sub has no nope)",
+    "/p/a.tl:2: link: m.sub.nope does not resolve (no declaration, symbol or file by that name)",
+    "/p/a.tl:2: link: m.gone does not resolve (m did not build, so its symbols are unknown; fix it first)",
+  })
+end
+
 --- A path the tree ignores stays refused, saying why: no fresh checkout has it.
 local function test_a_link_to_an_ignored_path_says_it_is_build_output()
   local context = world({ ["/p/a.md"] = "", ["/p/out/results.db"] = "", ["/p/node_modules/x/README.md"] = "" })
@@ -356,7 +376,7 @@ local function test_a_link_to_an_ignored_path_says_it_is_build_output()
   end
   context.ignored = ignored
   same(checked(context, "/p/a.md", "markdown", "[r](out/results.db) [n](node_modules/x/README.md)\n"), {
-    "/p/a.md:1: link: out/results.db does not resolve (it is ignored build output (.gitignore), absent from a fresh " ..
+    "/p/a.md:1: link: out/results.db does not resolve (it is ignored (.gitignore), so absent from a fresh " ..
       "checkout: link the source or rule that makes it, or write it as code text)",
     "/p/a.md:1: link: node_modules/x/README.md does not resolve (it is under node_modules/, absent from a fresh " ..
       "checkout: link the source that names the package, or write it as code text)",

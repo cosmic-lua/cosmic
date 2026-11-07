@@ -37,6 +37,25 @@ local log = require("build.logger").log
 local _ = require("build.reads.links")
 
 local record work
+  --- A file by its device, as a stat gives it, and its inode.
+  record Place
+    dev: integer
+    ino: integer
+  end
+
+  --- What [`work.holding`] reads of a host to name the holder of a write
+  --- lock ([`work.holder_line`]): the text of /proc/locks, the `-shm` file
+  --- and the database file, the text of the holder file and its age, and
+  --- this process's pid. A field is nil where it could not be read.
+  record Seen
+    locks?: string
+    mut shm?: Place
+    mut file?: Place
+    mut named?: string
+    mut age_ns?: integer
+    own: integer
+  end
+
   --- One file of `web_assets`: its name in the table, its bytes, their
   --- SHA-256 as hex, their SHA-384 as base64 and the vendored version.
   record WebAsset
@@ -638,19 +657,27 @@ local wal_write_byte <const> = 120
 local reserved_byte <const> = 1073741825
 
 --- The pid that `locks`, the text of Linux's /proc/locks, says holds a
---- POSIX write lock from byte `start` of the file on device `dev` (as a
---- stat gives it) at inode `ino`. Nil where none does, and where the
---- holder is in a pid namespace this process cannot see, which the file
---- shows as pid 0. A line of a process blocked waiting for the lock
---- (`N: -> POSIX ...`) names a waiter, not the holder, and is passed over.
-function work.lock_holder_in(locks: string, dev: integer, ino: integer, start: integer): integer?
+--- POSIX write lock over byte `byte` of the file at `place`. Nil where
+--- none does, and where the holder is in a pid namespace this process
+--- cannot see, which the file shows as pid 0. A line of a process
+--- blocked waiting for the lock (`N: -> POSIX ...`) names a waiter, not
+--- the holder, and is passed over. A lock is a range, `EOF` ending one
+--- that runs to the file's end: Linux merges the adjacent locks of one
+--- owner, as SQLite's PENDING, RESERVED and SHARED bytes are at a
+--- commit in rollback mode.
+function work.lock_holder_in(locks: string, place: work.Place, byte: integer): integer?
   -- The file names a device by its major and minor numbers in hex, as
   -- the kernel splits `st_dev`.
+  local dev = place.dev
   local major = ((dev >> 8) & 0xfff) | ((dev >> 32) & ~0xfff)
   local minor = (dev & 0xff) | ((dev >> 12) & ~0xff)
   for line in locks:gmatch("[^\n]+") do
-    local pid, maj, min, at, from = line:match("^%d+: POSIX%s+%u+%s+WRITE%s+(%d+)%s+(%x+):(%x+):(%d+)%s+(%d+)%s")
-    if pid ~= nil and math.tointeger(tonumber(at)) == ino and math.tointeger(tonumber(from)) == start and
+    local pid, maj, min, at, from, to = line:match(
+      "^%d+: POSIX%s+%u+%s+WRITE%s+(%d+)%s+(%x+):(%x+):(%d+)%s+(%d+)%s+(%w+)")
+    local first = math.tointeger(tonumber(from))
+    local last = if to == "EOF" then math.maxinteger else math.tointeger(tonumber(to)) end
+    if pid ~= nil and math.tointeger(tonumber(at)) == place.ino and first ~= nil and last ~= nil and
+        first <= byte and byte <= last and
         math.tointeger(tonumber(maj, 16)) == major and math.tointeger(tonumber(min, 16)) == minor then
       local holder = math.tointeger(tonumber(pid))
       if holder ~= nil and holder > 0 then return holder end
@@ -662,7 +689,7 @@ end
 --- The file beside the working database at `path` that names the last
 --- process of this tool to take its write lock, by its pid, written the
 --- moment it took it, so its age is how long that process has held the
---- lock ([`rebuild_lock.held_for`]) while it still does.
+--- lock ([`work.holder_line`]) while it still does.
 local function holder_file(path: string): string
   return path .. ".pid"
 end
@@ -681,40 +708,54 @@ local function mark_holder(path: string)
   end
 end
 
---- Another run holding the write lock of the working database at `path`,
---- as a run that waits for it, or reads past it, says it. Its pid is the
---- one Linux's /proc/locks says holds the lock, and no other: a run of
---- this tool, of an older one, or any process holding it through SQLite.
---- How long it has held it comes from [`holder_file`], where that names
---- the same pid. Where the system names no holder (another system, a
---- holder in another pid namespace or on another host of a shared file
---- system) none is named.
+--- Another process holding the write lock of the working database at
+--- `path`, as a run that waits for it, or reads past it, says it, from
+--- what [`work.holding`] read (`seen`). Its pid is the one /proc/locks
+--- says holds the lock, and no other. It is named a cosmic run, and how
+--- long it has held the lock is said, only where [`holder_file`] names
+--- that pid: this tool writes the file as it takes the lock. Where the
+--- system names no holder, or names this process, none is named.
+function work.holder_line(path: string, seen: work.Seen): string
+  local locks = seen.locks
+  local pid: integer? = nil
+  if locks ~= nil then
+    local shm, file = seen.shm, seen.file
+    if shm ~= nil then pid = work.lock_holder_in(locks, shm, wal_write_byte) end
+    if pid == nil and file ~= nil then pid = work.lock_holder_in(locks, file, reserved_byte) end
+  end
+  if pid == nil or pid == seen.own then
+    return "another cosmic run holds the write lock of " .. path
+  end
+  local named, age_ns = seen.named, seen.age_ns
+  if named ~= nil and named:match("^(%d+)\n") == tostring(pid) and age_ns ~= nil and age_ns >= 0 then
+    return "another cosmic run (pid " .. tostring(pid) .. ") has held the write lock of " .. path .. " for " ..
+      rebuild_lock.elapsed(age_ns)
+  end
+  return "another process (pid " .. tostring(pid) .. ") holds the write lock of " .. path
+end
+
+--- Another process holding the write lock of the working database at
+--- `path`, as [`work.holder_line`] says it of what this host shows:
+--- Linux's /proc/locks, the database's files and [`holder_file`].
 function work.holding(path: string): string
   -- TODO: name the holder on macOS and the BSDs too, which have no
   -- /proc/locks, by asking `fcntl(F_GETLK)` of the lock's byte, once
   -- cosmic.sys carries F_GETLK.
   local locks, _ = Fs.read("/proc/locks")
-  local pid: integer? = nil
+  local seen: work.Seen = { locks = locks, own = sys.getpid() }
   if locks ~= nil then
     local shm, _ = sys.stat(path .. "-shm")
-    if shm ~= nil then pid = work.lock_holder_in(locks, shm.dev, shm.ino, wal_write_byte) end
+    if shm ~= nil then seen.shm = { dev = shm.dev, ino = shm.ino } end
     local file, _ = sys.stat(path)
-    if pid == nil and file ~= nil then
-      pid = work.lock_holder_in(locks, file.dev, file.ino, reserved_byte)
+    if file ~= nil then seen.file = { dev = file.dev, ino = file.ino } end
+    local named, _ = Fs.read(holder_file(path))
+    seen.named = named
+    local marked, _ = sys.stat(holder_file(path))
+    if marked ~= nil then
+      seen.age_ns = Clock.now_ns() - (marked.mtime * Clock.seconds(1) + marked.mtime_ns)
     end
   end
-  if pid == nil or pid == sys.getpid() then
-    return "another cosmic run holds the write lock of " .. path
-  end
-  local who = "another cosmic run (pid " .. tostring(pid) .. ")"
-  local named, _ = Fs.read(holder_file(path))
-  if named ~= nil and named:match("^(%d+)\n") == tostring(pid) then
-    local age = rebuild_lock.held_for(holder_file(path))
-    if age ~= nil then
-      return who .. " has held the write lock of " .. path .. " for " .. age
-    end
-  end
-  return who .. " holds the write lock of " .. path
+  return work.holder_line(path, seen)
 end
 
 --- What a step that takes the write lock did: took it and went on
@@ -758,12 +799,12 @@ local function begin_waiting(db: Sqlite.Handle, path: string, wait: boolean): To
     return "done", ""
   end
   log:complain(work.holding(path) .. "; waiting for it")
-  local waited_ns = notice_ns
+  local started_ns = Clock.monotonic_ns() - notice_ns
   while true do
-    local step = math.min(reminder_ns, wait_ns - waited_ns)
+    local step = math.max(math.min(reminder_ns, wait_ns - (Clock.monotonic_ns() - started_ns)), 0)
     db:busy_timeout(step)
     local waited = db:exec_result("BEGIN IMMEDIATE")
-    waited_ns = waited_ns + step
+    local waited_ns = Clock.monotonic_ns() - started_ns
     if waited.cancelled == true then
       db:busy_timeout(wait_ns)
       return nil, "interrupted while waiting for the write lock"

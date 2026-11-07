@@ -131,6 +131,14 @@ local function opened_for(root: string, wait: boolean): work.Opening?, string
   return { handle = handle, other_schema = nil }, ""
 end
 
+local last_refused: mut {string} = {}
+
+--- The files the last build this process made with [`rebuild.here`] refused, for what they hold or for requiring one
+--- that was, by their paths from the project's root: none where it built, or before it ran.
+function rebuild.refused(): {string}
+  return last_refused
+end
+
 --- Builds the project at `root` as `cosmic test` does, leaving
 --- its projection as the tree stands. It does nothing, answering true,
 --- where `root` is not one to build ([`where`]) and `start` is not
@@ -147,15 +155,6 @@ end
 --- the verb went on without holding the tool to the tree
 --- ([`reboot.unchecked`]), a lookup's builds nothing, and the caller reads
 --- what is there.
---- The files the last build of this process refused ([`rebuild.refused`]).
-local last_refused: mut {string} = {}
-
---- The files the last build this process made with [`rebuild.here`] refused, for what they hold or for requiring one
---- that was, by their paths from the project's root: none where it built, or before it ran.
-function rebuild.refused(): {string}
-  return last_refused
-end
-
 local function project(root: string, verb: string, start: boolean, carried?: string): boolean, string
   last_refused = {}
   local found, found_trouble = where(root, carried)
