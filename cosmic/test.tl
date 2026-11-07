@@ -208,7 +208,14 @@ local record Test
     --- there to save time: what a test reads or writes there enters no
     --- verdict's key. A sandboxed
     --- worker has each writable at its own path, with the variables that
-    --- locate it.
+    --- locate it. A cache the code under test keeps for itself (a directory
+    --- under `out/`, say) is none of these: a sandboxed worker reads only
+    --- its grants and writes only its scratch, so that cache is empty in
+    --- every test and never hit. That is by design, since a cache that could
+    --- change a result would make a verdict turn on what its key does not
+    --- name. Give the code a seam instead (the cache's path as a parameter
+    --- or an option) and hand each test a directory of its own `tmp`, or run
+    --- the code under test with no cache.
     mut caches?: {string}
     --- Files of the project root's parent directory the tests read, each
     --- a path relative to that directory of plain names (none empty, `.` or
