@@ -1004,8 +1004,11 @@ end
 --- directory, and a project run with a tool older than its checkout would
 --- otherwise run the checkout's old code without a word. That check is
 --- made once in a process ([`reboot.recheck`] makes it again), and as for a
---- verb that only reads whatever the verb is: it waits for no run in the
---- checkout, so a project run never waits on a `cosmic test` there.
+--- verb that only reads whatever the verb is. It waits for no run in the
+--- checkout and says nothing of one: where another run holds the
+--- checkout's rebuild lock (a `cosmic test` there, whose own tests start
+--- this program in projects) or its working database, the project run goes
+--- on unchecked, as it does where that database cannot be opened.
 ---
 --- Answers as [`reboot.guard`] does for the tree at `root`, the working
 --- directory by default: nil to go on, when the tool is fresh or is held
@@ -1036,16 +1039,37 @@ function reboot.stale_exit(argv: {string}, reads?: boolean, root?: string,
       return nil
     end
     checkout_held = true
+    -- A run in the checkout holds its rebuild lock for as long as it
+    -- runs: a `cosmic test` there above all, whose tests start this
+    -- program in projects of their own, unsandboxed ones finding the
+    -- checkout's build directory through their build home. The project
+    -- run leaves the checkout to that run, unchecked and saying nothing,
+    -- since what it would say is not about the project.
+    local directory, _ = build_paths.optional(home)
+    if directory == nil then
+      return nil
+    end
+    local elsewhere, _ = rebuild_lock.held_elsewhere(directory)
+    if elsewhere ~= false then
+      return nil
+    end
     away, at, standing, waits_for_none = home, home, home_standing, true
   end
   local handle: work.Handle
   if waits_for_none then
     local tried, try_trouble = work.try_open_remaking(at)
     if tried == nil then
+      -- The checkout's database is not the project's to fail on.
+      if away ~= nil then return nil end
       log:complain(try_trouble)
       return 1
     end
     local held = tried.handle
+    if held == nil and away ~= nil then
+      -- Another run in the checkout holds its database (a lookup's
+      -- build, say): as above, the project run goes on unchecked.
+      return nil
+    end
     if held == nil then
       local working = build_paths.resolve(at).working
       local other = tried.other_schema

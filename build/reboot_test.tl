@@ -14,6 +14,7 @@ local artifact = require("build.artifact")
 local stand_in = require("build.stand_in")
 local logger = require("build.logger")
 local work = require("build.work")
+local sys = require("cosmic.sys")
 
 --- A core change boots unless COSMIC_AUTO_BOOT is "0".
 --- How the test runner's tool, which is not built from any tree of a test, is seen at `root`, a tree it is told was
@@ -518,4 +519,48 @@ local function test_a_project_run_holds_the_tool_to_the_checkout_it_was_built_fr
   -- In the checkout itself the verb's own guard checks, not this.
   local inside = reboot.checkout_exit(argv, checkout, own)
   assert(inside == nil, tostring(inside))
+end
+
+--- While another run holds the checkout's rebuild lock -- a `cosmic test`
+--- there, whose tests start this program in projects of their own,
+--- unsandboxed ones reaching the checkout's build directory through their
+--- build home -- or its working database, a project run neither checks
+--- the tool against the checkout nor stages it, and says nothing of it:
+--- what it would say is not about the project.
+local function test_a_project_run_leaves_a_checkout_another_run_holds_alone(tmp: string)
+  local checkout = tmp .. "/checkout"
+  assert(Fs.mkdirs(checkout .. "/core"))
+  assert(Fs.mkdirs(checkout .. "/build"))
+  assert(Fs.write(checkout .. "/build/importer.tl", "return {}\n"))
+  local project = tmp .. "/project"
+  assert(Fs.mkdirs(project))
+  local layout = paths.resolve(checkout)
+  assert(Fs.mkdirs(layout.bin))
+  local own: reboot.Seen = { tool = layout.tool, environment = { COSMIC_REBOOTED = "1" },
+    meta = { built_from = assert(tree.built_from(checkout)) } }
+  local argv: {string} = { "x.tl" }
+
+  -- The rebuild lock, held by another open file of it, as another run's is.
+  local other = assert(sys.open(layout.lock, sys.O_RDWR | sys.O_CREAT, 0x1a4))
+  assert(sys.flock(other, "exclusive"))
+  local code, said = complaints(function(): string
+    return tostring(reboot.recheck(argv, project, own))
+  end)
+  assert(sys.close(other))
+  assert(code == "nil", code)
+  assert(said == "", said)
+  assert(not staged_in(checkout, "build/importer.tl"), "a project run staged a checkout another run holds")
+
+  -- The working database, held by another run's write.
+  assert(work.close((assert(work.open(checkout)))))
+  local held = assert(Sqlite.open(layout.working, { writable = true }))
+  assert(held:exec("BEGIN IMMEDIATE"))
+  local busy, busy_said = complaints(function(): string
+    return tostring(reboot.recheck(argv, project, own))
+  end)
+  assert(held:exec("ROLLBACK"))
+  assert(held:close())
+  assert(busy == "nil", busy)
+  assert(busy_said == "", busy_said)
+  assert(not staged_in(checkout, "build/importer.tl"), "a project run staged a checkout whose database is held")
 end

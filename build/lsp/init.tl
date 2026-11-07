@@ -268,14 +268,15 @@ function lsp.reentry(launch: string, recheck: function(root: string,
   end
 end
 
---- Whether the tree at `root` is cosmic's own, whose tool a stale one is
---- rebuilt from.
 -- TODO: hold a session in a project to the checkout its tool was built
 -- from at each stage too, not only at its start ([`reboot.stale_exit`]):
 -- [`reboot.recheck`] of the project's root already checks that checkout,
 -- so this would answer true for such a tool, once a test of the hand-over
 -- from a project's session (build/lsp/tool_test.tl) shows the successor
 -- serves that session.
+
+--- Whether the tree at `root` is cosmic's own, whose tool a stale one is
+--- rebuilt from.
 local function owns(root: string): boolean
   local standing, _ = reboot.standing(root)
   return standing ~= nil and standing.own

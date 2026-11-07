@@ -286,6 +286,24 @@ function rebuild_lock.claim(directory: string): rebuild_lock.Claim?, string
   return acquire(build_paths.under(directory).lock, 0)
 end
 
+--- Whether another run holds the rebuild lock of the build directory
+--- `directory` now: the lock is taken without waiting and let go again at
+--- once, naming no holder, as [`rebuild_lock.claim`] takes it. False where
+--- this process holds it; nil and why where it cannot be asked for.
+function rebuild_lock.held_elsewhere(directory: string): boolean?, string
+  local path = build_paths.under(directory).lock
+  if held.lock ~= nil and held.path == path then
+    return false, ""
+  end
+  local lock, trouble = acquire(path, 0)
+  if lock == nil then
+    if trouble == "" then return true, "" end
+    return nil, trouble
+  end
+  lock_mt.__close(lock)
+  return false, ""
+end
+
 --- Whether this process holds the rebuild lock of `root`.
 function rebuild_lock.holds(root: string): boolean
   return held.lock ~= nil and held.path == build_paths.resolve(root).lock
