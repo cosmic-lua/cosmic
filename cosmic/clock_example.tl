@@ -64,4 +64,33 @@ function Example.ceil()
   assert(not ok)
 end
 
+--- Where a loop spends its time: each pass of the loop is a span, the
+--- part of it inside is another, and the report lists the names by the
+--- wall time they took, the most first.
+function Example.span()
+  local spans: Clock.Spans = {}
+  for _ = 1, 3 do
+    local _pass <close> = Clock.span(spans, "pass")
+    do
+      local _wait <close> = Clock.span(spans, "wait")
+      assert(Clock.sleep_ns(Clock.ms(1)))
+    end
+  end
+  for _, line in ipairs(Clock.report(spans)) do print(line) end
+  assert(assert(spans["pass"]).count == 3 and assert(spans["wait"]).count == 3)
+end
+
+--- The totals of spans as lines, the name that took the most wall time
+--- first.
+function Example.report()
+  local spans: Clock.Spans = {
+    parse = { count = 12, wall_ns = Clock.ms(35), cpu_ns = Clock.ms(30) },
+    write = { count = 1, wall_ns = Clock.ms(80), cpu_ns = Clock.ms(2) },
+  }
+  local lines = Clock.report(spans)
+  for _, line in ipairs(lines) do print(line) end
+  assert(lines[1] == "write  1 span, 80.000 ms wall, 2.000 ms cpu")
+  assert(lines[2] == "parse  12 spans, 35.000 ms wall, 30.000 ms cpu")
+end
+
 return Example -- checked: export_not_declared
