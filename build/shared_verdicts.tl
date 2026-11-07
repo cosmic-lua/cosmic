@@ -213,11 +213,12 @@ end
 
 local schema <const> = cache_formats.verdicts
 
---- Hits as [`build.test`] encodes them -- a line per module, its path, a
---- tab, then the lines it hit, ascending and comma-separated -- with
---- each line after a module's first as its distance from the one
---- before: runs of adjacent lines, which most hits are, deflate to
---- little that way.
+--- Hits as [`build.test`]'s `take_hits` writes them -- a line per module,
+--- its path and the text its lines are numbered in, a tab, then the lines
+--- it hit, ascending and comma-separated -- with each line after a module's
+--- first as its distance from the one before: runs of adjacent lines, which
+--- most hits are, deflate to little that way. What comes before the tab is
+--- carried as it is.
 local function packed(hits: string): string
   return (hits:gsub("([^\t\n]*)\t([^\n]*)\n", function(path: string, lines: string): string
     local out: mut {string} = {}

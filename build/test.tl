@@ -484,14 +484,30 @@ end
 --- One module's line of a test's row of hits, as `coverage_by_test` and
 --- the shared verdicts hold it: the path, a space, the text its lines are
 --- numbered in (`identities`' entry, or "-" for a path that is no module),
---- a tab, then the lines it hit, ascending and comma-separated. Module
---- paths hold no space, tab or newline. A line numbers what a text held: a
+--- a tab, then the lines it hit, ascending and comma-separated. A path
+--- holds no tab or newline but may hold a space, so the text is read as the
+--- last word alone, and only as `identity_digits` hex digits or "-"
+--- ([`text_of`]). A line numbers what a text held: a
 --- comment that moves a harness module's lines moves no key
 --- ([`test_key.harness`] is of stripped bytecode), so a standing row can
 --- name lines the text has since moved, and [`test.decode_hits`] credits a
 --- line only where its text is still this run's.
 local function row_line(identities: {string:string}, path: string, lines: {integer}): string
   return path .. " " .. (identities[path] or "-") .. "\t" .. table.concat(lines, ",") .. "\n"
+end
+
+--- The text a lines' head names (as [`row_line`] writes it): a module's
+--- `identity_digits` hex digits, or "-" for a path that is no module, after
+--- the path and a space. A head that ends in neither is a row from before
+--- rows named their text, the whole of it the path, which names no text
+--- (nil), so an old row's path that holds a space is never misread.
+local hex_text <const> = "^(.+) (" .. string.rep("%x", identity_digits) .. ")$"
+local function text_of(head: string): string, string?
+  local path, named = head:match(hex_text)
+  if path ~= nil and named ~= nil then return path, named end
+  local plain = head:match("^(.+) %-$")
+  if plain ~= nil then return plain, "-" end
+  return head, nil
 end
 
 --- Folds every line `encoded` (a row [`test.take_hits`] wrote) names into
@@ -505,8 +521,7 @@ function test.decode_hits(encoded: string, hits: Coverage.Hits, identities: {str
                           stale: mut {string:boolean}, unowned?: Coverage.Hits): string
   local kept: mut {string} = {}
   for head, lines in encoded:gmatch("([^\t\n]+)\t([^\n]*)\n") do
-    local spelled, named = head:match("^(.*) ([^ ]+)$")
-    local path = spelled or head
+    local path, named = text_of(head)
     local known = identities[path]
     local owned = unowned == nil or unowned[path] == nil
     if owned then kept[#kept + 1] = head .. "\t" .. lines .. "\n" end
@@ -645,14 +660,6 @@ local function write_module_coverage(handle: Sqlite.Handle,
   if counted == nil then return 0, 0, "the count of the rows written came back empty" end
   return math.tointeger(tonumber(counted:text(2))) or 0, math.tointeger(tonumber(counted:text(1))) or 0, ""
 end
-
--- TODO: a sandboxed test given the pure store reaches no line of a module it
--- imports: [`build.closure_store`] strips that bytecode of its line information,
--- so the key holds no line, and a test of a library module credits none of the
--- module's lines (build.codec_test, none of build.codec's). Have the worker record
--- a stripped function's hits by its instructions and this runner number them in
--- the lines of the run's text, as a row's lines name it, once the core's coverage
--- hook reports a position for code with no line information.
 
 --- Every line [`build.coverage`] found for every non-vendor module
 --- `modules` holds, added as a new snapshot for `run_at_ns`. Rows are

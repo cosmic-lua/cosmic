@@ -138,6 +138,16 @@ local function test_standing_hits_of_a_module_whose_text_moved_are_dropped_and_c
   local before: mut {string:boolean} = {}
   local _ = test.decode_hits("build.same\t1,2\n", {}, texts, before)
   assert(before["build.same"] == true, "a row naming no text credits no module")
+  -- A path may hold a space: only a last word of 16 hex digits (or "-") is a text.
+  local spaced = test.identities({ module("suite.he lper", string.rep("d", 64)) })
+  local old_spaced: mut {string:boolean} = {}
+  local old_hits: mut {string:mut {integer:boolean}} = {}
+  local _ = test.decode_hits("suite.he lper\t3\n", old_hits, spaced, old_spaced)
+  assert(old_spaced["suite.he lper"] == true and old_hits["suite.he lper"] == nil and old_hits["suite.he"] == nil,
+    "an old row of a path with a space was read as naming a text")
+  local new_hits: mut {string:mut {integer:boolean}} = {}
+  local _ = test.decode_hits("suite.he lper " .. string.rep("d", 16) .. "\t3\n", new_hits, spaced, {})
+  assert(assert(new_hits["suite.he lper"])[3] == true, "a row of a path with a space naming its text is credited")
   assert(kept == row, "the row is kept as written, so a run standing on it drops the same lines: " .. kept)
   -- A share keeps no line of the core's C another project owns.
   local unowned_kept = test.decode_hits(row, {}, texts, {}, { ["core/a.c"] = {}, ["core/b.c"] = {} })
