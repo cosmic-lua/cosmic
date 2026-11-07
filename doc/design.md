@@ -687,7 +687,13 @@ cosmic builds itself, so the tool is also an artifact of the tree,
 and a stale tool is the bug to design against. `boot` stores two
 fingerprints in the binary it produces: one over everything the tool
 is made of, one over what the C core is built from. every run in
-cosmic's own tree fingerprints the tree first. only the tree's own tool
+cosmic's own tree fingerprints the tree first. a run of the tree's
+own tool elsewhere, in a project, checks it against the checkout it
+was built from, once a process, before a file run or any verb but
+`sql` and the bare ones ([`build.reboot.checkout_exit`]). it goes on
+unchecked while another run holds that checkout's rebuild lock or
+database, and a copy of the tool, or a tool whose checkout is gone, is
+checked against nothing. only the tree's own tool
 in its build directory rebuilds itself ([`build.reboot.own_tool`]); a stale release or
 an externally copied tool refuses with exit 3. when only Teal differs,
 the tree's tool compiles the tree, projects the database and combines it
@@ -1342,6 +1348,7 @@ in [roadmap.md](roadmap.md).
 [`build.importer`]: ../build/importer.tl
 [`build.positions`]: ../build/positions.tl
 [`build.reboot.own_tool`]: ../build/reboot.tl
+[`build.reboot.checkout_exit`]: ../build/reboot.tl
 [`build.test_worker`]: ../build/test_worker.tl
 [`build.fix.format`]: ../build/fix/format.tl
 [`build.work`]: ../build/work.tl

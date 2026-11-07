@@ -463,6 +463,15 @@ local function run(file: string, argv: {string}): integer
     log:complain(standing_trouble)
     return 1
   end
+  -- In a project, a tool older than the checkout it was built from
+  -- rebuilds from that checkout and re-enters this command line first
+  -- ([`reboot.checkout_exit`]); cosmic's own tree is checked below.
+  if not standing.own then
+    local code = reboot.checkout_exit(argv, root)
+    if code ~= nil then
+      return code
+    end
+  end
   local handle, open_trouble = work.open(root)
   if handle == nil then
     log:complain(open_trouble)
@@ -904,6 +913,21 @@ function Dispatch.main(argv: {string}): integer
     end
   end
   if chosen ~= nil then
+    -- A verb that writes and checks the tool as it goes holds it to
+    -- cosmic's own tree alone; in a project it is held to its checkout
+    -- here ([`reboot.checkout_exit`]). A fresh verb and one that only
+    -- reads make that check in [`reboot.stale_exit`].
+    if not chosen.bare and chosen.fresh ~= true and chosen.reads ~= true then
+      local here, here_trouble = Fs.absolute(".")
+      if here == nil then
+        log:complain(verb .. ": " .. here_trouble)
+        return 1
+      end
+      local stale = require("build.reboot").checkout_exit(argv, here)
+      if stale ~= nil then
+        return stale
+      end
+    end
     local code = chosen.run(argv)
     if code == 2 and not chosen.bare and chosen.fresh ~= true and chosen.recheck_on_refusal ~= false then
       -- A verb may read its command line before it checks the tool is
