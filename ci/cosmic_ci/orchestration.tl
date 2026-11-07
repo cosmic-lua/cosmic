@@ -499,11 +499,12 @@ local self_rebuild_per_test_timeout_s <const> = "300"
 local fixed_point_test_timeout_ns <const> = Clock.seconds(440)
 local fixed_point_per_test_timeout_s <const> = "340"
 --- The whole suite on the checked core: see [`checked_suite`]'s comment
---- for what it takes. Sized from the merge queue's runs of 17 to 19 October 2026: the 7800 tests took 800 to 1114 s in
---- 14 of its 36 completed runs and over 1200 s in one, a change that adds 45 tests (15 s of test time in 2900 s
---- locally, where the suite took 1714 s on this branch and 1873 s on main, on four cores). It bounds the suite run whole,
---- as ci.yml's `checked` job and ci/run-local's assemble run it.
-local checked_suite_timeout_ns <const> = Clock.seconds(1500)
+--- for what it takes. It bounds the suite run whole, as ci.yml's `checked` job and ci/run-local's assemble run it.
+--- Sized from main's dispatch run of 7 November 2026 (42360832601), where the 8637 tests took 1415 s with no verdict
+--- standing, against an earlier bound of 1500 s sized from 800 to 1114 s in October; counting a pure store's imports
+--- by instruction (cosmic-lua/cosmic#3629) costs about a tenth more on the checked core, about 1585 s. The bound is
+--- 2100 s, 1.3 times that, inside the job's 60 minutes with its boot and build.
+local checked_suite_timeout_ns <const> = Clock.seconds(2100)
 -- Each test's bound on the checked core: the release suites' (below)
 -- scaled by how much slower the checked core runs a test, about 2.9
 -- times over the suite and 5.5 times for a compile-heavy module
@@ -516,7 +517,7 @@ local checked_suite_test_timeout_s <const> = "120"
 --- `narrowing` job; a test 120 s at most, as on the checked core. The whole run
 --- takes 510 s on four processors locally and 726 to 861 s on CI's runner where
 --- no verdict stands (the merge queue's runs of 23 October 2026). The bound is
---- 1500 s, 1.7 times the slowest, as the checked suite's is.
+--- 1500 s, 1.7 times the slowest.
 -- TODO: lower this bound once CI's own runs of it standing on verdicts show its elapsed time.
 local checked_narrowing_timeout_ns <const> = Clock.seconds(1500)
 local checked_narrowing_test_timeout_s <const> = "120"

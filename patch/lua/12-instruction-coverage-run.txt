@@ -1,0 +1,14 @@
+file: src/ldebug.c
+note: Each instruction a function with no line information is about to run, after the count hook has had its turn (so an instruction a budget stops before is not counted), is told to luaG_instructionline (patch/lua/11-instruction-coverage-defined.txt), but not while hooks are held off (`allowhook`, as lgc.c's GCTM holds them around a finalizer, and luaD_hook honours): a line hook would see none of those instructions either. The line hook below is called as before: such a function changes no line, so it is called only on a jump back, with no line.
+--- find
+    int npci = pcRel(pc, p);
+    if (npci <= oldpc ||  /* call hook when jump back (loop), */
+--- replace
+    int npci = pcRel(pc, p);
+    if (p->lineinfo == NULL && luaG_instructionline != NULL && L->allowhook) {
+      int line = luaG_instructionline(L, p, npci);
+      if (line > 0)
+        luaD_hook(L, LUA_HOOKLINE, line, 0, 0);
+    }
+    if (npci <= oldpc ||  /* call hook when jump back (loop), */
+--- end

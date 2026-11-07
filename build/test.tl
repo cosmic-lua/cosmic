@@ -125,6 +125,7 @@ local cache_lifetime = require("build.cache_lifetime")
 local Poll = require("cosmic.poll")
 local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
+local lua_tail = require("build.lua_tail")
 local sys = require("cosmic.sys")
 local clock = require("build.clock")
 local progress = require("build.progress")
@@ -167,6 +168,8 @@ local verb_spec = require("build.verb_spec")
 local hex_sha256 = hashing.hex_sha256
 
 local type Recording = State.Recording
+local type Placed = State.Placed
+local type Placing = State.Placing
 local type Job = State.Job
 local type Unmet = State.Unmet
 
@@ -956,10 +959,151 @@ function test.take_hits(hits: Coverage.Hits, unowned: Coverage.Hits,
   return table.concat(out)
 end
 
+--- How many tables of one module's hits [`test.place_hits`] remembers placed: a load's are the same table in every
+--- worker of a module, and the workers of a few modules finish in turn.
+local placed_kept <const> = 8
+
+--- `hits`, as a worker reported them, with the line of each instruction of a chunk numbered by instruction
+--- ([`lua_tail.numbered`]: an imported module of a pure store), a line past [`lua_tail.ordinal_base`], placed at the
+--- source line `lines_of` says that instruction is on. Placed by this run's text, whose bytecode the store was
+--- numbered from: the store's address holds that bytecode stripped, so a store standing at it numbers the same
+--- instructions alike, and the lines placed are this run's text's, which the row [`test.take_hits`] spells of them
+--- names. `hits` itself where no line is past the base, and a module's table answered the same placed table while
+--- `placed` remembers it, so [`take_hits`] folds and spells a load's lines once. A module whose instructions
+--- `lines_of` cannot place (nil and why), or a line past the instructions it places, is answered without its
+--- numbered lines, never on the wrong ones, and named with why in `unplaced`; then the answer is not `whole`, and
+--- the test's row lacks lines it reached, so the runner keeps no verdict of it. Only a module of the run, a path of
+--- `modules`, is placed: a chunk a test numbers itself names none, and its lines are kept as no module's are.
+function test.place_hits(hits: Coverage.Hits, modules: {string:string}, lines_of: function(string): {integer}?, string,
+                         placed: mut {string:mut {Placed}}, unplaced: mut {string:string}): Placing
+  local numbered: mut {string} = {}
+  for path, per_line in pairs(hits) do
+    if modules[path] == nil then continue end
+    for line in pairs(per_line) do
+      if line > lua_tail.ordinal_base then
+        numbered[#numbered + 1] = path
+        break
+      end
+    end
+  end
+  if #numbered == 0 then return { hits = hits, whole = true } end
+  local all_placed = true
+  local out: mut {string:{integer:boolean}} = {}
+  for path, per_line in pairs(hits) do out[path] = per_line end
+  for _, path in ipairs(numbered) do
+    local per_line = assert(hits[path], "a path listed from hits is in hits")
+    local known = placed[path] or {}
+    placed[path] = known
+    local found: Placed? = nil
+    for _, entry in ipairs(known) do
+      if entry.from == per_line then found = entry end
+    end
+    if found == nil then
+      local made: mut {integer:boolean} = {}
+      local whole = true
+      local lines, why = lines_of(path)
+      for line in pairs(per_line) do
+        if line <= lua_tail.ordinal_base then
+          made[line] = true
+        elseif lines ~= nil and lines[line - lua_tail.ordinal_base] ~= nil then
+          made[assert(lines[line - lua_tail.ordinal_base])] = true
+        else
+          whole = false
+          if unplaced[path] == nil then
+            unplaced[path] = if lines == nil then why else "line " .. tostring(line) ..
+                " is past the module's " .. plural.count(#lines, "instruction") end
+          end
+        end
+      end
+      if #known >= placed_kept then table.remove(known, 1) end
+      found = { from = per_line, to = made, whole = whole }
+      known[#known + 1] = found
+    end
+    out[path] = found.to
+    if not found.whole then all_placed = false end
+  end
+  return { hits = out, whole = all_placed }
+end
+
+--- The source line of each instruction of the module `path` as this run's projection holds its bytecode
+--- ([`lua_tail.instruction_lines`]), remembered in `rec`; nil and why where it holds none or the chunk is not read.
+local function instruction_lines_of(rec: Recording, path: string): {integer}?, string
+  local known = rec.instruction_lines[path]
+  if known ~= nil then return known, "" end
+  local projection = rec.projection
+  if projection == nil then return nil, "the run has no projection" end
+  local opened, trouble = Sqlite.open(projection)
+  if opened == nil then return nil, projection .. ": " .. trouble end
+  local db: Sqlite.Handle = opened
+  local rows, rows_trouble = Sqlite.rows(db, "SELECT inflate(bytecode) FROM modules WHERE path = ?1", { text(path) })
+  local _, _ = db:close()
+  if rows == nil then return nil, projection .. ": " .. rows_trouble end
+  local row = rows[1]
+  if row == nil then return nil, "no module of the projection" end
+  local lines, why = lua_tail.instruction_lines(row:blob(1), path)
+  if lines == nil then return nil, why end
+  local defines, defines_why = lua_tail.defined_lines(row:blob(1), path)
+  if defines == nil then return nil, defines_why end
+  rec.instruction_lines[path] = lines
+  rec.defined_lines[path] = defines
+  return lines, ""
+end
+
+--- The line each function of the module `path` is defined on ([`lua_tail.defined_lines`]), as
+--- [`instruction_lines_of`] reads it.
+local function defined_lines_of(rec: Recording, path: string): {integer:integer}?, string
+  local _, why = instruction_lines_of(rec, path)
+  local known = rec.defined_lines[path]
+  if known == nil then return nil, why end
+  return known, ""
+end
+
+--- `said` with each frame of a traceback that names a function of a numbered chunk (`function <module:ordinal>`, the
+--- ordinal past [`lua_tail.ordinal_base`]: a pure store's import, [`test.place_hits`]) said at the module's file, by
+--- `files`, and the line this run's text defines that function on, by `defined_of`. For what is shown alone: no key
+--- holds the line. A frame it cannot place is left as it is. A message says no position in such a chunk
+--- (`module:-1:`), which has no line information.
+function test.placed_positions(said: string, files: {string:string},
+                               defined_of: function(string): {integer:integer}?, string): string
+  return (said:gsub("<([%w_%.]+):(%d+)>", function(named: string, digits: string): string
+    local ordinal = math.tointeger(tonumber(digits)) or 0
+    local file = files[named]
+    if ordinal > lua_tail.ordinal_base and file ~= nil then
+      local defines, _ = defined_of(named)
+      local line = if defines ~= nil then defines[ordinal - lua_tail.ordinal_base] else nil end
+      if line ~= nil then return "<" .. file .. ":" .. tostring(line) .. ">" end
+    end
+    return "<" .. named .. ":" .. digits .. ">"
+  end))
+end
+
+--- [`test.placed_positions`] of this run's modules and text.
+local function placed_positions(rec: Recording, said: string): string
+  return test.placed_positions(said, rec.files, function(path: string): {integer:integer}?, string
+    return defined_lines_of(rec, path)
+  end)
+end
+
+--- The errors of a run whose workers reported hits of the modules `unplaced` names that [`test.place_hits`] could
+--- not place, each with why, by path.
+function test.unplaced_errors(unplaced: {string:string}): {string}
+  local paths: mut {string} = {}
+  for path in pairs(unplaced) do paths[#paths + 1] = path end
+  table.sort(paths)
+  local out: mut {string} = {}
+  for _, path in ipairs(paths) do
+    local why = assert(unplaced[path], "a path listed from unplaced is in it")
+    out[#out + 1] = "coverage: the hits of " .. path .. " are not placed at its lines: " .. why ..
+      "; no verdict of a test that reached them is kept"
+  end
+  return out
+end
+
 --- Folds the violations a finished worker reported into the run's, by
 --- what they are and where, adding the counts of the ones met before.
 local function take_violations(rec: Recording, id: string, reported: worker.Report)
   for _, met in ipairs(reported.violations or {}) do
+    met.at = placed_positions(rec, met.at)
     -- A frame a traceback names by its module's name, as the file it was
     -- read from, as a statement the compiler placed is.
     local named, line = met.at:match("^([%w_%.]+):(%d+)$")
@@ -1115,7 +1259,9 @@ local function finish(rec: Recording, job: Job, result: Child.Result?,
     local _, _ = logger.summary("test", "slow: " .. id .. " took " .. progress.elapsed(wall_ns))
   end
   local judged = test_key.judge(rec, job, result, trouble, refused, unavailable)
-  local reported, passed, message = judged.report, judged.passed, judged.message
+  local reported, passed = judged.report, judged.passed
+  -- What is shown and recorded of the message says a position in a pure store's import at its line.
+  local message = placed_positions(rec, judged.message)
   local feature_failure = if passed then dispatch_failure(rec, job, reported) else "" end
   if feature_failure ~= "" then
     passed, message = false, feature_failure
@@ -1150,7 +1296,9 @@ local function finish(rec: Recording, job: Job, result: Child.Result?,
     end
     -- What the runner reports on its own account (a stopped fuzz property)
     -- is listed apart, so what is shown is the test's own.
-    if rec.show_output and #own > 0 then rec.shown[id] = table.concat(own, "\n") end
+    if rec.show_output and #own > 0 then
+      rec.shown[id] = placed_positions(rec, table.concat(own, "\n"))
+    end
   end
   -- A test that said why it did not check keeps its verdict: its pass is a
   -- function of its key, and it is counted apart.
@@ -1166,8 +1314,19 @@ local function finish(rec: Recording, job: Job, result: Child.Result?,
       take_violations(rec, id, reported)
       if rec.violators[id] ~= nil then rec.violator_ns[id] = elapsed end
     end
-    rec.by_test[id] = test.take_hits(rec.hits, rec.unowned, rec.folded, rec.spelled,
-      reported.load_hits, reported.test_hits, rec.identities)
+    local lines_of = function(path: string): {integer}?, string
+      return instruction_lines_of(rec, path)
+    end
+    local loaded = test.place_hits(reported.load_hits, rec.identities, lines_of, rec.placed, rec.unplaced)
+    local tested = test.place_hits(reported.test_hits, rec.identities, lines_of, rec.placed, rec.unplaced)
+    rec.by_test[id] = test.take_hits(rec.hits, rec.unowned, rec.folded, rec.spelled, loaded.hits, tested.hits,
+      rec.identities)
+    -- A row that lacks lines the test reached would credit too few to every run that stands on it, saying
+    -- nothing: no verdict of it is kept, so the next run runs it again (and says why, as this one does).
+    if not (loaded.whole and tested.whole) then
+      judged = { report = reported, passed = passed, message = message, skipped = judged.skipped,
+        unchecked = judged.unchecked, deliberate = judged.deliberate, checked = false, clean = judged.clean }
+    end
   end
   -- Keyed by what it was given: its declared inputs, as they were
   -- before it started -- and still are, or the verdict describes no
@@ -1202,7 +1361,7 @@ local function finish(rec: Recording, job: Job, result: Child.Result?,
     rec.reruns[id] = job.m.file .. ":" .. job.name
     local stdout = result and result.stdout
     if result ~= nil and stdout ~= nil and stdout ~= "" then
-      rec.outputs[id] = stdout
+      rec.outputs[id] = placed_positions(rec, stdout)
     end
   end
 end
@@ -2156,6 +2315,7 @@ local function make_recording(ctx: Run)
     views = {}, caches = {}, unkeyed = {},
     forbiddable = {},
     closure_sets = {}, plans = {}, spelled = {}, folded = {}, type_only = {},
+    instruction_lines = {}, defined_lines = {}, placed = {}, unplaced = {},
     closures = {}, tree_names = {}, effective = {},
     stores = {}, built = {}, store_digests = {}, store_kept = {}, store_names = {},
     store_bases = {}, store_owns = {}, store_mismatched = {}, sealed = {},
@@ -2165,9 +2325,7 @@ local function make_recording(ctx: Run)
       sandbox_mode == "off" then (test_sandbox.switch .. "=0 ") else "" end),
   }
   ctx.rec = rec
-  if ctx.checks == true then
-    for _, m in ipairs(assert(ctx.result).modules) do rec.files[m.path] = m.file end
-  end
+  for _, m in ipairs(assert(ctx.result).modules) do rec.files[m.path] = m.file end
   test_key.begin(rec, { runtime = assert(ctx.runtime), sandbox = ctx.sandboxed == true,
     epoch = assert(ctx.epoch), timeout_ns = limits.timeout_ns, harness = harness,
     own_tree = ctx.own_tree == true })
@@ -2649,6 +2807,8 @@ local function settle(ctx: Run)
   if credit_trouble ~= "" then
     errors[#errors + 1] = "coverage credit: " .. credit_trouble
   end
+  -- A row of a test that ran keeps none of the lines it could not place, so the run that ran it says so.
+  for _, said in ipairs(test.unplaced_errors(rec.unplaced)) do errors[#errors + 1] = said end
 
   -- Every C function must be one some test enters, in this run or in
   -- the run whose verdict stands for it: a standing verdict's hits are

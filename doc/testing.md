@@ -330,8 +330,11 @@ declares that it reads text (below):
   with the lines of the module; the checker's own codes (`kind = 'code'`) do not,
   but no test that reads module text wants them alone;
 - the bytecode of each module it imports stripped of its debug
-  information ([`build.lua_tail`]'s `stripped`, which also writes the line
-  each function is defined on as 0), and its own module's as the build made it;
+  information and numbered by instruction ([`build.lua_tail`]'s
+  `numbered`): each function names its module as its source, and each but
+  the chunk's own is defined on line 16777216 + `k`, `k` the number of the
+  chunk's instructions before its first, whatever line of the text it came
+  from. Its own module's bytecode is as the build made it;
 - the source file of its own module and of the declarations it requires, and
   not of the modules it imports.
 
@@ -395,8 +398,15 @@ store of its closure with its text, as `store_text` does.
 
 A test does not assert a position inside code it imports: a line number of
 the module's own code in a message or a traceback, `debug.getinfo`'s
-`currentline` or `linedefined`. A pure store strips them, and the position
-would move with a comment anyway. Match the message without its position,
+`currentline` or `linedefined`. In a pure store an imported module's code
+has no line: an error it raises reads `module:-1: ...` (`error` with a
+level adds no position), a traceback's frame in it names no line, and a
+function's `linedefined` is the number of an instruction, not a line of
+the text, which moves with each instruction added above it. The runner shows a traceback's
+`function <module:line>` at the module's file and the line that function
+is defined on in this run's text, in the message of a test it shows and
+records in `runs` and in the output it shows (`--show-output`, a
+failure's). Match the message without its position,
 or write the source the test asserts about in the test itself (a fixture
 string compiled by the test), whose lines it chooses.
 
@@ -836,12 +846,19 @@ the text they are numbered in. The run's own `test: coverage` line is
 informational and never a failure.
 
 A sandboxed test given the pure store ([the pure store](#the-pure-store))
-reaches no line of a module it imports: that bytecode carries no line
-information. Its lines are those of its own module, of the harness and of
-the core's C, and an imported module's lines count only where a test given
-its text reaches them (one unsandboxed, or declaring `store`, `store_text`,
-`lua` or `tool`). So a sandboxed run's figure is under the share of lines
-its tests execute: [`build/codec_test.tl`] credits none of [`build.codec`]'s.
+reaches the lines of the modules it imports as an unsandboxed one does. Their
+bytecode carries no line, so a comment moves no key. The core counts each
+instruction of such a function as it is about to run, by its number in the
+chunk (core/coverage.c, told by Lua through `patch/lua/`'s instruction
+coverage, after an instruction budget has had its turn, so an instruction
+a budget stops before is not counted), and the runner places each at the
+line this run's text has it on ([`build.lua_tail`]'s `instruction_lines`):
+the text whose source hash the row names. A comment above those lines later
+lets the verdict stand, and its row's lines of that module are dropped as
+numbered in other text (the figure is partial) until the test runs again.
+An instruction the runner cannot place is an error of the run, never a
+line of another text, and no verdict of a test that reached it is kept, so
+no later run stands on a row that lacks its lines.
 
 ## other hazards
 
@@ -936,7 +953,6 @@ Other rules:
 [`build.checker_declarations`]: ../build/checker_declarations.tl
 [`build.closure_store`]: ../build/closure_store.tl
 [`build.code_walk`]: ../build/code_walk.tl
-[`build.codec`]: ../build/codec.tl
 [`build.compile_grammar`]: ../build/compile_grammar.tl
 [`build.confine`]: ../build/confine.tl
 [`build.example_checks`]: ../build/example_checks.tl
@@ -964,7 +980,6 @@ Other rules:
 [`build.test_worker`]: ../build/test_worker.tl
 [`build.this_program`]: ../build/this_program.tl
 [`build.tree_checks`]: ../build/tree_checks.tl
-[`build/codec_test.tl`]: ../build/codec_test.tl
 [`build/declared_key.tl`]: ../build/declared_key.tl
 [`build/dispatch_sites.tl`]: ../build/dispatch_sites.tl
 [`build/dispatched_features_test.tl`]: ../build/dispatched_features_test.tl

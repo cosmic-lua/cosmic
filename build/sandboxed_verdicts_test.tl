@@ -1121,6 +1121,30 @@ end
   assert(changed:find("2 ran, 2 stood", 1, true), changed)
 end
 
+--- A sandboxed test given the pure store credits the lines of the module it imports: the store's chunk of it numbers
+--- each instruction ([`build.lua_tail`]'s `numbered`), which the run places at the module's lines in its text. A comment
+--- above them moves no key, so the verdict stands, and the lines its row holds, those of the text before the comment,
+--- are dropped and said to be, never credited on the lines the comment moved them to.
+local function test_a_pure_store_run_credits_an_imports_lines_and_drops_them_once_they_move(tmp: string)
+  local _, said, root = seeded(tmp)
+  local function lib_lines(): string
+    local db = assert(Sqlite.open(support.build_dir(root) .. "/build.db"))
+    local rows = assert(Sqlite.text_rows(db, "SELECT sum(hit > 0) || '/' || count(*) FROM coverage " ..
+        "WHERE path = 'suite.lib' AND ran_at_ns = (SELECT max(ran_at_ns) FROM coverage)"))
+    assert(db:close())
+    return support.nth(rows, 1):text(1)
+  end
+  local first = lib_lines()
+  assert(first:match("^(%d+)/") == first:match("/(%d+)$") and first ~= "0/0",
+    "the import's lines the test ran are not all credited: " .. first)
+  assert(Fs.write(root .. "/suite/lib.tl",
+    "-- a note\n\nlocal record Lib\n  value: integer\nend\nlocal lib: Lib = { value = 1 }\nreturn lib\n"))
+  local stood = said("0 ran, 3 stood")
+  assert(stood:find("partial: hits of 1 module came from runs on other text", 1, true), stood)
+  local moved = lib_lines()
+  assert(moved:match("^0/") ~= nil, "lines of the text before the comment were credited on this one's: " .. moved)
+end
+
 --- A test whose closure holds a module that declares it reads any text (requires [`build.reads.all`]) is given the store
 --- of its closure with its text and keyed by its bytes, as one that declares `store_text` is: a comment in that module
 --- runs it, where a comment in a module it imports only for what it does runs nothing.
