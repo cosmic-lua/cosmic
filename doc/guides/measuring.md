@@ -51,7 +51,10 @@ module alone, not those of the modules it imports. To measure a module's
 coverage, run every test unsandboxed: `COSMIC_TEST_SANDBOX=0 cosmic test --all`.
 A test whose verdict stands brings the hits of the run that reached it, so
 a verdict a sandboxed run reached brings none of the imported modules'
-lines; `--all` runs those tests again.
+lines; `--all` runs those tests again. A module's hits count only on the
+text they were counted on: where that text has changed since, they are
+left out, and the coverage line says the figure is partial until `--all`
+runs those tests again.
 
 ## slowest tests
 
