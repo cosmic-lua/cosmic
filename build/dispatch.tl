@@ -312,6 +312,8 @@ local record Root
   dir: string
   --- Which rule chose it, as a hint names it: the working directory, or the file's own directory.
   chosen: string
+  --- The file run, absolute.
+  file: string
 end
 
 --- The tree a file run builds: the working directory when the file
@@ -327,11 +329,12 @@ local function root_of(file: string): Root?, string
   end
   local here, _ = Fs.absolute(".")
   if here ~= nil and Fs.within(resolved, here) then
-    return { dir = here, chosen = "the working directory, which holds the file" }, ""
+    return { dir = here, chosen = "the working directory, which holds the file", file = resolved }, ""
   end
   return {
     dir = Fs.dirname(resolved),
     chosen = "the file's own directory, since the working directory does not hold the file",
+    file = resolved,
   }, ""
 end
 
@@ -549,6 +552,8 @@ local function run(file: string, argv: {string}): integer
   -- The file's top level, which `require` hands its own name and loader
   -- data as `...`, finds its words in `arg`, as `lua file a b` gives them.
   rawset(_G as {string:any}, "arg", arguments) -- checked: cast_refused, unchecked_binding
+  -- What [`Proc.relaunch`] answers as `script`, so the program can start itself again.
+  require("cosmic.internal.source_run").script = tree_root.file
   local load_module = require("build.load_module")
   local entry = standalone.entry(load_module.load(name))
   if entry ~= nil then

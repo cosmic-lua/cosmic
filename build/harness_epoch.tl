@@ -81,6 +81,8 @@ harness_epoch.library = {
     "(`build.host_requires`: `exists`, `is_dir`, `absolute`)",
   ["cosmic.hash"] = "`build.paths` names a project's build directory by the SHA-256 of " ..
     "its root (`hex_sha256`), where the worker finds its tree's and builds its own",
+  ["cosmic.internal.source_run"] = "cosmic.proc requires it for the file a source run runs, which " ..
+    "`relaunch` names; a worker is no source run, so it holds none there",
   ["cosmic.proc"] = "names this program (`executable`), which a worker whose test does " ..
     "not declare `tool` is held from running; and finds a program a module requires " ..
     "of the host (`find`) and whether a portable artifact can start again " ..

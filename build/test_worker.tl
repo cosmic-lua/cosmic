@@ -276,7 +276,7 @@ worker.loads = {
   "build.assertions", "build.cache_names", "build.code_walk", "build.confine", "build.key_parts", "build.load_module",
   "build.test_inputs",
   "build.test_worker", "build.this_program", "cmd.cosmic.main", "cosmic.coverage",
-  "cosmic.env", "cosmic.fs", "cosmic.proc", "cosmic.test",
+  "cosmic.env", "cosmic.fs", "cosmic.internal.source_run", "cosmic.proc", "cosmic.test",
 }
 
 -- Taken at load, ahead of any test that could replace them on the

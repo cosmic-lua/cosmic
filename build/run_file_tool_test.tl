@@ -304,3 +304,84 @@ local function test_the_tree_hint_is_left_off_a_refusal_of_another_code(tmp: str
   assert(result.code == 4 and (result.stderr or ""):find("this run built the tree", 1, true) == nil,
     tostring(result.stderr))
 end
+
+--- A file run that starts itself again by [`Proc.relaunch`] runs the file, given `script` after `argv`: `argv` alone
+--- starts cosmic, whose dispatcher would take the program's own word for a verb.
+local function test_a_file_run_relaunched_with_its_script_runs_the_file_again(tmp: string)
+  local root = tree_of(tmp, "relaunched", { ["r.tl"] = [[
+local Child = require("cosmic.child")
+local Env = require("cosmic.env")
+local Proc = require("cosmic.proc")
+return function(argv: {string}): integer
+  if argv[1] == "shard" then
+    print("shard of " .. tostring(arg[0]))
+    return 0
+  end
+  local relaunch = assert(Proc.relaunch())
+  local env = Env.all()
+  for name, value in pairs(relaunch.env) do env[name] = value end
+  local again: mut {string} = { table.unpack(relaunch.argv) }
+  again[#again + 1] = assert(relaunch.script, "a file run's relaunch names its script")
+  again[#again + 1] = "shard"
+  local result = assert(Child.run(again, { env = env, fds = relaunch.fds, stdout = "capture", stderr = "capture" }))
+  print(relaunch.script)
+  print(result.code, result.stdout, result.stderr)
+  return 0
+end
+]] })
+  local result = run_in(root, "r.tl")
+  local said = tostring(result.stdout) .. tostring(result.stderr)
+  local script = said:match("^([^\n]+)\n")
+  assert(result.code == 0 and script ~= nil and script:sub(1, 1) == "/" and script:sub(-#"/relaunched/r.tl") ==
+      "/relaunched/r.tl", said)
+  assert(said:find("0\tshard of " .. script .. "\n", 1, true) ~= nil, said)
+end
+
+--- A file below its project's root, relaunched from another working directory, reaches the project's modules when the
+--- child starts in `relaunch.cwd`: started where the parent now is, it would build another tree.
+local function test_a_relaunched_file_run_started_in_its_cwd_builds_the_same_tree(tmp: string)
+  local root = tree_of(tmp, "below", {
+    ["lib/w.tl"] = "local record W\n  word: string\nend\nlocal w: W = { word = \"from lib\" }\nreturn w\n",
+    ["tools/r.tl"] = [[
+local Child = require("cosmic.child")
+local Env = require("cosmic.env")
+local Proc = require("cosmic.proc")
+local sys = require("cosmic.sys")
+local w = require("lib.w")
+return function(argv: {string}): integer
+  if argv[1] == "shard" then
+    print("shard " .. w.word)
+    return 0
+  end
+  assert(sys.chdir("tools"))
+  local relaunch = assert(Proc.relaunch())
+  local env = Env.all()
+  for name, value in pairs(relaunch.env) do env[name] = value end
+  local again: mut {string} = { table.unpack(relaunch.argv) }
+  again[#again + 1] = assert(relaunch.script)
+  again[#again + 1] = "shard"
+  local result = assert(Child.run(again, { env = env, fds = relaunch.fds, cwd = relaunch.cwd,
+    stdout = "capture", stderr = "capture" }))
+  print(result.code, result.stdout, result.stderr)
+  return 0
+end
+]],
+  })
+  local result = run_in(root, "tools/r.tl")
+  local said = tostring(result.stdout) .. tostring(result.stderr)
+  assert(result.code == 0 and said:find("0\tshard from lib\n", 1, true) ~= nil, said)
+end
+
+--- `script` names a file run's file alone: under `-e` and `--standalone`, which build no tree, it is nil.
+local function test_script_is_nil_outside_a_file_run(tmp: string)
+  local check = 'local Proc = require("cosmic.proc")\nprint(assert(Proc.relaunch()).script == nil)\n'
+  assert(Fs.mkdirs(tmp .. "/alone"))
+  assert(Fs.write(tmp .. "/alone/s.tl", check))
+  for _, words in ipairs({ { "-e", check }, { "--standalone", "s.tl" } }) do
+    local started = this_program.program(words, { cwd = tmp .. "/alone", env = this_program.environment(),
+      stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
+    local result = assert(Child.run(started.argv, started.options))
+    assert(result.code == 0 and result.stdout == "true\n", table.concat(words, " ") .. ": " .. tostring(result.stdout) ..
+        tostring(result.stderr))
+  end
+end
