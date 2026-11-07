@@ -491,6 +491,12 @@ local read_on_fresh <const> = -2
 --- ([`reboot.unchecked`]), each a tree however its root is spelled.
 local unchecked_trees: mut {string:boolean} = {}
 
+--- Whether this process has held the tool to the checkout it was built
+--- from, from a tree that is not cosmic's own ([`reboot.stale_exit`]): it
+--- does so once, before the first verb that asks, until
+--- [`reboot.recheck`] asks again.
+local checkout_held = false
+
 --- Leaves the tree at `root` unchecked for the life of this process.
 local function leave_unchecked(root: string)
   unchecked_trees[build_paths.resolve(root).directory] = true
@@ -538,6 +544,7 @@ function reboot.recheck(argv: {string}, root: string, seen?: reboot.Seen,
                         before_enter?: function(): {string:string}?, string): integer?
   local directory, _ = build_paths.optional(root)
   if directory ~= nil then unchecked_trees[directory] = nil end
+  checkout_held = false
   entering = before_enter
   local code = reboot.stale_exit(argv, true, root, seen)
   entering = nil
@@ -915,6 +922,26 @@ function reboot.standing(root: string, seen?: reboot.Seen): tree.Standing?, stri
   return tree.standing(root, meta_of("built_from", seen), started_as)
 end
 
+--- The checkout the running tool holds itself to from a tree that is not
+--- cosmic's own, and how that checkout stands: the tree it records it was
+--- built from ([`tree.built_from`]), where it is that checkout's own tool
+--- ([`tree.own_tool`]) and the checkout is still cosmic's own tree. Nil for
+--- any other tool, which runs on in a project as it is: a release, which
+--- records no checkout; a copy run from outside the checkout's build
+--- directory, which a rebuild would not replace; a process that cannot see
+--- that directory, as a sandboxed one.
+local function checkout_of(seen?: reboot.Seen): string?, tree.Standing?
+  local built = meta_of("built_from", seen)
+  if built == nil then return nil, nil end
+  local tool: string? = nil
+  if seen ~= nil then tool = seen.tool end
+  local own, _ = tree.own_tool(built, tool)
+  if own ~= true then return nil, nil end
+  local standing, _ = reboot.standing(built, seen)
+  if standing == nil or not standing.own then return nil, nil end
+  return built, standing
+end
+
 --- The staleness guard for a verb that runs `build.*` Teal this binary
 --- embedded at its own boot before, or without, compiling the tree
 --- itself -- `docs`, `uses`, `db`, `help`, `todos`, `fix`, and the
@@ -971,10 +998,18 @@ end
 --- tool on, finds no module in the one and no docs in the other. `sql`
 --- and `db` show the rows as stored, taking them to mean nothing.
 ---
+--- Where the tree is not cosmic's own (a project, or `ci/`), the tool is
+--- held instead to the checkout it was built from, when it is that
+--- checkout's own tool ([`checkout_of`]): [`bin/cosmic`] runs it from any
+--- directory, and a project run with a tool older than its checkout would
+--- otherwise run the checkout's old code without a word. That check is
+--- made once in a process ([`reboot.recheck`] makes it again), and as for a
+--- verb that only reads whatever the verb is: it waits for no run in the
+--- checkout, so a project run never waits on a `cosmic test` there.
+---
 --- Answers as [`reboot.guard`] does for the tree at `root`, the working
---- directory by default: nil to go on, when the tree is not cosmic's own
---- or the tool is fresh, or an exit code to return at once, having said
---- why.
+--- directory by default: nil to go on, when the tool is fresh or is held
+--- to no tree, or an exit code to return at once, having said why.
 --- @param argv the command line, re-entered after a rebuild
 --- @param seen how a test has the check see the running tool ([`reboot.Seen`])
 function reboot.stale_exit(argv: {string}, reads?: boolean, root?: string,
@@ -993,11 +1028,18 @@ function reboot.stale_exit(argv: {string}, reads?: boolean, root?: string,
     log:complain(own_trouble)
     return 1
   end
+  local away: string? = nil
+  local waits_for_none = reads == true
   if not standing.own then
-    return nil
+    local home, home_standing = checkout_of(seen)
+    if home == nil or home_standing == nil or checkout_held then
+      return nil
+    end
+    checkout_held = true
+    away, at, standing, waits_for_none = home, home, home_standing, true
   end
   local handle: work.Handle
-  if reads == true then
+  if waits_for_none then
     local tried, try_trouble = work.try_open_remaking(at)
     if tried == nil then
       log:complain(try_trouble)
@@ -1060,10 +1102,11 @@ function reboot.stale_exit(argv: {string}, reads?: boolean, root?: string,
       log:complain(closing(handle, stage_trouble))
       return 1
     end
-    local code = reboot.guard(handle, at, argv, reads, seen)
+    local code = reboot.guard(handle, at, argv, waits_for_none, seen)
     if code == read_on then
-      log:complain((argv[1] or "cosmic") .. ": this tool is older than the tree, so what it answers " ..
-          "comes from its own older code")
+      local tree_named = if away ~= nil then away .. ", the checkout it was built from" else "the tree" end
+      log:complain((argv[1] or "cosmic") .. ": this tool is older than " .. tree_named ..
+          ", so what it answers comes from its own older code")
       leave_unchecked(at)
       return nil
     end
@@ -1080,6 +1123,22 @@ function reboot.stale_exit(argv: {string}, reads?: boolean, root?: string,
     return 1
   end
   return nil
+end
+
+--- The check before a verb that holds the tool only to cosmic's own tree,
+--- as it builds it ([`reboot.guard`]): `cosmic <file.tl>`, `test`, `build`
+--- and `fix`. Where `root` is not cosmic's own, it holds the tool to the
+--- checkout it was built from, as [`reboot.stale_exit`] does; where it
+--- is, or `root` cannot be held to the tool, it answers nil at once, the
+--- verb's own guard or its own reading of the tree saying the rest.
+--- @param argv the command line, re-entered after a rebuild
+--- @param seen how a test has the check see the running tool ([`reboot.Seen`])
+function reboot.checkout_exit(argv: {string}, root: string, seen?: reboot.Seen): integer?
+  local standing, _ = reboot.standing(root, seen)
+  if standing == nil or standing.own then
+    return nil
+  end
+  return reboot.stale_exit(argv, true, root, seen)
 end
 
 return reboot

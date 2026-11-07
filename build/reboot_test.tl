@@ -464,3 +464,58 @@ local function test_a_line_about_another_schema_names_the_project_and_the_remedy
   end)
   assert(newer:find("a newer tool wrote it; use that tool in /some/project", 1, true) and newer:find("cosmic test", 1, true) == nil, newer)
 end
+
+--- Whether the working database of `root` has staged `path`.
+local function staged_in(root: string, path: string): boolean
+  local exists, _ = Fs.exists(paths.resolve(root).working)
+  if exists ~= true then
+    return false
+  end
+  local db = assert(Sqlite.open(paths.resolve(root).working))
+  local rows = assert(Sqlite.text_rows(db, "SELECT path FROM files WHERE path = '" .. path .. "'"))
+  assert(db:close())
+  return #rows == 1
+end
+
+--- A run in a project (`bin/cosmic x.tl` from outside the checkout) holds
+--- a tool older than the checkout it was built from to that checkout, as
+--- a run in the checkout does: it stages the checkout and reaches the
+--- guard, which here refuses, the tool seen as one a reboot already
+--- entered, rather than rebuild. It does so once in a process, and again
+--- at [`reboot.recheck`]. A copy of the tool run from elsewhere is no
+--- checkout's own and runs on in the project unchecked.
+local function test_a_project_run_holds_the_tool_to_the_checkout_it_was_built_from(tmp: string)
+  local checkout = tmp .. "/checkout"
+  assert(Fs.mkdirs(checkout .. "/core"))
+  assert(Fs.mkdirs(checkout .. "/build"))
+  assert(Fs.write(checkout .. "/build/importer.tl", "return {}\n"))
+  local project = tmp .. "/project"
+  assert(Fs.mkdirs(project))
+  assert(Fs.write(project .. "/x.tl", 'print("x")\n'))
+  local layout = paths.resolve(checkout)
+  assert(Fs.mkdirs(layout.bin))
+  local built_from = assert(tree.built_from(checkout))
+  local argv: {string} = { "x.tl" }
+
+  local copy: reboot.Seen = { tool = tmp .. "/elsewhere/cosmic", environment = { COSMIC_REBOOTED = "1" },
+    meta = { built_from = built_from } }
+  assert(Fs.mkdirs(tmp .. "/elsewhere"))
+  local copied = reboot.recheck(argv, project, copy)
+  assert(copied == nil, tostring(copied))
+  assert(not staged_in(checkout, "build/importer.tl"), "a copy of the tool staged its checkout")
+
+  local own: reboot.Seen = { tool = layout.tool, environment = { COSMIC_REBOOTED = "1" },
+    meta = { built_from = built_from } }
+  local code = reboot.recheck(argv, project, own)
+  assert(code == 3, "a project run went on with a tool older than its checkout: " .. tostring(code))
+  assert(staged_in(checkout, "build/importer.tl"), "the checkout is not staged")
+  -- Once in a process: the verb's own check after dispatch's goes on.
+  local again = reboot.stale_exit(argv, true, project, own)
+  assert(again == nil, tostring(again))
+  -- The check dispatch makes before a file run or `test` in a project.
+  local rechecked = reboot.recheck(argv, project, own)
+  assert(rechecked == 3, tostring(rechecked))
+  -- In the checkout itself the verb's own guard checks, not this.
+  local inside = reboot.checkout_exit(argv, checkout, own)
+  assert(inside == nil, tostring(inside))
+end
