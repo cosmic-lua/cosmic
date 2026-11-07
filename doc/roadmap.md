@@ -75,13 +75,6 @@ defines the target; once something ships, it leaves this file.
   a child cannot run the file again. it would record the file and carry the
   `--standalone` word in `argv`, so the child runs the file alone, as its
   parent did.
-- number a pure store's imports by group of instructions, not by instruction
-  ([`build.lua_tail`]'s `numbered`): one line per instruction makes the
-  coverage hook fire on every instruction an import runs, which made a
-  sandboxed [`lang/check_test.tl`] about 1.6 times slower and a fresh full
-  suite about a tenth. a group would end after any instruction that can
-  raise, call or jump and start at each jump target, so a hit still means
-  every instruction of its group ran, and no line is credited that did not.
 
 ## untrusted input
 
@@ -440,7 +433,6 @@ four-producer provenance join.
 [`bin/vendor`]: ../bin/vendor
 [`bin/zig`]: ../bin/zig
 [`build.fuzz`]: ../build/fuzz/init.tl
-[`build.lua_tail`]: ../build/lua_tail.tl
 [`build/archive.tl`]: ../build/archive.tl
 [`build/archive_test.tl`]: ../build/archive_test.tl
 [`build/c/tree.tl`]: ../build/c/tree.tl
@@ -490,7 +482,6 @@ four-producer provenance join.
 [`Html.url_part`]: ../cosmic/html.tl
 [`Input.Invalid`]: ../cosmic/web/input.tl
 [`Json.decode`]: ../cosmic/json.tl
-[`lang/check_test.tl`]: ../lang/check_test.tl
 [`lang/flow.tl`]: ../lang/flow.tl
 [`lang/stdlib.d.tl`]: ../lang/stdlib.d.tl
 [`Net.serve`]: ../cosmic/net.tl
