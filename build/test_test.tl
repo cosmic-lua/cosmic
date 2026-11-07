@@ -163,32 +163,28 @@ local function test_a_pure_stores_instruction_ordinals_are_placed_at_this_runs_l
   assert(own_out.hits == own and own_out.whole and unplaced["m"] == nil)
 end
 
---- A failure's message says a position of a pure store's import as an instruction's ordinal, which is shown at the
---- module's file and the line this run's text has it on, and a traceback's frame of a function at the line it is
---- defined on, not that of the instruction before its first; a position of another chunk, or one no function
---- starts at, is left as it is.
-local function test_a_position_of_a_numbered_chunk_is_shown_at_its_source_line()
+--- A traceback's frame of a function of a pure store's import names it by the instruction before its first, which
+--- is shown at the module's file and the line this run's text defines the function on; a frame of another chunk, one
+--- no function starts at, and a message's position (which a numbered chunk writes as -1) are left as they are.
+local function test_a_frame_of_a_numbered_chunk_is_shown_at_the_line_its_function_is_defined_on()
   local base = lua_tail.ordinal_base
-  local function lines_of(path: string): {integer}?, string
-    if path == "build.lib" then return { 4, 9 }, "" end
-    return nil, "no module of the projection"
-  end
-  -- The function whose first instruction is the second is defined on line 8, the line before the one it runs.
+  -- The function whose first instruction is the second is defined on line 8.
   local function defined_of(path: string): {integer:integer}?, string
     if path == "build.lib" then return { [1] = 8 }, "" end
     return nil, "no module of the projection"
   end
   local files = { ["build.lib"] = "build/lib.tl", ["build.gone"] = "build/gone.tl" }
-  local said = "build.lib:" .. tostring(base + 2) .. ": attempt to index a nil value\n" ..
-    "  build.lib_test:7: in function <build.lib_test:5>\n  build.gone:" .. tostring(base + 1) .. ": in upvalue\n" ..
-    "  build.lib:" .. tostring(base + 3) .. ": past the instructions\n" ..
-    "  build.lib:" .. tostring(base + 2) .. ": in function <build.lib:" .. tostring(base + 1) .. ">\n" ..
-    "  build.lib:" .. tostring(base + 2) .. ": in function <build.lib:" .. tostring(base + 2) .. ">"
-  local shown = test.placed_positions(said, files, lines_of, defined_of)
-  assert(shown == "build/lib.tl:9: attempt to index a nil value\n  build.lib_test:7: in function <build.lib_test:5>\n" ..
-      "  build.gone:" .. tostring(base + 1) .. ": in upvalue\n  build.lib:" .. tostring(base + 3) .. ": past the instructions\n" ..
-      "  build/lib.tl:9: in function <build/lib.tl:8>\n" ..
-      "  build/lib.tl:9: in function <build.lib:" .. tostring(base + 2) .. ">",
+  local said = "build.lib:-1: attempt to index a nil value\n" ..
+    "  build.lib_test:7: in function <build.lib_test:5>\n" ..
+    "  build.gone: in function <build.gone:" .. tostring(base + 1) .. ">\n" ..
+    "  build.lib: in function <build.lib:" .. tostring(base + 1) .. ">\n" ..
+    "  build.lib: in function <build.lib:" .. tostring(base + 2) .. ">"
+  local shown = test.placed_positions(said, files, defined_of)
+  assert(shown == "build.lib:-1: attempt to index a nil value\n" ..
+      "  build.lib_test:7: in function <build.lib_test:5>\n" ..
+      "  build.gone: in function <build.gone:" .. tostring(base + 1) .. ">\n" ..
+      "  build.lib: in function <build/lib.tl:8>\n" ..
+      "  build.lib: in function <build.lib:" .. tostring(base + 2) .. ">",
     shown)
 end
 

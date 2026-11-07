@@ -346,9 +346,9 @@ static void budget_hook (lua_State *L, Collector *collector) {
 #define ORDINAL_BASE (1u << 24)
 
 /* What Lua tells of each instruction a function with no line information
- * is about to run (patch/lua/11-instruction-coverage-defined.txt, which
- * defines it), declared here since the core's C is read against the
- * unpatched tree. */
+ * is about to run, declared here since the core's C is read against the
+ * unpatched tree: patch/lua/11-instruction-coverage-defined.txt defines
+ * it, and this declaration must match that definition. */
 extern int (*luaG_instructionline) (lua_State *L, const Proto *p, int pc);
 
 /* Lua's luaG_instructionline,
@@ -362,6 +362,11 @@ static int instruction_line (lua_State *L, const Proto *p, int pc) {
   Collector *collector = current_collector(L);
   TString *name = p->source;
   if (!collector || !collector->active || !name) return 0;
+  /* Only a numbered chunk's: its own function, defined on line 0, or one
+   * defined past ORDINAL_BASE. A chunk made another way, with no line
+   * information but a function defined on a line of a text, would count
+   * its instructions on lines no text of it holds. */
+  if (p->linedefined != 0 && (unsigned)p->linedefined <= ORDINAL_BASE) return 0;
   unsigned first = p->linedefined > 0 ? (unsigned)p->linedefined : ORDINAL_BASE;
   unsigned line = first + (unsigned)pc + 1;
   /* The line hook's lookups of the source and the page, but for making

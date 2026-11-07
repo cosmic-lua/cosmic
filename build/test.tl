@@ -1058,33 +1058,30 @@ local function defined_lines_of(rec: Recording, path: string): {integer:integer}
   return known, ""
 end
 
---- `said` with each position of a numbered chunk in it (`module:ordinal`, the ordinal past [`lua_tail.ordinal_base`]:
---- what a message or a traceback says of a pure store's import, [`test.place_hits`]) said at the module's file, by
---- `files`, and the line this run's text has it on: an instruction's, by `lines_of`, and in a traceback's
---- `function <module:ordinal>`, which names where a function is defined, that function's, by `defined_of`. For what
---- is shown alone: no key holds the line. A position it cannot place is left as it is.
+--- `said` with each frame of a traceback that names a function of a numbered chunk (`function <module:ordinal>`, the
+--- ordinal past [`lua_tail.ordinal_base`]: a pure store's import, [`test.place_hits`]) said at the module's file, by
+--- `files`, and the line this run's text defines that function on, by `defined_of`. For what is shown alone: no key
+--- holds the line. A frame it cannot place is left as it is. A message says no position in such a chunk
+--- (`module:-1:`), which has no line information.
 function test.placed_positions(said: string, files: {string:string},
-                               lines_of: function(string): {integer}?, string,
                                defined_of: function(string): {integer:integer}?, string): string
-  local function place(named: string, digits: string, of_function: boolean): string?
+  return (said:gsub("<([%w_%.]+):(%d+)>", function(named: string, digits: string): string
     local ordinal = math.tointeger(tonumber(digits)) or 0
     local file = files[named]
-    if ordinal <= lua_tail.ordinal_base or file == nil then return nil end
-    local line: integer? = nil
-    if of_function then
+    if ordinal > lua_tail.ordinal_base and file ~= nil then
       local defines, _ = defined_of(named)
-      if defines ~= nil then line = defines[ordinal - lua_tail.ordinal_base] end
-    else
-      local lines, _ = lines_of(named)
-      if lines ~= nil then line = lines[ordinal - lua_tail.ordinal_base] end
+      local line = if defines ~= nil then defines[ordinal - lua_tail.ordinal_base] else nil end
+      if line ~= nil then return "<" .. file .. ":" .. tostring(line) .. ">" end
     end
-    if line == nil then return nil end
-    return file .. ":" .. tostring(line)
-  end
-  -- A `<` before the module's name is a traceback's frame of a function, which names the line it is defined on.
-  return (said:gsub("(<?)([%w_%.]+):(%d+)", function(lead: string, named: string, digits: string): string
-    return lead .. (place(named, digits, lead == "<") or (named .. ":" .. digits))
+    return "<" .. named .. ":" .. digits .. ">"
   end))
+end
+
+--- [`test.placed_positions`] of this run's modules and text.
+local function placed_positions(rec: Recording, said: string): string
+  return test.placed_positions(said, rec.files, function(path: string): {integer:integer}?, string
+    return defined_lines_of(rec, path)
+  end)
 end
 
 --- The errors of a run whose workers reported hits of the modules `unplaced` names that [`test.place_hits`] could
@@ -1100,15 +1097,6 @@ function test.unplaced_errors(unplaced: {string:string}): {string}
       "; no verdict of a test that reached them is kept"
   end
   return out
-end
-
---- [`test.placed_positions`] of this run's modules and text.
-local function placed_positions(rec: Recording, said: string): string
-  return test.placed_positions(said, rec.files, function(path: string): {integer}?, string
-    return instruction_lines_of(rec, path)
-  end, function(path: string): {integer:integer}?, string
-    return defined_lines_of(rec, path)
-  end)
 end
 
 --- Folds the violations a finished worker reported into the run's, by

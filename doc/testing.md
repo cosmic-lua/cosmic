@@ -398,10 +398,11 @@ store of its closure with its text, as `store_text` does.
 
 A test does not assert a position inside code it imports: a line number of
 the module's own code in a message or a traceback, `debug.getinfo`'s
-`currentline` or `linedefined`. In a pure store a message or a traceback
-says no line of an imported module's code, and a function's `linedefined`
-is the number of an instruction, not a line of the text, which moves with
-each instruction added above it. The runner shows a traceback's
+`currentline` or `linedefined`. In a pure store an imported module's code
+has no line: an error it raises reads `module:-1: ...` (`error` with a
+level adds no position), a traceback's frame in it names no line, and a
+function's `linedefined` is the number of an instruction, not a line of
+the text, which moves with each instruction added above it. The runner shows a traceback's
 `function <module:line>` at the module's file and the line that function
 is defined on in this run's text, in the message of a test it shows and
 records in `runs` and in the output it shows (`--show-output`, a

@@ -120,6 +120,51 @@ local function test_a_numbered_chunk_moves_with_no_text_and_its_instructions_are
   end
 end
 
+--- A finalizer runs with hooks held off (lgc.c's GCTM), so the line hook counts no line of its body, and nor does
+--- the core in a numbered chunk: its body is reached in neither, while the code that made and collected the value is.
+local function test_a_finalizer_of_a_numbered_chunk_is_counted_as_the_text_is()
+  local source = table.concat({
+    "local setmetatable, collectgarbage = ...",
+    "local seen = 0",
+    "local function make()",
+    "  return setmetatable({}, { __gc = function()",
+    "    seen = seen + 1",
+    "  end })",
+    "end",
+    "make()",
+    "collectgarbage()",
+    "collectgarbage()",
+    "return seen",
+  }, "\n") .. "\n"
+  -- What the chunk calls, handed to it, so it runs in an environment of its own.
+  local metatables = assert(load("return setmetatable", "=lua_tail_finalizer_library", "t"))
+  local function collect() collectgarbage("collect") end
+  local function ran(chunk: function(...: any): any...): integer
+    local ok, seen = pcall(function(): any return chunk(metatables(), collect) end)
+    assert(ok, tostring(seen))
+    return math.tointeger(seen) or 0
+  end
+  local text = assert(load(source, "@lua_tail_finalizer_text", "t", {}))
+  local numbered_code = assert(LuaTail.numbered(assert(LuaTail.bytecode_of(source, "lua_tail_finalizer_numbered",
+    "finalizer.tl")), "lua_tail_finalizer_numbered"))
+  local numbered = assert(load(numbered_code, "=lua_tail_finalizer_numbered", "b", {}))
+  -- Twice each, so the second finds the source and its page held, and could count them without the hook.
+  assert(ran(text) >= 1 and ran(text) >= 1, "the finalizer did not run, so this shows nothing")
+  assert(ran(numbered) >= 1 and ran(numbered) >= 1, "the finalizer did not run, so this shows nothing")
+  local hits = Hits.snapshot()
+  local by_text = assert(hits["lua_tail_finalizer_text"], "the text's lines were not counted")
+  assert(by_text[8] == true and by_text[5] == nil, "the line hook counted a finalizer's body, so this shows nothing")
+  local counted = assert(hits["lua_tail_finalizer_numbered"], "the numbered chunk's instructions were not counted")
+  local lines = assert(LuaTail.instruction_lines(assert(LuaTail.bytecode_of(source, "lua_tail_finalizer_numbered",
+    "finalizer.tl")), "lua_tail_finalizer_numbered"))
+  local reached: mut {integer:boolean} = {}
+  for line in pairs(counted) do
+    reached[assert(lines[line - LuaTail.ordinal_base], "an ordinal past the chunk's instructions")] = true
+  end
+  assert(reached[8] == true, "the call that made the value was not reached")
+  assert(reached[5] == nil, "the finalizer's body was counted, which the line hook of the text does not count")
+end
+
 --- The source line of each instruction, in a numbered chunk's order: the chunk's own, then those of each function
 --- it defines, and the line each such function is defined on; a line no statement is on holds none, and a chunk
 --- with no line information is refused.

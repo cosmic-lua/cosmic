@@ -835,6 +835,10 @@ local function monotonic_ns(): integer
   return reading
 end
 
+--- One more than the most lines a run of a report's hits names ([`worker.decode`] refuses a longer one): no chunk the
+--- core loads holds this many instructions, nor a source this many lines.
+local longest_run <const> = 1 << 24
+
 local function encode_hits(lines: mut {string}, tag: string, hits: Coverage.Hits)
   if hits == nil then return end -- checked: compare_disjoint
   local paths: mut {string} = {}
@@ -851,6 +855,8 @@ local function encode_hits(lines: mut {string}, tag: string, hits: Coverage.Hits
       if line < low then low = line end
       if line > high then high = line end
     end
+    -- A module with no line hit names none: an empty list of lines is no report.
+    if count == 0 then continue end
     -- In order: by a walk from the lowest to the highest where they are as dense as the instructions a pure
     -- store's import runs (each counted on a line of its own), else sorted.
     if count > 0 and high - low < 4 * count then
@@ -990,13 +996,18 @@ function worker.decode(text: string): worker.Report?, string
           local path, numbers = rest:match("^([0-9a-f]*) ([0-9,%-]*)$")
           local decoded = if path ~= nil then unhex(path) else nil end
           if decoded == nil or numbers == nil then return nil, "a malformed hit: " .. line end
+          -- Every item a line or a run, none empty, and none a run longer than the instructions of a chunk can be.
+          if numbers == "" or numbers:find(",,", 1, true) ~= nil or numbers:sub(1, 1) == "," or
+              numbers:sub(-1) == "," then
+            return nil, "a malformed hit: " .. line
+          end
           local per_line: mut {integer:boolean} = {}
           for item in numbers:gmatch("[^,]+") do
             local low, high = item:match("^(%d+)%-(%d+)$")
             if low == nil then low, high = item:match("^(%d+)$"), nil end
             local from = math.tointeger(tonumber(low))
             local to = if high ~= nil then math.tointeger(tonumber(high)) else from end
-            if from == nil or to == nil or to < from then
+            if from == nil or to == nil or to < from or to - from >= longest_run then
               return nil, "a malformed hit: " .. line
             end
             for number = from, to do per_line[number] = true end

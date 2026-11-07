@@ -54,7 +54,8 @@ local function test_a_line_of_hits_read_twice_is_one_table()
 end
 
 --- A module's lines are written as runs of consecutive lines, dense ones (a pure store's import, a line an
---- instruction) walked rather than sorted, and read back whole; a run that ends before it starts is no report.
+--- instruction) walked rather than sorted, and read back whole; a run that ends before it starts or is longer than
+--- a chunk's instructions can be, an empty item or an empty list is no report.
 local function test_hits_are_written_as_runs_of_lines_and_read_back_whole()
   local report = passing({})
   local dense: mut {integer:boolean} = {}
@@ -75,8 +76,14 @@ local function test_hits_are_written_as_runs_of_lines_and_read_back_whole()
   end
   assert(count == 83 and a[16777250] == nil, "the dense lines were not read back whole")
   assert(b[1] == true and b[2] == true and b[900] == true and b[40000] == true and b[3] == nil)
-  local backwards = text:gsub(" 1%-2,900,40000\n", " 2-1\n")
-  assert(worker.decode(backwards) == nil, "a run that ends before it starts was read")
+  for _, bad in ipairs({ "2-1", "1,,2", ",1", "1,", "", "1-16777217", "1-99999999999" }) do
+    local malformed = text:gsub(" 1%-2,900,40000\n", " " .. bad .. "\n")
+    assert(worker.decode(malformed) == nil, "a malformed list of lines was read: " .. bad)
+  end
+  -- A module none of whose lines was hit is not written, so what is written is never an empty list.
+  local none = passing({})
+  none.test_hits = { ["build.c"] = {} }
+  assert(not worker.encode(none):find("test-hit", 1, true), "a module with no line hit was written")
 end
 
 --- A pass whose worker ran a module of the tree the tool carries that
