@@ -330,10 +330,14 @@ Codes.catalog = {
       "an element or appends to an empty array, as does the write of `a[i]` in every pass of a loop that counts " ..
       "`i` from 1 by 1 (`for i = 1, n` or `for i in ipairs(t)`) over a list `a` made from `{}` before the loop that " ..
       "nothing else names, in a statement of the body that no `continue` precedes, so no write makes a hole and `#`, " ..
-      "`ipairs` and `table.insert` stay defined on a sequence. " ..
+      "`ipairs` and `table.insert` stay defined on a sequence. A value that is not nil written at an integer local `i` in " ..
+      "the block of an `if` whose condition holds `i >= 1 and i <= #t` (either side of each comparison, `i > 0` or " ..
+      "`i < #t` too) overwrites an element, where the condition and the block call no function but `math`'s, write no nil, write `t` at " ..
+      "no other key and assign neither `t` nor `i`, and the write is not in a function the block makes. " ..
       "`table.move(a, f, e, t, b)` is the same write for a range of elements: it copies only " ..
       "elements `a` has when `f` is a literal of 1 or more and `e` is at most `#a`, and writes them at `1` or `#b + 1`",
-    fix = "append with `<t>[#<t> + 1] = <v>` or `table.insert`, copy with `table.move(<a>, 1, #<a>, 1, <b>)` (or to " ..
+    fix = "append with `<t>[#<t> + 1] = <v>` or `table.insert`, overwrite an element inside " ..
+      "`if <i> >= 1 and <i> <= #<t> then`, copy with `table.move(<a>, 1, #<a>, 1, <b>)` (or to " ..
       "`#<b> + 1`), remove with `table.remove`, or key a map `{integer: T}` for sparse data",
   },
   {

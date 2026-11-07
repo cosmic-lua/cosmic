@@ -733,6 +733,33 @@ is gone after a failure too. Unsandboxed (`COSMIC_TEST_SANDBOX=0`), a failing
 test's scratch directory is kept, and its failure says where. A sandboxed
 test has no write grant anywhere else.
 
+### a cache of the code under test
+
+A sandboxed test reads only its grants and writes only its scratch. A cache
+that the code under test keeps outside them, such as a directory under
+`out/` of the project, is not there in the worker: each test finds it
+missing, cannot keep what it would write there, and never hits it. This is
+by design. A cache
+that could change a result would make a verdict turn on what its key does
+not name. `caches` in [`Test.policy`] admits only `"zig"` and `"bootstrap"`,
+whose contents are addressed by what they hold and never change a result.
+
+Give the code a seam instead: take the cache's path as a parameter or an
+option, and have the test pass a directory under its `tmp`, so the test can
+fill the cache and read it back within itself. Or have the test run the code
+with no cache.
+
+```text
+-- the module: where it keeps its cache is the caller's choice, nil for none
+function Lookup.answer(key: string, cache_dir?: string): string
+
+-- the test: a cache of its own, in its scratch
+local function test_a_lookup_keeps_its_answer_in_the_cache(tmp: string)
+  assert(Lookup.answer("a", tmp) == "A")
+  assert(Fs.read(tmp .. "/a") == "A")
+end
+```
+
 ### output
 
 What a test prints is shown only when it fails, beneath its failure as

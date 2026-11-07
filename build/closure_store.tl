@@ -1064,6 +1064,11 @@ end
 --- ([`text_kept`]), which the address digests, and every module's bytecode but `own`'s is stripped of its debug
 --- information, so a test that reads such a row finds none and fails, and
 --- the store's bytes follow from [`closure_store.address`]'s pure address.
+---
+-- TODO: give the coverage hook the lines of the imported modules of a pure store (their line information kept out of
+-- the address, or their hits mapped back by each module's own text): stripped bytecode reports no line, so a sandboxed
+-- run records no hit in any module but the test's own (`cosmic test cosmic/clock_test.tl` leaves every line of
+-- [`cosmic.clock`] at 0 in `coverage`).
 function closure_store.write(whole: string, out: string, names: {string},
                              basis: closure_store.Basis, extraction?: string,
                              own?: string): boolean, string
