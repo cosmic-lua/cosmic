@@ -194,6 +194,16 @@ local CASES <const>: {Case} = {
     msg = "this gives 1 value to 2 names, so the last name is nil", fix = "give 2 values",
   },
   {
+    code = "value_count", source = "local function f()\nend\nlocal _ = f()\n", at = { line = 3, column = 1 },
+    msg = "this gives 0 values to 1 name, so the last name is nil",
+    fix = "`f` answers nothing: write the call as a statement, `f()`",
+  },
+  {
+    code = "value_count", source = "local record R\n  f: function(R)\nend\nlocal r: R = { f = function(_: R) end }\nlocal x: integer\nx = r:f()\n",
+    msg = "this gives 0 values to 1 target, so the last target is nil",
+    fix = "`r:f` answers nothing: write the call as a statement, `r:f()`",
+  },
+  {
     code = "vararg_outside", source = "local function f()\n  local x = ...\nend\n",
     msg = "`...` is used in a function that has no rest parameter", fix = "declare the rest parameter `...: T`",
   },
@@ -293,6 +303,12 @@ local CASES <const>: {Case} = {
     code = "setmetatable_call", source = "local t = setmetatable({}, {})\n", at = { line = 1, column = 11 },
     msg = "a program has no `setmetatable`: the metatable of a value is the compiler's",
     fix = "declare a `class` with the methods and write the value as a table literal typed as the class",
+  },
+  {
+    code = "setmetatable_call", source = "local t: {string: integer} = { a = 1 }\nlocal o = setmetatable({}, { __index = t })\n",
+    msg = "a program has no `setmetatable`",
+    fix = "for a temporary change to a shared table (an overlay through `__index`), write the keys into the table in " ..
+      "place, keep each key's old value, and restore them after",
   },
   {
     code = "enum_member", source = "local enum E \"a\" \"b\" end\nlocal e: E = \"c\"\n", at = { line = 2, column = 14 },

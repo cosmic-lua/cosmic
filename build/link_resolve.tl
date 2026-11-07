@@ -41,6 +41,14 @@ local record link_resolve
     --- Why `symbols` cannot answer for the project's own code (it has
     --- no database yet), or nil when it can.
     unbuilt: function(): string?
+    --- Whether the build made for this resolution refused `module`, so
+    --- what `symbols` holds of it is an earlier build's, which says
+    --- nothing of its members now. Asked once `symbols` or `member` has
+    --- answered. Nil where no build was made.
+    mut refused?: function(module: string): boolean
+    --- Whether the tree ignores the path `relative` to the root, which
+    --- `kind` then answers nil for: no fresh checkout has it.
+    mut ignored?: function(relative: string): boolean
   end
 
   --- Resolves links, remembering what it looked up.
@@ -226,9 +234,11 @@ end
 --- that starts with `/` to the root alone). Nil and why when there is
 --- none there: the reason the first place gives, of none, the root's
 --- `o/` (a stale build directory an older tool wrote), a `.git` (git's
---- metadata), a place outside the root, or a link that leads out of it.
+--- metadata), a path the tree ignores ([`Context.ignored`]), a place
+--- outside the root, or a link that leads out of it.
 local function located(resolver: link_resolve.Resolver, from: string, target: string): string?, string
   local root = resolver.context.root
+  local ignores = resolver.context.ignored
   local bases: mut {string} = { root }
   if target:sub(1, 1) ~= "/" then
     table.insert(bases, 1, Fs.dirname(from))
@@ -249,6 +259,12 @@ local function located(resolver: link_resolve.Resolver, from: string, target: st
       -- file, so a path through it resolves in one checkout and not
       -- another. Refused before it is looked at, as `o/` is.
       reason = "it is under .git, git's own metadata"
+    elseif ignores ~= nil and ignores(relative) then
+      reason = if ("/" .. relative .. "/"):find("/node_modules/", 1, true) ~= nil then
+        "it is under node_modules/, absent from a fresh checkout: link the source that names the package, or write " ..
+          "it as code text" else
+        "it is ignored (.gitignore), so absent from a fresh checkout: link the source or rule that makes it, or " ..
+          "write it as code text" end
     elseif kind_at(resolver, path) ~= nil then
       local real_root = resolver.real_root or resolver.context.real(root) or root
       resolver.real_root = real_root
@@ -378,6 +394,29 @@ local record TargetFields
   file?: string
 end
 
+--- Why a name in full `dotted` names nothing known, where the build made for this resolution refused the module it is
+--- of ([`Context.refused`]): that module is `dotted`'s longest prefix that is a module of the tree, its file `p.tl` or
+--- `p/init.tl` there, or that the build refused. A module that built answers for its own members even under a parent
+--- that did not, whether or not an earlier build knew it. Nil where it built, or where no build was made.
+local function refused_prefix(resolver: link_resolve.Resolver, dotted: string): string?
+  local refused = resolver.context.refused
+  if refused == nil then return nil end
+  local root = resolver.context.root
+  local module = dotted
+  while true do
+    if refused(module) then
+      return module .. " did not build, so its symbols are unknown; fix it first"
+    end
+    local path = root .. "/" .. (module:gsub("%.", "/"))
+    if kind_at(resolver, path .. ".tl") == "file" or kind_at(resolver, path .. "/init.tl") == "file" then
+      return nil
+    end
+    local shorter = module:match("^(.+)%.[^.]+$")
+    if shorter == nil then return nil end
+    module = shorter
+  end
+end
+
 --- What `target`, linked from the file at the absolute path `from`,
 --- resolves to; nil and why when it resolves to nothing or to more
 --- than one thing. `declared` gives what that file declares where the
@@ -443,6 +482,10 @@ function link_resolve.resolve(resolver: link_resolve.Resolver, from: string, tar
     local module = if first ~= nil then own.aliases[first] else nil end
     if module ~= nil and rest ~= nil then
       local members = members_named(resolver, module, rest)
+      local not_built = refused_prefix(resolver, module)
+      if #members == 0 and not_built ~= nil then
+        return nil, not_built
+      end
       -- Unbuilt, the members of a module the symbols do not know yet
       -- (the project's own) may be ones the build would record, as for
       -- a name in full below; a known module's (the standard library's)
@@ -481,6 +524,13 @@ function link_resolve.resolve(resolver: link_resolve.Resolver, from: string, tar
   end
   if file ~= nil then
     found[#found + 1] = "the file " .. shown(resolver, file)
+  end
+  -- A module the build refused is said so whether or not the symbols are complete.
+  if #found == 0 and name ~= nil and not bare then
+    local not_built = refused_prefix(resolver, (name:gsub(":", ".")))
+    if not_built ~= nil then
+      return nil, not_built
+    end
   end
   -- A shortcut names a symbol; an inline link, a path first.
   if #found == 0 and name ~= nil and not bare and not path_first and resolver.context.unbuilt() ~= nil then

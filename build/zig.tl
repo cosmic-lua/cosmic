@@ -918,8 +918,9 @@ function Zig.boots(given: {string}): boolean
   return false
 end
 
---- The run holding the lock in the build directory `output`, and what it
---- is doing, as build/rebuild_lock.tl's `holder` names them.
+--- The run holding the lock in the build directory `output`, what it is
+--- doing, and how long it has held the lock, as build/rebuild_lock.tl's
+--- `holder` names them.
 function Zig.holder(output: string): string
   local text, _ = Fs.read(output .. holder_name)
   local pid: integer? = nil
@@ -933,13 +934,22 @@ function Zig.holder(output: string): string
     end
   end
   local who = "another cosmic run"
+  local since = ""
   if pid ~= nil and pid ~= Proc.pid() then
     local alive, _ = sys.kill(pid, 0)
     if alive then
       who = "another cosmic run (pid " .. tostring(pid) .. ")"
+      -- The file's age, as build/rebuild_lock.tl's `held_for` reads it.
+      local st, _ = sys.stat(output .. holder_name)
+      local held_ns = if st == nil then -1 else Clock.now_ns() - (st.mtime * Clock.seconds(1) + st.mtime_ns) end
+      if held_ns >= Clock.minutes(2) then
+        since = " (it has held the lock for " .. tostring(held_ns // Clock.minutes(1)) .. " min)"
+      elseif held_ns >= 0 then
+        since = " (it has held the lock for " .. tostring(held_ns // Clock.seconds(1)) .. " s)"
+      end
     end
   end
-  return who .. " in this checkout " .. what
+  return who .. " in this checkout " .. what .. since
 end
 
 --- Begins the lock's transaction on `db`, waiting up to `wait_ns`:

@@ -14,6 +14,7 @@ local Log = require("cosmic.log")
 local GrammarMode = require("build.grammar_mode")
 local identity = require("build.identity")
 local importer = require("build.importer")
+local refusals = require("build.refusals")
 local shared_compiles = require("build.shared_compiles")
 local work = require("build.work")
 local writer = require("build.writer")
@@ -187,7 +188,7 @@ local function stage(root: string, working: build_paths.Layout, output: build_pa
   if #refused > 0 then
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
     local _, _ = work.close(handle)
-    log:complain(table.concat(refused, "\n"))
+    log:complain(refusals.text(refused, result.refusal_roots or {}))
     log:complain("boot: the new checker refused " .. plural.count(#refused, "module") ..
         " of the tree, so no tool is written from it")
     return nil

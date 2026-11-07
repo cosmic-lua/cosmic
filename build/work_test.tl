@@ -19,6 +19,53 @@ local function count(db: Sqlite.Handle, table_name: string): integer
   return math.tointeger(tonumber(support.nth(rows, 1):text(1))) as integer -- checked: cast_refused
 end
 
+--- The holder of a write lock is read from /proc/locks by the file's
+--- device, inode and a byte its range covers, and only from a holder's
+--- line: a line of a process blocked waiting for the lock names a
+--- waiter, and a pid 0 one the reader's pid namespace cannot see.
+local function test_the_holder_of_a_write_lock_is_the_process_proc_locks_says_holds_it()
+  local at: work.Place = { dev = 0xfe00, ino = 876668 }
+  local locks = table.concat({
+    "1: POSIX  ADVISORY  WRITE 4939 fe:00:821653 120 120",
+    "2: POSIX  ADVISORY  READ 77 fe:00:876668 120 120",
+    "3: POSIX  ADVISORY  WRITE 78 fe:01:876668 120 120",
+    "4: POSIX  ADVISORY  WRITE 79 fe:00:876668 128 128",
+    "4: -> POSIX  ADVISORY  WRITE 80 fe:00:876668 120 120",
+    "5: POSIX  ADVISORY  WRITE 9976 fe:00:876668 120 120",
+    "6: POSIX  ADVISORY  READ 9976 fe:00:876668 124 124",
+  }, "\n") .. "\n"
+  assert(work.lock_holder_in(locks, at, 120) == 9976)
+  assert(work.lock_holder_in(locks, at, 1073741825) == nil)
+  assert(work.lock_holder_in("1: POSIX  ADVISORY  WRITE 0 fe:00:876668 120 120\n", at, 120) == nil)
+  assert(work.lock_holder_in("1: -> POSIX  ADVISORY  WRITE 80 fe:00:876668 120 120\n", at, 120) == nil)
+  -- One owner's adjacent locks are one range: PENDING, RESERVED and SHARED at a commit in rollback mode.
+  assert(work.lock_holder_in("1: POSIX  ADVISORY  WRITE 81 fe:00:876668 1073741824 1073742335\n", at, 1073741825) == 81)
+  assert(work.lock_holder_in("1: POSIX  ADVISORY  WRITE 82 fe:00:876668 100 EOF\n", at, 120) == 82)
+end
+
+--- A waiting run names the holder by the pid /proc/locks gives, and calls it a cosmic run that has held the lock so
+--- long only where the holder file names that pid; otherwise it is a process, and with no holder shown, or this one,
+--- no pid is named.
+local function test_the_holder_of_the_write_lock_is_named_only_as_far_as_the_host_shows_it()
+  local path = "/b/build.db"
+  local locks = "1: POSIX  ADVISORY  WRITE 9976 fe:00:7 120 120\n2: POSIX  ADVISORY  WRITE 31 fe:00:6 1073741825 1073741825\n"
+  local shm: work.Place = { dev = 0xfe00, ino = 7 }
+  local file: work.Place = { dev = 0xfe00, ino = 6 }
+  local function said(seen: work.Seen): string return work.holder_line(path, seen) end
+  assert(said({ locks = locks, shm = shm, file = file, named = "9976\n", age_ns = Clock.seconds(270), own = 1 }) ==
+      "another cosmic run (pid 9976) has held the write lock of /b/build.db for 4 min")
+  assert(said({ locks = locks, shm = shm, file = file, named = "12\n", age_ns = Clock.seconds(270), own = 1 }) ==
+      "another process (pid 9976) holds the write lock of /b/build.db")
+  assert(said({ locks = locks, shm = shm, file = file, own = 1 }) ==
+      "another process (pid 9976) holds the write lock of /b/build.db")
+  -- No write-ahead lock: the rollback mode's RESERVED byte of the file itself.
+  assert(said({ locks = locks, file = file, own = 1 }) == "another process (pid 31) holds the write lock of /b/build.db")
+  local unnamed = "another cosmic run holds the write lock of /b/build.db"
+  assert(said({ locks = locks, shm = shm, file = file, named = "9976\n", age_ns = 5, own = 9976 }) == unnamed)
+  assert(said({ shm = shm, file = file, own = 1 }) == unnamed)
+  assert(said({ locks = "", shm = shm, file = file, own = 1 }) == unnamed)
+end
+
 local function test_recording_error_rolls_back_every_table(tmp: string)
   local handle = assert(work.open(tmp))
   assert(work.commit(handle))

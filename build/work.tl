@@ -37,6 +37,25 @@ local log = require("build.logger").log
 local _ = require("build.reads.links")
 
 local record work
+  --- A file by its device, as a stat gives it, and its inode.
+  record Place
+    dev: integer
+    ino: integer
+  end
+
+  --- What [`work.holding`] reads of a host to name the holder of a write
+  --- lock ([`work.holder_line`]): the text of /proc/locks, the `-shm` file
+  --- and the database file, the text of the holder file and its age, and
+  --- this process's pid. A field is nil where it could not be read.
+  record Seen
+    locks?: string
+    mut shm?: Place
+    mut file?: Place
+    mut named?: string
+    mut age_ns?: integer
+    own: integer
+  end
+
   --- One file of `web_assets`: its name in the table, its bytes, their
   --- SHA-256 as hex, their SHA-384 as base64 and the vendored version.
   record WebAsset
@@ -626,6 +645,119 @@ local wait_ns <const> = Clock.minutes(30)
 --- How long a run waits for that transaction before it says so.
 local notice_ns <const> = Clock.seconds(1)
 
+--- How long a waiting run waits in one go before it says it still is,
+--- as a run waiting for the rebuild lock does.
+local reminder_ns <const> = Clock.seconds(15)
+
+--- Where SQLite's unix VFS puts a run's write lock on the working
+--- database, an fcntl lock of one byte: byte 120 of the `-shm` file in
+--- write-ahead mode (the first lock past the index header), and byte
+--- 2^30 + 1 of the file itself in rollback mode (its RESERVED lock).
+local wal_write_byte <const> = 120
+local reserved_byte <const> = 1073741825
+
+--- The pid that `locks`, the text of Linux's /proc/locks, says holds a
+--- POSIX write lock over byte `byte` of the file at `place`. Nil where
+--- none does, and where the holder is in a pid namespace this process
+--- cannot see, which the file shows as pid 0. A line of a process
+--- blocked waiting for the lock (`N: -> POSIX ...`) names a waiter, not
+--- the holder, and is passed over. A lock is a range, `EOF` ending one
+--- that runs to the file's end: Linux merges the adjacent locks of one
+--- owner, as SQLite's PENDING, RESERVED and SHARED bytes are at a
+--- commit in rollback mode.
+function work.lock_holder_in(locks: string, place: work.Place, byte: integer): integer?
+  -- The file names a device by its major and minor numbers in hex, as
+  -- the kernel splits `st_dev`.
+  local dev = place.dev
+  local major = ((dev >> 8) & 0xfff) | ((dev >> 32) & ~0xfff)
+  local minor = (dev & 0xff) | ((dev >> 12) & ~0xff)
+  for line in locks:gmatch("[^\n]+") do
+    local pid, maj, min, at, from, to = line:match(
+      "^%d+: POSIX%s+%u+%s+WRITE%s+(%d+)%s+(%x+):(%x+):(%d+)%s+(%d+)%s+(%w+)")
+    local first = math.tointeger(tonumber(from))
+    local last = if to == "EOF" then math.maxinteger else math.tointeger(tonumber(to)) end
+    if pid ~= nil and math.tointeger(tonumber(at)) == place.ino and first ~= nil and last ~= nil and
+        first <= byte and byte <= last and
+        math.tointeger(tonumber(maj, 16)) == major and math.tointeger(tonumber(min, 16)) == minor then
+      local holder = math.tointeger(tonumber(pid))
+      if holder ~= nil and holder > 0 then return holder end
+    end
+  end
+  return nil
+end
+
+--- The file beside the working database at `path` that names the last
+--- process of this tool to take its write lock, by its pid, written the
+--- moment it took it, so its age is how long that process has held the
+--- lock ([`work.holder_line`]) while it still does.
+local function holder_file(path: string): string
+  return path .. ".pid"
+end
+
+--- Records that this process has just taken the write lock of the
+--- working database at `path` ([`holder_file`]). Written aside and moved
+--- into place, so a waiting run reads a whole one or the one before. A
+--- file that cannot be written leaves a waiting run unable to say how
+--- long the lock has been held, and nothing else.
+local function mark_holder(path: string)
+  local file = holder_file(path)
+  local aside = file .. "." .. tostring(sys.getpid())
+  local written, _ = Fs.write(aside, tostring(sys.getpid()) .. "\n")
+  if written then
+    local _, _ = Fs.rename(aside, file)
+  end
+end
+
+--- Another process holding the write lock of the working database at
+--- `path`, as a run that waits for it, or reads past it, says it, from
+--- what [`work.holding`] read (`seen`). Its pid is the one /proc/locks
+--- says holds the lock, and no other. It is named a cosmic run, and how
+--- long it has held the lock is said, only where [`holder_file`] names
+--- that pid: this tool writes the file as it takes the lock. Where the
+--- system names no holder, or names this process, none is named.
+function work.holder_line(path: string, seen: work.Seen): string
+  local locks = seen.locks
+  local pid: integer? = nil
+  if locks ~= nil then
+    local shm, file = seen.shm, seen.file
+    if shm ~= nil then pid = work.lock_holder_in(locks, shm, wal_write_byte) end
+    if pid == nil and file ~= nil then pid = work.lock_holder_in(locks, file, reserved_byte) end
+  end
+  if pid == nil or pid == seen.own then
+    return "another cosmic run holds the write lock of " .. path
+  end
+  local named, age_ns = seen.named, seen.age_ns
+  if named ~= nil and named:match("^(%d+)\n") == tostring(pid) and age_ns ~= nil and age_ns >= 0 then
+    return "another cosmic run (pid " .. tostring(pid) .. ") has held the write lock of " .. path .. " for " ..
+      rebuild_lock.elapsed(age_ns)
+  end
+  return "another process (pid " .. tostring(pid) .. ") holds the write lock of " .. path
+end
+
+--- Another process holding the write lock of the working database at
+--- `path`, as [`work.holder_line`] says it of what this host shows:
+--- Linux's /proc/locks, the database's files and [`holder_file`].
+function work.holding(path: string): string
+  -- TODO: name the holder on macOS and the BSDs too, which have no
+  -- /proc/locks, by asking `fcntl(F_GETLK)` of the lock's byte, once
+  -- cosmic.sys carries F_GETLK.
+  local locks, _ = Fs.read("/proc/locks")
+  local seen: work.Seen = { locks = locks, own = sys.getpid() }
+  if locks ~= nil then
+    local shm, _ = sys.stat(path .. "-shm")
+    if shm ~= nil then seen.shm = { dev = shm.dev, ino = shm.ino } end
+    local file, _ = sys.stat(path)
+    if file ~= nil then seen.file = { dev = file.dev, ino = file.ino } end
+    local named, _ = Fs.read(holder_file(path))
+    seen.named = named
+    local marked, _ = sys.stat(holder_file(path))
+    if marked ~= nil then
+      seen.age_ns = Clock.now_ns() - (marked.mtime * Clock.seconds(1) + marked.mtime_ns)
+    end
+  end
+  return work.holder_line(path, seen)
+end
+
 --- What a step that takes the write lock did: took it and went on
 --- ("done"), or, waiting for no other run ([`work.try_open`]), found
 --- another holding it ("busy").
@@ -635,34 +767,56 @@ local enum Took
 end
 
 --- Begins the run's transaction on `db`, the working database at `path`,
---- waiting up to `wait_ns` for another run that holds it and saying so
---- after `notice_ns`. The handle keeps the long wait for every statement
---- after ([`work.begin`]'s transactions among them). Unless `wait`, it
---- waits for no other run: where one holds the lock it answers "busy".
+--- waiting up to `wait_ns` for another run that holds it, saying so,
+--- naming that run where it can ([`work.holding`]), after `notice_ns`,
+--- and that it still waits every `reminder_ns`. The handle keeps the long
+--- wait for every statement after ([`work.begin`]'s transactions among
+--- them). Unless `wait`, it waits for no other run: where one holds the
+--- lock it answers "busy". A transaction begun is recorded
+--- ([`mark_holder`]).
 local function begin_waiting(db: Sqlite.Handle, path: string, wait: boolean): Took?, string
   if not wait then
     db:busy_timeout(0)
     local tried = db:exec_result("BEGIN IMMEDIATE")
     db:busy_timeout(wait_ns)
-    if tried.code == Sqlite.OK then return "done", "" end
+    if tried.code == Sqlite.OK then
+      mark_holder(path)
+      return "done", ""
+    end
     if tried.code == Sqlite.BUSY then return "busy", "" end
     return nil, tried.reason
   end
   db:busy_timeout(notice_ns)
   local begun = db:exec_result("BEGIN IMMEDIATE")
-  db:busy_timeout(wait_ns)
-  if begun.cancelled == true then return nil, "interrupted while waiting for the write lock" end
-  if begun.code == Sqlite.OK then
-    return "done", ""
+  if begun.cancelled == true then
+    db:busy_timeout(wait_ns)
+    return nil, "interrupted while waiting for the write lock"
   end
   if begun.code ~= Sqlite.BUSY then
-    return nil, begun.reason
+    db:busy_timeout(wait_ns)
+    if begun.code ~= Sqlite.OK then return nil, begun.reason end
+    mark_holder(path)
+    return "done", ""
   end
-  log:complain("another cosmic run holds " .. path .. "; waiting for it")
-  local waited = db:exec_result("BEGIN IMMEDIATE")
-  if waited.cancelled == true then return nil, "interrupted while waiting for the write lock" end
-  if waited.code ~= Sqlite.OK then return nil, waited.reason end
-  return "done", ""
+  log:complain(work.holding(path) .. "; waiting for it")
+  local started_ns = Clock.monotonic_ns() - notice_ns
+  while true do
+    local step = math.max(math.min(reminder_ns, wait_ns - (Clock.monotonic_ns() - started_ns)), 0)
+    db:busy_timeout(step)
+    local waited = db:exec_result("BEGIN IMMEDIATE")
+    local waited_ns = Clock.monotonic_ns() - started_ns
+    if waited.cancelled == true then
+      db:busy_timeout(wait_ns)
+      return nil, "interrupted while waiting for the write lock"
+    end
+    if waited.code ~= Sqlite.BUSY or waited_ns >= wait_ns then
+      db:busy_timeout(wait_ns)
+      if waited.code ~= Sqlite.OK then return nil, waited.reason end
+      mark_holder(path)
+      return "done", ""
+    end
+    log:complain("still waiting, " .. rebuild_lock.elapsed(waited_ns) .. " on: " .. work.holding(path))
+  end
 end
 
 --- Puts `db`, the working database at `path`, in write-ahead mode, so a
@@ -1108,8 +1262,7 @@ end
 --- other run that holds the working database at `path`, and reads what
 --- that run last committed.
 function work.tell_busy(verb: string, path: string)
-  tell_once("busy", path, verb .. ": another cosmic run holds the write lock of " .. path ..
-      "; not waiting for it, reading what it last committed")
+  tell_once("busy", path, verb .. ": " .. work.holding(path) .. "; not waiting for it, reading what it last committed")
 end
 
 --- What a build of the project at `root`, by this tool, does to a database
@@ -1215,6 +1368,7 @@ function work.begin(handle: work.Handle): boolean, string
   end
   if begun.code ~= Sqlite.OK then return false, begun.reason end
   handle.inside = true
+  mark_holder(build_paths.under(handle.dir).working)
   return true, ""
 end
 

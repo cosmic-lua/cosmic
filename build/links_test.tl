@@ -326,6 +326,70 @@ local function test_a_required_alias_names_its_modules_members()
   })
 end
 
+--- A link into a module the build made for it refused says so, rather than that the module lacks the member: what the
+--- symbols hold of it is an earlier build's. A module that built still lacks what it lacks.
+local function test_a_link_into_a_module_that_did_not_build_says_so()
+  local source = lines(
+    "local M = require(\"m\")",
+    "-- [`M.two`] and [`m.three`], beside [`Fs.nope`].",
+    "local Fs = require(\"cosmic.fs\")",
+    "return M")
+  local context = world({}, {}, { ["m.one"] = { "m.one" } })
+  context.refused = function(module: string): boolean return module == "m" end
+  same(checked(context, "/p/a.tl", "teal", source), {
+    "/p/a.tl:2: link: M.two does not resolve (m did not build, so its symbols are unknown; fix it first)",
+    "/p/a.tl:2: link: m.three does not resolve (m did not build, so its symbols are unknown; fix it first)",
+    "/p/a.tl:2: link: Fs.nope does not resolve (cosmic.fs has no nope)",
+  })
+end
+
+--- A module of the tree that built answers for its own members though a module above it did not, whether or not an
+--- earlier build knew it: the link names what it lacks, or waits for the symbols, and never blames the parent.
+local function test_a_link_into_a_module_that_built_under_one_that_did_not_says_what_it_lacks()
+  local source = lines(
+    "local S = require(\"m.sub\")",
+    "-- [`S.g`], [`S.nope`], [`m.sub.g`] and [`m.sub.nope`], beside [`m.gone`].",
+    "return S")
+  local files = { ["/p/m/init.tl"] = "", ["/p/m/sub.tl"] = "" }
+  local refused = function(module: string): boolean return module == "m" end
+  -- A first build: no symbols of the project at all.
+  local first = world(files, {}, {}, nil, "the project has no projection yet")
+  first.refused = refused
+  same(checked(first, "/p/a.tl", "teal", source), {
+    "/p/a.tl:2: link: m.gone does not resolve (m did not build, so its symbols are unknown; fix it first)",
+  })
+  -- An earlier build's symbols, from before m.sub was added.
+  local later = world(files, {}, { ["m.one"] = { "m.one" } })
+  later.refused = refused
+  same(checked(later, "/p/a.tl", "teal", source), {
+    "/p/a.tl:2: link: S.g does not resolve (m.sub has no g)",
+    "/p/a.tl:2: link: S.nope does not resolve (m.sub has no nope)",
+    "/p/a.tl:2: link: m.sub.g does not resolve (no declaration, symbol or file by that name)",
+    "/p/a.tl:2: link: m.sub.nope does not resolve (no declaration, symbol or file by that name)",
+    "/p/a.tl:2: link: m.gone does not resolve (m did not build, so its symbols are unknown; fix it first)",
+  })
+end
+
+--- A path the tree ignores stays refused, saying why: no fresh checkout has it.
+local function test_a_link_to_an_ignored_path_says_it_is_ignored()
+  local context = world({ ["/p/a.md"] = "", ["/p/out/results.db"] = "", ["/p/node_modules/x/README.md"] = "" })
+  local kind = context.kind
+  local function ignored(relative: string): boolean
+    return relative:sub(1, 4) == "out/" or relative:sub(1, 13) == "node_modules/"
+  end
+  context.kind = function(path: string): string?
+    if ignored(path:sub(4)) then return nil end
+    return kind(path)
+  end
+  context.ignored = ignored
+  same(checked(context, "/p/a.md", "markdown", "[r](out/results.db) [n](node_modules/x/README.md)\n"), {
+    "/p/a.md:1: link: out/results.db does not resolve (it is ignored (.gitignore), so absent from a fresh " ..
+      "checkout: link the source or rule that makes it, or write it as code text)",
+    "/p/a.md:1: link: node_modules/x/README.md does not resolve (it is under node_modules/, absent from a fresh " ..
+      "checkout: link the source that names the package, or write it as code text)",
+  })
+end
+
 --- A comment sees an alias where Lua has it in scope: after its
 --- declaration, to the end of the block that declares it.
 local function test_an_alias_in_one_function_names_nothing_in_another()

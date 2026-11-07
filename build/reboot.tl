@@ -36,6 +36,7 @@ local identity = require("build.identity")
 local artifact = require("build.artifact")
 local GrammarMode = require("build.grammar_mode")
 local importer = require("build.importer")
+local refusals = require("build.refusals")
 local plural = require("build.plural")
 local rebuild_lock = require("build.rebuild_lock")
 local stale_reason = require("build.stale_reason")
@@ -429,7 +430,7 @@ local function into(handle: work.Handle, argv: {string}, settle: boolean): strin
   -- The new checker goes on past a module it refuses, to tell every refusal; a tool is not written from a tree it refused.
   local breaches = result.refused
   if #breaches > 0 then
-    return closing(handle, table.concat(breaches, "\n") .. "\nthe new checker refused " ..
+    return closing(handle, refusals.text(breaches, result.refusal_roots or {}) .. "\nthe new checker refused " ..
         tostring(#breaches) .. " of the tree's modules, so no tool is written from it"), false
   end
   local layout = build_paths.resolve(handle.root)

@@ -12,6 +12,7 @@ local rebuild_lock = require("build.rebuild_lock")
 local this_program = require("build.this_program")
 local work = require("build.work")
 local Test = require("cosmic.test")
+local sys = require("cosmic.sys")
 
 --- The program itself, which its test starts.
 Test.policy{
@@ -65,6 +66,31 @@ local function waiting(tmp: string, script: string, env?: {string:string}): Chil
     said = said .. chunk
   end
   return child, said
+end
+
+--- A build that waits for another run's write lock names that run by
+--- the pid the system says holds the lock, and how long it has held it,
+--- so a long build can be told from one that has stopped. Where
+--- /proc/locks does not show this process's own lock (a sandboxed
+--- worker's /proc has no such file), nothing can name it.
+local function test_a_build_waiting_for_the_write_lock_names_its_holder_and_how_long_it_held_it(tmp: string)
+  assert(Fs.write(tmp .. "/main.tl", "return function(): integer return 0 end\n"))
+  local held = assert(work.open(tmp))
+  local path = build_paths.under(held.dir).working
+  local locks, _ = Fs.read("/proc/locks")
+  local shm, _ = sys.stat(path .. "-shm")
+  if locks == nil or shm == nil or work.lock_holder_in(locks, { dev = shm.dev, ino = shm.ino }, 120) ~= sys.getpid() then
+    assert(work.abort(held))
+    Test.skip("/proc/locks is missing, as from a sandboxed worker's /proc, or does not show this process's own lock")
+  end
+  assert(Fs.set_mtime(path .. ".pid", Clock.now_ns() // Clock.seconds(1) - 270))
+  local child, said = waiting(tmp, 'local work = require("build.work") ' ..
+      'assert(work.close((assert(work.open(' .. string.format("%q", tmp) .. ')))))')
+  assert(work.abort(held))
+  local result = assert(child:wait(Clock.seconds(60)))
+  assert(result.ok, said .. (result.stderr or ""))
+  assert(said:find("another cosmic run (pid " .. tostring(sys.getpid()) .. ") has held the write lock of " .. path ..
+      " for 4 min; waiting for it", 1, true), said)
 end
 
 --- A build that finds the working database of another schema waits for

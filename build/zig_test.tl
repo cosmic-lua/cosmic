@@ -391,10 +391,39 @@ local function test_a_boot_names_a_holder_as_the_tool_does(tmp: string)
     contents[#contents + 1] = "1\n" .. role .. "\n"
   end
   for _, text in ipairs(contents) do
-    assert(Fs.write(support.build_dir(root) .. "/rebuild.lock.pid", text))
+    local file = support.build_dir(root) .. "/rebuild.lock.pid"
+    assert(Fs.write(file, text))
+    -- Ten minutes old, as the time a holder has held the lock would be
+    -- said; these pids name no process here, so neither says one.
+    assert(Fs.set_mtime(file, Clock.now_ns() // Clock.seconds(1) - 600))
     local output = build_paths.required(root)
     assert(Zig.holder(output) == rebuild_lock.holder(root), text .. ": " ..
         Zig.holder(output) .. " against " .. rebuild_lock.holder(root))
+  end
+end
+
+--- A boot names a live holder with how long it has held the lock, the
+--- age of its file, as build/rebuild_lock.tl does: whole minutes past
+--- two, seconds before.
+local function test_a_boot_says_how_long_a_holder_has_held_the_lock(tmp: string)
+  local root = tmp .. "/tree"
+  assert(support.build_dir(root))
+  local started = this_program.program({ "-e", 'assert(require("cosmic.clock").sleep_ns(60000000000))' },
+    { cwd = tmp, env = this_program.environment(), process_group = true })
+  local sleeper <close> = assert(Child.start(started.argv, started.options))
+  local file = support.build_dir(root) .. "/rebuild.lock.pid"
+  assert(Fs.write(file, tostring(sleeper.pid) .. "\ntest\n"))
+  local output = build_paths.required(root)
+  local now = Clock.now_ns() // Clock.seconds(1)
+  assert(Fs.set_mtime(file, now - 270))
+  local long, tool_long = Zig.holder(output), rebuild_lock.holder(root)
+  assert(Fs.set_mtime(file, now - 30))
+  local short, tool_short = Zig.holder(output), rebuild_lock.holder(root)
+  assert(long == "another cosmic run (pid " .. tostring(sleeper.pid) ..
+      ") in this checkout is running its tests (it has held the lock for 4 min)", long)
+  assert(long == tool_long, tool_long)
+  for _, said in ipairs({ short, tool_short }) do
+    assert(said:find("is running its tests (it has held the lock for 3", 1, true) and said:find(" s)", 1, true), said)
   end
 end
 

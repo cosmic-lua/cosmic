@@ -117,13 +117,29 @@ local handed_variable <const>: Env.Name = "COSMIC_REBUILD_LOCK_HANDED"
 --- How long a waiting run waits in one go before it says it still is.
 local reminder_ns <const> = Clock.seconds(15)
 
---- How long a run has waited, as its reminder says it: seconds up to two
---- minutes, whole minutes ("3 min") after.
-local function elapsed(waited_ns: integer): string
+--- How long a run has waited, or a holder held its lock, as a waiting
+--- run says it: seconds up to two minutes, whole minutes ("3 min") after.
+function rebuild_lock.elapsed(waited_ns: integer): string
   if waited_ns < Clock.minutes(2) then
     return tostring(waited_ns // Clock.seconds(1)) .. " s"
   end
   return tostring(waited_ns // Clock.minutes(1)) .. " min"
+end
+local elapsed = rebuild_lock.elapsed
+
+--- How long the holder that wrote the file `path` has held its lock, as
+--- [`rebuild_lock.elapsed`] says it: the file's age, since a holder
+--- writes it the moment it takes the lock, as every tool that writes one
+--- does. Nil where the file cannot be read or is dated ahead of the clock.
+--- The age, not a time written in it, is what a reader goes by, so a
+--- file of the two lines `pid` and role an older tool writes says it too,
+--- and that tool still reads this one's.
+local function held_for(path: string): string?
+  local st, _ = sys.stat(path)
+  if st == nil then return nil end
+  local held_ns = Clock.now_ns() - (st.mtime * Clock.seconds(1) + st.mtime_ns)
+  if held_ns < 0 then return nil end
+  return elapsed(held_ns)
 end
 
 local type Lock = rebuild_lock.Claim
@@ -293,9 +309,13 @@ end
 --- holder in another pid namespace wrote -- a container sharing the
 --- checkout -- names what that namespace called it, not a process here.
 --- A holder that names no role, as a tool from before roles did, is
---- taken to be rebuilding.
+--- taken to be rebuilding. A holder named by its pid is said to have held
+--- the lock as long as its file is old ([`held_for`]): "...
+--- is running its tests (it has held the lock for 4 min)", which tells a
+--- long run from one that has stopped.
 function rebuild_lock.holder(root: string): string
-  local text, _ = Fs.read(build_paths.resolve(root).holder)
+  local file = build_paths.resolve(root).holder
+  local text, _ = Fs.read(file)
   local pid: integer? = nil
   local role = "rebuild"
   if text ~= nil then
@@ -306,13 +326,16 @@ function rebuild_lock.holder(root: string): string
     end
   end
   local who = "another cosmic run"
+  local since = ""
   if pid ~= nil and pid ~= sys.getpid() then
     local alive, _ = sys.kill(pid, 0)
     if alive then
       who = "another cosmic run (pid " .. tostring(pid) .. ")"
+      local age = held_for(file)
+      if age ~= nil then since = " (it has held the lock for " .. age .. ")" end
     end
   end
-  return who .. " in this checkout " .. assert(doing[role], "a role held is one with what it is doing")
+  return who .. " in this checkout " .. assert(doing[role], "a role held is one with what it is doing") .. since
 end
 
 --- What a waiting run's line ends with: the lock it waits for.

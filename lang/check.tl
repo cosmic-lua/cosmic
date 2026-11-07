@@ -5940,7 +5940,8 @@ local function apply_call(ctx: Ctx, node: Ast.Call, ft: Type, expected: Type?): 
       report(ctx, "setmetatable_call", node, "a program has no `setmetatable`: the metatable of a value is the compiler's, " ..
           "attached to the literal that makes the value of a class",
         "declare a `class` with the methods and write the value as a table literal typed as the class " ..
-          "(`local v: C = { field = value }`)")
+          "(`local v: C = { field = value }`); for a temporary change to a shared table (an overlay through " ..
+          "`__index`), write the keys into the table in place, keep each key's old value, and restore them after")
       unchecked_arguments(ctx, node.args)
       return unknown_lists(ctx)
     elseif callee.text == "require" then
@@ -6310,9 +6311,27 @@ local function value_at(ctx: Ctx, vals: Values, i: integer): Type?
   return nil
 end
 
+--- The fix for names given no value by `values`: a lone call that answers nothing is a statement.
+local function no_value_fix(ctx: Ctx, values: {Ast.Exp}, n: integer, what: string): string
+  local only = values[1]
+  if #values == 1 and only ~= nil then
+    local name: string? = nil
+    if (only.kind == "Call") then
+      name = text_of(ctx, only.callee)
+    elseif (only.kind == "MethodCall") then
+      name = text_of(ctx, only.object) .. ":" .. only.name
+    end
+    if name ~= nil then
+      return quoted(name) .. " answers nothing: write the call as a statement, " .. subject(ctx, only)
+    end
+  end
+  return "give " .. plural(n, "value") .. ", or remove the " .. what .. "s that have none"
+end
+
 --- Checks that `n` names or targets are given `vals`, reporting the names left without a value and the values no name
---- takes. `count_nodes` is how many expressions were written.
-local function check_counts(ctx: Ctx, node: Ast.Node, n: integer, vals: Values, written: integer, what: string): boolean
+--- takes. `values` are the expressions written.
+local function check_counts(ctx: Ctx, node: Ast.Node, n: integer, vals: Values, values: {Ast.Exp}, what: string): boolean
+  local written = #values
   local given = #vals.types
   local open = vals.tail ~= nil or vals.lists ~= nil
   local several, last = vals.lists, vals.last
@@ -6328,7 +6347,8 @@ local function check_counts(ctx: Ctx, node: Ast.Node, n: integer, vals: Values, 
   elseif given < n and not open then
     report(ctx, "value_count", node, "this gives " .. plural(given, "value") .. " to " .. plural(n, what) ..
         ", so the last " .. (if n - given == 1 then what .. " is" else what .. "s are" end) .. " nil",
-      "give " .. plural(n, "value") .. ", or remove the " .. what .. "s that have none")
+      if given == 0 then no_value_fix(ctx, values, n, what) else "give " .. plural(n, "value") .. ", or remove the " ..
+          what .. "s that have none" end)
     return false
   end
   return true
@@ -6522,7 +6542,7 @@ local function local_statement(ctx: Ctx, s: Ast.Local)
     end
   end
   local vals = values_of(ctx, s.values, wants, nil)
-  local counted = check_counts(ctx, s, n, vals, #s.values, "name")
+  local counted = check_counts(ctx, s, n, vals, s.values, "name")
   for i, b in ipairs(s.bindings) do
     local t = value_at(ctx, vals, i)
     local want = wants[i]
@@ -7295,7 +7315,7 @@ local function check_assignment(ctx: Ctx, s: Ast.Assign): Values?
       Writes.report_hole(ctx, p)
     end
   end
-  local counted = check_counts(ctx, s, #s.targets, vals, #s.values, "target")
+  local counted = check_counts(ctx, s, #s.targets, vals, s.values, "target")
   if not counted then
     return nil
   end
