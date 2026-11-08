@@ -496,7 +496,8 @@ local REFUSALS <const>: {Refusal} = {
   },
   {
     program = "local function f(): string?, integer\n  return nil, 127\nend\nuse(f)",
-    says = "m.tl:14: f: a failure's reason is exactly a string; this second result is not",
+    says = "m.tl:14: f: a failure's reason is exactly a string; this second result is not: declare it `string`, and " ..
+      "return \"\" for it on success",
   },
   { program = "if get() then use(1) end", says = DROPPED },
   { program = "use((get()))", says = DROPPED },

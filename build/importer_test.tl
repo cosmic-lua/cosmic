@@ -603,6 +603,15 @@ local function test_a_project_file_named_for_a_module_of_the_language_is_refused
   assert(other ~= nil, "could not write fixture: " .. tostring(other_trouble))
   local _, unknown = importer_fixture.compile_fixture(other)
   assert(unknown:find("require a module of the project: `bin/cosmic docs` lists them", 1, true) ~= nil, tostring(unknown))
+  -- A name of cosmic's that the binary has no module of is refused at the `require`, as a name of the tree's is, with
+  -- no stop of the build that names no place.
+  local missing, missing_trouble = write_fixture("cosmic-module-unknown", {
+    ["main.tl"] = 'local s = require("cosmic.no_such_module")\nreturn s\n',
+  })
+  assert(missing ~= nil, "could not write fixture: " .. tostring(missing_trouble))
+  local _, absent = importer_fixture.compile_fixture(missing)
+  assert(absent:find("main.tl:1:", 1, true) ~= nil and absent:find("cosmic has no module `cosmic.no_such_module`", 1,
+    true) ~= nil, tostring(absent))
 end
 
 --- A module's own compile is keyed by its file as well as its import

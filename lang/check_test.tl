@@ -65,7 +65,16 @@ local CASES <const>: {Case} = {
     code = "view_as_mut",
     source = "local function add(xs: mut {string}) end\nlocal v: {string} = {}\nadd(v)\n",
     msg = "`v` is `{string}`, where `mut {string}` is wanted as argument 1 of `add`",
-    fix = "declare `v` `mut {string}` where it is made or received",
+    fix = "declare `v` `mut {string}` where it is made or received, or pass a collection made `mut`; or, if `add` " ..
+      "does not change it, declare that parameter `{string}`, which takes both",
+  },
+  {
+    code = "nil_not_allowed",
+    source = "local function f(n: integer): integer?, string\n  if n > 0 then\n    return n, nil\n  end\n" ..
+      "  return nil, \"negative\"\nend\nprint(f(1))\n",
+    at = { line = 3, column = 15 },
+    msg = "nil is given as return value 2, the reason of a `integer?, string` result, where `string` is wanted",
+    fix = "a reason is \"\" on success: `return n, \"\"`",
   },
   {
     code = "invariant_mut",
@@ -364,7 +373,22 @@ local CASES <const>: {Case} = {
   {
     code = "arms_differ", source = "local t = { 1, \"a\" }\n",
     msg = "the elements of this literal have no common type: `integer` or `string`",
-    fix = "type the literal: `local name: {integer} = ...`, or make the elements one type",
+    fix = "type the literal with their union: `local name: {integer | string} = ...`; for values that differ by " ..
+      "position (a row), declare a record",
+  },
+  {
+    code = "arms_differ", source = "local rows = { { \"name\", 1.0 } }\n", at = { line = 1, column = 16 },
+    msg = "the elements of this literal have no common type: `number` or `string`",
+    fix = "`local name: {string | number} = ...`; for values that differ by position (a row), declare a record",
+  },
+  {
+    code = "field_unknown", source = "local Fs = require(\"cosmic.fs\")\nlocal j = Fs.join\n",
+    modules = { ["cosmic.fs"] = "local record Fs\n  read: function(string): string\nend\nreturn Fs\n" },
+    msg = "`Fs` has no field `join`", fix = "`cosmic docs cosmic.fs` lists what `Fs` has",
+  },
+  {
+    code = "require_unknown", source = "local x = require(\"cosmic.io\")\n",
+    msg = "cosmic has no module `cosmic.io`", fix = "`cosmic docs` lists the modules cosmic holds",
   },
   {
     code = "array_of_optional", source = "local t = { 1, nil }\n",
@@ -372,7 +396,7 @@ local CASES <const>: {Case} = {
   },
   {
     code = "require_unknown", source = "local x = require(\"nope\")\n",
-    msg = "the project has no module `nope`", fix = "require a module of the project",
+    msg = "the project has no module `nope`", fix = "a file sees the modules of the tree it is in",
   },
   {
     code = "export_not_declared", source = "local t = { 1 }\nreturn t\n", at = { line = 2, column = 1 },

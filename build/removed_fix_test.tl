@@ -138,7 +138,8 @@ local function test_a_require_of_a_removed_library_says_what_replaces_it()
     assert(p.fix == Removed.message(name), name .. ": " .. p.fix)
   end
   local other = only("local m = require(\"nothing.here\")\nprint(m)\n")
-  assert(other.code == "require_unknown" and other.fix == "require a module of the project: `bin/cosmic docs` lists them", other.fix)
+  assert(other.code == "require_unknown" and other.fix:find("require a module of the project: `bin/cosmic docs` lists them; a file sees the modules of the tree", 1,
+    true) ~= nil, other.fix)
   assert(not other.removed)
 end
 
@@ -215,7 +216,8 @@ end
 local function test_a_member_the_catalog_does_not_list_keeps_the_checkers_fix()
   local stubs: {string: string} = { ["cosmic.hash"] = HASH }
   local p = only("local Hash = require(\"cosmic.hash\")\nlocal d = Hash.nothing_here(\"x\")\nprint(d)\n", stubs)
-  assert(p.code == "field_unknown" and p.fix:find("^declare `nothing_here` in `Hash`") ~= nil and not p.removed, p.fix)
+  -- the record is cosmic's, which a program cannot declare a field in, so the fix names where its fields are listed
+  assert(p.code == "field_unknown" and p.fix == "`cosmic docs cosmic.hash` lists what `Hash` has" and not p.removed, p.fix)
   -- a module of the program's own with a member of the same name is no cosmic module's
   local own = only("local Hash = require(\"own.hash\")\nlocal d = Hash.hex(\"x\")\nprint(d)\n", { ["own.hash"] = HASH })
   assert(own.fix:find("^declare `hex` in `Hash`") ~= nil, own.fix)
@@ -291,7 +293,8 @@ local function test_a_field_deeper_than_the_member_the_catalog_lists_is_the_ordi
     ["cosmic.hash"] = "local record Hash\n  record Inner\n    alive: integer\n  end\n  hex: Inner\nend\nreturn Hash\n",
   }
   local chained = only("local Hash = require(\"cosmic.hash\")\nprint(Hash.hex.x)\n", stubs)
-  assert(chained.code == "field_unknown" and not chained.removed and chained.fix:find("^declare `x` in") ~= nil, chained.fix)
+  assert(chained.code == "field_unknown" and not chained.removed and chained.fix == "`cosmic docs cosmic.hash` lists what `Hash.Inner` has",
+    chained.fix)
 end
 
 --- The stub of cosmic.sqlite's two types that matter here: the options record and a function that takes it.
