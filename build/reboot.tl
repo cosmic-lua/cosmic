@@ -1093,7 +1093,7 @@ function reboot.stale_exit(argv: {string}, reads?: boolean, root?: string,
     end
     handle = held
   else
-    local opened, open_trouble = work.open(at)
+    local opened, open_trouble = work.open(at, nil, "checking the tool against the tree before " .. (argv[1] or "the command"))
     if opened == nil then
       log:complain(open_trouble)
       return 1

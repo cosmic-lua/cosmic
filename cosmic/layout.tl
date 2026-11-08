@@ -22,7 +22,10 @@ local record Layout
   --- value and no registration; the name alone is the rule. Its
   --- summary's "N ran, M stood" is [`test.Tally`]: ran counts
   --- tests actually executed this time, stood the ones answered from
-  --- an unchanged prior verdict instead
+  --- an unchanged prior verdict instead. An edit to the test file, a
+  --- comment included, runs its tests again; a comment in a module it
+  --- imports runs them again only where the test is given that module's
+  --- text: doc/testing.md ("the pure store") names every case
   tests: string
   --- a project's own module is named by its path from the project's
   --- root, the working directory: `notes.tl` is `require("notes")`,

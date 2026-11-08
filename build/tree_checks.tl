@@ -115,6 +115,8 @@ allowed["build.work.lock_holder_in"] = "the reading of /proc/locks `holding` nam
   "holds to lines a sandboxed worker's /proc cannot show it"
 allowed["build.work.holder_line"] = "what `holding` says of what it read of the host, which a test holds to hosts " ..
   "a sandboxed worker cannot be"
+allowed["build.work.waiting_line"] = "the line a run waiting for the working database's write lock says, which " ..
+  "only a run another holds the lock against reaches; its test holds the wording without a second process"
 allowed["build.memprobe.enabled"] = "the switch `COSMIC_MEMPROBE` sets for a run, which a test turns on to read the line a mark writes"
 
 allowed["build.type_watch.skip_reason"] = "the reason `during` skips with, which a test reads for a checked and a plain run " ..
@@ -1329,7 +1331,7 @@ end
 ---
 --- The tree is compiled with the new checker, as `cosmic test` compiles it.
 function tree_checks.projection(root: string, standing: tree_standing.Standing): Sqlite.Handle?, string
-  local handle, open_trouble = work.open(root)
+  local handle, open_trouble = work.open(root, nil, "fix")
   if handle == nil then
     return nil, open_trouble
   end

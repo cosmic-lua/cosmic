@@ -771,6 +771,16 @@ function work.holding(path: string): string
   return work.holder_line(path, seen)
 end
 
+--- What a run says as it starts to wait for `holding`, the run that holds
+--- the write lock of the working database ([`work.holding`]): where it is
+--- told what it is `doing` (a verb, "running hello.tl"), that first, and
+--- why it waits, since a verb that only reads does not.
+function work.waiting_line(holding: string, doing?: string): string
+  if doing == nil then return holding .. "; waiting for it" end
+  return string.format("%s: %s; waiting for it, since one run at a time writes the tree's build in that file " ..
+      "(docs, uses and todos read its last build and do not wait)", doing, holding)
+end
+
 --- What a step that takes the write lock did: took it and went on
 --- ("done"), or, waiting for no other run ([`work.try_open`]), found
 --- another holding it ("busy").
@@ -785,9 +795,10 @@ end
 --- and that it still waits every `reminder_ns`. The handle keeps the long
 --- wait for every statement after ([`work.begin`]'s transactions among
 --- them). Unless `wait`, it waits for no other run: where one holds the
---- lock it answers "busy". A transaction begun is recorded
+--- lock it answers "busy". The line that says it waits names what the
+--- run is `doing`, where given ([`work.waiting_line`]). A transaction begun is recorded
 --- ([`mark_holder`]).
-local function begin_waiting(db: Sqlite.Handle, path: string, wait: boolean): Took?, string
+local function begin_waiting(db: Sqlite.Handle, path: string, wait: boolean, doing?: string): Took?, string
   if not wait then
     db:busy_timeout(0)
     local tried = db:exec_result("BEGIN IMMEDIATE")
@@ -811,7 +822,7 @@ local function begin_waiting(db: Sqlite.Handle, path: string, wait: boolean): To
     mark_holder(path)
     return "done", ""
   end
-  log:complain(work.holding(path) .. "; waiting for it")
+  log:complain(work.waiting_line(work.holding(path), doing))
   local started_ns = Clock.monotonic_ns() - notice_ns
   while true do
     local step = math.max(math.min(reminder_ns, wait_ns - (Clock.monotonic_ns() - started_ns)), 0)
@@ -847,7 +858,7 @@ end
 --- no shared memory, which write-ahead mode needs, leaves the file in
 --- rollback mode, where its readers wait on a writer as they always
 --- did. Unless `wait`, it waits for no other run, answering "busy".
-local function to_wal(db: Sqlite.Handle, path: string, wait: boolean): Took?, string
+local function to_wal(db: Sqlite.Handle, path: string, wait: boolean, doing?: string): Took?, string
   while true do
     local result = Sqlite.text_rows_result(db, "PRAGMA journal_mode = WAL")
     if result.rows ~= nil then return "done", "" end
@@ -855,7 +866,7 @@ local function to_wal(db: Sqlite.Handle, path: string, wait: boolean): Took?, st
     if result.code ~= Sqlite.BUSY and result.code ~= Sqlite.LOCKED then
       return nil, result.reason
     end
-    local begun, begin_trouble = begin_waiting(db, path, wait)
+    local begun, begin_trouble = begin_waiting(db, path, wait, doing)
     if begun == nil then return nil, begin_trouble end
     if begun == "busy" then return "busy", "" end
     local rolled_back, roll_trouble = db:exec("ROLLBACK")
@@ -886,7 +897,7 @@ end
 --- a transaction a statement, each a no-op, and waits, if it must, at the
 --- run's own [`begin_waiting`]. Unless `wait`, it waits for no other
 --- run, answering "busy".
-local function create(db: Sqlite.Handle, path: string, wait: boolean): Took?, string
+local function create(db: Sqlite.Handle, path: string, wait: boolean, doing?: string): Took?, string
   local fresh, count_trouble = counted_none(db, "SELECT count(*) FROM sqlite_master")
   if fresh == nil then
     return nil, count_trouble
@@ -921,7 +932,7 @@ local function create(db: Sqlite.Handle, path: string, wait: boolean): Took?, st
     if not dropped then return nil, drop_trouble end
   end
   if fresh then
-    local begun, begin_trouble = begin_waiting(db, path, wait)
+    local begun, begin_trouble = begin_waiting(db, path, wait, doing)
     if begun == nil then return nil, begin_trouble end
     if begun == "busy" then return "busy", "" end
   end
@@ -1015,8 +1026,9 @@ end
 --- else of it. Unless `wait`, it waits for no other run, for neither
 --- lock ([`work.try_open`]). `locked` says the rebuild lock is held for
 --- the open already: by this process, or a parent that handed it on.
+--- A wait names what the run is `doing`, where given ([`work.waiting_line`]).
 local function opened(root: string, dir: string?, wait: boolean,
-                      remake: string, locked: boolean): work.Opening?, string
+                      remake: string, locked: boolean, doing?: string): work.Opening?, string
   local out: string
   if dir == nil then
     local found, directory_trouble = build_paths.prepare(root)
@@ -1051,7 +1063,7 @@ local function opened(root: string, dir: string?, wait: boolean,
   end
   -- After the encoding: on a fresh file the switch is the first write,
   -- which fixes the encoding.
-  local logged, log_trouble = to_wal(db, path, wait)
+  local logged, log_trouble = to_wal(db, path, wait, doing)
   -- Whatever the switch answered, a file put at the path since the open,
   -- or removed, as another run may while this one waits for its lock, is
   -- opened anew. SQLite refuses to write to the file it opened once
@@ -1060,7 +1072,7 @@ local function opened(root: string, dir: string?, wait: boolean,
   local file = identity_of(path)
   if file == "" or (before ~= "" and file ~= before) then
     local _, _ = db:close()
-    return opened(root, dir, wait, remake, locked)
+    return opened(root, dir, wait, remake, locked, doing)
   end
   if logged ~= "done" then
     local _, _ = db:close()
@@ -1106,14 +1118,14 @@ local function opened(root: string, dir: string?, wait: boolean,
         if taken == "busy" then return { handle = nil, other_schema = found }, "" end
         took = true
       end
-      local again, again_trouble = opened(root, dir, wait, remake, true)
+      local again, again_trouble = opened(root, dir, wait, remake, true, doing)
       if took then rebuild_lock.release() end
       if again == nil then return nil, again_trouble end
       return again, ""
     end
     -- The write lock next: a run building in the file holds it till its
     -- commit.
-    local begun, begin_trouble = begin_waiting(db, path, wait)
+    local begun, begin_trouble = begin_waiting(db, path, wait, doing)
     if begun ~= "done" then
       local _, _ = db:close()
       if begun == "busy" then return { handle = nil, other_schema = found }, "" end
@@ -1121,10 +1133,10 @@ local function opened(root: string, dir: string?, wait: boolean,
     end
     local gone, gone_trouble = let_go_of_another_schema(db, path, file)
     if not gone then return nil, gone_trouble end
-    return opened(root, dir, wait, remake, locked)
+    return opened(root, dir, wait, remake, locked, doing)
   end
 
-  local created, create_trouble = create(db, path, wait)
+  local created, create_trouble = create(db, path, wait, doing)
   if created ~= "done" then
     local _, _ = db:close()
     if created == "busy" then return { handle = nil, other_schema = nil }, "" end
@@ -1134,7 +1146,7 @@ local function opened(root: string, dir: string?, wait: boolean,
   -- IMMEDIATE takes the write lock before reading, so a second build of
   -- the same tree waits for the first ([`begin_waiting`]) instead of both
   -- reading and then one failing to upgrade.
-  local begun, begin_trouble = begin_waiting(db, path, wait)
+  local begun, begin_trouble = begin_waiting(db, path, wait, doing)
   if begun ~= "done" then
     local _, _ = db:close()
     if begun == "busy" then return { handle = nil, other_schema = nil }, "" end
@@ -1146,7 +1158,7 @@ local function opened(root: string, dir: string?, wait: boolean,
   -- schema, which the stamp below would keep.
   if identity_of(path) ~= file then
     local _, _ = db:close()
-    return opened(root, dir, wait, remake, locked)
+    return opened(root, dir, wait, remake, locked, doing)
   end
   local stamped, stamped_trouble = schema_of(db)
   if stamped == nil and stamped_trouble ~= "" then
@@ -1160,7 +1172,7 @@ local function opened(root: string, dir: string?, wait: boolean,
     end
     -- Opened again, it is removed as any file of another schema is,
     -- holding both locks, which are taken in that order.
-    return opened(root, dir, wait, remake, locked)
+    return opened(root, dir, wait, remake, locked, doing)
   end
   -- Old rows have no change time: retain their content caches, but read
   -- their files once before trusting metadata again.
@@ -1208,9 +1220,11 @@ end
 
 --- Opens `build.db` in `dir`, or where nil in `root`'s build directory,
 --- which [`build.paths`] names and makes, waiting for another run that
---- holds its write lock, as a build does ([`opened`]).
-function work.open(root: string, dir?: string): work.Handle?, string
-  local found, trouble = opened(root, dir, true, "any", false)
+--- holds its write lock, as a build does ([`opened`]). The line that says
+--- it waits names what the run is `doing`, where given: its verb, or what
+--- else it is ([`work.waiting_line`]).
+function work.open(root: string, dir?: string, doing?: string): work.Handle?, string
+  local found, trouble = opened(root, dir, true, "any", false, doing)
   if found == nil then return nil, trouble end
   local handle = found.handle
   if handle == nil then return nil, "another cosmic run holds the write lock" end

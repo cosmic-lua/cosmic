@@ -56,6 +56,65 @@ local function test_summaries_keep_the_figures_ci_reads_in_order()
       "test: coverage 0.0% (0/0 lines; informational, never a failure)")
 end
 
+--- A run where none ran and some stood says why and how to run them, after
+--- the figures CI's reader finds by their places.
+local function test_a_run_where_every_test_stood_says_why_none_ran()
+  local line = test_report.passed({ total = 5, modules = 2, ran = 0, cached = 5,
+    skipped = 0, every = 0, shared = 0 }, "7 ms")
+  assert(line == "5 tests passed in 2 modules; 0 ran, 5 stood, none ran, as nothing the tests that stood " ..
+      "are keyed on changed since their verdicts (--all runs them), 7 ms", line)
+  assert(line:match("; (%d+) ran, ") == "0" and line:match(" (%d+) stood, ") == "5" and
+      line:match(", (%d+) ms") == "7", line)
+  assert(test_report.passed({ total = 1, modules = 1, ran = 0, cached = 1, skipped = 0, every = 0, shared = 0 }, "7 ms") ==
+      "1 test passed in 1 module; 0 ran, 1 stood, none ran, as nothing the test that stood is keyed on " ..
+      "changed since its verdict (--all runs it), 7 ms")
+  assert(test_report.passed({ total = 5, modules = 1, ran = 0, cached = 4, skipped = 1, every = 0, shared = 4 }, "7 ms") ==
+      "5 tests passed in 1 module; 0 ran, 4 stood, 1 skipped (this host could not check it), 4 of them on " ..
+      "another checkout's verdict, none ran, as nothing the tests that stood are keyed on changed since their " ..
+      "verdicts (--all runs them), 7 ms")
+  -- A run where some ran, or none stood, says nothing of it.
+  assert(not test_report.passed({ total = 5, modules = 2, ran = 1, cached = 4, skipped = 0, every = 0, shared = 0 },
+    "7 ms"):find("keyed on", 1, true))
+  assert(not test_report.passed({ total = 0, modules = 0, ran = 0, cached = 0, skipped = 0, every = 0, shared = 0 },
+    "7 ms"):find("keyed on", 1, true))
+end
+
+--- The coverage line and a floor's failure print one figure the same way:
+--- rounded down, to as many decimals as the floor has and one at least.
+--- 14610/15002 is 97.387%: rounding put 97.4% on the line and the failure
+--- said 97.3% under --min 97.4%.
+local function test_the_coverage_line_and_a_floor_print_one_figure()
+  local floors: test_report.Floors = { min = 97.4 }
+  assert(test_report.coverage(14610, 15002, floors) == "test: coverage 97.3% (14610/15002 lines)",
+    test_report.coverage(14610, 15002, floors))
+  local short = test_report.floor(14610, 15002, {}, floors)
+  assert(short.lines[1] == "test: FAIL  coverage: 97.3% (14610/15002 lines) is under --min 97.4%", short.lines[1])
+  assert(test_report.coverage(14610, 15002) ==
+      "test: coverage 97.3% (14610/15002 lines; informational, never a failure)")
+  -- A floor with two decimals shows the figure to two, so one under it never reads as at it.
+  local fine: test_report.Floors = { min = 97.39, min_file = 97.39 }
+  assert(test_report.coverage(14610, 15002, fine) == "test: coverage 97.38% (14610/15002 lines)",
+    test_report.coverage(14610, 15002, fine))
+  local finer = test_report.floor(14610, 15002, { { path = "a.tl", hit = 14610, lines = 15002 } }, fine)
+  assert(finer.lines[1] == "test: FAIL  coverage: 97.38% (14610/15002 lines) is under --min 97.39%", finer.lines[1])
+  assert(finer.lines[2] == "test: FAIL  coverage: a.tl 97.38% (14610/15002 lines) is under --min-file 97.39%",
+    finer.lines[2])
+  assert(finer.clause == "coverage floor not met: 97.38% under --min 97.39%, 1 file under --min-file 97.39%",
+    finer.clause)
+  -- A whole floor still shows one decimal; a figure of 100 and of 0 print whole.
+  assert(test_report.coverage(4, 4, { min = 90.0 }) == "test: coverage 100.0% (4/4 lines)")
+  assert(test_report.coverage(0, 4, { min = 90.0 }) == "test: coverage 0.0% (0/4 lines)")
+  assert(test_report.coverage(1, 3, { min = 0.25 }) == "test: coverage 33.33% (1/3 lines)")
+  -- As many decimals as the floor has, up to the four a floor may have; and --min-file's set each file's.
+  assert(test_report.coverage(14610, 15002, { min = 97.3874 }) == "test: coverage 97.3870% (14610/15002 lines)")
+  assert(test_report.coverage(14610, 15002, { min = 0.0001 }) == "test: coverage 97.3870% (14610/15002 lines)")
+  assert(test_report.coverage(14610, 15002, { min_file = 97.39 }) == "test: coverage 97.3% (14610/15002 lines)")
+  local files = test_report.floor(14610, 15002, { { path = "a.tl", hit = 14610, lines = 15002 } },
+    { min = 50.0, min_file = 97.3871 })
+  assert(files.lines[1] == "test: FAIL  coverage: a.tl 97.3870% (14610/15002 lines) is under --min-file 97.3871%",
+    files.lines[1])
+end
+
 --- A test that called a method its value lacks -- a record's value made
 --- as a table literal, never given the record as its metatable -- is
 --- told how to make one that has it, straight under its failure line
@@ -97,6 +156,12 @@ local function test_a_floor_is_a_percentage_from_0_to_100()
   for _, text in ipairs({ "", "x", "101", "100.1", "-1", "1e2", "0x10", "7 6", "nan", "inf", ".5", "5.", "%" }) do
     local got, why = test_report.percent(text, "--min-file")
     assert(got == nil and why == "--min-file must be a percentage from 0 to 100, not " .. text, text .. ": " .. why)
+  end -- More decimals than a figure prints to, or the check compares exactly, are refused.
+  assert(test_report.percent("97.1234", "--min") == 97.1234)
+  for _, text in ipairs({ "97.12344", "99.99999", "0.00001" }) do
+    local got, why = test_report.percent(text, "--min")
+    assert(got == nil and why == "--min takes at most 4 decimals, which a figure prints to and the check " ..
+        "compares exactly, not " .. text, text .. ": " .. why)
   end
 end
 
@@ -124,8 +189,8 @@ local function test_a_floor_names_each_file_and_the_total_that_fall_short()
   assert(both.clause == "coverage floor not met: 25.0% under --min 76.5%, 1 file under --min-file 50%", both.clause)
   -- Nothing to cover is under no floor.
   assert(#test_report.floor(0, 0, {}, { min = 1.0, min_file = 1.0 }).lines == 0)
-  assert(test_report.coverage(1, 4, true) == "test: coverage 25.0% (1/4 lines)")
-  assert(test_report.coverage(0, 0, true) ==
+  assert(test_report.coverage(1, 4, {}) == "test: coverage 25.0% (1/4 lines)")
+  assert(test_report.coverage(0, 0, {}) ==
       "test: coverage 0.0% (0/0 lines; no lines to cover, so a floor holds vacuously)")
   -- Exactly under the floor never prints as reaching it.
   local near = test_report.floor(1599, 2000, { { path = "a.tl", hit = 1599, lines = 2000 } },
@@ -143,10 +208,10 @@ end
 local function test_a_partial_figure_says_so_and_fails_a_floor_it_is_under()
   local note = "partial: hits of 2 modules came from runs on other text; `--all` reruns them"
   assert(test_report.partial({ a = true, b = true }) == 2)
-  assert(test_report.coverage(1, 4, false, 2) ==
+  assert(test_report.coverage(1, 4, nil, 2) ==
       "test: coverage 25.0% (1/4 lines; informational, never a failure; " .. note .. ")")
-  assert(test_report.coverage(1, 4, true, 2) == "test: coverage 25.0% (1/4 lines; " .. note .. ")")
-  assert(test_report.coverage(1, 4, true, 0) == "test: coverage 25.0% (1/4 lines)")
+  assert(test_report.coverage(1, 4, {}, 2) == "test: coverage 25.0% (1/4 lines; " .. note .. ")")
+  assert(test_report.coverage(1, 4, {}, 0) == "test: coverage 25.0% (1/4 lines)")
   local stale = { ["b.m"] = true, ["c.m"] = true }
   local met = test_report.floor(3, 4, { { path = "b.m", hit = 3, lines = 4 } }, { min = 75.0, min_file = 75.0 }, stale)
   assert(#met.lines == 0 and met.clause == "", "a partial figure at the floor meets it")
@@ -201,7 +266,15 @@ local function test_a_failure_names_the_relative_paths_it_did_not_find()
   assert(found("x: ../a.txt: No such file or directory") == "")
   assert(found("x: a/../../b.txt: No such file or directory") == "")
   assert(found("x: other error: Permission denied") == "")
-  assert(test_report.tree_hint("a/b.txt") == "a/b.txt is not in this test's sandbox, though it is in the " ..
-      "tree: grant it in Test.policy { grants = { { path = \"a/b.txt\", letters = \"r\" } } } " ..
+  assert(test_report.tree_hint("b.txt") == "b.txt is not in this test's sandbox, though it is in the " ..
+      "tree: grant it in Test.policy { grants = { { path = \"b.txt\", letters = \"r\" } } } " ..
       "(see cosmic docs cosmic.test)")
+end
+
+--- A file in a directory is told the directory's grant too, for a test that reads more of it.
+local function test_a_file_in_a_directory_is_told_the_directory_grant()
+  assert(test_report.tree_hint("a/b/c.txt") == "a/b/c.txt is not in this test's sandbox, though it is in the " ..
+      "tree: grant it in Test.policy { grants = { { path = \"a/b/c.txt\", letters = \"r\" } } }, or, " ..
+      "for a test that reads more of a/b/, grant the directory: { path = \"a/b/\", letters = \"r\" } " ..
+      "(see cosmic docs cosmic.test)", test_report.tree_hint("a/b/c.txt"))
 end

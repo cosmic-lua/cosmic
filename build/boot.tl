@@ -118,7 +118,7 @@ local function stage(root: string, working: build_paths.Layout, output: build_pa
     log:complain("boot: " .. grammar_trouble)
     return nil
   end
-  local handle, open_trouble = work.open(root, working.directory)
+  local handle, open_trouble = work.open(root, working.directory, "boot")
   if handle == nil then
     log:complain("boot: " .. open_trouble)
     return nil

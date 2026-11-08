@@ -511,7 +511,7 @@ local function build_tree(root: string, host?: boolean, under?: {string},
     return nil, "this is cosmic's own tree, which bin/zig build boot builds"
   end
   local started = Clock.monotonic_ns()
-  local handle, open_trouble = work.open(root)
+  local handle, open_trouble = work.open(root, nil, "build")
   if handle == nil then
     return nil, open_trouble
   end
