@@ -1123,26 +1123,39 @@ end
 
 --- A sandboxed test given the pure store credits the lines of the module it imports: the store's chunk of it numbers
 --- each instruction ([`build.lua_tail`]'s `numbered`), which the run places at the module's lines in its text. A comment
---- above them moves no key, so the verdict stands, and the lines its row holds, those of the text before the comment,
---- are dropped and said to be, never credited on the lines the comment moved them to.
-local function test_a_pure_store_run_credits_an_imports_lines_and_drops_them_once_they_move(tmp: string)
+--- above them moves no key, so the verdict stands, and its row, which keeps the instructions' numbers, is placed at the
+--- lines of the text with the comment: every line the test ran is credited again, at the line it moved to, and the
+--- figure is whole.
+local function test_a_pure_store_run_credits_an_imports_lines_where_a_comment_moved_them(tmp: string)
   local _, said, root = seeded(tmp)
-  local function lib_lines(): string
+  local function lib_lines(): {string}
     local db = assert(Sqlite.open(support.build_dir(root) .. "/build.db"))
-    local rows = assert(Sqlite.text_rows(db, "SELECT sum(hit > 0) || '/' || count(*) FROM coverage " ..
-        "WHERE path = 'suite.lib' AND ran_at_ns = (SELECT max(ran_at_ns) FROM coverage)"))
+    local rows = assert(Sqlite.text_rows(db, "SELECT line FROM coverage WHERE path = 'suite.lib' AND hit > 0 " ..
+        "AND ran_at_ns = (SELECT max(ran_at_ns) FROM coverage) ORDER BY line"))
+    local all = assert(Sqlite.text_rows(db, "SELECT count(*) FROM coverage WHERE path = 'suite.lib' " ..
+        "AND ran_at_ns = (SELECT max(ran_at_ns) FROM coverage)"))
     assert(db:close())
-    return support.nth(rows, 1):text(1)
+    local out: mut {string} = {}
+    for _, row in ipairs(rows) do out[#out + 1] = row:text(1) end
+    assert(#out > 0 and tostring(#out) == support.nth(all, 1):text(1),
+      "the import's lines the test ran are not all credited: " .. table.concat(out, ",") .. " of " ..
+        support.nth(all, 1):text(1))
+    return out
   end
   local first = lib_lines()
-  assert(first:match("^(%d+)/") == first:match("/(%d+)$") and first ~= "0/0",
-    "the import's lines the test ran are not all credited: " .. first)
   assert(Fs.write(root .. "/suite/lib.tl",
     "-- a note\n\nlocal record Lib\n  value: integer\nend\nlocal lib: Lib = { value = 1 }\nreturn lib\n"))
   local stood = said("0 ran, 3 stood")
-  assert(stood:find("partial: hits of 1 module came from runs on other text", 1, true), stood)
+  assert(stood:find("partial", 1, true) == nil, stood)
   local moved = lib_lines()
-  assert(moved:match("^0/") ~= nil, "lines of the text before the comment were credited on this one's: " .. moved)
+  -- The note and the blank line beneath it move every line two down.
+  local shifted: mut {string} = {}
+  for index, line in ipairs(first) do
+    shifted[index] = tostring((math.tointeger(tonumber(line)) or 0) + 2)
+  end
+  assert(table.concat(moved, ",") == table.concat(shifted, ","),
+    "the lines credited are not those of the text with the comment: " .. table.concat(first, ",") .. " then " ..
+      table.concat(moved, ","))
 end
 
 --- A test whose closure holds a module that declares it reads any text (requires [`build.reads.all`]) is given the store

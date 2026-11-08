@@ -570,6 +570,35 @@ local store_hint = "; the binary's own database answers a query and no PRAGMA " 
   "but data_version: `SELECT * FROM <table> LIMIT 0` names a table's columns, " ..
   "and sqlite_schema holds each table's SQL"
 
+--- Said after a statement that opens with `.`, which SQLite refuses as a
+--- syntax error: it is the sqlite3 shell's command (`.tables`, `.schema`), which
+--- no SQL answers, whatever space or SQL comments come before it (a statement
+--- that opens with `--` is read as an option unless `--` ends the options before it); a query of
+--- `sqlite_schema` lists what it would, and, where `build_directory` says the
+--- database is one of the build directory's, `cosmic db` what each table holds.
+local function dot_hint(statement: string, build_directory: boolean): string
+  local rest = statement
+  while true do
+    local after = rest:match("^%s+(.*)$") or rest:match("^%-%-[^\n]*\n?(.*)$") or rest:match("^/%*.-%*/(.*)$")
+    if after == nil then break end
+    rest = after
+  end
+  if rest:sub(1, 1) ~= "." then return "" end
+  return "; a statement opening with `.` is the sqlite3 shell's, not SQL: " ..
+    "`SELECT name FROM sqlite_schema WHERE type='table'` names the tables" ..
+    (if build_directory then ", and `cosmic db` says what each holds" else "" end)
+end
+
+--- Whether `path`, a database `cosmic sql` reads, is one of the build
+--- directory of `root`'s, which `cosmic db` reports on, however it was named:
+--- by default, by `--build`, or by `--db`.
+local function in_build_directory(root: string, path?: string): boolean
+  if path == nil then return false end
+  local directory, _ = build_paths.optional(root)
+  local absolute, _ = Fs.absolute(path)
+  return directory ~= nil and absolute ~= nil and Fs.within(absolute, directory)
+end
+
 --- Rows to stdout; complaints and the summary to stderr.
 local standard: sql.Output = {
   out = function(line: string): boolean, string
@@ -892,7 +921,7 @@ local function run_from(parsed: Flags.Parsed, to: sql.Output,
   else
     local rows, statement_trouble = stream(db, statement_word, to.out, writer)
     if rows == nil then
-      return fail(source .. ": " .. hinted(statement_trouble, tables))
+      return fail(source .. ": " .. hinted(statement_trouble, tables) .. dot_hint(statement_word, false))
     end
     counted = tostring(rows) .. (if rows == 1 then " row" else " rows" end)
   end
@@ -943,7 +972,7 @@ function sql.run(argv: {string}, root?: string, output?: sql.Output,
     end
     local make = writers[format]
     if make == nil then
-      complain("--to writes csv or ndjson, not " .. format .. "; " .. usage)
+      complain("--to writes csv or ndjson, not " .. format .. "; without it the rows are TSV; " .. usage)
       return 2
     end
     if #parsed.words == 0 then
@@ -995,7 +1024,7 @@ function sql.run(argv: {string}, root?: string, output?: sql.Output,
     local _, _ = opened.db:close()
   end
   if rows == nil then
-    complain(source.name .. ": " .. trouble)
+    complain(source.name .. ": " .. trouble .. dot_hint(statement_text, in_build_directory(root, source.path)))
     return 1
   end
   summarize(tostring(rows) .. (if rows == 1 then " row" else " rows" end) .. " from " .. source.name)

@@ -585,7 +585,10 @@ line of a harness module moves no key ([changing the
 harness](#changing-the-harness)), so the text a standing row's lines were
 numbered in can be gone: a row's lines of a module are credited only while
 its text is the one the row names, and a row that names none, written by an
-older tool, credits no module. A run that dropped some says so:
+older tool, credits no module. The lines of a module a pure store numbered
+by instruction are kept as those numbers, which no comment moves, beside the
+bytecode they number, and placed at the lines of the text of the run that
+stands on them ([coverage](#coverage)). A run that dropped some says so:
 
 ```text
 test: coverage 61.2% (127363/208103 lines; partial: hits of 3 modules came from runs on other text; `--all` reruns them)
@@ -845,8 +848,11 @@ cosmic sql --build "SELECT path, count(*) AS lines, sum(hit > 0) AS hit
 ```
 
 `coverage_by_test` holds the lines each test reached, each module's beside
-the text they are numbered in. The run's own `test: coverage` line is
-informational and never a failure.
+the text they are numbered in, but for a module a pure store imported: its
+are the numbers of the instructions it ran, each past 2^24
+([`build.lua_tail`]'s `ordinal_base`), beside a prefix of the digest of its
+bytecode stripped. The run's own `test: coverage` line is informational and
+never a failure.
 
 A sandboxed test given the pure store ([the pure store](#the-pure-store))
 reaches the lines of the modules it imports as an unsandboxed one does. Their
@@ -855,10 +861,16 @@ instruction of such a function as it is about to run, by its number in the
 chunk (core/coverage.c, told by Lua through `patch/lua/`'s instruction
 coverage, after an instruction budget has had its turn, so an instruction
 a budget stops before is not counted), and the runner places each at the
-line this run's text has it on ([`build.lua_tail`]'s `instruction_lines`):
-the text whose source hash the row names. A comment above those lines later
-lets the verdict stand, and its row's lines of that module are dropped as
-numbered in other text (the figure is partial) until the test runs again.
+line this run's text has it on ([`build.lua_tail`]'s `instruction_lines`).
+Its row keeps the instructions' numbers, not those lines, named by the
+module's bytecode stripped and not by its text: a comment above them later
+lets the verdict stand, since the key holds that bytecode, and a run that
+stands on the row places each number at the line its own text has that
+instruction on, which is exact while the verdict stands. The numbers it cannot
+place are dropped, and the figure says it is partial and why. A tool
+that reads a row's numbers as lines alone, older than these rows, finds the
+row names another text than the module's and drops it the same way, so it
+never credits an instruction's number as a line.
 An instruction the runner cannot place is an error of the run, never a
 line of another text, and no verdict of a test that reached it is kept, so
 no later run stands on a row that lacks its lines.

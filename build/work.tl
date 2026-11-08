@@ -126,7 +126,7 @@ end
 
 --- The shape of the schema. A file of another shape holds nothing the
 --- tree cannot produce again, so it is thrown away.
-local version <const> = "34"
+local version <const> = "35"
 
 --- `files` is the staged tree, one row per file the build consumes,
 --- holding the bytes exactly as they were on disk. A file gone from
@@ -242,6 +242,9 @@ local version <const> = "34"
 --- to what [`build.patch`]'s [`Patch.parse`] takes as a record, whose
 --- TODOs the rule reads apart. A row no
 --- staged file hashes to any more is dropped at the end of the stage.
+--- `todo_misses` is every comment that opens with a near miss of the
+--- spelling ([`build.todo_scan.misses`]), keyed and dropped as `todos` is, so
+--- `cosmic todos` can say what it did not index and how to spell it.
 --- `todos_fts` indexes their text for `cosmic todos <words>`, in FTS5's
 --- external-content mode over `todos` -- which is why `todos` has a
 --- rowid, `id`, where every other table here is WITHOUT ROWID -- and
@@ -399,7 +402,8 @@ local version <const> = "34"
 --- which lines a given test hit in a given run. It is one row per test
 --- per run, its `hits` every line the test hit, as [`build.test`]'s
 --- `take_hits` writes them, each module's lines beside the text they are
---- numbered in: one row per line hit would be millions a
+--- numbered in (a pure store's import's by instruction, which the run that
+--- stands on them places): one row per line hit would be millions a
 --- run, and writing them, then deleting the last run's, cost a full run
 --- most of its time.
 ---
@@ -476,6 +480,10 @@ for _, statement in ipairs({
                                       last INTEGER NOT NULL,
                                       text TEXT NOT NULL,
                                       UNIQUE (sha256, line))]],
+    [[CREATE TABLE IF NOT EXISTS todo_misses (sha256 TEXT NOT NULL,
+                                            line INTEGER NOT NULL,
+                                            spelling TEXT NOT NULL,
+                                            PRIMARY KEY (sha256, line)) WITHOUT ROWID]],
     [[CREATE VIRTUAL TABLE IF NOT EXISTS todos_fts
       USING fts5(text, content=todos, content_rowid=id)]],
     [[CREATE TRIGGER IF NOT EXISTS todos_inserted AFTER INSERT ON todos BEGIN
@@ -1458,7 +1466,7 @@ end
 --- `files` keeps the bytes; `tool` and `scanned` keep only what a stat
 --- and a hash say about them. The put for each takes the bytes as its
 --- sixth parameter and their hash, made once per read, as its seventh;
---- `todo` is one TODO's row.
+--- `todo` is one TODO's row, and `miss` one near miss's.
 local puts: {string:string} = {
   files = "INSERT OR REPLACE INTO files (path, size, mtime_ns, ino, dev, " ..
     "sha256, data, ctime_ns) VALUES (?1, ?2, ?3, ?4, ?5, ?7, ?6, ?9)",
@@ -1470,6 +1478,7 @@ local puts: {string:string} = {
     "sha256, kind, ctime_ns) VALUES (?1, ?2, ?3, ?4, ?5, ?7, ?8, ?9)",
   todo = "INSERT OR IGNORE INTO todos (sha256, line, last, text) " ..
     "VALUES (?1, ?2, ?3, ?4)",
+  miss = "INSERT OR IGNORE INTO todo_misses (sha256, line, spelling) VALUES (?1, ?2, ?3)",
 }
 
 --- The largest file `scanned` reads for TODOs.
@@ -1596,17 +1605,31 @@ local function holds_own_todos(file: string): boolean
     not identity.is_static(file)
 end
 
---- Records the TODOs in one file's bytes under their hash, unless a
+--- Records the TODOs in one file's bytes under their hash, and the
+--- comments that open with a near miss of the spelling (`miss`), unless a
 --- file with the same bytes already has: text that parses as a patch
 --- record is scanned as one wherever it sits, since the rows are keyed
---- by the bytes alone. Text holding no `TODO:`, or holding a NUL,
---- is not scanned.
-local function put_todos(put: Sqlite.Statement, data: string,
+--- by the bytes alone, and its near misses are not looked for. Text holding
+--- neither `TODO` nor `FIXME`, or holding a NUL, is not scanned.
+local function put_todos(put: Sqlite.Statement, miss: Sqlite.Statement, data: string,
                          sha256: string): boolean, string
-  if data:find("TODO:", 1, true) == nil or data:find("\0", 1, true) ~= nil then
+  if (data:find("TODO", 1, true) == nil and data:find("FIXME", 1, true) == nil) or
+      data:find("\0", 1, true) ~= nil then
     return true, ""
   end
-  local scanned = todo_scan.scan_record(data) or todo_scan.scan(data)
+  local record = todo_scan.scan_record(data)
+  if record == nil then
+    for _, near in ipairs(todo_scan.misses(data)) do
+      local ok, trouble = miss:bind_text(1, sha256)
+      if ok then ok, trouble = miss:bind_integer(2, near.line) end
+      if ok then ok, trouble = miss:bind_text(3, near.spelling) end
+      if ok then ok, trouble = once(miss) end
+      if not ok then
+        return false, trouble
+      end
+    end
+  end
+  local scanned = record or todo_scan.scan(data)
   for _, found in ipairs(scanned) do
     local ok, trouble = put:bind_text(1, sha256)
     if ok then ok, trouble = put:bind_integer(2, found.line) end
@@ -1815,7 +1838,7 @@ function work.stage(handle: work.Handle, standing: tree.Standing): work.Staged?,
     known[table_name] = rows
   end
   local put: mut {string:Sqlite.Statement} = {}
-  for _, name in ipairs({ "files", "tool", "scanned", "linked", "todo" }) do
+  for _, name in ipairs({ "files", "tool", "scanned", "linked", "todo", "miss" }) do
     local statement, trouble = db:prepare((assert(puts[name], "every name listed has its put")))
     if statement == nil then
       finish(put)
@@ -1829,6 +1852,7 @@ function work.stage(handle: work.Handle, standing: tree.Standing): work.Staged?,
   local put_scanned = assert(put["scanned"], "every put was prepared")
   local put_linked = assert(put["linked"], "every put was prepared")
   local put_todo = assert(put["todo"], "every put was prepared")
+  local put_miss = assert(put["miss"], "every put was prepared")
   local now = Clock.now_ns()
   local staged: work.Staged = { files = 0, read = 0, notes = {} }
   -- The real path of `root`, once a static asset asks for it, and the
@@ -1897,7 +1921,7 @@ function work.stage(handle: work.Handle, standing: tree.Standing): work.Staged?,
         end
         local sha256 = Hash.hex_sha256(data)
         if (input or tool or scan) and holds_own_todos(file) then
-          local ok, why = put_todos(put_todo, data, sha256)
+          local ok, why = put_todos(put_todo, put_miss, data, sha256)
           if not ok then
             finish(put)
             return nil, file .. ": " .. why
@@ -1987,12 +2011,14 @@ function work.stage(handle: work.Handle, standing: tree.Standing): work.Staged?,
   if not found then
     return nil, found_trouble
   end
-  local pruned, prune_trouble = db:exec(
-    "DELETE FROM todos WHERE sha256 NOT IN " ..
-      "(SELECT sha256 FROM files UNION SELECT sha256 FROM tool " ..
-      "UNION SELECT sha256 FROM scanned)")
-  if not pruned then
-    return nil, prune_trouble
+  for _, table_name in ipairs({ "todos", "todo_misses" }) do
+    local pruned, prune_trouble = db:exec(
+      "DELETE FROM " .. table_name .. " WHERE sha256 NOT IN " ..
+        "(SELECT sha256 FROM files UNION SELECT sha256 FROM tool " ..
+        "UNION SELECT sha256 FROM scanned)")
+    if not pruned then
+      return nil, prune_trouble
+    end
   end
   local by, by_trouble = running_tool(db)
   if by == nil then
