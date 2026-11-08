@@ -94,7 +94,7 @@ local function test_the_count_alone_is_reported_without_errors(tmp: string)
 end
 
 --- A file compiled alone keeps the `require` of a type import it never reads as a value, as the fork writes it; only the build
---- that serves every module drops it ([`lang.codegen`]'s `served`, `Pipeline.generate`).
+--- that serves every module drops it ([`lang.codegen`]'s `served`, [`Pipeline.generate`]).
 local function test_a_file_compiled_alone_keeps_the_require_of_an_import_it_never_reads(tmp: string)
   local path = file(tmp, "alone.tl", "local type _fs = require(\"cosmic.fs\")\nreturn 7\n")
   local ran = run({ path })

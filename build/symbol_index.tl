@@ -171,11 +171,31 @@ local function once_each(lists: {{symbol_index.Row}}): mut {symbol_index.Row}
   return out
 end
 
---- `rows` as the symbols a link names.
+--- `rows` as the symbols a link names, one to a declaration: a module's
+--- rows of one source symbol are one, the exported row standing for the
+--- rest. A function the module's record declares as a field and its file
+--- defines (`function RunDb.years`) has an exported row (`years`) and the
+--- definition's (`RunDb.years`); one of a record the module does not
+--- export has the field's and the definition's ([`Stored.text`]). Either
+--- pair would make one declaration two answers.
 local function symbols(rows: {symbol_index.Row}): {link_resolve.Symbol}
-  local out: mut {link_resolve.Symbol} = {}
+  local chosen: mut {string: symbol_index.Row} = {}
   for _, row in ipairs(rows) do
-    out[#out + 1] = { module = row.module, symbol = row.symbol, file = row.file }
+    local key = row.module .. "\n" .. row.source_symbol
+    local held = chosen[key]
+    if held == nil or row.exported and not held.exported then chosen[key] = row end
+  end
+  local out: mut {link_resolve.Symbol} = {}
+  local said: mut {string: boolean} = {}
+  for _, row in ipairs(rows) do
+    local key = row.module .. "\n" .. row.source_symbol
+    -- A module's own row has no source symbol, and stands for itself.
+    local taken = if row.source_symbol ~= "" then chosen[key] or row else row end
+    if row.source_symbol == "" or said[key] ~= true then
+      said[key] = true
+      out[#out + 1] = { module = taken.module, symbol = taken.symbol, file = taken.file, kind = taken.kind,
+        source = taken.source_symbol }
+    end
   end
   return out
 end

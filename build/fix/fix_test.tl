@@ -432,6 +432,51 @@ local function test_a_link_into_a_module_the_build_refused_says_it_did_not_build
   assert(said:find("fine.three does not resolve (no declaration, symbol or file by that name)", 1, true), said)
 end
 
+--- A link into a module of the tree that built, where the build made for it failed, is not known yet: the symbols are
+--- the last build's, which may predate the module. Where that build succeeds the same link names nothing.
+local function test_a_link_checked_against_the_last_build_is_not_known_yet(tmp: string)
+  local root = assert(Fs.absolute(tmp))
+  assert(Fs.write(root .. "/a.md", "[`fresh.thing`]\n"))
+  assert(Fs.write(root .. "/fresh.tl", "--- Fresh.\nlocal record fresh\nend\nreturn fresh\n"))
+  local function said(ok: boolean): string
+    local source = fix.link_context(root, false, true,
+      function(_: string): boolean, string
+        return ok, if ok then "" else "typed.tl: the compiler refused it" end
+      end,
+      function(): docs.Sources return { handles = {}, public = {}, opened = {} } end,
+      function(): {string} return { "typed.tl" } end)
+    local found = fix.links(source.context, { root .. "/a.md" })
+    source.close()
+    return table.concat(found.broken, "\n")
+  end
+  local stale = said(false)
+  assert(stale:find("fresh.thing does not resolve (not known yet: fresh is new since the last build, which links are " ..
+      "checked against while the build refuses typed.tl; fix that first)", 1, true), stale)
+  local built = said(true)
+  assert(built:find("fresh.thing does not resolve (no declaration, symbol or file by that name)", 1, true), built)
+end
+
+--- A path that names no file is offered the one file of its name a link may name, wherever it is in the tree (`bin/`
+--- too), and none where two are; never one the tree ignores (`node_modules/`, where no git answers).
+local function test_a_path_to_no_file_is_offered_the_one_file_of_its_name(tmp: string)
+  local root = assert(Fs.absolute(tmp))
+  for _, dir in ipairs({ "/bin", "/lib", "/node_modules/x" }) do assert(Fs.mkdirs(root .. dir)) end
+  for _, file in ipairs({ "/bin/zig.sh", "/bin/two.sh", "/lib/two.sh", "/node_modules/x/gen.txt" }) do
+    assert(Fs.write(root .. file, ""))
+  end
+  assert(Fs.write(root .. "/a.md", "[z](tools/zig.sh) [t](tools/two.sh) [g](tools/gen.txt)\n"))
+  local context = link_resolve.on_disk(root,
+    function(_: string): {link_resolve.Symbol}?, string return {}, "" end,
+    function(_: string, _: string): {link_resolve.Symbol}?, string return {}, "" end,
+    function(): string? return nil end)
+  local found = fix.links(context, { root .. "/a.md" })
+  local said = table.concat(found.broken, "\n")
+  assert(said:find("tools/zig.sh does not resolve (no file at tools/zig.sh; bin/zig.sh has that name: link it as " ..
+      "bin/zig.sh)", 1, true), said)
+  assert(said:find("tools/two.sh does not resolve (no file at tools/two.sh)", 1, true), said)
+  assert(said:find("tools/gen.txt does not resolve (no file at tools/gen.txt)", 1, true), said)
+end
+
 --- A project that has not been built checks no link against symbols,
 --- and says so once as a note rather than failing each: a name in
 --- full, and a member of a module through its alias alike.

@@ -763,6 +763,28 @@ local function relaid(kind: string, linked: string): string?, string
   return linked, ""
 end
 
+--- The files of the tree at `root` by name, as [`Context.named_files`] answers: each a link may name, so none under
+--- the root's `o/` or a `.git`, nor what `left_alone` says the tree ignores, whose directories are not walked. Walked
+--- once, when first asked: only a path that names no file asks.
+local function named_files(root: string, left_alone: function(string): boolean): function(string): {string}
+  local by_name: mut {string: mut {string}} = {}
+  local walked = false
+  return function(basename: string): {string}
+    if not walked then
+      walked = true
+      local files, _ = Fs.walk(root, function(entry: string, name: string): boolean
+        return entry == "o" or name == ".git" or left_alone(entry)
+      end)
+      for _, file in ipairs(files or {}) do
+        local list: mut {string} = by_name[Fs.basename(file)] or {}
+        list[#list + 1] = file
+        by_name[Fs.basename(file)] = list
+      end
+    end
+    return by_name[basename] or {}
+  end
+end
+
 --- What is wrong with the links of `files` ([`build.links`]), each line
 --- `file:line: link: ...`, the file as named; a file that cannot be
 --- read is one line of its own. What each link names is looked up in
@@ -796,6 +818,8 @@ function fix.links(context: link_resolve.Context, files: {string}, mode?: string
     unbuilt = context.unbuilt,
     refused = context.refused,
     ignored = left_alone,
+    stale = context.stale,
+    named_files = context.named_files or named_files(context.root, left_alone),
   }
   local resolver = link_resolve.resolver(guarded)
   local out: mut {string} = {}
@@ -895,7 +919,7 @@ function fix.link_context(root: string, whole: boolean, own: boolean,
     if own then return nil end
     local built_before, _ = Fs.exists(build_paths.resolve(root).projection)
     if built_before == true then return nil end
-    return "the project has no projection yet (`cosmic build` or `cosmic test` makes one)"
+    return "the project has no projection yet (`cosmic build`, `cosmic test` or `cosmic fix` makes one)"
   end
   local function close()
     for _, each in ipairs(opened) do
@@ -909,6 +933,19 @@ function fix.link_context(root: string, whole: boolean, own: boolean,
   context.refused = function(module: string): boolean
     local path = module:gsub("%.", "/")
     return not_built[path .. ".tl"] == true or not_built[path .. "/init.tl"] == true
+  end
+  -- The build that failed left the last one's symbols as they were.
+  context.stale = function(): string?
+    local why = assert(source, "the link context was asked before it was made").unbuilt
+    if why == nil then return nil end
+    local files: mut {string} = {}
+    for file in pairs(not_built) do files[#files + 1] = file end
+    if #files == 0 then
+      return "the build fails (" .. (why:match("^[^\n]*") or why) .. ")"
+    end
+    table.sort(files)
+    return "the build refuses " .. table.concat(files, ", ", 1, math.min(#files, 3)) ..
+      (if #files > 3 then " and " .. tostring(#files - 3) .. " more" else "" end)
   end
   source = { context = context, close = close }
   return source
@@ -1859,17 +1896,9 @@ local function report(ctx: Fix): integer
   for _, line in ipairs(findings) do
     log:say("fix: FAIL  " .. line)
   end
-  for _, line in ipairs(broken) do
-    log:say("fix: FAIL  " .. line)
-  end
-  for _, line in ipairs(would) do
-    log:say("fix: FAIL  " .. line)
-  end
-  for _, line in ipairs(redefined) do
-    log:say("fix: FAIL  " .. line)
-  end
   -- A file that does not parse is refused by its own check and by the
-  -- build in the same words: the line is said once.
+  -- build in the same words: the line is said once. The build's refusal
+  -- comes before the links, whose failures it may be the cause of.
   if unbuilt ~= nil and failed[plain(unbuilt)] ~= true then
     -- The new checker's refusal lists every file it refused, one per line, among them a file the new parser could not
     -- read, whose line the file's own check said already.
@@ -1881,6 +1910,15 @@ local function report(ctx: Fix): integer
       end
     end
     if rest ~= "" then log:say("fix: FAIL  " .. rest) end
+  end
+  for _, line in ipairs(broken) do
+    log:say("fix: FAIL  " .. line)
+  end
+  for _, line in ipairs(would) do
+    log:say("fix: FAIL  " .. line)
+  end
+  for _, line in ipairs(redefined) do
+    log:say("fix: FAIL  " .. line)
   end
   if links_unbuilt ~= nil then
     log:say("fix: FAIL  " .. links_unbuilt)

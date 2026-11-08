@@ -598,6 +598,71 @@ local function test_a_file_resolves_from_its_directory_then_the_root()
     })
 end
 
+--- A relative path that names no file says where it looked, not that it lies outside the root because the root, the
+--- second place it is looked for, has no parent; one file of the tree of its name is offered, spelled from the link.
+local function test_a_path_to_no_file_says_where_it_looked_and_what_has_its_name()
+  local context = world({ ["/p/doc/a.md"] = "", ["/p/lib/util.tl"] = "", ["/p/x/two.md"] = "", ["/p/y/two.md"] = "" })
+  context.named_files = function(basename: string): {string}
+    local by_name: {string: {string}} = { ["util.tl"] = { "lib/util.tl" }, ["two.md"] = { "x/two.md", "y/two.md" } }
+    return by_name[basename] or {}
+  end
+  same(checked(context, "/p/doc/a.md", "markdown", lines(
+    "[u](../pkg/util.tl) [v](util.tl) [w](sub/util.tl) [t](../z/two.md) [n](../pkg/none.md)")), {
+      "/p/doc/a.md:1: link: ../pkg/util.tl does not resolve (no file at pkg/util.tl; lib/util.tl has that name: link " ..
+        "it as ../lib/util.tl)",
+      "/p/doc/a.md:1: link: util.tl does not resolve (no declaration, symbol or file by that name; lib/util.tl has " ..
+        "that name: link it as ../lib/util.tl)",
+      "/p/doc/a.md:1: link: sub/util.tl does not resolve (no file at doc/sub/util.tl or sub/util.tl; lib/util.tl " ..
+        "has that name: link it as ../lib/util.tl)",
+      "/p/doc/a.md:1: link: ../z/two.md does not resolve (no file at z/two.md)",
+      "/p/doc/a.md:1: link: ../pkg/none.md does not resolve (no file at pkg/none.md)",
+    })
+end
+
+--- A module of the tree that docs holds nothing of (no leading `---`) is said to be one, with the two fixes; a module's
+--- name alone is already in full, so its file is the link left to write.
+local function test_a_module_docs_knows_nothing_of_says_so()
+  local context = world({ ["/p/data/bare.tl"] = "", ["/p/figures.tl"] = "" })
+  same(checked(context, "/p/a.md", "markdown", "[`data.bare`] [`figures`] [`data.none`] [`other`]\n"), {
+    "/p/a.md:1: link: data.bare does not resolve (data.bare is a module of the tree with no doc comment, so docs " ..
+      "knows nothing of it: give data/bare.tl a leading `---`, or link the file `data/bare.tl`)",
+    "/p/a.md:1: link: figures does not resolve (a name alone links only to a declaration of its own file, and " ..
+      "figures is a module: link its file `figures.tl`)",
+    "/p/a.md:1: link: data.none does not resolve (no declaration, symbol or file by that name)",
+    "/p/a.md:1: link: other does not resolve (a name alone links only to a declaration of its own file; write " ..
+      "another module's symbol in full (`module.member`))",
+  })
+end
+
+--- Where the symbols are an earlier build's, a name of a module of the tree that build has no row of is not known yet,
+--- through an alias or in full: the module is new and may declare it. A module that build holds answers as it did, and a
+--- name of no module of the tree still names nothing.
+local function test_a_link_checked_against_an_earlier_build_is_not_known_yet()
+  local source = lines(
+    "local F = require(\"fresh\")",
+    "-- [`F.thing`], [`fresh.thing`], [`fresh.sub.thing`], [`other.nope`] and [`gone.thing`].",
+    "return F")
+  local context = world({ ["/p/fresh.tl"] = "", ["/p/other.tl"] = "" }, { other = { "other" } })
+  context.stale = function(): string? return "the build refuses typed.tl" end
+  local later = "not known yet: fresh is new since the last build, which links are checked against while the build " ..
+    "refuses typed.tl; fix that first"
+  same(checked(context, "/p/a.tl", "teal", source), {
+    "/p/a.tl:2: link: F.thing does not resolve (" .. later .. ")",
+    "/p/a.tl:2: link: fresh.thing does not resolve (" .. later .. ")",
+    "/p/a.tl:2: link: fresh.sub.thing does not resolve (" .. later .. ")",
+    "/p/a.tl:2: link: other.nope does not resolve (no declaration, symbol or file by that name)",
+    "/p/a.tl:2: link: gone.thing does not resolve (no declaration, symbol or file by that name)",
+  })
+  context.stale = function(): string? return nil end
+  same(checked(context, "/p/a.tl", "teal", source), {
+    "/p/a.tl:2: link: F.thing does not resolve (fresh has no thing)",
+    "/p/a.tl:2: link: fresh.thing does not resolve (no declaration, symbol or file by that name)",
+    "/p/a.tl:2: link: fresh.sub.thing does not resolve (no declaration, symbol or file by that name)",
+    "/p/a.tl:2: link: other.nope does not resolve (no declaration, symbol or file by that name)",
+    "/p/a.tl:2: link: gone.thing does not resolve (no declaration, symbol or file by that name)",
+  })
+end
+
 local function test_an_anchor_names_a_heading()
   local context = world({
     ["/p/a.md"] = lines("# Top", "", "## Links: the `x` form", "## Links: the `x` form"),
@@ -610,7 +675,7 @@ local function test_an_anchor_names_a_heading()
       "/p/c.md:3: link: a.md#missing does not resolve (no heading of a.md has the anchor #missing)",
       "/p/c.md:3: link: #nowhere does not resolve (no heading of c.md has the anchor #nowhere)",
       "/p/c.md:3: link: b.tl#top does not resolve (only a Markdown file's headings take an anchor)",
-      "/p/c.md:3: link: /p#x does not resolve (no declaration, symbol or file by that name)",
+      "/p/c.md:3: link: /p#x does not resolve (no file at p)",
     })
 end
 
@@ -749,7 +814,7 @@ local function test_a_definition_holds_in_its_own_comment_block()
     "local x = 1",
     "return x")
   same(checked(world({}), "/p/a.tl", "teal", source), {
-    "/p/a.tl:2: link: doc/missing.md does not resolve (no declaration, symbol or file by that name)",
+    "/p/a.tl:2: link: doc/missing.md does not resolve (no file at doc/missing.md)",
   })
 end
 
@@ -858,6 +923,53 @@ local function test_the_databases_answer_a_symbol_and_a_member_in_full(dir: stri
     "return Thing")), {
       dir .. "/b.tl:2: link: Thing.Box.shrink does not resolve (cosmic.thing has no Box.shrink)",
     })
+end
+
+--- A function a record declares as a field and its file defines is one declaration, though docs holds two rows of it:
+--- it resolves by every spelling. Two things a link spells alike (a module, and a function its parent exports by that
+--- name) are told apart by kind and file, with the spelling that links each alone, never "link it in full".
+local function test_one_declaration_is_one_answer_and_two_spelled_alike_are_told_apart(dir: string)
+  local files: {string: string} = {
+    ["lib/rundb.tl"] = lines(
+      "--- Runs.",
+      "local record RunDb",
+      "  --- The years.",
+      "  years: function(): integer",
+      "end",
+      "",
+      "function RunDb.years(): integer",
+      "  return 1",
+      "end",
+      "",
+      "--- Its meta.",
+      "function RunDb.meta(): integer",
+      "  return 2",
+      "end",
+      "",
+      "return RunDb"),
+    ["lib/rundb/meta.tl"] = lines(
+      "--- Meta, data only.",
+      "local meta: {string: integer} = { a = 1 }",
+      "return meta"),
+  }
+  -- On disk too, so the spelling offered for the module, its file, is seen to resolve.
+  assert(Fs.mkdirs(dir .. "/lib/rundb"))
+  for path, text in pairs(files) do assert(Fs.write(dir .. "/" .. path, text)) end
+  local db = fixture.database(dir, files)
+  local context = links.context(dir, function(): docs.View?, string
+    return docs.view({ db })
+  end, function(): string? return nil end)
+  same(checked(context, dir .. "/a.md", "markdown", lines(
+    "[`lib.rundb.years`] [`lib.rundb.RunDb.years`] [`RunDb.years`] [`lib.rundb.meta`]",
+    "[`lib.rundb.RunDb.meta`] [`./lib/rundb/meta.tl`]")), {
+      dir .. "/a.md:1: link: lib.rundb.meta does not resolve (it names 2 spelled alike: the function lib.rundb.meta " ..
+        "(lib/rundb.tl), write lib.rundb.RunDb.meta; the module lib.rundb.meta (lib/rundb/meta.tl), write " ..
+        "./lib/rundb/meta.tl)",
+    })
+  same(checked(context, dir .. "/b.tl", "teal", lines(
+    "local RunDb = require(\"lib.rundb\")",
+    "-- [`RunDb.years`] and [`RunDb.meta`].",
+    "return RunDb")), {})
 end
 
 --- A member a type takes from another module's, through the name its

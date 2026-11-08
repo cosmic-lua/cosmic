@@ -237,7 +237,7 @@ its unsupported operation is omitted on macOS, where ordinary launcher
 coverage remains. `summarize` appends these rows as a second table. The driver's self-check (`cosmic-driver
 test cosmic_ci`) is a step of its own and writes none.
 
-A fixture can leave figures with `Fixture.figure`. The job log shows them,
+A fixture can leave figures with [`Fixture.figure`]. The job log shows them,
 each prefixed with the fixture's name, after the fixture runs. They appear
 only when the fixture actually runs, not when its verdict stands.
 
@@ -567,6 +567,7 @@ the first tried once, with the clearing and sleeping step between them.
 [`cosmic_ci/build_paths.tl`]: cosmic_ci/build_paths.tl
 [`cosmic_ci/host_id.tl`]: cosmic_ci/host_id.tl
 [`cosmic_ci/orchestration.tl`]: cosmic_ci/orchestration.tl
+[`Fixture.figure`]: cosmic_ci/fixture.tl
 [`Islands.complaint`]: cosmic_ci/islands.tl
 [`Islands.paths`]: cosmic_ci/islands.tl
 [`Islands.project`]: cosmic_ci/islands.tl
