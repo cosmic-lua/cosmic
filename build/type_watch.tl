@@ -12,7 +12,7 @@
 -- no plain one, and so possibly enter a C function none of the legs' whole runs do: CI's checked narrowing run
 -- (`checked-narrowing` in ci.yml) makes no check of that, so it must then make one. It is then also the one run that
 -- asks the declared-types tests (`*declared_types_test.tl`), so it must fail where one of them skips for want of a
--- checked run, the check ci/cosmic_ci/orchestration.tl's `unchecked_skips` made (`git log -S unchecked_skips`).
+-- checked run.
 local Test = require("cosmic.test")
 local Globals = require("cosmic.internal.globals")
 local worker = require("build.test_worker")
