@@ -74,7 +74,6 @@ local sys = require("cosmic.sys")
 local confine = require("build.confine")
 local test_inputs = require("build.test_inputs")
 local caches = require("build.caches")
-local String = require("cosmic.string")
 
 local build_layout = build_paths.resolve
 
@@ -295,7 +294,7 @@ end
 local function beneath(path: string, dir: string): string?
   if path == dir then return "" end
   if dir == "/" then return if path:sub(1, 1) == "/" then path else nil end end
-  if String.starts_with(path, dir .. "/") then return path:sub(#dir + 1) end
+  if path:sub(1, #dir + 1) == dir .. "/" then return path:sub(#dir + 1) end
   return nil
 end
 

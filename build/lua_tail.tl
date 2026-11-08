@@ -1,7 +1,6 @@
 --- What is done to the Lua of a module after the code generator has written it: the tail of a test module
 --- that hands its tests to the runner, and the bytecode of the chunk, which every target must read alike. Used by
 --- [`build.pipeline`], which the code generator feeds.
-local String = require("cosmic.string")
 
 local record LuaTail
   --- `code`, the Lua of a test module, with a generated `return` of the functions `tests` names appended, so a `local
@@ -113,7 +112,7 @@ function LuaTail.bytecode_of(code: string, name: string, file: string): string?,
     return nil, at_source_line(tostring(load_trouble), file)
   end
   local bytecode = dump(chunk, false)
-  if not String.starts_with(bytecode, bytecode_header) then
+  if bytecode:sub(1, #bytecode_header) ~= bytecode_header then
     return nil, file .. ": this host dumps bytecode the three " ..
       "targets do not share"
   end
@@ -215,7 +214,7 @@ local function without_lines(dumped: string, name: string): string?, string
 end
 
 function LuaTail.stripped(bytecode: string, name: string): string?, string
-  if not String.starts_with(bytecode, "\27Lua") then
+  if bytecode:sub(1, 4) ~= "\27Lua" then
     return nil, name .. ": not a binary chunk"
   end
   -- An environment of its own, which `load` asks of a binary chunk; the chunk is never run.
@@ -507,7 +506,7 @@ local function lines_of(bytecode: string, name: string): {integer}?, {integer:in
     for _ = 1, take_varint(walk) do take_string(walk) end
   end
   local ok, trouble = pcall(function()
-    if not String.starts_with(bytecode, bytecode_header) then
+    if bytecode:sub(1, #bytecode_header) ~= bytecode_header then
       error(said(walk, "another header"), 0)
     end
     take(walk, #bytecode_header)

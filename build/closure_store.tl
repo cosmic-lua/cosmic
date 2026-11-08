@@ -33,7 +33,6 @@ local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
 local Sqlite = require("cosmic.sqlite")
 local schema = require("build.schema")
-local String = require("cosmic.string")
 
 local record closure_store
   --- The `meta` row that names the keys a store withholds from a test, and
@@ -792,7 +791,7 @@ local function candidates(basis: closure_store.Basis, name: string): {string}
   local stem = name:sub(1, #name - #"_example")
   local out: mut {string} = {}
   for _, path in ipairs(basis.pairable) do
-    if path == stem or String.starts_with(stem, path .. "_") then out[#out + 1] = path end
+    if path == stem or stem:sub(1, #path + 1) == path .. "_" then out[#out + 1] = path end
   end
   return out
 end

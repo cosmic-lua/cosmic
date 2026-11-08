@@ -16,7 +16,6 @@ local hashing = require("build.digest")
 local key_parts = require("build.key_parts")
 local launcher_template = require("build.launcher")
 local type raw_store = require("cosmic.internal.store")
-local String = require("cosmic.string")
 
 -- Hashed and spelled through build.digest and build.key_parts, not
 -- cosmic.hash or cosmic.codec: a verdict key that holds a program's
@@ -402,7 +401,7 @@ end
 
 --- Appends a database and the v2 trailer to prefix bytes made by `prefix`.
 function artifact.program(prefix: string, database: string): string?, string
-  if #database < #sqlite_header or not String.starts_with(database, sqlite_header) then
+  if #database < #sqlite_header or database:sub(1, #sqlite_header) ~= sqlite_header then
     return nil, "portable program database has no SQLite header"
   end
   if #prefix < shell_length + manifest_length then
@@ -432,7 +431,7 @@ end
 --- a manifest naming it as the one entry (a raw core), then `database` and a
 --- trailer whose magic says host. It runs only where that core does.
 function artifact.host_program(core: raw_store.Core, database: string): string?, string
-  if #database < #sqlite_header or not String.starts_with(database, sqlite_header) then
+  if #database < #sqlite_header or database:sub(1, #sqlite_header) ~= sqlite_header then
     return nil, "host program database has no SQLite header"
   end
   if #core.bytes == 0 or #core.digest ~= 32 then
@@ -505,7 +504,7 @@ function artifact.split(bytes: string): artifact.Split?, string
     return nil, "the artifact's manifest and trailer disagree on where its database starts"
   end
   local database = bytes:sub(database_offset + 1, database_offset + database_length)
-  if not String.starts_with(database, sqlite_header) then
+  if database:sub(1, #sqlite_header) ~= sqlite_header then
     return nil, "the artifact's database has no SQLite header"
   end
   return {
@@ -664,7 +663,7 @@ end
 --- its own: the same head, and a trailer of the same kind whose last
 --- field is the new database's length.
 function artifact.rejoin(parts: artifact.Split, database: string): string?, string
-  if not String.starts_with(database, sqlite_header) then
+  if database:sub(1, #sqlite_header) ~= sqlite_header then
     return nil, "the new database has no SQLite header"
   end
   local manifest_offset = #parts.head - manifest_length

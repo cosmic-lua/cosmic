@@ -43,7 +43,6 @@ local Proc = require("cosmic.proc")
 local type Sandbox = require("cosmic.sandbox")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
-local String = require("cosmic.string")
 local sys = require("cosmic.sys")
 local analysis_schema = require("build.analysis_schema")
 local importer = require("build.importer")
@@ -1984,7 +1983,7 @@ function test_key.gather(rec: Recording, from: Gather): string?
   -- as the binary names it.
   local host_image = Store.meta("host_image")
   local store_runtime = identity
-  if host_image ~= nil and String.starts_with(rec.runtime, identity) then
+  if host_image ~= nil and rec.runtime:sub(1, #identity) == identity then
     store_runtime = declared_key.runtime_identity(digests_of(rec), identity, host_image,
       Store.meta("runtime_basis") or "")
     rec.runtime = store_runtime .. rec.runtime:sub(#identity + 1)
