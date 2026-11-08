@@ -3,10 +3,11 @@
 --- whatever `w` is called and however it was made. The port of build.receivers's `references`, which asked the fork's
 --- reporter for the types; this reads the type report of the driver ([`build.driver`]) by the id of the node.
 ---
---- A receiver resolves to a symbol only when its record is one some module's own record declares, nested under it
---- ([`Zip.Writer`], [`Stream.Reader`]) -- [`build.syntax_report`]'s `owner_of`. A record a file keeps to itself has no row
---- in `docs` to be a use of, and the module's own record is the syntactic half's to answer
---- ([`build.syntax_analyzer`]'s references).
+--- A receiver resolves to a symbol when its record is one some module's own record declares, nested under it
+--- ([`Zip.Writer`], [`Stream.Reader`]) -- [`build.syntax_report`]'s `owner_of` -- or the module's own record, whose fields
+--- its own file reads as `Own.size` and any file through a value of it. Another file's `Own.size` is read through a require
+--- alias, the syntactic half's to answer ([`build.syntax_analyzer`]'s references). A record a file keeps to itself has no
+--- row in `docs` to be a use of.
 ---
 --- A field the record inherits is a use of the interface that declares it, when some module declares that interface
 --- ([`Writer.write`], not the inheriting record's own `write`).
@@ -49,7 +50,8 @@ function Receivers.references(subject: Report.Subject): {Receivers.Reference}
   local targets: mut {integer: boolean} = {}
   local program = subject.program
   --- The use of the field `name` of `object`, written on `line`; `written_call` when it is the method of `object:name(...)`, the
-  --- only use of a record that is no one's nested record ([`Report.home_of`]), and a read of a class's method is as a call.
+  --- only use of a record at the top of a file that is neither nested nor its module's own ([`Report.home_of`]), and a read of
+  --- a class's method is as a call.
   local function use(object: Ast.Exp, name: string, line: integer, written_call: boolean)
     local decl = Report.decl_of(subject.types[Node.base(object).id])
     if decl == nil then
@@ -74,10 +76,20 @@ function Receivers.references(subject: Report.Subject): {Receivers.Reference}
     local top = false
     local homed = false
     local owner = Report.owner_of(program, decl)
-    if owner == nil and called then
-      owner = Report.home_of(program, decl)
-      homed = true
-      top = owner ~= nil and owner.path ~= ""
+    if owner == nil then
+      local home = Report.home_of(program, decl)
+      -- A field of the record a module returns is read through a value of it (`o.size`) or, in the module's own file,
+      -- through the record itself (`Own.size`): a use, as a call is. Through the record in another file it is read by a
+      -- require alias, which the syntactic half answers. A record at the top of a file that the module does not return is
+      -- used only by a call.
+      local through = subject.types[Node.base(object).id]
+      local own = home ~= nil and home.path == "" and
+        not (through ~= nil and through.tag == "named" and through.value and decl.module ~= subject.lowered.module)
+      if home ~= nil and (called or own) then
+        owner = home
+        homed = true
+        top = home.path ~= ""
+      end
     end
     if owner == nil then
       return

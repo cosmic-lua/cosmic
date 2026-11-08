@@ -51,8 +51,7 @@ local record Report
   owner_of: function(program: Declarations.Program, decl: Types.Decl): Owner?
 
   --- Where a method of `decl` is a use of, when it is no record nested under its module's own ([`Report.owner_of`]): the
-  --- record or class the module returns, whose methods are `path` "" (the module's own members are `Z.f`, a call of
-  --- which is the syntactic half's), or a record, class or interface declared at the top of its module's file, under
+  --- record or class the module returns, whose members are `path` "" (the module's own members are `Z.f`), or a record, class or interface declared at the top of its module's file, under
   --- its own name. nil for an enum, a type inside a function, and any other.
   home_of: function(program: Declarations.Program, decl: Types.Decl): Owner?
 

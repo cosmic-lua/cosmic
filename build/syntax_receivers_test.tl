@@ -229,7 +229,8 @@ local function test_a_string_method_on_an_enum_value_is_no_use_of_the_enum()
 end
 
 --- A method called through a value of the record its module returns is a use of that method, whatever the value is called
---- and however it is held; a method of that name on a record another module declares is not.
+--- and however it is held, and so is a field read through one; a method of that name on a record another module declares
+--- is not.
 local function test_a_method_called_through_a_value_of_the_record_a_module_returns_is_a_use_of_it()
   local found = same(table.concat({
     "local type Tally = require('tally')",
@@ -251,7 +252,34 @@ local function test_a_method_called_through_a_value_of_the_record_a_module_retur
   }, "\n"))
   -- `D.pile():add(4)` is a use of the other module's `Pile.add`, not of the `add` of `Tally`
   assert(found == "tally add " .. tostring(line(4)) .. "\ntally add " .. tostring(line(6)) .. "\ntally add " .. tostring(line(13)) ..
-      "\ndecoy Pile.add " .. tostring(line(14)), found)
+      "\ndecoy Pile.add " .. tostring(line(14)) .. "\ntally count " .. tostring(line(15)), found)
+end
+
+--- The module that returns a record reads its fields through the record itself and through a value of it: each read is a
+--- use, though no require alias names the module in its own file. Setting a field and defining a function are not.
+local function test_a_module_reading_its_own_records_fields_is_a_use_of_them()
+  local said = Fixture.port(Fixture.PRELUDE .. table.concat({
+    "local record Own",
+    "  size: integer",
+    "  twice: function(): integer",
+    "end",
+    "Own.size = 1",
+    "function Own.twice(): integer",
+    "  return Own.size * 2",
+    "end",
+    "local function self(o: Own): integer",
+    "  return o.size + Own.twice()",
+    "end",
+    "use(self)",
+    "return Own",
+    "",
+  }, "\n"), MODULES)
+  local found: mut {string} = {}
+  for _, u in ipairs(said.refs) do
+    found[#found + 1] = u.module:gsub("^t%d+$", "own") .. " " .. u.member .. " " .. tostring(u.line - line(0))
+  end
+  local text = table.concat(found, "\n")
+  assert(text == "own size 7\nown size 10\nown twice 10", text)
 end
 
 --- A value the checker has no record for, or a union, is the use of nothing.

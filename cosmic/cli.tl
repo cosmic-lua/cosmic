@@ -652,6 +652,9 @@ local record Cli
   --- `cosmic uses <sym> [path...]`: every place that refers to a
   --- symbol, as file:line -- only those under the paths, when given --
   --- each link to it, in a comment or a Markdown file, marked `link`.
+  --- A place is a read or a call of a member, through a required module
+  --- or a value of its type, or in the module's own file through its
+  --- record; an assignment to it and a key of a table literal are not.
   --- The symbol may be a file's path instead (doc/writing.md, or
   --- doc/writing.md#heading for one heading), which only links name. The
   --- tree is found as `test` finds it
