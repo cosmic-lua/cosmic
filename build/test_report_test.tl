@@ -207,12 +207,14 @@ end
 --- files it holds whose hits were dropped.
 local function test_a_partial_figure_says_so_and_fails_a_floor_it_is_under()
   local note = "partial: hits of 2 modules came from runs on other text; `--all` reruns them"
-  assert(test_report.partial({ a = true, b = true }) == 2)
-  assert(test_report.coverage(1, 4, nil, 2) ==
+  local other = test_report.other_text
+  local two = { a = other, b = other }
+  assert(test_report.partial(two) == 2)
+  assert(test_report.coverage(1, 4, nil, two) ==
       "test: coverage 25.0% (1/4 lines; informational, never a failure; " .. note .. ")")
-  assert(test_report.coverage(1, 4, {}, 2) == "test: coverage 25.0% (1/4 lines; " .. note .. ")")
-  assert(test_report.coverage(1, 4, {}, 0) == "test: coverage 25.0% (1/4 lines)")
-  local stale = { ["b.m"] = true, ["c.m"] = true }
+  assert(test_report.coverage(1, 4, {}, two) == "test: coverage 25.0% (1/4 lines; " .. note .. ")")
+  assert(test_report.coverage(1, 4, {}, {}) == "test: coverage 25.0% (1/4 lines)")
+  local stale = { ["b.m"] = other, ["c.m"] = other }
   local met = test_report.floor(3, 4, { { path = "b.m", hit = 3, lines = 4 } }, { min = 75.0, min_file = 75.0 }, stale)
   assert(#met.lines == 0 and met.clause == "", "a partial figure at the floor meets it")
   local files: {test_report.FileLines} = { { path = "a.m", hit = 1, lines = 4 }, { path = "b.m", hit = 1, lines = 4 } }
@@ -224,6 +226,19 @@ local function test_a_partial_figure_says_so_and_fails_a_floor_it_is_under()
       "`--all` reruns them) is under --min-file 50%", table.concat(short.lines, "\n"))
   assert(short.clause == "coverage floor not met: 25.0% under --min 50% on a partial figure, " ..
       "2 files under --min-file 50% (1 on a partial figure)", short.clause)
+end
+
+--- A module whose standing hits were dropped for another reason than another text (an instruction its row numbers
+--- that the run cannot place) is named with why, and not said to have come from other text.
+local function test_a_partial_figure_names_a_module_dropped_for_another_reason()
+  local why = "were not placed at its lines: line 16777220 is past the module's 3 instructions"
+  local stale = { ["a.m"] = test_report.other_text, ["b.m"] = why }
+  local line = test_report.coverage(1, 4, {}, stale)
+  assert(line == "test: coverage 25.0% (1/4 lines; partial: hits of 2 modules are left out (1 came from runs on " ..
+      "other text; the hits of b.m " .. why .. "); `--all` reruns them)", line)
+  local short = test_report.floor(1, 4, { { path = "b.m", hit = 1, lines = 4 } }, { min_file = 50.0 }, stale)
+  assert(table.concat(short.lines, "\n") == "test: FAIL  coverage: b.m 25.0% (1/4 lines; partial: its hits " .. why ..
+      "; `--all` reruns them) is under --min-file 50%", table.concat(short.lines, "\n"))
 end
 
 --- A decimal floor a file meets exactly holds, though `64.4 * 250` rounds above 16100 in floating point.
