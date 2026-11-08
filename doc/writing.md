@@ -127,12 +127,23 @@ small, local and behavior-preserving. a larger one is its own change.
 
 ### doc comments
 
-a doc comment (`---` in Teal, `///` in Zig, the block above a public C
-function) is the reference `cosmic docs` shows. it says what a caller
-needs: what the function takes and returns, how it fails, what it
-guarantees. it does not describe the implementation unless the caller
+a doc comment (`///` in Zig, the block above a public C function, and
+in Teal the run of comment lines directly above a declaration, a
+record's field or an enum's value: its `---` lines where it has any,
+else its `--` lines) is the reference `cosmic docs` shows. a trailing
+comment is none, nor is a comment inside a table constructor, so a
+table's entries are documented by the record that types it. write a
+Teal doc with `---`, so a `--` note beside it stays out. a doc says
+what a caller needs: what the function takes and returns, how it
+fails, what it guarantees. it does not describe the implementation unless the caller
 must know it. a module's leading `---` block says what the module is
 for and the rules that hold across it.
+
+a function the record a module returns declares as a field, and the
+module defines as `function Record.f`, is documented once, on the
+field, where a reader of the record looks. `cosmic docs` shows the
+field's doc unless the definition has a `---` doc of its own, which
+then wins; a `--` note above the definition does not displace it.
 
 ### examples
 

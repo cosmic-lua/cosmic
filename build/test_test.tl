@@ -20,7 +20,7 @@ local function test_a_run_that_names_tests_is_failed_by_the_refusals_of_the_file
   local lines = {
     "cosmic/removed_example.tl:279:3: `function Friendly:greet` is not in the grammar (method_in_record): declare it",
     "build/one.tl: the compiler refused it\nbuild/one.tl:1:1: wrong (code): fix",
-    "build/one_test.tl: not compiled: it requires build.one, which the new checker refused",
+    "build/one_test.tl: not compiled: it requires build.one, which did not build",
   }
   assert(#test.refusals_of(lines, {}) == 3, "a run that names nothing is failed by every refusal")
   assert(#test.refusals_of(lines, { "build/other_test.tl" }) == 0)
@@ -32,10 +32,10 @@ end
 
 local function test_a_named_file_that_did_not_compile_is_shown_the_refusals_it_rests_on_first()
   local lines = {
-    "build/one_test.tl: not compiled: it requires build.one, which the new checker refused",
+    "build/one_test.tl: not compiled: it requires build.one, which did not build",
     "build/one.tl: the compiler refused it\nbuild/one.tl:1:1: wrong (code): fix",
     "build/two.tl: the compiler refused it\nbuild/two.tl:1:1: also wrong (code): fix",
-    "build/mid.tl: not compiled: it requires build.one, which the new checker refused",
+    "build/mid.tl: not compiled: it requires build.one, which did not build",
   }
   local roots = { ["build/one_test.tl"] = { 2 }, ["build/one.tl"] = { 2 }, ["build/two.tl"] = { 3 },
     ["build/mid.tl"] = { 2, 3 } }
@@ -56,10 +56,10 @@ end
 --- run that names nothing, and for one that names files, theirs and the roots they rest on.
 local function test_a_run_shows_the_refusals_it_fails_for_roots_apart_from_dependents()
   local lines = {
-    "build/one_test.tl: not compiled: it requires build.one, which the new checker refused",
+    "build/one_test.tl: not compiled: it requires build.one, which did not build",
     "build/one.tl: the compiler refused it\nbuild/one.tl:1:1: wrong (code): fix",
     "build/two.tl: the compiler refused it\nbuild/two.tl:1:1: also wrong (code): fix",
-    "build/mid.tl: not compiled: it requires build.one, which the new checker refused",
+    "build/mid.tl: not compiled: it requires build.one, which did not build",
   }
   local roots = { ["build/one_test.tl"] = { 2 }, ["build/one.tl"] = { 2 }, ["build/two.tl"] = { 3 },
     ["build/mid.tl"] = { 2, 3 } }

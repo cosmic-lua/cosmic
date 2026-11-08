@@ -555,6 +555,39 @@ local function test_the_default_of_a_value_a_test_made_non_nil_is_deleted_not_ma
   assert(has(text.fix, "delete `or ...`") and not has(text.fix, "~="), text.fix)
 end
 
+--- `or` cuts a call to its first value, so deleting a needless default of a call could return or pass the values after
+--- it: the fix keeps the cut with parentheses.
+local function test_the_needless_default_of_a_call_is_replaced_by_parentheses_not_deleted()
+  local e = first_error("local function f(x: string): string\n  return string.gsub(x, \" \", \"\") or \"\"\nend\n",
+    "condition_type")
+  assert(has(e.fix, "is never nil, so the default is never used"), e.fix)
+  assert(has(e.fix, "replace `string.gsub(x, \" \", \"\") or \"\"` with `(string.gsub(x, \" \", \"\"))`"), e.fix)
+  assert(not has(e.fix, "delete `or ...`"), e.fix)
+  local method = first_error("local function f(x: string): string\n  local s = x:gsub(\"a\", \"b\") or \"\"\n  return s\nend\n",
+    "condition_type")
+  assert(has(method.fix, "with `(x:gsub(\"a\", \"b\"))`"), method.fix)
+  -- A call that answers one value loses nothing to the deletion.
+  local one = first_error("local function f(x: string): string\n  local s = x:upper() or \"\"\n  return s\nend\n",
+    "condition_type")
+  assert(has(one.fix, "delete `or ...`") and not has(one.fix, "replace"), one.fix)
+  local tailed = first_error("local function g(): string, string...\n  return \"a\"\nend\n" ..
+      "local function f(): string\n  return g() or \"\"\nend\n", "condition_type")
+  assert(has(tailed.fix, "with `(g())`"), tailed.fix)
+  -- A call already in parentheses answers one value: the default goes.
+  local paren = first_error("local function f(x: string): string\n  return (x:upper()) or \"\"\nend\n", "condition_type")
+  assert(has(paren.fix, "delete `or ...`"), paren.fix)
+end
+
+--- A return of a call that answers more values than the function does says to cut it with parentheses.
+local function test_a_return_of_a_call_with_values_to_spare_is_told_to_parenthesize_it()
+  local e = first_error("local function f(x: string): string\n  return string.gsub(x, \" \", \"\")\nend\n", "return_arity")
+  assert(has(e.fix, "`string.gsub(x, \" \", \"\")` is the last value and answers 2 values"), e.fix)
+  assert(has(e.fix, "write `(string.gsub(x, \" \", \"\"))` to return its first value alone"), e.fix)
+  -- Too few values are not mended by parentheses.
+  local short = first_error("local function f(): integer, string\n  return 1\nend\n", "return_arity")
+  assert(not has(short.fix, "first value alone"), short.fix)
+end
+
 local TWO <const> = "local function two(): string?, string\n  return nil, \"x\"\nend\n"
 
 local function test_a_call_that_answers_several_values_as_the_last_argument_says_where_they_land()

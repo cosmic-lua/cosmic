@@ -430,8 +430,8 @@ local function into(handle: work.Handle, argv: {string}, settle: boolean): strin
   -- The new checker goes on past a module it refuses, to tell every refusal; a tool is not written from a tree it refused.
   local breaches = result.refused
   if #breaches > 0 then
-    return closing(handle, refusals.text(breaches, result.refusal_roots or {}) .. "\nthe new checker refused " ..
-        tostring(#breaches) .. " of the tree's modules, so no tool is written from it"), false
+    return closing(handle, refusals.text(breaches, result.refusal_roots or {}) ..
+        "\nthe tree did not build, so no tool is written from it"), false
   end
   local layout = build_paths.resolve(handle.root)
   local database_path = layout.projection

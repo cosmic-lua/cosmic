@@ -598,13 +598,29 @@ local function is_example_function(stat: Ast.Stat): boolean
   return owner_of(stat) == "Example"
 end
 
+--- Whether `doc` is a `---` doc with text that is not blank, which displaces a record field's doc where a plain `--`
+--- note does not ([`canonicalize_docs`]).
+local function is_triple_doc(doc: {Lexer.Comment}?): boolean
+  if doc == nil or doc_text(doc):match("%S") == nil then
+    return false
+  end
+  for _, c in ipairs(doc) do
+    if c.text:sub(1, 3) == "---" then
+      return true
+    end
+  end
+  return false
+end
+
 --- Every documented symbol a chunk declares at its top level, in source order: the module itself when the file opens
 --- with a comment of its own, each function, each record, class, interface, enum or alias and the members and values
 --- under it, and each `local` whose declaration carries a doc comment. Every function is here, whether or not it is
 --- documented; a bare `local x = ...` is not. A worked example ([`examples_of`]) is left out too: it documents
---- another module's symbol, not this one's.
-local function docs_of(chunk: Ast.Chunk, lines: {string}): {Entry}
+--- another module's symbol, not this one's. The second result holds each function's entry whose doc is a `---` one
+--- ([`is_triple_doc`]).
+local function docs_of(chunk: Ast.Chunk, lines: {string}): {Entry}, {Entry: boolean}
   local out: mut {Entry} = {}
+  local triple: mut {Entry: boolean} = {}
   local opening, opening_line = module_doc(chunk)
   if #opening > 0 then
     out[#out + 1] = { symbol = "", source_symbol = "", exported = true, kind = "module", signature = "",
@@ -621,8 +637,12 @@ local function docs_of(chunk: Ast.Chunk, lines: {string}): {Entry}
       else
         doc = stat.doc
       end
-      table.insert(out, { symbol = symbol, source_symbol = symbol, exported = false, kind = "function",
-        signature = function_signature(chunk, lines, stat), text = doc_text(doc), line = line })
+      local entry: Entry = { symbol = symbol, source_symbol = symbol, exported = false, kind = "function",
+        signature = function_signature(chunk, lines, stat), text = doc_text(doc), line = line }
+      table.insert(out, entry)
+      if is_triple_doc(doc) then
+        triple[entry] = true
+      end
     elseif declared ~= nil and not ((stat.kind == "Import")) then
       local name = declared.name
       local kind = type_kind(stat)
@@ -644,7 +664,7 @@ local function docs_of(chunk: Ast.Chunk, lines: {string}): {Entry}
       end
     end
   end
-  return out
+  return out, triple
 end
 
 --- What the canonical addressing and the reachability make of the entries, kept apart from them: an entry is never
@@ -755,8 +775,8 @@ end
 --- Gives every declaration its stable address within the value returned by the module. The record name is a local
 --- implementation detail: both [`Fs.read`] and a renamed `Public.read` are the canonical member `read`. Declarations
 --- outside that returned surface stay indexed under their source spelling and are explicitly private.
-local function canonicalize_docs(entries: {Entry}, marks: Marks, chunk: Ast.Chunk, export: string,
-                                 returned: Ast.Exp?): {Entry}
+local function canonicalize_docs(entries: {Entry}, triple: {Entry: boolean}, marks: Marks, chunk: Ast.Chunk,
+                                 export: string, returned: Ast.Exp?): {Entry}
   local dot = export .. "."
   local colon = export .. ":"
   local by_source: mut {string: {Entry}} = {}
@@ -865,7 +885,8 @@ local function canonicalize_docs(entries: {Entry}, marks: Marks, chunk: Ast.Chun
     local candidates = by_source[public_source] or {}
     local public: Entry? = nil
     -- A declared record field is the stable surface row. When a callable implementation is known it lends this row
-    -- its docs and location; every overwritten callable declaration remains inspectable but private.
+    -- its kind, signature and location, and its doc unless the field keeps its own (below); every overwritten callable
+    -- declaration remains inspectable but private.
     for _, candidate in ipairs(candidates) do
       marks.exported[candidate] = false
       marks.symbol[candidate] = candidate.source_symbol
@@ -892,7 +913,14 @@ local function canonicalize_docs(entries: {Entry}, marks: Marks, chunk: Ast.Chun
       marks.symbol[public] = symbol
       marks.exported[public] = true
       if implementation ~= nil then
-        marks.lent[public] = shown(marks, implementation)
+        local lent = shown(marks, implementation)
+        -- The field is where a record's reader looks, so its doc stands unless the definition has a `---` doc of its
+        -- own; a plain `--` note above the definition does not displace it.
+        if public.text:match("%S") ~= nil and triple[lent] == nil then
+          lent = { symbol = lent.symbol, source_symbol = lent.source_symbol, exported = lent.exported, kind = lent.kind,
+            signature = lent.signature, text = public.text, line = lent.line }
+        end
+        marks.lent[public] = lent
       end
     end
   end
@@ -1557,7 +1585,8 @@ end
 function Analyzer.docs(chunk: Ast.Chunk, source: string): {Entry}
   local facts = facts_of(chunk)
   local marks = new_marks()
-  local entries = canonicalize_docs(docs_of(chunk, lines_of(source)), marks, chunk, facts.export, facts.returned)
+  local found, triple = docs_of(chunk, lines_of(source))
+  local entries = canonicalize_docs(found, triple, marks, chunk, facts.export, facts.returned)
   mark_reachable_types(entries, marks, surface_of(chunk, marks, facts.export, entries), facts.export)
   return settle(entries, marks, nil)
 end
@@ -1572,7 +1601,8 @@ function Analyzer.analysis_of(chunk: Ast.Chunk, scoped: Scopes.Scoped, source: s
   end
   local lines = lines_of(source)
   local marks = new_marks()
-  local entries = canonicalize_docs(docs_of(chunk, lines), marks, chunk, facts.export, facts.returned)
+  local found, triple = docs_of(chunk, lines)
+  local entries = canonicalize_docs(found, triple, marks, chunk, facts.export, facts.returned)
   local export = facts.export
   local surface = surface_of(chunk, marks, export, entries)
   mark_reachable_types(entries, marks, surface, export)
