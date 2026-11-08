@@ -399,7 +399,8 @@ local version <const> = "34"
 --- which lines a given test hit in a given run. It is one row per test
 --- per run, its `hits` every line the test hit, as [`build.test`]'s
 --- `take_hits` writes them, each module's lines beside the text they are
---- numbered in: one row per line hit would be millions a
+--- numbered in (a pure store's import's by instruction, which the run that
+--- stands on them places): one row per line hit would be millions a
 --- run, and writing them, then deleting the last run's, cost a full run
 --- most of its time.
 ---

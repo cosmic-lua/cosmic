@@ -236,6 +236,51 @@ local function test_standing_hits_of_a_module_whose_text_moved_are_dropped_and_c
   assert(unowned_kept:find("core/", 1, true) == nil and unowned_kept:find("build.moved", 1, true) ~= nil, unowned_kept)
 end
 
+--- A pure store's import is reported by instruction, and its row keeps the
+--- ordinals, not the lines this run placed them at: a comment above them later
+--- moves the lines and not the key, and a run standing on the row places each
+--- ordinal at the line its own text has it on, whatever text the row names, so
+--- the module is credited and not stale. An ordinal it cannot place (past the
+--- instructions, or no instructions to place it by) is dropped and the module
+--- named stale, as a line numbered in other text is.
+local function test_a_standing_rows_ordinals_are_placed_at_the_lines_of_this_runs_text()
+  local base = lua_tail.ordinal_base
+  local reported: {integer:boolean} = { [base + 1] = true, [base + 3] = true }
+  local placed: {integer:boolean} = { [4] = true, [9] = true }
+  local hits: mut {string:mut {integer:boolean}} = {}
+  local row = test.take_hits(hits, {}, {}, {}, { ["build.lib"] = reported }, {}, { ["build.lib"] = string.rep("d", 16) },
+    { ["build.lib"] = placed }, {})
+  assert(row == "build.lib " .. string.rep("d", 16) .. "\t" .. tostring(base + 1) .. "," .. tostring(base + 3) .. "\n", row)
+  local folded = assert(hits["build.lib"], "the placed lines are not folded")
+  assert(folded[4] == true and folded[9] == true and folded[base + 1] == nil, "the run's figure holds an ordinal")
+  -- Later, a comment above the module's code: its text is another, its instructions one line lower.
+  local now = { ["build.lib"] = string.rep("e", 16) }
+  local function lines_of(path: string): {integer}?, string
+    if path == "build.lib" then return { 5, 5, 10 }, "" end
+    return nil, "no module of the projection"
+  end
+  local credited: mut {string:mut {integer:boolean}} = {}
+  local stale: mut {string:boolean} = {}
+  local kept = test.decode_hits(row, credited, now, stale, nil, lines_of)
+  local lib = assert(credited["build.lib"], "a standing row's ordinals are credited no line")
+  assert(lib[5] == true and lib[10] == true and lib[4] == nil and lib[9] == nil, "an ordinal is not placed at this run's line")
+  assert(stale["build.lib"] == nil, "a module whose ordinals were all placed is stale")
+  assert(kept == row, kept)
+  -- One past the instructions, or with nothing to place it by, is dropped, never put on a line.
+  local past: mut {string:mut {integer:boolean}} = {}
+  local past_stale: mut {string:boolean} = {}
+  local _ = test.decode_hits("build.lib " .. string.rep("d", 16) .. "\t" .. tostring(base + 1) .. "," .. tostring(base + 4) .. "\n",
+    past, now, past_stale, nil, lines_of)
+  local some = assert(past["build.lib"])
+  local count = 0
+  for _ in pairs(some) do count = count + 1 end
+  assert(some[5] == true and count == 1 and past_stale["build.lib"] == true, "an ordinal past the instructions was credited")
+  local unplaced: mut {string:mut {integer:boolean}} = {}
+  local unplaced_stale: mut {string:boolean} = {}
+  local _ = test.decode_hits(row, unplaced, now, unplaced_stale)
+  assert(unplaced["build.lib"] == nil and unplaced_stale["build.lib"] == true, "an ordinal with nothing to place it by was credited")
+end
+
 --- The first progress line of a run that names the longest-running tests
 --- points at where every test's time is; the later ones do not.
 local function test_the_first_longest_running_line_says_where_every_tests_time_is()

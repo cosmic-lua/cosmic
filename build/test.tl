@@ -494,7 +494,10 @@ end
 --- comment that moves a harness module's lines moves no key
 --- ([`test_key.harness`] is of stripped bytecode), so a standing row can
 --- name lines the text has since moved, and [`test.decode_hits`] credits a
---- line only where its text is still this run's.
+--- line only where its text is still this run's. A line past
+--- [`lua_tail.ordinal_base`] is an instruction's ordinal, as the worker of a
+--- pure store's import reported it, which no text moves: the decoding run
+--- places it.
 local function row_line(identities: {string:string}, path: string, lines: {integer}): string
   return path .. " " .. (identities[path] or "-") .. "\t" .. table.concat(lines, ",") .. "\n"
 end
@@ -516,28 +519,56 @@ end
 --- Folds every line `encoded` (a row [`test.take_hits`] wrote) names into
 --- `hits`, but for a module of `identities` whose line names another text,
 --- or none (a row written before rows named their text): its lines would
---- land on the wrong ones of this run's text. Each such module's path goes
---- in `stale`, which makes the run's figure partial. A path that is no
---- module is folded as it stands: the key holds its text. Returns the
---- lines of `encoded` but those of a path `unowned` names, as written.
+--- land on the wrong ones of this run's text. A line past
+--- [`lua_tail.ordinal_base`] is an instruction's ordinal (a pure store's
+--- import), whatever text the row names: the key the row stands under holds
+--- the module's bytecode stripped, so it numbers the instructions of this
+--- run's text alike, and `lines_of` places each at the line this run's text
+--- has it on, as [`test.place_hits`] does. One it cannot place (no `lines_of`,
+--- nil and why, or an ordinal past the instructions) is dropped. Each module
+--- whose lines are dropped goes in `stale`, which makes the run's figure
+--- partial. A path that is no module is folded as it stands: the key holds
+--- its text. Returns the lines of `encoded` but those of a path `unowned`
+--- names, as written.
 function test.decode_hits(encoded: string, hits: Coverage.Hits, identities: {string:string},
-                          stale: mut {string:boolean}, unowned?: Coverage.Hits): string
+                          stale: mut {string:boolean}, unowned?: Coverage.Hits,
+                          lines_of?: function(string): {integer}?, string): string
   local kept: mut {string} = {}
   for head, lines in encoded:gmatch("([^\t\n]+)\t([^\n]*)\n") do
     local path, named = text_of(head)
     local known = identities[path]
     local owned = unowned == nil or unowned[path] == nil
     if owned then kept[#kept + 1] = head .. "\t" .. lines .. "\n" end
-    if owned and known ~= nil and named ~= known then
-      stale[path] = true
-    elseif owned then
-      local per_line = hits[path]
-      if per_line == nil then
-        per_line = {}
-        hits[path] = per_line -- checked: view_written
+    if owned then
+      local credited: mut {integer} = {}
+      local placing: {integer}? = nil
+      local asked = false
+      for digits in lines:gmatch("%d+") do
+        local line = math.tointeger(tonumber(digits)) or 0
+        if known == nil or (line <= lua_tail.ordinal_base and named == known) then
+          credited[#credited + 1] = line
+        elseif line > lua_tail.ordinal_base then
+          if not asked and lines_of ~= nil then
+            asked = true
+            -- Why is no matter here: an ordinal it cannot place is dropped, and the module named stale.
+            local found, _ = lines_of(path)
+            placing = found
+          end
+          local at = if placing ~= nil then placing[line - lua_tail.ordinal_base] else nil end
+          if at ~= nil then credited[#credited + 1] = at else stale[path] = true end
+        else
+          stale[path] = true
+        end
       end
-      for line in lines:gmatch("%d+") do
-        per_line[math.tointeger(tonumber(line)) or 0] = true -- checked: view_written
+      if #credited > 0 then
+        local per_line = hits[path]
+        if per_line == nil then
+          per_line = {}
+          hits[path] = per_line -- checked: view_written
+        end
+        for _, line in ipairs(credited) do
+          per_line[line] = true -- checked: view_written
+        end
       end
     end
   end
@@ -553,10 +584,11 @@ end
 --- which test hit which line. One query per run credited, each naming
 --- only the tests this run actually still owes it, rather than one per
 --- standing verdict. A module whose lines a row numbers in a text other
---- than `identities` names is dropped and named in `stale` ([`test.decode_hits`]).
+--- than `identities` names is dropped and named in `stale`, and an instruction's ordinal placed at its line by
+--- `lines_of` ([`test.decode_hits`]).
 local function credit_hits(handle: Sqlite.Handle, credited: test.Credited,
                            hits: Coverage.Hits, identities: {string:string},
-                           stale: mut {string:boolean}): string
+                           stale: mut {string:boolean}, lines_of: function(string): {integer}?, string): string
   for run_at_ns, tests in pairs(credited) do
     local placeholders: mut {string} = {}
     local args: mut {Sqlite.Value} = { { integer = run_at_ns } }
@@ -571,7 +603,7 @@ local function credit_hits(handle: Sqlite.Handle, credited: test.Credited,
       return trouble
     end
     for _, row in ipairs(rows) do
-      local _ = test.decode_hits(row:text(1), hits, identities, stale)
+      local _ = test.decode_hits(row:text(1), hits, identities, stale, nil, lines_of)
     end
   end
   return ""
@@ -880,6 +912,30 @@ local function stand(rec: Recording, credited: test.Credited, m: Module,
   end
 end
 
+--- The source line of each instruction of the module `path` as this run's projection holds its bytecode
+--- ([`lua_tail.instruction_lines`]), remembered in `rec`; nil and why where it holds none or the chunk is not read.
+local function instruction_lines_of(rec: Recording, path: string): {integer}?, string
+  local known = rec.instruction_lines[path]
+  if known ~= nil then return known, "" end
+  local projection = rec.projection
+  if projection == nil then return nil, "the run has no projection" end
+  local opened, trouble = Sqlite.open(projection)
+  if opened == nil then return nil, projection .. ": " .. trouble end
+  local db: Sqlite.Handle = opened
+  local rows, rows_trouble = Sqlite.rows(db, "SELECT inflate(bytecode) FROM modules WHERE path = ?1", { text(path) })
+  local _, _ = db:close()
+  if rows == nil then return nil, projection .. ": " .. rows_trouble end
+  local row = rows[1]
+  if row == nil then return nil, "no module of the projection" end
+  local lines, why = lua_tail.instruction_lines(row:blob(1), path)
+  if lines == nil then return nil, why end
+  local defines, defines_why = lua_tail.defined_lines(row:blob(1), path)
+  if defines == nil then return nil, defines_why end
+  rec.instruction_lines[path] = lines
+  rec.defined_lines[path] = defines
+  return lines, ""
+end
+
 --- Records one sandboxed test answered from the verdict another
 --- checkout reached under its declared key (`found`, whose lookup says to
 --- share it: [`test_key.lookup`]): as this run's own, with the lines that
@@ -893,7 +949,8 @@ local function share(rec: Recording, m: Module, name: string, id: string,
   rec.tally.cached = rec.tally.cached + 1
   rec.tally.shared = rec.tally.shared + 1
   local hit: Coverage.Hits = {}
-  rec.by_test[id] = test.decode_hits(elsewhere.hits, hit, rec.identities, rec.stale, rec.unowned)
+  rec.by_test[id] = test.decode_hits(elsewhere.hits, hit, rec.identities, rec.stale, rec.unowned,
+    function(path: string): {integer}?, string return instruction_lines_of(rec, path) end)
   merge_hits(rec.hits, hit)
   local kept, keep_trouble = record_run(rec.records, m.path, name, true, "",
     Clock.now_ns(), run_key(key, key), rec.run_at_ns, elsewhere.elapsed_ns)
@@ -927,7 +984,12 @@ end
 --- `hits` but for the modules `unowned` names (the core's), and answers the
 --- test's own `coverage_by_test` row, a [`row_line`] a module, each
 --- naming the text `identities` says it is, and a module the load and the
---- test both hit on a line of each. A worker's
+--- test both hit on a line of each. Where `load_placed` and `test_placed`
+--- are given ([`test.place_hits`]' answers of the two), a module's lines
+--- folded are those placed, and its row is the hits as reported: an
+--- instruction's ordinal is numbered in the stripped bytecode the test's key
+--- holds, so [`test.decode_hits`] places it at the line of the text of the
+--- run that stands on it, where a line it was placed at here could have moved. A worker's
 --- load hits are the same lines in every worker of a module, so each is
 --- folded once and spelled once, whatever the number of tests: the work
 --- of one test is its own few lines. `folded` and `spelled` remember
@@ -937,9 +999,11 @@ function test.take_hits(hits: Coverage.Hits, unowned: Coverage.Hits,
                         folded: mut {{integer:boolean}:boolean}, -- declared: key_type
                         spelled: {{integer:boolean}:string}, -- declared: key_type
                         load_hits: Coverage.Hits, test_hits: Coverage.Hits,
-                        identities: {string:string}): string
+                        identities: {string:string}, load_placed?: Coverage.Hits,
+                        test_placed?: Coverage.Hits): string
   local out: mut {string} = {}
-  for _, taken in ipairs({ load_hits, test_hits }) do
+  for index, taken in ipairs({ load_hits, test_hits }) do
+    local placed = (if index == 1 then load_placed else test_placed end) or taken
     local entries: mut {Keyed<{integer:boolean}>} = {}
     for path, per_line in pairs(taken) do
       if unowned[path] == nil then entries[#entries + 1] = { key = path, value = per_line } end
@@ -947,11 +1011,12 @@ function test.take_hits(hits: Coverage.Hits, unowned: Coverage.Hits,
     table.sort(entries, by_key)
     for _, entry in ipairs(entries) do
       local path, per_line = entry.key, entry.value
-      if not folded[per_line] then
-        folded[per_line] = true
+      local lines = placed[path] or per_line
+      if not folded[lines] then
+        folded[lines] = true
         local into = hits[path] or {}
         hits[path] = into -- checked: view_written
-        for line in pairs(per_line) do into[line] = true end -- checked: view_written
+        for line in pairs(lines) do into[line] = true end -- checked: view_written
       end
       out[#out + 1] = spell(spelled, path, per_line, identities)
     end
@@ -967,9 +1032,9 @@ local placed_kept <const> = 8
 --- ([`lua_tail.numbered`]: an imported module of a pure store), a line past [`lua_tail.ordinal_base`], placed at the
 --- source line `lines_of` says that instruction is on. Placed by this run's text, whose bytecode the store was
 --- numbered from: the store's address holds that bytecode stripped, so a store standing at it numbers the same
---- instructions alike, and the lines placed are this run's text's, which the row [`test.take_hits`] spells of them
---- names. `hits` itself where no line is past the base, and a module's table answered the same placed table while
---- `placed` remembers it, so [`take_hits`] folds and spells a load's lines once. A module whose instructions
+--- instructions alike, and the lines placed are this run's text's, which [`test.take_hits`] folds into the run's
+--- figure; the row it spells keeps the ordinals. `hits` itself where no line is past the base, and a module's table
+--- answered the same placed table while `placed` remembers it, so [`take_hits`] folds a load's lines once. A module whose instructions
 --- `lines_of` cannot place (nil and why), or a line past the instructions it places, is answered without its
 --- numbered lines, never on the wrong ones, and named with why in `unplaced`; then the answer is not `whole`, and
 --- the test's row lacks lines it reached, so the runner keeps no verdict of it. Only a module of the run, a path of
@@ -1023,30 +1088,6 @@ function test.place_hits(hits: Coverage.Hits, modules: {string:string}, lines_of
     if not found.whole then all_placed = false end
   end
   return { hits = out, whole = all_placed }
-end
-
---- The source line of each instruction of the module `path` as this run's projection holds its bytecode
---- ([`lua_tail.instruction_lines`]), remembered in `rec`; nil and why where it holds none or the chunk is not read.
-local function instruction_lines_of(rec: Recording, path: string): {integer}?, string
-  local known = rec.instruction_lines[path]
-  if known ~= nil then return known, "" end
-  local projection = rec.projection
-  if projection == nil then return nil, "the run has no projection" end
-  local opened, trouble = Sqlite.open(projection)
-  if opened == nil then return nil, projection .. ": " .. trouble end
-  local db: Sqlite.Handle = opened
-  local rows, rows_trouble = Sqlite.rows(db, "SELECT inflate(bytecode) FROM modules WHERE path = ?1", { text(path) })
-  local _, _ = db:close()
-  if rows == nil then return nil, projection .. ": " .. rows_trouble end
-  local row = rows[1]
-  if row == nil then return nil, "no module of the projection" end
-  local lines, why = lua_tail.instruction_lines(row:blob(1), path)
-  if lines == nil then return nil, why end
-  local defines, defines_why = lua_tail.defined_lines(row:blob(1), path)
-  if defines == nil then return nil, defines_why end
-  rec.instruction_lines[path] = lines
-  rec.defined_lines[path] = defines
-  return lines, ""
 end
 
 --- The line each function of the module `path` is defined on ([`lua_tail.defined_lines`]), as
@@ -1319,8 +1360,8 @@ local function finish(rec: Recording, job: Job, result: Child.Result?,
     end
     local loaded = test.place_hits(reported.load_hits, rec.identities, lines_of, rec.placed, rec.unplaced)
     local tested = test.place_hits(reported.test_hits, rec.identities, lines_of, rec.placed, rec.unplaced)
-    rec.by_test[id] = test.take_hits(rec.hits, rec.unowned, rec.folded, rec.spelled, loaded.hits, tested.hits,
-      rec.identities)
+    rec.by_test[id] = test.take_hits(rec.hits, rec.unowned, rec.folded, rec.spelled, reported.load_hits,
+      reported.test_hits, rec.identities, loaded.hits, tested.hits)
     -- A row that lacks lines the test reached would credit too few to every run that stands on it, saying
     -- nothing: no verdict of it is kept, so the next run runs it again (and says why, as this one does).
     if not (loaded.whole and tested.whole) then
@@ -2803,7 +2844,8 @@ local function settle(ctx: Run)
   end
   ctx.total = tally.ran + tally.cached + tally.na
 
-  local credit_trouble = credit_hits(records, assert(ctx.credited), hits, rec.identities, rec.stale)
+  local credit_trouble = credit_hits(records, assert(ctx.credited), hits, rec.identities, rec.stale,
+    function(path: string): {integer}?, string return instruction_lines_of(rec, path) end)
   if credit_trouble ~= "" then
     errors[#errors + 1] = "coverage credit: " .. credit_trouble
   end
