@@ -286,8 +286,10 @@ end
 --- Where the native and the portable suite keep the cores a portable cosmic extracts (COSMIC_PORTABLE_CACHE): one
 --- place under `work`, the leg's, the same on every run. A worker is keyed by each variable it is given pinned, this one
 --- by its value (build/test_inputs.tl's `pinned_env`), so a suite given another place or none keys every test apart from
---- the other's and stands on none of its verdicts: the portable suite ran every test the native suite had just run. The
---- cache is content-addressed (build/caches.tl), so sharing it changes no result.
+--- the other's and stands on none of its verdicts. The cache is content-addressed (build/caches.tl), so sharing it
+--- changes no verdict. It does change what the portable suite's start meets: the native tool's launcher has extracted
+--- the same cores there first, so the portable artifact verifies an entry and the portable boundary's read-only run
+--- reads it; a cold extraction is the launcher fixtures' (phase_fixtures).
 function Orchestration.suite_cores(work: string): string
   return work .. "/suite-cores"
 end
@@ -296,6 +298,7 @@ end
 --- the driver's: the same cores cache for both ([`suite_cores`]), and the portable suite's verdict cache, the native
 --- suite's file ([`suite_verdicts`]), so that where `env` names one the two hand their workers the same variables.
 function Orchestration.suite_env(name: string, work: string, env: {string:string}): {string:string}
+  assert(name == "local" or name == "portable", "suite_env: no gating suite " .. name)
   local out: mut {string:string} = { COSMIC_PORTABLE_CACHE = Orchestration.suite_cores(work) }
   if name == "portable" then
     out["COSMIC_VERDICT_CACHE"] = Orchestration.suite_verdicts(env, "portable")
@@ -1340,7 +1343,7 @@ local function phase_darwin_suite(p: PlatformContext): integer
         tostring(trouble) .. "\n")
     return 1
   end
-  local darwin_run = Orchestration.suite_run()
+  local darwin_run = Orchestration.suite_run(Orchestration.suite_env("local", p.work, Env.all()))
   local words = Orchestration.darwin_words(darwin_run.words, Orchestration.darwin_modules(listed))
   if words == nil then return 0 end
   local native = p.local_diagnostics .. "/local-test"
@@ -1716,10 +1719,10 @@ local function phase_portable(p: PlatformContext): integer
   local portable_context: Context = { db = c.db, worker = c.worker, run = c.run,
     attempt = c.attempt, root = fresh, driver = c.driver, phase = c.phase }
   local s = 0
-  -- The suite reruns, under the portable build, the local suite's tests
-  -- whose key holds the artifact they ran under, and stands on the rest
-  -- ([`suite_verdicts`]); the artifact carries the cores the tree's tool
-  -- does (`ProductSetup`);
+  -- The suite reruns the local suite's tests under the portable build,
+  -- or, where it stands on verdicts, those whose key holds the artifact
+  -- they ran under (below); the artifact carries the cores the tree's
+  -- tool does (`ProductSetup`);
   -- each leg's launcher, runtime and identity fixtures still run the
   -- portable product's launcher (phase_fixtures). ci.yml runs it on
   -- every leg of every run but the merge queue's, which runs no

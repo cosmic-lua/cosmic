@@ -1054,6 +1054,11 @@ function declared_key.preimage(digests: declared_key.Digests,
       lines[#lines + 1] = part("up", relative, host(digests, above .. "/" .. relative))
     end
   end
+  -- TODO: key COSMIC_PORTABLE_CACHE by whether it is set, not by the path it names, as build/caches.tl says of every
+  -- cache: a worker is given the runner's value (build/test_inputs.tl's `pinned_env`) and keyed by it here, so runs
+  -- that keep their cores in two places share no verdict (CI's native and portable suites name one place for that
+  -- alone, ci/cosmic_ci/orchestration.tl's `suite_cores`). It waits on a part here for a variable that names a cache,
+  -- as [`held_value`] names a tree path, and on a check that no test's result turns on that path.
   local names: mut {string} = {}
   for name in pairs(spec.environment) do names[#names + 1] = name end
   table.sort(names)
