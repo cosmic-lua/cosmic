@@ -155,8 +155,11 @@ local record docs
     module: string
     --- The first sentence of its documentation; "" when it has none.
     text: string
-    --- Who alone may require it, by the rules [`build.positions`] holds: "private to rules/returns/" for a module of
-    --- a closed directory, "internal to app/" for one an `internal` directory scopes, "" for one any module may.
+    --- Who alone may require it, by the two rules of [`build.positions`] that hold in every project: "private to
+    --- rules/returns/" for a module of a closed directory, "internal to app/" for one an `internal` directory scopes, ""
+    --- for one any module may. The rules of cosmic's own tree alone (`build/` private to the tool, a test and test
+    --- support) are not marked. [`docs.index`] leaves it "": only the list `cosmic docs` prints judges it
+    --- ([`marked`]).
     closed: string
   end
 
@@ -1950,54 +1953,11 @@ local function first_sentence(documented: string): string
   return paragraph
 end
 
---- Who alone may require each of `modules` that `db` holds, as [`docs.Summary`]'s `closed` says it, by module; a
---- module any module may require is absent. A module at `cosmic/internal/` is always the standard library's (a project
---- may not define `cosmic.*`), so it is judged as cosmic's own tree judges it. Nil and why when `db` cannot be read.
-local function closed_in(db: Sqlite.Handle, modules: {string}): {string: string}?, string
-  local rows, trouble = Sqlite.text_rows(db, "SELECT path, file FROM modules", {})
-  if rows == nil then
-    return nil, trouble
-  end
-  local files: mut {string} = {}
-  local file_of: mut {string: string} = {}
-  for _, row in ipairs(rows) do
-    files[#files + 1] = row:text(2)
-    file_of[row:text(1)] = row:text(2)
-  end
-  local entries = positions.entries(files)
-  local out: mut {string: string} = {}
-  local failed = ""
-  for _, module in ipairs(modules) do
-    local file = file_of[module]
-    if file ~= nil then
-      -- Only a module of a closed directory is asked, so the index inflates few sources.
-      local reach = positions.reach(file, entries, function(): boolean
-        local sources, source_trouble = Sqlite.text_rows(db,
-          "SELECT CAST(inflate(source) AS TEXT) FROM modules WHERE path = ?1 AND length(source) > 0",
-          { text(module) })
-        if sources == nil then
-          failed = source_trouble
-          return true
-        end
-        return #sources > 0 and AnalysisSchema.declares_public(sources[1]:text(1))
-      end, true)
-      if reach ~= nil then
-        local rule = if reach.internal then "internal to " else "private to " end
-        out[module] = rule .. reach.within .. "/"
-      end
-    end
-  end
-  if failed ~= "" then
-    return nil, failed
-  end
-  return out, ""
-end
-
 --- Every module `view` holds, by name, with the first sentence of its
---- documentation ("" for one it does not document) and who alone may
---- require it, where not every module may -- no test or
+--- documentation ("" for one it does not document) -- no test or
 --- example, which a reader never calls: what `cosmic docs` lists when
---- asked nothing.
+--- asked nothing. Each `closed` is "": the list `cosmic docs` prints
+--- judges it ([`marked`]), which no other reader of the index pays for.
 function docs.index(view: docs.View): {docs.Summary}?, string
   local found, trouble = across(view, modules_of, entry_module)
   if found == nil then
@@ -2009,25 +1969,13 @@ function docs.index(view: docs.View): {docs.Summary}?, string
       said[entry.module] = first_sentence(entry.text)
     end
   end
-  local listed_in: mut {integer: mut {string}} = {}
+  local out: mut {docs.Summary} = {}
   for module, owner in pairs(view.owners) do
     local listed = module:sub(-5) ~= "_test" and module:sub(-8) ~= "_example" and
       (view.public[owner] ~= true or symbols.is_public_module(module) or
         symbols.is_public_guide(module))
     if listed then
-      local those = listed_in[owner] or {}
-      those[#those + 1] = module
-      listed_in[owner] = those
-    end
-  end
-  local out: mut {docs.Summary} = {}
-  for owner, modules in pairs(listed_in) do
-    local closed, closed_trouble = closed_in(database_of(view, owner), modules)
-    if closed == nil then
-      return nil, closed_trouble
-    end
-    for _, module in ipairs(modules) do
-      out[#out + 1] = { module = module, text = said[module] or "", closed = closed[module] or "" }
+      out[#out + 1] = { module = module, text = said[module] or "", closed = "" }
     end
   end
   table.sort(out, function(a: docs.Summary, b: docs.Summary): boolean
@@ -3038,14 +2986,72 @@ function docs.asked(words: {string}): {string}?
   return words
 end
 
+--- Who alone may require each module of the tree `db` holds, as [`docs.Summary`]'s `closed` says it, by module: a
+--- module of the `module` kind only, since a guide, a test or a program is required by none, and absent for one any
+--- module may require. A module at `cosmic/internal/` is always the standard library's (a project may not define
+--- `cosmic.*`), so it is judged as cosmic's own tree judges it. A mark is a hint, not the build's refusal: one that
+--- cannot be judged, the database or the module's source not being read, is left off.
+local function closed_in(db: Sqlite.Handle): {string: string}
+  local out: mut {string: string} = {}
+  local rows, _ = Sqlite.text_rows(db, "SELECT path, file, kind FROM modules", {})
+  if rows == nil then
+    return out
+  end
+  local files: mut {string} = {}
+  for _, row in ipairs(rows) do files[#files + 1] = row:text(2) end
+  local entries = positions.entries(files)
+  for _, row in ipairs(rows) do
+    local module, file = row:text(1), row:text(2)
+    if row:text(3) == "module" then
+      -- Only a module of a closed directory is asked, so few sources are inflated; one that cannot be read counts as
+      -- open, which leaves its mark off.
+      local reach = positions.reach(file, entries, function(): boolean
+        local sources, _ = Sqlite.text_rows(db,
+          "SELECT CAST(inflate(source) AS TEXT) FROM modules WHERE path = ?1 AND length(source) > 0",
+          { text(module) })
+        return sources == nil or (#sources > 0 and AnalysisSchema.declares_public(sources[1]:text(1)))
+      end, true)
+      if reach ~= nil then
+        local rule = if reach.internal then "internal to " else "private to " end
+        out[module] = rule .. reach.within .. "/"
+      end
+    end
+  end
+  return out
+end
+
+--- `index` with each `closed` judged ([`closed_in`]), for a module of a database of the tree's own only: a public
+--- source's module (the standard library a project builds with) is no module of the tree, and the rule refuses no
+--- require of it.
+local function marked(view: docs.View, index: {docs.Summary}): {docs.Summary}
+  local by_owner: mut {integer: {string: string}} = {}
+  local out: mut {docs.Summary} = {}
+  for _, summary in ipairs(index) do
+    local owner = view.owners[summary.module]
+    local closed = ""
+    if owner ~= nil and view.public[owner] ~= true then
+      local marks = by_owner[owner]
+      if marks == nil then
+        marks = closed_in(database_of(view, owner))
+        by_owner[owner] = marks
+      end
+      closed = marks[summary.module] or ""
+    end
+    out[#out + 1] = { module = summary.module, text = summary.text, closed = closed }
+  end
+  return out
+end
+
 --- The modules `cosmic docs <words...>` lists when [`docs.asked`] names no
 --- query: every module for no words, the standard library's modules and
---- guides for `cosmic`. Nil and why when a database cannot be read.
+--- guides for `cosmic`. Nil and why when a database cannot be read; a mark that cannot be judged
+--- is left off ([`closed_in`]).
 local function modules_asked(view: docs.View, words: {string}): {docs.Summary}?, string
-  local index, trouble = docs.index(view)
-  if index == nil then
+  local all, trouble = docs.index(view)
+  if all == nil then
     return nil, trouble
   end
+  local index = marked(view, all)
   if table.concat(words, " ") == "" then
     return index, ""
   end

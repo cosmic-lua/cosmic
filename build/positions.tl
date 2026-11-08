@@ -108,7 +108,8 @@ end
 --- of the directory around it, so it is the one path into a closed
 --- directory from outside; a nested directory without one has no path
 --- in at all. A module whose opening doc block holds the line `--- @public`
---- ([`build.analysis_schema`]'s `public_tag`) is open to every importer, wherever it sits.
+--- ([`build.analysis_schema`]'s `public_tag`) is open to every importer, wherever it sits outside an `internal`
+--- directory: the line opens a closed directory's module, never an internal one.
 ---
 --- **An `internal` directory.** A module whose path has an `internal` directory component, `X/internal/...`, may be
 --- required only by modules under `X/` (the project's root for a top-level `internal/`), as Go has it. It stands in
@@ -162,10 +163,10 @@ end
 
 --- Who may require the module of `file` by the two rules of [`positions.check`] that hold in every project: nil when
 --- every importer may, else the directory a module must sit under to require it. `entries` are the tree's, as
---- [`positions.entries`] gives them; `public` says whether the module says `--- @public`, asked only of a module of a closed
---- directory, since reading its source costs; `own` whether the tree is
---- cosmic's own, whose `cosmic/internal/` is internal to the root. The rules of cosmic's own tree alone (`build/`, a
---- test and test support) are not this one's.
+--- [`positions.entries`] gives them. `public` says whether the module says `--- @public`, and is asked only of a module
+--- of a closed directory, since reading its source costs. `own` is whether the tree is cosmic's own, whose
+--- `cosmic/internal/` is internal to the root. The rules of cosmic's own tree alone (`build/`, a test and test support)
+--- are not this one's.
 function positions.reach(file: string, entries: {string: string}, public: function(): boolean,
                          own: boolean): positions.Reach?
   local internal = internal_scope(file)
@@ -175,7 +176,9 @@ function positions.reach(file: string, entries: {string: string}, public: functi
     -- TODO: move `cosmic/internal/` to `internal/` at the root and delete this exception, which the Go rule
     -- as it stands then gives for nothing. It waits on the name `internal` being free of the projects that
     -- have a module of that name, since the library's would take it (`cosmic.internal.*` becomes
-    -- `internal.*`), and on the reserved `cosmic.internal.` namespace moving with it.
+    -- `internal.*`), and on the reserved `cosmic.internal.` namespace moving with it. [`build.docs`]'s `closed_in`
+    -- leans on the same exception (it passes `own` as true, a `cosmic/internal/` module being always the library's):
+    -- delete its comment with it.
     if internal.parent == "" or (own and internal.through == "cosmic/internal") then
       return nil
     end

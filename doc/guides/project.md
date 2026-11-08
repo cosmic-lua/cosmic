@@ -490,9 +490,10 @@ and the refusal names the entry to require instead; `cosmic docs`
 marks such a module `(private to store/)` beside its first sentence.
 A member meant for every module says so with the line `--- @public`
 in the comment that opens it, which the docs leave out. This adds
-such a module, `report.tl`, then opens `store/query.tl` to it.
-`cosmic docs cosmic.layout` has the whole rule, an `internal/`
-directory's included.
+`report.tl`, a module outside the package that requires
+`store.query`, then opens `store/query.tl` to it.
+`cosmic docs cosmic.layout.require` has the whole rule, an
+`internal/` directory's included.
 
 ```teal
 local Child = require("cosmic.child")

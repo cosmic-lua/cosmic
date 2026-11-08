@@ -704,43 +704,66 @@ local function test_the_index_lists_every_module_by_its_first_sentence(dir: stri
       public[2].module == "cosmic.hash", tostring(#public))
 end
 
---- The index marks a module no file outside its directory may require, by the rule a build refuses such a require by
---- ([`build.positions`]): the member of a package beside its `init.tl`, and one an `internal` directory scopes. A
---- package's entry, a flat module, a member of a top-level namespace and one that says `--- @public` are not marked.
+--- The index marks a module of the tree no file outside its directory may require, by the rule a build refuses such a
+--- require by ([`build.positions`]): the member of a package beside its `init.tl`, a package nested in a closed one,
+--- and one an `internal` directory scopes. A package's entry, a flat module, a member of a top-level namespace, one that
+--- says `--- @public`, a guide (which nothing requires) and a module of a public source (the standard library a project
+--- builds with, whose modules it may require wherever they sit) are not marked.
 local function test_the_index_marks_a_module_private_to_its_package(dir: string)
   local db = built(dir, {
     ["rules/returns/init.tl"] = source("--- Returns.", "local record R", "end", "return R"),
     ["rules/returns/paths.tl"] = source("--- Paths.", "local record P", "end", "return P"),
     ["rules/returns/open.tl"] = source("--- Open.", "--- @public", "local record O", "end", "return O"),
     ["rules/returns/bare.tl"] = source("local x = 1", "return x"),
+    ["rules/returns/deep/init.tl"] = source("--- Deep.", "local record D", "end", "return D"),
+    ["rules/returns/deep/leaf.tl"] = source("--- Leaf.", "local record E", "end", "return E"),
     ["returns_paths.tl"] = source("--- Flat.", "local record F", "end", "return F"),
     ["lib/part.tl"] = source("--- A part.", "local record L", "end", "return L"),
     ["app/internal/store.tl"] = source("--- A store.", "local record S", "end", "return S"),
+    ["doc/guides/notes.md"] = "# notes\n\nA guide.\n",
   })
-  local lines = assert(docs.answer(view({ db }), {})).lines
-  local shown = table.concat(lines, "\n", 1, #lines - 2)
-  assert(shown == table.concat({
-    "app.internal.store   (internal to app/) A store.",
-    "lib.part             A part.",
-    "returns_paths        Flat.",
-    "rules.returns        Returns.",
-    "rules.returns.bare   (private to rules/returns/)",
-    "rules.returns.open   Open.",
+  local library = built(dir, {
+    ["cosmic/web/init.tl"] = source("--- The web.", "local record W", "end", "return W"),
+    ["cosmic/web/secret.tl"] = source("--- Secrets.", "local record S", "end", "return S"),
+  })
+  local both = assert(docs.view({ db, library }, { false, true }))
+  local lines = assert(docs.answer(both, {})).lines
+  local shown: mut {string} = {}
+  for _, line in ipairs(lines) do
+    local module = line:match("^(%S+)")
+    if module ~= nil and module ~= "`cosmic" then shown[#shown + 1] = (line:gsub("  +", "  ")) end
+  end
+  local all = table.concat(shown, "\n")
+  assert(all == table.concat({
+    "app.internal.store  (internal to app/) A store.",
+    "cosmic.web  The web.",
+    "cosmic.web.secret  Secrets.",
+    "doc.guides.notes  A guide.",
+    "lib.part  A part.",
+    "returns_paths  Flat.",
+    "rules.returns  Returns.",
+    "rules.returns.bare  (private to rules/returns/)",
+    "rules.returns.deep  (private to rules/returns/) Deep.",
+    "rules.returns.deep.leaf  (private to rules/returns/deep/) Leaf.",
+    "rules.returns.open  Open.",
     "rules.returns.paths  (private to rules/returns/) Paths.",
-  }, "\n"), shown)
-  local records = assert(docs.records(view({ db }), {})).lines
+  }, "\n"), all)
+  local records = assert(docs.records(both, {})).lines
   local marked = 0
   for _, line in ipairs(records) do
     local object = assert(Json.decode_object(line))
     if object["module"] == "rules.returns.paths" then
       assert(object["closed"] == "private to rules/returns/", line)
       marked = marked + 1
-    elseif object["module"] == "rules.returns" then
+    elseif object["module"] == "rules.returns" or object["module"] == "cosmic.web.secret" then
       assert(object["closed"] == nil, line)
       marked = marked + 1
     end
   end
-  assert(marked == 2, tostring(marked))
+  assert(marked == 3, tostring(marked))
+  for _, summary in ipairs((assert(docs.index(both)))) do
+    assert(summary.closed == "", "the index itself judges no mark: " .. summary.module)
+  end
 end
 
 --- A module's listing leaves out the functions its returned value never
