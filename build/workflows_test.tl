@@ -1479,7 +1479,7 @@ end
 --- where the change reaches its tests, the pinned driver, and probes the
 --- sandbox: everything past that (assemble,
 --- the regressions, the portable suite, the attestation and the product,
---- the credential proofs, the declared-types tests) is main's, and so are
+--- the credential proofs) is main's, and so are
 --- the checked and narrowing jobs, which the queue skips.
 local function test_the_merge_queue_runs_the_native_suite_and_the_format_check_alone()
   local jobs = ci_workflow().jobs

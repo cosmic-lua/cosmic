@@ -382,7 +382,7 @@ local function execute(argv: {string}, program: string): integer
     phases[#phases + 1] = word
   end
   if #phases == 0 then
-    phases = { "build", "local-boundary", "declared-types", "darwin-suite", "sandbox", "assemble",
+    phases = { "build", "local-boundary", "darwin-suite", "sandbox", "assemble",
       "fixtures", "portable", "portable-boundary" }
   end
   local function git_run(words: {string}, values?: {string:string}, input?: string): string

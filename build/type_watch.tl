@@ -9,9 +9,10 @@
 -- meets violations of parameters alone (rows of kind "parameter", which `during` already reads), and the tests that ask
 -- `during` would pass having checked a part of what they are about. `__fact` ([`lang.fact_wraps`]) carries narrowed reads
 -- only, not the declared kind of a value crossing a boundary. The same change makes tests that run in a checked run and
--- no plain one, and so possibly enter a C function none of the legs' whole runs do: CI's checked narrowing runs
--- (`checked-narrowing` in ci.yml) are shares of the suite and make no check of that, so it must then make a whole run
--- somewhere, a job of its own or the declared-types step as a run of the whole suite.
+-- no plain one, and so possibly enter a C function none of the legs' whole runs do: CI's checked narrowing run
+-- (`checked-narrowing` in ci.yml) makes no check of that, so it must then make one. It is then also the one run that
+-- asks the declared-types tests (`*declared_types_test.tl`), so it must fail where one of them skips for want of a
+-- checked run, the check ci/cosmic_ci/orchestration.tl's `unchecked_skips` made (`git log -S unchecked_skips`).
 local Test = require("cosmic.test")
 local Globals = require("cosmic.internal.globals")
 local worker = require("build.test_worker")
