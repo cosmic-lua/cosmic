@@ -576,7 +576,7 @@ function test.decode_hits(encoded: string, hits: Coverage.Hits, identities: {str
               unplaced = "instruction " .. tostring(line - lua_tail.ordinal_base) .. " is past the module's " ..
                 tostring(#placing)
             elseif placing ~= nil then
-              unplaced = "line " .. tostring(line) .. " numbers no instruction"
+              unplaced = "line " .. tostring(line) .. " is not an instruction's number"
             end
             stale[path] = "were not placed at its lines: " .. unplaced
           end
