@@ -572,9 +572,11 @@ function test.decode_hits(encoded: string, hits: Coverage.Hits, identities: {str
           if at ~= nil then
             credited[#credited + 1] = at
           else
-            if placing ~= nil then
-              unplaced = "line " .. tostring(line) .. " is past the module's " ..
-                plural.count(#placing, "instruction")
+            if placing ~= nil and line > lua_tail.ordinal_base then
+              unplaced = "instruction " .. tostring(line - lua_tail.ordinal_base) .. " is past the module's " ..
+                tostring(#placing)
+            elseif placing ~= nil then
+              unplaced = "line " .. tostring(line) .. " numbers no instruction"
             end
             stale[path] = "were not placed at its lines: " .. unplaced
           end
@@ -1119,8 +1121,8 @@ function test.place_hits(hits: Coverage.Hits, modules: {string:string}, lines_of
         else
           whole = false
           if unplaced[path] == nil then
-            unplaced[path] = if lines == nil then why else "line " .. tostring(line) ..
-                " is past the module's " .. plural.count(#lines, "instruction") end
+            unplaced[path] = if lines == nil then why else "instruction " ..
+                tostring(line - lua_tail.ordinal_base) .. " is past the module's " .. tostring(#lines) end
           end
         end
       end

@@ -230,7 +230,7 @@ end
 --- A module whose standing hits were dropped for another reason than another text (an instruction its row numbers
 --- that the run cannot place) is named with why, and not said to have come from other text.
 local function test_a_partial_figure_names_a_module_dropped_for_another_reason()
-  local why = "were not placed at its lines: line 16777220 is past the module's 3 instructions"
+  local why = "were not placed at its lines: instruction 4 is past the module's 3"
   local stale = { ["a.m"] = test_report.other_text, ["b.m"] = why }
   local line = test_report.coverage(1, 4, {}, stale)
   assert(line == "test: coverage 25.0% (1/4 lines; partial: hits of 2 modules are left out (1 came from runs on " ..
@@ -238,6 +238,12 @@ local function test_a_partial_figure_names_a_module_dropped_for_another_reason()
   local short = test_report.floor(1, 4, { { path = "b.m", hit = 1, lines = 4 } }, { min_file = 50.0 }, stale)
   assert(table.concat(short.lines, "\n") == "test: FAIL  coverage: b.m 25.0% (1/4 lines; partial: its hits " .. why ..
       "; `--all` reruns them) is under --min-file 50%", table.concat(short.lines, "\n"))
+  -- A mass of them names the first few, by path, and counts the rest.
+  local many: mut {string:string} = {}
+  for _, path in ipairs({ "e.m", "d.m", "c.m", "b.m", "f.m" }) do many[path] = why end
+  local capped = test_report.coverage(1, 4, {}, many)
+  assert(capped == "test: coverage 25.0% (1/4 lines; partial: hits of 5 modules are left out (the hits of b.m " ..
+      why .. "; the hits of c.m " .. why .. "; the hits of d.m " .. why .. "; and 2 more); `--all` reruns them)", capped)
 end
 
 --- A decimal floor a file meets exactly holds, though `64.4 * 250` rounds above 16100 in floating point.

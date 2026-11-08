@@ -280,10 +280,14 @@ local function modules_left_out(stale: {string:string}): integer
   return count
 end
 
+--- How many modules dropped for another reason than another text [`partial_note`] names.
+local named_kept <const> = 3
+
 --- What the coverage line and a floor's failure say of a figure missing the
 --- hits of the modules `stale` names, after a "; ": how many, and of each
 --- dropped for another reason than [`test_report.other_text`], which and why.
 local function partial_note(stale: {string:string}): string
+  -- A few named are enough to start on; a mass of them would make one enormous coverage line.
   local partial = modules_left_out(stale)
   local others: mut {string} = {}
   for path, why in pairs(stale) do
@@ -298,7 +302,11 @@ local function partial_note(stale: {string:string}): string
   if #others < partial then
     parts[1] = tostring(partial - #others) .. " " .. test_report.other_text
   end
-  for _, path in ipairs(others) do
+  for index, path in ipairs(others) do
+    if index > named_kept then
+      parts[#parts + 1] = "and " .. tostring(#others - named_kept) .. " more"
+      break
+    end
     parts[#parts + 1] = "the hits of " .. path .. " " .. assert(stale[path], "a listed path is in stale")
   end
   return "partial: hits of " .. plural.count(partial, "module") .. " are left out (" ..

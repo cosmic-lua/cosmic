@@ -155,8 +155,8 @@ local function test_a_pure_stores_instruction_ordinals_are_placed_at_this_runs_l
   local said = test.unplaced_errors(unplaced)
   assert(#said == 2 and said[1] == "coverage: the hits of build.gone are not placed at its lines: no module of " ..
       "the projection; no verdict of a test that reached them is kept", table.concat(said, "\n"))
-  assert(said[2]:find("^coverage: the hits of build%.lib are not placed at its lines: line %d+ is past " ..
-      "the module's 3 instructions") ~= nil, table.concat(said, "\n"))
+  assert(said[2] == "coverage: the hits of build.lib are not placed at its lines: instruction 4 is past the " ..
+      "module's 3; no verdict of a test that reached them is kept", table.concat(said, "\n"))
   assert(#test.unplaced_errors({}) == 0)
   -- A chunk the test numbers itself is no module of the run, and its lines are kept as no module's are.
   local own: {string:{integer:boolean}} = { ["m"] = { [base + 1] = true } }
@@ -292,8 +292,8 @@ local function test_a_standing_rows_ordinals_are_placed_at_the_lines_of_this_run
   local count = 0
   for _ in pairs(some) do count = count + 1 end
   assert(some[5] == true and count == 1, "an ordinal past the instructions was credited")
-  assert(past_stale["build.lib"] == "were not placed at its lines: line " .. tostring(base + 4) ..
-      " is past the module's 3 instructions", past_stale["build.lib"])
+  assert(past_stale["build.lib"] == "were not placed at its lines: instruction 4 is past the module's 3",
+    past_stale["build.lib"])
   local gone: mut {string:mut {integer:boolean}} = {}
   local gone_stale: mut {string:string} = {}
   local _ = test.decode_hits(row, gone, now, gone_stale, nil, function(_: string): {integer}?, string

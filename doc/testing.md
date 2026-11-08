@@ -866,8 +866,8 @@ Its row keeps the instructions' numbers, not those lines, named by the
 module's bytecode stripped and not by its text: a comment above them later
 lets the verdict stand, since the key holds that bytecode, and a run that
 stands on the row places each number at the line its own text has that
-instruction on, which is exact while the verdict stands. One it cannot place
-drops the module's lines, and the figure says it is partial and why. A tool
+instruction on, which is exact while the verdict stands. The numbers it cannot
+place are dropped, and the figure says it is partial and why. A tool
 that reads a row's numbers as lines alone, older than these rows, finds the
 row names another text than the module's and drops it the same way, so it
 never credits an instruction's number as a line.
