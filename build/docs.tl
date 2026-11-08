@@ -19,12 +19,14 @@ local Removed = require("cosmic.removed")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local String = require("cosmic.string")
+local AnalysisSchema = require("build.analysis_schema")
 local alias_members = require("build.alias_members")
 local clock = require("build.clock")
 local GrammarMode = require("build.grammar_mode")
 local link_text = require("build.link_text")
 local narrow = require("build.narrow")
 local plural = require("build.plural")
+local positions = require("build.positions")
 local reboot = require("build.reboot")
 local symbol_index = require("build.symbol_index")
 local symbols = require("build.symbols")
@@ -153,6 +155,9 @@ local record docs
     module: string
     --- The first sentence of its documentation; "" when it has none.
     text: string
+    --- Who alone may require it, by the rules [`build.positions`] holds: "private to rules/returns/" for a module of
+    --- a closed directory, "internal to app/" for one an `internal` directory scopes, "" for one any module may.
+    closed: string
   end
 
   --- One row of `uses`, or of `links` (`link`): a link names the
@@ -1945,8 +1950,52 @@ local function first_sentence(documented: string): string
   return paragraph
 end
 
+--- Who alone may require each of `modules` that `db` holds, as [`docs.Summary`]'s `closed` says it, by module; a
+--- module any module may require is absent. A module at `cosmic/internal/` is always the standard library's (a project
+--- may not define `cosmic.*`), so it is judged as cosmic's own tree judges it. Nil and why when `db` cannot be read.
+local function closed_in(db: Sqlite.Handle, modules: {string}): {string: string}?, string
+  local rows, trouble = Sqlite.text_rows(db, "SELECT path, file FROM modules", {})
+  if rows == nil then
+    return nil, trouble
+  end
+  local files: mut {string} = {}
+  local file_of: mut {string: string} = {}
+  for _, row in ipairs(rows) do
+    files[#files + 1] = row:text(2)
+    file_of[row:text(1)] = row:text(2)
+  end
+  local entries = positions.entries(files)
+  local out: mut {string: string} = {}
+  local failed = ""
+  for _, module in ipairs(modules) do
+    local file = file_of[module]
+    if file ~= nil then
+      -- Only a module of a closed directory is asked, so the index inflates few sources.
+      local reach = positions.reach(file, entries, function(): boolean
+        local sources, source_trouble = Sqlite.text_rows(db,
+          "SELECT CAST(inflate(source) AS TEXT) FROM modules WHERE path = ?1 AND length(source) > 0",
+          { text(module) })
+        if sources == nil then
+          failed = source_trouble
+          return true
+        end
+        return #sources > 0 and AnalysisSchema.declares_public(sources[1]:text(1))
+      end, true)
+      if reach ~= nil then
+        local rule = if reach.internal then "internal to " else "private to " end
+        out[module] = rule .. reach.within .. "/"
+      end
+    end
+  end
+  if failed ~= "" then
+    return nil, failed
+  end
+  return out, ""
+end
+
 --- Every module `view` holds, by name, with the first sentence of its
---- documentation ("" for one it does not document) -- no test or
+--- documentation ("" for one it does not document) and who alone may
+--- require it, where not every module may -- no test or
 --- example, which a reader never calls: what `cosmic docs` lists when
 --- asked nothing.
 function docs.index(view: docs.View): {docs.Summary}?, string
@@ -1960,13 +2009,25 @@ function docs.index(view: docs.View): {docs.Summary}?, string
       said[entry.module] = first_sentence(entry.text)
     end
   end
-  local out: mut {docs.Summary} = {}
+  local listed_in: mut {integer: mut {string}} = {}
   for module, owner in pairs(view.owners) do
     local listed = module:sub(-5) ~= "_test" and module:sub(-8) ~= "_example" and
       (view.public[owner] ~= true or symbols.is_public_module(module) or
         symbols.is_public_guide(module))
     if listed then
-      out[#out + 1] = { module = module, text = said[module] or "" }
+      local those = listed_in[owner] or {}
+      those[#those + 1] = module
+      listed_in[owner] = those
+    end
+  end
+  local out: mut {docs.Summary} = {}
+  for owner, modules in pairs(listed_in) do
+    local closed, closed_trouble = closed_in(database_of(view, owner), modules)
+    if closed == nil then
+      return nil, closed_trouble
+    end
+    for _, module in ipairs(modules) do
+      out[#out + 1] = { module = module, text = said[module] or "", closed = closed[module] or "" }
     end
   end
   table.sort(out, function(a: docs.Summary, b: docs.Summary): boolean
@@ -2945,9 +3006,12 @@ local function index_lines(index: {docs.Summary}, limit?: integer): mut {string}
   local lines: mut {string} = {}
   for _, summary in ipairs(index) do
     local line = summary.module
-    if summary.text ~= "" then
-      line = line .. string.rep(" ", width - #line + 2) ..
-        (if limit ~= nil then clipped(summary.text, limit) else summary.text end)
+    local about = if limit ~= nil then clipped(summary.text, limit) else summary.text end
+    if summary.closed ~= "" then
+      about = "(" .. summary.closed .. ")" .. (if about ~= "" then " " .. about else "" end)
+    end
+    if about ~= "" then
+      line = line .. string.rep(" ", width - #line + 2) .. about
     end
     lines[#lines + 1] = line
   end
@@ -3079,7 +3143,8 @@ end
 ---   (the command `cosmic <query>`, which the page points to) on the last
 ---   module entry of a query that names one;
 --- - no words, or `cosmic`, name no query: each module the page lists, as
----   `kind` "module", with its `text` the first sentence.
+---   `kind` "module", with its `text` the first sentence, and `closed`
+---   ([`docs.Summary`]) where not every module may require it.
 --- A query that finds nothing has no line. Each object carries `stale`, true,
 --- where `stale` is set: the lookup answers from the last build, the tree not
 --- building as it stands. Nil and why when a database
@@ -3099,6 +3164,7 @@ function docs.records(view: docs.View, words: {string}, stale?: boolean): docs.A
         query = table.concat(words, " "), exact = false, module = summary.module,
         symbol = "", kind = "module", signature = "", text = summary.text,
       }
+      if summary.closed ~= "" then object["closed"] = summary.closed end
       if stale == true then object["stale"] = true end
       local line, encode_trouble = Json.encode(object)
       if line == nil then

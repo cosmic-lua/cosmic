@@ -704,6 +704,45 @@ local function test_the_index_lists_every_module_by_its_first_sentence(dir: stri
       public[2].module == "cosmic.hash", tostring(#public))
 end
 
+--- The index marks a module no file outside its directory may require, by the rule a build refuses such a require by
+--- ([`build.positions`]): the member of a package beside its `init.tl`, and one an `internal` directory scopes. A
+--- package's entry, a flat module, a member of a top-level namespace and one that says `--- @public` are not marked.
+local function test_the_index_marks_a_module_private_to_its_package(dir: string)
+  local db = built(dir, {
+    ["rules/returns/init.tl"] = source("--- Returns.", "local record R", "end", "return R"),
+    ["rules/returns/paths.tl"] = source("--- Paths.", "local record P", "end", "return P"),
+    ["rules/returns/open.tl"] = source("--- Open.", "--- @public", "local record O", "end", "return O"),
+    ["rules/returns/bare.tl"] = source("local x = 1", "return x"),
+    ["returns_paths.tl"] = source("--- Flat.", "local record F", "end", "return F"),
+    ["lib/part.tl"] = source("--- A part.", "local record L", "end", "return L"),
+    ["app/internal/store.tl"] = source("--- A store.", "local record S", "end", "return S"),
+  })
+  local lines = assert(docs.answer(view({ db }), {})).lines
+  local shown = table.concat(lines, "\n", 1, #lines - 2)
+  assert(shown == table.concat({
+    "app.internal.store   (internal to app/) A store.",
+    "lib.part             A part.",
+    "returns_paths        Flat.",
+    "rules.returns        Returns.",
+    "rules.returns.bare   (private to rules/returns/)",
+    "rules.returns.open   Open.",
+    "rules.returns.paths  (private to rules/returns/) Paths.",
+  }, "\n"), shown)
+  local records = assert(docs.records(view({ db }), {})).lines
+  local marked = 0
+  for _, line in ipairs(records) do
+    local object = assert(Json.decode_object(line))
+    if object["module"] == "rules.returns.paths" then
+      assert(object["closed"] == "private to rules/returns/", line)
+      marked = marked + 1
+    elseif object["module"] == "rules.returns" then
+      assert(object["closed"] == nil, line)
+      marked = marked + 1
+    end
+  end
+  assert(marked == 2, tostring(marked))
+end
+
 --- A module's listing leaves out the functions its returned value never
 --- reaches, and the `local` types no signature of it names, but keeps the
 --- types its signatures use; a private function is still found by its

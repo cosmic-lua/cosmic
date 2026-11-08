@@ -28,6 +28,16 @@ local record positions
     --- What [`positions.check`] says of it, beginning with the module's file.
     message: string
   end
+
+  --- Who may require a module, as [`positions.reach`] gives it when not every importer may.
+  record Reach
+    --- The directory a module must sit under to require it, with no `/` at its end.
+    within: string
+    --- Whether an `internal` directory scopes it (to `within`, the parent of that directory), and not a closed one.
+    internal: boolean
+    --- The `internal` directory itself, for an internal module, as `a/internal`; "" for a closed one.
+    through: string
+  end
 end
 
 --- The file's own name, with no directory in front of it.
@@ -138,6 +148,46 @@ function positions.check(modules: {positions.Module}, standing: tree.Standing,
   return false, table.concat(lines, "\n")
 end
 
+--- Each directory that holds an `init.tl` (or an `init.tmpl`) among `files`, the files of a tree's modules, with that
+--- entry's file: what [`positions.reach`] takes to tell a closed directory from a namespace.
+function positions.entries(files: {string}): {string: string}
+  local entries: mut {string: string} = {}
+  for _, file in ipairs(files) do
+    if basename(file) == "init.tl" or basename(file) == "init.tmpl" then
+      entries[dirname(file)] = file
+    end
+  end
+  return entries
+end
+
+--- Who may require the module of `file` by the two rules of [`positions.check`] that hold in every project: nil when
+--- every importer may, else the directory a module must sit under to require it. `entries` are the tree's, as
+--- [`positions.entries`] gives them; `public` says whether the module says `--- @public`, asked only of a module of a closed
+--- directory, since reading its source costs; `own` whether the tree is
+--- cosmic's own, whose `cosmic/internal/` is internal to the root. The rules of cosmic's own tree alone (`build/`, a
+--- test and test support) are not this one's.
+function positions.reach(file: string, entries: {string: string}, public: function(): boolean,
+                         own: boolean): positions.Reach?
+  local internal = internal_scope(file)
+  if internal ~= nil then
+    -- cosmic's own tree: the library's `cosmic/internal/` is internal to the root, not to `cosmic/`.
+    --
+    -- TODO: move `cosmic/internal/` to `internal/` at the root and delete this exception, which the Go rule
+    -- as it stands then gives for nothing. It waits on the name `internal` being free of the projects that
+    -- have a module of that name, since the library's would take it (`cosmic.internal.*` becomes
+    -- `internal.*`), and on the reserved `cosmic.internal.` namespace moving with it.
+    if internal.parent == "" or (own and internal.through == "cosmic/internal") then
+      return nil
+    end
+    return { within = internal.parent, internal = true, through = internal.through }
+  end
+  local home = home_of(file)
+  if home == "" or (not home:find("/", 1, true) and entries[home] == nil) or public() then
+    return nil
+  end
+  return { within = home, internal = false, through = "" }
+end
+
 --- Every breach [`positions.check`] would name, one per `require` that breaks a rule, in module order and then
 --- in the order of the requires: what a caller that refuses the modules rather than the tree reads. `modules`,
 --- `standing` and `carried` are as `check` takes them.
@@ -145,13 +195,12 @@ function positions.violations(modules: {positions.Module}, standing: tree.Standi
                               carried?: function(name: string): boolean): {positions.Violation}
   local found: mut {positions.Violation} = {}
   local by_path: mut {string:positions.Module} = {}
-  local entries: mut {string:string} = {}
+  local files: mut {string} = {}
   for _, m in ipairs(modules) do
     by_path[m.path] = m
-    if basename(m.file) == "init.tl" or basename(m.file) == "init.tmpl" then
-      entries[dirname(m.file)] = m.file
-    end
+    files[#files + 1] = m.file
   end
+  local entries = positions.entries(files)
   --- The breach of `m` requiring `name`, or nil.
   local function judge(m: positions.Module, name: string): string?
     local other = by_path[name]
@@ -161,33 +210,20 @@ function positions.violations(modules: {positions.Module}, standing: tree.Standi
         "`cosmic.internal.*` is the standard library's, and a project may not require it"
     end
     if other ~= nil then
-      local internal = internal_scope(other.file)
-      if internal ~= nil then
-        local scope, through = internal.parent, internal.through
-        -- cosmic's own tree: the library's `cosmic/internal/` is internal to the root, not to `cosmic/`.
-        --
-        -- TODO: move `cosmic/internal/` to `internal/` at the root and delete this exception, which the Go rule
-        -- as it stands then gives for nothing. It waits on the name `internal` being free of the projects that
-        -- have a module of that name, since the library's would take it (`cosmic.internal.*` becomes
-        -- `internal.*`), and on the reserved `cosmic.internal.` namespace moving with it.
-        local library = standing.own and through == "cosmic/internal"
-        if library then scope = "" end
-        if scope ~= "" and not Fs.within(m.file, scope) then
-          return m.file .. ": " .. name .. " is internal to " .. scope .. "/ (it sits in " .. through ..
-            "/); only a module under " .. scope .. "/ may require it: move " .. m.file .. " under " .. scope ..
-            "/, or " .. other.file .. " out of internal/"
+      local reach = positions.reach(other.file, entries, function(): boolean
+        return AnalysisSchema.declares_public(other.source)
+      end, standing.own)
+      if reach ~= nil and not Fs.within(m.file, reach.within) then
+        if reach.internal then
+          return m.file .. ": " .. name .. " is internal to " .. reach.within .. "/ (it sits in " .. reach.through ..
+            "/); only a module under " .. reach.within .. "/ may require it: move " .. m.file .. " under " ..
+            reach.within .. "/, or " .. other.file .. " out of internal/"
         end
-      else
-        local home = home_of(other.file)
-        local open = home == "" or (not home:find("/", 1, true) and entries[home] == nil) or
-          AnalysisSchema.declares_public(other.source)
-        if not open and not Fs.within(m.file, home) then
-          local home_entry = entries[home]
-          local entry = if home_entry ~= nil then ("its entry is " .. home_entry) else
-            (home .. "/ has no init.tl entry") end
-          return m.file .. ": " .. name .. " is private to " .. home ..
-            "/; only a file inside it may import it (" .. entry .. "), or the module can say `--- @public`"
-        end
+        local home_entry = entries[reach.within]
+        local entry = if home_entry ~= nil then ("its entry is " .. home_entry) else
+          (reach.within .. "/ has no init.tl entry") end
+        return m.file .. ": " .. name .. " is private to " .. reach.within ..
+          "/; only a file inside it may import it (" .. entry .. "), or the module can say `--- @public`"
       end
       if standing.own and Fs.within(other.file, "build") and not may_import_build(m) then
         return m.file .. ": " .. name .. " is private to build/ in cosmic's own tree; " ..

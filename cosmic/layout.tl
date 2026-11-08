@@ -40,8 +40,16 @@ local record Layout
   --- `store/sql/query.tl` is for files inside `store/sql/` alone), a
   --- top-level directory that has an `init.tl` is closed the same way,
   --- and a nested directory with no `init.tl` cannot be reached from
-  --- outside at all. The build refuses a require that breaks this.
-  --- `cosmic.*` is the standard library's, never a project's
+  --- outside at all. A module that holds the line `--- @public` in the
+  --- comment that opens it is open to every module wherever it sits;
+  --- the docs leave the line out. A module under an `internal/`
+  --- directory (`app/internal/db.tl`) may be required only from under
+  --- that directory's parent (`app/`), as in Go, in the closed rule's
+  --- place. The build refuses a require that breaks this, and `cosmic
+  --- docs` marks such a module "(private to store/sql/)" in its list.
+  --- Split a module that grows into such a package rather than into
+  --- flat files of one prefix: doc/guides/project.md ("a package")
+  --- shows one. `cosmic.*` is the standard library's, never a project's
   require: string
   --- a guide: a Markdown file directly under doc/guides/ (not in a
   --- directory below it) is a test of its own. Each block tagged `teal`
