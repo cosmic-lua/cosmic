@@ -1886,11 +1886,11 @@ local function phase_fixtures(p: PlatformContext): integer
   local source = work .. "/fixture-source"
   local s = fixture_source(p, source)
   if s ~= 0 then return s end
-  -- What the self-rebuild regression finds -- a rename, an unlink or a
-  -- lock gone wrong under a running tool -- shows on glibc Linux and on
-  -- macOS's file system, so a gating run runs it on those two legs, and
-  -- the others set COSMIC_CI_SELF_REBUILD=skip; the scheduled run keeps
-  -- it on every leg (ci.yml).
+  -- The self-rebuild regression -- a rename, an unlink or a lock gone
+  -- wrong under a running tool -- runs on every leg: no leg of ci.yml
+  -- sets COSMIC_CI_SELF_REBUILD=skip (orchestration_test's
+  -- test_every_leg_runs_the_portable_suite_and_the_self_rebuild_fixture);
+  -- a run by hand (ci/run-local) may, to skip it.
   if Env.get("COSMIC_CI_SELF_REBUILD") == "skip" then
     local _, _ = Fs.put(Fs.stderr, "fixture: self-rebuild-regression: skipped on this leg " ..
         "(COSMIC_CI_SELF_REBUILD=skip)\n")
