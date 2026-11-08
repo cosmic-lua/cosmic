@@ -345,7 +345,7 @@ local function test_a_nested_type_named_outside_its_record_is_told_its_qualified
   local hidden = one_error("local function g(): integer\n  local record Tree\n    record Node\n      v: integer\n    end\n" ..
       "  end\n  return 1\nend\nlocal function f(n: Node): integer\n  return n.v + g()\nend\nreturn f")
   assert(hidden.msg == "the type `Node` is not declared", hidden.msg)
-  -- A use after the record, though in a signature, reaches it; one in a local annotation before it does not.
+  -- A signature reaches a record declared after it; a local annotation before the record does not.
   local later = one_error("local function f(n: Node): integer\n  return n.v\nend\nlocal record Tree\n  record Node\n" ..
       "    v: integer\n  end\nend\nreturn { f, Tree }")
   assert(later.fix == "write `Tree.Node`, or alias it above with `local type Node = Tree.Node`", later.fix)
@@ -356,6 +356,20 @@ local function test_a_nested_type_named_outside_its_record_is_told_its_qualified
       "    b: integer\n  end\nend\nlocal function f(n: Node): integer\n  return n.b\nend\nreturn { A, B, f }")
   assert(two.msg == "the type `Node` is not in scope here: it is nested in `A` (2:10) and `B` (7:10)", two.msg)
   assert(two.fix == "write `A.Node` or `B.Node`, or alias the one meant above with `local type Node = A.Node`", two.fix)
+  -- A signature and a record's field in the function that declares the record reach it.
+  local same = one_error("local function g(): integer\n  local record Tree\n    record Node\n      v: integer\n    end\n" ..
+      "  end\n  local function h(n: Node): integer\n    return n.v\n  end\n  return h({ v = 1 })\nend\nreturn g")
+  assert(same.fix == "write `Tree.Node`, or alias it above with `local type Node = Tree.Node`", same.fix)
+  local field = one_error("local function g(): integer\n  local record Tree\n    record Node\n      v: integer\n    end\n" ..
+      "  end\n  local record Other\n    n: Node\n  end\n  local o: Other = { n = { v = 1 } }\n  return o.n.v\nend\nreturn g")
+  assert(field.fix == "write `Tree.Node`, or alias it above with `local type Node = Tree.Node`", field.fix)
+  -- A local that shadows the record's name where the type is used takes the hint away.
+  local shadowing = "local record Tree\n  record Node\n    v: integer\n  end\nend\nlocal function g(): integer\n" ..
+    "  local Tree = 5\n  local function h(n: Node): integer\n    return n.v + Tree\n  end\n  return h({ v = 1 })\nend\n" ..
+    "return { g, Tree }"
+  assert(errors(shadowing) == "shadows 7:9; unknown_type 8:23", errors(shadowing))
+  local shadowed = assert(scope(shadowing).scoped.errors[2])
+  assert(shadowed.msg == "the type `Node` is not declared", shadowed.msg)
   -- Inside the record, the nested name stays in scope.
   assert(errors("local record Tree\n  record Node\n    kids: {Node}\n  end\n  root: Node\nend\nreturn Tree") == "")
 end

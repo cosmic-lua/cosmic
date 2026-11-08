@@ -264,7 +264,7 @@ local record Unknown
   --- The nearest name there is, and the place of its declaration, "" where it is a declared global.
   guess: string
   guess_at: Scopes.Place?
-  --- For a type, the nested types of its name whose qualified name reaches them from the use.
+  --- For a type, the nested types of its name whose outermost declaration is the binding of that name the use sees.
   nested?: {Nested}
 end
 
@@ -283,6 +283,9 @@ local record Pending
   name: string
   --- The innermost scope that has not ended where it may be declared.
   depth: integer
+  --- The nested types of its name settled so far, by the scopes that ended around it, and those of them it reaches.
+  settled: mut {Nested: boolean}
+  reached: mut {Nested}
 end
 
 local record State
@@ -819,17 +822,31 @@ local function type_use(t: Ast.TypeName, v: Scopes.Var)
   end
 end
 
--- The type name `t` that nothing declares.
-local function unknown_type(t: Ast.TypeName, head: string)
-  local guess, at = nearest(head, true)
-  -- A nested type is offered by its qualified name only where the outermost declaration is visible.
-  local reached: mut {Nested} = {}
-  for _, n in ipairs(S.nested_types[head] or {}) do
-    if lookup(n.outer.name) == n.outer then
-      reached[#reached + 1] = n
+-- Settles which nested types named `name` a use reaches by their qualified names, as far as the scopes now open
+-- say: a nested type is reached where the innermost binding of its outermost declaration's name is that declaration.
+-- One whose name nothing binds yet waits for a scope around, which a deferred use (a signature, a record's field)
+-- also sees declared after it; one bound to anything else (a local that shadows it) is not reached.
+local function settle_nested(name: string, settled: mut {Nested: boolean}, reached: mut {Nested})
+  for _, n in ipairs(S.nested_types[name] or {}) do
+    local bound = if settled[n] == true then nil else lookup(n.outer.name) end
+    if bound ~= nil then
+      settled[n] = true
+      if bound == n.outer then
+        reached[#reached + 1] = n
+      end
     end
   end
-  S.unknown[#S.unknown + 1] = { token = t.first, name = head, what = "type", guess = guess, guess_at = at, nested = reached }
+end
+
+-- The type name `t` that nothing declares; `reached` holds the nested types of its name the use reaches, for a use
+-- that waited for its scopes to end, and the scopes open now settle them for one that did not.
+local function unknown_type(t: Ast.TypeName, head: string, reached?: mut {Nested})
+  local guess, at = nearest(head, true)
+  local nested: mut {Nested} = reached or {}
+  if reached == nil then
+    settle_nested(head, {}, nested)
+  end
+  S.unknown[#S.unknown + 1] = { token = t.first, name = head, what = "type", guess = guess, guess_at = at, nested = nested }
 end
 
 -- Looks for the pending type names that the scope at `depth`, which ends, declares; what it does not
@@ -853,11 +870,14 @@ resolve_pending = function(depth: integer)
     local v = lookup(p.name)
     if v ~= nil then
       type_use(p.node, v)
-    elseif depth > 1 then
-      p.depth = depth - 1 -- checked: field_fixed
-      pending[#pending + 1] = p
     else
-      unknown_type(p.node, p.name)
+      settle_nested(p.name, p.settled, p.reached)
+      if depth > 1 then
+        p.depth = depth - 1 -- checked: field_fixed
+        pending[#pending + 1] = p
+      else
+        unknown_type(p.node, p.name, p.reached)
+      end
     end
   end
 end
@@ -881,7 +901,7 @@ local function use_type(t: Ast.TypeName)
   if declared ~= nil and (declared.space ~= "value" or #path > 1) then
     add_global(S.globals, head, t.id) -- checked: view_as_mut
   elseif S.defer then
-    table.insert(S.pending, { node = t, name = head, depth = math.min(#S.marks, S.floor) })
+    table.insert(S.pending, { node = t, name = head, depth = math.min(#S.marks, S.floor), settled = {}, reached = {} })
   else
     unknown_type(t, head)
   end

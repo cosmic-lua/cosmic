@@ -2744,8 +2744,9 @@ local function condition_kind(ctx: Ctx, node: Ast.Node, t: Type, default?: Ast.B
     fix = "a type parameter may be nil or false: test it with `" .. text_of(ctx, node) .. " ~= nil` where it is bounded"
   elseif default ~= nil then
     local place = peel(node).kind
-    -- `or` cuts a call to its first value, so deleting it could return or pass the values after it. `...` is always
-    -- optional and never reaches here.
+    -- `or` cuts a call to its first value. Where the call would then end a list of values (a return, the arguments of
+    -- a call, a table), deleting the `or` passes on the values after it, so the fix keeps the cut for a call that may
+    -- answer more. `...` is always optional and never reaches here.
     local cut = if ctx.spare[base_of(node).id] == true then "replace `" ..
         text_of(ctx, default) .. "` with `(" .. text_of(ctx, node) .. ")`, which keeps only the first value, as `or` did" else
       "delete `or ...`" end
