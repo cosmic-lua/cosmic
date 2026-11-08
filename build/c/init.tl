@@ -22,12 +22,13 @@
 --- runs from and what it compiles, plus the system's paths:
 ---
 --- - the scripts and pins that name the one zig [`bin/zig`] runs;
---- - the bootstrap cosmic that runs build/zig.tl, and the cores its
----   launcher runs it on;
+--- - the bootstrap cosmic that runs build/zig.tl;
 --- - that zig's own install, its library unpatched: a confined bin/zig
 ---   is not given patch/zig-lib/, whose records touch only `zig build`;
 --- - the include directories and each file's own;
---- - a directory of the check's own for caches and dependency files.
+--- - a directory of the check's own for caches (the cores the bootstrap
+---   cosmic's launcher extracts among them, [`c.own_caches`]) and
+---   dependency files.
 ---
 --- In a test's sandboxed worker, the sandbox every process it starts
 --- inherits holds the compiler, as the test's [`Test.policy`] declares. In
@@ -46,7 +47,6 @@ local Fs = require("cosmic.fs")
 local Poll = require("cosmic.poll")
 local String = require("cosmic.string")
 local gen_syscalls = require("build.gen_syscalls")
-local caches = require("build.caches")
 local confine = require("build.confine")
 local layout = require("build.c.layout")
 local link_files = require("build.link_files")
@@ -211,8 +211,8 @@ end
 
 --- What a compiler runs from, where [`bin/zig`] finds it by the pins: the
 --- pinned zig's install, and the bootstrap cosmic [`bin/cosmic-bootstrap`] runs
---- build/zig.tl on, with the cores its launcher extracts, each where
---- `variables` locates it. Answers the directory that zig is installed
+--- build/zig.tl on, each where `variables` locates it; the cores its launcher
+--- extracts are the check's own ([`c.own_caches`]). Answers the directory that zig is installed
 --- in and what outside the tree the compiler runs from, or nil when an
 --- override names a zig or a bootstrap cosmic the pins do not.
 ---
@@ -248,25 +248,37 @@ local function toolchain(root: string, variables: {string:string}):
   if install == nil then return nil, {} end
   local runs_from: mut {string} = { install.path }
   -- The bootstrap cosmic, cached by the digest the pin's third line
-  -- names (bin/cosmic-bootstrap), and where its launcher finds its core.
+  -- names (bin/cosmic-bootstrap).
+  -- TODO: say why where the bootstrap cosmic is not cached yet (a cleared
+  -- cache, a new pin), rather than confine a compiler that cannot run:
+  -- bin/cosmic-bootstrap would fetch it, which a confined compiler, given
+  -- the cache to read and no network, cannot, so every check fails with
+  -- that fetch's error. bin/cosmic runs bin/cosmic-bootstrap first under
+  -- the same cache, so only a run that bypasses it meets this. It waits
+  -- on c.check fetching the pin's cosmic unconfined before it confines.
   local digest = (pin or ""):match("^[^\n]*\n[^\n]*\n(%x+)")
   local bootstrap, _ = Fs.cache_dir("bootstrap", { environment = variables, make = false })
   if digest ~= nil and bootstrap ~= nil then
     runs_from[#runs_from + 1] = bootstrap .. "/cosmic-" .. digest
   end
-  -- TODO: give the compiler cores of its own to extract the bootstrap
-  -- cosmic's into (COSMIC_PORTABLE_CACHE under `deps`, as its zig
-  -- caches are), as a sandboxed worker is given (build/test_sandbox.tl's
-  -- `own_cores`), rather than the host's cores directory to read: given
-  -- only to read, that directory fails every check confined in an
-  -- unsandboxed worker where it holds no core for the bootstrap cosmic
-  -- yet (a fresh COSMIC_PORTABLE_CACHE, a cleared cache, a new pin; its
-  -- launcher "cannot create core staging entry"), and a core another
-  -- program extracted there is read in its place. Extracting one per
-  -- check costs a copy and a hash of the core each time.
-  local cores = caches.cores(variables)
-  if cores ~= nil then runs_from[#runs_from + 1] = cores end
   return install.path, runs_from
+end
+
+--- `env`, a compiler's environment, with every cache it writes in `deps`, the check's own directory, which its
+--- confinement lets it write. zig's: `-E` keeps nothing a later compile finds there, and a cache shared with every build
+--- is no path to give a confined compiler. And the cores the bootstrap cosmic's launcher extracts (COSMIC_PORTABLE_CACHE),
+--- as a sandboxed worker is given cores of its own (build/test_sandbox.tl's `own_cores`): the host's, which a compiler
+--- confined in an unsandboxed worker could only read, fail every such check where they hold no core for the bootstrap
+--- cosmic yet (a fresh or cleared cache, a new pin: the launcher cannot create its staging entry), and a core another
+--- program extracted there would be run in its place. A check that compiles extracts the core afresh, a copy and a hash
+--- of it; one the memo answers starts no launcher.
+function c.own_caches(env: {string:string}, deps: string): {string:string}
+  local out: mut {string:string} = {}
+  for name, value in pairs(env) do out[name] = value end
+  out["COSMIC_ZIG_CACHE"] = deps .. "/zig-project"
+  out["COSMIC_ZIG_GLOBAL_CACHE"] = deps .. "/zig-global"
+  out["COSMIC_PORTABLE_CACHE"] = deps .. "/cores"
+  return out
 end
 
 --- Every C file under `dir`, `.c` and `.h`, relative to it and sorted:
@@ -512,11 +524,7 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer, s
     return outcomes
   end
   local deps: string = made_deps
-  -- zig's caches are the check's own: `-E` keeps nothing a later
-  -- compile finds there, and a cache shared with every build is no path
-  -- to give a confined compiler.
-  env.COSMIC_ZIG_CACHE = deps .. "/zig-project" -- checked: map_field
-  env.COSMIC_ZIG_GLOBAL_CACHE = deps .. "/zig-global" -- checked: map_field
+  env = c.own_caches(env, deps)
   local function absolute(path: string): string
     return if path:sub(1, 1) == "/" then path else cwd .. "/" .. path end
   end

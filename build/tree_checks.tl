@@ -101,6 +101,8 @@ end
 --- uses them, by `<module>.<member>`, and why each is kept.
 local allowed: mut {string: string} = {}
 
+allowed["build.c.own_caches"] = "the environment c.check gives a confined compiler, with every cache it writes in " ..
+  "the check's own directory, which a test holds to the cores among them: the host's fail a check where they are cold"
 allowed["build.dataset.read"] = "the reader load_text composes and falls back on, tested directly " ..
   "over each format's text, and with load the reference load_text's fuzz property is held to"
 
@@ -1176,6 +1178,8 @@ end
 local launcher_allowed: mut {string: string} = {}
 launcher_allowed["build.caches_test"] = "names COSMIC_PORTABLE_CACHE as a key of the " ..
   "environment it hands a pure function of the cache variables"
+launcher_allowed["build.c.rules_test"] = "names COSMIC_PORTABLE_CACHE in the environment it hands " ..
+  "c.own_caches, a pure function, and reads none from its own process"
 launcher_allowed["build.declared_key_test"] = "names COSMIC_PORTABLE_CACHE as a variable of the " ..
   "environment a spec it keys holds, and reads none from its own process"
 launcher_allowed["build.launcher_test"] = "renders the launcher's text with build.launcher and runs " ..
