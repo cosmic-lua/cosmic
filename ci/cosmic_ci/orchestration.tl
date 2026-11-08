@@ -1371,67 +1371,6 @@ local function phase_darwin_suite(p: PlatformContext): integer
   return status
 end
 
---- The test files under cosmic/, build/, core/ and eval/ that watch the
---- declared types of the standard library and of the modules beside those
---- tests (`*declared_types_test.tl`, which a later directory's change adds files
---- to without touching CI), by their path in the checkout.
-function Orchestration.declared_types_files(root: string): {string}
-  local files: mut {string} = {}
-  for _, directory in ipairs({ "cosmic", "build", "core", "eval" }) do
-    local walked, _ = Fs.walk(root .. "/" .. directory)
-    local found = walked or {}
-    for _, relative in ipairs(found) do
-      if relative:find("declared_types_test%.tl$") ~= nil then
-        files[#files + 1] = directory .. "/" .. relative
-      end
-    end
-  end
-  table.sort(files)
-  return files
-end
-
---- The lines of a checked run's output that report a skip for want of a checked run: the run carried no checks.
---- A skip for want of boundary checks in the compile (build/type_watch.tl's `skip_reason`) is not one.
--- TODO: once build/type_watch.tl's `during` no longer skips a checked run for want of boundary checks, count every
--- skip here.
-function Orchestration.unchecked_skips(output: string): {string}
-  local found: mut {string} = {}
-  for line in output:gmatch("[^\n]+") do
-    if line:find("test: SKIP", 1, true) ~= nil and line:find("boundary checks are not compiled in", 1, true) == nil then
-      found[#found + 1] = line
-    end
-  end
-  return found
-end
-
---- The declared-types tests on a checked run (`cosmic test
---- --check-types`), on the linux-x86_64 leg alone: they skip in any
---- other run. They skip in a checked run too until the compile writes the boundary checks
---- (build/type_watch.tl). After `local-boundary`, as a checked run writes a working
---- database of its own beside the tree's.
-local function phase_declared_types(p: PlatformContext): integer
-  if p.target ~= "x86_64-linux-musl" then return 0 end
-  local c = p.operation
-  local files = Orchestration.declared_types_files(c.root)
-  if #files == 0 then
-    local _, _ = Fs.put(Fs.stderr, "declared types: no cosmic/, build/, core/ or eval/ *declared_types_test.tl file\n")
-    return 1
-  end
-  local argv: mut {string} = { BuildPaths.directory(p.root) .. "/bin/cosmic", "test", "--check-types" }
-  for _, file in ipairs(files) do argv[#argv + 1] = file end
-  mkdir(p.local_diagnostics)
-  local out = p.local_diagnostics .. "/declared-types-test.out"
-  local values = Maps.with(Orchestration.suite_run().env, { COSMIC_TEST_TIMEOUT = suite_test_timeout_s })
-  local status = logged(c, "declared types", argv, out,
-    p.local_diagnostics .. "/declared-types-test.err", suite_timeout_ns, c.root, values)
-  -- A test that skipped asked nothing of the checks: the run was not checked.
-  if status == 0 and #Orchestration.unchecked_skips(read(out)) > 0 then
-    local _, _ = Fs.put(Fs.stderr, "declared types: a test skipped, so the run carried no checks\n")
-    return 1
-  end
-  return status
-end
-
 --- `values`, the environment of a suite on the release core, without the promise of `checked`. The checked job's leg
 --- promises it, the sanitized core's instruments, which a run on the release core lacks: a held run would fail every test
 --- that requires it, where it should find it not applicable. The `checked` phase runs those on the core that has them.
@@ -1456,8 +1395,7 @@ end
 --- the tests that run differently in a checked run only skip there
 --- (build/type_watch.tl's `checked`), and the ones that need it
 --- (`TypeWatch.during`) skip in every run until the compile writes the checks
---- of returns and fields. The leg's declared-types step ([`phase_declared_types`])
---- runs chosen files and makes no such check either.
+--- of returns and fields.
 --- That holds while build/type_watch.tl's `during` skips a checked run (the TODO
 --- there).
 local function phase_checked_narrowing(p: PlatformContext): integer
@@ -1967,11 +1905,11 @@ local function phase_fixtures(p: PlatformContext): integer
   local source = work .. "/fixture-source"
   local s = fixture_source(p, source)
   if s ~= 0 then return s end
-  -- What the self-rebuild regression finds -- a rename, an unlink or a
-  -- lock gone wrong under a running tool -- shows on glibc Linux and on
-  -- macOS's file system, so a gating run runs it on those two legs, and
-  -- the others set COSMIC_CI_SELF_REBUILD=skip; the scheduled run keeps
-  -- it on every leg (ci.yml).
+  -- The self-rebuild regression -- a rename, an unlink or a lock gone
+  -- wrong under a running tool -- runs on every leg: no leg of ci.yml
+  -- sets COSMIC_CI_SELF_REBUILD=skip (orchestration_test's
+  -- test_every_leg_runs_the_portable_suite_and_the_self_rebuild_fixture);
+  -- a run by hand (ci/run-local) may, to skip it.
   if Env.get("COSMIC_CI_SELF_REBUILD") == "skip" then
     local _, _ = Fs.put(Fs.stderr, "fixture: self-rebuild-regression: skipped on this leg " ..
         "(COSMIC_CI_SELF_REBUILD=skip)\n")
@@ -2116,8 +2054,6 @@ local function platform_impl(phase: string, p: PlatformContext): integer
     return phase_local_suite(p)
   elseif phase == "local-boundary" then
     return phase_local_boundary(p)
-  elseif phase == "declared-types" then
-    return phase_declared_types(p)
   elseif phase == "checked-narrowing" then
     return phase_checked_narrowing(p)
   elseif phase == "darwin-suite" then

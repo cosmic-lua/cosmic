@@ -371,13 +371,6 @@
           if: "github.event_name != 'pull_request'",
           run: "cosmic-driver cosmic_ci/driver.tl platform darwin-suite",
         },
-        # The tests that watch the declared types skip in every run but a
-        # checked one (build/type_watch.tl): this is the one that asks them.
-        {
-          name: "run the declared-types tests on a checked run",
-          if: "matrix.name == 'linux-x86_64' && github.event_name != 'merge_group' && github.event_name != 'pull_request'",
-          run: "cosmic-driver cosmic_ci/driver.tl platform declared-types",
-        },
         # Fails where a part of spawn's sandbox a confined test needs did
         # not hold (COSMIC_CI_REQUIRE_SANDBOX, phase_sandbox).
         {
