@@ -62,7 +62,9 @@ local record harness_epoch
   --- Every token `epoch` held before its current one, oldest first.
   mut retired: {string}
   --- The standard-library modules the harness's modules may reach, each
-  --- by why it must.
+  --- by why it must. An edit to one moves every key, so a module whose use
+  --- is a line or two is written out where the harness uses it instead
+  --- (cosmic.string's prefix tests and plurals).
   mut library: {string:string}
 end
 
@@ -101,11 +103,6 @@ harness_epoch.library = {
   -- and it reach no cosmic.sqlite.
   ["cosmic.sqlite"] = "the key's code digests the rows it reads of the store, and " ..
     "shared verdicts are stored and looked up under exact keys through it",
-  ["cosmic.string"] = "text a key or verdict holds is split, tested or counted through " ..
-    "it: the launcher's template (`build.launcher`), the runtime identity " ..
-    "(`build.test_key`), sandbox paths (`build.test_sandbox`), the artifact's SQLite " ..
-    "header (`build.artifact`) and " ..
-    "plurals (`build.plural`)",
   ["cosmic.test"] = "a test's declaration (`Test.policy`), which the worker judges, and " ..
     "the runner's hook into it",
 }

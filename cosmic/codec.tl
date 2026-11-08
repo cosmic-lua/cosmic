@@ -18,9 +18,20 @@
 ---     local text = Codec.base64("hello")      -- "aGVsbG8="
 ---     local bytes = assert(Codec.unbase64(text))
 
-local String = require("cosmic.string")
-
 local record Codec
+end
+
+--- The byte at `index` of `text`, raising where there is none, as
+--- [`cosmic.string.byte_at`] does. Written here rather than required:
+--- the test harness reaches this module (through [`cosmic.hash`]), and an
+--- edit to a module it reaches moves every verdict's key
+--- (build/harness_epoch.tl's `library`).
+local function byte_at(text: string, index: integer): integer
+  local byte = if index >= 1 then text:byte(index) else nil end
+  if byte == nil then
+    error(("codec: byte %d is outside the text of %d bytes"):format(index, #text), 2)
+  end
+  return byte
 end
 
 --- What a failure of this module answers, nil and `why` under the
@@ -68,7 +79,7 @@ function Codec.unhex(s: string): string?, string
   end
   local at = s:find("[^0-9a-fA-F]")
   if at ~= nil then
-    return refuse(("byte 0x%02x at %d is not a hex digit"):format(String.byte_at(s, at), at))
+    return refuse(("byte 0x%02x at %d is not a hex digit"):format(byte_at(s, at), at))
   end
   return (s:gsub("..", byte_of_hex)), ""
 end
@@ -88,7 +99,7 @@ local function alphabet(chars: string, class: string): Alphabet
   local a: Alphabet = { char = {}, pair = {}, value = {}, class = class }
   for i = 1, 64 do
     a.char[i - 1] = chars:sub(i, i)
-    a.value[String.byte_at(chars, i)] = i - 1
+    a.value[byte_at(chars, i)] = i - 1
   end
   for v = 0, 4095 do
     local high = assert(a.char[v >> 6], "char holds every index 0 to 63")
@@ -120,12 +131,12 @@ local function encode(a: Alphabet, s: string, pad: boolean): string
   end
   local left = n - whole
   if left == 1 then
-    local v = String.byte_at(s, n) << 4
+    local v = byte_at(s, n) << 4
     local first = assert(pair[v])
     out[#out + 1] = first
     if pad then out[#out + 1] = "==" end
   elseif left == 2 then
-    local v = (String.byte_at(s, n - 1) << 10) | (String.byte_at(s, n) << 2)
+    local v = (byte_at(s, n - 1) << 10) | (byte_at(s, n) << 2)
     local first, second = assert(pair[v >> 6]), assert(a.char[v & 63])
     out[#out + 1] = first
     out[#out + 1] = second
@@ -183,7 +194,7 @@ local function decode(a: Alphabet, s: string, padded: boolean, name: string): st
     if s:byte(at) == 61 then
       return refuse(("%s text has misplaced '=' padding at %d"):format(name, at))
     end
-    return refuse(("byte 0x%02x at %d is outside the %s alphabet"):format(String.byte_at(s, at), at, name))
+    return refuse(("byte 0x%02x at %d is outside the %s alphabet"):format(byte_at(s, at), at, name))
   end
   local value = a.value
   local out: mut {string} = {}

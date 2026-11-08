@@ -5,8 +5,6 @@
 --- projection. `render` substitutes the generated target arms into it,
 --- and, for a test build, the portable test hook and its call sites.
 
-local String = require("cosmic.string")
-
 local record launcher
 end
 
@@ -567,7 +565,7 @@ end
 --- the `#!` interpreter line and stays.
 local function without_comments(text: string): string
   local kept: mut {string} = {}
-  for line in String.lines(text) do
+  for line in (text .. "\n"):gmatch("([^\n]*)\n") do
     if #kept == 0 or not line:match("^%s*#") then kept[#kept + 1] = line end
   end
   return table.concat(kept, "\n")
