@@ -267,6 +267,28 @@ local function test_a_missing_database_and_bad_sql_fail()
   assert(Fs.remove_tree(root))
 end
 
+--- A statement opening with `.` is the sqlite3 shell's command, which SQLite refuses as a syntax error: the refusal names
+--- the query that lists the tables, and, for the build directory's databases, `cosmic db`.
+local function test_a_shell_dot_command_is_answered_with_the_query_that_lists_the_tables()
+  local root = support.sql_project()
+  local code, written = run(root, { " .tables" })
+  assert(code == 1 and #written.out == 0, table.concat(written.out, "|"))
+  local said = support.nth(written.err, 1)
+  assert(said:find("syntax error", 1, true) ~= nil, said)
+  assert(said:find("`SELECT name FROM sqlite_schema WHERE type='table'` names the tables, and `cosmic db` says what each holds",
+    1, true) ~= nil, said)
+  local listed, listed_written = run(root, { "SELECT name FROM sqlite_schema WHERE type='table' AND name = 't'" })
+  assert(listed == 0 and table.concat(listed_written.out, "|") == "name|t", table.concat(listed_written.out, "|"))
+  -- a file has no `cosmic db`; a syntax error of any other statement gets no hint
+  code, written = run(root, { "--from", "-", "--as", "csv", ".schema" }, "a\n1\n")
+  said = support.nth(written.err, 1)
+  assert(code == 1 and said:find("names the tables", 1, true) ~= nil and said:find("cosmic db", 1, true) == nil, said)
+  code, written = run(root, { "SELEC 1" })
+  said = support.nth(written.err, 1)
+  assert(code == 1 and said:find("sqlite3 shell", 1, true) == nil, said)
+  assert(Fs.remove_tree(root))
+end
+
 --- `--build` reads a working database of another schema, another
 --- tool's, as it is, and says once that it does: every other verb reads
 --- none of one ([`build.work.tell_other_schema`]).
@@ -736,7 +758,8 @@ local function test_to_refuses_what_it_cannot_write()
     assert(written.summary == "", written.summary)
   end
   local code, written = run(dir, { "--from", "-", "--as", "csv", "--to", "xml", "SELECT 1" }, "a\n1\n")
-  assert(code == 2 and support.nth(written.err, 1):find("--to writes csv or ndjson, not xml", 1, true) ~= nil, written.err[1])
+  assert(code == 2 and support.nth(written.err, 1):find("--to writes csv or ndjson, not xml; without it the rows are TSV; ", 1, true) ~= nil,
+    written.err[1])
   code, written = run(dir, { "--from", "-", "--as", "csv", "--to", "csv" }, "a\n1\n")
   assert(code == 2 and support.nth(written.err, 1):find("--to writes a statement's rows", 1, true) ~= nil, written.err[1])
   local root = support.sql_project()

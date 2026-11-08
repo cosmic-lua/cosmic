@@ -144,7 +144,9 @@ end
 --- where `root` is not one to build ([`where`]) and `start` is not
 --- set, saying so on stderr when it looks like a project no build has
 --- been made of. Answers false and why when the build fails, which the
---- caller may say and go on from the last build. Only a build with
+--- caller may say and go on from the last build; where the tree refused it,
+--- [`rebuild.refused`] names the files after, and a lookup's why is a phrase
+--- naming the first. Only a build with
 --- `start` waits for another run that holds the working database: a
 --- lookup's does nothing where one does, which builds the same tree, but
 --- say so once ([`work.tell_busy`]), and answers true, the caller reading
@@ -220,8 +222,8 @@ local function project(root: string, verb: string, start: boolean, carried?: str
     if #own > 0 then
       named = own[1] .. (if #own > 1 then " and " .. tostring(#own - 1) .. " more" else "" end)
     end
-    return false, root .. " does not build (" .. named .. " refused; `cosmic test` shows why); " ..
-      "answering from its last build by this tool, or from cosmic's own docs where it has none"
+    -- Short, for a lookup puts it in its summary ([`build.docs`]'s `stale_note`).
+    return false, "the tree does not build: " .. named .. " refused; `cosmic test` shows why"
   end
   -- A lookup's build leaves the projection as it is where another run
   -- holds the rebuild lock, rather than wait for it ([`writer.write_result`]).

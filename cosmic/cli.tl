@@ -275,7 +275,13 @@ local record Cli
   --- against the projection in the build directory, or the binary's own
   --- database when there is none, or the one database an option names.
   --- The build directory is the working directory's only, never a
-  --- project's above it. `cosmic sql --from
+  --- project's above it. Nothing is built or staged: the projection is
+  --- what the last `cosmic test`, `fix`, `docs` or `uses` wrote, and the
+  --- working database `--build` reads what the last of those or `todos`
+  --- staged, so run one first to ask of the tree as it stands. A statement
+  --- opening with `.` (`.tables`) is the sqlite3 shell's, not SQL:
+  --- `SELECT name FROM sqlite_schema WHERE type='table'` names the tables,
+  --- and `cosmic db` says what each holds. `cosmic sql --from
   --- <file> ['<statement>']` asks it of a data file instead, to count,
   --- filter, join and sum where `cosmic json` only looks up (`cosmic sql
   --- --from accounts.json 'SELECT type, sum(balance) FROM accounts GROUP
@@ -307,13 +313,13 @@ local record Cli
   --- to get only the file's. With no statement it prints each table's row
   --- count, columns with the types stored, and a sample row.
   --- A missing column or table is answered with the ones there are.
-  --- Exit codes as below, 1 for a file it cannot read or load. The
-  --- first line names the columns (a statement without any prints
-  --- none); each row after is one line of
+  --- Exit codes as below, 1 for a file it cannot read or load. The rows
+  --- are TSV: the first line names the columns (a statement without any
+  --- prints none); each row after is one line of
   --- tab-separated cells: NULL as \N, a blob as X'<hex>',
   --- and in text a backslash, tab, newline or return as \\, \t, \n or
   --- \r and any other control byte as \xHH; the summary goes to
-  --- stderr. `--to` writes the rows in another format. `--to csv`
+  --- stderr. `--to` writes the rows as CSV or NDJSON instead. `--to csv`
   --- quotes as RFC 4180 does, each record ended by LF: a header of the column names first, NULL an empty
   --- field and '' a quoted empty one (so a one-column NULL is a blank
   --- line, which a CSV reader may drop), a blob's bytes as they are,
@@ -329,7 +335,7 @@ local record Cli
   --- Exits 0 when the
   --- statement ran, rows or none; 1 when the
   --- database or the statement failed, a write among them; 2 for a
-  --- command line it cannot read. Nothing is built or staged.
+  --- command line it cannot read.
   sql: string
   --- `cosmic json [options] [path] [file|-]`: the answer to a quick
   --- question about a JSON file -- is there a key `x` in this export,
@@ -638,24 +644,39 @@ local record Cli
   --- or `cosmic`, each module the page lists. Filter it by composing,
   --- as `cosmic json` does: `cosmic docs --json Fs.read Fs.write |
   --- cosmic sql --from docs=- --as ndjson "SELECT symbol, line FROM
-  --- docs WHERE kind = 'function'"`. The
+  --- docs WHERE kind = 'function'"`. It builds the tree first, as `test`
+  --- does but running no test, so it answers for the tree as it stands;
+  --- where the tree does not build, it answers from the last build, and
+  --- the summary says so and why, as each `--json` object does with
+  --- `"stale": true` and a line on standard error. The
   --- tree is found as `test` finds it
   docs: string
   --- `cosmic uses <sym> [path...]`: every place that refers to a
   --- symbol, as file:line -- only those under the paths, when given --
   --- each link to it, in a comment or a Markdown file, marked `link`.
   --- The symbol may be a file's path instead (doc/writing.md, or
-  --- doc/writing.md#heading for one heading), which only links name. The
+  --- doc/writing.md#heading for one heading), which only links name. It
+  --- builds the tree first, as `docs` does, and its summary says where it
+  --- answers from the last build instead. The
   --- tree is found as `test` finds it
   uses: string
   --- `cosmic todos [options] [path | words...]`: every `TODO:` comment
   --- in the tree, as file:line, with the date and commit git blames its
   --- first line on -- in a git repository only: elsewhere git is not
   --- started, and each is listed with none -- indexed into its build.db so
-  --- only a file that moved is blamed again. An argument that names a path narrows it to that
+  --- only a file that moved is blamed again. A TODO is a comment on a line
+  --- of its own whose text opens with `TODO:`, and the lines that carry on
+  --- its paragraph: not one after code on its line, nor one in Markdown. A
+  --- comment that opens with a near miss (`TODO(tag):`, `FIXME:`, a `TODO`
+  --- with no colon) is not listed, and the summary counts those, naming
+  --- the spelling that is. An argument that names a path narrows it to that
   --- path; the rest are words to search the TODOs' text for, best match
   --- first, in FTS5's own syntax ("a phrase", OR, prefix*) when they
-  --- parse as that. The tree is found as `test` finds it
+  --- parse as that: `^perf` finds those whose text opens with `perf`, the tag
+  --- of a `TODO: perf: ...`, and `data:` searches for a word that also names
+  --- a path. Exits 0 when it listed, though nothing, 1 when a search
+  --- matched none or the tree could not be read, 2 for a command line it
+  --- cannot read. The tree is found as `test` finds it
   todos: string
   --- `cosmic bom [--licenses | --json <path>]`: the bill of materials
   --- this binary ships under -- every third-party component its cores

@@ -570,6 +570,17 @@ local store_hint = "; the binary's own database answers a query and no PRAGMA " 
   "but data_version: `SELECT * FROM <table> LIMIT 0` names a table's columns, " ..
   "and sqlite_schema holds each table's SQL"
 
+--- Said after a statement that opens with `.`, which SQLite refuses as a
+--- syntax error: it is the sqlite3 shell's command (`.tables`, `.schema`), which
+--- no SQL answers; a query of `sqlite_schema` lists what it would, and `cosmic db`
+--- what each table of the build directory's databases holds.
+local function dot_hint(statement: string, databases: boolean): string
+  if statement:match("^%s*%.") == nil then return "" end
+  return "; a statement opening with `.` is the sqlite3 shell's, not SQL: " ..
+    "`SELECT name FROM sqlite_schema WHERE type='table'` names the tables" ..
+    (if databases then ", and `cosmic db` says what each holds" else "" end)
+end
+
 --- Rows to stdout; complaints and the summary to stderr.
 local standard: sql.Output = {
   out = function(line: string): boolean, string
@@ -892,7 +903,7 @@ local function run_from(parsed: Flags.Parsed, to: sql.Output,
   else
     local rows, statement_trouble = stream(db, statement_word, to.out, writer)
     if rows == nil then
-      return fail(source .. ": " .. hinted(statement_trouble, tables))
+      return fail(source .. ": " .. hinted(statement_trouble, tables) .. dot_hint(statement_word, false))
     end
     counted = tostring(rows) .. (if rows == 1 then " row" else " rows" end)
   end
@@ -943,7 +954,7 @@ function sql.run(argv: {string}, root?: string, output?: sql.Output,
     end
     local make = writers[format]
     if make == nil then
-      complain("--to writes csv or ndjson, not " .. format .. "; " .. usage)
+      complain("--to writes csv or ndjson, not " .. format .. "; without it the rows are TSV; " .. usage)
       return 2
     end
     if #parsed.words == 0 then
@@ -995,7 +1006,7 @@ function sql.run(argv: {string}, root?: string, output?: sql.Output,
     local _, _ = opened.db:close()
   end
   if rows == nil then
-    complain(source.name .. ": " .. trouble)
+    complain(source.name .. ": " .. trouble .. dot_hint(statement_text, true))
     return 1
   end
   summarize(tostring(rows) .. (if rows == 1 then " row" else " rows" end) .. " from " .. source.name)
