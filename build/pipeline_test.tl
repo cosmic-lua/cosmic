@@ -75,7 +75,9 @@ end
 local function test_a_module_is_checked_written_and_dumped_and_the_lua_and_the_bytecode_run()
   local source = "local record Box\n  n: integer\nend\nlocal function make(n: integer): Box\n  return { n = n }\nend\nreturn make(41).n + 1\n"
   local made = assert(generated(marked(source, EXPORT)))
-  assert(value_of(made.lua) == 42 and not made.refused and #made.references == 0)
+  -- `make(41).n` reads the field of the file's own `Box`
+  local read = made.references[1]
+  assert(value_of(made.lua) == 42 and not made.refused and #made.references == 1 and read ~= nil and read.member == "Box.n")
   assert(assert(load(made.bytecode, "=m", "b", {}))() == 42)
   assert(made.bytecode:sub(1, 4) == "\27Lua")
 end
@@ -738,9 +740,10 @@ local function test_the_record_field_uses_of_a_module_are_found_through_the_type
   local user = assert(entries[2])
   local m = module_of("user", "user.tl", "module", assert(user[2]), {})
   local made = assert(Pipeline.generate(m, pipeline))
-  local use = assert(made.references[1], "no use found")
-  assert(#made.references == 1 and use.module == "cosmic.shape_of" and use.member == "Point.x" and use.line == 3,
-    tostring(#made.references) .. " uses")
+  -- `Shape.origin` through the require alias (the syntactic half finds it too) and `p.x` through the value it made
+  local origin, use = made.references[1], made.references[2]
+  assert(#made.references == 2 and origin ~= nil and origin.member == "origin" and origin.line == 2 and use ~= nil and
+      use.module == "cosmic.shape_of" and use.member == "Point.x" and use.line == 3, tostring(#made.references) .. " uses")
 end
 
 local function test_a_record_test_is_written_as_the_fork_writes_it_for_the_tree_and_refused_for_a_program_without_a_marker()
