@@ -132,6 +132,7 @@ local function opened_for(root: string, wait: boolean, verb: string): work.Openi
 end
 
 local last_refused: mut {string} = {}
+local last_held = ""
 
 --- The files the last build this process made with [`rebuild.here`] refused, for what they hold or for requiring one
 --- that was, by their paths from the project's root: none where it built, or before it ran.
@@ -139,12 +140,24 @@ function rebuild.refused(): {string}
   return last_refused
 end
 
+--- Why the last build this process made with [`rebuild.here`] left the
+--- projection as it was though it answered true, so a lookup answers from
+--- the last build: another run holding the working database or the rebuild
+--- lock, a working database of another schema, or a check of the tool that
+--- went on without holding it to the tree ([`reboot.unchecked`]); "" where
+--- it wrote one, or where the directory is none to build.
+function rebuild.held(): string
+  return last_held
+end
+
 --- Builds the project at `root` as `cosmic test` does, leaving
 --- its projection as the tree stands. It does nothing, answering true,
 --- where `root` is not one to build ([`where`]) and `start` is not
 --- set, saying so on stderr when it looks like a project no build has
 --- been made of. Answers false and why when the build fails, which the
---- caller may say and go on from the last build. Only a build with
+--- caller may say and go on from the last build; where the tree refused it,
+--- [`rebuild.refused`] names the files after, and a lookup's why is a phrase
+--- naming the first. Only a build with
 --- `start` waits for another run that holds the working database: a
 --- lookup's does nothing where one does, which builds the same tree, but
 --- say so once ([`work.tell_busy`]), and answers true, the caller reading
@@ -157,12 +170,14 @@ end
 --- what is there.
 local function project(root: string, verb: string, start: boolean, carried?: string): boolean, string
   last_refused = {}
+  last_held = ""
   local found, found_trouble = where(root, carried)
   if found == nil then return false, found_trouble end
   if unchecked(root) then
     -- Compiled by code that may be older than the tree's, the rows and
     -- the projection would be keyed and signed as no build of the tree
     -- would make them.
+    last_held = "this tool could not be checked against the tree"
     return true, ""
   end
   if not found.project and not start then
@@ -183,8 +198,10 @@ local function project(root: string, verb: string, start: boolean, carried?: str
     local other = opening.other_schema
     if other ~= nil then
       work.tell_other_schema(verb, working, other, root)
+      last_held = "the working database is of another schema"
     else
       work.tell_busy(verb, working)
+      last_held = "another run holds the working database"
     end
     return true, ""
   end
@@ -220,8 +237,8 @@ local function project(root: string, verb: string, start: boolean, carried?: str
     if #own > 0 then
       named = own[1] .. (if #own > 1 then " and " .. tostring(#own - 1) .. " more" else "" end)
     end
-    return false, root .. " does not build (" .. named .. " refused; `cosmic test` shows why); " ..
-      "answering from its last build by this tool, or from cosmic's own docs where it has none"
+    -- Short, for a lookup puts it in its summary ([`build.docs`]'s `stale_note`).
+    return false, "the tree does not build: " .. named .. " refused; `cosmic test` shows why"
   end
   -- A lookup's build leaves the projection as it is where another run
   -- holds the rebuild lock, rather than wait for it ([`writer.write_result`]).
@@ -231,6 +248,7 @@ local function project(root: string, verb: string, start: boolean, carried?: str
     build_paths.resolve(root).projection, result, started, staged, reader)
   local _, _ = work.close(handle)
   if not written then return false, write_trouble end
+  if writer.held() then last_held = "another run holds the rebuild lock" end
   return true, ""
 end
 

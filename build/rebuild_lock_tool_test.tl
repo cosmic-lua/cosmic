@@ -381,6 +381,9 @@ local function test_a_reading_verb_answers_while_another_run_holds_the_lock(tmp:
         local out = result.stdout or ""
         if words[1] == "docs" then
           assert(out:find("First words.", 1, true), said)
+          -- the old answer is marked as the last build's, in the summary
+          local held = if phase == "rebuild lock" then "the rebuild lock" else "the working database" end
+          assert((result.stderr or ""):find(", from the last build (another run holds " .. held .. "), ", 1, true), said)
           if phase == "rebuild lock" then
             assert((result.stderr or ""):find("docs: another cosmic run (pid " .. tostring(sys.getpid()) ..
                 ") in this checkout is running its tests (it has held the lock for ", 1, true), said)
@@ -400,6 +403,7 @@ local function test_a_reading_verb_answers_while_another_run_holds_the_lock(tmp:
   local after_text = (after.stdout or "") .. (after.stderr or "")
   assert(after.ok, after_text)
   assert((after.stdout or ""):find("Second words.", 1, true), after_text)
+  assert(after_text:find("from the last build", 1, true) == nil, after_text)
 end
 
 --- How many builds the working database of `root` records.

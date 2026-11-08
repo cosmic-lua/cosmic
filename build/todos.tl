@@ -86,6 +86,8 @@ local record todos
   record Arguments
     --- As [`build.narrow.paths`] answers them; none for the whole tree.
     paths: {string}
+    --- The words read as paths, as written.
+    named: {string}
     --- What to search the TODOs' text for.
     words: {string}
   end
@@ -590,6 +592,80 @@ local function read(db: Sqlite.Handle, root: string): todos.Listing?, string
   return listing_of(rows, 0), ""
 end
 
+--- One comment `db` holds that opens with a near miss of the indexed
+--- spelling ([`build.todo_scan.misses`]): where, and the opening as written.
+local record Miss
+  file: string
+  line: integer
+  spelling: string
+end
+
+--- Every near miss `db` holds, in file order, but a bare `TODO` in Markdown,
+--- where a `#` or `*` line is a heading or a list item rather than a
+--- comment. Read apart here, since a row is the bytes' alone and says
+--- nothing of the file's name.
+local function misses_of(db: Sqlite.Handle): {Miss}?, string
+  return Sqlite.map(db,
+    "SELECT f.path, m.line, m.spelling FROM " ..
+      "(SELECT path, sha256 FROM files UNION SELECT path, sha256 FROM tool " ..
+      "UNION SELECT path, sha256 FROM scanned) f " ..
+      "JOIN todo_misses m ON m.sha256 = f.sha256 ORDER BY f.path, m.line", {},
+    function(row: Sqlite.Row): Miss
+      return { file = row:text(1), line = row:integer(2), spelling = row:text(3) }
+    end)
+end
+
+--- Whether `miss` is one `todos` names: not a bare `TODO` in Markdown ([`misses_of`]).
+local function shown_miss(miss: Miss): boolean
+  return miss.spelling ~= "TODO" or miss.file:match("%.md$") == nil
+end
+
+--- What `todos` says of the near misses under `paths`, a line for each kind:
+--- how many open with it, where the first is, and the spelling it is
+--- indexed under. None where there are none.
+local function misses_said(misses: {Miss}, paths: {string}): {string}
+  local kinds: {string} = { "tag", "bare", "fixme" }
+  local counted: mut {string:integer} = {}
+  local first: mut {string:Miss} = {}
+  local alike: mut {string:boolean} = {}
+  for _, miss in ipairs(misses) do
+    if narrow.holds(paths, miss.file) and shown_miss(miss) then
+      local kind = if miss.spelling:sub(1, 5) == "TODO(" then "tag"
+        elseif miss.spelling == "TODO" then "bare" else "fixme" end
+      counted[kind] = (counted[kind] or 0) + 1
+      local earlier = first[kind]
+      if earlier == nil then
+        first[kind] = miss
+        alike[kind] = true
+      elseif earlier.spelling ~= miss.spelling then
+        alike[kind] = false
+      end
+    end
+  end
+  local lines: mut {string} = {}
+  for _, kind in ipairs(kinds) do
+    local count, miss = counted[kind], first[kind]
+    if count ~= nil and miss ~= nil then
+      local where = miss.file .. ":" .. tostring(miss.line)
+      local shown = "`" .. miss.spelling .. "`"
+      local spelled = "`TODO: ...`"
+      if kind == "tag" then
+        local tag = miss.spelling:match("^TODO%(([^)]*)%)") or ""
+        if alike[kind] ~= true then tag = "<tag>" end
+        spelled = "`TODO: " .. (if tag ~= "" then tag .. ": " else "" end) .. "...`"
+      elseif kind == "bare" then
+        shown = "`TODO` with no colon"
+      end
+      local opening = if count == 1 then plural.count(count, "comment") .. " opens with " .. shown .. " and is not indexed (" ..
+          where .. ")"
+        else plural.count(count, "comment") .. " open with " .. shown .. (if alike[kind] == true then "" else " or the like" end) ..
+          " and are not indexed (" .. where .. " and " .. tostring(count - 1) .. " more)" end
+      lines[#lines + 1] = opening .. ": write " .. spelled
+    end
+  end
+  return lines
+end
+
 --- A time in seconds since the epoch as its UTC date, `YYYY-MM-DD`, or
 --- `??????????` for one outside what Time's nanoseconds hold (a forged
 --- commit date), rather than a date the product wrapped to.
@@ -660,6 +736,7 @@ end
 --- every verb; `.` names the whole tree, so it narrows nothing.
 function todos.arguments(root: string, argv: {string}): todos.Arguments
   local named: mut {string} = {}
+  local written: mut {string} = {}
   local words: mut {string} = {}
   for _, word in ipairs(argv) do
     -- A path when it names one, and words to search for when not, as
@@ -668,11 +745,12 @@ function todos.arguments(root: string, argv: {string}): todos.Arguments
     local absolute, _ = Fs.absolute(full)
     if word ~= "" and absolute ~= nil then
       named[#named + 1] = full
+      written[#written + 1] = word
     else
       words[#words + 1] = word
     end
   end
-  return { paths = narrow.paths(root, named), words = words }
+  return { paths = narrow.paths(root, named), named = written, words = words }
 end
 
 --- `cosmic todos [--oldest] [path...]`: stages the tree as a build
@@ -812,6 +890,10 @@ function todos.run(argv: {string}, at?: string, seen?: reboot.Seen): integer
     return failed(list_trouble)
   end
   local all, blamed = listing.todos, listing.blamed
+  local misses, misses_trouble = misses_of(db)
+  if misses == nil then
+    return failed("todos: " .. misses_trouble)
+  end
   local ranks: {integer:integer}? = nil
   if query ~= "" then
     local found, search_trouble = todos.search(db, query)
@@ -847,9 +929,22 @@ function todos.run(argv: {string}, at?: string, seen?: reboot.Seen): integer
       return a.file < b.file
     end)
   end
+  -- What the listing may lack: a comment spelled so it is not indexed, and a word read as a path that holds none.
+  local notes: mut {string} = {}
+  for _, said in ipairs(misses_said(misses, paths)) do notes[#notes + 1] = said end
+  if #listed == 0 then
+    for _, word in ipairs(arguments.named) do
+      if word:match("^[%w_]+$") ~= nil then
+        notes[#notes + 1] = "'" .. word .. "' was read as a path, which holds no TODO: to search the TODOs for the word, " ..
+          "write `" .. word .. ":`, or `^" .. word .. "` for those that open with it"
+      end
+    end
+  end
+  local noted = ""
+  for _, note in ipairs(notes) do noted = noted .. "; " .. note end
   if ranks ~= nil and #listed == 0 then
     local _, _ = logger.summary("todos", "no TODO matches '" .. query .. "', " ..
-        clock.took(started))
+        clock.took(started) .. noted)
     return 1
   end
   if oldest then
@@ -878,7 +973,7 @@ function todos.run(argv: {string}, at?: string, seen?: reboot.Seen): integer
     end
   end
   local _, _ = logger.summary("todos", plural.count(#listed, "todo") .. " in " .. plural.count(file_count, "file") ..
-      ", " .. plural.count(blamed, "file") .. " blamed, " .. clock.took(started))
+      ", " .. plural.count(blamed, "file") .. " blamed, " .. clock.took(started) .. noted)
   return 0
 end
 

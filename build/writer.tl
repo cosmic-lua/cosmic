@@ -1006,6 +1006,14 @@ function writer.other_code(db: Sqlite.Handle, compiler: string): string?, string
   return nil, ""
 end
 
+local reader_held = false
+
+--- Whether the last [`writer.write_result`] of a lookup's build left the
+--- projection as it was, another run holding the rebuild lock.
+function writer.held(): boolean
+  return reader_held
+end
+
 --- Writes an already-compiled result into a fresh host-independent database
 --- and leaves it at `out`, unless the file there already is that projection.
 --- The attached in-memory projection is filled before the working transaction
@@ -1025,6 +1033,7 @@ end
 function writer.write_result(handle: work.Handle, out: string,
                              result: importer.Result, tree_code?: boolean,
                              library?: link_index.Library, reader?: string): boolean, string
+  reader_held = false
   local db = handle.db
   if not handle.inside then
     local begun, begin_trouble = work.begin(handle)
@@ -1101,6 +1110,7 @@ function writer.write_result(handle: work.Handle, out: string,
       taken, lock_trouble = rebuild_lock.try_hold(handle.root, "write", reader)
       if taken == nil and lock_trouble == "" then
         local _, _ = db:exec("DETACH out")
+        reader_held = true
         return true, ""
       end
     else

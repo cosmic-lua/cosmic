@@ -3080,10 +3080,12 @@ end
 ---   module entry of a query that names one;
 --- - no words, or `cosmic`, name no query: each module the page lists, as
 ---   `kind` "module", with its `text` the first sentence.
---- A query that finds nothing has no line. Nil and why when a database
+--- A query that finds nothing has no line. Each object carries `stale`, true,
+--- where `stale` is set: the lookup answers from the last build, the tree not
+--- building as it stands. Nil and why when a database
 --- cannot be read; `found` is false when a query found nothing, and `said`
 --- is empty.
-function docs.records(view: docs.View, words: {string}): docs.Answer?, string
+function docs.records(view: docs.View, words: {string}, stale?: boolean): docs.Answer?, string
   local lines: mut {string} = {}
   local all = true
   local asked = docs.asked(words)
@@ -3093,10 +3095,12 @@ function docs.records(view: docs.View, words: {string}): docs.Answer?, string
       return nil, trouble
     end
     for _, summary in ipairs(index) do
-      local line, encode_trouble = Json.encode({
+      local object: mut {string: Json.Value} = {
         query = table.concat(words, " "), exact = false, module = summary.module,
         symbol = "", kind = "module", signature = "", text = summary.text,
-      })
+      }
+      if stale == true then object["stale"] = true end
+      local line, encode_trouble = Json.encode(object)
       if line == nil then
         return nil, encode_trouble
       end
@@ -3134,6 +3138,7 @@ function docs.records(view: docs.View, words: {string}): docs.Answer?, string
       if found.verb ~= nil and index == found.modules then
         object["verb"] = asking
       end
+      if stale == true then object["stale"] = true end
       local line, encode_trouble = Json.encode(object)
       if line == nil then
         return nil, encode_trouble
@@ -3142,6 +3147,28 @@ function docs.records(view: docs.View, words: {string}): docs.Answer?, string
     end
   end
   return { lines = lines, found = all, said = "" }, ""
+end
+
+--- What a lookup's summary says of the answer where its build did not
+--- leave the projection as the tree stands ([`rebuild.here`]), "" where it
+--- did: from the last build, or from cosmic's own docs alone where the
+--- project has none this tool reads, and why -- the tree's refusal, or
+--- another run holding the build ([`rebuild.held`]). The tree's refusal is said there alone, in
+--- the summary a reader sees beside the answer; any other trouble is said
+--- on a line of its own too, being the host's rather than the tree's.
+--- @param sources the databases the lookup reads ([`docs.databases`])
+local function stale_note(verb: string, built: boolean, trouble: string, sources: docs.Sources): string
+  local why = trouble
+  if built then
+    why = rebuild.held()
+    if why == "" then return "" end
+  elseif #rebuild.refused() == 0 then
+    log:complain(verb .. ": not rebuilt: " .. trouble)
+    why = "not rebuilt"
+  end
+  local from = if #sources.opened > 0 then "from the last build"
+    else "from cosmic's own docs, there being no build of the tree by this tool" end
+  return from .. " (" .. why .. ")"
 end
 
 --- `cosmic docs <words...>`: prints what [`docs.answer`] says of the
@@ -3162,19 +3189,17 @@ local function run(argv: {string}): integer
   if exit ~= nil then
     return exit
   end
-  local built, build_trouble = require("build.rebuild").here("docs")
-  if not built then
-    log:complain("docs: not rebuilt: " .. build_trouble)
-  end
+  local built, build_trouble = rebuild.here("docs")
   local started = Clock.monotonic_ns()
   local sources = docs.databases()
+  local stale = stale_note("docs", built, build_trouble, sources)
   local view, view_trouble = docs.view(sources.handles, sources.public)
   if view == nil then
     log:complain("docs: " .. view_trouble)
     return 1
   end
   if parsed.set["--json"] == true then
-    local records, records_trouble = docs.records(view, parsed.words)
+    local records, records_trouble = docs.records(view, parsed.words, stale ~= "")
     if records == nil then
       log:complain("docs: " .. records_trouble)
       return 1
@@ -3182,6 +3207,8 @@ local function run(argv: {string}): integer
     for _, line in ipairs(records.lines) do
       log:say(line)
     end
+    -- The records have no summary but this one, for a stale answer, which a query that finds nothing hears too.
+    if stale ~= "" then local _, _ = logger.summary("docs", "answered " .. stale) end
     return if records.found then 0 else 1 end
   end
   local answer, trouble = docs.answer(view, parsed.words)
@@ -3192,11 +3219,12 @@ local function run(argv: {string}): integer
   for _, line in ipairs(answer.lines) do
     log:say(line)
   end
+  local said = answer.said .. (if stale ~= "" then ", " .. stale else "" end)
   if not answer.found then
-    local _, _ = logger.summary("docs", answer.said .. ", " .. clock.took(started))
+    local _, _ = logger.summary("docs", said .. ", " .. clock.took(started))
     return 1
   end
-  local _, _ = logger.summary("docs", answer.said .. ", " ..
+  local _, _ = logger.summary("docs", said .. ", " ..
       plural.count(#view.databases, "database") .. ", " .. clock.took(started))
   return 0
 end
@@ -3227,12 +3255,11 @@ local function run_uses(argv: {string}): integer
   if exit ~= nil then
     return exit
   end
-  local built, build_trouble = require("build.rebuild").here("uses")
-  if not built then
-    log:complain("uses: not rebuilt: " .. build_trouble)
-  end
+  local built, build_trouble = rebuild.here("uses")
   local started = Clock.monotonic_ns()
   local sources = docs.databases()
+  local stale = stale_note("uses", built, build_trouble, sources)
+  if stale ~= "" then stale = ", " .. stale end
   local view, view_trouble = docs.view(sources.handles, sources.public)
   if view == nil then
     log:complain("uses: " .. view_trouble)
@@ -3266,11 +3293,11 @@ local function run_uses(argv: {string}): integer
   end
   if shown == 0 then
     local where = if #paths > 0 then " under " .. table.concat(paths, ", ") else "" end
-    local _, _ = logger.summary("uses", "nothing" .. where .. " refers to '" .. query .. "', " ..
+    local _, _ = logger.summary("uses", "nothing" .. where .. " refers to '" .. query .. "'" .. stale .. ", " ..
         clock.took(started))
     return 1
   end
-  local _, _ = logger.summary("uses", plural.count(shown, "place") .. ", " .. clock.took(started))
+  local _, _ = logger.summary("uses", plural.count(shown, "place") .. stale .. ", " .. clock.took(started))
   return 0
 end
 

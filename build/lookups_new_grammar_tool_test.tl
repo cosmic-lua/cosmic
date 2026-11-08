@@ -306,21 +306,31 @@ local function test_a_lookup_answers_from_the_last_build_when_the_new_checker_re
   local text = assert(Fs.read(root .. "/shapes.tl"))
   assert(Fs.write(root .. "/shapes.tl", (text:gsub("function Shapes.new%(width: integer%): Shapes.Box\n",
     "function Shapes.new(width: integer): Shapes.Box\n  local unused = 1\n"))))
-  -- the refusal is said in one line naming the project, not with the checker's text, which `cosmic test` shows; the answer is
-  -- the last build's, as a build the fork stops leaves it
+  -- the refusal is said in the summary, beside the answer, not with the checker's text, which `cosmic test` shows; the answer
+  -- is the last build's, as a build the fork stops leaves it
+  local stale = "from the last build (the tree does not build: shapes.tl refused; `cosmic test` shows why), "
   local last, last_err = looked_up(root, tmp, { "docs", "Box" })
-  holds(last_err, "docs: not rebuilt: " .. assert(Fs.absolute(root)) ..
-      " does not build (shapes.tl refused; `cosmic test` shows why); answering from its last build by this tool, or from cosmic's own docs where it has none\n")
+  holds(last_err, "docs: 1 named, " .. stale .. "2 databases, ")
   assert(last_err:find("unused_variable", 1, true) == nil and last_err:find("compiler refused", 1, true) == nil,
     last_err)
+  assert(last_err:find("not rebuilt", 1, true) == nil, last_err)
   local _, said = last_err:gsub("\n", "")
-  assert(said <= 2, last_err)
+  assert(said == 1, last_err)
   holds(last, "shapes Shapes.Box")
+  local used, used_err = looked_up(root, tmp, { "uses", "Box.grow" })
+  holds(used, "shapes_test.tl:5: shapes Box.grow")
+  holds(used_err, "uses: 1 place, " .. stale)
+  -- `--json` prints no summary: each record says it is stale, and a line on stderr says why
+  local records, records_err = looked_up(root, tmp, { "docs", "--json", "Box" })
+  holds(records, '"stale":true')
+  holds(records_err, "docs: answered " .. stale:sub(1, -3) .. "\n")
   -- mended, it builds again and says nothing
   assert(Fs.write(root .. "/shapes.tl", text))
   local mended, mended_err = looked_up(root, tmp, { "docs", "Box.grow" })
   holds(mended, "Widens the box by `by`.")
-  assert(mended_err:find("not rebuilt", 1, true) == nil, mended_err)
+  assert(mended_err:find("from the last build", 1, true) == nil, mended_err)
+  local fresh = looked_up(root, tmp, { "docs", "--json", "Box" })
+  assert(fresh ~= "" and fresh:find('"stale"', 1, true) == nil, fresh)
 end
 
 --- A copy of the project of testdata/projects under `tmp`, built by `cosmic test`.
