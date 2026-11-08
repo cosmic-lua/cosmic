@@ -11,7 +11,8 @@ Test.policy{
   },
 }
 
---- A module with a record nested in its own, an interface that record lists, and a record it keeps to itself.
+--- A module with a record nested in its own, an interface that record lists, and a record at the top of its file that it
+--- does not return (`Private`), which its own file reads.
 local ZIPX <const> = table.concat({
   "local record Zipx",
   "  interface Collector",
@@ -366,15 +367,17 @@ local function test_a_method_a_top_level_interface_declares_is_a_use_of_the_inte
   assert(out == "Base.tell " .. tostring(line(8)) .. "\n", out)
 end
 
---- A record declared inside a function has no module to name: a call through a value of it is the use of nothing.
+--- A record declared inside a function has no module to name: a call of its method or a read of its field through a value of
+--- it is the use of nothing.
 local function test_a_method_of_a_record_declared_inside_a_function_is_a_use_of_nothing()
   local text = Fixture.PRELUDE .. table.concat({
     "local function f(): integer",
     "  local record Inner",
+    "    width: integer",
     "    add: function(Inner, integer): integer",
     "  end",
-    "  local i: Inner = { add = function(_: Inner, n: integer): integer return n end }",
-    "  return i:add(1)",
+    "  local i: Inner = { width = 3, add = function(_: Inner, n: integer): integer return n end }",
+    "  return i:add(1) + i.width",
     "end",
     "use(f)",
     "",
@@ -382,9 +385,9 @@ local function test_a_method_of_a_record_declared_inside_a_function_is_a_use_of_
   assert(#Receivers.references(Fixture.subject(text, MODULES)) == 0)
 end
 
---- A method declared by an interface nested in a record that is no module's own is the use of nothing: the record lists
---- an interface no module names.
-local function test_a_method_from_an_interface_no_module_names_is_a_use_of_nothing()
+--- A method declared by an interface nested in a record at the top of the file, which is no module's own, is a use of the
+--- interface's method under both names (`Outer.Told.tell`), as `docs` spells it.
+local function test_a_method_from_an_interface_nested_in_a_record_at_the_top_of_the_file_is_a_use_of_it()
   local text = Fixture.PRELUDE .. table.concat({
     "local record Outer",
     "  interface Told",
@@ -398,7 +401,11 @@ local function test_a_method_from_an_interface_no_module_names_is_a_use_of_nothi
     "use(m:tell())",
     "",
   }, "\n")
-  assert(#Receivers.references(Fixture.subject(text, MODULES)) == 0)
+  local out = ""
+  for _, r in ipairs(Receivers.references(Fixture.subject(text, MODULES))) do
+    out = out .. r.member .. " " .. tostring(r.line) .. "\n"
+  end
+  assert(out == "Outer.Told.tell " .. tostring(line(10)) .. "\n", out)
 end
 
 --- A method the record a module returns inherits from an interface of the module's own file is a use of that interface's, which
@@ -432,4 +439,28 @@ local function test_the_record_nested_in_a_module_is_not_taken_for_the_one_anoth
     want = want .. (if want == "" then "" else "\n" end) .. types .. "_types Def.name " .. tostring(line(3))
   end
   assert(found == want, found)
+end
+
+--- A record nested under a record at the top of the file that the module does not return has a row in `docs` under both
+--- names (`Box.Inner.w`): a field read through a value of it is a use of that row.
+local function test_a_field_of_a_record_nested_under_one_at_the_top_of_the_file_is_a_use_of_it()
+  local found = same(table.concat({
+    "local record Box",
+    "  record Inner",
+    "    w: integer",
+    "  end",
+    "  i: Inner",
+    "end",
+    "local b: Box = { i = { w = 1 } }",
+    "use(b.i.w)",
+    "",
+  }, "\n"))
+  assert(found == "self Box.Inner.w " .. tostring(line(8)) .. "\nself Box.i " .. tostring(line(8)), found)
+end
+
+--- A global record of the standard library's declaration file, which returns nothing, has no row in `docs`: a read of
+--- `table.concat` or `math.maxinteger` writes none.
+local function test_a_field_of_a_global_record_of_the_standard_library_is_no_use()
+  local found = same("use(table.concat({ 'a' }, ''), math.maxinteger, string.format('%d', 1))\n")
+  assert(found == "", found)
 end

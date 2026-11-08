@@ -3,11 +3,15 @@
 --- whatever `w` is called and however it was made. The port of build.receivers's `references`, which asked the fork's
 --- reporter for the types; this reads the type report of the driver ([`build.driver`]) by the id of the node.
 ---
---- A receiver resolves to a symbol when its record is one some module's own record declares, nested under it
---- ([`Zip.Writer`], [`Stream.Reader`]) -- [`build.syntax_report`]'s `owner_of` -- or is declared at the top of its
---- module's file, the module's own record or another ([`Report.home_of`]): `Own.size`, `o.size` and `b.width` where `b` is a
---- `local record Box` of the file. A use through a require alias is the syntactic half's too ([`build.syntax_analyzer`]'s
---- references), and the place both find is one. A record declared inside a function has no row in `docs` to be a use of.
+--- A receiver resolves to a symbol when its record is nested under some module's own record ([`Zip.Writer`],
+--- [`Stream.Reader`]), as [`build.syntax_report`]'s `owner_of` finds. It resolves too when the record is declared at the top
+--- of its module's file or nested under a record there, as [`Report.home_of`] finds. That record may be the module's own or
+--- another. So `Own.size` and `o.size` are uses, and so are `b.width` and `b.i.w` where `b` is a `local record Box` of the
+--- file. The syntactic half finds a use through a require alias too ([`build.syntax_analyzer`]'s references), and the place
+--- both find is one.
+---
+--- A record declared inside a function has no row in `docs` to be a use of. Neither has a global record of a declaration
+--- file that returns nothing, such as `table` in lang/stdlib.d.tl.
 ---
 --- A field the record inherits is a use of the interface that declares it, when some module declares that interface
 --- ([`Writer.write`], not the inheriting record's own `write`).
@@ -66,16 +70,24 @@ function Receivers.references(subject: Report.Subject): {Receivers.Reference}
         not (statics ~= nil and statics[name] ~= nil) then
       return
     end
-    -- Where the record is nested under its module's, and else where it is declared in its module: at the top of the file,
-    -- or as the record the module returns. A field read through the record itself is a use as one through a value of it is,
-    -- whatever names the record (`Own.size`, `local O = Own; O.size`, `require("own").size`); the syntactic half finds
-    -- `alias.f` through a require alias as well, and the two rows of one place are one (the key of `uses`,
-    -- [`build.schema`]). `top` says the fork finds nothing there: it names no module for the record of a value, or for the
-    -- interface a method comes from, unless the module's own record nests it.
+    -- The owner is where the record is nested under its module's record. Else it is where the record is declared in its
+    -- module: at the top of the file, under a record there, or as the record the module returns. A field read through the
+    -- record itself is a use, as one through a value of it is, whatever names the record. So `Own.size`, `local O = Own;
+    -- O.size` and `require("own").size` are all uses. The syntactic half finds `alias.f` through a require alias as well.
+    -- The two rows of one place are one, since `uses` is keyed by the place ([`build.schema`]).
+    --
+    -- `top` says the fork finds nothing there. It names no module for the record of a value, or for the interface a method
+    -- comes from, unless the module's own record nests it.
     local top = false
     local homed = false
     local owner = Report.owner_of(program, decl)
     if owner == nil then
+      -- A global record of a declaration file that returns nothing (`table`, `math`) has no row in `docs`: no `require`
+      -- names its module.
+      local known = program.modules[decl.module]
+      if known ~= nil and known.globals and Report.root_of(program, decl.module) == nil then
+        return
+      end
       owner = Report.home_of(program, decl)
       homed = true
       top = owner ~= nil and owner.path ~= ""

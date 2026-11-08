@@ -254,7 +254,8 @@ local function test_a_call_through_a_class_value_is_a_use_of_the_method_it_calls
   assert(square == "vessels.tl:43: vessels Sq.area\n", square)
   local rows = looked_up(root, tmp, { "sql", "SELECT symbol, from_file, line FROM uses WHERE module = 'vessels' AND symbol LIKE '%.%' " ..
       "ORDER BY symbol, from_file, line" })
-  -- A field read through a value of a class is a use as a call is: `self.side`, `self.level` and `planted.tank`.
+  -- A field read through a value is a use, as a call is: `self.side` and `self.level` of the classes, and `planted.tank`
+  -- of the record `Garden`.
   assert(rows == "symbol\tfrom_file\tline\nGarden.tank\tvessels.tl\t82\nJar.fill\tvessels_test.tl\t7\n" ..
       "Shape.area\tvessels.tl\t47\nSq.area\tvessels.tl\t43\nSq.side\tvessels.tl\t38\n" ..
       "Tank.fill\tvessels.tl\t13\nTank.fill\tvessels.tl\t52\nTank.fill\tvessels.tl\t53\nTank.fill\tvessels.tl\t57\n" ..

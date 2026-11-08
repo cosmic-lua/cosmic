@@ -52,8 +52,9 @@ local record Report
 
   --- Where a field or method of `decl` is a use of, when it is no record nested under its module's own
   --- ([`Report.owner_of`]): the record or class the module returns, whose members are `path` "" as `docs` spells them
-  --- (`size`, not `Own.size`), or a record, class or interface declared at the top of its module's file, under its own name.
-  --- nil for an enum, a type inside a function, and any other.
+  --- (`size`, not `Own.size`). Or a record, class or interface declared at the top of its module's file, or nested under
+  --- one there, under the names it is nested under and its own (`Box.Inner`). nil for an enum, a type inside a function, and
+  --- any other.
   home_of: function(program: Declarations.Program, decl: Types.Decl): Owner?
 
   --- Whether `decl` declares the field or method `name` itself.
@@ -110,8 +111,7 @@ end
 
 function Report.home_of(program: Declarations.Program, decl: Types.Decl): Report.Owner?
   local kind = decl.kind
-  local name = decl.names[1]
-  if #decl.names ~= 1 or name == nil or decl.module:find("@", 1, true) ~= nil or
+  if #decl.names == 0 or decl.module:find("@", 1, true) ~= nil or
       (kind ~= "record" and kind ~= "class" and kind ~= "interface") then
     return nil
   end
@@ -119,7 +119,7 @@ function Report.home_of(program: Declarations.Program, decl: Types.Decl): Report
   if root ~= nil and root == decl then
     return { module = decl.module, path = "" }
   end
-  return { module = decl.module, path = name }
+  return { module = decl.module, path = table.concat(decl.names, ".") }
 end
 
 function Report.has_member(decl: Types.Decl, name: string): boolean
