@@ -283,13 +283,14 @@ function Orchestration.suite_verdicts(env: {string:string}, name: string): strin
   return assert(shared:match("^(.*)/[^/]*$")) .. "/" .. name .. ".db"
 end
 
---- Where the native and the portable suite keep the cores a portable cosmic extracts (COSMIC_PORTABLE_CACHE): one
---- place under `work`, the leg's. A worker is keyed by each variable it is given pinned (build/test_inputs.tl's
+--- Where the native and the portable suite keep the cores a portable cosmic extracts (COSMIC_PORTABLE_CACHE): one place
+--- under `work`, the leg's. A worker is keyed by each variable it is given pinned (build/test_inputs.tl's
 --- `pinned_env`), this one by whether it names a place, not which (build/declared_key.tl's `cache_places`), so a suite
 --- that named none would key every test apart from the other's and stand on none of its verdicts. The cache is
---- content-addressed (build/caches.tl), so sharing it changes no verdict. It does change what the portable suite's start meets: the native tool's launcher has extracted
---- the same cores there first, so the portable artifact verifies an entry and the portable boundary's read-only run
---- reads it; a cold extraction is the launcher fixtures' (phase_fixtures).
+--- content-addressed (build/caches.tl), so sharing it changes no verdict. It does change what the portable suite's
+--- start meets: the native tool's launcher has extracted the same cores there first, so the portable artifact verifies
+--- an entry and the portable boundary's read-only run reads it; a cold extraction is the launcher fixtures'
+--- (phase_fixtures).
 function Orchestration.suite_cores(work: string): string
   return work .. "/suite-cores"
 end

@@ -108,6 +108,7 @@ local function test_where_the_cores_cache_is_moves_no_key(tmp: string)
   assert(with("relative/cores") ~= with("/home/someone/.cache/cosmic/cores"),
     "a relative path keyed as an absolute one")
   assert(with("relative/cores") ~= with("other/cores"), "a refused value keyed by its kind")
+  assert(with("absolute cache path") ~= with("/x/cores"), "a refused value keyed as an absolute one")
 end
 
 --- A file above the project is keyed by its relative path and contents:
