@@ -1340,7 +1340,7 @@ local function compile_derived(handle: work.Handle, tool: string,
         roots_by_file[m.file] = resting
         failed[m.path] = true
         result.refused[#result.refused + 1] = m.file .. ": not compiled: it requires " .. lacking ..
-          ", which the new checker refused"
+          ", which did not build"
       elseif refusal ~= nil then
         result.refused[#result.refused + 1] = refusal
         own_refused[#own_refused + 1] = m.file

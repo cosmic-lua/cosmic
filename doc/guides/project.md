@@ -46,7 +46,12 @@ and real at run time.
 ## a library module
 
 The first line comment of a module, and the comment above each
-function, are what `cosmic docs` shows for it.
+function, are what `cosmic docs` shows for it. A doc is the run of
+comment lines directly above a declaration, a record's field or an
+enum's value: its `---` lines where it has any, else its `--` lines,
+less TODO lines. A trailing comment is none, nor is a comment inside
+a table constructor: a table's entries are documented by the record
+that types it.
 
 ```teal file=tally.tl
 --- Counting words in text.

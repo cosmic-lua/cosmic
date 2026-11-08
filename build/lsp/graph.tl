@@ -200,8 +200,9 @@ function graph.refusals(src: source.View, file: string, path: string, kind: stri
   local checked = module_of(path, file, kind, {})
   modules[#modules + 1] = checked
   local standing = source.standing(src)
-  -- The build's check answers only the first require it refuses: where
-  -- it refuses any, each is asked alone.
+  -- The build's check names what each breach requires but not where the
+  -- require is written: where it refuses any, each is asked alone, to
+  -- place its message at that require.
   local all: mut {string} = {}
   for _, at in ipairs(requires) do all[#all + 1] = at.name end
   checked.requires = all

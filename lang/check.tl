@@ -368,6 +368,8 @@ local record Ctx
   mut cand_node: Ast.Node?
   --- The `or` that has an `and` for its left operand, by the id of the `and`.
   ternaries: mut {integer: Ast.Binary}
+  --- The calls whose one value was taken where they may answer more, by id: `or` after one cuts the rest.
+  spare: mut {integer: boolean}
   --- The offsets of the names the scope builder reported unknown, once asked for.
   mut unknown: {integer: boolean}?
   invalid: Type
@@ -1394,6 +1396,9 @@ local function first_value(ctx: Ctx, node: Ast.Node, alts: {Alt}): Type
     return ctx.invalid
   end
   local alt = alts[1]
+  if #alt.items > 1 or alt.tail ~= nil then
+    ctx.spare[base_of(node).id] = true
+  end
   local first = alt.items[1]
   if first ~= nil then
     return first
@@ -2709,9 +2714,9 @@ function Operands.overlaps(ctx: Ctx, a: Type, b: Type): boolean
 end
 
 --- What a condition of type `t` is: "bool", "opt" (a `T?` for a `T` that is not a boolean), or "bad" after the error.
---- `default` is set where `node` is the left of an `or`, which asks for a default: a value that is never nil there needs no
---- test, and no default.
-local function condition_kind(ctx: Ctx, node: Ast.Node, t: Type, default?: boolean): string
+--- `default` is the `or` whose left `node` is, which asks for a default: a value that is never nil there needs no test, and
+--- no default.
+local function condition_kind(ctx: Ctx, node: Ast.Node, t: Type, default?: Ast.Binary): string
   local tag = t.tag
   if is_bool(t) or tag == "never" or tag == "invalid" then
     return "bool"
@@ -2737,10 +2742,16 @@ local function condition_kind(ctx: Ctx, node: Ast.Node, t: Type, default?: boole
   local fix = "remove the condition: " .. s .. " is never false"
   if (t.tag == "var") then
     fix = "a type parameter may be nil or false: test it with `" .. text_of(ctx, node) .. " ~= nil` where it is bounded"
-  elseif default == true then
+  elseif default ~= nil then
     local place = peel(node).kind
+    -- `or` cuts a call to its first value. Where the call would then end a list of values (a return, the arguments of
+    -- a call, a table), deleting the `or` passes on the values after it, so the fix keeps the cut for a call that may
+    -- answer more. `...` is always optional and never reaches here.
+    local cut = if ctx.spare[base_of(node).id] == true then "replace `" ..
+        text_of(ctx, default) .. "` with `(" .. text_of(ctx, node) .. ")`, which keeps only the first value, as `or` did" else
+      "delete `or ...`" end
     fix = s .. " is never nil" .. (if place == "Name" or place == "Field" then " here (a test before may have narrowed it)" else "" end) ..
-      ", so the default is never used: delete `or ...`"
+      ", so the default is never used: " .. cut
   elseif is_text(t) then
     fix = "write the test: `" .. text_of(ctx, node) .. " ~= \"\"`"
   elseif tag == "integer" or tag == "number" then
@@ -3857,7 +3868,7 @@ end
 --- `a or b`: both booleans, or a `T?` replaced by a default of its own type.
 function Operators.disjunction(ctx: Ctx, node: Ast.Binary, left: Type, expected: Type?): Type
   local store = ctx.store
-  local left_kind = if left.tag == "invalid" then "bad" else condition_kind(ctx, node.left, left, true) end
+  local left_kind = if left.tag == "invalid" then "bad" else condition_kind(ctx, node.left, left, node) end
   if left_kind == "bad" then
     local _ = expr(ctx, node.right, nil)
     return ctx.invalid
@@ -7660,10 +7671,16 @@ local function check_return(ctx: Ctx, s: Ast.Return)
     end
     local count = #vals.types
     if vals.tail == nil and (count < #alt.items or (count > #alt.items and alt.tail == nil)) then
+      -- A last call that answers more values than are left to return is cut to its first by parentheses.
+      local cut = ""
+      if last ~= nil and (last.kind == "Call" or last.kind == "MethodCall") and n == #alt.items and count > n then
+        cut = "; " .. subject(ctx, last) .. " is the last value and answers " .. tostring(count - n + 1) ..
+          " values: write `(" .. text_of(ctx, last) .. ")` to return its first value alone"
+      end
       report(ctx, "return_arity", s, "this returns " .. plural(count, "value") .. ", where the function answers " ..
           plural(#alt.items, "value") .. (if alt.tail ~= nil then " or more" else "" end),
         "return " .. plural(#alt.items, "value") .. (if alt.tail ~= nil then " or more" else "" end) ..
-          ", or change the declared return list")
+          ", or change the declared return list" .. cut)
       return
     end
     for i, t in ipairs(vals.types) do
@@ -8412,7 +8429,7 @@ function Check.check(program: Declarations.Program, input: Declarations.Input, l
       return false
     end, function(_node: Ast.Node, _spelled: string, _found: LoadOrder.Found) end),
     literals = {}, spreads = {}, declared = {}, union_fields = {}, spine = {},
-    ternaries = {}, invalid = store.invalid, nil_type = store:atom("nil"), flow = Flow.start(), unfixed_now = {}, assigning = {}, quiet = 0, closers = 0, callee_module = "", member_module = "", moves = {},
+    ternaries = {}, spare = {}, invalid = store.invalid, nil_type = store:atom("nil"), flow = Flow.start(), unfixed_now = {}, assigning = {}, quiet = 0, closers = 0, callee_module = "", member_module = "", moves = {},
     loops = {}, ranges = {}, map_reads = {}, keys = {}, edges = {}, guards = {}, top = tops, module_table = module_table(input, lowered), initialized = {}, given = {}, handed = false, reads = {}, unfixed = {}, narrowed = {}, inert = {}, boundaries = {}, types = {}, callees = {}, consts = {}, starts = {}, library = {}, typed = typed ~= false, warnings = {},
     unite = function(a: Type, b: Type): Type
       return store:union({ a, b })
