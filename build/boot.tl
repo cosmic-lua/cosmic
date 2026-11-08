@@ -189,8 +189,7 @@ local function stage(root: string, working: build_paths.Layout, output: build_pa
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
     local _, _ = work.close(handle)
     log:complain(refusals.text(refused, result.refusal_roots or {}))
-    log:complain("boot: the new checker refused " .. plural.count(#refused, "module") ..
-        " of the tree, so no tool is written from it")
+    log:complain("boot: the tree did not build, so no tool is written from it")
     return nil
   end
   local database_path = output.projection

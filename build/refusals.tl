@@ -86,7 +86,8 @@ function refusals.collapsed(cascade: refusals.Cascade): string?
   end
   local more = #dependents - #named
   return "not compiled, since each requires a refused module, directly or through another: " .. table.concat(named, ", ") ..
-    (if more > 0 then ", and " .. tostring(more) .. " more" else "" end)
+    (if more > 0 then ", and " .. tostring(more) .. " more" else "" end) ..
+    "; their own findings show once the files above build"
 end
 
 --- How many files `cascade` refused for what they hold, and how many it left out for requiring one: "2 files refused on

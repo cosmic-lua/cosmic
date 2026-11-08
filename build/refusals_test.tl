@@ -7,10 +7,10 @@ local refusals = require("build.refusals")
 local function tree(): {string}, {string:{integer}}
   local lines = {
     "build/one.tl: the compiler refused it\nbuild/one.tl:1:1: wrong (code): fix",
-    "build/one_test.tl: not compiled: it requires build.one, which the new checker refused",
+    "build/one_test.tl: not compiled: it requires build.one, which did not build",
     "build/two.tl: the compiler refused it\nbuild/two.tl:1:1: also wrong (code): fix",
-    "build/mid.tl: not compiled: it requires build.one, which the new checker refused",
-    "build/mid_test.tl: not compiled: it requires build.mid, which the new checker refused",
+    "build/mid.tl: not compiled: it requires build.one, which did not build",
+    "build/mid_test.tl: not compiled: it requires build.mid, which did not build",
   }
   local roots = { ["build/one.tl"] = { 1 }, ["build/one_test.tl"] = { 1 }, ["build/two.tl"] = { 3 },
     ["build/mid.tl"] = { 1, 3 }, ["build/mid_test.tl"] = { 1, 3 } }
@@ -26,7 +26,8 @@ local function test_the_refusals_a_run_shows_are_the_roots_first_and_the_depende
     table.concat(cascade.roots, "|"))
   assert(table.concat(cascade.dependents, " ") == "build/one_test.tl build/mid.tl build/mid_test.tl")
   assert(refusals.collapsed(cascade) ==
-      "not compiled, since each requires a refused module, directly or through another: build/one_test.tl, build/mid.tl, build/mid_test.tl")
+      "not compiled, since each requires a refused module, directly or through another: build/one_test.tl, build/mid.tl, " ..
+      "build/mid_test.tl; their own findings show once the files above build")
   assert(refusals.counted(cascade) == "2 files refused on their own, 3 not compiled because they require one")
   assert(refusals.text(lines, roots) == assert(lines[1]) .. "\n" .. assert(lines[3]) .. "\n" ..
       assert(refusals.collapsed(cascade)) .. "\n" .. assert(refusals.counted(cascade)))
@@ -43,7 +44,7 @@ local function test_chosen_lines_show_the_roots_they_rest_on_and_a_lone_root_is_
   assert(#alone.roots == 1 and #alone.dependents == 0)
   assert(refusals.collapsed(alone) == nil and refusals.counted(alone) == nil)
   -- One refusal of a source that two files hold (sources alike are one) refuses each on its own.
-  local alike = refusals.cascade({ "x.tl: does not parse", "z.tl: not compiled: it requires y, which the new checker refused" },
+  local alike = refusals.cascade({ "x.tl: does not parse", "z.tl: not compiled: it requires y, which did not build" },
     { ["x.tl"] = { 1 }, ["y.tl"] = { 1 }, ["z.tl"] = { 1 } })
   assert(refusals.counted(alike) == "2 files refused on their own, 1 not compiled because it requires one")
   local unplaced = refusals.cascade(lines, {})
@@ -56,10 +57,10 @@ local function test_the_line_of_many_dependents_names_ten_and_counts_the_rest()
   local roots: mut {string:{integer}} = { ["a.tl"] = { 1 } }
   for i = 1, 13 do
     local file = "d" .. tostring(i) .. ".tl"
-    lines[#lines + 1] = file .. ": not compiled: it requires a, which the new checker refused"
+    lines[#lines + 1] = file .. ": not compiled: it requires a, which did not build"
     roots[file] = { 1 }
   end
   local collapsed = assert(refusals.collapsed(refusals.cascade(lines, roots)))
-  assert(collapsed:find(": d1.tl, d2.tl, ", 1, true) and collapsed:find("d10.tl, and 3 more", 1, true), collapsed)
+  assert(collapsed:find(": d1.tl, d2.tl, ", 1, true) and collapsed:find("d10.tl, and 3 more; their own", 1, true), collapsed)
   assert(not collapsed:find("d11.tl", 1, true), collapsed)
 end

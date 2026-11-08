@@ -88,7 +88,7 @@ local function may_import_build(m: positions.Module): boolean
 end
 
 --- Whether every require in `modules` respects position, and if not,
---- which one and why. Two rules hold in every project.
+--- each that breaks a rule and why, one a line. Two rules hold in every project.
 ---
 --- **A closed directory.** A module's home directory ([`home_of`]) is open
 --- to every importer when it is the root, or a top-level directory with no
@@ -128,11 +128,14 @@ end
 function positions.check(modules: {positions.Module}, standing: tree.Standing,
                          carried?: function(name: string): boolean): boolean, string
   local found = positions.violations(modules, standing, carried)
-  local first = found[1]
-  if first ~= nil then
-    return false, first.message
+  if #found == 0 then
+    return true, ""
   end
-  return true, ""
+  local lines: mut {string} = {}
+  for _, one in ipairs(found) do
+    lines[#lines + 1] = one.message
+  end
+  return false, table.concat(lines, "\n")
 end
 
 --- Every breach [`positions.check`] would name, one per `require` that breaks a rule, in module order and then
