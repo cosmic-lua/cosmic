@@ -132,3 +132,18 @@ local function test_a_named_directory_outside_the_build_is_checked_alone(tmp: st
   assert(not linked_ok, linked)
   assert(not linked:find("checked alone", 1, true), linked)
 end
+
+--- A file the run lays out that the build refuses is written, since a layout is sound whatever the file's types, but is
+--- said as laid out and not checking, never as fixed beside its refusal, and the summary counts it.
+local function test_a_laid_out_file_that_does_not_check_is_not_said_fixed(tmp: string)
+  local root = tmp .. "/project"
+  assert(Fs.mkdirs(root))
+  assert(Fs.write(root .. "/bad.tl", 'local   x:integer =   "s"\nprint(x)\n'))
+  assert(Fs.write(root .. "/good.tl", "local   z = 1\nprint(z)\n"))
+  local out = fix(root, false)
+  assert(out:find("fix: laid out  bad.tl; it does not check (above)\n", 1, true), out)
+  assert(not out:find("fixed  bad.tl", 1, true), out)
+  assert(out:find("fix: fixed  good.tl\n", 1, true), out)
+  assert(out:find("1 file laid out that the build refused", 1, true), out)
+  assert(assert(Fs.read(root .. "/bad.tl")) == 'local x: integer = "s"\nprint(x)\n')
+end

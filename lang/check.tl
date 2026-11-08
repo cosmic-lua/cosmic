@@ -980,10 +980,15 @@ local function refused(ctx: Ctx, node: Ast.Node, got: Type, want: Type, r: Relat
       made = "mut " .. g
       super = made
     end
+    local held = Types.display(r.sub, ctx.binders)
+    local fix = "declare " .. s .. " `" .. made .. "` where it is made or received, or pass a collection made `mut`"
+    -- An argument's receiver is a parameter, which may be `mut` by mistake: one typed as the view takes both.
+    local callee = where:match("^ as argument %d+ of (`.+`)$")
+    if callee ~= nil then
+      fix = fix .. "; or, if " .. callee .. " does not change it, declare that parameter `" .. held .. "`, which takes both"
+    end
     report(ctx, "view_as_mut", node, s .. " is " .. quoted(g) .. ", where " .. quoted(w) .. " is wanted" .. where ..
-        ": the view " .. quoted(Types.display(r.sub, ctx.binders)) .. " is not " .. quoted(super) ..
-        ", which the receiver may change",
-      "declare " .. s .. " `" .. made .. "` where it is made or received, or pass a collection made `mut`", shown)
+        ": the view " .. quoted(held) .. " is not " .. quoted(super) .. ", which the receiver may change", fix, shown)
   elseif code == "invariant_mut" or code == "invariant_key" then
     report(ctx, "invariant_mut", node, quoted(Types.display(r.sub, ctx.binders)) .. " is not " ..
         quoted(Types.display(r.super, ctx.binders)) .. " (" .. s .. " is " .. quoted(g) .. ", where " .. quoted(w) ..
@@ -1186,11 +1191,17 @@ local function module_value(ctx: Ctx, node: Ast.Node, name: string): Type
     info = program.modules[name]
   end
   if info == nil then
-    local fix = "require a module of the project: `bin/cosmic docs` lists them"
+    local fix = "require a module of the project: `bin/cosmic docs` lists them; a file sees the modules of the tree " ..
+      "it is in, so a scratch file that uses a project's modules goes inside that project"
+    local says = "the project has no module " .. quoted(name)
     if program.library[name] == true then
       fix = quoted(name) .. " is a global the language declares, available without `require`: use it directly"
+    elseif name:sub(1, 7) == "cosmic." then
+      -- A program's `cosmic.*` modules are the binary's, which a project cannot add to.
+      says = "cosmic has no module " .. quoted(name)
+      fix = "`cosmic docs` lists the modules cosmic holds, and `cosmic docs <words>` finds a function by what it does"
     end
-    report(ctx, "require_unknown", node, "the project has no module " .. quoted(name), fix)
+    report(ctx, "require_unknown", node, says, fix)
     return ctx.invalid
   end
   local export = info.export
@@ -1518,6 +1529,32 @@ function TableLiterals.valid_key(k: Type): boolean
     ((k.tag == "named") and k.decl.kind ~= "enum" or is_enum(k))
 end
 
+--- The fix for an array literal whose elements `all` have no common type. An array of the first element's type
+--- cannot hold the others, so the fix is an array of their union, or, where the values differ by position (a row
+--- such as `{ "name", 1.0 }`), a record whose fields name the positions.
+function TableLiterals.differ_fix(ctx: Ctx, all: {Type}): string
+  local names: mut {string} = {}
+  local seen: mut {string: boolean} = {}
+  for _, t in ipairs(all) do
+    local name = show(ctx, t)
+    if seen[name] ~= true then
+      seen[name] = true
+      names[#names + 1] = name
+    end
+  end
+  local row = "for values that differ by position (a row), declare a record and write each row by name " ..
+    "(`{ name = ..., weight = ... }`)"
+  local tables = false
+  for _, name in ipairs(names) do
+    tables = tables or name:sub(1, 1) == "{" or name:sub(1, 4) == "mut "
+  end
+  -- A union of tables is one a literal cannot pick a member of (literal_ambiguous), so tables get the record alone.
+  if #names > 4 or tables then
+    return row .. ", or make the elements one type"
+  end
+  return "type the literal with their union: `local name: {" .. table.concat(names, " | ") .. "} = ...`; " .. row
+end
+
 --- A literal with no type expected: an array or a map of the join of its items.
 function TableLiterals.literal_inferred(ctx: Ctx, e: Ast.Table): Type
   local store = ctx.store
@@ -1551,7 +1588,7 @@ function TableLiterals.literal_inferred(ctx: Ctx, e: Ast.Table): Type
     local element = join(ctx, all)
     if element == nil then
       report(ctx, "arms_differ", e, "the elements of this literal have no common type: " .. listed(type_names(ctx, all)),
-        "type the literal: `local name: {" .. show(ctx, all[1]) .. "} = ...`, or make the elements one type") -- checked: index_may_be_nil
+        TableLiterals.differ_fix(ctx, all))
       return ctx.invalid
     end
     if nilable(element) then
@@ -2236,10 +2273,14 @@ local function field_unknown(ctx: Ctx, node: Ast.Node, t: Type, name: string)
     names = names_of(ctx, t)
   end
   local close = nearest(name, names)
+  local declare = "declare " .. quoted(name) .. " in " .. owner
+  if (t.tag == "named") and t.decl.module:sub(1, 7) == "cosmic." and ctx.input.module:sub(1, 7) ~= "cosmic." then
+    -- A record of cosmic's own modules is the binary's to a program, which cannot declare a field in it.
+    declare = "`cosmic docs " .. t.decl.module .. "` lists what " .. owner .. " has"
+  end
   report(ctx, "field_unknown", node, owner .. " has no field " .. quoted(name) ..
       (if close ~= "" then ", nearest " .. quoted(close) else "" end),
-    if close ~= "" then "write " .. quoted(close) .. ", or declare " .. quoted(name) .. " in " .. owner else
-      "declare " .. quoted(name) .. " in " .. owner end, { show(ctx, t) })
+    if close ~= "" then "write " .. quoted(close) .. ", or " .. declare else declare end, { show(ctx, t) })
 end
 
 --- How a message names the static `name` of `decl` that a statement of the module has yet to give, and that statement:
@@ -7686,7 +7727,19 @@ local function check_return(ctx: Ctx, s: Ast.Return)
     for i, t in ipairs(vals.types) do
       local want = alt.items[i] or alt.tail
       local at = s.values[math.min(i, n)]
-      if want ~= nil then
+      local value, first = alt.items[1], s.values[1]
+      if want ~= nil and i == 2 and n == 2 and #alt.items == 2 and t.tag == "nil" and want.tag == "string" and
+          value ~= nil and (nilable(value) or value.tag == "boolean") and first ~= nil and first.kind ~= "Nil" and
+          at ~= nil then
+        -- The reason of a `T?, string` result is "" on success: `string?` there, which declaring it suggests, is the
+        -- tuple that convention replaces.
+        local written = text_of(ctx, first)
+        if #written > 40 then written = "v" end
+        report(ctx, "nil_not_allowed", at, "nil is given as return value 2, the reason of a `" .. show(ctx, value) ..
+            ", string` result, where `string` is wanted",
+          "a reason is \"\" on success: `return " .. written .. ", \"\"`, and the failure's text beside a failure " ..
+            "(`Counts.open` in `cosmic docs project` shows one)")
+      elseif want ~= nil then
         local _ = expect(ctx, at, t, want, " as return value " .. tostring(i)) -- checked: nil_not_allowed
       end
     end

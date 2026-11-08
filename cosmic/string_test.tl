@@ -94,6 +94,15 @@ local function test_prefix_and_suffix_are_plain_text()
   assert(not String.starts_with("", "a") and not String.ends_with("", "a"))
 end
 
+local function test_contains_finds_plain_text_anywhere()
+  assert(String.contains("build.tl", "ld.t"))
+  assert(String.contains("build.tl", "build") and String.contains("build.tl", ".tl"))
+  assert(not String.contains("buildxtl", ".t"))
+  assert(String.contains("100%", "%") and not String.contains("abc", "[a]"))
+  assert(String.contains("x", "") and String.contains("", ""))
+  assert(not String.contains("", "a"))
+end
+
 local function test_counted_pluralizes_all_but_one()
   assert(String.counted(1, "byte") == "1 byte")
   assert(String.counted(0, "byte") == "0 bytes")

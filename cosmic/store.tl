@@ -167,6 +167,21 @@ function Store.withheld(name: string): string?, string
   return why, ""
 end
 
+--- Whether the binary's database holds a module or a declaration named
+--- `name`, with its source or without it: false for a name it has no row
+--- of, which is the one case [`Store.source`] answers because the name is
+--- absent. Nil and why where there is no database (a boot carries none)
+--- or the query failed, else "".
+function Store.holds(name: string): boolean?, string
+  local databases = store.databases()
+  local binary = databases[#databases]
+  if binary == nil then return nil, "holds: the binary carries no database" end
+  local rows, trouble = Sqlite.text_rows(binary,
+    "SELECT 1 FROM decls WHERE path = ?1 UNION ALL SELECT 1 FROM modules WHERE path = ?1", { { text = name } })
+  if rows == nil then return nil, "holds: " .. trouble end
+  return #rows > 0, ""
+end
+
 --- The names the binary's own `imports` table records the module
 --- `name` requiring, sorted: none for a name it holds no row of. Nil
 --- and why when the query failed.

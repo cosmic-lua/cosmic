@@ -298,3 +298,30 @@ local function test_a_file_in_a_directory_is_told_the_directory_grant()
       "for a test that reads more of a/b/, grant the directory: { path = \"a/b/\", letters = \"r\" } " ..
       "(see cosmic docs cosmic.test)", test_report.tree_hint("a/b/c.txt"))
 end
+
+--- A module that failed to load fails each of its tests for one cause, which ran outside every test: it is said once,
+--- naming the tests and where the cause ran, and rerun by the module's file, though its text differs from test to test
+--- (a path under each worker's own directory). A module of one test is said so too, and a test of another module as
+--- before.
+local function test_a_module_that_failed_to_load_is_one_failure()
+  local function cause(dir: string): string
+    return "the module failed to load: run_test:2: /tmp/" .. dir .. "/missing: no such file\n  its directory was a tmpfs"
+  end
+  local lines = test_report.failures({
+    { message = "run_test test_b: " .. cause("b"), rerun = "run_test.tl:test_b" },
+    { message = "run_test test_a: " .. cause("a"), rerun = "run_test.tl:test_a" },
+    { message = "one_test test_c: " .. cause("c"), rerun = "one_test.tl:test_c" },
+    { message = "other_test test_d: broken", rerun = "other_test.tl:test_d" },
+  }, "")
+  local text = table.concat(lines, "\n")
+  local tail = "): what failed ran as the module loaded, at its top level and outside every test; move it into a test " ..
+    "or a function the tests call\n  its directory was a tmpfs\n"
+  assert(text == "test: FAIL  one_test: the module failed to load: run_test:2: /tmp/c/missing: no such file\n" ..
+      "  its test did not run (test_c" .. tail ..
+      "  rerun: cosmic test one_test.tl\n" ..
+      "test: FAIL  other_test test_d: broken\n" ..
+      "  rerun: cosmic test other_test.tl:test_d\n" ..
+      "test: FAIL  run_test: the module failed to load: run_test:2: /tmp/a/missing: no such file\n" ..
+      "  none of its 2 tests ran (test_a, test_b" .. tail ..
+      "  rerun: cosmic test run_test.tl", text)
+end

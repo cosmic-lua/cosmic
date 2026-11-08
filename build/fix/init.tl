@@ -1924,9 +1924,23 @@ local function report(ctx: Fix): integer
     log:say("fix: FAIL  " .. links_unbuilt)
   end
   local linked = link_only
+  -- A file laid out that the build refused is not fixed: its layout is sound whatever its types (build.fix.equiv), so
+  -- it is written, but saying "fixed" beside its refusal reads as the refusal gone.
+  local refused: mut {string:boolean} = {}
+  for line in ((unbuilt or "") .. "\n"):gmatch("(.-)\n") do
+    local file = line:match("^%.?/?([^:]+%.tl):")
+    if file ~= nil then refused[file] = true end
+  end
+  local laid_refused = 0
   for _, file in ipairs(changed) do
-    log:say("fix: " .. (if checking == true then "would fix  " else "fixed  " end) .. file ..
-        (if linked[file] == true then " (links)" else "" end))
+    if refused[(file:gsub("^%./", ""))] == true then
+      laid_refused = laid_refused + 1
+      log:say("fix: " .. (if checking == true then "would lay out  " else "laid out  " end) .. file ..
+          "; it does not check (above)")
+    else
+      log:say("fix: " .. (if checking == true then "would fix  " else "fixed  " end) .. file ..
+          (if linked[file] == true then " (links)" else "" end))
+    end
   end
   if #failures > 0 or #unlaid > 0 or #findings > 0 or #broken > 0 or #would > 0 or #redefined > 0 or
       unbuilt ~= nil or links_unbuilt ~= nil then
@@ -1954,6 +1968,10 @@ local function report(ctx: Fix): integer
     end
     if unbuilt ~= nil then
       said[#said + 1] = "the tree not building"
+    end
+    if laid_refused > 0 then
+      said[#said + 1] = plural.count(laid_refused, "file") .. (if checking == true then " to lay out" else " laid out" end) ..
+        " that the build refused"
     end
     if links_unbuilt ~= nil then
       said[#said + 1] = "the links' build failing"

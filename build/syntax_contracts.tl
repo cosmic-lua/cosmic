@@ -572,7 +572,8 @@ local function check_function(run: Run, fn: Ast.Node, parts: Parts, stand_in: bo
     -- A boolean beside a count (`boolean, integer`) is two answers, not a failure; beside a value that admits nil, an
     -- integer is an error code standing where the reason belongs.
     if (value and tag_of(second) == "integer") or holds(second, "string") then
-      report(run, line, string.format("%s: a failure's reason is exactly a string; this second result is not", name))
+      report(run, line, string.format("%s: a failure's reason is exactly a string; this second result is not: " ..
+          "declare it `string`, and return \"\" for it on success", name))
     end
     return
   end
