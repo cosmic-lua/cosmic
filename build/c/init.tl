@@ -235,33 +235,56 @@ local function standalone_compiles(variables: {string:string}): string?
   return dir
 end
 
+--- The bootstrap cosmic whose sha256 is `digest` (the pin's third line), where `variables` caches it
+--- ([`bin/cosmic-bootstrap`]'s `cosmic-<sha256>`), fetched first where it is not cached yet (a cleared cache, a new
+--- pin): a confined compiler, given the cache to read and no network, could not fetch it, and every check would fail
+--- with the fetch's error. The fetch is bin/cosmic-bootstrap's own (`--raw-path`), run unconfined with `variables`;
+--- bin/cosmic has run it already wherever it started the check, so this is a run that did not. Answers its path, or nil
+--- and why where it is not there after.
+function c.bootstrap_cosmic(root: string, variables: {string:string}, digest: string): string?, string
+  local function cached(): string?
+    local dir, _ = Fs.cache_dir("bootstrap", { environment = variables, make = false })
+    if dir == nil then return nil end
+    local path = dir .. "/cosmic-" .. digest
+    local st, _ = Fs.stat(path)
+    if st == nil then return nil end
+    return path
+  end
+  local found = cached()
+  if found ~= nil then return found, "" end
+  local result, trouble = Child.run({ root .. "/bin/cosmic-bootstrap", "--raw-path" }, {
+    env = variables, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(600),
+  })
+  found = cached()
+  if found ~= nil then return found, "" end
+  local said = trouble
+  if result ~= nil then said = ((result.stderr or ""):gsub("%s+$", "")) end
+  local why = "the bootstrap cosmic ci/cosmic-driver.pin names is not cached, and bin/cosmic-bootstrap could not fetch it"
+  if said ~= "" then why = why .. ": " .. said end
+  return nil, why
+end
+
+--- [`toolchain`]'s answer, and why there is none where the pins name a toolchain that cannot run: "" where there
+--- is one, or where an override or a missing cache leaves the compiler to start as any process does.
 local function toolchain(root: string, variables: {string:string}):
-    string?, {string}
+    string?, {string}, string
   for _, name in ipairs({ "COSMIC_ZIG", "COSMIC_BOOTSTRAP" }) do
     local value = variables[name]
-    if value ~= nil and value ~= "" then return nil, {} end
+    if value ~= nil and value ~= "" then return nil, {}, "" end
   end
   local pin, _ = Fs.read(root .. "/ci/cosmic-driver.pin")
   local cache, _ = Fs.cache_dir("zig", { environment = variables, make = false })
-  if cache == nil then return nil, {} end
+  if cache == nil then return nil, {}, "" end
   local install, _ = Zig.pinned_install(root, cache)
-  if install == nil then return nil, {} end
+  if install == nil then return nil, {}, "" end
   local runs_from: mut {string} = { install.path }
-  -- The bootstrap cosmic, cached by the digest the pin's third line
-  -- names (bin/cosmic-bootstrap).
-  -- TODO: say why where the bootstrap cosmic is not cached yet (a cleared
-  -- cache, a new pin), rather than confine a compiler that cannot run:
-  -- bin/cosmic-bootstrap would fetch it, which a confined compiler, given
-  -- the cache to read and no network, cannot, so every check fails with
-  -- that fetch's error. bin/cosmic runs bin/cosmic-bootstrap first under
-  -- the same cache, so only a run that bypasses it meets this. It waits
-  -- on c.check fetching the pin's cosmic unconfined before it confines.
   local digest = (pin or ""):match("^[^\n]*\n[^\n]*\n(%x+)")
-  local bootstrap, _ = Fs.cache_dir("bootstrap", { environment = variables, make = false })
-  if digest ~= nil and bootstrap ~= nil then
-    runs_from[#runs_from + 1] = bootstrap .. "/cosmic-" .. digest
+  if digest ~= nil then
+    local bootstrap, why = c.bootstrap_cosmic(root, variables, digest)
+    if bootstrap == nil then return nil, {}, why end
+    runs_from[#runs_from + 1] = bootstrap
   end
-  return install.path, runs_from
+  return install.path, runs_from, ""
 end
 
 --- `env`, a compiler's environment, with every cache it writes in `deps`, the check's own directory, which its
@@ -515,7 +538,11 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer, s
   end
   local results: mut {integer: c.Outcome} = {}
   local env = environment()
-  local install, runs_from = toolchain(root, env)
+  local install, runs_from, unrunnable = toolchain(root, env)
+  if unrunnable ~= "" then
+    for i, file in ipairs(files) do outcomes[i] = { file = file, trouble = unrunnable } end
+    return outcomes
+  end
   local made_deps, deps_trouble = Fs.mkdtemp("cosmic-c-deps-")
   if made_deps == nil then
     for i, file in ipairs(files) do
