@@ -63,8 +63,7 @@ local record harness_epoch
   mut retired: {string}
   --- The standard-library modules the harness's modules may reach, each
   --- by why it must. An edit to one moves every key, so a module whose use
-  --- is a line or two is written out where the harness uses it instead
-  --- (cosmic.string's prefix tests and plurals).
+  --- is a line or two is written out where the harness uses it instead.
   mut library: {string:string}
 end
 

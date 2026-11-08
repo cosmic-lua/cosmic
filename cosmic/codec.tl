@@ -21,8 +21,8 @@
 local record Codec
 end
 
---- The byte at `index` of `text`, raising where there is none, as
---- [`cosmic.string.byte_at`] does. Written here rather than required:
+--- The byte at `index` of `text`, raising at the caller where there is
+--- none, as [`cosmic.string.byte_at`] does, with a message of its own. Written here rather than required:
 --- the test harness reaches this module (through [`cosmic.hash`]), and an
 --- edit to a module it reaches moves every verdict's key
 --- (build/harness_epoch.tl's `library`).
