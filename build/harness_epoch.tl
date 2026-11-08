@@ -95,11 +95,13 @@ harness_epoch.library = {
   ["cosmic.sandbox.policy"] = "the policy layer cosmic.sandbox answers under its own " ..
     "name: its `merge` and the profiles it joins decide the grants a worker is held to " ..
     "(`build.test_policy`'s `runs`); held alone, what it requires is not walked",
-  -- TODO: take cosmic.sqlite out of the harness, and this entry out of
-  -- `library`, once build.shared_sqlite gives build.declared_key's
-  -- `program`, build.shared_verdicts and build.bind what they read and
-  -- write through the raw binding (cosmic.internal.sqlite), and they
-  -- and it reach no cosmic.sqlite.
+  -- Kept, though an edit to it moves every key: the harness reads rows
+  -- through its typed row accessors (`text`, `blob`) and binds through
+  -- its checked values, in some 90 places across build.test_key,
+  -- build.shared_verdicts, build.shared_sqlite, build.declared_key and
+  -- build.bind, and a copy of those over the raw binding
+  -- (cosmic.internal.sqlite) would be a second SQLite layer inside the
+  -- key's code to keep in step with this one.
   ["cosmic.sqlite"] = "the key's code digests the rows it reads of the store, and " ..
     "shared verdicts are stored and looked up under exact keys through it",
   ["cosmic.test"] = "a test's declaration (`Test.policy`), which the worker judges, and " ..
