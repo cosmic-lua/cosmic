@@ -19,12 +19,14 @@ local Removed = require("cosmic.removed")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local String = require("cosmic.string")
+local AnalysisSchema = require("build.analysis_schema")
 local alias_members = require("build.alias_members")
 local clock = require("build.clock")
 local GrammarMode = require("build.grammar_mode")
 local link_text = require("build.link_text")
 local narrow = require("build.narrow")
 local plural = require("build.plural")
+local positions = require("build.positions")
 local reboot = require("build.reboot")
 local symbol_index = require("build.symbol_index")
 local symbols = require("build.symbols")
@@ -153,6 +155,12 @@ local record docs
     module: string
     --- The first sentence of its documentation; "" when it has none.
     text: string
+    --- Who alone may require it, by the two rules of [`build.positions`] that hold in every project: "private to
+    --- rules/returns/" for a module of a closed directory, "internal to app/" for one an `internal` directory scopes, ""
+    --- for one any module may. The rules of cosmic's own tree alone (`build/` private to the tool, a test and test
+    --- support) are not marked. [`docs.index`] leaves it "": only the list `cosmic docs` prints judges it
+    --- ([`marked`]).
+    closed: string
   end
 
   --- One row of `uses`, or of `links` (`link`): a link names the
@@ -1948,7 +1956,8 @@ end
 --- Every module `view` holds, by name, with the first sentence of its
 --- documentation ("" for one it does not document) -- no test or
 --- example, which a reader never calls: what `cosmic docs` lists when
---- asked nothing.
+--- asked nothing. Each `closed` is "": the list `cosmic docs` prints
+--- judges it ([`marked`]), which no other reader of the index pays for.
 function docs.index(view: docs.View): {docs.Summary}?, string
   local found, trouble = across(view, modules_of, entry_module)
   if found == nil then
@@ -1966,7 +1975,7 @@ function docs.index(view: docs.View): {docs.Summary}?, string
       (view.public[owner] ~= true or symbols.is_public_module(module) or
         symbols.is_public_guide(module))
     if listed then
-      out[#out + 1] = { module = module, text = said[module] or "" }
+      out[#out + 1] = { module = module, text = said[module] or "", closed = "" }
     end
   end
   table.sort(out, function(a: docs.Summary, b: docs.Summary): boolean
@@ -2945,9 +2954,12 @@ local function index_lines(index: {docs.Summary}, limit?: integer): mut {string}
   local lines: mut {string} = {}
   for _, summary in ipairs(index) do
     local line = summary.module
-    if summary.text ~= "" then
-      line = line .. string.rep(" ", width - #line + 2) ..
-        (if limit ~= nil then clipped(summary.text, limit) else summary.text end)
+    local about = if limit ~= nil then clipped(summary.text, limit) else summary.text end
+    if summary.closed ~= "" then
+      about = "(" .. summary.closed .. ")" .. (if about ~= "" then " " .. about else "" end)
+    end
+    if about ~= "" then
+      line = line .. string.rep(" ", width - #line + 2) .. about
     end
     lines[#lines + 1] = line
   end
@@ -2974,16 +2986,78 @@ function docs.asked(words: {string}): {string}?
   return words
 end
 
+--- Who alone may require each module of the tree `db` holds, as [`docs.Summary`]'s `closed` says it, by module: a
+--- module of the `module` kind only, since a guide, a test or a program is required by none, and none of the standard
+--- library's public modules ([`symbols.is_public_module`]), which a project may require; absent for one any
+--- module may require. A module at `cosmic/internal/` is always the standard library's (a project may not define
+--- `cosmic.*`), so it is judged as cosmic's own tree judges it. A mark is a hint, not the build's refusal: one that
+--- cannot be judged, the database or the module's source not being read, is left off.
+local function closed_in(db: Sqlite.Handle): {string: string}
+  local out: mut {string: string} = {}
+  local rows, _ = Sqlite.text_rows(db, "SELECT path, file, kind FROM modules", {})
+  if rows == nil then
+    return out
+  end
+  local files: mut {string} = {}
+  for _, row in ipairs(rows) do files[#files + 1] = row:text(2) end
+  local entries = positions.entries(files)
+  for _, row in ipairs(rows) do
+    local module, file = row:text(1), row:text(2)
+    -- The library's public surface is a project's to require wherever it sits, though cosmic's own tree holds it
+    -- to the rule: a reader of the list is told what a project may require.
+    if row:text(3) == "module" and not symbols.is_public_module(module) then
+      -- Only a module of a closed directory is asked, so few sources are inflated. One whose source cannot be read, or
+      -- is not held (a row written without it), cannot be judged, and counts as open, which leaves its mark off.
+      local reach = positions.reach(file, entries, function(): boolean
+        local sources, _ = Sqlite.text_rows(db,
+          "SELECT CAST(inflate(source) AS TEXT) FROM modules WHERE path = ?1 AND length(source) > 0",
+          { text(module) })
+        return sources == nil or #sources == 0 or AnalysisSchema.declares_public(sources[1]:text(1))
+      end, true)
+      if reach ~= nil then
+        local rule = if reach.internal then "internal to " else "private to " end
+        out[module] = rule .. reach.within .. "/"
+      end
+    end
+  end
+  return out
+end
+
+--- `index` with each `closed` judged ([`closed_in`]), for a module of a database of the tree's own only: a public
+--- source's module (the standard library a project builds with) is no module of the tree, and the rule refuses no
+--- require of it.
+local function marked(view: docs.View, index: {docs.Summary}): {docs.Summary}
+  local by_owner: mut {integer: {string: string}} = {}
+  local out: mut {docs.Summary} = {}
+  for _, summary in ipairs(index) do
+    local owner = view.owners[summary.module]
+    local closed = ""
+    if owner ~= nil and view.public[owner] ~= true then
+      local marks = by_owner[owner]
+      if marks == nil then
+        marks = closed_in(database_of(view, owner))
+        by_owner[owner] = marks
+      end
+      closed = marks[summary.module] or ""
+    end
+    out[#out + 1] = { module = summary.module, text = summary.text, closed = closed }
+  end
+  return out
+end
+
 --- The modules `cosmic docs <words...>` lists when [`docs.asked`] names no
 --- query: every module for no words, the standard library's modules and
---- guides for `cosmic`. Nil and why when a database cannot be read.
+--- guides for `cosmic`. Nil and why when a database cannot be read; a mark that cannot be judged
+--- is left off ([`closed_in`]).
 local function modules_asked(view: docs.View, words: {string}): {docs.Summary}?, string
   local index, trouble = docs.index(view)
   if index == nil then
     return nil, trouble
   end
+  -- Only the list of every module is marked: `cosmic` lists the library's public modules and guides, none of which
+  -- is ever marked.
   if table.concat(words, " ") == "" then
-    return index, ""
+    return marked(view, index), ""
   end
   local library: mut {docs.Summary} = {}
   for _, summary in ipairs(index) do
@@ -3079,7 +3153,8 @@ end
 ---   (the command `cosmic <query>`, which the page points to) on the last
 ---   module entry of a query that names one;
 --- - no words, or `cosmic`, name no query: each module the page lists, as
----   `kind` "module", with its `text` the first sentence.
+---   `kind` "module", with its `text` the first sentence, and `closed`
+---   ([`docs.Summary`]) where not every module may require it.
 --- A query that finds nothing has no line. Each object carries `stale`, true,
 --- where `stale` is set: the lookup answers from the last build, the tree not
 --- building as it stands. Nil and why when a database
@@ -3099,6 +3174,7 @@ function docs.records(view: docs.View, words: {string}, stale?: boolean): docs.A
         query = table.concat(words, " "), exact = false, module = summary.module,
         symbol = "", kind = "module", signature = "", text = summary.text,
       }
+      if summary.closed ~= "" then object["closed"] = summary.closed end
       if stale == true then object["stale"] = true end
       local line, encode_trouble = Json.encode(object)
       if line == nil then

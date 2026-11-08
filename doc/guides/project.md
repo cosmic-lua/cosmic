@@ -16,7 +16,8 @@ A file's name says what it is.
 
 - `name.tl` is a library module, `require("name")`. A directory
   `name/` holding an `init.tl` is the same module, `require("name")`,
-  with room for files of its own beside it.
+  with room for files of its own beside it: a package, whose other
+  files only its own may require ([a package](#a-package)).
 - `name.tmpl` is a typed template ([`cosmic.template`]), built into the
   module `require("name")` with a `render` function: `pages/home.tmpl`
   is `pages.home`, `pages/init.tmpl` is `pages`. Nothing generated is
@@ -409,6 +410,145 @@ build exited 0
 5
 test: 3 tests passed
 tally (tally.tl)
+```
+
+## a package
+
+A module that grows past one file becomes a package: a directory whose
+`init.tl` is the module, with the files only it uses beside it.
+`store/init.tl` is `require("store")`, and `store/query.tl` is
+`require("store.query")`, which only a file inside `store/` may
+require, its test included. Split a module this way rather than into
+flat files that share a prefix (`store.tl` beside `store_query.tl`):
+every file at the root is the whole project's, while a file of a
+package is the package's own, so it can change without a caller
+outside to keep.
+
+```teal file=store/init.tl
+--- Notes, and a search over them.
+
+local query = require("store.query")
+
+local record store
+end
+
+--- Each of `notes` that holds `word`, in any case, in order.
+function store.find(notes: {string}, word: string): {string}
+  local out: mut {string} = {}
+  for _, note in ipairs(notes) do
+    for _, seen in ipairs(query.words(note)) do
+      if seen == word:lower() then
+        out[#out + 1] = note
+        break
+      end
+    end
+  end
+  return out
+end
+
+return store
+```
+
+```teal file=store/query.tl
+--- The words a search matches in a note.
+
+local record query
+end
+
+--- Each word of `text`, split on whitespace and lowercased, in order.
+function query.words(text: string): {string}
+  local out: mut {string} = {}
+  for word in text:gmatch("%S+") do
+    out[#out + 1] = word:lower()
+  end
+  return out
+end
+
+return query
+```
+
+```teal file=store/query_test.tl
+local query = require("store.query")
+
+local function test_words()
+  local words = query.words("Buy  MILK")
+  assert(#words == 2 and words[1] == "buy" and words[2] == "milk")
+end
+```
+
+```teal file=store_test.tl
+local store = require("store")
+
+local function test_find()
+  local found = store.find({ "buy milk", "call Ana", "Milk the cow" }, "milk")
+  assert(#found == 2 and found[1] == "buy milk" and found[2] == "Milk the cow")
+end
+```
+
+A module outside the package that requires `store.query` is refused,
+and the refusal names the entry to require instead; `cosmic docs`
+marks such a module `(private to store/)` beside its first sentence.
+A member meant for every module says so with the line `--- @public`
+in the comment that opens it, which the docs leave out. This adds
+`report.tl`, a module outside the package that requires
+`store.query`, then opens `store/query.tl` to it.
+`cosmic docs cosmic.layout.require` has the whole rule, an
+`internal/` directory's included.
+
+```teal
+local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
+local Env = require("cosmic.env")
+local Fs = require("cosmic.fs")
+local Proc = require("cosmic.proc")
+
+local relaunch = assert(Proc.relaunch())
+local env: mut {string: string} = {}
+for name, value in pairs(Env.all()) do env[name] = value end
+for name, value in pairs(relaunch.env) do env[name] = value end
+env["COSMIC_TEST_SANDBOX"] = "0"
+local function cosmic(...: string): string
+  local argv = { table.unpack(relaunch.argv) }
+  for _, word in ipairs({ ... }) do argv[#argv + 1] = word end
+  local said = assert(Child.run(argv, { env = env, fds = relaunch.fds, cwd = tmp,
+    stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(120) }))
+  return said.stdout or ""
+end
+-- The line that says how the tests went: the summary, or the first failure.
+local function verdict(said: string): string
+  return said:match("FAIL  ([^\n]*)") or said:match("test: %d+ tests? passed") or said
+end
+-- The index's line for store.query, its columns closed up.
+local function listed(): string
+  return ((("\n" .. cosmic("docs")):match("\n(store%.query [^\n]*)") or ""):gsub("  +", "  "))
+end
+
+print(verdict(cosmic("test")))
+assert(Fs.write(tmp .. "/report.tl", table.concat({
+  "--- How many words a note has.",
+  "local query = require(\"store.query\")",
+  "local record report",
+  "end",
+  "--- The number of words in `note`.",
+  "function report.words(note: string): integer",
+  "  return #query.words(note)",
+  "end",
+  "return report",
+}, "\n") .. "\n"))
+print(verdict(cosmic("test")))
+print(listed())
+local source = assert(Fs.read(tmp .. "/store/query.tl"))
+assert(Fs.write(tmp .. "/store/query.tl", (source:gsub("\n", "\n--- @public\n", 1))))
+print(verdict(cosmic("test")))
+print(listed())
+```
+
+```output
+test: 2 tests passed
+report.tl: store.query is private to store/; only a file inside it may import it (its entry is store/init.tl), or the module can say `--- @public`
+store.query  (private to store/) The words a search matches in a note.
+test: 2 tests passed
+store.query  The words a search matches in a note.
 ```
 
 ## discarding a failure on purpose
