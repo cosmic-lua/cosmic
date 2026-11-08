@@ -112,10 +112,12 @@ local TOLD <const> = table.concat({
 
 local MODULES <const>: {string: string} = { zipx = ZIPX, tally = TALLY, decoy = DECOY, told = TOLD }
 
+--- The uses as lines; the subject's own module (`t<n>`, numbered by the fixture) is `self`.
 local function uses_of(said: Fixture.Said): string
   local out: mut {string} = {}
   for _, u in ipairs(said.refs) do
-    out[#out + 1] = u.module .. " " .. u.member .. " " .. tostring(u.line)
+    local module = if u.module:match("^t%d+$") ~= nil then "self" else u.module end
+    out[#out + 1] = module .. " " .. u.member .. " " .. tostring(u.line)
   end
   return table.concat(out, "\n")
 end
@@ -132,12 +134,13 @@ end
 
 local function test_a_field_read_and_a_method_called_through_a_nested_record_are_uses_of_its_field()
   local found = same("local Z = require('zipx')\nlocal w = Z.open()\nlocal n = w.name\nlocal ok, _ = w:close()\nuse(n, ok)\n")
-  assert(found == "zipx Writer.name " .. tostring(line(3)) .. "\nzipx Writer.close " .. tostring(line(4)), found)
+  assert(found == "zipx open " .. tostring(line(2)) .. "\nzipx Writer.name " .. tostring(line(3)) .. "\nzipx Writer.close " ..
+      tostring(line(4)), found)
 end
 
 local function test_a_name_the_record_does_not_take_is_found_by_the_type_of_the_value_not_by_its_name()
   local found = same("local Z = require('zipx')\nlocal p = Z.plain()\nlocal q = p\nuse(q.size, q:grow())\nuse(p.size)\n")
-  assert(found == "zipx Plain.grow " .. tostring(line(4)) .. "\nzipx Plain.size " .. tostring(line(4)) .. "\nzipx Plain.size " .. tostring(line(5)), found)
+  assert(found == "zipx plain " .. tostring(line(2)) .. "\nzipx Plain.grow " .. tostring(line(4)) .. "\nzipx Plain.size " .. tostring(line(4)) .. "\nzipx Plain.size " .. tostring(line(5)), found)
 end
 
 local function test_a_field_the_record_inherits_is_a_use_of_the_interface_that_declares_it()
@@ -149,20 +152,28 @@ end
 
 local function test_a_field_declared_by_each_of_a_chain_of_interfaces_is_a_use_of_the_deepest()
   local found = same("local Z = require('zipx')\nlocal d = Z.deep()\nuse(d:tell())\n")
-  assert(found == "zipx Base.tell " .. tostring(line(3)), found)
+  assert(found == "zipx deep " .. tostring(line(2)) .. "\nzipx Base.tell " .. tostring(line(3)), found)
 end
 
 local function test_an_assignment_to_a_field_is_no_use_and_the_value_it_is_reached_through_is()
   local found = same("local Z = require('zipx')\nlocal w = Z.open()\nw.name = 'x'\nlocal record Holder\n  w: Z.Writer\nend\nlocal box: Holder = { w = w }\n" ..
       "local ok, _ = box.w:close()\nuse(ok)\n")
-  assert(found == "zipx Writer.close " .. tostring(line(8)), found)
+  assert(found == "zipx open " .. tostring(line(2)) .. "\nself Holder.w " .. tostring(line(8)) .. "\nzipx Writer.close " ..
+      tostring(line(8)), found)
 end
 
-local function test_a_record_of_the_modules_own_and_one_it_keeps_to_itself_have_no_row()
-  local found = same("local Z = require('zipx')\nuse(Z.open, Z.plain)\n")
-  assert(found == "", found)
-  -- the private record is no one's to name; a value typed as one in this program is a use of nothing
-  assert(same("local record Mine\n  n: integer\nend\nlocal m: Mine = { n = 1 }\nuse(m.n)\n") == "")
+--- A read through a require alias is the syntactic half's to find as well; the two rows of one place are one use.
+local function test_a_field_of_a_modules_own_record_read_through_it_from_another_file_is_a_use()
+  local found = same("local Z = require('zipx')\nuse(Z.open, Z.plain)\nlocal Y = Z\nuse(Y.deep, require('zipx').open)\n")
+  assert(found == "zipx open " .. tostring(line(2)) .. "\nzipx plain " .. tostring(line(2)) .. "\nzipx deep " .. tostring(line(4)) ..
+      "\nzipx open " .. tostring(line(4)), found)
+end
+
+--- A record at the top of a file has a row in `docs` though the module does not return it: a field read through a value of
+--- it is a use, as a call of its method is.
+local function test_a_field_of_a_record_at_the_top_of_the_file_read_through_a_value_is_a_use()
+  local found = same("local record Mine\n  n: integer\nend\nlocal m: Mine = { n = 1 }\nuse(m.n)\n")
+  assert(found == "self Mine.n " .. tostring(line(5)), found)
 end
 
 local function test_a_use_on_each_line_is_found_once_and_a_line_with_two_is_found_in_order()
@@ -177,11 +188,12 @@ local function test_a_use_on_each_line_is_found_once_and_a_line_with_two_is_foun
 end
 
 --- The checker refuses a table constructor with no declared type (it has no type to make a record from), types the value
---- `invalid`, and finds no use through it. The refusal is the checker's error, which the ceilings count.
+--- `invalid`, and finds no use through it (only `Z.open`'s). The refusal is the checker's error, which the ceilings count.
 local function test_a_value_reached_through_a_table_constructor_with_no_type_is_no_use()
   local text = Fixture.PRELUDE .. "local Z = require('zipx')\nlocal w = Z.open()\nlocal box = { w = w }\n" ..
     "local ok, _ = box.w:close()\nuse(ok)\n"
-  assert(uses_of(Fixture.port(text, MODULES)) == "")
+  local found = uses_of(Fixture.port(text, MODULES))
+  assert(found == "zipx open " .. tostring(line(2)), found)
 end
 
 --- The lines a use is not seen on are those where the value a field is read through is typed `invalid` (here a type that does
@@ -225,7 +237,7 @@ local function test_a_string_method_on_an_enum_value_is_no_use_of_the_enum()
   for _, u in ipairs(said.refs) do
     found[#found + 1] = u.module .. " " .. u.member
   end
-  assert(#found == 1 and found[1] == "enumx Tok.kind", table.concat(found, ", "))
+  assert(#found == 2 and found[1] == "enumx make" and found[2] == "enumx Tok.kind", table.concat(found, ", "))
 end
 
 --- A method called through a value of the record its module returns is a use of that method, whatever the value is called
@@ -251,8 +263,13 @@ local function test_a_method_called_through_a_value_of_the_record_a_module_retur
     "",
   }, "\n"))
   -- `D.pile():add(4)` is a use of the other module's `Pile.add`, not of the `add` of `Tally`
-  assert(found == "tally add " .. tostring(line(4)) .. "\ntally add " .. tostring(line(6)) .. "\ntally add " .. tostring(line(13)) ..
-      "\ndecoy Pile.add " .. tostring(line(14)) .. "\ntally count " .. tostring(line(15)), found)
+  -- (`Tally.new` and `D.pile` are read through the module's record, `box.held` through the file's own `Holder`)
+  local want = table.concat({
+    "tally new " .. tostring(line(3)), "tally add " .. tostring(line(4)), "tally add " .. tostring(line(6)),
+    "self Holder.held " .. tostring(line(13)), "tally add " .. tostring(line(13)), "decoy Pile.add " .. tostring(line(14)),
+    "decoy pile " .. tostring(line(14)), "tally count " .. tostring(line(15)),
+  }, "\n")
+  assert(found == want, found)
 end
 
 --- The module that returns a record reads its fields through the record itself and through a value of it: each read is a
@@ -274,12 +291,9 @@ local function test_a_module_reading_its_own_records_fields_is_a_use_of_them()
     "return Own",
     "",
   }, "\n"), MODULES)
-  local found: mut {string} = {}
-  for _, u in ipairs(said.refs) do
-    found[#found + 1] = u.module:gsub("^t%d+$", "own") .. " " .. u.member .. " " .. tostring(u.line - line(0))
-  end
-  local text = table.concat(found, "\n")
-  assert(text == "own size 7\nown size 10\nown twice 10", text)
+  local found = uses_of(said)
+  local want = "self size " .. tostring(line(7)) .. "\nself size " .. tostring(line(10)) .. "\nself twice " .. tostring(line(10))
+  assert(found == want, found)
 end
 
 --- A value the checker has no record for, or a union, is the use of nothing.
@@ -294,11 +308,11 @@ local function test_a_value_of_no_known_record_is_a_use_of_nothing()
     "",
   }, "\n")
   local found = uses_of(Fixture.port(text, MODULES))
-  assert(found == "tally add " .. tostring(line(6)), found)
+  assert(found == "tally new " .. tostring(line(2)) .. "\ntally add " .. tostring(line(6)), found)
 end
 
 --- A record, class or interface at the top of a module's file, which is not the record the module returns, has its methods
---- used by a call through a value of it: no module names it, so the reference says so (`top`).
+--- and fields used through a value of it: no module names it, so the reference says so (`top`).
 local function test_a_method_called_through_a_record_at_the_top_of_a_file_is_a_use_of_it()
   local text = Fixture.PRELUDE .. table.concat({
     "local record Mine",
@@ -327,8 +341,9 @@ local function test_a_method_called_through_a_record_at_the_top_of_a_file_is_a_u
     assert(r.top == true)
     out = out .. r.member .. " " .. tostring(r.line) .. "\n"
   end
-  -- `self:bump()` inside the record's own method, `m:add(1)`, and the call through `other`'s parameter
-  assert(out == "Mine.bump " .. tostring(line(10)) .. "\nMine.add " .. tostring(line(13)) .. "\nOther.add " .. tostring(line(15)) .. "\n", out)
+  -- `self:bump()` inside the record's own method, `m:add(1)` and `m.n`, and the call through `other`'s parameter
+  assert(out == "Mine.bump " .. tostring(line(10)) .. "\nMine.add " .. tostring(line(13)) .. "\nMine.n " .. tostring(line(13)) ..
+      "\nOther.add " .. tostring(line(15)) .. "\n", out)
 end
 
 --- A method an interface declares, called through a value of a record that lists it, is a use of the interface's method.
@@ -394,7 +409,7 @@ local function test_a_method_the_returned_record_inherits_from_an_interface_of_i
   for _, r in ipairs(Receivers.references(Fixture.subject(text, MODULES))) do
     out = out .. r.module .. " " .. r.member .. " " .. tostring(r.top) .. "\n"
   end
-  assert(out == "told Told.tell true\n", out)
+  assert(out == "told new nil\ntold Told.tell true\n", out)
 end
 
 --- A record nested in one module's own that is also the record another module returns (a value typed as it) is used under the

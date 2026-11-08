@@ -50,13 +50,11 @@ local record Report
   --- for a type the module keeps to itself and for one inside a function.
   owner_of: function(program: Declarations.Program, decl: Types.Decl): Owner?
 
-  --- Where a method of `decl` is a use of, when it is no record nested under its module's own ([`Report.owner_of`]): the
-  --- record or class the module returns, whose members are `path` "" (the module's own members are `Z.f`), or a record, class or interface declared at the top of its module's file, under
-  --- its own name. nil for an enum, a type inside a function, and any other.
+  --- Where a field or method of `decl` is a use of, when it is no record nested under its module's own
+  --- ([`Report.owner_of`]): the record or class the module returns, whose members are `path` "" as `docs` spells them
+  --- (`size`, not `Own.size`), or a record, class or interface declared at the top of its module's file, under its own name.
+  --- nil for an enum, a type inside a function, and any other.
   home_of: function(program: Declarations.Program, decl: Types.Decl): Owner?
-
-  --- Whether `decl` declares the method `name` itself (a class's `function name(self)`, not a field holding a function).
-  has_method: function(decl: Types.Decl, name: string): boolean
 
   --- Whether `decl` declares the field or method `name` itself.
   has_member: function(decl: Types.Decl, name: string): boolean
@@ -122,19 +120,6 @@ function Report.home_of(program: Declarations.Program, decl: Types.Decl): Report
     return { module = decl.module, path = "" }
   end
   return { module = decl.module, path = name }
-end
-
-function Report.has_method(decl: Types.Decl, name: string): boolean
-  local body = decl.body
-  if body == nil then
-    return false
-  end
-  for _, m in ipairs(body.methods) do
-    if m.name == name then
-      return true
-    end
-  end
-  return false
 end
 
 function Report.has_member(decl: Types.Decl, name: string): boolean

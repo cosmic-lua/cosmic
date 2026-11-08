@@ -4,10 +4,10 @@
 --- reporter for the types; this reads the type report of the driver ([`build.driver`]) by the id of the node.
 ---
 --- A receiver resolves to a symbol when its record is one some module's own record declares, nested under it
---- ([`Zip.Writer`], [`Stream.Reader`]) -- [`build.syntax_report`]'s `owner_of` -- or the module's own record, whose fields
---- its own file reads as `Own.size` and any file through a value of it. Another file's `Own.size` is read through a require
---- alias, the syntactic half's to answer ([`build.syntax_analyzer`]'s references). A record a file keeps to itself has no
---- row in `docs` to be a use of.
+--- ([`Zip.Writer`], [`Stream.Reader`]) -- [`build.syntax_report`]'s `owner_of` -- or is declared at the top of its
+--- module's file, the module's own record or another ([`Report.home_of`]): `Own.size`, `o.size` and `b.width` where `b` is a
+--- `local record Box` of the file. A use through a require alias is the syntactic half's too ([`build.syntax_analyzer`]'s
+--- references), and the place both find is one. A record declared inside a function has no row in `docs` to be a use of.
 ---
 --- A field the record inherits is a use of the interface that declares it, when some module declares that interface
 --- ([`Writer.write`], not the inheriting record's own `write`).
@@ -49,10 +49,8 @@ function Receivers.references(subject: Report.Subject): {Receivers.Reference}
   local seen: mut {string: boolean} = {}
   local targets: mut {integer: boolean} = {}
   local program = subject.program
-  --- The use of the field `name` of `object`, written on `line`; `written_call` when it is the method of `object:name(...)`, the
-  --- only use of a record at the top of a file that is neither nested nor its module's own ([`Report.home_of`]), and a read of
-  --- a class's method is as a call.
-  local function use(object: Ast.Exp, name: string, line: integer, written_call: boolean)
+  --- The use of the field `name` of `object`, written on `line`: a read of it or a call of it as a method, alike.
+  local function use(object: Ast.Exp, name: string, line: integer)
     local decl = Report.decl_of(subject.types[Node.base(object).id])
     if decl == nil then
       return
@@ -68,28 +66,19 @@ function Receivers.references(subject: Report.Subject): {Receivers.Reference}
         not (statics ~= nil and statics[name] ~= nil) then
       return
     end
-    -- A method of a class read through a value or through the class itself (`A.m(obj)`) is a use of it as a call is.
-    local called = written_call or (kind == "class" and Report.has_method(decl, name))
-    -- Where the record is nested under its module's, and else, for a call, where it is declared in its module: at the top of
-    -- the file, or as the record the module returns. `top` says the fork finds nothing there: it names no module for the
-    -- record of a value, or for the interface a method comes from, unless the module's own record nests it.
+    -- Where the record is nested under its module's, and else where it is declared in its module: at the top of the file,
+    -- or as the record the module returns. A field read through the record itself is a use as one through a value of it is,
+    -- whatever names the record (`Own.size`, `local O = Own; O.size`, `require("own").size`); the syntactic half finds
+    -- `alias.f` through a require alias as well, and the two rows of one place are one (the key of `uses`,
+    -- [`build.schema`]). `top` says the fork finds nothing there: it names no module for the record of a value, or for the
+    -- interface a method comes from, unless the module's own record nests it.
     local top = false
     local homed = false
     local owner = Report.owner_of(program, decl)
     if owner == nil then
-      local home = Report.home_of(program, decl)
-      -- A field of the record a module returns is read through a value of it (`o.size`) or, in the module's own file,
-      -- through the record itself (`Own.size`): a use, as a call is. Through the record in another file it is read by a
-      -- require alias, which the syntactic half answers. A record at the top of a file that the module does not return is
-      -- used only by a call.
-      local through = subject.types[Node.base(object).id]
-      local own = home ~= nil and home.path == "" and
-        not (through ~= nil and through.tag == "named" and through.value and decl.module ~= subject.lowered.module)
-      if home ~= nil and (called or own) then
-        owner = home
-        homed = true
-        top = home.path ~= ""
-      end
+      owner = Report.home_of(program, decl)
+      homed = true
+      top = owner ~= nil and owner.path ~= ""
     end
     if owner == nil then
       return
@@ -139,10 +128,10 @@ function Receivers.references(subject: Report.Subject): {Receivers.Reference}
       return
     elseif (node.kind == "Field") then
       -- The name is the last token of `x.f`.
-      use(node.object, node.name, Report.line(subject, Node.base(node).last), false)
+      use(node.object, node.name, Report.line(subject, Node.base(node).last))
     elseif (node.kind == "MethodCall") then
       -- The name follows the colon, which follows the object.
-      use(node.object, node.name, Report.line(subject, Node.base(node.object).last + 2), true)
+      use(node.object, node.name, Report.line(subject, Node.base(node.object).last + 2))
     end
   end)
   table.sort(out, function(p: Receivers.Reference, q: Receivers.Reference): boolean
