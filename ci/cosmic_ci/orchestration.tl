@@ -260,21 +260,13 @@ end
 --- artifact it ran under, so it reruns under the portable build. A
 --- worker run on a sealed database of its closure never sees an
 --- artifact (build/test_key.tl's `seals`); its key holds the core and the
---- sealed inputs in the launcher's place, which would let the same key
---- under either artifact stand for the same run, and the portable suite
---- stand on the native suite's verdict rather than run the test twice.
---- It does not yet: in run 41688461540 the portable keys carried
---- program 192772bba885 and the native ones ca6afce0919a, so no sealed
---- portable test stood on a native row (the portable suite's rows share
---- the file, and its bound, with the native suite's). A test
+--- sealed inputs in the launcher's place, so the same key under either
+--- artifact stands for the same run, and the portable suite stands on
+--- the native suite's verdict rather than run the test twice, where the
+--- two give their workers the same environment ([`suite_env`]). A test
 --- module that reads the launcher or artifact without being
 --- unsealed fails `cosmic fix --check .` (build/tree_checks.tl's
 --- `sealed_launch`).
----
---- TODO: have a sealed worker's key leave out the `program` part, so the
---- portable suite stands on the native suite's rows: it waits on a change
---- to build/declared_key.tl's parts that moves the key of no test that
---- reads its own program.
 ---
 --- Nor is the checked suite's file either's (`checked`): the local
 --- suite's rows would crowd the checked suite's toward the file's bound,
@@ -289,6 +281,26 @@ function Orchestration.suite_verdicts(env: {string:string}, name: string): strin
   if shared:sub(1, 1) ~= "/" then return "0" end
   if name == "portable" then return shared end
   return assert(shared:match("^(.*)/[^/]*$")) .. "/" .. name .. ".db"
+end
+
+--- Where the native and the portable suite keep the cores a portable cosmic extracts (COSMIC_PORTABLE_CACHE): one
+--- place under `work`, the leg's, the same on every run. A worker is keyed by each variable it is given pinned, this one
+--- by its value (build/test_inputs.tl's `pinned_env`), so a suite given another place or none keys every test apart from
+--- the other's and stands on none of its verdicts: the portable suite ran every test the native suite had just run. The
+--- cache is content-addressed (build/caches.tl), so sharing it changes no result.
+function Orchestration.suite_cores(work: string): string
+  return work .. "/suite-cores"
+end
+
+--- What the gating suite `name` ("local" or "portable") adds to the environment of its run under `work`, given `env`,
+--- the driver's: the same cores cache for both ([`suite_cores`]), and the portable suite's verdict cache, the native
+--- suite's file ([`suite_verdicts`]), so that where `env` names one the two hand their workers the same variables.
+function Orchestration.suite_env(name: string, work: string, env: {string:string}): {string:string}
+  local out: mut {string:string} = { COSMIC_PORTABLE_CACHE = Orchestration.suite_cores(work) }
+  if name == "portable" then
+    out["COSMIC_VERDICT_CACHE"] = Orchestration.suite_verdicts(env, "portable")
+  end
+  return out
 end
 
 --- `words`, a suite's `cosmic test` line, with `--census` after `test`, for the key parts its row says.
@@ -1485,7 +1497,8 @@ end
 --- The native suite, on the tree `boot` built: the `build` phase
 --- without its boot, which ci.yml's legs run as steps of their own.
 local function phase_local_suite(p: PlatformContext): integer
-  return suite(p.operation, "local", BuildPaths.directory(p.root) .. "/bin/cosmic", p.local_diagnostics)
+  return suite(p.operation, "local", BuildPaths.directory(p.root) .. "/bin/cosmic", p.local_diagnostics,
+    Orchestration.suite_env("local", p.work, Env.all()))
 end
 
 --- `boot`, then the native suite (`local-suite`): ci/run-local's first
@@ -1703,8 +1716,10 @@ local function phase_portable(p: PlatformContext): integer
   local portable_context: Context = { db = c.db, worker = c.worker, run = c.run,
     attempt = c.attempt, root = fresh, driver = c.driver, phase = c.phase }
   local s = 0
-  -- The suite reruns the local suite's tests under the portable build,
-  -- whose artifact carries the cores the tree's tool does (`ProductSetup`);
+  -- The suite reruns, under the portable build, the local suite's tests
+  -- whose key holds the artifact they ran under, and stands on the rest
+  -- ([`suite_verdicts`]); the artifact carries the cores the tree's tool
+  -- does (`ProductSetup`);
   -- each leg's launcher, runtime and identity fixtures still run the
   -- portable product's launcher (phase_fixtures). ci.yml runs it on
   -- every leg of every run but the merge queue's, which runs no
@@ -1716,12 +1731,12 @@ local function phase_portable(p: PlatformContext): integer
         "(COSMIC_CI_PORTABLE_SUITE=skip)\n")
   else
     -- Where the other suites stand on verdicts (`stands`), it stands on
-    -- the local suite's ([`suite_verdicts`]): a sealed worker's key is
-    -- the same under either artifact, and every other worker's holds
-    -- its launcher; elsewhere it runs every test, as they do.
+    -- the local suite's ([`suite_verdicts`]), given the environment that
+    -- one is ([`suite_env`]): a sealed worker's key is the same under
+    -- either artifact, and every other worker's holds its launcher;
+    -- elsewhere it runs every test, as they do.
     s = suite(portable_context, "portable", executable, portable_d,
-      { COSMIC_PORTABLE_CACHE = portable_d .. "/portable-full-suite-cache",
-        COSMIC_VERDICT_CACHE = Orchestration.suite_verdicts(Env.all(), "portable") })
+      Orchestration.suite_env("portable", p.work, Env.all()))
   end
   local hash_called, hash_error = pcall(function(): boolean
     write(portable_d .. "/portable-artifact.after.sha256", hash(executable) .. "\n")
@@ -1757,7 +1772,7 @@ local function phase_portable_boundary(p: PlatformContext): integer
   if p.trailing == "success" then
     assert(read(portable_d .. "/portable-immediate/hashes.sha256") == read(portable_d .. "/portable-boundary/hashes.sha256"), "portable database changed across boundary")
     local executable = portable_d .. "/cosmic-portable"
-    local cache = portable_d .. "/portable-full-suite-cache"
+    local cache = Orchestration.suite_cores(p.work)
     local locked = step(portable_context, "portable cache read-only mode",
       function(): boolean, string return Fs.chmod(cache, 0x140) end)
     if locked ~= 0 then return locked end

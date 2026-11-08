@@ -508,6 +508,35 @@ local function test_the_portable_suite_shares_the_native_suites_verdicts()
   assert(Orchestration.suite_verdicts({}, "portable") == "0", "unset")
 end
 
+--- The native and the portable suite add the same variables to a driver's
+--- environment that names a verdict cache, the cores cache among them: a
+--- worker is keyed by each pinned variable it is given, so a cores cache
+--- one suite names and the other does not keys every test of the two
+--- apart, and the portable suite stands on none of the native suite's
+--- verdicts (it ran every one of linux-x86_64's 8616 tests again in run
+--- 42449906956).
+local function test_the_native_and_portable_suites_give_their_workers_one_environment()
+  local Orchestration = require("cosmic_ci.orchestration")
+  local env = { COSMIC_VERDICT_CACHE = "/runner/_temp/verdicts/verdicts.db" }
+  local function merged(name: string): {string:string}
+    local out: mut {string:string} = {}
+    for key, value in pairs(env) do out[key] = value end
+    for key, value in pairs(Orchestration.suite_env(name, "/runner/_temp/cosmic-ci/platform", env)) do
+      out[key] = value
+    end
+    return out
+  end
+  local native, portable = merged("local"), merged("portable")
+  for key, value in pairs(native) do
+    assert(portable[key] == value, key .. ": native " .. value .. ", portable " .. tostring(portable[key]))
+  end
+  for key, value in pairs(portable) do
+    assert(native[key] == value, key .. ": portable " .. value .. ", native " .. tostring(native[key]))
+  end
+  assert(native["COSMIC_PORTABLE_CACHE"] == "/runner/_temp/cosmic-ci/platform/suite-cores",
+    tostring(native["COSMIC_PORTABLE_CACHE"]))
+end
+
 --- The checked suite keeps a file of its own, apart from the local and
 --- portable suites' shared one.
 local function test_the_checked_suite_keeps_verdicts_of_its_own()
