@@ -209,7 +209,6 @@ local function test_a_partial_figure_says_so_and_fails_a_floor_it_is_under()
   local note = "partial: hits of 2 modules came from runs on other text; `--all` reruns them"
   local other = test_report.other_text
   local two = { a = other, b = other }
-  assert(test_report.partial(two) == 2)
   assert(test_report.coverage(1, 4, nil, two) ==
       "test: coverage 25.0% (1/4 lines; informational, never a failure; " .. note .. ")")
   assert(test_report.coverage(1, 4, {}, two) == "test: coverage 25.0% (1/4 lines; " .. note .. ")")

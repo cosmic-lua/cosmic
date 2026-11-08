@@ -274,7 +274,7 @@ test_report.other_text = "came from runs on other text"
 
 --- How many modules `stale` names: those whose standing hits a run dropped,
 --- each with why ([`build.test`]'s `decode_hits`).
-function test_report.partial(stale: {string:string}): integer
+local function modules_left_out(stale: {string:string}): integer
   local count = 0
   for _ in pairs(stale) do count = count + 1 end
   return count
@@ -284,7 +284,7 @@ end
 --- hits of the modules `stale` names, after a "; ": how many, and of each
 --- dropped for another reason than [`test_report.other_text`], which and why.
 local function partial_note(stale: {string:string}): string
-  local partial = test_report.partial(stale)
+  local partial = modules_left_out(stale)
   local others: mut {string} = {}
   for path, why in pairs(stale) do
     if why ~= test_report.other_text then others[#others + 1] = path end
@@ -394,7 +394,7 @@ function test_report.floor(hit: integer, total: integer, files: {test_report.Fil
   local lines: mut {string} = {}
   local clauses: mut {string} = {}
   local dropped = stale or {}
-  local partial = test_report.partial(dropped)
+  local partial = modules_left_out(dropped)
   local min = floors.min
   if min ~= nil and under(hit, total, min) then
     local note = if partial > 0 then "; " .. partial_note(dropped) else "" end

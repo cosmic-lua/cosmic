@@ -489,7 +489,7 @@ end
 --- [`lua_tail.numbered`] is a function of. Never a prefix of a source hash but by a chance of one in 2^64, so a tool
 --- that reads a row's numbers as lines alone, older than rows of instructions, finds it names another text and
 --- drops it as such, rather than crediting an instruction's number as a line.
-function test.code_identities(stripped: {string:string}): {string:string}
+local function code_identities(stripped: {string:string}): {string:string}
   local out: mut {string:string} = {}
   for path, digest in pairs(stripped) do out[path] = digest:sub(1, identity_digits) end
   return out
@@ -498,7 +498,7 @@ end
 --- One module's line of a test's row of hits, as `coverage_by_test` and
 --- the shared verdicts hold it: the path, a space, what its lines are
 --- numbered in (`named`: [`test.identities`]' entry, "-" for a path that is
---- no module, or [`test.code_identities`]' for a pure store's import), a
+--- no module, or [`code_identities`]' for a pure store's import), a
 --- tab, then the lines it hit, ascending and comma-separated. A path
 --- holds no tab or newline but may hold a space, so the text is read as the
 --- last word alone, and only as `identity_digits` hex digits or "-"
@@ -532,7 +532,7 @@ end
 --- `hits`, but for a module of `identities` whose line names another text,
 --- or none (a row written before rows named their text): its lines would
 --- land on the wrong ones of this run's text. A module's line that names the
---- bytecode `codes` says it is ([`test.code_identities`]) holds
+--- bytecode `codes` says it is ([`code_identities`]) holds
 --- instructions' ordinals (a pure store's import), whatever its text: the key
 --- the row stands under holds that bytecode, so the ordinals number the
 --- instructions of this run's text alike, and `lines_of` places each at the
@@ -959,14 +959,14 @@ local function instruction_lines_of(rec: Recording, path: string): {integer}?, s
   return lines, ""
 end
 
---- [`test.code_identities`] of this run's basis, remembered in `rec`; none where the run has no basis yet (it is
+--- [`code_identities`] of this run's basis, remembered in `rec`; none where the run has no basis yet (it is
 --- unsandboxed), which numbers no instruction.
 local function codes_of(rec: Recording): {string:string}
   local known = rec.codes
   if known ~= nil then return known end
   local basis = rec.basis
   if basis == nil then return {} end
-  local made = test.code_identities(basis.stripped)
+  local made = code_identities(basis.stripped)
   rec.codes = made
   return made
 end
