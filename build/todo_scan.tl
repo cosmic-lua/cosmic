@@ -148,6 +148,17 @@ function todo_scan.scan(source: string): {todo_scan.Found}
   return found
 end
 
+--- Whether the comment `comment` carries on the paragraph of `before`, the
+--- line above it, as [`todo_scan.scan`] carries a TODO on: the same
+--- indentation and marker, or a block comment's `*` under its opener.
+local function carries_on(before: Comment?, comment: Comment): boolean
+  if before == nil or before.text == "" then return false end
+  local following = continued(before.marker)
+  local aligned = comment.indent == before.indent or
+    (following ~= before.marker and comment.indent == before.indent .. " ")
+  return aligned and (comment.marker == before.marker or comment.marker == following)
+end
+
 --- The comments that open with a spelling a reader takes for a TODO's but
 --- [`todo_scan.scan`] does not find, in order: a tag in parentheses
 --- (`TODO(perf): ...`), `FIXME`, or a bare `TODO` and no colon on the first
@@ -162,9 +173,7 @@ function todo_scan.misses(source: string): {todo_scan.Miss}
     if comment ~= nil then
       local text = comment.text
       local spelling = text:match("^TODO%([^)]*%):?") or text:match("^FIXME%f[^%w_]:?")
-      if spelling == nil and text:match("^TODO%f[^%w_:]") ~= nil and
-          (before == nil or before.text == "" or before.indent ~= comment.indent or
-              before.marker ~= comment.marker) then
+      if spelling == nil and text:match("^TODO%f[^%w_:]") ~= nil and not carries_on(before, comment) then
         spelling = "TODO"
       end
       if spelling ~= nil then

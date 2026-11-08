@@ -1022,9 +1022,18 @@ end
 --- waits for no run holding the rebuild lock: where one does, it leaves
 --- the projection there as it is, says so once
 --- ([`rebuild_lock.try_hold`]), and answers true
+local reader_held = false
+
+--- Whether the last [`writer.write_result`] of a lookup's build left the
+--- projection as it was, another run holding the rebuild lock.
+function writer.held(): boolean
+  return reader_held
+end
+
 function writer.write_result(handle: work.Handle, out: string,
                              result: importer.Result, tree_code?: boolean,
                              library?: link_index.Library, reader?: string): boolean, string
+  reader_held = false
   local db = handle.db
   if not handle.inside then
     local begun, begin_trouble = work.begin(handle)
@@ -1101,6 +1110,7 @@ function writer.write_result(handle: work.Handle, out: string,
       taken, lock_trouble = rebuild_lock.try_hold(handle.root, "write", reader)
       if taken == nil and lock_trouble == "" then
         local _, _ = db:exec("DETACH out")
+        reader_held = true
         return true, ""
       end
     else

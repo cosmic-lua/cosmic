@@ -132,11 +132,20 @@ local function opened_for(root: string, wait: boolean, verb: string): work.Openi
 end
 
 local last_refused: mut {string} = {}
+local last_held = ""
 
 --- The files the last build this process made with [`rebuild.here`] refused, for what they hold or for requiring one
 --- that was, by their paths from the project's root: none where it built, or before it ran.
 function rebuild.refused(): {string}
   return last_refused
+end
+
+--- Why the last build this process made with [`rebuild.here`] left the
+--- projection as it was though it answered true, another run holding the
+--- working database or the rebuild lock, so a lookup answers from the
+--- last build; "" where it wrote one, or wrote none for another reason.
+function rebuild.held(): string
+  return last_held
 end
 
 --- Builds the project at `root` as `cosmic test` does, leaving
@@ -159,6 +168,7 @@ end
 --- what is there.
 local function project(root: string, verb: string, start: boolean, carried?: string): boolean, string
   last_refused = {}
+  last_held = ""
   local found, found_trouble = where(root, carried)
   if found == nil then return false, found_trouble end
   if unchecked(root) then
@@ -187,6 +197,7 @@ local function project(root: string, verb: string, start: boolean, carried?: str
       work.tell_other_schema(verb, working, other, root)
     else
       work.tell_busy(verb, working)
+      last_held = "another run holds the working database"
     end
     return true, ""
   end
@@ -233,6 +244,7 @@ local function project(root: string, verb: string, start: boolean, carried?: str
     build_paths.resolve(root).projection, result, started, staged, reader)
   local _, _ = work.close(handle)
   if not written then return false, write_trouble end
+  if writer.held() then last_held = "another run holds the rebuild lock" end
   return true, ""
 end
 

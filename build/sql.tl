@@ -572,13 +572,20 @@ local store_hint = "; the binary's own database answers a query and no PRAGMA " 
 
 --- Said after a statement that opens with `.`, which SQLite refuses as a
 --- syntax error: it is the sqlite3 shell's command (`.tables`, `.schema`), which
---- no SQL answers; a query of `sqlite_schema` lists what it would, and `cosmic db`
---- what each table of the build directory's databases holds.
-local function dot_hint(statement: string, databases: boolean): string
-  if statement:match("^%s*%.") == nil then return "" end
+--- no SQL answers, whatever space or SQL comments come before it; a query of
+--- `sqlite_schema` lists what it would, and, where `build_directory` says the
+--- database is one of the build directory's, `cosmic db` what each table holds.
+local function dot_hint(statement: string, build_directory: boolean): string
+  local rest = statement
+  while true do
+    local after = rest:match("^%s+(.*)$") or rest:match("^%-%-[^\n]*\n?(.*)$") or rest:match("^/%*.-%*/(.*)$")
+    if after == nil then break end
+    rest = after
+  end
+  if rest:sub(1, 1) ~= "." then return "" end
   return "; a statement opening with `.` is the sqlite3 shell's, not SQL: " ..
     "`SELECT name FROM sqlite_schema WHERE type='table'` names the tables" ..
-    (if databases then ", and `cosmic db` says what each holds" else "" end)
+    (if build_directory then ", and `cosmic db` says what each holds" else "" end)
 end
 
 --- Rows to stdout; complaints and the summary to stderr.
@@ -1006,7 +1013,7 @@ function sql.run(argv: {string}, root?: string, output?: sql.Output,
     local _, _ = opened.db:close()
   end
   if rows == nil then
-    complain(source.name .. ": " .. trouble .. dot_hint(statement_text, true))
+    complain(source.name .. ": " .. trouble .. dot_hint(statement_text, source.path ~= nil and parsed.values["--db"] == nil))
     return 1
   end
   summarize(tostring(rows) .. (if rows == 1 then " row" else " rows" end) .. " from " .. source.name)

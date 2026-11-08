@@ -279,6 +279,13 @@ local function test_a_shell_dot_command_is_answered_with_the_query_that_lists_th
     1, true) ~= nil, said)
   local listed, listed_written = run(root, { "SELECT name FROM sqlite_schema WHERE type='table' AND name = 't'" })
   assert(listed == 0 and table.concat(listed_written.out, "|") == "name|t", table.concat(listed_written.out, "|"))
+  -- an SQL comment before it is skipped; a database named with `--db` is none `cosmic db` reports on
+  code, written = run(root, { "/* first */ -- then\n.schema" })
+  said = support.nth(written.err, 1)
+  assert(code == 1 and said:find("names the tables, and `cosmic db`", 1, true) ~= nil, said)
+  code, written = run(root, { "--db", support.build_dir(root) .. "/cosmic.db", ".tables" })
+  said = support.nth(written.err, 1)
+  assert(code == 1 and said:find("names the tables", 1, true) ~= nil and said:find("cosmic db", 1, true) == nil, said)
   -- a file has no `cosmic db`; a syntax error of any other statement gets no hint
   code, written = run(root, { "--from", "-", "--as", "csv", ".schema" }, "a\n1\n")
   said = support.nth(written.err, 1)

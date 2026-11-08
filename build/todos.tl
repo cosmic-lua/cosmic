@@ -600,7 +600,10 @@ local record Miss
   spelling: string
 end
 
---- Every near miss `db` holds, in file order.
+--- Every near miss `db` holds, in file order, but a bare `TODO` in Markdown,
+--- where a `#` or `*` line is a heading or a list item rather than a
+--- comment. Read apart here, since a row is the bytes' alone and says
+--- nothing of the file's name.
 local function misses_of(db: Sqlite.Handle): {Miss}?, string
   return Sqlite.map(db,
     "SELECT f.path, m.line, m.spelling FROM " ..
@@ -612,6 +615,11 @@ local function misses_of(db: Sqlite.Handle): {Miss}?, string
     end)
 end
 
+--- Whether `miss` is one `todos` names: not a bare `TODO` in Markdown ([`misses_of`]).
+local function shown_miss(miss: Miss): boolean
+  return miss.spelling ~= "TODO" or miss.file:match("%.md$") == nil
+end
+
 --- What `todos` says of the near misses under `paths`, a line for each kind:
 --- how many open with it, where the first is, and the spelling it is
 --- indexed under. None where there are none.
@@ -621,7 +629,7 @@ local function misses_said(misses: {Miss}, paths: {string}): {string}
   local first: mut {string:Miss} = {}
   local alike: mut {string:boolean} = {}
   for _, miss in ipairs(misses) do
-    if narrow.holds(paths, miss.file) then
+    if narrow.holds(paths, miss.file) and shown_miss(miss) then
       local kind = if miss.spelling:sub(1, 5) == "TODO(" then "tag"
         elseif miss.spelling == "TODO" then "bare" else "fixme" end
       counted[kind] = (counted[kind] or 0) + 1
@@ -643,6 +651,7 @@ local function misses_said(misses: {Miss}, paths: {string}): {string}
       local spelled = "`TODO: ...`"
       if kind == "tag" then
         local tag = miss.spelling:match("^TODO%(([^)]*)%)") or ""
+        if alike[kind] ~= true then tag = "<tag>" end
         spelled = "`TODO: " .. (if tag ~= "" then tag .. ": " else "" end) .. "...`"
       elseif kind == "bare" then
         shown = "`TODO` with no colon"

@@ -124,6 +124,8 @@ local function test_a_near_miss_of_the_spelling_is_found_apart()
     "x = 1 -- TODO(after): code",
     "-- TODO: indexed, and no near miss",
     "// TODO()",
+    "/* a block whose",
+    " * TODO there is prose */",
   })
   local found = todo_scan.misses(source)
   local said: mut {string} = {}
@@ -139,12 +141,20 @@ local function test_todos_names_what_it_did_not_index_and_a_word_read_as_a_path(
   assert(Fs.mkdirs(root .. "/data"))
   assert(Fs.write(root .. "/a.tl", text({ "-- TODO: data: listed", "-- TODO(perf): not listed", "local x = 1",
     "-- TODO(perf): nor this", "-- FIXME: nor this" })))
+  -- a Markdown heading or list item that opens with the word is no comment
+  assert(Fs.write(root .. "/notes.md", text({ "# TODO list", "", "* TODO the second" })))
   local env = { COSMIC_BUILD_CACHE = "0", COSMIC_BUILD_HOME = assert(Env.get("COSMIC_BUILD_HOME")) }
   local result = invoke.run({ "todos" }, { cwd = root, env = env })
   assert(result.code == 0 and result.stdout:find("a.tl:1: ", 1, true) ~= nil, result.stdout .. result.stderr)
   assert(result.stderr:find("; 2 comments open with `TODO(perf):` and are not indexed (a.tl:2 and 1 more): " ..
       "write `TODO: perf: ...`; 1 comment opens with `FIXME:` and is not indexed (a.tl:5): write `TODO: ...`\n", 1, true),
     result.stderr)
+  assert(result.stderr:find("with no colon", 1, true) == nil, result.stderr)
+  -- tags that differ are named as a tag, not the first one's
+  assert(Fs.write(root .. "/b.tl", text({ "-- TODO(speed): another" })))
+  local tags = invoke.run({ "todos" }, { cwd = root, env = env })
+  assert(tags.stderr:find("3 comments open with `TODO(perf):` or the like and are not indexed (a.tl:2 and 2 more): " ..
+      "write `TODO: <tag>: ...`", 1, true), tags.stderr)
   -- `data` names a directory, so it narrows to one that holds none
   local narrowed = invoke.run({ "todos", "data" }, { cwd = root, env = env })
   assert(narrowed.code == 0 and narrowed.stdout == "", narrowed.stdout .. narrowed.stderr)

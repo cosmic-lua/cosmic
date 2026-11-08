@@ -276,9 +276,10 @@ local record Cli
   --- database when there is none, or the one database an option names.
   --- The build directory is the working directory's only, never a
   --- project's above it. Nothing is built or staged: the projection is
-  --- what the last `cosmic test`, `fix`, `docs` or `uses` wrote, and the
-  --- working database `--build` reads what the last of those or `todos`
-  --- staged, so run one first to ask of the tree as it stands. A statement
+  --- what the last run that builds wrote (`cosmic test`, `build`, `fix`,
+  --- `docs`, `uses`), and the working database `--build` reads what the
+  --- last run that stages left (those, `todos` and `lsp`), so run one
+  --- first to ask of the tree as it stands. A statement
   --- opening with `.` (`.tables`) is the sqlite3 shell's, not SQL:
   --- `SELECT name FROM sqlite_schema WHERE type='table'` names the tables,
   --- and `cosmic db` says what each holds. `cosmic sql --from
@@ -653,13 +654,14 @@ local record Cli
   --- types it. A function declared as a field of the record a module
   --- returns, and defined as `function Record.f`, shows the field's
   --- doc unless the definition has a `---` doc of its own, and is
-  --- placed at the definition.
-  --- It builds the tree first, as `test`
-  --- does but running no test, so it answers for the tree as it stands;
-  --- where the tree does not build, it answers from the last build, and
-  --- the summary says so and why, as each `--json` object does with
-  --- `"stale": true` and a line on standard error. The
-  --- tree is found as `test` finds it
+  --- placed at the definition. Where a build has been made of the tree,
+  --- it builds it first, as `test` does but running no test, so it
+  --- answers for the tree as it stands; where none has, it builds
+  --- nothing and answers from cosmic's own docs, saying the directory has
+  --- not been built. Where the tree does not build, or another run holds
+  --- the build, it answers from the last build, and the summary says so
+  --- and why, as each `--json` object does with `"stale": true` and a
+  --- line on standard error. The tree is found as `test` finds it
   docs: string
   --- `cosmic uses <sym> [path...]`: every place that refers to a
   --- symbol, as file:line -- only those under the paths, when given --
@@ -676,7 +678,9 @@ local record Cli
   --- started, and each is listed with none -- indexed into its build.db so
   --- only a file that moved is blamed again. A TODO is a comment on a line
   --- of its own whose text opens with `TODO:`, and the lines that carry on
-  --- its paragraph: not one after code on its line, nor one in Markdown. A
+  --- its paragraph: not one after code on its line. In Markdown a line
+  --- opening with `#`, `##` or `*` is read as such a comment, and a line of
+  --- prose or an HTML comment is none. A
   --- comment that opens with a near miss (`TODO(tag):`, `FIXME:`, a `TODO`
   --- with no colon) is not listed, and the summary counts those, naming
   --- the spelling that is. An argument that names a path narrows it to that
@@ -684,9 +688,9 @@ local record Cli
   --- first, in FTS5's own syntax ("a phrase", OR, prefix*) when they
   --- parse as that: `^perf` finds those whose text opens with `perf`, the tag
   --- of a `TODO: perf: ...`, and `data:` searches for a word that also names
-  --- a path. Exits 0 when it listed, though nothing, 1 when a search
-  --- matched none or the tree could not be read, 2 for a command line it
-  --- cannot read. The tree is found as `test` finds it
+  --- a path. Listing nothing is no failure, though a search that matches
+  --- none is (exit 1, as `cosmic help exit` says). The tree is found as
+  --- `test` finds it
   todos: string
   --- `cosmic bom [--licenses | --json <path>]`: the bill of materials
   --- this binary ships under -- every third-party component its cores

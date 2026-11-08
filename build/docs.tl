@@ -3152,18 +3152,23 @@ end
 --- What a lookup's summary says of the answer where its build did not
 --- leave the projection as the tree stands ([`rebuild.here`]), "" where it
 --- did: from the last build, or from cosmic's own docs alone where the
---- project has none, and why. The tree's refusal is said there alone, in
+--- project has none this tool reads, and why -- the tree's refusal, or
+--- another run holding the build ([`rebuild.held`]). The tree's refusal is said there alone, in
 --- the summary a reader sees beside the answer; any other trouble is said
 --- on a line of its own too, being the host's rather than the tree's.
 --- @param sources the databases the lookup reads ([`docs.databases`])
 local function stale_note(verb: string, built: boolean, trouble: string, sources: docs.Sources): string
-  if built then return "" end
-  if #rebuild.refused() == 0 then
+  local why = trouble
+  if built then
+    why = rebuild.held()
+    if why == "" then return "" end
+  elseif #rebuild.refused() == 0 then
     log:complain(verb .. ": not rebuilt: " .. trouble)
-    trouble = "not rebuilt"
+    why = "not rebuilt"
   end
-  local from = if #sources.opened > 0 then "from the last build" else "from cosmic's own docs, the tree having no build" end
-  return from .. " (" .. trouble .. ")"
+  local from = if #sources.opened > 0 then "from the last build"
+    else "from cosmic's own docs, there being no build of the tree by this tool" end
+  return from .. " (" .. why .. ")"
 end
 
 --- `cosmic docs <words...>`: prints what [`docs.answer`] says of the
@@ -3203,7 +3208,7 @@ local function run(argv: {string}): integer
       log:say(line)
     end
     -- No summary follows the records, so a query that finds nothing still hears it.
-    if stale ~= "" then log:complain("docs: answered " .. stale) end
+    if stale ~= "" then local _, _ = logger.summary("docs", "answered " .. stale) end
     return if records.found then 0 else 1 end
   end
   local answer, trouble = docs.answer(view, parsed.words)
