@@ -254,9 +254,13 @@ local function test_a_call_through_a_class_value_is_a_use_of_the_method_it_calls
   assert(square == "vessels.tl:43: vessels Sq.area\n", square)
   local rows = looked_up(root, tmp, { "sql", "SELECT symbol, from_file, line FROM uses WHERE module = 'vessels' AND symbol LIKE '%.%' " ..
       "ORDER BY symbol, from_file, line" })
-  assert(rows == "symbol\tfrom_file\tline\nJar.fill\tvessels_test.tl\t7\nShape.area\tvessels.tl\t47\nSq.area\tvessels.tl\t43\n" ..
+  -- A field read through a value is a use, as a call is: `self.side` and `self.level` of the classes, and `planted.tank`
+  -- of the record `Garden`.
+  assert(rows == "symbol\tfrom_file\tline\nGarden.tank\tvessels.tl\t82\nJar.fill\tvessels_test.tl\t7\n" ..
+      "Shape.area\tvessels.tl\t47\nSq.area\tvessels.tl\t43\nSq.side\tvessels.tl\t38\n" ..
       "Tank.fill\tvessels.tl\t13\nTank.fill\tvessels.tl\t52\nTank.fill\tvessels.tl\t53\nTank.fill\tvessels.tl\t57\n" ..
-      "Tank.fill\tvessels.tl\t82\nTank.fill\tvessels_test.tl\t5\nTank.top_up\tvessels_test.tl\t5\n", rows)
+      "Tank.fill\tvessels.tl\t82\nTank.fill\tvessels_test.tl\t5\nTank.level\tvessels.tl\t7\nTank.level\tvessels.tl\t8\n" ..
+      "Tank.top_up\tvessels_test.tl\t5\n", rows)
 end
 
 --- A mistyped COSMIC_GRAMMAR is refused by the lookups, as it is by every command that reads it, saying the allowed values.
