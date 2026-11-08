@@ -11,6 +11,7 @@ local test = require("build.test")
 local type test_state = require("build.test_state")
 local lua_tail = require("build.lua_tail")
 local test_key = require("build.test_key")
+local test_report = require("build.test_report")
 local work = require("build.work")
 local worker = require("build.test_worker")
 local support = require("build.test_support_fixture")
@@ -154,8 +155,8 @@ local function test_a_pure_stores_instruction_ordinals_are_placed_at_this_runs_l
   local said = test.unplaced_errors(unplaced)
   assert(#said == 2 and said[1] == "coverage: the hits of build.gone are not placed at its lines: no module of " ..
       "the projection; no verdict of a test that reached them is kept", table.concat(said, "\n"))
-  assert(said[2]:find("^coverage: the hits of build%.lib are not placed at its lines: line %d+ is past " ..
-      "the module's 3 instructions") ~= nil, table.concat(said, "\n"))
+  assert(said[2] == "coverage: the hits of build.lib are not placed at its lines: instruction 4 is past the " ..
+      "module's 3; no verdict of a test that reached them is kept", table.concat(said, "\n"))
   assert(#test.unplaced_errors({}) == 0)
   -- A chunk the test numbers itself is no module of the run, and its lines are kept as no module's are.
   local own: {string:{integer:boolean}} = { ["m"] = { [base + 1] = true } }
@@ -206,26 +207,26 @@ local function test_standing_hits_of_a_module_whose_text_moved_are_dropped_and_c
     "core/a.c -\t9\n" .. "core/b.c\t8\n" ..
     "build.old\t3\n"
   local hits: mut {string:mut {integer:boolean}} = {}
-  local stale: mut {string:boolean} = {}
+  local stale: mut {string:string} = {}
   local kept = test.decode_hits(row, hits, texts, stale)
   assert(hits["build.moved"] == nil, "a module numbered in another text is credited no line")
   local same = assert(hits["build.same"], "a module of the same text is credited")
   assert(same[1] == true and same[2] == true)
   assert(assert(hits["core/a.c"])[9] == true and assert(hits["core/b.c"])[8] == true,
     "the core's C is credited as it stands")
-  assert(stale["build.moved"] == true and stale["build.same"] == nil, "the moved module is stale")
+  assert(stale["build.moved"] == test_report.other_text and stale["build.same"] == nil, "the moved module is stale")
   assert(hits["build.old"] ~= nil and stale["build.old"] == nil,
     "a path that is no module of this run is no figure's, and folded as it stands")
   -- A row from before rows named their text names a module of this run: stale.
-  local before: mut {string:boolean} = {}
+  local before: mut {string:string} = {}
   local _ = test.decode_hits("build.same\t1,2\n", {}, texts, before)
-  assert(before["build.same"] == true, "a row naming no text credits no module")
+  assert(before["build.same"] == test_report.other_text, "a row naming no text credits no module")
   -- A path may hold a space: only a last word of 16 hex digits (or "-") is a text.
   local spaced = test.identities({ module("suite.he lper", string.rep("d", 64)) })
-  local old_spaced: mut {string:boolean} = {}
+  local old_spaced: mut {string:string} = {}
   local old_hits: mut {string:mut {integer:boolean}} = {}
   local _ = test.decode_hits("suite.he lper\t3\n", old_hits, spaced, old_spaced)
-  assert(old_spaced["suite.he lper"] == true and old_hits["suite.he lper"] == nil and old_hits["suite.he"] == nil,
+  assert(old_spaced["suite.he lper"] == test_report.other_text and old_hits["suite.he lper"] == nil and old_hits["suite.he"] == nil,
     "an old row of a path with a space was read as naming a text")
   local new_hits: mut {string:mut {integer:boolean}} = {}
   local _ = test.decode_hits("suite.he lper " .. string.rep("d", 16) .. "\t3\n", new_hits, spaced, {})
@@ -234,6 +235,72 @@ local function test_standing_hits_of_a_module_whose_text_moved_are_dropped_and_c
   -- A share keeps no line of the core's C another project owns.
   local unowned_kept = test.decode_hits(row, {}, texts, {}, { ["core/a.c"] = {}, ["core/b.c"] = {} })
   assert(unowned_kept:find("core/", 1, true) == nil and unowned_kept:find("build.moved", 1, true) ~= nil, unowned_kept)
+end
+
+--- A pure store's import is reported by instruction, and its row keeps the
+--- ordinals, named by the module's stripped bytecode, not the lines this run
+--- placed them at: a comment above them later moves the lines and not the
+--- key, and a run standing on the row places each ordinal at the line its own
+--- text has it on, so the module is credited and not stale. The row names no
+--- text, so a decoder that reads a row's numbers as lines (an older tool's,
+--- or the line path here, given no bytecode) drops it as of another text and
+--- never credits an ordinal as a line. An ordinal the run cannot place is
+--- dropped, and the module named stale with why.
+local function test_a_standing_rows_ordinals_are_placed_at_the_lines_of_this_runs_text()
+  local base = lua_tail.ordinal_base
+  local text, code = string.rep("d", 16), string.rep("c", 16)
+  local reported: {integer:boolean} = { [base + 1] = true, [base + 3] = true }
+  local placed: {integer:boolean} = { [4] = true, [9] = true }
+  local hits: mut {string:mut {integer:boolean}} = {}
+  local codes = { ["build.lib"] = code }
+  local row = test.take_hits(hits, {}, {}, {}, { ["build.lib"] = reported, ["build.lib_test"] = { [2] = true } }, {},
+    { ["build.lib"] = text, ["build.lib_test"] = text }, { ["build.lib"] = placed }, {}, codes)
+  assert(row == "build.lib " .. code .. "\t" .. tostring(base + 1) .. "," .. tostring(base + 3) .. "\n" ..
+      "build.lib_test " .. text .. "\t2\n", row)
+  local folded = assert(hits["build.lib"], "the placed lines are not folded")
+  assert(folded[4] == true and folded[9] == true and folded[base + 1] == nil, "the run's figure holds an ordinal")
+  -- With no bytecode to name, the row keeps the lines placed, under the module's text.
+  local plain = test.take_hits({}, {}, {}, {}, { ["build.lib"] = reported }, {}, { ["build.lib"] = text },
+    { ["build.lib"] = placed }, {})
+  assert(plain == "build.lib " .. text .. "\t4,9\n", plain)
+  -- Later, a comment above the module's code: its text is another, its instructions one line lower.
+  local now = { ["build.lib"] = string.rep("e", 16) }
+  local function lines_of(path: string): {integer}?, string
+    if path == "build.lib" then return { 5, 5, 10 }, "" end
+    return nil, "no module of the projection"
+  end
+  local credited: mut {string:mut {integer:boolean}} = {}
+  local stale: mut {string:string} = {}
+  local kept = test.decode_hits(row, credited, now, stale, nil, lines_of, codes)
+  local lib = assert(credited["build.lib"], "a standing row's ordinals are credited no line")
+  assert(lib[5] == true and lib[10] == true and lib[4] == nil and lib[9] == nil, "an ordinal is not placed at this run's line")
+  assert(stale["build.lib"] == nil, "a module whose ordinals were all placed is stale")
+  assert(kept == row, kept)
+  -- The line path, which an older tool's decoder is: the row names another text than the module's, even where
+  -- the text is unchanged, so it is dropped as such and no ordinal is credited as a line.
+  local lined: mut {string:mut {integer:boolean}} = {}
+  local lined_stale: mut {string:string} = {}
+  local _ = test.decode_hits(row, lined, { ["build.lib"] = text }, lined_stale, nil, lines_of)
+  assert(lined["build.lib"] == nil and lined_stale["build.lib"] == test_report.other_text,
+    "a row of ordinals was read as lines")
+  -- One past the instructions, or with nothing to place it by, is dropped, never put on a line, and why is said.
+  local past: mut {string:mut {integer:boolean}} = {}
+  local past_stale: mut {string:string} = {}
+  local _ = test.decode_hits("build.lib " .. code .. "\t" .. tostring(base + 1) .. "," .. tostring(base + 4) .. "\n",
+    past, now, past_stale, nil, lines_of, codes)
+  local some = assert(past["build.lib"])
+  local count = 0
+  for _ in pairs(some) do count = count + 1 end
+  assert(some[5] == true and count == 1, "an ordinal past the instructions was credited")
+  assert(past_stale["build.lib"] == "were not placed at its lines: instruction 4 is past the module's 3",
+    past_stale["build.lib"])
+  local gone: mut {string:mut {integer:boolean}} = {}
+  local gone_stale: mut {string:string} = {}
+  local _ = test.decode_hits(row, gone, now, gone_stale, nil, function(_: string): {integer}?, string
+    return nil, "no module of the projection"
+  end, codes)
+  assert(gone["build.lib"] == nil and gone_stale["build.lib"] == "were not placed at its lines: no module of the " ..
+      "projection", gone_stale["build.lib"])
 end
 
 --- The first progress line of a run that names the longest-running tests

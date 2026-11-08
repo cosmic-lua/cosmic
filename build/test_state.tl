@@ -206,9 +206,15 @@ local record test_state
     --- ([`build.test`]'s `identities`): what a test's row writes beside each
     --- module's lines, and what a row's lines must still name to be credited.
     identities: {string:string}
-    --- The paths whose credited hits were dropped, numbered in another text
-    --- or in a row too old to name one: what makes the coverage figure partial.
-    stale: mut {string:boolean}
+    --- The paths whose credited hits were dropped, each with why
+    --- ([`build.test_report`]'s `other_text` where they were numbered in
+    --- another text or in a row too old to name one): what makes the coverage
+    --- figure partial.
+    stale: mut {string:string}
+    --- The bytecode each module's instructions are numbered in, by path
+    --- ([`build.test`]'s `code_identities` of the basis' `stripped`), made
+    --- the first time a row is spelled or credited; nil until then.
+    mut codes?: {string:string}
     --- Whether a progress line has said where every test's time is.
     mut timed: boolean
     tally: Tally

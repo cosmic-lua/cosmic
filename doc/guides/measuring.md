@@ -52,8 +52,11 @@ verdict stands brings the hits of the run that reached it. A module's hits
 count only on the text they were counted on: where that text has changed
 since, they are left out, and the coverage line says the figure is partial
 until `--all` runs those tests again. A comment or a blank line added to a
-module a sandboxed test imports runs no test, so it leaves that module's
-figure partial until then.
+module a sandboxed test imports runs no test, and that test's hits of it
+are placed at the lines they moved to, so the figure stays whole. Hits
+counted by line, not by instruction, still leave it partial until then: a
+comment in a module of the test harness runs no test either, and a row an
+older tool wrote names lines alone.
 
 ## slowest tests
 
