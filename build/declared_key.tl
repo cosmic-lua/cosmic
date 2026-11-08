@@ -73,7 +73,8 @@
 ---   projection's place; each `host` path; and each file above the
 ---   project a `/parent/` grant names, by its relative path (`parent`);
 --- - the environment its worker is given ([`test_sandbox.environment`]):
----   the pinned variables and the declared ones;
+---   the pinned variables and the declared ones, but for where a cache
+---   is, which is no input ([`cache_places`]);
 --- - where the tree is, only for a worker no sandbox gives it at /tree
 ---   ([`Spec`]'s `tree`).
 ---
@@ -936,6 +937,18 @@ local function held_value(value: string, digests: declared_key.Digests): string
   return table.concat(parts, ":")
 end
 
+--- The variables that name a cache, which a worker is given pinned ([`build.test_inputs`]'s `pinned_env`): what is
+--- there is content-addressed and never changes a result ([`build.caches`]), so where it is is no input. An absolute
+--- path is held as one word; anything else (empty, relative), which the launcher refuses, by its value.
+local cache_places <const>: {string:boolean} = { COSMIC_PORTABLE_CACHE = true }
+
+--- What the key holds of the variable `name`'s value `value`: a cache's place by its kind ([`cache_places`]), any
+--- other value as [`held_value`] holds it.
+local function environment_value(name: string, value: string, digests: declared_key.Digests): string
+  if cache_places[name] == true and value:sub(1, 1) == "/" then return "an absolute cache path" end
+  return held_value(value, digests)
+end
+
 --- What `spec`'s test is given, but for its name, as the lines whose
 --- digest its key holds (`compute`) -- each a `key_part`, which frames
 --- what it names so that no two specs spell one -- or nil and why there
@@ -1054,18 +1067,13 @@ function declared_key.preimage(digests: declared_key.Digests,
       lines[#lines + 1] = part("up", relative, host(digests, above .. "/" .. relative))
     end
   end
-  -- TODO: key COSMIC_PORTABLE_CACHE by whether it is set, not by the path it names, as build/caches.tl says of every
-  -- cache: a worker is given the runner's value (build/test_inputs.tl's `pinned_env`) and keyed by it here, so runs
-  -- that keep their cores in two places share no verdict (CI's native and portable suites name one place for that
-  -- alone, ci/cosmic_ci/orchestration.tl's `suite_cores`). It waits on a part here for a variable that names a cache,
-  -- as [`held_value`] names a tree path, and on a check that no test's result turns on that path.
   local names: mut {string} = {}
   for name in pairs(spec.environment) do names[#names + 1] = name end
   table.sort(names)
   for _, name in ipairs(names) do
     -- `names` lists the keys of `spec.environment`, which nothing changes here.
     local value = assert(spec.environment[name], "a name listed from the keys of the environment has a value")
-    lines[#lines + 1] = part("e", name, held_value(value, digests))
+    lines[#lines + 1] = part("e", name, environment_value(name, value, digests))
   end
   return table.concat(lines, "\n"), ""
 end

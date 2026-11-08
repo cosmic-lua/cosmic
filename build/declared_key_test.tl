@@ -91,6 +91,25 @@ local function test_a_key_is_the_same_while_nothing_declared_changes(tmp: string
         two .. "/bin", TMPDIR = "/tmp" })))
 end
 
+--- Where the cores cache is (COSMIC_PORTABLE_CACHE) moves no key: what is
+--- there is content-addressed, so two runs that keep their cores in two
+--- places share their verdicts. Whether it is set, and a value the
+--- launcher refuses, still move it.
+local function test_where_the_cores_cache_is_moves_no_key(tmp: string)
+  tree(tmp)
+  local function with(cache?: string): string
+    local env: mut {string:string} = { DECLARED = "d", TMPDIR = "/tmp" }
+    if cache ~= nil then env["COSMIC_PORTABLE_CACHE"] = cache end
+    return key_of(tmp, spec(env))
+  end
+  assert(with("/runner/_temp/cosmic-ci/platform/suite-cores") ==
+      with("/runner/_temp/cosmic-ci/platform/portable-diagnostics/cache"), "the place moved the key")
+  assert(with("/home/someone/.cache/cosmic/cores") ~= with(), "a cache set or not keyed alike")
+  assert(with("relative/cores") ~= with("/home/someone/.cache/cosmic/cores"),
+    "a relative path keyed as an absolute one")
+  assert(with("relative/cores") ~= with("other/cores"), "a refused value keyed by its kind")
+end
+
 --- A file above the project is keyed by its relative path and contents:
 --- the same file in another checkout at another place keys the same, and
 --- an edit to it, or a missing file, moves the key.
