@@ -13,9 +13,11 @@
 --- A record declared inside a function has no row in `docs` to be a use of. Neither has a global record of a declaration
 --- file that returns nothing, such as `table` in lang/stdlib.d.tl.
 ---
---- A field the record inherits is a use of the interface that declares it, when some module declares that interface
---- ([`Writer.write`], not the inheriting record's own `write`).
+--- A field the record inherits is a use of the interface that declares it, when some module declares that interface. One
+--- the record declares again is a use of both: where `Writer is Collector` and both declare `write`, `w:write(...)` is a
+--- use of [`Writer.write`] and of `Collector.write`. A class that defines the method itself is the class's alone.
 local Ast = require("lang.ast")
+local type Declarations = require("lang.declarations")
 local Node = require("build.syntax_node")
 local Report = require("build.syntax_report")
 
@@ -46,6 +48,13 @@ local record Receivers
   --- gave a known type (not `invalid`), whether or not it is a record some module declares: the places the type report speaks
   --- for, in order.
   known: function(subject: Report.Subject, wanted: {string: boolean}): {string}
+end
+
+--- Whether `module` is a declaration file of globals that returns nothing (lang/stdlib.d.tl's `table`, `math`): no
+--- `require` names it, and `docs` has no row of its records.
+local function unnamed(program: Declarations.Program, module: string): boolean
+  local known = program.modules[module]
+  return known ~= nil and known.globals and Report.root_of(program, module) == nil
 end
 
 function Receivers.references(subject: Report.Subject): {Receivers.Reference}
@@ -82,10 +91,7 @@ function Receivers.references(subject: Report.Subject): {Receivers.Reference}
     local homed = false
     local owner = Report.owner_of(program, decl)
     if owner == nil then
-      -- A global record of a declaration file that returns nothing (`table`, `math`) has no row in `docs`: no `require`
-      -- names its module.
-      local known = program.modules[decl.module]
-      if known ~= nil and known.globals and Report.root_of(program, decl.module) == nil then
+      if unnamed(program, decl.module) then
         return
       end
       owner = Report.home_of(program, decl)
@@ -100,35 +106,45 @@ function Receivers.references(subject: Report.Subject): {Receivers.Reference}
     if kind == "class" and Report.has_member(decl, name) then
       from = nil
     end
-    if from ~= nil then
-      local inherited = Report.owner_of(program, from)
-      if inherited == nil and homed then
-        inherited = Report.home_of(program, from)
-        top = top or (inherited ~= nil and inherited.path ~= "")
-      end
-      if inherited ~= nil then
-        owner = inherited
-      elseif homed and not Report.has_member(decl, name) then
-        -- Declared by an interface no module names: the method is not one of this record's to be a use of.
-        return
-      end
-    end
     -- The fork has no classes.
     if kind == "class" then
       top = true
     end
-    local member = name
-    if owner.path ~= "" then
-      member = owner.path .. "." .. name
-    end
-    local id = owner.module .. "\n" .. member .. "\n" .. tostring(line)
-    if seen[id] ~= true then
-      seen[id] = true
-      local beyond: boolean? = nil
-      if top then
-        beyond = true
+    local owners: mut {Report.Owner} = { owner }
+    local tops: mut {boolean} = { top }
+    if from ~= nil then
+      local inherited = Report.owner_of(program, from)
+      local beyond = top
+      if inherited == nil and homed and not unnamed(program, from.module) then
+        inherited = Report.home_of(program, from)
+        beyond = top or (inherited ~= nil and inherited.path ~= "")
       end
-      out[#out + 1] = { module = owner.module, member = member, line = line, top = beyond }
+      -- A member the record declares again is a use of its own and of the interface's. One it only inherits is the
+      -- interface's alone, since the record has no row of it in `docs`.
+      if inherited ~= nil then
+        if Report.has_member(decl, name) then
+          owners[#owners + 1] = inherited
+          tops[#tops + 1] = beyond
+        else
+          owners[1] = inherited
+          tops[1] = beyond
+        end
+      end
+    end
+    for slot, each in ipairs(owners) do
+      local member = name
+      if each.path ~= "" then
+        member = each.path .. "." .. name
+      end
+      local id = each.module .. "\n" .. member .. "\n" .. tostring(line)
+      if seen[id] ~= true then
+        seen[id] = true
+        local beyond: boolean? = nil
+        if tops[slot] == true then
+          beyond = true
+        end
+        out[#out + 1] = { module = each.module, member = member, line = line, top = beyond }
+      end
     end
   end
   Node.walk(subject.chunk, function(node: Ast.Node)

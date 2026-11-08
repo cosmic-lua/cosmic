@@ -103,7 +103,7 @@ local TOLD <const> = table.concat({
   "end",
   "local record Teller is Told",
   "  n: integer",
-  "  new: function(): Teller",
+  "  tell: function(Teller): string",
   "end",
   "function Teller.new(): Teller",
   "  return { n = 1, tell = function(_: Teller): string return 't' end }",
@@ -153,7 +153,9 @@ end
 
 local function test_a_field_declared_by_each_of_a_chain_of_interfaces_is_a_use_of_the_deepest()
   local found = same("local Z = require('zipx')\nlocal d = Z.deep()\nuse(d:tell())\n")
-  assert(found == "zipx deep " .. tostring(line(2)) .. "\nzipx Base.tell " .. tostring(line(3)), found)
+  -- `Deep` declares `tell` again, so the call is a use of its own as well
+  assert(found == "zipx deep " .. tostring(line(2)) .. "\nzipx Base.tell " .. tostring(line(3)) .. "\nzipx Deep.tell " ..
+      tostring(line(3)), found)
 end
 
 local function test_an_assignment_to_a_field_is_no_use_and_the_value_it_is_reached_through_is()
@@ -347,7 +349,8 @@ local function test_a_method_called_through_a_record_at_the_top_of_a_file_is_a_u
       "\nOther.add " .. tostring(line(15)) .. "\n", out)
 end
 
---- A method an interface declares, called through a value of a record that lists it, is a use of the interface's method.
+--- A method an interface declares, called through a value of a record that lists it and declares it again, is a use of the
+--- interface's method and of the record's.
 local function test_a_method_a_top_level_interface_declares_is_a_use_of_the_interface()
   local text = Fixture.PRELUDE .. table.concat({
     "local interface Base",
@@ -355,6 +358,7 @@ local function test_a_method_a_top_level_interface_declares_is_a_use_of_the_inte
     "end",
     "local record Mine is Base",
     "  n: integer",
+    "  tell: function(Mine): string",
     "end",
     "local m: Mine = { n = 1, tell = function(_: Mine): string return 'm' end }",
     "use(m:tell())",
@@ -364,7 +368,8 @@ local function test_a_method_a_top_level_interface_declares_is_a_use_of_the_inte
   for _, r in ipairs(Receivers.references(Fixture.subject(text, MODULES))) do
     out = out .. r.member .. " " .. tostring(r.line) .. "\n"
   end
-  assert(out == "Base.tell " .. tostring(line(8)) .. "\n", out)
+  -- `Mine` declares the method again, as a record that lists an interface must: the call is a use of both
+  assert(out == "Base.tell " .. tostring(line(9)) .. "\nMine.tell " .. tostring(line(9)) .. "\n", out)
 end
 
 --- A record declared inside a function has no module to name: a call of its method or a read of its field through a value of
@@ -386,7 +391,7 @@ local function test_a_method_of_a_record_declared_inside_a_function_is_a_use_of_
 end
 
 --- A method declared by an interface nested in a record at the top of the file, which is no module's own, is a use of the
---- interface's method under both names (`Outer.Told.tell`), as `docs` spells it.
+--- interface's method under both names (`Outer.Told.tell`), as `docs` spells it, and of the record's own (`Mine.tell`).
 local function test_a_method_from_an_interface_nested_in_a_record_at_the_top_of_the_file_is_a_use_of_it()
   local text = Fixture.PRELUDE .. table.concat({
     "local record Outer",
@@ -396,6 +401,7 @@ local function test_a_method_from_an_interface_nested_in_a_record_at_the_top_of_
     "end",
     "local record Mine is Outer.Told",
     "  n: integer",
+    "  tell: function(Mine): string",
     "end",
     "local m: Mine = { n = 1, tell = function(_: Mine): string return 'm' end }",
     "use(m:tell())",
@@ -405,18 +411,18 @@ local function test_a_method_from_an_interface_nested_in_a_record_at_the_top_of_
   for _, r in ipairs(Receivers.references(Fixture.subject(text, MODULES))) do
     out = out .. r.member .. " " .. tostring(r.line) .. "\n"
   end
-  assert(out == "Outer.Told.tell " .. tostring(line(10)) .. "\n", out)
+  assert(out == "Mine.tell " .. tostring(line(11)) .. "\nOuter.Told.tell " .. tostring(line(11)) .. "\n", out)
 end
 
---- A method the record a module returns inherits from an interface of the module's own file is a use of that interface's, which
---- the record's own cannot name.
-local function test_a_method_the_returned_record_inherits_from_an_interface_of_its_file_is_the_interfaces()
+--- A method the record a module returns declares again from an interface of the module's own file is a use of the record's
+--- own (`tell`, the module's member) and of the interface's (`Told.tell`), which no other module can name (`top`).
+local function test_a_method_the_returned_record_declares_from_an_interface_of_its_file_is_its_own_and_the_interfaces()
   local text = Fixture.PRELUDE .. "local type Teller = require('told')\nlocal t = Teller.new()\nuse(t:tell())\n"
   local out = ""
   for _, r in ipairs(Receivers.references(Fixture.subject(text, MODULES))) do
     out = out .. r.module .. " " .. r.member .. " " .. tostring(r.top) .. "\n"
   end
-  assert(out == "told new nil\ntold Told.tell true\n", out)
+  assert(out == "told new nil\ntold Told.tell true\ntold tell nil\n", out)
 end
 
 --- A record nested in one module's own that is also the record another module returns (a value typed as it) is used under the
