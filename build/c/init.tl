@@ -22,12 +22,13 @@
 --- runs from and what it compiles, plus the system's paths:
 ---
 --- - the scripts and pins that name the one zig [`bin/zig`] runs;
---- - the bootstrap cosmic that runs build/zig.tl, and the cores its
----   launcher runs it on;
+--- - the bootstrap cosmic that runs build/zig.tl;
 --- - that zig's own install, its library unpatched: a confined bin/zig
 ---   is not given patch/zig-lib/, whose records touch only `zig build`;
 --- - the include directories and each file's own;
---- - a directory of the check's own for caches and dependency files.
+--- - a directory of the check's own for caches (the cores the bootstrap
+---   cosmic's launcher extracts among them, [`c.own_caches`]) and
+---   dependency files.
 ---
 --- In a test's sandboxed worker, the sandbox every process it starts
 --- inherits holds the compiler, as the test's [`Test.policy`] declares. In
@@ -46,7 +47,6 @@ local Fs = require("cosmic.fs")
 local Poll = require("cosmic.poll")
 local String = require("cosmic.string")
 local gen_syscalls = require("build.gen_syscalls")
-local caches = require("build.caches")
 local confine = require("build.confine")
 local layout = require("build.c.layout")
 local link_files = require("build.link_files")
@@ -254,19 +254,23 @@ local function toolchain(root: string, variables: {string:string}):
   if digest ~= nil and bootstrap ~= nil then
     runs_from[#runs_from + 1] = bootstrap .. "/cosmic-" .. digest
   end
-  -- TODO: give the compiler cores of its own to extract the bootstrap
-  -- cosmic's into (COSMIC_PORTABLE_CACHE under `deps`, as its zig
-  -- caches are), as a sandboxed worker is given (build/test_sandbox.tl's
-  -- `own_cores`), rather than the host's cores directory to read: given
-  -- only to read, that directory fails every check confined in an
-  -- unsandboxed worker where it holds no core for the bootstrap cosmic
-  -- yet (a fresh COSMIC_PORTABLE_CACHE, a cleared cache, a new pin; its
-  -- launcher "cannot create core staging entry"), and a core another
-  -- program extracted there is read in its place. Extracting one per
-  -- check costs a copy and a hash of the core each time.
-  local cores = caches.cores(variables)
-  if cores ~= nil then runs_from[#runs_from + 1] = cores end
   return install.path, runs_from
+end
+
+--- `env`, a compiler's environment, with every cache it writes in `deps`, the check's own directory, which its
+--- confinement lets it write. zig's: `-E` keeps nothing a later compile finds there, and a cache shared with every build
+--- is no path to give a confined compiler. And the cores the bootstrap cosmic's launcher extracts (COSMIC_PORTABLE_CACHE),
+--- as a sandboxed worker is given cores of its own (build/test_sandbox.tl's `own_cores`): the host's, which a confined
+--- compiler could only read, fail every check where they hold no core for the bootstrap cosmic yet (a fresh or cleared
+--- cache, a new pin: "cannot create core staging entry"), and a core another program extracted there would be run in
+--- its place. Each check extracts the core afresh, a copy and a hash of it.
+function c.own_caches(env: {string:string}, deps: string): {string:string}
+  local out: mut {string:string} = {}
+  for name, value in pairs(env) do out[name] = value end
+  out["COSMIC_ZIG_CACHE"] = deps .. "/zig-project"
+  out["COSMIC_ZIG_GLOBAL_CACHE"] = deps .. "/zig-global"
+  out["COSMIC_PORTABLE_CACHE"] = deps .. "/cores"
+  return out
 end
 
 --- Every C file under `dir`, `.c` and `.h`, relative to it and sorted:
@@ -512,11 +516,7 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer, s
     return outcomes
   end
   local deps: string = made_deps
-  -- zig's caches are the check's own: `-E` keeps nothing a later
-  -- compile finds there, and a cache shared with every build is no path
-  -- to give a confined compiler.
-  env.COSMIC_ZIG_CACHE = deps .. "/zig-project" -- checked: map_field
-  env.COSMIC_ZIG_GLOBAL_CACHE = deps .. "/zig-global" -- checked: map_field
+  env = c.own_caches(env, deps)
   local function absolute(path: string): string
     return if path:sub(1, 1) == "/" then path else cwd .. "/" .. path end
   end

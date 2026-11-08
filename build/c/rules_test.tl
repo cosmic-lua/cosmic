@@ -735,6 +735,19 @@ local function test_a_compiler_reads_no_path_it_was_not_given(tmp: string)
   assert(assert(outcome.trouble):find("AGENTS.md' file not found", 1, true), outcome.trouble)
 end
 
+--- A compiler writes every cache it keeps in the check's own directory,
+--- the cores its bootstrap cosmic's launcher extracts among them: the
+--- host's cores, which a confined compiler could only read, fail a check
+--- where they hold no core yet. The rest of its environment is kept.
+local function test_a_compiler_keeps_its_caches_and_cores_in_the_checks_own_directory()
+  local env = c.own_caches({ PATH = "/bin", COSMIC_PORTABLE_CACHE = "/host/cores",
+    COSMIC_ZIG_CACHE = "/host/zig" }, "/deps")
+  assert(env["COSMIC_PORTABLE_CACHE"] == "/deps/cores", tostring(env["COSMIC_PORTABLE_CACHE"]))
+  assert(env["COSMIC_ZIG_CACHE"] == "/deps/zig-project", tostring(env["COSMIC_ZIG_CACHE"]))
+  assert(env["COSMIC_ZIG_GLOBAL_CACHE"] == "/deps/zig-global", tostring(env["COSMIC_ZIG_GLOBAL_CACHE"]))
+  assert(env["PATH"] == "/bin", tostring(env["PATH"]))
+end
+
 --- A violation under a guard of one target or of the checked core is
 --- found there, with the variants it was found under named.
 local function guarded(tmp: string, condition: string): c.Outcome

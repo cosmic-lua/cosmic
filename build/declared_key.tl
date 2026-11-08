@@ -937,11 +937,6 @@ local function held_value(value: string, digests: declared_key.Digests): string
   return table.concat(parts, ":")
 end
 
--- TODO: hold what is there where it can change a result: a check build/c/init.tl confines to the host's cores fails
--- where they hold no core for the bootstrap cosmic yet (the TODO there), which this key, like one by the path before
--- it, holds nothing of: a cleared cache at one path was never told from a warm one. It waits on that TODO, which gives
--- the check cores of its own as a sandboxed worker is given (build/test_sandbox.tl's `own_cores`).
-
 --- The variables that name a cache, which a worker is given pinned ([`build.test_inputs`]'s `pinned_env`): what is
 --- there is content-addressed ([`build.caches`]), so which place it names is no input. An absolute path is held as one
 --- word no value can spell (`absolute_cache`); anything else (empty, relative), which the launcher refuses, by its
