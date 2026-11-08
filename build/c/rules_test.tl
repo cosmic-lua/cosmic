@@ -763,17 +763,19 @@ local function test_the_cached_bootstrap_cosmic_is_found()
   assert(found:sub(-#pinned_digest()) == pinned_digest(), found)
 end
 
---- A bootstrap cosmic that is not cached and cannot be fetched is said, so a check reports why rather than confine a
---- compiler that cannot run: here a cache of its own holds nothing, the one fetch goes to a proxy that refuses it,
---- and the digest asked for is no release's.
+--- A bootstrap cosmic that is not cached and cannot be fetched is said, with the fetch's own error, so a check reports
+--- why rather than confine a compiler that cannot run: here a cache of its own holds nothing, and the one fetch goes to
+--- a proxy that refuses it.
 local function test_a_bootstrap_cosmic_that_cannot_be_had_is_said(tmp: string)
   assert(Fs.mkdirs(tmp .. "/cache"))
   local found, why = c.bootstrap_cosmic(root, {
     PATH = Env.get("PATH") or "/usr/bin:/bin", HOME = tmp, XDG_CACHE_HOME = tmp .. "/cache",
     COSMIC_BOOTSTRAP_ATTEMPTS = "1", https_proxy = "http://127.0.0.1:9", HTTPS_PROXY = "http://127.0.0.1:9",
-  }, string.rep("0", 64))
+  }, pinned_digest())
   assert(found == nil, tostring(found))
-  assert(why:find("not cached, and bin/cosmic-bootstrap could not fetch it", 1, true) ~= nil, why)
+  assert(why:find("not cached, and bin/cosmic-bootstrap could not fetch it: ", 1, true) ~= nil, why)
+  -- The script's own refusal, not a start that failed: it ran, tried once, and said so.
+  assert(why:find("(after 1 attempt)", 1, true) ~= nil, why)
 end
 
 --- A violation under a guard of one target or of the checked core is

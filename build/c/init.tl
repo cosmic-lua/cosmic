@@ -209,21 +209,6 @@ local function environment(): {string:string}
   return out
 end
 
---- What a compiler runs from, where [`bin/zig`] finds it by the pins: the
---- pinned zig's install, and the bootstrap cosmic [`bin/cosmic-bootstrap`] runs
---- build/zig.tl on, each where `variables` locates it; the cores its launcher
---- extracts are the check's own ([`c.own_caches`]). Answers the directory that zig is installed
---- in and what outside the tree the compiler runs from, or nil when an
---- override names a zig or a bootstrap cosmic the pins do not.
----
---- The host programs the scripts run (`sh`, the `dirname`, `sed`, `wc`
---- and `tr` that `PATH` finds, and the launcher's `uname` and `stat`)
---- come only from the sandbox: the system's paths, the tree's and the
---- test's own. A test's sandboxed worker is given the system's paths only
---- where its module declares `system`, and its key holds what they hold,
---- walked ([`declared_key.system_identity`]). A compiler confined in an
---- unsandboxed worker is given them as every confined process is. A
---- `PATH` directory outside those is not there for it.
 --- Where a standalone run keeps the compiles it checked
 --- ([`build.standalone`]), which bin/zig's run of build/zig.tl reads and
 --- writes, as [`Fs.cache_dir`] vouches for it, or nil where it vouches for
@@ -264,27 +249,37 @@ function c.bootstrap_cosmic(root: string, variables: {string:string}, digest: st
   return nil, why
 end
 
---- [`toolchain`]'s answer, and why there is none where the pins name a toolchain that cannot run: "" where there
---- is one, or where an override or a missing cache leaves the compiler to start as any process does.
+--- What a compiler runs from, where [`bin/zig`] finds it by the pins: the
+--- pinned zig's install, where `variables` locates it, the directory it is
+--- installed in and the list of what outside the tree the compiler runs
+--- from; and the sha256 of the bootstrap cosmic [`bin/cosmic-bootstrap`] runs
+--- build/zig.tl on (the pin's third line), which it runs from too once
+--- [`c.bootstrap_cosmic`] has it, or nil where the pin names none. The cores
+--- its launcher extracts are the check's own ([`c.own_caches`]). Nil and an
+--- empty list where an override names a zig or a bootstrap cosmic the pins
+--- do not.
+---
+--- The host programs the scripts run (`sh`, the `dirname`, `sed`, `wc`
+--- and `tr` that `PATH` finds, and the launcher's `uname` and `stat`)
+--- come only from the sandbox: the system's paths, the tree's and the
+--- test's own. A test's sandboxed worker is given the system's paths only
+--- where its module declares `system`, and its key holds what they hold,
+--- walked ([`declared_key.system_identity`]). A compiler confined in an
+--- unsandboxed worker is given them as every confined process is. A
+--- `PATH` directory outside those is not there for it.
 local function toolchain(root: string, variables: {string:string}):
-    string?, {string}, string
+    string?, mut {string}, string?
   for _, name in ipairs({ "COSMIC_ZIG", "COSMIC_BOOTSTRAP" }) do
     local value = variables[name]
-    if value ~= nil and value ~= "" then return nil, {}, "" end
+    if value ~= nil and value ~= "" then return nil, {}, nil end
   end
   local pin, _ = Fs.read(root .. "/ci/cosmic-driver.pin")
   local cache, _ = Fs.cache_dir("zig", { environment = variables, make = false })
-  if cache == nil then return nil, {}, "" end
+  if cache == nil then return nil, {}, nil end
   local install, _ = Zig.pinned_install(root, cache)
-  if install == nil then return nil, {}, "" end
-  local runs_from: mut {string} = { install.path }
+  if install == nil then return nil, {}, nil end
   local digest = (pin or ""):match("^[^\n]*\n[^\n]*\n(%x+)")
-  if digest ~= nil then
-    local bootstrap, why = c.bootstrap_cosmic(root, variables, digest)
-    if bootstrap == nil then return nil, {}, why end
-    runs_from[#runs_from + 1] = bootstrap
-  end
-  return install.path, runs_from, ""
+  return install.path, { install.path }, digest
 end
 
 --- `env`, a compiler's environment, with every cache it writes in `deps`, the check's own directory, which its
@@ -538,11 +533,7 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer, s
   end
   local results: mut {integer: c.Outcome} = {}
   local env = environment()
-  local install, runs_from, unrunnable = toolchain(root, env)
-  if unrunnable ~= "" then
-    for i, file in ipairs(files) do outcomes[i] = { file = file, trouble = unrunnable } end
-    return outcomes
-  end
+  local install, runs_from, bootstrap_digest = toolchain(root, env)
   local made_deps, deps_trouble = Fs.mkdtemp("cosmic-c-deps-")
   if made_deps == nil then
     for i, file in ipairs(files) do
@@ -654,6 +645,30 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer, s
     if install == nil then
       compile()
       return ""
+    end
+    -- The bootstrap cosmic, fetched now where it is not cached, and only
+    -- where a compile the memo did not answer is left to run: a compile
+    -- that cannot run is told why, and an answered one keeps its answer.
+    local unanswered: mut {integer} = {}
+    for j in ipairs(jobs) do
+      if results[j] == nil then unanswered[#unanswered + 1] = j end
+    end
+    if #unanswered == 0 then return "" end
+    if bootstrap_digest ~= nil then
+      local variables: mut {string:string} = {}
+      for name, value in pairs(env) do variables[name] = value end
+      -- One try: where a fetch fails here, a person runs bin/cosmic, which tries again.
+      if variables["COSMIC_BOOTSTRAP_ATTEMPTS"] == nil then
+        variables["COSMIC_BOOTSTRAP_ATTEMPTS"] = "1"
+      end
+      local bootstrap, why = c.bootstrap_cosmic(root, variables, bootstrap_digest)
+      if bootstrap == nil then
+        for _, j in ipairs(unanswered) do
+          results[j] = { file = nth(files, nth(jobs, j).file), trouble = why }
+        end
+        return ""
+      end
+      runs_from[#runs_from + 1] = bootstrap
     end
     -- What the compiler is given beside what it runs from: the tree's
     -- pieces of the toolchain, the include directories, and each file's

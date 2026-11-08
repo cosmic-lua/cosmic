@@ -101,8 +101,7 @@ harness_epoch.library = {
   -- build.shared_verdicts, build.shared_sqlite, build.declared_key and
   -- build.bind, and a copy of those over the raw binding
   -- (cosmic.internal.sqlite) would be a second SQLite layer inside the
-  -- key's code to keep in step with this one, for the one commit in
-  -- twenty that edits it.
+  -- key's code to keep in step with this one.
   ["cosmic.sqlite"] = "the key's code digests the rows it reads of the store, and " ..
     "shared verdicts are stored and looked up under exact keys through it",
   ["cosmic.test"] = "a test's declaration (`Test.policy`), which the worker judges, and " ..
