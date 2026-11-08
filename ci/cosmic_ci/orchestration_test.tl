@@ -508,6 +508,35 @@ local function test_the_portable_suite_shares_the_native_suites_verdicts()
   assert(Orchestration.suite_verdicts({}, "portable") == "0", "unset")
 end
 
+--- The native and the portable suite add the same variables to a driver's
+--- environment that names a verdict cache, the cores cache among them: a
+--- worker is keyed by each pinned variable it is given, so a cores cache
+--- one suite names and the other does not keys every test of the two
+--- apart, and the portable suite stands on none of the native suite's
+--- verdicts. The phases hand them these: test_a_suite_is_given_nothing_that_names_the_run
+--- and test_the_portable_suite_stands_on_the_local_suites_verdicts.
+local function test_the_native_and_portable_suites_give_their_workers_one_environment()
+  local Orchestration = require("cosmic_ci.orchestration")
+  local env = { COSMIC_VERDICT_CACHE = "/runner/_temp/verdicts/verdicts.db" }
+  local function merged(name: string): {string:string}
+    local out: mut {string:string} = {}
+    for key, value in pairs(env) do out[key] = value end
+    for key, value in pairs(Orchestration.suite_env(name, "/runner/_temp/cosmic-ci/platform", env)) do
+      out[key] = value
+    end
+    return out
+  end
+  local native, portable = merged("local"), merged("portable")
+  for key, value in pairs(native) do
+    assert(portable[key] == value, key .. ": native " .. value .. ", portable " .. tostring(portable[key]))
+  end
+  for key, value in pairs(portable) do
+    assert(native[key] == value, key .. ": portable " .. value .. ", native " .. tostring(native[key]))
+  end
+  assert(native["COSMIC_PORTABLE_CACHE"] == "/runner/_temp/cosmic-ci/platform/suite-cores",
+    tostring(native["COSMIC_PORTABLE_CACHE"]))
+end
+
 --- The checked suite keeps a file of its own, apart from the local and
 --- portable suites' shared one.
 local function test_the_checked_suite_keeps_verdicts_of_its_own()
@@ -1301,6 +1330,10 @@ chmod 755 o/bin/cosmic
     assert(env[name] == value, name .. " did not reach the suite: " .. tostring(env[name]))
   end
   assert(env["PATH"] ~= nil and env["PATH"] ~= "", "PATH did not reach the suite")
+  -- The cores cache the portable suite is given too, so the two key their workers alike.
+  local cores = env["COSMIC_PORTABLE_CACHE"] or ""
+  assert(cores:sub(-#"/runner-temp/cosmic-ci/platform/suite-cores") == "/runner-temp/cosmic-ci/platform/suite-cores",
+    "the native suite's cores cache: " .. tostring(env["COSMIC_PORTABLE_CACHE"]))
   assert(env["COSMIC_TEST_NO_SHARED"] == nil, "a Linux push's suite stands on shared verdicts")
   assert(Fs.read(seen .. ".words") == "test --census\n", "a Linux push's suite ran --all")
 end
@@ -1357,6 +1390,12 @@ exit 0
     end
     assert(env["COSMIC_VERDICT_CACHE"] == runner_temp .. "/verdicts/verdicts.db",
       case.event .. ": " .. tostring(env["COSMIC_VERDICT_CACHE"]))
+    -- The native suite's cores cache (test_a_suite_is_given_nothing_that_names_the_run).
+    -- The work directory as the driver resolves it, so by its tail.
+    local cores = env["COSMIC_PORTABLE_CACHE"] or ""
+    local tail = "/portable-" .. case.event .. "-runner-temp/cosmic-ci/platform/suite-cores"
+    assert(cores:sub(-#tail) == tail,
+      case.event .. ": the portable suite's cores cache: " .. tostring(env["COSMIC_PORTABLE_CACHE"]))
     assert((env["COSMIC_TEST_NO_SHARED"] == "1") == case.shared,
       case.event .. ": COSMIC_TEST_NO_SHARED=" .. tostring(env["COSMIC_TEST_NO_SHARED"]))
   end

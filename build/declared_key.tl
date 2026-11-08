@@ -73,7 +73,8 @@
 ---   projection's place; each `host` path; and each file above the
 ---   project a `/parent/` grant names, by its relative path (`parent`);
 --- - the environment its worker is given ([`test_sandbox.environment`]):
----   the pinned variables and the declared ones;
+---   the pinned variables and the declared ones, but for where a cache
+---   is, which is no input ([`cache_places`]);
 --- - where the tree is, only for a worker no sandbox gives it at /tree
 ---   ([`Spec`]'s `tree`).
 ---
@@ -936,6 +937,28 @@ local function held_value(value: string, digests: declared_key.Digests): string
   return table.concat(parts, ":")
 end
 
+-- TODO: hold what is there where it can change a result: a check build/c/init.tl confines to the host's cores fails
+-- where they hold no core for the bootstrap cosmic yet (the TODO there), which this key, like one by the path before
+-- it, holds nothing of: a cleared cache at one path was never told from a warm one. It waits on that TODO, which gives
+-- the check cores of its own as a sandboxed worker is given (build/test_sandbox.tl's `own_cores`).
+
+--- The variables that name a cache, which a worker is given pinned ([`build.test_inputs`]'s `pinned_env`): what is
+--- there is content-addressed ([`build.caches`]), so which place it names is no input. An absolute path is held as one
+--- word no value can spell (`absolute_cache`); anything else (empty, relative), which the launcher refuses, by its
+--- value.
+local cache_places <const>: {string:boolean} = { COSMIC_PORTABLE_CACHE = true }
+
+--- What [`environment_value`] holds an absolute cache path as: led by a NUL, as a tree's name is
+--- ([`build.key_parts`]'s `tree_marker`), so no value a variable holds keys the same.
+local absolute_cache <const> = "\0absolute cache path"
+
+--- What the key holds of the variable `name`'s value `value`: a cache's place by its kind ([`cache_places`]), any
+--- other value as [`held_value`] holds it.
+local function environment_value(name: string, value: string, digests: declared_key.Digests): string
+  if cache_places[name] == true and value:sub(1, 1) == "/" then return absolute_cache end
+  return held_value(value, digests)
+end
+
 --- What `spec`'s test is given, but for its name, as the lines whose
 --- digest its key holds (`compute`) -- each a `key_part`, which frames
 --- what it names so that no two specs spell one -- or nil and why there
@@ -1060,7 +1083,7 @@ function declared_key.preimage(digests: declared_key.Digests,
   for _, name in ipairs(names) do
     -- `names` lists the keys of `spec.environment`, which nothing changes here.
     local value = assert(spec.environment[name], "a name listed from the keys of the environment has a value")
-    lines[#lines + 1] = part("e", name, held_value(value, digests))
+    lines[#lines + 1] = part("e", name, environment_value(name, value, digests))
   end
   return table.concat(lines, "\n"), ""
 end
