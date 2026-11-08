@@ -86,14 +86,14 @@ local record ChecksCase
   env?: {string:string}
 end
 
---- [`Orchestration.suite_run`], its answer as two values.
+--- [`cosmic_ci.orchestration.suite_run`], its answer as two values.
 local function suite_run(extra?: {string:string}): {string}, {string:string}
   local Orchestration = require("cosmic_ci.orchestration")
   local run = Orchestration.suite_run(extra)
   return run.words, run.env
 end
 
---- [`Orchestration.fixture_lanes`], the two lanes as two values.
+--- [`cosmic_ci.orchestration.fixture_lanes`], the two lanes as two values.
 local function fixture_lanes(env: {string:string}, cpus: integer): integer?, integer?
   local Orchestration = require("cosmic_ci.orchestration")
   local lanes = Orchestration.fixture_lanes(env, cpus)
@@ -1830,7 +1830,7 @@ local type Orch = require("cosmic_ci.orchestration")
 --- A bound for a group that should end at once: only a hang reaches it.
 local lane_hang_guard = Clock.seconds(20)
 
---- Groups of `/bin/sh` scripts for [`Orchestration.run_groups`], whose log
+--- Groups of `/bin/sh` scripts for [`cosmic_ci.orchestration.run_groups`], whose log
 --- goes to `sink` when it ends, with an `events` list of how each ended.
 local record LaneRig
   events: {string}

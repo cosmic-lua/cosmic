@@ -361,7 +361,7 @@ end
 --- which `base` keeps nothing of. The child
 --- shares no compiles or parses (COSMIC_BUILD_CACHE=0) unless `extra`
 --- says otherwise. The
---- fixture's own run shares one file with the leg's other fixtures ([`Orchestration.fixture`]), but a tree a child builds (a
+--- fixture's own run shares one file with the leg's other fixtures ([`cosmic_ci.orchestration.fixture`]), but a tree a child builds (a
 --- fresh checkout's boot, the product rebuilding itself) is what a
 --- fixture checks compiles, and work another child or fixture left in
 --- that file would stand in for it (fixed_point_test's compiler cases'
@@ -373,7 +373,7 @@ end
 --- Nor does a `cosmic test` the child runs sandbox its workers
 --- (COSMIC_TEST_SANDBOX=0): what a fixture asserts of such a run is its
 --- tally, not its sandbox, and a fixture's own worker is sandboxed
---- ([`Orchestration.fixture`]), which a sandbox of the child's would nest
+--- ([`cosmic_ci.orchestration.fixture`]), which a sandbox of the child's would nest
 --- in only as deep as the host allows. So it means the same on every
 --- host, as doc/testing.md asks of a test's own `cosmic test`.
 function Fixture.environment_of(base: {string:string},
