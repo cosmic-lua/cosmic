@@ -5,7 +5,7 @@
 --- the ordinary way Lua already resolves `require("a.b")` to
 --- `a/b/init.tl`, and every other file directly inside that directory
 --- is a sibling, reachable only from a file that itself sits inside it.
---- A nested directory with no `init.tl` has no path in at all. The root
+--- A nested directory with no `init.tl` has no entry, so only a member that says `--- @public` is reached. The root
 --- and a top-level directory with no `init.tl` are namespaces instead:
 --- each file directly in one is a flat module of its own, public by
 --- construction, as [`cosmic/fs.tl`] is. See [`positions.check`].
@@ -106,8 +106,8 @@ end
 --- `build/` are. Any other directory is closed, and only a file inside
 --- it may import a member of it. A directory's own `init.tl` is a member
 --- of the directory around it, so it is the one path into a closed
---- directory from outside; a nested directory without one has no path
---- in at all. A module whose opening doc block holds the line `--- @public`
+--- directory from outside; a nested directory without one has no entry,
+--- so only a member opened as below is reached from outside it. A module whose opening doc block holds the line `--- @public`
 --- ([`build.analysis_schema`]'s `public_tag`) is open to every importer, wherever it sits outside an `internal`
 --- directory: the line opens a closed directory's module, never an internal one.
 ---

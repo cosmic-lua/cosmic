@@ -707,8 +707,9 @@ end
 --- The index marks a module of the tree no file outside its directory may require, by the rule a build refuses such a
 --- require by ([`build.positions`]): the member of a package beside its `init.tl`, a package nested in a closed one,
 --- and one an `internal` directory scopes. A package's entry, a flat module, a member of a top-level namespace, one that
---- says `--- @public`, a guide (which nothing requires) and a module of a public source (the standard library a project
---- builds with, whose modules it may require wherever they sit) are not marked.
+--- says `--- @public`, a guide (which nothing requires) and the standard library's public modules, which a project may
+--- require wherever they sit, are not marked: neither from a public source (the library a project builds with) nor
+--- from cosmic's own tree, which holds them to the rule.
 local function test_the_index_marks_a_module_private_to_its_package(dir: string)
   local db = built(dir, {
     ["rules/returns/init.tl"] = source("--- Returns.", "local record R", "end", "return R"),
@@ -721,10 +722,12 @@ local function test_the_index_marks_a_module_private_to_its_package(dir: string)
     ["lib/part.tl"] = source("--- A part.", "local record L", "end", "return L"),
     ["app/internal/store.tl"] = source("--- A store.", "local record S", "end", "return S"),
     ["doc/guides/notes.md"] = "# notes\n\nA guide.\n",
-  })
-  local library = built(dir, {
     ["cosmic/web/init.tl"] = source("--- The web.", "local record W", "end", "return W"),
     ["cosmic/web/secret.tl"] = source("--- Secrets.", "local record S", "end", "return S"),
+  })
+  local library = built(dir, {
+    ["cosmic/http/init.tl"] = source("--- HTTP.", "local record H", "end", "return H"),
+    ["cosmic/http/wire.tl"] = source("--- The wire.", "local record W", "end", "return W"),
   })
   local both = assert(docs.view({ db, library }, { false, true }))
   local lines = assert(docs.answer(both, {})).lines
@@ -736,6 +739,8 @@ local function test_the_index_marks_a_module_private_to_its_package(dir: string)
   local all = table.concat(shown, "\n")
   assert(all == table.concat({
     "app.internal.store  (internal to app/) A store.",
+    "cosmic.http  HTTP.",
+    "cosmic.http.wire  The wire.",
     "cosmic.web  The web.",
     "cosmic.web.secret  Secrets.",
     "doc.guides.notes  A guide.",
@@ -755,15 +760,28 @@ local function test_the_index_marks_a_module_private_to_its_package(dir: string)
     if object["module"] == "rules.returns.paths" then
       assert(object["closed"] == "private to rules/returns/", line)
       marked = marked + 1
-    elseif object["module"] == "rules.returns" or object["module"] == "cosmic.web.secret" then
+    elseif object["module"] == "rules.returns" or object["module"] == "cosmic.web.secret" or
+        object["module"] == "cosmic.http.wire" then
       assert(object["closed"] == nil, line)
       marked = marked + 1
     end
   end
-  assert(marked == 3, tostring(marked))
+  assert(marked == 4, tostring(marked))
   for _, summary in ipairs((assert(docs.index(both)))) do
     assert(summary.closed == "", "the index itself judges no mark: " .. summary.module)
   end
+end
+
+--- A mark the index cannot judge is left off: a member of a package whose row holds no source may say `--- @public`
+--- for all the index knows, so it is not called private.
+local function test_the_index_leaves_off_a_mark_it_cannot_judge()
+  local db = database({
+    { "pkg.init", "", "module", "", "A package.", "pkg/init.tl", "1" },
+    { "pkg.part", "", "module", "", "A part.", "pkg/part.tl", "1" },
+  }, {})
+  local lines = assert(docs.answer(view({ db }), {})).lines
+  local all = table.concat(lines, "\n")
+  assert(all:find("pkg.part", 1, true) ~= nil and all:find("(private", 1, true) == nil, all)
 end
 
 --- A module's listing leaves out the functions its returned value never
