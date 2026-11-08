@@ -57,6 +57,32 @@ function Example.record_of()
   assert(why == "Entry: $.assets[0]: want string, got integer", why)
 end
 
+--- The settings a [`File`] holds under its `cfg` key.
+local record Inner
+  x: number
+end
+
+--- A file of the form `{"cfg": {...}}`.
+local record File
+  cfg: Inner
+end
+
+--- A keyed object inside the payload is a field typed by another record:
+--- [`record_of`] names only the outer one, and checks the inner one through
+--- it. Records local to the module do, with no module record around them; a
+--- record nested in one a function declares does not reach the build's
+--- check, so these are declared at the top of the module.
+function Example.record_of_nested()
+  local SETTINGS <const> = Shape.record_of("File")
+  local file, err = SETTINGS:decode_into('{"cfg": {"x": 2}}')
+  assert(file ~= nil, err)
+  print(file.cfg.x)
+  assert(file.cfg.x == 2)
+  local _, why = SETTINGS:decode_into('{"cfg": {"x": "two"}}')
+  print(why)
+  assert(why ~= "", why)
+end
+
 --- Text that is JSON is decoded and checked in one call: the answer is a
 --- `Release`, or the reason the text is not one, whether it is not JSON
 --- or is JSON of another shape.

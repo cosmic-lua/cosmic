@@ -46,6 +46,13 @@ function Example.starts_with()
   assert(not String.starts_with("-", "--"))
 end
 
+--- A test that output holds a line, written as a condition.
+function Example.contains()
+  local output = "build: 3 modules\ntest: 9 tests passed\n"
+  assert(String.contains(output, "tests passed"))
+  assert(not String.contains(output, "FAIL"))
+end
+
 --- A count in a message, with the right plural.
 function Example.counted()
   local message = String.counted(1, "entry", "entries") .. ", " ..
