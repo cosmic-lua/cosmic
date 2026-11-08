@@ -141,9 +141,11 @@ function rebuild.refused(): {string}
 end
 
 --- Why the last build this process made with [`rebuild.here`] left the
---- projection as it was though it answered true, another run holding the
---- working database or the rebuild lock, so a lookup answers from the
---- last build; "" where it wrote one, or wrote none for another reason.
+--- projection as it was though it answered true, so a lookup answers from
+--- the last build: another run holding the working database or the rebuild
+--- lock, a working database of another schema, or a check of the tool that
+--- went on without holding it to the tree ([`reboot.unchecked`]); "" where
+--- it wrote one, or where the directory is none to build.
 function rebuild.held(): string
   return last_held
 end
@@ -175,6 +177,7 @@ local function project(root: string, verb: string, start: boolean, carried?: str
     -- Compiled by code that may be older than the tree's, the rows and
     -- the projection would be keyed and signed as no build of the tree
     -- would make them.
+    last_held = "this tool could not be checked against the tree"
     return true, ""
   end
   if not found.project and not start then
@@ -195,6 +198,7 @@ local function project(root: string, verb: string, start: boolean, carried?: str
     local other = opening.other_schema
     if other ~= nil then
       work.tell_other_schema(verb, working, other, root)
+      last_held = "the working database is of another schema"
     else
       work.tell_busy(verb, working)
       last_held = "another run holds the working database"

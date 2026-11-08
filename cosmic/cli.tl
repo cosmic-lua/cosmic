@@ -277,12 +277,14 @@ local record Cli
   --- The build directory is the working directory's only, never a
   --- project's above it. Nothing is built or staged: the projection is
   --- what the last run that builds wrote (`cosmic test`, `build`, `fix`,
-  --- `docs`, `uses`), and the working database `--build` reads what the
-  --- last run that stages left (those, `todos` and `lsp`), so run one
-  --- first to ask of the tree as it stands. A statement
-  --- opening with `.` (`.tables`) is the sqlite3 shell's, not SQL:
-  --- `SELECT name FROM sqlite_schema WHERE type='table'` names the tables,
-  --- and `cosmic db` says what each holds. `cosmic sql --from
+  --- `docs`, `uses`, or running a file, `cosmic <file.tl>`), and the
+  --- working database `--build` reads what the last run that stages left
+  --- (those, `todos` and `lsp`), so run one first to ask of the tree as it
+  --- stands. A statement opening with `.` (`.tables`) is the sqlite3
+  --- shell's, not SQL: `SELECT name FROM sqlite_schema WHERE type='table'`
+  --- names the tables, and, of the build directory's databases, `cosmic
+  --- db` says what each holds. One opening with an SQL comment `--` is read
+  --- as an option unless `--` comes before it. `cosmic sql --from
   --- <file> ['<statement>']` asks it of a data file instead, to count,
   --- filter, join and sum where `cosmic json` only looks up (`cosmic sql
   --- --from accounts.json 'SELECT type, sum(balance) FROM accounts GROUP
@@ -641,7 +643,8 @@ local record Cli
   --- standard library's. `--json` prints one JSON object per entry
   --- found, every one and not the first five, a line each (query, exact,
   --- module, symbol, kind, signature, text, and file, line and verb
-  --- where it has them), with no summary on standard error; with no q,
+  --- where it has them), with no summary on standard error but the one
+  --- a stale answer gets (below); with no q,
   --- or `cosmic`, each module the page lists. Filter it by composing,
   --- as `cosmic json` does: `cosmic docs --json Fs.read Fs.write |
   --- cosmic sql --from docs=- --as ndjson "SELECT symbol, line FROM
@@ -654,14 +657,16 @@ local record Cli
   --- types it. A function declared as a field of the record a module
   --- returns, and defined as `function Record.f`, shows the field's
   --- doc unless the definition has a `---` doc of its own, and is
-  --- placed at the definition. Where a build has been made of the tree,
-  --- it builds it first, as `test` does but running no test, so it
-  --- answers for the tree as it stands; where none has, it builds
-  --- nothing and answers from cosmic's own docs, saying the directory has
-  --- not been built. Where the tree does not build, or another run holds
-  --- the build, it answers from the last build, and the summary says so
-  --- and why, as each `--json` object does with `"stale": true` and a
-  --- line on standard error. The tree is found as `test` finds it
+  --- placed at the definition. Where the build directory holds a working
+  --- database or a projection (any run that builds or stages there made
+  --- it, `todos` and `lsp` among them), it builds the tree first, as
+  --- `test` does but running no test, so it answers for the tree as it
+  --- stands; where it holds neither, it builds nothing and answers from
+  --- cosmic's own docs, saying the directory has not been built. Where the
+  --- tree does not build, or the build is left alone (another run holds
+  --- it, the working database is another tool's), it answers from the
+  --- last build, and the summary says so and why, as each `--json` object
+  --- does with `"stale": true`. The tree is found as `test` finds it
   docs: string
   --- `cosmic uses <sym> [path...]`: every place that refers to a
   --- symbol, as file:line -- only those under the paths, when given --

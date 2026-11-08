@@ -149,14 +149,16 @@ function todo_scan.scan(source: string): {todo_scan.Found}
 end
 
 --- Whether the comment `comment` carries on the paragraph of `before`, the
---- line above it, as [`todo_scan.scan`] carries a TODO on: the same
---- indentation and marker, or a block comment's `*` under its opener.
+--- line above it, as [`todo_scan.scan`] reads a paragraph: the same
+--- indentation and marker, or a block comment's `*` under its opener, with
+--- text, and not a sentence opened on a new line after one that ended.
 local function carries_on(before: Comment?, comment: Comment): boolean
-  if before == nil or before.text == "" then return false end
+  if before == nil or before.text == "" or comment.text == "" then return false end
   local following = continued(before.marker)
   local aligned = comment.indent == before.indent or
     (following ~= before.marker and comment.indent == before.indent .. " ")
-  return aligned and (comment.marker == before.marker or comment.marker == following)
+  local ended = before.text:match("%.$") ~= nil and comment.text:match("^%u") ~= nil
+  return aligned and (comment.marker == before.marker or comment.marker == following) and not ended
 end
 
 --- The comments that open with a spelling a reader takes for a TODO's but

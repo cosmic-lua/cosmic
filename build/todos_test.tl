@@ -126,11 +126,13 @@ local function test_a_near_miss_of_the_spelling_is_found_apart()
     "// TODO()",
     "/* a block whose",
     " * TODO there is prose */",
+    "-- Does a thing.",
+    "-- TODO handle more",
   })
   local found = todo_scan.misses(source)
   local said: mut {string} = {}
   for _, miss in ipairs(found) do said[#said + 1] = tostring(miss.line) .. " " .. miss.spelling end
-  assert(table.concat(said, "|") == "1 TODO(perf):|2 FIXME:|3 TODO|9 TODO()", table.concat(said, "|"))
+  assert(table.concat(said, "|") == "1 TODO(perf):|2 FIXME:|3 TODO|9 TODO()|13 TODO", table.concat(said, "|"))
   assert(#todo_scan.scan(source) == 1)
 end
 

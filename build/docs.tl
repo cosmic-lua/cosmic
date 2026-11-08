@@ -3207,7 +3207,7 @@ local function run(argv: {string}): integer
     for _, line in ipairs(records.lines) do
       log:say(line)
     end
-    -- No summary follows the records, so a query that finds nothing still hears it.
+    -- The records have no summary but this one, for a stale answer, which a query that finds nothing hears too.
     if stale ~= "" then local _, _ = logger.summary("docs", "answered " .. stale) end
     return if records.found then 0 else 1 end
   end
