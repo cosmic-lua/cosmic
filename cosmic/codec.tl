@@ -29,7 +29,7 @@ end
 local function byte_at(text: string, index: integer): integer
   local byte = if index >= 1 then text:byte(index) else nil end
   if byte == nil then
-    error(("codec: byte %d is outside the text of %d bytes"):format(index, #text), 2)
+    error(("codec: byte %d is outside the text (1 to %d)"):format(index, #text), 2)
   end
   return byte
 end
