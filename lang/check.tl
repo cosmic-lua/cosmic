@@ -1544,7 +1544,12 @@ function TableLiterals.differ_fix(ctx: Ctx, all: {Type}): string
   end
   local row = "for values that differ by position (a row), declare a record and write each row by name " ..
     "(`{ name = ..., weight = ... }`)"
-  if #names > 4 then
+  local tables = false
+  for _, name in ipairs(names) do
+    tables = tables or name:sub(1, 1) == "{" or name:sub(1, 4) == "mut "
+  end
+  -- A union of tables is one a literal cannot pick a member of (literal_ambiguous), so tables get the record alone.
+  if #names > 4 or tables then
     return row .. ", or make the elements one type"
   end
   return "type the literal with their union: `local name: {" .. table.concat(names, " | ") .. "} = ...`; " .. row
@@ -7724,13 +7729,16 @@ local function check_return(ctx: Ctx, s: Ast.Return)
       local at = s.values[math.min(i, n)]
       local value, first = alt.items[1], s.values[1]
       if want ~= nil and i == 2 and n == 2 and #alt.items == 2 and t.tag == "nil" and want.tag == "string" and
-          value ~= nil and nilable(value) and first ~= nil and at ~= nil then
+          value ~= nil and (nilable(value) or value.tag == "boolean") and first ~= nil and first.kind ~= "Nil" and
+          at ~= nil then
         -- The reason of a `T?, string` result is "" on success: `string?` there, which declaring it suggests, is the
         -- tuple that convention replaces.
+        local written = text_of(ctx, first)
+        if #written > 40 then written = "v" end
         report(ctx, "nil_not_allowed", at, "nil is given as return value 2, the reason of a `" .. show(ctx, value) ..
             ", string` result, where `string` is wanted",
-          "a reason is \"\" on success: `return " .. text_of(ctx, first) .. ", \"\"` " ..
-            "(as `Counts.open` in doc/guides/project.md), and the failure's text with nil")
+          "a reason is \"\" on success: `return " .. written .. ", \"\"`, and the failure's text beside a failure " ..
+            "(`Counts.open` in `cosmic docs project` shows one)")
       elseif want ~= nil then
         local _ = expect(ctx, at, t, want, " as return value " .. tostring(i)) -- checked: nil_not_allowed
       end

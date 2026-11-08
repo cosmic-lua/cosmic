@@ -77,6 +77,23 @@ local CASES <const>: {Case} = {
     fix = "a reason is \"\" on success: `return n, \"\"`",
   },
   {
+    code = "nil_not_allowed",
+    source = "local function f(): boolean, string\n  return true, nil\nend\nprint(f())\n",
+    msg = "nil is given as return value 2, the reason of a `boolean, string` result",
+    fix = "a reason is \"\" on success: `return true, \"\"`",
+  },
+  {
+    code = "nil_not_allowed",
+    source = "local function f(): integer?, string\n  return nil, nil\nend\nprint(f())\n",
+    msg = "nil is given as return value 2, where `string` is wanted",
+    fix = "declare what takes it `string?`",
+  },
+  {
+    code = "arms_differ", source = "local t = { { 1 }, { \"a\" } }\n",
+    msg = "the elements of this literal have no common type",
+    fix = "declare a record and write each row by name (`{ name = ..., weight = ... }`), or make the elements one type",
+  },
+  {
     code = "invariant_mut",
     source = "local function f(xs: mut {number}) end\nlocal v: mut {integer} = {}\nf(v)\n",
     msg = "`integer` is not `number`", fix = "pass a view, or declare the receiver's type `mut {integer}` as the argument has it",

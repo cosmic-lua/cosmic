@@ -163,14 +163,16 @@ function test_report.nas(nas: mut {string}): {string}
   return lines
 end
 
---- `failures` with the tests of a module that failed to load folded into one failure of that module: each of its
---- tests failed for that one cause, which ran at the module's top level, outside every test. The folded failure names
---- the tests, says where the cause ran, and is rerun by the module's file.
-function test_report.unloaded(failures: {test_report.Failure}): mut {test_report.Failure}
+--- `failures` with the tests of each module that failed to load folded into one failure of that module: each of its
+--- tests failed for one cause, which ran at the module's top level, outside every test. The cause is the first test's
+--- (sorted by name), since a load's text may differ from test to test (a path under each worker's own directory). The
+--- folded failure names the tests, says where the cause ran, and is rerun by the module's file.
+local function unloaded(failures: {test_report.Failure}): {test_report.Failure}
   local record Group
     module: string
-    cause: string
-    first: test_report.Failure
+    mut first: test_report.Failure
+    mut cause: string
+    mut first_name: string
     names: mut {string}
   end
   local out: mut {test_report.Failure} = {}
@@ -179,13 +181,14 @@ function test_report.unloaded(failures: {test_report.Failure}): mut {test_report
   for _, failure in ipairs(failures) do
     local module, name, cause = failure.message:match("^(%S+) (%S+): (the module failed to load: .*)$")
     if module ~= nil and name ~= nil and cause ~= nil then
-      local key = module .. "\0" .. cause
-      local group = groups[key]
+      local group = groups[module]
       if group == nil then
-        local made: Group = { module = module, cause = cause, first = failure, names = {} }
-        groups[key] = made
+        local made: Group = { module = module, first = failure, cause = cause, first_name = name, names = {} }
+        groups[module] = made
         order[#order + 1] = made
         group = made
+      elseif name < group.first_name then
+        group.first, group.cause, group.first_name = failure, cause, name
       end
       group.names[#group.names + 1] = name
     else
@@ -194,31 +197,30 @@ function test_report.unloaded(failures: {test_report.Failure}): mut {test_report
   end
   for _, group in ipairs(order) do
     local names, first, cause = group.names, group.first, group.cause
-    if #names == 1 then
-      out[#out + 1] = first
-    else
-      table.sort(names)
-      local newline = cause:find("\n", 1, true)
-      local head = if newline == nil then cause else cause:sub(1, newline - 1) end
-      local rest = if newline == nil then "" else cause:sub(newline) end
-      local rerun = first.rerun
-      out[#out + 1] = {
-        message = group.module .. ": " .. head .. "\n  none of its " .. tostring(#names) .. " tests ran (" ..
-          table.concat(names, ", ") .. "): what failed ran as the module loaded, at its top level and outside " ..
-          "every test; move it into a test or a function the tests call" .. rest,
-        rerun = if rerun ~= nil then (rerun:gsub(":[^:/]*$", "")) else nil end,
-        printed = first.printed,
-      }
-    end
+    table.sort(names)
+    local newline = cause:find("\n", 1, true)
+    local head = if newline == nil then cause else cause:sub(1, newline - 1) end
+    local rest = if newline == nil then "" else cause:sub(newline) end
+    local rerun = first.rerun
+    local none = if #names == 1 then "its test did not run (" else "none of its " .. plural.count(#names, "test") .. " ran (" end
+    out[#out + 1] = {
+      message = group.module .. ": " .. head .. "\n  " .. none .. table.concat(names, ", ") ..
+        "): what failed ran as the module loaded, at its top level and outside every test; move it into a test " ..
+        "or a function the tests call" .. rest,
+      rerun = if rerun ~= nil then (rerun:gsub(":[^:/]*$", "")) else nil end,
+      printed = first.printed,
+    }
   end
   return out
 end
 
 --- Each failure with the hint its message earns ([`Errors.hint`]), its
 --- rerun selector and the tail of what it printed.
---- The `<module> <name>: <message>` line keeps the shape CI reads.
-function test_report.failures(given: mut {test_report.Failure}, prefix: string): {string}
-  local failures = test_report.unloaded(given)
+--- A failure's line is `test: FAIL  <module> <name>: <message>`, the shape CI reads, or `<module>: <message>` for a
+--- module that failed to load (CI reads the `test: FAIL` alone).
+function test_report.failures(given: {test_report.Failure}, prefix: string): {string}
+  local failures: mut {test_report.Failure} = {}
+  for _, failure in ipairs(unloaded(given)) do failures[#failures + 1] = failure end
   table.sort(failures, function(a: test_report.Failure, b: test_report.Failure): boolean
     return a.message < b.message
   end)
