@@ -83,6 +83,31 @@ local function test_a_scoped_fork_cannot_signal_its_parent()
   assert(scoped == 0, "a scoped child's status: " .. tostring(scoped))
 end
 
+--- A scoped child moves a file from one directory to another, as its parent may: the ruleset that scopes its
+--- signals refuses no move.
+local function test_a_scoped_fork_moves_a_file_between_directories(tmp: string)
+  if not linux() then Test.skip("fork is Linux's") end
+  local abi, abi_why = process.landlock_abi()
+  if abi == nil then
+    Test.skip("no Landlock here: " .. abi_why)
+    return
+  end
+  if abi < 6 then Test.skip("Landlock ABI " .. tostring(abi) .. " scopes no signal") end
+  assert(sys.mkdir(tmp .. "/from", 0x1c0))
+  assert(sys.mkdir(tmp .. "/to", 0x1c0))
+  local made = assert(sys.open(tmp .. "/from/file", sys.O_WRONLY | sys.O_CREAT, 0x180))
+  assert(sys.close(made))
+  local pid, why = process.fork(true)
+  if pid == 0 then
+    local moved, _, number = sys.rename(tmp .. "/from/file", tmp .. "/to/file")
+    sys.exit(if moved then 0 elseif number == sys.EXDEV then 3 else 4 end)
+  end
+  assert(pid ~= nil, why)
+  local status = status_of(pid)
+  assert(status == 0, "a scoped child's move, 3 for one refused as between devices: " .. tostring(status))
+  assert(sys.lstat(tmp .. "/to/file") ~= nil, "the file is where the child moved it")
+end
+
 -- TODO: test that a process with another thread is refused (EBUSY), once a binding the core gives a test starts a
 -- thread: none does today, so no test can have two.
 
