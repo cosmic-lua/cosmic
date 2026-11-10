@@ -278,8 +278,11 @@ local function test_cli_times_only_the_tests_whose_workers_it_collected_and_a_fa
   local root = project(tmp)
   assert(Fs.write(root .. "/suite/needs_test.tl", [[
 local Test = require("cosmic.test")
-Test.policy { requires = { "checked" } }
-local function test_needs_a_checked_core()
+Test.policy {
+  grants = { { path = "/cosmic-no-such-directory/absent", letters = "r" } },
+  requires = { "path:/cosmic-no-such-directory/absent" },
+}
+local function test_needs_a_file_no_host_has()
   assert(true)
 end
 ]]))
@@ -287,8 +290,8 @@ end
   local result = invoke_words(root, output, { "suite/selected_test.tl:test_selected", "suite/needs_test.tl" })
   local text = assert(Fs.read(output))
   assert(result.ok, text)
-  assert(text:find("%([%d.]+ s in 1 test, up to %d+ at a time; [^\n]*\ntest: 2 tests passed in 2 modules; 1 ran, 0 stood, " ..
-      "1 n/a"), text)
+  assert(text:find("%([%d.]+ s in 1 test, up to %d+ at a time; [^\n]*\ntest: 2 tests passed in 2 modules; 2 ran, 0 stood, " ..
+      "1 skipped"), text)
   assert(Fs.write(root .. "/suite/fails_test.tl", [[
 local function test_fails()
   assert(1 + 1 == 3, "arithmetic held")
