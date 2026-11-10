@@ -129,7 +129,8 @@ function held.built(self: Program, file: string, text: string, module: string, t
     return { tests = tests }
   end)
   return { build = self.build, index = index, globals = self.options.globals,
-    standard = self.standard, types = true, given = {}, stubs = nil, stubbed = nil, project = self.options.project }
+    standard = self.standard, types = true, given = {}, stubs = nil, stubbed = nil, project = self.options.project,
+    standing = {} }
 end
 
 return held

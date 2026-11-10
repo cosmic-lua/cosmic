@@ -1053,6 +1053,16 @@ local record Hinting
   mut projection?: Sqlite.Handle
 end
 
+--- A file that does not parse, with the text the checker reads in its place ([`derivation.Broken`]'s `repaired`), and the
+--- position among the refusals of the message that refuses it.
+local record Mended
+  path: string
+  file: string
+  kind: string
+  text: string
+  position: integer
+end
+
 --- Every module path `target` reaches through what each source at a
 --- path requires, itself included. A name no source of the tree is (a
 --- standard-library module), or one whose only source does not parse,
@@ -1142,10 +1152,13 @@ local function compile_derived(handle: work.Handle, tool: string,
   -- `refusal_roots`).
   local roots_of: mut {string:{integer}} = {}
   local roots_by_file: mut {string:{integer}} = {}
+  -- The files that do not parse and have a repaired text ([`derivation.Broken`]'s `repaired`), which the checker reads once
+  -- the modules are compiled.
+  local mended: mut {Mended} = {}
   if lenient then
     for _, one in ipairs(broken or {}) do
       local holders, holders_trouble = Sqlite.text_rows(handle.db,
-        "SELECT path, file FROM inputs WHERE source_hash = ?1 ORDER BY file", { text(one.source_hash) })
+        "SELECT path, file, kind FROM inputs WHERE source_hash = ?1 ORDER BY file", { text(one.source_hash) })
       if holders == nil then
         return nil, holders_trouble
       end
@@ -1156,6 +1169,11 @@ local function compile_derived(handle: work.Handle, tool: string,
         own_refused[#own_refused + 1] = held_file
         roots_of[row:text(1)] = { #refusals }
         roots_by_file[held_file] = { #refusals }
+        local repaired = one.repaired
+        if repaired ~= nil then
+          local one_mended: Mended = { path = row:text(1), file = held_file, kind = row:text(3), text = repaired, position = #refusals }
+          mended[#mended + 1] = one_mended
+        end
       end
     end
   end
@@ -1175,6 +1193,9 @@ local function compile_derived(handle: work.Handle, tool: string,
       for _, row in ipairs(holders) do
         if reached[row:text(1)] == true then
           if outcome ~= nil then outcome.refused = true end
+          -- TODO: tell what the checker says of a repaired text ([`derivation.Broken`]'s `repaired`) here too, as a run
+          -- over the tree does below, once a run that names a file goes on past the first module it cannot build: it
+          -- stops here, before any module is read.
           return nil, one.message
         end
       end
@@ -1336,11 +1357,40 @@ local function compile_derived(handle: work.Handle, tool: string,
           end
         end
         table.sort(resting)
+        failed[m.path] = true
+        -- The module cannot be built, and is checked all the same where the declarations of every refused module it
+        -- requires stand: its own findings are told in this run, and nothing of it is written, kept or run.
+        local examined = reading.built
+        local checked = examined ~= nil
+        for _, name in ipairs(m.requires) do
+          if failed[name] == true and (examined == nil or examined.standing[name] ~= true) then
+            checked = false
+          end
+        end
+        local own_trouble = ""
+        if refusal ~= nil then
+          checked = false
+          own_trouble = refusal
+        elseif checked and examined ~= nil then
+          own_trouble = pipeline.examine(m, examined, judged, hints)
+        end
+        if own_trouble ~= "" then
+          if checked then
+            -- A finding here holds of the declarations as they are written, which the fix of the other module may change:
+            -- the line says so, since the tree as written does disagree and either side may be the one to change.
+            own_trouble = own_trouble .. "\n" .. m.file .. ": checked against the declarations of " .. lacking ..
+              " as they are written, though it did not build: a fix there that changes a declaration may settle a finding here"
+          end
+          result.refused[#result.refused + 1] = own_trouble
+          own_refused[#own_refused + 1] = m.file
+          resting[#resting + 1] = #result.refused
+        else
+          -- [`build.refusals`] reads the end of the line to say which files were checked.
+          result.refused[#result.refused + 1] = m.file .. ": not compiled: it requires " .. lacking ..
+            ", which did not build" .. (if checked then "; checked all the same, it has no finding of its own" else "" end)
+        end
         roots_of[m.path] = resting
         roots_by_file[m.file] = resting
-        failed[m.path] = true
-        result.refused[#result.refused + 1] = m.file .. ": not compiled: it requires " .. lacking ..
-          ", which did not build"
       elseif refusal ~= nil then
         result.refused[#result.refused + 1] = refusal
         own_refused[#own_refused + 1] = m.file
@@ -1445,6 +1495,45 @@ local function compile_derived(handle: work.Handle, tool: string,
             result.main = m.path
           end
           result.modules[#result.modules + 1] = m -- checked: view_written
+        end
+      end
+    end
+
+    -- A file refused for a `global` alone is read with `local` in its place, and what the checker says of that text is
+    -- told under the parser's line: the findings the next run would tell once the fix is made. Nothing is said where it
+    -- requires a module whose declarations do not stand, which would be told as its own fault.
+    --
+    -- TODO: check the modules that require such a file against its repaired text too, once a source that does not parse
+    -- has a place in the order the modules are compiled in ([`plans.ordered`] plans only what was derived): they are met
+    -- before it here, and keep the line of a file not checked.
+    for _, one in ipairs(mended) do
+      local examined = reading.built
+      if examined == nil then
+        local made_built, _ = pipeline.build(handle.db, assert(reading.options))
+        reading.built = made_built
+        examined = made_built
+      end
+      local required, _ = pipeline.requires(one.file, one.text)
+      local sound = examined ~= nil and required ~= nil
+      for _, name in ipairs(required or {}) do
+        if failed[name] == true and (examined == nil or examined.standing[name] ~= true) then
+          sound = false
+        end
+      end
+      if sound and examined ~= nil then
+        local module: Module = {
+          path = one.path, file = one.file, kind = one.kind, source = one.text, source_hash = "", requires = {}, tests = {},
+          inputs = nil,
+        }
+        local more = pipeline.examine(module, examined, judged, hints, one.text)
+        local head = one.file .. ": the compiler refused it\n"
+        if more:sub(1, #head) == head then
+          more = more:sub(#head + 1)
+        end
+        if more ~= "" then
+          local told = assert(table.remove(result.refused, one.position), "the refusal of a file that does not parse is kept")
+          table.insert(result.refused, one.position, told .. "\n" .. one.file .. ": with `local` written for `global`, " ..
+              "as the fix says, the checker refuses this too\n" .. more)
         end
       end
     end

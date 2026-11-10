@@ -1558,6 +1558,126 @@ local function test_own_tree_staging_skips_the_ci_driver_tree()
   work.close(handle)
 end
 
+--- A module `name` whose function `f` holds a finding of its own (a default for a value that is never nil), after the
+--- lines `head`, and hands on to `calls`.
+local function defaulting(name: string, head: string, calls: string): string
+  return head .. "local record " .. name .. "\nend\nfunction " .. name .. ".f(n: integer): integer\n  local x = n or 4\n" ..
+    "  return " .. calls .. "\nend\nreturn " .. name .. "\n"
+end
+
+--- The refusals of a compile of the project `files`, the modules it built, and how many compiles it kept.
+local function refusals_of_project(case: string, files: {string:string}): importer.Result, integer
+  local root = assert(write_fixture(case, files))
+  local handle = assert(work.open(root))
+  assert(work.stage(handle, { own = false }))
+  local result, trouble = importer.compile(handle, "importer-test")
+  local kept = assert(Sqlite.text_rows(handle.db, "SELECT key FROM compiled"))
+  work.close(handle)
+  return assert(result, trouble), #kept
+end
+
+--- One run tells the findings of a module and of the modules that require it: a module that requires a refused one is
+--- checked against the declarations of that one, which stand when its errors are in the bodies of its functions. Without the
+--- check a chain of three modules with a finding each takes three runs. Nothing of a module checked so is built or kept.
+local function test_a_module_that_requires_a_refused_one_is_checked_and_its_findings_told_in_the_same_run()
+  local result, kept = refusals_of_project("checked-dependents", {
+    ["a.tl"] = defaulting("A", "", "x"),
+    ["b.tl"] = defaulting("B", "local A = require(\"a\")\n", "A.f(x)"),
+    ["c.tl"] = defaulting("C", "local B = require(\"b\")\n", "B.f(x)"),
+    ["d.tl"] = "local A = require(\"a\")\nlocal record D\nend\nfunction D.f(n: integer): integer\n  return A.f(n)\nend\nreturn D\n",
+    ["e.tl"] = "local record E\nend\nfunction E.f(n: integer): integer\n  return n\nend\nreturn E\n",
+  })
+  local refused = table.concat(result.refused, "\n")
+  for _, file in ipairs({ "a.tl", "b.tl", "c.tl" }) do
+    assert(refused:find(file .. ": the compiler refused it\n" .. file .. ":", 1, true) ~= nil and
+        refused:find(file .. ": 1 error of condition_type in its bodies", 1, true) ~= nil, refused)
+  end
+  assert(refused:find("d.tl: not compiled: it requires a, which did not build; checked all the same, it has no finding " ..
+      "of its own", 1, true) ~= nil, refused)
+  assert(#result.refused == 4, refused)
+  -- A finding of a module checked so holds of the other's declarations as they are, and says so.
+  assert(refused:find("\nb.tl: checked against the declarations of a as they are written, though it did not build: a fix there " ..
+      "that changes a declaration may settle a finding here", 1, true) ~= nil and
+      refused:find("\nc.tl: checked against the declarations of b as they are written", 1, true) ~= nil and
+      refused:find("a.tl: checked against", 1, true) == nil, refused)
+  assert(table.concat(assert(result.own_refused), " ") == "a.tl b.tl c.tl", table.concat(assert(result.own_refused), " "))
+  -- Each rests on its own refusal and on those of what it requires, so a run that names it shows them all.
+  local roots = assert(result.refusal_roots)
+  assert(#assert(roots["a.tl"]) == 1 and #assert(roots["b.tl"]) == 2 and #assert(roots["c.tl"]) == 3 and
+      #assert(roots["d.tl"]) == 1)
+  assert(#result.modules == 1 and assert(result.modules[1]).path == "e" and kept == 1, tostring(kept))
+end
+
+--- A module that does not parse, or whose declarations are in error or in doubt (a `return` that does not fit them is
+--- as often mended by declaring another result), says nothing sound of itself to a module that requires it: a check of
+--- that module would refuse it for what the other got wrong. It is left out unchecked, with the line that says its
+--- findings are yet to show.
+local function test_a_module_that_requires_one_whose_declarations_do_not_stand_is_left_unchecked()
+  local unsound: {string:string} = {
+    ["does not parse"] = "local record A\nend\nfunction A.f(n: integer): integer\n  return n +\nend\nreturn A\n",
+    ["a signature of an unknown type"] = "local record A\nend\nfunction A.f(n: Nosuch): integer\n  return 1\nend\nreturn A\n",
+    ["a field of an unknown type"] = "local record A\n  f: function(n: integer): Nosuch\nend\nreturn A\n",
+    ["a return that does not fit its declaration"] = "local record A\nend\nfunction A.f(n: integer): integer\n" ..
+      "  if n > 0 then\n    return nil\n  end\n  return n\nend\nreturn A\n",
+    ["no declaration of what it returns"] = "local a = { f = function(n: integer): integer\n  return n\nend }\nreturn a\n",
+  }
+  for what, source in pairs(unsound) do
+    local result, _ = refusals_of_project("unchecked-dependents", {
+      ["a.tl"] = source,
+      ["b.tl"] = defaulting("B", "local A = require(\"a\")\n", "A.f(x)"),
+    })
+    local refused = table.concat(result.refused, "\n")
+    assert(refused:find("a.tl:", 1, true) ~= nil, what .. ": " .. refused)
+    assert(result.refused[#result.refused] == "b.tl: not compiled: it requires a, which did not build", what .. ": " .. refused)
+    assert(#result.modules == 0, what)
+  end
+end
+
+--- A module that counts in a `global`, which a program may not declare, and answers `returns` from its function.
+local function counting(returns: string): string
+  return "global count: integer = 0\nlocal record T\nend\nfunction T.next(): integer\n  count = count + 1\n  return " ..
+    returns .. "\nend\nreturn T\n"
+end
+
+--- A `global` in a program is the parser's refusal, which stops the file before the checker reads it, so its other findings
+--- would wait for a second run. Its fix is the word `local` in its place: the checker reads the text with the fix made and
+--- its findings are told under the parser's, each `global` of the file among them.
+local function test_a_file_refused_for_a_global_is_told_what_the_checker_says_once_it_is_local()
+  local result, kept = refusals_of_project("repaired-global", {
+    ["t.tl"] = "global other = 1\n" .. counting("nosuch"),
+    ["fine.tl"] = counting("count"):gsub("^global", "local"),
+  })
+  local refused = table.concat(result.refused, "\n")
+  assert(#result.refused == 1 and #result.modules == 1 and kept == 1, refused)
+  local first = refused:find("t.tl:1:1: `global` declares a global", 1, true)
+  local second = refused:find("\nt.tl:2:1: `global` declares a global", 1, true)
+  local heading = refused:find("\nt.tl: with `local` written for `global`, as the fix says, the checker refuses this too\n", 1, true)
+  local found = refused:find("\nt.tl:7:10: `nosuch` is not declared (unknown_variable)", 1, true)
+  assert(first == 1 and second ~= nil and heading ~= nil and found ~= nil and second < heading and heading < found, refused)
+  assert(refused:find("the compiler refused it", 1, true) == nil, refused)
+end
+
+--- Only a text whose every error is a `global` is read so: after any other error of the parser the tree is no whole
+--- program, and a module that requires one whose declarations do not stand would be told of that one's faults. Each keeps
+--- the parser's line alone. A file that the checker refuses for nothing more says nothing more.
+local function test_a_file_with_a_global_is_not_checked_where_that_is_not_sound()
+  local alone: {string:{string:string}} = {
+    ["another error of the parser"] = { ["t.tl"] = counting("nosuch") .. "local x = = 1\n" },
+    ["a require of a module whose declarations do not stand"] = {
+      ["t.tl"] = "local A = require(\"a\")\n" .. counting("A.f(nosuch)"),
+      ["a.tl"] = "local record A\nend\nfunction A.f(n: Nosuch): integer\n  return 1\nend\nreturn A\n",
+    },
+    ["no finding of the checker"] = { ["t.tl"] = counting("count") },
+  }
+  for what, files in pairs(alone) do
+    local result, _ = refusals_of_project("unrepaired-global", files)
+    local refused = table.concat(result.refused, "\n")
+    assert(refused:find("t.tl:%d:1: `global` declares a global") ~= nil, what .. ": " .. refused)
+    assert(refused:find("with `local` written", 1, true) == nil and refused:find("nosuch", 1, true) == nil,
+      what .. ": " .. refused)
+  end
+end
+
 --- [`build.syntax_contracts`] holds a module's exports to rule 10 as it compiles,
 --- so an exported function answering a tuple never does.
 local function test_compile_rejects_an_exported_tuple()

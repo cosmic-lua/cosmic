@@ -64,3 +64,44 @@ local function test_the_line_of_many_dependents_names_ten_and_counts_the_rest()
   assert(collapsed:find(": d1.tl, d2.tl, ", 1, true) and collapsed:find("d10.tl, and 3 more; their own", 1, true), collapsed)
   assert(not collapsed:find("d11.tl", 1, true), collapsed)
 end
+
+--- A file that requires a refused module and was checked all the same is named in the one line of the dependents, which
+--- says so: a reader who took "their own findings show once the files above build" for it would expect another round.
+local function test_the_line_of_the_dependents_says_which_were_checked()
+  local root = "a.tl: the compiler refused it\na.tl:1:1: wrong (code): fix"
+  local clean = "; checked all the same, it has no finding of its own"
+  local unchecked = "c.tl: not compiled: it requires a, which did not build"
+  local checked = "b.tl: not compiled: it requires a, which did not build" .. clean
+  local head = "not compiled, since each requires a refused module, directly or through another: "
+  local function collapsed(lines: {string}, roots: {string:{integer}}): string
+    return assert(refusals.collapsed(refusals.cascade(lines, roots)))
+  end
+  assert(collapsed({ root, checked }, { ["a.tl"] = { 1 }, ["b.tl"] = { 1 } }) ==
+      head .. "b.tl; it was checked all the same, and has no finding of its own")
+  assert(collapsed({ root, checked, "d.tl: not compiled: it requires a, which did not build" .. clean },
+    { ["a.tl"] = { 1 }, ["b.tl"] = { 1 }, ["d.tl"] = { 1 } }) ==
+      head .. "b.tl, d.tl; each was checked all the same, and has no finding of its own")
+  assert(collapsed({ root, checked, unchecked }, { ["a.tl"] = { 1 }, ["b.tl"] = { 1 }, ["c.tl"] = { 1 } }) ==
+      head .. "b.tl, c.tl; 1 of them was checked all the same, with no finding of its own, and the findings of the rest " ..
+      "show once the files above build")
+  assert(collapsed({ root, unchecked }, { ["a.tl"] = { 1 }, ["c.tl"] = { 1 } }) ==
+      head .. "c.tl; their own findings show once the files above build")
+end
+
+--- A file checked though it requires a refused module, with a finding of its own, is refused for what it holds: it is
+--- counted so, and a run that chose it alone shows the refusal it rests on beside its own, since it builds only once both
+--- are fixed.
+local function test_a_dependent_with_a_finding_of_its_own_is_a_root_that_rests_on_another()
+  local lines = {
+    "a.tl: the compiler refused it\na.tl:1:1: wrong (code): fix",
+    "b.tl: the compiler refused it\nb.tl:2:1: wrong too (code): fix",
+    "c.tl: not compiled: it requires b, which did not build; checked all the same, it has no finding of its own",
+  }
+  local roots = { ["a.tl"] = { 1 }, ["b.tl"] = { 1, 2 }, ["c.tl"] = { 1, 2 } }
+  local whole = refusals.cascade(lines, roots)
+  assert(#whole.roots == 2 and table.concat(whole.dependents) == "c.tl")
+  assert(refusals.counted(whole) == "2 files refused on their own, 1 not compiled because it requires one")
+  local chosen = refusals.cascade(lines, roots, { [2] = true })
+  assert(#chosen.roots == 2 and chosen.roots[1] == lines[1] and chosen.roots[2] == lines[2] and #chosen.dependents == 0,
+    table.concat(chosen.roots, "|"))
+end

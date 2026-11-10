@@ -65,3 +65,34 @@ local function test_a_whole_test_run_counts_the_files_refused_and_those_that_req
     "test: 1 file refused on its own, 2 not compiled because they require one", "test: 3 of 3 tests failed" })
   assert(not text:find("b_test.tl: not compiled: it requires b", 1, true), text)
 end
+
+--- The project under `tmp`: `a.tl`, `b.tl` requiring it and `c.tl` requiring `b`, each with one finding of its own in the
+--- body of a function, and `d.tl`, which requires `a` and has none.
+local function chain(tmp: string): string
+  local root = tmp .. "/chain"
+  assert(Fs.mkdirs(root))
+  local function module(name: string, head: string, calls: string): string
+    return head .. "local record " .. name .. "\nend\nfunction " .. name .. ".f(n: integer): integer\n  local x = n or 4\n" ..
+      "  return " .. calls .. "\nend\nreturn " .. name .. "\n"
+  end
+  assert(Fs.write(root .. "/a.tl", module("A", "", "x")))
+  assert(Fs.write(root .. "/b.tl", module("B", 'local A = require("a")\n', "A.f(x)")))
+  assert(Fs.write(root .. "/c.tl", module("C", 'local B = require("b")\n', "B.f(x)")))
+  assert(Fs.write(root .. "/d.tl",
+    'local A = require("a")\nlocal record D\nend\nfunction D.f(n: integer): integer\n  return A.f(n)\nend\nreturn D\n'))
+  return root
+end
+
+--- A chain of modules with a finding each is told whole in one run of `fix` and of `test`: a run that told only the first
+--- would take one round of edits for each module of the chain.
+local function test_one_run_tells_the_findings_of_a_chain_of_modules_that_require_one_another(tmp: string)
+  local root = chain(tmp)
+  for _, verb in ipairs({ "fix", "test" }) do
+    local result, text = ran(root, tmp, { verb })
+    assert(not result.ok, text)
+    in_order(text, { "a.tl:4:13:", "(condition_type)", "b.tl:5:13:", "(condition_type)", "c.tl:5:13:", "(condition_type)",
+      "not compiled, since each requires a refused module, directly or through another: d.tl; it was checked all the same, " ..
+        "and has no finding of its own",
+      "3 files refused on their own, 1 not compiled because it requires one" })
+  end
+end
