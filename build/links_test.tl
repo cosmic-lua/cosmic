@@ -70,6 +70,18 @@ local function test_a_code_span_label_reads_its_definition()
   })
 end
 
+--- A line that opens with brackets and a colon is prose where what follows is a number, or goes on in words that are
+--- no title: a list of numbers and its value, an index and what it holds. Read as a definition, each would fail as a
+--- link to a file named by the number or the first word.
+local function test_brackets_before_a_number_or_a_sentence_define_no_link()
+  same(parsed(lines("Corners of the simplex:", "[1,0,0,0]: -25.0", "[0,1,0,0]: -50.0", "[2]: 3", "[mask]: 0x10",
+    "[angle]: <1e5>")), {})
+  same(parsed(lines("[0]: the first slot", "[k]: see below, and so on")), {})
+  same(parsed(lines('[ref]: doc/a.md "the title"', "[paren]: doc/b.md (a title)", "[three]: ./3", "[`x`]: a.tl")), {
+    "1 definition doc/a.md", "2 definition doc/b.md", "3 definition ./3", "4 definition a.tl",
+  })
+end
+
 local function test_a_footnote_is_no_link()
   same(parsed(lines("A claim.[^1] And [^note].", "", "[^1]: A note.", "[^note]: Another.")), {})
 end
@@ -294,6 +306,30 @@ end
 --- What [`links.check`] finds in `source`, a file of `kind` at `path`.
 local function checked(context: link_resolve.Context, path: string, kind: string, source: string): {string}
   return SyntaxLinks.check(link_resolve.resolver(context), path, path, kind, source)
+end
+
+--- A definition that does not resolve and that no link of its block reads may be prose: the failure says what the line
+--- was read as and how to write brackets that are text, each way it names being prose. A definition a link reads fails
+--- as any link does, and a list of numbers before a number is no definition at all.
+local function test_an_unused_definition_that_fails_says_what_it_was_read_as()
+  local corners = lines(
+    "-- Corners of the simplex:",
+    "-- [1,0,0,0]: -25.0",
+    "-- [0,1,0,0]: -50.0",
+    "local corner <const> = -25.0",
+    "return corner")
+  same(checked(world({}), "/p/m.tl", "teal", corners), {})
+  local no_name = "does not resolve (a name alone links only to a declaration of its own file; write another " ..
+    "module's symbol in full (`module.member`))"
+  same(checked(world({}), "/p/m.tl", "teal", lines("-- Slots:", "-- [0]: first", "return 1")), {
+    "/p/m.tl:2: link: `[0]: first` reads as a link definition (`[label]: target`) that no link uses, and first " ..
+      no_name .. "; to write the brackets as text, put them in a code span or put a word before them",
+  })
+  same(checked(world({}), "/p/m.tl", "teal", lines("-- Slots:", "-- `[0]`: first", "-- slot [0]: first", "return 1")),
+    {})
+  same(checked(world({}), "/p/a.md", "markdown", lines("See [the guide].", "", "[the guide]: gone.md")), {
+    "/p/a.md:3: link: gone.md does not resolve (no declaration, symbol or file by that name)",
+  })
 end
 
 local function test_a_name_the_file_declares_resolves_and_shadows_a_symbol()
@@ -578,6 +614,39 @@ local function test_a_symbol_resolves_once_and_fails_twice_or_never()
   -- A name alone is its own file's, whatever symbol it spells.
   same(checked(context, "/p/a.md", "markdown", "[`one`]\n"), {
     "/p/a.md:1: link: one does not resolve (a name alone links only to a declaration of its own file; write another module's symbol in full (`module.member`))",
+  })
+end
+
+--- A name in full that names nothing is offered the one symbol declared under its last name (a function that moved to
+--- another module), through an alias or spelled from its module; with two of the name, or none, it says nothing more.
+--- Where a file of the tree declares one, a symbol of the name declared outside it (a library's) is not counted.
+local function test_a_name_that_names_nothing_is_offered_the_one_symbol_of_its_last_name()
+  local source = lines(
+    "local M = require(\"m\")",
+    "-- See [`M.first`], [`M.both`] and [`M.none`]; [`m.first`] and [`m.both`].",
+    "return M.second")
+  local context = world({ ["/p/p.tl"] = "" }, { first = { "p.first@p.tl", "lib.Range.first@lib/range.tl" },
+    twice = { "p.twice@p.tl", "q.T.twice" }, second = { "m.second" }, lone = { "lib.Range.lone@lib/range.tl" },
+    both = { "lib.a.both@lib/a.tl", "lib.b.both@lib/b.tl" } }, { ["m.second"] = { "m.second" } })
+  same(checked(context, "/p/a.md", "markdown", "[`m.twice`] [`m.lone`] [`m.both`]\n"), {
+    "/p/a.md:1: link: m.twice does not resolve (no declaration, symbol or file by that name; p.twice has that name: " ..
+      "link it in full)",
+    "/p/a.md:1: link: m.lone does not resolve (no declaration, symbol or file by that name; lib.Range.lone has that " ..
+      "name: link it in full)",
+    "/p/a.md:1: link: m.both does not resolve (no declaration, symbol or file by that name)",
+  })
+  same(checked(context, "/p/n.tl", "teal", source), {
+    "/p/n.tl:2: link: M.first does not resolve (m has no first; p.first has that name: link it in full)",
+    "/p/n.tl:2: link: M.both does not resolve (m has no both)",
+    "/p/n.tl:2: link: M.none does not resolve (m has no none)",
+    "/p/n.tl:2: link: m.first does not resolve (no declaration, symbol or file by that name; p.first has that name: " ..
+      "link it in full)",
+    "/p/n.tl:2: link: m.both does not resolve (no declaration, symbol or file by that name)",
+  })
+  -- Asked by one name, the symbols answer a module of that name by its first row, which is no symbol of the name.
+  local module = world({}, { first = { "first.other" } })
+  same(checked(module, "/p/a.md", "markdown", "[`m.first`]\n"), {
+    "/p/a.md:1: link: m.first does not resolve (no declaration, symbol or file by that name)",
   })
 end
 
@@ -1048,7 +1117,9 @@ local function test_a_module_typed_by_another_record_answers_its_fields(dir: str
     "-- nor a field of another record the module hands out: [`Cli.ok`].",
     "return Cli")), {
       dir .. "/b.tl:2: link: Cli.chaos does not resolve (cosmic.cli has no chaos)",
-      dir .. "/b.tl:3: link: Cli.ok does not resolve (cosmic.cli has no ok)",
+      -- The one symbol named `ok` is offered, spelled as a link to it is.
+      dir .. "/b.tl:3: link: Cli.ok does not resolve (cosmic.cli has no ok; cosmic.cli.Result.ok has that name: " ..
+        "link it in full)",
     })
 end
 
