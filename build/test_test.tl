@@ -412,6 +412,18 @@ local function test_four_times_a_modules_lines_cost_about_four_times_to_write()
   assert(small:close() and large:close())
 end
 
+--- A test's row holds the modules of its load, then those of its test, each in the order of their paths, whatever
+--- order the worker's tables give them in: the row is kept and shared as written.
+local function test_a_row_of_hits_holds_its_modules_in_the_order_of_their_paths()
+  local text = string.rep("d", 16)
+  local texts = { ["build.a"] = text, ["build.b"] = text, ["build.c"] = text, ["build.a.z"] = text }
+  local row = test.take_hits({}, {}, {}, {},
+    { ["build.c"] = { [1] = true }, ["build.a"] = { [2] = true }, ["build.b"] = { [3] = true }, ["build.a.z"] = { [4] = true } },
+    { ["build.b"] = { [9] = true }, ["build.a"] = { [8] = true } }, texts)
+  assert(row == "build.a " .. text .. "\t2\n" .. "build.a.z " .. text .. "\t4\n" .. "build.b " .. text .. "\t3\n" ..
+      "build.c " .. text .. "\t1\n" .. "build.a " .. text .. "\t8\n" .. "build.b " .. text .. "\t9\n", row)
+end
+
 --- The hits of `files` modules of `lines` lines each, none of them a file that turns on the processor.
 local function module_hits(files: integer, lines: integer): {string:{integer:boolean}}
   local hits: mut {string:mut {integer:boolean}} = {}

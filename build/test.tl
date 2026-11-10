@@ -1078,8 +1078,7 @@ function test.take_hits(hits: Coverage.Hits, unowned: Coverage.Hits,
   local out: mut {string} = {}
   for index, taken in ipairs({ load_hits, test_hits }) do
     local placed = (if index == 1 then load_placed else test_placed end) or taken
-    -- The paths alone are sorted, by the library's own order of strings: a table a path and a comparison in Lua for
-    -- each pair cost more than the rest of a small test's row.
+    -- A row holds its modules in the order of their paths as strings.
     local paths: mut {string} = {}
     for path in pairs(taken) do
       if unowned[path] == nil then paths[#paths + 1] = path end
@@ -1323,9 +1322,8 @@ local function tree_note(rec: Recording, job: Job, message: string): string
   return table.concat(lines)
 end
 
---- The lines a worker ran, in its load and in its test, of the files `reaches` names: what
---- [`dispatch_sites.failure`] reads of its hits, and no line of another file. A worker's hits are of every module it
---- loaded, some thousands of lines, where the files that turn on the processor are a few of the core's C.
+--- The lines a worker ran, in its load and in its test, of the files `reaches` names: all that
+--- [`dispatch_sites.failure`] reads of its hits, and no line of another file.
 function test.reached(reaches: {dispatch_sites.Reach}, load_hits: Coverage.Hits,
                       test_hits: Coverage.Hits): {string:{integer:boolean}}
   local ran: mut {string:mut {integer:boolean}} = {}
