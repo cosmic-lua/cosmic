@@ -883,15 +883,37 @@ local KIND_WORDS <const>: {Types.DeclKind: string} = {
   record = "record", class = "class", interface = "interface", enum = "enum", userdata = "userdata record",
 }
 
+--- Whether a value of the optional type `t` may be a boolean where it is not nil: `false` is then a value of it, which a
+--- test for truth takes for nil.
+local function holds_boolean(ctx: Ctx, t: Type): boolean
+  if not nilable(t) then
+    return false
+  end
+  for _, m in ipairs(members_of(ctx.store, ctx.store:non_nil(t))) do
+    if is_bool(m) then
+      return true
+    end
+  end
+  return false
+end
+
 -- Refusals -----------------------------------------------------------------------------------
 
 --- The fix for a read `e` of an index that may be nil. A map's key may be missing, so its read is tested, taken with
 --- `assert` or given a default. For an array, the counted loop and the range test are offered only where they could
 --- apply: an array that is a local name, read at a name. [`Array.at`] and `assert` take any array and key; `or <default>` is steered from.
-local function index_fix(ctx: Ctx, e: Ast.Index): string
+--
+-- A value that may hold a boolean (`t`) is not taken with `assert(x)`, which raises for false and is refused
+-- ([`asserted_boolean`]), nor given a default with `or`, which replaces false: it is named and said to be there.
+local function index_fix(ctx: Ctx, e: Ast.Index, t: Type): string
   local xs, key = text_of(ctx, e.object), text_of(ctx, e.key)
   local read = text_of(ctx, e)
+  local flag = holds_boolean(ctx, t)
+  local named = "name it and say it is there (`local v = " .. read .. "` then `assert(v ~= nil)`)"
   if ctx.map_reads[e.id] == true then
+    if flag then
+      return "test it (`local v = " .. read .. " if v ~= nil then ... end`), or " .. named .. " where the key must be there"
+    end
     return "test it (`local v = " .. read .. " if v ~= nil then ... end`), take it with `assert(" .. read .. ")` where " ..
       "the key must be there, or write `" .. read .. " or <default>` where a missing key means that default"
   end
@@ -902,32 +924,35 @@ local function index_fix(ctx: Ctx, e: Ast.Index): string
       " >= 1 and " .. key .. " <= #" .. xs .. " then` (a body that leaves " .. quoted(xs) .. " alone reads " ..
       quoted(read) .. " as a value), "
   end
-  return parts .. "read it with `Array.at(" .. xs .. ", " .. key .. ")` (`cosmic.array`: raises when missing) or `assert(" ..
-    read .. ")`, or test it (`local v = " .. read .. " if v ~= nil then ... end`); `or <default>` turns an out-of-range " ..
+  return parts .. "read it with `Array.at(" .. xs .. ", " .. key .. ")` (`cosmic.array`: raises when missing)" ..
+    (if flag then ", " .. named else " or `assert(" .. read .. ")`" end) .. ", or test it (`local v = " .. read .. " if v ~= nil then ... end`); `or <default>` turns an out-of-range " ..
     "read into a wrong value"
 end
 
---- The fix for a value that may be nil.
---
--- TODO: name `assert(x ~= nil)` in place of `assert(x)`, here and in [`index_fix`], for a value that may hold a boolean,
--- whose `assert(x)` is refused in turn (`condition_type`, with that fix); it waits on the callers passing the type of
--- the value, which each has in another form.
-local function nil_fix(ctx: Ctx, node: Ast.Node): string
+--- The fix for a value of type `t` that may be nil. One that may hold a boolean is not sent to `assert(x)`, as in
+--- [`index_fix`].
+local function nil_fix(ctx: Ctx, node: Ast.Node, t: Type): string
   local e = peel(node)
+  local flag = holds_boolean(ctx, t)
   if (e.kind == "Call") or (e.kind == "MethodCall") then
     local call = subject(ctx, e)
+    if flag then
+      return "name the value and say it is there (`local v = " .. text_of(ctx, e) .. "` then `assert(v ~= nil)`), or test " ..
+        "it first (`if v == nil then return nil, why end`); " .. call .. " answers nil when it fails"
+    end
     return "take the value with `local v = assert(" .. text_of(ctx, e) .. ")`, or test it first (`if v == nil then " ..
       "return nil, why end`); " .. call .. " answers nil when it fails"
   end
   if e.kind == "Index" then
-    return index_fix(ctx, e)
+    return index_fix(ctx, e, t)
   end
   local s = text_of(ctx, e)
   if (e.kind == "Field") then
     return "copy " .. quoted(s) .. " to a local and test that: `local v = " .. s .. " if v ~= nil then ... end`, or " ..
-      "take it with `assert(" .. s .. ")`"
+      (if flag then "say it is there with `assert(v ~= nil)`" else "take it with `assert(" .. s .. ")`" end)
   end
-  return "test it first (`if " .. s .. " == nil then return nil, why end`), or take it with `assert(" .. s .. ")`"
+  return "test it first (`if " .. s .. " == nil then return nil, why end`), or " ..
+    (if flag then "say it is there with `assert(" .. s .. " ~= nil)`" else "take it with `assert(" .. s .. ")`" end)
 end
 
 --- Whether the type `t` names `invalid` anywhere.
@@ -988,10 +1013,10 @@ local function refused(ctx: Ctx, node: Ast.Node, got: Type, want: Type, r: Relat
     elseif (e.kind == "Index") then
       report(ctx, "index_may_be_nil", node, s .. " is " .. quoted(g) .. " (an index read may be nil), where " ..
           quoted(w) .. " is wanted" .. where,
-        index_fix(ctx, e), shown)
+        index_fix(ctx, e, got), shown)
     else
       report(ctx, "nil_not_allowed", node, s .. " is " .. quoted(g) .. ", so it may be nil, where " .. quoted(w) ..
-          " is wanted" .. where, nil_fix(ctx, node), shown)
+          " is wanted" .. where, nil_fix(ctx, node, got), shown)
     end
   elseif code == "view_as_mut" then
     -- A view where a `mut` collection of a parameter that nothing else solved is wanted taints it: the collection
@@ -2030,7 +2055,7 @@ local function readable(ctx: Ctx, node: Ast.Node, t: Type, what: string): Type?
     return nil
   elseif nilable(t) then
     report(ctx, "nil_not_allowed", node, subject(ctx, node) .. " is " .. tq(ctx, t) .. ", so it may be nil, and " .. what,
-      nil_fix(ctx, node), { show(ctx, t) })
+      nil_fix(ctx, node, t), { show(ctx, t) })
     return ctx.store:non_nil(t)
   end
   return t
@@ -2671,7 +2696,7 @@ function Operands.bad_operand(ctx: Ctx, node: Ast.Node, t: Type, op: string, tak
       "bound the type parameter by an interface that declares the operation (`T is Ordered`)", { show(ctx, t) })
   elseif nilable(t) then
     report(ctx, "nil_not_allowed", node, s .. " is " .. tq(ctx, t) .. ", so it may be nil, and " .. quoted(op) .. " takes " .. takes,
-      nil_fix(ctx, node), { show(ctx, t) })
+      nil_fix(ctx, node, t), { show(ctx, t) })
   else
     report(ctx, "operand_type", node, s .. " is " .. tq(ctx, t) .. ", and " .. quoted(op) .. " takes " .. takes, fix,
       { show(ctx, t) })
@@ -5472,30 +5497,34 @@ end
 
 --- Holds the first argument of a call `node` of the global `assert`, of type `t`, to the rule of a condition
 --- ([`condition_kind`]) where it is an optional whose value may be a boolean: `assert` raises for false as for nil, so
---- one written to say that the value is there raises where it is there and false.
-local function asserted_boolean(ctx: Ctx, node: Ast.Node, args: {Ast.Exp}, t: Type?)
+--- one written to say that the value is there raises where it is there and false. `results` is how many values the
+--- argument gives where it is a call that is the only argument, and 0 otherwise.
+--
+-- TODO: refuse an optional of a type parameter too (`T?`, as in `function unwrap<T>(x: T?): T return assert(x) end`,
+-- which raises for `false` where `T` is `boolean`). [`condition_kind`] takes `T?` as an optional that holds no boolean,
+-- so `if x then` has the same gap; it waits on the rule for both: a bound that keeps a boolean out of `T`, or a refusal
+-- of every `T?` as a condition, with the tree's generic code rewritten to `~= nil`.
+local function asserted_boolean(ctx: Ctx, node: Ast.Node, args: {Ast.Exp}, t: Type?, results: integer)
   local first = args[1]
   if first == nil or t == nil or node.kind ~= "Call" then
     return
   end
   local callee = node.callee
-  if callee.kind ~= "Name" or callee.binding ~= nil or callee.text ~= "assert" or not nilable(t) then
-    return
-  end
-  local boolean = false
-  for _, m in ipairs(members_of(ctx.store, ctx.store:non_nil(t))) do
-    boolean = boolean or is_bool(m)
-  end
-  if not boolean then
+  if callee.kind ~= "Name" or callee.binding ~= nil or callee.text ~= "assert" or not holds_boolean(ctx, t) then
     return
   end
   local text = text_of(ctx, first)
   local at = peel(first)
   local fix = "say which is asserted: `assert(" .. text .. " ~= nil)` that it is there, or `assert(" .. text .. " == true)` that it is true"
   if at.kind == "Call" or at.kind == "MethodCall" then
-    -- A comparison keeps only the first value of a call, so the reason is named to be passed on.
-    fix = "name the values (`local value, reason = " .. text .. "`) and say which is asserted: `assert(value ~= nil, reason)` " ..
-      "that it is there, or `assert(value == true, reason)` that it is true"
+    -- A comparison keeps only the first value of a call, so a reason it gives is named to be passed on. A call that
+    -- gives one value has none to name, and one cut to its first value by a message after it is named alone.
+    local names, rest = "value", if #args > 1 then ", ..." else "" end
+    if results >= 2 then
+      names, rest = "value, reason", ", reason"
+    end
+    fix = "name what it gives (`local " .. names .. " = " .. text .. "`) and say which is asserted: `assert(value ~= nil" ..
+      rest .. ")` that it is there, or `assert(value == true" .. rest .. ")` that it is true"
   end
   report(ctx, "condition_type", first, subject(ctx, first) .. " is " .. tq(ctx, t) .. ": nil and false would not be told apart", fix,
     { show(ctx, t) })
@@ -5636,7 +5665,7 @@ local function apply_overloads(ctx: Ctx, node: Ast.Node, callee: string, cands: 
           Calls.gsub_key(ctx, c, args, off, key)
         end
         if recv == nil then
-          asserted_boolean(ctx, node, args, known[1])
+          asserted_boolean(ctx, node, args, known[1], if #args == 1 then (if tail ~= nil then count + 1 else count end) else 0 end)
         end
         local given: mut {Type} = {}
         for i = 1, count do

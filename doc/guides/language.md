@@ -295,7 +295,8 @@ map holds `{string: string}`, not `{string: string?}`: a missing key already rea
 An optional that may hold a boolean (`boolean?`, an element of a `{boolean}`, a decoded `Json.Value?`) is no condition
 and no argument of `assert`: nil and false would not be told apart, and `assert(flags[1])` raises where the element is
 there and false (`condition_type`). Write which is meant: `x ~= nil` says the value is there, `x == true` that it is
-true. Either leaves `x` not nil where it holds.
+true. Either leaves a name, a field or an element of an array not nil where it holds; a read of a map stays optional, so
+name it first (`local v = m[k]`).
 
 ```teal
 local function first_word(text: string): string?
