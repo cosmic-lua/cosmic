@@ -841,6 +841,21 @@ that stood under one limit does not stand under a longer one. A module's
 investigate (below), and a test that is slow by accident is made fast,
 not given more time.
 
+A run says where its time went on the line before its summary:
+
+```text
+test: time: building 1.2 s, keying 3.4 s, running 15.9 s (10.0 s in 562 tests, up to 4 at a time; the runner 4.1 s starting their workers and 1.3 s recording them), settling coverage and records 0.4 s
+```
+
+`building` is the stage and the compile. `keying` is each test's key made
+and looked up, with the closure stores written for it. `running` is from
+the first worker started to the last collected. Of that, the tests' own
+time is what their workers reported, summed, so it can exceed the stretch
+where several run at once; and while the runner starts or records one
+worker it starts and collects no other. `settling` is the coverage and the
+records kept. The `runs` table holds each test's own time
+([measuring](guides/measuring.md)).
+
 ### coverage
 
 Every run records the lines the tests reached in the `coverage` table of

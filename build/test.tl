@@ -1367,9 +1367,10 @@ end
 --- Records one finished job: the verdict its worker reported, or a
 --- failure that says why there is no report to go by
 --- ([`test_key.judge`], which also says whether it checked, and
---- [`test_key.keep`], which keeps its verdict).
+--- [`test_key.keep`], which keeps its verdict). Answers the test's time: what its worker reported, or, with no
+--- report, the time since the job started.
 local function finish(rec: Recording, job: Job, result: Child.Result?,
-                      trouble: string, refused?: boolean, unavailable?: string)
+                      trouble: string, refused?: boolean, unavailable?: string): integer
   rec.tally.ran = rec.tally.ran + 1
   local id = job.id
   local wall_ns = Clock.monotonic_ns() - assert(job.started_ns)
@@ -1484,6 +1485,7 @@ local function finish(rec: Recording, job: Job, result: Child.Result?,
       rec.outputs[id] = placed_positions(rec, stdout)
     end
   end
+  return elapsed
 end
 
 --- Removes the scratch directory of each job in `jobs` whose test
@@ -1518,12 +1520,12 @@ local function launch(rec: Recording, job: Job): boolean
   local prepared = test_key.prepare(rec, job)
   local command = prepared.command
   if command == nil then
-    finish(rec, job, nil, prepared.trouble, prepared.refused, prepared.unavailable)
+    local _ = finish(rec, job, nil, prepared.trouble, prepared.refused, prepared.unavailable)
     return false
   end
   local handle, start_trouble = Child.start(command.argv, command.options)
   if handle == nil then
-    finish(rec, job, nil, start_trouble)
+    local _ = finish(rec, job, nil, start_trouble)
     return false
   end
   job.handle = handle
@@ -1541,8 +1543,16 @@ end
 --- own verdicts, and the jobs never started are counted in
 --- `rec.not_run` and recorded as nothing.
 local function run_jobs(rec: Recording, jobs: {Job}, limits: State.Limits,
-                        guard: Signal.Guard?, bail?: boolean): integer
+                        guard: Signal.Guard?, bail?: boolean, spent?: test_report.Spent): integer
   if #jobs == 0 then return 0 end
+  -- What this process spends on each worker between the tests: no other worker starts or is collected meanwhile.
+  local own: test_report.Spent = spent or test_report.unspent()
+  local function collect(job: Job, result: Child.Result?, trouble: string)
+    local recording = Clock.monotonic_ns()
+    own.tests_ns = own.tests_ns + finish(rec, job, result, trouble)
+    own.ran = own.ran + 1
+    own.recording_ns = own.recording_ns + (Clock.monotonic_ns() - recording)
+  end
   local program, program_trouble = worker.program()
   if program == nil then
     rec.errors[#rec.errors + 1] = "the test runner cannot find itself: " .. program_trouble
@@ -1561,9 +1571,11 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: State.Limits,
       -- The loop's own test holds `next_job <= #jobs`.
       local job = assert(jobs[next_job], "next_job is within jobs")
       next_job = next_job + 1
+      local starting = Clock.monotonic_ns()
       if launch(rec, job) then
         running[#running + 1] = job
       end
+      own.starting_ns = own.starting_ns + (Clock.monotonic_ns() - starting)
     end
     if #running == 0 then break end
     if guard ~= nil then
@@ -1587,11 +1599,11 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: State.Limits,
         -- Settled already, so this answers at once; the trouble
         -- `wait_any` gave beside the handle is the one reported.
         local result, _ = handle:wait()
-        finish(rec, job, result, trouble)
+        collect(job, result, trouble)
       elseif done == nil and trouble ~= Poll.TIMEOUT then
         -- Supervision itself failed; end this worker and say why.
         local _, _ = handle:close()
-        finish(rec, job, nil, trouble)
+        collect(job, nil, trouble)
       elseif Clock.monotonic_ns() >= assert(job.deadline_ns) then
         -- Past its deadline: `wait(0)` ends it, and says why when the
         -- guard's signal came first. `close` makes sure it is gone.
@@ -1602,7 +1614,7 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: State.Limits,
           -- the workers the cancelled run ended, reported on by none.
           still[#still + 1] = job
         else
-          finish(rec, job, result, stop_trouble)
+          collect(job, result, stop_trouble)
         end
       else
         still[#still + 1] = job
@@ -1787,6 +1799,8 @@ end
 --- driver or an earlier phase has set.
 local record Run
   run_at_ns: integer
+  --- Where the run's time went, said in its `time` line ([`test_report.time`]).
+  spent: test_report.Spent
   --- The command line, which a stale tool re-enters after rebuilding itself.
   argv: {string}
 
@@ -2550,9 +2564,9 @@ local function settle_unmet(rec: Recording, m: Module, name: string, id: string,
   end
   local job: Job = { m = m, name = name, id = id, unrun = true, started_ns = Clock.monotonic_ns() }
   if unmet.kind == "skipped" then
-    finish(rec, job, nil, "", false, unmet.why)
+    local _ = finish(rec, job, nil, "", false, unmet.why)
   else
-    finish(rec, job, nil, unmet.why)
+    local _ = finish(rec, job, nil, unmet.why)
   end
 end
 
@@ -2759,13 +2773,13 @@ local function execute(ctx: Run): integer?
     local _removing <close>: Removal = setmetatable({ rec = rec }, removal_mt) -- checked: close_not_closable, setmetatable_call -- untyped: call
     local opened, _ = Signal.guard()
     if opened == nil then
-      run_jobs(rec, jobs, assert(ctx.limits), nil, ctx.bail)
+      run_jobs(rec, jobs, assert(ctx.limits), nil, ctx.bail, ctx.spent)
     else
       -- A signal the guard caught ends this process when it closes,
       -- once the run is aborted; under a guard of its caller's (test's
       -- `run` called in-process), it is left to that one.
       local guard <close> = opened
-      if run_jobs(rec, jobs, assert(ctx.limits), guard, ctx.bail) ~= 0 then
+      if run_jobs(rec, jobs, assert(ctx.limits), guard, ctx.bail, ctx.spent) ~= 0 then
         cancel_records(ctx)
         -- A test that failed before the signal keeps its directory,
         -- named as a finished run's report names it: the failures on
@@ -3083,6 +3097,7 @@ local function report(ctx: Run): integer
     log:say(assert(ctx.cov_line))
     say_shortfall(ctx)
     for _, function_line in ipairs(assert(ctx.function_lines)) do log:say(function_line) end
+    log:say("test: " .. test_report.time(ctx.spent))
     local _, _ = log:say("test: " .. test_report.passed({ total = total,
       modules = #assert(ctx.selected_modules),
       ran = tally.ran, cached = tally.cached, skipped = tally.skipped, unchecked = tally.unchecked, na = tally.na,
@@ -3112,6 +3127,7 @@ local function report(ctx: Run): integer
     for _, function_line in ipairs(assert(ctx.function_lines)) do log:say(function_line) end
   end
   if counted ~= nil then log:say("test: " .. counted) end
+  log:say("test: " .. test_report.time(ctx.spent))
   local _, _ = log:say("test: " .. test_report.failed(#failures + #refused, total + #refused,
     #errors, clock.took(started) .. assert(ctx.sandbox_summary) .. assert(ctx.share_summary) ..
       (if #errors == 0 then floor_clause(ctx) else "" end), rec.not_run))
@@ -3139,17 +3155,22 @@ local function run(argv: {string}): integer
   -- Captured once, up front, and threaded through everything below as
   -- this run's own identifier: see build/work.tl for why a nanosecond
   -- timestamp, not an autoincrement id, identifies a run.
-  local ctx: Run = { run_at_ns = Clock.now_ns(), argv = argv }
+  local spent = test_report.unspent()
+  local ctx: Run = { run_at_ns = Clock.now_ns(), argv = argv, spent = spent }
   local code = read_command(ctx)
   if code ~= nil then return code end
   code = hold_checkout(ctx)
   if code ~= nil then return code end
+  -- From the lock taken, as the summary's own time is: a wait for another run is neither's.
+  local mark = assert(ctx.started)
   code = read_identities(ctx)
   if code ~= nil then return code end
   code = choose_sandbox(ctx)
   if code ~= nil then return code end
   code = build_tree(ctx)
   if code ~= nil then return code end
+  spent.building_ns = Clock.monotonic_ns() - mark
+  mark = mark + spent.building_ns
   code = select_tests(ctx)
   if code ~= nil then return stopped_at(ctx, code) end
   code = open_records(ctx)
@@ -3160,9 +3181,15 @@ local function run(argv: {string}): integer
   code = gather_key_inputs(ctx)
   if code ~= nil then return code end
   look_up_verdicts(ctx)
+  spent.keying_ns = Clock.monotonic_ns() - mark
+  mark = mark + spent.keying_ns
   code = execute(ctx)
   if code ~= nil then return code end
+  spent.running_ns = Clock.monotonic_ns() - mark
+  mark = mark + spent.running_ns
+  spent.workers = assert(ctx.limits).jobs
   settle(ctx)
+  spent.settling_ns = Clock.monotonic_ns() - mark
   return report(ctx)
 end
 

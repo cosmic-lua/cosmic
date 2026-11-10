@@ -252,6 +252,26 @@ return Example
   assert(text:find("1 test passed in 1 module; 0 ran, 1 stood", 1, true), text)
 end
 
+--- A run says where its time went on a line before its summary: the tests' own time apart from what the runner
+--- spent around them. A run that ran none says nothing of workers.
+local function test_cli_says_where_the_time_went_before_the_summary(tmp: string)
+  local root = project(tmp)
+  local output = tmp .. "/ran.out"
+  local result = invoke(root, output, "suite/selected_test.tl:test_selected")
+  local text = assert(Fs.read(output))
+  assert(result.ok, text)
+  local line = "\ntest: time: building [%d.]+ s, keying [%d.]+ s, running [%d.]+ s %([%d.]+ s in 1 test, up to %d+ at a " ..
+    "time; the runner [%d.]+ s starting their workers and [%d.]+ s recording them%), settling coverage and records " ..
+    "[%d.]+ s\ntest: 1 test passed in 1 module; 1 ran"
+  assert(text:find(line), text)
+  output = tmp .. "/stood.out"
+  result = invoke(root, output, "suite/selected_test.tl:test_selected")
+  text = assert(Fs.read(output))
+  assert(result.ok, text)
+  assert(text:find("\ntest: time: building [%d.]+ s, keying [%d.]+ s, running [%d.]+ s, settling coverage and records " ..
+      "[%d.]+ s\ntest: 1 test passed in 1 module; 0 ran, 1 stood"), text)
+end
+
 --- A failing test's report names the selector that reruns it, quoted
 --- for a shell when its path needs it, on the line after its FAIL block;
 --- that selector, given back to `cosmic test`, runs that one test and no

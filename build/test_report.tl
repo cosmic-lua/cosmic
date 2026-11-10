@@ -62,6 +62,22 @@ local record test_report
     read: integer
   end
 
+  --- Where a run's time went ([`test_report.time`]), in nanoseconds: the four stretches of the run in order, and of
+  --- the stretch its tests ran in, what this process spent starting each worker and recording it, during which it
+  --- starts and collects no other, and the tests' own time as their workers reported it, summed over the `ran` of
+  --- them, `workers` at a time.
+  record Spent
+    mut building_ns: integer
+    mut keying_ns: integer
+    mut running_ns: integer
+    mut settling_ns: integer
+    mut starting_ns: integer
+    mut recording_ns: integer
+    mut tests_ns: integer
+    mut ran: integer
+    mut workers: integer
+  end
+
   record Passed
     total: integer
     modules: integer
@@ -503,6 +519,30 @@ function test_report.floor(hit: integer, total: integer, files: {test_report.Fil
   end
   if #clauses == 0 then return { lines = lines, clause = "" } end
   return { lines = lines, clause = "coverage floor not met: " .. table.concat(clauses, ", ") }
+end
+
+--- A [`test_report.Spent`] with nothing spent.
+function test_report.unspent(): test_report.Spent
+  return { building_ns = 0, keying_ns = 0, running_ns = 0, settling_ns = 0, starting_ns = 0, recording_ns = 0,
+    tests_ns = 0, ran = 0, workers = 0 }
+end
+
+--- `ns` as seconds to a tenth, as the `time` line says each of its figures.
+local function seconds(ns: integer): string
+  return string.format("%.1f s", ns / 1e9)
+end
+
+--- A run's `time` line, after `test: `: where its time went, in the order it went there, so that the time of the
+--- tests is told from the time around them. A run that ran none says nothing of workers.
+function test_report.time(spent: test_report.Spent): string
+  local running = "running " .. seconds(spent.running_ns)
+  if spent.ran > 0 then
+    running = running .. " (" .. seconds(spent.tests_ns) .. " in " .. plural.count(spent.ran, "test") .. ", up to " ..
+      tostring(spent.workers) .. " at a time; the runner " .. seconds(spent.starting_ns) .. " starting their workers and " ..
+      seconds(spent.recording_ns) .. " recording them)"
+  end
+  return "time: building " .. seconds(spent.building_ns) .. ", keying " .. seconds(spent.keying_ns) .. ", " .. running ..
+    ", settling coverage and records " .. seconds(spent.settling_ns)
 end
 
 --- A passing run's summary, after `test: `: an outcome a reader sees

@@ -336,3 +336,19 @@ local function test_a_module_that_failed_to_load_is_one_failure()
       "  none of its 2 tests ran (test_a, test_b" .. tail ..
       "  rerun: cosmic test run_test.tl", text)
 end
+
+--- The `time` line says the four stretches of a run in order and, of the one its tests ran in, the tests' own time
+--- apart from what the runner spent on their workers; a run that ran none says nothing of workers.
+local function test_the_time_line_tells_the_tests_time_from_the_time_around_them()
+  local spent = test_report.unspent()
+  spent.building_ns, spent.keying_ns, spent.running_ns, spent.settling_ns = 1240000000, 62100000000, 425000000000, 50000000
+  assert(test_report.time(spent) == "time: building 1.2 s, keying 62.1 s, running 425.0 s, settling coverage and " ..
+      "records 0.1 s", test_report.time(spent))
+  spent.ran, spent.workers, spent.tests_ns = 8636, 4, 1129300000000
+  spent.starting_ns, spent.recording_ns = 152000000000, 82100000000
+  assert(test_report.time(spent) == "time: building 1.2 s, keying 62.1 s, running 425.0 s (1129.3 s in 8636 tests, " ..
+      "up to 4 at a time; the runner 152.0 s starting their workers and 82.1 s recording them), settling coverage " ..
+      "and records 0.1 s", test_report.time(spent))
+  spent.ran = 1
+  assert(test_report.time(spent):find("in 1 test, up to", 1, true), test_report.time(spent))
+end
