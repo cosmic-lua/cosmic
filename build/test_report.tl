@@ -88,10 +88,17 @@ local function shell_word(word: string): string
   return "'" .. (word:gsub("'", "'\\''")) .. "'"
 end
 
---- What a test printed as `  | ` lines, the last 4096 bytes of it.
-local function printed_lines(printed: string): {string}
-  if #printed > 4096 then printed = "..." .. printed:sub(-4096) end
+--- How many bytes of what a failing test printed are shown, the newest ones.
+local printed_most <const> = 4096
+
+--- What a test printed as `  | ` lines: all of it where `whole`, as a run that asked for it shows it, else its last
+--- `printed_most` bytes under a line that says so.
+local function printed_lines(printed: string, whole?: boolean): {string}
   local lines: mut {string} = {}
+  if whole ~= true and #printed > printed_most then
+    lines[1] = "  | (cut to its last " .. plural.count(printed_most, "byte") .. ": it printed " .. plural.count(#printed, "byte") .. ")"
+    printed = printed:sub(-printed_most)
+  end
   for line in String.lines((printed:gsub("\n$", ""))) do
     lines[#lines + 1] = "  | " .. line
   end
@@ -112,6 +119,10 @@ function test_report.unchecked(ids: mut {string}): {string}
   table.sort(ids)
   local lines: mut {string} = {}
   for _, id in ipairs(ids) do lines[#lines + 1] = "test: NO ASSERT  " .. id end
+  if #lines > 0 then
+    lines[#lines + 1] = "  hint: a test that cannot check its subject here calls Test.skip(reason) of cosmic.test, and is listed as " ..
+      "skipped; one that returns early passes unchecked"
+  end
   return lines
 end
 
@@ -263,7 +274,7 @@ function test_report.shown(shown: mut {test_report.Shown}): {string}
   local lines: mut {string} = {}
   for _, one in ipairs(shown) do
     lines[#lines + 1] = "test: PASS  " .. one.id
-    for _, line in ipairs(printed_lines(one.printed)) do lines[#lines + 1] = line end
+    for _, line in ipairs(printed_lines(one.printed, true)) do lines[#lines + 1] = line end
   end
   return lines
 end
