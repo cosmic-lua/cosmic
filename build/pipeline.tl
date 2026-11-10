@@ -39,7 +39,9 @@ local ErrorCatalog = require("build.error_catalog")
 local ErrorRender = require("build.error_render")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
+local Lexer = require("lang.lexer")
 local LuaTail = require("build.lua_tail")
+local Node = require("build.syntax_node")
 local ProjectRefusals = require("build.project_refusals")
 local Receivers = require("build.syntax_receivers")
 local Report = require("build.syntax_report")
@@ -98,6 +100,13 @@ local record Pipeline
     mut stubs: {string: Driver.Source}?
     --- The build that reads those stubs where it reads their sources, made when the first stub is judged.
     mut stubbed: Driver.Build?
+    --- Whether the declarations of a module stand, by path, for each module [`Pipeline.generate`] refused and each
+    --- [`Pipeline.examine`] read: it parsed, and no error of its scopes or its declarations lies outside the body of a
+    --- function, so what a module that requires it reads of it is what the module declares. A module that returns what
+    --- no declaration describes has none that stand, nor has one with an error in a `return`: a value that does not fit
+    --- the results declared is as often mended in the declaration, which a finding of the other module would rest on.
+    --- Absent for a module that was written.
+    standing: mut {string: boolean}
   end
 
   --- The options for the tree at `root`, `own` when it is cosmic's own ([`build.tree`]): the declarations and the
@@ -175,6 +184,13 @@ local record Pipeline
   --- another text in its place ([`Driver.Build.replace`]) and ask again. The calls of [`Shape.record_of`] are resolved by the caller. The
   --- types the checker kept of the module are let go once read.
   review: function(m: Module, built: Built, hints?: ErrorRender.Hints): Plans.Generated?, string
+
+  --- What [`Pipeline.generate`] would refuse the module `m` for, "" where it would write it: `m` is checked and judged as
+  --- a compile does and nothing of it is written, for a module that cannot be built because it requires a refused one
+  --- whose declarations stand ([`Pipeline.Built.standing`]). Its own findings are then told in the run that refused the
+  --- other. The module is retired, as a compile retires it, and its own standing recorded. `text` is read in place of the
+  --- module's own where given: the repaired text of a source that does not parse ([`Derivation.Broken`]'s `repaired`).
+  examine: function(m: Module, built: Built, judged?: boolean, hints?: ErrorRender.Hints, text?: string): string
 
   --- Takes from the scope errors of `result` the shadowing of `print` that every example of a guide makes ([`build.doctest`]
   --- captures what it prints in a local of that name), as the fork's compile discounts it: the module is generated, and the
@@ -336,7 +352,7 @@ function Pipeline.over(entries: {{string}}, kinds: {string: string}, options: Pi
     build = TreeProgram.build(index, options.globals, options.types, nil, standard,
       TreeProgram.meant(index, options.project ~= true)), index = index,
     globals = options.globals, standard = standard, types = options.types, given = stubs or {}, stubs = nil, stubbed = nil,
-    project = options.project,
+    project = options.project, standing = {},
   }
 end
 
@@ -514,6 +530,33 @@ local function restore_collector(previous: string)
   end
 end
 
+--- The text of `source`, which `read` parsed with errors, with the fix of each error written in ([`Derivation.Broken`]'s
+--- `repaired`): nil unless every error is a `global` in a program and the text with `local` for each parses.
+--
+-- TODO: repair the other errors of the parser whose fix is one spelling for another of the same statement (`T | nil` for
+-- `T?`, a `;`, a trailing comma), once each is shown to leave the tree whole and to have a fix that moves no token: the
+-- parser says which construct it skipped ([`lang.parser`]'s `Error` nodes), and not which error left none.
+local function repaired_of(source: Driver.Source, read: Driver.Parsed): string?
+  local text = read.text
+  local parts: mut {string} = {}
+  local from = 1
+  for _, p in ipairs(read.syntax) do
+    if p.code ~= "global_in_program" or text:sub(p.offset, p.offset + 5) ~= "global" or p.offset < from then
+      return nil
+    end
+    parts[#parts + 1] = text:sub(from, p.offset - 1)
+    parts[#parts + 1] = "local "
+    from = p.offset + 6
+  end
+  parts[#parts + 1] = text:sub(from)
+  local repaired = table.concat(parts)
+  local again = Driver.source(source.module, source.filename, repaired, source.dialect)
+  if #Driver.parse(again).syntax > 0 then
+    return nil
+  end
+  return repaired
+end
+
 function Pipeline.derive(db: Sqlite.Handle, own: boolean, fresh: {Derivation.Fresh}, tally: Derivation.Parses, -- checked: view_as_mut
                          made: mut {Derivation.Source}, broken?: mut {Derivation.Broken}, refusal?: Pipeline.Refusal): boolean, string
   local entries, kinds, trouble = entries_of(db, own, refusal)
@@ -546,12 +589,24 @@ function Pipeline.derive(db: Sqlite.Handle, own: boolean, fresh: {Derivation.Fre
     local read = Driver.parse(source)
     local first = read.syntax[1]
     if first ~= nil then
+      -- TODO: tell every error of the parser, as the check of a lone file does ([`Pipeline.checked_alone`]), once the
+      -- readers that take the first line of this message for the whole of it take several (`left_out` in
+      -- build/importer.tl, and the line `cosmic fix` says once for a file its own parse refused): a file with two syntax
+      -- errors takes two runs.
       local message = ErrorRender.line(one.file, first)
+      local repaired = repaired_of(source, read)
+      if repaired ~= nil then
+        local lines: mut {string} = {}
+        for _, p in ipairs(read.syntax) do
+          lines[#lines + 1] = ErrorRender.line(one.file, p)
+        end
+        message = table.concat(lines, "\n")
+      end
       if broken == nil then
         restore_collector(previous)
         return false, message
       end
-      broken[#broken + 1] = { source_hash = one.source_hash, file = one.file, message = message }
+      broken[#broken + 1] = { source_hash = one.source_hash, file = one.file, message = message, repaired = repaired }
     else
       local put, why = SyntaxDerivation.insert(db, one.source_hash, one.file, read.text, read.chunk, one.mapped)
       if not put then
@@ -635,12 +690,114 @@ local function stub_trouble(m: Module, built: Pipeline.Built, result: Driver.Out
   return ""
 end
 
+--- Whether the declarations of the module `result` is of stand: it parsed, it returns what a declaration describes, and no
+--- error of its scopes or its declarations lies outside the body of a function.
+--
+-- TODO: pass over the errors a marker holds, once [`Driver.Build.held`] answers which findings its markers held and not
+-- only the lines of the rest: a module of cosmic's own tree with a marked error outside a function body builds, and reads
+-- here as one whose declarations do not stand, so a module that requires it beside a refused one is left unchecked.
+local function declarations_stand(result: Driver.Outcome): boolean
+  if result.broken then
+    return false
+  end
+  for _, e in ipairs(result.bodies) do
+    if e.code == "export_not_declared" then
+      return false
+    end
+  end
+  if #result.scope_errors == 0 and #result.declared == 0 then
+    return true
+  end
+  local tokens = result.chunk.tokens
+  local from: mut {integer} = {}
+  local to: mut {integer} = {}
+  Node.walk(result.chunk, function(n: Ast.Node)
+    local body: Ast.Block? = nil
+    if (n.kind == "LocalFunction") then
+      body = n.fn.body
+    elseif (n.kind == "Function") then
+      body = n.fn.body
+    elseif (n.kind == "FunctionLit") then
+      body = n.fn.body
+    elseif (n.kind == "Method") then
+      body = n.body
+    end
+    if body ~= nil then
+      local start, close = Lexer.offset(tokens, body.first), Lexer.offset(tokens, body.close)
+      from[#from + 1] = start
+      to[#to + 1] = close
+    end
+  end)
+  for _, list in ipairs({ result.scope_errors, result.declared }) do
+    for _, e in ipairs(list) do
+      local inside = false
+      for i, start in ipairs(from) do
+        if e.offset >= start and e.offset < assert(to[i]) then
+          inside = true
+        end
+      end
+      if not inside then
+        return false
+      end
+    end
+  end
+  return true
+end
+
+--- Whether a module that requires the module `result` is of can be checked against it ([`Pipeline.Built.standing`]): its
+--- declarations stand, and no error lies in a `return`.
+--
+-- TODO: tell an error that leaves the declarations in doubt from one that does not by what the checker compared (a value
+-- against a declared result or parameter), once an error carries the declaration it was judged by ([`Driver.Problem`] has
+-- the call of a refused argument alone): an error in a body that uses a parameter as another type than it declares is
+-- mended in the signature as often, and is not seen here.
+local function interface_stands(result: Driver.Outcome): boolean
+  if not declarations_stand(result) then
+    return false
+  end
+  if #result.bodies == 0 then
+    return true
+  end
+  local tokens = result.chunk.tokens
+  local doubted = false
+  Node.walk(result.chunk, function(n: Ast.Node)
+    if (n.kind == "Return") and not doubted then
+      local base = Node.base(n)
+      local start = Lexer.offset(tokens, base.first)
+      local finish = Lexer.offset(tokens, base.last) + #Lexer.text(tokens, base.last)
+      for _, e in ipairs(result.bodies) do
+        if e.offset >= start and e.offset < finish then
+          doubted = true
+        end
+      end
+    end
+  end)
+  return not doubted
+end
+
+--- The breaches of the error-slot discipline in a module `m` that is refused already, with `result` its outcome: what a
+--- compile of it would say once the refusals are fixed, so that one run tells both. Only the breaches that rest on typed
+--- code are told ([`SyntaxContracts.check`]'s `errors`), and none where the declarations of the module do not stand
+--- (the types every rule reads) or the discipline does not hold it.
+local function breaches_of_refused(m: Module, built: Pipeline.Built, result: Driver.Outcome): {string}
+  if not declarations_stand(result) or not built.types or not Rules.applies(m.kind, m.generated) then
+    return {}
+  end
+  local subject = Report.of(built.build.program, result)
+  if subject == nil then
+    return {}
+  end
+  return SyntaxContracts.check(subject, nil, SyntaxContracts.declared_in(built.index), result.errors).problems
+end
+
 --- [`Pipeline.generate`]'s work. With `kept` the build is one the caller keeps across modules ([`Pipeline.review`]): the
---- calls of [`Shape.record_of`] are resolved already, and the module is checked and not written as bytecode.
+--- calls of [`Shape.record_of`] are resolved already, and the module is checked and not written as bytecode. With `examined`
+--- ([`Pipeline.examine`]) the module is read as a compile reads it, and not written as bytecode either.
 local function generated_of(m: Module, built: Pipeline.Built, facts?: boolean, judged?: boolean, hints?: ErrorRender.Hints,
-                            kept?: boolean): Plans.Generated?, string
+                            kept?: boolean, examined?: boolean): Plans.Generated?, string
   local build = built.build
   local named = m.path
+  local unwritten = kept == true or examined == true
   if kept ~= true then
     if build:retired(named) then
       return nil, m.file .. ": this build has written the module already: a build writes each module once"
@@ -692,6 +849,9 @@ local function generated_of(m: Module, built: Pipeline.Built, facts?: boolean, j
     end
   end
   if #lines > 0 then
+    for _, line in ipairs(breaches_of_refused(m, built, result)) do
+      lines[#lines + 1] = line
+    end
     return nil, m.file .. ": the compiler refused it\n" .. table.concat(lines, "\n")
   end
   -- The module that holds the hook the wraps and the parameter checks call is written without them: a checked call in the
@@ -747,7 +907,7 @@ local function generated_of(m: Module, built: Pipeline.Built, facts?: boolean, j
     end
     refused = refused or #problems > 0
   end
-  if kept ~= true then
+  if not unwritten then
     for _, use in ipairs(Receivers.references(subject)) do
       references[#references + 1] = { module = use.module, member = use.member, line = use.line }
     end
@@ -755,7 +915,7 @@ local function generated_of(m: Module, built: Pipeline.Built, facts?: boolean, j
   -- What the readers took is read: the types of the module are of no use to the next, and a tree of them is the memory of a run.
   result.types = {}
   result.callees = {}
-  if kept == true then
+  if unwritten then
     return { lua = code, bytecode = "", references = references, refused = refused,
       fact_wraps = emitted.fact_wraps or 0, parameter_checks = emitted.parameter_checks or 0 }, ""
   end
@@ -777,6 +937,15 @@ end
 
 local written: Written = { modules = 0 }
 
+--- Records whether the declarations of `m` stand ([`Pipeline.Built.standing`]), while the build still holds its result.
+local function note_standing(m: Module, built: Pipeline.Built)
+  local result: Driver.Outcome? = nil
+  if not built.build:retired(m.path) then
+    result = built.build:result(m.path, true)
+  end
+  built.standing[m.path] = result ~= nil and interface_stands(result)
+end
+
 function Pipeline.generate(m: Module, built: Pipeline.Built, facts?: boolean, judged?: boolean,
                            hints?: function(): {Sqlite.Handle}, {boolean}): Plans.Generated?, string
   -- Between two modules there is the garbage of one and the live data of the build. The generational collector frees the
@@ -787,6 +956,9 @@ function Pipeline.generate(m: Module, built: Pipeline.Built, facts?: boolean, ju
     collectgarbage("generational")
   end
   local made, why = generated_of(m, built, facts, judged, hints)
+  if made == nil then
+    note_standing(m, built)
+  end
   built.build:retire(m.path)
   written.modules = written.modules + 1
   if written.modules % 100 == 0 then
@@ -802,6 +974,19 @@ function Pipeline.review(m: Module, built: Pipeline.Built, hints?: ErrorRender.H
   -- The collector is generational for the life of a session, as it is for a compile: see [`Pipeline.generate`].
   collectgarbage("generational")
   return generated_of(m, built, false, true, hints, true)
+end
+
+function Pipeline.examine(m: Module, built: Pipeline.Built, judged?: boolean, hints?: ErrorRender.Hints, text?: string): string
+  if text ~= nil and built.build:replace(m.path, text) == nil then
+    return m.file .. ": the new checker's build has no module " .. m.path
+  end
+  local made, why = generated_of(m, built, false, judged, hints, false, true)
+  note_standing(m, built)
+  built.build:retire(m.path)
+  if made == nil then
+    return why
+  end
+  return ""
 end
 
 function Pipeline.requires(file: string, text: string): {string}?, string

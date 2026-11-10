@@ -357,7 +357,8 @@ local function test_a_named_run_shows_the_refusals_whichever_way_the_file_is_nam
   end
   local cases: {Case} = {
     { name = "module", files = { ["pkg/x.tl"] = bad,
-      ["pkg/x_test.tl"] = 'local x = require("pkg.x")\n' .. passing }, selector = "pkg.x_test",
+      ["pkg/x_test.tl"] = 'local x = require("pkg.x")\nlocal function test_it()\n  assert(x == 1)\nend\n' },
+      selector = "pkg.x_test",
       shown = { "pkg/x.tl:1:", "pkg/x_test.tl: not compiled" } },
     { name = "chain", files = { ["c.tl"] = bad, ["b.tl"] = 'local c = require("c")\nreturn c\n',
       ["a_test.tl"] = 'local b = require("b")\n' .. passing }, selector = "a_test.tl",

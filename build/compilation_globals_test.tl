@@ -78,7 +78,10 @@ local function test_each_kind_of_global_is_refused_at_its_line(tmp: string)
       ["main.tl"] = "local n = 1\n" .. c.source .. "return n\n",
     })
     local want = "main.tl:" .. c.at .. (c.message or GLOBAL)
-    assert(result == nil and trouble == want, c.name .. ": wanted " .. want .. ", got " .. trouble)
+    -- What the checker says of the text with `local` for a `global` follows the refusal, in lines of its own.
+    local first = trouble:match("^[^\n]*") or trouble
+    local _, times = trouble:gsub("%(global_in_program%)", "")
+    assert(result == nil and first == want and times <= 1, c.name .. ": wanted " .. want .. ", got " .. trouble)
   end
 end
 
