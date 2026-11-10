@@ -83,6 +83,9 @@ local function test_a_scoped_fork_cannot_signal_its_parent()
   assert(scoped == 0, "a scoped child's status: " .. tostring(scoped))
 end
 
+-- TODO: test that a process with another thread is refused (EBUSY), once a binding the core gives a test starts a
+-- thread: none does today, so no test can have two.
+
 --- Off Linux there is no fork.
 local function test_fork_is_not_implemented_off_linux()
   if linux() then Test.skip("Linux has fork") end

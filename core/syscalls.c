@@ -5679,19 +5679,23 @@ static int status_threads (int *error) {
   if (*error != 0) return -1;
   static const char field[] = "\nThreads:";
   int count = -1;
-  for (size_t at = 0; count < 0 && at + sizeof field - 1 < used; at++) {
+  for (size_t at = 0; at + sizeof field - 1 < used; at++) {
     if (memcmp(text + at, field, sizeof field - 1) != 0) continue;
-    count = 0;
     for (at += sizeof field - 1; at < used && text[at] != '\n'; at++) {
-      if (text[at] >= '0' && text[at] <= '9' && count < INT_MAX / 10)
-        count = count * 10 + (text[at] - '0');
+      if (text[at] < '0' || text[at] > '9') continue;
+      if (count < 0) count = 0;
+      if (count < INT_MAX / 10) count = count * 10 + (text[at] - '0');
     }
+    break;
   }
   cosmic_free(text);
   if (count < 0) *error = EIO;
   return count;
 }
 #endif
+
+/* How many signal guards are open, counted where they are opened below. */
+static int child_guard_depth;
 
 COSMIC_SYSCALL(fork, 1) {
   int scoped = lua_toboolean(L, 1);
@@ -5700,6 +5704,9 @@ COSMIC_SYSCALL(fork, 1) {
   int threads = status_threads(&error);
   if (threads < 0) return cosmic_fail(L, error);
   if (threads != 1) return cosmic_fail(L, EBUSY);
+  /* A copy would share the guard's wake pipe, and take the bytes that
+   * tell this process of its signals. */
+  if (child_guard_depth > 0) return cosmic_fail(L, EBUSY);
   int ruleset = -1;
   if (scoped) {
     long abi = syscall(SYS_landlock_create_ruleset, NULL, 0, LANDLOCK_CREATE_RULESET_VERSION);
