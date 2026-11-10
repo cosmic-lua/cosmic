@@ -206,6 +206,45 @@ local function test_top()
 end
 ```
 
+## a fixture for a test
+
+A literal gives every field of its record a value, so a test that needs
+a record with many fields does not write the literal each time. A
+function of the test file builds a whole one, with a plain value for
+each field and a parameter for each field the tests are about; a test
+then names only what it checks. A field declared `mut` may be assigned
+after.
+
+```teal file=order_test.tl
+--- An order, as a module of the project would declare it.
+local record Order
+  id: integer
+  customer: string
+  item: string
+  quantity: integer
+  cents: integer
+  mut paid: boolean
+end
+
+--- What `order` costs, in cents.
+local function total(order: Order): integer
+  return order.quantity * order.cents
+end
+
+--- A whole order: `quantity` of an item at `cents` each, and a plain
+--- value for every field no test here is about.
+local function an_order(quantity: integer, cents: integer): Order
+  return { id = 1, customer = "ada", item = "tea", quantity = quantity, cents = cents, paid = false }
+end
+
+local function test_total()
+  assert(total(an_order(3, 250)) == 750)
+  local order = an_order(1, 100)
+  order.paid = true
+  assert(order.paid and total(order) == 100)
+end
+```
+
 ## a program with commands
 
 [`cosmic.flags`] reads the command line. The program's first word is a
@@ -394,7 +433,7 @@ print((cosmic("docs", "tally").stdout or ""):match("^[^\n]*"))
 
 ```output
 fix exited 0
-test: 3 tests passed
+test: 4 tests passed
 5
 the	2
 cat	1
@@ -408,7 +447,7 @@ commands:
 Run `tally <command> --help` for a command's options.
 build exited 0
 5
-test: 3 tests passed
+test: 4 tests passed
 tally (tally.tl)
 ```
 

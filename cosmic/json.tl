@@ -113,7 +113,8 @@
 --- `/users/1/role`, and a JSONPath query (RFC 9535), `$.users[1].role`,
 --- count from 0. [`Json.pointer`] and [`Json.path`] write steps as either;
 --- [`Json.from_pointer`] and [`Json.from_path`] read them back;
---- [`Json.get`] follows steps; [`Json.query`] reads a JSONPath query
+--- [`Json.get`] follows steps, and [`Json.set`] and [`Json.remove`] answer
+--- a changed copy; [`Json.query`] reads a JSONPath query
 --- that can select many values (`*`, `..`), strictly and in a subset
 --- that leaves filters, slices and unions out, and [`Json.select`] runs
 --- it.
@@ -1323,6 +1324,157 @@ function Json.get(value: any, steps: Json.Steps): Json.Value?, string
     return refuse(("the value at %s is none JSON can hold"):format(at_pointer(reached)))
   end
   return found, ""
+end
+
+--- A new object with the members of the object `t`, and `v` as its member
+--- `name`; without that member when `v` is nil.
+local function members_with(t: any, name: string, v?: Json.Value): {string: Json.Value}
+  local members: mut {string: Json.Value} = {}
+  local from = members_of(t)
+  if from ~= nil then
+    for key, member in pairs(from) do
+      if key ~= name then members[key] = member end
+    end
+  end
+  if v ~= nil then members[name] = v end
+  return members
+end
+
+-- TODO: mark the copy of an array [`Json.with_holes`] marked as one that may have holes, once cosmic.internal.json says
+-- which of the two marks a table carries ([`is_array`] is true for either): the copy is marked as a plain array today, so
+-- its holes are an error to encode until the caller marks it again.
+
+--- A new marked array with the elements of the array `t`, and `v` at
+--- `position`; when `v` is nil, without the element there, each one after
+--- it a position lower. A hole of `t` is a hole of the copy.
+local function items_with(t: any, position: integer, v?: Json.Value): {Json.Value}
+  local items: mut {integer: Json.Value} = {}
+  local held, from = table_of(t), items_of(t)
+  if held ~= nil and from ~= nil then
+    -- By the keys it holds, not 1 to its highest: a stray key may be far past the rest.
+    for k in pairs(held) do
+      local key: any = k
+      if key is integer then
+        local item = from[key]
+        if item ~= nil then
+          if v ~= nil or key < position then
+            items[key] = item
+          elseif key > position then
+            items[key - 1] = item
+          end
+        end
+      end
+    end
+  end
+  if v ~= nil then items[position] = v end
+  return raw.array(items)
+end
+
+--- A copy of `at`, the value `reached` names, changed where `steps` lead
+--- from step `i` on, and "": `v` put there, or what is there removed when
+--- `v` is nil. Each table on the way is copied and every other one is the
+--- copy's too. nil and a message for a step that leads nowhere.
+local function changed(at: any, steps: Json.Steps, i: integer, reached: string, v?: Json.Value): Json.Value?, string
+  local step = Array.at(steps, i)
+  local bad = bad_step(i, step)
+  if bad ~= nil then return refuse(bad) end
+  local t = table_of(at)
+  if t == nil then
+    return refuse(("the value at %s is %s, not an array or object"):format(at_pointer(reached), kind(at)))
+  end
+  local shape = container(t)
+  local last = i == #steps
+  -- What a set says of a place on the way that holds nothing: it would have to guess an object or an array.
+  local make_first = if v == nil then "" else ": set makes the last step only, so set an object or an array there first" end
+  if step is string then
+    if shape ~= "object" then
+      return refuse(("the value at %s is %s, not an object"):format(at_pointer(reached),
+        if shape == "array" then "an array" else "a table with mixed keys" end))
+    end
+    local here = reached .. "/" .. pointer_segment(step)
+    local child = t[step]
+    if last then
+      if v == nil and child == nil then return refuse("no value at " .. at_pointer(here)) end
+      return members_with(t, step, v), ""
+    end
+    if child == nil then return refuse("no value at " .. at_pointer(here) .. make_first) end
+    local below, why = changed(child, steps, i + 1, here, v)
+    if below == nil then return nil, why end
+    return members_with(t, step, below), ""
+  end
+  if shape ~= "array" then
+    return refuse(("the value at %s is %s, not an array"):format(at_pointer(reached),
+      if shape == "object" then "an object" else "a table with mixed keys" end))
+  end
+  local count = last_position(t)
+  local position = step
+  if position < 0 then position = count + 1 + position end
+  if position < 1 then
+    return refuse(("no element %d from the end at %s"):format(-step, at_pointer(reached)))
+  end
+  local here = reached .. "/" .. tostring(position - 1)
+  local child = t[position]
+  if last then
+    if v == nil and child == nil then return refuse("no value at " .. at_pointer(here)) end
+    if position > count + 1 then
+      return refuse(("no value at %s: the array at %s holds %d, and set appends at position %d, leaving no hole"):format(
+        at_pointer(here), at_pointer(reached), count, count + 1))
+    end
+    return items_with(t, position, v), ""
+  end
+  if child == nil then return refuse("no value at " .. at_pointer(here) .. make_first) end
+  local below, why = changed(child, steps, i + 1, here, v)
+  if below == nil then return nil, why end
+  return items_with(t, position, below), ""
+end
+
+--- A new value like `value` with `v` where `steps` lead, and "": the way to
+--- change a decoded value, which is never changed in place. `value` is left
+--- as it is. Each array and object on the way is copied, that level alone,
+--- and every part off the way is the same table in both, not a copy, so a
+--- set costs the tables on its way and no more. No part off the way is
+--- checked, which [`Json.to_value`] does as it copies a whole value. An
+--- array's copy is marked as [`Json.array`] marks it and keeps its holes, so
+--- one [`Json.with_holes`] marked is marked again by the caller. With no
+--- steps the answer is `v`.
+---
+--- The last step names the place: a member of an object, there or not, or an
+--- array's position, a negative one counted from the end as [`Json.get`]
+--- counts. The position one past the last element appends. nil and a
+--- message naming the place by its JSON Pointer for a position further
+--- past the end, which would leave a hole; for a step before the last that
+--- reaches nothing, since nothing says whether an object or an array belongs
+--- there (set one first); and for a step [`Json.get`] refuses: into a value
+--- that is not an array or object, a name into an array, a position into an
+--- object.
+---
+---     local config = assert(Json.decode('{"server": {"port": 80}, "tags": ["a"]}'))
+---     local port = assert(Json.set(config, { "server", "port" }, 8080))
+---     local both = assert(Json.set(port, { "tags", 2 }, "b"))
+---     assert(assert(Json.encode(both)) == '{"server":{"port":8080},"tags":["a","b"]}')
+---     assert(assert(Json.get(config, { "server", "port" })) == 80)
+function Json.set(value: any, steps: Json.Steps, v: Json.Value): Json.Value?, string
+  if #steps == 0 then return v, "" end
+  return changed(value, steps, 1, "", v)
+end
+
+--- A new value like `value` without what `steps` lead to, and "": an
+--- object without that member, or an array without that element, each one
+--- after it a position lower. `value` is left as it is, and what is copied
+--- and what is shared is as [`Json.set`] says. nil and a message naming the
+--- place by its JSON Pointer when nothing is there, as [`Json.get`] refuses
+--- it, and when `steps` is empty: the whole value is in nothing it could be
+--- removed from.
+---
+---     local config = assert(Json.decode('{"debug": true, "tags": ["a", "b", "c"]}'))
+---     local quiet = assert(Json.remove(config, { "debug" }))
+---     local fewer = assert(Json.remove(quiet, { "tags", 2 }))
+---     assert(assert(Json.encode(fewer)) == '{"tags":["a","c"]}')
+function Json.remove(value: any, steps: Json.Steps): Json.Value?, string
+  if #steps == 0 then
+    return refuse("remove takes a step or more: the whole value is in nothing it could be removed from")
+  end
+  return changed(value, steps, 1, "", nil)
 end
 
 --- The control characters a normalized path writes by a short escape.

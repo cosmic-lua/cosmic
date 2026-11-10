@@ -238,6 +238,23 @@ function Example.paths()
   for _, found in ipairs(names) do print(Json.pointer(found.steps), found.value) end
 end
 
+--- Lay a few settings over configuration read from a file: each
+--- [`Json.set`] answers a new value with one place changed, and
+--- [`Json.remove`] one without it. Nothing is changed in place, so the
+--- defaults stay as they were read.
+function Example.set()
+  local defaults = assert(Json.decode('{"server": {"port": 80, "hosts": ["a"]}, "debug": true}'))
+  local config = assert(Json.set(defaults, { "server", "port" }, 8080))
+  config = assert(Json.set(config, { "server", "hosts", 2 }, "b"))
+  config = assert(Json.remove(config, { "debug" }))
+  local text = assert(Json.encode(config))
+  print(text)
+  assert(text == '{"server":{"hosts":["a","b"],"port":8080}}')
+  assert(assert(Json.get(defaults, { "server", "port" })) == 80)
+  local _, why = Json.set(defaults, { "client", "port" }, 1)
+  print(why)
+end
+
 --- Compare two documents: [`Json.diff`] lists where they differ, each by
 --- JSON Pointer, ignoring member order and the difference between `1` and
 --- `1.0`. An empty list means equal, so a test asserts on the list.

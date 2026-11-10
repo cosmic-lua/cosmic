@@ -102,6 +102,112 @@ local function test_get_follows_steps_and_counts_back_from_the_end()
   assert(failure(Json.get({ 1, a = 2 }, { 1 })) == 'json: the value at pointer "" is a table with mixed keys, not an array') -- checked: literal_shape
 end
 
+--- The text of `value`; the test fails if it does not encode.
+local function text_of(value: Json.Value?): string
+  local text, err = Json.encode_any(value)
+  assert(text ~= nil, err)
+  return text
+end
+
+local CONFIG <const> = '{"server":{"hosts":["a","b"],"port":80},"tags":[]}'
+
+local function test_set_answers_a_changed_copy()
+  local config = assert(Json.decode(CONFIG))
+  assert(text_of((Json.set(config, { "server", "port" }, 8080))) == '{"server":{"hosts":["a","b"],"port":8080},"tags":[]}')
+  assert(text_of((Json.set(config, { "name" }, "x"))) == '{"name":"x","server":{"hosts":["a","b"],"port":80},"tags":[]}',
+    "a member not there is made")
+  assert(text_of((Json.set(config, { "server", "hosts", 1 }, "z"))) == '{"server":{"hosts":["z","b"],"port":80},"tags":[]}')
+  assert(text_of((Json.set(config, { "server", "hosts", -1 }, "z"))) == '{"server":{"hosts":["a","z"],"port":80},"tags":[]}',
+    "a negative position counts from the end")
+  assert(text_of((Json.set(config, { "server", "hosts", 3 }, "c"))) == '{"server":{"hosts":["a","b","c"],"port":80},"tags":[]}',
+    "one past the end appends")
+  assert(text_of((Json.set(config, { "tags", 1 }, "t"))) == '{"server":{"hosts":["a","b"],"port":80},"tags":["t"]}',
+    "an empty array is appended to")
+  assert(text_of((Json.set(config, { "tags" }, Json.null))) == '{"server":{"hosts":["a","b"],"port":80},"tags":null}')
+  local whole, err = Json.set(config, {}, "v")
+  assert(whole == "v" and err == "", "no steps: the new value itself")
+  assert(text_of(config) == CONFIG, "the value given is as it was")
+end
+
+--- A set copies the tables its steps pass and shares the rest, and a copied
+--- array is still one where it is empty.
+local function test_set_copies_the_way_and_shares_the_rest()
+  local config = assert(Json.decode(CONFIG))
+  local set = assert(Json.set(config, { "server", "port" }, 1))
+  assert(not rawequal(set, config) and not rawequal(Json.get(set, { "server" }), (Json.get(config, { "server" }))))
+  assert(rawequal(Json.get(set, { "tags" }), (Json.get(config, { "tags" }))), "off the way: shared")
+  assert(rawequal(Json.get(set, { "server", "hosts" }), (Json.get(config, { "server", "hosts" }))))
+  local emptied = assert(Json.remove(config, { "server", "hosts", 1 }))
+  local none = assert(Json.remove(emptied, { "server", "hosts", 1 }))
+  assert(text_of(none) == '{"server":{"hosts":[],"port":80},"tags":[]}', "an array emptied is an array")
+  assert(Json.is_array((Json.get(none, { "server", "hosts" }))))
+end
+
+local function test_set_refuses_a_place_it_would_have_to_invent()
+  local config = assert(Json.decode(CONFIG))
+  assert(failure(Json.set(config, { "server", "hosts", 4 }, "d")) ==
+      'json: no value at pointer "/server/hosts/3": the array at pointer "/server/hosts" holds 2, ' ..
+      'and set appends at position 3, leaving no hole')
+  assert(failure(Json.set(config, { "tags", 2 }, "t")) ==
+      'json: no value at pointer "/tags/1": the array at pointer "/tags" holds 0, ' ..
+      'and set appends at position 1, leaving no hole')
+  assert(failure(Json.set(config, { "client", "port" }, 1)) ==
+      'json: no value at pointer "/client": set makes the last step only, so set an object or an array there first')
+  assert(failure(Json.set(config, { "server", "hosts", 3, "name" }, "c")) ==
+      'json: no value at pointer "/server/hosts/2": set makes the last step only, ' ..
+      'so set an object or an array there first')
+  assert(failure(Json.set(config, { "server", "hosts", -3 }, "z")) ==
+      'json: no element 3 from the end at pointer "/server/hosts"')
+  assert(failure(Json.set(config, { "tags", -1 }, "z")) == 'json: no element 1 from the end at pointer "/tags"')
+  assert(failure(Json.set(config, { "server", "hosts", "name" }, 1)) ==
+      'json: the value at pointer "/server/hosts" is an array, not an object')
+  assert(failure(Json.set(config, { 1 }, 1)) == 'json: the value at pointer "" is an object, not an array')
+  assert(failure(Json.set(config, { "server", "port", "x" }, 1)) ==
+      'json: the value at pointer "/server/port" is number, not an array or object')
+  assert(failure(Json.set("text", { "a" }, 1)) == 'json: the value at pointer "" is string, not an array or object')
+  assert(failure(Json.set(config, { "tags", 0 }, 1)) ==
+      "json: step 2 is 0: positions count from 1, or from -1 at the end")
+  assert(text_of(config) == CONFIG, "a refused set changes nothing")
+end
+
+local function test_remove_answers_a_copy_without_the_place()
+  local config = assert(Json.decode(CONFIG))
+  assert(text_of((Json.remove(config, { "tags" }))) == '{"server":{"hosts":["a","b"],"port":80}}')
+  assert(text_of((Json.remove(config, { "server", "hosts", 1 }))) == '{"server":{"hosts":["b"],"port":80},"tags":[]}',
+    "an array closes up")
+  assert(text_of((Json.remove(config, { "server", "hosts", -1 }))) == '{"server":{"hosts":["a"],"port":80},"tags":[]}')
+  assert(text_of(config) == CONFIG, "the value given is as it was")
+  assert(failure(Json.remove(config, {})) ==
+      "json: remove takes a step or more: the whole value is in nothing it could be removed from")
+  assert(failure(Json.remove(config, { "name" })) == 'json: no value at pointer "/name"')
+  assert(failure(Json.remove(config, { "client", "port" })) == 'json: no value at pointer "/client"')
+  assert(failure(Json.remove(config, { "server", "hosts", 3 })) == 'json: no value at pointer "/server/hosts/2"')
+  assert(failure(Json.remove(config, { "tags", -1 })) == 'json: no element 1 from the end at pointer "/tags"')
+  assert(failure(Json.remove(config, { "server", "name", 1 })) == 'json: no value at pointer "/server/name"')
+  assert(failure(Json.remove(config, { "server", 1 })) == 'json: the value at pointer "/server" is an object, not an array')
+end
+
+--- An array with a hole keeps it through a copy, and one whose highest
+--- position is far past its others is copied by what it holds: a walk of
+--- every position to 1 << 40 would not end.
+local function test_set_and_remove_keep_an_arrays_holes()
+  local dropped = assert(Json.decode('{"row": [1, null, 3]}'))
+  local set = assert(Json.set(dropped, { "row", 1 }, 0))
+  assert(Json.get(set, { "row", 1 }) == 0 and Json.get(set, { "row", -1 }) == 3)
+  assert(failure(Json.get(set, { "row", 2 })) == 'json: no value at pointer "/row/1"')
+  assert(text_of((Json.set(dropped, { "row", 2 }, 2))) == '{"row":[1,2,3]}', "a hole is filled")
+  local appended = assert(Json.set(dropped, { "row", 4 }, 4))
+  assert(Json.get(appended, { "row", -1 }) == 4 and Json.get(appended, { "row", 3 }) == 3)
+  local fewer = assert(Json.remove(dropped, { "row", 1 }))
+  assert(Json.get(fewer, { "row", -1 }) == 3 and Json.get(fewer, { "row", 2 }) == 3)
+  assert(failure(Json.remove(dropped, { "row", 2 })) == 'json: no value at pointer "/row/1"')
+  local far = assert(Json.with_holes({ [1] = "a", [1 << 40] = "z" }))
+  local near = assert(Json.set(far, { 1 }, "b"))
+  assert(Json.get(near, { 1 }) == "b" and Json.get(near, { -1 }) == "z")
+  local closed = assert(Json.remove(far, { 1 }))
+  assert(Json.get(closed, { (1 << 40) - 1 }) == "z")
+end
+
 local function test_a_normalized_path_counts_from_0()
   assert(Json.path({}) == "$")
   assert(Json.path({ "users", 2, "name" }) == "$['users'][1]['name']")
