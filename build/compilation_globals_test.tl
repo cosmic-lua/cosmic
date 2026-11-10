@@ -16,6 +16,8 @@ local REFUSED <const> = ": a global is not allowed in a cosmic build: it reaches
 --- What the grammar says of a `global`, and of a `function f()` that no local `f` is in scope for.
 local GLOBAL <const> = ": `global` declares a global, which only a declaration file does (global_in_program): write " ..
   "`local`; a program's globals are exactly the ones a declaration file (`.d.tl`) declares"
+--- How what the checker says of the text with `local` for a `global` begins, after the refusal.
+local REPAIRED <const> = "\nmain.tl: with `local` written for `global`, as the fix says, the checker refuses this too\n"
 --- What the grammar says of a `function NAME()` that declares a global.
 local function bare(name: string): string
   return ": `function " .. name .. "(...)` declares a global (bare_function): write `local function " .. name ..
@@ -81,7 +83,9 @@ local function test_each_kind_of_global_is_refused_at_its_line(tmp: string)
     -- What the checker says of the text with `local` for a `global` follows the refusal, in lines of its own.
     local first = trouble:match("^[^\n]*") or trouble
     local _, times = trouble:gsub("%(global_in_program%)", "")
-    assert(result == nil and first == want and times <= 1, c.name .. ": wanted " .. want .. ", got " .. trouble)
+    local rest = trouble:sub(#first + 1)
+    local told = rest == "" or rest:sub(1, #REPAIRED) == REPAIRED
+    assert(result == nil and first == want and times <= 1 and told, c.name .. ": wanted " .. want .. ", got " .. trouble)
   end
 end
 

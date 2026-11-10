@@ -749,8 +749,9 @@ end
 --
 -- TODO: tell an error that leaves the declarations in doubt from one that does not by what the checker compared (a value
 -- against a declared result or parameter), once an error carries the declaration it was judged by ([`Driver.Problem`] has
--- the call of a refused argument alone): an error in a body that uses a parameter as another type than it declares is
--- mended in the signature as often, and is not seen here.
+-- the call of a refused argument alone): an error in a body that uses a parameter as another type than it declares, or a
+-- field its record does not declare, is mended in the declaration as often, and is not seen here. The refusal of the module
+-- checked says it holds of the declarations as written ([`build.importer`]).
 local function interface_stands(result: Driver.Outcome): boolean
   if not declarations_stand(result) then
     return false

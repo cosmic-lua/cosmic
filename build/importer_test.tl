@@ -1596,8 +1596,9 @@ local function test_a_module_that_requires_a_refused_one_is_checked_and_its_find
       "of its own", 1, true) ~= nil, refused)
   assert(#result.refused == 4, refused)
   -- A finding of a module checked so holds of the other's declarations as they are, and says so.
-  assert(refused:find("\nb.tl: checked against the declarations of a, which did not build", 1, true) ~= nil and
-      refused:find("\nc.tl: checked against the declarations of b, which did not build", 1, true) ~= nil and
+  assert(refused:find("\nb.tl: checked against the declarations of a as they are written, though it did not build: a fix there " ..
+      "that changes a declaration may settle a finding here", 1, true) ~= nil and
+      refused:find("\nc.tl: checked against the declarations of b as they are written", 1, true) ~= nil and
       refused:find("a.tl: checked against", 1, true) == nil, refused)
   assert(table.concat(assert(result.own_refused), " ") == "a.tl b.tl c.tl", table.concat(assert(result.own_refused), " "))
   -- Each rests on its own refusal and on those of what it requires, so a run that names it shows them all.

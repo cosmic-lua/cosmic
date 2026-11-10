@@ -1376,9 +1376,10 @@ local function compile_derived(handle: work.Handle, tool: string,
         end
         if own_trouble ~= "" then
           if checked then
-            -- A finding here holds of the declarations as they are, which the fix of the other module may change.
+            -- A finding here holds of the declarations as they are written, which the fix of the other module may change:
+            -- the line says so, since the tree as written does disagree and either side may be the one to change.
             own_trouble = own_trouble .. "\n" .. m.file .. ": checked against the declarations of " .. lacking ..
-              ", which did not build"
+              " as they are written, though it did not build: a fix there that changes a declaration may settle a finding here"
           end
           result.refused[#result.refused + 1] = own_trouble
           own_refused[#own_refused + 1] = m.file

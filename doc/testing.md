@@ -93,7 +93,8 @@ stands on another checkout's pass.
   that names tests (`cosmic test one_test.tl`) fails for the refusals of the files it names alone, and a named test
   module that requires a refused one is refused itself. One run tells every finding it soundly can. A module that
   requires a refused one is checked all the same, and its own findings told, where the refused module parsed and its errors
-  are in the bodies of its functions and in no `return`: its declarations are what the other reads, and they stand. A module the checker refuses is told its
+  are in its bodies and in no `return`: its declarations are what the other reads. Such a finding holds of those declarations
+  as they are written, and its refusal says so, since a fix of the refused module that changes one may settle it. A module the checker refuses is told its
   breaches of the error-slot rules too, those in the top-level statements the checker typed whole. A file refused only for a
   `global` is told what the checker says of it with `local` in its place. A pool is refused with `--check-types`, which checks the facts
   alone (below).
