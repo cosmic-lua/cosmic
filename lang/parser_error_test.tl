@@ -119,7 +119,7 @@ local CASES <const>: {Case} = {
   { code = "inline_record", source = "local function f(x: { m: integer, n: string }) end", y = 1, x = 33,
     says = "a record type is not written in braces", fix = "declare the record" },
   { code = "unclosed", source = "local function f(c: boolean): integer\n  return if c then 1 else 2\nend\nlocal x = 1", y = 3, x = 1,
-    says = "the `if` expression on line 2 has no `end`", fix = "`if cond then a else b end`" },
+    says = "the `if` expression on line 2 has no `end`", fix = "`if cond then a else b end`", count = 2 },
   { code = "chained_is", source = "local y = a is B is C", y = 1, x = 18, says = "`is` does not chain", fix = "`a is B and a is C`" },
   { code = "is_union", source = "local y = a is B | C", y = 1, x = 18, says = "`is` takes one type", fix = "`x is A or x is B`" },
   { code = "bare_function", source = "function f() end", y = 1, x = 1, says = "`function f(...)` declares a global", fix = "write `local function f(...)`" },
