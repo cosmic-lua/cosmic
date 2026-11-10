@@ -76,6 +76,7 @@ local work = require("build.work")
 local writer = require("build.writer")
 local String = require("cosmic.string")
 local Hash = require("cosmic.hash")
+local artifact = require("build.artifact")
 
 --- Element `position` of `list`, a position taken from its bounds or from the rows a producer in this file made.
 local function nth<T>(list: {T}, position: integer): T
@@ -2142,6 +2143,39 @@ local function scope_outcome(file: string, source: string, declared: {string: Sc
     check_memo.put(memo, "scoped", key, check_memo.encode(rows))
   end
   return outcome
+end
+
+--- What [`tree_checks.share_checks`] read of the tool, inside [`Store.alone`].
+local record Coded
+  mut code: string?
+  mut trouble: string
+end
+
+--- Has the memoed checks of this process share their rows with the host's other checkouts ([`build.check_memo`]),
+--- under the code this tool checks with: the modules `cosmic fix` loads, read from the tool's own database and not a
+--- projection attached ahead of it, and every byte of the tool ahead of that database. Answers whether they are
+--- shared, and why not where the tool could not be read or the shared file not opened; a run that shares none by
+--- its environment answers false and "".
+function tree_checks.share_checks(): boolean, string
+  local path = check_memo.shared_path()
+  if path == nil then return check_memo.share(nil) end
+  local head, head_trouble = artifact.trusted_prefix()
+  if head == nil then
+    local _, _ = check_memo.share(nil)
+    return false, head_trouble
+  end
+  local core = Hash.hex_sha256(head)
+  local coded: Coded = { code = nil, trouble = "" }
+  Store.alone(function()
+    coded.code, coded.trouble = check_memo.code_of({ requires = Store.requires, source = Store.source,
+      withheld = Store.withheld, core = core })
+  end)
+  local code = coded.code
+  if code == nil then
+    local _, _ = check_memo.share(nil)
+    return false, coded.trouble
+  end
+  return check_memo.share(path, { code = code })
 end
 
 --- Every `.tl` file of the tree, scoped ([`lang.scopes`]) in the new checker's grammar: the names it resolves must agree

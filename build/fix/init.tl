@@ -2004,6 +2004,8 @@ local function fix_verb(argv: {string}): integer
   if code ~= nil then return code end
   code = choose_files(ctx)
   if code ~= nil then return code end
+  -- A run that cannot share its memoed checks makes them itself.
+  local _, _ = tree_checks.share_checks()
   start_tally(ctx)
   lay_out_c(ctx)
   Memprobe.mark("fix: C checked")
