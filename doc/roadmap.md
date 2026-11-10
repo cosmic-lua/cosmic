@@ -24,9 +24,12 @@ defines the target; once something ships, it leaves this file.
   every index place; `is` tests a field as it does a local; `x is A | B | C`
   guards all its members, not the last pair; an assignment drops the place
   assigned and its extensions only (`r.f = v` keeps `r.foo`). a range test
-  `i >= 1 and i <= #t` lets a write `t[i] = v` stand in its block
-  ([`Writes.ranges_of`]); a read `t[i]` there is still `T?`, where the same
-  test could make it `T` as a counted loop's index does ([`Writes.counted_read`]).
+  `i >= 1 and i <= #t` holds a read `t[i]` and a write `t[i] = v` in its block
+  ([`Writes.ranges_of`]), and not yet in the operands of its own chain after the
+  bounds (`i <= #t and t[i] > 0`). a counted
+  loop `for i = a, #t - b do` reads the keys beside its index
+  ([`Writes.counted_read`]); a write `t[i] = v` stands only in a loop to `#t`
+  ([`Writes.fill_of`]), and a loop that counts down holds no read.
 - make a metamethod's run a call wherever it can happen, which the checker
   tells today by the operator or index it dispatches from: reading a
   declared field of a record that declares `__index` or `__newindex` runs
@@ -502,4 +505,5 @@ four-producer provenance join.
 [`Url.Parts`]: ../cosmic/url.tl
 [`Url.segments`]: ../cosmic/url.tl
 [`Writes.counted_read`]: ../lang/check.tl
+[`Writes.fill_of`]: ../lang/check.tl
 [`Writes.ranges_of`]: ../lang/check.tl

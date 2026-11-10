@@ -187,7 +187,7 @@ print(count("[1, 2, 3]"))
 ## reading an array by index
 
 `xs[i]` is `T?`: Lua answers nil for an index out of range. Write `xs[i] or 0` and an out-of-range read becomes a zero that
-nothing reports. Three ways to read that name the case instead (`index_may_be_nil`, `cosmic docs index_may_be_nil`).
+nothing reports. Four ways to read that name the case instead (`index_may_be_nil`, `cosmic docs index_may_be_nil`).
 
 A loop `for i = 1, #xs do` counts the keys of `xs`, and in its body `xs[i]` is a `T`. It holds when the loop starts at a
 literal of 1 or more, steps by 1 or not at all, and runs to `#xs` of a local `xs`, and the body cannot change `xs`: it
@@ -195,6 +195,10 @@ calls no function but one of `math` whose every argument is the loop variable, a
 and a method call all end it), assigns neither `xs` nor `i`, and writes `xs` only at `xs[i]`. A function made in the body
 may run later, when `xs` is shorter, so a read inside one is still `T?`. `xs` is a name, not a field: `r.items` is not
 counted, so copy it to a local. `ipairs` gives a `T` as well.
+
+The loop holds the keys beside its index too. In `for i = a, #xs - b do`, with `a` and `b` literals, `xs[i - c]` and
+`xs[i + c]` are a `T` for a literal `c` where the bounds of the loop keep the key inside the array: `a - c` is 1 or more,
+and `c` is at most `b`. So `for i = 2, #xs - 1 do` reads `xs[i - 1]`, `xs[i]` and `xs[i + 1]`.
 
 ```teal
 local scores: mut {integer} = { 3, 1, 2 }
@@ -210,7 +214,30 @@ print(total)
 12
 ```
 
-Where the loop cannot say it (an index worked out, a loop that calls a function), `Array.at(xs, i)` of [`cosmic.array`] reads
+A test of the index says it for one read: in the block of `if i >= 1 and i <= #xs then`, `xs[i]` is a `T` for an integer
+local `i`. The condition and the block are held to the rule of the loop's body: they call nothing but `math`, shorten
+nothing, and assign neither `xs` nor `i`.
+
+```teal
+local heights = { 1.0, 4.0, 1.0, 4.0 }
+local function height(i: integer): number
+  if i >= 1 and i <= #heights then
+    return heights[i]
+  end
+  return 0.0
+end
+local smooth = 0.0
+for i = 2, #heights - 1 do
+  smooth = smooth + (heights[i - 1] + heights[i] + heights[i + 1]) / 3
+end
+print(smooth, height(9))
+```
+
+```output
+5.0	0.0
+```
+
+Where neither can say it (an index worked out, a loop that calls a function), `Array.at(xs, i)` of [`cosmic.array`] reads
 the element or raises with the index and the length. It is for an index the caller has already bounded, so a miss is a bug
 in the caller; a function whose caller may pass any index returns `xs[i]` as the `T?` it is, or `nil, why`.
 
