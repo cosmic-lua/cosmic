@@ -1618,6 +1618,10 @@ local function test_a_pull_request_runs_the_light_check_alone()
       "${{ steps.changed.outputs.paths }}", "the check is not given the paths changed")
   local base = step_named(steps, "find the base the markers are held to")
   assert(base["if"] == FORMAT_RUNS, "the markers are held to no base on a pull request")
+  -- The step fails the job where it finds no base, as the check would minutes later: a failure it tolerated would only
+  -- be met there. A pull request for main reads its base from the checkout, so the step is told the branch.
+  assert(base["continue-on-error"] == nil, "a run that finds no base goes on to the format check")
+  assert(map_of(base.env)["PR_BASE_REF"] == "${{ github.base_ref }}", "the base step is not told the branch a pull request is for")
   assert(names_of(platform_legs("queue")) == "linux-x86_64", "a pull request's legs")
   for _, name in ipairs({ "checked", "narrowing" }) do
     assert(job_of(ci.jobs, name)["if"] == QUEUE_SKIPS, name .. " runs on a pull request")
