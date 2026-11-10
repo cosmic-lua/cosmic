@@ -3809,6 +3809,9 @@ function Narrowing.compare_edges(ctx: Ctx, f: Flow.State, node: Ast.Binary): Flo
     else
       no = Tests.has_element(ctx, f, if r.kind == "Nil" then l else r end)
     end
+  -- TODO: narrow a place compared with `true` or `false` to not nil where they are equal: `if x == true then` leaves `x`
+  -- a `boolean?` inside, though the fix of `condition_type` sends an optional boolean to that test. It waits on nothing
+  -- but a branch here for a `Boolean` operand (as the one for `Nil` above) and its tests.
   elseif (r.kind == "String") and (l.kind == "Call") then
     yes, no = Narrowing.type_edges(ctx, f, l, r.value)
   elseif (l.kind == "String") and (r.kind == "Call") then
@@ -5977,6 +5980,12 @@ end
 -- narrows a place to a type and answers nothing, while `assert(x ~= nil)` and `local s = assert(find())` narrow by the
 -- condition and answer the value. The type of the call is the declaration's (a generic function, solved as any is); only
 -- what follows it is this.
+--
+-- TODO: hold the first argument of `assert` to the rule of a condition ([`condition_kind`]) where it is an optional that
+-- may hold a boolean: `assert(flags[1])` of a `{boolean}` raises where the element is false, and `assert(Json.decode(text))`
+-- where the text is `false`, though each reads as a test that the value is there. It waits on the tree's own such calls,
+-- some 200 in 100 files, being rewritten to say which they assert (`~= nil` or `== true`): a new rule lands with the
+-- code it finds fixed.
 local function after_call(ctx: Ctx, node: Ast.Node, callee: Ast.Exp?, alts: {Alt}, args: {Ast.Exp},
                           receiver: Ast.Exp?)
   ctx.guards[base_of(node).id] = nil

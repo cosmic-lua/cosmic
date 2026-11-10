@@ -395,6 +395,31 @@ function link_resolve.spelled(symbol: link_resolve.Symbol): string
   return symbol.module .. "." .. symbol.symbol:gsub(":", ".")
 end
 
+--- What a name in full `dotted`, which names nothing, may have meant: `"; <symbol> has that name: link it in full"`
+--- where exactly one symbol is declared under its last name (a function that moved to another module), else `""`. The
+--- symbols a file of the tree declares are counted alone where there are any, so a library's symbol of a common name
+--- does not hide the project's one. The link is left as written: only its writer knows whether that symbol is meant.
+local function moved(resolver: link_resolve.Resolver, dotted: string): string
+  local last = dotted:match("%.([^.]+)$")
+  if last == nil then return "" end
+  local every: mut {link_resolve.Symbol} = {}
+  local own: mut {link_resolve.Symbol} = {}
+  for _, symbol in ipairs(symbols_named(resolver, last)) do
+    -- Asked by one name, the symbols also answer a module of that name by its first row, which is not named so.
+    if (symbol.symbol:gsub(":", ".")):match("([^.]+)$") == last then
+      every[#every + 1] = symbol
+      local file = symbol.file
+      if file ~= nil and file ~= "" and kind_at(resolver, resolver.context.root .. "/" .. file) == "file" then
+        own[#own + 1] = symbol
+      end
+    end
+  end
+  local among = if #own > 0 then own else every end
+  local only = among[1]
+  if #among ~= 1 or only == nil then return "" end
+  return "; " .. link_resolve.spelled(only) .. " has that name: link it in full"
+end
+
 --- Why `found` is not one answer: none, or more than one.
 local function one_of(found: mut {string}, none: string): string?
   if #found == 1 then
@@ -658,7 +683,9 @@ function link_resolve.resolve(resolver: link_resolve.Resolver, from: string, tar
       end
       local spelled: mut {string} = {}
       for _, member in ipairs(members) do spelled[#spelled + 1] = link_resolve.spelled(member) end
-      local problem = alike(resolver, dotted, members) or one_of(spelled, module .. " has no " .. rest)
+      local none = module .. " has no " .. rest
+      if #members == 0 then none = none .. moved(resolver, dotted) end
+      local problem = alike(resolver, dotted, members) or one_of(spelled, none)
       if problem ~= nil then
         return nil, problem
       end
@@ -727,8 +754,12 @@ function link_resolve.resolve(resolver: link_resolve.Resolver, from: string, tar
       return nil, problem
     end
   end
-  if #found == 0 and file == nil and path_shaped(unescaped(path)) then
-    why = why .. elsewhere(resolver, from, unescaped(path))
+  if #found == 0 and file == nil then
+    local offered = if path_shaped(unescaped(path)) then elsewhere(resolver, from, unescaped(path)) else "" end
+    if offered == "" and name ~= nil and not bare then
+      offered = moved(resolver, (name:gsub(":", ".")))
+    end
+    why = why .. offered
   end
   local problem = one_of(found, why)
   if problem ~= nil then

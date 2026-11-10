@@ -272,7 +272,9 @@ a comment or a Markdown file links to what it names with `` [`x`] ``,
 `cosmic fix` fails a link that does not resolve. it also rewrites a code
 span that names one symbol or file in full into a link, and
 `fix --check` fails on each it would rewrite. a name in backticks that
-names nothing, and brackets in any other shape, are prose. a name with
+names nothing, and brackets in any other shape, are prose. so is a line
+that opens like a definition and gives a number (`[1,0,0]: -25.0`) or
+goes on in words (`[0]: the first slot`). a name with
 no `.` or `:` resolves only to a declaration of its own file, the Lua
 standard library or a file: write another module's symbol in full
 ([`cosmic.fs.read`]). a shortcut that matches two things fails, so spell
