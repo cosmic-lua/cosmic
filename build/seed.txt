@@ -5,6 +5,7 @@ build/driver.tl
 build/markers.tl
 build/removed_fix.tl
 build/seed.tl
+build/source_parse.tl
 cosmic/clock.tl
 cosmic/codec.tl
 cosmic/env.tl

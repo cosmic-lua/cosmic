@@ -14,6 +14,7 @@ local CheckerDeclarations = require("build.checker_declarations")
 local Driver = require("build.driver")
 local Fs = require("cosmic.fs")
 local Memprobe = require("build.memprobe")
+local ParseDerive = require("build.parse_derive")
 local Scopes = require("lang.scopes")
 local ShapeSpecs = require("build.syntax_shape_specs")
 local SyntaxNode = require("build.syntax_node")
@@ -50,10 +51,6 @@ local record TreeProgram
 
   --- The complaints of [`Driver.reserved`] for `entries` less the programs of a `testdata/` directory: "" for none.
   reserved: function(entries: {{string}}, names: {string: boolean}): string
-
-  --- The complaints of [`Driver.declared`] for `entries` less the programs of a `testdata/` directory: "" for none. `own`
-  --- says the tree is cosmic's own.
-  declared: function(entries: {{string}}, own: boolean): string
 
   --- `files` and `written` as one list of entries, and which files of it are `written`: the sources the build writes
   --- from other files ([`TreeProgram.derived_of`]) are files of the tree, named for the file each comes from.
@@ -103,17 +100,11 @@ local record TreeProgram
     each: function(module: string)): {string}
 end
 
-function TreeProgram.skipped(file: string): boolean
-  return file:find("^testdata/") ~= nil or file:find("/testdata/", 1, true) ~= nil
-end
+-- Which files are sources, and under what names, decides what a parse stores: a parse and a compile read one answer.
+TreeProgram.skipped = ParseDerive.skipped
+TreeProgram.index = ParseDerive.index
 
 local skipped = TreeProgram.skipped
-
-function TreeProgram.index(entries: {{string}}, kinds: {string: string}): Driver.Index
-  return Driver.index(entries, skipped, function(file: string, _text: string): Driver.Extra
-    return { tests = kinds[file] == "test" }
-  end)
-end
 
 function TreeProgram.library_modules(globals: TreeProgram.Globals): {string: boolean}
   local library: mut {Driver.Source} = {}
@@ -133,10 +124,6 @@ end
 
 function TreeProgram.reserved(entries: {{string}}, names: {string: boolean}): string
   return Driver.reserved(entries, skipped, names)
-end
-
-function TreeProgram.declared(entries: {{string}}, own: boolean): string
-  return Driver.declared(entries, skipped, own)
 end
 
 function TreeProgram.splice(build: Driver.Build, module: string, file: string): boolean?, string

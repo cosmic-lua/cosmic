@@ -563,7 +563,9 @@ end
 ---
 --- The rule: a module build.importer calls that can change a row a
 --- compile or a parse stores is one of `compiler_roots`, or is reached
---- from one. What it leaves out only stages (build.work),
+--- from one, or is the compile or the parse of the first item
+--- ([`build.pipeline`], [`build.parse_derive`]), keyed as it says. What
+--- it leaves out only stages (build.work),
 --- fingerprints, reports (build.symbols' hints, in a refusal's message,
 --- which no compile keeps), fails a whole build before any key is looked
 --- up (build.positions), or finds the host's caches (build.caches,

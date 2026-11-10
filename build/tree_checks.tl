@@ -2331,7 +2331,7 @@ local function tree_of(given: {{string}}, salt: string, bindings?: {{string}}, w
     files[#files + 1] = entry -- checked: view_written
     derived[nth(entry, 1)] = true
   end
-  -- No [`TreeProgram.declared`] here: a `.d.tl` beside a `.tl`, or one that names no kind, is refused when the tree is built ([`Pipeline.build`]), which the
+  -- No complaint of [`build.source_parse`]'s `declared` here: a `.d.tl` beside a `.tl`, or one that names no kind, is refused when the tree is built ([`Pipeline.build`]), which the
   -- checks that read this index follow, and the files given are a tree that built.
   local index = TreeProgram.index(files, {})
   local tree: Tree = { rows = {}, by_module = {}, index = index }

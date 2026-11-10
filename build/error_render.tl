@@ -23,6 +23,7 @@
 -- checker's fix does not say), once lang/check.tl's fix names them; this prints the checker's fix as
 -- it is.
 local Driver = require("build.driver")
+local ParseDerive = require("build.parse_derive")
 local RemovedFix = require("build.removed_fix")
 local Sqlite = require("cosmic.sqlite")
 local symbols = require("build.symbols")
@@ -67,9 +68,8 @@ local function head_of(file: string, problem: Driver.Problem): string
   return file .. ":" .. tostring(problem.y) .. ":" .. tostring(problem.x) .. ": " .. problem.msg .. " (" .. problem.code .. ")"
 end
 
-function ErrorRender.line(file: string, problem: Driver.Problem): string
-  return head_of(file, problem) .. ": " .. problem.fix
-end
+-- The line a syntax error is told by is kept with a parse that broke, so the parse's own module writes it.
+ErrorRender.line = ParseDerive.line
 
 --- The name an error about an unresolved name is about: the name read, or the module `require`d. nil for any other error.
 local function unresolved_name(result: Driver.Outcome, problem: Driver.Problem): string?
