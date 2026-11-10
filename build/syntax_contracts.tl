@@ -77,7 +77,14 @@ local record SyntaxContracts
   --- The breaches of the discipline in `subject`, a module of cosmic's own tree that was checked with its types kept.
   --- `given` is the exemptions to hold it to in place of the tree's own. `declared` is the modules the build's sources
   --- declare tables of C bindings, which the contract holds besides the ones the generator derives.
-  check: function(subject: Subject, given?: Rules.Exemptions, declared?: {string}): Result
+  ---
+  --- `errors` is given for a module the checker refused, whose declarations lowered without error: every error it has. Such
+  --- a module has places with no type, where a rule would judge what it cannot see, so only the breaches that rest on typed
+  --- code are told. A breach is kept when its line is in a top-level statement, and no top-level statement on that line holds
+  --- an error, a node typed `invalid` or a call the checker gave no function. A statement like that is where the next
+  --- edit goes, and what a rule reads of a place lies in the place's own statement or in the declarations. `untyped` is
+  --- then 0 and no stale exemption is told, since a rule that skipped a place used none there.
+  check: function(subject: Subject, given?: Rules.Exemptions, declared?: {string}, errors?: {Driver.Problem}): Result
 
   --- The modules of `index` that are declarations of a table of C bindings: a declaration that holds the line
   --- [`analysis_schema.binding_tag`], which `check` holds the calls of besides the ones the generator derives.
@@ -203,6 +210,15 @@ end
 
 local function is_call(n: Ast.Node): boolean
   return (n.kind == "Call") or (n.kind == "MethodCall")
+end
+
+--- Whether `n` is a call of the global `require`, which the checker gives no function and no rule judges.
+local function is_require(n: Ast.Node): boolean
+  if (n.kind == "Call") then
+    local callee = n.callee
+    return (callee.kind == "Name") and callee.text == "require" and callee.binding == nil
+  end
+  return false
 end
 
 local function is_function(n: Ast.Node): boolean
@@ -486,7 +502,7 @@ local record Run
   --- the generator derives.
   declared: {string}
   used: Used
-  problems: mut {string}
+  mut problems: mut {string}
   sites: mut {string: integer}
   --- The name the exemption tables key the code of each node under, by id.
   mut scopes: {integer: string}
@@ -1746,7 +1762,47 @@ local function problem_line(problem: string): integer
   return math.tointeger(tonumber(problem:match("^[^:]*:(%d+):"))) or 0
 end
 
-function SyntaxContracts.check(subject: Subject, given?: Rules.Exemptions, declared?: {string}): SyntaxContracts.Result
+--- The lines a breach may be told at in a module the checker refused with `errors` ([`SyntaxContracts.check`]): those of the
+--- top-level statements that hold no error, no node typed `invalid` and no call without a function, less the lines a
+--- statement that holds one shares with them.
+local function sound_lines(run: Run, errors: {Driver.Problem}): {integer: boolean}
+  local subject = run.subject
+  local sound: mut {integer: boolean} = {}
+  local unsound: mut {integer: boolean} = {}
+  for _, statement in ipairs(subject.chunk.body.stats) do
+    local base = Node.base(statement)
+    local first, last = Report.line(subject, base.first), Report.line(subject, base.last)
+    local tainted = false
+    for _, e in ipairs(errors) do
+      if e.y >= first and e.y <= last then
+        tainted = true
+      end
+    end
+    if not tainted then
+      Node.walk_until(statement, function(n: Ast.Node): boolean
+        local t = subject.types[Node.base(n).id]
+        if (t ~= nil and t.tag == "invalid") or (is_call(n) and callee_fn(run, n) == nil and not is_require(n)) then
+          tainted = true
+        end
+        return not tainted
+      end)
+    end
+    for line = first, last do
+      if tainted then
+        unsound[line] = true
+      else
+        sound[line] = true
+      end
+    end
+  end
+  for line in pairs(unsound) do
+    sound[line] = nil
+  end
+  return sound
+end
+
+function SyntaxContracts.check(subject: Subject, given?: Rules.Exemptions, declared?: {string},
+                               errors?: {Driver.Problem}): SyntaxContracts.Result
   local run: Run = {
     subject = subject, index = index_of(subject), exemptions = given or Rules.own_exemptions(), declared = declared or {},
     used = { exempt = {}, parsing = {}, casts = {}, modes = {} }, problems = {}, sites = {}, scopes = {}, static_lines = {},
@@ -1768,16 +1824,9 @@ function SyntaxContracts.check(subject: Subject, given?: Rules.Exemptions, decla
   local untyped = 0
   local untyped_lines: mut {integer} = {}
   for _, n in ipairs(run.index.order) do
-    if is_call(n) and callee_fn(run, n) == nil then
-      local is_require = false
-      if (n.kind == "Call") then
-        local callee = n.callee
-        is_require = (callee.kind == "Name") and callee.text == "require" and callee.binding == nil
-      end
-      if not is_require then
-        untyped = untyped + 1
-        untyped_lines[#untyped_lines + 1] = line_of(subject, n)
-      end
+    if errors == nil and is_call(n) and callee_fn(run, n) == nil and not is_require(n) then
+      untyped = untyped + 1
+      untyped_lines[#untyped_lines + 1] = line_of(subject, n)
     end
     local fallible = is_call(n) and not is_assert(n) and fallible_type(callee_fn(run, n))
     if fallible then
@@ -1807,10 +1856,21 @@ function SyntaxContracts.check(subject: Subject, given?: Rules.Exemptions, decla
   check_casts(run)
   check_stutter(run)
   check_modes(run)
-  stale(run, "exempt", run.exemptions.exempt, run.used.exempt)
-  stale(run, "parsing", run.exemptions.parsing, run.used.parsing)
-  stale(run, "casts", run.exemptions.casts, run.used.casts)
-  stale(run, "modes", run.exemptions.modes, run.used.modes)
+  if errors ~= nil then
+    local sound = sound_lines(run, errors)
+    local told: mut {string} = {}
+    for _, problem in ipairs(run.problems) do
+      if sound[problem_line(problem)] == true then
+        told[#told + 1] = problem
+      end
+    end
+    run.problems = told
+  else
+    stale(run, "exempt", run.exemptions.exempt, run.used.exempt)
+    stale(run, "parsing", run.exemptions.parsing, run.used.parsing)
+    stale(run, "casts", run.exemptions.casts, run.used.casts)
+    stale(run, "modes", run.exemptions.modes, run.used.modes)
+  end
   table.sort(run.problems, function(a: string, b: string): boolean
     local la, lb = problem_line(a), problem_line(b)
     if la ~= lb then

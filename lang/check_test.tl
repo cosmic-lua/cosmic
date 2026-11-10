@@ -596,6 +596,52 @@ local function test_the_default_of_a_value_a_test_made_non_nil_is_deleted_not_ma
   assert(has(text.fix, "delete `or ...`") and not has(text.fix, "~="), text.fix)
 end
 
+local function test_a_needless_default_of_an_index_read_says_what_made_it_never_nil()
+  local e = first_error("local function f(xs: {number}): number\n  assert(#xs == 6)\n  return xs[5] or 0\nend\n", "condition_type")
+  assert(has(e.fix, "`xs[5]` is never nil here (a loop that counts its keys, or a test or an `assert` before of it or of the length"),
+    e.fix)
+  assert(has(e.fix, "until a call or a write to what it indexes"), e.fix)
+end
+
+local function test_a_write_through_a_view_read_out_of_a_collection_names_the_inner_mut()
+  local e = first_error("local function f(t: mut {integer: {integer: number}}, k: integer)\n  local sum = t[k]\n" ..
+      "  if sum ~= nil then\n    sum[1] = 2\n  end\nend\n", "view_written")
+  assert(has(e.fix, "one read out of a collection is `mut` where that collection's type says so (`{K: mut {integer: number}}`)"),
+    e.fix)
+  local array = first_error("local function f(t: mut {string: {number}})\n  local row = t[\"a\"]\n  if row ~= nil then\n" ..
+      "    row[1] = 2\n  end\nend\n", "view_written")
+  assert(has(array.fix, "that collection's type says so"), array.fix)
+  local parameter = first_error("local function g(p: {string: number})\n  p[\"a\"] = 1\nend\n", "view_written")
+  assert(not has(parameter.fix, "read out of a collection"), parameter.fix)
+end
+
+local function test_a_local_given_nil_alone_is_told_to_be_declared_optional()
+  local e = first_error("local function f(xs: {integer}): integer\n  local x = nil\n  for _, v in ipairs(xs) do\n    x = v\n  end\n" ..
+      "  return x or 0\nend\n", "not_assignable")
+  assert(has(e.fix, "`local x: integer? = nil`"), e.fix)
+  assert(not has(e.fix, "pass a value of type `nil`"), e.fix)
+  local optional = first_error("local function f(xs: {string}): string\n  local x = nil\n  x = xs[1]\n  return x or \"\"\nend\n",
+    "not_assignable")
+  assert(has(optional.fix, "`local x: string? = nil`"), optional.fix)
+  -- What is declared `nil` and is no local keeps the plain fix.
+  local parameter = first_error("local function f(_x: nil)\nend\nf(3)\n", "not_assignable")
+  assert(has(parameter.fix, "pass a value of type `nil`") and not has(parameter.fix, "local"), parameter.fix)
+end
+
+local function test_a_call_returned_past_the_declared_results_is_told_the_parentheses_that_cut_it()
+  local e = first_error("local function g(): integer?, string\n  return 1, \"\"\nend\nlocal function f(): integer\n" ..
+      "  return assert(g())\nend\n", "return_arity")
+  assert(has(e.fix, "write `(assert(g()))` to return its first value alone"), e.fix)
+end
+
+local function test_a_value_returned_where_nothing_is_answered_is_told_the_statement()
+  local e = first_error("local function run(_f: function())\nend\nlocal function g(): integer\n  return 1\nend\n" ..
+      "run(function() return g() end)\n", "return_unexpected")
+  assert(has(e.fix, "write the call as a statement, with no `return`"), e.fix)
+  local value = first_error("local function f()\n  return 1\nend\n", "return_unexpected")
+  assert(not has(value.fix, "statement"), value.fix)
+end
+
 --- `or` cuts a call to its first value, so deleting a needless default of a call could return or pass the values after
 --- it: the fix keeps the cut with parentheses.
 local function test_the_needless_default_of_a_call_is_replaced_by_parentheses_not_deleted()
@@ -883,7 +929,7 @@ local function test_a_pcall_taken_as_a_value_in_a_test_file_names_test_raises()
     end
   end
   assert(named ~= nil and has(named, "match pcall(f) do"), tostring(named))
-  assert(has(named, "`Test.raises(fn, says?)`"), named)
+  assert(has(named, "`Test.raises(function() f(x) end, says?)`"), named)
   assert(not has(error_of(source, "alternatives_as_value").fix, "Test.raises"))
   -- A name that only ends in `_test.tl` is no test file.
   local other = Programs.runner()(source, "t_test.tlx")
@@ -894,7 +940,7 @@ local function test_a_pcall_taken_as_a_value_in_a_test_file_names_test_raises()
       "local ok = xpcall(f, h)\n", "t_test")
   for _, e in ipairs(handled.errors) do
     if e.code == "alternatives_as_value" then
-      assert(has(e.fix, "`Test.raises(fn, says?)`"), e.fix)
+      assert(has(e.fix, "`Test.raises(function() f(x) end, says?)`"), e.fix)
     end
   end
 end

@@ -91,7 +91,12 @@ stands on another checkout's pass.
   says why. A mistyped value is refused by `docs` and `uses` as by `test`. A module the checker refuses, or cannot
   read, does not stop a run: it runs no tests, nor does a module that requires it, and each is a failure of the run; a run
   that names tests (`cosmic test one_test.tl`) fails for the refusals of the files it names alone, and a named test
-  module that requires a refused one is refused itself. A pool is refused with `--check-types`, which checks the facts
+  module that requires a refused one is refused itself. One run tells every finding it soundly can. A module that
+  requires a refused one is checked all the same, and its own findings told, where the refused module parsed and its errors
+  are in its bodies and in no `return`: its declarations are what the other reads. Such a finding holds of those declarations
+  as they are written, and its refusal says so, since a fix of the refused module that changes one may settle it. A module the checker refuses is told its
+  breaches of the error-slot rules too, those in the top-level statements the checker typed whole. A file refused only for a
+  `global` is told what the checker says of it with `local` in its place. A pool is refused with `--check-types`, which checks the facts
   alone (below).
 - `COSMIC_VERDICT_CACHE` names another cache file. `0` means none. It turns
   off the cache that checkouts share and nothing more: a verdict this
@@ -523,7 +528,9 @@ local `<thing>_or_skip()`), because after [`Test.skip`] nothing runs.
 A test that passes without calling `assert` shows only that it did not
 raise. The worker counts calls to `assert`, through any helper or
 fixture. `cosmic test` lists each such pass as `test: NO ASSERT <id>`
-and keeps no verdict of it. A held run fails it.
+and keeps no verdict of it. A held run fails it. A test that returns
+early where it cannot check is such a pass: it calls [`Test.skip`]
+with the reason instead, and is listed as skipped.
 
 To compare JSON-shaped values, use [`Json.diff`]`(want, got)` and assert that the list it answers is empty, or put the paths
 it names in the message. Compare a typed record field by field.
@@ -795,8 +802,9 @@ end
 ### output
 
 What a test prints is shown only when it fails, beneath its failure as
-`  | ` lines. `cosmic test --show-output` also lists it for a test that
-passed:
+`  | ` lines: its last 4096 bytes, under a line that says so when there
+were more. `cosmic test --show-output` also lists it, whole, for a test
+that passed:
 
 ```text
 test: PASS  suite.chatty_test test_prints_values
@@ -807,8 +815,7 @@ test: PASS  suite.chatty_test test_prints_values
 Only a test that ran prints. A test whose verdict stands is not run, so the
 flag says how many stood and prints nothing for them: add `--all` to run
 them. The flag changes nothing a verdict is keyed or kept by. A run with it
-stands on the verdicts of a run without it. Only the last 4096 bytes of a
-test's output are shown.
+stands on the verdicts of a run without it.
 
 ### time
 

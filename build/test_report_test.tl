@@ -28,9 +28,19 @@ local function test_failures_sort_and_keep_reruns_and_output_together()
       "  | first\n  | second")
   lines = test_report.failures({ { message = "a test_x: broken", printed =
       "prefix" .. string.rep("x", 4096) } }, "")
-  assert(lines[2] == "  | ..." .. string.rep("x", 4096))
+  assert(lines[2] == "  | (cut to its last 4096 bytes: it printed 4102 bytes)", lines[2])
+  assert(lines[3] == "  | " .. string.rep("x", 4096))
   assert(table.concat(test_report.skips({ "z: denied", "a: denied" }), "\n") ==
       "test: SKIP  a: denied\ntest: SKIP  z: denied")
+end
+
+local function test_a_pass_with_no_assert_is_told_of_skip()
+  local lines = test_report.unchecked({ "b test_y", "a test_x" })
+  assert(lines[1] == "test: NO ASSERT  a test_x" and lines[2] == "test: NO ASSERT  b test_y")
+  local hint = assert(lines[3])
+  assert(hint:find("Test.skip(reason)", 1, true) ~= nil, hint)
+  assert(#lines == 3)
+  assert(#test_report.unchecked({}) == 0)
 end
 
 local function test_summaries_keep_the_figures_ci_reads_in_order()
@@ -262,9 +272,10 @@ local function test_a_shown_output_is_listed_beneath_its_test_in_the_form_a_fail
   })
   assert(table.concat(lines, "\n") == "test: PASS  a.m_test test_a\n  | x\n" ..
       "test: PASS  z.m_test test_b\n  | one\n  | two")
-  -- As long an output is cut as a failure's is, from the front.
+  -- What a run asked to see is shown whole, where a failure's is cut.
   lines = test_report.shown({ { id = "a test_x", printed = "prefix" .. string.rep("x", 4096) } })
-  assert(lines[2] == "  | ..." .. string.rep("x", 4096))
+  assert(lines[2] == "  | prefix" .. string.rep("x", 4096))
+  assert(#lines == 2)
   assert(#test_report.shown({}) == 0)
   assert(test_report.shown_note(0) == nil)
   assert(test_report.shown_note(1) == "test: show-output: 1 test stood and so printed nothing; --all runs it")
