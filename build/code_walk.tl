@@ -24,10 +24,14 @@ local record Walks
   --- Every walk, in a fixed order.
   walks: {string}
 
-  --- The modules the analyzer walks from: the derivation and the extractors, generators and parser it calls. Each is a
-  --- root of the compiler's identity too ([`build.identity`]'s `compiler_roots`), so a parse made again is a compile
-  --- made again. The schema of the rows a parse stores ([`build.analysis_schema`]) is among them: what a source parses
-  --- to is recorded in its columns.
+  --- The modules the analyzer walks from: the derivation, the parse ([`build.parse_derive`], which reads a source and
+  --- writes its rows) and the extractors, generators and parser they call. Each but the parse is a root of the compiler's identity too
+  --- ([`build.identity`]'s `compiler_roots`), and the parse is in the walk of the checker's readers ([`pipeline`]), which
+  --- [`build.pipeline`] requires it into and every compile's key holds, so a parse made again is a compile made again. The schema of the rows a
+  --- parse stores ([`build.analysis_schema`]) is among them: what a source parses to is recorded in its columns. The
+  --- walk reaches no module of the checker ([`lang.check`] and what only it runs), which a parse does not run: a root
+  --- or a module it reaches that came to require one, for a type alone even, would parse the tree again on every edit
+  --- to the checker, and build/importer_test.tl holds the walk to none.
   analyzer_roots: {string}
 
   --- The modules a module declares what text it reads by requiring (a value `require`, which the closure of a test follows),
@@ -42,9 +46,9 @@ local record Walks
 
   --- What [`build.pipeline`] requires for a type alone (`local type`), which `requires` records though none of it runs
   --- there, and why the walk of the checker's readers leaves it out, by name. Only [`build.pipeline`]'s own require is
-  --- left out: one that another module of the walk requires is in it. Every key `coded` names but a parse's holds each
-  --- of these through the compiler's identity ([`build.identity`]'s `compiler_roots`), and a parse's holds the
-  --- analyzer's modules ([`analyzer_roots`]).
+  --- left out: one that another module of the walk requires is in it. Every key `coded` names holds each of these
+  --- through the compiler's identity ([`build.identity`]'s `compiler_roots`); a parse is keyed by the analyzer's modules
+  --- ([`analyzer_roots`]) and not by `coded`.
   type_only: {string:string}
 
   --- The modules the walk `which` ([`pipeline`], [`analyzer`], [`receivers`] or [`links`]) reaches over `requires`,
@@ -64,15 +68,13 @@ local walks <const>: {string} = { pipeline, analyzer, receivers, links }
 
 local analyzer_roots <const>: {string} = {
   "build.derivation", "build.analysis_schema", "build.bind",
-  "build.doctest", "build.gen_syscalls", "build.link_text",
+  "build.doctest", "build.gen_syscalls", "build.link_text", "build.parse_derive",
 }
 
 local receivers_modules <const>: {string} = { "build.syntax_receivers", "build.syntax_contracts" }
 
 local type_only <const>: {string:string} = {
   ["build.plans"] = "the `Module` and `Generated` types of what a compile plans and keeps; build.importer runs the plan",
-  ["build.derivation"] = "the types of what a parse is handed and tallies (`Fresh`, `Parses`, `Source`); it runs the " ..
-    "parse, and is a root of the analyzer's identity",
 }
 
 local markers <const>: {string:string} = {

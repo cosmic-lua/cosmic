@@ -1,8 +1,11 @@
 --- Generated inputs and analysis rows, including their shared encoding.
 ---
 --- Every operation that determines a parse's contents lives in this
---- closure. The importer chooses when to reuse or run it, and owns the
---- cache; changing that transport cannot change the analyzer's identity.
+--- closure or in that of [`build.parse_derive`], which reads a source and
+--- writes its rows: both are roots of the analyzer's identity
+--- ([`build.code_walk`]'s `analyzer_roots`). The importer chooses when to
+--- reuse or run them, and owns the cache; changing that transport cannot
+--- change the analyzer's identity.
 
 local Sqlite = require("cosmic.sqlite")
 local analysis_schema = require("build.analysis_schema")
@@ -39,7 +42,7 @@ local record derivation
     --- Its rows in every other analysis table ([`packed_parses`]).
     rows: string
   end
-  --- A source [`build.pipeline`]'s `derive` could not parse, and why: the
+  --- A source [`build.parse_derive`]'s `derive` could not parse, and why: the
   --- message a parse that stops on it answers.
   record Broken
     source_hash: string
@@ -191,7 +194,7 @@ local function duplicate_import_paths(db: Sqlite.Handle, refusal: derivation.Ref
 end
 
 --- Every source no parse has seen, in hash order: the one parse each
---- needs ([`build.pipeline`]'s `derive`).
+--- needs ([`build.parse_derive`]'s `derive`).
 function derivation.fresh(db: Sqlite.Handle): {derivation.Fresh}?, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT source_hash, min(file), source, max(origin <> 'tree') FROM inputs " ..

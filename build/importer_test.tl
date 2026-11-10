@@ -14,6 +14,7 @@ local importer = require("build.importer")
 local Hash = require("cosmic.hash")
 local GrammarMode = require("build.grammar_mode")
 local Pipeline = require("build.pipeline")
+local CodeWalk = require("build.code_walk")
 local type _ = require("build.test_inputs")
 -- Read as source by the closure checks below, though the modules above
 -- name it only by type, which no closure follows.
@@ -1891,12 +1892,10 @@ end
 --- An edit to a module a compile or a parse runs to decide what it
 --- stores, to a module one requires, to the names the checker is
 --- stripped of, or to a pin or a patch of Teal or Lua, moves the
---- compiler's identity: every compile is made again. The analyzer's own
---- identity ([`importer.analyzer_identity`], before the checker's readers
---- wrap it) moves only for the analyzer's modules and the pins, so an edit
---- to a module only a compile runs moves none of it. (In cosmic's tree
---- the checker's readers reach build.withheld, so an edit to it parses
---- again there: build/importer_boot_test.tl holds what they reach.)
+--- compiler's identity: every compile is made again. The analyzer's
+--- identity ([`importer.analyzer_identity`]) moves only for the analyzer's
+--- modules and the pins, so an edit to a module only a compile runs moves
+--- none of it.
 local function test_compiler_identity_follows_what_shapes_a_compile()
   local root = identity_fixture("identity-follows")
   local seen: mut {string:string} = {}
@@ -1932,8 +1931,9 @@ end
 --- build.importer is outside the set, but every module it calls is in
 --- the set or named below with the reason it is not; a new require of it
 --- fails here until it is one or the other. Every module of the
---- analyzer's but the standard library's is the compiler's too, so a
---- compile is made again wherever a parse is.
+--- analyzer's but the standard library's is the compiler's too, or one
+--- of the checker's readers, which every compile's key holds as well, so
+--- a compile is made again wherever a parse is.
 ---
 --- A `cosmic.*` require is let through whole: it is the standard
 --- library the compile runs on, which the identity leaves out. This
@@ -1952,9 +1952,15 @@ local function test_the_compiler_modules_are_closed_under_require()
   local modules = assert(identity.compiler_modules(Store.requires))
   local covered: mut {string:boolean} = {}
   for _, name in ipairs(modules) do covered[name] = true end
+  -- The parse's own modules ([`build.parse_derive`] and what it reaches) are the checker's readers' too, which every
+  -- compile's key holds ([`Pipeline.coded`]).
+  local readers: mut {string:boolean} = {}
+  for _, name in ipairs((assert(CodeWalk.reach(CodeWalk.pipeline, Store.requires)))) do
+    readers[name] = true
+  end
   for _, name in ipairs((assert(importer.analyzer_modules()))) do
-    assert(covered[name] == true or name:match("^cosmic%.") ~= nil,
-      name .. " is the analyzer's but not in the compiler's identity")
+    assert(covered[name] == true or readers[name] == true or name:match("^cosmic%.") ~= nil,
+      name .. " is the analyzer's but in neither the compiler's identity nor the code that reads")
   end
   for _, name in ipairs({ "build.plans", "build.derivation", "build.module", "build.withheld", "build.tree",
       "build.analysis_schema", "build.cache_names" }) do
@@ -1982,6 +1988,8 @@ local function test_the_compiler_modules_are_closed_under_require()
     ["build.pipeline"] = "the compile with the new checker, keyed by the code that reads it " ..
       "(`Pipeline.coded`) and not by the compiler's identity, which a default run keeps",
     ["build.code_walk"] = "names which modules the identities of the code that reads hash, and which a test's store keeps",
+    ["build.parse_derive"] = "the parse, keyed by the analyzer's identity, of which it is a root (`CodeWalk.analyzer_roots`), " ..
+      "and held in every compile's key by the code that reads (`Pipeline.coded`), not by the compiler's identity",
     ["build.reads.analyzer"] = "a declaration of what text this module reads, which a test's store follows; no code",
     ["build.reads.receivers"] = "a declaration of what text this module reads, which a test's store follows; no code",
   }
@@ -2093,8 +2101,11 @@ local function test_the_writer_modules_are_closed_under_require()
   -- The new grammar's compile (build.pipeline and what it reads) runs only where the build is asked for
   -- it, and its output is keyed apart from the compiler's by [`Pipeline.coded`] over those sources; no projection of the
   -- default compile turns on them.
-  local through_pipeline = reach({ ["build.pipeline"] = true })
+  -- The parse ([`build.parse_derive`]) is among what it reads, and build.importer requires it too: a parse is keyed by the
+  -- analyzer's identity, and a projection holds a parse's rows and not its code.
+  local through_pipeline = reach({ ["build.pipeline"] = true, ["build.parse_derive"] = true })
   neither["build.pipeline"] = "compiles in the new grammar only when asked, its output keyed by Pipeline.coded over its own closure"
+  neither["build.parse_derive"] = "parses the tree, its rows keyed by the analyzer's identity over its own closure"
   local only_pipeline: mut {string:boolean} = {}
   for name in pairs(reached) do
     if through_pipeline[name] == nil then
@@ -2109,7 +2120,7 @@ local function test_the_writer_modules_are_closed_under_require()
       assert(covered[name] ~= true and compiler[name] ~= true,
         name .. " is named as in neither identity, but is in one")
     elseif only_pipeline[name] == true or name:sub(1, 5) == "lang." then
-      -- The new checker's own modules: the code a compile and a parse are keyed by is [`Pipeline.coded`] over them.
+      -- The new checker's own modules: the code a compile is keyed by is [`Pipeline.coded`] over them.
       used[name] = true
     elseif covered[name] ~= true and compiler[name] ~= true then
       unclassified[#unclassified + 1] = name
@@ -2134,6 +2145,11 @@ end
 --- ([`build.test`]). No semantic module has an exception. The importer
 --- coordinates them from outside the closure. A declaration of a C binding (`cosmic.internal.*`) is
 --- types over the core, not analysis.
+---
+--- The set holds everything a parse runs ([`build.parse_derive`]): the lexer, the parser, the readers of the syntax
+--- tree and the statements that write their rows. It holds nothing of the checker, which no parse runs, so that an
+--- edit to the checker parses nothing again: a module of the set that came to require one of these, for a type alone
+--- even (`requires` records a `local type` like any other), fails here.
 local function test_the_analyzer_modules_are_closed_under_require()
   local modules = assert(importer.analyzer_modules())
   local listed: mut {string:boolean} = {}
@@ -2141,9 +2157,19 @@ local function test_the_analyzer_modules_are_closed_under_require()
   assert(listed["build.derivation"] == true and listed["cosmic.string"] == true, table.concat(modules, ", "))
   assert(listed["build.importer"] ~= true and listed["build.test"] ~= true and listed["build.syntax_receivers"] ~= true,
     table.concat(modules, ", "))
-  -- The readers of the new syntax tree are named by the code that reads the tree in the new mode ([`Pipeline.coded`]) and not
-  -- by this set; the privacy-by-position check, which only the importer calls, is in neither.
-  assert(listed["build.syntax_analyzer"] ~= true and listed["build.positions"] ~= true, table.concat(modules, ", "))
+  for _, name in ipairs({ "build.parse_derive", "build.source_parse", "build.syntax_derivation", "build.syntax_analyzer",
+      "build.syntax_node", "build.markers", "lang.lexer", "lang.parser", "lang.ast", "lang.declarations" }) do
+    assert(listed[name] == true, name .. ", which a parse runs, is not in importer.analyzer_modules: " ..
+        table.concat(modules, ", "))
+  end
+  for _, name in ipairs({ "lang.check", "lang.flow", "lang.codegen", "lang.truthy", "lang.warnings", "lang.literals",
+      "lang.load_order", "lang.boundaries", "lang.boundary_checks", "lang.fact_wraps", "build.driver", "build.pipeline",
+      "build.tree_program", "build.error_render", "build.ceilings", "build.plans" }) do
+    assert(listed[name] ~= true, name .. ", which no parse runs, is in importer.analyzer_modules, so an edit to it " ..
+        "would parse the tree again: " .. table.concat(modules, ", "))
+  end
+  -- The privacy-by-position check, which only the importer calls, is in neither identity.
+  assert(listed["build.positions"] ~= true, table.concat(modules, ", "))
   -- The analysis schema is; the rest of the working database and the caches themselves, which reach build/zig.tl, are not.
   assert(listed["build.analysis_schema"] == true, table.concat(modules, ", "))
   assert(listed["build.work"] ~= true and listed["build.caches"] ~= true and
@@ -2158,7 +2184,7 @@ local function test_the_analyzer_modules_are_closed_under_require()
     do
       local source = assert(Fs.read(file))
       for _, required in ipairs(requires_of(source, file)) do
-        local ours = (required:match("^build%.") or required:match("^cosmic%.")) and
+        local ours = (required:match("^build%.") or required:match("^cosmic%.") or required:match("^lang%.")) and
           not required:match("^cosmic%.internal%.")
         if ours == true and listed[required] ~= true and file_of(required) ~= nil then
           missing[#missing + 1] = name .. " requires " .. required
