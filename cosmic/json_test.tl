@@ -7,6 +7,13 @@ local Array = require("cosmic.array")
 local Hash = require("cosmic.hash")
 local Json = require("cosmic.json")
 local Test = require("cosmic.test")
+
+--- The value of a value-and-reason pair, which is there: `assert` takes no optional that may hold `false`, which it would
+--- raise for as for nil.
+local function known_value(value: Json.Value?, why?: string): Json.Value
+  assert(value ~= nil, why)
+  return value
+end
 -- TODO: once a test can build a value its type refuses without a cast, the casts left here go: a marked array with a string key, an array with an element at 1 << 40, `max_depth = 1.5`, a map holding `print`, and [`Json.null`] indexed as a table (json_path_test.tl keeps one: the step 1.5 in Json.Steps).
 
 --- The bits of a double, in hex, and the shortest text RFC 8785 writes it as.
@@ -902,20 +909,20 @@ local function test_canonical_is_rfc_8785()
 end
 
 local function test_to_value_copies_a_decoded_document_by_kind()
-  local value = assert(Json.to_value(decoded('{"name": "x", "n": 3, "f": 1.0, "ok": false, "tags": ["a", []], "o": {}}')))
+  local value = known_value(Json.to_value(decoded('{"name": "x", "n": 3, "f": 1.0, "ok": false, "tags": ["a", []], "o": {}}')))
   assert(encoded(value) == '{"f":1.0,"n":3,"name":"x","o":{},"ok":false,"tags":["a",[]]}')
-  local n = assert(Json.to_value(decoded("3")))
-  local f = assert(Json.to_value(decoded("3.0")))
+  local n = known_value(Json.to_value(decoded("3")))
+  local f = known_value(Json.to_value(decoded("3.0")))
   assert(encoded(n) == "3" and encoded(f) == "3.0", "an integer stays apart from a float")
   assert(Json.to_value("s") == "s" and Json.to_value(false) == false)
   assert(Json.to_value(Json.null) == Json.null)
-  local kept = assert(Json.to_value(decoded('{"a": null}', { null_value = Json.null })))
+  local kept = known_value(Json.to_value(decoded('{"a": null}', { null_value = Json.null })))
   assert(encoded(kept) == '{"a":null}')
-  assert(Json.is_array((assert(Json.to_value(decoded("[]"))))), "an empty array stays an array")
+  assert(Json.is_array((known_value(Json.to_value(decoded("[]"))))), "an empty array stays an array")
   local none: {string: Json.Value} = {}
-  local object = assert(Json.to_value(none))
+  local object = known_value(Json.to_value(none))
   assert(not Json.is_array(object) and encoded(object) == "{}", "a table with no keys and no mark is an object")
-  assert(Json.is_array((assert(Json.to_value({ 1, 2 })))), "an unmarked array is marked")
+  assert(Json.is_array((known_value(Json.to_value({ 1, 2 })))), "an unmarked array is marked")
 end
 
 local function test_to_value_refuses_what_json_cannot_say_naming_where()
@@ -939,7 +946,7 @@ end
 
 local function test_to_value_leaves_its_argument_alone()
   local source = decoded('{"a": [1, {"b": 2}]}')
-  local copy = assert(Json.to_value(source))
+  local copy = known_value(Json.to_value(source))
   assert(copy ~= source and same(source, decoded('{"a": [1, {"b": 2}]}')))
 end
 
@@ -1101,7 +1108,7 @@ end
 
 local function test_to_value_copies_a_shared_table_once()
   local pair: {Json.Value} = { 1 }
-  local twice = assert(Json.to_value({ pair, pair }))
+  local twice = known_value(Json.to_value({ pair, pair }))
   assert(encoded(twice) == "[[1],[1]]")
   local copies = assert(Json.to_array(twice))
   assert(rawequal(copies[1], copies[2]), "the shared table is copied once")
@@ -1109,7 +1116,7 @@ local function test_to_value_copies_a_shared_table_once()
   for _ = 1, 40 do
     node = { node, node }
   end
-  local value = assert(Json.to_value(node))
+  local value = known_value(Json.to_value(node))
   assert(value ~= node)
   local top = assert(Json.to_array(value))
   assert(rawequal(top[1], top[2]), "the shared table below the top is copied once")
@@ -1137,14 +1144,15 @@ end
 local function test_to_value_reuses_a_shared_table_copied_as_deep_or_deeper()
   local shared: {Json.Value} = { 1 }
   -- Copied at depth 1000 first, then met at depth 2: it stands.
-  local value = assert(Json.to_value({ wrapped(shared, 998), shared }))
+  local value = known_value(Json.to_value({ wrapped(shared, 998), shared }))
   local down: mut {integer | string} = {}
   for i = 1, 999 do down[i] = 1 end
   local deep = Json.get(value, down)
   local shallow = Json.get(value, { 2 })
   assert(rawequal(deep, shallow))
   -- Exactly at the limit is accepted from either side.
-  assert(Json.to_value({ shared, wrapped(shared, 998) }))
+  local limit, limit_trouble = Json.to_value({ shared, wrapped(shared, 998) })
+  assert(limit ~= nil, limit_trouble)
 end
 
 local function test_to_object_and_to_array_refuse_a_table_that_holds_itself()

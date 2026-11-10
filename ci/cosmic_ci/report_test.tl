@@ -39,7 +39,7 @@ local function test_an_answer_of_another_shape_is_refused_by_path()
     end)
     assert(not ok, "accepted " .. text)
     local said = tostring(why)
-    assert(said:find("the " .. list .. " list: ", 1, true) and shape_failure(said, at, expected),
+    assert(said:find("the " .. list .. " list: ", 1, true) ~= nil and shape_failure(said, at, expected),
       ("wanted %s at %s, expected %s; got %q"):format(list, at, expected, said))
   end
   refused(function(text: string) local _ = Report.runs(text) end, "[]", "runs", "", "record, got array")

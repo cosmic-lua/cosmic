@@ -126,9 +126,9 @@ local function test_failure_bounds_what_it_lists()
   for i = 1, 40 do parts[#parts + 1] = "test: FAIL " .. tostring(i) .. "\n" end
   for i = 1, 70 do parts[#parts + 1] = "report " .. tostring(i) .. "\n" end
   local text = Fuzz.failure(pieces(table.concat(parts), 5), "1")
-  assert(text:find("test: FAIL 30\n\n", 1, true) and
+  assert(text:find("test: FAIL 30\n\n", 1, true) ~= nil and
       not text:find("test: FAIL 31", 1, true), "failing lines were not bounded")
-  assert(text:find("report 60\n~~~~\n", 1, true) and
+  assert(text:find("report 60\n~~~~\n", 1, true) ~= nil and
       not text:find("report 61", 1, true), "report lines were not bounded")
 end
 

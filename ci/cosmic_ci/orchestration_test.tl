@@ -596,7 +596,7 @@ local function test_the_self_rebuild_seed_copies_the_legs_compiles(tmp: string)
   local named = tmp .. "/named/cache.db"
   -- Left open while it is copied, so its row is in the WAL alone.
   local named_db = cache_at(named)
-  assert(Fs.exists(named .. "-wal"), "the cache's row is not in its WAL")
+  assert(Fs.exists(named .. "-wal") == true, "the cache's row is not in its WAL")
   assert(Orchestration.seed_compiles({ COSMIC_BUILD_CACHE = named }, tmp .. "/one.db"))
   assert(seeded_from(tmp .. "/one.db") == named)
   local again, again_trouble = Orchestration.seed_compiles({ COSMIC_BUILD_CACHE = named },
@@ -754,7 +754,7 @@ local function test_every_sandboxed_fixture_is_keyed_by_the_product(tmp: string)
             host["o/fixtures/performance/perf.tl"] == true,
           "performance fixture must key the full candidate and controller source")
       else
-        assert(host["o/fixtures/product/prefix"],
+        assert(host["o/fixtures/product/prefix"] == true,
           name .. ": a sandboxed fixture's key does not hold the product's prefix")
       end
       if name ~= "product" then
@@ -783,11 +783,11 @@ local function test_every_sandboxed_fixture_is_keyed_by_the_product(tmp: string)
       for variable in code:gmatch('Fixture%.required%("([A-Z_]+)"%)') do wanted[variable] = true end
       if code:find("Fixture.source_tree(", 1, true) then wanted["COSMIC_FIXTURE_SOURCE"] = true end
       for variable in pairs(wanted) do
-        assert(declared[variable], name .. ": an unsandboxed fixture does not declare " ..
+        assert(declared[variable] == true, name .. ": an unsandboxed fixture does not declare " ..
             variable .. ", which it or its children read")
       end
       for variable in pairs(declared) do
-        assert(wanted[variable], name .. ": an unsandboxed fixture declares " .. variable ..
+        assert(wanted[variable] == true, name .. ": an unsandboxed fixture declares " .. variable ..
             ", which neither it nor its children read")
       end
     end
@@ -795,7 +795,7 @@ local function test_every_sandboxed_fixture_is_keyed_by_the_product(tmp: string)
   local whole = declared_reads("product")
   for _, part in ipairs({ "cosmic", "hashes.sha256", "prefix", "manifest", "apps/hello",
       "apps/second", "cosmic.db", "targets.tsv" }) do
-    assert(whole["o/fixtures/product/" .. part],
+    assert(whole["o/fixtures/product/" .. part] == true,
       "product: the fixture that checks the whole product does not declare " .. part)
   end
   local listed = 0
@@ -1691,7 +1691,7 @@ end
 --- ordinary launcher, adding only a requested private mount grant.
 local function test_noexec_launcher_declares_its_grant_and_keeps_keyed_verdicts(tmp: string)
   local Orchestration = require("cosmic_ci.orchestration")
-  assert(Orchestration.sandboxed_fixtures()["launcher_noexec"])
+  assert(Orchestration.sandboxed_fixtures()["launcher_noexec"] == true)
   local source = code_of("launcher_noexec")
   assert(source:find('{ path = "/noexec", letters = "rwc" }', 1, true) and
       source:find('profiles = { "system" }', 1, true))
@@ -1998,7 +1998,7 @@ local function test_only_the_two_linux_legs_ask_for_the_fixture_lanes()
   local value = assert(env["COSMIC_CI_FIXTURE_BUDGET"], "ci.yml's platform job sets no COSMIC_CI_FIXTURE_BUDGET")
   local one, two = value:match("^%${{ %(matrix%.name == '([%w_-]+)' || " ..
       "matrix%.name == '([%w_-]+)'%) && 'run' || 'skip' }}$")
-  assert(one and two and legs[one] and legs[two] and
+  assert(one ~= nil and two ~= nil and legs[one] ~= nil and legs[two] ~= nil and
       ((one == "linux-aarch64" and two == "alpine-x86_64") or
         (two == "linux-aarch64" and one == "alpine-x86_64")),
     "the fixture lanes run on other legs than linux-aarch64 and alpine-x86_64: " .. value)

@@ -216,9 +216,9 @@ local function test_a_json_failure_names_json_once()
   local cycle: Loop = {}
   cycle.loop = cycle
   local message = Test.raises(function() Response.json(cycle) end) -- checked: not_assignable
-  assert(message:find("web: json: ", 1, true) and not message:find("json: json:", 1, true), message)
+  assert(message:find("web: json: ", 1, true) ~= nil and not message:find("json: json:", 1, true), message)
   local problem = Test.raises(function() Response.problem(500, "x", { bad = 0 / 0 }) end)
-  assert(problem:find("web: problem: ", 1, true) and not problem:find("json: json:", 1, true), problem)
+  assert(problem:find("web: problem: ", 1, true) ~= nil and not problem:find("json: json:", 1, true), problem)
 end
 
 local function test_stream_is_nosniff_like_the_other_constructors()

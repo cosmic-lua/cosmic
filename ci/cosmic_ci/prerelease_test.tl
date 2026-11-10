@@ -104,7 +104,7 @@ local function test_source_valid()
   local function unshaped(text: string, at: string, expected: string)
     local accepted, trouble = Prerelease.source_valid(text, commit, digest, run_prefix)
     assert(not accepted, text)
-    assert(trouble:find("source.json is no source record: ", 1, true) and
+    assert(trouble:find("source.json is no source record: ", 1, true) ~= nil and
         shape_failure(trouble, at, expected), trouble)
   end
   unshaped('{"commit":"' .. commit .. '","digest":"' .. digest .. '","run_url":1}',

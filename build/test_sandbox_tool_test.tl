@@ -173,7 +173,10 @@ local function test_a_plan_gives_the_tree_at_tree_and_the_scratch_at_its_padded_
   assert(cached.trouble == "", cached.trouble)
   assert(support.holds(assert(cached.sandbox.unveil).writes or {}, tmp .. "/caches/zig-global") and
       (assert(cached.sandbox.unveil).at or {})[tmp .. "/caches/zig-global"] == nil)
-  assert(Fs.exists(tmp .. "/caches/zig-global"))
+  do
+    local held_true, held_why = Fs.exists(tmp .. "/caches/zig-global")
+    assert(held_true == true, held_why)
+  end
   -- A file a declared cache holds is given through the cache alone, not
   -- bound again on top of it: there its mount point would be the host's
   -- own file, and a mount onto one renamed over as it is made fails

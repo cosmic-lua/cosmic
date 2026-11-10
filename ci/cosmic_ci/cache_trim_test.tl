@@ -139,7 +139,7 @@ local function test_invalid_or_incomplete_reports_never_publish_save_keys(tmp: s
     assert(err ~= "" and Predicate.absent(tmp .. "/failed"))
   end
   local _, err = mocked(request, { GITHUB_OUTPUT = tmp .. "/truncated" }, good, 0, true)
-  assert(err:find("truncated", 1, true) and Predicate.absent(tmp .. "/truncated"))
+  assert(err:find("truncated", 1, true) ~= nil and Predicate.absent(tmp .. "/truncated"))
 end
 
 local function test_snapshot_cleanup_and_output_errors_remain_best_effort(tmp: string)
@@ -189,11 +189,11 @@ local function test_fresh_counts_require_a_complete_compile_comparison(tmp: stri
   local value = encoded(path)
   value.digest, value.fresh = nil, "1"
   local _, err = mocked(request, { GITHUB_OUTPUT = tmp .. "/output" }, text_of(value))
-  assert(err:find("unexpected fresh count", 1, true) and Predicate.absent(tmp .. "/output"))
+  assert(err:find("unexpected fresh count", 1, true) ~= nil and Predicate.absent(tmp .. "/output"))
   request.family = "verdicts"
   value.digest = Json.quote(string.rep("a", 64))
   _, err = mocked(request, { GITHUB_OUTPUT = tmp .. "/output" }, text_of(value))
-  assert(err:find("unexpected fresh count", 1, true) and Predicate.absent(tmp .. "/output"))
+  assert(err:find("unexpected fresh count", 1, true) ~= nil and Predicate.absent(tmp .. "/output"))
 end
 
 local function test_snapshot_identity_failures_retain_snapshot_and_save_nothing(tmp: string)
@@ -257,7 +257,7 @@ local function test_report_file_order_must_match_the_whole_requested_set(tmp: st
   local value = encoded(a)
   value.files = { file_json(b, "trimmed", 1), file_json(a, "trimmed", 1) }
   local _, err = mocked(request, { GITHUB_OUTPUT = tmp .. "/output" }, text_of(value))
-  assert(err:find("another file set", 1, true) and Predicate.absent(tmp .. "/output"))
+  assert(err:find("another file set", 1, true) ~= nil and Predicate.absent(tmp .. "/output"))
 end
 
 local function test_save_outputs_append_without_replacing_or_reading(tmp: string)

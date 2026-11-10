@@ -9,6 +9,13 @@ local Array = require("cosmic.array")
 local Fuzz = require("build.fuzz")
 local Json = require("cosmic.json")
 
+--- The value of a value-and-reason pair, which is there: `assert` takes no optional that may hold `false`, which it would
+--- raise for as for nil.
+local function known_value(value: Json.Value?, why?: string): Json.Value
+  assert(value ~= nil, why)
+  return value
+end
+
 --- Queries to mutate: every form the subset reads, and the forms it
 --- refuses by name.
 local SAMPLES <const> = {
@@ -181,7 +188,7 @@ end
 
 --- `from_pointer` never raises on any bytes, and a pointer it reads
 --- names a value `get` reaches.
-local POINTED <const> = assert(Json.decode('{"a": [1, {"b": null, "": [true]}], "~": {"/": 2}, "0": "zero"}',
+local POINTED <const> = known_value(Json.decode('{"a": [1, {"b": null, "": [true]}], "~": {"/": 2}, "0": "zero"}',
   { null_value = Json.null }))
 
 local function pointer_holds(input: string): boolean, string

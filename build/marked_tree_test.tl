@@ -106,7 +106,7 @@ local function test_several_findings_on_one_line_are_held_by_a_count_and_by_seve
   assert(Fs.write(codes .. "/build/bad.tl", source("local d: integer? = nil",
     "local f: {integer} = { 3.5, d + 1 } " .. KEY .. " not_assignable")))
   local rest = joined(tree_checks.checked(codes))
-  assert(rest:find("(nil_not_allowed)", 1, true) and not rest:find("(not_assignable)", 1, true), rest)
+  assert(rest:find("(nil_not_allowed)", 1, true) ~= nil and not rest:find("(not_assignable)", 1, true), rest)
 end
 
 local function test_the_findings_no_marker_holds_are_told_and_collected_for_the_sink(dir: string)

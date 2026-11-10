@@ -174,7 +174,10 @@ local function test_a_rename_between_grants_needs_c_on_both(tmp: string)
   local more: {raw_process.Grant} = { { path = tmp .. "/a", access = "c" }, { path = tmp .. "/b", access = "rc" } }
   local gained = under(tmp, probe, more, "rename " .. tmp .. "/a/g " .. tmp .. "/b/g")
   assert(gained.code == 1 and gained.said:find("Cross-device link", 1, true) ~= nil, "EXDEV: " .. gained.said)
-  assert(Fs.exists(tmp .. "/a/g"))
+  do
+    local held_true, held_why = Fs.exists(tmp .. "/a/g")
+    assert(held_true == true, held_why)
+  end
 end
 
 local function test_x_runs_a_granted_program_and_no_other(tmp: string)

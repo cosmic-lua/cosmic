@@ -273,11 +273,11 @@ local function test_every_feature_a_site_reads_is_keyed()
     local have: mut {string:boolean} = {}
     for _, flag in ipairs(keyed) do have[flag] = true end
     for flag in pairs(flags) do
-      assert(have[flag], machine .. ": " .. flag .. " is read but not keyed")
+      assert(have[flag] == true, machine .. ": " .. flag .. " is read but not keyed")
     end
     -- Nor is anything keyed that nothing reads: it would split verdicts.
     for flag in pairs(have) do
-      assert(flags[flag], machine .. ": " .. flag .. " is keyed but nothing reads it")
+      assert(flags[flag] == true, machine .. ": " .. flag .. " is keyed but nothing reads it")
     end
   end
   -- Nor is a machine audited that no site names: its key would hold

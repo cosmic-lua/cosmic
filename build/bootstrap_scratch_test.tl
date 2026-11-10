@@ -64,15 +64,15 @@ local function test_sweeps_preserve_live_owners_and_reap_killed_ones(tmp: string
     assert(Fs.mkdirs(legacy))
     local child = holder(wrapper .. "/owner")
     prepare(root, cache, patch)
-    assert(Fs.exists(wrapper), "a live owner's payload was swept")
+    assert(Fs.exists(wrapper) == true, "a live owner's payload was swept")
     assert(sys.kill(child.pid, sys.SIGKILL))
     local _ = assert(child:wait(Clock.seconds(5)))
     -- Move the patched content so the second prepare is also a cache miss.
     assert(Fs.write(root .. "/vendor/lib/file", "next"))
     prepare(root, cache, patch)
     assert(Fs.exists(wrapper) == false, "a dead owner's payload was retained")
-    assert(Fs.exists(missing), "missing ownership metadata was treated as dead")
-    assert(Fs.exists(legacy), "a legacy PID was treated as proof of death")
+    assert(Fs.exists(missing) == true, "missing ownership metadata was treated as dead")
+    assert(Fs.exists(legacy) == true, "a legacy PID was treated as proof of death")
   end
 end
 

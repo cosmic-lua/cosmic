@@ -561,8 +561,8 @@ local function test_every_preloaded_raw_module_has_a_declaration()
     local name = key:match("^cosmic%.internal%.(.+)$")
     if name ~= nil then
       found = found + 1
-      assert(preloaded[name], key .. " is preloaded but this test does not reach it")
-      assert(Fs.exists("cosmic/internal/" .. name .. ".d.tl"),
+      assert(preloaded[name] == true, key .. " is preloaded but this test does not reach it")
+      assert(Fs.exists("cosmic/internal/" .. name .. ".d.tl") == true,
         key .. " is preloaded but cosmic/internal/" .. name .. ".d.tl does not declare it")
     end
   end

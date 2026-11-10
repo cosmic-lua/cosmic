@@ -321,7 +321,7 @@ local function test_the_guard_holds_the_epoch_to_its_retired_tokens()
   assert(append == nil, tostring(append))
   assert(how_to_bump("9", after):find("append nothing to `retired`", 1, true))
   local resolved, still = applied(line, append, after)
-  assert(resolved:match("^9%-") and resolved ~= epoch, resolved)
+  assert(resolved:match("^9%-") ~= nil and resolved ~= epoch, resolved)
   assert(epoch_trouble(resolved, still) == nil, tostring(epoch_trouble(resolved, still)))
 end
 
@@ -351,7 +351,7 @@ local function test_the_harness_holds_what_it_runs_requires()
   end
   local missing: mut {string} = {}
   for _, name in ipairs(found.runs) do
-    assert(tree[name], name .. " is no module of the tree")
+    assert(tree[name] == true, name .. " is no module of the tree")
     for _, wanted in ipairs(by_value[name] or {}) do
       if tree[wanted] == true and named[wanted] ~= true and (unfollowed[name] or {})[wanted] ~= true then
         missing[#missing + 1] = name .. " requires " .. wanted
@@ -390,7 +390,7 @@ local function test_what_is_split_off_a_module_of_the_harness_is_held()
   db:close()
   local named: mut {string:boolean} = {}
   for _, name in ipairs(found.names) do named[name] = true end
-  assert(named["cosmic.sandbox.policy"], "cosmic.sandbox.policy is not held")
+  assert(named["cosmic.sandbox.policy"] == true, "cosmic.sandbox.policy is not held")
   local unheld: mut {string} = {}
   for _, name in ipairs(found.names) do
     if name:match("^cosmic%.") then

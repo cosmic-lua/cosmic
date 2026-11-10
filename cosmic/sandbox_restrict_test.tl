@@ -137,7 +137,10 @@ say("overwrite", writes(%q))
 say("create", writes(%q))
 ]], tmp .. "/rw/f", tmp .. "/rw/made")))
   assert(said.lines["overwrite"] == "wrote" and said.lines["create"] == "wrote", said.raw)
-  assert(Fs.exists(tmp .. "/rw/made"))
+  do
+    local held_true, held_why = Fs.exists(tmp .. "/rw/made")
+    assert(held_true == true, held_why)
+  end
 end
 
 local function test_the_filter_refuses_a_socket_and_a_process(tmp: string)
@@ -393,7 +396,7 @@ say("free", reads(%q))
   assert(said.lines["cpu"] == "true" and said.lines["free"] == "free", said.raw)
   -- A refusal that comes with limits and grants sets no limit and holds nothing.
   assert(said.lines["nofile"] == "true" and said.lines["nofile_after"] == "true", said.raw)
-  assert(assert(said.lines["with_limits"]):find("^false sandbox: restrict: isolate", 1) and
+  assert(assert(said.lines["with_limits"]):find("^false sandbox: restrict: isolate", 1) ~= nil and
       said.lines["cpu_after"] == "true", said.raw)
 end
 

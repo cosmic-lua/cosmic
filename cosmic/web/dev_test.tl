@@ -186,7 +186,7 @@ local function test_the_stream_tells_the_boot_then_what_moved_under_static(tmp: 
     if not head:find("data: 7", 1, true) then read_until(res, "data: 7") end
     put(static .. "/app.css", "a{color:red}", 1000001)
     local css = read_until(res, "event: css")
-    assert(css:find("app.css", 1, true) and not css:find("event: reload", 1, true))
+    assert(css:find("app.css", 1, true) ~= nil and not css:find("event: reload", 1, true))
     put(static .. "/app.js", "22", 1000002)
     assert(read_until(res, "event: reload"))
     put(static .. "/new.css", "b{}", 1000003)
@@ -312,7 +312,7 @@ local function test_a_missing_static_directory_is_watched_without_a_spurious_rel
     assert(Fs.mkdirs(static))
     put(static .. "/a.css", "a{}", 1000000)
     local got = read_until(res, "event: ")
-    assert(got:find("event: css", 1, true) and not got:find("event: reload", 1, true), got)
+    assert(got:find("event: css", 1, true) ~= nil and not got:find("event: reload", 1, true), got)
     assert(Fs.remove(static .. "/a.css"))
     assert(read_until(res, "event: css"))
     assert(assert(res.stream):close())

@@ -1001,7 +1001,8 @@ local LEDGER_CSV <const> = table.concat({
 local function reports(g: Grade, args: {string}, want: string): string
   local result = run(g, args)
   local got, trouble = decoded(result.stdout or "")
-  local wanted = assert(decoded(want))
+  local wanted, wanted_trouble = decoded(want)
+  assert(wanted ~= nil, wanted_trouble)
   if status(result) ~= 0 then
     fail(g, label(g, args) .. ": exit " .. tostring(status(result)) .. "; stderr: " ..
         first_line(result.stderr or ""))

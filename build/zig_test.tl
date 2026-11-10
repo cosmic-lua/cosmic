@@ -562,7 +562,10 @@ local function test_selected_output_controls_installation_and_lock(tmp: string)
   assert(args[6] == "--prefix" and args[7] == output)
   local status = Zig.with_lock(output, {}, function(env: {string:string}): integer
     assert(env["COSMIC_REBUILD_LOCK_HANDED"] == output .. "/rebuild.lock")
-    assert(Fs.exists(output .. "/rebuild.lock"))
+    do
+      local held_true, held_why = Fs.exists(output .. "/rebuild.lock")
+      assert(held_true == true, held_why)
+    end
     assert(Zig.holder(output):find("is rebuilding the tool", 1, true))
     return 7
   end)

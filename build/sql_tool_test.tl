@@ -28,10 +28,10 @@ end
 local function test_a_refused_line_and_a_bad_file_say_why_on_stderr(tmp: string)
   local unknown = tool_fixture.cosmic(tmp, { "sql", "--from", "data.xml", "SELECT 1" })
   assert(unknown.code == 2 and unknown.out == "", unknown.out)
-  assert(unknown.err:find("^cosmic: sql: ") and not unknown.err:find("\nsql: "), unknown.err)
+  assert(unknown.err:find("^cosmic: sql: ") ~= nil and not unknown.err:find("\nsql: "), unknown.err)
   local invalid = tool_fixture.cosmic(tmp, { "sql", "--from", "-", "--as", "json", "SELECT 1" }, "{")
   assert(invalid.code == 1 and invalid.out == "", invalid.out)
-  assert(invalid.err:find("^cosmic: sql: ") and not invalid.err:find("\nsql: "), invalid.err)
+  assert(invalid.err:find("^cosmic: sql: ") ~= nil and not invalid.err:find("\nsql: "), invalid.err)
   assert(invalid.err:find("standard input: json: invalid JSON", 1, true), invalid.err)
 end
 

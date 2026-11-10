@@ -191,7 +191,7 @@ local function test_a_name_is_asked_for_as_a_name_and_the_bytes_go_both_ways()
   end)
   assert(ran.code == 0, tostring(ran.code) .. table.concat(ran.complaints, "\n"))
   assert(request.value == "\5\1\0\3\14api.github.com\1\187", "the host is a name: " .. tostring(request.value))
-  assert(seen_end.value, "a half-close was seen")
+  assert(seen_end.value == true, "a half-close was seen")
   assert(ran.out == "banner pong", "the output is the tunnel's: " .. ran.out)
   assert(#ran.complaints == 0, table.concat(ran.complaints))
 end

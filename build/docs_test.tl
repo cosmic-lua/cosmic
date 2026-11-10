@@ -230,9 +230,9 @@ local function test_a_module_listing_says_what_each_call_does(dir: string)
   local lines = assert(docs.render(view({ db }), support.nth(found, 1)))
   local read = assert(support.nth(lines, 5):match("^  function Fs%.read%(path: string%): string%?, string %-%- (.*)$"),
     lines[5])
-  assert(read:find("^word word") and read:find("…", 1, true) and not read:find("second", 1, true),
+  assert(read:find("^word word") ~= nil and read:find("…", 1, true) ~= nil and not read:find("second", 1, true),
     read)
-  assert(support.nth(lines, 6):find(" -- Writes the whole of a file.  (", 1, true) and
+  assert(support.nth(lines, 6):find(" -- Writes the whole of a file.  (", 1, true) ~= nil and
       not support.nth(lines, 6):find("Creates", 1, true), lines[6])
   assert(lines[4] == "  record Fs  (1 example)", lines[4])
   assert(lines[#lines] ==
@@ -2089,7 +2089,7 @@ local function test_a_public_source_hides_a_modules_own_symbols(dir: string)
   end
   local options = assert(docs.lookup(public, "Thing.Options"))
   local shown = table.concat(assert(docs.render(public, support.nth(options, 1))), "\n")
-  assert(shown:find("    count: integer", 1, true) and not shown:find("_cache", 1, true), shown)
+  assert(shown:find("    count: integer", 1, true) ~= nil and not shown:find("_cache", 1, true), shown)
   local page = assert(docs.lookup(public, "cosmic.thing"))
   shown = table.concat(assert(docs.render(public, support.nth(page, 1))), "\n")
   assert(not shown:find("Cursor", 1, true) and not shown:find("_cache", 1, true), shown)
@@ -2131,7 +2131,7 @@ local function test_a_count_of_one_is_singular(dir: string)
   local looked = view({ db })
   local page = assert(docs.lookup(looked, "cosmic.fs"))
   local text = table.concat(assert(docs.render(looked, support.nth(page, 1))), "\n")
-  assert(text:find("(1 use)", 1, true) and not text:find("1 uses", 1, true), text)
+  assert(text:find("(1 use)", 1, true) ~= nil and not text:find("1 uses", 1, true), text)
   local read = assert(docs.lookup(looked, "Fs.read"))
   text = table.concat(assert(docs.render(looked, support.nth(read, 1))), "\n")
   assert(text:find("used in 1 place;", 1, true), text)
@@ -2273,7 +2273,7 @@ local function test_a_top_level_call_is_carried_by_the_first_example(dir: string
   -- Another symbol the same first example shows is not one the call is about.
   local other = table.concat(assert(docs.render(looked,
     support.nth(assert(docs.lookup(looked, "Thing.other")), 1))), "\n")
-  assert(other:find("example first", 1, true) and not other:find("Thing.declare", 1, true), other)
+  assert(other:find("example first", 1, true) ~= nil and not other:find("Thing.declare", 1, true), other)
   assert(other:find("local Thing = require", 1, true) and other:find("local Fs = require", 1, true), other)
 end
 
@@ -2824,7 +2824,7 @@ local function test_a_search_finds_the_section_of_a_guide_that_says_the_word()
   section = assert(section, "no section offered")
   assert(section.kind == "section" and section.source_symbol == "doc.guides.language#narrowing",
     section.kind .. " " .. section.source_symbol)
-  assert(section.text:find("branch it guards", 1, true) and not section.text:find("fixed unless", 1, true),
+  assert(section.text:find("branch it guards", 1, true) ~= nil and not section.text:find("fixed unless", 1, true),
     section.text)
   local discard = assert(docs.lookup(view({ db }), "discard result"))
   assert(assert(discard[1]).source_symbol == "doc.guides.language#discarding-a-result-on-purpose",
@@ -2836,6 +2836,6 @@ local function test_a_search_finds_the_section_of_a_guide_that_says_the_word()
   assert(seen == 1, "a section is offered once, not " .. tostring(seen))
   local text = table.concat(assert(docs.answer(view({ db }), { "narrowing" })).lines, "\n")
   assert(text:find("doc.guides.language#narrowing (doc/guides/language.md)", 1, true), text)
-  assert(text:find("A test narrows a value", 1, true) and not text:find("Rules of the language", 1, true), text)
+  assert(text:find("A test narrows a value", 1, true) ~= nil and not text:find("Rules of the language", 1, true), text)
   assert(db:close())
 end

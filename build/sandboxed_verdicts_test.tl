@@ -224,14 +224,14 @@ end
   suite(tmp .. "/beyond", "beyond", '"127.0.0.1", "example.com"', false)
   local refused = run(tmp .. "/beyond", tmp .. "/beyond.out", env, nil, true)
   assert(refused:find('suite/beyond_test.tl:6: test.policy: loopback "example.com": loopback ' ..
-      "takes loopback addresses 127.a.b.c only", 1, true) and
+      "takes loopback addresses 127.a.b.c only", 1, true) ~= nil and
       not refused:find("test: %d+ tests? passed in "), refused)
   suite(tmp .. "/root", "loopback", '"127.0.0.1", "127.0.0.2"', false)
   local first = run(tmp .. "/root", tmp .. "/first.out", env)
   skip_if_unsandboxed(first)
   assert(first:find("1 ran, 0 stood", 1, true), first)
   local again = run(tmp .. "/root", tmp .. "/again.out", env)
-  assert(again:find("0 ran, 1 stood", 1, true) and not again:find("every time", 1, true), again)
+  assert(again:find("0 ran, 1 stood", 1, true) ~= nil and not again:find("every time", 1, true), again)
   suite(tmp .. "/probe", "loopback", '"127.0.0.1"', true)
   local probed = run(tmp .. "/probe", tmp .. "/probe.out", env, nil, true)
   local offline = probed:match("loopback in (%S+) |")
@@ -720,7 +720,7 @@ end
   assert(first:find("4 ran, 0 stood", 1, true), first)
   env["COSMIC_TEST_SANDBOX"] = "0"
   local bare = run(root, tmp .. "/bare.out", env, { "--all" }, true)
-  assert(bare:find("4 ran", 1, true) and not bare:find("FAIL", 1, true), bare)
+  assert(bare:find("4 ran", 1, true) ~= nil and not bare:find("FAIL", 1, true), bare)
   assert(not bare:find("; sandboxed", 1, true), "the run was sandboxed, so it checked nothing unsealed: " .. bare)
 end
 
@@ -1083,7 +1083,7 @@ local function test_a_store_is_keyed_by_its_bytes_not_its_address(tmp: string)
   checkout(tmp .. "/second")
   assert(Fs.write(tmp .. "/second/suite/lib.tl", "local record Lib\n  value: integer\nend\nlocal lib: Lib = { value = 1 }\nlocal _ = lib.value + 1\nreturn lib\n"))
   local second = run(tmp .. "/second", tmp .. "/second.out", env)
-  assert(second:find("0 ran, 3 stood", 1, true) and
+  assert(second:find("0 ran, 3 stood", 1, true) ~= nil and
       not second:find("closure store", 1, true), second)
   local stores, _ = Fs.list(support.build_dir(tmp .. "/second") .. "/stores")
   assert(stores == nil or #stores == 0, "a checkout that stood wrote a store")

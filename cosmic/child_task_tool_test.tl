@@ -313,7 +313,7 @@ local function test_a_cancelled_task_s_wait_answers_cancelled(tmp: string)
     end)
     assert(waited == Poll.CANCELLED, waited)
     assert(ran == Poll.CANCELLED, ran)
-    assert(running, "the cancelled wait ended its child")
+    assert(running == true, "the cancelled wait ended its child")
     local waited_for = assert(took, "the waits never ended")
     assert(waited_for < Clock.seconds(5), "the cancelled waits took " .. tostring(waited_for // Clock.ms(1)) .. " ms")
   end
@@ -688,6 +688,6 @@ local function test_two_tasks_settle_one_child_once()
   end)
   local first, second = answers[1], answers[2]
   assert(first ~= nil and second ~= nil and rawequal(first, second) and first.code == 4, "try_wait settled twice")
-  assert(closed, "the close failed")
+  assert(closed == true, "the close failed")
   assert(rawequal(answers[3], answers[4]), "a wait and a close settled twice")
 end

@@ -7,6 +7,13 @@ local Html = require("cosmic.html")
 local Json = require("cosmic.json")
 local Test = require("cosmic.test")
 
+--- The value of a value-and-reason pair, which is there: `assert` takes no optional that may hold `false`, which it would
+--- raise for as for nil.
+local function known_value(value: Json.Value?, why?: string): Json.Value
+  assert(value ~= nil, why)
+  return value
+end
+
 Test.policy{ grants = { { path = "vendor/wpt-url/urltestdata.json", letters = "r" } } }
 
 --- The fewest entries the check must reach, and of them the fewest
@@ -16,7 +23,7 @@ local relative_floor <const> = 50
 
 local function test_href_agrees_with_the_whatwg_url_data()
   local text = assert(Fs.read("vendor/wpt-url/urltestdata.json"))
-  local entries = assert(Json.decode(text)) as {any} -- checked: cast_refused
+  local entries = known_value(Json.decode(text)) as {any} -- checked: cast_refused
   local checked, relative = 0, 0
   for _, raw in ipairs(entries) do
     -- The data's few strings are comments between its entries.

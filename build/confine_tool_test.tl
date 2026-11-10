@@ -179,7 +179,7 @@ local function test_a_confined_process_has_its_portable_cache_by_where_it_leads(
   assert(said[2] == "core\n" .. resolved .. "\n", said[2])
   local fresh = assert(sys.realpath(own .. "/real")) .. "/fresh/cache"
   assert(said[3] == fresh .. "\n", said[3])
-  assert(Fs.is_dir(fresh), "the launcher's cache is made where its name leads")
+  assert(Fs.is_dir(fresh) == true, "the launcher's cache is made where its name leads")
 end
 
 --- Calls `fn` with the process table's `spawn` refusing, as a kernel

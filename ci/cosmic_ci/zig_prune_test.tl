@@ -155,7 +155,7 @@ local function test_a_core_change_prunes_the_old_core_alone(tmp: string)
   for _, kept in ipairs({ p .. "/o/" .. copies .. "/core/a.c", p .. "/o/" .. object .. "/a.o",
       p .. "/o/" .. core .. "/cosmic-core", p .. "/o/" .. dependencies .. "/dependencies.zig",
       p .. "/o/" .. runner .. "/build", g .. "/o/" .. libc .. "/libc.a", p .. "/h/timestamp" }) do
-    assert(Fs.exists(kept), kept)
+    assert(Fs.exists(kept) == true, kept)
   end
   -- What is left is whole: a second look finds nothing more.
   local again = assert(ZigPrune.plan({ project, shared }))
@@ -192,7 +192,7 @@ local function test_a_manifest_names_its_own_cache_by_prefix_2(tmp: string)
   assert(ZigPrune.apply(plan))
   for _, kept in ipairs({ g .. "/o/" .. stubs .. "/m.s", g .. "/o/" .. libm .. "/libm.so",
       p .. "/h/" .. hex("d") }) do
-    assert(Fs.exists(kept), kept)
+    assert(Fs.exists(kept) == true, kept)
   end
 end
 
@@ -247,7 +247,7 @@ local function test_a_configuration_goes_with_its_manifest(tmp: string)
   assert(plan.orphans == 1 and plan.orphans_kept == 0, tostring(plan.orphans) .. " " .. tostring(plan.orphans_kept))
   assert(ZigPrune.apply(plan))
   for _, kept in ipairs({ p .. "/c/" .. configured, p .. "/h/" .. hex("b") }) do
-    assert(Fs.exists(kept), kept)
+    assert(Fs.exists(kept) == true, kept)
   end
 end
 

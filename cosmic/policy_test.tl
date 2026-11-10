@@ -7,6 +7,13 @@ local PolicyJson = require("cosmic.policy")
 local Test = require("cosmic.test")
 local PolicyMerge = require("build.policy_merge_fixture")
 
+--- The value of a value-and-reason pair, which is there: `assert` takes no optional that may hold `false`, which it would
+--- raise for as for nil.
+local function known_value(value: Json.Value?, why?: string): Json.Value
+  assert(value ~= nil, why)
+  return value
+end
+
 --- Why `json` is refused, asserting that it is, and names `field`, a path
 --- like `$.grants[0].letters`.
 local function refused(json: string, field: string): string
@@ -122,7 +129,7 @@ local function test_encode_is_canonical_and_keeps_no_value()
   local text = PolicyJson.encode(a)
   assert(text == PolicyJson.encode(b), text)
   assert(not text:find("hunter2", 1, true), text)
-  local decoded = assert(Json.decode(text))
+  local decoded = known_value(Json.decode(text))
   assert(type(decoded) == "table")
   assert(text:find('"env":["A","Z"]', 1, true) and text:find('"promises":["fork","jit"]', 1, true), text)
   assert(text:find('"grants":[{"letters":"r","path":"/a"},{"letters":"x","path":"/b"}]', 1, true), text)

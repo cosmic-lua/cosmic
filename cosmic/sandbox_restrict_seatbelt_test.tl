@@ -262,7 +262,7 @@ if other ~= nil then say("other", other.ok, other.stdout, other.stderr) else say
 ]], tmp .. "/granted", tmp .. "/granted", tmp .. "/other"))
   assert(said.lines["restrict"] == "true ", said.raw)
   assert(said.lines["granted"] == "true granted-bytes", said.raw)
-  assert(assert(said.lines["other"]):find("^false ") and assert(said.lines["other"]):find(DENIED, 1, true) and
+  assert(assert(said.lines["other"]):find("^false ") ~= nil and assert(said.lines["other"]):find(DENIED, 1, true) ~= nil and
       not assert(said.lines["other"]):find("other-bytes", 1, true), said.raw)
 end
 

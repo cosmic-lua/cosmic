@@ -7,6 +7,13 @@ local Json = require("cosmic.json")
 local Test = require("cosmic.test")
 local json_query = require("build.json_query")
 
+--- The value of a value-and-reason pair, which is there: `assert` takes no optional that may hold `false`, which it would
+--- raise for as for nil.
+local function known_value(value: Json.Value?, why?: string): Json.Value
+  assert(value ~= nil, why)
+  return value
+end
+
 --- The value `text` decodes to, or a failed assertion naming why.
 local function decoded(text: string, opts?: Json.DecodeOptions): Json.Value?
   local value, err = Json.decode(text, opts)
@@ -132,7 +139,7 @@ end
 
 local function test_flatten_root_spells_the_value_where_it_was_found()
   local doc = decoded('{"users": [{"id": 1}]}')
-  local user = assert(Json.get(doc, { "users", 1 }))
+  local user = known_value(Json.get(doc, { "users", 1 }))
   assert_lines(flat_lines(user, { root = { "users", 1 } }), { "$.users[0].id = 1" })
 end
 
@@ -182,7 +189,7 @@ local function test_every_flat_path_reads_back_to_its_leaf()
   for _, leaf in ipairs(leaves) do
     local line = assert(json_query.flat_line(leaf.steps, leaf.value))
     local path = line:sub(1, #line - #encoded(leaf.value) - 3)
-    local value = assert(Json.get(doc, (assert(Json.from_path(path)))))
+    local value = known_value(Json.get(doc, (assert(Json.from_path(path)))))
     assert(encoded(value) == encoded(leaf.value), path)
   end
 end

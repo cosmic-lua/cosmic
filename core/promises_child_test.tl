@@ -67,7 +67,7 @@ local function test_the_static_core_runs_under_the_basics(tmp: string)
     assert(outcome.code == 0, "a core under the basics ends with " .. tostring(outcome.code) .. ": " .. outcome.said)
     assert(outcome.said:find("hello\nworld\nagain\n", 1, true) == 1, outcome.said)
     assert(outcome.said:find("Seccomp:\t2\nNoNewPrivs:\t1\n", 1, true) ~= nil, outcome.said)
-    assert(Fs.exists(tmp .. "/fifo"), "mknod of a fifo is a basic")
+    assert(Fs.exists(tmp .. "/fifo") == true, "mknod of a fifo is a basic")
     assert(Fs.remove(tmp .. "/f") and Fs.remove(tmp .. "/fifo") and Fs.remove_tree(tmp .. "/d"))
   end
 end

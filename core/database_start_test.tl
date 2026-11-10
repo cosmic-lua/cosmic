@@ -165,7 +165,7 @@ local function test_a_core_a_stamp_vouches_for_is_not_hashed_again_until_it_is_w
   assert(Fs.exists(stamp) ~= true, "a stamp before any start")
   local first = run({ copy, "--database", path })
   assert(first.ok, "exit " .. tostring(first.code) .. ": " .. tostring(first.stderr))
-  assert(Fs.exists(stamp), "the first start left no stamp")
+  assert(Fs.exists(stamp) == true, "the first start left no stamp")
   local second = run({ copy, "--database", path })
   assert(second.ok, "exit " .. tostring(second.code) .. ": " .. tostring(second.stderr))
   -- Written in place, a second or more after the stamp: the same inode and

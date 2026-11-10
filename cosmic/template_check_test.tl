@@ -301,7 +301,7 @@ local function test_a_type_error_in_a_text_template_is_on_the_templates_line(tmp
   assert(trouble:find("page.tmpl:4:", 1, true), trouble)
   assert(trouble:find(spelled("string | number"), 1, true), trouble)
   local multi = refused(tmp, "multi", "{{type Page from data}}{{mode text}}\n{{.title\n  | fmt.upper}}\n{{.items}}")
-  assert(multi:find("page.tmpl:4:", 1, true) and not multi:find("page.tmpl:2:", 1, true), multi)
+  assert(multi:find("page.tmpl:4:", 1, true) ~= nil and not multi:find("page.tmpl:2:", 1, true), multi)
 end
 
 local function test_a_slot_takes_what_its_place_accepts(tmp: string)

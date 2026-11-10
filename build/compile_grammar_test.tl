@@ -216,7 +216,7 @@ local function test_a_require_of_a_given_file_is_typed_from_it_in_any_order(tmp:
     for _, path in ipairs(order) do words[#words + 1] = path end
     local ran = run(words)
     assert(ran.code == 0, ran.err)
-    assert(ran.err:find("main.tl:2:", 1, true) and not ran.err:find("require_unknown", 1, true), ran.err)
+    assert(ran.err:find("main.tl:2:", 1, true) ~= nil and not ran.err:find("require_unknown", 1, true), ran.err)
     assert(Fs.exists(tmp .. "/out/lib.lua") == true and Fs.exists(tmp .. "/out/main.lua") == true)
   end
 end

@@ -8,6 +8,13 @@ local Shape = require("cosmic.shape")
 local Test = require("cosmic.test")
 local Web = require("cosmic.web")
 
+--- The value of a value-and-reason pair, which is there: `assert` takes no optional that may hold `false`, which it would
+--- raise for as for nil.
+local function known_value(value: Json.Value?, why?: string): Json.Value
+  assert(value ~= nil, why)
+  return value
+end
+
 Test.policy{ grants = {
   { path = "vendor/htmx/dist/htmx.min.js", letters = "r" },
   { path = "vendor/htmx-ext-sse/dist/sse.min.js", letters = "r" },
@@ -133,7 +140,7 @@ local function test_events_are_names_alone_or_ascii_json()
   local sent = assert(header(res, "HX-Trigger"))
   assert(not sent:find("[\128-\255]"), "the header must be ASCII")
   assert(sent:find("caf\\u00e9", 1, true) and sent:find("\\ud83d\\ude00", 1, true), sent)
-  local decoded, why = EVENTS:into((assert(Json.decode(sent))))
+  local decoded, why = EVENTS:into((known_value(Json.decode(sent))))
   assert(decoded ~= nil, why)
   assert(decoded.showMessage.level == "info" and decoded.showMessage.text == "caf\u{e9} \u{1F600}")
   assert(next(decoded.closeModal) == nil)
@@ -145,7 +152,7 @@ end
 local function test_a_location_object_is_ascii_json_with_a_checked_path()
   local res = assert(applied({ location = { path = "/items", target = "#list", swap = "innerHTML",
     values = { name = "\u{e9}" } } })) -- checked: any_use
-  local decoded, shape = LOCATED:into((assert(Json.decode(assert(header(res, "HX-Location"))))))
+  local decoded, shape = LOCATED:into((known_value(Json.decode(assert(header(res, "HX-Location"))))))
   assert(decoded ~= nil, shape)
   assert(decoded.path == "/items" and decoded.target == "#list" and decoded.values["name"] == "\u{e9}")
   assert(not assert(header(res, "HX-Location")):find("[\128-\255]"))
@@ -274,7 +281,7 @@ local PLAN_CONFIG <const> = [[{ "allowEval": false, "allowScriptTags": false, "i
 
 local function test_head_writes_the_closed_configuration()
   local markup = Html.raw(Htmx.head())
-  local want = assert(Json.decode(PLAN_CONFIG))
+  local want = known_value(Json.decode(PLAN_CONFIG))
   local got_text = assert(Json.encode_any(config_of(markup)))
   local want_text = assert(Json.encode_any(want))
   assert(assert(Json.canonical(got_text)) == assert(Json.canonical(want_text)))

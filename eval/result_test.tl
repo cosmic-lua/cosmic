@@ -6,6 +6,13 @@ local Json = require("cosmic.json")
 local Result = require("eval.result")
 local stand_in = require("build.stand_in")
 
+--- The value of a value-and-reason pair, which is there: `assert` takes no optional that may hold `false`, which it would
+--- raise for as for nil.
+local function known_value(value: Json.Value?, why?: string): Json.Value
+  assert(value ~= nil, why)
+  return value
+end
+
 local function line(value: {string: Json.Value}): string
   return (assert(Json.encode(value)))
 end
@@ -94,7 +101,7 @@ end
 local function test_the_encoding_is_json_in_the_readmes_order()
   local text = assert(Result.encode(Result.build(lines({ init, finished("success", false) }), files,
     { exit_code = 1, log = "grades/1/grade.log" })))
-  local back = assert(Json.decode(text)) as {string: any} -- checked: cast_refused
+  local back = known_value(Json.decode(text)) as {string: any} -- checked: cast_refused
   assert(back.runner == "claude" and back.grade_verdict == "FAIL" and back.turns == 12)
   assert(back.reasoning_effort == nil, "null reads back as absent")
   local runner_at = assert(text:find('"runner"', 1, true), "expected a runner field")

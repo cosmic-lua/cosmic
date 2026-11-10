@@ -5,6 +5,13 @@
 local Json = require("cosmic.json")
 local Sqlite = require("cosmic.sqlite")
 
+--- The value of a value-and-reason pair, which is there: `assert` takes no optional that may hold `false`, which it would
+--- raise for as for nil.
+local function known_value(value: Json.Value?, why?: string): Json.Value
+  assert(value ~= nil, why)
+  return value
+end
+
 --- The first of `rows`, which the statement is known to yield.
 local function first_row(rows: Sqlite.Rows): Sqlite.Row
   local found = rows[1]
@@ -55,8 +62,8 @@ end
 local function test_sqlite_and_cosmic_json_read_flow_style_alike()
   local db = assert(Sqlite.memory())
   local text = "# a workflow\n{on: {push: {}}, jobs: {a: {\"runs-on\": \"x\", # the runner\n steps: [{run: \"echo #1\"}]}}}\n"
-  local ours = assert(Json.decode(text, { json5 = true, hash_comments = true }))
-  local theirs = assert(Json.decode((assert(minified(db, text)))))
+  local ours = known_value(Json.decode(text, { json5 = true, hash_comments = true }))
+  local theirs = known_value(Json.decode((assert(minified(db, text)))))
   assert(Json.encode_any(ours) == Json.encode_any(theirs))
   assert(db:close())
 end

@@ -81,7 +81,7 @@ local function test_every_verb_is_classified()
       assert(cases[verb] ~= nil, verb .. ": give a passing and a failing command line")
     end
   end
-  for verb in pairs(passthrough) do assert(listed[verb], verb .. " is not a verb") end
-  for verb in pairs(surplus) do assert(listed[verb], verb .. " is not a verb") end
-  for verb in pairs(cases) do assert(listed[verb], verb .. " is not a verb") end
+  for verb in pairs(passthrough) do assert(listed[verb] == true, verb .. " is not a verb") end
+  for verb in pairs(surplus) do assert(listed[verb] == true, verb .. " is not a verb") end
+  for verb in pairs(cases) do assert(listed[verb] == true, verb .. " is not a verb") end
 end

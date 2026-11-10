@@ -1958,14 +1958,14 @@ local function test_the_compiler_modules_are_closed_under_require()
   end
   for _, name in ipairs({ "build.plans", "build.derivation", "build.module", "build.withheld", "build.tree",
       "build.analysis_schema", "build.cache_names" }) do
-    assert(covered[name], name .. " is not in the compiler's identity: " ..
+    assert(covered[name] == true, name .. " is not in the compiler's identity: " ..
         table.concat(modules, ", "))
   end
   --- A template's generated module is stored by derivation, so the
   --- compiler of templates is part of the identity: a change to it
   --- regenerates every template.
   for _, name in ipairs({ "cosmic.template", "cosmic.template.codegen", "cosmic.template.parse" }) do
-    assert(covered[name], name .. " is not in the compiler's identity: " ..
+    assert(covered[name] == true, name .. " is not in the compiler's identity: " ..
         table.concat(modules, ", "))
   end
   assert(covered["cosmic.removed"] ~= true, "cosmic.removed is in the compiler's identity: " ..
@@ -2011,7 +2011,7 @@ local function test_the_compiler_modules_are_closed_under_require()
   for name in pairs(left_out) do
     assert(covered[name] ~= true, name .. " is named as left out of the compiler's identity, " ..
         "but is in it")
-    assert(used[name], name .. " is left out of the compiler's identity, " ..
+    assert(used[name] == true, name .. " is left out of the compiler's identity, " ..
         "but build.importer no longer requires it")
   end
 end
@@ -2037,7 +2037,7 @@ local function test_the_writer_modules_are_closed_under_require()
   for _, name in ipairs({ "build.writer", "build.identity", "build.schema", "build.bom",
       "build.roots", "build.tree", "build.bind", "build.symbols",
       "cosmic.sqlite", "cosmic.codec", "cosmic.store" }) do
-    assert(covered[name], name .. " is not in the writer's identity: " ..
+    assert(covered[name] == true, name .. " is not in the writer's identity: " ..
         table.concat(modules, ", "))
   end
   local roots_require: mut {string:boolean} = {}
@@ -2046,7 +2046,7 @@ local function test_the_writer_modules_are_closed_under_require()
   end
   for name, why in pairs(identity.writer_left_out()) do
     assert(why ~= "", name .. " is left out of the writer's identity with no reason")
-    assert(roots_require[name], name .. " is left out of the writer's identity, " ..
+    assert(roots_require[name] == true, name .. " is left out of the writer's identity, " ..
         "but neither build.writer nor build.identity requires it")
     assert(covered[name] ~= true, name .. " is left out of the writer's identity, but is in it")
   end
@@ -2120,7 +2120,7 @@ local function test_the_writer_modules_are_closed_under_require()
       "(build.identity's writer_roots) nor the compiler's, with no reason: " ..
       table.concat(unclassified, ", "))
   for name in pairs(neither) do
-    assert(used[name], name .. " is named as in neither identity, " ..
+    assert(used[name] == true, name .. " is named as in neither identity, " ..
         "but build.writer no longer reaches it")
   end
 end
@@ -2145,7 +2145,7 @@ local function test_the_analyzer_modules_are_closed_under_require()
   -- by this set; the privacy-by-position check, which only the importer calls, is in neither.
   assert(listed["build.syntax_analyzer"] ~= true and listed["build.positions"] ~= true, table.concat(modules, ", "))
   -- The analysis schema is; the rest of the working database and the caches themselves, which reach build/zig.tl, are not.
-  assert(listed["build.analysis_schema"], table.concat(modules, ", "))
+  assert(listed["build.analysis_schema"] == true, table.concat(modules, ", "))
   assert(listed["build.work"] ~= true and listed["build.caches"] ~= true and
       listed["build.zig"] ~= true, table.concat(modules, ", "))
   local file_of = tree_file_of
@@ -2405,7 +2405,7 @@ local function test_the_module_shape_does_not_reach_the_plans_or_the_readers()
       end
     end
   end
-  assert(seen["build.module"], "position and input readers lost their shared module shape")
+  assert(seen["build.module"] == true, "position and input readers lost their shared module shape")
   for _, name in ipairs({ "build.plans", "build.syntax_contracts", "build.syntax_receivers" }) do
     assert(seen[name] ~= true, "the shared module shape pulled in " .. name)
   end

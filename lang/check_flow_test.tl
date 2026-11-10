@@ -324,7 +324,7 @@ local function test_an_is_test_of_an_enum_is_a_test_of_its_values()
   local x = Programs.execute(PRELUDE .. head .. "local s: string = \"purple\"\nif s is Color then\n  print(paint(s))\nend\n", true, nil, true)
   local fault = x.fault
   assert(x.ran and fault ~= nil and fault:find("fact violated: s is the string purple", 1, true) ~= nil, tostring(fault))
-  assert(x.lua:find('type(s) == "string"', 1, true) and not x.lua:find("[\"purple\"]", 1, true), x.lua)
+  assert(x.lua:find('type(s) == "string"', 1, true) ~= nil and not x.lua:find("[\"purple\"]", 1, true), x.lua)
   local y = Programs.execute(PRELUDE .. head .. "local s: string = \"purple\"\nif s is Color then\n  print(paint(s))\nend\n", true)
   assert(y.fault == nil and y.lua:find('({["red"] = true, ["green"] = true})[s] == true', 1, true) ~= nil, tostring(y.fault) .. y.lua)
 end

@@ -9,6 +9,13 @@ local sys = require("cosmic.sys")
 local Grader = require("eval.check.grade")
 local stand_in = require("build.stand_in")
 
+--- The value of a value-and-reason pair, which is there: `assert` takes no optional that may hold `false`, which it would
+--- raise for as for nil.
+local function known_value(value: Json.Value?, why?: string): Json.Value
+  assert(value ~= nil, why)
+  return value
+end
+
 --- A build database with the two tables the evidence reads: one input
 --- per path, and one run per passing or failing test.
 local function database(path: string, inputs: {{string}}, runs: {{string}})
@@ -107,7 +114,7 @@ local function test_a_failed_build_does_not_run_an_earlier_binary(dir: string)
   assert(said:find("check: FAIL " .. dir .. "/bin/cosmic build\n", 1, true), said)
   assert(said:find("skip " .. dir .. "/project/o/bin/notes: cosmic build failed", 1, true), said)
   assert(Fs.exists(dir .. "/empty") ~= true, "the earlier binary was run")
-  assert(Fs.exists(dir .. "/project/o/bin/notes"), "the solver's binary was removed")
+  assert(Fs.exists(dir .. "/project/o/bin/notes") == true, "the solver's binary was removed")
 end
 
 --- A build that passes without writing notes (cmd/notes renamed away)
@@ -439,7 +446,7 @@ local function test_a_grade_runs_with_a_home_inside_the_arena()
 end
 
 local function test_a_list_that_holds_a_null_is_valid_json_and_a_bare_null_is_said_so()
-  local list = assert(Grader.decoded("[1,null,3]"))
+  local list = known_value(Grader.decoded("[1,null,3]"))
   local items = assert(Json.to_array(list))
   assert(#items == 3 and items[2] == Json.null and items[3] == 3)
   local bare = Grader.decoded("null")

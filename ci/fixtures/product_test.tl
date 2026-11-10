@@ -58,12 +58,12 @@ local function check_hashes(product: string)
   end
   local seen: mut {string:boolean} = {}
   for _, name in ipairs(names) do
-    assert(hashes[name] and Fixture.hash(product .. "/" .. name) == hashes[name],
+    assert(hashes[name] ~= nil and Fixture.hash(product .. "/" .. name) == hashes[name],
       "transported hash differs: " .. name)
     seen[name] = true
   end
   for name in pairs(hashes) do
-    assert(seen[name], "unexpected product hash record: " .. name)
+    assert(seen[name] == true, "unexpected product hash record: " .. name)
   end
 end
 

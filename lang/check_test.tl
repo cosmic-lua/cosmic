@@ -557,7 +557,7 @@ local function test_each_case_has_its_error_with_place_message_and_fix()
   end
   assert(#problems == 0, table.concat(problems, "\n"))
   for _, code in ipairs(Check.codes) do
-    assert(seen[code], code .. " has no case")
+    assert(seen[code] == true, code .. " has no case")
   end
 end
 
@@ -1169,6 +1169,73 @@ local function codes_of(source: string, modules?: {string: string}): string
   local r = Programs.run(source, modules)
   assert(#r.before == 0, table.concat(r.before, " ") .. " in\n" .. source)
   return Programs.codes(r)
+end
+
+--- `assert` raises for false as for nil, so its first argument is held to the rule of a condition where it is an optional
+--- that may hold a boolean: a name, a field, an index read, the first value of a call, and a union with `boolean` in it.
+local function test_assert_of_an_optional_that_may_hold_a_boolean_is_refused()
+  local pair = "local function g(): boolean?, string\n  return nil, \"none\"\nend\n"
+  assert(codes_of("local function f(x: boolean?)\n  assert(x)\nend\n") == "condition_type")
+  assert(codes_of("local record R\n  flag: boolean?\nend\nlocal function f(r: R)\n  assert(r.flag, \"unset\")\nend\n") ==
+      "condition_type")
+  assert(codes_of("local function f(flags: {boolean})\n  assert(flags[1])\nend\n") == "condition_type")
+  assert(codes_of("local function f(flags: {boolean})\n  if assert(flags[1]) then\n    print(1)\n  end\nend\n") ==
+      "condition_type")
+  assert(codes_of("local function f(seen: {string: boolean}, k: string)\n  assert(seen[k], k)\nend\n") == "condition_type")
+  assert(codes_of(pair .. "print(assert(g()))\n") == "condition_type")
+  assert(codes_of("local function f(v: (boolean | string)?)\n  assert(v)\nend\n") == "condition_type")
+  assert(codes_of("local type V = boolean | number | string | {V}\nlocal function f(v: V?)\n  assert(v)\nend\n") ==
+      "condition_type")
+  local named = first_error("local function f(x: boolean?)\n  assert(x)\nend\n", "condition_type")
+  assert(has(named.msg, "`x` is `boolean?`: nil and false would not be told apart"), named.msg)
+  assert(has(named.fix, "`assert(x ~= nil)` that it is there, or `assert(x == true)` that it is true"), named.fix)
+  assert(named.y == 2 and named.x == 10, tostring(named.y) .. ":" .. tostring(named.x))
+  -- A comparison would keep only the first value of a call, so the reason is bound to be passed on.
+  local called = first_error(pair .. "print(assert(g()))\n", "condition_type")
+  assert(has(called.fix, "`local value, reason = g()`") and has(called.fix, "`assert(value ~= nil, reason)`") and
+      has(called.fix, "`assert(value == true, reason)`"), called.fix)
+end
+
+--- What `assert` takes as before: a boolean, an optional that holds no boolean, a value and its reason, an effect and its
+--- reason, and the two tests the refusal sends an optional boolean to, each of which leaves it not nil.
+local function test_assert_of_a_boolean_or_of_an_optional_with_no_boolean_stands()
+  assert(codes_of("local function f(b: boolean)\n  assert(b)\nend\n") == "")
+  assert(codes_of("local function f(s: string?): string\n  assert(s, \"none\")\n  return s\nend\n") == "")
+  assert(codes_of("local function f(xs: {integer}): integer\n  return assert(xs[1])\nend\n") == "")
+  assert(codes_of("local function g(): integer?, string\n  return nil, \"none\"\nend\nprint(assert(g()))\n") == "")
+  assert(codes_of("local function w(): boolean, string\n  return true, \"\"\nend\nassert(w())\n") == "")
+  assert(codes_of("local function f(x: boolean?): boolean\n  assert(x ~= nil)\n  return x\nend\n") == "")
+  assert(codes_of("local function f(x: boolean?): boolean\n  assert(x == true, \"unset\")\n  return x\nend\n") == "")
+  assert(codes_of("local function f(flags: {boolean}): boolean\n  assert(flags[1] ~= nil)\n  return flags[1]\nend\n") == "")
+end
+
+--- What equals `true` or `false` is not nil, in the arm where it is equal and after an `assert` of it. What differs from
+--- one may be the other or nil, so that arm keeps the optional.
+local function test_a_place_equal_to_true_or_false_is_not_nil_where_it_is_equal()
+  local function arm(test: string, holds: boolean): string
+    local read = "    return x\n"
+    local other = "    return false\n"
+    return codes_of("local function f(x: boolean?): boolean\n  if " .. test .. " then\n" ..
+        (if holds then read else other end) .. "  else\n" .. (if holds then other else read end) .. "  end\nend\n")
+  end
+  for _, test in ipairs({ "x == true", "x == false", "true == x", "false == x" }) do
+    assert(arm(test, true) == "", test .. ": " .. arm(test, true))
+    assert(arm(test, false) == "nil_not_allowed", test .. ": " .. arm(test, false))
+  end
+  for _, test in ipairs({ "x ~= true", "x ~= false", "true ~= x" }) do
+    assert(arm(test, false) == "", test .. ": " .. arm(test, false))
+    assert(arm(test, true) == "nil_not_allowed", test .. ": " .. arm(test, true))
+  end
+  assert(codes_of("local function f(x: boolean?): boolean\n  assert(x ~= true)\n  return x\nend\n") == "nil_not_allowed")
+  assert(codes_of("local function f(x: boolean?, y: boolean?): boolean\n  assert(x == true)\n  return y\nend\n") ==
+      "nil_not_allowed")
+  -- An optional union loses its nil alone.
+  assert(codes_of("local function f(v: (boolean | string)?): boolean | string\n  if v == false then\n    return v\n  end\n" ..
+      "  return \"\"\nend\n") == "")
+  -- An element read of an array is there where it equals one.
+  local element = codes_of("local function f(flags: {boolean}): boolean\n  if flags[1] == true then\n    return flags[1]\n" ..
+      "  end\n  return false\nend\n")
+  assert(element == "", element)
 end
 
 local TAILED <const> = "local tailed: function(): string... = function() end\n"

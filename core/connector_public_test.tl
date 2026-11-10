@@ -153,7 +153,7 @@ local function test_every_refused_prefix_is_refused_at_both_ends_and_its_neighbo
   end
   -- A prefix added to the list is a prefix added here.
   for _, cidr in ipairs(Address.deny_cidrs()) do
-    assert(named[cidr], cidr .. " has no boundary vectors")
+    assert(named[cidr] == true, cidr .. " has no boundary vectors")
   end
   assert(sys.close(pair.controller))
   assert(assert(process.waitpid(child, false)).code == 0)

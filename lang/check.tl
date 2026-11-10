@@ -908,6 +908,10 @@ local function index_fix(ctx: Ctx, e: Ast.Index): string
 end
 
 --- The fix for a value that may be nil.
+--
+-- TODO: name `assert(x ~= nil)` in place of `assert(x)`, here and in [`index_fix`], for a value that may hold a boolean,
+-- whose `assert(x)` is refused in turn (`condition_type`, with that fix); it waits on the callers passing the type of
+-- the value, which each has in another form.
 local function nil_fix(ctx: Ctx, node: Ast.Node): string
   local e = peel(node)
   if (e.kind == "Call") or (e.kind == "MethodCall") then
@@ -3809,9 +3813,16 @@ function Narrowing.compare_edges(ctx: Ctx, f: Flow.State, node: Ast.Binary): Flo
     else
       no = Tests.has_element(ctx, f, if r.kind == "Nil" then l else r end)
     end
-  -- TODO: narrow a place compared with `true` or `false` to not nil where they are equal: `if x == true then` leaves `x`
-  -- a `boolean?` inside, though the fix of `condition_type` sends an optional boolean to that test. It waits on nothing
-  -- but a branch here for a `Boolean` operand (as the one for `Nil` above) and its tests.
+  elseif (r.kind == "Boolean") or (l.kind == "Boolean") then
+    -- What equals `true` or `false` is not nil, which is all the test shows: what differs from one may be the other or
+    -- nil. It is the test `condition_type` sends an optional boolean to, in a condition and in an `assert`.
+    local operand = if r.kind == "Boolean" then l else r end
+    local p = place_of(ctx, f, operand)
+    if p ~= nil then
+      yes = Narrowing.when_true(f, p, Tests.not_nil_of(ctx, current(f, p)))
+    else
+      yes = Tests.has_element(ctx, f, operand)
+    end
   elseif (r.kind == "String") and (l.kind == "Call") then
     yes, no = Narrowing.type_edges(ctx, f, l, r.value)
   elseif (l.kind == "String") and (r.kind == "Call") then
@@ -5459,6 +5470,37 @@ function Calls.gsub_key(ctx: Ctx, c: Fn, args: {Ast.Exp}, off: integer, key: str
         "integer keys" else ", or capture text with `( ... )` for string keys" end), { show(ctx, declared) })
 end
 
+--- Holds the first argument of a call `node` of the global `assert`, of type `t`, to the rule of a condition
+--- ([`condition_kind`]) where it is an optional whose value may be a boolean: `assert` raises for false as for nil, so
+--- one written to say that the value is there raises where it is there and false.
+local function asserted_boolean(ctx: Ctx, node: Ast.Node, args: {Ast.Exp}, t: Type?)
+  local first = args[1]
+  if first == nil or t == nil or node.kind ~= "Call" then
+    return
+  end
+  local callee = node.callee
+  if callee.kind ~= "Name" or callee.binding ~= nil or callee.text ~= "assert" or not nilable(t) then
+    return
+  end
+  local boolean = false
+  for _, m in ipairs(members_of(ctx.store, ctx.store:non_nil(t))) do
+    boolean = boolean or is_bool(m)
+  end
+  if not boolean then
+    return
+  end
+  local text = text_of(ctx, first)
+  local at = peel(first)
+  local fix = "say which is asserted: `assert(" .. text .. " ~= nil)` that it is there, or `assert(" .. text .. " == true)` that it is true"
+  if at.kind == "Call" or at.kind == "MethodCall" then
+    -- A comparison keeps only the first value of a call, so the reason is named to be passed on.
+    fix = "name the values (`local value, reason = " .. text .. "`) and say which is asserted: `assert(value ~= nil, reason)` " ..
+      "that it is there, or `assert(value == true, reason)` that it is true"
+  end
+  report(ctx, "condition_type", first, subject(ctx, first) .. " is " .. tq(ctx, t) .. ": nil and false would not be told apart", fix,
+    { show(ctx, t) })
+end
+
 local function apply_overloads(ctx: Ctx, node: Ast.Node, callee: string, cands: {Type}, args: {Ast.Exp}, recv: Type?,
                                expected: Type?, key?: string): {Alt}
   local off = if recv ~= nil then 1 else 0 end
@@ -5592,6 +5634,9 @@ local function apply_overloads(ctx: Ctx, node: Ast.Node, callee: string, cands: 
         end
         if key ~= nil then
           Calls.gsub_key(ctx, c, args, off, key)
+        end
+        if recv == nil then
+          asserted_boolean(ctx, node, args, known[1])
         end
         local given: mut {Type} = {}
         for i = 1, count do
@@ -5980,12 +6025,6 @@ end
 -- narrows a place to a type and answers nothing, while `assert(x ~= nil)` and `local s = assert(find())` narrow by the
 -- condition and answer the value. The type of the call is the declaration's (a generic function, solved as any is); only
 -- what follows it is this.
---
--- TODO: hold the first argument of `assert` to the rule of a condition ([`condition_kind`]) where it is an optional that
--- may hold a boolean: `assert(flags[1])` of a `{boolean}` raises where the element is false, and `assert(Json.decode(text))`
--- where the text is `false`, though each reads as a test that the value is there. It waits on the tree's own such calls,
--- some 200 in 100 files, being rewritten to say which they assert (`~= nil` or `== true`): a new rule lands with the
--- code it finds fixed.
 local function after_call(ctx: Ctx, node: Ast.Node, callee: Ast.Exp?, alts: {Alt}, args: {Ast.Exp},
                           receiver: Ast.Exp?)
   ctx.guards[base_of(node).id] = nil

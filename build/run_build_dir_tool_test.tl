@@ -41,7 +41,7 @@ local function test_a_tree_that_cannot_be_written_builds_in_the_cache(tmp: strin
   assert(first.code == 0 and first.stdout == "from here\n", tostring(first.stderr))
   local directory = assert(build_paths.directory(root, { XDG_CACHE_HOME = cache }))
   assert(Fs.within(directory, assert(sys.realpath(cache)) .. "/cosmic/trees"), directory)
-  assert(Fs.exists(directory .. "/cosmic.db"), "it built nowhere in the cache")
+  assert(Fs.exists(directory .. "/cosmic.db") == true, "it built nowhere in the cache")
   local listed = assert(Fs.list(root))
   assert(#listed == 2, "it wrote into the tree it could not write")
   local again = run(root, cache, "main.tl", "again")
