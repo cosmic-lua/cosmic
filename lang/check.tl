@@ -1054,6 +1054,10 @@ local function refused(ctx: Ctx, node: Ast.Node, got: Type, want: Type, r: Relat
         quoted(Types.display(r.super, ctx.binders)) .. ")"
     end
     local fix = "pass a value of type " .. quoted(w) .. ", or change the declaration to " .. quoted(g)
+    if want.tag == "nil" then
+      -- What was given `nil` and no type holds nil alone (`local x = nil`).
+      fix = "declare what holds it optional where it is made: `local x: " .. g .. "? = nil`"
+    end
     local body = Types.unfold(want)
     if body ~= want then
       -- A recursive alias is wanted: its arms are what the program has to choose among.
@@ -1399,7 +1403,7 @@ local function first_value(ctx: Ctx, node: Ast.Node, alts: {Alt}): Type
     local call = text_of(ctx, node)
     local raises = ""
     if ctx.filename:sub(-8) == "_test.tl" and (call:find("^pcall%(") ~= nil or call:find("^xpcall%(") ~= nil) then
-      raises = "; to check that a call raises, `Test.raises(fn, says?)` runs it and answers the message it raised"
+      raises = "; to check that a call raises, `Test.raises(function() f(x) end, says?)` runs it and answers the message it raised"
     end
     report(ctx, "alternatives_as_value", node, subject(ctx, node) .. " answers one of " .. tostring(#alts) ..
         " lists of values, which is no value",
@@ -2754,6 +2758,20 @@ function Operands.overlaps(ctx: Ctx, a: Type, b: Type): boolean
   return false
 end
 
+--- What the fix of a write through the view `base` adds where a local holds it: a local read out of a collection is a
+--- view by that collection's type, which is where `mut` goes.
+local function read_out(ctx: Ctx, target: Ast.Index, base: Type): string
+  if target.object.kind ~= "Name" then
+    return ""
+  end
+  return "; one read out of a collection is `mut` where that collection's type says so (`{K: mut " .. show(ctx, base) .. "}`)"
+end
+
+--- The fix of a value returned by a function that declares no return list, which a function literal passed where one
+--- that answers nothing is wanted is too.
+local UNDECLARED_RETURN_FIX <const> = "declare the return list: `function f(): T`; where a function that answers nothing is " ..
+  "wanted, write the call as a statement, with no `return`"
+
 --- What a condition of type `t` is: "bool", "opt" (a `T?` for a `T` that is not a boolean), or "bad" after the error.
 --- `default` is the `or` whose left `node` is, which asks for a default: a value that is never nil there needs no test, and
 --- no default.
@@ -2791,7 +2809,10 @@ local function condition_kind(ctx: Ctx, node: Ast.Node, t: Type, default?: Ast.B
     local cut = if ctx.spare[base_of(node).id] == true then "replace `" ..
         text_of(ctx, default) .. "` with `(" .. text_of(ctx, node) .. ")`, which keeps only the first value, as `or` did" else
       "delete `or ...`" end
-    fix = s .. " is never nil" .. (if place == "Name" or place == "Field" then " here (a test before may have narrowed it)" else "" end) ..
+    fix = s .. " is never nil" .. (if place == "Name" or place == "Field" then " here (a test before may have narrowed it)" elseif place == "Index" then
+      " here (a loop that counts its keys, or a test or an `assert` before of it or of the length, says so, until a call " ..
+        "or a write to what it indexes)" else
+      "" end) ..
       ", so the default is never used: " .. cut
   elseif is_text(t) then
     fix = "write the test: `" .. text_of(ctx, node) .. " ~= \"\"`"
@@ -7283,7 +7304,8 @@ local function place_of_target(ctx: Ctx, s: Ast.Assign, target: Ast.Exp, at: int
             (Writes.is_append(target) and not (runs_code and Writes.may_shorten(ctx, target.object, s))) then
           report(ctx, "view_written", target, owner .. " is a view " .. tq(ctx, base) .. ", so " .. subject(ctx, target) ..
               " cannot be assigned",
-            "declare " .. owner .. " `mut " .. show(ctx, base) .. "` where it is made or received", { show(ctx, base) })
+            "declare " .. owner .. " `mut " .. show(ctx, base) .. "` where it is made or received" .. read_out(ctx, target, base),
+            { show(ctx, base) })
         else
           -- The values say whether the write may leave a hole, which is an `array_hole` beside this error: see below.
           pending[#pending + 1] = { target = target, at = at, owner = owner, base = base, view = true, integral = integral }
@@ -7302,7 +7324,8 @@ local function place_of_target(ctx: Ctx, s: Ast.Assign, target: Ast.Exp, at: int
       if not base.mut then
         report(ctx, "view_written", target, owner .. " is a view " .. tq(ctx, base) .. ", so " .. subject(ctx, target) ..
             " cannot be assigned",
-          "declare " .. owner .. " `mut " .. show(ctx, base) .. "` where it is made or received", { show(ctx, base) })
+          "declare " .. owner .. " `mut " .. show(ctx, base) .. "` where it is made or received" .. read_out(ctx, target, base),
+          { show(ctx, base) })
       end
       return base.value, true
     elseif (base.tag == "named") and (base.decl.kind == "record" or base.decl.kind == "class") then
@@ -7706,7 +7729,7 @@ local function check_return(ctx: Ctx, s: Ast.Return)
     if #alt.items == 0 and alt.tail == nil then
       if #vals.types > 0 or vals.tail ~= nil then
         report(ctx, "return_unexpected", s, "this function returns nothing, and this returns " .. plural(#vals.types, "value"),
-          if frame.declared then "remove the value" else "declare the return list: `function f(): T`" end) -- checked: nil_not_allowed
+          if frame.declared then "remove the value" else UNDECLARED_RETURN_FIX end) -- checked: nil_not_allowed
       end
       return
     end
@@ -7765,7 +7788,7 @@ local function check_return(ctx: Ctx, s: Ast.Return)
       elseif count + 1 > #alt.items then
         report(ctx, "return_arity", last, subject(ctx, last) .. " ends in `" .. show(ctx, tail) ..
             "...`, so this may return more values than the function answers (" .. tostring(#alt.items) .. ")",
-          "return the values the function answers, one by one")
+          "write `(" .. text_of(ctx, last) .. ")` to return its first value alone, or bind the values to locals and return those")
       end
     end
     return

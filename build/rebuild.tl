@@ -182,8 +182,8 @@ local function project(root: string, verb: string, start: boolean, carried?: str
   end
   if not found.project and not start then
     if looks_unbuilt(root) then
-      log:complain(verb .. ": this directory has not been built; `cosmic build`, `cosmic test` or " ..
-          "`cosmic fix` first to include its modules")
+      log:complain(verb .. ": note: answering without this directory's modules, which no build has made yet; `cosmic build`, " ..
+          "`cosmic test` or `cosmic fix` builds them")
     end
     return true, ""
   end

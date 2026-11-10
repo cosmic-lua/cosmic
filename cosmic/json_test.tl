@@ -912,6 +912,9 @@ local function test_to_value_copies_a_decoded_document_by_kind()
   local kept = assert(Json.to_value(decoded('{"a": null}', { null_value = Json.null })))
   assert(encoded(kept) == '{"a":null}')
   assert(Json.is_array((assert(Json.to_value(decoded("[]"))))), "an empty array stays an array")
+  local none: {string: Json.Value} = {}
+  local object = assert(Json.to_value(none))
+  assert(not Json.is_array(object) and encoded(object) == "{}", "a table with no keys and no mark is an object")
   assert(Json.is_array((assert(Json.to_value({ 1, 2 })))), "an unmarked array is marked")
 end
 

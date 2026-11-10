@@ -80,6 +80,8 @@ local record Parser
     "mut_needs_collection" "string_call" "variadic_type" "optional_type" "tuple_type"
     "string_literal_type" "bare_function_type" "metamethod" "several_supers"
     "generic_function_literal" "bad_attribute"
+    -- `f<T>(x)`, a call with a type argument; `{ a: A, b: B }`, a record written as a type in braces
+    "type_argument" "inline_record"
     -- an `if` expression with no `else`; a `match` of what is no call
     "if_needs_else" "match_needs_call"
     -- a method whose first parameter is not `self`, and a method named as if outside its class
@@ -932,6 +934,18 @@ local function parse_collection(): Ast.Type
   if S.text == ":" then
     advance()
     local value = parse_type()
+    if S.text == "," then
+      report("inline_record", S.pos, "a record type is not written in braces: `{K: V}` is a map of one key type to one value type",
+        "declare the record (`local record R ... end`) and name it here")
+      while S.text == "," do
+        advance()
+        parse_type()
+        if S.text == ":" then
+          advance()
+          parse_type()
+        end
+      end
+    end
     node = { kind = "TypeMap", id = 0, first = open, last = S.pos, key = first_type, value = value }
   else
     if S.text == "," then
@@ -1248,7 +1262,18 @@ local function parse_if_expression(): Ast.Exp
       "write `else <value>` before `end`; to run statements on a condition, write an `if` statement")
     else_value = { kind = "Error", id = 0, first = S.pos, last = S.pos - 1 }
   end
-  close("end", first, "`if` expression")
+  local line = first
+  while line > 1 and same_line(line) do
+    line = line - 1
+  end
+  if S.text == "end" and begins_line(S.pos) and Lexer.x(S.tokens, S.pos) < Lexer.x(S.tokens, line) then
+    -- An `end` shallower than the statement the expression is in closes a block around it.
+    report("unclosed", S.pos, "the `if` expression on line " .. tostring(S.ys[first]) .. " has no `end`: the `end` on line " .. tostring(S.ys[S.pos]) ..
+        " lines up with a block around it",
+      "write `end` after the `else` value: `if cond then a else b end`", first)
+  else
+    close("end", first, "`if` expression")
+  end
   return { kind = "IfExp", id = 0, first = first, last = S.pos - 1, arms = arms, else_value = else_value }
 end
 
@@ -1543,6 +1568,11 @@ local function subexpression(limit: integer): Ast.Exp
     if entry == nil or entry.left <= limit or (S.arms > 0 and arm_bar(true)) then
       S.nesting = depth
       return left
+    end
+    if entry.op == ">" and left.kind == "Binary" and left.op == "<" and peek_text(1) == "(" and same_line(S.pos + 1) then
+      report("type_argument", S.pos, "a call takes no type arguments: `" .. quoted_text(first, S.pos) ..
+          "(...)` reads as two comparisons",
+        "call it with its arguments alone: they and the type the result is given say the type (`local v: T = f(x)`)")
     end
     advance()
     local right = subexpression(entry.right)
@@ -2742,7 +2772,7 @@ Parser.codes = {
   "bare_declaration", "function_path", "global_in_program", "userdata_in_program", "duplicate_field",
   "body_in_declaration", "statement_in_declaration", "mut_needs_collection", "string_call", "variadic_type",
   "optional_type", "tuple_type", "string_literal_type", "bare_function_type", "metamethod", "several_supers",
-  "generic_function_literal", "bad_attribute", "if_needs_else", "match_needs_call", "method_needs_self",
+  "generic_function_literal", "bad_attribute", "type_argument", "inline_record", "if_needs_else", "match_needs_call", "method_needs_self",
   "method_path", "close_repeated", "trailing_comma", "arm_on_same_line", "unreachable_arm", "duplicate_binding", "reserved_method",
   "suffix_needs_parens", "nested_in_interface",
   "old_type_declaration", "narrowing_return", "too_deep", "computed_require", "require_value",

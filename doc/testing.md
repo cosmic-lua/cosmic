@@ -523,7 +523,9 @@ local `<thing>_or_skip()`), because after [`Test.skip`] nothing runs.
 A test that passes without calling `assert` shows only that it did not
 raise. The worker counts calls to `assert`, through any helper or
 fixture. `cosmic test` lists each such pass as `test: NO ASSERT <id>`
-and keeps no verdict of it. A held run fails it.
+and keeps no verdict of it. A held run fails it. A test that returns
+early where it cannot check is such a pass: it calls [`Test.skip`]
+with the reason instead, and is listed as skipped.
 
 To compare JSON-shaped values, use [`Json.diff`]`(want, got)` and assert that the list it answers is empty, or put the paths
 it names in the message. Compare a typed record field by field.
@@ -795,8 +797,9 @@ end
 ### output
 
 What a test prints is shown only when it fails, beneath its failure as
-`  | ` lines. `cosmic test --show-output` also lists it for a test that
-passed:
+`  | ` lines: its last 4096 bytes, under a line that says so when there
+were more. `cosmic test --show-output` also lists it, whole, for a test
+that passed:
 
 ```text
 test: PASS  suite.chatty_test test_prints_values
