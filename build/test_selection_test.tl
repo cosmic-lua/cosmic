@@ -252,6 +252,56 @@ return Example
   assert(text:find("1 test passed in 1 module; 0 ran, 1 stood", 1, true), text)
 end
 
+--- A run says where its time went on a line before its summary: the tests' own time apart from what the runner
+--- spent around them. A run that ran none says nothing of workers.
+local function test_cli_says_where_the_time_went_before_the_summary(tmp: string)
+  local root = project(tmp)
+  local output = tmp .. "/ran.out"
+  local result = invoke(root, output, "suite/selected_test.tl:test_selected")
+  local text = assert(Fs.read(output))
+  assert(result.ok, text)
+  local line = "\ntest: time: building [%d.]+ s, keying [%d.]+ s, running [%d.]+ s %([%d.]+ s in 1 test, up to %d+ at a " ..
+    "time; the runner [%d.]+ s starting their workers and [%d.]+ s recording them%), settling coverage and records " ..
+    "[%d.]+ s\ntest: 1 test passed in 1 module; 1 ran"
+  assert(text:find(line), text)
+  output = tmp .. "/stood.out"
+  result = invoke(root, output, "suite/selected_test.tl:test_selected")
+  text = assert(Fs.read(output))
+  assert(result.ok, text)
+  assert(text:find("\ntest: time: building [%d.]+ s, keying [%d.]+ s, running [%d.]+ s, settling coverage and records " ..
+      "[%d.]+ s\ntest: 1 test passed in 1 module; 0 ran, 1 stood"), text)
+end
+
+--- The tests the `time` line counts are those whose worker this run collected: one whose module's host lacks what it
+--- requires starts none, and is in the summary's figures alone. A failing run says the line too, before its summary.
+local function test_cli_times_only_the_tests_whose_workers_it_collected_and_a_failing_run_too(tmp: string)
+  local root = project(tmp)
+  assert(Fs.write(root .. "/suite/needs_test.tl", [[
+local Test = require("cosmic.test")
+Test.policy { requires = { "checked" } }
+local function test_needs_a_checked_core()
+  assert(true)
+end
+]]))
+  local output = tmp .. "/unmet.out"
+  local result = invoke_words(root, output, { "suite/selected_test.tl:test_selected", "suite/needs_test.tl" })
+  local text = assert(Fs.read(output))
+  assert(result.ok, text)
+  assert(text:find("%([%d.]+ s in 1 test, up to %d+ at a time; [^\n]*\ntest: 2 tests passed in 2 modules; 1 ran, 0 stood, " ..
+      "1 n/a"), text)
+  assert(Fs.write(root .. "/suite/fails_test.tl", [[
+local function test_fails()
+  assert(1 + 1 == 3, "arithmetic held")
+end
+]]))
+  output = tmp .. "/failing.out"
+  result = invoke(root, output, "suite/fails_test.tl")
+  text = assert(Fs.read(output))
+  assert(not result.ok, text)
+  assert(text:find("\ntest: time: building [%d.]+ s, keying [%d.]+ s, running [%d.]+ s %([%d.]+ s in 1 test, [^\n]*\n" ..
+      "test: 1 of 1 test failed, "), text)
+end
+
 --- A failing test's report names the selector that reruns it, quoted
 --- for a shell when its path needs it, on the line after its FAIL block;
 --- that selector, given back to `cosmic test`, runs that one test and no
