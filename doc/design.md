@@ -671,7 +671,7 @@ developer runs `bin/cosmic build` the other hundred times a day.
 
 [`build.work`] stages inputs and manages the working database.
 [`build.identity`] defines input policy, fingerprints and semantic identities.
-[`build.derivation`] writes generated inputs and analysis rows;
+[`build.derivation`] writes generated inputs and analysis rows, and [`build.parse_derive`] the rows of a parse;
 [`build.pipeline`] defines compilation and acceptance. [`build.importer`]
 coordinates parses, compiles and cache lookups. its `compile_tree` owns the
 shared caches through derivation, identity selection and compilation; the caller
@@ -708,10 +708,14 @@ identity holds the modules that decide generated code, stored analysis and
 acceptance, plus the checker's source and the Teal compiler's and Lua's
 pins and Lua's patches ([`build.identity.compiler_identity`]). module keys carry it; importer
 coordination, diagnostic presentation and general standard-library plumbing
-stay outside it. the analyzer identity keys stored parses: the runtime basis,
-the analyzer modules' sources and the code that reads
-([`build.importer.analyzer_identity`]), not the whole compiler identity, so an
-edit only a compile runs (build.plans) parses nothing again. the writer identity holds the code and
+stay outside it. the analyzer identity keys stored parses: the runtime basis and
+the source of every module a parse runs, found by walking `require` from the
+derivation and the parse ([`build.parse_derive`]: the lexer, the parser, the
+readers of the syntax tree and the statements that write their rows)
+([`build.importer.analyzer_identity`]). it is not the whole compiler identity and
+holds nothing of the checker, which no module of that walk requires, so an
+edit only a compile runs (build.plans, lang/check.tl, [`build.driver`]) parses
+nothing again, and an edit to the lexer or the parser parses every source again. the writer identity holds the code and
 core image that determine a projection's bytes, including its standard-library
 dependencies. the projection records which compiler and writer produced it so a
 self-rebuild can settle on its own code. the runtime basis holds the same pins, patches
@@ -1341,6 +1345,8 @@ in [roadmap.md](roadmap.md).
 [`bin/zig.pin`]: ../bin/zig.pin
 [`bin/zig`]: ../bin/zig
 [`build.boot`]: ../build/boot.tl
+[`build.driver`]: ../build/driver.tl
+[`build.parse_derive`]: ../build/parse_derive.tl
 [`build.derivation`]: ../build/derivation.tl
 [`build.identity.compiler_identity`]: ../build/identity.tl
 [`build.identity`]: ../build/identity.tl

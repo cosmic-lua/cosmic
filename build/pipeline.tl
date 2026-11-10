@@ -1,6 +1,6 @@
 --- The build's compile with the new checker ([`build.grammar_mode`]): a module of the staged tree is read, checked against
 --- its markers and written as Lua and bytecode by [`build.driver`] and [`lang.codegen`]. [`Pipeline.generate`] answers what
---- [`build.importer`] asks of a compile, and [`Pipeline.derive`] writes the rows of a parse.
+--- [`build.importer`] asks of a compile. The rows of a parse are [`build.parse_derive`]'s.
 ---
 --- THE PROGRAM is every module of the staged tree (the `inputs` of the working database), in the new grammar, set up as the
 --- pins are measured ([`build.tree_program`]); the `cosmic.*` modules the tree does
@@ -32,9 +32,9 @@ local CodeWalk = require("build.code_walk")
 local CompileGrammar = require("build.compile_grammar")
 local Ast = require("lang.ast")
 local Rules = require("build.contract_rules")
-local Declarations = require("lang.declarations")
 local Driver = require("build.driver")
 local Memprobe = require("build.memprobe")
+local ParseDerive = require("build.parse_derive")
 local ErrorCatalog = require("build.error_catalog")
 local ErrorRender = require("build.error_render")
 local Fs = require("cosmic.fs")
@@ -50,20 +50,16 @@ local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local String = require("cosmic.string")
 local SyntaxContracts = require("build.syntax_contracts")
-local SyntaxDerivation = require("build.syntax_derivation")
 local TreeProgram = require("build.tree_program")
 local standard_text = require("build.standard_text")
 local type Plans = require("build.plans")
-local type Derivation = require("build.derivation")
 -- Declares what text this module reads ([`build.code_walk`]'s `markers`): pipeline, stubs.
 local _ = require("build.reads.pipeline")
 local type Module = Plans.Module
 
 local record Pipeline
   --- Whether [`Pipeline.build`] refused the tree for what it holds, rather than for a trouble reading it.
-  record Refusal
-    mut refused: boolean
-  end
+  type Refusal = ParseDerive.Refusal
 
   --- What a pipeline is made of besides the tree.
   record Options
@@ -189,7 +185,7 @@ local record Pipeline
   --- a compile does and nothing of it is written, for a module that cannot be built because it requires a refused one
   --- whose declarations stand ([`Pipeline.Built.standing`]). Its own findings are then told in the run that refused the
   --- other. The module is retired, as a compile retires it, and its own standing recorded. `text` is read in place of the
-  --- module's own where given: the repaired text of a source that does not parse ([`Derivation.Broken`]'s `repaired`).
+  --- module's own where given: the repaired text of a source that does not parse ([`build.derivation`]'s `Broken`).
   examine: function(m: Module, built: Built, judged?: boolean, hints?: ErrorRender.Hints, text?: string): string
 
   --- Takes from the scope errors of `result` the shadowing of `print` that every example of a guide makes ([`build.doctest`]
@@ -199,21 +195,16 @@ local record Pipeline
 
   --- The tool string a compile is keyed by, given the one the harness chose ([`build.grammar_mode`]'s `tool`): that and the
   --- identity of the code that reads and checks a source, which is the source, as the running binary carries it,
-  --- of every module of the tree (`lang.*`, `build.*`) that [`build.pipeline`] reaches. A compile or a parse made with it is
-  --- keyed by it, so that an edit to the checker or to a reader reads the tree again; the compiler's identity
-  --- ([`build.identity`]) holds none of it, so a default run is not read again for it.
+  --- of every module of the tree (`lang.*`, `build.*`) that [`build.pipeline`] reaches. A compile made with it is
+  --- keyed by it, so that an edit to the checker or to a reader compiles the tree again; the compiler's identity
+  --- ([`build.identity`]) holds none of it, so a default run is not read again for it. A parse is keyed by the part of it
+  --- a parse runs, and no more ([`build.parse_derive`], [`build.importer`]'s `analyzer_identity`).
   coded: function(tool: string): string
 
   --- [`Pipeline.coded`] over the code the working database `db` stages, parsed, in place of the code the running binary
   --- carries: the identity of a boot, which runs the tree's own code under a bootstrap release that carries another. nil and
   --- why where the tree is not parsed.
   coded_of: function(tool: string, db: Sqlite.Handle): string?, string
-
-  --- Reads the sources `fresh` ([`build.derivation`]'s `fresh`) as written, and writes the rows of each ([`build.syntax_derivation`])
-  --- into `db` beside the others. A source that does not parse is listed in `broken` when given and stops the derive
-  --- otherwise, told in the words of the new checker ([`build.error_render`]).
-  derive: function(db: Sqlite.Handle, own: boolean, fresh: {Derivation.Fresh}, tally: Derivation.Parses,
-                   made: {Derivation.Source}, broken?: {Derivation.Broken}, refusal?: Refusal): boolean, string
 
   --- Writes a row for every code the new checker emits to the `catalog` table of `db` (of the schema `schema`, "" for the
   --- default), as [`ErrorCatalog.insert`] does.
@@ -356,46 +347,14 @@ function Pipeline.over(entries: {{string}}, kinds: {string: string}, options: Pi
   }
 end
 
---- What `inputs` of `db` stages for the new checker: the files and their text (the tree's own, and what is written from it),
---- and the kind of each ([`Pipeline.over`]).
-local function entries_of(db: Sqlite.Handle, own: boolean, refusal?: Pipeline.Refusal): {{string}}?, {string: string}, string
-  local rows, trouble = Sqlite.text_rows(db,
-    "SELECT file, path, kind, origin, source FROM inputs WHERE kind <> 'vendor' ORDER BY file")
-  if rows == nil then
-    return nil, {}, trouble
-  end
-  local entries: mut {{string}} = {}
-  local kinds: mut {string: string} = {}
-  for _, row in ipairs(rows) do
-    local file, path, kind, origin, source = row:text(1), row:text(2), row:text(3), row:text(4), row:text(5)
-    if origin == "syscalls" then
-      -- The declaration is the file of the module, named for the header it is written from.
-      local named = (path:gsub("%.", "/")) .. ".d.tl"
-      entries[#entries + 1] = { named, source, path, file }
-      kinds[named] = kind
-    elseif origin == "tree" then
-      entries[#entries + 1] = { file, source }
-      kinds[file] = kind
-    else
-      entries[#entries + 1] = { file, source, path }
-      kinds[file] = kind
-    end
-  end
-  local refused = TreeProgram.declared(entries, own)
-  if refused ~= "" then
-    if refusal ~= nil then refusal.refused = true end
-    return nil, {}, refused
-  end
-  return entries, kinds, ""
-end
-
 --- `refusal`, when given, has `refused` set where the tree is refused for what it holds (a declaration beside its source,
 --- a module named for one the binary answers) and not for a trouble reading it.
 function Pipeline.build(db: Sqlite.Handle, options: Pipeline.Options, refusal?: Pipeline.Refusal): Pipeline.Built?, string
-  local entries, kinds, trouble = entries_of(db, options.project ~= true, refusal)
-  if entries == nil then
+  local staged, trouble = ParseDerive.entries(db, options.project ~= true, refusal)
+  if staged == nil then
     return nil, trouble
   end
+  local entries, kinds = staged.entries, staged.kinds
   if options.project == true then
     local reserved = TreeProgram.reserved(entries, TreeProgram.library_modules(options.globals))
     if reserved ~= "" then
@@ -523,104 +482,6 @@ function Pipeline.catalog(db: Sqlite.Handle, schema: string): integer?, string
   return ErrorCatalog.insert(db, schema)
 end
 
---- Puts the collector back in the mode `previous` names: the answer it gave when it was switched to the generational one.
-local function restore_collector(previous: string)
-  if previous == "incremental" then
-    collectgarbage("incremental")
-  end
-end
-
---- The text of `source`, which `read` parsed with errors, with the fix of each error written in ([`Derivation.Broken`]'s
---- `repaired`): nil unless every error is a `global` in a program and the text with `local` for each parses.
---
--- TODO: repair the other errors of the parser whose fix is one spelling for another of the same statement (`T | nil` for
--- `T?`, a `;`, a trailing comma), once each is shown to leave the tree whole and to have a fix that moves no token: the
--- parser says which construct it skipped ([`lang.parser`]'s `Error` nodes), and not which error left none.
-local function repaired_of(source: Driver.Source, read: Driver.Parsed): string?
-  local text = read.text
-  local parts: mut {string} = {}
-  local from = 1
-  for _, p in ipairs(read.syntax) do
-    if p.code ~= "global_in_program" or text:sub(p.offset, p.offset + 5) ~= "global" or p.offset < from then
-      return nil
-    end
-    parts[#parts + 1] = text:sub(from, p.offset - 1)
-    parts[#parts + 1] = "local "
-    from = p.offset + 6
-  end
-  parts[#parts + 1] = text:sub(from)
-  local repaired = table.concat(parts)
-  local again = Driver.source(source.module, source.filename, repaired, source.dialect)
-  if #Driver.parse(again).syntax > 0 then
-    return nil
-  end
-  return repaired
-end
-
-function Pipeline.derive(db: Sqlite.Handle, own: boolean, fresh: {Derivation.Fresh}, tally: Derivation.Parses, -- checked: view_as_mut
-                         made: mut {Derivation.Source}, broken?: mut {Derivation.Broken}, refusal?: Pipeline.Refusal): boolean, string
-  local entries, kinds, trouble = entries_of(db, own, refusal)
-  if entries == nil then
-    return false, trouble
-  end
-  local index = TreeProgram.index(entries, kinds)
-  -- A source is found by the name of its file in the database, which for a declaration written from a header is the header's.
-  local by_file: mut {string: Driver.Source} = {}
-  for _, source in ipairs(index.sources) do
-    local named = source.filename
-    if source.pinned ~= "" then
-      named = source.pinned
-    end
-    by_file[named] = source
-  end
-  -- Each source is read once and its rows kept: the garbage of one is freed as the next is read, and not when the heap has
-  -- doubled. The collector goes back to the mode it was in.
-  local previous = collectgarbage("generational")
-  for _, one in ipairs(fresh) do
-    -- A file the program leaves out (a fixture of a test) is read as written, as a module of its own.
-    local source = by_file[one.file]
-    if source == nil then
-      local dialect: Ast.Dialect = "tl"
-      if one.file:match("%.d%.tl$") ~= nil then
-        dialect = "decl"
-      end
-      source = Driver.source(Declarations.module_of(one.file), one.file, one.source, dialect)
-    end
-    local read = Driver.parse(source)
-    local first = read.syntax[1]
-    if first ~= nil then
-      -- TODO: tell every error of the parser, as the check of a lone file does ([`Pipeline.checked_alone`]), once the
-      -- readers that take the first line of this message for the whole of it take several (`left_out` in
-      -- build/importer.tl, and the line `cosmic fix` says once for a file its own parse refused): a file with two syntax
-      -- errors takes two runs.
-      local message = ErrorRender.line(one.file, first)
-      local repaired = repaired_of(source, read)
-      if repaired ~= nil then
-        local lines: mut {string} = {}
-        for _, p in ipairs(read.syntax) do
-          lines[#lines + 1] = ErrorRender.line(one.file, p)
-        end
-        message = table.concat(lines, "\n")
-      end
-      if broken == nil then
-        restore_collector(previous)
-        return false, message
-      end
-      broken[#broken + 1] = { source_hash = one.source_hash, file = one.file, message = message, repaired = repaired }
-    else
-      local put, why = SyntaxDerivation.insert(db, one.source_hash, one.file, read.text, read.chunk, one.mapped)
-      if not put then
-        restore_collector(previous)
-        return false, why
-      end
-      tally.parsed = tally.parsed + 1
-      made[#made + 1] = { source_hash = one.source_hash, mapped = one.mapped }
-    end
-  end
-  restore_collector(previous)
-  return true, ""
-end
-
 --- The stub of each standard-library module of the tree that has a declaration-only one, as the source a build reads in place of
 --- the module, under the module's own aliases: the ones `built` was given, or those it makes of what it read of each.
 local function stubs_of(built: Pipeline.Built): {string: Driver.Source}
@@ -666,7 +527,7 @@ end
 --- one that types the module as its source does. `result` is the module read from its source in `built`.
 local function stub_trouble(m: Module, built: Pipeline.Built, result: Driver.Outcome): string
   -- The stub is made of what the checker read of the module, in the new grammar: the projection carries the fork's, for the
-  -- tools that still read it ([`Pipeline.derive`]), and a caller may give its own.
+  -- tools that still read it ([`build.parse_derive`]), and a caller may give its own.
   local given = m.stub
   local made: Stub.Made = Stub.made(result.chunk)
   if given ~= nil and next(built.given) ~= nil then

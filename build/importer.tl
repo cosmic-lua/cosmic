@@ -29,6 +29,9 @@ local identities = require("build.identity")
 -- The pipeline is required where a build in the new grammar asks for it: `cosmic boot` compiles what the tool requires at load
 -- with the bootstrap release, whose checker reads the new checker's closure otherwise than the tree's does.
 local type Pipeline = require("build.pipeline")
+-- Required where a parse runs, for the same reason: it is a root of the analyzer's identity ([`CodeWalk.analyzer_roots`]),
+-- which is walked from the roots and not from this module.
+local type ParseDerive = require("build.parse_derive")
 local analysis_schema = require("build.analysis_schema")
 local positions = require("build.positions")
 local type SyntaxReceivers = require("build.syntax_receivers")
@@ -186,18 +189,18 @@ local type Hints = importer.Hints
 importer.prune_references =
   "DELETE FROM typed_refs WHERE key NOT IN (SELECT +key FROM compiled)"
 
---- The derivation and the extractors, generators and parser it calls: the roots of
+--- The derivation, the parse and the extractors, generators and parser they call: the roots of
 --- [`importer.analyzer_modules`] ([`build.code_walk`]'s `analyzer_roots`). "The analyzer" in these names is that
 --- whole set, of which the source analyzer [`build.syntax_analyzer`] is one.
 local analyzer_roots: {string} = CodeWalk.analyzer_roots
 
 --- The modules whose code decides what the analysis tables record: the
---- derivation and every module that its extractors, generators and
---- parser reach through `require`,
+--- derivation, the parse ([`build.parse_derive`]) and every module that
+--- their extractors, generators, lexer and parser reach through `require`,
 --- as `code` records it: the running binary's own `imports` table by
---- default. What a source parses to is a function of these, of the
---- checker's readers ([`build.pipeline`]'s `coded`) and of the runtime basis,
---- and of nothing else in the tool. Cache coordination and
+--- default. What a source parses to is a function of these and of the
+--- runtime basis, and of nothing else in the tool: the checker is not
+--- among them, since no module of the walk requires it. Cache coordination and
 --- diagnostic presentation belong to the importer, outside this closure.
 local record Walk
   names: {string}?
@@ -307,12 +310,12 @@ end
 --- the tool it writes finds the rows the boot derived as its own. A
 --- binary that carries no source for one of them, or no record of what
 --- they import, can only be named whole. What a parse runs is these
---- modules, the checker's readers ([`running_analyzer`] names those by
---- [`build.pipeline`]'s `coded`) and the Lua and declarations of the basis,
---- and nothing else of the compiler's identity: an edit to build.plans or
---- build.tree compiles again and parses nothing again. What the checker's
---- readers reach (build.withheld, build.syntax_contracts and the rules,
---- through build.pipeline) still parses again.
+--- modules and the Lua and declarations of the basis, and nothing else of
+--- the compiler's identity or of the code that checks ([`build.pipeline`]'s
+--- `coded`): an edit to build.plans, build.tree or the checker (lang/check.tl,
+--- build.driver, build.pipeline) compiles again and parses nothing again. An
+--- edit to the lexer, the parser or a reader of the syntax tree parses
+--- everything again.
 local function analyzer_named(code?: importer.Code): string?, string
   local parts: mut {string} = { (if code ~= nil then code.basis else Store.meta("runtime_basis") end) or "" }
   local walk = walk_analyzer(code)
@@ -364,22 +367,6 @@ local function running_analyzer(handle: work.Handle): string?, string
     local named, named_trouble = analyzer_named(code)
     if named == nil then return nil, named_trouble end
     identity = named
-  end
-  -- The new checker's readers write the rows of a parse: the analyzer is named by the code that reads them too.
-  if not nameless(identity) then
-    local pipeline = require("build.pipeline")
-    -- A boot carries no database, so the code it carries is none and every boot would name the same checker: it
-    -- names the tree's, as the compile keys do ([`prepare_compile`]), or the tool it writes would find a name
-    -- other than its own on every row and parse the whole tree again on its first run. Where the tree is not
-    -- parsed yet its checker's requires are not known, and the name stands for the while on what it carries; the
-    -- name [`importer.derive`] takes after the parse is the one recorded.
-    if Store.meta("boot_hash") == nil then
-      local staged, _ = pipeline.coded_of(identity, handle.db)
-      if staged ~= nil then
-        return staged, ""
-      end
-    end
-    return pipeline.coded(identity), ""
   end
   return identity, ""
 end
@@ -554,8 +541,8 @@ end
 --- and takes those rows back. When the name is X, X's parses are this
 --- tree's:
 ---
---- - X is a digest of the runtime basis, of each analyzer module's name
----   and source and of the checker's readers, so naming it again over
+--- - X is a digest of the runtime basis and of each analyzer module's name
+---   and source, so naming it again over
 ---   this tree's sources lists the same modules and sources X did, on the
 ---   same basis: X's code is the code this boot runs.
 --- - A parse is a function of that code and the source alone, so X's
@@ -579,7 +566,7 @@ end
 --- one it holds no parse of (`unguessed`): the roots change less often
 --- than what they reach, so X's of several states of the rest can
 --- gather. Only the trial accepts an X.
--- Nothing but the pins, the analyzer's and the checker's readers' Teal sources is
+-- Nothing but the pins and the analyzer's Teal sources is
 -- in X, by design ([`forget_stale_analysis`]): the core's C, which runs
 -- the parse, is not, so a branch whose C parses otherwise shares rows
 -- with main under the same X, as compiles do under their keys, and as
@@ -693,18 +680,19 @@ local function offer_parses(db: Sqlite.Handle, shared: importer.Shared?, identit
   return true, ""
 end
 
---- Parses every source no parse has seen, with the new checker's syntax tree ([`build.pipeline`]'s `derive`), in this
---- process. The rows land in hash order. `broken`, when given, lists what does not parse rather than stopping there.
-local function parse_new(handle: work.Handle, tally: importer.Parses, made: {Source},
-                         broken: {derivation.Broken}?, outcome: importer.Outcome?): boolean, string
+--- Parses every source no parse has seen, with the new checker's syntax tree ([`build.parse_derive`]), in this
+--- process. Nothing here decides a row: which sources are fresh is [`build.derivation`]'s answer and what each parses to
+--- is [`build.parse_derive`]'s, both roots of the analyzer's identity. The rows land in hash order. `broken`, when given, lists what does not parse rather than stopping there.
+local function parse_new(handle: work.Handle, tally: importer.Parses, made: mut {Source},
+                         broken: mut {derivation.Broken}?, outcome: importer.Outcome?): boolean, string
   local db = handle.db
   local fresh, trouble = derivation.fresh(db)
   if fresh == nil then
     return false, trouble
   end
-  local pipeline = require("build.pipeline")
-  local refusal: pipeline.Refusal = { refused = false }
-  local parsed, parse_trouble = pipeline.derive(db, work.standing(handle).own, fresh, tally, made, broken, refusal)
+  local parse_derive = require("build.parse_derive")
+  local refusal: ParseDerive.Refusal = { refused = false }
+  local parsed, parse_trouble = parse_derive.derive(db, work.standing(handle).own, fresh, tally, made, broken, refusal)
   if not parsed then
     if refusal.refused and outcome ~= nil then outcome.refused = true end
     return false, parse_trouble
@@ -720,8 +708,8 @@ end
 --- when given ([`parse_new`]), and answers the analyzer whose parses it
 --- took, "" for none.
 local function derive_new(handle: work.Handle, tally: importer.Parses,
-                          made: {Source}, shared: importer.Shared?,
-                          broken: {derivation.Broken}?, outcome: importer.Outcome?): string?, string
+                          made: mut {Source}, shared: importer.Shared?,
+                          broken: mut {derivation.Broken}?, outcome: importer.Outcome?): string?, string
   local db = handle.db
   local swept, sweep_trouble = db:exec(
     "DELETE FROM derived WHERE origin <> 'vendor' AND NOT EXISTS " ..
@@ -807,7 +795,7 @@ function importer.derive(handle: work.Handle, shared?: importer.Shared,
   end
 
   local tally: importer.Parses = { parsed = 0, shared = 0 }
-  local made: {Source} = {}
+  local made: mut {Source} = {}
   local forgotten, forget_trouble = forget_stale_analysis(handle)
   if forgotten == nil then
     return nil, forget_trouble
