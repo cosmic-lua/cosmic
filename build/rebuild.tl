@@ -211,7 +211,8 @@ local function project(root: string, verb: string, start: boolean, carried?: str
     return false, stage_trouble
   end
   local result, compile_trouble = importer.compile(handle,
-    GrammarMode.tool(own_compiler()), false, shared_compiles.for_build(), nil, start)
+    GrammarMode.tool(own_compiler()), false, shared_compiles.for_build(), nil, start,
+    if start then importer.telling() else nil end)
   if result == nil then
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
     local _, _ = work.close(handle)

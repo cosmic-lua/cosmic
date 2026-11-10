@@ -176,7 +176,7 @@ local function stage(root: string, working: build_paths.Layout, output: build_pa
   local result, compile_trouble = importer.compile_tree(handle,
     function(recorded: identity.Identities): string, string
       return GrammarMode.tool(recorded.compiler), ""
-    end, false, shared_compiles.for_build())
+    end, false, shared_compiles.for_build(), importer.telling())
   if result == nil then
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
     local _, _ = work.close(handle)
