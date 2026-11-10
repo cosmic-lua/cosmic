@@ -56,8 +56,12 @@ conflict with the parent's squash.
   what changed, then the full suite, `timeout 2700 bin/cosmic test`
   ([`doc/testing.md`] says how long it takes).
 - `bin/cosmic fix --check .` when the change touches what the whole-tree
-  checks read. it takes 5 to 11 minutes (`timeout 2400`), and says which
-  of its checks it is on.
+  checks read. it takes 5 to 11 minutes (`timeout 2400`) where no
+  checkout of the host has checked the tree's files with the same
+  checking code, and about 3 where one has: what a check found of a file
+  is kept by the file's content, and the checkouts whose `cosmic fix`
+  is the same bytecode on the same core share it
+  ([`build/check_memo.tl`]). it says which of its checks it is on.
 - a change under `.github/`: `bin/cosmic test build/workflows_test.tl`.
 - a change to the artifact format, the launcher or `cosmic build`:
   `bin/zig build boot -Dboot-cores=all` first, so that the tool carries
@@ -322,6 +326,7 @@ the tool named can be older than the tree's generator.
 [`build.boot`]: ../build/boot.tl
 [`build.fix.format`]: ../build/fix/format.tl
 [`build/ceilings_base.tl`]: ../build/ceilings_base.tl
+[`build/check_memo.tl`]: ../build/check_memo.tl
 [`build/markers.tl`]: ../build/markers.tl
 [`build/paths.tl`]: ../build/paths.tl
 [`build/seed.tl`]: ../build/seed.tl
