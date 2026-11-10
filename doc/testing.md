@@ -824,10 +824,11 @@ Each test keeps what a worker of its own gave it:
   A worker goes on to the next test only after one that passed and left no
   process running. It then removes all the test made in the sandbox's
   `/tmp`, in its directory and beside it, and gives each directory that was
-  there the mode it had. Where it cannot, or where a file that was there
-  before the test has changed, and after any test that did not pass, the
-  worker retires, and its sandbox ends as a worker's does.
-- its own output: what the load printed, then what the test printed.
+  there the mode and the times it had. Where it cannot, or where a file
+  that was there before the test has changed, and after any test that did
+  not pass, the worker retires, and its sandbox ends as a worker's does.
+- its own output: what the load printed, then what the test printed, as it
+  printed it, so a test that hangs is shown with what it had said.
 - its own deadline, from when its copy was made.
 - no way to its worker: a copy is held to signalling itself and what it
   starts, so `kill(-1)` reaches what it reached in a worker of its own.
@@ -845,7 +846,9 @@ A worker forks only where every test can be given that:
   process and left no descriptor open, no file written, no filter added and
   no signal's handling changed. A module whose load does one of these runs a
   worker for each test, and the run says so, naming the first and what its
-  load left.
+  load left. So does one whose worker cannot tell: its `/proc` cannot be
+  read, what its load printed could not be kept, or it is not alone in its
+  pid namespace.
 
 An unsandboxed run (macOS, `COSMIC_TEST_SANDBOX=0`) runs a worker for each
 test.
@@ -857,6 +860,12 @@ What a test in a copy sees that one in a worker of its own does not:
 - what the module computed as it loaded (a clock reading, a random draw, its
   own process id) is the same for every test of the module that shares the
   worker. A test that needs a value of its own computes it in the test.
+- the time the status of its directory, of `TMPDIR` and of `/tmp` last
+  changed (`ctime`) is when the test before it was cleared away, not when
+  its worker started.
+
+No key says whether a test ran in a copy, so a verdict earned in one stands
+where a worker of the test's own would run it, and the other way.
 
 ### output
 

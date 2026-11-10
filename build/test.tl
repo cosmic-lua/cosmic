@@ -1556,6 +1556,9 @@ local record Unit
   fork: boolean
 end
 
+--- The most bytes kept of what one test printed, the newest: what [`cosmic.child`] keeps of a captured stream.
+local output_limit <const> = 16 * 1024 * 1024
+
 --- A worker that runs its module's tests in copies of itself ([`worker.run`]'s `--fork`), as the runner follows it.
 local record Batch
   --- The job its worker was prepared for, which holds its handle; and its tests, in the order it runs them.
@@ -1568,6 +1571,9 @@ local record Batch
   --- Where its records come ([`worker.Relay`]), and what has come of one not yet whole.
   reader: integer
   mut buffer: string
+  --- What the test whose copy is running has printed so far, and how many bytes that is.
+  mut printed: mut {string}
+  mut printed_size: integer
   --- Whether it said it forks; whether it said it runs no more, and whether that was for a module no worker can
   --- fork for, whose other tests then each get a worker.
   mut forked: boolean
@@ -1708,14 +1714,17 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: State.Limits,
     end
     workers = workers + 1
     batches[#batches + 1] = { lead = lead, jobs = unit.jobs, settled = 0, reader = relay.reader, buffer = "",
+      printed = {}, printed_size = 0,
       forked = false, retired = false, unforkable = false, timeout_ns = deadline - started,
       idle_deadline_ns = deadline }
   end
-  -- The result of a test whose worker ended, as `ended`, while its copy ran: no report of it came.
-  local function unreported(ended: Child.Result?): Child.Result?
-    if ended == nil then return nil end
-    return { code = ended.code, signal = ended.signal, ok = false, timed_out = ended.timed_out,
-      stdout = ended.stdout, captured = {}, truncated = ended.truncated }
+  -- All the test whose copy is running has printed, the newest bytes of it where there are more than a captured
+  -- stream keeps, and none of it kept for the next.
+  local function printed_by(batch: Batch): string
+    local whole = table.concat(batch.printed)
+    batch.printed, batch.printed_size = {}, 0
+    if #whole > output_limit then return whole:sub(-output_limit) end
+    return whole
   end
   -- Ends `batch`, whose worker is gone or is ended here: the test whose copy ran fails by `ended` and `trouble`,
   -- and the tests it did not reach start again, together with `fork`.
@@ -1725,10 +1734,12 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: State.Limits,
     if flying ~= nil then
       batch.flying = nil
       batch.settled = batch.settled + 1
-      collect(flying, unreported(ended), trouble)
+      collect(flying, worker.unreported_result(ended, printed_by(batch)), trouble)
     end
     if bailing() then return end
-    requeue(rest(batch), fork)
+    -- A worker that ended having settled no test is followed by a worker for each, not by another like it, which
+    -- could end the same way without end.
+    requeue(rest(batch), fork and batch.settled > 0)
   end
   -- Reads what `batch`'s worker has written and acts on each whole record. False once the batch is over.
   local function follow(batch: Batch): boolean
@@ -1776,16 +1787,20 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: State.Limits,
           job.started_ns, job.deadline_ns = started, started + batch.timeout_ns
           batch.flying = job
         end
+      elseif found.kind == "output" and flying ~= nil then
+        local data = found.output or ""
+        batch.printed[#batch.printed + 1] = data
+        batch.printed_size = batch.printed_size + #data
+        if batch.printed_size > 2 * output_limit then
+          local newest = table.concat(batch.printed):sub(-output_limit)
+          batch.printed, batch.printed_size = { newest }, #newest
+        end
       elseif found.kind == "result" and flying ~= nil then
-        local code, signal = found.code, found.signal
         batch.flying = nil
         batch.settled = batch.settled + 1
         batch.idle_deadline_ns = Clock.monotonic_ns() + batch.timeout_ns
         copies = copies + 1
-        collect(flying, { code = if code ~= nil and code >= 0 then code else nil end,
-          signal = if signal ~= nil and signal >= 0 then signal else nil end,
-          ok = code == 0, timed_out = false, stdout = found.output,
-          captured = { [worker.report_fd] = found.report or "" }, truncated = false }, "")
+        collect(flying, worker.forked_result(found, printed_by(batch)), "")
         if bailing() then
           local _, _ = handle:close()
           over(batch, nil, "", false)
@@ -1817,7 +1832,12 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: State.Limits,
         -- The signal ended it first: it is one of the workers the cancelled run ended, reported on by none.
         return true
       end
-      -- A worker that hung with no copy running is followed by a worker for each test.
+      -- A worker that hung with no copy running is followed by a worker for each test, and the run says so.
+      if flying == nil then
+        rec.errors[#rec.errors + 1] = batch.lead.m.path .. ": its worker ran past the module's time with no test " ..
+          "running, " .. (if batch.forked then "between two tests" else "loading the module" end) ..
+          ", and was ended; each test left has a worker of its own"
+      end
       over(batch, result, stop_trouble, flying ~= nil and batch.forked)
       return false
     end
@@ -1939,7 +1959,10 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: State.Limits,
     phase.tick(rec.tally.ran - ran_before, #jobs, function(): string
       local busy: mut {Job} = {}
       for _, job in ipairs(running) do busy[#busy + 1] = job end
-      for _, batch in ipairs(batches) do busy[#busy + 1] = batch.flying or batch.lead end
+      for _, batch in ipairs(batches) do
+        local flying = batch.flying
+        if flying ~= nil then busy[#busy + 1] = flying end
+      end
       return running_detail(rec, busy)
     end)
   end

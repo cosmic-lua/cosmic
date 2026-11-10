@@ -225,8 +225,9 @@ local record worker
   --- - "forks": its module loaded and it will run its tests, each in a copy of itself;
   --- - "unforkable": it will run none, `why`, and its runner starts a worker for each;
   --- - "test": the copy for the test `name` is about to be made, at `started_ns` on the monotonic clock;
+  --- - "output": that copy, or what it started, printed `output`, the next of it;
   --- - "result": that copy ended, by its exit status `code` or the `signal` that ended it (-1 for the other), having
-  ---   written `report` ([`worker.encode`]) and, with what it started, `output`;
+  ---   written `report` ([`worker.encode`]) and, with what it started, the last of its `output`;
   --- - "retire": the worker runs no more of its tests, `why`, and its runner starts another for the rest;
   --- - "malformed": bytes no forking worker writes.
   record Forked
@@ -246,6 +247,8 @@ local record worker
   mut report_fd: integer
 
   record_at: function(buffer: string, at: integer): Forked?
+  forked_result: function(record: Forked, printed: string): Child.Result
+  unreported_result: function(ended: Child.Result?, printed: string): Child.Result?
   forks_here: function(): boolean, string
 
   --- The pipe a forking worker's records come to its runner on ([`worker.relay`]).
@@ -1498,6 +1501,11 @@ function worker.record_at(buffer: string, at: integer): worker.Forked?
   if decoded ~= nil and started_ns ~= nil then
     return { kind = "test", name = decoded, started_ns = started_ns, after = after }
   end
+  local printed = math.tointeger(tonumber(line:match("^output (%d+)$")))
+  if printed ~= nil then
+    if #buffer < after + printed - 1 then return nil end
+    return { kind = "output", output = buffer:sub(after, after + printed - 1), after = after + printed }
+  end
   local code_text, signal_text, report_text, output_text = line:match("^result (%-?%d+) (%-?%d+) (%d+) (%d+)$")
   local code, signal = math.tointeger(tonumber(code_text)), math.tointeger(tonumber(signal_text))
   local report_size, output_size = math.tointeger(tonumber(report_text)), math.tointeger(tonumber(output_text))
@@ -1513,6 +1521,24 @@ function worker.record_at(buffer: string, at: integer): worker.Forked?
   return { kind = "malformed", why = line:sub(1, 80), after = after }
 end
 
+--- The end of a copy as [`worker.judge`] reads a worker's: `record`, a "result" record, with `printed`, all the copy
+--- printed. It is made here, in the harness, since it is what a pass is read from.
+function worker.forked_result(record: worker.Forked, printed: string): Child.Result
+  local code, signal = record.code, record.signal
+  return { code = if code ~= nil and code >= 0 then code else nil end,
+    signal = if signal ~= nil and signal >= 0 then signal else nil end,
+    ok = code == 0, timed_out = false, stdout = printed,
+    captured = { [worker.report_fd] = record.report or "" }, truncated = false }
+end
+
+--- The end of a copy whose worker ended, as `ended`, before it wrote the copy's result: the worker's end with no
+--- report, and `printed`, what the copy had printed. Nil where the worker's end is not known.
+function worker.unreported_result(ended: Child.Result?, printed: string): Child.Result?
+  if ended == nil then return nil end
+  return { code = ended.code, signal = ended.signal, ok = false, timed_out = ended.timed_out,
+    stdout = printed, captured = {}, truncated = ended.truncated }
+end
+
 --- Whether a worker on this host can run its tests in copies of itself: where Landlock scopes signals (ABI 6), so
 --- that a copy can be held to signalling itself and what it starts ([`process.fork`]'s `scoped`), and its worker's
 --- promises filter, which then leaves signals to that scope, lets a copy signal itself. False and why where not.
@@ -1524,7 +1550,7 @@ function worker.forks_here(): boolean, string
     if abi == nil then
       known = "no Landlock: " .. trouble
     elseif abi < 6 then
-      known = "Landlock ABI " .. tostring(abi) .. " scopes no signal"
+      known = "this kernel's Landlock scopes no signal (ABI " .. tostring(abi) .. ")"
     else
       known = ""
     end
@@ -1592,9 +1618,19 @@ local function differing(before: string, after: string): string
   return "`" .. (was[at + 1] or "nothing") .. "` is gone"
 end
 
+--- What an entry of the tmpfs was before any test ran, which [`restore`] gives it again.
+local record Was
+  kind: string
+  mode: integer
+  atime: integer
+  atime_ns: integer
+  mtime: integer
+  mtime_ns: integer
+end
+
 --- Adds to `lines` what `path` is and, of a directory, what is beneath it, in order: each entry's kind, its mode,
---- the size of a file and where a link points.
-local function shape(path: string, lines: mut {string}, depth: integer)
+--- the size of a file and where a link points; and to `held`, where given, each by its path.
+local function shape(path: string, lines: mut {string}, depth: integer, held?: mut {string:Was})
   local there, why = sys.lstat(path)
   if there == nil then
     table.insert(lines, path .. " " .. why)
@@ -1608,19 +1644,23 @@ local function shape(path: string, lines: mut {string}, depth: integer)
     detail = tostring(there.size)
   end
   table.insert(lines, path .. " " .. there.kind .. " " .. tostring(there.mode) .. " " .. detail)
+  if held ~= nil then
+    held[path] = { kind = there.kind, mode = there.mode, atime = there.atime, atime_ns = there.atime_ns,
+      mtime = there.mtime, mtime_ns = there.mtime_ns }
+  end
   if there.kind ~= "dir" or depth > 16 then return end
   local entries, _ = sys.readdir(path)
   local names: mut {string} = {}
   for name in pairs(entries or {}) do names[#names + 1] = name end
   table.sort(names)
-  for _, name in ipairs(names) do shape(path .. "/" .. name, lines, depth + 1) end
+  for _, name in ipairs(names) do shape(path .. "/" .. name, lines, depth + 1, held) end
 end
 
 --- What the sandbox's tmpfs holds, /tmp and all beneath it ([`shape`]): the one place a worker with a scratch
 --- directory of its own can write.
-local function written(): string
+local function written(held?: mut {string:Was}): string
   local lines: mut {string} = {}
-  shape("/tmp", lines, 0)
+  shape("/tmp", lines, 0, held)
   return table.concat(lines, "\n")
 end
 
@@ -1645,13 +1685,6 @@ local function take(fd: integer, chunks: mut {string}): boolean
     if data == "" then return false end
     chunks[#chunks + 1] = data
   end
-end
-
---- The bytes of `chunks`, the newest `limit` of them where there are more.
-local function newest(chunks: {string}, limit: integer): string
-  local whole = table.concat(chunks)
-  if #whole > limit then return whole:sub(-limit) end
-  return whole
 end
 
 --- The process's standard output and error set aside while a file takes what is written to them ([`keep_output`]).
@@ -1714,21 +1747,21 @@ local function put_back(held: Kept): string?
 end
 
 --- Removes from `directory` and beneath it every entry `kept` does not name by its path, each with what is beneath
---- it, and gives each directory it names the mode it names. False and why at the first that cannot be.
-local function sweep_new(directory: string, kept: {string:integer}, depth: integer): boolean, string
+--- it, and gives each directory it names the mode it had. False and why at the first that cannot be.
+local function sweep_new(directory: string, kept: {string:Was}, depth: integer): boolean, string
   local entries, list_trouble = sys.readdir(directory)
   if entries == nil then return false, directory .. ": " .. list_trouble end
   for name, kind in pairs(entries) do
     local path = directory .. "/" .. name
-    local mode = kept[path]
-    if mode == nil then
+    local was = kept[path]
+    if was == nil then
       local gone, trouble = Fs.remove_tree(path)
       if not gone then return false, path .. ": " .. trouble end
     elseif kind == "dir" then
       -- Its mode first, which a test may have changed, and which may be what keeps it from being listed.
       local there, _ = sys.lstat(path)
-      if there ~= nil and there.mode ~= mode then
-        local set, trouble = sys.chmod(path, mode & 0xfff)
+      if there ~= nil and there.mode ~= was.mode then
+        local set, trouble = sys.chmod(path, was.mode & 0xfff)
         if not set then return false, path .. ": " .. trouble end
       end
       if depth < 16 then
@@ -1741,11 +1774,20 @@ local function sweep_new(directory: string, kept: {string:integer}, depth: integ
 end
 
 --- Puts the sandbox's tmpfs back as it was before a test that passed ran: nothing there but what `kept` names by
---- its path, which is what was there before any test ran, each directory of those with the mode `kept` gives it,
---- and the directory `children` there again. A test's own directory is emptied so, and what it made beside it
---- (`TMPDIR`), in /tmp or in its build directories. What else it changed of an entry that was there is not put
---- back: its worker finds that ([`written`]) and retires. False and why where an entry cannot be put back.
-local function restore(children: string?, kept: {string:integer}): boolean, string
+--- its path, which is what was there before any test ran, each directory of those with the mode it had, each entry
+--- but a link with the times it was read and changed at, and the directory `children` there again. A test's own
+--- directory is emptied so, and what it made beside it (`TMPDIR`), in /tmp or in its build directories. What else
+--- it changed of an entry that was there is not put back: its worker finds a file of another size or kind
+--- ([`written`]) and retires. False and why where an entry cannot be put back.
+---
+--- Not put back, since nothing can: the time an entry's status last changed, which a test that removed or made a
+--- file beside it moved.
+local function restore(children: string?, kept: {string:Was}): boolean, string
+  local top = kept["/tmp"]
+  local now_top, _ = sys.lstat("/tmp")
+  if top ~= nil and now_top ~= nil and now_top.mode ~= top.mode then
+    local _, _ = sys.chmod("/tmp", top.mode & 0xfff)
+  end
   local swept, trouble = sweep_new("/tmp", kept, 0)
   if not swept then return false, trouble end
   if children ~= nil then
@@ -1753,6 +1795,15 @@ local function restore(children: string?, kept: {string:integer}): boolean, stri
     if there == nil then
       local remade, remade_trouble = sys.mkdir(children, 0x1c0)
       if not remade then return false, children .. ": " .. remade_trouble end
+    end
+  end
+  for path, was in pairs(kept) do
+    -- Only where a time moved: an entry no test can write, a mount to read, takes no time and has none to take.
+    local now, _ = sys.lstat(path)
+    if was.kind ~= "link" and now ~= nil and (now.mtime ~= was.mtime or now.mtime_ns ~= was.mtime_ns or
+        now.atime ~= was.atime or now.atime_ns ~= was.atime_ns) then
+      local timed, time_trouble = sys.utimensat(path, was.atime, was.atime_ns, was.mtime, was.mtime_ns)
+      if not timed then return false, path .. ": " .. time_trouble end
     end
   end
   return true, ""
@@ -1797,6 +1848,13 @@ local function fork_tests(names: {string}, tested: function(string): (worker.Rep
     if probe == 0 then sys.exit(0) end
     if probe ~= nil then local _, _ = process.waitpid(probe, false) end
     if probe ~= 3 or sys.getpid() ~= 2 then why = "its load started a process" end
+    -- What the probe wrote of its own coverage, as a process a test starts does, is no test's.
+    if children ~= nil then
+      local reports, _ = sys.readdir(children)
+      for name in pairs(reports or {}) do
+        local _, _ = Fs.remove(children .. "/" .. name)
+      end
+    end
   end
   if why ~= "" then
     local _, _ = put(relay, "unforkable " .. hex(why) .. "\n")
@@ -1809,14 +1867,21 @@ local function fork_tests(names: {string}, tested: function(string): (worker.Rep
   local outbox: mut {string} = {}
   local _, _ = sys.set_nonblocking(relay, true)
   -- Writes what the pipe takes now. False once the runner is gone.
+  local sent_of_first = 0
   local function send(): boolean
     while true do
       local data = outbox[1]
       if data == nil then return true end
-      local sent, _, number = sys.write(relay, data)
+      -- A pipe takes a part of a large record at a time: what is left of it is cut once, not at every write.
+      local piece = if sent_of_first > 0 then data:sub(sent_of_first + 1, sent_of_first + 65536) else
+        data:sub(1, 65536) end
+      local sent, _, number = sys.write(relay, piece)
       if sent == nil then return number == sys.EAGAIN or number == sys.EINTR end
-      table.remove(outbox, 1)
-      if sent < #data then table.insert(outbox, 1, data:sub(sent + 1)) end
+      sent_of_first = sent_of_first + sent
+      if sent_of_first >= #data then
+        table.remove(outbox, 1)
+        sent_of_first = 0
+      end
     end
   end
   -- Writes all that is left, waiting for the runner to read.
@@ -1825,13 +1890,9 @@ local function fork_tests(names: {string}, tested: function(string): (worker.Rep
       if outbox[1] ~= nil then local _, _ = sys.poll({ relay }, { sys.POLLOUT }, -1) end
     end
   end
-  local tmpfs = written()
-  -- Every path the tmpfs holds now: a line of [`shape`] begins with one, and no path of a worker's holds a space.
-  local kept: mut {string:integer} = {}
-  for path, mode in tmpfs:gmatch("([^ \n]+) %a+ (%d+) [^\n]*") do
-    kept[path] = math.tointeger(tonumber(mode)) or 0
-  end
-  local top, _ = sys.lstat("/tmp")
+  -- What the tmpfs holds now, before any test runs, and each entry of it.
+  local kept: mut {string:Was} = {}
+  local tmpfs = written(kept)
   outbox[#outbox + 1] = FORKS .. "\n"
   for index, name in ipairs(names) do
     local output, output_trouble = process.pipe()
@@ -1869,9 +1930,16 @@ local function fork_tests(names: {string}, tested: function(string): (worker.Rep
     local _, _ = sys.close(report.writer)
     local _, _ = sys.set_nonblocking(output.reader, true)
     local _, _ = sys.set_nonblocking(report.reader, true)
-    local printed: mut {string} = {}
     local reported: mut {string} = {}
-    local printed_size = 0
+    -- What it prints goes to the runner as it comes, so that the runner has it of a test whose worker it ends.
+    local function relay_output(): boolean
+      local printed: mut {string} = {}
+      local open = take(output.reader, printed)
+      for _, data in ipairs(printed) do
+        table.insert(outbox, "output " .. tostring(#data) .. "\n" .. data)
+      end
+      return open
+    end
     local watch, _ = process.exit_watch(pid)
     local ended: process.ChildStatus? = nil
     local printing, reporting = true, true
@@ -1884,14 +1952,8 @@ local function fork_tests(names: {string}, tested: function(string): (worker.Rep
       if outbox[1] ~= nil then fds[#fds + 1], events[#events + 1] = relay, sys.POLLOUT end
       -- With no watch of its exit, its end is looked for every millisecond.
       local _, _ = sys.poll(fds, events, if watch ~= nil then -1 else 1 end)
+      if printing then printing = relay_output() end
       local _ = send()
-      local had = #printed
-      if printing then printing = take(output.reader, printed) end
-      for at = had + 1, #printed do printed_size = printed_size + #assert(printed[at]) end
-      if printed_size > 2 * OUTPUT_LIMIT then
-        printed = { newest(printed, OUTPUT_LIMIT) }
-        printed_size = OUTPUT_LIMIT
-      end
       if reporting then reporting = take(report.reader, reported) end
       local status, _ = process.waitpid(pid, true)
       if status == nil then
@@ -1902,25 +1964,23 @@ local function fork_tests(names: {string}, tested: function(string): (worker.Rep
     end
     -- What it and the processes it started wrote before it ended; one still running may hold a pipe open, and is
     -- not waited for.
-    local _ = take(output.reader, printed)
+    local _ = relay_output()
     local _ = take(report.reader, reported)
     local _, _ = sys.close(output.reader)
     local _, _ = sys.close(report.reader)
     if watch ~= nil then local _, _ = sys.close(watch) end
-    local said, shown_text = table.concat(reported), newest(printed, OUTPUT_LIMIT)
+    local said = table.concat(reported)
     local strays = others_run()
-    local record = "result " .. tostring(ended.code) .. " " .. tostring(ended.signal) .. " " ..
-      tostring(#said) .. " " .. tostring(#shown_text) .. "\n" .. said .. shown_text .. "done\n"
+    -- Its result goes out before the tmpfs is put back, which is no part of its test's time.
+    table.insert(outbox, "result " .. tostring(ended.code) .. " " .. tostring(ended.signal) .. " " ..
+        tostring(#said) .. " 0\n" .. said .. "done\n")
+    local _ = send()
     local retire = ""
     if ended.code ~= 0 or said:find("\npassed 1\n", 1, true) == nil or said:sub(-5) ~= "\nend\n" then
       retire = "its test did not pass"
     elseif strays then
       retire = "its test left a process running"
     elseif index < #names then
-      local now_top, _ = sys.lstat("/tmp")
-      if top ~= nil and now_top ~= nil and now_top.mode ~= top.mode then
-        local _, _ = sys.chmod("/tmp", top.mode & 0xfff)
-      end
       local restored, restore_trouble = restore(children, kept)
       if not restored then
         retire = "its test's directory could not be emptied: " .. restore_trouble
@@ -1931,8 +1991,7 @@ local function fork_tests(names: {string}, tested: function(string): (worker.Rep
         end
       end
     end
-    if retire ~= "" then record = record .. "retire " .. hex(retire) .. "\n" end
-    table.insert(outbox, record)
+    if retire ~= "" then table.insert(outbox, "retire " .. hex(retire) .. "\n") end
     if retire ~= "" or not send() then break end
   end
   send_all()

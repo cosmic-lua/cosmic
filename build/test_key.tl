@@ -2633,12 +2633,14 @@ function test_key.prepare(rec: Recording, job: Job, forks?: {string}): Prepared
   -- directory of the host's), it has no loopback, whose sockets one test would leave the next, a Landlock ruleset
   -- holds it (one whose module declares `nests` has none), and this host's Landlock scopes signals.
   --
-  -- TODO: fork for a module whose scratch directory is the host's too (`system`, `tool`, `noexec`, a host cache, a
-  -- directory among its reads), once such a worker's scratch directory is its sandbox's own, which
-  -- [`test_sandbox.plan`] gives only where the root holds no directory of the host's (below Landlock ABI 9 a unix
-  -- socket of the host's cannot be told from the worker's own).
+  -- TODO: fork for a module whose worker has a directory of the host's for its scratch (`system`, `tool`, `noexec`,
+  -- a host cache, a directory among its reads), once [`test_sandbox.plan`] gives every worker a scratch directory
+  -- in its sandbox's tmpfs on a kernel whose Landlock tells a unix socket of the host's from the worker's own
+  -- (ABI 9).
   -- TODO: fork for a module that declares `loopback`, once a copy can be given a network namespace of its own, so
   -- that no test meets the sockets an earlier one left closing.
+  -- TODO: fork in an unsandboxed run (macOS, COSMIC_TEST_SANDBOX=0), once a worker there can tell that a test left
+  -- no process running, which a pid namespace of its own tells a sandboxed one.
   local declares = rec.effective[job.m.path]
   local relay: worker.Relay? = nil
   local scoped, _ = worker.forks_here()
