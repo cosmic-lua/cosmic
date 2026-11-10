@@ -85,6 +85,8 @@ a lookup, and `grep` over `--flat` covers the simple cases. To count or
 sum, use `cosmic sql --from` (next section); for anything else write
 the script with `cosmic.json`: [`Json.decode`] the file and walk the
 value in Lua, or look a path up with [`Json.get`] and [`Json.select`].
+To change the value at a path, [`Json.set`] answers a copy with it
+changed and [`Json.remove`] one without it; neither changes the value read.
 `cosmic help json` has the rest.
 
 ## a random id, token or number
@@ -432,7 +434,9 @@ A function declared `: number` may still
 [`Json.decode`]: ../../cosmic/json.tl
 [`Json.encode`]: ../../cosmic/json.tl
 [`Json.get`]: ../../cosmic/json.tl
+[`Json.remove`]: ../../cosmic/json.tl
 [`Json.select`]: ../../cosmic/json.tl
+[`Json.set`]: ../../cosmic/json.tl
 [`Poll.TIMEOUT`]: ../../cosmic/poll.tl
 [`Proc.exit`]: ../../cosmic/proc.tl
 [`Signal.guard`]: ../../cosmic/signal.tl

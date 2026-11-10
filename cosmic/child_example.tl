@@ -164,6 +164,30 @@ end]]
   assert(assert(h:wait()).ok)
 end
 
+--- A child's output shown as it comes and kept as well, as `tee` does:
+--- stdout is a "stream", read a line at a time, and each line is printed
+--- the moment the child writes it and collected for after the wait.
+function Example.tee()
+  -- This program again, past its launcher, writing two lines.
+  local again = assert(Proc.relaunch())
+  local argv = { table.unpack(again.argv) }
+  argv[#argv + 1] = "-e"
+  argv[#argv + 1] = [[
+local Fs = require("cosmic.fs")
+assert(Fs.put(1, "compiling\n"))
+assert(Fs.put(1, "linking\n"))]]
+  local h <close> = assert(Child.start(argv, { env = again.env, fds = again.fds, stdout = "stream" }))
+  local lines = Stream.lines(assert(h.stdout_stream))
+  local kept: mut {string} = {}
+  for line in lines:each() do
+    print(line)
+    kept[#kept + 1] = line
+  end
+  assert(lines:failure() == "", lines:failure())
+  assert(assert(h:wait()).ok)
+  assert(#kept == 2 and kept[1] == "compiling" and kept[2] == "linking")
+end
+
 --- Both outputs forwarded in bounded rounds to separate borrowed Writers;
 --- a byte limit resumes the transfer without changing the child's status.
 function Example.drain()
