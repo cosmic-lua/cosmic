@@ -19,6 +19,7 @@
 --- that compiled it -- see [`build.identity`]'s `Identities`. An unchanged
 --- key is a stat; a changed one recompiles what depended on it.
 
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
@@ -33,6 +34,7 @@ local analysis_schema = require("build.analysis_schema")
 local positions = require("build.positions")
 local type SyntaxReceivers = require("build.syntax_receivers")
 local work = require("build.work")
+local log = require("build.logger").log
 local bind = require("build.bind")
 
 local plans = require("build.plans")
@@ -119,6 +121,15 @@ local record importer
   --- hands it to [`importer.compile_for`], which sets `refused`.
   record Outcome
     mut refused: boolean
+  end
+
+  --- The first module a compile over a tree refused for what it holds, which the compile goes on past: its file, what
+  --- the checker said of it, when, and whether the run has said so yet ([`importer.due`]).
+  record Early
+    file: string
+    trouble: string
+    at_ns: integer
+    mut told: boolean
   end
 
   --- The compiles and parses every checkout shares
@@ -1126,6 +1137,22 @@ end
 
 --- Plans and compiles an already derived tree. Only the entry points
 --- below own the shared cache; every failure here returns through them.
+--- How long a compile goes on past the first module it refused before it says so: a run that ends sooner has said
+--- it in its report by then.
+local patience_ns <const> = Clock.seconds(2)
+
+--- What a compile that has gone on for [`patience_ns`] past the first module it refused says of it, once, at `now_ns`:
+--- the file and the checker's first finding, ahead of the report that tells every refusal when the rest of the tree is
+--- checked. A change to the checker compiles every module again, some minutes of them, and the module refused is most
+--- often the one just edited. Nil before then, and after it is said.
+function importer.due(early: importer.Early?, now_ns: integer): string?
+  if early == nil or early.told or now_ns - early.at_ns < patience_ns then return nil end
+  early.told = true
+  local finding = early.trouble:match("^[^\n]*\n([^\n]+)") or early.trouble:match("^[^\n]+") or ""
+  return early.file .. " is refused, and the rest of the tree is still being checked; the report follows, and its " ..
+    "first finding is\n" .. finding
+end
+
 local function compile_derived(handle: work.Handle, tool: string,
                                parses: importer.Parses,
                                unjudged: boolean?, shared: importer.Shared?,
@@ -1326,7 +1353,10 @@ local function compile_derived(handle: work.Handle, tool: string,
       return false, prepare_trouble
     end
 
+    local early: importer.Early? = nil
     for ordinal, m in ipairs(order) do
+      local said = importer.due(early, Clock.monotonic_ns())
+      if said ~= nil then log:complain(said) end
       local planned = assert(keys[m.path], "every module of the order was keyed")
       local key = planned.key
       m.key = key
@@ -1444,6 +1474,9 @@ local function compile_derived(handle: work.Handle, tool: string,
           local made_generated, generate_trouble = pipeline.generate(m, assert(reading.built), checks, judged, hints)
           if made_generated == nil then
             if lenient then
+              if early == nil then
+                early = { file = m.file, trouble = generate_trouble, at_ns = Clock.monotonic_ns(), told = false }
+              end
               result.refused[#result.refused + 1] = generate_trouble
               own_refused[#own_refused + 1] = m.file
               roots_of[m.path] = { #result.refused }

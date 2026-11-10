@@ -1982,6 +1982,7 @@ local function test_the_compiler_modules_are_closed_under_require()
     ["build.pipeline"] = "the compile with the new checker, keyed by the code that reads it " ..
       "(`Pipeline.coded`) and not by the compiler's identity, which a default run keeps",
     ["build.code_walk"] = "names which modules the identities of the code that reads hash, and which a test's store keeps",
+    ["build.logger"] = "says a refusal ahead of the report of a long compile; what is said, not what is stored",
     ["build.reads.analyzer"] = "a declaration of what text this module reads, which a test's store follows; no code",
     ["build.reads.receivers"] = "a declaration of what text this module reads, which a test's store follows; no code",
   }
@@ -2503,4 +2504,22 @@ local function test_a_build_directory_with_one_count_column_gains_the_other()
   assert(again.compiled == 0 and again.cached == 1, "the half-migrated file's compile did not stand")
   local checked = compile_counted(root, true)
   assert(checked.parameter_checks > 0)
+end
+
+--- A compile over a tree goes on past the first module it refuses, and says the refusal once it has gone on for two
+--- seconds: the file and the checker's first finding, once. A run that ends before then says nothing ahead of its report.
+local function test_a_refusal_is_said_ahead_of_the_report_once_the_compile_has_gone_on_past_it()
+  local second = 1000000000
+  local early: importer.Early = { file = "lang/check.tl", told = false, at_ns = 10 * second,
+    trouble = "lang/check.tl: the compiler refused it\nlang/check.tl:908:25: `\"three\"` is `string`, where `integer` is wanted\n" ..
+      "lang/check.tl: 1 error of not_assignable in its bodies on line 908" }
+  assert(importer.due(nil, 99 * second) == nil, "a compile that refused nothing said a refusal")
+  assert(importer.due(early, 11 * second) == nil and not early.told, "a refusal was said before the compile had gone on")
+  local said = assert(importer.due(early, 12 * second), "a refusal was not said once the compile had gone on past it")
+  assert(said == "lang/check.tl is refused, and the rest of the tree is still being checked; the report follows, and " ..
+      "its first finding is\nlang/check.tl:908:25: `\"three\"` is `string`, where `integer` is wanted", said)
+  assert(importer.due(early, 60 * second) == nil, "a refusal was said twice")
+  -- A refusal of one line is said by that line.
+  local bare: importer.Early = { file = "a.tl", trouble = "a.tl: a module a build writes once", at_ns = 0, told = false }
+  assert(assert(importer.due(bare, 2 * second)):find("\na.tl: a module a build writes once", 1, true) ~= nil)
 end
