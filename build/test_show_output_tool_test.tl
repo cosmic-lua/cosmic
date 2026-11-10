@@ -83,6 +83,7 @@ local function test_show_output_prints_what_a_passing_test_printed(tmp: string)
   assert(not plain:find("value=42", 1, true), "a passing test's output is shown unasked: " .. plain)
   assert(plain:find("  | before the failure", 1, true), plain)
   assert(not plain:find("test: PASS", 1, true), plain)
+  assert(plain:find("test: 1 passing test printed output, which --show-output shows", 1, true), plain)
 
   local stood = invoke(root, tmp .. "/stood.out", { "--show-output" })
   assert(not stood:find("value=42", 1, true), stood)
@@ -96,6 +97,7 @@ local function test_show_output_prints_what_a_passing_test_printed(tmp: string)
   assert(shown:find("test: FAIL  suite.chatty_test test_prints_and_fails", 1, true), shown)
   assert(shown:find("  | before the failure", 1, true), shown)
   assert(not shown:find("show-output: ", 1, true), shown)
+  assert(not shown:find("printed output, which", 1, true), shown)
 
   -- The verdicts it kept are the plain run's: a run without the flag stands on them too.
   local after = invoke(root, tmp .. "/after.out", { "--show-output" })

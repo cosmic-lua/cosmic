@@ -121,7 +121,7 @@ function test_report.unchecked(ids: mut {string}): {string}
   for _, id in ipairs(ids) do lines[#lines + 1] = "test: NO ASSERT  " .. id end
   if #lines > 0 then
     lines[#lines + 1] = "  hint: a test that cannot check its subject here calls Test.skip(reason) of cosmic.test, and is listed as " ..
-      "skipped; one that returns early passes unchecked"
+      "skipped; one that returns early passes unchecked; --show-output shows what a passing test printed"
   end
   return lines
 end
@@ -277,6 +277,13 @@ function test_report.shown(shown: mut {test_report.Shown}): {string}
     for _, line in ipairs(printed_lines(one.printed, true)) do lines[#lines + 1] = line end
   end
   return lines
+end
+
+--- What a run without `--show-output` says of the `printed` tests that passed and printed something: their output is
+--- shown only for a failure, and a reader who printed to look at a value finds the flag here.
+function test_report.unshown_note(printed: integer): string?
+  if printed == 0 then return nil end
+  return "test: " .. plural.count(printed, "passing test") .. " printed output, which --show-output shows"
 end
 
 --- What `--show-output` says of the `stood` tests that did not run, which

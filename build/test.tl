@@ -1385,6 +1385,8 @@ local function finish(rec: Recording, job: Job, result: Child.Result?,
     -- is listed apart, so what is shown is the test's own.
     if rec.show_output and #own > 0 then
       rec.shown[id] = placed_positions(rec, table.concat(own, "\n"))
+    elseif #own > 0 then
+      rec.printed = rec.printed + 1
     end
   end
   -- A test that said why it did not check keeps its verdict: its pass is a
@@ -1741,7 +1743,11 @@ end
 --- Says what the tests that passed printed, each beneath its id, and that a
 --- test which stood printed nothing: it was not run.
 local function say_shown(rec: Recording, tally: State.Tally)
-  if not rec.show_output then return end
+  if not rec.show_output then
+    local unshown = test_report.unshown_note(rec.printed)
+    if unshown ~= nil then log:say(unshown) end
+    return
+  end
   local shown: mut {test_report.Shown} = {}
   for id, printed in pairs(rec.shown) do shown[#shown + 1] = { id = id, printed = printed } end
   for _, line in ipairs(test_report.shown(shown)) do log:say(line) end
@@ -2391,7 +2397,7 @@ local function make_recording(ctx: Run)
     violations_dropped = 0, fact_wraps = assert(ctx.result).fact_wraps,
     parameter_checks = assert(ctx.result).parameter_checks, violation_met = {}, violators = {}, violator_ns = {},
     failures = failures, errors = errors, outputs = {}, reruns = {},
-    show_output = ctx.show_output == true, shown = {},
+    show_output = ctx.show_output == true, shown = {}, printed = 0,
     failed = {}, skips = {}, unchecked = {}, deliberate = {}, stopped = {}, held = ctx.held == true, nas = {}, unmet = {}, answered = {},
     hits = hits, by_test = by_test, unowned = unowned,
     identities = test.identities(assert(ctx.result).modules), stale = {}, timed = false, own_tree = ctx.own_tree == true, tally = tally, not_run = 0,
