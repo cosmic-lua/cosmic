@@ -2506,20 +2506,66 @@ local function test_a_build_directory_with_one_count_column_gains_the_other()
   assert(checked.parameter_checks > 0)
 end
 
---- A compile over a tree goes on past the first module it refuses, and says the refusal once it has gone on for two
---- seconds: the file and the checker's first finding, once. A run that ends before then says nothing ahead of its report.
+--- What a compile says of a refusal ahead of its report is the file and the first finding against it, once, and nothing
+--- before the compile has gone on past it for as long as the caller is patient.
 local function test_a_refusal_is_said_ahead_of_the_report_once_the_compile_has_gone_on_past_it()
   local second = 1000000000
   local early: importer.Early = { file = "lang/check.tl", told = false, at_ns = 10 * second,
     trouble = "lang/check.tl: the compiler refused it\nlang/check.tl:908:25: `\"three\"` is `string`, where `integer` is wanted\n" ..
       "lang/check.tl: 1 error of not_assignable in its bodies on line 908" }
-  assert(importer.due(nil, 99 * second) == nil, "a compile that refused nothing said a refusal")
-  assert(importer.due(early, 11 * second) == nil and not early.told, "a refusal was said before the compile had gone on")
-  local said = assert(importer.due(early, 12 * second), "a refusal was not said once the compile had gone on past it")
-  assert(said == "lang/check.tl is refused, and the rest of the tree is still being checked; the report follows, and " ..
-      "its first finding is\nlang/check.tl:908:25: `\"three\"` is `string`, where `integer` is wanted", said)
-  assert(importer.due(early, 60 * second) == nil, "a refusal was said twice")
+  assert(importer.due(nil, 99 * second, 2 * second) == nil, "a compile that refused nothing said a refusal")
+  assert(importer.due(early, 11 * second, 2 * second) == nil and not early.told,
+    "a refusal was said before the compile had gone on")
+  local said = assert(importer.due(early, 12 * second, 2 * second), "a refusal was not said once the compile had gone on past it")
+  assert(said:find("lang/check.tl is refused", 1, true) == 1 and
+      said:find("\nlang/check.tl:908:25: `\"three\"` is `string`, where `integer` is wanted", 1, true) ~= nil and
+      said:find("1 error of", 1, true) == nil, said)
+  assert(importer.due(early, 60 * second, 2 * second) == nil, "a refusal was said twice")
   -- A refusal of one line is said by that line.
   local bare: importer.Early = { file = "a.tl", trouble = "a.tl: a module a build writes once", at_ns = 0, told = false }
-  assert(assert(importer.due(bare, 2 * second)):find("\na.tl: a module a build writes once", 1, true) ~= nil)
+  assert(assert(importer.due(bare, 2 * second, 2 * second)):find("\na.tl: a module a build writes once", 1, true) ~= nil)
+end
+
+--- Compiles the fixture `files` as a run over the tree does, and answers what it was told ahead of the report by a
+--- caller patient for `patience_ns`, and the refusals of the report.
+local function told_of_project(case: string, files: {string:string}, patience_ns: integer?, deaf?: boolean): {string}, {string}
+  local root = assert(write_fixture(case, files))
+  local handle = assert(work.open(root))
+  assert(work.stage(handle, { own = false }))
+  local told: mut {string} = {}
+  local outcome: importer.Outcome = { refused = false, patience_ns = patience_ns }
+  if deaf ~= true then
+    outcome = { refused = false, patience_ns = patience_ns, tell = function(line: string)
+      told[#told + 1] = line
+    end }
+  end
+  local result, trouble = importer.compile(handle, "importer-test", nil, nil, nil, nil, outcome)
+  work.close(handle)
+  return told, assert(result, trouble).refused
+end
+
+--- A compile over a tree tells its caller the first module it refuses while it goes on to the rest, once, whichever way
+--- the module is refused: by the checker, or for a text that does not parse. A caller that asks for nothing is told
+--- nothing, nor is one more patient than the compile is long; the report holds every refusal all the same.
+local function test_a_compile_over_a_tree_tells_its_first_refusal_while_it_goes_on_to_the_rest()
+  local files: {string:string} = {
+    ["a.tl"] = defaulting("A", "", "x"),
+    ["b.tl"] = defaulting("B", "local A = require(\"a\")\n", "A.f(x)"),
+    ["c.tl"] = defaulting("C", "local B = require(\"b\")\n", "B.f(x)"),
+    ["d.tl"] = "local C = require(\"c\")\nlocal record D\nend\nfunction D.f(n: integer): integer\n  return C.f(n)\nend\nreturn D\n",
+  }
+  local told, refused = told_of_project("told-checker", files, 0)
+  assert(#told == 1 and told[1]:find("a.tl is refused, and the rest of the tree is still being checked", 1, true) == 1 and
+      told[1]:find("\na.tl:", 1, true) ~= nil, table.concat(told, "\n"))
+  assert(#refused == 4, table.concat(refused, "\n"))
+  local patient, as_ever = told_of_project("told-patient", files, 3600 * 1000000000)
+  assert(#patient == 0 and #as_ever == 4, table.concat(patient, "\n"))
+  local unasked, still = told_of_project("told-unasked", files, 0, true)
+  assert(#unasked == 0 and #still == 4, table.concat(unasked, "\n"))
+  local broken, _ = told_of_project("told-broken", {
+    ["p.tl"] = "local record P\nend\nfunction P.f(: integer\nreturn P\n",
+    ["q.tl"] = "local record Q\nend\nfunction Q.f(n: integer): integer\n  return n\nend\nreturn Q\n",
+    ["r.tl"] = "local Q = require(\"q\")\nlocal record R\nend\nfunction R.f(n: integer): integer\n  return Q.f(n)\nend\nreturn R\n",
+  }, 0)
+  assert(#broken == 1 and broken[1]:find("p.tl is refused", 1, true) == 1, table.concat(broken, "\n"))
 end

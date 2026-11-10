@@ -111,8 +111,8 @@ allowed["build.dataset.read"] = "the reader load_text composes and falls back on
 
 allowed["cosmic.hash.file"] = "the raw-digest form of hex_file, which is its only caller outside tests"
 
-allowed["build.importer.due"] = "when a compile says a refusal ahead of its report, and in what words; the compile " ..
-  "loop asks it of the clock, and a test of times it chooses"
+allowed["build.importer.due"] = "when a compile says a refusal ahead of its report; the compile loop asks it of the " ..
+  "clock, and build/importer_test.tl of times it chooses"
 
 allowed["build.searchable.share"] = "opens one file or directory to every user for the tests of a policy's child; build/child_policy_fixture.tl imports the module for `open`, so the tests' own uses no longer earn `share`"
 
