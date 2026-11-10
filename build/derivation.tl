@@ -45,6 +45,11 @@ local record derivation
     source_hash: string
     file: string
     message: string
+    --- The source with the fix of every one of its errors written in, where each error is a `global` in a program, whose
+    --- fix is the word `local` in its place: a text of the same length that parses, each token where it was. The checker
+    --- reads it to tell, in the same run, what it would say once the fix is made. nil for any other source: after any
+    --- other error the parser's tree is no whole program. `message` then holds every error, a line each.
+    repaired?: string
   end
 end
 
