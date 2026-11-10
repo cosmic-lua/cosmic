@@ -5,6 +5,7 @@
 local Clock = require("cosmic.clock")
 local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
+local Speed = require("lang.speed")
 local type PolicyRules = require("build.policy_rules")
 local type plans = require("build.plans")
 local test = require("build.test")
@@ -301,6 +302,113 @@ local function test_a_standing_rows_ordinals_are_placed_at_the_lines_of_this_run
   end, codes)
   assert(gone["build.lib"] == nil and gone_stale["build.lib"] == "were not placed at its lines: no module of the " ..
       "projection", gone_stale["build.lib"])
+end
+
+--- The rows of a suite hold the lines every test hits of the modules every test loads once a test, so the run that
+--- stands on them folds each line it has met without reading it again, and is left what reading it left: the hits,
+--- and why a module is stale, the last line folded deciding as it does where every line is read.
+local function test_a_line_of_hits_met_again_is_folded_once_and_leaves_what_it_left()
+  local code, text = string.rep("c", 16), string.rep("d", 16)
+  local now = { ["build.lib"] = string.rep("e", 16), ["build.moved"] = text }
+  local codes = { ["build.lib"] = code }
+  local asked = 0
+  local function lines_of(_: string): {integer}?, string
+    asked = asked + 1
+    return { 5, 5, 10 }, ""
+  end
+  local base = lua_tail.ordinal_base
+  local placed = "build.lib " .. code .. "\t" .. tostring(base + 1) .. "," .. tostring(base + 3) .. "\n"
+  local past = "build.lib " .. code .. "\t" .. tostring(base + 4) .. "\n"
+  local other = "build.moved " .. string.rep("a", 16) .. "\t4\n"
+  local rows = { placed .. other, past, placed .. other, placed }
+  local function decoded(folded?: test.Folded): {string:mut {integer:boolean}}, {string:string}, {string}
+    local hits: mut {string:mut {integer:boolean}} = {}
+    local stale: mut {string:string} = {}
+    local kept: mut {string} = {}
+    for _, row in ipairs(rows) do
+      kept[#kept + 1] = test.decode_hits(row, hits, now, stale, nil, lines_of, codes, folded)
+    end
+    return hits, stale, kept
+  end
+  local hits, stale, kept = decoded()
+  assert(asked == 4, "each line of an import's ordinals asks for its lines: " .. tostring(asked))
+  asked = 0
+  local once_hits, once_stale, once_kept = decoded({})
+  assert(asked == 2, "a line met again was read again: " .. tostring(asked))
+  local lib, once_lib = assert(hits["build.lib"]), assert(once_hits["build.lib"])
+  assert(lib[5] == true and lib[10] == true and once_lib[5] == true and once_lib[10] == true)
+  assert(hits["build.moved"] == nil and once_hits["build.moved"] == nil)
+  -- The line placed whole is folded after the one past the module's instructions, and leaves nothing: what that one
+  -- left stays, as where both are read.
+  assert(stale["build.lib"] == "were not placed at its lines: instruction 4 is past the module's 3", stale["build.lib"])
+  assert(once_stale["build.lib"] == stale["build.lib"] and once_stale["build.moved"] == test_report.other_text and
+      stale["build.moved"] == test_report.other_text, once_stale["build.lib"])
+  for index, row in ipairs(rows) do
+    assert(kept[index] == row and once_kept[index] == row, "a row is kept as written: " .. tostring(index))
+  end
+  -- A line that left a module stale says so again where another line of the path has said otherwise since.
+  local again: mut {string:string} = {}
+  local folded: test.Folded = {}
+  local _ = test.decode_hits(other, {}, now, again, nil, lines_of, codes, folded)
+  again["build.moved"] = "another line's word"
+  local _ = test.decode_hits(other, {}, now, again, nil, lines_of, codes, folded)
+  assert(again["build.moved"] == test_report.other_text, again["build.moved"])
+end
+
+--- A working database holding the executable lines `1..lines` of one module, and the module's hits of every other
+--- line of them and of two lines it does not have.
+local function coverage_of(lines: integer): Sqlite.Handle, {string:{integer:boolean}}
+  local db = assert(Sqlite.open(":memory:", { writable = true }))
+  for _, statement in ipairs(work.schema) do assert(db:exec(statement)) end
+  local numbers: mut {string} = {}
+  local hit: mut {integer:boolean} = { [lines + 1] = true, [lines + 7] = true }
+  for line = 1, lines do
+    numbers[line] = tostring(line)
+    if line % 2 == 1 then hit[line] = true end
+  end
+  assert(Sqlite.run(db, "INSERT INTO executable (source_hash, lines) VALUES ('h', ?1)",
+    { { text = table.concat(numbers, " ") } }))
+  return db, { ["build.lib"] = hit }
+end
+
+--- Writes the coverage of [`coverage_of`]'s module for the run `run`, answering the lines hit and the lines written.
+local function write_module(db: Sqlite.Handle, hits: {string:{integer:boolean}}, run: integer): integer, integer
+  local wrote = assert(test.write_module_coverage(db,
+    function(visit: function(string, string): boolean, string): boolean, string
+      return visit("build.lib", "h")
+    end,
+    function(path: string): string return path .. ": its lines are not kept" end, hits, run))
+  return wrote.hit, wrote.lines
+end
+
+--- A module's coverage is a row for each executable line, hit where a test hit it, and the counts answered are of
+--- those rows: a line hit that the module does not have is no row and is not counted.
+local function test_a_modules_coverage_counts_the_rows_written_and_those_hit()
+  local db, hits = coverage_of(9)
+  assert(db:exec("INSERT INTO coverage (ran_at_ns, path, line, hit) VALUES (7, 'core/a.c', 1, 1), (6, 'build.lib', 1, 1)"))
+  local hit, lines = write_module(db, hits, 7)
+  assert(hit == 5 and lines == 9, tostring(hit) .. " of " .. tostring(lines))
+  local rows = assert(assert(Sqlite.text_rows(db,
+    "SELECT count(*), sum(hit), group_concat(line, ' ') FROM coverage WHERE ran_at_ns = 7 AND path = 'build.lib' AND hit = 1"))[1]):texts()
+  assert(rows[1] == "5" and rows[2] == "5" and rows[3] == "1 3 5 7 9", table.concat(rows, "|"))
+  assert(db:close())
+end
+
+--- Four times the lines of a module cost about four times the time to write, and not sixteen: counting the lines hit
+--- by spreading the module's lines again for each of them did.
+local function test_four_times_a_modules_lines_cost_about_four_times_to_write()
+  local small, small_hits = coverage_of(1000)
+  local large, large_hits = coverage_of(4000)
+  local run = 0
+  local ok, why = Speed.within(function()
+    run = run + 1
+    local _, _ = write_module(small, small_hits, run)
+  end, function()
+    run = run + 1
+    local _, _ = write_module(large, large_hits, run)
+  end, 10)
+  assert(ok, "four times the lines " .. why)
+  assert(small:close() and large:close())
 end
 
 --- The first progress line of a run that names the longest-running tests
