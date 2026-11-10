@@ -6907,7 +6907,7 @@ end
 --- then. A comparison of an integer and a length runs no code, and [`Writes.keeps_length`] refuses the code that could
 --- run after it: a call, an iterator, a `__close`, a write of nil or at another key of `t`, and an assignment of `t` or
 --- `i`. So `t` keeps every element it had and `i` its value, in the block and in the operands of the chain evaluated after
---- the bounds. A function made in the block may run when `t` is shorter: its body starts with no range
+--- the bounds; the range is given to the block alone, so a read in such an operand is still optional. A function made in the block may run when `t` is shorter: its body starts with no range
 --- ([`function_body`]).
 function Writes.ranges_of(cond: Ast.Exp, body: Ast.Block): {Fill}
   local operands: mut {Ast.Node} = {}

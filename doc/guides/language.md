@@ -197,8 +197,8 @@ may run later, when `xs` is shorter, so a read inside one is still `T?`. `xs` is
 counted, so copy it to a local. `ipairs` gives a `T` as well.
 
 The loop holds the keys beside its index too. In `for i = a, #xs - b do`, with `a` and `b` literals, `xs[i - c]` and
-`xs[i + c]` are a `T` for a literal `c` where the bounds of the loop keep the key inside the array: `a - c` is 1 or more,
-and `c` is at most `b`. So `for i = 2, #xs - 1 do` reads `xs[i - 1]`, `xs[i]` and `xs[i + 1]`.
+`xs[i + c]` are a `T` for a literal `c` where the bounds of the loop keep the key inside the array: for `xs[i - c]`, `a - c`
+is 1 or more; for `xs[i + c]`, `c` is at most `b`. So `for i = 2, #xs - 1 do` reads `xs[i - 1]`, `xs[i]` and `xs[i + 1]`.
 
 ```teal
 local scores: mut {integer} = { 3, 1, 2 }
