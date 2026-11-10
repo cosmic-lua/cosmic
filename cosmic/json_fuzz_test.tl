@@ -13,13 +13,6 @@ local Array = require("cosmic.array")
 local Fuzz = require("build.fuzz")
 local Json = require("cosmic.json")
 local String = require("cosmic.string")
-
---- The value of a value-and-reason pair, which is there: `assert` takes no optional that may hold `false`, which it would
---- raise for as for nil.
-local function known_value(value: Json.Value?, why?: string): Json.Value
-  assert(value ~= nil, why)
-  return value
-end
 -- TODO: once a generator can build a value that is not a Json.Value (a function, a cycle, a table of mixed keys) with a type, the `any` plumbing of this file, json_path_fuzz_test.tl and json_reader_fuzz_test.tl goes.
 
 --- Well-formed and nearly well-formed texts to mutate: every shape the
@@ -1029,7 +1022,9 @@ local function ascii_holds(input: string): boolean, string
     return false, "did not read back the same: " .. out
   end
   local plain = assert(Json.encode(value))
-  if Json.encode_any((known_value(Json.decode(plain)))) ~= Json.encode_any(back) then
+  local reread, reread_trouble = Json.decode(plain)
+  assert(reread ~= nil, reread_trouble)
+  if Json.encode_any(reread) ~= Json.encode_any(back) then
     return false, "reads differently from the text without the option: " .. out
   end
   local stray = Json.encode(text .. "\xff", { ascii = true })

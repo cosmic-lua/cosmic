@@ -15,13 +15,6 @@ local Test = require("cosmic.test")
 local flow = require("build.flow")
 local String = require("cosmic.string")
 
---- The value of a value-and-reason pair, which is there: `assert` takes no optional that may hold `false`, which it would
---- raise for as for nil.
-local function known_value(value: Json.Value?, why?: string): Json.Value
-  assert(value ~= nil, why)
-  return value
-end
-
 --- The workflows and actions, and the programs and pins they name.
 Test.policy{
   grants = {
@@ -110,7 +103,8 @@ local STEP <const> = Shape.record_of("Step")
 -- TODO: ask the shape for a strict record, and drop the re-encoding below,
 -- once [`Shape.record_of`] has a strict form (cosmic/shape.tl carries the TODO).
 local function read_as<T>(typed: Shape.Typed<T>, path: string, text: string): T
-  local raw = known_value(Json.decode(text, READ))
+  local raw, raw_trouble = Json.decode(text, READ)
+  assert(raw ~= nil, raw_trouble)
   local record, err = typed:into(raw)
   assert(record, path .. ": " .. tostring(err))
   local kept, given = assert(Json.encode_any(record)), assert(Json.encode_any(raw))
@@ -407,7 +401,9 @@ local function expand(matrix: {string: Json.Value}, kind: string): {{string: str
     assert(full ~= nil, "the include is chosen other than by the kind of run: " .. include)
     local chosen = if kind == "queue" then queue elseif kind == "push" then push else full end
     assert(kind == "queue" or kind == "push" or kind == "full", "no kind of run " .. kind)
-    include = known_value(Json.decode(assert(chosen)))
+    local chosen_include, include_trouble = Json.decode(assert(chosen))
+    assert(chosen_include ~= nil, include_trouble)
+    include = chosen_include
   end
   for _, entry in ipairs(entries_of(include)) do
     local added = false

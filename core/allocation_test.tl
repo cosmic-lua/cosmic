@@ -57,13 +57,6 @@ local process = require("cosmic.internal.process")
 
 local socket = require("cosmic.internal.socket")
 
---- The value of a value-and-reason pair, which is there: `assert` takes no optional that may hold `false`, which it would
---- raise for as for nil.
-local function known_value(value: Json.Value?, why?: string): Json.Value
-  assert(value ~= nil, why)
-  return value
-end
-
 local function test_a_refused_allocation_raises_and_is_counted()
   -- Made before refusal starts: the closure is itself an allocation,
   -- and nothing after a refusal outside pcall could even report.
@@ -864,7 +857,9 @@ local function test_json_leaves_nothing_whenever_an_allocation_fails()
     assert(value ~= nil and trouble == "", trouble)
     assert(Json.encode(value) == '{"a":{"c":{},"d":[]},"b":[1,2.5,"x\xc3\xa9",true,null]}')
     assert(assert(Json.encode_any(wide, { pretty = true })):sub(1, 1) == "{")
-    local lone = known_value(Json.decode('["\\ud83d"]', { lone_surrogates = true })) as {string} -- checked: cast_refused
+    local lone_value, lone_trouble = Json.decode('["\\ud83d"]', { lone_surrogates = true })
+    assert(lone_value ~= nil, lone_trouble)
+    local lone = lone_value as {string} -- checked: cast_refused
     assert(lone[1] == "\u{FFFD}")
     assert(Json.check(text))
     assert(assert(Json.format(text, { pretty = true })):sub(1, 1) == "{")
