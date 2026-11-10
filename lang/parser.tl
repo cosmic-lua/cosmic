@@ -1278,9 +1278,9 @@ local function parse_if_expression(): Ast.Exp
   while line > 1 and same_line(line) do
     line = line - 1
   end
-  if S.text == "end" and begins_line(S.pos) and Lexer.x(S.tokens, S.pos) < Lexer.x(S.tokens, line) then
-    -- An `end` shallower than the statement the expression is in may be the `end` of a block around it: an error at the
-    -- token after it is told as this expression's missing `end` ([`report`]).
+  if line < first and S.text == "end" and begins_line(S.pos) and Lexer.x(S.tokens, S.pos) < Lexer.x(S.tokens, line) then
+    -- The expression begins inside a line, and this `end` is shallower than that line: it may be the `end` of a block
+    -- around the statement. An error at the token after it is told as this expression's missing `end` ([`report`]).
     S.lent_if, S.lent_end = first, S.pos
   end
   close("end", first, "`if` expression")
@@ -1581,7 +1581,7 @@ local function subexpression(limit: integer): Ast.Exp
     end
     if entry.op == ">" and left.kind == "Binary" and left.op == "<" and peek_text(1) == "(" and same_line(S.pos + 1) then
       report("type_argument", S.pos, "a call takes no type arguments: `" .. quoted_text(first, S.pos) ..
-          "(...)` reads as two comparisons",
+          " (...)` reads as two comparisons",
         "call it with its arguments alone: they and the type the result is given say the type (`local v: T = f(x)`)")
     end
     advance()

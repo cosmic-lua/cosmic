@@ -608,6 +608,11 @@ local function test_a_write_through_a_view_read_out_of_a_collection_names_the_in
       "  if sum ~= nil then\n    sum[1] = 2\n  end\nend\n", "view_written")
   assert(has(e.fix, "one read out of a collection is `mut` where that collection's type says so (`{K: mut {integer: number}}`)"),
     e.fix)
+  local array = first_error("local function f(t: mut {string: {number}})\n  local row = t[\"a\"]\n  if row ~= nil then\n" ..
+      "    row[1] = 2\n  end\nend\n", "view_written")
+  assert(has(array.fix, "that collection's type says so"), array.fix)
+  local parameter = first_error("local function g(p: {string: number})\n  p[\"a\"] = 1\nend\n", "view_written")
+  assert(not has(parameter.fix, "read out of a collection"), parameter.fix)
 end
 
 local function test_a_local_given_nil_alone_is_told_to_be_declared_optional()
@@ -615,6 +620,12 @@ local function test_a_local_given_nil_alone_is_told_to_be_declared_optional()
       "  return x or 0\nend\n", "not_assignable")
   assert(has(e.fix, "`local x: integer? = nil`"), e.fix)
   assert(not has(e.fix, "pass a value of type `nil`"), e.fix)
+  local optional = first_error("local function f(xs: {string}): string\n  local x = nil\n  x = xs[1]\n  return x or \"\"\nend\n",
+    "not_assignable")
+  assert(has(optional.fix, "`local x: string? = nil`"), optional.fix)
+  -- What is declared `nil` and is no local keeps the plain fix.
+  local parameter = first_error("local function f(_x: nil)\nend\nf(3)\n", "not_assignable")
+  assert(has(parameter.fix, "pass a value of type `nil`") and not has(parameter.fix, "local"), parameter.fix)
 end
 
 local function test_a_call_returned_past_the_declared_results_is_told_the_parentheses_that_cut_it()
@@ -627,6 +638,8 @@ local function test_a_value_returned_where_nothing_is_answered_is_told_the_state
   local e = first_error("local function run(_f: function())\nend\nlocal function g(): integer\n  return 1\nend\n" ..
       "run(function() return g() end)\n", "return_unexpected")
   assert(has(e.fix, "write the call as a statement, with no `return`"), e.fix)
+  local value = first_error("local function f()\n  return 1\nend\n", "return_unexpected")
+  assert(not has(value.fix, "statement"), value.fix)
 end
 
 --- `or` cuts a call to its first value, so deleting a needless default of a call could return or pass the values after

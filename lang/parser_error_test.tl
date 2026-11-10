@@ -114,7 +114,7 @@ local CASES <const>: {Case} = {
   { code = "bad_target", source = "f() = 1", y = 1, x = 1, says = "`f()` cannot be assigned to", fix = "a field `t.k` or an index `t[k]`" },
   { code = "statement_after_return", source = "return 1\nx = 2", y = 2, x = 1, says = "follows the `return` on line 1", fix = "write `do return end`" },
   { code = "chained_optional", source = "local x: T??", y = 1, x = 12, says = "`??`", fix = "write a single `?`" },
-  { code = "type_argument", source = "local v = first<R.Money>(h)", y = 1, x = 24, says = "`first<R.Money>(...)` reads as two comparisons",
+  { code = "type_argument", source = "local v = first<R.Money>(h)", y = 1, x = 24, says = "`first<R.Money> (...)` reads as two comparisons",
     fix = "`local v: T = f(x)`" },
   { code = "inline_record", source = "local function f(x: { m: integer, n: string }) end", y = 1, x = 33,
     says = "a record type is not written in braces", fix = "declare the record" },
@@ -191,6 +191,13 @@ local function test_each_refusal_has_its_code_its_place_and_its_fix()
     assert(e.fix:find(case.fix, 1, true), what .. ": fix " .. e.fix)
     assert(e.filename == "t.tl")
   end
+end
+
+--- An `if` expression that has its `end` is not blamed for the error after it, however the `end` is indented.
+local function test_an_if_expression_with_its_end_keeps_the_error_after_it()
+  local parsed = parse("local function f(c: boolean): integer\n  return\n    if c then 1\n    else 2\n  end\n  print(\"after\")\nend\n", "tl")
+  local e = assert(parsed.errors[1])
+  assert(tostring(e.code) == "statement_after_return", e.msg)
 end
 
 local function test_every_code_of_the_parser_has_a_case()

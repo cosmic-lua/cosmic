@@ -1054,9 +1054,11 @@ local function refused(ctx: Ctx, node: Ast.Node, got: Type, want: Type, r: Relat
         quoted(Types.display(r.super, ctx.binders)) .. ")"
     end
     local fix = "pass a value of type " .. quoted(w) .. ", or change the declaration to " .. quoted(g)
-    if want.tag == "nil" then
-      -- What was given `nil` and no type holds nil alone (`local x = nil`).
-      fix = "declare what holds it optional where it is made: `local x: " .. g .. "? = nil`"
+    local held = where:match("^ in the assignment to `([%a_][%w_]*)`$")
+    if want.tag == "nil" and held ~= nil then
+      -- A local given `nil` and no type holds nil alone (`local x = nil`).
+      fix = "declare `" .. held .. "` optional where it is made: `local " .. held .. ": " .. g ..
+        (if nilable(got) then "" else "?" end) .. " = nil`"
     end
     local body = Types.unfold(want)
     if body ~= want then
@@ -2761,16 +2763,29 @@ end
 --- What the fix of a write through the view `base` adds where a local holds it: a local read out of a collection is a
 --- view by that collection's type, which is where `mut` goes.
 local function read_out(ctx: Ctx, target: Ast.Index, base: Type): string
-  if target.object.kind ~= "Name" then
+  local object = target.object
+  if object.kind ~= "Name" then
+    return ""
+  end
+  local id = object.binding
+  local v = if id == nil then nil else ctx.scoped.vars[id] end
+  if v == nil or not (v.kind == "local" or v.kind == "loop") then
     return ""
   end
   return "; one read out of a collection is `mut` where that collection's type says so (`{K: mut " .. show(ctx, base) .. "}`)"
 end
 
---- The fix of a value returned by a function that declares no return list, which a function literal passed where one
---- that answers nothing is wanted is too.
-local UNDECLARED_RETURN_FIX <const> = "declare the return list: `function f(): T`; where a function that answers nothing is " ..
-  "wanted, write the call as a statement, with no `return`"
+--- Whether the return `s` answers the results of one call alone.
+local function returns_call(s: Ast.Return): boolean
+  local only = s.values[1]
+  return #s.values == 1 and only ~= nil and (only.kind == "Call" or only.kind == "MethodCall")
+end
+
+--- The fix of a value returned by a function that declares no return list: a function literal passed where one that
+--- answers nothing is wanted is such a function, and the call it returns is written as a statement.
+local UNDECLARED_RETURN_FIX <const> = "declare the return list: `function f(): T`"
+local UNDECLARED_CALL_FIX <const> = UNDECLARED_RETURN_FIX .. "; where a function that answers nothing is wanted, write the call as " ..
+  "a statement, with no `return`"
 
 --- What a condition of type `t` is: "bool", "opt" (a `T?` for a `T` that is not a boolean), or "bad" after the error.
 --- `default` is the `or` whose left `node` is, which asks for a default: a value that is never nil there needs no test, and
@@ -7513,7 +7528,8 @@ local function check_assignment(ctx: Ctx, s: Ast.Assign): Values?
         destination = "`mut {integer: " .. show(ctx, element) .. "}` (a map: this write may leave a hole in an array)"
       end
       report(ctx, "view_written", p.target, owner .. " is a view " .. tq(ctx, base) .. ", so " .. subject(ctx, p.target) ..
-          " cannot be assigned", "declare " .. owner .. " " .. destination .. " where it is made or received", { show(ctx, base) })
+          " cannot be assigned", "declare " .. owner .. " " .. destination .. " where it is made or received" .. read_out(ctx, p.target, base),
+        { show(ctx, base) })
     end
     if not Writes.leaves_no_hole(ctx, vals, p) then
       Writes.report_hole(ctx, vals, p)
@@ -7729,7 +7745,7 @@ local function check_return(ctx: Ctx, s: Ast.Return)
     if #alt.items == 0 and alt.tail == nil then
       if #vals.types > 0 or vals.tail ~= nil then
         report(ctx, "return_unexpected", s, "this function returns nothing, and this returns " .. plural(#vals.types, "value"),
-          if frame.declared then "remove the value" else UNDECLARED_RETURN_FIX end) -- checked: nil_not_allowed
+          if frame.declared then "remove the value" elseif returns_call(s) then UNDECLARED_CALL_FIX else UNDECLARED_RETURN_FIX end) -- checked: nil_not_allowed
       end
       return
     end
