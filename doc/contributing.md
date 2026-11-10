@@ -114,7 +114,7 @@ line below it. [`build/markers.tl`] has the rules.
   grep` and `git cat-file`), with no run of the checker. CI runs it in
   the merge queue (and on main's runs), against the merge base with
   main and never the entry ahead in the queue, where it fails when no base
-  can be found (GitHub could not name it: run the job again), and
+  can be found (the step that finds it says why: run the job again), and
   `bin/cosmic fix --check .` runs it locally against `git merge-base HEAD
   origin/main`, saying so when there is no `origin/main` (`git fetch
   origin main`) or no git checkout. a file renamed with markers loses

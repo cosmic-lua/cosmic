@@ -258,15 +258,19 @@
         # merge base of the commit with main (build/ceilings_base.tl): a
         # marker only falls. Never to the queue's own base
         # (merge_group.base_sha), the entry ahead, whose markers the
-        # commit already holds. Where the base step finds none the check
-        # fails, rather than let a raise through; run it again.
+        # commit already holds. The base step finds it with git alone,
+        # never the API, whose comparison GitHub refuses under load: a
+        # pull request for main reads the merge commit's first parent
+        # from its checkout, and the other runs fetch the commit's
+        # history down to main. Where it finds none it fails the job
+        # there, as the check would minutes later, rather than let a
+        # raise through; run it again.
         {
           name: "find the base the markers are held to",
           id: "ceilings-base",
           if: "matrix.name == 'linux-x86_64' && github.event_name != 'push' && github.event.schedule != '41 3 * * 1-6'",
           shell: "sh",
-          "continue-on-error": true,
-          env: {GH_TOKEN: "${{ github.token }}", REPOSITORY: "${{ github.repository }}", SHA: "${{ github.sha }}", EVENT: "${{ github.event_name }}", REF: "${{ github.ref }}", BASE_REF: "${{ github.event.merge_group.base_ref }}"},
+          env: {SHA: "${{ github.sha }}", EVENT: "${{ github.event_name }}", REF: "${{ github.ref }}", BASE_REF: "${{ github.event.merge_group.base_ref }}", PR_BASE_REF: "${{ github.base_ref }}"},
           run: "cosmic-driver cosmic_ci/driver.tl ceilings-base",
         },
         {

@@ -479,6 +479,7 @@ local function test_the_format_check_holds_the_markers_to_the_merge_base_with_ma
         assert(step.run == "cosmic-driver cosmic_ci/driver.tl ceilings-base", name .. ": " .. tostring(step.run))
         assert(env["BASE_REF"] == "${{ github.event.merge_group.base_ref }}" and env["QUEUE_BASE"] == nil,
           name .. ": the step does not ask for the merge base with the queue's branch, or takes the queue's base")
+        assert(env["PR_BASE_REF"] == "${{ github.base_ref }}", name .. ": the step is not told the branch a pull request is for")
       end
       if step.run ~= nil and step.run:find("COSMIC_CEILINGS_BASE", 1, true) ~= nil then
         named = true
