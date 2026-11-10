@@ -1863,8 +1863,8 @@ local function test_the_hint_of_an_index_read_names_the_loop_and_the_checked_rea
     return e.fix
   end
   local named = fix_of("local xs: {integer} = {}\nlocal i: integer = 2\nlocal n: integer = xs[i]\n", "index_may_be_nil")
-  for _, part in ipairs({ "for i = 1, #xs do", "Array.at(xs, i)", "assert(xs[i])", "ipairs(xs)", "or <default>",
-      "a wrong value" }) do
+  for _, part in ipairs({ "for i = 1, #xs do", "if i >= 1 and i <= #xs then", "Array.at(xs, i)", "assert(xs[i])", "ipairs(xs)",
+      "or <default>", "a wrong value" }) do
     assert(has(named, part), part .. " is not in " .. named)
   end
   -- the loop is offered only for a local array read at a name
@@ -1872,7 +1872,7 @@ local function test_the_hint_of_an_index_read_names_the_loop_and_the_checked_rea
   assert(has(literal, "Array.at(xs, 2)") and has(literal, "assert(xs[2])") and not has(literal, "for 2 = 1"), literal)
   local path = fix_of("local record R\n  items: {integer}\nend\nlocal r: R = { items = {} }\nlocal i: integer = 1\n" ..
       "local n: integer = r.items[i]\n", "index_may_be_nil")
-  assert(has(path, "Array.at(r.items, i)") and not has(path, "count the keys"), path)
+  assert(has(path, "Array.at(r.items, i)") and not has(path, "count the keys") and not has(path, "test the index"), path)
   -- an operand gets the same pointer
   local operand = fix_of("local xs: {integer} = {}\nlocal i: integer = 2\nlocal n = xs[i] + 1\n", "nil_not_allowed")
   assert(has(operand, "Array.at(xs, i)") and has(operand, "or <default>"), operand)
@@ -1906,7 +1906,6 @@ local function test_a_read_at_the_index_of_a_counted_loop_stays_optional_where_t
   -- the loop does not count the keys of the array read
   stays("for i = 1, #xs, 2 do\n  total = xs[i]\nend\n")
   stays("for i = 0, #xs do\n  total = xs[i]\nend\n")
-  stays("for i = 1, #xs - 1 do\n  total = xs[i]\nend\n")
   stays("for i = 1, #ys do\n  total = xs[i]\nend\n")
   stays("for i = 1, 3 do\n  total = xs[i]\nend\n")
   stays("for i = 1, #xs do\n  total = xs[i + 1]\nend\n")
@@ -1926,6 +1925,145 @@ local function test_a_read_at_the_index_of_a_counted_loop_stays_optional_where_t
   -- (an assignment to `i` is refused before the check, as `const_assigned`)
   -- a function made in the loop may run when the array is shorter
   stays("for i = 1, #xs do\n  fns[#fns + 1] = function(): integer\n    return xs[i]\n  end\nend\n")
+end
+
+local function test_a_read_beside_the_index_of_a_counted_loop_is_not_optional_where_the_bounds_of_the_loop_hold_it()
+  -- a stencil: the loop stops short of the length by as much as the read reaches ahead, and starts as far in as it reaches back
+  assert(counted("for i = 2, #xs - 1 do\n  total = xs[i - 1] + xs[i] + xs[i + 1]\nend\n") == "")
+  assert(counted("for i = 1, #xs - 1 do\n  total = xs[i]\nend\n") == "")
+  assert(counted("for i = 1, #xs - 1 do\n  total = xs[i + 1] - xs[i]\nend\n") == "")
+  assert(counted("for i = 2, #xs do\n  total = xs[i] - xs[i - 1]\nend\n") == "")
+  assert(counted("for i = 3, #xs - 2, 1 do\n  total = xs[i - 2] + xs[(i + 2)]\nend\n") == "")
+  assert(counted("for i = 1, #xs - 0 do\n  total = xs[i]\nend\n") == "")
+  -- a loop that stops further short than the read reaches
+  assert(counted("for i = 1, #xs - 3 do\n  total = xs[i + 2]\nend\n") == "")
+  -- the element is the type declared, with no test
+  assert(counted("for i = 2, #xs do\n  local before: integer = xs[i - 1]\n  total = before\nend\n") == "")
+  assert(codes_of("local function smooth(v: {number}): number\n  local s = 0.0\n  for i = 2, #v - 1 do\n" ..
+      "    s = s + (v[i - 1] + v[i] + v[i + 1]) / 3\n  end\n  return s\nend\n") == "")
+end
+
+local function test_a_read_beside_the_index_of_a_counted_loop_stays_optional_where_the_bounds_do_not_hold_it()
+  local function stays(loop: string, also?: string)
+    local got = counted("local k: integer = 1\n" .. loop)
+    local want = if also == nil then "index_may_be_nil" else also .. " index_may_be_nil" end
+    assert(got == want, got .. " in\n" .. loop)
+  end
+  -- the read reaches before the first key
+  stays("for i = 1, #xs do\n  total = xs[i - 1]\nend\n")
+  stays("for i = 2, #xs do\n  total = xs[i - 2]\nend\n")
+  stays("for i = 2, #xs - 1 do\n  total = xs[i - 2]\nend\n")
+  -- or past the length
+  stays("for i = 1, #xs do\n  total = xs[i + 1]\nend\n")
+  stays("for i = 1, #xs - 1 do\n  total = xs[i + 2]\nend\n")
+  stays("for i = 1, #xs + 1 do\n  total = xs[i - 1]\nend\n")
+  stays("for i = 1, #xs - -1 do\n  total = xs[i]\nend\n")
+  -- a start, a limit or an offset that is no literal, and an offset that is no integer
+  stays("for i = k, #xs do\n  total = xs[i]\nend\n")
+  stays("for i = 1, #xs - k do\n  total = xs[i]\nend\n")
+  stays("for i = 1, #xs - 1 do\n  total = xs[i + k]\nend\n")
+  stays("for i = 2, #xs do\n  total = xs[i - k]\nend\n")
+  assert(counted("for i = 1, #xs - 1 do\n  total = xs[i + 1.0]\nend\n") == "index_may_be_nil float_key")
+  stays("for i = 1, #xs - 1 do\n  total = xs[i * 1]\nend\n")
+  -- a loop from 0, by a step other than 1, or down
+  stays("for i = 0, #xs do\n  total = xs[i]\nend\n")
+  stays("for i = 0, #xs - 1 do\n  total = xs[i + 1]\nend\n")
+  stays("for i = 1, #xs - 1, 2 do\n  total = xs[i + 1]\nend\n")
+  stays("for i = 2, #xs - 1, 2 do\n  total = xs[i]\nend\n")
+  stays("for i = #xs, 1, -1 do\n  total = xs[i]\nend\n")
+  stays("for i = #xs - 1, 1, -1 do\n  total = xs[i + 1]\nend\n")
+  -- another array than the one the loop counts, and a field
+  stays("for i = 2, #xs - 1 do\n  total = ys[i + 1]\nend\n")
+  stays("for i = 2, #ys - 1 do\n  total = xs[i - 1]\nend\n")
+  stays("for i = 2, #h.items - 1 do\n  total = h.items[i - 1]\nend\n")
+  -- the index of another loop
+  stays("for i = 2, #xs - 1 do\n  for j = 1, #ys do\n    total = xs[j + 1]\n  end\nend\n")
+  -- the body may shorten the array, or lose it, or write it beside the index
+  stays("for i = 2, #xs - 1 do\n  table.remove(xs)\n  total = xs[i + 1]\nend\n")
+  stays("for i = 2, #xs - 1 do\n  xs[#xs] = nil\n  total = xs[i + 1]\nend\n")
+  stays("for i = 2, #xs - 1 do\n  ys[#ys] = nil\n  total = xs[i - 1]\nend\n")
+  stays("for i = 2, #xs - 1 do\n  local n = other(xs)\n  total = xs[i - 1]\nend\n")
+  stays("for i = 2, #xs - 1 do\n  print(i)\n  total = xs[i + 1]\nend\n")
+  stays("for i = 2, #xs - 1 do\n  xs = {}\n  total = xs[i + 1]\nend\n")
+  stays("for i = 1, #xs - 1 do\n  xs[i + 1] = 1\n  total = xs[i]\nend\n", "array_hole")
+  -- a function made in the loop may run when the array is shorter
+  stays("for i = 2, #xs - 1 do\n  fns[#fns + 1] = function(): integer\n    return xs[i + 1]\n  end\nend\n")
+  -- an array of a type variable may hold nil between its keys
+  assert(codes_of("local function last<T>(d: T, v: {T}): T\n  for i = 2, #v do\n    d = v[i - 1]\n  end\n  return d\nend\n") ==
+      "index_may_be_nil")
+end
+
+local function test_a_read_inside_a_range_test_of_its_index_is_not_optional_while_nothing_moves_the_index_or_the_length()
+  local head = "local xs: mut {integer} = { 1, 2, 3 }\nlocal ys: mut {integer} = { 4 }\nlocal c = true\n" ..
+    "local fns: mut {function(): integer} = {}\n" ..
+    "local record Holder\n  items: {integer}\nend\nlocal h: Holder = { items = xs }\n" ..
+    "local function shrink(): integer\n  table.remove(xs)\n  return 1\nend\n"
+  local function guarded(cond: string, body: string): string
+    return codes_of(head .. "local function at(i: integer): integer\n  if " .. cond .. " then\n" .. body .. "\n  end\n" ..
+        "  return 0\nend\n")
+  end
+  -- accepted: both bounds, either side of each comparison, in either order, among other operands of a chain of `and`
+  assert(guarded("i >= 1 and i <= #xs", "    return xs[i]") == "")
+  assert(guarded("1 <= i and #xs >= i", "    return xs[i]") == "")
+  assert(guarded("i > 0 and i < #xs", "    return xs[i]") == "")
+  assert(guarded("c and (i >= 1) and (i <= #xs) and c", "    return xs[i]") == "")
+  -- an operand, a declared local, a write at the index, a loop in the block and a call of `math` on the index
+  assert(guarded("i >= 1 and i <= #xs", "    local a: integer = xs[i]\n    xs[i] = a + 1\n    return xs[i] * 2 + math.max(i, 2)") == "")
+  assert(guarded("i >= 1 and i <= #xs", "    local s = 0\n    while s < 9 do\n      s = s + xs[i]\n    end\n    return s") == "")
+  -- the guard of an `elseif` arm holds in its block, and a view parameter is read as a local is
+  assert(codes_of(head .. "local function at(i: integer): integer\n  if c then\n    return 1\n  elseif i >= 1 and i <= #xs then\n" ..
+      "    return xs[i]\n  end\n  return 0\nend\n") == "")
+  assert(codes_of("local function at(v: {string}, i: integer): string\n  if i >= 1 and i <= #v then\n    return v[i]\n  end\n" ..
+      "  return \"\"\nend\n") == "")
+  -- a function made in the block leaves the block's own read standing
+  assert(guarded("i >= 1 and i <= #xs", "    fns[#fns + 1] = function(): integer\n      return 0\n    end\n    return xs[i]") == "")
+  local function stays(cond: string, body: string, also?: string)
+    local got = guarded(cond, body)
+    local want = if also == nil then "index_may_be_nil" else also .. " index_may_be_nil" end
+    assert(got == want, got .. " in\n" .. cond .. "\n" .. body)
+  end
+  -- refused: one bound alone, a bound that admits 0 or a key past the end, or a bound of another array or local
+  stays("i >= 1", "    return xs[i]")
+  stays("i <= #xs", "    return xs[i]")
+  stays("i >= 0 and i <= #xs", "    return xs[i]")
+  stays("i > -1 and i <= #xs", "    return xs[i]")
+  stays("i >= 1 and i <= #xs + 1", "    return xs[i]")
+  stays("i >= 1 and i - 1 <= #xs", "    return xs[i]")
+  stays("i >= 1 and i <= #ys", "    return xs[i]")
+  stays("i >= 1 and i <= #xs", "    local j = i\n    return xs[j]")
+  stays("i >= 1 and i <= #h.items", "    return h.items[i]")
+  -- a key beside the index is not the key tested
+  stays("i >= 1 and i <= #xs", "    return xs[i + 1]")
+  stays("i >= 1 and i <= #xs", "    return xs[i - 1]")
+  -- an `or` does not hold both bounds, nor does a negation, nor the `else` of the test, nor the code after it
+  stays("i >= 1 and i <= #xs or c", "    return xs[i]")
+  stays("not (i < 1) and i <= #xs", "    return xs[i]")
+  assert(codes_of(head .. "local function at(i: integer): integer\n  if i >= 1 and i <= #xs then\n    return 1\n  else\n" ..
+      "    return xs[i]\n  end\nend\n") == "index_may_be_nil")
+  assert(codes_of(head .. "local function at(i: integer): integer\n  if i >= 1 and i <= #xs then\n    c = false\n  end\n" ..
+      "  return xs[i]\nend\n") == "index_may_be_nil")
+  -- the block moves the index, shortens the array, writes it elsewhere, assigns it, or calls what may do any of that
+  stays("i >= 1 and i <= #xs", "    i = i + 1\n    return xs[i]")
+  assert(guarded("i >= 1 and i <= #xs", "    local a = xs[i]\n    i = 2\n    return a") == "nil_not_allowed")
+  stays("i >= 1 and i <= #xs", "    table.remove(xs)\n    return xs[i]")
+  stays("i >= 1 and i <= #xs", "    table.insert(xs, 1)\n    return xs[i]")
+  stays("i >= 1 and i <= #xs", "    xs[#xs] = nil\n    return xs[i]")
+  stays("i >= 1 and i <= #xs", "    xs[i + 1] = 1\n    return xs[i]", "array_hole")
+  stays("i >= 1 and i <= #xs", "    xs = {}\n    return xs[i]")
+  stays("i >= 1 and i <= #xs", "    local n = shrink()\n    return xs[i]")
+  stays("i >= 1 and i <= #xs", "    print(i)\n    return xs[i]")
+  assert(guarded("i >= 1 and i <= #xs", "    return xs[i] + shrink()") == "nil_not_allowed")
+  stays("i >= 1 and i <= #xs and shrink() > 0", "    return xs[i]")
+  -- an alias may be shortened where the array is not named
+  stays("i >= 1 and i <= #xs", "    local zs: mut {integer} = xs\n    zs[#zs] = nil\n    return xs[i]")
+  -- a function made in the block may run when the array is shorter
+  stays("i >= 1 and i <= #xs", "    fns[#fns + 1] = function(): integer\n      return xs[i]\n    end")
+  -- a `number` index is no key of an array, whatever its bounds
+  assert(codes_of(head .. "local function at(i: number): integer\n  if i >= 1 and i <= #xs then\n    return xs[i]\n  end\n" ..
+      "  return 0\nend\n") == "index_may_be_nil float_key")
+  -- an array of a type variable may hold nil between its keys
+  assert(codes_of("local function at<T>(v: {T}, i: integer, d: T): T\n  if i >= 1 and i <= #v then\n    return v[i]\n  end\n" ..
+      "  return d\nend\n") == "index_may_be_nil")
 end
 
 local function test_a_removal_of_the_last_element_is_held_to_a_mut_array_and_a_write_there_is_not_one()

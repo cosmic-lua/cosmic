@@ -255,6 +255,20 @@ local record Fill
   unit: boolean
 end
 
+--- What a numeric loop `for i = a, #t - b do` by 1 whose body leaves the length of `t` alone knows: `i` is an integer from
+--- `from` to the length of `t` less `slack` for as long as the body runs, so `t[i + c]` is an element `t` has where
+--- `from + c` is 1 or more and `c` is at most `slack` ([`Writes.counted_read`]).
+local record Span
+  --- The id of the binding of `i`.
+  var: integer
+  --- The local `t`, as the loop writes it.
+  object: Ast.Exp
+  --- The literal `a` the loop starts at, 1 or more.
+  from: integer
+  --- The literal `b` the loop stops short of `#t` by, 0 where it runs to `#t`.
+  slack: integer
+end
+
 --- What a loop whose index counts 1, 2, 3 and so on, and writes `a[i]` in every pass before any `continue`, knows of the
 --- arrays `a` it fills ([`Writes.grow_in`]): at each write the array has the keys 1 to `i - 1` at least, so a value that is
 --- not nil written at `i` overwrites a key or appends ([`Writes.leaves_no_hole`]).
@@ -275,6 +289,8 @@ local record Loop
   fill: Fill?
   --- What the loop knows of the arrays it fills in order, where it counts from 1 by 1.
   grow: Grow?
+  --- What the loop knows of the keys around its index, where it counts keys of an array by 1.
+  span: Span?
 end
 
 --- A call that tests a value: the argument it narrows, and the type it takes it to ([`Types.Narrows`]).
@@ -401,7 +417,8 @@ local record Ctx
   --- The reads of a map, by the id of the node: an index read that may be nil there is a missing key, not a key past
   --- the end ([`index_fix`]).
   map_reads: mut {integer: boolean}
-  --- The range tests of the arms of `if` being walked ([`Writes.ranges_of`]), innermost last.
+  --- The range tests of the arms of `if` being walked ([`Writes.ranges_of`]), innermost last: what a write
+  --- ([`Writes.leaves_no_hole`]) and a read ([`Writes.counted_read`]) at the index tested stand on.
   mut ranges: mut {Fill}
   --- The key of each local's place, by id.
   keys: mut {integer: string}
@@ -869,8 +886,8 @@ local KIND_WORDS <const>: {Types.DeclKind: string} = {
 -- Refusals -----------------------------------------------------------------------------------
 
 --- The fix for a read `e` of an index that may be nil. A map's key may be missing, so its read is tested, taken with
---- `assert` or given a default. For an array, the counted loop is offered only where it could apply: an array that is a
---- local name, read at a name. [`Array.at`] and `assert` take any array and key; `or <default>` is steered from.
+--- `assert` or given a default. For an array, the counted loop and the range test are offered only where they could
+--- apply: an array that is a local name, read at a name. [`Array.at`] and `assert` take any array and key; `or <default>` is steered from.
 local function index_fix(ctx: Ctx, e: Ast.Index): string
   local xs, key = text_of(ctx, e.object), text_of(ctx, e.key)
   local read = text_of(ctx, e)
@@ -881,8 +898,9 @@ local function index_fix(ctx: Ctx, e: Ast.Index): string
   local object, at = peel(e.object), peel(e.key)
   local parts = "iterate with `for _, v in ipairs(" .. xs .. ")`, "
   if object.kind == "Name" and at.kind == "Name" then
-    parts = parts .. "count the keys with `for " .. key .. " = 1, #" .. xs .. " do` (a body that leaves " .. quoted(xs) ..
-      " alone reads " .. quoted(read) .. " as a value), "
+    parts = parts .. "count the keys with `for " .. key .. " = 1, #" .. xs .. " do` or test the index with `if " .. key ..
+      " >= 1 and " .. key .. " <= #" .. xs .. " then` (a body that leaves " .. quoted(xs) .. " alone reads " ..
+      quoted(read) .. " as a value), "
   end
   return parts .. "read it with `Array.at(" .. xs .. ", " .. key .. ")` (`cosmic.array`: raises when missing) or `assert(" ..
     read .. ")`, or test it (`local v = " .. read .. " if v ~= nil then ... end`); `or <default>` turns an out-of-range " ..
@@ -3648,7 +3666,7 @@ local function index_read(ctx: Ctx, node: Ast.Index, object: Type): Type
       Narrowing.note_narrowed(ctx, node, maybe, element)
       return element
     end
-    if dense and Writes.counted_read(ctx, node) then
+    if dense and below(ctx, k, store.integer) and Writes.counted_read(ctx, node) then
       Narrowing.note_narrowed(ctx, node, maybe, element)
       return element
     end
@@ -6882,13 +6900,14 @@ end
 --- `i` that the condition bounds from both sides (`i >= 1 and i <= #t`, among the operands of a chain of `and`), where
 --- [`Writes.keeps_length`] says neither the condition nor the block can change the length of `t`, assign `t` or assign
 --- `i`, `i` is a key `t` has in the whole block, so a value that is not nil written at it overwrites an element
---- ([`Writes.leaves_no_hole`], which also wants `i` an integer).
+--- ([`Writes.leaves_no_hole`], which also wants `i` an integer) and a read at it is an element
+--- ([`Writes.counted_read`], an integer key too).
 ---
 --- Why it holds. The block runs only where every operand of the chain was true when it was evaluated, so `1 <= i <= #t`
 --- then. A comparison of an integer and a length runs no code, and [`Writes.keeps_length`] refuses the code that could
 --- run after it: a call, an iterator, a `__close`, a write of nil or at another key of `t`, and an assignment of `t` or
 --- `i`. So `t` keeps every element it had and `i` its value, in the block and in the operands of the chain evaluated after
---- the bounds. A function made in the block may run when `t` is shorter: its body starts with no range
+--- the bounds; the range is given to the block alone, so a read in such an operand is still optional. A function made in the block may run when `t` is shorter: its body starts with no range
 --- ([`function_body`]).
 function Writes.ranges_of(cond: Ast.Exp, body: Ast.Block): {Fill}
   local operands: mut {Ast.Node} = {}
@@ -6929,23 +6948,94 @@ function Writes.ranges_of(cond: Ast.Exp, body: Ast.Block): {Fill}
   return out
 end
 
---- Whether `node`, a read of an array, reads it at the index of a loop that counts its keys ([`Writes.fill_of`]) from a
---- literal of 1 or more by 1 to `#t`, with `t` the local the read names. The loop has run `i - 1` passes and `t` has kept
---- every key it had at the start (`#t` of them) through each, so `t[i]` is a key it has: the read is the element type,
---- not an optional. A function made in the body begins with no loop around it ([`function_body`]), so a read there, which
---- may run when `t` is shorter, stays optional. The proof holds for a program the checker accepts: a write of a value that
---- may be nil into `t` is an error of its own statement, and a checked run (`cosmic test --check-types`) tests the read.
+--- What the numeric loop `s` knows of the keys around its index, if it counts keys of an array by 1: `for i = a, #t do`
+--- or `for i = a, #t - b do`, from a literal `a` of 1 or more to the length of a local `t` less a literal `b` of 0 or
+--- more, with no step or a literal step of 1, where [`Writes.keeps_length`] says the body cannot shorten `t`, assign `t`
+--- or assign `i`. The limit is computed once, before the first pass, so `a <= i <= #t - b` for the length `t` had then,
+--- and `t` has at least as many elements at each pass.
+function Writes.span_of(s: Ast.ForNum): Span?
+  local from = peel(s.from)
+  local step = s.step
+  if not ((from.kind == "Integer") and from.value >= 1) then
+    return nil
+  elseif step ~= nil then
+    local given = peel(step)
+    if not ((given.kind == "Integer") and given.value == 1) then
+      return nil
+    end
+  end
+  local to = peel(s.to)
+  local slack = 0
+  if (to.kind == "Binary") and to.op == "-" then
+    local by = peel(to.right)
+    if not ((by.kind == "Integer") and by.value >= 0) then
+      return nil
+    end
+    slack = by.value
+    to = peel(to.left)
+  end
+  if not ((to.kind == "Unary") and to.op == "#") then
+    return nil
+  end
+  local object = peel(to.operand)
+  if not (object.kind == "Name") then
+    return nil
+  end
+  local held = object.binding
+  if held == nil or not Writes.keeps_length(s.body, held, s.var.id) then
+    return nil
+  end
+  return { var = s.var.id, object = object, from = from.value, slack = slack }
+end
+
+--- Whether `node`, a read of an array at an integer key, reads an element the array has, by one of two proofs. The read
+--- is then the element type, not an optional.
+---
+--- A counted loop ([`Writes.span_of`]): the key is `i`, `i + c` or `i - c`, with `i` the index of a loop `for i = a,
+--- #t - b do` by 1 over the local `t` the read names and `c` a literal, where the offset (`c` or `-c`) keeps the key
+--- inside the array: `a` plus the offset is 1 or more, and the offset is at most `b`. The index is an integer from `a`
+--- to `#t - b`, as `#t` was when the loop began, and `t` has kept every key it had then through each pass, so the key
+--- is from 1 to `#t`. In `for i = 2, #t - 1 do` the reads `t[i - 1]`, `t[i]` and `t[i + 1]` are all elements.
+---
+--- A range test ([`Writes.ranges_of`]): the key is a local `i`, and the read is in the block of an `if` whose condition
+--- holds `i >= 1 and i <= #t` for the local `t` the read names, where neither the condition nor the block can change
+--- the length of `t`, assign `t` or assign `i`.
+---
+--- A function made in the body or the block begins with no loop and no range around it ([`function_body`]), so a read
+--- there, which may run when `t` is shorter, stays optional. The proof holds for a program the checker accepts: a write
+--- of a value that may be nil into `t` is an error of its own statement, and a checked run (`cosmic test --check-types`)
+--- tests the read.
 ---
 --- TODO: read the index of a loop whose body calls a function, once the checker can show that no code the call runs names
 --- the array ([`Writes.unreachable`] shows it only for a local made `{}`): a body with a call keeps the read `T?` now.
 function Writes.counted_read(ctx: Ctx, node: Ast.Index): boolean
   local key = peel(node.key)
-  if key.kind ~= "Name" or key.binding == nil then
+  local name = key
+  local offset = 0
+  if (key.kind == "Binary") and (key.op == "+" or key.op == "-") then
+    local by = peel(key.right)
+    if not ((by.kind == "Integer") and by.value >= 0) then
+      return false
+    end
+    offset = if key.op == "+" then by.value else -by.value end
+    name = peel(key.left)
+  end
+  if name.kind ~= "Name" or name.binding == nil then
     return false
   end
   for _, loop in ipairs(ctx.loops) do
-    local fill = loop.fill
-    if fill ~= nil and fill.unit and key.binding == fill.var and Writes.same_place(fill.object, node.object) then
+    local span = loop.span
+    -- `from + offset` wraps to a negative where the sum is past the largest integer, which refuses the read.
+    if span ~= nil and name.binding == span.var and span.from + offset >= 1 and offset <= span.slack and
+        Writes.same_place(span.object, node.object) then
+      return true
+    end
+  end
+  if offset ~= 0 then
+    return false
+  end
+  for _, range in ipairs(ctx.ranges) do
+    if name.binding == range.var and Writes.same_place(range.object, node.object) then
       return true
     end
   end
@@ -7865,8 +7955,8 @@ local function run_loop(ctx: Ctx, entry: Flow.State, walk: function(head: Flow.S
 end
 
 --- Opens a loop: where its `break`s and `continue`s are met.
-local function open_loop(ctx: Ctx, fill?: Fill, grow?: Grow): Loop
-  local loop: Loop = { fill = fill, grow = grow } -- checked: literal_missing
+local function open_loop(ctx: Ctx, fill?: Fill, grow?: Grow, span?: Span): Loop
+  local loop: Loop = { fill = fill, grow = grow, span = span } -- checked: literal_missing
   ctx.loops[#ctx.loops + 1] = loop
   return loop
 end
@@ -7907,13 +7997,14 @@ local function for_numeric(ctx: Ctx, s: Ast.ForNum)
   ctx.vars[s.var.id] = (from == 1 and step == 1) and ctx.store.integer or ctx.store.number -- checked: and_ternary
   local entry = ctx.flow
   local fill = Writes.fill_of(s)
+  local span = Writes.span_of(s)
   local grow: Grow? = nil
   if Writes.counts_from_one(s) then
     grow = Writes.grow_in(ctx, s, s.var, s.body)
   end
   ctx.flow = run_loop(ctx, entry, function(head: Flow.State): Flow.State, Flow.State
     ctx.flow = head
-    local loop = open_loop(ctx, fill, grow)
+    local loop = open_loop(ctx, fill, grow, span)
     declare_local(ctx, s.var.id, false)
     block(ctx, s.body)
     local back, breaks = close_loop(ctx, loop, ctx.flow)
