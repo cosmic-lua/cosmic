@@ -10,6 +10,7 @@ local type PolicyRules = require("build.policy_rules")
 local type plans = require("build.plans")
 local test = require("build.test")
 local type test_state = require("build.test_state")
+local dispatch_sites = require("build.dispatch_sites")
 local lua_tail = require("build.lua_tail")
 local test_key = require("build.test_key")
 local test_report = require("build.test_report")
@@ -409,6 +410,65 @@ local function test_four_times_a_modules_lines_cost_about_four_times_to_write()
   end, 10)
   assert(ok, "four times the lines " .. why)
   assert(small:close() and large:close())
+end
+
+--- A test's row holds the modules of its load, then those of its test, each in the order of their paths, whatever
+--- order the worker's tables give them in: the row is kept and shared as written.
+local function test_a_row_of_hits_holds_its_modules_in_the_order_of_their_paths()
+  local text = string.rep("d", 16)
+  local texts = { ["build.a"] = text, ["build.b"] = text, ["build.c"] = text, ["build.a.z"] = text }
+  local row = test.take_hits({}, {}, {}, {},
+    { ["build.c"] = { [1] = true }, ["build.a"] = { [2] = true }, ["build.b"] = { [3] = true }, ["build.a.z"] = { [4] = true } },
+    { ["build.b"] = { [9] = true }, ["build.a"] = { [8] = true } }, texts)
+  assert(row == "build.a " .. text .. "\t2\n" .. "build.a.z " .. text .. "\t4\n" .. "build.b " .. text .. "\t3\n" ..
+      "build.c " .. text .. "\t1\n" .. "build.a " .. text .. "\t8\n" .. "build.b " .. text .. "\t9\n", row)
+end
+
+--- The hits of `files` modules of `lines` lines each, none of them a file that turns on the processor.
+local function module_hits(files: integer, lines: integer): {string:{integer:boolean}}
+  local hits: mut {string:mut {integer:boolean}} = {}
+  for file = 1, files do
+    local per_line: mut {integer:boolean} = {}
+    for line = 1, lines do per_line[line] = true end
+    hits["build.module_" .. tostring(file)] = per_line
+  end
+  return hits
+end
+
+--- What the check of the processor's features reads of a worker's hits is the lines of the files that turn on the
+--- processor, from its load and from its test, and it says of them what it says of every line the worker ran.
+local function test_the_feature_check_reads_the_lines_of_the_files_that_turn_on_the_processor()
+  local reaches: {dispatch_sites.Reach} = {
+    { key = "core/crypto.c:aes", path = "core/crypto.c", lines = { 10, 11 }, why = "chooses AES by the processor" },
+    { key = "core/crypto.c:sha", path = "core/crypto.c", lines = { 40 }, why = "chooses SHA by the processor" },
+    { key = "core/vector.c:dot", path = "core/vector.c", lines = { 7 }, why = "chooses a dot product by the processor" },
+  }
+  local loading: mut {string:{integer:boolean}} = { ["core/crypto.c"] = { [3] = true, [11] = true }, ["build.lib"] = { [10] = true } }
+  local ran: mut {string:{integer:boolean}} = { ["core/crypto.c"] = { [40] = true }, ["core/other.c"] = { [7] = true } }
+  local reached = test.reached(reaches, loading, ran)
+  local crypto = assert(reached["core/crypto.c"])
+  assert(crypto[3] == true and crypto[11] == true and crypto[40] == true, "a line of the load or of the test was left out")
+  assert(reached["build.lib"] == nil and reached["core/other.c"] == nil and reached["core/vector.c"] == nil,
+    "a file that turns on nothing, or that the worker did not run, was read")
+  local whole: mut {string:{integer:boolean}} = { ["core/crypto.c"] = { [3] = true, [11] = true, [40] = true },
+    ["build.lib"] = { [10] = true }, ["core/other.c"] = { [7] = true } }
+  local said = dispatch_sites.failure(reaches, reached)
+  assert(said == dispatch_sites.failure(reaches, whole) and said:find("core/crypto.c:aes", 1, true) ~= nil and
+      said:find("core/crypto.c:sha", 1, true) ~= nil and said:find("core/vector.c", 1, true) == nil, said)
+  assert(dispatch_sites.failure(reaches, test.reached(reaches, { ["build.lib"] = { [10] = true } }, {})) == "")
+end
+
+--- Four times the modules a worker loaded cost the check no more: it folded every line of every one of them, for
+--- each test, to read the lines of a few files of C.
+local function test_the_feature_check_costs_no_more_for_the_modules_a_worker_loaded()
+  local reaches: {dispatch_sites.Reach} = { { key = "core/crypto.c:aes", path = "core/crypto.c", lines = { 10 }, why = "" } }
+  local few, many = module_hits(100, 200), module_hits(400, 200)
+  local ok, why = Speed.within(function()
+    local _ = test.reached(reaches, few, few)
+  end, function()
+    local _ = test.reached(reaches, many, many)
+  end, 2)
+  assert(ok, "four times the modules loaded " .. why)
 end
 
 --- The first progress line of a run that names the longest-running tests

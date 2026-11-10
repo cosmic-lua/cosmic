@@ -1078,13 +1078,14 @@ function test.take_hits(hits: Coverage.Hits, unowned: Coverage.Hits,
   local out: mut {string} = {}
   for index, taken in ipairs({ load_hits, test_hits }) do
     local placed = (if index == 1 then load_placed else test_placed end) or taken
-    local entries: mut {Keyed<{integer:boolean}>} = {}
-    for path, per_line in pairs(taken) do
-      if unowned[path] == nil then entries[#entries + 1] = { key = path, value = per_line } end
+    -- A row holds its modules in the order of their paths as strings.
+    local paths: mut {string} = {}
+    for path in pairs(taken) do
+      if unowned[path] == nil then paths[#paths + 1] = path end
     end
-    table.sort(entries, by_key)
-    for _, entry in ipairs(entries) do
-      local path, per_line = entry.key, entry.value
+    table.sort(paths)
+    for _, path in ipairs(paths) do
+      local per_line = assert(taken[path], "a path listed from the hits is in them")
       local lines = placed[path] or per_line
       if not folded[lines] then
         folded[lines] = true
@@ -1321,6 +1322,27 @@ local function tree_note(rec: Recording, job: Job, message: string): string
   return table.concat(lines)
 end
 
+--- The lines a worker ran, in its load and in its test, of the files `reaches` names: all that
+--- [`dispatch_sites.failure`] reads of its hits, and no line of another file.
+function test.reached(reaches: {dispatch_sites.Reach}, load_hits: Coverage.Hits,
+                      test_hits: Coverage.Hits): {string:{integer:boolean}}
+  local ran: mut {string:mut {integer:boolean}} = {}
+  for _, each in ipairs(reaches) do
+    local path = each.path
+    if ran[path] == nil then
+      for _, taken in ipairs({ load_hits, test_hits }) do
+        local lines = taken[path]
+        if lines ~= nil then
+          local into = ran[path] or {}
+          ran[path] = into
+          for line in pairs(lines) do into[line] = true end
+        end
+      end
+    end
+  end
+  return ran
+end
+
 --- Why `job`'s test fails for the core's C it entered, or "": it passed,
 --- entered a function that turns on the processor's features
 --- ([`build.dispatch_sites`]), and its module does not declare
@@ -1353,15 +1375,7 @@ local function dispatch_failure(rec: Recording, job: Job, reported: worker.Repor
     reaches = dispatch_sites.reaching(c_functions.spans(functions, sources), sources)
     rec.dispatched = reaches
   end
-  local ran: mut {string:mut {integer:boolean}} = {}
-  for _, taken in ipairs({ reported.load_hits, reported.test_hits }) do
-    for path, lines in pairs(taken) do
-      local into = ran[path] or {}
-      ran[path] = into
-      for line in pairs(lines) do into[line] = true end
-    end
-  end
-  return dispatch_sites.failure(reaches, ran)
+  return dispatch_sites.failure(reaches, test.reached(reaches, reported.load_hits, reported.test_hits))
 end
 
 --- Records one finished job: the verdict its worker reported, or a
