@@ -61,13 +61,19 @@ local function test_a_row_one_checkout_wrote_stands_in_another_of_the_same_code(
   assert(check_memo.prepare(first, "c"))
   check_memo.put(first, "c", "one", "here")
   check_memo.finish(first, "c")
+  -- Neither written there, nor taken where the file holds one.
+  local file = assert(Sqlite.open(path, { writable = true }))
+  local written = assert(assert(Sqlite.text_rows(file, "SELECT count(*) FROM check_memo_v1 WHERE kind = 'c'"))[1])
+  assert(written:text(1) == "0", "a row whose key names its checkout was written to the shared file")
+  assert(Sqlite.run(file, "INSERT INTO check_memo_v1 (code, kind, key, value, used_ns) VALUES ('a', 'c', 'two', 'x', 1)"))
+  assert(file:close())
   local second = assert(Sqlite.memory())
   assert(check_memo.prepare(second, "k"))
   assert(check_memo.get(second, "k", "one") == "1", "a sibling's row was not taken")
   assert(check_memo.get(second, "k", "none") == nil)
   -- A kind is shared as it finishes: `other` never did.
   assert(check_memo.get(second, "other", "one") == nil, "a row of a kind that did not finish was shared")
-  assert(check_memo.get(second, "c", "one") == nil, "a row whose key names its checkout was shared")
+  assert(check_memo.get(second, "c", "two") == nil, "a row whose key names its checkout was taken")
   check_memo.finish(second, "k")
   assert(not check_memo.share(nil))
   assert(check_memo.prepare(second, "k"))
@@ -93,9 +99,9 @@ local function test_a_row_one_checkout_wrote_stands_in_another_of_the_same_code(
   assert(first:close() and second:close() and third:close() and other:close() and back:close())
 end
 
---- A row a checkout answers from its own memo is written to the shared file too, so a checkout whose memo already
---- stands fills it for the next.
-local function test_a_row_used_from_the_checkouts_own_memo_is_shared(tmp: string)
+--- A row a checkout answers from its own memo is not written to the shared file: the tool that made it may have been
+--- of other code than the one the file would hold it under. A row it took from the file is, and stays there.
+local function test_a_row_answered_by_the_checkouts_own_memo_is_not_shared(tmp: string)
   local own = assert(Sqlite.memory())
   assert(not check_memo.share(nil))
   assert(check_memo.prepare(own, "k"))
@@ -104,10 +110,12 @@ local function test_a_row_used_from_the_checkouts_own_memo_is_shared(tmp: string
   assert(check_memo.share(tmp .. "/checks.db", { code = "a" }))
   assert(check_memo.prepare(own, "k"))
   assert(check_memo.get(own, "k", "one") == "1")
+  check_memo.put(own, "k", "two", "2")
   check_memo.finish(own, "k")
   local fresh = assert(Sqlite.memory())
   assert(check_memo.prepare(fresh, "k"))
-  assert(check_memo.get(fresh, "k", "one") == "1", "a row used from a checkout's own memo was not shared")
+  assert(check_memo.get(fresh, "k", "one") == nil, "a row another tool may have made was shared under this one's code")
+  assert(check_memo.get(fresh, "k", "two") == "2")
   check_memo.finish(fresh, "k")
   assert(not check_memo.share(nil))
   assert(own:close() and fresh:close())
@@ -175,6 +183,10 @@ local function test_a_shared_file_that_cannot_be_trusted_is_done_without(tmp: st
   assert(sys.chmod(tmp .. "/open.db", 0x1b6))
   opened, why = check_memo.share(tmp .. "/open.db", { code = "a" })
   assert(not opened and why:find("writable by its group or others", 1, true) ~= nil, why)
+  assert(Fs.write(tmp .. "/group.db", "", 0x1b4))
+  assert(sys.chmod(tmp .. "/group.db", 0x1b4))
+  opened, why = check_memo.share(tmp .. "/group.db", { code = "a" })
+  assert(not opened and why:find("writable by its group or others", 1, true) ~= nil, why)
   assert(check_memo.share(tmp .. "/real.db", { code = "a" }))
   assert(not check_memo.share(nil))
   assert(sys.symlink(tmp .. "/real.db", tmp .. "/link.db"))
@@ -188,24 +200,22 @@ local function test_a_shared_file_that_cannot_be_trusted_is_done_without(tmp: st
   assert(db:close())
 end
 
---- The code a shared row is held under is every module `cosmic fix` loads, by its source, and the core: an edit to a
---- module [`build.fix`] reaches through another moves it, one to a module it does not reach leaves it, and a tool
---- that withholds a source names none.
+--- The code a shared row is held under is the bytecode of every module [`build.fix`] reaches and the core: an edit to
+--- a module it reaches through another moves it, one to a module it does not reach leaves it, and a tool that holds
+--- a module it cannot read the bytecode of names none.
 local function test_the_code_a_shared_row_is_held_under_is_the_closure_of_fix_and_the_core()
-  local function coded(edited: string?, image: string, withheld?: string): string?, string
+  local function coded(edited: string?, image: string, unread?: string): string?, string
     local graph: {string:{string}} = { ["build.fix"] = { "build.tree_checks", "cosmic.sys" },
       ["build.tree_checks"] = { "lang.check" }, ["lang.check"] = { "lang.generics" }, ["lang.generics"] = {},
       ["build.test"] = { "lang.check" } }
     return check_memo.code_of({
       requires = function(name: string): {string}?, string return graph[name] or {}, "" end,
-      source = function(name: string): string?, string
-        if graph[name] == nil or name == withheld then return nil, "no source" end
-        return "the source of " .. name .. (if name == edited then ", edited" else "" end), ""
+      bytecode = function(name: string): string?, string
+        if graph[name] == nil then return nil, "no module '" .. name .. "' in the binary" end
+        if name == unread then return nil, "its bytecode does not inflate" end
+        return "the bytecode of " .. name .. (if name == edited then ", edited" else "" end), ""
       end,
-      withheld = function(name: string): string?, string
-        if name == withheld then return "its source is withheld", "" end
-        return nil, ""
-      end,
+      holds = function(name: string): boolean?, string return graph[name] ~= nil, "" end,
       core = image,
     })
   end
@@ -215,5 +225,5 @@ local function test_the_code_a_shared_row_is_held_under_is_the_closure_of_fix_an
   assert(base == coded("build.test", "core"), "an edit to a module fix does not reach moved the code")
   assert(base ~= coded(nil, "another core"), "another core left the code as it was")
   local none, why = coded(nil, "core", "lang.check")
-  assert(none == nil and why == "lang.check: its source is withheld", why)
+  assert(none == nil and why == "lang.check: its bytecode does not inflate", why)
 end

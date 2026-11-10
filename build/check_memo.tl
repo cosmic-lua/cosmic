@@ -18,20 +18,23 @@
 --- [`Fs.cache_dir`]'s `build` directory, beside the compiles they share
 --- ([`build.shared_compiles`]), so a fresh worktree checks only what no
 --- sibling has. A shared row is held under more than its key: also under the
---- code that checks ([`check_memo.code_of`]), every module `cosmic fix` can
---- load and the core, taken from the running tool and not from the lists the
---- salts are written from. So a row stands only in a checkout whose checking
---- code is the same, whatever a salt leaves out. A kind whose key names the
---- checkout (`unshared`) is not shared. A run shares once it is told the code
---- ([`check_memo.share`], which [`build.tree_checks`]'s `share_checks` calls
---- for `cosmic fix`); until then it shares nothing.
+--- code that checks ([`check_memo.code_of`]), the bytecode of every module in
+--- the import closure of [`build.fix`] and the core, taken from the running
+--- tool and not from the lists the salts are written from. So a row stands
+--- only in a checkout whose checking code is the same, whatever a salt leaves
+--- out. A kind whose key names the checkout (`unshared`) is not shared. A run
+--- shares once it is told the code ([`check_memo.share`], which
+--- [`build.tree_checks`]'s `share_checks` calls for a run of `cosmic fix` over
+--- the whole of cosmic's tree); until then it shares nothing.
 ---
 --- A key the checkout's own memo lacks is looked up in the shared file and
---- kept here; the rows a run used or wrote it writes there as its kind
---- finishes, in one short transaction. The file is in write-ahead mode and a
---- run reads it a row at a time, so runs of several checkouts never wait on
---- each other's checks. A row no run has used for `kept_ns` goes, and past
---- `kept_bytes` the least lately used go first. The default place
+--- kept here. What a run writes to the shared file, as its kind finishes and
+--- in one short transaction, is the rows it made itself and the rows it took
+--- from there: never a row its own memo answered, which an earlier tool of
+--- other code may have made. The file is in write-ahead mode and a run reads
+--- it a row at a time, so runs of several checkouts never wait on each
+--- other's checks. A row no run has made or taken for `kept_ns` goes, and
+--- past `kept_bytes` the least lately used go first. The default place
 --- ([`check_memo.shared_path`]) is none with `COSMIC_BUILD_CACHE` set, to `0`
 --- or to a file: such a run shares no rows, as a test's worker does not.
 local Clock = require("cosmic.clock")
@@ -56,18 +59,18 @@ local record check_memo
   --- Where the rows every checkout shares are kept, read from `environment` (the process's by default): nil where
   --- the run shares none (`COSMIC_BUILD_CACHE` is set) or has no cache directory.
   shared_path: function(environment?: {string:string}): string?
-  --- The code that checks, as a shared row is held under it: a digest of the source of every module the tool `reads`
-  --- answers for loads for `cosmic fix` (the import closure of [`build.fix`], by the tool's own `imports` rows) and of
-  --- its core. Nil and why where the tool cannot say: a module of the closure whose source it withholds, or a query
-  --- that failed.
+  --- The code that checks, as a shared row is held under it: a digest of the bytecode of every module in the import
+  --- closure of [`build.fix`], by the `imports` rows of the tool `reads` answers for, and of its core. The bytecode
+  --- and not the source: a tool another compiler wrote from the same source is other code. Nil and why where the tool
+  --- cannot say: a module it holds with no bytecode to read, or a query that failed.
   code_of: function(reads: Reads): string?, string
 
-  --- How [`check_memo.code_of`] reads a tool: `requires`, `source` and `withheld` as [`cosmic.store`]'s functions
-  --- of those names answer, and `core`, what names every byte of the tool that is no module.
+  --- How [`check_memo.code_of`] reads a tool: `requires`, `bytecode` and `holds` as [`cosmic.store`]'s functions of
+  --- those names answer, and `core`, what names every byte of the tool that is no module.
   record Reads
     requires: function(name: string): {string}?, string
-    source: function(name: string): string?, string
-    withheld: function(name: string): string?, string
+    bytecode: function(name: string): string?, string
+    holds: function(name: string): boolean?, string
     core: string
   end
   --- Shares rows through the file at `path` from here on, made when missing, in place of the default; with nil, shares
@@ -151,13 +154,14 @@ function check_memo.code_of(reads: check_memo.Reads): string?, string
   table.sort(names)
   local parts: mut {string} = {}
   for _, name in ipairs(names) do
-    local source, _ = reads.source(name)
-    if source == nil then
-      -- A name with no row is a binding of the core, which `core` holds.
-      local withheld, trouble = reads.withheld(name)
-      if withheld ~= nil or trouble ~= "" then return nil, name .. ": " .. (withheld or trouble) end
+    local code, code_trouble = reads.bytecode(name)
+    if code == nil then
+      -- A name the tool has no row of is a binding of the core, which `core` holds; a row it cannot read names nothing.
+      local held, held_trouble = reads.holds(name)
+      if held == nil then return nil, name .. ": " .. held_trouble end
+      if held then return nil, name .. ": " .. code_trouble end
     end
-    parts[#parts + 1] = name .. " " .. (if source ~= nil then Hash.hex_sha256(source) else "-" end)
+    parts[#parts + 1] = name .. " " .. (if code ~= nil then Hash.hex_sha256(code) else "-" end)
   end
   parts[#parts + 1] = "core " .. reads.core
   return Hash.hex_sha256(table.concat(parts, "\n")), ""
@@ -200,7 +204,8 @@ function check_memo.share(path: string?, sharing?: check_memo.Sharing): boolean,
   return true, ""
 end
 
---- Notes that this run used or wrote the row of `kind` under `key`, for [`settle`] to write to the shared file.
+--- Notes that this run made the row of `kind` under `key`, or took it from the shared file, for [`settle`] to write
+--- there.
 local function owe(kind: string, key: string, value: string)
   local open = shared
   if open == nil or unshared[kind] ~= nil then return end
@@ -271,7 +276,7 @@ function check_memo.get(db: Sqlite.Handle, kind: string, key: string): string?
   local value = row:text(1)
   local _, _ = Sqlite.run(db, "UPDATE check_memo SET used = 1 WHERE kind = ?1 AND key = ?2",
     { { text = kind }, { text = key } })
-  owe(kind, key, value)
+  -- Not owed to the shared file: the tool that made the row may have been of other code than this one.
   return value
 end
 
@@ -303,9 +308,9 @@ end
 -- TODO: hold a checkout's own rows under [`check_memo.code_of`] too, in place of the lists of files its callers
 -- write here, which the import closures show short of what the checks load (lang/generics.tl, lang/literals.tl and
 -- lang/load_order.tl in none of them; build/ceilings.tl, build/markers.tl and build/checker_declarations.tl in none
--- of the checker's): an edit to one of those leaves the checkout's own stale rows standing. It waits on a decision
--- that an edit to any module `cosmic fix` loads checks the whole tree again, 5 to 8 minutes, where a listed salt
--- checks again only for the files it names.
+-- of the checker's): an edit to one of those leaves the checkout's own stale rows standing, though never a sibling's,
+-- which takes only rows made under its own code. Once an edit to any module `cosmic fix` loads may check the whole
+-- tree again (5 to 8 minutes, where a listed salt checks again only for the files it names).
 function check_memo.salt(root: string, files: {string}, version: string): string
   local parts: mut {string} = {}
   for _, file in ipairs(files) do

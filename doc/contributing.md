@@ -58,9 +58,9 @@ conflict with the parent's squash.
 - `bin/cosmic fix --check .` when the change touches what the whole-tree
   checks read. it takes 5 to 11 minutes (`timeout 2400`) where no
   checkout of the host has checked the tree's files with the same
-  checking code, and about 2 where one has: what a check found of a file
+  checking code, and about 3 where one has: what a check found of a file
   is kept by the file's content, and the checkouts whose `cosmic fix`
-  loads the same modules on the same core share it
+  is the same bytecode on the same core share it
   ([`build/check_memo.tl`]). it says which of its checks it is on.
 - a change under `.github/`: `bin/cosmic test build/workflows_test.tl`.
 - a change to the artifact format, the launcher or `cosmic build`:

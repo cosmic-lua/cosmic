@@ -2004,8 +2004,11 @@ local function fix_verb(argv: {string}): integer
   if code ~= nil then return code end
   code = choose_files(ctx)
   if code ~= nil then return code end
-  -- A run that cannot share its memoed checks makes them itself.
-  local _, _ = tree_checks.share_checks()
+  -- Only a run over the whole of cosmic's tree makes the memoed checks worth sharing; one that cannot share makes
+  -- them itself.
+  if assert(ctx.picked).whole and assert(ctx.standing).own then
+    local _, _ = tree_checks.share_checks()
+  end
   start_tally(ctx)
   lay_out_c(ctx)
   Memprobe.mark("fix: C checked")

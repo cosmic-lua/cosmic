@@ -2151,9 +2151,9 @@ local record Coded
   mut trouble: string
 end
 
---- Has the memoed checks of this process share their rows with the host's other checkouts ([`build.check_memo`]),
---- under the code this tool checks with: the modules `cosmic fix` loads, read from the tool's own database and not a
---- projection attached ahead of it, and every byte of the tool ahead of that database. Answers whether they are
+--- Shares the rows of this process's memoed checks with the host's other checkouts ([`build.check_memo`]), under the
+--- code this tool checks with: the bytecode of the modules `cosmic fix` loads, read from the tool's own database and
+--- not a projection attached ahead of it, and every byte of the tool ahead of that database. Answers whether they are
 --- shared, and why not where the tool could not be read or the shared file not opened; a run that shares none by
 --- its environment answers false and "".
 function tree_checks.share_checks(): boolean, string
@@ -2167,8 +2167,8 @@ function tree_checks.share_checks(): boolean, string
   local core = Hash.hex_sha256(head)
   local coded: Coded = { code = nil, trouble = "" }
   Store.alone(function()
-    coded.code, coded.trouble = check_memo.code_of({ requires = Store.requires, source = Store.source,
-      withheld = Store.withheld, core = core })
+    coded.code, coded.trouble = check_memo.code_of({ requires = Store.requires, bytecode = Store.bytecode,
+      holds = Store.holds, core = core })
   end)
   local code = coded.code
   if code == nil then
