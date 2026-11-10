@@ -5712,12 +5712,31 @@ COSMIC_SYSCALL(fork, 1) {
     long abi = syscall(SYS_landlock_create_ruleset, NULL, 0, LANDLOCK_CREATE_RULESET_VERSION);
     if (abi < 1) return cosmic_fail(L, abi < 0 ? errno : ENOSYS);
     if (abi < 6) return cosmic_fail(L, EOPNOTSUPP);
+    /* Every ruleset refuses a move or a link between two directories that
+     * no rule of its own allows (LANDLOCK_ACCESS_FS_REFER), handled or
+     * not: so this one handles it, and allows it beneath the root, which
+     * leaves each such move to the rulesets the process is held by
+     * already. */
     struct grants_attr attr;
     memset(&attr, 0, sizeof attr);
+    attr.handled_access_fs = LANDLOCK_ACCESS_FS_REFER;
     attr.scoped = LANDLOCK_SCOPE_ABSTRACT_UNIX_SOCKET | LANDLOCK_SCOPE_SIGNAL;
     long made = syscall(SYS_landlock_create_ruleset, &attr, sizeof attr, 0);
     if (made < 0) return cosmic_fail(L, errno);
     ruleset = (int)made;
+    int root = open("/", O_PATH | O_CLOEXEC);
+    struct landlock_path_beneath_attr beneath = {
+      .allowed_access = LANDLOCK_ACCESS_FS_REFER,
+      .parent_fd = root,
+    };
+    if (root < 0 ||
+        syscall(SYS_landlock_add_rule, ruleset, LANDLOCK_RULE_PATH_BENEATH, &beneath, 0) != 0)
+      error = errno;
+    if (root >= 0) close(root);
+    if (error != 0) {
+      close(ruleset);
+      return cosmic_fail(L, error);
+    }
   }
   fflush(NULL);
   pid_t pid = fork();
