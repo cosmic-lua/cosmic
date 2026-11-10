@@ -5715,8 +5715,8 @@ COSMIC_SYSCALL(fork, 1) {
     /* Every ruleset refuses a move or a link between two directories that
      * no rule of its own allows (LANDLOCK_ACCESS_FS_REFER), handled or
      * not: so this one handles it, and allows it beneath the root, which
-     * leaves each such move to the rulesets the process is held by
-     * already. */
+     * leaves each such move to the rulesets that hold the process
+     * already and handle it, as every one this core makes does. */
     struct grants_attr attr;
     memset(&attr, 0, sizeof attr);
     attr.handled_access_fs = LANDLOCK_ACCESS_FS_REFER;
