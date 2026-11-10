@@ -796,7 +796,7 @@ by where the tree is, which its workers see, trusting the declarations a
 sandboxed run elsewhere enforces; it keeps its verdicts apart from sandboxed
 ones, and shares them only through a file `COSMIC_VERDICT_CACHE` names, as
 CI's macOS leg does. each test
-that does run runs in a worker process of its own:
+that does run runs in a process of its own:
 
 - *incremental*: a module row is keyed by the content hash of its
   source, the hashes of its import closure, and the compiler identity. a test
@@ -828,7 +828,12 @@ that does run runs in a worker process of its own:
   against declarations already in the database. each test runs in a worker
   -- the same core relaunched directly, never through the launcher --
   one per processor at a time, with a fresh temporary directory, captured
-  streams, and a deadline past which its whole process group is ended. the
+  streams, and a deadline past which its whole process group is ended. where
+  a sandbox holds it and all a worker can write is that sandbox's own tmpfs,
+  one worker loads a module once and runs each of its tests in a copy of
+  itself (a fork), one after another, so a test's process is its own and
+  the module's load is paid once ([`doc/testing.md`], "one worker for a
+  module's tests"). the
   worker reads its import closure's store, never the working build database.
   it reports what it read, what it hit, and its verdict over a pipe; the
   build process alone records those results in the working database. a test

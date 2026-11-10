@@ -324,3 +324,41 @@ local function test_a_report_passes_only_after_successful_process_shutdown()
     sandboxed = false })
   assert(not late.passed and late.message:find("timed out after 30 s", 1, true) ~= nil)
 end
+
+--- A forking worker's records are read one at a time, each whole or not yet: a result holds its report and its
+--- output by their lengths, whatever bytes they are, and a line no worker writes is said to be one.
+local function test_a_forking_workers_records_are_read_whole_or_not_at_all()
+  local report, output = "cosmic-test-report\nend\n", "printed\ndone\nresult 0 0 0 0\n"
+  local text = "cosmic-test-forks-1\ntest 74657374 12345\noutput 11\nresult 0 0\nresult 0 -1 " .. tostring(#report) .. " " ..
+    tostring(#output) .. "\n" .. report .. output .. "done\nretire 776879\nunforkable 6e6f\nwhat is this\n"
+  local kinds: mut {string} = {}
+  local at = 1
+  while true do
+    local found = worker.record_at(text, at)
+    if found == nil then break end
+    kinds[#kinds + 1] = found.kind
+    if found.kind == "test" then
+      assert(found.name == "test" and found.started_ns == 12345)
+    elseif found.kind == "output" then
+      assert(found.output == "result 0 0\n", found.output)
+    elseif found.kind == "result" then
+      assert(found.code == 0 and found.signal == -1)
+      assert(found.report == report, found.report)
+      assert(found.output == output, found.output)
+    elseif found.kind == "retire" then
+      assert(found.why == "why")
+    elseif found.kind == "unforkable" then
+      assert(found.why == "no")
+    end
+    at = found.after
+  end
+  assert(table.concat(kinds, " ") == "forks test output result retire unforkable malformed", table.concat(kinds, " "))
+  assert(at == #text + 1, "every byte is read")
+  -- Cut anywhere inside a record, there is none yet: nothing of a result is taken before its last byte.
+  local result_from = assert(text:find("result 0 -1", 1, true))
+  local result_to = assert(text:find("retire", 1, true)) - 1
+  for cut = result_from, result_to - 1 do
+    assert(worker.record_at(text:sub(1, cut), result_from) == nil, "a result cut at " .. tostring(cut))
+  end
+  assert(assert(worker.record_at(text:sub(1, result_to), result_from)).kind == "result")
+end
