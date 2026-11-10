@@ -28,7 +28,7 @@ local function test_failures_sort_and_keep_reruns_and_output_together()
       "  | first\n  | second")
   lines = test_report.failures({ { message = "a test_x: broken", printed =
       "prefix" .. string.rep("x", 4096) } }, "")
-  assert(lines[2] == "  | (the last 4096 of the 4102 bytes it printed)", lines[2])
+  assert(lines[2] == "  | (cut to its last 4096 bytes: it printed 4102 bytes)", lines[2])
   assert(lines[3] == "  | " .. string.rep("x", 4096))
   assert(table.concat(test_report.skips({ "z: denied", "a: denied" }), "\n") ==
       "test: SKIP  a: denied\ntest: SKIP  z: denied")

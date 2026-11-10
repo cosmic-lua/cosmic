@@ -810,8 +810,7 @@ test: PASS  suite.chatty_test test_prints_values
 Only a test that ran prints. A test whose verdict stands is not run, so the
 flag says how many stood and prints nothing for them: add `--all` to run
 them. The flag changes nothing a verdict is keyed or kept by. A run with it
-stands on the verdicts of a run without it. Only the last 4096 bytes of a
-test's output are shown.
+stands on the verdicts of a run without it.
 
 ### time
 

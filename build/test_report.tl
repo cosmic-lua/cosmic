@@ -96,7 +96,7 @@ local printed_most <const> = 4096
 local function printed_lines(printed: string, whole?: boolean): {string}
   local lines: mut {string} = {}
   if whole ~= true and #printed > printed_most then
-    lines[1] = "  | (the last " .. tostring(printed_most) .. " of the " .. tostring(#printed) .. " bytes it printed)"
+    lines[1] = "  | (cut to its last " .. plural.count(printed_most, "byte") .. ": it printed " .. plural.count(#printed, "byte") .. ")"
     printed = printed:sub(-printed_most)
   end
   for line in String.lines((printed:gsub("\n$", ""))) do
