@@ -72,7 +72,7 @@ local function test_every_verb_record_is_a_verb_in_order_and_back()
     assert(Cli.verbs[name] ~= nil, "Cli.order names " .. name .. ", which Cli.verbs lacks")
   end
   for name in pairs(Cli.verbs) do
-    assert(known[name], "Cli.verbs." .. name .. " is not a verb in Cli.order")
+    assert(known[name] == true, "Cli.verbs." .. name .. " is not a verb in Cli.order")
   end
 end
 

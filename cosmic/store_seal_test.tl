@@ -85,7 +85,7 @@ local function test_closure_follows_requires_transitively(tmp: string)
   local all = Store.closure({ "cosmic.json" }, { types = true })
   local count = 0
   for _, name in ipairs(all) do
-    assert(expected[name], name .. " is not required, transitively, by cosmic.json")
+    assert(expected[name] == true, name .. " is not required, transitively, by cosmic.json")
     count = count + 1
   end
   local wanted = 0
@@ -99,7 +99,7 @@ local function test_closure_follows_requires_transitively(tmp: string)
   local loaded = Store.closure({ "cosmic.json" })
   assert(#loaded < #all, "cosmic.json requires cosmic.stream only for its types")
   for _, name in ipairs(loaded) do
-    assert(expected[name])
+    assert(expected[name] == true)
   end
 end
 

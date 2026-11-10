@@ -26,7 +26,7 @@ local function run(argv: {string}): integer
   assert(phase and timeout_text and executable,
     "usage: driver.tl run PHASE TIMEOUT_NS -- EXECUTABLE [ARG...]")
   local timeout = math.tointeger(tonumber(timeout_text))
-  assert(timeout and timeout >= 0, "timeout must be a non-negative integer")
+  assert(timeout ~= nil and timeout >= 0, "timeout must be a non-negative integer")
   local context = Context.read()
   local command: mut {string} = { executable }
   for index, argument in ipairs(argv) do

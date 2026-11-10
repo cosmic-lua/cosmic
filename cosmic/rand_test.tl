@@ -34,7 +34,7 @@ local function test_int_stays_within_its_bounds_and_reaches_both()
     seen[v] = true
   end
   for v = -3, 3 do
-    assert(seen[v], "never drew " .. tostring(v))
+    assert(seen[v] == true, "never drew " .. tostring(v))
   end
   assert(src:int(9, 9) == 9)
 end

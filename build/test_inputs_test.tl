@@ -247,7 +247,7 @@ local function test_a_lua_closure_holds_what_e_loads_and_no_more()
   local names = test_inputs.modules(m, by_path, staged)
   local held: mut {string:boolean} = {}
   for _, name in ipairs(names) do held[name] = true end
-  for _, name in ipairs(test_inputs.lua_loads) do assert(held[name], name) end
+  for _, name in ipairs(test_inputs.lua_loads) do assert(held[name] == true, name) end
   assert(held["build.importer"] ~= true, "what dispatch requires lazily is out")
   assert(held["lib.helper"] == true and held["lib.deep"] == true, "the module's own closure is in")
   local effective = test_inputs.effective(m, by_path, staged)

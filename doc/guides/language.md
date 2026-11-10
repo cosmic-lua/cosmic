@@ -256,7 +256,7 @@ print(ok, why)
 false	array: at(4) is outside the array of 3 (1 to 3)
 ```
 
-`assert(xs[i])` reads it too, and says less when it fails. Do not write `xs[i] or <default>`: it turns an out-of-range read
+`assert(xs[i])` reads it too, and says less when it fails (of a `{boolean}`, write `assert(xs[i] ~= nil)`). Do not write `xs[i] or <default>`: it turns an out-of-range read
 into a wrong value.
 
 ## integers and floats
@@ -291,6 +291,12 @@ A value that may be nil has the type `T?`: `string?` is a string or nil. `T | ni
 map holds `{string: string}`, not `{string: string?}`: a missing key already reads nil, and assigning nil deletes it
 (`array_of_optional`). Use the value only after a test or `assert`, or the checker refuses it with `nil_not_allowed`
 (`cosmic docs nil_not_allowed`).
+
+An optional that may hold a boolean (`boolean?`, an element of a `{boolean}`, a decoded `Json.Value?`) is no condition
+and no argument of `assert`: nil and false would not be told apart, and `assert(flags[1])` raises where the element is
+there and false (`condition_type`). Write which is meant: `x ~= nil` says the value is there, `x == true` that it is
+true. Either leaves a name, a field or an element of an array not nil where it holds; a read of a map stays optional, so
+name it first (`local v = m[k]`).
 
 ```teal
 local function first_word(text: string): string?

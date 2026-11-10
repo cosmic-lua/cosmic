@@ -40,7 +40,7 @@ function Example.url_parts()
 {{type Page from site.page}}
 <a href="/items/{{.id}}?q={{.query}}">{{.title}}</a>
 ]], "link.tmpl"))
-  assert(source:find("_part(v)", 1, true) and not source:find("_url(v)", 1, true))
+  assert(source:find("_part(v)", 1, true) ~= nil and not source:find("_url(v)", 1, true))
   local java, scheme = Template.compile('{{type Page from site.page}}\n<a href="java{{.x}}">x</a>\n', "link.tmpl")
   assert(java == nil)
   assert(scheme:find("link.tmpl:2:", 1, true) and scheme:find("fixes where the URL goes", 1, true), scheme)

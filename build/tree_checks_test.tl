@@ -949,7 +949,7 @@ local function test_a_run_names_each_check(dir: string)
   end
   for _, name in ipairs({ "exports", "doc anchors", "compiler readers", "image_hash readers", "stand-ins",
       "docs queries", "quieted", "rendered docs", "doc references", "text readers" }) do
-    assert(seen[name], name .. " reported nothing on a projection that has none of the tree")
+    assert(seen[name] == true, name .. " reported nothing on a projection that has none of the tree")
   end
 end
 
@@ -1224,7 +1224,7 @@ local function test_a_name_the_scope_builder_cannot_resolve_is_refused_with_its_
   assert(#marked == 0, table.concat(marked, "\n"))
   assert(Fs.write(root .. "/build/bad.tl", source("local x = 1", "local x = 2 -- scoped: shadows", "print(y)", "return x")))
   local one = table.concat(tree_checks.scoped(root), "\n")
-  assert(one:find("build/bad.tl:3:7: `y` is not declared (unknown_variable)", 1, true) and not one:find("(shadows)", 1, true), one)
+  assert(one:find("build/bad.tl:3:7: `y` is not declared (unknown_variable)", 1, true) ~= nil and not one:find("(shadows)", 1, true), one)
 end
 
 --- A declaration the lowering refuses is listed with the place, the message and the fix, unless a marker holds it; a
@@ -1326,11 +1326,11 @@ local function test_a_memo_answers_the_declaration_check_until_a_module_a_file_r
   -- Plant another answer under every key: a run that finds it did not lower.
   assert(Sqlite.run(memo, "UPDATE check_memo SET value = ?1 WHERE kind = 'declared'", { { text = "N\nE\tkey_type\t7\t9\tplanted\tdo it" } }))
   local hit = table.concat(tree_checks.declared(root, memo), "\n")
-  assert(hit:find("build/top.tl:7:9: planted (key_type): do it", 1, true) and not hit:find("float_key", 1, true), hit)
+  assert(hit:find("build/top.tl:7:9: planted (key_type): do it", 1, true) ~= nil and not hit:find("float_key", 1, true), hit)
   -- A module far below changed: the files that require it, through others, are lowered again; one that does not is not.
   assert(Fs.write(root .. "/build/base.tl", source("local record Base", "  m: integer", "end", "return Base")))
   local again = table.concat(tree_checks.declared(root, memo), "\n")
-  assert(again:find("build/top.tl:2:", 1, true) and again:find("build/mid.tl", 1, true) == nil, again)
+  assert(again:find("build/top.tl:2:", 1, true) ~= nil and again:find("build/mid.tl", 1, true) == nil, again)
   assert(again:find("build/alone.tl:7:9: planted", 1, true), again)
   assert(memo:close())
 end
@@ -1355,7 +1355,7 @@ local function test_a_comment_in_a_module_misses_its_own_answer_and_no_other_fil
   -- A token of it changed: the files that require it, through another, are lowered again.
   assert(Fs.write(root .. "/build/base.tl", source("local record Base", "  m: integer", "end", "return Base")))
   local changed = table.concat(tree_checks.declared(root, memo), "\n")
-  assert(changed:find("build/top.tl:2:", 1, true) and not changed:find("planted", 1, true), changed)
+  assert(changed:find("build/top.tl:2:", 1, true) ~= nil and not changed:find("planted", 1, true), changed)
   assert(memo:close())
 end
 
@@ -1381,7 +1381,7 @@ local function test_a_change_to_the_code_or_the_declarations_the_declaration_che
     assert(hit:find("planted", 1, true), path .. " moved the key by itself: " .. hit)
     assert(Fs.write(root .. "/" .. path, "-- two " .. path .. "\n"))
     local missed = table.concat(tree_checks.declared(root, memo), "\n")
-    assert(missed:find("(float_key)", 1, true) and not missed:find("planted", 1, true), path .. " is not in the salt: " .. missed)
+    assert(missed:find("(float_key)", 1, true) ~= nil and not missed:find("planted", 1, true), path .. " is not in the salt: " .. missed)
   end
   assert(memo:close())
 end
@@ -1452,7 +1452,7 @@ local function test_a_memo_answers_the_body_check_until_a_module_a_file_requires
   assert(support.nth(count, 1):integer(1) == 3, "the three files: " .. tostring(support.nth(count, 1):integer(1)))
   assert(Sqlite.run(memo, "UPDATE check_memo SET value = ?1 WHERE kind = 'checked'", { { text = "N\nE\tnil_not_allowed\t7\t9\tplanted\tdo it" } }))
   local hit = table.concat(tree_checks.checked(root, memo), "\n")
-  assert(hit:find("build/top.tl:7:9: planted (nil_not_allowed): do it", 1, true) and not hit:find("not_assignable", 1, true), hit)
+  assert(hit:find("build/top.tl:7:9: planted (nil_not_allowed): do it", 1, true) ~= nil and not hit:find("not_assignable", 1, true), hit)
   assert(Fs.write(root .. "/build/base.tl", source("local record Base", "  n: integer", "  m: integer", "end", "return Base")))
   local again = table.concat(tree_checks.checked(root, memo), "\n")
   assert(again:find("build/top.tl:2:", 1, true) and again:find("not_assignable", 1, true), again)
@@ -1481,7 +1481,7 @@ local function test_a_change_to_the_code_or_the_declarations_the_body_check_read
     assert(hit:find("planted", 1, true), path .. " moved the key by itself: " .. hit)
     assert(Fs.write(root .. "/" .. path, "-- two " .. path .. "\n"))
     local missed = table.concat(tree_checks.checked(root, memo), "\n")
-    assert(missed:find("(not_assignable)", 1, true) and not missed:find("planted", 1, true), path .. " is not in the salt: " .. missed)
+    assert(missed:find("(not_assignable)", 1, true) ~= nil and not missed:find("planted", 1, true), path .. " is not in the salt: " .. missed)
   end
   assert(memo:close())
 end
@@ -1505,7 +1505,7 @@ local function test_a_memo_answers_the_scope_check_for_a_file_that_has_not_chang
   local planted = "C\t\nE\tshadows\t7\t9\tplanted\tdo it"
   assert(Sqlite.run(memo, "UPDATE check_memo SET value = ?1", { { text = planted } }))
   local hit = table.concat(tree_checks.scoped(root, memo), "\n")
-  assert(hit:find("build/bad.tl:7:9: planted (shadows): do it", 1, true) and not hit:find("unknown_variable", 1, true), hit)
+  assert(hit:find("build/bad.tl:7:9: planted (shadows): do it", 1, true) ~= nil and not hit:find("unknown_variable", 1, true), hit)
   -- The code that scopes changed: the salt moves, the file is scoped again.
   assert(Fs.write(root .. "/lang/scopes.tl", "-- two\n"))
   assert(table.concat(tree_checks.scoped(root, memo), "\n") == plain)

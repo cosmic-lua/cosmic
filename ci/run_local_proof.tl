@@ -135,7 +135,7 @@ printf 'error: fixture phase\n'
     assert((assert(Fs.read(candidate .. "/phases"))) == "build\nfixtures\n")
     local grants = assert(Fs.read(candidate .. "/runtime-grants"))
     local first, second = grants:match("^([^\n]+)\n([^\n]+)\n$")
-    assert(first and first == second, "one invocation did not reuse its runtime grant")
+    assert(first ~= nil and first == second, "one invocation did not reuse its runtime grant")
     assert((assert(Fs.read(candidate .. "/tracked"))) == "working" and assert(Fs.read(candidate .. "/untracked")) == "included")
     assert(missing(candidate .. "/ignored"))
     assert(git_run({ "write-tree" }) == index and git_run({ "stash", "list" }) == "")

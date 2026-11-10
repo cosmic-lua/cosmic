@@ -483,10 +483,14 @@ Codes.catalog = {
     fix = "write its type: `local <name>: T` (`T?` if it may stay unset), or give it a value",
   },
   {
-    code = "condition_type", rule = "conditions are booleans or optionals",
+    code = "condition_type", rule = "conditions, and what `assert` takes, are booleans or optionals",
     why = "a condition is a boolean or a `T?` where `T` is not a boolean: any other type is always true or mixes nil " ..
-      "with false, and the test it stands for is not written",
-    fix = "write the test: `s ~= \"\"` for a string, `n ~= 0` for a number, `x ~= nil` or `x == true` for the rest",
+      "with false, and the test it stands for is not written. The first argument of `assert` is held to the same for an " ..
+      "optional that may hold a boolean (`boolean?`, an optional union with `boolean` in it): `assert` raises for " ..
+      "false as for nil, so one meant to say the value is there raises where it is there and false",
+    fix = "write the test: `s ~= \"\"` for a string, `n ~= 0` for a number, `x ~= nil` or `x == true` for the rest; " ..
+      "in an `assert`, `assert(x ~= nil)` says the value is there and `assert(x == true)` that it is true, and either " ..
+      "leaves `x` not nil after it",
   },
   {
     code = "or_mix", rule = "honest `or` and `and`",

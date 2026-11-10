@@ -1256,7 +1256,7 @@ local function test_create_writes_nothing_at_the_path_until_close(tmp: string)
     assert(w:add_file("x", "y"))
     assert(Fs.exists(path) ~= true, name .. ": there before close")
     assert(w:close())
-    assert(Fs.exists(path), name)
+    assert(Fs.exists(path) == true, name)
   end
 end
 

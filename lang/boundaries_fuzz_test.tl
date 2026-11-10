@@ -260,6 +260,6 @@ local function test_a_mapping_that_leaves_a_kind_out_is_caught()
     end
   end
   for _, kind in ipairs(ORDER) do
-    assert(caught[kind], "leaving out " .. kind .. " broke no input")
+    assert(caught[kind] == true, "leaving out " .. kind .. " broke no input")
   end
 end

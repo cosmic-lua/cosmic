@@ -466,7 +466,7 @@ local function test_a_line_about_another_schema_names_the_project_and_the_remedy
     work.tell_other_schema("docs", tmp .. "/newer.db", "99999", "/some/project")
     return ""
   end)
-  assert(newer:find("a newer tool wrote it; use that tool in /some/project", 1, true) and newer:find("cosmic test", 1, true) == nil, newer)
+  assert(newer:find("a newer tool wrote it; use that tool in /some/project", 1, true) ~= nil and newer:find("cosmic test", 1, true) == nil, newer)
 end
 
 --- Whether the working database of `root` has staged `path`.

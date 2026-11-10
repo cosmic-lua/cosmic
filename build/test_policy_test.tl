@@ -123,7 +123,7 @@ end
 local function test_what_every_policy_has_alike_is_text()
   local text = test_policy.common()
   assert(text == test_policy.common())
-  assert(text:find("isolate file", 1, true) and text:find("fork", 1, true) and
+  assert(text:find("isolate file", 1, true) ~= nil and text:find("fork", 1, true) ~= nil and
       not text:find("nest", 1, true), text)
 end
 

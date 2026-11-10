@@ -225,7 +225,7 @@ end
 --- and a JSONPath query from 0. [`Json.get`] follows steps;
 --- [`Json.select`] runs a query that can match many values.
 function Example.paths()
-  local doc = assert(Json.decode('{"users": [{"name": "ada"}, {"name": "bob"}]}'))
+  local doc = assert(Json.decode_object('{"users": [{"name": "ada"}, {"name": "bob"}]}'))
   local steps: Json.Steps = { "users", 2, "name" }
   assert(Json.get(doc, steps) == "bob")
   assert(Json.pointer(steps) == "/users/1/name")
@@ -243,14 +243,18 @@ end
 --- [`Json.remove`] one without it. Nothing is changed in place, so the
 --- defaults stay as they were read.
 function Example.set()
-  local defaults = assert(Json.decode('{"server": {"port": 80, "hosts": ["a"]}, "debug": true}'))
-  local config = assert(Json.set(defaults, { "server", "port" }, 8080))
-  config = assert(Json.set(config, { "server", "hosts", 2 }, "b"))
-  config = assert(Json.remove(config, { "debug" }))
+  local defaults = assert(Json.decode_object('{"server": {"port": 80, "hosts": ["a"]}, "debug": true}'))
+  -- A value that is there may be `false`, which `assert` would raise for: each step says it is not nil.
+  local config, trouble = Json.set(defaults, { "server", "port" }, 8080)
+  assert(config ~= nil, trouble)
+  config, trouble = Json.set(config, { "server", "hosts", 2 }, "b")
+  assert(config ~= nil, trouble)
+  config, trouble = Json.remove(config, { "debug" })
+  assert(config ~= nil, trouble)
   local text = assert(Json.encode(config))
   print(text)
   assert(text == '{"server":{"hosts":["a","b"],"port":8080}}')
-  assert(assert(Json.get(defaults, { "server", "port" })) == 80)
+  assert(Json.get(defaults, { "server", "port" }) == 80)
   local _, why = Json.set(defaults, { "client", "port" }, 1)
   print(why)
 end
@@ -259,10 +263,11 @@ end
 --- JSON Pointer, ignoring member order and the difference between `1` and
 --- `1.0`. An empty list means equal, so a test asserts on the list.
 function Example.diff()
-  local expected = assert(Json.decode('{"id": 7, "tags": ["a"], "owner": {"name": "ada"}}'))
-  local found = assert(Json.decode('{"owner": {"name": "bob"}, "tags": ["a", "b"], "id": 7.0}'))
-  local want = assert(Json.to_value(expected))
-  local got = assert(Json.to_value(found))
+  local expected = assert(Json.decode_object('{"id": 7, "tags": ["a"], "owner": {"name": "ada"}}'))
+  local found = assert(Json.decode_object('{"owner": {"name": "bob"}, "tags": ["a", "b"], "id": 7.0}'))
+  local want, want_trouble = Json.to_value(expected)
+  local got, got_trouble = Json.to_value(found)
+  assert(want ~= nil and got ~= nil, want_trouble .. got_trouble)
   local differences = Json.diff(want, got)
   for _, difference in ipairs(differences) do
     print(difference.path, Json.encode_any(difference.want) or "nothing", Json.encode_any(difference.got))

@@ -105,7 +105,10 @@ end
 local function test_a_second_run_waits_for_the_first_then_passes(tmp: string)
   local root = tmp .. "/project"
   project(root, 0)
-  assert(rebuild_lock.hold(root, "test", "test"))
+  do
+    local held_true, held_why = rebuild_lock.hold(root, "test", "test")
+    assert(held_true == true, held_why)
+  end
   local output = tmp .. "/second.out"
   local h = start_test(root, output)
   local ok, failure = pcall(await, "the second run to wait", function(): boolean

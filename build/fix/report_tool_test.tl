@@ -80,7 +80,7 @@ local function test_a_path_under_static_is_refused(tmp: string)
   assert(named:find("fix: 1 of 1 file refused, ", 1, true), named)
   assert(assert(Fs.read(root .. "/static/notes.tl")) == "not   teal {{\n", "the asset is untouched")
   local whole = fix(root, false)
-  assert(whole:find("fix: [^\n]*, 0 fixed, ") and not whole:find("carried verbatim", 1, true), whole)
+  assert(whole:find("fix: [^\n]*, 0 fixed, ") ~= nil and not whole:find("carried verbatim", 1, true), whole)
 end
 
 --- `fix` with its verdict: the output and whether it exited 0.

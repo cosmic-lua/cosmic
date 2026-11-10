@@ -187,9 +187,9 @@ local function test_the_relay_profile_connects_out_and_accepts_at_its_port()
   }
   local out = assert(Seatbelt.compile({ grants = { { path = "/usr", letters = "rx" } } },
     { paths = paths, core = "/core", database = "/db", serves_relay = 49153 }))
-  assert(out.text:find('(allow process-exec file-map-executable (literal (param "PATH_1")))', 1, true) and
+  assert(out.text:find('(allow process-exec file-map-executable (literal (param "PATH_1")))', 1, true) ~= nil and
       out.parameters["PATH_1"] == "/real/core", out.text)
-  assert(out.text:find('(allow file-map-executable (subpath (param "PATH_3")))', 1, true) and
+  assert(out.text:find('(allow file-map-executable (subpath (param "PATH_3")))', 1, true) ~= nil and
       out.parameters["PATH_3"] == "/usr", out.text)
   assert(select(2, out.text:gsub("process%-exec", "")) == 1, "the core alone runs: " .. out.text)
   assert(out.text:find([[(allow network-outbound (remote ip "*:*"))

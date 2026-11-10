@@ -39,7 +39,7 @@ local function test_a_require_of_a_named_file_is_typed_from_it(tmp: string)
   assert(Fs.write(tmp .. "/globals.d.tl", REQUIRE))
   local ran = tool_fixture.cosmic(tmp, { "compile", "--errors", "-o", "out", "globals.d.tl", "lib.tl", "main.tl" })
   assert(ran.code == 0, ran.err)
-  assert(ran.err:find("main.tl:2:", 1, true) and not ran.err:find("not found", 1, true), ran.err)
+  assert(ran.err:find("main.tl:2:", 1, true) ~= nil and not ran.err:find("not found", 1, true), ran.err)
   assert(Fs.exists(tmp .. "/out/lib.lua") == true and Fs.exists(tmp .. "/out/main.lua") == true)
 end
 
@@ -63,7 +63,7 @@ local function test_refusals_about_decoded_collections_name_json_value(tmp: stri
   local ran = tool_fixture.cosmic(tmp, { "compile", "--errors", "c.tl" })
   assert(ran.code == 0, ran.err)
   assert(ran.err:find("(view_as_mut)", 1, true) and ran.err:find("(invariant_mut)", 1, true), ran.err)
-  assert(ran.err:find("Json.Value", 1, true) and not ran.err:find("json.Value", 1, true), ran.err)
+  assert(ran.err:find("Json.Value", 1, true) ~= nil and not ran.err:find("json.Value", 1, true), ran.err)
 end
 
 --- A user's own record called `json` is untouched: its types keep their names.

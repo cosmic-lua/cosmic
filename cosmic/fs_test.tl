@@ -417,7 +417,10 @@ local function test_scratch_is_removed_when_its_block_raises(tmp: string)
   Test.raises(function()
     local scratch <close> = assert(Fs.scratch(tmp))
     seen[#seen + 1] = scratch.path
-    assert(Fs.exists(scratch.path))
+    do
+      local held_true, held_why = Fs.exists(scratch.path)
+      assert(held_true == true, held_why)
+    end
     error("raised inside the block")
   end, "raised inside the block")
   assert(#seen == 1 and Fs.exists(assert(seen[1])) == false, "the directory outlived the raise")
@@ -623,7 +626,10 @@ local function test_copy_tree_keeps_bytes_modes_times_and_links(tmp: string)
     tostring(secret.mtime) .. "." .. tostring(secret.mtime_ns))
   assert(secret.atime == 1000000000 and secret.atime_ns == 42, tostring(secret.atime) .. "." .. tostring(secret.atime_ns))
   assert(assert(Fs.stat(to .. "/sub")).mode & 0xfff == 0x16d)
-  assert(assert(Fs.is_dir(to .. "/sub/empty")))
+  do
+    local held_true, held_why = Fs.is_dir(to .. "/sub/empty")
+    assert(held_true == true, held_why)
+  end
   assert(assert(Fs.readlink(to .. "/sub/link")) == "../big")
   local link_st = assert(sys.lstat(to .. "/sub/link"))
   assert(link_st.mtime == 1500000000 and link_st.mtime_ns == 5,

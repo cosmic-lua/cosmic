@@ -946,7 +946,7 @@ local function checked_suite(c: Context, target: string, work: string,
       checked_target = target_name
     end
   end
-  assert(target_id and checked_target == target, "checked target mapping differs")
+  assert(target_id ~= nil and checked_target == target, "checked target mapping differs")
   local cosmic = sanitized .. "/bin/cosmic"
   local core = sanitized .. "/cosmic-core"
   local entry = work .. "/checked-entry.txt"
@@ -2044,7 +2044,7 @@ local function phase_attest(p: PlatformContext): integer
 end
 
 local function platform_impl(phase: string, p: PlatformContext): integer
-  assert(targets[p.target], "unsupported target")
+  assert(targets[p.target] == true, "unsupported target")
   mkdir(p.work)
   if phase == "build" then
     return phase_build(p)
@@ -2099,7 +2099,7 @@ local function provenance_impl(c: Context, products: string, expected: integer):
       local att = p .. "/executed-cosmic.sha256"
       assert(exists(att) and exists(p .. "/cosmic"), "incomplete product: " .. p)
       local digest = read(att):match("^([0-9a-f]+)  cosmic\n$")
-      assert(digest and #digest == 64, "invalid attestation: " .. att)
+      assert(digest ~= nil and #digest == 64, "invalid attestation: " .. att)
       assert(Hash.hex_sha256(ArtifactRow.with(read(p .. "/cosmic"), p .. "/provenance.db", nil)) == digest,
         "changed artifact: " .. p)
       if baseline then

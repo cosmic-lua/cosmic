@@ -103,7 +103,8 @@ local STEP <const> = Shape.record_of("Step")
 -- TODO: ask the shape for a strict record, and drop the re-encoding below,
 -- once [`Shape.record_of`] has a strict form (cosmic/shape.tl carries the TODO).
 local function read_as<T>(typed: Shape.Typed<T>, path: string, text: string): T
-  local raw = assert(Json.decode(text, READ))
+  local raw, raw_trouble = Json.decode(text, READ)
+  assert(raw ~= nil, raw_trouble)
   local record, err = typed:into(raw)
   assert(record, path .. ": " .. tostring(err))
   local kept, given = assert(Json.encode_any(record)), assert(Json.encode_any(raw))
@@ -400,7 +401,9 @@ local function expand(matrix: {string: Json.Value}, kind: string): {{string: str
     assert(full ~= nil, "the include is chosen other than by the kind of run: " .. include)
     local chosen = if kind == "queue" then queue elseif kind == "push" then push else full end
     assert(kind == "queue" or kind == "push" or kind == "full", "no kind of run " .. kind)
-    include = assert(Json.decode(assert(chosen)))
+    local chosen_include, include_trouble = Json.decode(assert(chosen))
+    assert(chosen_include ~= nil, include_trouble)
+    include = chosen_include
   end
   for _, entry in ipairs(entries_of(include)) do
     local added = false
@@ -505,7 +508,7 @@ local function test_each_path_filter_names_what_exists()
           -- A `!` excludes what it names, which must exist all the same.
           local fixed = entry:gsub("^!", ""):gsub("/%*%*$", "")
           assert(not fixed:find("*", 1, true), where .. ": " .. entry .. ": only a trailing /** is checked")
-          assert(Fs.exists(fixed), entry .. " is in " .. where .. ", and does not exist")
+          assert(Fs.exists(fixed) == true, entry .. " is in " .. where .. ", and does not exist")
         end
       end
     end
@@ -720,11 +723,11 @@ local function test_the_workflows_run_the_scripts_there_are()
   end
   for _, name in ipairs((assert(Fs.list(SCRIPTS)))) do
     local script = SCRIPTS .. "/" .. name
-    assert(named[script], script .. " is named by no workflow or its scripts")
+    assert(named[script] == true, script .. " is named by no workflow or its scripts")
   end
   for _, file in ipairs(action_paths()) do
     local dir = file:match("^(.*)/[^/]+$")
-    assert(used[assert(dir)], assert(dir) .. " is used by no workflow")
+    assert(used[assert(dir)] == true, assert(dir) .. " is used by no workflow")
   end
 end
 
@@ -1344,10 +1347,10 @@ local function test_every_leg_has_its_promises_and_no_other_does()
   local checked = ci.jobs["checked"]
   ran[assert(map_of(assert(checked).env)["COSMIC_WORKER"])] = true
   for name in pairs(ran) do
-    assert(promised[name], name .. ": a leg with no entry in capabilities.json")
+    assert(promised[name] == true, name .. ": a leg with no entry in capabilities.json")
   end
   for name in pairs(promised) do
-    assert(ran[name], name .. ": capabilities.json names no such leg")
+    assert(ran[name] == true, name .. ": capabilities.json names no such leg")
   end
 end
 

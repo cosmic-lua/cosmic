@@ -1022,7 +1022,9 @@ local function ascii_holds(input: string): boolean, string
     return false, "did not read back the same: " .. out
   end
   local plain = assert(Json.encode(value))
-  if Json.encode_any((assert(Json.decode(plain)))) ~= Json.encode_any(back) then
+  local reread, reread_trouble = Json.decode(plain)
+  assert(reread ~= nil, reread_trouble)
+  if Json.encode_any(reread) ~= Json.encode_any(back) then
     return false, "reads differently from the text without the option: " .. out
   end
   local stray = Json.encode(text .. "\xff", { ascii = true })

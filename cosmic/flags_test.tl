@@ -62,7 +62,7 @@ end
 
 local function test_reading_starts_at_the_slot_given()
   local got = parsed({ "x", "--check" })
-  assert(got.set["--check"])
+  assert(got.set["--check"] == true)
   local all = assert(Flags.parse({ "--check", "w" }, 1, spec))
   assert(all.set["--check"] == true and all.words[1] == "w")
 end
@@ -108,7 +108,7 @@ local function test_a_spec_may_name_a_one_dash_option_whole()
   got = assert(Flags.parse({ "-ve" }, 1, whole))
   assert(got.set["-v"] == true and got.set["-e"] == true and got.set["-verbose"] ~= true)
   whole["-é"] = false
-  assert(assert(Flags.parse({ "-é" }, 1, whole)).set["-é"])
+  assert(assert(Flags.parse({ "-é" }, 1, whole)).set["-é"] == true)
   local _, why = Flags.parse({ "-vé" }, 1, whole)
   assert(why == "no such option: -vé", why)
 end

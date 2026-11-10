@@ -29,9 +29,9 @@ local function test_the_enum_is_what_the_core_answers()
   local readdir = assert(c:match("COSMIC_SYSCALL%(readdir, 1%) {(.-)\n}"), "no readdir")
   for word in readdir:gmatch('kind = "(%w+)";') do answered[word] = true end
   for word in pairs(answered) do
-    assert(declared[word], "the core answers \"" .. word .. "\", which Kind does not declare")
+    assert(declared[word] == true, "the core answers \"" .. word .. "\", which Kind does not declare")
   end
   for word in pairs(declared) do
-    assert(answered[word], "Kind declares \"" .. word .. "\", which the core never answers")
+    assert(answered[word] == true, "Kind declares \"" .. word .. "\", which the core never answers")
   end
 end

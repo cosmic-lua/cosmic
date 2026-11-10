@@ -70,7 +70,10 @@ local function test_the_first_codesign_on_path_runs(dir: string)
   local log = fake_codesign(probe, dir .. "/a", 0)
   fake_codesign(probe, dir .. "/b", 5)
   assert(VerifyCodesign.verify("Darwin", "core", dir .. "/a:" .. dir .. "/b") == 0)
-  assert(Fs.exists(log))
+  do
+    local held_true, held_why = Fs.exists(log)
+    assert(held_true == true, held_why)
+  end
 end
 
 local function test_main_answers_help_and_refuses_an_option()

@@ -375,10 +375,10 @@ local function each_field_moves<T>(what: string, fields: {string}, make: functio
     end
   end
   for name in pairs(changes) do
-    assert(declared[name], what .. " declares no field " .. name .. " that a change names")
+    assert(declared[name] == true, what .. " declares no field " .. name .. " that a change names")
   end
   for name in pairs(unkeyed) do
-    assert(declared[name], what .. " declares no field " .. name .. " that unkeyed names")
+    assert(declared[name] == true, what .. " declares no field " .. name .. " that unkeyed names")
   end
 end
 
@@ -1273,7 +1273,7 @@ local function test_the_runtime_identity_is_remembered_by_the_core(tmp: string)
   digests.hashed["runtime-image\0" .. core] = "image 1 2\0" .. image
   assert(declared_key.runtime_identity(digests, "raw", core, "basis") ==
       core_image.runtime(image, 1, 2, "basis"))
-  assert(digests.used["runtime-image\0" .. core])
+  assert(digests.used["runtime-image\0" .. core] == true)
   digests.hashed["runtime-image\0" .. core] = "whole\0" .. core
   assert(declared_key.runtime_identity(digests, "raw", core, "basis") == "raw")
   -- Not the running core, whose bytes this cannot read: as named.

@@ -224,7 +224,7 @@ local function test_which_remote_forms_the_profile_compiler_takes(tmp: string)
   report[#report + 1] = "malformed: " .. (if broken then "COMPILES" else "refused" end)
   assert(not broken, "a malformed profile started\n" .. table.concat(report, "\n"))
   assert(compiles(tmp, profile(BASE, {}), {}), "the base profile does not compile\n" .. table.concat(report, "\n"))
-  assert(parsed["ip-localhost"], "(remote ip \"localhost:PORT\") does not compile\n" .. table.concat(report, "\n"))
+  assert(parsed["ip-localhost"] == true, "(remote ip \"localhost:PORT\") does not compile\n" .. table.concat(report, "\n"))
   assert(parsed["tcp-localhost"] == true and parsed["ip-param"] == true and parsed["ip-star"] == true, "a form that compiled before does not\n" ..
       table.concat(report, "\n"))
   -- The profile compiler takes no numeric host but "*" and "localhost".
@@ -661,7 +661,7 @@ local function test_which_mach_services_a_resolver_needs(tmp: string)
         " fails\n" .. table.concat(report, "\n"))
   end
   local _ = any_worked
-  assert(worked["scutil --dns"], "dnsinfo fails with the Mach list\n" .. table.concat(report, "\n"))
+  assert(worked["scutil --dns"] == true, "dnsinfo fails with the Mach list\n" .. table.concat(report, "\n"))
   assert(c_ares, "the c-ares way of resolving fails even with outbound, files and the Mach list\n" ..
       table.concat(report, "\n"))
   conclude(report)

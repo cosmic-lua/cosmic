@@ -547,6 +547,8 @@ it names in the message. Compare a typed record field by field.
 - A test that cannot check on this host declares `requires` or calls
   [`Test.skip`].
 - A doc test's output is compared with `assert`.
+- `assert` of an optional that may hold a boolean is refused (`condition_type`): `assert(seen[key] == true)` says a
+  flag is set, and `assert(decoded ~= nil)` that a value which may be false is there.
 
 [`Test.passed_unchecked`] is for the fuzz runner alone. `bin/cosmic fix
 --check .` fails any other use.

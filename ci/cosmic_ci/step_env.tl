@@ -6,7 +6,7 @@ end
 --- the workflow's mistake, not the step's.
 function StepEnv.required(env: {string:string}, name: string): string
   local value = env[name]
-  assert(value and value ~= "", "missing required environment variable: " .. name)
+  assert(value ~= nil and value ~= "", "missing required environment variable: " .. name)
   return value
 end
 

@@ -216,13 +216,13 @@ local function test_a_checkout_runs_what_no_shared_verdict_answers_for(tmp: stri
     asked)
   -- With nothing looked up, it says the parts alone.
   local parts = said("parts", tmp .. "/first", "0 ran, 5 stood", { "--census" })
-  assert(parts:find("test: key parts: host kernel %x+, host %x+, system %x+, runtime %x+") and
+  assert(parts:find("test: key parts: host kernel %x+, host %x+, system %x+, runtime %x+") ~= nil and
       not parts:find("shared verdicts: none of", 1, true), parts)
   -- And what the cache held: rows under the parts the runs keeping
   -- them said, these among them.
   local said_parts = parts:match("test: key parts: ([^\n]*)")
   assert(said_parts ~= nil, parts)
-  assert(parts:find("test: census: %d+ rows? under ") and
+  assert(parts:find("test: census: %d+ rows? under ") ~= nil and
       parts:find("under " .. said_parts, 1, true) ~= nil, parts)
 end
 

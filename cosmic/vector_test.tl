@@ -268,7 +268,7 @@ local function test_candidates_break_a_hamming_tie_by_row_order()
   end
   -- The five exact matches, then the earliest five of the 50 tied.
   for id = 1, 10 do
-    assert(seen[id], "row " .. tostring(id) .. " should be a candidate")
+    assert(seen[id] == true, "row " .. tostring(id) .. " should be a candidate")
   end
 end
 

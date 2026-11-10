@@ -191,7 +191,7 @@ local function test_the_files_the_portable_probe_reaches_are_listed()
     if seen[file] == true then return end
     seen[file] = true
     local shown = if file == "build/artifact.tl" then "ci/testdata/portable/artifact_row.tl" else file end
-    assert(listed[shown], shown .. " is reached by test/portable/probe.tl and is not in ci/strict-files.txt")
+    assert(listed[shown] == true, shown .. " is reached by test/portable/probe.tl and is not in ci/strict-files.txt")
     for name in (assert(Fs.read(shown))):gmatch('require%(%s*"([%w_%.]+)"%s*%)') do
       if name:sub(1, 7) ~= "cosmic." then
         local base = name:gsub("%.", "/")
@@ -219,7 +219,7 @@ local function assert_directory_listed(directory: string, why: string)
   for _, name in ipairs(names) do
     if name:match("%.tl$") then
       count = count + 1
-      assert(listed[directory .. "/" .. name], directory .. "/" .. name .. " is not in ci/strict-files.txt (" .. why .. ")")
+      assert(listed[directory .. "/" .. name] == true, directory .. "/" .. name .. " is not in ci/strict-files.txt (" .. why .. ")")
     end
   end
   assert(count > 0, directory .. " holds no Teal file: update this test and the list")
@@ -239,7 +239,7 @@ end
 local function test_the_portable_tool_is_listed()
   local listed: mut {string:boolean} = {}
   for _, file in ipairs(strict_files()) do listed[file] = true end
-  assert(listed["test/portable/tool.tl"], "test/portable/tool.tl is not in ci/strict-files.txt")
+  assert(listed["test/portable/tool.tl"] == true, "test/portable/tool.tl is not in ci/strict-files.txt")
 end
 
 --- The strings of `path` that `pattern` captures, from `opening` to the `}` that closes the list: the lists are
@@ -266,7 +266,7 @@ local function test_every_file_the_bootstrap_may_run_is_listed_as_strict()
     local file = String.trim((line:gsub("#.*$", "")))
     if file ~= "" then
       count = count + 1
-      assert(listed[file], file .. " is in ci/bootstrap-files.txt and not in ci/strict-files.txt")
+      assert(listed[file] == true, file .. " is in ci/bootstrap-files.txt and not in ci/strict-files.txt")
     end
   end
   assert(count > 0, "ci/bootstrap-files.txt lists no file")
@@ -279,6 +279,6 @@ local function test_the_file_standing_for_a_packed_module_is_listed()
   local stand_ins = strings_of("ci/cosmic_ci/runtime_setup.tl", "RuntimeSetup.artifact_row = {", '= "([^"]+)"')
   assert(#stand_ins > 0, "RuntimeSetup.artifact_row names no file")
   for _, file in ipairs(stand_ins) do
-    assert(listed[file], file .. " stands for a module in RuntimeSetup.artifact_row and is not in ci/strict-files.txt")
+    assert(listed[file] == true, file .. " stands for a module in RuntimeSetup.artifact_row and is not in ci/strict-files.txt")
   end
 end
