@@ -295,6 +295,13 @@ function test_report.shown(shown: mut {test_report.Shown}): {string}
   return lines
 end
 
+--- What a run without `--show-output` says of the `printed` tests that ran, passed and printed something: their output is
+--- shown only for a failure, and a reader who printed to look at a value finds the flag here.
+function test_report.unshown_note(printed: integer): string?
+  if printed == 0 then return nil end
+  return "test: " .. plural.count(printed, "passing test") .. " that ran printed output, which --show-output shows"
+end
+
 --- What `--show-output` says of the `stood` tests that did not run, which
 --- printed nothing: a verdict that stands is not run again.
 function test_report.shown_note(stood: integer): string?

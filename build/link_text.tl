@@ -552,6 +552,22 @@ local function destination(raw: string): string?
   return target
 end
 
+--- Whether a line `[label]: target` and the `rest` of it define a link,
+--- or are prose that happens to open with a bracket and a colon
+--- (`[1,0,0]: -25.0`, `[0]: the first slot`). After the target comes at
+--- most a quoted title, as CommonMark has it: with words after it the
+--- line is a paragraph. A target that is a number is a value, which
+--- CommonMark would take for a place: no link names one, and a file
+--- named by a number is linked as `./3`.
+local function defines(target: string, rest: string): boolean
+  local title = String.trim(rest)
+  if title ~= "" and title:match('^".*"$') == nil and title:match("^'.*'$") == nil and
+      title:match("^%(.*%)$") == nil then
+    return false
+  end
+  return tonumber(target:match("^<(.*)>$") or target) == nil
+end
+
 --- Every link of `text`, a text as [`visible_of`] leaves it with
 --- the lines that go on with a paragraph (`continues`), and every
 --- definition it holds, in order of the line each is on, and each code
@@ -579,10 +595,11 @@ local function scan(text: string, continues: {integer: boolean}, spans?: mut {li
   local defined: mut {string: string} = {}
   local definition_lines: mut {integer: boolean} = {}
   for number, start in ipairs(starts) do
-    local label, target = text:match("^[ \t]*%[([^%]\n]+)%]:[ \t]*(%S+)", start)
+    local label, target, rest = text:match("^[ \t]*%[([^%]\n]+)%]:[ \t]*(%S+)([^\n]*)", start)
     -- A footnote (`[^1]: ...`) defines no link.
     local bracket = text:find("[", start, true)
-    if label ~= nil and target ~= nil and bracket ~= nil and label:sub(1, 1) ~= "^" then
+    if label ~= nil and target ~= nil and bracket ~= nil and label:sub(1, 1) ~= "^" and
+        defines(target, rest or "") then
       target = target:match("^<(.*)>$") or target
       local key = link_text.label_key(label)
       if defined[key] == nil then
