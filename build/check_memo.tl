@@ -156,7 +156,8 @@ function check_memo.code_of(reads: check_memo.Reads): string?, string
   for _, name in ipairs(names) do
     local code, code_trouble = reads.bytecode(name)
     if code == nil then
-      -- A name the tool has no row of is a binding of the core, which `core` holds; a row it cannot read names nothing.
+      -- A name the tool holds neither a module nor a declaration of is a binding of the core, which `core` holds.
+      -- One it holds with no bytecode to read (a declaration, a module that does not inflate) names no code.
       local held, held_trouble = reads.holds(name)
       if held == nil then return nil, name .. ": " .. held_trouble end
       if held then return nil, name .. ": " .. code_trouble end
@@ -305,12 +306,14 @@ function check_memo.key(salt: string, dialect: string, bytes: string): string
   return Hash.hex_sha256(salt .. "\0" .. dialect .. "\0" .. Hash.hex_sha256(bytes))
 end
 
--- TODO: hold a checkout's own rows under [`check_memo.code_of`] too, in place of the lists of files its callers
--- write here, which the import closures show short of what the checks load (lang/generics.tl, lang/literals.tl and
--- lang/load_order.tl in none of them; build/ceilings.tl, build/markers.tl and build/checker_declarations.tl in none
--- of the checker's): an edit to one of those leaves the checkout's own stale rows standing, though never a sibling's,
--- which takes only rows made under its own code. Once an edit to any module `cosmic fix` loads may check the whole
--- tree again (5 to 8 minutes, where a listed salt checks again only for the files it names).
+-- TODO: hold a checkout's own rows under [`check_memo.code_of`] too, once an edit to any module `cosmic fix` loads
+-- may check the whole tree again (5 to 8 minutes; a listed salt checks again only for the files it names). The lists
+-- of files its callers write here are short of what the checks load, by the import closures: lang/generics.tl,
+-- lang/literals.tl and lang/load_order.tl are in none of them, and build/ceilings.tl, build/markers.tl and
+-- build/checker_declarations.tl in none of the checker's. An edit to one of those leaves the checkout's own stale
+-- rows standing, though never a sibling's, which takes only rows made under its own code. A stale `shape` digest
+-- among them goes into the key a row of `declared` or `checked` is shared under, whose value is still made from the
+-- sources: a sibling takes it only where its own digest of other sources is the same.
 function check_memo.salt(root: string, files: {string}, version: string): string
   local parts: mut {string} = {}
   for _, file in ipairs(files) do
