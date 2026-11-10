@@ -186,12 +186,12 @@ local record test
   --- `coverage_by_test` in one query per run credited, after the loop.
   type Credited = mut {integer: mut {string}}
 
-  --- The lines of rows of hits that calls of [`test.decode_hits`] have folded: by a line's head (its path and what its
-  --- lines are numbered in), then by its lines as written, what folding them left in `stale` for the path, "" where
-  --- nothing.
+  --- What calls of [`test.decode_hits`] have folded. The first key is a module's head in a row of hits (its path and
+  --- what its lines are numbered in), the second its lines as the row writes them. The value is what folding them
+  --- left in `stale` for the path, or "" where it left nothing.
   type Folded = mut {string: mut {string: string}}
 
-  --- What [`test.write_module_coverage`] wrote: the rows, one an executable line, and how many of them are hit.
+  --- What [`test.write_module_coverage`] wrote: `lines` rows, one for each executable line, `hit` of them hit.
   record Written
     hit: integer
     lines: integer
@@ -554,10 +554,10 @@ end
 --- stands: the key holds its text. Returns the lines of `encoded` but those
 --- of a path `unowned` names, as written.
 ---
---- `folded` holds the module's lines earlier calls folded, for calls that share every other argument but `encoded`: a
---- line met again is not read a second time, since it would set the same entries of `hits` and of `stale`. Most of a
---- test's row is the lines every test hits of the modules every test loads, so the rows of a suite hold each line some
---- twenty times over.
+--- `folded` holds the module's lines earlier calls folded. Pass one table only to calls that share every other
+--- argument but `encoded`: a line met again is then not read a second time, since it would set the same entries of
+--- `hits` and of `stale`. Most of a test's row is the lines every test hits of the modules every test loads, so the
+--- rows of a suite repeat them.
 function test.decode_hits(encoded: string, hits: Coverage.Hits, identities: {string:string},
                           stale: mut {string:string}, unowned?: Coverage.Hits,
                           lines_of?: function(string): {integer}?, string, codes?: {string:string},
