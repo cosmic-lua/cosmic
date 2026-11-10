@@ -186,6 +186,17 @@ local record test
   --- `coverage_by_test` in one query per run credited, after the loop.
   type Credited = mut {integer: mut {string}}
 
+  --- What calls of [`test.decode_hits`] have folded. The first key is a module's head in a row of hits (its path and
+  --- what its lines are numbered in), the second its lines as the row writes them. The value is what folding them
+  --- left in `stale` for the path, or "" where it left nothing.
+  type Folded = mut {string: mut {string: string}}
+
+  --- What [`test.write_module_coverage`] wrote: `lines` rows, one for each executable line, `hit` of them hit.
+  record Written
+    hit: integer
+    lines: integer
+  end
+
   --- One of the shares `--shard I/N` splits a run's chosen tests into
   --- ([`test.shard`], [`test.dealt`]).
   record Shard
@@ -542,9 +553,15 @@ end
 --- makes the run's figure partial. A path that is no module is folded as it
 --- stands: the key holds its text. Returns the lines of `encoded` but those
 --- of a path `unowned` names, as written.
+---
+--- `folded` holds the module's lines earlier calls folded. Pass one table only to calls that share every other
+--- argument but `encoded`: a line met again is then not read a second time, since it would set the same entries of
+--- `hits` and of `stale`. Most of a test's row is the lines every test hits of the modules every test loads, so the
+--- rows of a suite repeat them.
 function test.decode_hits(encoded: string, hits: Coverage.Hits, identities: {string:string},
                           stale: mut {string:string}, unowned?: Coverage.Hits,
-                          lines_of?: function(string): {integer}?, string, codes?: {string:string}): string
+                          lines_of?: function(string): {integer}?, string, codes?: {string:string},
+                          folded?: test.Folded): string
   local kept: mut {string} = {}
   for head, lines in encoded:gmatch("([^\t\n]+)\t([^\n]*)\n") do
     local path, named = text_of(head)
@@ -552,7 +569,20 @@ function test.decode_hits(encoded: string, hits: Coverage.Hits, identities: {str
     local code = if codes ~= nil then codes[path] else nil end
     local owned = unowned == nil or unowned[path] == nil
     if owned then kept[#kept + 1] = head .. "\t" .. lines .. "\n" end
+    local met: mut {string:string}? = nil
+    if owned and folded ~= nil then
+      local of_head: mut {string:string} = folded[head] or {}
+      folded[head] = of_head
+      met = of_head
+      local left = of_head[lines]
+      if left ~= nil then
+        -- What it left in `stale` the first time, said again: another line of the path may have said otherwise since.
+        if left ~= "" then stale[path] = left end
+        owned = false
+      end
+    end
     if owned then
+      local left = ""
       local credited: mut {integer} = {}
       local numbered = known ~= nil and code ~= nil and named == code
       local placing: {integer}? = nil
@@ -578,12 +608,15 @@ function test.decode_hits(encoded: string, hits: Coverage.Hits, identities: {str
             elseif placing ~= nil then
               unplaced = "line " .. tostring(line) .. " is not an instruction's number"
             end
-            stale[path] = "were not placed at its lines: " .. unplaced
+            left = "were not placed at its lines: " .. unplaced
+            stale[path] = left
           end
         else
-          stale[path] = test_report.other_text
+          left = test_report.other_text
+          stale[path] = left
         end
       end
+      if met ~= nil then met[lines] = left end
       if #credited > 0 then
         local per_line = hits[path]
         if per_line == nil then
@@ -614,6 +647,7 @@ local function credit_hits(handle: Sqlite.Handle, credited: test.Credited,
                            hits: Coverage.Hits, identities: {string:string},
                            stale: mut {string:string}, lines_of: function(string): {integer}?, string,
                            codes: {string:string}): string
+  local folded: test.Folded = {}
   for run_at_ns, tests in pairs(credited) do
     local placeholders: mut {string} = {}
     local args: mut {Sqlite.Value} = { { integer = run_at_ns } }
@@ -628,7 +662,7 @@ local function credit_hits(handle: Sqlite.Handle, credited: test.Credited,
       return trouble
     end
     for _, row in ipairs(rows) do
-      local _ = test.decode_hits(row:text(1), hits, identities, stale, nil, lines_of, codes)
+      local _ = test.decode_hits(row:text(1), hits, identities, stale, nil, lines_of, codes, folded)
     end
   end
   return ""
@@ -653,25 +687,25 @@ end
 --- making and sorting a table for each of a thousand modules: some 0.45 s of
 --- a run that ran one test. A module whose source the cache does not hold
 --- yet is read first by `ensure`, which keeps it and answers why it could
---- not, or "". Returns the hit and executable-line counts of what it wrote,
---- and a trouble message.
-local function write_module_coverage(handle: Sqlite.Handle,
-                                     each: function(function(string, string): boolean, string): boolean, string,
-                                     ensure: function(string): string,
-                                     hits: Coverage.Hits, run_at_ns: integer): integer, integer, string
+--- not, or "". Returns the counts of what it wrote, or nil and why it wrote
+--- none.
+function test.write_module_coverage(handle: Sqlite.Handle,
+                                    each: function(function(string, string): boolean, string): boolean, string,
+                                    ensure: function(string): string,
+                                    hits: Coverage.Hits, run_at_ns: integer): test.Written?, string
   local made, made_trouble = handle:exec(
     "CREATE TEMP TABLE IF NOT EXISTS run_modules (path TEXT PRIMARY KEY, source_hash TEXT NOT NULL) " ..
       "WITHOUT ROWID; CREATE TEMP TABLE IF NOT EXISTS run_hits (path TEXT NOT NULL, line INTEGER NOT NULL, " ..
       "PRIMARY KEY (path, line)) WITHOUT ROWID; DELETE FROM temp.run_modules; DELETE FROM temp.run_hits")
-  if not made then return 0, 0, made_trouble end
+  if not made then return nil, made_trouble end
   local prepared_modules, modules_trouble = handle:prepare(
     "INSERT INTO temp.run_modules (path, source_hash) VALUES (?1, ?2)")
-  if prepared_modules == nil then return 0, 0, modules_trouble end
+  if prepared_modules == nil then return nil, modules_trouble end
   local into_modules: Sqlite.Statement = prepared_modules
   local prepared_hits, hits_trouble = handle:prepare("INSERT OR IGNORE INTO temp.run_hits (path, line) VALUES (?1, ?2)")
   if prepared_hits == nil then
     into_modules:finalize()
-    return 0, 0, hits_trouble
+    return nil, hits_trouble
   end
   local into_hits: Sqlite.Statement = prepared_hits
   local filled, fill_trouble = each(function(path: string, hash: string): boolean, string
@@ -691,14 +725,14 @@ local function write_module_coverage(handle: Sqlite.Handle,
   end)
   into_modules:finalize()
   into_hits:finalize()
-  if not filled then return 0, 0, fill_trouble end
+  if not filled then return nil, fill_trouble end
   local missing, missing_trouble = Sqlite.text_rows(handle,
     "SELECT m.path FROM temp.run_modules m LEFT JOIN executable e ON e.source_hash = m.source_hash " ..
       "WHERE e.source_hash IS NULL ORDER BY m.path")
-  if missing == nil then return 0, 0, missing_trouble end
+  if missing == nil then return nil, missing_trouble end
   for _, row in ipairs(missing) do
     local trouble = ensure(row:text(1))
-    if trouble ~= "" then return 0, 0, trouble end
+    if trouble ~= "" then return nil, trouble end
   end
   local written, write_trouble = Sqlite.run(handle,
     "INSERT INTO coverage (ran_at_ns, path, line, hit) " ..
@@ -706,19 +740,18 @@ local function write_module_coverage(handle: Sqlite.Handle,
       "FROM temp.run_modules m JOIN executable e ON e.source_hash = m.source_hash, " ..
       "json_each('[' || replace(e.lines, ' ', ',') || ']') j ORDER BY m.path, j.value",
     { { integer = run_at_ns } })
-  if not written then return 0, 0, write_trouble end
-  -- How many rows that wrote, and how many of them are hit: the lines
-  -- `run_hits` names that a module's executable lines hold.
+  if not written then return nil, write_trouble end
+  -- How many rows that wrote, and how many of them are hit, counted from the rows themselves: asking `run_hits` which
+  -- of its lines a module's executable lines hold spreads the module's lines again for each line hit.
   local totals, totals_trouble = Sqlite.text_rows(handle,
-    "SELECT changes(), (SELECT count(*) FROM temp.run_hits h JOIN temp.run_modules m ON m.path = h.path " ..
-      "JOIN executable e ON e.source_hash = m.source_hash WHERE EXISTS (SELECT 1 FROM " ..
-      "json_each('[' || replace(e.lines, ' ', ',') || ']') j WHERE j.value = h.line))")
+    "SELECT count(*), coalesce(sum(c.hit), 0) FROM coverage c JOIN temp.run_modules m ON m.path = c.path " ..
+      "WHERE c.ran_at_ns = ?1", { { integer = run_at_ns } })
   local cleaned, clean_trouble = handle:exec("DELETE FROM temp.run_modules; DELETE FROM temp.run_hits")
-  if totals == nil then return 0, 0, totals_trouble end
-  if not cleaned then return 0, 0, clean_trouble end
+  if totals == nil then return nil, totals_trouble end
+  if not cleaned then return nil, clean_trouble end
   local counted = totals[1]
-  if counted == nil then return 0, 0, "the count of the rows written came back empty" end
-  return math.tointeger(tonumber(counted:text(2))) or 0, math.tointeger(tonumber(counted:text(1))) or 0, ""
+  if counted == nil then return nil, "the count of the rows written came back empty" end
+  return { hit = math.tointeger(tonumber(counted:text(2))) or 0, lines = math.tointeger(tonumber(counted:text(1))) or 0 }, ""
 end
 
 --- Every line [`build.coverage`] found for every non-vendor module
@@ -793,7 +826,7 @@ local function write_coverage(handle: Sqlite.Handle, modules: {Module},
   table.sort(test_rows, by_key)
   local write_rows = function(): boolean, string
     -- The modules in one statement; the core's C one at a time below.
-    local hit_lines, executable_lines, module_trouble = write_module_coverage(handle,
+    local wrote, module_trouble = test.write_module_coverage(handle,
       function(visit: function(string, string): boolean, string): boolean, string
         for _, m in ipairs(modules) do
           local visited, visit_trouble = visit(m.path, m.source_hash)
@@ -809,9 +842,9 @@ local function write_coverage(handle: Sqlite.Handle, modules: {Module},
         return ""
       end,
       hits, run_at_ns)
-    if module_trouble ~= "" then return false, module_trouble end
-    totals["hit"] = (totals["hit"] or 0) + hit_lines
-    totals["lines"] = (totals["lines"] or 0) + executable_lines
+    if wrote == nil then return false, module_trouble end
+    totals["hit"] = (totals["hit"] or 0) + wrote.hit
+    totals["lines"] = (totals["lines"] or 0) + wrote.lines
     for _, native in ipairs(sorted_native) do
       local path = native.key
       local hit_here = hits[path] or {}
