@@ -5666,6 +5666,79 @@ COSMIC_SYSCALL(children, 0) {
 #endif
 }
 
+#if defined(__linux__)
+/* How many threads this process has, as /proc/thread-self/status says
+ * ("Threads:"), or -1 with the errno that refused the read in `error`,
+ * EIO for a status with no such line. Read through thread-self, as
+ * `children` is, so a sandbox whose /proc is the host's still names this
+ * process. */
+static int status_threads (int *error) {
+  char *text;
+  size_t used;
+  *error = read_whole("/proc/thread-self/status", &text, &used);
+  if (*error != 0) return -1;
+  static const char field[] = "\nThreads:";
+  int count = -1;
+  for (size_t at = 0; count < 0 && at + sizeof field - 1 < used; at++) {
+    if (memcmp(text + at, field, sizeof field - 1) != 0) continue;
+    count = 0;
+    for (at += sizeof field - 1; at < used && text[at] != '\n'; at++) {
+      if (text[at] >= '0' && text[at] <= '9' && count < INT_MAX / 10)
+        count = count * 10 + (text[at] - '0');
+    }
+  }
+  cosmic_free(text);
+  if (count < 0) *error = EIO;
+  return count;
+}
+#endif
+
+COSMIC_SYSCALL(fork, 1) {
+  int scoped = lua_toboolean(L, 1);
+#if defined(__linux__)
+  int error = 0;
+  int threads = status_threads(&error);
+  if (threads < 0) return cosmic_fail(L, error);
+  if (threads != 1) return cosmic_fail(L, EBUSY);
+  int ruleset = -1;
+  if (scoped) {
+    long abi = syscall(SYS_landlock_create_ruleset, NULL, 0, LANDLOCK_CREATE_RULESET_VERSION);
+    if (abi < 1) return cosmic_fail(L, abi < 0 ? errno : ENOSYS);
+    if (abi < 6) return cosmic_fail(L, EOPNOTSUPP);
+    struct grants_attr attr;
+    memset(&attr, 0, sizeof attr);
+    attr.scoped = LANDLOCK_SCOPE_ABSTRACT_UNIX_SOCKET | LANDLOCK_SCOPE_SIGNAL;
+    long made = syscall(SYS_landlock_create_ruleset, &attr, sizeof attr, 0);
+    if (made < 0) return cosmic_fail(L, errno);
+    ruleset = (int)made;
+  }
+  fflush(NULL);
+  pid_t pid = fork();
+  error = errno;
+  if (pid == 0) {
+    /* The pairs are the parent's children, not this process's: a wait
+     * here ends none of them. */
+    pair_count = 0;
+    if (scoped && (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0 ||
+                   syscall(SYS_landlock_restrict_self, ruleset, 0) != 0)) {
+      /* Unheld, it would run the caller's code where the caller was
+       * promised it could not reach its parent: it runs none. */
+      static const char said[] = "cosmic: fork: the child could not be held to its own signals\n";
+      ssize_t ignored = write(2, said, sizeof said - 1);
+      (void)ignored;
+      _exit(125);
+    }
+  }
+  if (ruleset >= 0) close(ruleset);
+  if (pid < 0) return cosmic_fail(L, error);
+  lua_pushinteger(L, (lua_Integer)pid);
+  return 1;
+#else
+  (void)scoped;
+  return cosmic_fail(L, ENOSYS);
+#endif
+}
+
 COSMIC_SYSCALL(maps_id, 1) {
   lua_Integer id = luaL_checkinteger(L, 1);
   luaL_argcheck(L, id >= 0 && id < (lua_Integer)UINT32_MAX, 1, "not an id");

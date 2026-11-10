@@ -468,6 +468,15 @@ COSMIC_SYSCALL(sandbox_inits, 0);
 COSMIC_SYSCALL(children, 0);
 
 /*
+ * --- Forks this process: the child is a copy of it, running on from this call, with its memory, its open descriptors and its Lua state as they are; nothing is executed. For the test runner's worker, which loads a test module once and runs each test in a copy ([`build.test_worker`]); a program starts a child with `spawn`. Refused, EBUSY, while this process has another thread, which a copy would lack, and whatever lock that thread held would stay held in it. The C library's buffered output is written out first, so no copy writes it again. The child has no sandbox of this process's to end: the inits `sandbox_inits` lists are its parent's. With `scoped`, the child is first held by a Landlock ruleset of its own that scopes signals and abstract unix sockets and handles no file access (ABI 6): it and what it starts can signal each other and nothing else, this process, its parent, included, and connect to no abstract socket made outside them; a scoped fork is refused, EOPNOTSUPP, where the kernel's Landlock is older, before any child is made, and a child the kernel then refuses the ruleset says why on its standard error and ends with status 125, having run nothing of the caller's. Linux; ENOSYS elsewhere.
+ * ---@param scoped boolean true to hold the child to signalling itself and its descendants alone
+ * ---@return integer|nil pid the child's process id in the parent, 0 in the child, or nil on failure
+ * ---@return string error what went wrong, when pid is nil
+ * ---@return integer errno the error number, when pid is nil
+ */
+COSMIC_SYSCALL(fork, 1);
+
+/*
  * --- What a process holds itself to (`restrict_self`), in the fields `spawn`'s `sandbox` holds a child to.
  * ---@class Restriction
  * ---@field grants {Grant} the paths it may reach and how, as `spawn`'s `grants`: a Landlock ruleset of its own, which may be empty. A `u` grant needs ABI 9
