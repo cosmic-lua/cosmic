@@ -115,7 +115,7 @@ local function cut_off_at(git: ChangedPaths.Git, tip: string): {string}?
       if not commit.ok then return nil end
       -- The header ends at the first empty line; the message after it may hold anything.
       local header = commit.output:match("^(.-)\n\n") or commit.output
-      for parent in (header .. "\n"):gmatch("parent (%x+)\n") do
+      for parent in ("\n" .. header .. "\n"):gmatch("\nparent (%x+)%f[\n]") do
         if seen[parent] ~= true then
           seen[parent] = true
           parents[#parents + 1] = parent

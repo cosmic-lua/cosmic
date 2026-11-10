@@ -21,11 +21,13 @@ local function fetch(exclude: string, want: string): string
   return "fetch --quiet --no-tags --shallow-exclude=" .. exclude .. " origin " .. want
 end
 
---- A commit as `git cat-file commit` writes it, with `parents`; its message holds a line no parent is read from.
+--- A commit as `git cat-file commit` writes it, with `parents`; another header line and its message each hold the
+--- words of a parent line, which no parent is read from.
 local function commit(parents: {string}): string
   local lines: mut {string} = { "tree " .. string.rep("9", 40) }
   for _, parent in ipairs(parents) do lines[#lines + 1] = "parent " .. parent end
   lines[#lines + 1] = "author t <t@example.com> 1767225600 +0000"
+  lines[#lines + 1] = "encoding parent " .. string.rep("7", 40)
   return table.concat(lines, "\n") .. "\n\nsubject\n\nparent " .. string.rep("8", 40) .. "\n"
 end
 
