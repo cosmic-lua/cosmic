@@ -184,6 +184,8 @@ local record test_state
     --- What each test that ran and passed printed, by its id, where
     --- `show_output` asks for it; only a test that printed anything is here.
     shown: mut {string:string}
+    --- How many tests ran, passed and printed something a run without `show_output` does not show.
+    mut printed: integer
     --- Each failing test's `<file>:<name>` selector, by its id: what
     --- `cosmic test` takes to run that one test again.
     reruns: mut {string:string}
