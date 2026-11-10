@@ -80,6 +80,8 @@ local record Parser
     "mut_needs_collection" "string_call" "variadic_type" "optional_type" "tuple_type"
     "string_literal_type" "bare_function_type" "metamethod" "several_supers"
     "generic_function_literal" "bad_attribute"
+    -- `f<T>(x)`, a call with a type argument; `{ a: A, b: B }`, a record written as a type in braces
+    "type_argument" "inline_record"
     -- an `if` expression with no `else`; a `match` of what is no call
     "if_needs_else" "match_needs_call"
     -- a method whose first parameter is not `self`, and a method named as if outside its class
@@ -203,6 +205,9 @@ local record State
   --- The tokens a `local` or `function` begins a line at, when needed, and the steps spent searching them.
   mut beside: {integer}
   mut beside_work: integer
+  --- The last `if` expression closed by an `end` shallower than its statement, and that `end`; 0 for none.
+  mut lent_if: integer
+  mut lent_end: integer
   --- Whether the nesting limit has been passed: what follows is reported no further.
   mut muted: boolean
   --- How many blocks, expressions and types the production being parsed is inside.
@@ -236,7 +241,7 @@ local NO_TOKENS <const>: Lexer.Tokens = Lexer.lex("", "").tokens
 local S: State = {
   tokens = NO_TOKENS, kinds = NO_TOKENS.kind, texts = NO_TOKENS.text, ys = NO_TOKENS.y,
   yends = NO_TOKENS.yend, last = 1, pos = 1, text = "", kind = "$EOF$", errors = {}, name = "",
-  decl = false, half = 0, reported = {}, beside = nil, beside_work = 0, muted = false, nesting = 0, arms = 0, tables = 0, arm_from = 1, arm_same = 0, scan_at = 1, scan_depth = 0, depth = 0, loops = {}, loop_base = 0, requires = {}, -- checked: nil_not_allowed
+  decl = false, half = 0, reported = {}, beside = nil, beside_work = 0, lent_if = 0, lent_end = 0, muted = false, nesting = 0, arms = 0, tables = 0, arm_from = 1, arm_same = 0, scan_at = 1, scan_depth = 0, depth = 0, loops = {}, loop_base = 0, requires = {}, -- checked: nil_not_allowed
   require_nodes = {}, require_names = {},
 }
 
@@ -340,6 +345,15 @@ end
 --- reported, or twice for one token; a construct not closed may follow another
 --- error there, and a statement after a `return` gives way to it.
 local function report(code: Parser.Code, index: integer, msg: string, fix: string, other?: integer)
+  local lent, lent_end = S.lent_if, S.lent_end
+  if lent > 0 and index == lent_end + 1 and (code == "unclosed" or code == "statement_after_return") then
+    -- The block around an `if` expression is cut short at the token after an `end` that lines up with it: the `end` was the
+    -- block's, taken by the expression.
+    code, index, other = "unclosed", lent_end, lent
+    msg = "the `if` expression on line " .. tostring(S.ys[lent]) .. " has no `end`: the `end` on line " .. tostring(S.ys[lent_end]) ..
+      " lines up with a block around it"
+    fix = "write `end` after the `else` value: `if cond then a else b end`"
+  end
   local at = S.last
   if index >= 1 and index <= S.last then
     at = index
@@ -932,6 +946,18 @@ local function parse_collection(): Ast.Type
   if S.text == ":" then
     advance()
     local value = parse_type()
+    if S.text == "," then
+      report("inline_record", S.pos, "a record type is not written in braces: `{K: V}` is a map of one key type to one value type",
+        "declare the record (`local record R ... end`) and name it here")
+      while S.text == "," do
+        advance()
+        parse_type()
+        if S.text == ":" then
+          advance()
+          parse_type()
+        end
+      end
+    end
     node = { kind = "TypeMap", id = 0, first = open, last = S.pos, key = first_type, value = value }
   else
     if S.text == "," then
@@ -1248,6 +1274,15 @@ local function parse_if_expression(): Ast.Exp
       "write `else <value>` before `end`; to run statements on a condition, write an `if` statement")
     else_value = { kind = "Error", id = 0, first = S.pos, last = S.pos - 1 }
   end
+  local line = first
+  while line > 1 and same_line(line) do
+    line = line - 1
+  end
+  if line < first and S.text == "end" and begins_line(S.pos) and Lexer.x(S.tokens, S.pos) < Lexer.x(S.tokens, line) then
+    -- The expression begins inside a line, and this `end` is shallower than that line: it may be the `end` of a block
+    -- around the statement. An error at the token after it is told as this expression's missing `end` ([`report`]).
+    S.lent_if, S.lent_end = first, S.pos
+  end
   close("end", first, "`if` expression")
   return { kind = "IfExp", id = 0, first = first, last = S.pos - 1, arms = arms, else_value = else_value }
 end
@@ -1543,6 +1578,11 @@ local function subexpression(limit: integer): Ast.Exp
     if entry == nil or entry.left <= limit or (S.arms > 0 and arm_bar(true)) then
       S.nesting = depth
       return left
+    end
+    if entry.op == ">" and left.kind == "Binary" and left.op == "<" and peek_text(1) == "(" and same_line(S.pos + 1) then
+      report("type_argument", S.pos, "a call takes no type arguments: `" .. quoted_text(first, S.pos) ..
+          " (...)` reads as two comparisons",
+        "call it with its arguments alone: they and the type the result is given say the type (`local v: T = f(x)`)")
     end
     advance()
     local right = subexpression(entry.right)
@@ -2666,6 +2706,7 @@ function Parser.parse(lexed: Lexer.Lexed, name: string, dialect: Ast.Dialect): P
   S.reported = {}
   S.beside = nil -- checked: nil_not_allowed
   S.beside_work = 0
+  S.lent_if, S.lent_end = 0, 0
   S.muted = false
   S.nesting = 0
   S.arms = 0
@@ -2742,7 +2783,7 @@ Parser.codes = {
   "bare_declaration", "function_path", "global_in_program", "userdata_in_program", "duplicate_field",
   "body_in_declaration", "statement_in_declaration", "mut_needs_collection", "string_call", "variadic_type",
   "optional_type", "tuple_type", "string_literal_type", "bare_function_type", "metamethod", "several_supers",
-  "generic_function_literal", "bad_attribute", "if_needs_else", "match_needs_call", "method_needs_self",
+  "generic_function_literal", "bad_attribute", "type_argument", "inline_record", "if_needs_else", "match_needs_call", "method_needs_self",
   "method_path", "close_repeated", "trailing_comma", "arm_on_same_line", "unreachable_arm", "duplicate_binding", "reserved_method",
   "suffix_needs_parens", "nested_in_interface",
   "old_type_declaration", "narrowing_return", "too_deep", "computed_require", "require_value",
