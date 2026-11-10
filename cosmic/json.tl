@@ -1431,7 +1431,7 @@ end
 
 --- Why [`Json.set`] and [`Json.remove`] refuse more steps than a value may nest: `changed` calls itself once a step.
 local function too_long(): string
-  return ("the path is longer than the %d levels a value may nest"):format(Json.depth_limit)
+  return ("the path is longer than a value may nest (depth %d)"):format(Json.depth_limit)
 end
 
 --- A new value like `value` with `v` where `steps` lead, and "": the way to

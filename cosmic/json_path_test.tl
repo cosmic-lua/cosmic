@@ -137,7 +137,7 @@ local function test_set_and_remove_refuse_a_path_longer_than_a_value_nests()
     steps[#steps + 1] = "k"
   end
   local why = failure(Json.set(DOC, steps, 1))
-  assert(why:find("the path is longer than the", 1, true) ~= nil, why)
+  assert(why:find("the path is longer than a value may nest (depth ", 1, true) ~= nil, why)
   assert(failure(Json.remove(DOC, steps)) == why)
   -- Names the pointer escapes are told as `get` tells them.
   local escaped = failure(Json.set(DOC, { "a/b", 3 }, 1))
