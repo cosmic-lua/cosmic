@@ -803,8 +803,8 @@ end
 
 What a test prints is shown only when it fails, beneath its failure as
 `  | ` lines: its last 4096 bytes, under a line that says so when there
-were more. A run in which a passing test printed says how many did, and
-names the flag: `cosmic test --show-output` also lists it, whole, for a
+were more. A run in which a passing test printed says how many of those
+that ran did, and names the flag: `cosmic test --show-output` also lists it, whole, for a
 test that passed:
 
 ```text
