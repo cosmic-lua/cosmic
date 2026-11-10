@@ -2524,6 +2524,10 @@ local function test_a_refusal_is_said_ahead_of_the_report_once_the_compile_has_g
   -- A refusal of one line is said by that line.
   local bare: importer.Early = { file = "a.tl", trouble = "a.tl: a module a build writes once", at_ns = 0, told = false }
   assert(assert(importer.due(bare, 2 * second, 2 * second)):find("\na.tl: a module a build writes once", 1, true) ~= nil)
+  -- So is one of a line an error with no line ahead of them, as a text that does not parse has: by the first.
+  local lines: importer.Early = { file = "g.tl", trouble = "g.tl:1:1: one\ng.tl:2:1: two", at_ns = 0, told = false }
+  local first = assert(importer.due(lines, 2 * second, 2 * second))
+  assert(first:find("\ng.tl:1:1: one", 1, true) ~= nil and first:find("two", 1, true) == nil, first)
 end
 
 --- Compiles the fixture `files` as a run over the tree does, and answers what it was told ahead of the report by a
@@ -2553,15 +2557,17 @@ local function test_a_compile_over_a_tree_tells_its_first_refusal_while_it_goes_
     ["b.tl"] = defaulting("B", "local A = require(\"a\")\n", "A.f(x)"),
     ["c.tl"] = defaulting("C", "local B = require(\"b\")\n", "B.f(x)"),
     ["d.tl"] = "local C = require(\"c\")\nlocal record D\nend\nfunction D.f(n: integer): integer\n  return C.f(n)\nend\nreturn D\n",
+    ["e.tl"] = defaulting("E", "", "x"),
   }
+  -- `e.tl` is refused on its own too, after `a.tl` in the order: the first is the one told, and once.
   local told, refused = told_of_project("told-checker", files, 0)
   assert(#told == 1 and told[1]:find("a.tl is refused, and the rest of the tree is still being checked", 1, true) == 1 and
       told[1]:find("\na.tl:", 1, true) ~= nil, table.concat(told, "\n"))
-  assert(#refused == 4, table.concat(refused, "\n"))
+  assert(#refused == 5, table.concat(refused, "\n"))
   local patient, as_ever = told_of_project("told-patient", files, 3600 * 1000000000)
-  assert(#patient == 0 and #as_ever == 4, table.concat(patient, "\n"))
+  assert(#patient == 0 and #as_ever == 5, table.concat(patient, "\n"))
   local unasked, still = told_of_project("told-unasked", files, 0, true)
-  assert(#unasked == 0 and #still == 4, table.concat(unasked, "\n"))
+  assert(#unasked == 0 and #still == 5, table.concat(unasked, "\n"))
   local broken, _ = told_of_project("told-broken", {
     ["p.tl"] = "local record P\nend\nfunction P.f(: integer\nreturn P\n",
     ["q.tl"] = "local record Q\nend\nfunction Q.f(n: integer): integer\n  return n\nend\nreturn Q\n",

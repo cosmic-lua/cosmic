@@ -1153,7 +1153,11 @@ local patience_ns <const> = Clock.seconds(2)
 function importer.due(early: importer.Early?, now_ns: integer, patience: integer): string?
   if early == nil or early.told or now_ns - early.at_ns < patience then return nil end
   early.told = true
-  local finding = early.trouble:match("^[^\n]*\n([^\n]+)") or early.trouble:match("^[^\n]+") or ""
+  -- The checker's refusal opens with a line that only says so; any other opens with its first finding.
+  local finding = early.trouble:match("^[^\n]*") or ""
+  if finding:sub(-#": the compiler refused it") == ": the compiler refused it" then
+    finding = early.trouble:match("^[^\n]*\n([^\n]+)") or finding
+  end
   return early.file .. " is refused, and the rest of the tree is still being checked; this is the first finding, and " ..
     "the report that follows repeats it\n" .. finding
 end
