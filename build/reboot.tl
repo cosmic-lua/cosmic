@@ -410,7 +410,7 @@ local function into(handle: work.Handle, argv: {string}, settle: boolean): strin
         if learned.code then tool = recorded.compiler end
       end
       return GrammarMode.tool(tool), ""
-    end, true, shared_compiles.for_build())
+    end, true, shared_compiles.for_build(), importer.telling())
   if result == nil then
     -- The compiler of a tool settling is the tree's: it cannot have moved.
     if settle then

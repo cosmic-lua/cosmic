@@ -19,6 +19,7 @@
 --- that compiled it -- see [`build.identity`]'s `Identities`. An unchanged
 --- key is a stat; a changed one recompiles what depended on it.
 
+local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
@@ -36,6 +37,7 @@ local analysis_schema = require("build.analysis_schema")
 local positions = require("build.positions")
 local type SyntaxReceivers = require("build.syntax_receivers")
 local work = require("build.work")
+local log = require("build.logger").log
 local bind = require("build.bind")
 
 local plans = require("build.plans")
@@ -120,8 +122,23 @@ local record importer
   --- Whether a compile that answered nothing stopped on a refusal of the source -- a file the run needs that does not parse
   --- or that the checker refuses -- and not on a trouble of the host (a database, a missing tool). A caller that takes one
   --- hands it to [`importer.compile_for`], which sets `refused`.
+  ---
+  --- With `tell`, a compile over a tree that goes on past the first module it refuses says so through it, once, ahead of
+  --- its report ([`importer.due`]), `patience_ns` after the refusal, two seconds where that is nil. The verbs that build
+  --- on purpose hand one in ([`importer.telling`]); a lookup, which says a refusal in a line of its own, does not.
   record Outcome
     mut refused: boolean
+    tell?: function(string)
+    patience_ns?: integer
+  end
+
+  --- The first module a compile over a tree refused for what it holds, which the compile goes on past: its file, what
+  --- the checker said of it, when, and whether the run has said so yet ([`importer.due`]).
+  record Early
+    file: string
+    trouble: string
+    at_ns: integer
+    mut told: boolean
   end
 
   --- The compiles and parses every checkout shares
@@ -1112,6 +1129,33 @@ local function left_out(file: string, named: string, trouble: string): string
   return file .. " is left out of this run, which does not require it: " .. why
 end
 
+--- How long a compile goes on past the first module it refused before it says so, where the caller names no other
+--- ([`importer.Outcome`]'s `patience_ns`): a run that ends sooner has said it in its report by then.
+local patience_ns <const> = Clock.seconds(2)
+
+--- What a compile that has gone on for `patience` past the first module it refused says of it, once, at `now_ns`:
+--- the file and the first finding against it, ahead of the report that tells every refusal when the rest of the tree is
+--- checked. A change to the checker compiles every module again, some minutes of them, and the module refused is most
+--- often the one just edited. Nil before then, and after it is said. Exported for build/importer_test.tl, which holds
+--- it to times it chooses.
+function importer.due(early: importer.Early?, now_ns: integer, patience: integer): string?
+  if early == nil or early.told or now_ns - early.at_ns < patience then return nil end
+  early.told = true
+  -- The checker's refusal opens with a line that only says so; any other opens with its first finding.
+  local finding = early.trouble:match("^[^\n]*") or ""
+  if finding:sub(-#": the compiler refused it") == ": the compiler refused it" then
+    finding = early.trouble:match("^[^\n]*\n([^\n]+)") or finding
+  end
+  return early.file .. " is refused, and the rest of the tree is still being checked; this is the first finding, and " ..
+    "the report that follows repeats it\n" .. finding
+end
+
+--- An [`importer.Outcome`] that says a refusal ahead of the report on standard error, as the run's other lines are said:
+--- what a verb that builds the tree on purpose hands its compile.
+function importer.telling(): importer.Outcome
+  return { refused = false, tell = function(line: string) log:complain(line) end }
+end
+
 --- Plans and compiles an already derived tree. Only the entry points
 --- below own the shared cache; every failure here returns through them.
 local function compile_derived(handle: work.Handle, tool: string,
@@ -1143,6 +1187,22 @@ local function compile_derived(handle: work.Handle, tool: string,
   -- The files that do not parse and have a repaired text ([`derivation.Broken`]'s `repaired`), which the checker reads once
   -- the modules are compiled.
   local mended: mut {Mended} = {}
+  -- The first module this run refuses for what it holds, where the caller asked to be told of it ahead of the report.
+  -- TODO: say a file that does not parse while the tree is still being derived, once [`importer.derive`] hands each
+  -- `broken` to its caller as it is found: the list is read here, when every source is parsed, 40 seconds into a boot
+  -- after a change to the checker.
+  local tell: function(string)? = nil
+  local patience = patience_ns
+  if lenient and outcome ~= nil then
+    tell = outcome.tell
+    patience = outcome.patience_ns or patience_ns
+  end
+  local noted: mut {importer.Early} = {}
+  local function note(file: string, why: string)
+    if tell ~= nil and #noted == 0 then
+      noted[1] = { file = file, trouble = why, at_ns = Clock.monotonic_ns(), told = false }
+    end
+  end
   if lenient then
     for _, one in ipairs(broken or {}) do
       local holders, holders_trouble = Sqlite.text_rows(handle.db,
@@ -1154,6 +1214,7 @@ local function compile_derived(handle: work.Handle, tool: string,
       for _, row in ipairs(holders) do
         failed[row:text(1)] = true
         local held_file = row:text(2)
+        note(held_file, one.message)
         own_refused[#own_refused + 1] = held_file
         roots_of[row:text(1)] = { #refusals }
         roots_by_file[held_file] = { #refusals }
@@ -1205,6 +1266,7 @@ local function compile_derived(handle: work.Handle, tool: string,
   --- Holds `path` out with `message` among the refusals.
   local function hold(path: string, file: string, message: string)
     refusals[#refusals + 1] = message
+    note(file, message)
     if held_out[path] ~= true then own_refused[#own_refused + 1] = file end
     held_out[path] = true
     failed[path] = true
@@ -1315,6 +1377,10 @@ local function compile_derived(handle: work.Handle, tool: string,
     end
 
     for ordinal, m in ipairs(order) do
+      if tell ~= nil then
+        local said = importer.due(noted[1], Clock.monotonic_ns(), patience)
+        if said ~= nil then tell(said) end
+      end
       local planned = assert(keys[m.path], "every module of the order was keyed")
       local key = planned.key
       m.key = key
@@ -1380,6 +1446,7 @@ local function compile_derived(handle: work.Handle, tool: string,
         roots_of[m.path] = resting
         roots_by_file[m.file] = resting
       elseif refusal ~= nil then
+        note(m.file, refusal)
         result.refused[#result.refused + 1] = refusal
         own_refused[#own_refused + 1] = m.file
         roots_of[m.path] = { #result.refused }
@@ -1432,6 +1499,7 @@ local function compile_derived(handle: work.Handle, tool: string,
           local made_generated, generate_trouble = pipeline.generate(m, assert(reading.built), checks, judged, hints)
           if made_generated == nil then
             if lenient then
+              note(m.file, generate_trouble)
               result.refused[#result.refused + 1] = generate_trouble
               own_refused[#own_refused + 1] = m.file
               roots_of[m.path] = { #result.refused }
@@ -1766,8 +1834,9 @@ end
 --- transaction remain the caller's, as does publishing the completed
 --- projection. `choose` answers the tool string [`build.grammar_mode`] makes of the compiler's identity.
 function importer.compile_tree(handle: work.Handle, choose: function(identities.Identities): string?, string,
-                               unjudged: boolean, shared?: importer.Shared): importer.Result?, string
-  return consuming_compile(handle, "", unjudged, shared, choose, false, nil)
+                               unjudged: boolean, shared?: importer.Shared,
+                               outcome?: importer.Outcome): importer.Result?, string
+  return consuming_compile(handle, "", unjudged, shared, choose, false, nil, outcome)
 end
 
 return importer

@@ -1988,6 +1988,7 @@ local function test_the_compiler_modules_are_closed_under_require()
     ["build.pipeline"] = "the compile with the new checker, keyed by the code that reads it " ..
       "(`Pipeline.coded`) and not by the compiler's identity, which a default run keeps",
     ["build.code_walk"] = "names which modules the identities of the code that reads hash, and which a test's store keeps",
+    ["build.logger"] = "says a refusal ahead of the report of a long compile; what is said, not what is stored",
     ["build.parse_derive"] = "the parse, keyed by the analyzer's identity, of which it is a root (`CodeWalk.analyzer_roots`), " ..
       "and held in every compile's key by the code that reads (`Pipeline.coded`), not by the compiler's identity",
     ["build.reads.analyzer"] = "a declaration of what text this module reads, which a test's store follows; no code",
@@ -2529,4 +2530,74 @@ local function test_a_build_directory_with_one_count_column_gains_the_other()
   assert(again.compiled == 0 and again.cached == 1, "the half-migrated file's compile did not stand")
   local checked = compile_counted(root, true)
   assert(checked.parameter_checks > 0)
+end
+
+--- What a compile says of a refusal ahead of its report is the file and the first finding against it, once, and nothing
+--- before the compile has gone on past it for as long as the caller is patient.
+local function test_a_refusal_is_said_ahead_of_the_report_once_the_compile_has_gone_on_past_it()
+  local second = 1000000000
+  local early: importer.Early = { file = "lang/check.tl", told = false, at_ns = 10 * second,
+    trouble = "lang/check.tl: the compiler refused it\nlang/check.tl:908:25: `\"three\"` is `string`, where `integer` is wanted\n" ..
+      "lang/check.tl: 1 error of not_assignable in its bodies on line 908" }
+  assert(importer.due(nil, 99 * second, 2 * second) == nil, "a compile that refused nothing said a refusal")
+  assert(importer.due(early, 11 * second, 2 * second) == nil and not early.told,
+    "a refusal was said before the compile had gone on")
+  local said = assert(importer.due(early, 12 * second, 2 * second), "a refusal was not said once the compile had gone on past it")
+  assert(said:find("lang/check.tl is refused", 1, true) == 1 and
+      said:find("\nlang/check.tl:908:25: `\"three\"` is `string`, where `integer` is wanted", 1, true) ~= nil and
+      said:find("1 error of", 1, true) == nil, said)
+  assert(importer.due(early, 60 * second, 2 * second) == nil, "a refusal was said twice")
+  -- A refusal of one line is said by that line.
+  local bare: importer.Early = { file = "a.tl", trouble = "a.tl: a module a build writes once", at_ns = 0, told = false }
+  assert(assert(importer.due(bare, 2 * second, 2 * second)):find("\na.tl: a module a build writes once", 1, true) ~= nil)
+  -- So is one of a line an error with no line ahead of them, as a text that does not parse has: by the first.
+  local lines: importer.Early = { file = "g.tl", trouble = "g.tl:1:1: one\ng.tl:2:1: two", at_ns = 0, told = false }
+  local first = assert(importer.due(lines, 2 * second, 2 * second))
+  assert(first:find("\ng.tl:1:1: one", 1, true) ~= nil and first:find("two", 1, true) == nil, first)
+end
+
+--- Compiles the fixture `files` as a run over the tree does, and answers what it was told ahead of the report by a
+--- caller patient for `patience_ns`, and the refusals of the report.
+local function told_of_project(case: string, files: {string:string}, patience_ns: integer?, deaf?: boolean): {string}, {string}
+  local root = assert(write_fixture(case, files))
+  local handle = assert(work.open(root))
+  assert(work.stage(handle, { own = false }))
+  local told: mut {string} = {}
+  local outcome: importer.Outcome = { refused = false, patience_ns = patience_ns }
+  if deaf ~= true then
+    outcome = { refused = false, patience_ns = patience_ns, tell = function(line: string)
+      told[#told + 1] = line
+    end }
+  end
+  local result, trouble = importer.compile(handle, "importer-test", nil, nil, nil, nil, outcome)
+  work.close(handle)
+  return told, assert(result, trouble).refused
+end
+
+--- A compile over a tree tells its caller the first module it refuses while it goes on to the rest, once, whichever way
+--- the module is refused: by the checker, or for a text that does not parse. A caller that asks for nothing is told
+--- nothing, nor is one more patient than the compile is long; the report holds every refusal all the same.
+local function test_a_compile_over_a_tree_tells_its_first_refusal_while_it_goes_on_to_the_rest()
+  local files: {string:string} = {
+    ["a.tl"] = defaulting("A", "", "x"),
+    ["b.tl"] = defaulting("B", "local A = require(\"a\")\n", "A.f(x)"),
+    ["c.tl"] = defaulting("C", "local B = require(\"b\")\n", "B.f(x)"),
+    ["d.tl"] = "local C = require(\"c\")\nlocal record D\nend\nfunction D.f(n: integer): integer\n  return C.f(n)\nend\nreturn D\n",
+    ["e.tl"] = defaulting("E", "", "x"),
+  }
+  -- `e.tl` is refused on its own too, after `a.tl` in the order: the first is the one told, and once.
+  local told, refused = told_of_project("told-checker", files, 0)
+  assert(#told == 1 and told[1]:find("a.tl is refused, and the rest of the tree is still being checked", 1, true) == 1 and
+      told[1]:find("\na.tl:", 1, true) ~= nil, table.concat(told, "\n"))
+  assert(#refused == 5, table.concat(refused, "\n"))
+  local patient, as_ever = told_of_project("told-patient", files, 3600 * 1000000000)
+  assert(#patient == 0 and #as_ever == 5, table.concat(patient, "\n"))
+  local unasked, still = told_of_project("told-unasked", files, 0, true)
+  assert(#unasked == 0 and #still == 5, table.concat(unasked, "\n"))
+  local broken, _ = told_of_project("told-broken", {
+    ["p.tl"] = "local record P\nend\nfunction P.f(: integer\nreturn P\n",
+    ["q.tl"] = "local record Q\nend\nfunction Q.f(n: integer): integer\n  return n\nend\nreturn Q\n",
+    ["r.tl"] = "local Q = require(\"q\")\nlocal record R\nend\nfunction R.f(n: integer): integer\n  return Q.f(n)\nend\nreturn R\n",
+  }, 0)
+  assert(#broken == 1 and broken[1]:find("p.tl is refused", 1, true) == 1, table.concat(broken, "\n"))
 end

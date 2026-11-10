@@ -2230,7 +2230,7 @@ end
 --- The exit code to stop with, or nil to go on.
 local function build_tree(ctx: Run): integer?
   local handle, staged, started = assert(ctx.handle), assert(ctx.staged), assert(ctx.started)
-  local outcome: importer.Outcome = { refused = false }
+  local outcome = importer.telling()
   local result, compile_trouble = importer.compile(handle,
     GrammarMode.tool(assert(ctx.tool)), false, shared_compiles.for_build(), ctx.checks, nil, outcome)
   if result == nil then
