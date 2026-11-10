@@ -62,7 +62,10 @@
 ---
 --- The worker is pid 2 of a pid namespace of its own, whose init ends
 --- when it does, ending whatever it left running there: no descendant of
---- a sandboxed worker outlives it. Its verdict is keyed by what it was
+--- a sandboxed worker outlives it. A worker that runs its module's tests in
+--- copies of itself ([`build.test_worker`]'s `--fork`) goes on to another test
+--- only after one that left nothing running, so the same holds of each test.
+--- Its verdict is keyed by what it was
 --- given ([`build.declared_key`]), not by what it read.
 
 local Child = require("cosmic.child")

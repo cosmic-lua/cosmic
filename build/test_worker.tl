@@ -1,7 +1,8 @@
 --- One test, run in a process of its own: the other half of
 --- [`build.test`], which starts this as `cosmic test --worker <root>
 --- <module> <test> <tmp> <children> <needs>` and alone records what it
---- reports.
+--- reports. With `--fork` the worker runs several tests of its module, each
+--- in a copy of itself made once the module has loaded ([`worker.run`]).
 ---
 --- The worker never opens the build database. It attaches the tree's
 --- compiled modules, loads the test's module, calls the one test with
@@ -22,6 +23,7 @@ local env_get = Env.get
 local Proc = require("cosmic.proc")
 local type raw_store = require("cosmic.internal.store")
 local sys = require("cosmic.sys")
+local process = require("cosmic.internal.process")
 local Test = require("cosmic.test")
 local raw_errors = require("cosmic.internal.errors")
 local Assertions = require("build.assertions")
@@ -157,6 +159,13 @@ local record worker
     --- Whether the worker reports the violations of the run-time checks
     --- its modules carry (`COSMIC_TEST_TYPES`).
     checks?: boolean
+    --- The tests a forking worker runs, in order, each in a copy of itself
+    --- (`--fork`, [`worker.run`]); nil for a worker that runs the one test
+    --- `name`.
+    forks?: {string}
+    --- The descriptor of the runner's the worker reports on, where the
+    --- runner reads it as it comes; nil for a report captured whole.
+    report?: integer
     --- The name the worker is to have its program by, in place of the
     --- artifact path `start` names (build.test_sandbox's
     --- [`Plan.program`]), or nil to keep that.
@@ -211,8 +220,43 @@ local record worker
     mut deliberate?: string
   end
 
+  --- One record a forking worker writes its runner ([`worker.run`]'s `--fork`), as [`worker.record_at`] reads it:
+  ---
+  --- - "forks": its module loaded and it will run its tests, each in a copy of itself;
+  --- - "unforkable": it will run none, `why`, and its runner starts a worker for each;
+  --- - "test": the copy for the test `name` is about to be made, at `started_ns` on the monotonic clock;
+  --- - "result": that copy ended, by its exit status `code` or the `signal` that ended it (-1 for the other), having
+  ---   written `report` ([`worker.encode`]) and, with what it started, `output`;
+  --- - "retire": the worker runs no more of its tests, `why`, and its runner starts another for the rest;
+  --- - "malformed": bytes no forking worker writes.
+  record Forked
+    kind: string
+    name?: string
+    started_ns?: integer
+    code?: integer
+    signal?: integer
+    report?: string
+    output?: string
+    why?: string
+    --- Where the next record starts.
+    after: integer
+  end
+
   --- The descriptor the report is written to.
   mut report_fd: integer
+
+  record_at: function(buffer: string, at: integer): Forked?
+  forks_here: function(): boolean, string
+
+  --- The pipe a forking worker's records come to its runner on ([`worker.relay`]).
+  record Relay
+    --- The end the runner reads, which does not wait.
+    reader: integer
+    --- The end the worker is given as its report descriptor, which the runner closes once the worker has started.
+    writer: integer
+  end
+
+  relay: function(): Relay?, string
 
   --- The most distinct violations a worker keeps a record of: any more are
   --- counted ([`worker.dropped_violations`]) and nothing else.
@@ -1238,6 +1282,12 @@ function worker.invocation(given: worker.Invocation): worker.Command
     argv[#argv + 1] = tostring(#runs)
     for _, path in ipairs(runs) do argv[#argv + 1] = path end
   end
+  local forks = given.forks
+  if forks ~= nil then
+    argv[#argv + 1] = "--fork"
+    argv[#argv + 1] = tostring(#forks)
+    for _, test in ipairs(forks) do argv[#argv + 1] = test end
+  end
   local given_store = given.store
   if given_store ~= nil then
     argv[#argv + 1] = "--store"
@@ -1252,6 +1302,8 @@ function worker.invocation(given: worker.Invocation): worker.Command
   env.COSMIC_COVERAGE_STARTUP = "1" -- checked: map_field
   env.COSMIC_TEST_TYPES = if given.checks == true then "1" else nil end -- checked: map_field
   local fds: mut {integer:integer | string} = { [worker.report_fd] = "capture" }
+  local relayed_to = given.report
+  if relayed_to ~= nil then fds[worker.report_fd] = relayed_to end
   for number, fd in pairs(given.start.fds) do fds[number] = fd end
   local given_policy = given.policy
   if given_policy ~= nil and promises_nest(given_policy) then
@@ -1420,6 +1472,473 @@ local function unseen_note(message: string, heard: {string}): string
   return "\n  " .. table.concat(lines, "\n  ")
 end
 
+--- The first line a forking worker writes its runner once it will fork.
+local FORKS <const> = "cosmic-test-forks-1"
+
+--- The most bytes kept of what one test of a forking worker printed, the newest: what [`cosmic.child`] keeps of a
+--- captured stream.
+local OUTPUT_LIMIT <const> = 16 * 1024 * 1024
+
+--- Reads the record of a forking worker that starts at byte `at` of `buffer`, what its runner has read of the
+--- worker's report so far: the record, or nil where it is not whole yet.
+function worker.record_at(buffer: string, at: integer): worker.Forked?
+  local stop = buffer:find("\n", at, true)
+  if stop == nil then return nil end
+  local line = buffer:sub(at, stop - 1)
+  local after = stop + 1
+  if line == FORKS then return { kind = "forks", after = after } end
+  local reason = line:match("^unforkable ([0-9a-f]*)$")
+  local kind = "unforkable"
+  if reason == nil then reason, kind = line:match("^retire ([0-9a-f]*)$"), "retire" end
+  local why = if reason ~= nil then unhex(reason) else nil end
+  if why ~= nil then return { kind = kind, why = why, after = after } end
+  local name, started = line:match("^test ([0-9a-f]+) (%d+)$")
+  local decoded = if name ~= nil then unhex(name) else nil end
+  local started_ns = math.tointeger(tonumber(started))
+  if decoded ~= nil and started_ns ~= nil then
+    return { kind = "test", name = decoded, started_ns = started_ns, after = after }
+  end
+  local code_text, signal_text, report_text, output_text = line:match("^result (%-?%d+) (%-?%d+) (%d+) (%d+)$")
+  local code, signal = math.tointeger(tonumber(code_text)), math.tointeger(tonumber(signal_text))
+  local report_size, output_size = math.tointeger(tonumber(report_text)), math.tointeger(tonumber(output_text))
+  if code ~= nil and signal ~= nil and report_size ~= nil and output_size ~= nil then
+    local done = after + report_size + output_size
+    if #buffer < done + 4 then return nil end
+    if buffer:sub(done, done + 4) == "done\n" then
+      return { kind = "result", code = code, signal = signal,
+        report = buffer:sub(after, after + report_size - 1),
+        output = buffer:sub(after + report_size, done - 1), after = done + 5 }
+    end
+  end
+  return { kind = "malformed", why = line:sub(1, 80), after = after }
+end
+
+--- Whether a worker on this host can run its tests in copies of itself: where Landlock scopes signals (ABI 6), so
+--- that a copy can be held to signalling itself and what it starts ([`process.fork`]'s `scoped`), and its worker's
+--- promises filter, which then leaves signals to that scope, lets a copy signal itself. False and why where not.
+local cannot_fork: string? = nil
+function worker.forks_here(): boolean, string
+  local known = cannot_fork
+  if known == nil then
+    local abi, trouble = process.landlock_abi()
+    if abi == nil then
+      known = "no Landlock: " .. trouble
+    elseif abi < 6 then
+      known = "Landlock ABI " .. tostring(abi) .. " scopes no signal"
+    else
+      known = ""
+    end
+    cannot_fork = known
+  end
+  if known ~= "" then return false, known end
+  return true, ""
+end
+
+--- A pipe for a forking worker's records ([`worker.Invocation`]'s `report`), or nil and why.
+function worker.relay(): worker.Relay?, string
+  local pipe, trouble = process.pipe()
+  if pipe == nil then return nil, trouble end
+  local set, set_trouble = sys.set_nonblocking(pipe.reader, true)
+  if not set then
+    local _, _ = sys.close(pipe.reader)
+    local _, _ = sys.close(pipe.writer)
+    return nil, set_trouble
+  end
+  return { reader = pipe.reader, writer = pipe.writer }, ""
+end
+
+--- What of this process a copy of it would carry and a process started afresh would not have changed by loading
+--- its module: the lines of /proc/thread-self/status that say its threads, its filters, its mask and how it takes
+--- each signal, what each open descriptor names and where it is. "" where /proc cannot be read, which no two
+--- readings equal.
+local function carried(): string
+  local status, _ = Fs.read("/proc/thread-self/status")
+  local open, _ = sys.readdir("/proc/thread-self/fd")
+  if status == nil or open == nil then return "" end
+  local lines: mut {string} = {}
+  for line in status:gmatch("[^\n]+") do
+    local field = line:match("^([%w_]+):")
+    if field == "Threads" or field == "Seccomp_filters" or field == "NoNewPrivs" or field == "Umask" or
+        field == "SigBlk" or field == "SigIgn" or field == "SigCgt" then
+      lines[#lines + 1] = line
+    end
+  end
+  local numbers: mut {string} = {}
+  for number in pairs(open) do numbers[#numbers + 1] = number end
+  table.sort(numbers)
+  for _, number in ipairs(numbers) do
+    local named, _ = sys.readlink("/proc/thread-self/fd/" .. number)
+    -- The listing's own descriptor is gone by now, and names nothing.
+    if named ~= nil and named:find("/fd$") == nil then
+      table.insert(lines, number .. " " .. named)
+    end
+  end
+  local cwd, _ = sys.getcwd()
+  table.insert(lines, "cwd " .. (cwd or "?"))
+  return table.concat(lines, "\n")
+end
+
+--- The first line of `after` that `before` does not have at its place, beside the line `before` has there.
+local function differing(before: string, after: string): string
+  local was: mut {string} = {}
+  for line in before:gmatch("[^\n]+") do was[#was + 1] = line end
+  local at = 0
+  for line in after:gmatch("[^\n]+") do
+    at = at + 1
+    if was[at] ~= line then
+      return "`" .. line .. "`, which was `" .. (was[at] or "nothing") .. "`"
+    end
+  end
+  return "`" .. (was[at + 1] or "nothing") .. "` is gone"
+end
+
+--- Adds to `lines` what `path` is and, of a directory, what is beneath it, in order: each entry's kind, its mode,
+--- the size of a file and where a link points.
+local function shape(path: string, lines: mut {string}, depth: integer)
+  local there, why = sys.lstat(path)
+  if there == nil then
+    table.insert(lines, path .. " " .. why)
+    return
+  end
+  local detail = ""
+  if there.kind == "link" then
+    local target, _ = sys.readlink(path)
+    detail = target or "?"
+  elseif there.kind ~= "dir" then
+    detail = tostring(there.size)
+  end
+  table.insert(lines, path .. " " .. there.kind .. " " .. tostring(there.mode) .. " " .. detail)
+  if there.kind ~= "dir" or depth > 16 then return end
+  local entries, _ = sys.readdir(path)
+  local names: mut {string} = {}
+  for name in pairs(entries or {}) do names[#names + 1] = name end
+  table.sort(names)
+  for _, name in ipairs(names) do shape(path .. "/" .. name, lines, depth + 1) end
+end
+
+--- What the sandbox's tmpfs holds, /tmp and all beneath it ([`shape`]): the one place a worker with a scratch
+--- directory of its own can write.
+local function written(): string
+  local lines: mut {string} = {}
+  shape("/tmp", lines, 0)
+  return table.concat(lines, "\n")
+end
+
+--- Whether a process other than this one and its namespace's init runs in this pid namespace, as its /proc lists
+--- them; true where /proc cannot be listed, since none can then be ruled out.
+local function others_run(): boolean
+  local entries, _ = sys.readdir("/proc")
+  if entries == nil then return true end
+  local own = tostring(sys.getpid())
+  for name in pairs(entries) do
+    if name:find("^%d+$") ~= nil and name ~= "1" and name ~= own then return true end
+  end
+  return false
+end
+
+--- Everything `fd`, a descriptor that does not wait, holds now, added to `chunks`: whether it is still open, false
+--- once its writers have all closed it.
+local function take(fd: integer, chunks: mut {string}): boolean
+  while true do
+    local data, _ = sys.read(fd, 65536)
+    if data == nil then return true end
+    if data == "" then return false end
+    chunks[#chunks + 1] = data
+  end
+end
+
+--- The bytes of `chunks`, the newest `limit` of them where there are more.
+local function newest(chunks: {string}, limit: integer): string
+  local whole = table.concat(chunks)
+  if #whole > limit then return whole:sub(-limit) end
+  return whole
+end
+
+--- The process's standard output and error set aside while a file takes what is written to them ([`keep_output`]).
+local record Kept
+  --- The file, open to read.
+  file: integer
+  out: integer
+  err: integer
+end
+
+--- Points this process's standard output and error at a new file in `directory` that has no name, until [`put_back`]
+--- puts them back: nil where it cannot, with both as they were.
+local function keep_output(directory: string): Kept?
+  local made, _ = sys.open_temporary(directory .. "/load-output", 0x180)
+  if made == nil then return nil end
+  -- Written through the descriptor it was made with, and read back through another.
+  local reading, _ = sys.open(made.path, sys.O_RDONLY)
+  local _, _ = sys.unlink(made.path)
+  local out, _ = sys.dup(1)
+  local err, _ = sys.dup(2)
+  if reading == nil or out == nil or err == nil then
+    if reading ~= nil then local _, _ = sys.close(reading) end
+    if out ~= nil then local _, _ = sys.close(out) end
+    if err ~= nil then local _, _ = sys.close(err) end
+    local _, _ = sys.close(made.fd)
+    return nil
+  end
+  local _, _ = sys.dup2(made.fd, 1)
+  local _, _ = sys.dup2(made.fd, 2)
+  local _, _ = sys.close(made.fd)
+  return { file = reading, out = out, err = err }
+end
+
+--- Puts the standard output and error back as `held` found them and answers what was written meanwhile, the
+--- newest [`OUTPUT_LIMIT`] bytes of it; nil where it cannot be read.
+local function put_back(held: Kept): string?
+  local _, _ = sys.dup2(held.out, 1)
+  local _, _ = sys.dup2(held.err, 2)
+  local _, _ = sys.close(held.out)
+  local _, _ = sys.close(held.err)
+  local size_of, _ = sys.fstat(held.file)
+  local text: string? = nil
+  if size_of ~= nil then
+    local from = math.max(0, size_of.size - OUTPUT_LIMIT)
+    local chunks: mut {string} = {}
+    local whole = true
+    while from < size_of.size do
+      local data, _ = sys.pread(held.file, size_of.size - from, from)
+      if data == nil or data == "" then
+        whole = false
+        break
+      end
+      chunks[#chunks + 1] = data
+      from = from + #data
+    end
+    if whole then text = table.concat(chunks) end
+  end
+  local _, _ = sys.close(held.file)
+  return text
+end
+
+--- Removes from `directory` and beneath it every entry `kept` does not name by its path, each with what is beneath
+--- it, and gives each directory it names the mode it names. False and why at the first that cannot be.
+local function sweep_new(directory: string, kept: {string:integer}, depth: integer): boolean, string
+  local entries, list_trouble = sys.readdir(directory)
+  if entries == nil then return false, directory .. ": " .. list_trouble end
+  for name, kind in pairs(entries) do
+    local path = directory .. "/" .. name
+    local mode = kept[path]
+    if mode == nil then
+      local gone, trouble = Fs.remove_tree(path)
+      if not gone then return false, path .. ": " .. trouble end
+    elseif kind == "dir" then
+      -- Its mode first, which a test may have changed, and which may be what keeps it from being listed.
+      local there, _ = sys.lstat(path)
+      if there ~= nil and there.mode ~= mode then
+        local set, trouble = sys.chmod(path, mode & 0xfff)
+        if not set then return false, path .. ": " .. trouble end
+      end
+      if depth < 16 then
+        local swept, trouble = sweep_new(path, kept, depth + 1)
+        if not swept then return false, trouble end
+      end
+    end
+  end
+  return true, ""
+end
+
+--- Puts the sandbox's tmpfs back as it was before a test that passed ran: nothing there but what `kept` names by
+--- its path, which is what was there before any test ran, each directory of those with the mode `kept` gives it,
+--- and the directory `children` there again. A test's own directory is emptied so, and what it made beside it
+--- (`TMPDIR`), in /tmp or in its build directories. What else it changed of an entry that was there is not put
+--- back: its worker finds that ([`written`]) and retires. False and why where an entry cannot be put back.
+local function restore(children: string?, kept: {string:integer}): boolean, string
+  local swept, trouble = sweep_new("/tmp", kept, 0)
+  if not swept then return false, trouble end
+  if children ~= nil then
+    local there, _ = sys.lstat(children)
+    if there == nil then
+      local remade, remade_trouble = sys.mkdir(children, 0x1c0)
+      if not remade then return false, children .. ": " .. remade_trouble end
+    end
+  end
+  return true, ""
+end
+
+--- Runs each of `names`, a module's tests, in a copy of this process, one after another, and writes the runner a
+--- record of each ([`worker.Forked`]). `tested` runs one test here and answers its report, `children` is where
+--- what a test starts writes its coverage, and `before` is what
+--- [`carried`] and [`written`] answered before the module loaded, and `preface` what the load printed, nil where
+--- that could not be kept.
+---
+--- It forks only where a copy is what a worker started afresh would be once it had loaded the module: the load
+--- left this process as it was but for its memory (`carried`), wrote nothing (`written`), and started no process,
+--- none that runs and none that ended. Otherwise it says why ("unforkable") and runs nothing.
+---
+--- Each copy is held to signalling itself and what it starts ([`process.fork`]'s `scoped`), has a pipe of its own
+--- for its output and one for its report, and no descriptor of the runner's. Once it has ended, this process
+--- writes what it reported and printed. It goes on to the next test only after one that passed and left no
+--- process running, once the tmpfs is as it was before any test ran ([`restore`]); after any other, or where the
+--- tmpfs cannot be put back, it retires, saying why, and its namespace ends with it as a worker's does.
+---
+--- In the copy it answers nil, the test's report written: the copy returns from [`worker.run`] as any worker does.
+local function fork_tests(names: {string}, tested: function(string): (worker.Report), children: string?,
+                          before: string, preface: string?): integer?
+  local relay = worker.report_fd
+  local why = ""
+  local now = carried()
+  if preface == nil then
+    why = "what its load printed could not be kept for its tests"
+  elseif before == "" or now == "" then
+    why = "its /proc could not be read, to say what its load left"
+  elseif now .. "\n" .. written() ~= before then
+    why = "its load left a descriptor, a file, a filter or a signal's handling changed: " ..
+      differing(before, now .. "\n" .. written())
+  elseif others_run() then
+    why = "a process beside it runs in its namespace"
+  else
+    -- A worker is the second process of a pid namespace of its own, so the first it starts is the third: any other
+    -- number says its load started one, which has ended since. A copy would not be what a worker that started it
+    -- is ([`cosmic.child`] remembers that it adopts orphans, which the kernel forgets of a copy).
+    local probe, _ = process.fork(false)
+    if probe == 0 then sys.exit(0) end
+    if probe ~= nil then local _, _ = process.waitpid(probe, false) end
+    if probe ~= 3 or sys.getpid() ~= 2 then why = "its load started a process" end
+  end
+  if why ~= "" then
+    local _, _ = put(relay, "unforkable " .. hex(why) .. "\n")
+    return 0
+  end
+  -- What is still to write the runner, in order. The runner is one process that records each result as it reads
+  -- it, and a worker that waited for it to read would leave its processor idle meanwhile: so the descriptor does
+  -- not wait, a record goes out as the pipe takes it, while the next test runs, and what is left goes out, waited
+  -- for, before this worker ends.
+  local outbox: mut {string} = {}
+  local _, _ = sys.set_nonblocking(relay, true)
+  -- Writes what the pipe takes now. False once the runner is gone.
+  local function send(): boolean
+    while true do
+      local data = outbox[1]
+      if data == nil then return true end
+      local sent, _, number = sys.write(relay, data)
+      if sent == nil then return number == sys.EAGAIN or number == sys.EINTR end
+      table.remove(outbox, 1)
+      if sent < #data then table.insert(outbox, 1, data:sub(sent + 1)) end
+    end
+  end
+  -- Writes all that is left, waiting for the runner to read.
+  local function send_all()
+    while outbox[1] ~= nil and send() do
+      if outbox[1] ~= nil then local _, _ = sys.poll({ relay }, { sys.POLLOUT }, -1) end
+    end
+  end
+  local tmpfs = written()
+  -- Every path the tmpfs holds now: a line of [`shape`] begins with one, and no path of a worker's holds a space.
+  local kept: mut {string:integer} = {}
+  for path, mode in tmpfs:gmatch("([^ \n]+) %a+ (%d+) [^\n]*") do
+    kept[path] = math.tointeger(tonumber(mode)) or 0
+  end
+  local top, _ = sys.lstat("/tmp")
+  outbox[#outbox + 1] = FORKS .. "\n"
+  for index, name in ipairs(names) do
+    local output, output_trouble = process.pipe()
+    local report, report_trouble = process.pipe()
+    if output == nil or report == nil then
+      table.insert(outbox, "retire " .. hex("a pipe: " .. output_trouble .. report_trouble) .. "\n")
+      send_all()
+      return 0
+    end
+    table.insert(outbox, "test " .. hex(name) .. " " .. tostring(monotonic_ns()) .. "\n")
+    local pid, fork_trouble = process.fork(true)
+    if pid == nil then
+      table.insert(outbox, "result -1 -1 0 0\ndone\nretire " .. hex("fork: " .. fork_trouble) .. "\n")
+      send_all()
+      return 0
+    end
+    if pid == 0 then
+      -- The test's own streams, and nothing of the runner's: what it writes, its worker relays.
+      local _, _ = sys.close(output.reader)
+      local _, _ = sys.close(report.reader)
+      local _, _ = sys.close(relay)
+      local _, _ = sys.dup2(output.writer, 1)
+      local _, _ = sys.dup2(output.writer, 2)
+      local _, _ = sys.close(output.writer)
+      if preface ~= nil and preface ~= "" then local _, _ = put(1, preface) end
+      local wrote, write_trouble = put(report.writer, worker.encode(tested(name)))
+      local _, _ = sys.close(report.writer)
+      if not wrote then
+        complain("the test report: " .. write_trouble)
+        return 2
+      end
+      return nil
+    end
+    local _, _ = sys.close(output.writer)
+    local _, _ = sys.close(report.writer)
+    local _, _ = sys.set_nonblocking(output.reader, true)
+    local _, _ = sys.set_nonblocking(report.reader, true)
+    local printed: mut {string} = {}
+    local reported: mut {string} = {}
+    local printed_size = 0
+    local watch, _ = process.exit_watch(pid)
+    local ended: process.ChildStatus? = nil
+    local printing, reporting = true, true
+    while ended == nil do
+      local fds: mut {integer} = {}
+      local events: mut {integer} = {}
+      if printing then fds[#fds + 1], events[#events + 1] = output.reader, sys.POLLIN end
+      if reporting then fds[#fds + 1], events[#events + 1] = report.reader, sys.POLLIN end
+      if watch ~= nil then fds[#fds + 1], events[#events + 1] = watch, sys.POLLIN end
+      if outbox[1] ~= nil then fds[#fds + 1], events[#events + 1] = relay, sys.POLLOUT end
+      -- With no watch of its exit, its end is looked for every millisecond.
+      local _, _ = sys.poll(fds, events, if watch ~= nil then -1 else 1 end)
+      local _ = send()
+      local had = #printed
+      if printing then printing = take(output.reader, printed) end
+      for at = had + 1, #printed do printed_size = printed_size + #assert(printed[at]) end
+      if printed_size > 2 * OUTPUT_LIMIT then
+        printed = { newest(printed, OUTPUT_LIMIT) }
+        printed_size = OUTPUT_LIMIT
+      end
+      if reporting then reporting = take(report.reader, reported) end
+      local status, _ = process.waitpid(pid, true)
+      if status == nil then
+        ended = { pid = pid, code = -1, signal = -1 }
+      elseif status.pid == pid then
+        ended = status
+      end
+    end
+    -- What it and the processes it started wrote before it ended; one still running may hold a pipe open, and is
+    -- not waited for.
+    local _ = take(output.reader, printed)
+    local _ = take(report.reader, reported)
+    local _, _ = sys.close(output.reader)
+    local _, _ = sys.close(report.reader)
+    if watch ~= nil then local _, _ = sys.close(watch) end
+    local said, shown_text = table.concat(reported), newest(printed, OUTPUT_LIMIT)
+    local strays = others_run()
+    local record = "result " .. tostring(ended.code) .. " " .. tostring(ended.signal) .. " " ..
+      tostring(#said) .. " " .. tostring(#shown_text) .. "\n" .. said .. shown_text .. "done\n"
+    local retire = ""
+    if ended.code ~= 0 or said:find("\npassed 1\n", 1, true) == nil or said:sub(-5) ~= "\nend\n" then
+      retire = "its test did not pass"
+    elseif strays then
+      retire = "its test left a process running"
+    elseif index < #names then
+      local now_top, _ = sys.lstat("/tmp")
+      if top ~= nil and now_top ~= nil and now_top.mode ~= top.mode then
+        local _, _ = sys.chmod("/tmp", top.mode & 0xfff)
+      end
+      local restored, restore_trouble = restore(children, kept)
+      if not restored then
+        retire = "its test's directory could not be emptied: " .. restore_trouble
+      else
+        local left = written()
+        if left ~= tmpfs then
+          retire = "its test left the sandbox's tmpfs changed: " .. differing(tmpfs, left)
+        end
+      end
+    end
+    if retire ~= "" then record = record .. "retire " .. hex(retire) .. "\n" end
+    table.insert(outbox, record)
+    if retire ~= "" or not send() then break end
+  end
+  send_all()
+  return 0
+end
+
 --- Runs the one test the command line names and writes its report.
 --- Exits 0 once the report is written, whatever the verdict; anything
 --- else fails even if a finalizer ends the process after the report was
@@ -1445,6 +1964,11 @@ end
 ---   beyond its closure, and a key need not hold them: a name there
 ---   only turns a `require` of a module outside the closure into a
 ---   refusal, never into a load.
+--- - `--fork <count> <test>...` after `--sandboxed` and what follows it names the module's tests to run, in
+---   place of `test`: the worker loads the module, then runs each in a copy of itself (a fork), one after
+---   another, and writes the runner a record of each ([`worker.Forked`]) on its report descriptor, which the
+---   runner reads as it comes; where a copy would not be what a worker of the test's own is, it runs none and
+---   says why.
 --- - `--store <store>` ahead of the closure names the store to attach:
 ---   where a sandboxed worker's sandbox gives it, or, unsandboxed, the
 ---   store of the module's closure ([`build.closure_store`]), whose key
@@ -1490,6 +2014,18 @@ function worker.run(argv: {string}): integer
       runs = given
       first = first + 2 + count
     end
+  end
+  local forks: mut {string}? = nil
+  if argv[first] == "--fork" then
+    local count = math.tointeger(tonumber(argv[first + 1] or "")) or 0
+    if count < 1 then
+      complain("test --worker: --fork needs a count and that many tests")
+      return 2
+    end
+    local named: mut {string} = {}
+    for i = 1, count do named[#named + 1] = argv[first + 1 + i] or "" end
+    forks = named
+    first = first + 2 + count
   end
   local holding = argv[2]
   if holding ~= nil and (holding == "--worker-no-tool" or holding == "--worker-held") then
@@ -1622,9 +2158,20 @@ function worker.run(argv: {string}): integer
   -- alone, not for the worker's own work around them.
   -- Each under a stand-in for `spawn` ([`confine.call`]), which holds what
   -- the test starts.
+  -- A forking worker forks only where its load left the process as it was ([`fork_tests`]): what it is before.
+  local before = ""
+  if forks ~= nil then
+    local carries = carried()
+    if carries ~= "" then before = carries .. "\n" .. written() end
+  end
+  -- What its load prints is each of its tests' to show, as the worker of one test shows it: kept in a file with
+  -- no name while the module loads, and written ahead of each test's own output ([`fork_tests`]).
+  local kept_output: Kept? = nil
+  if forks ~= nil then kept_output = keep_output(Fs.dirname(tmp)) end
   local loading = confine.call(function(): any -- checked: not_assignable
     return held(function(): any return load_module.load(module_path) end) -- checked: not_assignable
   end, nil, own, sandboxed)
+  local preface = if kept_output ~= nil then put_back(kept_output) else nil end
   local loaded, produced = loading.ok, loading.produced
   runner.loaded = true
   if load_session ~= nil then
@@ -1644,59 +2191,72 @@ function worker.run(argv: {string}): integer
       "\n  read:\n    " .. (if expected_needs == "" then "nothing" else
         expected_needs:gsub("\n", "\n    ") end)
   end
-  report.loaded = loaded
-  if not loaded then
-    report.message = "the module failed to load: " .. tostring(produced)
-    if sandboxed then
-      report.message = report.message .. unseen_note(report.message, loading.unseen)
-    end
-  else
-    local fn: any = produced is {string: any} and produced[name] or nil -- checked: and_ternary, is_on_record
-    if not (fn is function(...: any): (any...)) then -- checked: is_on_record
-      report.message = module_path .. " has no test named " .. name
+  local function tested(chosen: string): worker.Report
+    report.loaded = loaded
+    if not loaded then
+      report.message = "the module failed to load: " .. tostring(produced)
+      if sandboxed then
+        report.message = report.message .. unseen_note(report.message, loading.unseen)
+      end
     else
-      local test_session, _ = Coverage.start()
-      local started = monotonic_ns()
-      Assertions.reset()
-      local ran = confine.call(function(argument: any): any -- checked: not_assignable
-        return held(fn, argument)
-      end, tmp, own, sandboxed)
-      local finished = monotonic_ns()
-      if test_session ~= nil then
-        local hits, _ = Coverage.stop(test_session)
-        if hits ~= nil then
-          report.test_hits = hits
-          child_into = hits
+      local fn: any = produced is {string: any} and produced[chosen] or nil -- checked: and_ternary, is_on_record
+      if not (fn is function(...: any): (any...)) then -- checked: is_on_record
+        report.message = module_path .. " has no test named " .. chosen
+      else
+        local test_session, _ = Coverage.start()
+        local started = monotonic_ns()
+        Assertions.reset()
+        local ran = confine.call(function(argument: any): any -- checked: not_assignable
+          return held(fn, argument)
+        end, tmp, own, sandboxed)
+        local finished = monotonic_ns()
+        if test_session ~= nil then
+          local hits, _ = Coverage.stop(test_session)
+          if hits ~= nil then
+            report.test_hits = hits
+            child_into = hits
+          end
         end
+        -- A test that skipped ends by raising `ended_by_skip`: it passed as far
+        -- as it ran, and `report.skipped` says it checked less than it exists to.
+        report.passed = ran.ok or ran.produced == ended_by_skip
+        report.message = if report.passed then "" else tostring(ran.produced) end
+        if sandboxed and not report.passed then
+          report.message = report.message .. unseen_note(report.message, ran.unseen)
+        end
+        report.skipped = table.concat(reasons, "; ")
+        report.asserted = Assertions.count()
+        report.deliberate = handed_over.deliberate
+        report.elapsed_ns = finished - started
       end
-      -- A test that skipped ends by raising `ended_by_skip`: it passed as far
-      -- as it ran, and `report.skipped` says it checked less than it exists to.
-      report.passed = ran.ok or ran.produced == ended_by_skip
-      report.message = if report.passed then "" else tostring(ran.produced) end
-      if sandboxed and not report.passed then
-        report.message = report.message .. unseen_note(report.message, ran.unseen)
-      end
-      report.skipped = table.concat(reasons, "; ")
-      report.asserted = Assertions.count()
-      report.deliberate = handed_over.deliberate
-      report.elapsed_ns = finished - started
     end
+    if children ~= nil then
+      child_hits(children, child_into or {})
+    end
+    -- What it ran, as `judge` holds it: taken last, so it holds what the
+    -- test loaded as well as what this did.
+    local modules: mut {string} = {}
+    for loaded_name in pairs(package.loaded) do
+      if loaded_name is string then modules[#modules + 1] = loaded_name end
+    end
+    table.sort(modules)
+    report.modules = modules
+    report.violations, report.dropped = worker.violations(), worker.dropped_violations()
+    report.checked = worker.hooks_held()
+    return report
   end
-  if children ~= nil then
-    child_hits(children, child_into or {})
+  if forks ~= nil then
+    -- A module that did not load forks nothing: each of its tests' workers says so of its own load.
+    if not loaded then
+      local _, _ = put(worker.report_fd, "unforkable " .. hex("its module did not load") .. "\n")
+      return 0
+    end
+    local status = fork_tests(forks, tested, children, before, preface)
+    if status ~= nil then return status end
+    return 0
   end
-  -- What it ran, as `judge` holds it: taken last, so it holds what the
-  -- test loaded as well as what this did.
-  local modules: mut {string} = {}
-  for loaded_name in pairs(package.loaded) do
-    if loaded_name is string then modules[#modules + 1] = loaded_name end
-  end
-  table.sort(modules)
-  report.modules = modules
-  report.violations, report.dropped = worker.violations(), worker.dropped_violations()
-  report.checked = worker.hooks_held()
-  local written, trouble = put(worker.report_fd, worker.encode(report))
-  if not written then
+  local wrote, trouble = put(worker.report_fd, worker.encode(tested(name)))
+  if not wrote then
     complain("the test report: " .. trouble)
     return 2
   end

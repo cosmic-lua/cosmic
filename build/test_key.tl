@@ -113,6 +113,9 @@ local record test_key
     --- For a worker its module's `noexec` leaves no way to start: why the
     --- host cannot check the test, which the runner records as a skip.
     unavailable: string?
+    --- For a worker that runs its module's tests in copies of itself ([`worker.run`]'s `--fork`): the pipe its
+    --- records come on. Nil for a worker that runs one test.
+    relay?: worker.Relay
   end
 
   --- The compiler identities the running binary names
@@ -2430,8 +2433,10 @@ end
 --- on, as [`worker.invocation`] takes them. The program it starts is
 --- [`worker.program`]'s and its deadline the module's timeout, which its
 --- key holds ([`timeout_ns_of`]). The job's `started_ns` is set before it is
---- called, since a failure is reckoned from it.
-function test_key.prepare(rec: Recording, job: Job): Prepared
+--- called, since a failure is reckoned from it. With `forks`, the names of the module's tests to run, the worker
+--- is one that runs each in a copy of itself, where it can ([`Prepared.relay`]); where it cannot, it is the worker
+--- of `job`'s one test all the same.
+function test_key.prepare(rec: Recording, job: Job, forks?: {string}): Prepared
   local start, start_trouble = worker.program()
   if start == nil then
     return cannot("the test runner cannot find itself: " .. start_trouble, false, nil)
@@ -2623,14 +2628,38 @@ function test_key.prepare(rec: Recording, job: Job): Prepared
     end
   end
   local plan = job.plan
+  -- A worker forks for its module's tests only where one after another can be given what each is promised: where
+  -- all it can write is the tmpfs of its own sandbox (its scratch directory is its own, so its root holds no
+  -- directory of the host's), it has no loopback, whose sockets one test would leave the next, a Landlock ruleset
+  -- holds it (one whose module declares `nests` has none), and this host's Landlock scopes signals.
+  --
+  -- TODO: fork for a module whose scratch directory is the host's too (`system`, `tool`, `noexec`, a host cache, a
+  -- directory among its reads), once such a worker's scratch directory is its sandbox's own, which
+  -- [`test_sandbox.plan`] gives only where the root holds no directory of the host's (below Landlock ABI 9 a unix
+  -- socket of the host's cannot be told from the worker's own).
+  -- TODO: fork for a module that declares `loopback`, once a copy can be given a network namespace of its own, so
+  -- that no test meets the sockets an earlier one left closing.
+  local declares = rec.effective[job.m.path]
+  local relay: worker.Relay? = nil
+  local scoped, _ = worker.forks_here()
+  if forks ~= nil and rec.sandbox and job.own_scratch == true and declares ~= nil and next(declares.network) == nil and
+      declares.nests ~= true and hold == "forbid" and scoped then
+    local made_relay, relay_trouble = worker.relay()
+    if made_relay == nil then
+      return cannot("a pipe for its worker's reports: " .. relay_trouble, false, nil)
+    end
+    relay = made_relay
+  end
   local command = worker.invocation({
+    forks = if relay ~= nil then forks else nil end,
+    report = if relay ~= nil then relay.writer else nil end,
     start = started, env = env, root = root, cwd = cwd, module_path = job.m.path,
     name = job.name, scratch = inside, own_scratch = job.own_scratch, needs = test_inputs.canonical(declared), hold = hold,
     store = attached, closure = rec.closures[job.m.path], tree = rec.tree_names, -- checked: index_may_be_nil
     policy = policy, runs = runs, checks = rec.checks,
     program = if plan ~= nil then plan.program else nil end,
   })
-  return { command = command, trouble = "", refused = false, unavailable = nil }
+  return { command = command, trouble = "", refused = false, unavailable = nil, relay = relay }
 end
 
 return test_key
