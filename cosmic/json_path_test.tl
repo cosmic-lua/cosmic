@@ -131,6 +131,19 @@ end
 
 --- A set copies the tables its steps pass and shares the rest, and a copied
 --- array is still one where it is empty.
+local function test_set_and_remove_refuse_a_path_longer_than_a_value_nests()
+  local steps: mut {string | integer} = {}
+  for _ = 1, Json.depth_limit + 1 do
+    steps[#steps + 1] = "k"
+  end
+  local why = failure(Json.set(DOC, steps, 1))
+  assert(why:find("the path is longer than the", 1, true) ~= nil, why)
+  assert(failure(Json.remove(DOC, steps)) == why)
+  -- Names the pointer escapes are told as `get` tells them.
+  local escaped = failure(Json.set(DOC, { "a/b", 3 }, 1))
+  assert(escaped:find('"/a~1b', 1, true) ~= nil, escaped)
+end
+
 local function test_set_copies_the_way_and_shares_the_rest()
   local config = assert(Json.decode(CONFIG))
   local set = assert(Json.set(config, { "server", "port" }, 1))

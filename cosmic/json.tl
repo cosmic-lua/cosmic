@@ -1428,6 +1428,11 @@ local function changed(at: any, steps: Json.Steps, i: integer, reached: string, 
   return items_with(t, position, below), ""
 end
 
+--- Why [`Json.set`] and [`Json.remove`] refuse more steps than a value may nest: `changed` calls itself once a step.
+local function too_long(): string
+  return ("the path is longer than the %d levels a value may nest"):format(Json.depth_limit)
+end
+
 --- A new value like `value` with `v` where `steps` lead, and "": the way to
 --- change a decoded value, which is never changed in place. `value` is left
 --- as it is. Each array and object on the way is copied, that level alone,
@@ -1435,8 +1440,8 @@ end
 --- set costs the tables on its way and no more. No part off the way is
 --- checked, which [`Json.to_value`] does as it copies a whole value. An
 --- array's copy is marked as [`Json.array`] marks it and keeps its holes, so
---- one [`Json.with_holes`] marked is marked again by the caller. With no
---- steps the answer is `v`.
+--- one [`Json.with_holes`] marked is marked again by the caller. `v` is put
+--- there as it is, not copied. With no steps the answer is `v`.
 ---
 --- The last step names the place: a member of an object, there or not, or an
 --- array's position, a negative one counted from the end as [`Json.get`]
@@ -1446,7 +1451,8 @@ end
 --- reaches nothing, since nothing says whether an object or an array belongs
 --- there (set one first); and for a step [`Json.get`] refuses: into a value
 --- that is not an array or object, a name into an array, a position into an
---- object.
+--- object. More steps than [`Json.depth_limit`] are refused, as no value
+--- nests deeper.
 ---
 ---     local config = assert(Json.decode('{"server": {"port": 80}, "tags": ["a"]}'))
 ---     local port = assert(Json.set(config, { "server", "port" }, 8080))
@@ -1455,6 +1461,7 @@ end
 ---     assert(assert(Json.get(config, { "server", "port" })) == 80)
 function Json.set(value: any, steps: Json.Steps, v: Json.Value): Json.Value?, string
   if #steps == 0 then return v, "" end
+  if #steps > Json.depth_limit then return refuse(too_long()) end
   return changed(value, steps, 1, "", v)
 end
 
@@ -1474,6 +1481,7 @@ function Json.remove(value: any, steps: Json.Steps): Json.Value?, string
   if #steps == 0 then
     return refuse("remove takes a step or more: the whole value is in nothing it could be removed from")
   end
+  if #steps > Json.depth_limit then return refuse(too_long()) end
   return changed(value, steps, 1, "", nil)
 end
 
