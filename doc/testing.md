@@ -847,14 +847,20 @@ A run says where its time went on the line before its summary:
 test: time: building 1.2 s, keying 3.4 s, running 15.9 s (10.0 s in 562 tests, up to 4 at a time; the runner 4.1 s starting their workers and 1.3 s recording them), settling coverage and records 0.4 s
 ```
 
-`building` is the stage and the compile. `keying` is each test's key made
-and looked up, with the closure stores written for it. `running` is from
-the first worker started to the last collected. Of that, the tests' own
-time is what their workers reported, summed, so it can exceed the stretch
-where several run at once; and while the runner starts or records one
-worker it starts and collects no other. `settling` is the coverage and the
-records kept. The `runs` table holds each test's own time
-([measuring](guides/measuring.md)).
+`building` is from the checkout's lock taken to the tree compiled: the
+stage, the probe of whether workers can be sandboxed, and the compile.
+`keying` is from there to the last test looked up: the tests chosen, each
+one's key made and looked up, and the closure stores written for the keys.
+`running` is from there to the last worker collected. Of that, the tests'
+own time is what their workers reported, summed over the tests whose
+worker this run collected, so it can exceed the stretch where several run
+at once; a test that started no worker (its host lacks what it requires,
+or its start was refused) is in the summary's `ran` and not here. While
+the runner starts one worker, which includes writing a sealed database it
+has not written yet, or records one, it starts and collects no other.
+`up to 4 at a time` is the limit (`--jobs`), not how many ran at once.
+`settling` is the coverage and the records kept. The `runs` table holds
+each test's own time ([measuring](guides/measuring.md)).
 
 ### coverage
 

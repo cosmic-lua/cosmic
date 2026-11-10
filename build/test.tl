@@ -1367,8 +1367,9 @@ end
 --- Records one finished job: the verdict its worker reported, or a
 --- failure that says why there is no report to go by
 --- ([`test_key.judge`], which also says whether it checked, and
---- [`test_key.keep`], which keeps its verdict). Answers the test's time: what its worker reported, or, with no
---- report, the time since the job started.
+--- [`test_key.keep`], which keeps its verdict). Answers the test's time:
+--- what its worker reported, or, with no report, the time since the job
+--- started.
 local function finish(rec: Recording, job: Job, result: Child.Result?,
                       trouble: string, refused?: boolean, unavailable?: string): integer
   rec.tally.ran = rec.tally.ran + 1
