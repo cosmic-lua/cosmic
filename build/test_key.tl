@@ -454,16 +454,48 @@ local function closure_of(roots: {string}, own: {string},
   return names
 end
 
--- The `imports` rows whose importer is a module or main with no
--- occurrence of the required name in its bytecode: Teal erased the
--- require, so the edge is by type alone. [`test_key.value_imports`] keeps
--- the rows this does not match and [`test_key.type_only_imports`] the rows
--- it does, so the two cannot drift apart.
-local erased_require = "(SELECT 1 FROM modules m WHERE m.path = i.path " ..
-  "AND m.kind IN ('module', 'main') " ..
-  "AND instr(inflate(m.bytecode), CAST(i.requires AS BLOB)) = 0)"
+--- A row of `imports`: `path` requires `requires`. `erased` where Teal
+--- erased the require, so the edge is by type alone.
+local record Edge
+  path: string
+  requires: string
+  erased: boolean
+end
 
---- The `imports` rows of `db` a module makes by value, by importer: an
+--- The bytecode of each module and main of `db` that has any, inflated,
+--- by path. [`test_key.harness`] inflates the binary's modules once, here,
+--- for the edges, the digests and the salt alike: inflating a module again
+--- for each `imports` row it makes, and searching it with SQL's `instr`,
+--- was most of what a run spent before its first test.
+local function module_code(db: Sqlite.Handle): {string:string}?, string
+  local modules, trouble = Sqlite.rows(db, "SELECT path, inflate(bytecode) FROM modules " ..
+      "WHERE kind IN ('module', 'main') AND bytecode IS NOT NULL")
+  if modules == nil then return nil, trouble end
+  local code: mut {string:string} = {}
+  for _, row in ipairs(modules) do code[row:text(1)] = row:blob(2) end
+  return code, ""
+end
+
+--- The `imports` rows of `db`, in the table's order, each with whether
+--- Teal erased its require: the importer is a module or main whose
+--- bytecode (`code`, [`module_code`]) holds no occurrence of the required
+--- name. [`value_edges`] keeps the rows not erased and
+--- [`test_key.type_only_imports`] the erased ones, so the two cannot
+--- drift apart.
+local function import_edges(db: Sqlite.Handle, code: {string:string}): {Edge}?, string
+  local rows, rows_trouble = Sqlite.text_rows(db, "SELECT path, requires FROM imports")
+  if rows == nil then return nil, rows_trouble end
+  local edges: mut {Edge} = {}
+  for index, row in ipairs(rows) do
+    local bytes = code[row:text(1)]
+    edges[index] = { path = row:text(1), requires = row:text(2),
+      erased = bytes ~= nil and bytes:find(row:text(2), 1, true) == nil }
+  end
+  return edges, ""
+end
+
+--- The `imports` rows of `db` a module makes by value, by importer, given
+--- its modules' bytecode (`code`, [`module_code`]): an
 --- edge is kept unless the importer's bytecode lacks the name it
 --- requires as a string constant. Teal erases a `local type` require,
 --- and what the imported type does at run time -- an `is` against a
@@ -472,17 +504,25 @@ local erased_require = "(SELECT 1 FROM modules m WHERE m.path = i.path " ..
 --- require (`require"x"`, one split across lines, one inside a
 --- function) leaves the name in the bytecode, and so does a name that
 --- is only a string there: the test errs toward following an edge.
-function test_key.value_imports(db: Sqlite.Handle): {string:{string}}?, string
-  local rows, trouble = Sqlite.text_rows(db,
-    "SELECT i.path, i.requires FROM imports i WHERE NOT EXISTS " .. erased_require)
-  if rows == nil then return nil, trouble end
+local function value_edges(db: Sqlite.Handle, code: {string:string}): {string:{string}}?, string
+  local edges, trouble = import_edges(db, code)
+  if edges == nil then return nil, trouble end
   local out: mut {string:mut {string}} = {}
-  for _, row in ipairs(rows) do
-    local list = out[row:text(1)] or {}
-    out[row:text(1)] = list
-    table.insert(list, row:text(2))
+  for _, edge in ipairs(edges) do
+    if not edge.erased then
+      local list = out[edge.path] or {}
+      out[edge.path] = list
+      table.insert(list, edge.requires)
+    end
   end
   return out, ""
+end
+
+--- [`value_edges`] of `db`, over its own modules' bytecode.
+function test_key.value_imports(db: Sqlite.Handle): {string:{string}}?, string
+  local code, trouble = module_code(db)
+  if code == nil then return nil, trouble end
+  return value_edges(db, code)
 end
 
 --- The `imports` rows of `db` a module makes by type alone, as sets by
@@ -493,14 +533,17 @@ end
 --- it that leaves the importer's bytecode as it was moves no key, and a
 --- test importing the importer is not run again for it.
 function test_key.type_only_imports(db: Sqlite.Handle): {string:{string:boolean}}?, string
-  local rows, trouble = Sqlite.text_rows(db,
-    "SELECT i.path, i.requires FROM imports i WHERE EXISTS " .. erased_require)
-  if rows == nil then return nil, trouble end
+  local code, code_trouble = module_code(db)
+  if code == nil then return nil, code_trouble end
+  local edges, trouble = import_edges(db, code)
+  if edges == nil then return nil, trouble end
   local out: mut {string:mut {string:boolean}} = {}
-  for _, row in ipairs(rows) do
-    local set = out[row:text(1)] or {}
-    out[row:text(1)] = set
-    set[row:text(2)] = true
+  for _, edge in ipairs(edges) do
+    if edge.erased then
+      local set = out[edge.path] or {}
+      out[edge.path] = set
+      set[edge.requires] = true
+    end
   end
   return out, ""
 end
@@ -527,17 +570,11 @@ local function store_code(imports: {string:{string}}): {string}
   return closure_of(store_writer, {}, imports)
 end
 
---- The hash of the bytecode of the module `name` in `db`, stripped of
---- its debug information ([`lua_tail.stripped`]), so what is hashed is
---- what the core runs. Nil and why where `db` has no such module or its
---- chunk does not load.
-local function stripped_digest(db: Sqlite.Handle, name: string): string?, string
-  local rows, trouble = Sqlite.rows(db, "SELECT inflate(bytecode) FROM modules WHERE path = ?1",
-    { { text = name } })
-  if rows == nil then return nil, trouble end
-  local row = rows[1]
-  if row == nil then return nil, name .. " is no module `db` carries" end
-  local stripped, why = lua_tail.stripped(row:blob(1), name)
+--- The hash of `bytecode`, the module `name`'s, stripped of its debug
+--- information ([`lua_tail.stripped`]), so what is hashed is what the
+--- core runs. Nil and why where the chunk does not load.
+local function stripped_digest(bytecode: string, name: string): string?, string
+  local stripped, why = lua_tail.stripped(bytecode, name)
   if stripped == nil then return nil, why end
   return hex_sha256(stripped), ""
 end
@@ -564,17 +601,16 @@ end
 --- the salt would otherwise leave out unnoticed.
 function test_key.harness(db: Sqlite.Handle): Harness?, string
   local modules, trouble = Sqlite.text_rows(db,
-    "SELECT path, source_hash, lower(hex(sha256(inflate(bytecode)))) FROM modules " ..
-      "WHERE kind IN ('module', 'main')")
+    "SELECT path, source_hash FROM modules WHERE kind IN ('module', 'main')")
   if modules == nil then return nil, trouble end
+  local code, code_trouble = module_code(db)
+  if code == nil then return nil, code_trouble end
   local imported, imports_trouble = Sqlite.text_rows(db, "SELECT path, requires FROM imports")
   if imported == nil then return nil, imports_trouble end
   local sources: mut {string:string} = {}
-  local compiled: mut {string:string} = {}
   local carried: mut {string:boolean} = {}
   for _, row in ipairs(modules) do
     sources[row:text(1)] = row:text(2)
-    compiled[row:text(1)] = row:text(2) .. " " .. row:text(3)
     carried[row:text(1)] = true
   end
   local imports: mut {string:mut {string}} = {}
@@ -589,7 +625,7 @@ function test_key.harness(db: Sqlite.Handle): Harness?, string
   for _, list in ipairs({ worker.loads, harness_own }) do
     for _, name in ipairs(list) do runs[#runs + 1] = name end
   end
-  local by_value, value_trouble = test_key.value_imports(db)
+  local by_value, value_trouble = value_edges(db, code)
   if by_value == nil then return nil, value_trouble end
   for _, list in ipairs({ worker.loads, harness_own, harness_alone, key_code(by_value) }) do
     for _, name in ipairs(list) do
@@ -602,17 +638,21 @@ function test_key.harness(db: Sqlite.Handle): Harness?, string
   end
   local stripped: mut {string:string} = {}
   for _, name in ipairs(names) do
-    local digest, why = stripped_digest(db, name)
+    local digest, why = stripped_digest(code[name] or "", name)
     if digest == nil then return nil, why end
     stripped[name] = digest
   end
   local each: mut {string:string} = {}
   for _, name in ipairs(names) do each[name] = declared_key.harness({ name }, stripped) end
   local salted = store_code(imports)
+  local compiled: mut {string:string} = {}
   for _, name in ipairs(salted) do
-    if compiled[name] == nil then
+    local source = sources[name]
+    if source == nil then
       return nil, name .. ", which writes a closure store, is no module the binary carries"
     end
+    local bytes = code[name]
+    compiled[name] = source .. " " .. (if bytes ~= nil then hex_sha256(bytes) else "" end)
   end
   return { modules = each, digest = declared_key.harness(names, stripped), names = names, runs = runs,
     store_salt = declared_key.harness(salted, compiled), carried = carried }, ""
