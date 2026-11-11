@@ -431,10 +431,11 @@ local epoch_module <const> = "build.harness_epoch"
 local store_writer <const>: {string} = { "build.closure_store", "build.schema" }
 
 --- The names `roots` and `own` hold: each root and every module it
---- requires, directly or not, by `imports` (the names each module
---- requires), and each of `own` alone.
+--- requires, directly or not, by `requires_of` (the names a module
+--- requires, asked once of each module the walk reaches), and each of
+--- `own` alone.
 local function closure_of(roots: {string}, own: {string},
-                          imports: {string:{string}}): {string}
+                          requires_of: function(string): {string}): {string}
   local seen: mut {string:boolean} = {}
   local names: mut {string} = {}
   local stack: mut {string} = {}
@@ -448,7 +449,7 @@ local function closure_of(roots: {string}, own: {string},
     if seen[name] ~= true then -- checked: nil_not_allowed
       seen[name] = true -- checked: nil_not_allowed
       names[#names + 1] = name -- checked: nil_not_allowed
-      for _, required in ipairs(imports[name] or {}) do stack[#stack + 1] = required end -- checked: nil_not_allowed
+      for _, required in ipairs(requires_of(name)) do stack[#stack + 1] = required end -- checked: nil_not_allowed
     end
   end
   return names
@@ -481,6 +482,14 @@ end
 --- name. [`value_edges`] keeps the rows not erased and
 --- [`test_key.type_only_imports`] the erased ones, so the two cannot
 --- drift apart.
+--- Whether Teal erased the require of `wanted` in the module whose
+--- bytecode is `bytes`: the name is nowhere in it. Nil for the bytecode of
+--- an importer that is no module or main, or has none, whose requires are
+--- all kept.
+local function erased(bytes: string?, wanted: string): boolean
+  return bytes ~= nil and bytes:find(wanted, 1, true) == nil
+end
+
 local function import_edges(db: Sqlite.Handle, code: {string:string}): {Edge}?, string
   local rows, rows_trouble = Sqlite.text_rows(db, "SELECT path, requires FROM imports")
   if rows == nil then return nil, rows_trouble end
@@ -488,7 +497,7 @@ local function import_edges(db: Sqlite.Handle, code: {string:string}): {Edge}?, 
   for index, row in ipairs(rows) do
     local bytes = code[row:text(1)]
     edges[index] = { path = row:text(1), requires = row:text(2),
-      erased = bytes ~= nil and bytes:find(row:text(2), 1, true) == nil }
+      erased = erased(bytes, row:text(2)) }
   end
   return edges, ""
 end
@@ -559,14 +568,17 @@ local function projection_type_only(path: string): {string:{string:boolean}}?, s
 end
 
 --- The names `key_roots` and `key_own` hold ([`closure_of`]), over the
---- requires each module makes by value ([`test_key.value_imports`]).
-local function key_code(by_value: {string:{string}}): {string}
+--- requires each module makes by value (`by_value`, which answers them as
+--- [`test_key.value_imports`] does).
+local function key_code(by_value: function(string): {string}): {string}
   return closure_of(key_roots, key_own, by_value)
 end
 
 --- The names `store_writer` holds, with what they require ([`closure_of`]).
 local function store_code(imports: {string:{string}}): {string}
-  return closure_of(store_writer, {}, imports)
+  return closure_of(store_writer, {}, function(name: string): {string}
+    return imports[name] or {}
+  end)
 end
 
 --- The hash of `bytecode`, the module `name`'s, stripped of its debug
@@ -602,8 +614,26 @@ function test_key.harness(db: Sqlite.Handle): Harness?, string
   local modules, trouble = Sqlite.text_rows(db,
     "SELECT path, source_hash FROM modules WHERE kind IN ('module', 'main')")
   if modules == nil then return nil, trouble end
-  local code, code_trouble = module_code(db)
-  if code == nil then return nil, code_trouble end
+  -- The bytecode of a module, inflated when first asked for: the digests
+  -- read the harness's modules alone, a fifth of what the binary carries,
+  -- and every run pays for each one inflated before its first test.
+  local code: mut {string:string} = {}
+  local asked: mut {string:boolean} = {}
+  local code_trouble = ""
+  local function code_of(name: string): string?
+    if asked[name] ~= true then
+      asked[name] = true
+      local rows, rows_trouble = Sqlite.rows(db, "SELECT inflate(bytecode) FROM modules " ..
+          "WHERE path = ?1 AND kind IN ('module', 'main') AND bytecode IS NOT NULL", { { text = name } })
+      if rows == nil then
+        code_trouble = rows_trouble
+      else
+        local row = rows[1]
+        if row ~= nil then code[name] = row:blob(1) end
+      end
+    end
+    return code[name]
+  end
   local imported, imports_trouble = Sqlite.text_rows(db, "SELECT path, requires FROM imports")
   if imported == nil then return nil, imports_trouble end
   local sources: mut {string:string} = {}
@@ -624,9 +654,17 @@ function test_key.harness(db: Sqlite.Handle): Harness?, string
   for _, list in ipairs({ worker.loads, harness_own }) do
     for _, name in ipairs(list) do runs[#runs + 1] = name end
   end
-  local by_value, value_trouble = value_edges(db, code)
-  if by_value == nil then return nil, value_trouble end
-  for _, list in ipairs({ worker.loads, harness_own, harness_alone, key_code(by_value) }) do
+  local function by_value(name: string): {string}
+    local bytes = code_of(name)
+    local kept: mut {string} = {}
+    for _, wanted in ipairs(imports[name] or {}) do
+      if not erased(bytes, wanted) then kept[#kept + 1] = wanted end
+    end
+    return kept
+  end
+  local key_names = key_code(by_value)
+  if code_trouble ~= "" then return nil, code_trouble end
+  for _, list in ipairs({ worker.loads, harness_own, harness_alone, key_names }) do
     for _, name in ipairs(list) do
       if sources[name] == nil then
         return nil, name .. ", which a worker runs or which makes or reads a key, " ..
@@ -637,7 +675,8 @@ function test_key.harness(db: Sqlite.Handle): Harness?, string
   end
   local stripped: mut {string:string} = {}
   for _, name in ipairs(names) do
-    local digest, why = stripped_digest(code[name] or "", name)
+    local digest, why = stripped_digest(code_of(name) or "", name)
+    if code_trouble ~= "" then return nil, code_trouble end
     if digest == nil then return nil, why end
     stripped[name] = digest
   end
@@ -650,7 +689,8 @@ function test_key.harness(db: Sqlite.Handle): Harness?, string
     if source == nil then
       return nil, name .. ", which writes a closure store, is no module the binary carries"
     end
-    local bytes = code[name]
+    local bytes = code_of(name)
+    if code_trouble ~= "" then return nil, code_trouble end
     compiled[name] = source .. " " .. (if bytes ~= nil then hex_sha256(bytes) else "" end)
   end
   return { modules = each, digest = declared_key.harness(names, stripped), names = names, runs = runs,
@@ -928,8 +968,10 @@ end
 
 --- The digest of the modules of the program's own database that the tree
 --- lacks -- the standard library, in a project's tree -- by path, source
---- hash, bytecode, stub and the edges the checker follows from it
---- (`decl_imports`), which a sealed database carries whole
+--- hash, bytecode as the database stores it (deflated: other bytecode is
+--- other stored bytes, and hashing them inflates nothing), stub and the
+--- edges the checker follows from it (`decl_imports`), which a sealed
+--- database carries whole
 --- ([`sealed_fill`]) and so a key of a worker on one holds
 --- ([`declared_of`]). Worked out once a run needs it, from the program's
 --- own database, which sealing nothing reads; "unread" where it cannot be.
@@ -937,7 +979,7 @@ local function extras_digest(rec: Recording): string
   local extras = rec.extras
   if extras ~= nil then return extras end
   local databases = Store.databases()
-  local query = "SELECT path, lower(hex(source_hash)), lower(hex(sha256(inflate(bytecode)))), " ..
+  local query = "SELECT path, lower(hex(source_hash)), lower(hex(sha256(bytecode))), " ..
     "coalesce((SELECT group_concat(requires, ' ' ORDER BY requires) FROM decl_imports d " ..
     "WHERE d.path = modules.path), '')"
   -- With its stub ([`sealed_fill`] carries it), where the program has
