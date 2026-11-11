@@ -27,12 +27,12 @@ local support = require("build.test_support_fixture")
 --- them, and so does a compiler that makes other bytecode of it; it
 --- is this module alone that pays that.
 ---
---- `timeout`: the test that swaps each of the harness's 40-odd modules in
---- turn asks for the digests of the whole tree once per module, 0.3 s each
---- on an idle host, and the full suite runs it beside thousands of others:
---- on the checked core it took about 90 s of its 120 on main's CI and passed
---- 120 once a pure store's imports were counted by instruction.
-Test.policy{ grants = { { path = "o/cosmic.db", letters = "r" } }, timeout = 240 }
+--- `timeout`: the test that swaps each of the harness's 50-odd modules in
+--- turn asks for the harness's digests once per module, which digests each
+--- module again: 4 s in all on an idle host's release core. The limit is
+--- for CI's native suites, which give a test 10 s
+--- (ci/cosmic_ci/orchestration.tl) on a runner loaded with the whole suite.
+Test.policy{ grants = { { path = "o/cosmic.db", letters = "r" } }, timeout = 60 }
 
 local projection = build_paths.resolve(".").projection
 
