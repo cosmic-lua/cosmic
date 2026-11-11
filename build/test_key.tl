@@ -464,9 +464,8 @@ end
 
 --- The bytecode of each module and main of `db` that has any, inflated,
 --- by path. [`test_key.harness`] inflates the binary's modules once, here,
---- for the edges, the digests and the salt alike: inflating a module again
---- for each `imports` row it makes, and searching it with SQL's `instr`,
---- was most of what a run spent before its first test.
+--- for the edges, the digests and the salt alike: every run pays for it
+--- before its first test.
 local function module_code(db: Sqlite.Handle): {string:string}?, string
   local modules, trouble = Sqlite.rows(db, "SELECT path, inflate(bytecode) FROM modules " ..
       "WHERE kind IN ('module', 'main') AND bytecode IS NOT NULL")
@@ -495,9 +494,9 @@ local function import_edges(db: Sqlite.Handle, code: {string:string}): {Edge}?, 
 end
 
 --- The `imports` rows of `db` a module makes by value, by importer, given
---- its modules' bytecode (`code`, [`module_code`]): an
---- edge is kept unless the importer's bytecode lacks the name it
---- requires as a string constant. Teal erases a `local type` require,
+--- its modules' bytecode (`code`, [`module_code`]): an edge is kept unless
+--- the importer's bytecode lacks the name it requires as a string
+--- constant. Teal erases a `local type` require,
 --- and what the imported type does at run time -- an `is` against a
 --- record's `where`, an enum's test -- is compiled into the importer's
 --- bytecode, which the harness's digests hold. Any other spelling of a
