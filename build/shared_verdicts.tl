@@ -219,16 +219,26 @@ local schema <const> = cache_formats.verdicts
 --- first as its distance from the one before: runs of adjacent lines, which
 --- most hits are, deflate to little that way. What comes before the tab is
 --- carried as it is.
-local function packed(hits: string): string
-  return (hits:gsub("([^\t\n]*)\t([^\n]*)\n", function(path: string, lines: string): string
-    local out: mut {string} = {}
-    local last = 0
-    for line in lines:gmatch("%d+") do
-      local number = math.tointeger(tonumber(line)) or 0
-      out[#out + 1] = tostring(number - last)
-      last = number
+---
+--- `known` holds each module's line already packed, by the whole of its text, path and all, and is added to: the
+--- tests of a run hit the same lines of most modules, so a line is packed once a run, not once a test.
+local function packed(hits: string, known: mut {string:string}): string
+  return (hits:gsub("[^\n]*\n", function(whole: string): string
+    local done = known[whole]
+    if done == nil then
+      done = whole:gsub("([^\t\n]*)\t([^\n]*)\n", function(path: string, lines: string): string
+        local out: mut {string} = {}
+        local last = 0
+        for line in lines:gmatch("%d+") do
+          local number = math.tointeger(tonumber(line)) or 0
+          out[#out + 1] = tostring(number - last)
+          last = number
+        end
+        return path .. "\t" .. table.concat(out, ",") .. "\n"
+      end)
+      known[whole] = done
     end
-    return path .. "\t" .. table.concat(out, ",") .. "\n"
+    return done
   end))
 end
 
@@ -483,11 +493,12 @@ function shared_verdicts.settle(cache: shared_verdicts.Cache, origin: string,
         if not ok then return false, trouble end
       end
     end
+    local known: mut {string:string} = {}
     for _, kept in ipairs(owed.kept) do
       local ok, trouble = Sqlite.run(db,
         "INSERT OR REPLACE INTO " .. declared .. " (key, test, hits, elapsed_ns, used_ns, " ..
           "origin, parts) VALUES (?1, ?2, deflate(?3), ?4, ?5, ?6, ?7)",
-        { text(kept.key), text(kept.test), text(packed(kept.hits)),
+        { text(kept.key), text(kept.test), text(packed(kept.hits, known)),
           { integer = kept.elapsed_ns }, { integer = now_ns }, text(origin), text(parts) })
       if not ok then return false, trouble end
     end
