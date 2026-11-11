@@ -1407,8 +1407,12 @@ local sealed_fill <const>: {string} = {
   "INSERT OR IGNORE INTO main.imports SELECT path, requires FROM closure.imports " ..
     "WHERE path IN (SELECT path FROM main.modules) AND requires IN " ..
     "(SELECT path FROM main.modules) ORDER BY path, requires",
-  "INSERT OR IGNORE INTO main.imports SELECT path, requires FROM program.imports " ..
-    "WHERE path IN temp.extra AND requires IN (SELECT path FROM main.modules) " ..
+  -- The module required is looked up for each row (`EXISTS`): written as
+  -- `requires IN (SELECT path FROM main.modules)`, the plan walked the
+  -- program's `imports`, which has no index by `requires`, once for each
+  -- module carried.
+  "INSERT OR IGNORE INTO main.imports SELECT path, requires FROM program.imports i " ..
+    "WHERE path IN temp.extra AND EXISTS (SELECT 1 FROM main.modules m WHERE m.path = i.requires) " ..
     "ORDER BY path, requires",
   "INSERT INTO main.decl_imports SELECT path, requires FROM closure.decl_imports " ..
     "ORDER BY path, requires",
