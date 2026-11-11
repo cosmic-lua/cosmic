@@ -2629,14 +2629,14 @@ function test_key.prepare(rec: Recording, job: Job, forks?: {string}): Prepared
   end
   local plan = job.plan
   -- A worker forks for its module's tests only where one after another can be given what each is promised: where
-  -- all it can write is the tmpfs of its own sandbox (its scratch directory is its own, so its root holds no
-  -- directory of the host's), it has no loopback, whose sockets one test would leave the next, a Landlock ruleset
-  -- holds it (one whose module declares `nests` has none), and this host's Landlock scopes signals.
+  -- a sandbox holds it, so that all it can write is its sandbox's /tmp, or its scratch directory alone where that
+  -- is the host's, which its worker puts back between tests (the host caches a module declares apart, which every
+  -- worker shares as it is), it has no loopback, whose sockets one test would leave the next, a Landlock ruleset
+  -- holds it (its policy's, where it may run this program; one whose module declares `nests` has none), and this
+  -- host's Landlock scopes signals.
   --
-  -- TODO: fork for a module whose worker has a directory of the host's for its scratch (`system`, `tool`, `noexec`,
-  -- a host cache, a directory among its reads), once [`test_sandbox.plan`] gives every worker a scratch directory
-  -- in its sandbox's tmpfs on a kernel whose Landlock tells a unix socket of the host's from the worker's own
-  -- (ABI 9).
+  -- TODO: fork for a module that declares `noexec`, once its worker puts back the private directory it is given
+  -- at /noexec between tests as it does /tmp.
   -- TODO: fork for a module that declares `loopback`, once a copy can be given a network namespace of its own, so
   -- that no test meets the sockets an earlier one left closing.
   -- TODO: fork in an unsandboxed run (macOS, COSMIC_TEST_SANDBOX=0), once a worker there can tell that a test left
@@ -2644,11 +2644,11 @@ function test_key.prepare(rec: Recording, job: Job, forks?: {string}): Prepared
   local declares = rec.effective[job.m.path]
   local relay: worker.Relay? = nil
   local scoped, _ = worker.forks_here()
-  if forks ~= nil and rec.sandbox and job.own_scratch == true and declares ~= nil and next(declares.network) == nil and
-      declares.nests ~= true and hold == "forbid" and scoped then
+  if forks ~= nil and rec.sandbox and declares ~= nil and next(declares.network) == nil and
+      declares.nests ~= true and declares.noexec ~= true and scoped then
     local made_relay, relay_trouble = worker.relay()
     if made_relay == nil then
-      return cannot("a pipe for its worker's reports: " .. relay_trouble, false, nil)
+      return cannot("a stream for its worker's reports: " .. relay_trouble, false, nil)
     end
     relay = made_relay
   end

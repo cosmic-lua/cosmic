@@ -829,7 +829,8 @@ that does run runs in a process of its own:
   -- the same core relaunched directly, never through the launcher --
   one per processor at a time, with a fresh temporary directory, captured
   streams, and a deadline past which its whole process group is ended. where
-  a sandbox holds it and all a worker can write is that sandbox's own tmpfs,
+  a sandbox holds it, so that all a worker can write is the one directory it
+  puts back between tests,
   one worker loads a module once and runs each of its tests in a copy of
   itself (a fork), one after another, so a test's process is its own and
   the module's load is paid once ([`doc/testing.md`], "one worker for a

@@ -770,8 +770,11 @@ receives `<scratch>/tmp`, a link to the fresh, empty, writable directory
 there, as siblings of `tmp` (`<scratch>/xXXXX`), not inside it. After a
 pass the runner removes the whole scratch directory, `tmp` and those
 siblings with it. Sandboxed, `<scratch>` is a tmpfs of the worker's own and
-is gone after a failure too. Unsandboxed (`COSMIC_TEST_SANDBOX=0`), a failing
-test's scratch directory is kept, and its failure says where. A sandboxed
+is gone after a failure too, unless the module declares what gives its
+worker a directory of the host instead (`system`, `tool`, `noexec`, a host
+cache, a directory to read). There, and unsandboxed
+(`COSMIC_TEST_SANDBOX=0`), a failing test's scratch directory is kept, and
+its failure says where. A sandboxed
 test has no write grant anywhere else.
 
 ### a cache of the code under test
@@ -805,9 +808,12 @@ end
 
 Sandboxed, a module's tests share a worker where they can: the worker loads
 the module once and runs each test in a copy of itself (a fork), one after
-another. A module with several tests is dealt to as many workers as may run
-at once (`--jobs`), so its tests still run beside each other. The run says
-how many tests ran so:
+another. A module's tests are dealt to as many workers as may run at once
+(`--jobs`), so they still run beside each other; a module of no more tests
+than that has a worker for each. A run of more modules than that has other
+modules' tests to run beside them, so there a worker is given at least
+eight tests, where its module has them. The run says how many tests ran
+so:
 
 ```text
 test: forks: 5557 tests ran in copies of 1123 workers, 0 of which retired early
@@ -822,25 +828,37 @@ Each test keeps what a worker of its own gave it:
   made from the worker, which runs no test itself.
 - its directory empty, and `TMPDIR` holding nothing an earlier test made.
   A worker goes on to the next test only after one that passed and left no
-  process running. It then removes all the test made in the sandbox's
-  `/tmp`, in its directory and beside it, and gives each directory that was
-  there the mode and the times it had. Where it cannot, or where a file
-  that was there before the test has changed, and after any test that did
-  not pass, the worker retires, and its sandbox ends as a worker's does.
+  process running. It then removes all the test made where it can write
+  (the sandbox's `/tmp`, or its scratch directory where that is the
+  host's), in its directory and beside it, and gives each directory that
+  was there the mode and the times it had. The time a file of the host's
+  that no test can write was last read is not put back: every worker's
+  reading moves it. Where the worker cannot put a thing back, or where a
+  file that was there before the test has changed, and after any test that
+  did not pass, the worker retires, and its sandbox ends as a worker's
+  does.
 - its own output: what the load printed, then what the test printed, as it
   printed it, so a test that hangs is shown with what it had said.
 - its own deadline, from when its copy was made.
+- the descriptors a worker of its own has, by the same numbers.
+- where its worker's scratch directory is the host's (a module that declares
+  `system`, `tool`, a host cache or a directory to read), a failing test's
+  directory kept, as a worker of its own leaves it: it is the last test that
+  worker runs. Such a worker empties no directory before the runner has
+  passed its test, which may fail one the worker saw pass (a test that
+  made no call to `assert`, in a held run).
 - no way to its worker: a copy is held to signalling itself and what it
   starts, so `kill(-1)` reaches what it reached in a worker of its own.
 
 A worker forks only where every test can be given that:
 
-- the worker can write nothing but its sandbox's own tmpfs. A module that
-  declares `system`, `tool`, `noexec`, a host cache or a directory to read
-  has a directory of the host for its scratch, and keeps a worker for each
-  test.
+- a sandbox holds the worker, so all it can write is the sandbox's `/tmp`,
+  or its scratch directory alone where that is the host's, which the worker
+  puts back between tests. A host cache a module declares is every worker's
+  as it is, and is left so.
 - the module declares no `loopback`, whose sockets one test would leave the
-  next, and no `nests`, whose worker no Landlock ruleset holds.
+  next, no `nests`, whose worker no Landlock ruleset holds, and no `noexec`,
+  whose private directory the worker does not put back.
 - the kernel's Landlock scopes signals (ABI 6, Linux 6.12).
 - the load left the worker as it was but for its memory: it started no
   process and left no descriptor open, no file written, no filter added and
