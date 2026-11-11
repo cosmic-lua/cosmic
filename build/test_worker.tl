@@ -251,15 +251,21 @@ local record worker
   unreported_result: function(ended: Child.Result?, printed: string): Child.Result?
   forks_here: function(): boolean, string
 
-  --- The pipe a forking worker's records come to its runner on ([`worker.relay`]).
+  --- The stream a forking worker's records come to its runner on ([`worker.relay`]).
   record Relay
-    --- The end the runner reads, which does not wait.
+    --- The end the runner reads, which does not wait, and writes its word on ([`worker.go_on`]).
     reader: integer
     --- The end the worker is given as its report descriptor, which the runner closes once the worker has started.
     writer: integer
   end
 
   relay: function(): Relay?, string
+
+  --- The runner's word to a worker that asks after a test it saw pass (one whose scratch directory is the
+  --- host's): go on to the next test, the runner having passed it too.
+  go_on: string
+  --- The runner's word that it failed the test: the worker leaves the test's directory as it is and retires.
+  stop: string
 
   --- The most distinct violations a worker keeps a record of: any more are
   --- counted ([`worker.dropped_violations`]) and nothing else.
@@ -284,6 +290,8 @@ local record worker
 end
 
 worker.report_fd = 3
+worker.go_on = "g"
+worker.stop = "s"
 
 local HEADER <const> = "cosmic-test-report-5"
 -- A second in nanoseconds, which a timeout is counted in: cosmic.clock,
@@ -1560,17 +1568,22 @@ function worker.forks_here(): boolean, string
   return true, ""
 end
 
---- A pipe for a forking worker's records ([`worker.Invocation`]'s `report`), or nil and why.
+--- A stream for a forking worker's records ([`worker.Invocation`]'s `report`), or nil and why. It carries the
+--- runner's word back too ([`worker.go_on`], [`worker.stop`]), so it is a pair of sockets, not a pipe.
 function worker.relay(): worker.Relay?, string
-  local pipe, trouble = process.pipe()
-  if pipe == nil then return nil, trouble end
-  local set, set_trouble = sys.set_nonblocking(pipe.reader, true)
+  local pair, trouble = process.connector_pair()
+  if pair == nil then return nil, trouble end
+  local reader, writer = assert(pair[1]), assert(pair[2])
+  -- The runner's word to a worker that has ended must fail, not end the run: a write to a stream whose reader is
+  -- gone raises SIGPIPE unless the process ignores it, as [`Child.start`] does for a child's stdin it writes.
+  local set, set_trouble = process.ignore_sigpipe()
+  if set then set, set_trouble = sys.set_nonblocking(reader, true) end
   if not set then
-    local _, _ = sys.close(pipe.reader)
-    local _, _ = sys.close(pipe.writer)
+    local _, _ = sys.close(reader)
+    local _, _ = sys.close(writer)
     return nil, set_trouble
   end
-  return { reader = pipe.reader, writer = pipe.writer }, ""
+  return { reader = reader, writer = writer }, ""
 end
 
 --- What of this process a copy of it would carry and a process started afresh would not have changed by loading
@@ -1656,11 +1669,11 @@ local function shape(path: string, lines: mut {string}, depth: integer, held?: m
   for _, name in ipairs(names) do shape(path .. "/" .. name, lines, depth + 1, held) end
 end
 
---- What the sandbox's tmpfs holds, /tmp and all beneath it ([`shape`]): the one place a worker with a scratch
---- directory of its own can write.
-local function written(held?: mut {string:Was}): string
+--- What `root` holds, itself and all beneath it ([`shape`]): the one place a forking worker can write, which is
+--- its sandbox's /tmp where its scratch directory is its own, and its scratch directory where that is the host's.
+local function written(root: string, held?: mut {string:Was}): string
   local lines: mut {string} = {}
-  shape("/tmp", lines, 0, held)
+  shape(root, lines, 0, held)
   return table.concat(lines, "\n")
 end
 
@@ -1773,7 +1786,9 @@ local function sweep_new(directory: string, kept: {string:Was}, depth: integer):
   return true, ""
 end
 
---- Puts the sandbox's tmpfs back as it was before a test that passed ran: nothing there but what `kept` names by
+--- Puts what a worker can write, `root` and all beneath it, back as it was before a test that passed ran: the
+--- sandbox's tmpfs, or the worker's scratch directory where that is a directory of the host's, which is then all
+--- of the tmpfs it is given. Nothing is left there but what `kept` names by
 --- its path, which is what was there before any test ran, each directory of those with the mode it had, each entry
 --- but a link with the times it was read and changed at, and the directory `children` there again. A test's own
 --- directory is emptied so, and what it made beside it (`TMPDIR`), in /tmp or in its build directories. What else
@@ -1782,13 +1797,13 @@ end
 ---
 --- Not put back, since nothing can: the time an entry's status last changed, which a test that removed or made a
 --- file beside it moved.
-local function restore(children: string?, kept: {string:Was}): boolean, string
-  local top = kept["/tmp"]
-  local now_top, _ = sys.lstat("/tmp")
+local function restore(root: string, children: string?, kept: {string:Was}): boolean, string
+  local top = kept[root]
+  local now_top, _ = sys.lstat(root)
   if top ~= nil and now_top ~= nil and now_top.mode ~= top.mode then
-    local _, _ = sys.chmod("/tmp", top.mode & 0xfff)
+    local _, _ = sys.chmod(root, top.mode & 0xfff)
   end
-  local swept, trouble = sweep_new("/tmp", kept, 0)
+  local swept, trouble = sweep_new(root, kept, 0)
   if not swept then return false, trouble end
   if children ~= nil then
     local there, _ = sys.lstat(children)
@@ -1798,12 +1813,16 @@ local function restore(children: string?, kept: {string:Was}): boolean, string
     end
   end
   for path, was in pairs(kept) do
-    -- Only where a time moved: an entry no test can write, a mount to read, takes no time and has none to take.
+    -- Only where a time moved. The time it was last read moves for an entry no test can write too, a mount of
+    -- the host's to read, which takes no time: that one is left, the host's as any worker's reading moves it.
     local now, _ = sys.lstat(path)
-    if was.kind ~= "link" and now ~= nil and (now.mtime ~= was.mtime or now.mtime_ns ~= was.mtime_ns or
-        now.atime ~= was.atime or now.atime_ns ~= was.atime_ns) then
-      local timed, time_trouble = sys.utimensat(path, was.atime, was.atime_ns, was.mtime, was.mtime_ns)
-      if not timed then return false, path .. ": " .. time_trouble end
+    if was.kind ~= "link" and now ~= nil then
+      local changed = now.mtime ~= was.mtime or now.mtime_ns ~= was.mtime_ns
+      local read = now.atime ~= was.atime or now.atime_ns ~= was.atime_ns
+      if changed or read then
+        local timed, time_trouble = sys.utimensat(path, was.atime, was.atime_ns, was.mtime, was.mtime_ns)
+        if not timed and changed then return false, path .. ": " .. time_trouble end
+      end
     end
   end
   return true, ""
@@ -1811,9 +1830,12 @@ end
 
 --- Runs each of `names`, a module's tests, in a copy of this process, one after another, and writes the runner a
 --- record of each ([`worker.Forked`]). `tested` runs one test here and answers its report, `children` is where
---- what a test starts writes its coverage, and `before` is what
+--- what a test starts writes its coverage, `root` is the directory that holds all the worker can write
+--- ([`restore`]), and `before` is what
 --- [`carried`] and [`written`] answered before the module loaded, and `preface` what the load printed, nil where
---- that could not be kept.
+--- that could not be kept. With `asks`, a failing test's directory is one a person is shown, and the runner may
+--- fail a test this worker saw pass (one that made no call to `assert`, in a held run): so the worker waits for
+--- the runner's word after each pass, and puts nothing back unless that is [`worker.go_on`].
 ---
 --- It forks only where a copy is what a worker started afresh would be once it had loaded the module: the load
 --- left this process as it was but for its memory (`carried`), wrote nothing (`written`), and started no process,
@@ -1822,12 +1844,12 @@ end
 --- Each copy is held to signalling itself and what it starts ([`process.fork`]'s `scoped`), has a pipe of its own
 --- for its output and one for its report, and no descriptor of the runner's. Once it has ended, this process
 --- writes what it reported and printed. It goes on to the next test only after one that passed and left no
---- process running, once the tmpfs is as it was before any test ran ([`restore`]); after any other, or where the
---- tmpfs cannot be put back, it retires, saying why, and its namespace ends with it as a worker's does.
+--- process running, once `root` is as it was before any test ran ([`restore`]); after any other, or where it
+--- cannot be put back, it retires, saying why, and its namespace ends with it as a worker's does.
 ---
 --- In the copy it answers nil, the test's report written: the copy returns from [`worker.run`] as any worker does.
 local function fork_tests(names: {string}, tested: function(string): (worker.Report), children: string?,
-                          before: string, preface: string?): integer?
+                          before: string, preface: string?, root: string, asks: boolean): integer?
   local relay = worker.report_fd
   local why = ""
   local now = carried()
@@ -1835,9 +1857,9 @@ local function fork_tests(names: {string}, tested: function(string): (worker.Rep
     why = "what its load printed could not be kept for its tests"
   elseif before == "" or now == "" then
     why = "its /proc could not be read, to say what its load left"
-  elseif now .. "\n" .. written() ~= before then
+  elseif now .. "\n" .. written(root) ~= before then
     why = "its load left a descriptor, a file, a filter or a signal's handling changed: " ..
-      differing(before, now .. "\n" .. written())
+      differing(before, now .. "\n" .. written(root))
   elseif others_run() then
     why = "a process beside it runs in its namespace"
   else
@@ -1862,17 +1884,18 @@ local function fork_tests(names: {string}, tested: function(string): (worker.Rep
   end
   -- What is still to write the runner, in order. The runner is one process that records each result as it reads
   -- it, and a worker that waited for it to read would leave its processor idle meanwhile: so the descriptor does
-  -- not wait, a record goes out as the pipe takes it, while the next test runs, and what is left goes out, waited
-  -- for, before this worker ends.
+  -- not wait, a record goes out as the stream takes it, while the next test runs, and what is left goes out, waited
+  -- for, before this worker ends. A worker that asks does wait after each test (`allowed`, below): its test's
+  -- directory is not its to empty before the runner has recorded the test.
   local outbox: mut {string} = {}
   local _, _ = sys.set_nonblocking(relay, true)
-  -- Writes what the pipe takes now. False once the runner is gone.
+  -- Writes what the stream takes now. False once the runner is gone.
   local sent_of_first = 0
   local function send(): boolean
     while true do
       local data = outbox[1]
       if data == nil then return true end
-      -- A pipe takes a part of a large record at a time: what is left of it is cut once, not at every write.
+      -- The stream takes a part of a large record at a time: what is left of it is cut once, not at every write.
       local piece = if sent_of_first > 0 then data:sub(sent_of_first + 1, sent_of_first + 65536) else
         data:sub(1, 65536) end
       local sent, _, number = sys.write(relay, piece)
@@ -1890,9 +1913,21 @@ local function fork_tests(names: {string}, tested: function(string): (worker.Rep
       if outbox[1] ~= nil then local _, _ = sys.poll({ relay }, { sys.POLLOUT }, -1) end
     end
   end
-  -- What the tmpfs holds now, before any test runs, and each entry of it.
+  -- Whether the runner says to go on after the test whose result was just queued: all of the outbox written
+  -- first, then its word waited for. Not where it says to stop, or is gone.
+  local function allowed(): boolean
+    send_all()
+    if outbox[1] ~= nil then return false end
+    while true do
+      local _, _ = sys.poll({ relay }, { sys.POLLIN }, -1)
+      local word, _, number = sys.read(relay, 1)
+      if word ~= nil then return word == worker.go_on end
+      if number ~= sys.EAGAIN and number ~= sys.EINTR then return false end
+    end
+  end
+  -- What `root` holds now, before any test runs, and each entry of it.
   local kept: mut {string:Was} = {}
-  local tmpfs = written(kept)
+  local clean = written(root, kept)
   outbox[#outbox + 1] = FORKS .. "\n"
   for index, name in ipairs(names) do
     local output, output_trouble = process.pipe()
@@ -1911,15 +1946,17 @@ local function fork_tests(names: {string}, tested: function(string): (worker.Rep
     end
     if pid == 0 then
       -- The test's own streams, and nothing of the runner's: what it writes, its worker relays.
+      -- Its report goes where a worker's does, on the same descriptor, so that the copy has the descriptors a
+      -- worker of its test's own has and no other: the next it opens has the number it would have there.
       local _, _ = sys.close(output.reader)
       local _, _ = sys.close(report.reader)
-      local _, _ = sys.close(relay)
+      local _, _ = sys.dup2(report.writer, relay)
+      local _, _ = sys.close(report.writer)
       local _, _ = sys.dup2(output.writer, 1)
       local _, _ = sys.dup2(output.writer, 2)
       local _, _ = sys.close(output.writer)
       if preface ~= nil and preface ~= "" then local _, _ = put(1, preface) end
-      local wrote, write_trouble = put(report.writer, worker.encode(tested(name)))
-      local _, _ = sys.close(report.writer)
+      local wrote, write_trouble = put(relay, worker.encode(tested(name)))
       if not wrote then
         complain("the test report: " .. write_trouble)
         return 2
@@ -1971,7 +2008,7 @@ local function fork_tests(names: {string}, tested: function(string): (worker.Rep
     if watch ~= nil then local _, _ = sys.close(watch) end
     local said = table.concat(reported)
     local strays = others_run()
-    -- Its result goes out before the tmpfs is put back, which is no part of its test's time.
+    -- Its result goes out before anything is put back, which is no part of its test's time.
     table.insert(outbox, "result " .. tostring(ended.code) .. " " .. tostring(ended.signal) .. " " ..
         tostring(#said) .. " 0\n" .. said .. "done\n")
     local _ = send()
@@ -1980,14 +2017,16 @@ local function fork_tests(names: {string}, tested: function(string): (worker.Rep
       retire = "its test did not pass"
     elseif strays then
       retire = "its test left a process running"
+    elseif index < #names and asks and not allowed() then
+      retire = "the runner failed its test"
     elseif index < #names then
-      local restored, restore_trouble = restore(children, kept)
+      local restored, restore_trouble = restore(root, children, kept)
       if not restored then
         retire = "its test's directory could not be emptied: " .. restore_trouble
       else
-        local left = written()
-        if left ~= tmpfs then
-          retire = "its test left the sandbox's tmpfs changed: " .. differing(tmpfs, left)
+        local left = written(root)
+        if left ~= clean then
+          retire = "its test left what was there before it changed: " .. differing(clean, left)
         end
       end
     end
@@ -2218,10 +2257,13 @@ function worker.run(argv: {string}): integer
   -- Each under a stand-in for `spawn` ([`confine.call`]), which holds what
   -- the test starts.
   -- A forking worker forks only where its load left the process as it was ([`fork_tests`]): what it is before.
+  -- All a forking worker can write: its sandbox's /tmp, or, where its scratch directory is the host's, that
+  -- directory alone (its policy grants it nothing of /tmp beside it).
+  local writes = if own_scratch then "/tmp" else Fs.dirname(tmp) end
   local before = ""
   if forks ~= nil then
     local carries = carried()
-    if carries ~= "" then before = carries .. "\n" .. written() end
+    if carries ~= "" then before = carries .. "\n" .. written(writes) end
   end
   -- What its load prints is each of its tests' to show, as the worker of one test shows it: kept in a file with
   -- no name while the module loads, and written ahead of each test's own output ([`fork_tests`]).
@@ -2310,7 +2352,7 @@ function worker.run(argv: {string}): integer
       local _, _ = put(worker.report_fd, "unforkable " .. hex("its module did not load") .. "\n")
       return 0
     end
-    local status = fork_tests(forks, tested, children, before, preface)
+    local status = fork_tests(forks, tested, children, before, preface, writes, not own_scratch)
     if status ~= nil then return status end
     return 0
   end

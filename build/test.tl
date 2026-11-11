@@ -1574,6 +1574,11 @@ local record Batch
   --- What the test whose copy is running has printed so far, and how many bytes that is.
   mut printed: mut {string}
   mut printed_size: integer
+  --- The directory of the host its worker has for its scratch, which each of its tests has in its turn; nil where
+  --- the worker's scratch is its sandbox's own. It goes with the worker, unless the last test it ran failed: that
+  --- test's is kept to look at, as a worker of its own would leave it.
+  scratch?: string
+  mut keep_scratch: boolean
   --- Whether it said it forks; whether it said it runs no more, and whether that was for a module no worker can
   --- fork for, whose other tests then each get a worker.
   mut forked: boolean
@@ -1620,13 +1625,23 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: State.Limits,
   -- The units still to start, in order, from `next_unit`: a module's tests together where there are several.
   local pending: mut {Unit} = {}
   local together: mut {Job} = {}
+  local shared_least <const> = 8
+  local modules = 0
+  for at, job in ipairs(jobs) do
+    local following = jobs[at + 1]
+    if following == nil or following.m.path ~= job.m.path then modules = modules + 1 end
+  end
+  local crowded = modules > limits.jobs
   for at, job in ipairs(jobs) do
     together[#together + 1] = job
     local following = jobs[at + 1]
     if following == nil or following.m.path ~= job.m.path then
-      -- A module's tests are dealt to as many workers as may run at once, two or more to each, so that they run
-      -- beside each other as they did when each had a worker.
-      local each = math.max(2, (#together + limits.jobs - 1) // limits.jobs)
+      -- A module's tests are dealt to as many workers as may run at once, so that they run beside each other as
+      -- they did when each had a worker: a module of no more tests than that has a worker for each. In a run of
+      -- more modules than that, other modules' tests run beside them, and a worker is given `shared_least` tests
+      -- where its module has them: a worker's start costs the runner more than its tests' turn does.
+      local each = (#together + limits.jobs - 1) // limits.jobs
+      if crowded then each = math.max(each, math.min(#together, shared_least)) end
       local hand: mut {Job} = {}
       for _, dealt in ipairs(together) do
         hand[#hand + 1] = dealt
@@ -1712,9 +1727,12 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: State.Limits,
     for _, job in ipairs(others) do
       job.own_scratch, job.plan = lead.own_scratch, lead.plan
     end
+    -- Its scratch directory is each test's in its turn, not the lead's.
+    local scratch = lead.scratch
+    lead.scratch = nil
     workers = workers + 1
     batches[#batches + 1] = { lead = lead, jobs = unit.jobs, settled = 0, reader = relay.reader, buffer = "",
-      printed = {}, printed_size = 0,
+      printed = {}, printed_size = 0, scratch = scratch, keep_scratch = false,
       forked = false, retired = false, unforkable = false, timeout_ns = deadline - started,
       idle_deadline_ns = deadline }
   end
@@ -1735,6 +1753,15 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: State.Limits,
       batch.flying = nil
       batch.settled = batch.settled + 1
       collect(flying, worker.unreported_result(ended, printed_by(batch)), trouble)
+      batch.keep_scratch = flying.passed ~= true
+    end
+    local scratch = batch.scratch
+    if scratch ~= nil and not batch.keep_scratch then
+      local gone, gone_trouble = Fs.remove_tree(scratch)
+      if not gone then
+        rec.errors[#rec.errors + 1] = batch.lead.id .. ": could not remove its worker's directory " .. scratch ..
+          ": " .. gone_trouble
+      end
     end
     if bailing() then return end
     -- A worker that ended having settled no test is followed by a worker for each, not by another like it, which
@@ -1785,6 +1812,7 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: State.Limits,
           broken = "its worker started a test out of turn"
         else
           job.started_ns, job.deadline_ns = started, started + batch.timeout_ns
+          job.scratch = batch.scratch
           batch.flying = job
         end
       elseif found.kind == "output" and flying ~= nil then
@@ -1801,6 +1829,14 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: State.Limits,
         batch.idle_deadline_ns = Clock.monotonic_ns() + batch.timeout_ns
         copies = copies + 1
         collect(flying, worker.forked_result(found, printed_by(batch)), "")
+        -- A test that failed is the last its worker runs, and its directory is kept; one that passed leaves it
+        -- to the next. A worker whose directory is the host's waits for that word before it empties it, since
+        -- a test it saw pass may have failed here (one that made no call to `assert`, in a held run).
+        batch.keep_scratch = flying.passed ~= true
+        if flying.passed == true then flying.scratch = nil end
+        if batch.scratch ~= nil then
+          local _, _ = sys.write(batch.reader, if flying.passed == true then worker.go_on else worker.stop end)
+        end
         if bailing() then
           local _, _ = handle:close()
           over(batch, nil, "", false)
@@ -1981,6 +2017,9 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: State.Limits,
   end
   for _, batch in ipairs(batches) do
     local _, _ = sys.close(batch.reader)
+    -- Ended with the run, its directory goes as a worker's does: the lead's again, for the sweep below. Not the
+    -- one a failing test's message says is kept.
+    if not batch.keep_scratch then batch.lead.scratch = batch.scratch end
     running[#running + 1] = batch.lead
   end
   for _, job in ipairs(running) do
