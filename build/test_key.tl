@@ -464,9 +464,7 @@ local record Edge
 end
 
 --- The bytecode of each module and main of `db` that has any, inflated,
---- by path. [`test_key.harness`] inflates the binary's modules once, here,
---- for the edges, the digests and the salt alike: every run pays for it
---- before its first test.
+--- by path.
 local function module_code(db: Sqlite.Handle): {string:string}?, string
   local modules, trouble = Sqlite.rows(db, "SELECT path, inflate(bytecode) FROM modules " ..
       "WHERE kind IN ('module', 'main') AND bytecode IS NOT NULL")
@@ -476,20 +474,21 @@ local function module_code(db: Sqlite.Handle): {string:string}?, string
   return code, ""
 end
 
+--- Whether Teal erased the require of `wanted` in the module whose
+--- bytecode is `bytes`: the name is nowhere in it. `bytes` is nil for an
+--- importer that is no module or main, or has no bytecode, and none of
+--- its requires is erased. Every reader of an edge asks here
+--- ([`import_edges`], [`test_key.harness`]), so they cannot drift apart.
+local function erased(bytes: string?, wanted: string): boolean
+  return bytes ~= nil and bytes:find(wanted, 1, true) == nil
+end
+
 --- The `imports` rows of `db`, in the table's order, each with whether
 --- Teal erased its require: the importer is a module or main whose
 --- bytecode (`code`, [`module_code`]) holds no occurrence of the required
 --- name. [`value_edges`] keeps the rows not erased and
 --- [`test_key.type_only_imports`] the erased ones, so the two cannot
 --- drift apart.
---- Whether Teal erased the require of `wanted` in the module whose
---- bytecode is `bytes`: the name is nowhere in it. Nil for the bytecode of
---- an importer that is no module or main, or has none, whose requires are
---- all kept.
-local function erased(bytes: string?, wanted: string): boolean
-  return bytes ~= nil and bytes:find(wanted, 1, true) == nil
-end
-
 local function import_edges(db: Sqlite.Handle, code: {string:string}): {Edge}?, string
   local rows, rows_trouble = Sqlite.text_rows(db, "SELECT path, requires FROM imports")
   if rows == nil then return nil, rows_trouble end
@@ -968,10 +967,8 @@ end
 
 --- The digest of the modules of the program's own database that the tree
 --- lacks -- the standard library, in a project's tree -- by path, source
---- hash, bytecode as the database stores it (deflated: other bytecode is
---- other stored bytes, and hashing them inflates nothing), stub and the
---- edges the checker follows from it (`decl_imports`), which a sealed
---- database carries whole
+--- hash, bytecode, stub and the edges the checker follows from it
+--- (`decl_imports`), which a sealed database carries whole
 --- ([`sealed_fill`]) and so a key of a worker on one holds
 --- ([`declared_of`]). Worked out once a run needs it, from the program's
 --- own database, which sealing nothing reads; "unread" where it cannot be.
@@ -979,7 +976,7 @@ local function extras_digest(rec: Recording): string
   local extras = rec.extras
   if extras ~= nil then return extras end
   local databases = Store.databases()
-  local query = "SELECT path, lower(hex(source_hash)), lower(hex(sha256(bytecode))), " ..
+  local query = "SELECT path, lower(hex(source_hash)), lower(hex(sha256(inflate(bytecode)))), " ..
     "coalesce((SELECT group_concat(requires, ' ' ORDER BY requires) FROM decl_imports d " ..
     "WHERE d.path = modules.path), '')"
   -- With its stub ([`sealed_fill`] carries it), where the program has
@@ -1407,10 +1404,10 @@ local sealed_fill <const>: {string} = {
   "INSERT OR IGNORE INTO main.imports SELECT path, requires FROM closure.imports " ..
     "WHERE path IN (SELECT path FROM main.modules) AND requires IN " ..
     "(SELECT path FROM main.modules) ORDER BY path, requires",
-  -- The module required is looked up for each row (`EXISTS`): written as
-  -- `requires IN (SELECT path FROM main.modules)`, the plan walked the
-  -- program's `imports`, which has no index by `requires`, once for each
-  -- module carried.
+  -- A lookup of the module each row requires (`EXISTS`), not `requires IN
+  -- (SELECT path FROM main.modules)`: the program's `imports` has no index
+  -- by `requires`, and the planner may answer the `IN` by walking the
+  -- table once for each module carried.
   "INSERT OR IGNORE INTO main.imports SELECT path, requires FROM program.imports i " ..
     "WHERE path IN temp.extra AND EXISTS (SELECT 1 FROM main.modules m WHERE m.path = i.requires) " ..
     "ORDER BY path, requires",
