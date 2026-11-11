@@ -431,10 +431,11 @@ local epoch_module <const> = "build.harness_epoch"
 local store_writer <const>: {string} = { "build.closure_store", "build.schema" }
 
 --- The names `roots` and `own` hold: each root and every module it
---- requires, directly or not, by `imports` (the names each module
---- requires), and each of `own` alone.
+--- requires, directly or not, by `requires_of` (the names a module
+--- requires, asked once of each module the walk reaches), and each of
+--- `own` alone.
 local function closure_of(roots: {string}, own: {string},
-                          imports: {string:{string}}): {string}
+                          requires_of: function(string): {string}): {string}
   local seen: mut {string:boolean} = {}
   local names: mut {string} = {}
   local stack: mut {string} = {}
@@ -448,7 +449,7 @@ local function closure_of(roots: {string}, own: {string},
     if seen[name] ~= true then -- checked: nil_not_allowed
       seen[name] = true -- checked: nil_not_allowed
       names[#names + 1] = name -- checked: nil_not_allowed
-      for _, required in ipairs(imports[name] or {}) do stack[#stack + 1] = required end -- checked: nil_not_allowed
+      for _, required in ipairs(requires_of(name)) do stack[#stack + 1] = required end -- checked: nil_not_allowed
     end
   end
   return names
@@ -463,9 +464,7 @@ local record Edge
 end
 
 --- The bytecode of each module and main of `db` that has any, inflated,
---- by path. [`test_key.harness`] inflates the binary's modules once, here,
---- for the edges, the digests and the salt alike: every run pays for it
---- before its first test.
+--- by path.
 local function module_code(db: Sqlite.Handle): {string:string}?, string
   local modules, trouble = Sqlite.rows(db, "SELECT path, inflate(bytecode) FROM modules " ..
       "WHERE kind IN ('module', 'main') AND bytecode IS NOT NULL")
@@ -473,6 +472,15 @@ local function module_code(db: Sqlite.Handle): {string:string}?, string
   local code: mut {string:string} = {}
   for _, row in ipairs(modules) do code[row:text(1)] = row:blob(2) end
   return code, ""
+end
+
+--- Whether Teal erased the require of `wanted` in the module whose
+--- bytecode is `bytes`: the name is nowhere in it. `bytes` is nil for an
+--- importer that is no module or main, or has no bytecode, and none of
+--- its requires is erased. Every reader of an edge asks here
+--- ([`import_edges`], [`test_key.harness`]), so they cannot drift apart.
+local function erased(bytes: string?, wanted: string): boolean
+  return bytes ~= nil and bytes:find(wanted, 1, true) == nil
 end
 
 --- The `imports` rows of `db`, in the table's order, each with whether
@@ -488,7 +496,7 @@ local function import_edges(db: Sqlite.Handle, code: {string:string}): {Edge}?, 
   for index, row in ipairs(rows) do
     local bytes = code[row:text(1)]
     edges[index] = { path = row:text(1), requires = row:text(2),
-      erased = bytes ~= nil and bytes:find(row:text(2), 1, true) == nil }
+      erased = erased(bytes, row:text(2)) }
   end
   return edges, ""
 end
@@ -559,14 +567,17 @@ local function projection_type_only(path: string): {string:{string:boolean}}?, s
 end
 
 --- The names `key_roots` and `key_own` hold ([`closure_of`]), over the
---- requires each module makes by value ([`test_key.value_imports`]).
-local function key_code(by_value: {string:{string}}): {string}
+--- requires each module makes by value (`by_value`, which answers them as
+--- [`test_key.value_imports`] does).
+local function key_code(by_value: function(string): {string}): {string}
   return closure_of(key_roots, key_own, by_value)
 end
 
 --- The names `store_writer` holds, with what they require ([`closure_of`]).
 local function store_code(imports: {string:{string}}): {string}
-  return closure_of(store_writer, {}, imports)
+  return closure_of(store_writer, {}, function(name: string): {string}
+    return imports[name] or {}
+  end)
 end
 
 --- The hash of `bytecode`, the module `name`'s, stripped of its debug
@@ -602,8 +613,26 @@ function test_key.harness(db: Sqlite.Handle): Harness?, string
   local modules, trouble = Sqlite.text_rows(db,
     "SELECT path, source_hash FROM modules WHERE kind IN ('module', 'main')")
   if modules == nil then return nil, trouble end
-  local code, code_trouble = module_code(db)
-  if code == nil then return nil, code_trouble end
+  -- The bytecode of a module, inflated when first asked for: the digests
+  -- read the harness's modules alone, a fifth of what the binary carries,
+  -- and every run pays for each one inflated before its first test.
+  local code: mut {string:string} = {}
+  local asked: mut {string:boolean} = {}
+  local code_trouble = ""
+  local function code_of(name: string): string?
+    if asked[name] ~= true then
+      asked[name] = true
+      local rows, rows_trouble = Sqlite.rows(db, "SELECT inflate(bytecode) FROM modules " ..
+          "WHERE path = ?1 AND kind IN ('module', 'main') AND bytecode IS NOT NULL", { { text = name } })
+      if rows == nil then
+        code_trouble = rows_trouble
+      else
+        local row = rows[1]
+        if row ~= nil then code[name] = row:blob(1) end
+      end
+    end
+    return code[name]
+  end
   local imported, imports_trouble = Sqlite.text_rows(db, "SELECT path, requires FROM imports")
   if imported == nil then return nil, imports_trouble end
   local sources: mut {string:string} = {}
@@ -624,9 +653,17 @@ function test_key.harness(db: Sqlite.Handle): Harness?, string
   for _, list in ipairs({ worker.loads, harness_own }) do
     for _, name in ipairs(list) do runs[#runs + 1] = name end
   end
-  local by_value, value_trouble = value_edges(db, code)
-  if by_value == nil then return nil, value_trouble end
-  for _, list in ipairs({ worker.loads, harness_own, harness_alone, key_code(by_value) }) do
+  local function by_value(name: string): {string}
+    local bytes = code_of(name)
+    local kept: mut {string} = {}
+    for _, wanted in ipairs(imports[name] or {}) do
+      if not erased(bytes, wanted) then kept[#kept + 1] = wanted end
+    end
+    return kept
+  end
+  local key_names = key_code(by_value)
+  if code_trouble ~= "" then return nil, code_trouble end
+  for _, list in ipairs({ worker.loads, harness_own, harness_alone, key_names }) do
     for _, name in ipairs(list) do
       if sources[name] == nil then
         return nil, name .. ", which a worker runs or which makes or reads a key, " ..
@@ -637,7 +674,8 @@ function test_key.harness(db: Sqlite.Handle): Harness?, string
   end
   local stripped: mut {string:string} = {}
   for _, name in ipairs(names) do
-    local digest, why = stripped_digest(code[name] or "", name)
+    local digest, why = stripped_digest(code_of(name) or "", name)
+    if code_trouble ~= "" then return nil, code_trouble end
     if digest == nil then return nil, why end
     stripped[name] = digest
   end
@@ -650,7 +688,8 @@ function test_key.harness(db: Sqlite.Handle): Harness?, string
     if source == nil then
       return nil, name .. ", which writes a closure store, is no module the binary carries"
     end
-    local bytes = code[name]
+    local bytes = code_of(name)
+    if code_trouble ~= "" then return nil, code_trouble end
     compiled[name] = source .. " " .. (if bytes ~= nil then hex_sha256(bytes) else "" end)
   end
   return { modules = each, digest = declared_key.harness(names, stripped), names = names, runs = runs,
@@ -1365,8 +1404,12 @@ local sealed_fill <const>: {string} = {
   "INSERT OR IGNORE INTO main.imports SELECT path, requires FROM closure.imports " ..
     "WHERE path IN (SELECT path FROM main.modules) AND requires IN " ..
     "(SELECT path FROM main.modules) ORDER BY path, requires",
-  "INSERT OR IGNORE INTO main.imports SELECT path, requires FROM program.imports " ..
-    "WHERE path IN temp.extra AND requires IN (SELECT path FROM main.modules) " ..
+  -- A lookup of the module each row requires (`EXISTS`), not `requires IN
+  -- (SELECT path FROM main.modules)`: the program's `imports` has no index
+  -- by `requires`, and the planner may answer the `IN` by walking the
+  -- table once for each module carried.
+  "INSERT OR IGNORE INTO main.imports SELECT path, requires FROM program.imports i " ..
+    "WHERE path IN temp.extra AND EXISTS (SELECT 1 FROM main.modules m WHERE m.path = i.requires) " ..
     "ORDER BY path, requires",
   "INSERT INTO main.decl_imports SELECT path, requires FROM closure.decl_imports " ..
     "ORDER BY path, requires",
