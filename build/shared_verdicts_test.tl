@@ -82,6 +82,31 @@ local function test_a_census_names_the_parts_the_rows_were_kept_under(tmp: strin
   shared_verdicts.close(cache)
 end
 
+--- The verdicts one run keeps come back with the hits they were kept with, where they share a module's line, differ
+--- in one, or hit nothing.
+local function test_the_verdicts_of_one_run_keep_their_own_hits(tmp: string)
+  local cache = assert(shared_verdicts.open(tmp .. "/cache/verdicts.db"))
+  local shared_line = "suite/lib.tl 0123456789abcdef\t3,4,5,9,200\n"
+  local hits: {string} = {
+    shared_line .. "suite/a_test.tl -\t1,2,5\n",
+    shared_line .. "suite/b_test.tl -\t1,2,6\n",
+    "",
+    "suite/lib.tl 0123456789abcdef\t3,4,5,9,201\n" .. shared_line,
+    "suite/a_test.tl -\t1,2,5\n",
+  }
+  local kept: mut {shared_verdicts.Kept} = {}
+  for at, text in ipairs(hits) do
+    kept[at] = { key = "k" .. tostring(at), test = "suite/t_test.tl test_" .. tostring(at), hits = text,
+      elapsed_ns = at }
+  end
+  assert(shared_verdicts.settle(cache, "first", { kept = kept, used = {}, failed = {} }, Clock.now_ns()))
+  for at, text in ipairs(hits) do
+    local found = assert(shared_verdicts.declared(cache, "k" .. tostring(at)))
+    assert(found.hits == text, "verdict " .. tostring(at) .. " came back with " .. found.hits)
+  end
+  shared_verdicts.close(cache)
+end
+
 --- A verdict is kept by its declared key alone (build/declared_key.tl),
 --- with no reads to check it by: found under that key, freshened by a
 --- run that relies on it, and taken out by one that fails under it. A
