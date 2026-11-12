@@ -13,6 +13,11 @@ local tree = require("build.c.tree")
 --- installed ([`build.c`]'s `compiler`): no script and no program of the
 --- host's runs. The bootstrap cosmic a check falls back to where zig is
 --- not installed is build/c/bootstrap_test.tl's.
+-- TODO: skip these where the compiler is not in the worker's sandbox,
+-- rather than fail each on its start: a host whose pinned zig is not
+-- installed yet, which a worker cannot fetch offline, or a COSMIC_ZIG
+-- outside the zig cache. It waits on a requirement that names the zig a
+-- check starts (build/host_names.tl has none).
 Test.policy{
   grants = {
     { path = "bin/zig.pin", letters = "r" },

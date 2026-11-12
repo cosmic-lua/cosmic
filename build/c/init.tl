@@ -272,9 +272,11 @@ end
 --- walked ([`declared_key.system_identity`]). A compiler confined in an
 --- unsandboxed worker is given them as every confined process is. A
 --- `PATH` directory outside those is not there for it.
-local function toolchain(root: string, variables: {string:string}):
+local function toolchain(root: string, variables: {string:string}, direct: boolean):
     string?, mut {string}, string?
-  for _, name in ipairs({ "COSMIC_ZIG", "COSMIC_BOOTSTRAP" }) do
+  -- A compile that starts the pinned zig itself runs no bootstrap cosmic,
+  -- so one named in its place changes nothing of it.
+  for _, name in ipairs(if direct then { "COSMIC_ZIG" } else { "COSMIC_ZIG", "COSMIC_BOOTSTRAP" } end) do
     local value = variables[name]
     if value ~= nil and value ~= "" then return nil, {}, nil end
   end
@@ -564,8 +566,8 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer, s
   end
   local results: mut {integer: c.Outcome} = {}
   local env = environment()
-  local install, runs_from, bootstrap_digest = toolchain(root, env)
   local zig, direct = compiler(root, env)
+  local install, runs_from, bootstrap_digest = toolchain(root, env, direct)
   local made_deps, deps_trouble = Fs.mkdtemp("cosmic-c-deps-")
   if made_deps == nil then
     for i, file in ipairs(files) do
