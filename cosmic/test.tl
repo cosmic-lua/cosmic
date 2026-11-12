@@ -23,9 +23,9 @@
 --- a sandboxed run of the same test is what enforces it, where an
 --- undeclared read finds nothing and the test fails with its own error.
 --- A start or a read that found nothing at an absolute path the
---- sandbox left out -- /bin/sh, say, for a test that does not declare
---- `system` -- says so beneath that error, naming what to declare: a
---- test that starts a host program declares `system = true`.
+--- sandbox left out -- /bin/sh, say, for a test that does not grant it
+--- -- says so beneath that error, naming what to declare: a test that
+--- starts a host program grants it by its absolute path.
 ---
 --- The closure is what the build finds `require`d by a literal name,
 --- or handed to `pcall(require, "<name>")`, anywhere in the module and
@@ -84,7 +84,12 @@ local record Test
     --- written with a "/" after it fails the build, naming its line; one
     --- that is a directory on the host fails each test of the module,
     --- naming it, as does a path that is the tree's, or above it.
-    --- Declare the files the tests read.
+    --- Declare the files the tests read. A program among them the tests
+    --- may start, and it comes with what it needs to start: the loader
+    --- and shared libraries a dynamic program names, and a script's
+    --- interpreter, each keyed by its contents as a file named here is.
+    --- What it opens by name once it runs (a name service, a locale,
+    --- another program) is named here too, or `system` is declared.
     mut host?: {string}
     --- Environment variables beyond the pinned ones.
     mut env?: {string}
@@ -180,7 +185,8 @@ local record Test
     --- stood on one host stands on another of the same kernel and
     --- processor. A test that starts this program's core directly, past
     --- its launcher, needs none; one that runs the launcher itself
-    --- (a `#!/bin/sh` script) needs it. One that reads a file or two
+    --- (a `#!/bin/sh` script) needs it. One that starts a program or two
+    --- of the host's rather names them in `host`. One that reads a file or two
     --- of the system rather names them in `host`, which keys a file by
     --- its contents.
     mut system?: boolean
