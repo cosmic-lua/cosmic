@@ -189,7 +189,9 @@ function embed.database(project: string, main: string, roots?: string): string?,
   if out == nil then
     return nil, building .. ": " .. open_trouble
   end
-  local statements: mut {string} = {}
+  -- Written aside, read back whole and removed, and begun again from nothing if a build is cut short: a journal
+  -- and a sync at each commit would only cost time.
+  local statements: mut {string} = { "PRAGMA journal_mode = OFF", "PRAGMA synchronous = OFF" }
   for _, statement in ipairs(schema.settings("")) do
     statements[#statements + 1] = statement
   end
