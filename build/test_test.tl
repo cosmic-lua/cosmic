@@ -614,7 +614,7 @@ local function test_the_harness_holds_what_a_worker_runs_and_what_keys_it()
   local db = assert(Sqlite.memory())
   assert(db:exec("CREATE TABLE modules (path TEXT, kind TEXT, source_hash BLOB, " ..
       "bytecode BLOB); CREATE TABLE imports (path TEXT, requires TEXT)"))
-  local key_code = { "build.test_key", "build.declared_key", "build.shared_verdicts",
+  local key_code = { "build.test_key", "build.stamp", "build.declared_key", "build.shared_verdicts",
     "build.artifact", "build.bind", "build.harness_epoch", "build.host_requires",
     "build.host_names", "build.lua_tail" }
   local imports: {{string}} = {
@@ -685,7 +685,7 @@ local function test_the_harness_holds_what_a_worker_runs_and_what_keys_it()
     return moves(name, "return 'a key'\n", "other bytecode")
   end
   -- A comment moves no digest of the harness, whose bytecode is the same; another bytecode does.
-  for _, name in ipairs({ "build.test_key", "build.declared_key", "build.shared_verdicts",
+  for _, name in ipairs({ "build.test_key", "build.stamp", "build.declared_key", "build.shared_verdicts",
       "build.artifact", "build.test_worker", "build.test_sandbox", "build.test_policy",
       "cmd.cosmic.main", "build.confine", "build.lua_tail",
       "build.test_inputs", "cosmic.test", "build.host_requires", "build.host_names",
@@ -774,7 +774,7 @@ local function test_the_harness_walks_the_key_code_by_value()
       { blob = dumped(source, true) } }))
   end
   for _, name in ipairs(worker.loads) do add(name) end
-  for _, name in ipairs({ "build.test_key", "build.declared_key", "build.shared_verdicts",
+  for _, name in ipairs({ "build.test_key", "build.stamp", "build.declared_key", "build.shared_verdicts",
       "build.host_requires", "build.artifact", "build.test_sandbox", "build.test_policy",
       "build.caches", "build.zig_caches", "build.closure_store", "build.schema", "build.lua_tail",
       "cosmic.child", "cosmic.sandbox", "cosmic.sandbox.policy", "cosmic.time", "cosmic.sqlite", "cosmic.stream" }) do

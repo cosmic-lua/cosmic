@@ -111,9 +111,10 @@ end
 -- rebuild is done by a tool the first built, so this holds only when a
 -- tool built by a rebuild compiles and writes what a boot does.
 -- `settles` is whether `file` is in the writer's identity (`build.identity`'s
--- `writer_modules`) or the compiler's (`compiler_modules`): then each
+-- `writer_modules`), the compiler's (`compiler_modules`) or the code that
+-- works out the tool's stamps (build.stamps' `code_of`): then each
 -- rebuilt tool finds its database built by other code than its own and
--- builds it again once (`build.reboot`). Outside both, neither does.
+-- builds it again once (`build.reboot`). Outside all three, neither does.
 --
 -- `shares` is whether the case's rebuilds share compiles and parses with
 -- the group's other sharing cases, through one file the driver names
@@ -246,18 +247,19 @@ local function test_a_rebuilt_compiler_lands_on_the_booted_tool(tmp: string)
   run_fixed_point_case(tmp, "compiler", "build/plans.tl", commented, true, false)
 end
 
--- `build.importer` is in neither identity, though build.writer
--- requires it (the writer's identity leaves it out), nor in the code a
--- compile is keyed by (build.pipeline's `coded`, which a rebuilt
--- tool's `compiled_by` is held to): the stale tool's compiler and writer
--- are the tree's, and each rebuild is final. build.positions, which
--- build.tree_program requires for its hints, is in that code.
--- TODO: nothing holds this module outside the two identities and
--- `coded`: a require that brings it into build.pipeline's walk fails this
--- case only on Sunday's scheduled run. A test of the three walks, run on
--- every change, would fail on the require itself.
+-- `build.todos` is in neither identity, nor in the code a compile is
+-- keyed by (build.pipeline's `coded`, which a rebuilt tool's
+-- `compiled_by` is held to), nor in the code the tool's stamps are worked
+-- out by (build.stamps and what it requires): the stale tool's compiler,
+-- writer and stamping code are the tree's, and each rebuild is final.
+-- build.positions, which build.tree_program requires for its hints, is in
+-- the code a compile is keyed by.
+-- TODO: nothing holds this module outside the two identities, `coded` and
+-- the stamping code: a require that brings it into build.pipeline's walk
+-- fails this case only on Sunday's scheduled run. A test of the walks, run
+-- on every change, would fail on the require itself.
 local function test_a_self_rebuild_lands_on_the_booted_tool(tmp: string)
-  run_fixed_point_case(tmp, "outside", "build/importer.tl", commented, false, true)
+  run_fixed_point_case(tmp, "outside", "build/todos.tl", commented, false, true)
 end
 
 -- An edit to how the compiler's identity is defined (`build.identity`'s
@@ -296,9 +298,14 @@ local function test_a_redefined_fingerprint_and_compiler_land_on_the_booted_tool
   end, true, false)
 end
 
--- Staging, scans and transaction history do not define projection bytes.
-local function test_a_staging_edit_needs_no_settling(tmp: string)
-  run_fixed_point_case(tmp, "staging", "build/work.tl", commented, false, true)
+-- Staging, scans and transaction history do not define projection bytes,
+-- but build.work is code the tool's stamps are worked out by (build.stamps
+-- requires it through build.importer): the stale tool writes a tool without
+-- stamps, which builds its database again once, compiling nothing. That
+-- build.work is in neither the writer's identity nor the compiler's is
+-- build/importer_test.tl's to hold (its tests of each identity's closure).
+local function test_a_staging_edit_settles_for_its_stamps_alone(tmp: string)
+  run_fixed_point_case(tmp, "staging", "build/work.tl", commented, true, true)
 end
 
 -- `build.clock` is in the writer's identity and not the compiler's.

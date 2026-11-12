@@ -16,6 +16,7 @@ local identity = require("build.identity")
 local importer = require("build.importer")
 local refusals = require("build.refusals")
 local shared_compiles = require("build.shared_compiles")
+local stamps = require("build.stamps")
 local work = require("build.work")
 local writer = require("build.writer")
 local clock = require("build.clock")
@@ -205,7 +206,7 @@ local function stage(root: string, working: build_paths.Layout, output: build_pa
 
   -- The tool carries the projection without the tree's own tests and
   -- examples, which `cosmic test` reads from the projection itself.
-  local carried, carry_trouble = writer.carried(database_path, output.carried)
+  local carried, carry_trouble = writer.carried(database_path, output.carried, stamps.fill)
   if not carried then
     local _, _ = work.close(handle)
     log:complain("boot: " .. carry_trouble)

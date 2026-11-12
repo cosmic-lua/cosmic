@@ -42,6 +42,8 @@ local record Env
     "COSMIC_REBUILD_LOCK_HANDED"
     --- "must" fails a test that cannot be confined.
     "COSMIC_SANDBOX"
+    --- "0" has the tool work out the identities its stamps hold, reading none.
+    "COSMIC_STAMPS"
     --- "1" runs every test.
     "COSMIC_TEST_ALL"
     --- "1" starts no test after the first failure.

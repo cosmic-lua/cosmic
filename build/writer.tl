@@ -1309,7 +1309,13 @@ local carry: {string} = {
 --- reads it from a projection it wrote, and build.reboot's `replaced`
 --- tells a rebuilt tool apart by `boot_hash`, `written_by` and
 --- `compiled_by`, one of which every rebuild moves.
-function writer.carried(whole: string, out: string): boolean, string
+---
+--- `finish`, where given, is run on the filled database before it is
+--- vacuumed, to add what its caller works out of the rows themselves: a
+--- tool's stamps ([`build.stamps`]'s `fill`), which this module does not
+--- require, since working them out takes the code they name.
+function writer.carried(whole: string, out: string,
+                        finish?: function(db: Sqlite.Handle): boolean, string): boolean, string
   local function fill(db: Sqlite.Handle): boolean, string
     local statements: mut {string} = {}
     for _, statement in ipairs(schema.settings("")) do
@@ -1347,6 +1353,12 @@ function writer.carried(whole: string, out: string): boolean, string
     local _, _ = db:exec("DETACH whole")
     if not made then
       return false, refused
+    end
+    if finish ~= nil then
+      local finished, finish_trouble = finish(db)
+      if not finished then
+        return false, finish_trouble
+      end
     end
     local _, _ = Fs.remove(out .. ".building")
     local vacuumed, vacuum_trouble = Sqlite.run(db, "VACUUM INTO ?1",
