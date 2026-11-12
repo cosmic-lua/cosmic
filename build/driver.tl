@@ -278,7 +278,7 @@ function Driver.globals(sources: {Driver.Source}, adjust: (function(globals: {st
     {string: Scopes.Global}
   local out: mut {string: Scopes.Global} = {}
   for _, source in ipairs(sources) do
-    for name, g in pairs(Scopes.declared(read_source(source).chunk)) do
+    for name, g in pairs(Scopes.declared(global_read(source).chunk)) do
       out[name] = g
     end
   end
