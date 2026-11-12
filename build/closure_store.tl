@@ -313,13 +313,14 @@ end
 --- bytecode. Nil where there is nothing to say it by, and nil too while
 --- the file is younger than two seconds: a write inside the tick of the
 --- clock that stamped it would leave all of these as they were, so a
---- basis is kept only of a file already older than that.
-local function memo_token(whole: string, pure?: boolean): string?
+--- basis is kept only of a file already older than that. `now_ns` is
+--- the time its age is held against, the clock's where nil.
+local function memo_token(whole: string, pure?: boolean, now_ns?: integer): string?
   local st, _ = sys.stat(whole)
   if st == nil then return nil end
   local written = st.mtime * 1000000000 + st.mtime_ns
   local changed = st.ctime * 1000000000 + st.ctime_ns
-  if Clock.now_ns() - math.max(written, changed) < 2000000000 then return nil end
+  if (now_ns or Clock.now_ns()) - math.max(written, changed) < 2000000000 then return nil end
   local code, _ = Store.bytecode("build.closure_store")
   if code == nil then return nil end
   return table.concat({ if pure == true then "basis-memo-4-pure" else "basis-memo-4" end, Hash.hex_sha256(code), st.size, st.ino, st.dev, written, changed }, " ")
@@ -643,8 +644,12 @@ end
 ---
 --- `pure` makes it also what [`closure_store.address`] and [`closure_store.write`] take for
 --- the pure store (`pure`, `stripped`, `bytecode`, `pure_decls`); without it those are empty.
-function closure_store.basis(whole: string, pure?: boolean): closure_store.Basis?, string
-  local token = memo_token(whole, pure)
+---
+--- `now_ns` is the time the file's age is held against, the clock's where
+--- nil: a test of what is kept of a file old enough names a later one,
+--- where it would otherwise wait the two seconds out.
+function closure_store.basis(whole: string, pure?: boolean, now_ns?: integer): closure_store.Basis?, string
+  local token = memo_token(whole, pure, now_ns)
   if token ~= nil then
     local kept = remembered(whole, token)
     if kept ~= nil then return kept, "" end
