@@ -24,7 +24,8 @@ local record Programs
     before: {string}
     --- What checking each module it required gave, by name: those [`Programs.runner`] was given as `modules`.
     required?: {string: Run}
-    --- Which call of [`Programs.run`] made it, counted from one; nil for a [`Programs.runner`]'s.
+    --- Which call of [`Programs.run`] made it, counted from one; nil for a Run of a program of its own
+    --- ([`Programs.runner`], [`Programs.standard`], [`Programs.session`]).
     mut turn?: integer
   end
 
@@ -311,12 +312,18 @@ local function read_library(): Parser.Parsed
   return held
 end
 
-function Programs.runner(): function(source: string, module?: string, modules?: {string: string}, declared?: {string: string}): Programs.Run
+--- A program with the library lowered, and the globals the library declares.
+local function library_program(): Declarations.Program, {string: Scopes.Global}
   local program = Declarations.new()
   program.external["cosmic.sys"] = true -- checked: view_written
   local library = read_library()
   local globals = Scopes.declared(library.chunk)
   local _ = lower(program, "std", Programs.library, "decl", {}, nil, library)
+  return program, globals
+end
+
+function Programs.runner(): function(source: string, module?: string, modules?: {string: string}, declared?: {string: string}): Programs.Run
+  local program, globals = library_program()
   return function(source: string, module?: string, modules?: {string: string}, declared?: {string: string}): Programs.Run
     local files = declared or {}
     for _, name in ipairs(sorted_names(files)) do
@@ -358,12 +365,10 @@ function Programs.run(source: string, modules?: {string: string}, declared?: {st
   if program ~= nil and #shared.names > 0 and not Declarations.forget(program, shared.names) then
     program = nil
   end
+  -- From here the Run of the call before is of declarations forgotten, whether or not this call ends.
+  shared.turn = shared.turn + 1
   if program == nil then
-    program = Declarations.new()
-    program.external["cosmic.sys"] = true -- checked: view_written
-    local library = read_library()
-    shared.globals = Scopes.declared(library.chunk)
-    local _ = lower(program, "std", Programs.library, "decl", {}, nil, library)
+    program, shared.globals = library_program()
     shared.program = program
   end
   local globals = shared.globals
@@ -382,7 +387,6 @@ function Programs.run(source: string, modules?: {string: string}, declared?: {st
     required[name] = lower(program, name, assert(sources[name]), "tl", globals)
   end
   names[#names + 1] = "t"
-  shared.turn = shared.turn + 1
   local ran = lower(program, "t", source, "tl", globals, required)
   ran.turn = shared.turn
   for _, other in pairs(required) do other.turn = shared.turn end
