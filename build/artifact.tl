@@ -482,8 +482,8 @@ end
 --- lengths this writer uses, a manifest where it says, a database that
 --- starts right behind that manifest, runs to the trailer and begins with
 --- SQLite's header. An artifact of another version is refused by name,
---- such as the version 1 a release before this one wrote; so is one
---- `read` answers fewer bytes of than it was asked.
+--- such as the version 1 a release before this one wrote. A `read` that
+--- answers fewer bytes than it was asked for is refused too.
 function artifact.database_in(size: integer, read: function(offset: integer, length: integer): string?): artifact.Carried?, string
   if size < trailer_length then
     return nil, "too short for an artifact trailer"
@@ -511,7 +511,8 @@ function artifact.database_in(size: integer, read: function(offset: integer, len
       database_length ~= size - trailer_length - database_offset then
     return nil, "the artifact trailer's ranges do not fit the file"
   end
-  -- The manifest's magic, then its version, its length and where it says the database starts.
+  -- Its magic, then its version, its length and where it says the
+  -- database starts.
   local manifest_head = read(manifest_offset, 24)
   if manifest_head == nil or #manifest_head ~= 24 or manifest_head:sub(1, 8) ~= manifest_magic then
     return nil, "the artifact has no manifest where its trailer says"

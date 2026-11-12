@@ -306,6 +306,8 @@ allow({ "build.test_key.worker_environment", "build.test_key.scratch" },
   "tested directly: the tests hand them what the running binary alone gives the runner -- " ..
     "a tree's or a fixture's modules, an environment with no startup hook of its own, a " ..
     "directory made as a worker is given one")
+allowed["build.test_key.program_database"] = "tested directly: the test holds it to the ranges it reads of a file " ..
+  "laid out as an artifact, which a run that seals reads only of the running program"
 allowed["build.test_key.value_imports"] = "tested directly: the harness's test reads, " ..
   "by it, what each module the harness runs requires by value, as `key_code` walks it"
 allowed["build.test_key.type_only_imports"] = "tested directly: the harness's test holds " ..

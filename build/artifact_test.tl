@@ -352,6 +352,31 @@ local function test_a_range_read_short_is_refused()
   end
 end
 
+--- What lies where the trailer says is checked too: a manifest that is
+--- none, one that says the database starts elsewhere, and a database that
+--- is no SQLite file are each refused by name.
+local function test_a_manifest_or_a_database_that_is_not_one_is_refused()
+  local prefix = assert(artifact.prefix(records, cores))
+  local program = assert(artifact.program(prefix, "SQLite format 3\0db"))
+  -- The manifest is the prefix's last 4096 bytes: its magic, two 4-byte
+  -- fields, then where the database starts.
+  local manifest_at = #prefix - 4096
+  local function patched(at: integer, bytes: string): string
+    return program:sub(1, at) .. bytes .. program:sub(at + #bytes + 1)
+  end
+  local cases: {{string}} = {
+    { patched(manifest_at, "NotMagic"), "no manifest where its trailer says" },
+    { patched(manifest_at + 16, string.pack(">I8", #prefix + 1)), "disagree on where its database starts" },
+    { patched(#prefix, "Not SQLite at a"), "no SQLite header" },
+  }
+  for _, case in ipairs(cases) do
+    local bytes, wanted = assert(case[1]), assert(case[2])
+    assert(#bytes == #program)
+    local parts, trouble = artifact.split(bytes)
+    assert(parts == nil and trouble:find(wanted, 1, true) ~= nil, wanted .. ": " .. trouble)
+  end
+end
+
 --- A trailer whose fields do not fit the file is refused, never read
 --- past.
 local function test_split_refuses_a_trailer_that_does_not_fit()

@@ -1511,6 +1511,36 @@ local sealed_fill <const>: {string} = {
     "(SELECT 1 FROM main.modules WHERE path = 'cosmic.http') ORDER BY rowid",
 }
 
+--- The database the artifact at `file` carries, read by its range of the
+--- file ([`artifact.database_in`]): the launcher and the cores ahead of it
+--- are most of an artifact that carries every core, and every run that
+--- seals would read them to drop them. `asked`, where given, is told each
+--- range read of the file, for the test that holds it to those. Nil and
+--- why where the file cannot be opened or read, or is no artifact.
+function test_key.program_database(file: string,
+                                   asked?: function(offset: integer, length: integer)): artifact.Carried?, string
+  local fd, open_trouble = Fs.open_read(file)
+  if fd == nil then return nil, open_trouble end
+  local held: integer = fd
+  local size_of, stat_trouble = sys.fstat(held)
+  if size_of == nil then
+    local _, _ = Fs.close(held)
+    return nil, stat_trouble
+  end
+  local read_trouble = ""
+  local carried, trouble = artifact.database_in(size_of.size, function(offset: integer, length: integer): string?
+    if asked ~= nil then asked(offset, length) end
+    local data, why = sys.pread(held, length, offset)
+    if data == nil then read_trouble = why end
+    return data
+  end)
+  local _, _ = Fs.close(held)
+  if carried == nil then
+    return nil, trouble .. (if read_trouble ~= "" then ": " .. read_trouble else "" end)
+  end
+  return carried, ""
+end
+
 --- What sealing the databases of this run's workers is made from
 --- ([`Sealing`]), made the first time one is wanted: this program's own
 --- database, taken from its artifact and written in a directory of the
@@ -1533,22 +1563,7 @@ local function sealing_for(rec: Recording): Sealing?, string
   if file == nil then
     return refuse("this program is no portable artifact to take its database from")
   end
-  -- By its range of the file: the launcher and the cores ahead of it are
-  -- most of an artifact that carries every core, and every run that seals
-  -- would read them to drop them.
-  local fd, artifact_trouble = Fs.open_read(file)
-  if fd == nil then return refuse(file .. ": " .. artifact_trouble) end
-  local held: integer = fd
-  local size_of, stat_trouble = sys.fstat(held)
-  local parts: artifact.Carried? = nil
-  local split_trouble = stat_trouble
-  if size_of ~= nil then
-    parts, split_trouble = artifact.database_in(size_of.size, function(offset: integer, length: integer): string?
-      local data, _ = sys.pread(held, length, offset)
-      return data
-    end)
-  end
-  local _, _ = Fs.close(held)
+  local parts, split_trouble = test_key.program_database(file)
   if parts == nil then return refuse(file .. ": " .. split_trouble) end
   if parts.host then
     return refuse(file .. ": a host program has no database to seal from")
