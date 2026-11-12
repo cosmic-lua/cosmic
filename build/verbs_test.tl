@@ -34,9 +34,10 @@ end
 --- A test's worker is cosmic's main's to start (cmd/cosmic/main.tl),
 --- ahead of build.dispatch, so a worker loads none of it: run
 --- in-process ([`build.invoke`]), which is dispatch alone, `test
---- --worker` is `test` refusing an option it does not know.
+--- --worker` is `test` refusing an option it does not know. So is the
+--- probe of the sandbox, `test --sandbox-probe`.
 local function test_dispatch_starts_no_worker(tmp: string)
-  for _, mode in ipairs({ "--worker", "--worker-no-tool", "--worker-held" }) do
+  for _, mode in ipairs({ "--worker", "--worker-no-tool", "--worker-held", "--sandbox-probe" }) do
     local result = invoke.run({ "test", mode, tmp, "a_test", "test_a", tmp .. "/tmp",
       tmp .. "/children" }, { cwd = tmp })
     local err = result.stderr
