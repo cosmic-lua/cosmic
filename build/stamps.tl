@@ -3,7 +3,7 @@
 --- out again from its own rows, which [`build.stamp`] reads instead.
 ---
 --- - `stamp_coded`: the code that reads and checks ([`build.pipeline`]'s
----   `code_of`), which a compile is keyed by and a start compares the
+---   [`code_of`]), which a compile is keyed by and a start compares the
 ---   database's compiler with.
 --- - `stamp_analyzer`: the analyzer's identity
 ---   ([`importer.analyzer_identity`]), which a parse is keyed by.
@@ -17,7 +17,7 @@
 --- that works it out at a start, given that database in place of the
 --- running binary's. So a stamp is what the tool carrying the database
 --- would work out, provided the code working it out here is the code
---- that database carries. `fill` writes stamps only then (`code`): a boot
+--- that database carries. `fill` writes stamps only then ([`code_of`]): a boot
 --- runs the tree's own code, and a tool writes the database of a tree
 --- whose stamping code is its own. A stale tool whose stamping code the
 --- tree has moved writes none, and the tool it wrote, which finds none,
@@ -31,12 +31,6 @@ local importer = require("build.importer")
 local test_key = require("build.test_key")
 
 local record stamps
-  --- The identity of the code `db` carries that works out its stamps:
-  --- this module and every module it requires, directly or not, each by
-  --- the hash of its source. Nil where `db` does not carry this module or
-  --- cannot be read.
-  code: function(db: Sqlite.Handle): string?
-
   --- Writes into `db`'s `meta` the stamps of its own rows and the row
   --- that binds them to those rows ([`Stamp.content`]), in place of any
   --- it holds. It writes none where the code `running` carries (by
@@ -47,12 +41,16 @@ local record stamps
   fill: function(db: Sqlite.Handle, running?: Sqlite.Handle): boolean, string
 end
 
+--- The identity of the code `db` carries that works out its stamps:
+--- this module and every module it requires, directly or not, each by
+--- the hash of its source. Nil where `db` does not carry this module or
+--- cannot be read.
 -- TODO: name the stamping code by the modules that work a stamp out and no
 -- others, once test_key.harness, importer.analyzer_identity and
 -- Pipeline.code_of live in modules that require only what they run: today
--- `code` holds all that this module requires, each by its source, so a
+-- [`code_of`] holds all that this module requires, each by its source, so a
 -- comment anywhere in it has the rebuilt tool write its database again.
-function stamps.code(db: Sqlite.Handle): string?
+local function code_of(db: Sqlite.Handle): string?
   local rows, _ = Sqlite.text_rows(db,
     "WITH RECURSIVE reached(name) AS (VALUES ('build.stamps') UNION " ..
       "SELECT requires FROM imports JOIN reached ON path = name) " ..
@@ -149,8 +147,8 @@ function stamps.fill(db: Sqlite.Handle, running?: Sqlite.Handle): boolean, strin
     local databases = Store.databases()
     binary = databases[#databases]
   end
-  local code = stamps.code(db)
-  if code == nil or (binary ~= nil and stamps.code(binary) ~= code) then return true, "" end
+  local code = code_of(db)
+  if code == nil or (binary ~= nil and code_of(binary) ~= code) then return true, "" end
   local content, content_trouble = Stamp.content(db)
   if content == nil then return false, content_trouble end
   local rows = worked(db)

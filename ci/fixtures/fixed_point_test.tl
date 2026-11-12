@@ -112,7 +112,7 @@ end
 -- tool built by a rebuild compiles and writes what a boot does.
 -- `settles` is whether `file` is in the writer's identity (`build.identity`'s
 -- `writer_modules`), the compiler's (`compiler_modules`) or the code that
--- works out the tool's stamps (build.stamps' `code`): then each
+-- works out the tool's stamps (build.stamps' `code_of`): then each
 -- rebuilt tool finds its database built by other code than its own and
 -- builds it again once (`build.reboot`). Outside all three, neither does.
 --

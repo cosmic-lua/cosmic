@@ -302,7 +302,7 @@ allowed["build.test_inputs.lua_loads"] = "what build/lua_children_test.tl holds 
 allowed["build.test_inputs.standalone_loads"] = "what build/lua_standalone_test.tl " ..
   "holds a child's `--standalone` to loading no more than, beside `lua_loads`, as the " ..
   "artifact a module that requires build.standalone's children run carries them"
-allow({ "build.test_key.harness", "build.test_key.worker_environment", "build.test_key.scratch" },
+allow({ "build.test_key.worker_environment", "build.test_key.scratch" },
   "tested directly: the tests hand them what the running binary alone gives the runner -- " ..
     "a tree's or a fixture's modules, an environment with no startup hook of its own, a " ..
     "directory made as a worker is given one")
