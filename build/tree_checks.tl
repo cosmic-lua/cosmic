@@ -3165,6 +3165,7 @@ end
 local text_read_allowed <const>: {string:string} = {
   ["build.checker_declarations"] = "reads the declarations of the globals and the standard library, which a closure store adds for a closure that holds this module ([`build.closure_store`]'s `declared_beside`), so its read is never short",
   ["build.plans"] = "asks the stub or source of a standard-library module a compile names; the pure store holds the stubs a test names and fails for the rest ([`Store.withheld`])",
+  ["build.stamp"] = "hashes each declaration's source into what binds a tool's stamps to its rows; a store a test is given carries no stamp, and where it withholds a source the binding is not the stamps' and none is answered",
   ["build.standard_text"] = "serves the stub or source of a standard-library module; the pure store holds the stubs a test names and fails for the rest ([`Store.withheld`])",
   ["build.closure_store"] = "reads the projection it writes the stores of, which a test is never given and which no test's store holds",
   ["build.perf"] = "a standalone script a release program runs; its SQL is the argument of a `cosmic sql` it starts and times against a project's own store, not a read of the store a test is given, and it cannot require a module of the tree it benchmarks",
