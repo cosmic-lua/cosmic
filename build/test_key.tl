@@ -2279,6 +2279,22 @@ function test_key.declared_runtime(runtime: string, must: boolean): string
   return runtime .. " declared" .. (if must then " must" else "" end)
 end
 
+--- A finished test whose verdict waits to be kept ([`test_key.keep`]).
+local record Waiting
+  rec: Recording
+  job: Job
+  judged: Judged
+  elapsed: integer
+end
+
+--- The finished tests of the run this process makes whose verdicts are not kept yet, in the order they ended.
+--- A run begins with none ([`test_key.begin`]): what a run that an error ended left here is not the next one's.
+local waiting: mut {Waiting} = {}
+
+--- The most finished tests that wait for one look at their inputs: what a run ended with no chance to keep
+--- them (a kill no guard catches) loses of its verdicts, and they run again.
+local waiting_most <const> = 64
+
 --- Sets what every key of the run holds of the harness and the runtime
 --- on its recording: the runtime, whether workers are sandboxed, the
 --- epoch, the timeout, the salt of the stores' addresses and the modules
@@ -2290,6 +2306,7 @@ end
 --- (build/sandboxed_verdicts_test.tl): mixed into the salt, never in
 --- its place, so one address still names one store's bytes.
 function test_key.begin(rec: Recording, from: Begin)
+  waiting = {}
   rec.runtime = from.runtime
   rec.sandbox = from.sandbox
   local digest = from.harness.digest
@@ -2519,7 +2536,7 @@ end
 --- them. One that failed with its inputs moved while it ran describes no
 --- one state of them, but may be of the one it started from, and a pass
 --- kept under that key would stand for it: gone.
-function test_key.keep(rec: Recording, job: Job, judged: Judged, elapsed: integer)
+local function keep_now(rec: Recording, job: Job, judged: Judged, elapsed: integer)
   local id, key = job.id, job.declared
   -- A pass that met a violation is kept as a failure is: no verdict of it stands, and a verdict that stood under
   -- its key goes.
@@ -2548,6 +2565,30 @@ function test_key.keep(rec: Recording, job: Job, judged: Judged, elapsed: intege
     rec.owed.kept[#rec.owed.kept + 1] = { key = key, test = id, hits = rec.by_test[id], -- checked: index_may_be_nil, nil_not_allowed
       elapsed_ns = elapsed }
   end
+end
+
+--- Keeps the verdict of every test that waits ([`test_key.keep`]), each as [`keep_now`] keeps one, under one look
+--- at each declared input: every one of them ended before this look, so what it finds is what each would find
+--- of its own, later, and a module's inputs are digested once for all of its tests among them. The runner
+--- calls it once no test is left to collect, however the run ended.
+function test_key.keep_waiting(rec: Recording)
+  if #waiting == 0 then return end
+  local taken = waiting
+  waiting = {}
+  local digests = rec.digests
+  if digests ~= nil then declared_key.freeze(digests) end
+  for _, one in ipairs(taken) do keep_now(one.rec, one.job, one.judged, one.elapsed) end
+  if digests ~= nil then declared_key.thaw(digests) end
+end
+
+--- Has the verdict of one finished `job` kept, as it was `judged`, with its time `elapsed` ([`keep_now`]): not
+--- at once, but with those of the tests that end after it, up to `waiting_most`, under one look at their inputs
+--- ([`test_key.keep_waiting`]). The look comes after the test ended, which is all its verdict asks of it: an
+--- input that moved while it ran has moved by then, and one that moves in between costs a verdict that could
+--- have been kept. An input moved and put back before the look is not seen, whenever the look comes.
+function test_key.keep(rec: Recording, job: Job, judged: Judged, elapsed: integer)
+  waiting[#waiting + 1] = { rec = rec, job = job, judged = judged, elapsed = elapsed }
+  if #waiting >= waiting_most then test_key.keep_waiting(rec) end
 end
 
 --- Ends the keying of a run: writes one store again to hold it to the
