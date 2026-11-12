@@ -58,6 +58,7 @@ local shared_verdicts = require("build.shared_verdicts")
 local test_inputs = require("build.test_inputs")
 local test_policy = require("build.test_policy")
 local test_sandbox = require("build.test_sandbox")
+local host_program = require("build.host_program")
 local test_sandbox_probe = require("build.test_sandbox_probe")
 local declared_key = require("build.declared_key")
 local key_parts = require("build.key_parts")
@@ -812,7 +813,8 @@ end
 --- The environment the workers of `m`'s tests are given, which a
 --- variable they read is keyed by: what a sandbox gives one
 --- ([`test_sandbox.environment`]), TMPDIR its scratch directory; one
---- unsandboxed has the host's cores cache in place of the sandbox's own
+--- unsandboxed has the runner's PATH and HOME, and the host's cores
+--- cache in place of the sandbox's own
 --- ([`test_sandbox.unenforced_view`]), as it is given.
 local function view_of(rec: Recording, m: Module): {string:string} -- checked: not_assigned
   local view = rec.views[m.path]
@@ -2078,6 +2080,9 @@ function test_key.ask_host(rec: Recording, modules: {Module},
           linux = linux,
           sandbox = sandbox,
           sandboxed_workers = sandboxed_workers,
+          -- A sandboxed worker looks a program up on its own PATH, not
+          -- the runner's: the probe finds the file the worker would.
+          path = if sandboxed_workers then test_sandbox.path else nil end,
         })
       end
       local probed = assert(host)
@@ -2158,6 +2163,9 @@ function test_key.gather(rec: Recording, from: Gather): string?
     local effective = test_inputs.effective(m, by_path, declarations, type_only, rec.sandbox)
     effective.cache_paths = caches_of(rec, m)
     test_inputs.resolve(effective, tree_roots(rec))
+    -- A host program the module grants comes with what it needs to start,
+    -- each a host file its key holds by its contents.
+    effective.host = host_program.complete(effective.host, test_sandbox.path)
     test_sandbox_probe.resolve_noexec(effective, rec.sandbox, noexec_probes)
     rec.effective[m.path] = effective
   end

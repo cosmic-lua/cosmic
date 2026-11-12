@@ -54,7 +54,12 @@
 --- - no network but a loopback of its own, which answers the loopback
 ---   addresses a module may declare ([`cosmic.test`]'s `network`), as the
 ---   host's would;
---- - the pinned environment and the variables it declares (`environment`).
+--- - the pinned environment and the variables it declares (`environment`),
+---   those that name the host or how the run was started (PATH, which
+---   only a module that declares it has,
+---   COSMIC_AUTO_BOOT, COSMIC_TEST_SANDBOX and, for a module that
+---   declares no host cache, HOME and XDG_CACHE_HOME) at one value on
+---   every host.
 ---
 --- A read of anything else finds nothing, and so does one of every
 --- process the worker starts, which has the worker's sandbox and no
@@ -97,6 +102,8 @@ local record test_sandbox
   mut scratch_length: integer
   --- The variable that turns the sandbox on.
   mut switch: Env.Name
+  --- The PATH every sandboxed worker has ([`test_sandbox.environment`]).
+  mut path: string
 
   --- How one worker is sandboxed.
   record Plan
@@ -149,6 +156,12 @@ end
 test_sandbox.scratch = test_sandbox.padded("/tmp/cosmic-test-padded-to-a-macos-length",
   test_sandbox.scratch_length)
 test_sandbox.switch = "COSMIC_TEST_SANDBOX"
+test_sandbox.path = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+--- The HOME a sandboxed worker of a module that declares no host cache
+--- has, in its scratch directory. Nothing makes it: a program that keeps
+--- a file there makes it, and it goes with the test.
+local worker_home <const> = test_sandbox.scratch .. "/home"
 
 --- The base of the build directories a sandboxed worker has
 --- (COSMIC_BUILD_HOME), beneath its scratch directory: its tree's, at
@@ -194,12 +207,13 @@ local own_cores <const> = test_sandbox.scratch .. "/cores"
 --- key holds where the host keeps them.
 local parent_place <const> = "/tree-up"
 
---- A sandboxed worker's environment: of `environment`, the runner's
---- view of a worker's ([`build.test`]'s `worker_environment`), the pinned
---- variables and those `effective` declares, and TMPDIR, set to its
---- scratch directory, the one it can write to.
-function test_sandbox.environment(environment: {string:string},
-                                  effective: test_inputs.Effective): mut {string:string}
+--- The variables of `environment`, the runner's view of a worker's
+--- ([`build.test_key`]'s `worker_environment`), a worker of `effective`
+--- may read: the pinned ones and those it declares, as the runner has
+--- them, with TMPDIR its scratch directory, the one it can write to, and
+--- COSMIC_BUILD_HOME beneath it.
+local function passed(environment: {string:string},
+                      effective: test_inputs.Effective): mut {string:string}
   local out: mut {string:string} = {}
   for name in pairs(effective.env) do
     local value = environment[name]
@@ -218,18 +232,69 @@ function test_sandbox.environment(environment: {string:string},
   return out
 end
 
+--- A sandboxed worker's environment: of `environment`, the runner's
+--- view of a worker's ([`build.test_key`]'s `worker_environment`), the pinned
+--- variables and those `effective` declares, and TMPDIR, set to its
+--- scratch directory, the one it can write to.
+---
+--- A pinned variable that names the host or how its run was started is
+--- not the runner's but one value on every host, so no key holds whose
+--- home the run was started from, what its PATH was, or how it was told
+--- to boot or sandbox:
+---
+--- - PATH is [`test_sandbox.path`], the directories a sandbox's `system`
+---   profile gives, for a module that declares PATH among its `env`, and
+---   unset for any other ([`test_inputs.effective`] pins it only for a
+---   run that is not sandboxed);
+--- - COSMIC_AUTO_BOOT is "0": a tool a test starts refuses to boot
+---   unless the test says otherwise for it;
+--- - COSMIC_TEST_SANDBOX is unset: a `cosmic test` a test starts says for
+---   itself whether it must sandbox;
+--- - HOME is `worker_home`, in its scratch directory, and
+---   XDG_CACHE_HOME unset, for a module that declares no host cache. This
+---   program's core, which a portable cosmic the worker starts looks for
+---   in the cache those two would have named, is where the host has it,
+---   and COSMIC_PORTABLE_CACHE says so, which a key holds by its kind
+---   ([`build.declared_key`]'s `cache_places`). A module that declares
+---   a host cache finds it by the runner's HOME and XDG_CACHE_HOME, which
+---   its worker keeps and its key holds.
+
+-- TODO: give a module that declares a host cache the fixed home too,
+-- each cache bound beneath it (`at`) wherever the host keeps it and the
+-- variables that name another place for one left out, so its key holds
+-- neither the host's home nor those. It waits on a pairing of each
+-- cache's place on the host with its place under the fixed home, which
+-- [`caches.all`] does not give: it drops a place it has listed already
+-- and one inside the tree, so two lists it makes do not line up.
+function test_sandbox.environment(environment: {string:string},
+                                  effective: test_inputs.Effective): mut {string:string}
+  local out = passed(environment, effective)
+  out["PATH"] = nil
+  if effective.env["PATH"] == true then out["PATH"] = test_sandbox.path end
+  out["COSMIC_AUTO_BOOT"] = "0"
+  out[test_sandbox.switch] = nil
+  if #(effective.caches or {}) == 0 then
+    out["HOME"] = worker_home
+    out["XDG_CACHE_HOME"] = nil
+    local cores = caches.cores(environment)
+    if cores ~= nil then out["COSMIC_PORTABLE_CACHE"] = cores end
+  end
+  return out
+end
+
 --- The environment a worker keyed as a sandboxed one but run
 --- unsandboxed is keyed by, with
---- `environment` the runner's view of a worker's: what `environment`
---- gives one of `effective`, but COSMIC_PORTABLE_CACHE as the view has
---- it. The cores of its own a sandbox gives it are at a path only a
+--- `environment` the runner's view of a worker's: the variables it may
+--- read as the runner has them (`passed`), PATH, HOME and how it boots
+--- and sandboxes among them, which no sandbox makes one value here, and
+--- COSMIC_PORTABLE_CACHE as the view has it. The cores of its own a sandbox gives it are at a path only a
 --- sandbox has, and a process confined to them (build/c/init.tl's
 --- compilers) would find no directory there and not start; nothing
 --- here keeps it from writing over this program's core in the host's
 --- anyway.
 function test_sandbox.unenforced_view(environment: {string:string},
                                       effective: test_inputs.Effective): mut {string:string}
-  local out = test_sandbox.environment(environment, effective)
+  local out = passed(environment, effective)
   out["COSMIC_TEST_NOEXEC"] = nil
   out["COSMIC_TEST_PARENT"] = nil
   if out["COSMIC_PORTABLE_CACHE"] == own_cores then

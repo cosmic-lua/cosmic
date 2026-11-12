@@ -1,6 +1,6 @@
 --- A confined child's session, from core/syscalls_test.tl's sandbox
 --- tests: the one of them that starts a host program, setsid, to run in
---- a session of its own, and so the one that needs the system's paths.
+--- a session of its own, and so the one that grants a program of the host's.
 
 local TestSandboxFixture = require("build.test_sandbox_fixture")
 local sys = require("cosmic.sys")
@@ -12,13 +12,14 @@ local test_child = require("build.test_child")
 
 -- TODO: start the session with cosmic once cosmic.sys carries setsid,
 -- rather than the host's setsid program, and fold this module back into
--- core/syscalls_test.tl, which then needs no `system`.
+-- core/syscalls_test.tl, which then grants no host program.
 --- What the session is tested on: /proc, the program itself, which it
---- starts again, and the host's setsid program, beneath the system's
---- own paths.
+--- starts again, and the host's setsid program, wherever of three
+--- places the host has it.
 Test.policy{
-  profiles = { "system", "cosmic", "proc" },
-  grants = { { path = "o/bin", letters = "rx" } },
+  profiles = { "cosmic", "proc" },
+  grants = { { path = "o/bin", letters = "rx" }, { path = "/usr/bin/setsid", letters = "r" },
+    { path = "/bin/setsid", letters = "r" }, { path = "/usr/sbin/setsid", letters = "r" } },
 }
 
 local type raw_process = require("cosmic.internal.process")

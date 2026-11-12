@@ -18,14 +18,9 @@ local tree = require("build.c.tree")
 --- What the checker reads of the core's C, as build/c/rules_test.tl
 --- declares it.
 Test.policy{
-  profiles = { "system" },
   grants = {
-    { path = "bin/cosmic-bootstrap", letters = "r" },
-    { path = "bin/zig", letters = "r" },
     { path = "bin/zig.pin", letters = "r" },
-    { path = "build/zig.tl", letters = "r" },
     { path = "ci/cosmic-driver.pin", letters = "r" },
-    { path = "ci/bootstrap-files.txt", letters = "r" },
     { path = "core/", letters = "r" },
     { path = "vendor/bzip2/", letters = "r" },
     { path = "vendor/cares/include/", letters = "r" },
@@ -38,13 +33,9 @@ Test.policy{
     { path = "vendor/sqlite/", letters = "r" },
     { path = "vendor/xz/src/liblzma/api/", letters = "r" },
     { path = "vendor/yyjson/src/", letters = "r" },
-    { path = "/cache/bootstrap", letters = "rwxc" },
     { path = "/cache/zig", letters = "rwxc" },
   },
-  env = { "ALL_PROXY", "COSMIC_BOOTSTRAP", "COSMIC_BOOTSTRAP_ATTEMPTS", "COSMIC_BOOTSTRAP_VERIFY",
-    "COSMIC_ZIG", "COSMIC_ZIG_CACHE", "COSMIC_ZIG_GLOBAL_CACHE", "CURL_CA_BUNDLE", "HTTPS_PROXY",
-    "HTTP_PROXY", "NO_PROXY", "SSL_CERT_DIR", "SSL_CERT_FILE", "all_proxy", "http_proxy",
-    "https_proxy", "no_proxy" },
+  env = { "COSMIC_BOOTSTRAP", "COSMIC_ZIG" },
 }
 
 local root = assert(Fs.absolute("."))

@@ -102,6 +102,17 @@ local function test_the_default_inputs_are_the_closure_and_the_pinned_environmen
   assert(not effective.tool and not effective.store)
 end
 
+--- PATH is pinned for a run that is not sandboxed, as the runner has it.
+--- A sandboxed worker has one only where its module declares it.
+local function test_a_sandboxed_run_pins_no_path()
+  local m, by_path = tree()
+  assert(test_inputs.effective(m, by_path, staged).env["PATH"] == true)
+  local sandboxed = test_inputs.effective(m, by_path, staged, nil, true)
+  assert(sandboxed.env["PATH"] == nil and sandboxed.env["HOME"] == true)
+  local declaring_path, declared_by_path = tree(declaring({ env = { "PATH" } }))
+  assert(test_inputs.effective(declaring_path, declared_by_path, staged, nil, true).env["PATH"] == true)
+end
+
 --- The modules a worker lets a test `require` of the tree are the
 --- closure's by name: the module itself, what it requires directly or
 --- not, and one only a declaration answers for, but neither a module
