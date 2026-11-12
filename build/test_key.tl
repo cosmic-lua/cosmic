@@ -754,11 +754,9 @@ function test_key.binary_harness(): Harness?, string
     local binary = databases[#databases]
     if binary == nil then return end
     local stamped = Stamp.read("stamp_harness")
-    if stamped ~= nil then
-      looked.value, looked.trouble = stamped_harness(binary, stamped)
-    else
-      looked.value, looked.trouble = test_key.harness(binary)
-    end
+    if stamped ~= nil then looked.value, looked.trouble = stamped_harness(binary, stamped) end
+    -- A stamp of a shape this code does not read is worked out again.
+    if looked.value == nil then looked.value, looked.trouble = test_key.harness(binary) end
   end)
   local harness = looked.value
   if harness == nil then return nil, looked.trouble end

@@ -10,6 +10,7 @@ local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Stamp = require("build.stamp")
 local artifact = require("build.artifact")
+local schema = require("build.schema")
 local stamps = require("build.stamps")
 local test_child = require("build.test_child")
 local test_key = require("build.test_key")
@@ -44,6 +45,18 @@ local no_artifact <const> = 77
 --- by the program's own code holds the same.
 test_child.register("stamped again", function(args: {string}): integer
   local dir = assert(args[1])
+  -- A database attached ahead of the program's own, as a project's
+  -- projection is, that holds stamps of its own: none of them is the
+  -- program's.
+  local decoy = assert(Sqlite.open(dir .. "/decoy.db", { writable = true }))
+  for _, statement in ipairs(schema.create("")) do assert(decoy:exec(statement)) end
+  local decoy_of = assert(Stamp.content(decoy))
+  for _, key in ipairs(stamp_keys) do
+    assert(Sqlite.run(decoy, "INSERT INTO meta (key, value) VALUES (?1, ?2)",
+      { { text = key }, { text = if key == Stamp.of then decoy_of else "another database's" end } }))
+  end
+  assert(decoy:close())
+  assert(Store.attach(dir .. "/decoy.db", { unchecked_bytecode = true }))
   local databases = Store.databases()
   local binary = assert(databases[#databases], "the program has a database")
   local carried = held(binary)

@@ -301,7 +301,9 @@ end
 -- Staging, scans and transaction history do not define projection bytes,
 -- but build.work is code the tool's stamps are worked out by (build.stamps
 -- requires it through build.importer): the stale tool writes a tool without
--- stamps, which builds its database again once, compiling nothing.
+-- stamps, which builds its database again once, compiling nothing. That
+-- build.work is in neither the writer's identity nor the compiler's is
+-- build/importer_test.tl's to hold (its tests of each identity's closure).
 local function test_a_staging_edit_settles_for_its_stamps_alone(tmp: string)
   run_fixed_point_case(tmp, "staging", "build/work.tl", commented, true, true)
 end

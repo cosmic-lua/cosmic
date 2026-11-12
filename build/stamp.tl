@@ -33,9 +33,10 @@ local record stamp
 
   --- The digest of the rows of `db` its stamps are functions of: which
   --- compiler compiled it and the runtime basis (`meta`), each module by
-  --- its kind and the hash of its source, and what each module and
-  --- declaration requires. A module's bytecode and stub follow from its
-  --- source and that compiler. Nil and why where `db` cannot be read.
+  --- its kind and the hash of its source, each declaration by its source,
+  --- and what each module and declaration requires. A module's bytecode
+  --- and stub follow from its source and that compiler. Nil and why where
+  --- `db` cannot be read.
   content: function(db: Sqlite.Handle): string?, string
 
   --- The stamp `key` of `db`, by default the running binary's own
@@ -61,7 +62,9 @@ local content_sql <const> = "SELECT lower(hex(sha256(" ..
   "coalesce((SELECT group_concat(path || ' ' || requires, char(10) ORDER BY path, requires) " ..
   "FROM imports), '') || char(10, 10) || " ..
   "coalesce((SELECT group_concat(path || ' ' || requires, char(10) ORDER BY path, requires) " ..
-  "FROM decl_imports), ''))))"
+  "FROM decl_imports), '') || char(10, 10) || " ..
+  "coalesce((SELECT group_concat(path || ' ' || hex(sha256(inflate(source))), char(10) ORDER BY path) " ..
+  "FROM decls), ''))))"
 
 function stamp.content(db: Sqlite.Handle): string?, string
   local rows, trouble = Sqlite.text_rows(db, content_sql)
@@ -111,7 +114,8 @@ end
 function stamp.read(key: string, db?: Sqlite.Handle): string?
   if db ~= nil then
     if not bound(db) then return nil end
-    return meta_of(db, key)
+    local held = meta_of(db, key)
+    return if held ~= "" then held else nil end
   end
   if Env.read("COSMIC_STAMPS") == "0" then return nil end
   local read = own.read[key]
@@ -122,6 +126,7 @@ function stamp.read(key: string, db?: Sqlite.Handle): string?
     local binary = databases[#databases]
     if binary ~= nil then value = meta_of(binary, key) end
   end
+  if value == "" then value = nil end
   own.read[key] = value or ""
   return value
 end

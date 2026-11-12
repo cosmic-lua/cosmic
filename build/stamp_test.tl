@@ -4,9 +4,9 @@ local Sqlite = require("cosmic.sqlite")
 local Stamp = require("build.stamp")
 local schema = require("build.schema")
 
---- A database of the tool's schema holding two modules, what they
---- require, the `meta` rows a stamp's binding reads, and one stamp bound
---- to those rows.
+--- A database of the tool's schema holding two modules, a declaration,
+--- what they require, the `meta` rows a stamp's binding reads, and one
+--- stamp bound to those rows.
 local function stamped(): Sqlite.Handle
   local db = assert(Sqlite.memory())
   for _, statement in ipairs(schema.create("")) do assert(db:exec(statement)) end
@@ -14,6 +14,7 @@ local function stamped(): Sqlite.Handle
       "('a', 'a.tl', 'module', x'01', x'', x'', '', x''), ('b', 'b.tl', 'module', x'02', x'', x'', '', x'')"))
   assert(db:exec("INSERT INTO imports (path, requires) VALUES ('a', 'b')"))
   assert(db:exec("INSERT INTO decl_imports (path, requires) VALUES ('a', 'b')"))
+  assert(db:exec("INSERT INTO decls (path, source) VALUES ('a.d', deflate('declared'))"))
   assert(db:exec("INSERT INTO meta (key, value) VALUES ('compiled_by', 'a compiler'), ('runtime_basis', 'a basis')"))
   local content = assert(Stamp.content(db))
   assert(Sqlite.run(db, "INSERT INTO meta (key, value) VALUES ('stamp_of', ?1), ('stamp_coded', 'the code')",
@@ -40,6 +41,8 @@ local function test_a_stamp_is_not_answered_once_a_row_it_was_made_of_moves()
     "INSERT INTO imports (path, requires) VALUES ('b', 'a')",
     "DELETE FROM imports",
     "INSERT INTO decl_imports (path, requires) VALUES ('b', 'a')",
+    "INSERT INTO decls (path, source) VALUES ('b', deflate('declared'))",
+    "UPDATE decls SET source = deflate('declared otherwise') WHERE path = 'a.d'",
     "UPDATE meta SET value = 'another compiler' WHERE key = 'compiled_by'",
     "UPDATE meta SET value = 'another basis' WHERE key = 'runtime_basis'",
     "DELETE FROM meta WHERE key = 'compiled_by'",

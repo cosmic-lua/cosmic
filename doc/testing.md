@@ -1031,8 +1031,8 @@ harness moves it as an edit does.
 
 The harness is what every worker loads, the sandbox's maker, and the
 code that makes a key, looks a verdict up or keeps one:
-[`build/test_key.tl`], which it holds alone, and the closure of
-[`build/declared_key.tl`] and the shared verdicts.
+[`build/test_key.tl`] and [`build/stamp.tl`], each of which it holds
+alone, and the closure of [`build/declared_key.tl`] and the shared verdicts.
 [`build.harness_epoch_test`] holds that set to everything a worker runs
 and to the standard-library modules `library` in
 [`build.harness_epoch`] names. The runner around it,
@@ -1123,6 +1123,7 @@ Other rules:
 [`build/fact_hook_tool_test.tl`]: ../build/fact_hook_tool_test.tl
 [`build/harness_epoch_test.tl`]: ../build/harness_epoch_test.tl
 [`build/rebuild_lock_tool_test.tl`]: ../build/rebuild_lock_tool_test.tl
+[`build/stamp.tl`]: ../build/stamp.tl
 [`build/test.tl`]: ../build/test.tl
 [`build/test_key.tl`]: ../build/test_key.tl
 [`build/test_state.tl`]: ../build/test_state.tl
