@@ -114,7 +114,11 @@ local function test_a_test_in_flight_at_the_first_failure_finishes(tmp: string)
     "a test started after the first failure")
   local db = assert(Sqlite.open(assert(build_paths.directory(root)) .. "/build.db"))
   local rows = assert(Sqlite.text_rows(db, "SELECT test, passed FROM runs ORDER BY test"))
+  -- And the verdict of each, which a run that stopped early keeps as one that ran every test does.
+  local verdicts = assert(Sqlite.text_rows(db, "SELECT passed FROM verdicts ORDER BY passed"))
   assert(db:close())
+  assert(#verdicts == 2 and Array.at(verdicts, 1):text(1) == "0" and Array.at(verdicts, 2):text(1) == "1",
+    "the verdicts kept: " .. tostring(#verdicts))
   assert(#rows == 2, "the runs kept: " .. tostring(#rows))
   local first, second = Array.at(rows, 1), Array.at(rows, 2)
   assert(first:text(1) == "test_a_fails" and first:text(2) == "0" and
