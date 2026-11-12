@@ -374,7 +374,9 @@ local harness_alone <const>: {string} = { "cosmic.child", "cosmic.sandbox",
   "cosmic.sandbox.policy" }
 
 --- The code that makes a key and looks a verdict up under one:
---- build.test_key itself, held alone, and the closure of the key's
+--- build.test_key itself and build.stamp, which answers it the harness's
+--- digests and the sealed program's rows from the tool's stamps, each held
+--- alone, and the closure of the key's
 --- computation ([`build.declared_key`]) and of the shared verdicts'
 --- ([`build.shared_verdicts`]), and of what the host answers a module's
 --- requirements ([`build.host_requires`]), which a key holds, as the
