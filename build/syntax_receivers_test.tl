@@ -128,6 +128,10 @@ local function same(source: string): string
   return uses_of(Fixture.port(Fixture.PRELUDE .. source, MODULES))
 end
 
+-- The fixture's session of the standard library and these modules, made as the module loads: a worker runs each test
+-- in a copy of itself, so what one test would make and keep, every test would make again.
+assert(#Fixture.port(Fixture.PRELUDE .. "use(1)", MODULES).problems == 0)
+
 local function line(n: integer): integer
   local _, lines = Fixture.PRELUDE:gsub("\n", "\n")
   return n + lines
