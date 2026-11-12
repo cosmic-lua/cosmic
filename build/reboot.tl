@@ -41,6 +41,7 @@ local plural = require("build.plural")
 local rebuild_lock = require("build.rebuild_lock")
 local stale_reason = require("build.stale_reason")
 local shared_compiles = require("build.shared_compiles")
+local Stamp = require("build.stamp")
 local tree = require("build.tree")
 local work = require("build.work")
 local writer = require("build.writer")
@@ -90,10 +91,22 @@ local function meta_of(key: string, seen?: reboot.Seen): string?
   return Store.meta(key)
 end
 
+--- Whether the running binary's database carries stamps of its own rows
+--- ([`build.stamp`]), or `seen` says a `stamp_of` in its place. A stale
+--- tool whose stamping code the tree moved writes none ([`build.stamps`]).
+local function stamped(seen?: reboot.Seen): boolean
+  if seen ~= nil then
+    local given = seen.meta[Stamp.of]
+    if given ~= nil then return given ~= "" end
+  end
+  return Stamp.carried()
+end
+
 --- Whether the running binary's database was compiled or written by
 --- code other than the compiler and writer it carries
---- ([`identity.Identities`]). A rebuild uses the stale tool's compiler and
---- writer, so the rebuilt tool compiles and writes its database once
+--- ([`identity.Identities`]), or carries no stamps of its rows (`stamped`).
+--- A rebuild uses the stale tool's compiler, writer and stamping code, so
+--- the rebuilt tool compiles and writes its database once
 --- more itself; then it matches what a boot writes. A database that
 --- records neither identity is unsettled too. What it was compiled by
 --- is the tool string the new checker keys its compiles by, over the code of the checker the binary carries
@@ -103,7 +116,7 @@ local function unsettled(seen?: reboot.Seen): boolean
   local compiled_by = meta_of("compiled_by", seen)
   local carried = meta_of("compiler", seen)
   return written_by == nil or written_by ~= meta_of("writer", seen) or
-    compiled_by == nil or carried == nil or
+    compiled_by == nil or carried == nil or not stamped(seen) or
     compiled_by ~= require("build.pipeline").coded(GrammarMode.tool(carried))
 end
 
@@ -445,7 +458,9 @@ local function into(handle: work.Handle, argv: {string}, settle: boolean): strin
   -- tool it wrote whose writer differs writes itself again on re-entry
   -- (`unsettled`).
   local carried_path = layout.carried
-  local carried, carry_trouble = writer.carried(database_path, carried_path)
+  -- Required here: working the stamps out takes the harness's and the
+  -- importer's code, which a start that rebuilds nothing never loads.
+  local carried, carry_trouble = writer.carried(database_path, carried_path, require("build.stamps").fill)
   if not carried then
     return closing(handle, carry_trouble), false
   end

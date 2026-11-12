@@ -172,6 +172,19 @@ local function test_a_sandboxed_verdict_stands_until_what_it_declares_changes(tm
   said("1 ran, 2 stood")
 end
 
+--- A run reaches the same keys from the stamps the tool carries
+--- ([`build.stamp`]) as from the identities it works out without them
+--- (COSMIC_STAMPS=0): every verdict the first reached stands for the
+--- second, which compiles nothing again. A stamp that is not what the
+--- tool works out would move a key: the harness's and the sealed
+--- program's every verdict's, the checker's code every compile's.
+local function test_a_run_reaches_the_same_keys_from_the_tools_stamps_as_without_them(tmp: string)
+  local env, said, _ = seeded(tmp)
+  env["COSMIC_STAMPS"] = "0"
+  local without = said("0 ran, 3 stood")
+  assert(without:find("(0 compiled, ", 1, true) ~= nil and without:find(" parsed", 1, true) == nil, without)
+end
+
 --- Forced, by `--all` or COSMIC_TEST_ALL, every test runs.
 local function test_a_forced_run_runs_every_sandboxed_test(tmp: string)
   local env, said, _ = seeded(tmp)
