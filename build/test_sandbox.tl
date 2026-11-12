@@ -55,7 +55,8 @@
 ---   addresses a module may declare ([`cosmic.test`]'s `network`), as the
 ---   host's would;
 --- - the pinned environment and the variables it declares (`environment`),
----   those that name the host or how the run was started (PATH,
+---   those that name the host or how the run was started (PATH, which
+---   only a module that declares it has,
 ---   COSMIC_AUTO_BOOT, COSMIC_TEST_SANDBOX and, for a module that
 ---   declares no host cache, HOME and XDG_CACHE_HOME) at one value on
 ---   every host.
@@ -242,8 +243,9 @@ end
 --- to boot or sandbox:
 ---
 --- - PATH is [`test_sandbox.path`], the directories a sandbox's `system`
----   profile gives; a worker of a module that declares none of them has
----   no program there to find by any PATH;
+---   profile gives, for a module that declares PATH among its `env`, and
+---   unset for any other ([`test_inputs.effective`] pins it only for a
+---   run that is not sandboxed);
 --- - COSMIC_AUTO_BOOT is "0": a tool a test starts refuses to boot
 ---   unless the test says otherwise for it;
 --- - COSMIC_TEST_SANDBOX is unset: a `cosmic test` a test starts says for
@@ -267,7 +269,8 @@ end
 function test_sandbox.environment(environment: {string:string},
                                   effective: test_inputs.Effective): mut {string:string}
   local out = passed(environment, effective)
-  out["PATH"] = test_sandbox.path
+  out["PATH"] = nil
+  if effective.env["PATH"] == true then out["PATH"] = test_sandbox.path end
   out["COSMIC_AUTO_BOOT"] = "0"
   out[test_sandbox.switch] = nil
   if #(effective.caches or {}) == 0 then

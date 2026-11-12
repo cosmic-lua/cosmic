@@ -320,7 +320,12 @@ function test_inputs.effective(m: Module, by_path: {string:Module},
   -- Every corpus, not only the ones the module names: a property's
   -- name may be computed, and corpora are small.
   if fuzzes then out.reads[1] = corpora end
-  for _, name in ipairs(pinned_env) do out.env[name] = true end
+  -- PATH is pinned only where the run is not sandboxed: a sandboxed worker
+  -- has one only where its module declares it, and almost none starts a
+  -- program of the host.
+  for _, name in ipairs(pinned_env) do
+    if not (sandboxed == true and name == "PATH") then out.env[name] = true end
+  end
   local declared: PolicyRules.Declared? = m.inputs
   if declared ~= nil then
     for _, path in ipairs(declared.reads) do out.reads[#out.reads + 1] = path end

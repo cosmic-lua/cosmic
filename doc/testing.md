@@ -120,9 +120,10 @@ on Linux. The worker gets what its module declares and nothing else.
 A read it did not declare finds nothing, and the test fails with its
 own error. That error is the signal to declare the read.
 
-A sandboxed worker is not told where or how its run was started. Its
-PATH is /usr/local/sbin, /usr/local/bin, /usr/sbin, /usr/bin, /sbin and
-/bin, which the profile `"system"` gives. COSMIC_AUTO_BOOT is `0` and
+A sandboxed worker is not told where or how its run was started. It has
+no PATH unless its module declares `env = { "PATH" }`, and then
+/usr/local/sbin, /usr/local/bin, /usr/sbin, /usr/bin, /sbin and /bin,
+which the profile `"system"` gives. COSMIC_AUTO_BOOT is `0` and
 COSMIC_TEST_SANDBOX is unset. HOME is a directory in its scratch
 directory and XDG_CACHE_HOME is unset, unless the module grants a host
 cache (`/cache/...`), which it finds by the host's. So a verdict stands
@@ -167,8 +168,9 @@ The rules:
   it is a host file. A grant of an absolute directory is refused: list
   the files. The key holds a file by its contents.
 - `env` passes variables through. A test sees only the variables it
-  declares. A sandboxed worker's PATH is the system's directories on
-  every host, whatever the runner's ("sandboxed and unsandboxed runs").
+  declares. A sandboxed worker has a PATH only where its module declares
+  it, and then the system's directories on every host, whatever the
+  runner's ("sandboxed and unsandboxed runs").
 - The profile `"system"` gives /usr, /bin, /lib, /etc and the like. A
   test that starts a host program (a shell, `sleep`, a compiler, the
   `#!/bin/sh` launcher, [`bin/cosmic`]) needs it. A test that only reads a

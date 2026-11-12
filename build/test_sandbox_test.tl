@@ -44,6 +44,9 @@ local function test_a_sandboxed_worker_is_not_told_where_or_how_its_run_was_star
     end
   end
   assert(first["PATH"] == test_sandbox.path and first["HOME"] == test_sandbox.scratch .. "/home")
+  -- A module that does not declare PATH has none, whatever the runner's.
+  local undeclared = { ...TestInputsFixture.effective({}), env = { HOME = true } }
+  assert(test_sandbox.environment(one, undeclared)["PATH"] == nil)
   assert(first["XDG_CACHE_HOME"] == nil and first["COSMIC_TEST_SANDBOX"] == nil)
   assert(first["COSMIC_AUTO_BOOT"] == "0")
   -- The core is where each host has it, and the worker is told.
