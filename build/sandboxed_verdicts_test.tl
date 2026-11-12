@@ -322,6 +322,8 @@ local function test_a_sandboxed_test_runs_the_tool_only_declared(tmp: string)
   local first = run(root, tmp .. "/first.out", env, nil, true)
   skip_if_unsandboxed(first)
   assert(first:find("test: %d+ tests? passed in ") and first:find("3 ran, 0 stood", 1, true), first)
+  local again = run(root, tmp .. "/again.out", env)
+  assert(again:find("0 ran, 3 stood", 1, true), again)
   -- The tool rebuilt: what declares it runs again.
   assert(Fs.write(support.build_dir(root) .. "/bin/stand-in", "two\n"))
   local rebuilt = run(root, tmp .. "/rebuilt.out", env)
