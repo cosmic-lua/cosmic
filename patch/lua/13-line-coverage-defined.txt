@@ -1,0 +1,8 @@
+file: src/ldebug.c
+note: What marks a line for coverage without the line hook. core/coverage.c, which declares this itself as it does luaG_instructionline (patch/lua/11-instruction-coverage-defined.txt) and must declare it as it is here, sets it while it collects, and `luaG_traceexec` asks it of each line a function enters while a line hook alone is set (patch/lua/14-line-coverage-run.txt). It marks the line where it can without allocating and answers 0, or answers nonzero for the line hook to be called as before.
+--- find
+int (*luaG_instructionline) (lua_State *L, const Proto *p, int pc) = NULL;
+--- replace
+int (*luaG_instructionline) (lua_State *L, const Proto *p, int pc) = NULL;
+int (*luaG_linemark) (lua_State *L, const Proto *p, int line) = NULL;
+--- end

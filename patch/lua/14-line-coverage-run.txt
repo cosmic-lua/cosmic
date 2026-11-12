@@ -1,0 +1,26 @@
+file: src/ldebug.c
+note: While a line hook alone is set (no count hook, so no budget is armed) and hooks are not held off, an instruction that enters no new line, or whose line luaG_linemark marks (patch/lua/13-line-coverage-defined.txt), or which luaG_instructionline counts in a function with no line information, is done with here: the line hook would mark the same bit and nothing more, since the core sets no hook but the collector's (core/coverage.c), and luaD_hook costs far more than the mark, saving and restoring the state's stack and frame around the call. `oldpc` moves as the code below moves it. Where either answers that the hook is needed (it must allocate), and after a hook that yielded, the code below runs as before. Not saving `savedpc` and not correcting `top` is what the VM does with no hook set: both are for a hook to read.
+--- find
+  pc++;  /* reference is always next instruction */
+  ci->u.l.savedpc = pc;  /* save 'pc' */
+--- replace
+  pc++;  /* reference is always next instruction */
+  if (mask == LUA_MASKLINE && luaG_instructionline != NULL &&
+      luaG_linemark != NULL && L->allowhook &&
+      !(ci->callstatus & CIST_HOOKYIELD)) {
+    int fastpc = pcRel(pc, p);
+    int done;
+    if (p->lineinfo == NULL)
+      done = (luaG_instructionline(L, p, fastpc) == 0);
+    else {
+      int fastold = (L->oldpc < p->sizecode) ? L->oldpc : 0;
+      done = (fastpc > fastold && !changedline(p, fastold, fastpc)) ||
+             luaG_linemark(L, p, luaG_getfuncline(p, fastpc)) == 0;
+    }
+    if (done) {
+      L->oldpc = fastpc;
+      return 1;
+    }
+  }
+  ci->u.l.savedpc = pc;  /* save 'pc' */
+--- end

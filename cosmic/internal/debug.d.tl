@@ -50,6 +50,11 @@ local record native
   --- Every one of the core's own C functions. Empty in a core built
   --- without native coverage.
   functions: function(): {Function}
+
+  --- How many times Lua has called the line hook for a line since the
+  --- program started. A line the core marks without the hook, because it
+  --- holds the line's source and page already, adds nothing.
+  hooked: function(): integer
 end
 
 return native
