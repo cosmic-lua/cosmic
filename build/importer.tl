@@ -26,6 +26,7 @@ local Sqlite = require("cosmic.sqlite")
 local GrammarMode = require("build.grammar_mode")
 local Store = require("cosmic.store")
 local CodeWalk = require("build.code_walk")
+local Stamp = require("build.stamp")
 local identities = require("build.identity")
 -- The pipeline is required where a build in the new grammar asks for it: `cosmic boot` compiles what the tool requires at load
 -- with the bootstrap release, whose checker reads the new checker's closure otherwise than the tree's does.
@@ -334,6 +335,12 @@ end
 --- edit to the lexer, the parser or a reader of the syntax tree parses
 --- everything again.
 local function analyzer_named(code?: importer.Code): string?, string
+  if code == nil then
+    -- The running binary's own, which the build that wrote its database
+    -- worked out from the same rows ([`build.stamps`]).
+    local stamped = Stamp.read("stamp_analyzer")
+    if stamped ~= nil then return stamped, "" end
+  end
   local parts: mut {string} = { (if code ~= nil then code.basis else Store.meta("runtime_basis") end) or "" }
   local walk = walk_analyzer(code)
   local modules = walk.names

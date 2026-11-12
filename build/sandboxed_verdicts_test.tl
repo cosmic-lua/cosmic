@@ -172,6 +172,19 @@ local function test_a_sandboxed_verdict_stands_until_what_it_declares_changes(tm
   said("1 ran, 2 stood")
 end
 
+--- A run reaches the same keys from the stamps the tool carries
+--- ([`build.stamp`]) as from the identities it works out without them
+--- (COSMIC_STAMPS=0): every verdict the first reached stands for the
+--- second, which compiles nothing again. A stamp that is not what the
+--- tool works out would move a key: the harness's and the sealed
+--- program's every verdict's, the checker's code every compile's.
+local function test_a_run_reaches_the_same_keys_from_the_tools_stamps_as_without_them(tmp: string)
+  local env, said, _ = seeded(tmp)
+  env["COSMIC_STAMPS"] = "0"
+  local without = said("0 ran, 3 stood")
+  assert(without:find("(0 compiled, ", 1, true) ~= nil and without:find(" parsed", 1, true) == nil, without)
+end
+
 --- Forced, by `--all` or COSMIC_TEST_ALL, every test runs.
 local function test_a_forced_run_runs_every_sandboxed_test(tmp: string)
   local env, said, _ = seeded(tmp)
@@ -441,6 +454,43 @@ local function overwrite(path: string, data: string)
   assert(sys.close(fd))
 end
 
+--- Runs `cosmic test` with `words` in `root` under `env`, whose TMPDIR is `tmp .. "/t"`, its output to `out`: once
+--- a test of it says it started (a file `started` in its directory, which is one of TMPDIR's, sandboxed or not),
+--- `then_do` is given that directory, to move the test's input or stop it. What the run said, and whether it passed.
+local function run_then(tmp: string, root: string, env: {string:string}, out: string, words: {string},
+                        then_do: function(string)): string, boolean
+  local fd = assert(Fs.open_write(out))
+  local args: mut {string} = { "test" }
+  for _, word in ipairs(words) do args[#args + 1] = word end
+  local started = this_program.program(args, {
+    cwd = root, env = env, stdout = fd, stderr = fd, process_group = true,
+  })
+  local handle = assert(Child.start(started.argv, started.options))
+  local deadline = Clock.monotonic_ns() + 30000000000
+  local found = ""
+  local ended = false
+  while found == "" and not ended and Clock.monotonic_ns() < deadline do
+    local now, _ = handle:try_wait()
+    ended = now ~= nil and now.finished
+    for _, entry in ipairs(Fs.list(tmp .. "/t") or {}) do
+      for _, sub in ipairs({ "/real", "/tmp", "" }) do
+        local dir = tmp .. "/t/" .. entry .. sub
+        if Fs.exists(dir .. "/started") == true and Fs.exists(dir .. "/stop") ~= true then
+          found = dir
+        end
+      end
+    end
+    if found == "" then assert(Clock.sleep_ns(20000000)) end
+  end
+  assert(found ~= "" or ended, "the test never started")
+  if found ~= "" then then_do(found) end
+  local result = assert(handle:wait(Clock.seconds(60)))
+  assert(Fs.close(fd))
+  -- Its directory said it started: marked so the next run's is found.
+  if found ~= "" then local _ = Fs.write(found .. "/stop", "") end
+  return assert(Fs.read(out)), result.ok
+end
+
 --- A verdict reached while a declared input moved under the test is
 --- kept under neither key: a pass is kept only when its inputs still
 --- digest to the key it started from, and a failure takes a pass under
@@ -488,60 +538,85 @@ end
   assert(Fs.mkdirs(tmp .. "/t"))
   env["TMPDIR"] = assert(Fs.absolute(tmp .. "/t"))
   local step = 0
-  -- A run of `words` after `test`: once its test says it started --
-  -- its directory is one of TMPDIR's, sandboxed or not -- `then_do`
-  -- moves its input or stops it. What the run said, and whether it
-  -- passed.
-  local function run_then(words: {string}, then_do: function(string)): string, boolean
+  local function run_then_here(words: {string}, then_do: function(string)): string, boolean
     step = step + 1
-    local out = tmp .. "/" .. tostring(step) .. ".out"
-    local fd = assert(Fs.open_write(out))
-    local args: mut {string} = { "test" }
-    for _, word in ipairs(words) do args[#args + 1] = word end
-    local started = this_program.program(args, {
-      cwd = root, env = env, stdout = fd, stderr = fd, process_group = true,
-    })
-    local handle = assert(Child.start(started.argv, started.options))
-    local deadline = Clock.monotonic_ns() + 30000000000
-    local found = ""
-    local ended = false
-    while found == "" and not ended and Clock.monotonic_ns() < deadline do
-      local now, _ = handle:try_wait()
-      ended = now ~= nil and now.finished
-      for _, entry in ipairs(Fs.list(tmp .. "/t") or {}) do
-        for _, sub in ipairs({ "/real", "/tmp", "" }) do
-          local dir = tmp .. "/t/" .. entry .. sub
-          if Fs.exists(dir .. "/started") == true and Fs.exists(dir .. "/stop") ~= true then
-            found = dir
-          end
-        end
-      end
-      if found == "" then assert(Clock.sleep_ns(20000000)) end
-    end
-    assert(found ~= "" or ended, "the test never started")
-    if found ~= "" then then_do(found) end
-    local result = assert(handle:wait(Clock.seconds(60)))
-    assert(Fs.close(fd))
-    -- Its directory said it started: marked so the next run's is found.
-    if found ~= "" then local _ = Fs.write(found .. "/stop", "") end
-    return assert(Fs.read(out)), result.ok
+    return run_then(tmp, root, env, tmp .. "/" .. tostring(step) .. ".out", words, then_do)
   end
   local function stop(dir: string) assert(Fs.write(dir .. "/stop", "")) end
-  local first, first_ok = run_then({}, stop)
+  local first, first_ok = run_then_here({}, stop)
   skip_if_unsandboxed(first)
   assert(first_ok and first:find("1 ran, 0 stood", 1, true) ~= nil, first)
   -- Forced, and moved as it runs: it fails.
-  local forced, forced_ok = run_then({ "--all" }, function(_: string)
+  local forced, forced_ok = run_then_here({ "--all" }, function(_: string)
     overwrite(root .. "/suite/moving.txt", "two\n")
   end)
   assert(not forced_ok and forced:find("it moved", 1, true) ~= nil, forced)
   -- Back as it was: the pass its first run kept is gone with the
   -- failure, so it runs; then it stands.
   overwrite(root .. "/suite/moving.txt", "one\n")
-  local back, back_ok = run_then({}, stop)
+  local back, back_ok = run_then_here({}, stop)
   assert(back_ok and back:find("1 ran, 0 stood", 1, true) ~= nil, back)
   local stands = run(root, tmp .. "/stands.out", env)
   assert(stands:find("0 ran, 1 stood", 1, true), stands)
+end
+
+--- A pass is not kept either where its input moved after other tests' verdicts were kept: the one look at the
+--- inputs that keeps the tests that wait together ([`test_key.keep_waiting`]) answers for no test that ends
+--- after it. The test it runs passes whatever its input holds, so only the check of its key after it ended
+--- stands between the moved input and a verdict under the key it started from.
+local function test_a_look_that_kept_earlier_verdicts_keeps_no_later_one(tmp: string)
+  local root = tmp .. "/root"
+  assert(Fs.mkdirs(root .. "/suite"))
+  -- A directory it reads keeps its worker's directory on the host, where this test finds it.
+  assert(Fs.mkdirs(root .. "/keep"))
+  assert(Fs.write(root .. "/suite/moving.txt", "one\n"))
+  -- Two more quick tests than wait for one look: the verdicts of the first 64 are kept while the last test
+  -- still runs, and the two after them wait with it for the look that follows.
+  local quick: mut {string} = {}
+  for number = 1, 66 do
+    quick[number] = string.format(
+      "local function test_a_quick_%02d()\n  assert(Fs.read(\"suite/moving.txt\") ~= nil)\nend\n", number)
+  end
+  assert(Fs.write(root .. "/suite/moving_test.tl", [[
+local Clock = require("cosmic.clock")
+local Fs = require("cosmic.fs")
+local Test = require("cosmic.test")
+
+Test.policy {
+  grants = {
+    { path = "suite/moving.txt", letters = "r" },
+    { path = "keep", letters = "r" },
+  },
+}
+
+]] .. table.concat(quick, "\n") .. [[
+
+local function test_b_watching(tmp: string)
+  assert(Fs.write(tmp .. "/started", "yes"))
+  local deadline = Clock.monotonic_ns() + 20000000000
+  while Fs.exists(tmp .. "/stop") ~= true and Clock.monotonic_ns() < deadline do
+    assert(Clock.sleep_ns(20000000))
+  end
+  assert(Fs.exists(tmp .. "/stop") == true, "never told to stop")
+end
+]]))
+  local env = environment(tmp .. "/cache/verdicts.db")
+  env["COSMIC_VERDICT_CACHE"] = "0"
+  assert(Fs.mkdirs(tmp .. "/t"))
+  env["TMPDIR"] = assert(Fs.absolute(tmp .. "/t"))
+  local function stop(dir: string) assert(Fs.write(dir .. "/stop", "")) end
+  local moved, moved_ok = run_then(tmp, root, env, tmp .. "/moved.out", { "--jobs", "2" }, function(dir: string)
+    -- Time for the quick tests still running beside it to end before the input moves.
+    assert(Clock.sleep_ns(Clock.ms(300)))
+    overwrite(root .. "/suite/moving.txt", "two\n")
+    stop(dir)
+  end)
+  skip_if_unsandboxed(moved)
+  assert(moved_ok and moved:find("67 ran, 0 stood", 1, true) ~= nil, moved)
+  -- Back as it was when the run keyed it: a pass kept under that key would stand, and the watching test not run.
+  overwrite(root .. "/suite/moving.txt", "one\n")
+  local back, back_ok = run_then(tmp, root, env, tmp .. "/back.out", { "--jobs", "2" }, stop)
+  assert(back_ok and back:find("%f[%d]0 ran") == nil, back)
 end
 
 --- The harness's epoch and its digest are in every sandboxed key, wired

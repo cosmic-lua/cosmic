@@ -72,6 +72,7 @@ local host_caches = require("build.caches")
 local worker = require("build.test_worker")
 local log = require("build.logger").log
 local bind = require("build.bind")
+local Stamp = require("build.stamp")
 local type State = require("build.test_state")
 -- Declares what text this module reads ([`build.code_walk`]'s `markers`): the stubs and places the sealed program's digest holds.
 local _ = require("build.reads.all")
@@ -374,7 +375,9 @@ local harness_alone <const>: {string} = { "cosmic.child", "cosmic.sandbox",
   "cosmic.sandbox.policy" }
 
 --- The code that makes a key and looks a verdict up under one:
---- build.test_key itself, held alone, and the closure of the key's
+--- build.test_key itself and build.stamp, which answers it the harness's
+--- digests and the sealed program's rows from the tool's stamps, each held
+--- alone, and the closure of the key's
 --- computation ([`build.declared_key`]) and of the shared verdicts'
 --- ([`build.shared_verdicts`]), and of what the host answers a module's
 --- requirements ([`build.host_requires`]), which a key holds, as the
@@ -398,7 +401,7 @@ local harness_alone <const>: {string} = { "cosmic.child", "cosmic.sandbox",
 -- beyond [`key_code`] is outside the rule.
 local key_roots <const>: {string} = { "build.declared_key", "build.shared_verdicts",
   "build.host_requires", "build.lua_tail" }
-local key_own <const>: {string} = { "build.test_key" }
+local key_own <const>: {string} = { "build.test_key", "build.stamp" }
 
 --- The module that holds the epoch, which every key holds beside the
 --- digests, and which they leave out.
@@ -590,6 +593,16 @@ local function stripped_digest(bytecode: string, name: string): string?, string
   return hex_sha256(stripped), ""
 end
 
+--- The modules the harness runs ([`Harness`]'s `runs`): what every worker
+--- loads and `harness_own`.
+local function harness_runs(): {string}
+  local runs: mut {string} = {}
+  for _, list in ipairs({ worker.loads, harness_own }) do
+    for _, name in ipairs(list) do runs[#runs + 1] = name end
+  end
+  return runs
+end
+
 --- The digests of the test harness's modules and that of the code that
 --- writes a closure store ([`Harness`]), over the modules `db` holds, by
 --- their `modules` and `imports` rows. `db` is the running binary's
@@ -650,10 +663,7 @@ function test_key.harness(db: Sqlite.Handle): Harness?, string
     list[#list + 1] = second
   end
   local names: mut {string} = {}
-  local runs: mut {string} = {}
-  for _, list in ipairs({ worker.loads, harness_own }) do
-    for _, name in ipairs(list) do runs[#runs + 1] = name end
-  end
+  local runs = harness_runs()
   local function by_value(name: string): {string}
     local bytes = code_of(name)
     local kept: mut {string} = {}
@@ -697,6 +707,37 @@ function test_key.harness(db: Sqlite.Handle): Harness?, string
     store_salt = declared_key.harness(salted, compiled), carried = carried }, ""
 end
 
+--- The harness the stamp `spelled` spells ([`build.stamps`]: the digest,
+--- the stores' salt, then a line of each module's name and digest), which
+--- the build that wrote `binary` worked out as [`test_key.harness`] does.
+--- Only the names of the modules `binary` carries are read of it. Nil and
+--- why for a text of another shape.
+local function stamped_harness(binary: Sqlite.Handle, spelled: string): Harness?, string
+  local lines: mut {string} = {}
+  for line in spelled:gmatch("[^\n]+") do lines[#lines + 1] = line end
+  local digest, salt = lines[1], lines[2]
+  if digest == nil or salt == nil then
+    return nil, "the binary's stamp of its harness names no digest"
+  end
+  local names: mut {string} = {}
+  local each: mut {string:string} = {}
+  for i = 3, #lines do
+    local name, module_digest = (lines[i] or ""):match("^([^\t]+)\t(%x+)$")
+    if name == nil or module_digest == nil then
+      return nil, "the binary's stamp of its harness holds a line that names no module"
+    end
+    names[#names + 1] = name
+    each[name] = module_digest
+  end
+  local modules, trouble = Sqlite.text_rows(binary,
+    "SELECT path FROM modules WHERE kind IN ('module', 'main')")
+  if modules == nil then return nil, trouble end
+  local carried: mut {string:boolean} = {}
+  for _, row in ipairs(modules) do carried[row:text(1)] = true end
+  return { modules = each, digest = digest, names = names, runs = harness_runs(), store_salt = salt,
+    carried = carried }, ""
+end
+
 --- What of the running binary a run holds of the code a worker runs
 --- ([`Harness`]), searched alone so no attached database stands in for
 --- it. What a worker runs is what every worker loads ([`worker.loads`]),
@@ -713,7 +754,10 @@ function test_key.binary_harness(): Harness?, string
     local databases = Store.databases()
     local binary = databases[#databases]
     if binary == nil then return end
-    looked.value, looked.trouble = test_key.harness(binary)
+    local stamped = Stamp.read("stamp_harness")
+    if stamped ~= nil then looked.value, looked.trouble = stamped_harness(binary, stamped) end
+    -- A stamp of a shape this code does not read is worked out again.
+    if looked.value == nil then looked.value, looked.trouble = test_key.harness(binary) end
   end)
   local harness = looked.value
   if harness == nil then return nil, looked.trouble end
@@ -967,27 +1011,62 @@ local function reads_image(rec: Recording, m: Module): boolean
   return key_parts.reads_meta(rec.closures[m.path] or {}, "image_hash")
 end
 
---- The digest of the modules of the program's own database that the tree
---- lacks -- the standard library, in a project's tree -- by path, source
---- hash, bytecode, stub and the edges the checker follows from it
---- (`decl_imports`), which a sealed database carries whole
---- ([`sealed_fill`]) and so a key of a worker on one holds
---- ([`declared_of`]). Worked out once a run needs it, from the program's
---- own database, which sealing nothing reads; "unread" where it cannot be.
-local function extras_digest(rec: Recording): string
-  local extras = rec.extras
-  if extras ~= nil then return extras end
-  local databases = Store.databases()
+--- What a sealed database carries of each module `db` holds, for the
+--- digest of those a tree lacks ([`extras_digest`]): its path, source
+--- hash, bytecode, the edges the checker follows from it (`decl_imports`)
+--- and its stub, in order of path. Nil and why where `db` cannot be read.
+function test_key.extras_rows(db: Sqlite.Handle): {{string}}?, string
   local query = "SELECT path, lower(hex(source_hash)), lower(hex(sha256(inflate(bytecode)))), " ..
     "coalesce((SELECT group_concat(requires, ' ' ORDER BY requires) FROM decl_imports d " ..
     "WHERE d.path = modules.path), '')"
   -- With its stub ([`sealed_fill`] carries it), where the program has
   -- them: a program from before `stubs` has no such table to read.
-  local rows, _ = Sqlite.text_rows(databases[#databases], query .. -- checked: index_may_be_nil
+  local rows, _ = Sqlite.text_rows(db, query ..
       ", coalesce((SELECT lower(hex(sha256(source))) FROM stubs s WHERE s.path = modules.path), '') " ..
       "FROM modules ORDER BY path")
   if rows == nil then
-    rows, _ = Sqlite.text_rows(databases[#databases], query .. " FROM modules ORDER BY path") -- checked: index_may_be_nil
+    local trouble: string
+    rows, trouble = Sqlite.text_rows(db, query .. " FROM modules ORDER BY path")
+    if rows == nil then return nil, trouble end
+  end
+  local out: mut {{string}} = {}
+  for i, row in ipairs(rows) do out[i] = row:texts() end
+  return out, ""
+end
+
+--- The rows the binary's stamp `spelled` spells ([`build.stamps`]): a line
+--- of each, its values between tabs.
+local function stamped_extras(spelled: string): {{string}}
+  local out: mut {{string}} = {}
+  for line in (spelled .. "\n"):gmatch("([^\n]*)\n") do
+    local values: mut {string} = {}
+    for value in (line .. "\t"):gmatch("([^\t]*)\t") do values[#values + 1] = value end
+    out[#out + 1] = values
+  end
+  return out
+end
+
+--- The digest of the modules of the program's own database that the tree
+--- lacks -- the standard library, in a project's tree -- by the rows
+--- [`test_key.extras_rows`] answers of each, which a sealed database
+--- carries whole ([`sealed_fill`]) and so a key of a worker on one holds
+--- ([`declared_of`]). Worked out once a run needs it, from the program's
+--- own database, which sealing nothing reads, or from the rows the build
+--- that wrote it kept ([`build.stamps`]); "unread" where it cannot be.
+local function extras_digest(rec: Recording): string
+  local extras = rec.extras
+  if extras ~= nil then return extras end
+  local databases = Store.databases()
+  local stamped = Stamp.read("stamp_extras")
+  local rows: {{string}}? = nil
+  if stamped ~= nil then
+    rows = stamped_extras(stamped)
+  else
+    local binary = databases[#databases]
+    if binary ~= nil then
+      local read, _ = test_key.extras_rows(binary)
+      rows = read
+    end
   end
   local digest = "unread"
   if rows ~= nil then
@@ -995,8 +1074,8 @@ local function extras_digest(rec: Recording): string
     for _, name in ipairs(rec.tree_names) do in_tree[name] = true end
     local lines: mut {string} = {}
     for _, row in ipairs(rows) do
-      if in_tree[row:text(1)] ~= true then
-        lines[#lines + 1] = table.concat(row:texts(), "\0")
+      if in_tree[row[1] or ""] ~= true then
+        lines[#lines + 1] = table.concat(row, "\0")
       end
     end
     digest = hex_sha256(table.concat(lines, "\n"))
@@ -2208,6 +2287,22 @@ function test_key.declared_runtime(runtime: string, must: boolean): string
   return runtime .. " declared" .. (if must then " must" else "" end)
 end
 
+--- A finished test whose verdict waits to be kept ([`test_key.keep`]).
+local record Waiting
+  rec: Recording
+  job: Job
+  judged: Judged
+  elapsed: integer
+end
+
+--- The finished tests of the run this process makes whose verdicts are not kept yet, in the order they ended.
+--- A run begins with none ([`test_key.begin`]): what a run that an error ended left here is not the next one's.
+local waiting: mut {Waiting} = {}
+
+--- The most finished tests that wait for one look at their inputs: what a run ended with no chance to keep
+--- them (a kill no guard catches) loses of its verdicts, and they run again.
+local waiting_most <const> = 64
+
 --- Sets what every key of the run holds of the harness and the runtime
 --- on its recording: the runtime, whether workers are sandboxed, the
 --- epoch, the timeout, the salt of the stores' addresses and the modules
@@ -2219,6 +2314,7 @@ end
 --- (build/sandboxed_verdicts_test.tl): mixed into the salt, never in
 --- its place, so one address still names one store's bytes.
 function test_key.begin(rec: Recording, from: Begin)
+  waiting = {}
   rec.runtime = from.runtime
   rec.sandbox = from.sandbox
   local digest = from.harness.digest
@@ -2448,7 +2544,7 @@ end
 --- them. One that failed with its inputs moved while it ran describes no
 --- one state of them, but may be of the one it started from, and a pass
 --- kept under that key would stand for it: gone.
-function test_key.keep(rec: Recording, job: Job, judged: Judged, elapsed: integer)
+local function keep_now(rec: Recording, job: Job, judged: Judged, elapsed: integer)
   local id, key = job.id, job.declared
   -- A pass that met a violation is kept as a failure is: no verdict of it stands, and a verdict that stood under
   -- its key goes.
@@ -2477,6 +2573,30 @@ function test_key.keep(rec: Recording, job: Job, judged: Judged, elapsed: intege
     rec.owed.kept[#rec.owed.kept + 1] = { key = key, test = id, hits = rec.by_test[id], -- checked: index_may_be_nil, nil_not_allowed
       elapsed_ns = elapsed }
   end
+end
+
+--- Keeps the verdict of every test that waits ([`test_key.keep`]), each as [`keep_now`] keeps one, under one look
+--- at each declared input: every one of them ended before this look, so what it finds is what each would find
+--- of its own, later, and a module's inputs are digested once for all of its tests among them. The runner
+--- calls it once no test is left to collect, however the run ended.
+function test_key.keep_waiting(rec: Recording)
+  if #waiting == 0 then return end
+  local taken = waiting
+  waiting = {}
+  local digests = rec.digests
+  if digests ~= nil then declared_key.freeze(digests) end
+  for _, one in ipairs(taken) do keep_now(one.rec, one.job, one.judged, one.elapsed) end
+  if digests ~= nil then declared_key.thaw(digests) end
+end
+
+--- Has the verdict of one finished `job` kept, as it was `judged`, with its time `elapsed` ([`keep_now`]): not
+--- at once, but with those of the tests that end after it, up to `waiting_most`, under one look at their inputs
+--- ([`test_key.keep_waiting`]). The look comes after the test ended, which is all its verdict asks of it: an
+--- input that moved while it ran has moved by then, and one that moves in between costs a verdict that could
+--- have been kept. An input moved and put back before the look is not seen, whenever the look comes.
+function test_key.keep(rec: Recording, job: Job, judged: Judged, elapsed: integer)
+  waiting[#waiting + 1] = { rec = rec, job = job, judged = judged, elapsed = elapsed }
+  if #waiting >= waiting_most then test_key.keep_waiting(rec) end
 end
 
 --- Ends the keying of a run: writes one store again to hold it to the

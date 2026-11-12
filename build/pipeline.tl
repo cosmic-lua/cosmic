@@ -49,6 +49,7 @@ local Stub = require("build.syntax_stub")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local String = require("cosmic.string")
+local Stamp = require("build.stamp")
 local SyntaxContracts = require("build.syntax_contracts")
 local TreeProgram = require("build.tree_program")
 local standard_text = require("build.standard_text")
@@ -454,10 +455,14 @@ end
 
 local carried_identity: Remembered = { code = nil }
 
+function Pipeline.code_of(source: function(name: string): string?, requires: function(name: string): {string}): string
+  return identity({ source = source, requires = requires })
+end
+
 function Pipeline.coded(tool: string): string
   local code = carried_identity.code
   if code == nil then
-    code = identity(carried_code)
+    code = Stamp.read("stamp_coded") or identity(carried_code)
     carried_identity.code = code
   end
   return Hash.hex_sha256(tool .. "\0" .. code)

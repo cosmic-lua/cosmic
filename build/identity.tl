@@ -494,6 +494,9 @@ local compiler_roots: {string} = {
   "build.analysis_schema", "build.bind", "build.doctest", "build.gen_syscalls", "build.link_text",
   -- The compile's own: the tree the rules hold in and the globals the checker is stripped of.
   "build.tree", "build.withheld",
+  -- What answers the identities a compile and a parse are keyed by from the binary's stamps: a stamp it
+  -- answered wrongly would store a row under another code's key.
+  "build.stamp",
 }
 
 --- The modules the compiler's identity holds, sorted, as `requires`
