@@ -477,16 +477,18 @@ end
     "elapsed_ns " .. tostring(elapsed) .. " is implausibly large")
 end
 
+--- The project's root names every test, written relative or absolute: "." as [`test.matches`] reads it
+--- (build/test_test.tl holds its other spellings), and the root's own path, with a slash after it, as the command line
+--- resolves one.
 local function test_cli_accepts_relative_and_absolute_project_root(tmp: string)
-  for index, selector in ipairs({ ".", "./", "absolute", "absolute-slash" }) do
+  for index, selector in ipairs({ ".", "absolute-slash" }) do
     local root = project(tmp .. "/case-" .. tostring(index))
     assert(Fs.write(root .. "/suite/unrelated_test.tl", [[
 local function test_unrelated()
   assert(true)
 end
 ]]))
-    local argument = if selector == "." then "." elseif selector == "./" then "./" elseif
-      selector == "absolute" then root else root .. "/" end
+    local argument = if selector == "." then "." else root .. "/" end
     local output = tmp .. "/" .. selector .. ".out"
     local result = invoke(root, output, argument)
     assert(result.ok, assert(Fs.read(output)))
@@ -610,7 +612,10 @@ local function status_project(root: string, bad: boolean, failing: boolean, lone
 end
 
 --- A mutation-testing script tells a mutant the checker refused from one a test killed by the exit status: 4 when the tree, or
---- a module a named run needs, did not compile, whatever else failed with it, and 1 for a test that fails.
+--- a module a named run needs, did not compile, whatever else failed with it, and 1 for a test that fails. One case for each
+--- place the status is decided: the summary of a whole run and of a named one, a named run a refusal elsewhere leaves alone, a
+--- tree that stops at its compile, and a name that matches nothing. Which refusals a named run fails for is
+--- build/test_test.tl's ([`test.refusals_of`]).
 local function test_a_tree_that_does_not_compile_exits_4_and_a_failing_test_exits_1(tmp: string)
   local record Case
     name: string
@@ -622,14 +627,9 @@ local function test_a_tree_that_does_not_compile_exits_4_and_a_failing_test_exit
     cycle?: boolean
   end
   local cases: {Case} = {
-    { name = "passing", words = {}, code = 0 },
-    { name = "failing", words = {}, code = 1, failing = true },
-    { name = "refused", words = {}, code = 4, bad = true },
     { name = "refused-and-failing", words = {}, code = 4, bad = true, failing = true },
-    { name = "named-refused", words = { "tally_test.tl" }, code = 4, bad = true },
     { name = "named-cascade-and-failing", words = { "tally_test.tl", "fine_test.tl" }, code = 4, bad = true, failing = true },
     { name = "named-unaffected-by-a-refusal-elsewhere", words = { "fine_test.tl" }, code = 1, lone = true, failing = true },
-    { name = "named-passing-beside-a-refusal", words = { "fine_test.tl" }, code = 0, lone = true },
     { name = "cycle", words = {}, code = 4, cycle = true },
     { name = "named-absent", words = { "nothing_test.tl" }, code = 1 },
   }
