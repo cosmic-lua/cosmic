@@ -74,7 +74,10 @@
 ---   project a `/parent/` grant names, by its relative path (`parent`);
 --- - the environment its worker is given ([`test_sandbox.environment`]):
 ---   the pinned variables and the declared ones, but for where a cache
----   is, which is no input ([`cache_places`]);
+---   is, which is no input ([`cache_places`]). A sandboxed worker's PATH
+---   and how it boots and sandboxes are one value on every host, not the
+---   runner's, and so is its HOME where its module declares no host
+---   cache, so they move no key;
 --- - where the tree is, only for a worker no sandbox gives it at /tree
 ---   ([`Spec`]'s `tree`).
 ---

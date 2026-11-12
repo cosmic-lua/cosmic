@@ -768,7 +768,8 @@ end
 --- The environment the workers of `m`'s tests are given, which a
 --- variable they read is keyed by: what a sandbox gives one
 --- ([`test_sandbox.environment`]), TMPDIR its scratch directory; one
---- unsandboxed has the host's cores cache in place of the sandbox's own
+--- unsandboxed has the runner's PATH and HOME, and the host's cores
+--- cache in place of the sandbox's own
 --- ([`test_sandbox.unenforced_view`]), as it is given.
 local function view_of(rec: Recording, m: Module): {string:string} -- checked: not_assigned
   local view = rec.views[m.path]
@@ -1970,6 +1971,9 @@ function test_key.ask_host(rec: Recording, modules: {Module},
           linux = linux,
           sandbox = sandbox,
           sandboxed_workers = sandboxed_workers,
+          -- A sandboxed worker looks a program up on its own PATH, not
+          -- the runner's: the probe finds the file the worker would.
+          path = if sandboxed_workers then test_sandbox.path else nil end,
         })
       end
       local probed = assert(host)

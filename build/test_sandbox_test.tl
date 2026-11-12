@@ -13,13 +13,55 @@ local test_sandbox_probe = require("build.test_sandbox_probe")
 --- module declares, as the runner's view has them; and TMPDIR is its
 --- scratch directory, [`test_sandbox.scratch`], whatever the host's.
 local function test_a_worker_is_given_only_the_variables_it_may_read()
-  local view = { PATH = "/bin", DECLARED = "d", UNDECLARED = "u", TMPDIR = "/elsewhere",
-    COSMIC_SANDBOX = "must" }
-  local inputs = { ...TestInputsFixture.effective({}), env = { PATH = true, TMPDIR = true, DECLARED = true } }
+  local view = { DECLARED = "d", UNDECLARED = "u", TMPDIR = "/elsewhere", COSMIC_SANDBOX = "must" }
+  local inputs = { ...TestInputsFixture.effective({}), env = { TMPDIR = true, DECLARED = true } }
   local env = test_sandbox.environment(view, inputs)
-  assert(env["PATH"] == "/bin" and env["DECLARED"] == "d" and env["UNDECLARED"] == nil)
+  assert(env["DECLARED"] == "d" and env["UNDECLARED"] == nil)
   assert(env["TMPDIR"] == test_sandbox.scratch)
   assert(env["COSMIC_SANDBOX"] == nil, "only what is pinned or declared is given")
+end
+
+--- The variables a sandboxed worker may read that name the host, or how
+--- the run was started.
+local function host_named(): mut {string:boolean}
+  return { PATH = true, HOME = true, XDG_CACHE_HOME = true, COSMIC_AUTO_BOOT = true,
+    COSMIC_TEST_SANDBOX = true, COSMIC_PORTABLE_CACHE = true }
+end
+
+--- Two runs started from other homes, with other PATHs and told otherwise
+--- to boot and to sandbox, give a sandboxed worker one environment, so one
+--- key: only where this program's core is differs, which a key holds by
+--- its kind. Run unsandboxed, the worker has each run's own.
+local function test_a_sandboxed_worker_is_not_told_where_or_how_its_run_was_started()
+  local inputs = { ...TestInputsFixture.effective({}), env = host_named() }
+  local one = { PATH = "/nix/bin:/usr/bin", HOME = "/root" }
+  local other = { PATH = "/opt/bin", HOME = "/home/dev", XDG_CACHE_HOME = "/var/cache/dev",
+    COSMIC_AUTO_BOOT = "0", COSMIC_TEST_SANDBOX = "1" }
+  local first, second = test_sandbox.environment(one, inputs), test_sandbox.environment(other, inputs)
+  for name in pairs(host_named()) do
+    if name ~= "COSMIC_PORTABLE_CACHE" then
+      assert(first[name] == second[name], name .. ": " .. tostring(first[name]) .. " and " .. tostring(second[name]))
+    end
+  end
+  assert(first["PATH"] == test_sandbox.path and first["HOME"] == test_sandbox.scratch .. "/home")
+  assert(first["XDG_CACHE_HOME"] == nil and first["COSMIC_TEST_SANDBOX"] == nil)
+  assert(first["COSMIC_AUTO_BOOT"] == "0")
+  -- The core is where each host has it, and the worker is told.
+  assert(first["COSMIC_PORTABLE_CACHE"] == "/root/.cache/cosmic/cores", tostring(first["COSMIC_PORTABLE_CACHE"]))
+  assert(second["COSMIC_PORTABLE_CACHE"] == "/var/cache/dev/cosmic/cores", tostring(second["COSMIC_PORTABLE_CACHE"]))
+  local unenforced = test_sandbox.unenforced_view(other, inputs)
+  assert(unenforced["PATH"] == "/opt/bin" and unenforced["HOME"] == "/home/dev" and
+      unenforced["COSMIC_TEST_SANDBOX"] == "1" and unenforced["COSMIC_PORTABLE_CACHE"] == nil)
+end
+
+--- A module that declares a host cache finds it by the host's home, which
+--- its worker is given as the runner has it.
+local function test_a_worker_that_declares_a_cache_has_the_hosts_home()
+  local inputs = { ...TestInputsFixture.effective({}), env = host_named(), caches = { "zig" } }
+  local env = test_sandbox.environment({ HOME = "/home/dev", XDG_CACHE_HOME = "/var/cache/dev", PATH = "/opt/bin" },
+    inputs)
+  assert(env["HOME"] == "/home/dev" and env["XDG_CACHE_HOME"] == "/var/cache/dev")
+  assert(env["PATH"] == test_sandbox.path and env["COSMIC_PORTABLE_CACHE"] == nil)
 end
 
 --- Run unsandboxed, a worker that declares the `bootstrap` cache has

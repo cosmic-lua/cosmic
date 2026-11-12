@@ -52,8 +52,9 @@
 --- - `program:<name>`: a program the PATH finds ([`Proc.find`]).
 ---
 --- Every probe runs in the process that asks (the runner's), not in a
---- worker: `path:` and `program:` use its filesystem and its PATH, which a
---- sandboxed worker may not see the same, and `nest` and `userns` say what
+--- worker: `path:` and `program:` use its filesystem, which a
+--- sandboxed worker may not see the same, and `program:` the PATH a
+--- worker has ([`Context`]'s `path`), and `nest` and `userns` say what
 --- that process may do, where a worker held by a Landlock ruleset and no
 --- `nest` promise is refused the mounts a root of its own is made of.
 
@@ -204,7 +205,8 @@ local record host_requires
     --- `program:` must be under; [`confine.system_paths`] by default.
     system?: {string}
     --- The search list `program:` looks in; PATH by default
-    --- ([`Proc.find`]).
+    --- ([`Proc.find`]). A run whose workers are sandboxed gives theirs
+    --- ([`build.test_sandbox`]'s `path`), which is not the runner's.
     path?: string
     --- Reads a file for the settings `userns` and `nest` read, which a
     --- test stands in for.
