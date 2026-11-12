@@ -8,7 +8,6 @@ local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Test = require("cosmic.test")
 local confine = require("build.confine")
-local test_sandbox_probe = require("build.test_sandbox_probe")
 local this_program = require("build.this_program")
 
 --- The program itself, which the entry is of.
@@ -33,7 +32,7 @@ end
 local function test_the_entry_holds_the_process_and_exits_0(tmp: string)
   -- `itself` lists the running program first.
   local program = Array.at(confine.itself(), 1)
-  local result = started(tmp, test_sandbox_probe.entry(program))
+  local result = started(tmp, { "test", "--sandbox-probe", program })
   assert(result.code == 0, tostring(result.code) .. tostring(result.stderr))
   assert(result.stdout == "" and result.stderr == "", tostring(result.stdout) .. tostring(result.stderr))
 end
