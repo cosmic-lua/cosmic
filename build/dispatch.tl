@@ -1,10 +1,10 @@
 --- What the binary's main does with its command line, as a module
 --- rather than the main itself, so a test can run a verb in-process
 --- ([`build.invoke`]): [`cmd/cosmic/main.tl`] hands [`Dispatch.main`] every
---- command line but a test's worker's (`cosmic test --worker`), which it
---- runs itself, so a worker loads nothing of this module's. So
---- `cosmic test --worker` here is `test` refusing an option it does
---- not know.
+--- command line but a test's worker's (`cosmic test --worker`) and the
+--- sandbox probe's (`cosmic test --sandbox-probe`), which it runs itself,
+--- so neither loads anything of this module's. So `cosmic test --worker`
+--- here is `test` refusing an option it does not know.
 ---
 --- A bare path runs a file: cosmic builds the tree that file sits in,
 --- into that tree's own database, and then requires the module. The
