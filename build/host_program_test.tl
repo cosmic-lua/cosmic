@@ -1,0 +1,57 @@
+--- What a granted host program is given beside its own file
+--- (build/host_program.tl), and that a worker starts one on those files
+--- alone: this module grants /bin/cat and /bin/sh and declares no
+--- "system".
+
+local Child = require("cosmic.child")
+local Fs = require("cosmic.fs")
+local Test = require("cosmic.test")
+local host_program = require("build.host_program")
+
+--- Two dynamic programs of the host, which it must have. Their loader and
+--- libraries come with them.
+Test.policy{
+  grants = { { path = "/bin/cat", letters = "r" }, { path = "/bin/sh", letters = "r" } },
+  requires = { "path:/bin/cat", "path:/bin/sh" },
+}
+
+--- A dynamic program starts in a worker given it, its loader and its
+--- libraries, with nothing else of the system's.
+local function test_a_granted_program_starts_without_the_systems_paths(tmp: string)
+  assert(Fs.write(tmp .. "/a", "hello"))
+  local ran, why = Child.run({ "/bin/cat", tmp .. "/a" }, { stdout = "capture", stderr = "capture" })
+  assert(ran ~= nil, why)
+  assert(ran.ok and ran.stdout == "hello", tostring(ran.code) .. " " .. tostring(ran.stderr))
+  -- A program the module does not grant is not there, whatever the host has.
+  local other, _ = Child.run({ "/bin/ls", tmp }, { stdout = "capture", stderr = "capture" })
+  assert(other == nil or not other.ok, "/bin/ls ran, which this module does not grant")
+end
+
+--- A script comes with its interpreter, and that with its own loader and
+--- libraries; a file that is no program names nothing.
+local function test_a_script_is_given_its_interpreter(tmp: string)
+  local script = tmp .. "/run"
+  assert(Fs.write(script, "#!/bin/sh\nexit 0\n"))
+  assert(Fs.chmod(script, 0x1ed))
+  local given = host_program.complete({ script }, "/usr/bin:/bin")
+  assert(given[1] == script and given[2] == "/bin/sh", table.concat(given, " "))
+  local of_shell = host_program.complete({ "/bin/sh" }, "/usr/bin:/bin")
+  for i = 2, #of_shell do
+    assert(given[i + 1] == of_shell[i], "the interpreter's own needs follow it: " .. table.concat(given, " "))
+  end
+  local text = tmp .. "/text"
+  assert(Fs.write(text, "#!/bin/sh\n"))
+  assert(#host_program.complete({ text }, "/usr/bin:/bin") == 1, "a file no one may run names nothing")
+  assert(#host_program.complete({ tmp .. "/absent" }, "/usr/bin:/bin") == 1)
+end
+
+--- Each path is given once, a granted one first.
+local function test_each_path_is_given_once()
+  local given = host_program.complete({ "/bin/sh", "/bin/cat", "/bin/sh" }, "/usr/bin:/bin")
+  local seen: mut {string:boolean} = {}
+  for _, path in ipairs(given) do
+    assert(seen[path] ~= true, path .. " twice")
+    seen[path] = true
+  end
+  assert(given[1] == "/bin/sh" and given[2] == "/bin/cat")
+end

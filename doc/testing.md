@@ -171,10 +171,18 @@ The rules:
   declares. A sandboxed worker has a PATH only where its module declares
   it, and then the system's directories on every host, whatever the
   runner's ("sandboxed and unsandboxed runs").
-- The profile `"system"` gives /usr, /bin, /lib, /etc and the like. A
-  test that starts a host program (a shell, `sleep`, a compiler, the
-  `#!/bin/sh` launcher, [`bin/cosmic`]) needs it. A test that only reads a
-  file or two of the system names them as absolute grants.
+- A test that starts a host program grants it by its absolute path
+  (`{ path = "/bin/sh", letters = "r" }`). The program comes with what it
+  needs to start: its loader and shared libraries, and a script's
+  interpreter. The key holds each of those files by its contents and
+  nothing else of the host's. A program it starts in turn, or a file it
+  opens by name, is granted the same way.
+- The profile `"system"` gives /usr, /bin, /lib, /etc and the like, and
+  its key holds every package the host has installed, so its verdict
+  stands only on a host with the same packages. A test needs it only to
+  start many programs, as the `#!/bin/sh` launcher and [`bin/cosmic`]
+  do. A test that only reads a file or two of the system names them as
+  absolute grants.
 - The profile `"proc"` gives /proc, the kernel's process information, on
   Linux and nothing on macOS. A test that reads /proc declares
   `profiles = { "proc" }`, not a grant of /proc: on macOS the grant names

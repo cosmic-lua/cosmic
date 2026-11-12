@@ -58,6 +58,7 @@ local shared_verdicts = require("build.shared_verdicts")
 local test_inputs = require("build.test_inputs")
 local test_policy = require("build.test_policy")
 local test_sandbox = require("build.test_sandbox")
+local host_program = require("build.host_program")
 local test_sandbox_probe = require("build.test_sandbox_probe")
 local declared_key = require("build.declared_key")
 local key_parts = require("build.key_parts")
@@ -2054,6 +2055,9 @@ function test_key.gather(rec: Recording, from: Gather): string?
     local effective = test_inputs.effective(m, by_path, declarations, type_only, rec.sandbox)
     effective.cache_paths = caches_of(rec, m)
     test_inputs.resolve(effective, tree_roots(rec))
+    -- A host program the module grants comes with what it needs to start,
+    -- each a host file its key holds by its contents.
+    effective.host = host_program.complete(effective.host, test_sandbox.path)
     test_sandbox_probe.resolve_noexec(effective, rec.sandbox, noexec_probes)
     rec.effective[m.path] = effective
   end
