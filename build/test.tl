@@ -2002,6 +2002,8 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: State.Limits,
       return running_detail(rec, busy)
     end)
   end
+  -- No test is left to collect: the workers still running are ended below, reported on by none.
+  test_key.keep_waiting(rec)
   if cancelled == 0 and rec.tally.ran - ran_before < #jobs then
     rec.not_run = #jobs - (rec.tally.ran - ran_before)
   end
