@@ -613,9 +613,9 @@ end
 
 --- A mutation-testing script tells a mutant the checker refused from one a test killed by the exit status: 4 when the tree, or
 --- a module a named run needs, did not compile, whatever else failed with it, and 1 for a test that fails. One case for each
---- place the status is decided: the summary of a whole run and of a named one, a named run a refusal elsewhere leaves alone, a
---- tree that stops at its compile, and a name that matches nothing. Which refusals a named run fails for is
---- build/test_test.tl's ([`test.refusals_of`]).
+--- place the status is decided: the summary of a whole run, with every test passing and with one failing, and of a named
+--- one; a named run a refusal elsewhere leaves alone; a tree that stops at its compile; and a name that matches nothing.
+--- Which refusals a named run fails for is build/test_test.tl's ([`test.refusals_of`]).
 local function test_a_tree_that_does_not_compile_exits_4_and_a_failing_test_exits_1(tmp: string)
   local record Case
     name: string
@@ -627,6 +627,7 @@ local function test_a_tree_that_does_not_compile_exits_4_and_a_failing_test_exit
     cycle?: boolean
   end
   local cases: {Case} = {
+    { name = "refused", words = {}, code = 4, bad = true },
     { name = "refused-and-failing", words = {}, code = 4, bad = true, failing = true },
     { name = "named-cascade-and-failing", words = { "tally_test.tl", "fine_test.tl" }, code = 4, bad = true, failing = true },
     { name = "named-unaffected-by-a-refusal-elsewhere", words = { "fine_test.tl" }, code = 1, lone = true, failing = true },
