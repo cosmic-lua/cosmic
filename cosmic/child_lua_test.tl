@@ -508,14 +508,6 @@ local function test_try_wait_services_a_chatty_child()
   assert(#assert(assert(polled.result).stdout) == 200000)
 end
 
-local function test_timeout_keeps_what_was_captured()
-  -- The timeout must outlast the child's start and its write, which take
-  -- over 200 ms on the sanitized core under a full suite's load.
-  local r = assert(Child.run(lua(FS .. 'Fs.put(1, "partial") ' .. sleep(30000), nil,
-    { stdout = "capture", timeout_ns = Clock.seconds(5) })))
-  assert(r.timed_out and not r.ok and r.stdout == "partial")
-end
-
 --- A leader that exits leaves no member of its group behind, and none of
 --- them a zombie: a descendant that outlives the leader is ended and
 --- reaped before the wait answers.
@@ -624,6 +616,15 @@ local function startup_timeout(): integer
   local began = Clock.monotonic_ns()
   assert(Child.run(lua("")))
   return Clock.ms(200) + 2 * (Clock.monotonic_ns() - began)
+end
+
+--- A run that times out keeps what it captured before its deadline. The
+--- timeout must outlast the child's start and its write
+--- ([`startup_timeout`]); how long past them it runs proves nothing more.
+local function test_timeout_keeps_what_was_captured()
+  local r = assert(Child.run(lua(FS .. 'Fs.put(1, "partial") ' .. sleep(30000), nil,
+    { stdout = "capture", timeout_ns = startup_timeout() })))
+  assert(r.timed_out and not r.ok and r.stdout == "partial", tostring(r.stdout))
 end
 
 --- A started child's `timeout_ns` is a deadline from its start, which a
