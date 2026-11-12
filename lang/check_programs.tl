@@ -24,6 +24,8 @@ local record Programs
     before: {string}
     --- What checking each module it required gave, by name: those [`Programs.runner`] was given as `modules`.
     required?: {string: Run}
+    --- Which call of [`Programs.run`] made it, counted from one; nil for a [`Programs.runner`]'s.
+    mut turn?: integer
   end
 
   --- The declarations the standard library is: the globals a program may use, as a declaration file.
@@ -31,6 +33,12 @@ local record Programs
 
   --- Checks `source` as the module `t`, after lowering the library and the `modules` it requires (by name, in the
   --- order of their names). `declared` are modules written as declaration files (`.d.tl`), lowered first.
+  ---
+  --- A process lowers the library once for all its calls: each call takes the modules of the call before out of the one
+  --- program ([`Declarations.forget`]) and lowers its own. So a [`Run`] is good until the next call: its types name
+  --- declarations that call forgets, and [`Programs.codes`], [`Programs.var`] and [`Programs.lua`] raise for it then.
+  --- Its fields are not held so: read none of them after the next call. To hold two at once, check each with a
+  --- [`Programs.runner`].
   run: function(source: string, modules?: {string: string}, declared?: {string: string}): Run
 
   --- The library of [`Programs.run`] lowered once: a function that checks a source as the module `module` (`t` by
@@ -323,8 +331,62 @@ function Programs.runner(): function(source: string, module?: string, modules?: 
   end
 end
 
+--- The program [`Programs.run`] checks in, its library lowered: the globals the library declares, and the modules the
+--- last call lowered, which the next forgets.
+local record Shared
+  mut program: Declarations.Program?
+  mut globals: {string: Scopes.Global}
+  mut names: {string}
+  --- How many calls there have been ([`Programs.Run.turn`]).
+  mut turn: integer
+end
+
+local shared: Shared = { program = nil, globals = {}, names = {}, turn = 0 }
+
+--- Raises where `run` is of a call of [`Programs.run`] before the last, whose declarations the last forgot.
+local function current(run: Programs.Run)
+  local turn = run.turn
+  if turn ~= nil and turn ~= shared.turn then
+    error("this Run is of an earlier call of Programs.run, whose declarations the next call forgot: " ..
+        "check each source held at once with a Programs.runner()", 3)
+  end
+end
+
 function Programs.run(source: string, modules?: {string: string}, declared?: {string: string}): Programs.Run
-  return Programs.runner()(source, "t", modules, declared)
+  local program = shared.program
+  -- A module that declared a global cannot be forgotten: the next call starts a program afresh.
+  if program ~= nil and #shared.names > 0 and not Declarations.forget(program, shared.names) then
+    program = nil
+  end
+  if program == nil then
+    program = Declarations.new()
+    program.external["cosmic.sys"] = true -- checked: view_written
+    local library = read_library()
+    shared.globals = Scopes.declared(library.chunk)
+    local _ = lower(program, "std", Programs.library, "decl", {}, nil, library)
+    shared.program = program
+  end
+  local globals = shared.globals
+  -- Named before each is lowered, so a call that raises part way leaves the next every module it took.
+  local names: mut {string} = {}
+  shared.names = names
+  local files = declared or {}
+  for _, name in ipairs(sorted_names(files)) do
+    names[#names + 1] = name
+    local _ = lower(program, name, assert(files[name]), "decl", globals)
+  end
+  local sources = modules or {}
+  local required: mut {string: Programs.Run} = {}
+  for _, name in ipairs(sorted_names(sources)) do
+    names[#names + 1] = name
+    required[name] = lower(program, name, assert(sources[name]), "tl", globals)
+  end
+  names[#names + 1] = "t"
+  shared.turn = shared.turn + 1
+  local ran = lower(program, "t", source, "tl", globals, required)
+  ran.turn = shared.turn
+  for _, other in pairs(required) do other.turn = shared.turn end
+  return ran
 end
 
 --- The program the declarations `prelude` and `stdlib` make, with the globals they declare and what lowering each gave.
@@ -536,6 +598,7 @@ local function generated(run: Programs.Run, wraps: {integer: string}, kind_only:
 end
 
 function Programs.lua(run: Programs.Run): string
+  current(run)
   return generated(run, {}, nil)
 end
 
@@ -601,6 +664,7 @@ function Programs.execute(source: string, facts: boolean, modules?: {string: str
 end
 
 function Programs.codes(run: Programs.Run): string
+  current(run)
   local out: mut {string} = {}
   for _, e in ipairs(run.errors) do
     out[#out + 1] = e.code
@@ -609,6 +673,7 @@ function Programs.codes(run: Programs.Run): string
 end
 
 function Programs.var(run: Programs.Run, name: string): Types.Type
+  current(run)
   for _, v in ipairs(run.scoped.list) do
     if v.name == name then
       local t = run.result.vars[v.id]
