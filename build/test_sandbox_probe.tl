@@ -144,7 +144,7 @@ local function ran_under(argv: {string}, fds: {integer:integer | string},
 end
 
 --- Whether this host can run a worker sandboxed: `argv`, this program
---- started again with `env` and `fds`, runs a chunk that holds itself
+--- started again with `env` and `fds` at its probe's entry, holds itself
 --- to running anything but this program, as a worker whose test does not
 --- declare `tool` does ([`confine.forbid_running`]), under the policy of a
 --- worker that declares nothing, in `scratch`. False and why where it
@@ -166,11 +166,10 @@ function test_sandbox_probe.available(argv: {string}, env: {string:string}, fds:
   for i, word in ipairs(argv) do command[i] = word end
   -- As a worker whose test does not declare `tool` holds itself
   -- ([`confine.forbid_running`]): where it cannot, no worker is
-  -- sandboxed, since what such a test would run no key holds.
-  command[#command + 1] = "-e"
-  command[#command + 1] = 'local Confine = require("build.confine") ' ..
-    "local ok, why = Confine.forbid_running(Confine.itself(), { " .. string.format("%q", program) ..
-    " }) if not ok then error(why) end"
+  -- sandboxed, since what such a test would run no key holds. The
+  -- program's own entry does it (cmd/cosmic/main.tl), not a chunk given
+  -- `-e`, which every run would wait to have checked.
+  for _, word in ipairs({ "test", "--sandbox-probe", program }) do command[#command + 1] = word end
   return ran_under(command, fds, policy)
 end
 
