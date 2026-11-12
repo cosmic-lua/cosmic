@@ -1,8 +1,9 @@
 local Proc = require("cosmic.proc")
 local Test = require("cosmic.test")
 
--- Account lookup can consult more than /etc/passwd, notably on Darwin.
-Test.policy{ profiles = { "system" } }
+-- The account file a lookup reads here. On Darwin it consults a directory
+-- service too, which an unsandboxed worker reaches undeclared.
+Test.policy{ grants = { { path = "/etc/passwd", letters = "r" } } }
 
 local function test_user_resolves_root_and_copies_numeric_ids()
   local first, trouble = Proc.user("root")

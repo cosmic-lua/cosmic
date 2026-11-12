@@ -6,8 +6,9 @@ local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local Test = require("cosmic.test")
 
--- Account lookup can consult the host's directory service.
-Test.policy{ profiles = { "system" } }
+-- The account file a lookup reads here. On Darwin it consults the host's
+-- directory service too, which an unsandboxed worker reaches undeclared.
+Test.policy{ grants = { { path = "/etc/passwd", letters = "r" } } }
 
 local Example = {} -- checked: literal_needs_type
 
