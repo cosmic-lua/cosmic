@@ -272,13 +272,15 @@ Driver.declared = SourceParse.declared
 local type Read = SourceParse.Read
 local make = SourceParse.make
 local read_source = SourceParse.read
+-- The read of a source that declares the globals, which a build's start and [`Driver.globals`] share: one parse
+-- serves every reader, so none may write to its syntax what another build would read differently.
 local global_read = SourceParse.remembered
 
 function Driver.globals(sources: {Driver.Source}, adjust: (function(globals: {string: Scopes.Global}))?):
     {string: Scopes.Global}
   local out: mut {string: Scopes.Global} = {}
   for _, source in ipairs(sources) do
-    for name, g in pairs(Scopes.declared(read_source(source).chunk)) do
+    for name, g in pairs(Scopes.declared(global_read(source).chunk)) do
       out[name] = g
     end
   end
