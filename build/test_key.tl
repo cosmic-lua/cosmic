@@ -1529,15 +1529,29 @@ local function sealing_for(rec: Recording): Sealing?, string
     return nil, why
   end
   local launched, _ = Proc.relaunch()
-  if launched == nil or launched.argv[2] ~= "--artifact" or launched.argv[3] == nil then
+  local file = if launched ~= nil and launched.argv[2] == "--artifact" then launched.argv[3] else nil end
+  if file == nil then
     return refuse("this program is no portable artifact to take its database from")
   end
-  local bytes, read_trouble = Fs.read(launched.argv[3])
-  if bytes == nil then return refuse(launched.argv[3] .. ": " .. read_trouble) end -- checked: nil_not_allowed
-  local parts, split_trouble = artifact.split(bytes)
-  if parts == nil then return refuse(launched.argv[3] .. ": " .. split_trouble) end -- checked: nil_not_allowed
+  -- By its range of the file: the launcher and the cores ahead of it are
+  -- most of an artifact that carries every core, and every run that seals
+  -- would read them to drop them.
+  local fd, artifact_trouble = Fs.open_read(file)
+  if fd == nil then return refuse(file .. ": " .. artifact_trouble) end
+  local held: integer = fd
+  local size_of, stat_trouble = sys.fstat(held)
+  local parts: artifact.Carried? = nil
+  local split_trouble = stat_trouble
+  if size_of ~= nil then
+    parts, split_trouble = artifact.database_in(size_of.size, function(offset: integer, length: integer): string?
+      local data, _ = sys.pread(held, length, offset)
+      return data
+    end)
+  end
+  local _, _ = Fs.close(held)
+  if parts == nil then return refuse(file .. ": " .. split_trouble) end
   if parts.host then
-    return refuse(launched.argv[3] .. ": a host program has no database to seal from") -- checked: nil_not_allowed
+    return refuse(file .. ": a host program has no database to seal from")
   end
   local database = parts.database
   -- A root runner's workers run as a user of their own, which must be
