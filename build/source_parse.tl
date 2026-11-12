@@ -103,10 +103,11 @@ local record SourceParse
 
   --- [`SourceParse.read`] of a declaration file that declares the globals, kept by the file's name. A process that builds
   --- many trees (a compile of each step of an edit) lowers the same prelude and standard library into each build's own
-  --- program, and would parse them again for each: the syntax of a source is read-only to a program, and a build already
-  --- lowers the same one into a new program ([`Driver.Build`]'s restart), so a read is kept while the text, the dialect and
-  --- the module are those it was made from. A file with other text is read again, and replaces the one kept: a changed
-  --- declaration is never served stale.
+  --- program, and asks what they declare more than once a build ([`Driver.globals`]), and would parse them again for
+  --- each. A program writes nothing to the syntax of a source that depends on the build: the scope builder sets each
+  --- name's binding, the same every time, and a build already lowers the same syntax into a new program
+  --- ([`Driver.Build`]'s restart). So a read is kept while the text, the dialect and the module are those it was made
+  --- from. A file with other text is read again, and replaces the one kept: a changed declaration is never served stale.
   remembered: function(source: Source): Read
 
   --- [`SourceParse.read`] of `source`, its syntax errors as problems.
