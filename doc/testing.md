@@ -1064,6 +1064,11 @@ Other rules:
 - Never set `COSMIC_TEST_HARNESS_EPOCH`, `COSMIC_TEST_HARNESS_SALT` or
   `COSMIC_TEST_PLATFORM=other` to run a suite. They are for the runner's own tests
   ([`build.sandboxed_verdicts_test`]).
+- A tool's database carries, as stamps, the identities a run keys by that
+  are functions of the tool's own rows ([`build.stamps`]).
+  `COSMIC_STAMPS=0` has a run work them out instead, and reach the same
+  keys ([`build.sandboxed_verdicts_test`] holds it to that). It is never
+  needed to run a suite.
 - Harness modules reach the host through raw bindings and the
   standard-library modules `library` in [`build.harness_epoch`] names,
   each with its reason. [`build.harness_epoch_test`] holds them to it.
@@ -1102,6 +1107,7 @@ Other rules:
 [`build.reads.receivers`]: ../build/reads/receivers.tl
 [`build.rebuild`]: ../build/rebuild.tl
 [`build.sandboxed_verdicts_test`]: ../build/sandboxed_verdicts_test.tl
+[`build.stamps`]: ../build/stamps.tl
 [`build.standard_text`]: ../build/standard_text.tl
 [`build.symbols`]: ../build/symbols.tl
 [`build.test_child`]: ../build/test_child.tl

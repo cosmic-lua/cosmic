@@ -35,6 +35,10 @@ local function held(db: Sqlite.Handle): {string:string}
   return out
 end
 
+--- What the child of the first test exits with where the program is no
+--- portable artifact to take a copy of its database from.
+local no_artifact <const> = 77
+
 --- The child of the first test: in the program, each stamp its database
 --- carries is bound to its rows, and a copy of the database stamped again
 --- by the program's own code holds the same.
@@ -47,8 +51,10 @@ test_child.register("stamped again", function(args: {string}): integer
     assert(carried[key] ~= "", "the program's database holds no " .. key)
     assert(Stamp.read(key) == carried[key], key .. " is not answered, though the database holds it")
   end
-  local launched = assert(Proc.relaunch())
-  local bytes = assert(Fs.read(assert(launched.argv[3])))
+  local launched, _ = Proc.relaunch()
+  local file = if launched ~= nil and launched.argv[2] == "--artifact" then launched.argv[3] else nil end
+  if file == nil then return no_artifact end
+  local bytes = assert(Fs.read(file))
   local parts = assert(artifact.split(bytes))
   local path = dir .. "/again.db"
   assert(Fs.write(path, parts.database))
@@ -89,22 +95,26 @@ test_child.register("harness", function(_args: {string}): integer
   return 0
 end)
 
---- Runs the child `name` of this module in the program and asserts it
---- passed.
-local function runs(tmp: string, name: string)
+--- Runs the child `name` of this module in the program and answers its
+--- exit status, which is 0 or `no_artifact`.
+local function runs(tmp: string, name: string): integer
   local started = this_program.program(test_child.words(tmp, "build.stamps_tool_test", name, { tmp }),
     { cwd = tmp, stdout = "capture", stderr = "stdout", timeout_ns = Clock.seconds(90) })
   local result = assert(Child.run(started.argv, started.options))
-  assert(result.code == 0, tostring(result.stdout))
+  local code = result.code
+  assert(code == 0 or code == no_artifact, tostring(result.stdout))
+  return code or no_artifact
 end
 
 --- A stamp that is not what the tool would work out keys a compile, a
 --- parse or a verdict by another code's identity. Each is held here to
 --- the value the tool's own code works out of the tool's own rows.
 local function test_the_tool_carries_each_stamp_and_it_is_what_the_tool_works_out(tmp: string)
-  runs(tmp, "stamped again")
+  if runs(tmp, "stamped again") == no_artifact then
+    Test.skip("this program is no portable artifact to take a copy of its database from")
+  end
 end
 
 local function test_the_harness_read_of_its_stamp_is_the_one_worked_out(tmp: string)
-  runs(tmp, "harness")
+  assert(runs(tmp, "harness") == 0)
 end
