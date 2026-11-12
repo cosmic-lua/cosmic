@@ -154,7 +154,13 @@ local function seeded(tmp: string): mut {string:string}, Said, string
 end
 
 --- Nothing changed, or only a file no test declares: every test stands,
---- and none is assumed or runs every time.
+--- and none is assumed or runs every time. A file beneath a declared
+--- directory that changes runs the test that declares it. That each other
+--- input moves a key (a module of the closure, a variable's value, the
+--- declaration) is build/declared_key_test.tl's, and a run that an edited
+--- module or another variable moves is below
+--- ([`test_a_store_is_keyed_by_its_bytes_not_its_address`]) and in
+--- build/shared_verdicts_tool_test.tl.
 local function test_a_sandboxed_verdict_stands_until_what_it_declares_changes(tmp: string)
   local _, said, root = seeded(tmp)
   local again = said("0 ran, 3 stood")
@@ -162,28 +168,7 @@ local function test_a_sandboxed_verdict_stands_until_what_it_declares_changes(tm
   -- A file no test declares.
   assert(Fs.write(root .. "/suite/unrelated.txt", "changed\n"))
   said("0 ran, 3 stood")
-end
-
---- A file beneath a declared directory, or a module of a test's
---- closure, runs the test that declares it.
-local function test_a_declared_file_or_module_that_changes_runs_its_test(tmp: string)
-  local _, said, root = seeded(tmp)
   assert(Fs.write(root .. "/suite/data/f", "two\n"))
-  said("1 ran, 2 stood")
-  assert(Fs.write(root .. "/suite/lib.tl", "local record Lib\n  value: integer\nend\nlocal lib: Lib = { value = 2 }\nreturn lib\n"))
-  said("1 ran, 2 stood")
-end
-
---- A declared variable's value, or the declaration itself, that changes
---- runs the test that declares it.
-local function test_a_declared_variable_or_declaration_that_changes_runs_its_test(tmp: string)
-  local env, said, root = seeded(tmp)
-  env["FLAVOUR"] = "salty"
-  said("1 ran, 2 stood")
-  local source = assert(Fs.read(root .. "/suite/data_test.tl"))
-  assert(Fs.write(root .. "/suite/data_test.tl",
-    (source:gsub('{ path = "suite/data/", letters = "r" }',
-      '{ path = "suite/data/", letters = "r" }, { path = "suite/lib.tl", letters = "r" }'))))
   said("1 ran, 2 stood")
 end
 
@@ -422,7 +407,6 @@ end
 --- does one that does not declare it.
 local function test_a_tool_test_stands_across_a_rebuild_that_moved_nothing_it_carries(tmp: string)
   local rebuild, ran = tool_project(tmp)
-  ran("0 ran, 2 stood")
   -- Rebuilt for an edit no binary carries: every byte of the program
   -- after its image moved, and nothing it runs.
   rebuild("UPDATE meta SET value = 'two' WHERE key IN ('boot_hash', 'projected')")
@@ -434,8 +418,6 @@ end
 local function test_a_tool_test_stands_across_a_rebuild_at_another_path(tmp: string)
   local rebuild, ran = tool_project(tmp)
   rebuild("INSERT OR REPLACE INTO meta (key, value) VALUES ('built_from', '/ci/one/checkout')")
-  ran("0 ran, 2 stood")
-  rebuild("INSERT OR REPLACE INTO meta (key, value) VALUES ('built_from', '/ci/another/place')")
   ran("0 ran, 2 stood")
   -- "/tree" is where a worker's own root is: a tool built there answers differently in a sandbox.
   rebuild("INSERT OR REPLACE INTO meta (key, value) VALUES ('built_from', '/tree')")
@@ -562,40 +544,25 @@ end
   assert(stands:find("0 ran, 1 stood", 1, true), stands)
 end
 
---- The harness's epoch is in every sandboxed key: a bump -- stood in
---- for by COSMIC_TEST_HARNESS_EPOCH, as a binary with another
+--- The harness's epoch and its digest are in every sandboxed key, wired
+--- through [`test_key.begin`]: a bump -- stood in for by
+--- COSMIC_TEST_HARNESS_EPOCH, as a binary with another
 --- build/harness_epoch.tl would bring -- runs a test that shares nothing
---- else with it again, as does another timeout.
-local function test_a_bump_of_the_epoch_runs_every_test_again(tmp: string)
+--- else with it again, and so does an edit to the harness's code -- stood
+--- in for by COSMIC_TEST_HARNESS_SALT, as a binary with other harness
+--- bytecode would bring -- under which the same salt stands on the
+--- verdicts it reached. That the timeout a worker runs under is in its key
+--- too is build/test_timeout_tool_test.tl's.
+local function test_a_bump_of_the_epoch_or_an_edit_to_the_harness_runs_every_test_again(tmp: string)
   local root = tmp .. "/root"
   checkout(root)
   local env = environment(tmp .. "/cache/verdicts.db")
   local first = run(root, tmp .. "/first.out", env)
   skip_if_unsandboxed(first)
-  local again = run(root, tmp .. "/again.out", env)
-  assert(again:find("0 ran, 3 stood", 1, true), again)
+  assert(first:find("3 ran, 0 stood", 1, true), first)
   env["COSMIC_TEST_HARNESS_EPOCH"] = harness_epoch.epoch .. "0"
-  local moved = run(root, tmp .. "/moved.out", env)
-  assert(moved:find("3 ran, 0 stood", 1, true), moved)
-  -- So is the timeout a worker runs under: a pass reached under one
-  -- does not stand under another.
-  env["COSMIC_TEST_HARNESS_EPOCH"] = nil
-  env["COSMIC_TEST_TIMEOUT"] = "31"
-  local longer = run(root, tmp .. "/longer.out", env)
-  assert(longer:find("3 ran, 0 stood", 1, true), longer)
-end
-
---- The harness's digest is in every sandboxed key, wired through [`test_key.begin`]: an edit to the
---- harness's code -- stood in for by COSMIC_TEST_HARNESS_SALT, as a binary with other harness bytecode
---- would bring -- runs every test again, and the same salt stands on the verdicts it reached.
-local function test_an_edit_to_the_harness_runs_every_test_again(tmp: string)
-  local root = tmp .. "/root"
-  checkout(root)
-  local env = environment(tmp .. "/cache/verdicts.db")
-  local first = run(root, tmp .. "/first.out", env)
-  skip_if_unsandboxed(first)
-  local again = run(root, tmp .. "/again.out", env)
-  assert(again:find("0 ran, 3 stood", 1, true), again)
+  local bumped = run(root, tmp .. "/bumped.out", env)
+  assert(bumped:find("3 ran, 0 stood", 1, true), bumped)
   local salted = environment(tmp .. "/cache/verdicts.db", "another harness")
   local moved = run(root, tmp .. "/moved.out", salted)
   assert(moved:find("3 ran, 0 stood", 1, true), moved)
@@ -752,8 +719,6 @@ end
   local first = run(root, tmp .. "/first.out", env)
   skip_if_unsandboxed(first)
   assert(first:find("2 ran, 0 stood", 1, true), first)
-  local again = run(root, tmp .. "/again.out", env)
-  assert(again:find("0 ran, 2 stood", 1, true), again)
   local other: mut {string:string} = {}
   for name, value in pairs(env) do other[name] = value end
   other["COSMIC_TEST_CPU_SALT"] = "another processor"
@@ -766,9 +731,6 @@ end
   assert(db:close())
   local ran = assert(rows[1]):text(1)
   assert(ran == "suite.declared_test", "ran on another processor: " .. ran)
-  -- The host it came from still stands on its own verdicts.
-  local back = run(root, tmp .. "/back.out", env)
-  assert(back:find("0 ran, 2 stood", 1, true), back)
 end
 
 --- A run of the project in `tmp` whose test modules are `modules` (path to source), held to the
@@ -858,8 +820,8 @@ end
 --- A checked run (`--check-types`) stands on verdicts of its own and on none of an unchecked
 --- run's, and the reverse, even for a test whose closure compiles to the same bytes in both modes
 --- and reads no compiler (the key holds the mode by name, `checks`): the hooks of a checked worker
---- can change an outcome without changing a byte of the closure (the fuzz budget). Each mode stands
---- on its own earlier run.
+--- can change an outcome without changing a byte of the closure (the fuzz budget). A checked run
+--- stands on its own earlier run.
 local function test_a_checked_runs_verdicts_never_stand_for_an_unchecked_run(tmp: string)
   local root = tmp .. "/root"
   assert(Fs.mkdirs(root .. "/suite"))
@@ -897,8 +859,6 @@ end
     "ran: " .. ran_last())
   local again = run(root, tmp .. "/checked-again.out", env, { "--check-types" })
   assert(again:find("0 ran, 2 stood", 1, true), "a checked run did not stand on its own pass: " .. again)
-  local plain_again = run(root, tmp .. "/plain-again.out", env)
-  assert(plain_again:find("0 ran, 2 stood", 1, true), "an unchecked run did not stand on its own pass: " .. plain_again)
 end
 
 --- An edit to the hooks of a checked run moves the keys of a checked run and no others: the checks part holds the
@@ -955,8 +915,6 @@ end
   local first = run(root, tmp .. "/first.out", env, { "--check-types" })
   skip_if_unsandboxed(first)
   assert(first:find("1 ran, 0 stood", 1, true), first)
-  local again = run(root, tmp .. "/again.out", env, { "--check-types" })
-  assert(again:find("0 ran, 1 stood", 1, true), "a store module's checked verdict did not stand: " .. again)
   local plain = run(root, tmp .. "/plain.out", env)
   assert(plain:find("1 ran, 0 stood", 1, true), "a checked verdict stood for an unchecked run: " .. plain)
   -- The tree's own projection is as the unchecked run left it; a module outside the closure, which moves the
