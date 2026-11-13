@@ -69,7 +69,6 @@ local sys = require("cosmic.sys")
 
 local record SeededBoot
   listed: function(text: string): string
-  mut c_inputs: {string}
   mut vendored: {string}
   mut records: string
 end
@@ -78,7 +77,7 @@ end
 --- own sources (but its Teal, which `listed` leaves out), the build script
 --- and the zig it names, the vendored trees, and the patch records and
 --- what applies them.
-SeededBoot.c_inputs = { "core", "build.zig", "build.zig.zon", "bin/zig.pin", "build/patch.tl", "patch",
+local c_inputs <const>: {string} = { "core", "build.zig", "build.zig.zon", "bin/zig.pin", "build/patch.tl", "patch",
   "vendor" }
 
 --- The patched trees build.zig installs under the build directory's
@@ -150,7 +149,7 @@ local function over_c(words: {string}): {string}
   local out: mut {string} = {}
   for _, word in ipairs(words) do out[#out + 1] = word end
   out[#out + 1] = "--"
-  for _, path in ipairs(SeededBoot.c_inputs) do out[#out + 1] = path end
+  for _, path in ipairs(c_inputs) do out[#out + 1] = path end
   return out
 end
 
