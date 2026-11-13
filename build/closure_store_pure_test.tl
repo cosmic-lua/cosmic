@@ -146,7 +146,7 @@ local function test_a_pure_store_holds_no_text(tmp: string)
   assert(count(pure, "SELECT count(*) FROM modules") == "2")
   assert(count(pure, "SELECT count(*) FROM imports") == "1", "the edges a require follows are kept")
   local function bytecode(db: Sqlite.Handle, path: string): string
-    local rows = assert(Sqlite.rows(db, "SELECT inflate(bytecode) FROM modules WHERE path = ?1", { { text = path } }))
+    local rows = assert(Sqlite.rows(db, "SELECT chunk(bytecode) FROM modules WHERE path = ?1", { { text = path } }))
     return support.nth(rows, 1):blob(1)
   end
   local imported = bytecode(full, "greet")

@@ -291,8 +291,8 @@ local version <const> = "35"
 --- `deflated` is the compressed text of a source, by the source's SHA-256
 --- and the core that compressed it, which [`build.writer`] puts in a
 --- projection beside it instead of compressing every source on each write.
---- `deflated_bytecode` is the same for a compile's bytecode, by the
---- compile's key.
+--- `kept_bytecode` is a compile's bytecode alone, as `string.dump` wrote it,
+--- by the compile's key, which a projection's modules take theirs from.
 ---
 --- `compressed` is the gzip and zstd of a static file (NULL where not worth
 --- keeping), by its path, SHA-256, the digest of the rules that chose them
@@ -524,10 +524,8 @@ for _, statement in ipairs({
                                          core TEXT NOT NULL,
                                          data BLOB NOT NULL,
                                          PRIMARY KEY (source_hash, core)) WITHOUT ROWID]],
-    [[CREATE TABLE IF NOT EXISTS deflated_bytecode (key TEXT NOT NULL,
-                                                  core TEXT NOT NULL,
-                                                  data BLOB NOT NULL,
-                                                  PRIMARY KEY (key, core)) WITHOUT ROWID]],
+    [[CREATE TABLE IF NOT EXISTS kept_bytecode (key TEXT PRIMARY KEY NOT NULL,
+                                              data BLOB NOT NULL) WITHOUT ROWID]],
     [[CREATE TABLE IF NOT EXISTS compressed (path TEXT NOT NULL,
                                            sha256 TEXT NOT NULL,
                                            rules TEXT NOT NULL,
@@ -938,6 +936,9 @@ local function create(db: Sqlite.Handle, path: string, wait: boolean, doing?: st
     end
     local dropped, drop_trouble = db:exec("DROP INDEX IF EXISTS compiled_by_seen")
     if not dropped then return nil, drop_trouble end
+    -- What `kept_bytecode` replaced: each compile's bytecode deflated, which no projection carries.
+    local unkept, unkept_trouble = db:exec("DROP TABLE IF EXISTS deflated_bytecode")
+    if not unkept then return nil, unkept_trouble end
   end
   if fresh then
     local begun, begin_trouble = begin_waiting(db, path, wait, doing)

@@ -776,6 +776,26 @@ local function test_one_shot_deflate_defaults_to_the_deflater_level()
   assert(Compress.deflate("zlib", plain) == streamed)
 end
 
+--- `chunk(X)` answers a module's bytecode as it was dumped, whichever way
+--- X stores it: the chunk itself, or its raw deflate. No deflate stream
+--- begins with a chunk's first byte, so one is never taken for the other.
+local function test_sql_chunk_answers_bytecode_stored_either_way()
+  local db = assert(Sqlite.memory())
+  local dumped = string.dump(function(...: any): any return ... end, true)
+  local rows = assert(Sqlite.rows(db, "SELECT chunk(?1), chunk(deflate(?1)), chunk(NULL) IS NULL",
+    { { blob = dumped } }))
+  local row = Array.at(rows, 1)
+  assert(row:blob(1) == dumped and row:blob(2) == dumped and row:integer(3) == 1)
+  for _, refused in ipairs({ "", "not a chunk" }) do
+    local none, trouble = Sqlite.rows(db, "SELECT chunk(?1)", { { blob = refused } })
+    assert(none == nil and trouble ~= "", refused)
+  end
+  -- A stream that began with the byte would open with a copy from before its start.
+  local as_stream, why = Compress.inflate("raw", dumped)
+  assert(as_stream == nil and why ~= "", "a chunk inflated as a deflate stream")
+  assert(db:close())
+end
+
 --- A query's `deflate(X)` and `inflate(X)` speak the same raw deflate
 --- `Compress` does, byte for byte, so the build can store text with one
 --- and any reader decode it with the other; and `inflate` refuses a
