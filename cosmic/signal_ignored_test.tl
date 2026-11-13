@@ -10,9 +10,28 @@ local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local Test = require("cosmic.test")
 
---- The system's sh, which ignores SIGINT for the program it execs, and
---- the program itself, through its launcher.
-Test.policy{ profiles = { "system", "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
+--- The host's sh, which ignores SIGINT for the program it execs, and
+--- the program itself, through its launcher, with the host's programs
+--- that runs (core/launcher_cache_test.tl names them), each granted
+--- where a host has it, under /bin or /usr/bin.
+Test.policy{ profiles = { "cosmic" }, grants = {
+  { path = "/bin/sh", letters = "r" }, { path = "/usr/bin/sh", letters = "r" },
+  { path = "/bin/uname", letters = "r" }, { path = "/usr/bin/uname", letters = "r" },
+  { path = "/bin/mkdir", letters = "r" }, { path = "/usr/bin/mkdir", letters = "r" },
+  { path = "/bin/stat", letters = "r" }, { path = "/usr/bin/stat", letters = "r" },
+  { path = "/bin/mktemp", letters = "r" }, { path = "/usr/bin/mktemp", letters = "r" },
+  { path = "/bin/head", letters = "r" }, { path = "/usr/bin/head", letters = "r" },
+  { path = "/bin/rm", letters = "r" }, { path = "/usr/bin/rm", letters = "r" },
+  { path = "/bin/wc", letters = "r" }, { path = "/usr/bin/wc", letters = "r" },
+  { path = "/bin/dd", letters = "r" }, { path = "/usr/bin/dd", letters = "r" },
+  { path = "/bin/chmod", letters = "r" }, { path = "/usr/bin/chmod", letters = "r" },
+  { path = "/bin/id", letters = "r" }, { path = "/usr/bin/id", letters = "r" },
+  { path = "/bin/ln", letters = "r" }, { path = "/usr/bin/ln", letters = "r" },
+  { path = "/bin/rmdir", letters = "r" }, { path = "/usr/bin/rmdir", letters = "r" },
+  { path = "/bin/sha256sum", letters = "r" }, { path = "/usr/bin/sha256sum", letters = "r" },
+  { path = "/bin/shasum", letters = "r" }, { path = "/usr/bin/shasum", letters = "r" },
+  { path = "/bin/cut", letters = "r" }, { path = "/usr/bin/cut", letters = "r" },
+  { path = "o/bin", letters = "rx" } } }
 
 local function nested_cosmic_environment(): {string:string}
   local environment = Env.all()

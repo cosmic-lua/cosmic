@@ -12,7 +12,29 @@ local launcher = require("build.launcher")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 
-Test.policy{ profiles = { "system" } }
+--- The host's shell, which runs the rendered launcher, and the programs
+--- the launcher runs (core/launcher_cache_test.tl names them), each
+--- granted where a host has it, under /bin or /usr/bin.
+Test.policy{
+  grants = {
+    { path = "/bin/sh", letters = "r" }, { path = "/usr/bin/sh", letters = "r" },
+    { path = "/bin/uname", letters = "r" }, { path = "/usr/bin/uname", letters = "r" },
+    { path = "/bin/mkdir", letters = "r" }, { path = "/usr/bin/mkdir", letters = "r" },
+    { path = "/bin/stat", letters = "r" }, { path = "/usr/bin/stat", letters = "r" },
+    { path = "/bin/mktemp", letters = "r" }, { path = "/usr/bin/mktemp", letters = "r" },
+    { path = "/bin/head", letters = "r" }, { path = "/usr/bin/head", letters = "r" },
+    { path = "/bin/rm", letters = "r" }, { path = "/usr/bin/rm", letters = "r" },
+    { path = "/bin/wc", letters = "r" }, { path = "/usr/bin/wc", letters = "r" },
+    { path = "/bin/dd", letters = "r" }, { path = "/usr/bin/dd", letters = "r" },
+    { path = "/bin/chmod", letters = "r" }, { path = "/usr/bin/chmod", letters = "r" },
+    { path = "/bin/id", letters = "r" }, { path = "/usr/bin/id", letters = "r" },
+    { path = "/bin/ln", letters = "r" }, { path = "/usr/bin/ln", letters = "r" },
+    { path = "/bin/rmdir", letters = "r" }, { path = "/usr/bin/rmdir", letters = "r" },
+    { path = "/bin/sha256sum", letters = "r" }, { path = "/usr/bin/sha256sum", letters = "r" },
+    { path = "/bin/shasum", letters = "r" }, { path = "/usr/bin/shasum", letters = "r" },
+    { path = "/bin/cut", letters = "r" }, { path = "/usr/bin/cut", letters = "r" },
+  },
+}
 
 local arm = "  'Linux x86_64') cosmic_os=Linux; cosmic_target_id=1; " ..
   "cosmic_configuration_id=1; cosmic_offset=0; cosmic_block=0; cosmic_stored=0; " ..

@@ -11,17 +11,32 @@ local this_program = require("build.this_program")
 local Test = require("cosmic.test")
 
 --- The program itself, which its tests start through its launcher, and
---- the system's programs the launcher runs: `sh`, and the `uname`,
---- `id`, `stat`, `mkdir`, `mktemp`, `dd`, `head`, `wc`, `sha256sum` (or
---- `shasum`), `chmod`, `ln` and `rm` it calls (build/launcher.tl). A
---- portable artifact is a `#!/bin/sh` script by design
---- (build/artifact_test.tl), and what is checked here is what that
---- script does, so no start past it will do: this module needs the
---- system for good.
--- TODO: name those programs rather than the whole of the system's
--- paths, once a declaration can name a program (`processes` by name,
--- which the sandbox resolves, with what its loader reads).
-Test.policy{ profiles = { "system", "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
+--- the host's programs the launcher runs: `sh`, and the `uname`, `id`,
+--- `stat`, `mkdir`, `mktemp`, `dd`, `head`, `wc`, `cut`, `sha256sum` (or
+--- `shasum`), `chmod`, `ln`, `rm` and `rmdir` it calls
+--- (build/launcher.tl), each granted where a host has it, under /bin or
+--- /usr/bin: a grant of a path a host lacks gives nothing. A portable
+--- artifact is a `#!/bin/sh` script by design (build/artifact_test.tl),
+--- and what is checked here is what that script does, so no start past
+--- it will do.
+Test.policy{ profiles = { "cosmic" }, grants = {
+  { path = "/bin/sh", letters = "r" }, { path = "/usr/bin/sh", letters = "r" },
+  { path = "/bin/uname", letters = "r" }, { path = "/usr/bin/uname", letters = "r" },
+  { path = "/bin/mkdir", letters = "r" }, { path = "/usr/bin/mkdir", letters = "r" },
+  { path = "/bin/stat", letters = "r" }, { path = "/usr/bin/stat", letters = "r" },
+  { path = "/bin/mktemp", letters = "r" }, { path = "/usr/bin/mktemp", letters = "r" },
+  { path = "/bin/head", letters = "r" }, { path = "/usr/bin/head", letters = "r" },
+  { path = "/bin/rm", letters = "r" }, { path = "/usr/bin/rm", letters = "r" },
+  { path = "/bin/wc", letters = "r" }, { path = "/usr/bin/wc", letters = "r" },
+  { path = "/bin/dd", letters = "r" }, { path = "/usr/bin/dd", letters = "r" },
+  { path = "/bin/chmod", letters = "r" }, { path = "/usr/bin/chmod", letters = "r" },
+  { path = "/bin/id", letters = "r" }, { path = "/usr/bin/id", letters = "r" },
+  { path = "/bin/ln", letters = "r" }, { path = "/usr/bin/ln", letters = "r" },
+  { path = "/bin/rmdir", letters = "r" }, { path = "/usr/bin/rmdir", letters = "r" },
+  { path = "/bin/sha256sum", letters = "r" }, { path = "/usr/bin/sha256sum", letters = "r" },
+  { path = "/bin/shasum", letters = "r" }, { path = "/usr/bin/shasum", letters = "r" },
+  { path = "/bin/cut", letters = "r" }, { path = "/usr/bin/cut", letters = "r" },
+  { path = "o/bin", letters = "rx" } } }
 
 local function environment(): mut {string:string}
   local env = this_program.environment()
