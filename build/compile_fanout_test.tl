@@ -3,6 +3,7 @@
 
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
+local sys = require("cosmic.sys")
 local fanout = require("build.compile_fanout")
 
 --- A build with few modules, or one processor, makes no copy; one with
@@ -23,10 +24,11 @@ end
 --- which ended well: a copy that raises did not, and what the others
 --- wrote is there.
 local function test_each_copy_runs_and_one_that_raises_is_told(tmp: string)
-  local ended = fanout.run(3, function(copy: integer)
+  local ran = fanout.run(3, function(copy: integer)
     if copy == 2 then error("this copy fails") end
     assert(Fs.write(tmp .. "/" .. tostring(copy), "made by " .. tostring(copy)))
   end)
+  local ended = ran.ended
   if ended[1] ~= true and ended[3] ~= true then
     Test.skip("this host forks no copy of the process")
   end
@@ -45,10 +47,50 @@ local function test_the_process_looks_while_its_copies_run(tmp: string)
   end, function()
     looks = looks + 1
     seen_last = Fs.read(tmp .. "/2")
-  end)
+  end).ended
   if ended[1] ~= true or ended[2] ~= true then
     Test.skip("this host forks no copy of the process")
   end
   assert(looks >= 1, "the process never looked")
   assert(seen_last == "made", "the last look came before a copy ended")
+end
+
+--- A copy still running when the process is out of patience is ended, counted, and told as one that did not end
+--- well, while one that ended in time is told as it ended; the call comes back.
+local function test_a_copy_that_does_not_end_is_ended_and_counted(tmp: string)
+  local patience = fanout.patience_ns
+  fanout.patience_ns = 500 * 1000000
+  local ran = fanout.run(2, function(copy: integer)
+    assert(Fs.write(tmp .. "/" .. tostring(copy), "started"))
+    if copy == 2 then
+      while true do local _, _ = sys.nanosleep(50 * 1000000) end
+    end
+  end)
+  fanout.patience_ns = patience
+  if Fs.read(tmp .. "/1") == nil or Fs.read(tmp .. "/2") == nil then
+    Test.skip("this host forks no copy of the process")
+  end
+  assert(ran.ended[1] == true, "a copy that ended in time is told as ended badly")
+  assert(ran.ended[2] == false and ran.late == 1, "the copy that hung was not ended: " .. tostring(ran.late))
+end
+
+--- A copy that ended in time is told as it ended though the process looks at it only after its patience is over.
+local function test_a_copy_that_ended_in_time_is_not_ended_for_a_late_look(tmp: string)
+  local patience = fanout.patience_ns
+  fanout.patience_ns = 300 * 1000000
+  local looked = false
+  local ran = fanout.run(1, function(copy: integer)
+    assert(Fs.write(tmp .. "/" .. tostring(copy), "made"))
+  end, function()
+    if not looked then
+      looked = true
+      -- By the end of this look the copy has long ended, and the patience is over.
+      local _, _ = sys.nanosleep(600 * 1000000)
+    end
+  end)
+  fanout.patience_ns = patience
+  if Fs.read(tmp .. "/1") == nil then
+    Test.skip("this host forks no copy of the process")
+  end
+  assert(ran.ended[1] == true and ran.late == 0, "a copy that ended in time was ended: " .. tostring(ran.late))
 end

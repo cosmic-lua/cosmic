@@ -9,8 +9,10 @@
 --- never written by a copy. What a copy has to say it leaves in a file
 --- of its own. Where the process cannot be forked (macOS; another thread
 --- running; a signal guard open) no copy runs, and the caller does the
---- work itself.
+--- work itself, as it does that of a copy still running after
+--- [`fanout.patience_ns`], which is ended.
 
+local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
@@ -22,10 +24,24 @@ local record fanout
   mut least: integer
   --- The most copies, whatever the processors.
   mut most: integer
+  --- How long the copies of one [`fanout.run`] are waited for. The
+  --- 1200 compiles of cosmic's own tree take one process under a minute
+  --- on a four-core host ([`build.shared_compiles`]'s `fan`), so a copy
+  --- still running after this has hung, and waiting on would hold the
+  --- build for good.
+  mut patience_ns: integer
+
+  --- What [`fanout.run`] answers: whether each copy ended well, by its
+  --- number, and how many were ended for running past `patience_ns`.
+  record Ran
+    ended: {integer:boolean}
+    late: integer
+  end
 end
 
 fanout.least = 48
 fanout.most = 8
+fanout.patience_ns = 15 * 60 * 1000000000
 
 --- The most copies COSMIC_COMPILE_COPIES asks for: a count, `0` or `1`
 --- for none, so a build compiles in the one process as it did; `most`
@@ -55,18 +71,16 @@ function fanout.copies(count: integer, processors: integer, each: integer, bound
   return if wanted < 2 then 0 else wanted end
 end
 
---- How long the process waits between two looks at its copies where it
---- has something to do meanwhile (`watch`).
+--- How long the process waits between two looks at its copies.
 local look_ns <const> = 20 * 1000000
 
 --- Runs `work` in `copies` copies of this process, each given its number
---- from 1, and waits for them all: whether each ended well, by its
---- number. A copy ends well where `work` returns; one that raises, or that
---- could not be forked, did not. `watch`, when given, is called while the
---- copies run, some fifty times a second, and once more when they have
---- all ended: what a copy leaves for the process to read as it goes is
---- read there.
-function fanout.run(copies: integer, work: function(copy: integer), watch?: function()): {integer:boolean}
+--- from 1, and waits for them all. A copy ends well where `work` returns; one
+--- that raises, that could not be forked, or that was ended did not.
+--- `watch`, when given, is called while the copies run, some fifty times
+--- a second, and once more when they have all ended: what a copy leaves
+--- for the process to read as it goes is read there.
+function fanout.run(copies: integer, work: function(copy: integer), watch?: function()): fanout.Ran
   local pids: mut {integer:integer} = {}
   for copy = 1, copies do
     local pid, _ = process.fork(false)
@@ -87,25 +101,34 @@ function fanout.run(copies: integer, work: function(copy: integer), watch?: func
     ended[copy] = false
     if pids[copy] ~= nil then running = running + 1 end
   end
+  local started = Clock.monotonic_ns()
+  local late = 0
   while running > 0 do
+    local out_of_patience = Clock.monotonic_ns() - started > fanout.patience_ns
     for copy = 1, copies do
       local pid = pids[copy]
       if pid ~= nil then
-        -- With nothing to do meanwhile, each is waited for in turn.
-        local status, _ = process.waitpid(pid, watch ~= nil)
+        -- Looked at before it is ended: a copy that ended in time is told as it ended, however late the look.
+        local status, _ = process.waitpid(pid, true)
+        local over = false
+        if status ~= nil and status.pid ~= pid and out_of_patience then
+          -- Ended and then waited for, so no copy outlives the call.
+          local _, _ = sys.kill(pid, sys.SIGKILL)
+          status, _ = process.waitpid(pid, false)
+          late = late + 1
+          over = true
+        end
         if status == nil or status.pid == pid then
-          ended[copy] = status ~= nil and status.code == 0
+          ended[copy] = not over and status ~= nil and status.code == 0
           pids[copy] = nil
           running = running - 1
         end
       end
     end
-    if watch ~= nil then
-      watch()
-      if running > 0 then local _, _ = sys.nanosleep(look_ns) end
-    end
+    if watch ~= nil then watch() end
+    if running > 0 then local _, _ = sys.nanosleep(look_ns) end
   end
-  return ended
+  return { ended = ended, late = late }
 end
 
 return fanout
