@@ -51,7 +51,7 @@ local record ParseDerive
   --- into `db` beside the others, counting each in `tally` and listing it in `made`. A source that does not parse is listed
   --- in `broken` when given and stops the derive otherwise, told by [`ParseDerive.line`].
   derive: function(db: Sqlite.Handle, own: boolean, fresh: {Derivation.Fresh}, tally: Derivation.Parses,
-    made: mut {Derivation.Source}, broken?: mut {Derivation.Broken}, refusal?: Refusal): boolean, string
+    made: mut {Derivation.Source}, broken?: mut {Derivation.Broken}, refusal?: Refusal, given?: Staged): boolean, string
 end
 
 function ParseDerive.skipped(file: string): boolean
@@ -143,8 +143,12 @@ local function repaired_of(source: SourceParse.Source, read: SourceParse.Parsed)
 end
 
 function ParseDerive.derive(db: Sqlite.Handle, own: boolean, fresh: {Derivation.Fresh}, tally: Derivation.Parses,
-                            made: mut {Derivation.Source}, broken?: mut {Derivation.Broken}, refusal?: ParseDerive.Refusal): boolean, string
-  local staged, trouble = ParseDerive.entries(db, own, refusal)
+                            made: mut {Derivation.Source}, broken?: mut {Derivation.Broken}, refusal?: ParseDerive.Refusal,
+                            given?: ParseDerive.Staged): boolean, string
+  -- `given` is the tree as another database stages it, for a parse whose rows land in a database that holds no source: a
+  -- copy of the process that parses some of the tree's sources into one of its own ([`build.importer`]'s `parse_at_once`).
+  local staged, trouble: ParseDerive.Staged?, string = given, ""
+  if staged == nil then staged, trouble = ParseDerive.entries(db, own, refusal) end
   if staged == nil then
     return false, trouble
   end

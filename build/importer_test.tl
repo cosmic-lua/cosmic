@@ -2500,9 +2500,9 @@ local function test_the_checks_written_survive_every_compile_path()
   assert(plain.fact_wraps == 0 and plain.parameter_checks == 0, "an unchecked compile reported checks")
 end
 
---- Modules compiled in copies of the process are the modules one process compiles: the same Lua of each, the same
---- count made, and a module a copy is refused is refused by the build in the same words. A copy is forked here for
---- two modules, where a build asks for many more.
+--- Sources parsed and modules compiled in copies of the process are those one process parses and compiles: the same
+--- Lua of each, the same count made, and a module a copy is refused is refused by the build in the same words, and
+--- told of while the copies run. A copy is forked here for two modules, where a build asks for many more.
 local function test_modules_compiled_in_copies_are_those_one_process_compiles()
   local files: mut {string:string} = {}
   for index = 1, 8 do
@@ -2510,24 +2510,38 @@ local function test_modules_compiled_in_copies_are_those_one_process_compiles()
     files["m" .. tostring(index) .. ".tl"] = requires .. "local record M\n  count: integer\nend\nlocal m: M = { count = " ..
       (if index > 1 then "before.count + " else "" end) .. tostring(index) .. " }\nreturn m\n"
   end
-  --- Compiles the fixture named `name` over `files`, in copies or not: the result, and whether copies made any.
+  -- What a compile told of ahead of its report.
+  local told: mut {string} = {}
+  --- Compiles the fixture named `name` over `files`, in copies or not: the result, and whether copies parsed and
+  --- compiled.
   local function compiled(name: string, over: {string:string}, at_once: boolean): importer.Result, boolean
     local root = assert(write_fixture(name, over))
     local shared = assert(shared_compiles.for_build({ COSMIC_BUILD_CACHE = root .. "/cache/cache.db" }))
-    local fan = assert(shared.fan)
-    local fanned = false
-    local watched: importer.Shared = { ...shared, fan = function(due: {importer.Module}, own_tree: boolean,
-                                                                 make: function(m: importer.Module, rest: {string:boolean}): importer.Shared.Compile?): importer.Shared.Fanned?
-      if not at_once then return nil end
-      local made = fan(due, own_tree, make)
-      fanned = made ~= nil
-      return made
-    end }
+    local fan, fan_parses = assert(shared.fan), assert(shared.fan_parses)
+    local fanned, parses_fanned = false, false
+    local watched: importer.Shared = { ...shared,
+      fan = function(due: {importer.Module}, own_tree: boolean,
+                     make: function(m: importer.Module, rest: {string:boolean}): importer.Shared.Compile?,
+                     watch?: function()): importer.Shared.Fanned?
+        if not at_once then return nil end
+        local made = fan(due, own_tree, make, watch)
+        fanned = made ~= nil
+        return made
+      end,
+      fan_parses = function(count: integer,
+                            make: function(copy: integer, copies: integer): {importer.Shared.ParseMade}):
+        importer.Shared.ParsesFanned?
+        if not at_once then return nil end
+        local made = fan_parses(count, make)
+        parses_fanned = made ~= nil
+        return made
+      end }
     local handle = assert(work.open(root))
     assert(work.stage(handle, { own = false }))
-    local result, trouble = importer.compile(handle, "fanned-test", false, watched)
+    local result, trouble = importer.compile(handle, "fanned-test", false, watched, nil, nil,
+      { refused = false, patience_ns = 0, tell = function(said: string) told[#told + 1] = said end })
     work.close(handle)
-    return assert(result, trouble), fanned
+    return assert(result, trouble), fanned and parses_fanned
   end
   local least = fanout.least
   fanout.least = 1
@@ -2535,8 +2549,10 @@ local function test_modules_compiled_in_copies_are_those_one_process_compiles()
   local broken: mut {string:string} = {}
   for name, text in pairs(files) do broken[name] = text end
   broken["m4.tl"] = "local n: integer = \"four\"\nreturn { count = n }\n"
+  assert(#told == 0, "a tree that builds told of a refusal")
   local broken_at_once, _ = compiled("fanned-broken", broken, true)
   fanout.least = least
+  local told_at_once = table.concat(told, "\n")
   if not fanned then
     Test.skip("this host makes no copy of the process: one processor, or no fork")
   end
@@ -2554,6 +2570,11 @@ local function test_modules_compiled_in_copies_are_those_one_process_compiles()
   assert(table.concat(broken_at_once.refused, "\n"):gsub("fanned%-broken", "alone-broken") ==
       table.concat(broken_alone.refused, "\n"), table.concat(broken_at_once.refused, "\n"))
   assert(broken_at_once.compiled == broken_alone.compiled)
+  -- The module a copy could not compile is told of while the copies run, and nothing that requires it is compiled.
+  assert(told_at_once:find("m4.tl is refused, and the rest of the tree is still being checked", 1, true) ~= nil,
+    told_at_once)
+  assert(broken_at_once.compiled == 3, "the modules that require the refused one were compiled: " ..
+      tostring(broken_at_once.compiled))
 end
 
 --- A working database of an older tool has `compiled` without the counts: the new tool opens it, adds them, reads

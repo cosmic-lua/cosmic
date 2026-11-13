@@ -156,3 +156,38 @@ local function test_many_compiles_made_at_once_come_back_each_its_own(tmp: strin
   assert(not assert(build.known)(assert(due[1]), true))
   build.finish()
 end
+
+--- Many parses are made in copies of the process, and each comes back as its copy made it, by its source and whether
+--- its lines are mapped. A source no copy answered a parse of is nil, for the build to parse.
+local function test_many_parses_made_at_once_come_back_each_its_own(tmp: string)
+  local build = assert(shared_compiles.for_build({ COSMIC_BUILD_CACHE = tmp .. "/cache/cache.db" }))
+  local fan_parses = assert(build.fan_parses)
+  local count = 400
+  local fanned = fan_parses(count, function(copy: integer, copies: integer): {importer.Shared.ParseMade}
+    local out: mut {importer.Shared.ParseMade} = {}
+    for index = copy, count, copies do
+      if index ~= 7 then
+        out[#out + 1] = { source_hash = "hash" .. tostring(index), mapped = index % 2 == 0,
+          parse = { requires = { "suite.r" .. tostring(index) }, rows = "rows of " .. tostring(index) } }
+      end
+    end
+    return out
+  end)
+  if fanned == nil then
+    Test.skip("this host makes no copy of the process: one processor, or no fork")
+  end
+  local made = assert(fanned)
+  for index = 1, count do
+    local found = made.look("hash" .. tostring(index), index % 2 == 0)
+    if index == 7 then
+      assert(found == nil, "a source no copy parsed came back")
+    elseif found == nil then
+      Test.skip("a copy of the process did not end well on this host")
+    else
+      assert(found.rows == "rows of " .. tostring(index) and found.requires[1] == "suite.r" .. tostring(index))
+      assert(made.look("hash" .. tostring(index), index % 2 ~= 0) == nil, "a parse came back for the other mapping")
+    end
+  end
+  made.close()
+  build.finish()
+end

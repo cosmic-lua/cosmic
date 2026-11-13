@@ -600,7 +600,8 @@ local unbounded <const> = 1 << 40
 --- copy that ended badly is not read: the build makes each again itself, and says what the checker said, once. So this
 --- only saves time. Nil where no copy is made: too few modules, one processor, or a host that forks no process.
 local function fan(due: {importer.Module}, own_tree: boolean,
-                   make: function(m: importer.Module, rest: {string:boolean}): importer.Shared.Compile?): importer.Shared.Fanned?
+                   make: function(m: importer.Module, rest: {string:boolean}): importer.Shared.Compile?,
+                   watch?: function()): importer.Shared.Fanned?
   local copies = fanout.copies(#due, Proc.cpu_count(), copy_bytes)
   if copies == 0 then return nil end
   local dir, _ = Fs.mkdtemp("cosmic-compile-")
@@ -630,7 +631,7 @@ local function fan(due: {importer.Module}, own_tree: boolean,
     end
     assert(shared_compiles.settle(cache, { kept = kept, used = {} }, Clock.now_ns(), unbounded))
     shared_compiles.close(cache)
-  end)
+  end, watch)
   local opened: mut {integer:shared_compiles.Cache} = {}
   for copy = 1, copies do
     if ended[copy] == true then
@@ -650,6 +651,56 @@ local function fan(due: {importer.Module}, own_tree: boolean,
     end,
     close = function()
       for _, cache in pairs(opened) do shared_compiles.close(cache) end
+      local _, _ = Fs.remove_tree(dir)
+    end,
+  }
+end
+
+--- The analyzer a copy's parses are kept under in its own file: no analyzer's name, since the file is read by the build
+--- that made the copy and by nothing else.
+local copy_analyzer <const> = "a copy of the build"
+
+--- Parses `count` sources in copies of this process, as `fan` compiles modules in them: what [`importer.Shared`]'s
+--- [`fan_parses`] answers. Each copy keeps the parses `make` answers it in a file of its own, as a shared parse is kept, and
+--- `look` reads a source's from whichever copy made it. Nil where no copy is made.
+local function fan_parses(count: integer,
+                          make: function(copy: integer, copies: integer): {importer.Shared.ParseMade}):
+    importer.Shared.ParsesFanned?
+  local copies = fanout.copies(count, Proc.cpu_count(), copy_bytes)
+  if copies == 0 then return nil end
+  local dir, _ = Fs.mkdtemp("cosmic-parse-")
+  if dir == nil then return nil end
+  local function path_of(copy: integer): string
+    return dir .. "/copies/" .. tostring(copy) .. ".db"
+  end
+  local ended = fanout.run(copies, function(copy: integer)
+    local parses: mut {shared_compiles.Parsed} = {}
+    for _, one in ipairs(make(copy, copies)) do
+      parses[#parses + 1] = { key = { analyzer = copy_analyzer, source_hash = one.source_hash, mapped = one.mapped },
+        made = one.parse }
+    end
+    local cache = assert(shared_compiles.open(path_of(copy)))
+    assert(shared_compiles.settle(cache, { kept = {}, used = {}, parses = parses }, Clock.now_ns(), unbounded))
+    shared_compiles.close(cache)
+  end)
+  local opened: mut {shared_compiles.Cache} = {}
+  for copy = 1, copies do
+    if ended[copy] == true then
+      local cache, _ = shared_compiles.open(path_of(copy))
+      if cache ~= nil then opened[#opened + 1] = cache end
+    end
+  end
+  return {
+    look = function(source_hash: string, mapped: boolean): importer.Shared.Parse?
+      for _, cache in ipairs(opened) do
+        local found, _ = shared_compiles.look_parse(cache,
+          { analyzer = copy_analyzer, source_hash = source_hash, mapped = mapped })
+        if found ~= nil then return found end
+      end
+      return nil
+    end,
+    close = function()
+      for _, cache in ipairs(opened) do shared_compiles.close(cache) end
       local _, _ = Fs.remove_tree(dir)
     end,
   }
@@ -698,6 +749,7 @@ function shared_compiles.for_build(environment?: {string:string}): importer.Shar
       return found
     end,
     fan = fan,
+    fan_parses = fan_parses,
     known = function(m: importer.Module, own_tree: boolean): boolean
       local held = open.cache
       if held == nil then return false end
