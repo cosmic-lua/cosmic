@@ -45,8 +45,8 @@ local record closure_store
   --- read once from the projection ([`closure_store.basis`]).
   ---
   --- Each module is a line naming its path, kind, file, source hash and
-  --- tests, then the digests of its bytecode (inflated, so the compressor
-  --- moves none), of its source as stored
+  --- tests, then the digests of its bytecode (as `string.dump` wrote it,
+  --- however it is stored), of its source as stored
   --- (deflated, by [`build.writer`]), and of the rows a store carries of
   --- it: its imports, the edges the checker follows from it
   --- (`decl_imports`), the names it binds, its docs, uses, catalog,
@@ -94,7 +94,7 @@ local record closure_store
     --- ([`lua_tail.numbered`], a function of it).
     stripped: mut {string:string}
     --- The digest of each module's whole bytecode, debug information
-    --- included (inflated, so the compressor moves none), by path: what the
+    --- included (as it was dumped, however it is stored), by path: what the
     --- pure store holds of its test's own module.
     bytecode: mut {string:string}
     --- A declaration's line in the pure store: its source (a declaration is
@@ -491,7 +491,7 @@ local function read_basis(whole: string, pure?: boolean): closure_store.Basis?, 
   local function read(): closure_store.Basis?, string
     local rows, rows_trouble = Sqlite.text_rows(db,
       "SELECT path, path || char(9) || kind || char(9) || file || char(9) || " ..
-        "lower(hex(source_hash)) || char(9) || lower(hex(sha256(inflate(bytecode)))) || char(9) || " ..
+        "lower(hex(source_hash)) || char(9) || lower(hex(sha256(chunk(bytecode)))) || char(9) || " ..
         "lower(hex(sha256(tests))) || char(9) || lower(hex(sha256(source))), file " ..
         "FROM modules ORDER BY path")
     if rows == nil then return nil, rows_trouble end
@@ -575,7 +575,7 @@ local function read_basis(whole: string, pure?: boolean): closure_store.Basis?, 
     local pure_rows: {Sqlite.Row} = {}
     if pure == true then
       local found, pure_trouble = Sqlite.rows(db,
-        "SELECT path, kind, file, lower(hex(sha256(tests))), inflate(bytecode) FROM modules ORDER BY path")
+        "SELECT path, kind, file, lower(hex(sha256(tests))), chunk(bytecode) FROM modules ORDER BY path")
       if found == nil then return nil, pure_trouble end
       pure_rows = found
       -- What the checker reads of a standard-library module is its stub ([`build.standard_text`]); the
@@ -1143,7 +1143,7 @@ function closure_store.write(whole: string, out: string, names: {string},
           if not ok then return false, failure end
         end
         local held, held_trouble = Sqlite.rows(db,
-          "SELECT path, inflate(bytecode) FROM main.modules WHERE path <> ?1 AND path IN temp.wanted", { text(own) })
+          "SELECT path, chunk(bytecode) FROM main.modules WHERE path <> ?1 AND path IN temp.wanted", { text(own) })
         if held == nil then return false, held_trouble end
         for _, row in ipairs(held) do
           local code = row:blob(2)
@@ -1155,7 +1155,7 @@ function closure_store.write(whole: string, out: string, names: {string},
             numbered_chunks[chunk_key] = made
             numbered = made
           end
-          local ok, failure = Sqlite.run(db, "UPDATE main.modules SET bytecode = deflate(?1) WHERE path = ?2",
+          local ok, failure = Sqlite.run(db, "UPDATE main.modules SET bytecode = ?1 WHERE path = ?2",
             { { blob = numbered }, text(row:text(1)) })
           if not ok then return false, failure end
         end

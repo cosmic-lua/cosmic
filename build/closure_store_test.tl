@@ -211,8 +211,13 @@ local function test_a_closure_store_holds_what_the_compiler_made(tmp: string)
   end
   local doc = "INSERT INTO docs (module, symbol, source_symbol, exported, kind, signature, " ..
     "text, file, line) VALUES "
-  moved("a module's bytecode", "UPDATE modules SET bytecode = deflate(inflate(bytecode) || X'00') " ..
+  moved("a module's bytecode", "UPDATE modules SET bytecode = deflate(chunk(bytecode) || X'00') " ..
       "WHERE path = 'greet'")
+  -- How a module's bytecode is stored is no part of what it is: the same chunk deflated, as an older build
+  -- stored it, moves the store's bytes and not its address.
+  local readdressed, rewritten = change("UPDATE modules SET bytecode = deflate(chunk(bytecode)) WHERE path = 'greet'")
+  assert(rewritten, "the deflated chunk was not stored")
+  assert(not readdressed, "a module's bytecode stored deflated moved the address")
   moved("a doc", doc .. "('greet', 'greet.x', 'greet.x', 1, 'function', '', 'X.', 'greet.tl', 1)")
   moved("a use", "INSERT INTO uses (module, symbol, from_module, from_file, line) " ..
       "VALUES ('greet', 'hello', 'greet', 'greet.tl', 99)")
@@ -498,7 +503,7 @@ local function test_a_key_holds_a_closure_store_by_its_bytes(tmp: string)
   assert(commented ~= address, "the writer's edit left the address")
   assert(commented_key == key, "an edit to the writer that writes the same bytes moved the key")
   local db = assert(Sqlite.open(tmp .. "/whole.db", { writable = true }))
-  assert(db:exec("UPDATE modules SET bytecode = deflate(inflate(bytecode) || X'00') WHERE path = 'greet'"))
+  assert(db:exec("UPDATE modules SET bytecode = deflate(chunk(bytecode) || X'00') WHERE path = 'greet'"))
   assert(db:close())
   local moved, moved_key = keyed("the writer", tmp .. "/moved.db")
   assert(moved ~= address, "a row of the closure left the address")
@@ -530,7 +535,7 @@ local function test_a_basis_is_kept_beside_a_projection_that_is_old_enough(tmp: 
     assert(#basis.pairable == #fresh.pairable, "a kept basis pairs other modules")
   end
   local db = assert(Sqlite.open(whole, { writable = true }))
-  assert(db:exec("UPDATE modules SET bytecode = deflate(inflate(bytecode) || X'00') WHERE path = 'greet'"))
+  assert(db:exec("UPDATE modules SET bytecode = deflate(chunk(bytecode) || X'00') WHERE path = 'greet'"))
   assert(db:close())
   local changed = assert(closure_store.basis(whole))
   assert(changed.modules["greet"] ~= fresh.modules["greet"],

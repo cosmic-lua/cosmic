@@ -19,7 +19,7 @@ local build_paths = require("build.paths")
 local function carries(path: string, needle: string): boolean
   local db = assert(Sqlite.open(path))
   local rows = assert(Sqlite.text_rows(db,
-    "SELECT count(*) FROM modules WHERE instr(inflate(bytecode), CAST(?1 AS BLOB)) > 0", { { text = needle } }))
+    "SELECT count(*) FROM modules WHERE instr(chunk(bytecode), CAST(?1 AS BLOB)) > 0", { { text = needle } }))
   assert(db:close())
   return assert(rows[1]):text(1) ~= "0"
 end

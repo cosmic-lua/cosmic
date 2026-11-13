@@ -284,6 +284,26 @@ static void deflate_function (sqlite3_context *ctx, int argc,
   cosmic_free(out);
 }
 
+/* Answers what the raw deflate stream in the `len` bytes at `data`
+ * decodes to, or why it does not. */
+static void result_inflated (sqlite3_context *ctx, const void *data,
+                             size_t len) {
+  /* No more than SQLite would hold as one value anyway, so a stream
+   * that decodes to more fails before it is ever all in memory. */
+  int limit = sqlite3_limit(sqlite3_context_db_handle(ctx),
+                            SQLITE_LIMIT_LENGTH, -1);
+  unsigned char *out = NULL;
+  size_t out_len = 0;
+  const char *why = cosmic_inflate_raw(data, len, (size_t)limit, &out,
+                                       &out_len);
+  if (why != NULL) {
+    sqlite3_result_error(ctx, why, -1);
+    return;
+  }
+  sqlite3_result_blob64(ctx, out, out_len, SQLITE_TRANSIENT);
+  cosmic_free(out);
+}
+
 static void inflate_function (sqlite3_context *ctx, int argc,
                               sqlite3_value **argv) {
   if (cosmic_any_null(argc, argv)) {
@@ -301,20 +321,28 @@ static void inflate_function (sqlite3_context *ctx, int argc,
                          "it declares `Test.policy { store_text = true }`)", -1);
     return;
   }
-  /* No more than SQLite would hold as one value anyway, so a stream
-   * that decodes to more fails before it is ever all in memory. */
-  int limit = sqlite3_limit(sqlite3_context_db_handle(ctx),
-                            SQLITE_LIMIT_LENGTH, -1);
-  unsigned char *out = NULL;
-  size_t out_len = 0;
-  const char *why = cosmic_inflate_raw(data, len, (size_t)limit, &out,
-                                       &out_len);
-  if (why != NULL) {
-    sqlite3_result_error(ctx, why, -1);
+  result_inflated(ctx, data, len);
+}
+
+/* `chunk(X)`: a module's bytecode as `string.dump` wrote it, whichever
+ * way a build stored it: as it is, or raw-deflated. */
+static void chunk_function (sqlite3_context *ctx, int argc,
+                            sqlite3_value **argv) {
+  if (cosmic_any_null(argc, argv)) {
+    sqlite3_result_null(ctx);
     return;
   }
-  sqlite3_result_blob64(ctx, out, out_len, SQLITE_TRANSIENT);
-  cosmic_free(out);
+  size_t len;
+  const void *data = bytes_of(argv[0], &len);
+  if (cosmic_stored_chunk(data, len)) {
+    sqlite3_result_blob64(ctx, data, len, SQLITE_TRANSIENT);
+    return;
+  }
+  if (len == 0) {
+    sqlite3_result_error(ctx, "chunk: the value is empty", -1);
+    return;
+  }
+  result_inflated(ctx, data, len);
 }
 
 struct function {
@@ -329,6 +357,7 @@ static const struct function functions[] = {
   {"hmac", 3, hmac_function},
   {"deflate", 1, deflate_function},
   {"inflate", 1, inflate_function},
+  {"chunk", 1, chunk_function},
 };
 
 /* The entry points of SQLite's own extensions, from vendor/sqlite-ext/

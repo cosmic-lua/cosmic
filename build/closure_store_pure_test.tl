@@ -146,7 +146,7 @@ local function test_a_pure_store_holds_no_text(tmp: string)
   assert(count(pure, "SELECT count(*) FROM modules") == "2")
   assert(count(pure, "SELECT count(*) FROM imports") == "1", "the edges a require follows are kept")
   local function bytecode(db: Sqlite.Handle, path: string): string
-    local rows = assert(Sqlite.rows(db, "SELECT inflate(bytecode) FROM modules WHERE path = ?1", { { text = path } }))
+    local rows = assert(Sqlite.rows(db, "SELECT chunk(bytecode) FROM modules WHERE path = ?1", { { text = path } }))
     return support.nth(rows, 1):blob(1)
   end
   local imported = bytecode(full, "greet")
@@ -154,6 +154,8 @@ local function test_a_pure_store_holds_no_text(tmp: string)
     "an imported module's bytecode is not stripped of its debug information and numbered by instruction")
   assert(bytecode(pure, "greet") ~= imported, "the build's bytecode carried no debug information, so this shows nothing")
   assert(bytecode(pure, "greet_test") == bytecode(full, "greet_test"), "the test's own bytecode was stripped")
+  assert(count(pure, "SELECT count(*) FROM modules WHERE bytecode <> chunk(bytecode)") == "0",
+    "a pure store holds a chunk some other way than as it is loaded")
   -- A hint asked of the pure store raises, and of the full one answers: no match is not an answer of a store without the table.
   local ok, why = pcall(symbols.named, { pure }, { false }, "wave")
   assert(not ok and tostring(why):find("withheld", 1, true) ~= nil, "a hint of a pure store was answered with no match")

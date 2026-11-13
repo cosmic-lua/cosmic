@@ -967,7 +967,7 @@ local function instruction_lines_of(rec: Recording, path: string): {integer}?, s
   local opened, trouble = Sqlite.open(projection)
   if opened == nil then return nil, projection .. ": " .. trouble end
   local db: Sqlite.Handle = opened
-  local rows, rows_trouble = Sqlite.rows(db, "SELECT inflate(bytecode) FROM modules WHERE path = ?1", { text(path) })
+  local rows, rows_trouble = Sqlite.rows(db, "SELECT chunk(bytecode) FROM modules WHERE path = ?1", { text(path) })
   local _, _ = db:close()
   if rows == nil then return nil, projection .. ": " .. rows_trouble end
   local row = rows[1]

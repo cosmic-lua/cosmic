@@ -384,13 +384,16 @@ input to the build, never to the runtime. one database holds:
   kind (module, test, example, main), and the test or example names
   the compile step found. the Lua tl generated on the way stays in
   the working database: nothing that reads a shipped file loads it.
-  the source and the bytecode are stored raw-deflated, as a
-  declaration's source is. the core inflates the bytecode when its
-  searcher loads a module and in [`Store.bytecode`]; only an uncaught
-  error's line and [`Store.source`] (a checker typing another tree, the
-  self-rebuild reading the compiler) read the source, and each inflates
-  it. `inflate(X)`, which every [`cosmic.sqlite`] handle knows, reads
-  either back in a query.
+  the bytecode is stored as `string.dump` wrote it, so that a start
+  loads it without inflating it; the source is stored raw-deflated, as a
+  declaration's source is. the core loads the bytecode as it is in its
+  searcher and in [`Store.bytecode`], and inflates what an older build
+  stored deflated, which it tells apart by its first byte; only an
+  uncaught error's line and [`Store.source`] (a checker typing another
+  tree, the self-rebuild reading the compiler) read the source, and each
+  inflates it. `inflate(X)`, which every [`cosmic.sqlite`] handle knows, reads
+  the source back in a query, and `chunk(X)` the bytecode, however it is
+  stored.
 - **stubs**: the tool's alone, one per standard-library module: its
   source with every function body left out and every other token it
   keeps where it was (build.stub), raw-deflated. a module that

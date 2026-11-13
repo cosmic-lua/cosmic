@@ -77,7 +77,7 @@ local record Store
     name: string
     --- The chunk `string.dump` writes, which the core loads for the
     --- name, and which returns the module's value, a function for a main.
-    --- [`Store.seal`] stores it deflated.
+    --- [`Store.seal`] stores it as it is.
     bytecode: string
     --- The text the chunk was compiled from, which an error's line is
     --- read from.
@@ -112,8 +112,8 @@ end
 
 --- One module's compiled bytes, as `string.dump` wrote them, for a caller
 --- that must load the chunk in an environment of its own; nil and why for
---- none. The database stores them deflated, and this answers them
---- inflated.
+--- none. A database stores them as they are, or deflated where an older
+--- build wrote it, and this answers them inflated.
 function Store.bytecode(name: string): string?, string
   return store.bytecode(name)
 end
@@ -320,7 +320,7 @@ local function requires_of(db: Handle, name: string, types: boolean): {string}
     "SELECT i.requires FROM imports i WHERE i.path = ?1 AND (?2 = 1 OR " ..
       "NOT EXISTS (SELECT 1 FROM modules m WHERE m.path = i.path AND " ..
       "m.kind IN ('module', 'main') AND " ..
-      "instr(inflate(m.bytecode), CAST(i.requires AS BLOB)) = 0)) ORDER BY i.requires",
+      "instr(chunk(m.bytecode), CAST(i.requires AS BLOB)) = 0)) ORDER BY i.requires",
     { text(name), { integer = if types then 1 else 0 end } })
   if rows == nil then
     error("store: " .. name .. ": " .. trouble, 3)
@@ -529,7 +529,7 @@ local function write_database(names: {string}, file: string, main: string?,
         -- Last, so the rows' order is the same whatever the script is.
         local added, why = Sqlite.run(db,
           "INSERT INTO modules (path, file, kind, source_hash, key, bytecode, tests, source) " ..
-            "VALUES (?1, ?2, 'main', ?3, X'', deflate(?4), '', deflate(?5))",
+            "VALUES (?1, ?2, 'main', ?3, X'', ?4, '', deflate(?5))",
           { text(script.name), text(script.name), { blob = Hash.sha256(script.source) },
             { blob = script.bytecode }, { blob = script.source } })
         if not added then
