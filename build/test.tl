@@ -632,6 +632,33 @@ function test.decode_hits(encoded: string, hits: Coverage.Hits, identities: {str
   return table.concat(kept)
 end
 
+--- [`test.decode_hits`] of a row as the shared verdicts keep it ([`shared_verdicts.Found`]'s `kept`), in one pass
+--- over its lines: a line `met` holds costs a lookup, and only one it does not is unpacked
+--- ([`shared_verdicts.unpacked`]), folded and added to it. Pass one `met` only to calls that share every argument
+--- after it. A run stands on thousands of rows, each most of a thousand lines that nearly all of the others
+--- repeat, so reading every row's text twice was most of the time a fresh checkout took to stand on them.
+function test.decode_kept(kept: string, met: mut {string: State.SharedLine}, hits: Coverage.Hits,
+                          identities: {string:string}, stale: mut {string:string}, unowned?: Coverage.Hits,
+                          lines_of?: function(string): {integer}?, string, codes?: {string:string}): string
+  local out: mut {string} = {}
+  for line in kept:gmatch("[^\n]*\n") do
+    local known = met[line]
+    if known == nil then
+      local left: mut {string:string} = {}
+      local as_kept = test.decode_hits(shared_verdicts.unpacked(line), hits, identities, left, unowned, lines_of,
+        codes)
+      local path, why = next(left)
+      known = { text = as_kept, path = path, left = why }
+      met[line] = known
+    end
+    -- What it left in `stale` the first time, said again: another line of the path may have said otherwise since.
+    local path, why = known.path, known.left
+    if path ~= nil and why ~= nil then stale[path] = why end
+    out[#out + 1] = known.text
+  end
+  return table.concat(out)
+end
+
 -- TODO: have [`Coverage.Hits`] write its lines through, so `hits` here and in [`take_hits`] can be written, once
 -- `Hits` in cosmic/internal/debug.d.tl is `{string: mut {integer: boolean}}`.
 
@@ -1005,9 +1032,10 @@ local function share(rec: Recording, m: Module, name: string, id: string,
   local key, elsewhere = assert(found.key), assert(found.elsewhere)
   rec.tally.cached = rec.tally.cached + 1
   rec.tally.shared = rec.tally.shared + 1
-  rec.by_test[id] = test.decode_hits(elsewhere.hits, rec.hits, rec.identities, rec.stale, rec.unowned,
-    function(path: string): {integer}?, string return instruction_lines_of(rec, path) end, codes_of(rec),
-    rec.shared_folded)
+  rec.by_test[id] = test.decode_kept(elsewhere.kept, rec.shared_folded, rec.hits, rec.identities, rec.stale,
+    rec.unowned, function(path: string): {integer}?, string
+      return instruction_lines_of(rec, path)
+    end, codes_of(rec))
   local kept, keep_trouble = record_run(rec.records, m.path, name, true, "",
     Clock.now_ns(), run_key(key, key), rec.run_at_ns, elsewhere.elapsed_ns)
   if not kept then
