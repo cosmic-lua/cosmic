@@ -47,7 +47,11 @@ worktree's build directory when you delete the worktree.
 
 1. Run `bin/zig build boot` in a fresh worktree (2 to 6 minutes cold).
    It builds the host's core and stages the tree into the build
-   directory's `build.db`, the working database every later build reads. Copying an existing cosmic
+   directory's `build.db`, the working database every later build reads. Where the tree's C is
+   that of the pinned release or of the repository's newest one, it takes
+   that release's core and fetches no zig ([`build/seeded_boot.tl`], which
+   says so; `COSMIC_BOOT_SEED=0` builds the core, `pin` asks the network
+   nothing). Copying an existing cosmic
    executable is not a substitute. The tool it writes carries the host's
    core alone, a placeholder script standing where each other core goes,
    which is all `cosmic test`, `fix`, `docs` and the other verbs need; it
@@ -167,6 +171,7 @@ procedure.
 [`build/harness_epoch.tl`]: build/harness_epoch.tl
 [`build/paths.tl`]: build/paths.tl
 [`build/rebuild_lock.tl`]: build/rebuild_lock.tl
+[`build/seeded_boot.tl`]: build/seeded_boot.tl
 [`build/tree_checks.tl`]: build/tree_checks.tl
 [`build/workflows_test.tl`]: build/workflows_test.tl
 [`ci/cosmic-driver.pin`]: ci/cosmic-driver.pin

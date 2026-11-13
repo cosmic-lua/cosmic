@@ -6,6 +6,7 @@
 build/patch.tl
 build/paths.tl
 build/perf.tl
+build/seeded_boot.tl
 build/vendor.tl
 build/verify_codesign.tl
 build/zig.tl
