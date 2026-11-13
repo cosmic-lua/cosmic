@@ -346,6 +346,10 @@ local record test_state
     --- a table folded into another run's `hits` is not in this one's.
     spelled: {{integer:boolean}:string} -- declared: key_type
     folded: {{integer:boolean}:boolean} -- declared: key_type
+    --- The lines of the rows this run stood on from the shared cache that
+    --- [`test.decode_hits`] has folded into `hits`, so a line the rows
+    --- repeat is read once.
+    shared_folded: mut {string: mut {string: string}}
     --- The source line of each instruction of each module whose hits a
     --- worker of a pure store numbered by instruction, and the line each of
     --- its functions is defined on, by path, read from the projection as
