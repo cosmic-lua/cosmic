@@ -1513,6 +1513,36 @@ local sealed_fill <const>: {string} = {
     "(SELECT 1 FROM main.modules WHERE path = 'cosmic.http') ORDER BY rowid",
 }
 
+--- The database the artifact at `file` carries, read by its range of the
+--- file ([`artifact.database_in`]): the launcher and the cores ahead of it
+--- are most of an artifact that carries every core, and every run that
+--- seals would read them to drop them. `asked`, where given, is told each
+--- range read of the file, for the test that holds it to those. Nil and
+--- why where the file cannot be opened or read, or is no artifact.
+function test_key.program_database(file: string,
+                                   asked?: function(offset: integer, length: integer)): artifact.Carried?, string
+  local fd, open_trouble = Fs.open_read(file)
+  if fd == nil then return nil, open_trouble end
+  local held: integer = fd
+  local size_of, stat_trouble = sys.fstat(held)
+  if size_of == nil then
+    local _, _ = Fs.close(held)
+    return nil, stat_trouble
+  end
+  local read_trouble = ""
+  local carried, trouble = artifact.database_in(size_of.size, function(offset: integer, length: integer): string?
+    if asked ~= nil then asked(offset, length) end
+    local data, why = sys.pread(held, length, offset)
+    if data == nil then read_trouble = why end
+    return data
+  end)
+  local _, _ = Fs.close(held)
+  if carried == nil then
+    return nil, trouble .. (if read_trouble ~= "" then ": " .. read_trouble else "" end)
+  end
+  return carried, ""
+end
+
 --- What sealing the databases of this run's workers is made from
 --- ([`Sealing`]), made the first time one is wanted: this program's own
 --- database, taken from its artifact and written in a directory of the
@@ -1531,15 +1561,14 @@ local function sealing_for(rec: Recording): Sealing?, string
     return nil, why
   end
   local launched, _ = Proc.relaunch()
-  if launched == nil or launched.argv[2] ~= "--artifact" or launched.argv[3] == nil then
+  local file = if launched ~= nil and launched.argv[2] == "--artifact" then launched.argv[3] else nil end
+  if file == nil then
     return refuse("this program is no portable artifact to take its database from")
   end
-  local bytes, read_trouble = Fs.read(launched.argv[3])
-  if bytes == nil then return refuse(launched.argv[3] .. ": " .. read_trouble) end -- checked: nil_not_allowed
-  local parts, split_trouble = artifact.split(bytes)
-  if parts == nil then return refuse(launched.argv[3] .. ": " .. split_trouble) end -- checked: nil_not_allowed
+  local parts, split_trouble = test_key.program_database(file)
+  if parts == nil then return refuse(file .. ": " .. split_trouble) end
   if parts.host then
-    return refuse(launched.argv[3] .. ": a host program has no database to seal from") -- checked: nil_not_allowed
+    return refuse(file .. ": a host program has no database to seal from")
   end
   local database = parts.database
   -- A root runner's workers run as a user of their own, which must be
