@@ -191,8 +191,10 @@ local record importer
     --- Compiles `due` in copies of this process, `make` the compile of
     --- one module (nil where it makes none), or nil where no copy is
     --- made: too few modules, one processor, or a host that forks none
-    --- ([`build.compile_fanout`]).
-    fan?: function(due: {Module}, own_tree: boolean, make: function(m: Module): Compile?): Fanned?
+    --- ([`build.compile_fanout`]). `make` is told, with a module, the
+    --- paths its copy has yet to make after it.
+    fan?: function(due: {Module}, own_tree: boolean,
+                   make: function(m: Module, rest: {string:boolean}): Compile?): Fanned?
     --- Offers a compile of `m` made here to every other checkout.
     keep: function(m: Module, own_tree: boolean, made: Compile)
     --- Writes what was offered; `compile` calls it once, as it ends,
@@ -1409,6 +1411,10 @@ local function compile_derived(handle: work.Handle, tool: string,
       if made_at_once ~= nil then made_at_once.close() end
       finish_cache(cache)
     end
+    -- TODO: stop the copies at the first module one of them is refused, and tell of it then ([`importer.due`]), once a
+    -- copy can say so while it runs: it writes its file as it ends, so a tree broken in a module many require is
+    -- compiled whole in copies before the loop below reads the first refusal, where one process stopped at it or left
+    -- out what requires it. It waits on a pipe from each copy that the build polls.
     local fan = if shared ~= nil then shared.fan else nil end
     if fan ~= nil and shared ~= nil then
       local due: mut {Module} = {}
@@ -1428,8 +1434,12 @@ local function compile_derived(handle: work.Handle, tool: string,
         local made_built, _ = pipeline.build(handle.db, assert(reading.options))
         if made_built ~= nil then
           reading.built = made_built
-          fanned = fan(due, standing.own, function(m: Module): importer.Shared.Compile?
-            local made, _ = pipeline.generate(m, made_built, checks, judged, hints)
+          fanned = fan(due, standing.own, function(m: Module, rest: {string:boolean}): importer.Shared.Compile?
+            -- No hints: what a copy is refused it does not keep, and the build says it with them.
+            local made, _ = pipeline.generate(m, made_built, checks, judged)
+            -- A copy lowers the modules its own require, most of them another copy's to compile, which nothing here
+            -- would retire: it forgets each but those it has yet to compile, and holds what the build does alone.
+            pipeline.forget(made_built, rest)
             if made == nil or made.refused then return nil end
             return { lua = made.lua, bytecode = made.bytecode, references = made.references,
               fact_wraps = made.fact_wraps, parameter_checks = made.parameter_checks }

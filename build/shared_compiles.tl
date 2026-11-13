@@ -388,7 +388,7 @@ end
 --- Whether a compile is kept under the shared `key`, its row not read:
 --- false where there is none or the cache cannot answer, so a build that
 --- asks before it compiles compiles.
-function shared_compiles.known(cache: shared_compiles.Cache, key: string): boolean
+local function known(cache: shared_compiles.Cache, key: string): boolean
   local rows, _ = Sqlite.rows(cache.db, "SELECT 1 FROM " .. compiled .. " WHERE key = ?1", { text(key) })
   return rows ~= nil and rows[1] ~= nil
 end
@@ -581,6 +581,11 @@ function shared_compiles.settle(cache: shared_compiles.Cache, owed: shared_compi
   return db:exec("COMMIT")
 end
 
+--- What a copy that compiles cosmic's own tree holds at its most, with room to spare: 1.1 GB measured, as the build
+--- itself holds compiling them all. A host is given no more copies than it has memory for
+--- ([`fanout.copies`]).
+local copy_bytes <const> = 1536 * 1024 * 1024
+
 --- A size no copy's file reaches: nothing is evicted from one.
 local unbounded <const> = 1 << 40
 
@@ -595,8 +600,8 @@ local unbounded <const> = 1 << 40
 --- copy that ended badly is not read: the build makes each again itself, and says what the checker said, once. So this
 --- only saves time. Nil where no copy is made: too few modules, one processor, or a host that forks no process.
 local function fan(due: {importer.Module}, own_tree: boolean,
-                   make: function(m: importer.Module): importer.Shared.Compile?): importer.Shared.Fanned?
-  local copies = fanout.copies(#due, Proc.cpu_count())
+                   make: function(m: importer.Module, rest: {string:boolean}): importer.Shared.Compile?): importer.Shared.Fanned?
+  local copies = fanout.copies(#due, Proc.cpu_count(), copy_bytes)
   if copies == 0 then return nil end
   local dir, _ = Fs.mkdtemp("cosmic-compile-")
   if dir == nil then return nil end
@@ -609,9 +614,15 @@ local function fan(due: {importer.Module}, own_tree: boolean,
   local ended = fanout.run(copies, function(copy: integer)
     local cache = assert(shared_compiles.open(path_of(copy)))
     local kept: mut {shared_compiles.Kept} = {}
+    -- What this copy has yet to make, which `make` is told so that it forgets the rest.
+    local rest: mut {string:boolean} = {}
+    for index = copy, #due, copies do
+      rest[assert(due[index], "an index within the list is a module").path] = true
+    end
     for index = copy, #due, copies do
       local m = assert(due[index], "an index within the list is a module")
-      local made = make(m)
+      rest[m.path] = nil
+      local made = make(m, rest)
       if made ~= nil then
         kept[#kept + 1] = { key = key_of(m), lua = made.lua, bytecode = made.bytecode,
           references = made.references, fact_wraps = made.fact_wraps, parameter_checks = made.parameter_checks }
@@ -690,7 +701,7 @@ function shared_compiles.for_build(environment?: {string:string}): importer.Shar
     known = function(m: importer.Module, own_tree: boolean): boolean
       local held = open.cache
       if held == nil then return false end
-      return shared_compiles.known(held, shared_compiles.key(assert(m.key), own_tree, m.generated))
+      return known(held, shared_compiles.key(assert(m.key), own_tree, m.generated))
     end,
     keep = function(m: importer.Module, own_tree: boolean, made: importer.Shared.Compile)
       if open.cache == nil then return end

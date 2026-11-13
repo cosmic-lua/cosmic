@@ -24,6 +24,7 @@ local work = require("build.work")
 local build_paths = require("build.paths")
 local writer = require("build.writer")
 local shared_compiles = require("build.shared_compiles")
+local fanout = require("build.compile_fanout")
 local Lexer = require("lang.lexer")
 local Parser = require("lang.parser")
 local SyntaxNode = require("build.syntax_node")
@@ -2497,6 +2498,62 @@ local function test_the_checks_written_survive_every_compile_path()
     "a shared compile lost its counts: " .. tostring(copied.fact_wraps) .. " and " .. tostring(copied.parameter_checks))
   local plain = compile_counted(assert(write_fixture("counted-plain", files)), false)
   assert(plain.fact_wraps == 0 and plain.parameter_checks == 0, "an unchecked compile reported checks")
+end
+
+--- Modules compiled in copies of the process are the modules one process compiles: the same Lua of each, the same
+--- count made, and a module a copy is refused is refused by the build in the same words. A copy is forked here for
+--- two modules, where a build asks for many more.
+local function test_modules_compiled_in_copies_are_those_one_process_compiles()
+  local files: mut {string:string} = {}
+  for index = 1, 8 do
+    local requires = if index > 1 then 'local before = require("m' .. tostring(index - 1) .. '")\n' else "" end
+    files["m" .. tostring(index) .. ".tl"] = requires .. "local record M\n  count: integer\nend\nlocal m: M = { count = " ..
+      (if index > 1 then "before.count + " else "" end) .. tostring(index) .. " }\nreturn m\n"
+  end
+  --- Compiles the fixture named `name` over `files`, in copies or not: the result, and whether copies made any.
+  local function compiled(name: string, over: {string:string}, at_once: boolean): importer.Result, boolean
+    local root = assert(write_fixture(name, over))
+    local shared = assert(shared_compiles.for_build({ COSMIC_BUILD_CACHE = root .. "/cache/cache.db" }))
+    local fan = assert(shared.fan)
+    local fanned = false
+    local watched: importer.Shared = { ...shared, fan = function(due: {importer.Module}, own_tree: boolean,
+                                                                 make: function(m: importer.Module, rest: {string:boolean}): importer.Shared.Compile?): importer.Shared.Fanned?
+      if not at_once then return nil end
+      local made = fan(due, own_tree, make)
+      fanned = made ~= nil
+      return made
+    end }
+    local handle = assert(work.open(root))
+    assert(work.stage(handle, { own = false }))
+    local result, trouble = importer.compile(handle, "fanned-test", false, watched)
+    work.close(handle)
+    return assert(result, trouble), fanned
+  end
+  local least = fanout.least
+  fanout.least = 1
+  local at_once, fanned = compiled("fanned", files, true)
+  local broken: mut {string:string} = {}
+  for name, text in pairs(files) do broken[name] = text end
+  broken["m4.tl"] = "local n: integer = \"four\"\nreturn { count = n }\n"
+  local broken_at_once, _ = compiled("fanned-broken", broken, true)
+  fanout.least = least
+  if not fanned then
+    Test.skip("this host makes no copy of the process: one processor, or no fork")
+  end
+  local alone, _ = compiled("alone", files, false)
+  assert(at_once.compiled == 8 and alone.compiled == 8 and at_once.shared == 0, tostring(at_once.compiled))
+  assert(#at_once.refused == 0, table.concat(at_once.refused, "\n"))
+  local lua_of: mut {string:string} = {}
+  for _, m in ipairs(alone.modules) do lua_of[m.path] = assert(m.lua) end
+  for _, m in ipairs(at_once.modules) do
+    assert(m.lua == lua_of[m.path], m.path .. " differs where a copy compiled it")
+  end
+  assert(#at_once.modules == #alone.modules)
+  local broken_alone, _ = compiled("alone-broken", broken, false)
+  assert(#broken_at_once.refused > 0)
+  assert(table.concat(broken_at_once.refused, "\n"):gsub("fanned%-broken", "alone-broken") ==
+      table.concat(broken_alone.refused, "\n"), table.concat(broken_at_once.refused, "\n"))
+  assert(broken_at_once.compiled == broken_alone.compiled)
 end
 
 --- A working database of an older tool has `compiled` without the counts: the new tool opens it, adds them, reads

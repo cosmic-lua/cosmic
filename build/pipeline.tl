@@ -837,10 +837,19 @@ function Pipeline.generate(m: Module, built: Pipeline.Built, facts?: boolean, ju
   return made, ""
 end
 
---- Marks `m` written in `built` where its compile was made elsewhere, in a copy of this process
---- ([`build.compile_fanout`]): the build holds no result of it to write again.
+--- Retires `m` in `built` where its compile was made elsewhere, in a copy of this process
+--- ([`build.compile_fanout`]): whatever the build read of it for a module that requires it is forgotten, as it is of a
+--- module written here.
 function Pipeline.took(m: Module, built: Pipeline.Built)
   built.build:retire(m.path)
+end
+
+--- Retires every module `built` holds but those `rest` names: what a copy of the process that compiles some of the
+--- tree's modules calls after each, having lowered modules it will never write.
+function Pipeline.forget(built: Pipeline.Built, rest: {string: boolean})
+  built.build:retire_all(function(held: Driver.Outcome): boolean
+    return rest[held.module] == true
+  end)
 end
 
 function Pipeline.review(m: Module, built: Pipeline.Built, hints?: ErrorRender.Hints): Plans.Generated?, string

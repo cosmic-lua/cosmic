@@ -9,14 +9,14 @@ local fanout = require("build.compile_fanout")
 --- many gets a copy a processor, up to the most, and up to what the
 --- caller asks.
 local function test_few_modules_or_one_processor_make_no_copy()
-  assert(fanout.copies(0, 8, 8) == 0)
-  assert(fanout.copies(fanout.least * 2 - 1, 8, 8) == 0, "one copy's worth of work is the process's own")
-  assert(fanout.copies(fanout.least * 2, 8, 8) == 2)
-  assert(fanout.copies(10000, 1, 8) == 0)
-  assert(fanout.copies(10000, 4, 8) == 4)
-  assert(fanout.copies(10000, 64, 64) == fanout.most)
-  assert(fanout.copies(10000, 4, 1) == 0 and fanout.copies(10000, 4, 0) == 0)
-  assert(fanout.copies(10000, 4, 3) == 3)
+  assert(fanout.copies(0, 8, 1, 8) == 0)
+  assert(fanout.copies(fanout.least * 2 - 1, 8, 1, 8) == 0, "one copy's worth of work is the process's own")
+  assert(fanout.copies(fanout.least * 2, 8, 1, 8) == 2)
+  assert(fanout.copies(10000, 1, 1, 8) == 0)
+  assert(fanout.copies(10000, 4, 1, 8) == 4)
+  assert(fanout.copies(10000, 64, 1, 64) == fanout.most)
+  assert(fanout.copies(10000, 4, 1, 1) == 0 and fanout.copies(10000, 4, 1, 0) == 0)
+  assert(fanout.copies(10000, 4, 1, 3) == 3)
 end
 
 --- Each copy runs the work with its own number, and the process is told

@@ -125,7 +125,8 @@ local function test_many_compiles_made_at_once_come_back_each_its_own(tmp: strin
     due[index] = { path = path, file = "suite/m" .. tostring(index) .. ".tl", kind = "module", source = "",
       source_hash = "", requires = {}, tests = {}, inputs = nil, key = "key of " .. path }
   end
-  local function make(m: importer.Module): importer.Shared.Compile?
+  local function make(m: importer.Module, rest: {string:boolean}): importer.Shared.Compile?
+    assert(rest[m.path] == nil, "a module being made is not among those yet to make")
     if m.path == "suite.m7" then return nil end
     return { lua = "-- lua of " .. m.path, bytecode = "bytecode of " .. m.path, references = {},
       fact_wraps = #m.path, parameter_checks = 2 }

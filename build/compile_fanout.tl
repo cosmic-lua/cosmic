@@ -11,6 +11,7 @@
 --- work itself.
 
 local Env = require("cosmic.env")
+local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
 local process = require("cosmic.internal.process")
 
@@ -20,27 +21,37 @@ local record fanout
   mut least: integer
   --- The most copies, whatever the processors.
   mut most: integer
-  asked: function(): integer
 end
 
 fanout.least = 48
 fanout.most = 8
 
---- How many copies do `count` pieces of work on `processors`: none below
---- two, since one copy is no quicker than the process itself. `most` is
---- the caller's bound on them, [`fanout.asked`] by default.
-function fanout.copies(count: integer, processors: integer, most?: integer): integer
-  local wanted = math.min(processors, fanout.most, most or fanout.asked(), count // fanout.least)
-  return if wanted < 2 then 0 else wanted end
-end
-
 --- The most copies COSMIC_COMPILE_COPIES asks for: a count, `0` or `1`
 --- for none, so a build compiles in the one process as it did; `most`
 --- where it is unset or no count.
-function fanout.asked(): integer
-  local asked = math.tointeger(tonumber(Env.get("COSMIC_COMPILE_COPIES") or ""))
-  if asked == nil or asked < 0 then return fanout.most end
-  return asked
+local function asked(): integer
+  local count = math.tointeger(tonumber(Env.get("COSMIC_COMPILE_COPIES") or ""))
+  if count == nil or count < 0 then return fanout.most end
+  return count
+end
+
+--- How many copies of `each` bytes the host has room for, by what its
+--- /proc/meminfo says is available: `most` where it does not say.
+local function room(each: integer): integer
+  local text, _ = Fs.read("/proc/meminfo")
+  local available = math.tointeger(tonumber((text or ""):match("MemAvailable:%s*(%d+) kB")))
+  if available == nil then return fanout.most end
+  return available * 1024 // each
+end
+
+--- How many copies do `count` pieces of work on `processors`, each copy
+--- holding `each` bytes: none below two, since one copy is no quicker
+--- than the process itself; no more than the host has memory for; and no
+--- more than COSMIC_COMPILE_COPIES asks for. `bound` stands in for those
+--- last two, for a test.
+function fanout.copies(count: integer, processors: integer, each: integer, bound?: integer): integer
+  local wanted = math.min(processors, fanout.most, bound or math.min(asked(), room(each)), count // fanout.least)
+  return if wanted < 2 then 0 else wanted end
 end
 
 --- Runs `work` in `copies` copies of this process, each given its number

@@ -832,8 +832,8 @@ that does run runs in a process of its own:
 - *fast*: compile and check run in one process, one transaction,
   against declarations already in the database. where a build has many
   modules to compile (a boot, the first build after a change to the
-  checker) and the host can fork, it compiles them in copies of that
-  process, one a processor, each holding the tree as it was read: a copy
+  checker), the host can fork and the compiles it shares are on, it compiles them in copies of that
+  process, one a processor up to eight and to the memory the host has, each holding the tree as it was read: a copy
   keeps what it made in a file of its own and writes nothing else, and
   the build takes each compile where it would have made one
   ([`build/compile_fanout.tl`]). the bytes written are the same;
