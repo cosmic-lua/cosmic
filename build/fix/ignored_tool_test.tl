@@ -12,8 +12,14 @@ local Test = require("cosmic.test")
 local build_paths = require("build.paths")
 local this_program = require("build.this_program")
 
-Test.policy{ profiles = { "cosmic", "system" }, env = { "PATH", "HOME" },
-  grants = { { path = "o/bin", letters = "rx" } } }
+--- The program itself, the host's `git`, which `fix` asks what a
+--- repository ignores, and its `sh`, which runs the stand-in for a git
+--- that refuses.
+Test.policy{ profiles = { "cosmic" }, env = { "PATH", "HOME" },
+  grants = {
+    { path = "/bin/sh", letters = "r" }, { path = "/usr/bin/sh", letters = "r" },
+    { path = "/bin/git", letters = "r" }, { path = "/usr/bin/git", letters = "r" },
+    { path = "o/bin", letters = "rx" } } }
 
 --- Runs fix with `args` in `root`; `extra` is added to the program's environment.
 local function run(root: string, args: {string}, extra?: {string: string}): Child.Result

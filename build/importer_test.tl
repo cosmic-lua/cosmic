@@ -2501,6 +2501,12 @@ local function test_the_checks_written_survive_every_compile_path()
   assert(plain.fact_wraps == 0 and plain.parameter_checks == 0, "an unchecked compile reported checks")
 end
 
+--- Whether this host forks a copy of the process: macOS does not, and a build there asks for copies, gets none
+--- that ran, and compiles everything itself.
+local function forks(): boolean
+  return fanout.run(1, function(_: integer) end).ended[1] == true
+end
+
 --- Sources parsed and modules compiled in copies of the process are those one process parses and compiles: the same
 --- Lua of each, the same count made, and a module a copy is refused is refused by the build in the same words. A
 --- copy compiles nothing that requires a module one of them could not compile, and the build tells of that module
@@ -2566,7 +2572,7 @@ local function test_modules_compiled_in_copies_are_those_one_process_compiles()
   local broken_at_once, _, broken_made = compiled("fanned-broken", broken, true)
   local told_broken = told_by_copies
   fanout.least = least
-  if not fanned then
+  if not fanned or not forks() then
     Test.skip("this host makes no copy of the process: one processor, or no fork")
   end
   local alone, _, _ = compiled("alone", files, false)
@@ -2643,7 +2649,7 @@ local function test_a_file_run_tells_its_copies_to_stop_at_the_refusal_it_stops_
   local result, trouble = importer.compile_for(handle, "stopped-test", "main", watched)
   work.close(handle)
   fanout.least = least
-  if not fanned then
+  if not fanned or not forks() then
     Test.skip("this host makes no copy of the process: one processor, or no fork")
   end
   assert(result == nil and trouble:find("a_needed.tl", 1, true) ~= nil, trouble)

@@ -9,14 +9,22 @@ local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 
---- The two scripts under test; the system's paths, for the shell they
---- run in and the commands they call.
+--- The two scripts under test, and the host's programs they run: the
+--- shell and the commands they call, each granted where a host has it,
+--- under /bin or /usr/bin (a grant of a path a host lacks gives nothing).
 Test.policy{
-  profiles = { "system" },
   grants = {
+    { path = "/bin/sh", letters = "r" }, { path = "/usr/bin/sh", letters = "r" },
+    { path = "/bin/dirname", letters = "r" }, { path = "/usr/bin/dirname", letters = "r" },
+    { path = "/bin/basename", letters = "r" }, { path = "/usr/bin/basename", letters = "r" },
+    { path = "/bin/grep", letters = "r" }, { path = "/usr/bin/grep", letters = "r" },
+    { path = "/bin/sed", letters = "r" }, { path = "/usr/bin/sed", letters = "r" },
+    { path = "/bin/chmod", letters = "r" }, { path = "/usr/bin/chmod", letters = "r" },
+    { path = "/bin/mkdir", letters = "r" }, { path = "/usr/bin/mkdir", letters = "r" },
+    { path = "/bin/cat", letters = "r" }, { path = "/usr/bin/cat", letters = "r" },
+
     { path = "bin/cosmic", letters = "r" },
     { path = "bin/cosmic-bootstrap", letters = "r" },
-    { path = "/bin/sh", letters = "r" },
   },
   env = { "PATH" },
   requires = { "path:/bin/sh" },

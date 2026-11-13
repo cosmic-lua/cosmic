@@ -26,10 +26,18 @@ local test_sandbox = require("build.test_sandbox")
 local this_program = require("build.this_program")
 local support = require("build.test_support_fixture")
 
---- The program itself, which the case that starts it runs.
+--- The program itself, which the case that starts it runs through its
+--- launcher. The launcher starts the core its cache already holds, for
+--- which it runs the host's `sh`, `uname`, `stat` and `sha256sum`, each
+--- granted where a host has it, under /bin or /usr/bin.
 Test.policy{
-  profiles = { "cosmic", "system" },
-  grants = { { path = "o/bin", letters = "rx" } },
+  profiles = { "cosmic" },
+  grants = {
+    { path = "/bin/sh", letters = "r" }, { path = "/usr/bin/sh", letters = "r" },
+    { path = "/bin/uname", letters = "r" }, { path = "/usr/bin/uname", letters = "r" },
+    { path = "/bin/stat", letters = "r" }, { path = "/usr/bin/stat", letters = "r" },
+    { path = "/bin/sha256sum", letters = "r" }, { path = "/usr/bin/sha256sum", letters = "r" },
+    { path = "o/bin", letters = "rx" } },
 }
 
 --- Makes `tmp`/scratch, a scratch directory laid out as build.test_key's

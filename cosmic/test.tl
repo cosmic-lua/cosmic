@@ -185,8 +185,9 @@ local record Test
     --- stood on one host stands on another of the same kernel and
     --- processor. A test that starts this program's core directly, past
     --- its launcher, needs none; one that runs the launcher itself
-    --- (a `#!/bin/sh` script) needs it. One that starts a program or two
-    --- of the host's rather names them in `host`. One that reads a file or two
+    --- (a `#!/bin/sh` script) names the shell and the programs the
+    --- launcher calls in `host`, as does any that starts programs of the
+    --- host's it can name. One that reads a file or two
     --- of the system rather names them in `host`, which keys a file by
     --- its contents.
     mut system?: boolean

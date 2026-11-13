@@ -176,13 +176,16 @@ The rules:
   needs to start: its loader and shared libraries, and a script's
   interpreter. The key holds each of those files by its contents and
   nothing else of the host's. A program it starts in turn, or a file it
-  opens by name, is granted the same way.
+  opens by name, is granted the same way. A grant of a path a host lacks
+  gives nothing there, so a program hosts keep in different places is
+  granted at each (`/bin/sed` and `/usr/bin/sed`).
 - The profile `"system"` gives /usr, /bin, /lib, /etc and the like, and
   its key holds every package the host has installed, so its verdict
-  stands only on a host with the same packages. A test needs it only to
-  start many programs, as the `#!/bin/sh` launcher and [`bin/cosmic`]
-  do. A test that only reads a file or two of the system names them as
-  absolute grants.
+  stands only on a host with the same packages. A test needs it only
+  where it cannot say which programs it starts, as one that runs
+  `cosmic sandbox --system` cannot; one that runs the `#!/bin/sh`
+  launcher or [`bin/cosmic`] grants the programs those call. A test that
+  only reads a file or two of the system names them as absolute grants.
 - The profile `"proc"` gives /proc, the kernel's process information, on
   Linux and nothing on macOS. A test that reads /proc declares
   `profiles = { "proc" }`, not a grant of /proc: on macOS the grant names
