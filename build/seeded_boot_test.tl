@@ -40,12 +40,23 @@ local function test_the_vendored_trees_are_build_zigs()
   end
 end
 
---- What a core is built from names the core's C, the vendored trees and
---- the patches, and leaves the core's Teal out.
-local function test_the_c_inputs_leave_the_cores_teal_out()
-  local named: mut {string:boolean} = {}
-  for _, path in ipairs(SeededBoot.c_inputs) do named[path] = true end
-  for _, path in ipairs({ "core", "vendor", "patch", "build.zig", "bin/zig.pin", ":(exclude)core/*.tl" }) do
-    assert(named[path] == true, path)
+--- The files of a commit and of the index are compared by mode, contents
+--- and path, whichever listing names them and in whatever order, with the
+--- core's Teal left out; a file whose contents or mode differ, one more
+--- and one fewer are each a difference.
+local function test_two_listings_of_one_tree_are_the_same()
+  local tree = "100644 blob aaaa\tcore/a.c\n100755 blob bbbb\tvendor/x/run\n100644 blob cccc\tcore/m.tl\n"
+  local index = "100755 bbbb 0\tvendor/x/run\n100644 aaaa 0\tcore/a.c\n100644 dddd 0\tcore/m.tl\n"
+  assert(SeededBoot.listed(tree) == "100644 aaaa core/a.c\n100755 bbbb vendor/x/run", SeededBoot.listed(tree))
+  assert(SeededBoot.listed(tree) == SeededBoot.listed(index))
+  for _, other in ipairs({
+      "100644 aaab 0\tcore/a.c\n100755 bbbb 0\tvendor/x/run\n",
+      "100755 aaaa 0\tcore/a.c\n100755 bbbb 0\tvendor/x/run\n",
+      "100644 aaaa 0\tcore/a.c\n",
+      index .. "100644 eeee 0\tcore/b.h\n",
+      "100644 aaaa 0\tcore/a.c\n100755 bbbb 0\tvendor/x/run\n100644 ffff 0\tvendor/y.tl\n",
+  }) do
+    assert(SeededBoot.listed(tree) ~= SeededBoot.listed(other), other)
   end
+  assert(SeededBoot.listed("") == "")
 end

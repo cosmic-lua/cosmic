@@ -903,10 +903,6 @@ local doing: {string:string} = {
 --- How long a waiting boot waits in one go before it says it still is.
 local reminder_ns <const> = Clock.seconds(15)
 
---- Whether `given`, the words after bin/zig, is a build of a step that
---- boots, writing the working database in the build directory beside a
---- tool: `boot`, and `sanitized`, which boots the checked core into the
---- build directory's `sanitized`.
 --- Whether `given` asks for the boot of a checkout's loop and nothing
 --- else, `bin/zig build boot`: the one a release's core can stand in for
 --- ([`seeded`]). A boot of every core, of the checked core, or with a flag
@@ -915,6 +911,10 @@ function Zig.plain_boot(given: {string}): boolean
   return #given == 2 and given[1] == "build" and given[2] == "boot"
 end
 
+--- Whether `given`, the words after bin/zig, is a build of a step that
+--- boots, writing the working database in the build directory beside a
+--- tool: `boot`, and `sanitized`, which boots the checked core into the
+--- build directory's `sanitized`.
 function Zig.boots(given: {string}): boolean
   if given[1] ~= "build" then
     return false
@@ -1084,8 +1084,6 @@ function Zig.with_lock(output: string, environment: {string:string},
   return hold(lock)
 end
 
---- The whole entry point over `argv`, the words after this script's own
---- path, `script`.
 --- Boots the tree at `root` on the core of a release whose C is the
 --- tree's, where `given` is a plain boot and there is such a release, with
 --- no zig (build/seeded_boot.tl, which says what it did): true where the
@@ -1095,6 +1093,11 @@ end
 --- no such release, a step that failed.
 local function seeded(root: string, given: {string}): boolean
   if not Zig.plain_boot(given) or Env.get("COSMIC_BOOT_SEED") == "0" then return false end
+  -- A zig or a bootstrap cosmic the caller names is the one to boot with
+  -- (build/seeded_boot.tl says why, and refuses them too).
+  for _, name in ipairs({ "COSMIC_BOOTSTRAP", "COSMIC_ZIG", "ZIG_LIB_DIR" }) do
+    if (Env.get(name) or "") ~= "" then return false end
+  end
   local selected, _ = standalone(root, "build/paths.tl", { "--prepare", root })
   if selected == nil or not selected.ok then return false end
   local output = (selected.stdout or ""):gsub("\n$", "")
@@ -1103,16 +1106,16 @@ local function seeded(root: string, given: {string}): boolean
   for name, value in pairs(Env.all()) do environment[name] = value end
   local project = Zig.project_cache(output, environment)
   return Zig.with_lock(output, environment, function(env: {string:string}): integer
-    local manifest, patch_trouble = patch(root, project)
-    if manifest == nil then
-      log:complain(patch_trouble)
-      return 1
-    end
+    -- A patch that fails is the zig build's to say, which patches again.
+    local manifest, _ = patch(root, project)
+    if manifest == nil then return 1 end
     local result, _ = standalone(root, "build/seeded_boot.tl", { root, output, manifest }, env)
     return if result ~= nil and result.ok then 0 else 1 end
   end) == 0
 end
 
+--- The whole entry point over `argv`, the words after this script's own
+--- path, `script`.
 function Zig.enter(argv: {string}, script: string): integer
   local found_root, root_trouble = Zig.repo_root(script)
   if found_root == nil then

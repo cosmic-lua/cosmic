@@ -22,20 +22,41 @@
 ---   (`<date>-<commit>`): its `cosmic` is fetched once, held to the digest
 ---   its SHA256SUMS names, and kept beside the bootstrap cosmic.
 ---
---- Whether the tree's C is a release's is git's answer: no difference
---- between the release's commit and the working tree under `c_inputs`, and
---- no untracked file there. A commit the checkout lacks is fetched without
---- its files. A tree that is no git checkout, a commit that cannot be had,
---- or C that differs, is no match, and [`bin/zig`] builds the core.
+--- Whether the tree's C is a release's is git's answer: the files the
+--- release's commit holds under `c_inputs` are the files the index holds
+--- there, by mode and contents; the working tree is the index there; and
+--- no file there is untracked. A commit the checkout lacks is fetched,
+--- without its files, into a repository of this run's own: the checkout's
+--- is read and never written. A tree that is no git checkout, a commit
+--- that cannot be had, or C that differs, is no match, and [`bin/zig`]
+--- builds the core.
+---
+--- A zig the caller names (COSMIC_ZIG, ZIG_LIB_DIR) or a bootstrap cosmic
+--- standing in for the pinned one (COSMIC_BOOTSTRAP) is no match either:
+--- the first asks for that zig's core, and the second's core is not the
+--- pin's.
 ---
 --- A release is trusted as the repository publishes it: nothing but its
 --- own SHA256SUMS vouches for the newest one. COSMIC_BOOT_SEED=0 turns
 --- this off, and `pin` keeps it to the pinned release, which
---- [`bin/cosmic-bootstrap`] holds to the pin's digest.
+--- [`bin/cosmic-bootstrap`] holds to the pin's digest, and to the commits
+--- the checkout has: it asks the network nothing. Any other value is
+--- refused, and zig builds the core.
 ---
 --- It answers 0 where the tree is booted, 4 where no release's core is
---- the tree's (having changed nothing), and 1 where a boot it began
---- failed. `--core` prints the core this process runs on, which is how the
+--- the tree's (the build directory as it was), and 1 where a boot it began
+--- failed.
+
+-- TODO: run the two checks of the core's C a zig boot runs (build.zig's
+-- strnlen-check and environment-check) and install the host's
+-- cosmic-unzstd, on a boot that takes a release's core: today it skips
+-- them, the core being bytes CI ran them on, and a stub an earlier zig
+-- boot installed stays as it was. It waits on the release carrying the
+-- stub where a script can take it, as it carries the core.
+-- TODO: notice a C file edited while the bridge runs, as
+-- build/zig.tl's `watched_build` does for a zig boot: the match is asked
+-- once, before the core is placed. It waits on `watched_build` taking a
+-- step that is no zig command. `--core` prints the core this process runs on, which is how the
 --- core of a fetched release is found: its launcher has extracted it by
 --- then.
 
@@ -47,16 +68,18 @@ local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
 
 local record SeededBoot
+  listed: function(text: string): string
   mut c_inputs: {string}
   mut vendored: {string}
   mut records: string
 end
 
---- What a core's bytes are built from, as git names paths: the core's own
---- sources but its Teal, the build script and the zig it names, the
---- vendored trees, and the patch records and what applies them.
-SeededBoot.c_inputs = { "core", ":(exclude)core/*.tl", "build.zig", "build.zig.zon", "bin/zig.pin",
-  "build/patch.tl", "patch", "vendor" }
+--- What a core's bytes are built from, as paths of the tree: the core's
+--- own sources (but its Teal, which `listed` leaves out), the build script
+--- and the zig it names, the vendored trees, and the patch records and
+--- what applies them.
+SeededBoot.c_inputs = { "core", "build.zig", "build.zig.zon", "bin/zig.pin", "build/patch.tl", "patch",
+  "vendor" }
 
 --- The patched trees build.zig installs under the build directory's
 --- `vendor/` (its `vendored` step), which the tree's own checks read.
@@ -87,41 +110,86 @@ local function host_target(): string?
   return nil
 end
 
---- Runs git in `root` with `words`: its result, or nil where it cannot
+--- Runs git in the repository at `directory` with `words`, held to a
+--- minute and never asking a person: its result, or nil where it cannot
 --- start.
-local function git(root: string, words: {string}): Child.Result?
+local function git(directory: string, words: {string}): Child.Result?
   local program, _ = Proc.find("git")
   if program == nil then return nil end
-  local argv: mut {string} = { program, "-C", root }
+  local argv: mut {string} = { program, "-C", directory }
   for _, word in ipairs(words) do argv[#argv + 1] = word end
-  local result, _ = Child.run(argv, { stdout = "capture", stderr = "capture" })
+  local env: mut {string:string} = {}
+  for name, value in pairs(Env.all()) do env[name] = value end
+  env["GIT_TERMINAL_PROMPT"] = "0"
+  local result, _ = Child.run(argv, { env = env, stdout = "capture", stderr = "capture",
+    timeout_ns = 60 * 1000000000 })
   return result
 end
 
---- Whether the working tree at `root` holds the C of `commit`: "" where it
---- does, else why not.
-local function same_c(root: string, commit: string): string
-  local have = git(root, { "cat-file", "-e", commit .. "^{commit}" })
-  if have == nil then return "git does not start" end
-  if not have.ok then
-    local fetched = git(root, { "fetch", "--quiet", "--depth", "1", "--filter=blob:none", "origin", commit })
-    if fetched == nil or not fetched.ok then
-      return "the checkout has no commit " .. commit .. " and cannot fetch it"
+--- The files `text` lists, a line each of its mode, the name of its
+--- contents and its path, sorted, whichever of git's two listings it is:
+--- `ls-tree -r` (`<mode> blob <name>\t<path>`) or `ls-files -s`
+--- (`<mode> <name> <stage>\t<path>`). The core's Teal is left out: no
+--- core is built from it.
+function SeededBoot.listed(text: string): string
+  local lines: mut {string} = {}
+  for line in text:gmatch("[^\n]+") do
+    local mode, name, path = line:match("^(%d+) blob (%x+)\t(.+)$")
+    if mode == nil then mode, name, path = line:match("^(%d+) (%x+) %d+\t(.+)$") end
+    if mode ~= nil and name ~= nil and path ~= nil and
+        not (path:sub(1, 5) == "core/" and path:sub(-3) == ".tl") then
+      lines[#lines + 1] = mode .. " " .. name .. " " .. path
     end
   end
-  local diff_words: mut {string} = { "diff", "--quiet", commit, "--" }
-  local other_words: mut {string} = { "ls-files", "--others", "--exclude-standard", "--" }
-  for _, path in ipairs(SeededBoot.c_inputs) do
-    diff_words[#diff_words + 1] = path
-    other_words[#other_words + 1] = path
+  table.sort(lines)
+  return table.concat(lines, "\n")
+end
+
+--- `words` with each of `c_inputs` after them.
+local function over_c(words: {string}): {string}
+  local out: mut {string} = {}
+  for _, word in ipairs(words) do out[#out + 1] = word end
+  out[#out + 1] = "--"
+  for _, path in ipairs(SeededBoot.c_inputs) do out[#out + 1] = path end
+  return out
+end
+
+--- Whether the working tree at `root` holds the C of `commit`: "" where it
+--- does, else why not. A commit the checkout lacks is fetched into a
+--- repository under `work`, unless `offline`.
+local function same_c(root: string, commit: string, work: string, offline: boolean): string
+  local short = commit:sub(1, 12)
+  local have = git(root, { "cat-file", "-e", commit .. "^{commit}" })
+  if have == nil then return "git does not start, or the tree is no checkout" end
+  local from = root
+  if not have.ok then
+    if offline then return "the checkout has no commit " .. short end
+    from = work .. "/release.git"
+    local made = git(work, { "init", "--quiet", "--bare", from })
+    local fetched = if made ~= nil and made.ok then
+      git(from, { "fetch", "--quiet", "--depth", "1", "--filter=blob:none",
+        "https://github.com/" .. repository, commit }) else nil end
+    if fetched == nil or not fetched.ok then
+      return "the commit " .. short .. " cannot be fetched"
+    end
   end
-  local diff = git(root, diff_words)
-  if diff == nil or diff.code ~= 0 then
-    return "its C differs from " .. commit:sub(1, 12) .. "'s"
+  local theirs = git(from, over_c({ "ls-tree", "-r", commit }))
+  local ours = git(root, over_c({ "ls-files", "-s" }))
+  if theirs == nil or not theirs.ok or ours == nil or not ours.ok then
+    return "git cannot list the C"
   end
-  local others = git(root, other_words)
-  if others == nil or not others.ok or (others.stdout or "") ~= "" then
-    return "it holds C files git does not track"
+  local wanted = SeededBoot.listed(theirs.stdout or "")
+  if wanted == "" or wanted ~= SeededBoot.listed(ours.stdout or "") then
+    return "its C differs from " .. short .. "'s"
+  end
+  local edited = git(root, over_c({ "diff", "--quiet" }))
+  if edited == nil or edited.code ~= 0 then return "its C is edited and not staged" end
+  local others = git(root, over_c({ "ls-files", "--others" }))
+  if others == nil or not others.ok then return "git cannot list the C" end
+  for path in (others.stdout or ""):gmatch("[^\n]+") do
+    if not (path:sub(1, 5) == "core/" and path:sub(-3) == ".tl") then
+      return "it holds a C file git does not track: " .. path
+    end
   end
   return ""
 end
@@ -145,7 +213,8 @@ local function newest_release(work: string): string?, string
   if text == nil then return nil, trouble end
   local newest: string? = nil
   for tag in text:gmatch('"tag_name"%s*:%s*"(%d%d%d%d%d%d%d%d%-%x+)"') do
-    if newest == nil or tag > newest then newest = tag end
+    -- The listing is newest first, which settles two of one day.
+    if newest == nil or tag:sub(1, 8) > newest:sub(1, 8) then newest = tag end
   end
   if newest == nil then return nil, "no release is tagged <date>-<commit>" end
   return newest, ""
@@ -175,9 +244,12 @@ local function release_cosmic(tag: string, work: string): string?, string
     return nil, "its cosmic: " .. fetched.reason
   end
   local made, mode_trouble = Fs.chmod(part, 0x1ed)
-  if not made then return nil, mode_trouble end
-  local placed, place_trouble = Fs.rename(part, path)
-  if not placed then return nil, place_trouble end
+  local placed, place_trouble = false, mode_trouble
+  if made then placed, place_trouble = Fs.rename(part, path) end
+  if not placed then
+    local _, _ = Fs.remove(part)
+    return nil, place_trouble
+  end
   return path, ""
 end
 
@@ -205,7 +277,7 @@ local function matching_core(root: string, script: string, work: string, mode: s
   local why = "no release is pinned"
   local core = own_core()
   if pinned ~= nil and core ~= nil then
-    why = same_c(root, pinned)
+    why = same_c(root, pinned, work, mode == "pin")
     if why == "" then
       return { core = core, named = "the pinned release " .. pinned:sub(1, 12) }, ""
     end
@@ -215,7 +287,7 @@ local function matching_core(root: string, script: string, work: string, mode: s
   if tag == nil then return nil, tag_trouble end
   local commit = tag:match("^%d+%-(%x+)$") or ""
   if commit == pinned then return nil, why end
-  why = same_c(root, commit)
+  why = same_c(root, commit, work, false)
   if why ~= "" then return nil, why end
   local program, program_trouble = release_cosmic(tag, work)
   if program == nil then return nil, "the release " .. tag .. ": " .. program_trouble end
@@ -324,6 +396,13 @@ function SeededBoot.main(argv: {string}): integer
   end
   local mode = Env.get("COSMIC_BOOT_SEED") or ""
   if mode == "0" then return 4 end
+  if mode ~= "" and mode ~= "pin" then
+    say("COSMIC_BOOT_SEED is " .. mode .. ": set it to 0 or pin, or leave it unset; building the core with zig")
+    return 4
+  end
+  for _, name in ipairs({ "COSMIC_BOOTSTRAP", "COSMIC_ZIG", "ZIG_LIB_DIR" }) do
+    if (Env.get(name) or "") ~= "" then return 4 end
+  end
   local target = host_target()
   if target == nil then
     say("no release carries a core for this host")

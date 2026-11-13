@@ -29,7 +29,7 @@ The pinned release reads the new grammar by default, and
 the CI driver is put on the job's PATH by a two-line wrapper that runs the entry
 point (below), so the release reads `ci/`, the scripts `bin/cosmic-bootstrap` runs and the
 ones `build/zig.tl` runs on that release's binary (`build/patch.tl`,
-`build/zig_fetch.tl`) in the new checker's grammar, held to every rule and to
+`build/zig_fetch.tl`, `build/seeded_boot.tl`) in the new checker's grammar, held to every rule and to
 no ceiling. `islands.txt` lists nothing: the pinned release reads a file it
 lists as Teal. CI's `check-islands` command (`cosmic-driver
 cosmic_ci/driver.tl check-islands`) checks each of those scripts with
@@ -93,8 +93,14 @@ it. The users of the binary's own path found by reading every `Proc.executable` 
 `Proc.relaunch` of `ci/` and the tree's scripts are these; a new one is the
 residual below:
 
-- `build/zig.tl`, which runs `build/patch.tl` and `build/zig_fetch.tl` that way:
-  its `standalone(` calls are counted, and each file must be in the list.
+- `build/zig.tl`, which runs `build/patch.tl`, `build/zig_fetch.tl` and
+  `build/seeded_boot.tl` that way: its `standalone(` calls are counted, and
+  each file must be in the list.
+- `build/seeded_boot.tl`, which starts the release again to compile the
+  seed (`Proc.relaunch`), and starts the repository's newest release, a
+  binary it fetched, with `--standalone` on itself to ask where that
+  release's core is. That binary is not the pinned one, and nothing but the
+  release's own SHA256SUMS vouches for it.
 - `check-islands` ([`Islands.complaint`]), which checks the listed files.
 - [`BuildPaths.directory`] in [`cosmic_ci/build_paths.tl`], which runs
   `build/paths.tl` that way as the build directory's resolver (checked to be
