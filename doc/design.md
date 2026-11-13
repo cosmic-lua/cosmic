@@ -834,13 +834,14 @@ that does run runs in a process of its own:
   any one of them compiles it all again.
 - *fast*: compile and check run in one process, one transaction,
   against declarations already in the database. where a build has many
-  modules to compile (a boot, the first build after a change to the
-  checker), the host can fork and the compiles it shares are on, it compiles them in copies of that
+  sources to parse or modules to compile (a boot, the first build after a change to the
+  checker), the host can fork and the compiles it shares are on, it makes them in copies of that
   process, one a processor up to eight and to the memory the host has, each holding the tree as it was read: a copy
   keeps what it made in a file of its own and writes nothing else, and
-  the build takes each compile where it would have made one
-  ([`build/compile_fanout.tl`]). the bytes written are the same;
-  `COSMIC_COMPILE_COPIES=1` compiles in the one process. each test runs in a worker
+  the build takes each parse and each compile where it would have made one
+  ([`build/compile_fanout.tl`]). a module a copy cannot compile it says at once, so no copy compiles
+  what requires it and the build tells of it while the copies run. the bytes written are the same;
+  `COSMIC_COMPILE_COPIES=1` parses and compiles in the one process. each test runs in a worker
   -- the same core relaunched directly, never through the launcher --
   one per processor at a time, with a fresh temporary directory, captured
   streams, and a deadline past which its whole process group is ended. where

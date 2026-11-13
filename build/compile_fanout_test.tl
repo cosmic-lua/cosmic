@@ -34,3 +34,21 @@ local function test_each_copy_runs_and_one_that_raises_is_told(tmp: string)
   assert(Fs.read(tmp .. "/1") == "made by 1" and Fs.read(tmp .. "/3") == "made by 3")
   assert(Fs.read(tmp .. "/2") == nil)
 end
+
+--- While its copies run the process is called to look at what they leave, and once more when they have ended: what a
+--- copy wrote is there by the last call.
+local function test_the_process_looks_while_its_copies_run(tmp: string)
+  local looks = 0
+  local seen_last: string? = nil
+  local ended = fanout.run(2, function(copy: integer)
+    assert(Fs.write(tmp .. "/" .. tostring(copy), "made"))
+  end, function()
+    looks = looks + 1
+    seen_last = Fs.read(tmp .. "/2")
+  end)
+  if ended[1] ~= true or ended[2] ~= true then
+    Test.skip("this host forks no copy of the process")
+  end
+  assert(looks >= 1, "the process never looked")
+  assert(seen_last == "made", "the last look came before a copy ended")
+end

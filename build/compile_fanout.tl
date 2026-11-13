@@ -1,6 +1,7 @@
 --- Work done in copies of this process, each on a processor of its own:
---- what a build with many modules to compile makes them in
---- ([`build.shared_compiles`]'s `fan`, which says what a copy does).
+--- what a build with many sources to parse or modules to compile makes
+--- them in ([`build.shared_compiles`]'s `fan` and `fan_parses`, which say
+--- what a copy does).
 ---
 --- [`fanout.run`] forks the process `copies` times and runs `work` in
 --- each copy, which then ends with [`sys.exit`]: it closes nothing, so a
@@ -54,11 +55,18 @@ function fanout.copies(count: integer, processors: integer, each: integer, bound
   return if wanted < 2 then 0 else wanted end
 end
 
+--- How long the process waits between two looks at its copies where it
+--- has something to do meanwhile (`watch`).
+local look_ns <const> = 20 * 1000000
+
 --- Runs `work` in `copies` copies of this process, each given its number
 --- from 1, and waits for them all: whether each ended well, by its
 --- number. A copy ends well where `work` returns; one that raises, or that
---- could not be forked, did not.
-function fanout.run(copies: integer, work: function(copy: integer)): {integer:boolean}
+--- could not be forked, did not. `watch`, when given, is called while the
+--- copies run, some fifty times a second, and once more when they have
+--- all ended: what a copy leaves for the process to read as it goes is
+--- read there.
+function fanout.run(copies: integer, work: function(copy: integer), watch?: function()): {integer:boolean}
   local pids: mut {integer:integer} = {}
   for copy = 1, copies do
     local pid, _ = process.fork(false)
@@ -74,14 +82,28 @@ function fanout.run(copies: integer, work: function(copy: integer)): {integer:bo
     pids[copy] = pid
   end
   local ended: mut {integer:boolean} = {}
+  local running = 0
   for copy = 1, copies do
-    local pid = pids[copy]
-    local ended_well = false
-    if pid ~= nil then
-      local status, _ = process.waitpid(pid, false)
-      ended_well = status ~= nil and status.code == 0
+    ended[copy] = false
+    if pids[copy] ~= nil then running = running + 1 end
+  end
+  while running > 0 do
+    for copy = 1, copies do
+      local pid = pids[copy]
+      if pid ~= nil then
+        -- With nothing to do meanwhile, each is waited for in turn.
+        local status, _ = process.waitpid(pid, watch ~= nil)
+        if status == nil or status.pid == pid then
+          ended[copy] = status ~= nil and status.code == 0
+          pids[copy] = nil
+          running = running - 1
+        end
+      end
     end
-    ended[copy] = ended_well
+    if watch ~= nil then
+      watch()
+      if running > 0 then local _, _ = sys.nanosleep(look_ns) end
+    end
   end
   return ended
 end
