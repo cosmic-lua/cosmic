@@ -830,7 +830,14 @@ that does run runs in a process of its own:
   `.tl` or `.h` has changed compiles nothing in the bridge; an edit to
   any one of them compiles it all again.
 - *fast*: compile and check run in one process, one transaction,
-  against declarations already in the database. each test runs in a worker
+  against declarations already in the database. where a build has many
+  modules to compile (a boot, the first build after a change to the
+  checker) and the host can fork, it compiles them in copies of that
+  process, one a processor, each holding the tree as it was read: a copy
+  keeps what it made in a file of its own and writes nothing else, and
+  the build takes each compile where it would have made one
+  ([`build/compile_fanout.tl`]). the bytes written are the same;
+  `COSMIC_COMPILE_COPIES=1` compiles in the one process. each test runs in a worker
   -- the same core relaunched directly, never through the launcher --
   one per processor at a time, with a fresh temporary directory, captured
   streams, and a deadline past which its whole process group is ended. where
@@ -1355,6 +1362,7 @@ in [roadmap.md](roadmap.md).
 [`bin/vendor`]: ../bin/vendor
 [`bin/zig.pin`]: ../bin/zig.pin
 [`bin/zig`]: ../bin/zig
+[`build/compile_fanout.tl`]: ../build/compile_fanout.tl
 [`build/seeded_boot.tl`]: ../build/seeded_boot.tl
 [`build.boot`]: ../build/boot.tl
 [`build.driver`]: ../build/driver.tl

@@ -837,6 +837,12 @@ function Pipeline.generate(m: Module, built: Pipeline.Built, facts?: boolean, ju
   return made, ""
 end
 
+--- Marks `m` written in `built` where its compile was made elsewhere, in a copy of this process
+--- ([`build.compile_fanout`]): the build holds no result of it to write again.
+function Pipeline.took(m: Module, built: Pipeline.Built)
+  built.build:retire(m.path)
+end
+
 function Pipeline.review(m: Module, built: Pipeline.Built, hints?: ErrorRender.Hints): Plans.Generated?, string
   -- The collector is generational for the life of a session, as it is for a compile: see [`Pipeline.generate`].
   collectgarbage("generational")
