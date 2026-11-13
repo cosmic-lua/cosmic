@@ -216,6 +216,50 @@ end
     "expected only the named test credited")
 end
 
+--- Each test's row holds the lines its own module's load ran: the runner takes a load's hits once for every
+--- test whose worker reports them alike, and a test given another module's would be credited what it never ran.
+local function test_each_tests_row_holds_its_own_modules_load(tmp: string)
+  local root = tmp .. "/project"
+  assert(Fs.mkdirs(root .. "/suite"))
+  for _, name in ipairs({ "one", "two" }) do
+    assert(Fs.write(root .. "/suite/" .. name .. ".tl", [[
+local record helper
+  answer: integer
+end
+local h: helper = { answer = 42 }
+return h
+]]))
+    assert(Fs.write(root .. "/suite/" .. name .. "_test.tl", (([[
+local helper = require("suite.NAME")
+local function test_first()
+  assert(helper.answer == 42)
+end
+local function test_second()
+  assert(helper.answer ~= 41)
+end
+local function test_third()
+  assert(helper.answer ~= 43)
+end
+]]):gsub("NAME", name))))
+  end
+  local output = tmp .. "/both.out"
+  local result = invoke_words(root, output, { "--all" })
+  local text = assert(Fs.read(output))
+  assert(result.ok, text)
+  assert(text:find("6 ran, 0 stood", 1, true), text)
+  local db = assert(Sqlite.open(support.build_dir(root) .. "/build.db"))
+  local credits = assert(Sqlite.text_rows(db, "SELECT test, hits FROM coverage_by_test ORDER BY test"))
+  assert(db:close())
+  assert(#credits == 6, "expected a row for each of the six tests, not " .. tostring(#credits))
+  for _, row in ipairs(credits) do
+    local test, hits = row:text(1), row:text(2)
+    local own, other = "one", "two"
+    if test:find("suite.two_test", 1, true) then own, other = "two", "one" end
+    assert(hits:find("suite%." .. own .. " %x+\t"), test .. " lacks its module's load: " .. hits)
+    assert(not hits:find("suite." .. other .. " ", 1, true), test .. " holds another module's load: " .. hits)
+  end
+end
+
 local function test_cli_fails_when_the_named_test_is_not_in_its_module(tmp: string)
   local root = project(tmp)
   local output = tmp .. "/missing.out"

@@ -53,6 +53,48 @@ local function test_a_line_of_hits_read_twice_is_one_table()
   assert(worker.decode(malformed) == nil)
 end
 
+--- The hits of a load reported again, the same lines of the same modules, are the one table the first report had
+--- of them, by which the runner knows a load it has taken; a load that differs in a line is another. A `load-hit`
+--- line met apart from the rest is read into the report that holds it alone, and one that is no hit, or a line of
+--- another kind among them, is read as it is where it stands.
+local function test_the_hits_of_a_load_reported_again_are_one_table()
+  local function reported(loaded: integer, tested: integer): worker.Report
+    local report = passing({})
+    report.load_hits = { ["build.a"] = { [3] = true, [loaded] = true }, ["build.b"] = { [11] = true } }
+    report.test_hits = { ["build.a"] = { [tested] = true } }
+    return report
+  end
+  local first = assert(worker.decode(worker.encode(reported(5, 7))))
+  local again = assert(worker.decode(worker.encode(reported(5, 9))))
+  local other = assert(worker.decode(worker.encode(reported(6, 7))))
+  assert(first.load_hits == again.load_hits, "the same load was read into two tables")
+  assert(first.load_hits ~= other.load_hits, "another load was read as the first")
+  assert(assert(other.load_hits["build.a"])[6] == true and assert(other.load_hits["build.a"])[5] == nil)
+  assert(assert(first.load_hits["build.b"])[11] == true)
+  -- More loads than are remembered: the first is read again, into what it held.
+  for line = 100, 120 do assert(worker.decode(worker.encode(reported(line, 7)))) end
+  local late = assert(worker.decode(worker.encode(reported(5, 7))))
+  assert(assert(late.load_hits["build.a"])[5] == true and assert(late.load_hits["build.a"])[3] == true)
+  assert(assert(late.load_hits["build.b"])[11] == true and assert(late.test_hits["build.a"])[7] == true)
+  -- A hit of the load written after the test's is the report's own: the table the next report shares lacks it.
+  local text = worker.encode(reported(5, 7))
+  -- 6275696c642e63 spells build.c.
+  local apart = assert(worker.decode((text:gsub("\nend\n$", "\nload-hit 6275696c642e63 2\nend\n"))))
+  local shared = assert(worker.decode(text))
+  assert(assert(apart.load_hits["build.c"])[2] == true and assert(apart.load_hits["build.b"])[11] == true)
+  assert(shared.load_hits["build.c"] == nil, "a line of one report was added to the table others share")
+  assert(apart.load_hits ~= shared.load_hits)
+  -- A line of another kind among the load's is read where it stands, and the hits around it are the report's.
+  local among = assert(worker.decode((text:gsub("(\nload%-hit [^\n]*)", "%1\nloaded 0", 1))))
+  assert(among.loaded == false and assert(among.load_hits["build.a"])[5] == true and
+      assert(among.load_hits["build.b"])[11] == true)
+  -- One that is no hit is no report, the first time and once others like it are remembered.
+  for _ = 1, 2 do
+    assert(worker.decode((text:gsub("(\nload%-hit [^\n]*)", "%1\nload-hit zz 1", 1))) == nil)
+    assert(worker.decode((text:gsub("(\nload%-hit [^\n]*)", "%1\nload-hit", 1))) == nil)
+  end
+end
+
 --- A module's lines are written as runs of consecutive lines, dense ones (a pure store's import, a line an
 --- instruction) walked rather than sorted, and read back whole; a run that ends before it starts or is longer than
 --- a chunk's instructions can be, an empty item or an empty list is no report.
