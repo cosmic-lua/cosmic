@@ -587,7 +587,6 @@ function test.decode_hits(encoded: string, hits: Coverage.Hits, identities: {str
     end
     if owned then
       local left = ""
-      local credited: mut {integer} = {}
       local numbered = known ~= nil and code ~= nil and named == code
       local placing: {integer}? = nil
       local unplaced = "the module has no instructions to place them by"
@@ -596,20 +595,23 @@ function test.decode_hits(encoded: string, hits: Coverage.Hits, identities: {str
         placing = found
         if found == nil then unplaced = why end
       end
+      -- What a line of this module's is, settled once for them all: a number is read millions of times a run.
+      local as_written = known == nil
+      local own_text = not numbered and named == known
+      local per_line = hits[path]
       for digits in lines:gmatch("%d+") do
         local line = numbers_met[digits]
         if line == nil then
           line = math.tointeger(tonumber(digits)) or 0
           numbers_met[digits] = line
         end
-        if known == nil or (not numbered and named == known and line <= lua_tail.ordinal_base) then
-          credited[#credited + 1] = line
+        local at: integer? = nil
+        if as_written or (own_text and line <= lua_tail.ordinal_base) then
+          at = line
         elseif numbered then
-          local at = if placing ~= nil and line > lua_tail.ordinal_base then
+          at = if placing ~= nil and line > lua_tail.ordinal_base then
             placing[line - lua_tail.ordinal_base] else nil end
-          if at ~= nil then
-            credited[#credited + 1] = at
-          else
+          if at == nil then
             if placing ~= nil and line > lua_tail.ordinal_base then
               unplaced = "instruction " .. tostring(line - lua_tail.ordinal_base) .. " is past the module's " ..
                 tostring(#placing)
@@ -623,18 +625,15 @@ function test.decode_hits(encoded: string, hits: Coverage.Hits, identities: {str
           left = test_report.other_text
           stale[path] = left
         end
+        if at ~= nil then
+          if per_line == nil then
+            per_line = {}
+            hits[path] = per_line -- checked: view_written
+          end
+          per_line[at] = true -- checked: view_written
+        end
       end
       if met ~= nil then met[lines] = left end
-      if #credited > 0 then
-        local per_line = hits[path]
-        if per_line == nil then
-          per_line = {}
-          hits[path] = per_line -- checked: view_written
-        end
-        for _, line in ipairs(credited) do
-          per_line[line] = true -- checked: view_written
-        end
-      end
     end
   end
   return table.concat(kept)
