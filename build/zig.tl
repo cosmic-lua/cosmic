@@ -225,16 +225,17 @@ function Zig.build_args(root: string, project: string, output: string,
 end
 
 --- Runs `root`'s `script` standalone on this same binary with `words`,
---- its stdout captured: what [`patch`] and [`Zig.ensure_installed`]
+--- its stdout captured, in the environment `given` or else this
+--- process's: what [`patch`], [`Zig.ensure_installed`] and [`seeded`]
 --- start. The binary is started past its launcher ([`Proc.relaunch`]), as
 --- a test worker is, so running the script takes no shell and lands on
 --- this same core; one with no artifact to relaunch is started as
 --- [`Proc.executable`] names it.
 local function standalone(root: string, script: string,
-                          words: {string}): Child.Result?, string
+                          words: {string}, given?: {string:string}): Child.Result?, string
   local argv: mut {string} = {}
   local env: mut {string:string} = {}
-  for name, value in pairs(Env.all()) do env[name] = value end
+  for name, value in pairs(given or Env.all()) do env[name] = value end
   local fds: mut {integer:integer | string} = {}
   local relaunch, _ = Proc.relaunch()
   if relaunch ~= nil then
@@ -902,6 +903,14 @@ local doing: {string:string} = {
 --- How long a waiting boot waits in one go before it says it still is.
 local reminder_ns <const> = Clock.seconds(15)
 
+--- Whether `given` asks for the boot of a checkout's loop and nothing
+--- else, `bin/zig build boot`: the one a release's core can stand in for
+--- ([`seeded`]). A boot of every core, of the checked core, or with a flag
+--- of zig's own is zig's.
+function Zig.plain_boot(given: {string}): boolean
+  return #given == 2 and given[1] == "build" and given[2] == "boot"
+end
+
 --- Whether `given`, the words after bin/zig, is a build of a step that
 --- boots, writing the working database in the build directory beside a
 --- tool: `boot`, and `sanitized`, which boots the checked core into the
@@ -1075,6 +1084,36 @@ function Zig.with_lock(output: string, environment: {string:string},
   return hold(lock)
 end
 
+--- Boots the tree at `root` on the core of a release whose C is the
+--- tree's, where `given` is a plain boot and there is such a release, with
+--- no zig (build/seeded_boot.tl, which says what it did): true where the
+--- tree is booted. It runs before a zig is looked for, so a boot it
+--- answers fetches none, and holds the build directory's lock as a build
+--- does. Anything else leaves the boot to zig: a boot that is not plain,
+--- no such release, a step that failed.
+local function seeded(root: string, given: {string}): boolean
+  if not Zig.plain_boot(given) or Env.get("COSMIC_BOOT_SEED") == "0" then return false end
+  -- A zig or a bootstrap cosmic the caller names is the one to boot with
+  -- (build/seeded_boot.tl says why, and refuses them too).
+  for _, name in ipairs({ "COSMIC_BOOTSTRAP", "COSMIC_ZIG", "ZIG_LIB_DIR" }) do
+    if (Env.get(name) or "") ~= "" then return false end
+  end
+  local selected, _ = standalone(root, "build/paths.tl", { "--prepare", root })
+  if selected == nil or not selected.ok then return false end
+  local output = (selected.stdout or ""):gsub("\n$", "")
+  if output == "" then return false end
+  local environment: mut {string:string} = {}
+  for name, value in pairs(Env.all()) do environment[name] = value end
+  local project = Zig.project_cache(output, environment)
+  return Zig.with_lock(output, environment, function(env: {string:string}): integer
+    -- A patch that fails is the zig build's to say, which patches again.
+    local manifest, _ = patch(root, project)
+    if manifest == nil then return 1 end
+    local result, _ = standalone(root, "build/seeded_boot.tl", { root, output, manifest }, env)
+    return if result ~= nil and result.ok then 0 else 1 end
+  end) == 0
+end
+
 --- The whole entry point over `argv`, the words after this script's own
 --- path, `script`.
 function Zig.enter(argv: {string}, script: string): integer
@@ -1084,6 +1123,7 @@ function Zig.enter(argv: {string}, script: string): integer
     return 2
   end
   local root: string = found_root
+  if seeded(root, argv) then return 0 end
   local found, ztrouble = locate(root)
   if found == nil then
     log:complain(ztrouble)
