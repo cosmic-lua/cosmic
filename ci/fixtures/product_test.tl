@@ -69,10 +69,13 @@ end
 
 -- What a release weighs. The cores are stored compressed (13.3 MB raw, 5.6 MB
 -- stored with their stubs), so the prefix every program shares, and the
--- programs, stay under these: a ceiling is lowered when the artifact shrinks
--- and raised never, so an addition meets it in CI and not in a release.
+-- programs, stay under these: a ceiling is lowered when the artifact shrinks,
+-- so an addition meets it in CI and not in a release, and raised only by a
+-- change that says what the bytes buy. The tool's holds its modules' bytecode
+-- as `string.dump` wrote it, 2 MB that a start no longer inflates
+-- (build/schema.tl's `modules`).
 local prefix_ceiling <const> = 6000000
-local tool_ceiling <const> = 19000000
+local tool_ceiling <const> = 21000000
 local application_ceiling <const> = 9500000
 
 local function test_transported_product(tmp: string)
