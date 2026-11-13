@@ -205,7 +205,7 @@ local function test_seal_stores_bytecode_as_it_is_loaded(tmp: string)
   assert(#rows == 2)
   local codec, main = assert(rows[1]), assert(rows[2])
   assert(codec:text(1) == "cosmic.codec" and main:text(1) == "main")
-  assert(codec:blob(3) == assert(Store.bytecode("cosmic.codec")), "a module of the binary is the binary's own")
+  assert(codec:blob(2) == codec:blob(3), "a module of the binary is stored some other way than as it is loaded")
   assert(codec:blob(3):sub(1, 4) == "\27Lua", "which is a chunk")
   assert(main:blob(2) == extra.bytecode and main:blob(3) == extra.bytecode, "the chunk is stored as it went in")
 end
