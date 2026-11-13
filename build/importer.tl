@@ -1613,7 +1613,7 @@ local function compile_derived(handle: work.Handle, tool: string,
               local path = assert(one[2])
               if one[1] == "ok" then
                 compiled_now[path] = true
-              else
+              elseif one[1] == "no" then
                 refused_now[path] = true
                 unsettled[#unsettled + 1] = one
               end
