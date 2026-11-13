@@ -539,8 +539,8 @@ local function text_of(head: string): string, string?
   return head, nil
 end
 
---- The number each run of digits [`test.decode_hits`] has met spells: the rows of a run name millions of lines and a
---- few thousand different numbers, and `tonumber` of each was a third of reading them.
+--- The number each run of digits [`test.decode_hits`] has met spells: the rows of a run name millions of lines in a
+--- few thousand different numbers, each of which `tonumber` then reads once.
 local numbers_met: mut {string:integer} = {}
 
 --- Folds every line `encoded` (a row [`test.take_hits`] wrote) names into
@@ -642,8 +642,11 @@ end
 --- [`test.decode_hits`] of a row as the shared verdicts keep it ([`shared_verdicts.Found`]'s `kept`), in one pass
 --- over its lines: a line `met` holds costs a lookup, and only one it does not is unpacked
 --- ([`shared_verdicts.unpacked`]), folded and added to it. Pass one `met` only to calls that share every argument
---- after it. A run stands on thousands of rows, each most of a thousand lines that nearly all of the others
---- repeat, so reading every row's text twice was most of the time a fresh checkout took to stand on them.
+--- after it. A run stands on thousands of rows that repeat most of their lines, and a row of a hundred lines names
+--- few that no earlier row held.
+-- TODO: stop unpacking a row to keep it: a fresh checkout still spends some ten seconds on the lines no earlier row
+-- held, most of it writing their numbers out again. It waits on `coverage_by_test` keeping a row as the shared
+-- verdicts do (packed), which is a change of that table's format.
 function test.decode_kept(kept: string, met: mut {string: State.SharedLine}, hits: Coverage.Hits,
                           identities: {string:string}, stale: mut {string:string}, unowned?: Coverage.Hits,
                           lines_of?: function(string): {integer}?, string, codes?: {string:string}): string
