@@ -632,7 +632,7 @@ function test.decode_hits(encoded: string, hits: Coverage.Hits, identities: {str
   return table.concat(kept)
 end
 
--- TODO: have [`Coverage.Hits`] write its lines through, so `hits` here and in [`merge_hits`] and [`take_hits`] can be written, once
+-- TODO: have [`Coverage.Hits`] write its lines through, so `hits` here and in [`take_hits`] can be written, once
 -- `Hits` in cosmic/internal/debug.d.tl is `{string: mut {integer: boolean}}`.
 
 --- Resolves every run `credited` names against `coverage_by_test`,
@@ -923,19 +923,6 @@ local function write_coverage(handle: Sqlite.Handle, modules: {Module},
   return totals.hit, totals.lines, "" -- checked: map_field*2
 end
 
---- Folds every line `from` holds into `into`, both keyed by module
---- import path then line number -- the shape one test's or one
---- module-load's own coverage window hands back.
-local function merge_hits(into: Coverage.Hits, from: Coverage.Hits)
-  for path, per_line in pairs(from) do
-    local existing = into[path] or {}
-    into[path] = existing -- checked: view_written
-    for line in pairs(per_line) do
-      existing[line] = true -- checked: view_written
-    end
-  end
-end
-
 --- What names this checkout among the shared rows: an id made the
 --- first time its build.db is asked for one and kept in its `meta`,
 --- so a checkout made again at the same path is another checkout, and
@@ -1018,10 +1005,9 @@ local function share(rec: Recording, m: Module, name: string, id: string,
   local key, elsewhere = assert(found.key), assert(found.elsewhere)
   rec.tally.cached = rec.tally.cached + 1
   rec.tally.shared = rec.tally.shared + 1
-  local hit: Coverage.Hits = {}
-  rec.by_test[id] = test.decode_hits(elsewhere.hits, hit, rec.identities, rec.stale, rec.unowned,
-    function(path: string): {integer}?, string return instruction_lines_of(rec, path) end, codes_of(rec))
-  merge_hits(rec.hits, hit)
+  rec.by_test[id] = test.decode_hits(elsewhere.hits, rec.hits, rec.identities, rec.stale, rec.unowned,
+    function(path: string): {integer}?, string return instruction_lines_of(rec, path) end, codes_of(rec),
+    rec.shared_folded)
   local kept, keep_trouble = record_run(rec.records, m.path, name, true, "",
     Clock.now_ns(), run_key(key, key), rec.run_at_ns, elsewhere.elapsed_ns)
   if not kept then
@@ -2816,7 +2802,7 @@ local function make_recording(ctx: Run)
     origin = checkout_id(records, assert(ctx_root), ctx.run_at_ns),
     views = {}, caches = {}, unkeyed = {},
     forbiddable = {},
-    closure_sets = {}, plans = {}, spelled = {}, folded = {}, type_only = {},
+    closure_sets = {}, plans = {}, spelled = {}, folded = {}, shared_folded = {}, type_only = {},
     instruction_lines = {}, defined_lines = {}, placed = {}, unplaced = {},
     closures = {}, tree_names = {}, effective = {},
     stores = {}, built = {}, store_digests = {}, store_kept = {}, store_names = {},

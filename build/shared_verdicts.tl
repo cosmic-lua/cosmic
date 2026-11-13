@@ -49,6 +49,9 @@ local record shared_verdicts
   record Cache
     db: Sqlite.Handle
     path: string
+    --- Each line of a row's hits this handle has unpacked, by the line as
+    --- kept (`unpacked`): the rows of a suite repeat most of their lines.
+    mut unpacked?: mut {string:string}
   end
 
   --- A passing verdict's coverage and duration.
@@ -242,16 +245,24 @@ local function packed(hits: string, known: mut {string:string}): string
   end))
 end
 
---- `packed` undone.
-local function unpacked(hits: string): string
-  return (hits:gsub("([^\t\n]*)\t([^\n]*)\n", function(path: string, lines: string): string
-    local out: mut {string} = {}
-    local last = 0
-    for step in lines:gmatch("%d+") do
-      last = last + (math.tointeger(tonumber(step)) or 0)
-      out[#out + 1] = tostring(last)
+--- `packed` undone. `known` holds each line already unpacked, by the line as kept, and is added to, as `packed`'s
+--- does: a line is unpacked once a run, not once a test.
+local function unpacked(hits: string, known: mut {string:string}): string
+  return (hits:gsub("[^\n]*\n", function(whole: string): string
+    local done = known[whole]
+    if done == nil then
+      done = whole:gsub("([^\t\n]*)\t([^\n]*)\n", function(path: string, lines: string): string
+        local out: mut {string} = {}
+        local last = 0
+        for step in lines:gmatch("%d+") do
+          last = last + (math.tointeger(tonumber(step)) or 0)
+          out[#out + 1] = tostring(last)
+        end
+        return path .. "\t" .. table.concat(out, ",") .. "\n"
+      end)
+      known[whole] = done
     end
-    return path .. "\t" .. table.concat(out, ",") .. "\n"
+    return done
   end))
 end
 
@@ -327,7 +338,9 @@ function shared_verdicts.declared(cache: shared_verdicts.Cache,
   if rows == nil then return nil, trouble end
   local row = rows[1]
   if row == nil then return nil, "" end
-  return { hits = unpacked(row:text(1)),
+  local known: mut {string:string} = cache.unpacked or {}
+  cache.unpacked = known
+  return { hits = unpacked(row:text(1), known),
     elapsed_ns = math.tointeger(tonumber(row:text(2)) or 0) or 0 }, ""
 end
 
