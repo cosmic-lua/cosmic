@@ -7,6 +7,8 @@ local Array = require("cosmic.array")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local shared_compiles = require("build.shared_compiles")
+local Test = require("cosmic.test")
+local type importer = require("build.importer")
 
 --- A key names what decides a compile beside the module's own key:
 --- each salt moves it, and the same inputs make the same key.
@@ -108,4 +110,49 @@ local function test_a_query_failure_leaves_other_connections_and_files_alone(tmp
   assert(reader:close())
   assert(holder:close())
   assert(Fs.stat(path .. "-wal") == nil, "the failed build kept a connection open")
+end
+
+--- Many modules are compiled in copies of the process, and each comes
+--- back as the copy that had it made it: its own Lua and bytecode, its
+--- counts. A module no copy made a compile of is nil, for the build to
+--- make. Fewer than a copy is worth are not made at once.
+local function test_many_compiles_made_at_once_come_back_each_its_own(tmp: string)
+  local build = assert(shared_compiles.for_build({ COSMIC_BUILD_CACHE = tmp .. "/cache/cache.db" }))
+  local fan = assert(build.fan)
+  local due: mut {importer.Module} = {}
+  for index = 1, 400 do
+    local path = "suite.m" .. tostring(index)
+    due[index] = { path = path, file = "suite/m" .. tostring(index) .. ".tl", kind = "module", source = "",
+      source_hash = "", requires = {}, tests = {}, inputs = nil, key = "key of " .. path }
+  end
+  local function make(m: importer.Module, rest: {string:boolean}): importer.Shared.Compile?
+    assert(rest[m.path] == nil, "a module being made is not among those yet to make")
+    if m.path == "suite.m7" then return nil end
+    return { lua = "-- lua of " .. m.path, bytecode = "bytecode of " .. m.path, references = {},
+      fact_wraps = #m.path, parameter_checks = 2 }
+  end
+  assert(fan({ assert(due[1]), assert(due[2]) }, true, make) == nil, "two modules are the process's own")
+  local fanned = fan(due, true, make)
+  if fanned == nil then
+    Test.skip("this host makes no copy of the process: one processor, or no fork")
+  end
+  local made = assert(fanned)
+  for _, m in ipairs(due) do
+    local found = made.look(m)
+    if m.path == "suite.m7" then
+      assert(found == nil, "a module no copy compiled came back")
+    elseif found == nil then
+      -- A copy that could not be forked, or ended badly, leaves its modules to the build.
+      Test.skip("a copy of the process did not end well on this host")
+    else
+      assert(found.lua == "-- lua of " .. m.path and found.bytecode == "bytecode of " .. m.path, m.path)
+      assert(found.fact_wraps == #m.path and found.parameter_checks == 2 and #found.references == 0)
+    end
+  end
+  assert(made.look({ path = "suite.other", file = "suite/other.tl", kind = "module", source = "", source_hash = "",
+    requires = {}, tests = {}, inputs = nil, key = "another key" }) == nil)
+  made.close()
+  -- What was made at once is this run's alone until the build keeps it.
+  assert(not assert(build.known)(assert(due[1]), true))
+  build.finish()
 end

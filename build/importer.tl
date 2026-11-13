@@ -176,6 +176,25 @@ local record importer
     --- The compile another checkout made of `m` in a tree that is or
     --- is not cosmic's own, or nil.
     look: function(m: Module, own_tree: boolean): Compile?
+    --- Whether another checkout made a compile of `m`, its Lua not
+    --- read: what a build asks before it compiles many modules at once
+    --- ([`build.compile_fanout`]). A cache that does not say is taken to
+    --- hold none.
+    known?: function(m: Module, own_tree: boolean): boolean
+    --- The compiles of many modules, made at once.
+    record Fanned
+      --- The compile made of `m`, or nil where none was.
+      look: function(m: Module): Compile?
+      --- Drops what was made. Nothing is looked up after it.
+      close: function()
+    end
+    --- Compiles `due` in copies of this process, `make` the compile of
+    --- one module (nil where it makes none), or nil where no copy is
+    --- made: too few modules, one processor, or a host that forks none
+    --- ([`build.compile_fanout`]). `make` is told, with a module, the
+    --- paths its copy has yet to make after it.
+    fan?: function(due: {Module}, own_tree: boolean,
+                   make: function(m: Module, rest: {string:boolean}): Compile?): Fanned?
     --- Offers a compile of `m` made here to every other checkout.
     keep: function(m: Module, own_tree: boolean, made: Compile)
     --- Writes what was offered; `compile` calls it once, as it ends,
@@ -1383,6 +1402,52 @@ local function compile_derived(handle: work.Handle, tool: string,
       return false, prepare_trouble
     end
 
+    -- The modules this run is to compile itself, made in copies of this process where there are many
+    -- ([`build.compile_fanout`]): each neither held out, nor standing here, nor made by another checkout. A module one
+    -- of them requires may yet fail, and the loop below then leaves it out as it does: its compile is made for nothing.
+    local fanned: importer.Shared.Fanned? = nil
+    local function finish_all()
+      local made_at_once = fanned
+      if made_at_once ~= nil then made_at_once.close() end
+      finish_cache(cache)
+    end
+    -- TODO: stop the copies at the first module one of them is refused, and tell of it then ([`importer.due`]), once a
+    -- copy can say so while it runs: it writes its file as it ends, so a tree broken in a module many require is
+    -- compiled whole in copies before the loop below reads the first refusal, where one process stopped at it or left
+    -- out what requires it. It waits on a pipe from each copy that the build polls.
+    local fan = if shared ~= nil then shared.fan else nil end
+    if fan ~= nil and shared ~= nil then
+      local due: mut {Module} = {}
+      for _, m in ipairs(order) do
+        local planned = assert(keys[m.path], "every module of the order was keyed")
+        m.key = planned.key
+        m.graph_key = planned.graph
+        if held_out[m.path] ~= true and plans.refusal(m) == nil then
+          local stands, _ = cached_stands(cache, planned.key)
+          local known = shared.known
+          if not stands and not (known ~= nil and known(m, standing.own)) then due[#due + 1] = m end
+        end
+      end
+      -- The tree is read before the copies are made, so each holds it: the first module the loop compiles would read it
+      -- anyway. One that cannot be read is the loop's to say, and nothing is made at once.
+      if #due > 0 then
+        local made_built, _ = pipeline.build(handle.db, assert(reading.options))
+        if made_built ~= nil then
+          reading.built = made_built
+          fanned = fan(due, standing.own, function(m: Module, rest: {string:boolean}): importer.Shared.Compile?
+            -- No hints: what a copy is refused it does not keep, and the build says it with them.
+            local made, _ = pipeline.generate(m, made_built, checks, judged)
+            -- A copy lowers the modules its own require, most of them another copy's to compile, which nothing here
+            -- would retire: it forgets each but those it has yet to compile, and holds what the build does alone.
+            pipeline.forget(made_built, rest)
+            if made == nil or made.refused then return nil end
+            return { lua = made.lua, bytecode = made.bytecode, references = made.references,
+              fact_wraps = made.fact_wraps, parameter_checks = made.parameter_checks }
+          end)
+        end
+      end
+    end
+
     for ordinal, m in ipairs(order) do
       if tell ~= nil then
         local said = importer.due(noted[1], Clock.monotonic_ns(), patience)
@@ -1461,7 +1526,7 @@ local function compile_derived(handle: work.Handle, tool: string,
       else
         local stands, look_trouble = cached_stands(cache, key)
         if not stands and look_trouble ~= "" then
-          finish_cache(cache)
+          finish_all()
           return false, look_trouble
         end
         -- The Lua of a compile made or copied here, not of one that stands.
@@ -1487,7 +1552,7 @@ local function compile_derived(handle: work.Handle, tool: string,
           result.shared = result.shared + 1
           local kept_refs, refs_trouble = plans.keep_references(db, key, elsewhere.references)
           if not kept_refs then
-            finish_cache(cache)
+            finish_all()
             return false, m.file .. ": " .. refs_trouble
           end
         else
@@ -1503,7 +1568,16 @@ local function compile_derived(handle: work.Handle, tool: string,
             end
             reading.built = made_built
           end
-          local made_generated, generate_trouble = pipeline.generate(m, assert(reading.built), checks, judged, hints)
+          local made_generated, generate_trouble: plans.Generated?, string = nil, ""
+          local taken = if fanned ~= nil then fanned.look(m) else nil end
+          if taken ~= nil then
+            -- A copy of this process made it: the build has written the module, as if it had made it here.
+            pipeline.took(m, assert(reading.built))
+            made_generated = { lua = taken.lua, bytecode = taken.bytecode, references = taken.references, refused = false,
+              fact_wraps = taken.fact_wraps, parameter_checks = taken.parameter_checks }
+          else
+            made_generated, generate_trouble = pipeline.generate(m, assert(reading.built), checks, judged, hints)
+          end
           if made_generated == nil then
             if lenient then
               note(m.file, generate_trouble)
@@ -1530,7 +1604,7 @@ local function compile_derived(handle: work.Handle, tool: string,
             local kept_refs, refs_trouble = plans.keep_references(db, key,
               generated.references)
             if not kept_refs then
-              finish_cache(cache)
+              finish_all()
               return false, m.file .. ": " .. refs_trouble
             end
             -- A refused compile is this run's alone (`remember`), and
@@ -1551,7 +1625,7 @@ local function compile_derived(handle: work.Handle, tool: string,
           local kept, keep_trouble = remember(cache, m.path, key, ordinal, lua,
             bytecode, refused, fact_wraps, parameter_checks)
           if not kept then
-            finish_cache(cache)
+            finish_all()
             return false, m.file .. ": " .. keep_trouble
           end
           if m.kind == "main" then
@@ -1601,7 +1675,7 @@ local function compile_derived(handle: work.Handle, tool: string,
       end
     end
 
-    finish_cache(cache)
+    finish_all()
     local pruned, prune_trouble = Sqlite.run(db,
       "DELETE FROM compiled WHERE tool <> ?1 OR (seen >= 0 AND seen < ?2)" ..
         (if judged then " OR seen < 0" else "" end),

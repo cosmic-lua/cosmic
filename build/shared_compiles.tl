@@ -58,6 +58,8 @@ local sys = require("cosmic.sys")
 local type importer = require("build.importer")
 local type SyntaxReceivers = require("build.syntax_receivers")
 local shared_sqlite = require("build.shared_sqlite")
+local fanout = require("build.compile_fanout")
+local Proc = require("cosmic.proc")
 local cache_formats = require("build.cache_formats")
 
 local record shared_compiles
@@ -383,6 +385,14 @@ function shared_compiles.look(cache: shared_compiles.Cache,
     parameter_checks = parameter_checks }, ""
 end
 
+--- Whether a compile is kept under the shared `key`, its row not read:
+--- false where there is none or the cache cannot answer, so a build that
+--- asks before it compiles compiles.
+local function known(cache: shared_compiles.Cache, key: string): boolean
+  local rows, _ = Sqlite.rows(cache.db, "SELECT 1 FROM " .. compiled .. " WHERE key = ?1", { text(key) })
+  return rows ~= nil and rows[1] ~= nil
+end
+
 --- A list of hashes, as SQLite's `json_each` reads it: each is hex.
 local function json_list(hashes: {string}): string
   return '["' .. table.concat(hashes, '","') .. '"]'
@@ -571,6 +581,80 @@ function shared_compiles.settle(cache: shared_compiles.Cache, owed: shared_compi
   return db:exec("COMMIT")
 end
 
+--- What a copy that compiles cosmic's own tree holds at its most, with room to spare: 1.1 GB measured, as the build
+--- itself holds compiling them all. A host is given no more copies than it has memory for
+--- ([`fanout.copies`]).
+local copy_bytes <const> = 1536 * 1024 * 1024
+
+--- A size no copy's file reaches: nothing is evicted from one.
+local unbounded <const> = 1 << 40
+
+--- Compiles `due` in copies of this process ([`build.compile_fanout`]), `make` the compile of one module, `own_tree`
+--- as a shared compile is keyed by: what [`importer.Shared`]'s `fan` answers. A compile of a module is a function of
+--- the tree a build has read and of that module alone, and a build makes them one after another in one process: 1200
+--- of them take 53 s of a cold boot on a four-core host. Each copy holds the tree as the process read it, compiles
+--- every n-th module, keeps what it made in a file of its own in this module's form, and ends. `look` reads a
+--- module's compile from the file of the copy that made it.
+---
+--- Nothing a copy does reaches the build but its file. A compile a copy could not make is not kept, and one of a
+--- copy that ended badly is not read: the build makes each again itself, and says what the checker said, once. So this
+--- only saves time. Nil where no copy is made: too few modules, one processor, or a host that forks no process.
+local function fan(due: {importer.Module}, own_tree: boolean,
+                   make: function(m: importer.Module, rest: {string:boolean}): importer.Shared.Compile?): importer.Shared.Fanned?
+  local copies = fanout.copies(#due, Proc.cpu_count(), copy_bytes)
+  if copies == 0 then return nil end
+  local dir, _ = Fs.mkdtemp("cosmic-compile-")
+  if dir == nil then return nil end
+  local function path_of(copy: integer): string
+    return dir .. "/copies/" .. tostring(copy) .. ".db"
+  end
+  local function key_of(m: importer.Module): string
+    return shared_compiles.key(assert(m.key), own_tree, m.generated)
+  end
+  local ended = fanout.run(copies, function(copy: integer)
+    local cache = assert(shared_compiles.open(path_of(copy)))
+    local kept: mut {shared_compiles.Kept} = {}
+    -- What this copy has yet to make, which `make` is told so that it forgets the rest.
+    local rest: mut {string:boolean} = {}
+    for index = copy, #due, copies do
+      rest[assert(due[index], "an index within the list is a module").path] = true
+    end
+    for index = copy, #due, copies do
+      local m = assert(due[index], "an index within the list is a module")
+      rest[m.path] = nil
+      local made = make(m, rest)
+      if made ~= nil then
+        kept[#kept + 1] = { key = key_of(m), lua = made.lua, bytecode = made.bytecode,
+          references = made.references, fact_wraps = made.fact_wraps, parameter_checks = made.parameter_checks }
+      end
+    end
+    assert(shared_compiles.settle(cache, { kept = kept, used = {} }, Clock.now_ns(), unbounded))
+    shared_compiles.close(cache)
+  end)
+  local opened: mut {integer:shared_compiles.Cache} = {}
+  for copy = 1, copies do
+    if ended[copy] == true then
+      local cache, _ = shared_compiles.open(path_of(copy))
+      if cache ~= nil then opened[copy] = cache end
+    end
+  end
+  local copy_of: mut {string:integer} = {}
+  for index, m in ipairs(due) do copy_of[m.path] = (index - 1) % copies + 1 end
+  return {
+    look = function(m: importer.Module): importer.Shared.Compile?
+      local copy = copy_of[m.path]
+      local cache = if copy ~= nil then opened[copy] else nil end
+      if cache == nil then return nil end
+      local found, _ = shared_compiles.look(cache, key_of(m))
+      return found
+    end,
+    close = function()
+      for _, cache in pairs(opened) do shared_compiles.close(cache) end
+      local _, _ = Fs.remove_tree(dir)
+    end,
+  }
+end
+
 --- The cache a build holds open, which a failure closes and drops.
 local record Opened
   mut cache: shared_compiles.Cache?
@@ -612,6 +696,12 @@ function shared_compiles.for_build(environment?: {string:string}): importer.Shar
       end
       owed.used[#owed.used + 1] = key
       return found
+    end,
+    fan = fan,
+    known = function(m: importer.Module, own_tree: boolean): boolean
+      local held = open.cache
+      if held == nil then return false end
+      return known(held, shared_compiles.key(assert(m.key), own_tree, m.generated))
     end,
     keep = function(m: importer.Module, own_tree: boolean, made: importer.Shared.Compile)
       if open.cache == nil then return end
