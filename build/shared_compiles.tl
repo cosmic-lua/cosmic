@@ -594,7 +594,7 @@ local unbounded <const> = 1 << 40
 local function said_late(late: integer, doing: string)
   if late == 0 then return end
   local _, _ = log:complain("build: " .. plural.count(late, "copy", "copies") .. " of the process still " .. doing ..
-      " after " .. tostring(fanout.patience_ns // (60 * 1000000000)) .. " minutes " ..
+      " after " .. plural.count(fanout.patience_ns // (60 * 1000000000), "minute") .. " " ..
       (if late == 1 then "was" else "were" end) .. " ended; the build does that work itself")
 end
 
