@@ -1013,9 +1013,72 @@ local record DecodedHit
 end
 local decoded_hits: mut {string:DecodedHit} = {}
 
+--- The hits one line of a report spells, `rest` being the line past its tag: a path in hex, then its lines, each
+--- a number or a run `first-last`. Nil where it spells none.
+local function decoded_hit(rest: string): DecodedHit?
+  local known = decoded_hits[rest]
+  if known ~= nil then return known end
+  local path, numbers = rest:match("^([0-9a-f]*) ([0-9,%-]*)$")
+  local decoded = if path ~= nil then unhex(path) else nil end
+  if decoded == nil or numbers == nil then return nil end
+  -- Every item a line or a run, none empty, and none a run longer than the instructions of a chunk can be.
+  if numbers == "" or numbers:find(",,", 1, true) ~= nil or numbers:sub(1, 1) == "," or
+      numbers:sub(-1) == "," then
+    return nil
+  end
+  local per_line: mut {integer:boolean} = {}
+  for item in numbers:gmatch("[^,]+") do
+    local low, high = item:match("^(%d+)%-(%d+)$")
+    if low == nil then low, high = item:match("^(%d+)$"), nil end
+    local from = math.tointeger(tonumber(low))
+    local to = if high ~= nil then math.tointeger(tonumber(high)) else from end
+    if from == nil or to == nil or to < from or to - from >= longest_run then return nil end
+    for number = from, to do per_line[number] = true end
+  end
+  local made: DecodedHit = { path = decoded, lines = per_line }
+  decoded_hits[rest] = made
+  return made
+end
+
+--- The hits of one load, by the lines of a report that spelled them all: the workers of one module's tests each
+--- report its load's lines again, the same text, so each of the newest few is read once and answered as one table,
+--- by which the runner knows a load it has placed and folded ([`build.test`]'s `finish`).
+local record DecodedLoad
+  text: string
+  hits: Coverage.Hits
+end
+local decoded_loads: mut {DecodedLoad} = {}
+
+--- How many loads are remembered: the workers of a few modules report in turn.
+local loads_kept <const> = 8
+
+--- The first tag of a report's lines of hits, as a line begins with it.
+local load_hit <const> = "\nload-hit "
+
+--- The hits `block` spells, lines of `load-hit` each beginning with a newline, as one table: the one answered
+--- of the same text before, while it is remembered. Nil where a line of it is no whole `load-hit`, which the
+--- reader of a report's every line then says of it.
+local function decoded_load(block: string): Coverage.Hits?
+  for _, known in ipairs(decoded_loads) do
+    if known.text == block then return known.hits end
+  end
+  local hits: mut {string:{integer:boolean}} = {}
+  for line in block:gmatch("[^\n]+") do
+    if line:sub(1, #load_hit - 1) ~= load_hit:sub(2) then return nil end
+    local known = decoded_hit(line:sub(#load_hit))
+    if known == nil then return nil end
+    hits[known.path] = known.lines
+  end
+  if #decoded_loads >= loads_kept then table.remove(decoded_loads, 1) end
+  decoded_loads[#decoded_loads + 1] = { text = block, hits = hits }
+  return hits
+end
+
 --- Reads a report back; nil and why when it is not a whole one. The
 --- tables of its `load_hits` and `test_hits` are shared with every other
---- report read, so a caller does not change them.
+--- report read, so a caller does not change them: `load_hits` is the one
+--- table for every report whose load's lines are the same text
+--- ([`decoded_load`]).
 function worker.decode(text: string): worker.Report?, string
   if text == nil or text == "" then return nil, "no report" end -- checked: compare_disjoint
   local report: worker.Report = {
@@ -1023,6 +1086,21 @@ function worker.decode(text: string): worker.Report?, string
     load_hits = {}, test_hits = {}, modules = {}, skipped = "",
     asserted = 0, deliberate = "",
   }
+  -- The load's lines, which [`worker.encode`] writes together, are read as one: from the first to the line before
+  -- the next that begins otherwise. `shared` says `report.load_hits` is that table, which is copied before a
+  -- `load-hit` line met apart from them is added.
+  local shared = false
+  local from = text:find(load_hit, 1, true)
+  -- Lines after the report's end are read where they stand, which refuses them.
+  local ending = text:find("\nend\n", 1, true)
+  if from ~= nil and (ending == nil or from < ending) then
+    local past = text:find("\n[^l]", from + 1) or #text
+    local hits = decoded_load(text:sub(from, past - 1))
+    if hits ~= nil then
+      report.load_hits, shared = hits, true
+      text = text:sub(1, from) .. text:sub(past + 1)
+    end
+  end
   local first = true
   local finished = false
   for line in text:gmatch("[^\n]+") do
@@ -1045,31 +1123,14 @@ function worker.decode(text: string): worker.Report?, string
       elseif tag == "message" then
         report.message = unhex(rest) or ""
       elseif tag == "load-hit" or tag == "test-hit" then
-        local into = tag == "load-hit" and report.load_hits or report.test_hits -- checked: and_ternary
-        local known = decoded_hits[rest]
-        if known == nil then
-          local path, numbers = rest:match("^([0-9a-f]*) ([0-9,%-]*)$")
-          local decoded = if path ~= nil then unhex(path) else nil end
-          if decoded == nil or numbers == nil then return nil, "a malformed hit: " .. line end
-          -- Every item a line or a run, none empty, and none a run longer than the instructions of a chunk can be.
-          if numbers == "" or numbers:find(",,", 1, true) ~= nil or numbers:sub(1, 1) == "," or
-              numbers:sub(-1) == "," then
-            return nil, "a malformed hit: " .. line
-          end
-          local per_line: mut {integer:boolean} = {}
-          for item in numbers:gmatch("[^,]+") do
-            local low, high = item:match("^(%d+)%-(%d+)$")
-            if low == nil then low, high = item:match("^(%d+)$"), nil end
-            local from = math.tointeger(tonumber(low))
-            local to = if high ~= nil then math.tointeger(tonumber(high)) else from end
-            if from == nil or to == nil or to < from or to - from >= longest_run then
-              return nil, "a malformed hit: " .. line
-            end
-            for number = from, to do per_line[number] = true end
-          end
-          known = { path = decoded, lines = per_line }
-          decoded_hits[rest] = known
+        if tag == "load-hit" and shared then
+          local own: mut {string:{integer:boolean}} = {}
+          for path, lines in pairs(report.load_hits) do own[path] = lines end
+          report.load_hits, shared = own, false
         end
+        local into = tag == "load-hit" and report.load_hits or report.test_hits -- checked: and_ternary
+        local known = decoded_hit(rest)
+        if known == nil then return nil, "a malformed hit: " .. line end
         into[known.path] = known.lines
       elseif tag == "module" then
         local decoded = unhex(rest)

@@ -1129,6 +1129,9 @@ function test.take_hits(hits: Coverage.Hits, unowned: Coverage.Hits,
   return table.concat(out)
 end
 
+--- How many loads' hits `finish` remembers taken: the workers of a few modules finish in turn.
+local loads_kept <const> = 8
+
 --- How many tables of one module's hits [`test.place_hits`] remembers placed: a load's are the same table in every
 --- worker of a module, and the workers of a few modules finish in turn.
 local placed_kept <const> = 8
@@ -1480,13 +1483,29 @@ local function finish(rec: Recording, job: Job, result: Child.Result?,
     local lines_of = function(path: string): {integer}?, string
       return instruction_lines_of(rec, path)
     end
-    local loaded = test.place_hits(reported.load_hits, rec.identities, lines_of, rec.placed, rec.unplaced)
+    -- The workers of one module's tests report the one table of its load's hits ([`worker.decode`]), which is
+    -- placed and folded once and spells the same part of each test's row.
+    local taken: State.LoadTaken? = nil
+    for _, known in ipairs(rec.loads_taken) do
+      if known.from == reported.load_hits then taken = known end
+    end
+    if taken == nil then
+      local placing = test.place_hits(reported.load_hits, rec.identities, lines_of, rec.placed, rec.unplaced)
+      taken = { from = reported.load_hits, whole = placing.whole,
+        row = test.take_hits(rec.hits, rec.unowned, rec.folded, rec.spelled, reported.load_hits, {},
+          rec.identities, placing.hits, nil, codes_of(rec)) }
+      -- A report with no hits of a load has a table of its own, which no other report shares.
+      if next(reported.load_hits) ~= nil then
+        if #rec.loads_taken >= loads_kept then table.remove(rec.loads_taken, 1) end
+        rec.loads_taken[#rec.loads_taken + 1] = taken
+      end
+    end
     local tested = test.place_hits(reported.test_hits, rec.identities, lines_of, rec.placed, rec.unplaced)
-    rec.by_test[id] = test.take_hits(rec.hits, rec.unowned, rec.folded, rec.spelled, reported.load_hits,
-      reported.test_hits, rec.identities, loaded.hits, tested.hits, codes_of(rec))
+    rec.by_test[id] = taken.row .. test.take_hits(rec.hits, rec.unowned, rec.folded, rec.spelled, {},
+      reported.test_hits, rec.identities, nil, tested.hits, codes_of(rec))
     -- A row that lacks lines the test reached would credit too few to every run that stands on it, saying
     -- nothing: no verdict of it is kept, so the next run runs it again (and says why, as this one does).
-    if not (loaded.whole and tested.whole) then
+    if not (taken.whole and tested.whole) then
       judged = { report = reported, passed = passed, message = message, skipped = judged.skipped,
         unchecked = judged.unchecked, deliberate = judged.deliberate, checked = false, clean = judged.clean }
     end
@@ -2841,7 +2860,7 @@ local function make_recording(ctx: Run)
     origin = checkout_id(records, assert(ctx_root), ctx.run_at_ns),
     views = {}, caches = {}, unkeyed = {},
     forbiddable = {},
-    closure_sets = {}, plans = {}, spelled = {}, folded = {}, shared_folded = {}, type_only = {},
+    closure_sets = {}, plans = {}, spelled = {}, folded = {}, loads_taken = {}, shared_folded = {}, type_only = {},
     instruction_lines = {}, defined_lines = {}, placed = {}, unplaced = {},
     closures = {}, tree_names = {}, effective = {},
     stores = {}, built = {}, store_digests = {}, store_kept = {}, store_names = {},

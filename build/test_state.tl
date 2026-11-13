@@ -153,6 +153,15 @@ local record test_state
     whole: boolean
   end
 
+  --- The hits of one load as a worker reported them, `from`, the one table [`worker.decode`] answers for every
+  --- report that spells them alike, once [`build.test`] has placed them and folded them into the run's: whether
+  --- every line was placed (`whole`, [`Placing`]'s), and the part of a test's row they spell.
+  record LoadTaken
+    from: {string:{integer:boolean}}
+    whole: boolean
+    row: string
+  end
+
   record Recording
     records: Sqlite.Handle
     root: string
@@ -354,6 +363,8 @@ local record test_state
     --- a table folded into another run's `hits` is not in this one's.
     spelled: {{integer:boolean}:string} -- declared: key_type
     folded: {{integer:boolean}:boolean} -- declared: key_type
+    --- The hits of the loads the latest workers reported, as taken ([`LoadTaken`]). Per run, as `folded` is.
+    loads_taken: mut {LoadTaken}
     --- Each line of the rows this run stood on from the shared cache, by the line as the row keeps it
     --- ([`shared_verdicts.Found`]'s `kept`), once [`build.test`] has folded it into `hits`: a line the rows repeat,
     --- as most are, is unpacked and read once.
