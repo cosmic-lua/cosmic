@@ -11,9 +11,10 @@ local Proc = require("cosmic.proc")
 local Test = require("cosmic.test")
 
 --- The host's sh, which ignores SIGINT for the program it execs, and
---- the program itself, through its launcher, with the host's programs
---- that runs (core/launcher_cache_test.tl names them), each granted
---- where a host has it, under /bin or /usr/bin.
+--- the program itself, through its launcher. The launcher starts the
+--- core its cache already holds, for which it runs the host's `uname`,
+--- `stat` and `sha256sum`, each granted where a host has it, under /bin
+--- or /usr/bin.
 Test.policy{ profiles = { "cosmic" }, grants = {
   { path = "/bin/sh", letters = "r" }, { path = "/usr/bin/sh", letters = "r" },
   { path = "/bin/uname", letters = "r" }, { path = "/usr/bin/uname", letters = "r" },

@@ -13,7 +13,7 @@ local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 
 --- The host's shell, which runs the rendered launcher, and the programs
---- the launcher runs (core/launcher_cache_test.tl names them), each
+--- the launcher runs (core/launcher_cache_test.tl says which), each
 --- granted where a host has it, under /bin or /usr/bin.
 Test.policy{
   grants = {
@@ -31,8 +31,6 @@ Test.policy{
     { path = "/bin/ln", letters = "r" }, { path = "/usr/bin/ln", letters = "r" },
     { path = "/bin/rmdir", letters = "r" }, { path = "/usr/bin/rmdir", letters = "r" },
     { path = "/bin/sha256sum", letters = "r" }, { path = "/usr/bin/sha256sum", letters = "r" },
-    { path = "/bin/shasum", letters = "r" }, { path = "/usr/bin/shasum", letters = "r" },
-    { path = "/bin/cut", letters = "r" }, { path = "/usr/bin/cut", letters = "r" },
   },
 }
 

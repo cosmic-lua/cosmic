@@ -12,13 +12,17 @@ local Test = require("cosmic.test")
 
 --- The program itself, which its tests start through its launcher, and
 --- the host's programs the launcher runs: `sh`, and the `uname`, `id`,
---- `stat`, `mkdir`, `mktemp`, `dd`, `head`, `wc`, `cut`, `sha256sum` (or
---- `shasum`), `chmod`, `ln`, `rm` and `rmdir` it calls
---- (build/launcher.tl), each granted where a host has it, under /bin or
---- /usr/bin: a grant of a path a host lacks gives nothing. A portable
---- artifact is a `#!/bin/sh` script by design (build/artifact_test.tl),
---- and what is checked here is what that script does, so no start past
---- it will do.
+--- `stat`, `mkdir`, `mktemp`, `dd`, `head`, `wc`, `sha256sum`, `chmod`,
+--- `ln`, `rm` and `rmdir` it calls (build/launcher.tl), each granted
+--- where a host has it, under /bin or /usr/bin: a grant of a path a host
+--- lacks gives nothing. The `shasum` it falls back to is macOS's, where no
+--- worker is sandboxed. A portable artifact is a `#!/bin/sh` script by
+--- design (build/artifact_test.tl), and what is checked here is what
+--- that script does, so no start past it will do.
+-- TODO: name the launcher's programs in one place, which this module and
+-- build/launcher_test.tl each list and nothing checks against
+-- build/launcher.tl, once a declaration can name a program (`processes`
+-- by name, which the sandbox resolves, with what its loader reads).
 Test.policy{ profiles = { "cosmic" }, grants = {
   { path = "/bin/sh", letters = "r" }, { path = "/usr/bin/sh", letters = "r" },
   { path = "/bin/uname", letters = "r" }, { path = "/usr/bin/uname", letters = "r" },

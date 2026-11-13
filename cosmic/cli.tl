@@ -126,7 +126,7 @@ local record Cli
   --- module's import closure and what the module declares with
   --- [`Test.policy`] (`cosmic docs cosmic.test`), and nothing else of the
   --- tree or the host: a test that starts a host program, /bin/sh or
-  --- `sleep`, declares the profile "system". A failure that met what its
+  --- `sleep`, grants it by its absolute path. A failure that met what its
   --- sandbox left out at an absolute path -- a program it started, a
   --- file it read -- says so beneath it, naming what to declare, as does
   --- one that read a file of the tree by a relative path without granting it.
