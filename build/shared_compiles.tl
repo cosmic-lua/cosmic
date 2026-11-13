@@ -59,6 +59,7 @@ local type importer = require("build.importer")
 local type SyntaxReceivers = require("build.syntax_receivers")
 local shared_sqlite = require("build.shared_sqlite")
 local fanout = require("build.compile_fanout")
+local plural = require("build.plural")
 local Proc = require("cosmic.proc")
 local cache_formats = require("build.cache_formats")
 
@@ -589,6 +590,14 @@ local copy_bytes <const> = 1536 * 1024 * 1024
 --- A size no copy's file reaches: nothing is evicted from one.
 local unbounded <const> = 1 << 40
 
+--- Says that `late` copies of the process were ended while `doing` their share, which the build then does itself.
+local function said_late(late: integer, doing: string)
+  if late == 0 then return end
+  local _, _ = log:complain("build: " .. plural.count(late, "copy", "copies") .. " of the process still " .. doing ..
+      " after " .. tostring(fanout.patience_ns // (60 * 1000000000)) .. " minutes " ..
+      (if late == 1 then "was" else "were" end) .. " ended; the build does that work itself")
+end
+
 --- Compiles `due` in copies of this process ([`build.compile_fanout`]), `make` the compile of one module, `own_tree`
 --- as a shared compile is keyed by: what [`importer.Shared`]'s `fan` answers. A compile of a module is a function of
 --- the tree a build has read and of that module alone, and a build makes them one after another in one process: 1200
@@ -612,7 +621,7 @@ local function fan(due: {importer.Module}, own_tree: boolean,
   local function key_of(m: importer.Module): string
     return shared_compiles.key(assert(m.key), own_tree, m.generated)
   end
-  local ended = fanout.run(copies, function(copy: integer)
+  local ran = fanout.run(copies, function(copy: integer)
     local cache = assert(shared_compiles.open(path_of(copy)))
     local kept: mut {shared_compiles.Kept} = {}
     -- What this copy has yet to make, which `make` is told so that it forgets the rest.
@@ -632,6 +641,8 @@ local function fan(due: {importer.Module}, own_tree: boolean,
     assert(shared_compiles.settle(cache, { kept = kept, used = {} }, Clock.now_ns(), unbounded))
     shared_compiles.close(cache)
   end, watch)
+  said_late(ran.late, "compiling")
+  local ended = ran.ended
   local opened: mut {integer:shared_compiles.Cache} = {}
   for copy = 1, copies do
     if ended[copy] == true then
@@ -674,7 +685,7 @@ local function fan_parses(count: integer,
   local function path_of(copy: integer): string
     return dir .. "/copies/" .. tostring(copy) .. ".db"
   end
-  local ended = fanout.run(copies, function(copy: integer)
+  local ran = fanout.run(copies, function(copy: integer)
     local parses: mut {shared_compiles.Parsed} = {}
     for _, one in ipairs(make(copy, copies)) do
       parses[#parses + 1] = { key = { analyzer = copy_analyzer, source_hash = one.source_hash, mapped = one.mapped },
@@ -684,6 +695,8 @@ local function fan_parses(count: integer,
     assert(shared_compiles.settle(cache, { kept = {}, used = {}, parses = parses }, Clock.now_ns(), unbounded))
     shared_compiles.close(cache)
   end)
+  said_late(ran.late, "parsing")
+  local ended = ran.ended
   local opened: mut {shared_compiles.Cache} = {}
   for copy = 1, copies do
     if ended[copy] == true then

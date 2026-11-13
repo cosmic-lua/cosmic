@@ -1540,6 +1540,13 @@ local function compile_derived(handle: work.Handle, tool: string,
                 "\t" .. escaped .. "\n")
           end
           local refused_now: mut {string:boolean} = {}
+          -- Whether the copies are told to make no more (a line "stop"): a run of a file stops at the first module
+          -- it needs that does not build, so what a copy would compile after it is made for nothing. A copy keeps
+          -- what it made only as it ends, so the copies are told and left to end rather than ended.
+          local stopped = false
+          -- Where each module the copies are to compile comes among them.
+          local place: mut {string:integer} = {}
+          for index, m in ipairs(due) do place[m.path] = index end
           local leaning: mut {string:boolean} = {}
           --- Whether the module at `path` requires, directly or not, one that does not build.
           local function leans(path: string): boolean
@@ -1587,9 +1594,11 @@ local function compile_derived(handle: work.Handle, tool: string,
               if one[1] == "no" then
                 refused_now[assert(one[2])] = true
                 leaning = {}
+              elseif one[1] == "stop" then
+                stopped = true
               end
             end
-            if leans(m.path) then return nil end
+            if stopped or leans(m.path) then return nil end
             -- No hints: what a copy is refused it does not keep, and the build says it with them.
             local made, make_trouble = pipeline.generate(m, made_built, checks, judged)
             -- A copy lowers the modules its own require, most of them another copy's to compile, which nothing here
@@ -1619,14 +1628,35 @@ local function compile_derived(handle: work.Handle, tool: string,
               end
             end
             unsettled = waiting
+            if not stopped and needed ~= nil and said_path ~= nil then
+              -- The loop below stops at the first module the file needs that does not build: once one is said not
+              -- to, and every module before it is said either way, nothing a copy has yet to make is read.
+              local first: integer? = nil
+              for path in pairs(refused_now) do
+                local at = place[path]
+                if at ~= nil and needed[path] == true and (first == nil or at < first) then
+                  first = at
+                end
+              end
+              local settled = first ~= nil
+              if first ~= nil then
+                for index = 1, first - 1 do
+                  local before = assert(due[index], "an index within the list is a module").path
+                  if compiled_now[before] ~= true and refused_now[before] ~= true then
+                    settled = false
+                  end
+                end
+              end
+              if settled then
+                stopped = true
+                local _, _ = Fs.append(said_path, "stop\t\t\t\n")
+              end
+            end
             if tell ~= nil then
               local said = importer.due(noted[1], Clock.monotonic_ns(), patience)
               if said ~= nil then tell(said) end
             end
           end)
-          -- TODO: end the copies where a run that stops at its first refusal has one (a run of a file, `needed`): they
-          -- compile every module that requires none refused before the loop below stops at it. It waits on
-          -- [`build.compile_fanout`]'s `run` ending its copies when its `watch` asks.
           if said_dir ~= nil then local _, _ = Fs.remove_tree(said_dir) end
         end
       end

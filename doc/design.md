@@ -840,7 +840,9 @@ that does run runs in a process of its own:
   keeps what it made in a file of its own and writes nothing else, and
   the build takes each parse and each compile where it would have made one
   ([`build/compile_fanout.tl`]). a module a copy cannot compile it says at once, so no copy compiles
-  what requires it and the build tells of it while the copies run. the bytes written are the same;
+  what requires it and the build tells of it while the copies run; a run of a file, which stops at the first
+  module the file needs that does not build, tells its copies to compile no more once that module is settled. a
+  copy still running after fifteen minutes is ended, and the build does its work. the bytes written are the same;
   `COSMIC_COMPILE_COPIES=1` parses and compiles in the one process. each test runs in a worker
   -- the same core relaunched directly, never through the launcher --
   one per processor at a time, with a fresh temporary directory, captured
