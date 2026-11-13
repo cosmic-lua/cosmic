@@ -1,6 +1,7 @@
 --- Work done in copies of this process, each on a processor of its own:
---- what a build with many modules to compile makes them in
---- ([`build.shared_compiles`]'s `fan`, which says what a copy does).
+--- what a build with many sources to parse or modules to compile makes
+--- them in ([`build.shared_compiles`]'s `fan` and `fan_parses`, which say
+--- what a copy does).
 ---
 --- [`fanout.run`] forks the process `copies` times and runs `work` in
 --- each copy, which then ends with [`sys.exit`]: it closes nothing, so a

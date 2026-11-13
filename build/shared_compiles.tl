@@ -662,7 +662,8 @@ local copy_analyzer <const> = "a copy of the build"
 
 --- Parses `count` sources in copies of this process, as `fan` compiles modules in them: what [`importer.Shared`]'s
 --- [`fan_parses`] answers. Each copy keeps the parses `make` answers it in a file of its own, as a shared parse is kept, and
---- `look` reads a source's from whichever copy made it. Nil where no copy is made.
+--- `look` reads a source's from whichever copy made it. Nil where no copy is made. A copy that parses holds less than
+--- one that compiles, and is counted against the host's memory as that one is.
 local function fan_parses(count: integer,
                           make: function(copy: integer, copies: integer): {importer.Shared.ParseMade}):
     importer.Shared.ParsesFanned?

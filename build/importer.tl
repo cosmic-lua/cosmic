@@ -779,7 +779,7 @@ local function parse_at_once(handle: work.Handle, tally: importer.Parses, made: 
   local staged, _ = parse_derive.entries(db, own)
   if staged == nil then return end
   local fanned = fan_parses(#fresh, function(copy: integer, copies: integer): {importer.Shared.ParseMade}
-    local own_db = assert(Sqlite.open(":memory:", { writable = true }))
+    local own_db = assert(Sqlite.memory())
     for _, statement in ipairs(analysis_schema.statements) do assert(own_db:exec(statement)) end
     local mine: mut {derivation.Fresh} = {}
     for index = copy, #fresh, copies do
@@ -1505,12 +1505,17 @@ local function compile_derived(handle: work.Handle, tool: string,
         local made_built, _ = pipeline.build(handle.db, assert(reading.options))
         if made_built ~= nil then
           reading.built = made_built
-          -- A module a copy cannot compile it says at once, in a file every copy and this process read as they go: a
-          -- copy compiles no module that requires one, as the loop below leaves each out, and this process tells of the
-          -- first while the copies still run ([`importer.due`]). Each process reads on from where it last read.
+          -- What a copy makes of each module it says at once, in a file every copy and this process read as they go, a
+          -- line a module: that it compiled, or that it could not and why. A copy compiles no module that requires one
+          -- that could not be, as the loop below leaves each out. This process tells of the first such module while
+          -- the copies still run ([`importer.due`]), once every module it requires is said to have compiled: a copy
+          -- reaches a module before another reaches what it requires, and fails it for what is wrong there, so a
+          -- module is told of only when the fault is its own. Each process takes up the file where it left it.
           local said_dir, _ = Fs.mkdtemp("cosmic-refused-")
-          local said_path = if said_dir ~= nil then said_dir .. "/refused" else nil end
+          local said_path = if said_dir ~= nil then said_dir .. "/said" else nil end
           local read_to = 0
+          --- The lines said since this process last asked: for each, whether its module compiled, the module's path,
+          --- its file and why it did not.
           local function heard(): {{string}}
             local out: mut {{string}} = {}
             local data: string? = nil
@@ -1518,12 +1523,21 @@ local function compile_derived(handle: work.Handle, tool: string,
             if data == nil then return out end
             local whole = data:sub(read_to + 1):match("^(.*\n)") or ""
             read_to = read_to + #whole
-            for path, file, why_text in whole:gmatch("([^\t\n]*)\t([^\t\n]*)\t([^\t\n]*)\n") do
-              out[#out + 1] = { path, file, (why_text:gsub("%%(%x%x)", function(hex: string): string
+            for kind, path, file, why_text in whole:gmatch("([^\t\n]*)\t([^\t\n]*)\t([^\t\n]*)\t([^\t\n]*)\n") do
+              out[#out + 1] = { kind, path, file, (why_text:gsub("%%(%x%x)", function(hex: string): string
                 return string.char(math.tointeger(tonumber(hex, 16)) or 0)
               end)) }
             end
             return out
+          end
+          --- Says of the module `m` that it compiled, or with `reason` that it could not be.
+          local function say(m: Module, reason?: string)
+            if said_path == nil then return end
+            local escaped = (reason or ""):gsub("[%%\t\n]", function(c: string): string
+              return string.format("%%%02x", c:byte() or 0)
+            end)
+            local _, _ = Fs.append(said_path, (if reason == nil then "ok" else "no" end) .. "\t" .. m.path .. "\t" .. m.file ..
+                "\t" .. escaped .. "\n")
           end
           local refused_now: mut {string:boolean} = {}
           local leaning: mut {string:boolean} = {}
@@ -1543,10 +1557,37 @@ local function compile_derived(handle: work.Handle, tool: string,
             leaning[path] = found
             return found
           end
+          -- In this process: the modules the copies are to compile, those said to have compiled, and those said not to,
+          -- in the order they were said, each with its file and why.
+          local awaited: mut {string:boolean} = {}
+          for _, m in ipairs(due) do awaited[m.path] = true end
+          local compiled_now: mut {string:boolean} = {}
+          local unsettled: mut {{string}} = {}
+          --- Whether every module `path` requires, directly or not, that the copies are to compile is said to have
+          --- compiled ("yes"), one is said not to have ("no"), or it is not known yet ("wait").
+          local function requires_settled(path: string, seen: mut {string:boolean}): string
+            local m = by_path[path]
+            local required: {string} = if m ~= nil then m.requires else {} end
+            local answer = "yes"
+            for _, name in ipairs(required) do
+              if seen[name] ~= true then
+                seen[name] = true
+                if failed[name] == true or refused_now[name] == true then return "no" end
+                local below = requires_settled(name, seen)
+                if below == "no" then return "no" end
+                if below == "wait" or (awaited[name] == true and compiled_now[name] ~= true) then
+                  answer = "wait"
+                end
+              end
+            end
+            return answer
+          end
           fanned = fan(due, standing.own, function(m: Module, rest: {string:boolean}): importer.Shared.Compile?
             for _, one in ipairs(heard()) do
-              refused_now[assert(one[1])] = true
-              leaning = {}
+              if one[1] == "no" then
+                refused_now[assert(one[2])] = true
+                leaning = {}
+              end
             end
             if leans(m.path) then return nil end
             -- No hints: what a copy is refused it does not keep, and the build says it with them.
@@ -1554,22 +1595,38 @@ local function compile_derived(handle: work.Handle, tool: string,
             -- A copy lowers the modules its own require, most of them another copy's to compile, which nothing here
             -- would retire: it forgets each but those it has yet to compile, and holds what the build does alone.
             pipeline.forget(made_built, rest)
-            if made == nil and said_path ~= nil then
-              local _, _ = Fs.append(said_path, m.path .. "\t" .. m.file .. "\t" ..
-                  make_trouble:gsub("[%%\t\n]", function(c: string): string
-                    return string.format("%%%02x", c:byte() or 0)
-                  end) .. "\n")
-            end
+            if made == nil then say(m, make_trouble) else say(m) end
             if made == nil or made.refused then return nil end
             return { lua = made.lua, bytecode = made.bytecode, references = made.references,
               fact_wraps = made.fact_wraps, parameter_checks = made.parameter_checks }
           end, function()
-            for _, one in ipairs(heard()) do note(assert(one[2]), assert(one[3])) end
+            for _, one in ipairs(heard()) do
+              local path = assert(one[2])
+              if one[1] == "ok" then
+                compiled_now[path] = true
+              else
+                refused_now[path] = true
+                unsettled[#unsettled + 1] = one
+              end
+            end
+            local waiting: mut {{string}} = {}
+            for _, one in ipairs(unsettled) do
+              local settled = requires_settled(assert(one[2]), {})
+              if settled == "yes" then
+                note(assert(one[3]), assert(one[4]))
+              elseif settled == "wait" then
+                waiting[#waiting + 1] = one
+              end
+            end
+            unsettled = waiting
             if tell ~= nil then
               local said = importer.due(noted[1], Clock.monotonic_ns(), patience)
               if said ~= nil then tell(said) end
             end
           end)
+          -- TODO: end the copies where a run that stops at its first refusal has one (a run of a file, `needed`): they
+          -- compile every module that requires none refused before the loop below stops at it. It waits on
+          -- [`build.compile_fanout`]'s `run` ending its copies when its `watch` asks.
           if said_dir ~= nil then local _, _ = Fs.remove_tree(said_dir) end
         end
       end

@@ -838,7 +838,7 @@ that does run runs in a process of its own:
   the build takes each parse and each compile where it would have made one
   ([`build/compile_fanout.tl`]). a module a copy cannot compile it says at once, so no copy compiles
   what requires it and the build tells of it while the copies run. the bytes written are the same;
-  `COSMIC_COMPILE_COPIES=1` compiles in the one process. each test runs in a worker
+  `COSMIC_COMPILE_COPIES=1` parses and compiles in the one process. each test runs in a worker
   -- the same core relaunched directly, never through the launcher --
   one per processor at a time, with a fresh temporary directory, captured
   streams, and a deadline past which its whole process group is ended. where
