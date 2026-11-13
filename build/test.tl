@@ -1494,8 +1494,11 @@ local function finish(rec: Recording, job: Job, result: Child.Result?,
       taken = { from = reported.load_hits, whole = placing.whole,
         row = test.take_hits(rec.hits, rec.unowned, rec.folded, rec.spelled, reported.load_hits, {},
           rec.identities, placing.hits, nil, codes_of(rec)) }
-      if #rec.loads_taken >= loads_kept then table.remove(rec.loads_taken, 1) end
-      rec.loads_taken[#rec.loads_taken + 1] = taken
+      -- A report with no hits of a load has a table of its own, which no other report shares.
+      if next(reported.load_hits) ~= nil then
+        if #rec.loads_taken >= loads_kept then table.remove(rec.loads_taken, 1) end
+        rec.loads_taken[#rec.loads_taken + 1] = taken
+      end
     end
     local tested = test.place_hits(reported.test_hits, rec.identities, lines_of, rec.placed, rec.unplaced)
     rec.by_test[id] = taken.row .. test.take_hits(rec.hits, rec.unowned, rec.folded, rec.spelled, {},

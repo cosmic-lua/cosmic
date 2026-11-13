@@ -71,9 +71,10 @@ local function test_the_hits_of_a_load_reported_again_are_one_table()
   assert(first.load_hits ~= other.load_hits, "another load was read as the first")
   assert(assert(other.load_hits["build.a"])[6] == true and assert(other.load_hits["build.a"])[5] == nil)
   assert(assert(first.load_hits["build.b"])[11] == true)
-  -- More loads than are remembered: the first is read again, into what it held.
+  -- More loads than are remembered: the first is forgotten, and read again into what it held.
   for line = 100, 120 do assert(worker.decode(worker.encode(reported(line, 7)))) end
   local late = assert(worker.decode(worker.encode(reported(5, 7))))
+  assert(late.load_hits ~= first.load_hits, "a load is remembered past the newest few")
   assert(assert(late.load_hits["build.a"])[5] == true and assert(late.load_hits["build.a"])[3] == true)
   assert(assert(late.load_hits["build.b"])[11] == true and assert(late.test_hits["build.a"])[7] == true)
   -- A hit of the load written after the test's is the report's own: the table the next report shares lacks it.
@@ -88,6 +89,9 @@ local function test_the_hits_of_a_load_reported_again_are_one_table()
   local among = assert(worker.decode((text:gsub("(\nload%-hit [^\n]*)", "%1\nloaded 0", 1))))
   assert(among.loaded == false and assert(among.load_hits["build.a"])[5] == true and
       assert(among.load_hits["build.b"])[11] == true)
+  -- A hit of the load written after the report's end is text after it, as any line there is.
+  local _, after_trouble = worker.decode(worker.encode(passing({})) .. "load-hit 6275696c642e63 2\n")
+  assert(after_trouble == "text after the end of the report", after_trouble)
   -- One that is no hit is no report, the first time and once others like it are remembered.
   for _ = 1, 2 do
     assert(worker.decode((text:gsub("(\nload%-hit [^\n]*)", "%1\nload-hit zz 1", 1))) == nil)

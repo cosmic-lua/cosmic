@@ -1091,7 +1091,9 @@ function worker.decode(text: string): worker.Report?, string
   -- `load-hit` line met apart from them is added.
   local shared = false
   local from = text:find(load_hit, 1, true)
-  if from ~= nil then
+  -- Lines after the report's end are read where they stand, which refuses them.
+  local ending = text:find("\nend\n", 1, true)
+  if from ~= nil and (ending == nil or from < ending) then
     local past = text:find("\n[^l]", from + 1) or #text
     local hits = decoded_load(text:sub(from, past - 1))
     if hits ~= nil then
