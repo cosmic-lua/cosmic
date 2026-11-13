@@ -48,6 +48,8 @@ typedef struct Collector {
    * It shares the one hook slot with collection, so both are always
    * installed together ([`install_hook`]). */
   int budget;
+  /* The line hook's calls for a line since the state was made ([`coverage_hooked`]). */
+  lua_Integer hooked;
 } Collector;
 
 static char collector_key;
@@ -351,32 +353,22 @@ static void budget_hook (lua_State *L, Collector *collector) {
  * it, and this declaration must match that definition. */
 extern int (*luaG_instructionline) (lua_State *L, const Proto *p, int pc);
 
-/* Lua's luaG_instructionline,
- * while a window collects: marks the instruction `pc` of `p`, a function
- * with no line information, on its ordinal line. Called before every such
- * instruction, it runs nothing that can allocate or raise: a source or a
- * page the collector does not hold yet is left to the line hook, which
- * this answers the line for and which makes them. A function with no
- * source (a chunk stripped whole) names nothing to count it under. */
-static int instruction_line (lua_State *L, const Proto *p, int pc) {
-  Collector *collector = current_collector(L);
-  TString *name = p->source;
-  if (!collector || !collector->active || !name) return 0;
-  /* Only a numbered chunk's: its own function, defined on line 0, or one
-   * defined past ORDINAL_BASE. A chunk made another way, with no line
-   * information but a function defined on a line of a text, would count
-   * its instructions on lines no text of it holds. */
-  if (p->linedefined != 0 && (unsigned)p->linedefined <= ORDINAL_BASE) return 0;
-  unsigned first = p->linedefined > 0 ? (unsigned)p->linedefined : ORDINAL_BASE;
-  unsigned line = first + (unsigned)pc + 1;
-  /* The line hook's lookups of the source and the page, but for making
-   * either: this runs before every instruction. */
+/* What Lua asks of each line a function is about to enter while a line
+ * hook alone is set, declared here as luaG_instructionline is:
+ * patch/lua/13-line-coverage-defined.txt defines it. */
+extern int (*luaG_linemark) (lua_State *L, const Proto *p, int line);
+
+/* Marks `line` of the source `name` where the collector holds the source
+ * and the page of the line already, and answers whether it did. It runs
+ * before an instruction, where nothing may allocate or raise: a source or
+ * a page the collector lacks is the line hook's to make. */
+static int mark_held (Collector *collector, TString *name, unsigned line) {
   HitSource *source = collector->last_source;
   if (!source || source->source != name) {
     unsigned bucket = ((uintptr_t)name >> 3) % SOURCE_BUCKETS;
     source = collector->buckets[bucket];
     while (source && source->source != name) source = source->next;
-    if (!source) return (int)line;
+    if (!source) return 0;
     collector->last_source = source;
   }
   unsigned index = line / PAGE_BITS;
@@ -384,12 +376,50 @@ static int instruction_line (lua_State *L, const Proto *p, int pc) {
   if (!page || page->index != index) {
     page = source->pages;
     while (page && page->index != index) page = page->next;
-    if (!page) return (int)line;
+    if (!page) return 0;
     source->last_page = page;
   }
   unsigned offset = line % PAGE_BITS;
   page->bits[offset / 64] |= UINT64_C(1) << (offset % 64);
-  return 0;
+  return 1;
+}
+
+/* Lua's luaG_instructionline,
+ * while a window collects: marks the instruction `pc` of `p`, a function
+ * with no line information, on its ordinal line. Called before every such
+ * instruction, it marks only what [`mark_held`] can, and answers the line
+ * for the line hook where that cannot. A function with no
+ * source (a chunk stripped whole) names nothing to count it under. */
+static int instruction_line (lua_State *L, const Proto *p, int pc) {
+  /* Read before the collector is: a function whose first block begins in
+   * the inlined [`current_collector`] has that block counted on the
+   * helper's line, and a run then reports it as a function no test
+   * enters (build/c_functions.tl). */
+  TString *name = p->source;
+  if (!name) return 0;
+  Collector *collector = current_collector(L);
+  if (!collector || !collector->active) return 0;
+  /* Only a numbered chunk's: its own function, defined on line 0, or one
+   * defined past ORDINAL_BASE. A chunk made another way, with no line
+   * information but a function defined on a line of a text, would count
+   * its instructions on lines no text of it holds. */
+  if (p->linedefined != 0 && (unsigned)p->linedefined <= ORDINAL_BASE) return 0;
+  unsigned first = p->linedefined > 0 ? (unsigned)p->linedefined : ORDINAL_BASE;
+  unsigned line = first + (unsigned)pc + 1;
+  return mark_held(collector, name, line) ? 0 : (int)line;
+}
+
+/* Lua's luaG_linemark: marks `line` of `p` as the line hook would, and
+ * answers 0, or answers nonzero where only the line hook can (it must
+ * make a source or a page). The core sets no hook but the collector's
+ * ([`install_hook`]), so a line this marks is one that hook has nothing
+ * more to do for. */
+static int line_mark (lua_State *L, const Proto *p, int line) {
+  /* Read before the collector is, as in [`instruction_line`]. */
+  TString *name = p->source;
+  Collector *collector = current_collector(L);
+  if (!collector || !collector->active) return 1;
+  return !mark_held(collector, name, (unsigned)line);
 }
 
 /* The line hook, and the count hook of a budget. Lua is pinned with the
@@ -404,6 +434,7 @@ static void native_line_hook (lua_State *L, lua_Debug *ar) {
     budget_hook(L, collector);
     return;
   }
+  if (collector) collector->hooked++;
   /* A coroutine can retain an inherited hook after its parent stops. */
   if (!collector || !collector->active || ar->currentline < 0) {
     return;
@@ -474,8 +505,10 @@ static void install_hook (lua_State *L, Collector *collector) {
   }
   lua_sethook(L, mask ? native_line_hook : NULL, mask, count);
   /* Lua asks it only while a line hook is set, and it counts nothing
-   * while no window collects, so it stays set from the first. */
+   * while no window collects, so it stays set from the first. So does
+   * the mark of a line. */
   luaG_instructionline = instruction_line;
+  luaG_linemark = line_mark;
 }
 
 /* start(): hooks lines and begins a collection. */
@@ -599,6 +632,15 @@ static int coverage_functions (lua_State *L) {
   return 1;
 }
 
+/* hooked(): how many times Lua has called the line hook for a line since
+ * the state was made. A line or an instruction the core marks without
+ * the hook ([`line_mark`], [`instruction_line`]) adds nothing to it. */
+static int coverage_hooked (lua_State *L) {
+  Collector *collector = current_collector(L);
+  lua_pushinteger(L, collector ? collector->hooked : 0);
+  return 1;
+}
+
 /* children(directory): every process this one starts from now on, and
  * every one those start, reports the C it ran there as it exits. */
 static int coverage_children (lua_State *L) {
@@ -670,6 +712,8 @@ void cosmic_coverage_install (lua_State *L) {
   lua_setfield(L, -2, "children");
   lua_pushcfunction(L, coverage_functions);
   lua_setfield(L, -2, "functions");
+  lua_pushcfunction(L, coverage_hooked);
+  lua_setfield(L, -2, "hooked");
 }
 
 int cosmic_open_budget (lua_State *L) {

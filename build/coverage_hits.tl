@@ -37,4 +37,12 @@ function coverage_hits.native_entries(): NativeCoverage.Hits
   return native.entries()
 end
 
+--- How many times Lua has called the collector's line hook since the program
+--- started. The core marks a line without the hook where it holds the line's
+--- source and page already, so running lines it holds adds nothing.
+--- @return integer The calls of the line hook so far
+function coverage_hits.line_hook_calls(): integer
+  return native.hooked()
+end
+
 return coverage_hits

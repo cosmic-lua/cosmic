@@ -120,6 +120,52 @@ local function test_a_numbered_chunk_moves_with_no_text_and_its_instructions_are
   end
 end
 
+--- An instruction of a numbered chunk that a loop first reaches on a later turn is counted, and one no turn reaches
+--- is not: the loop's jump back calls no line hook, which has no line of such a chunk to mark. The same chunk
+--- stripped alone, with no line information and its functions defined on the lines of the text, runs as it does and
+--- is counted nowhere: no text holds a line for its instructions.
+local function test_a_loop_of_a_chunk_with_no_line_information_is_counted_by_instruction_or_not_at_all()
+  local source = table.concat({
+    "local function sum(turns)",
+    "  local total = 0",
+    "  for turn = 1, turns do",
+    "    if turn == 3 then",
+    "      total = total + turn",
+    "    end",
+    "    if turn == 9 then",
+    "      total = -1",
+    "    end",
+    "  end",
+    "  return total",
+    "end",
+    "return sum(3)",
+  }, "\n") .. "\n"
+  local bytecode = assert(LuaTail.bytecode_of(source, "lua_tail_loop_numbered", "loop.tl"))
+  local numbered = assert(load(assert(LuaTail.numbered(bytecode, "lua_tail_loop_numbered")), "=lua_tail_loop_numbered",
+    "b", {}))
+  assert(numbered() == 3 and Hits.line_hook_calls() > 0)
+  -- Again, with its source and page held: no jump back of the loop calls the line hook.
+  local before = Hits.line_hook_calls()
+  local again = numbered()
+  local calls = Hits.line_hook_calls() - before
+  assert(again == 3 and calls == 0, "the line hook was called " .. tostring(calls) .. " times for a numbered loop")
+  local bare = assert(LuaTail.bytecode_of(source, "lua_tail_loop_stripped", "loop.tl"))
+  local stripped = assert(load(assert(LuaTail.stripped(bare, "lua_tail_loop_stripped")), "=lua_tail_loop_stripped",
+    "b", {}))
+  assert(stripped() == 3)
+  local hits = Hits.snapshot()
+  local counted = assert(hits["lua_tail_loop_numbered"], "no instruction of the numbered chunk was counted")
+  local lines = assert(LuaTail.instruction_lines(bytecode, "lua_tail_loop_numbered"))
+  local reached: mut {integer:boolean} = {}
+  for line in pairs(counted) do
+    reached[assert(lines[line - LuaTail.ordinal_base], "an ordinal past the chunk's instructions")] = true
+  end
+  assert(reached[line_of(source, "      total = total + turn")] == true, "the third turn's line is not reached")
+  assert(reached[line_of(source, "  return total")] == true, "the line after the loop is not reached")
+  assert(reached[line_of(source, "      total = -1")] == nil, "a line no turn ran is reached")
+  assert(hits["lua_tail_loop_stripped"] == nil and hits["=?"] == nil, "a stripped chunk's instructions were counted")
+end
+
 --- A finalizer runs with hooks held off (lgc.c's GCTM), so the line hook counts no line of its body, and nor does
 --- the core in a numbered chunk: its body is reached in neither, while the code that made and collected the value is.
 local function test_a_finalizer_of_a_numbered_chunk_is_counted_as_the_text_is()
