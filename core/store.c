@@ -228,7 +228,8 @@ static size_t inflate_limit (sqlite3 *db) {
   return (size_t)sqlite3_limit(db, SQLITE_LIMIT_LENGTH, -1);
 }
 
-/* Reads one module's bytecode out of one database, inflating it. Returns 1
+/* Reads one module's bytecode out of one database, inflating what a build
+ * stored deflated. Returns 1
  * with the chunk on the stack, 0 when that database does not hold it, and
  * -1 with a message on the stack when the read itself failed.
  *
@@ -279,10 +280,20 @@ static int load_from (lua_State *L, sqlite3 *db, const char *name,
   }
   const char *kind = (const char *)sqlite3_column_text(stmt, 1);
   *trusted = is_binary && names_trusted_kind(name, kind);
-  /* The build stores bytecode deflated ([`build.writer`]). Inflated into
+  char chunk[256];
+  snprintf(chunk, sizeof chunk, "@%s", name);
+  /* A chunk the build stored as it is ([`build.writer`]) is loaded from the
+   * row itself: `luaL_loadbufferx` runs protected and so returns, never
+   * raises, and the statement is finalized after it. */
+  if (cosmic_stored_chunk(bytes, (size_t)len)) {
+    int stored = luaL_loadbufferx(L, bytes, (size_t)len, chunk, "b");
+    sqlite3_finalize(stmt);
+    return stored == LUA_OK ? 1 : -1;
+  }
+  /* One a build stored deflated is inflated into
    * a block of its own, so the statement is finalized before anything can
-   * fail; the block is freed right after `luaL_loadbufferx`, which runs
-   * protected and so returns, never raises, with it in hand. */
+   * fail; the block is freed right after `luaL_loadbufferx`, which
+   * returns with it in hand. */
   unsigned char *code = NULL;
   size_t code_len = 0;
   const char *why = cosmic_inflate_raw(
@@ -299,8 +310,6 @@ static int load_from (lua_State *L, sqlite3 *db, const char *name,
     }
     return -1;
   }
-  char chunk[256];
-  snprintf(chunk, sizeof chunk, "@%s", name);
   int loaded = luaL_loadbufferx(L, (const char *)code, code_len, chunk, "b");
   cosmic_free(code);
   if (loaded != LUA_OK) {
@@ -533,8 +542,8 @@ static const char *inflate_top (lua_State *L, sqlite3 *db) {
 
 /* One module's compiled bytes, for a caller that must load a chunk in
  * an environment of its own -- which is how the compiler runs
- * without the names the surface removed. The build stores it deflated
- * ([`build.writer`]), so it is inflated here. */
+ * without the names the surface removed. A build stores it as it is
+ * ([`build.writer`]); what one stored deflated is inflated here. */
 static int store_bytecode (lua_State *L) {
   const char *name = luaL_checkstring(L, 1);
   int list = lua_upvalueindex(1);
@@ -545,6 +554,9 @@ static int store_bytecode (lua_State *L) {
   for (lua_Integer i = 1; i <= count; i++) {
     sqlite3 *db = database_at(L, list, i);
     if (db != NULL && lookup(L, db, query, name)) {
+      size_t stored_len;
+      const char *stored = lua_tolstring(L, -1, &stored_len);
+      if (cosmic_stored_chunk(stored, stored_len)) return cosmic_succeeded(L);
       const char *why = inflate_top(L, db);
       if (why != NULL) {
         lua_pushnil(L);

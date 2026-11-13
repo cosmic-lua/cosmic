@@ -583,6 +583,9 @@ end
 --- - `hmac(A, K, X)`: the HMAC of X under the key K over A.
 --- - `deflate(X)`: the raw deflate of X, as `Compress.deflate("raw", X)`
 ---   writes it; `inflate(X)` decodes such a stream, to a blob.
+--- - `chunk(X)`: a module's bytecode as `string.dump` wrote it, where X
+---   is how a database stores it ([`cosmic.store`]): as it is, or
+---   raw-deflated by an older build.
 ---
 --- `handle:limit(name, value)` sets one of the connection's limits and
 --- answers the old one. A handle may attach 10 databases

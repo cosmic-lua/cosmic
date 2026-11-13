@@ -467,10 +467,10 @@ local record Edge
   erased: boolean
 end
 
---- The bytecode of each module and main of `db` that has any, inflated,
---- by path.
+--- The bytecode of each module and main of `db` that has any, as it was
+--- dumped, by path.
 local function module_code(db: Sqlite.Handle): {string:string}?, string
-  local modules, trouble = Sqlite.rows(db, "SELECT path, inflate(bytecode) FROM modules " ..
+  local modules, trouble = Sqlite.rows(db, "SELECT path, chunk(bytecode) FROM modules " ..
       "WHERE kind IN ('module', 'main') AND bytecode IS NOT NULL")
   if modules == nil then return nil, trouble end
   local code: mut {string:string} = {}
@@ -627,16 +627,16 @@ function test_key.harness(db: Sqlite.Handle): Harness?, string
   local modules, trouble = Sqlite.text_rows(db,
     "SELECT path, source_hash FROM modules WHERE kind IN ('module', 'main')")
   if modules == nil then return nil, trouble end
-  -- The bytecode of a module, inflated when first asked for: the digests
+  -- The bytecode of a module, read when first asked for: the digests
   -- read the harness's modules alone, a fifth of what the binary carries,
-  -- and every run pays for each one inflated before its first test.
+  -- and every run pays for each one read before its first test.
   local code: mut {string:string} = {}
   local asked: mut {string:boolean} = {}
   local code_trouble = ""
   local function code_of(name: string): string?
     if asked[name] ~= true then
       asked[name] = true
-      local rows, rows_trouble = Sqlite.rows(db, "SELECT inflate(bytecode) FROM modules " ..
+      local rows, rows_trouble = Sqlite.rows(db, "SELECT chunk(bytecode) FROM modules " ..
           "WHERE path = ?1 AND kind IN ('module', 'main') AND bytecode IS NOT NULL", { { text = name } })
       if rows == nil then
         code_trouble = rows_trouble
@@ -1016,7 +1016,7 @@ end
 --- hash, bytecode, the edges the checker follows from it (`decl_imports`)
 --- and its stub, in order of path. Nil and why where `db` cannot be read.
 function test_key.extras_rows(db: Sqlite.Handle): {{string}}?, string
-  local query = "SELECT path, lower(hex(source_hash)), lower(hex(sha256(inflate(bytecode)))), " ..
+  local query = "SELECT path, lower(hex(source_hash)), lower(hex(sha256(chunk(bytecode)))), " ..
     "coalesce((SELECT group_concat(requires, ' ' ORDER BY requires) FROM decl_imports d " ..
     "WHERE d.path = modules.path), '')"
   -- With its stub ([`sealed_fill`] carries it), where the program has
