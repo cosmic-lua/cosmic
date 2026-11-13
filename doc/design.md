@@ -658,7 +658,12 @@ database: compile, check, record, embed. `build.zig` owns the C.
 `bin/zig build` patches the vendored trees first, in Teal (below),
 and `zig build` installs them under the build directory's `vendor/` and produces the core
 for each target (`zig build boot` builds the host's alone unless given `-Dboot-cores=all`,
-and puts a placeholder script where each other core goes). `zig build boot`
+and puts a placeholder script where each other core goes). a plain `bin/zig build boot` first
+asks git whether the tree's C is the C of a release this host has or can
+fetch, the pinned one and then the repository's newest, and where it is
+takes that release's core, installs the patched trees and runs the bridge
+itself, with no zig ([`build/seeded_boot.tl`]): a core is a function of its
+C alone, and the tool written is the same bytes either way. `zig build boot`
 bridges: it runs the fresh host core over `build/` to compile the
 importer with the compiler built from the checker, `lang/`, in two
 stages (below), writes `cosmic.db`, and writes one
@@ -1350,6 +1355,7 @@ in [roadmap.md](roadmap.md).
 [`bin/vendor`]: ../bin/vendor
 [`bin/zig.pin`]: ../bin/zig.pin
 [`bin/zig`]: ../bin/zig
+[`build/seeded_boot.tl`]: ../build/seeded_boot.tl
 [`build.boot`]: ../build/boot.tl
 [`build.driver`]: ../build/driver.tl
 [`build.parse_derive`]: ../build/parse_derive.tl

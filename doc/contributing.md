@@ -31,7 +31,8 @@ conflict with the parent's squash.
    work from that worktree's root by absolute path, and keep `<branch>`
    the PR's branch name so `git push -u origin <branch>` pushes this
    worktree's commits.
-4. `bin/zig build boot` there: the host's core and the tree, which is
+4. `bin/zig build boot` there: the host's core, taken from a release
+   where the tree's C is that release's ([`AGENTS.md`]), and the tree, which is
    all the loop below runs ([`AGENTS.md`] says what that host-only tool
    leaves to `bin/zig build boot -Dboot-cores=all`). zig's caches and the Teal compile cache
    (`COSMIC_BUILD_CACHE` names another file, `0` none) are shared by

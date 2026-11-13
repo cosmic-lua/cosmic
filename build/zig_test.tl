@@ -109,6 +109,17 @@ local function test_lib_key_names_the_records()
   assert(Zig.lib_key({ ["01-a.txt"] = "one" }) ~= key)
 end
 
+--- Only `build boot` and nothing else is the boot a release's core can
+--- stand in for: every core, the checked core and a flag of zig's are not.
+local function test_only_a_plain_boot_is_tried_on_a_releases_core()
+  assert(Zig.plain_boot({ "build", "boot" }))
+  assert(not Zig.plain_boot({ "build", "boot", "-Dboot-cores=all" }))
+  assert(not Zig.plain_boot({ "build", "sanitized" }))
+  assert(not Zig.plain_boot({ "build", "boot", "--summary", "all" }))
+  assert(not Zig.plain_boot({ "build" }))
+  assert(not Zig.plain_boot({ "cc", "boot" }))
+end
+
 local function test_build_args_passes_other_subcommands_through()
   local got = Zig.build_args("/repo", "/cache/zig-project", "/repo/o", { "version" }, 4)
   assert(#got == 1 and got[1] == "version")
