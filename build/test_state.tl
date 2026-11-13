@@ -33,6 +33,14 @@ local record test_state
     elapsed_ns: integer
   end
 
+  --- One line of a shared row's hits, folded: its `text` as this checkout keeps it (unpacked, "" for a path it does
+  --- not own), and, where folding it left the module's lines out, the `path` and why (`left`).
+  record SharedLine
+    text: string
+    path?: string
+    left?: string
+  end
+
   --- How many tests this run ran, and how many it answered from a
   --- verdict that still stood.
   record Tally
@@ -346,10 +354,10 @@ local record test_state
     --- a table folded into another run's `hits` is not in this one's.
     spelled: {{integer:boolean}:string} -- declared: key_type
     folded: {{integer:boolean}:boolean} -- declared: key_type
-    --- The lines of the rows this run stood on from the shared cache that
-    --- [`test.decode_hits`] has folded into `hits`, so a line the rows
-    --- repeat is read once.
-    shared_folded: mut {string: mut {string: string}}
+    --- Each line of the rows this run stood on from the shared cache, by the line as the row keeps it
+    --- ([`shared_verdicts.Found`]'s `kept`), once [`build.test`] has folded it into `hits`: a line the rows repeat,
+    --- as most are, is unpacked and read once.
+    shared_folded: mut {string: SharedLine}
     --- The source line of each instruction of each module whose hits a
     --- worker of a pure store numbered by instruction, and the line each of
     --- its functions is defined on, by path, read from the projection as

@@ -102,7 +102,8 @@ local function test_the_verdicts_of_one_run_keep_their_own_hits(tmp: string)
   assert(shared_verdicts.settle(cache, "first", { kept = kept, used = {}, failed = {} }, Clock.now_ns()))
   for at, text in ipairs(hits) do
     local found = assert(shared_verdicts.declared(cache, "k" .. tostring(at)))
-    assert(found.hits == text, "verdict " .. tostring(at) .. " came back with " .. found.hits)
+    local back = shared_verdicts.unpacked(found.kept)
+    assert(back == text, "verdict " .. tostring(at) .. " came back with " .. back)
   end
   shared_verdicts.close(cache)
 end
@@ -131,7 +132,8 @@ local function test_a_verdict_is_kept_by_its_key_alone(tmp: string)
     key = "declared", test = "suite/t_test.tl test_t", hits = "suite/t_test.tl\t1,2,5\n",
     elapsed_ns = 7 } }, used = {}, failed = {} }, Clock.now_ns()))
   local found = assert(shared_verdicts.declared(cache, "declared"))
-  assert(found.elapsed_ns == 7 and found.hits == "suite/t_test.tl\t1,2,5\n", found.hits)
+  local hits = shared_verdicts.unpacked(found.kept)
+  assert(found.elapsed_ns == 7 and hits == "suite/t_test.tl\t1,2,5\n", hits)
   -- Relied on long after it was written, it stays; unrelied, it goes.
   local later = Clock.now_ns() + 29 * 24 * 3600 * 1000000000
   assert(shared_verdicts.settle(cache, "second", { kept = {}, used = { "declared" },

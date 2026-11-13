@@ -539,6 +539,10 @@ local function text_of(head: string): string, string?
   return head, nil
 end
 
+--- The number each run of digits [`test.decode_hits`] has met spells: the rows of a run name millions of lines in a
+--- few thousand different numbers, each of which `tonumber` then reads once.
+local numbers_met: mut {string:integer} = {}
+
 --- Folds every line `encoded` (a row [`test.take_hits`] wrote) names into
 --- `hits`, but for a module of `identities` whose line names another text,
 --- or none (a row written before rows named their text): its lines would
@@ -583,7 +587,6 @@ function test.decode_hits(encoded: string, hits: Coverage.Hits, identities: {str
     end
     if owned then
       local left = ""
-      local credited: mut {integer} = {}
       local numbered = known ~= nil and code ~= nil and named == code
       local placing: {integer}? = nil
       local unplaced = "the module has no instructions to place them by"
@@ -592,16 +595,23 @@ function test.decode_hits(encoded: string, hits: Coverage.Hits, identities: {str
         placing = found
         if found == nil then unplaced = why end
       end
+      -- What a line of this module's is, settled once for them all: a number is read millions of times a run.
+      local as_written = known == nil
+      local own_text = not numbered and named == known
+      local per_line = hits[path]
       for digits in lines:gmatch("%d+") do
-        local line = math.tointeger(tonumber(digits)) or 0
-        if known == nil or (not numbered and named == known and line <= lua_tail.ordinal_base) then
-          credited[#credited + 1] = line
+        local line = numbers_met[digits]
+        if line == nil then
+          line = math.tointeger(tonumber(digits)) or 0
+          numbers_met[digits] = line
+        end
+        local at: integer? = nil
+        if as_written or (own_text and line <= lua_tail.ordinal_base) then
+          at = line
         elseif numbered then
-          local at = if placing ~= nil and line > lua_tail.ordinal_base then
+          at = if placing ~= nil and line > lua_tail.ordinal_base then
             placing[line - lua_tail.ordinal_base] else nil end
-          if at ~= nil then
-            credited[#credited + 1] = at
-          else
+          if at == nil then
             if placing ~= nil and line > lua_tail.ordinal_base then
               unplaced = "instruction " .. tostring(line - lua_tail.ordinal_base) .. " is past the module's " ..
                 tostring(#placing)
@@ -615,22 +625,50 @@ function test.decode_hits(encoded: string, hits: Coverage.Hits, identities: {str
           left = test_report.other_text
           stale[path] = left
         end
+        if at ~= nil then
+          if per_line == nil then
+            per_line = {}
+            hits[path] = per_line -- checked: view_written
+          end
+          per_line[at] = true -- checked: view_written
+        end
       end
       if met ~= nil then met[lines] = left end
-      if #credited > 0 then
-        local per_line = hits[path]
-        if per_line == nil then
-          per_line = {}
-          hits[path] = per_line -- checked: view_written
-        end
-        for _, line in ipairs(credited) do
-          per_line[line] = true -- checked: view_written
-        end
-      end
     end
   end
   return table.concat(kept)
 end
+
+--- [`test.decode_hits`] of a row as the shared verdicts keep it ([`shared_verdicts.Found`]'s `kept`), in one pass
+--- over its lines: a line `met` holds costs a lookup, and only one it does not is unpacked
+--- ([`shared_verdicts.unpacked`]), folded and added to it. Pass one `met` only to calls that share every argument
+--- after it. A run stands on thousands of rows that repeat most of their lines, and a row of a hundred lines names
+--- few that no earlier row held.
+function test.decode_kept(kept: string, met: mut {string: State.SharedLine}, hits: Coverage.Hits,
+                          identities: {string:string}, stale: mut {string:string}, unowned?: Coverage.Hits,
+                          lines_of?: function(string): {integer}?, string, codes?: {string:string}): string
+  local out: mut {string} = {}
+  for line in kept:gmatch("[^\n]*\n") do
+    local known = met[line]
+    if known == nil then
+      local left: mut {string:string} = {}
+      local as_kept = test.decode_hits(shared_verdicts.unpacked(line), hits, identities, left, unowned, lines_of,
+        codes)
+      local path, why = next(left)
+      known = { text = as_kept, path = path, left = why }
+      met[line] = known
+    end
+    -- What it left in `stale` the first time, said again: another line of the path may have said otherwise since.
+    local path, why = known.path, known.left
+    if path ~= nil and why ~= nil then stale[path] = why end
+    out[#out + 1] = known.text
+  end
+  return table.concat(out)
+end
+
+-- TODO: stop unpacking a row to keep it: a fresh checkout still spends some ten seconds on the lines no earlier row
+-- held, most of it writing their numbers out again. It waits on `coverage_by_test` keeping a row as the shared
+-- verdicts do (packed), which is a change of that table's format.
 
 -- TODO: have [`Coverage.Hits`] write its lines through, so `hits` here and in [`take_hits`] can be written, once
 -- `Hits` in cosmic/internal/debug.d.tl is `{string: mut {integer: boolean}}`.
@@ -1005,9 +1043,10 @@ local function share(rec: Recording, m: Module, name: string, id: string,
   local key, elsewhere = assert(found.key), assert(found.elsewhere)
   rec.tally.cached = rec.tally.cached + 1
   rec.tally.shared = rec.tally.shared + 1
-  rec.by_test[id] = test.decode_hits(elsewhere.hits, rec.hits, rec.identities, rec.stale, rec.unowned,
-    function(path: string): {integer}?, string return instruction_lines_of(rec, path) end, codes_of(rec),
-    rec.shared_folded)
+  rec.by_test[id] = test.decode_kept(elsewhere.kept, rec.shared_folded, rec.hits, rec.identities, rec.stale,
+    rec.unowned, function(path: string): {integer}?, string
+      return instruction_lines_of(rec, path)
+    end, codes_of(rec))
   local kept, keep_trouble = record_run(rec.records, m.path, name, true, "",
     Clock.now_ns(), run_key(key, key), rec.run_at_ns, elsewhere.elapsed_ns)
   if not kept then
