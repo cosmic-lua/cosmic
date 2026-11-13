@@ -585,7 +585,10 @@ end
 
 --- The bytecode a projection ships is kept in the working database by
 --- compile key, as `string.dump` wrote it: its modules carry the kept
---- bytes, an edit's compile is kept and the old one dropped.
+--- bytes, an edit's compile is kept and the old one dropped. No core's
+--- compressor made them, so none is another core's to refuse: what a core
+--- of another image deflates again is the sources
+--- ([`test_a_source_is_deflated_again_by_a_core_of_another_image`]).
 local function test_bytecode_is_kept_once_per_compile(tmp: string)
   local handle = build_and_write(tmp .. "/a", "world", tmp .. "/first.db")
   local keys = assert(Sqlite.text_rows(handle.db, "SELECT count(*), sum(substr(data, 1, 4) = CAST(x'1b4c7561' AS BLOB)) FROM kept_bytecode"))

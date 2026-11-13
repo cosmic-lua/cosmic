@@ -790,9 +790,15 @@ local function test_sql_chunk_answers_bytecode_stored_either_way()
     local none, trouble = Sqlite.rows(db, "SELECT chunk(?1)", { { blob = refused } })
     assert(none == nil and trouble ~= "", refused)
   end
-  -- A stream that began with the byte would open with a copy from before its start.
+  -- A stream that began with the byte would open with a copy from before its start: none inflates,
+  -- whatever byte follows.
   local as_stream, why = Compress.inflate("raw", dumped)
   assert(as_stream == nil and why ~= "", "a chunk inflated as a deflate stream")
+  for second = 0, 255 do
+    local stream = "\27" .. string.char(second) .. string.rep("\0", 16)
+    local inflated, _ = Compress.inflate("raw", stream)
+    assert(inflated == nil, "a deflate stream begins with a chunk's first byte and " .. tostring(second))
+  end
   assert(db:close())
 end
 

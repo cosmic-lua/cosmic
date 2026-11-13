@@ -94,7 +94,7 @@ local record closure_store
     --- ([`lua_tail.numbered`], a function of it).
     stripped: mut {string:string}
     --- The digest of each module's whole bytecode, debug information
-    --- included (inflated, so the compressor moves none), by path: what the
+    --- included (as it was dumped, however it is stored), by path: what the
     --- pure store holds of its test's own module.
     bytecode: mut {string:string}
     --- A declaration's line in the pure store: its source (a declaration is

@@ -213,6 +213,11 @@ local function test_a_closure_store_holds_what_the_compiler_made(tmp: string)
     "text, file, line) VALUES "
   moved("a module's bytecode", "UPDATE modules SET bytecode = deflate(chunk(bytecode) || X'00') " ..
       "WHERE path = 'greet'")
+  -- How a module's bytecode is stored is no part of what it is: the same chunk deflated, as an older build
+  -- stored it, moves the store's bytes and not its address.
+  local readdressed, rewritten = change("UPDATE modules SET bytecode = deflate(chunk(bytecode)) WHERE path = 'greet'")
+  assert(rewritten, "the deflated chunk was not stored")
+  assert(not readdressed, "a module's bytecode stored deflated moved the address")
   moved("a doc", doc .. "('greet', 'greet.x', 'greet.x', 1, 'function', '', 'X.', 'greet.tl', 1)")
   moved("a use", "INSERT INTO uses (module, symbol, from_module, from_file, line) " ..
       "VALUES ('greet', 'hello', 'greet', 'greet.tl', 99)")

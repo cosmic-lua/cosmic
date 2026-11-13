@@ -467,8 +467,8 @@ local record Edge
   erased: boolean
 end
 
---- The bytecode of each module and main of `db` that has any, inflated,
---- by path.
+--- The bytecode of each module and main of `db` that has any, as it was
+--- dumped, by path.
 local function module_code(db: Sqlite.Handle): {string:string}?, string
   local modules, trouble = Sqlite.rows(db, "SELECT path, chunk(bytecode) FROM modules " ..
       "WHERE kind IN ('module', 'main') AND bytecode IS NOT NULL")
@@ -627,9 +627,9 @@ function test_key.harness(db: Sqlite.Handle): Harness?, string
   local modules, trouble = Sqlite.text_rows(db,
     "SELECT path, source_hash FROM modules WHERE kind IN ('module', 'main')")
   if modules == nil then return nil, trouble end
-  -- The bytecode of a module, inflated when first asked for: the digests
+  -- The bytecode of a module, read when first asked for: the digests
   -- read the harness's modules alone, a fifth of what the binary carries,
-  -- and every run pays for each one inflated before its first test.
+  -- and every run pays for each one read before its first test.
   local code: mut {string:string} = {}
   local asked: mut {string:boolean} = {}
   local code_trouble = ""

@@ -936,9 +936,9 @@ local function create(db: Sqlite.Handle, path: string, wait: boolean, doing?: st
     end
     local dropped, drop_trouble = db:exec("DROP INDEX IF EXISTS compiled_by_seen")
     if not dropped then return nil, drop_trouble end
-    -- What `kept_bytecode` replaced: each compile's bytecode deflated, which no projection carries.
-    local unkept, unkept_trouble = db:exec("DROP TABLE IF EXISTS deflated_bytecode")
-    if not unkept then return nil, unkept_trouble end
+    -- A table an older tool made, of each compile's bytecode deflated, which no projection carries. Left
+    -- where another run holds the database: it is dead weight and no more, and the next open takes it out.
+    local _, _ = db:exec("DROP TABLE IF EXISTS deflated_bytecode")
   end
   if fresh then
     local begun, begin_trouble = begin_waiting(db, path, wait, doing)

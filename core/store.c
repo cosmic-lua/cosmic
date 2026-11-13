@@ -228,7 +228,8 @@ static size_t inflate_limit (sqlite3 *db) {
   return (size_t)sqlite3_limit(db, SQLITE_LIMIT_LENGTH, -1);
 }
 
-/* Reads one module's bytecode out of one database, inflating it. Returns 1
+/* Reads one module's bytecode out of one database, inflating what a build
+ * stored deflated. Returns 1
  * with the chunk on the stack, 0 when that database does not hold it, and
  * -1 with a message on the stack when the read itself failed.
  *
@@ -541,8 +542,8 @@ static const char *inflate_top (lua_State *L, sqlite3 *db) {
 
 /* One module's compiled bytes, for a caller that must load a chunk in
  * an environment of its own -- which is how the compiler runs
- * without the names the surface removed. The build stores it deflated
- * ([`build.writer`]), so it is inflated here. */
+ * without the names the surface removed. A build stores it as it is
+ * ([`build.writer`]); what one stored deflated is inflated here. */
 static int store_bytecode (lua_State *L) {
   const char *name = luaL_checkstring(L, 1);
   int list = lua_upvalueindex(1);
