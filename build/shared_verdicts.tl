@@ -245,9 +245,8 @@ local function packed(hits: string, known: mut {string:string}): string
   end))
 end
 
---- The number each run of digits met spells, and the digits of each number written: a run's rows hold some
---- thirteen million line numbers and a few thousand different ones, and making each afresh (`tonumber`, `tostring`)
---- was most of what unpacking them took.
+--- The number each run of digits met spells, and the digits of each number written: a run's rows hold millions of
+--- line numbers in a few thousand different ones, so each is read (`tonumber`) and written (`tostring`) once.
 local spelled: mut {string:integer} = {}
 local written: mut {integer:string} = {}
 

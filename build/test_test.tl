@@ -218,7 +218,9 @@ local function test_a_kept_row_is_read_as_its_text_whatever_earlier_rows_held()
     for path, why in pairs(want_stale) do
       assert(stale[path] == why, "row " .. tostring(at) .. " left " .. path .. " " .. tostring(stale[path]))
     end
-    assert(next(stale) == next(want_stale), "row " .. tostring(at) .. " named a module stale that its text does not")
+    for path in pairs(stale) do
+      assert(want_stale[path] ~= nil, "row " .. tostring(at) .. " named " .. path .. " stale, which its text does not")
+    end
     for path, lines in pairs(want_hits) do
       for line in pairs(lines) do
         assert(assert(hits[path], path .. " was credited nothing")[line] == true,

@@ -644,9 +644,6 @@ end
 --- ([`shared_verdicts.unpacked`]), folded and added to it. Pass one `met` only to calls that share every argument
 --- after it. A run stands on thousands of rows that repeat most of their lines, and a row of a hundred lines names
 --- few that no earlier row held.
--- TODO: stop unpacking a row to keep it: a fresh checkout still spends some ten seconds on the lines no earlier row
--- held, most of it writing their numbers out again. It waits on `coverage_by_test` keeping a row as the shared
--- verdicts do (packed), which is a change of that table's format.
 function test.decode_kept(kept: string, met: mut {string: State.SharedLine}, hits: Coverage.Hits,
                           identities: {string:string}, stale: mut {string:string}, unowned?: Coverage.Hits,
                           lines_of?: function(string): {integer}?, string, codes?: {string:string}): string
@@ -668,6 +665,10 @@ function test.decode_kept(kept: string, met: mut {string: State.SharedLine}, hit
   end
   return table.concat(out)
 end
+
+-- TODO: stop unpacking a row to keep it: a fresh checkout still spends some ten seconds on the lines no earlier row
+-- held, most of it writing their numbers out again. It waits on `coverage_by_test` keeping a row as the shared
+-- verdicts do (packed), which is a change of that table's format.
 
 -- TODO: have [`Coverage.Hits`] write its lines through, so `hits` here and in [`take_hits`] can be written, once
 -- `Hits` in cosmic/internal/debug.d.tl is `{string: mut {integer: boolean}}`.
