@@ -24,10 +24,11 @@ local record fanout
   mut least: integer
   --- The most copies, whatever the processors.
   mut most: integer
-  --- How long the copies of one [`fanout.run`] are waited for. Compiling
-  --- cosmic's own tree in one process takes a four-core host a minute and
-  --- a quarter, so a copy still running after this has hung, and waiting
-  --- on would hold the build for good.
+  --- How long the copies of one [`fanout.run`] are waited for. The
+  --- 1200 compiles of cosmic's own tree take one process under a minute
+  --- on a four-core host ([`build.shared_compiles`]'s `fan`), so a copy
+  --- still running after this has hung, and waiting on would hold the
+  --- build for good.
   mut patience_ns: integer
 
   --- What [`fanout.run`] answers: whether each copy ended well, by its
@@ -107,14 +108,18 @@ function fanout.run(copies: integer, work: function(copy: integer), watch?: func
     for copy = 1, copies do
       local pid = pids[copy]
       if pid ~= nil then
-        if out_of_patience then
-          -- It is ended and then waited for, so no copy outlives the call.
+        -- Looked at before it is ended: a copy that ended in time is told as it ended, however late the look.
+        local status, _ = process.waitpid(pid, true)
+        local over = false
+        if status ~= nil and status.pid ~= pid and out_of_patience then
+          -- Ended and then waited for, so no copy outlives the call.
           local _, _ = sys.kill(pid, sys.SIGKILL)
+          status, _ = process.waitpid(pid, false)
           late = late + 1
+          over = true
         end
-        local status, _ = process.waitpid(pid, not out_of_patience)
         if status == nil or status.pid == pid then
-          ended[copy] = not out_of_patience and status ~= nil and status.code == 0
+          ended[copy] = not over and status ~= nil and status.code == 0
           pids[copy] = nil
           running = running - 1
         end

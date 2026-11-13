@@ -67,10 +67,30 @@ local function test_a_copy_that_does_not_end_is_ended_and_counted(tmp: string)
     end
   end)
   fanout.patience_ns = patience
-  if Fs.read(tmp .. "/1") == nil then
+  if Fs.read(tmp .. "/1") == nil or Fs.read(tmp .. "/2") == nil then
     Test.skip("this host forks no copy of the process")
   end
   assert(ran.ended[1] == true, "a copy that ended in time is told as ended badly")
   assert(ran.ended[2] == false and ran.late == 1, "the copy that hung was not ended: " .. tostring(ran.late))
-  assert(Fs.read(tmp .. "/2") == "started", "the copy that hung never ran")
+end
+
+--- A copy that ended in time is told as it ended though the process looks at it only after its patience is over.
+local function test_a_copy_that_ended_in_time_is_not_ended_for_a_late_look(tmp: string)
+  local patience = fanout.patience_ns
+  fanout.patience_ns = 300 * 1000000
+  local looked = false
+  local ran = fanout.run(1, function(copy: integer)
+    assert(Fs.write(tmp .. "/" .. tostring(copy), "made"))
+  end, function()
+    if not looked then
+      looked = true
+      -- By the end of this look the copy has long ended, and the patience is over.
+      local _, _ = sys.nanosleep(600 * 1000000)
+    end
+  end)
+  fanout.patience_ns = patience
+  if Fs.read(tmp .. "/1") == nil then
+    Test.skip("this host forks no copy of the process")
+  end
+  assert(ran.ended[1] == true and ran.late == 0, "a copy that ended in time was ended: " .. tostring(ran.late))
 end

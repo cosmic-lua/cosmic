@@ -1569,6 +1569,8 @@ local function compile_derived(handle: work.Handle, tool: string,
           local awaited: mut {string:boolean} = {}
           for _, m in ipairs(due) do awaited[m.path] = true end
           local compiled_now: mut {string:boolean} = {}
+          -- Those a copy said it left uncompiled, since each requires one that did not compile.
+          local left_now: mut {string:boolean} = {}
           local unsettled: mut {{string}} = {}
           --- Whether every module `path` requires, directly or not, that the copies are to compile is said to have
           --- compiled ("yes"), one is said not to have ("no"), or it is not known yet ("wait").
@@ -1598,7 +1600,14 @@ local function compile_derived(handle: work.Handle, tool: string,
                 stopped = true
               end
             end
-            if stopped or leans(m.path) then return nil end
+            if stopped then return nil end
+            if leans(m.path) then
+              -- Said, so that the process knows the module is not still to come.
+              if said_path ~= nil then
+                local _, _ = Fs.append(said_path, "left\t" .. m.path .. "\t" .. m.file .. "\t\n")
+              end
+              return nil
+            end
             -- No hints: what a copy is refused it does not keep, and the build says it with them.
             local made, make_trouble = pipeline.generate(m, made_built, checks, judged)
             -- A copy lowers the modules its own require, most of them another copy's to compile, which nothing here
@@ -1616,6 +1625,8 @@ local function compile_derived(handle: work.Handle, tool: string,
               elseif one[1] == "no" then
                 refused_now[path] = true
                 unsettled[#unsettled + 1] = one
+              elseif one[1] == "left" then
+                left_now[path] = true
               end
             end
             local waiting: mut {{string}} = {}
@@ -1642,7 +1653,7 @@ local function compile_derived(handle: work.Handle, tool: string,
               if first ~= nil then
                 for index = 1, first - 1 do
                   local before = assert(due[index], "an index within the list is a module").path
-                  if compiled_now[before] ~= true and refused_now[before] ~= true then
+                  if compiled_now[before] ~= true and refused_now[before] ~= true and left_now[before] ~= true then
                     settled = false
                   end
                 end

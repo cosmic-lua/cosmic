@@ -2599,13 +2599,17 @@ local function test_modules_compiled_in_copies_are_those_one_process_compiles()
 end
 
 --- A run of a file stops at the first module the file needs that does not build, so once a copy says that module
---- is refused, and every module before it is said either way, the copies are told to compile no more: here each
---- compile after the refusal takes a tenth of a second, and the copies make few of the forty that remain, where
---- without the word they make them all. The run fails with what the refused module's compile said.
+--- is refused, and every module before it is said to be compiled, refused or left, the copies are told to compile no
+--- more: here each of the forty modules after it takes a tenth of a second, and the copies make few of them, where
+--- without the word they make them all. A module before it that a copy leaves, since it requires another that does
+--- not build, does not hold the word back. The run fails with what the refused module's compile said.
 local function test_a_file_run_tells_its_copies_to_stop_at_the_refusal_it_stops_at()
   local files: mut {string:string} = {
     ["main.tl"] = 'local needed = require("a_needed")\nreturn needed\n',
     ["a_needed.tl"] = 'local function four(): integer\n  return "four"\nend\nreturn { count = four() }\n',
+    -- Neither is the file's: one that does not build, and one that requires it, which its copy reaches late and leaves.
+    ["a_a_broken.tl"] = 'local function five(): integer\n  return "five"\nend\nreturn { count = five() }\n',
+    ["a_b_user.tl"] = 'local broken = require("a_a_broken")\nreturn broken\n',
   }
   for index = 1, 40 do
     files[string.format("other%02d.tl", index)] = "local record M\n  count: integer\nend\nlocal m: M = { count = " ..
@@ -2615,17 +2619,18 @@ local function test_a_file_run_tells_its_copies_to_stop_at_the_refusal_it_stops_
   local shared = assert(shared_compiles.for_build({ COSMIC_BUILD_CACHE = root .. "/cache/cache.db" }))
   local fan = assert(shared.fan)
   local fanned = false
-  local made_path, refused_path = root .. "/made-by-copies", root .. "/refused-by-a-copy"
+  local made_path = root .. "/made-by-copies"
   local watched: importer.Shared = { ...shared,
     fan = function(due: {importer.Module}, own_tree: boolean,
                    make: function(m: importer.Module, rest: {string:boolean}): importer.Shared.Compile?,
                    watch?: function()): importer.Shared.Fanned?
       local made = fan(due, own_tree, function(m: importer.Module, rest: {string:boolean}): importer.Shared.Compile?
-        -- A compile after the refusal is slow, so the word to stop reaches a copy with most of its share to make.
-        if Fs.read(refused_path) ~= nil then local _, _ = sys.nanosleep(100 * 1000000) end
+        -- Every module after the refused one is slow, so the word to stop reaches a copy with most of its share to
+        -- make, and the module that requires a broken one slower than the refusal it then knows of.
+        if m.path:find("^other") ~= nil then local _, _ = sys.nanosleep(100 * 1000000) end
+        if m.path == "a_b_user" then local _, _ = sys.nanosleep(300 * 1000000) end
         local one = make(m, rest)
         if one ~= nil then assert(Fs.append(made_path, m.path .. "\n")) end
-        if m.path == "a_needed" then assert(Fs.write(refused_path, "refused")) end
         return one
       end, watch)
       fanned = made ~= nil
