@@ -539,6 +539,10 @@ local function text_of(head: string): string, string?
   return head, nil
 end
 
+--- The number each run of digits [`test.decode_hits`] has met spells: the rows of a run name millions of lines and a
+--- few thousand different numbers, and `tonumber` of each was a third of reading them.
+local numbers_met: mut {string:integer} = {}
+
 --- Folds every line `encoded` (a row [`test.take_hits`] wrote) names into
 --- `hits`, but for a module of `identities` whose line names another text,
 --- or none (a row written before rows named their text): its lines would
@@ -593,7 +597,11 @@ function test.decode_hits(encoded: string, hits: Coverage.Hits, identities: {str
         if found == nil then unplaced = why end
       end
       for digits in lines:gmatch("%d+") do
-        local line = math.tointeger(tonumber(digits)) or 0
+        local line = numbers_met[digits]
+        if line == nil then
+          line = math.tointeger(tonumber(digits)) or 0
+          numbers_met[digits] = line
+        end
         if known == nil or (not numbered and named == known and line <= lua_tail.ordinal_base) then
           credited[#credited + 1] = line
         elseif numbered then
