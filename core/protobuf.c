@@ -1,6 +1,7 @@
 #include "protobuf.h"
 
 #include <inttypes.h>
+#include <math.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -10,6 +11,7 @@
 #include "pb_decode.h"
 
 #define MESSAGE_TYPE "cosmic.protobuf.message"
+#define WRITER_TYPE "cosmic.protobuf.writer"
 
 enum { wire_varint = 0, wire_fixed64 = 1, wire_len = 2, wire_fixed32 = 5 };
 enum { no_entry = -1, max_number = 536870911, why_size = 160 };
@@ -814,15 +816,423 @@ static const luaL_Reg methods[] = {
   {NULL, NULL},
 };
 
+/* A message being written: the bytes of the fields so far. User value 1
+ * is why the first field that could not be written could not, a string,
+ * or nil while every field could; user value 2 is the userdata `data`
+ * points into. */
+struct writer {
+  char *data;
+  size_t size;
+  size_t room;
+  bool troubled;
+};
+
+/* Pushes a writer of no fields, with room for a few. */
+static struct writer *push_writer (lua_State *L) {
+  enum { first_room = 64 };
+  struct writer *w = lua_newuserdatauv(L, sizeof *w, 2);
+  w->size = 0;
+  w->room = 0;
+  w->troubled = false;
+  w->data = NULL;
+  luaL_setmetatable(L, WRITER_TYPE);
+  char *data = lua_newuserdatauv(L, first_room, 0);
+  lua_setiuservalue(L, -2, 2);
+  w->data = data;
+  w->room = first_room;
+  return w;
+}
+
+static struct writer *writer_of (lua_State *L) {
+  return luaL_checkudata(L, 1, WRITER_TYPE);
+}
+
+/* Room for `more` bytes after those written by the writer `w` at stack
+ * index `self`, which is no index from the top. The bytes are a
+ * userdata of Lua's, so the collector counts them and frees them, and a
+ * refusal of memory raises as Lua's own does. The block before it is
+ * let go only once this returns. */
+static char *writer_room (lua_State *L, int self, struct writer *w,
+                          size_t more) {
+  if (w->room - w->size < more) {
+    size_t room = w->room;
+    while (room - w->size < more) {
+      if (room > SIZE_MAX / 2) {
+        luaL_error(L, "not enough memory");
+      }
+      room *= 2;
+    }
+    char *data = lua_newuserdatauv(L, room, 0);
+    memcpy(data, w->data, w->size);
+    lua_setiuservalue(L, self, 2);
+    w->data = data;
+    w->room = room;
+  }
+  return w->data + w->size;
+}
+
+static size_t put_varint (char *into, uint64_t value) {
+  size_t at = 0;
+  while (value >= 0x80) {
+    into[at++] = (char)(value | 0x80);
+    value >>= 7;
+  }
+  into[at++] = (char)value;
+  return at;
+}
+
+static void put_little (char *into, uint64_t value, size_t width) {
+  for (size_t i = 0; i < width; i++) {
+    into[i] = (char)(value >> (8 * i));
+  }
+}
+
+/* The value on the stack's top becomes the trouble of the writer at
+ * index 1, and is popped. */
+static void writer_fail (lua_State *L, struct writer *w) {
+  lua_setiuservalue(L, 1, 1);
+  w->troubled = true;
+}
+
+/* Whether the field at argument 2 can be written: false where the
+ * writer is troubled already, and where the number is no field's, which
+ * becomes its trouble. */
+static bool writer_number (lua_State *L, struct writer *w, uint32_t *number) {
+  if (w->troubled) {
+    return false;
+  }
+  lua_Integer n = lua_isinteger(L, 2) ? lua_tointeger(L, 2) : 0;
+  if (n < 1 || n > max_number) {
+    lua_pushfstring(L, "protobuf: %s is no field number (1 to %d)",
+                    luaL_tolstring(L, 2, NULL), (int)max_number);
+    writer_fail(L, w);
+    return false;
+  }
+  *number = (uint32_t)n;
+  return true;
+}
+
+/* Writes the key of a field and its value of `width` bytes, the low
+ * ones first, or as a varint where `width` is 0. */
+static int write_number (lua_State *L, struct writer *w, uint8_t wire,
+                         uint64_t value, size_t width) {
+  uint32_t number;
+  if (writer_number(L, w, &number)) {
+    char *into = writer_room(L, 1, w, 5 + 10);
+    size_t at = put_varint(into, (uint64_t)number << 3 | wire);
+    if (width == 0) {
+      at += put_varint(into + at, value);
+    } else {
+      put_little(into + at, value, width);
+      at += width;
+    }
+    w->size += at;
+  }
+  lua_settop(L, 1);
+  return 1;
+}
+
+/* Writes a length-delimited field of `size` bytes at `body`. */
+static int write_bytes (lua_State *L, struct writer *w, const char *body,
+                        size_t size) {
+  uint32_t number;
+  if (writer_number(L, w, &number)) {
+    char *into = writer_room(L, 1, w, 5 + 10 + size);
+    size_t at = put_varint(into, (uint64_t)number << 3 | wire_len);
+    at += put_varint(into + at, size);
+    if (size > 0) {
+      memcpy(into + at, body, size);
+    }
+    w->size += at + size;
+  }
+  lua_settop(L, 1);
+  return 1;
+}
+
+static uint64_t zigzag (lua_Integer value) {
+  return ((uint64_t)value << 1) ^ (value < 0 ? UINT64_MAX : 0);
+}
+
+static int writer_int (lua_State *L) {
+  struct writer *w = writer_of(L);
+  return write_number(L, w, wire_varint, (uint64_t)luaL_checkinteger(L, 3), 0);
+}
+
+static int writer_sint (lua_State *L) {
+  struct writer *w = writer_of(L);
+  return write_number(L, w, wire_varint, zigzag(luaL_checkinteger(L, 3)), 0);
+}
+
+static int writer_bool (lua_State *L) {
+  struct writer *w = writer_of(L);
+  return write_number(L, w, wire_varint, lua_toboolean(L, 3) ? 1 : 0, 0);
+}
+
+/* Whether `value` fits 32 bits, signed or not; where it does not, that
+ * becomes the trouble of a writer that has none. */
+static bool fits32 (lua_State *L, struct writer *w, lua_Integer value) {
+  if (value >= -INT64_C(0x80000000) && value <= INT64_C(0xffffffff)) {
+    return true;
+  }
+  if (!w->troubled) {
+    lua_pushfstring(L, "protobuf: field %s: %I does not fit 32 bits",
+                    luaL_tolstring(L, 2, NULL), (LUAI_UACINT)value);
+    writer_fail(L, w);
+  }
+  return false;
+}
+
+static int writer_fixed32 (lua_State *L) {
+  struct writer *w = writer_of(L);
+  lua_Integer value = luaL_checkinteger(L, 3);
+  if (!fits32(L, w, value)) {
+    lua_settop(L, 1);
+    return 1;
+  }
+  return write_number(L, w, wire_fixed32, (uint64_t)value & UINT64_C(0xffffffff), 4);
+}
+
+static int writer_fixed64 (lua_State *L) {
+  struct writer *w = writer_of(L);
+  return write_number(L, w, wire_fixed64, (uint64_t)luaL_checkinteger(L, 3), 8);
+}
+
+/* The bits of the single nearest `value`: one quiet NaN for every NaN,
+ * whose bits differ between processors, and the infinity of its sign
+ * for a value that rounds past the greatest single, which C leaves
+ * undefined. */
+static uint32_t float_bits (double value) {
+  if (value != value) {
+    return UINT32_C(0x7fc00000);
+  }
+  /* Half way from the greatest single to the next power of two. */
+  const double overflow = 3.4028235677973366e+38;
+  const double greatest = 3.4028234663852886e+38;
+  float single;
+  if (value >= overflow) {
+    single = (float)HUGE_VAL;
+  } else if (value <= -overflow) {
+    single = (float)-HUGE_VAL;
+  } else if (value > greatest) {
+    single = (float)greatest;
+  } else if (value < -greatest) {
+    single = (float)-greatest;
+  } else {
+    single = (float)value;
+  }
+  uint32_t bits;
+  memcpy(&bits, &single, sizeof bits);
+  return bits;
+}
+
+static uint64_t double_bits (double value) {
+  if (value != value) {
+    return UINT64_C(0x7ff8000000000000);
+  }
+  uint64_t bits;
+  memcpy(&bits, &value, sizeof bits);
+  return bits;
+}
+
+static int writer_float (lua_State *L) {
+  struct writer *w = writer_of(L);
+  return write_number(L, w, wire_fixed32, float_bits(luaL_checknumber(L, 3)), 4);
+}
+
+static int writer_double (lua_State *L) {
+  struct writer *w = writer_of(L);
+  return write_number(L, w, wire_fixed64, double_bits(luaL_checknumber(L, 3)), 8);
+}
+
+static int writer_bytes (lua_State *L) {
+  struct writer *w = writer_of(L);
+  size_t size;
+  const char *body = luaL_checklstring(L, 3, &size);
+  return write_bytes(L, w, body, size);
+}
+
+static int writer_string (lua_State *L) {
+  struct writer *w = writer_of(L);
+  size_t size;
+  const char *body = luaL_checklstring(L, 3, &size);
+  if (!is_utf8((const unsigned char *)body, size)) {
+    if (!w->troubled) {
+      lua_pushfstring(L, "protobuf: field %s: a string that is not UTF-8",
+                      luaL_tolstring(L, 2, NULL));
+      writer_fail(L, w);
+    }
+    lua_settop(L, 1);
+    return 1;
+  }
+  return write_bytes(L, w, body, size);
+}
+
+/* message(number, child): the fields `child` holds now, or its trouble. */
+static int writer_message (lua_State *L) {
+  struct writer *w = writer_of(L);
+  struct writer *child = luaL_testudata(L, 3, WRITER_TYPE);
+  if (child == NULL) {
+    /* A writer that is not the core's says what it holds itself. */
+    lua_getfield(L, 3, "encode");
+    lua_pushvalue(L, 3);
+    lua_call(L, 1, 2);
+    if (lua_type(L, -2) != LUA_TSTRING) {
+      /* No bytes and no reason is no trouble, and no field. */
+      bool reason = lua_type(L, -1) != LUA_TSTRING || lua_rawlen(L, -1) > 0;
+      if (!w->troubled && reason) {
+        writer_fail(L, w);
+      }
+      lua_settop(L, 1);
+      return 1;
+    }
+    size_t size;
+    const char *body = lua_tolstring(L, -2, &size);
+    return write_bytes(L, w, body, size);
+  }
+  if (child->troubled) {
+    if (!w->troubled) {
+      lua_getiuservalue(L, 3, 1);
+      writer_fail(L, w);
+    }
+    lua_settop(L, 1);
+    return 1;
+  }
+  if (child == w) {
+    /* Its own bytes move when room is made for them. */
+    lua_pushlstring(L, w->data, w->size);
+    size_t size;
+    const char *body = lua_tolstring(L, -1, &size);
+    return write_bytes(L, w, body, size);
+  }
+  return write_bytes(L, w, child->data, child->size);
+}
+
+static const char *const kinds[] = {"int",     "sint",  "fixed32",
+  "fixed64", "float", "double"};
+
+/* packed(number, kind, values): every value in one length-delimited
+ * field, and no field for an empty list. */
+static int writer_packed (lua_State *L) {
+  struct writer *w = writer_of(L);
+  const char *name = luaL_checkstring(L, 3);
+  luaL_checktype(L, 4, LUA_TTABLE);
+  int kind = 2; /* As the Teal writer took a kind it did not know. */
+  for (int i = 0; i < 6; i++) {
+    if (strcmp(name, kinds[i]) == 0) {
+      kind = i;
+    }
+  }
+  if (luaL_len(L, 4) == 0 || w->troubled) {
+    lua_settop(L, 1);
+    return 1;
+  }
+  /* The values are written to a writer of their own, whose bytes are
+   * this field's. */
+  struct writer *body = push_writer(L);
+  int held = lua_gettop(L);
+  for (lua_Integer i = 1; lua_geti(L, 4, i) != LUA_TNIL; i++) {
+    char *into = writer_room(L, held, body, 10);
+    size_t wrote = 0;
+    if (kind == 4 || kind == 5) {
+      double value = luaL_checknumber(L, -1);
+      if (kind == 4) {
+        put_little(into, float_bits(value), 4);
+        wrote = 4;
+      } else {
+        put_little(into, double_bits(value), 8);
+        wrote = 8;
+      }
+    } else {
+      int whole = 0;
+      lua_Integer value = lua_tointegerx(L, -1, &whole);
+      if (!whole) {
+        const char *shown = luaL_tolstring(L, held + 1, NULL);
+        lua_pushfstring(L, "protobuf: field %s: %s is no integer",
+                        luaL_tolstring(L, 2, NULL), shown);
+        writer_fail(L, w);
+        lua_settop(L, 1);
+        return 1;
+      }
+      if (kind == 0) {
+        wrote = put_varint(into, (uint64_t)value);
+      } else if (kind == 1) {
+        wrote = put_varint(into, zigzag(value));
+      } else if (kind == 3) {
+        put_little(into, (uint64_t)value, 8);
+        wrote = 8;
+      } else {
+        if (!fits32(L, w, value)) {
+          lua_settop(L, 1);
+          return 1;
+        }
+        put_little(into, (uint64_t)value & UINT64_C(0xffffffff), 4);
+        wrote = 4;
+      }
+    }
+    body->size += wrote;
+    lua_settop(L, held);
+  }
+  lua_settop(L, held);
+  uint32_t number;
+  if (writer_number(L, w, &number)) {
+    char *into = writer_room(L, 1, w, 5 + 10 + body->size);
+    size_t at = put_varint(into, (uint64_t)number << 3 | wire_len);
+    at += put_varint(into + at, body->size);
+    memcpy(into + at, body->data, body->size);
+    w->size += at + body->size;
+  }
+  lua_settop(L, 1);
+  return 1;
+}
+
+/* encode(): the bytes and "", or nil and the writer's trouble. */
+static int writer_encode (lua_State *L) {
+  struct writer *w = writer_of(L);
+  if (w->troubled) {
+    lua_pushnil(L);
+    lua_getiuservalue(L, 1, 1);
+    return 2;
+  }
+  lua_pushlstring(L, w->data, w->size);
+  return answer(L);
+}
+
+/* writer(): a writer of a message with no fields yet. */
+static int protobuf_writer (lua_State *L) {
+  push_writer(L);
+  return 1;
+}
+
+static const luaL_Reg writer_methods[] = {
+  {"int", writer_int},
+  {"sint", writer_sint},
+  {"bool", writer_bool},
+  {"fixed32", writer_fixed32},
+  {"fixed64", writer_fixed64},
+  {"float", writer_float},
+  {"double", writer_double},
+  {"bytes", writer_bytes},
+  {"string", writer_string},
+  {"message", writer_message},
+  {"packed", writer_packed},
+  {"encode", writer_encode},
+  {NULL, NULL},
+};
+
 static const luaL_Reg module[] = {
   {"decode", protobuf_decode},
   {"read_varint", protobuf_read_varint},
+  {"writer", protobuf_writer},
   {NULL, NULL},
 };
 
 int cosmic_open_protobuf (lua_State *L) {
   luaL_newmetatable(L, MESSAGE_TYPE);
   luaL_newlib(L, methods);
+  lua_setfield(L, -2, "__index");
+  lua_pop(L, 1);
+  luaL_newmetatable(L, WRITER_TYPE);
+  luaL_newlib(L, writer_methods);
   lua_setfield(L, -2, "__index");
   lua_pop(L, 1);
   luaL_newlib(L, module);

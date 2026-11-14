@@ -757,6 +757,70 @@ local function test_the_first_failure_is_the_writers_and_nothing_follows_it()
   unwritable(parent, "^protobuf: field 1: a string that is not UTF%-8")
 end
 
+local function test_a_writer_embedded_in_itself_holds_what_it_held()
+  local writer = Protobuf.writer():int(1, 1)
+  writer:message(2, writer)
+  assert(written(writer) == "080112020801")
+  local empty = Protobuf.writer()
+  empty:message(1, empty)
+  assert(written(empty) == "0a00")
+end
+
+local function test_a_writer_grows_to_what_it_is_given()
+  local writer = Protobuf.writer()
+  local parts: mut {string} = {}
+  for i = 1, 200 do
+    local text = ("x"):rep(i * 37)
+    writer:bytes(i, text)
+    parts[#parts + 1] = assert(Protobuf.encode({ { number = i, wire = Protobuf.LEN, value = text } }))
+  end
+  assert(assert(writer:encode()) == table.concat(parts))
+  assert(assert(writer:encode()) == table.concat(parts), "encode leaves the writer as it was")
+  assert(assert(writer:int(201, 1):encode()) == table.concat(parts) .. "\xc8\x0c\x01")
+end
+
+local class Canned is Protobuf.Writer
+  bytes_held: string?
+
+  function int(self, _number: integer, _value: integer): Protobuf.Writer return self end
+  function sint(self, _number: integer, _value: integer): Protobuf.Writer return self end
+  function bool(self, _number: integer, _value: boolean): Protobuf.Writer return self end
+  function fixed32(self, _number: integer, _value: integer): Protobuf.Writer return self end
+  function fixed64(self, _number: integer, _value: integer): Protobuf.Writer return self end
+  function float(self, _number: integer, _value: number): Protobuf.Writer return self end
+  function double(self, _number: integer, _value: number): Protobuf.Writer return self end
+  function bytes(self, _number: integer, _value: string): Protobuf.Writer return self end
+  function string(self, _number: integer, _value: string): Protobuf.Writer return self end
+  function message(self, _number: integer, _child: Protobuf.Writer): Protobuf.Writer return self end
+  function packed(self, _number: integer, _kind: Protobuf.Kind, _values: {number}): Protobuf.Writer
+    return self
+  end
+
+  function encode(self): string?, string
+    if self.bytes_held == nil then return nil, "canned: nothing held" end
+    return self.bytes_held, ""
+  end
+end
+
+local function test_a_writer_of_another_making_is_embedded_by_what_it_encodes()
+  local full: Canned = { bytes_held = "\x08\x01" }
+  assert(written(Protobuf.writer():message(3, full)) == "1a020801")
+  local none: Canned = { bytes_held = nil }
+  unwritable(Protobuf.writer():message(3, none):int(1, 1), "^canned: nothing held$")
+end
+
+local function test_the_first_trouble_of_a_field_is_its_values_and_then_its_numbers()
+  unwritable(Protobuf.writer():fixed32(0, 1 << 40), "^protobuf: field 0: 1099511627776 does not fit 32 bits$")
+  unwritable(Protobuf.writer():string(0, "\xff"), "^protobuf: field 0: a string that is not UTF%-8$")
+  unwritable(Protobuf.writer():packed(0, "int", { 1.5 }), "^protobuf: field 0: 1.5 is no integer$")
+  unwritable(Protobuf.writer():packed(0, "fixed32", { 1, -1 << 40 }), "does not fit 32 bits$")
+  unwritable(Protobuf.writer():packed(0, "int", { 1 }), "^protobuf: 0 is no field number %(1 to 536870911%)$")
+  assert(written(Protobuf.writer():packed(0, "int", {})) == "", "an empty list is no field, whatever its number")
+  unwritable(Protobuf.writer():int(1 << 29, 1):string(1, "\xff"), "^protobuf: 536870912 is no field number")
+  local troubled = Protobuf.writer():int(0, 1)
+  unwritable(Protobuf.writer():int(1, 1):message(2, troubled), "^protobuf: 0 is no field number")
+end
+
 local function test_encode_refuses_a_field_that_is_none()
   local function refuses(field: Protobuf.Field, pattern: string)
     local bytes, why = Protobuf.encode({ { number = 1, wire = Protobuf.VARINT, value = 1 }, field })
