@@ -177,16 +177,16 @@ function Hash.siphash(key: string, data: string, options?: Hash.SipHashOptions):
 end
 
 --- `length` bytes of key material derived from the secret `key` by HKDF,
---- the HMAC-based key derivation function of RFC 5869, over an algorithm: the way to turn one shared
---- secret, such as a key exchange's, into the keys a protocol needs.
---- `salt` need not be secret and may be "", which the RFC reads as a
---- digest's length of zero bytes. `info` names what the bytes are for, so
---- that two purposes get unrelated keys from one secret. The same
---- arguments always give the same bytes, and a shorter `length` gives a
---- prefix of a longer one's. `key` is a secret of high entropy, not a
---- password: HKDF does nothing to slow a guess. Raises on an unknown
---- algorithm, as [`Hash.hmac`] does, and on a `length` below 0 or above
---- 255 digests of the algorithm.
+--- the HMAC-based key derivation function of RFC 5869, over an
+--- algorithm: the way to turn one shared secret, such as a key
+--- exchange's, into the keys a protocol needs. `salt` need not be secret
+--- and may be "", which the RFC reads as a digest's length of zero bytes.
+--- `info` names what the bytes are for, so that two purposes get
+--- unrelated keys from one secret. The same arguments always give the
+--- same bytes, and a shorter `length` gives a prefix of a longer one's.
+--- `key` is a secret of high entropy, not a password: HKDF does nothing
+--- to slow a guess. Raises on an unknown algorithm, as [`Hash.hmac`]
+--- does, and on a `length` below 0 or above 255 digests of the algorithm.
 ---
 ---     local shared = string.rep("s", 32)
 ---     local sending = Hash.hkdf("sha256", shared, "", "client to server", 32)
