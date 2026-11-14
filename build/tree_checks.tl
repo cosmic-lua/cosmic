@@ -41,11 +41,12 @@ local closure_store = require("build.closure_store")
 local ContractRules = require("build.contract_rules")
 local key_parts = require("build.key_parts")
 local docs = require("build.docs")
+local Doc = require("cosmic.doc")
 local docs_checks = require("build.docs_checks")
 local ErrorRender = require("build.error_render")
 local GrammarMode = require("build.grammar_mode")
 local Pipeline = require("build.pipeline")
-local link_text = require("build.link_text")
+local link_text = require("cosmic.internal.link_text")
 local host_names = require("build.host_names")
 local identity = require("build.identity")
 local importer = require("build.importer")
@@ -71,7 +72,7 @@ local ScopesCover = require("lang.scopes_cover")
 local Warnings = require("lang.warnings")
 local TreeProgram = require("build.tree_program")
 local shared_compiles = require("build.shared_compiles")
-local symbols = require("build.symbols")
+local symbols = require("cosmic.internal.symbols")
 local work = require("build.work")
 local writer = require("build.writer")
 local String = require("cosmic.string")
@@ -930,7 +931,7 @@ function tree_checks.stand_ins(db: Sqlite.Handle, cases?: {{string}}): {string}
     if query == nil or wanted == nil then
       out[#out + 1] = "a stand-in case is the query a newcomer types and the function that stands in for it"
     else
-      local found, lookup_trouble = docs.lookup(looked, query)
+      local found, lookup_trouble = Doc.lookup(looked, query)
       local first = "nothing"
       if found == nil then
         first = "nothing (" .. lookup_trouble .. ")"
@@ -975,7 +976,7 @@ function tree_checks.queries(db: Sqlite.Handle, wanted?: {string}): {string}
   end
   local out: mut {string} = {}
   for _, query in ipairs(wanted or queries_expected()) do
-    local found, lookup_trouble = docs.lookup(looked, query)
+    local found, lookup_trouble = Doc.lookup(looked, query)
     if found == nil then
       out[#out + 1] = "`cosmic docs " .. query .. "`: " .. lookup_trouble
     elseif #found == 0 then
@@ -3147,7 +3148,8 @@ local text_read_allowed <const>: {string:string} = {
   ["build.closure_store"] = "reads the projection it writes the stores of, which a test is never given and which no test's store holds",
   ["build.perf"] = "a standalone script a release program runs; its SQL is the argument of a `cosmic sql` it starts and times against a project's own store, not a read of the store a test is given, and it cannot require a module of the tree it benchmarks",
   ["build.writer"] = "writes the projection from the working database it is handed, whose tables a test's store never holds",
-  ["build.symbols"] = "words a hint of a refusal from the docs and examples of the databases it is handed; in a pure store those tables are absent and it raises ([`build.symbols`]'s `refuse_withheld`)",
+  ["cosmic.internal.symbols"] = "words a hint of a refusal from the docs and examples of the databases it is handed; in a pure store those tables are absent and it raises ([`cosmic.internal.symbols`]'s `refuse_withheld`)",
+  ["cosmic.doc"] = "answers a caller from the docs, uses, links and examples of the databases it is handed; in a pure store those tables are absent and it raises, naming `store_text`; a standard-library module, which cannot require a module of the build",
   ["cosmic.errors"] = "asks the catalog for the guidance on an error; a pure store has no catalog and the lookup raises there ([`Errors.guidance_in`]); a standard-library module, which cannot require a module of the build",
 }
 

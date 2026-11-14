@@ -188,7 +188,7 @@ local version <const> = "35"
 --- `policy` declaration ([`cosmic.test`]), as the `needs` it stands for:
 --- one row per value a field lists (`true` for a flag, and the line the
 --- declaration starts on under `line`).
---- `links` is each link its comments hold ([`build.link_text`]), as
+--- `links` is each link its comments hold ([`cosmic.internal.link_text`]), as
 --- written: what it names is resolved only once every module is
 --- known, as a projection is written ([`build.link_index`]).
 --- `stubs` is the stub of a source (build.stub): the text a

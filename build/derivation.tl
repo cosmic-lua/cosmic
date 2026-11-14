@@ -86,7 +86,7 @@ local function derive_doc_guides(db: Sqlite.Handle, refusal: derivation.Refusal)
   for _, row in ipairs(guides) do
     local file, doc_source, from_hash = row:text(1), row:text(2), row:text(3)
     -- A dot in the name would read as a directory in the module's (`doc.guides.v1.2`), and whether a guide is
-    -- public is told from where its module sits ([`build.symbols`]'s `is_public_guide`).
+    -- public is told from where its module sits ([`cosmic.internal.symbols`]'s `is_public_guide`).
     if file:match("%.[^/]*%.md$") ~= nil then
       refusal.refused = true
       return false, file .. ": a guide's name holds no dot, since it names the module " ..

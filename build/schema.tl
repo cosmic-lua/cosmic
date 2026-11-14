@@ -8,12 +8,10 @@
 --- reading other modules' overflow pages. A rowid is never an identity
 --- a reader may keep across builds.
 
-local record schema
-  --- The name of the `docs` index of a module's `local` declarations.
-  mut local_index: string
-end
+local symbols = require("cosmic.internal.symbols")
 
-schema.local_index = "docs_by_local"
+local record schema
+end
 
 --- What a statement creates: the `name` of a table or an index and the `body` after it.
 local record Definition
@@ -76,7 +74,7 @@ local tables: {Definition} = {
   -- Each name a module's own block binds to another module, once and to
   -- nothing else ([`build.syntax_analyzer`]'s `Bound`): what a type the module
   -- declares means by `name.Member` (`record Entry is
-  -- Stream.ArchiveEntry`), which [`build.alias_members`] follows. Unlike
+  -- Stream.ArchiveEntry`), which [`cosmic.internal.alias_members`] follows. Unlike
   -- `imports`, `requires` need not be a module the projection holds.
   { name = "bound", body = [[(path TEXT NOT NULL,
                 name TEXT NOT NULL,
@@ -87,7 +85,7 @@ local tables: {Definition} = {
                 source BLOB NOT NULL) WITHOUT ROWID]] },
 
   -- Each module a reader with the binary alone is told of: what a public
-  -- source answers for ([`build.symbols`]'s `public_only`). The projection
+  -- source answers for ([`cosmic.internal.symbols`]'s `public_only`). The projection
   -- writes it ([`build.writer`]), the tool carries the standard library's
   -- rows and a program its project's.
   { name = "public_modules", body = "(path TEXT PRIMARY KEY) WITHOUT ROWID" },
@@ -303,18 +301,6 @@ local settings: {string} = {
   "encoding = 'UTF-8'",
 }
 
---- The SQL for the last dotted name of the SQL `symbol`, a method's `:`
---- read as `.` (`Box:grow` and `X.Box.grow` both end in `grow`): what
---- follows `symbol`'s last `.`, by dropping the longest prefix that ends
---- in one. The `docs` index on it ([`schema.create`]) is found by the
---- planner only through this very text, so a query that means to use it
---- builds the expression here.
-function schema.last_name(symbol: string): string
-  local dotted = "replace(" .. symbol .. ", ':', '.')"
-  return "replace(" .. dotted .. ", rtrim(" .. dotted .. ", replace(" .. dotted ..
-    ", '.', '')), '')"
-end
-
 --- The indexes of the `docs` table, each as its name and what follows
 --- `ON docs` in its statement. A lookup by name reads a symbol by its
 --- last name, its source spelling or its module rather than scanning
@@ -325,11 +311,11 @@ end
 --- without them, so a database written before they existed is only
 --- slower to read.
 local docs_indexes: {Definition} = {
-  { name = "docs_by_last_name", body = "(" .. schema.last_name("symbol") .. ")" },
+  { name = "docs_by_last_name", body = "(" .. symbols.last_name("symbol") .. ")" },
   { name = "docs_by_source_symbol", body = "(source_symbol)" },
   { name = "docs_by_module", body = "(module)" },
   { name = "docs_by_module_row", body = "(module) WHERE symbol = ''" },
-  { name = schema.local_index, body = "(module, source_symbol) WHERE exported = 0 AND signature LIKE 'local %'" },
+  { name = symbols.local_index, body = "(module, source_symbol) WHERE exported = 0 AND signature LIKE 'local %'" },
 }
 
 --- The statements that create an empty database, in order, every table

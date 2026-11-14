@@ -68,7 +68,7 @@ local walks <const>: {string} = { pipeline, analyzer, receivers, links }
 
 local analyzer_roots <const>: {string} = {
   "build.derivation", "build.analysis_schema", "build.bind",
-  "build.doctest", "build.gen_syscalls", "build.link_text", "build.parse_derive",
+  "build.doctest", "build.gen_syscalls", "cosmic.internal.link_text", "build.parse_derive",
 }
 
 local receivers_modules <const>: {string} = { "build.syntax_receivers", "build.syntax_contracts" }

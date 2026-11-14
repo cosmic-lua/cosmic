@@ -22,7 +22,7 @@ Test.policy{
 
 local function test_a_withheld_source_is_said_so_and_not_taken_for_absent(tmp: string)
   local roots = { "build.importer", "build.pipeline", "build.derivation", "build.analysis_schema", "build.bind",
-    "build.doctest", "build.gen_syscalls", "build.link_text", "cosmic.json", "cosmic.fs" }
+    "build.doctest", "build.gen_syscalls", "cosmic.internal.link_text", "cosmic.json", "cosmic.fs" }
   local path = tmp .. "/withheld.db"
   -- The program asks the store about a module whose source is withheld, one whose source it carries and one it
   -- does not hold, and what the importer and the checker's provider make of the withheld one, and prints what it
