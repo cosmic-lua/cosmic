@@ -173,6 +173,8 @@ local function test_a_second_checkout_stands_on_the_first_ones_verdicts(tmp: str
   -- the run that started it sees.
   local again = said("again", tmp .. "/second", "0 ran, 5 stood")
   assert(not again:find("another checkout", 1, true), again)
+  -- And credited the same lines from the rows it kept, which hold them as the cache does.
+  assert(covered == again:match("coverage [^\n]*"), second .. again)
 end
 
 --- A checkout started after the tool rebuilt itself, from a shell that

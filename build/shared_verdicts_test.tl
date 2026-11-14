@@ -9,6 +9,19 @@ local Clock = require("cosmic.clock")
 local Sqlite = require("cosmic.sqlite")
 local shared_verdicts = require("build.shared_verdicts")
 
+--- The text of `kept`, a row as the cache keeps it, with each module's lines in full: the distances added up.
+local function in_full(kept: string): string
+  return (kept:gsub("([^\t\n]*)\t([^\n]*)\n", function(path: string, lines: string): string
+    local out: mut {string} = {}
+    local last = 0
+    for step in lines:gmatch("%d+") do
+      last = last + (math.tointeger(tonumber(step)) or 0)
+      out[#out + 1] = tostring(last)
+    end
+    return path .. "\t" .. table.concat(out, ",") .. "\n"
+  end))
+end
+
 --- A run none of whose lookups stood is told what the cache held: its
 --- rows, those of the tests it looked up, and the digests every key of
 --- it holds; an empty cache says nothing.
@@ -102,7 +115,7 @@ local function test_the_verdicts_of_one_run_keep_their_own_hits(tmp: string)
   assert(shared_verdicts.settle(cache, "first", { kept = kept, used = {}, failed = {} }, Clock.now_ns()))
   for at, text in ipairs(hits) do
     local found = assert(shared_verdicts.declared(cache, "k" .. tostring(at)))
-    local back = shared_verdicts.unpacked(found.kept)
+    local back = in_full(found.kept)
     assert(back == text, "verdict " .. tostring(at) .. " came back with " .. back)
   end
   shared_verdicts.close(cache)
@@ -132,7 +145,7 @@ local function test_a_verdict_is_kept_by_its_key_alone(tmp: string)
     key = "declared", test = "suite/t_test.tl test_t", hits = "suite/t_test.tl\t1,2,5\n",
     elapsed_ns = 7 } }, used = {}, failed = {} }, Clock.now_ns()))
   local found = assert(shared_verdicts.declared(cache, "declared"))
-  local hits = shared_verdicts.unpacked(found.kept)
+  local hits = in_full(found.kept)
   assert(found.elapsed_ns == 7 and hits == "suite/t_test.tl\t1,2,5\n", hits)
   -- Relied on long after it was written, it stays; unrelied, it goes.
   local later = Clock.now_ns() + 29 * 24 * 3600 * 1000000000

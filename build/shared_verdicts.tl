@@ -54,8 +54,8 @@ local record shared_verdicts
   --- A passing verdict's coverage and duration.
   record Found
     --- Its hits as the row keeps them, a line a module, each module's lines after its first as distances
-    --- ([`shared_verdicts.unpacked`] gives the lines). A run stands on thousands of rows that repeat most of their
-    --- lines, so the reader knows a line it has met by this text and unpacks only one it has not.
+    --- (`packed`). A run stands on thousands of rows that repeat most of their lines, so the reader knows a line
+    --- it has met by this text, and reads only one it has not ([`build.test`]'s `decode_kept`).
     kept: string
     elapsed_ns: integer
   end
@@ -242,34 +242,6 @@ local function packed(hits: string, known: mut {string:string}): string
       known[whole] = done
     end
     return done
-  end))
-end
-
---- The number each run of digits met spells, and the digits of each number written: a run's rows hold millions of
---- line numbers in a few thousand different ones, so each is read (`tonumber`) and written (`tostring`) once.
-local spelled: mut {string:integer} = {}
-local written: mut {integer:string} = {}
-
---- `packed` undone, of text as a row keeps it ([`shared_verdicts.Found`]'s `kept`): whole lines, any number.
-function shared_verdicts.unpacked(kept: string): string
-  return (kept:gsub("([^\t\n]*)\t([^\n]*)\n", function(path: string, lines: string): string
-    local out: mut {string} = {}
-    local last = 0
-    for step in lines:gmatch("%d+") do
-      local by = spelled[step]
-      if by == nil then
-        by = math.tointeger(tonumber(step)) or 0
-        spelled[step] = by
-      end
-      last = last + by
-      local digits = written[last]
-      if digits == nil then
-        digits = tostring(last)
-        written[last] = digits
-      end
-      out[#out + 1] = digits
-    end
-    return path .. "\t" .. table.concat(out, ",") .. "\n"
   end))
 end
 
