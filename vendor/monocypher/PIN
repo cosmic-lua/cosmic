@@ -1,0 +1,11 @@
+version 4.0.3
+url https://monocypher.org/download/monocypher-4.0.3.tar.gz
+sha256 8cc9bc341a66249016db9bd70e9142d8d0aef9945973744b1ac05dbc55d8ee66
+strip monocypher-4.0.3/
+keep LICENCE.md
+keep src/monocypher.c
+keep src/monocypher.h
+keep src/optional/monocypher-ed25519.c
+keep src/optional/monocypher-ed25519.h
+license BSD-2-Clause OR CC0-1.0
+notice LICENCE.md

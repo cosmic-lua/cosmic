@@ -447,6 +447,9 @@ local function test_a_tree_changed_while_the_bridge_runs_is_not_kept(tmp: string
   for index, case in ipairs(cases) do
     local dir = tmp .. "/mid-" .. tostring(index)
     assert(Fs.mkdirs(dir))
+    -- Every case runs the first one's copy of the core: a copy each of the checked core, over 50 MB, is more than
+    -- a test's temporary directory holds.
+    if index > 1 then assert(Fs.symlink(tmp .. "/mid-1/cosmic-core", dir .. "/cosmic-core")) end
     local tree = tree_of(dir, ENTRY)
     assert(Fs.write(tree .. "/lang/unrelated.tl", "-- before\n"))
     assert(Fs.write(tree .. "/core/other.h", "/* before */\n"))

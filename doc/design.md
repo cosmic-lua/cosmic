@@ -142,7 +142,8 @@ kernel                               Linux; macOS
     lua 5.5                          vendored pristine
     sqlite3, its ext/misc functions  vendored, patched (patch/)
     mbedtls, miniz, bzip2, xz,       vendored pristine
-    zstd, c-ares, curl, yyjson
+    zstd, c-ares, curl, yyjson,
+    monocypher
     argon2, a regex engine           planned
     syscall table                    C, one function per syscall
   cosmic binary
@@ -223,7 +224,7 @@ with a policy in it is Teal, stored once in the database and shared
 by every target.
 
 native, per target: the Lua VM; SQLite; mbedtls, which also serves
-hashing, HMAC, authenticated encryption and X25519; miniz for deflate; yyjson for JSON; expat for XML; argon2 and a
+hashing, HMAC, authenticated encryption and X25519; Monocypher for Ed25519 signatures; miniz for deflate; yyjson for JSON; expat for XML; argon2 and a
 regex engine, both planned; the syscall table; the database VFS and the
 entry. measured stripped on
 x86_64 musl: Lua 360 KB, SQLite with the flags below 1.1 MB, FTS5
@@ -993,7 +994,7 @@ a record whose anchor no longer matches fails the build by name.
 
 vendored: Lua 5.5, the SQLite amalgamation and twelve of its ext/misc
 extensions, mbedtls, miniz, bzip2,
-xz's liblzma (decoder and LZMA2 encoder), zstd, c-ares, curl, yyjson, expat, Mozilla's CA bundle, the
+xz's liblzma (decoder and LZMA2 encoder), zstd, c-ares, curl, yyjson, expat, Monocypher, Mozilla's CA bundle, the
 IANA time zone database's compiled `zoneinfo`, and tl;
 argon2's reference implementation built without threads and the regex
 engine are planned. a library that needs a configuration header gets a
@@ -1181,6 +1182,13 @@ pinned bump; the core parses it once, and every TLS connection, a
 proxy's too, verifies against that chain. `SSL_CERT_FILE` adds
 certificates for the corporate-proxy case without making per-machine
 trust the default.
+
+mbedtls's PSA driver carries no Ed25519, so signatures come from
+Monocypher 4, vendored as its two portable C files: the curve, and RFC
+8032's SHA-512 over it. [`cosmic.sign`] is the Teal face of it and the
+raw [`cosmic.internal.sign`] table the bindings. Only Ed25519 is bound:
+Monocypher's own `crypto_eddsa_*` signs with BLAKE2b, which no Ed25519
+implementation verifies.
 
 [`cosmic.bigint`] is arithmetic on integers of thousands of bits over
 the library's bignum, the one its RSA and ECC use, which the PSA API
@@ -1450,12 +1458,14 @@ in [roadmap.md](roadmap.md).
 [`cosmic.internal.errors`]: ../cosmic/internal/errors.d.tl
 [`cosmic.internal.bigint`]: ../cosmic/internal/bigint.d.tl
 [`cosmic.internal.hash`]: ../cosmic/internal/hash.d.tl
+[`cosmic.internal.sign`]: ../cosmic/internal/sign.d.tl
 [`cosmic.internal.process`]: ../core/process.h
 [`cosmic.internal.sqlite`]: ../cosmic/internal/sqlite.d.tl
 [`cosmic.internal.store`]: ../cosmic/internal/store.d.tl
 [`cosmic.internal.testing`]: ../cosmic/internal/testing.d.tl
 [`cosmic.proc`]: ../cosmic/proc.tl
 [`cosmic.removed`]: ../cosmic/removed.tl
+[`cosmic.sign`]: ../cosmic/sign.tl
 [`cosmic.sqlite`]: ../cosmic/sqlite.tl
 [`cosmic.store`]: ../cosmic/store.tl
 [`cosmic.sys`]: ../core/syscalls.h
