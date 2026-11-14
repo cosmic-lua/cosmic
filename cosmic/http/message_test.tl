@@ -30,8 +30,8 @@ local function listed(headers: {string:string}): string
   return table.concat(out, "|")
 end
 
---- What a request read says, as text, `rest` left out: it is the last
---- feed's, so it differs with the split.
+--- What a request read says, as text, `next` left out: it is a
+--- position in the last feed, so it differs with the split.
 local function request_text(read: Message.RequestRead): string
   local got = read.request
   if got == nil then return read.status .. " " .. read.reason end
@@ -75,7 +75,7 @@ local function refusal(text: string, opts?: Message.Options): string
   local bytewise = request_in_pieces(text, 1, opts)
   assert(bytewise.status == "refused" and bytewise.reason == whole.reason,
     ("%q: whole %q, a byte at a time %q"):format(text, whole.reason, bytewise.reason))
-  assert(whole.request == nil and whole.consumed == 0 and whole.rest == "")
+  assert(whole.request == nil and whole.consumed == 0 and whole.next == 1)
   return whole.reason
 end
 
@@ -99,15 +99,16 @@ local function test_a_request_with_a_content_length_is_read_with_its_body()
   assert(got.headers["host"] == "h" and got.headers["x-a"] == "1, 2", got.headers["x-a"])
   local values = assert(got.values["x-a"])
   assert(#values == 2 and values[1] == "1" and values[2] == "2")
-  assert(read.rest == "NEXT" and read.consumed == #text - 4, tostring(read.consumed))
+  assert(text:sub(read.next) == "NEXT" and read.consumed == #text - 4, tostring(read.consumed))
 end
 
 local function test_a_request_with_no_length_has_no_body()
-  local read = request("GET / HTTP/1.1\r\nHost: h\r\n\r\nGET /2 HTTP/1.1\r\n\r\n")
+  local text = "GET / HTTP/1.1\r\nHost: h\r\n\r\nGET /2 HTTP/1.1\r\n\r\n"
+  local read = request(text)
   local got = assert(read.request, read.reason)
-  assert(got.body == "" and read.rest == "GET /2 HTTP/1.1\r\n\r\n", read.rest)
+  assert(got.body == "" and text:sub(read.next) == "GET /2 HTTP/1.1\r\n\r\n", tostring(read.next))
   -- A reader holds no rule above the message: no Host is taken.
-  local second = assert(request(read.rest).request)
+  local second = assert(Message.request_reader():feed(text, read.next).request)
   assert(second.target == "/2" and next(second.headers) == nil)
 end
 
@@ -127,7 +128,7 @@ local function test_a_chunked_body_is_decoded_and_its_trailers_dropped()
   local read = request(text)
   local got = assert(read.request, read.reason)
   assert(got.body == "hello world", got.body)
-  assert(got.headers["x-trailer"] == nil and read.rest == "rest")
+  assert(got.headers["x-trailer"] == nil and text:sub(read.next) == "rest")
   assert(read.consumed == #text - 4)
   local answered = assert(response("HTTP/1.1 200 OK\r\ntransfer-encoding: Chunked\r\n\r\n1\r\na\r\n0\r\n\r\n").response)
   assert(answered.body == "a")
@@ -140,19 +141,20 @@ local function test_a_response_with_no_length_runs_to_the_end_of_the_stream()
   local read = reader:finish()
   local got = assert(read.response, read.reason)
   assert(got.body == "all of it" and got.protocol == "HTTP/1.0" and read.consumed == 39, tostring(read.consumed))
-  assert(read.rest == "")
+  assert(read.next == 1)
 end
 
 local function test_a_response_that_takes_no_body_ends_at_its_head()
   for _, status in ipairs({ "100", "101", "204", "304" }) do
-    local read = response("HTTP/1.1 " .. status .. " X\r\nContent-Length: 5\r\n\r\nNEXT!")
+    local text = "HTTP/1.1 " .. status .. " X\r\nContent-Length: 5\r\n\r\nNEXT!"
+    local read = response(text)
     local got = assert(read.response, read.reason)
-    assert(got.body == "" and read.rest == "NEXT!", status)
+    assert(got.body == "" and text:sub(read.next) == "NEXT!", status)
   end
   local head = response("HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nNEXT!", { head_only = true })
-  assert(assert(head.response).body == "" and head.rest == "NEXT!")
+  assert(assert(head.response).body == "" and head.next == 39)
   local chunked = response("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\nNEXT!", { head_only = true })
-  assert(assert(chunked.response).body == "" and chunked.rest == "NEXT!")
+  assert(assert(chunked.response).body == "" and chunked.next == 48)
   -- The framing a bodiless response names is still held to the grammar.
   assert(response_refusal("HTTP/1.1 204 No Content\r\nContent-Length: x\r\n\r\n") == "Content-Length is not digits")
 end
@@ -334,7 +336,7 @@ end
 local function test_an_answer_but_more_is_final()
   local reader = Message.request_reader()
   local done = reader:feed("GET / HTTP/1.1\r\n\r\nrest")
-  assert(done.status == "done" and done.rest == "rest")
+  assert(done.status == "done" and done.next == 19)
   assert(reader:feed("GET /other HTTP/1.1\r\n\r\n") == done and reader:finish() == done)
   local refuser = Message.response_reader()
   local refused = refuser:feed("nonsense\r\n")
@@ -391,26 +393,26 @@ local function test_where_the_feeds_split_decides_nothing()
 end
 
 --- Three requests in one feed are read one after another, each reader
---- fed what the one before left.
+--- fed the chunk from where the one before stopped.
 local function test_pipelined_messages_are_read_one_reader_each()
   local bytes = "GET /1 HTTP/1.1\r\n\r\n" ..
     "POST /2 HTTP/1.1\r\nContent-Length: 3\r\n\r\nabc" ..
     "POST /3 HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n3\r\ndef\r\n0\r\n\r\n"
   local seen: mut {string} = {}
   local consumed = 0
-  local rest = bytes
-  while rest ~= "" do
-    local read = Message.request_reader():feed(rest)
+  local at = 1
+  while at <= #bytes do
+    local read = Message.request_reader():feed(bytes, at)
     local got = assert(read.request, read.reason)
     seen[#seen + 1] = got.target .. "=" .. got.body
     consumed = consumed + read.consumed
-    rest = read.rest
+    at = read.next
   end
   assert(table.concat(seen, " ") == "/1= /2=abc /3=def", table.concat(seen, " "))
   assert(consumed == #bytes)
   -- A feed that ends exactly at a message's end leaves nothing.
   local exact = Message.request_reader():feed("GET /1 HTTP/1.1\r\n\r\n")
-  assert(exact.status == "done" and exact.rest == "" and exact.consumed == 19)
+  assert(exact.status == "done" and exact.next == 20 and exact.consumed == 19)
 end
 
 --- A body sent a byte at a time costs its length: a megabyte fed so
@@ -433,6 +435,30 @@ local function test_a_feed_of_many_lines_is_read_in_time_linear_in_it()
   assert(#assert(read.request, read.reason).body == 200000)
   local blank = request(("\r\n"):rep(500000) .. "GET / HTTP/1.1\r\n\r\n", { head_bytes = 2 * 1024 * 1024 })
   assert(blank.status == "done", blank.reason)
+end
+
+--- Many small messages in one feed cost its length: an answer that
+--- copied the bytes after its message would cost the square of it.
+local function test_many_pipelined_messages_in_one_feed_are_read_in_time_linear_in_it()
+  local bytes = ("GET / HTTP/1.1\r\n\r\n"):rep(100000)
+  local count, at = 0, 1
+  while at <= #bytes do
+    local read = Message.request_reader():feed(bytes, at)
+    assert(read.status == "done", read.reason)
+    count, at = count + 1, read.next
+  end
+  assert(count == 100000 and at == #bytes + 1)
+end
+
+--- A chunked body's extensions, zeros and trailers may bring the head's
+--- count to head_bytes and no further.
+local function test_chunked_framing_is_counted_to_the_byte()
+  local head = "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n"
+  assert(#head == 47)
+  -- 4 of extension, 4 of zeros and 6 of trailer: 61 in all.
+  local body = "1;abc\r\na\r\n000001\r\nb\r\n0\r\nT: t\r\n\r\n"
+  assert(assert(request(head .. body, { head_bytes = 61 }).request).body == "ab")
+  assert(refusal(head .. body, { head_bytes = 60 }) == "a chunked body's extensions and trailers pass 60 bytes")
 end
 
 local function test_options_that_are_not_what_they_say_raise()
@@ -500,11 +526,28 @@ local function test_parts_a_reader_would_refuse_are_not_written()
   assert(request_why({ method = "PUT", target = "/", body = "abc", headers = { ["Content-Length"] = "2" } }) ==
       "the Content-Length is 2, but the body is 3 bytes")
   assert(request_why({ method = "PUT", target = "/", headers = { ["Content-Length"] = "x" } }) ==
-      "Content-Length is not one value of digits")
+      "Content-Length is not one value of at most 18 digits")
   assert(request_why({ method = "PUT", target = "/", headers = { ["Content-Length"] = { "1", "1" } } }) ==
-      "Content-Length is not one value of digits")
+      "Content-Length is not one value of at most 18 digits")
   assert(request_why({ method = "PUT", target = "/",
     headers = { ["Content-Length"] = "1", ["content-length"] = "1" } }) == "Content-Length is given twice")
+  assert(request_why({ method = "PUT", target = "/", headers = { ["Content-Length"] = ("9"):rep(19) } }) ==
+      "Content-Length is not one value of at most 18 digits")
+  local coded = "Transfer-Encoding"
+  assert(request_why({ method = "PUT", target = "/", headers = { [coded] = "chunked", ["Content-Length"] = "0" } }) ==
+      "Content-Length and Transfer-Encoding are both given")
+  assert(response_why({ status = 200, headers = { [coded] = "chunked", ["content-length"] = "0" } }) ==
+      "Content-Length and Transfer-Encoding are both given")
+  assert(request_why({ method = "PUT", target = "/", headers = { [coded] = "gzip" } }) ==
+      "the Transfer-Encoding is not chunked alone")
+  assert(request_why({ method = "PUT", target = "/", headers = { [coded] = { "chunked", "chunked" } } }) ==
+      "the Transfer-Encoding is not chunked alone")
+  assert(request_why({ method = "PUT", target = "/",
+    headers = { [coded] = "chunked", ["transfer-encoding"] = "chunked" } }) == "Transfer-Encoding is given twice")
+  assert(request_why({ method = "PUT", target = "/", protocol = "HTTP/1.0", headers = { [coded] = "chunked" } }) ==
+      "Transfer-Encoding goes with HTTP/1.1 alone")
+  assert(response_why({ status = 200, protocol = "RTSP/1.0", headers = { [coded] = "chunked" } }) ==
+      "Transfer-Encoding goes with HTTP/1.1 alone")
   assert(request_why({ method = "PUT", target = "/", body = "a", headers = { ["Transfer-Encoding"] = "chunked" } })
       :find("Transfer-Encoding", 1, true))
   assert(response_why({ status = 99 }) == "the status is not from 100 to 999")

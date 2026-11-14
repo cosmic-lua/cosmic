@@ -1,6 +1,6 @@
 --- Fuzz properties for cosmic.http.message, whose readers are fed
 --- bytes no one vouches for: reading is total and bounded, each
---- message's `consumed` and `rest` account for every byte, and the same
+--- message's `consumed` and `next` account for every byte, and the same
 --- bytes read the same wherever the feeds split; and a message written
 --- from its parts is read back as those parts, under HTTP's name and
 --- under RTSP's.
@@ -61,7 +61,7 @@ end
 local record Answer
   status: Message.Status
   consumed: integer
-  rest: string
+  next: integer
   reason: string
   --- When `done`: the message as text, and its body.
   text?: string
@@ -83,9 +83,9 @@ end
 local function request_answer(read: Message.RequestRead): Answer
   local got = read.request
   if got == nil then
-    return { status = read.status, consumed = read.consumed, rest = read.rest, reason = read.reason }
+    return { status = read.status, consumed = read.consumed, next = read.next, reason = read.reason }
   end
-  return { status = read.status, consumed = read.consumed, rest = read.rest, reason = read.reason,
+  return { status = read.status, consumed = read.consumed, next = read.next, reason = read.reason,
     text = table.concat({ got.method, got.target, got.protocol, listed(got.headers, got.values), got.body }, "\n"),
     body = got.body }
 end
@@ -93,16 +93,16 @@ end
 local function response_answer(read: Message.ResponseRead): Answer
   local got = read.response
   if got == nil then
-    return { status = read.status, consumed = read.consumed, rest = read.rest, reason = read.reason }
+    return { status = read.status, consumed = read.consumed, next = read.next, reason = read.reason }
   end
-  return { status = read.status, consumed = read.consumed, rest = read.rest, reason = read.reason,
+  return { status = read.status, consumed = read.consumed, next = read.next, reason = read.reason,
     text = table.concat({ got.protocol, tostring(got.status), got.reason, listed(got.headers, got.values),
       got.body }, "\n"), body = got.body }
 end
 
 --- A reader of either kind, as its feed and finish.
 local record Reader
-  feed: function(chunk: string): Answer
+  feed: function(chunk: string, from: integer): Answer
   finish: function(): Answer
 end
 
@@ -111,13 +111,17 @@ local function new_reader(response: boolean, protocol: string): Reader
   if response then
     local reader = Message.response_reader(opts)
     return {
-      feed = function(chunk: string): Answer return response_answer(reader:feed(chunk)) end,
+      feed = function(chunk: string, from: integer): Answer
+        return response_answer(reader:feed(chunk, from))
+      end,
       finish = function(): Answer return response_answer(reader:finish()) end,
     }
   end
   local reader = Message.request_reader(opts)
   return {
-    feed = function(chunk: string): Answer return request_answer(reader:feed(chunk)) end,
+    feed = function(chunk: string, from: integer): Answer
+      return request_answer(reader:feed(chunk, from))
+    end,
     finish = function(): Answer return request_answer(reader:finish()) end,
   }
 end
@@ -140,15 +144,16 @@ local function transcript(data: string, sizes: {integer}, response: boolean, pro
     next_size = next_size + 1
     local chunk = data:sub(at, at + size - 1)
     at = at + #chunk
+    local from = 1
     while true do
-      local read = reader.feed(chunk)
+      local read = reader.feed(chunk, from)
       if read.status == "more" then
-        assert(read.consumed == 0 and read.rest == "" and read.reason == "" and read.text == nil)
+        assert(read.consumed == 0 and read.next == 1 and read.reason == "" and read.text == nil)
         break
       end
-      assert(reader.feed("more").status == read.status, "an answer is not final")
+      assert(reader.feed("more", 1).status == read.status, "an answer is not final")
       if read.status == "refused" then
-        assert(read.reason ~= "" and read.text == nil and read.consumed == 0 and read.rest == "")
+        assert(read.reason ~= "" and read.text == nil and read.consumed == 0 and read.next == 1)
         Fuzz.label("refused")
         out[#out + 1] = "refused " .. read.reason
         return table.concat(out, "\n")
@@ -156,25 +161,25 @@ local function transcript(data: string, sizes: {integer}, response: boolean, pro
       assert(read.status == "done", "a feed answered " .. read.status)
       local text, body = assert(read.text), assert(read.body)
       assert(#body <= 256, "a body past its limit")
-      assert(read.consumed > 0 and #read.rest <= #chunk and chunk:sub(#chunk - #read.rest + 1) == read.rest,
-        "rest is not the end of the last feed")
+      assert(read.consumed > 0 and read.next > from and read.next <= #chunk + 1,
+        "next is not a position after the message in the last feed")
       taken = taken + read.consumed
-      assert(taken == at - 1 - #read.rest, "consumed and rest do not account for the bytes fed")
+      assert(taken == at - 1 - (#chunk + 1 - read.next), "consumed and next do not account for the bytes fed")
       messages = messages + 1
       Fuzz.label("done")
       if messages == 2 then Fuzz.label("second message") end
       if body ~= "" then Fuzz.label("body") end
       out[#out + 1] = ("done %d\n%s"):format(read.consumed, text)
       reader = new_reader(response, protocol)
-      chunk = read.rest
-      if chunk == "" then break end
+      from = read.next
+      if from > #chunk then break end
     end
   end
   local read = reader.finish()
   assert(read.status ~= "more", "finish answered more")
   if read.status == "done" then
     local text, body = assert(read.text), assert(read.body)
-    assert(response and #body <= 256 and read.rest == "" and taken + read.consumed == #data)
+    assert(response and #body <= 256 and read.next == 1 and taken + read.consumed == #data)
     Fuzz.label("to the end of the stream")
     out[#out + 1] = ("done %d\n%s"):format(read.consumed, text)
   else
@@ -343,7 +348,7 @@ local function test_a_written_message_reads_back(tmp: string)
         answer = request_answer(read)
         Fuzz.label("request")
       end
-      if answer.consumed ~= #text or answer.rest ~= "" then
+      if answer.consumed ~= #text or (answer.next ~= #text + 1 and answer.next ~= 1) then
         return false, "the message is not all the bytes"
       end
       if answer.body ~= (if bodiless then "" else body or "" end) then

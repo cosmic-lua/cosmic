@@ -9,7 +9,7 @@ end
 
 --- A server's side of a channel the program owns: bytes arrive in
 --- pieces that end anywhere, and each request is read by a reader of its
---- own, the next one fed what the last left.
+--- own, the next one fed the piece from where the last stopped.
 function Example.request_reader()
   local arriving = {
     "POST /notes HTTP/1.1\r\nHost: h.test\r\nContent-Le",
@@ -19,15 +19,15 @@ function Example.request_reader()
   local seen: mut {string} = {}
   local reader = Message.request_reader({ body_bytes = 64 * 1024 })
   for _, piece in ipairs(arriving) do
-    local chunk = piece
-    while chunk ~= "" do
-      local read = reader:feed(chunk)
+    local at = 1
+    while at <= #piece do
+      local read = reader:feed(piece, at)
       if read.status == "more" then break end
       -- A refusal's reason is fit to log; the connection is then closed.
       local request = assert(read.request, read.reason)
       seen[#seen + 1] = request.method .. " " .. request.target .. " " .. tostring(#request.body)
       reader = Message.request_reader({ body_bytes = 64 * 1024 })
-      chunk = read.rest
+      at = read.next
     end
   end
   -- The stream ended between requests, not within one.
