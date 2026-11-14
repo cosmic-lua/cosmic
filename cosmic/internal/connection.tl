@@ -229,10 +229,11 @@ local record Connection
     --- How long connecting, and then any one read or write, waits, in
     --- nanoseconds, from 0; nil for no limit. A TCP connection is
     --- waited on until made or refused. One to a listener whose backlog
-    --- is full waits for room on Linux and macOS 15, where the kernel
-    --- leaves it unanswered; macOS 27 answers it instead, so it fails
-    --- "Connection reset by peer" at once, or is made and fails so at
-    --- its first read or write. Connecting to a unix one waits
+    --- is full waits for room where the kernel leaves it unanswered
+    --- (Linux, macOS 15.8). Where the kernel answers it (macOS 27.2) it
+    --- is reset at once instead: connecting fails "Connection reset by
+    --- peer", or the connection is made and its first read fails so, a
+    --- write "Broken pipe". Connecting to a unix one waits
     --- for nothing: a listener whose backlog is full fails it at once,
     --- "Resource temporarily unavailable (the listener is busy: its
     --- backlog is full)" on Linux and "Connection refused" on macOS,

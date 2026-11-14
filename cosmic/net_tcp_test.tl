@@ -7,8 +7,9 @@ local unix_socket = require("build.unix_socket")
 local sys = require("cosmic.sys")
 local Clock = require("cosmic.clock")
 
---- Each listener here is on the worker's own loopback.
-Test.policy{ loopback = { "127.0.0.1" } }
+--- Each listener here is on the worker's own loopback, and 127.0.0.2 is
+--- where [`unanswered_or_skip`] looks for an address nothing answers.
+Test.policy{ loopback = { "127.0.0.1", "127.0.0.2" } }
 
 local function test_a_tcp_listener_at_port_zero_names_the_port_it_has()
   local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Clock.seconds(5) }))
@@ -72,41 +73,59 @@ local function at(address: Net.Address, why: string): string
 end
 
 --- How many connections [`full_backlog`] asks of a listener that queues
---- one: more than any kernel's queue takes for a backlog of 1.
+--- one.
 local ASKED <const> = 16
 
+--- What a connection the kernel reset says.
+local RESET <const> = "Connection reset by peer"
+
 --- A TCP listener whose backlog is full, no one accepting, and what a
---- connection past it met: the failure of the first one not made, or,
---- where the kernel made every one, of reading the last. `held` gets a
---- closer for the listener and for each connection made.
+--- connection past it met: [`Poll.TIMEOUT`] where it was left waiting,
+--- which Linux must, or `RESET`, whether it failed so or was made and
+--- then read so. `held` gets a closer for the listener and for each
+--- connection made.
 local function full_backlog(held: mut {function()}): Net.Address, string
   local server = assert(Net.listen(Net.tcp("127.0.0.1", 0), { backlog = 1 }))
   held[#held + 1] = function() assert(server:close()) end
+  local why = ""
   local last: Net.Conn? = nil
   for _ = 1, ASKED do
     local conn, trouble = Net.connect(server.address, { timeout_ns = Clock.ms(50) })
-    if conn == nil then return server.address, trouble end
+    if conn == nil then
+      why = trouble
+      break
+    end
     -- A connection the kernel reset may say so again as it closes.
     held[#held + 1] = function() local _, _ = conn:close() end
     last = conn
   end
-  local made = assert(last)
-  made:set_timeout(Clock.seconds(5))
-  local data, trouble = made:read()
-  assert(data == nil, "a connection past the backlog read " .. tostring(data))
-  return server.address, at(server.address, trouble)
+  if why == "" then
+    -- Every one was made: a kernel that answers past the backlog made
+    -- the last and reset it, which reading it tells from one queued.
+    local made = assert(last)
+    made:set_timeout(Clock.seconds(5))
+    local data, trouble = made:read()
+    assert(data == nil and trouble == RESET,
+      "a backlog of 1 took " .. tostring(ASKED) .. " connections: reading the last, " .. tostring(data or trouble))
+    why = at(server.address, RESET)
+  end
+  assert(why == at(server.address, Poll.TIMEOUT) or why == at(server.address, RESET), why)
+  if assert(sys.uname()).sysname == "Linux" then
+    assert(why == at(server.address, Poll.TIMEOUT), why)
+  end
+  return server.address, why
 end
 
 --- A TCP address where a connection is left unanswered, so that
 --- connecting waits: a listener whose backlog is full where the kernel
---- drops what comes past it (Linux, macOS 15), and 127.0.0.2 where the
---- kernel resets that instead (macOS 27) and drops what is sent to a
---- loopback address the host does not have. `held` gets the closers of
---- what stands behind it. Skips where neither leaves a connection waiting.
+--- drops what comes past it (Linux, macOS 15.8), and 127.0.0.2 where
+--- the kernel resets that instead (macOS 27.2) and drops what is sent
+--- to a loopback address the host does not have. `held` gets the
+--- closers of what [`full_backlog`] opened. Skips where neither leaves a
+--- connection waiting.
 local function unanswered_or_skip(held: mut {function()}): Net.Address
   local full, why = full_backlog(held)
   if why == at(full, Poll.TIMEOUT) then return full end
-  assert(why == at(full, "Connection reset by peer"), why)
   local absent = Net.tcp("127.0.0.2", assert(full.port))
   local conn, trouble = Net.connect(absent, { timeout_ns = Clock.ms(50) })
   if trouble == at(absent, Poll.TIMEOUT) then return absent end
@@ -118,12 +137,24 @@ local function unanswered_or_skip(held: mut {function()}): Net.Address
 end
 
 --- A connection past a TCP listener's full backlog is not taken: it
---- waits as long as its timeout, or, where the kernel answers it (macOS
---- 27), fails as reset, at once or at its first read.
+--- waits as long as its timeout, as Linux has it, or, where the kernel
+--- answers it (macOS 27.2), is reset: it fails so, or is made and its
+--- first read fails so.
 local function test_a_connection_to_a_full_backlog_waits_or_is_reset()
   local held: mut {function()} = {}
   local full, why = full_backlog(held)
-  assert(why == at(full, Poll.TIMEOUT) or why == at(full, "Connection reset by peer"), why)
+  if why == at(full, RESET) then
+    for _ = 1, 32 do
+      local conn, trouble = Net.connect(full, { timeout_ns = Clock.seconds(5) })
+      if conn == nil then
+        assert(trouble == at(full, RESET), trouble)
+      else
+        local data, read_why = conn:read()
+        local _, _ = conn:close()
+        assert(data == nil and read_why == RESET, tostring(data or read_why))
+      end
+    end
+  end
   for _, close in ipairs(held) do close() end
 end
 
@@ -150,7 +181,7 @@ end
 local function test_in_a_run_a_tcp_connect_waits_through_the_run()
   local held: mut {function()} = {}
   local silent = unanswered_or_skip(held)
-  local server = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Clock.seconds(5) }))
+  local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Clock.seconds(5) }))
   local ticks: integer = 0
   local ticks_at_end: integer = -1
   local why: string = ""
