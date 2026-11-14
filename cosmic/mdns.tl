@@ -13,7 +13,8 @@
 --- out: an instance named with no SRV or TXT record, or a host with no address. The search asks
 --- for what is missing a tenth of a second after it learned the name, and then after the same
 --- doubling gaps, three times at most for one name it holds: for the SRV record of an instance,
---- then for its TXT record, and for the addresses of its host.
+--- then for its TXT record, and for the addresses of its host. [`Mdns.resolve`] has no question
+--- but the one for its host's addresses, which it so asks three times and no more.
 ---
 --- There are two ways to listen ([`Mdns.Listen`]).
 ---
@@ -49,7 +50,8 @@
 --- two SRV or two TXT records for one instance the first stands. A TXT record of more than 128
 --- strings, or of more than 1300 bytes with a byte for the length of each, is ignored whole: RFC
 --- 6763 section 6.2 holds a service to 1300, and part of a record would read as the whole of
---- another.
+--- another. An instance that sends no other TXT record is listed with no TXT strings, and is
+--- never whole as `limit` and `found` count it.
 ---
 --- That is all that is checked of who answers. The id keeps out an answer sent blind to a search
 --- that listens by "unicast"; listening by "group", any machine that can send a datagram to the
@@ -60,13 +62,19 @@
 --- to trust.
 ---
 --- A search holds a bounded amount. It holds `limit` instances with an SRV record (256 by
---- default) and 64 more that were named and still wait for theirs. A name that has waited
---- through its three questions is forgotten, and when 64 wait a new name is taken only if its
---- SRV record comes in the same message, so names that lead nowhere do not keep out an instance
---- that says where it is. For each instance it holds its names, the TXT record above with the
---- keys and values read from it, and 16 addresses of each family: 12 KiB at most, and so 4 MiB
---- for the 320 instances of the default limit. Past the repeats of its own question it asks at
---- most four questions for each of those `limit` + 64 names, 1280 by default.
+--- default, 4096 at most) and, until it has that many, 64 more that were named and still wait
+--- for theirs. When 64 wait a new name is taken only if its SRV record comes in the same
+--- message, so names that lead nowhere do not keep out an instance that says where it is. A
+--- name is forgotten once the last of its three questions has had its time, which is a tenth
+--- of a second and seven times `retry_ns` after it was named: later than a search of the
+--- default 3 seconds and 1 second lasts, so it makes room only in a longer search or one that
+--- asks again sooner. For each instance a search holds its names, the TXT record above with
+--- the keys and values read from it, and 16 addresses of each family: 12 KiB at most, and so 4
+--- MiB for the 320 instances of the default limit and 49 MiB for those of the largest. Past the
+--- repeats of its own question a search asks 4 * (`limit` + 64) questions in all, 1280 by
+--- default. That is a total, not a share for each name: an instance may draw three questions
+--- for its TXT record and six for its addresses, and names that come, are forgotten and come
+--- again can spend all of it, after which a missing record is not asked for.
 ---
 --- In a task of [`Poll.run`] a search waits through the run, so the other tasks go on: it also
 --- lets them run after every 16 datagrams, however fast those come. A cancelled task's search
@@ -138,15 +146,17 @@ local record Mdns
     --- The port asked, from 1 to 65535, which "group" also binds and every answer comes from;
     --- 5353 when nil.
     port?: integer
-    --- For [`Mdns.browse`]: the most instances the search answers, from 1; 256 when nil. An SRV
-    --- record that would make one more is ignored, and the search ends early once that many are
-    --- whole, as `found` has it.
+    --- For [`Mdns.browse`]: the most instances the search answers, from 1 to 4096; 256 when nil.
+    --- An SRV record that would make one more is ignored, and the search ends early once that
+    --- many are whole, as `found` has it. [`Mdns.resolve`] holds it to the same range and reads
+    --- nothing else of it.
     limit?: integer
     --- For [`Mdns.browse`]: called with each instance of the list once, in the task of the
     --- search. It is called as soon as the instance is whole, which is when its SRV record, its
     --- TXT record and an address of its host are known, or as the search ends for one whose SRV
-    --- record alone came. An address that comes later is in the list the search answers, not in
-    --- what was given here. What it raises, the search raises.
+    --- record alone came, or whose only TXT record is one a search does not keep. An address
+    --- that comes later is in the list the search answers, not in what was given here. What it
+    --- raises, the search raises.
     found?: function(Instance)
   end
 end
@@ -159,7 +169,10 @@ local PORT <const> = 5353
 --- not read.
 local MAX_MESSAGE <const> = 9000
 
+--- The instances with an SRV record a search holds by default, and the most a caller may ask
+--- for: what a search holds, and the count of questions it may ask, grow with it.
 local DEFAULT_LIMIT <const> = 256
+local MAX_LIMIT <const> = 4096
 
 --- The instances a search holds that were named and have no SRV record yet.
 local MAX_WAITING <const> = 64
@@ -287,8 +300,8 @@ local function open(opts: Mdns.Options): Hunt?, string
     error("mdns: port must be an integer from 1 to 65535", 3)
   end
   local limit = opts.limit or DEFAULT_LIMIT
-  if math.type(limit) ~= "integer" or limit < 1 then
-    error("mdns: limit must be an integer from 1", 3)
+  if math.type(limit) ~= "integer" or limit < 1 or limit > MAX_LIMIT then
+    error("mdns: limit must be an integer from 1 to " .. tostring(MAX_LIMIT), 3)
   end
   local address = opts.address or GROUP
   local grouped = opts.listen == "group"
@@ -339,6 +352,7 @@ local function open(opts: Mdns.Options): Hunt?, string
     waiting = 0,
     hosts = {},
     host_order = {},
+    -- Within an integer whatever the limit, which is MAX_LIMIT at most.
     questions_left = QUESTIONS_EACH * (limit + MAX_WAITING),
   }, ""
 end
@@ -443,6 +457,9 @@ end
 --- TXT records, and those before its addresses, so that a message says who a record is about
 --- wherever in it the record stands.
 local function hear(hunt: Hunt, packet: Net.Packet, now: integer)
+  -- TODO: drop a datagram that did not arrive with 255 hops, the proof that it came from the
+  -- local link (RFC 6762 section 11), once Net.Datagram's receive answers the hops a datagram
+  -- arrived with.
   if #packet.data > MAX_MESSAGE or packet.address.port ~= hunt.port then return end
   local message, _ = Dns.decode(packet.data)
   if message == nil or not message.response or message.opcode ~= 0 or message.rcode ~= 0 then
@@ -470,7 +487,9 @@ local function hear(hunt: Hunt, packet: Net.Packet, now: integer)
       local key = target:lower()
       local name = if hunt.instances[key] == nil then instance_name(hunt, target) else nil end
       local srv = placing[key]
-      if name ~= nil then
+      -- A search that has all the instances it may answer takes no new name: none could be given
+      -- a host, and each would draw questions for nothing.
+      if name ~= nil and hunt.placed < hunt.limit then
         local entry: Entry = { name = name, fullname = target, from = from, port = 0, told = false,
           asks = 0, ask_at = now + SETTLE_NS }
         local held = srv ~= nil and place(hunt, entry, srv, from, now)
@@ -559,13 +578,14 @@ local function next_ask(hunt: Hunt, now: integer, asks: integer): integer
 end
 
 --- Forgets each instance that has no SRV record once the last question for it has had its time,
---- so that it makes room for another name.
+--- so that it makes room for another name, and every one of them once the search holds all the
+--- instances it may answer.
 local function forget_unanswered(hunt: Hunt, now: integer)
   for at = #hunt.order, 1, -1 do
     local key = hunt.order[at]
     local entry = if key ~= nil then hunt.instances[key] else nil end
-    if key ~= nil and entry ~= nil and entry.host == nil and entry.asks >= FOLLOW_UPS and
-        entry.ask_at <= now then
+    if key ~= nil and entry ~= nil and entry.host == nil and
+        (hunt.placed >= hunt.limit or (entry.asks >= FOLLOW_UPS and entry.ask_at <= now)) then
       hunt.instances[key] = nil
       table.remove(hunt.order, at)
       hunt.waiting = hunt.waiting - 1
@@ -733,8 +753,9 @@ end
 --- The addresses of the host `name` of the `local` domain, as `printer.local`, that answer within
 --- `opts.timeout_ns`: its IPv4 addresses, then its IPv6 ones, each in the order they came, and
 --- none where nothing answers. The search ends a tenth of a second after the first address,
---- which is time for the host's other addresses to come. `opts.limit` and `opts.found` are not
---- read.
+--- which is time for the host's other addresses to come. The question is asked three times at
+--- most: at once, after `opts.retry_ns` and after twice that again. `opts.found` is not read,
+--- and `opts.limit` only to hold it to its range.
 ---
 --- Nil and why for a `name` that is not one of the `local` domain, and where the search cannot
 --- be made, as [`Mdns.browse`] says. Raises for an option out of range.
