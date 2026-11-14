@@ -371,11 +371,16 @@ local function hostile(query: Dns.Message): {string}
   local whole = described(HTTP, "Evil", "evil.local", 666, "192.0.2.66")
   local forged: Dns.Message = { ...Dns.reply(query), answers = whole }
   local other = "_other._tcp.local"
+  -- Just over the 9000 bytes a search reads, and no more: macOS sends no datagram over 9216 bytes
+  -- unless told to (net.inet.udp.maxdgram).
   local padding: mut {Dns.Record} = {}
-  for i = 1, 40 do
-    local record = txt(name, { ("x"):rep(250) })
-    padding[i] = record
+  local oversize = ""
+  while #oversize <= 9000 do
+    local record = txt(name, { ("x"):rep(60) })
+    padding[#padding + 1] = record
+    oversize = assert(Dns.encode({ ...forged, additionals = padding }))
   end
+  assert(#oversize <= 9216, tostring(#oversize))
   local past: mut {Dns.Record} = {}
   for i, record in ipairs(whole) do
     past[i] = { ...record, ttl = 0 }
@@ -393,7 +398,7 @@ local function hostile(query: Dns.Message): {string}
     (assert(Dns.encode({ ...forged, rcode = 3 }))),
     (assert(Dns.encode({ ...forged, opcode = 4 }))),
     -- Over the 9000 bytes of a multicast DNS message.
-    (assert(Dns.encode({ ...forged, additionals = padding }))),
+    oversize,
     response(query, past),
     -- Of another class than the internet's, where the data of a record means something else.
     response(query, { pointer(HTTP, "Evil"), { ...at("evil.local", Dns.A), class = 3, rdata = "\xc0\x00\x02\x42" } }),
@@ -1005,20 +1010,23 @@ local function test_a_flood_of_pointers_to_nothing_keeps_no_real_instance_out()
   end)
 end
 
---- The same flood with every repeat of the question, and time for each name to be asked for three
---- times and forgotten, more than once: the names asked about are the 64 that wait, and the
---- questions asked for missing records are four for each instance the search may hold, 4 * (2 +
---- 64).
-local function test_a_flood_of_pointers_to_nothing_draws_a_bounded_number_of_questions()
+--- What a flood's questions asked: how many for a missing record, and of how many names.
+local record Asked
+  mut questions: integer
+  mut distinct: integer
+end
+
+--- Answers every question for the service with 320 pointers to nothing, counting in `asked` the
+--- questions for anything else.
+local function flood_counting(asked: Asked): Reply
   local names: mut {string: boolean} = {}
-  local distinct, questions = 0, 0
-  local function reply(query: Dns.Message): {string}
+  return function(query: Dns.Message): {string}
     for _, question in ipairs(query.questions) do
       if question.type ~= Dns.PTR then
-        questions = questions + 1
+        asked.questions = asked.questions + 1
         if names[question.name] == nil then
           names[question.name] = true
-          distinct = distinct + 1
+          asked.distinct = asked.distinct + 1
         end
       end
     end
@@ -1030,15 +1038,37 @@ local function test_a_flood_of_pointers_to_nothing_draws_a_bounded_number_of_que
     end
     return out
   end
-  serving(reply, function(opts: Mdns.Options)
+end
+
+--- Of the 320 names of a flood, a search asks about the 64 it lets wait and no other. The search
+--- ends before a name has been asked for three times, so none is forgotten and none takes
+--- another's place, however slow the host: a name is asked for once, a tenth of a second after it
+--- comes, and again only after `retry_ns`, which is longer than the search.
+local function test_a_flood_of_pointers_to_nothing_has_64_names_asked_about()
+  local asked: Asked = { questions = 0, distinct = 0 }
+  serving(flood_counting(asked), function(opts: Mdns.Options)
+    local found = assert(Mdns.browse(HTTP, { ...opts, limit = 2, timeout_ns = Clock.seconds(1),
+      retry_ns = Clock.seconds(5) }))
+    assert(#found == 0)
+  end)
+  assert(asked.distinct >= 1 and asked.distinct <= 64, tostring(asked.distinct))
+  assert(asked.questions == asked.distinct, tostring(asked.questions))
+end
+
+--- The same flood with every repeat of the question, and time for each name to be asked for three
+--- times and forgotten, more than once. Which names take the places of those forgotten depends on
+--- when each datagram is read, so only the total is held: the questions asked for missing records
+--- are four for each instance the search may hold, 4 * (2 + 64), however many names were asked
+--- about.
+local function test_a_flood_of_pointers_to_nothing_draws_a_bounded_number_of_questions()
+  local asked: Asked = { questions = 0, distinct = 0 }
+  serving(flood_counting(asked), function(opts: Mdns.Options)
     local found = assert(Mdns.browse(HTTP, { ...opts, limit = 2, timeout_ns = Clock.ms(700),
       retry_ns = Clock.ms(20) }))
     assert(#found == 0)
   end)
-  assert(distinct >= 1 and distinct <= 64, tostring(distinct))
-  -- Three questions for each of 64 names are 192, and as many again once those are forgotten and
-  -- named anew.
-  assert(questions > 64 and questions <= 4 * (2 + 64), tostring(questions))
+  assert(asked.questions >= 1 and asked.questions <= 4 * (2 + 64), tostring(asked.questions))
+  assert(asked.distinct <= asked.questions, tostring(asked.distinct))
 end
 
 --- A hundred and twenty datagrams wait in the search's socket, then the real answer. A search that
