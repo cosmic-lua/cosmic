@@ -495,7 +495,8 @@ needs the profile `"system"` and `env = { "PATH" }`.
 
 A test that writes a portable program (`cosmic build` without `--host`)
 declares `requires = { "all_cores" }`. A bare `bin/zig build boot` writes a
-tool that carries the host's core alone, which refuses to make one, so the
+tool that carries the host's core alone, which makes none without booting every
+core first, and a test boots nothing, so the
 module is skipped there, naming the requirement; every CI leg promises it,
 since CI boots `-Dboot-cores=all`. Run `bin/zig build boot -Dboot-cores=all`
 to run them.

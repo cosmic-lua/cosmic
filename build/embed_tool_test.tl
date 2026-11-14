@@ -860,8 +860,8 @@ local function test_a_stale_partial_projection_is_removed(tmp: string)
   assert(Fs.exists(stale) == false, "the stale partial projection stood")
 end
 
---- A tool that cannot make a portable program (it carries the host's core alone) says so and removes nothing: the
---- executables of an earlier build stand, and `--out` is not made.
+--- A tool that cannot make a portable program (it carries the host's core alone, and is told not to boot every core)
+--- says so and removes nothing: the executables of an earlier build stand, and `--out` is not made.
 local function test_an_environment_failure_removes_no_executable(tmp: string)
   local prefix = artifact.trusted_prefix()
   if prefix == nil or not artifact.host_only(prefix) then
@@ -872,7 +872,9 @@ local function test_an_environment_failure_removes_no_executable(tmp: string)
   local first = invoke.run({ "build", "--host" }, { cwd = tmp, env = build_env() })
   assert(first.code == 0, first.stderr)
   local bin = support.build_dir(tmp) .. "/bin"
-  local again = invoke.run({ "build", "--out", "dist" }, { cwd = tmp, env = build_env() })
+  local told: mut {string:string} = { COSMIC_AUTO_BOOT = "0" }
+  for name, value in pairs(build_env()) do told[name] = value end
+  local again = invoke.run({ "build", "--out", "dist" }, { cwd = tmp, env = told })
   assert(again.code == 1 and again.stderr:find("-Dboot-cores=all", 1, true) ~= nil,
     tostring(again.code) .. again.stderr)
   assert(Fs.exists(bin .. "/one") == true and Fs.exists(bin .. "/two") == true, "an environment failure removed a program")

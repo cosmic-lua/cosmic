@@ -16,6 +16,11 @@
 --- be trusted to compile what the tree's now means
 --- ([`reboot.rebuild_failed`]).
 ---
+--- A boot the tool starts for one of those reasons is of the cores it
+--- carries. One command asks for more: `cosmic build` of a portable
+--- program, on a tool of the host's core alone, boots every core and
+--- re-enters ([`reboot.every_core_into`]).
+---
 --- One rule for the working database's handle: a function here that is
 --- handed it and stops the command -- `into` on every path,
 --- [`reboot.guard`] whenever it answers an exit code -- closes it first;
@@ -123,8 +128,9 @@ end
 --- The command that renews a tool that carries every core, or, with
 --- `host_only`, the host's core alone (a boot without `-Dboot-cores=all`
 --- wrote it), run as `zig`: the same kind, so that a boot the tool starts
---- never changes what it can do. Every boot was of every core before there
---- was a choice.
+--- because it is stale never changes what it can do. Every boot was of
+--- every core before there was a choice. A command that needs the cores a
+--- host-only tool lacks boots every one ([`reboot.every_core_into`]).
 --- @param zig the program that runs zig: a tree's [`bin/zig`]
 --- @param host_only whether the tool carries the host's core alone
 function reboot.boot_command(zig: string, host_only: boolean): {string}
@@ -722,6 +728,42 @@ local function serialize(handle: work.Handle, root: string,
   return 3
 end
 
+--- Runs `root/bin/zig build boot`, of every core when `every_core` and of
+--- the host's alone when not ([`reboot.boot_command`]), having said `why`,
+--- its output on stderr so a verb's own stdout stays its own, then replaces
+--- this process with the tool the boot wrote ([`build.paths`]' `tool`),
+--- running `argv` again in `run_in` with the `marker` set. Returns only
+--- when it cannot, saying why.
+local function boot(root: string, argv: {string}, every_core: boolean, why: string,
+                    run_in: mut {string:string}): string
+  local command = table.concat(reboot.boot_command("bin/zig", not every_core), " ")
+  log:complain(why .. "; running " .. command)
+  -- The boot takes the rebuild lock (build/zig.tl), which a guard
+  -- calling this holds: handed on, rather than waited for.
+  local boot_environment: {string:string} = run_in
+  if rebuild_lock.holds(root) then
+    boot_environment = rebuild_lock.hand(run_in, root)
+  end
+  local result, trouble = Child.run(reboot.boot_command(root .. "/bin/zig", not every_core),
+    { cwd = root, env = boot_environment, stdout = 2 })
+  if result == nil then
+    return command .. ": " .. trouble
+  end
+  if not result.ok then
+    return command .. " failed; fix what it reports and run this again"
+  end
+  run_in[marker] = "1"
+  return enter(build_paths.resolve(root).tool, argv, run_in)
+end
+
+--- A copy of `environment`, or of this process's where there is none, for a
+--- boot and the tool it enters to run in.
+local function running_in(environment?: {string:string}): mut {string:string}
+  local run_in: mut {string:string} = {}
+  for name, value in pairs(environment or sys.environ()) do run_in[name] = value end
+  return run_in
+end
+
 --- Rebuilds the core with `root/bin/zig build boot`, as the running tool's
 --- own cores ask ([`reboot.boot_command`]), whose output goes to
 --- stderr so a verb's own stdout stays its own, then replaces this process
@@ -733,33 +775,11 @@ end
 --- Returns only when it cannot, saying why.
 function reboot.boot_into(root: string, argv: {string},
                           environment?: mut {string:string}): string
-  local run_in: mut {string:string} = {}
-  if environment ~= nil then
-    run_in = environment
-  else
-    for name, value in pairs(sys.environ()) do run_in[name] = value end
-  end
+  local run_in = environment or running_in()
   if run_in[marker] ~= nil then
     return "the tool is still stale after a reboot"
   end
-  local command = table.concat(reboot.boot_command("bin/zig", host_only_tool()), " ")
-  log:complain("the core is stale; running " .. command)
-  -- The boot takes the rebuild lock (build/zig.tl), which a guard
-  -- calling this holds: handed on, rather than waited for.
-  local boot_environment: {string:string} = run_in
-  if rebuild_lock.holds(root) then
-    boot_environment = rebuild_lock.hand(run_in, root)
-  end
-  local result, trouble = Child.run(reboot.boot_command(root .. "/bin/zig", host_only_tool()),
-    { cwd = root, env = boot_environment, stdout = 2 })
-  if result == nil then
-    return command .. ": " .. trouble
-  end
-  if not result.ok then
-    return command .. " failed; fix what it reports and run this again"
-  end
-  run_in[marker] = "1"
-  return enter(build_paths.resolve(root).tool, argv, run_in)
+  return boot(root, argv, not host_only_tool(), "the core is stale", run_in)
 end
 
 --- What a Teal rebuild does once it has failed with `trouble`; `moved`
@@ -955,6 +975,43 @@ local function checkout_of(seen?: reboot.Seen): string?, tree.Standing?
   local standing, _ = reboot.standing(built, seen)
   if standing == nil or not standing.own then return nil, nil end
   return built, standing
+end
+
+--- Boots every core for a command that needs one the running tool lacks,
+--- a tool of the host's core alone ([`artifact.host_only`]) asked for a
+--- portable program, and replaces this process with the tool that boot
+--- wrote, running `argv` again: `bin/zig build boot -Dboot-cores=all` in
+--- the checkout the tool was built from. The tool is of every core from
+--- then on, and so is each boot it starts ([`reboot.boot_command`]). The
+--- caller has found the tool host-only, and holds no lock and no database
+--- of the checkout.
+---
+--- Only that checkout's own tool boots ([`checkout_of`]), and only where
+--- it would boot a stale core: not under `COSMIC_AUTO_BOOT=0`
+--- ([`reboot.auto_boot`]), nor in a process a reboot entered, which a tool
+--- still host-only after this boot is. Nor does it wait for another run
+--- that holds the checkout's rebuild lock, a `cosmic test` there above
+--- all, whose own tests run this command and whose lock the boot would
+--- wait on for good. Each of those answers nil, and the caller refuses as
+--- it did. Otherwise it returns only when the boot failed or its tool
+--- could not be entered, saying why.
+--- @param argv the command line, re-entered after the boot
+--- @param seen how a test has it see the running tool ([`reboot.Seen`]),
+---   whose `environment` the boot and the tool it enters then run in
+function reboot.every_core_into(argv: {string}, seen?: reboot.Seen): string?
+  local home, _ = checkout_of(seen)
+  if home == nil then return nil end
+  local environment: {string:string}? = nil
+  if seen ~= nil then environment = seen.environment end
+  if not reboot.auto_boot(environment) or entered_by(seen) ~= nil then
+    return nil
+  end
+  local directory, _ = build_paths.optional(home)
+  if directory == nil then return nil end
+  local elsewhere, _ = rebuild_lock.held_elsewhere(directory)
+  if elsewhere ~= false then return nil end
+  return boot(home, argv, true, "this tool carries the host's core alone, and a portable program " ..
+      "needs every core (--host builds for this host with none of them)", running_in(environment))
 end
 
 --- The staleness guard for a verb that runs `build.*` Teal this binary
