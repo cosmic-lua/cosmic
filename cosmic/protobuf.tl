@@ -36,6 +36,8 @@
 --- memory in proportion to the bytes and copies none of them: an embedded message is read in place when it is
 --- asked for.
 
+local String = require("cosmic.string")
+
 local record Protobuf
   --- One field as it is on the wire.
   record Field
@@ -301,7 +303,7 @@ local function read_fields(data: string, start: integer, stop: integer, entries:
     end
     if number == 0 then return ("protobuf: byte %d: a field number of 0"):format(at) end
     if #entries >= max_fields then
-      return ("protobuf: the message holds more than %d fields"):format(max_fields)
+      return "protobuf: the message holds more than " .. String.counted(max_fields, "field")
     end
     local value, value_stop = 0, 0
     if wire == VARINT then
@@ -313,7 +315,7 @@ local function read_fields(data: string, start: integer, stop: integer, entries:
     elseif wire == FIXED64 or wire == FIXED32 then
       local size = if wire == FIXED64 then 8 else 4 end
       if stop - cursor.pos + 1 < size then
-        return ("protobuf: byte %d: the bytes end inside the %d bytes of field %d"):format(at, size, number)
+        return ("protobuf: byte %d: the bytes end inside the %s of field %d"):format(at, String.counted(size, "byte"), number)
       end
       value = if wire == FIXED64 then i64_at(data, cursor.pos) else u32_at(data, cursor.pos) end
       cursor.pos = cursor.pos + size
@@ -411,7 +413,7 @@ local function fixed<T>(data: string, last: {integer: Entry}, number: integer, w
     elseif entry.wire == LEN then
       local length = entry.stop - entry.value + 1
       if length % size ~= 0 then
-        return nil, ("protobuf: packed field %d is %d bytes, no multiple of %d"):format(number, length, size)
+        return nil, ("protobuf: packed field %d is %s, no multiple of %d"):format(number, String.counted(length, "byte"), size)
       end
       for pos = entry.value, entry.stop, size do
         local value = of(if size == 8 then i64_at(data, pos) else u32_at(data, pos) end)
@@ -441,7 +443,7 @@ end
 local function embedded(data: string, number: integer, parts: {Entry}, depth: integer, max_depth: integer,
                         max_fields: integer): Nested?, string
   if depth >= max_depth then
-    return nil, ("protobuf: field %d nests deeper than %d messages"):format(number, max_depth)
+    return nil, ("protobuf: field %d nests deeper than %s"):format(number, String.counted(max_depth, "message"))
   end
   local entries: mut {Entry} = {}
   local last: mut {integer: Entry} = {}
