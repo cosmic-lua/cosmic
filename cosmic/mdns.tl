@@ -1,14 +1,23 @@
 --- Finding services on the local network: the client side of DNS-SD (RFC 6763) over multicast
---- DNS (RFC 6762). [`Mdns.browse`] asks which instances of a service type the network has and
---- says where each is, and [`Mdns.resolve`] asks for the addresses of a host of the `local`
---- domain. Nothing here answers a question or publishes a service.
+--- DNS (RFC 6762). [`Mdns.browse`] asks which instances of a service type, or of several, the
+--- network has and says where each is, and [`Mdns.resolve`] asks for the addresses of a host of
+--- the `local` domain. Nothing here answers a question or publishes a service.
 ---
 ---     local printers = assert(Mdns.browse("_ipp._tcp", { timeout_ns = Clock.seconds(2) }))
 ---     for _, printer in ipairs(printers) do
 ---       print(printer.name, printer.host, printer.port, printer.ipv4[1])
 ---     end
 ---
---- A search sends its question to the multicast group, again after `retry_ns` and then after
+--- A device is often known by more than one service type. One search asks for several, from one
+--- socket and in as few messages as their names fit, and says of each instance which it is one
+--- of. With `settle_ns` it ends that long after the first instance is whole, which is right for
+--- asking one machine: the search does not wait its whole time for the types the machine lacks.
+---
+---     local types = { "_ipp._tcp", "_http._tcp" }
+---     local found = assert(Mdns.browse(types, { settle_ns = Clock.ms(500) }))
+---     for _, instance in ipairs(found) do print(instance.service, instance.name) end
+---
+--- A search sends its questions to the multicast group, again after `retry_ns` and then after
 --- gaps that double, and listens until `timeout_ns` has passed. An answer may leave records
 --- out: an instance named with no SRV or TXT record, or a host with no address. The search asks
 --- for what is missing a tenth of a second after it learned the name, and then after the same
@@ -38,20 +47,22 @@
 --- while another takes it. Questions go over IPv4 alone; a host's IPv6 addresses are those its
 --- answers over IPv4 give.
 ---
---- Every datagram is taken as hostile. These are ignored: one over 9000 bytes, one that is no
---- DNS message, a query, a response with an error or to another kind of query, one that comes
---- from another port than the one asked at and, listening by "unicast", one that does not repeat
---- the question's id. Of a response only the records about a name the search asked about are
---- read. A pointer at the service asked for, whose target is one label before that service's
---- name, makes an instance. The SRV and TXT records of an instance so made are its own, and the
---- address records of a host one of those SRV records names are that host's. No other record
---- is read, and none of a class other than the internet's, whose data [`Dns.decode`] leaves
---- unread. A record whose time to live is 0 says the record is going away, and is ignored. Of
---- two SRV or two TXT records for one instance the first stands. A TXT record of more than 128
---- strings, or of more than 1300 bytes with a byte for the length of each, is ignored whole: RFC
---- 6763 section 6.2 holds a service to 1300, and part of a record would read as the whole of
---- another. An instance that sends no other TXT record is listed with no TXT strings, and is
---- never whole as `limit` and `found` count it.
+--- Every datagram is taken as hostile. These are ignored: one over 9000 bytes, one that is no DNS
+--- message, a query, a response with an error or to another kind of query, one that comes from
+--- another port than the one asked at and, listening by "unicast", one that does not repeat the
+--- question's id. Of a response only the records about a name the search asked about are read. A
+--- pointer at a service asked for, whose target is one label before that service's name, makes an
+--- instance of it: a pointer at one of the services asked for that leads to a name of another of
+--- them makes none. An instance two of them name, as a sub-type and its service do, is listed
+--- once, as one of the service whose pointer came first. The SRV and TXT records of an instance
+--- so made are its own, and the address records of a host one of those SRV records names are that
+--- host's. No other record is read, and none of a class other than the internet's, whose data
+--- [`Dns.decode`] leaves unread. A record whose time to live is 0 says the record is going away,
+--- and is ignored. Of two SRV or two TXT records for one instance the first stands. A TXT record
+--- of more than 128 strings, or of more than 1300 bytes with a byte for the length of each, is
+--- ignored whole: RFC 6763 section 6.2 holds a service to 1300, and part of a record would read
+--- as the whole of another. An instance that sends no other TXT record is listed with no TXT
+--- strings, and is never whole as `limit` and `found` count it.
 ---
 --- That is all that is checked of who answers. The id keeps out an answer sent blind to a search
 --- that listens by "unicast"; listening by "group", any machine that can send a datagram to the
@@ -61,25 +72,30 @@
 --- came from the local link is not checked. What a search answers says where to try, not whom
 --- to trust.
 ---
---- A search holds a bounded amount. It holds `limit` instances with an SRV record (256 by
---- default, 4096 at most) and, until it has that many, 64 more that were named and still wait
---- for theirs. When 64 wait a new name is taken only if its SRV record comes in the same
---- message, so names that lead nowhere do not keep out an instance that says where it is. A
---- name is forgotten once the last of its three questions has had its time, which is a tenth
---- of a second and seven times `retry_ns` after it was named: later than a search of the
---- default 3 seconds and 1 second lasts, so it makes room only in a longer search or one that
---- asks again sooner. For each instance a search holds its names, the TXT record above with
---- the keys and values read from it, and 16 addresses of each family: 12 KiB at most, and so 4
---- MiB for the 320 instances of the default limit and 49 MiB for those of the largest. Past the
---- repeats of its own question a search asks 4 * (`limit` + 64) questions in all, 1280 by
---- default. That is a total, not a share for each name: an instance may draw three questions
---- for its TXT record and six for its addresses, and names that come, are forgotten and come
---- again can spend all of it, after which a missing record is not asked for.
+--- A search holds a bounded amount, whatever the count of service types it asks for, which is 32
+--- at most: `limit` and every figure below are for all of them together. It holds `limit`
+--- instances with an SRV record (256 by default, 4096 at most) and, until it has that many, 64
+--- more that were named and still wait for theirs. When 64 wait a new name is taken only if its
+--- SRV record comes in the same message, so names that lead nowhere do not keep out an instance
+--- that says where it is. A name is forgotten once the last of its three questions has had its
+--- time, which is a tenth of a second and seven times `retry_ns` after it was named: later than a
+--- search of the default 3 seconds and 1 second lasts, so it makes room only in a longer search
+--- or one that asks again sooner. For each instance a search holds its names, the TXT record
+--- above with the keys and values read from it, and 16 addresses of each family: 12 KiB at most,
+--- and so 4 MiB for the 320 instances of the default limit and 49 MiB for those of the largest.
+--- Past the repeats of its own questions, one for each service type, a search asks 4 * (`limit` +
+--- 64) questions in all, 1280 by default. That is a total, not a share for each name: an instance
+--- may draw three questions for its TXT record and six for its addresses, and names that come,
+--- are forgotten and come again can spend all of it, after which a missing record is not asked
+--- for.
 ---
 --- In a task of [`Poll.run`] a search waits through the run, so the other tasks go on: it also
 --- lets them run after every 16 datagrams, however fast those come. A cancelled task's search
---- ends with nil and [`Poll.CANCELLED`]. Anywhere else a search holds the thread until it ends,
---- and ends with nil and "interrupted" when a [`cosmic.signal`] guard catches a signal.
+--- ends with nil and [`Poll.CANCELLED`], and answers no list: a failure carries no value. What
+--- it had found is given to `found`, which a cancelled browse calls, before it ends, with each
+--- instance that has its SRV record and was not given yet, so a caller that may cancel a search
+--- and wants what it found passes `found`. Anywhere else a search holds the thread until it
+--- ends, and ends with nil and "interrupted" when a [`cosmic.signal`] guard catches a signal.
 
 local Clock = require("cosmic.clock")
 local Dns = require("cosmic.dns")
@@ -106,6 +122,10 @@ local record Mdns
     --- The whole DNS name of the instance, as [`Dns.name`] writes it, a dot inside a label
     --- escaped: `Front Desk\. Printer._ipp._tcp.local`. [`Dns.labels`] reads it back.
     fullname: string
+    --- The service type the instance is one of, as [`Mdns.browse`] was given it: `_ipp._tcp`
+    --- where that was asked, `_ipp._tcp.local` where that was. Of a sub-type asked for it is the
+    --- sub-type, where `fullname` ends in the name of the service.
+    service: string
     --- The name of the host the instance is at, as `printer.local`.
     host: string
     --- The port of the service at that host.
@@ -146,17 +166,24 @@ local record Mdns
     --- The port asked, from 1 to 65535, which "group" also binds and every answer comes from;
     --- 5353 when nil.
     port?: integer
-    --- For [`Mdns.browse`]: the most instances the search answers, from 1 to 4096; 256 when nil.
-    --- An SRV record that would make one more is ignored, and the search ends early once that
-    --- many are whole, as `found` has it. [`Mdns.resolve`] holds it to the same range and reads
-    --- nothing else of it.
+    --- For [`Mdns.browse`]: the most instances the search answers, of all the service types it
+    --- asks together, from 1 to 4096; 256 when nil. An SRV record that would make one more is
+    --- ignored, and the search ends early once that many are whole, as `found` has it.
+    --- [`Mdns.resolve`] holds it to the same range and reads nothing else of it.
     limit?: integer
+    --- For [`Mdns.browse`]: how long the search goes on after the first instance is whole, as
+    --- `found` has it, in nanoseconds, from 0; when nil it goes on to `timeout_ns` or `limit`. The
+    --- time is counted once, from that first instance, and is for the rest of what a responder
+    --- has to say: 0 ends the search with the datagram that made the instance whole.
+    --- [`Mdns.resolve`] holds it to its range and reads nothing else of it.
+    settle_ns?: integer
     --- For [`Mdns.browse`]: called with each instance of the list once, in the task of the
     --- search. It is called as soon as the instance is whole, which is when its SRV record, its
     --- TXT record and an address of its host are known, or as the search ends for one whose SRV
-    --- record alone came, or whose only TXT record is one a search does not keep. An address
-    --- that comes later is in the list the search answers, not in what was given here. What it
-    --- raises, the search raises.
+    --- record alone came, or whose only TXT record is one a search does not keep. A search that
+    --- ends cancelled calls it so too, in the cancelled task, where a wait answers
+    --- [`Poll.CANCELLED`] at once. An address that comes later is in the list the search answers,
+    --- not in what was given here. What it raises, the search raises.
     found?: function(Instance)
   end
 end
@@ -176,6 +203,10 @@ local MAX_LIMIT <const> = 4096
 
 --- The instances a search holds that were named and have no SRV record yet.
 local MAX_WAITING <const> = 64
+
+--- The service types one browse asks for. Each is a question in every repeat, so the count holds
+--- what a search sends however long a list it is given.
+local MAX_SERVICES <const> = 32
 
 --- The strings of a TXT record a search keeps, and their bytes with one for each length. Without
 --- the first, a message of empty strings would make an instance hold an array of thousands.
@@ -210,6 +241,8 @@ local YIELD_AFTER <const> = 16
 local record Entry
   name: string
   fullname: string
+  --- The service type it is one of, as the caller wrote it.
+  service: string
   --- Whoever sent the record that named it, then whoever sent its SRV record.
   mut from: string
   mut host?: string
@@ -231,6 +264,16 @@ local record Host
   mut ask_at: integer
 end
 
+--- A service type a browse asks about.
+local record Service
+  --- The type as the caller wrote it.
+  written: string
+  --- The name its pointers are asked at.
+  name: string
+  --- The labels its instances' names end in, in lower case.
+  suffix: {string}
+end
+
 --- One search: its socket, what it asks and what it has learned.
 local record Hunt
   socket: Net.Datagram
@@ -246,10 +289,10 @@ local record Hunt
   retry_ns: integer
   limit: integer
   found?: function(Mdns.Instance)
-  --- The name a browse asks pointers at, in lower case; "" for a resolve.
-  service: string
-  --- The labels every instance's name ends in, in lower case; none for a resolve.
-  suffix: {string}
+  --- What a browse asks about, by the name its pointers are asked at in lower case, and those
+  --- names as they are asked, in the order given; none for a resolve.
+  services: {string: Service}
+  pointers: {string}
   --- Instances by their whole name in lower case, and those names in the order they came.
   instances: mut {string: Entry}
   order: mut {string}
@@ -293,6 +336,7 @@ end
 local function open(opts: Mdns.Options): Hunt?, string
   Poll.checked_ns(opts.timeout_ns, "mdns", "timeout_ns", 3)
   Poll.checked_ns(opts.retry_ns, "mdns", "retry_ns", 3)
+  Poll.checked_ns(opts.settle_ns, "mdns", "settle_ns", 3)
   local retry_ns = opts.retry_ns or Clock.seconds(1)
   if retry_ns < Clock.ms(1) then error("mdns: retry_ns must be 1 millisecond or more", 3) end
   local port = opts.port or PORT
@@ -344,8 +388,8 @@ local function open(opts: Mdns.Options): Hunt?, string
     retry_ns = retry_ns,
     limit = limit,
     found = opts.found,
-    service = "",
-    suffix = {},
+    services = {},
+    pointers = {},
     instances = {},
     order = {},
     placed = 0,
@@ -401,13 +445,12 @@ local function question(name: string, rtype: integer): Dns.Question
   return { name = name, type = rtype, class = Dns.IN, unicast_response = false }
 end
 
---- The name of the instance whose whole name is `name`, its first label, or nil for a name that
---- is not one label before the name of the service asked for.
-local function instance_name(hunt: Hunt, name: string): string?
-  if #hunt.suffix == 0 then return nil end
+--- The name of the instance of `service` whose whole name is `name`, its first label, or nil for
+--- a name that is not one label before the name of the service.
+local function instance_name(service: Service, name: string): string?
   local labels, _ = Dns.labels(name)
-  if labels == nil or #labels ~= #hunt.suffix + 1 then return nil end
-  for i, want in ipairs(hunt.suffix) do
+  if labels == nil or #labels ~= #service.suffix + 1 then return nil end
+  for i, want in ipairs(service.suffix) do
     local label = labels[i + 1]
     if label == nil or label:lower() ~= want then return nil end
   end
@@ -451,7 +494,7 @@ local function txt_fits(txt: {string}): boolean
   return bytes <= MAX_TXT_BYTES
 end
 
---- Reads one datagram into the search. Only a pointer at the service asked for makes an instance,
+--- Reads one datagram into the search. Only a pointer at a service asked for makes an instance,
 --- so that a browse for a sub-type holds no instance of the service that lacks it, and only an
 --- SRV record of an instance makes a host. The pointers of a message are read before its SRV and
 --- TXT records, and those before its addresses, so that a message says who a record is about
@@ -483,15 +526,16 @@ local function hear(hunt: Hunt, packet: Net.Packet, now: integer)
   end
   for _, record in ipairs(records) do
     local target = record.target
-    if record.type == Dns.PTR and target ~= nil and record.name:lower() == hunt.service then
+    local service = if record.type == Dns.PTR then hunt.services[record.name:lower()] else nil end
+    if service ~= nil and target ~= nil then
       local key = target:lower()
-      local name = if hunt.instances[key] == nil then instance_name(hunt, target) else nil end
+      local name = if hunt.instances[key] == nil then instance_name(service, target) else nil end
       local srv = placing[key]
       -- A search that has all the instances it may answer takes no new name: none could be given
       -- a host, and each would draw questions for nothing.
       if name ~= nil and hunt.placed < hunt.limit then
-        local entry: Entry = { name = name, fullname = target, from = from, port = 0, told = false,
-          asks = 0, ask_at = now + SETTLE_NS }
+        local entry: Entry = { name = name, fullname = target, service = service.written, from = from,
+          port = 0, told = false, asks = 0, ask_at = now + SETTLE_NS }
         local held = srv ~= nil and place(hunt, entry, srv, from, now)
         if not held and hunt.waiting < MAX_WAITING then
           hunt.waiting = hunt.waiting + 1
@@ -540,6 +584,7 @@ local function instance_of(hunt: Hunt, entry: Entry): Mdns.Instance?
   return {
     name = entry.name,
     fullname = entry.fullname,
+    service = entry.service,
     host = host.name,
     port = entry.port,
     ipv4 = table.move(host.ipv4, 1, #host.ipv4, 1, {}),
@@ -646,10 +691,12 @@ local function run(hunt: Hunt, done: function(): integer?): boolean, string
   while now < deadline do
     local due: mut {Dns.Question} = {}
     local wake = deadline
-    if hunt.service ~= "" then
+    if #hunt.pointers > 0 then
       if now >= next_query then
-        local pointers = question(hunt.service, Dns.PTR)
-        due[#due + 1] = pointers
+        for _, name in ipairs(hunt.pointers) do
+          local pointers = question(name, Dns.PTR)
+          due[#due + 1] = pointers
+        end
         next_query, gap = now + gap, gap * 2
       end
       wake = math.min(wake, next_query)
@@ -680,14 +727,6 @@ local function run(hunt: Hunt, done: function(): integer?): boolean, string
   return true, ""
 end
 
---- What a browse asks about.
-local record Service
-  --- The name its pointers are asked at.
-  name: string
-  --- The labels its instances' names end in, in lower case.
-  suffix: {string}
-end
-
 --- What a browse for `service` asks about, or nil and why `service` names no service type.
 local function service_of(service: string): Service?, string
   local given, why = Dns.labels(service)
@@ -707,7 +746,7 @@ local function service_of(service: string): Service?, string
   labels[#labels + 1] = "local"
   local name, trouble = Dns.name(labels)
   if name == nil then return nil, trouble end
-  return { name = name, suffix = { application:lower(), kind:lower(), "local" } }, ""
+  return { written = service, name = name, suffix = { application:lower(), kind:lower(), "local" } }, ""
 end
 
 --- The instances of `service` on the local network that answer within `opts.timeout_ns`, in the
@@ -717,29 +756,63 @@ end
 --- domain is always `local`. A sub-type is `_printer._sub._http._tcp`, and answers the instances
 --- of `_http._tcp` that declare it. The case of ASCII letters means nothing.
 ---
+--- `service` is also a list of such types, 1 to 32 of them, which one search asks for: every
+--- type in each repeat of its questions, from one socket, in as few messages as hold them. The
+--- list it answers holds the instances of them all, in the order they were first named, each
+--- with the type it is one of in its `service`. A type written twice is asked for once and named
+--- as it was first written.
+---
 --- The list holds each instance whose SRV record came, so each has its host and port; one that
 --- was only named is left out. Its TXT strings and its host's addresses are there where they
 --- came too, and the search asks for them when an answer leaves them out. The search ends early
 --- once `opts.limit` instances have all three: a limit of 1 answers the first instance found.
+--- It ends `opts.settle_ns` after the first instance has all three, where that is given.
 --- `opts.found` is called with each instance of the list as it becomes known.
 ---
---- Nil and why where the search cannot be made: a `service` that is no service type, a socket
---- that cannot be bound, which says the address and port first, a group that cannot be joined on
---- any interface, which says the group first, a question no interface takes, or a wait that
---- failed, with [`Poll.CANCELLED`] for a cancelled task. The socket is closed however the search
---- ends. Raises for an option out of range.
-function Mdns.browse(service: string, opts?: Mdns.Options): {Mdns.Instance}?, string
-  local asked, unnamed = service_of(service)
-  if asked == nil then return nil, unnamed end
-  local opened, why = open(opts or {})
+--- Nil and why where the search cannot be made: a `service` that is no service type, or a list
+--- with one that is none, with no type or with more than 32, a socket that cannot be bound, which
+--- says the address and port first, a group that cannot be joined on any interface, which says
+--- the group first, a question no interface takes, or a wait that failed, with [`Poll.CANCELLED`]
+--- for a cancelled task, whose search has called `opts.found` with each instance that has its SRV
+--- record. The socket is closed however the search ends. Raises for an option out of range.
+function Mdns.browse(service: string | {string}, opts?: Mdns.Options): {Mdns.Instance}?, string
+  local written: {string}
+  if service is string then written = { service } else written = service end
+  if #written == 0 then return nil, "mdns: no service type was asked for" end
+  if #written > MAX_SERVICES then
+    return nil, ("mdns: %d service types are more than the %d one search asks for"):format(#written,
+      MAX_SERVICES)
+  end
+  local services: mut {string: Service} = {}
+  local pointers: mut {string} = {}
+  for _, one in ipairs(written) do
+    local asked, unnamed = service_of(one)
+    if asked == nil then return nil, unnamed end
+    local key = asked.name:lower()
+    if services[key] == nil then
+      services[key] = asked
+      pointers[#pointers + 1] = asked.name
+    end
+  end
+  local options = opts or {}
+  local opened, why = open(options)
   if opened == nil then return nil, why end
-  local hunt: Hunt = { ...opened, service = asked.name:lower(), suffix = asked.suffix }
+  local hunt: Hunt = { ...opened, services = services, pointers = pointers }
   local _socket <close> = hunt.socket
+  local settle_ns = options.settle_ns
+  local settling = false
   local ran, trouble = run(hunt, function(): integer?
-    if tell(hunt, false) >= hunt.limit then return 0 end
-    return nil
+    local whole = tell(hunt, false)
+    if whole >= hunt.limit then return 0 end
+    if settle_ns == nil or settling or whole == 0 then return nil end
+    settling = true
+    return settle_ns
   end)
-  if not ran then return nil, trouble end
+  if not ran then
+    -- A failure answers no list, so `found` is the one way out for what a cancelled search held.
+    if trouble == Poll.CANCELLED then tell(hunt, true) end
+    return nil, trouble
+  end
   tell(hunt, true)
   local instances: mut {Mdns.Instance} = {}
   for _, key in ipairs(hunt.order) do
