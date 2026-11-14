@@ -391,10 +391,6 @@ promises lean on come first:
     refuses and a codec declared before it is defined would allow; a field's
     declared default; and a `.proto` file read to write the records and the
     `message_of` calls.
-  - A faster writer in [`cosmic.protobuf.schema`]: an embedded message is
-    written to bytes and copied into its parent, so that what a record keeps
-    goes after its fields at every level. A record that keeps nothing could
-    write through a child writer.
   - Groups (wire types 3 and 4), which [`Protobuf.decode`] refuses and only
     proto2 writes. A group has no length: its end is found by reading every
     field inside it, the groups nested in it too, under a bound on how deep
@@ -492,8 +488,7 @@ symbol.
   is the library's ([`cosmic/doc.tl`]), the one `cosmic docs` asks. what
   remains: [`Flags.dispatch`] takes a record whose fields' doc comments are
   the commands' pages and answers `help <command>` and `docs <words>` from
-  the program's own rows, and a misspelled word takes the nearest stem of
-  the index, by the distance [`Flags.nearest`] ranks names with.
+  the program's own rows.
 - add mention search for prose references that `cosmic uses` cannot see.
   old's `cosmic/doc/mentions.tl` demonstrates the separate full-text query.
 - an uncaught error's guidance ([`Errors.guidance`] in [`cosmic/errors.tl`]) is
@@ -610,7 +605,6 @@ four-producer provenance join.
 [`Errors.guidance`]: ../cosmic/errors.tl
 [`eval/summarize.tl`]: ../eval/summarize.tl
 [`Flags.dispatch`]: ../cosmic/flags.tl
-[`Flags.nearest`]: ../cosmic/flags.tl
 [`Html.url_part`]: ../cosmic/html.tl
 [`Input.Invalid`]: ../cosmic/web/input.tl
 [`Json.decode`]: ../cosmic/json.tl

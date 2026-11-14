@@ -38,6 +38,15 @@ local record positions
     --- The `internal` directory itself, for an internal module, as `a/internal`; "" for a closed one.
     through: string
   end
+
+  --- What the running binary says of the standard library's modules, as a check of a project's tree asks it.
+  record Library
+    --- The modules it records as public ([`build.schema`]'s `public_modules`), each set.
+    public: {string: boolean}
+    --- The modules of the library's namespace that a database of it carries and leaves out of the public ones it
+    --- records, each set: those a closed directory keeps.
+    kept: {string: boolean}
+  end
 end
 
 --- The file's own name, with no directory in front of it.
@@ -128,6 +137,12 @@ end
 --- requiring one is refused, one of the tree's own, or a Teal module the running binary carries (`carried`). A raw table
 --- has neither, and its `.d.tl` is the reserved namespace's to guard.
 ---
+--- The standard library's closed directories keep their own as a project's do: a project tree's module requiring a
+--- module the running binary carries and keeps out of the public ones it records (`library`) is refused, and told the
+--- public module above it to require in its place.
+--- A file checked alone (`cosmic --standalone <file>`, `cosmic -e`) runs no position check, and is told the same of such a
+--- require by [`build.project_refusals`], in the same words ([`positions.kept`]).
+---
 --- Declarations (`.d.tl`) never reach this check: `collect` leaves
 --- them out, and `cosmic/internal/`'s are guarded by the reserved
 --- `cosmic.internal.` namespace, which no ordinary `require` satisfies.
@@ -136,9 +151,11 @@ end
 ---   reserves
 --- @param carried whether the running binary carries a row of a module,
 ---   which tells a project tree's Teal `cosmic.internal.*` from a raw table
+--- @param library what the running binary records of the library's modules; nil where it records nothing, and no
+---   module of the library is then refused as private
 function positions.check(modules: {positions.Module}, standing: tree.Standing,
-                         carried?: function(name: string): boolean): boolean, string
-  local found = positions.violations(modules, standing, carried)
+                         carried?: function(name: string): boolean, library?: positions.Library): boolean, string
+  local found = positions.violations(modules, standing, carried, library)
   if #found == 0 then
     return true, ""
   end
@@ -191,11 +208,35 @@ function positions.reach(file: string, entries: {string: string}, public: functi
   return { within = home, internal = false, through = "" }
 end
 
+--- What a refusal of the library's private module `name` says to require in its place, ending in "or ": the nearest
+--- module above it that `public` holds ([`cosmic.web`] for `cosmic.web.router`); "" where none above it is public.
+local function instead(name: string, public: {string: boolean}): string
+  local above = name:match("^(.*)%.[^.]+$")
+  while above ~= nil do
+    if public[above] == true then
+      return "require " .. above .. " in its place, or "
+    end
+    above = above:match("^(.*)%.[^.]+$")
+  end
+  return ""
+end
+
+--- What is said of a project's require of the module `name` that `library` keeps: that it is private to its directory,
+--- and what to require in its place. Nil where the binary records nothing (`library` is nil) or does not keep it.
+function positions.kept(name: string, library: positions.Library?): string?
+  if library == nil or library.kept[name] ~= true or library.public[name] == true then
+    return nil
+  end
+  return name .. " is private to its directory in the standard library, and a project may not require it: " ..
+    instead(name, library.public) .. "ask that the module say `--- @public`"
+end
+
 --- Every breach [`positions.check`] would name, one per `require` that breaks a rule, in module order and then
 --- in the order of the requires: what a caller that refuses the modules rather than the tree reads. `modules`,
---- `standing` and `carried` are as `check` takes them.
+--- `standing`, `carried` and `library` are as `check` takes them.
 function positions.violations(modules: {positions.Module}, standing: tree.Standing,
-                              carried?: function(name: string): boolean): {positions.Violation}
+                              carried?: function(name: string): boolean,
+                              library?: positions.Library): {positions.Violation}
   local found: mut {positions.Violation} = {}
   local by_path: mut {string:positions.Module} = {}
   local files: mut {string} = {}
@@ -204,11 +245,6 @@ function positions.violations(modules: {positions.Module}, standing: tree.Standi
     files[#files + 1] = m.file
   end
   local entries = positions.entries(files)
-  -- TODO: refuse a project's require of a standard-library module its closed directory keeps
-  -- (`cosmic.web.router`), as one of `cosmic.internal.*` is refused: the binary records which are public
-  -- (`public_modules`), and `cosmic docs` already answers for those alone. It waits on a release that carries
-  -- cosmic/layout.tl's sentence saying so, since a tool before it allowed the require and a project is told
-  -- before its build is refused.
 
   --- The breach of `m` requiring `name`, or nil.
   local function judge(m: positions.Module, name: string): string?
@@ -217,6 +253,12 @@ function positions.violations(modules: {positions.Module}, standing: tree.Standi
         (other ~= nil or (carried ~= nil and carried(name))) then
       return m.file .. ": " .. name .. " is internal to cosmic's own tree; " ..
         "`cosmic.internal.*` is the standard library's, and a project may not require it"
+    end
+    if other == nil and not standing.own then
+      local kept = positions.kept(name, library)
+      if kept ~= nil then
+        return m.file .. ": " .. kept
+      end
     end
     if other ~= nil then
       local reach = positions.reach(other.file, entries, function(): boolean
@@ -260,14 +302,15 @@ end
 --- [`positions.check`], so that a hint names nothing the next check refuses. `modules` are the modules of the tree with no
 --- requires of their own.
 function positions.permits(modules: {positions.Module}, file: string, kind: string, name: string,
-                           standing: tree.Standing, carried?: function(name: string): boolean): boolean
+                           standing: tree.Standing, carried?: function(name: string): boolean,
+                           library?: positions.Library): boolean
   local asked: mut {positions.Module} = {}
   for _, m in ipairs(modules) do
     if m.file ~= file then asked[#asked + 1] = m end
   end
   asked[#asked + 1] = { path = "", file = file, kind = kind, source = "", source_hash = "", requires = { name },
     tests = {}, inputs = nil }
-  local fine, _ = positions.check(asked, standing, carried)
+  local fine, _ = positions.check(asked, standing, carried, library)
   return fine
 end
 

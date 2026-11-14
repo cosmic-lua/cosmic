@@ -277,7 +277,7 @@ function verb.run(argv: {string}, streams?: verb.Io): integer
       globals = options.globals.sources, adjust = options.globals.adjust, library = library, standard = Pipeline.carried(),
       refusals = function(chunk: Ast.Chunk, scoped: Scopes.Scoped): {Grammar.Problem}
         local found: mut {Grammar.Problem} = {}
-        for _, at in ipairs(ProjectRefusals.places(chunk, scoped)) do
+        for _, at in ipairs(ProjectRefusals.places(chunk, scoped, Pipeline.kept)) do
           found[#found + 1] = { code = "project_refusal", msg = at.text, fix = "", y = at.y, x = at.x, offset = 0 }
         end
         return found

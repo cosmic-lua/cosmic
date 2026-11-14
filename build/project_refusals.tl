@@ -8,7 +8,8 @@
 --- than text, which with an environment of its own loads bytecode no checker read. So a project says none of them:
 ---
 --- - `require` is called with one literal name, as `require("m")` or `pcall(require, "m")`, and that name is
----   not under `cosmic.internal`;
+---   not under `cosmic.internal`, nor, in a file checked alone, a module the standard library keeps to its directory
+---   (`kept`), which a type import (`local type M = require("m")`) may not name either;
 --- - `package`, `debug`, `loadfile`, `dofile`, `_G` and `_ENV` are not used (the last two hold every global under a name this check
 ---   cannot read: `_G.load`, `_G["load"]`, `local g = _G`);
 --- - `load` is called with a mode that is the literal `"t"`, or with no mode and so no environment, and no final argument
@@ -45,10 +46,12 @@ local Scopes = require("lang.scopes")
 local record ProjectRefusals
   --- Each place in `chunk` (the parse of the file `file`, `scoped` its names resolved) that says what a project may not, as
   --- `<file>:<line>:<column>: <what>`, in source order. A name that is declared by the program itself (`local package`) is
-  --- no use of the global and is not told.
-  check: function(file: string, chunk: Ast.Chunk, scoped: Scopes.Scoped): {string}
+  --- no use of the global and is not told. `kept`, where given, answers what is told of a `require` of a module the
+  --- standard library keeps to its directory, and nil of any other: a file checked alone is given it, since no check of
+  --- positions runs over one ([`build.positions`]'s `kept`).
+  check: function(file: string, chunk: Ast.Chunk, scoped: Scopes.Scoped, kept?: function(name: string): string?): {string}
   --- The same places, each as its line, column and what is told, for a caller that lays them out itself.
-  places: function(chunk: Ast.Chunk, scoped: Scopes.Scoped): {ProjectRefusals.Place}
+  places: function(chunk: Ast.Chunk, scoped: Scopes.Scoped, kept?: function(name: string): string?): {ProjectRefusals.Place}
   record Place
     y: integer
     x: integer
@@ -242,7 +245,8 @@ local function store_uses(chunk: Ast.Chunk, scoped: Scopes.Scoped, watched: {int
   end)
 end
 
-function ProjectRefusals.places(chunk: Ast.Chunk, scoped: Scopes.Scoped): {ProjectRefusals.Place}
+function ProjectRefusals.places(chunk: Ast.Chunk, scoped: Scopes.Scoped,
+                                kept?: function(name: string): string?): {ProjectRefusals.Place}
   local watched: mut {integer: string} = {}
   local any = false
   for _, name in ipairs({ "package", "debug", "loadfile", "dofile", "_G", "_ENV", "require", "load", "pcall" }) do
@@ -251,7 +255,8 @@ function ProjectRefusals.places(chunk: Ast.Chunk, scoped: Scopes.Scoped): {Proje
       any = true
     end
   end
-  if not any then
+  -- A type import names no global, and is told only where a module may be kept.
+  if not any and (kept == nil or #chunk.requires == 0) then
     return {}
   end
   local out: mut {ProjectRefusals.Place} = {}
@@ -271,6 +276,11 @@ function ProjectRefusals.places(chunk: Ast.Chunk, scoped: Scopes.Scoped): {Proje
     elseif internal(literal.value) then
       say(node, "`" .. literal.value .. "` is not a module a project may require: " .. INTERNAL ..
           " holds the tool's own, which are not its interface")
+    elseif kept ~= nil then
+      local told = kept(literal.value)
+      if told ~= nil then
+        say(node, told)
+      end
     end
   end
   Node.walk(chunk, function(node: Ast.Node)
@@ -305,6 +315,15 @@ function ProjectRefusals.places(chunk: Ast.Chunk, scoped: Scopes.Scoped): {Proje
               "(`load((f()))`) to pass its first value alone")
         end
       end
+    elseif node.kind == "Import" then
+      -- A type import loads nothing, so one of `cosmic.internal` reaches no raw table; a kept module's types are its
+      -- directory's all the same, as the build has it.
+      if kept ~= nil then
+        local told = kept(node.module)
+        if told ~= nil then
+          say(node, told)
+        end
+      end
     elseif node.kind == "Name" then
       local name = watched[node.id]
       if name ~= nil and spoken[node.id] ~= true then
@@ -322,9 +341,10 @@ function ProjectRefusals.places(chunk: Ast.Chunk, scoped: Scopes.Scoped): {Proje
   return out
 end
 
-function ProjectRefusals.check(file: string, chunk: Ast.Chunk, scoped: Scopes.Scoped): {string}
+function ProjectRefusals.check(file: string, chunk: Ast.Chunk, scoped: Scopes.Scoped,
+                               kept?: function(name: string): string?): {string}
   local out: mut {string} = {}
-  for _, at in ipairs(ProjectRefusals.places(chunk, scoped)) do
+  for _, at in ipairs(ProjectRefusals.places(chunk, scoped, kept)) do
     out[#out + 1] = file .. ":" .. tostring(at.y) .. ":" .. tostring(at.x) .. ": " .. at.text
   end
   return out

@@ -272,6 +272,11 @@ local tables: {Definition} = {
                   text TEXT,
                   file TEXT NOT NULL,
                   line INTEGER NOT NULL)]] },
+
+  -- Each word of `docs` of three letters or more, whole and in lowercase, with how many rows carry it: what a
+  -- search that found nothing reads for the word a misspelling meant ([`cosmic.doc`]). Filled with the indexes
+  -- ([`schema.rebuild`]).
+  { name = "docs_words", body = "(word TEXT PRIMARY KEY, rows INTEGER NOT NULL) WITHOUT ROWID" },
 }
 
 --- Each FTS5 virtual table's name and its `USING fts5(...)` clause, in
@@ -318,8 +323,8 @@ local docs_indexes: {Definition} = {
   { name = symbols.local_index, body = "(module, source_symbol) WHERE exported = 0 AND signature LIKE 'local %'" },
 }
 
---- The statements that create an empty database, in order, every table
---- and then every index under `qualifier`: `"out."` for a schema
+--- The statements that create an empty database, in order, every table,
+--- then every index, then every FTS5 index, under `qualifier`: `"out."` for a schema
 --- attached under that name, `""` for a connection's own.
 function schema.create(qualifier: string): {string}
   local out: mut {string} = {}
@@ -337,7 +342,7 @@ function schema.create(qualifier: string): {string}
 end
 
 --- The statements that rebuild each FTS5 index from its content table's
---- current rows, under `qualifier` as `create` names them. Run them
+--- current rows and list the words of `docs` (`docs_words`), under `qualifier` as `create` names them. Run them
 --- once the tables are filled: it is the documented way to bulk-load an
 --- external-content FTS5 table, and needs none of the triggers that
 --- would keep the two in sync, which a write-once database has no use
@@ -347,6 +352,21 @@ function schema.rebuild(qualifier: string): {string}
   for _, pair in ipairs(virtual_tables) do
     out[#out + 1] = "INSERT INTO " .. qualifier .. pair.name .. "(" .. pair.name ..
       ") VALUES ('rebuild')"
+  end
+  -- The words of `docs`, whole: `docs_fts` lists only their stems, which are not words to show a reader or to
+  -- search for again. An index of the same text unstemmed, made and dropped here, counts them.
+  for _, statement in ipairs({
+      "DELETE FROM " .. qualifier .. "docs_words",
+      "CREATE VIRTUAL TABLE temp.docs_whole USING fts5(symbol, signature, text, content='', tokenize='unicode61')",
+      "INSERT INTO temp.docs_whole (rowid, symbol, signature, text) SELECT id, symbol, signature, text FROM " ..
+        qualifier .. "docs ORDER BY id",
+      "CREATE VIRTUAL TABLE temp.docs_whole_words USING fts5vocab('temp', 'docs_whole', 'row')",
+      "INSERT INTO " .. qualifier .. "docs_words (word, rows) SELECT term, doc FROM temp.docs_whole_words " ..
+        "WHERE length(term) >= 3 AND term NOT GLOB '*[^a-z]*' ORDER BY term",
+      "DROP TABLE temp.docs_whole_words",
+      "DROP TABLE temp.docs_whole",
+  }) do
+    out[#out + 1] = statement
   end
   return out
 end

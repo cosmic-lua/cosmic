@@ -36,7 +36,7 @@ default and is dropped from what to change.
    ("merge").
    Once merged, clean up the worktree and branch.
 6. When the change adds what a `TODO:` waiting on the pin needs, open
-   the pin bump once the prerelease exists; otherwise say the pin was
+   the pin bump once a prerelease holds it; otherwise say the pin was
    left alone.
 
 Removing code can leave a marker stale (the `-- checked: ...` comment
