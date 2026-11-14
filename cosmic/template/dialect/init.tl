@@ -2,14 +2,16 @@
 --- them: a lookup over the data a dialect module holds, in the shape of
 --- [`Types.Def`]. A template that says `{{use htmx}}` is judged by the
 --- base dialect `html` (the refusals that are always on) and the dialects
---- it names; an attribute no rule names is a plain attribute. Private to
---- [`cosmic.template`].
+--- it names; an attribute no rule names is a plain attribute. A caller
+--- reaches it through [`cosmic.template`], which takes dialects of its own
+--- in the same shape.
 ---
 --- A name is matched in lower case (the tokenizer lower-cases attribute
 --- names), and also with a `data-` prefix in front when the rest begins with
 --- a family one of the dialects lists (`data-hx-get` is `hx-get`, as the
 --- framework reads it). The exact name is tried first, then the longest
 --- matching prefix.
+--- @public
 
 local base = require("cosmic.template.dialect.html")
 local htmx = require("cosmic.template.dialect.htmx")

@@ -2,7 +2,9 @@
 --- items the lexer cuts a template into, and the tree the parser makes of
 --- them. They are all data with no behavior, in a module of their own so
 --- that the stages stay apart (`lex`, `parse`, `context`, `codegen`) and
---- none imports another's internals. Private to [`cosmic.template`].
+--- none imports another's internals. [`cosmic.template`] names the ones a
+--- caller gives it.
+--- @public
 
 local record Types
   --- The two kinds of output a template makes. `html` escapes by the

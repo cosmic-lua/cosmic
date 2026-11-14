@@ -273,6 +273,85 @@ local function test_a_string_cut_inside_a_character_is_not_completed_by_the_next
   assert(message:string(1) == nil and message:bytes(1) == "\xc3" and message:int(17) == 1)
 end
 
+local function test_a_string_is_utf8_as_utf8_len_takes_it()
+  local cases <const>: {string} = { "", "00", "7f", "c2a2", "e282ac", "f09f9880", "f48fbfbf", "eda080", "edbfbf",
+    "ed9fbf", "ee8080", "c080", "c1bf", "e08080", "e09fbf", "e0a080", "f0808080", "f08fbfbf", "f0908080",
+    "f4908080", "f5808080", "ff", "80", "bf", "c2", "e282", "f09f98", "c2c2a2", "61c3", "e28261", "f09f9861",
+    "61e282ac62" }
+  for _, hex in ipairs(cases) do
+    local text = bytes_of(hex)
+    local message = assert(Protobuf.decode((assert(Protobuf.writer():bytes(1, text):encode()))))
+    assert(message:bytes(1) == text, hex)
+    if utf8.len(text) then
+      assert(message:string(1) == text, hex .. " is UTF-8")
+    else
+      assert(message:string(1) == nil, hex .. " is not UTF-8")
+    end
+  end
+end
+
+local function test_numbers_that_agree_in_their_low_bits_are_each_found()
+  local writer = Protobuf.writer()
+  local numbers: mut {integer} = {}
+  for j = 0, 3999 do
+    numbers[#numbers + 1] = j * 65536 + 7
+    writer:int(j * 65536 + 7, j)
+  end
+  for number = 1, 300 do
+    if number ~= 7 then
+      numbers[#numbers + 1] = number
+      writer:int(number, -number)
+    end
+  end
+  local message = assert(Protobuf.decode((assert(writer:encode()))))
+  for j = 0, 3999 do
+    assert(message:int(j * 65536 + 7) == j)
+  end
+  for number = 1, 300 do
+    if number ~= 7 then assert(message:int(number) == -number) end
+  end
+  assert(not message:has(65536 * 4000 + 7) and not message:has(301) and message:int(8 + 65536) == nil)
+  assert(#message:fields() == #numbers)
+end
+
+local function test_a_number_no_field_has_reads_as_nothing()
+  local message = decoded("0801")
+  for _, number in ipairs({ 0, -1, math.mininteger, 536870912, math.maxinteger }) do
+    assert(not message:has(number) and message:wires(number) == 0 and message:int(number) == nil)
+    assert(message:bytes(number) == nil and #message:repeated_bytes(number) == 0)
+    local values = assert(message:repeated_int(number))
+    assert(#values == 0)
+    local child = assert(message:message(number))
+    assert(#child:fields() == 0)
+  end
+end
+
+local function test_a_field_that_is_not_there_is_one_nil()
+  local message = decoded("0801")
+  assert(select("#", message:int(2)) == 1 and select("#", message:string(2)) == 1)
+  assert(select("#", message:double(2)) == 1 and select("#", message:bool(2)) == 1)
+end
+
+local function test_an_embedded_message_outlives_the_message_it_came_from()
+  local function child(): Protobuf.Message
+    local inner = Protobuf.writer():string(1, ("x"):rep(1000)):int(2, 7)
+    local outer = assert(Protobuf.decode((assert(Protobuf.writer():message(3, inner):encode()))))
+    local message = assert(outer:message(3))
+    return message
+  end
+  local kept = child()
+  collectgarbage()
+  collectgarbage()
+  assert(kept:string(1) == ("x"):rep(1000) and kept:int(2) == 7)
+end
+
+local function test_a_key_of_more_than_32_bits_is_a_number_too_great()
+  for _, hex in ipairs({ "f8ffffff7f00", "f8ffffffffffffffff0100", "8880808080010100", "808080801000" }) do
+    local message, why = Protobuf.decode(bytes_of(hex))
+    assert(message == nil and why == "protobuf: byte 1: a field number above 536870911", why)
+  end
+end
+
 local function test_the_greatest_field_number()
   assert(written(Protobuf.writer():int(536870911, 7)) == "f8ffffff0f07")
   assert(decoded("f8ffffff0f07"):int(536870911) == 7)
@@ -456,14 +535,26 @@ local function test_a_message_of_every_type_is_read_and_written_back()
 end
 
 local function test_a_varint_in_more_bytes_than_it_needs_is_its_value()
-  -- The reference reads these too, and drops the bits the tenth byte holds past the 64th.
   assert(decoded("08818000"):int(1) == 1)
-  assert(decoded("08ffffffffffffffffff02"):int(1) == math.maxinteger)
-  assert(decoded("08ffffffffffffffffff7f"):int(1) == -1)
+  -- The tenth byte holds the 64th bit and nothing else.
+  assert(decoded("08ffffffffffffffffff01"):int(1) == -1)
+  assert(decoded("0880808080808080808001"):int(1) == math.mininteger)
   local fields = decoded("08818000"):fields()
   assert(encoded(fields) == "0801")
   -- A tag may be padded too.
   assert(decoded("88800001"):int(1) == 1)
+end
+
+local function test_a_varint_of_more_than_64_bits_is_refused()
+  -- A tenth byte with a bit past the 64th: the reference implementations drop such bits, and nanopb, which reads
+  -- the bytes here, refuses them.
+  for _, hex in ipairs({ "08ffffffffffffffffff02", "08ffffffffffffffffff7f", "08" .. ("ff"):rep(10) .. "01" }) do
+    local message, why = Protobuf.decode(bytes_of(hex))
+    assert(message == nil and why == "protobuf: byte 1: field 1: a varint holds more than 64 bits", why)
+  end
+  -- A key is a varint as any other.
+  local keyed, key_why = Protobuf.decode(bytes_of("f8ffffffffffffffffff0100"))
+  assert(keyed == nil and key_why == "protobuf: byte 1: a varint holds more than 64 bits", key_why)
 end
 
 local function test_an_int_is_the_64_bits_of_its_varint()
@@ -491,7 +582,8 @@ local function test_bytes_that_are_no_message_are_refused_and_never_raise()
   refused("45010203") -- 3 of 4 bytes
   refused("45")
   refused("4901020304050607") -- 7 of 8 bytes
-  refused("8080808001") -- a tag whose field number is 2^29
+  refused("8080808001") -- a tag of field 2^25 and no value
+  refused("808080801000") -- a tag whose field number is 2^29
   refused("80808080800100") -- a tag over 32 bits
   refused("ffffffffffffffffff0100")
   refused("7280808080808080808001") -- a length of 2^63
@@ -537,7 +629,7 @@ local function test_a_malformed_packed_field_fails_the_read_and_not_the_decode()
   local ints, int_why = decoded("8a010180"):repeated_int(17)
   assert(ints == nil and int_why == "protobuf: packed field 17: the bytes end inside a varint", int_why)
   local long, long_why = decoded("8a010b" .. ("ff"):rep(10) .. "01"):repeated_sint(17)
-  assert(long == nil and long_why == "protobuf: packed field 17: a varint is longer than 10 bytes", long_why)
+  assert(long == nil and long_why == "protobuf: packed field 17: a varint holds more than 64 bits", long_why)
   -- A packed varint does not read past its field into the next.
   local stopped, stopped_why = decoded("8a0101800801"):repeated_int(17)
   assert(stopped == nil and stopped_why ~= "")
@@ -728,8 +820,9 @@ local function test_read_varint_refuses_and_never_raises()
   refuses("", nil, "protobuf: the bytes end inside a varint")
   refuses("\x80", nil, "protobuf: the bytes end inside a varint")
   refuses(("\xff"):rep(9), nil, "protobuf: the bytes end inside a varint")
-  refuses(("\xff"):rep(10), nil, "protobuf: a varint is longer than 10 bytes")
-  refuses(("\xff"):rep(10) .. "\x01", nil, "protobuf: a varint is longer than 10 bytes")
+  refuses(("\xff"):rep(10), nil, "protobuf: a varint holds more than 64 bits")
+  refuses(("\xff"):rep(10) .. "\x01", nil, "protobuf: a varint holds more than 64 bits")
+  refuses(("\xff"):rep(9) .. "\x02", nil, "protobuf: a varint holds more than 64 bits")
   refuses("\x01", 2, "protobuf: the bytes end inside a varint")
   refuses("\x01", 100, "protobuf: the bytes end inside a varint")
   refuses("\x01", math.maxinteger, "protobuf: the bytes end inside a varint")

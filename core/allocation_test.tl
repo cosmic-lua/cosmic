@@ -38,6 +38,7 @@ local Http = require("cosmic.http")
 local Json = require("cosmic.json")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
+local Protobuf = require("cosmic.protobuf")
 local Sign = require("cosmic.sign")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
@@ -829,6 +830,27 @@ local function test_hash_leaves_nothing_whenever_an_allocation_fails()
   assert_c_heap(bytes, blocks, "HMAC hashing under refusal")
 end
 
+--- nanopb reads from the bytes it is given and allocates nothing. A message is one userdata that holds its
+--- fields, and each answer a string or a table of Lua's own, so a refusal of any raises and leaves no C memory.
+local function test_protobuf_leaves_nothing_whenever_an_allocation_fails()
+  local inner = assert(Protobuf.writer():string(1, "a"):int(2, 7):encode())
+  local bytes = assert(Protobuf.writer():int(1, 5):bytes(2, inner):bytes(2, inner):packed(3, "double", { 1.5, 2.5 })
+      :packed(4, "int", { 1, 2 }):string(5, "text"):encode())
+  collectgarbage("collect")
+  local held, blocks = testing.c_heap()
+  local ended = AllocationFixture.under_every_failure(function()
+    local message = assert(Protobuf.decode(bytes))
+    assert(message:int(1) == 5 and message:string(5) == "text" and message:wires(2) == 4)
+    local merged = assert(message:message(2))
+    assert(merged:int(2) == 7 and #assert(message:repeated_message(2)) == 2)
+    assert(#assert(message:repeated_double(3)) == 2 and #assert(message:repeated_int(4)) == 2)
+    assert(#message:repeated_bytes(2) == 2 and #message:fields() == 6)
+    assert(assert(Protobuf.read_varint("\x05")).value == 5)
+  end)
+  assert(ended > 0, "a message, each string and each list is an allocation")
+  assert_c_heap(held, blocks, "reading a message under refusal")
+end
+
 --- Monocypher allocates nothing: a key pair and a signature are worked out
 --- on the C stack, and the one allocation of each binding is the string it
 --- answers with, whose refusal raises and leaves no C memory.
@@ -848,8 +870,9 @@ end
 
 --- Each call holds its numbers in one block of the core's own, under a
 --- guard: a refusal of the block, of the guard or of the answer's string
---- leaves none. The limbs are mbedtls's own allocations, which the walk
---- neither refuses nor counts.
+--- leaves none. The limbs of the functions that take a time depending on
+--- values are mbedtls's own allocations, which the walk neither refuses
+--- nor counts; those of the functions for secrets are the block.
 
 -- TODO: refuse and count mbedtls's allocations too, once
 -- core/mbedtls_cosmic_config.h routes them through core/memory.h
@@ -869,6 +892,17 @@ local function test_bigint_leaves_nothing_whenever_an_allocation_fails()
   end)
   assert(ended > 0, "a call's numbers are an allocation")
   assert_c_heap(bytes, blocks, "big integers under refusal")
+  -- The functions for secrets hold their limbs in one block of the
+  -- core's own each, under a guard of its own.
+  ended = AllocationFixture.under_every_failure(function()
+    local product = Bigint.mulmod("\5", "\200\200", prime)
+    local sum = Bigint.addmod(product, prime, prime)
+    assert(sum == product and Bigint.reduce(sum, prime) == product)
+    assert(Bigint.submod(sum, product, prime) == string.rep("\0", #prime))
+    assert(Bigint.sum(Bigint.product(product, "\2"), "") == "\0" .. Bigint.sum(product, product))
+  end)
+  assert(ended > 0, "a call's limbs are an allocation")
+  assert_c_heap(bytes, blocks, "big integers for secrets under refusal")
 end
 
 --- Sealing, opening and agreeing on a key hold no C memory of the core's

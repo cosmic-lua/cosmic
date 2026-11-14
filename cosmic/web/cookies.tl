@@ -13,6 +13,7 @@
 --- `SameSite=Lax`, no `Domain` (a host-only cookie), and `Secure` only when
 --- asked for: the function cannot know the scheme, so
 --- [`cosmic.web.session`] decides it from the request.
+--- @public
 
 local String = require("cosmic.string")
 local Response = require("cosmic.web.response")

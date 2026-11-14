@@ -2,6 +2,7 @@
 --- in-process, with a cookie jar and the server's own checks of the reply,
 --- and [`Testing.with_server`] serves the app on the loopback for a client
 --- that speaks HTTP/1.1 over a socket.
+--- @public
 
 local Clock = require("cosmic.clock")
 local Cookies = require("cosmic.web.cookies")

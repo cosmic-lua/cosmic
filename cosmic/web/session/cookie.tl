@@ -21,6 +21,7 @@
 --- checked here; the cookie's `Max-Age` is advisory. `keys` rotates:
 --- `{ new, old }` signs with `new` and verifies with both, and a session
 --- read under `old` is signed again under `new` at once.
+--- @public
 
 local Codec = require("cosmic.codec")
 local Hash = require("cosmic.hash")

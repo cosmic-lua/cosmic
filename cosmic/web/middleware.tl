@@ -1,5 +1,6 @@
 --- Middleware: how a stack of them is folded around a handler, the sink an
 --- app writes its lines to, and the access log.
+--- @public
 
 local Clock = require("cosmic.clock")
 local Errors = require("cosmic.web.errors")

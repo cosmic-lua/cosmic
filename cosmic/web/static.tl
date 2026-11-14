@@ -19,6 +19,7 @@
 --- NUL is a 404, so a dotfile and a path out of the root are never read; a
 --- directory has no listing. Everything below `static/` is public: put
 --- nothing private there.
+--- @public
 
 local Assets = require("cosmic.web.assets")
 local Mime = require("cosmic.mime")

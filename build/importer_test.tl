@@ -2073,7 +2073,6 @@ local function test_the_writer_modules_are_closed_under_require()
     ["build.c_tokens"] = "reads C comments for those staged links",
     ["build.importer"] = "coordinates semantic operations and cache transport, and renders diagnostics",
     ["build.grammar_mode"] = "names the grammar a build reads (COSMIC_GRAMMAR), which only the new grammar's compile consults",
-    ["build.positions"] = "fails a whole build before any key is looked up, and stores nothing",
     ["build.code_walk"] = "names which modules the identities of the code that reads hash, and which a test's store keeps",
     ["build.reads.analyzer"] = "a declaration of what text a module reads, which a test's store follows; no code",
     ["build.reads.receivers"] = "a declaration of what text a module reads, which a test's store follows; no code",

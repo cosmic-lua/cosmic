@@ -23,6 +23,7 @@
 --- keep up is settled by its overflow policy, and a slow client costs only
 --- its own queue. Everything runs in the tasks of one [`Poll.run`], so
 --- nothing here is locked.
+--- @public
 
 local Channel = require("cosmic.channel")
 local Clock = require("cosmic.clock")

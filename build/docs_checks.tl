@@ -165,6 +165,8 @@ function docs_checks.rendered(db: Sqlite.Handle, exempt?: docs_checks.Exempt): {
     return { "reading the view: " .. view_trouble }
   end
   local view: docs.View = read_view
+  local read_public, _ = symbols.public_modules(db)
+  local public = read_public or {}
   local index, index_trouble = docs.index(view)
   if index == nil then
     return { "reading the index: " .. index_trouble }
@@ -256,7 +258,7 @@ function docs_checks.rendered(db: Sqlite.Handle, exempt?: docs_checks.Exempt): {
       out[#out + 1] = "the index lists " .. summary.module .. ", but `cosmic docs " ..
         summary.module .. "` does not resolve it"
     end
-    if found ~= nil and symbols.is_public_module(summary.module) then
+    if found ~= nil and public[summary.module] == true then
       local answered = false
       for _, entry in ipairs(found) do
         if entry.module == summary.module and entry.symbol == "" then
@@ -419,13 +421,32 @@ function docs_checks.references(db: Sqlite.Handle, help?: {string: string},
   if index == nil then
     return { "reading the index: " .. index_trouble }
   end
-  -- The record a public module returns is its last name, capitalized:
-  -- `Fs` for [`cosmic.fs`].
+  -- The record a module of the library returns is its last name,
+  -- capitalized: `Fs` for [`cosmic.fs`]. One a closed directory keeps to
+  -- itself counts too, so that a public page naming its symbol
+  -- ([`Router.match`]) is held to an answer a reader can get.
   local records: mut {string: boolean} = {}
-  for _, summary in ipairs(index) do
-    local last = summary.module:match("[^.]+$")
-    if symbols.is_public_module(summary.module) and last ~= nil then
+  local library, library_trouble = Sqlite.text_rows(db, "SELECT path FROM modules WHERE kind = 'module' AND " ..
+      symbols.library_modules("path"))
+  if library == nil then
+    return { "reading the modules: " .. library_trouble }
+  end
+  -- Each module of the library a closed directory keeps to itself, by its
+  -- name and by its file: a public page that names one sends its reader
+  -- to a page `cosmic docs` does not have.
+  local kept: mut {string: boolean} = {}
+  local read_public, _ = symbols.public_modules(db)
+  local public = read_public or {}
+  for _, row in ipairs(library) do
+    local path = row:text(1)
+    local last = path:match("[^.]+$")
+    if last ~= nil then
       records[last:sub(1, 1):upper() .. last:sub(2)] = true
+    end
+    if public[path] ~= true then
+      kept[path] = true
+      kept[path:gsub("%.", "/") .. ".tl"] = true
+      kept[path:gsub("%.", "/") .. "/init.tl"] = true
     end
   end
   local rows, trouble = Sqlite.text_rows(db,
@@ -490,6 +511,8 @@ function docs_checks.references(db: Sqlite.Handle, help?: {string: string},
         if not placeholder(verb) and known[verb] ~= true then
           problem = "names no verb"
         end
+      elseif kept[span] == true then
+        problem = "names a module the library keeps to itself"
       else
         local chain = span:match("^(%u[%w]*[%.:][%w_%.:]*[%w_])")
         local head = if chain ~= nil then chain:match("^[%w]+") else nil end
