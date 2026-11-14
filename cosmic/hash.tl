@@ -176,8 +176,8 @@ function Hash.siphash(key: string, data: string, options?: Hash.SipHashOptions):
   return raw.siphash(key, data, o.compression, o.finalization, o.size)
 end
 
---- `length` bytes of key material derived from the secret `key` by HKDF
---- (RFC 5869) over an algorithm's HMAC: the way to turn one shared
+--- `length` bytes of key material derived from the secret `key` by HKDF,
+--- the HMAC-based key derivation function of RFC 5869, over an algorithm: the way to turn one shared
 --- secret, such as a key exchange's, into the keys a protocol needs.
 --- `salt` need not be secret and may be "", which the RFC reads as a
 --- digest's length of zero bytes. `info` names what the bytes are for, so

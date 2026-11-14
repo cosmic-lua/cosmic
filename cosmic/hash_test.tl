@@ -325,12 +325,19 @@ local function test_hkdf_matches_published_vectors()
     "085a01ea1b10f36933068b56efa5ad81a4f14b822f5b091568a9cdd4f155fda2c22e422478d305f3f896"))
   assert(Hash.hkdf("sha1", string.rep("\x0c", 22), "", "", 42) == unhex(
     "2c91117204d745f3500d636a62f64f0ab3bae548aa53d423b0d1f27ebba6f5e5673a081d70cce7acfc48"))
+  -- Python's hmac and hashlib gave these, for an algorithm of each other family.
+  assert(Hash.hkdf("md5", "k", "", "i", 40) == unhex(
+    "8e0973aad3d13bf5e343bf8b281784862e5fe00c7edadfa006d73bc8f6b4a3202d4047fdfda39184"))
+  assert(Hash.hkdf("sha3-256", "k", "", "i", 40) == unhex(
+    "ff6b36533d1d8276c5955ad7a4f311ccbf715524ed8cd14783899512e9ee126e8404a96ce2d67d08"))
 end
 
 local function test_hkdf_holds_its_length_to_255_digests()
   assert(Hash.hkdf("sha256", "k", "s", "i", 0) == "")
   local longest = Hash.hkdf("sha256", "k", "s", "i", 255 * 32)
   assert(#longest == 255 * 32)
+  -- Every block to the last, whose counter is 255: Python's digest of the same bytes.
+  assert(Hash.hex_sha256(longest) == "813255b76aa629b61a02f931fad42294020186e8b7fcc89add6e736456703a02")
   assert(Hash.hkdf("sha256", "k", "s", "i", 33) == longest:sub(1, 33))
   for _, length in ipairs({ -1, 255 * 32 + 1 }) do
     local raised = Test.raises(function() Hash.hkdf("sha256", "k", "s", "i", length) end)
