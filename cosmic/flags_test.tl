@@ -562,3 +562,98 @@ local function test_a_refusal_names_what_was_probably_meant()
     assert(ran == nil and why == case.why, why)
   end
 end
+
+local paged: {string:Flags.Command} = {
+  count = {
+    about = "Counts the lines of each file.",
+    usage = "[options] <file>...",
+    spec = { ["-v"] = { about = "say more" } },
+    examples = {
+      { line = "notes.txt", about = "the lines of one file" },
+      { line = "-v src/héllo.tl", about = "each file's count, then the total" },
+      { line = "", about = "" },
+    },
+    see = { "words", "top" },
+    group = "Counting",
+  },
+  words = { about = "Counts the words of each file.", group = "Counting" },
+  top = { about = "Lists the most frequent words.", group = "Reports", see = { "words" } },
+  version = { about = "Says which build this is." },
+}
+
+local function test_help_shows_examples_then_see_also()
+  local help = Flags.help(assert(paged["count"]), "prog count")
+  assert(help == table.concat({
+    "usage: prog count [options] <file>...",
+    "",
+    "Counts the lines of each file.",
+    "",
+    "options:",
+    "  -v  say more",
+    "",
+    "examples:",
+    "  prog count notes.txt        the lines of one file",
+    "  prog count -v src/héllo.tl  each file's count, then the total",
+    "  prog count",
+    "",
+    "see also: words, top",
+  }, "\n"), help)
+  -- What dispatch answers for the command is the same page.
+  local asked = assert(Flags.dispatch({ "help", "count" }, 1, paged, "prog"))
+  assert(asked.help == help, asked.help)
+  local dashed = assert(Flags.dispatch({ "count", "--help" }, 1, paged, "prog"))
+  assert(dashed.help == help, dashed.help)
+  -- A command with only a see-also has no examples section.
+  assert(Flags.help(assert(paged["top"]), "prog top") == table.concat({
+    "usage: prog top", "", "Lists the most frequent words.", "", "see also: words",
+  }, "\n"))
+  local empty: Flags.Command = { about = "Builds.", examples = {}, see = {}, group = "" }
+  assert(Flags.help(empty, "p build") == "usage: p build\n\nBuilds.")
+end
+
+local function test_the_index_lists_each_group_by_title_and_the_rest_last()
+  local index = assert(Flags.dispatch({ "--help" }, 1, paged, "prog")).help
+  assert(index == table.concat({
+    "usage: prog <command> [options]",
+    "",
+    "Counting:",
+    "  count    Counts the lines of each file.",
+    "  words    Counts the words of each file.",
+    "",
+    "Reports:",
+    "  top      Lists the most frequent words.",
+    "",
+    "other commands:",
+    "  version  Says which build this is.",
+    "",
+    "Run `prog <command> --help` for a command's options.",
+  }, "\n"), index)
+  -- Every command in a group leaves no "other commands:", and an empty
+  -- group is none.
+  local grouped: {string:Flags.Command} = {
+    a = { about = "First.", group = "Zed" },
+    b = { about = "Second.", group = "Alpha" },
+  }
+  assert(assert(Flags.dispatch({ "help" }, 1, grouped, "p")).help ==
+      "usage: p <command>\n\nAlpha:\n  b  Second.\n\nZed:\n  a  First.")
+  local bare: {string:Flags.Command} = { a = { about = "First.", group = "" }, b = {} }
+  assert(assert(Flags.dispatch({ "help" }, 1, bare, "p")).help ==
+      "usage: p <command>\n\ncommands:\n  a  First.\n  b")
+end
+
+local function test_dispatch_raises_for_a_see_that_names_no_other_command()
+  local ran = 0
+  local function run(_: Flags.Parsed): integer
+    ran = ran + 1
+    return 0
+  end
+  local missing: {string:Flags.Command} = { build = { run = run, see = { "bulid" } }, clean = { run = run } }
+  local itself: {string:Flags.Command} = { build = { run = run, see = { "build" } }, clean = { run = run } }
+  -- Whatever the line asks: the mistake is the program's, not the line's.
+  local lines: {{string}} = { { "clean" }, { "--help" }, { "nope" }, {} }
+  for _, line in ipairs(lines) do
+    Test.raises(function() Flags.dispatch(line, 1, missing, "prog") end, "build's see names no other command: bulid")
+    Test.raises(function() Flags.dispatch(line, 1, itself, "prog") end, "build's see names no other command: build")
+  end
+  assert(ran == 0)
+end

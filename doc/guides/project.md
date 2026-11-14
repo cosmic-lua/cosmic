@@ -256,6 +256,9 @@ refused, so a typo is never read as a file name. A refused option or
 command that is near one the program has names it: `tally top --limt 2`
 is told "did you mean --limit?". `tally --help`, and
 `tally top --help`, print help written from the same descriptions. A
+command may also give `examples`, lines to type with what each does,
+and `see`, the commands beside it, for its own help, and a `group`, the
+section it is listed under in the program's. A
 program with no commands parses its options with `Flags.parse(argv, 1,
 spec)` instead. [`cosmic.log`] writes what went wrong to standard error
 under the program's name. The function's result is the exit code.
