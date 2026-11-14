@@ -241,10 +241,16 @@ local function test_a_call_through_a_class_value_is_a_use_of_the_method_it_calls
   local root = started(tmp, "class")
   assert(Fs.write(root .. "/vessels.tl", VESSELS))
   assert(Fs.write(root .. "/vessels_test.tl", VESSELS_TEST))
-  for _, symbol in ipairs({ "Counter.add", "add" }) do
-    local out = looked_up(root, tmp, { "uses", symbol })
-    assert(out == "cmd/tally/main.tl:16: counter Counter.add\ncounter_test.tl:7: counter Counter.add\n", symbol .. ": " .. out)
+  local uses_of_add = "cmd/tally/main.tl:16: counter Counter.add\ncounter_test.tl:7: counter Counter.add\n"
+  local by_class = looked_up(root, tmp, { "uses", "Counter.add" })
+  assert(by_class == uses_of_add, by_class)
+  -- The last name alone also names every `add` of the standard library, whose own uses of one are listed
+  -- beside the project's: the project's are those outside `cosmic/`.
+  local of_the_project: mut {string} = {}
+  for use in looked_up(root, tmp, { "uses", "add" }):gmatch("[^\n]+\n") do
+    if use:sub(1, 7) ~= "cosmic/" then of_the_project[#of_the_project + 1] = use end
   end
+  assert(table.concat(of_the_project) == uses_of_add, table.concat(of_the_project))
   local line = looked_up(root, tmp, { "uses", "Counter.line" })
   assert(line == "cmd/tally/main.tl:18: counter Counter.line\ncounter_test.tl:8: counter Counter.line\n", line)
   -- `self:fill(1)`, `tank:fill(-1)` through a parameter and `planted.tank:fill(2)` through a field, `Tank.fill(tank, 3)` and

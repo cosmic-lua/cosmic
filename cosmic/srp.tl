@@ -62,7 +62,9 @@ local record Srp
   --- must be a safe prime (`(N - 1) / 2` is prime too) and `g` a
   --- generator modulo it: nothing here checks either.
   record Group
+    --- `N`.
     prime: string
+    --- `g`, from 2 to `N` less 1.
     generator: string
   end
 
@@ -103,10 +105,12 @@ local record Srp
   --- What both sides of a login agree on beforehand. A verifier belongs
   --- to the parameters it was made under.
   record Parameters
+    --- One of the constants ([`Srp.group_3072`]), or a peer's own.
     group: Group
     --- A name of [`Hash.Algorithm`], or a function for a hash that
     --- [`cosmic.hash`] does not carry.
     hash: Hash.Algorithm | Digest
+    --- Which of the two ways of hashing the peer follows.
     rules: Rules
   end
 

@@ -85,4 +85,19 @@ function Example.Rules()
   assert(server:verify(matching.public, assert(matching:prove(salt, server.public)).proof))
 end
 
+--- The seven groups of RFC 5054. A wider prime costs an attacker who
+--- holds a verifier more, and each login more time: a public value is
+--- as many bytes as the prime, and both sides raise numbers of that
+--- width to a power.
+function Example.Group()
+  local groups: {Srp.Group} = {
+    Srp.group_1024, Srp.group_1536, Srp.group_2048, Srp.group_3072, Srp.group_4096, Srp.group_6144, Srp.group_8192,
+  }
+  for _, group in ipairs(groups) do
+    local client = Srp.client({ group = group, hash = "sha256", rules = "rfc5054" }, "alice", "password123")
+    print(#group.prime * 8, group.generator:byte(), #client.public)
+    assert(#client.public == #group.prime)
+  end
+end
+
 return Example
