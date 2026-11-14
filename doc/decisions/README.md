@@ -8,7 +8,8 @@ from [design.md](../design.md) needs no record; its hint or doc says why.
 one Markdown file per decision, named `NNNN-slug.md` with the next number.
 a record has a status line, then sections headed as below:
 
-- status: `accepted`, or `superseded by NNNN`.
+- status: `proposed` while its open questions stand, then `accepted`, or
+  `superseded by NNNN`.
 - `## context`: what forced the question.
 - `## decision`: what is done, in the present tense.
 - `## rejected alternatives`: each with the reason it lost.
@@ -20,3 +21,4 @@ cite a [design.md](../design.md) promise or principle by name and number where
 the record rests on one.
 
 - [0001 friction triage](0001-friction-triage.md)
+- [0002 a built program's help](0002-program-help.md)
