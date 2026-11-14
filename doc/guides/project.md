@@ -346,6 +346,21 @@ end
 the cat saw the dog
 ```
 
+A program with more to say of a command than one line writes it as it
+writes of its code: in a doc comment. Name a module whose record has a
+field for each command, as `Flags.dispatch(argv, 1, commands, "tally",
+{ pages = "pages" })`, and `tally help top` ends with the comment on that
+record's `top` field. The program then answers `tally docs <words>` too:
+a name it documents, or a search of its doc comments and its guides
+(`doc/guides/*.md`), a misspelled word put right, as `cosmic docs` answers
+for the standard library. `cosmic build` puts the documentation of the
+project's modules that any module may require into the program, so the
+built file answers alone; a module under `internal/`, or one a directory
+keeps to itself, stays out of it. `groups`, beside `pages`, orders the
+sections of the program's help. A test that asks for a command's help or
+for `docs` reads that documentation, and says so with
+`Test.policy { store_text = true }`.
+
 ## the verbs
 
 ```text

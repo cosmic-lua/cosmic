@@ -1165,3 +1165,110 @@ local function test_the_manifest_forgets_a_copy_that_is_gone(tmp: string)
   assert(again.code == 4, again.stderr)
   assert(Fs.read(tmp .. "/dist/two") == "the user's own file, put where the copy was")
 end
+
+local till_commands = [[
+--- What the till does, a command a field.
+local record Commands
+  --- Rings up a sale and writes it to the day's journal. The amount is in
+  --- cents, so no sale is ever rounded.
+  ring: string
+  --- Prints the day's journal, the newest sale last.
+  journal: string
+end
+
+local commands: Commands = { ring = "ring", journal = "journal" }
+return commands
+]]
+
+local till_main = [[
+local Flags = require("cosmic.flags")
+local Fs = require("cosmic.fs")
+
+return function(argv: {string}): integer
+  local commands: {string: Flags.Command} = {
+    ring = {
+      about = "ring up a sale", usage = "[options] <item>", group = "Sales",
+      spec = { ["--cents"] = { value = "n", about = "what it cost" } },
+      run = function(_: Flags.Parsed): integer return 0 end,
+    },
+    journal = {
+      about = "print the day's sales", group = "Reports",
+      run = function(_: Flags.Parsed): integer return 0 end,
+    },
+  }
+  local ran, why = Flags.dispatch(argv, 1, commands, "till", { pages = "commands", groups = { "Sales", "Reports" } })
+  if ran == nil then
+    local _, _ = Fs.put(Fs.stderr, "till: " .. why .. "\n")
+    return 2
+  end
+  if ran.help ~= "" then
+    local _, _ = Fs.put(Fs.stdout, ran.help .. "\n")
+  end
+  return ran.code
+end
+]]
+
+--- What the built till prints for `words`, and its exit status.
+local function till(tmp: string, words: {string}): Child.Result
+  local argv: mut {string} = { support.build_dir(tmp) .. "/bin/till" }
+  for _, word in ipairs(words) do argv[#argv + 1] = word end
+  return (assert(Child.run(argv, { stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })))
+end
+
+--- A program that names the record documenting its commands answers its users from its own documentation, with
+--- nothing but itself: a command's help ends with the field's doc comment, `docs` looks a name up, searches the
+--- comments and guides, puts a misspelling right, and knows nothing of the standard library's.
+local function test_a_built_program_answers_help_and_docs_from_the_documentation_it_carries(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/cmd/till"))
+  assert(Fs.mkdirs(tmp .. "/doc/guides"))
+  assert(Fs.write(tmp .. "/cmd/till/main.tl", till_main))
+  assert(Fs.write(tmp .. "/commands.tl", till_commands))
+  assert(Fs.write(tmp .. "/doc/guides/closing.md",
+    "# Closing the till\n\nAt the end of the day, reconcile the journal against the drawer.\n"))
+  local names, trouble = embed.tree(tmp, true)
+  assert(names ~= nil and names[1] == "till", trouble)
+  local help = till(tmp, { "help", "ring" })
+  assert(help.ok and help.stdout == table.concat({
+    "usage: till ring [options] <item>",
+    "",
+    "ring up a sale",
+    "",
+    "options:",
+    "  --cents <n>  what it cost",
+    "",
+    "Rings up a sale and writes it to the day's journal. The amount is in",
+    "cents, so no sale is ever rounded.",
+    "",
+  }, "\n"), tostring(help.stdout) .. tostring(help.stderr))
+  -- `--help` after the command is the same page.
+  assert(till(tmp, { "ring", "--help" }).stdout == help.stdout)
+  -- The program's help orders its sections as it was told, and says how to search.
+  local index = assert(till(tmp, { "help" }).stdout)
+  local sales, reports = index:find("\nSales:\n", 1, true), index:find("\nReports:\n", 1, true)
+  assert(sales ~= nil and reports ~= nil and sales < reports, index)
+  assert(index:find("Run `till docs <words>` to search the documentation, `till docs` to list it.", 1, true) ~= nil,
+    index)
+  -- `docs` lists what is documented, and its hints name the program.
+  local listed = assert(till(tmp, { "docs" }).stdout)
+  assert(listed:find("commands            What the till does, a command a field.", 1, true) ~= nil and
+      listed:find("doc.guides.closing  At the end of the day", 1, true) ~= nil and
+      listed:find("`till docs <module>` shows one", 1, true) ~= nil and not listed:find("cosmic", 1, true), listed)
+  -- A command's field is found by name, with the command's options under it.
+  local named = assert(till(tmp, { "docs", "Commands.ring" }).stdout)
+  assert(named:find("Rings up a sale", 1, true) ~= nil and named:find("\n  options:\n    --cents <n>  what it cost", 1, true) ~= nil,
+    named)
+  -- Words are searched for in the comments and the guides, and a misspelled one is put right.
+  local searched = assert(till(tmp, { "docs", "reconcile", "drawer" }).stdout)
+  assert(searched:find("doc.guides.closing (doc/guides/closing.md)", 1, true) ~= nil, searched)
+  local respelled = assert(till(tmp, { "docs", "roundd" }).stdout)
+  assert(respelled:find("Nothing named or documented as 'roundd'; showing 'rounded':", 1, true) == 1 and
+      respelled:find("Commands.ring", 1, true) ~= nil, respelled)
+  -- The standard library is not the program's to document, and a miss is a refusal.
+  for _, query in ipairs({ "Fs.read", "cosmic.flags", "zzqqxx" }) do
+    local missed = till(tmp, { "docs", query })
+    assert(missed.code == 2 and missed.stdout == "" and
+        missed.stderr == "till: docs: nothing named or documented as '" .. query .. "'\n", tostring(missed.stderr))
+  end
+  -- A mistyped `docs` is named among the commands.
+  assert(till(tmp, { "docz" }).stderr == "till: no such command: docz; did you mean docs?\n")
+end
