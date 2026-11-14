@@ -1086,12 +1086,11 @@ local function publication(given: Mdns.Published): Publication?, string
   end
   local strings = given.txt or {}
   if not txt_fits(strings) then
-    return nil, ("mdns: the TXT record of '%s' is over %d strings or %d bytes"):format(given.name,
-      MAX_TXT_STRINGS, MAX_TXT_BYTES)
+    return nil, ("mdns: the TXT record of '%s' is past what a search keeps of one"):format(given.name)
   end
   local ipv4, ipv6 = given.ipv4 or {}, given.ipv6 or {}
   if #ipv4 > MAX_ADDRESSES or #ipv6 > MAX_ADDRESSES then
-    return nil, ("mdns: '%s' has more than the %d addresses of a family a responder publishes"):format(
+    return nil, ("mdns: '%s' has more addresses of a family than the %d a responder publishes"):format(
       given.host, MAX_ADDRESSES)
   end
   local addresses: mut {Dns.Record} = {}
@@ -1120,8 +1119,7 @@ local function publication(given: Mdns.Published): Publication?, string
   local bytes, unwritten = Dns.encode({ ...Dns.query(".", Dns.PTR, 0), questions = {}, answers = records })
   if bytes == nil then return nil, ("mdns: the instance '%s': %s"):format(given.name, unwritten) end
   if #bytes > MAX_MESSAGE - QUESTION_BYTES then
-    return nil, ("mdns: the records of '%s' are %d bytes, over the %d a responder answers with"):format(
-      given.name, #bytes, MAX_MESSAGE - QUESTION_BYTES)
+    return nil, ("mdns: the records of '%s' are longer than one answer of a responder holds"):format(given.name)
   end
   return held, ""
 end
