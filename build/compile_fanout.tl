@@ -7,10 +7,11 @@
 --- each copy, which then ends with [`sys.exit`]: it closes nothing, so a
 --- handle the process held when it forked, a database's among them, is
 --- never written by a copy. What a copy has to say it leaves in a file
---- of its own. Where the process cannot be forked (macOS; another thread
---- running; a signal guard open) no copy runs, and the caller does the
---- work itself, as it does that of a copy still running after
---- [`fanout.patience_ns`], which is ended.
+--- of its own. Where the process cannot be forked (another thread
+--- running, which on macOS the C library may have started itself; a
+--- signal guard open) no copy runs, and the caller does the work itself,
+--- as it does that of a copy still running after [`fanout.patience_ns`],
+--- which is ended.
 
 local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")

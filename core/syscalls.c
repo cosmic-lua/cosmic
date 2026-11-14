@@ -5692,6 +5692,18 @@ static int status_threads (int *error) {
   if (count < 0) *error = EIO;
   return count;
 }
+#elif defined(__APPLE__)
+/* How many threads this process has, as the kernel counts its task's
+ * (proc_pidinfo's PROC_PIDTASKINFO), the ones libdispatch started for the
+ * C library among them, or -1 with the errno that refused the call in
+ * `error`, EIO for an answer cut short. */
+static int task_thread_count (int *error) {
+  struct proc_taskinfo info;
+  int got = proc_pidinfo(getpid(), PROC_PIDTASKINFO, 0, &info, (int)sizeof info);
+  if (got == (int)sizeof info) return (int)info.pti_threadnum;
+  *error = got <= 0 ? errno : EIO;
+  return -1;
+}
 #endif
 
 /* How many signal guards are open, counted where they are opened below. */
@@ -5699,15 +5711,25 @@ static int child_guard_depth;
 
 COSMIC_SYSCALL(fork, 1) {
   int scoped = lua_toboolean(L, 1);
-#if defined(__linux__)
+#if defined(__linux__) || defined(__APPLE__)
+#if defined(__APPLE__)
+  /* Nothing here holds a child to its own signals, as Landlock's scope
+   * does: refused whatever else would refuse it. */
+  if (scoped) return cosmic_fail(L, ENOSYS);
+#endif
   int error = 0;
+#if defined(__APPLE__)
+  int threads = task_thread_count(&error);
+#else
   int threads = status_threads(&error);
+#endif
   if (threads < 0) return cosmic_fail(L, error);
   if (threads != 1) return cosmic_fail(L, EBUSY);
   /* A copy would share the guard's wake pipe, and take the bytes that
    * tell this process of its signals. */
   if (child_guard_depth > 0) return cosmic_fail(L, EBUSY);
   int ruleset = -1;
+#if defined(__linux__)
   if (scoped) {
     long abi = syscall(SYS_landlock_create_ruleset, NULL, 0, LANDLOCK_CREATE_RULESET_VERSION);
     if (abi < 1) return cosmic_fail(L, abi < 0 ? errno : ENOSYS);
@@ -5738,9 +5760,11 @@ COSMIC_SYSCALL(fork, 1) {
       return cosmic_fail(L, error);
     }
   }
+#endif
   fflush(NULL);
   pid_t pid = fork();
   error = errno;
+#if defined(__linux__)
   if (pid == 0) {
     /* The pairs are the parent's children, not this process's: a wait
      * here ends none of them. */
@@ -5755,6 +5779,7 @@ COSMIC_SYSCALL(fork, 1) {
       _exit(125);
     }
   }
+#endif
   if (ruleset >= 0) close(ruleset);
   if (pid < 0) return cosmic_fail(L, error);
   lua_pushinteger(L, (lua_Integer)pid);

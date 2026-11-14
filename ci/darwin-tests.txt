@@ -29,6 +29,13 @@ core/descriptor_limit_system_test.tl
 cosmic/child_test.tl
 cosmic/child_lua_test.tl
 cosmic/child_tool_test.tl
+# fork with the threads counted by proc_pidinfo, and a scoped one
+# refused (core/syscalls.c's `fork`); and the build's copies of itself,
+# which that fork makes: what they compile is what one process does
+# (build/compile_fanout.tl, build/shared_compiles.tl's `fan`).
+core/fork_test.tl
+build/compile_fanout_test.tl
+build/importer_test.tl
 # What a policy refuses where the platform has no sandbox: the one test
 # there is nothing to check of on Linux.
 cosmic/child_policy_anywhere_test.tl
