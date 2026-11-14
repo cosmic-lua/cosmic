@@ -55,14 +55,14 @@
 --- conditional copy), and decide nothing by a value themselves. That
 --- rests on the library's documentation and on reading the code, not on
 --- a measurement, and nothing checks the instructions a compiler made
---- of it. They work in memory that is wiped before it is freed. What
+--- of it. The limbs they work in are wiped before they are freed. What
 --- still shows: the length of each argument, the modulus (how many
 --- bytes it has past its leading zero ones, and whether it is even),
 --- and whether the call raised.
 ---
---- Nothing else is hidden. [`Bigint.mul`], [`Bigint.add`],
---- [`Bigint.sub`], [`Bigint.mod`] and [`Bigint.compare`] take a time
---- that depends on their operands' values. The length of a shortest
+--- Nothing else is hidden. The four functions that stand beside
+--- [`Bigint.powmod`], and [`Bigint.compare`], take a time that depends
+--- on their operands' values. The length of a shortest
 --- answer shows how many leading zero bytes its number had, and every
 --- answer is an ordinary string, which nothing wipes. Compare secrets
 --- with [`cosmic.hash.equal`] over strings of one width, not

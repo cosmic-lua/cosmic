@@ -48,10 +48,10 @@
 --- checks a verifier's range in the same way.
 ---
 --- Three things still show. [`Bigint.powmod`] answers a power in its
---- shortest form, so the time of what follows shows how many leading
---- zero bytes the client's `g^x` and the server's `v^u` had: none, 255
---- times in 256. It compares its base with the prime before it starts,
---- and the bases here are secret. And the shared number is hashed
+--- shortest form, so writing it at the prime's width shows how many
+--- leading zero bytes the client's `g^x` and the server's `g^b` and
+--- `v^u` had: none, 255 times in 256. It compares its base with the
+--- prime before it starts, and the bases here are secret. And the shared number is hashed
 --- without its leading zero bytes, as the hashing rules require, so its
 --- length shows. Proofs are compared with [`Hash.equal`]. Nothing wipes
 --- a password, a secret or a key: they are ordinary strings.
@@ -496,7 +496,10 @@ function Srp.server(parameters: Srp.Parameters, identity: string, salt: string, 
   local exponent, public: string, string
   repeat
     exponent = exponent_of(secret, 2)
-    public = shortest(Bigint.addmod(masked, Bigint.powmod(suite.generator, exponent, suite.prime), suite.prime))
+    -- TODO: `g^b` comes out of powmod in its shortest form: take it at the prime's width once cosmic.bigint's
+    -- powmod answers at a fixed width.
+    local power = padded(suite, Bigint.powmod(suite.generator, exponent, suite.prime))
+    public = shortest(Bigint.addmod(masked, power, suite.prime))
     if public == "\0" and secret ~= nil then
       error("srp: the secret makes a public value of zero", 2)
     end

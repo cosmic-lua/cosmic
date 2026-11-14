@@ -10,9 +10,11 @@
  * build.zig puts on the core's include path), and call only those the
  * header documents as constant in time in the values of their operands:
  * mbedtls_mpi_core_mla, mbedtls_mpi_core_sub, mbedtls_mpi_core_montmul
- * and mbedtls_mpi_core_cond_assign. Reading and writing a number there
- * (mbedtls_mpi_core_read_be, mbedtls_mpi_core_write_be) copies bytes by
- * their count. No branch, index or loop bound in that half of this file
+ * and mbedtls_mpi_core_cond_assign, whose condition mbedtls_ct_bool
+ * makes of a carry, as the library's own code does. Reading and writing
+ * a number there (mbedtls_mpi_core_read_be, mbedtls_mpi_core_write_be)
+ * copies bytes by their count, and mbedtls_mpi_core_montmul_init reads
+ * the modulus alone. No branch, index or loop bound in that half of this file
  * reads an operand's limb: each is fixed by a length or by the modulus,
  * which is public. */
 #define MBEDTLS_DECLARE_PRIVATE_IDENTIFIERS
@@ -281,9 +283,10 @@ static int push_fixed (lua_State *L, const mbedtls_mpi_uint *number,
  * limbs and is below 2N: V itself when it is below N, and V - N when it
  * is not, chosen as mbedtls_mpi_core_montmul chooses its own answer.
  * The difference is always computed. It is the answer unless exactly
- * one of the carry and the borrow is set: with neither, S is from N up;
- * with both, V is from 2 to those bits up and the difference wrapped
- * back to V - N. */
+ * one of the carry and the borrow is set. With neither set, S is N or
+ * more. With both set, V did not fit in the limbs, and the difference
+ * wrapped around to V - N. A carry with no borrow cannot be: V is below
+ * 2N. */
 static void settle (mbedtls_mpi_uint *X, const mbedtls_mpi_uint *S,
                     mbedtls_mpi_uint carry, const mbedtls_mpi_uint *N,
                     size_t limbs) {

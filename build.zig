@@ -468,7 +468,7 @@ const crypto_public_dirs = [_][]const u8{ "include", "drivers/builtin/include" }
 
 /// What the core's own C reads of the crypto library: its public headers,
 /// and the directories `bignum_core.h` and the headers it includes are in.
-/// `core/bigint.c` includes that one header of the library's sources, for
+/// [`core/bigint.c`] includes that one header of the library's sources, for
 /// the arithmetic that is constant in time, which no public header
 /// declares. No header of these directories has the name of one of core/.
 const crypto_core_dirs = crypto_public_dirs ++ [_][]const u8{ "core", "drivers/builtin/src", "utilities" };
