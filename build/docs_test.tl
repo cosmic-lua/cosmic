@@ -2993,64 +2993,143 @@ local function ledger_tree(): {string: string}
       "end",
       "--- Reconciles the entries against a bank statement.",
       "function Entries.settle() end",
-      "--- Applies a policy to every entry.",
+      "--- Applies a policy to every entry of the database, or raises.",
       "function Entries.govern() end",
+      "--- Compares one entry with another.",
+      "function Entries.weigh() end",
+      "--- Compresses the old entries, and compresses them again.",
+      "function Entries.pack() end",
+      "--- Squeezes what the pack left, in the house style.",
+      "function Entries.press() end",
       "return Entries"),
+    ["ledger/bank.tl"] = source(
+      "--- A bank, which holds accounts.",
+      "local record Bank",
+      "end",
+      "return Bank"),
   }
 end
 
---- A word no documentation holds is searched again as the nearest word one does: the lookup finds the row,
---- says what it searched for, and the page and the JSON record say so too.
+--- The one entry `found` holds, by its name as its file declares it.
+local function only(found: Doc.Lookup): string
+  assert(#found == 1, tostring(#found) .. " entries")
+  return support.nth(found, 1).source_symbol
+end
+
+--- A word no documentation holds is looked up again as the nearest word one does: the lookup finds the row,
+--- says what it looked up, and the page and the JSON record say so too.
 local function test_a_misspelled_word_finds_the_documentation_of_the_word_meant(dir: string)
   local db = built(dir, ledger_tree())
   local seen = view({ db })
   local found = assert(Doc.lookup(seen, "reconclies"))
-  assert(#found == 1 and support.nth(found, 1).source_symbol == "Entries.settle", tostring(#found))
-  assert(not found.exact and found.respelled ~= nil, "the lookup does not say it searched for another word")
+  assert(only(found) == "Entries.settle" and not found.exact and found.respelled == "reconciles",
+    tostring(found.respelled))
   local answer = assert(Doc.answer(seen, { "reconclies" }))
   local page = table.concat(answer.lines, "\n")
-  assert(answer.found and page:find("Nothing documented as 'reconclies'; showing the nearest words documented, '",
-    1, true) == 1, page)
+  assert(answer.found and page:find("Nothing named or documented as 'reconclies'; showing 'reconciles':\n", 1, true) == 1,
+    page)
   local records = assert(Doc.records(seen, { "reconclies" }))
-  assert(support.nth(records.lines, 1):find('"respelled":"', 1, true) ~= nil, support.nth(records.lines, 1))
-  -- A word found as given is searched as given.
-  local given = assert(Doc.lookup(seen, "reconciles"))
-  assert(#given == 1 and given.respelled == nil, tostring(given.respelled))
+  assert(support.nth(records.lines, 1):find('"respelled":"reconciles"', 1, true) ~= nil, support.nth(records.lines, 1))
+  -- A word found as given is looked up as given, in whatever form the index stems alike.
+  for _, given in ipairs({ "reconciles", "reconciling" }) do
+    local as_given = assert(Doc.lookup(seen, given))
+    assert(only(as_given) == "Entries.settle" and as_given.respelled == nil, given)
+  end
+  -- A capital letter is no misspelling.
+  assert(assert(Doc.lookup(seen, "Reconclies")).respelled == "reconciles")
   assert(db:close())
 end
 
---- The index lists a word by its stem, which ends a word in `y` with `i`: a misspelling of one is still within
---- reach of it, and so is one word of several.
-local function test_a_misspelling_is_measured_against_the_stem_the_index_lists(dir: string)
+--- The word meant is a whole word of the documentation, not the stem its index lists it under, so the lookup
+--- of it finds what the stem alone would not ("database" is indexed as "databas", "policy" as "polici",
+--- "raises" as "rais"), and one misspelled word of several is put right among the others.
+local function test_a_misspelling_is_put_right_as_a_whole_word(dir: string)
   local db = built(dir, ledger_tree())
   local seen = view({ db })
-  local found = assert(Doc.lookup(seen, "polcy"))
-  assert(#found == 1 and support.nth(found, 1).source_symbol == "Entries.govern", tostring(#found))
-  local both = assert(Doc.lookup(seen, "bnk statement"))
-  assert(#both == 1 and support.nth(both, 1).source_symbol == "Entries.settle" and both.respelled == "bank statement",
-    tostring(both.respelled))
+  for misspelled, meant in pairs({ databse = "database", polcy = "policy", riases = "raises" }) do
+    local found = assert(Doc.lookup(seen, misspelled))
+    assert(only(found) == "Entries.govern" and found.respelled == meant, misspelled .. ": " .. tostring(found.respelled))
+  end
+  local both = assert(Doc.lookup(seen, "bnak statement"))
+  assert(only(both) == "Entries.settle" and both.respelled == "bank statement", tostring(both.respelled))
+  assert(db:close())
+end
+
+--- A word put right is looked up as that word alone would be, by name before by search: the module a bare
+--- name ends answers its misspelling as it answers the name.
+local function test_a_word_put_right_is_looked_up_as_the_word_itself(dir: string)
+  local db = built(dir, ledger_tree())
+  local seen = view({ db })
+  local named = assert(Doc.lookup(seen, "bank"))
+  local respelled = assert(Doc.lookup(seen, "bnak"))
+  assert(named.exact and support.nth(named, 1).module == "ledger.bank", "the name does not lead with its module")
+  assert(respelled.respelled == "bank" and respelled.exact and #respelled == #named and
+      support.nth(respelled, 1).module == "ledger.bank", tostring(#respelled))
+  -- Where the words put right are carried by no one row, the rows that carry some of them answer.
+  local some = assert(Doc.lookup(seen, "sqeezes house statement"))
+  assert(some.respelled == "squeezes house statement" and some.closest and
+      support.nth(some, 1).source_symbol == "Entries.press", tostring(#some))
+  local page = table.concat(assert(Doc.answer(seen, { "sqeezes", "house", "statement" })).lines, "\n")
+  assert(page:find("No entry has every word of 'squeezes house statement'; closest matches:", 1, true) ~= nil, page)
   assert(db:close())
 end
 
 --- Nothing is respelled that should not be: a word too far from every word documented, a word too short to
---- have a reach, and a name with an underscore, which is code and is looked up as written.
+--- say which was meant, a word a search never requires, and a name with an underscore or a digit, which is code and is
+--- looked up as written though a word within reach of it is documented.
 local function test_a_word_out_of_reach_or_written_as_code_is_not_respelled(dir: string)
   local db = built(dir, ledger_tree())
   local seen = view({ db })
-  for _, query in ipairs({ "zzqqxx", "bk", "polcy_x", "statemnt_2" }) do
+  for _, query in ipairs({ "zzqqxx", "bk", "bnk", "bnak_", "bnak2", "statemnt_" }) do
     local found = assert(Doc.lookup(seen, query))
-    assert(#found == 0 and found.respelled == nil, query .. ": " .. tostring(#found))
+    assert(#found == 0 and found.respelled == nil, query .. ": " .. tostring(#found) .. " " .. tostring(found.respelled))
   end
   assert(db:close())
 end
 
---- A database written before it listed its words has none to offer, and a misspelled word finds nothing in it,
---- as before.
+--- A database that lists no words has none to offer: a misspelled word finds nothing in it.
 local function test_a_database_that_lists_no_words_respells_none()
   local db = database({ { "ledger.entries", "settle", "function", "", "Reconciles the entries.", "ledger/entries.tl", "4" } }, {})
   local seen = view({ db })
-  assert(#assert(Doc.lookup(seen, "reconclies")) == 1, "the word was not respelled where the words are listed")
-  assert(db:exec("DROP TABLE docs_terms"))
+  assert(#assert(Doc.lookup(seen, "reconclies")) == 0, "a word was respelled from words no build listed")
+  assert(db:exec("INSERT INTO docs_words (word, rows) VALUES ('reconciles', 1)"))
+  assert(assert(Doc.lookup(seen, "reconclies")).respelled == "reconciles")
+  assert(db:exec("DROP TABLE docs_words"))
   assert(#assert(Doc.lookup(seen, "reconclies")) == 0, "a word was respelled from no list of words")
   assert(db:close())
+end
+
+--- A hand-made database of one documented function whose text is `written`, listing `words` as a build would.
+local function listing(module: string, written: string, words: {string: integer}): Sqlite.Handle
+  local db = database({ { module, "f", "function", "", written, "x.tl", "1" } }, {})
+  for word, rows in pairs(words) do
+    assert(Sqlite.run(db, "INSERT INTO docs_words (word, rows) VALUES (?1, ?2)", { { text = word }, { integer = rows } }))
+  end
+  return db
+end
+
+--- The word meant is the one the fewest edits away; of several as near, the one more rows carry, then the
+--- first by spelling.
+local function test_the_nearest_word_is_the_one_fewest_edits_away_then_the_commonest()
+  local db = listing("app.till", "A cash cast case compares compress.",
+    { cash = 5, cast = 5, case = 2, compares = 1, compress = 9 })
+  local seen = view({ db })
+  -- "comparse" is one swap from "compares" and two edits from "compress", which more rows carry.
+  assert(assert(Doc.lookup(seen, "comparse")).respelled == "compares")
+  -- "casz" is one edit from all three: "case" has fewer rows, and "cash" is spelled before "cast".
+  assert(assert(Doc.lookup(seen, "casz")).respelled == "cash")
+  assert(db:exec("UPDATE docs_words SET rows = 6 WHERE word = 'cast'"))
+  assert(assert(Doc.lookup(seen, "casz")).respelled == "cast")
+  assert(db:close())
+end
+
+--- The rows that carry a word are counted over every database, so a word two databases each hold a little of
+--- is meant before one a single database holds more of.
+local function test_the_rows_that_carry_a_word_are_counted_over_every_database()
+  local first = listing("app.one", "A form and a fort.", { form = 2, fort = 3 })
+  local second = listing("app.two", "A form again.", { form = 2 })
+  local found = assert(Doc.lookup(view({ first, second }), "forx"))
+  assert(found.respelled == "form", tostring(found.respelled))
+  assert(first:close())
+  assert(second:close())
 end
