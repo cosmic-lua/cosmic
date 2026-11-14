@@ -969,15 +969,6 @@ local function test_sandbox_inits_lists_the_inits_still_running()
   if names.sysname ~= "Linux" then assert(#before == 0) end
 end
 
---- Off Linux, listing a process's children has no implementation.
-local function test_children_is_not_implemented_off_linux()
-  if assert(sys.uname()).sysname == "Linux" then
-    Test.skip("Linux has the children implementation")
-  end
-  local found, why, errno = process.children()
-  assert(found == nil and errno == sys.ENOSYS, why)
-end
-
 --- Of a /proc/<pid>/uid_map or gid_map's text, whether it maps `id`
 --- inside: what `maps_id` is checked against.
 local function listed_in_map(text: string, id: integer): boolean

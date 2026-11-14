@@ -9,12 +9,16 @@ local function probe_in(tmp: string): string
   return (assert(stand_in.build(tmp .. "/probe")))
 end
 
-Test.policy{ profiles = { "proc" }, requires = { "path:/proc/thread-self/children" } }
+Test.policy{ profiles = { "proc" } }
 
 --- `children` lists the children of the thread that starts them, a
---- child still running among them and gone once reaped; off Linux there
---- is no such list, ENOSYS.
+--- child still running among them and gone once reaped: from /proc on
+--- Linux, where a kernel may be built without the list, and from libproc
+--- on macOS.
 local function test_children_lists_a_running_child_until_it_is_reaped(tmp: string)
+  if assert(sys.uname()).sysname == "Linux" and sys.lstat("/proc/thread-self/children") == nil then
+    Test.skip("this kernel lists no thread's children")
+  end
   local probe = probe_in(tmp)
   local ends = assert(process.pipe())
   local pid = assert(process.spawn(probe, { probe, "cat" }, nil, tmp, ends.reader, nil, nil, false))
