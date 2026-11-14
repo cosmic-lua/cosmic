@@ -290,6 +290,49 @@ local function test_a_unix_connection_has_no_peer_address(tmp: string)
   assert(other == nil and other_why ~= "")
 end
 
+--- Each end of a TCP connection names itself as the other end names
+--- it: a client the address and port its peer sees, an accepted
+--- connection the listener's.
+local function test_a_tcp_connection_names_its_own_address()
+  local p <close> = pair()
+  local client_is = assert(p.client:bound())
+  local server_sees = assert(p.accepted:peer())
+  assert(client_is.kind == "tcp" and client_is.host == "127.0.0.1")
+  assert(client_is.port == server_sees.port and client_is.port ~= p.server.address.port)
+  local accepted_is = assert(p.accepted:bound())
+  assert(accepted_is.kind == "tcp" and accepted_is.host == "127.0.0.1")
+  assert(accepted_is.port == p.server.address.port)
+end
+
+--- An accepted connection names the address the client reached, where
+--- its listener names only the wildcard it listens at.
+local function test_an_accepted_connection_names_the_address_reached()
+  local server <close> = assert(Net.listen(Net.tcp("0.0.0.0", 0), { timeout_ns = Clock.seconds(5) }))
+  local client <close> = assert(Net.connect(Net.tcp("127.0.0.1", assert(server.address.port)),
+    { timeout_ns = Clock.seconds(5) }))
+  local accepted <close> = assert(server:accept())
+  assert(server.address.host == "0.0.0.0")
+  assert(assert(accepted:bound()).host == "127.0.0.1")
+  assert(assert(client:bound()).host == "127.0.0.1")
+end
+
+--- A closed connection has no address to name, and a unix one no TCP
+--- address: each answers nil and why.
+local function test_a_closed_or_unix_connection_has_no_own_address(tmp: string)
+  local p <close> = pair()
+  assert(p.client:close())
+  local address, why = p.client:bound()
+  assert(address == nil and why == "net: the connection is closed", why)
+  unix_socket.skip_if_refused(tmp)
+  local server <close> = assert(Net.listen(Net.unix(tmp .. "/b.sock")))
+  local client <close> = assert(Net.connect(server.address))
+  local accepted <close> = assert(server:accept())
+  for _, conn in ipairs({ client, accepted }) do
+    local unix, unix_why = conn:bound()
+    assert(unix == nil and unix_why == "net: a unix connection has no TCP address", unix_why)
+  end
+end
+
 --- A `max_bytes` below 1 and a `how` of none of the three raise, at the line
 --- that called, in the module's own style.
 local function test_a_degenerate_read_or_shutdown_raises_at_the_caller()

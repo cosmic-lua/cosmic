@@ -167,6 +167,23 @@ local class SocketConn is Duplex
     return address, ""
   end
 
+  --- Where this end is: its own numeric TCP address, as the kernel
+  --- names it. A client's is the address it reaches the peer from, on
+  --- the interface the route there leaves by, with the port it was
+  --- given; an accepted connection's is the one the client connected
+  --- to, which names an address of the host where the listener's may be
+  --- the wildcard. Nil and why where it has none to give: a unix
+  --- connection, or a connection already closed.
+  -- TODO: answer a unix connection's own address too, once `peer`
+  -- answers one: an unbound client has no path for its Address.
+  function bound(self): raw_socket.Address?, string
+    if not self.open then return nil, "net: the connection is closed" end
+    local address, why = raw.bound(self.fd)
+    if address == nil then return nil, why end
+    if address.kind ~= "tcp" then return nil, "net: a unix connection has no TCP address" end
+    return address, ""
+  end
+
   --- Ends one direction, or both: after "write" the peer reads the
   --- end of what was sent, and this side can still read its answer.
   --- A `how` that is none of "read", "write" and "both" is refused where
