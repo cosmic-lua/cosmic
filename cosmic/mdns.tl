@@ -128,7 +128,7 @@
 --- answered to the group all the same. Answers go by IPv4 alone, and to the group by every interface the responder
 --- joined it on. The responder holds 64 instances at most, each with what a search keeps of one,
 --- and answers a query with one message for each instance the query asks about, none over 9000
---- bytes. It reads a query as a search reads an answer: one over 9000 bytes, one that is no DNS
+--- bytes, though one may be longer than a frame of an Ethernet carries whole. It reads a query as a search reads an answer: one over 9000 bytes, one that is no DNS
 --- message, a response and a query of another kind are ignored, and whether a query came from
 --- the local link is not checked, so any machine that can reach the port draws an answer.
 ---
@@ -1064,8 +1064,11 @@ local function published_at(name: string, rtype: integer, ttl: integer): Dns.Rec
   return { name = name, type = rtype, class = Dns.IN, cache_flush = rtype ~= Dns.PTR, ttl = ttl }
 end
 
---- What a responder holds for `given`, or nil and why it publishes no such instance.
-local function publication(given: Mdns.Published): Publication?, string
+--- What a responder holds for `given`, or nil and why it publishes no such instance. `hosts` is
+--- the address records of each host by its name in lower case, which this adds the instance's
+--- to: every instance of a host answers with all the host's addresses, since an address record
+--- says it is the only one of its name and type but for those sent with it.
+local function publication(given: Mdns.Published, hosts: mut {string: mut {Dns.Record}}): Publication?, string
   local service, unnamed = service_of(given.service)
   if service == nil then return nil, unnamed end
   local labels, unread = Dns.labels(service.name)
@@ -1088,21 +1091,32 @@ local function publication(given: Mdns.Published): Publication?, string
   if not txt_fits(strings) then
     return nil, ("mdns: the TXT record of '%s' is past what a search keeps of one"):format(given.name)
   end
-  local ipv4, ipv6 = given.ipv4 or {}, given.ipv6 or {}
-  if #ipv4 > MAX_ADDRESSES or #ipv6 > MAX_ADDRESSES then
+  local addresses: mut {Dns.Record} = hosts[host:lower()] or {}
+  hosts[host:lower()] = addresses
+  -- Adds the host's addresses of `list` that it lacks, of the family `rtype` is of: false where
+  -- that would be more than a responder publishes.
+  local function add(rtype: integer, list: {string}): boolean
+    for _, address in ipairs(list) do
+      local known, of_family = false, 0
+      for _, record in ipairs(addresses) do
+        if record.type == rtype then
+          of_family = of_family + 1
+          known = known or record.address == address
+        end
+      end
+      if not known and of_family >= MAX_ADDRESSES then return false end
+      if not known then
+        local record: Dns.Record = { ...published_at(host, rtype, HOST_TTL), address = address }
+        addresses[#addresses + 1] = record
+      end
+    end
+    return true
+  end
+  if not add(Dns.A, given.ipv4 or {}) or not add(Dns.AAAA, given.ipv6 or {}) then
     return nil, ("mdns: '%s' has more addresses of a family than the %d a responder publishes"):format(
       given.host, MAX_ADDRESSES)
   end
-  local addresses: mut {Dns.Record} = {}
-  for _, address in ipairs(ipv4) do
-    local record: Dns.Record = { ...published_at(host, Dns.A, HOST_TTL), address = address }
-    addresses[#addresses + 1] = record
-  end
-  for _, address in ipairs(ipv6) do
-    local record: Dns.Record = { ...published_at(host, Dns.AAAA, HOST_TTL), address = address }
-    addresses[#addresses + 1] = record
-  end
-  local held: Publication = {
+  return {
     service = service.name:lower(),
     instance = instance:lower(),
     host = host:lower(),
@@ -1111,17 +1125,21 @@ local function publication(given: Mdns.Published): Publication?, string
       srv = { priority = 0, weight = 0, port = given.port, target = host } },
     txt = { ...published_at(instance, Dns.TXT, OTHER_TTL), txt = strings },
     addresses = addresses,
-  }
-  -- Written once here, so that an address that is none is refused now and not at each answer,
-  -- and so that the instance's answer has room beside it for the questions it repeats.
+  }, ""
+end
+
+--- Why a responder cannot answer for `held`, published as `name`, or "": its records are written
+--- once here, so that an address that is none is refused as the responder is made and not at
+--- each answer, and so that the answer has room beside them for the questions it repeats.
+local function unanswerable(held: Publication, name: string): string
   local records: mut {Dns.Record} = { held.pointer, held.srv, held.txt }
-  for _, record in ipairs(addresses) do records[#records + 1] = record end
+  for _, record in ipairs(held.addresses) do records[#records + 1] = record end
   local bytes, unwritten = Dns.encode({ ...Dns.query(".", Dns.PTR, 0), questions = {}, answers = records })
-  if bytes == nil then return nil, ("mdns: the instance '%s': %s"):format(given.name, unwritten) end
+  if bytes == nil then return ("mdns: the instance '%s': %s"):format(name, unwritten) end
   if #bytes > MAX_MESSAGE - QUESTION_BYTES then
-    return nil, ("mdns: the records of '%s' are longer than one answer of a responder holds"):format(given.name)
+    return ("mdns: the records of '%s' are longer than one answer of a responder holds"):format(name)
   end
-  return held, ""
+  return ""
 end
 
 --- `record` as it is sent: to a member of the group as it is held, and to a program that is none
@@ -1229,7 +1247,7 @@ end
 --- shared, and a member of the group on the interfaces `opts.via` names, ready for `serve` to
 --- answer the questions about them ([`cosmic.mdns`] says which, and what a responder leaves
 --- undone). Two instances may be at one host; where they give it different addresses, the host
---- has them all. The names are the caller's to use: no other responder is asked whether it
+--- has them all, and each of its instances is answered for with them all. The names are the caller's to use: no other responder is asked whether it
 --- answers for them.
 ---
 --- Nil and why where it cannot be made: no instance or more than 64, an instance whose service
@@ -1254,8 +1272,9 @@ function Mdns.responder(instances: {Mdns.Published}, opts?: Mdns.ResponderOption
   end
   local published: mut {Publication} = {}
   local names: mut {string: boolean} = {}
+  local hosts: mut {string: mut {Dns.Record}} = {}
   for _, given in ipairs(instances) do
-    local held, why = publication(given)
+    local held, why = publication(given, hosts)
     if held == nil then return nil, why end
     if names[held.instance] == true then
       return nil, ("mdns: the instance '%s' of %s is given twice"):format(given.name, given.service)
@@ -1263,10 +1282,16 @@ function Mdns.responder(instances: {Mdns.Published}, opts?: Mdns.ResponderOption
     names[held.instance] = true
     published[#published + 1] = held
   end
+  -- Once every instance is read: a host has the addresses of them all.
+  for at, held in ipairs(published) do
+    local given = instances[at]
+    local why = unanswerable(held, if given ~= nil then given.name else "" end)
+    if why ~= "" then return nil, why end
+  end
   local socket, why = Net.datagram(Net.udp("0.0.0.0", port), { shared = true })
   if socket == nil then return nil, why end
   local vias = options.via or default_vias()
-  local ready, trouble = socket:set_multicast({ hops = HOPS, loop = true })
+  local ready, trouble = socket:set_multicast({ hops = HOPS })
   if ready then ready, trouble = join(socket, address, vias) end
   if not ready then
     local _, _ = socket:close()
