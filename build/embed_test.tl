@@ -44,6 +44,36 @@ local function test_cosmic_s_own_tree_is_refused(tmp: string)
   assert(trouble:find("bin/zig build boot", 1, true) ~= nil, trouble)
 end
 
+--- In cosmic's own tree the program is the tool: its path in the tree's build directory is answered, and `out`
+--- is given a copy of it, executable, in a directory made for it.
+local function test_cosmic_s_own_tool_is_named_and_copied(tmp: string)
+  local root = tmp .. "/tree"
+  assert(Fs.mkdirs(root))
+  local tool = support.build_dir(root) .. "/bin/cosmic"
+  assert(Fs.mkdirs(Fs.dirname(tool)))
+  assert(Fs.write(tool, "#!/bin/sh\necho the tool\n", 0x1ed))
+  local named, trouble = embed.own_tool(root)
+  assert(named == tool, trouble)
+  assert(Fs.exists(root .. "/cosmic") == false, "with no out, nothing is written")
+  local out = tmp .. "/dist/nested"
+  local again, copy_trouble = embed.own_tool(root, out)
+  assert(again == tool, copy_trouble)
+  assert(assert(Fs.read(out .. "/cosmic")) == assert(Fs.read(tool)), "the copy differs from the tool")
+  assert(assert(Fs.stat(out .. "/cosmic")).mode & 0x49 == 0x49, "the copy is not executable")
+end
+
+--- A tree no boot has written a tool for names none, says which boot writes it, and writes no copy.
+local function test_cosmic_s_own_tree_with_no_tool_names_the_boot(tmp: string)
+  local root = tmp .. "/tree"
+  assert(Fs.mkdirs(root))
+  local out = tmp .. "/dist"
+  local named, trouble = embed.own_tool(root, out)
+  assert(named == nil, "a tool was named where there is none")
+  assert(trouble:find(support.build_dir(root) .. "/bin/cosmic", 1, true) ~= nil and
+      trouble:find("bin/zig build boot", 1, true) ~= nil, trouble)
+  assert(Fs.exists(out) == false, "a directory was made for a copy that was not written")
+end
+
 --- A tool booted for the host's core alone makes no portable program: it
 --- would run on this host only, and nothing would say so. It names the boot
 --- that carries every core and the `--host` it can do; any other prefix is
