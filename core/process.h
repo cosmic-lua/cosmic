@@ -460,7 +460,7 @@ COSMIC_SYSCALL(subreaper, 0);
 COSMIC_SYSCALL(sandbox_inits, 0);
 
 /*
- * --- The children of the calling thread, which starts every child, that are not yet reaped, orphans it adopted as a subreaper among them. They are read from Linux's /proc/thread-self/children, named so rather than by `getpid()`, which in a sandbox whose /proc is the host's names another process. On macOS they are the processes whose parent is this one, as libproc lists them (`proc_listchildpids`), in no order it promises; nothing there adopts an orphan, so a child's own children are never among them. ENOSYS where there is no such list, and the error that refused it where it cannot be read (ENOENT from a Linux kernel built without it).
+ * --- The children of the calling thread, which starts every child, that are not yet reaped, orphans it adopted as a subreaper among them. They are read from Linux's /proc/thread-self/children, named so rather than by `getpid()`, which in a sandbox whose /proc is the host's names another process. On macOS they are the processes whose parent is this one, one this process traces among them, as libproc lists them (`proc_listchildpids`), in no order it promises; nothing there adopts an orphan, so a child's own children are never among them, and a Seatbelt profile that does not allow the listing refuses it. ENOSYS where there is no such list, and the error that refused it where it cannot be read (ENOENT from a Linux kernel built without it).
  * ---@return {integer}|nil pids their process ids, in the kernel's order on Linux, or nil on failure
  * ---@return string error what went wrong, when pids is nil
  * ---@return integer errno the error number, when pids is nil

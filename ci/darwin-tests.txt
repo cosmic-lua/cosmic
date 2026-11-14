@@ -39,7 +39,7 @@ build/shared_compiles_test.tl
 build/importer_test.tl
 # A process's children listed by libproc where Linux reads /proc
 # (core/syscalls.c's `children`).
-core/syscalls_proc_children_test.tl
+core/children_darwin_test.tl
 # What a policy refuses where the platform has no sandbox: the one test
 # there is nothing to check of on Linux.
 cosmic/child_policy_anywhere_test.tl

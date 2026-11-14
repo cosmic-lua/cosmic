@@ -5662,10 +5662,9 @@ COSMIC_SYSCALL(children, 0) {
   }
   return 1;
 #elif defined(__APPLE__)
-  /* libproc says neither how many children there are before it is asked
-   * nor, in every version, how many it wrote. So the block starts zeroed,
-   * every pid in it is a child, and one in its last place asks again with
-   * a larger block. */
+  /* libproc does not say how many children there are before it is asked.
+   * So the block starts zeroed, every pid in it is a child, and one in its
+   * last place asks again with a larger block. */
   struct cosmic_guard *guard = cosmic_guard_push(L, cosmic_free);
   size_t room = 64;
   pid_t *pids;
@@ -5677,7 +5676,7 @@ COSMIC_SYSCALL(children, 0) {
     /* A refusal is answered as no children, with the errno set. */
     errno = 0;
     int got = proc_listchildpids(getpid(), pids, (int)(room * sizeof *pids));
-    if (got < 0 || (got == 0 && errno != 0)) return cosmic_fail(L, errno != 0 ? errno : EIO);
+    if (got <= 0 && errno != 0) return cosmic_fail(L, errno);
     if (pids[room - 1] == 0) break;
     if (room >= ((size_t)1 << 20)) return cosmic_fail(L, EOVERFLOW);
     room *= 4;
