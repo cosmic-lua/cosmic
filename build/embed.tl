@@ -58,7 +58,21 @@ local record embed
     removed: mut {string}
     --- The messages of the modules the checker refused, "" for a tree that compiled whole.
     mut refusal: string
+    --- Whether the build stopped, its programs compiled, because the tool carries the host's core alone and they were
+    --- to be portable ([`embed.portable_prefix`]).
+    mut host_only?: boolean
   end
+
+  --- What a build of a portable program asks of the running tool, which a test answers in its place.
+  record Portable
+    --- The tool's prefix ([`artifact.trusted_prefix`]).
+    prefix: function(): string?, string
+    --- Boots every core and re-enters `argv` ([`reboot.every_core_into`]).
+    every_core: function(argv: {string}): string?
+  end
+
+  --- What [`embed.tree`] and the `build` verb ask of the running tool.
+  mut portable: Portable
 end
 
 local text = bind.text
@@ -133,23 +147,27 @@ local module_column_list = table.concat(module_columns, ", ")
 local catalog_columns = { "kind", "module", "symbol", "message", "text",
   "file", "line" }
 
+embed.portable = {
+  prefix = artifact.trusted_prefix,
+  -- Required when asked, as a build that boots nothing never needs it.
+  every_core = function(argv: {string}): string?
+    return require("build.reboot").every_core_into(argv)
+  end,
+}
+
 --- The `<name>` of `cmd/<name>/main.tl`, from its import path.
 local function name_of(main: string): string?
   return main:match("^cmd%.([^%.]+)%.main$")
 end
-
--- TODO: build the missing cores on demand (`bin/zig build cores`, once) in
--- place of refusing; it waits on the tool knowing the checkout it was
--- booted from, which its database does not record, so that a project's
--- `cosmic build` can find the tree to run zig in.
 
 --- The prefix a portable program is made of: the running tool's own, which
 --- carries a core for every target it runs on. A tool booted for the host's
 --- alone (`bin/zig build boot` without `-Dboot-cores=all`) carries a
 --- placeholder for each other target's ([`artifact.placeholder`]), and has no
 --- such prefix to give: a program made of it would run on this host only, and
---- say nothing of it, so it refuses and names the boot that renews it.
---- `--host` needs no other core.
+--- say nothing of it, so it refuses and names the boot that renews it, which
+--- the `build` verb then runs itself where the tool is one that boots
+--- ([`reboot.every_core_into`]). `--host` needs no other core.
 --- @param prefix what [`artifact.trusted_prefix`] answered, or nil
 --- @param trouble and why not, where it answered none
 function embed.portable_prefix(prefix: string?, trouble: string): string?, string
@@ -651,7 +669,9 @@ local function build_tree(root: string, host?: boolean, under?: {string},
   if host == true then
     core, source_trouble = artifact.trusted_core()
   else
-    prefix, source_trouble = embed.portable_prefix(artifact.trusted_prefix())
+    local trusted, trusted_trouble = embed.portable.prefix()
+    prefix, source_trouble = embed.portable_prefix(trusted, trusted_trouble)
+    if report ~= nil then report.host_only = trusted ~= nil and prefix == nil end
   end
   if prefix == nil and core == nil then
     tidy()
@@ -889,6 +909,15 @@ function embed.run(argv: {string}, at?: string, carried?: string): integer
   -- The refusals are named whatever else happens; a failure to read, stage or write is 1 and outranks them
   -- ([`exit_status.uncompiled`] is for a run that failed only because a file did not compile).
   local refused = report.refusal ~= ""
+  if names == nil and report.host_only == true then
+    -- Nothing is held here: the build has let go of the tree's lock and its database, and what it compiled is kept
+    -- for the run the boot enters.
+    local booted = embed.portable.every_core(argv)
+    if booted ~= nil then
+      log:complain(booted)
+      return 3
+    end
+  end
   if names == nil then
     log:complain(trouble)
     if refused then log:complain(report.refusal) end
