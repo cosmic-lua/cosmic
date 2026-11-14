@@ -610,7 +610,10 @@ A floor is over every line of the tree, so a run that names tests or a
 part of the lines. A floor on a failing run is judged and named beside the failures.
 
 A test whose verdict stands brings the lines it hit when it ran (the
-`coverage_by_test` rows of that run, or the ones another checkout shared).
+`coverage_by_test` rows of that run, or the ones another checkout shared,
+which are kept as the shared verdicts hold them: under a first line
+`lines as distances`, each module's lines after its first as the distance
+from the one before).
 A row names, beside each module's lines, the text they are numbered in (a
 prefix of the module's source hash). A comment, a blank line or a moved
 line of a harness module moves no key ([changing the
@@ -989,8 +992,10 @@ cosmic sql --build "SELECT path, count(*) AS lines, sum(hit > 0) AS hit
 the text they are numbered in, but for a module a pure store imported: its
 are the numbers of the instructions it ran, each past 2^24
 ([`build.lua_tail`]'s `ordinal_base`), beside a prefix of the digest of its
-bytecode stripped. The run's own `test: coverage` line is informational and
-never a failure.
+bytecode stripped. A row taken from another checkout's verdict begins with
+the line `lines as distances`, and each of its numbers after a module's
+first is the distance from the one before. The run's own `test: coverage`
+line is informational and never a failure.
 
 A sandboxed test given the pure store ([the pure store](#the-pure-store))
 reaches the lines of the modules it imports as an unsandboxed one does. Their
