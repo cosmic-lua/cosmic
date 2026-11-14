@@ -7,8 +7,9 @@
 --- for zero. [`Bigint.pad`] gives the fixed width a protocol hashes.
 ---
 --- - [`Bigint.powmod`] is modular exponentiation.
---- - [`Bigint.mul`], [`Bigint.add`], [`Bigint.sub`] and [`Bigint.mod`]
----   are what stands beside it in a protocol's formulas.
+--- - Four functions stand beside it in a protocol's formulas: they
+---   multiply, add, subtract ([`Bigint.sub`] refuses a negative
+---   difference) and reduce.
 --- - [`Bigint.compare`] orders two numbers.
 ---
 ---     local shared = Bigint.powmod(their_public, my_secret, prime)
@@ -38,6 +39,8 @@
 -- `cosmic.internal.` namespace -- see cosmic/store.tl for why it is off
 -- the public surface.
 local raw = require("cosmic.internal.bigint")
+
+local String = require("cosmic.string")
 
 local record Bigint
   --- The most bytes of a modulus or an exponent: 1024, which is 8192
@@ -106,7 +109,7 @@ function Bigint.pad(number: string, width: integer): string?, string
   local first = number:find("[^\0]")
   local digits = if first == nil then "" else number:sub(first) end
   if #digits > width then
-    return nil, "bigint: the number needs " .. tostring(#digits) .. " bytes, more than " .. tostring(width)
+    return nil, "bigint: the number needs " .. String.counted(#digits, "byte") .. ", more than " .. tostring(width)
   end
   return string.rep("\0", width - #digits) .. digits, ""
 end

@@ -87,9 +87,13 @@ static int push_number (lua_State *L, const mbedtls_mpi *number) {
 }
 
 /* powmod(base, exponent, modulus): base^exponent mod modulus, for an odd
- * modulus. mbedtls's exponentiation is Montgomery's and refuses an even
- * one, and answers 1 for an exponent of no limbs whatever the modulus,
- * so a modulus of 1 is answered here. */
+ * modulus. mbedtls_mpi_exp_mod is the library's exponentiation for a
+ * secret exponent, constant in time in the exponent's value;
+ * mbedtls_mpi_exp_mod_unsafe is the one for a public exponent. Neither
+ * takes a random source, so there is no blinding to ask for. It is
+ * Montgomery's and refuses an even modulus, and answers 1 for an
+ * exponent of no limbs whatever the modulus, so a modulus of 1 is
+ * answered here. */
 static int bigint_powmod (lua_State *L) {
   lua_settop(L, 3);
   struct numbers *numbers = push_numbers(L);
