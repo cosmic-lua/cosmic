@@ -69,6 +69,12 @@
 --- * `--pin <file>`: writes the three pin lines there, once the binary's
 ---   bytes are verified: streamed and hashed when neither `-o` nor
 ---   `--cache` keeps them.
+--- * `--launcher <file>`: sets a project up to run on the release. It
+---   writes the pin as `--pin <file>.pin` does, then at `<file>`, mode
+---   0755, the shell script that fetches, verifies, caches and runs the
+---   release that pin names ([`build.pinned_launcher`]), which a project
+---   keeps as its own bin/cosmic. `--pin <file>.pin` alone moves the pin
+---   from then on.
 ---
 --- `GH_TOKEN`, when set, goes with the API's requests, and with nothing
 --- else, lifting the unauthenticated rate limit of 60 an hour; a GitHub
@@ -93,6 +99,7 @@ local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Http = require("cosmic.http")
 local Json = require("cosmic.json")
+local pinned_launcher = require("build.pinned_launcher")
 local plural = require("build.plural")
 local Shape = require("cosmic.shape")
 local Signal = require("cosmic.signal")
@@ -145,7 +152,7 @@ end
 local spec <const> = assert((assert(Cli.verbs["release"])).spec)
 
 local usage = "cosmic release [--commit <hex>] [--until <time>] " ..
-  "[--list [-n <count>] | -o <file> | --cache] [--pin <file>] [--json]"
+  "[--list [-n <count>] | -o <file> | --cache] [--pin <file> | --launcher <file>] [--json]"
 
 local repository <const> = "cosmic-lua/cosmic"
 local api <const> = "https://api.github.com/repos/" .. repository
@@ -309,8 +316,20 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   local target = parsed.values["-o"]
   local to_cache = parsed.set["--cache"] == true
   local pin = parsed.values["--pin"]
+  local launcher = parsed.values["--launcher"]
   if target == "" then return refuse(bare.empty_file .. " after -o") end
   if pin == "" then return refuse(bare.empty_file .. " after --pin") end
+  if launcher == "" then return refuse(bare.empty_file .. " after --launcher") end
+  local launcher_text: string? = nil
+  if launcher ~= nil then
+    if pin ~= nil then
+      return refuse("--launcher writes its own pin, " .. launcher .. ".pin: give it or --pin, not both")
+    end
+    local text, name_trouble = pinned_launcher.script(Fs.basename(launcher))
+    if text == nil then return refuse("--launcher " .. launcher .. ": " .. name_trouble) end
+    launcher_text = text
+    pin = launcher .. ".pin"
+  end
   local count = default_count
   local count_text = parsed.values["-n"]
   if count_text ~= nil then
@@ -322,13 +341,13 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     count = n
   end
   if listing and (target ~= nil or to_cache or pin ~= nil) then
-    return refuse("--list downloads nothing, so there is nothing for -o, --cache or --pin")
+    return refuse("--list downloads nothing, so there is nothing for -o, --cache, --pin or --launcher")
   end
   if target ~= nil and to_cache then
     return refuse("give -o or --cache, not both")
   end
   if as_json and (target ~= nil or to_cache or pin ~= nil) then
-    return refuse("--json shapes what is printed with no -o, --cache or --pin")
+    return refuse("--json shapes what is printed with no -o, --cache, --pin or --launcher")
   end
 
   local repo_url = to.api or api
@@ -662,6 +681,10 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     local ok, write_trouble = Fs.write(pin, verb.pin_text(release.tag, release.commit, digest))
     if not ok then return fail(write_trouble) end
   end
+  if launcher ~= nil and launcher_text ~= nil then
+    local ok, write_trouble = Fs.write(launcher, launcher_text, 0x1ed)
+    if not ok then return fail(write_trouble) end
+  end
   if kept ~= nil then return written(to.out(kept .. "\n")) end
   return bare.ok
 end
@@ -672,7 +695,7 @@ end
 verb.spec = {
   name = "release",
   guide = "none: finds and fetches cosmic's own releases, described by `cosmic help release`",
-  tests = { "build.release_test" },
+  tests = { "build.release_test", "build.pinned_launcher_test" },
   run = function(argv: {string}): integer return verb.run(argv) end,
   bare = true,
   takes = "the criteria a release must meet",
