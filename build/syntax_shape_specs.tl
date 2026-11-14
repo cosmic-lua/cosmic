@@ -38,7 +38,7 @@ local record ShapeSpecs
   --- refuse anyway comes back as it is, for the compile that follows to report.
   resolve: function(build: Driver.Build, module: string, file: string, source: string): string?, string
 
-  --- One call's resolution: `text` goes after byte `at` of the source.
+  --- One call's resolution.
   type Splice = RecordCalls.Splice
 
   --- What [`ShapeSpecs.splices`] found of a source.

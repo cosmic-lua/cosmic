@@ -41,8 +41,10 @@ local PROJECT <const>: {string: string} = {
     "  end",
     "  host: string",
     "end",
-    "local function generic<T>(x: T): T return x end",
-    "return { Server, generic, Rules }",
+    "local record Box<T>",
+    "  value: T",
+    "end",
+    "return { Server, Box, Rules }",
     "",
   }, "\n"),
 }
@@ -54,17 +56,66 @@ local function test_required_answers_each_top_level_module_by_its_first_name()
   assert(required["lib.rules"] == "Rules", "the first binding names the module, not the later `local type`")
 end
 
-local function test_a_name_resolves_to_a_record_above_the_call_or_inside_a_required_module()
+--- The last name of the declaration `target` stands for.
+local function declared(target: RecordCalls.Target): string
+  local t = target.type
+  assert(t.tag == "named", "a record's type is a named one")
+  return assert(t.decl.names[#t.decl.names])
+end
+
+local function test_a_name_resolves_to_a_record_in_scope_or_inside_a_required_module()
   local build = build_of(PROJECT)
   local outcome = assert(build:result("main", false))
   local required = RecordCalls.required(outcome.chunk)
   local last = outcome.chunk.last
   local own = assert(RecordCalls.resolve_name(build, outcome, "Server", last, required))
-  assert(own.spelled == "Server" and own.type.tag == "named")
+  assert(own.spelled == "Server" and declared(own) == "Server")
   local inner = assert(RecordCalls.resolve_name(build, outcome, "Server.Port", last, required))
-  assert(inner.spelled == "Server.Port")
+  assert(inner.spelled == "Server.Port" and declared(inner) == "Port", "the path below a record reaches the inner one")
   local theirs = assert(RecordCalls.resolve_name(build, outcome, "lib.rules.Grant", last, required))
-  assert(theirs.spelled == "Rules.Grant", "a record of a required module is spelled through the module's alias")
+  assert(theirs.spelled == "Rules.Grant" and declared(theirs) == "Grant",
+    "a record of a required module is spelled through the module's alias")
+end
+
+local function test_a_record_declared_below_the_call_is_not_in_scope()
+  local build = build_of(PROJECT)
+  local outcome = assert(build:result("main", false))
+  local required = RecordCalls.required(outcome.chunk)
+  local early, why = RecordCalls.resolve_name(build, outcome, "Server", outcome.chunk.first, required)
+  assert(early == nil and why:find("names no record declared above it", 1, true) ~= nil, why)
+  assert(RecordCalls.visible(outcome, outcome.chunk.first)["Server"] == nil)
+  assert(RecordCalls.visible(outcome, outcome.chunk.last)["Server"] == true)
+end
+
+local function test_a_generic_record_is_refused_by_its_kind()
+  local build = build_of(PROJECT)
+  local outcome = assert(build:result("main", false))
+  local required = RecordCalls.required(outcome.chunk)
+  local box, why = RecordCalls.resolve_name(build, outcome, "Box", outcome.chunk.last, required)
+  assert(box == nil and why == "it is a generic record, not a record", why)
+end
+
+local function test_a_type_is_spelled_as_the_calling_module_names_it()
+  local build = build_of(PROJECT)
+  local outcome = assert(build:result("main", false))
+  local required = RecordCalls.required(outcome.chunk)
+  local last = outcome.chunk.last
+  local server = assert(RecordCalls.resolve_name(build, outcome, "Server", last, required))
+  local port = assert(RecordCalls.resolve_name(build, outcome, "Server.Port", last, required))
+  local grant = assert(RecordCalls.resolve_name(build, outcome, "lib.rules.Grant", last, required))
+  local st, pt, gt = server.type, port.type, grant.type
+  assert(st.tag == "named" and pt.tag == "named" and gt.tag == "named")
+  local aliases: mut {string: string} = {}
+  for module, alias in pairs(required) do aliases[module] = alias end
+  local namer: RecordCalls.Namer = {
+    program = build.program, module = "main", aliases = aliases, visible = RecordCalls.visible(outcome, last),
+    target = st.decl, spelled = "Server",
+  }
+  assert(RecordCalls.spelling(namer, st, st.decl) == "Server")
+  assert(RecordCalls.spelling(namer, pt, pt.decl) == "Server.Port", "a type inside the target is spelled below it")
+  assert(RecordCalls.spelling(namer, gt, gt.decl) == "Rules.Grant", "a required module's type goes through its alias")
+  local unseen: RecordCalls.Namer = { ...namer, visible = {}, aliases = {} }
+  assert(RecordCalls.spelling(unseen, gt, gt.decl) == nil, "a module the call's file does not require has no spelling")
 end
 
 local function test_a_name_that_reaches_nothing_says_why()
@@ -80,7 +131,7 @@ local function test_a_name_that_reaches_nothing_says_why()
   assert(theirs == nil and no_record == 'module "lib.rules" declares no record "Absent"', no_record)
 end
 
-local function test_splices_go_in_from_the_last_so_that_no_offset_moves()
+local function test_splices_ordered_from_the_last_go_in_at_their_offsets()
   local splices: {RecordCalls.Splice} = { { at = 5, text = "<late>" }, { at = 2, text = "<early>" } }
   assert(RecordCalls.spliced("abcdefg", splices) == "ab<early>cde<late>fg")
   assert(RecordCalls.spliced("abc", {}) == "abc")

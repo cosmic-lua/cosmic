@@ -1,6 +1,5 @@
 --- What a resolver of a call that names a record needs, whichever call it completes: [`build.syntax_shape_specs`]
---- completes `Shape.record_of("Module.Record")` with a check written from the record's declaration, and each part here
---- is one it would otherwise hold alone. A resolver finds its calls, reads the record each names ([`resolve_name`]),
+--- completes `Shape.record_of("Module.Record")` with a check written from the record's declaration. A resolver finds its calls, reads the record each names ([`resolve_name`]),
 --- writes Teal that names the record's types as the calling module spells them ([`spelling`]), and puts that text into
 --- the compile's input ([`spliced`]). What it writes is its own.
 local Ast = require("lang.ast")
@@ -59,7 +58,8 @@ local record RecordCalls
   --- returns.
   spelling: function(n: Namer, t: Type, decl: Types.Decl): string?
 
-  --- `source` with each of `splices` put in, the last in the source first.
+  --- `source` with each of `splices` put in. They come ordered by `at`, the greatest first, which the caller sorts: a
+  --- splice then moves no offset of one still to go in.
   spliced: function(source: string, splices: {Splice}): string
 end
 
