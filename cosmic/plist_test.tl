@@ -1302,7 +1302,10 @@ local function test_xml_reals_are_decimals_and_the_names_of_what_is_not()
   assert(real("inf") == math.huge and real("-Infinity") == -math.huge and real("+INF") == math.huge)
   local nan = real("NaN")
   assert(nan ~= nan)
-  for _, text in ipairs({ "", ".", "e5", "1e", "1e+", "0x1p3", "0x10", "1,5", "1.5.2", "infinite", "nan1", "1 2", "--1" }) do
+  -- A long run of digits that is no number is refused in the time it takes to scan it.
+  refused(xml("<real>" .. ("1"):rep(400000) .. "..</real>"), "not a real")
+  refused(xml("<real>" .. ("1"):rep(400000) .. ".1.</real>"), "not a real")
+  for _, text in ipairs({ "", ".", "..", "1..", "e5", "1e", "1e+", "0x1p3", "0x10", "1,5", "1.5.2", "infinite", "nan1", "1 2", "--1" }) do
     refused(xml("<real>" .. text .. "</real>"), "not a real")
   end
 end
@@ -1441,6 +1444,15 @@ local function test_nesting_is_held_to_max_depth()
   for i = 1, 400000 do chain[i] = "\xA1" .. string.pack(">I4", i) end
   chain[#chain + 1] = "\xA0"
   refused(bplist(chain, { ref_size = 4, offset_size = 4 }), "object 64 is nested deeper than 64")
+  -- A table written first where it is not too deep is too deep where it is held again, in both forms:
+  -- `inner` is two deep under `outer`, and four under the array beside it.
+  local inner = Plist.array({ Plist.array({}) })
+  local outer = Plist.array({ inner, Plist.array({ Plist.array({ inner }) }) })
+  local both: {Plist.Form} = { "binary", "xml" }
+  for _, form in ipairs(both) do
+    assert(same(read(written(outer, { form = form, max_depth = 5 }), { max_depth = 5 }), outer))
+    unwritable(outer, "nested deeper than 4", { form = form, max_depth = 4 })
+  end
   -- A dict counts as an array does, and a scalar inside the deepest does not.
   refused(xml("<dict><key>a</key><array><dict/></array></dict>"), "nested deeper than 2", { max_depth = 2 })
   assert(read(xml("<dict><key>a</key><array><true/></array></dict>"), { max_depth = 2 }).kind == "dict")
@@ -1738,6 +1750,9 @@ local function test_max_bytes_bounds_what_is_written()
   unwritable(value, "more bytes than max_bytes allows (20000)", { max_bytes = 20000 })
   assert(written(value, { max_bytes = #binary }) == binary)
   unwritable(value, "more bytes than max_bytes allows", { max_bytes = #binary - 1 })
+  -- The XML form stops at the value that passes the limit, before one after it that it could not write.
+  unwritable(Plist.array({ Plist.string(("a"):rep(500)), Plist.string("\1") }), "more bytes than max_bytes allows (300)",
+    { form = "xml", max_bytes = 300 })
   local small = Plist.array({ Plist.string("a"), Plist.string("b") })
   local small_xml = written(small, { form = "xml" })
   assert(written(small, { form = "xml", max_bytes = #small_xml }) == small_xml)

@@ -35,7 +35,9 @@
 --- the tabs and the lines of base64. Four things differ. Three keep what `plistlib` loses: -0.0 is written
 --- apart from 0.0 in the binary form, a carriage return in a string is written as `&#13;` in the XML form,
 --- and a UID is written to XML at all. The fourth is a refusal: U+FFFE and U+FFFF, which `plistlib` writes
---- to XML and no XML reader takes.
+--- to XML and no XML reader takes. And where `plistlib` rounds a date to a microsecond before it drops the
+--- fraction for XML, this drops the fraction as it is, so a date within half a microsecond of the next second
+--- is written a second apart.
 ---
 --- [`Plist.decode`] takes bytes from anywhere. It never raises, reads no byte outside what it is given, and
 --- its work and memory stay near the size of the input. What it refuses, with nil and why:
@@ -293,7 +295,10 @@ local function real_of(text: string): number?
   end
   local mantissa, exponent = body:match("^[+-]?([%d.]+)(.*)$")
   if mantissa == nil or exponent == nil then return nil end
-  if mantissa:find("^%d+%.?%d*$") == nil and mantissa:find("^%.%d+$") == nil then return nil end
+  -- Digits with one dot at most, counted: a pattern of two runs of digits would try every split of a long
+  -- run that is no number.
+  local _, dots = mantissa:gsub("%.", "")
+  if dots > 1 or mantissa:find("%d") == nil then return nil end
   if exponent ~= "" and exponent:find("^[eE][+-]?%d+$") == nil then return nil end
   -- With an exponent the text reads as a float, so that `-0` keeps its sign.
   local value = tonumber(if exponent == "" then body .. "e0" else body end)
@@ -933,13 +938,13 @@ end
 
 local INDENT <const> = "\t"
 
---- Writes `value` to `out` as the XML form's lines, indented `level` tabs: "" or why it cannot be written.
 --- Adds `piece` to what `w` writes, counted.
 local function write(w: Writing, out: mut {string}, piece: string)
   w.size = w.size + #piece
   out[#out + 1] = piece
 end
 
+--- Writes `value` to `out` as the XML form's lines, indented `level` tabs: "" or why it cannot be written.
 local function write_xml(w: Writing, out: mut {string}, value: Plist.Value, level: integer, depth: integer): string
   local why = unfit(value)
   if why == "" then why = too_much(w) end
@@ -1040,6 +1045,8 @@ local record Flat
   others: mut {string: integer}
   --- For what is one object for each table.
   tables: mut {Plist.Value: integer}
+  --- How many arrays and dicts nest in each array and dict written, itself included.
+  heights: mut {Plist.Value: integer}
 end
 
 --- The number, from 0, of the object that stands for `value`, adding it and what it holds when it is new;
@@ -1091,6 +1098,11 @@ local function flatten(flat: Flat, value: Plist.Value, depth: integer): integer?
     if flat.writing.open[value] == true then
       return nil, "plist: an array or a dict holds itself"
     end
+    -- A table written before, at a place less deep, is as deep here as what it holds.
+    local held = flat.heights[value]
+    if held ~= nil and depth + held > flat.writing.max_depth then
+      return nil, "plist: nested deeper than " .. tostring(flat.writing.max_depth)
+    end
     return known, ""
   end
   local ref = add()
@@ -1100,11 +1112,13 @@ local function flatten(flat: Flat, value: Plist.Value, depth: integer): integer?
   if entered ~= "" then return nil, entered end
   local node = assert(nodes[ref + 1])
   local refs: mut {integer} = {}
+  local height = 1
   if kind == "array" then
     for _, item in ipairs(value.items or {}) do
       local item_ref, item_why = flatten(flat, item, depth + 1)
       if item_ref == nil then return nil, item_why end
       refs[#refs + 1] = item_ref
+      height = math.max(height, 1 + (flat.heights[item] or 0))
     end
   else
     local entries, entries_why = ordered(flat.writing, value.entries or {}, function(key_text: string): boolean
@@ -1121,8 +1135,10 @@ local function flatten(flat: Flat, value: Plist.Value, depth: integer): integer?
       local value_ref, value_why = flatten(flat, entry.value, depth + 1)
       if value_ref == nil then return nil, value_why end
       refs[#refs + 1] = value_ref
+      height = math.max(height, 1 + (flat.heights[entry.value] or 0))
     end
   end
+  flat.heights[value] = height
   node.refs = refs
   flat.writing.open[value] = nil
   return ref, ""
@@ -1188,7 +1204,7 @@ end
 
 local function encode_binary(w: Writing, value: Plist.Value): string?, string
   local flat: Flat = { writing = w, nodes = {}, strings = {}, datas = {}, integers = {}, unsigneds = {}, others = {},
-    tables = {} }
+    tables = {}, heights = {} }
   local top, why = flatten(flat, value, 0)
   if top == nil then return nil, why end
   local count = #flat.nodes
@@ -1201,9 +1217,6 @@ local function encode_binary(w: Writing, value: Plist.Value): string?, string
     offsets[#offsets + 1] = at
     out[#out + 1] = bytes
     at = at + #bytes
-    w.size = at
-    local why_much = too_much(w)
-    if why_much ~= "" then return nil, why_much end
   end
   w.size = at + count * width_of(at) + TRAILER
   local whole_why = too_much(w)

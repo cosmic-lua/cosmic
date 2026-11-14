@@ -152,6 +152,18 @@ function Example.uid()
   assert(from_xml.kind == "uid" and from_xml.uid == 1)
 end
 
+--- Arrays and dicts nest 64 deep unless [`max_depth`] says otherwise, for reading and for writing alike: here
+--- three arrays, one in the next, under a limit of two and of three.
+function Example.max_depth()
+  local xml = "<plist><array><array><array/></array></array></plist>"
+  local value, why = Plist.decode(xml, { max_depth = 2 })
+  assert(value == nil)
+  print(why) -- plist: nested deeper than 2 (at 1/1)
+  local nested = assert(Plist.decode(xml, { max_depth = 3 }))
+  local bytes, encode_why = Plist.encode(nested, { max_depth = 2 })
+  assert(bytes == nil and encode_why == "plist: nested deeper than 2")
+end
+
 --- A file is written back in the form it was read in: [`Plist.form`] says which that is, from the first bytes.
 function Example.form()
   local function rewritten(bytes: string): string
