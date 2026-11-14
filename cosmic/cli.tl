@@ -228,7 +228,12 @@ local record Cli
   --- carries this binary's CA roots, the certificates it refuses as
   --- revoked, and time zones: `cosmic refresh --binary <path> -o <copy>`
   --- writes a copy with newer ones
-  --- later. The tree is found as `test` finds it
+  --- later. The tree is found as `test` finds it. In cosmic's own
+  --- tree the program is the tool itself, which `bin/zig build boot`
+  --- builds: `build` prints the tool's path there, a stale tool
+  --- rebuilt first, and `--out` writes a copy to dir/cosmic, which
+  --- runs any project as a release does with the cores that boot
+  --- built; it takes no other option and no path
   build: string
   --- `cosmic db [path...]`: what the three databases in the build
   --- directory hold, each named by its path,
