@@ -214,9 +214,8 @@ end
 --- examples of the modules any module may require, and its guides. What
 --- position keeps to the project stays there: a sibling of a closed
 --- directory, a module under `internal/`, the program itself, a test, and
---- a use made from any of them. Without the rows `prog docs` has nothing
---- to answer with; with a private module's, it tells users of code they
---- cannot call.
+--- test support, and a use made from any of them: a private module's rows
+--- would tell the program's users of code they cannot call.
 local function test_the_carried_database_holds_the_documentation_of_the_public_modules(tmp: string)
   write_project(tmp)
   assert(Fs.write(tmp .. "/greet.tl", table.concat({
@@ -251,7 +250,7 @@ local function test_the_carried_database_holds_the_documentation_of_the_public_m
     "local record store",
     "end",
     "",
-    "--- Greets the first row.",
+    "--- Greets the first row, with [`greet.hello`].",
     "function store.first(): string",
     "  return greet.hello(rows.first())",
     "end",
@@ -315,6 +314,22 @@ local function test_the_carried_database_holds_the_documentation_of_the_public_m
     "return run",
     "",
   }, "\n")))
+  assert(Fs.mkdirs(tmp .. "/internal"))
+  assert(Fs.write(tmp .. "/internal/keys.tl", table.concat({
+    "--- The keys, internal to the project.",
+    "local record keys",
+    "end",
+    "return keys",
+    "",
+  }, "\n")))
+  assert(Fs.mkdirs(tmp .. "/test"))
+  assert(Fs.write(tmp .. "/test/support.tl", table.concat({
+    "--- Test support.",
+    "local record support",
+    "end",
+    "return support",
+    "",
+  }, "\n")))
   assert(Fs.mkdirs(tmp .. "/doc/guides"))
   assert(Fs.write(tmp .. "/doc/guides/greeting.md", "# greeting\n\nHow to greet a visitor.\n"))
   assert(Fs.write(tmp .. "/cmd/hello/main.tl", table.concat({
@@ -342,7 +357,8 @@ local function test_the_carried_database_holds_the_documentation_of_the_public_m
     return table.concat(out, " ")
   end
   local documented = listed("SELECT DISTINCT module FROM docs ORDER BY module")
-  assert(documented == "app.run doc.guides.greeting greet store store.open", documented)
+  assert(documented == "app.run doc.guides.greeting greet store store.open",
+    "the public modules and the guide, and no other: " .. documented)
   local found = listed("SELECT d.source_symbol FROM docs_fts JOIN docs d ON d.id = docs_fts.rowid " ..
       "WHERE docs_fts MATCH 'salutation'")
   assert(found == "greet.hello", "the docs are indexed, a word finding its row: " .. found)
@@ -352,6 +368,10 @@ local function test_the_carried_database_holds_the_documentation_of_the_public_m
   assert(callers == "store", "a use is carried only from a public module: " .. callers)
   local used = listed("SELECT count(*) FROM uses WHERE module NOT IN ('app.run', 'greet', 'store', 'store.open')")
   assert(used == "0", "no use of a module the project keeps, or of the library")
+  local linked = listed("SELECT from_module || ' ' || module || ' ' || symbol FROM links")
+  assert(linked == "store greet hello", "a link between public modules is carried: " .. linked)
+  local bound = listed("SELECT path || ' ' || name || ' ' || requires FROM bound WHERE path = 'store' ORDER BY name")
+  assert(bound == "store greet greet store rows store.rows", "what a public module binds is carried: " .. bound)
   local examples = listed("SELECT module || ' ' || name FROM examples")
   assert(examples == "greet hello", examples)
   local indexed = listed("SELECT count(*) FROM examples_fts WHERE examples_fts MATCH 'Greets'")

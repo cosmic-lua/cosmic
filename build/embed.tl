@@ -176,11 +176,13 @@ end
 --- The modules of the project attached to `out` whose documentation its
 --- users read: each module any module may require, by the two rules of
 --- [`positions.check`] that hold in every project, so a module of a closed
---- directory that does not say `--- @public`, and one under an `internal`
---- directory, are the project's own; and each guide, a Markdown file
---- directly under `doc/guides/`. A test, an example and a program are
---- required by no module. A module whose source cannot be read does not
---- say `--- @public`.
+--- directory that does not say `--- @public` is the project's own; and each
+--- guide, a Markdown file directly under `doc/guides/`. A module under any
+--- `internal` directory is the project's own too, the root's included,
+--- which every module of the project may require and no user of its
+--- program can. A test, an example, a program and test support are no
+--- module of that kind, whatever requires one. Nil and why when a source
+--- that would say `--- @public` cannot be read.
 local function public_modules(out: Sqlite.Handle): Readable?, string
   local rows, trouble = Sqlite.text_rows(out, "SELECT path, file, kind FROM project.modules ORDER BY path")
   if rows == nil then
@@ -191,14 +193,20 @@ local function public_modules(out: Sqlite.Handle): Readable?, string
   local entries = positions.entries(files)
   local public: mut {string} = {}
   local guides: mut {string} = {}
+  local unread = ""
   for _, row in ipairs(rows) do
     local path, file, kind = row:text(1), row:text(2), row:text(3)
-    if kind == "module" then
+    if kind == "module" and not AnalysisSchema.is_support(file) and
+        ("/" .. file):find("/internal/", 1, true) == nil then
       local reach = positions.reach(file, entries, function(): boolean
-        local sources, _ = Sqlite.text_rows(out,
+        local sources, source_trouble = Sqlite.text_rows(out,
           "SELECT CAST(inflate(source) AS TEXT) FROM project.modules WHERE path = ?1 AND length(source) > 0",
           { text(path) })
-        local source = if sources ~= nil then sources[1] else nil end
+        if sources == nil then
+          unread = path .. ": " .. source_trouble
+          return false
+        end
+        local source = sources[1]
         return source ~= nil and AnalysisSchema.declares_public(source:text(1))
       end, false)
       if reach == nil then
@@ -208,6 +216,9 @@ local function public_modules(out: Sqlite.Handle): Readable?, string
       guides[#guides + 1] = path
     end
   end
+  if unread ~= "" then
+    return nil, unread
+  end
   return { public = public, guides = guides }, ""
 end
 
@@ -216,7 +227,18 @@ end
 --- ([`build.writer`]'s `carry`): every doc row of a public module and each
 --- guide's own row, each example of a public module, and each use and each
 --- link to a symbol whose two ends are public, so where a module the
---- project keeps to itself calls a function is not told.
+--- project keeps to itself calls a function is not told; and the names a
+--- public module binds its requires to, which say what a type it aliases
+--- is.
+--
+-- TODO: let a program answer from these rows, as `cosmic docs` answers
+-- from the tool's. It waits on the lookup of build/docs.tl moving to a
+-- module a program carries, since `build/` is the tool's alone.
+-- TODO: carry the rows of a type a public module aliases from a module
+-- the project keeps to itself, as [`build.writer`]'s
+-- `carried_internal_types` does for `cosmic.internal.*`, so that the
+-- alias lists its members. It waits on the same lookup, which is what
+-- resolves an alias.
 local function copy_documentation(out: Sqlite.Handle, readable: Readable): boolean, string
   local public: Sqlite.Value = { texts = readable.public }
   local guides: Sqlite.Value = { texts = readable.guides }
@@ -237,6 +259,11 @@ local function copy_documentation(out: Sqlite.Handle, readable: Readable): boole
   ok, trouble = Sqlite.run(out,
     "INSERT INTO links SELECT * FROM project.links l WHERE l.kind = 'symbol' AND l.module IN carray(?1) AND " ..
       "l.from_module IN carray(?1) ORDER BY module, symbol, path, anchor, from_file, line, column", { public })
+  if not ok then
+    return false, trouble
+  end
+  ok, trouble = Sqlite.run(out,
+    "INSERT INTO bound SELECT * FROM project.bound b WHERE b.path IN carray(?1) ORDER BY path, name", { public })
   if not ok then
     return false, trouble
   end
