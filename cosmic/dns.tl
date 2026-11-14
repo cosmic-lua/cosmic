@@ -26,6 +26,7 @@
 --- [`Dns.encode`] writes every name in full, with no compression, so a message it writes may be longer than the
 --- one that was read.
 
+local Array = require("cosmic.array")
 local String = require("cosmic.string")
 
 local record Dns
@@ -73,7 +74,8 @@ local record Dns
     name: string
     --- The type asked for, as [`Dns.A`], from 0 to 65535.
     type: integer
-    --- The class, [`Dns.IN`] for the internet: the low 15 bits of the class on the wire.
+    --- The class, [`Dns.IN`] for the internet, from 0 to 32767: the low 15 bits of the class on the wire, so a
+    --- class of 0xFFFF there reads as 32767 with `unicast_response` true.
     class: integer
     --- Whether the answer is wanted by unicast. It is the top bit of the class on the wire, which multicast DNS
     --- alone gives a meaning (RFC 6762 section 5.4): any other query leaves it false.
@@ -86,7 +88,8 @@ local record Dns
     name: string
     --- The type of the record, as [`Dns.TXT`], from 0 to 65535.
     type: integer
-    --- The class, [`Dns.IN`] for the internet: the low 15 bits of the class on the wire.
+    --- The class, [`Dns.IN`] for the internet, from 0 to 32767: the low 15 bits of the class on the wire, so a
+    --- class of 0xFFFF there reads as 32767 with `cache_flush` true.
     class: integer
     --- Whether the record replaces what a cache holds for its name and type. It is the top bit of the class on
     --- the wire, which multicast DNS alone gives a meaning (RFC 6762 section 10.2): any other record leaves it
@@ -413,11 +416,37 @@ local function ipv6_bytes(text: string): string?
   return table.concat(left) .. ("\0\0"):rep(8 - #left - #right) .. table.concat(right)
 end
 
+--- A name read from a place of a message: what follows from there, labels and pointers, to the root.
+local record Suffix
+  --- The labels as text, or "" where there is none.
+  text: string
+  --- The bytes of the labels on the wire, each with its length byte, and the root's.
+  size: integer
+  --- The compression pointers followed from there to the root.
+  jumps: integer
+end
+
 --- What [`Dns.decode`] reads and where it reads next.
 local record Cursor
   data: string
   mut pos: integer
+  --- What was read from each place a name began or a pointer led to. A message's pointers lead to a few
+  --- places many times over, so each is read once and every name through it holds the one text: the work
+  --- and the memory of a message stay near its size, not its size times the names a pointer stands for.
+  names: mut {integer: Suffix}
 end
+
+--- A run of labels read in a row: from where a name begins or a pointer leads, to a pointer or the root.
+local record Run
+  start: integer
+  --- The index in the labels read of its first, and of its last: one less where it has none.
+  first: integer
+  last: integer
+  --- The bytes of its labels on the wire, each with its length byte.
+  bytes: integer
+end
+
+local ROOT <const>: Suffix = { text = "", size = 1, jumps = 0 }
 
 --- The name at the cursor as text, compression pointers followed, or nil and why. The cursor moves past the
 --- name where it stands, not past what a pointer led to.
@@ -425,11 +454,14 @@ local function read_name(cursor: Cursor): string?, string
   local data = cursor.data
   local pos = cursor.pos
   local parts: mut {string} = {}
+  local runs: mut {Run} = {}
   local after: integer? = nil
   -- Where the labels being read began. A pointer leads before it, so each jump goes further back and none
   -- returns to a place already read.
   local began = pos
+  local first, bytes = 1, 0
   local size, jumps = 1, 0
+  local rest = ROOT
   while true do
     local length = data:byte(pos)
     if length == nil then return nil, "dns: the message ends inside a name" end
@@ -444,16 +476,29 @@ local function read_name(cursor: Cursor): string?, string
       if target >= began then return nil, "dns: a compression pointer does not lead back" end
       if target <= HEADER then return nil, "dns: a compression pointer leads into the header" end
       jumps = jumps + 1
+      if after == nil then after = pos + 2 end
+      local known = cursor.names[target]
+      if known ~= nil then
+        -- The limits hold for the whole name, what was read before as much as what is read now.
+        jumps = jumps + known.jumps
+        size = size + known.size - 1
+        rest = known
+      end
       if jumps > MAX_JUMPS then
         return nil, "dns: a name follows more than 127 compression pointers"
       end
-      if after == nil then after = pos + 2 end
+      if size > MAX_NAME then return nil, "dns: a name is longer than 255 bytes" end
+      if known ~= nil then break end
+      local run: Run = { start = began, first = first, last = #parts, bytes = bytes }
+      runs[#runs + 1] = run
       pos, began = target, target
+      first, bytes = #parts + 1, 0
     elseif length > MAX_LABEL then
       return nil, "dns: a label starts with reserved bits"
     else
       if pos + length > #data then return nil, "dns: the message ends inside a name" end
       size = size + 1 + length
+      bytes = bytes + 1 + length
       if size > MAX_NAME then return nil, "dns: a name is longer than 255 bytes" end
       local label = escaped(data:sub(pos + 1, pos + length))
       parts[#parts + 1] = label
@@ -461,8 +506,24 @@ local function read_name(cursor: Cursor): string?, string
     end
   end
   cursor.pos = after or pos
-  if #parts == 0 then return ".", "" end
-  return table.concat(parts, "."), ""
+  local last: Run = { start = began, first = first, last = #parts, bytes = bytes }
+  runs[#runs + 1] = last
+  -- From the last run to the first, each is its labels and what follows it. The run that ended at a place
+  -- already read, or at the root, followed no pointer of its own but the one that led to that place.
+  local text, wire = rest.text, rest.size
+  local followed = jumps - (#runs - 1)
+  for at = #runs, 1, -1 do
+    local run = Array.at(runs, at)
+    if run.last >= run.first then
+      local labels = table.concat(parts, ".", run.first, run.last)
+      text = if text == "" then labels else labels .. "." .. text end
+    end
+    wire = wire + run.bytes
+    cursor.names[run.start] = { text = text, size = wire, jumps = followed }
+    followed = followed + 1
+  end
+  if text == "" then return ".", "" end
+  return text, ""
 end
 
 --- The fields of a [`Dns.Record`] that hold the data of its type.
@@ -620,7 +681,7 @@ function Dns.decode(data: string): Dns.Message?, string
       #data - HEADER then
     return nil, "dns: the header counts more questions and records than the message holds"
   end
-  local cursor: Cursor = { data = data, pos = HEADER + 1 }
+  local cursor: Cursor = { data = data, pos = HEADER + 1, names = {} }
   local questions: mut {Dns.Question} = {}
   for _ = 1, questions_count do
     local name, why = read_name(cursor)
@@ -826,7 +887,7 @@ function Dns.encode(message: Dns.Message): string?, string
   return out, ""
 end
 
---- The query that asks for the records of type `type` and the internet class at `name`, with the identifier
+--- The query that asks for the records of type `rtype` and the internet class at `name`, with the identifier
 --- `id` and recursion desired, as a resolver's client sends it. Multicast DNS sends an `id` of 0; a query sent to a
 --- server needs one that cannot be guessed, since the id is how its answer is told from a forged one.
 function Dns.query(name: string, rtype: integer, id: integer): Dns.Message
@@ -848,8 +909,8 @@ function Dns.query(name: string, rtype: integer, id: integer): Dns.Message
   }
 end
 
---- The response to `query` with nothing in it yet: its id, opcode, questions and its recursion-desired and
---- checking-disabled bits repeated, no error, and no records. A server fills in the rest with a spread:
+--- The response to `query` with nothing in it yet: its id, opcode, its recursion-desired and checking-disabled
+--- bits and its questions repeated, in a list of its own, with no error and no records. A server fills in the rest with a spread:
 --- `{ ...Dns.reply(query), authoritative = true, answers = records }`.
 function Dns.reply(query: Dns.Message): Dns.Message
   return {
@@ -863,7 +924,7 @@ function Dns.reply(query: Dns.Message): Dns.Message
     authentic_data = false,
     checking_disabled = query.checking_disabled,
     rcode = 0,
-    questions = query.questions,
+    questions = table.move(query.questions, 1, #query.questions, 1, {}),
     answers = {},
     authorities = {},
     additionals = {},

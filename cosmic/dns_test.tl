@@ -466,6 +466,8 @@ local function test_reply_repeats_what_a_response_repeats()
   assert(reply.checking_disabled and not reply.authoritative and not reply.recursion_available and reply.rcode == 0)
   assert(#reply.questions == 1 and assert(reply.questions[1]).name == "example.com")
   assert(#reply.answers == 0 and #reply.authorities == 0 and #reply.additionals == 0)
+  -- The questions are a list of the reply's own, so a change to one message's is none to the other's.
+  assert(reply.questions ~= query.questions and reply.questions[1] == query.questions[1])
 end
 
 local function test_encode_refuses_what_does_not_fit()
@@ -540,6 +542,33 @@ local function test_a_name_follows_a_bounded_chain_of_pointers()
   local most = assert(Dns.decode(chain(128)))
   assert(#most.answers == 128 and assert(most.answers[128]).name == "a")
   refused(chain(129))
+end
+
+--- The kilobytes a message of 5400 records holds once it is read, where the first record is about a name of
+--- 127 labels and each of the others about `name`.
+local function kept_by_records_named(name: string): number
+  local rest = "\x00\x63\x00\x01\x00\x00\x00\x00\x00\x00"
+  local data = "\x00\x00\x00\x00\x00\x00\x15\x18\x00\x00\x00\x00" .. ("\x01\x01"):rep(127) .. "\x00" .. rest ..
+    (name .. rest):rep(5399)
+  collectgarbage()
+  collectgarbage()
+  local base = collectgarbage("count")
+  local message = assert(Dns.decode(data))
+  collectgarbage()
+  collectgarbage()
+  local kept = collectgarbage("count") - base
+  local last = assert(message.answers[5400])
+  assert(#message.answers == 5400 and (#last.name == 634 or last.name == "."))
+  return kept
+end
+
+--- A pointer is two bytes that stand for a name of up to 634 bytes of text. Were each record to hold a text of
+--- its own, 65 kilobytes of pointers to one name would hold 3.4 megabytes of it; reading the name once and
+--- sharing it, they hold what as many records about the root do.
+local function test_records_that_point_to_one_name_share_its_text()
+  local shared = kept_by_records_named("\xc0\x0c")
+  local root = kept_by_records_named("\x00")
+  assert(shared - root < 512, ("%.0f kilobytes more than records about the root"):format(shared - root))
 end
 
 local function test_a_malformed_message_is_refused()
