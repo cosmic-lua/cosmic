@@ -946,6 +946,8 @@ local function test_an_argument_that_is_not_a_string_raises()
   assert_strings_only("compare", Bigint.compare, 2)
   assert_strings_only("product", Bigint.product, 2)
   assert_strings_only("sum", Bigint.sum, 2)
-  local ok = probe(Bigint.pad, 2, 1, 5)
-  assert(ok == false, "pad takes a number for a string")
+  -- pad is Teal's own, and raises what the language does.
+  assert(probe(Bigint.pad, 2, 1, 5) == false, "pad takes a number for a string")
+  assert(probe(Bigint.pad, 2, 1, true) == false, "pad takes a boolean for a string")
+  assert(probe(Bigint.pad, 2, 2, "wide") == false, "pad takes a string for a width")
 end

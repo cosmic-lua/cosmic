@@ -38,7 +38,7 @@
 --- caller's own mistake raises (a group whose prime is even, a secret of
 --- no bytes), and so does the system's entropy source failing.
 ---
---- Secrets and time. Every number computed from a secret goes through
+--- Secrets and time. All the arithmetic on a secret goes through
 --- [`cosmic.bigint`]'s functions for secrets, at widths the parameters
 --- fix: the powers of a secret base or to a secret exponent, the public
 --- values among them, the products with the verifier, the
