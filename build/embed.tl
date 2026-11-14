@@ -2,7 +2,9 @@
 --- multi-core prefix with a database behind it that holds the project's modules
 --- but not its tests or examples, the standard library, the error catalog, the
 --- bill of materials, and the name of the main module, so it runs on its own
---- with no `cosmic` beside it.
+--- with no `cosmic` beside it. It holds the project's documentation too, for
+--- the program's users to read: the docs, uses, links and examples of the
+--- modules any module may require ([`public_modules`]), and its guides.
 ---
 --- A binary is a directory under `cmd/`: `cmd/<name>/main.tl` compiles
 --- as `kind = "main"`, and `cosmic build` writes `bin/<name>` in its build directory for
@@ -14,7 +16,8 @@
 --- executable is parsed here.
 ---
 --- cosmic's own tree is not embedded this way: `bin/zig build boot`
---- builds the tool.
+--- builds the tool, and `cosmic build` there prints its path
+--- ([`embed.tree_tool`]).
 
 local build_paths = require("build.paths")
 local Cli = require("cosmic.cli")
@@ -33,6 +36,8 @@ local rebuild_lock = require("build.rebuild_lock")
 local exit_status = require("build.exit_status")
 local shared_compiles = require("build.shared_compiles")
 local narrow = require("build.narrow")
+local positions = require("build.positions")
+local AnalysisSchema = require("build.analysis_schema")
 local schema = require("build.schema")
 local tree = require("build.tree")
 local work = require("build.work")
@@ -57,7 +62,21 @@ local record embed
     removed: mut {string}
     --- The messages of the modules the checker refused, "" for a tree that compiled whole.
     mut refusal: string
+    --- Whether the build stopped, its programs compiled, because the tool carries the host's core alone and they were
+    --- to be portable ([`embed.portable_prefix`]).
+    mut host_only?: boolean
   end
+
+  --- What a build of a portable program asks of the running tool, which a test answers in its place.
+  record Portable
+    --- The tool's prefix ([`artifact.trusted_prefix`]).
+    prefix: function(): string?, string
+    --- Boots every core and re-enters `argv` ([`reboot.every_core_into`]).
+    every_core: function(argv: {string}): string?
+  end
+
+  --- What [`embed.tree`] and the `build` verb ask of the running tool.
+  mut portable: Portable
 end
 
 local text = bind.text
@@ -132,23 +151,27 @@ local module_column_list = table.concat(module_columns, ", ")
 local catalog_columns = { "kind", "module", "symbol", "message", "text",
   "file", "line" }
 
+embed.portable = {
+  prefix = artifact.trusted_prefix,
+  -- Required when asked, as a build that boots nothing never needs it.
+  every_core = function(argv: {string}): string?
+    return require("build.reboot").every_core_into(argv)
+  end,
+}
+
 --- The `<name>` of `cmd/<name>/main.tl`, from its import path.
 local function name_of(main: string): string?
   return main:match("^cmd%.([^%.]+)%.main$")
 end
-
--- TODO: build the missing cores on demand (`bin/zig build cores`, once) in
--- place of refusing; it waits on the tool knowing the checkout it was
--- booted from, which its database does not record, so that a project's
--- `cosmic build` can find the tree to run zig in.
 
 --- The prefix a portable program is made of: the running tool's own, which
 --- carries a core for every target it runs on. A tool booted for the host's
 --- alone (`bin/zig build boot` without `-Dboot-cores=all`) carries a
 --- placeholder for each other target's ([`artifact.placeholder`]), and has no
 --- such prefix to give: a program made of it would run on this host only, and
---- say nothing of it, so it refuses and names the boot that renews it.
---- `--host` needs no other core.
+--- say nothing of it, so it refuses and names the boot that renews it, which
+--- the `build` verb then runs itself where the tool is one that boots
+--- ([`reboot.every_core_into`]). `--host` needs no other core.
 --- @param prefix what [`artifact.trusted_prefix`] answered, or nil
 --- @param trouble and why not, where it answered none
 function embed.portable_prefix(prefix: string?, trouble: string): string?, string
@@ -161,10 +184,119 @@ function embed.portable_prefix(prefix: string?, trouble: string): string?, strin
   return prefix, ""
 end
 
+--- What of the attached project's documentation a program carries.
+local record Readable
+  --- Each module any module of the project may require.
+  public: {string}
+  --- Each guide, by the module it compiles as (`doc.guides.<name>`).
+  guides: {string}
+end
+
+--- The modules of the project attached to `out` whose documentation its
+--- users read: each module any module may require, by the two rules of
+--- [`positions.check`] that hold in every project, so a module of a closed
+--- directory that does not say `--- @public` is the project's own; and each
+--- guide, a Markdown file directly under `doc/guides/`. A module under any
+--- `internal` directory is the project's own too, the root's included,
+--- which every module of the project may require and no user of its
+--- program can. A test, an example, a program and test support are no
+--- module of that kind, whatever requires one. Nil and why when a source
+--- that would say `--- @public` cannot be read.
+local function public_modules(out: Sqlite.Handle): Readable?, string
+  local rows, trouble = Sqlite.text_rows(out, "SELECT path, file, kind FROM project.modules ORDER BY path")
+  if rows == nil then
+    return nil, trouble
+  end
+  local files: mut {string} = {}
+  for _, row in ipairs(rows) do files[#files + 1] = row:text(2) end
+  local entries = positions.entries(files)
+  local public: mut {string} = {}
+  local guides: mut {string} = {}
+  local unread = ""
+  for _, row in ipairs(rows) do
+    local path, file, kind = row:text(1), row:text(2), row:text(3)
+    if kind == "module" and not AnalysisSchema.is_support(file) and
+        ("/" .. file):find("/internal/", 1, true) == nil then
+      local reach = positions.reach(file, entries, function(): boolean
+        local sources, source_trouble = Sqlite.text_rows(out,
+          "SELECT CAST(inflate(source) AS TEXT) FROM project.modules WHERE path = ?1 AND length(source) > 0",
+          { text(path) })
+        if sources == nil then
+          unread = path .. ": " .. source_trouble
+          return false
+        end
+        local source = sources[1]
+        return source ~= nil and AnalysisSchema.declares_public(source:text(1))
+      end, false)
+      if reach == nil then
+        public[#public + 1] = path
+      end
+    elseif file:match("^doc/guides/[^/]+%.md$") ~= nil then
+      guides[#guides + 1] = path
+    end
+  end
+  if unread ~= "" then
+    return nil, unread
+  end
+  return { public = public, guides = guides }, ""
+end
+
+--- Copies into `out` the documentation of the attached project that
+--- `readable` names, as the tool carries the standard library's
+--- ([`build.writer`]'s `carry`): every doc row of a public module and each
+--- guide's own row, each example of a public module, and each use and each
+--- link to a symbol whose two ends are public, so where a module the
+--- project keeps to itself calls a function is not told; and the names a
+--- public module binds its requires to, which say what a type it aliases
+--- is.
+--
+-- TODO: let a program answer from these rows, as `cosmic docs` answers
+-- from the tool's. It waits on the lookup of build/docs.tl moving to a
+-- module a program carries, since `build/` is the tool's alone.
+-- TODO: carry the rows of a type a public module aliases from a module
+-- the project keeps to itself, as [`build.writer`]'s
+-- `carried_internal_types` does for `cosmic.internal.*`, so that the
+-- alias lists its members. It waits on the same lookup, which is what
+-- resolves an alias.
+local function copy_documentation(out: Sqlite.Handle, readable: Readable): boolean, string
+  local public: Sqlite.Value = { texts = readable.public }
+  local guides: Sqlite.Value = { texts = readable.guides }
+  local ok, trouble = Sqlite.run(out,
+    "INSERT INTO docs (module, symbol, source_symbol, exported, kind, signature, text, file, line) " ..
+      "SELECT module, symbol, source_symbol, exported, kind, signature, text, file, line FROM project.docs d " ..
+      "WHERE d.module IN carray(?1) OR (d.symbol = '' AND d.module IN carray(?2)) ORDER BY id",
+    { public, guides })
+  if not ok then
+    return false, trouble
+  end
+  ok, trouble = Sqlite.run(out,
+    "INSERT INTO uses SELECT * FROM project.uses u WHERE u.module IN carray(?1) AND " ..
+      "u.from_module IN carray(?1) ORDER BY module, symbol, from_module, line", { public })
+  if not ok then
+    return false, trouble
+  end
+  ok, trouble = Sqlite.run(out,
+    "INSERT INTO links SELECT * FROM project.links l WHERE l.kind = 'symbol' AND l.module IN carray(?1) AND " ..
+      "l.from_module IN carray(?1) ORDER BY module, symbol, path, anchor, from_file, line, column", { public })
+  if not ok then
+    return false, trouble
+  end
+  ok, trouble = Sqlite.run(out,
+    "INSERT INTO bound SELECT * FROM project.bound b WHERE b.path IN carray(?1) ORDER BY path, name", { public })
+  if not ok then
+    return false, trouble
+  end
+  return Sqlite.run(out,
+    "INSERT INTO examples (module, name, text, file, line, source) " ..
+      "SELECT module, name, text, file, line, source FROM project.examples e " ..
+      "WHERE e.module IN carray(?1) ORDER BY id", { public })
+end
+
 --- The database one executable carries, as bytes: the project's own
 --- projection at `project` joined with what the running binary holds
 --- that a program needs at run time -- every `cosmic.*` module, every
---- declaration, the error catalog, the time zones -- the bill of
+--- declaration, the error catalog, the time zones -- the project's
+--- documentation that its users read ([`public_modules`]), the bill of
 --- materials it ships under, and `main` naming the module the
 --- executable runs. Written beside the projection, then vacuumed, so
 --- the bytes are a function of the two databases and nothing else.
@@ -275,7 +407,7 @@ function embed.database(project: string, main: string, roots?: string): string?,
     -- The guidance a program's own errors can match: the standard
     -- library's own extracted rows. It never runs the build, so a row
     -- about the build could only ever match by accident. A row's text
-    -- is NULL when it has none of its own: the docs are not carried, and
+    -- is NULL when it has none of its own: the library's docs are not carried, and
     -- [`Errors.guidance`] names the symbol for `cosmic docs` instead.
     copied, copy_trouble = copy_rows(binary, out, "catalog", catalog_columns,
       "SELECT kind, module, symbol, message, text, file, " ..
@@ -325,6 +457,14 @@ function embed.database(project: string, main: string, roots?: string): string?,
       "ATTACH DATABASE ?1 AS project", { text(project) })
     if not attached then
       return false, attach_trouble
+    end
+    local readable, readable_trouble = public_modules(out)
+    if readable == nil then
+      return false, readable_trouble
+    end
+    local documented, documented_trouble = copy_documentation(out, readable)
+    if not documented then
+      return false, documented_trouble
     end
     -- The project's own modules, but not its tests or examples: a
     -- program never runs those, and they are the project's to keep.
@@ -650,7 +790,9 @@ local function build_tree(root: string, host?: boolean, under?: {string},
   if host == true then
     core, source_trouble = artifact.trusted_core()
   else
-    prefix, source_trouble = embed.portable_prefix(artifact.trusted_prefix())
+    local trusted, trusted_trouble = embed.portable.prefix()
+    prefix, source_trouble = embed.portable_prefix(trusted, trusted_trouble)
+    if report ~= nil then report.host_only = trusted ~= nil and prefix == nil end
   end
   if prefix == nil and core == nil then
     tidy()
@@ -786,6 +928,56 @@ local function out_directory(root: string, given: string): string?, string
   return path, ""
 end
 
+--- The tool of cosmic's own tree at `root`, as a boot or a rebuild last wrote it in the tree's build directory
+--- ([`build.paths`]): its path, once it is also written to `out/cosmic` where `out` is given. That copy is in no
+--- checkout's build directory, so it is held to no tree ([`tree.own_tool`]): it runs a project as a release does,
+--- with the cores the tool carries. Nil and why where there is no tool or the copy cannot be written.
+--- @param out a directory, made if missing, to write the copy to
+function embed.tree_tool(root: string, out?: string): string?, string
+  local tool = build_paths.resolve(root).tool
+  local st, stat_trouble = Fs.stat(tool)
+  if st == nil or st.kind ~= "file" then
+    return nil, "no tool at " .. tool .. " (" .. (if st == nil then stat_trouble else "not a file" end) ..
+      "); run bin/zig build boot"
+  end
+  if out ~= nil then
+    local program, read_trouble = Fs.read(tool)
+    if program == nil then return nil, read_trouble end
+    local made, made_trouble = Fs.mkdirs(out)
+    if not made then return nil, "--out " .. out .. " cannot be created: " .. made_trouble end
+    local copied, copy_trouble = Fs.write(out .. "/cosmic", program, 0x1ed)
+    if not copied then return nil, copy_trouble end
+  end
+  return tool, ""
+end
+
+--- `cosmic build [--out dir]` in cosmic's own tree, whose one program is the tool itself: prints the tool's path
+--- once the tool is as new as the tree, a stale one having rebuilt itself and run the line again
+--- ([`reboot.stale_exit`]). A boot chose which cores the tool carries, so `--host`, `--roots` and paths, which
+--- choose among a project's programs and how each is made, are refused.
+local function run_own(argv: {string}, root: string, parsed: Flags.Parsed, out: string?, started: integer): integer
+  if parsed.set["--host"] == true or parsed.values["--roots"] ~= nil or #parsed.words > 0 then
+    log:complain("build: this is cosmic's own tree, whose program is the tool bin/zig build boot builds: " ..
+        "it takes --out alone")
+    return 2
+  end
+  local code = require("build.reboot").stale_exit(argv, false, root)
+  if code ~= nil then return code end
+  local tool, trouble = embed.tree_tool(root, out)
+  if tool == nil then
+    log:complain("build: " .. trouble)
+    return 1
+  end
+  log:say(tool)
+  -- What the running tool carries is what the file holds: the file is the tool that answers.
+  local prefix, _ = artifact.trusted_prefix()
+  local cores = if prefix ~= nil and artifact.host_only(prefix) then
+    " (this host's core alone: bin/zig build boot -Dboot-cores=all builds every core)" else "" end
+  local _, _ = logger.summary("build", tool .. cores .. (if out ~= nil then " and " .. out .. "/cosmic" else "" end) ..
+      ", " .. clock.took(started))
+  return 0
+end
+
 --- `cosmic build [--host] [--roots minimal|mozilla] [--out dir] [path...]`: the tree in the working directory,
 --- and its executables in its build directory's `bin/` -- only those whose `main.tl` is
 --- under one of the paths, when there are any -- and in `dir` when it is given. Prints each executable it
@@ -793,8 +985,11 @@ end
 --- stderr names them again, or says why nothing was written. A file the checker refuses, a test
 --- among them, does not keep the programs that do not need it from being written: they are, the
 --- refusals and the programs not made are named, the earlier executable of each such program is removed
---- (it would run old code), and the exit status is [`exit_status.uncompiled`].
-local function run(argv: {string}): integer
+--- (it would run old code), and the exit status is [`exit_status.uncompiled`]. In cosmic's own tree it prints
+--- the tool ([`run_own`]).
+--- @param at the tree's root, the working directory by default
+--- @param carried the `built_from` the tool carries, as [`tree.standing`] takes it
+function embed.run(argv: {string}, at?: string, carried?: string): integer
   local started = Clock.monotonic_ns()
   local parsed, parse_trouble = Flags.parse(argv, 2, assert(Cli.verbs.build.spec)) -- checked: map_field
   if parsed == nil then
@@ -807,7 +1002,7 @@ local function run(argv: {string}): integer
     log:complain("build: --roots takes minimal or mozilla, not " .. roots:sub(1, 40))
     return 2
   end
-  local root, root_trouble = Fs.absolute(".")
+  local root, root_trouble = Fs.absolute(at or ".")
   if root == nil then
     log:complain(root_trouble)
     return 1
@@ -822,13 +1017,28 @@ local function run(argv: {string}): integer
     end
     out = directory
   end
+  local standing, standing_trouble = tree.standing(root, carried)
+  if standing == nil then
+    log:complain(standing_trouble)
+    return 1
+  end
+  if standing.own then return run_own(argv, root, parsed, out, started) end
   local outcome: importer.Outcome = { refused = false }
   local report: embed.Report = { unbuilt = {}, removed = {}, refusal = "" }
-  local names, trouble = embed.tree(root, host, narrow.paths(root, parsed.words), roots, nil, outcome, out,
+  local names, trouble = embed.tree(root, host, narrow.paths(root, parsed.words), roots, carried, outcome, out,
     report)
   -- The refusals are named whatever else happens; a failure to read, stage or write is 1 and outranks them
   -- ([`exit_status.uncompiled`] is for a run that failed only because a file did not compile).
   local refused = report.refusal ~= ""
+  if names == nil and report.host_only == true then
+    -- Nothing is held here: the build has let go of the tree's lock and its database, and what it compiled is kept
+    -- for the run the boot enters.
+    local booted = embed.portable.every_core(argv)
+    if booted ~= nil then
+      log:complain(booted)
+      return 3
+    end
+  end
   if names == nil then
     log:complain(trouble)
     if refused then log:complain(report.refusal) end
@@ -862,9 +1072,9 @@ end
 --- The `build` verb as [`build/verb_list.tl`] lists it.
 embed.spec = {
   name = "build",
-  guide = "none: builds a program for shipping, which doc/guides/portable-runtime.md covers; the quickstart does not",
+  guide = "none: builds a program for shipping, which doc/guides/internal/portable-runtime.md covers; the quickstart does not",
   tests = { "build.embed_test", "build.embed_tool_test", "build.embed_portable_tool_test" },
-  run = function(argv: {string}): integer return run(argv) end,
+  run = function(argv: {string}): integer return embed.run(argv) end,
   bare = false,
   takes = "the files or directories to act on",
 }

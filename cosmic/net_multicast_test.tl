@@ -175,13 +175,7 @@ local function test_a_closed_socket_joins_leaves_and_sets_nothing()
 end
 
 local function test_the_interfaces_listed_hold_the_loopback_and_its_address()
-  local listed, why = Net.interfaces()
-  if listed == nil then
-    -- TODO: assert the list on Linux too, once a sandboxed worker's filter
-    -- (core/promises.c) lets getifaddrs open its netlink socket.
-    Test.skip("this worker cannot list the host's interfaces: " .. why)
-    return
-  end
+  local listed = assert(Net.interfaces())
   local names: mut {string: boolean} = {}
   local loopback = false
   for _, interface in ipairs(listed) do
@@ -211,13 +205,11 @@ local function test_an_ipv6_group_is_joined_and_left_by_its_interfaces_index()
     return
   end
   local member <close> = socket
-  -- Linux's loopback is interface 1 in every network namespace; where
-  -- the interfaces are listed, the list says.
-  local index = 1
-  local listed = Net.interfaces()
-  for _, interface in ipairs(listed or {}) do
+  local index = 0
+  for _, interface in ipairs((assert(Net.interfaces()))) do
     if interface.loopback then index = interface.index end
   end
+  assert(index >= 1, "a loopback interface is listed")
   local group = "ff15::7711"
   assert(member:join(group, index))
   local again, again_why = member:join(group, index)

@@ -264,6 +264,12 @@ promises lean on come first:
   needs the caller to hand the body over again (a function answering a
   fresh Reader) behind `CURLOPT_SEEKFUNCTION`; curl answers "necessary data
   rewind was not possible" without one.
+- [`cosmic.http.message`] past the message, each once a caller needs it:
+  RTSP's interleaved binary frames (RFC 2326 10.12: `$`, a channel byte and a
+  16-bit length, between messages on the same connection), which no reader
+  here reads; a body handed over as it arrives,
+  for one larger than a caller would hold; and a chunked body's trailers,
+  which are checked and dropped.
 - [`cosmic.web.middleware`] past what the first parts need, each once a part of
   the web layer wants one: `Web.timing`, `Web.request_id` (paired with the
   CSP nonce and sessions) and `Web.limit_body` (paired with
@@ -316,8 +322,8 @@ promises lean on come first:
   loopback server build/fetch_test.tl's https `TODO:` waits on;
   datagrams past [`Net.datagram`]'s UDP socket and its multicast: one over a unix socket
   file ("unixgram"), a socket connected to one peer, a group joined for
-  some senders alone (source-specific multicast), an IPv4 group's
-  interface named by its index, and [`Net.interfaces`] in a Linux sandbox; a [`Net.serve`] listener taking a
+  some senders alone (source-specific multicast), and an IPv4 group's
+  interface named by its index; a [`Net.serve`] listener taking a
   listen's own options (`backlog`); a listen that takes over a socket file a listener left
   behind (`reclaim`, for a daemon restarting at its socket file); a
   [`Net.serve`] in several processes of this program, which take
@@ -378,11 +384,29 @@ promises lean on come first:
     holds, its options), and written from them. Today it is a record of type
     41 with `rdata`, its class split at the top bit like any other.
 
+- [`cosmic.protobuf`] past the wire format, each once a caller needs it:
+  - A schema layer: a message's fields declared once, each with its name,
+    number and type and whether it repeats, to get the reader that answers a
+    record and the writer that takes one. Today a caller says a field's
+    number and type at every read and write. It needs design first: whether
+    the declaration is a value checked at run time, as a [`cosmic.shape`] spec
+    is, or a record the build reads, as `record_of` reads one; how a `oneof`,
+    a map and a field's default are said; what a record keeps of the fields
+    it has no name for; and whether a `.proto` file is read to make one.
+  - Groups (wire types 3 and 4), which [`Protobuf.decode`] refuses and only
+    proto2 writes. A group has no length: its end is found by reading every
+    field inside it, the groups nested in it too, under a bound on how deep
+    they nest.
+
 - [`cosmic.mdns`] past a search made once, each once a caller needs it:
-  - Publishing a service: a responder that probes for its names, announces
-    its records, answers the questions about them and says goodbye as it
-    stops (RFC 6762 sections 8 to 10), at port 5353 as [`Mdns.Listen`]'s
-    "group" binds it.
+  - The rest of publishing a service, where [`Mdns.responder`] only answers:
+    probing for its names before it uses them, announcing its records,
+    saying goodbye as it stops and settling a conflict with another
+    responder (RFC 6762 sections 8 to 10); leaving out the answers a
+    question lists as known (section 7.1); the delay before an answer
+    others may give too, and the answer that says a record does not exist
+    (section 6); the unicast answer a member's question may ask for
+    (section 5.4); and publishing a sub-type.
   - A browse that goes on until it is stopped: each record kept for its
     time to live and asked for again before that ends, an instance reported
     gone when its records expire or a goodbye (a record with a time to live
@@ -413,6 +437,32 @@ promises lean on come first:
   - An SRV record's priority and weight, and every SRV record of an instance
     that has several.
 
+- [`cosmic.plist`] past the binary and XML forms read and written whole,
+  each once a caller needs it:
+  - The old ASCII form (OpenStep's, `{ key = value; }`), which Xcode still
+    writes for a project file and `defaults` prints. [`Plist.form`] answers
+    nil for it and [`Plist.decode`] refuses it. It holds strings, data,
+    arrays and dicts alone, so reading it needs no new kind of value.
+  - A keyed archive (NSKeyedArchiver) read as the objects it archives:
+    `$top` followed through its UIDs into `$objects`, each object with its
+    class from `$class`, and the Foundation collections (`NS.objects`,
+    `NS.keys`, `NS.string`, `NS.time`) as the values they stand for. Today
+    an archive reads as the property list it is, UIDs and all, and following
+    them is the caller's. Writing one is the other half.
+  - The binary form's other versions (`bplist15`, `bplist16`), which
+    Foundation uses between processes, with types `bplist00` does not have.
+    [`Plist.decode`] refuses them by their version.
+  - A plain Lua table from a [`Plist.Value`] and back, for a caller that
+    wants neither the order of a dict's keys nor the type of a value:
+    which Lua value each kind becomes, and which kind a table that could be
+    an array or a dict is written as, are the decisions to make.
+  - A dict that holds a key twice read, the last of the key's entries
+    standing, as [`Json.decode`]'s `duplicate_keys` reads an object. Both
+    decoders refuse one today.
+  - A property list too large to hold whole, read an element at a time from
+    a stream, which the XML form allows and the binary form, whose trailer
+    is at its end, does not.
+
 - `cosmic lsp` ([`build/lsp/session.tl`]) answers diagnostics, hover, go to definition, completion and formatting. Definition and completion read
   the open document's last check, [`check.read`] and [`check.last`] (its tree, scopes and types), and the working database for
   the other modules: the `places` rows for a declaration's position ([`build/lsp/source.tl`]), the docs for a member's text.
@@ -432,6 +482,16 @@ symbol.
 
 - add focused `*_example.tl` files for the public modules `cosmic/` has
   none for yet: `env` and `store`.
+- search a built program's help by its words. [`Flags.dispatch`] answers a
+  command's page by its name and the index of them all; a program with many
+  commands also wants `prog help <words>` to answer the pages that hold the
+  words, as `cosmic docs <words>` does for the library. a program carries
+  its project's docs ([`build/embed.tl`]), and the query over them
+  ([`build/docs.tl`], FTS5) is part of the tool and no function of the
+  library. decide how a command's page (its `about`, `usage`, options and
+  `examples`) becomes a row beside the docs, what in the library queries
+  them from the program, and how a miss ranks beside [`Flags.nearest`]'s
+  names. no caller in the tree needs it yet.
 - add mention search for prose references that `cosmic uses` cannot see.
   old's `cosmic/doc/mentions.tl` demonstrates the separate full-text query.
 - an uncaught error's guidance ([`Errors.guidance`] in [`cosmic/errors.tl`]) is
@@ -495,6 +555,8 @@ four-producer provenance join.
 [`build/archive_test.tl`]: ../build/archive_test.tl
 [`build/c/tree.tl`]: ../build/c/tree.tl
 [`build/dataset.tl`]: ../build/dataset.tl
+[`build/docs.tl`]: ../build/docs.tl
+[`build/embed.tl`]: ../build/embed.tl
 [`build/flow.tl`]: ../build/flow.tl
 [`build/hash_test.tl`]: ../build/hash_test.tl
 [`build/json.tl`]: ../build/json.tl
@@ -514,6 +576,7 @@ four-producer provenance join.
 [`cosmic.dns`]: ../cosmic/dns.tl
 [`cosmic.fs`]: ../cosmic/fs.tl
 [`cosmic.html`]: ../cosmic/html.tl
+[`cosmic.http.message`]: ../cosmic/http/message.tl
 [`cosmic.http.server`]: ../cosmic/http/server.tl
 [`cosmic.http`]: ../cosmic/http/init.tl
 [`cosmic.internal.relay_config`]: ../cosmic/internal/relay_config.tl
@@ -521,6 +584,8 @@ four-producer provenance join.
 [`cosmic.internal.relay_start`]: ../cosmic/internal/relay_start.tl
 [`cosmic.mdns`]: ../cosmic/mdns.tl
 [`cosmic.net`]: ../cosmic/net.tl
+[`cosmic.plist`]: ../cosmic/plist.tl
+[`cosmic.protobuf`]: ../cosmic/protobuf.tl
 [`cosmic.relay.address`]: ../cosmic/relay/address.tl
 [`cosmic.relay.grant`]: ../cosmic/relay/grant.tl
 [`cosmic.removed`]: ../cosmic/removed.tl
@@ -541,16 +606,21 @@ four-producer provenance join.
 [`doc/testing.md`]: testing.md
 [`Errors.guidance`]: ../cosmic/errors.tl
 [`eval/summarize.tl`]: ../eval/summarize.tl
+[`Flags.dispatch`]: ../cosmic/flags.tl
+[`Flags.nearest`]: ../cosmic/flags.tl
 [`Html.url_part`]: ../cosmic/html.tl
 [`Input.Invalid`]: ../cosmic/web/input.tl
 [`Json.decode`]: ../cosmic/json.tl
 [`lang/flow.tl`]: ../lang/flow.tl
 [`lang/stdlib.d.tl`]: ../lang/stdlib.d.tl
-[`Mdns.Listen`]: ../cosmic/mdns.tl
+[`Mdns.responder`]: ../cosmic/mdns.tl
 [`Net.datagram`]: ../cosmic/net.tl
-[`Net.interfaces`]: ../cosmic/net.tl
 [`Net.serve`]: ../cosmic/net.tl
+[`Plist.decode`]: ../cosmic/plist.tl
+[`Plist.form`]: ../cosmic/plist.tl
+[`Plist.Value`]: ../cosmic/plist.tl
 [`Proc.relaunch`]: ../cosmic/proc.tl
+[`Protobuf.decode`]: ../cosmic/protobuf.tl
 [`Sandbox.Limits`]: ../cosmic/sandbox/init.tl
 [`Sandbox.Policy`]: ../cosmic/sandbox/init.tl
 [`Server.none_match`]: ../cosmic/http/server.tl

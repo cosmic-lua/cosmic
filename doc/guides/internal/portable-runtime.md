@@ -7,7 +7,7 @@ artifact contains a POSIX shell launcher, three release cores stored zstd
 compressed, the decoder stub that restores each, a manifest, a SQLite database,
 and a fixed trailer. A checked artifact adds one configuration-2 core for its
 build host, stored raw. This guide follows those bytes from
-the build graph to a running program. [The design](../design.md) defines the
+the build graph to a running program. [The design](../../design.md) defines the
 format and trust rules; this guide explains where the implementation enforces
 them.
 
@@ -24,7 +24,7 @@ artifact. SQLite reads only the validated database range.
 
 ## build the raw inputs
 
-[`build.zig`](../../build.zig) owns native compilation. Its `cores` step builds
+[`build.zig`](../../../build.zig) owns native compilation. Its `cores` step builds
 the same C sources for `x86_64-linux-musl`, `aarch64-linux-musl`, and
 `aarch64-macos`, and a small static decoder stub for each of them
 (`core/<target>/cosmic-unzstd`, from [`core/unzstd.c`]) at the architecture's
@@ -38,18 +38,18 @@ checked core is a test artifact, not a fourth shipped target.
 
 The `boot` step runs the new host core in bridge mode. It loads the bridge,
 [`core/bridge.lua`], and the vendored Teal compiler from the staged tree, then calls
-[`build.boot`](../../build/boot.tl). This is the path that works when no older
+[`build.boot`](../../../build/boot.tl). This is the path that works when no older
 Cosmic executable exists.
 
 ## separate working and shipped state
 
-Boot opens the build directory's `build.db` through [`build.work`](../../build/work.tl). This is a
+Boot opens the build directory's `build.db` through [`build.work`](../../../build/work.tl). This is a
 mutable working database. It holds staged source, parsed forms, compiled
 modules, test verdicts, coverage, and recent build records. Raw cores remain
 files under the build directory's `core/`; they are never database rows.
 
-[`build.importer`](../../build/importer.tl) derives generated modules and
-compiles the staged tree. [`build.writer`](../../build/writer.tl) projects the
+[`build.importer`](../../../build/importer.tl) derives generated modules and
+compiles the staged tree. [`build.writer`](../../../build/writer.tl) projects the
 result into the build directory's `cosmic.db`, a fresh host-neutral database. The projection has a
 smaller schema, deterministic insertion order, natural keys, and no working
 history. In cosmic's own tree, the database the tool carries is
@@ -63,7 +63,7 @@ later write skips work only when the file at the output path carries the same
 signature. A side record in `build.db` cannot make a replaced output look
 current.
 
-[`cosmic.store`](../../cosmic/store.tl) exposes these identities: each
+[`cosmic.store`](../../../cosmic/store.tl) exposes these identities: each
 attached database is searched first, then the running binary's own, which
 carries the `meta` of the projection it was built from. This example runs
 with the guide:
@@ -87,9 +87,9 @@ from one runtime context from standing in another.
 
 ## write the portable layout
 
-[`build.artifact`](../../build/artifact.tl) parses `targets.tsv`, reads each raw
+[`build.artifact`](../../../build/artifact.tl) parses `targets.tsv`, reads each raw
 core, and renders launcher arms with
-[`build.launcher`](../../build/launcher.tl). A release writes each core as one
+[`build.launcher`](../../../build/launcher.tl). A release writes each core as one
 zstd frame ([`Compress.zstd`]) beside the decoder stub built for its target. It
 aligns every stored range, hashes the exact bytes, and writes one fixed-size
 manifest entry per range. An entry has a kind (a core, or the stub of a
@@ -118,7 +118,7 @@ configuration and kind) must be unique, and a compressed core needs a stub of
 its target. Version 1 artifacts, written by a release before this format, are
 refused by name: `artifact format version 1; this release reads version 2`.
 The database must begin with the SQLite header.
-[`core/portable.c`](../../core/portable.c) checks these rules again before the
+[`core/portable.c`](../../../core/portable.c) checks these rules again before the
 runtime trusts a range.
 
 The running build receives a private capability for its validated artifact.
@@ -140,14 +140,14 @@ retained portable prefix: valid
 ```
 
 The stronger retention guarantee comes from
-[`core/store.c`](../../core/store.c), which rehashes every manifest stored range,
+[`core/store.c`](../../../core/store.c), which rehashes every manifest stored range,
 core or stub, against its stored digest before returning retained prefix
 bytes. `runtime_test.tl` and `self_rebuild_test.tl` exercise that guarantee
 across rename, unlink, replacement, and database-only rebuilds.
 
 ## select and cache one core
 
-The generated shell in [`build.launcher`](../../build/launcher.tl) maps
+The generated shell in [`build.launcher`](../../../build/launcher.tl) maps
 `uname -sm` to a generated release record. On Linux x86_64 it then reads
 the `flags` line of `/proc/cpuinfo` and exits 126, naming the missing
 features, when the CPU lacks what the core's x86-64-v3 build needs (AVX,
@@ -224,7 +224,7 @@ artifact at a short path can.
 
 ## validate before Lua starts
 
-[`core/startup.c`](../../core/startup.c) consumes the private launch contract.
+[`core/startup.c`](../../../core/startup.c) consumes the private launch contract.
 It rejects a missing, partial, or malformed field, then clears the private
 environment names before Lua runs. The manifest decoder separately rejects
 duplicate target and configuration identities.
@@ -258,7 +258,7 @@ only from a process that may still run its own core.
 
 ## expose one immutable database
 
-[`core/vfs.c`](../../core/vfs.c) registers a small SQLite virtual file system.
+[`core/vfs.c`](../../../core/vfs.c) registers a small SQLite virtual file system.
 Its only main file is the validated database range on the retained artifact
 descriptor. Reads outside that range fail. The logical executable path is an
 opaque SQLite key; the VFS never reopens it. The first open consumes the
@@ -266,7 +266,7 @@ registration, so no later connection reaches the range, raw SQL's `ATTACH`
 naming the path through the VFS included.
 
 SQLite opens the range read-only with `immutable=1`. The runtime creates no
-journal beside the artifact. [`core/store.c`](../../core/store.c) installs the
+journal beside the artifact. [`core/store.c`](../../../core/store.c) installs the
 database as the last module source and derives runtime metadata from validated
 startup context plus the projection's `runtime_basis`.
 
@@ -288,9 +288,9 @@ environment is read first, and a host program's own first argument stays its
 own. A bare core has no program arguments of its own but `--boot`, so nothing
 else claims it.
 
-There is no manifest, launcher or artifact descriptor. [`core/main.c`](../../core/main.c)
+There is no manifest, launcher or artifact descriptor. [`core/main.c`](../../../core/main.c)
 opens the path read-only with `immutable=1` through SQLite's default VFS, not
-[`core/vfs.c`](../../core/vfs.c)'s range, and installs it in the store's last
+[`core/vfs.c`](../../../core/vfs.c)'s range, and installs it in the store's last
 slot, so reserved names and the `main` meta row resolve from it exactly as
 they do from an embedded database. `require` finds that database's modules
 alone, [`Store.databases()`] holds it alone, [`Store.requires`] reads it, and
@@ -343,7 +343,7 @@ separately; the core only reads it.
 
 ## build a project with the same prefix
 
-`cosmic build` enters [`build.embed`](../../build/embed.tl). It stages and
+`cosmic build` enters [`build.embed`](../../../build/embed.tl). It stages and
 compiles the project into its build directory's `cosmic.db`. The projection copies
 needed standard-library modules, then adds project modules, files, and a main
 entry.
@@ -371,7 +371,7 @@ host programs only (`--host`), and refuses to write a portable one.
 
 Running a Teal file, `cosmic test`, and the verbs `fix`, `docs`, `uses`, `db`,
 `todos`, `bom`, `refresh` and `help` compare fingerprints in cosmic's own tree through
-[`build.reboot`](../../build/reboot.tl) before going on. A Teal-only change can
+[`build.reboot`](../../../build/reboot.tl) before going on. A Teal-only change can
 reuse the validated prefix. The rebuild projects a new database, combines it
 with that prefix, atomically replaces the logical artifact, and re-executes the
 original arguments and environment once.
@@ -399,15 +399,19 @@ core accepts it (it requires a core for every target) and runs as it does from
 any artifact. It runs every verb the same, and a rebuild reuses its prefix, so
 it stays what it is, and a boot it starts is a bare one when its prefix holds a
 placeholder ([`artifact.host_only`]) and `-Dboot-cores=all` when not. What needs
-another target's core refuses and names that boot: `cosmic build` of a portable
+another target's core does not get a placeholder's. `cosmic build` of a portable
 program, which would run on this host alone and say nothing of it (`--host` is
-all such a tool writes), and the tests of one, which declare `all_cores` and are
-skipped, saying so.
+all such a tool writes), runs `bin/zig build boot -Dboot-cores=all` in the
+checkout the tool was built from and re-enters the command on the tool of every
+core that boot wrote ([`reboot.every_core_into`]); where the tool does not boot
+(`COSMIC_AUTO_BOOT=0`, a copy outside its checkout's build directory, another
+run holding the checkout) it refuses and names that boot. The tests of a
+portable program declare `all_cores` and are skipped, saying so.
 
 ## test identity and transport
 
-[`build.test`](../../build/test.tl) keys a verdict by what the test declares,
-before it runs ([`build/declared_key.tl`](../../build/declared_key.tl)): its
+[`build.test`](../../../build/test.tl) keys a verdict by what the test declares,
+before it runs ([`build/declared_key.tl`](../../../build/declared_key.tl)): its
 import closure, the inputs its [`Test.policy`] names and their contents and
 values, the core and runtime identity, and the host. Sandboxed, where the
 kernel allows it, a worker sees only those inputs, so a test that reads what it
@@ -416,9 +420,9 @@ the network beyond loopback has no key and runs every time. An unchanged applica
 changed core or runtime basis. Verdict and coverage history live only in
 `build.db` and are bounded.
 
-The fixtures under [`ci/fixtures`](../../ci/fixtures/), run by the pinned CI
-driver in isolated projects (see [`ci`](../../ci/)'s own README), with
-`format_test.c` and the helpers under [`test/portable`](../../test/portable/),
+The fixtures under [`ci/fixtures`](../../../ci/fixtures/), run by the pinned CI
+driver in isolated projects (see [`ci`](../../../ci/)'s own README), with
+`format_test.c` and the helpers under [`test/portable`](../../../test/portable/),
 divide the runtime contract into observable boundaries:
 
 - `format_test.tl` and `format_test.c` reject malformed lengths, offsets,
@@ -440,7 +444,7 @@ divide the runtime contract into observable boundaries:
   immediately and across a workflow boundary. Integrity checks use
   disposable copies, so inspection cannot recover or alter captured bytes.
 
-[`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) builds and tests
+[`.github/workflows/ci.yml`](../../../.github/workflows/ci.yml) builds and tests
 the release product independently on Linux x86-64, Linux ARM64, macOS ARM64, and
 Alpine x86-64 -- the last running as a job container on an Ubuntu runner,
 building and testing natively on musl/BusyBox like every other leg. In a full
@@ -539,22 +543,23 @@ print("manifest: names the running core")
 manifest: names the running core
 ```
 
-[`artifact.host_only`]: ../../build/artifact.tl
-[`artifact.placeholder`]: ../../build/artifact.tl
-[`artifact.program`]: ../../build/artifact.tl
-[`build.artifact.trusted_prefix`]: ../../build/artifact.tl
-[`Child.start`]: ../../cosmic/child.tl
-[`ci/cosmic_ci/orchestration.tl`]: ../../ci/cosmic_ci/orchestration.tl
-[`Compress.zstd`]: ../../cosmic/compress.tl
-[`core/bridge.lua`]: ../../core/bridge.lua
-[`core/check.h`]: ../../core/check.h
-[`core/unzstd.c`]: ../../core/unzstd.c
-[`embed.tree`]: ../../build/embed.tl
-[`Proc.executable()`]: ../../cosmic/proc.tl
-[`Proc.relaunch`]: ../../cosmic/proc.tl
-[`Store.attach`]: ../../cosmic/store.tl
-[`Store.databases()`]: ../../cosmic/store.tl
-[`Store.requires`]: ../../cosmic/store.tl
-[`Store.seal`]: ../../cosmic/store.tl
-[`Test.policy`]: ../../cosmic/test.tl
-[`writer.carried`]: ../../build/writer.tl
+[`artifact.host_only`]: ../../../build/artifact.tl
+[`artifact.placeholder`]: ../../../build/artifact.tl
+[`artifact.program`]: ../../../build/artifact.tl
+[`build.artifact.trusted_prefix`]: ../../../build/artifact.tl
+[`Child.start`]: ../../../cosmic/child.tl
+[`ci/cosmic_ci/orchestration.tl`]: ../../../ci/cosmic_ci/orchestration.tl
+[`Compress.zstd`]: ../../../cosmic/compress.tl
+[`core/bridge.lua`]: ../../../core/bridge.lua
+[`core/check.h`]: ../../../core/check.h
+[`core/unzstd.c`]: ../../../core/unzstd.c
+[`embed.tree`]: ../../../build/embed.tl
+[`Proc.executable()`]: ../../../cosmic/proc.tl
+[`Proc.relaunch`]: ../../../cosmic/proc.tl
+[`reboot.every_core_into`]: ../../../build/reboot.tl
+[`Store.attach`]: ../../../cosmic/store.tl
+[`Store.databases()`]: ../../../cosmic/store.tl
+[`Store.requires`]: ../../../cosmic/store.tl
+[`Store.seal`]: ../../../cosmic/store.tl
+[`Test.policy`]: ../../../cosmic/test.tl
+[`writer.carried`]: ../../../build/writer.tl

@@ -11,8 +11,6 @@ local Sqlite = require("cosmic.sqlite")
 local schema = require("build.schema")
 
 local record symbols
-  mut guides: {string}
-  mut internal_guides: {string:string}
 end
 
 --- Whether a module is the public standard library's own: what a
@@ -32,40 +30,19 @@ function symbols.public_only(column: string, public: boolean): string
     " NOT LIKE 'cosmic.internal.%' AND substr(" .. column .. ", -5) <> '_test')"
 end
 
---- The user guides (`doc/guides/<name>.md`) a binary carries: the ones
---- a reader of `cosmic docs` is meant to find. A guide about how the
---- runtime is built is left to the tree (`internal_guides`). Every
---- guide is in one list or the other: [`build.tree_checks`] refuses a
---- guide in neither, so a new one is never left out by mistake.
-symbols.guides = {
-  "command-line", "http-pacing", "language", "measuring", "project", "quickstart", "semantic-search", "sql", "web", "web-api", "web-deploy",
-  "web-forms", "web-live", "web-security", "web-sessions", "xlsx", "xlsx-write",
-}
-
---- The guides a binary does not carry, each with its reason.
-symbols.internal_guides = {
-  ["portable-runtime"] = "how the release artifact is built, for those working on cosmic",
-}
-
 --- Whether a module is a user guide a public source answers for: the
---- module a guide compiles as ([`doc.guides.quickstart`]).
+--- module a guide directly under `doc/guides/` compiles as
+--- ([`doc.guides.quickstart`]), what a reader of `cosmic docs` is meant to
+--- find and a binary carries. A guide under `doc/guides/internal/` is for
+--- those working on the tree, and stays with it.
 function symbols.is_public_guide(module: string): boolean
-  for _, name in ipairs(symbols.guides) do
-    if module == "doc.guides." .. name then
-      return true
-    end
-  end
-  return false
+  return module:match("^doc%.guides%.[^.]+$") ~= nil
 end
 
 --- The condition under which the SQL `column` names a user guide's
---- module (one of the user guides above).
+--- module ([`symbols.is_public_guide`]).
 function symbols.guide_module(column: string): string
-  local names: mut {string} = {}
-  for _, name in ipairs(symbols.guides) do
-    names[#names + 1] = "'doc.guides." .. name .. "'"
-  end
-  return column .. " IN (" .. table.concat(names, ", ") .. ")"
+  return "(" .. column .. " GLOB 'doc.guides.*' AND " .. column .. " NOT GLOB 'doc.guides.*.*')"
 end
 
 --- [`public_only`], and the user guides too: what a public source's

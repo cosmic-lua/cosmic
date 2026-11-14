@@ -141,7 +141,7 @@ end
 local compiler_readers <const>: {string} = {
   "build.embed", "build.importer", "build.reboot",
   "build.rebuild", "build.test_key", "build.tree_checks", "core.allocation_test",
-  "cosmic.store_handles_test", "doc.guides.portable-runtime",
+  "cosmic.store_handles_test", "doc.guides.internal.portable-runtime",
 }
 
 --- The meta rows a worker is given only where its closure holds a

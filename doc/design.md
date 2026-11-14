@@ -554,7 +554,7 @@ the database.
 the binary is a versioned portable artifact (version 2): a POSIX shell launcher,
 aligned stored ranges (each release core compressed, with the decoder stub of its
 target), a fixed manifest, one SQLite database, and a fixed trailer.
-[The portable runtime implementation guide](guides/portable-runtime.md) follows
+[The portable runtime implementation guide](guides/internal/portable-runtime.md) follows
 those bytes through startup, project embedding, self-rebuild, and CI.
 the manifest is the sole authority for target/configuration, byte range, and
 sha256. each 104-byte entry has a kind (a core, or the decoder stub of a
@@ -676,7 +676,9 @@ portable [`bin/cosmic`], each in the build directory. the tool carries `carried.
 without the tree's own tests and examples, and with the docs, uses
 and examples of the public standard library alone: `cosmic test` and a lookup
 inside the tree read the rest from the projection, `cosmic.db`, and a release has no
-use for them. a fresh clone and CI run `boot`; a
+use for them. a program `cosmic build` writes carries the same of its project,
+for its users: the docs, uses, links and examples of the modules any module may
+require, by position, and its guides ([`build/embed.tl`]). a fresh clone and CI run `boot`; a
 developer runs `bin/cosmic build` the other hundred times a day.
 
 [`build.work`] stages inputs and manages the working database.
@@ -1336,7 +1338,7 @@ by modules under `app/`, as in Go (a top-level `internal/` is the
 project's own); that rule stands in the closed-directory rule's
 place for the module. a module of a closed directory that holds the
 line `--- @public` in the doc block that opens it is open to every importer, which
-is how [`cosmic.http.server`] and five others are. in cosmic's own
+is how [`cosmic.http.server`] and six others are. in cosmic's own
 tree a test, and test support (a file of the top-level `test/`
 directory), may be required only by a test or test support, since
 the tool carries neither, and two places do not fit the directory
@@ -1504,6 +1506,7 @@ in [roadmap.md](roadmap.md).
 [`Test.policy`]: ../cosmic/test.tl
 
 [`build.pipeline`]: ../build/pipeline.tl
+[`build/embed.tl`]: ../build/embed.tl
 [`build/markers.tl`]: ../build/markers.tl
 [`build/positions.tl`]: ../build/positions.tl
 [`cosmic.http.server`]: ../cosmic/http/server.tl

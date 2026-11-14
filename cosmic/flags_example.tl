@@ -14,7 +14,7 @@ function Example.parse()
   assert(got.set["--check"] == true and got.values["--jobs"] == "2" and got.words[1] == "a.tl")
   local _, why = Flags.parse({ "fix", "--chek" }, 2, { ["--check"] = false })
   print(why)
-  assert(why == "no such option: --chek")
+  assert(why == "no such option: --chek; did you mean --check?")
 end
 
 --- An option the line must give: `required` in its [`Flags.Option`]. A line
@@ -49,7 +49,7 @@ function Example.dispatch()
   assert(ran ~= nil and ran.code == 0 and ran.help == "", why)
   ran, why = Flags.dispatch({ "biuld" }, 1, commands, "prog")
   print(why)
-  assert(ran == nil and why == "no such command: biuld")
+  assert(ran == nil and why == "no such command: biuld; did you mean build?")
 end
 
 --- A program whose first word is a command -- `ledger report may.csv
@@ -112,12 +112,33 @@ function Example.subcommands()
     "may.csv 2026-05",
     "add may.csv 12",
     "report needs one file",
-    "no such command: rport",
-    "report: no such option: --mnth; usage: ledger report [options] <file>",
+    "no such command: rport; did you mean report?",
+    "report: no such option: --mnth; did you mean --month?; usage: ledger report [options] <file>",
     "needs a command: add, report",
   }, "\n"))
   assert(main({ "--help" }) == 0)
   assert(main({ "report", "--help" }) == 0)
+end
+
+--- A program that words its own refusal of a mistyped name:
+--- [`Flags.nearest`] answers the names near it, by the rule the refusals of
+--- [`Flags.parse`] and [`Flags.dispatch`] end "did you mean" by, and none
+--- for a word near nothing.
+function Example.nearest()
+  local profiles = { "debug", "release", "release-small" }
+  local function refusal(word: string): string
+    local near = Flags.nearest(word, profiles)
+    if #near == 0 then
+      return "no profile " .. word .. "; one of " .. table.concat(profiles, ", ")
+    end
+    return "no profile " .. word .. "; the nearest: " .. table.concat(near, ", ")
+  end
+  print(refusal("relaese"))
+  print(refusal("rel"))
+  print(refusal("fast"))
+  assert(refusal("relaese") == "no profile relaese; the nearest: release")
+  assert(refusal("rel") == "no profile rel; the nearest: release, release-small")
+  assert(refusal("fast") == "no profile fast; one of debug, release, release-small")
 end
 
 --- Help written from a command: each option described by a
@@ -145,6 +166,60 @@ function Example.help()
   }, "\n"))
   local got = assert(Flags.parse({ "--jobs", "4", "-v" }, 1, spec))
   assert(got.values["--jobs"] == "4" and got.set["-v"] == true)
+end
+
+--- A command's page with lines to type and the commands beside it, and a
+--- program's help in sections: `examples`, `see` and `group` in each
+--- [`Flags.Command`]. [`Flags.dispatch`] raises for a `see` that names no
+--- other command.
+function Example.pages()
+  local commands: {string:Flags.Command} = {
+    report = {
+      about = "Totals a ledger file.",
+      usage = "[options] <file>",
+      spec = { ["--month"] = { value = "yyyy-mm", about = "only this month" } },
+      examples = {
+        { line = "may.csv", about = "every month's total" },
+        { line = "--month 2026-05 may.csv", about = "one month's" },
+      },
+      see = { "add" },
+      group = "Reading",
+    },
+    add = { about = "Adds an amount to a ledger file.", usage = "<file> <amount>", group = "Writing" },
+    version = { about = "Says which build this is." },
+  }
+  local page = assert(Flags.dispatch({ "help", "report" }, 1, commands, "ledger")).help
+  print(page)
+  assert(page == table.concat({
+    "usage: ledger report [options] <file>",
+    "",
+    "Totals a ledger file.",
+    "",
+    "options:",
+    "  --month <yyyy-mm>  only this month",
+    "",
+    "examples:",
+    "  ledger report may.csv                  every month's total",
+    "  ledger report --month 2026-05 may.csv  one month's",
+    "",
+    "see also: add",
+  }, "\n"))
+  local index = assert(Flags.dispatch({ "--help" }, 1, commands, "ledger")).help
+  print(index)
+  assert(index == table.concat({
+    "usage: ledger <command> [options]",
+    "",
+    "Reading:",
+    "  report   Totals a ledger file.",
+    "",
+    "Writing:",
+    "  add      Adds an amount to a ledger file.",
+    "",
+    "other commands:",
+    "  version  Says which build this is.",
+    "",
+    "Run `ledger <command> --help` for a command's options.",
+  }, "\n"))
 end
 
 return Example -- checked: export_not_declared

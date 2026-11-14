@@ -228,7 +228,12 @@ local record Cli
   --- carries this binary's CA roots, the certificates it refuses as
   --- revoked, and time zones: `cosmic refresh --binary <path> -o <copy>`
   --- writes a copy with newer ones
-  --- later. The tree is found as `test` finds it
+  --- later. The tree is found as `test` finds it. In cosmic's own
+  --- tree the program is the tool itself, which `bin/zig build boot`
+  --- builds: `build` prints the tool's path there, a stale tool
+  --- rebuilt first, and `--out` writes a copy to dir/cosmic, which
+  --- runs any project as a release does with the cores that boot
+  --- built; it takes no other option and no path
   build: string
   --- `cosmic db [path...]`: what the three databases in the build
   --- directory hold, each named by its path,
@@ -735,7 +740,7 @@ local record Cli
   --- bill of materials records the release each came from, and the
   --- binary it reads is never written
   refresh: string
-  --- `cosmic release [--commit hex] [--until time] [--list [-n count] | -o file | --cache] [--pin file] [--json]`:
+  --- `cosmic release [--commit hex] [--until time] [--list [-n count] | -o file | --cache] [--pin file | --launcher file] [--json]`:
   --- finds cosmic's own releases, the `YYYYMMDD-<commit>` (earlier,
   --- `next-<commit>`) prereleases of cosmic-lua/cosmic on GitHub, picks
   --- one and verifies it. Releases are found by their tags and main's
@@ -759,7 +764,15 @@ local record Cli
   --- the pin's (`$XDG_CACHE_HOME/cosmic/bootstrap/cosmic-<sha256>`),
   --- printing that path; either renames it into place only once its
   --- sha256 is the release's digest. `--pin` writes the three pin lines
-  --- to a file once the binary's bytes are verified. GH_TOKEN goes with
+  --- to a file once the binary's bytes are verified. `--launcher`
+  --- sets a project up to run on the release: it writes the pin as
+  --- `<file>.pin` and, at the file, a shell script that runs the
+  --- release that pin names with the arguments given, a project's
+  --- bin/cosmic. The script downloads the release once, runs it only
+  --- once its sha256 is the pin's and caches it where `--cache`
+  --- does; COSMIC_TOOL=<path> makes it run another cosmic instead,
+  --- such as one `cosmic build` printed in a checkout of cosmic, and
+  --- `--pin <file>.pin` moves the pin from then on. GH_TOKEN goes with
   --- the API's requests when set, and every redirect must stay on https.
   --- It prints no summary. Exits 0 when it did what was asked, 1 when it
   --- could not (no connection, no matching release, a release that fails
@@ -1192,7 +1205,7 @@ local module: Module = {
     },
     release = {
       about = "find, verify and download cosmic's own releases",
-      usage = "[--commit <hex>] [--until <time>] [--list [-n <count>] | -o <file> | --cache] [--pin <file>] [--json]",
+      usage = "[--commit <hex>] [--until <time>] [--list [-n <count>] | -o <file> | --cache] [--pin <file> | --launcher <file>] [--json]",
       spec = {
         ["--commit"] = { value = "hex", about = "the release whose commit starts with this, 7 to 40 hex digits" },
         ["--until"] = { value = "time", about = "the newest published at or before this RFC 3339 time, or by the end of this date (UTC)" },
@@ -1202,6 +1215,7 @@ local module: Module = {
         ["-o"] = { value = "file", about = "write the verified binary here, mode 0755" },
         ["--cache"] = { about = "write the verified binary into bin/cosmic-bootstrap's cache and print its path" },
         ["--pin"] = { value = "file", about = "write the release as ci/cosmic-driver.pin's three lines, once verified" },
+        ["--launcher"] = { value = "file", about = "write a project's launcher here, mode 0755, and the release as its pin, <file>.pin" },
       },
     },
     sandbox = {

@@ -74,7 +74,7 @@ local record TreeProgram
   --- for, the module, and the header it is told under; none where the tree has no header.
   bindings_of: function(root: string): {{string}}
 
-  --- The Teal the build writes from the doc guides (`doc/guides/*.md`, [`build.doctest`]) and the templates (`*.tmpl`,
+  --- The Teal the build writes from the doc guides (`doc/guides/*.md` and `doc/guides/internal/*.md`, [`build.doctest`]) and the templates (`*.tmpl`,
   --- [`cosmic.template`]) under `root`, as the entries [`TreeProgram.index`] takes: the file each is written from, as the
   --- name of the text, the module it is, and nothing else. nil and why where one is refused.
   derived_of: function(root: string): {{string}}?, string
@@ -305,19 +305,26 @@ end
 
 function TreeProgram.derived_of(root: string): {{string}}?, string
   local out: mut {{string}} = {}
-  local guides, _ = Fs.list(root .. "/doc/guides")
-  for _, name in ipairs(guides or {}) do
-    local file = "doc/guides/" .. name
-    if name:match("%.md$") ~= nil then
-      local text, why = Fs.read(root .. "/" .. file)
-      if text == nil then
-        return nil, why
+  for _, dir in ipairs({ "doc/guides", "doc/guides/internal" }) do
+    local guides, _ = Fs.list(root .. "/" .. dir)
+    for _, name in ipairs(guides or {}) do
+      local file = dir .. "/" .. name
+      if name:match("%.md$") ~= nil then
+        -- As [`build.derivation`] refuses it.
+        if name:gsub("%.md$", ""):find(".", 1, true) ~= nil then
+          return nil, file .. ": a guide's name holds no dot, since it names the module " .. guide_module(file) ..
+            ": rename the file"
+        end
+        local text, why = Fs.read(root .. "/" .. file)
+        if text == nil then
+          return nil, why
+        end
+        local made, made_why = doctest.extract(text, file)
+        if made == nil then
+          return nil, file .. ": " .. made_why
+        end
+        out[#out + 1] = { file, made, guide_module(file) }
       end
-      local made, made_why = doctest.extract(text, file)
-      if made == nil then
-        return nil, file .. ": " .. made_why
-      end
-      out[#out + 1] = { file, made, guide_module(file) }
     end
   end
   local listed, walk_trouble = Fs.walk(root, function(relative: string, name: string, kind: Fs.Kind): boolean

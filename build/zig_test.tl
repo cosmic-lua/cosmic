@@ -249,12 +249,13 @@ end
 --- place a build reads and in each place it does not.
 local function sources(tmp: string): string
   local root = tmp .. "/repo"
-  for _, dir in ipairs({ "core", "vendor/lua", "test/portable", "doc/guides", "o", "ci",
+  for _, dir in ipairs({ "core", "vendor/lua", "test/portable", "doc/guides/internal/deep", "o", "ci",
       "bin", ".git" }) do
     assert(Fs.mkdirs(root .. "/" .. dir))
   end
   for _, file in ipairs({ "build.zig", "bin/zig.pin", "core/a.c", "vendor/lua/lua.c",
       "test/portable/probe.c", "test/unit_test.tl", "doc/guides/start.md", "doc/design.md",
+      "doc/guides/internal/how.md", "doc/guides/internal/deep/far.md",
       "o/build.db", "ci/run.tl", "bin/zig", ".git/HEAD", "test/notes.txt" }) do
     assert(Fs.write(root .. "/" .. file, "text"))
   end
@@ -268,7 +269,7 @@ local function test_snapshot_holds_what_a_build_reads_and_nothing_else(tmp: stri
     paths[#paths + 1] = path
   end
   table.sort(paths)
-  assert(table.concat(paths, " ") == "bin/zig.pin build.zig core/a.c doc/guides/start.md " ..
+  assert(table.concat(paths, " ") == "bin/zig.pin build.zig core/a.c doc/guides/internal/how.md doc/guides/start.md " ..
       "test/portable/probe.c test/unit_test.tl vendor/lua/lua.c", table.concat(paths, " "))
 end
 
