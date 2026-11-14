@@ -68,7 +68,8 @@ local record Doc
     --- The commands of the program that answers, none unless the caller sets them.
     mut commands: {Command}
     --- The program that answers, as its user types it, where it is not the tool ([`Doc.program`]): a page's
-    --- hints name its `docs` command, and the lines that point to `cosmic uses` are left out. Nil for the tool.
+    --- hints name its `docs` command, and no page counts the uses and links of a symbol, a program having no
+    --- command that lists them. Nil for the tool.
     mut program?: string
     --- Who alone may require each module of a database of the tree's own, by module, as [`Doc.Summary`]'s
     --- `closed` says it: what the list of every module marks. Nil marks none.
@@ -1491,6 +1492,15 @@ end
 
 local function effective_counts(view: Doc.View, entries: {Doc.Entry}): boolean, string
   for _, entry in ipairs(entries) do
+    if view.program ~= nil then
+      -- A program's user has no `uses` to follow a count with, so its pages give none.
+      entry.uses, entry.links = 0, 0
+    end
+  end
+  if view.program ~= nil then
+    return true, ""
+  end
+  for _, entry in ipairs(entries) do
     local used, used_trouble = used_as(view, entry)
     if used == nil and used_trouble ~= "" then
       return false, used_trouble
@@ -1539,21 +1549,54 @@ function Doc.view(databases: {Sqlite.Handle}, public?: {boolean}): Doc.View?, st
 end
 
 --- A view of a program's own documentation, for the program to answer its users from: `databases` are its
---- store's, each a public source, so only the modules any module may require answer, and the standard
---- library's answer nothing, a program's users being asked about the program. `program` is what its user
---- types to run it, which the hints of a page name, and `commands` are its commands, as [`Doc.Command`] says.
---- Nil and why when a database cannot be read; raises on a test's store that withholds the documentation,
---- naming `store_text`.
+--- store's, each a public source, so only the modules any module may require answer. The standard library's
+--- answer nothing, a program's users being asked about the program: neither a `cosmic.*` module nor a guide
+--- of a database that documents the standard library, which is the tool's own and no program's. So the built
+--- program answers from what `cosmic build` put in it, and the same program run from its source by the tool
+--- answers from the project's last build, which the tool's store holds beside its own. A database that
+--- holds no documentation is left out. `program` is what its user types to run it, which the hints of a page
+--- name, and `commands` are its commands, as [`Doc.Command`] says. Nil and why when a database cannot be read;
+--- raises on a test's store that withholds the documentation, naming `store_text`.
 function Doc.program(databases: {Sqlite.Handle}, program: string, commands?: {Doc.Command}): Doc.View?, string
+  local documented: mut {Sqlite.Handle} = {}
   local public: mut {boolean} = {}
-  for index = 1, #databases do public[index] = true end
-  local view, trouble = Doc.view(databases, public)
+  for _, db in ipairs(databases) do
+    local holds, holds_trouble = has_docs(db)
+    if holds == nil then
+      return nil, holds_trouble
+    end
+    if holds then
+      documented[#documented + 1] = db
+      public[#public + 1] = true
+    else
+      refuse_pure(db)
+    end
+  end
+  local view, trouble = Doc.view(documented, public)
   if view == nil then
     return nil, trouble
   end
+  -- The databases that document the standard library, by index: the tool's own.
+  --
+  -- TODO: tell the tool's guides from the project's in a store that holds both, as a test's does: there the
+  -- project's guides answer nothing either. It waits on a guide's row saying whose tree it is of, as
+  -- `public_modules` says of a module.
+  local of_library: mut {integer: boolean} = {}
+  for index, db in ipairs(documented) do
+    local recorded, recorded_trouble = symbols.public_modules(db)
+    if recorded == nil then
+      return nil, recorded_trouble
+    end
+    for module in pairs(recorded) do
+      if symbols.is_library_module(module) then of_library[index] = true end
+    end
+  end
   local owners: mut {string: integer} = {}
   for module, owner in pairs(view.owners) do
-    if not symbols.is_library_module(module) then owners[module] = owner end
+    local guide = module:sub(1, 11) == "doc.guides."
+    if not symbols.is_library_module(module) and not (guide and of_library[owner] == true) then
+      owners[module] = owner
+    end
   end
   return { databases = view.databases, public = view.public, owners = owners, use_counts = {}, link_counts = {},
     value_records = {}, public_modules = {}, commands = commands or {}, program = program }, ""
@@ -2840,6 +2883,9 @@ function Doc.render(view: Doc.View, entry: Doc.Entry): {string}?, string
     local best: Doc.Entry?
     for _, item in ipairs(declared) do
       if is_call(item) and (best == nil or points_better(item, best)) then best = item end
+      if view.program ~= nil then
+        item.uses, item.links = 0, 0
+      end
       index[#index + 1] = "  " .. listed(item)
       for _, member in ipairs(under[item.source_symbol] or {}) do
         if listed_symbols[member.symbol] ~= true then
@@ -2927,7 +2973,7 @@ function Doc.render(view: Doc.View, entry: Doc.Entry): {string}?, string
   end
   if entry.links > 0 and entry.symbol == "" then
     lines[#lines + 1] = "  linked from " .. String.counted(entry.links, "place") ..
-      (if view.program == nil then "; cosmic uses " .. entry.module else "" end)
+      "; cosmic uses " .. entry.module
   end
   if pointed ~= nil then
     lines[#lines + 1] = "  a symbol's own page has its whole doc and its examples: " .. docs_command(view) .. " " ..
@@ -2949,11 +2995,8 @@ function Doc.render(view: Doc.View, entry: Doc.Entry): {string}?, string
       if used == nil and used_trouble ~= "" then
         return nil, used_trouble
       end
-      local where = ""
-      if view.program == nil then
-        where = "; cosmic uses " .. (if used ~= nil then entry.module .. "." .. used else entry.source_symbol end)
-      end
-      lines[#lines + 1] = "  " .. table.concat(said, " and ") .. where
+      lines[#lines + 1] = "  " .. table.concat(said, " and ") .. "; cosmic uses " ..
+        (if used ~= nil then entry.module .. "." .. used else entry.source_symbol end)
     end
     local examples, examples_trouble = across(view,
       function(db: Sqlite.Handle, public: boolean): {Doc.Example}?, string
@@ -3097,6 +3140,17 @@ function Doc.asked(words: {string}): {string}?
   return words
 end
 
+--- The queries `words` ask of `view`, as [`Doc.asked`] names them; a program's view has no list of the standard
+--- library, so `cosmic` is a word to it like any other.
+local function asked_of(view: Doc.View, words: {string}): {string}?
+  local asked = Doc.asked(words)
+  local query = table.concat(words, " ")
+  if asked == nil and view.program ~= nil and query ~= "" then
+    return { query }
+  end
+  return asked
+end
+
 --- `index` with each `closed` judged (the view's `marks`), for a module of a database of the tree's own only: a public
 --- source's module (the standard library a project builds with) is no module of the tree, and the rule refuses no
 --- require of it.
@@ -3156,7 +3210,7 @@ end
 --- Nil and why when a database cannot be read.
 function Doc.answer(view: Doc.View, words: {string}): Doc.Answer?, string
   local query = table.concat(words, " ")
-  local asked = Doc.asked(words)
+  local asked = asked_of(view, words)
   if asked == nil then
     local index, index_trouble = modules_asked(view, words)
     if index == nil then
@@ -3240,7 +3294,7 @@ end
 function Doc.records(view: Doc.View, words: {string}, stale?: boolean): Doc.Answer?, string
   local lines: mut {string} = {}
   local all = true
-  local asked = Doc.asked(words)
+  local asked = asked_of(view, words)
   if asked == nil then
     local index, trouble = modules_asked(view, words)
     if index == nil then
@@ -3305,13 +3359,33 @@ function Doc.records(view: Doc.View, words: {string}, stale?: boolean): Doc.Answ
 end
 
 --- The row that documents `module`'s member `name`: a field of the record the module returns, or a function it
---- offers. Nil and "" where the view holds no such member; nil and why when a database cannot be read.
+--- offers; else, where the module's own row does not say what it returns (a module with no doc comment of its
+--- own has none), the field or function of that name its file declares, the least nested first. Nil and ""
+--- where the view holds no such member; nil and why when a database cannot be read.
 function Doc.member(view: Doc.View, module: string, name: string): Doc.Entry?, string
   local found, trouble = member_of(view, module, name)
   if found == nil then
     return nil, trouble
   end
-  return found[1], ""
+  if #found > 0 then
+    return found[1], ""
+  end
+  local declared, declared_trouble = across(view,
+    function(db: Sqlite.Handle, public: boolean): {Doc.Entry}?, string
+      local rows, rows_trouble = Sqlite.text_rows(db,
+        "SELECT " .. columns .. " FROM docs d WHERE d.module = ?1 AND " ..
+          "(d.symbol = ?2 OR d.source_symbol GLOB '*.' || ?2) AND " .. symbols.shown_in(db, "d", public) ..
+          " ORDER BY length(d.source_symbol), d.id LIMIT 1",
+        { text(module), text(name) })
+      if rows == nil then
+        return nil, rows_trouble
+      end
+      return entries_of(rows), ""
+    end, entry_module)
+  if declared == nil then
+    return nil, declared_trouble
+  end
+  return declared[1], ""
 end
 
 --- `comment`, a doc comment, as a reader is shown it: a link as its code span alone.

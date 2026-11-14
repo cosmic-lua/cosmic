@@ -22,6 +22,7 @@ local Test = require("cosmic.test")
 local String = require("cosmic.string")
 local Clock = require("cosmic.clock")
 local support = require("build.test_support_fixture")
+local verbs_fixture = require("build.verbs_fixture")
 
 --- The number `text` reads as, which the case knows is one.
 local function count_of(text: string): number
@@ -1168,35 +1169,55 @@ end
 
 local till_commands = [[
 --- What the till does, a command a field.
+
+local Flags = require("cosmic.flags")
+
+--- The till's commands, each documented by the comment on its field.
 local record Commands
   --- Rings up a sale and writes it to the day's journal. The amount is in
-  --- cents, so no sale is ever rounded.
-  ring: string
+  --- cents, so no sale is ever rounded; [`Commands.journal`] prints it back.
+  ring: Flags.Command
   --- Prints the day's journal, the newest sale last.
-  journal: string
+  journal: Flags.Command
 end
 
-local commands: Commands = { ring = "ring", journal = "journal" }
+local commands: Commands = {
+  ring = {
+    about = "ring up a sale", usage = "[options] <item>", group = "Sales", see = { "docs" },
+    spec = { ["--cents"] = { value = "n", about = "what it cost" } },
+    run = function(_: Flags.Parsed): integer return 0 end,
+  },
+  journal = {
+    about = "print the day's sales", group = "Reports",
+    run = function(_: Flags.Parsed): integer return 0 end,
+  },
+}
+
 return commands
 ]]
 
-local till_main = [[
+local till_module = [[
+local Commands = require("commands")
 local Flags = require("cosmic.flags")
+
+local record Till
+end
+
+--- Runs the till with `argv`, its commands documented by the record that holds them.
+function Till.run(argv: {string}): Flags.Dispatched?, string
+  return Flags.dispatch(argv, 1, { ring = Commands.ring, journal = Commands.journal }, "till",
+    { pages = "commands", groups = { "Sales", "Reports" } })
+end
+
+return Till
+]]
+
+local till_main = [[
 local Fs = require("cosmic.fs")
+local Till = require("till")
 
 return function(argv: {string}): integer
-  local commands: {string: Flags.Command} = {
-    ring = {
-      about = "ring up a sale", usage = "[options] <item>", group = "Sales",
-      spec = { ["--cents"] = { value = "n", about = "what it cost" } },
-      run = function(_: Flags.Parsed): integer return 0 end,
-    },
-    journal = {
-      about = "print the day's sales", group = "Reports",
-      run = function(_: Flags.Parsed): integer return 0 end,
-    },
-  }
-  local ran, why = Flags.dispatch(argv, 1, commands, "till", { pages = "commands", groups = { "Sales", "Reports" } })
+  local ran, why = Till.run(argv)
   if ran == nil then
     local _, _ = Fs.put(Fs.stderr, "till: " .. why .. "\n")
     return 2
@@ -1208,6 +1229,25 @@ return function(argv: {string}): integer
 end
 ]]
 
+--- A test of the till's help, which reads the documentation its store is given of the modules it requires.
+local till_test = [[
+local Test = require("cosmic.test")
+local Till = require("till")
+
+Test.policy { store_text = true }
+
+local function test_the_help_of_a_command_ends_with_its_page()
+  local ran = assert(Till.run({ "help", "journal" }))
+  assert(ran.help == "usage: till journal\n\nprint the day's sales\n\nPrints the day's journal, the newest sale last.",
+    ran.help)
+end
+
+local function test_docs_finds_a_command_by_a_word_of_its_page()
+  local ran = assert(Till.run({ "docs", "newest" }))
+  assert(ran.help:find("Commands.journal", 1, true) ~= nil, ran.help)
+end
+]]
+
 --- What the built till prints for `words`, and its exit status.
 local function till(tmp: string, words: {string}): Child.Result
   local argv: mut {string} = { support.build_dir(tmp) .. "/bin/till" }
@@ -1215,16 +1255,24 @@ local function till(tmp: string, words: {string}): Child.Result
   return (assert(Child.run(argv, { stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })))
 end
 
---- A program that names the record documenting its commands answers its users from its own documentation, with
---- nothing but itself: a command's help ends with the field's doc comment, `docs` looks a name up, searches the
---- comments and guides, puts a misspelling right, and knows nothing of the standard library's.
-local function test_a_built_program_answers_help_and_docs_from_the_documentation_it_carries(tmp: string)
+--- Writes the till's project under `tmp`: a program, the module that holds and documents its commands, a guide
+--- and a test of its help.
+local function write_till(tmp: string)
   assert(Fs.mkdirs(tmp .. "/cmd/till"))
   assert(Fs.mkdirs(tmp .. "/doc/guides"))
   assert(Fs.write(tmp .. "/cmd/till/main.tl", till_main))
   assert(Fs.write(tmp .. "/commands.tl", till_commands))
+  assert(Fs.write(tmp .. "/till.tl", till_module))
+  assert(Fs.write(tmp .. "/commands_test.tl", till_test))
   assert(Fs.write(tmp .. "/doc/guides/closing.md",
     "# Closing the till\n\nAt the end of the day, reconcile the journal against the drawer.\n"))
+end
+
+--- A program that names the module documenting its commands answers its users from its own documentation, with
+--- nothing but itself: a command's help ends with the field's doc comment, `docs` looks a name up, searches the
+--- comments and guides, puts a misspelling right, and knows nothing of the standard library's.
+local function test_a_built_program_answers_help_and_docs_from_the_documentation_it_carries(tmp: string)
+  write_till(tmp)
   local names, trouble = embed.tree(tmp, true)
   assert(names ~= nil and names[1] == "till", trouble)
   local help = till(tmp, { "help", "ring" })
@@ -1236,8 +1284,10 @@ local function test_a_built_program_answers_help_and_docs_from_the_documentation
     "options:",
     "  --cents <n>  what it cost",
     "",
+    "see also: docs",
+    "",
     "Rings up a sale and writes it to the day's journal. The amount is in",
-    "cents, so no sale is ever rounded.",
+    "cents, so no sale is ever rounded; `Commands.journal` prints it back.",
     "",
   }, "\n"), tostring(help.stdout) .. tostring(help.stderr))
   -- `--help` after the command is the same page.
@@ -1248,27 +1298,68 @@ local function test_a_built_program_answers_help_and_docs_from_the_documentation
   assert(sales ~= nil and reports ~= nil and sales < reports, index)
   assert(index:find("Run `till docs <words>` to search the documentation, `till docs` to list it.", 1, true) ~= nil,
     index)
+  -- `docs` is a command with a help of its own, by either spelling, and is named to one who mistypes it.
+  local docs_help = assert(till(tmp, { "help", "docs" }).stdout)
+  assert(docs_help:find("usage: till docs [words...]", 1, true) == 1 and
+      docs_help == till(tmp, { "docs", "--help" }).stdout, docs_help)
+  assert(till(tmp, { "docz" }).stderr == "till: no such command: docz; did you mean docs?\n")
+  assert(till(tmp, { "help", "docz" }).stderr == "till: no such command: docz; did you mean docs?\n")
+  -- It takes words, and refuses an option it does not have.
+  local optioned = till(tmp, { "docs", "--json", "journal" })
+  assert(optioned.code == 2 and assert(optioned.stderr):find("docs: no such option: --json", 1, true) ~= nil,
+    tostring(optioned.stderr))
   -- `docs` lists what is documented, and its hints name the program.
   local listed = assert(till(tmp, { "docs" }).stdout)
   assert(listed:find("commands            What the till does, a command a field.", 1, true) ~= nil and
       listed:find("doc.guides.closing  At the end of the day", 1, true) ~= nil and
       listed:find("`till docs <module>` shows one", 1, true) ~= nil and not listed:find("cosmic", 1, true), listed)
-  -- A command's field is found by name, with the command's options under it.
+  -- A command's field is found by name, with the command's options under it and no count of its uses, which
+  -- the program has no command to list.
   local named = assert(till(tmp, { "docs", "Commands.ring" }).stdout)
   assert(named:find("Rings up a sale", 1, true) ~= nil and named:find("\n  options:\n    --cents <n>  what it cost", 1, true) ~= nil,
     named)
+  local module = assert(till(tmp, { "docs", "commands" }).stdout)
+  assert(not named:find("cosmic", 1, true) and not module:find("cosmic uses", 1, true) and
+      not module:find(" use)", 1, true) and not module:find("used in", 1, true), named .. module)
   -- Words are searched for in the comments and the guides, and a misspelled one is put right.
   local searched = assert(till(tmp, { "docs", "reconcile", "drawer" }).stdout)
   assert(searched:find("doc.guides.closing (doc/guides/closing.md)", 1, true) ~= nil, searched)
   local respelled = assert(till(tmp, { "docs", "roundd" }).stdout)
   assert(respelled:find("Nothing named or documented as 'roundd'; showing 'rounded':", 1, true) == 1 and
       respelled:find("Commands.ring", 1, true) ~= nil, respelled)
-  -- The standard library is not the program's to document, and a miss is a refusal.
-  for _, query in ipairs({ "Fs.read", "cosmic.flags", "zzqqxx" }) do
+  -- The standard library is not the program's to document, `cosmic` is a word like any other, and a miss is a
+  -- refusal.
+  for _, query in ipairs({ "Fs.read", "cosmic.flags", "cosmic", "zzqqxx" }) do
     local missed = till(tmp, { "docs", query })
     assert(missed.code == 2 and missed.stdout == "" and
         missed.stderr == "till: docs: nothing named or documented as '" .. query .. "'\n", tostring(missed.stderr))
   end
-  -- A mistyped `docs` is named among the commands.
-  assert(till(tmp, { "docz" }).stderr == "till: no such command: docz; did you mean docs?\n")
+end
+
+--- Run from its source by the tool, the program answers from the project's own build and from none of the
+--- tool's documentation, which the same store holds: a command's help ends with its page, and the tool's guides
+--- and the standard library are not the program's to show.
+local function test_a_program_run_from_its_source_answers_from_the_projects_documentation_alone(tmp: string)
+  write_till(tmp)
+  local help = verbs_fixture.run(tmp, { "cmd/till/main.tl", "help", "journal" })
+  assert(help.code == 0 and help.stdout ==
+      "usage: till journal\n\nprint the day's sales\n\nPrints the day's journal, the newest sale last.\n",
+    help.stdout .. help.stderr)
+  for _, query in ipairs({ "quickstart", "Fs.read", "cosmic.flags" }) do
+    local missed = verbs_fixture.run(tmp, { "cmd/till/main.tl", "docs", query })
+    assert(missed.code == 2 and missed.stdout == "" and
+        missed.stderr:find("till: docs: nothing named or documented as '" .. query .. "'", 1, true) ~= nil,
+      missed.stdout .. missed.stderr)
+  end
+  local listed = verbs_fixture.run(tmp, { "cmd/till/main.tl", "docs" })
+  assert(listed.stdout:find("doc.guides.closing  ", 1, true) ~= nil and listed.stdout:find("\ntill", 1, true) ~= nil and
+      not listed.stdout:find("doc.guides.quickstart", 1, true) and not listed.stdout:find("cosmic", 1, true),
+    listed.stdout .. listed.stderr)
+end
+
+--- A test of the project that asks its program for help reads the documentation of the modules it requires.
+local function test_a_projects_test_of_its_help_reads_the_documentation_it_declares(tmp: string)
+  write_till(tmp)
+  local ran = verbs_fixture.run(tmp, { "test" })
+  assert(ran.code == 0 and ran.stdout:find("2 tests passed", 1, true) ~= nil, ran.stdout .. ran.stderr)
 end
