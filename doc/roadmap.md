@@ -385,10 +385,14 @@ promises lean on come first:
     41 with `rdata`, its class split at the top bit like any other.
 
 - [`cosmic.mdns`] past a search made once, each once a caller needs it:
-  - Publishing a service: a responder that probes for its names, announces
-    its records, answers the questions about them and says goodbye as it
-    stops (RFC 6762 sections 8 to 10), at port 5353 as [`Mdns.Listen`]'s
-    "group" binds it.
+  - The rest of publishing a service, where [`Mdns.responder`] only answers:
+    probing for its names before it uses them, announcing its records,
+    saying goodbye as it stops and settling a conflict with another
+    responder (RFC 6762 sections 8 to 10); leaving out the answers a
+    question lists as known (section 7.1); the delay before an answer
+    others may give too, and the answer that says a record does not exist
+    (section 6); the unicast answer a member's question may ask for
+    (section 5.4); and publishing a sub-type.
   - A browse that goes on until it is stopped: each record kept for its
     time to live and asked for again before that ends, an instance reported
     gone when its records expire or a goodbye (a record with a time to live
@@ -553,7 +557,7 @@ four-producer provenance join.
 [`Json.decode`]: ../cosmic/json.tl
 [`lang/flow.tl`]: ../lang/flow.tl
 [`lang/stdlib.d.tl`]: ../lang/stdlib.d.tl
-[`Mdns.Listen`]: ../cosmic/mdns.tl
+[`Mdns.responder`]: ../cosmic/mdns.tl
 [`Net.datagram`]: ../cosmic/net.tl
 [`Net.serve`]: ../cosmic/net.tl
 [`Proc.relaunch`]: ../cosmic/proc.tl

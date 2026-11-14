@@ -1,7 +1,8 @@
 --- Finding services on the local network: the client side of DNS-SD (RFC 6763) over multicast
 --- DNS (RFC 6762). [`Mdns.browse`] asks which instances of a service type, or of several, the
 --- network has and says where each is, and [`Mdns.resolve`] asks for the addresses of a host of
---- the `local` domain. Nothing here answers a question or publishes a service.
+--- the `local` domain. [`Mdns.responder`] is the other side: it answers the questions about
+--- the instances it is given.
 ---
 ---     local printers = assert(Mdns.browse("_ipp._tcp", { timeout_ns = Clock.seconds(2) }))
 ---     for _, printer in ipairs(printers) do
@@ -42,7 +43,7 @@
 ---
 --- A question leaves by every interface that is up, carries multicast, is no loopback and has
 --- an IPv4 address, as [`Net.interfaces`] lists them, or by those `via` names. Where the
---- interfaces cannot be listed, as in a sandbox on Linux, or none is such a one, it leaves by
+--- interfaces cannot be listed, as in a sandbox with no network, or none is such a one, it leaves by
 --- the interface the system chooses. An interface that refuses the question is passed over
 --- while another takes it. Questions go over IPv4 alone; a host's IPv6 addresses are those its
 --- answers over IPv4 give.
@@ -107,12 +108,80 @@
 --- instance it would have listed and had not given yet, so a caller that may cancel a search
 --- and wants what it found passes `found`. Anywhere else a search holds the thread until it
 --- ends, and ends with nil and "interrupted" when a [`cosmic.signal`] guard catches a signal.
+---
+--- A responder ([`Mdns.responder`]) publishes instances by answering for them:
+---
+---     local responder <close> = assert(Mdns.responder({
+---       { service = "_http._tcp", name = "Front Desk", host = "desk.local", port = 8080,
+---         ipv4 = { "192.0.2.7" }, txt = { "path=/" } },
+---     }))
+---     assert(responder:serve())
+---
+--- It binds port 5353, shared, joins the group, and answers the PTR question at the service type
+--- of an instance, the SRV and TXT questions at the instance's name, the A and AAAA questions at
+--- its host's, and a question for any type at each, with the records the question did not ask
+--- for beside those it did. A question from port 5353 is answered to the group, with the id 0
+--- and no question, as one member answers another. A question from any other port is from a
+--- program that is no member, and is answered to that port alone, with its id and its questions
+--- repeated and no time to live over 10 seconds (RFC 6762 section 6.7): that is what a search
+--- listening by "unicast" asks. A member's question that asks for its answer by unicast is
+--- answered to the group all the same. Answers go by IPv4 alone, and to the group by every interface the responder
+--- joined it on. The responder holds 64 instances at most, each with what a search keeps of one,
+--- and answers a query with one message for each instance the query asks about, none over 9000
+--- bytes. It reads a query as a search reads an answer: one over 9000 bytes, one that is no DNS
+--- message, a response and a query of another kind are ignored, and whether a query came from
+--- the local link is not checked, so any machine that can reach the port draws an answer.
+---
+--- Answering is all it does of a publisher's part. It does not probe for its names before it
+--- uses them, announce its records, say goodbye as it stops or settle a conflict with another
+--- responder that answers for the same name (RFC 6762 sections 8 to 10), so the names it is
+--- given must be the caller's to use. It does not leave out an answer the question lists as
+--- known (section 7.1), wait before it answers a question others may answer too (section 6),
+--- or say that a record it could have does not exist (section 6.1), and it publishes no
+--- sub-type.
 
 local Clock = require("cosmic.clock")
 local Dns = require("cosmic.dns")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
 local Rand = require("cosmic.rand")
+
+--- A responder, as [`Mdns.responder`] answers one: it holds its socket, bound and a member of
+--- the group, from when it is made, and answers questions while `serve` runs. A class, so a
+--- `<close>` local holds one.
+local class MdnsResponder
+  --- Where it is bound: every address of the machine, at the port asked for or, for port 0,
+  --- the one the system chose.
+  address: Net.Address
+  --- Internal: the socket. No caller reads it.
+  socket: Net.Datagram
+  --- Internal: answers the queries that reach the socket until a wait fails.
+  answering: function(): boolean, string
+  --- Internal: set by `close`.
+  mut closed: boolean
+
+  --- Answers the questions that come about the responder's instances, until `close`: true once
+  --- it is closed, from another task or before the call. False and why where a wait fails
+  --- first: [`Poll.CANCELLED`] in a cancelled task, "interrupted" where a [`cosmic.signal`] guard
+  --- catches a signal. In a task of [`Poll.run`] the other tasks go on meanwhile, and have a turn
+  --- after every 16 datagrams however fast those come; anywhere else it holds the thread. An
+  --- answer the system does not take is dropped, as the network drops one.
+  function serve(self): boolean, string
+    local _, why = self.answering()
+    if self.closed then return true, "" end
+    return false, why
+  end
+
+  --- Closes the socket, which leaves the group and ends `serve`. Safe to call more than once.
+  function close(self): boolean, string
+    self.closed = true
+    return self.socket:close()
+  end
+
+  function __close(self)
+    local _, _ = self:close()
+  end
+end
 
 local record Mdns
   --- How a search listens for its answers.
@@ -207,6 +276,46 @@ local record Mdns
     --- not in what was given here. What it raises, the search raises.
     found?: function(Instance)
   end
+
+  --- One instance of a service, as [`Mdns.responder`] publishes it.
+  record Published
+    --- The service type, as [`Mdns.browse`] takes one: `_http._tcp`, with `.local` after it or
+    --- not. A sub-type is refused.
+    service: string
+    --- The name of the instance, as a person reads it: one label of 1 to 63 bytes, any UTF-8.
+    name: string
+    --- The name of the host the instance is at, of the `local` domain: `printer.local`.
+    host: string
+    --- The port of the service at that host, from 0 to 65535.
+    port: integer
+    --- The IPv4 addresses of the host, numeric, 16 at most; none when nil.
+    ipv4?: {string}
+    --- The IPv6 addresses of the host, numeric, 16 at most; none when nil.
+    ipv6?: {string}
+    --- The strings of the TXT record, `key=value` each by DNS-SD's convention: 128 strings and
+    --- 1300 bytes at most, with a byte for the length of each. No strings when nil, which is a
+    --- record of one empty string.
+    txt?: {string}
+  end
+
+  --- What [`Mdns.responder`] takes. A field out of range raises, naming the field.
+  record ResponderOptions
+    --- The IPv4 multicast group joined and answered to; that of multicast DNS, 224.0.0.251,
+    --- when nil.
+    address?: string
+    --- The port bound, shared, from 0 to 65535; 5353 when nil. A question from this port is a
+    --- member's, and any other is answered by unicast. 0 is a port the system chooses, which
+    --- the responder's `address` then says: no searcher asks there unless told to, so it is for
+    --- a test.
+    port?: integer
+    --- The interfaces the group is joined on and its answers leave by: one IPv4 address of
+    --- each. When nil, every interface fit for it, or the system's choice, as for a search (see
+    --- [`cosmic.mdns`]); an empty list is the system's choice too.
+    via?: {string}
+  end
+
+  --- A responder that answers for the instances it was given.
+  type Responder = MdnsResponder
 end
 
 --- The group of multicast DNS over IPv4 and its port.
@@ -236,6 +345,20 @@ local MAX_TXT_BYTES <const> = 1300
 
 --- The addresses of one family kept for a host.
 local MAX_ADDRESSES <const> = 16
+
+--- The instances a responder publishes: a query that asks about them all draws a message for
+--- each.
+local MAX_PUBLISHED <const> = 64
+
+--- The seconds a responder's records live: those that name a host or hold its address, which
+--- change when the host does, and the others (RFC 6762 section 10). A record sent to a program
+--- that is no member of the group lives no longer than the last (section 6.7).
+local HOST_TTL <const> = 120
+local OTHER_TTL <const> = 4500
+local LEGACY_TTL <const> = 10
+
+--- The class of a question that asks for the records of any class.
+local ANY_CLASS <const> = 255
 
 --- How many times a search asks for the records one name lacks, and how many such questions it
 --- asks in all for each instance it may hold: an SRV, a TXT and two address questions.
@@ -354,6 +477,33 @@ local function default_vias(): {string}
   return vias
 end
 
+--- Joins `group` on each interface of `vias`, or on the system's choice where there is none: true
+--- where one joined, else false and why the last did not.
+local function join(socket: Net.Datagram, group: string, vias: {string}): boolean, string
+  if #vias == 0 then return socket:join(group) end
+  local joined, trouble = false, ""
+  for _, via in ipairs(vias) do
+    local ok, refused = socket:join(group, via)
+    if ok then joined = true else trouble = refused end
+  end
+  if joined then return true, "" end
+  return false, trouble
+end
+
+--- Sends `bytes` to `to` by each interface of `vias`, or by the system's choice where there is
+--- none: true where one took it, else false and why the last did not.
+local function send_by(socket: Net.Datagram, vias: {string}, bytes: string, to: Net.Address): boolean, string
+  if #vias == 0 then return socket:send(bytes, to) end
+  local sent, trouble = false, ""
+  for _, via in ipairs(vias) do
+    local ok, refused = socket:set_multicast({ via = via })
+    if ok then ok, refused = socket:send(bytes, to) end
+    if ok then sent = true else trouble = refused end
+  end
+  if sent then return true, "" end
+  return false, trouble
+end
+
 --- The search `opts` describes, its socket bound and, for "group", joined; nil and why where the
 --- socket cannot be made so. Raises for a field out of range, at the caller of the function that
 --- calls this.
@@ -386,17 +536,7 @@ local function open(opts: Mdns.Options): Hunt?, string
   local vias: {string} = {}
   if is_group(address) then vias = opts.via or default_vias() end
   local ready, trouble = socket:set_multicast({ hops = HOPS })
-  if ready and grouped then
-    if #vias == 0 then
-      ready, trouble = socket:join(address)
-    else
-      ready = false
-      for _, via in ipairs(vias) do
-        local joined, refused = socket:join(address, via)
-        if joined then ready = true else trouble = refused end
-      end
-    end
-  end
+  if ready and grouped then ready, trouble = join(socket, address, vias) end
   if not ready then
     local _, _ = socket:close()
     return nil, trouble
@@ -433,15 +573,7 @@ local function send(hunt: Hunt, questions: {Dns.Question}): boolean, string
     questions = questions }
   local bytes, why = Dns.encode(message)
   if bytes == nil then return false, why end
-  if #hunt.vias == 0 then return hunt.socket:send(bytes, hunt.to) end
-  local sent, trouble = false, ""
-  for _, via in ipairs(hunt.vias) do
-    local ok, refused = hunt.socket:set_multicast({ via = via })
-    if ok then ok, refused = hunt.socket:send(bytes, hunt.to) end
-    if ok then sent = true else trouble = refused end
-  end
-  if sent then return true, "" end
-  return false, trouble
+  return send_by(hunt.socket, hunt.vias, bytes, hunt.to)
 end
 
 --- Sends `questions`, a message's worth at a time: true where every message was sent by some
@@ -863,6 +995,18 @@ function Mdns.browse(service: string | {string}, opts?: Mdns.Options): {Mdns.Ins
   return instances, ""
 end
 
+--- The name of the host `name` as [`Dns.name`] writes it, or nil and why `name` is no host of the
+--- `local` domain.
+local function local_host(name: string): string?, string
+  local labels, why = Dns.labels(name)
+  if labels == nil then return nil, why end
+  local last = labels[#labels]
+  if #labels < 2 or last == nil or last:lower() ~= "local" then
+    return nil, ("mdns: '%s' is no host of the local domain, as printer.local is"):format(name)
+  end
+  return Dns.name(labels)
+end
+
 --- The addresses of the host `name` of the `local` domain, as `printer.local`, that answer within
 --- `opts.timeout_ns`: its IPv4 addresses, then its IPv6 ones, each in the order they came, and
 --- none where nothing answers. The search ends a tenth of a second after the first address,
@@ -873,13 +1017,7 @@ end
 --- Nil and why for a `name` that is not one of the `local` domain, and where the search cannot
 --- be made, as [`Mdns.browse`] says. Raises for an option out of range.
 function Mdns.resolve(name: string, opts?: Mdns.Options): {Net.Resolved}?, string
-  local labels, why = Dns.labels(name)
-  if labels == nil then return nil, why end
-  local last = labels[#labels]
-  if #labels < 2 or last == nil or last:lower() ~= "local" then
-    return nil, ("mdns: '%s' is no host of the local domain, as printer.local is"):format(name)
-  end
-  local asked, unnamed = Dns.name(labels)
+  local asked, unnamed = local_host(name)
   if asked == nil then return nil, unnamed end
   local hunt, unopened = open(opts or {})
   if hunt == nil then return nil, unopened end
@@ -905,6 +1043,248 @@ function Mdns.resolve(name: string, opts?: Mdns.Options): {Net.Resolved}?, strin
     addresses[#addresses + 1] = { address = address, family = "ipv6" }
   end
   return addresses, ""
+end
+
+--- An instance as a responder holds it: its names in lower case, as a question's is compared,
+--- and its records as a member of the group is sent them.
+local record Publication
+  --- The name its pointer is at, the instance's whole name and its host's.
+  service: string
+  instance: string
+  host: string
+  pointer: Dns.Record
+  srv: Dns.Record
+  txt: Dns.Record
+  addresses: {Dns.Record}
+end
+
+--- A record of a responder's at `name` that lives `ttl` seconds. All but a pointer are the only
+--- record of their name and type, which the cache-flush bit says (RFC 6762 section 10.2).
+local function published_at(name: string, rtype: integer, ttl: integer): Dns.Record
+  return { name = name, type = rtype, class = Dns.IN, cache_flush = rtype ~= Dns.PTR, ttl = ttl }
+end
+
+--- What a responder holds for `given`, or nil and why it publishes no such instance.
+local function publication(given: Mdns.Published): Publication?, string
+  local service, unnamed = service_of(given.service)
+  if service == nil then return nil, unnamed end
+  local labels, unread = Dns.labels(service.name)
+  if labels == nil then return nil, unread end
+  if #labels ~= #service.suffix then
+    return nil, ("mdns: '%s' is a sub-type, which a responder does not publish"):format(given.service)
+  end
+  local whole: mut {string} = { given.name }
+  for _, label in ipairs(labels) do whole[#whole + 1] = label end
+  local instance, misnamed = Dns.name(whole)
+  if instance == nil then
+    return nil, ("mdns: the instance name '%s': %s"):format(given.name, misnamed)
+  end
+  local host, elsewhere = local_host(given.host)
+  if host == nil then return nil, elsewhere end
+  if math.type(given.port) ~= "integer" or given.port < 0 or given.port > 65535 then
+    return nil, ("mdns: the port of '%s' must be an integer from 0 to 65535"):format(given.name)
+  end
+  local strings = given.txt or {}
+  if not txt_fits(strings) then
+    return nil, ("mdns: the TXT record of '%s' is over %d strings or %d bytes"):format(given.name,
+      MAX_TXT_STRINGS, MAX_TXT_BYTES)
+  end
+  local ipv4, ipv6 = given.ipv4 or {}, given.ipv6 or {}
+  if #ipv4 > MAX_ADDRESSES or #ipv6 > MAX_ADDRESSES then
+    return nil, ("mdns: '%s' has more than the %d addresses of a family a responder publishes"):format(
+      given.host, MAX_ADDRESSES)
+  end
+  local addresses: mut {Dns.Record} = {}
+  for _, address in ipairs(ipv4) do
+    local record: Dns.Record = { ...published_at(host, Dns.A, HOST_TTL), address = address }
+    addresses[#addresses + 1] = record
+  end
+  for _, address in ipairs(ipv6) do
+    local record: Dns.Record = { ...published_at(host, Dns.AAAA, HOST_TTL), address = address }
+    addresses[#addresses + 1] = record
+  end
+  local held: Publication = {
+    service = service.name:lower(),
+    instance = instance:lower(),
+    host = host:lower(),
+    pointer = { ...published_at(service.name, Dns.PTR, OTHER_TTL), target = instance },
+    srv = { ...published_at(instance, Dns.SRV, HOST_TTL),
+      srv = { priority = 0, weight = 0, port = given.port, target = host } },
+    txt = { ...published_at(instance, Dns.TXT, OTHER_TTL), txt = strings },
+    addresses = addresses,
+  }
+  -- Written once here, so that an address that is none is refused now and not at each answer,
+  -- and so that the instance's answer has room beside it for the questions it repeats.
+  local records: mut {Dns.Record} = { held.pointer, held.srv, held.txt }
+  for _, record in ipairs(addresses) do records[#records + 1] = record end
+  local bytes, unwritten = Dns.encode({ ...Dns.query(".", Dns.PTR, 0), questions = {}, answers = records })
+  if bytes == nil then return nil, ("mdns: the instance '%s': %s"):format(given.name, unwritten) end
+  if #bytes > MAX_MESSAGE - QUESTION_BYTES then
+    return nil, ("mdns: the records of '%s' are %d bytes, over the %d a responder answers with"):format(
+      given.name, #bytes, MAX_MESSAGE - QUESTION_BYTES)
+  end
+  return held, ""
+end
+
+--- `record` as it is sent: to a member of the group as it is held, and to a program that is none
+--- with no cache to flush and a short life.
+local function sent_as(record: Dns.Record, legacy: boolean): Dns.Record
+  if not legacy then return record end
+  return { ...record, cache_flush = false, ttl = math.min(record.ttl, LEGACY_TTL) }
+end
+
+--- The messages that answer `query` for `published`, as bytes: one for each instance the query
+--- asks about, with the records asked for as answers and, beside a pointer or an SRV record,
+--- those a searcher asks for next as additionals. An address two instances share is an answer
+--- once. `legacy` is whether the query came from a program that is no member of the group.
+local function replies(published: {Publication}, query: Dns.Message, legacy: boolean): {string}
+  local out: mut {string} = {}
+  local told: mut {string: boolean} = {}
+  for _, held in ipairs(published) do
+    local ptr, srv, txt, a, aaaa = false, false, false, false, false
+    for _, asked in ipairs(query.questions) do
+      if asked.class == Dns.IN or asked.class == ANY_CLASS then
+        local name, any = asked.name:lower(), asked.type == Dns.ANY
+        if name == held.service then ptr = ptr or any or asked.type == Dns.PTR end
+        if name == held.instance then
+          srv = srv or any or asked.type == Dns.SRV
+          txt = txt or any or asked.type == Dns.TXT
+        end
+        if name == held.host then
+          a = a or any or asked.type == Dns.A
+          aaaa = aaaa or any or asked.type == Dns.AAAA
+        end
+      end
+    end
+    local answers: mut {Dns.Record} = {}
+    local additionals: mut {Dns.Record} = {}
+    local function put(record: Dns.Record, asked: boolean, beside: boolean)
+      local shaped = sent_as(record, legacy)
+      if asked then
+        answers[#answers + 1] = shaped
+      elseif beside then
+        additionals[#additionals + 1] = shaped
+      end
+    end
+    put(held.pointer, ptr, false)
+    put(held.srv, srv, ptr)
+    put(held.txt, txt, ptr)
+    for _, record in ipairs(held.addresses) do
+      local asked = if record.type == Dns.A then a else aaaa end
+      local key = ("%s %d %s"):format(held.host, record.type, record.address or "")
+      if asked and told[key] == true then
+        asked = false
+      elseif asked then
+        told[key] = true
+      end
+      put(record, asked, ptr or srv)
+    end
+    if #answers > 0 then
+      local message: Dns.Message = { ...Dns.reply(query), authoritative = true, answers = answers,
+        additionals = additionals }
+      if not legacy then
+        message = { ...message, id = 0, recursion_desired = false, questions = {} }
+      end
+      local bytes, _ = Dns.encode(message)
+      -- Over the size only for the questions a query of a program that is no member has it
+      -- repeat: such an answer is not sent.
+      if bytes ~= nil and #bytes <= MAX_MESSAGE then out[#out + 1] = bytes end
+    end
+  end
+  return out
+end
+
+--- Answers the queries that reach `socket`, bound at `port`, for `published`, to `group` by
+--- `vias` or to the sender, until a wait fails: false and why.
+local function respond(socket: Net.Datagram, port: integer, group: Net.Address, vias: {string},
+                       published: {Publication}): boolean, string
+  local heard = 0
+  while true do
+    local packet, why = socket:receive()
+    if packet == nil then return false, why end
+    -- TODO: drop a query that did not arrive with 255 hops, the proof that it came from the local
+    -- link (RFC 6762 section 11), once Net.Datagram's receive answers the hops a datagram arrived
+    -- with: until then a machine past the link that reaches the port draws an answer, sent to
+    -- the address it gives as its own.
+    local query, _ = Dns.decode(packet.data)
+    if query ~= nil and #packet.data <= MAX_MESSAGE and not query.response and query.opcode == 0 then
+      -- A question from another port is from a program that is no member of the group.
+      local legacy = packet.address.port ~= port
+      for _, bytes in ipairs(replies(published, query, legacy)) do
+        if legacy then
+          local _, _ = socket:send(bytes, packet.address)
+        else
+          local _, _ = send_by(socket, vias, bytes, group)
+        end
+      end
+    end
+    heard = heard + 1
+    if heard >= YIELD_AFTER and Poll.in_task() then
+      heard = 0
+      local went_on, cancelled = Poll.delay(0)
+      if not went_on then return false, cancelled end
+    end
+  end
+end
+
+--- A responder that publishes `instances`, 1 to 64 of them: its socket bound at `opts.port`,
+--- shared, and a member of the group on the interfaces `opts.via` names, ready for `serve` to
+--- answer the questions about them ([`cosmic.mdns`] says which, and what a responder leaves
+--- undone). Two instances may be at one host; where they give it different addresses, the host
+--- has them all. The names are the caller's to use: no other responder is asked whether it
+--- answers for them.
+---
+--- Nil and why where it cannot be made: no instance or more than 64, an instance whose service
+--- is no service type or is a sub-type, whose name is no label, whose host is not one of the
+--- `local` domain, whose port is out of range, with an address that is none or more than 16 of
+--- a family, with a TXT record past what a search keeps, or with the same name and service as
+--- another; a socket that cannot be bound, which says the address and port first, as where a
+--- program holds the port without sharing it; or a group that cannot be joined on any
+--- interface, which says the group first. Raises for an option out of range.
+function Mdns.responder(instances: {Mdns.Published}, opts?: Mdns.ResponderOptions): Mdns.Responder?, string
+  local options = opts or {}
+  local port = options.port or PORT
+  if math.type(port) ~= "integer" or port < 0 or port > 65535 then
+    error("mdns: port must be an integer from 0 to 65535", 2)
+  end
+  local address = options.address or GROUP
+  if not is_group(address) then error("mdns: address must be an IPv4 multicast group", 2) end
+  if #instances == 0 then return nil, "mdns: a responder publishes one instance at least" end
+  if #instances > MAX_PUBLISHED then
+    return nil, ("mdns: the list of instances holds %d, more than the %d a responder publishes"):format(
+      #instances, MAX_PUBLISHED)
+  end
+  local published: mut {Publication} = {}
+  local names: mut {string: boolean} = {}
+  for _, given in ipairs(instances) do
+    local held, why = publication(given)
+    if held == nil then return nil, why end
+    if names[held.instance] == true then
+      return nil, ("mdns: the instance '%s' of %s is given twice"):format(given.name, given.service)
+    end
+    names[held.instance] = true
+    published[#published + 1] = held
+  end
+  local socket, why = Net.datagram(Net.udp("0.0.0.0", port), { shared = true })
+  if socket == nil then return nil, why end
+  local vias = options.via or default_vias()
+  local ready, trouble = socket:set_multicast({ hops = HOPS, loop = true })
+  if ready then ready, trouble = join(socket, address, vias) end
+  if not ready then
+    local _, _ = socket:close()
+    return nil, trouble
+  end
+  local bound = socket.address.port or port
+  local group = Net.udp(address, bound)
+  local made: MdnsResponder = {
+    address = socket.address,
+    socket = socket,
+    closed = false,
+    answering = function(): boolean, string
+      return respond(socket, bound, group, vias, published)
+    end,
+  }
+  return made, ""
 end
 
 return Mdns
