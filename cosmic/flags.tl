@@ -286,10 +286,15 @@ local function read(argv: {string}, from: integer, spec: {string:boolean | Flags
     local name = word:match("^(%-[^=]+)=")
     return name ~= nil and #name > 2 and spec[name] ~= nil
   end
+  -- Whether the spec names an option that begins with a digit ("-1"), which then is what such a word is.
+  local digits = false
+  for name in pairs(spec) do
+    if name:match("^%-%d") ~= nil then digits = true end
+  end
   local options = true
   while argv[cursor] ~= nil do
     local word = argv[cursor]
-    if not options or word == "-" or word:sub(1, 1) ~= "-" then
+    if not options or word == "-" or word:sub(1, 1) ~= "-" or (not digits and word:match("^%-%d") ~= nil) then
       parsed.words[#parsed.words + 1] = word
     elseif word == "--" then
       options = false
@@ -359,7 +364,9 @@ end
 --- what follows "=" in the same word for a "--" option or a one-dash
 --- option named whole ("--jobs=4", "-std=c99"). A lone "-" is a word, and
 --- "--" ends the options: every word after it is a word even when it
---- begins with "-", as a negative number must. A file run as `cosmic
+--- begins with "-". A word that begins with "-" and a digit ("-5",
+--- "-0.5", "-90m") is a word too, a negative number or a span of time,
+--- unless the spec names an option that begins so ("-1"). A file run as `cosmic
 --- f.tl` gets its words as typed, a "--" among them. So for `cosmic f.tl
 --- -- --email x`, Flags.parse from slot 1 reads "--email" and "x" as
 --- words. Write `cosmic f.tl --email x`.

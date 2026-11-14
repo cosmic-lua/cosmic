@@ -701,3 +701,17 @@ local function test_a_command_named_docs_is_the_programs_own()
   local help = assert(Flags.dispatch({ "help" }, 1, commands, "prog", { groups = {} }))
   assert(not help.help:find("search the documentation", 1, true), help.help)
 end
+
+--- A word that begins with "-" and a digit is a word, not an option: a negative number needs no "--" before
+--- it. Where the spec names an option that begins with a digit, such a word is an option as before.
+local function test_a_negative_number_is_a_word_unless_the_spec_names_a_digit_option()
+  local got = assert(Flags.parse({ "-5", "--jobs", "2", "-0.5", "-90m" }, 1, { ["--jobs"] = true }))
+  assert(table.concat(got.words, " ") == "-5 -0.5 -90m" and got.values["--jobs"] == "2", table.concat(got.words, " "))
+  local numbered = assert(Flags.parse({ "-1", "x" }, 1, { ["-1"] = false }))
+  assert(numbered.set["-1"] == true and table.concat(numbered.words, " ") == "x")
+  local refused, why = Flags.parse({ "-5" }, 1, { ["-1"] = false })
+  assert(refused == nil and why:find("no such option: -5", 1, true) == 1, why)
+  -- A letter after the dash is an option still.
+  local lettered, lettered_why = Flags.parse({ "-x5" }, 1, {})
+  assert(lettered == nil and lettered_why:find("no such option: -x5", 1, true) == 1, lettered_why)
+end
