@@ -176,9 +176,9 @@ local function test_uuid_of_marks_a_version_and_keeps_the_other_bits()
 end
 
 local function test_uuid_of_refuses_other_than_sixteen_bytes_and_a_version_out_of_range()
-  Test.raises(function() Rand.uuid_of(("x"):rep(15)) end, "15 bytes given, not 16")
-  Test.raises(function() Rand.uuid_of(("x"):rep(17), 4) end, "17 bytes given, not 16")
-  Test.raises(function() Rand.uuid_of("") end, "0 bytes given, not 16")
+  Test.raises(function() Rand.uuid_of(("x"):rep(15)) end, "of length 15, not 16")
+  Test.raises(function() Rand.uuid_of(("x"):rep(17), 4) end, "of length 17, not 16")
+  Test.raises(function() Rand.uuid_of("") end, "of length 0, not 16")
   Test.raises(function() Rand.uuid_of(("x"):rep(16), 0) end, "version 0 is not 1 through 8")
   Test.raises(function() Rand.uuid_of(("x"):rep(16), 9) end, "version 9 is not 1 through 8")
   Test.raises(function() Rand.uuid_of(("x"):rep(16), -4) end, "version -4 is not 1 through 8")
@@ -205,15 +205,17 @@ local function test_uuid_version_7_opens_with_the_clock_and_sorts_as_drawn()
   assert(ascending(ids), "version 7 values did not sort in the order drawn")
   for _, id in ipairs(ids) do
     local ms = assert(tonumber(id:sub(1, 8) .. id:sub(10, 13), 16), id)
-    -- A draw the ordering pushed ahead of the clock gains at most 2000
-    -- 4096ths of a millisecond here, which is under one.
-    assert(ms >= before and ms <= after + 1, ("%s: %d ms outside %d..%d"):format(id, ms, before, after))
+    -- A minute's slack either side: the wall clock may step between
+    -- the readings, and a layout fault would be off by far more.
+    assert(ms >= before - 60000 and ms <= after + 60000, ("%s: %d ms outside %d..%d"):format(id, ms, before, after))
   end
 end
 
 local function test_uuid_refuses_a_version_it_does_not_draw()
   for _, version in ipairs({ 0, 1, 3, 5, 6, 8, -7, 47 }) do
-    Test.raises(function() Rand.uuid(version) end, ("uuid(%d): the version is 4 or 7"):format(version))
+    local why = Test.raises(function() Rand.uuid(version) end, ("uuid(%d): the version is 4 or 7"):format(version))
+    -- The caller's line is the one blamed, not one inside the module.
+    assert(why:find("rand_test", 1, true) ~= nil, why)
   end
   local draw = Rand.uuid_maker(filled("\0"))
   Test.raises(function() draw(5) end, "uuid(5): the version is 4 or 7")
@@ -271,9 +273,9 @@ local function test_a_maker_passes_on_a_failed_source_and_refuses_a_short_one()
     return ("x"):rep(count - 1), ""
   end)
   local id4, trouble4 = short(4)
-  assert(id4 == nil and trouble4:find("gave 15 bytes, not 16", 1, true) ~= nil, trouble4)
+  assert(id4 == nil and trouble4:find("a string of length 15, not 16", 1, true) ~= nil, trouble4)
   local id7, trouble7 = short(7)
-  assert(id7 == nil and trouble7:find("gave 7 bytes, not 8", 1, true) ~= nil, trouble7)
+  assert(id7 == nil and trouble7:find("a string of length 7, not 8", 1, true) ~= nil, trouble7)
   local raising = Rand.uuid_maker(function(_count: integer): string?, string
     error("the pool is gone", 0)
   end)
@@ -288,6 +290,13 @@ local function test_a_maker_refuses_a_clock_before_1970()
     -- Version 4 reads no clock.
     assert(draw(4) == "00000000-0000-4000-8000-000000000000")
   end
+  -- A refused reading asks the source for nothing.
+  local asked = 0
+  local counting = Rand.uuid_maker(function(count: integer): string?, string
+    asked = asked + 1
+    return ("\0"):rep(count), ""
+  end, function(): integer return -1 end)
+  assert(counting(7) == nil and asked == 0, tostring(asked))
   -- The greatest reading an integer holds still fits the 48 bits of
   -- milliseconds, and the value after it sorts after it.
   local last = Rand.uuid_maker(filled("\0"), function(): integer return math.maxinteger end)

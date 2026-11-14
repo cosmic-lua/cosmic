@@ -36,7 +36,7 @@
 --- error as `cosmic: rand: ...`. Its `spec` (build/verb_spec.tl) is `bare`.
 ---
 --- UUIDs. Version 4 is 122 bits of entropy. Version 7 (RFC 9562) is the
---- Unix time in milliseconds from [`cosmic.time`], then the rest from
+--- Unix time in milliseconds from [`cosmic.clock`], then the rest from
 --- entropy. Its 12 bits after the version are the RFC's method 3
 --- (section 6.2, increased clock precision): the clock's fraction of the
 --- current millisecond, in 4096ths, and where a draw would not sort after
@@ -429,7 +429,8 @@ function verb.run(argv: {string}, io?: verb.Io): integer
         -- `secret` raises rather than fail, so a refusal is the clock's.
         local text, why = draw_uuid(request.version)
         if text == nil then
-          complain(why)
+          flush()
+          complain((why:gsub("^rand: ", "")))
           return 2
         end
         if not emit(text) then

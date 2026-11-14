@@ -380,7 +380,7 @@ end
 --- @return string The text
 function Rand.uuid_of(bytes: string, version?: integer): string
   if #bytes ~= 16 then
-    error(("rand: uuid_of: %d bytes given, not 16"):format(#bytes), 2)
+    error(("rand: uuid_of: bytes is of length %d, not 16"):format(#bytes), 2)
   end
   if version ~= nil then
     if version < 1 or version > 8 then
@@ -398,11 +398,15 @@ end
 --- A function that draws UUIDs as [`Rand.uuid`] does, from `entropy`
 --- (default [`Rand.entropy`]) and, for version 7, the wall clock `now_ns`
 --- in nanoseconds (default [`cosmic.clock.now_ns`]). Each maker orders
---- its own version 7 values and no other maker's. `entropy` is asked for
---- 16 bytes for a version 4 value and 8 for a version 7 one, and answers
---- as [`Rand.entropy`] does; the bytes and the reason of one that fails
---- are passed on, and an error it raises is not caught. Name both to pin
---- a test's values, or `entropy` to draw from a pool.
+--- its own version 7 values and no other maker's. Name both to pin a
+--- test's values, or `entropy` to draw from a pool.
+---
+--- `entropy` is asked for 16 bytes for a version 4 value and 8 for a
+--- version 7 one, and answers as [`Rand.entropy`] does. When it answers
+--- nil and a reason, the draw returns nil and that reason. When it
+--- answers a string of another length, the draw returns nil and says so.
+--- An error it raises is not caught. A version 7 draw reads the clock
+--- first, and asks for no bytes when it refuses the reading.
 --- @param entropy function The source of bytes
 --- @param now_ns function The wall clock, in nanoseconds
 --- @return function The function that draws
@@ -421,7 +425,7 @@ function Rand.uuid_maker(
     local bytes, trouble = draw_bytes(count)
     if bytes == nil then return nil, trouble end
     if #bytes ~= count then
-      return nil, ("rand: uuid: the entropy source gave %d bytes, not %d"):format(#bytes, count)
+      return nil, ("rand: uuid: the entropy source answered a string of length %d, not %d"):format(#bytes, count)
     end
     return bytes, ""
   end
@@ -436,13 +440,13 @@ function Rand.uuid_maker(
     if wanted ~= 7 then
       error(("rand: uuid(%d): the version is 4 or 7"):format(wanted), 2)
     end
-    local tail, trouble = drawn(8)
-    if tail == nil then return nil, trouble end
     local ns = read_clock()
     if ns < 0 then
       return nil, ("rand: uuid: the clock reads %d ns, before 1970, which version 7 has no room for"):format(ns)
     end
-    -- At most 2^55: every nanosecond count an integer holds is under 2^44
+    local tail, trouble = drawn(8)
+    if tail == nil then return nil, trouble end
+    -- Under 2^56: every nanosecond count an integer holds is under 2^44
     -- milliseconds, so the 48 bits of them never overflow.
     local stamp = ((ns // 1000000) << 12) | ((ns % 1000000) * 4096 // 1000000)
     if stamp <= last then stamp = last + 1 end
