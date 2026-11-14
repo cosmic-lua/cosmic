@@ -1648,30 +1648,6 @@ function tree_checks.verbs(db: Sqlite.Handle, quickstart: string?): {string}
   return out
 end
 
---- Every `doc/guides/*.md` is either a user guide, which the binary
---- carries ([`symbols.guides`]), or one named in [`symbols.internal_guides`]
---- with its reason. A guide in neither would silently not ship.
-function tree_checks.guides(db: Sqlite.Handle): {string}
-  local rows, trouble = Sqlite.text_rows(db,
-    "SELECT path FROM modules WHERE path GLOB 'doc.guides.*' ORDER BY path")
-  if rows == nil then
-    return { "reading the guides: " .. trouble }
-  end
-  local known: mut {string: boolean} = {}
-  for _, name in ipairs(symbols.guides) do known[name] = true end
-  for name in pairs(symbols.internal_guides) do known[name] = true end
-  local out: mut {string} = {}
-  for _, row in ipairs(rows) do
-    local name = row:text(1):sub(#"doc.guides." + 1)
-    if known[name] ~= true then
-      out[#out + 1] = "doc/guides/" .. name .. ".md is in neither `symbols.guides` nor " ..
-        "`symbols.internal_guides` (build/symbols.tl): name it in one, so it ships or " ..
-        "is left out on purpose"
-    end
-  end
-  return out
-end
-
 --- The public doc text that may cite an implementation path, by
 --- `<module> <symbol> <rule>` (`doc_rules`' name; `(module)` for a
 --- module's own doc), and why each stays.
@@ -3271,7 +3247,6 @@ function tree_checks.run(db: Sqlite.Handle, quickstart: string?, extra?: {{strin
       { name = "restricted", lines = tree_checks.restricted(db) }, -- checked: arms_differ
       { name = "declarations", lines = tree_checks.declarations(db) }, -- checked: arms_differ
       { name = "verbs", lines = tree_checks.verbs(db, quickstart) }, -- checked: arms_differ
-      { name = "guides", lines = tree_checks.guides(db) }, -- checked: arms_differ
       { name = "rendered docs", lines = docs_checks.rendered(carried or db) }, -- checked: arms_differ
       { name = "doc references", lines = docs_checks.references(carried or db, help) }, -- checked: arms_differ
       { name = "public docs", lines = tree_checks.public_docs(db) }, -- checked: arms_differ

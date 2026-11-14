@@ -69,7 +69,7 @@ local text = bind.text
 --- older tools wrote, which a checkout may still hold, stale; the upstream
 --- sources and the records that patch them, prose, and anything
 --- hidden. `doc` is handled on its own: almost all of it is prose with
---- no examples, but `doc/guides/*.md` is the one place doc/writing.md's
+--- no examples, but a guide (`doc/guides/*.md`, `doc/guides/internal/*.md`) is where doc/writing.md's
 --- grammar applies, and the build has to see those files to run
 --- [`build.doctest`] over them. In cosmic's own tree the patches, the
 --- vendor pins and the zig wrapper are walked after all, as inputs to
@@ -153,11 +153,12 @@ local function is_vendor_pin(entry: string): boolean
 end
 
 --- Whether `file` is a doc this tree extracts runnable examples from --
---- exactly `doc/guides/*.md`, never a markdown file anywhere else in
---- the tree ([`doc/design.md`], [`doc/roadmap.md`], and [`doc/writing.md`] are
---- prose with no examples, and stay out of scope on purpose).
+--- exactly `doc/guides/*.md` and `doc/guides/internal/*.md`, never a
+--- markdown file anywhere else in the tree ([`doc/design.md`],
+--- [`doc/roadmap.md`], and [`doc/writing.md`] are prose with no examples,
+--- and stay out of scope on purpose).
 local function is_doc_guide(file: string): boolean
-  return file:match("^doc/guides/[^/]+%.md$") ~= nil
+  return file:match("^doc/guides/[^/]+%.md$") ~= nil or file:match("^doc/guides/internal/[^/]+%.md$") ~= nil
 end
 
 --- The walk's predicates take the entry's bare name second, so what
@@ -169,7 +170,7 @@ function identity.skip_input(entry: string, name: string): boolean
   end
   local first = identity.first_of(entry)
   if first == "doc" then
-    if entry == "doc" or entry == "doc/guides" then
+    if entry == "doc" or entry == "doc/guides" or entry == "doc/guides/internal" then
       return false
     end
     return not is_doc_guide(entry)

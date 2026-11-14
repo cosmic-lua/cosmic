@@ -108,7 +108,8 @@ local function test_the_guides_and_templates_are_the_modules_the_stage_derives_f
   assert(Fs.mkdirs(root))
   for name, text in pairs({
       ["doc/guides/g.md"] = GUIDE, ["doc/guides/h.md"] = "# h\n\n```teal\nlocal y = 2\nassert(y == 2)\n```\n",
-      ["doc/guides/sub/ignored.md"] = GUIDE, ["doc/other.md"] = GUIDE,
+      ["doc/guides/sub/ignored.md"] = GUIDE, ["doc/other.md"] = GUIDE, ["doc/guides/internal/i.md"] = GUIDE,
+      ["doc/guides/internal/deep/ignored.md"] = GUIDE,
       ["pages/home.tmpl"] = TEMPLATE, ["pages/init.tmpl"] = TEMPLATE, ["pages/testdata/skipped.tmpl"] = TEMPLATE,
       ["m.tl"] = "return 1\n",
   }) do
@@ -133,13 +134,14 @@ local function test_the_guides_and_templates_are_the_modules_the_stage_derives_f
   table.sort(entries, function(a: {string}, b: {string}): boolean -- checked: overload_none
     return support.nth(a, 1) < support.nth(b, 1)
   end)
-  -- the same files, the same modules, the same text: two guides and two templates
-  assert(#entries == 4 and #derived == 4, tostring(#entries) .. " / " .. tostring(#derived))
+  -- the same files, the same modules, the same text: three guides, one of them internal, and two templates
+  assert(#entries == 5 and #derived == 5, tostring(#entries) .. " / " .. tostring(#derived))
   for i, entry in ipairs(entries) do
     local row = assert(derived[i])
     assert(entry[1] == row[1] and entry[3] == row[2] and entry[2] == row[3], support.nth(entry, 1) .. " is not the stage's " .. support.nth(row, 1))
   end
-  assert(support.nth(entries, 1)[3] == "doc.guides.g" and support.nth(entries, 3)[3] == "pages.home" and support.nth(entries, 4)[3] == "pages", support.nth(entries, 3)[3])
+  assert(support.nth(entries, 1)[3] == "doc.guides.g" and support.nth(entries, 3)[3] == "doc.guides.internal.i" and
+      support.nth(entries, 4)[3] == "pages.home" and support.nth(entries, 5)[3] == "pages", support.nth(entries, 3)[3])
 end
 
 local function test_a_guide_or_template_the_build_refuses_is_refused_with_its_reason(tmp: string)
