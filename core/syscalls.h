@@ -633,7 +633,7 @@ COSMIC_SYSCALL(uname, 0);
  */
 
 /*
- * --- The IPv4 and IPv6 addresses of the host's interfaces, as `getifaddrs(3)` lists them, in its order; an entry of another family (a link-layer address) is left out. Darwin only: elsewhere ENOSYS. Linux's `getifaddrs` asks the kernel over a netlink socket, which a sandboxed process's filter refuses unless it allows inet sockets, so a caller there reads /proc/self/net instead (as the sandbox relay does).
+ * --- The IPv4 and IPv6 addresses of the host's interfaces, as `getifaddrs(3)` lists them, in its order; an entry of another family (a link-layer address) is left out. Darwin only: elsewhere ENOSYS. Linux's `getifaddrs` asks the kernel over a netlink socket, which a sandboxed process's filter may refuse, so a caller there reads /proc/self/net instead (as the sandbox relay does).
  * ---@return {InterfaceAddress}|nil addresses every address, or nil on failure
  * ---@return string error what went wrong, when addresses is nil
  * ---@return integer errno the error number, when addresses is nil: ENOSYS off Darwin

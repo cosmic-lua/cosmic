@@ -684,24 +684,26 @@ end
 
 local function test_an_inet_socket_is_made_only_where_it_is_allowed()
   -- AF_INET and AF_INET6, for a program in a network namespace of its own;
-  -- never packet sockets, and a unix one only where allowed.
+  -- never netlink or packet sockets, and a unix one only where allowed.
   holds_on_both({}, {
     call("socket", "allow", 2, 1, 0), call("socket", "allow", 10, 2, 0),
-    call("socket", "EPERM", 1, 1, 0),
+    call("socket", "EPERM", 1, 1, 0), call("socket", "EPERM", 16, 3, 0),
     call("socket", "EPERM", 17, 3, 0), call("socket", "EPERM", 9, 1, 0),
     call("socketpair", "allow", 1, 1, 0), call("socketpair", "EPERM", 2, 1, 0),
   }, { inet = true })
   holds_on_both({}, {
     call("socket", "allow", 1, 1, 0), call("socket", "allow", 2, 1, 0),
-    call("socket", "allow", 10, 1, 0), call("socket", "EPERM", 17, 3, 0),
+    call("socket", "allow", 10, 1, 0), call("socket", "EPERM", 16, 3, 0),
+    call("socket", "EPERM", 17, 3, 0),
   }, { unix = true, inet = true })
 end
 
 --- Of the netlink sockets only NETLINK_ROUTE (protocol 0), which
---- getifaddrs lists the interfaces over, and only where inet sockets are
---- allowed: every other protocol (the audit log's 9, the kernel's
---- uevents' 15, netfilter's 12) is refused, whatever the socket's type.
-local function test_a_netlink_socket_is_the_route_one_and_only_beside_inet_sockets()
+--- getifaddrs lists the interfaces over, only beside inet sockets, and
+--- only for a process that can change no network (`network_held`): every
+--- other protocol (the audit log's 9, the kernel's uevents' 15,
+--- netfilter's 12) is refused, whatever the socket's type.
+local function test_a_netlink_socket_is_the_route_one_beside_inet_sockets_where_the_network_is_held()
   local NETLINK, RAW, DGRAM, CLOEXEC <const> = 16, 3, 2, 0x80000
   local cases = {
     call("socket", "allow", NETLINK, RAW, 0), call("socket", "allow", NETLINK, RAW | CLOEXEC, 0),
@@ -709,14 +711,22 @@ local function test_a_netlink_socket_is_the_route_one_and_only_beside_inet_socke
     call("socket", "EPERM", NETLINK, RAW, 9), call("socket", "EPERM", NETLINK, RAW, 15),
     call("socket", "EPERM", NETLINK, RAW, 12), call("socket", "EPERM", NETLINK, RAW, 1),
     call("socket", "EPERM", NETLINK, RAW, 4), call("socket", "EPERM", NETLINK, RAW, 16),
-    -- A protocol is an int: its low 32 bits are what the kernel reads.
-    call("socket", "allow", NETLINK, RAW, 1 << 32),
+    call("socket", "EPERM", 17, RAW, 0),
+    -- A family and a protocol are ints: their low 32 bits are what the kernel reads.
+    call("socket", "allow", NETLINK, RAW, 1 << 32), call("socket", "allow", (1 << 32) | NETLINK, RAW, 0),
+    call("socket", "allow", 2, 1, 0), call("socket", "allow", 10, 2, 0),
     call("socketpair", "EPERM", NETLINK, RAW, 0),
   }
-  holds_on_both({}, cases, { inet = true })
-  holds_on_both({}, cases, { unix = true, inet = true })
-  holds_on_both({}, { call("socket", "EPERM", NETLINK, RAW, 0) })
-  holds_on_both({}, { call("socket", "EPERM", NETLINK, RAW, 0) }, { unix = true })
+  holds_on_both({}, cases, { inet = true, network_held = true })
+  holds_on_both({}, cases, { unix = true, inet = true, network_held = true })
+  -- A process that may hold CAP_NET_ADMIN could change the network over one.
+  local refused = { call("socket", "EPERM", NETLINK, RAW, 0), call("socket", "EPERM", NETLINK, DGRAM, 0) }
+  holds_on_both({}, refused, { inet = true })
+  holds_on_both({}, refused, { unix = true, inet = true })
+  -- The hold adds nothing where no inet socket is allowed.
+  holds_on_both({}, refused, { network_held = true })
+  holds_on_both({}, refused, { unix = true, network_held = true })
+  holds_on_both({}, refused, { unix_held = true, network_held = true })
 end
 
 local function test_a_signal_goes_to_the_process_itself()
@@ -820,8 +830,7 @@ local function test_a_held_process_may_make_a_unix_socket_and_no_other()
   end
   holds_on_both({}, {
     call("socket", "allow", 1, 1, 0), call("socket", "allow", 2, 1, 0),
-    call("socket", "allow", 10, 1, 0), call("socket", "allow", 16, 3, 0),
-    call("socket", "EPERM", 16, 3, 9), call("socket", "EPERM", 17, 3, 0),
+    call("socket", "allow", 10, 1, 0), call("socket", "EPERM", 16, 3, 0),
   }, { unix_held = true, inet = true })
   -- Without it the filter keeps to its sockets, as `unix` names them.
   holds_on_both({}, { call("socket", "EPERM", 1, 1, 0) }, { unix_held = false })

@@ -186,6 +186,8 @@ enum rule {
   RULE_SOCKET_UNIX,
   RULE_SOCKET_INET,
   RULE_SOCKET_UNIX_INET,
+  RULE_SOCKET_INET_ROUTE,
+  RULE_SOCKET_UNIX_INET_ROUTE,
   RULE_OPEN,
   RULE_OPENAT,
   RULE_MODE1,
@@ -737,13 +739,25 @@ static void rule_block (struct builder *b, enum rule rule, uint32_t pid, enum co
     break;
     case RULE_SOCKET_INET:
     case RULE_SOCKET_UNIX_INET:
-    /* Only the families, and the netlink socket a libc lists the
-     * interfaces over (getifaddrs, if_nameindex): NETLINK_ROUTE, whose
-     * requests that change anything need CAP_NET_ADMIN over the network
-     * namespace. Every other netlink protocol and packet sockets (17)
-     * stay refused, and a raw one needs a capability no program has. */
+    /* Only the families: netlink and packet sockets (16, 17) stay
+     * refused, and a raw one needs a capability no program has. */
     load(&k, DATA_ARGUMENT(0) + DATA_LOW);
     if (rule == RULE_SOCKET_UNIX_INET) test(&k, OP_EQ, AF_UNIX_FAMILY, JUMP_ALLOW, JUMP_NEXT);
+    test(&k, OP_EQ, AF_INET_FAMILY, JUMP_ALLOW, JUMP_NEXT);
+    test(&k, OP_EQ, AF_INET6_FAMILY, JUMP_ALLOW, JUMP_DENY);
+    break;
+    case RULE_SOCKET_INET_ROUTE:
+    case RULE_SOCKET_UNIX_INET_ROUTE:
+    /* The families, and of the netlink sockets NETLINK_ROUTE, which a
+     * libc lists the interfaces over (getifaddrs). The filter cannot read
+     * what is sent on one: a request that reads is answered to anyone
+     * (the links and their hardware addresses, the addresses, routes and
+     * neighbours of the network namespace), and one that changes any of
+     * them only to a process the kernel finds capable over that
+     * namespace, which COSMIC_HELD_NETWORK says this one is not. Every
+     * other netlink protocol and packet sockets stay refused. */
+    load(&k, DATA_ARGUMENT(0) + DATA_LOW);
+    if (rule == RULE_SOCKET_UNIX_INET_ROUTE) test(&k, OP_EQ, AF_UNIX_FAMILY, JUMP_ALLOW, JUMP_NEXT);
     test(&k, OP_EQ, AF_INET_FAMILY, JUMP_ALLOW, JUMP_NEXT);
     test(&k, OP_EQ, AF_INET6_FAMILY, JUMP_ALLOW, JUMP_NEXT);
     test(&k, OP_EQ, AF_NETLINK_FAMILY, JUMP_NEXT, JUMP_DENY);
@@ -855,9 +869,10 @@ static void add (uint8_t *rules, const struct grant *table, size_t count) {
  * COSMIC_HELD_SIGNALS they keep to the process's own pid.
  *
  * `sockets` (COSMIC_SOCKETS_ bits) lets it make a socket of those
- * families -- socket(AF_UNIX), AF_INET and AF_INET6, and with the inet
- * ones the NETLINK_ROUTE socket the interfaces are listed over -- a
- * socketpair of unix ones it always may; COSMIC_HELD_UNIX adds AF_UNIX.
+ * families -- socket(AF_UNIX), AF_INET and AF_INET6 -- a socketpair of
+ * unix ones it always may; COSMIC_HELD_UNIX adds AF_UNIX, and
+ * COSMIC_HELD_NETWORK, beside the inet ones, the NETLINK_ROUTE socket the
+ * interfaces are listed over.
  *
  * COSMIC_HELD_LIMITS lets it set its own limits. A pointer is all
  * setrlimit and prlimit64 take, which no rule can read, so no call that
@@ -886,6 +901,10 @@ static size_t program_for (struct cosmic_insn *out, enum cosmic_arch arch,
   else if (sockets == COSMIC_SOCKETS_INET) rules[CALL_socket] = RULE_SOCKET_INET;
   else if (sockets == (COSMIC_SOCKETS_UNIX | COSMIC_SOCKETS_INET))
     rules[CALL_socket] = RULE_SOCKET_UNIX_INET;
+  if (held & COSMIC_HELD_NETWORK) {
+    if (rules[CALL_socket] == RULE_SOCKET_INET) rules[CALL_socket] = RULE_SOCKET_INET_ROUTE;
+    if (rules[CALL_socket] == RULE_SOCKET_UNIX_INET) rules[CALL_socket] = RULE_SOCKET_UNIX_INET_ROUTE;
+  }
   if (promises & COSMIC_PROMISE_FORK) ADD(fork_calls);
   if (promises & COSMIC_PROMISE_JIT) ADD(jit_calls);
   if (promises & COSMIC_PROMISE_FATTR) ADD(fattr_calls);
@@ -996,6 +1015,20 @@ static bool lacks_resource_capability (void) {
   }
   return (data[CAP_TO_INDEX(CAP_SYS_RESOURCE)].permitted & CAP_TO_MASK(CAP_SYS_RESOURCE)) == 0;
 }
+
+/* Whether the process lacks CAP_NET_ADMIN in its permitted set, and so
+ * can change nothing of a network namespace over a NETLINK_ROUTE socket:
+ * no_new_privs (set by the caller) keeps an exec from giving it. As with
+ * [`lacks_resource_capability`], a capability of a user namespace the
+ * process made reads as held, and the caller that made one says so with
+ * COSMIC_HELD_NETWORK. False where an earlier filter refuses capget, which
+ * nothing stands in for. */
+static bool lacks_network_capability (void) {
+  struct __user_cap_header_struct header = { _LINUX_CAPABILITY_VERSION_3, 0 };
+  struct __user_cap_data_struct data[_LINUX_CAPABILITY_U32S_3];
+  if (syscall(SYS_capget, &header, data) != 0) return false;
+  return (data[CAP_TO_INDEX(CAP_NET_ADMIN)].permitted & CAP_TO_MASK(CAP_NET_ADMIN)) == 0;
+}
 #endif
 
 int cosmic_promises_apply (unsigned promises, unsigned sockets, unsigned held) {
@@ -1009,6 +1042,7 @@ int cosmic_promises_apply (unsigned promises, unsigned sockets, unsigned held) {
    * process can have. */
   if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0) return errno;
   if (lacks_resource_capability()) held |= COSMIC_HELD_LIMITS;
+  if (lacks_network_capability()) held |= COSMIC_HELD_NETWORK;
   struct cosmic_insn code[COSMIC_PROMISE_INSNS];
   size_t length = program_for(code, arch, promises, sockets, (uint32_t)getpid(), held);
   if (length == 0) return ENOSPC;
@@ -1057,6 +1091,7 @@ COSMIC_SYSCALL(promise_filter, 3) {
     static const struct { const char *name; unsigned bit; } holds[] = {
       { "scoped", COSMIC_HELD_SIGNALS }, { "unix_held", COSMIC_HELD_UNIX },
       { "limits_held", COSMIC_HELD_LIMITS }, { "pids_held", COSMIC_HELD_PIDS },
+      { "network_held", COSMIC_HELD_NETWORK },
     };
     for (size_t i = 0; i < sizeof holds / sizeof holds[0]; i++) {
       lua_getfield(L, 3, holds[i].name);

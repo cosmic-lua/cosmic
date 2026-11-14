@@ -1101,12 +1101,15 @@ static void interfaces_release (void *resource) {
 
 /* The index of the interface `name` of `list`, 0 where the system names
  * none. Linux reads it from the interface's link-layer entry: its
- * if_nametoindex is an ioctl, which a sandboxed process's filter refuses. */
+ * if_nametoindex is an ioctl, which a sandboxed process's filter refuses.
+ * An address's entry may be named by its label, the interface's name and
+ * then ":" and an alias ("eth0:1"), which is the interface's all the same. */
 static lua_Integer interface_named (const struct ifaddrs *list, const char *name) {
 #if defined(__linux__)
+  size_t size = strcspn(name, ":");
   for (const struct ifaddrs *entry = list; entry != NULL; entry = entry->ifa_next) {
     if (entry->ifa_addr != NULL && entry->ifa_addr->sa_family == AF_PACKET &&
-        strcmp(entry->ifa_name, name) == 0) {
+        strncmp(entry->ifa_name, name, size) == 0 && entry->ifa_name[size] == '\0') {
       return ((const struct sockaddr_ll *)entry->ifa_addr)->sll_ifindex;
     }
   }
