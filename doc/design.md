@@ -1182,6 +1182,11 @@ proxy's too, verifies against that chain. `SSL_CERT_FILE` adds
 certificates for the corporate-proxy case without making per-machine
 trust the default.
 
+[`cosmic.bigint`] is arithmetic on integers of thousands of bits over
+the library's bignum, the one its RSA and ECC use, which the PSA API
+does not expose: [`core/bigint.c`] asks for the private declarations,
+and the raw [`cosmic.internal.bigint`] table holds the bindings.
+
 ### the sandbox
 
 an opt-in library and the toolchain's own fence. default-deny for
@@ -1358,7 +1363,7 @@ target:
   `errors`, `log`, `teal`, `format`, `test`, `coverage`, `doc`,
   `embed`, `shape`.
 - **second**: `http`, `fetch`, `net`, `dns`, `re`, `zip`, `tar`,
-  `compress`, `codec`, `url`, `ip`, `uuid`, `ksuid`, `sse`,
+  `compress`, `codec`, `bigint`, `url`, `ip`, `uuid`, `ksuid`, `sse`,
   `sandbox`, `posix.signal`, `poll`, `fd`, `tty`, `ansi`, `user`,
   `host`, `stream`, `deep`, `graph`, `fuzzy`, `literal`, `template`.
 - **later, if pulled**: namespaces and egress proxying beyond what
@@ -1422,6 +1427,7 @@ in [roadmap.md](roadmap.md).
 [`ci/cosmic_ci/host_id.tl`]: ../ci/cosmic_ci/host_id.tl
 [`ci/cosmic_ci/orchestration.tl`]: ../ci/cosmic_ci/orchestration.tl
 [`ci/cosmic_ci/place_tree.tl`]: ../ci/cosmic_ci/place_tree.tl
+[`core/bigint.c`]: ../core/bigint.c
 [`core/bridge.lua`]: ../core/bridge.lua
 [`core/http.c`]: ../core/http.c
 [`core/unzstd.c`]: ../core/unzstd.c
@@ -1437,10 +1443,12 @@ in [roadmap.md](roadmap.md).
 [`cosmic.errors`]: ../cosmic/errors.tl
 [`cosmic.fs.walk`]: ../cosmic/fs.tl
 [`cosmic.fs`]: ../cosmic/fs.tl
+[`cosmic.bigint`]: ../cosmic/bigint.tl
 [`cosmic.hash`]: ../cosmic/hash.tl
 [`cosmic.http`]: ../cosmic/http/init.tl
 [`cosmic.internal.cipher`]: ../cosmic/internal/cipher.d.tl
 [`cosmic.internal.errors`]: ../cosmic/internal/errors.d.tl
+[`cosmic.internal.bigint`]: ../cosmic/internal/bigint.d.tl
 [`cosmic.internal.hash`]: ../cosmic/internal/hash.d.tl
 [`cosmic.internal.process`]: ../core/process.h
 [`cosmic.internal.sqlite`]: ../cosmic/internal/sqlite.d.tl
