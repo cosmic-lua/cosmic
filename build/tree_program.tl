@@ -3,7 +3,7 @@
 --- The markers of [`build.ceilings`] hold for a [`build.driver`] build configured as [`TreeProgram.build`] configures it, so
 --- [`build.tree_checks`], which lists the errors no marker holds, and [`Driver.Build.held`], which refuses them, both
 --- configure it here, and read the same program: the same sources ([`TreeProgram.index`]) and
---- with the same calls of [`Shape.record_of`] resolved ([`TreeProgram.splice`]), the same globals and bindings. A check of
+--- with the same calls the build completes resolved ([`TreeProgram.splice`], [`build.syntax_record_splices`]), the same globals and bindings. A check of
 --- the whole tree holds them to it: for every module the working database stages, the tree's checks refuse it for an error
 --- no marker holds exactly when the pipeline does, and the modules the pipeline refuses for more than that are named
 --- ([`build.pipeline_check`]).
@@ -16,7 +16,7 @@ local Fs = require("cosmic.fs")
 local Memprobe = require("build.memprobe")
 local ParseDerive = require("build.parse_derive")
 local Scopes = require("lang.scopes")
-local ShapeSpecs = require("build.syntax_shape_specs")
+local RecordSplices = require("build.syntax_record_splices")
 local SyntaxNode = require("build.syntax_node")
 local Template = require("cosmic.template")
 local analysis_schema = require("build.analysis_schema")
@@ -93,7 +93,7 @@ local record TreeProgram
 
   --- Hands each of `modules` to `each`, in the order they require one another, once it is lowered after
   --- the modules it requires, and retires it when `each` is done with it ([`Driver.Build.retire`]): a build then holds the
-  --- syntax of one module at a time, and not of the tree. With `spliced` the calls of [`Shape.record_of`] of each module are
+  --- syntax of one module at a time, and not of the tree. With `spliced` the calls the build completes in each module are
   --- resolved before it is lowered ([`TreeProgram.splice`]); the lines that say why one could not are answered, and are among
   --- the build's problems too. The collector is generational while it runs.
   stream: function(build: Driver.Build, index: Driver.Index, modules: {string}, spliced: boolean,
@@ -131,17 +131,17 @@ function TreeProgram.splice(build: Driver.Build, module: string, file: string): 
   if read == nil then
     return nil, file .. ": the new checker's build has no module " .. module
   end
-  if read.text:find("record_of", 1, true) == nil then
+  if not RecordSplices.mentions(read.text) then
     return false, ""
   end
   -- The calls are read in a build of its own, where the module is lowered as it stands and then retired: this build has not
   -- met the module when its text is replaced, so the replacement keeps its program, and what the reading lowered of the
   -- modules the module requires is not kept here as syntax.
   local scratch = build:scratch()
-  local resolved, trouble = ShapeSpecs.resolve(scratch, module, file, read.text)
+  local resolved, trouble = RecordSplices.resolve(scratch, module, file, read.text)
   -- A module the reading lowered in passing that has calls of its own to resolve is read here again, when its turn comes.
   scratch:retire_all(function(other: Driver.Outcome): boolean
-    return other.module ~= module and other.text:find("record_of", 1, true) ~= nil
+    return other.module ~= module and RecordSplices.mentions(other.text)
   end)
   if resolved == nil then
     return nil, trouble

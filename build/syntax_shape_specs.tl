@@ -28,16 +28,6 @@ local RecordCalls = require("build.syntax_record_calls")
 local Types = require("lang.types")
 
 local record ShapeSpecs
-  --- `source` with each `Shape.record_of("name")` it holds given the call's spec and a function that answers the
-  --- record's type ([`Shape.record_of`]'s `built` and `_witness`), spliced after the name on its own line: the lines a
-  --- message names do not move, but columns after the call on that line do. `source` is the text `module` of `build`
-  --- was read from. Nothing changes in a source that has no such call, which is every module but the few that use it.
-  ---
-  --- nil and the refusal, as the compiler words one (`file:line: ...`), when a call cannot be resolved: a name that is
-  --- not a string literal, a record the module does not reach, a field with no shape. A source the compiler would
-  --- refuse anyway comes back as it is, for the compile that follows to report.
-  resolve: function(build: Driver.Build, module: string, file: string, source: string): string?, string
-
   --- One call's resolution.
   type Splice = RecordCalls.Splice
 
@@ -51,9 +41,15 @@ local record ShapeSpecs
     line: integer
   end
 
-  --- What [`ShapeSpecs.resolve`] splices into `source`, each call's [`ShapeSpecs.Splice`], the last in the source first;
-  --- none for a source that has no such call, or that the compiler would refuse anyway. Where a call cannot be
-  --- resolved, none, and the refusal `resolve` makes and the call's line ([`ShapeSpecs.Found`]).
+  --- What a compile splices into `source`, the text `module` of `build` was read from: for each
+  --- `Shape.record_of("name")` it holds, the call's spec and the node that describes the record, put after the name
+  --- on its own line, so the lines a message names do not move, but columns after the call on that line do. Each is a
+  --- [`ShapeSpecs.Splice`], the last in the source first. None for a source that has no such call, which is every
+  --- module but the few that use it, or that the compiler would refuse anyway.
+  ---
+  --- Where a call cannot be resolved (a name that is not a string literal, a record the module does not reach, a
+  --- field with no shape), none, and the refusal, as the compiler words one (`file:line: ...`), with the call's line
+  --- ([`ShapeSpecs.Found`]).
   splices: function(build: Driver.Build, module: string, file: string, source: string): Found
 
   --- `source` with each of `splices` put in, the last first as [`ShapeSpecs.splices`] answers them.
@@ -461,15 +457,6 @@ end
 
 function ShapeSpecs.spliced(source: string, splices: {Splice}): string
   return RecordCalls.spliced(source, splices)
-end
-
-function ShapeSpecs.resolve(build: Driver.Build, module: string, file: string, source: string):
-    string?, string
-  local found = ShapeSpecs.splices(build, module, file, source)
-  if found.refusal ~= "" then
-    return nil, found.refusal
-  end
-  return ShapeSpecs.spliced(source, found.splices), ""
 end
 
 return ShapeSpecs
