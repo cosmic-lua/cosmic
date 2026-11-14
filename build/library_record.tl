@@ -4,7 +4,7 @@
 
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
-local symbols = require("build.symbols")
+local symbols = require("cosmic.internal.symbols")
 local type positions = require("build.positions")
 
 local record library_record
