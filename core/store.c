@@ -15,6 +15,7 @@
 #include "assertions.h"
 #include "bigint.h"
 #include "check.h"
+#include "cipher.h"
 #include "fail.h"
 #include "lauxlib.h"
 #include "compress.h"
@@ -98,6 +99,7 @@ static const struct raw_value {
   {"cosmic.internal.debug", NULL, 0},
   {"cosmic.internal.sqlite", cosmic_open_sqlite, 1},
   {"cosmic.internal.hash", cosmic_open_hash, 1},
+  {"cosmic.internal.cipher", cosmic_open_cipher, 1},
   {"cosmic.internal.html", cosmic_open_html, 1},
   {"cosmic.internal.vector", cosmic_open_vector, 1},
   {"cosmic.internal.process", cosmic_open_process, 1},
