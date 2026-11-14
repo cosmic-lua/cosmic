@@ -15,6 +15,7 @@ local exit_status = require("build.exit_status")
 local help_source = require("build.help_source")
 local logger = require("build.logger")
 local type verb_spec = require("build.verb_spec")
+local type flags = require("cosmic.flags")
 
 local log = logger.log
 
@@ -300,6 +301,16 @@ local function index_help(): string
     }, "\n"),
   }))
   return index.help .. "\n"
+end
+
+--- Why Flags.dispatch refuses the line `own` of the verb `verb`, whose options `command` names, or "" where it
+--- takes it: "test: no such option: --jbs; did you mean --jobs?; usage: cosmic test [options] [path...]".
+--- Nothing is run: the verb reads its own line after.
+local function line_refusal(verb: string, command: flags.Command, own: {string}): string
+  local vetted: flags.Command = { spec = command.spec, usage = command.usage,
+    run = function(_: flags.Parsed): integer return 0 end }
+  local ran, why = require("cosmic.flags").dispatch(own, 1, { [verb] = vetted }, "cosmic")
+  return if ran == nil then why else "" end
 end
 
 --- The tree a file run builds, and why it is that one.
@@ -871,6 +882,9 @@ function Dispatch.main(argv: {string}): integer
       end
     end
   end
+  -- Whether the verb is typed by its name, and so is a command Flags.dispatch reads the line of: `help`, a file
+  -- run and the verbs spelled as options read their own.
+  local typed_by_name = chosen ~= nil and verb ~= "help" and verb ~= "run" and verb:sub(1, 1) ~= "-"
   if chosen ~= nil and verb ~= "help" and Flags.asks_help(own, 2, options) then
     -- `cosmic <verb> --help` is `cosmic help <verb>`.
     local asked = verb
@@ -928,7 +942,15 @@ function Dispatch.main(argv: {string}): integer
         return stale
       end
     end
-    local code = chosen.run(argv)
+    -- The verb's line is read by Flags.dispatch first, as a program's command is, so every verb refuses a
+    -- mistyped option alike, naming the one meant and its usage; the verb then reads the line it was given.
+    local code = 2
+    local refusal = if command ~= nil and typed_by_name then line_refusal(verb, command, own) else "" end
+    if refusal ~= "" then
+      log:complain(refusal)
+    else
+      code = chosen.run(argv)
+    end
     if code == 2 and not chosen.bare and chosen.fresh ~= true and chosen.recheck_on_refusal ~= false then
       -- A verb may read its command line before it checks the tool is
       -- as new as the tree, and an option the tree added is one a stale
