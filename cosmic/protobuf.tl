@@ -854,7 +854,8 @@ end
 
 --- The varint in `data` at the position `at` (default 1), and the position after it, or nil and why: the bytes
 --- end inside it, or it is longer than 10 bytes. It never raises. A failure with fewer than 10 bytes from `at`
---- on is always the first, so a reader of a stream then waits for more bytes.
+--- on is always the first, so a reader of a stream then waits for more bytes. A length read from a peer is any
+--- 64 bits, negative above 2^63 - 1: hold it to a limit before waiting for that many bytes.
 function Protobuf.read_varint(data: string, at?: integer): Protobuf.Varint?, string
   local start = at or 1
   if math.type(start) ~= "integer" or start < 1 then

@@ -133,8 +133,10 @@ function Example.bounds()
 end
 
 --- A stream of messages has each behind its length as a varint. The reader takes whole messages from what has
---- arrived so far and keeps the rest: a length or a message the bytes end inside waits for more.
+--- arrived so far and keeps the rest: a length or a message the bytes end inside waits for more. The length is
+--- the peer's word, any 64 bits, so it is held to a limit before anything waits for that many bytes.
 function Example.stream()
+  local limit = 1 << 20
   local sent = ""
   for id = 1, 3 do
     local message = assert(Protobuf.writer():int(1, id * 100):encode())
@@ -153,6 +155,8 @@ function Example.stream()
         assert(#buffered < 10, "the stream is not framed")
         break
       end
+      -- As an unsigned number: a length above 2^63 - 1 is negative here.
+      assert(math.ult(length.value, limit + 1), "a message over the limit")
       local last = length.next + length.value - 1
       if last > #buffered then break end
       local message = assert(Protobuf.decode(buffered:sub(length.next, last)))
