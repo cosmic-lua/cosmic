@@ -1,10 +1,9 @@
 --- [`build.syntax_shape_specs`] over small projects in the new grammar: the spec a compile splices into
 --- [`Shape.record_of`], and what it refuses, by field.
-local Driver = require("build.driver")
 local Node = require("build.syntax_node")
-local Array = require("cosmic.array")
-local Programs = require("lang.check_programs")
 local ShapeSpecs = require("build.syntax_shape_specs")
+local Driver = require("build.driver")
+local Fixture = require("build.syntax_resolver_fixture")
 local Test = require("cosmic.test")
 
 Test.policy{}
@@ -24,26 +23,9 @@ local STANDARD <const>: {string: string} = {
   }, "\n"),
 }
 
---- A build of the project `files` (name to text).
+--- A build of the project `files` (name to text), over the modules of [`STANDARD`].
 local function build_of(files: {string: string}): Driver.Build
-  local entries: mut {{string}} = {}
-  for name, text in pairs(files) do
-    entries[#entries + 1] = { name, text }
-  end
-  table.sort(entries, function(a: {string}, b: {string}): boolean
-    -- Each entry is the `{ name, text }` pair pushed above.
-    return Array.at(a, 1) < Array.at(b, 1)
-  end)
-  local index = Driver.index(entries, function(_file: string): boolean
-    return false
-  end)
-  local build = Driver.new({
-    globals = { Driver.declarations("std", "std.d.tl", Programs.library, {}) },
-    adjust = nil, external = {}, types = false,
-  })
-  build:provide(Driver.files(index))
-  build:provide(Driver.stubs(STANDARD))
-  return build
+  return Fixture.build_of(files, STANDARD)
 end
 
 --- The source of the module `main` after the build resolved its `record_of` calls, or what it refused, in a project of
@@ -51,7 +33,9 @@ end
 local function resolved(files: {string: string}): string?, string
   local main = files["main.tl"]
   assert(main ~= nil, "the project holds main.tl")
-  return ShapeSpecs.resolve(build_of(files), "main", "main.tl", main)
+  local found = ShapeSpecs.splices(build_of(files), "main", "main.tl", main)
+  if found.refusal ~= "" then return nil, found.refusal end
+  return ShapeSpecs.spliced(main, found.splices), ""
 end
 
 --- A module that declares `declaration` and asks for the spec of its record `R` (or the `call`).
