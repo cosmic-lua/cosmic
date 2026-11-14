@@ -1163,7 +1163,7 @@ end
 --- Every worked example a chunk declares at its top level: a `function Example.<name>()`. The shape of the declaration
 --- is the only marker, as for the functions [`docs_of`] finds; `name` is a free label. Its doc comment is read as
 --- [`docs_of`] reads one: what the example is for in the comment, how in the code below it. Which symbol it
---- demonstrates is decided when [`build.docs`] reads it, by matching this text and source against a symbol's name.
+--- demonstrates is decided when [`cosmic.doc`] reads it, by matching this text and source against a symbol's name.
 local function examples_of(chunk: Ast.Chunk, scoped: Scopes.Scoped, lines: {string}): {Analyzer.ExampleEntry}
   local out: mut {Analyzer.ExampleEntry} = {}
   local stats = chunk.body.stats

@@ -13,7 +13,8 @@ local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local String = require("cosmic.string")
 local docs = require("build.docs")
-local symbols = require("build.symbols")
+local Doc = require("cosmic.doc")
+local symbols = require("cosmic.internal.symbols")
 local writer = require("build.writer")
 -- Declares what text this module reads ([`build.code_walk`]'s `markers`): the docs, examples, uses or links of the database it is handed.
 local _ = require("build.reads.all")
@@ -164,14 +165,14 @@ function docs_checks.rendered(db: Sqlite.Handle, exempt?: docs_checks.Exempt): {
   if read_view == nil then
     return { "reading the view: " .. view_trouble }
   end
-  local view: docs.View = read_view
+  local view: Doc.View = read_view
   local read_public, _ = symbols.public_modules(db)
   local public = read_public or {}
-  local index, index_trouble = docs.index(view)
+  local index, index_trouble = Doc.index(view)
   if index == nil then
     return { "reading the index: " .. index_trouble }
   end
-  local modules: {docs.Summary} = index
+  local modules: {Doc.Summary} = index
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT d.module, d.symbol, d.source_symbol, d.kind, d.signature, d.text, d.file, d.line " ..
       "FROM docs d WHERE d.module GLOB 'cosmic.*' AND d.module NOT LIKE '%\\_example' ESCAPE '\\' " ..
@@ -182,11 +183,11 @@ function docs_checks.rendered(db: Sqlite.Handle, exempt?: docs_checks.Exempt): {
   local shown: Sqlite.Rows = rows
 
   -- Several modules declare `Entry.path`, so one lookup answers each.
-  local looked: mut {string: docs.Lookup} = {}
-  local function lookup(name: string): docs.Lookup?
+  local looked: mut {string: Doc.Lookup} = {}
+  local function lookup(name: string): Doc.Lookup?
     local found = looked[name]
     if found == nil then
-      local fresh, found_trouble = docs.lookup(view, name)
+      local fresh, found_trouble = Doc.lookup(view, name)
       if fresh == nil then
         out[#out + 1] = name .. ": " .. found_trouble
         return nil
@@ -199,8 +200,8 @@ function docs_checks.rendered(db: Sqlite.Handle, exempt?: docs_checks.Exempt): {
 
   -- The page of a container: its rendered lines, held to what a reader
   -- may see, and each name it lists under a type it stands for.
-  local function inspect(label: string, entry: docs.Entry)
-    local lines, render_trouble = docs.render(view, entry)
+  local function inspect(label: string, entry: Doc.Entry)
+    local lines, render_trouble = Doc.render(view, entry)
     if lines == nil then
       out[#out + 1] = label .. ": " .. render_trouble
       return
@@ -313,7 +314,7 @@ function docs_checks.rendered(db: Sqlite.Handle, exempt?: docs_checks.Exempt): {
       -- A function or a container has a page of its own to reach.
       if kind == "function" or kind == "method" or containers[kind] == true then
         local found = lookup(source_symbol)
-        local answer: docs.Entry? = nil
+        local answer: Doc.Entry? = nil
         if found ~= nil then
           for _, entry in ipairs(found) do
             if entry.module == module and entry.source_symbol == source_symbol then
@@ -416,8 +417,8 @@ function docs_checks.references(db: Sqlite.Handle, help?: {string: string},
   if read_view == nil then
     return { "reading the view: " .. view_trouble }
   end
-  local view: docs.View = read_view
-  local index, index_trouble = docs.index(view)
+  local view: Doc.View = read_view
+  local index, index_trouble = Doc.index(view)
   if index == nil then
     return { "reading the index: " .. index_trouble }
   end
@@ -472,7 +473,7 @@ function docs_checks.references(db: Sqlite.Handle, help?: {string: string},
   local function resolves(query: string): boolean
     local words: mut {string} = {}
     for word in query:gmatch("%S+") do words[#words + 1] = word end
-    local asked = docs.asked(words)
+    local asked = Doc.asked(words)
     if asked == nil then
       return true
     end
@@ -484,7 +485,7 @@ function docs_checks.references(db: Sqlite.Handle, help?: {string: string},
     end
     local cached = answered[query]
     if cached == nil then
-      local found, _ = docs.lookup(view, query)
+      local found, _ = Doc.lookup(view, query)
       cached = found ~= nil and #found > 0 and (found.exact or query:find(" ", 1, true) ~= nil)
       local top = if found ~= nil then found[1] else nil end
       if top ~= nil and top.kind == "removed" then

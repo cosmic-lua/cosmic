@@ -14,7 +14,7 @@ local Clock = require("cosmic.clock")
 local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
 local Fuzz = require("build.fuzz")
-local alias_members = require("build.alias_members")
+local alias_members = require("cosmic.internal.alias_members")
 local Analyzer = require("build.syntax_analyzer")
 local fetch = require("build.fetch")
 local flow = require("build.flow")
@@ -129,7 +129,7 @@ end
 --- A reference that names none of the types a source holds, whether the
 --- source says why or says nothing.
 local function test_a_reference_naming_no_type_is_as_declared()
-  honest("build.alias_members", function()
+  honest("cosmic.internal.alias_members", function()
     local source: alias_members.Source<alias_members.Declared> = {
       declared = function(_module: string, _name: string): alias_members.Declared?, string
         return nil, ""

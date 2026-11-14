@@ -914,7 +914,7 @@ local function closed(uses_from: string, image: boolean): {string}
       "WHERE path IN temp.wanted OR path IN temp.declared ORDER BY path, name",
     "INSERT INTO main.decls SELECT * FROM whole.decls WHERE path IN temp.declared " ..
       "ORDER BY path",
-    -- Which of them a public source answers for ([`build.symbols`]'s `public_only`): a worker that reads its
+    -- Which of them a public source answers for ([`cosmic.internal.symbols`]'s `public_only`): a worker that reads its
     -- store's docs as a project reads the binary's finds them.
     "INSERT INTO main.public_modules SELECT path FROM whole.public_modules " ..
       "WHERE path IN temp.wanted OR path IN temp.declared ORDER BY path",
@@ -991,7 +991,7 @@ end
 --- and `catalog` the lines of the error sites its modules document (its `code` rows, the checker's static data, are
 --- of no test that reads module text). `stubs` stays: it holds the rows of the modules a test names
 --- ([`text_kept`]) and the sources withheld otherwise fail ([`Store.withheld`]). The `pure_store` row says so to a
---- reader that would otherwise answer a missing table as a missing hint ([`build.symbols`]).
+--- reader that would otherwise answer a missing table as a missing hint ([`cosmic.internal.symbols`]).
 local withheld_tables: {string} = {
   "DROP TABLE main.docs_fts", "DROP TABLE main.catalog_fts", "DROP TABLE main.examples_fts",
   "DROP TABLE main.docs", "DROP TABLE main.catalog", "DROP TABLE main.examples", "DROP TABLE main.links",

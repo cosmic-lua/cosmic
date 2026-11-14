@@ -398,7 +398,7 @@ local function visible_of(text: string): string, {integer: boolean}
     -- The column as the line has it, which a tab's stop is counted
     -- from, and as its container reads it.
     local raw, from = indent_of(rest, start)
-    local shift = depth == 0 and math.min(least or 0, raw) or start -- checked: and_ternary
+    local shift = if depth == 0 then math.min(least or 0, raw) else start end
     local column = raw - shift
     local content = rest:sub(from)
     local hidden = false
@@ -433,7 +433,7 @@ local function visible_of(text: string): string, {integer: boolean}
         end
       end
       local open = #items
-      while open > 0 and column < items[open] do
+      while open > 0 and column < assert(items[open]) do
         open = open - 1
       end
       local base = (if open > 0 then items[open] else nil end) or 0
@@ -727,8 +727,8 @@ function link_text.plain_spans(text: string): {link_text.Span}
     return {}
   end
   local visible, continues = visible_of(text)
-  local found: {link_text.Span} = {}
-  scan(visible, continues, found) -- checked: not_assignable
+  local found: mut {link_text.Span} = {}
+  scan(visible, continues, found)
   local lines: mut {string} = {}
   for line in String.lines(visible) do
     lines[#lines + 1] = line

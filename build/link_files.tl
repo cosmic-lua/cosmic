@@ -1,7 +1,7 @@
 --- The files whose links `cosmic fix` checks beside Teal's -- Markdown,
 --- Zig and, in cosmic's own tree, C -- and what their text says of
 --- links: the comment blocks a link is read from and the names a file
---- declares, read off the text alone as [`build.link_text`] reads Teal's.
+--- declares, read off the text alone as [`cosmic.internal.link_text`] reads Teal's.
 ---
 --- `cosmic fix` walks a tree for them by `skip` and `checked` and checks
 --- each ([`build.links`]); the build's stage walks the same files and
@@ -12,7 +12,7 @@
 local Fs = require("cosmic.fs")
 local String = require("cosmic.string")
 local c_tokens = require("build.c_tokens")
-local link_text = require("build.link_text")
+local link_text = require("cosmic.internal.link_text")
 
 local record link_files
 end
