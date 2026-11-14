@@ -1,0 +1,3117 @@
+--- What a database says about a symbol: the lookup, the search and the pages behind `cosmic docs` and `cosmic
+--- uses`, read off the `docs`, `uses`, `links` and `examples` tables a build writes. The tool asks it of its own
+--- databases and a project's; a program built with `cosmic build` carries its project's public rows and may ask
+--- it of those.
+---
+--- A caller lists its databases in a [`Doc.view`], in the order they answer, and asks the view: [`Doc.lookup`]
+--- for what a query names, [`Doc.render`] for an entry's page, [`Doc.answer`] for the page of some words whole,
+--- [`Doc.uses`] for where a symbol is referred to.
+---
+--- A query is a symbol first -- [`Fs.read`], `read`, [`cosmic.fs`] -- and
+--- words to search the documentation for when no symbol is called that.
+--- A qualified name that names nothing (Proc.which) answers from what
+--- its qualifier offers, and a search ranks first the functions whose
+--- documentation names its first word as what they stand in for.
+--
+-- TODO: the hints a page ends with name the tool (`cosmic docs <module>`, `cosmic uses`), which a program's
+-- user cannot run. Take the words from the view once [`Flags.dispatch`] answers a program's `docs` command and
+-- knows the program's name; nothing but the tool asks a view until then.
+
+local Json = require("cosmic.json")
+local Removed = require("cosmic.removed")
+local Sqlite = require("cosmic.sqlite")
+local String = require("cosmic.string")
+local alias_members = require("cosmic.internal.alias_members")
+local link_text = require("cosmic.internal.link_text")
+local symbols = require("cosmic.internal.symbols")
+
+local record Doc
+  --- A command of the program that answers, which a row of `docs` documents: `cosmic test`, documented by the
+  --- `test` field of [`cosmic.cli`]'s record. A lookup of `name` that also names a module points to the command,
+  --- its row's page shows `options` under it, and a search reads `options` with the row's own text.
+  record Command
+    --- The word that runs it.
+    name: string
+    --- The row that documents it, by its `module` and `symbol` as `docs` holds them.
+    module: string
+    symbol: string
+    --- Its options as its help prints them, nil for a command that takes none.
+    options?: string
+  end
+  --- One ordered database view and the owner of every module in it.
+  record View
+    databases: {Sqlite.Handle}
+    --- Which databases are public sources, by index: one answers only
+    --- for the modules it records as public ([`symbols.public_modules`]),
+    --- the standard library's in the binary a project builds with, which
+    --- is what the project sees of it. A project's own database, and
+    --- every database inside cosmic's own tree, answer for everything.
+    public: {integer: boolean}
+    owners: {string: integer}
+    --- How many places refer to a module/symbol pair, keyed by
+    --- [`use_key`] -- computed on demand, once per command, by
+    --- [`effective_counts`], and cached here so several entries or
+    --- renders naming the same symbol query `uses` only once.
+    use_counts: mut {string: integer}
+    --- How many links name a module/symbol pair, as `use_counts`.
+    link_counts: mut {string: integer}
+    --- The record each module's value is typed as (`""` for none), by
+    --- module, as [`value_record`] reads it, cached as `use_counts` is.
+    value_records: mut {string: string}
+    --- The modules each database records as public, by the database's
+    --- index ([`symbols.public_modules`]), cached as `use_counts` is.
+    public_modules: mut {integer: {string: boolean}}
+    --- The module each module binds each name to, by module and name,
+    --- as [`symbols.add_bound`] reads them: nil until a type's
+    --- reference asks, then cached as `use_counts` is.
+    mut bound?: {string: string}
+    --- The commands of the program that answers, none unless the caller sets them.
+    mut commands: {Command}
+    --- Who alone may require each module of a database of the tree's own, by module, as [`Doc.Summary`]'s
+    --- `closed` says it: what the list of every module marks. Nil marks none.
+    mut marks?: function(db: Sqlite.Handle): {string: string}
+  end
+
+  --- One worked example, matched to a symbol by content rather than by
+  --- name -- see [`examples_for`].
+  record Example
+    name: string
+    text: string
+    file: string
+    line: integer
+    source: string
+  end
+
+  --- One row of `docs`, with where it came from.
+  record Entry is alias_members.Declared
+    mut module: string
+    mut symbol: string
+    mut source_symbol: string
+    mut exported: boolean
+    kind: string
+    signature: string
+    text: string
+    file: string
+    line: integer
+    --- How many places in shipped modules refer to it.
+    mut uses: integer
+    --- How many links in their comments name it (`links`).
+    mut links: integer
+    --- How many worked examples match it -- see [`examples_for`]. A
+    --- listing count, not the examples themselves: `render` fetches
+    --- those separately, only for the one entry it is showing.
+    examples: integer
+    --- Examples whose comments or checked source matched a free-text
+    --- search. Kept on the result only; the database remains unchanged.
+    related: {Example}
+  end
+
+  record Lookup is {Entry}
+    exact: boolean
+    --- How many entries, from the first, are named by the query; any
+    --- after them stand in for a raw binding it named (see [`stand_ins`]).
+    named: integer
+    --- Whether no entry carries every word of the query, and these carry
+    --- some of them (see `closest`).
+    closest: boolean
+    --- The verb `cosmic <query>` when the query names a library module of
+    --- the same name: [`page`] ends the module's entries with a line
+    --- pointing to it, and it is not one of the entries. Nil otherwise.
+    mut verb?: Entry
+    --- How many entries, from the first, are the modules the query names;
+    --- the line for `verb` follows them. 0 when there are none.
+    mut modules: integer
+  end
+
+  --- What `cosmic docs` prints for its words, short of its summary:
+  --- see [`Doc.answer`].
+  record Answer
+    lines: {string}
+    --- Whether every word found something: the run's pass.
+    found: boolean
+    --- What the summary counts ("2 named", "7 found"), led, when a
+    --- word found nothing, by the words that found nothing.
+    said: string
+  end
+
+  --- One module as the index lists it.
+  record Summary
+    module: string
+    --- The first sentence of its documentation; "" when it has none.
+    text: string
+    --- Who alone may require it, by the two rules of [`build.positions`] that hold in every project: "private to
+    --- rules/returns/" for a module of a closed directory, "internal to app/" for one an `internal` directory scopes, ""
+    --- for one any module may. The rules of cosmic's own tree alone (`build/` private to the tool, a test and test
+    --- support) are not marked. [`Doc.index`] leaves it "": only the list `cosmic docs` prints judges it
+    --- ([`marked`]).
+    closed: string
+  end
+
+  --- One row of `uses`, or of `links` (`link`): a link names the
+  --- symbol `module` and `symbol` name, or the file at `path` and, when
+  --- it is not "", the heading `anchor` of it.
+  record Use
+    module: string
+    symbol: string
+    from_module: string
+    from_file: string
+    line: integer
+    link: boolean
+    path: string
+    anchor: string
+  end
+end
+
+--- `value` as a statement's text parameter.
+local function text(value: string): Sqlite.Value
+  return { text = value }
+end
+
+--- A symbol as an `examples_fts` phrase: [`Fs.read`] and `Fs:read` alike
+--- become `"Fs read"`, which matches those adjacent tokens in that order
+--- in an example's text or source. Looser than an exact join on purpose:
+--- one example answers for every symbol its code mentions, not only the
+--- one whose name it shares.
+---
+--- On its own this over-matches: FTS5's tokenizer splits on `_`, so
+--- `Hash.hex` and [`Hash.hex_sha256`] share the same first two tokens, and
+--- `"Hash hex"` matches an example that only ever calls the second one.
+--- [`example_boundary`] is the other half of every query this builds --
+--- a phrase match narrows to candidates cheaply, the boundary check
+--- on those few rows says whether the symbol is really there, whole.
+local function example_phrase(symbol: string): string
+  return '"' .. symbol:gsub("[%.:]", " ") .. '"'
+end
+
+--- A GLOB pattern matching `symbol` followed by a character that could
+--- not continue the same identifier -- so `Hash.hex` matches `Hash.hex(`
+--- but not [`Hash.hex_sha256`]. Checked against an example's own text and
+--- source, space-joined so a match flush against the end of either
+--- still has a boundary to land on.
+local function example_boundary(symbol: string): string
+  return "*" .. symbol .. "[^A-Za-z0-9_]*"
+end
+
+local EXAMPLE_BOUNDARY_SQL =
+  "(e.text || ' ' || e.source || ' ') GLOB " ..
+  "('*' || d.source_symbol || '[^A-Za-z0-9_]*')"
+
+-- The row's use count is never read as queried: [`effective_counts`]
+-- overwrites it on every path that renders `entry.uses` -- see
+-- [`entries_of`] -- so this column is a placeholder, not a correlated
+-- `uses` subquery run for every row of every listing or search.
+local columns =
+  "d.module, d.symbol, d.source_symbol, d.exported, d.kind, d.signature, " ..
+  "d.text, d.file, d.line, " ..
+  "0, " ..
+  "CASE WHEN d.symbol = '' THEN 0 ELSE (SELECT count(*) FROM examples_fts " ..
+  "JOIN examples e ON e.id = examples_fts.rowid " ..
+  "WHERE e.module = d.module AND examples_fts MATCH " ..
+  "('\"' || replace(replace(d.source_symbol, '.', ' '), ':', ' ') || '\"') " ..
+  "AND " .. EXAMPLE_BOUNDARY_SQL .. ") END"
+
+local function entries_of(rows: Sqlite.Rows): mut {Doc.Entry}
+  local out: mut {Doc.Entry} = {}
+  for _, row in ipairs(rows) do
+    out[#out + 1] = {
+      module = row:text(1), symbol = row:text(2), source_symbol = row:text(3),
+      exported = row:text(4) == "1", kind = row:text(5), signature = row:text(6),
+      text = row:text(7), file = row:text(8), line = math.tointeger(tonumber(row:text(9))) or 0,
+      uses = math.tointeger(tonumber(row:text(10))) or 0, links = 0,
+      examples = math.tointeger(tonumber(row:text(11))) or 0,
+      related = {},
+    }
+  end
+  return out
+end
+
+--- Every worked example whose own text or source matches `symbol`, in
+--- `module`, in the order its file declares them -- see
+--- [`example_phrase`]. Several can match one symbol, and each is as
+--- relevant as any other, so source order serves better than a
+--- ranking. `""` finds nothing, since a module's own row has no code of
+--- its own to match.
+local function examples_for(db: Sqlite.Handle, public: boolean, module: string,
+                            symbol: string): {Doc.Example}?, string
+  if symbol == "" then
+    return {}, ""
+  end
+  local rows, trouble = Sqlite.text_rows(db,
+    "SELECT e.name, e.text, e.file, e.line, e.source FROM examples_fts " ..
+      "JOIN examples e ON e.id = examples_fts.rowid " ..
+      "WHERE e.module = ?1 AND examples_fts MATCH ?2 " ..
+      "AND (e.text || ' ' || e.source || ' ') GLOB ?3 " ..
+      "AND " .. symbols.public_only("e.module", public) .. " " ..
+      "ORDER BY e.file, e.line",
+    { text(module), text(example_phrase(symbol)), text(example_boundary(symbol)) })
+  if rows == nil then
+    return nil, trouble
+  end
+  local out: mut {Doc.Example} = {}
+  for _, row in ipairs(rows) do
+    out[#out + 1] = { name = row:text(1), text = row:text(2), file = row:text(3),
+      line = math.tointeger(tonumber(row:text(4))) or 0, source = row:text(5) }
+  end
+  return out, ""
+end
+
+--- How many worked examples a symbol's page shows in full; the rest are
+--- named in one line after them.
+local EXAMPLES_SHOWN <const> = 2
+
+--- Whether `at` in `code` starts a name: nothing before it continues an
+--- identifier, so `MyFs.read` is no [`Fs.read`].
+local function starts_name(code: string, at: integer): boolean
+  return at == 1 or code:sub(at - 1, at - 1):match("[%w_]") == nil
+end
+
+--- How many times `code` calls `symbol`, and where the first call is.
+--- A call is spelled with `.` or `:` before the last name; a method
+--- (a symbol two records deep, [`Sqlite.Handle.exec`], or one written
+--- with `:`) is also called through any value, `db:exec(`.
+local function calls_of(code: string, symbol: string): integer, integer
+  local spellings = { symbol }
+  local colon = symbol:gsub("%.([%w_]+)$", ":%1")
+  if colon ~= symbol then spellings[#spellings + 1] = colon end
+  local last = symbol:match("([%w_]+)$")
+  local _, dots = symbol:gsub("%.", "")
+  if last ~= nil and (symbol:find(":", 1, true) ~= nil or dots >= 2) then
+    spellings[#spellings + 1] = ":" .. last
+  end
+  local count, first = 0, math.maxinteger
+  for _, spelled in ipairs(spellings) do
+    local from = 1
+    while true do
+      local at, to = code:find(spelled, from, true)
+      if at == nil or to == nil then break end
+      local after = code:sub(to + 1, to + 1)
+      if after:match("[%w_]") == nil and (spelled:sub(1, 1) == ":" or starts_name(code, at)) then
+        count = count + 1
+        first = math.min(first, at)
+      end
+      from = to + 1
+    end
+  end
+  return count, first
+end
+
+--- The function of an example's source, without the `require` lines and
+--- top-level calls the analyzer put above it.
+local function example_body(source: string): string
+  return source:match("function Example%..*$") or source
+end
+
+--- Whether `line` closes the statement above it rather than begins one.
+local function closes(line: string): boolean
+  return line:match("^[})%]]") ~= nil or line:match("^end%f[^%w_]") ~= nil
+end
+
+--- A top-level piece of an example's head as [`pieces_of`] reads it: the
+--- lines so far, and its first line that is not a comment.
+local record Piece
+  mut lines: mut {string}
+  mut code: string
+end
+
+--- A top-level piece of an example's head: its `text`, and its first line
+--- of code.
+local record HeadPiece
+  text: string
+  code: string
+end
+
+--- What the analyzer put above an example's function, cut into its
+--- top-level pieces: a `require`, a helper (any other `local`) or a
+--- call (`Test.policy{...}`), each with the comment lines above it. The
+--- text is in the layout `cosmic fix` writes, so a piece begins at a
+--- line in column one that does not close the one before. `code` is a
+--- piece's first line that is not a comment.
+local function pieces_of(head: string): {HeadPiece}
+  local out: mut {HeadPiece} = {}
+  -- The piece being read: its lines so far and its first line of code.
+  local current: Piece = { lines = {}, code = "" }
+  local function finish()
+    local lines = current.lines
+    local last = #lines
+    while last > 0 and lines[last] == "" do last = last - 1 end
+    if last > 0 then
+      table.insert(out, { text = table.concat(lines, "\n", 1, last), code = current.code })
+    end
+    current.lines = {}
+    current.code = ""
+  end
+  for line in String.lines(head) do
+    local comment = line:match("^%-%-") ~= nil
+    if line ~= "" and line:match("^%s") == nil and not closes(line) then
+      local lines = current.lines
+      if current.code ~= "" or (comment and #lines > 0 and lines[#lines] == "") then
+        finish()
+      end
+      if not comment then current.code = line end
+    end
+    local lines = current.lines
+    lines[#lines + 1] = line
+  end
+  finish()
+  return out
+end
+
+--- An example's source as its page for `symbol` shows it. The analyzer
+--- puts above the function the `require` lines it needs, the short
+--- helpers it uses (`local function`, `local record`, ...) and, for a
+--- file's first example, the file's top-level calls (`Test.policy{...}`).
+--- Those calls are shown only on the page of a symbol they call; any
+--- other page gets the function, the helpers and the `require` lines
+--- its body and helpers name.
+local function shown_source(source: string, symbol: string): string
+  local body = example_body(source)
+  local head = source:sub(1, #source - #body)
+  local requires: mut {string} = {}
+  local helpers: mut {string} = {}
+  local calls: mut {string} = {}
+  for _, piece in ipairs(pieces_of(head)) do
+    if piece.code:match("^local [%w_]+ = require%(") ~= nil then
+      requires[#requires + 1] = piece.text
+    elseif piece.code:match("^local ") ~= nil then
+      helpers[#helpers + 1] = piece.text
+    else
+      calls[#calls + 1] = piece.text
+    end
+  end
+  if #calls == 0 then
+    return source
+  end
+  local call_text = table.concat(calls, "\n")
+  if calls_of(call_text, symbol) > 0 then
+    return source
+  end
+  local wanted = body .. "\n" .. table.concat(helpers, "\n")
+  local kept: mut {string} = {}
+  for _, line in ipairs(requires) do
+    local name = line:match("^local ([%w_]+)")
+    local found = false
+    local from = 1
+    while name ~= nil and not found do
+      local at, to = wanted:find(name, from, true)
+      if at == nil or to == nil then break end
+      found = starts_name(wanted, at) and wanted:sub(to + 1, to + 1):match("[%w_]") == nil
+      from = to + 1
+    end
+    if found then kept[#kept + 1] = line end
+  end
+  local out = ""
+  if #kept > 0 then out = table.concat(kept, "\n") .. "\n\n" end
+  if #helpers > 0 then out = out .. table.concat(helpers, "\n\n") .. "\n\n" end
+  return out .. body
+end
+
+--- What [`ranked_examples`] orders an example by, each field lower first.
+local record Rank
+  named: integer
+  calls: integer
+  first: integer
+  size: integer
+end
+
+--- `found` in the order a reader wants them: an example named for the
+--- symbol (`Example.read` for [`Fs.read`]) first, then the one that
+--- calls it most, then the one that calls it soonest, then the shorter,
+--- then by file and line. An example is attached to a symbol by what
+--- it calls, so one built around `truncate` also matches [`Fs.read`] and
+--- must not lead its page.
+local function ranked_examples(found: {Doc.Example}, symbol: string): {Doc.Example}
+  local last = symbol:match("([%w_]+)$") or symbol
+  local keys: mut {Doc.Example: Rank} = {}
+  for _, ex in ipairs(found) do
+    local body = example_body(ex.source)
+    local calls, first = calls_of(body, symbol)
+    keys[ex] = { named = if ex.name == last then 0 else 1 end, calls = -calls, first = first, size = #body }
+  end
+  local out: mut {Doc.Example} = {}
+  for _, ex in ipairs(found) do out[#out + 1] = ex end
+  table.sort(out, function(a: Doc.Example, b: Doc.Example): boolean
+    local ka = assert(keys[a], "every example sorted was ranked")
+    local kb = assert(keys[b], "every example sorted was ranked")
+    if ka.named ~= kb.named then return ka.named < kb.named end
+    if ka.calls ~= kb.calls then return ka.calls < kb.calls end
+    if ka.first ~= kb.first then return ka.first < kb.first end
+    if ka.size ~= kb.size then return ka.size < kb.size end
+    if a.file ~= b.file then return a.file < b.file end
+    return a.line < b.line
+  end)
+  return out
+end
+
+--- The modules that document themselves whose last dotted name is
+--- `query` (`json` for `cosmic.json`, `util` for a project's
+--- `myproj.util`), as their own rows, a project's own ahead of the
+--- standard library's. A module
+--- under `cosmic.internal`, a test module and an example module are
+--- never one, whatever database is read, as in [`Doc.index`], so a bare
+--- name means what a user of a library means by it.
+local function modules_ending(db: Sqlite.Handle, query: string): {Doc.Entry}?, string
+  local rows, trouble = Sqlite.text_rows(db,
+    "SELECT " .. columns .. " FROM docs d WHERE " .. symbols.module_ending_where("d") ..
+      " ORDER BY d.module LIKE 'cosmic.%', d.module, d.id",
+    { text(query) })
+  if rows == nil then
+    return nil, trouble
+  end
+  return entries_of(rows), ""
+end
+
+--- What a module with no documentation row of its own answers for its
+--- name: the symbol it hands out, which carries the module's comment
+--- (a `cmd/<name>/main.tl` that returns a function has no record to
+--- hold it). `module` is the module's whole name.
+local function module_symbol(db: Sqlite.Handle, public: boolean,
+                             module: string): {Doc.Entry}?, string
+  local rows, trouble = Sqlite.text_rows(db,
+    "SELECT " .. columns .. " FROM docs d WHERE d.module = ?1 AND " ..
+      symbols.shown_in(db, "d", public) .. " ORDER BY d.exported DESC, d.id LIMIT 1",
+    { text(module) })
+  if rows == nil then
+    return nil, trouble
+  end
+  return entries_of(rows), ""
+end
+
+--- The rows named `query` exactly: a symbol as declared ([`Fs.read`]), a
+--- symbol's last name alone (`read`, matching every `X.read` and
+--- `X:read`), or a module's own row ([`cosmic.fs`]).
+local function named(db: Sqlite.Handle, public: boolean, query: string): {Doc.Entry}?, string
+  -- TODO: a function a record declares as a field and its file defines has two rows of one source symbol (`years` and
+  -- `RunDb.years`), so `cosmic docs` shows it twice. Fix: [`build.syntax_analyzer`] writes one row for it, and this
+  -- answers once, as [`build.symbol_index`] answers a link; nothing blocks it.
+  local rows, trouble = Sqlite.text_rows(db,
+    "SELECT " .. columns .. " FROM docs d WHERE " .. symbols.named_where("d") ..
+      " AND " .. symbols.shown_in(db, "d", public) .. " ORDER BY d.module, d.id",
+    { text(query) })
+  if rows == nil then
+    return nil, trouble
+  end
+  return entries_of(rows), ""
+end
+
+--- The rows named exactly by one of `names` (`d.symbol IN (...)`), in
+--- one query -- unlike `named`, only the symbol as declared, never a
+--- last name or a module's own row, since a caller passing several
+--- names already knows exactly what each one is.
+local function named_all(db: Sqlite.Handle, public: boolean,
+                         names: {string}): {Doc.Entry}?, string
+  local placeholders: mut {string} = {}
+  local args: mut {Sqlite.Value} = {}
+  for index, name in ipairs(names) do
+    placeholders[index] = "?" .. tostring(index)
+    args[index] = text(name)
+  end
+  local rows, trouble = Sqlite.text_rows(db,
+    "SELECT " .. columns .. " FROM docs d WHERE d.symbol IN (" ..
+      table.concat(placeholders, ", ") .. ") AND " ..
+      symbols.shown_in(db, "d", public) .. " ORDER BY d.module, d.id",
+    args)
+  if rows == nil then
+    return nil, trouble
+  end
+  return entries_of(rows), ""
+end
+
+--- The symbols a module offers, for the listing under a module's own
+--- documentation: everything its returned value reaches, and every type
+--- it declares, since those are the names its signatures are written
+--- in. A private helper function is left out -- a reader scanning the
+--- module wants what they can call -- but `cosmic docs <name>` still
+--- finds it.
+--- A `local` declaration is left out too, whichever source is read: it
+--- is not the module's surface, though `cosmic docs <name>` finds it in
+--- a source that answers for the module's internals.
+--- A call the module's own record declares as a field of function type
+--- (`lstat: function(...)` in [`cosmic.sys`]'s syscall table) is listed
+--- too, as a function; a record's plain data field, and any field of a
+--- nested record (its symbol is dotted), is not. Nor is a field typed
+--- `function` without parentheses, a generic one (`function<T>(...)`),
+--- or an alias of a function type: only the literal `name: function(`
+--- form is. A `metamethod` of the module's own record (`__call` of a
+--- module that is itself callable) is listed too, by its signature; one
+--- of a nested record (its `__close`) is that record's, as its other
+--- fields are.
+local function declared_in(db: Sqlite.Handle, public: boolean, module: string): {Doc.Entry}?, string
+  local rows, trouble = Sqlite.text_rows(db,
+    "SELECT " .. columns .. " FROM docs d WHERE d.module = ?1 " ..
+      "AND d.symbol <> '' AND (d.kind NOT IN ('field', 'value', 'metamethod') OR " ..
+      "(d.kind = 'metamethod' AND d.symbol NOT LIKE '%.%') OR " ..
+      "(d.kind = 'field' AND d.symbol NOT LIKE '%.%' AND " ..
+      "d.signature GLOB d.symbol || ': function(*')) AND " ..
+      "(d.exported = 1 OR d.kind NOT IN ('function', 'method')) AND " ..
+      "NOT " .. symbols.local_declaration("d") .. " AND " ..
+      symbols.shown_in(db, "d", public) .. " ORDER BY d.id",
+    { text(module) })
+  if rows == nil then
+    return nil, trouble
+  end
+  return entries_of(rows), ""
+end
+
+--- The fields of every record and interface in `module`, and the values
+--- of every enum, in declaration order: what a page lists under each.
+--- A field of a `local` record, or one named `_...`, is left out of a
+--- public source, as it is from every other view of it.
+local function members_of(db: Sqlite.Handle, public: boolean,
+                          module: string): {Doc.Entry}?, string
+  local rows, trouble = Sqlite.text_rows(db,
+    "SELECT " .. columns .. " FROM docs d WHERE d.module = ?1 AND " ..
+      "d.kind IN ('field', 'value') AND " .. symbols.shown_in(db, "d", public) ..
+      " ORDER BY d.id",
+    { text(module) })
+  if rows == nil then
+    return nil, trouble
+  end
+  return entries_of(rows), ""
+end
+
+--- Every module's own documentation row, and every documented record
+--- a module declares at its top: one of them says what a module is for
+--- when its opening comment sits on it rather than above it.
+local function modules_of(db: Sqlite.Handle, public: boolean): {Doc.Entry}?, string
+  local rows, trouble = Sqlite.text_rows(db,
+    "SELECT " .. columns .. " FROM docs d WHERE (d.symbol = '' OR " ..
+      "(d.kind = 'record' AND d.symbol NOT LIKE '%.%' AND d.text <> '')) AND " ..
+      symbols.shown_in(db, "d", public) .. " ORDER BY d.module, d.line",
+    {})
+  if rows == nil then
+    return nil, trouble
+  end
+  return entries_of(rows), ""
+end
+
+--- A GLOB matching documentation that spells `word` as code: in
+--- backticks, alone or leading a command line ("which", "mkdir -p").
+--- Matched against lowercased text, so it is lowercased too.
+local function spelled_as_code(word: string): string
+  return "*`" .. word:lower() .. "[` ]*"
+end
+
+--- An SQL condition true when function `d` spells `?2` as code and `?3`
+--- (lowercase) is not one of its own parameters: documentation backticks its
+--- parameters (`path`, `name`) everywhere, so only a name that is not
+--- one says what the function stands in for.
+local STANDS_IN_SQL =
+  "(d.kind IN ('function', 'method') AND lower(d.text) GLOB ?2 AND NOT (d.signature GLOB '*(' || ?3 || '[?:]*' " ..
+  "OR d.signature GLOB '*, ' || ?3 || '[?:]*'))"
+
+--- Words a search never requires: they join the words that name
+--- something and match nearly every sentence of prose.
+local STOP_WORDS: {string:boolean} = {
+  a = true, an = true, the = true, to = true, of = true, ["for"] = true,
+  ["in"] = true, on = true, with = true, ["and"] = true, ["or"] = true,
+  from = true, how = true, ["do"] = true,
+}
+
+--- The words of `query` a search matches. A word of one letter is left
+--- out when there are others: it is almost always a flag ("cp -r",
+--- "rm -f") that no documentation spells alone, and requiring it would
+--- find nothing. A stop word is left out the same way, so "read from the
+--- file" searches for "read" and "file".
+local function query_words(query: string): {string}
+  local words: mut {string} = {}
+  local short: mut {string} = {}
+  local stop: mut {string} = {}
+  for word in query:gmatch("[%w_]+") do
+    if STOP_WORDS[word:lower()] == true then
+      stop[#stop + 1] = word
+    elseif #word > 1 then
+      words[#words + 1] = word
+    else
+      short[#short + 1] = word
+    end
+  end
+  -- A query of nothing else ("x", "the") still searches for what it has.
+  if #words > 0 then
+    return words
+  end
+  return if #short > 0 then short else stop end
+end
+
+--- The first word of `query` a search keeps (see [`query_words`]).
+local function lead_word(query: string): string
+  return query_words(query)[1] or ""
+end
+
+--- `query`'s words as an FTS5 query every one of them must match, each
+--- quoted so it reads as a literal rather than as FTS5 syntax.
+local function fts_query(query: string): string
+  local quoted: mut {string} = {}
+  for _, word in ipairs(query_words(query)) do
+    quoted[#quoted + 1] = '"' .. word .. '"'
+  end
+  return table.concat(quoted, " ")
+end
+
+--- The functions outside [`cosmic.sys`] whose documentation spells
+--- `name` as code: what a reader who looked up a raw binding
+--- ("unlink", "getpid") most likely wanted instead.
+local function stand_ins(db: Sqlite.Handle, public: boolean,
+                         name: string): {Doc.Entry}?, string
+  local rows, trouble = Sqlite.text_rows(db,
+    "SELECT " .. columns .. " FROM docs d WHERE d.module <> 'cosmic.sys' " ..
+      "AND d.kind IN ('function', 'method') AND d.exported = 1 AND lower(d.text) GLOB ?1 AND " ..
+      symbols.shown_in(db, "d", public) .. " ORDER BY d.module, d.id LIMIT 20",
+    { text(spelled_as_code(name)) })
+  if rows == nil then
+    return nil, trouble
+  end
+  return entries_of(rows), ""
+end
+
+--- For a qualified name that names nothing (`Proc.which`), what its
+--- qualifier offers: the members whose documentation carries the last
+--- name's words, best match first, or, when none does, every exported
+--- function it declares. A reader who guessed the module right but the
+--- name wrong sees the name they wanted among its neighbours, rather
+--- than whatever elsewhere happens to use the word.
+local function scoped(db: Sqlite.Handle, public: boolean, qualifier: string,
+                      name: string): {Doc.Entry}?, string
+  -- The build keeps a member's own name in `symbol` (`find`) and the
+  -- name it was written as in `source_symbol` ([`Proc.find`]).
+  local member = qualifier .. "[.:]*"
+  local fts = fts_query(name)
+  if fts ~= "" then
+    local rows, trouble = Sqlite.text_rows(db,
+      "SELECT " .. columns .. " FROM docs_fts JOIN docs d ON d.id = docs_fts.rowid " ..
+        "WHERE docs_fts MATCH ?1 AND d.source_symbol GLOB ?4 AND d.exported = 1 AND " ..
+        symbols.shown_in(db, "d", public) ..
+        " ORDER BY " .. STANDS_IN_SQL .. " DESC, bm25(docs_fts), d.module, d.id LIMIT 20",
+      { text(fts), text(spelled_as_code(lead_word(name))), text(lead_word(name):lower()),
+        text(member) })
+    if rows == nil then
+      return nil, trouble
+    end
+    if #rows > 0 then
+      return entries_of(rows), ""
+    end
+  end
+  local rows, trouble = Sqlite.text_rows(db,
+    "SELECT " .. columns .. " FROM docs d WHERE d.source_symbol GLOB ?1 " ..
+      "AND d.kind IN ('function', 'method') AND d.exported = 1 AND " ..
+      symbols.shown_in(db, "d", public) .. " ORDER BY d.module, d.id",
+    { text(member) })
+  if rows == nil then
+    return nil, trouble
+  end
+  return entries_of(rows), ""
+end
+
+--- How the columns of `docs_fts` count toward relevance: a word in a
+--- symbol's name says far more than one in its signature, and that more
+--- than one somewhere in its prose, which is the longest by far.
+local DOCS_WEIGHTS = "10.0, 3.0, 1.0"
+
+--- The most rows a search offers, and the most it offers of what
+--- carries only some of the words.
+local LIMIT = 20
+local CLOSEST = 5
+
+--- The most guide sections a search offers, and how many rows of
+--- documentation come before them.
+local SECTIONS = 3
+local AHEAD = 3
+
+--- How many of `count` words a row must carry to be offered when none
+--- carries all: half of them, and at least two, so a query with one word
+--- nothing knows never finds the rows of the other.
+local function bar(count: integer): integer
+  return math.max(2, (count + 1) // 2)
+end
+
+--- The rows whose symbol, signature or documentation carries at least
+--- `bar(#words)` of `words`, at most `CLOSEST` of them, those carrying
+--- more of the words first and, among equals, the better match by
+--- relevance. Each row's last field is its id.
+local function partly_searched(db: Sqlite.Handle, public: boolean,
+                               words: {string}): Sqlite.Rows?, string
+  local matched: mut {integer:integer} = {}
+  local score: mut {integer:number} = {}
+  for _, word in ipairs(words) do
+    local rows, trouble = Sqlite.text_rows(db,
+      "SELECT d.id, bm25(docs_fts, " .. DOCS_WEIGHTS .. ") FROM docs_fts " ..
+        "JOIN docs d ON d.id = docs_fts.rowid WHERE docs_fts MATCH ?1 AND " ..
+        symbols.shown_in(db, "d", public), { text('"' .. word .. '"') })
+    if rows == nil then
+      return nil, trouble
+    end
+    for _, row in ipairs(rows) do
+      local id = math.tointeger(tonumber(row:text(1))) or 0
+      matched[id] = (matched[id] or 0) + 1
+      score[id] = (score[id] or 0) + (tonumber(row:text(2)) or 0)
+    end
+  end
+  local ids: mut {integer} = {}
+  for id, count in pairs(matched) do
+    if count >= bar(#words) then ids[#ids + 1] = id end
+  end
+  table.sort(ids, function(x: integer, y: integer): boolean
+    -- Every id came from `matched`, and `score` is set wherever it is.
+    local matched_x = assert(matched[x], "every id was counted")
+    local matched_y = assert(matched[y], "every id was counted")
+    if matched_x ~= matched_y then return matched_x > matched_y end
+    local score_x = assert(score[x], "every counted id was scored")
+    local score_y = assert(score[y], "every counted id was scored")
+    if score_x ~= score_y then return score_x < score_y end
+    return x < y
+  end)
+  while #ids > CLOSEST do ids[#ids] = nil end
+  if #ids == 0 then
+    return {}, ""
+  end
+  -- The ids are integers this function read, so they are safe to spell out.
+  local rows, trouble = Sqlite.text_rows(db,
+    "SELECT " .. columns .. ", d.id FROM docs d WHERE d.id IN (" ..
+      table.concat(ids, ",") .. ")", {})
+  if rows == nil then
+    return nil, trouble
+  end
+  local by_id: mut {integer:Sqlite.Row} = {}
+  for _, row in ipairs(rows) do
+    by_id[math.tointeger(tonumber(row:text(row:count()))) or 0] = row
+  end
+  local out: mut {Sqlite.Row} = {}
+  for _, id in ipairs(ids) do
+    local row = by_id[id]
+    if row ~= nil then out[#out + 1] = row end
+  end
+  return out, ""
+end
+
+--- `word` in lowercase without an ending that makes it a longer form of
+--- a name: "reading" is "read", "files" is "file". The index stems words
+--- exactly; this only lets a member named `read` count as named by
+--- "reading".
+local function plain(word: string): string
+  local lower = word:lower()
+  for _, ending in ipairs({ "ing", "ed", "es", "s" }) do
+    if #lower >= #ending + 3 and String.ends_with(lower, ending) then
+      return lower:sub(1, -#ending - 1)
+    end
+  end
+  return lower
+end
+
+--- The rows whose symbol, signature or documentation carries every
+--- word of `query`, best match first: those that spell its first word
+--- as code, where it is not a parameter of theirs, then by relevance,
+--- weighing a word in the name above one in the prose.
+local function searched_docs(db: Sqlite.Handle, public: boolean,
+                             query: string): {Doc.Entry}?, string
+  local lead = lead_word(query)
+  local words = query_words(query)
+  -- What a function stands in for is a question about one word: with
+  -- several, the words together say more than the first does.
+  local stands_in = ""
+  local binds = { text(fts_query(query)) }
+  if #words == 1 then
+    stands_in = STANDS_IN_SQL .. " DESC, "
+    local as_code = text(spelled_as_code(lead))
+    local lowered = text(lead:lower())
+    binds[#binds + 1] = as_code
+    binds[#binds + 1] = lowered
+  end
+  -- A member named for one of the words comes before any that only
+  -- carries it: [`Fs.read`] before `Unveil.reads` for "read a file".
+  local hits: mut {string} = {}
+  for _, word in ipairs(words) do
+    for _, form in ipairs({ word:lower(), plain(word) }) do
+      binds[#binds + 1] = text(form)
+      hits[#hits + 1] = "?" .. tostring(#binds)
+    end
+  end
+  -- Then a comment that says the words together, as typed, and then a
+  -- member before a field: a field is a detail of a record, which is
+  -- likelier to be what was sought. A module's row stands on its own
+  -- relevance, as any row does: a module whose prose says the words
+  -- comes before a member that only has them in a parameter's type.
+  -- A row whose own name or prose carries every word comes before one
+  -- that carries them only in a signature, where a handle's parameter
+  -- (`db: Sqlite.Handle`) is the whole match: a module about databases
+  -- before each function that takes one.
+  binds[#binds + 1] = text("{symbol text}: (" .. fts_query(query) .. ")")
+  local said = "d.id IN (SELECT rowid FROM docs_fts WHERE docs_fts MATCH ?" .. tostring(#binds) .. ") DESC, "
+  -- With one word, which names a topic, the module about it comes before
+  -- a member that says it in passing; with several, which ask for
+  -- something to do, the member does.
+  -- It leads only when the word is in the module's name or the first
+  -- paragraph of its documentation, which says what the module is for: a
+  -- long module that mentions the word somewhere is not about it.
+  if #words == 1 then
+    local like = text("%" .. lead:lower() .. "%")
+    binds[#binds + 1] = like
+    local at = "?" .. tostring(#binds)
+    said = said .. "(d.symbol = '' AND (lower(d.module) LIKE " .. at ..
+      " OR lower(substr(d.text, 1, instr(d.text || char(10) || char(10), char(10) || char(10)) - 1)) LIKE " ..
+      at .. ")) DESC, "
+  end
+  local phrase = ""
+  if #words > 1 then
+    local typed: mut {string} = {}
+    for word in query:gmatch("[%w_]+") do typed[#typed + 1] = word:lower() end
+    binds[#binds + 1] = text(table.concat(typed, " "))
+    phrase = "instr(replace(lower(d.text), char(10), ' '), ?" .. tostring(#binds) .. ") > 0 DESC, "
+  end
+  local rows, trouble = Sqlite.text_rows(db,
+    "SELECT " .. columns .. ", d.id FROM docs_fts JOIN docs d ON d.id = docs_fts.rowid " ..
+      "WHERE docs_fts MATCH ?1 AND " .. symbols.shown_in(db, "d", public) ..
+      " ORDER BY " .. stands_in .. "lower(d.symbol) IN (" .. table.concat(hits, ", ") ..
+      ") DESC, " .. said .. phrase .. "d.kind = 'field', bm25(docs_fts, " .. DOCS_WEIGHTS ..
+      "), d.module, d.id LIMIT " .. tostring(LIMIT),
+    binds)
+  if rows == nil then
+    return nil, trouble
+  end
+  return entries_of(rows), ""
+end
+
+--- The rows carrying some words of `query` when none carries them all,
+--- at most `CLOSEST`; nothing when it has fewer than two words to carry.
+local function closest(db: Sqlite.Handle, public: boolean,
+                       query: string): {Doc.Entry}?, string
+  local words = query_words(query)
+  if #words < 2 then
+    return {}, ""
+  end
+  local rows, trouble = partly_searched(db, public, words)
+  if rows == nil then
+    return nil, trouble
+  end
+  return entries_of(rows), ""
+end
+
+--- Every worked example whose own name, comment, or checked source carries
+--- every word of `query`. An example is returned as itself, not as one of
+--- the symbols it calls: its source cannot say which of several calls is
+--- its subject.
+local function searched_examples(db: Sqlite.Handle, public: boolean, fts: string): {Doc.Entry}?, string
+  local rows, trouble = Sqlite.text_rows(db,
+    "SELECT e.module, e.name, e.text, e.file, e.line, e.source FROM examples_fts " ..
+      "JOIN examples e ON e.id = examples_fts.rowid " ..
+      "WHERE examples_fts MATCH ?1 AND " .. symbols.public_only("e.module", public) ..
+      -- Names and prose describe intent; source often mentions incidental APIs.
+      " ORDER BY bm25(examples_fts, 3.0, 2.0, 0.2), e.module, e.file, e.line LIMIT 20",
+    { text(fts) })
+  if rows == nil then
+    return nil, trouble
+  end
+  local out: mut {Doc.Entry} = {}
+  for _, row in ipairs(rows) do
+    out[#out + 1] = { module = row:text(1), symbol = "Example." .. row:text(2),
+      source_symbol = "Example." .. row:text(2), exported = true, kind = "example",
+      signature = "", text = row:text(3),
+      file = row:text(4), line = math.tointeger(tonumber(row:text(5))) or 0,
+      uses = 0, links = 0, examples = 0,
+      related = { { name = row:text(2), text = row:text(3), file = row:text(4),
+        line = math.tointeger(tonumber(row:text(5))) or 0, source = row:text(6) } },
+    }
+  end
+  return out, ""
+end
+
+--- Whether `db` holds the shipped tables at all: a database built
+--- before they existed answers no query here.
+local function has_docs(db: Sqlite.Handle): boolean?, string
+  local rows, trouble = Sqlite.text_rows(db,
+    "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'docs'")
+  if rows == nil then return nil, trouble end
+  return #rows > 0, ""
+end
+
+--- Whether `db` holds documentation at all: what a caller asks of a database before it lists it among a view's,
+--- one that holds none answering nothing. Nil and why when it cannot be read.
+function Doc.documented(db: Sqlite.Handle): boolean?, string
+  return has_docs(db)
+end
+
+--- Whether `db` holds `links`: a database built before it existed has
+--- no links to answer with.
+local function has_links(db: Sqlite.Handle): boolean?, string
+  local rows, trouble = Sqlite.text_rows(db,
+    "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'links'")
+  if rows == nil then return nil, trouble end
+  return #rows > 0, ""
+end
+
+--- A guide's `##` sections: each heading's text, its anchor (as
+--- GitHub spells one) and the lines under it, up to the next heading.
+--- What comes before the first heading is not a section, since the
+--- guide's own row says it. A `#` line inside a fence is code, not a heading.
+local record Section
+  heading: string
+  anchor: string
+  body: string
+end
+
+--- The text of `word` a section is searched for: its stem, so "narrowing"
+--- finds "narrows", but a short word whole.
+local function stem(word: string): string
+  if #word >= 4 then
+    return plain(word)
+  end
+  return word:lower()
+end
+
+--- How many times `word` (see [`stem`]) occurs in the lowercase `written`:
+--- anywhere when `whole` is false, else only as a word of its own, so "db"
+--- is not found in "sandbox" and "sort" not in "sorted".
+local function occurrences(written: string, word: string, whole: boolean): integer
+  local pattern = word:gsub("%p", "%%%0")
+  if whole or #word < 4 then
+    pattern = "%f[%w_]" .. pattern .. "%f[^%w_]"
+  end
+  local _, count = written:gsub(pattern, "")
+  return count
+end
+
+local record Scored
+  entry: Doc.Entry
+  score: integer
+end
+
+local function sections_of(guide: string): {Section}
+  local out: mut {Section} = {}
+  local heading = ""
+  local lines: mut {string} = {}
+  local started = false
+  local fence = false
+  -- A heading said again takes `-1`, `-2` after its anchor, as GitHub does.
+  local made: mut {string: integer} = {}
+  --- Adds the section being read, once it has a heading.
+  local function close()
+    if started then
+      local base = heading:lower():gsub("[^%w_%- ]", ""):gsub(" ", "-")
+      local slug = base
+      local times = made[base] or 0
+      if times > 0 then
+        slug = base .. "-" .. tostring(times)
+      end
+      made[base] = times + 1
+      local section: Section = { heading = heading, anchor = slug,
+        body = String.trim(table.concat(lines, "\n")) }
+      out[#out + 1] = section
+    end
+    lines = {}
+  end
+  for line in String.lines(guide) do
+    if line:match("^%s*[`~][`~][`~]") ~= nil then fence = not fence end
+    local title = if fence then nil else line:match("^##%s+(.-)%s*$") end
+    if title ~= nil then
+      close()
+      heading = title
+      started = true
+    else
+      lines[#lines + 1] = line
+    end
+  end
+  close()
+  return out
+end
+
+--- The sections of the guides whose text carries every word of `query`
+--- in its heading (as its stem, so "narrowing" finds "narrowing a
+--- value") or as a word of its own in the text, each as an entry of
+--- kind `section` that names the guide and the heading, best first:
+--- those with a word in the heading, then by how often the words occur.
+--- Each guide is split here rather than indexed, since the index holds
+--- one row for a whole page, which its length buries and a hit shows
+--- only the opening of.
+local function guide_sections(db: Sqlite.Handle, public: boolean, query: string): {Doc.Entry}?, string
+  local words: mut {string} = {}
+  for _, word in ipairs(query_words(query)) do
+    words[#words + 1] = stem(word)
+  end
+  local guides = "d.module GLOB 'doc.guides.*'"
+  if public then
+    guides = symbols.guide_module("d.module")
+  end
+  local rows, trouble = Sqlite.text_rows(db,
+    "SELECT " .. columns .. " FROM docs d WHERE d.symbol = '' AND d.kind = 'module' AND " ..
+      guides .. " ORDER BY d.module")
+  if rows == nil then
+    return nil, trouble
+  end
+  local scored: mut {Scored} = {}
+  for _, guide in ipairs(entries_of(rows)) do
+    for _, section in ipairs(sections_of(guide.text)) do
+      local titled = section.heading:lower()
+      local said = section.body:lower()
+      local score, headed = 0, false
+      for _, word in ipairs(words) do
+        local in_heading = occurrences(titled, word, false) > 0
+        local count = occurrences(said, word, true)
+        if not in_heading and count == 0 then
+          score = -1
+          break
+        end
+        headed = headed or in_heading
+        score = score + math.min(count, 5)
+      end
+      if score >= 0 then
+        if headed then score = score + 100 end
+        local at = guide.module .. "#" .. section.anchor
+        scored[#scored + 1] = { entry = { module = guide.module, symbol = "#" .. section.anchor,
+          source_symbol = at, exported = true, kind = "section", signature = "## " .. section.heading,
+          text = section.body, file = guide.file, line = 0, uses = 0, links = 0, examples = 0,
+          related = {} }, score = score }
+      end
+    end
+  end
+  table.sort(scored, function(a: Scored, b: Scored): boolean
+    if a.score ~= b.score then return a.score > b.score end
+    return a.entry.source_symbol < b.entry.source_symbol
+  end)
+  local out: mut {Doc.Entry} = {}
+  for index, item in ipairs(scored) do
+    if index > SECTIONS then break end
+    out[index] = item.entry
+  end
+  return out, ""
+end
+
+--- [`searched_docs`] and [`searched_examples`] together. Each example is kept once
+--- as itself; documentation rows retain their real symbol identity.
+local function searched(db: Sqlite.Handle, public: boolean, query: string): {Doc.Entry}?, string
+  local fts = fts_query(query)
+  if fts == "" then
+    return {}, ""
+  end
+  local from_docs, docs_trouble = searched_docs(db, public, query)
+  if from_docs == nil then
+    return nil, docs_trouble
+  end
+  local from_examples, examples_trouble = searched_examples(db, public, fts)
+  if from_examples == nil then
+    return nil, examples_trouble
+  end
+  local from_guides, guides_trouble = guide_sections(db, public, query)
+  if from_guides == nil then
+    return nil, guides_trouble
+  end
+  -- A section shows the part of its guide that answers, so the guide's
+  -- own row, which shows only its opening, is left out. The sections
+  -- come after the first few rows, which keeps the member a reader
+  -- named ahead of a guide that merely says the words.
+  local sectioned: mut {string: boolean} = {}
+  for _, entry in ipairs(from_guides) do
+    sectioned[entry.module] = true
+  end
+  local out: mut {Doc.Entry} = {}
+  local kept = 0
+  local offered = false
+  local function offer_sections()
+    if not offered and (kept == AHEAD or kept == #from_docs) then
+      offered = true
+      for _, entry in ipairs(from_guides) do out[#out + 1] = entry end
+    end
+  end
+  offer_sections()
+  for _, entry in ipairs(from_docs) do
+    if not (entry.symbol == "" and sectioned[entry.module] == true) then
+      out[#out + 1] = entry
+    end
+    kept = kept + 1
+    offer_sections()
+  end
+  for _, entry in ipairs(from_examples) do out[#out + 1] = entry end
+  return out, ""
+end
+
+--- Whether `db` holds the `catalog` and the index over it: a database built before the codes of the checker were written to
+--- it has none to answer with.
+local function has_catalog(db: Sqlite.Handle): boolean?, string
+  local rows, trouble = Sqlite.text_rows(db,
+    "SELECT count(*) FROM sqlite_schema WHERE type = 'table' AND name IN ('catalog', 'catalog_fts')")
+  if rows == nil then return nil, trouble end
+  local held = false
+  for _, row in ipairs(rows) do
+    held = row:text(1) == "2"
+  end
+  return held, ""
+end
+
+--- The entries of the catalog rows of kind `code` ([`build.error_catalog`]) that `where` selects, from the first database
+--- that holds any: the rule behind a code of the checker, its reason and its fix, in the text of the row.
+local function coded_entries(view: Doc.View, join: string, where: string, binds: {Sqlite.Value},
+                             limit: integer): {Doc.Entry}?, string
+  for _, db in ipairs(view.databases) do
+    local held, held_trouble = has_catalog(db)
+    if held == nil then
+      return nil, held_trouble
+    end
+    if held then
+      local rows, trouble = Sqlite.text_rows(db,
+        "SELECT c.module, c.symbol, c.symbol, '1', 'code', '', c.text, c.file, c.line, 0, 0 FROM catalog c " .. join ..
+          " WHERE c.kind = 'code' AND " .. where .. " ORDER BY c.id LIMIT " .. tostring(limit),
+        binds)
+      if rows == nil then
+        return nil, trouble
+      end
+      if #rows > 0 then
+        return entries_of(rows), ""
+      end
+    end
+  end
+  return {}, ""
+end
+
+--- The code `query` names exactly (`not_assignable`): its row of the catalog.
+local function coded(view: Doc.View, query: string): {Doc.Entry}?, string
+  if query:match("^[%l_]+$") == nil then
+    return {}, ""
+  end
+  return coded_entries(view, "", "c.symbol = ?1", { text(query) }, 1)
+end
+
+--- The rows of codes whose rule, reason or fix carries every word of `query`, best match first.
+local function coded_words(view: Doc.View, query: string): {Doc.Entry}?, string
+  local fts = fts_query(query)
+  if fts == "" then
+    return {}, ""
+  end
+  return coded_entries(view, "JOIN catalog_fts ON catalog_fts.rowid = c.id", "catalog_fts MATCH ?1", { text(fts) }, 10)
+end
+
+--- The places that refer to what `query` names, by the rule
+--- [`symbols.used_where`] keeps: the uses, then the links, which also
+--- answer a query that is a file's path from the root, alone or with
+--- `#` and a heading's anchor (`doc/writing.md#every-example-runs`). A
+--- path alone finds the links to its headings too, and a bare lowercase
+--- name the links to each module it is the last name of, as
+--- [`Doc.exact`] reads one (`plural` for [`build.plural`]). A public source
+--- has no link to a file of its own tree.
+local function uses_of(db: Sqlite.Handle, public: boolean, query: string): {Doc.Use}?, string
+  local rows, trouble = Sqlite.text_rows(db,
+    "SELECT module, symbol, from_module, from_file, line FROM uses u WHERE " ..
+      symbols.used_where("u") .. " AND " ..
+      symbols.public_only("module", public) .. " AND " ..
+      symbols.public_only("from_module", public) ..
+      " ORDER BY module, symbol, from_file, line", { text(query) })
+  if rows == nil then
+    return nil, trouble
+  end
+  local out: mut {Doc.Use} = {}
+  for _, row in ipairs(rows) do
+    out[#out + 1] = { module = row:text(1), symbol = row:text(2), from_module = row:text(3),
+      from_file = row:text(4), line = math.tointeger(tonumber(row:text(5))) or 0,
+      link = false, path = "", anchor = "" }
+  end
+  local linked, linked_trouble = has_links(db)
+  if linked == nil then
+    return nil, linked_trouble
+  end
+  if not linked then
+    return out, ""
+  end
+  local path = query:gsub("^%./", ""):gsub("/$", "")
+  local anchor: string? = nil
+  local before, after = path:match("^([^#]*)#(.+)$")
+  if before ~= nil and after ~= nil then
+    path, anchor = before, after:lower()
+  end
+  local link_rows, link_trouble = Sqlite.text_rows(db,
+    "SELECT module, symbol, from_module, from_file, line, path, anchor FROM links l WHERE " ..
+      "((kind = 'symbol' AND (" .. symbols.used_where("l") .. " OR (l.symbol = '' AND " ..
+      "l.module = ?1) OR (?5 = 1 AND " .. symbols.module_ending_where("l") .. ")) AND " ..
+      symbols.public_only("l.module", public) .. ") OR " ..
+      "(kind <> 'symbol' AND ?4 = 0 AND l.path = ?2 AND (?3 = '' OR lower(l.anchor) = ?3))) AND " ..
+      symbols.public_only("l.from_module", public) ..
+      " ORDER BY module, symbol, path, anchor, from_file, line, column",
+    { text(query), text(path), text(anchor or ""),
+      { integer = if public then 1 else 0 end },
+      { integer = if query:match("^%l[%w_]*$") ~= nil then 1 else 0 end } })
+  if link_rows == nil then
+    return nil, link_trouble
+  end
+  for _, row in ipairs(link_rows) do
+    out[#out + 1] = { module = row:text(1), symbol = row:text(2), from_module = row:text(3),
+      from_file = row:text(4), line = math.tointeger(tonumber(row:text(5))) or 0,
+      link = true, path = row:text(6), anchor = row:text(7) }
+  end
+  return out, ""
+end
+
+--- Whether the database at `index` of `view` answers for `module`: the
+--- first that holds it, or, for "" -- a Markdown, C or Zig file's link,
+--- which names no module ([`build.link_index`]) -- the first that is not
+--- a public source, the tree's own projection, as only a tree's own
+--- build indexes its files.
+local function answers_for(view: Doc.View, index: integer, module: string): boolean
+  if module == "" then
+    for at = 1, #view.databases do
+      if view.public[at] ~= true then return at == index end
+    end
+    return false
+  end
+  return view.owners[module] == index
+end
+
+--- One lookup over `databases`, in order, with a module answered by an
+--- earlier database hiding it in every later one.
+--- @param look what to read from each database
+local function across<T>(view: Doc.View,
+                         look: function(Sqlite.Handle, boolean): {T}?, string,
+                         module_of: function(T): string): {T}?, string
+  local out: mut {T} = {}
+  for index, db in ipairs(view.databases) do
+    local documented, documented_trouble = has_docs(db)
+    if documented == nil then
+      return nil, documented_trouble
+    end
+    if documented then
+      local found, trouble = look(db, view.public[index] == true)
+      if found == nil then
+        return nil, trouble
+      end
+      for _, item in ipairs(found) do
+        if answers_for(view, index, module_of(item)) then
+          out[#out + 1] = item
+        end
+      end
+    end
+  end
+  return out, ""
+end
+
+local function entry_module(entry: Doc.Entry): string
+  return entry.module
+end
+
+local function calling_module(use: Doc.Use): string
+  return use.from_module
+end
+
+--- The database `owner` stands for: an owner is the index of a database
+--- [`Doc.view`] listed, so it always has one.
+local function database_of(view: Doc.View, owner: integer): Sqlite.Handle
+  return (assert(view.databases[owner], "an owner is the index of one of the view's databases"))
+end
+
+--- Whether `module` is one the database that owns it records as public
+--- ([`symbols.public_modules`]): what a public source answers for. A
+--- database that cannot say records none.
+local function is_public(view: Doc.View, module: string): boolean
+  local owner = view.owners[module]
+  if owner == nil then
+    return false
+  end
+  local recorded = view.public_modules[owner]
+  if recorded == nil then
+    local read, _ = symbols.public_modules(database_of(view, owner))
+    recorded = read or {}
+    view.public_modules[owner] = recorded
+  end
+  return recorded[module] == true
+end
+
+--- Whether `module` is the standard library's and public: one of the
+--- `cosmic.*` namespace, which no project may define, that the database
+--- that owns it records as public. A project's own public modules are
+--- not the library's.
+local function is_library(view: Doc.View, module: string): boolean
+  return symbols.is_library_module(module) and is_public(view, module)
+end
+
+--- The record `module`'s value is typed as when the module returns a
+--- name that is not that record (`local module: Module`), as its own
+--- row records it ([`alias_members.value_record`]); nil when it returns
+--- its record by name, or has no row of its own.
+local function value_record(db: Sqlite.Handle, module: string): string?, string
+  local rows, trouble = Sqlite.text_rows(db,
+    "SELECT signature FROM docs WHERE module = ?1 AND symbol = '' AND kind = 'module' " ..
+      "ORDER BY id LIMIT 1", { text(module) })
+  if rows == nil then
+    return nil, trouble
+  end
+  if #rows == 0 then
+    return nil, ""
+  end
+  return alias_members.value_record(rows[1]:text(1)), ""
+end
+
+--- The name `entry` is used by, as a use of it is recorded, when that
+--- differs from its symbol: `order` for cosmic.cli's `Module.order`,
+--- a member of the record the module's value is typed as. Nil when the
+--- two are one, or nil and why when the owning database cannot be read.
+local function used_as(view: Doc.View, entry: Doc.Entry): string?, string
+  local owner = view.owners[entry.module]
+  if owner == nil or entry.symbol == "" then
+    return nil, ""
+  end
+  local cached = view.value_records[entry.module]
+  if cached == nil then
+    local record, trouble = value_record(database_of(view, owner), entry.module)
+    if record == nil and trouble ~= "" then
+      return nil, trouble
+    end
+    cached = record or ""
+    view.value_records[entry.module] = cached
+  end
+  local prefix = cached .. "."
+  if cached ~= "" and String.starts_with(entry.source_symbol, prefix) then
+    return (entry.source_symbol:sub(#prefix + 1):gsub(":", ".")), ""
+  end
+  return nil, ""
+end
+
+local function use_key(module: string, symbol: string): string
+  return module .. "\n" .. symbol
+end
+
+--- How many places refer to `module`/`symbol`, across `view.databases`.
+--- A use counts only if the database is not a public source or both ends are
+--- public modules, and only when that database owns the calling module; see
+--- `across`. Each pair is computed once and cached on `view`, since both a
+--- module listing and symbol rendering can request it in one command.
+local function count_uses(view: Doc.View, module: string,
+                          symbol: string): integer?, string
+  local key = use_key(module, symbol)
+  local cached = view.use_counts[key]
+  if cached ~= nil then
+    return cached, ""
+  end
+  local seen: mut {string: boolean} = {}
+  local total = 0
+  for index, db in ipairs(view.databases) do
+    local documented, documented_trouble = has_docs(db)
+    if documented == nil then
+      return nil, documented_trouble
+    end
+    if documented then
+      local rows, trouble = Sqlite.text_rows(db,
+        "SELECT from_module, from_file, line FROM uses " ..
+          "WHERE module = ?1 AND symbol = ?2",
+        { text(module), text(symbol) })
+      if rows == nil then
+        return nil, trouble
+      end
+      for _, row in ipairs(rows) do
+        local from_module = row:text(1)
+        local counted = view.public[index] ~= true or
+          (is_public(view, module) and is_public(view, from_module))
+        if counted and view.owners[from_module] == index then
+          local position = module .. "\n" .. symbol .. "\n" .. from_module ..
+            "\n" .. row:text(2) .. "\n" .. row:text(3)
+          if seen[position] ~= true then
+            seen[position] = true
+            total = total + 1
+          end
+        end
+      end
+    end
+  end
+  view.use_counts[key] = total
+  return total, ""
+end
+
+--- How many links name `module`/`symbol`, across `view.databases`,
+--- counted as [`count_uses`] counts uses, and cached on `view` the same
+--- way.
+local function count_links(view: Doc.View, module: string,
+                           symbol: string): integer?, string
+  local key = use_key(module, symbol)
+  local cached = view.link_counts[key]
+  if cached ~= nil then
+    return cached, ""
+  end
+  local seen: mut {string: boolean} = {}
+  local total = 0
+  for index, db in ipairs(view.databases) do
+    local linked, linked_trouble = has_links(db)
+    if linked == nil then
+      return nil, linked_trouble
+    end
+    if linked then
+      local rows, trouble = Sqlite.text_rows(db,
+        "SELECT from_module, from_file, line FROM links " ..
+          "WHERE kind = 'symbol' AND module = ?1 AND symbol = ?2",
+        { text(module), text(symbol) })
+      if rows == nil then
+        return nil, trouble
+      end
+      for _, row in ipairs(rows) do
+        local from_module = row:text(1)
+        local counted = view.public[index] ~= true or
+          (is_public(view, module) and is_public(view, from_module))
+        -- One place per line, as [`Doc.uses`] lists them.
+        local position = row:text(2) .. "\n" .. row:text(3)
+        if counted and answers_for(view, index, from_module) and seen[position] ~= true then
+          seen[position] = true
+          total = total + 1
+        end
+      end
+    end
+  end
+  view.link_counts[key] = total
+  return total, ""
+end
+
+local function effective_counts(view: Doc.View, entries: {Doc.Entry}): boolean, string
+  for _, entry in ipairs(entries) do
+    local used, used_trouble = used_as(view, entry)
+    if used == nil and used_trouble ~= "" then
+      return false, used_trouble
+    end
+    local uses, trouble = count_uses(view, entry.module, used or entry.symbol)
+    if uses == nil then
+      return false, trouble
+    end
+    entry.uses = uses
+    local linked, link_trouble = count_links(view, entry.module, entry.symbol)
+    if linked == nil then
+      return false, link_trouble
+    end
+    entry.links = linked
+  end
+  return true, ""
+end
+
+--- Resolves module ownership once for a docs command or direct caller.
+--- Membership comes from `modules`, even when the owning database has
+--- no documentation for that module, and from `decls` -- [`cosmic.sys`]
+--- is only a declaration -- where it does: a database that copied a
+--- declaration without its documentation must not hide the one that
+--- documents it.
+--- @param public which databases, by index, are public sources
+function Doc.view(databases: {Sqlite.Handle}, public?: {boolean}): Doc.View?, string
+  local scope: mut {integer: boolean} = {}
+  for index, flag in ipairs(public or {}) do
+    scope[index] = flag
+  end
+  local owners: mut {string: integer} = {}
+  for index, db in ipairs(databases) do
+    local rows, trouble = Sqlite.text_rows(db, symbols.owned_modules(""))
+    if rows == nil then
+      return nil, trouble
+    end
+    for _, row in ipairs(rows) do
+      if owners[row:text(1)] == nil then
+        owners[row:text(1)] = index
+      end
+    end
+  end
+  return { databases = databases, public = scope, owners = owners,
+    use_counts = {}, link_counts = {}, value_records = {}, public_modules = {}, commands = {} }, ""
+end
+
+--- The command of `view` that `entry` documents, or nil.
+local function command_of(view: Doc.View, entry: Doc.Entry): Doc.Command?
+  for _, command in ipairs(view.commands) do
+    if command.module == entry.module and command.symbol == entry.symbol then
+      return command
+    end
+  end
+  return nil
+end
+
+--- `entries` as a lookup's answer, with the entries of `ahead` standing before them.
+local function lookup(entries: {Doc.Entry}, exact: boolean, count: integer,
+                      partial?: boolean, ahead?: {Doc.Entry}): Doc.Lookup
+  local out: Doc.Lookup = { exact = exact, named = count, closest = partial == true, modules = 0 }
+  local at = 0
+  local first: {Doc.Entry} = {}
+  if ahead ~= nil then
+    first = ahead
+  end
+  for _, list in ipairs({ first, entries }) do
+    for _, entry in ipairs(list) do
+      at = at + 1
+      out[at] = entry -- checked: view_written
+    end
+  end
+  return out
+end
+
+--- `written` as FTS5's default tokenizer reads it, closely enough for a
+--- match: lowercased, each run of anything but letters and digits (`_`
+--- among them) one space, and a space at each end, so a phrase is found
+--- as " phrase " and never inside a longer word.
+local function tokens_of(written: string): string
+  local spaced = written:lower():gsub("[^%w]+", " ")
+  return " " .. String.trim(spaced) .. " "
+end
+
+--- The verbs whose symbol, prose and options together carry every word
+--- of `query`, as `Cli.<verb>` entries: the search reads doc comments,
+--- and a command's options are data ([`Doc.Command`]'s `options`), so what one does is
+--- matched here instead, against the options of the binary answering,
+--- as `render` shows them. Each word is a phrase, as [`fts_query`] quotes
+--- it: `COSMIC_TEST_TIMEOUT` must be those three tokens in a row. They
+--- come after what the index found, as the lesser match: most of what a
+--- verb's options say is said again, closer, by the code they drive. A
+--- verb `found` already holds is not repeated.
+local function by_options(view: Doc.View, query: string,
+                          found: {Doc.Entry}): {Doc.Entry}?, string
+  local wanted: mut {string} = {}
+  for quoted in (fts_query(query) .. " "):gmatch('"([^"]*)" ') do
+    local phrase = tokens_of(quoted)
+    if phrase ~= "  " then wanted[#wanted + 1] = phrase end
+  end
+  if #wanted == 0 then
+    return {}, ""
+  end
+  local commands: mut {string: Doc.Command} = {}
+  local names: mut {string} = {}
+  for _, command in ipairs(view.commands) do
+    if command.options ~= nil then
+      names[#names + 1] = command.symbol
+      commands[command.module .. "\n" .. command.symbol] = command
+    end
+  end
+  table.sort(names)
+  local fields, trouble = across(view,
+    function(db: Sqlite.Handle, public: boolean): {Doc.Entry}?, string
+      return named_all(db, public, names)
+    end, entry_module)
+  if fields == nil then
+    return nil, trouble
+  end
+  local held: mut {string:boolean} = {}
+  for _, entry in ipairs(found) do held[entry.module .. "\n" .. entry.symbol] = true end
+  local out: mut {Doc.Entry} = {}
+  for _, entry in ipairs(fields) do
+    -- A row of the name that documents no command has no options to speak of.
+    local command = commands[entry.module .. "\n" .. entry.symbol]
+    if command ~= nil and held[entry.module .. "\n" .. entry.symbol] ~= true then
+      local spoken = tokens_of(entry.source_symbol .. "\n" .. entry.signature .. "\n" ..
+          entry.text .. "\n" .. (command.options or ""))
+      local all = true
+      for _, phrase in ipairs(wanted) do
+        if not spoken:find(phrase, 1, true) then all = false end
+      end
+      if all then out[#out + 1] = entry end
+    end
+  end
+  return out, ""
+end
+
+--- What a dotted query names through a type alias or an inherited
+--- record: [`Child.Options.fds`], [`Sqlite.Handle.exec`]. Defined with the
+--- other member helpers, below [`first_sentence`].
+local through_alias: function(view: Doc.View, query: string): {Doc.Entry}?, string
+local aliased_members: function(view: Doc.View, owners: {Doc.Entry},
+                                name: string): {Doc.Entry}?, string
+--- What a dotted query names through a type alias, else as a module's
+--- member written in full ([`cosmic.fs.read`], [`cosmic.cli.order`]),
+--- as a link names one. Defined after [`member_of`].
+local in_full: function(view: Doc.View, query: string): {Doc.Entry}?, string
+--- What `Q.name` names when `Q` is the last name of a module, either
+--- case ([`cosmic.cli.order`], `fs.read`): that module's member `name`, as a
+--- caller that requires it under that name reads it. Defined after
+--- [`member_of`].
+local by_last_name: function(view: Doc.View, query: string): {Doc.Entry}?, string
+--- What a name [`cosmic.removed`] lists as gone answers: one entry of kind
+--- `removed` saying what to write instead, or none, for a name it does
+--- not list and for a member the module still has. Defined after
+--- [`member_of`].
+local removed_by: function(view: Doc.View, query: string): {Doc.Entry}?, string
+
+--- What `query` names, across `databases`, by the first rule that
+--- answers:
+--- - the public module a bare lowercase name ends (`json`, `fs`), with
+---   its verb, if it is one (`test`), as a see-also line after it;
+--- - its exact matches, when it names a symbol or a module, a member of
+---   a type an alias stands for, or a module's member written in full
+---   ([`cosmic.fs.read`]) or from its last name ([`cosmic.cli.order`]);
+--- - a name [`cosmic.removed`] lists as gone, which no live row answers
+---   (`Codec.encoder`, `os.getenv`): what to write instead, as the
+---   compiler says it (see [`removed_by`]);
+--- - for a qualified name that names nothing, what its qualifier offers
+---   (see `scoped`);
+--- - the documentation that carries all its words, and the verbs whose
+---   options do (see [`by_options`]).
+local function lookup_names(view: Doc.View, query: string): Doc.Lookup?, string -- checked: not_assigned*3
+  -- A bare lowercase name that ends a public module's name is that
+  -- module (`json` is `cosmic.json`, not the internal record `json`);
+  -- the symbols it names exactly follow the module (`string` is
+  -- [`cosmic.string`], then [`Shape.string`]).
+  local modules: {Doc.Entry} = {}
+  if query:match("^%l[%w_]*$") ~= nil then
+    local found_modules, modules_trouble = across(view,
+      function(db: Sqlite.Handle, _: boolean): {Doc.Entry}?, string
+        return modules_ending(db, query)
+      end, entry_module)
+    if found_modules == nil then
+      return nil, modules_trouble
+    end
+    modules = found_modules
+  end
+  local exact, exact_trouble = across(view,
+    function(db: Sqlite.Handle, public: boolean): {Doc.Entry}?, string
+      return named(db, public, query)
+    end, entry_module)
+  if exact == nil then
+    return nil, exact_trouble
+  end
+  if #modules > 0 then
+    -- What only shares the module's name, an internal record (`json`),
+    -- is not another answer.
+    local seen: mut {string: boolean} = {}
+    for _, entry in ipairs(modules) do
+      seen[entry.module .. "\n" .. entry.symbol] = true
+    end
+    -- With a library module of the name, the module answers first, then
+    -- the other symbols, and the verb `cosmic <query>` names is a
+    -- see-also line after the modules. Otherwise (a tool's or a
+    -- project's own module of the name) the verb answers first, as
+    -- `cosmic docs sql` says it does.
+    local answers: mut {Doc.Entry} = {}
+    local rest: mut {Doc.Entry} = {}
+    local verb: Doc.Entry? = nil
+    local library = false
+    for _, entry in ipairs(modules) do
+      if is_library(view, entry.module) then library = true end
+    end
+    for _, entry in ipairs(exact) do
+      local internal = entry.module:sub(1, 16) == "cosmic.internal." and
+        entry.symbol == query
+      local command = command_of(view, entry)
+      if command ~= nil and command.name == query then
+        if library then verb = entry else answers[#answers + 1] = entry end
+        seen[entry.module .. "\n" .. entry.symbol] = true
+      elseif not internal and seen[entry.module .. "\n" .. entry.symbol] ~= true then
+        rest[#rest + 1] = entry
+      end
+    end
+    for _, entry in ipairs(modules) do answers[#answers + 1] = entry end
+    local module_count = #answers
+    for _, entry in ipairs(rest) do answers[#answers + 1] = entry end
+    local counted, count_trouble = effective_counts(view, answers)
+    if not counted then
+      return nil, count_trouble
+    end
+    local found = lookup(answers, true, #answers)
+    found.verb = verb
+    found.modules = module_count
+    return found, ""
+  end
+  if #exact > 0 then
+    local named_count = #exact
+    -- A raw binding's name is also what its wrapper stands in for:
+    -- "unlink" answers with sys.unlink and then Fs.remove.
+    local raw = query:match("^[%w_]+$") ~= nil
+    for _, entry in ipairs(exact) do
+      if entry.module ~= "cosmic.sys" then
+        raw = false
+      end
+    end
+    if raw then
+      local wrapping, wrapping_trouble = across(view,
+        function(db: Sqlite.Handle, public: boolean): {Doc.Entry}?, string
+          return stand_ins(db, public, query)
+        end, entry_module)
+      if wrapping == nil then
+        return nil, wrapping_trouble
+      end
+      for _, entry in ipairs(wrapping) do
+        exact[#exact + 1] = entry -- checked: view_written
+      end
+    end
+    -- An environment variable's declaration ([`Env.Name.COSMIC_TEST_TIMEOUT`])
+    -- is not all there is to say of it: the verbs whose options carry it
+    -- follow, as for a search.
+    local answers: mut {Doc.Entry} = {}
+    for _, entry in ipairs(exact) do answers[#answers + 1] = entry end
+    if query:match("^%u[%u%d_]*$") ~= nil then
+      local verbs, verbs_trouble = by_options(view, query, exact)
+      if verbs == nil then
+        return nil, verbs_trouble
+      end
+      for _, entry in ipairs(verbs) do answers[#answers + 1] = entry end
+    end
+    local counted, count_trouble = effective_counts(view, answers)
+    if not counted then
+      return nil, count_trouble
+    end
+    return lookup(answers, true, named_count), ""
+  end
+  -- A name that was removed answers what replaces it, before a search
+  -- offers another module's member of the same name (`Codec.encoder`
+  -- would find the verb's, build.codec's).
+  local gone, gone_trouble = removed_by(view, query)
+  if gone == nil then
+    return nil, gone_trouble
+  end
+  if #gone > 0 then
+    return lookup(gone, true, #gone), ""
+  end
+  -- A module the index lists is always answered, though it has no row
+  -- of its own to name it.
+  local owner = view.owners[query]
+  if owner ~= nil then
+    local held, held_trouble = module_symbol(database_of(view, owner), view.public[owner] == true, query)
+    if held == nil then
+      return nil, held_trouble
+    end
+    if #held > 0 then
+      local counted, count_trouble = effective_counts(view, held)
+      if not counted then
+        return nil, count_trouble
+      end
+      return lookup(held, true, #held), ""
+    end
+  end
+  local through, through_trouble = in_full(view, query)
+  if through == nil then
+    return nil, through_trouble
+  end
+  if #through == 0 then
+    local short, short_trouble = by_last_name(view, query)
+    if short == nil then
+      return nil, short_trouble
+    end
+    through = short
+  end
+  if #through > 0 then
+    local counted, count_trouble = effective_counts(view, through)
+    if not counted then
+      return nil, count_trouble
+    end
+    return lookup(through, true, #through), ""
+  end
+  local found: mut {Doc.Entry} = {}
+  local qualifier, name = query:match("^([%w_]+)[.:]([%w_]+)$")
+  if qualifier ~= nil and name ~= nil then
+    local near, near_trouble = across(view,
+      function(db: Sqlite.Handle, public: boolean): {Doc.Entry}?, string
+        return scoped(db, public, qualifier, name)
+      end, entry_module)
+    if near == nil then
+      return nil, near_trouble
+    end
+    found = near -- checked: view_as_mut
+  end
+  if #found == 0 then
+    local searched_found, search_trouble = across(view,
+      function(db: Sqlite.Handle, public: boolean): {Doc.Entry}?, string
+        return searched(db, public, query)
+      end, entry_module)
+    if searched_found == nil then
+      return nil, search_trouble
+    end
+    found = searched_found -- checked: view_as_mut
+    local verbs, verbs_trouble = by_options(view, query, found)
+    if verbs == nil then
+      return nil, verbs_trouble
+    end
+    for _, entry in ipairs(verbs) do found[#found + 1] = entry end
+    if #found == 0 then
+      local ruled, ruled_trouble = coded_words(view, query)
+      if ruled == nil then
+        return nil, ruled_trouble
+      end
+      found = ruled -- checked: view_as_mut
+    end
+    if #found == 0 then
+      local near, near_trouble = across(view,
+        function(db: Sqlite.Handle, public: boolean): {Doc.Entry}?, string
+          return closest(db, public, query)
+        end, entry_module)
+      if near == nil then
+        return nil, near_trouble
+      end
+      local nearest: mut {Doc.Entry} = {}
+      for position, entry in ipairs(near) do
+        if position > CLOSEST then break end
+        nearest[position] = entry
+      end
+      local counted, count_trouble = effective_counts(view, nearest)
+      if not counted then
+        return nil, count_trouble
+      end
+      return lookup(nearest, false, 0, #nearest > 0), ""
+    end
+  end
+  local counted, count_trouble = effective_counts(view, found)
+  if not counted then
+    return nil, count_trouble
+  end
+  return lookup(found, false, 0), ""
+end
+
+--- What `query` names, as [`lookup_names`] answers, and ahead of it the row of the code of the checker it is, when it is
+--- one (`not_assignable`): the rule behind the code, then the symbols that share its name (the enum member of [`Codes.Code`]),
+--- which stay reachable. A query that only searches (nothing is named exactly) answers the code's row alone.
+function Doc.lookup(view: Doc.View, query: string): Doc.Lookup?, string
+  local rule, rule_trouble = coded(view, query)
+  if rule == nil then
+    return nil, rule_trouble
+  end
+  local names, trouble = lookup_names(view, query)
+  if names == nil then
+    return nil, trouble
+  end
+  if #rule == 0 then
+    return names, ""
+  end
+  if not names.exact then
+    return lookup(rule, true, #rule), ""
+  end
+  local ruled = lookup(names, true, names.named + #rule, false, rule)
+  ruled.verb = names.verb
+  ruled.modules = if names.verb ~= nil then names.modules + #rule else 0 end
+  return ruled, ""
+end
+
+--- The first sentence of `documented`'s first paragraph, on one line:
+--- up to the first `.`, `?` or `!` that a space or the end follows,
+--- outside backticks and not closing "e.g" or "i.e".
+local function first_sentence(documented: string): string
+  local trimmed = String.trim(link_text.unlinked(documented))
+  local paragraph = (trimmed:match("^(.-)\n%s*\n") or trimmed):gsub("%s+", " ")
+  local quoted = false
+  for at = 1, #paragraph do
+    local char = paragraph:sub(at, at)
+    if char == "`" then
+      quoted = not quoted
+    elseif not quoted and (char == "." or char == "?" or char == "!") and
+        (at == #paragraph or paragraph:sub(at + 1, at + 1) == " ") then
+      local before = paragraph:sub(math.max(1, at - 3), at - 1)
+      if before ~= "e.g" and before ~= "i.e" then
+        return paragraph:sub(1, at)
+      end
+    end
+  end
+  return paragraph
+end
+
+--- Every module `view` holds, by name, with the first sentence of its
+--- documentation ("" for one it does not document) -- no test or
+--- example, which a reader never calls: what `cosmic docs` lists when
+--- asked nothing. Each `closed` is "": the list `cosmic docs` prints
+--- judges it ([`marked`]), which no other reader of the index pays for.
+function Doc.index(view: Doc.View): {Doc.Summary}?, string
+  local found, trouble = across(view, modules_of, entry_module)
+  if found == nil then
+    return nil, trouble
+  end
+  local said: mut {string: string} = {}
+  for _, entry in ipairs(found) do
+    if entry.symbol == "" then
+      said[entry.module] = first_sentence(entry.text)
+    end
+  end
+  local out: mut {Doc.Summary} = {}
+  for module, owner in pairs(view.owners) do
+    local listed = module:sub(-5) ~= "_test" and module:sub(-8) ~= "_example" and
+      (view.public[owner] ~= true or is_public(view, module) or
+        symbols.is_public_guide(module))
+    if listed then
+      out[#out + 1] = { module = module, text = said[module] or "", closed = "" }
+    end
+  end
+  table.sort(out, function(a: Doc.Summary, b: Doc.Summary): boolean
+    return a.module < b.module
+  end)
+  return out, ""
+end
+
+--- Every one of `names` that names a symbol exactly, in one query per
+--- database rather than one lookup per name -- built for a caller
+--- that needs several known symbols in one command, such as `cosmic
+--- help` listing every verb. `#names == 0` finds nothing without
+--- querying. A name absent from the result was not found; this never
+--- fails for that, only for real trouble reading a database.
+function Doc.named_all(view: Doc.View, names: {string}): {Doc.Entry}?, string
+  if #names == 0 then
+    return {}, ""
+  end
+  local found, trouble = across(view,
+    function(db: Sqlite.Handle, public: boolean): {Doc.Entry}?, string
+      return named_all(db, public, names)
+    end, entry_module)
+  if found == nil then
+    return nil, trouble
+  end
+  local counted, count_trouble = effective_counts(view, found)
+  if not counted then
+    return nil, count_trouble
+  end
+  return found, ""
+end
+
+--- What `query` names exactly, by the rule [`Doc.lookup`] answers an
+--- exact query with: the public modules a bare lowercase name ends
+--- (only those, when there are any), else every row `named` finds,
+--- else the module the index lists under that whole name, else the
+--- member of a type an alias stands for ([`Sqlite.Handle.close`], whose
+--- row is [`cosmic.internal.sqlite`]'s), else a module's member written in
+--- full ([`cosmic.fs.read`]). It neither searches nor counts uses, so it
+--- is cheap to ask once per name.
+function Doc.exact(view: Doc.View, query: string): {Doc.Entry}?, string
+  if query:match("^%l[%w_]*$") ~= nil then
+    local modules, modules_trouble = across(view,
+      function(db: Sqlite.Handle, _: boolean): {Doc.Entry}?, string
+        return modules_ending(db, query)
+      end, entry_module)
+    if modules == nil then
+      return nil, modules_trouble
+    end
+    if #modules > 0 then
+      return modules, ""
+    end
+  end
+  local found, trouble = across(view,
+    function(db: Sqlite.Handle, public: boolean): {Doc.Entry}?, string
+      return named(db, public, query)
+    end, entry_module)
+  if found == nil then
+    return nil, trouble
+  end
+  if #found > 0 then
+    return found, ""
+  end
+  local owner = view.owners[query]
+  if owner ~= nil then
+    local held, held_trouble = module_symbol(database_of(view, owner), view.public[owner] == true, query)
+    if held == nil then
+      return nil, held_trouble
+    end
+    if #held > 0 then
+      return held, ""
+    end
+  end
+  return in_full(view, query)
+end
+
+--- The rows of `module` whose symbol is `name`, as the symbol column
+--- reads (`read`, [`Writer.write`]) or as the source spells it
+--- ([`Fs.read`]), a method's `:` read as `.`; else the exported member
+--- `name` of the record the module's value is typed as (`Module.order`
+--- of cosmic.cli, whose value is `local module: Module`); else, as
+--- [`Doc.exact`] does, the member of a type an alias of the module
+--- stands for (`Handle.close` of [`cosmic.sqlite`]). None when the view
+--- holds no such module. The database that owns the module answers.
+local function member_of(view: Doc.View, module: string, name: string): {Doc.Entry}?, string -- checked: not_assigned
+  local owner = view.owners[module]
+  if owner == nil then
+    return {}, ""
+  end
+  local db = database_of(view, owner)
+  local shown = symbols.shown_in(db, "d", view.public[owner] == true)
+  local dotted = name:gsub(":", ".")
+  local rows, trouble = Sqlite.text_rows(db,
+    "SELECT " .. columns .. " FROM docs d WHERE " .. symbols.member_where("d") .. " AND " ..
+      shown .. " ORDER BY d.id", { text(module), text(dotted) })
+  if rows == nil then
+    return nil, trouble
+  end
+  local found = entries_of(rows)
+  if #found > 0 then
+    return found, ""
+  end
+  local record, record_trouble = value_record(db, module)
+  if record == nil and record_trouble ~= "" then
+    return nil, record_trouble
+  end
+  if record ~= nil then
+    local typed, typed_trouble = Sqlite.text_rows(db,
+      "SELECT " .. columns .. " FROM docs d WHERE d.module = ?1 AND d.exported = 1 AND " ..
+        "replace(d.source_symbol, ':', '.') = ?2 AND " .. shown .. " ORDER BY d.id",
+      { text(module), text(record .. "." .. dotted) })
+    if typed == nil then
+      return nil, typed_trouble
+    end
+    found = entries_of(typed)
+    if #found > 0 then
+      return found, ""
+    end
+  end
+  local prefix, last = dotted:match("^(.+)%.([%w_]+)$")
+  if prefix == nil or last == nil then
+    return found, ""
+  end
+  local owners, owners_trouble = member_of(view, module, prefix)
+  if owners == nil then
+    return nil, owners_trouble
+  end
+  return aliased_members(view, owners, last)
+end
+
+in_full = function(view: Doc.View, query: string): {Doc.Entry}?, string -- checked: not_assigned
+  local through, through_trouble = through_alias(view, query)
+  if through == nil then
+    return nil, through_trouble
+  end
+  if #through > 0 then
+    return through, ""
+  end
+  local out: mut {Doc.Entry} = {}
+  local at = 1
+  while true do
+    local dot = query:find(".", at, true)
+    if dot == nil then break end
+    local module = query:sub(1, dot - 1)
+    if view.owners[module] ~= nil then
+      local members, trouble = member_of(view, module, query:sub(dot + 1))
+      if members == nil then
+        return nil, trouble
+      end
+      for _, entry in ipairs(members) do out[#out + 1] = entry end
+    end
+    at = dot + 1
+  end
+  return out, ""
+end
+
+by_last_name = function(view: Doc.View, query: string): {Doc.Entry}?, string
+  local out: mut {Doc.Entry} = {}
+  local qualifier, name = query:match("^([%w_]+)%.(.+)$")
+  if qualifier == nil or name == nil then
+    return out, ""
+  end
+  local modules: mut {string} = {}
+  for module in pairs(view.owners) do
+    local tail = module:match("[^.]+$")
+    if tail ~= nil and tail:lower() == qualifier:lower() and module ~= qualifier and
+        module:sub(1, 16) ~= "cosmic.internal." and module:sub(-5) ~= "_test" and
+        module:sub(-8) ~= "_example" then
+      modules[#modules + 1] = module
+    end
+  end
+  table.sort(modules)
+  for _, module in ipairs(modules) do
+    local members, trouble = member_of(view, module, name)
+    if members == nil then
+      return nil, trouble
+    end
+    for _, entry in ipairs(members) do out[#out + 1] = entry end
+  end
+  return out, ""
+end
+
+--- A removed name: the module it left (`""` for a global's field) and the
+--- sentence that says what to write instead.
+local record Removal
+  module: string
+  sentence: string
+end
+
+--- The module a removed member left and what to write instead,
+--- when [`cosmic.removed`] lists `query`: a member of a module written
+--- from its last name in either case (`Net.pair`, `net.pair`) or in
+--- full (`cosmic.net.pair`), by its `members`; else a field of a removed
+--- global (`os.getenv`) or a removed field of `package` (`package.path`),
+--- by what `message` answers, with module `""`.
+--- The sentence is `message` for a global, which is the same words a refusal at run
+--- time raises with.
+---
+local function removed_as(query: string): Removal?
+  local instead = Removed.members[query]
+  local whole = query:match("^(.+)%.[%w_]+$")
+  if instead ~= nil and whole ~= nil then
+    return { module = whole, sentence = query .. " was removed: " .. instead }
+  end
+  local qualifier, name = query:match("^([%w_]+)%.([%w_]+)$")
+  if qualifier == nil then
+    return nil
+  end
+  if Removed.names[qualifier] ~= nil or Removed.replacements[query] ~= nil then
+    return { module = "", sentence = Removed.message(qualifier, name) }
+  end
+  local keys: mut {string} = {}
+  for key in pairs(Removed.members) do
+    local module, member = key:match("^(.+)%.([%w_]+)$")
+    local tail = if module ~= nil then module:match("[^.]+$") else nil end
+    if member == name and tail ~= nil and tail:lower() == qualifier:lower() then
+      keys[#keys + 1] = key
+    end
+  end
+  table.sort(keys)
+  if #keys == 0 then
+    return nil
+  end
+  local first = keys[1]
+  if first == nil then -- checked: compare_disjoint
+    return nil
+  end
+  local module = first:match("^(.+)%.")
+  local replacement = Removed.members[first]
+  if module == nil or replacement == nil then
+    return nil
+  end
+  return { module = module, sentence = query .. " was removed: " .. replacement }
+end
+
+removed_by = function(view: Doc.View, query: string): {Doc.Entry}?, string
+  local gone = removed_as(query)
+  if gone == nil then
+    return {}, ""
+  end
+  local module, sentence = gone.module, gone.sentence
+  -- A member the module still has is the live page's.
+  local member = query:match("[%w_]+$")
+  if module ~= "" and member ~= nil then
+    local live, trouble = member_of(view, module, member)
+    if live == nil then
+      return nil, trouble
+    end
+    if #live > 0 then
+      return {}, ""
+    end
+  end
+  return { {
+    module = if module ~= "" then module else "cosmic.removed" end, symbol = query,
+    source_symbol = query, exported = true, kind = "removed", signature = "",
+    text = sentence, file = "cosmic/removed.tl", line = 0,
+    uses = 0, links = 0, examples = 0, related = {},
+  } }, ""
+end
+
+--- The uses of `module`'s member recorded as `used`, and the links to
+--- its row `symbol`, in `db`.
+local function member_uses(db: Sqlite.Handle, public: boolean, module: string, symbol: string,
+                           used: string): {Doc.Use}?, string
+  local out: mut {Doc.Use} = {}
+  local rows, trouble = Sqlite.text_rows(db,
+    "SELECT from_module, from_file, line FROM uses WHERE module = ?1 AND symbol = ?2 AND " ..
+      symbols.public_only("module", public) .. " AND " ..
+      symbols.public_only("from_module", public), { text(module), text(used) })
+  if rows == nil then
+    return nil, trouble
+  end
+  for _, row in ipairs(rows) do
+    out[#out + 1] = { module = module, symbol = used, from_module = row:text(1), from_file = row:text(2),
+      line = math.tointeger(tonumber(row:text(3))) or 0, link = false, path = "", anchor = "" }
+  end
+  local linked, linked_trouble = has_links(db)
+  if linked == nil then
+    return nil, linked_trouble
+  end
+  if not linked then
+    return out, ""
+  end
+  local links, links_trouble = Sqlite.text_rows(db,
+    "SELECT from_module, from_file, line FROM links WHERE kind = 'symbol' AND module = ?1 " ..
+      "AND symbol = ?2 AND " .. symbols.public_only("module", public) .. " AND " ..
+      symbols.public_only("from_module", public) .. " ORDER BY from_file, line, column",
+    { text(module), text(symbol) })
+  if links == nil then
+    return nil, links_trouble
+  end
+  for _, row in ipairs(links) do
+    out[#out + 1] = { module = module, symbol = symbol, from_module = row:text(1), from_file = row:text(2),
+      line = math.tointeger(tonumber(row:text(3))) or 0, link = true, path = "", anchor = "" }
+  end
+  return out, ""
+end
+
+--- Every place across `databases` that refers to what `query` names,
+--- in file and line order: one per line for each thing it names there.
+--- A module's member, written in full ([`cosmic.cli.order`]) or from the
+--- module's last name ([`cosmic.cli.order`]), is found as [`Doc.lookup`] finds
+--- it, and its uses and links are those of that module's member alone.
+function Doc.uses(view: Doc.View, query: string): {Doc.Use}?, string
+  local found, trouble = across(view,
+    function(db: Sqlite.Handle, public: boolean): {Doc.Use}?, string
+      return uses_of(db, public, query)
+    end, calling_module)
+  if found == nil then
+    return nil, trouble
+  end
+  local members: mut {Doc.Entry} = {}
+  for _, look in ipairs({ in_full, by_last_name }) do
+    local answered, answered_trouble = look(view, query)
+    if answered == nil then
+      return nil, answered_trouble
+    end
+    for _, entry in ipairs(answered) do members[#members + 1] = entry end
+  end
+  for _, entry in ipairs(members) do
+    local used, used_trouble = used_as(view, entry)
+    if used == nil and used_trouble ~= "" then
+      return nil, used_trouble
+    end
+    local more, more_trouble = across(view,
+      function(db: Sqlite.Handle, public: boolean): {Doc.Use}?, string
+        return member_uses(db, public, entry.module, entry.symbol, used or entry.symbol)
+      end, calling_module)
+    if more == nil then
+      return nil, more_trouble
+    end
+    for _, use in ipairs(more) do found[#found + 1] = use end -- checked: view_written
+  end
+  local out: mut {Doc.Use} = {}
+  local seen: mut {string: boolean} = {}
+  for _, use in ipairs(found) do
+    local key = use.module .. "\n" .. use.symbol .. "\n" .. use.from_module ..
+      "\n" .. use.from_file .. "\n" .. tostring(use.line) .. "\n" .. tostring(use.link) ..
+      "\n" .. use.path .. "\n" .. use.anchor
+    if seen[key] ~= true then
+      seen[key] = true
+      out[#out + 1] = use
+    end
+  end
+  -- Uses and links together, by where they are; at one place, a use
+  -- before a link.
+  table.sort(out, function(a: Doc.Use, b: Doc.Use): boolean
+    if a.from_file ~= b.from_file then return a.from_file < b.from_file end
+    if a.line ~= b.line then return a.line < b.line end
+    if a.link ~= b.link then return b.link end
+    if a.module ~= b.module then return a.module < b.module end
+    if a.symbol ~= b.symbol then return a.symbol < b.symbol end
+    if a.path ~= b.path then return a.path < b.path end
+    return a.anchor < b.anchor
+  end)
+  return out, ""
+end
+
+--- The declaring record or enum of a member's source symbol:
+--- [`Child.Options.fds`] is under [`Child.Options`].
+local function parent_of(symbol: string): string
+  return symbol:match("^(.*)%.[^.]*$") or ""
+end
+
+--- The last name of a dotted `symbol`: all of it when it has no dot.
+local function last_name(symbol: string): string
+  return (assert(symbol:match("([^.]*)$"), "the pattern [^.]*$ matches the empty text"))
+end
+
+--- `note` cut to `limit` bytes at a word, marked as cut.
+local function clipped(note: string, limit: integer): string
+  if #note <= limit then
+    return note
+  end
+  local cut = note:sub(1, limit):match("^(.*%S)%s+%S*$") or note:sub(1, limit)
+  return (cut:gsub("[,;:%-]+$", "")) .. "…"
+end
+
+--- A record's field, or an enum's value, on one line: as declared, then
+--- the first sentence of what it says.
+local function member_line(member: Doc.Entry, limit?: integer): string
+  local note = first_sentence(member.text)
+  if limit ~= nil then
+    note = clipped(note, limit)
+  end
+  return member.signature .. (if note ~= "" then " -- " .. note else "" end)
+end
+
+--- How long a field's note runs on a module's page, where a record's
+--- fields are a glance; its own page keeps the whole sentence.
+local NOTE_LIMIT <const> = 100
+
+--- Whether a declared symbol is a call: a function, method or
+--- metamethod, or a function-typed field.
+local function is_call(item: Doc.Entry): boolean
+  return item.kind == "function" or item.kind == "method" or item.kind == "metamethod" or
+    (item.kind == "field" and item.signature:match("^[%w_]+: function%(") ~= nil)
+end
+
+--- One declared symbol as a module's listing shows it: a function,
+--- method or metamethod by its signature (a function-typed field as
+--- `function` and its name, then the signature's parameters and
+--- results) and the first sentence of what it says, anything else (a
+--- record's signature spans lines, and its fields follow it) by kind
+--- and name, then its uses and examples.
+local function listed(item: Doc.Entry): string
+  local marks: mut {string} = {}
+  if item.uses > 0 then
+    marks[#marks + 1] = String.counted(item.uses, "use")
+  end
+  if item.links > 0 then
+    marks[#marks + 1] = String.counted(item.links, "link")
+  end
+  if item.examples > 0 then
+    marks[#marks + 1] = String.counted(item.examples, "example")
+  end
+  local shown = item.kind .. " " .. item.source_symbol
+  if (item.kind == "function" or item.kind == "method" or
+      item.kind == "metamethod") and
+      item.signature ~= "" and not item.signature:find("\n", 1, true) then
+    shown = item.signature
+  elseif item.kind == "field" then
+    local rest = item.signature:match("^[%w_]+: function(%(.*)$")
+    if rest ~= nil then
+      shown = "function " .. item.source_symbol .. rest
+    end
+  end
+  local note = if is_call(item) then clipped(first_sentence(item.text), NOTE_LIMIT) else "" end
+  return shown .. (if note ~= "" then " -- " .. note else "" end) ..
+    (if #marks > 0 then "  (" .. table.concat(marks, ", ") .. ")" else "" end)
+end
+
+--- Whether a module's page names call `a` rather than `b` as the way
+--- to a member's own page: one with an example over one without, then
+--- the more used.
+local function points_better(a: Doc.Entry, b: Doc.Entry): boolean
+  if (a.examples > 0) ~= (b.examples > 0) then
+    return a.examples > 0
+  end
+  return a.uses > b.uses
+end
+
+--- The first row `sql` finds in any of `view`'s databases: the databases
+--- are read whole, whatever they are public for, because a name a public
+--- page hands out (an alias, a base) stands for the record it points at
+--- even when that record is not itself a public symbol.
+local function first_declared(view: Doc.View, sql: string,
+                              args: {Sqlite.Value}): Doc.Entry?, string
+  for _, db in ipairs(view.databases) do
+    local documented, documented_trouble = has_docs(db)
+    if documented == nil then
+      return nil, documented_trouble
+    end
+    if documented then
+      local rows, trouble = Sqlite.text_rows(db, sql, args)
+      if rows == nil then
+        return nil, trouble
+      end
+      if #rows > 0 then
+        return entries_of(rows)[1], ""
+      end
+    end
+  end
+  return nil, ""
+end
+
+--- The fields, methods or values declared directly under `target`, as
+--- its own module documents them, less any named `_...`: what a type
+--- alias or a base record hands to its users.
+local function members_under(view: Doc.View, target: Doc.Entry): {Doc.Entry}?, string
+  local out: mut {Doc.Entry} = {}
+  for _, db in ipairs(view.databases) do
+    local documented, documented_trouble = has_docs(db)
+    if documented == nil then
+      return nil, documented_trouble
+    end
+    if documented then
+      local rows, trouble = Sqlite.text_rows(db,
+        "SELECT " .. columns .. " FROM docs d WHERE d.module = ?1 AND " ..
+          "d.kind IN ('field', 'value') AND d.source_symbol GLOB ?2 ORDER BY d.id",
+        { text(target.module), text(target.source_symbol .. ".*") })
+      if rows == nil then
+        return nil, trouble
+      end
+      for _, member in ipairs(entries_of(rows)) do
+        local name = last_name(member.source_symbol)
+        if parent_of(member.source_symbol) == target.source_symbol and
+            name:sub(1, 1) ~= "_" then
+          out[#out + 1] = member
+        end
+      end
+      if #out > 0 then
+        return out, ""
+      end
+    end
+  end
+  return out, ""
+end
+
+--- The rows of `view` that [`cosmic.internal.alias_members`] follows a
+--- declaration through, each read from whichever database holds it.
+local function type_source(view: Doc.View): alias_members.Source<Doc.Entry>
+  local types = "(d.kind IN ('record', 'interface', 'enum') OR d.signature GLOB 'type * = *') "
+  return {
+    declared = function(module: string, name: string): Doc.Entry?, string
+      return first_declared(view,
+        "SELECT " .. columns .. " FROM docs d WHERE d.module = ?1 AND d.source_symbol = ?2 " ..
+          "AND " .. types .. "ORDER BY d.id LIMIT 1",
+        { text(module), text(name) })
+    end,
+    exported = function(module: string, name: string): Doc.Entry?, string
+      return first_declared(view,
+        "SELECT " .. columns .. " FROM docs d WHERE d.module = ?1 AND d.symbol = ?2 " ..
+          "AND d.exported = 1 AND " .. types .. "ORDER BY d.id LIMIT 1",
+        { text(module), text(name) })
+    end,
+    bound = function(module: string, name: string): string?, string
+      local cached = view.bound
+      if cached ~= nil then
+        return cached[module .. "\n" .. name], ""
+      end
+      local bound: mut {string: string} = {}
+      for _, db in ipairs(view.databases) do
+        local ok, trouble = symbols.add_bound(bound, db, "")
+        if not ok then
+          return nil, trouble
+        end
+      end
+      view.bound = bound
+      return bound[module .. "\n" .. name], ""
+    end,
+    under = function(target: Doc.Entry): {Doc.Entry}?, string
+      return members_under(view, target)
+    end,
+    as_member = function(owner: Doc.Entry, member: Doc.Entry, name: string): Doc.Entry
+      member.module = owner.module
+      member.symbol = owner.symbol .. "." .. name
+      member.source_symbol = owner.source_symbol .. "." .. name
+      member.exported = true
+      return member
+    end,
+  }
+end
+
+--- What a declaration that stands for another type adds to its page:
+--- the target's fields (or values), and its methods, each with its
+--- documentation. [`Sqlite.Handle`] and [`Child.Options`] are aliases, so
+--- they list what their target does; [`Http.Options`] extends one, so it
+--- lists what it inherits after its own. Empty for a declaration that
+--- stands for nothing.
+local function inherited_lines(view: Doc.View, entry: Doc.Entry): {string}?, string
+  local lines: mut {string} = {}
+  local references = if entry.symbol ~= "" then alias_members.references(entry) else {} end -- checked: literal_needs_type
+  if #references == 0 then
+    return lines, ""
+  end
+  local own: mut {string: boolean} = {}
+  if entry.kind == "record" or entry.kind == "interface" then
+    local mine, mine_trouble = members_under(view, entry)
+    if mine == nil then
+      return nil, mine_trouble
+    end
+    for _, member in ipairs(mine) do own[last_name(member.source_symbol)] = true end
+  end
+  local heading = if (entry.kind == "record" or entry.kind == "interface") then "inherited " else "" end
+  local fields: mut {string} = {}
+  local methods: mut {string} = {}
+  local values: mut {string} = {}
+  for _, reference in ipairs(references) do
+    local target, target_trouble = alias_members.resolved(type_source(view), entry, reference)
+    if target == nil and target_trouble ~= "" then
+      return nil, target_trouble
+    end
+    if target ~= nil and target.source_symbol ~= entry.source_symbol then
+      local members, members_trouble = members_under(view, target)
+      if members == nil then
+        return nil, members_trouble
+      end
+      local short = last_name(target.source_symbol)
+      for _, member in ipairs(members) do
+        local name = last_name(member.source_symbol)
+        if own[name] ~= true then
+          local note = first_sentence(member.text)
+          local tail = member.signature:match("^[%w_]+: function%(" .. short .. "(.*)$")
+          if member.kind == "value" then
+            values[#values + 1] = "    " .. member_line(member)
+          elseif tail ~= nil then
+            methods[#methods + 1] = "    " .. name .. "(" ..
+              (if tail:sub(1, 2) == ", " then tail:sub(3) else tail end) ..
+              (if note ~= "" then " -- " .. note else "" end)
+          else
+            fields[#fields + 1] = "    " .. member_line(member)
+          end
+        end
+      end
+    end
+  end
+  local function emit(title: string, rows: {string})
+    if #rows > 0 then
+      if #lines > 0 then lines[#lines + 1] = "" end
+      lines[#lines + 1] = "  " .. title
+      for _, row in ipairs(rows) do lines[#lines + 1] = row end
+    end
+  end
+  emit(heading .. "values:", values)
+  emit(heading .. "fields:", fields)
+  emit(heading .. "methods:", methods)
+  return lines, ""
+end
+
+--- The members named `name` of the types `owners` stand for, each as
+--- the owner's own member (`Handle.close` of [`cosmic.sqlite`] for the
+--- `close` of the record its `Handle` aliases).
+aliased_members = function(view: Doc.View, owners: {Doc.Entry},
+                           name: string): {Doc.Entry}?, string
+  return alias_members.named(type_source(view), owners, name)
+end
+
+through_alias = function(view: Doc.View, query: string): {Doc.Entry}?, string
+  local prefix, name = query:match("^([%w_]+%.[%w_%.]+)%.([%w_]+)$")
+  if prefix == nil or name == nil then
+    return {}, ""
+  end
+  local owners, owners_trouble = across(view,
+    function(db: Sqlite.Handle, public: boolean): {Doc.Entry}?, string
+      return named(db, public, prefix)
+    end, entry_module)
+  if owners == nil then
+    return nil, owners_trouble
+  end
+  return aliased_members(view, owners, name)
+end
+
+--- The example an entry of kind "example" stands for.
+local function example_of(entry: Doc.Entry): Doc.Example
+  return (assert(entry.related[1], "an entry of kind example carries its example"))
+end
+
+--- An entry's first line as [`Doc.render`] prints it: what it is and
+--- where.
+local function heading(entry: Doc.Entry): string
+  if entry.kind == "example" then
+    local ex = example_of(entry)
+    return entry.module .. " example " .. ex.name .. " (" .. ex.file .. ":" .. tostring(ex.line) .. ")"
+  end
+  if entry.kind == "removed" then
+    return entry.module .. " " .. entry.source_symbol .. " (removed)"
+  end
+  if entry.kind == "code" then
+    return entry.module .. " " .. entry.symbol .. " (" .. entry.file .. ")"
+  end
+  if entry.kind == "section" then
+    return entry.source_symbol .. " (" .. entry.file .. ")"
+  end
+  if entry.symbol == "" then
+    return entry.module .. " (" .. entry.file .. ")"
+  end
+  local at = if entry.line > 0 then ":" .. tostring(entry.line) else "" end
+  return entry.module .. " " .. entry.source_symbol .. " (" .. entry.file .. at .. ")"
+end
+
+--- One entry, as `cosmic docs` prints it: where it is, its signature,
+--- its documentation indented under that, and how many places use it.
+--- A module's row lists the symbols it declares instead of a signature.
+--- Nil and why when a database cannot be read.
+function Doc.render(view: Doc.View, entry: Doc.Entry): {string}?, string
+  local first_line = heading(entry)
+  local lines: mut {string} = { first_line }
+  if entry.kind == "example" then
+    local ex = example_of(entry)
+    for line in String.lines(ex.text) do
+      lines[#lines + 1] = if #line > 0 then "  " .. line else "" end
+    end
+    for line in String.lines(ex.source) do
+      lines[#lines + 1] = if #line > 0 then "    " .. line else "" end
+    end
+    return lines, ""
+  end
+  if entry.kind == "removed" then
+    -- A name that is gone has no declaration to show, only what its
+    -- module's catalog says to write instead.
+    return { first_line, "  " .. entry.text }, ""
+  end
+  if entry.kind == "section" then
+    -- A guide's section is its heading and its text, as written.
+    lines[#lines + 1] = "  " .. entry.signature
+    for line in String.lines(link_text.unlinked(entry.text)) do
+      lines[#lines + 1] = if #line > 0 then "  " .. line else "" end
+    end
+    return lines, ""
+  end
+  if entry.kind == "code" then
+    -- A code has no declaration, only its row: what emits it, its rule, why it holds and the fix.
+    local title, rule, why, fix = entry.text:match("^([^\n]*)\nrule: ([^\n]*)\nwhy: ([^\n]*)\nfix: ([^\n]*)$")
+    if title == nil or rule == nil or why == nil or fix == nil then
+      return { heading(entry), "  " .. entry.text }, ""
+    end
+    return { heading(entry), "  " .. title, "  rule: " .. rule, "  why: " .. why, "  fix: " .. fix }, ""
+  end
+  if entry.symbol ~= "" then
+    -- `local` says only how the module spelled a declaration it hands
+    -- out; a caller reads it as a record like any other.
+    lines[#lines + 1] = "  " .. (if entry.exported then (entry.signature:gsub("^local ", "")) else
+      entry.signature end)
+  end
+  if #entry.related > 0 then
+    lines[#lines + 1] = "  related search examples:"
+    for _, ex in ipairs(entry.related) do
+      lines[#lines + 1] = "  example " .. ex.name .. " (" .. ex.file .. ":" ..
+        tostring(ex.line) .. "):"
+      for line in String.lines(ex.text) do
+        lines[#lines + 1] = if #line > 0 then "  " .. line else "" end
+      end
+      for line in String.lines(ex.source) do
+        lines[#lines + 1] = if #line > 0 then "    " .. line else "" end
+      end
+    end
+  end
+  -- A module's signatures come right after its opening paragraph, ahead
+  -- of the long prose: a reader scanning for a call wants the shapes
+  -- first, and the prose that follows explains their shared contract.
+  local index: mut {string} = {}
+  -- The call a module's page ends by naming, as the way to see any
+  -- member's own page: the most used of those with an example, else
+  -- the most used. None where the module lists no call, whose first
+  -- declaration may be its own record, which answers as the module.
+  local pointed: string?
+  if entry.symbol == "" then
+    local declared, declared_trouble = across(view,
+      function(db: Sqlite.Handle, public: boolean): {Doc.Entry}?, string
+        return declared_in(db, public, entry.module)
+      end, entry_module)
+    if declared == nil then
+      return nil, declared_trouble
+    end
+    local counted, count_trouble = effective_counts(view, declared)
+    if not counted then
+      return nil, count_trouble
+    end
+    local members, members_trouble = across(view,
+      function(db: Sqlite.Handle, public: boolean): {Doc.Entry}?, string
+        return members_of(db, public, entry.module)
+      end, entry_module)
+    if members == nil then
+      return nil, members_trouble
+    end
+    local under: mut {string: {Doc.Entry}} = {}
+    for _, member in ipairs(members) do
+      local parent = parent_of(member.source_symbol)
+      under[parent] = under[parent] or {}
+      table.insert(under[parent], member) -- checked: overload_none -- untyped: call
+    end
+    -- A call the module's own record declares is listed as a function
+    -- already, so it is not a field under that record as well.
+    local listed_symbols: mut {string: boolean} = {}
+    for _, item in ipairs(declared) do
+      listed_symbols[item.symbol] = true
+    end
+    local best: Doc.Entry?
+    for _, item in ipairs(declared) do
+      if is_call(item) and (best == nil or points_better(item, best)) then best = item end
+      index[#index + 1] = "  " .. listed(item)
+      for _, member in ipairs(under[item.source_symbol] or {}) do
+        if listed_symbols[member.symbol] ~= true then
+          index[#index + 1] = "    " .. member_line(member, NOTE_LIMIT)
+        end
+      end
+    end
+    pointed = if best ~= nil then best.source_symbol else nil end
+  end
+  -- The listing goes after the first paragraph, or, when that ends in
+  -- a colon, after the run of indented or fenced blocks it introduces
+  -- (an example), or else the next block, so the two stay together.
+  local text_lines: mut {string} = {}
+  for line in String.lines(link_text.unlinked(entry.text)) do text_lines[#text_lines + 1] = line end
+  local function code_at(from: integer): boolean
+    for j = from, #text_lines do
+      local text_line = text_lines[j]
+      if text_line ~= nil and text_line ~= "" then
+        return text_line:match("^%s") ~= nil or text_line:sub(1, 3) == "```"
+      end
+    end
+    return false
+  end
+  local placed = #index == 0
+  local last = ""
+  local hold = false
+  local fence = false
+  for at, line in ipairs(text_lines) do
+    if line:sub(1, 3) == "```" then fence = not fence end
+    if not placed and not fence and line == "" and last ~= "" then
+      if last:sub(-1) == ":" then
+        hold = true
+      elseif not (hold and code_at(at + 1)) then
+        lines[#lines + 1] = ""
+        for _, row in ipairs(index) do lines[#lines + 1] = row end
+        placed = true
+      end
+    end
+    if line ~= "" then last = line end
+    lines[#lines + 1] = if #line > 0 then "  " .. line else "" end
+  end
+  if not placed then
+    if entry.text ~= "" then lines[#lines + 1] = "" end
+    for _, row in ipairs(index) do lines[#lines + 1] = row end
+  end
+  if entry.symbol ~= "" and (entry.kind == "record" or entry.kind == "interface" or
+      entry.kind == "enum") then
+    local members, members_trouble = across(view,
+      function(db: Sqlite.Handle, public: boolean): {Doc.Entry}?, string
+        return members_of(db, public, entry.module)
+      end, entry_module)
+    if members == nil then
+      return nil, members_trouble
+    end
+    local first = true
+    for _, member in ipairs(members) do
+      if parent_of(member.source_symbol) == entry.source_symbol then
+        if first then
+          if lines[#lines] ~= "" then
+            lines[#lines + 1] = ""
+          end
+          lines[#lines + 1] = "  " .. (if entry.kind == "enum" then "values:" else "fields:" end)
+          first = false
+        end
+        lines[#lines + 1] = "    " .. member_line(member)
+      end
+    end
+  end
+  local inherited, inherited_trouble = inherited_lines(view, entry)
+  if inherited == nil then
+    return nil, inherited_trouble
+  end
+  if #inherited > 0 and lines[#lines] ~= "" then lines[#lines + 1] = "" end
+  for _, line in ipairs(inherited) do lines[#lines + 1] = line end
+  -- A command's options are data ([`Doc.Command`]), not prose: shown under
+  -- its field as `cosmic help <verb>` shows them, and searched by
+  -- [`by_options`].
+  local command = command_of(view, entry)
+  local options = command and command.options
+  if options ~= nil then
+    lines[#lines + 1] = "  options:"
+    for line in String.lines(options) do
+      lines[#lines + 1] = "  " .. line
+    end
+  end
+  if entry.links > 0 and entry.symbol == "" then
+    lines[#lines + 1] = "  linked from " .. String.counted(entry.links, "place") ..
+      "; cosmic uses " .. entry.module
+  end
+  if pointed ~= nil then
+    lines[#lines + 1] = "  a symbol's own page has its whole doc and its examples: cosmic docs " ..
+      pointed
+  end
+  if entry.symbol ~= "" then
+    if entry.uses > 0 or entry.links > 0 then
+      local said: mut {string} = {}
+      if entry.uses > 0 then
+        said[#said + 1] = "used in " .. String.counted(entry.uses, "place")
+      end
+      if entry.links > 0 then
+        said[#said + 1] = (if entry.uses > 0 then "linked from " .. tostring(entry.links) else
+          "linked from " .. String.counted(entry.links, "place") end)
+      end
+      -- A member of the record the module's value is typed as is asked
+      -- for by the module's name, which no other module's shares.
+      local used, used_trouble = used_as(view, entry)
+      if used == nil and used_trouble ~= "" then
+        return nil, used_trouble
+      end
+      lines[#lines + 1] = "  " .. table.concat(said, " and ") .. "; cosmic uses " ..
+        (if used ~= nil then entry.module .. "." .. used else entry.source_symbol end)
+    end
+    local examples, examples_trouble = across(view,
+      function(db: Sqlite.Handle, public: boolean): {Doc.Example}?, string
+        return examples_for(db, public, entry.module, entry.source_symbol)
+      end, function(_: Doc.Example): string return entry.module end)
+    if examples == nil then
+      return nil, examples_trouble
+    end
+    local more: mut {string} = {}
+    for at, ex in ipairs(ranked_examples(examples, entry.source_symbol)) do
+      if at > EXAMPLES_SHOWN then
+        more[#more + 1] = ex.name .. " (" .. ex.file .. ":" .. tostring(ex.line) .. ")"
+      else
+        lines[#lines + 1] = "  example " .. ex.name .. " (" .. ex.file .. ":" ..
+          tostring(ex.line) .. "):"
+        for line in String.lines(ex.text) do
+          lines[#lines + 1] = if #line > 0 then "  " .. line else "" end
+        end
+        for line in String.lines(shown_source(ex.source, entry.source_symbol)) do
+          lines[#lines + 1] = if #line > 0 then "    " .. line else "" end
+        end
+      end
+    end
+    if #more > 0 then
+      lines[#lines + 1] = "  " .. String.counted(#more, "more example") .. ": " ..
+        table.concat(more, ", ")
+    end
+  end
+  return lines, ""
+end
+
+--- How many entries a search shows whole, when nothing is named
+--- exactly; the rest it lists a line each. A search ("read whole
+--- file") touches dozens of entries, each a page with its examples.
+--- What a query names exactly is shown whole however many there are:
+--- the reader asked for each of them by name.
+local SHOWN_WHOLE <const> = 5
+
+--- How long the note after a listed entry's heading runs.
+local LISTED_NOTE <const> = 80
+
+--- Whether `word` is written as a qualified name ([`Fs.read`],
+--- [`cosmic.fs`], `Lid:open`) rather than as a word of prose: several of
+--- them are looked up one by one, where bare words are searched for
+--- together, since a bare word often names something exactly too
+--- ("find", "path").
+local function qualified(word: string): boolean
+  return word:match("^[%a_][%w_]*[.:][%a_][%w_.:]*$") ~= nil and
+    word:find("[.:][.:]") == nil and word:match("[.:]$") == nil
+end
+
+--- The lines `found`, what `query` looked up, prints as: every entry
+--- whole when the query names it; else a line saying they only relate,
+--- the first [`SHOWN_WHOLE`] whole, and the rest a line each.
+local function page(view: Doc.View, found: Doc.Lookup,
+                    query: string): {string}?, string
+  local lines: mut {string} = {}
+  if found.closest then
+    lines[#lines + 1] = "No entry has every word of '" .. query .. "'; closest matches:"
+    lines[#lines + 1] = ""
+  elseif not found.exact then
+    lines[#lines + 1] = "No exact symbol match for '" .. query ..
+      "'; showing related documentation:"
+    lines[#lines + 1] = ""
+  end
+  local whole = if found.exact then #found else math.min(#found, SHOWN_WHOLE) end
+  for index = 1, whole do
+    if index > 1 then
+      lines[#lines + 1] = ""
+    end
+    local rendered, trouble = Doc.render(view, (assert(found[index], "index is within the lookup")))
+    if rendered == nil then
+      return nil, trouble
+    end
+    for _, line in ipairs(rendered) do lines[#lines + 1] = line end
+    local verb = found.verb
+    if verb ~= nil and index == found.modules then
+      lines[#lines + 1] = ""
+      lines[#lines + 1] = "See also: the command `cosmic " .. query .. "` (`cosmic docs " ..
+        verb.source_symbol .. "`, `cosmic help " .. query .. "`)."
+    end
+  end
+  if #found > whole then
+    lines[#lines + 1] = ""
+    lines[#lines + 1] = tostring((#found - whole)) .. " more; narrow the search, or look one up by name:"
+    for index = whole + 1, #found do
+      local entry = (assert(found[index], "index is within the lookup"))
+      local said = if entry.kind == "example" then example_of(entry).text else entry.text end
+      local note = clipped(first_sentence(said), LISTED_NOTE)
+      lines[#lines + 1] = "  " .. heading(entry) .. (if note ~= "" then " -- " .. note else "" end)
+    end
+  end
+  return lines, ""
+end
+
+--- The modules of `index` a line each, aligned, with the first sentence
+--- of each, cut to `limit` bytes when there is one.
+local function index_lines(index: {Doc.Summary}, limit?: integer): mut {string}
+  local width = 0
+  for _, summary in ipairs(index) do
+    width = math.max(width, #summary.module)
+  end
+  local lines: mut {string} = {}
+  for _, summary in ipairs(index) do
+    local line = summary.module
+    local about = if limit ~= nil then clipped(summary.text, limit) else summary.text end
+    if summary.closed ~= "" then
+      about = "(" .. summary.closed .. ")" .. (if about ~= "" then " " .. about else "" end)
+    end
+    if about ~= "" then
+      line = line .. string.rep(" ", width - #line + 2) .. about
+    end
+    lines[#lines + 1] = line
+  end
+  return lines
+end
+
+--- The queries `cosmic docs <words...>` looks up, each as
+--- [`Doc.lookup`] answers it: every word alone when there are several
+--- and each is a qualified name, else the words together. Nil for no words or
+--- `cosmic` alone, which [`Doc.answer`] answers with a list of modules.
+function Doc.asked(words: {string}): {string}?
+  local query = table.concat(words, " ")
+  if query == "" or query == "cosmic" or query == "cosmic." then
+    return nil
+  end
+  if #words < 2 then
+    return { query }
+  end
+  for _, word in ipairs(words) do
+    if not qualified(word) then
+      return { query }
+    end
+  end
+  return words
+end
+
+--- `index` with each `closed` judged (the view's `marks`), for a module of a database of the tree's own only: a public
+--- source's module (the standard library a project builds with) is no module of the tree, and the rule refuses no
+--- require of it.
+local function marked(view: Doc.View, index: {Doc.Summary}): {Doc.Summary}
+  local by_owner: mut {integer: {string: string}} = {}
+  local out: mut {Doc.Summary} = {}
+  for _, summary in ipairs(index) do
+    local owner = view.owners[summary.module]
+    local closed = ""
+    if owner ~= nil and view.public[owner] ~= true then
+      local marks = by_owner[owner]
+      local judge = view.marks
+      if marks == nil and judge ~= nil then
+        marks = judge(database_of(view, owner))
+        by_owner[owner] = marks
+      end
+      closed = if marks ~= nil then marks[summary.module] or "" else "" end
+    end
+    out[#out + 1] = { module = summary.module, text = summary.text, closed = closed }
+  end
+  return out
+end
+
+--- The modules `cosmic docs <words...>` lists when [`Doc.asked`] names no
+--- query: every module for no words, the standard library's modules and
+--- guides for `cosmic`. Nil and why when a database cannot be read; a mark that cannot be judged
+--- is left off.
+local function modules_asked(view: Doc.View, words: {string}): {Doc.Summary}?, string
+  local index, trouble = Doc.index(view)
+  if index == nil then
+    return nil, trouble
+  end
+  -- Only the list of every module is marked: `cosmic` lists the library's public modules and guides, none of which
+  -- is ever marked.
+  if table.concat(words, " ") == "" then
+    return marked(view, index), ""
+  end
+  local library: mut {Doc.Summary} = {}
+  for _, summary in ipairs(index) do
+    if is_library(view, summary.module) or
+        symbols.is_public_guide(summary.module) then
+      library[#library + 1] = summary
+    end
+  end
+  return library, ""
+end
+
+--- What `cosmic docs <words...>` prints, short of its summary:
+--- - no words: every module ([`Doc.index`]);
+--- - `cosmic` (or `cosmic.`) alone: the standard library's modules and
+---   guides, which no search for the word could list in a page;
+--- - several words, each a qualified name ([`Fs.read`] [`Fs.write`]):
+---   each looked up in turn, as it would be alone;
+--- - else the words together, as one query to [`Doc.lookup`]: a
+---   symbol, a module or words to search for. A search names at most
+---   [`SHOWN_WHOLE`] entries whole.
+--- Nil and why when a database cannot be read.
+function Doc.answer(view: Doc.View, words: {string}): Doc.Answer?, string
+  local query = table.concat(words, " ")
+  local asked = Doc.asked(words)
+  if asked == nil then
+    local index, index_trouble = modules_asked(view, words)
+    if index == nil then
+      return nil, index_trouble
+    end
+    local hint = "`cosmic docs <module>` shows one, with what it offers; " ..
+      "`cosmic docs <words>` searches them all."
+    if query ~= "" then
+      hint = "`cosmic docs <module>` shows one (cosmic.fs, or fs), with what it " ..
+        "offers; `cosmic docs Fs.read` a symbol; `cosmic docs <words>` searches."
+    end
+    local lines = index_lines(index, if query ~= "" then NOTE_LIMIT else nil end)
+    lines[#lines + 1] = ""
+    lines[#lines + 1] = hint
+    return { lines = lines, found = true, said = String.counted(#index, "module") }, ""
+  end
+  local each = #asked > 1
+  local lines: mut {string} = {}
+  local naming, standing, related = 0, 0, 0
+  local missed: mut {string} = {}
+  for at, asking in ipairs(asked) do
+    local found, trouble = Doc.lookup(view, asking)
+    if found == nil then
+      return nil, trouble
+    end
+    if at > 1 then
+      lines[#lines + 1] = ""
+    end
+    if #found == 0 then
+      missed[#missed + 1] = "'" .. asking .. "'"
+      if each then
+        lines[#lines + 1] = "Nothing named or documented as '" .. asking .. "'."
+      end
+    else
+      local shown, page_trouble = page(view, found, asking)
+      if shown == nil then
+        return nil, page_trouble
+      end
+      for _, line in ipairs(shown) do lines[#lines + 1] = line end
+      if found.exact then
+        naming = naming + found.named
+        standing = standing + #found - found.named
+      else
+        related = related + #found
+      end
+    end
+  end
+  if #lines > 0 then
+    lines[#lines + 1] = ""
+  end
+  local said: mut {string} = {}
+  if #missed > 0 then
+    said[#said + 1] = "nothing named or documented as " .. table.concat(missed, ", ")
+  end
+  if naming > 0 then said[#said + 1] = tostring(naming) .. " named" end
+  if standing > 0 then said[#said + 1] = tostring(standing) .. " standing in" end
+  if related > 0 then said[#said + 1] = tostring(related) .. " found" end
+  return { lines = lines, found = #missed == 0, said = table.concat(said, ", ") }, ""
+end
+
+--- `cosmic docs --json <words...>`: a JSON object a line for what the page
+--- of [`Doc.answer`] shows, every entry and not the first few, in its order:
+--- - an entry [`Doc.lookup`] finds for each query [`Doc.asked`] names:
+---   `query`, `exact` (whether the query names the entry, and it does not
+---   stand in for a name it did), `module`, `symbol` (as the page names it:
+---   [`Fs.read`], `doc.guides.x#heading`; "" for a module), `kind`, `signature`
+---   and `text`, with `file` and `line` where it has them (a guide's
+---   section or a code entry has no line, and the key is absent), and `verb`
+---   (the command `cosmic <query>`, which the page points to) on the last
+---   module entry of a query that names one;
+--- - no words, or `cosmic`, name no query: each module the page lists, as
+---   `kind` "module", with its `text` the first sentence, and `closed`
+---   ([`Doc.Summary`]) where not every module may require it.
+--- A query that finds nothing has no line. Each object carries `stale`, true,
+--- where `stale` is set: the lookup answers from the last build, the tree not
+--- building as it stands. Nil and why when a database
+--- cannot be read; `found` is false when a query found nothing, and `said`
+--- is empty.
+function Doc.records(view: Doc.View, words: {string}, stale?: boolean): Doc.Answer?, string
+  local lines: mut {string} = {}
+  local all = true
+  local asked = Doc.asked(words)
+  if asked == nil then
+    local index, trouble = modules_asked(view, words)
+    if index == nil then
+      return nil, trouble
+    end
+    for _, summary in ipairs(index) do
+      local object: mut {string: Json.Value} = {
+        query = table.concat(words, " "), exact = false, module = summary.module,
+        symbol = "", kind = "module", signature = "", text = summary.text,
+      }
+      if summary.closed ~= "" then object["closed"] = summary.closed end
+      if stale == true then object["stale"] = true end
+      local line, encode_trouble = Json.encode(object)
+      if line == nil then
+        return nil, encode_trouble
+      end
+      lines[#lines + 1] = line
+    end
+    return { lines = lines, found = true, said = "" }, ""
+  end
+  for _, asking in ipairs(asked) do
+    local found, trouble = Doc.lookup(view, asking)
+    if found == nil then
+      return nil, trouble
+    end
+    if #found == 0 then all = false end
+    for index, entry in ipairs(found) do
+      local object: mut {string: Json.Value} = {
+        query = asking, exact = found.exact and index <= found.named,
+        module = entry.module, kind = entry.kind, signature = entry.signature,
+        symbol = if entry.symbol == "" then "" else entry.source_symbol end,
+        text = entry.text,
+      }
+      if entry.kind == "example" then
+        local ex = example_of(entry)
+        object["symbol"] = ex.name
+        object["text"] = ex.text
+        object["file"] = ex.file
+        object["line"] = ex.line
+        object["code"] = ex.source
+      else
+        if entry.kind == "section" or entry.symbol == "" then
+          object["text"] = link_text.unlinked(entry.text)
+        end
+        if entry.file ~= "" then object["file"] = entry.file end
+        if entry.line > 0 then object["line"] = entry.line end
+      end
+      if found.verb ~= nil and index == found.modules then
+        object["verb"] = asking
+      end
+      if stale == true then object["stale"] = true end
+      local line, encode_trouble = Json.encode(object)
+      if line == nil then
+        return nil, encode_trouble
+      end
+      lines[#lines + 1] = line
+    end
+  end
+  return { lines = lines, found = all, said = "" }, ""
+end
+
+return Doc

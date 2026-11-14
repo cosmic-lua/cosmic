@@ -53,6 +53,7 @@ local String = require("cosmic.string")
 local Clock = require("cosmic.clock")
 local clock = require("build.clock")
 local docs = require("build.docs")
+local Doc = require("cosmic.doc")
 local docs_checks = require("build.docs_checks")
 local help_source = require("build.help_source")
 local flow = require("build.flow")
@@ -900,7 +901,7 @@ function fix.link_context(root: string, whole: boolean, own: boolean,
   local opened: mut {docs.Sources} = {}
   local source: fix.LinkSource?
   local not_built: mut {string: boolean} = {}
-  local function open(): docs.View?, string
+  local function open(): Doc.View?, string
     if not whole then
       local rebuilt, rebuild_trouble = rebuild_here("fix")
       if not rebuilt then

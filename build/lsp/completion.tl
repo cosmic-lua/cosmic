@@ -75,7 +75,7 @@ local Scopes = require("lang.scopes")
 local Types = require("lang.types")
 local check = require("build.lsp.check")
 local source = require("build.lsp.source")
-local docs = require("build.docs")
+local Doc = require("cosmic.doc")
 local hover = require("build.lsp.hover")
 local lines = require("build.lsp.lines")
 local protocol = require("build.lsp.protocol")
@@ -583,15 +583,15 @@ local function symbol_prefix(program: Declarations.Program, decl: Types.Decl): s
 end
 
 --- The docs of the members `members` of `decl`, by name, where `decl` is declared in another module than `own`.
-local function documented(request: Request, d: hover.Docs, decl: Types.Decl, members: {Member}): {string: docs.Entry}
-  local out: mut {string: docs.Entry} = {}
+local function documented(request: Request, d: hover.Docs, decl: Types.Decl, members: {Member}): {string: Doc.Entry}
+  local out: mut {string: Doc.Entry} = {}
   if decl.module == request.outcome.module or #members == 0 then return out end
   local prefix = symbol_prefix(request.program, decl)
   local view = hover.view(d)
   if prefix == nil or view == nil then return out end
   local symbols: mut {string} = {}
   for _, member in ipairs(members) do symbols[#symbols + 1] = prefix .. member.name end
-  local found, _ = docs.named_all(view, symbols)
+  local found, _ = Doc.named_all(view, symbols)
   if found == nil then return out end
   for _, entry in ipairs(found) do
     if entry.module == decl.module and out[entry.symbol:sub(#prefix + 1)] == nil then
@@ -602,7 +602,7 @@ local function documented(request: Request, d: hover.Docs, decl: Types.Decl, mem
 end
 
 --- The markup of `entry`'s text, nil where it has none.
-local function markup(entry: docs.Entry?): protocol.MarkupContent?
+local function markup(entry: Doc.Entry?): protocol.MarkupContent?
   if entry == nil or entry.text == "" then return nil end
   return { kind = "markdown", value = entry.text }
 end
@@ -831,7 +831,7 @@ local function member_items(request: Request, d: hover.Docs, decl: Types.Decl, v
   -- The docs of the rows are the text's own: the docs database, the last build's, is no source for a member they hold.
   -- A list that leaves the documentation to `completionItem/resolve` does not ask the docs database for it.
   local lazy = request.options.lazy and not from_rows
-  local entries: {string: docs.Entry} = {}
+  local entries: {string: Doc.Entry} = {}
   if not from_rows and not lazy then entries = documented(request, d, decl, wanted) end
   for _, member in ipairs(wanted) do
     local entry = entries[member.name]
@@ -1010,7 +1010,7 @@ local function module_items(checker: check.Checker, d: hover.Docs, uses: Uses, c
   end
   local view = hover.view(d)
   if view ~= nil then
-    local index, _ = docs.index(view)
+    local index, _ = Doc.index(view)
     for _, summary in ipairs(index or {}) do names[summary.module] = true end
   end
   local sorted: mut {string} = {}

@@ -353,7 +353,7 @@ declares that it reads text (below):
 - the tables of text-derived rows (`docs`, `uses`, `links`, `examples`,
   `places`, `catalog` and their full-text tables) are left out, not left empty:
   a query of one fails with "no such table", and so does a hint
-  ([`build.symbols`]) asked of a store that has none. The catalog is withheld
+  ([`cosmic.internal.symbols`]) asked of a store that has none. The catalog is withheld
   because most of it, the rows of the error sites each module documents, moves
   with the lines of the module; the checker's own codes (`kind = 'code'`) do not,
   but no test that reads module text wants them alone;
@@ -1140,7 +1140,6 @@ Other rules:
 [`build.sandboxed_verdicts_test`]: ../build/sandboxed_verdicts_test.tl
 [`build.stamps`]: ../build/stamps.tl
 [`build.standard_text`]: ../build/standard_text.tl
-[`build.symbols`]: ../build/symbols.tl
 [`build.test_child`]: ../build/test_child.tl
 [`build.test_returns`]: ../build/test_returns.tl
 [`build.test_sandbox_probe`]: ../build/test_sandbox_probe.tl
@@ -1163,6 +1162,7 @@ Other rules:
 [`Check.Checked.narrowed`]: ../lang/check.tl
 [`ci/cosmic_ci/capabilities.json`]: ../ci/cosmic_ci/capabilities.json
 [`ci/README.md`]: ../ci/README.md
+[`cosmic.internal.symbols`]: ../cosmic/internal/symbols.tl
 [`cosmic.layout`]: ../cosmic/layout.tl
 [`cosmic.sandbox`]: ../cosmic/sandbox/init.tl
 [`cosmic.store`]: ../cosmic/store.tl

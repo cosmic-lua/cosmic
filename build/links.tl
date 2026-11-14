@@ -40,7 +40,7 @@
 ---    `io`, `os` or `debug`, which cosmic leaves out);
 --- 2. for a name with a `.` or a `:` ([`Fs.read`], [`cosmic.fs`]), a symbol
 ---    the project's databases know, by the rule `cosmic docs <word>`
----    answers an exact query with ([`docs.exact`], a type's member
+---    answers an exact query with ([`Doc.exact`], a type's member
 ---    through an alias included), or a module's member written in full
 ---    ([`cosmic.fs.read`]). A name alone names no symbol of another
 ---    module: it links to a declaration of its own file, the standard
@@ -82,18 +82,18 @@
 --- whose label is a code span must name the file the label names, or
 --- the file that declares its symbol.
 ---
---- The parse is [`build.link_text`]'s, C's, Zig's and Markdown's text
+--- The parse is [`cosmic.internal.link_text`]'s, C's, Zig's and Markdown's text
 --- [`build.link_files`]', and the resolution [`build.link_resolve`]'s,
 --- which the build shares to index each link ([`build.link_index`]);
 --- this module answers symbols from the project's databases.
 
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
-local docs = require("build.docs")
+local Doc = require("cosmic.doc")
 local link_resolve = require("build.link_resolve")
-local link_text = require("build.link_text")
+local link_text = require("cosmic.internal.link_text")
 local symbol_index = require("build.symbol_index")
-local symbols = require("build.symbols")
+local symbols = require("cosmic.internal.symbols")
 local String = require("cosmic.string")
 -- Declares what text this module reads ([`build.code_walk`]'s `markers`): the docs, examples, uses or links of the database it is handed.
 local _ = require("build.reads.all")
@@ -488,7 +488,7 @@ end
 
 --- The rows of `view` that `cosmic docs` shows, each from the database
 --- that owns its module, held in memory.
-local function index_of(view: docs.View): symbol_index.Index?, string
+local function index_of(view: Doc.View): symbol_index.Index?, string
   local out = symbol_index.new()
   for module in pairs(view.owners) do symbol_index.module(out, module) end
   for index, db in ipairs(view.databases) do
@@ -522,7 +522,7 @@ end
 --- one: a file with no link to a symbol reads no database. `unbuilt`
 --- says why the view lacks the project's own code, or nil. A name is
 --- answered from the view's rows held in memory ([`build.symbol_index`]).
-function links.context(root: string, open: function(): docs.View?, string,
+function links.context(root: string, open: function(): Doc.View?, string,
                        unbuilt: function(): string?): link_resolve.Context
   -- The index once built, or why it could not be; neither until asked.
   local ready_index: mut {symbol_index.Index} = {}

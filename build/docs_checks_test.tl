@@ -4,10 +4,11 @@
 local Array = require("cosmic.array")
 local Sqlite = require("cosmic.sqlite")
 local docs = require("build.docs")
+local Doc = require("cosmic.doc")
 local docs_checks = require("build.docs_checks")
 local fixture = require("build.docs_fixture")
 local schema = require("build.schema")
-local symbols = require("build.symbols")
+local symbols = require("cosmic.internal.symbols")
 
 --- Lines as one source file's text.
 local function source(...: string): string
@@ -348,10 +349,10 @@ local function test_a_type_standing_for_another_lists_members_that_resolve(dir: 
       "return Thing"),
   })
   local view = assert(docs.view({ db }, { true }))
-  local found = assert(docs.lookup(view, "Thing.Handle"))
+  local found = assert(Doc.lookup(view, "Thing.Handle"))
   local handle = found[1]
-  assert(handle ~= nil, "docs.lookup found no Thing.Handle")
-  local lines = assert(docs.render(view, handle))
+  assert(handle ~= nil, "Doc.lookup found no Thing.Handle")
+  local lines = assert(Doc.render(view, handle))
   assert(table.concat(lines, "\n"):find("size: integer -- How big", 1, true) ~= nil,
     table.concat(lines, "\n"))
   local checked = docs_checks.rendered(db, none)

@@ -1,7 +1,7 @@
 --- The `docs` rows a link's name is looked up in, held in memory: what
 --- `cosmic fix` ([`build.links`]) and the build's index of links
 --- ([`build.link_index`]) answer a name in full with, one table lookup a
---- name rather than a scan of every row. The rule is [`docs.exact`]'s
+--- name rather than a scan of every row. The rule is [`cosmic.doc.exact`]'s
 --- for a name with a `.` -- a symbol as declared or by its last few
 --- names, a module's own row, a module with no row of its own by its
 --- first, or a member of a type an alias stands for
@@ -11,7 +11,8 @@
 --- it names a declaration of its own file ([`build.link_resolve`]).
 
 local Sqlite = require("cosmic.sqlite")
-local alias_members = require("build.alias_members")
+local alias_members = require("cosmic.internal.alias_members")
+local doc_symbols = require("cosmic.internal.symbols")
 local type link_resolve = require("build.link_resolve")
 
 local record symbol_index
@@ -99,24 +100,7 @@ end
 --- binds a name answers for it, as [`build.docs`] reads them.
 function symbol_index.add_bound(index: symbol_index.Index, db: Sqlite.Handle,
                                 qualifier: string): boolean, string
-  local held, held_trouble = Sqlite.text_rows(db, "SELECT 1 FROM " .. qualifier ..
-      "sqlite_schema WHERE type = 'table' AND name = 'bound'")
-  if held == nil then
-    return false, held_trouble
-  end
-  if #held == 0 then
-    return true, ""
-  end
-  local rows, trouble = Sqlite.text_rows(db,
-    "SELECT path, name, requires FROM " .. qualifier .. "bound ORDER BY path, name")
-  if rows == nil then
-    return false, trouble
-  end
-  for _, row in ipairs(rows) do
-    local key = row:text(1) .. "\n" .. row:text(2)
-    if index.bound[key] == nil then index.bound[key] = row:text(3) end
-  end
-  return true, ""
+  return doc_symbols.add_bound(index.bound, db, qualifier)
 end
 
 --- Adds a row of `docs` to `index` (`symbol` `""` for the module's own
@@ -217,7 +201,7 @@ local function members_under(index: symbol_index.Index, target: symbol_index.Row
   return out
 end
 
---- `index`'s rows, as [`build.alias_members`] follows a declaration
+--- `index`'s rows, as [`cosmic.internal.alias_members`] follows a declaration
 --- through them.
 local function source_of(index: symbol_index.Index): alias_members.Source<symbol_index.Row>
   return {

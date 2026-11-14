@@ -8,7 +8,7 @@
 --- it. Its comments are still checked, since they are lexed whatever the file holds.
 local Ast = require("lang.ast")
 local Lexer = require("lang.lexer")
-local LinkText = require("build.link_text")
+local LinkText = require("cosmic.internal.link_text")
 local Links = require("build.links")
 local Node = require("build.syntax_node")
 local Scopes = require("lang.scopes")

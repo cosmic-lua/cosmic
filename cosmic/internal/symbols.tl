@@ -8,9 +8,24 @@
 --- requires neither.
 
 local Sqlite = require("cosmic.sqlite")
-local schema = require("build.schema")
 
 local record symbols
+  --- The name of the `docs` index of a module's `local` declarations.
+  mut local_index: string
+end
+
+symbols.local_index = "docs_by_local"
+
+--- The SQL for the last dotted name of the SQL `symbol`, a method's `:`
+--- read as `.` (`Box:grow` and `X.Box.grow` both end in `grow`): what
+--- follows `symbol`'s last `.`, by dropping the longest prefix that ends
+--- in one. The `docs` index on it ([`build.schema`]'s `create`) is found by the
+--- planner only through this very text, so a query that means to use it
+--- builds the expression here.
+function symbols.last_name(symbol: string): string
+  local dotted = "replace(" .. symbol .. ", ':', '.')"
+  return "replace(" .. dotted .. ", rtrim(" .. dotted .. ", replace(" .. dotted ..
+    ", '.', '')), '')"
 end
 
 --- Whether a module's name is in the standard library's namespace and is
@@ -108,7 +123,7 @@ end
 --- stays. Every other source shows them, since it is a reader's own
 --- tree or cosmic's.
 --- `indexed` says the database has the index of `local` declarations
---- ([`schema.create`], [`symbols.shown_in`]): each row is then checked
+--- ([`build.schema`]'s `create`, [`symbols.shown_in`]): each row is then checked
 --- against the module's declarations by a lookup in it. Without it the
 --- declarations are gathered once, since a lookup for every row would scan
 --- them all each time.
@@ -141,7 +156,7 @@ end
 
 --- [`shown_docs`] as the database `db` can answer it quickest: with the
 --- lookup of `local` declarations when it has the index for it, which a
---- database written before [`schema.create`] made one does not. The rows
+--- database written before [`build.schema`]'s `create` made one does not. The rows
 --- are the same either way.
 function symbols.shown_in(db: Sqlite.Handle, alias: string, public: boolean): string
   if not public then
@@ -151,7 +166,7 @@ function symbols.shown_in(db: Sqlite.Handle, alias: string, public: boolean): st
   -- answers the same rows.
   local rows, _ = Sqlite.text_rows(db,
     "SELECT 1 FROM sqlite_schema WHERE type = 'index' AND name = ?1",
-    { { text = schema.local_index } })
+    { { text = symbols.local_index } })
   return symbols.shown_docs(alias, public, rows ~= nil and #rows > 0)
 end
 
@@ -177,8 +192,8 @@ function symbols.named_where(alias: string): string
   -- or the module to be `?1`. It is redundant, but each of its three
   -- terms is an index lookup, which the rest are not, so the planner
   -- reads those rows alone instead of scanning every one.
-  local candidates = "(" .. schema.last_name(alias .. ".symbol") .. " = " ..
-    schema.last_name(DOTTED) .. " OR " .. alias .. ".source_symbol = ?1 OR " ..
+  local candidates = "(" .. symbols.last_name(alias .. ".symbol") .. " = " ..
+    symbols.last_name(DOTTED) .. " OR " .. alias .. ".source_symbol = ?1 OR " ..
     alias .. ".module = ?1)"
   return "((" .. alias .. ".symbol = ?1 OR " .. alias .. ".source_symbol = ?1 OR " ..
     ends_in(alias .. ".symbol", "?1") .. " OR " ..
@@ -336,6 +351,31 @@ function symbols.has_example_query(databases: {Sqlite.Handle}, public: {boolean}
     end
   end
   return false
+end
+
+--- Adds to `into` each name a module binds to another, keyed by the module, a newline and the name: the rows of
+--- `bound` of the database `db` holds under `qualifier` (`""` or `"out."`), where it holds that table, one written
+--- before it existed binding none. A key `into` already holds is kept, so the first database read that binds a
+--- name answers for it.
+function symbols.add_bound(into: mut {string: string}, db: Sqlite.Handle, qualifier: string): boolean, string
+  local held, held_trouble = Sqlite.text_rows(db, "SELECT 1 FROM " .. qualifier ..
+      "sqlite_schema WHERE type = 'table' AND name = 'bound'")
+  if held == nil then
+    return false, held_trouble
+  end
+  if #held == 0 then
+    return true, ""
+  end
+  local rows, trouble = Sqlite.text_rows(db,
+    "SELECT path, name, requires FROM " .. qualifier .. "bound ORDER BY path, name")
+  if rows == nil then
+    return false, trouble
+  end
+  for _, row in ipairs(rows) do
+    local key = row:text(1) .. "\n" .. row:text(2)
+    if into[key] == nil then into[key] = row:text(3) end
+  end
+  return true, ""
 end
 
 return symbols

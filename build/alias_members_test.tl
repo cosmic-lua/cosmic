@@ -1,7 +1,7 @@
---- The tests of [`build.alias_members`]: a reference that names no type answers nil beside an empty reason, and a source
+--- The tests of [`cosmic.internal.alias_members`]: a reference that names no type answers nil beside an empty reason, and a source
 --- that cannot be read answers nil beside why.
 local Test = require("cosmic.test")
-local alias_members = require("build.alias_members")
+local alias_members = require("cosmic.internal.alias_members")
 
 Test.policy{}
 
