@@ -27,7 +27,7 @@ the protocol's descriptions use no `oneof` keyword and no map field. both are le
 
 a message is a Teal record. its field numbers, and the encodings its types do not give, are the argument of a call the
 build resolves, as it resolves [`Shape.record_of`]: `Schema.message_of("Module.Record", { field = number })`, of the
-module `cosmic.protobuf.schema`. the wire codec's own names stay its own ([`Protobuf.Message`] is a message as read,
+module [`cosmic.protobuf.schema`]. the wire codec's own names stay its own ([`Protobuf.Message`] is a message as read,
 [`Protobuf.Field`] a field on the wire), and a program that uses the wire codec alone carries none of this. the
 build reads the record's declaration and the table, checks one against the other, and writes the reader and the writer
 as Teal the checker types.
@@ -152,7 +152,7 @@ if content ~= nil then print(content.identifier, #content.sections) end
 - a decoded message is changed with a spread, `{ ...message, identifier = id }`, which copies every declared field,
   the unknown fields among them.
 - the build refuses, at the call's line: a field with no number, a number with no field, a number given twice, out
-  of the format's range or among those it reserves, an encoding that does not fit the field's type (`Schema.float`
+  of the format's range or among those it reserves, an encoding that does not fit the field's type ([`Schema.float`]
   on a `string`), an enum value with no number or with the number of another value, a field of a type with no
   encoding (a function, a union, a generic), a field named by a keyword, and a codec given as anything but a name.
 - the call's own form is ordinary Teal: the table is a `{string: integer | Schema.Entry}`.
@@ -194,7 +194,7 @@ presence follows the field's own declaration:
 a singular field that occurs twice keeps the last occurrence. a singular message that occurs twice is the
 occurrences merged, as the format asks and the wire codec reads it.
 
-a record that declares a field of `Schema.Unknown` keeps what it does not understand, so that a program which
+a record that declares a field of [`Schema.Unknown`] keeps what it does not understand, so that a program which
 decodes a message, changes a field and encodes it loses nothing of the rest. a record with no such field drops it, as
 a shape drops a key it does not name. three things are kept or dropped by that rule:
 
@@ -234,7 +234,7 @@ fields from the root, which is built only on failure: `protobuf: Protocol.conten
 ### what the build writes
 
 a reader is one record literal, each field read from the message by its number through a helper of
-`cosmic.protobuf.schema`, and a writer one call for each field. neither names a local for a field, so a message has
+[`cosmic.protobuf.schema`], and a writer one call for each field. neither names a local for a field, so a message has
 no limit of fields. two bounds remain. a required embedded message has no value to stand for it where it is missing,
 so the reader names a local for each, and the build refuses a record of more than 150. and a Lua function captures
 255 locals at most, the codecs a record's fields name among them: a message of more embedded types than that holds
@@ -526,7 +526,7 @@ the same boilerplate with no grammar.
   record that holds itself: the shape resolver refuses it, and this one writes a function that names itself.
 - like `record_of`, the call is resolved only where a module is compiled: an aliased or computed call, a chunk loaded
   by hand and a script run with `--standalone` raise, saying so.
-- `Schema.Unknown` decides three behaviors of a record at once. a program that only reads leaves it out and gets
+- [`Schema.Unknown`] decides three behaviors of a record at once. a program that only reads leaves it out and gets
   the strict reader; a program that relays declares it.
 - field numbers sit in a table apart from the fields, so a field added to the record without a number is a build
   error at the call, not a field silently left off the wire.
@@ -571,12 +571,15 @@ the same boilerplate with no grammar.
 [`build/lsp/syntax_read.tl`]: ../../build/lsp/syntax_read.tl
 [`build/syntax_shape_specs_test.tl`]: ../../build/syntax_shape_specs_test.tl
 [`build/tree_program.tl`]: ../../build/tree_program.tl
-[`cosmic.protobuf`]: ../../cosmic/protobuf.tl
+[`cosmic.protobuf.schema`]: ../../cosmic/protobuf/schema.tl
+[`cosmic.protobuf`]: ../../cosmic/protobuf/init.tl
 [`cosmic.shape`]: ../../cosmic/shape.tl
 [`cosmic.template`]: ../../cosmic/template/init.tl
 [`doc/writing.md`]: ../writing.md
 [`Json.encode`]: ../../cosmic/json.tl
 [`lang/types.tl`]: ../../lang/types.tl
-[`Protobuf.Field`]: ../../cosmic/protobuf.tl
-[`Protobuf.Message`]: ../../cosmic/protobuf.tl
+[`Protobuf.Field`]: ../../cosmic/protobuf/init.tl
+[`Protobuf.Message`]: ../../cosmic/protobuf/init.tl
+[`Schema.float`]: ../../cosmic/protobuf/schema.tl
+[`Schema.Unknown`]: ../../cosmic/protobuf/schema.tl
 [`Shape.record_of`]: ../../cosmic/shape.tl
