@@ -27,33 +27,29 @@
 --- the message, known to the caller or not, and `fields` lists them.
 ---
 --- [`Protobuf.decode`] takes bytes from anywhere. It never raises and reads no byte outside what it was given.
---- It refuses the whole message, with nil and why, for a varint over 10 bytes, a field number of 0 or above
---- 536870911, a length that passes the end, a value the bytes end inside, the wire types the format does not
---- have (6 and 7), and a group (wire types 3 and 4, which only proto2 writes). A varint written in more bytes
---- than it needs is read as its value, and the bits a 10-byte one holds past the 64th are dropped, as the
---- reference implementations read both. A decode holds [`Protobuf.Options`]' `max_fields` fields at most
+--- It refuses the whole message, with nil and why, for a varint of more than 64 bits, a field number of 0 or
+--- above 536870911, a length that passes the end, a value the bytes end inside, the wire types the
+--- format does not have (6 and 7), and a group (wire types 3 and 4, which only proto2 writes). A varint written
+--- in more bytes than it needs is read as its value. One whose tenth byte holds more than the 64th bit is
+--- refused, where the reference implementations drop the bits past it: the bytes are read by nanopb, in the
+--- core, and that is its rule. A decode holds [`Protobuf.Options`]' `max_fields` fields at most
 --- and messages nest `max_depth` deep at most: past either, the answer is nil and why. A decode costs time and
 --- memory in proportion to the bytes and copies none of them: an embedded message is read in place when it is
 --- asked for.
 
-local String = require("cosmic.string")
+local Raw = require("cosmic.internal.protobuf")
 
 local record Protobuf
-  --- One field as it is on the wire.
-  record Field
-    --- The field's number, from 1 to 536870911.
-    number: integer
-    --- The wire type: [`Protobuf.VARINT`], [`Protobuf.FIXED64`], [`Protobuf.LEN`] or [`Protobuf.FIXED32`].
-    wire: integer
-    --- The value: the bytes of a [`Protobuf.LEN`] field, and the integer of any other. A [`Protobuf.FIXED32`]
-    --- is from 0 to 4294967295; [`Protobuf.encode`] also takes one from -2147483648.
-    value: integer | string
-  end
+  --- One field as it is on the wire: `number`, the field's number from 1 to 536870911; `wire`, its wire type
+  --- ([`Protobuf.VARINT`], [`Protobuf.FIXED64`], [`Protobuf.LEN`] or [`Protobuf.FIXED32`]); and `value`, the
+  --- bytes of a [`Protobuf.LEN`] field and the integer of any other. A [`Protobuf.FIXED32`] is from 0 to
+  --- 4294967295; [`Protobuf.encode`] also takes one from -2147483648.
+  type Field = Raw.Field
 
   --- What [`Protobuf.decode`] may be told. Every field is optional.
   record Options
     --- How deep messages may nest, the decoded one counted, 1 or more (default [`Protobuf.default_depth`],
-    --- 100). At that depth `message` and [`repeated_message`] answer nil and why.
+    --- 100). At that depth `message` and `repeated_message` answer nil and why.
     max_depth?: integer
     --- How many fields one message may hold, 1 or more (default [`Protobuf.default_fields`], 65536). A message
     --- of more is refused whole, as is an embedded one when it is asked for, which counts the fields of
@@ -72,78 +68,76 @@ local record Protobuf
     "double"
   end
 
-  --- A varint that was read, from [`Protobuf.read_varint`].
-  record Varint
-    --- The integer.
-    value: integer
-    --- The position of the byte after it.
-    next: integer
-  end
+  --- A varint that was read, from [`Protobuf.read_varint`]: `value`, the integer, and `next`, the position of
+  --- the byte after it.
+  type Varint = Raw.Varint
 
   --- The fields of a message that was read, from [`Protobuf.decode`]. No method raises or changes it. Every
   --- method but `fields` and `has` takes a field's number and reads the fields of that number whose wire type
   --- is the one it asks for.
-  interface Message
-    --- Every field, in the order of the bytes, the unknown ones too. An embedded message is its bytes. With
-    --- `keep`, the fields it answers true for, by number and wire type: the bytes of the others are not copied,
-    --- which is how a program takes the fields it does not know from a message it has read the rest of.
-    fields: function(self: Message, keep?: function(number: integer, wire: integer): boolean): {Field}
-    --- Whether any field has this number, of any wire type.
-    has: function(self: Message, number: integer): boolean
-    --- The wire types of the fields of this number, a bit for each: `1 << Protobuf.LEN` is set where one is
-    --- length-delimited. 0 where no field has the number. A read by number passes over a field of another wire
-    --- type than it asks for, and this says that there is one.
-    wires: function(self: Message, number: integer): integer
-    --- The last varint of that number as an `int32`, `int64`, `uint32`, `uint64` or an `enum`, or nil. It is
-    --- the 64 bits of the varint: nothing is cut to 32.
-    int: function(self: Message, number: integer): integer?
-    --- The last varint of that number as a `sint32` or `sint64`, whose sign is in its low bit, or nil.
-    sint: function(self: Message, number: integer): integer?
-    --- The last varint of that number as a `bool`, true unless it is 0, or nil.
-    bool: function(self: Message, number: integer): boolean?
-    --- The last 4-byte field of that number as a `fixed32`, from 0 to 4294967295, or nil.
-    fixed32: function(self: Message, number: integer): integer?
-    --- The last 4-byte field of that number as an `sfixed32`, from -2147483648 to 2147483647, or nil.
-    sfixed32: function(self: Message, number: integer): integer?
-    --- The last 8-byte field of that number as a `fixed64` or `sfixed64`, or nil.
-    fixed64: function(self: Message, number: integer): integer?
-    --- The last 4-byte field of that number as a `float`, or nil.
-    float: function(self: Message, number: integer): number?
-    --- The last 8-byte field of that number as a `double`, or nil.
-    double: function(self: Message, number: integer): number?
-    --- The bytes of the last length-delimited field of that number, or nil.
-    bytes: function(self: Message, number: integer): string?
-    --- As `bytes`, where they are UTF-8, which a `string` holds. Nil where they are not, as where there is no
-    --- such field: `bytes` tells the two apart.
-    string: function(self: Message, number: integer): string?
-    --- The embedded message of that number: every length-delimited field of the number read as a message, and
-    --- their fields merged in order. With no such field it is a message of no fields. Nil and why where the
-    --- bytes are no message, where the fields pass `max_fields`, or where this message is `max_depth` deep.
-    --- Each call reads the fields again, so a caller that needs the message twice keeps it.
-    message: function(self: Message, number: integer): Message?, string
-    --- Every `int` of that number in order, packed or not; an empty list where there is none. Nil and why
-    --- where a packed field ends inside a varint or holds one that is malformed.
-    repeated_int: function(self: Message, number: integer): {integer}?, string
-    --- Every `sint` of that number, as [`repeated_int`].
-    repeated_sint: function(self: Message, number: integer): {integer}?, string
-    --- Every `fixed32` of that number in order, packed or not. Nil and why where a packed field's length is
-    --- no multiple of 4.
-    repeated_fixed32: function(self: Message, number: integer): {integer}?, string
-    --- Every `sfixed32` of that number, as [`repeated_fixed32`].
-    repeated_sfixed32: function(self: Message, number: integer): {integer}?, string
-    --- Every `fixed64` of that number in order, packed or not. Nil and why where a packed field's length is
-    --- no multiple of 8.
-    repeated_fixed64: function(self: Message, number: integer): {integer}?, string
-    --- Every `float` of that number, as [`repeated_fixed32`].
-    repeated_float: function(self: Message, number: integer): {number}?, string
-    --- Every `double` of that number, as [`repeated_fixed64`].
-    repeated_double: function(self: Message, number: integer): {number}?, string
-    --- The bytes of every length-delimited field of that number in order: a repeated `bytes` or `string`.
-    repeated_bytes: function(self: Message, number: integer): {string}
-    --- Every embedded message of that number in order, each by itself and none merged. Nil and why as
-    --- `message` fails, for the first that does.
-    repeated_message: function(self: Message, number: integer): {Message}?, string
-  end
+  ---
+  --- `fields(keep?)`: Every field, in the order of the bytes, the unknown ones too. An embedded message is its
+  --- bytes. With `keep`, the fields it answers true for, by number and wire type: the bytes of the others are not
+  --- copied, which is how a program takes the fields it does not know from a message it has read the rest of.
+  ---
+  --- `has(number)`: Whether any field has this number, of any wire type.
+  ---
+  --- `wires(number)`: The wire types of the fields of this number, a bit for each: `1 << Protobuf.LEN` is set
+  --- where one is length-delimited. 0 where no field has the number. A read by number passes over a field of
+  --- another wire type than it asks for, and this says that there is one.
+  ---
+  --- `int(number)`: The last varint of that number as an `int32`, `int64`, `uint32`, `uint64` or an `enum`, or
+  --- nil. It is the 64 bits of the varint: nothing is cut to 32.
+  ---
+  --- `sint(number)`: The last varint of that number as a `sint32` or `sint64`, whose sign is in its low bit, or
+  --- nil.
+  ---
+  --- `bool(number)`: The last varint of that number as a `bool`, true unless it is 0, or nil.
+  ---
+  --- `fixed32(number)`: The last 4-byte field of that number as a `fixed32`, from 0 to 4294967295, or nil.
+  ---
+  --- `sfixed32(number)`: The last 4-byte field of that number as an `sfixed32`, from -2147483648 to 2147483647,
+  --- or nil.
+  ---
+  --- `fixed64(number)`: The last 8-byte field of that number as a `fixed64` or `sfixed64`, or nil.
+  ---
+  --- `float(number)`: The last 4-byte field of that number as a `float`, or nil.
+  ---
+  --- `double(number)`: The last 8-byte field of that number as a `double`, or nil.
+  ---
+  --- `bytes(number)`: The bytes of the last length-delimited field of that number, or nil.
+  ---
+  --- `string(number)`: As `bytes`, where they are UTF-8, which a `string` holds. Nil where they are not, as where
+  --- there is no such field: `bytes` tells the two apart.
+  ---
+  --- `message(number)`: The embedded message of that number: every length-delimited field of the number read as a
+  --- message, and their fields merged in order. With no such field it is a message of no fields. Nil and why
+  --- where the bytes are no message, where the fields pass `max_fields`, or where this message is `max_depth`
+  --- deep. Each call reads the fields again, so a caller that needs the message twice keeps it.
+  ---
+  --- `repeated_int(number)`: Every `int` of that number in order, packed or not; an empty list where there is
+  --- none. Nil and why where a packed field ends inside a varint or holds one that is malformed.
+  ---
+  --- `repeated_sint(number)`: Every `sint` of that number, as `repeated_int`.
+  ---
+  --- `repeated_fixed32(number)`: Every `fixed32` of that number in order, packed or not. Nil and why where a
+  --- packed field's length is no multiple of 4.
+  ---
+  --- `repeated_sfixed32(number)`: Every `sfixed32` of that number, as `repeated_fixed32`.
+  ---
+  --- `repeated_fixed64(number)`: Every `fixed64` of that number in order, packed or not. Nil and why where a
+  --- packed field's length is no multiple of 8.
+  ---
+  --- `repeated_float(number)`: Every `float` of that number, as `repeated_fixed32`.
+  ---
+  --- `repeated_double(number)`: Every `double` of that number, as `repeated_fixed64`.
+  ---
+  --- `repeated_bytes(number)`: The bytes of every length-delimited field of that number in order: a repeated
+  --- `bytes` or `string`.
+  ---
+  --- `repeated_message(number)`: Every embedded message of that number in order, each by itself and none merged.
+  --- Nil and why as `message` fails, for the first that does.
+  type Message = Raw.Message
 
   --- The bytes of a message being written, from [`Protobuf.writer`]. Each method but `encode` writes one field
   --- after those before it and answers the writer, so calls chain. None raises: the first field that cannot be
@@ -212,53 +206,12 @@ local FIXED32 <const> = 5
 --- The greatest field number: a tag is 32 bits, and the low 3 are the wire type.
 local MAX_NUMBER <const> = 536870911
 
---- The bytes of the longest varint: 64 bits, 7 to a byte.
-local MAX_VARINT <const> = 10
-
 --- The greatest single.
 local MAX_FLOAT <const> = 3.4028234663852886e+38
 
 --- Half way from the greatest single to the next power of two, 2^128 - 2^103: a double below it rounds to the
 --- greatest single, and one from it up to no single.
 local FLOAT_OVERFLOW <const> = 3.4028235677973366e+38
-
---- One field of a decoded message.
-local record Entry
-  number: integer
-  wire: integer
-  --- The integer of a field that is one. For [`LEN`], the position of its first byte.
-  value: integer
-  --- For [`LEN`], the position of its last byte, one less than `value` where it is empty.
-  stop: integer
-  --- The field before this one of the same number, so a read by number walks only those.
-  prev: Entry?
-end
-
---- A place in bytes being read: `pos` is the next byte, and nothing after `stop` is read.
-local record Cursor
-  data: string
-  mut pos: integer
-  stop: integer
-end
-
---- The varint at the cursor, which moves past it, or nil and why.
-local function take_varint(cursor: Cursor): integer?, string
-  local data, pos, stop = cursor.data, cursor.pos, cursor.stop
-  local value, shift = 0, 0
-  for count = 1, MAX_VARINT do
-    local byte = data:byte(pos)
-    if pos > stop or byte == nil then return nil, "the bytes end inside a varint" end
-    pos = pos + 1
-    if count == MAX_VARINT and byte >= 0x80 then return nil, "a varint is longer than 10 bytes" end
-    value = value | (byte & 0x7f) << shift
-    if byte < 0x80 then
-      cursor.pos = pos
-      return value, ""
-    end
-    shift = shift + 7
-  end
-  return nil, "a varint is longer than 10 bytes"
-end
 
 --- `value` as a varint.
 local function varint_bytes(value: integer): string
@@ -275,375 +228,6 @@ end
 
 local function zigzag(value: integer): integer
   return value << 1 ~ (if value < 0 then -1 else 0 end)
-end
-
-local function unzigzag(value: integer): integer
-  return value >> 1 ~ -(value & 1)
-end
-
-local function signed32(value: integer): integer
-  return if value >= 0x80000000 then value - 0x100000000 else value end
-end
-
-local function same(value: integer): integer
-  return value
-end
-
---- The 4 bytes at `pos` of `data`, which holds them, the low one first.
-local function u32_at(data: string, pos: integer): integer
-  return (string.unpack("<I4", data, pos))
-end
-
---- The 8 bytes at `pos` of `data`, which holds them, the low one first.
-local function i64_at(data: string, pos: integer): integer
-  return (string.unpack("<i8", data, pos))
-end
-
---- The fields in `data` from `start` through `stop`, added to `entries` and chained into `last`, or why they are
---- no message. `max_fields` bounds `entries`, whatever it held before.
-local function read_fields(data: string, start: integer, stop: integer, entries: mut {Entry},
-                           last: mut {integer: Entry}, max_fields: integer): string
-  local cursor: Cursor = { data = data, pos = start, stop = stop }
-  while cursor.pos <= stop do
-    local at = cursor.pos
-    local tag, why = take_varint(cursor)
-    if tag == nil then return ("protobuf: byte %d: %s"):format(at, why) end
-    local number, wire = tag >> 3, tag & 7
-    -- A tag past 32 bits is one too: the shift is of all 64, so its number is greater still.
-    if number > MAX_NUMBER then
-      return ("protobuf: byte %d: a field number above %d"):format(at, MAX_NUMBER)
-    end
-    if number == 0 then return ("protobuf: byte %d: a field number of 0"):format(at) end
-    if #entries >= max_fields then
-      return "protobuf: the message holds more than " .. String.counted(max_fields, "field")
-    end
-    local value, value_stop = 0, 0
-    if wire == VARINT then
-      local read, read_why = take_varint(cursor)
-      if read == nil then
-        return ("protobuf: byte %d: field %d: %s"):format(at, number, read_why)
-      end
-      value = read
-    elseif wire == FIXED64 or wire == FIXED32 then
-      local size = if wire == FIXED64 then 8 else 4 end
-      if stop - cursor.pos + 1 < size then
-        return ("protobuf: byte %d: the bytes end inside the %s of field %d"):format(at, String.counted(size, "byte"), number)
-      end
-      value = if wire == FIXED64 then i64_at(data, cursor.pos) else u32_at(data, cursor.pos) end
-      cursor.pos = cursor.pos + size
-    elseif wire == LEN then
-      local length, length_why = take_varint(cursor)
-      if length == nil then
-        return ("protobuf: byte %d: field %d: %s"):format(at, number, length_why)
-      end
-      -- A length above 2^63 - 1 is negative here, and passes the end as any other too long.
-      if length < 0 or length > stop - cursor.pos + 1 then
-        return ("protobuf: byte %d: the length of field %d passes the end of the bytes"):format(at, number)
-      end
-      value = cursor.pos
-      value_stop = cursor.pos + length - 1
-      cursor.pos = cursor.pos + length
-    elseif wire == 3 or wire == 4 then
-      return ("protobuf: byte %d: field %d is a group (wire type %d), which is not read"):format(at, number, wire)
-    else
-      return ("protobuf: byte %d: field %d has wire type %d, which the format does not have"):format(at, number,
-        wire)
-    end
-    local entry: Entry = { number = number, wire = wire, value = value, stop = value_stop, prev = last[number] }
-    last[number] = entry
-    entries[#entries + 1] = entry
-  end
-  return ""
-end
-
---- The last field of that number and wire type among those `last` chains.
-local function find(last: {integer: Entry}, number: integer, wire: integer): Entry?
-  local entry = last[number]
-  while entry ~= nil do
-    if entry.wire == wire then return entry end
-    entry = entry.prev
-  end
-  return nil
-end
-
---- The fields of that number, in the order of the bytes.
-local function all(last: {integer: Entry}, number: integer): {Entry}
-  local back: mut {Entry} = {}
-  local entry = last[number]
-  while entry ~= nil do
-    back[#back + 1] = entry
-    entry = entry.prev
-  end
-  local out: mut {Entry} = {}
-  for i = #back, 1, -1 do
-    out[#out + 1] = assert(back[i])
-  end
-  return out
-end
-
---- The length-delimited fields of that number, in the order of the bytes.
-local function all_len(last: {integer: Entry}, number: integer): {Entry}
-  local out: mut {Entry} = {}
-  for _, entry in ipairs(all(last, number)) do
-    if entry.wire == LEN then out[#out + 1] = entry end
-  end
-  return out
-end
-
---- Every varint of that number, each through `map`: those of varint fields, and those packed in
---- length-delimited ones.
-local function varints(data: string, last: {integer: Entry}, number: integer,
-                       map: function(integer): integer): {integer}?, string
-  local out: mut {integer} = {}
-  for _, entry in ipairs(all(last, number)) do
-    if entry.wire == VARINT then
-      local mapped = map(entry.value)
-      out[#out + 1] = mapped
-    elseif entry.wire == LEN then
-      local cursor: Cursor = { data = data, pos = entry.value, stop = entry.stop }
-      while cursor.pos <= cursor.stop do
-        local value, why = take_varint(cursor)
-        if value == nil then return nil, ("protobuf: packed field %d: %s"):format(number, why) end
-        local mapped = map(value)
-        out[#out + 1] = mapped
-      end
-    end
-  end
-  return out, ""
-end
-
-local function float_of(bits: integer): number
-  return (string.unpack("<f", string.pack("<I4", bits)))
-end
-
-local function double_of(bits: integer): number
-  return (string.unpack("<d", string.pack("<i8", bits)))
-end
-
-local function i32_at(data: string, pos: integer): integer
-  return (string.unpack("<i4", data, pos))
-end
-
-local function float_at(data: string, pos: integer): number
-  return (string.unpack("<f", data, pos))
-end
-
-local function double_at(data: string, pos: integer): number
-  return (string.unpack("<d", data, pos))
-end
-
---- Every value of that number that is 4 bytes (`wire` is [`FIXED32`]) or 8: those of fields of the wire type,
---- each through `of`, and those packed in length-delimited ones, each read by `at` from the bytes, which gives
---- what `of` gives of the same bits.
-local function fixed<T>(data: string, last: {integer: Entry}, number: integer, wire: integer,
-                        of: function(integer): T, at: function(string, integer): T): {T}?, string
-  local size = if wire == FIXED64 then 8 else 4 end
-  local out: mut {T} = {}
-  for _, entry in ipairs(all(last, number)) do
-    if entry.wire == wire then
-      local value = of(entry.value)
-      out[#out + 1] = value
-    elseif entry.wire == LEN then
-      local length = entry.stop - entry.value + 1
-      if length % size ~= 0 then
-        return nil, ("protobuf: packed field %d is %s, no multiple of %d"):format(number,
-          String.counted(length, "byte"), size)
-      end
-      for pos = entry.value, entry.stop, size do
-        local value = at(data, pos)
-        out[#out + 1] = value
-      end
-    end
-  end
-  return out, ""
-end
-
---- The fields of an embedded message.
-local record Nested
-  entries: {Entry}
-  last: {integer: Entry}
-end
-
---- The fields of the message that the length-delimited fields `parts` of that number hold, merged. It is one
---- level below a message `depth` deep, so nil and why where that is `max_depth`.
-local function embedded(data: string, number: integer, parts: {Entry}, depth: integer, max_depth: integer,
-                        max_fields: integer): Nested?, string
-  if depth >= max_depth then
-    return nil, ("protobuf: field %d nests deeper than %s"):format(number, String.counted(max_depth, "message"))
-  end
-  local entries: mut {Entry} = {}
-  local last: mut {integer: Entry} = {}
-  for _, part in ipairs(parts) do
-    local why = read_fields(data, part.value, part.stop, entries, last, max_fields)
-    if why ~= "" then return nil, ("%s (in field %d)"):format(why, number) end
-  end
-  return { entries = entries, last = last }, ""
-end
-
-local class Decoded is Protobuf.Message
-  data: string
-  entries: {Entry}
-  last: {integer: Entry}
-  depth: integer
-  max_depth: integer
-  max_fields: integer
-
-  function fields(self, keep?: function(number: integer, wire: integer): boolean): {Protobuf.Field}
-    local out: mut {Protobuf.Field} = {}
-    local data = self.data
-    for _, entry in ipairs(self.entries) do
-      if keep == nil or keep(entry.number, entry.wire) then
-        local field: Protobuf.Field = {
-          number = entry.number,
-          wire = entry.wire,
-          value = if entry.wire == LEN then data:sub(entry.value, entry.stop) else entry.value end,
-        }
-        out[#out + 1] = field
-      end
-    end
-    return out
-  end
-
-  function wires(self, number: integer): integer
-    local mask = 0
-    local entry = self.last[number]
-    while entry ~= nil do
-      mask = mask | (1 << entry.wire)
-      entry = entry.prev
-    end
-    return mask
-  end
-
-  function has(self, number: integer): boolean
-    return self.last[number] ~= nil
-  end
-
-  function int(self, number: integer): integer?
-    local entry = find(self.last, number, VARINT)
-    if entry == nil then return nil end
-    return entry.value
-  end
-
-  function sint(self, number: integer): integer?
-    local entry = find(self.last, number, VARINT)
-    if entry == nil then return nil end
-    return unzigzag(entry.value)
-  end
-
-  function bool(self, number: integer): boolean?
-    local entry = find(self.last, number, VARINT)
-    if entry == nil then return nil end
-    return entry.value ~= 0
-  end
-
-  function fixed32(self, number: integer): integer?
-    local entry = find(self.last, number, FIXED32)
-    if entry == nil then return nil end
-    return entry.value
-  end
-
-  function sfixed32(self, number: integer): integer?
-    local entry = find(self.last, number, FIXED32)
-    if entry == nil then return nil end
-    return signed32(entry.value)
-  end
-
-  function fixed64(self, number: integer): integer?
-    local entry = find(self.last, number, FIXED64)
-    if entry == nil then return nil end
-    return entry.value
-  end
-
-  function float(self, number: integer): number?
-    local entry = find(self.last, number, FIXED32)
-    if entry == nil then return nil end
-    return float_of(entry.value)
-  end
-
-  function double(self, number: integer): number?
-    local entry = find(self.last, number, FIXED64)
-    if entry == nil then return nil end
-    return double_of(entry.value)
-  end
-
-  function bytes(self, number: integer): string?
-    local entry = find(self.last, number, LEN)
-    if entry == nil then return nil end
-    return self.data:sub(entry.value, entry.stop)
-  end
-
-  function string(self, number: integer): string?
-    local entry = find(self.last, number, LEN)
-    if entry == nil then return nil end
-    -- The field's bytes alone: `utf8.len` over a range of `data` reads a character that begins in the range
-    -- to its end, which may be past the field.
-    local text = self.data:sub(entry.value, entry.stop)
-    if utf8.len(text) == nil then return nil end
-    return text
-  end
-
-  function message(self, number: integer): Protobuf.Message?, string
-    local nested, why = embedded(self.data, number, all_len(self.last, number), self.depth, self.max_depth,
-      self.max_fields)
-    if nested == nil then return nil, why end
-    local child: Decoded = { data = self.data, entries = nested.entries, last = nested.last, depth = self.depth + 1,
-      max_depth = self.max_depth, max_fields = self.max_fields }
-    return child, ""
-  end
-
-  function repeated_int(self, number: integer): {integer}?, string
-    return varints(self.data, self.last, number, same)
-  end
-
-  function repeated_sint(self, number: integer): {integer}?, string
-    return varints(self.data, self.last, number, unzigzag)
-  end
-
-  function repeated_fixed32(self, number: integer): {integer}?, string
-    return fixed(self.data, self.last, number, FIXED32, same, u32_at)
-  end
-
-  function repeated_sfixed32(self, number: integer): {integer}?, string
-    return fixed(self.data, self.last, number, FIXED32, signed32, i32_at)
-  end
-
-  function repeated_fixed64(self, number: integer): {integer}?, string
-    return fixed(self.data, self.last, number, FIXED64, same, i64_at)
-  end
-
-  function repeated_float(self, number: integer): {number}?, string
-    return fixed(self.data, self.last, number, FIXED32, float_of, float_at)
-  end
-
-  function repeated_double(self, number: integer): {number}?, string
-    return fixed(self.data, self.last, number, FIXED64, double_of, double_at)
-  end
-
-  function repeated_bytes(self, number: integer): {string}
-    local out: mut {string} = {}
-    for _, entry in ipairs(all_len(self.last, number)) do
-      out[#out + 1] = self.data:sub(entry.value, entry.stop)
-    end
-    return out
-  end
-
-  function repeated_message(self, number: integer): {Protobuf.Message}?, string
-    local out: mut {Protobuf.Message} = {}
-    local parts = all_len(self.last, number)
-    if #parts == 0 then
-      -- No part is there to refuse the depth, which `message` refuses with no field too.
-      local none, why = embedded(self.data, number, parts, self.depth, self.max_depth, self.max_fields)
-      if none == nil then return nil, why end
-    end
-    for _, entry in ipairs(parts) do
-      local nested, why = embedded(self.data, number, { entry }, self.depth, self.max_depth, self.max_fields)
-      if nested == nil then return nil, why end
-      local child: Decoded = { data = self.data, entries = nested.entries, last = nested.last,
-        depth = self.depth + 1, max_depth = self.max_depth, max_fields = self.max_fields }
-      out[#out + 1] = child
-    end
-    return out, ""
-  end
 end
 
 --- A bound of a decode: `given`, or `default` where it is nil. Raises for one that is no integer of 1 or more,
@@ -664,13 +248,7 @@ function Protobuf.decode(data: string, opts?: Protobuf.Options): Protobuf.Messag
   local o: Protobuf.Options = opts or {}
   local max_depth = bound("max_depth", o.max_depth, Protobuf.default_depth)
   local max_fields = bound("max_fields", o.max_fields, Protobuf.default_fields)
-  local entries: mut {Entry} = {}
-  local last: mut {integer: Entry} = {}
-  local why = read_fields(data, 1, #data, entries, last, max_fields)
-  if why ~= "" then return nil, why end
-  local message: Decoded = { data = data, entries = entries, last = last, depth = 1, max_depth = max_depth,
-    max_fields = max_fields }
-  return message, ""
+  return Raw.decode(data, max_depth, max_fields)
 end
 
 --- Why `number` is no field's, or "".
@@ -871,7 +449,7 @@ function Protobuf.varint(value: integer): string
 end
 
 --- The varint in `data` at the position `at` (default 1), and the position after it, or nil and why: the bytes
---- end inside it, or it is longer than 10 bytes. It never raises. A failure with fewer than 10 bytes from `at`
+--- end inside it, or it holds more than 64 bits. It never raises. A failure with fewer than 10 bytes from `at`
 --- on is always the first, so a reader of a stream then waits for more bytes. A length read from a peer is any
 --- 64 bits, negative above 2^63 - 1: hold it to a limit before waiting for that many bytes.
 function Protobuf.read_varint(data: string, at?: integer): Protobuf.Varint?, string
@@ -879,10 +457,7 @@ function Protobuf.read_varint(data: string, at?: integer): Protobuf.Varint?, str
   if math.type(start) ~= "integer" or start < 1 then
     return nil, ("protobuf: %s is no position"):format(tostring(start))
   end
-  local cursor: Cursor = { data = data, pos = start, stop = #data }
-  local value, why = take_varint(cursor)
-  if value == nil then return nil, "protobuf: " .. why end
-  return { value = value, next = cursor.pos }, ""
+  return Raw.read_varint(data, start)
 end
 
 return Protobuf
