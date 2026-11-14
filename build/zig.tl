@@ -610,7 +610,8 @@ local function watches(path: string): boolean
     return true
   end
   if path:match("^test/portable/[^/]+%.c$") ~= nil or
-      path:match("^doc/guides/[^/]+%.md$") ~= nil then
+      path:match("^doc/guides/[^/]+%.md$") ~= nil or
+      path:match("^doc/guides/internal/[^/]+%.md$") ~= nil then
     return true
   end
   return first ~= "bin" and first ~= "doc" and String.ends_with(path, ".tl")

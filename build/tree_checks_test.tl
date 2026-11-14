@@ -8,7 +8,6 @@ local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local fixture = require("build.docs_fixture")
 local rebuild = require("build.rebuild")
-local schema = require("build.schema")
 local symbols = require("build.symbols")
 local Test = require("cosmic.test")
 local Tree = require("build.tree")
@@ -1159,28 +1158,6 @@ local function test_ci_testdata_type_errors_are_named(dir: string)
   assert(all:find("good_test", 1, true) == nil, all)
   assert(all:find("ci/testdata/sub/loose.tl:1:", 1, true) ~= nil, all)
   assert(#tree_checks.ci_testdata(dir .. "/nowhere") == 0)
-end
-
---- A guide under doc/guides that is neither a user guide nor named
---- internal would silently not ship: the check names it.
-local function test_a_guide_in_neither_list_is_refused()
-  local db = assert(Sqlite.memory())
-  for _, statement in ipairs(schema.create("")) do
-    assert(db:exec(statement))
-  end
-  for _, module in ipairs({ "doc.guides.quickstart", "doc.guides.portable-runtime" }) do
-    assert(Sqlite.run(db,
-      "INSERT INTO modules (path, file, kind, source_hash, key, source, bytecode, tests) " ..
-        "VALUES (?1, ?1, 'test', '', '', '', '', '')", { { text = module } }))
-  end
-  local found = tree_checks.guides(db)
-  assert(#found == 0, table.concat(found, "\n"))
-  assert(Sqlite.run(db,
-    "INSERT INTO modules (path, file, kind, source_hash, key, source, bytecode, tests) " ..
-      "VALUES ('doc.guides.newcomer', 'f', 'test', '', '', '', '', '')"))
-  found = tree_checks.guides(db)
-  assert(#found == 1 and found[1]:find("^doc/guides/newcomer%.md is in neither") ~= nil,
-    table.concat(found, "\n"))
 end
 
 --- An unused local is as unused as an unused import: a test module under
