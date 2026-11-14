@@ -153,11 +153,12 @@ local function is_vendor_pin(entry: string): boolean
 end
 
 --- Whether `file` is a doc this tree extracts runnable examples from --
---- exactly `doc/guides/*.md`, never a markdown file anywhere else in
---- the tree ([`doc/design.md`], [`doc/roadmap.md`], and [`doc/writing.md`] are
---- prose with no examples, and stay out of scope on purpose).
+--- exactly `doc/guides/*.md` and `doc/guides/internal/*.md`, never a
+--- markdown file anywhere else in the tree ([`doc/design.md`],
+--- [`doc/roadmap.md`], and [`doc/writing.md`] are prose with no examples,
+--- and stay out of scope on purpose).
 local function is_doc_guide(file: string): boolean
-  return file:match("^doc/guides/[^/]+%.md$") ~= nil
+  return file:match("^doc/guides/[^/]+%.md$") ~= nil or file:match("^doc/guides/internal/[^/]+%.md$") ~= nil
 end
 
 --- The walk's predicates take the entry's bare name second, so what
@@ -169,7 +170,7 @@ function identity.skip_input(entry: string, name: string): boolean
   end
   local first = identity.first_of(entry)
   if first == "doc" then
-    if entry == "doc" or entry == "doc/guides" then
+    if entry == "doc" or entry == "doc/guides" or entry == "doc/guides/internal" then
       return false
     end
     return not is_doc_guide(entry)

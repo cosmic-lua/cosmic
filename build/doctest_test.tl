@@ -156,6 +156,22 @@ local function test_an_output_matching_example_actually_passes()
   assert(ok, "expected the matching example to pass, got: " .. tostring(err))
 end
 
+--- A guide under `doc/guides/internal/` is a guide too, for those working
+--- on the tree: it is extracted and compiled as any guide, or its examples
+--- would go unchecked. A Markdown file deeper than that is no guide.
+local function test_a_guide_under_internal_is_a_test_of_its_own()
+  local root = assert(write_fixture("internal", matching_doc))
+  assert(Fs.mkdirs(root .. "/doc/guides/internal/deep"))
+  assert(Fs.write(root .. "/doc/guides/internal/notes.md", matching_doc))
+  assert(Fs.write(root .. "/doc/guides/internal/deep/far.md", matching_doc))
+  local result = assert(compile_fixture(root))
+  assert(find_module(result, "doc.guides.fixture") ~= nil, "a guide directly under doc/guides")
+  local notes = assert(find_module(result, "doc.guides.internal.notes"), "a guide under doc/guides/internal")
+  assert(notes.kind == "test", notes.kind)
+  assert(find_module(result, "doc.guides.internal.deep.far") == nil, "a file below that is no guide")
+  assert(Fs.remove_tree(root))
+end
+
 --- The test the generator writes for an example with output (its capture of `print` among it) is code the new checker takes
 --- with no ceiling to hold it. (The run of what it writes is the test above, in the suite's.)
 local function test_an_output_matching_example_builds_with_the_new_checker_and_passes()

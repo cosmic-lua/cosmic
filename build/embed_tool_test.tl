@@ -214,7 +214,7 @@ end
 --- examples of the modules any module may require, and its guides. What
 --- position keeps to the project stays there: a sibling of a closed
 --- directory, a module under `internal/`, the program itself, a test, and
---- test support, and a use made from any of them: a private module's rows
+--- test support, a guide under `doc/guides/internal/`, and a use made from any of them: a private module's rows
 --- would tell the program's users of code they cannot call.
 local function test_the_carried_database_holds_the_documentation_of_the_public_modules(tmp: string)
   write_project(tmp)
@@ -332,6 +332,8 @@ local function test_the_carried_database_holds_the_documentation_of_the_public_m
   }, "\n")))
   assert(Fs.mkdirs(tmp .. "/doc/guides"))
   assert(Fs.write(tmp .. "/doc/guides/greeting.md", "# greeting\n\nHow to greet a visitor.\n"))
+  assert(Fs.mkdirs(tmp .. "/doc/guides/internal"))
+  assert(Fs.write(tmp .. "/doc/guides/internal/notes.md", "# notes\n\nFor those working on the project.\n"))
   assert(Fs.write(tmp .. "/cmd/hello/main.tl", table.concat({
     "--- The program, which no module requires.",
     'local Fs = require("cosmic.fs")',

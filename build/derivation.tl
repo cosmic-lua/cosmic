@@ -76,7 +76,8 @@ local insert_derived =
 local function derive_doc_guides(db: Sqlite.Handle, refusal: derivation.Refusal): boolean, string
   local guides, trouble = Sqlite.text_rows(db,
     "SELECT path, data, sha256 FROM files " ..
-      "WHERE path GLOB 'doc/guides/*.md' AND path NOT GLOB 'doc/guides/*/*' " ..
+      "WHERE ((path GLOB 'doc/guides/*.md' AND path NOT GLOB 'doc/guides/*/*') OR " ..
+      "(path GLOB 'doc/guides/internal/*.md' AND path NOT GLOB 'doc/guides/internal/*/*')) " ..
       "AND path NOT IN (SELECT file FROM derived) ORDER BY path")
   if guides == nil then
     return false, trouble

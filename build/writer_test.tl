@@ -493,7 +493,7 @@ end
 --- A user guide is a generated test module, which the tool does not
 --- carry, but its prose is what `cosmic docs quickstart` answers with:
 --- its own doc row is carried, not the helpers its module declares, and
---- a guide about the runtime's own construction is left to the tree.
+--- a guide under `doc/guides/internal/` is left to the tree.
 local function test_the_carried_docs_hold_the_user_guides_prose(tmp: string)
   local whole = tmp .. "/whole.db"
   local db = assert(Sqlite.open(whole, { writable = true }))
@@ -502,13 +502,13 @@ local function test_the_carried_docs_hold_the_user_guides_prose(tmp: string)
   for _, statement in ipairs({
       "INSERT INTO modules (path, file, kind, source_hash, key, bytecode, tests, source) " ..
         "VALUES ('doc.guides.quickstart', 'doc/guides/quickstart.md', 'test', '', '', '', '', ''), " ..
-        "('doc.guides.portable-runtime', 'doc/guides/portable-runtime.md', 'test', '', '', '', '', '')",
+        "('doc.guides.internal.portable-runtime', 'doc/guides/internal/portable-runtime.md', 'test', '', '', '', '', '')",
       "INSERT INTO docs (module, symbol, source_symbol, exported, kind, signature, " ..
         "text, file, line) VALUES " ..
         "('doc.guides.quickstart', '', '', 1, 'module', '', 'A tour.', 'f', 1), " ..
         "('doc.guides.quickstart', '__doctest_write', '__doctest_write', 0, 'function', '', " ..
         "'A helper.', 'f', 1), " ..
-        "('doc.guides.portable-runtime', '', '', 1, 'module', '', 'How it is built.', 'f', 1)",
+        "('doc.guides.internal.portable-runtime', '', '', 1, 'module', '', 'How it is built.', 'f', 1)",
   }) do
     assert(db:exec(statement))
   end

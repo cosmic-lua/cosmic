@@ -305,19 +305,21 @@ end
 
 function TreeProgram.derived_of(root: string): {{string}}?, string
   local out: mut {{string}} = {}
-  local guides, _ = Fs.list(root .. "/doc/guides")
-  for _, name in ipairs(guides or {}) do
-    local file = "doc/guides/" .. name
-    if name:match("%.md$") ~= nil then
-      local text, why = Fs.read(root .. "/" .. file)
-      if text == nil then
-        return nil, why
+  for _, dir in ipairs({ "doc/guides", "doc/guides/internal" }) do
+    local guides, _ = Fs.list(root .. "/" .. dir)
+    for _, name in ipairs(guides or {}) do
+      local file = dir .. "/" .. name
+      if name:match("%.md$") ~= nil then
+        local text, why = Fs.read(root .. "/" .. file)
+        if text == nil then
+          return nil, why
+        end
+        local made, made_why = doctest.extract(text, file)
+        if made == nil then
+          return nil, file .. ": " .. made_why
+        end
+        out[#out + 1] = { file, made, guide_module(file) }
       end
-      local made, made_why = doctest.extract(text, file)
-      if made == nil then
-        return nil, file .. ": " .. made_why
-      end
-      out[#out + 1] = { file, made, guide_module(file) }
     end
   end
   local listed, walk_trouble = Fs.walk(root, function(relative: string, name: string, kind: Fs.Kind): boolean

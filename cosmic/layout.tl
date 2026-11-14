@@ -56,7 +56,10 @@ local record Layout
   --- directory below it) is a test of its own. Each block tagged `teal`
   --- or `lua` is an example that compiles, and runs when a block tagged
   --- `output` after it says what it prints; doc/guides/<name>.md is
-  --- `cosmic docs doc.guides.<name>`
+  --- `cosmic docs doc.guides.<name>`. A guide directly under
+  --- doc/guides/internal/ is one too, for those working on the project:
+  --- it is tested as any guide, and neither the tool nor a program built
+  --- from the project carries it
   guides: string
   --- a typed template: a `<name>.tmpl` file is a module the build makes
   --- of it ([`cosmic.template`]), imported by its path like a `.tl` file:

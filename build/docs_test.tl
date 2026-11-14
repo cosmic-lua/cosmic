@@ -2499,15 +2499,15 @@ end
 --- A binary carries a user guide as its own doc row, with no module
 --- row beside it. A public source lists it with the guide's first
 --- sentence, finds it by its bare name, and shows the whole prose; a
---- guide the binary does not carry is not there.
+--- guide under `doc/guides/internal/` is not there.
 local function test_a_public_source_lists_and_finds_a_user_guide(_: string)
   local db = database({
     { "cosmic.fs", "", "module", "", "Files.", "cosmic/fs.tl", "1" },
     { "doc.guides.quickstart", "", "module", "",
       "A tour of the library. It shows each module.\n\n## first step\n\nDo this.",
       "doc/guides/quickstart.md", "1" },
-    { "doc.guides.portable-runtime", "", "module", "", "How it is built.",
-      "doc/guides/portable-runtime.md", "1" },
+    { "doc.guides.internal.portable-runtime", "", "module", "", "How it is built.",
+      "doc/guides/internal/portable-runtime.md", "1" },
   }, {}, { "cosmic.fs" })
   local public = assert(docs.view({ db }, { true }))
   local listed: mut {string} = {}

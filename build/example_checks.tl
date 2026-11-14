@@ -320,8 +320,8 @@ local function guide(text: string, file: string, options: Pipeline.Options): {st
 end
 
 --- Both of the above over the tree at `root`: the projection `db`'s
---- examples and each of `guides` (default [`symbols.guides`], read from
---- `doc/guides/<name>.md`). The findings are those the markers of an example do not hold, and the markers that hold
+--- examples and each of `guides` (default the user guides, each Markdown
+--- file directly under `doc/guides/`, read from `doc/guides/<name>.md`). The findings are those the markers of an example do not hold, and the markers that hold
 --- none.
 function example_checks.run(db: Sqlite.Handle, root: string, guides?: {string}): {string}
   local options, options_trouble = require("build.pipeline").alone()
@@ -329,7 +329,18 @@ function example_checks.run(db: Sqlite.Handle, root: string, guides?: {string}):
     return { options_trouble }
   end
   local out = examples(db, options, root)
-  for _, name in ipairs(guides or symbols.guides) do
+  local named = guides
+  if named == nil then
+    local listed, _ = Fs.list(root .. "/doc/guides")
+    local found: mut {string} = {}
+    for _, entry in ipairs(listed or {}) do
+      local name = entry:match("^(.+)%.md$")
+      if name ~= nil then found[#found + 1] = name end
+    end
+    table.sort(found)
+    named = found
+  end
+  for _, name in ipairs(named) do
     local file = "doc/guides/" .. name .. ".md"
     local text, read_trouble = Fs.read(root .. "/" .. file)
     if text == nil then
