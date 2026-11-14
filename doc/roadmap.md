@@ -384,11 +384,29 @@ promises lean on come first:
     holds, its options), and written from them. Today it is a record of type
     41 with `rdata`, its class split at the top bit like any other.
 
+- [`cosmic.protobuf`] past the wire format, each once a caller needs it:
+  - A schema layer: a message's fields declared once, each with its name,
+    number and type and whether it repeats, to get the reader that answers a
+    record and the writer that takes one. Today a caller says a field's
+    number and type at every read and write. It needs design first: whether
+    the declaration is a value checked at run time, as a [`cosmic.shape`] spec
+    is, or a record the build reads, as `record_of` reads one; how a `oneof`,
+    a map and a field's default are said; what a record keeps of the fields
+    it has no name for; and whether a `.proto` file is read to make one.
+  - Groups (wire types 3 and 4), which [`Protobuf.decode`] refuses and only
+    proto2 writes. A group has no length: its end is found by reading every
+    field inside it, the groups nested in it too, under a bound on how deep
+    they nest.
+
 - [`cosmic.mdns`] past a search made once, each once a caller needs it:
-  - Publishing a service: a responder that probes for its names, announces
-    its records, answers the questions about them and says goodbye as it
-    stops (RFC 6762 sections 8 to 10), at port 5353 as [`Mdns.Listen`]'s
-    "group" binds it.
+  - The rest of publishing a service, where [`Mdns.responder`] only answers:
+    probing for its names before it uses them, announcing its records,
+    saying goodbye as it stops and settling a conflict with another
+    responder (RFC 6762 sections 8 to 10); leaving out the answers a
+    question lists as known (section 7.1); the delay before an answer
+    others may give too, and the answer that says a record does not exist
+    (section 6); the unicast answer a member's question may ask for
+    (section 5.4); and publishing a sub-type.
   - A browse that goes on until it is stopped: each record kept for its
     time to live and asked for again before that ends, an instance reported
     gone when its records expire or a goodbye (a record with a time to live
@@ -464,6 +482,16 @@ symbol.
 
 - add focused `*_example.tl` files for the public modules `cosmic/` has
   none for yet: `env` and `store`.
+- search a built program's help by its words. [`Flags.dispatch`] answers a
+  command's page by its name and the index of them all; a program with many
+  commands also wants `prog help <words>` to answer the pages that hold the
+  words, as `cosmic docs <words>` does for the library. a program carries
+  its project's docs ([`build/embed.tl`]), and the query over them
+  ([`build/docs.tl`], FTS5) is part of the tool and no function of the
+  library. decide how a command's page (its `about`, `usage`, options and
+  `examples`) becomes a row beside the docs, what in the library queries
+  them from the program, and how a miss ranks beside [`Flags.nearest`]'s
+  names. no caller in the tree needs it yet.
 - add mention search for prose references that `cosmic uses` cannot see.
   old's `cosmic/doc/mentions.tl` demonstrates the separate full-text query.
 - an uncaught error's guidance ([`Errors.guidance`] in [`cosmic/errors.tl`]) is
@@ -527,6 +555,8 @@ four-producer provenance join.
 [`build/archive_test.tl`]: ../build/archive_test.tl
 [`build/c/tree.tl`]: ../build/c/tree.tl
 [`build/dataset.tl`]: ../build/dataset.tl
+[`build/docs.tl`]: ../build/docs.tl
+[`build/embed.tl`]: ../build/embed.tl
 [`build/flow.tl`]: ../build/flow.tl
 [`build/hash_test.tl`]: ../build/hash_test.tl
 [`build/json.tl`]: ../build/json.tl
@@ -555,6 +585,7 @@ four-producer provenance join.
 [`cosmic.mdns`]: ../cosmic/mdns.tl
 [`cosmic.net`]: ../cosmic/net.tl
 [`cosmic.plist`]: ../cosmic/plist.tl
+[`cosmic.protobuf`]: ../cosmic/protobuf.tl
 [`cosmic.relay.address`]: ../cosmic/relay/address.tl
 [`cosmic.relay.grant`]: ../cosmic/relay/grant.tl
 [`cosmic.removed`]: ../cosmic/removed.tl
@@ -575,18 +606,21 @@ four-producer provenance join.
 [`doc/testing.md`]: testing.md
 [`Errors.guidance`]: ../cosmic/errors.tl
 [`eval/summarize.tl`]: ../eval/summarize.tl
+[`Flags.dispatch`]: ../cosmic/flags.tl
+[`Flags.nearest`]: ../cosmic/flags.tl
 [`Html.url_part`]: ../cosmic/html.tl
 [`Input.Invalid`]: ../cosmic/web/input.tl
 [`Json.decode`]: ../cosmic/json.tl
 [`lang/flow.tl`]: ../lang/flow.tl
 [`lang/stdlib.d.tl`]: ../lang/stdlib.d.tl
-[`Mdns.Listen`]: ../cosmic/mdns.tl
+[`Mdns.responder`]: ../cosmic/mdns.tl
 [`Net.datagram`]: ../cosmic/net.tl
 [`Net.serve`]: ../cosmic/net.tl
 [`Plist.decode`]: ../cosmic/plist.tl
 [`Plist.form`]: ../cosmic/plist.tl
 [`Plist.Value`]: ../cosmic/plist.tl
 [`Proc.relaunch`]: ../cosmic/proc.tl
+[`Protobuf.decode`]: ../cosmic/protobuf.tl
 [`Sandbox.Limits`]: ../cosmic/sandbox/init.tl
 [`Sandbox.Policy`]: ../cosmic/sandbox/init.tl
 [`Server.none_match`]: ../cosmic/http/server.tl

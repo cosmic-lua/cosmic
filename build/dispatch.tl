@@ -271,9 +271,11 @@ end
 --- [`cosmic.cli.groups`] names, and where to read more.
 local function index_help(): string
   -- TODO: write the index through Flags.dispatch's program help, which
-  -- lists every command alphabetically with its `about`. It waits on
-  -- that help taking sections and a preamble: the index's groups, and
-  -- the prose around them, are what `cosmic help` shows today.
+  -- lists every command with its `about`, in sections by `group`. It
+  -- waits on that help taking the sections in an order the caller gives
+  -- (it sorts them by title), a usage per command in place of its name,
+  -- and a preamble: the index's groups in their order, and the prose
+  -- around them, are what `cosmic help` shows today.
   local Cli = require("cosmic.cli")
   local width = 0
   for _, verb in ipairs(Cli.order) do

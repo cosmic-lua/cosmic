@@ -3,9 +3,7 @@
 --- other test -- see doc/design.md's `examples` table.
 
 local Clock = require("cosmic.clock")
-local Dns = require("cosmic.dns")
 local Mdns = require("cosmic.mdns")
-local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
 local Test = require("cosmic.test")
 
@@ -14,37 +12,16 @@ Test.policy{ loopback = { "127.0.0.1" } }
 
 local record Example end
 
---- A record of type `rtype` at `name`, for the stand-in to fill in.
-local function at(name: string, rtype: integer): Dns.Record
-  return { name = name, type = rtype, class = Dns.IN, cache_flush = false, ttl = 120 }
-end
+--- The group the stand-in joins on the loopback interface: one of a site's own.
+local GROUP <const> = "239.255.53.99"
 
---- All the stand-in has to say, as the response to `query`: a printer named with a dot and a space,
---- at `printer.local`.
-local function answer(query: Dns.Message): string
-  local name = "Front Desk\\. Printer._ipp._tcp.local"
-  local answers: {Dns.Record} = {
-    { ...at("_ipp._tcp.local", Dns.PTR), target = name },
-    { ...at(name, Dns.SRV), srv = { priority = 0, weight = 0, port = 631, target = "printer.local" } },
-    { ...at(name, Dns.TXT), txt = { "txtvers=1", "rp=printers/front", "Color=T" } },
-    { ...at("printer.local", Dns.A), address = "192.0.2.7" },
-    { ...at("printer.local", Dns.AAAA), address = "2001:db8::7" },
-  }
-  local message: Dns.Message = { ...Dns.reply(query), authoritative = true, answers = answers }
-  return (assert(Dns.encode(message)))
-end
-
---- The stand-in: answers each question that reaches `device`, to whoever asked, until the socket is
---- closed.
-local function respond(device: Net.Datagram)
-  while true do
-    local packet = device:receive()
-    if packet == nil then return end
-    local query = Dns.decode(packet.data)
-    if query ~= nil and not query.response then
-      assert(device:send(answer(query), packet.address))
-    end
-  end
+--- A stand-in for a printer: a responder that publishes one, named with a dot and a space, on the
+--- loopback at a port the system chooses, which its `address` says. It answers once `serve` runs.
+local function stand_in(): Mdns.Responder
+  return (assert(Mdns.responder({
+    { service = "_ipp._tcp", name = "Front Desk. Printer", host = "printer.local", port = 631,
+      ipv4 = { "192.0.2.7" }, ipv6 = { "2001:db8::7" }, txt = { "txtvers=1", "rp=printers/front", "Color=T" } },
+  }, { address = GROUP, port = 0, via = { "127.0.0.1" } })))
 end
 
 --- The printers of the network: [`Mdns.browse`] answers each instance of the service type with
@@ -53,8 +30,8 @@ end
 --- the search at the first printer.
 function Example.browse()
   Poll.run(function()
-    local device <close> = assert(Net.datagram(Net.udp("127.0.0.1", 0)))
-    Poll.spawn(function() respond(device) end)
+    local device <close> = stand_in()
+    Poll.spawn(function() assert(device:serve()) end)
     local printers = assert(Mdns.browse("_ipp._tcp", { address = "127.0.0.1", port = assert(device.address.port),
       limit = 1, timeout_ns = Clock.seconds(5) }))
     for _, printer in ipairs(printers) do
@@ -75,8 +52,8 @@ end
 --- printer has described itself, where it would wait five seconds for the other type.
 function Example.several()
   Poll.run(function()
-    local device <close> = assert(Net.datagram(Net.udp("127.0.0.1", 0)))
-    Poll.spawn(function() respond(device) end)
+    local device <close> = stand_in()
+    Poll.spawn(function() assert(device:serve()) end)
     local found = assert(Mdns.browse({ "_ipp._tcp", "_http._tcp" }, { address = "127.0.0.1",
       port = assert(device.address.port), settle_ns = Clock.ms(100), timeout_ns = Clock.seconds(5) }))
     for _, instance in ipairs(found) do print(instance.service, instance.name, instance.port) end
@@ -89,8 +66,8 @@ end
 --- can show the first before the time limit has passed.
 function Example.found()
   Poll.run(function()
-    local device <close> = assert(Net.datagram(Net.udp("127.0.0.1", 0)))
-    Poll.spawn(function() respond(device) end)
+    local device <close> = stand_in()
+    Poll.spawn(function() assert(device:serve()) end)
     local names: mut {string} = {}
     local printers = assert(Mdns.browse("_ipp._tcp.local", {
       address = "127.0.0.1",
@@ -109,8 +86,8 @@ end
 --- first answer, not at its time limit.
 function Example.resolve()
   Poll.run(function()
-    local device <close> = assert(Net.datagram(Net.udp("127.0.0.1", 0)))
-    Poll.spawn(function() respond(device) end)
+    local device <close> = stand_in()
+    Poll.spawn(function() assert(device:serve()) end)
     local addresses = assert(Mdns.resolve("printer.local", { address = "127.0.0.1",
       port = assert(device.address.port) }))
     for _, address in ipairs(addresses) do print(address.family, address.address) end
@@ -122,34 +99,39 @@ end
 --- Listening as a member of the group, [`Mdns.Listen`]'s "group": the search binds the port,
 --- shared, joins the group on the interfaces `via` names and hears what is sent to the group. Here
 --- the group is one of a site's own on the loopback interface, where the stand-in is a member too
---- and sends its answers to the group. On a real network `{ listen = "group" }` is enough: the
+--- and answers a member at the group. On a real network `{ listen = "group" }` is enough: the
 --- group of multicast DNS, port 5353 and the machine's interfaces are the defaults.
 function Example.group()
-  local group, via = "239.255.53.99", "127.0.0.1"
   Poll.run(function()
-    local device <close> = assert(Net.datagram(Net.udp(group, 0), { shared = true }))
-    local port = assert(device.address.port)
-    assert(device:join(group, via))
-    -- An answer comes from the port the question was asked at, as a responder's comes from port
-    -- 5353.
-    local out <close> = assert(Net.datagram(Net.udp(via, port), { shared = true }))
-    assert(out:set_multicast({ via = via, hops = 1 }))
-    Poll.spawn(function()
-      while true do
-        local packet = device:receive()
-        if packet == nil then return end
-        local query = Dns.decode(packet.data)
-        -- The group carries the stand-in's own answers back to it.
-        if query ~= nil and not query.response then
-          assert(out:send(answer(query), Net.udp(group, port)))
-        end
-      end
-    end)
-    local printers = assert(Mdns.browse("_ipp._tcp", { listen = "group", address = group, port = port,
-      via = { via }, limit = 1, timeout_ns = Clock.seconds(5) }))
-    local printer = assert(printers[1])
-    print(printer.name, printer.from)
-    assert(printer.name == "Front Desk. Printer" and printer.port == 631)
+    local device <close> = stand_in()
+    Poll.spawn(function() assert(device:serve()) end)
+    local printers = assert(Mdns.browse("_ipp._tcp", { listen = "group", address = GROUP,
+      port = assert(device.address.port), via = { "127.0.0.1" }, limit = 1, timeout_ns = Clock.seconds(5) }))
+    local found = assert(printers[1])
+    print(found.name, found.from)
+    assert(found.name == "Front Desk. Printer" and found.port == 631)
+  end)
+end
+
+--- Publishing a service: [`Mdns.responder`] binds the port and joins the group, and `serve`
+--- answers the questions about the instances until the responder is closed, here by `<close>` as
+--- the function ends. On a real network the options are left out, for the group of multicast DNS
+--- and port 5353; here the group is one of a site's own on the loopback interface and the port is
+--- the system's choice, which a search is told.
+function Example.responder()
+  Poll.run(function()
+    local responder <close> = assert(Mdns.responder({
+      { service = "_http._tcp", name = "Notes", host = "notes.local", port = 8080, ipv4 = { "192.0.2.9" },
+        txt = { "path=/notes" } },
+    }, { address = GROUP, port = 0, via = { "127.0.0.1" } }))
+    local serving = Poll.spawn(function() assert(responder:serve()) end)
+    local found = assert(Mdns.browse("_http._tcp", { address = "127.0.0.1", port = assert(responder.address.port),
+      limit = 1, timeout_ns = Clock.seconds(5) }))
+    local notes = assert(found[1])
+    print(notes.name, notes.host, notes.port, notes.ipv4[1], notes.attributes["path"])
+    assert(notes.name == "Notes" and notes.host == "notes.local" and notes.port == 8080)
+    assert(responder:close())
+    assert(serving:join())
   end)
 end
 

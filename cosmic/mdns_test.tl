@@ -1,6 +1,7 @@
---- [`cosmic.mdns`] against a stand-in responder on the loopback: instances assembled from whole and
---- partial answers, what a hostile answer cannot do, the limits of a search, and both ways to
---- listen.
+--- [`cosmic.mdns`] on the loopback. A search against a stand-in responder, for the answers no
+--- real one gives: instances assembled from whole and partial answers, what a hostile answer
+--- cannot do, the limits of a search, and both ways to listen. And [`Mdns.responder`], asked by a
+--- search and by queries written by hand.
 
 local Clock = require("cosmic.clock")
 local Dns = require("cosmic.dns")
@@ -105,6 +106,32 @@ end
 
 local function serving(reply: Reply, body: function(opts: Mdns.Options))
   serving_packets(function(query: Dns.Message, _: Net.Packet): {string} return reply(query) end, body)
+end
+
+--- The group the responders of these tests join on the loopback: one of a site's own.
+local PUBLISHED_AT <const> = "239.255.53.20"
+
+--- Runs `body` beside a responder that publishes `instances` on the loopback, at a port the system
+--- chose. `body` is given the options that make a search ask it from a port of the search's own,
+--- those that make one ask it as a member of its group, and where it is bound. The responder
+--- serves until it is closed, which `serve` answers as true.
+local function publishing(instances: {Mdns.Published},
+                          body: function(unicast: Mdns.Options, grouped: Mdns.Options, port: integer))
+  Poll.run(function()
+    local responder <close> = assert(Mdns.responder(instances, { address = PUBLISHED_AT, port = 0,
+      via = { LOOPBACK } }))
+    local port = assert(responder.address.port)
+    local served, why = false, "never ran"
+    local answering = Poll.spawn(function()
+      served, why = responder:serve()
+    end)
+    body({ address = LOOPBACK, port = port, timeout_ns = Clock.seconds(10), retry_ns = Clock.ms(200) },
+      { listen = "group", address = PUBLISHED_AT, port = port, via = { LOOPBACK }, timeout_ns = Clock.seconds(10),
+        retry_ns = Clock.ms(200) }, port)
+    assert(responder:close())
+    assert(answering:join())
+    assert(served, why)
+  end)
 end
 
 local function test_an_instance_is_assembled_from_one_packet()
@@ -311,11 +338,9 @@ end
 
 local function test_an_instance_name_keeps_its_dots_spaces_and_letters()
   local instance_name = "Caf\xc3\xa9 2.0 \xe2\x80\x94 B\xc3\xbcro. Drucker"
-  local function reply(query: Dns.Message): {string}
-    if not asks(query, HTTP, Dns.PTR) then return {} end
-    return { response(query, described(HTTP, instance_name, "drucker.local", 80, "192.0.2.9")) }
-  end
-  serving(reply, function(opts: Mdns.Options)
+  publishing({
+    { service = "_http._tcp", name = instance_name, host = "drucker.local", port = 80, ipv4 = { "192.0.2.9" } },
+  }, function(opts: Mdns.Options, _: Mdns.Options, _: integer)
     local found = assert(Mdns.browse(HTTP, { ...opts, limit = 1 }))
     local instance = assert(found[1])
     assert(instance.name == instance_name, instance.name)
@@ -328,16 +353,12 @@ local function test_an_instance_name_keeps_its_dots_spaces_and_letters()
 end
 
 local function test_several_instances_are_listed_in_the_order_they_were_named()
-  local function reply(query: Dns.Message): {string}
-    if not asks(query, HTTP, Dns.PTR) then return {} end
-    -- Two of them at one host, and each in a packet of its own.
-    return {
-      response(query, described(HTTP, "First", "one.local", 80, "192.0.2.1")),
-      response(query, described(HTTP, "Second", "one.local", 8080, "192.0.2.1")),
-      response(query, described(HTTP, "Third", "three.local", 80, "192.0.2.3")),
-    }
-  end
-  serving(reply, function(opts: Mdns.Options)
+  -- Two of them at one host, and each in a packet of its own, as a responder answers.
+  publishing({
+    { service = "_http._tcp", name = "First", host = "one.local", port = 80, ipv4 = { "192.0.2.1" } },
+    { service = "_http._tcp", name = "Second", host = "one.local", port = 8080, ipv4 = { "192.0.2.1" } },
+    { service = "_http._tcp", name = "Third", host = "three.local", port = 80, ipv4 = { "192.0.2.3" } },
+  }, function(opts: Mdns.Options, _: Mdns.Options, _: integer)
     local found = assert(Mdns.browse(HTTP, { ...opts, limit = 3 }))
     assert(#found == 3, tostring(#found))
     local first, second, third = assert(found[1]), assert(found[2]), assert(found[3])
@@ -581,11 +602,9 @@ local function test_found_is_called_once_for_each_instance_of_the_list()
 end
 
 local function test_what_found_raises_the_search_raises()
-  local function reply(query: Dns.Message): {string}
-    if not asks(query, HTTP, Dns.PTR) then return {} end
-    return { response(query, described(HTTP, "Whole", "whole.local", 80, "192.0.2.1")) }
-  end
-  serving(reply, function(opts: Mdns.Options)
+  publishing({
+    { service = "_http._tcp", name = "Whole", host = "whole.local", port = 80, ipv4 = { "192.0.2.1" } },
+  }, function(opts: Mdns.Options, _: Mdns.Options, _: integer)
     local why = Test.raises(function()
       Mdns.browse(HTTP, { ...opts, found = function(_: Mdns.Instance) error("no more", 0) end })
     end, "no more")
@@ -688,13 +707,18 @@ end
 --- 192.0.2.0/24 is for documentation: no interface has an address of it, so the group is not joined
 --- there and no question leaves by it.
 local function test_an_interface_that_refuses_is_passed_over_while_another_takes_the_question()
-  local function reply(query: Dns.Message): {string}
-    if not asks(query, HTTP, Dns.PTR) then return {} end
-    return { announcement(query, described(HTTP, "Printer", "printer.local", 631, "192.0.2.7")) }
-  end
-  serving_group("239.255.53.4", reply, function(opts: Mdns.Options)
-    local found = assert(Mdns.browse(HTTP, { ...opts, via = { "192.0.2.77", LOOPBACK, "192.0.2.78" }, limit = 1 }))
+  Poll.run(function()
+    local group = "239.255.53.4"
+    local responder <close> = assert(Mdns.responder({
+      { service = "_http._tcp", name = "Printer", host = "printer.local", port = 631, ipv4 = { "192.0.2.7" } },
+    }, { address = group, port = 0, via = { "192.0.2.77", LOOPBACK, "192.0.2.78" } }))
+    local answering = Poll.spawn(function() assert(responder:serve()) end)
+    local found = assert(Mdns.browse(HTTP, { listen = "group", address = group, port = assert(responder.address.port),
+      via = { "192.0.2.77", LOOPBACK, "192.0.2.78" }, limit = 1, timeout_ns = Clock.seconds(10),
+      retry_ns = Clock.ms(200) }))
     assert(assert(found[1]).name == "Printer")
+    assert(responder:close())
+    assert(answering:join())
   end)
 end
 
@@ -1619,5 +1643,427 @@ local function test_txt_only_gives_an_instance_its_host_when_its_srv_record_come
     local web = assert(found[1])
     assert(#found == 1 and web.host == "one.local" and web.port == 80 and web.ipv4[1] == "192.0.2.1", web.host)
     assert(web.attributes["path"] == "/")
+  end)
+end
+
+--- A printer and a web server at one host, and a second printer at another.
+local function three_published(): {Mdns.Published}
+  return {
+    { service = "_ipp._tcp", name = "Front Desk. Printer", host = "desk.local", port = 631,
+      ipv4 = { "192.0.2.7" }, ipv6 = { "2001:db8::7" }, txt = { "txtvers=1", "Color=T" } },
+    { service = "_http._tcp.local", name = "Web", host = "Desk.local", port = 8080, ipv4 = { "192.0.2.7" } },
+    { service = "_ipp._tcp", name = "Second", host = "second.local", port = 631, ipv4 = { "192.0.2.9" } },
+  }
+end
+
+--- A question for the records of type `rtype` at `name`.
+local function asking(name: string, rtype: integer): Dns.Question
+  return { name = name, type = rtype, class = Dns.IN, unicast_response = false }
+end
+
+--- Sends the query of `questions` and `id` from `socket` to `to`.
+local function send_query(socket: Net.Datagram, to: Net.Address, id: integer, questions: {Dns.Question})
+  local query: Dns.Message = { ...Dns.query(".", Dns.PTR, id), recursion_desired = false, questions = questions }
+  assert(socket:send(assert(Dns.encode(query)), to))
+end
+
+--- The next response that reaches `socket`: a member of a group hears its own queries too. A
+--- responder that never answers fails the test here, by a wait no passing test comes near.
+local function next_response(socket: Net.Datagram): Dns.Message
+  while true do
+    local packet = assert(socket:receive(Clock.seconds(20)))
+    local message = assert(Dns.decode(packet.data))
+    if message.response then return message end
+  end
+end
+
+--- The record of type `rtype` among `records`.
+local function of_type(records: {Dns.Record}, rtype: integer): Dns.Record
+  for _, record in ipairs(records) do
+    if record.type == rtype then return record end
+  end
+  error("no record of type " .. tostring(rtype))
+end
+
+local function test_a_responder_answers_a_search_made_from_a_port_of_its_own()
+  publishing(three_published(), function(unicast: Mdns.Options, _: Mdns.Options, _: integer)
+    local found = assert(Mdns.browse({ "_ipp._tcp", "_http._tcp" }, { ...unicast, limit = 3 }))
+    assert(#found == 3, tostring(#found))
+    local desk, web, second = assert(found[1]), assert(found[2]), assert(found[3])
+    assert(desk.name == "Front Desk. Printer" and desk.service == "_ipp._tcp", desk.name)
+    assert(desk.fullname == "Front Desk\\. Printer._ipp._tcp.local", desk.fullname)
+    assert(desk.host == "desk.local" and desk.port == 631 and desk.from == LOOPBACK, desk.host)
+    assert(#desk.ipv4 == 1 and desk.ipv4[1] == "192.0.2.7" and #desk.ipv6 == 1 and desk.ipv6[1] == "2001:db8::7")
+    assert(#desk.txt == 2 and desk.attributes["txtvers"] == "1" and desk.attributes["color"] == "T")
+    assert(web.name == "Web" and web.service == "_http._tcp" and web.port == 8080 and web.host == "desk.local")
+    assert(#web.ipv4 == 1 and #web.txt == 1 and web.txt[1] == "", tostring(#web.txt))
+    assert(second.name == "Second" and second.host == "second.local" and second.ipv4[1] == "192.0.2.9")
+    local addresses = assert(Mdns.resolve("desk.local", unicast))
+    assert(#addresses == 2, tostring(#addresses))
+    assert(assert(addresses[1]).address == "192.0.2.7" and assert(addresses[2]).address == "2001:db8::7")
+  end)
+end
+
+local function test_a_responder_answers_a_member_of_its_group_at_the_group()
+  publishing(three_published(), function(_: Mdns.Options, grouped: Mdns.Options, _: integer)
+    local found = assert(Mdns.browse("_ipp._tcp", { ...grouped, limit = 2 }))
+    assert(#found == 2, tostring(#found))
+    local desk = assert(found[1])
+    assert(desk.name == "Front Desk. Printer" and desk.port == 631 and desk.ipv4[1] == "192.0.2.7")
+    assert(desk.attributes["color"] == "T" and assert(found[2]).name == "Second")
+    local addresses = assert(Mdns.resolve("second.local", grouped))
+    assert(#addresses == 1 and assert(addresses[1]).address == "192.0.2.9", tostring(#addresses))
+  end)
+end
+
+--- To a program that is no member: its id and question back, the records it will ask for next
+--- beside the pointer, and nothing it would keep long or flush a cache for.
+local function test_a_responder_answers_another_port_with_the_id_the_question_and_short_lives()
+  publishing(three_published(), function(_: Mdns.Options, _: Mdns.Options, port: integer)
+    local asker <close> = assert(Net.datagram(Net.udp(LOOPBACK, 0)))
+    send_query(asker, Net.udp(LOOPBACK, port), 0x1234, { asking("_HTTP._tcp.local", Dns.PTR) })
+    local reply = next_response(asker)
+    assert(reply.id == 0x1234 and reply.authoritative and reply.rcode == 0)
+    assert(#reply.questions == 1 and assert(reply.questions[1]).name == "_HTTP._tcp.local")
+    -- The web server gave its host one address, and is answered for with the two the host has.
+    assert(#reply.answers == 1 and #reply.additionals == 4, ("%d %d"):format(#reply.answers, #reply.additionals))
+    assert(of_type(reply.additionals, Dns.AAAA).address == "2001:db8::7")
+    local pointed = assert(reply.answers[1])
+    assert(pointed.type == Dns.PTR and pointed.target == "Web._http._tcp.local", pointed.target)
+    local where = assert(of_type(reply.additionals, Dns.SRV).srv)
+    assert(where.port == 8080 and where.target == "Desk.local", where.target)
+    assert(of_type(reply.additionals, Dns.A).address == "192.0.2.7")
+    assert(of_type(reply.additionals, Dns.TXT).name == "Web._http._tcp.local")
+    for _, section in ipairs({ reply.answers, reply.additionals }) do
+      for _, record in ipairs(section) do
+        assert(record.ttl >= 1 and record.ttl <= 10 and not record.cache_flush, tostring(record.ttl))
+      end
+    end
+  end)
+end
+
+--- To a member: the id 0 and no question, whatever the query's id, each record with the life RFC 6762 gives it, and the
+--- bit that says a record is the only one of its name and type on all but the pointer.
+local function test_a_responder_answers_a_member_with_no_question_and_whole_lives()
+  publishing(three_published(), function(_: Mdns.Options, _: Mdns.Options, port: integer)
+    local member <close> = assert(Net.datagram(Net.udp("0.0.0.0", port), { shared = true }))
+    assert(member:join(PUBLISHED_AT, LOOPBACK))
+    assert(member:set_multicast({ via = LOOPBACK, hops = 1, loop = true }))
+    -- No member asks with an id, and one that does is answered with none all the same.
+    send_query(member, Net.udp(PUBLISHED_AT, port), 0x4242, { asking("_http._tcp.local", Dns.PTR) })
+    local reply = next_response(member)
+    assert(reply.id == 0 and reply.authoritative and #reply.questions == 0, tostring(reply.id))
+    assert(#reply.answers == 1 and #reply.additionals == 4, ("%d %d"):format(#reply.answers, #reply.additionals))
+    local pointed = assert(reply.answers[1])
+    assert(pointed.type == Dns.PTR and pointed.ttl == 4500 and not pointed.cache_flush, tostring(pointed.ttl))
+    local where, text, address = of_type(reply.additionals, Dns.SRV), of_type(reply.additionals, Dns.TXT),
+      of_type(reply.additionals, Dns.A)
+    assert(where.ttl == 120 and where.cache_flush and text.ttl == 4500 and text.cache_flush)
+    assert(address.ttl == 120 and address.cache_flush and address.address == "192.0.2.7")
+  end)
+end
+
+--- What each question draws, asked one at a time from a port of the asker's own, where the
+--- answers come back in the order of the questions. A question the responder has no answer to
+--- draws nothing, so the answer after it is the next question's.
+local function test_a_responder_answers_each_question_with_the_records_it_asks_for()
+  publishing(three_published(), function(_: Mdns.Options, _: Mdns.Options, port: integer)
+    local asker <close> = assert(Net.datagram(Net.udp(LOOPBACK, 0)))
+    local to = Net.udp(LOOPBACK, port)
+    local desk = "Front Desk\\. Printer._ipp._tcp.local"
+    local function ask(id: integer, name: string, rtype: integer): Dns.Message
+      send_query(asker, to, id, { asking(name, rtype) })
+      local reply = next_response(asker)
+      assert(reply.id == id, ("the answer to %d came for %d"):format(reply.id, id))
+      return reply
+    end
+    local located = ask(1, desk:upper(), Dns.SRV)
+    assert(#located.answers == 1 and assert(assert(located.answers[1]).srv).target == "desk.local")
+    assert(#located.additionals == 2 and of_type(located.additionals, Dns.AAAA).address == "2001:db8::7")
+    local text = ask(2, desk, Dns.TXT)
+    assert(#text.answers == 1 and #text.additionals == 0 and #assert(assert(text.answers[1]).txt) == 2)
+    local both = ask(3, desk, Dns.ANY)
+    assert(#both.answers == 2 and #both.additionals == 2, tostring(#both.answers))
+    local four = ask(4, "DESK.local", Dns.A)
+    assert(#four.answers == 1 and #four.additionals == 0 and assert(four.answers[1]).address == "192.0.2.7")
+    local every = ask(5, "desk.local", Dns.ANY)
+    assert(#every.answers == 2 and #every.additionals == 0, tostring(#every.answers))
+    -- No answer: an address of a family the host has none of, a name and a service it does not
+    -- publish, a type it does not answer, and a question of another class.
+    send_query(asker, to, 6, { asking("second.local", Dns.AAAA) })
+    send_query(asker, to, 7, { asking("other.local", Dns.A), asking("_other._tcp.local", Dns.PTR),
+      asking("Nobody._ipp._tcp.local", Dns.SRV), asking(desk, Dns.A), asking("desk.local", Dns.TXT) })
+    send_query(asker, to, 8, { { ...asking("_ipp._tcp.local", Dns.PTR), class = 3 } })
+    local six = ask(9, "second.local", Dns.A)
+    assert(#six.answers == 1 and assert(six.answers[1]).address == "192.0.2.9")
+    -- A question for the records of any class is one for the internet's. The query after it is
+    -- answered whatever comes of it, so that it is the id that says which was.
+    send_query(asker, to, 10, { { ...asking("second.local", Dns.A), class = 255 } })
+    send_query(asker, to, 11, { asking("second.local", Dns.A) })
+    local any_class = next_response(asker)
+    assert(any_class.id == 10 and #any_class.answers == 1, tostring(any_class.id))
+  end)
+end
+
+--- Two instances are at the host, each published with its address, and a question for the host's
+--- addresses is answered with the address once. A pointer question for a type of two instances
+--- draws a message for each.
+local function test_a_responder_answers_once_for_an_address_two_instances_share()
+  publishing(three_published(), function(_: Mdns.Options, _: Mdns.Options, port: integer)
+    local asker <close> = assert(Net.datagram(Net.udp(LOOPBACK, 0)))
+    local to = Net.udp(LOOPBACK, port)
+    send_query(asker, to, 1, { asking("desk.local", Dns.A) })
+    send_query(asker, to, 2, { asking("_ipp._tcp.local", Dns.PTR) })
+    local addressed = next_response(asker)
+    assert(addressed.id == 1 and #addressed.answers == 1, tostring(#addressed.answers))
+    local first, second = next_response(asker), next_response(asker)
+    assert(first.id == 2 and assert(first.answers[1]).target == "Front Desk\\. Printer._ipp._tcp.local")
+    assert(second.id == 2 and assert(second.answers[1]).target == "Second._ipp._tcp.local")
+  end)
+end
+
+--- Datagrams a responder must not answer, each of which would draw the printer's records were it
+--- read as a query for them: the answer that comes is the one to the real query after them.
+local function test_a_responder_ignores_what_is_no_query()
+  publishing(three_published(), function(_: Mdns.Options, _: Mdns.Options, port: integer)
+    local asker <close> = assert(Net.datagram(Net.udp(LOOPBACK, 0)))
+    local to = Net.udp(LOOPBACK, port)
+    local query: Dns.Message = { ...Dns.query(".", Dns.PTR, 1), recursion_desired = false,
+      questions = { asking("_ipp._tcp.local", Dns.PTR) } }
+    local padding: mut {Dns.Question} = { asking("_ipp._tcp.local", Dns.PTR) }
+    local oversize = ""
+    while #oversize <= 9000 do
+      local one = asking(("x"):rep(60) .. ".local", Dns.A)
+      padding[#padding + 1] = one
+      oversize = assert(Dns.encode({ ...query, questions = padding }))
+    end
+    -- macOS sends no datagram over 9216 bytes unless told to.
+    assert(#oversize <= 9216, tostring(#oversize))
+    for _, bytes in ipairs({
+        "",
+        "\0",
+        ("\xff"):rep(600),
+        (assert(Dns.encode(query))):sub(1, 20),
+        -- A response that carries the question, as the responder's own answers come back to it.
+        (assert(Dns.encode({ ...query, response = true }))),
+        (assert(Dns.encode({ ...query, opcode = 4 }))),
+        oversize,
+    }) do
+      assert(asker:send(bytes, to))
+    end
+    send_query(asker, to, 2, { asking("_http._tcp.local", Dns.PTR) })
+    local reply = next_response(asker)
+    assert(reply.id == 2 and assert(reply.answers[1]).target == "Web._http._tcp.local", tostring(reply.id))
+  end)
+end
+
+local function test_a_responder_publishes_64_instances_and_no_more()
+  local many: mut {Mdns.Published} = {}
+  for n = 1, 64 do
+    local one: Mdns.Published = { service = "_http._tcp", name = ("Web %d"):format(n),
+      host = ("web%d.local"):format(n), port = n, ipv4 = { "192.0.2." .. tostring(n) } }
+    many[#many + 1] = one
+  end
+  publishing(many, function(unicast: Mdns.Options, _: Mdns.Options, _: integer)
+    local found = assert(Mdns.browse("_http._tcp", { ...unicast, limit = 64 }))
+    assert(#found == 64, tostring(#found))
+    for n, instance in ipairs(found) do
+      assert(instance.name == ("Web %d"):format(n) and instance.port == n and #instance.ipv4 == 1, instance.name)
+    end
+  end)
+  local over: Mdns.Published = { service = "_http._tcp", name = "Web 65", host = "web65.local", port = 65 }
+  many[#many + 1] = over
+  local responder, why = Mdns.responder(many, { address = PUBLISHED_AT, port = 0, via = { LOOPBACK } })
+  assert(responder == nil and why:find("mdns: ", 1, true) == 1, why)
+end
+
+local function test_what_a_responder_cannot_publish_is_refused_with_the_reason()
+  local good: Mdns.Published = { service = "_http._tcp", name = "Web", host = "web.local", port = 80,
+    ipv4 = { "192.0.2.1" } }
+  local addresses: mut {string} = {}
+  for n = 1, 17 do addresses[#addresses + 1] = "192.0.2." .. tostring(n) end
+  local sixteen: mut {string} = {}
+  local more: mut {string} = {}
+  local sixteen_v6: mut {string} = {}
+  for n = 1, 16 do
+    sixteen[#sixteen + 1] = "192.0.2." .. tostring(n)
+    more[#more + 1] = "198.51.100." .. tostring(n)
+    sixteen_v6[#sixteen_v6 + 1] = ("2001:db8::%x"):format(n)
+  end
+  local label = ("h"):rep(60)
+  local long_host = table.concat({ label, label, label, label, "local" }, ".")
+  local cases: {string: {Mdns.Published}} = {
+    ["no instance"] = {},
+    ["no service type"] = { { ...good, service = "http" } },
+    ["a sub-type"] = { { ...good, service = "_printer._sub._http._tcp" } },
+    ["an empty name"] = { { ...good, name = "" } },
+    ["a name over a label"] = { { ...good, name = ("n"):rep(64) } },
+    ["a host of another domain"] = { { ...good, host = "web.example.com" } },
+    ["a port out of range"] = { { ...good, port = 65536 } },
+    ["an address that is none"] = { { ...good, ipv4 = { "192.0.2.256" } } },
+    ["an address of the other family"] = { { ...good, ipv6 = { "192.0.2.1" } } },
+    ["too many addresses"] = { { ...good, ipv4 = addresses } },
+    ["a TXT record past the cap"] = { { ...good, txt = strings_of(6, 1301) } },
+    ["an instance given twice"] = { good, { ...good, name = "WEB", service = "_HTTP._tcp.local", port = 81 } },
+    -- Sixteen addresses each from two instances at one host are 32 of a family.
+    ["too many addresses of one host"] = { { ...good, ipv4 = sixteen }, { ...good, name = "Other", ipv4 = more } },
+    -- A host name of 250 bytes with 16 addresses of each family: over 8000 bytes of records.
+    ["records past one answer"] = { { ...good, host = long_host, ipv4 = sixteen, ipv6 = sixteen_v6 } },
+  }
+  local tried = 0
+  for what, instances in pairs(cases) do
+    local responder, why = Mdns.responder(instances, { address = PUBLISHED_AT, port = 0, via = { LOOPBACK } })
+    assert(responder == nil and why:find("mdns: ", 1, true) == 1, what .. ": " .. why)
+    if what == "a port out of range" then assert(why:find("port", 1, true) ~= nil, why) end
+    if what == "records past one answer" then
+      assert(why:find("longer than one answer", 1, true) ~= nil, why)
+    end
+    tried = tried + 1
+  end
+  assert(tried == 14, tostring(tried))
+  Test.raises(function() Mdns.responder({ good }, { port = -1 }) end, "mdns: port must be")
+  Test.raises(function() Mdns.responder({ good }, { port = 65536 }) end, "mdns: port must be")
+  Test.raises(function() Mdns.responder({ good }, { address = LOOPBACK }) end, "mdns: address must be")
+end
+
+--- The port is free, so the socket is bound and it is the join that fails, with the group first
+--- in its reason, and the socket is closed again. A port held unshared fails the bind, with the
+--- address and port first.
+local function test_a_responder_fails_where_its_group_or_its_port_cannot_be_had()
+  local good: {Mdns.Published} = { { service = "_http._tcp", name = "Web", host = "web.local", port = 80 } }
+  local port = free_port()
+  -- 192.0.2.0/24 is for documentation: no interface has an address of it.
+  local nowhere, why = Mdns.responder(good, { address = PUBLISHED_AT, port = port, via = { "192.0.2.77" } })
+  assert(nowhere == nil and why:find(PUBLISHED_AT .. ": ", 1, true) == 1, why)
+  assert(is_free(port))
+  local holder <close> = assert(Net.datagram(Net.udp("0.0.0.0", 0)))
+  local held = assert(holder.address.port)
+  local unbound, unbound_why = Mdns.responder(good, { address = PUBLISHED_AT, port = held, via = { LOOPBACK } })
+  assert(unbound == nil and unbound_why:find("0.0.0.0:" .. tostring(held) .. ": ", 1, true) == 1, unbound_why)
+end
+
+local function test_a_cancelled_tasks_responder_ends_with_cancelled_and_a_closed_one_with_true()
+  local good: {Mdns.Published} = { { service = "_http._tcp", name = "Web", host = "web.local", port = 80 } }
+  Poll.run(function()
+    local responder <close> = assert(Mdns.responder(good, { address = PUBLISHED_AT, port = 0, via = { LOOPBACK } }))
+    local served, why = true, "never ran"
+    local started = false
+    local answering = Poll.spawn(function()
+      started = true
+      served, why = responder:serve()
+    end)
+    while not started do assert(Poll.delay(Clock.ms(1))) end
+    answering:cancel()
+    assert(answering:join(Clock.seconds(10)))
+    assert(not served and why == Poll.CANCELLED, why)
+    -- Still open: a cancelled wait closes nothing, and another task may serve it.
+    local asker <close> = assert(Net.datagram(Net.udp(LOOPBACK, 0)))
+    local again = Poll.spawn(function()
+      served, why = responder:serve()
+    end)
+    send_query(asker, Net.udp(LOOPBACK, assert(responder.address.port)), 7, { asking("_http._tcp.local", Dns.PTR) })
+    assert(next_response(asker).id == 7)
+    assert(responder:close() and responder:close())
+    assert(again:join(Clock.seconds(10)))
+    assert(served, why)
+    local after, after_why = responder:serve()
+    assert(after and after_why == "", after_why)
+  end)
+end
+
+--- Two instances at one host, written in two cases, each give it addresses: the host has them
+--- all, in the order they were given, and either instance is answered for with them all.
+local function test_a_responder_answers_for_every_address_of_a_host_two_instances_are_at()
+  publishing({
+    { service = "_http._tcp", name = "One", host = "both.local", port = 80, ipv4 = { "192.0.2.1" } },
+    { service = "_http._tcp", name = "Two", host = "Both.local", port = 81, ipv4 = { "192.0.2.2", "192.0.2.1" },
+      ipv6 = { "2001:db8::2" } },
+  }, function(unicast: Mdns.Options, _: Mdns.Options, port: integer)
+    -- Each address record says it is the only one of its name and type but for those sent with
+    -- it, so the first instance's answer holds the address the second gave the host too.
+    local asker <close> = assert(Net.datagram(Net.udp(LOOPBACK, 0)))
+    send_query(asker, Net.udp(LOOPBACK, port), 1, { asking("One._http._tcp.local", Dns.SRV) })
+    local reply = next_response(asker)
+    local seen: mut {string} = {}
+    for _, record in ipairs(reply.additionals) do seen[#seen + 1] = record.address or "" end
+    assert(table.concat(seen, " ") == "192.0.2.1 192.0.2.2 2001:db8::2", table.concat(seen, " "))
+    local found = assert(Mdns.browse("_http._tcp", { ...unicast, limit = 2 }))
+    assert(#found == 2 and #assert(found[1]).ipv4 == 2 and #assert(found[2]).ipv6 == 1, tostring(#found))
+  end)
+end
+
+--- A query over the 9000 bytes of a multicast DNS message is not read, though it is a member's and
+--- its answer, which repeats no question, would be short: the answer that comes is the one to the
+--- query after it.
+local function test_a_responder_reads_no_query_over_the_size_of_a_message()
+  publishing(three_published(), function(_: Mdns.Options, _: Mdns.Options, port: integer)
+    local member <close> = assert(Net.datagram(Net.udp("0.0.0.0", port), { shared = true }))
+    assert(member:join(PUBLISHED_AT, LOOPBACK))
+    assert(member:set_multicast({ via = LOOPBACK, hops = 1, loop = true }))
+    local questions: mut {Dns.Question} = { asking("_http._tcp.local", Dns.PTR) }
+    local oversize = ""
+    while #oversize <= 9000 do
+      local one = asking(("x"):rep(60) .. ".local", Dns.A)
+      questions[#questions + 1] = one
+      oversize = assert(Dns.encode({ ...Dns.query(".", Dns.PTR, 0), recursion_desired = false, questions = questions }))
+    end
+    -- macOS sends no datagram over 9216 bytes unless told to.
+    assert(#oversize <= 9216, tostring(#oversize))
+    assert(member:send(oversize, Net.udp(PUBLISHED_AT, port)))
+    send_query(member, Net.udp(PUBLISHED_AT, port), 0, { asking("second.local", Dns.A) })
+    local reply = next_response(member)
+    assert(#reply.answers == 1 and assert(reply.answers[1]).address == "192.0.2.9", tostring(#reply.answers))
+  end)
+end
+
+--- A query just under the 9000 bytes is read, and from a port of the asker's own its answer
+--- repeats its questions, which puts the answer over them: it is not sent, and the answer that
+--- comes is the one to the query after.
+local function test_a_responder_sends_no_answer_over_the_size_of_a_message()
+  publishing(three_published(), function(_: Mdns.Options, _: Mdns.Options, port: integer)
+    local asker <close> = assert(Net.datagram(Net.udp(LOOPBACK, 0)))
+    local to = Net.udp(LOOPBACK, port)
+    local questions: mut {Dns.Question} = { asking("_http._tcp.local", Dns.PTR) }
+    local long = ""
+    while #long <= 8900 do
+      local one = asking(("x"):rep(60) .. ".local", Dns.A)
+      questions[#questions + 1] = one
+      long = assert(Dns.encode({ ...Dns.query(".", Dns.PTR, 1), recursion_desired = false, questions = questions }))
+    end
+    assert(#long <= 9000, tostring(#long))
+    assert(asker:send(long, to))
+    send_query(asker, to, 2, { asking("second.local", Dns.A) })
+    local reply = next_response(asker)
+    assert(reply.id == 2, "the answer to the long query was sent")
+  end)
+end
+
+--- A hundred and twenty datagrams wait in the responder's socket, then a query. A responder that
+--- read them all in one turn would give the other task no turn between the last sent and the
+--- answer.
+local function test_another_task_has_its_turns_while_a_responder_reads_a_flood()
+  publishing(three_published(), function(_: Mdns.Options, _: Mdns.Options, port: integer)
+    local asker <close> = assert(Net.datagram(Net.udp(LOOPBACK, 0)))
+    local to = Net.udp(LOOPBACK, port)
+    local ticks = 0
+    local ticking = true
+    local ticker = Poll.spawn(function()
+      while ticking do
+        ticks = ticks + 1
+        assert(Poll.delay(0))
+      end
+    end)
+    for _ = 1, 120 do assert(asker:send("x", to)) end
+    send_query(asker, to, 3, { asking("second.local", Dns.A) })
+    local ticks_when_sent = ticks
+    local reply = next_response(asker)
+    local ticks_when_answered = ticks
+    ticking = false
+    assert(ticker:join())
+    assert(reply.id == 3)
+    -- A turn for every 16 datagrams read is 7 of them, and without them the ticker has the one
+    -- turn the asker's own wait gives it. Two are asked for, so that datagrams a full socket
+    -- dropped fail nothing.
+    assert(ticks_when_answered - ticks_when_sent >= 2, ("%d then %d"):format(ticks_when_sent, ticks_when_answered))
   end)
 end
