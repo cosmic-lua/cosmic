@@ -168,4 +168,58 @@ function Example.help()
   assert(got.values["--jobs"] == "4" and got.set["-v"] == true)
 end
 
+--- A command's page with lines to type and the commands beside it, and a
+--- program's help in sections: `examples`, `see` and `group` in each
+--- [`Flags.Command`]. [`Flags.dispatch`] raises for a `see` that names no
+--- other command.
+function Example.pages()
+  local commands: {string:Flags.Command} = {
+    report = {
+      about = "Totals a ledger file.",
+      usage = "[options] <file>",
+      spec = { ["--month"] = { value = "yyyy-mm", about = "only this month" } },
+      examples = {
+        { line = "may.csv", about = "every month's total" },
+        { line = "--month 2026-05 may.csv", about = "one month's" },
+      },
+      see = { "add" },
+      group = "Reading",
+    },
+    add = { about = "Adds an amount to a ledger file.", usage = "<file> <amount>", group = "Writing" },
+    version = { about = "Says which build this is." },
+  }
+  local page = assert(Flags.dispatch({ "help", "report" }, 1, commands, "ledger")).help
+  print(page)
+  assert(page == table.concat({
+    "usage: ledger report [options] <file>",
+    "",
+    "Totals a ledger file.",
+    "",
+    "options:",
+    "  --month <yyyy-mm>  only this month",
+    "",
+    "examples:",
+    "  ledger report may.csv                  every month's total",
+    "  ledger report --month 2026-05 may.csv  one month's",
+    "",
+    "see also: add",
+  }, "\n"))
+  local index = assert(Flags.dispatch({ "--help" }, 1, commands, "ledger")).help
+  print(index)
+  assert(index == table.concat({
+    "usage: ledger <command> [options]",
+    "",
+    "Reading:",
+    "  report   Totals a ledger file.",
+    "",
+    "Writing:",
+    "  add      Adds an amount to a ledger file.",
+    "",
+    "other commands:",
+    "  version  Says which build this is.",
+    "",
+    "Run `ledger <command> --help` for a command's options.",
+  }, "\n"))
+end
+
 return Example -- checked: export_not_declared
