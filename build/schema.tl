@@ -11,11 +11,7 @@
 local symbols = require("cosmic.internal.symbols")
 
 local record schema
-  --- The name of the `docs` index of a module's `local` declarations ([`symbols.local_index`]).
-  mut local_index: string
 end
-
-schema.local_index = symbols.local_index
 
 --- What a statement creates: the `name` of a table or an index and the `body` after it.
 local record Definition
@@ -305,12 +301,6 @@ local settings: {string} = {
   "encoding = 'UTF-8'",
 }
 
---- The SQL for the last dotted name of the SQL `symbol` ([`symbols.last_name`]), which the `docs` index on it
---- ([`schema.create`]) is built from.
-function schema.last_name(symbol: string): string
-  return symbols.last_name(symbol)
-end
-
 --- The indexes of the `docs` table, each as its name and what follows
 --- `ON docs` in its statement. A lookup by name reads a symbol by its
 --- last name, its source spelling or its module rather than scanning
@@ -321,11 +311,11 @@ end
 --- without them, so a database written before they existed is only
 --- slower to read.
 local docs_indexes: {Definition} = {
-  { name = "docs_by_last_name", body = "(" .. schema.last_name("symbol") .. ")" },
+  { name = "docs_by_last_name", body = "(" .. symbols.last_name("symbol") .. ")" },
   { name = "docs_by_source_symbol", body = "(source_symbol)" },
   { name = "docs_by_module", body = "(module)" },
   { name = "docs_by_module_row", body = "(module) WHERE symbol = ''" },
-  { name = schema.local_index, body = "(module, source_symbol) WHERE exported = 0 AND signature LIKE 'local %'" },
+  { name = symbols.local_index, body = "(module, source_symbol) WHERE exported = 0 AND signature LIKE 'local %'" },
 }
 
 --- The statements that create an empty database, in order, every table

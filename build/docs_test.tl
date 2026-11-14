@@ -2737,7 +2737,7 @@ local function test_a_lookup_answers_alike_with_the_indexes_or_without(dir: stri
     "SELECT name FROM sqlite_schema WHERE type = 'index' AND tbl_name = 'docs' AND sql IS NOT NULL"))
   local present: mut {string: boolean} = {}
   for _, row in ipairs(names) do present[row:text(1)] = true end
-  assert(present["docs_by_last_name"] == true and present[schema.local_index] == true, table.concat(
+  assert(present["docs_by_last_name"] == true and present[symbols.local_index] == true, table.concat(
     (function(): {string}
       local all: mut {string} = {}
       for name in pairs(present) do all[#all + 1] = name end
@@ -2960,5 +2960,20 @@ local function test_a_view_given_nothing_of_the_tool_answers_from_the_rows_alone
   assert(#assert(Doc.lookup(seen, "spent")) == 0, "a word of no row was found")
   local index = table.concat(assert(Doc.answer(seen, {})).lines, "\n")
   assert(index:find("ledger.commands  What the ledger does.", 1, true), index)
+  assert(db:close())
+end
+
+--- A test's pure store holds no documentation, and a view of it raises, naming the declaration that gives the
+--- test the text.
+local function test_a_view_of_a_pure_store_raises_naming_store_text()
+  local db = database({}, {})
+  assert(db:exec("DROP TABLE docs"))
+  assert(Sqlite.run(db, "INSERT INTO meta (key, value) VALUES ('pure_store', X'31')", {}))
+  local ok, raised = pcall(Doc.view, { db })
+  assert(not ok and tostring(raised):find("store_text = true", 1, true) ~= nil, tostring(raised))
+  -- A database that lacks the table and is no test's store is a trouble to report, not a raise.
+  assert(Sqlite.run(db, "DELETE FROM meta WHERE key = 'pure_store'", {}))
+  local seen, trouble = Doc.view({ db })
+  assert(seen == nil and trouble:find("docs", 1, true) ~= nil, trouble)
   assert(db:close())
 end

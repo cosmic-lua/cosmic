@@ -34,12 +34,14 @@ local record Doc
     name: string
     --- The row that documents it, by its `module` and `symbol` as `docs` holds them.
     module: string
+    --- That row's `symbol`: a field's own name where the module returns the record that declares it.
     symbol: string
     --- Its options as its help prints them, nil for a command that takes none.
     options?: string
   end
   --- One ordered database view and the owner of every module in it.
   record View
+    --- The databases asked, in the order they answer.
     databases: {Sqlite.Handle}
     --- Which databases are public sources, by index: one answers only
     --- for the modules it records as public ([`symbols.public_modules`]),
@@ -47,6 +49,7 @@ local record Doc
     --- is what the project sees of it. A project's own database, and
     --- every database inside cosmic's own tree, answer for everything.
     public: {integer: boolean}
+    --- The index of the database that answers for each module: the first that holds it.
     owners: {string: integer}
     --- How many places refer to a module/symbol pair, keyed by
     --- [`use_key`] -- computed on demand, once per command, by
@@ -75,23 +78,37 @@ local record Doc
   --- One worked example, matched to a symbol by content rather than by
   --- name -- see [`examples_for`].
   record Example
+    --- The example function's name.
     name: string
+    --- Its doc comment.
     text: string
+    --- The file that holds it, from the root.
     file: string
+    --- The line of `file` it starts on.
     line: integer
+    --- Its source.
     source: string
   end
 
   --- One row of `docs`, with where it came from.
   record Entry is alias_members.Declared
+    --- The module that declares it.
     mut module: string
+    --- Its name as a caller of the module writes it; "" for the module's own row.
     mut symbol: string
+    --- Its name as its file declares it.
     mut source_symbol: string
+    --- Whether the module's value offers it.
     mut exported: boolean
+    --- What it is: "module", "function", "record", "field" and the like.
     kind: string
+    --- Its declaration, as its page shows it.
     signature: string
+    --- Its doc comment.
     text: string
+    --- The file that declares it, from the root; "" where none is recorded.
     file: string
+    --- The line of `file` it is declared on; 0 where none is recorded.
     line: integer
     --- How many places in shipped modules refer to it.
     mut uses: integer
@@ -107,6 +124,7 @@ local record Doc
   end
 
   record Lookup is {Entry}
+    --- Whether the query names its entries, which a search's entries only relate to.
     exact: boolean
     --- How many entries, from the first, are named by the query; any
     --- after them stand in for a raw binding it named (see [`stand_ins`]).
@@ -126,6 +144,7 @@ local record Doc
   --- What `cosmic docs` prints for its words, short of its summary:
   --- see [`Doc.answer`].
   record Answer
+    --- The page, a line each.
     lines: {string}
     --- Whether every word found something: the run's pass.
     found: boolean
@@ -136,14 +155,13 @@ local record Doc
 
   --- One module as the index lists it.
   record Summary
+    --- The module's name.
     module: string
     --- The first sentence of its documentation; "" when it has none.
     text: string
-    --- Who alone may require it, by the two rules of [`build.positions`] that hold in every project: "private to
-    --- rules/returns/" for a module of a closed directory, "internal to app/" for one an `internal` directory scopes, ""
-    --- for one any module may. The rules of cosmic's own tree alone (`build/` private to the tool, a test and test
-    --- support) are not marked. [`Doc.index`] leaves it "": only the list `cosmic docs` prints judges it
-    --- ([`marked`]).
+    --- Who alone may require it: "private to rules/returns/" for a module of a closed directory, "internal to
+    --- app/" for one an `internal` directory scopes, "" for one any module may. [`Doc.index`] leaves it "": only
+    --- the list of every module judges it, by the view's `marks`.
     closed: string
   end
 
@@ -151,13 +169,21 @@ local record Doc
   --- symbol `module` and `symbol` name, or the file at `path` and, when
   --- it is not "", the heading `anchor` of it.
   record Use
+    --- The module that declares what is referred to; "" for a link to a file.
     module: string
+    --- The symbol referred to; "" for the module itself.
     symbol: string
+    --- The module that refers to it; "" for a file that is no module.
     from_module: string
+    --- The file that refers to it, from the root.
     from_file: string
+    --- The line of `from_file` that does.
     line: integer
+    --- Whether a link in a comment or a document refers to it, not code.
     link: boolean
+    --- The file a link names, from the root; "" for a link to a symbol.
     path: string
+    --- The heading of `path` a link names; "" for none.
     anchor: string
   end
 end
@@ -913,12 +939,23 @@ local function searched_examples(db: Sqlite.Handle, public: boolean, fts: string
   return out, ""
 end
 
+--- Raises where `db` is a test's pure store, which leaves the documentation out: it would answer every query as
+--- nothing found, or as a table it lacks, and a test would pass on the first.
+local function refuse_pure(db: Sqlite.Handle)
+  local pure, _ = Sqlite.text_rows(db, "SELECT 1 FROM meta WHERE key = 'pure_store'")
+  if pure ~= nil and #pure > 0 then
+    error("the `docs` of the store is withheld, so no documentation can be read from it: a test that looks " ..
+        "documentation up declares `Test.policy { store_text = true }`", 0)
+  end
+end
+
 --- Whether `db` holds the shipped tables at all: a database built
 --- before they existed answers no query here.
 local function has_docs(db: Sqlite.Handle): boolean?, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'docs'")
   if rows == nil then return nil, trouble end
+  if #rows == 0 then refuse_pure(db) end
   return #rows > 0, ""
 end
 
@@ -1137,7 +1174,7 @@ end
 --- The entries of the catalog rows of kind `code` ([`build.error_catalog`]) that `where` selects, from the first database
 --- that holds any: the rule behind a code of the checker, its reason and its fix, in the text of the row.
 local function coded_entries(view: Doc.View, join: string, where: string, binds: {Sqlite.Value},
-                             limit: integer): {Doc.Entry}?, string
+                             limit: integer): mut {Doc.Entry}?, string
   for _, db in ipairs(view.databases) do
     local held, held_trouble = has_catalog(db)
     if held == nil then
@@ -1168,7 +1205,7 @@ local function coded(view: Doc.View, query: string): {Doc.Entry}?, string
 end
 
 --- The rows of codes whose rule, reason or fix carries every word of `query`, best match first.
-local function coded_words(view: Doc.View, query: string): {Doc.Entry}?, string
+local function coded_words(view: Doc.View, query: string): mut {Doc.Entry}?, string
   local fts = fts_query(query)
   if fts == "" then
     return {}, ""
@@ -1255,7 +1292,7 @@ end
 --- @param look what to read from each database
 local function across<T>(view: Doc.View,
                          look: function(Sqlite.Handle, boolean): {T}?, string,
-                         module_of: function(T): string): {T}?, string
+                         module_of: function(T): string): mut {T}?, string
   local out: mut {T} = {}
   for index, db in ipairs(view.databases) do
     local documented, documented_trouble = has_docs(db)
@@ -1486,6 +1523,7 @@ function Doc.view(databases: {Sqlite.Handle}, public?: {boolean}): Doc.View?, st
   for index, db in ipairs(databases) do
     local rows, trouble = Sqlite.text_rows(db, symbols.owned_modules(""))
     if rows == nil then
+      refuse_pure(db)
       return nil, trouble
     end
     for _, row in ipairs(rows) do
@@ -1511,18 +1549,12 @@ end
 --- `entries` as a lookup's answer, with the entries of `ahead` standing before them.
 local function lookup(entries: {Doc.Entry}, exact: boolean, count: integer,
                       partial?: boolean, ahead?: {Doc.Entry}): Doc.Lookup
-  local out: Doc.Lookup = { exact = exact, named = count, closest = partial == true, modules = 0 }
-  local at = 0
-  local first: {Doc.Entry} = {}
-  if ahead ~= nil then
-    first = ahead
-  end
-  for _, list in ipairs({ first, entries }) do
-    for _, entry in ipairs(list) do
-      at = at + 1
-      out[at] = entry -- checked: view_written
-    end
-  end
+  local items: mut {Doc.Entry} = {}
+  for _, entry in ipairs(ahead or {}) do items[#items + 1] = entry end
+  for _, entry in ipairs(entries) do items[#items + 1] = entry end
+  -- A record that is also an array takes its items where it is made and nowhere after.
+  local out: Doc.Lookup = { exact = exact, named = count, closest = partial == true, modules = 0,
+    table.unpack(items) }
   return out
 end
 
@@ -1589,26 +1621,11 @@ local function by_options(view: Doc.View, query: string,
   return out, ""
 end
 
---- What a dotted query names through a type alias or an inherited
---- record: [`Child.Options.fds`], [`Sqlite.Handle.exec`]. Defined with the
---- other member helpers, below [`first_sentence`].
-local through_alias: function(view: Doc.View, query: string): {Doc.Entry}?, string
-local aliased_members: function(view: Doc.View, owners: {Doc.Entry},
-                                name: string): {Doc.Entry}?, string
---- What a dotted query names through a type alias, else as a module's
---- member written in full ([`cosmic.fs.read`], [`cosmic.cli.order`]),
---- as a link names one. Defined after [`member_of`].
-local in_full: function(view: Doc.View, query: string): {Doc.Entry}?, string
---- What `Q.name` names when `Q` is the last name of a module, either
---- case ([`cosmic.cli.order`], `fs.read`): that module's member `name`, as a
---- caller that requires it under that name reads it. Defined after
---- [`member_of`].
-local by_last_name: function(view: Doc.View, query: string): {Doc.Entry}?, string
---- What a name [`cosmic.removed`] lists as gone answers: one entry of kind
---- `removed` saying what to write instead, or none, for a name it does
---- not list and for a member the module still has. Defined after
---- [`member_of`].
-local removed_by: function(view: Doc.View, query: string): {Doc.Entry}?, string
+--- The lookups of a member that call one another and are called before they are defined, as functions of one
+--- record declared first: what a dotted query names through a type alias, in full, or from a module's last name,
+--- and what a removed name answers.
+local record Members
+end
 
 --- What `query` names, across `databases`, by the first rule that
 --- answers:
@@ -1619,12 +1636,12 @@ local removed_by: function(view: Doc.View, query: string): {Doc.Entry}?, string
 ---   ([`cosmic.fs.read`]) or from its last name ([`cosmic.cli.order`]);
 --- - a name [`cosmic.removed`] lists as gone, which no live row answers
 ---   (`Codec.encoder`, `os.getenv`): what to write instead, as the
----   compiler says it (see [`removed_by`]);
+---   compiler says it (see [`Members.removed_by`]);
 --- - for a qualified name that names nothing, what its qualifier offers
 ---   (see `scoped`);
 --- - the documentation that carries all its words, and the verbs whose
 ---   options do (see [`by_options`]).
-local function lookup_names(view: Doc.View, query: string): Doc.Lookup?, string -- checked: not_assigned*3
+local function lookup_names(view: Doc.View, query: string): Doc.Lookup?, string
   -- A bare lowercase name that ends a public module's name is that
   -- module (`json` is `cosmic.json`, not the internal record `json`);
   -- the symbols it names exactly follow the module (`string` is
@@ -1708,7 +1725,7 @@ local function lookup_names(view: Doc.View, query: string): Doc.Lookup?, string 
         return nil, wrapping_trouble
       end
       for _, entry in ipairs(wrapping) do
-        exact[#exact + 1] = entry -- checked: view_written
+        exact[#exact + 1] = entry
       end
     end
     -- An environment variable's declaration ([`Env.Name.COSMIC_TEST_TIMEOUT`])
@@ -1732,7 +1749,7 @@ local function lookup_names(view: Doc.View, query: string): Doc.Lookup?, string 
   -- A name that was removed answers what replaces it, before a search
   -- offers another module's member of the same name (`Codec.encoder`
   -- would find the verb's, build.codec's).
-  local gone, gone_trouble = removed_by(view, query)
+  local gone, gone_trouble = Members.removed_by(view, query)
   if gone == nil then
     return nil, gone_trouble
   end
@@ -1755,12 +1772,12 @@ local function lookup_names(view: Doc.View, query: string): Doc.Lookup?, string 
       return lookup(held, true, #held), ""
     end
   end
-  local through, through_trouble = in_full(view, query)
+  local through, through_trouble = Members.in_full(view, query)
   if through == nil then
     return nil, through_trouble
   end
   if #through == 0 then
-    local short, short_trouble = by_last_name(view, query)
+    local short, short_trouble = Members.by_last_name(view, query)
     if short == nil then
       return nil, short_trouble
     end
@@ -1783,7 +1800,7 @@ local function lookup_names(view: Doc.View, query: string): Doc.Lookup?, string 
     if near == nil then
       return nil, near_trouble
     end
-    found = near -- checked: view_as_mut
+    found = near
   end
   if #found == 0 then
     local searched_found, search_trouble = across(view,
@@ -1793,7 +1810,7 @@ local function lookup_names(view: Doc.View, query: string): Doc.Lookup?, string 
     if searched_found == nil then
       return nil, search_trouble
     end
-    found = searched_found -- checked: view_as_mut
+    found = searched_found
     local verbs, verbs_trouble = by_options(view, query, found)
     if verbs == nil then
       return nil, verbs_trouble
@@ -1804,7 +1821,7 @@ local function lookup_names(view: Doc.View, query: string): Doc.Lookup?, string 
       if ruled == nil then
         return nil, ruled_trouble
       end
-      found = ruled -- checked: view_as_mut
+      found = ruled
     end
     if #found == 0 then
       local near, near_trouble = across(view,
@@ -1939,7 +1956,7 @@ end
 --- (only those, when there are any), else every row `named` finds,
 --- else the module the index lists under that whole name, else the
 --- member of a type an alias stands for ([`Sqlite.Handle.close`], whose
---- row is [`cosmic.internal.sqlite`]'s), else a module's member written in
+--- row is the aliased record's), else a module's member written in
 --- full ([`cosmic.fs.read`]). It neither searches nor counts uses, so it
 --- is cheap to ask once per name.
 function Doc.exact(view: Doc.View, query: string): {Doc.Entry}?, string
@@ -1975,7 +1992,7 @@ function Doc.exact(view: Doc.View, query: string): {Doc.Entry}?, string
       return held, ""
     end
   end
-  return in_full(view, query)
+  return Members.in_full(view, query)
 end
 
 --- The rows of `module` whose symbol is `name`, as the symbol column
@@ -1986,7 +2003,7 @@ end
 --- [`Doc.exact`] does, the member of a type an alias of the module
 --- stands for (`Handle.close` of [`cosmic.sqlite`]). None when the view
 --- holds no such module. The database that owns the module answers.
-local function member_of(view: Doc.View, module: string, name: string): {Doc.Entry}?, string -- checked: not_assigned
+local function member_of(view: Doc.View, module: string, name: string): {Doc.Entry}?, string
   local owner = view.owners[module]
   if owner == nil then
     return {}, ""
@@ -2029,11 +2046,14 @@ local function member_of(view: Doc.View, module: string, name: string): {Doc.Ent
   if owners == nil then
     return nil, owners_trouble
   end
-  return aliased_members(view, owners, last)
+  return Members.aliased_members(view, owners, last)
 end
 
-in_full = function(view: Doc.View, query: string): {Doc.Entry}?, string -- checked: not_assigned
-  local through, through_trouble = through_alias(view, query)
+--- What a dotted query names through a type alias, else as a module's
+--- member written in full ([`cosmic.fs.read`], [`cosmic.cli.order`]),
+--- as a link names one.
+function Members.in_full(view: Doc.View, query: string): {Doc.Entry}?, string
+  local through, through_trouble = Members.through_alias(view, query)
   if through == nil then
     return nil, through_trouble
   end
@@ -2058,7 +2078,10 @@ in_full = function(view: Doc.View, query: string): {Doc.Entry}?, string -- check
   return out, ""
 end
 
-by_last_name = function(view: Doc.View, query: string): {Doc.Entry}?, string
+--- What `Q.name` names when `Q` is the last name of a module, either
+--- case ([`cosmic.cli.order`], `fs.read`): that module's member `name`, as a
+--- caller that requires it under that name reads it.
+function Members.by_last_name(view: Doc.View, query: string): {Doc.Entry}?, string
   local out: mut {Doc.Entry} = {}
   local qualifier, name = query:match("^([%w_]+)%.(.+)$")
   if qualifier == nil or name == nil then
@@ -2126,9 +2149,6 @@ local function removed_as(query: string): Removal?
     return nil
   end
   local first = keys[1]
-  if first == nil then -- checked: compare_disjoint
-    return nil
-  end
   local module = first:match("^(.+)%.")
   local replacement = Removed.members[first]
   if module == nil or replacement == nil then
@@ -2137,7 +2157,10 @@ local function removed_as(query: string): Removal?
   return { module = module, sentence = query .. " was removed: " .. replacement }
 end
 
-removed_by = function(view: Doc.View, query: string): {Doc.Entry}?, string
+--- What a name [`cosmic.removed`] lists as gone answers: one entry of kind
+--- `removed` saying what to write instead, or none, for a name it does
+--- not list and for a member the module still has.
+function Members.removed_by(view: Doc.View, query: string): {Doc.Entry}?, string
   local gone = removed_as(query)
   if gone == nil then
     return {}, ""
@@ -2214,7 +2237,7 @@ function Doc.uses(view: Doc.View, query: string): {Doc.Use}?, string
     return nil, trouble
   end
   local members: mut {Doc.Entry} = {}
-  for _, look in ipairs({ in_full, by_last_name }) do
+  for _, look in ipairs({ Members.in_full, Members.by_last_name }) do
     local answered, answered_trouble = look(view, query)
     if answered == nil then
       return nil, answered_trouble
@@ -2233,7 +2256,7 @@ function Doc.uses(view: Doc.View, query: string): {Doc.Use}?, string
     if more == nil then
       return nil, more_trouble
     end
-    for _, use in ipairs(more) do found[#found + 1] = use end -- checked: view_written
+    for _, use in ipairs(more) do found[#found + 1] = use end
   end
   local out: mut {Doc.Use} = {}
   local seen: mut {string: boolean} = {}
@@ -2454,7 +2477,8 @@ end
 --- stands for nothing.
 local function inherited_lines(view: Doc.View, entry: Doc.Entry): {string}?, string
   local lines: mut {string} = {}
-  local references = if entry.symbol ~= "" then alias_members.references(entry) else {} end -- checked: literal_needs_type
+  local references: {string} = {}
+  if entry.symbol ~= "" then references = alias_members.references(entry) end
   if #references == 0 then
     return lines, ""
   end
@@ -2515,12 +2539,14 @@ end
 --- The members named `name` of the types `owners` stand for, each as
 --- the owner's own member (`Handle.close` of [`cosmic.sqlite`] for the
 --- `close` of the record its `Handle` aliases).
-aliased_members = function(view: Doc.View, owners: {Doc.Entry},
-                           name: string): {Doc.Entry}?, string
+function Members.aliased_members(view: Doc.View, owners: {Doc.Entry},
+                                 name: string): {Doc.Entry}?, string
   return alias_members.named(type_source(view), owners, name)
 end
 
-through_alias = function(view: Doc.View, query: string): {Doc.Entry}?, string
+--- What a dotted query names through a type alias or an inherited
+--- record: [`Child.Options.fds`], [`Sqlite.Handle.exec`].
+function Members.through_alias(view: Doc.View, query: string): {Doc.Entry}?, string
   local prefix, name = query:match("^([%w_]+%.[%w_%.]+)%.([%w_]+)$")
   if prefix == nil or name == nil then
     return {}, ""
@@ -2532,7 +2558,7 @@ through_alias = function(view: Doc.View, query: string): {Doc.Entry}?, string
   if owners == nil then
     return nil, owners_trouble
   end
-  return aliased_members(view, owners, name)
+  return Members.aliased_members(view, owners, name)
 end
 
 --- The example an entry of kind "example" stands for.
@@ -2648,11 +2674,12 @@ function Doc.render(view: Doc.View, entry: Doc.Entry): {string}?, string
     if members == nil then
       return nil, members_trouble
     end
-    local under: mut {string: {Doc.Entry}} = {}
+    local under: mut {string: mut {Doc.Entry}} = {}
     for _, member in ipairs(members) do
       local parent = parent_of(member.source_symbol)
-      under[parent] = under[parent] or {}
-      table.insert(under[parent], member) -- checked: overload_none -- untyped: call
+      local held: mut {Doc.Entry} = under[parent] or {}
+      under[parent] = held
+      held[#held + 1] = member
     end
     -- A call the module's own record declares is listed as a function
     -- already, so it is not a field under that record as well.
