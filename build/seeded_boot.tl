@@ -83,7 +83,7 @@ local c_inputs <const>: {string} = { "core", "build.zig", "build.zig.zon", "bin/
 --- The patched trees build.zig installs under the build directory's
 --- `vendor/` (its `vendored` step), which the tree's own checks read.
 SeededBoot.vendored = { "lua", "sqlite", "miniz", "mbedtls", "bzip2", "xz", "cares", "curl", "yyjson",
-  "sqlite-ext", "zstd", "expat" }
+  "sqlite-ext", "zstd", "expat", "monocypher" }
 
 --- The release targets as build.zig's `targetRecord` writes them, which
 --- the bridge reads ([`build/boot.tl`]). build/seeded_boot_test.tl holds

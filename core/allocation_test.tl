@@ -36,6 +36,7 @@ local Http = require("cosmic.http")
 local Json = require("cosmic.json")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
+local Sign = require("cosmic.sign")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
@@ -813,6 +814,23 @@ local function test_hash_leaves_nothing_whenever_an_allocation_fails()
   end)
   assert(ended > 0, "an HMAC hasher is an allocation")
   assert_c_heap(bytes, blocks, "HMAC hashing under refusal")
+end
+
+--- Monocypher allocates nothing: a key pair and a signature are worked out
+--- on the C stack, and the one allocation of each binding is the string it
+--- answers with, whose refusal raises and leaves no C memory.
+local function test_sign_leaves_nothing_whenever_an_allocation_fails()
+  local seed = string.rep("s", 32)
+  collectgarbage("collect")
+  local bytes, blocks = testing.c_heap()
+  local ended = AllocationFixture.under_every_failure(function()
+    local public = Sign.ed25519_public(seed)
+    local signature = Sign.ed25519(seed, hello)
+    assert(#public == 32 and #signature == 64)
+    assert(Sign.ed25519_verify(public, hello, signature))
+  end)
+  assert(ended > 0, "a key and a signature are each a string")
+  assert_c_heap(bytes, blocks, "signing under refusal")
 end
 
 --- A safe value is a userdata and a string of Lua's own, and no C memory:
