@@ -1013,7 +1013,7 @@ end
 
 --- Answers every question for the service with 320 pointers to nothing, counting in `asked` the
 --- questions for anything else.
-local function flooding(asked: Asked): Reply
+local function flood_counting(asked: Asked): Reply
   local names: mut {string: boolean} = {}
   return function(query: Dns.Message): {string}
     for _, question in ipairs(query.questions) do
@@ -1041,7 +1041,7 @@ end
 --- comes, and again only after `retry_ns`, which is longer than the search.
 local function test_a_flood_of_pointers_to_nothing_has_64_names_asked_about()
   local asked: Asked = { questions = 0, distinct = 0 }
-  serving(flooding(asked), function(opts: Mdns.Options)
+  serving(flood_counting(asked), function(opts: Mdns.Options)
     local found = assert(Mdns.browse(HTTP, { ...opts, limit = 2, timeout_ns = Clock.seconds(1),
       retry_ns = Clock.seconds(5) }))
     assert(#found == 0)
@@ -1057,7 +1057,7 @@ end
 --- about.
 local function test_a_flood_of_pointers_to_nothing_draws_a_bounded_number_of_questions()
   local asked: Asked = { questions = 0, distinct = 0 }
-  serving(flooding(asked), function(opts: Mdns.Options)
+  serving(flood_counting(asked), function(opts: Mdns.Options)
     local found = assert(Mdns.browse(HTTP, { ...opts, limit = 2, timeout_ns = Clock.ms(700),
       retry_ns = Clock.ms(20) }))
     assert(#found == 0)
