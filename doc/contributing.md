@@ -266,8 +266,12 @@ worktree's build directory too ([`build/paths.tl`] names it).
 [`bin/zig`], [`bin/vendor`], `ci/` and the standalone scripts run on the
 release [`ci/cosmic-driver.pin`] names, not on the tree. what a change
 adds reaches them only once the pin moves, and it can only move after
-the change merges and main publishes its `<YYYYMMDD>-<commit>` prerelease
-([`ci/README.md`]).
+the change merges and a prerelease that holds it is published. main
+publishes one, `<YYYYMMDD>-<commit>`, from its daily scheduled run and
+from a manual run of `ci` on main, not from each merge
+([`.github/workflows/prerelease.yml`], [`ci/README.md`]): the newest is
+up to a day behind main, and it may name a later commit than the
+merge's own.
 
 [`bin/zig`], [`bin/vendor`] and [`bin/verify-codesign`] each run their
 Teal ([`build/zig.tl`], ...) through [`bin/cosmic-bootstrap`], which
@@ -279,7 +283,7 @@ directory, which `bin/cosmic build` prints; [`bin/cosmic`] itself is
 refused), for all of them and for CI's driver step alike.
 
 when a change adds what a `TODO:` waiting on the pin needs, or API those
-scripts would use, open a follow-up once that prerelease exists. move
+scripts would use, open a follow-up once a prerelease holds it. move
 the pin to it with `cosmic release`, giving the commit main merged it as
 (a later release carries it too; with no `--commit` it takes the
 newest):
@@ -318,6 +322,7 @@ the pin move. a difference not listed fails the boot under any seed, since
 the tool named can be older than the tree's generator.
 
 [`.github/workflows/ci.yml`]: ../.github/workflows/ci.yml
+[`.github/workflows/prerelease.yml`]: ../.github/workflows/prerelease.yml
 [`AGENTS.md`]: ../AGENTS.md
 [`bin/cosmic-bootstrap`]: ../bin/cosmic-bootstrap
 [`bin/cosmic`]: ../bin/cosmic
