@@ -3,7 +3,9 @@
 --- server or receive a resolver's query.
 
 -- TODO: build these on [`Net.datagram`], which they predate, and leave the
--- raw socket module to cosmic.net; nothing is waited on.
+-- raw socket module to cosmic.net, once each test that waits here outside
+-- a task of a run is checked against Net's wait there, which a signal the
+-- innermost guard caught ends and Poll's does not.
 
 local Poll = require("cosmic.poll")
 local type raw_socket = require("cosmic.internal.socket")

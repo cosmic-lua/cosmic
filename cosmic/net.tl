@@ -175,12 +175,17 @@ local class UdpSocket
   --- says nothing of its arrival. False and [`Poll.TIMEOUT`],
   --- "interrupted", "cancelled" (in a task of [`Poll.run`]) or why not
   --- sends none of it. Raises on `data` over 65535 bytes and on an
-  --- address of another kind.
+  --- address of another kind or with a port past 65535.
   function send(self, data: string, to: raw_socket.Address): boolean, string
     if #data > DATAGRAM_MAX then
       error("net: a datagram holds at most " .. tostring(DATAGRAM_MAX) .. " bytes", 2)
     end
-    if to.kind ~= "udp" then error("net: a datagram is sent to a Net.udp address", 2) end
+    local host, port = to.host, to.port
+    if to.kind ~= "udp" or not host is string or math.type(port) ~= "integer" or port == nil or
+        port < 0 or port > 65535 then
+      error("net: a datagram is sent to a udp address, from Net.udp, whose host is a string and " ..
+          "port an integer from 0 to 65535", 2)
+    end
     if not self.open then return false, "net: the socket is closed" end
     local fd = self.fd
     while true do
@@ -519,6 +524,16 @@ local function address_trouble(address: Net.Address): string
   return "an address, from Net.unix or Net.tcp"
 end
 
+--- Why `address` is no [`Net.udp`] address, or "".
+local function datagram_trouble(address: Net.Address): string
+  local host, port = address.host, address.port
+  if address.kind == "udp" and host is string and math.type(port) == "integer" and port ~= nil and
+      port >= 0 and port <= 65535 then
+    return ""
+  end
+  return "a udp address, from Net.udp, whose host is a string and port an integer from 0 to 65535"
+end
+
 --- [`Net.resolve`] through `opts.connector`, defined with the connector.
 local resolved_through: function(name: string, opts: Net.ResolveOptions): {Net.Resolved}?, string
 
@@ -677,18 +692,19 @@ end
 --- the host "0.0.0.0" or "::" takes datagrams at every address of the
 --- machine. Nil and why where it cannot be bound: a port in use, or a
 --- host that is no numeric address. Raises on an address of another
---- kind, and on a `timeout_ns` no wait can last.
+--- kind or with a port past 65535, and on a `timeout_ns` no wait can last.
 function Net.datagram(address: Net.Address, opts?: Net.DatagramOptions): Net.Datagram?, string
-  if address.kind ~= "udp" then error("net: a datagram socket is bound at a Net.udp address", 2) end
+  local trouble = datagram_trouble(address)
+  if trouble ~= "" then error("net: address must be " .. trouble, 2) end
   local timeout_ns = if opts ~= nil then opts.timeout_ns else nil end
   Poll.checked_ns(timeout_ns, "net", "timeout_ns", 2)
   local socket, why, errno = raw.datagram(address)
   if socket == nil then return nil, named(address) .. ": " .. said(why, errno, address) end
   local fd = socket:fd()
-  local bound, trouble = raw.bound(fd)
+  local bound, bound_trouble = raw.bound(fd)
   if bound == nil then
     local _, _ = socket:close()
-    return nil, named(address) .. ": " .. trouble
+    return nil, named(address) .. ": " .. bound_trouble
   end
   local made: UdpSocket = { address = bound, socket = socket, fd = fd, open = true, limit = timeout_ns }
   return made, ""

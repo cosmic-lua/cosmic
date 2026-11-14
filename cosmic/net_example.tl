@@ -8,7 +8,7 @@ local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
 
---- The TCP example listens on the worker's own loopback.
+--- The TCP and UDP examples bind on the worker's own loopback.
 Test.policy{ loopback = { "127.0.0.1" } }
 
 local Example = {} -- checked: literal_needs_type
