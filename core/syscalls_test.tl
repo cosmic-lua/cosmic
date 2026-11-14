@@ -33,6 +33,7 @@ Test.policy{
 }
 
 local process = require("cosmic.internal.process")
+local cipher = require("cosmic.internal.cipher")
 local hash = require("cosmic.internal.hash")
 
 --- A stand-in program built under `tmp` (build/stand_in.tl), which runs
@@ -959,6 +960,19 @@ end
 local function test_digest_and_hmac_raise_on_an_unknown_algorithm()
   raises(hash.digest, "sha0", "abc")
   raises(hash.hmac, "sha0", "key", "abc")
+end
+
+--- The raw binding refuses an algorithm name it does not know, however
+--- it is spelled, a known name with a NUL and more after it too; known
+--- answers are [`cosmic.cipher`]'s tests.
+local function test_seal_and_open_raise_on_an_unknown_algorithm()
+  local key, nonce = string.rep("k", 32), string.rep("n", 12)
+  raises(cipher.seal, "aes-256-gcm", key, nonce, "message")
+  raises(cipher.seal, "ChaCha20-Poly1305", key, nonce, "message")
+  raises(cipher.seal, "", key, nonce, "message")
+  raises(cipher.seal, "chacha20-poly1305\0junk", key, nonce, "message")
+  raises(cipher.open, "chacha20-poly1305\0", key, nonce, string.rep("s", 16))
+  raises(cipher.open, "aes-256-gcm", key, nonce, string.rep("s", 16))
 end
 
 --- A pid past what an int holds is refused, not truncated, by the
