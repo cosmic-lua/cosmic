@@ -5,7 +5,8 @@ status: accepted
 ## context
 
 `cosmic.protobuf` is the Protocol Buffers wire format with no schema: a message is a list of fields, each a number, a
-wire type and a value. it is intended and not in the tree yet. a program that speaks a protocol of many messages
+wire type and a value, read by number through a method for each type and written by a writer of the same methods. it
+is intended and not in the tree yet. a program that speaks a protocol of many messages
 writes, for each message, a record, a reader and a writer on that codec. a client of the Media Remote Protocol holds
 about 2,700 lines of them, by its author's count.
 
@@ -26,7 +27,9 @@ the protocol's descriptions use no `oneof` keyword and no map field. both are le
 ## decision
 
 a message is a Teal record. its field numbers, and the encodings its types do not give, are the argument of a call the
-build resolves, as it resolves [`Shape.record_of`]: `Protobuf.message_of("Module.Record", { field = number })`. the
+build resolves, as it resolves [`Shape.record_of`]: `Schema.message_of("Module.Record", { field = number })`, of the
+module `cosmic.protobuf.schema`. the wire codec's own names stay its own (`Protobuf.Message` is a message as read,
+`Protobuf.Field` a field on the wire), and a program that uses the wire codec alone carries none of this. the
 build reads the record's declaration and the table, checks one against the other, and writes the reader and the writer
 as Teal the checker types. all of it is intended.
 
@@ -36,7 +39,7 @@ values the checker and the build both read. it does not ride in a comment, a nam
 ### what the caller writes
 
 ```teal skip=intended
-local Protobuf = require("cosmic.protobuf")
+local Schema = require("cosmic.protobuf.schema")
 
 local record Messages
   enum Command
@@ -98,31 +101,31 @@ local record Messages
     timestamp?: integer
     deviceInfo?: DeviceInfo
     contentItem?: ContentItem
-    unknown?: Protobuf.Unknown
+    unknown?: Schema.Unknown
   end
 end
 
-local COMMAND <const> = Protobuf.enum_of("Messages.Command", { Play = 1, Pause = 2, SeekToPlaybackPosition = 24 })
-local REPEAT <const> = Protobuf.enum_of("Messages.RepeatMode", { Unknown = 0, One = 1, All = 2 })
-local TYPE <const> = Protobuf.enum_of("Messages.Type", { Unknown = 0, DeviceInfo = 15, UpdateContentItem = 60 })
+local COMMAND <const> = Schema.enum_of("Messages.Command", { Play = 1, Pause = 2, SeekToPlaybackPosition = 24 })
+local REPEAT <const> = Schema.enum_of("Messages.RepeatMode", { Unknown = 0, One = 1, All = 2 })
+local TYPE <const> = Schema.enum_of("Messages.Type", { Unknown = 0, DeviceInfo = 15, UpdateContentItem = 60 })
 
-local COMMAND_INFO <const> = Protobuf.message_of("Messages.CommandInfo", {
-  command = Protobuf.enum(1, COMMAND), enabled = 2, active = 3, preferredIntervals = 4, localizedTitle = 5,
-  minimumRating = Protobuf.float(6), supportedRates = Protobuf.float(8), repeatMode = Protobuf.enum(10, REPEAT),
-  supportedRepeatModes = Protobuf.enum(11, REPEAT), skipInterval = Protobuf.sint(12),
+local COMMAND_INFO <const> = Schema.message_of("Messages.CommandInfo", {
+  command = Schema.enum(1, COMMAND), enabled = 2, active = 3, preferredIntervals = 4, localizedTitle = 5,
+  minimumRating = Schema.float(6), supportedRates = Schema.float(8), repeatMode = Schema.enum(10, REPEAT),
+  supportedRepeatModes = Schema.enum(11, REPEAT), skipInterval = Schema.sint(12),
 })
-local METADATA <const> = Protobuf.message_of("Messages.ContentItemMetadata", {
-  title = 1, duration = 4, playbackRate = Protobuf.float(5), trackNumber = 6, playCount = Protobuf.fixed64(9),
+local METADATA <const> = Schema.message_of("Messages.ContentItemMetadata", {
+  title = 1, duration = 4, playbackRate = Schema.float(5), trackNumber = 6, playCount = Schema.fixed64(9),
 })
-local CONTENT_ITEM <const> = Protobuf.message_of("Messages.ContentItem", {
-  identifier = 1, metadata = Protobuf.message(2, METADATA), artworkData = 3, sections = Protobuf.self(7),
+local CONTENT_ITEM <const> = Schema.message_of("Messages.ContentItem", {
+  identifier = 1, metadata = Schema.message(2, METADATA), artworkData = 3, sections = Schema.self(7),
 })
-local DEVICE_INFO <const> = Protobuf.message_of("Messages.DeviceInfo", {
+local DEVICE_INFO <const> = Schema.message_of("Messages.DeviceInfo", {
   uniqueIdentifier = 1, name = 2, protocolVersion = 7, allowsPairing = 10,
 })
-local PROTOCOL <const> = Protobuf.message_of("Messages.Protocol", {
-  type = Protobuf.enum(1, TYPE), identifier = 2, timestamp = 5,
-  deviceInfo = Protobuf.message(20, DEVICE_INFO), contentItem = Protobuf.message(60, CONTENT_ITEM),
+local PROTOCOL <const> = Schema.message_of("Messages.Protocol", {
+  type = Schema.enum(1, TYPE), identifier = 2, timestamp = 5,
+  deviceInfo = Schema.message(20, DEVICE_INFO), contentItem = Schema.message(60, CONTENT_ITEM),
 })
 ```
 
@@ -140,7 +143,7 @@ if content ~= nil then print(content.identifier, #content.sections) end
 
 ### what the types say
 
-- `message_of` answers a `Protobuf.Message<T>`, with `T` the record, as [`Shape.record_of`] answers a `Typed<T>`:
+- `message_of` answers a `Schema.Codec<T>`, with `T` the record, as [`Shape.record_of`] answers a `Typed<T>`:
   the type comes from the functions the build puts into the call, so no annotation can say another.
 - `decode` answers `T?, string`. every read after it is a typed read of a record.
 - `encode` takes a `T`. a message under construction is a record literal, so a misspelled field (`literal_unknown`),
@@ -150,32 +153,34 @@ if content ~= nil then print(content.identifier, #content.sections) end
 - a decoded message is changed with a spread, `{ ...message, identifier = id }`, which copies every declared field,
   the unknown fields among them.
 - the build refuses, at the call's line: a field with no number, a number with no field, a number given twice or out
-  of the format's range, an encoding that does not fit the field's type (`Protobuf.float` on a `string`), an enum value
+  of the format's range, an encoding that does not fit the field's type (`Schema.float` on a `string`), an enum value
   with no number or with the number of another value, and a field of a type with no encoding (a function, a union,
   a generic).
-- the call's own form is ordinary Teal: the table is a `{string: integer | Protobuf.Field}`, and a stand-in module of
+- the call's own form is ordinary Teal: the table is a `{string: integer | Schema.Entry}`, and a stand-in module of
   that signature, given the functions by hand, passes the checker.
 
 ### how a field's type maps
 
 a bare number takes the encoding the type gives. a helper names another, and each takes options as its last
-argument. `Protobuf.field(n, options)` is the type's own encoding with options.
+argument. `Schema.field(n, options)` is the type's own encoding with options.
 
 - `integer`: a varint in two's complement, which is `int32`, `int64`, `uint32` and `uint64` on the wire.
-  `Protobuf.sint(n)`, `Protobuf.fixed32(n)`, `Protobuf.fixed64(n)`, `Protobuf.sfixed32(n)` and
-  `Protobuf.sfixed64(n)` name the others. a `uint64` above the largest integer reads as the negative integer of the
+  `Schema.sint(n)`, `Schema.fixed32(n)`, `Schema.fixed64(n)`, `Schema.sfixed32(n)` and
+  `Schema.sfixed64(n)` name the others. a `uint64` above the largest integer reads as the negative integer of the
   same bits.
-- `number`: a double. `Protobuf.float(n)` is a float.
-- `boolean`: a bool. `string`: a length-delimited field, which is both `string` and `bytes`.
-- an enum: `Protobuf.enum(n, CODEC)`, with the codec `enum_of` answers for that enum.
-- a record: `Protobuf.message(n, CODEC)`, with the codec `message_of` answers for that record. the checker holds the
+- `number`: a double. `Schema.float(n)` is a float.
+- `boolean`: a bool.
+- `string`: a length-delimited field of any bytes, a `bytes`. `Schema.string(n)` holds it to UTF-8, as the wire
+  codec's `string` does, on `decode` and on `encode`: a `string` of a `.proto` file.
+- an enum: `Schema.enum(n, CODEC)`, with the codec `enum_of` answers for that enum.
+- a record: `Schema.message(n, CODEC)`, with the codec `message_of` answers for that record. the checker holds the
   codec to the field's type: the code the build writes assigns what `CODEC` decodes to the field. the codec is a
   value, so one from another module comes through a `require`, and one of this module is declared above the call.
-  `Protobuf.self(n)` is the record's own codec, for a message that holds itself: the build writes its reader as a
+  `Schema.self(n)` is the record's own codec, for a message that holds itself: the build writes its reader as a
   function that names itself.
 - `{T}`: a repeated field of `T`'s encoding. numbers, booleans and enums are written one field each, which every
   reader takes, and read packed or not, as the format requires of a reader. `{ packed = true }` writes them packed.
-- `Protobuf.Unknown`: what the record keeps of a message without understanding it. it takes no number.
+- `Schema.Unknown`: what the record keeps of a message without understanding it. it takes no number.
 
 presence follows the field's own declaration:
 
@@ -188,9 +193,10 @@ presence follows the field's own declaration:
 - `{ implicit = true }` on a field declared `f: T` is proto3's field without presence: absent reads as zero, `""` or
   false, and that value is not written.
 
-a singular field that occurs twice keeps the last occurrence, a message included.
+a singular field that occurs twice keeps the last occurrence. a singular message that occurs twice is the
+occurrences merged, as the format asks and the wire codec reads it.
 
-a record that declares a field of `Protobuf.Unknown` keeps what it does not understand, so that a program which
+a record that declares a field of `Schema.Unknown` keeps what it does not understand, so that a program which
 decodes a message, changes a field and encodes it loses nothing of the rest. a record with no such field drops it, as
 a shape drops a key it does not name. three things are kept or dropped by that rule:
 
@@ -219,14 +225,16 @@ fields from the root, which is built only on failure: `protobuf: Protocol.conten
 
 - a known field with another wire type than its encoding fails, unless the record keeps what it does not understand.
 - a length is checked against the bytes left before anything is copied.
-- a varint is at most 10 bytes.
-- messages nest at most `max_depth` deep, 64 unless `decode` is given another, as [`Json.decode`] takes one.
+- a varint is at most 10 bytes, and a group is refused, as the wire codec refuses both.
+- messages nest at most `max_depth` deep and a message holds at most `max_fields` fields. `decode` takes both as the
+  wire codec's `decode` does, and their defaults are the wire codec's.
 - nothing bounds the input's length: the caller bounds the frame it reads. the memory `decode` takes is a multiple
   of that length.
 
 ### cost
 
-measured on the slice with a stand-in for the wire codec, a 951-byte message, five runs on a shared host whose times
+measured on the slice with a stand-in for the wire codec, which read a message as a list of fields where the wire
+codec reads it by number, so the first implementation measures again. on the stand-in, a 951-byte message, five runs on a shared host whose times
 moved by a third between runs. the ratios below are the spread of those runs:
 
 - the code the build writes costs what careful hand-written code costs: from 8% faster to 17% slower to encode, and
@@ -291,48 +299,48 @@ when a field is inserted, and cannot say that a number is skipped.
 ### a schema built at run time
 
 ```text
-local CommandInfo <const> = Schema.message("CommandInfo")
-local ContentItem <const> = Schema.message("ContentItem")
+local CommandInfo <const> = Runtime.message("CommandInfo")
+local ContentItem <const> = Runtime.message("ContentItem")
 
 local record CommandInfoFields
-  command: Schema.Field<string>
-  enabled: Schema.Field<boolean>
-  preferredIntervals: Schema.List<number>
-  skipInterval: Schema.Field<integer>
+  command: Runtime.Field<string>
+  enabled: Runtime.Field<boolean>
+  preferredIntervals: Runtime.List<number>
+  skipInterval: Runtime.Field<integer>
 end
 
 local COMMAND_INFO: CommandInfoFields = {
-  command = Schema.enum(CommandInfo, 1, "command", COMMAND),
-  enabled = Schema.bool(CommandInfo, 2, "enabled"),
-  preferredIntervals = Schema.doubles(CommandInfo, 4, "preferredIntervals"),
-  skipInterval = Schema.sint(CommandInfo, 12, "skipInterval"),
+  command = Runtime.enum(CommandInfo, 1, "command", COMMAND),
+  enabled = Runtime.bool(CommandInfo, 2, "enabled"),
+  preferredIntervals = Runtime.doubles(CommandInfo, 4, "preferredIntervals"),
+  skipInterval = Runtime.sint(CommandInfo, 12, "skipInterval"),
 }
 
 local record ContentItemFields
-  identifier: Schema.Field<string>
-  metadata: Schema.Field<Schema.Message>
-  sections: Schema.List<Schema.Message>
+  identifier: Runtime.Field<string>
+  metadata: Runtime.Field<Runtime.Message>
+  sections: Runtime.List<Runtime.Message>
 end
 
 local CONTENT_ITEM: ContentItemFields = {
-  identifier = Schema.string(ContentItem, 1, "identifier"),
-  metadata = Schema.sub(ContentItem, 2, "metadata", ContentItemMetadata),
-  sections = Schema.subs(ContentItem, 7, "sections", ContentItem),
+  identifier = Runtime.string(ContentItem, 1, "identifier"),
+  metadata = Runtime.sub(ContentItem, 2, "metadata", ContentItemMetadata),
+  sections = Runtime.subs(ContentItem, 7, "sections", ContentItem),
 }
 
 local record ProtocolFields
-  type: Schema.Field<string>
-  deviceInfo: Schema.Field<Schema.Message>
-  contentItem: Schema.Field<Schema.Message>
+  type: Runtime.Field<string>
+  deviceInfo: Runtime.Field<Runtime.Message>
+  contentItem: Runtime.Field<Runtime.Message>
 end
 
 local PROTOCOL: ProtocolFields = {
-  type = Schema.enum(Protocol, 1, "type", TYPE),
-  deviceInfo = Schema.sub(Protocol, 20, "deviceInfo", DeviceInfo),
-  contentItem = Schema.sub(Protocol, 60, "contentItem", ContentItem),
+  type = Runtime.enum(Protocol, 1, "type", TYPE),
+  deviceInfo = Runtime.sub(Protocol, 20, "deviceInfo", DeviceInfo),
+  contentItem = Runtime.sub(Protocol, 60, "contentItem", ContentItem),
 }
 
-local message = Schema.new(CommandInfo)
+local message = Runtime.new(CommandInfo)
 COMMAND_INFO.enabled.set(message, true)
 local enabled = COMMAND_INFO.enabled.get(message)     -- boolean?
 local wrong = CONTENT_ITEM.identifier.get(message)    -- compiles, and is nil
@@ -518,7 +526,7 @@ the same boilerplate with no grammar.
   record that holds itself: the shape resolver refuses it, and this one writes a function that names itself.
 - like `record_of`, the call is resolved only where a module is compiled: an aliased or computed call, a chunk loaded
   by hand and a script run with `--standalone` raise, saying so.
-- `Protobuf.Unknown` decides three behaviors of a record at once. a program that only reads leaves it out and gets
+- `Schema.Unknown` decides three behaviors of a record at once. a program that only reads leaves it out and gets
   the strict reader; a program that relays declares it.
 - field numbers sit in a table apart from the fields, so a field added to the record without a number is a build
   error at the call, not a field silently left off the wire.
@@ -530,19 +538,17 @@ the same boilerplate with no grammar.
 
 - services and RPC, groups, `Any` and the well-known types, the JSON mapping, text format, and reflection over a
   schema at run time.
-- validating that a `string` is UTF-8. a Teal string is bytes, and a caller that needs text checks it.
-- merging the occurrences of a singular message field, which the format asks of a reader. the last occurrence wins.
 - a field's declared default (`[default = x]`). an absent optional field is nil, and the caller supplies the value.
 - two enum values of one number (`allow_alias`).
 - an extension declared in another module than the record. it is an unknown field there.
 - keeping an enum number the enum does not name. the field is declared `integer` where that matters.
 - map fields and oneof groups, until a protocol in use has one. the forms are reserved: a field typed `{string: T}`
-  or `{integer: T}` with `Protobuf.map(n, ...)`, written in key order, and members that name a group with `{ oneof =
+  or `{integer: T}` with `Schema.map(n, ...)`, written in key order, and members that name a group with `{ oneof =
   "name" }`. a tagged union of records for a oneof, which would let the checker see that one member is set, costs a
   wrapper record for each member.
 - two records that hold each other. the checker refuses a function that names a local assigned later
   (`not_assigned`), so the build cannot write the pair as two functions, and it refuses the pair, naming both. a
-  `Protobuf.forward("Module.Record")` that a later `message_of` fills is added when a protocol has such a pair.
+  `Schema.forward("Module.Record")` that a later `message_of` fills is added when a protocol has such a pair.
 - integer kinds that refuse a value outside 32 bits on `decode`. `integer` holds what the wire holds.
 - a field's declared default (`[default = x]`). an absent optional field is nil, and the caller supplies the value.
 - two enum values of one number (`allow_alias`).
@@ -552,10 +558,11 @@ the same boilerplate with no grammar.
 
 each starts from main after the one before has merged.
 
-1. the wire codec, `cosmic.protobuf`. 3 and 4 depend on it.
+1. the wire codec, `cosmic.protobuf`, as the entry of its directory (`cosmic/protobuf/init.tl`), so that
+   `cosmic.protobuf.schema` sits beside it as [`cosmic.http.server`] sits beside its own. 3 and 4 depend on it.
 2. `build: share what a record's resolver needs`. the parts of [`build.syntax_shape_specs`] a second resolver uses
    move to a module of their own. no behavior changes. depends on nothing.
-3. `protobuf: declare a message once`. `enum_of` and `message_of` for singular scalars, enums, nested messages,
+3. `protobuf: declare a message once`, the module `cosmic.protobuf.schema`. `enum_of` and `message_of` for singular scalars, enums, nested messages,
    presence and what a record keeps, with failures, bounds, the language server, the fuzz test and the example.
    depends on 1 and 2.
 4. `protobuf: repeated and recursive fields`, with the resolver's walk of a record that holds itself, the refusal of
@@ -570,10 +577,10 @@ each starts from main after the one before has merged.
 [`build/lsp/syntax_read.tl`]: ../../build/lsp/syntax_read.tl
 [`build/syntax_shape_specs_test.tl`]: ../../build/syntax_shape_specs_test.tl
 [`build/tree_program.tl`]: ../../build/tree_program.tl
+[`cosmic.http.server`]: ../../cosmic/http/server.tl
 [`cosmic.shape`]: ../../cosmic/shape.tl
 [`cosmic.template`]: ../../cosmic/template/init.tl
 [`doc/writing.md`]: ../writing.md
-[`Json.decode`]: ../../cosmic/json.tl
 [`Json.encode`]: ../../cosmic/json.tl
 [`lang/types.tl`]: ../../lang/types.tl
 [`Shape.record_of`]: ../../cosmic/shape.tl
