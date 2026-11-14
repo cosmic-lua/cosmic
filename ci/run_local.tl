@@ -261,7 +261,7 @@ local function execute(argv: {string}, program: string): integer
     assert(Fs.chmod(runtime.path, 0x1c9))
   end
   -- Every invocation gets new tables; Proc.relaunch is cached.
-  local function driven(tail: {string}, values?: {string:string}, input?: string): Child.Result
+  local function driven(tail: {string}, values?: {string:string}, input?: string, timeout_ns?: integer): Child.Result
     local words: mut {string} = {}
     for at, word in ipairs(relaunch.argv) do
       if at == 1 and runtime.fd >= 0 then
@@ -283,7 +283,7 @@ local function execute(argv: {string}, program: string): integer
       end
     end
     local answer, why = current.child_run(words, { cwd = "/", env = child_env, fds = fds,
-      credentials = credentials, input = input, stdout = "capture", stderr = "capture" })
+      credentials = credentials, input = input, stdout = "capture", stderr = "capture", timeout_ns = timeout_ns })
     return (assert(answer, why))
   end
   local function probe(code: string, values?: {string:string}, input?: string): Child.Result
@@ -442,19 +442,34 @@ local function execute(argv: {string}, program: string): integer
       -- outside the worktree and kept with the phases' cache: a build.db
       -- there is the last candidate's, which the build phase refuses
       -- ("build requires fresh working database"). It goes with the
-      -- worktree it was built from, named as the driver names it, by the
-      -- candidate's own resolver under the driver's environment and user.
-      local named_build = driven({ "--standalone", candidate .. "/build/paths.tl", candidate }, driver_env)
-      successful(named_build, "candidate build directory")
-      local candidate_build = assert((named_build.stdout or ""):match("^(/[^\n]+)\n$"),
-        "candidate build directory resolver did not print one absolute path")
-      for _, kept in ipairs({ root, state, candidate, build_directory }) do
-        assert(not Fs.within(kept, candidate_build),
-          "the candidate's build directory " .. candidate_build .. " holds " .. kept)
+      -- worktree it was built from. The candidate's own resolver names
+      -- it, under the driver's environment and user but on the pinned
+      -- library, which names a build directory as the tree's does
+      -- (build/paths.tl runs standalone on it for bin/cosmic too). A
+      -- candidate whose old build could not be cleared is removed, so no
+      -- named phase runs it on that build.
+      local cleared, clear_trouble = pcall(function()
+        local named_build = driven({ "--standalone", candidate .. "/build/paths.tl", candidate }, driver_env, nil,
+          Clock.seconds(30))
+        successful(named_build, "candidate build directory")
+        local candidate_build = assert((named_build.stdout or ""):match("^(/[^\n]+)\n$"),
+          "candidate build directory resolver did not print one absolute path")
+        for _, kept in ipairs({ root, state, candidate, build_directory }) do
+          assert(not Fs.within(kept, candidate_build),
+            "the candidate's build directory " .. candidate_build .. " holds " .. kept)
+        end
+        assert(not Fs.within(candidate_build, root), "the candidate's build directory is inside the checkout")
+        successful(probe("assert(require('cosmic.fs').remove_tree(" .. string.format("%q", candidate_build) .. "))",
+          driver_env), "candidate build directory removal")
+      end)
+      if not cleared then
+        local dropped = privileged({ git, "-C", root, "worktree", "remove", "--force", candidate },
+          { stdout = "null", stderr = "null" })
+        if not dropped.ok then
+          local _, _ = Fs.remove_tree(candidate)
+        end
+        error(clear_trouble)
       end
-      assert(not Fs.within(candidate_build, root), "the candidate's build directory is inside the checkout")
-      successful(probe("assert(require('cosmic.fs').remove_tree(" .. string.format("%q", candidate_build) .. "))",
-        driver_env), "candidate build directory removal")
       say("candidate " .. snapshot .. " at " .. candidate)
     end
     assert(present(candidate), "no candidate; run the build phase first")

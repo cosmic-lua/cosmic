@@ -203,6 +203,27 @@ local function test_a_fresh_candidate_clears_the_build_directory_of_the_last(tmp
   assert(Fs.read(trees .. "/ci/build.db") == "built\n", "a fresh candidate cleared another project's build directory")
 end
 
+--- A candidate whose last build directory cannot be named is not left for a named phase to run on that build.
+local function test_a_candidate_whose_build_directory_is_not_named_is_removed(tmp: string)
+  local root, env = checkout(tmp)
+  assert(Fs.write(root .. "/build/paths.tl", [[
+local Fs = require("cosmic.fs")
+local record Paths end
+function Paths.main(argv: {string}): integer
+  local project = assert(argv[1])
+  if Fs.basename(project) == "candidate" then return 1 end
+  assert(Fs.put(Fs.stdout, project .. "/o\n"))
+  return 0
+end
+return Paths
+]]))
+  local tried = trying(root, env, { "build" })
+  assert(tried.ok and tried.code == 2 and tried.diagnostic:find("candidate build directory", 1, true) ~= nil,
+    tried.diagnostic .. tried.raised)
+  assert(Predicate.exists(assert(env["COSMIC_CI_LOCAL"]) .. "/candidate") == false, "the candidate was kept")
+  assert(Predicate.exists(assert(env["TRACE"])) == false, "a phase ran")
+end
+
 local function test_default_phases_keep_the_workflow_order(tmp: string)
   local root, env = checkout(tmp)
   assert(invoke(root, env, {}) == 0)
