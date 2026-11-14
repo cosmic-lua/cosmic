@@ -8,7 +8,7 @@ local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
 
---- The TCP example listens on the worker's own loopback.
+--- The TCP and UDP examples bind on the worker's own loopback.
 Test.policy{ loopback = { "127.0.0.1" } }
 
 local Example = {} -- checked: literal_needs_type
@@ -60,6 +60,20 @@ function Example.tcp()
   local conn <close> = assert(server:accept())
   assert(client:write("hello"))
   assert(assert(conn:read()) == "hello")
+end
+
+--- UDP: [`Net.datagram`] binds a socket, and each `send` and `receive`
+--- is one whole datagram, to or from an address of its own. Nothing is
+--- connected, so the receiver answers the address its packet came from.
+function Example.datagram()
+  local server <close> = assert(Net.datagram(Net.udp("127.0.0.1", 0)))
+  local client <close> = assert(Net.datagram(Net.udp("127.0.0.1", 0)))
+  assert(client:send("ping", server.address))
+  local question = assert(server:receive(Clock.seconds(5)))
+  assert(server:send("pong", question.address))
+  local answer = assert(client:receive(Clock.seconds(5)))
+  print(question.data, answer.data)
+  assert(question.data == "ping" and answer.data == "pong")
 end
 
 --- A server that serves each connection in a task of its own, in a

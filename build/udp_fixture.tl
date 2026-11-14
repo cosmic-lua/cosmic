@@ -1,7 +1,11 @@
 --- Real UDP packets for tests that need a peer on the wire: a bound
 --- loopback socket to watch for a datagram, stand in for a silent DNS
---- server or receive a resolver's query. [`cosmic.net`] has no UDP socket
---- of its own; these few calls go to the raw socket module's instead.
+--- server or receive a resolver's query.
+
+-- TODO: build these on [`Net.datagram`], which they predate, and leave the
+-- raw socket module to cosmic.net, once each test that waits here outside
+-- a task of a run is checked against Net's wait there, which a signal the
+-- innermost guard caught ends and Poll's does not.
 
 local Poll = require("cosmic.poll")
 local type raw_socket = require("cosmic.internal.socket")
