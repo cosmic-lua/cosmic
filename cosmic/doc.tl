@@ -22,6 +22,7 @@ local Removed = require("cosmic.removed")
 local Sqlite = require("cosmic.sqlite")
 local String = require("cosmic.string")
 local alias_members = require("cosmic.internal.alias_members")
+local Distance = require("cosmic.internal.distance")
 local link_text = require("cosmic.internal.link_text")
 local symbols = require("cosmic.internal.symbols")
 
@@ -132,6 +133,9 @@ local record Doc
     --- Whether no entry carries every word of the query, and these carry
     --- some of them (see `closest`).
     closest: boolean
+    --- The query as it was looked up, where a word of it that no documentation holds was taken for the
+    --- nearest word one does; nil where the query was looked up as given.
+    mut respelled?: string
     --- The verb `cosmic <query>` when the query names a library module of
     --- the same name: [`page`] ends the module's entries with a line
     --- pointing to it, and it is not one of the entries. Nil otherwise.
@@ -1620,6 +1624,103 @@ local function by_options(view: Doc.View, query: string,
   return out, ""
 end
 
+--- Whether some database of `view` documents `word`, in any form the index stems alike ("reads" for "reading").
+local function documented_word(view: Doc.View, word: string): boolean?, string
+  for _, db in ipairs(view.databases) do
+    local documented, documented_trouble = has_docs(db)
+    if documented == nil then
+      return nil, documented_trouble
+    end
+    if documented then
+      local rows, trouble = Sqlite.text_rows(db, "SELECT 1 FROM docs_fts WHERE docs_fts MATCH ?1 LIMIT 1",
+        { text('"' .. word .. '"') })
+      if rows == nil then
+        return nil, trouble
+      end
+      if #rows > 0 then
+        return true, ""
+      end
+    end
+  end
+  return false, ""
+end
+
+--- The word of the documentation a mistyped `word` most likely meant, or "" when none is within reach
+--- ([`Distance.reach`]): of the words the databases of `view` list (`docs_words`), the one the fewest edits from
+--- `word`, then the one more rows carry, counted over every database, then by spelling. A `word` under four
+--- letters has none, being near too many. A word a search never
+--- requires ([`STOP_WORDS`]) is no answer, and a database written before it listed its words offers none. The
+--- words are those of every row, a public source's private rows among them: a word only those hold is searched
+--- for and finds nothing, and none of them is shown.
+local function nearest_word(view: Doc.View, word: string): string?, string
+  local lower = word:lower()
+  local reach = Distance.reach(lower)
+  -- A word of three letters is one edit from too many others for the nearest to be the one meant.
+  if reach == 0 or #lower < 4 then
+    return "", ""
+  end
+  local carried: mut {string: integer} = {}
+  for _, db in ipairs(view.databases) do
+    local listed, listed_trouble = Sqlite.text_rows(db,
+      "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'docs_words'")
+    if listed == nil then
+      return nil, listed_trouble
+    end
+    if #listed > 0 then
+      local rows, trouble = Sqlite.text_rows(db,
+        "SELECT word, rows FROM docs_words WHERE length(word) BETWEEN ?1 AND ?2",
+        { { integer = #lower - reach }, { integer = #lower + reach } })
+      if rows == nil then
+        return nil, trouble
+      end
+      for _, row in ipairs(rows) do
+        local listed_word = row:text(1)
+        carried[listed_word] = (carried[listed_word] or 0) + (math.tointeger(tonumber(row:text(2))) or 0)
+      end
+    end
+  end
+  local best, best_far, best_rows = "", reach + 1, 0
+  for listed_word, rows in pairs(carried) do
+    if STOP_WORDS[listed_word] ~= true and listed_word ~= lower then
+      local far = Distance.between(lower, listed_word, reach)
+      if far < best_far or (far == best_far and far <= reach and
+          (rows > best_rows or (rows == best_rows and listed_word < best))) then
+        best, best_far, best_rows = listed_word, far, rows
+      end
+    end
+  end
+  return best, ""
+end
+
+--- `query` with each word no documentation holds taken for the nearest word one does ([`nearest_word`]), or ""
+--- when no word of it changes. Only a word of letters is respelled: a name with a digit or an underscore is
+--- code, which is looked up as written.
+local function respelled(view: Doc.View, query: string): string?, string
+  local words: mut {string} = {}
+  local changed = false
+  for _, word in ipairs(query_words(query)) do
+    local kept = word
+    if word:match("^%a+$") ~= nil then
+      local known, known_trouble = documented_word(view, word)
+      if known == nil then
+        return nil, known_trouble
+      end
+      if not known then
+        local near, near_trouble = nearest_word(view, word)
+        if near == nil then
+          return nil, near_trouble
+        end
+        if near ~= "" then
+          kept = near
+          changed = true
+        end
+      end
+    end
+    words[#words + 1] = kept
+  end
+  return if changed then table.concat(words, " ") else "" end, ""
+end
+
 --- The lookups of a member that call one another and are called before they are defined, as functions of one
 --- record declared first: what a dotted query names through a type alias, in full, or from a module's last name,
 --- and what a removed name answers.
@@ -1640,7 +1741,10 @@ end
 ---   (see `scoped`);
 --- - the documentation that carries all its words, and the verbs whose
 ---   options do (see [`by_options`]).
-local function lookup_names(view: Doc.View, query: string): Doc.Lookup?, string
+--- - Where nothing carries them, what the words a misspelling of them meant
+---   name or are documented by (see [`respelled`]), then the rows that carry
+---   some of them.
+local function lookup_names(view: Doc.View, query: string, as_respelled?: boolean): Doc.Lookup?, string
   -- A bare lowercase name that ends a public module's name is that
   -- module (`json` is `cosmic.json`, not the internal record `json`);
   -- the symbols it names exactly follow the module (`string` is
@@ -1821,6 +1925,28 @@ local function lookup_names(view: Doc.View, query: string): Doc.Lookup?, string
         return nil, ruled_trouble
       end
       found = ruled
+    end
+    if #found == 0 then
+      -- Nothing holds the words as given: look up the words a misspelling of them meant, as that query alone
+      -- would be, its closest matches among them.
+      local again = ""
+      if as_respelled ~= true then
+        local meant, meant_trouble = respelled(view, query)
+        if meant == nil then
+          return nil, meant_trouble
+        end
+        again = meant
+      end
+      if again ~= "" then
+        local meant, meant_trouble = lookup_names(view, again, true)
+        if meant == nil then
+          return nil, meant_trouble
+        end
+        if #meant > 0 then
+          meant.respelled = again
+          return meant, ""
+        end
+      end
     end
     if #found == 0 then
       local near, near_trouble = across(view,
@@ -2857,11 +2983,16 @@ end
 local function page(view: Doc.View, found: Doc.Lookup,
                     query: string): {string}?, string
   local lines: mut {string} = {}
+  local meant = found.respelled
+  if meant ~= nil then
+    lines[#lines + 1] = "Nothing named or documented as '" .. query .. "'; showing '" .. meant .. "':"
+    lines[#lines + 1] = ""
+  end
   if found.closest then
-    lines[#lines + 1] = "No entry has every word of '" .. query .. "'; closest matches:"
+    lines[#lines + 1] = "No entry has every word of '" .. (meant or query) .. "'; closest matches:"
     lines[#lines + 1] = ""
   elseif not found.exact then
-    lines[#lines + 1] = "No exact symbol match for '" .. query ..
+    lines[#lines + 1] = "No exact symbol match for '" .. (meant or query) ..
       "'; showing related documentation:"
     lines[#lines + 1] = ""
   end
@@ -3066,7 +3197,9 @@ end
 ---   and `text`, with `file` and `line` where it has them (a guide's
 ---   section or a code entry has no line, and the key is absent), and `verb`
 ---   (the command `cosmic <query>`, which the page points to) on the last
----   module entry of a query that names one;
+---   module entry of a query that names one, and `respelled` (the query as
+---   it was searched for) where a misspelled word of it was taken for the
+---   nearest the documentation holds;
 --- - no words, or `cosmic`, name no query: each module the page lists, as
 ---   `kind` "module", with its `text` the first sentence, and `closed`
 ---   ([`Doc.Summary`]) where not every module may require it.
@@ -3129,6 +3262,8 @@ function Doc.records(view: Doc.View, words: {string}, stale?: boolean): Doc.Answ
       if found.verb ~= nil and index == found.modules then
         object["verb"] = asking
       end
+      local searched_as = found.respelled
+      if searched_as ~= nil then object["respelled"] = searched_as end
       if stale == true then object["stale"] = true end
       local line, encode_trouble = Json.encode(object)
       if line == nil then
