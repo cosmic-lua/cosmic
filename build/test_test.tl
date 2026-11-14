@@ -13,7 +13,6 @@ local type test_state = require("build.test_state")
 local dispatch_sites = require("build.dispatch_sites")
 local lua_tail = require("build.lua_tail")
 local test_key = require("build.test_key")
-local shared_verdicts = require("build.shared_verdicts")
 local test_report = require("build.test_report")
 local work = require("build.work")
 local worker = require("build.test_worker")
@@ -192,47 +191,72 @@ local function test_a_frame_of_a_numbered_chunk_is_shown_at_the_line_its_functio
     shown)
 end
 
---- A row as the shared verdicts keep it is read as its unpacked text is, whichever of its lines an earlier row
---- held: the same text back, the same lines credited, and a module whose lines an earlier row dropped named stale
---- again by a later one, since a run reads `stale` after every row.
+--- A row as the shared verdicts keep it, each module's lines as distances, is read as the row of its lines in
+--- full is, whichever of its lines an earlier row held: the same lines credited, and a module whose lines an
+--- earlier row dropped named stale again by a later one, since a run reads `stale` after every row. What comes back
+--- is the row as it came, but the lines this checkout does not own, under a first line that says its lines are
+--- distances; a later run that reads that back from the working database credits the same lines again.
 local function test_a_kept_row_is_read_as_its_text_whatever_earlier_rows_held()
   local function module(path: string, hash: string): plans.Module
     return { path = path, file = path, kind = "lib", source = "", source_hash = hash, requires = {}, tests = {}, inputs = nil }
   end
   local texts = test.identities({ module("build.moved", string.rep("b", 64)),
     module("build.same", string.rep("c", 64)), module("build.unowned", string.rep("e", 64)) })
-  local moved = "build.moved " .. string.rep("a", 16) .. "\t4,1\n"
-  local same = "build.same " .. string.rep("c", 16) .. "\t1,1,5\n"
+  local mark = "lines as distances\n"
+  -- Each line as the shared verdicts keep it, and in full.
+  local moved = "build.moved " .. string.rep("a", 16) .. "\t"
+  local same = "build.same " .. string.rep("c", 16) .. "\t"
   local unowned = "build.unowned " .. string.rep("e", 16) .. "\t2\n"
-  local rows: {string} = { moved .. same .. "core/a.c -\t9\n", same .. unowned .. moved, "", same }
+  local core = "core/a.c -\t9\n"
+  local kept_rows: {string} = { moved .. "4,1\n" .. same .. "1,1,5\n" .. core,
+    same .. "1,1,5\n" .. unowned .. moved .. "4,1\n", "", same .. "1,1,5\n" }
+  local full_rows: {string} = { moved .. "4,5\n" .. same .. "1,2,7\n" .. core,
+    same .. "1,2,7\n" .. unowned .. moved .. "4,5\n", "", same .. "1,2,7\n" }
+  local owned_rows: {string} = { kept_rows[1] or "", same .. "1,1,5\n" .. moved .. "4,1\n", "", kept_rows[4] or "" }
   local not_owned: {string:mut {integer:boolean}} = { ["build.unowned"] = {} }
   local met: mut {string:test_state.SharedLine} = {}
   local hits: mut {string:mut {integer:boolean}} = {}
-  for at, row in ipairs(rows) do
+  --- Whether `got` credits every line `want` does.
+  local function holds(got: {string:mut {integer:boolean}}, want: {string:mut {integer:boolean}}): boolean
+    for path, lines in pairs(want) do
+      local credited = got[path]
+      if credited == nil then return false end
+      for line in pairs(lines) do
+        if credited[line] ~= true then return false end
+      end
+    end
+    return true
+  end
+  for at, row in ipairs(kept_rows) do
     local want_hits: mut {string:mut {integer:boolean}} = {}
     local want_stale: mut {string:string} = {}
-    local want = test.decode_hits(shared_verdicts.unpacked(row), want_hits, texts, want_stale, not_owned)
+    local _ = test.decode_hits(assert(full_rows[at]), want_hits, texts, want_stale, not_owned)
     local stale: mut {string:string} = {}
     local got = test.decode_kept(row, met, hits, texts, stale, not_owned)
-    assert(got == want, "row " .. tostring(at) .. " came back as " .. got)
+    assert(got == mark .. assert(owned_rows[at]), "row " .. tostring(at) .. " came back as " .. got)
     for path, why in pairs(want_stale) do
       assert(stale[path] == why, "row " .. tostring(at) .. " left " .. path .. " " .. tostring(stale[path]))
     end
     for path in pairs(stale) do
       assert(want_stale[path] ~= nil, "row " .. tostring(at) .. " named " .. path .. " stale, which its text does not")
     end
-    for path, lines in pairs(want_hits) do
-      for line in pairs(lines) do
-        assert(assert(hits[path], path .. " was credited nothing")[line] == true,
-          path .. " line " .. tostring(line) .. " was not credited")
-      end
+    assert(holds(hits, want_hits), "row " .. tostring(at) .. " credited fewer lines than its lines in full")
+    -- Read back as the working database keeps it.
+    local back_hits: mut {string:mut {integer:boolean}} = {}
+    local back_stale: mut {string:string} = {}
+    local back = test.decode_hits(got, back_hits, texts, back_stale, not_owned)
+    assert(back == got, "row " .. tostring(at) .. " read back came out as " .. back)
+    assert(holds(back_hits, want_hits) and holds(want_hits, back_hits),
+      "row " .. tostring(at) .. " read back credits other lines than its lines in full")
+    for path, why in pairs(want_stale) do
+      assert(back_stale[path] == why, "row " .. tostring(at) .. " read back left " .. path .. " unnamed")
     end
   end
   assert(assert(hits["build.same"])[7] == true and hits["build.moved"] == nil,
     "a line's distances were not added up, or a moved module was credited")
   -- A line an earlier row held is not read again: nothing is credited for it a second time.
   local again: mut {string:mut {integer:boolean}} = {}
-  local _ = test.decode_kept(same .. "core/b.c -\t3\n", met, again, texts, {}, not_owned)
+  local _ = test.decode_kept(same .. "1,1,5\n" .. "core/b.c -\t3\n", met, again, texts, {}, not_owned)
   assert(again["build.same"] == nil and assert(again["core/b.c"])[3] == true,
     "a line already met was read again, or a new one was not read")
 end

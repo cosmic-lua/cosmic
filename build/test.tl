@@ -543,29 +543,17 @@ end
 --- few thousand different numbers, each of which `tonumber` then reads once.
 local numbers_met: mut {string:integer} = {}
 
---- Folds every line `encoded` (a row [`test.take_hits`] wrote) names into
---- `hits`, but for a module of `identities` whose line names another text,
---- or none (a row written before rows named their text): its lines would
---- land on the wrong ones of this run's text. A module's line that names the
---- bytecode `codes` says it is ([`code_identities`]) holds
---- instructions' ordinals (a pure store's import), whatever its text: the key
---- the row stands under holds that bytecode, so the ordinals number the
---- instructions of this run's text alike, and `lines_of` places each at the
---- line this run's text has it on, as [`test.place_hits`] does. Each module
---- whose lines are dropped goes in `stale`, with why
---- ([`test_report.other_text`], or why an ordinal was not placed), which
---- makes the run's figure partial. A path that is no module is folded as it
---- stands: the key holds its text. Returns the lines of `encoded` but those
---- of a path `unowned` names, as written.
----
---- `folded` holds the module's lines earlier calls folded. Pass one table only to calls that share every other
---- argument but `encoded`: a line met again is then not read a second time, since it would set the same entries of
---- `hits` and of `stale`. Most of a test's row is the lines every test hits of the modules every test loads, so the
---- rows of a suite repeat them.
-function test.decode_hits(encoded: string, hits: Coverage.Hits, identities: {string:string},
-                          stale: mut {string:string}, unowned?: Coverage.Hits,
-                          lines_of?: function(string): {integer}?, string, codes?: {string:string},
-                          folded?: test.Folded): string
+--- The first line of a row whose modules' lines are written as distances, each from the one before it, as the
+--- shared verdicts keep them ([`build.shared_verdicts`]): a row this checkout took from there is kept as it came,
+--- under this line, and is never written out in full. No module's line is read as it, since it holds no tab.
+local distances_mark <const> = "lines as distances\n"
+
+--- [`test.decode_hits`] of the lines of a row, without its first line where it has one: `distances` says whether a
+--- module's lines are written as distances. Returns the lines but those of a path `unowned` names, as written.
+local function fold_row(encoded: string, distances: boolean, hits: Coverage.Hits, identities: {string:string},
+                        stale: mut {string:string}, unowned?: Coverage.Hits,
+                        lines_of?: function(string): {integer}?, string, codes?: {string:string},
+                        folded?: test.Folded): string
   local kept: mut {string} = {}
   for head, lines in encoded:gmatch("([^\t\n]+)\t([^\n]*)\n") do
     local path, named = text_of(head)
@@ -599,11 +587,16 @@ function test.decode_hits(encoded: string, hits: Coverage.Hits, identities: {str
       local as_written = known == nil
       local own_text = not numbered and named == known
       local per_line = hits[path]
+      local last = 0
       for digits in lines:gmatch("%d+") do
         local line = numbers_met[digits]
         if line == nil then
           line = math.tointeger(tonumber(digits)) or 0
           numbers_met[digits] = line
+        end
+        if distances then
+          last = last + line
+          line = last
         end
         local at: integer? = nil
         if as_written or (own_text and line <= lua_tail.ordinal_base) then
@@ -639,21 +632,55 @@ function test.decode_hits(encoded: string, hits: Coverage.Hits, identities: {str
   return table.concat(kept)
 end
 
---- [`test.decode_hits`] of a row as the shared verdicts keep it ([`shared_verdicts.Found`]'s `kept`), in one pass
---- over its lines: a line `met` holds costs a lookup, and only one it does not is unpacked
---- ([`shared_verdicts.unpacked`]), folded and added to it. Pass one `met` only to calls that share every argument
---- after it. A run stands on thousands of rows that repeat most of their lines, and a row of a hundred lines names
---- few that no earlier row held.
+--- Folds every line `encoded` (a row [`test.take_hits`] wrote) names into
+--- `hits`, but for a module of `identities` whose line names another text,
+--- or none (a row written before rows named their text): its lines would
+--- land on the wrong ones of this run's text. A module's line that names the
+--- bytecode `codes` says it is ([`code_identities`]) holds
+--- instructions' ordinals (a pure store's import), whatever its text: the key
+--- the row stands under holds that bytecode, so the ordinals number the
+--- instructions of this run's text alike, and `lines_of` places each at the
+--- line this run's text has it on, as [`test.place_hits`] does. Each module
+--- whose lines are dropped goes in `stale`, with why
+--- ([`test_report.other_text`], or why an ordinal was not placed), which
+--- makes the run's figure partial. A path that is no module is folded as it
+--- stands: the key holds its text. Returns the lines of `encoded` but those
+--- of a path `unowned` names, as written. A row whose first line says its lines are distances
+--- ([`test.decode_kept`] answers one) is read so, and comes back under that line.
+---
+--- `folded` holds the module's lines earlier calls folded. Pass one table only to calls that share every other
+--- argument but `encoded`: a line met again is then not read a second time, since it would set the same entries of
+--- `hits` and of `stale`. Most of a test's row is the lines every test hits of the modules every test loads, so the
+--- rows of a suite repeat them.
+---
+--- `folded` is for rows of lines written in full: it is not asked about a row of distances, whose lines read
+--- otherwise.
+function test.decode_hits(encoded: string, hits: Coverage.Hits, identities: {string:string},
+                          stale: mut {string:string}, unowned?: Coverage.Hits,
+                          lines_of?: function(string): {integer}?, string, codes?: {string:string},
+                          folded?: test.Folded): string
+  if encoded:sub(1, #distances_mark) == distances_mark then
+    return distances_mark .. fold_row(encoded:sub(#distances_mark + 1), true, hits, identities, stale, unowned,
+      lines_of, codes)
+  end
+  return fold_row(encoded, false, hits, identities, stale, unowned, lines_of, codes, folded)
+end
+
+--- Folds a row as the shared verdicts keep it ([`shared_verdicts.Found`]'s `kept`: each module's lines as
+--- distances) into `hits`, as [`test.decode_hits`] does, in one pass over its lines: a line `met` holds costs a
+--- lookup, and only one it does not is read. Pass one `met` only to calls that share every argument after it. A
+--- run stands on thousands of rows that repeat most of their lines, and a row of a hundred lines names few that no
+--- earlier row held. Returns the row for this checkout to keep: the lines as they came, but those of a path
+--- `unowned` names, under the line that says they are distances, so nothing writes their numbers out.
 function test.decode_kept(kept: string, met: mut {string: State.SharedLine}, hits: Coverage.Hits,
                           identities: {string:string}, stale: mut {string:string}, unowned?: Coverage.Hits,
                           lines_of?: function(string): {integer}?, string, codes?: {string:string}): string
-  local out: mut {string} = {}
+  local out: mut {string} = { distances_mark }
   for line in kept:gmatch("[^\n]*\n") do
     local known = met[line]
     if known == nil then
       local left: mut {string:string} = {}
-      local as_kept = test.decode_hits(shared_verdicts.unpacked(line), hits, identities, left, unowned, lines_of,
-        codes)
+      local as_kept = fold_row(line, true, hits, identities, left, unowned, lines_of, codes)
       local path, why = next(left)
       known = { text = as_kept, path = path, left = why }
       met[line] = known
@@ -665,10 +692,6 @@ function test.decode_kept(kept: string, met: mut {string: State.SharedLine}, hit
   end
   return table.concat(out)
 end
-
--- TODO: stop unpacking a row to keep it: a fresh checkout still spends some ten seconds on the lines no earlier row
--- held, most of it writing their numbers out again. It waits on `coverage_by_test` keeping a row as the shared
--- verdicts do (packed), which is a change of that table's format.
 
 -- TODO: have [`Coverage.Hits`] write its lines through, so `hits` here and in [`take_hits`] can be written, once
 -- `Hits` in cosmic/internal/debug.d.tl is `{string: mut {integer: boolean}}`.
@@ -686,6 +709,8 @@ local function credit_hits(handle: Sqlite.Handle, credited: test.Credited,
                            stale: mut {string:string}, lines_of: function(string): {integer}?, string,
                            codes: {string:string}): string
   local folded: test.Folded = {}
+  -- The rows this checkout took from the shared verdicts, which repeat most of their lines as those of one run do.
+  local met: mut {string: State.SharedLine} = {}
   for run_at_ns, tests in pairs(credited) do
     local placeholders: mut {string} = {}
     local args: mut {Sqlite.Value} = { { integer = run_at_ns } }
@@ -700,7 +725,12 @@ local function credit_hits(handle: Sqlite.Handle, credited: test.Credited,
       return trouble
     end
     for _, row in ipairs(rows) do
-      local _ = test.decode_hits(row:text(1), hits, identities, stale, nil, lines_of, codes, folded)
+      local encoded = row:text(1)
+      if encoded:sub(1, #distances_mark) == distances_mark then
+        local _ = test.decode_kept(encoded:sub(#distances_mark + 1), met, hits, identities, stale, nil, lines_of, codes)
+      else
+        local _ = test.decode_hits(encoded, hits, identities, stale, nil, lines_of, codes, folded)
+      end
     end
   end
   return ""

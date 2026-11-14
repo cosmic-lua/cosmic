@@ -33,8 +33,8 @@ local record test_state
     elapsed_ns: integer
   end
 
-  --- One line of a shared row's hits, folded: its `text` as this checkout keeps it (unpacked, "" for a path it does
-  --- not own), and, where folding it left the module's lines out, the `path` and why (`left`).
+  --- One line of a shared row's hits, folded: its `text` as this checkout keeps it (as it came, "" for a path it
+  --- does not own), and, where folding it left the module's lines out, the `path` and why (`left`).
   record SharedLine
     text: string
     path?: string
@@ -367,7 +367,7 @@ local record test_state
     loads_taken: mut {LoadTaken}
     --- Each line of the rows this run stood on from the shared cache, by the line as the row keeps it
     --- ([`shared_verdicts.Found`]'s `kept`), once [`build.test`] has folded it into `hits`: a line the rows repeat,
-    --- as most are, is unpacked and read once.
+    --- as most are, is read once.
     shared_folded: mut {string: SharedLine}
     --- The source line of each instruction of each module whose hits a
     --- worker of a pure store numbered by instruction, and the line each of
