@@ -264,6 +264,12 @@ promises lean on come first:
   needs the caller to hand the body over again (a function answering a
   fresh Reader) behind `CURLOPT_SEEKFUNCTION`; curl answers "necessary data
   rewind was not possible" without one.
+- [`cosmic.http.message`] past the message, each once a caller needs it:
+  RTSP's interleaved binary frames (RFC 2326 10.12: `$`, a channel byte and a
+  16-bit length, between messages on the same connection), which no reader
+  here reads; a body handed over as it arrives,
+  for one larger than a caller would hold; and a chunked body's trailers,
+  which are checked and dropped.
 - [`cosmic.web.middleware`] past what the first parts need, each once a part of
   the web layer wants one: `Web.timing`, `Web.request_id` (paired with the
   CSP nonce and sessions) and `Web.limit_body` (paired with
@@ -316,8 +322,8 @@ promises lean on come first:
   loopback server build/fetch_test.tl's https `TODO:` waits on;
   datagrams past [`Net.datagram`]'s UDP socket and its multicast: one over a unix socket
   file ("unixgram"), a socket connected to one peer, a group joined for
-  some senders alone (source-specific multicast), an IPv4 group's
-  interface named by its index, and [`Net.interfaces`] in a Linux sandbox; a [`Net.serve`] listener taking a
+  some senders alone (source-specific multicast), and an IPv4 group's
+  interface named by its index; a [`Net.serve`] listener taking a
   listen's own options (`backlog`); a listen that takes over a socket file a listener left
   behind (`reclaim`, for a daemon restarting at its socket file); a
   [`Net.serve`] in several processes of this program, which take
@@ -540,6 +546,7 @@ four-producer provenance join.
 [`cosmic.dns`]: ../cosmic/dns.tl
 [`cosmic.fs`]: ../cosmic/fs.tl
 [`cosmic.html`]: ../cosmic/html.tl
+[`cosmic.http.message`]: ../cosmic/http/message.tl
 [`cosmic.http.server`]: ../cosmic/http/server.tl
 [`cosmic.http`]: ../cosmic/http/init.tl
 [`cosmic.internal.relay_config`]: ../cosmic/internal/relay_config.tl
@@ -575,7 +582,6 @@ four-producer provenance join.
 [`lang/stdlib.d.tl`]: ../lang/stdlib.d.tl
 [`Mdns.Listen`]: ../cosmic/mdns.tl
 [`Net.datagram`]: ../cosmic/net.tl
-[`Net.interfaces`]: ../cosmic/net.tl
 [`Net.serve`]: ../cosmic/net.tl
 [`Plist.decode`]: ../cosmic/plist.tl
 [`Plist.form`]: ../cosmic/plist.tl

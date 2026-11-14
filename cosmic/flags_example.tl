@@ -14,7 +14,7 @@ function Example.parse()
   assert(got.set["--check"] == true and got.values["--jobs"] == "2" and got.words[1] == "a.tl")
   local _, why = Flags.parse({ "fix", "--chek" }, 2, { ["--check"] = false })
   print(why)
-  assert(why == "no such option: --chek")
+  assert(why == "no such option: --chek; did you mean --check?")
 end
 
 --- An option the line must give: `required` in its [`Flags.Option`]. A line
@@ -49,7 +49,7 @@ function Example.dispatch()
   assert(ran ~= nil and ran.code == 0 and ran.help == "", why)
   ran, why = Flags.dispatch({ "biuld" }, 1, commands, "prog")
   print(why)
-  assert(ran == nil and why == "no such command: biuld")
+  assert(ran == nil and why == "no such command: biuld; did you mean build?")
 end
 
 --- A program whose first word is a command -- `ledger report may.csv
@@ -112,12 +112,33 @@ function Example.subcommands()
     "may.csv 2026-05",
     "add may.csv 12",
     "report needs one file",
-    "no such command: rport",
-    "report: no such option: --mnth; usage: ledger report [options] <file>",
+    "no such command: rport; did you mean report?",
+    "report: no such option: --mnth; did you mean --month?; usage: ledger report [options] <file>",
     "needs a command: add, report",
   }, "\n"))
   assert(main({ "--help" }) == 0)
   assert(main({ "report", "--help" }) == 0)
+end
+
+--- A program that words its own refusal of a mistyped name:
+--- [`Flags.nearest`] answers the names near it, by the rule the refusals of
+--- [`Flags.parse`] and [`Flags.dispatch`] end "did you mean" by, and none
+--- for a word near nothing.
+function Example.nearest()
+  local profiles = { "debug", "release", "release-small" }
+  local function refusal(word: string): string
+    local near = Flags.nearest(word, profiles)
+    if #near == 0 then
+      return "no profile " .. word .. "; one of " .. table.concat(profiles, ", ")
+    end
+    return "no profile " .. word .. "; the nearest: " .. table.concat(near, ", ")
+  end
+  print(refusal("relaese"))
+  print(refusal("rel"))
+  print(refusal("fast"))
+  assert(refusal("relaese") == "no profile relaese; the nearest: release")
+  assert(refusal("rel") == "no profile rel; the nearest: release, release-small")
+  assert(refusal("fast") == "no profile fast; one of debug, release, release-small")
 end
 
 --- Help written from a command: each option described by a

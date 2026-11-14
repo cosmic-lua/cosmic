@@ -155,11 +155,11 @@ to the items marked (checked) in [`doc/c.md`]. Read that before writing C.
 [`bin/cosmic-bootstrap`] on the cosmic release [`ci/cosmic-driver.pin`]
 names, not on the tree, so what a change adds reaches them only once the
 pin moves. `COSMIC_BOOTSTRAP=<path>` makes them run another cosmic
-instead, such as the tree's own tool by its path in the build directory
-([`bin/cosmic`] itself is refused). A change that moves the pin also takes
-up every `TODO:` the new release unblocks: `bin/cosmic todos
-'"cosmic-driver.pin"'` lists them, and [`doc/contributing.md`] has the
-procedure.
+instead, such as the tree's own tool by its path in the build directory,
+which `bin/cosmic build` prints ([`bin/cosmic`] itself is refused). A
+change that moves the pin also takes up every `TODO:` the new release
+unblocks: `bin/cosmic todos '"cosmic-driver.pin"'` lists them, and
+[`doc/contributing.md`] has the procedure.
 
 [`bin/cosmic-bootstrap`]: bin/cosmic-bootstrap
 [`bin/cosmic`]: bin/cosmic
