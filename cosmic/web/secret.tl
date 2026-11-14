@@ -8,6 +8,7 @@
 --- (`new,old` while a key is rotated out). A key is the bytes of its
 --- text, not decoded, so there is no encoding to get wrong; make one with
 --- [`Secret.generate`]. No message here holds a key, only its length.
+--- @public
 
 local Codec = require("cosmic.codec")
 local String = require("cosmic.string")

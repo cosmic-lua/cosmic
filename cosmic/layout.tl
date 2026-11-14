@@ -50,7 +50,9 @@ local record Layout
   --- in its list, "(private to store/sql/)" or "(internal to app/)".
   --- Split a module that grows into such a package rather than into
   --- flat files of one prefix: doc/guides/project.md ("a package")
-  --- shows one. `cosmic.*` is the standard library's, never a project's
+  --- shows one. `cosmic.*` is the standard library's, never a project's,
+  --- and its closed directories keep their own as a project's do: require
+  --- the modules `cosmic docs` lists
   require: string
   --- a guide: a Markdown file directly under doc/guides/, or directly
   --- under doc/guides/internal/, is a test of its own. Each block tagged `teal`

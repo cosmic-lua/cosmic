@@ -477,22 +477,34 @@ local function test_the_carried_internal_types_are_the_ones_a_public_signature_n
         "('build.net', 'net.Hidden', 'net.Hidden', 1, 'field', " ..
         "'type Hidden = Native.Hidden', 'Not public.', 'f', 1), " ..
         "('cosmic.net', 'Net.Shape', 'Net.Shape', 1, 'interface', " ..
-        "'interface Shape is Native.Base', 'A shape.', 'f', 1)",
+        "'interface Shape is Native.Base', 'A shape.', 'f', 1), " ..
+        -- A module its closed directory keeps, which the projection does not record as public.
+        internal("cosmic.net.wire", "Frame") .. ", " ..
+        internal("cosmic.net.wire", "Unreached") .. ", " ..
+        "('cosmic.net.wire', 'Frame.size', 'raw.Frame.size', 1, 'field', '', 'A member.', 'f', 1), " ..
+        "('cosmic.net', 'Net.Frame', 'Net.Frame', 1, 'field', 'type Frame = Wire.Frame', 'A frame.', 'f', 1)",
       "INSERT INTO bound (path, name, requires) VALUES " ..
         "('cosmic.net', 'Native', 'cosmic.internal.net'), " ..
+        "('cosmic.net', 'Wire', 'cosmic.net.wire'), " ..
         "('build.net', 'Native', 'cosmic.internal.net')",
   }) do
     assert(db:exec(statement))
   end
   assert(db:exec("INSERT OR IGNORE INTO public_modules SELECT path FROM (SELECT path FROM modules UNION SELECT module FROM docs " ..
       "UNION SELECT module FROM uses UNION SELECT from_module FROM uses) WHERE " .. symbols.library_modules("path")))
+  assert(db:exec("DELETE FROM public_modules WHERE path = 'cosmic.net.wire'"))
   assert(db:close())
   assert(writer.carried(whole, tmp .. "/carried.db"))
   local out = assert(Sqlite.open(tmp .. "/carried.db"))
   local found = assert(Sqlite.text_rows(out,
     "SELECT coalesce(group_concat(symbol, ' '), '') FROM (SELECT symbol FROM docs " ..
       "WHERE module LIKE 'cosmic.internal.%' ORDER BY id)"))
+  local kept = assert(Sqlite.text_rows(out,
+    "SELECT coalesce(group_concat(symbol, ' '), '') FROM (SELECT symbol FROM docs " ..
+      "WHERE module = 'cosmic.net.wire' ORDER BY id)"))
   assert(out:close())
+  assert(support.nth(kept, 1):text(1) == "Frame Frame.size",
+    "the types of a module its directory keeps, where a public alias names them: " .. support.nth(kept, 1):text(1))
   assert(support.nth(found, 1):text(1) == "Alias First Second Base Alias.size", "the internal types carried: " .. support.nth(found, 1):text(1))
 end
 

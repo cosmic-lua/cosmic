@@ -2,6 +2,7 @@
 --- and a route can name each other: every other module of the package
 --- implements part of what these describe, and [`cosmic.web`] re-exports
 --- the types under its own name.
+--- @public
 
 local Net = require("cosmic.net")
 local Server = require("cosmic.http.server")
