@@ -14,7 +14,7 @@ local Test = require("cosmic.test")
 --- the host's programs the launcher runs: `sh`, and the `uname`, `id`,
 --- `stat`, `mkdir`, `mktemp`, `dd`, `head`, `wc`, `sha256sum`, `chmod`,
 --- `ln`, `rm` and `rmdir` it calls (build/launcher.tl; build/launcher_test.tl
---- holds this list to it), each granted
+--- holds what this module grants to what the launcher's text runs), each granted
 --- where a host has it, under /bin or /usr/bin: a grant of a path a host
 --- lacks gives nothing. The `shasum` it falls back to is macOS's, where no
 --- worker is sandboxed. A portable artifact is a `#!/bin/sh` script by
