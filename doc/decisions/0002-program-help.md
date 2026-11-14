@@ -37,7 +37,8 @@ how the tool does it for itself:
   ([`build/docs.tl`]). a search matches the rows that carry every word, less
   stop words, ranked by `bm25` with a word in a name weighing ten times one
   in prose. where no row carries every word it offers the rows that carry
-  at least half of them and at least two. a misspelled word finds nothing.
+  at least half of them and at least two. a query of one misspelled word
+  finds nothing.
 - the tool carries the rows of the public standard library alone, and a
   project's own are in its projection, so `cosmic docs` in a project
   answers for both.
@@ -56,11 +57,11 @@ rest, carried in the program, and answered by the one query path behind
 `cosmic docs`. there is one index and one way to ask it, for the tool and
 for every program it builds.
 
-this is the roadmap's rule, "new documentation extends the one build-time
-index and runtime query path", applied to a program. it rests on principle 8,
+this extends to a program the roadmap's rule for the tree, "new
+documentation extends the one build-time index and runtime query path". it rests on principle 8,
 "docs are always right": a page in the index is held to what `cosmic fix`
-holds every doc to, its links among them. principle 1 has the growth named,
-below.
+holds every doc to, its links among them. by principle 1 the growth, below,
+goes in the size report.
 
 - **the page.** a command's page is a doc comment, on a field named for the
   command in a record, as [`cosmic.cli`] holds the verbs. its first sentence
@@ -72,22 +73,37 @@ below.
   are is a question of position (principle 2): the modules under the
   program's own `cmd/<name>/`, and the project's guides. the rest of the
   project's doc comments are for its builders and stay in the projection.
-- **the query path.** the lookup, the search and the rendering move from
-  [`build/docs.tl`] to a public module, `cosmic.doc`, which design.md's core
-  tier already names. `cosmic docs` and `cosmic help` call it, and so does a
-  program, over the databases it runs from. the verb, its staleness check
-  and `cosmic uses` stay in `build/`.
+- **the query path.** the search, the lookup of a name and the rendering of
+  a row move from [`build/docs.tl`] to a public module, `cosmic.doc`, which
+  design.md's core tier already names. what they call in `build/` moves
+  with them, under `cosmic.internal`: which rows a view shows
+  ([`build.symbols`]), a comment's links as text ([`build.link_text`]), and a
+  type's members ([`build.alias_members`], [`build.symbol_index`]). `cosmic
+  docs` and `cosmic help` call `cosmic.doc`. what is the tool's alone stays
+  in `build/`: the verb, which databases it opens and whether they are
+  stale, `cosmic uses`, and the answers about verbs, options, error codes
+  and removed names.
+- **the scope.** a caller of `cosmic.doc` names the databases it asks and
+  the modules it asks about, as the tool's view names the public standard
+  library today. a program asks for its own pages alone, so `ledger help
+  read` answers the same built, run as a file beside the tool's own rows,
+  and under test.
 - **help.** [`Flags.dispatch`] answers through the `help` it already
   provides. `prog help <command>` prints that command's page and its
   options, as `cosmic help <verb>` does. `prog help <words>` that name no
   command searches, a name first and words after, as `cosmic docs` does. a
   command with no page keeps the help [`Flags.help`] writes from its record.
   a program that defines `help` itself has opted out, as today.
-- **a misspelled word.** the query path gains what it lacks: where a word
-  is in no row, it takes the nearest word of the index, by the distance and
-  the bound of the suggestion for a mistyped command, and says which word it
-  searched for. the build declares a vocabulary table over `docs_fts` for
-  it. `cosmic docs` gains the same answer.
+- **a misspelled word.** the query path gains what it lacks. where a word
+  is in no row, it takes the nearest stem of the index, by the distance of
+  the suggestion for a mistyped command, searches for that, and shows the
+  rows with the word they hold. the index stems its words, so the
+  vocabulary is stems: "reconsile" is nearest "reconcil", which finds
+  "Reconciles". the build declares a vocabulary table over `docs_fts` for
+  it. `cosmic docs` gains the same answer. the distance lives in a module
+  both [`cosmic.flags`] and `cosmic.doc` require, since neither may require
+  the other: [`cosmic.flags`] asks `cosmic.doc` for help, and an import
+  cycle stops every run.
 
 what the author of `ledger` writes is the pages, beside the program, and
 the lines every dispatching program has:
@@ -136,10 +152,12 @@ that copies the rows, and a search in the program that asks `docs_fts`
 directly.
 
 - size of the rows. twelve pages add 8 KB to each program.
-- size of the code. [`build/docs.tl`] and the seven modules of `build/` its
-  queries call are 126 KB of bytecode and 67 KB of stored source. the part
-  that moves is less, and each program grows by it: a program of 8.1 MB
-  grows by under 195 KB.
+- size of the code. [`build/docs.tl`] with [`build.symbols`],
+  [`build.symbol_index`], [`build.alias_members`], [`build.link_text`],
+  [`build.positions`], [`build.narrow`] and [`build.analysis_schema`] is 126 KB of
+  bytecode and 67 KB of stored source. that is the upper bound on what
+  moves, and each program grows by what does: a program of 8.1 MB by at
+  most 193 KB.
 - `cosmic build` takes no longer: four programs in 0.2 to 0.4 s with the
   rows or without.
 - start-up. `ledger help` and `ledger add` take 1.5 ms. the search loads
@@ -156,12 +174,14 @@ moves, which the prototype does not have.
 
 of the stand-in's 203 lines of machinery, none is left: the index and the
 pages come from the rows, the suggestion from the given work, and the 131
-lines of search from the query path. its text is 112 lines of doc comments.
+lines of search from the query path. its text is a file of 112 lines, 94
+of them doc comments.
 
-a program's help is tested by an ordinary test. under `cosmic test` the
-store of the test's import closure holds the `docs` rows of the modules it
-requires ([`build/closure_store.tl`]), so a test that requires the pages
-asks the same question a built program does.
+a test of a program's help declares `Test.policy { store_text = true }`.
+a sandboxed test's store holds no `docs` row without it, and with it the
+store holds the rows of the modules the test requires
+([`build/closure_store.tl`]). such a test runs again on an edit to any
+comment in its closure.
 
 ## rejected alternatives
 
@@ -208,20 +228,31 @@ misspelled word and a word in another form.
 
 ## consequences
 
-- `cosmic.doc` is public surface: the lookup, the search and the rendering
-  of a row, over databases a caller names. the tables stay private.
+- `cosmic.doc` is public surface: the search, the lookup of a name and the
+  rendering of a row, over the databases and modules a caller names. the
+  tables and the modules under `cosmic.internal` stay private.
+- a program's page is rendered without the module, the file and the counts
+  of uses and links, which are a builder's and which a program's database
+  does not hold. the rendering takes that as an option.
 - two refusals of [`Flags.dispatch`] change, with its doc comment and its
   tests. `prog help <word>` for a word that names no command answers rows
   where it answered "no such command", and `prog help` with several words
   searches where it answered "help: one command at a time".
 - [`cosmic.flags`] requires `cosmic.doc`, inside the function that answers
   help, so a program that asks for no help loads neither it nor SQLite.
+  `cosmic.doc` requires neither [`cosmic.flags`] nor [`cosmic.cli`].
 - a program's help text is in `cosmic docs` for its builders, and a broken
   link in a page fails `cosmic fix`.
 - a program's rows come from three places: its own database when built, the
   projection when run as a file, and the closure's store under `cosmic
-  test`. `cosmic.doc` reads whichever the program runs from, and holds its
-  answer to the program's own pages in all three.
+  test`. the scope holds the answer to the program's own pages in all
+  three.
+- the project's guides go in every program of the project, all or none. a
+  project with several programs keeps each one's pages in its own
+  directory, and a page two programs share is a guide.
+- the vocabulary table is not an index to rebuild, so [`build/schema.tl`]
+  keeps it in a list of its own. a change to the schema moves every
+  database.
 - the build cannot see which commands a program dispatches, since they are
   values. a page with no command, or a command with no page, is found by a
   test of the program, not by the build.
@@ -234,7 +265,10 @@ misspelled word and a word in another form.
    every row of the modules the program carries, which is simpler and
    ships the builders' notes, and a mark in the comment, which is a list to
    keep.
-2. where does a page sit beside its command? the decision follows
+2. where does a page sit beside its command, and what becomes of `about`
+   and `usage`? the page's first sentence says both, so in the record they
+   are written twice unless the index and the usage line read them from
+   the page. the decision follows
    [`cosmic.cli`]: a record of pages, and the commands in a map beside it,
    joined by name. [writing.md](../writing.md) has a table's entries
    documented by the record that types it, so the commands could be that
@@ -253,21 +287,31 @@ misspelled word and a word in another form.
 
 each stands alone and starts from main once the one before has merged.
 
-1. the given work: groups and suggestions in [`cosmic.flags`]. a
-   prerequisite, not this record's.
-2. `cosmic.doc`: the lookup, the search and the rendering move out of
-   [`build/docs.tl`], which calls them. no behavior changes. depends on
-   nothing.
-3. the vocabulary table and the nearest word, in `cosmic.doc`, so `cosmic
-   docs` answers a misspelled word. depends on 1 for the distance, and on 2.
-4. `cosmic build` carries a program's rows, with the rule for which, a test
-   on a built program and the growth of the portable artifact. it changes
-   `cosmic build`, so it is checked on a tool booted with every core.
-   depends on nothing.
+1. the given work: groups and suggestions in [`cosmic.flags`], with the
+   distance in a module of its own. a prerequisite, not this record's.
+2. `cosmic.doc`: the search, the lookup and the rendering move out of
+   [`build/docs.tl`], which calls them, with the scope and the modules that
+   go under `cosmic.internal`. `cosmic docs` answers as before. the
+   largest of the five. depends on nothing.
+3. `cosmic build` carries a program's rows, with the rule for which, a
+   test that asks a built program's database through `cosmic.doc`, and the
+   growth of the portable artifact in the size report. it changes `cosmic
+   build`, so it is checked on a tool booted with every core. depends on
+   2.
+4. the vocabulary table and the nearest stem, in `cosmic.doc`, so `cosmic
+   docs` answers a misspelled word. depends on 1 for the distance, and on
+   2.
 5. `prog help <command>` and `prog help <words>` in [`Flags.dispatch`], and
    the section of [the command-line guide](../guides/command-line.md) that
    shows a program's help. depends on 2, 3 and 4.
 
+[`build.alias_members`]: ../../build/alias_members.tl
+[`build.analysis_schema`]: ../../build/analysis_schema.tl
+[`build.link_text`]: ../../build/link_text.tl
+[`build.narrow`]: ../../build/narrow.tl
+[`build.positions`]: ../../build/positions.tl
+[`build.symbol_index`]: ../../build/symbol_index.tl
+[`build.symbols`]: ../../build/symbols.tl
 [`build.zig`]: ../../build.zig
 [`build/closure_store.tl`]: ../../build/closure_store.tl
 [`build/dispatch.tl`]: ../../build/dispatch.tl
