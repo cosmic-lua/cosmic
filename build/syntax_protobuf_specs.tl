@@ -131,8 +131,10 @@ local record Entry
   helper: string
   --- The text of the codec an `enum` or `message` entry names; "" otherwise.
   codec: string
-  packed: boolean
-  implicit: boolean
+  mut packed: boolean
+  mut implicit: boolean
+  --- The literal of `{ default = ... }`, which [`default_of`] holds to the field's kind; nil for none.
+  mut default?: Ast.Exp
 end
 
 --- A field ready to be written: its entry, its type and its kind.
@@ -140,6 +142,8 @@ local record Planned
   entry: Entry
   shape: Shape
   kind: Kind
+  --- The Teal text of the field's default, or "" for none.
+  default: string
 end
 
 --- The text of the tokens `first` through `last`, each apart from the next by a space.
@@ -172,24 +176,27 @@ local function keyed(item: Ast.Item): string?, Ast.Exp?
   return nil, nil
 end
 
---- The options a table literal gives, into `entry`, or why it gives none.
-local function options_into(e: Ast.Exp, packed: boolean, implicit: boolean): boolean?, boolean, string
-  if e.kind ~= "Table" then return nil, false, "the options must be a table written in the call" end
-  local p, i = packed, implicit
+--- The options a table literal gives into `entry`, or why it gives none.
+local function options_into(e: Ast.Exp, entry: Entry): boolean, string
+  if e.kind ~= "Table" then return false, "the options must be a table written in the call" end
   for _, item in ipairs(e.items) do
     local key, value = keyed(item)
-    if key == nil or value == nil or value.kind ~= "Boolean" then
-      return nil, false, "an option is written `packed = true` or `implicit = true`"
+    if key == nil or value == nil then
+      return false, "an option is written `packed = true`, `implicit = true` or `default = <literal>`"
     end
-    if key == "packed" then
-      p = value.value
-    elseif key == "implicit" then
-      i = value.value
+    if key == "default" then
+      entry.default = value
+    elseif key ~= "packed" and key ~= "implicit" then
+      return false, ("%q is no option: they are `packed`, `implicit` and `default`"):format(key)
+    elseif value.kind ~= "Boolean" then
+      return false, ("`%s` is written `%s = true` or `%s = false`"):format(key, key, key)
+    elseif key == "packed" then
+      entry.packed = value.value
     else
-      return nil, false, ("%q is no option: they are `packed` and `implicit`"):format(key)
+      entry.implicit = value.value
     end
   end
-  return p, i, ""
+  return true, ""
 end
 
 --- The entry `value` writes for the field `name`, or nil and why it is none. `schema` is the name the module gives
@@ -227,14 +234,14 @@ local function entry_of(chunk: Ast.Chunk, schema: string, name: string, value: A
     options = 3
   end
   if #value.args > options then return nil, "its entry has more arguments than its helper takes" end
-  local packed, implicit = false, false
+  local entry: Entry = { name = name, number = number, helper = helper, codec = codec, packed = false,
+    implicit = false }
   local given = value.args[options]
   if given ~= nil then
-    local p, i, why = options_into(given, false, false)
-    if p == nil then return nil, why end
-    packed, implicit = p, i
+    local ok, why = options_into(given, entry)
+    if not ok then return nil, why end
   end
-  return { name = name, number = number, helper = helper, codec = codec, packed = packed, implicit = implicit }, ""
+  return entry, ""
 end
 
 --- What the type `t` of a field is, or nil and why it has no encoding.
@@ -350,12 +357,79 @@ local function kind_of(schema: string, entry: Entry, shape: Shape, target: Types
   if entry.implicit and (shape.repeated or shape.optional or kind == "enum" or kind == "message") then
     return nil, "`implicit` is for a field declared `f: T` of a number, a boolean or a string"
   end
+  if entry.default ~= nil then
+    if shape.repeated or shape.optional or kind == "enum" or kind == "message" then
+      return nil, "`default` is for a field declared `f: T` of a number, a boolean or a string"
+    end
+    if entry.implicit then return nil, "a field with a default is not also `implicit`" end
+  end
   return kind, ""
 end
 
 --- A string literal of Teal for `text`.
 local function quoted(text: string): string
   return ("%q"):format(text)
+end
+
+--- A string literal of Teal for any bytes, on one line: `%q` writes a newline as a backslash and a newline, which
+--- would move the lines after the call.
+local function quoted_bytes(text: string): string
+  return '"' .. (text:gsub('[%c"\\\128-\255]', function(c: string): string
+    return ("\\%03d"):format((assert(c:byte())))
+  end)) .. '"'
+end
+
+--- The Teal text of the default `e` for a field of the kind `kind`, or nil and why it is none.
+local function default_of(e: Ast.Exp, kind: Kind): string?, string
+  local wanted: string
+  if kind == "bool" then
+    if e.kind == "Boolean" then return tostring(e.value), "" end
+    wanted = "a boolean"
+  elseif kind == "bytes" or kind == "string" then
+    if e.kind == "String" then
+      if kind == "string" and utf8.len(e.value) == nil then
+        return nil, "the default is no UTF-8"
+      end
+      return quoted_bytes(e.value), ""
+    end
+    wanted = "a string"
+  elseif kind == "float" or kind == "double" then
+    local value: number? = integer_of(e)
+    if e.kind == "Float" then
+      value = e.value
+    elseif e.kind == "Unary" and e.op == "-" then
+      local operand = e.operand
+      if operand.kind == "Float" then value = -operand.value end
+    end
+    if value ~= nil then
+      if value ~= value or value == math.huge or value == -math.huge then
+        return nil, "the default is no finite number"
+      end
+      -- A `float` is written in 32 bits, so a default it cannot hold would read back as another number.
+      if kind == "float" and string.unpack("<f", string.pack("<f", value)) ~= value then
+        return nil, ("the default %.17g is no float's value: write the one a float holds"):format(value)
+      end
+      local text = ("%.17g"):format(value)
+      if text:find("[%.eE]") == nil then text = text .. ".0" end
+      return text, ""
+    end
+    wanted = "a number"
+  else
+    local value = integer_of(e)
+    if value ~= nil then
+      if kind == "fixed32" and (value < 0 or value > 4294967295) then
+        return nil, ("the default %d is outside 0 to 4294967295"):format(value)
+      end
+      if kind == "sfixed32" and (value < -2147483648 or value > 2147483647) then
+        return nil, ("the default %d is outside -2147483648 to 2147483647"):format(value)
+      end
+      -- The literal of the least integer is a float in Lua: its digits are past the greatest.
+      if value == math.mininteger then return "math.mininteger", "" end
+      return tostring(value), ""
+    end
+    wanted = "an integer"
+  end
+  return nil, ("the default must be %s written in the call"):format(wanted)
 end
 
 --- What the generator knows while it writes one record's functions.
@@ -417,6 +491,7 @@ local function read_of(g: Gen, p: Planned): string
   end
   if p.shape.optional then return raw end
   if e.implicit then return ("%s.build.or_zero(%s, %s)"):format(S, raw, w.zero) end
+  if p.default ~= "" then return ("%s.build.or_zero(%s, %s)"):format(S, raw, p.default) end
   return ("%s.build.need(pb_r, %s, %s, %s, %s)"):format(S, n, f, raw, w.zero)
 end
 
@@ -506,11 +581,11 @@ local function functions_of(g: Gen, planned: {Planned}): string
   local write = ("(function(): function(%s): string?, string local function pb_write(%s: %s): string?, string " ..
     "local pb_o = %s.build.writer() %s return %s end return pb_write end)()"):format(R, value, R, S,
       table.concat(writes, " "), close)
-  local read = ("(function(): function(%s.Message): %s?, string " ..
+  local read = ("(function(): function(%s.Message, lenient?: boolean): %s?, string " ..
     "local pb_p <const> = %s.build.plan({ %s }, { %s }) " ..
     "local pb_e <const>: {integer: function(integer): boolean} = { %s } " ..
-    "local function pb_read(pb_m: %s.Message): %s?, string " ..
-    "local pb_r = %s.build.open(pb_m, pb_p, pb_e, %s) %s " ..
+    "local function pb_read(pb_m: %s.Message, pb_l?: boolean): %s?, string " ..
+    "local pb_r = %s.build.open(pb_m, pb_p, pb_e, %s, pb_l == true) %s " ..
     "local pb_t: %s = { %s } return %s.build.done(pb_r, pb_t) end return pb_read end)()"):format(S, R, S,
       table.concat(wires, ", "), table.concat(names, ", "), table.concat(named, ", "), S, R, S, tostring(g.keeps),
       table.concat(needed, " "), R, table.concat(reads, ", "), S)
@@ -601,7 +676,14 @@ local function gen_message(chunk: Ast.Chunk, schema: string, spelled: string, de
     if kind == "message" and not shape.repeated and not shape.optional then
       required = required + 1
     end
-    planned[#planned + 1] = { entry = entry, shape = shape, kind = kind }
+    local default = ""
+    local literal = entry.default
+    if literal ~= nil then
+      local text, unfit = default_of(literal, kind)
+      if text == nil then return nil, name .. ": " .. unfit end
+      default = text
+    end
+    planned[#planned + 1] = { entry = entry, shape = shape, kind = kind, default = default }
   end
   if required > MOST_REQUIRED_MESSAGES then
     return nil, ("the record has %d required embedded messages, and its reader holds %d at most: declare some " ..
