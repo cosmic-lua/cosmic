@@ -210,6 +210,174 @@ local function test_the_carried_database_leaves_tests_and_examples_out(tmp: stri
   assert(support.nth(catalog, 1):text(1) == "0", "no catalog row about a test or example")
 end
 
+--- A program carries what its users read of the project: the docs, uses and
+--- examples of the modules any module may require, and its guides. What
+--- position keeps to the project stays there: a sibling of a closed
+--- directory, a module under `internal/`, the program itself, a test, and
+--- test support, and a use made from any of them: a private module's rows
+--- would tell the program's users of code they cannot call.
+local function test_the_carried_database_holds_the_documentation_of_the_public_modules(tmp: string)
+  write_project(tmp)
+  assert(Fs.write(tmp .. "/greet.tl", table.concat({
+    "--- Greetings.",
+    "local record greet",
+    "end",
+    "",
+    "--- Says hello to `name`, salutation included.",
+    "function greet.hello(name: string): string",
+    '  return "hello, " .. name',
+    "end",
+    "",
+    "return greet",
+    "",
+  }, "\n")))
+  assert(Fs.write(tmp .. "/greet_example.tl", table.concat({
+    'local greet = require("greet")',
+    "local record Example",
+    "end",
+    "--- Greets.",
+    "function Example.hello()",
+    '  assert(greet.hello("x") == "hello, x")',
+    "end",
+    "return Example",
+    "",
+  }, "\n")))
+  assert(Fs.mkdirs(tmp .. "/store"))
+  assert(Fs.write(tmp .. "/store/init.tl", table.concat({
+    "--- The store, a closed directory's entry.",
+    'local greet = require("greet")',
+    'local rows = require("store.rows")',
+    "local record store",
+    "end",
+    "",
+    "--- Greets the first row, with [`greet.hello`].",
+    "function store.first(): string",
+    "  return greet.hello(rows.first())",
+    "end",
+    "",
+    "return store",
+    "",
+  }, "\n")))
+  assert(Fs.write(tmp .. "/store/rows.tl", table.concat({
+    "--- The rows, which only the store reads.",
+    'local greet = require("greet")',
+    "local record rows",
+    "end",
+    "",
+    "--- The first row, sequestered.",
+    "function rows.first(): string",
+    '  return greet.hello("row")',
+    "end",
+    "",
+    "return rows",
+    "",
+  }, "\n")))
+  assert(Fs.write(tmp .. "/store/open.tl", table.concat({
+    "--- Opening a store, for any module.",
+    "--- @public",
+    "local record open",
+    "end",
+    "",
+    "--- Whether the store is open.",
+    "function open.is(): boolean",
+    "  return true",
+    "end",
+    "",
+    "return open",
+    "",
+  }, "\n")))
+  assert(Fs.mkdirs(tmp .. "/app/internal"))
+  assert(Fs.write(tmp .. "/app/internal/db.tl", table.concat({
+    "--- The database, internal to app/.",
+    "local record db",
+    "end",
+    "",
+    "--- Its name.",
+    "function db.name(): string",
+    '  return "db"',
+    "end",
+    "",
+    "return db",
+    "",
+  }, "\n")))
+  assert(Fs.write(tmp .. "/app/run.tl", table.concat({
+    "--- Running the app.",
+    'local db = require("app.internal.db")',
+    "local record run",
+    "end",
+    "",
+    "--- Names what it runs on.",
+    "function run.on(): string",
+    "  return db.name()",
+    "end",
+    "",
+    "return run",
+    "",
+  }, "\n")))
+  assert(Fs.mkdirs(tmp .. "/internal"))
+  assert(Fs.write(tmp .. "/internal/keys.tl", table.concat({
+    "--- The keys, internal to the project.",
+    "local record keys",
+    "end",
+    "return keys",
+    "",
+  }, "\n")))
+  assert(Fs.mkdirs(tmp .. "/test"))
+  assert(Fs.write(tmp .. "/test/support.tl", table.concat({
+    "--- Test support.",
+    "local record support",
+    "end",
+    "return support",
+    "",
+  }, "\n")))
+  assert(Fs.mkdirs(tmp .. "/doc/guides"))
+  assert(Fs.write(tmp .. "/doc/guides/greeting.md", "# greeting\n\nHow to greet a visitor.\n"))
+  assert(Fs.write(tmp .. "/cmd/hello/main.tl", table.concat({
+    "--- The program, which no module requires.",
+    'local Fs = require("cosmic.fs")',
+    'local greet = require("greet")',
+    'local open = require("store.open")',
+    'local run = require("app.run")',
+    'local store = require("store")',
+    "",
+    "return function(argv: {string}): integer",
+    '  local _, _ = Fs.put(Fs.stdout, greet.hello(argv[1] or store.first()) .. run.on() .. tostring(open.is()) .. "\\n")',
+    "  return 0",
+    "end",
+    "",
+  }, "\n")))
+  assert(embed.tree(tmp, true))
+  local database = assert(embed.database(support.build_dir(tmp) .. "/cosmic.db", "cmd.hello.main"))
+  local path = tmp .. "/carried.db"
+  assert(Fs.write(path, database))
+
+  local function listed(sql: string): string
+    local out: mut {string} = {}
+    for _, row in ipairs(rows_of(path, sql)) do out[#out + 1] = row:text(1) end
+    return table.concat(out, " ")
+  end
+  local documented = listed("SELECT DISTINCT module FROM docs ORDER BY module")
+  assert(documented == "app.run doc.guides.greeting greet store store.open",
+    "the public modules and the guide, and no other: " .. documented)
+  local found = listed("SELECT d.source_symbol FROM docs_fts JOIN docs d ON d.id = docs_fts.rowid " ..
+      "WHERE docs_fts MATCH 'salutation'")
+  assert(found == "greet.hello", "the docs are indexed, a word finding its row: " .. found)
+  local private = listed("SELECT count(*) FROM docs_fts WHERE docs_fts MATCH 'sequestered'")
+  assert(private == "0", "a private module's words are not in the index")
+  local callers = listed("SELECT DISTINCT from_module FROM uses WHERE module = 'greet' ORDER BY from_module")
+  assert(callers == "store", "a use is carried only from a public module: " .. callers)
+  local used = listed("SELECT count(*) FROM uses WHERE module NOT IN ('app.run', 'greet', 'store', 'store.open')")
+  assert(used == "0", "no use of a module the project keeps, or of the library")
+  local linked = listed("SELECT from_module || ' ' || module || ' ' || symbol FROM links")
+  assert(linked == "store greet hello", "a link between public modules is carried: " .. linked)
+  local bound = listed("SELECT path || ' ' || name || ' ' || requires FROM bound WHERE path = 'store' ORDER BY name")
+  assert(bound == "store greet greet store rows store.rows", "what a public module binds is carried: " .. bound)
+  local examples = listed("SELECT module || ' ' || name FROM examples")
+  assert(examples == "greet hello", examples)
+  local indexed = listed("SELECT count(*) FROM examples_fts WHERE examples_fts MATCH 'Greets'")
+  assert(indexed == "1", "the examples are indexed")
+end
+
 --- A test or example file is only a kind by its name: one the program
 --- itself requires, directly or through another module, is carried,
 --- or the executable would build and then fail to load it.
