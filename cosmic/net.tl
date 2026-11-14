@@ -859,10 +859,8 @@ end
 --- none. Nil and why where the system does not say. On Linux it is asked
 --- over a netlink socket, which a sandbox ([`cosmic.sandbox`]) allows only
 --- where it allows IPv4 and IPv6 sockets, so the call fails in one that
---- has no network; and only to a process that cannot change the network
---- over it, so it fails too in a child root started with promises and no
---- namespace of its own. In a network namespace of its own a process
---- lists that namespace's interfaces, not the machine's.
+--- has none. A sandbox that has them is in a network namespace of its
+--- own, and lists that namespace's interfaces, not the machine's.
 function Net.interfaces(): {Net.Interface}?, string
   local entries, why = raw.interfaces()
   if entries == nil then return nil, "net: interfaces: " .. why end

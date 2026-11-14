@@ -90,7 +90,10 @@ unsigned cosmic_promise_named (const char *name);
  *   kernel asks CAP_NET_ADMIN of that namespace's owner for: it lacks the
  *   capability ([`cosmic_promises_apply`] sets this itself then), or it is
  *   in a user namespace the start made, whose capabilities reach only a
- *   network namespace made in it. */
+ *   network namespace made in it. In one it made (every child given inet
+ *   sockets is in one, and a `nest` child may make more) it may send the
+ *   kernel's route requests that change it, links, addresses, routes and
+ *   queueing among them, which reach nothing of the host's. */
 #define COSMIC_HELD_SIGNALS 0x1u
 #define COSMIC_HELD_UNIX 0x2u
 #define COSMIC_HELD_LIMITS 0x4u
