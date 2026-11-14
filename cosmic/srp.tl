@@ -38,25 +38,21 @@
 --- caller's own mistake raises (a group whose prime is even, a secret of
 --- no bytes), and so does the system's entropy source failing.
 ---
---- Secrets and time. A number that is secret, or computed from one into
---- another secret, goes through [`cosmic.bigint`]'s functions for
---- secrets, at widths the parameters fix: the powers of a secret base
---- and those whose answer is secret, the products with the verifier, the
+--- Secrets and time. Every number computed from a secret goes through
+--- [`cosmic.bigint`]'s functions for secrets, at widths the parameters
+--- fix: the powers of a secret base or to a secret exponent, the public
+--- values among them, the products with the verifier, the
 --- sum and the difference modulo the prime, and the client's exponent
 --- `a + u*x`. Their time depends on lengths alone ([`cosmic.bigint`]'s
 --- doc says what that claim rests on). A server checks a verifier's
 --- range in the same way, and a secret is checked for zero with
 --- [`Hash.equal`].
 ---
---- Two things still show. The client's public value `g^a`, a public
---- power of a public base, is [`Bigint.powmod`]'s, which hides the
---- exponent's value at its fixed width and nothing else
---- ([`cosmic.bigint`]'s doc says what of an exponent shows). And the
---- shared number is hashed without its leading zero bytes, as the
---- hashing rules require, so its length shows, and so does the time of
---- taking those bytes off. Proofs are compared with [`Hash.equal`].
---- Nothing wipes a password, a secret or a key: they are ordinary
---- strings.
+--- One thing still shows: the shared number is hashed without its
+--- leading zero bytes, as the hashing rules require, so its length
+--- shows, and so does the time of taking those bytes off. Proofs are
+--- compared with [`Hash.equal`]. Nothing wipes a password, a secret or
+--- a key: they are ordinary strings.
 
 local Bigint = require("cosmic.bigint")
 local Codec = require("cosmic.codec")
@@ -448,11 +444,12 @@ end
 function Srp.client(parameters: Srp.Parameters, identity: string, password: string, secret?: string): Srp.Client
   local suite = suite_of(parameters, 2)
   local exponent = exponent_of(secret, 2)
-  local public = Bigint.powmod(suite.generator, exponent, suite.prime)
+  local sent = Bigint.expmod(suite.generator, exponent, suite.prime)
+  local public = shortest(sent)
   local expected: string? = nil
 
   return {
-    public = padded(suite, public),
+    public = sent,
     prove = function(_self: Srp.Client, salt: string, server_public: string): Srp.Session?, string
       expected = nil
       local theirs = accepted(suite, server_public)

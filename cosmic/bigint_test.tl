@@ -905,3 +905,47 @@ local function test_expmod_raises_on_an_even_or_zero_modulus_and_a_number_over_i
   why = Test.raises(function() Bigint.expmod(one, one, long) end, "the number is longer than 1024 bytes")
   assert(why:find("bad argument #3 to 'expmod'", 1, true), why)
 end
+
+--- Calls `call` with `count` arguments, each the number 3 as a string
+--- but for argument `position`, which is `value`, and answers what pcall
+--- does. It is Lua, where an argument that is no string can be passed:
+--- the checker refuses the call written in Teal.
+local probe = assert(load([[
+  local call, count, position, value = ...
+  local arguments = {}
+  for i = 1, count do arguments[i] = "\3" end
+  arguments[position] = value
+  return pcall(call, table.unpack(arguments, 1, count))
+]]))
+
+--- Holds `call`, the module's function a raise names `name`, to raising
+--- on each of its `count` arguments when that one is not a string.
+local function assert_strings_only(name: string, call: any, count: integer)
+  for position = 1, count do
+    -- A number is not read as its decimal digits.
+    local ok, why = probe(call, count, position, 5)
+    local says = ("bad argument #%d to '%s' (string expected, got number)"):format(position, name)
+    assert(ok == false and tostring(why):find(says, 1, true) ~= nil, name .. ": " .. tostring(why))
+    ok, why = probe(call, count, position, true)
+    says = ("bad argument #%d to '%s' (string expected, got boolean)"):format(position, name)
+    assert(ok == false and tostring(why):find(says, 1, true) ~= nil, name .. ": " .. tostring(why))
+  end
+end
+
+local function test_an_argument_that_is_not_a_string_raises()
+  assert_strings_only("powmod", Bigint.powmod, 3)
+  assert_strings_only("expmod", Bigint.expmod, 3)
+  assert_strings_only("mulmod", Bigint.mulmod, 3)
+  assert_strings_only("addmod", Bigint.addmod, 3)
+  assert_strings_only("submod", Bigint.submod, 3)
+  assert_strings_only("reduce", Bigint.reduce, 2)
+  assert_strings_only("mul", Bigint.mul, 2)
+  assert_strings_only("add", Bigint.add, 2)
+  assert_strings_only("sub", Bigint.sub, 2)
+  assert_strings_only("mod", Bigint.mod, 2)
+  assert_strings_only("compare", Bigint.compare, 2)
+  assert_strings_only("product", Bigint.product, 2)
+  assert_strings_only("sum", Bigint.sum, 2)
+  local ok = probe(Bigint.pad, 2, 1, 5)
+  assert(ok == false, "pad takes a number for a string")
+end
