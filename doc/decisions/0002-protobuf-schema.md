@@ -4,7 +4,7 @@ status: accepted
 
 ## context
 
-`cosmic.protobuf` is the Protocol Buffers wire format with no schema: a message is a list of fields, each a number, a
+[`cosmic.protobuf`] is the Protocol Buffers wire format with no schema: a message is a list of fields, each a number, a
 wire type and a value, read by number through a method for each type and written by a writer of the same methods. a program that speaks a protocol of many messages
 writes, for each message, a record, a reader and a writer on that codec. a client of the Media Remote Protocol holds
 about 2,700 lines of them, by its author's count.
@@ -27,8 +27,8 @@ the protocol's descriptions use no `oneof` keyword and no map field. both are le
 
 a message is a Teal record. its field numbers, and the encodings its types do not give, are the argument of a call the
 build resolves, as it resolves [`Shape.record_of`]: `Schema.message_of("Module.Record", { field = number })`, of the
-module `cosmic.protobuf.schema`. the wire codec's own names stay its own (`Protobuf.Message` is a message as read,
-`Protobuf.Field` a field on the wire), and a program that uses the wire codec alone carries none of this. the
+module `cosmic.protobuf.schema`. the wire codec's own names stay its own ([`Protobuf.Message`] is a message as read,
+[`Protobuf.Field`] a field on the wire), and a program that uses the wire codec alone carries none of this. the
 build reads the record's declaration and the table, checks one against the other, and writes the reader and the writer
 as Teal the checker types.
 
@@ -556,7 +556,7 @@ the same boilerplate with no grammar.
 
 ## pull requests
 
-1. the wire codec, `cosmic.protobuf`.
+1. the wire codec, [`cosmic.protobuf`].
 2. `build: share what a record's resolver needs`: the parts of [`build.syntax_shape_specs`] a second resolver uses,
    in a module of their own.
 3. `protobuf: add cosmic.protobuf.schema`: the module, the resolver and its hooks, the wire codec as its directory's
@@ -571,9 +571,12 @@ the same boilerplate with no grammar.
 [`build/lsp/syntax_read.tl`]: ../../build/lsp/syntax_read.tl
 [`build/syntax_shape_specs_test.tl`]: ../../build/syntax_shape_specs_test.tl
 [`build/tree_program.tl`]: ../../build/tree_program.tl
+[`cosmic.protobuf`]: ../../cosmic/protobuf.tl
 [`cosmic.shape`]: ../../cosmic/shape.tl
 [`cosmic.template`]: ../../cosmic/template/init.tl
 [`doc/writing.md`]: ../writing.md
 [`Json.encode`]: ../../cosmic/json.tl
 [`lang/types.tl`]: ../../lang/types.tl
+[`Protobuf.Field`]: ../../cosmic/protobuf.tl
+[`Protobuf.Message`]: ../../cosmic/protobuf.tl
 [`Shape.record_of`]: ../../cosmic/shape.tl
