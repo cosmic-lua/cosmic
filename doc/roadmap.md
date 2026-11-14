@@ -378,6 +378,28 @@ promises lean on come first:
     holds, its options), and written from them. Today it is a record of type
     41 with `rdata`, its class split at the top bit like any other.
 
+- [`cosmic.mdns`] past a search made once, each once a caller needs it:
+  - Publishing a service: a responder that probes for its names, announces
+    its records, answers the questions about them and says goodbye as it
+    stops (RFC 6762 sections 8 to 10), at port 5353 as [`Mdns.Listen`]'s
+    "group" binds it.
+  - A browse that goes on until it is stopped: each record kept for its
+    time to live and asked for again before that ends, an instance reported
+    gone when its records expire or a goodbye (a record with a time to live
+    of 0, which a search ignores today) says so, and the records a
+    `cache_flush` bit replaces.
+  - Known-answer suppression (RFC 6762 section 7.1): a repeated question
+    lists the answers already held, so that no responder sends them again,
+    over several messages with the truncated bit where they do not fit one.
+  - The service types a network has, from the pointers at
+    `_services._dns-sd._udp.local` (RFC 6763 section 9).
+  - Questions over IPv6, to `ff02::fb`: a second socket, joined by each
+    interface's index, waited on together with the IPv4 one.
+  - The interface an answer came by (`IP_PKTINFO` in the core's `recvfrom`),
+    for an `Instance` and for the zone of a link-local IPv6 address.
+  - An SRV record's priority and weight, and every SRV record of an instance
+    that has several.
+
 - `cosmic lsp` ([`build/lsp/session.tl`]) answers diagnostics, hover, go to definition, completion and formatting. Definition and completion read
   the open document's last check, [`check.read`] and [`check.last`] (its tree, scopes and types), and the working database for
   the other modules: the `places` rows for a declaration's position ([`build/lsp/source.tl`]), the docs for a member's text.
@@ -484,6 +506,7 @@ four-producer provenance join.
 [`cosmic.internal.relay_config`]: ../cosmic/internal/relay_config.tl
 [`cosmic.internal.relay_server`]: ../cosmic/internal/relay_server.tl
 [`cosmic.internal.relay_start`]: ../cosmic/internal/relay_start.tl
+[`cosmic.mdns`]: ../cosmic/mdns.tl
 [`cosmic.net`]: ../cosmic/net.tl
 [`cosmic.relay.address`]: ../cosmic/relay/address.tl
 [`cosmic.relay.grant`]: ../cosmic/relay/grant.tl
@@ -510,6 +533,7 @@ four-producer provenance join.
 [`Json.decode`]: ../cosmic/json.tl
 [`lang/flow.tl`]: ../lang/flow.tl
 [`lang/stdlib.d.tl`]: ../lang/stdlib.d.tl
+[`Mdns.Listen`]: ../cosmic/mdns.tl
 [`Net.datagram`]: ../cosmic/net.tl
 [`Net.interfaces`]: ../cosmic/net.tl
 [`Net.serve`]: ../cosmic/net.tl
