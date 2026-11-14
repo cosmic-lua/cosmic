@@ -84,6 +84,9 @@ local function test_arithmetic_for_secrets_agrees_with_the_plain_functions(tmp: 
       if Bigint.mulmod(a, b, modulus) ~= wide(Bigint.mod(Bigint.mul(a, b), modulus), width) then
         return false, "mulmod is not the product reduced"
       end
+      if Bigint.expmod(a, b, modulus) ~= wide(Bigint.powmod(a, b, modulus), width) then
+        return false, "expmod is not powmod's number"
+      end
       return true, ""
     end,
   })

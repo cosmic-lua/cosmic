@@ -112,6 +112,21 @@ function Example.reduce()
   assert(#scalar == #order and Bigint.compare(scalar, order) < 0)
 end
 
+--- The same exchange with the shared number hidden as well: each side
+--- raises what it received, now a secret base to a secret exponent, with
+--- [`Bigint.expmod`], and the number it arrives at is as wide as the
+--- prime whatever its value.
+function Example.expmod()
+  local alice_secret = assert(Rand.entropy(32))
+  local bob_secret = assert(Rand.entropy(32))
+  local alice_public = Bigint.powmod("\2", alice_secret, prime)
+  local bob_public = Bigint.powmod("\2", bob_secret, prime)
+  local alice_shared = Bigint.expmod(bob_public, alice_secret, prime)
+  local bob_shared = Bigint.expmod(alice_public, bob_secret, prime)
+  print(#alice_shared)
+  assert(#alice_shared == #prime and alice_shared == bob_shared)
+end
+
 --- A secret split into two shares, neither of which says anything of
 --- it alone: one is drawn, the other is the secret less it, and their
 --- sum modulo the prime is the secret again, at the prime's width.
