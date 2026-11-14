@@ -221,11 +221,11 @@ fields from the root, which is built only on failure: `protobuf: Protocol.conten
 
 ### cost
 
-measured on the slice with a stand-in for the wire codec, a 951-byte message, three runs on a shared host whose times
-moved by a third between runs. the ratios held:
+measured on the slice with a stand-in for the wire codec, a 951-byte message, six runs on a shared host whose times
+moved by a third between runs. the ratios below are the spread of those runs:
 
-- the code the build writes costs what careful hand-written code costs: within 12% of it either way, to encode and to
-  decode (about 90 µs and 110 µs).
+- the code the build writes costs what careful hand-written code costs: from 8% faster to 17% slower to encode, and
+  from 11% faster to 12% slower to decode (about 90 µs and 120 µs).
 - the source falls from 625 lines to about 170: the 115 lines of records stay, and 510 lines of readers and writers
   become about 55 lines of calls. that is 73% less. if the client's module is shaped as the slice is, its 2,700 lines
   become 700 to 1,000. the conversion measures it.
@@ -340,7 +340,7 @@ local wrong = CONTENT_ITEM.identifier.get(message)    -- compiles, and is nil
 - the handles of a message need a record that declares them: a table of handles of several types has no type of its
   own (`arms_differ`), and a module cannot return one (`export_not_declared`). so each field is written twice, and the
   slice is 213 lines (66% less), against 170.
-- it decodes 2.3 to 2.6 times slower than the hand-written code, and encodes within 10% of it.
+- it decodes 2.2 to 2.6 times slower than the hand-written code, and encodes 1.1 to 1.4 times slower.
 - it adds nothing to the build. the run-time module is 342 lines.
 
 ### `.proto` files read by the build
@@ -473,7 +473,7 @@ the writers of `ContentItem` and `Protocol` follow `encode_command_info` line fo
 - the reader and the writer of a field each name its number and its encoding, so they can disagree, and nothing
   checks one against the other. this is the class of bug the declaration removes.
 - the oneof rule and the list of known numbers for the unknown fields are written by hand in each message.
-- it decodes 1.4 to 1.6 times slower than the hand-written code: it indexes the fields, then scans them once for
+- it decodes 1.3 to 1.6 times slower than the hand-written code: it indexes the fields, then scans them once for
   each repeated field.
 
 it is what remains if the build is to gain nothing, and its helpers are small enough to land with the wire codec.
@@ -484,7 +484,7 @@ the build would write only the function that makes the record from decoded value
 fields; run-time code would walk the wire against the table. the reads are as typed as the decision's, the program
 carries one walker in place of a reader and a writer for each message, and no message has a field limit. it was not
 prototyped. it loses on two counts. the build's part is the same resolver, so it saves nothing there. and the walk
-is the run-time schema's, which decoded 2.3 to 2.6 times slower, where principle 1 has size yield to performance. it
+is the run-time schema's, which decoded 2.2 to 2.6 times slower, where principle 1 has size yield to performance. it
 is the form to return to if the generated code's size is ever what a program cannot afford.
 
 ### the wire decoded to a table, then `Shape.record_of`
