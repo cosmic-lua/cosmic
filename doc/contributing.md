@@ -275,8 +275,8 @@ fetches that release once and caches it by digest. [`bin/cosmic`] asks
 [`build/paths.tl`] for the build directory the same way.
 `COSMIC_BOOTSTRAP=<path>` makes [`bin/cosmic-bootstrap`] answer another
 cosmic instead, such as the tree's own tool (by its path in the build
-directory; [`bin/cosmic`] itself is refused), for all of them and for CI's
-driver step alike.
+directory, which `bin/cosmic build` prints; [`bin/cosmic`] itself is
+refused), for all of them and for CI's driver step alike.
 
 when a change adds what a `TODO:` waiting on the pin needs, or API those
 scripts would use, open a follow-up once that prerelease exists. move

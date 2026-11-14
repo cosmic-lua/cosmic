@@ -75,7 +75,7 @@ end
 -- as `string.dump` wrote it, 2 MB that a start no longer inflates
 -- (build/schema.tl's `modules`).
 local prefix_ceiling <const> = 6000000
-local tool_ceiling <const> = 21500000
+local tool_ceiling <const> = 21400000
 local application_ceiling <const> = 9500000
 
 local function test_transported_product(tmp: string)
