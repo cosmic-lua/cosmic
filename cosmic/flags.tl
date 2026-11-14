@@ -152,15 +152,15 @@ end
 ---   the other. The reach grows with `word`'s length, counted in
 ---   characters without its leading dashes: none under 3, then 1, 2
 ---   from 8 and 3 from 12.
----   So "biuld" finds "build" and "--chek" finds "--check", and "rm"
----   never finds "mv".
+---   So "biuld" is near "build" and "--chek" near "--check", and "ab"
+---   is not near "ac".
 ---
 --- A name equal to `word` comes first, then the names `word` begins,
 --- then the others by distance; ties go shorter first, then by name. A
 --- name given twice is answered once.
 ---
 ---     Flags.nearest("stauts", { "start", "status", "stash" })  -- => { "status" }
---- @param word string The word as typed
+--- @param word string The word given
 --- @param names {string} The names it could have been
 --- @return {string} The near names, likeliest first
 function Flags.nearest(word: string, names: {string}): {string}
@@ -244,7 +244,7 @@ end
 ---
 --- Answers nil and why for an option the spec does not name ("no such
 --- option: --chek; did you mean --check?", the names [`Flags.nearest`]
---- finds near it, when any is), a value
+--- answers for it, when any is near), a value
 --- given to one that takes none, an option the spec marks `required` that
 --- the line does not give ("--jobs is required"; the first by name when
 --- several are missing), or one whose value is missing: the end
@@ -535,7 +535,7 @@ end
 --- would, and answers what its `run` answers. Answers nil and why, run
 --- nothing, when the line names no command, one `commands` does not
 --- hold -- an option before the command is one; "no such command: biuld;
---- did you mean build?" where [`Flags.nearest`] finds any near it -- or a line the
+--- did you mean build?" where [`Flags.nearest`] answers any -- or a line the
 --- command's spec refuses, or a command with no `run`. A line the spec
 --- refuses is answered with the command's name, the refusal and its usage
 --- line -- "build: --jobs is required; usage: prog build [options] <file>"
