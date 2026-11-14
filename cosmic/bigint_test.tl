@@ -882,6 +882,8 @@ local function test_expmod_at_the_limits()
   assert(Bigint.expmod("\2", exponent, mersenne) == wide("\32", Bigint.modulus_bytes))
   assert(Bigint.expmod(string.rep("\255", Bigint.operand_bytes), one, mersenne) ==
       string.rep("\0", Bigint.modulus_bytes), "a base of the operand limit")
+  assert(Hash.digest("sha256", Bigint.expmod(drawn("v", Bigint.operand_bytes), one, mersenne)) == lim_mod,
+    "a base of the operand limit whose two halves differ")
 end
 
 local function test_expmod_raises_on_an_even_or_zero_modulus_and_a_number_over_its_limit()

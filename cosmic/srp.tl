@@ -38,19 +38,25 @@
 --- caller's own mistake raises (a group whose prime is even, a secret of
 --- no bytes), and so does the system's entropy source failing.
 ---
---- Secrets and time. Every number computed from a secret goes through
---- [`cosmic.bigint`]'s functions for secrets, at widths the parameters
---- fix: the powers of a secret base or to a secret exponent, the
---- products with the verifier, the sum and the difference modulo the
---- prime, and the client's exponent `a + u*x`. Their time depends on
---- lengths alone ([`cosmic.bigint`]'s doc says what that claim rests
---- on). A server checks a verifier's range in the same way.
+--- Secrets and time. A number that is secret, or computed from one into
+--- another secret, goes through [`cosmic.bigint`]'s functions for
+--- secrets, at widths the parameters fix: the powers of a secret base
+--- and those whose answer is secret, the products with the verifier, the
+--- sum and the difference modulo the prime, and the client's exponent
+--- `a + u*x`. Their time depends on lengths alone ([`cosmic.bigint`]'s
+--- doc says what that claim rests on). A server checks a verifier's
+--- range in the same way, and a secret is checked for zero with
+--- [`Hash.equal`].
 ---
---- One thing still shows: the shared number is hashed without its
---- leading zero bytes, as the hashing rules require, so its length
---- shows, and so does the time of taking those bytes off. Proofs are
---- compared with [`Hash.equal`]. Nothing wipes a password, a secret or
---- a key: they are ordinary strings.
+--- Two things still show. The client's public value `g^a`, a public
+--- power of a public base, is [`Bigint.powmod`]'s, which hides the
+--- exponent's value at its fixed width and nothing else
+--- ([`cosmic.bigint`]'s doc says what of an exponent shows). And the
+--- shared number is hashed without its leading zero bytes, as the
+--- hashing rules require, so its length shows, and so does the time of
+--- taking those bytes off. Proofs are compared with [`Hash.equal`].
+--- Nothing wipes a password, a secret or a key: they are ordinary
+--- strings.
 
 local Bigint = require("cosmic.bigint")
 local Codec = require("cosmic.codec")
@@ -191,7 +197,7 @@ end
 local secret_length <const> = 64
 
 --- The most bytes of a secret a caller passes, so that the client's
---- exponent `a + u*x` stays an exponent [`Bigint.powmod`] takes.
+--- exponent `a + u*x` stays an exponent [`Bigint.expmod`] takes.
 local secret_most <const> = 512
 
 --- `number` with no leading zero byte, and one zero byte for zero.
@@ -352,7 +358,9 @@ local function exponent_of(secret: string?, level: integer): string
   if #secret < 1 or #secret > secret_most then
     error("srp: a secret must be from 1 to " .. String.counted(secret_most, "byte"), level + 1)
   end
-  if shortest(secret) == "\0" then error("srp: a secret must not be zero", level + 1) end
+  if Hash.equal(secret, string.rep("\0", #secret)) then
+    error("srp: a secret must not be zero", level + 1)
+  end
   return secret
 end
 
@@ -457,7 +465,7 @@ function Srp.client(parameters: Srp.Parameters, identity: string, password: stri
       local verifier = Bigint.expmod(suite.generator, x, suite.prime)
       local masked = Bigint.mulmod(suite.multiplier, verifier, suite.prime)
       local base = Bigint.submod(theirs, masked, suite.prime)
-      -- One width for every login, as powmod asks of a secret exponent:
+      -- One width for every login, as expmod asks of a secret exponent:
       -- a byte more than the longer of `a` and `u*x`.
       local power = Bigint.sum(exponent, Bigint.product(u, x))
       local shared = shortest(Bigint.expmod(base, power, suite.prime))

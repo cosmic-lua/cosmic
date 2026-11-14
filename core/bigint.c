@@ -4,14 +4,14 @@
  * and ECC call, compiled into every core.
  *
  * Two layers of it are used. The functions that take a time depending on
- * their operands' values, and the exponentiation, work on mbedtls_mpi.
+ * their operands' values, and powmod, work on mbedtls_mpi.
  * The ones that are constant in time work on arrays of limbs with the
  * library's core functions (bignum_core.h, a header of its sources that
  * build.zig puts on the core's include path), and call only those the
  * header documents as constant in time in the values of their operands:
  * mbedtls_mpi_core_mla, mbedtls_mpi_core_sub, mbedtls_mpi_core_montmul,
- * mbedtls_mpi_core_exp_mod with mbedtls_mpi_core_from_mont_rep after it,
- * and mbedtls_mpi_core_cond_assign, whose condition mbedtls_ct_bool
+ * mbedtls_mpi_core_exp_mod (with mbedtls_mpi_core_from_mont_rep after it,
+ * which is mbedtls_mpi_core_montmul by 1) and mbedtls_mpi_core_cond_assign, whose condition mbedtls_ct_bool
  * makes of a carry, as the library's own code does. Reading and writing
  * a number there (mbedtls_mpi_core_read_be, mbedtls_mpi_core_write_be)
  * copies bytes by their count, and mbedtls_mpi_core_montmul_init reads

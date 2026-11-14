@@ -112,10 +112,11 @@ function Example.reduce()
   assert(#scalar == #order and Bigint.compare(scalar, order) < 0)
 end
 
---- The same exchange with the shared number hidden as well: each side
---- raises what it received, now a secret base to a secret exponent, with
---- [`Bigint.expmod`], and the number it arrives at is as wide as the
---- prime whatever its value.
+--- A Diffie-Hellman exchange whose shared number is hidden as well as
+--- the exponents: each side raises what it received to its secret with
+--- [`Bigint.expmod`], and the number both arrive at is as wide as the
+--- prime whatever its value. The public values are [`Bigint.powmod`]'s:
+--- a public base, and an answer that is sent.
 function Example.expmod()
   local alice_secret = assert(Rand.entropy(32))
   local bob_secret = assert(Rand.entropy(32))
