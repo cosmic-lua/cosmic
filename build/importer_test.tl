@@ -1985,6 +1985,8 @@ local function test_the_compiler_modules_are_closed_under_require()
     ["build.work"] = "stages the tree and keeps the records; " ..
       "the schema a parse's rows are shaped by is build.analysis_schema's",
     ["build.positions"] = "fails a whole build before any key is looked up, and stores nothing",
+    ["build.library_record"] = "reads what the binary records of the library for that check of positions, which fails a " ..
+      "whole build before any key is looked up, and stores nothing",
     ["build.grammar_mode"] = "makes the tool string a compile key holds of the compiler's identity " ..
       "(`importer.own_tool`): what it decides is in every key, and no compile stores it",
     ["build.pipeline"] = "the compile with the new checker, keyed by the code that reads it " ..
@@ -2072,6 +2074,8 @@ local function test_the_writer_modules_are_closed_under_require()
     ["build.link_files"] = "stages prose links, whose rows the projection holds",
     ["build.c_tokens"] = "reads C comments for those staged links",
     ["build.importer"] = "coordinates semantic operations and cache transport, and renders diagnostics",
+    ["build.library_record"] = "reads what the binary records of the library for the importer's check of positions, " ..
+      "which refuses a build and fills no row",
     ["build.grammar_mode"] = "names the grammar a build reads (COSMIC_GRAMMAR), which only the new grammar's compile consults",
     ["build.code_walk"] = "names which modules the identities of the code that reads hash, and which a test's store keeps",
     ["build.reads.analyzer"] = "a declaration of what text a module reads, which a test's store follows; no code",

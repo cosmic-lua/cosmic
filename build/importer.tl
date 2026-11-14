@@ -36,7 +36,7 @@ local type Pipeline = require("build.pipeline")
 local type ParseDerive = require("build.parse_derive")
 local analysis_schema = require("build.analysis_schema")
 local positions = require("build.positions")
-local standard_text = require("build.standard_text")
+local library_record = require("build.library_record")
 local type SyntaxReceivers = require("build.syntax_receivers")
 local work = require("build.work")
 local log = require("build.logger").log
@@ -1361,7 +1361,7 @@ local function compile_derived(handle: work.Handle, tool: string,
   end
   -- Read once, and for a project alone: cosmic's own tree is held to none of it.
   local recorded: positions.Library? = nil
-  if not standing.own then recorded = standard_text.library() end
+  if not standing.own then recorded = library_record.read() end
   -- The modules a run holds out for what they do, not for what they hold: a position rule they break, a `global`
   -- they declare. A run that names a file stops at the first, as it always did; one over the tree refuses the modules
   -- alone ([`importer.Result`]'s `refused`) and goes on, so that a module that breaks none still builds.

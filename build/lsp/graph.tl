@@ -17,7 +17,7 @@ local plans = require("build.plans")
 local plan = require("build.lsp.plan")
 local positions = require("build.positions")
 local source = require("build.lsp.source")
-local standard_text = require("build.standard_text")
+local library_record = require("build.library_record")
 local type build_module = require("build.module")
 
 local record graph
@@ -77,7 +77,7 @@ local binary: Binary = { read = false, library = nil }
 local function library_of(own: boolean): positions.Library?
   if own then return nil end
   if not binary.read then
-    binary.library = standard_text.library()
+    binary.library = library_record.read()
     binary.read = true
   end
   return binary.library
