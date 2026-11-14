@@ -76,20 +76,25 @@ local function test_a_search_in_words_finds_the_symbol_meant()
 end
 
 --- The tool records the public standard library as public and nothing
---- else: a module of the library, a declaration of it that is no module
---- ([`cosmic.sys`]), and no internal module or test. A public source answers
+--- else: a module of the library any module may require, a declaration of
+--- it that is no module ([`cosmic.sys`]), and no internal module, no test,
+--- and no module a closed directory keeps to itself (`cosmic.web.router`,
+--- where `cosmic.web.input` says `--- @public`). A public source answers
 --- for exactly these.
 local function test_the_tool_records_the_public_library()
   local databases: {Sqlite.Handle} = Store.databases()
   local binary = assert(databases[#databases], "the tool has a database")
   local rows = assert(Sqlite.text_rows(binary,
-    "SELECT (SELECT count(*) FROM public_modules WHERE path IN ('cosmic.fs', 'cosmic.sys')), " ..
+    "SELECT (SELECT count(*) FROM public_modules WHERE path IN ('cosmic.fs', 'cosmic.sys', 'cosmic.web', " ..
+      "'cosmic.web.input', 'cosmic.http.server')), " ..
       "(SELECT count(*) FROM public_modules WHERE path LIKE 'cosmic.internal.%' OR path LIKE '%\\_test' ESCAPE '\\' " ..
       "OR path NOT LIKE 'cosmic.%'), " ..
-      "(SELECT count(*) FROM (SELECT path FROM modules UNION SELECT path FROM decls) WHERE path LIKE 'cosmic.%' " ..
-      "AND path NOT LIKE 'cosmic.internal.%' AND path NOT IN (SELECT path FROM public_modules))"))
+      "(SELECT count(*) FROM public_modules WHERE path IN ('cosmic.web.router', 'cosmic.template.lex')), " ..
+      "(SELECT count(*) FROM modules WHERE path LIKE 'cosmic.%' AND path NOT LIKE 'cosmic.internal.%' " ..
+      "AND file NOT GLOB 'cosmic/*/*' AND path NOT IN (SELECT path FROM public_modules))"))
   local row = assert(rows[1])
-  assert(row:text(1) == "2", "cosmic.fs and cosmic.sys are public: " .. row:text(1))
+  assert(row:text(1) == "5", "a module any module may require is public, a declaration among them: " .. row:text(1))
   assert(row:text(2) == "0", "an internal module, a test or a module outside the library is recorded: " .. row:text(2))
-  assert(row:text(3) == "0", "a module of the library the tool carries is not recorded: " .. row:text(3))
+  assert(row:text(3) == "0", "a module a closed directory keeps to itself is recorded: " .. row:text(3))
+  assert(row:text(4) == "0", "a module directly under cosmic/ is not recorded: " .. row:text(4))
 end

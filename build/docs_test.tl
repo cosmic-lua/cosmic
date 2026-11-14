@@ -737,6 +737,7 @@ local function test_the_index_marks_a_module_private_to_its_package(dir: string)
   local library = built(dir, {
     ["cosmic/http/init.tl"] = source("--- HTTP.", "local record H", "end", "return H"),
     ["cosmic/http/wire.tl"] = source("--- The wire.", "local record W", "end", "return W"),
+    ["cosmic/http/server.tl"] = source("--- A server.", "--- @public", "local record S", "end", "return S"),
   })
   local both = assert(docs.view({ db, library }, { false, true }))
   local lines = assert(docs.answer(both, {})).lines
@@ -749,9 +750,9 @@ local function test_the_index_marks_a_module_private_to_its_package(dir: string)
   assert(all == table.concat({
     "app.internal.store  (internal to app/) A store.",
     "cosmic.http  HTTP.",
-    "cosmic.http.wire  The wire.",
+    "cosmic.http.server  A server.",
     "cosmic.web  The web.",
-    "cosmic.web.secret  Secrets.",
+    "cosmic.web.secret  (private to cosmic/web/) Secrets.",
     "doc.guides.notes  A guide.",
     "lib.part  A part.",
     "returns_paths  Flat.",
@@ -769,11 +770,16 @@ local function test_the_index_marks_a_module_private_to_its_package(dir: string)
     if object["module"] == "rules.returns.paths" then
       assert(object["closed"] == "private to rules/returns/", line)
       marked = marked + 1
-    elseif object["module"] == "rules.returns" or object["module"] == "cosmic.web.secret" or
-        object["module"] == "cosmic.http.wire" then
+    elseif object["module"] == "cosmic.web.secret" then
+      assert(object["closed"] == "private to cosmic/web/", line)
+      marked = marked + 1
+    elseif object["module"] == "rules.returns" or object["module"] == "cosmic.http.server" then
       assert(object["closed"] == nil, line)
       marked = marked + 1
     end
+    -- The library keeps its own closed directories as a project does: the binary answers for no module of one
+    -- that does not say `--- @public`.
+    assert(object["module"] ~= "cosmic.http.wire", line)
   end
   assert(marked == 4, tostring(marked))
   for _, summary in ipairs((assert(docs.index(both)))) do

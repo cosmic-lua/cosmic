@@ -205,6 +205,11 @@ function positions.violations(modules: {positions.Module}, standing: tree.Standi
   end
   local entries = positions.entries(files)
   --- The breach of `m` requiring `name`, or nil.
+  --
+  -- TODO: refuse a project's require of a standard-library module its closed directory keeps
+  -- (`cosmic.web.router`), as one of `cosmic.internal.*` is refused: the binary records which are public
+  -- (`public_modules`), and `cosmic docs` already answers for those alone. It waits on a release whose docs
+  -- have told a project so, since a tool before it allowed the require.
   local function judge(m: positions.Module, name: string): string?
     local other = by_path[name]
     if name:sub(1, 16) == "cosmic.internal." and not standing.own and

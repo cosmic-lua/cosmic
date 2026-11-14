@@ -678,8 +678,8 @@ and examples of the public standard library alone: `cosmic test` and a lookup
 inside the tree read the rest from the projection, `cosmic.db`, and a release has no
 use for them. which modules those are is a row of
 the database, `public_modules`, that the projection records and a query of a
-public source asks: for cosmic's own tree the library by its name, for a
-project the modules any module may require, by position. a program `cosmic build` writes carries the same of its project,
+public source asks: the modules any module may require, by position, of
+the standard library for cosmic's own tree and of a project for its own. a program `cosmic build` writes carries the same of its project,
 for its users: the docs, uses, links and examples of the modules any module may
 require, by position, and its guides ([`build/embed.tl`]). a fresh clone and CI run `boot`; a
 developer runs `bin/cosmic build` the other hundred times a day.
@@ -1271,8 +1271,9 @@ other stock-interpreter flags, no argv[0] personality.
 [the command-line guide](guides/command-line.md) runs each of these.
 
 from a project, `docs` and `uses` answer for the project's own code
-and for the public standard library, `cosmic.*` less `internal` and
-tests: what a builder reads, never the build that made the binary.
+and for the public standard library, `cosmic.*` less `internal`,
+tests and what a closed directory keeps to itself: what a builder reads,
+never the build that made the binary.
 inside cosmic's own tree they answer for everything.
 
 `fix` rather than `format`, because there is one verb and not two: it
