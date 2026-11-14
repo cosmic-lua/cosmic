@@ -602,6 +602,19 @@ function Sqlite.open_result(path: string, opts?: Sqlite.OpenOptions): Sqlite.Ope
   return sqlite.open_result(path, opts and opts.writable, opts and opts.immutable, opts and opts.create)
 end
 
+--- Disowns every connection this process has open: for a process that is a
+--- copy of another, forked from it, to call before anything else.
+--- SQLite has a connection used by the process that opened it alone: a
+--- copy holds none of its locks, and shares its descriptors. So a copy that
+--- reads a database opens it again. Every handle and statement opened
+--- before raises on any use after, saying so, and its close answers as one
+--- that closed while closing nothing; one opened after is the process's
+--- own. The connections of the program's store are not disowned: the
+--- runtime reads its modules through them, in a copy as in the process.
+function Sqlite.disown()
+  sqlite.disown()
+end
+
 --- A writable database held in memory: it is gone when the handle
 --- closes.
 function Sqlite.memory(): Sqlite.Handle?, string

@@ -26,11 +26,17 @@
  * compiles in (SQLITE_MAX_ATTACHED). */
 #define ATTACHED_DEFAULT 10
 
+/* How many times this process has disowned its connections
+ * ([`sqlite_disown`]). A handle is born of the count at its open, and is
+ * disowned once the count has moved on. */
+static unsigned disowned_times;
+
 struct handle {
   sqlite3 *db;
   /* Set when the connection belongs to someone else (the store): this
    * handle reads through it and never closes it. */
   int borrowed;
+  unsigned born;
   int64_t busy_ms;
   int64_t deadline_ms;
   int64_t pause_ms;
@@ -167,6 +173,20 @@ static void push_outcome (lua_State *L, const struct outcome *out, bool payload)
   lua_setfield(L, -2, "cancelled");
 }
 
+/* Whether `h` holds a connection this process has disowned: one of its own,
+ * opened before the last [`sqlite_disown`]. The store's connections, which
+ * a borrowed handle reads through, are never disowned: the runtime itself
+ * reads them, whatever a handle is told, read-only and from databases
+ * nothing writes while the program runs, so a copy's reads take locks of
+ * its own and find what the process's do. */
+static bool disowned (const struct handle *h) {
+  return h != NULL && !h->borrowed && h->born != disowned_times;
+}
+
+#define DISOWNED \
+  "sqlite: this connection was opened before this process disowned its connections: a copy of a process opens its " \
+  "own"
+
 static struct handle *checked_handle (lua_State *L) {
   struct handle *h = luaL_checkudata(L, 1, HANDLE_TYPE);
   if (h->db == NULL) {
@@ -174,6 +194,7 @@ static struct handle *checked_handle (lua_State *L) {
                                                        close is a bug, not a
                                                        runtime failure */
   }
+  if (disowned(h)) luaL_error(L, DISOWNED); /* throws: as above */
   return h;
 }
 
@@ -182,6 +203,7 @@ static struct statement *checked_statement (lua_State *L) {
   if (s->stmt == NULL) {
     luaL_error(L, "sqlite: the statement is closed"); /* throws: as above */
   }
+  if (disowned(s->owner)) luaL_error(L, DISOWNED); /* throws: as above */
   return s;
 }
 
@@ -477,6 +499,7 @@ static int open_database (lua_State *L, bool result) {
   int handle_index = lua_gettop(L);
   h->db = NULL;
   h->borrowed = 0;
+  h->born = disowned_times;
   h->busy_ms = -1;
   h->deadline_ms = -1;
   h->pause_ms = 1;
@@ -675,9 +698,10 @@ static int handle_prepare_result (lua_State *L) {
 
 static int handle_close (lua_State *L) {
   struct handle *h = luaL_checkudata(L, 1, HANDLE_TYPE);
-  /* Closed already, or borrowed: the connection is its owner's to close,
-   * and this handle only lets go of it. */
-  if (h->db == NULL || h->borrowed) {
+  /* Closed already, borrowed or disowned: the connection is its owner's
+   * to close, the store or the process this one is a copy of, and this
+   * handle only lets go of it. */
+  if (h->db == NULL || h->borrowed || disowned(h)) {
     h->db = NULL;
     return cosmic_done(L);
   }
@@ -691,7 +715,7 @@ static int handle_close (lua_State *L) {
 
 static int handle_gc (lua_State *L) {
   struct handle *h = luaL_checkudata(L, 1, HANDLE_TYPE);
-  if (h->db != NULL && !h->borrowed) {
+  if (h->db != NULL && !h->borrowed && !disowned(h)) {
     sqlite3_close_v2(h->db);
   }
   h->db = NULL;
@@ -704,6 +728,7 @@ void cosmic_sqlite_push_borrowed (lua_State *L, sqlite3 *db) {
   struct handle *h = lua_newuserdatauv(L, sizeof *h, 0);
   h->db = db;
   h->borrowed = 1;
+  h->born = disowned_times;
   h->busy_ms = -1;
   h->deadline_ms = -1;
   h->pause_ms = 1;
@@ -1147,11 +1172,23 @@ static int statement_rewind (lua_State *L) {
 
 static int statement_finalize (lua_State *L) {
   struct statement *s = luaL_checkudata(L, 1, STATEMENT_TYPE);
-  if (s->stmt != NULL) {
+  /* A disowned connection's statement is let go of as its handle is: to
+   * finalize one that is writing would roll its statement back through
+   * the descriptors the two processes share. */
+  if (s->stmt != NULL && !disowned(s->owner)) {
     begin_wait(s->owner);
     sqlite3_finalize(s->stmt);
-    s->stmt = NULL;
   }
+  s->stmt = NULL;
+  return 0;
+}
+
+/* Disowns every connection this process has open through this module:
+ * each handle and statement opened before raises on any use after, and is
+ * let go of without its connection being closed. */
+static int sqlite_disown (lua_State *L) {
+  (void)L;
+  disowned_times++;
   return 0;
 }
 
@@ -1205,6 +1242,7 @@ static void make_type (lua_State *L, const char *name, const luaL_Reg *methods,
 static const luaL_Reg module[] = {
   {"open", sqlite_open},
   {"open_result", sqlite_open_result},
+  {"disown", sqlite_disown},
   {NULL, NULL},
 };
 
