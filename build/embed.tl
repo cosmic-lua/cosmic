@@ -61,6 +61,17 @@ local record embed
     --- to be portable ([`embed.portable_prefix`]).
     mut host_only?: boolean
   end
+
+  --- What a build of a portable program asks of the running tool, which a test answers in its place.
+  record Portable
+    --- The tool's prefix ([`artifact.trusted_prefix`]).
+    prefix: function(): string?, string
+    --- Boots every core and re-enters `argv` ([`reboot.every_core_into`]).
+    every_core: function(argv: {string}): string?
+  end
+
+  --- What [`embed.tree`] and the `build` verb ask of the running tool.
+  mut portable: Portable
 end
 
 local text = bind.text
@@ -134,6 +145,14 @@ local module_columns = { "path", "file", "kind", "source_hash", "key",
 local module_column_list = table.concat(module_columns, ", ")
 local catalog_columns = { "kind", "module", "symbol", "message", "text",
   "file", "line" }
+
+embed.portable = {
+  prefix = artifact.trusted_prefix,
+  -- Required when asked, as a build that boots nothing never needs it.
+  every_core = function(argv: {string}): string?
+    return require("build.reboot").every_core_into(argv)
+  end,
+}
 
 --- The `<name>` of `cmd/<name>/main.tl`, from its import path.
 local function name_of(main: string): string?
@@ -649,7 +668,7 @@ local function build_tree(root: string, host?: boolean, under?: {string},
   if host == true then
     core, source_trouble = artifact.trusted_core()
   else
-    local trusted, trusted_trouble = artifact.trusted_prefix()
+    local trusted, trusted_trouble = embed.portable.prefix()
     prefix, source_trouble = embed.portable_prefix(trusted, trusted_trouble)
     if report ~= nil then report.host_only = trusted ~= nil and prefix == nil end
   end
@@ -832,8 +851,8 @@ local function run(argv: {string}): integer
   local refused = report.refusal ~= ""
   if names == nil and report.host_only == true then
     -- Nothing is held here: the build has let go of the tree's lock and its database, and what it compiled is kept
-    -- for the run the boot enters. Required here, as a build that boots nothing never needs it.
-    local booted = require("build.reboot").every_core_into(argv)
+    -- for the run the boot enters.
+    local booted = embed.portable.every_core(argv)
     if booted ~= nil then
       log:complain(booted)
       return 3

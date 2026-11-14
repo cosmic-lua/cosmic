@@ -860,25 +860,76 @@ local function test_a_stale_partial_projection_is_removed(tmp: string)
   assert(Fs.exists(stale) == false, "the stale partial projection stood")
 end
 
---- A tool that cannot make a portable program (it carries the host's core alone, and is told not to boot every core)
---- says so and removes nothing: the executables of an earlier build stand, and `--out` is not made.
+--- What the `build` verb asks of the tool, answered for a tool that carries the host's core alone, whatever this one
+--- carries, and whose boot of every core answers `boot.answer` (nil: it does not boot) and records the command line
+--- it was to re-enter, a line each, in `boot.asked`.
+local function host_only_tool(boot: mut {string:string}): embed.Portable
+  return {
+    prefix = function(): string?, string return artifact.placeholder("aarch64-linux-musl"), "" end,
+    every_core = function(argv: {string}): string?
+      boot["asked"] = (boot["asked"] or "") .. table.concat(argv, " ") .. "\n"
+      return boot["answer"]
+    end,
+  }
+end
+
+--- `words` run as a command line in `tmp` on a tool `portable` answers for.
+local function build_on(portable: embed.Portable, tmp: string, words: {string}): invoke.Result
+  local own = embed.portable
+  embed.portable = portable
+  local results: mut {invoke.Result} = {}
+  local ran, trouble = pcall(function()
+    results[1] = invoke.run(words, { cwd = tmp, env = build_env() })
+  end)
+  embed.portable = own
+  assert(ran, tostring(trouble))
+  return (assert(results[1]))
+end
+
+--- A tool that cannot make a portable program (it carries the host's core alone, and does not boot every core) says so
+--- and removes nothing: the executables of an earlier build stand, and `--out` is not made.
 local function test_an_environment_failure_removes_no_executable(tmp: string)
-  local prefix = artifact.trusted_prefix()
-  if prefix == nil or not artifact.host_only(prefix) then
-    Test.skip("this tool carries every core, so it makes a portable program")
-    return
-  end
   write_two_programs(tmp)
   local first = invoke.run({ "build", "--host" }, { cwd = tmp, env = build_env() })
   assert(first.code == 0, first.stderr)
   local bin = support.build_dir(tmp) .. "/bin"
-  local told: mut {string:string} = { COSMIC_AUTO_BOOT = "0" }
-  for name, value in pairs(build_env()) do told[name] = value end
-  local again = invoke.run({ "build", "--out", "dist" }, { cwd = tmp, env = told })
+  local again = build_on(host_only_tool({}), tmp, { "build", "--out", "dist" })
   assert(again.code == 1 and again.stderr:find("-Dboot-cores=all", 1, true) ~= nil,
     tostring(again.code) .. again.stderr)
   assert(Fs.exists(bin .. "/one") == true and Fs.exists(bin .. "/two") == true, "an environment failure removed a program")
   assert(Fs.exists(tmp .. "/dist") == false, "--out was made for a build that wrote nothing")
+end
+
+--- A portable program asked of a tool that carries the host's core alone has the tool boot every core and run the
+--- command line again, once its programs compiled. A boot that fails is said and exits 3; where the tool does not
+--- boot, the build refuses and names the boot. `--host`, which needs no other core, asks for none.
+local function test_a_portable_build_on_a_host_only_tool_boots_every_core(tmp: string)
+  write_two_programs(tmp)
+  local boot: mut {string:string} = { answer = "bin/zig build boot -Dboot-cores=all failed" }
+  local failed = build_on(host_only_tool(boot), tmp, { "build", "cmd/one" })
+  assert(boot["asked"] == "build cmd/one\n", tostring(boot["asked"]))
+  assert(failed.code == 3, tostring(failed.code) .. failed.stderr)
+  assert(failed.stderr:find("bin/zig build boot -Dboot-cores=all failed", 1, true) ~= nil, failed.stderr)
+  assert(failed.stdout == "", failed.stdout)
+
+  local refusing: mut {string:string} = {}
+  local refused = build_on(host_only_tool(refusing), tmp, { "build", "cmd/one" })
+  assert(refusing["asked"] == "build cmd/one\n", tostring(refusing["asked"]))
+  assert(refused.code == 1 and refused.stderr:find("carries the host's core alone", 1, true) ~= nil,
+    tostring(refused.code) .. refused.stderr)
+
+  local host: mut {string:string} = { answer = "booted for a --host build" }
+  local built = build_on(host_only_tool(host), tmp, { "build", "--host", "cmd/one" })
+  assert(built.code == 0 and host["asked"] == nil, tostring(built.code) .. tostring(host["asked"]) .. built.stderr)
+end
+
+--- A build that stops for another reason boots nothing: a program that does not compile is the tree's to mend.
+local function test_a_build_that_does_not_compile_boots_no_core(tmp: string)
+  write_two_programs(tmp)
+  assert(Fs.write(tmp .. "/cmd/one/main.tl", 'local n: integer = "x"\nreturn function(): integer return n end\n'))
+  local boot: mut {string:string} = { answer = "booted for a program that does not compile" }
+  local built = build_on(host_only_tool(boot), tmp, { "build", "cmd/one" })
+  assert(built.code == 4 and boot["asked"] == nil, tostring(built.code) .. tostring(boot["asked"]) .. built.stderr)
 end
 
 -- TODO: cover `--out` of a portable program, as [`build/embed_portable_tool_test.tl`] covers `bin/`, once a run of

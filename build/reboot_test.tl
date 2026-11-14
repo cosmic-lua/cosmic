@@ -128,63 +128,88 @@ end
 
 --- A checkout in `tmp` whose bin/zig is a stand-in that records how it was
 --- run and exits with `status`, and that checkout's own tool as a run in a
---- project sees it, in `environment`.
-local function checkout_with_zig(tmp: string, status: integer, environment: {string:string}): string, reboot.Seen
+--- project sees it.
+local function checkout_with_zig(tmp: string, status: integer): string, reboot.Seen
   local checkout = tree_with_zig(tmp, status)
   assert(Fs.mkdirs(checkout .. "/core"))
   assert(Fs.mkdirs(checkout .. "/build"))
   assert(Fs.write(checkout .. "/build/importer.tl", "return {}\n"))
   local layout = paths.resolve(checkout)
   assert(Fs.mkdirs(layout.bin))
-  return checkout, { tool = layout.tool, environment = environment,
-    meta = { built_from = assert(tree.built_from(checkout)) } }
+  return checkout, { tool = layout.tool, environment = {}, meta = { built_from = assert(tree.built_from(checkout)) } }
 end
+
+local every_core_words <const> = "build boot -Dboot-cores=all\n"
 
 --- A command that needs every core, on a checkout's own tool that carries
 --- the host's alone, boots every core in that checkout, whatever the tool
 --- carries, and enters the tool the boot wrote; a boot that fails is
 --- reported.
 local function test_every_core_into_boots_every_core_in_the_checkout(tmp: string)
-  local checkout, own = checkout_with_zig(tmp, 0, {})
+  local checkout, own = checkout_with_zig(tmp, 0)
   local trouble, said = complaints(function(): string
-    return tostring(reboot.every_core_into({ "build" }, own))
+    return tostring(reboot.every_core_into({ "build" }, own, {}))
   end)
-  assert(Fs.read(checkout .. "/bin/ran") == "build boot -Dboot-cores=all\n", Fs.read(checkout .. "/bin/ran"))
+  assert(Fs.read(checkout .. "/bin/ran") == every_core_words, Fs.read(checkout .. "/bin/ran"))
   assert(said:find("running bin/zig build boot -Dboot-cores=all", 1, true), said)
   -- The stand-in wrote no tool, so there is none to enter.
   assert(trouble ~= "nil" and trouble ~= "", trouble)
 
-  local _, failing = checkout_with_zig(tmp .. "/failing", 1, {})
-  local failed = reboot.every_core_into({ "build" }, failing)
+  local _, failing = checkout_with_zig(tmp .. "/failing", 1)
+  local failed = reboot.every_core_into({ "build" }, failing, {})
   assert(failed == "bin/zig build boot -Dboot-cores=all failed; fix what it reports and run this again",
     tostring(failed))
 end
 
---- It boots nothing, and answers nil for the caller to refuse, where the
---- tool would not boot a stale core either: told not to, entered by a
---- reboot (a tool still host-only after this boot is), or no checkout's
---- own. Nor where another run holds the checkout's rebuild lock, which the
---- boot would wait on.
+--- A tool both stale and host-only, as one is after an edit or a pull, is
+--- rebuilt or booted as it was and entered again first; the command that
+--- needs every core then boots them in that same run, whichever of the
+--- two entered it.
+local function test_every_core_into_boots_a_tool_a_stale_reboot_entered(tmp: string)
+  for _, entered in ipairs({ "1", "2" }) do
+    local checkout, renewed = checkout_with_zig(tmp .. "/renewed" .. entered, 0)
+    local trouble = reboot.every_core_into({ "build" }, renewed, { COSMIC_REBOOTED = entered })
+    assert(trouble ~= nil, "a tool a reboot entered (" .. entered .. ") answered nil")
+    assert(Fs.read(checkout .. "/bin/ran") == every_core_words,
+      "a tool a reboot entered (" .. entered .. ") did not boot every core")
+  end
+end
+
+--- The tool the boot of every core wrote is entered marked as that boot's,
+--- and a process so entered boots nothing more, its tool still host-only:
+--- the command boots every core once, whatever came before.
+local function test_every_core_into_boots_every_core_once(tmp: string)
+  local checkout, own = checkout_with_zig(tmp, 0)
+  local environment: mut {string:string} = { COSMIC_REBOOTED = "1" }
+  assert(reboot.every_core_into({ "build" }, own, environment) ~= nil)
+  assert(Fs.read(checkout .. "/bin/ran") == every_core_words)
+  assert(Fs.remove(checkout .. "/bin/ran"))
+  -- What the tool it enters runs in, the stand-in having written none to enter.
+  assert(environment["COSMIC_REBOOTED"] ~= "1" and environment["COSMIC_REBOOTED"] ~= "2",
+    "the boot of every core entered its tool as a stale reboot does")
+  assert(reboot.every_core_into({ "build" }, own, environment) == nil, "booted every core a second time")
+  assert(Fs.read(checkout .. "/bin/ran") == nil, "booted every core a second time")
+end
+
+--- It boots nothing, and answers nil, where the tool is told not to boot
+--- or is no checkout's own. Nor where another run holds the checkout's
+--- rebuild lock, which the boot would wait on.
 local function test_every_core_into_boots_only_where_the_tool_boots(tmp: string)
-  local told, told_seen = checkout_with_zig(tmp .. "/told", 0, { COSMIC_AUTO_BOOT = "0" })
-  assert(reboot.every_core_into({ "build" }, told_seen) == nil)
+  local told, told_seen = checkout_with_zig(tmp .. "/told", 0)
+  assert(reboot.every_core_into({ "build" }, told_seen, { COSMIC_AUTO_BOOT = "0" }) == nil)
   assert(Fs.read(told .. "/bin/ran") == nil, "booted although told not to")
 
-  local entered, entered_seen = checkout_with_zig(tmp .. "/entered", 0, { COSMIC_REBOOTED = "1" })
-  assert(reboot.every_core_into({ "build" }, entered_seen) == nil)
-  assert(Fs.read(entered .. "/bin/ran") == nil, "booted again after a reboot")
-
-  local copied, own = checkout_with_zig(tmp .. "/copied", 0, {})
+  local copied, own = checkout_with_zig(tmp .. "/copied", 0)
   local copy: reboot.Seen = { tool = tmp .. "/elsewhere/cosmic", environment = {}, meta = own.meta }
   assert(Fs.mkdirs(tmp .. "/elsewhere"))
-  assert(reboot.every_core_into({ "build" }, copy) == nil)
+  assert(reboot.every_core_into({ "build" }, copy, {}) == nil)
   assert(Fs.read(copied .. "/bin/ran") == nil, "a copy of the tool booted its checkout")
 
-  local held, held_seen = checkout_with_zig(tmp .. "/held", 0, {})
+  local held, held_seen = checkout_with_zig(tmp .. "/held", 0)
   local layout = paths.resolve(held)
   local other = assert(sys.open(layout.lock, sys.O_RDWR | sys.O_CREAT, 0x1a4))
   assert(sys.flock(other, "exclusive"))
-  local waited = reboot.every_core_into({ "build" }, held_seen)
+  local waited = reboot.every_core_into({ "build" }, held_seen, {})
   assert(sys.close(other))
   assert(waited == nil, tostring(waited))
   assert(Fs.read(held .. "/bin/ran") == nil, "booted a checkout another run holds")

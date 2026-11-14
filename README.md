@@ -19,7 +19,7 @@ canonical path, or under the absolute base `COSMIC_BUILD_HOME` names
 directory, and boots first if there is none; `bin/cosmic db` names its
 databases. The tool carries the host's core alone; `bin/zig build boot
 -Dboot-cores=all` builds every release core, which `cosmic build` needs to write a
-program that runs on every target, and runs itself the first time it is asked for one.
+program that runs on every target; `cosmic build` runs that boot itself the first time it is asked for one.
 
 ## install
 
