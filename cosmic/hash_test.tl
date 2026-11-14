@@ -298,6 +298,47 @@ local function test_hmac_takes_a_key_of_any_length()
   db:close()
 end
 
+--- Bytes `first` through `last`, one of each in order.
+local function run_of(first: integer, last: integer): string
+  local bytes: mut {string} = {}
+  for byte = first, last do bytes[#bytes + 1] = string.char(byte) end
+  return table.concat(bytes)
+end
+
+--- RFC 5869, appendix A: test cases 1 to 3 (SHA-256) and 4 and 7 (SHA-1),
+--- which between them hold a salt, a salt longer than a block, an empty
+--- salt and info, and outputs of more than one digest.
+local function test_hkdf_matches_published_vectors()
+  local function unhex(text: string): string
+    return (assert(Codec.unhex(text)))
+  end
+  local short = string.rep("\x0b", 22)
+  assert(Hash.hkdf("sha256", short, run_of(0x00, 0x0c), run_of(0xf0, 0xf9), 42) == unhex(
+    "3cb25f25faacd57a90434f64d0362f2a2d2d0a90cf1a5a4c5db02d56ecc4c5bf34007208d5b887185865"))
+  assert(Hash.hkdf("sha256", run_of(0x00, 0x4f), run_of(0x60, 0xaf), run_of(0xb0, 0xff), 82) == unhex(
+    "b11e398dc80327a1c8e7f78c596a49344f012eda2d4efad8a050cc4c19afa97c" ..
+      "59045a99cac7827271cb41c65e590e09da3275600c2f09b8367793a9aca3db71" ..
+      "cc30c58179ec3e87c14c01d5c1f3434f1d87"))
+  assert(Hash.hkdf("sha256", short, "", "", 42) == unhex(
+    "8da4e775a563c18f715f802a063c5a31b8a11f5c5ee1879ec3454e5f3c738d2d9d201395faa4b61a96c8"))
+  assert(Hash.hkdf("sha1", string.rep("\x0b", 11), run_of(0x00, 0x0c), run_of(0xf0, 0xf9), 42) == unhex(
+    "085a01ea1b10f36933068b56efa5ad81a4f14b822f5b091568a9cdd4f155fda2c22e422478d305f3f896"))
+  assert(Hash.hkdf("sha1", string.rep("\x0c", 22), "", "", 42) == unhex(
+    "2c91117204d745f3500d636a62f64f0ab3bae548aa53d423b0d1f27ebba6f5e5673a081d70cce7acfc48"))
+end
+
+local function test_hkdf_holds_its_length_to_255_digests()
+  assert(Hash.hkdf("sha256", "k", "s", "i", 0) == "")
+  local longest = Hash.hkdf("sha256", "k", "s", "i", 255 * 32)
+  assert(#longest == 255 * 32)
+  assert(Hash.hkdf("sha256", "k", "s", "i", 33) == longest:sub(1, 33))
+  for _, length in ipairs({ -1, 255 * 32 + 1 }) do
+    local raised = Test.raises(function() Hash.hkdf("sha256", "k", "s", "i", length) end)
+    assert(raised:find("hkdf's length must be from 0 to 8160 for sha256", 1, true) ~= nil, raised)
+  end
+  assert(#Hash.hkdf("sha512", "k", "s", "i", 255 * 64) == 255 * 64)
+end
+
 local function test_an_unknown_algorithm_raises()
   local ok, trouble = pcall(Hash.digest, "sha0" as Hash.Algorithm, "abc") -- checked: cast_refused
   assert(not ok)

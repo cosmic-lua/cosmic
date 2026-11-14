@@ -56,6 +56,17 @@ function Example.hmac()
   assert(code == "f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8", code)
 end
 
+--- Two keys from one shared secret, one for each direction of a
+--- connection: `info` says what a key is for, so the two are unrelated.
+function Example.hkdf()
+  local shared = string.rep("\x0b", 22)
+  local sending = Hash.hkdf("sha256", shared, "", "client to server", 32)
+  local receiving = Hash.hkdf("sha256", shared, "", "server to client", 32)
+  print(#sending, #receiving, sending == receiving)
+  assert(#sending == 32 and #receiving == 32 and sending ~= receiving)
+  assert(sending == Hash.hkdf("sha256", shared, "", "client to server", 32))
+end
+
 --- Checking a received MAC against the one computed, without a timing
 --- leak: `==` stops at the first differing byte, [`Hash.equal`] does not.
 function Example.equal()
