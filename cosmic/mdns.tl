@@ -780,8 +780,8 @@ function Mdns.browse(service: string | {string}, opts?: Mdns.Options): {Mdns.Ins
   if service is string then written = { service } else written = service end
   if #written == 0 then return nil, "mdns: no service type was asked for" end
   if #written > MAX_SERVICES then
-    return nil, ("mdns: %d service types are more than the %d one search asks for"):format(#written,
-      MAX_SERVICES)
+    return nil, ("mdns: the list of service types holds %d, more than the %d one search asks for"):format(
+      #written, MAX_SERVICES)
   end
   local services: mut {string: Service} = {}
   local pointers: mut {string} = {}
