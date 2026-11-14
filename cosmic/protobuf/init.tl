@@ -84,10 +84,16 @@ local record Protobuf
   --- method but `fields` and `has` takes a field's number and reads the fields of that number whose wire type
   --- is the one it asks for.
   interface Message
-    --- Every field, in the order of the bytes, the unknown ones too. An embedded message is its bytes.
-    fields: function(self: Message): {Field}
+    --- Every field, in the order of the bytes, the unknown ones too. An embedded message is its bytes. With
+    --- `keep`, the fields it answers true for, by number and wire type: the bytes of the others are not copied,
+    --- which is how a program takes the fields it does not know from a message it has read the rest of.
+    fields: function(self: Message, keep?: function(number: integer, wire: integer): boolean): {Field}
     --- Whether any field has this number, of any wire type.
     has: function(self: Message, number: integer): boolean
+    --- The wire types of the fields of this number, a bit for each: `1 << Protobuf.LEN` is set where one is
+    --- length-delimited. 0 where no field has the number. A read by number passes over a field of another wire
+    --- type than it asks for, and this says that there is one.
+    wires: function(self: Message, number: integer): integer
     --- The last varint of that number as an `int32`, `int64`, `uint32`, `uint64` or an `enum`, or nil. It is
     --- the 64 bits of the varint: nothing is cut to 32.
     int: function(self: Message, number: integer): integer?
@@ -482,18 +488,30 @@ local class Decoded is Protobuf.Message
   max_depth: integer
   max_fields: integer
 
-  function fields(self): {Protobuf.Field}
+  function fields(self, keep?: function(number: integer, wire: integer): boolean): {Protobuf.Field}
     local out: mut {Protobuf.Field} = {}
     local data = self.data
     for _, entry in ipairs(self.entries) do
-      local field: Protobuf.Field = {
-        number = entry.number,
-        wire = entry.wire,
-        value = if entry.wire == LEN then data:sub(entry.value, entry.stop) else entry.value end,
-      }
-      out[#out + 1] = field
+      if keep == nil or keep(entry.number, entry.wire) then
+        local field: Protobuf.Field = {
+          number = entry.number,
+          wire = entry.wire,
+          value = if entry.wire == LEN then data:sub(entry.value, entry.stop) else entry.value end,
+        }
+        out[#out + 1] = field
+      end
     end
     return out
+  end
+
+  function wires(self, number: integer): integer
+    local mask = 0
+    local entry = self.last[number]
+    while entry ~= nil do
+      mask = mask | (1 << entry.wire)
+      entry = entry.prev
+    end
+    return mask
   end
 
   function has(self, number: integer): boolean
