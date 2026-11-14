@@ -142,8 +142,9 @@ local function test_how_a_group_is_sent_to_is_set_a_field_at_a_time()
   assert(from:set_multicast({ hops = 0 }))
   assert(from:set_multicast({ hops = 255 }))
   assert(from:set_multicast({ loop = false }))
+  assert(from:set_multicast({ loop = true }))
+  assert(from:set_multicast({ hops = 1 }))
   assert(from:set_multicast({ via = LOOPBACK }))
-  -- Whatever `loop` says, what leaves by the loopback interface comes back on it.
   assert(from:send("by the loopback", Net.udp(group, assert(member.address.port))))
   assert(assert(member:receive()).data == "by the loopback")
 end

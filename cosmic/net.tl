@@ -174,7 +174,8 @@ local record Multicast
   hops?: integer
   --- Whether this machine's own members of the group receive the
   --- datagrams too, this socket among them if it joined. They do by the
-  --- system's default.
+  --- system's default. On Linux, what leaves by a loopback interface
+  --- reaches them whatever this says.
   loop?: boolean
 end
 

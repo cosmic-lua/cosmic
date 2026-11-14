@@ -122,6 +122,14 @@ local cases: {string: function(at: integer, fd: integer)} = {
     socket.sendto(fd, "", { kind = "udp", host = "127.0.0.1", port = 1 })
   end,
   recvfrom = function(_: integer, fd: integer) socket.recvfrom(fd, 1) end,
+  membership = function(_: integer, fd: integer)
+    socket.membership(fd, "239.255.77.30", "127.0.0.1", true)
+  end,
+  multicast_interface = function(_: integer, fd: integer)
+    socket.multicast_interface(fd, "127.0.0.1")
+  end,
+  multicast_hops = function(_: integer, fd: integer) socket.multicast_hops(fd, 1) end,
+  multicast_loop = function(_: integer, fd: integer) socket.multicast_loop(fd, true) end,
   bound = function(_: integer, fd: integer) socket.bound(fd) end,
   peer = function(_: integer, fd: integer) socket.peer(fd) end,
   connected = function(_: integer, fd: integer) socket.connected(fd) end,
