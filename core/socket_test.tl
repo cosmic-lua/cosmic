@@ -401,6 +401,58 @@ local function test_udp_raw_calls_keep_packet_boundaries_and_refuse_stream_descr
   assert(received == nil and receive_why == "Protocol wrong type for socket", receive_why)
 end
 
+--- The multicast calls are a datagram socket's: a stream descriptor is
+--- refused before any option is set, and an interface named in the form
+--- of the other family is an argument no correct caller passes.
+local function test_multicast_raw_calls_refuse_a_stream_descriptor_and_a_misnamed_interface()
+  local listener <close> = tcp_listener()
+  local stream = listener:fd()
+  local wrong <const> = "Protocol wrong type for socket"
+  local joined, join_why = raw.membership(stream, "239.255.77.20", "127.0.0.1", true)
+  assert(not joined and join_why == wrong, join_why)
+  local via, via_why = raw.multicast_interface(stream, "127.0.0.1")
+  assert(not via and via_why == wrong, via_why)
+  local hops, hops_why = raw.multicast_hops(stream, 1)
+  assert(not hops and hops_why == wrong, hops_why)
+  local loop, loop_why = raw.multicast_loop(stream, true)
+  assert(not loop and loop_why == wrong, loop_why)
+  local bound <close> = assert(raw.datagram({ kind = "udp", host = "127.0.0.1", port = 0 }))
+  local fd = bound:fd()
+  Test.raises(function() raw.membership(fd, "239.255.77.20", 1, true) end, "numeric addresses")
+  Test.raises(function() raw.membership(fd, "ff15::7720", "127.0.0.1", true) end, "by its index")
+  Test.raises(function() raw.membership(fd, "ff15::7720", -1, true) end, "an interface index is from 0")
+  Test.raises(function() raw.multicast_interface(fd, 1) end, "numeric addresses")
+  Test.raises(function() raw.multicast_hops(fd, 256) end, "hops must be from 0 to 255")
+  -- Nil is the interface the system chooses, in either family's form.
+  assert(raw.multicast_interface(fd))
+  local unjoined, unjoined_why = raw.membership(fd, "239.255.77.20", nil, false)
+  assert(not unjoined and unjoined_why ~= "", "a group never joined was left")
+end
+
+--- `interfaces` answers an entry for each address `getifaddrs` lists, or
+--- fails as a value where the worker's sandbox refuses the netlink socket
+--- Linux reads them over.
+local function test_interfaces_lists_named_entries_or_fails_as_a_value()
+  local entries, why, errno = raw.interfaces()
+  if entries == nil then
+    assert(why ~= "" and errno ~= 0, why)
+    -- TODO: assert the entries on Linux too, once a sandboxed worker's
+    -- filter (core/promises.c) lets getifaddrs open its netlink socket.
+    Test.skip("this worker cannot list the host's interfaces: " .. why)
+    return
+  end
+  local loopback = false
+  for _, entry in ipairs(entries) do
+    assert(#entry.name > 0 and entry.index >= 0, entry.name)
+    assert((entry.family == nil) == (entry.address == nil), entry.name)
+    if entry.address == "127.0.0.1" then
+      assert(entry.loopback and entry.up and entry.family == "ipv4" and entry.index >= 1, entry.name)
+      loopback = true
+    end
+  end
+  assert(loopback, "127.0.0.1 is listed")
+end
+
 local function test_udp_dropped_unclosed_is_closed_by_the_collector(tmp: string)
   local before = AllocationFixture.next_descriptor(tmp)
   do

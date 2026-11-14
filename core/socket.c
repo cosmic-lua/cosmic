@@ -12,6 +12,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <ifaddrs.h>
 #include <limits.h>
 #include <poll.h>
 #include <stdbool.h>
@@ -23,6 +24,7 @@
 #include <sys/stat.h>
 #include <sys/un.h>
 #include <arpa/inet.h>
+#include <net/if.h>
 #include <netinet/in.h>
 #include <time.h>
 #include <unistd.h>
@@ -90,6 +92,21 @@ bool cosmic_numeric_host (const char *host, size_t size) {
     octets++;
     if (at == end) return octets == 4;
     if (*at++ != '.' || at == end) return false;
+  }
+  return false;
+}
+
+/* Whether `name` is a numeric address as a "tcp" address's host is,
+ * written to `out` as raw bytes of the `*family` it names. */
+static bool numeric_literal (const char *name, size_t size, int *family, unsigned char *out) {
+  if (!cosmic_numeric_host(name, size)) return false;
+  if (strchr(name, ':') == NULL && inet_pton(AF_INET, name, out) == 1) {
+    *family = AF_INET;
+    return true;
+  }
+  if (inet_pton(AF_INET6, name, out) == 1) {
+    *family = AF_INET6;
+    return true;
   }
   return false;
 }
@@ -800,11 +817,41 @@ COSMIC_SYSCALL(datagram, 1) {
   struct target target;
   int failure = datagram_address_of(L, 1, &target);
   if (failure != 0) return cosmic_fail(L, failure);
+  bool shared = lua_toboolean(L, 2);
   struct owned *owned = owner_push(L, 0);
   owned->fd = new_socket(target.address.ss_family, SOCK_DGRAM);
   if (owned->fd < 0) return cosmic_fail(L, errno);
-  if (bind(owned->fd, (const struct sockaddr *)&target.address, target.length) != 0) {
+  int on = 1;
+  if (shared && setsockopt(owned->fd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof on) != 0) failure = errno;
+#if defined(__APPLE__)
+  /* Darwin lets a second socket bind an address and port only where both
+   * set SO_REUSEPORT; Linux does under SO_REUSEADDR, and its SO_REUSEPORT
+   * would spread unicast datagrams over the sockets besides. */
+  if (shared && failure == 0 && setsockopt(owned->fd, SOL_SOCKET, SO_REUSEPORT, &on, sizeof on) != 0) {
     failure = errno;
+  }
+#endif
+#if defined(IP_MULTICAST_ALL)
+  /* Linux hands a socket the datagrams of every group any socket of the
+   * host joined, where they match its address and port, unless it is told
+   * to deliver a group to its members alone, as Darwin does. */
+  int all = 0;
+  if (failure == 0 && target.address.ss_family == AF_INET &&
+      setsockopt(owned->fd, IPPROTO_IP, IP_MULTICAST_ALL, &all, sizeof all) != 0) {
+    failure = errno;
+  }
+#if defined(IPV6_MULTICAST_ALL)
+  /* Linux before 4.20 has no such option for IPv6, and a socket there is
+   * bound all the same. */
+  if (target.address.ss_family == AF_INET6) {
+    (void)setsockopt(owned->fd, IPPROTO_IPV6, IPV6_MULTICAST_ALL, &all, sizeof all);
+  }
+#endif
+#endif
+  if (failure == 0 && bind(owned->fd, (const struct sockaddr *)&target.address, target.length) != 0) {
+    failure = errno;
+  }
+  if (failure != 0) {
     released(owned);
     return cosmic_fail(L, failure);
   }
@@ -867,6 +914,187 @@ COSMIC_SYSCALL(recvfrom, 2) {
   lua_setfield(L, -2, "data");
   if (tcp_pushed(L, &address, "udp") != 1) return 3;
   lua_setfield(L, -2, "address");
+  return 1;
+}
+
+/* The IPv4 address of the interface argument `arg` names, in `*out`: 0,
+ * or EINVAL for a string that is no numeric IPv4 address. Nil is
+ * INADDR_ANY, the interface the system chooses. Anything else raises. */
+static int interface_address (lua_State *L, int arg, struct in_addr *out) {
+  out->s_addr = htonl(INADDR_ANY);
+  if (lua_isnoneornil(L, arg)) return 0;
+  luaL_argcheck(L, lua_type(L, arg) == LUA_TSTRING, arg,
+    "an IPv4 interface is named by one of its numeric addresses");
+  size_t size = 0;
+  const char *host = lua_tolstring(L, arg, &size);
+  int family = 0;
+  unsigned char raw[sizeof (struct in6_addr)];
+  if (!numeric_literal(host, size, &family, raw) || family != AF_INET) return EINVAL;
+  memcpy(out, raw, sizeof *out);
+  return 0;
+}
+
+/* The index of the interface argument `arg` names, for IPv6: nil is 0,
+ * the interface the system chooses. Anything but a whole number an
+ * index can be raises. */
+static unsigned interface_index (lua_State *L, int arg) {
+  if (lua_isnoneornil(L, arg)) return 0;
+  luaL_argcheck(L, lua_isinteger(L, arg), arg, "an IPv6 interface is named by its index");
+  lua_Integer index = lua_tointeger(L, arg);
+  luaL_argcheck(L, index >= 0 && index <= INT_MAX, arg, "an interface index is from 0");
+  return (unsigned)index;
+}
+
+/* The family, AF_INET or AF_INET6, of the datagram socket `fd` in
+ * `*family`: 0, or why it has none (EPROTOTYPE for a stream,
+ * EAFNOSUPPORT for a socket of another family). */
+static int multicast_family (int fd, int *family) {
+  int failure = datagram_type(fd);
+  if (failure != 0) return failure;
+  struct sockaddr_storage address;
+  socklen_t length = sizeof address;
+  memset(&address, 0, sizeof address);
+  if (getsockname(fd, (struct sockaddr *)&address, &length) != 0) return errno;
+  if (address.ss_family != AF_INET && address.ss_family != AF_INET6) return EAFNOSUPPORT;
+  *family = address.ss_family;
+  return 0;
+}
+
+COSMIC_SYSCALL(membership, 4) {
+  int fd = cosmic_checkfd(L, 1);
+  size_t size = 0;
+  const char *group = luaL_checklstring(L, 2, &size);
+  bool joining = lua_toboolean(L, 4);
+  int family = 0;
+  unsigned char raw[sizeof (struct in6_addr)];
+  int failure = datagram_type(fd);
+  if (failure == 0 && !numeric_literal(group, size, &family, raw)) failure = EINVAL;
+  if (failure != 0) return cosmic_fail_effect(L, failure);
+  int done;
+  if (family == AF_INET) {
+    struct ip_mreq request;
+    memset(&request, 0, sizeof request);
+    memcpy(&request.imr_multiaddr, raw, sizeof request.imr_multiaddr);
+    failure = interface_address(L, 3, &request.imr_interface);
+    if (failure != 0) return cosmic_fail_effect(L, failure);
+    done = setsockopt(fd, IPPROTO_IP, joining ? IP_ADD_MEMBERSHIP : IP_DROP_MEMBERSHIP, &request, sizeof request);
+  } else {
+    struct ipv6_mreq request;
+    memset(&request, 0, sizeof request);
+    memcpy(&request.ipv6mr_multiaddr, raw, sizeof request.ipv6mr_multiaddr);
+    request.ipv6mr_interface = interface_index(L, 3);
+    done = setsockopt(fd, IPPROTO_IPV6, joining ? IPV6_JOIN_GROUP : IPV6_LEAVE_GROUP, &request, sizeof request);
+  }
+  if (done != 0) return cosmic_fail_effect(L, errno);
+  return cosmic_ok(L);
+}
+
+COSMIC_SYSCALL(multicast_interface, 2) {
+  int fd = cosmic_checkfd(L, 1);
+  int family = 0;
+  int failure = multicast_family(fd, &family);
+  if (failure != 0) return cosmic_fail_effect(L, failure);
+  int done;
+  if (family == AF_INET) {
+    struct in_addr address;
+    failure = interface_address(L, 2, &address);
+    if (failure != 0) return cosmic_fail_effect(L, failure);
+    done = setsockopt(fd, IPPROTO_IP, IP_MULTICAST_IF, &address, sizeof address);
+  } else {
+    unsigned index = interface_index(L, 2);
+    done = setsockopt(fd, IPPROTO_IPV6, IPV6_MULTICAST_IF, &index, sizeof index);
+  }
+  if (done != 0) return cosmic_fail_effect(L, errno);
+  return cosmic_ok(L);
+}
+
+COSMIC_SYSCALL(multicast_hops, 2) {
+  int fd = cosmic_checkfd(L, 1);
+  int hops = cosmic_checkint(L, 2);
+  luaL_argcheck(L, hops >= 0 && hops <= 255, 2, "hops must be from 0 to 255");
+  int family = 0;
+  int failure = multicast_family(fd, &family);
+  if (failure != 0) return cosmic_fail_effect(L, failure);
+  int done;
+  if (family == AF_INET) {
+    /* Darwin takes IPv4's two multicast options as one byte alone; Linux
+     * takes a byte or an int. */
+    unsigned char ttl = (unsigned char)hops;
+    done = setsockopt(fd, IPPROTO_IP, IP_MULTICAST_TTL, &ttl, sizeof ttl);
+  } else {
+    done = setsockopt(fd, IPPROTO_IPV6, IPV6_MULTICAST_HOPS, &hops, sizeof hops);
+  }
+  if (done != 0) return cosmic_fail_effect(L, errno);
+  return cosmic_ok(L);
+}
+
+COSMIC_SYSCALL(multicast_loop, 2) {
+  int fd = cosmic_checkfd(L, 1);
+  bool heard = lua_toboolean(L, 2);
+  int family = 0;
+  int failure = multicast_family(fd, &family);
+  if (failure != 0) return cosmic_fail_effect(L, failure);
+  int done;
+  if (family == AF_INET) {
+    unsigned char on = heard ? 1 : 0;
+    done = setsockopt(fd, IPPROTO_IP, IP_MULTICAST_LOOP, &on, sizeof on);
+  } else {
+    unsigned on = heard ? 1 : 0;
+    done = setsockopt(fd, IPPROTO_IPV6, IPV6_MULTICAST_LOOP, &on, sizeof on);
+  }
+  if (done != 0) return cosmic_fail_effect(L, errno);
+  return cosmic_ok(L);
+}
+
+static void interfaces_release (void *resource) {
+  freeifaddrs(resource);
+}
+
+COSMIC_SYSCALL(interfaces, 0) {
+  struct cosmic_guard *guard = cosmic_guard_push(L, interfaces_release);
+  struct ifaddrs *list = NULL;
+  if (getifaddrs(&list) != 0) return cosmic_fail(L, errno);
+  guard->resource = list;
+  lua_newtable(L);
+  lua_Integer count = 0;
+  for (struct ifaddrs *entry = list; entry != NULL; entry = entry->ifa_next) {
+    lua_createtable(L, 0, 7);
+    lua_pushstring(L, entry->ifa_name);
+    lua_setfield(L, -2, "name");
+    lua_pushinteger(L, (lua_Integer)if_nametoindex(entry->ifa_name));
+    lua_setfield(L, -2, "index");
+    lua_pushboolean(L, (entry->ifa_flags & IFF_UP) != 0);
+    lua_setfield(L, -2, "up");
+    lua_pushboolean(L, (entry->ifa_flags & IFF_LOOPBACK) != 0);
+    lua_setfield(L, -2, "loopback");
+    lua_pushboolean(L, (entry->ifa_flags & IFF_MULTICAST) != 0);
+    lua_setfield(L, -2, "multicast");
+    int family = entry->ifa_addr == NULL ? AF_UNSPEC : entry->ifa_addr->sa_family;
+    char text[INET6_ADDRSTRLEN];
+    const char *named = NULL;
+    if (family == AF_INET) {
+      named = inet_ntop(AF_INET, &((const struct sockaddr_in *)entry->ifa_addr)->sin_addr, text, sizeof text);
+    } else if (family == AF_INET6) {
+      struct in6_addr address = ((const struct sockaddr_in6 *)entry->ifa_addr)->sin6_addr;
+#if defined(__APPLE__)
+      /* Darwin's kernel keeps a link-local address's interface index in
+       * its second group (KAME's embedded scope); the address itself has
+       * zeros there. */
+      if (IN6_IS_ADDR_LINKLOCAL(&address)) {
+        address.s6_addr[2] = 0;
+        address.s6_addr[3] = 0;
+      }
+#endif
+      named = inet_ntop(AF_INET6, &address, text, sizeof text);
+    }
+    if (named != NULL) {
+      lua_pushstring(L, family == AF_INET ? "ipv4" : "ipv6");
+      lua_setfield(L, -2, "family");
+      lua_pushstring(L, text);
+      lua_setfield(L, -2, "address");
+    }
+    lua_rawseti(L, -2, ++count);
+  }
   return 1;
 }
 
@@ -1319,21 +1547,6 @@ static void resolved_pushed (lua_State *L, int family, const void *address, lua_
   lua_pushstring(L, family == AF_INET ? "ipv4" : "ipv6");
   lua_setfield(L, -2, "family");
   lua_rawseti(L, -2, index);
-}
-
-/* Whether `name` is a numeric address as a "tcp" address's host is,
- * written to `out` as raw bytes of the `*family` it names. */
-static bool numeric_literal (const char *name, size_t size, int *family, unsigned char *out) {
-  if (!cosmic_numeric_host(name, size)) return false;
-  if (strchr(name, ':') == NULL && inet_pton(AF_INET, name, out) == 1) {
-    *family = AF_INET;
-    return true;
-  }
-  if (inet_pton(AF_INET6, name, out) == 1) {
-    *family = AF_INET6;
-    return true;
-  }
-  return false;
 }
 
 /* Whether `name`, `size` bytes, is one `lookup` refuses before asking:

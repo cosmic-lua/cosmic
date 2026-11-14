@@ -132,7 +132,11 @@ local exempt: {string: string} = {
 --- uname(2) sysname and then by [`key_of`], and why: another host's run
 --- still holds them to being entered.
 local exempt_on: {string: {string: string}} = {
-  Linux = {},
+  Linux = {
+    ["core/socket.c:interfaces_release"] = "frees the list getifaddrs answered, which on Linux it asks for over " ..
+      "a netlink socket that a sandboxed worker's filter refuses, so no list is made; a Darwin run enters it " ..
+      "(cosmic/net_multicast_test.tl)",
+  },
   Darwin = {
     -- Every Linux core, the checked one too, is static musl, whose printf
     -- measures each `%s` with the core's strnlen, so a Linux run holds it.
