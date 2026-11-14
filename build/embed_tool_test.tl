@@ -361,6 +361,10 @@ local function test_the_carried_database_holds_the_documentation_of_the_public_m
   local internal = rows_of(support.build_dir(tmp) .. "/cosmic.db",
     "SELECT kind FROM modules WHERE path = 'doc.guides.internal.notes'")
   assert(#internal == 1 and internal[1]:text(1) == "test", "the project tests its internal guide")
+  local recorded = listed("SELECT path FROM public_modules ORDER BY path")
+  assert(recorded == "app.run greet store store.open", "the modules any module may require, recorded as public: " .. recorded)
+  local projected = rows_of(support.build_dir(tmp) .. "/cosmic.db", "SELECT group_concat(path, ' ' ORDER BY path) FROM public_modules")
+  assert(support.nth(projected, 1):text(1) == recorded, "as the project's projection records them")
   local documented = listed("SELECT DISTINCT module FROM docs ORDER BY module")
   assert(documented == "app.run doc.guides.greeting greet store store.open",
     "the public modules and the guide, and no other: " .. documented)
