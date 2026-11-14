@@ -479,8 +479,8 @@ static int bigint_submod (lua_State *L) {
 /* mulmod(a, b, modulus): (a * b) mod modulus, for an odd modulus, as
  * wide as the modulus. Montgomery's multiplication answers its factors'
  * product over R, so the product is multiplied once more, by R times R.
- * A modulus of one limb is 3 or more here, and takes the same two
- * multiplications, with R times R made by doubling. */
+ * A modulus of one limb takes the same two multiplications, with R
+ * times R made by doubling. */
 static int bigint_mulmod (lua_State *L) {
   lua_settop(L, 3);
   struct modular m = push_modular(L, 2);
