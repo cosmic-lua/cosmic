@@ -400,10 +400,31 @@ local function varints(data: string, last: {integer: Entry}, number: integer,
   return out, ""
 end
 
---- Every value of that number that is 4 bytes (`wire` is [`FIXED32`]) or 8, each through `of`: those of fields
---- of the wire type, and those packed in length-delimited ones.
+local function float_of(bits: integer): number
+  return (string.unpack("<f", string.pack("<I4", bits)))
+end
+
+local function double_of(bits: integer): number
+  return (string.unpack("<d", string.pack("<i8", bits)))
+end
+
+local function i32_at(data: string, pos: integer): integer
+  return (string.unpack("<i4", data, pos))
+end
+
+local function float_at(data: string, pos: integer): number
+  return (string.unpack("<f", data, pos))
+end
+
+local function double_at(data: string, pos: integer): number
+  return (string.unpack("<d", data, pos))
+end
+
+--- Every value of that number that is 4 bytes (`wire` is [`FIXED32`]) or 8: those of fields of the wire type,
+--- each through `of`, and those packed in length-delimited ones, each read by `at` from the bytes, which gives
+--- what `of` gives of the same bits.
 local function fixed<T>(data: string, last: {integer: Entry}, number: integer, wire: integer,
-                        of: function(integer): T): {T}?, string
+                        of: function(integer): T, at: function(string, integer): T): {T}?, string
   local size = if wire == FIXED64 then 8 else 4 end
   local out: mut {T} = {}
   for _, entry in ipairs(all(last, number)) do
@@ -413,23 +434,16 @@ local function fixed<T>(data: string, last: {integer: Entry}, number: integer, w
     elseif entry.wire == LEN then
       local length = entry.stop - entry.value + 1
       if length % size ~= 0 then
-        return nil, ("protobuf: packed field %d is %s, no multiple of %d"):format(number, String.counted(length, "byte"), size)
+        return nil, ("protobuf: packed field %d is %s, no multiple of %d"):format(number,
+          String.counted(length, "byte"), size)
       end
       for pos = entry.value, entry.stop, size do
-        local value = of(if size == 8 then i64_at(data, pos) else u32_at(data, pos) end)
+        local value = at(data, pos)
         out[#out + 1] = value
       end
     end
   end
   return out, ""
-end
-
-local function float_of(bits: integer): number
-  return (string.unpack("<f", string.pack("<I4", bits)))
-end
-
-local function double_of(bits: integer): number
-  return (string.unpack("<d", string.pack("<i8", bits)))
 end
 
 --- The fields of an embedded message.
@@ -562,23 +576,23 @@ local class Decoded is Protobuf.Message
   end
 
   function repeated_fixed32(self, number: integer): {integer}?, string
-    return fixed(self.data, self.last, number, FIXED32, same)
+    return fixed(self.data, self.last, number, FIXED32, same, u32_at)
   end
 
   function repeated_sfixed32(self, number: integer): {integer}?, string
-    return fixed(self.data, self.last, number, FIXED32, signed32)
+    return fixed(self.data, self.last, number, FIXED32, signed32, i32_at)
   end
 
   function repeated_fixed64(self, number: integer): {integer}?, string
-    return fixed(self.data, self.last, number, FIXED64, same)
+    return fixed(self.data, self.last, number, FIXED64, same, i64_at)
   end
 
   function repeated_float(self, number: integer): {number}?, string
-    return fixed(self.data, self.last, number, FIXED32, float_of)
+    return fixed(self.data, self.last, number, FIXED32, float_of, float_at)
   end
 
   function repeated_double(self, number: integer): {number}?, string
-    return fixed(self.data, self.last, number, FIXED64, double_of)
+    return fixed(self.data, self.last, number, FIXED64, double_of, double_at)
   end
 
   function repeated_bytes(self, number: integer): {string}
