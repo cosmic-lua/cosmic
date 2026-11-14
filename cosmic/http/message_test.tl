@@ -422,6 +422,19 @@ local function test_a_large_body_fed_in_small_pieces_is_read()
   assert(assert(read.request, read.reason).body == body)
 end
 
+--- A feed of many lines costs its length: a reader that copied the rest
+--- of the feed at each line would spend the square of it, and not end
+--- within a test's time.
+local function test_a_feed_of_many_lines_is_read_in_time_linear_in_it()
+  local chunks: mut {string} = { "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n" }
+  for _ = 1, 200000 do chunks[#chunks + 1] = "1\r\na\r\n" end
+  chunks[#chunks + 1] = "0\r\n\r\n"
+  local read = request(table.concat(chunks))
+  assert(#assert(read.request, read.reason).body == 200000)
+  local blank = request(("\r\n"):rep(500000) .. "GET / HTTP/1.1\r\n\r\n", { head_bytes = 2 * 1024 * 1024 })
+  assert(blank.status == "done", blank.reason)
+end
+
 local function test_options_that_are_not_what_they_say_raise()
   local ok, why = pcall(Message.request_reader, { protocol = "rtsp" })
   assert(not ok and tostring(why):find("is not a name and version", 1, true) ~= nil, tostring(why))

@@ -431,9 +431,9 @@ local function machine(set: Settings): Machine
   end
 
   --- What the head, read whole, says of the body: an answer, or nil
-  --- where a body follows, `phase` set for it. `rest` is what the feed
-  --- holds after the head.
-  local function framed(rest: string): Read?
+  --- where a body follows, `phase` set for it. `chunk` from `after` is
+  --- what the feed holds after the head.
+  local function framed(chunk: string, after: integer): Read?
     st.spent = st.taken
     local te, cl = st.values["transfer-encoding"], st.values["content-length"]
     if te ~= nil and cl ~= nil then
@@ -457,7 +457,7 @@ local function machine(set: Settings): Machine
     if set.response then
       local status = st.second
       if set.head_only or status < "200" or status == "204" or status == "304" then
-        return done(rest)
+        return done(chunk:sub(after))
       end
     end
     if te ~= nil then
@@ -465,19 +465,21 @@ local function machine(set: Settings): Machine
       return nil
     end
     if length == nil then
-      if not set.response then return done(rest) end
+      if not set.response then return done(chunk:sub(after)) end
       st.phase = "end"
       return nil
     end
     if length > set.body_bytes then return refuse(OVER_BODY) end
-    if length == 0 then return done(rest) end
+    if length == 0 then return done(chunk:sub(after)) end
     st.left, st.phase = length, "length"
     return nil
   end
 
   --- What a whole line, without its LF, decides: an answer, or nil to
-  --- go on. `rest` is what the feed holds after it.
-  local function line(raw: string, rest: string): Read?
+  --- go on. `fed` from `after` is what the feed holds after the line,
+  --- copied only for the answer that ends the message: copied for each
+  --- line, a feed of many lines would cost the square of its length.
+  local function line(raw: string, fed: string, after: integer): Read?
     if raw:sub(-1) ~= "\r" then return refuse("a line ends in a bare LF") end
     local text = raw:sub(1, -2)
     if text:find("\r", 1, true) then return refuse("a line holds a bare CR") end
@@ -491,7 +493,7 @@ local function machine(set: Settings): Machine
       if answer == nil then head_line() end
       return answer
     elseif phase == "headers" then
-      if text == "" then return framed(rest) end
+      if text == "" then return framed(fed, after) end
       st.count = st.count + 1
       if st.count > set.max_headers then
         return refuse("more than " .. String.counted(set.max_headers, "header"))
@@ -523,7 +525,7 @@ local function machine(set: Settings): Machine
       meta_line("size")
       return nil
     end
-    if text == "" then return done(rest) end
+    if text == "" then return done(fed:sub(after)) end
     if not spend(#text + 2) then return refuse(OVER_HEAD) end
     local got, why = wire.field(text)
     if got == nil then return refuse("a trailer is malformed: " .. why) end
@@ -557,7 +559,7 @@ local function machine(set: Settings): Machine
         local raw = table.concat(st.pieces)
         st.pieces, st.line_size = {}, 0
         pos = lf + 1
-        local answer = line(raw, chunk:sub(pos))
+        local answer = line(raw, chunk, pos)
         if answer ~= nil then return answer end
       elseif phase == "end" then
         local got = size - pos + 1
