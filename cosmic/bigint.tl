@@ -129,8 +129,9 @@ end
 --- many bytes as `modulus` has, zero bytes on the left. The time taken
 --- depends on the length of `a` and on the modulus, not on the value of
 --- `a` (the module's doc says what shows). It takes longer than
---- [`Bigint.mod`], a step for each bit of `a`. Raises on a zero modulus
---- and on a number over its limit.
+--- [`Bigint.mod`], and longest modulo an even number or one of 8 bytes
+--- or fewer, a step for each bit of `a`. Raises on a zero modulus and on
+--- a number over its limit.
 ---
 ---     local digit = Bigint.reduce(hashed, order)
 function Bigint.reduce(a: string, modulus: string): string

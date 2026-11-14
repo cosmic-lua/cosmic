@@ -21,6 +21,7 @@
 
 #include "bigint.h"
 
+#include <stdbool.h>
 #include <string.h>
 
 /* The header is one of the library's sources, held to the library's
@@ -305,42 +306,99 @@ static void double_and_add (mbedtls_mpi_uint *X, mbedtls_mpi_uint bit,
   settle(X, S, carry, N, limbs);
 }
 
-/* X = (argument `arg` times 2 to the `shift`) mod N: the library has no
- * reduction that is constant in time (mbedtls_mpi_mod_mpi divides), so
- * this is Horner's rule over the argument's bits, the highest first,
- * and then `shift` doublings. Every bit of the argument's limbs takes
- * one step, a leading zero one too, so the work is fixed by the
- * argument's length, the modulus's and `shift`. W is scratch of
- * [`limbs_of`] the argument's length, and S of `limbs` limbs. */
-static void reduce (lua_State *L, int arg, size_t shift, mbedtls_mpi_uint *X,
-                    const mbedtls_mpi_uint *N, size_t limbs,
-                    mbedtls_mpi_uint *W, mbedtls_mpi_uint *S) {
-  size_t len;
-  const unsigned char *bytes = check_number(L, arg, OPERAND_MAX, &len);
-  size_t wide = limbs_of(len);
-  succeed(L, mbedtls_mpi_core_read_be(W, wide, bytes, len));
-  memset(X, 0, limbs * ciL);
-  for (size_t i = wide * biL; i-- > 0;) {
-    double_and_add(X, (W[i / biL] >> (i % biL)) & 1, N, limbs, S);
-  }
-  for (size_t i = 0; i < shift; i++) double_and_add(X, 0, N, limbs, S);
-}
-
 /* The limbs of a call that works modulo its last argument. */
 struct modular {
   struct modulus modulus;
   /* The modulus, and each of its `modulus.limbs` limbs long: two
    * operands reduced, the answer and scratch. */
   mbedtls_mpi_uint *N, *A, *B, *X, *S;
+  /* Where `by_limbs` is set, two numbers below the modulus that it
+   * alone fixes, with R 2 to the bits of the modulus's limbs: `step`,
+   * R times 2 to the bits of one limb fewer, and `square`, R times R. */
+  mbedtls_mpi_uint *step, *square;
   /* Scratch as wide as the widest operand. */
   mbedtls_mpi_uint *W;
-  /* `extra` limbs more of scratch. */
+  /* Scratch for mbedtls_mpi_core_montmul. */
   mbedtls_mpi_uint *T;
+  /* What mbedtls_mpi_core_montmul_init makes of the modulus. */
+  mbedtls_mpi_uint mm;
+  /* Whether an operand is reduced a limb at a time, with Montgomery's
+   * multiplication: the modulus is odd and of two limbs or more. */
+  bool by_limbs;
 };
+
+/* X = (X * Y) / R mod N, by mbedtls_mpi_core_montmul, for X and Y below
+ * the modulus, which is odd. */
+static void montgomery (const struct modular *m, mbedtls_mpi_uint *X,
+                        const mbedtls_mpi_uint *Y) {
+  size_t limbs = m->modulus.limbs;
+  mbedtls_mpi_core_montmul(X, X, Y, limbs, m->N, limbs, m->mm, m->T);
+}
+
+/* Fills `step` and `square`, from the modulus alone: nothing here is
+ * secret. A power of two below the modulus is doubled up to R, and on
+ * to R times 2 to the bits of a limb, which is that power of two in
+ * Montgomery's form. Its powers are the two numbers: the one of the
+ * modulus's limbs less one, by squaring and multiplying, and the next. */
+static void prepare (struct modular *m) {
+  size_t limbs = m->modulus.limbs;
+  mbedtls_mpi_uint *one = m->step, *limb = m->square;
+  /* 2 to the bits of all the limbs but the highest is not above the
+   * modulus, whose highest limb is not zero. */
+  memset(m->S, 0, limbs * ciL);
+  m->S[limbs - 1] = 1;
+  settle(one, m->S, 0, m->N, limbs);
+  for (size_t i = 0; i < biL; i++) double_and_add(one, 0, m->N, limbs, m->S);
+  memcpy(limb, one, limbs * ciL);
+  for (size_t i = 0; i < biL; i++) double_and_add(limb, 0, m->N, limbs, m->S);
+  size_t power = limbs - 1, bit = 1;
+  while (bit <= power / 2) bit <<= 1;
+  for (; bit != 0; bit >>= 1) {
+    montgomery(m, m->step, m->step);
+    if ((power & bit) != 0) montgomery(m, m->step, limb);
+  }
+  montgomery(m, m->square, m->step);
+}
+
+/* X = argument `arg` mod N. The library has no reduction that is
+ * constant in time (mbedtls_mpi_mod_mpi divides), so this is Horner's
+ * rule, and the work is fixed by the argument's length and the modulus.
+ *
+ * By limbs, a digit is one limb fewer than the modulus has, so that it
+ * is below the modulus: X is multiplied by the digits' base, which
+ * mbedtls_mpi_core_montmul does given `step`, and the digit is added.
+ * Every digit of the argument's limbs takes that step, a zero one too.
+ *
+ * Otherwise a digit is a bit: X is doubled and the bit added, for every
+ * bit of the argument's limbs. */
+static void reduce (lua_State *L, int arg, const struct modular *m,
+                    mbedtls_mpi_uint *X) {
+  size_t limbs = m->modulus.limbs;
+  size_t len;
+  const unsigned char *bytes = check_number(L, arg, OPERAND_MAX, &len);
+  size_t wide = limbs_of(len);
+  succeed(L, mbedtls_mpi_core_read_be(m->W, wide, bytes, len));
+  memset(X, 0, limbs * ciL);
+  if (!m->by_limbs) {
+    for (size_t i = wide * biL; i-- > 0;) {
+      double_and_add(X, (m->W[i / biL] >> (i % biL)) & 1, m->N, limbs, m->S);
+    }
+    return;
+  }
+  size_t digit = limbs - 1;
+  for (size_t at = (wide + digit - 1) / digit * digit; at > 0;) {
+    at -= digit;
+    montgomery(m, X, m->step);
+    memset(m->S, 0, limbs * ciL);
+    memcpy(m->S, m->W + at, (wide - at < digit ? wide - at : digit) * ciL);
+    mbedtls_mpi_uint carry = mbedtls_mpi_core_mla(m->S, limbs, X, limbs, 1);
+    settle(X, m->S, carry, m->N, limbs);
+  }
+}
 
 /* Checks the modulus and the lengths of the `operands` arguments before
  * it, pushes the call's limbs and reads the modulus into them. */
-static struct modular push_modular (lua_State *L, int operands, size_t extra) {
+static struct modular push_modular (lua_State *L, int operands) {
   struct modular modular;
   modular.modulus = check_modulus(L, operands + 1);
   size_t limbs = modular.modulus.limbs;
@@ -350,16 +408,25 @@ static struct modular push_modular (lua_State *L, int operands, size_t extra) {
     check_number(L, arg, OPERAND_MAX, &len);
     if (limbs_of(len) > wide) wide = limbs_of(len);
   }
-  mbedtls_mpi_uint *block = push_limbs(L, 5 * limbs + wide + extra);
+  mbedtls_mpi_uint *block = push_limbs(
+      L, 7 * limbs + wide + mbedtls_mpi_core_montmul_working_limbs(limbs));
   modular.N = block;
   modular.A = block + limbs;
   modular.B = block + 2 * limbs;
   modular.X = block + 3 * limbs;
   modular.S = block + 4 * limbs;
-  modular.W = block + 5 * limbs;
+  modular.step = block + 5 * limbs;
+  modular.square = block + 6 * limbs;
+  modular.W = block + 7 * limbs;
   modular.T = modular.W + wide;
   succeed(L, mbedtls_mpi_core_read_be(modular.N, limbs, modular.modulus.bytes,
                                       modular.modulus.len));
+  modular.by_limbs = limbs > 1 && (modular.N[0] & 1) == 1;
+  modular.mm = 0;
+  if (modular.by_limbs) {
+    modular.mm = mbedtls_mpi_core_montmul_init(modular.N);
+    prepare(&modular);
+  }
   return modular;
 }
 
@@ -372,8 +439,8 @@ static int push_modular_answer (lua_State *L, const struct modular *modular) {
 /* reduce(a, modulus): a mod modulus, as wide as the modulus. */
 static int bigint_reduce (lua_State *L) {
   lua_settop(L, 2);
-  struct modular m = push_modular(L, 1, 0);
-  reduce(L, 1, 0, m.X, m.N, m.modulus.limbs, m.W, m.S);
+  struct modular m = push_modular(L, 1);
+  reduce(L, 1, &m, m.X);
   return push_modular_answer(L, &m);
 }
 
@@ -383,10 +450,10 @@ static int bigint_reduce (lua_State *L) {
  * documents as constant in time. */
 static int bigint_addmod (lua_State *L) {
   lua_settop(L, 3);
-  struct modular m = push_modular(L, 2, 0);
+  struct modular m = push_modular(L, 2);
   size_t limbs = m.modulus.limbs;
-  reduce(L, 1, 0, m.A, m.N, limbs, m.W, m.S);
-  reduce(L, 2, 0, m.B, m.N, limbs, m.W, m.S);
+  reduce(L, 1, &m, m.A);
+  reduce(L, 2, &m, m.B);
   memcpy(m.S, m.A, limbs * ciL);
   mbedtls_mpi_uint carry = mbedtls_mpi_core_mla(m.S, limbs, m.B, limbs, 1);
   settle(m.X, m.S, carry, m.N, limbs);
@@ -398,10 +465,10 @@ static int bigint_addmod (lua_State *L) {
  * the modulus are both computed, and the borrow chooses. */
 static int bigint_submod (lua_State *L) {
   lua_settop(L, 3);
-  struct modular m = push_modular(L, 2, 0);
+  struct modular m = push_modular(L, 2);
   size_t limbs = m.modulus.limbs;
-  reduce(L, 1, 0, m.A, m.N, limbs, m.W, m.S);
-  reduce(L, 2, 0, m.B, m.N, limbs, m.W, m.S);
+  reduce(L, 1, &m, m.A);
+  reduce(L, 2, &m, m.B);
   mbedtls_mpi_uint borrow = mbedtls_mpi_core_sub(m.X, m.A, m.B, limbs);
   memcpy(m.S, m.X, limbs * ciL);
   (void)mbedtls_mpi_core_mla(m.S, limbs, m.N, limbs, 1);
@@ -410,18 +477,27 @@ static int bigint_submod (lua_State *L) {
 }
 
 /* mulmod(a, b, modulus): (a * b) mod modulus, for an odd modulus, as
- * wide as the modulus. With R 2 to the bits of the modulus's limbs,
- * mbedtls_mpi_core_montmul answers its two factors' product over R, so
- * the first is reduced as a times R, by that many doublings more. */
+ * wide as the modulus. Montgomery's multiplication answers its factors'
+ * product over R, so the product is multiplied once more, by R times R.
+ * A modulus of one limb is 3 or more here, and takes the same two
+ * multiplications, with R times R made by doubling. */
 static int bigint_mulmod (lua_State *L) {
   lua_settop(L, 3);
-  struct modular m = push_modular(L, 2, 2 * MODULUS_MAX / ciL + 1);
+  struct modular m = push_modular(L, 2);
   size_t limbs = m.modulus.limbs;
   luaL_argcheck(L, (m.N[0] & 1) == 1, 3, "the modulus is even");
-  reduce(L, 1, limbs * biL, m.A, m.N, limbs, m.W, m.S);
-  reduce(L, 2, 0, m.B, m.N, limbs, m.W, m.S);
-  mbedtls_mpi_core_montmul(m.X, m.A, m.B, limbs, m.N, limbs,
-                           mbedtls_mpi_core_montmul_init(m.N), m.T);
+  reduce(L, 1, &m, m.A);
+  reduce(L, 2, &m, m.B);
+  if (!m.by_limbs) {
+    m.mm = mbedtls_mpi_core_montmul_init(m.N);
+    memset(m.square, 0, limbs * ciL);
+    for (size_t i = 0; i <= 2 * limbs * biL; i++) {
+      double_and_add(m.square, i == 0 ? 1 : 0, m.N, limbs, m.S);
+    }
+  }
+  memcpy(m.X, m.A, limbs * ciL);
+  montgomery(&m, m.X, m.B);
+  montgomery(&m, m.X, m.square);
   return push_modular_answer(L, &m);
 }
 

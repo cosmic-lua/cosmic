@@ -741,6 +741,29 @@ local function test_arithmetic_for_secrets_agrees_with_the_plain_functions_acros
   end
 end
 
+local function test_arithmetic_for_secrets_agrees_with_the_plain_functions_at_every_count_of_limbs()
+  -- An odd modulus of two limbs or more is reduced by digits of one limb
+  -- fewer, and the constant that does it is a power whose exponent is
+  -- that count: every count to 20 limbs, and operands of fewer digits
+  -- than, as many as and more than a whole number of them.
+  for limbs = 1, 20 do
+    for _, short in ipairs{ 0, 3, 7 } do
+      local length = limbs * 8 - short
+      local modulus = drawn(("limbs %d %d"):format(limbs, short), length)
+      local odd = "\129" .. modulus:sub(2, -2) .. string.char(assert(modulus:byte(-1)) | 1)
+      if length == 1 then odd = "\129" end
+      for _, x_length in ipairs{ length - 9, length - 8, length, length + 1, 2 * length, 3 * length + 5 } do
+        if x_length >= 0 then
+          local x = drawn(("x %d %d"):format(length, x_length), x_length)
+          local y = drawn(("y %d %d"):format(length, x_length), (x_length * 7 + 3) % 40)
+          assert_agreement(x, y, odd)
+          assert_agreement(string.rep("\255", x_length), odd, odd)
+        end
+      end
+    end
+  end
+end
+
 local function test_arithmetic_for_secrets_raises_on_a_zero_modulus()
   local why = Test.raises(function() Bigint.reduce(a, zero) end, "the modulus is zero")
   assert(why:find("bad argument #2 to 'reduce'", 1, true), why)
