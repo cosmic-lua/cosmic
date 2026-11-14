@@ -26,6 +26,8 @@
 --- command first -- `prog build --jobs 4` -- parses the rest with that
 --- command's own spec, and answers `--help` from the same descriptions.
 
+local Distance = require("cosmic.internal.distance")
+
 local record Flags
   --- One option described, for a spec to name and [`Flags.help`] to show.
   record Option
@@ -127,41 +129,6 @@ local function is_required(entry: boolean | Flags.Option): boolean
   return entry.required == true
 end
 
---- The edit distance between `a` and `b`, or `reach + 1` when it is past
---- `reach`: insertions, deletions, replacements and swaps of two adjacent
---- bytes, each counting one (optimal string alignment).
-local function distance(a: string, b: string, reach: integer): integer
-  if math.abs(#a - #b) > reach then
-    return reach + 1
-  end
-  -- A row holds the distances from a prefix of `a` to each prefix of
-  -- `b`, that of b's first `j` bytes at slot `j + 1`.
-  local function cell(cells: {integer}, j: integer): integer
-    return assert(cells[j + 1])
-  end
-  local before: {integer} = {}
-  local row: mut {integer} = {}
-  for j = 0, #b do row[#row + 1] = j end
-  for i = 1, #a do
-    local next_row: mut {integer} = { i }
-    local least = i
-    for j = 1, #b do
-      local cost = if a:byte(i) == b:byte(j) then 0 else 1 end
-      local best = math.min(cell(row, j) + 1, cell(next_row, j - 1) + 1, cell(row, j - 1) + cost)
-      if i > 1 and j > 1 and a:byte(i) == b:byte(j - 1) and a:byte(i - 1) == b:byte(j) then
-        best = math.min(best, cell(before, j - 2) + 1)
-      end
-      next_row[#next_row + 1] = best
-      if best < least then least = best end
-    end
-    if least > reach then
-      return reach + 1
-    end
-    before, row = row, next_row
-  end
-  return math.min(cell(row, #b), reach + 1)
-end
-
 --- The names of `names` a mistyped `word` most likely meant, likeliest
 --- first, at most three; none when nothing is near. The rule the
 --- refusals of [`Flags.parse`] and [`Flags.dispatch`] end "did you mean"
@@ -186,8 +153,7 @@ end
 --- @return {string} The near names, likeliest first
 function Flags.nearest(word: string, names: {string}): {string}
   local bare = word:gsub("^%-+", "")
-  local length = utf8.len(bare) or #bare
-  local reach = if length < 3 then 0 elseif length < 8 then 1 elseif length < 12 then 2 else 3 end
+  local reach = Distance.reach(bare)
   local record Near
     name: string
     rank: integer
@@ -202,7 +168,7 @@ function Flags.nearest(word: string, names: {string}): {string}
       elseif word ~= "" and #name > #word and name:sub(1, #word) == word then
         near[#near + 1] = { name = name, rank = 1 }
       elseif reach > 0 then
-        local far = distance(word, name, reach)
+        local far = Distance.between(word, name, reach)
         if far <= reach then
           near[#near + 1] = { name = name, rank = far + 1 }
         end

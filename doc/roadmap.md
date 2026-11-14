@@ -492,8 +492,7 @@ symbol.
   is the library's ([`cosmic/doc.tl`]), the one `cosmic docs` asks. what
   remains: [`Flags.dispatch`] takes a record whose fields' doc comments are
   the commands' pages and answers `help <command>` and `docs <words>` from
-  the program's own rows, and a misspelled word takes the nearest stem of
-  the index, by the distance [`Flags.nearest`] ranks names with.
+  the program's own rows.
 - add mention search for prose references that `cosmic uses` cannot see.
   old's `cosmic/doc/mentions.tl` demonstrates the separate full-text query.
 - an uncaught error's guidance ([`Errors.guidance`] in [`cosmic/errors.tl`]) is
@@ -610,7 +609,6 @@ four-producer provenance join.
 [`Errors.guidance`]: ../cosmic/errors.tl
 [`eval/summarize.tl`]: ../eval/summarize.tl
 [`Flags.dispatch`]: ../cosmic/flags.tl
-[`Flags.nearest`]: ../cosmic/flags.tl
 [`Html.url_part`]: ../cosmic/html.tl
 [`Input.Invalid`]: ../cosmic/web/input.tl
 [`Json.decode`]: ../cosmic/json.tl
