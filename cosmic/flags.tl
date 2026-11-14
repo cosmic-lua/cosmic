@@ -106,6 +106,121 @@ local function is_required(entry: boolean | Flags.Option): boolean
   return entry.required == true
 end
 
+--- The edit distance between `a` and `b`, or `reach + 1` when it is past
+--- `reach`: insertions, deletions, replacements and swaps of two adjacent
+--- bytes, each counting one (optimal string alignment).
+local function distance(a: string, b: string, reach: integer): integer
+  if math.abs(#a - #b) > reach then
+    return reach + 1
+  end
+  -- A row holds the distances from a prefix of `a` to each prefix of
+  -- `b`, that of b's first `j` bytes at slot `j + 1`.
+  local function cell(cells: {integer}, j: integer): integer
+    return assert(cells[j + 1])
+  end
+  local before: {integer} = {}
+  local row: mut {integer} = {}
+  for j = 0, #b do row[#row + 1] = j end
+  for i = 1, #a do
+    local next_row: mut {integer} = { i }
+    local least = i
+    for j = 1, #b do
+      local cost = if a:byte(i) == b:byte(j) then 0 else 1 end
+      local best = math.min(cell(row, j) + 1, cell(next_row, j - 1) + 1, cell(row, j - 1) + cost)
+      if i > 1 and j > 1 and a:byte(i) == b:byte(j - 1) and a:byte(i - 1) == b:byte(j) then
+        best = math.min(best, cell(before, j - 2) + 1)
+      end
+      next_row[#next_row + 1] = best
+      if best < least then least = best end
+    end
+    if least > reach then
+      return reach + 1
+    end
+    before, row = row, next_row
+  end
+  return math.min(cell(row, #b), reach + 1)
+end
+
+--- The names of `names` a mistyped `word` most likely meant, likeliest
+--- first, at most three; none when nothing is near. The rule the
+--- refusals of [`Flags.parse`] and [`Flags.dispatch`] end "did you mean"
+--- by, for a program that words its own. A name is near when:
+---
+--- - `word` begins it and is shorter ("rep" for "report"); or
+--- - it is within reach by edit distance: the fewest bytes inserted,
+---   deleted or replaced, or adjacent pairs swapped, that turn one into
+---   the other. The reach grows with `word`'s length, counted in
+---   characters without its leading dashes: none under 3, then 1, 2
+---   from 8 and 3 from 12.
+---   So "biuld" finds "build" and "--chek" finds "--check", and "rm"
+---   never finds "mv".
+---
+--- A name equal to `word` comes first, then the names `word` begins,
+--- then the others by distance; ties go shorter first, then by name. A
+--- name given twice is answered once.
+---
+---     Flags.nearest("stauts", { "start", "status", "stash" })  -- => { "status" }
+--- @param word string The word as typed
+--- @param names {string} The names it could have been
+--- @return {string} The near names, likeliest first
+function Flags.nearest(word: string, names: {string}): {string}
+  local bare = word:gsub("^%-+", "")
+  local length = utf8.len(bare) or #bare
+  local reach = if length < 3 then 0 elseif length < 8 then 1 elseif length < 12 then 2 else 3 end
+  local record Near
+    name: string
+    rank: integer
+  end
+  local near: mut {Near} = {}
+  local seen: mut {string:boolean} = {}
+  for _, name in ipairs(names) do
+    if seen[name] == nil then
+      seen[name] = true
+      if name == word then
+        near[#near + 1] = { name = name, rank = 0 }
+      elseif word ~= "" and #name > #word and name:sub(1, #word) == word then
+        near[#near + 1] = { name = name, rank = 1 }
+      elseif reach > 0 then
+        local far = distance(word, name, reach)
+        if far <= reach then
+          near[#near + 1] = { name = name, rank = far + 1 }
+        end
+      end
+    end
+  end
+  table.sort(near, function(a: Near, b: Near): boolean
+    if a.rank ~= b.rank then return a.rank < b.rank end
+    if #a.name ~= #b.name then return #a.name < #b.name end
+    return a.name < b.name
+  end)
+  local out: mut {string} = {}
+  for slot, found in ipairs(near) do
+    if slot > 3 then break end
+    out[slot] = found.name
+  end
+  return out
+end
+
+--- What a refusal of `word` ends with when `names` holds any near it
+--- ([`Flags.nearest`]): "; did you mean build?", or "; did you mean one of
+--- build, built?". "" when none is near.
+local function meant(word: string, names: {string}): string
+  local found = Flags.nearest(word, names)
+  if #found == 0 then
+    return ""
+  elseif #found == 1 then
+    return "; did you mean " .. found[1] .. "?"
+  end
+  return "; did you mean one of " .. table.concat(found, ", ") .. "?"
+end
+
+--- The keys of `map`, in no order.
+local function keys<V>(map: {string:V}): {string}
+  local out: mut {string} = {}
+  for key in pairs(map) do out[#out + 1] = key end
+  return out
+end
+
 --- Parses command line options. Reads `argv` from slot `from` on: 1
 --- for a program's own `argv`, 2 for a verb's, whose slot 1 is the verb.
 --- `spec` maps each option, written as it is typed ("--check", "-v"), to
@@ -127,7 +242,9 @@ end
 --- a spec may name "-foo" or "-é" whole, and then that word is that
 --- option, never a cluster.
 ---
---- Answers nil and why for an option the spec does not name, a value
+--- Answers nil and why for an option the spec does not name ("no such
+--- option: --chek; did you mean --check?", the names [`Flags.nearest`]
+--- finds near it, when any is), a value
 --- given to one that takes none, an option the spec marks `required` that
 --- the line does not give ("--jobs is required"; the first by name when
 --- several are missing), or one whose value is missing: the end
@@ -203,7 +320,7 @@ function Flags.parse(argv: {string}, from: integer,
       if name == nil then name = word end
       local entry = spec[name]
       if entry == nil then
-        return nil, "no such option: " .. name
+        return nil, "no such option: " .. name .. meant(name, keys(spec))
       elseif takes_value(entry) then
         local trouble = valued(name, value, if #name > 2 then "=" else "" end)
         if trouble ~= "" then
@@ -215,7 +332,7 @@ function Flags.parse(argv: {string}, from: integer,
         flag(name)
       end
     elseif spec[word:sub(1, 2)] == nil then
-      return nil, "no such option: " .. word
+      return nil, "no such option: " .. word .. meant(word, keys(spec))
     else
       local at = 2
       while at <= #word do
@@ -225,9 +342,9 @@ function Flags.parse(argv: {string}, from: integer,
         if letter == "=" then
           return nil, "-" .. word:sub(at - 1, at - 1) .. " takes no value"
         elseif not letter:match("^%w$") then
-          return nil, "no such option: " .. word
+          return nil, "no such option: " .. word .. meant(word, keys(spec))
         elseif entry == nil then
-          return nil, "no such option: " .. name .. " in " .. word
+          return nil, "no such option: " .. name .. " in " .. word .. meant(word, keys(spec))
         elseif takes_value(entry) then
           local rest = word:sub(at + 1)
           local trouble = valued(name, if rest ~= "" then rest else nil end, "")
@@ -417,7 +534,8 @@ end
 --- with that command's spec, as `Flags.parse(argv, from + 1, spec)`
 --- would, and answers what its `run` answers. Answers nil and why, run
 --- nothing, when the line names no command, one `commands` does not
---- hold -- an option before the command is one -- or a line the
+--- hold -- an option before the command is one; "no such command: biuld;
+--- did you mean build?" where [`Flags.nearest`] finds any near it -- or a line the
 --- command's spec refuses, or a command with no `run`. A line the spec
 --- refuses is answered with the command's name, the refusal and its usage
 --- line -- "build: --jobs is required; usage: prog build [options] <file>"
@@ -466,7 +584,7 @@ function Flags.dispatch(argv: {string}, from: integer,
     end
     local asked_command = commands[asked]
     if asked_command == nil then
-      return nil, "no such command: " .. asked
+      return nil, "no such command: " .. asked .. meant(asked, keys(commands))
     end
     return { code = 0, help = Flags.help(asked_command, program .. " " .. asked) }, ""
   end
@@ -478,7 +596,7 @@ function Flags.dispatch(argv: {string}, from: integer,
   end
   local command = commands[name]
   if command == nil then
-    return nil, "no such command: " .. name
+    return nil, "no such command: " .. name .. meant(name, keys(commands))
   end
   local spec = command.spec or {}
   if Flags.asks_help(argv, from + 1, spec) then

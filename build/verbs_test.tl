@@ -28,7 +28,13 @@ local function test_a_mistyped_verb_is_named(tmp: string)
   local err = result.stderr
   assert(result.code == 2, err)
   -- The whole of stderr: one line, prefixed once.
-  assert(err == "cosmic: no such verb or file: tset; see `cosmic help`\n", err)
+  assert(err == "cosmic: no such verb or file: tset; did you mean test?; see `cosmic help`\n", err)
+  -- A word near no verb is refused without a guess, and a verb typed as
+  -- an option (`-e`) or as a file is never the guess.
+  local far = cosmic(tmp, { "frobnicate" })
+  assert(far.stderr == "cosmic: no such verb or file: frobnicate; see `cosmic help`\n", far.stderr)
+  local eval = cosmic(tmp, { "evla" })
+  assert(eval.stderr == "cosmic: no such verb or file: evla; see `cosmic help`\n", eval.stderr)
 end
 
 --- A test's worker is cosmic's main's to start (cmd/cosmic/main.tl),
