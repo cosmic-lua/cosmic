@@ -1796,8 +1796,10 @@ local function test_a_responder_answers_each_question_with_the_records_it_asks_f
     send_query(asker, to, 8, { { ...asking("_ipp._tcp.local", Dns.PTR), class = 3 } })
     local six = ask(9, "second.local", Dns.A)
     assert(#six.answers == 1 and assert(six.answers[1]).address == "192.0.2.9")
-    -- A question for the records of any class is one for the internet's.
+    -- A question for the records of any class is one for the internet's. The query after it is
+    -- answered whatever comes of it, so that it is the id that says which was.
     send_query(asker, to, 10, { { ...asking("second.local", Dns.A), class = 255 } })
+    send_query(asker, to, 11, { asking("second.local", Dns.A) })
     local any_class = next_response(asker)
     assert(any_class.id == 10 and #any_class.answers == 1, tostring(any_class.id))
   end)
@@ -1969,8 +1971,8 @@ local function test_a_cancelled_tasks_responder_ends_with_cancelled_and_a_closed
   end)
 end
 
---- Sixteen addresses of each family at a host with a long name fit one answer where the name is
---- short: the case of the refusal above that is not refused.
+--- Two instances at one host, written in two cases, each give it addresses: the host has them
+--- all, in the order they were given, and either instance is answered for with them all.
 local function test_a_responder_answers_for_every_address_of_a_host_two_instances_are_at()
   publishing({
     { service = "_http._tcp", name = "One", host = "both.local", port = 80, ipv4 = { "192.0.2.1" } },
@@ -2059,7 +2061,9 @@ local function test_another_task_has_its_turns_while_a_responder_reads_a_flood()
     ticking = false
     assert(ticker:join())
     assert(reply.id == 3)
-    -- A turn for every 16 datagrams read is 7 of them.
-    assert(ticks_when_answered - ticks_when_sent >= 4, ("%d then %d"):format(ticks_when_sent, ticks_when_answered))
+    -- A turn for every 16 datagrams read is 7 of them, and without them the ticker has the one
+    -- turn the asker's own wait gives it. Two are asked for, so that datagrams a full socket
+    -- dropped fail nothing.
+    assert(ticks_when_answered - ticks_when_sent >= 2, ("%d then %d"):format(ticks_when_sent, ticks_when_answered))
   end)
 end

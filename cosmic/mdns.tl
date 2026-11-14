@@ -125,12 +125,14 @@
 --- program that is no member, and is answered to that port alone, with its id and its questions
 --- repeated and no time to live over 10 seconds (RFC 6762 section 6.7): that is what a search
 --- listening by "unicast" asks. A member's question that asks for its answer by unicast is
---- answered to the group all the same. Answers go by IPv4 alone, and to the group by every interface the responder
---- joined it on. The responder holds 64 instances at most, each with what a search keeps of one,
---- and answers a query with one message for each instance the query asks about, none over 9000
---- bytes, though one may be longer than a frame of an Ethernet carries whole. It reads a query as a search reads an answer: one over 9000 bytes, one that is no DNS
---- message, a response and a query of another kind are ignored, and whether a query came from
---- the local link is not checked, so any machine that can reach the port draws an answer.
+--- answered to the group all the same. Answers go by IPv4 alone, and to the group by every
+--- interface the responder joined it on. The responder holds 64 instances at most, each with
+--- what a search keeps of one, and answers a query with one message for each instance the query
+--- asks about, none over 9000 bytes, though one may be longer than a frame of an Ethernet
+--- carries whole. It reads a query as a search reads an answer: one over 9000 bytes, one that
+--- is no DNS message, a response and a query of another kind are ignored, and whether a query
+--- came from the local link is not checked, so any machine that can reach the port draws an
+--- answer.
 ---
 --- Answering is all it does of a publisher's part. It does not probe for its names before it
 --- uses them, announce its records, say goodbye as it stops or settle a conflict with another
@@ -1046,7 +1048,8 @@ function Mdns.resolve(name: string, opts?: Mdns.Options): {Net.Resolved}?, strin
 end
 
 --- An instance as a responder holds it: its names in lower case, as a question's is compared,
---- and its records as a member of the group is sent them.
+--- and its records as a member of the group is sent them. `addresses` is its host's, one list
+--- shared by every instance at the host.
 local record Publication
   --- The name its pointer is at, the instance's whole name and its host's.
   service: string
@@ -1247,14 +1250,15 @@ end
 --- shared, and a member of the group on the interfaces `opts.via` names, ready for `serve` to
 --- answer the questions about them ([`cosmic.mdns`] says which, and what a responder leaves
 --- undone). Two instances may be at one host; where they give it different addresses, the host
---- has them all, and each of its instances is answered for with them all. The names are the caller's to use: no other responder is asked whether it
---- answers for them.
+--- has them all, and each of its instances is answered for with them all. The names are the
+--- caller's to use: no other responder is asked whether it answers for them.
 ---
 --- Nil and why where it cannot be made: no instance or more than 64, an instance whose service
 --- is no service type or is a sub-type, whose name is no label, whose host is not one of the
---- `local` domain, whose port is out of range, with an address that is none or more than 16 of
---- a family, with a TXT record past what a search keeps, or with the same name and service as
---- another; a socket that cannot be bound, which says the address and port first, as where a
+--- `local` domain, whose port is out of range, with an address that is none, with a TXT record
+--- past what a search keeps, with the same name and service as another, or whose records are
+--- longer than one answer holds; a host given more than 16 addresses of a family by its
+--- instances together; a socket that cannot be bound, which says the address and port first, as where a
 --- program holds the port without sharing it; or a group that cannot be joined on any
 --- interface, which says the group first. Raises for an option out of range.
 function Mdns.responder(instances: {Mdns.Published}, opts?: Mdns.ResponderOptions): Mdns.Responder?, string
