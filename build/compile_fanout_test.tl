@@ -2,7 +2,6 @@
 --- copies a count of work gets, and what each copy's end says.
 
 local Fs = require("cosmic.fs")
-local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
 local fanout = require("build.compile_fanout")
 
@@ -29,9 +28,6 @@ local function test_each_copy_runs_and_one_that_raises_is_told(tmp: string)
     assert(Fs.write(tmp .. "/" .. tostring(copy), "made by " .. tostring(copy)))
   end)
   local ended = ran.ended
-  if ended[1] ~= true and ended[3] ~= true then
-    Test.skip("this host forks no copy of the process")
-  end
   assert(ended[1] == true and ended[2] == false and ended[3] == true)
   assert(Fs.read(tmp .. "/1") == "made by 1" and Fs.read(tmp .. "/3") == "made by 3")
   assert(Fs.read(tmp .. "/2") == nil)
@@ -48,9 +44,7 @@ local function test_the_process_looks_while_its_copies_run(tmp: string)
     looks = looks + 1
     seen_last = Fs.read(tmp .. "/2")
   end).ended
-  if ended[1] ~= true or ended[2] ~= true then
-    Test.skip("this host forks no copy of the process")
-  end
+  assert(ended[1] == true and ended[2] == true, "a copy did not run")
   assert(looks >= 1, "the process never looked")
   assert(seen_last == "made", "the last look came before a copy ended")
 end
@@ -67,9 +61,7 @@ local function test_a_copy_that_does_not_end_is_ended_and_counted(tmp: string)
     end
   end)
   fanout.patience_ns = patience
-  if Fs.read(tmp .. "/1") == nil or Fs.read(tmp .. "/2") == nil then
-    Test.skip("this host forks no copy of the process")
-  end
+  assert(Fs.read(tmp .. "/1") == "started" and Fs.read(tmp .. "/2") == "started", "a copy did not run")
   assert(ran.ended[1] == true, "a copy that ended in time is told as ended badly")
   assert(ran.ended[2] == false and ran.late == 1, "the copy that hung was not ended: " .. tostring(ran.late))
 end
@@ -89,8 +81,6 @@ local function test_a_copy_that_ended_in_time_is_not_ended_for_a_late_look(tmp: 
     end
   end)
   fanout.patience_ns = patience
-  if Fs.read(tmp .. "/1") == nil then
-    Test.skip("this host forks no copy of the process")
-  end
+  assert(Fs.read(tmp .. "/1") == "made", "the copy did not run")
   assert(ran.ended[1] == true and ran.late == 0, "a copy that ended in time was ended: " .. tostring(ran.late))
 end

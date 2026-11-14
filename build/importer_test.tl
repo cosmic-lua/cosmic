@@ -2501,8 +2501,7 @@ local function test_the_checks_written_survive_every_compile_path()
   assert(plain.fact_wraps == 0 and plain.parameter_checks == 0, "an unchecked compile reported checks")
 end
 
---- Whether this host forks a copy of the process: macOS does not, and a build there asks for copies, gets none
---- that ran, and compiles everything itself.
+--- Whether a copy of the process, forked here, ran.
 local function forks(): boolean
   return fanout.run(1, function(_: integer) end).ended[1] == true
 end
@@ -2572,9 +2571,10 @@ local function test_modules_compiled_in_copies_are_those_one_process_compiles()
   local broken_at_once, _, broken_made = compiled("fanned-broken", broken, true)
   local told_broken = told_by_copies
   fanout.least = least
-  if not fanned or not forks() then
-    Test.skip("this host makes no copy of the process: one processor, or no fork")
+  if not fanned then
+    Test.skip("this host makes no copy of the process: one processor, or too little memory")
   end
+  assert(forks(), "no copy of the process could be forked")
   local alone, _, _ = compiled("alone", files, false)
   assert(at_once.compiled == 24 and alone.compiled == 24 and at_once.shared == 0, tostring(at_once.compiled))
   assert(#at_once.refused == 0, table.concat(at_once.refused, "\n"))
@@ -2649,9 +2649,10 @@ local function test_a_file_run_tells_its_copies_to_stop_at_the_refusal_it_stops_
   local result, trouble = importer.compile_for(handle, "stopped-test", "main", watched)
   work.close(handle)
   fanout.least = least
-  if not fanned or not forks() then
-    Test.skip("this host makes no copy of the process: one processor, or no fork")
+  if not fanned then
+    Test.skip("this host makes no copy of the process: one processor, or too little memory")
   end
+  assert(forks(), "no copy of the process could be forked")
   assert(result == nil and trouble:find("a_needed.tl", 1, true) ~= nil, trouble)
   local _, made_count = (Fs.read(made_path) or ""):gsub("\n", "")
   assert(made_count <= 20, "the copies compiled " .. tostring(made_count) .. " modules of a run that had stopped")
