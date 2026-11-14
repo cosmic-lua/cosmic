@@ -20,3 +20,4 @@ cite a [design.md](../design.md) promise or principle by name and number where
 the record rests on one.
 
 - [0001 friction triage](0001-friction-triage.md)
+- [0002 protobuf schema](0002-protobuf-schema.md)
