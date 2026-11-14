@@ -1164,8 +1164,8 @@ PSA API, with randomness from the OS rather than the library's own
 entropy and DRBG modules. [`cosmic.hash`] is the Teal face of it, the
 raw [`cosmic.internal.hash`] table's `digest`, `hmac` and streaming
 hasher the bindings, and every SQLite
-handle knows the same functions, so a query hashes in place. it
-serves authenticated encryption (ChaCha20-Poly1305) and X25519 key
+handle knows the same functions, so a query hashes in place. the
+crypto subtree serves authenticated encryption (ChaCha20-Poly1305) and X25519 key
 agreement the same way: [`cosmic.cipher`] over the raw
 [`cosmic.internal.cipher`] table, each key in a PSA key slot for one
 computation. the TLS

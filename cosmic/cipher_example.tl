@@ -5,9 +5,6 @@
 local Cipher = require("cosmic.cipher")
 local Hash = require("cosmic.hash")
 local Rand = require("cosmic.rand")
-local Test = require("cosmic.test")
-
-Test.policy{ cpu_features = true }
 
 local record Example end
 
@@ -32,7 +29,7 @@ function Example.open()
   local key = assert(Rand.entropy(Cipher.key_length))
   local nonce = assert(Rand.entropy(Cipher.nonce_length))
   local sealed = Cipher.seal("chacha20-poly1305", key, nonce, "pay bob 10", "invoice 7")
-  local tampered = sealed:sub(1, 8) .. "9" .. sealed:sub(10)
+  local tampered = sealed:sub(1, 8) .. string.char(assert(sealed:byte(9)) ~ 1) .. sealed:sub(10)
   local message, why = Cipher.open("chacha20-poly1305", key, nonce, tampered, "invoice 7")
   print(message, why)
   assert(message == nil and why ~= "")

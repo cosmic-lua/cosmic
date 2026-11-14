@@ -7,8 +7,6 @@ local Cipher = require("cosmic.cipher")
 local Codec = require("cosmic.codec")
 local Test = require("cosmic.test")
 
-Test.policy{ cpu_features = true }
-
 local function unhex(hex: string): string
   return (assert(Codec.unhex(hex)))
 end
@@ -223,10 +221,12 @@ local function test_a_private_key_is_clamped()
   assert(Cipher.x25519_public(flipped(private, 3)) ~= public)
 end
 
---- The u-coordinates of the points of order 1, 2, 4 and 8 below 2^255
---- (0, 1, the two of order 8, p - 1, p and p + 1), each also with the
---- top bit set, which is ignored: every private key takes each to the
---- all-zero secret.
+--- The u-coordinates of low order, in the order listed: 0 (the point of
+--- order 2), 1 (order 4), the two of the points of order 8, p - 1 (order
+--- 4, on the twist), and p and p + 1, which are 0 and 1 again, since a
+--- u-coordinate is taken modulo p = 2^255 - 19. Each is tried with the
+--- top bit set too, which is ignored. Every private key takes each to
+--- the all-zero secret.
 local function test_x25519_refuses_a_point_of_low_order()
   local private = unhex("77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a")
   for _, hex in ipairs({

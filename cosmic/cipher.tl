@@ -16,6 +16,12 @@
 --- Keys, nonces and what these functions answer are raw bytes. A key is
 --- [`Cipher.key_length`] bytes that nobody can guess: `Rand.entropy(32)`
 --- of [`cosmic.rand`], or a key derivation's output, never a password.
+---
+--- What a correct program can meet answers nil and why: a sealed message
+--- that does not authenticate, a peer's key of low order. An argument of
+--- the wrong length raises, and so does every other failure: memory
+--- running out, or the system's entropy source failing, which the X25519
+--- functions draw on.
 
 -- The raw module behind every function here lives under the reserved
 -- `cosmic.internal.` namespace -- see cosmic/store.tl for why it is off
@@ -53,9 +59,9 @@ Cipher.tag_length = 16
 --- A nonce is used once per key. Sealing two messages under the same
 --- key and nonce shows the difference of their plaintexts and lets an
 --- attacker forge messages under that key. The nonce is no secret: send
---- it beside the message. A counter that never repeats serves, and so
---- does `Rand.entropy(12)` for up to some billions of messages under
---- one key.
+--- it beside the message. A counter that never repeats serves. So
+--- does `Rand.entropy(12)` for about 2^32 messages under one key, which
+--- keeps the chance that two nonces are the same near 2^-33.
 ---
 --- Raises when `key` is not [`Cipher.key_length`] bytes or `nonce` not
 --- [`Cipher.nonce_length`].
@@ -69,7 +75,7 @@ end
 --- `sealed` is shorter than a tag or its tag does not authenticate it:
 --- a bit of the ciphertext, the tag, the `aad`, the nonce or the key
 --- differs. Nothing of the message is released then. Raises as `seal`
---- does.
+--- does, and on any other failure.
 function Cipher.open(algorithm: Cipher.Algorithm, key: string, nonce: string, sealed: string,
                      aad?: string): string?, string
   return raw.open(algorithm, key, nonce, sealed, aad)
@@ -78,7 +84,8 @@ end
 --- The X25519 public key (RFC 7748) of a private key, 32 bytes each:
 --- what a party sends the other. A private key is 32 bytes nobody can
 --- guess, `Rand.entropy(32)` of [`cosmic.rand`]; it is clamped as the
---- RFC says, so any 32 bytes are one. Raises on another length.
+--- RFC says, so any 32 bytes are one. Raises on another length, and on
+--- any other failure.
 function Cipher.x25519_public(private: string): string
   return raw.x25519_public(private)
 end
@@ -89,7 +96,7 @@ end
 --- can. nil and why when `peer_public` is a point of low order, which
 --- makes the secret all zero bytes whatever the private key: a peer
 --- that sends one is choosing the secret, not agreeing on it. Raises
---- when either key is not 32 bytes.
+--- when either key is not 32 bytes, and on any other failure.
 ---
 --- The secret is not a key yet. Pass it through a key derivation
 --- ([`Hash.hkdf`]), together with both public keys, and use what that

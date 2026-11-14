@@ -1,6 +1,8 @@
 -- Authenticated encryption and X25519 key agreement at the Lua boundary,
 -- as the core provides them. Every fallible function answers `value, ""`
--- on success and `nil, error` on failure.
+-- on success and `nil, error` on the failures its comment names. Any
+-- other failure of the library (out of memory, no entropy to blind an
+-- X25519 computation with) raises, from every function here.
 --- @kind binding
 
 local record cipher

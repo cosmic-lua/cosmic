@@ -39,14 +39,17 @@ _Noreturn static void no_such_algorithm (lua_State *L) {
  * that is no algorithm, or a key or nonce of another length, raises. */
 static const struct aead *checked_aead (lua_State *L, const unsigned char **key,
                                         const unsigned char **nonce) {
-  const char *name = luaL_checkstring(L, 1);
+  size_t name_length;
+  const char *name = luaL_checklstring(L, 1, &name_length);
   size_t key_length;
   size_t nonce_length;
   *key = (const unsigned char *)luaL_checklstring(L, 2, &key_length);
   *nonce = (const unsigned char *)luaL_checklstring(L, 3, &nonce_length);
   const struct aead *aead = NULL;
   for (size_t i = 0; i < sizeof aeads / sizeof *aeads; i++) {
-    if (strcmp(aeads[i].name, name) == 0) {
+    /* By its length too: a name with a NUL and more after it is no name. */
+    if (strlen(aeads[i].name) == name_length &&
+        memcmp(aeads[i].name, name, name_length) == 0) {
       aead = &aeads[i];
     }
   }
@@ -76,7 +79,13 @@ static psa_status_t import_aead_key (const struct aead *aead,
 /* A key lives in the library's own slot for exactly one computation:
  * imported, used, destroyed, and all of it between two calls into Lua,
  * so that no raise finds the slot taken. The output is a userdata made
- * before the key is imported, for the same reason. */
+ * before the key is imported, for the same reason.
+ *
+ * What is wiped: a userdata that held plaintext or a shared secret, once
+ * its bytes are a Lua string or the computation failed. What is not: the
+ * Lua string, which is the caller's, and that userdata when the push of
+ * the string raises for want of memory, where the collector frees it as
+ * it is. */
 
 static int cipher_seal (lua_State *L) {
   const unsigned char *key;
@@ -135,8 +144,8 @@ static int cipher_open (lua_State *L) {
     psa_destroy_key(id);
   }
   if (status != PSA_SUCCESS) {
-    /* Nothing of a message that failed is left where the collector
-     * frees it. */
+    /* The library clears what it wrote of a message it refuses; this
+     * does not rest on that. */
     mbedtls_platform_zeroize(plaintext, size);
   }
   if (status == PSA_ERROR_INVALID_SIGNATURE) {
@@ -148,6 +157,7 @@ static int cipher_open (lua_State *L) {
     return luaL_error(L, "cipher: opening failed with status %d", (int)status);
   }
   lua_pushlstring(L, (const char *)plaintext, plaintext_length);
+  mbedtls_platform_zeroize(plaintext, size);
   return cosmic_succeeded(L);
 }
 
@@ -192,22 +202,27 @@ static int cipher_x25519 (lua_State *L) {
       (const unsigned char *)luaL_checklstring(L, 2, &peer_length);
   luaL_argcheck(L, peer_length == X25519_LENGTH, 2,
                 "the peer's public key must be 32 bytes");
-  /* The secret is computed into a userdata, never onto the C stack,
-   * which a raise from the push below would unwind unwiped. */
+  /* The secret is computed into a userdata, not a C local: a userdata
+   * can be wiped after the push below, and is the collector's if that
+   * push raises, where a local would be left on the stack. */
   unsigned char *secret = lua_newuserdatauv(L, X25519_LENGTH, 0);
   size_t secret_length = 0;
   psa_key_id_t id = 0;
-  psa_status_t status = import_x25519_key(L, &id);
-  if (status == PSA_SUCCESS) {
-    status = psa_raw_key_agreement(PSA_ALG_ECDH, id, peer, peer_length, secret,
-                                   X25519_LENGTH, &secret_length);
-    psa_destroy_key(id);
+  psa_status_t imported = import_x25519_key(L, &id);
+  if (imported != PSA_SUCCESS) {
+    return luaL_error(L, "cipher: the private key failed with status %d",
+                      (int)imported);
   }
+  psa_status_t status =
+      psa_raw_key_agreement(PSA_ALG_ECDH, id, peer, peer_length, secret,
+                            X25519_LENGTH, &secret_length);
+  psa_destroy_key(id);
   if (status == PSA_SUCCESS) {
-    /* The library refuses a point of low order itself. The contract
-     * that an all-zero secret is never answered is held here too, so
-     * that it does not rest on which of the library's paths computed
-     * it. Every byte is read, with no branch on one. */
+    /* Defence in depth, which no input reaches: the library refuses a
+     * point of low order before it computes. It stays so that the
+     * contract, that an all-zero secret is never answered, does not
+     * depend on which of the library's paths computed the secret. Every
+     * byte is read, with no branch on one. */
     volatile unsigned char any = 0;
     for (size_t i = 0; i < secret_length; i++) any |= secret[i];
     if (any == 0) {
@@ -215,8 +230,9 @@ static int cipher_x25519 (lua_State *L) {
     }
   }
   if (status == PSA_ERROR_INVALID_ARGUMENT) {
-    /* The lengths are checked above, so the argument refused is the
-     * peer's point. */
+    /* The agreement's own refusal, with the peer's length checked
+     * above: the argument refused is the peer's point. */
+    mbedtls_platform_zeroize(secret, X25519_LENGTH);
     lua_pushnil(L);
     lua_pushstring(L, "cipher: the peer's public key is a point of low order");
     return 2;
