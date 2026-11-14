@@ -455,18 +455,11 @@ local function test_multicast_raw_settings_read_back_what_each_call_set()
   assert(none == nil and why == "Protocol wrong type for socket", why)
 end
 
---- `interfaces` answers an entry for each address `getifaddrs` lists, or
---- fails as a value where the worker's sandbox refuses the netlink socket
---- Linux reads them over.
-local function test_interfaces_lists_named_entries_or_fails_as_a_value()
-  local entries, why, errno = raw.interfaces()
-  if entries == nil then
-    assert(why ~= "" and errno ~= 0, why)
-    -- TODO: assert the entries on Linux too, once a sandboxed worker's
-    -- filter (core/promises.c) lets getifaddrs open its netlink socket.
-    Test.skip("this worker cannot list the host's interfaces: " .. why)
-    return
-  end
+--- `interfaces` answers an entry for each address `getifaddrs` lists: in
+--- a sandboxed worker those of its own loopback, which Linux reads over a
+--- netlink socket the worker's filter allows beside its inet sockets.
+local function test_interfaces_lists_named_entries_with_the_loopbacks_address()
+  local entries = assert(raw.interfaces())
   local loopback = false
   for _, entry in ipairs(entries) do
     assert(#entry.name > 0 and entry.index >= 0, entry.name)
