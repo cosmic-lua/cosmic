@@ -8,7 +8,7 @@ from [design.md](../design.md) needs no record; its hint or doc says why.
 one Markdown file per decision, named `NNNN-slug.md` with the next number.
 a record has a status line, then sections headed as below:
 
-- status: `proposed` while its pull request is open, then `accepted`, or `superseded by NNNN`.
+- status: `accepted`, or `superseded by NNNN`.
 - `## context`: what forced the question.
 - `## decision`: what is done, in the present tense.
 - `## rejected alternatives`: each with the reason it lost.
