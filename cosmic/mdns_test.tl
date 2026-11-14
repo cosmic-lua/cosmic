@@ -78,9 +78,9 @@ local function described(service: string, instance: string, host: string, port: 
 end
 
 --- Runs `body` beside a responder on the loopback that answers each query with what `reply` gives
---- for it and the datagram it came in, to the address the query came from. `body` is given the options that make a search ask that
---- responder alone: a time limit no passing test reaches, so that a test ends by its `limit` or
---- fails by its own.
+--- for it and the datagram it came in, to the address the query came from. `body` is given the
+--- options that make a search ask that responder alone: a time limit no passing test reaches, so
+--- that a test ends by its `limit` or fails by its own.
 local function serving_packets(reply: ReplyTo, body: function(opts: Mdns.Options))
   Poll.run(function()
     local device <close> = assert(Net.datagram(Net.udp(LOOPBACK, 0)))
@@ -1308,8 +1308,10 @@ local function test_a_list_that_is_no_list_of_service_types_is_refused_with_the_
     local found, why = Mdns.browse(list, { timeout_ns = 0 })
     assert(found == nil and why:find("mdns: ", 1, true) == 1, tostring(at_case) .. ": " .. why)
   end
+  -- Thirty-two are taken: the search is made, with no time to ask in.
   table.remove(many)
-  assert(#assert(Mdns.browse(many, { address = "239.255.53.3", port = 5399, timeout_ns = 0 })) == 0)
+  local silent <close> = assert(Net.datagram(Net.udp(LOOPBACK, 0)))
+  assert(#assert(Mdns.browse(many, { address = LOOPBACK, port = assert(silent.address.port), timeout_ns = 0 })) == 0)
 end
 
 local function test_a_service_type_written_twice_is_asked_for_once()

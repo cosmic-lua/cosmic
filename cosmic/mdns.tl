@@ -800,12 +800,11 @@ function Mdns.browse(service: string | {string}, opts?: Mdns.Options): {Mdns.Ins
   local hunt: Hunt = { ...opened, services = services, pointers = pointers }
   local _socket <close> = hunt.socket
   local settle_ns = options.settle_ns
-  local settling = false
   local ran, trouble = run(hunt, function(): integer?
     local whole = tell(hunt, false)
     if whole >= hunt.limit then return 0 end
-    if settle_ns == nil or settling or whole == 0 then return nil end
-    settling = true
+    -- Said again after each later datagram, which moves no end: `run` keeps the soonest.
+    if settle_ns == nil or whole == 0 then return nil end
     return settle_ns
   end)
   if not ran then
