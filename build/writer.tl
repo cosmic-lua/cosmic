@@ -1257,7 +1257,8 @@ local carried_alias_signatures <const> =
   "p.signature GLOB '*interface * is *')) "
 
 --- The condition under which a doc row `d` of a library module that is
---- not public (`cosmic.internal.*`, or a closed directory's own) is a nested type -- [`sqlite.Handle`] -- or a member of one
+--- not public (`cosmic.internal.*`, or a closed directory's own) is a
+--- nested type -- [`sqlite.Handle`] -- or a member of one
 --- ([`Handle.exec`]) that a public declaration reaches: an alias
 --- (`type Handle = raw_sqlite.Handle`) or a base (`record Options is
 --- raw_http.Options`), whose page lists them, through the name its

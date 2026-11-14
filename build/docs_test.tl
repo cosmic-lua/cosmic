@@ -716,9 +716,9 @@ end
 --- The index marks a module of the tree no file outside its directory may require, by the rule a build refuses such a
 --- require by ([`build.positions`]): the member of a package beside its `init.tl`, a package nested in a closed one,
 --- and one an `internal` directory scopes. A package's entry, a flat module, a member of a top-level namespace, one that
---- says `--- @public`, a guide (which nothing requires) and the standard library's public modules, which a project may
---- require wherever they sit, are not marked: neither from a public source (the library a project builds with) nor
---- from cosmic's own tree, which holds them to the rule.
+--- says `--- @public` and a guide (which nothing requires) are not marked. The standard library is held to the same
+--- rule: cosmic's own tree marks a module of it that a closed directory keeps, and a public source (the library a
+--- project builds with) does not list one.
 local function test_the_index_marks_a_module_private_to_its_package(dir: string)
   local db = built(dir, {
     ["rules/returns/init.tl"] = source("--- Returns.", "local record R", "end", "return R"),

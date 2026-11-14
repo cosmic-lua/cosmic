@@ -91,10 +91,18 @@ local function test_the_tool_records_the_public_library()
       "OR path NOT LIKE 'cosmic.%'), " ..
       "(SELECT count(*) FROM public_modules WHERE path IN ('cosmic.web.router', 'cosmic.template.lex')), " ..
       "(SELECT count(*) FROM modules WHERE path LIKE 'cosmic.%' AND path NOT LIKE 'cosmic.internal.%' " ..
-      "AND file NOT GLOB 'cosmic/*/*' AND path NOT IN (SELECT path FROM public_modules))"))
+      "AND file NOT GLOB 'cosmic/*/*' AND path NOT IN (SELECT path FROM public_modules)), " ..
+      "(SELECT group_concat(path, ' ' ORDER BY path) FROM modules WHERE kind = 'module' AND path LIKE 'cosmic.%' " ..
+      "AND path NOT LIKE 'cosmic.internal.%' AND path NOT IN (SELECT path FROM public_modules))"))
   local row = assert(rows[1])
   assert(row:text(1) == "5", "a module any module may require is public, a declaration among them: " .. row:text(1))
   assert(row:text(2) == "0", "an internal module, a test or a module outside the library is recorded: " .. row:text(2))
   assert(row:text(3) == "0", "a module a closed directory keeps to itself is recorded: " .. row:text(3))
   assert(row:text(4) == "0", "a module directly under cosmic/ is not recorded: " .. row:text(4))
+  -- Every module of the library a closed directory keeps. One more here is a module whose docs a project has lost:
+  -- say `--- @public` in it, or name it here on purpose.
+  local kept = "cosmic.http.wire cosmic.sandbox.policy cosmic.template.codegen cosmic.template.context " ..
+    "cosmic.template.dialect.html cosmic.template.lex cosmic.template.markup cosmic.template.parse " ..
+    "cosmic.web.builtin cosmic.web.errors cosmic.web.negotiate cosmic.web.origin cosmic.web.request cosmic.web.router"
+  assert(row:text(5) == kept, "the modules the library keeps to itself: " .. row:text(5))
 end

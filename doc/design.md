@@ -679,7 +679,8 @@ inside the tree read the rest from the projection, `cosmic.db`, and a release ha
 use for them. which modules those are is a row of
 the database, `public_modules`, that the projection records and a query of a
 public source asks: the modules any module may require, by position, of
-the standard library for cosmic's own tree and of a project for its own. a program `cosmic build` writes carries the same of its project,
+the standard library for cosmic's own tree and of a project for its own.
+a program `cosmic build` writes carries the same of its project,
 for its users: the docs, uses, links and examples of the modules any module may
 require, by position, and its guides ([`build/embed.tl`]). a fresh clone and CI run `boot`; a
 developer runs `bin/cosmic build` the other hundred times a day.

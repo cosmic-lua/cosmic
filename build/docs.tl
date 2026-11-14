@@ -3016,7 +3016,8 @@ end
 
 --- Who alone may require each module of the tree `db` holds, as [`docs.Summary`]'s `closed` says it, by module: a
 --- module of the `module` kind only, since a guide, a test or a program is required by none, and none the database
---- records as public ([`symbols.public_modules`]); absent for one any module may require. A module at `cosmic/internal/` is always the standard library's (a project may not define
+--- records as public ([`symbols.public_modules`]); absent for one any module may require. A module at
+--- `cosmic/internal/` is always the standard library's (a project may not define
 --- `cosmic.*`), so it is judged as cosmic's own tree judges it. A mark is a hint, not the build's refusal: one that
 --- cannot be judged, the database or the module's source not being read, is left off.
 local function closed_in(db: Sqlite.Handle): {string: string}

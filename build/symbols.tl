@@ -15,9 +15,9 @@ end
 
 --- Whether a module's name is in the standard library's namespace and is
 --- none of its internals or tests: `cosmic.*`, which no project may
---- define. cosmic's own projection records these as public
---- ([`symbols.library_modules`]). Whether a source answers for a module
---- is asked of its database ([`symbols.public_modules`],
+--- define. cosmic's own projection records as public those of them any
+--- module may require ([`build.writer`]). Whether a source answers for a
+--- module is asked of its database ([`symbols.public_modules`],
 --- [`symbols.public_only`]); this says only whose the module is.
 function symbols.is_library_module(module: string): boolean
   return module:sub(1, 7) == "cosmic." and module:sub(1, 16) ~= "cosmic.internal." and
@@ -25,7 +25,7 @@ function symbols.is_library_module(module: string): boolean
 end
 
 --- The condition under which the SQL `column` names a module of the
---- public standard library ([`symbols.is_library_module`]).
+--- standard library's namespace ([`symbols.is_library_module`]).
 function symbols.library_modules(column: string): string
   return "(" .. column .. " LIKE 'cosmic.%' AND " .. column ..
     " NOT LIKE 'cosmic.internal.%' AND substr(" .. column .. ", -5) <> '_test')"
