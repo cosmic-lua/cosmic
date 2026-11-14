@@ -25,10 +25,6 @@ local record fanout
   mut least: integer
   --- The most copies, whatever the processors.
   mut most: integer
-  --- The most copies on a host that does not say what memory it has
-  --- free (macOS): four of a build's largest, 1.5 GB each, fit in the
-  --- 8 GB the smallest Mac this core runs on has.
-  mut unmeasured: integer
   --- How long the copies of one [`fanout.run`] are waited for. The
   --- 1200 compiles of cosmic's own tree take one process under a minute
   --- on a four-core host ([`build.shared_compiles`]'s `fan`), so a copy
@@ -46,7 +42,6 @@ end
 
 fanout.least = 48
 fanout.most = 8
-fanout.unmeasured = 4
 fanout.patience_ns = 15 * 60 * 1000000000
 
 --- The most copies COSMIC_COMPILE_COPIES asks for: a count, `0` or `1`
@@ -58,6 +53,11 @@ local function asked(): integer
   return count
 end
 
+--- The most copies on a host that does not say what memory it has free
+--- (macOS): four of a build's largest, 1.5 GB each, fit in the 8 GB the
+--- smallest Mac this core runs on has.
+local unmeasured <const> = 4
+
 --- How many copies of `each` bytes the host has room for, by what its
 --- /proc/meminfo says is available: `unmeasured` where it does not say,
 --- as on macOS, which has none.
@@ -66,7 +66,7 @@ local function room(each: integer): integer
   local available = math.tointeger(tonumber((text or ""):match("MemAvailable:%s*(%d+) kB")))
   -- TODO: bound the copies by the memory a Mac has free, once the core has a binding that answers it (hw.memsize
   -- and the pages in use): until then a host that does not say gets `unmeasured`.
-  if available == nil then return fanout.unmeasured end
+  if available == nil then return unmeasured end
   return available * 1024 // each
 end
 
