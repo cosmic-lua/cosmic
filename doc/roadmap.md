@@ -358,6 +358,14 @@ promises lean on come first:
   - File-based routing that generates the route table, and OpenAPI
     documents made from typed routes.
 
+- name compression in [`Dns.encode`], which writes every name in full: RFC 1035
+  section 4.1.4's pointers for the names of questions and records and for the
+  names in the data of NS, CNAME, PTR, MX and SOA records, each to the earliest
+  place a suffix was written within the first 16384 bytes. An SRV record's
+  target is compressed in multicast DNS alone (RFC 6762 section 18.14; RFC 2782
+  forbids it elsewhere), so the caller chooses. No caller needs it yet: it matters once a response
+  must fit a 512-byte datagram or a multicast packet.
+
 - `cosmic lsp` ([`build/lsp/session.tl`]) answers diagnostics, hover, go to definition, completion and formatting. Definition and completion read
   the open document's last check, [`check.read`] and [`check.last`] (its tree, scopes and types), and the working database for
   the other modules: the `places` rows for a declaration's position ([`build/lsp/source.tl`]), the docs for a member's text.
@@ -479,6 +487,7 @@ four-producer provenance join.
 [`cosmic/json_fuzz_test.tl`]: ../cosmic/json_fuzz_test.tl
 [`cosmic/stream.tl`]: ../cosmic/stream.tl
 [`cosmic/template/markup.tl`]: ../cosmic/template/markup.tl
+[`Dns.encode`]: ../cosmic/dns.tl
 [`doc/testing.md`]: testing.md
 [`Errors.guidance`]: ../cosmic/errors.tl
 [`eval/summarize.tl`]: ../eval/summarize.tl
