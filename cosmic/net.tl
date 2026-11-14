@@ -857,12 +857,11 @@ end
 --- address it has, in the system's order: what a caller picks the `via`
 --- of a multicast call from. An interface with no address is listed with
 --- none. Nil and why where the system does not say. On Linux it is asked
---- over a netlink socket, which a sandbox ([`cosmic.sandbox`]) refuses, so
---- the call fails in one.
+--- over a netlink socket, which a sandbox ([`cosmic.sandbox`]) allows only
+--- where it allows IPv4 and IPv6 sockets, so the call fails in one that
+--- has none. A sandbox that has them is in a network namespace of its
+--- own, and lists that namespace's interfaces, not the machine's.
 function Net.interfaces(): {Net.Interface}?, string
-  -- TODO: list the interfaces in a Linux sandbox too, once its filter
-  -- (core/promises.c) lets a process ask the kernel for them: today
-  -- getifaddrs's netlink socket is refused there.
   local entries, why = raw.interfaces()
   if entries == nil then return nil, "net: interfaces: " .. why end
   local listed: mut {Net.Interface} = {}

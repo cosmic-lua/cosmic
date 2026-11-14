@@ -281,8 +281,8 @@ end
 --- The addresses of this host's interfaces: sorted, each once, numeric
 --- text. Darwin's come from [`sys.getifaddrs`]; Linux's are read from
 --- /proc/self/net ([`parse_addresses`]), since Linux's getifaddrs asks the
---- kernel over a netlink socket, which a sandboxed process's filter refuses,
---- and a sandboxed program may start a relay of its own. Nil and why where
+--- kernel over a netlink socket, which a sandboxed process's filter may
+--- refuse, and a sandboxed program may start a relay of its own. Nil and why where
 --- they cannot be read (on Linux, /proc/self/net/fib_trie): the relay must
 --- not run without knowing them, since it would then connect to the host's
 --- own addresses where it should refuse. An absent /proc/self/net/if_inet6
