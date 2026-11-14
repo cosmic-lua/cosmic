@@ -17,11 +17,18 @@
 ---   bit source, such as [`Rand.entropy`].
 --- - [`Rand.entropy`] draws unguessable bytes from the operating system:
 ---   use it for keys, tokens and nonces.
+--- - [`Rand.uuid`] draws a UUID from that entropy, as text: use it for an
+---   identifier. [`Rand.uuid_of`] writes sixteen bytes a caller holds as
+---   one, and [`Rand.uuid_maker`] draws from an entropy source and a clock
+---   the caller names.
 ---
 ---     local dice = Rand.new(2026)
 ---     local roll = dice:int(1, 6)
 ---     local token = assert(Rand.entropy(16))
+---     local id = assert(Rand.uuid())
 
+local Clock = require("cosmic.clock")
+local Codec = require("cosmic.codec")
 local sys = require("cosmic.sys")
 
 local record Rand
@@ -358,6 +365,119 @@ function Rand.entropy(count: integer): string?, string
     return nil, "rand: entropy: " .. trouble
   end
   return bytes, ""
+end
+
+--- `bytes`, which must be sixteen, as a UUID in its canonical text:
+--- lower-case hexadecimal in groups of 8, 4, 4, 4 and 12 digits with a
+--- hyphen between, 36 characters. With no `version` every bit is written
+--- as given. With one, from 1 through 8, the four version bits and the
+--- two variant bits (RFC 9562's `10`) are set first and the other 122
+--- kept, so sixteen bytes of a seeded [`Source`] give an identifier a
+--- test can replay, and the first sixteen of a hash a name-based one.
+--- Raises when `bytes` is not sixteen bytes or `version` is out of range.
+--- @param bytes string The sixteen bytes
+--- @param version integer The version to mark the bytes with, none when nil
+--- @return string The text
+function Rand.uuid_of(bytes: string, version?: integer): string
+  if #bytes ~= 16 then
+    error(("rand: uuid_of: %d bytes given, not 16"):format(#bytes), 2)
+  end
+  if version ~= nil then
+    if version < 1 or version > 8 then
+      error(("rand: uuid_of: version %d is not 1 through 8"):format(version), 2)
+    end
+    local marked = (assert(bytes:byte(7), "sixteen bytes were given") & 0x0f) | (version << 4)
+    local variant = (assert(bytes:byte(9), "sixteen bytes were given") & 0x3f) | 0x80
+    bytes = bytes:sub(1, 6) .. string.char(marked) .. bytes:sub(8, 8) .. string.char(variant) .. bytes:sub(10)
+  end
+  local hex = Codec.hex(bytes)
+  return hex:sub(1, 8) .. "-" .. hex:sub(9, 12) .. "-" .. hex:sub(13, 16) .. "-" ..
+    hex:sub(17, 20) .. "-" .. hex:sub(21, 32)
+end
+
+--- A function that draws UUIDs as [`Rand.uuid`] does, from `entropy`
+--- (default [`Rand.entropy`]) and, for version 7, the wall clock `now_ns`
+--- in nanoseconds (default [`cosmic.clock.now_ns`]). Each maker orders
+--- its own version 7 values and no other maker's. `entropy` is asked for
+--- 16 bytes for a version 4 value and 8 for a version 7 one, and answers
+--- as [`Rand.entropy`] does; the bytes and the reason of one that fails
+--- are passed on, and an error it raises is not caught. Name both to pin
+--- a test's values, or `entropy` to draw from a pool.
+--- @param entropy function The source of bytes
+--- @param now_ns function The wall clock, in nanoseconds
+--- @return function The function that draws
+function Rand.uuid_maker(
+    entropy?: function(count: integer): (string?, string),
+    now_ns?: function(): integer
+): function(version?: integer): (string?, string)
+  local draw_bytes = entropy or Rand.entropy
+  local read_clock = now_ns or Clock.now_ns
+  -- The last version 7 timestamp given: milliseconds in the high bits,
+  -- 4096ths of one in the low twelve.
+  local last = -1
+
+  --- `count` bytes of the source, or nil and why there are none.
+  local function drawn(count: integer): string?, string
+    local bytes, trouble = draw_bytes(count)
+    if bytes == nil then return nil, trouble end
+    if #bytes ~= count then
+      return nil, ("rand: uuid: the entropy source gave %d bytes, not %d"):format(#bytes, count)
+    end
+    return bytes, ""
+  end
+
+  return function(version?: integer): string?, string
+    local wanted = version or 4
+    if wanted == 4 then
+      local bytes, trouble = drawn(16)
+      if bytes == nil then return nil, trouble end
+      return Rand.uuid_of(bytes, 4), ""
+    end
+    if wanted ~= 7 then
+      error(("rand: uuid(%d): the version is 4 or 7"):format(wanted), 2)
+    end
+    local tail, trouble = drawn(8)
+    if tail == nil then return nil, trouble end
+    local ns = read_clock()
+    if ns < 0 then
+      return nil, ("rand: uuid: the clock reads %d ns, before 1970, which version 7 has no room for"):format(ns)
+    end
+    -- At most 2^55: every nanosecond count an integer holds is under 2^44
+    -- milliseconds, so the 48 bits of them never overflow.
+    local stamp = ((ns // 1000000) << 12) | ((ns % 1000000) * 4096 // 1000000)
+    if stamp <= last then stamp = last + 1 end
+    last = stamp
+    return Rand.uuid_of(string.pack(">I6I2", stamp >> 12, stamp & 0xfff) .. tail, 7), ""
+  end
+end
+
+local draw_uuid = Rand.uuid_maker()
+
+--- A UUID (RFC 9562) drawn from the operating system's entropy, in its
+--- canonical text: 36 characters, lower-case hexadecimal in groups of 8,
+--- 4, 4, 4 and 12 digits, as `f81d4fae-7dec-41d0-a765-00a0c91e6bf6`.
+---
+--- Version 4, the default, is 122 bits of entropy: fit for an identifier
+--- nobody can guess. Version 7 opens with the wall clock, 48 bits of Unix
+--- milliseconds and then 12 bits of the clock's fraction of the
+--- millisecond (the RFC's method 3), and ends in 62 bits of entropy.
+--- Version 7 values compare as text in the order this process drew them:
+--- one that would not sort after the one before, in the same 4096th of a
+--- millisecond or after the clock stepped back, takes the previous
+--- timestamp plus one 4096th. Two processes are ordered only as far as
+--- their clocks are, and a version 7 value tells its reader when it was
+--- drawn.
+---
+--- Nil and why when the entropy source fails or, for version 7, the
+--- clock reads before 1970. Raises when `version` is neither 4 nor 7.
+--- @param version integer 4 or 7; 4 when nil
+--- @return string | nil The UUID
+--- @return string Why none was drawn, or "" when one was
+function Rand.uuid(version?: integer): string?, string
+  if version ~= nil and version ~= 4 and version ~= 7 then
+    error(("rand: uuid(%d): the version is 4 or 7"):format(version), 2)
+  end
+  return draw_uuid(version)
 end
 
 return Rand

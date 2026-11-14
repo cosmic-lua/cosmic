@@ -47,6 +47,9 @@
 --- rest of the run: each draw then adds 1/4096 of a millisecond until
 --- the clock overtakes them. Only one run is ordered: two runs in one
 --- millisecond can draw either way.
+--- A clock that reads before 1970 has no version 7 layout: the request
+--- is refused, exit 2. [`Rand.uuid_maker`] makes both versions, and a
+--- program draws its own with [`Rand.uuid`].
 ---
 --- Lines (`pick`, `shuffle`) end at "\n", and a "\r" before it is
 --- dropped, so CRLF input gives the same lines as LF input; output ends
@@ -413,41 +416,23 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     return true
   end
 
-  local function uuid_text(bytes: string): string
-    local hex = Codec.hex(bytes)
-    return hex:sub(1, 8) .. "-" .. hex:sub(9, 12) .. "-" .. hex:sub(13, 16) .. "-" ..
-      hex:sub(17, 20) .. "-" .. hex:sub(21, 32)
-  end
-
-  local last_v7: integer = -1
-  --- One UUID: version 4 from 16 entropy bytes with the version and
-  --- variant bits set, or version 7 laid out as 48 bits of milliseconds,
-  --- the version, the 12-bit counter, the variant and 62 entropy bits.
-  local function uuid(version: integer): string
-    if version == 4 then
-      local bytes = secret(16)
-      local b6 = (assert(bytes:byte(7), "sixteen bytes were drawn") & 0x0f) | 0x40
-      local b8 = (assert(bytes:byte(9), "sixteen bytes were drawn") & 0x3f) | 0x80
-      return uuid_text(bytes:sub(1, 6) .. string.char(b6) .. bytes:sub(8, 8) ..
-          string.char(b8) .. bytes:sub(10))
-    end
-    local ns = now_ns() -- untyped: call
-    local stamp = ((ns // 1000000) << 12) | ((ns % 1000000) * 4096 // 1000000)
-    if stamp <= last_v7 then stamp = last_v7 + 1 end
-    last_v7 = stamp
-    local tail = secret(8)
-    local b8 = (assert(tail:byte(1), "eight bytes were drawn") & 0x3f) | 0x80
-    local head = string.pack(">I6", stamp >> 12)
-    local counter = stamp & 0xfff
-    return uuid_text(head .. string.char(0x70 | (counter >> 8), counter & 0xff) ..
-        string.char(b8) .. tail:sub(2))
-  end
+  -- One maker for the run, so its version 7 values sort as drawn; it
+  -- draws through `secret` and reads the stood-in clock.
+  local draw_uuid = Rand.uuid_maker(function(count: integer): string?, string
+    return secret(count), ""
+  end, now_ns)
 
   local function body(): integer
     local command = request.command
     if command == "uuid" then
       for _ = 1, request.count or 1 do
-        if not emit(uuid(request.version)) then
+        -- `secret` raises rather than fail, so a refusal is the clock's.
+        local text, why = draw_uuid(request.version)
+        if text == nil then
+          complain(why)
+          return 2
+        end
+        if not emit(text) then
           return 2
         end
       end
