@@ -54,7 +54,9 @@
 --- In the binary form one object may stand in several places. It is read once, and the [`Plist.Value`] it
 --- reads as is the same table at each place. A value is refused when, walked as a tree, it would hold more
 --- values than the input has bytes, so that objects shared at every level cannot make a small input a large
---- value. No writer of real property lists comes near that.
+--- value. For the same reason the strings and data of a value hold no more bytes than the input has, which
+--- objects that overlap, or many offsets that lead to one object, would. No writer of property lists comes
+--- near either.
 
 local Codec = require("cosmic.codec")
 local Xml = require("cosmic.xml")
@@ -262,7 +264,11 @@ end
 --- The real an XML real's text names: a decimal, with or without an exponent, or `inf`, `infinity` or `nan`
 --- in any case. Nil when it is none of them.
 local function real_of(text: string): number?
-  local body = text:match("^%s*(.-)%s*$") or ""
+  -- The text less the whitespace around it, each end found in one pass: a lazy match between two runs of
+  -- whitespace would try every pair of ends.
+  local first = text:find("%S")
+  if first == nil then return nil end
+  local body = (text:match("^.*%S") or ""):sub(first)
   local sign, word = body:match("^([+-]?)(%a+)$")
   if word ~= nil then
     local lower = word:lower()
@@ -362,6 +368,9 @@ local record Binary
   open: mut {integer: boolean}
   --- Where an object's bytes go on after its marker and length, set by [`length_of`].
   mut pos: integer
+  --- The bytes of the strings and data read so far. Objects that overlap, or many offsets that lead to one
+  --- object, would make more of them than the input holds.
+  mut payload: integer
 end
 
 --- The unsigned integer of `size` bytes, 1 to 8, at the 1-based `pos` of `data`, most significant first. One
@@ -382,6 +391,15 @@ end
 --- Whether `size` bytes at `pos` lie within the objects.
 local function within(b: Binary, pos: integer, size: integer): boolean
   return size <= b.table_at - pos
+end
+
+--- Counts `size` more bytes of strings and data as read: "" or why the input cannot hold them.
+local function spend(b: Binary, size: integer): string
+  if size > #b.data - b.payload then
+    return "plist: the strings and data hold more bytes than the input has"
+  end
+  b.payload = b.payload + size
+  return ""
 end
 
 --- The length of the object whose marker is at `at`: the marker's low half, or the integer that follows when
@@ -495,6 +513,8 @@ local function read_scalar(b: Binary, index: integer, at: integer, high: integer
     if not within(b, pos, length) then
       return nil, refuse(index, "is longer than its bytes could hold")
     end
+    local spent = spend(b, length)
+    if spent ~= "" then return nil, spent end
     local bytes = data:sub(pos + 1, pos + length)
     if high == 0x4 then return { kind = "data", data = bytes }, "" end
     if bytes:find("[\128-\255]") ~= nil then
@@ -508,6 +528,8 @@ local function read_scalar(b: Binary, index: integer, at: integer, high: integer
     if units > (b.table_at - pos) // 2 then
       return nil, refuse(index, "is longer than its bytes could hold")
     end
+    local spent = spend(b, units * 2)
+    if spent ~= "" then return nil, spent end
     local text = from_utf16(data, pos + 1, units)
     if text == nil then return nil, refuse(index, "is a string that is not UTF-16") end
     return { kind = "string", text = text }, ""
@@ -649,7 +671,7 @@ local function decode_binary(data: string, max_depth: integer): Plist.Value?, st
   end
   local b: Binary = {
     data = data, offset_size = offset_size, ref_size = ref_size, count = count, table_at = table_at,
-    max_depth = max_depth, read = {}, open = {}, pos = 0,
+    max_depth = max_depth, read = {}, open = {}, pos = 0, payload = 0,
   }
   local made, why = Objects.read(b, top, 0)
   if made == nil then return nil, why end

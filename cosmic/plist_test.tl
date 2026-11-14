@@ -1297,6 +1297,20 @@ local function test_xml_reals_are_decimals_and_the_names_of_what_is_not()
   end
 end
 
+local function test_long_runs_of_whitespace_cost_one_pass()
+  -- Each of these is read or refused in the time it takes to scan it once: a pattern that tried every pair
+  -- of ends would run past the test's deadline.
+  local run = (" "):rep(200000)
+  for _, element in ipairs({ "real", "integer", "date", "data", "true" }) do
+    refused(xml("<" .. element .. ">" .. run .. "x" .. run .. "y" .. run .. "</" .. element .. ">"), "plist: ")
+  end
+  assert(read(xml("<real>" .. run .. "1.5" .. run .. "</real>")).real == 1.5)
+  assert(read(xml("<integer>" .. run .. "7" .. run .. "</integer>")).integer == 7)
+  assert(read(xml("<integer>" .. ("0"):rep(200000) .. "7</integer>")).integer == 7)
+  assert(read(xml("<data>" .. run .. "aGk=" .. run .. "</data>")).data == "hi")
+  assert(read(xml("<array>" .. run .. "<true/>" .. run .. "</array>")).kind == "array")
+end
+
 local function test_xml_dates_are_one_spelling_of_a_real_moment()
   assert(read(xml("<date>1970-01-01T00:00:00Z</date>")).date == 0.0)
   assert(read(xml("<date> 2000-02-29T23:59:59Z\n</date>")).date == 951868799.0)
@@ -1535,6 +1549,28 @@ local function test_a_binary_value_holds_no_more_values_than_the_input_has_bytes
   assert(#assert(few.items) == 3)
   local many = read(bplist({ wide, "\x10\x07", "\x09" }))
   assert(#assert(many.items) == 200)
+end
+
+local function test_binary_strings_and_data_hold_no_more_bytes_than_the_input_has()
+  -- Forty offsets that lead to one data of a hundred bytes: four thousand bytes of data from two hundred.
+  local refs: mut {string} = {}
+  local offsets: mut {integer} = { 8 }
+  for i = 1, 40 do
+    refs[i] = string.char(i)
+    offsets[#offsets + 1] = 51
+  end
+  local objects = { "\xAF\x10\x28" .. table.concat(refs), "\x4F\x10\x64" .. ("d"):rep(100) }
+  refused(bplist(objects, { offsets = offsets, count = 41 }), "strings and data hold more bytes than the input has")
+  -- Strings that overlap: each begins a byte into the one before.
+  local overlapping: mut {integer} = { 8 }
+  for i = 1, 40 do overlapping[#overlapping + 1] = 50 + i end
+  local run = "\xAF\x10\x28" .. table.concat(refs) .. ("\x5F\x10\x50"):rep(14) .. ("s"):rep(100)
+  refused(bplist({ run }, { offsets = overlapping, count = 41 }), "strings and data hold more bytes than the input has")
+  -- One object referred to from every place, and an input that is nearly all one string, are read.
+  local shared = { "\xAF\x10\x28" .. ("\x01"):rep(40), "\x4F\x10\x64" .. ("d"):rep(100) }
+  assert(#assert(read(bplist(shared)).items) == 40)
+  assert(read(bplist({ "\x5F\x11\x10\x00" .. ("s"):rep(4096) }, { offset_size = 2 })).text == ("s"):rep(4096))
+  assert(#assert(read(bplist({ "\x6F\x11\x08\x00" .. ("\x00s"):rep(2048) }, { offset_size = 2 })).text) == 2048)
 end
 
 local function test_binary_integers_are_read_at_each_width()
