@@ -168,15 +168,17 @@ local class SocketConn is Duplex
   end
 
   --- Where this end is: its own numeric TCP address, as the kernel
-  --- names it. A client's is the address it reaches the peer from, on
-  --- the interface the route there leaves by, with the port it was
-  --- given; an accepted connection's is the one the client connected
-  --- to, which names an address of the host where the listener's may be
-  --- the wildcard. Nil and why where it has none to give: a unix
-  --- connection, or a connection already closed.
-  -- TODO: answer a unix connection's own address too, once `peer`
-  -- answers one: an unbound client has no path for its Address.
-  function bound(self): raw_socket.Address?, string
+  --- names it (the accepted end of a dual-stack listener may name an
+  --- IPv4 address as an IPv4-mapped IPv6 one). A client's is the
+  --- address and port it reaches the peer from. An accepted
+  --- connection's is the address the connection came to, one of the
+  --- host's own where its listener names the wildcard. Nil and why
+  --- where it has none to give: a unix connection, or a connection
+  --- already closed.
+  -- TODO: answer a unix connection's own address too, once an Address
+  -- can say a unix socket bound nowhere, as a client's is: the core
+  -- answers one, with a path that is empty.
+  function address(self): raw_socket.Address?, string
     if not self.open then return nil, "net: the connection is closed" end
     local address, why = raw.bound(self.fd)
     if address == nil then return nil, why end

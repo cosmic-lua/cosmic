@@ -320,8 +320,8 @@ promises lean on come first:
   listen's own options (`backlog`); a listen that takes over a socket file a listener left
   behind (`reclaim`, for a daemon restarting at its socket file); a
   [`Net.serve`] in several processes of this program, which take
-  connections from the listeners it hands them; a connection's `peer`
-  address; of a unix socket, its peer's user and process
+  connections from the listeners it hands them; a unix connection's
+  `peer` and own `address`; of a unix socket, its peer's user and process
   (`SO_PEERCRED`, `getpeereid`), descriptors passed over it
   (`SCM_RIGHTS`), Linux's abstract names, and a socket file's mode.
 
