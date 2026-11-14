@@ -74,6 +74,11 @@ local record Protobuf
   --- bytes. With `keep`, the fields it answers true for, by number and wire type: the bytes of the others are not
   --- copied, which is how a program takes the fields it does not know from a message it has read the rest of.
   ---
+  --- `unfit(fits, named?)`: The fields whose wire type does not fit their number, as `fields` lists them, or
+  --- nil where every field fits: `fits` holds, for a number, a bit for each wire type that fits it (`1 << Protobuf.LEN`), and a number it does not
+  --- hold fits none. With `named`, a field of a number `fits` does not hold is passed over. It is how a schema
+  --- finds what a message holds that it does not declare, in one pass.
+  ---
   --- `has(number)`: Whether any field has this number, of any wire type.
   ---
   --- `wires(number)`: The wire types of the fields of this number, a bit for each: `1 << Protobuf.LEN` is set
@@ -168,8 +173,21 @@ local record Protobuf
   --- written as `kind` writes one. An empty list writes no field, as the format has it. A value of an integer
   --- kind that is no integer, or past its kind, cannot be written. A `bool` is packed as the "int" 1 or 0.
   ---
+  --- `open(number)`: Begins an embedded message in place: the fields written until `close` are its fields, and
+  --- none of its bytes is copied to a writer of its own. Messages open inside one another.
+  ---
+  --- `close()`: Ends the embedded message the last `open` began. One that was not opened cannot be closed, and
+  --- is why `encode` fails.
+  ---
+  --- `append(bytes)`: Bytes that are fields already, such as [`Protobuf.encode`] answers, written as they are
+  --- after the fields so far. They are not read: bytes that are no fields make a message that is none.
+  ---
+  --- `trouble()`: Why the first field that could not be written could not, as `encode` answers it, or "" while
+  --- every field could.
+  ---
   --- `encode()`: The bytes of the fields written so far, or nil and why the first that could not be written could
-  --- not. It may be called again after more fields. Two messages' bytes joined are the bytes of the two merged.
+  --- not, or that a message is open. It may be called again after more fields. Two messages' bytes joined are
+  --- the bytes of the two merged.
   type Writer = Raw.Writer
 
   --- The wire type of a varint: an integer in 1 to 10 bytes, 7 bits in each, the low ones first.

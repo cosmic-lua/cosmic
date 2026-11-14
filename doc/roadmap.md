@@ -391,10 +391,6 @@ promises lean on come first:
     refuses and a codec declared before it is defined would allow; a field's
     declared default; and a `.proto` file read to write the records and the
     `message_of` calls.
-  - A faster writer in [`cosmic.protobuf.schema`]: an embedded message is
-    written to bytes and copied into its parent, so that what a record keeps
-    goes after its fields at every level. A record that keeps nothing could
-    write through a child writer.
   - Groups (wire types 3 and 4), which [`Protobuf.decode`] refuses and only
     proto2 writes. A group has no length: its end is found by reading every
     field inside it, the groups nested in it too, under a bound on how deep
