@@ -85,6 +85,22 @@ function Example.Rules()
   assert(server:verify(matching.public, assert(matching:prove(salt, server.public)).proof))
 end
 
+--- A hash [`cosmic.hash`] has no name for, given as a function: here
+--- SHA-256 of SHA-256. Both sides pass the same function.
+function Example.Digest()
+  local function twice(data: string): string
+    return Hash.sha256(Hash.sha256(data))
+  end
+  local doubled: Srp.Parameters = { group = Srp.group_2048, hash = twice, rules = "rfc5054" }
+  local salt = assert(Rand.entropy(16))
+  local server = Srp.server(doubled, "alice", salt, Srp.verifier(doubled, "alice", "password123", salt))
+  local client = Srp.client(doubled, "alice", "password123")
+  local login = assert(client:prove(salt, server.public))
+  local accepted = assert(server:verify(client.public, login.proof))
+  print(#login.key, client:verify(accepted.proof))
+  assert(login.key == accepted.key)
+end
+
 --- The seven groups of RFC 5054. A wider prime costs an attacker who
 --- holds a verifier more, and each login more time: a public value is
 --- as many bytes as the prime, and both sides raise numbers of that

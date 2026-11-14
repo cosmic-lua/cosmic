@@ -33,8 +33,8 @@
 --- text from a person settles its encoding and normal form first.
 ---
 --- What a correct program can meet answers nil and why: a peer's public
---- value that is zero modulo the prime, a scrambling value of zero, a
---- proof that is wrong. An argument that is the caller's own mistake (a
+--- value that is not a number from 1 to the prime less 1, a scrambling
+--- value of zero, a proof that is wrong. An argument that is the caller's own mistake (a
 --- group whose prime is even, a secret of no bytes) raises, and so does
 --- the system's entropy source failing.
 ---
@@ -94,8 +94,8 @@ local record Srp
   --- two rule sets differ in `M1` alone, in whether the digests `HN xor
   --- Hg` and `HI` are bytes, kept whole, or numbers.
   enum Rules
-    --- RFC 5054's `k`, `u` and `x` with RFC 2945's two proofs, over the key `H(S)` of SRP-6 and not that RFC's
-    --- interleaved SHA-1, a digest being bytes that are kept whole.
+    --- RFC 5054's `k`, `u` and `x` with RFC 2945's two proofs, over SRP-6's key (`H(S)`, `S` in its shortest
+    --- form) and not that RFC's interleaved SHA-1. `HN xor Hg` and `HI` are hashed as a digest's whole bytes.
     "rfc5054"
     --- What the Python library `srptools` 2.0 computes: as `rfc5054`, but in `M1` the digests `HN xor Hg` and `HI`
     --- are read as numbers, and so lose their leading zero bytes.
@@ -133,9 +133,11 @@ local record Srp
 
     --- The session, given the salt and public value the server sent,
     --- and "". nil and why when `server_public` is not a number from 1
-    --- to the prime less 1, or when the scrambling value `u` is zero:
-    --- either would let a server that does not know the verifier choose
-    --- the key. Give up the login then.
+    --- to the prime less 1, or when the scrambling value `u` is zero.
+    --- A public value of zero modulo the prime, or a `u` of zero, would
+    --- let a server that does not know the verifier choose the key, and
+    --- no honest server sends a number that is not below the prime.
+    --- Give up the login then: `verify` answers for no earlier session.
     prove: function(self: Client, salt: string, server_public: string): Session?, string
 
     --- Whether `server_proof` is the proof of the session `prove`
@@ -416,6 +418,7 @@ function Srp.client(parameters: Srp.Parameters, identity: string, password: stri
   return {
     public = padded(suite, public),
     prove = function(_self: Srp.Client, salt: string, server_public: string): Srp.Session?, string
+      expected = nil
       local theirs = accepted(suite, server_public)
       if theirs == nil then
         return nil, "srp: the server's public value is not from 1 to the prime less 1"
@@ -424,6 +427,9 @@ function Srp.client(parameters: Srp.Parameters, identity: string, password: stri
       if u == nil then return nil, "srp: the scrambling value is zero" end
       local x = private_key(suite, identity, password, salt)
       local verifier = Bigint.powmod(suite.generator, x, suite.prime)
+      -- TODO: the products and sums here, and the server's, take a time that depends on the verifier and on
+      -- `x`: compute them in constant time once cosmic.bigint carries a multiplication, an addition and a
+      -- reduction that are.
       local masked = Bigint.mod(Bigint.mul(suite.multiplier, verifier), suite.prime)
       local base = Bigint.mod(assert(Bigint.sub(Bigint.add(theirs, suite.prime), masked)), suite.prime)
       -- One width for every login, as powmod asks of a secret exponent:
@@ -450,11 +456,6 @@ end
 --- `verifier` that is not a number from 1 to the prime less 1, and on a
 --- `secret` as [`Srp.client`] does or one whose public value would be
 --- zero.
----
---- A server asked about an identity it does not know still answers, or
---- it tells a stranger which identities exist: it sends a salt and a
---- public value made from a verifier nobody has the password of, the
---- same for that identity every time.
 function Srp.server(parameters: Srp.Parameters, identity: string, salt: string, verifier: string,
                     secret?: string): Srp.Server
   local suite = suite_of(parameters, 2)
