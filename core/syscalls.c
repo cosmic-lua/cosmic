@@ -56,6 +56,7 @@ extern int clone (int (*)(void *), void *, int, void *, ...);
 #include <libproc.h>
 #include <sys/event.h>
 #include <sys/sysctl.h>
+#include <mach/mach.h>
 #include <arpa/inet.h>
 #include <ifaddrs.h>
 #include <net/if.h>
@@ -5991,6 +5992,45 @@ COSMIC_SYSCALL(cpu_count, 0) {
   long count = sysconf(_SC_NPROCESSORS_ONLN);
   lua_pushinteger(L, count < 1 ? 1 : (lua_Integer)count);
   return 1;
+}
+
+COSMIC_SYSCALL(memory_available, 0) {
+#if defined(__linux__)
+  char *text;
+  size_t used;
+  int failure = read_whole("/proc/meminfo", &text, &used);
+  if (failure != 0) return cosmic_fail(L, failure);
+  static const char field[] = "MemAvailable:";
+  lua_Integer kilobytes = -1;
+  for (size_t at = 0; at + sizeof field - 1 < used; at++) {
+    if ((at > 0 && text[at - 1] != '\n') || memcmp(text + at, field, sizeof field - 1) != 0) continue;
+    for (at += sizeof field - 1; at < used && text[at] != '\n'; at++) {
+      if (text[at] < '0' || text[at] > '9') continue;
+      if (kilobytes < 0) kilobytes = 0;
+      if (kilobytes < LUA_MAXINTEGER / 10240) kilobytes = kilobytes * 10 + (text[at] - '0');
+    }
+    break;
+  }
+  cosmic_free(text);
+  if (kilobytes < 0) return cosmic_fail(L, EIO);
+  lua_pushinteger(L, kilobytes * 1024);
+  return 1;
+#elif defined(__APPLE__)
+  mach_port_t host = mach_host_self();
+  vm_statistics64_data_t pages;
+  mach_msg_type_number_t count = HOST_VM_INFO64_COUNT;
+  kern_return_t counted = host_statistics64(host, HOST_VM_INFO64, (host_info64_t)&pages, &count);
+  vm_size_t page = 0;
+  kern_return_t sized = host_page_size(host, &page);
+  mach_port_deallocate(mach_task_self(), host);
+  if (counted != KERN_SUCCESS || sized != KERN_SUCCESS) return cosmic_fail(L, EIO);
+  /* `free_count` holds the speculative pages already. */
+  uint64_t available = (uint64_t)pages.free_count + (uint64_t)pages.inactive_count;
+  lua_pushinteger(L, (lua_Integer)(available * (uint64_t)page));
+  return 1;
+#else
+  return cosmic_fail(L, ENOSYS);
+#endif
 }
 
 /* The features `cpu_features` answers, by /proc/cpuinfo's names, in

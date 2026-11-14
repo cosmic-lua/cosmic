@@ -2,6 +2,7 @@
 --- copies a count of work gets, and what each copy's end says.
 
 local Fs = require("cosmic.fs")
+local Test = require("cosmic.test")
 local Sqlite = require("cosmic.sqlite")
 local sys = require("cosmic.sys")
 local fanout = require("build.compile_fanout")
@@ -18,6 +19,17 @@ local function test_few_modules_or_one_processor_make_no_copy()
   assert(fanout.copies(10000, 64, 1, 64) == fanout.most)
   assert(fanout.copies(10000, 4, 1, 1) == 0 and fanout.copies(10000, 4, 1, 0) == 0)
   assert(fanout.copies(10000, 4, 1, 3) == 3)
+end
+
+--- A host is given no copy it has not the memory for: none of a size no host has, where it says what it has.
+local function test_a_copy_larger_than_the_hosts_memory_is_not_made()
+  local available, why, number = sys.memory_available()
+  if available == nil and assert(sys.uname()).sysname == "Linux" and number == sys.ENOENT then
+    Test.skip("this sandbox's /proc has no meminfo, so no host's memory to bound the copies by")
+  end
+  assert(available ~= nil, why)
+  assert(fanout.copies(10000, 8, 1 << 55) == 0, "copies were made of more memory than the host has")
+  assert(fanout.copies(10000, 8, 1) >= 2, "no copy was made of a byte")
 end
 
 --- Each copy runs the work with its own number, and the process is told

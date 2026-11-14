@@ -714,6 +714,18 @@ local function test_cpu_count_is_at_least_one()
   assert(math.type(count) == "integer" and count >= 1)
 end
 
+--- The memory available is a count of bytes, at least a megabyte and less than any machine holds. A sandbox's
+--- /proc on Linux holds its own processes alone, and no meminfo: there the file's refusal is the answer.
+-- TODO: check Linux's reading in a sandboxed run too, once a test can be given the host's /proc/meminfo.
+local function test_memory_available_is_a_plausible_count_of_bytes()
+  local bytes, why, number = sys.memory_available()
+  if bytes == nil and assert(sys.uname()).sysname == "Linux" and number == sys.ENOENT then
+    Test.skip("this sandbox's /proc has no meminfo")
+  end
+  assert(bytes ~= nil, why)
+  assert(math.type(bytes) == "integer" and bytes >= 1 << 20 and bytes < 1 << 50, tostring(bytes))
+end
+
 local function test_uname_reports_nonempty_sysname_and_machine()
   local names = assert(sys.uname())
   assert(select("#", sys.uname()) == 1, "uname answers with one record")

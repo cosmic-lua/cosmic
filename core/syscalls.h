@@ -591,6 +591,14 @@ COSMIC_SYSCALL(fd_flags, 1);
 COSMIC_SYSCALL(cpu_count, 0);
 
 /*
+ * --- How many bytes of memory the system says a process could take now without pushing others' out to swap: an estimate, and the system's own. On Linux it is /proc/meminfo's MemAvailable, and the error that refused the file where it cannot be read (a sandbox with no /proc), EIO where it has no such line. On macOS it is the pages the kernel counts free and inactive (`host_statistics64`), which leaves out what it could still reclaim by compressing. ENOSYS elsewhere.
+ * ---@return integer|nil bytes the memory available, or nil on failure
+ * ---@return string error what went wrong, when bytes is nil
+ * ---@return integer errno the error number, when bytes is nil
+ */
+COSMIC_SYSCALL(memory_available, 0);
+
+/*
  * --- The processor's features the core's own and vendored code may choose code by, each by the name Linux's /proc/cpuinfo lists it under, in byte order: on x86_64 "aes", "avx512_vnni", "avx512f", "avx512vl", "avx_vnni", "pclmulqdq", "sha_ni", "sse4_1" and "ssse3", from cpuid; on aarch64 "aes", "asimd", "crc32", "pmull", "sha2" and "sha512", from the auxiliary vector's hardware capabilities on Linux and sysctlbyname's hw.optional names on Darwin. Those this processor lacks are left out, and every one on any other machine.
  * ---@return {string} features the features this processor has
  */
