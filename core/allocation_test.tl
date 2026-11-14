@@ -27,6 +27,7 @@
 --- also requires the children file in this process's mounted /proc.
 
 local AllocationFixture = require("build.allocation_fixture")
+local Cipher = require("cosmic.cipher")
 local Codec = require("cosmic.codec")
 local Compress = require("cosmic.compress")
 local Fs = require("cosmic.fs")
@@ -813,6 +814,33 @@ local function test_hash_leaves_nothing_whenever_an_allocation_fails()
   end)
   assert(ended > 0, "an HMAC hasher is an allocation")
   assert_c_heap(bytes, blocks, "HMAC hashing under refusal")
+end
+
+--- Sealing, opening and agreeing on a key hold no C memory of the core's
+--- own, and a key is in the library's slot only between two calls into
+--- Lua: a refusal of the scratch userdata or of the answer's string
+--- raises with no key imported, and leaves nothing.
+local function test_cipher_leaves_nothing_whenever_an_allocation_fails()
+  local key, nonce = string.rep("k", 32), string.rep("n", 12)
+  collectgarbage("collect")
+  local bytes, blocks = testing.c_heap()
+  local ended = AllocationFixture.under_every_failure(function()
+    local sealed = Cipher.seal("chacha20-poly1305", key, nonce, hello, "aad")
+    assert(Cipher.open("chacha20-poly1305", key, nonce, sealed, "aad") == hello)
+    assert(Cipher.open("chacha20-poly1305", key, nonce, sealed, "other") == nil)
+    assert(Cipher.open("chacha20-poly1305", key, nonce, "short") == nil)
+  end)
+  assert(ended > 0, "sealing is an allocation")
+  assert_c_heap(bytes, blocks, "sealing under refusal")
+  local low_order = string.rep("\0", 32)
+  ended = AllocationFixture.under_every_failure(function()
+    local public = Cipher.x25519_public(key)
+    assert(assert(Cipher.x25519(nonce .. nonce .. "12345678", public)) ==
+        assert(Cipher.x25519(key, Cipher.x25519_public(nonce .. nonce .. "12345678"))))
+    assert(Cipher.x25519(key, low_order) == nil)
+  end)
+  assert(ended > 0, "a key agreement is an allocation")
+  assert_c_heap(bytes, blocks, "key agreement under refusal")
 end
 
 --- A safe value is a userdata and a string of Lua's own, and no C memory:
