@@ -36,8 +36,6 @@ local rebuild_lock = require("build.rebuild_lock")
 local exit_status = require("build.exit_status")
 local shared_compiles = require("build.shared_compiles")
 local narrow = require("build.narrow")
-local positions = require("build.positions")
-local AnalysisSchema = require("build.analysis_schema")
 local schema = require("build.schema")
 local tree = require("build.tree")
 local work = require("build.work")
@@ -186,64 +184,40 @@ end
 
 --- What of the attached project's documentation a program carries.
 local record Readable
-  --- Each module any module of the project may require.
+  --- Each module the project's projection records as public
+  --- ([`build.writer`]): one any module of it may require.
   public: {string}
   --- Each guide, by the module it compiles as (`doc.guides.<name>`).
   guides: {string}
 end
 
 --- The modules of the project attached to `out` whose documentation its
---- users read: each module any module may require, by the two rules of
---- [`positions.check`] that hold in every project, so a module of a closed
---- directory that does not say `--- @public` is the project's own; and each
---- guide, a Markdown file directly under `doc/guides/`. A module under any
---- `internal` directory is the project's own too, the root's included,
---- which every module of the project may require and no user of its
---- program can. A test, an example, a program and test support are no
---- module of that kind, whatever requires one. Nil and why when a source
---- that would say `--- @public` cannot be read.
+--- users read: those its projection records as public, and each guide, a
+--- Markdown file directly under `doc/guides/`.
 local function public_modules(out: Sqlite.Handle): Readable?, string
-  local rows, trouble = Sqlite.text_rows(out, "SELECT path, file, kind FROM project.modules ORDER BY path")
+  local rows, trouble = Sqlite.text_rows(out, "SELECT path FROM project.public_modules ORDER BY path")
   if rows == nil then
     return nil, trouble
   end
-  local files: mut {string} = {}
-  for _, row in ipairs(rows) do files[#files + 1] = row:text(2) end
-  local entries = positions.entries(files)
   local public: mut {string} = {}
-  local guides: mut {string} = {}
-  local unread = ""
-  for _, row in ipairs(rows) do
-    local path, file, kind = row:text(1), row:text(2), row:text(3)
-    if kind == "module" and not AnalysisSchema.is_support(file) and
-        ("/" .. file):find("/internal/", 1, true) == nil then
-      local reach = positions.reach(file, entries, function(): boolean
-        local sources, source_trouble = Sqlite.text_rows(out,
-          "SELECT CAST(inflate(source) AS TEXT) FROM project.modules WHERE path = ?1 AND length(source) > 0",
-          { text(path) })
-        if sources == nil then
-          unread = path .. ": " .. source_trouble
-          return false
-        end
-        local source = sources[1]
-        return source ~= nil and AnalysisSchema.declares_public(source:text(1))
-      end, false)
-      if reach == nil then
-        public[#public + 1] = path
-      end
-    elseif file:match("^doc/guides/[^/]+%.md$") ~= nil then
-      guides[#guides + 1] = path
-    end
+  for _, row in ipairs(rows) do public[#public + 1] = row:text(1) end
+  local found, guide_trouble = Sqlite.text_rows(out,
+    "SELECT path, file FROM project.modules WHERE file GLOB 'doc/guides/*.md' ORDER BY path")
+  if found == nil then
+    return nil, guide_trouble
   end
-  if unread ~= "" then
-    return nil, unread
+  local guides: mut {string} = {}
+  for _, row in ipairs(found) do
+    if row:text(2):match("^doc/guides/[^/]+%.md$") ~= nil then
+      guides[#guides + 1] = row:text(1)
+    end
   end
   return { public = public, guides = guides }, ""
 end
 
 --- Copies into `out` the documentation of the attached project that
 --- `readable` names, as the tool carries the standard library's
---- ([`build.writer`]'s `carry`): every doc row of a public module and each
+--- ([`build.writer`]'s `carry`): which modules are public, every doc row of a public module and each
 --- guide's own row, each example of a public module, and each use and each
 --- link to a symbol whose two ends are public, so where a module the
 --- project keeps to itself calls a function is not told; and the names a
@@ -262,6 +236,11 @@ local function copy_documentation(out: Sqlite.Handle, readable: Readable): boole
   local public: Sqlite.Value = { texts = readable.public }
   local guides: Sqlite.Value = { texts = readable.guides }
   local ok, trouble = Sqlite.run(out,
+    "INSERT INTO public_modules (path) SELECT value FROM carray(?1) ORDER BY value", { public })
+  if not ok then
+    return false, trouble
+  end
+  ok, trouble = Sqlite.run(out,
     "INSERT INTO docs (module, symbol, source_symbol, exported, kind, signature, text, file, line) " ..
       "SELECT module, symbol, source_symbol, exported, kind, signature, text, file, line FROM project.docs d " ..
       "WHERE d.module IN carray(?1) OR (d.symbol = '' AND d.module IN carray(?2)) ORDER BY id",

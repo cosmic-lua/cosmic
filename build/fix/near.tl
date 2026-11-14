@@ -298,7 +298,7 @@ function near.known(databases: {Sqlite.Handle}): {near.Known}?, string
     end
     for _, row in ipairs(rows) do
       local module = row:text(1)
-      if symbols.is_public_module(module) and module:sub(-8) ~= "_example" then
+      if symbols.is_library_module(module) and module:sub(-8) ~= "_example" then
         owner[module] = owner[module] or index
         if owner[module] == index then
           out[#out + 1] = { module = module, symbol = row:text(2),

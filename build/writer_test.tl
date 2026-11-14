@@ -13,6 +13,7 @@ local Store = require("cosmic.store")
 local Stream = require("cosmic.stream")
 local importer = require("build.importer")
 local schema = require("build.schema")
+local symbols = require("build.symbols")
 local work = require("build.work")
 local writer = require("build.writer")
 local fixture = require("build.docs_fixture")
@@ -212,9 +213,9 @@ local function test_the_carried_database_leaves_the_tree_s_tests_out(tmp: string
     "SELECT count(*) FROM catalog WHERE module = 'greet_test'")
   assert(support.nth(in_whole, 1):text(1) == "1", "the projection holds the test's catalog row")
   assert(support.nth(about_dropped, 1):text(1) == "0", "a row about a dropped module is carried")
-  -- `greet` is no public standard-library module, so its docs and the
-  -- example about it stay in the projection: `test_the_carried_docs_*`
-  -- below covers which docs rows are carried.
+  -- `greet` is a module any module of this project may require, which its
+  -- projection records as public, so its docs and the example about it
+  -- are carried: `test_the_carried_docs_*` below covers which rows are.
   local kept = rows(tmp .. "/carried.db",
     "SELECT (SELECT count(*) FROM examples WHERE module = 'greet'), " ..
       "(SELECT count(*) FROM docs WHERE module = 'greet'), " ..
@@ -224,7 +225,8 @@ local function test_the_carried_database_leaves_the_tree_s_tests_out(tmp: string
       "(SELECT count(*) FROM docs WHERE module = 'greet')")
   assert(support.nth(documented, 1):text(1) == "1" and assert(tonumber(support.nth(documented, 1):text(2)), "the docs count is a number") > 0,
     "the projection documents greet")
-  assert(support.nth(kept, 1):text(1) == "0" and support.nth(kept, 1):text(2) == "0", "greet's docs stay in the projection")
+  assert(support.nth(kept, 1):text(1) == "1" and support.nth(kept, 1):text(2) == support.nth(documented, 1):text(2),
+    "the docs of a module the projection records as public are carried")
   assert(support.nth(kept, 1):text(3) == "cmd.hello.main", "meta is carried")
   local materials = rows(tmp .. "/carried.db",
     "SELECT c.name, c.license, n.text FROM components c JOIN notices n ON n.component = c.name")
@@ -402,6 +404,8 @@ local function test_the_carried_docs_are_the_public_standard_library_s(tmp: stri
   }) do
     assert(db:exec(statement))
   end
+  assert(db:exec("INSERT OR IGNORE INTO public_modules SELECT path FROM (SELECT path FROM modules UNION SELECT module FROM docs " ..
+      "UNION SELECT module FROM uses UNION SELECT from_module FROM uses) WHERE " .. symbols.library_modules("path")))
   assert(db:close())
   assert(writer.carried(whole, tmp .. "/carried.db"))
   local out = assert(Sqlite.open(tmp .. "/carried.db"))
@@ -480,6 +484,8 @@ local function test_the_carried_internal_types_are_the_ones_a_public_signature_n
   }) do
     assert(db:exec(statement))
   end
+  assert(db:exec("INSERT OR IGNORE INTO public_modules SELECT path FROM (SELECT path FROM modules UNION SELECT module FROM docs " ..
+      "UNION SELECT module FROM uses UNION SELECT from_module FROM uses) WHERE " .. symbols.library_modules("path")))
   assert(db:close())
   assert(writer.carried(whole, tmp .. "/carried.db"))
   local out = assert(Sqlite.open(tmp .. "/carried.db"))
@@ -513,6 +519,8 @@ local function test_the_carried_docs_hold_the_user_guides_prose(tmp: string)
   }) do
     assert(db:exec(statement))
   end
+  assert(db:exec("INSERT OR IGNORE INTO public_modules SELECT path FROM (SELECT path FROM modules UNION SELECT module FROM docs " ..
+      "UNION SELECT module FROM uses UNION SELECT from_module FROM uses) WHERE " .. symbols.library_modules("path")))
   assert(db:close())
   assert(writer.carried(whole, tmp .. "/carried.db"))
   local out = assert(Sqlite.open(tmp .. "/carried.db"))

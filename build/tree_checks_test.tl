@@ -155,8 +155,8 @@ local function test_an_internal_module_is_absent_from_the_public_docs(dir: strin
   assert(#all == 2 and all[1]:text(1) == "cosmic.fs" and support.nth(all, 2):text(1) == "cosmic.internal.shared",
     tostring(#all) .. " modules")
   assert(#public == 1 and public[1]:text(1) == "cosmic.fs")
-  assert(symbols.is_public_module("cosmic.fs"))
-  assert(not symbols.is_public_module("cosmic.internal.shared"))
+  assert(symbols.is_library_module("cosmic.fs"))
+  assert(not symbols.is_library_module("cosmic.internal.shared"))
 end
 
 --- A module that exports `spec` is a verb's entry, as one that exports

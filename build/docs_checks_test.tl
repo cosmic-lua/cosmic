@@ -7,6 +7,7 @@ local docs = require("build.docs")
 local docs_checks = require("build.docs_checks")
 local fixture = require("build.docs_fixture")
 local schema = require("build.schema")
+local symbols = require("build.symbols")
 
 --- Lines as one source file's text.
 local function source(...: string): string
@@ -61,6 +62,9 @@ local function projection(rows: {Row}): Sqlite.Handle
         { text = item.signature }, { text = item.text },
         { text = item.module:gsub("%.", "/") .. ".tl" } }))
   end
+  -- As cosmic's own projection records it: the library, by name.
+  assert(db:exec("INSERT OR IGNORE INTO public_modules SELECT path FROM (SELECT path FROM modules UNION SELECT module FROM docs " ..
+      "UNION SELECT module FROM uses UNION SELECT from_module FROM uses) WHERE " .. symbols.library_modules("path")))
   return db
 end
 
@@ -217,6 +221,7 @@ local function test_a_module_the_index_lists_must_resolve()
   assert(Sqlite.run(db,
     "INSERT INTO modules (path, file, kind, source_hash, key, source, bytecode, tests) " ..
       "VALUES ('cosmic.ghost', 'cosmic/ghost.tl', 'module', '', '', '', '', '')"))
+  assert(db:exec("INSERT INTO public_modules (path) VALUES ('cosmic.ghost')"))
   local found = docs_checks.rendered(db, none)
   assert(#found >= 1 and #mentioning(found, "cosmic.ghost") >= 1, table.concat(found, "\n"))
 end

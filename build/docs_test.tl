@@ -69,6 +69,9 @@ local function database(rows: {{string}}, uses: {{string}},
       { { text = row[1] }, { text = row[2] }, { text = row[3] }, { text = row[4] },
         { integer = math.tointeger(tonumber(row[5])) } }))
   end
+  -- As cosmic's own projection records it: the library, by name.
+  assert(db:exec("INSERT OR IGNORE INTO public_modules SELECT path FROM (SELECT path FROM modules UNION SELECT module FROM docs " ..
+      "UNION SELECT module FROM uses UNION SELECT from_module FROM uses) WHERE " .. symbols.library_modules("path")))
   assert(db:exec("INSERT INTO docs_fts(docs_fts) VALUES ('rebuild')"))
   assert(db:exec("INSERT INTO examples_fts(examples_fts) VALUES ('rebuild')"))
   return db

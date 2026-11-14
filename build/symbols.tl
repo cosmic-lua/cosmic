@@ -13,21 +13,43 @@ local schema = require("build.schema")
 local record symbols
 end
 
---- Whether a module is the public standard library's own: what a
---- public source answers for.
-function symbols.is_public_module(module: string): boolean
+--- Whether a module of cosmic's own tree is the public standard
+--- library's, by its name: what the tree's projection records as public
+--- ([`symbols.library_modules`]). A reader asks the database, not this
+--- ([`symbols.public_modules`], [`symbols.public_only`]).
+function symbols.is_library_module(module: string): boolean
   return module:sub(1, 7) == "cosmic." and module:sub(1, 16) ~= "cosmic.internal." and
     module:sub(-5) ~= "_test"
 end
 
+--- The condition under which the SQL `column` names a module of the
+--- public standard library ([`symbols.is_library_module`]).
+function symbols.library_modules(column: string): string
+  return "(" .. column .. " LIKE 'cosmic.%' AND " .. column ..
+    " NOT LIKE 'cosmic.internal.%' AND substr(" .. column .. ", -5) <> '_test')"
+end
+
+--- The modules `db` records as public ([`public_modules`]), each set: what
+--- a public source answers for. Nil and why when they cannot be read.
+function symbols.public_modules(db: Sqlite.Handle): {string: boolean}?, string
+  local rows, trouble = Sqlite.text_rows(db, "SELECT path FROM public_modules")
+  if rows == nil then
+    return nil, trouble
+  end
+  local out: mut {string: boolean} = {}
+  for _, row in ipairs(rows) do out[row:text(1)] = true end
+  return out, ""
+end
+
 --- The rows a public source answers with, as a condition on the
---- module `column` names; `1` when the source is not public.
+--- module `column` names: those of a module its database records as
+--- public; `1` when the source is not public. The table is the one of
+--- the database the statement runs on.
 function symbols.public_only(column: string, public: boolean): string
   if not public then
     return "1"
   end
-  return "(" .. column .. " LIKE 'cosmic.%' AND " .. column ..
-    " NOT LIKE 'cosmic.internal.%' AND substr(" .. column .. ", -5) <> '_test')"
+  return "(" .. column .. " IN (SELECT path FROM public_modules))"
 end
 
 --- Whether a module is a user guide a public source answers for: the

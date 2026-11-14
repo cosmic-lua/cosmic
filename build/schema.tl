@@ -86,6 +86,12 @@ local tables: {Definition} = {
   { name = "decls", body = [[(path TEXT PRIMARY KEY,
                 source BLOB NOT NULL) WITHOUT ROWID]] },
 
+  -- Each module a reader with the binary alone is told of: what a public
+  -- source answers for ([`build.symbols`]'s `public_only`). The projection
+  -- writes it ([`build.writer`]), the tool carries the standard library's
+  -- rows and a program its project's.
+  { name = "public_modules", body = "(path TEXT PRIMARY KEY) WITHOUT ROWID" },
+
   -- The stub of each of the standard library's modules (build.stub),
   -- raw-deflated like a source: what a project's checker is given in
   -- place of the module's source. Only cosmic's own projection

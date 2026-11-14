@@ -30,6 +30,7 @@ local link_index = require("build.link_index")
 local onecrl = require("build.onecrl")
 local roots = require("build.roots")
 local schema = require("build.schema")
+local positions = require("build.positions")
 local symbols = require("build.symbols")
 local work = require("build.work")
 local bind = require("build.bind")
@@ -729,6 +730,58 @@ local function find_reused(db: Sqlite.Handle): boolean
   return true
 end
 
+--- Records in `out.public_modules` the modules of the projection being
+--- written that a reader with the binary alone is told of. In cosmic's own
+--- tree those are the public standard library's, by name
+--- ([`symbols.library_modules`]), a declaration among them. In a project
+--- they are the modules any module may require, by the two rules of
+--- [`positions.check`] that hold in every project: a module of a closed
+--- directory that does not say `--- @public` is the project's own, as is
+--- one under any `internal` directory, the root's included, which every
+--- module of the project may require and no user of its program can, and
+--- test support. A test, an example and a program are no module of that
+--- kind, whatever requires one.
+local function fill_public(db: Sqlite.Handle, own: boolean): boolean, string
+  if own then
+    return db:exec("INSERT INTO out.public_modules (path) SELECT path FROM (SELECT path FROM out.modules " ..
+        "UNION SELECT path FROM out.decls) WHERE " .. symbols.library_modules("path") .. " ORDER BY path")
+  end
+  local rows, trouble = Sqlite.text_rows(db, "SELECT path, file, kind FROM out.modules ORDER BY path")
+  if rows == nil then
+    return false, trouble
+  end
+  local files: mut {string} = {}
+  for _, row in ipairs(rows) do files[#files + 1] = row:text(2) end
+  local entries = positions.entries(files)
+  local public: mut {string} = {}
+  local unread = ""
+  for _, row in ipairs(rows) do
+    local path, file = row:text(1), row:text(2)
+    if row:text(3) == "module" and not AnalysisSchema.is_support(file) and
+        ("/" .. file):find("/internal/", 1, true) == nil then
+      local reach = positions.reach(file, entries, function(): boolean
+        local sources, source_trouble = Sqlite.text_rows(db,
+          "SELECT CAST(inflate(source) AS TEXT) FROM out.modules WHERE path = ?1 AND length(source) > 0",
+          { text(path) })
+        if sources == nil then
+          unread = path .. ": " .. source_trouble
+          return false
+        end
+        local source = sources[1]
+        return source ~= nil and AnalysisSchema.declares_public(source:text(1))
+      end, false)
+      if reach == nil then
+        public[#public + 1] = path
+      end
+    end
+  end
+  if unread ~= "" then
+    return false, unread
+  end
+  return Sqlite.run(db, "INSERT INTO out.public_modules (path) SELECT value FROM carray(?1) ORDER BY value",
+    { { texts = public } })
+end
+
 --- Fills the attached `out` schema within the working transaction, signed
 --- `signature` by the writer whose identity is `by`, and naming the
 --- compiler whose identity keyed its modules (`result.tool`) as
@@ -776,6 +829,10 @@ local function project(handle: work.Handle,
     if not ok then
       return false, failure
     end
+  end
+  local recorded, record_trouble = fill_public(db, work.standing(handle).own)
+  if not recorded then
+    return false, record_trouble
   end
   -- The declarations the new checker types a project against ([`build.checker_declarations`]), which only cosmic's own tree
   -- holds: a tool carries them, a project's projection does not.
@@ -1236,6 +1293,10 @@ local carry: {string} = {
   dropped_modules .. "INSERT INTO main.bound SELECT * FROM whole.bound " ..
     "WHERE path NOT IN dropped ORDER BY path, name",
   "INSERT INTO main.decls SELECT * FROM whole.decls ORDER BY path",
+  -- First of what reads it: each statement below that asks for a public
+  -- module ([`symbols.public_only`]) asks this table.
+  dropped_modules .. "INSERT INTO main.public_modules SELECT path FROM whole.public_modules " ..
+    "WHERE path NOT IN dropped ORDER BY path",
   "INSERT INTO main.stubs SELECT * FROM whole.stubs ORDER BY path",
   "INSERT INTO main.places SELECT * FROM whole.places ORDER BY module, ordinal",
   "INSERT INTO main.members SELECT * FROM whole.members ORDER BY module, ordinal",
