@@ -607,7 +607,7 @@ end
 ---
 --- Nothing a copy does reaches the build but its file. A compile a copy could not make is not kept, and one of a
 --- copy that ended badly is not read: the build makes each again itself, and says what the checker said, once. So this
---- only saves time. Nil where no copy is made: too few modules, one processor, or a host that forks no process.
+--- only saves time. Nil where no copy is made: too few modules, or one processor.
 local function fan(due: {importer.Module}, own_tree: boolean,
                    make: function(m: importer.Module, rest: {string:boolean}): importer.Shared.Compile?,
                    watch?: function()): importer.Shared.Fanned?

@@ -134,17 +134,15 @@ local function test_many_compiles_made_at_once_come_back_each_its_own(tmp: strin
   assert(fan({ assert(due[1]), assert(due[2]) }, true, make) == nil, "two modules are the process's own")
   local fanned = fan(due, true, make)
   if fanned == nil then
-    Test.skip("this host makes no copy of the process: one processor, or no fork")
+    Test.skip("this host makes no copy of the process: one processor, or too little memory")
   end
   local made = assert(fanned)
   for _, m in ipairs(due) do
     local found = made.look(m)
     if m.path == "suite.m7" then
       assert(found == nil, "a module no copy compiled came back")
-    elseif found == nil then
-      -- A copy that could not be forked, or ended badly, leaves its modules to the build.
-      Test.skip("a copy of the process did not end well on this host")
     else
+      assert(found ~= nil, "no copy made the compile of " .. m.path .. ": one was not forked, or ended badly")
       assert(found.lua == "-- lua of " .. m.path and found.bytecode == "bytecode of " .. m.path, m.path)
       assert(found.fact_wraps == #m.path and found.parameter_checks == 2 and #found.references == 0)
     end
@@ -174,16 +172,15 @@ local function test_many_parses_made_at_once_come_back_each_its_own(tmp: string)
     return out
   end)
   if fanned == nil then
-    Test.skip("this host makes no copy of the process: one processor, or no fork")
+    Test.skip("this host makes no copy of the process: one processor, or too little memory")
   end
   local made = assert(fanned)
   for index = 1, count do
     local found = made.look("hash" .. tostring(index), index % 2 == 0)
     if index == 7 then
       assert(found == nil, "a source no copy parsed came back")
-    elseif found == nil then
-      Test.skip("a copy of the process did not end well on this host")
     else
+      assert(found ~= nil, "no copy made the parse of source " .. tostring(index) .. ": one was not forked, or ended badly")
       assert(found.rows == "rows of " .. tostring(index) and found.requires[1] == "suite.r" .. tostring(index))
       assert(made.look("hash" .. tostring(index), index % 2 ~= 0) == nil, "a parse came back for the other mapping")
     end
