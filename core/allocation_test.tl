@@ -851,6 +851,24 @@ local function test_protobuf_leaves_nothing_whenever_an_allocation_fails()
   assert_c_heap(held, blocks, "reading a message under refusal")
 end
 
+--- A writer's bytes are a userdata of Lua's, replaced by a greater one as fields are written: a refusal while they
+--- grow raises as Lua's own does, and the core's heap holds nothing of a writer.
+local function test_a_protobuf_writer_leaves_nothing_whenever_an_allocation_fails()
+  collectgarbage("collect")
+  local held, blocks = testing.c_heap()
+  local ended = AllocationFixture.under_every_failure(function()
+    local child = Protobuf.writer():string(1, ("a"):rep(200)):sint(2, -7)
+    local writer = Protobuf.writer():int(1, 5):message(2, child):packed(3, "double", { 1.5, 2.5 })
+      :packed(4, "int", { 1, 2 }):bytes(5, ("b"):rep(500)):fixed32(6, 1):fixed64(7, 1):float(8, 1.5):double(9, 1.5)
+      :bool(10, true)
+    writer:message(11, writer)
+    assert(#assert(writer:encode()) > 700)
+  end)
+  assert(ended > 0, "a writer, its bytes and what it answers are allocations")
+  collectgarbage("collect")
+  assert_c_heap(held, blocks, "writing a message under refusal")
+end
+
 --- Monocypher allocates nothing: a key pair and a signature are worked out
 --- on the C stack, and the one allocation of each binding is the string it
 --- answers with, whose refusal raises and leaves no C memory.

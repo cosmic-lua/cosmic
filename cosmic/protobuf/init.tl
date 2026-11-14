@@ -58,15 +58,9 @@ local record Protobuf
     max_fields?: integer
   end
 
-  --- What a packed field holds, for `packed`: named as the method that writes one such value.
-  enum Kind
-    "int"
-    "sint"
-    "fixed32"
-    "fixed64"
-    "float"
-    "double"
-  end
+  --- What a packed field holds, for `packed`: named as the method that writes one such value. One of
+  --- `"int"`, `"sint"`, `"fixed32"`, `"fixed64"`, `"float"`, `"double"`.
+  type Kind = Raw.Kind
 
   --- A varint that was read, from [`Protobuf.read_varint`]: `value`, the integer, and `next`, the position of
   --- the byte after it.
@@ -140,42 +134,43 @@ local record Protobuf
   type Message = Raw.Message
 
   --- The bytes of a message being written, from [`Protobuf.writer`]. Each method but `encode` writes one field
-  --- after those before it and answers the writer, so calls chain. None raises: the first field that cannot be
+  --- after those before it and answers the writer, so calls chain. None raises for a field it cannot write: the first field that cannot be
   --- written (a number that is no field's, a value past its type) is why `encode` fails, and the fields after
   --- it are not written.
-  interface Writer
-    --- A varint field: an `int32`, `int64`, `uint32`, `uint64` or an `enum`. A negative value is ten bytes.
-    int: function(self: Writer, number: integer, value: integer): Writer
-    --- A varint field with its sign in the low bit, as `sint32` and `sint64` are: a small negative value
-    --- is a short one.
-    sint: function(self: Writer, number: integer, value: integer): Writer
-    --- A `bool`: the varint 1 or 0.
-    bool: function(self: Writer, number: integer, value: boolean): Writer
-    --- A 4-byte field, a `fixed32` or `sfixed32`: `value` is from -2147483648 to 4294967295.
-    fixed32: function(self: Writer, number: integer, value: integer): Writer
-    --- An 8-byte field, a `fixed64` or `sfixed64`.
-    fixed64: function(self: Writer, number: integer, value: integer): Writer
-    --- A `float`: `value` rounded to the nearest single, which for one past them all is the infinity of its
-    --- sign. A NaN is the bytes `00 00 c0 7f` whatever its sign and payload.
-    float: function(self: Writer, number: integer, value: number): Writer
-    --- A `double`. A NaN is the bytes `00 00 00 00 00 00 f8 7f` whatever its sign and payload.
-    double: function(self: Writer, number: integer, value: number): Writer
-    --- A length-delimited field of any bytes.
-    bytes: function(self: Writer, number: integer, value: string): Writer
-    --- A `string`: as `bytes`, and `value` must be UTF-8.
-    string: function(self: Writer, number: integer, value: string): Writer
-    --- An embedded message: the fields `child` holds now. Writing more to `child` afterwards changes
-    --- nothing here. A `child` that cannot be encoded is why this writer cannot.
-    message: function(self: Writer, number: integer, child: Writer): Writer
-    --- A packed repeated field: every value in one length-delimited field, each written as `kind` writes
-    --- one. An empty list writes no field, as the format has it. A value of an integer kind that is no
-    --- integer, or past its kind, cannot be written. A `bool` is packed as the "int" 1 or 0.
-    packed: function(self: Writer, number: integer, kind: Kind, values: {number}): Writer
-    --- The bytes of the fields written so far, or nil and why the first that could not be written could
-    --- not. It may be called again after more fields. Two messages' bytes joined are the bytes of the two
-    --- merged.
-    encode: function(self: Writer): string?, string
-  end
+  ---
+  --- `int(number, value)`: A varint field: an `int32`, `int64`, `uint32`, `uint64` or an `enum`. A negative value
+  --- is ten bytes.
+  ---
+  --- `sint(number, value)`: A varint field with its sign in the low bit, as `sint32` and `sint64` are: a small
+  --- negative value is a short one.
+  ---
+  --- `bool(number, value)`: A `bool`: the varint 1 or 0.
+  ---
+  --- `fixed32(number, value)`: A 4-byte field, a `fixed32` or `sfixed32`: `value` is from -2147483648 to
+  --- 4294967295.
+  ---
+  --- `fixed64(number, value)`: An 8-byte field, a `fixed64` or `sfixed64`.
+  ---
+  --- `float(number, value)`: A `float`: `value` rounded to the nearest single, which for one past them all is the
+  --- infinity of its sign. A NaN is the bytes `00 00 c0 7f` whatever its sign and payload.
+  ---
+  --- `double(number, value)`: A `double`. A NaN is the bytes `00 00 00 00 00 00 f8 7f` whatever its sign and
+  --- payload.
+  ---
+  --- `bytes(number, value)`: A length-delimited field of any bytes.
+  ---
+  --- `string(number, value)`: A `string`: as `bytes`, and `value` must be UTF-8.
+  ---
+  --- `message(number, child)`: An embedded message: the fields `child` holds now. Writing more to `child`
+  --- afterwards changes nothing here. A `child` that cannot be encoded is why this writer cannot.
+  ---
+  --- `packed(number, kind, values)`: A packed repeated field: every value in one length-delimited field, each
+  --- written as `kind` writes one. An empty list writes no field, as the format has it. A value of an integer
+  --- kind that is no integer, or past its kind, cannot be written. A `bool` is packed as the "int" 1 or 0.
+  ---
+  --- `encode()`: The bytes of the fields written so far, or nil and why the first that could not be written could
+  --- not. It may be called again after more fields. Two messages' bytes joined are the bytes of the two merged.
+  type Writer = Raw.Writer
 
   --- The wire type of a varint: an integer in 1 to 10 bytes, 7 bits in each, the low ones first.
   VARINT: integer
@@ -206,13 +201,6 @@ local FIXED32 <const> = 5
 --- The greatest field number: a tag is 32 bits, and the low 3 are the wire type.
 local MAX_NUMBER <const> = 536870911
 
---- The greatest single.
-local MAX_FLOAT <const> = 3.4028234663852886e+38
-
---- Half way from the greatest single to the next power of two, 2^128 - 2^103: a double below it rounds to the
---- greatest single, and one from it up to no single.
-local FLOAT_OVERFLOW <const> = 3.4028235677973366e+38
-
 --- `value` as a varint.
 local function varint_bytes(value: integer): string
   if value >= 0 and value < 0x80 then return string.char(value) end
@@ -224,10 +212,6 @@ local function varint_bytes(value: integer): string
   end
   out[#out + 1] = string.char(rest)
   return table.concat(out)
-end
-
-local function zigzag(value: integer): integer
-  return value << 1 ~ (if value < 0 then -1 else 0 end)
 end
 
 --- A bound of a decode: `given`, or `default` where it is nil. Raises for one that is no integer of 1 or more,
@@ -257,11 +241,6 @@ local function number_trouble(number: integer): string
   return ("protobuf: %s is no field number (1 to %d)"):format(tostring(number), MAX_NUMBER)
 end
 
-local function double_bytes(value: number): string
-  if value ~= value then return "\x00\x00\x00\x00\x00\x00\xf8\x7f" end
-  return string.pack("<d", value)
-end
-
 --- The 4 bytes of `value`, or nil and why it is past them.
 local function fixed32_bytes(number: integer, value: integer): string?, string
   if value < -0x80000000 or value > 0xffffffff then
@@ -270,142 +249,9 @@ local function fixed32_bytes(number: integer, value: integer): string?, string
   return string.pack("<I4", value & 0xffffffff), ""
 end
 
---- A NaN is written as one quiet NaN, whatever its sign and payload: the bytes of `0/0` differ between
---- processors.
-local function float_bytes(value: number): string
-  if value ~= value then return "\x00\x00\xc0\x7f" end
-  -- `string.pack` converts as C does, which leaves a double past the greatest single undefined, so those are
-  -- rounded here.
-  local single = value
-  if single >= FLOAT_OVERFLOW then
-    single = math.huge
-  elseif single <= -FLOAT_OVERFLOW then
-    single = -math.huge
-  elseif single > MAX_FLOAT then
-    single = MAX_FLOAT
-  elseif single < -MAX_FLOAT then
-    single = -MAX_FLOAT
-  end
-  return string.pack("<f", single)
-end
-
---- Writes a field of that wire type whose value on the wire is `body` to `parts`, and answers the writer's
---- trouble after it: `trouble` where that is one already, `why` where there is no body, and the reason `number`
---- is no field's. "" where the field was written.
-local function added(parts: mut {string}, trouble: string, number: integer, wire: integer, body: string?,
-                     why: string): string
-  if trouble ~= "" then return trouble end
-  if body == nil then return why end
-  local refused = number_trouble(number)
-  if refused ~= "" then return refused end
-  local tag = varint_bytes(number << 3 | wire)
-  parts[#parts + 1] = tag
-  local value = if wire == LEN then varint_bytes(#body) .. body else body end
-  parts[#parts + 1] = value
-  return ""
-end
-
---- The bytes of one value of a packed field, or nil and why it is not of `kind`.
-local function packed_bytes(number: integer, kind: Protobuf.Kind, value: number): string?, string
-  if kind == "float" then return float_bytes(value), "" end
-  if kind == "double" then return double_bytes(value), "" end
-  local whole = math.tointeger(value)
-  if whole == nil then
-    return nil, ("protobuf: field %d: %s is no integer"):format(number, tostring(value))
-  end
-  if kind == "int" then return varint_bytes(whole), "" end
-  if kind == "sint" then return varint_bytes(zigzag(whole)), "" end
-  if kind == "fixed64" then return string.pack("<i8", whole), "" end
-  return fixed32_bytes(number, whole)
-end
-
-local class Building is Protobuf.Writer
-  parts: mut {string}
-  --- Why the first field that could not be written could not, or "". Nothing is written after it.
-  mut trouble: string
-
-  function int(self, number: integer, value: integer): Protobuf.Writer
-    self.trouble = added(self.parts, self.trouble, number, VARINT, varint_bytes(value), "")
-    return self
-  end
-
-  function sint(self, number: integer, value: integer): Protobuf.Writer
-    self.trouble = added(self.parts, self.trouble, number, VARINT, varint_bytes(zigzag(value)), "")
-    return self
-  end
-
-  function bool(self, number: integer, value: boolean): Protobuf.Writer
-    self.trouble = added(self.parts, self.trouble, number, VARINT, if value then "\1" else "\0" end, "")
-    return self
-  end
-
-  function fixed32(self, number: integer, value: integer): Protobuf.Writer
-    local body, why = fixed32_bytes(number, value)
-    self.trouble = added(self.parts, self.trouble, number, FIXED32, body, why)
-    return self
-  end
-
-  function fixed64(self, number: integer, value: integer): Protobuf.Writer
-    self.trouble = added(self.parts, self.trouble, number, FIXED64, string.pack("<i8", value), "")
-    return self
-  end
-
-  function float(self, number: integer, value: number): Protobuf.Writer
-    self.trouble = added(self.parts, self.trouble, number, FIXED32, float_bytes(value), "")
-    return self
-  end
-
-  function double(self, number: integer, value: number): Protobuf.Writer
-    self.trouble = added(self.parts, self.trouble, number, FIXED64, double_bytes(value), "")
-    return self
-  end
-
-  function bytes(self, number: integer, value: string): Protobuf.Writer
-    self.trouble = added(self.parts, self.trouble, number, LEN, value, "")
-    return self
-  end
-
-  function string(self, number: integer, value: string): Protobuf.Writer
-    if utf8.len(value) == nil then
-      self.trouble = added(self.parts, self.trouble, number, LEN, nil,
-        ("protobuf: field %d: a string that is not UTF-8"):format(number))
-      return self
-    end
-    self.trouble = added(self.parts, self.trouble, number, LEN, value, "")
-    return self
-  end
-
-  function message(self, number: integer, child: Protobuf.Writer): Protobuf.Writer
-    local body, why = child:encode()
-    self.trouble = added(self.parts, self.trouble, number, LEN, body, why)
-    return self
-  end
-
-  function packed(self, number: integer, kind: Protobuf.Kind, values: {number}): Protobuf.Writer
-    if #values == 0 then return self end
-    local out: mut {string} = {}
-    for _, value in ipairs(values) do
-      local bytes, why = packed_bytes(number, kind, value)
-      if bytes == nil then
-        self.trouble = added(self.parts, self.trouble, number, LEN, nil, why)
-        return self
-      end
-      out[#out + 1] = bytes
-    end
-    self.trouble = added(self.parts, self.trouble, number, LEN, table.concat(out), "")
-    return self
-  end
-
-  function encode(self): string?, string
-    if self.trouble ~= "" then return nil, self.trouble end
-    return table.concat(self.parts), ""
-  end
-end
-
 --- A writer of a message with no fields yet.
 function Protobuf.writer(): Protobuf.Writer
-  local writer: Building = { parts = {}, trouble = "" }
-  return writer
+  return Raw.writer()
 end
 
 --- The bytes of `fields`, in their order, or nil and why one cannot be written: a number that is no field's, a
