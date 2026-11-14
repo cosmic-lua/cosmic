@@ -676,7 +676,9 @@ portable [`bin/cosmic`], each in the build directory. the tool carries `carried.
 without the tree's own tests and examples, and with the docs, uses
 and examples of the public standard library alone: `cosmic test` and a lookup
 inside the tree read the rest from the projection, `cosmic.db`, and a release has no
-use for them. a fresh clone and CI run `boot`; a
+use for them. a program `cosmic build` writes carries the same of its project,
+for its users: the docs, uses, links and examples of the modules any module may
+require, by position, and its guides ([`build/embed.tl`]). a fresh clone and CI run `boot`; a
 developer runs `bin/cosmic build` the other hundred times a day.
 
 [`build.work`] stages inputs and manages the working database.
@@ -1504,6 +1506,7 @@ in [roadmap.md](roadmap.md).
 [`Test.policy`]: ../cosmic/test.tl
 
 [`build.pipeline`]: ../build/pipeline.tl
+[`build/embed.tl`]: ../build/embed.tl
 [`build/markers.tl`]: ../build/markers.tl
 [`build/positions.tl`]: ../build/positions.tl
 [`cosmic.http.server`]: ../cosmic/http/server.tl

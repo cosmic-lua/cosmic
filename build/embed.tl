@@ -2,7 +2,9 @@
 --- multi-core prefix with a database behind it that holds the project's modules
 --- but not its tests or examples, the standard library, the error catalog, the
 --- bill of materials, and the name of the main module, so it runs on its own
---- with no `cosmic` beside it.
+--- with no `cosmic` beside it. It holds the project's documentation too, for
+--- the program's users to read: the docs, uses, links and examples of the
+--- modules any module may require ([`public_modules`]), and its guides.
 ---
 --- A binary is a directory under `cmd/`: `cmd/<name>/main.tl` compiles
 --- as `kind = "main"`, and `cosmic build` writes `bin/<name>` in its build directory for
@@ -33,6 +35,8 @@ local rebuild_lock = require("build.rebuild_lock")
 local exit_status = require("build.exit_status")
 local shared_compiles = require("build.shared_compiles")
 local narrow = require("build.narrow")
+local positions = require("build.positions")
+local AnalysisSchema = require("build.analysis_schema")
 local schema = require("build.schema")
 local tree = require("build.tree")
 local work = require("build.work")
@@ -161,10 +165,92 @@ function embed.portable_prefix(prefix: string?, trouble: string): string?, strin
   return prefix, ""
 end
 
+--- What of the attached project's documentation a program carries.
+local record Readable
+  --- Each module any module of the project may require.
+  public: {string}
+  --- Each guide, by the module it compiles as (`doc.guides.<name>`).
+  guides: {string}
+end
+
+--- The modules of the project attached to `out` whose documentation its
+--- users read: each module any module may require, by the two rules of
+--- [`positions.check`] that hold in every project, so a module of a closed
+--- directory that does not say `--- @public`, and one under an `internal`
+--- directory, are the project's own; and each guide, a Markdown file
+--- directly under `doc/guides/`. A test, an example and a program are
+--- required by no module. A module whose source cannot be read does not
+--- say `--- @public`.
+local function public_modules(out: Sqlite.Handle): Readable?, string
+  local rows, trouble = Sqlite.text_rows(out, "SELECT path, file, kind FROM project.modules ORDER BY path")
+  if rows == nil then
+    return nil, trouble
+  end
+  local files: mut {string} = {}
+  for _, row in ipairs(rows) do files[#files + 1] = row:text(2) end
+  local entries = positions.entries(files)
+  local public: mut {string} = {}
+  local guides: mut {string} = {}
+  for _, row in ipairs(rows) do
+    local path, file, kind = row:text(1), row:text(2), row:text(3)
+    if kind == "module" then
+      local reach = positions.reach(file, entries, function(): boolean
+        local sources, _ = Sqlite.text_rows(out,
+          "SELECT CAST(inflate(source) AS TEXT) FROM project.modules WHERE path = ?1 AND length(source) > 0",
+          { text(path) })
+        local source = if sources ~= nil then sources[1] else nil end
+        return source ~= nil and AnalysisSchema.declares_public(source:text(1))
+      end, false)
+      if reach == nil then
+        public[#public + 1] = path
+      end
+    elseif file:match("^doc/guides/[^/]+%.md$") ~= nil then
+      guides[#guides + 1] = path
+    end
+  end
+  return { public = public, guides = guides }, ""
+end
+
+--- Copies into `out` the documentation of the attached project that
+--- `readable` names, as the tool carries the standard library's
+--- ([`build.writer`]'s `carry`): every doc row of a public module and each
+--- guide's own row, each example of a public module, and each use and each
+--- link to a symbol whose two ends are public, so where a module the
+--- project keeps to itself calls a function is not told.
+local function copy_documentation(out: Sqlite.Handle, readable: Readable): boolean, string
+  local public: Sqlite.Value = { texts = readable.public }
+  local guides: Sqlite.Value = { texts = readable.guides }
+  local ok, trouble = Sqlite.run(out,
+    "INSERT INTO docs (module, symbol, source_symbol, exported, kind, signature, text, file, line) " ..
+      "SELECT module, symbol, source_symbol, exported, kind, signature, text, file, line FROM project.docs d " ..
+      "WHERE d.module IN carray(?1) OR (d.symbol = '' AND d.module IN carray(?2)) ORDER BY id",
+    { public, guides })
+  if not ok then
+    return false, trouble
+  end
+  ok, trouble = Sqlite.run(out,
+    "INSERT INTO uses SELECT * FROM project.uses u WHERE u.module IN carray(?1) AND " ..
+      "u.from_module IN carray(?1) ORDER BY module, symbol, from_module, line", { public })
+  if not ok then
+    return false, trouble
+  end
+  ok, trouble = Sqlite.run(out,
+    "INSERT INTO links SELECT * FROM project.links l WHERE l.kind = 'symbol' AND l.module IN carray(?1) AND " ..
+      "l.from_module IN carray(?1) ORDER BY module, symbol, path, anchor, from_file, line, column", { public })
+  if not ok then
+    return false, trouble
+  end
+  return Sqlite.run(out,
+    "INSERT INTO examples (module, name, text, file, line, source) " ..
+      "SELECT module, name, text, file, line, source FROM project.examples e " ..
+      "WHERE e.module IN carray(?1) ORDER BY id", { public })
+end
+
 --- The database one executable carries, as bytes: the project's own
 --- projection at `project` joined with what the running binary holds
 --- that a program needs at run time -- every `cosmic.*` module, every
---- declaration, the error catalog, the time zones -- the bill of
+--- declaration, the error catalog, the time zones -- the project's
+--- documentation that its users read ([`public_modules`]), the bill of
 --- materials it ships under, and `main` naming the module the
 --- executable runs. Written beside the projection, then vacuumed, so
 --- the bytes are a function of the two databases and nothing else.
@@ -275,7 +361,7 @@ function embed.database(project: string, main: string, roots?: string): string?,
     -- The guidance a program's own errors can match: the standard
     -- library's own extracted rows. It never runs the build, so a row
     -- about the build could only ever match by accident. A row's text
-    -- is NULL when it has none of its own: the docs are not carried, and
+    -- is NULL when it has none of its own: the library's docs are not carried, and
     -- [`Errors.guidance`] names the symbol for `cosmic docs` instead.
     copied, copy_trouble = copy_rows(binary, out, "catalog", catalog_columns,
       "SELECT kind, module, symbol, message, text, file, " ..
@@ -325,6 +411,14 @@ function embed.database(project: string, main: string, roots?: string): string?,
       "ATTACH DATABASE ?1 AS project", { text(project) })
     if not attached then
       return false, attach_trouble
+    end
+    local readable, readable_trouble = public_modules(out)
+    if readable == nil then
+      return false, readable_trouble
+    end
+    local documented, documented_trouble = copy_documentation(out, readable)
+    if not documented then
+      return false, documented_trouble
     end
     -- The project's own modules, but not its tests or examples: a
     -- program never runs those, and they are the project's to keep.
