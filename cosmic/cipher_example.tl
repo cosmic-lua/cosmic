@@ -43,8 +43,8 @@ end
 --- Two parties agreeing on a key over a channel anyone can read. Each
 --- makes a private key, sends its public key, and computes the same
 --- secret from its own private key and the other's public key. Both
---- derive the message key from the secret and the two public keys, here
---- with an HMAC, and one seals what the other opens.
+--- derive the message key from the secret and the two public keys with
+--- [`Hash.hkdf`], and one seals what the other opens.
 function Example.x25519()
   local alice = assert(Rand.entropy(32))
   local bob = assert(Rand.entropy(32))
@@ -56,8 +56,8 @@ function Example.x25519()
   assert(Hash.equal(alice_secret, bob_secret))
 
   local context = "example message key" .. alice_public .. bob_public
-  local alice_key = Hash.hmac("sha256", alice_secret, context)
-  local bob_key = Hash.hmac("sha256", bob_secret, context)
+  local alice_key = Hash.hkdf("sha256", alice_secret, "", context, Cipher.key_length)
+  local bob_key = Hash.hkdf("sha256", bob_secret, "", context, Cipher.key_length)
   local nonce = assert(Rand.entropy(Cipher.nonce_length))
   local sealed = Cipher.seal("chacha20-poly1305", alice_key, nonce, "hello, bob")
   local message = assert(Cipher.open("chacha20-poly1305", bob_key, nonce, sealed))

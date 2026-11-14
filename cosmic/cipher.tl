@@ -91,9 +91,9 @@ end
 --- that sends one is choosing the secret, not agreeing on it. Raises
 --- when either key is not 32 bytes.
 ---
---- The secret is not a key yet. Pass it through a key derivation,
---- together with both public keys, and use what that answers as
---- [`Cipher.seal`]'s key. Public keys are not authenticated here: a
+--- The secret is not a key yet. Pass it through a key derivation
+--- ([`Hash.hkdf`]), together with both public keys, and use what that
+--- answers as [`Cipher.seal`]'s key. Public keys are not authenticated here: a
 --- party that must know who the peer is checks the peer's public key
 --- against one it already trusts.
 function Cipher.x25519(private: string, peer_public: string): string?, string
