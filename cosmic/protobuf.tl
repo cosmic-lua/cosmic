@@ -113,6 +113,7 @@ local record Protobuf
     --- The embedded message of that number: every length-delimited field of the number read as a message, and
     --- their fields merged in order. With no such field it is a message of no fields. Nil and why where the
     --- bytes are no message, where the fields pass `max_fields`, or where this message is `max_depth` deep.
+    --- Each call reads the fields again, so a caller that needs the message twice keeps it.
     message: function(self: Message, number: integer): Message?, string
     --- Every `int` of that number in order, packed or not; an empty list where there is none. Nil and why
     --- where a packed field ends inside a varint or holds one that is malformed.
@@ -154,8 +155,8 @@ local record Protobuf
     fixed32: function(self: Writer, number: integer, value: integer): Writer
     --- An 8-byte field, a `fixed64` or `sfixed64`.
     fixed64: function(self: Writer, number: integer, value: integer): Writer
-    --- A `float`: `value` rounded to a single. One past a single's range is the infinity of its sign, and a
-    --- NaN is the bytes `00 00 c0 7f` whatever its sign and payload.
+    --- A `float`: `value` rounded to the nearest single, which for one past them all is the infinity of its
+    --- sign. A NaN is the bytes `00 00 c0 7f` whatever its sign and payload.
     float: function(self: Writer, number: integer, value: number): Writer
     --- A `double`. A NaN is the bytes `00 00 00 00 00 00 f8 7f` whatever its sign and payload.
     double: function(self: Writer, number: integer, value: number): Writer
@@ -208,8 +209,12 @@ local MAX_NUMBER <const> = 536870911
 --- The bytes of the longest varint: 64 bits, 7 to a byte.
 local MAX_VARINT <const> = 10
 
---- The greatest single. `string.pack` converts a double past it as C does, which C leaves undefined.
+--- The greatest single.
 local MAX_FLOAT <const> = 3.4028234663852886e+38
+
+--- Half way from the greatest single to the next power of two, 2^128 - 2^103: a double below it rounds to the
+--- greatest single, and one from it up to no single.
+local FLOAT_OVERFLOW <const> = 3.4028235677973366e+38
 
 --- One field of a decoded message.
 local record Entry
@@ -298,7 +303,8 @@ local function read_fields(data: string, start: integer, stop: integer, entries:
     local tag, why = take_varint(cursor)
     if tag == nil then return ("protobuf: byte %d: %s"):format(at, why) end
     local number, wire = tag >> 3, tag & 7
-    if tag < 0 or number > MAX_NUMBER then
+    -- A tag past 32 bits is one too: the shift is of all 64, so its number is greater still.
+    if number > MAX_NUMBER then
       return ("protobuf: byte %d: a field number above %d"):format(at, MAX_NUMBER)
     end
     if number == 0 then return ("protobuf: byte %d: a field number of 0"):format(at) end
@@ -605,7 +611,13 @@ local class Decoded is Protobuf.Message
 
   function repeated_message(self, number: integer): {Protobuf.Message}?, string
     local out: mut {Protobuf.Message} = {}
-    for _, entry in ipairs(all_len(self.last, number)) do
+    local parts = all_len(self.last, number)
+    if #parts == 0 then
+      -- No part is there to refuse the depth, which `message` refuses with no field too.
+      local none, why = embedded(self.data, number, parts, self.depth, self.max_depth, self.max_fields)
+      if none == nil then return nil, why end
+    end
+    for _, entry in ipairs(parts) do
       local nested, why = embedded(self.data, number, { entry }, self.depth, self.max_depth, self.max_fields)
       if nested == nil then return nil, why end
       local child: Decoded = { data = self.data, entries = nested.entries, last = nested.last,
@@ -666,11 +678,17 @@ end
 --- processors.
 local function float_bytes(value: number): string
   if value ~= value then return "\x00\x00\xc0\x7f" end
+  -- `string.pack` converts as C does, which leaves a double past the greatest single undefined, so those are
+  -- rounded here.
   local single = value
-  if single > MAX_FLOAT then
+  if single >= FLOAT_OVERFLOW then
     single = math.huge
-  elseif single < -MAX_FLOAT then
+  elseif single <= -FLOAT_OVERFLOW then
     single = -math.huge
+  elseif single > MAX_FLOAT then
+    single = MAX_FLOAT
+  elseif single < -MAX_FLOAT then
+    single = -MAX_FLOAT
   end
   return string.pack("<f", single)
 end
@@ -809,8 +827,6 @@ function Protobuf.encode(fields: {Protobuf.Field}): string?, string
         return nil, ("protobuf: field %d: wire type %s holds no bytes"):format(number, tostring(wire))
       end
       body = varint_bytes(#value) .. value
-    elseif math.type(value) ~= "integer" then
-      return nil, ("protobuf: field %d: %s is no integer"):format(number, tostring(value))
     elseif wire == VARINT then
       body = varint_bytes(value)
     elseif wire == FIXED64 then

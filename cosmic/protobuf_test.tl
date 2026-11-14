@@ -204,8 +204,15 @@ local function test_a_float_is_written_and_read_as_the_reference_does()
   -- A value no single holds is rounded to the nearest, and reads back as that.
   assert(written(Protobuf.writer():float(12, 0.1)) == "65cdcccc3d")
   assert(decoded("65cdcccc3d"):float(12) == 0.10000000149011612)
-  -- Past a single's range there is no nearest.
+  -- Past the greatest single the nearest is still it, up to half way to the next power of two, and from
+  -- there on the infinity, as the reference rounds.
+  assert(written(Protobuf.writer():float(12, 3.40282347e+38)) == "65ffff7f7f")
+  assert(written(Protobuf.writer():float(12, 3.4028235677973362e+38)) == "65ffff7f7f")
+  assert(written(Protobuf.writer():float(12, -3.4028235677973362e+38)) == "65ffff7fff")
+  assert(written(Protobuf.writer():float(12, 3.4028235677973366e+38)) == "650000807f")
+  assert(written(Protobuf.writer():float(12, -3.4028235677973366e+38)) == "65000080ff")
   assert(written(Protobuf.writer():float(12, 1e39)) == "650000807f")
+  assert(written(Protobuf.writer():packed(21, "float", { 3.40282347e+38, 1e39 })) == "aa0108ffff7f7f0000807f")
   assert(written(Protobuf.writer():float(12, -1.7976931348623157e308)) == "65000080ff")
   local nan = assert(decoded("650000c07f"):float(12))
   assert(nan ~= nan)
@@ -504,6 +511,18 @@ local function test_a_refusal_says_where_and_why()
   assert(why == "protobuf: byte 1: field 1: the bytes end inside a varint", why)
 end
 
+local function test_a_length_past_63_bits_is_past_the_end()
+  -- Such a length is a negative integer here. Taken as a length it would move the read backwards, to read the
+  -- same bytes again.
+  local _, why = Protobuf.decode(bytes_of("080172ffffffffffffffffff01"))
+  assert(why == "protobuf: byte 3: the length of field 14 passes the end of the bytes", why)
+  _, why = Protobuf.decode(bytes_of("08017280808080808080808001"))
+  assert(why == "protobuf: byte 3: the length of field 14 passes the end of the bytes", why)
+  -- A length that goes back to the start of the bytes: -2 from the byte after it.
+  _, why = Protobuf.decode(bytes_of("72feffffffffffffffff01"))
+  assert(why == "protobuf: byte 1: the length of field 14 passes the end of the bytes", why)
+end
+
 local function test_a_malformed_packed_field_fails_the_read_and_not_the_decode()
   -- 5 bytes of fixed32, and a varint the field ends inside: the reference refuses the message, which knows the
   -- field is packed; here the field is bytes until it is read as numbers.
@@ -575,6 +594,8 @@ local function test_messages_nest_to_max_depth_and_no_deeper()
   assert(each == nil and each_why == inner_why)
   local absent, absent_why = top:message(9)
   assert(absent == nil and absent_why ~= "")
+  local none, none_why = top:repeated_message(9)
+  assert(none == nil and none_why == "protobuf: field 9 nests deeper than 1 message", none_why)
   assert(top:bytes(1) ~= nil)
 end
 
@@ -589,6 +610,13 @@ local function test_a_message_holds_max_fields_and_no_more()
   assert(merged == nil and merged_why == "protobuf: the message holds more than 3 fields (in field 16)", merged_why)
   local parts = assert(outer:repeated_message(16))
   assert(#parts == 3)
+  -- The bound goes down with the messages: here to the third, inside two of one field each.
+  local wide = bytes_of("080108020803")
+  local nest = decoded(written(Protobuf.writer():message(1, Protobuf.writer():bytes(1, wide))), { max_fields = 2 })
+  local below, below_why = assert(nest:message(1)):message(1)
+  assert(below == nil and below_why == "protobuf: the message holds more than 2 fields (in field 1)", below_why)
+  local each, each_why = assert(assert(nest:repeated_message(1))[1]):repeated_message(1)
+  assert(each == nil and each_why == below_why)
   -- The default.
   assert(Protobuf.default_fields == 65536)
   local many = ("\x08\x01"):rep(65536)
