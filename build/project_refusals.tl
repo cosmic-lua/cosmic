@@ -9,7 +9,7 @@
 ---
 --- - `require` is called with one literal name, as `require("m")` or `pcall(require, "m")`, and that name is
 ---   not under `cosmic.internal`, nor, in a file checked alone, a module the standard library keeps to its directory
----   (`kept`);
+---   (`kept`), which a type import (`local type M = require("m")`) may not name either;
 --- - `package`, `debug`, `loadfile`, `dofile`, `_G` and `_ENV` are not used (the last two hold every global under a name this check
 ---   cannot read: `_G.load`, `_G["load"]`, `local g = _G`);
 --- - `load` is called with a mode that is the literal `"t"`, or with no mode and so no environment, and no final argument
@@ -255,7 +255,8 @@ function ProjectRefusals.places(chunk: Ast.Chunk, scoped: Scopes.Scoped,
       any = true
     end
   end
-  if not any then
+  -- A type import names no global, and is told only where a module may be kept.
+  if not any and (kept == nil or #chunk.requires == 0) then
     return {}
   end
   local out: mut {ProjectRefusals.Place} = {}
@@ -276,7 +277,7 @@ function ProjectRefusals.places(chunk: Ast.Chunk, scoped: Scopes.Scoped,
       say(node, "`" .. literal.value .. "` is not a module a project may require: " .. INTERNAL ..
           " holds the tool's own, which are not its interface")
     elseif kept ~= nil then
-      local told = kept((literal.value:gsub("[/\\]", ".")))
+      local told = kept(literal.value)
       if told ~= nil then
         say(node, told)
       end
@@ -312,6 +313,15 @@ function ProjectRefusals.places(chunk: Ast.Chunk, scoped: Scopes.Scoped,
         elseif count < 3 and last ~= nil and (last.kind == "Call" or last.kind == "MethodCall" or last.kind == "Vararg") then
           say(node, "`load` is given a last argument that may supply a mode and an environment: wrap a call in parentheses " ..
               "(`load((f()))`) to pass its first value alone")
+        end
+      end
+    elseif node.kind == "Import" then
+      -- A type import loads nothing, so one of `cosmic.internal` reaches no raw table; a kept module's types are its
+      -- directory's all the same, as the build has it.
+      if kept ~= nil then
+        local told = kept(node.module)
+        if told ~= nil then
+          say(node, told)
         end
       end
     elseif node.kind == "Name" then

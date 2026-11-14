@@ -720,6 +720,7 @@ local function generated_of(m: Module, built: Pipeline.Built, facts?: boolean, j
       lines[#lines + 1] = ErrorRender.line(m.file, w)
     end
     if built.project == true then
+      -- No `kept` is given: the check of positions has refused a tree's module that requires a kept one before this.
       for _, line in ipairs(ProjectRefusals.check(m.file, result.chunk, result.scoped)) do
         lines[#lines + 1] = line
       end
