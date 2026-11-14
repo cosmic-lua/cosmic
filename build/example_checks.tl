@@ -30,7 +30,7 @@ local Markers = require("build.markers")
 local Sqlite = require("cosmic.sqlite")
 local String = require("cosmic.string")
 local doctest = require("build.doctest")
-local symbols = require("build.symbols")
+local symbols = require("cosmic.internal.symbols")
 local type Pipeline = require("build.pipeline")
 -- Declares what text this module reads ([`build.code_walk`]'s `markers`): the docs, examples, uses or links of the database it is handed.
 local _ = require("build.reads.all")

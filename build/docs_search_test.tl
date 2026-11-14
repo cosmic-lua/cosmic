@@ -8,6 +8,7 @@ local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local Test = require("cosmic.test")
 local docs = require("build.docs")
+local Doc = require("cosmic.doc")
 local String = require("cosmic.string")
 
 Test.policy{
@@ -35,13 +36,13 @@ local QUERIES: {Query} = {
   { query = "command line options", reaches = { "Flags.parse" } },
 }
 
-local function shown(entry: docs.Entry): string
+local function shown(entry: Doc.Entry): string
   if entry.symbol == "" then return entry.module end
   return entry.source_symbol
 end
 
-local function names(view: docs.View, query: string): {string}
-  local found = assert(docs.lookup(view, query))
+local function names(view: Doc.View, query: string): {string}
+  local found = assert(Doc.lookup(view, query))
   local out: mut {string} = {}
   for _, entry in ipairs(found) do
     if #out == 3 then break end

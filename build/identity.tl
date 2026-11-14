@@ -492,7 +492,7 @@ local compiler_roots: {string} = {
   -- The analyzer ([`build.importer`]'s `analyzer_roots`): the extractors,
   -- generators and parser a parse runs, whose `tests` rows a compile
   -- appends a test module's tail from (`with_test_tail`).
-  "build.analysis_schema", "build.bind", "build.doctest", "build.gen_syscalls", "build.link_text",
+  "build.analysis_schema", "build.bind", "build.doctest", "build.gen_syscalls", "cosmic.internal.link_text",
   -- The compile's own: the tree the rules hold in and the globals the checker is stripped of.
   "build.tree", "build.withheld",
   -- What answers the identities a compile and a parse are keyed by from the binary's stamps: a stamp it
@@ -570,7 +570,7 @@ end
 --- from one, or is the compile or the parse of the first item
 --- ([`build.pipeline`], [`build.parse_derive`]), keyed as it says. What
 --- it leaves out only stages (build.work),
---- fingerprints, reports (build.symbols' hints, in a refusal's message,
+--- fingerprints, reports (cosmic.internal.symbols' hints, in a refusal's message,
 --- which no compile keeps), fails a whole build before any key is looked
 --- up (build.positions), or finds the host's caches (build.caches,
 --- build/zig.tl): an edit to one compiles and parses nothing again.

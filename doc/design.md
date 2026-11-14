@@ -1323,7 +1323,7 @@ checkout's `o/`, which an older tool wrote and the build now ignores.
 every directory name is singular: `doc`, not `docs`; `patch`, not
 `patches`. the rule reaches module paths too, since a module that
 grows past one file becomes a directory of the same name:
-`cosmic.docs` is `cosmic.doc` for exactly this reason. the one
+`cosmic.docs` is [`cosmic.doc`] for exactly this reason. the one
 deliberate exception is a CLI verb, `cosmic docs`, since a verb
 names an action and reads differently from a module naming a thing.
 
@@ -1522,6 +1522,7 @@ in [roadmap.md](roadmap.md).
 [`build/embed.tl`]: ../build/embed.tl
 [`build/markers.tl`]: ../build/markers.tl
 [`build/positions.tl`]: ../build/positions.tl
+[`cosmic.doc`]: ../cosmic/doc.tl
 [`cosmic.http.server`]: ../cosmic/http/server.tl
 [`cosmic.internal.globals`]: ../cosmic/internal/globals.d.tl
 [`cosmic.protobuf`]: ../cosmic/protobuf/init.tl

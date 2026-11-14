@@ -14,6 +14,7 @@ local Lexer = require("lang.lexer")
 local Parser = require("lang.parser")
 local SyntaxNode = require("build.syntax_node")
 local docs = require("build.docs")
+local Doc = require("cosmic.doc")
 local importer = require("build.importer")
 local plans = require("build.plans")
 local standard_text = require("build.standard_text")
@@ -94,9 +95,9 @@ local function test_project_keeps_uses_of_bundled_symbols()
     databases[#databases + 1] = database
   end
   local effective = assert(docs.view(databases))
-  local definition = assert(docs.lookup(effective, "Fs.exists"))
+  local definition = assert(Doc.lookup(effective, "Fs.exists"))
   assert(#definition == 1 and assert(definition[1]).module == "cosmic.fs")
-  local uses = assert(docs.uses(effective, "Fs.exists"))
+  local uses = assert(Doc.uses(effective, "Fs.exists"))
   local found_main = false
   for _, use in ipairs(uses) do
     if use.from_module == "main" and use.line == 7 then found_main = true end

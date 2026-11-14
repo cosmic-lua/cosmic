@@ -8,7 +8,7 @@
 
 local Fs = require("cosmic.fs")
 local String = require("cosmic.string")
-local link_text = require("build.link_text")
+local link_text = require("cosmic.internal.link_text")
 
 local record link_resolve
   --- A symbol a context names: its module and its `symbol` as
@@ -825,7 +825,7 @@ local FILE_EXTENSIONS <const>: {string: boolean} = {
 ---   means, and another module's symbol is written in full;
 --- - a name in full (`module.member`, `Type.member`, `alias.member`
 ---   through a `require` of the file, a module's whole name) that names
----   one symbol of the project ([`docs.exact`]'s rule), or one member the
+---   one symbol of the project ([`cosmic.doc.exact`]'s rule), or one member the
 ---   file declares;
 --- - a path of a file of the tree, one with a `/` in it.
 ---

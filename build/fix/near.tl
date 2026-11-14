@@ -25,7 +25,7 @@
 -- is noted too.
 
 local Sqlite = require("cosmic.sqlite")
-local symbols = require("build.symbols")
+local symbols = require("cosmic.internal.symbols")
 -- Declares what text this module reads ([`build.code_walk`]'s `markers`): the docs, examples, uses or links of the database it is handed.
 local _ = require("build.reads.all")
 

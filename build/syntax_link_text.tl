@@ -1,16 +1,16 @@
---- The links of a source's comments, read off the new syntax tree: the part of [`build.link_text`] that reads a Teal
---- source rather than prose. [`build.link_text`] finds the links in a text and keeps the text rules; this module reads
+--- The links of a source's comments, read off the new syntax tree: the part of [`cosmic.internal.link_text`] that reads a Teal
+--- source rather than prose. [`cosmic.internal.link_text`] finds the links in a text and keeps the text rules; this module reads
 --- the comments of a tree ([`lang.lexer`]'s tokens carry them), what the file declares where each comment stands, and
 --- the links the build records of a source ([`SyntaxLinkText.found`]).
 ---
---- It replaced the functions [`build.link_text`] had for the fork's tree and tokens ([`comments_of`],
+--- It replaced the functions [`cosmic.internal.link_text`] had for the fork's tree and tokens ([`comments_of`],
 --- `teal_comments`, `declarations`, `found`). What a comment sees is the same: the
 --- names its top-level block binds, those a nested block binds where Lua has them in scope, and each function by its
 --- path and each top-level type's members. A class is read as the record and the `function R:m()` methods the fork's
 --- source wrote.
 local Ast = require("lang.ast")
 local Lexical = require("build.syntax_scopes")
-local LinkText = require("build.link_text")
+local LinkText = require("cosmic.internal.link_text")
 local Lexer = require("lang.lexer")
 local Node = require("build.syntax_node")
 local Scopes = require("lang.scopes")
@@ -21,7 +21,7 @@ local record SyntaxLinkText
   comments_of: function(tokens: Lexer.Tokens): {LinkText.Comment}
 
   --- What `chunk` declares where each of its comments stands, and what it declares at its top level and nowhere else;
-  --- `scoped` is the resolution of its names ([`Node.scope`]). See [`build.link_text`]'s `declarations`.
+  --- `scoped` is the resolution of its names ([`Node.scope`]). See [`cosmic.internal.link_text`]'s `declarations`.
   declarations: function(chunk: Ast.Chunk, scoped: Scopes.Scoped): LinkText.Declarations
 
   --- The links of `source`'s comments, `chunk` its tree, as the build records them: every link but a definition,

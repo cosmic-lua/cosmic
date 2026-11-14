@@ -225,13 +225,13 @@ end
 --- is.
 --
 -- TODO: let a program answer from these rows, as `cosmic docs` answers
--- from the tool's. It waits on the lookup of build/docs.tl moving to a
--- module a program carries, since `build/` is the tool's alone.
+-- from the tool's, by the same lookup ([`cosmic.doc`]). It waits on
+-- [`Flags.dispatch`] answering a program's `docs` command with it.
 -- TODO: carry the rows of a type a public module aliases from a module
 -- the project keeps to itself, as [`build.writer`]'s
 -- `carried_internal_types` does for `cosmic.internal.*`, so that the
--- alias lists its members. It waits on the same lookup, which is what
--- resolves an alias.
+-- alias lists its members. It waits on a program answering from these
+-- rows (the TODO above): nothing reads an alias of them until then.
 local function copy_documentation(out: Sqlite.Handle, readable: Readable): boolean, string
   local public: Sqlite.Value = { texts = readable.public }
   local guides: Sqlite.Value = { texts = readable.guides }

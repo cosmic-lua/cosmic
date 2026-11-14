@@ -10,6 +10,7 @@ local analysis_schema = require("build.analysis_schema")
 local closure_store = require("build.closure_store")
 local declared_key = require("build.declared_key")
 local docs = require("build.docs")
+local Doc = require("cosmic.doc")
 local identity = require("build.identity")
 local importer = require("build.importer")
 local key_parts = require("build.key_parts")
@@ -325,7 +326,7 @@ local function test_a_closure_store_answers_for_its_closure_s_links(tmp: string)
   assert(closure_store.write(tmp .. "/whole.db", tmp .. "/store.db", names, basis))
   local db = assert(Sqlite.open(tmp .. "/store.db"))
   local view = assert(docs.view({ db }))
-  local found = assert(docs.uses(view, "greet.hello"))
+  local found = assert(Doc.uses(view, "greet.hello"))
   assert(db:close())
   local links: mut {string} = {}
   for _, use in ipairs(found) do
@@ -348,7 +349,7 @@ local function test_a_closure_store_records_which_of_its_modules_are_public(tmp:
   assert(assert(recorded[1]):text(1) == "greet", assert(recorded[1]):text(1))
   local view = assert(docs.view({ db }, { true }))
   local listed: mut {string} = {}
-  for _, summary in ipairs((assert(docs.index(view)))) do listed[#listed + 1] = summary.module end
+  for _, summary in ipairs((assert(Doc.index(view)))) do listed[#listed + 1] = summary.module end
   assert(db:close())
   assert(table.concat(listed, " ") == "greet", table.concat(listed, " "))
 end
