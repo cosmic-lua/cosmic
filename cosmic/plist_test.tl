@@ -1145,29 +1145,39 @@ end
 
 local function test_a_date_keeps_its_fraction_in_binary_and_loses_it_in_xml()
   local date = Plist.date(1794659696.5)
-  assert(read(written(date)).date == 1794659696.5)
+  assert(date.date == 1794659696.5 - Plist.reference_date and Plist.reference_date == 978307200)
+  assert(read(written(date)).date == date.date)
   assert(written(date, { form = "xml" }) == XML_HEAD .. "<date>2026-11-14T12:34:56Z</date>\n" .. XML_TAIL)
   -- Before 1970 the fraction is dropped toward the earlier second, as `plistlib` drops it.
   assert(written(Plist.date(-0.5), { form = "xml" }) == XML_HEAD .. "<date>1969-12-31T23:59:59Z</date>\n" .. XML_TAIL)
-  assert(read(written(Plist.date(-0.5), { form = "xml" })).date == -1.0)
+  assert(read(written(Plist.date(-0.5), { form = "xml" })).date == -1.0 - Plist.reference_date)
 end
 
-local function test_dates_that_are_one_double_from_2001_are_one_object()
-  -- Both are 978307200 seconds before 2001 as a double, so they are written once, and what is read
-  -- is written back as the same bytes.
-  local bytes = written(Plist.array({ Plist.date(0.0), Plist.date(2.0 ^ -60) }))
-  assert(bytes == bplist({ "\xA2\x01\x01", "\x33" .. string.pack(">d", -978307200.0) }))
-  assert(written(read(bytes)) == bytes)
+local function test_a_binary_date_is_written_back_as_the_bytes_it_was_read_from()
+  -- Seconds from 2001 that a double counted from 1970 would not hold: the last bits of a fraction near
+  -- 2001, and the double under a whole second, which would round up into the next.
+  for _, since in ipairs({ 0.123456789, 1.9999999999999998, 86399.99999999999, -0.1, 5e-324, 753194096.123456, 1e300 }) do
+    local bytes = bplist({ "\x33" .. string.pack(">d", since) })
+    local value = read(bytes)
+    assert(value.date == since)
+    assert(written(value) == bytes)
+  end
+  assert(written(read(bplist({ "\x33" .. string.pack(">d", 1.9999999999999998) })), { form = "xml" }) ==
+      XML_HEAD .. "<date>2001-01-01T00:00:01Z</date>\n" .. XML_TAIL)
+  -- Dates a last bit apart are two objects.
+  local near = Plist.array({ { kind = "date", date = 0.1 }, { kind = "date", date = 0.1 + 2.0 ^ -56 } })
+  assert(#written(near) == #written(Plist.array({ Plist.integer(1), Plist.integer(2) })) + 14)
+  assert(same(read(written(near)), near))
 end
 
 local function test_a_date_outside_four_digit_years_is_binary_only()
   for _, seconds in ipairs({ -62135596801.0, 253402300800.0, 1e300, -1e300 }) do
     local date = Plist.date(seconds)
-    assert(read(written(date)).date == seconds)
+    assert(read(written(date)).date == date.date)
     unwritable(date, "outside the years 0001 to 9999", { form = "xml" })
   end
   assert(written(Plist.date(-62135596800), { form = "xml" }):find("<date>0001-01-01T00:00:00Z</date>", 1, true) ~= nil)
-  assert(written(Plist.date(253402300799.9), { form = "xml" }):find("<date>9999-12-31T23:59:59Z</date>", 1, true) ~= nil)
+  assert(written(Plist.date(253402300799.5), { form = "xml" }):find("<date>9999-12-31T23:59:59Z</date>", 1, true) ~= nil)
 end
 
 local function test_a_uid_passes_through_xml_as_a_dict_of_cf_uid()
@@ -1312,8 +1322,8 @@ local function test_long_runs_of_whitespace_cost_one_pass()
 end
 
 local function test_xml_dates_are_one_spelling_of_a_real_moment()
-  assert(read(xml("<date>1970-01-01T00:00:00Z</date>")).date == 0.0)
-  assert(read(xml("<date> 2000-02-29T23:59:59Z\n</date>")).date == 951868799.0)
+  assert(read(xml("<date>1970-01-01T00:00:00Z</date>")).date == -978307200.0)
+  assert(read(xml("<date> 2000-02-29T23:59:59Z\n</date>")).date == 951868799.0 - 978307200.0)
   assert(math.type(read(xml("<date>2001-01-01T00:00:00Z</date>")).date) == "float")
   for _, text in ipairs({ "", "2020-01", "2020-01-02", "2020-01-02T03:04:05", "2020-01-02 03:04:05Z", "2020-13-01T00:00:00Z",
       "2020-00-10T00:00:00Z", "2021-02-29T00:00:00Z", "1900-02-29T00:00:00Z", "2020-04-31T00:00:00Z",
@@ -1421,6 +1431,16 @@ local function test_nesting_is_held_to_max_depth()
     "nested deeper than 2", { max_depth = 2 })
   refused(xml("<array><array><dict><key>CF$UID</key><array/></dict></array></array>"), "nested deeper than 2",
     { max_depth = 2 })
+  -- Only a dict of `CF$UID` and an integer is no level: one that holds another is, however many nest,
+  -- and a chain of them far past any limit is refused, where reading down it would end the stack.
+  refused(xml(("<dict><key>CF$UID</key>"):rep(4) .. "<integer>1</integer>" .. ("</dict>"):rep(4)), "nested deeper than 2",
+    { max_depth = 2 })
+  refused(xml(("<dict><key>CF$UID</key>"):rep(200000) .. "<integer>1</integer>" .. ("</dict>"):rep(200000)),
+    "nested deeper than 64")
+  local chain: mut {string} = {}
+  for i = 1, 400000 do chain[i] = "\xA1" .. string.pack(">I4", i) end
+  chain[#chain + 1] = "\xA0"
+  refused(bplist(chain, { ref_size = 4, offset_size = 4 }), "object 64 is nested deeper than 64")
   -- A dict counts as an array does, and a scalar inside the deepest does not.
   refused(xml("<dict><key>a</key><array><dict/></array></dict>"), "nested deeper than 2", { max_depth = 2 })
   assert(read(xml("<dict><key>a</key><array><true/></array></dict>"), { max_depth = 2 }).kind == "dict")
@@ -1609,8 +1629,8 @@ local function test_binary_reals_and_dates_are_numbers()
   refused(bplist({ "\x20\x00" }), "real that is not 4 or 8 bytes")
   refused(bplist({ "\x21\x00\x00" }), "real that is not 4 or 8 bytes")
   refused(bplist({ "\x24" .. ("\0"):rep(16) }), "real that is not 4 or 8 bytes")
-  assert(read(bplist({ "\x33" .. string.pack(">d", 0.0) })).date == 978307200.0)
-  assert(read(bplist({ "\x33" .. string.pack(">d", -978307200.0) })).date == 0.0)
+  assert(read(bplist({ "\x33" .. string.pack(">d", 0.0) })).date == 0.0)
+  assert(same(read(bplist({ "\x33" .. string.pack(">d", -978307200.0) })), Plist.date(0)))
   refused(bplist({ "\x33" .. string.pack(">d", 0.0 / 0.0) }), "date that is not a number")
   refused(bplist({ "\x33" .. string.pack(">d", math.huge) }), "date that is not a number")
   refused(bplist({ "\x33" .. string.pack(">d", -math.huge) }), "date that is not a number")
@@ -1627,6 +1647,8 @@ local function test_binary_strings_are_ascii_or_utf16()
   assert(read(bplist({ "\x62\xDB\xFF\xDF\xFF" })).text == "\u{10FFFF}")
   -- A surrogate with no partner: a high one last, one before what is no low one, and a low one first.
   refused(bplist({ "\x61\xD8\x3D" }), "string that is not UTF-16")
+  -- A high one last, where the bytes after the string are a low one of another object's.
+  refused(bplist({ "\x61\xD8\x00", "\xDC\x00" }), "object 0 is a string that is not UTF-16")
   refused(bplist({ "\x62\xD8\x3D\x00a" }), "string that is not UTF-16")
   refused(bplist({ "\x62\xD8\x3D\xD8\x3D" }), "string that is not UTF-16")
   refused(bplist({ "\x61\xDE\x00" }), "string that is not UTF-16")
@@ -1702,6 +1724,24 @@ local function test_a_value_no_property_list_holds_is_not_written()
     assert(same(read(written(keyed)), keyed))
     unwritable(keyed, "a key is not text this form can hold", { form = "xml" })
   end
+end
+
+local function test_max_bytes_bounds_what_is_written()
+  -- A string of 20000 bytes at 2000 places: one object in the binary form, and 40 MB of XML.
+  local text = Plist.string(("s"):rep(20000))
+  local items: mut {Plist.Value} = {}
+  for i = 1, 2000 do items[i] = text end
+  local value = Plist.array(items)
+  local binary = written(value)
+  assert(#binary < 30000 and #assert(read(binary).items) == 2000)
+  unwritable(read(binary), "the value takes more than 1000000 bytes", { form = "xml", max_bytes = 1000000 })
+  unwritable(value, "the value takes more than 20000 bytes", { max_bytes = 20000 })
+  assert(written(value, { max_bytes = #binary }) == binary)
+  unwritable(value, "the value takes more than", { max_bytes = #binary - 1 })
+  local small = Plist.array({ Plist.string("a"), Plist.string("b") })
+  local small_xml = written(small, { form = "xml" })
+  assert(written(small, { form = "xml", max_bytes = #small_xml }) == small_xml)
+  unwritable(small, "the value takes more than", { form = "xml", max_bytes = #small_xml - 1 })
 end
 
 local function test_a_value_that_holds_itself_is_not_written()

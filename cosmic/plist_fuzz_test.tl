@@ -212,9 +212,10 @@ local function test_xml_decode_is_total_and_what_it_reads_is_written_back(tmp: s
     gen = function(src: Fuzz.Source): string
       local kind = src:int(0, 3)
       if kind == 0 then return Fuzz.mutate(src, gen_document(src), 2) end
-      if kind == 1 then
-        local text = Plist.encode(gen_value(src, 3), { form = "xml" })
-        if text ~= nil then return Fuzz.mutate(src, text, 2) end
+      if kind <= 2 then
+        -- An array of a value, as this module writes it, so that a share of the inputs are whole documents.
+        local text = Plist.encode(Plist.array({ gen_value(src, 3) }), { form = "xml" })
+        if text ~= nil then return Fuzz.mutate(src, text, 1) end
       end
       return gen_document(src)
     end,

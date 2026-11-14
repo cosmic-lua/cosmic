@@ -103,15 +103,30 @@ function Example.kinds()
   assert(assert(items[5]).unsigned == true and assert(items[5]).integer == -1)
 end
 
---- A date is seconds from 1970, as `os.time` counts them. The binary form keeps a fraction of a second and
---- the XML form drops it.
+--- A date is made from seconds from 1970, as `os.time` counts them, and holds seconds from 2001, as a
+--- property list does: [`Plist.reference_date`] is the difference. The binary form keeps a fraction of a
+--- second and the XML form drops it.
 function Example.date()
   local moon = Plist.date(-14182940 + 0.25)
   local binary = assert(Plist.encode(moon))
-  assert(assert(Plist.decode(binary)).date == -14182939.75)
+  local back = assert(assert(Plist.decode(binary)).date)
+  print(back + Plist.reference_date) -- -14182939.75
+  assert(back == moon.date and back + Plist.reference_date == -14182939.75)
   local xml = assert(Plist.encode(moon, { form = "xml" }))
   assert(xml:find("<date>1969-07-20T20:17:40Z</date>", 1, true) ~= nil)
-  assert(assert(Plist.decode(xml)).date == -14182940.0)
+  assert(assert(assert(Plist.decode(xml)).date) + Plist.reference_date == -14182940.0)
+end
+
+--- What is read from bytes that are not trusted is written under a limit: in the XML form a string that the
+--- binary form holds once is written at each place it stands, so a small file can ask for a large one.
+function Example.encode_bounded()
+  local text = Plist.string(("x"):rep(1000))
+  local value = Plist.array({ text, text, text, text })
+  local binary = assert(Plist.encode(value))
+  assert(#binary < 1100)
+  local xml, why = Plist.encode(assert(Plist.decode(binary)), { form = "xml", max_bytes = 2 * #binary })
+  assert(xml == nil)
+  print(why)
 end
 
 --- A keyed archive (NSKeyedArchiver) is a property list whose `$objects` refer to one another by UID. Here

@@ -18,10 +18,10 @@
 --- - An integer from -2^63 to 2^64 - 1. One of 2^63 or more has `unsigned` set and its 64 bits in `integer`.
 --- - A real: a double. The binary form's 4-byte reals read as the double they equal.
 --- - Data: bytes of any value.
---- - A date: seconds from 1970-01-01T00:00:00Z, with a fraction. The binary form counts them from 2001 as a
----   double, so a date read from it may differ in the last bit of its fraction from what was written there,
----   and never in its whole seconds. The XML form holds whole seconds of the years 0001 to 9999: a fraction is
----   dropped when it is written.
+--- - A date: seconds from 2001-01-01T00:00:00Z, with a fraction, which is the double the binary form holds,
+---   so that a date read is written back as the same bytes. [`Plist.reference_date`] is that moment in
+---   seconds from 1970, to add for the time `os.time` counts, and [`Plist.date`] takes such a time. The XML
+---   form holds whole seconds of the years 0001 to 9999: a fraction is dropped when it is written.
 --- - An array, and a dict, whose keys are strings and whose entries stay in their order.
 --- - A UID, the reference of a keyed archive (NSKeyedArchiver), from 0 to 2^63 - 1. The XML form has no
 ---   element for one, so it is written there as Apple's tools write it, a dict of the one key `CF$UID` and an
@@ -32,9 +32,10 @@
 --- writes for the same value with `sort_keys=False` (`sort_keys` here sorts as it does). In the binary form
 --- that is the order of the objects, with equal scalars written once, the width of each integer, length and
 --- reference, and a string as ASCII where it is and as UTF-16 otherwise. In the XML form it is the header,
---- the tabs and the lines of base64. Three things differ, each to keep what `plistlib` loses: -0.0 is written
+--- the tabs and the lines of base64. Four things differ. Three keep what `plistlib` loses: -0.0 is written
 --- apart from 0.0 in the binary form, a carriage return in a string is written as `&#13;` in the XML form,
---- and a UID is written to XML at all.
+--- and a UID is written to XML at all. The fourth is a refusal: U+FFFE and U+FFFF, which `plistlib` writes
+--- to XML and no XML reader takes.
 ---
 --- [`Plist.decode`] takes bytes from anywhere. It never raises, reads no byte outside what it is given, and
 --- its work and memory stay near the size of the input. What it refuses, with nil and why:
@@ -55,8 +56,12 @@
 --- reads as is the same table at each place. A value is refused when, walked as a tree, it would hold more
 --- values than the input has bytes, so that objects shared at every level cannot make a small input a large
 --- value. For the same reason the strings and data of a value hold no more bytes than the input has, which
---- objects that overlap, or many offsets that lead to one object, would. No writer of property lists comes
---- near either.
+--- objects that overlap, or many offsets that lead to one object, would. A writer that shares arrays and
+--- dicts, as `plistlib` does for one list held in many places, can write a file the first limit refuses.
+---
+--- The limits hold what is read, not what is then written. A string that stands in many places is one
+--- object in the binary form and is written at each place in the XML form, so the XML of a value can be far
+--- larger than the binary it was read from: `max_bytes` bounds what [`Plist.encode`] writes.
 
 local Codec = require("cosmic.codec")
 local Xml = require("cosmic.xml")
@@ -109,7 +114,7 @@ local record Plist
     text?: string
     --- A data's bytes.
     data?: string
-    --- A date, as seconds from 1970-01-01T00:00:00Z.
+    --- A date, as seconds from 2001-01-01T00:00:00Z: add [`Plist.reference_date`] for seconds from 1970.
     date?: number
     --- An array's values, in order.
     items?: {Value}
@@ -142,15 +147,23 @@ local record Plist
     sort_keys?: boolean
     --- How many arrays and dicts may nest, 1 to 1000 (default 64). Outside that range raises.
     max_depth?: integer
+    --- Refuse a value once what is written of it passes this many bytes (default no limit). For writing what
+    --- was read from bytes that are not trusted.
+    max_bytes?: integer
   end
+
+  --- The seconds from 1970-01-01T00:00:00Z to 2001-01-01T00:00:00Z, from which a property list counts a
+  --- date: 978307200.
+  reference_date: integer
 end
 
---- The seconds from 1970-01-01 to 2001-01-01, from which the binary form counts a date.
-local REFERENCE_DATE <const> = 978307200.0
+Plist.reference_date = 978307200
 
---- The first and the last second the XML form's four-digit years hold.
-local FIRST_SECOND <const> = -62135596800
-local LAST_SECOND <const> = 253402300799
+local REFERENCE_DATE <const> = 978307200
+
+--- The first and the last second the XML form's four-digit years hold, from 2001.
+local FIRST_SECOND <const> = -62135596800 - REFERENCE_DATE
+local LAST_SECOND <const> = 253402300799 - REFERENCE_DATE
 
 local DEFAULT_DEPTH <const> = 64
 local DEPTH_LIMIT <const> = 1000
@@ -202,7 +215,7 @@ end
 
 local MONTH_DAYS <const>: {integer} = { 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 }
 
---- The seconds from 1970 that an XML date's text names, `YYYY-MM-DDTHH:MM:SSZ`; nil when it is not one.
+--- The seconds from 2001 that an XML date's text names, `YYYY-MM-DDTHH:MM:SSZ`; nil when it is not one.
 local function date_of(text: string): number?
   local year_text, month_text, day_text, hour_text, minute_text, second_text =
     text:match("^%s*(%d%d%d%d)%-(%d%d)%-(%d%d)T(%d%d):(%d%d):(%d%d)Z%s*$")
@@ -219,13 +232,13 @@ local function date_of(text: string): number?
   local leap = year % 4 == 0 and (year % 100 ~= 0 or year % 400 == 0)
   local longest = if month == 2 and leap then 29 else assert(MONTH_DAYS[month]) end
   if day < 1 or day > longest then return nil end
-  return (days_from_civil(year, month, day) * 86400 + hour * 3600 + minute * 60 + second) + 0.0
+  return (days_from_civil(year, month, day) * 86400 + hour * 3600 + minute * 60 + second - REFERENCE_DATE) + 0.0
 end
 
 --- A date as the XML form writes it, its fraction dropped; nil when its year is not 0001 to 9999.
 local function date_text(date: number): string?
   if date ~= date or date < FIRST_SECOND or date >= LAST_SECOND + 1 then return nil end
-  local seconds = math.floor(date)
+  local seconds = math.floor(date) + REFERENCE_DATE
   local days = seconds // 86400
   local rest = seconds - days * 86400
   local year, month, day = civil_from_days(days)
@@ -505,7 +518,7 @@ local function read_scalar(b: Binary, index: integer, at: integer, high: integer
     if since ~= since or since == math.huge or since == -math.huge then
       return nil, refuse(index, "is a date that is not a number")
     end
-    return { kind = "date", date = since + REFERENCE_DATE }, ""
+    return { kind = "date", date = since }, ""
   elseif high == 0x4 or high == 0x5 then
     local length, why = length_of(b, index, at, low)
     if length == nil then return nil, why end
@@ -780,8 +793,9 @@ function Elements.read(r: Reading, element: Xml.Element, depth: integer): Plist.
     end
     -- The dict that spells a UID is no level of nesting: a UID is none in the binary form.
     local first = children[1]
+    local second = children[2]
     local spells_uid = name == "dict" and #children == 2 and first ~= nil and first.name == "key" and
-      text_of(first) == "CF$UID"
+      second ~= nil and second.name == "integer" and text_of(first) == "CF$UID"
     if depth >= r.max_depth and not spells_uid then
       return nil, misplaced(r, "nested deeper than " .. tostring(r.max_depth))
     end
@@ -846,6 +860,15 @@ local record Writing
   max_depth: integer
   --- The arrays and dicts being written, which none may hold again.
   open: mut {Plist.Value: boolean}
+  --- The bytes at which a value is refused, and those written so far.
+  max_bytes: integer
+  mut size: integer
+end
+
+--- Why what `w` has written is too much, or "".
+local function too_much(w: Writing): string
+  if w.size <= w.max_bytes then return "" end
+  return "plist: the value takes more than " .. tostring(w.max_bytes) .. " bytes"
 end
 
 --- A dict's entries in the order they are written, each key checked with `fits`; nil and why when a key
@@ -911,62 +934,69 @@ end
 local INDENT <const> = "\t"
 
 --- Writes `value` to `out` as the XML form's lines, indented `level` tabs: "" or why it cannot be written.
+--- Adds `piece` to what `w` writes, counted.
+local function write(w: Writing, out: mut {string}, piece: string)
+  w.size = w.size + #piece
+  out[#out + 1] = piece
+end
+
 local function write_xml(w: Writing, out: mut {string}, value: Plist.Value, level: integer, depth: integer): string
   local why = unfit(value)
+  if why == "" then why = too_much(w) end
   if why ~= "" then return why end
   local indent = INDENT:rep(level)
   local kind = value.kind
   if kind == "boolean" then
-    put(out, indent .. (if value.boolean == true then "<true/>\n" else "<false/>\n" end))
+    write(w, out, indent .. (if value.boolean == true then "<true/>\n" else "<false/>\n" end))
   elseif kind == "integer" then
-    put(out, indent .. "<integer>" .. integer_text(value.integer or 0, value.unsigned == true) .. "</integer>\n")
+    write(w, out, indent .. "<integer>" .. integer_text(value.integer or 0, value.unsigned == true) .. "</integer>\n")
   elseif kind == "real" then
-    put(out, indent .. "<real>" .. real_text(value.real or 0.0) .. "</real>\n")
+    write(w, out, indent .. "<real>" .. real_text(value.real or 0.0) .. "</real>\n")
   elseif kind == "string" then
     local text = value.text or ""
     if not carried(text) then return "plist: a string holds a character XML cannot" end
-    put(out, indent .. "<string>" .. escaped(text) .. "</string>\n")
+    write(w, out, indent .. "<string>" .. escaped(text) .. "</string>\n")
   elseif kind == "data" then
     local data = value.data or ""
     -- The lines `plistlib` writes: 76 columns less the indent at 8 columns a tab, and 16 at least.
     local per_line = math.max(16, 76 - 8 * level) // 4 * 3
-    put(out, indent .. "<data>\n")
+    write(w, out, indent .. "<data>\n")
     for at = 1, #data, per_line do
-      put(out, indent .. Codec.base64(data:sub(at, at + per_line - 1)) .. "\n")
+      write(w, out, indent .. Codec.base64(data:sub(at, at + per_line - 1)) .. "\n")
     end
-    put(out, indent .. "</data>\n")
+    write(w, out, indent .. "</data>\n")
   elseif kind == "date" then
     local text = date_text(value.date or 0.0)
     if text == nil then
       return "plist: a date outside the years 0001 to 9999, which XML cannot hold"
     end
-    put(out, indent .. "<date>" .. text .. "</date>\n")
+    write(w, out, indent .. "<date>" .. text .. "</date>\n")
   elseif kind == "uid" then
-    put(out, indent .. "<dict>\n" .. indent .. INDENT .. "<key>CF$UID</key>\n" .. indent .. INDENT ..
+    write(w, out, indent .. "<dict>\n" .. indent .. INDENT .. "<key>CF$UID</key>\n" .. indent .. INDENT ..
         "<integer>" .. integer_text(value.uid or 0, false) .. "</integer>\n" .. indent .. "</dict>\n")
   elseif kind == "array" then
     local items = value.items or {}
     local entered = enter(w, value, depth)
     if entered ~= "" then return entered end
-    put(out, indent .. (if #items == 0 then "<array/>\n" else "<array>\n" end))
+    write(w, out, indent .. (if #items == 0 then "<array/>\n" else "<array>\n" end))
     for _, item in ipairs(items) do
       local item_why = write_xml(w, out, item, level + 1, depth + 1)
       if item_why ~= "" then return item_why end
     end
-    if #items > 0 then put(out, indent .. "</array>\n") end
+    if #items > 0 then write(w, out, indent .. "</array>\n") end
     w.open[value] = nil
   else
     local entered = enter(w, value, depth)
     if entered ~= "" then return entered end
     local entries, entries_why = ordered(w, value.entries or {}, carried)
     if entries == nil then return entries_why end
-    put(out, indent .. (if #entries == 0 then "<dict/>\n" else "<dict>\n" end))
+    write(w, out, indent .. (if #entries == 0 then "<dict/>\n" else "<dict>\n" end))
     for _, entry in ipairs(entries) do
-      put(out, indent .. INDENT .. "<key>" .. escaped(entry.key) .. "</key>\n")
+      write(w, out, indent .. INDENT .. "<key>" .. escaped(entry.key) .. "</key>\n")
       local entry_why = write_xml(w, out, entry.value, level + 1, depth + 1)
       if entry_why ~= "" then return entry_why end
     end
-    if #entries > 0 then put(out, indent .. "</dict>\n") end
+    if #entries > 0 then write(w, out, indent .. "</dict>\n") end
     w.open[value] = nil
   end
   return ""
@@ -976,11 +1006,15 @@ local XML_HEADER <const> = '<?xml version="1.0" encoding="UTF-8"?>\n' ..
   '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n' ..
   '<plist version="1.0">\n'
 
+local XML_FOOTER <const> = "</plist>\n"
+
 local function encode_xml(w: Writing, value: Plist.Value): string?, string
   local out: mut {string} = { XML_HEADER }
+  w.size = #XML_HEADER + #XML_FOOTER
   local why = write_xml(w, out, value, 0, 0)
+  if why == "" then why = too_much(w) end
   if why ~= "" then return nil, why end
-  out[#out + 1] = "</plist>\n"
+  out[#out + 1] = XML_FOOTER
   return table.concat(out), ""
 end
 
@@ -1043,8 +1077,7 @@ local function flatten(flat: Flat, value: Plist.Value, depth: integer): integer?
   elseif kind == "real" and real ~= nil and real == real then
     key = "r" .. string.pack(">d", real)
   elseif kind == "date" then
-    -- By the bytes written: two dates a last bit apart may be one double when counted from 2001.
-    key = "d" .. string.pack(">d", (value.date or 0.0) - REFERENCE_DATE)
+    key = "d" .. string.pack(">d", value.date or 0.0)
   end
   if key ~= nil then
     local known = flat.others[key]
@@ -1132,7 +1165,7 @@ local function object_bytes(node: Node, ref_size: integer): string
   elseif kind == "real" then
     return string.pack(">Bd", 0x23, value.real or 0.0)
   elseif kind == "date" then
-    return string.pack(">Bd", 0x33, (value.date or 0.0) - REFERENCE_DATE)
+    return string.pack(">Bd", 0x33, value.date or 0.0)
   elseif kind == "data" then
     local data = value.data or ""
     return sized(0x40, #data) .. data
@@ -1168,7 +1201,13 @@ local function encode_binary(w: Writing, value: Plist.Value): string?, string
     offsets[#offsets + 1] = at
     out[#out + 1] = bytes
     at = at + #bytes
+    w.size = at
+    local why_much = too_much(w)
+    if why_much ~= "" then return nil, why_much end
   end
+  w.size = at + count * width_of(at) + TRAILER
+  local whole_why = too_much(w)
+  if whole_why ~= "" then return nil, whole_why end
   local offset_format = ">I" .. tostring(width_of(at))
   for _, offset in ipairs(offsets) do put(out, string.pack(offset_format, offset)) end
   put(out, string.pack(">I5BBBI8I8I8", 0, 0, width_of(at), ref_size, count, top, at))
@@ -1197,9 +1236,10 @@ end
 --- `value` as the bytes of a property list, in the binary form or the one `opts.form` names, laid out as the
 --- module's doc says. Nil and why for what no property list holds: a value whose `kind` names a field it
 --- lacks, a string or a key that is not UTF-8, a date that is not a number, a negative UID, a dict that holds
---- a key twice, an array or a dict that holds itself, and nesting deeper than `max_depth`. The XML form also refuses what it cannot carry: a
---- string or a key with a control character other than tab, line feed and carriage return, or with U+FFFE
---- or U+FFFF, and a date outside the years 0001 to 9999.
+--- a key twice, an array or a dict that holds itself, nesting deeper than `max_depth`, and a value that takes
+--- more than `max_bytes`. The XML form also refuses what it cannot carry: a string or a key with a control
+--- character other than tab, line feed and carriage return, or with U+FFFE or U+FFFF, and a date outside
+--- the years 0001 to 9999.
 ---
 --- The binary form writes a table that stands in several places once, as one object. The XML form writes it
 --- at each place.
@@ -1208,6 +1248,8 @@ function Plist.encode(value: Plist.Value, opts?: Plist.EncodeOptions): string?, 
     sort_keys = opts ~= nil and opts.sort_keys == true,
     max_depth = depth_of(if opts == nil then nil else opts.max_depth end),
     open = {},
+    max_bytes = (if opts == nil then nil else opts.max_bytes end) or math.maxinteger,
+    size = 0,
   }
   if opts ~= nil and opts.form == "xml" then return encode_xml(w, value) end
   return encode_binary(w, value)
@@ -1242,9 +1284,10 @@ function Plist.data(bytes: string): Plist.Value
   return { kind = "data", data = bytes }
 end
 
---- A date, `seconds` from 1970-01-01T00:00:00Z, as `os.time` counts them.
+--- A date, `seconds` from 1970-01-01T00:00:00Z, as `os.time` counts them. The value holds them from 2001:
+--- whole seconds are exact, and a fraction is as near as a double from 2001 holds it.
 function Plist.date(seconds: number): Plist.Value
-  return { kind = "date", date = seconds + 0.0 }
+  return { kind = "date", date = seconds - REFERENCE_DATE + 0.0 }
 end
 
 --- An array of `items`.
