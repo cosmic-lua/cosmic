@@ -34,9 +34,9 @@
 ---
 --- What a correct program can meet answers nil and why: a peer's public
 --- value that is not a number from 1 to the prime less 1, a scrambling
---- value of zero, a proof that is wrong. An argument that is the caller's own mistake (a
---- group whose prime is even, a secret of no bytes) raises, and so does
---- the system's entropy source failing.
+--- value of zero, a proof that is wrong. An argument that is the
+--- caller's own mistake raises (a group whose prime is even, a secret of
+--- no bytes), and so does the system's entropy source failing.
 ---
 --- Secrets and time. The secret exponents go through
 --- [`Bigint.powmod`] at a fixed width, which hides an exponent's value
@@ -60,7 +60,8 @@ local record Srp
   --- of the integers modulo it, big-endian. Use one of the constants
   --- unless a peer dictates another. The prime of a group made elsewhere
   --- must be a safe prime (`(N - 1) / 2` is prime too) and `g` a
-  --- generator modulo it: nothing here checks either.
+  --- generator modulo it. Nothing here checks either: proving a number
+  --- of thousands of bits prime takes far longer than a login.
   record Group
     --- `N`.
     prime: string
@@ -94,11 +95,14 @@ local record Srp
   --- two rule sets differ in `M1` alone, in whether the digests `HN xor
   --- Hg` and `HI` are bytes, kept whole, or numbers.
   enum Rules
-    --- RFC 5054's `k`, `u` and `x` with RFC 2945's two proofs, over SRP-6's key (`H(S)`, `S` in its shortest
-    --- form) and not that RFC's interleaved SHA-1. `HN xor Hg` and `HI` are hashed as a digest's whole bytes.
+    --- RFC 5054's `k`, `u` and `x` with RFC 2945's two proofs, over
+    --- SRP-6's key (`H(S)`, `S` in its shortest form) and not that RFC's
+    --- interleaved SHA-1. `HN xor Hg` and `HI` are hashed as a digest's
+    --- whole bytes.
     "rfc5054"
-    --- What the Python library `srptools` 2.0 computes: as `rfc5054`, but in `M1` the digests `HN xor Hg` and `HI`
-    --- are read as numbers, and so lose their leading zero bytes.
+    --- What the Python library `srptools` 2.0 computes: as `rfc5054`,
+    --- but in `M1` the digests `HN xor Hg` and `HI` are read as numbers,
+    --- and so lose their leading zero bytes.
     "srptools"
   end
 
@@ -427,9 +431,9 @@ function Srp.client(parameters: Srp.Parameters, identity: string, password: stri
       if u == nil then return nil, "srp: the scrambling value is zero" end
       local x = private_key(suite, identity, password, salt)
       local verifier = Bigint.powmod(suite.generator, x, suite.prime)
-      -- TODO: the products and sums here, and the server's, take a time that depends on the verifier and on
-      -- `x`: compute them in constant time once cosmic.bigint carries a multiplication, an addition and a
-      -- reduction that are.
+      -- TODO: the product, the sums and the reductions from here to `power` take a time that depends on the
+      -- verifier and on `x`: compute them in constant time once cosmic.bigint carries a multiplication, an
+      -- addition and a reduction that are constant in time.
       local masked = Bigint.mod(Bigint.mul(suite.multiplier, verifier), suite.prime)
       local base = Bigint.mod(assert(Bigint.sub(Bigint.add(theirs, suite.prime), masked)), suite.prime)
       -- One width for every login, as powmod asks of a secret exponent:
@@ -461,6 +465,8 @@ function Srp.server(parameters: Srp.Parameters, identity: string, salt: string, 
   local suite = suite_of(parameters, 2)
   local v = accepted(suite, verifier)
   if v == nil then error("srp: the verifier is not from 1 to the prime less 1", 2) end
+  -- TODO: this product and its reduction take a time that depends on the verifier: compute them in constant
+  -- time once cosmic.bigint carries a multiplication and a reduction that are constant in time.
   local masked = Bigint.mod(Bigint.mul(suite.multiplier, v), suite.prime)
   local exponent, public: string, string
   repeat

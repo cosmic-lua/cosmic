@@ -61,9 +61,8 @@ function Example.server()
   assert(again:verify(retry.public, assert(retry:prove(salt, again.public)).proof))
 end
 
---- The parameters are an agreement: a client under one group, hash or
---- rule set is, to a server under another, a client with the wrong
---- password. The two rule sets part only where a digest leads with a
+--- The parameters are an agreement: a client under one hash or rule
+--- set is, to a server under another, a client with the wrong password. The two rule sets part only where a digest leads with a
 --- zero byte, as the SHA-256 of this identity does, so a mismatch can
 --- pass every other test.
 function Example.Rules()

@@ -466,7 +466,7 @@ end
 --- A, B and S are hashed in their shortest form under the RFC's rules
 --- too. The first vector's proofs are those of srptools: no digest in
 --- them leads with a zero byte.
-local function test_the_rfc_rules_match_the_reference_for_an_a_a_b_and_an_s_that_lead_with_zero()
+local function test_the_rfc_rules_hash_public_values_and_a_shared_number_that_lead_with_zero_shortened()
   follows({ ...srptools_salt_and_A, parameters = { ...srptools_salt_and_A.parameters, rules = "rfc5054" } })
   local v = rfc5054_hi_B_and_S
   assert(v.server_public:byte(1) == 0 and v.key == srptools_hi_B_and_S.key)
@@ -560,18 +560,6 @@ local function test_the_groups_are_those_of_rfc_5054_appendix_a()
   holds(Srp.group_8192, 19, "39ab4feab950a3128fb71accb9fc3965d857012e081998a85996e3ea8b3c3bcf")
 end
 
-local function test_a_group_with_leading_zero_bytes_is_the_same_group()
-  local spelled: Srp.Parameters = {
-    group = { prime = "\0\0" .. small.group.prime, generator = "\0\2" },
-    hash = "sha256",
-    rules = "rfc5054",
-  }
-  local verifier = Srp.verifier(spelled, "alice", "password123", "salt")
-  assert(verifier == Srp.verifier(small, "alice", "password123", "salt"))
-  local secret = string.rep("a", 32)
-  assert(Srp.client(spelled, "alice", "password123", secret).public == Srp.client(small, "alice", "password123", secret).public)
-end
-
 local function test_each_login_draws_secrets_of_its_own()
   local verifier = Srp.verifier(small, "alice", "password123", "salt")
   assert(Srp.client(small, "alice", "password123").public ~= Srp.client(small, "alice", "password123").public)
@@ -583,6 +571,25 @@ local function sides(password?: string): Srp.Client, Srp.Server
   local verifier = Srp.verifier(small, "alice", "password123", "salt")
   return Srp.client(small, "alice", password or "password123", string.rep("a", 32)),
     Srp.server(small, "alice", "salt", verifier, string.rep("b", 32))
+end
+
+local function test_a_group_with_leading_zero_bytes_is_the_same_group()
+  local spelled: Srp.Parameters = {
+    group = { prime = "\0\0" .. small.group.prime, generator = "\0\2" },
+    hash = "sha256",
+    rules = "rfc5054",
+  }
+  local verifier = Srp.verifier(spelled, "alice", "password123", "salt")
+  assert(verifier == Srp.verifier(small, "alice", "password123", "salt"))
+  -- The generator is hashed alone in the client's proof, where a zero byte kept before it would show.
+  local plain, server = sides()
+  local client = Srp.client(spelled, "alice", "password123", string.rep("a", 32))
+  assert(client.public == plain.public)
+  local login = assert(client:prove("salt", server.public))
+  assert(login.proof == assert(plain:prove("salt", server.public)).proof)
+  local spelled_server = Srp.server(spelled, "alice", "salt", verifier, string.rep("b", 32))
+  assert(spelled_server.public == server.public)
+  assert(assert(spelled_server:verify(client.public, login.proof)).key == login.key)
 end
 
 local function test_a_server_refuses_a_wrong_password()
