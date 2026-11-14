@@ -197,6 +197,8 @@ local record sqlite
   open: function(path: string, writable?: boolean, immutable?: boolean, create?: boolean): Handle?, string
   --- A captured open outcome. Invalid path/options raise.
   open_result: function(path: string, writable?: boolean, immutable?: boolean, create?: boolean): OpenResult
+  --- Disowns every connection this process has open through this module ([`cosmic.sqlite`]'s `disown`).
+  disown: function()
   --- The SQLite library's version, such as "3.54.1".
   version: string
 end

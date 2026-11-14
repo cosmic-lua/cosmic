@@ -6,7 +6,8 @@
 --- [`fanout.run`] forks the process `copies` times and runs `work` in
 --- each copy, which then ends with [`sys.exit`]: it closes nothing, so a
 --- handle the process held when it forked, a database's among them, is
---- never written by a copy. What a copy has to say it leaves in a file
+--- never written by a copy, and a copy that uses a connection the process
+--- opened raises ([`Sqlite.disown`]). What a copy has to say it leaves in a file
 --- of its own. Where the process cannot be forked (macOS; another thread
 --- running; a signal guard open) no copy runs, and the caller does the
 --- work itself, as it does that of a copy still running after
@@ -15,6 +16,7 @@
 local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
+local Sqlite = require("cosmic.sqlite")
 local sys = require("cosmic.sys")
 local process = require("cosmic.internal.process")
 
@@ -86,6 +88,8 @@ function fanout.run(copies: integer, work: function(copy: integer), watch?: func
     local pid, _ = process.fork(false)
     if pid == nil then break end
     if pid == 0 then
+      -- A copy opens what it reads: a connection the process opened is the process's alone.
+      Sqlite.disown()
       local done = false
       match pcall(work, copy) do
       | (true) then done = true

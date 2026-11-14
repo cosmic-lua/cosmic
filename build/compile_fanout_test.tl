@@ -2,6 +2,7 @@
 --- copies a count of work gets, and what each copy's end says.
 
 local Fs = require("cosmic.fs")
+local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
 local fanout = require("build.compile_fanout")
@@ -35,6 +36,27 @@ local function test_each_copy_runs_and_one_that_raises_is_told(tmp: string)
   assert(ended[1] == true and ended[2] == false and ended[3] == true)
   assert(Fs.read(tmp .. "/1") == "made by 1" and Fs.read(tmp .. "/3") == "made by 3")
   assert(Fs.read(tmp .. "/2") == nil)
+end
+
+--- A copy is refused a connection the process opened before it forked ([`Sqlite.disown`]), and the process's
+--- own use of it is as it was.
+local function test_a_copy_is_refused_a_connection_the_process_opened(tmp: string)
+  local db = assert(Sqlite.open(tmp .. "/held.db", { writable = true }))
+  assert(db:exec("CREATE TABLE t (n INTEGER)"))
+  local ran = fanout.run(2, function(copy: integer)
+    local ok, why = pcall(function() local _, _ = db:exec("INSERT INTO t VALUES (1)") end)
+    assert(Fs.write(tmp .. "/said-" .. tostring(copy), if ok then "used it" else tostring(why) end))
+  end)
+  if ran.ended[1] ~= true and ran.ended[2] ~= true then
+    Test.skip("this host forks no copy of the process")
+  end
+  for copy = 1, 2 do
+    local said = assert(Fs.read(tmp .. "/said-" .. tostring(copy)))
+    assert(said:find("disowned its connections", 1, true), said)
+  end
+  local rows = assert(Sqlite.text_rows(db, "SELECT count(*) FROM t"))
+  assert(assert(rows[1]):text(1) == "0")
+  assert(db:close())
 end
 
 --- While its copies run the process is called to look at what they leave, and once more when they have ended: what a
