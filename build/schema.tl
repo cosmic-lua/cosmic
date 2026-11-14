@@ -293,6 +293,13 @@ local virtual_tables: {Definition} = {
       "tokenize='porter unicode61')" },
 }
 
+--- The vocabulary of the documentation index: each stemmed word `docs_fts` holds as `term`, with how many rows
+--- carry it as `doc`, which a search that found nothing reads for the word a misspelling meant ([`cosmic.doc`]).
+--- It stores nothing of its own, reading the index it names, so it is made after the index and never rebuilt.
+local vocabularies: {Definition} = {
+  { name = "docs_terms", body = "USING fts5vocab(docs_fts, row)" },
+}
+
 --- The settings a reproducible file depends on. They are stated rather
 --- than left to the defaults, which could move with a SQLite bump.
 local settings: {string} = {
@@ -330,6 +337,10 @@ function schema.create(qualifier: string): {string}
     out[#out + 1] = "CREATE INDEX " .. qualifier .. pair.name .. " ON docs " .. pair.body
   end
   for _, pair in ipairs(virtual_tables) do
+    out[#out + 1] =
+      "CREATE VIRTUAL TABLE " .. qualifier .. pair.name .. " " .. pair.body
+  end
+  for _, pair in ipairs(vocabularies) do
     out[#out + 1] =
       "CREATE VIRTUAL TABLE " .. qualifier .. pair.name .. " " .. pair.body
   end

@@ -993,6 +993,7 @@ end
 --- ([`text_kept`]) and the sources withheld otherwise fail ([`Store.withheld`]). The `pure_store` row says so to a
 --- reader that would otherwise answer a missing table as a missing hint ([`cosmic.internal.symbols`]).
 local withheld_tables: {string} = {
+  "DROP TABLE IF EXISTS main.docs_terms",
   "DROP TABLE main.docs_fts", "DROP TABLE main.catalog_fts", "DROP TABLE main.examples_fts",
   "DROP TABLE main.docs", "DROP TABLE main.catalog", "DROP TABLE main.examples", "DROP TABLE main.links",
   "DROP TABLE main.uses", "DROP TABLE main.places",
