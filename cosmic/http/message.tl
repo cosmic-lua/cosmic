@@ -19,11 +19,13 @@
 --- says the stream ended: it answers a response that is read to the end
 --- of the stream, `empty` where no message began (nothing came, or blank
 --- lines alone), and a refusal where one was cut short. An answer but
---- `more` is final, and every later call gives it again.
+--- `more` is final, and every later call gives it again, its `next`
+--- still a position in the chunk that decided it.
 ---
 --- The bytes are not trusted. A reader never raises on them, does work
 --- linear in the bytes fed, holds no more than its limits allow
---- ([`Message.Options`]), and answers the same wherever the feeds split.
+--- ([`Message.Options`]), and answers the same status, reason, message
+--- and `consumed` wherever the feeds split.
 --- Blank lines before the first line are passed over (RFC 9112 2.2).
 --- It refuses what two readers could read differently:
 ---
@@ -186,7 +188,9 @@ local record Message
     --- "HTTP/1.1" when nil.
     protocol?: string
     --- Name to value, written in name order; a list value writes one
-    --- line per element.
+    --- line per element. A reader trims the spaces and tabs around a
+    --- value. `Content-Length` and `Transfer-Encoding` are one value
+    --- each, never a list.
     headers?: {string: string | {string}}
     --- The body. Its size is written as `Content-Length` unless the
     --- headers give one, which must be its size. nil writes no body and
@@ -206,7 +210,8 @@ local record Message
     --- As [`Message.RequestParts.headers`].
     headers?: {string: string | {string}}
     --- As [`Message.RequestParts.body`]. A status below 200, 204 or 304
-    --- takes none, and no `Content-Length` is added to it. A reader
+    --- takes none but `""`, which is none: no `Content-Length` is added
+    --- to it, and one the headers give is written as given. A reader
     --- takes any other response written with neither a body nor a
     --- length to run to the end of the stream: give `""` for an empty
     --- one.
@@ -719,7 +724,7 @@ local function written(first: string, headers: {string: string | {string}}, body
     return nil, "Content-Length and Transfer-Encoding are both given"
   end
   if bodiless and body ~= nil and body ~= "" then return nil, "no body goes with the status" end
-  if given ~= nil and body ~= nil and math.tointeger(tonumber(given)) ~= #body then
+  if given ~= nil and body ~= nil and not bodiless and math.tointeger(tonumber(given)) ~= #body then
     return nil, ("the Content-Length is %s, but the body is %s"):format(given, String.counted(#body, "byte"))
   end
   table.sort(names)

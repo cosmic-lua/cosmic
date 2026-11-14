@@ -461,6 +461,21 @@ local function test_chunked_framing_is_counted_to_the_byte()
   assert(refusal(head .. body, { head_bytes = 60 }) == "a chunked body's extensions and trailers pass 60 bytes")
 end
 
+--- A position before the chunk's first byte reads from the first, and
+--- one past its last reads nothing: neither counts from the chunk's end,
+--- as a negative position given to a string function would.
+local function test_a_position_outside_the_chunk_is_held_to_it()
+  local bytes = "GET /1 HTTP/1.1\r\n\r\nGET /2 HTTP/1.1\r\n\r\n"
+  for _, from in ipairs({ 0, -1, -19, math.mininteger }) do
+    local read = Message.request_reader():feed(bytes, from)
+    assert(assert(read.request, read.reason).target == "/1" and read.next == 20 and read.consumed == 19, tostring(from))
+  end
+  for _, from in ipairs({ #bytes + 1, #bytes + 100, math.maxinteger }) do
+    local reader = Message.request_reader()
+    assert(reader:feed(bytes, from).status == "more" and reader:finish().status == "empty", tostring(from))
+  end
+end
+
 local function test_options_that_are_not_what_they_say_raise()
   local ok, why = pcall(Message.request_reader, { protocol = "rtsp" })
   assert(not ok and tostring(why):find("is not a name and version", 1, true) ~= nil, tostring(why))
@@ -557,6 +572,15 @@ local function test_parts_a_reader_would_refuse_are_not_written()
   assert(response_why({ status = 200, protocol = "rtsp/1.0" }):find("name and version", 1, true))
 end
 
+--- A status that takes no body is written the same with none and with
+--- an empty one, a length the headers give kept (a 304 names a 200's).
+local function test_a_bodiless_status_takes_an_empty_body_as_none()
+  local headers: {string: string | {string}} = { ["Content-Length"] = "5" }
+  local none = assert(Message.format_response({ status = 304, headers = headers }))
+  assert(none == "HTTP/1.1 304 Not Modified\r\nContent-Length: 5\r\n\r\n", none)
+  assert(Message.format_response({ status = 304, headers = headers, body = "" }) == none)
+end
+
 --- A request with a Transfer-Encoding header and no body is the head of
 --- a body the caller chunks itself.
 local function test_a_head_for_a_body_the_caller_chunks_is_written()
@@ -564,4 +588,6 @@ local function test_a_head_for_a_body_the_caller_chunks_is_written()
     headers = { ["Transfer-Encoding"] = "chunked" } }))
   local read = request(head .. "3\r\nabc\r\n0\r\n\r\n")
   assert(assert(read.request, read.reason).body == "abc")
+  local cased = assert(Message.format_response({ status = 200, headers = { ["transfer-encoding"] = "Chunked" } }))
+  assert(cased == "HTTP/1.1 200 OK\r\ntransfer-encoding: Chunked\r\n\r\n", cased)
 end
