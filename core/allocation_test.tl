@@ -914,6 +914,7 @@ local function test_bigint_leaves_nothing_whenever_an_allocation_fails()
   -- core's own each, under a guard of its own.
   ended = AllocationFixture.under_every_failure(function()
     local product = Bigint.mulmod("\5", "\200\200", prime)
+    assert(Bigint.expmod("\5", "\200\200", prime) == assert(Bigint.pad(Bigint.powmod("\5", "\200\200", prime), #prime)))
     local sum = Bigint.addmod(product, prime, prime)
     assert(sum == product and Bigint.reduce(sum, prime) == product)
     assert(Bigint.submod(sum, product, prime) == string.rep("\0", #prime))

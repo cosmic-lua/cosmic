@@ -26,7 +26,7 @@ local record bigint
   -- -1, 0 or 1 as a is less than, equal to or greater than b.
   compare: function(a: string, b: string): integer
 
-  -- The six below take a time fixed by their arguments' lengths and by
+  -- The seven below take a time fixed by their arguments' lengths and by
   -- the modulus, and answer at a fixed width. A modulus of zero raises.
 
   -- a mod modulus, in as many bytes as the modulus was given in.
@@ -38,6 +38,9 @@ local record bigint
   -- (a * b) mod modulus, as wide as the modulus. Raises on an even
   -- modulus.
   mulmod: function(a: string, b: string, modulus: string): string
+  -- base^exponent mod modulus, as wide as the modulus. Raises on an
+  -- even modulus.
+  expmod: function(base: string, exponent: string, modulus: string): string
   -- a * b in #a + #b bytes.
   product: function(a: string, b: string): string
   -- a + b in one byte more than the longer of a and b.
