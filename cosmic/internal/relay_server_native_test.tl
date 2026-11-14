@@ -6,7 +6,6 @@ local ConnectorFixture = require("build.connector_fixture")
 local Clock = require("cosmic.clock")
 local Fixture = require("build.relay_wire_fixture")
 local Net = require("cosmic.net")
-local Poll = require("cosmic.poll")
 local Relay = require("cosmic.internal.relay_server")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
@@ -31,27 +30,13 @@ end
 
 local function test_the_relay_connects_through_the_native_connector()
   require_native_connector()
-  Poll.run(function()
-    local listener = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
-    local port = assert(listener.address.port)
-    local echoed = Poll.spawn(function()
-      while true do
-        local conn = listener:accept()
-        if conn == nil then
-          return
-        end
-        Poll.spawn(function()
-          while true do
-            local data, _ = conn:read()
-            if data == nil then
-              break
-            end
-            local _, _ = conn:write(data)
-          end
-          local _, _ = conn:close()
-        end)
-      end
-    end)
+  Net.with_loopback(function(echoing: Net.Conn)
+    while true do
+      local data, _ = echoing:read()
+      if data == nil then break end
+      local _, _ = echoing:write(data)
+    end
+  end, function(port: integer)
     local front = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
     -- A port that was free a moment ago.
     local free = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
@@ -99,8 +84,6 @@ local function test_the_relay_connects_through_the_native_connector()
     relay:stop()
     relay:wait()
     assert(connector:close())
-    echoed:cancel()
-    local _, _ = listener:close()
     local _, _ = front:close()
     assert(#log == 2 and log[1]:find("allowed via 127.0.0.1:" .. tostring(port), 1, true) ~= nil, table.concat(log, "\n"))
     local refusal_line = assert(log[2], "expected two log lines")

@@ -210,6 +210,174 @@ local function test_the_carried_database_leaves_tests_and_examples_out(tmp: stri
   assert(support.nth(catalog, 1):text(1) == "0", "no catalog row about a test or example")
 end
 
+--- A program carries what its users read of the project: the docs, uses and
+--- examples of the modules any module may require, and its guides. What
+--- position keeps to the project stays there: a sibling of a closed
+--- directory, a module under `internal/`, the program itself, a test, and
+--- test support, and a use made from any of them: a private module's rows
+--- would tell the program's users of code they cannot call.
+local function test_the_carried_database_holds_the_documentation_of_the_public_modules(tmp: string)
+  write_project(tmp)
+  assert(Fs.write(tmp .. "/greet.tl", table.concat({
+    "--- Greetings.",
+    "local record greet",
+    "end",
+    "",
+    "--- Says hello to `name`, salutation included.",
+    "function greet.hello(name: string): string",
+    '  return "hello, " .. name',
+    "end",
+    "",
+    "return greet",
+    "",
+  }, "\n")))
+  assert(Fs.write(tmp .. "/greet_example.tl", table.concat({
+    'local greet = require("greet")',
+    "local record Example",
+    "end",
+    "--- Greets.",
+    "function Example.hello()",
+    '  assert(greet.hello("x") == "hello, x")',
+    "end",
+    "return Example",
+    "",
+  }, "\n")))
+  assert(Fs.mkdirs(tmp .. "/store"))
+  assert(Fs.write(tmp .. "/store/init.tl", table.concat({
+    "--- The store, a closed directory's entry.",
+    'local greet = require("greet")',
+    'local rows = require("store.rows")',
+    "local record store",
+    "end",
+    "",
+    "--- Greets the first row, with [`greet.hello`].",
+    "function store.first(): string",
+    "  return greet.hello(rows.first())",
+    "end",
+    "",
+    "return store",
+    "",
+  }, "\n")))
+  assert(Fs.write(tmp .. "/store/rows.tl", table.concat({
+    "--- The rows, which only the store reads.",
+    'local greet = require("greet")',
+    "local record rows",
+    "end",
+    "",
+    "--- The first row, sequestered.",
+    "function rows.first(): string",
+    '  return greet.hello("row")',
+    "end",
+    "",
+    "return rows",
+    "",
+  }, "\n")))
+  assert(Fs.write(tmp .. "/store/open.tl", table.concat({
+    "--- Opening a store, for any module.",
+    "--- @public",
+    "local record open",
+    "end",
+    "",
+    "--- Whether the store is open.",
+    "function open.is(): boolean",
+    "  return true",
+    "end",
+    "",
+    "return open",
+    "",
+  }, "\n")))
+  assert(Fs.mkdirs(tmp .. "/app/internal"))
+  assert(Fs.write(tmp .. "/app/internal/db.tl", table.concat({
+    "--- The database, internal to app/.",
+    "local record db",
+    "end",
+    "",
+    "--- Its name.",
+    "function db.name(): string",
+    '  return "db"',
+    "end",
+    "",
+    "return db",
+    "",
+  }, "\n")))
+  assert(Fs.write(tmp .. "/app/run.tl", table.concat({
+    "--- Running the app.",
+    'local db = require("app.internal.db")',
+    "local record run",
+    "end",
+    "",
+    "--- Names what it runs on.",
+    "function run.on(): string",
+    "  return db.name()",
+    "end",
+    "",
+    "return run",
+    "",
+  }, "\n")))
+  assert(Fs.mkdirs(tmp .. "/internal"))
+  assert(Fs.write(tmp .. "/internal/keys.tl", table.concat({
+    "--- The keys, internal to the project.",
+    "local record keys",
+    "end",
+    "return keys",
+    "",
+  }, "\n")))
+  assert(Fs.mkdirs(tmp .. "/test"))
+  assert(Fs.write(tmp .. "/test/support.tl", table.concat({
+    "--- Test support.",
+    "local record support",
+    "end",
+    "return support",
+    "",
+  }, "\n")))
+  assert(Fs.mkdirs(tmp .. "/doc/guides"))
+  assert(Fs.write(tmp .. "/doc/guides/greeting.md", "# greeting\n\nHow to greet a visitor.\n"))
+  assert(Fs.write(tmp .. "/cmd/hello/main.tl", table.concat({
+    "--- The program, which no module requires.",
+    'local Fs = require("cosmic.fs")',
+    'local greet = require("greet")',
+    'local open = require("store.open")',
+    'local run = require("app.run")',
+    'local store = require("store")',
+    "",
+    "return function(argv: {string}): integer",
+    '  local _, _ = Fs.put(Fs.stdout, greet.hello(argv[1] or store.first()) .. run.on() .. tostring(open.is()) .. "\\n")',
+    "  return 0",
+    "end",
+    "",
+  }, "\n")))
+  assert(embed.tree(tmp, true))
+  local database = assert(embed.database(support.build_dir(tmp) .. "/cosmic.db", "cmd.hello.main"))
+  local path = tmp .. "/carried.db"
+  assert(Fs.write(path, database))
+
+  local function listed(sql: string): string
+    local out: mut {string} = {}
+    for _, row in ipairs(rows_of(path, sql)) do out[#out + 1] = row:text(1) end
+    return table.concat(out, " ")
+  end
+  local documented = listed("SELECT DISTINCT module FROM docs ORDER BY module")
+  assert(documented == "app.run doc.guides.greeting greet store store.open",
+    "the public modules and the guide, and no other: " .. documented)
+  local found = listed("SELECT d.source_symbol FROM docs_fts JOIN docs d ON d.id = docs_fts.rowid " ..
+      "WHERE docs_fts MATCH 'salutation'")
+  assert(found == "greet.hello", "the docs are indexed, a word finding its row: " .. found)
+  local private = listed("SELECT count(*) FROM docs_fts WHERE docs_fts MATCH 'sequestered'")
+  assert(private == "0", "a private module's words are not in the index")
+  local callers = listed("SELECT DISTINCT from_module FROM uses WHERE module = 'greet' ORDER BY from_module")
+  assert(callers == "store", "a use is carried only from a public module: " .. callers)
+  local used = listed("SELECT count(*) FROM uses WHERE module NOT IN ('app.run', 'greet', 'store', 'store.open')")
+  assert(used == "0", "no use of a module the project keeps, or of the library")
+  local linked = listed("SELECT from_module || ' ' || module || ' ' || symbol FROM links")
+  assert(linked == "store greet hello", "a link between public modules is carried: " .. linked)
+  local bound = listed("SELECT path || ' ' || name || ' ' || requires FROM bound WHERE path = 'store' ORDER BY name")
+  assert(bound == "store greet greet store rows store.rows", "what a public module binds is carried: " .. bound)
+  local examples = listed("SELECT module || ' ' || name FROM examples")
+  assert(examples == "greet hello", examples)
+  local indexed = listed("SELECT count(*) FROM examples_fts WHERE examples_fts MATCH 'Greets'")
+  assert(indexed == "1", "the examples are indexed")
+end
+
 --- A test or example file is only a kind by its name: one the program
 --- itself requires, directly or through another module, is carried,
 --- or the executable would build and then fail to load it.
@@ -860,23 +1028,76 @@ local function test_a_stale_partial_projection_is_removed(tmp: string)
   assert(Fs.exists(stale) == false, "the stale partial projection stood")
 end
 
---- A tool that cannot make a portable program (it carries the host's core alone) says so and removes nothing: the
---- executables of an earlier build stand, and `--out` is not made.
+--- What the `build` verb asks of the tool, answered for a tool that carries the host's core alone, whatever this one
+--- carries, and whose boot of every core answers `boot.answer` (nil: it does not boot) and records the command line
+--- it was to re-enter, a line each, in `boot.asked`.
+local function host_only_tool(boot: mut {string:string}): embed.Portable
+  return {
+    prefix = function(): string?, string return artifact.placeholder("aarch64-linux-musl"), "" end,
+    every_core = function(argv: {string}): string?
+      boot["asked"] = (boot["asked"] or "") .. table.concat(argv, " ") .. "\n"
+      return boot["answer"]
+    end,
+  }
+end
+
+--- `words` run as a command line in `tmp` on a tool `portable` answers for.
+local function build_on(portable: embed.Portable, tmp: string, words: {string}): invoke.Result
+  local own = embed.portable
+  embed.portable = portable
+  local results: mut {invoke.Result} = {}
+  local ran, trouble = pcall(function()
+    results[1] = invoke.run(words, { cwd = tmp, env = build_env() })
+  end)
+  embed.portable = own
+  assert(ran, tostring(trouble))
+  return (assert(results[1]))
+end
+
+--- A tool that cannot make a portable program (it carries the host's core alone, and does not boot every core) says so
+--- and removes nothing: the executables of an earlier build stand, and `--out` is not made.
 local function test_an_environment_failure_removes_no_executable(tmp: string)
-  local prefix = artifact.trusted_prefix()
-  if prefix == nil or not artifact.host_only(prefix) then
-    Test.skip("this tool carries every core, so it makes a portable program")
-    return
-  end
   write_two_programs(tmp)
   local first = invoke.run({ "build", "--host" }, { cwd = tmp, env = build_env() })
   assert(first.code == 0, first.stderr)
   local bin = support.build_dir(tmp) .. "/bin"
-  local again = invoke.run({ "build", "--out", "dist" }, { cwd = tmp, env = build_env() })
+  local again = build_on(host_only_tool({}), tmp, { "build", "--out", "dist" })
   assert(again.code == 1 and again.stderr:find("-Dboot-cores=all", 1, true) ~= nil,
     tostring(again.code) .. again.stderr)
   assert(Fs.exists(bin .. "/one") == true and Fs.exists(bin .. "/two") == true, "an environment failure removed a program")
   assert(Fs.exists(tmp .. "/dist") == false, "--out was made for a build that wrote nothing")
+end
+
+--- A portable program asked of a tool that carries the host's core alone has the tool boot every core and run the
+--- command line again, once its programs compiled. A boot that fails is said and exits 3; where the tool does not
+--- boot, the build refuses and names the boot. `--host`, which needs no other core, asks for none.
+local function test_a_portable_build_on_a_host_only_tool_boots_every_core(tmp: string)
+  write_two_programs(tmp)
+  local boot: mut {string:string} = { answer = "bin/zig build boot -Dboot-cores=all failed" }
+  local failed = build_on(host_only_tool(boot), tmp, { "build", "cmd/one" })
+  assert(boot["asked"] == "build cmd/one\n", tostring(boot["asked"]))
+  assert(failed.code == 3, tostring(failed.code) .. failed.stderr)
+  assert(failed.stderr:find("bin/zig build boot -Dboot-cores=all failed", 1, true) ~= nil, failed.stderr)
+  assert(failed.stdout == "", failed.stdout)
+
+  local refusing: mut {string:string} = {}
+  local refused = build_on(host_only_tool(refusing), tmp, { "build", "cmd/one" })
+  assert(refusing["asked"] == "build cmd/one\n", tostring(refusing["asked"]))
+  assert(refused.code == 1 and refused.stderr:find("carries the host's core alone", 1, true) ~= nil,
+    tostring(refused.code) .. refused.stderr)
+
+  local host: mut {string:string} = { answer = "booted for a --host build" }
+  local built = build_on(host_only_tool(host), tmp, { "build", "--host", "cmd/one" })
+  assert(built.code == 0 and host["asked"] == nil, tostring(built.code) .. tostring(host["asked"]) .. built.stderr)
+end
+
+--- A build that stops for another reason boots nothing: a program that does not compile is the tree's to mend.
+local function test_a_build_that_does_not_compile_boots_no_core(tmp: string)
+  write_two_programs(tmp)
+  assert(Fs.write(tmp .. "/cmd/one/main.tl", 'local n: integer = "x"\nreturn function(): integer return n end\n'))
+  local boot: mut {string:string} = { answer = "booted for a program that does not compile" }
+  local built = build_on(host_only_tool(boot), tmp, { "build", "cmd/one" })
+  assert(built.code == 4 and boot["asked"] == nil, tostring(built.code) .. tostring(boot["asked"]) .. built.stderr)
 end
 
 -- TODO: cover `--out` of a portable program, as [`build/embed_portable_tool_test.tl`] covers `bin/`, once a run of

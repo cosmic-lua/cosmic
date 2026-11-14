@@ -1473,3 +1473,151 @@ local function test_a_cancelled_search_gives_found_what_it_held()
     assert(second.name == "Late" and second.host == "late.local" and second.port == 81 and #second.ipv4 == 0)
   end)
 end
+
+local INFO <const> = "_device-info._tcp.local"
+
+--- A service type whose instances have a TXT record and no SRV record. The search ends at its
+--- limit of one, which the web server fills: the other instance has no place of it.
+local function test_txt_only_lists_an_instance_with_no_srv_record()
+  local name = fullname("Desk", INFO)
+  local function reply(query: Dns.Message): {string}
+    if not asks(query, INFO, Dns.PTR) then return {} end
+    return {
+      response(query, { pointer(INFO, "Desk"), txt(name, { "model=Mac14,2" }) }),
+      response(query, described(HTTP, "Web", "one.local", 80, "192.0.2.1")),
+    }
+  end
+  serving(reply, function(opts: Mdns.Options)
+    local told: mut {string} = {}
+    local found = assert(Mdns.browse({ INFO, HTTP }, { ...opts, limit = 1, txt_only = true,
+      found = function(instance: Mdns.Instance)
+        told[#told + 1] = instance.name
+      end }))
+    assert(#found == 2, tostring(#found))
+    local desk, web = assert(found[1]), assert(found[2])
+    assert(desk.name == "Desk" and desk.fullname == name and desk.service == INFO, desk.fullname)
+    assert(desk.host == "" and desk.port == 0 and #desk.ipv4 == 0 and #desk.ipv6 == 0, desk.host)
+    assert(#desk.txt == 1 and desk.attributes["model"] == "Mac14,2" and desk.from == LOOPBACK, desk.from)
+    assert(web.name == "Web" and web.host == "one.local")
+    -- The whole one when it was whole, the other as the search ended.
+    assert(#told == 2 and told[1] == "Web" and told[2] == "Desk", table.concat(told, " "))
+    local plain = assert(Mdns.browse({ INFO, HTTP }, { ...opts, limit = 1 }))
+    assert(#plain == 1 and assert(plain[1]).name == "Web", tostring(#plain))
+  end)
+end
+
+--- The instance is named and nothing more, so its records are asked for: its TXT record comes,
+--- its SRV record never. The web server that ends the search is sent only once the TXT record has
+--- been.
+local function test_txt_only_asks_for_the_txt_record_of_a_name_with_no_srv_record()
+  local name = fullname("Desk", INFO)
+  local answered = false
+  local function reply(query: Dns.Message): {string}
+    local out: mut {string} = {}
+    if asks(query, INFO, Dns.PTR) then
+      local bytes = response(query, { pointer(INFO, "Desk") })
+      out[#out + 1] = bytes
+      if answered then
+        local last = response(query, described(HTTP, "Web", "one.local", 80, "192.0.2.1"))
+        out[#out + 1] = last
+      end
+    end
+    if asks(query, name, Dns.TXT) then
+      answered = true
+      local bytes = response(query, { txt(name, { "model=Mac14,2" }) })
+      out[#out + 1] = bytes
+    end
+    return out
+  end
+  serving(reply, function(opts: Mdns.Options)
+    local found = assert(Mdns.browse({ INFO, HTTP }, { ...opts, limit = 1, txt_only = true, retry_ns = Clock.ms(20) }))
+    assert(#found == 2, tostring(#found))
+    assert(assert(found[1]).attributes["model"] == "Mac14,2" and assert(found[2]).name == "Web")
+  end)
+end
+
+--- A name that waits in vain is forgotten once its third question for an SRV record has had its
+--- time, four times `retry_ns`. One kept for its TXT record is not: it is in the list of a search
+--- that went on past that time. The responder ends the search at the second repeat of the
+--- question that comes after that third question, and a repeat is sent eight times `retry_ns` or
+--- more after the one before it by then, whatever the host's speed.
+local function test_txt_only_keeps_an_instance_past_the_time_a_name_is_forgotten_at()
+  local name = fullname("Desk", INFO)
+  local srv_questions, repeats_after = 0, 0
+  local function reply(query: Dns.Message): {string}
+    local third = false
+    if asks(query, name, Dns.SRV) then
+      srv_questions = srv_questions + 1
+      third = srv_questions == 3
+    end
+    if not asks(query, INFO, Dns.PTR) then return {} end
+    if srv_questions >= 3 and not third then repeats_after = repeats_after + 1 end
+    if repeats_after >= 2 then
+      return { response(query, described(HTTP, "Web", "one.local", 80, "192.0.2.1")) }
+    end
+    if srv_questions > 0 then return {} end
+    return { response(query, { pointer(INFO, "Desk"), txt(name, { "model=Mac14,2" }) }) }
+  end
+  serving(reply, function(opts: Mdns.Options)
+    local found = assert(Mdns.browse({ INFO, HTTP }, { ...opts, limit = 1, txt_only = true, retry_ns = Clock.ms(20) }))
+    assert(#found == 2 and assert(found[1]).name == "Desk" and assert(found[2]).name == "Web", tostring(#found))
+  end)
+  assert(srv_questions == 3, tostring(srv_questions))
+end
+
+--- A hundred names with a TXT record and no SRV record, then a real instance. Sixty-four are
+--- kept, the places a search has for names that wait, and the real one has its place of the
+--- limit all the same.
+local function test_txt_only_keeps_64_instances_with_no_srv_record_at_most()
+  local function reply(query: Dns.Message): {string}
+    if not asks(query, INFO, Dns.PTR) then return {} end
+    local out: mut {string} = {}
+    for packet = 0, 3 do
+      local records: mut {Dns.Record} = {}
+      for n = packet * 25 + 1, packet * 25 + 25 do
+        local named = pointer(INFO, ("Desk %d"):format(n))
+        local model = txt(fullname(("Desk %d"):format(n), INFO), { "model=" .. tostring(n) })
+        records[#records + 1] = named
+        records[#records + 1] = model
+      end
+      local bytes = response(query, records)
+      out[#out + 1] = bytes
+    end
+    local real = response(query, described(HTTP, "Web", "one.local", 80, "192.0.2.1"))
+    out[#out + 1] = real
+    return out
+  end
+  serving(reply, function(opts: Mdns.Options)
+    local found = assert(Mdns.browse({ INFO, HTTP }, { ...opts, limit = 1, txt_only = true }))
+    assert(#found == 65, tostring(#found))
+    for n = 1, 64 do
+      local desk = assert(found[n])
+      assert(desk.name == ("Desk %d"):format(n) and desk.host == "" and desk.attributes["model"] == tostring(n), desk.name)
+    end
+    assert(assert(found[65]).name == "Web")
+  end)
+end
+
+--- The SRV record comes after the TXT record, to the question for it: the instance is then one
+--- with a host, as in a search that does not keep the others.
+local function test_txt_only_gives_an_instance_its_host_when_its_srv_record_comes()
+  local name = fullname("Web", HTTP)
+  local function reply(query: Dns.Message): {string}
+    local out: mut {string} = {}
+    if asks(query, HTTP, Dns.PTR) then
+      local bytes = response(query, { pointer(HTTP, "Web"), txt(name, { "path=/" }) })
+      out[#out + 1] = bytes
+    end
+    if asks(query, name, Dns.SRV) then
+      local bytes = response(query, { srv(name, "one.local", 80), a("one.local", "192.0.2.1") })
+      out[#out + 1] = bytes
+    end
+    return out
+  end
+  serving(reply, function(opts: Mdns.Options)
+    local found = assert(Mdns.browse(HTTP, { ...opts, limit = 1, txt_only = true }))
+    local web = assert(found[1])
+    assert(#found == 1 and web.host == "one.local" and web.port == 80 and web.ipv4[1] == "192.0.2.1", web.host)
+    assert(web.attributes["path"] == "/")
+  end)
+end

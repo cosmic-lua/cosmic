@@ -165,7 +165,7 @@ COSMIC_SYSCALL(multicast_settings, 1);
  */
 
 /*
- * --- The host's interfaces as `getifaddrs(3)` lists them, in its order: an entry for each address of each, so an interface is named once for each address it has. Linux's `getifaddrs` asks the kernel over a netlink socket, which a sandboxed process's filter refuses: the call fails there.
+ * --- The host's interfaces as `getifaddrs(3)` lists them, in its order: an entry for each address of each, so an interface is named once for each address it has. Linux's `getifaddrs` asks the kernel over a NETLINK_ROUTE socket, which a sandboxed process's filter allows only beside inet sockets and to a process that can change no network (core/promises.h's COSMIC_HELD_NETWORK): the call fails EPERM under any other. An address's entry on Linux may be named by a label, "eth0:1", whose `index` is its interface's.
  * ---@return {InterfaceEntry}|nil entries every entry, or nil on failure
  * ---@return string error what went wrong, when entries is nil
  * ---@return integer errno the error number, when entries is nil
