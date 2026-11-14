@@ -508,7 +508,8 @@ local function test_the_carried_docs_hold_the_user_guides_prose(tmp: string)
         "('doc.guides.quickstart', '', '', 1, 'module', '', 'A tour.', 'f', 1), " ..
         "('doc.guides.quickstart', '__doctest_write', '__doctest_write', 0, 'function', '', " ..
         "'A helper.', 'f', 1), " ..
-        "('doc.guides.internal.portable-runtime', '', '', 1, 'module', '', 'How it is built.', 'f', 1)",
+        "('doc.guides.internal.portable-runtime', '', '', 1, 'module', '', 'How it is built.', 'f', 1), " ..
+        "('doc.guides.newcomer', '', '', 1, 'module', '', 'Named in no list.', 'f', 1)",
   }) do
     assert(db:exec(statement))
   end
@@ -518,7 +519,8 @@ local function test_the_carried_docs_hold_the_user_guides_prose(tmp: string)
   local found = assert(Sqlite.text_rows(out,
     "SELECT coalesce(group_concat(module || '|' || text, ' '), '') FROM docs"))
   assert(out:close())
-  assert(support.nth(found, 1):text(1) == "doc.guides.quickstart|A tour.", support.nth(found, 1):text(1))
+  assert(support.nth(found, 1):text(1) == "doc.guides.quickstart|A tour. doc.guides.newcomer|Named in no list.",
+    support.nth(found, 1):text(1))
 end
 
 --- Rebuilding the projection from the same source assigns the same

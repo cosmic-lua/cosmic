@@ -52,14 +52,14 @@ local record Layout
   --- flat files of one prefix: doc/guides/project.md ("a package")
   --- shows one. `cosmic.*` is the standard library's, never a project's
   require: string
-  --- a guide: a Markdown file directly under doc/guides/ (not in a
-  --- directory below it) is a test of its own. Each block tagged `teal`
+  --- a guide: a Markdown file directly under doc/guides/, or directly
+  --- under doc/guides/internal/, is a test of its own. Each block tagged `teal`
   --- or `lua` is an example that compiles, and runs when a block tagged
   --- `output` after it says what it prints; doc/guides/<name>.md is
-  --- `cosmic docs doc.guides.<name>`. A guide directly under
-  --- doc/guides/internal/ is one too, for those working on the project:
-  --- it is tested as any guide, and neither the tool nor a program built
-  --- from the project carries it
+  --- `cosmic docs doc.guides.<name>`, and a program built from the
+  --- project carries it for its users. One under doc/guides/internal/ is
+  --- for those working on the project: `cosmic docs` answers for it there,
+  --- and no program carries it. A guide's name holds no dot
   guides: string
   --- a typed template: a `<name>.tmpl` file is a module the build makes
   --- of it ([`cosmic.template`]), imported by its path like a `.tl` file:

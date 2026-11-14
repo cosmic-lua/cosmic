@@ -69,7 +69,7 @@ local text = bind.text
 --- older tools wrote, which a checkout may still hold, stale; the upstream
 --- sources and the records that patch them, prose, and anything
 --- hidden. `doc` is handled on its own: almost all of it is prose with
---- no examples, but `doc/guides/*.md` is the one place doc/writing.md's
+--- no examples, but a guide (`doc/guides/*.md`, `doc/guides/internal/*.md`) is where doc/writing.md's
 --- grammar applies, and the build has to see those files to run
 --- [`build.doctest`] over them. In cosmic's own tree the patches, the
 --- vendor pins and the zig wrapper are walked after all, as inputs to

@@ -62,7 +62,8 @@ local analysis_tables = analysis_schema.tables
 
 --- A doc guide's import path, the same dotted-name convention every
 --- `.tl` file gets: [`doc/guides/quickstart.md`] compiles as
---- [`doc.guides.quickstart`].
+--- [`doc.guides.quickstart`], and a guide under `doc/guides/internal/` as
+--- `doc.guides.internal.<name>`.
 local function import_path_of_doc(file: string): string
   return (file:gsub("%.md$", ""):gsub("/", "."))
 end
@@ -84,6 +85,13 @@ local function derive_doc_guides(db: Sqlite.Handle, refusal: derivation.Refusal)
   end
   for _, row in ipairs(guides) do
     local file, doc_source, from_hash = row:text(1), row:text(2), row:text(3)
+    -- A dot in the name would read as a directory in the module's (`doc.guides.v1.2`), and whether a guide is
+    -- public is told from where its module sits ([`build.symbols`]'s `is_public_guide`).
+    if file:match("%.[^/]*%.md$") ~= nil then
+      refusal.refused = true
+      return false, file .. ": a guide's name holds no dot, since it names the module " ..
+        import_path_of_doc(file) .. ": rename the file"
+    end
     local source, extract_trouble = doctest.extract(doc_source, file)
     if source == nil then
       refusal.refused = true

@@ -2508,13 +2508,16 @@ local function test_a_public_source_lists_and_finds_a_user_guide(_: string)
       "doc/guides/quickstart.md", "1" },
     { "doc.guides.internal.portable-runtime", "", "module", "", "How it is built.",
       "doc/guides/internal/portable-runtime.md", "1" },
+    { "doc.guides.newcomer", "", "module", "", "A guide no list names.", "doc/guides/newcomer.md", "1" },
   }, {}, { "cosmic.fs" })
   local public = assert(docs.view({ db }, { true }))
   local listed: mut {string} = {}
   for _, summary in ipairs((assert(docs.index(public)))) do
     listed[#listed + 1] = summary.module .. "|" .. summary.text
   end
+  -- Position alone makes a guide public: `newcomer` is named nowhere.
   assert(table.concat(listed, "\n") == "cosmic.fs|Files.\n" ..
+      "doc.guides.newcomer|A guide no list names.\n" ..
       "doc.guides.quickstart|A tour of the library.", table.concat(listed, "\n"))
   local found = assert(docs.lookup(public, "quickstart"))
   assert(#found == 1 and support.nth(found, 1).module == "doc.guides.quickstart", tostring(#found))

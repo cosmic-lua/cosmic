@@ -320,8 +320,9 @@ local function guide(text: string, file: string, options: Pipeline.Options): {st
 end
 
 --- Both of the above over the tree at `root`: the projection `db`'s
---- examples and each of `guides` (default the user guides, each Markdown
---- file directly under `doc/guides/`, read from `doc/guides/<name>.md`). The findings are those the markers of an example do not hold, and the markers that hold
+--- examples and each of `guides`, a path under `doc/guides/` without its
+--- `.md` (default every guide: each Markdown file directly under
+--- `doc/guides/` and `doc/guides/internal/`). The findings are those the markers of an example do not hold, and the markers that hold
 --- none.
 function example_checks.run(db: Sqlite.Handle, root: string, guides?: {string}): {string}
   local options, options_trouble = require("build.pipeline").alone()
@@ -331,11 +332,14 @@ function example_checks.run(db: Sqlite.Handle, root: string, guides?: {string}):
   local out = examples(db, options, root)
   local named = guides
   if named == nil then
-    local listed, _ = Fs.list(root .. "/doc/guides")
     local found: mut {string} = {}
-    for _, entry in ipairs(listed or {}) do
-      local name = entry:match("^(.+)%.md$")
-      if name ~= nil then found[#found + 1] = name end
+    -- A tree with no guides has neither directory.
+    for _, under in ipairs({ "", "internal/" }) do
+      local listed, _ = Fs.list(root .. "/doc/guides/" .. under)
+      for _, entry in ipairs(listed or {}) do
+        local name = entry:match("^(.+)%.md$")
+        if name ~= nil then found[#found + 1] = under .. name end
+      end
     end
     table.sort(found)
     named = found

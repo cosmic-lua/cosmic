@@ -358,6 +358,9 @@ local function test_the_carried_database_holds_the_documentation_of_the_public_m
     for _, row in ipairs(rows_of(path, sql)) do out[#out + 1] = row:text(1) end
     return table.concat(out, " ")
   end
+  local internal = rows_of(support.build_dir(tmp) .. "/cosmic.db",
+    "SELECT kind FROM modules WHERE path = 'doc.guides.internal.notes'")
+  assert(#internal == 1 and internal[1]:text(1) == "test", "the project tests its internal guide")
   local documented = listed("SELECT DISTINCT module FROM docs ORDER BY module")
   assert(documented == "app.run doc.guides.greeting greet store store.open",
     "the public modules and the guide, and no other: " .. documented)

@@ -1,4 +1,4 @@
---- A `doc/guides/*.md` file becomes an ordinary, runnable `kind = "test"`
+--- A guide (`doc/guides/*.md`, `doc/guides/internal/*.md`) becomes an ordinary, runnable `kind = "test"`
 --- module through [`build.importer.compile`] over a fixture tree, never
 --- through [`build.doctest`] itself, which is private to `build/doctest/`
 --- ([`build/doctest/markdown_test.tl`] and
@@ -169,6 +169,17 @@ local function test_a_guide_under_internal_is_a_test_of_its_own()
   local notes = assert(find_module(result, "doc.guides.internal.notes"), "a guide under doc/guides/internal")
   assert(notes.kind == "test", notes.kind)
   assert(find_module(result, "doc.guides.internal.deep.far") == nil, "a file below that is no guide")
+  assert(Fs.remove_tree(root))
+end
+
+--- A guide's name holds no dot: the dot would read as a directory in its
+--- module's name, where a guide's place says whether it is public, so the
+--- guide would be taken for one below `doc/guides/` and silently not ship.
+local function test_a_guide_named_with_a_dot_is_refused()
+  local root = assert(write_fixture("dotted", matching_doc))
+  assert(Fs.write(root .. "/doc/guides/v1.2.md", matching_doc))
+  local result, trouble = compile_fixture(root)
+  assert(result == nil and trouble:find("doc/guides/v1.2.md: a guide's name holds no dot", 1, true) ~= nil, trouble)
   assert(Fs.remove_tree(root))
 end
 
