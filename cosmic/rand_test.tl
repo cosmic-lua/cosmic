@@ -1,4 +1,5 @@
 local Array = require("cosmic.array")
+local Clock = require("cosmic.clock")
 local Codec = require("cosmic.codec")
 local Rand = require("cosmic.rand")
 local Test = require("cosmic.test")
@@ -115,6 +116,197 @@ local function test_entropy_refuses_a_degenerate_count()
   Test.raises(function() Rand.entropy(-1) end)
   Test.raises(function() Rand.entropy((1 << 20) + 1) end)
   assert(#assert(Rand.entropy(1 << 20)) == 1 << 20)
+end
+
+local UUID <const> = "^%x%x%x%x%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x$"
+
+--- `count` UUIDs of `version` from `draw`, each checked for the canonical
+--- layout, its version digit and its variant bits.
+local function drawn_uuids(draw: function(version?: integer): (string?, string), version: integer, count: integer): {string}
+  local ids: mut {string} = {}
+  for i = 1, count do
+    local id, trouble = draw(version)
+    assert(id ~= nil, trouble)
+    assert(trouble == "", trouble)
+    assert(#id == 36 and id:match(UUID) ~= nil and id == id:lower(), id)
+    assert(id:sub(15, 15) == tostring(version), "the version digit of " .. id)
+    assert(id:sub(20, 20):match("^[89ab]$") ~= nil, "the variant bits of " .. id)
+    ids[i] = id
+  end
+  return ids
+end
+
+--- Whether each of `ids` sorts strictly after the one before, as text.
+local function ascending(ids: {string}): boolean
+  local before = ""
+  for _, id in ipairs(ids) do
+    if id <= before then return false end
+    before = id
+  end
+  return true
+end
+
+--- A stand-in entropy source: `count` bytes of `byte`, never a failure.
+local function filled(byte: string): function(count: integer): (string?, string)
+  return function(count: integer): string?, string
+    return byte:rep(count), ""
+  end
+end
+
+local function test_uuid_of_writes_sixteen_bytes_as_canonical_text()
+  local counted = ""
+  for value = 0, 15 do counted = counted .. string.char(value) end
+  assert(Rand.uuid_of(counted) == "00010203-0405-0607-0809-0a0b0c0d0e0f", Rand.uuid_of(counted))
+  -- RFC 9562's own example, upper-case digits and all: every bit is kept.
+  local example = string.pack(">I4I2I2I2I6", 0xF81D4FAE, 0x7DEC, 0x11D0, 0xA765, 0x00A0C91E6BF6)
+  assert(Rand.uuid_of(example) == "f81d4fae-7dec-11d0-a765-00a0c91e6bf6", Rand.uuid_of(example))
+  assert(Rand.uuid_of(("\255"):rep(16)) == "ffffffff-ffff-ffff-ffff-ffffffffffff")
+end
+
+local function test_uuid_of_marks_a_version_and_keeps_the_other_bits()
+  local ones, zeros = ("\255"):rep(16), ("\0"):rep(16)
+  assert(Rand.uuid_of(ones, 4) == "ffffffff-ffff-4fff-bfff-ffffffffffff", Rand.uuid_of(ones, 4))
+  assert(Rand.uuid_of(zeros, 4) == "00000000-0000-4000-8000-000000000000", Rand.uuid_of(zeros, 4))
+  assert(Rand.uuid_of(ones, 1) == "ffffffff-ffff-1fff-bfff-ffffffffffff")
+  assert(Rand.uuid_of(zeros, 8) == "00000000-0000-8000-8000-000000000000")
+  -- A seeded source's bytes replay as the same identifier.
+  local a = Rand.uuid_of(Rand.new(2026):bytes(16), 4)
+  assert(a == Rand.uuid_of(Rand.new(2026):bytes(16), 4) and a ~= Rand.uuid_of(Rand.new(2027):bytes(16), 4))
+  assert(a:match(UUID) ~= nil and a:sub(15, 15) == "4", a)
+end
+
+local function test_uuid_of_refuses_other_than_sixteen_bytes_and_a_version_out_of_range()
+  Test.raises(function() Rand.uuid_of(("x"):rep(15)) end, "of length 15, not 16")
+  Test.raises(function() Rand.uuid_of(("x"):rep(17), 4) end, "of length 17, not 16")
+  Test.raises(function() Rand.uuid_of("") end, "of length 0, not 16")
+  Test.raises(function() Rand.uuid_of(("x"):rep(16), 0) end, "version 0 is not 1 through 8")
+  Test.raises(function() Rand.uuid_of(("x"):rep(16), 9) end, "version 9 is not 1 through 8")
+  Test.raises(function() Rand.uuid_of(("x"):rep(16), -4) end, "version -4 is not 1 through 8")
+end
+
+local function test_uuid_draws_distinct_version_4_values_by_default()
+  local ids = drawn_uuids(Rand.uuid, 4, 200)
+  local seen: mut {string: boolean} = {}
+  local distinct = 0
+  for _, id in ipairs(ids) do
+    if seen[id] ~= true then distinct = distinct + 1 end
+    seen[id] = true
+  end
+  assert(distinct == 200, "entropy repeated")
+  local default, trouble = Rand.uuid()
+  assert(default ~= nil and trouble == "", trouble)
+  assert(default:match(UUID) ~= nil and default:sub(15, 15) == "4", default)
+end
+
+local function test_uuid_version_7_opens_with_the_clock_and_sorts_as_drawn()
+  local before = Clock.now_ns() // 1000000
+  local ids = drawn_uuids(Rand.uuid, 7, 2000)
+  local after = Clock.now_ns() // 1000000
+  assert(ascending(ids), "version 7 values did not sort in the order drawn")
+  for _, id in ipairs(ids) do
+    local ms = assert(tonumber(id:sub(1, 8) .. id:sub(10, 13), 16), id)
+    -- A minute's slack either side: the wall clock may step between
+    -- the readings, and a layout fault would be off by far more.
+    assert(ms >= before - 60000 and ms <= after + 60000, ("%s: %d ms outside %d..%d"):format(id, ms, before, after))
+  end
+end
+
+local function test_uuid_refuses_a_version_it_does_not_draw()
+  for _, version in ipairs({ 0, 1, 3, 5, 6, 8, -7, 47 }) do
+    local why = Test.raises(function() Rand.uuid(version) end, ("uuid(%d): the version is 4 or 7"):format(version))
+    -- The caller's line is the one blamed, not one inside the module.
+    assert(why:find("rand_test", 1, true) ~= nil, why)
+  end
+  local draw = Rand.uuid_maker(filled("\0"))
+  Test.raises(function() draw(5) end, "uuid(5): the version is 4 or 7")
+end
+
+local function test_a_maker_lays_its_entropy_and_clock_out_as_the_version_says()
+  local asked: mut {integer} = {}
+  local draw = Rand.uuid_maker(function(count: integer): string?, string
+    asked[#asked + 1] = count
+    return ("\255"):rep(count), ""
+  end, function(): integer return 1700000000123456789 end)
+  assert(draw() == "ffffffff-ffff-4fff-bfff-ffffffffffff")
+  assert(draw(4) == "ffffffff-ffff-4fff-bfff-ffffffffffff")
+  -- 1700000000123 ms, and 456789 ns into it: 456789 * 4096 // 1e6 = 1871.
+  local head = ("%012x"):format(1700000000123)
+  local want = head:sub(1, 8) .. "-" .. head:sub(9, 12) .. "-7" .. ("%03x"):format(1871) .. "-bfff-ffffffffffff"
+  local seven = draw(7)
+  assert(seven == want, tostring(seven) .. " is not " .. want)
+  assert(table.concat(asked, " ") == "16 16 8", table.concat(asked, " "))
+  local zero = Rand.uuid_maker(filled("\0"), function(): integer return 0 end)
+  assert(zero(7) == "00000000-0000-7000-8000-000000000000")
+  assert(zero(4) == "00000000-0000-4000-8000-000000000000")
+end
+
+local function test_a_maker_orders_version_7_through_a_frozen_and_a_backward_clock()
+  local ticks = { 5000000000, 5000000000, 5000000000, 4999000000, 5000000001 }
+  local at = 0
+  local draw = Rand.uuid_maker(Rand.entropy, function(): integer
+    at = at + 1
+    return ticks[at] or 5000000001
+  end)
+  local ids = drawn_uuids(draw, 7, 300)
+  assert(ascending(ids), "a frozen or backward clock broke the order")
+  -- 4095/4096 of a millisecond in: one more 4096th carries into the
+  -- milliseconds, and the fraction starts again at 0.
+  local carry = Rand.uuid_maker(filled("\0"), function(): integer return 7000000000 + 999756 end)
+  assert(carry(7) == "00000000-1b58-7fff-8000-000000000000")
+  assert(carry(7) == "00000000-1b59-7000-8000-000000000000")
+  assert(carry(7) == "00000000-1b59-7001-8000-000000000000")
+  -- Another maker keeps its own order: at the same instant it starts
+  -- from the clock, not from where `carry` got to.
+  local other = Rand.uuid_maker(filled("\0"), function(): integer return 7000000000 + 999756 end)
+  assert(other(7) == "00000000-1b58-7fff-8000-000000000000")
+end
+
+local function test_a_maker_passes_on_a_failed_source_and_refuses_a_short_one()
+  local broken = Rand.uuid_maker(function(_count: integer): string?, string
+    return nil, "rand: entropy: no source"
+  end)
+  for _, version in ipairs({ 4, 7 }) do
+    local id, trouble = broken(version)
+    assert(id == nil and trouble == "rand: entropy: no source", trouble)
+  end
+  local short = Rand.uuid_maker(function(count: integer): string?, string
+    return ("x"):rep(count - 1), ""
+  end)
+  local id4, trouble4 = short(4)
+  assert(id4 == nil and trouble4:find("a string of length 15, not 16", 1, true) ~= nil, trouble4)
+  local id7, trouble7 = short(7)
+  assert(id7 == nil and trouble7:find("a string of length 7, not 8", 1, true) ~= nil, trouble7)
+  local raising = Rand.uuid_maker(function(_count: integer): string?, string
+    error("the pool is gone", 0)
+  end)
+  Test.raises(function() raising(4) end, "the pool is gone")
+end
+
+local function test_a_maker_refuses_a_clock_before_1970()
+  for _, ns in ipairs({ -1, math.mininteger }) do
+    local draw = Rand.uuid_maker(filled("\0"), function(): integer return ns end)
+    local id, trouble = draw(7)
+    assert(id == nil and trouble:find("the clock reads " .. tostring(ns) .. " ns, before 1970", 1, true) ~= nil, trouble)
+    -- Version 4 reads no clock.
+    assert(draw(4) == "00000000-0000-4000-8000-000000000000")
+  end
+  -- A refused reading asks the source for nothing.
+  local asked = 0
+  local counting = Rand.uuid_maker(function(count: integer): string?, string
+    asked = asked + 1
+    return ("\0"):rep(count), ""
+  end, function(): integer return -1 end)
+  assert(counting(7) == nil and asked == 0, tostring(asked))
+  -- The greatest reading an integer holds still fits the 48 bits of
+  -- milliseconds, and the value after it sorts after it.
+  local last = Rand.uuid_maker(filled("\0"), function(): integer return math.maxinteger end)
+  local ms = ("%012x"):format(math.maxinteger // 1000000)
+  local fraction = (math.maxinteger % 1000000) * 4096 // 1000000
+  local want = ms:sub(1, 8) .. "-" .. ms:sub(9, 12) .. "-7" .. ("%03x"):format(fraction) .. "-8000-000000000000"
+  local first = assert(last(7))
+  assert(first == want, first .. " is not " .. want)
+  local second = assert(last(7))
+  assert(first < second, second)
 end
 
 --- The mean and variance of `n` draws of `draw`.
