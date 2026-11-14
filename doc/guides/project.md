@@ -252,7 +252,9 @@ command, `words` or `top`, and [`Flags.dispatch`] runs the one it names
 with the words after it: `got.words[1]` is the file, not the command.
 Each command's spec names its options and whether each takes a value,
 and they may come before the file or after it; any other option is
-refused, so a typo is never read as a file name. `tally --help`, and
+refused, so a typo is never read as a file name. A refused option or
+command that is near one the program has names it: `tally top --limt 2`
+is told "did you mean --limit?". `tally --help`, and
 `tally top --help`, print help written from the same descriptions. A
 program with no commands parses its options with `Flags.parse(argv, 1,
 spec)` instead. [`cosmic.log`] writes what went wrong to standard error
