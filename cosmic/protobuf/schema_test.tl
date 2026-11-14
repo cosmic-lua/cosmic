@@ -302,6 +302,13 @@ local function test_a_failure_to_write_an_embedded_message_names_its_place()
   assert(bytes == nil and why:find("protobuf: Shelf.tracks[2]: ", 1, true) == 1, why)
 end
 
+local function test_a_failure_before_an_embedded_message_is_not_put_on_it()
+  local bytes, why = SHELF:encode({ ...shelf("s", {}), labels = { "\xff" }, tracks = { { title = "ok" } } })
+  assert(bytes == nil and why == "protobuf: Shelf: field 7: a string that is not UTF-8", why)
+  bytes, why = SHELF:encode({ ...shelf("s", {}), tracks = { { title = "ok" }, { title = "\xff" }, { title = "\xfe" } } })
+  assert(bytes == nil and why == "protobuf: Shelf.tracks[2]: field 1: a string that is not UTF-8", why)
+end
+
 local record Held
   genre?: Genre
   codes: {integer}
@@ -374,4 +381,35 @@ local function test_a_record_that_drops_fails_a_misfit_field_beside_one_that_fit
   local other, embedded = TRACK:decode(nested)
   assert(other == nil and embedded == "protobuf: Track.artist (field 8): it has another wire type than its encoding",
     embedded)
+end
+
+local function test_the_misfit_named_is_the_least_number_whatever_the_order_of_the_bytes()
+  -- Field 6, a bool, as bytes, before field 1, a string, as a varint.
+  local track, why = TRACK:decode((assert(Protobuf.writer():bytes(6, "x"):int(1, 5):int(99, 1):encode())))
+  assert(track == nil and why == "protobuf: Track.title (field 1): it has another wire type than its encoding", why)
+end
+
+local record Ranged
+  size?: integer
+end
+
+local record Outer
+  first?: Ranged
+  rest: {Ranged}
+end
+
+local RANGED <const> = Schema.message_of("Ranged", { size = Schema.fixed32(1) })
+local OUTER <const> = Schema.message_of("Outer", {
+  first = Schema.message(1, RANGED), rest = Schema.message(2, RANGED),
+})
+
+local function test_a_value_the_schema_refuses_inside_an_embedded_message_names_its_place()
+  local bytes, why = OUTER:encode({ first = { size = -1 }, rest = { { size = 1 } } })
+  assert(bytes == nil and why == "protobuf: Outer.first: field 1: -1 is outside 0 to 4294967295", why)
+  bytes, why = OUTER:encode({ rest = { { size = 1 }, { size = -2 }, { size = -3 } } })
+  assert(bytes == nil and why == "protobuf: Outer.rest[2]: field 1: -2 is outside 0 to 4294967295", why)
+  -- The codec is whole again for the next message.
+  local good = assert(OUTER:encode({ first = { size = 7 }, rest = { {}, { size = 1 } } }))
+  local back = assert(OUTER:decode(good))
+  assert(assert(back.first).size == 7 and #back.rest == 2 and assert(back.rest[2]).size == 1)
 end

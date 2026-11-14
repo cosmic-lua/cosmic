@@ -101,8 +101,9 @@ local record Schema
     --- What the build wrote to read the record: the record of a message that was read, or nil and a failure with
     --- no root, a path from this message and why.
     read: function(message: Protobuf.Message): T?, string
-    --- What the build wrote to write the record: its bytes, or nil and a failure with no root.
-    write: function(value: T): string?, string
+    --- What the build wrote to write the record: its bytes, or nil and a failure with no root. With `into`, the
+    --- writing of the message that holds this one, the fields go to it in place and the answer is "".
+    write: function(value: T, into?: Writing): string?, string
   end
 
   --- What the build wrote of a record's fields, made once for the codec.
@@ -113,9 +114,9 @@ local record Schema
     names: {integer: string}
     --- The named numbers, least first.
     numbers: {integer}
-    --- Whether a field is one the record does not understand: of a number it does not name, or of another wire
-    --- type than the number's encoding.
-    strange: function(number: integer, wire: integer): boolean
+    --- Each named number's wire types as [`Protobuf.Message`]'s `unfit` takes them: a field of another, or of
+    --- a number that is not named, is one the record does not understand.
+    fits: {integer: integer}
   end
 
   --- One message being read by the code the build wrote.
@@ -138,6 +139,8 @@ local record Schema
     writer: Protobuf.Writer
     --- The first thing that could not be written, or "".
     mut bad: string
+    --- How many embedded messages are open in the writer, each being written in place.
+    mut depth: integer
   end
 
   --- What the code the build writes for [`message_of`] calls. Nothing else has a use for them.
@@ -186,8 +189,8 @@ local record Schema
     --- `value` and "", or nil and the reading's failure.
     done: function<T>(r: Reading, value: T): T?, string
 
-    --- A message to write.
-    writer: function(): Writing
+    --- A message to write: `into` itself where it is given, whose writer has the message open.
+    writer: function(into?: Writing): Writing
     --- A varint field, where `value` is not nil. Each `put_` below writes its own kind the same way: nothing for
     --- nil, and a failure kept in `w` for a value the kind cannot hold.
     put_int: function(w: Writing, number: integer, value: integer?)
@@ -213,7 +216,7 @@ local record Schema
     put_enum: function<E>(w: Writing, number: integer, value: E?, number_of: function(E): integer)
     --- An embedded message, written by `write`.
     put_message: function<T>(w: Writing, number: integer, field: string, value: T?,
-      write: function(T): string?, string)
+      write: function(T, into?: Writing): string?, string)
     --- A repeated field of numbers of that kind: packed where `packed`, one field each otherwise.
     put_numbers: function(w: Writing, number: integer, kind: string, values: {number}?, packed: boolean)
     --- A repeated `bool`.
@@ -227,7 +230,7 @@ local record Schema
       packed: boolean)
     --- A repeated embedded message, each written by `write`.
     put_messages: function<T>(w: Writing, number: integer, field: string, values: {T}?,
-      write: function(T): string?, string)
+      write: function(T, into?: Writing): string?, string)
     --- The bytes written, with what the record keeps after them: every unknown field, and each held field
     --- whose number `present`, which has every number the record names, does not say is set. Nil and why where a field could not be written: a path
     --- from this message, `.field` for each level, then `: ` and the reason.
@@ -260,7 +263,7 @@ local record Schema
   --- The build puts after `fields` the two functions that write and read the record (write neither). A call
   --- it did not complete (through another name, in a chunk loaded by hand, in the Lua `cosmic compile` writes)
   --- raises here.
-  message_of: function<T>(name: string, fields: {string: integer | Entry}, write?: function(T): string?, string,
+  message_of: function<T>(name: string, fields: {string: integer | Entry}, write?: function(T, into?: Writing): string?, string,
     read?: function(Protobuf.Message): T?, string): Codec<T>
 
   --- The field's own encoding, with options.
@@ -326,54 +329,55 @@ end
 
 local MISFIT <const> = "it has another wire type than its encoding"
 
+--- What a reading of a record that drops holds for what it would keep: nothing is ever put in it.
+local NONE <const>: mut {Protobuf.Field} = {}
+
 local function plan(wires: {integer: integer}, names: {integer: string}): Schema.Plan
   local numbers: mut {integer} = {}
   for number in pairs(wires) do numbers[#numbers + 1] = number end
   table.sort(numbers)
-  return {
-    wires = wires, names = names, numbers = numbers,
-    strange = function(number: integer, wire: integer): boolean
-      local named = wires[number]
-      return named == nil or (1 << wire) & fitting(named) == 0
-    end,
-  }
+  local fits: mut {integer: integer} = {}
+  for number, wire in pairs(wires) do fits[number] = fitting(wire) end
+  return { wires = wires, names = names, numbers = numbers, fits = fits }
 end
 
 local function open(message: Protobuf.Message, planned: Schema.Plan,
                     enums: {integer: function(integer): boolean}, keeps: boolean): Schema.Reading
-  local unknown: mut {Protobuf.Field} = {}
-  local held: mut {Protobuf.Field} = {}
   local wires = planned.wires
   local bad = ""
-  if keeps then
-    for _, f in ipairs(message:fields(planned.strange)) do
-      if wires[f.number] == nil then
-        unknown[#unknown + 1] = f
-      else
-        held[#held + 1] = f
+  if not keeps then
+    -- The least number, as the fields are declared, whatever the order of the bytes.
+    local odd = message:unfit(planned.fits, true)
+    if odd ~= nil then
+      local least = assert(odd[1]).number
+      for _, f in ipairs(odd) do
+        if f.number < least then least = f.number end
       end
+      bad = trouble(assert(planned.names[least]), least, MISFIT)
     end
-    -- An enum's number is its last varint, which is what a read of the field takes: an earlier one a later
-    -- field replaced is not what the message says, and holding it would bring it back.
-    for _, number in ipairs(planned.numbers) do
-      local named = enums[number]
-      if named ~= nil then
-        local value = message:int(number)
-        if value ~= nil and not named(value) then
-          held[#held + 1] = { number = number, wire = Protobuf.VARINT, value = value }
-        end
-      end
+    return { message = message, keeps = false, unknown = NONE, held = NONE, bad = bad }
+  end
+  local unknown: mut {Protobuf.Field} = {}
+  local held: mut {Protobuf.Field} = {}
+  for _, f in ipairs(message:unfit(planned.fits) or {}) do
+    if wires[f.number] == nil then
+      unknown[#unknown + 1] = f
+    else
+      held[#held + 1] = f
     end
-  else
-    for _, number in ipairs(planned.numbers) do
-      local there = message:wires(number)
-      if there & ~fitting(assert(wires[number])) ~= 0 then
-        bad = trouble(assert(planned.names[number]), number, MISFIT)
-        break
+  end
+  -- An enum's number is its last varint, which is what a read of the field takes: an earlier one a later
+  -- field replaced is not what the message says, and holding it would bring it back.
+  for _, number in ipairs(planned.numbers) do
+    local named = enums[number]
+    if named ~= nil then
+      local value = message:int(number)
+      if value ~= nil and not named(value) then
+        held[#held + 1] = { number = number, wire = Protobuf.VARINT, value = value }
       end
     end
   end
-  return { message = message, keeps = keeps, unknown = unknown, held = held, bad = bad }
+  return { message = message, keeps = true, unknown = unknown, held = held, bad = bad }
 end
 
 --- Why a required field has no value: none of its number is there, or those that are have another wire type,
@@ -535,8 +539,9 @@ local function done<T>(r: Schema.Reading, value: T): T?, string
   return value, ""
 end
 
-local function writer(): Schema.Writing
-  return { writer = Protobuf.writer(), bad = "" }
+local function writer(into?: Schema.Writing): Schema.Writing
+  if into ~= nil then return into end
+  return { writer = Protobuf.writer(), bad = "", depth = 0 }
 end
 
 local function put_int(w: Schema.Writing, number: integer, value: integer?)
@@ -596,25 +601,24 @@ local function put_enum<E>(w: Schema.Writing, number: integer, value: E?, number
   if value ~= nil then w.writer:int(number, number_of(value)) end
 end
 
---- The bytes of an embedded message go in as a field's bytes: what a record keeps is written after its known
---- fields as bytes, which a [`Protobuf.Writer`] given as a child cannot take.
---
--- TODO: write an embedded message of a record that keeps nothing through a child writer, with no copy of its
--- bytes, once a converted program shows that encoding's cost matters: it is 1.1 to 1.6 times a hand-written
--- writer's on the wire codec.
-local function put_one<T>(w: Schema.Writing, number: integer, field: string, value: T,
-                          write: function(T): string?, string)
-  local bytes, why = write(value)
+--- Writes an embedded message in place: the writer opens it, `write` puts its fields and what it keeps there,
+--- and closes it, so none of its bytes is copied. `write` is a codec's, which writes to the [`Writing`] it is given.
+--- `index` is the element's place in a repeated field, or 0: the path is spelled only for a failure.
+local function put_one<T>(w: Schema.Writing, number: integer, field: string, index: integer, value: T,
+                          write: function(T, into?: Schema.Writing): string?, string)
+  -- A failure before this message is not one of its fields'.
+  if w.bad ~= "" or w.writer:trouble() ~= "" then return end
+  w.writer:open(number)
+  w.depth = w.depth + 1
+  local bytes, why = write(value, w)
   if bytes == nil then
-    if w.bad == "" then w.bad = "." .. field .. why end
-    return
+    w.bad = if index == 0 then "." .. field .. why else (".%s[%d]%s"):format(field, index, why) end
   end
-  w.writer:bytes(number, bytes)
 end
 
 local function put_message<T>(w: Schema.Writing, number: integer, field: string, value: T?,
-                              write: function(T): string?, string)
-  if value ~= nil then put_one(w, number, field, value, write) end
+                              write: function(T, into?: Schema.Writing): string?, string)
+  if value ~= nil then put_one(w, number, field, 0, value, write) end
 end
 
 --- How [`Protobuf.Writer`]'s `packed` names each kind of number.
@@ -706,18 +710,15 @@ local function put_enums<E>(w: Schema.Writing, number: integer, values: {E}?, nu
 end
 
 local function put_messages<T>(w: Schema.Writing, number: integer, field: string, values: {T}?,
-                               write: function(T): string?, string)
+                               write: function(T, into?: Schema.Writing): string?, string)
   if values == nil then return end
   for i, value in ipairs(values) do
-    put_one(w, number, ("%s[%d]"):format(field, i), value, write)
+    put_one(w, number, field, i, value, write)
   end
 end
 
-local function close(w: Schema.Writing, kept?: Schema.Unknown, present?: {integer: boolean}): string?, string
-  if w.bad ~= "" then return nil, w.bad end
-  local bytes, why = w.writer:encode()
-  if bytes == nil then return nil, ": " .. bare(why) end
-  if kept == nil then return bytes, "" end
+--- The bytes of what the record keeps, written after its fields, or nil and why.
+local function kept_bytes(kept: Schema.Unknown, present?: {integer: boolean}): string?, string
   local rest: mut {Protobuf.Field} = {}
   -- `present` has every number the record names. An unknown field of one, which only a hand-built [`Unknown`]
   -- holds, is left out: written after the field, a reader would take it over the field's value.
@@ -727,9 +728,30 @@ local function close(w: Schema.Writing, kept?: Schema.Unknown, present?: {intege
   for _, f in ipairs(kept.held) do
     if present == nil or present[f.number] ~= true then rest[#rest + 1] = f end
   end
-  local tail, tail_why = Protobuf.encode(rest)
-  if tail == nil then return nil, ": " .. bare(tail_why) end
-  return bytes .. tail, ""
+  return Protobuf.encode(rest)
+end
+
+--- Ends the message `w` is writing: one written in place inside another is closed there and answers "", and the
+--- outermost answers the bytes.
+local function close(w: Schema.Writing, kept?: Schema.Unknown, present?: {integer: boolean}): string?, string
+  local nested = w.depth > 0
+  if nested then w.depth = w.depth - 1 end
+  if w.bad ~= "" then return nil, w.bad end
+  local out = w.writer
+  local why = out:trouble()
+  if why ~= "" then return nil, ": " .. bare(why) end
+  if kept ~= nil then
+    local tail, tail_why = kept_bytes(kept, present)
+    if tail == nil then return nil, ": " .. bare(tail_why) end
+    out:append(tail)
+  end
+  if nested then
+    out:close()
+    return "", ""
+  end
+  local bytes, encode_why = out:encode()
+  if bytes == nil then return nil, ": " .. bare(encode_why) end
+  return bytes, ""
 end
 
 local BUILD: Schema.Build = {
@@ -770,7 +792,7 @@ local function codec_decode<T>(self: Schema.Codec<T>, bytes: string, opts?: Prot
 end
 
 local function message_of<T>(name: string, _fields: {string: integer | Schema.Entry},
-                             write?: function(T): string?, string,
+                             write?: function(T, into?: Schema.Writing): string?, string,
                              read?: function(Protobuf.Message): T?, string): Schema.Codec<T>
   if write == nil or read == nil then
     error(UNRESOLVED:format("message_of", name, "message_of"), 2)

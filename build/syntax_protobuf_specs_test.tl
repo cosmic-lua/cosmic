@@ -70,18 +70,18 @@ local FIELDS <const> = "{ id = 1, name = Schema.string(2), ratio = Schema.float(
 
 local function test_each_field_is_written_and_read_by_its_kind()
   local source, why = resolved(module_of(RECORD, 'Schema.message_of("R", ' .. FIELDS .. ")"))
-  has(source, why, "function pb_write(pb_v: R): string?, string")
+  has(source, why, "function pb_write(pb_v: R, pb_into?: Schema.Writing): string?, string")
   has(source, why, "function pb_read(pb_m: Schema.Message): R?, string")
-  has(source, why, 'Schema.build.put_int(pb_o, 1, pb_v.id)')
-  has(source, why, 'Schema.build.put_string(pb_o, 2, pb_v.name)')
-  has(source, why, 'Schema.build.put_float(pb_o, 3, pb_v.ratio)')
-  has(source, why, 'Schema.build.put_enum(pb_o, 5, pb_v.kind, KIND.number)')
-  has(source, why, 'Schema.build.put_message(pb_o, 6, "inner", pb_v.inner, INNER.write)')
-  has(source, why, 'Schema.build.put_numbers(pb_o, 7, "int", pb_v.sizes, true)')
-  has(source, why, 'Schema.build.put_messages(pb_o, 8, "kids", pb_v.kids, pb_write)')
-  has(source, why, 'id = Schema.build.need(pb_r, 1, "id", pb_m:int(1), 0)')
+  has(source, why, 'pb_b.put_int(pb_o, 1, pb_v.id)')
+  has(source, why, 'pb_b.put_string(pb_o, 2, pb_v.name)')
+  has(source, why, 'pb_b.put_float(pb_o, 3, pb_v.ratio)')
+  has(source, why, 'pb_b.put_enum(pb_o, 5, pb_v.kind, KIND.number)')
+  has(source, why, 'pb_b.put_message(pb_o, 6, "inner", pb_v.inner, INNER.write)')
+  has(source, why, 'pb_b.put_numbers(pb_o, 7, "int", pb_v.sizes, true)')
+  has(source, why, 'pb_b.put_messages(pb_o, 8, "kids", pb_v.kids, pb_write)')
+  has(source, why, 'id = pb_b.need(pb_r, 1, "id", pb_m:int(1), 0)')
   has(source, why, "kind = KIND.name(pb_m:int(5))")
-  has(source, why, 'kids = Schema.build.messages(pb_r, 8, "kids", pb_read)')
+  has(source, why, 'kids = pb_b.messages(pb_r, 8, "kids", pb_read)')
   -- A packed field's number takes a length-delimited field too.
   has(source, why, "[7] = 8")
   has(source, why, '[7] = "sizes"')
@@ -164,9 +164,9 @@ local function test_a_record_that_keeps_takes_no_number_for_it_and_no_repeated_e
     "rest: a field of Unknown is optional")
   local source, why = resolved(module_of("local record R\n  id?: integer\n  rest?: Schema.Unknown\nend",
     'Schema.message_of("R", { id = 1 })'))
-  has(source, why, "Schema.build.open(pb_m, pb_p, pb_e, true)")
-  has(source, why, "rest = Schema.build.unknown(pb_r)")
-  has(source, why, "Schema.build.close(pb_o, pb_v.rest, { [1] = pb_v.id ~= nil })")
+  has(source, why, "pb_b.open(pb_m, pb_p, pb_e, true)")
+  has(source, why, "rest = pb_b.unknown(pb_r)")
+  has(source, why, "pb_b.close(pb_o, pb_v.rest, { [1] = pb_v.id ~= nil })")
   -- A record that keeps reads a field with no check of its wire type: `open` set the others aside.
   has(source, why, "id = pb_m:int(1)")
 end
@@ -194,7 +194,7 @@ local function test_a_codec_is_named_and_not_made_in_the_entry()
   refused(declared, 'Schema.message_of("R", { inner = Schema.message(1, make()) })',
     "inner: Schema.message takes its codec by name")
   local source, why = resolved(module_of(declared, 'Schema.message_of("R", { inner = Schema.message(1, M.codecs.INNER) })'))
-  has(source, why, 'Schema.build.message(pb_r, 1, "inner", M . codecs . INNER.read)')
+  has(source, why, 'pb_b.message(pb_r, 1, "inner", M . codecs . INNER.read)')
 end
 
 local function test_two_records_that_hold_each_other_are_refused_by_name()
@@ -218,7 +218,7 @@ local function test_a_record_of_many_required_messages_is_refused_and_a_record_o
   refused("local record Inner\nend\nlocal record R\n" .. table.concat(fields, "\n") .. "\nend",
     'Schema.message_of("R", { ' .. table.concat(numbers, ", ") .. " })", "151 required embedded messages")
   local source, why = resolved(module_of("local record R\nend", 'Schema.message_of("R", {})'))
-  has(source, why, "function pb_write(_pb_v: R): string?, string")
+  has(source, why, "function pb_write(_pb_v: R, pb_into?: Schema.Writing): string?, string")
 end
 
 local function test_a_module_that_does_not_bind_the_schema_module_has_nothing_to_resolve()
