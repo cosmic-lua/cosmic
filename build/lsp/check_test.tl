@@ -79,7 +79,7 @@ local function test_a_require_of_a_private_library_module_is_refused_at_it()
   local text = 'local router = require("cosmic.web.router")\nprint(router)\n'
   local refused = only(nth(served(root, { initialize(root), open(root, "main.tl", text) }), 1))
   assert(refused.message == "cosmic.web.router is private to its directory in the standard library, and a project " ..
-      "may not require it: require cosmic.web, its package's entry, or ask that the module say `--- @public`",
+      "may not require it: require cosmic.web in its place, or ask that the module say `--- @public`",
     refused.message)
   assert(edge(refused, "start").character == 23, tostring(edge(refused, "start").character))
   local entry = served(root, { initialize(root), open(root, "main.tl", 'local web = require("cosmic.web")\nprint(web)\n') })

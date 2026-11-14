@@ -141,7 +141,7 @@ local function test_a_library_module_private_to_its_directory_is_refused_in_a_pr
   assert(Fs.write(root .. "/outsider.tl", "local router = require(\"cosmic.web.router\")\nreturn router\n"))
   local ok, trouble = try_build(root)
   assert(not ok and trouble:find("outsider.tl: cosmic.web.router is private to its directory in the standard " ..
-      "library, and a project may not require it: require cosmic.web, its package's entry", 1, true) ~= nil, trouble)
+      "library, and a project may not require it: require cosmic.web in its place", 1, true) ~= nil, trouble)
   root = tmp .. "/library_public"
   assert(Fs.mkdirs(root))
   assert(Fs.write(root .. "/outsider.tl", "local type Web = require(\"cosmic.web\")\n" ..

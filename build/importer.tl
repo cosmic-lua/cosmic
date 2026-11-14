@@ -1359,9 +1359,9 @@ local function compile_derived(handle: work.Handle, tool: string,
     local bytecode, _ = Store.bytecode(name)
     return bytecode ~= nil
   end
-  -- Read once, and for a project alone: cosmic's own tree is held to no public set.
-  local recorded: {string: boolean}? = nil
-  if not standing.own then recorded = standard_text.public() end
+  -- Read once, and for a project alone: cosmic's own tree is held to none of it.
+  local recorded: positions.Library? = nil
+  if not standing.own then recorded = standard_text.library() end
   -- The modules a run holds out for what they do, not for what they hold: a position rule they break, a `global`
   -- they declare. A run that names a file stops at the first, as it always did; one over the tree refuses the modules
   -- alone ([`importer.Result`]'s `refused`) and goes on, so that a module that breaks none still builds.
