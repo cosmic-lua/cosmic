@@ -383,11 +383,16 @@ local function hostile(query: Dns.Message): {string}
   local whole = described(HTTP, "Evil", "evil.local", 666, "192.0.2.66")
   local forged: Dns.Message = { ...Dns.reply(query), answers = whole }
   local other = "_other._tcp.local"
+  -- Just over the 9000 bytes a search reads, and no more: macOS sends no datagram over 9216 bytes
+  -- unless told to (net.inet.udp.maxdgram).
   local padding: mut {Dns.Record} = {}
-  for i = 1, 40 do
-    local record = txt(name, { ("x"):rep(250) })
-    padding[i] = record
+  local oversize = ""
+  while #oversize <= 9000 do
+    local record = txt(name, { ("x"):rep(60) })
+    padding[#padding + 1] = record
+    oversize = assert(Dns.encode({ ...forged, additionals = padding }))
   end
+  assert(#oversize <= 9216, tostring(#oversize))
   local past: mut {Dns.Record} = {}
   for i, record in ipairs(whole) do
     past[i] = { ...record, ttl = 0 }
@@ -405,7 +410,7 @@ local function hostile(query: Dns.Message): {string}
     (assert(Dns.encode({ ...forged, rcode = 3 }))),
     (assert(Dns.encode({ ...forged, opcode = 4 }))),
     -- Over the 9000 bytes of a multicast DNS message.
-    (assert(Dns.encode({ ...forged, additionals = padding }))),
+    oversize,
     response(query, past),
     -- Of another class than the internet's, where the data of a record means something else.
     response(query, { pointer(HTTP, "Evil"), { ...at("evil.local", Dns.A), class = 3, rdata = "\xc0\x00\x02\x42" } }),
