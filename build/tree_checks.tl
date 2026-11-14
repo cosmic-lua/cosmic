@@ -185,9 +185,6 @@ allow({ "build.pipeline.over" }, "the build's compile with the new checker: a bu
 allow({ "build.pipeline.project" }, "tested directly: the options of a project given the texts of the declarations (a worker's " ..
     "store holds none of the tool's)")
 
-allowed["build.driver.stubs"] = "the provider of modules whose stub text is given, which the build's wiring gives the stubs " ..
-  "the projection carries; tested directly over fixture text"
-
 allowed["cosmic.net.nameservers"] = "the public way to list the system's DNS servers for " ..
   "callers outside this tree; tested directly over a resolv.conf"
 
@@ -2540,7 +2537,7 @@ function tree_checks.checked(root: string, memo?: Sqlite.Handle, phases?: {strin
   local salt = check_memo.salt(root, { "lang/ast.tl", "lang/lexer.tl", "lang/parser.tl", "lang/scopes.tl",
     "lang/truthy.tl", "lang/types.tl", "lang/relation.tl", "lang/declarations.tl", "lang/check.tl",
     "lang/flow.tl", "lang/check_codes.tl", "lang/warnings.tl", "lang/prelude.d.tl", "lang/stdlib.d.tl", "build/check_memo.tl", "build/driver.tl", "build/tree_checks.tl", "build/tree_program.tl",
-    "build/syntax_shape_specs.tl", "build/syntax_record_calls.tl", "build/gen_syscalls.tl", "core/syscalls.h", "core/process.h",
+    "build/syntax_shape_specs.tl", "build/syntax_record_calls.tl", "build/syntax_protobuf_specs.tl", "build/syntax_record_splices.tl", "build/gen_syscalls.tl", "core/syscalls.h", "core/process.h",
     "core/socket.h" }, "checked 6")
   local written, written_why = TreeProgram.derived_of(root)
   if written == nil then
@@ -2598,7 +2595,7 @@ function tree_checks.pipeline(root: string, build_db: Sqlite.Handle, memo?: Sqli
     "lang/types.tl", "lang/relation.tl", "lang/declarations.tl", "lang/check.tl", "lang/flow.tl",
     "lang/check_codes.tl", "lang/warnings.tl", "lang/prelude.d.tl", "lang/stdlib.d.tl",
     "build/check_memo.tl", "build/driver.tl", "build/tree_checks.tl", "build/tree_program.tl",
-    "build/syntax_shape_specs.tl", "build/syntax_record_calls.tl", "build/pipeline.tl", "build/pipeline_check.tl",
+    "build/syntax_shape_specs.tl", "build/syntax_record_calls.tl", "build/syntax_protobuf_specs.tl", "build/syntax_record_splices.tl", "build/pipeline.tl", "build/pipeline_check.tl",
     "build/gen_syscalls.tl", "build/compile_grammar.tl", "build/main_locals.tl", "build/lua_tail.tl", "lang/codegen.tl", "lang/truthy.tl", "lang/fact_wraps.tl",
     "lang/boundaries.tl", "lang/boundary_checks.tl",
     "core/syscalls.h", "core/process.h", "core/socket.h" }, "pipeline 4")

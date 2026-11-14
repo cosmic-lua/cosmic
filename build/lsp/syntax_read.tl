@@ -9,6 +9,7 @@ local Globals = require("build.syntax_globals")
 local Lexer = require("lang.lexer")
 local Node = require("build.syntax_node")
 local Pipeline = require("build.pipeline")
+local RecordSplices = require("build.syntax_record_splices")
 local ShapeSpecs = require("build.syntax_shape_specs")
 local Sqlite = require("cosmic.sqlite")
 local SyntaxAnalyzer = require("build.syntax_analyzer")
@@ -59,13 +60,13 @@ function syntax_read.token_parts(text: string, file: string): {string}
   return parts
 end
 
---- What [`ShapeSpecs.splices`] finds of `text`, the file `name`, the module `path`, which `build` holds as that text: the calls of
---- [`Shape.record_of`] are found in the whole text, which the new checker reads fast enough that a stub of it is not worth the
---- reading. `count` is called when the text has a call, to tell the session how many it found whole.
+--- What [`RecordSplices.splices`] finds of `text`, the file `name`, the module `path`, which `build` holds as that text: the calls
+--- the build completes are found in the whole text, which the new checker reads fast enough that a stub of it is not worth the
+--- reading. `count` is called when the text has a call of [`Shape.record_of`], to tell the session how many it found whole.
 function syntax_read.splices(build: Driver.Build, name: string, text: string, path: string,
                              count: function()): ShapeSpecs.Found
   if text:find("record_of(", 1, true) ~= nil then count() end
-  return ShapeSpecs.splices(build, path, name, text)
+  return RecordSplices.splices(build, path, name, text)
 end
 
 --- The byte of the document's own text at byte `offset` of it as spliced (`splices`, the last first, as

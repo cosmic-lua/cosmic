@@ -760,3 +760,17 @@ local function test_a_read_of_a_message_does_not_change_it()
   local _, _ = message:repeated_int(17)
   assert(#fields == 2 and encoded(message:fields()) == before)
 end
+
+local function test_wires_names_the_wire_types_a_number_has_and_fields_keeps_what_it_is_asked_for()
+  local bytes = assert(Protobuf.writer():int(1, 5):bytes(1, "abc"):fixed32(2, 7):bytes(3, "kept"):encode())
+  local message = assert(Protobuf.decode(bytes))
+  assert(message:wires(1) == (1 << Protobuf.VARINT) | (1 << Protobuf.LEN))
+  assert(message:wires(2) == 1 << Protobuf.FIXED32 and message:wires(9) == 0)
+  local kept = message:fields(function(number: integer, wire: integer): boolean
+    return number == 3 or wire == Protobuf.VARINT
+  end)
+  assert(#kept == 2)
+  local first, second = assert(kept[1]), assert(kept[2])
+  assert(first.number == 1 and first.value == 5 and second.number == 3 and second.value == "kept")
+  assert(#message:fields() == 4, "with no `keep`, every field is answered")
+end
