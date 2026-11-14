@@ -75,7 +75,7 @@ local function test_help_takes_a_verb(tmp: string)
   local _ = verbs_fixture.expect(tmp, "sql", { "sql", "--", "-h" }, 1)
   local refused = verbs_fixture.expect(tmp, "help", { "help", "tset" }, 2)
   local err = refused.stderr
-  assert(err:find("help: no such verb: tset", 1, true), err)
+  assert(err:find("help: no such verb: tset; did you mean test?", 1, true), err)
 end
 
 local function test_help_lists_each_option_a_verb_parses(tmp: string)
