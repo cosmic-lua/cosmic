@@ -26,6 +26,40 @@ function Example.entropy()
   print(Codec.hex(bytes))
 end
 
+--- An identifier for a record or a message: version 4 is all entropy,
+--- version 7 opens with the clock, so later ones sort after earlier ones.
+function Example.uuid()
+  local id, err = Rand.uuid()
+  assert(id ~= nil, err)
+  print(id)
+  assert(#id == 36 and id:sub(15, 15) == "4")
+  local first = assert(Rand.uuid(7))
+  local second = assert(Rand.uuid(7))
+  assert(first < second, "version 7 values sort in the order drawn")
+end
+
+--- Sixteen bytes a caller already holds, written as a UUID. With a
+--- version the bytes are marked as one: here a seeded source's, so a
+--- test's identifiers replay.
+function Example.uuid_of()
+  print(Rand.uuid_of("0123456789abcdef"))
+  assert(Rand.uuid_of("0123456789abcdef") == "30313233-3435-3637-3839-616263646566")
+  local replayed = Rand.uuid_of(Rand.new(2026):bytes(16), 4)
+  assert(replayed == Rand.uuid_of(Rand.new(2026):bytes(16), 4))
+  assert(replayed:sub(15, 15) == "4")
+end
+
+--- A maker draws from the entropy and the clock it is given, which pins
+--- a test's version 7 values: 1700000000000 ms is 0x18bcfe56800.
+function Example.uuid_maker()
+  local draw = Rand.uuid_maker(function(count: integer): string?, string
+    return ("\0"):rep(count), ""
+  end, function(): integer return 1700000000000 * 1000000 end)
+  local id = assert(draw(7))
+  print(id)
+  assert(id == "018bcfe5-6800-7000-8000-000000000000")
+end
+
 --- Simulated measurement noise with [`Rand.Source.normal`]: a sensor
 --- reads a true value of 20 with a standard deviation of 0.5. The
 --- readings cluster around 20, and a source made from the same seed
