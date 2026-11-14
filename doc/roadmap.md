@@ -395,8 +395,21 @@ promises lean on come first:
     `_services._dns-sd._udp.local` (RFC 6763 section 9).
   - Questions over IPv6, to `ff02::fb`: a second socket, joined by each
     interface's index, waited on together with the IPv4 one.
-  - The interface an answer came by (`IP_PKTINFO` in the core's `recvfrom`),
-    for an `Instance` and for the zone of a link-local IPv6 address.
+  - What a datagram's ancillary data says of how it came, which
+    [`Net.datagram`]'s `receive` does not read: the hops it arrived with and
+    the interface it came by. With them a search drops an answer that did
+    not arrive with 255 hops or from an address of the interface's own
+    network, the check that it came from the local link (RFC 6762 section
+    11), and an `Instance` says the interface, which is also the zone of a
+    link-local IPv6 address.
+  - A domain other than `local`: the domains a network recommends for
+    browsing (RFC 6763 section 11), and a service type or a host asked for
+    in one of them over unicast DNS (section 4), where today the domain is
+    always `local` and the question always multicast.
+  - The timing of RFC 6762 section 5.2 a search does not keep: a random
+    delay of 20 to 120 ms before the first question, so that machines
+    started together do not ask together, and a second between the first
+    two questions at the least, where `retry_ns` takes less.
   - An SRV record's priority and weight, and every SRV record of an instance
     that has several.
 

@@ -19,8 +19,8 @@ local function at(name: string, rtype: integer): Dns.Record
   return { name = name, type = rtype, class = Dns.IN, cache_flush = false, ttl = 120 }
 end
 
---- All the stand-in has to say, as the response to `query`: a printer named with a dot and a space, at
---- `printer.local`.
+--- All the stand-in has to say, as the response to `query`: a printer named with a dot and a space,
+--- at `printer.local`.
 local function answer(query: Dns.Message): string
   local name = "Front Desk\\. Printer._ipp._tcp.local"
   local answers: {Dns.Record} = {
@@ -34,7 +34,8 @@ local function answer(query: Dns.Message): string
   return (assert(Dns.encode(message)))
 end
 
---- The stand-in: answers each question that reaches `device`, to whoever asked, until the socket is closed.
+--- The stand-in: answers each question that reaches `device`, to whoever asked, until the socket is
+--- closed.
 local function respond(device: Net.Datagram)
   while true do
     local packet = device:receive()
@@ -46,9 +47,10 @@ local function respond(device: Net.Datagram)
   end
 end
 
---- The printers of the network: [`Mdns.browse`] answers each instance of the service type with where it is.
---- On a real network the call is `Mdns.browse("_ipp._tcp")`, which searches for three seconds. Here `address`
---- and `port` send the question to the stand-in instead, and `limit` ends the search at the first printer.
+--- The printers of the network: [`Mdns.browse`] answers each instance of the service type with
+--- where it is. On a real network the call is `Mdns.browse("_ipp._tcp")`, which searches for three
+--- seconds. Here `address` and `port` send the question to the stand-in instead, and `limit` ends
+--- the search at the first printer.
 function Example.browse()
   Poll.run(function()
     local device <close> = assert(Net.datagram(Net.udp("127.0.0.1", 0)))
@@ -67,8 +69,8 @@ function Example.browse()
   end)
 end
 
---- Instances as they are found: `found` is called with each while the search goes on, so a program can show
---- the first before the time limit has passed.
+--- Instances as they are found: `found` is called with each while the search goes on, so a program
+--- can show the first before the time limit has passed.
 function Example.found()
   Poll.run(function()
     local device <close> = assert(Net.datagram(Net.udp("127.0.0.1", 0)))
@@ -87,8 +89,8 @@ function Example.found()
   end)
 end
 
---- The addresses of a host of the `local` domain, IPv4 first: [`Mdns.resolve`] ends soon after the first
---- answer, not at its time limit.
+--- The addresses of a host of the `local` domain, IPv4 first: [`Mdns.resolve`] ends soon after the
+--- first answer, not at its time limit.
 function Example.resolve()
   Poll.run(function()
     local device <close> = assert(Net.datagram(Net.udp("127.0.0.1", 0)))
@@ -101,18 +103,20 @@ function Example.resolve()
   end)
 end
 
---- Listening as a member of the group, [`Mdns.Listen`]'s "group": the search binds the port, shared, joins
---- the group on the interfaces `via` names and hears what is sent to the group. Here the group is one of a
---- site's own on the loopback interface, where the stand-in is a member too and sends its answers to the
---- group. On a real network `{ listen = "group" }` is enough: the group of multicast DNS, port 5353 and the
---- machine's interfaces are the defaults.
+--- Listening as a member of the group, [`Mdns.Listen`]'s "group": the search binds the port,
+--- shared, joins the group on the interfaces `via` names and hears what is sent to the group. Here
+--- the group is one of a site's own on the loopback interface, where the stand-in is a member too
+--- and sends its answers to the group. On a real network `{ listen = "group" }` is enough: the
+--- group of multicast DNS, port 5353 and the machine's interfaces are the defaults.
 function Example.group()
   local group, via = "239.255.53.99", "127.0.0.1"
   Poll.run(function()
     local device <close> = assert(Net.datagram(Net.udp(group, 0), { shared = true }))
     local port = assert(device.address.port)
     assert(device:join(group, via))
-    local out <close> = assert(Net.datagram(Net.udp(via, 0)))
+    -- An answer comes from the port the question was asked at, as a responder's comes from port
+    -- 5353.
+    local out <close> = assert(Net.datagram(Net.udp(via, port), { shared = true }))
     assert(out:set_multicast({ via = via, hops = 1 }))
     Poll.spawn(function()
       while true do

@@ -1,5 +1,6 @@
---- [`cosmic.mdns`] against a stand-in responder on the loopback: instances assembled from whole and partial
---- answers, what a hostile answer cannot do, the limits of a search, and both ways to listen.
+--- [`cosmic.mdns`] against a stand-in responder on the loopback: instances assembled from whole and
+--- partial answers, what a hostile answer cannot do, the limits of a search, and both ways to
+--- listen.
 
 local Clock = require("cosmic.clock")
 local Dns = require("cosmic.dns")
@@ -56,7 +57,8 @@ local function response(query: Dns.Message, answers: {Dns.Record}, additionals?:
   return (assert(Dns.encode(message)))
 end
 
---- Whether `query` asks for the records of type `rtype` at `name`, whatever the case of either name.
+--- Whether `query` asks for the records of type `rtype` at `name`, whatever the case of either
+--- name.
 local function asks(query: Dns.Message, name: string, rtype: integer): boolean
   for _, question in ipairs(query.questions) do
     if question.type == rtype and question.name:lower() == name:lower() then return true end
@@ -71,9 +73,10 @@ local function described(service: string, instance: string, host: string, port: 
   return { pointer(service, instance), srv(name, host, port), txt(name, { "path=/" }), a(host, address) }
 end
 
---- Runs `body` beside a responder on the loopback that answers each query with what `reply` gives, to the
---- address the query came from. `body` is given the options that make a search ask that responder alone: a
---- time limit no passing test reaches, so that a test ends by its `limit` or fails by its own.
+--- Runs `body` beside a responder on the loopback that answers each query with what `reply` gives,
+--- to the address the query came from. `body` is given the options that make a search ask that
+--- responder alone: a time limit no passing test reaches, so that a test ends by its `limit` or
+--- fails by its own.
 local function serving(reply: Reply, body: function(opts: Mdns.Options))
   Poll.run(function()
     local device <close> = assert(Net.datagram(Net.udp(LOOPBACK, 0)))
@@ -121,13 +124,13 @@ local function test_an_instance_is_assembled_from_one_packet()
     assert(instance.attributes["txtvers"] == "1" and instance.attributes["path"] == "/print")
     assert(instance.from == LOOPBACK, instance.from)
   end)
-  -- One question was enough, and it is a multicast DNS question that wants its answer by unicast.
-  assert(#questions == 1, tostring(#questions))
+  -- A multicast DNS question, with nothing that asks a responder to answer as it would a member of
+  -- the group.
   local query = assert(questions[1])
   local question = assert(query.questions[1])
   assert(not query.response and not query.recursion_desired and #query.questions == 1)
   assert(question.name == HTTP and question.type == Dns.PTR and question.class == Dns.IN)
-  assert(question.unicast_response)
+  assert(not question.unicast_response)
 end
 
 local function test_a_service_is_named_with_or_without_its_domain_in_any_case()
@@ -149,9 +152,10 @@ local function test_a_sub_type_answers_the_instances_of_its_service()
   local sub = "_printer._sub._http._tcp.local"
   local function reply(query: Dns.Message): {string}
     if not asks(query, sub, Dns.PTR) then return {} end
-    local name = fullname("Printer", HTTP)
+    local name, second = fullname("Printer", HTTP), fullname("Second", HTTP)
     return {
-      -- With the records of an instance of the service that does not declare the sub-type.
+      -- With the records of an instance of the service that does not declare the sub-type. Were it
+      -- taken, the search would be full before the second printer came.
       response(query, { { ...at(sub, Dns.PTR), target = name } }, {
         srv(fullname("Plain", HTTP), "plain.local", 81),
         txt(fullname("Plain", HTTP), {}),
@@ -161,12 +165,16 @@ local function test_a_sub_type_answers_the_instances_of_its_service()
         txt(name, {}),
         a("printer.local", "192.0.2.7"),
       }),
+      response(query, { { ...at(sub, Dns.PTR), target = second }, srv(second, "second.local", 82),
+        txt(second, {}), a("second.local", "192.0.2.9") }),
     }
   end
   serving(reply, function(opts: Mdns.Options)
-    local found = assert(Mdns.browse("_printer._sub._http._tcp", { ...opts, timeout_ns = Clock.ms(300) }))
+    local found = assert(Mdns.browse("_printer._sub._http._tcp", { ...opts, limit = 2 }))
+    assert(#found == 2, tostring(#found))
     local instance = assert(found[1])
-    assert(#found == 1 and instance.fullname == fullname("Printer", HTTP) and instance.port == 80)
+    assert(instance.fullname == fullname("Printer", HTTP) and instance.port == 80)
+    assert(assert(found[2]).name == "Second")
   end)
 end
 
@@ -188,15 +196,36 @@ local function test_an_option_out_of_range_raises_naming_it()
 end
 
 local function test_records_that_come_before_the_one_they_depend_on_are_asked_for_again()
-  local queries = 0
+  local name = fullname("Printer", HTTP)
+  local pointers, asked_srv, asked_txt, asked_a = 0, 0, 0, 0
   local function reply(query: Dns.Message): {string}
-    queries = queries + 1
-    if not asks(query, HTTP, Dns.PTR) then return {} end
     local out: mut {string} = {}
-    -- Back to front: no record needs the one that says who it is about to come first.
-    local records = described(HTTP, "Printer", "printer.local", 8080, "192.0.2.7")
-    for i = #records, 1, -1 do
-      local bytes = response(query, { assert(records[i]) })
+    if asks(query, HTTP, Dns.PTR) then
+      pointers = pointers + 1
+      -- Once only, and back to front: the address before the SRV record that names its host, and
+      -- both and the TXT record before the pointer that names the instance. None of the three is
+      -- kept.
+      if pointers > 1 then return {} end
+      local records = described(HTTP, "Printer", "printer.local", 8080, "192.0.2.7")
+      for i = #records, 1, -1 do
+        local bytes = response(query, { assert(records[i]) })
+        out[#out + 1] = bytes
+      end
+    end
+    -- Each is sent again only to the question that asks for it.
+    if asks(query, name, Dns.SRV) then
+      asked_srv = asked_srv + 1
+      local bytes = response(query, { srv(name, "printer.local", 8080) })
+      out[#out + 1] = bytes
+    end
+    if asks(query, name, Dns.TXT) then
+      asked_txt = asked_txt + 1
+      local bytes = response(query, { txt(name, { "path=/" }) })
+      out[#out + 1] = bytes
+    end
+    if asks(query, "printer.local", Dns.A) then
+      asked_a = asked_a + 1
+      local bytes = response(query, { a("printer.local", "192.0.2.7") })
       out[#out + 1] = bytes
     end
     return out
@@ -204,11 +233,9 @@ local function test_records_that_come_before_the_one_they_depend_on_are_asked_fo
   serving(reply, function(opts: Mdns.Options)
     local found = assert(Mdns.browse(HTTP, { ...opts, limit = 1 }))
     local instance = assert(found[1])
-    assert(instance.port == 8080 and instance.txt[1] == "path=/")
-    assert(instance.ipv4[1] == "192.0.2.7")
+    assert(instance.port == 8080 and instance.txt[1] == "path=/" and instance.ipv4[1] == "192.0.2.7")
   end)
-  -- Each record came before the one that says who it is about, so each was asked for again.
-  assert(queries >= 2, tostring(queries))
+  assert(asked_srv >= 1 and asked_txt >= 1 and asked_a >= 1, ("%d %d %d"):format(asked_srv, asked_txt, asked_a))
 end
 
 local function test_records_an_answer_leaves_out_are_asked_for()
@@ -247,25 +274,24 @@ end
 
 local function test_a_record_that_never_comes_is_asked_for_three_times_at_most()
   local name = fullname("Printer", HTTP)
-  local address_questions, srv_questions = 0, 0
+  local address_questions, txt_questions = 0, 0
   local function reply(query: Dns.Message): {string}
     if asks(query, "printer.local", Dns.A) then address_questions = address_questions + 1 end
-    if asks(query, fullname("Nameless", HTTP), Dns.SRV) then srv_questions = srv_questions + 1 end
+    if asks(query, name, Dns.TXT) then txt_questions = txt_questions + 1 end
     if not asks(query, HTTP, Dns.PTR) then return {} end
-    return {
-      response(query, { pointer(HTTP, "Printer"), srv(name, "printer.local", 631), txt(name, {}),
-        pointer(HTTP, "Nameless") }),
-    }
+    return { response(query, { pointer(HTTP, "Printer"), srv(name, "printer.local", 631) }) }
   end
   serving(reply, function(opts: Mdns.Options)
     local found = assert(Mdns.browse(HTTP, { ...opts, timeout_ns = Clock.ms(900), retry_ns = Clock.ms(20) }))
-    -- Its SRV record came, so it is listed, with no address.
+    -- Its SRV record came, so it is listed, with no TXT string and no address.
     local instance = assert(found[1])
-    assert(#found == 1 and instance.host == "printer.local" and #instance.ipv4 == 0 and #instance.ipv6 == 0)
+    assert(#found == 1 and instance.host == "printer.local" and #instance.txt == 0)
+    assert(#instance.ipv4 == 0 and #instance.ipv6 == 0)
   end)
-  -- Asked 100 ms after the SRV record, then 20 ms and 40 ms later; the 900 ms have room for many more.
+  -- Each asked for 100 ms after the SRV record, then 20 ms and 40 ms later; the 900 ms have room
+  -- for more.
   assert(address_questions >= 1 and address_questions <= 3, tostring(address_questions))
-  assert(srv_questions >= 1 and srv_questions <= 3, tostring(srv_questions))
+  assert(txt_questions >= 1 and txt_questions <= 3, tostring(txt_questions))
 end
 
 local function test_an_instance_name_keeps_its_dots_spaces_and_letters()
@@ -307,7 +333,8 @@ local function test_several_instances_are_listed_in_the_order_they_were_named()
   end)
 end
 
---- Outside a run, where the search holds the thread: the questions wait in the silent socket's buffer.
+--- Outside a run, where the search holds the thread: the questions wait in the silent socket's
+--- buffer.
 local function test_a_search_nothing_answers_ends_at_its_time_limit_having_asked_again()
   local silent <close> = assert(Net.datagram(Net.udp(LOOPBACK, 0)))
   local started = Clock.monotonic_ns()
@@ -387,8 +414,8 @@ local function hostile(query: Dns.Message): {string}
       a("evil.local", "192.0.2.66"),
       a(fullname("Real", HTTP), "192.0.2.66"),
     }),
-    -- A pointer at another service that leads into the one asked for, and SRV and TXT records of an instance no
-    -- pointer at the service gave.
+    -- A pointer at another service that leads into the one asked for, and SRV and TXT records of an
+    -- instance no pointer at the service gave.
     response(query, {
       { ...at(other, Dns.PTR), target = fullname("Other", HTTP) },
       srv(fullname("Other", HTTP), "evil.local", 666),
@@ -402,18 +429,9 @@ local function hostile(query: Dns.Message): {string}
   }
 end
 
-local function test_hostile_answers_add_no_instance()
-  local function reply(query: Dns.Message): {string}
-    if not asks(query, HTTP, Dns.PTR) then return {} end
-    return hostile(query)
-  end
-  serving(reply, function(opts: Mdns.Options)
-    local found = assert(Mdns.browse(HTTP, { ...opts, timeout_ns = Clock.ms(300) }))
-    assert(#found == 0, tostring(#found))
-  end)
-end
-
-local function test_hostile_answers_change_nothing_of_a_real_instance()
+--- The search ends at its limit of two, which the last datagram fills: every hostile datagram
+--- before it was read, and one that made an instance would have taken the place of a real one.
+local function test_hostile_answers_add_no_instance_and_change_nothing_of_a_real_one()
   local function reply(query: Dns.Message): {string}
     if not asks(query, HTTP, Dns.PTR) then return {} end
     local out: mut {string} = {}
@@ -430,15 +448,18 @@ local function test_hostile_answers_change_nothing_of_a_real_instance()
     out[#out + 1] = late
     local after = hostile(query)
     table.move(after, 1, #after, #out + 1, out)
+    local last = response(query, described(HTTP, "Last", "last.local", 82, "192.0.2.2"))
+    out[#out + 1] = last
     return out
   end
   serving(reply, function(opts: Mdns.Options)
-    local found = assert(Mdns.browse(HTTP, { ...opts, timeout_ns = Clock.ms(300) }))
-    assert(#found == 1, tostring(#found))
+    local found = assert(Mdns.browse(HTTP, { ...opts, limit = 2 }))
+    assert(#found == 2, tostring(#found))
     local instance = assert(found[1])
     assert(instance.name == "Real" and instance.host == "real.local" and instance.port == 80)
     assert(#instance.ipv4 == 1 and instance.ipv4[1] == "192.0.2.1" and #instance.ipv6 == 0)
     assert(#instance.txt == 1 and instance.attributes["path"] == "/")
+    assert(assert(found[2]).name == "Last")
   end)
 end
 
@@ -446,7 +467,8 @@ local function test_a_flood_of_instances_and_addresses_stops_at_the_bounds()
   local function reply(query: Dns.Message): {string}
     if not asks(query, HTTP, Dns.PTR) then return {} end
     local out: mut {string} = {}
-    -- Sixty instances, ten to a packet, and with the first ten sixty addresses of each family for one host.
+    -- Sixty instances, ten to a packet, and with the first ten sixty addresses of each family for
+    -- one host.
     for packet = 0, 5 do
       local records: mut {Dns.Record} = {}
       for n = 100, if packet == 0 then 159 else 99 end do
@@ -467,7 +489,7 @@ local function test_a_flood_of_instances_and_addresses_stops_at_the_bounds()
     return out
   end
   serving(reply, function(opts: Mdns.Options)
-    local found = assert(Mdns.browse(HTTP, { ...opts, limit = 4, timeout_ns = Clock.ms(300) }))
+    local found = assert(Mdns.browse(HTTP, { ...opts, limit = 4 }))
     assert(#found == 4, tostring(#found))
     for i, instance in ipairs(found) do
       assert(instance.name == ("Instance %d"):format(i) and instance.port == i, instance.name)
@@ -589,16 +611,16 @@ local function test_other_tasks_go_on_while_a_search_waits()
   end)
 end
 
---- The group way, with the group joined on the loopback at a port the kernel chose: the responder is a member
---- too, and answers to the group, not to whoever asked.
-local function test_listening_by_group_hears_the_answers_sent_to_the_group()
-  local group = "239.255.53.1"
-  local questions: mut {Dns.Message} = {}
+--- Runs `body` beside a responder that is a member of `group` on the loopback, at a port the kernel
+--- chose, and sends what `reply` gives for each query to the group from that port, as a responder
+--- sends from port 5353. `body` is given the options that make a search listen as a member of the
+--- same group.
+local function serving_group(group: string, reply: Reply, body: function(opts: Mdns.Options))
   Poll.run(function()
     local device <close> = assert(Net.datagram(Net.udp(group, 0), { shared = true }))
     local port = assert(device.address.port)
     assert(device:join(group, LOOPBACK))
-    local out <close> = assert(Net.datagram(Net.udp(LOOPBACK, 0)))
+    local out <close> = assert(Net.datagram(Net.udp(LOOPBACK, port), { shared = true }))
     assert(out:set_multicast({ via = LOOPBACK, hops = 1, loop = true }))
     local responder = Poll.spawn(function()
       while true do
@@ -606,18 +628,34 @@ local function test_listening_by_group_hears_the_answers_sent_to_the_group()
         if packet == nil then return end
         local query = Dns.decode(packet.data)
         -- The group carries the responder's own answers back to it.
-        if query ~= nil and not query.response and asks(query, HTTP, Dns.PTR) then
-          questions[#questions + 1] = query
-          local announced: Dns.Message = { ...Dns.reply(query), questions = {}, authoritative = true,
-            answers = described(HTTP, "Printer", "printer.local", 631, "192.0.2.7") }
-          assert(out:send(assert(Dns.encode(announced)), Net.udp(group, port)))
+        if query ~= nil and not query.response then
+          for _, bytes in ipairs(reply(query)) do assert(out:send(bytes, Net.udp(group, port))) end
         end
       end
     end)
-    local found = assert(Mdns.browse(HTTP, { listen = "group", address = group, port = port, via = { LOOPBACK },
-      limit = 1, timeout_ns = Clock.seconds(10), retry_ns = Clock.ms(200) }))
+    body({ listen = "group", address = group, port = port, via = { LOOPBACK }, timeout_ns = Clock.seconds(10),
+      retry_ns = Clock.ms(200) })
     assert(device:close())
     assert(responder:join())
+  end)
+end
+
+--- An announcement of `records`, as a responder sends one to the group: no question and the id 0.
+local function announcement(query: Dns.Message, records: {Dns.Record}): string
+  local message: Dns.Message = { ...Dns.reply(query), id = 0, questions = {}, authoritative = true,
+    answers = records }
+  return (assert(Dns.encode(message)))
+end
+
+local function test_listening_by_group_hears_the_answers_sent_to_the_group()
+  local questions: mut {Dns.Message} = {}
+  local function reply(query: Dns.Message): {string}
+    if not asks(query, HTTP, Dns.PTR) then return {} end
+    questions[#questions + 1] = query
+    return { announcement(query, described(HTTP, "Printer", "printer.local", 631, "192.0.2.7")) }
+  end
+  serving_group("239.255.53.1", reply, function(opts: Mdns.Options)
+    local found = assert(Mdns.browse(HTTP, { ...opts, limit = 1 }))
     local instance = assert(found[1])
     assert(instance.name == "Printer" and instance.port == 631 and instance.ipv4[1] == "192.0.2.7")
     assert(instance.from == LOOPBACK, instance.from)
@@ -627,14 +665,118 @@ local function test_listening_by_group_hears_the_answers_sent_to_the_group()
   assert(query.id == 0 and not assert(query.questions[1]).unicast_response)
 end
 
+--- 192.0.2.0/24 is for documentation: no interface has an address of it, so the group is not joined
+--- there and no question leaves by it.
+local function test_an_interface_that_refuses_is_passed_over_while_another_takes_the_question()
+  local function reply(query: Dns.Message): {string}
+    if not asks(query, HTTP, Dns.PTR) then return {} end
+    return { announcement(query, described(HTTP, "Printer", "printer.local", 631, "192.0.2.7")) }
+  end
+  serving_group("239.255.53.4", reply, function(opts: Mdns.Options)
+    local found = assert(Mdns.browse(HTTP, { ...opts, via = { "192.0.2.77", LOOPBACK, "192.0.2.78" }, limit = 1 }))
+    assert(assert(found[1]).name == "Printer")
+  end)
+end
+
+--- A port the kernel just gave out and nothing holds any more.
+local function free_port(): integer
+  local taken <close> = assert(Net.datagram(Net.udp("0.0.0.0", 0)))
+  return (assert(taken.address.port))
+end
+
+--- Whether nothing holds `port`: a socket that does not share binds it only then, since a search's
+--- own shares.
+local function is_free(port: integer): boolean
+  local alone, _ = Net.datagram(Net.udp("0.0.0.0", port))
+  if alone == nil then return false end
+  assert(alone:close())
+  return true
+end
+
+local function test_a_response_from_another_port_than_the_one_asked_is_ignored()
+  Poll.run(function()
+    local device <close> = assert(Net.datagram(Net.udp(LOOPBACK, 0)))
+    local elsewhere <close> = assert(Net.datagram(Net.udp(LOOPBACK, 0)))
+    local responder = Poll.spawn(function()
+      while true do
+        local packet = device:receive()
+        if packet == nil then return end
+        local query = assert(Dns.decode(packet.data))
+        if asks(query, HTTP, Dns.PTR) then
+          -- The id is right: only where it comes from tells the first from the second.
+          local forged = response(query, described(HTTP, "Elsewhere", "evil.local", 666, "192.0.2.66"))
+          assert(elsewhere:send(forged, packet.address))
+          local real = response(query, described(HTTP, "Printer", "printer.local", 631, "192.0.2.7"))
+          assert(device:send(real, packet.address))
+        end
+      end
+    end)
+    local found = assert(Mdns.browse(HTTP, { address = LOOPBACK, port = assert(device.address.port), limit = 1,
+      timeout_ns = Clock.seconds(10) }))
+    assert(device:close())
+    assert(responder:join())
+    assert(#found == 1 and assert(found[1]).name == "Printer", assert(found[1]).name)
+  end)
+end
+
+--- The port is free, so the socket is bound and it is the join that fails: its reason says the
+--- group first, where a socket that cannot be bound says the address and port. The socket is closed
+--- again.
 local function test_listening_by_group_fails_where_the_group_cannot_be_joined()
-  local unjoined, why = Mdns.browse(HTTP, { listen = "group", address = LOOPBACK, via = { LOOPBACK },
-    port = 5399, timeout_ns = 0 })
-  assert(unjoined == nil and why ~= "")
+  local port = free_port()
+  -- No group at all.
+  local unjoined, why = Mdns.browse(HTTP, { listen = "group", address = LOOPBACK, port = port, timeout_ns = 0 })
+  assert(unjoined == nil and why:find(LOOPBACK .. ": ", 1, true) == 1, why)
+  assert(is_free(port))
   -- 192.0.2.0/24 is for documentation: no interface has an address of it.
-  local nowhere, nowhere_why = Mdns.browse(HTTP, { listen = "group", address = "239.255.53.2",
-    via = { "192.0.2.77" }, port = 5399, timeout_ns = 0 })
-  assert(nowhere == nil and nowhere_why ~= "")
+  local group = "239.255.53.2"
+  local nowhere, nowhere_why = Mdns.browse(HTTP, { listen = "group", address = group,
+    via = { "192.0.2.77" }, port = port, timeout_ns = 0 })
+  assert(nowhere == nil and nowhere_why:find(group .. ": ", 1, true) == 1, nowhere_why)
+  assert(is_free(port))
+end
+
+local function test_listening_by_group_fails_where_the_port_is_held_unshared()
+  local holder <close> = assert(Net.datagram(Net.udp("0.0.0.0", 0)))
+  local port = assert(holder.address.port)
+  local found, why = Mdns.browse(HTTP, { listen = "group", address = "239.255.53.5", via = { LOOPBACK },
+    port = port, timeout_ns = 0 })
+  assert(found == nil and why:find("0.0.0.0:" .. tostring(port) .. ": ", 1, true) == 1, why)
+end
+
+local function test_the_socket_is_closed_when_found_raises()
+  local function reply(query: Dns.Message): {string}
+    if not asks(query, HTTP, Dns.PTR) then return {} end
+    return { announcement(query, described(HTTP, "Printer", "printer.local", 631, "192.0.2.7")) }
+  end
+  serving_group("239.255.53.6", reply, function(opts: Mdns.Options)
+    local port = assert(opts.port)
+    Test.raises(function()
+      Mdns.browse(HTTP, { ...opts, found = function(_: Mdns.Instance) error("no more", 0) end })
+    end, "no more")
+    -- The stand-in's own sockets share the port: closed, they leave it to whoever asks alone.
+    local others, _ = Net.datagram(Net.udp("0.0.0.0", port), { shared = true })
+    assert(others ~= nil)
+    assert(others:close())
+  end)
+end
+
+local function test_the_socket_is_closed_when_the_search_is_cancelled()
+  local port = free_port()
+  Poll.run(function()
+    local why = "never ran"
+    local search = Poll.spawn(function()
+      local _found: {Mdns.Instance}?
+      _found, why = Mdns.browse(HTTP, { listen = "group", address = "239.255.53.7", via = { LOOPBACK },
+        port = port, timeout_ns = Clock.seconds(20) })
+    end)
+    assert(Poll.delay(Clock.ms(50)))
+    assert(not is_free(port))
+    search:cancel()
+    assert(search:join(Clock.seconds(10)))
+    assert(why == Poll.CANCELLED, why)
+    assert(is_free(port))
+  end)
 end
 
 local function test_a_hosts_addresses_are_resolved_and_the_search_ends_soon_after()
@@ -664,7 +806,7 @@ local function test_a_hosts_addresses_are_resolved_and_the_search_ends_soon_afte
   end)
   local query = assert(questions[1])
   assert(#query.questions == 2 and asks(query, "printer.local", Dns.A) and asks(query, "printer.local", Dns.AAAA))
-  assert(assert(query.questions[1]).unicast_response)
+  assert(not assert(query.questions[1]).unicast_response)
 end
 
 local function test_a_host_nothing_answers_for_resolves_to_no_address()
@@ -689,9 +831,259 @@ local function test_a_name_outside_the_local_domain_is_not_resolved()
   end
 end
 
---- A group asked with no `via`: the interfaces are those the system lists, or its own choice where it lists
---- none, as a sandboxed worker's does not. With no time to search in, nothing is sent by any of them.
+--- A group asked with no `via`: the interfaces are those the system lists, or its own choice where
+--- it lists none, as a sandboxed worker's does not. With no time to search in, nothing is sent by
+--- any of them.
 local function test_a_search_with_no_via_is_made_whether_or_not_the_interfaces_are_listed()
   local found = assert(Mdns.browse(HTTP, { address = "239.255.53.3", port = 5399, timeout_ns = 0 }))
   assert(#found == 0)
+end
+
+--- The strings of a TXT record that is `bytes` long with a byte for the length of each: `count` of
+--- them, the first ones as long as a string may be.
+local function strings_of(count: integer, bytes: integer): {string}
+  local out: mut {string} = {}
+  local left = bytes - count
+  for i = 1, count do
+    local length = math.min(left, 255)
+    out[i] = ("x"):rep(length)
+    left = left - length
+  end
+  assert(left == 0, "the strings hold the bytes")
+  return out
+end
+
+--- Each name's first TXT record is past what a search keeps, by one string or by one byte, and is
+--- not kept in part: the record that answers the question for it is the one the instance has.
+local function test_a_txt_record_past_the_cap_is_ignored_whole()
+  local many, long, fits = fullname("Many", HTTP), fullname("Long", HTTP), fullname("Fits", HTTP)
+  local function reply(query: Dns.Message): {string}
+    local out: mut {string} = {}
+    if asks(query, HTTP, Dns.PTR) then
+      local bytes = response(query, {
+        pointer(HTTP, "Many"), srv(many, "txt.local", 1), txt(many, strings_of(129, 129)),
+        pointer(HTTP, "Long"), srv(long, "txt.local", 2), txt(long, strings_of(6, 1301)),
+        pointer(HTTP, "Fits"), srv(fits, "txt.local", 3), txt(fits, strings_of(128, 1300)),
+        a("txt.local", "192.0.2.1"),
+      })
+      out[#out + 1] = bytes
+    end
+    if asks(query, many, Dns.TXT) then
+      local bytes = response(query, { txt(many, { "ok=1" }) })
+      out[#out + 1] = bytes
+    end
+    if asks(query, long, Dns.TXT) then
+      local bytes = response(query, { txt(long, { "ok=2" }) })
+      out[#out + 1] = bytes
+    end
+    return out
+  end
+  serving(reply, function(opts: Mdns.Options)
+    local found = assert(Mdns.browse(HTTP, { ...opts, limit = 3 }))
+    assert(#found == 3, tostring(#found))
+    local first, second, third = assert(found[1]), assert(found[2]), assert(found[3])
+    assert(#first.txt == 1 and first.txt[1] == "ok=1", tostring(#first.txt))
+    assert(#second.txt == 1 and second.txt[1] == "ok=2", tostring(#second.txt))
+    assert(#third.txt == 128 and #assert(third.txt[1]) == 255, tostring(#third.txt))
+  end)
+end
+
+--- Sixteen instances, each with as much as a search keeps for one: a name and a host name of long
+--- labels, a TXT record of 128 strings with a key each in 1300 bytes, and 16 addresses of each
+--- family. The module's doc says 12 KiB an instance at most.
+local function test_what_a_search_keeps_for_an_instance_is_within_the_bound_it_states()
+  local count = 16
+  local function reply(query: Dns.Message): {string}
+    if not asks(query, HTTP, Dns.PTR) then return {} end
+    local out: mut {string} = {}
+    for n = 1, count do
+      local instance = ("%02d"):format(n) .. ("i"):rep(61)
+      local host = ("%02d"):format(n) .. ("h"):rep(58) .. "." .. ("h"):rep(60) .. ".local"
+      local strings: mut {string} = {}
+      for i = 1, 128 do strings[i] = ("k%03d=xxxx"):format(i) end
+      local records: mut {Dns.Record} = { pointer(HTTP, instance), srv(fullname(instance, HTTP), host, n),
+        txt(fullname(instance, HTTP), strings) }
+      for i = 1, 16 do
+        local four, six = a(host, ("198.51.%d.%d"):format(n, i)), aaaa(host, ("2001:db8:%x::%x"):format(n, i))
+        records[#records + 1] = four
+        records[#records + 1] = six
+      end
+      local bytes = response(query, records)
+      out[#out + 1] = bytes
+    end
+    return out
+  end
+  serving(reply, function(opts: Mdns.Options)
+    collectgarbage()
+    collectgarbage()
+    local before = collectgarbage("count")
+    local found = assert(Mdns.browse(HTTP, { ...opts, limit = count }))
+    collectgarbage()
+    collectgarbage()
+    local kept = collectgarbage("count") - before
+    assert(#found == count, tostring(#found))
+    local last = assert(found[count])
+    assert(#last.txt == 128 and #last.ipv4 == 16 and #last.ipv6 == 16 and last.attributes["k128"] == "xxxx")
+    assert(kept < 12 * count, ("%.0f kilobytes for %d instances"):format(kept, count))
+  end)
+end
+
+--- Pointers at the service asked for that lead to `count` names from `first` on, which nothing
+--- describes.
+local function pointers_to_nothing(first: integer, count: integer): {Dns.Record}
+  local out: mut {Dns.Record} = {}
+  for n = first, first + count - 1 do
+    local record = pointer(HTTP, ("Nothing %d"):format(n))
+    out[#out + 1] = record
+  end
+  return out
+end
+
+--- Three hundred and twenty names that never get an SRV record come first. The 64 a search lets
+--- wait are taken, and the real instance, whose SRV record comes with its pointer, is held all the
+--- same.
+local function test_a_flood_of_pointers_to_nothing_keeps_no_real_instance_out()
+  local function reply(query: Dns.Message): {string}
+    if not asks(query, HTTP, Dns.PTR) then return {} end
+    local out: mut {string} = {}
+    for packet = 0, 7 do
+      local bytes = response(query, pointers_to_nothing(packet * 40, 40))
+      out[#out + 1] = bytes
+    end
+    local real = response(query, described(HTTP, "Real", "real.local", 80, "192.0.2.1"))
+    out[#out + 1] = real
+    return out
+  end
+  serving(reply, function(opts: Mdns.Options)
+    local found = assert(Mdns.browse(HTTP, { ...opts, limit = 1 }))
+    assert(#found == 1 and assert(found[1]).name == "Real")
+  end)
+end
+
+--- The same flood with every repeat of the question, and time for each name to be asked for three
+--- times and forgotten, more than once: the names asked about are the 64 that wait, and the
+--- questions asked for missing records are four for each instance the search may hold, 4 * (2 +
+--- 64).
+local function test_a_flood_of_pointers_to_nothing_draws_a_bounded_number_of_questions()
+  local names: mut {string: boolean} = {}
+  local distinct, questions = 0, 0
+  local function reply(query: Dns.Message): {string}
+    for _, question in ipairs(query.questions) do
+      if question.type ~= Dns.PTR then
+        questions = questions + 1
+        if names[question.name] == nil then
+          names[question.name] = true
+          distinct = distinct + 1
+        end
+      end
+    end
+    if not asks(query, HTTP, Dns.PTR) then return {} end
+    local out: mut {string} = {}
+    for packet = 0, 7 do
+      local bytes = response(query, pointers_to_nothing(packet * 40, 40))
+      out[#out + 1] = bytes
+    end
+    return out
+  end
+  serving(reply, function(opts: Mdns.Options)
+    local found = assert(Mdns.browse(HTTP, { ...opts, limit = 2, timeout_ns = Clock.ms(700),
+      retry_ns = Clock.ms(20) }))
+    assert(#found == 0)
+  end)
+  assert(distinct >= 1 and distinct <= 64, tostring(distinct))
+  -- Three questions for each of 64 names are 192, and as many again once those are forgotten and
+  -- named anew.
+  assert(questions > 64 and questions <= 4 * (2 + 64), tostring(questions))
+end
+
+--- A hundred and twenty datagrams wait in the search's socket, then the real answer. A search that
+--- read them all in one turn would give the other task no turn between the last sent and the
+--- instance found.
+local function test_another_task_has_its_turns_while_a_search_reads_a_flood()
+  local ticks, ticks_when_sent, ticks_when_found = 0, -1, -1
+  local function reply(query: Dns.Message): {string}
+    if not asks(query, HTTP, Dns.PTR) or ticks_when_sent >= 0 then return {} end
+    local out: mut {string} = {}
+    for i = 1, 120 do out[i] = "x" end
+    local real = response(query, described(HTTP, "Real", "real.local", 80, "192.0.2.1"))
+    out[#out + 1] = real
+    ticks_when_sent = ticks
+    return out
+  end
+  serving(reply, function(opts: Mdns.Options)
+    local ticking = true
+    local ticker = Poll.spawn(function()
+      while ticking do
+        ticks = ticks + 1
+        assert(Poll.delay(0))
+      end
+    end)
+    local found = assert(Mdns.browse(HTTP, { ...opts, limit = 1, found = function(_: Mdns.Instance)
+      ticks_when_found = ticks
+    end }))
+    ticking = false
+    assert(ticker:join())
+    assert(#found == 1 and ticks_when_sent >= 0 and ticks_when_found >= 0)
+    -- A turn for every 16 datagrams read is 7 of them.
+    assert(ticks_when_found - ticks_when_sent >= 4, ("%d then %d"):format(ticks_when_sent, ticks_when_found))
+  end)
+end
+
+local function test_a_flood_that_never_stops_does_not_outlast_the_time_limit()
+  Poll.run(function()
+    local device <close> = assert(Net.datagram(Net.udp(LOOPBACK, 0)))
+    local flooding = true
+    local sent = 0
+    local flooder = Poll.spawn(function()
+      local packet = assert(device:receive())
+      while flooding do
+        for _ = 1, 50 do assert(device:send("x", packet.address)) end
+        sent = sent + 50
+        assert(Poll.delay(0))
+      end
+    end)
+    local started = Clock.monotonic_ns()
+    local found = assert(Mdns.browse(HTTP, { address = LOOPBACK, port = assert(device.address.port),
+      timeout_ns = Clock.ms(200) }))
+    local elapsed = Clock.monotonic_ns() - started
+    flooding = false
+    assert(flooder:join())
+    assert(#found == 0 and sent >= 50, tostring(sent))
+    assert(elapsed >= Clock.ms(200) and elapsed < Clock.seconds(10), tostring(elapsed))
+  end)
+end
+
+--- Sixty-four names that lead nowhere take every place a search has for a name that waits, so the
+--- real instance, which is named with no SRV record, has none. They are forgotten once their
+--- questions have had their time, and it is taken the next time it is named.
+local function test_names_that_wait_in_vain_are_forgotten_and_make_room()
+  local alone = fullname("Alone", HTTP)
+  local pointers = 0
+  local function reply(query: Dns.Message): {string}
+    local out: mut {string} = {}
+    if asks(query, HTTP, Dns.PTR) then
+      pointers = pointers + 1
+      local named = pointer(HTTP, "Alone")
+      local records: {Dns.Record} = { named }
+      if pointers == 1 then
+        local flood: mut {Dns.Record} = {}
+        for _, record in ipairs(pointers_to_nothing(0, 64)) do flood[#flood + 1] = record end
+        flood[#flood + 1] = named
+        records = flood
+      end
+      local bytes = response(query, records)
+      out[#out + 1] = bytes
+    end
+    if asks(query, alone, Dns.SRV) then
+      local bytes = response(query, { srv(alone, "alone.local", 80), txt(alone, {}), a("alone.local", "192.0.2.1") })
+      out[#out + 1] = bytes
+    end
+    return out
+  end
+  serving(reply, function(opts: Mdns.Options)
+    local found = assert(Mdns.browse(HTTP, { ...opts, limit = 1, timeout_ns = Clock.seconds(5),
+      retry_ns = Clock.ms(20) }))
+    assert(#found == 1 and assert(found[1]).name == "Alone")
+  end)
+  assert(pointers >= 2, tostring(pointers))
 end
