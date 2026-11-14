@@ -3133,3 +3133,27 @@ local function test_the_rows_that_carry_a_word_are_counted_over_every_database()
   assert(first:close())
   assert(second:close())
 end
+
+--- A program's view finds the row that documents a member of a module whether or not the module has a comment
+--- of its own, answers for no module of the standard library, and counts no uses.
+local function test_a_programs_view_finds_a_member_and_answers_for_the_program_alone()
+  -- Rows by hand: a project's module that has no row of its own, which the fixture's tree, cosmic's own, cannot
+  -- record as public.
+  local db = database({
+    { "pages", "Pages", "record", "record Pages", "The pages.", "pages.tl", "3", "", "Pages" },
+    { "pages", "Pages.add", "field", "add: string", "Adds an entry; see [`Pages.list`].", "pages.tl", "5", "", "Pages.add" },
+    { "pages", "Pages.list", "field", "list: string", "Lists the entries.", "pages.tl", "7", "", "Pages.list" },
+    { "cosmic.fs", "", "module", "", "Files.", "cosmic/fs.tl", "1" },
+    { "cosmic.fs", "basename", "function", "function Fs.basename(path: string): string", "The last name of a path.",
+      "cosmic/fs.tl", "5", "", "Fs.basename" },
+  }, {}, nil, { "pages", "cosmic.fs" })
+  local seen = assert(Doc.program({ db }, "prog"))
+  local row = assert(Doc.member(seen, "pages", "add"))
+  assert(row.source_symbol == "Pages.add" and Doc.shown(row.text) == "Adds an entry; see `Pages.list`.", row.text)
+  local none, trouble = Doc.member(seen, "pages", "remove")
+  assert(none == nil and trouble == "", trouble)
+  -- The standard library's module is in the database and is not the program's to answer for.
+  assert(#assert(Doc.lookup(seen, "Fs.basename")) == 0, "a program's view answered for the standard library")
+  assert(#assert(Doc.lookup(view({ db }), "Fs.basename")) == 1)
+  assert(db:close())
+end

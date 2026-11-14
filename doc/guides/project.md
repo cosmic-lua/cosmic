@@ -346,6 +346,27 @@ end
 the cat saw the dog
 ```
 
+A program with more to say of a command than one line writes it as it
+writes of its code: in a doc comment. Move the commands into a module of
+their own, `commands.tl`, as the fields of the record it returns, each a
+[`Flags.Command`] under a `---` comment that says what a reader of `tally
+help top` should know. The program hands them on by name, and says which
+module documents them: `Flags.dispatch(argv, 1, { words = Commands.words,
+top = Commands.top }, "tally", { pages = "commands" })`. Then `tally help
+top` ends with the comment on the `top` field, and the program answers
+`tally docs <words>` too: a name it documents, or a search of its doc
+comments and its guides (`doc/guides/*.md`), a misspelled word put right,
+as `cosmic docs` answers for the standard library. `groups`, beside
+`pages`, orders the sections of the program's help.
+
+`cosmic build` puts into the program the documentation of the project's
+modules that any module may require, so the built file answers alone; a
+module under `internal/`, or one a directory keeps to itself, stays out
+of it. Run from its source (`cosmic cmd/tally/main.tl docs`), the program
+answers from the project's last build. A test that asks for a command's help or for `docs`
+reads the documentation of the modules it requires, and says so with
+`Test.policy { store_text = true }`.
+
 ## the verbs
 
 ```text
@@ -658,4 +679,5 @@ cast and no `any` is a fix.
 [`cosmic.flags`]: ../../cosmic/flags.tl
 [`cosmic.log`]: ../../cosmic/log.tl
 [`cosmic.template`]: ../../cosmic/template/init.tl
+[`Flags.Command`]: ../../cosmic/flags.tl
 [`Flags.dispatch`]: ../../cosmic/flags.tl
