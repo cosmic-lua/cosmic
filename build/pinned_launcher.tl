@@ -7,9 +7,7 @@
 --- [`bin/cosmic-bootstrap`] a project needs: nothing downloaded runs
 --- before its digest is the pin's, the cache is the one that script and
 --- `cosmic release --cache` fill, and `COSMIC_TOOL` names another cosmic
---- to run in place of the pin's, as `COSMIC_BOOTSTRAP` does there. The
---- script's own leading comment says the rest, to the one who reads it
---- in a project.
+--- to run in place of the pin's, as `COSMIC_BOOTSTRAP` does there.
 
 local record pinned_launcher
 end
@@ -17,13 +15,15 @@ end
 --- The script, with `@NAME@` where the launcher's own file name goes.
 local template <const> = [[
 #!/bin/sh
-# Written by `cosmic release --launcher`: write it again with that
-# command, not by hand.
+# Written by `cosmic release --launcher <this file>`, which also writes
+# the pin: with `--commit <the pin's first line>` it writes this script
+# again and the same pin. Do not edit it by hand.
 #
-# Runs the cosmic release that @NAME@.pin, beside this script, names,
-# with the arguments given, in the caller's directory, answering its
-# exit status. The pin is three lines: a commit of cosmic-lua/cosmic,
-# that commit's release URL, and the binary's sha256.
+# Runs the cosmic release that @NAME@.pin names, with the arguments
+# given, in the caller's directory, answering its exit status. The pin
+# is beside the name this script is run by, so a link to the script from
+# another directory reads a pin there. It is three lines: a commit of
+# cosmic-lua/cosmic, that commit's release URL, and the binary's sha256.
 # `cosmic release --pin <the pin>` moves it.
 #
 # The binary is cached by digest, as
@@ -129,7 +129,9 @@ if [ -n "${COSMIC_TOOL_VERIFY:-}" ] && { [ -e "$cached" ] || [ -L "$cached" ]; }
   fi
 fi
 
-if [ ! -f "$cached" ] || [ ! -x "$cached" ]; then
+# A download renamed onto a directory would land inside it.
+[ ! -d "$cached" ] || die "$cached is a directory, not a cached cosmic; remove it"
+if [ ! -x "$cached" ]; then
   mkdir -p "$cache"
   partial=$cache/.cosmic-$digest.$$.part
   trap 'rm -f "$partial"' EXIT
@@ -186,7 +188,7 @@ exec "$cached" "$@"
 --- `.`, `_` and `-`, the first no `-`: nothing a shell reads as more
 --- than a word.
 function pinned_launcher.script(name: string): string?, string
-  if name:find("^[%w._][%w._-]*$") == nil then
+  if name:find("^[%w._][%w._-]*$") == nil or name == "." or name == ".." then
     return nil, "a launcher is named with letters, digits, '.', '_' and '-', not " .. name
   end
   return (template:gsub("@NAME@", function(): string return name end)), ""

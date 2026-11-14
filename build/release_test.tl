@@ -410,6 +410,30 @@ local function test_launcher_writes_the_script_and_its_pin(tmp: string)
   assert(Fs.exists(other) == false and Fs.exists(other .. ".pin") == false)
 end
 
+--- A `--launcher` that could not be written whole is refused before any request, each for its own reason,
+--- and leaves no pin behind.
+local function test_a_launcher_it_cannot_write_is_refused(tmp: string)
+  local cases: {{string}} = {
+    { "give it or --pin, not both", "--launcher", tmp .. "/a", "--pin", tmp .. "/a.pin" },
+    { "nothing for -o, --cache, --pin or --launcher", "--list", "--launcher", tmp .. "/a" },
+    { "no -o, --cache, --pin or --launcher", "--json", "--launcher", tmp .. "/a" },
+    { "after --launcher", "--launcher", "" },
+    { "a launcher is named with", "--launcher", tmp .. "/a b" },
+    { "is a directory", "--launcher", tmp .. "/.." },
+    { "is a directory", "--launcher", tmp },
+    { "is a directory", "--launcher", tmp .. "/a/" },
+  }
+  for _, case in ipairs(cases) do
+    local words: mut {string} = {}
+    for at = 2, #case do words[#words + 1] = assert(case[at]) end
+    local ran = run(words, {})
+    assert(ran.code == 2, table.concat(words, " ") .. ": " .. tostring(ran.code) .. " " .. ran.err)
+    assert(ran.err:find(assert(case[1]), 1, true) ~= nil, ran.err)
+    assert(#ran.asked == 0, "a refused command line reached the network")
+  end
+  assert(#assert(Fs.list(tmp)) == 0, "a refused command line wrote a file")
+end
+
 local function test_list_prints_the_matches_newest_first()
   local ran = run({ "--list" }, {
     refs(newest, older, oldest), history(newest, older, oldest),
@@ -461,11 +485,6 @@ local function test_a_command_line_it_cannot_use_is_refused()
       { "-n", "3" },
       { "--list", "-n", "0" },
       { "--json", "--cache" },
-      { "--list", "--launcher", "a" },
-      { "--json", "--launcher", "a" },
-      { "--launcher", "a", "--pin", "a.pin" },
-      { "--launcher", "" },
-      { "--launcher", "bin/a b" },
       { "-o", "" },
       { "word" },
   }) do

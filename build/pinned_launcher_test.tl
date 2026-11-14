@@ -294,10 +294,27 @@ local function test_verify_replaces_a_cached_file_that_is_not_the_pin_s(tmp: str
   assert(kept.code == 0 and downloads(p) == 2, "a cached file that is the pin's was fetched again")
 end
 
+--- A cached file that cannot run, as a run cut off before its chmod
+--- leaves it, is fetched again, and a directory at its name is refused
+--- with nothing downloaded into it.
+local function test_a_cached_file_that_cannot_run_is_fetched_again(tmp: string)
+  local p = project(tmp)
+  assert(Fs.mkdirs(Fs.dirname(p.cached)))
+  assert(Fs.write(p.cached, release_source, 0x1a4))
+  local result = run(p, p.tmp, { "test" })
+  assert(result.code == 0 and downloads(p) == 1, tostring(result.stderr))
+  assert(Fs.remove(p.cached))
+  assert(Fs.mkdirs(p.cached))
+  local refused = run(p, p.tmp, { "test" })
+  assert(refused.code == 1 and refused.stdout == "", tostring(refused.stdout))
+  assert(tostring(refused.stderr):find("is a directory", 1, true), tostring(refused.stderr))
+  assert(downloads(p) == 1 and #assert(Fs.list(p.cached)) == 0, "a download landed in the directory")
+end
+
 --- The launcher's name is written into the script, so a name a shell
 --- would read as more than a word is refused.
 local function test_a_name_a_shell_would_read_is_refused()
-  for _, name in ipairs({ "", "a b", "-x", "a/b", "$x", "a'b", "a\"b", "a\nb", "a;b", "a@b" }) do
+  for _, name in ipairs({ "", ".", "..", "a b", "-x", "a/b", "$x", "a'b", "a\"b", "a\nb", "a;b", "a@b" }) do
     local text, why = pinned_launcher.script(name)
     assert(text == nil and why ~= "", name .. " was taken")
   end

@@ -325,6 +325,12 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     if pin ~= nil then
       return refuse("--launcher writes its own pin, " .. launcher .. ".pin: give it or --pin, not both")
     end
+    -- Before anything is asked of the network or written: a name that could not be a file's, or is a
+    -- directory's, would leave a pin with no launcher beside it.
+    local directory, _ = Fs.is_dir(launcher)
+    if launcher:sub(-1) == "/" or directory == true then
+      return refuse("--launcher " .. launcher .. " is a directory: it takes the file to write the launcher to")
+    end
     local text, name_trouble = pinned_launcher.script(Fs.basename(launcher))
     if text == nil then return refuse("--launcher " .. launcher .. ": " .. name_trouble) end
     launcher_text = text
