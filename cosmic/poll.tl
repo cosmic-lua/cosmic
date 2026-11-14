@@ -1056,4 +1056,53 @@ function Poll.run(main: function())
   if not ok then error(err, 0) end
 end
 
+--- Calls `f` where its tasks can run: in the calling task where a run
+--- is in progress, and as the first task of a [`Poll.run`] of its own
+--- otherwise. It is for a function that spawns tasks and does not know
+--- which its caller is in. Like [`Poll.run`] it answers nothing: `f`
+--- keeps what it made in a local of the caller's.
+---
+---     local function fetch_all(urls: {string}): {string}
+---       local bodies: mut {string} = {}
+---       Poll.within(function()
+---         local tasks: mut {Poll.Task} = {}
+---         for i, url in ipairs(urls) do
+---           tasks[i] = Poll.spawn(function() bodies[i] = fetch(url) end)
+---         end
+---         for _, task in ipairs(tasks) do assert(task:join()) end
+---       end)
+---       return bodies
+---     end
+---
+--- The two differ in three things, each of which is the run's:
+---
+--- * A task `f` spawned that outlives it. In a task, `within` returns as
+---   `f` does, a plain call, and the task goes on in the caller's run,
+---   which waits for it. Outside a run the run is `within`'s own, and
+---   returns only once every task has ended, as [`Poll.run`] does. An `f`
+---   that joins or kills what it spawned before it returns leaves
+---   nothing to differ.
+--- * An error `f` raises. In a task `within` raises it as `f` did, for
+---   the caller to catch, and the tasks `f` spawned go on. Outside a run
+---   it raises what [`Poll.run`] does: every other task closed first, and
+---   a message with `f`'s stack beneath it -- what the caller's run
+---   raises too, of an error its task did not catch. A value that is no
+---   string is raised as it is in both.
+--- * A cancel. In a task, `f`'s waits answer [`Poll.CANCELLED`] once the
+---   calling task is cancelled. A run of `within`'s own has no task the
+---   caller holds, and nothing cancels it.
+---
+--- An error a task `f` spawned raises ends the run in both: the caller's
+--- run, or `within`, raises it. In a run but outside a task's own
+--- coroutine (a coroutine a task made, a `<close>` handler as the run
+--- closes its tasks) `f` is called where it is, and its
+--- [`Poll.spawn`] raises as it does there.
+function Poll.within(f: function())
+  if ongoing.loop ~= nil then
+    f()
+    return
+  end
+  Poll.run(f)
+end
+
 return Poll
