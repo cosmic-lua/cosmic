@@ -126,12 +126,21 @@ local function test_four_times_the_input_costs_about_four_times_the_time_for_eac
   end
 end
 
---- A chain of a hundred thousand operands, calls and fields is written, not run out of stack on.
-local function test_a_chain_of_a_hundred_thousand_is_written_without_recursion_on_its_length()
+--- A chain of a hundred thousand operands is written, not run out of stack on. Each chain has a test of its own,
+--- and so a worker and a limit of its own: the three in one test took most of the limit CI's suite gives one.
+local function test_a_chain_of_a_hundred_thousand_operands_is_written_without_recursion_on_its_length()
   local operands = parsed("local a = 1\nlocal x = a" .. (" + a"):rep(100000))
   assert(written(operands) == "local a = 1\nlocal x = a" .. (" + a"):rep(100000))
+end
+
+--- A chain of a hundred thousand fields is written so too.
+local function test_a_chain_of_a_hundred_thousand_fields_is_written_without_recursion_on_its_length()
   local fields = parsed("local a = {}\nlocal x = a" .. (".f"):rep(100000))
   assert(written(fields) == "local a = {}\nlocal x = a" .. (".f"):rep(100000))
+end
+
+--- A chain of a hundred thousand calls is written so too.
+local function test_a_chain_of_a_hundred_thousand_calls_is_written_without_recursion_on_its_length()
   local calls = parsed("local f = print\nf" .. ("()"):rep(100000))
   assert(written(calls) == "local f = print\nf" .. ("()"):rep(100000))
 end
