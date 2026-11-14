@@ -438,6 +438,8 @@ static const struct grant fattr_calls[] = {
 #define AF_UNIX_FAMILY 1u
 #define AF_INET_FAMILY 2u
 #define AF_INET6_FAMILY 10u
+#define AF_NETLINK_FAMILY 16u
+#define NETLINK_ROUTE_PROTOCOL 0u
 #define SCHED_RESET_ON_FORK_BIT 0x40000000u
 
 /* clone's flags: the namespaces (CLONE_NEWNS, CLONE_NEWCGROUP, UTS, IPC,
@@ -735,12 +737,18 @@ static void rule_block (struct builder *b, enum rule rule, uint32_t pid, enum co
     break;
     case RULE_SOCKET_INET:
     case RULE_SOCKET_UNIX_INET:
-    /* Only the families: netlink and packet sockets (16, 17) stay
-     * refused, and a raw one needs a capability no program has. */
+    /* Only the families, and the netlink socket a libc lists the
+     * interfaces over (getifaddrs, if_nameindex): NETLINK_ROUTE, whose
+     * requests that change anything need CAP_NET_ADMIN over the network
+     * namespace. Every other netlink protocol and packet sockets (17)
+     * stay refused, and a raw one needs a capability no program has. */
     load(&k, DATA_ARGUMENT(0) + DATA_LOW);
     if (rule == RULE_SOCKET_UNIX_INET) test(&k, OP_EQ, AF_UNIX_FAMILY, JUMP_ALLOW, JUMP_NEXT);
     test(&k, OP_EQ, AF_INET_FAMILY, JUMP_ALLOW, JUMP_NEXT);
-    test(&k, OP_EQ, AF_INET6_FAMILY, JUMP_ALLOW, JUMP_DENY);
+    test(&k, OP_EQ, AF_INET6_FAMILY, JUMP_ALLOW, JUMP_NEXT);
+    test(&k, OP_EQ, AF_NETLINK_FAMILY, JUMP_NEXT, JUMP_DENY);
+    load(&k, DATA_ARGUMENT(2) + DATA_LOW);
+    test(&k, OP_EQ, NETLINK_ROUTE_PROTOCOL, JUMP_ALLOW, JUMP_DENY);
     break;
     case RULE_OPEN:
     case RULE_OPENAT: {
@@ -847,8 +855,9 @@ static void add (uint8_t *rules, const struct grant *table, size_t count) {
  * COSMIC_HELD_SIGNALS they keep to the process's own pid.
  *
  * `sockets` (COSMIC_SOCKETS_ bits) lets it make a socket of those
- * families -- socket(AF_UNIX), AF_INET and AF_INET6 -- a socketpair of
- * unix ones it always may; COSMIC_HELD_UNIX adds AF_UNIX.
+ * families -- socket(AF_UNIX), AF_INET and AF_INET6, and with the inet
+ * ones the NETLINK_ROUTE socket the interfaces are listed over -- a
+ * socketpair of unix ones it always may; COSMIC_HELD_UNIX adds AF_UNIX.
  *
  * COSMIC_HELD_LIMITS lets it set its own limits. A pointer is all
  * setrlimit and prlimit64 take, which no rule can read, so no call that

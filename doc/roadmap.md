@@ -316,8 +316,8 @@ promises lean on come first:
   loopback server build/fetch_test.tl's https `TODO:` waits on;
   datagrams past [`Net.datagram`]'s UDP socket and its multicast: one over a unix socket
   file ("unixgram"), a socket connected to one peer, a group joined for
-  some senders alone (source-specific multicast), an IPv4 group's
-  interface named by its index, and [`Net.interfaces`] in a Linux sandbox; a [`Net.serve`] listener taking a
+  some senders alone (source-specific multicast), and an IPv4 group's
+  interface named by its index; a [`Net.serve`] listener taking a
   listen's own options (`backlog`); a listen that takes over a socket file a listener left
   behind (`reclaim`, for a daemon restarting at its socket file); a
   [`Net.serve`] in several processes of this program, which take
@@ -548,7 +548,6 @@ four-producer provenance join.
 [`lang/stdlib.d.tl`]: ../lang/stdlib.d.tl
 [`Mdns.Listen`]: ../cosmic/mdns.tl
 [`Net.datagram`]: ../cosmic/net.tl
-[`Net.interfaces`]: ../cosmic/net.tl
 [`Net.serve`]: ../cosmic/net.tl
 [`Proc.relaunch`]: ../cosmic/proc.tl
 [`Sandbox.Limits`]: ../cosmic/sandbox/init.tl
