@@ -479,7 +479,9 @@ fn cryptoIncludes(
 
 const core_sources = [_][]const u8{
     "assertions.c",
+    "bigint.c",
     "boot.c",
+    "cipher.c",
     "coverage.c",
     "compress.c",
     "connector.c",

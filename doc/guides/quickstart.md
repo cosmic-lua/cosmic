@@ -98,7 +98,7 @@ method 3 clock precision, `-n 5` for five, at most ten million); `cosmic rand to
 --scale 3` draw floats. All of it comes from the operating system's entropy,
 unless you name `--seed` to replay `int`, `pick`, `shuffle`, `normal` or
 `gamma`, which is not secret. `cosmic help
-rand` has the rest.
+rand` has the rest. A program draws a UUID of its own with [`Rand.uuid`].
 
 ## questions about a data file
 
@@ -439,5 +439,6 @@ A function declared `: number` may still
 [`Json.set`]: ../../cosmic/json.tl
 [`Poll.TIMEOUT`]: ../../cosmic/poll.tl
 [`Proc.exit`]: ../../cosmic/proc.tl
+[`Rand.uuid`]: ../../cosmic/rand.tl
 [`Signal.guard`]: ../../cosmic/signal.tl
 [`Store.seal`]: ../../cosmic/store.tl

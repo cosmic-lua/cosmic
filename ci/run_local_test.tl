@@ -48,7 +48,23 @@ local function checkout(tmp: string): string, {string:string}
   assert(Fs.mkdirs(root .. "/o/bin") and Fs.mkdirs(root .. "/ci/cosmic_ci"))
   assert(Fs.write(root .. "/ci/cosmic_ci/driver.tl", "fixture driver\n"))
   assert(Fs.mkdirs(root .. "/build"))
-  assert(Fs.write(root .. "/build/paths.tl", "local Fs = require(\"cosmic.fs\")\nlocal record Paths end\nfunction Paths.main(argv: {string}): integer\n  assert(Fs.put(Fs.stdout, assert(argv[1]) .. \"/o\\n\"))\n  return 0\nend\nreturn Paths\n"))
+  -- The checkout builds in its o/, where the phase tool is; a candidate under the cache its driver is given, as
+  -- build/paths.tl names a build directory outside its project.
+  assert(Fs.write(root .. "/build/paths.tl", [[
+local Env = require("cosmic.env")
+local Fs = require("cosmic.fs")
+local record Paths end
+function Paths.main(argv: {string}): integer
+  local project = assert(argv[1])
+  local directory = project .. "/o"
+  if Fs.basename(project) == "candidate" then
+    directory = assert(Env.get("XDG_CACHE_HOME")) .. "/trees/candidate"
+  end
+  assert(Fs.put(Fs.stdout, directory .. "\n"))
+  return 0
+end
+return Paths
+]]))
   assert(Fs.write(root .. "/tracked", "old\n"))
   assert(Fs.write(root .. "/ci/run_local.tl", "fixture entry\n"))
   assert(Fs.write(root .. "/.gitignore", "o/\nignored\n"))
@@ -167,6 +183,45 @@ local function test_named_rerun_refreshes_ci_but_keeps_candidate(tmp: string)
   assert(Predicate.exists(assert(state) .. "/ci/o") == false)
   assert(Predicate.exists(assert(state) .. "/ci/obsolete") == false)
   assert(Fs.read(assert(env["TRACE"])) == "build\nfixtures\n")
+end
+
+--- A fresh candidate builds in a fresh build directory: what the last one built, outside its worktree, goes when
+--- the worktree does, or the build phase refuses the database there. A named phase, which keeps the candidate,
+--- keeps what it built, and the build directory of another project in the same cache is no candidate's.
+local function test_a_fresh_candidate_clears_the_build_directory_of_the_last(tmp: string)
+  local root, env = checkout(tmp)
+  assert(invoke(root, env, { "build" }) == 0)
+  local trees = assert(Fs.absolute(assert(env["COSMIC_CI_LOCAL"]))) .. "/cache/trees"
+  for _, project in ipairs({ "candidate", "ci" }) do
+    assert(Fs.mkdirs(trees .. "/" .. project))
+    assert(Fs.write(trees .. "/" .. project .. "/build.db", "built\n"))
+  end
+  assert(invoke(root, env, { "fixtures" }) == 0)
+  assert(Fs.read(trees .. "/candidate/build.db") == "built\n", "a named phase cleared what its candidate built")
+  assert(invoke(root, env, { "build" }) == 0)
+  assert(Predicate.exists(trees .. "/candidate") == false, "a fresh candidate kept the last one's build directory")
+  assert(Fs.read(trees .. "/ci/build.db") == "built\n", "a fresh candidate cleared another project's build directory")
+end
+
+--- A candidate whose last build directory cannot be named is not left for a named phase to run on that build.
+local function test_a_candidate_whose_build_directory_is_not_named_is_removed(tmp: string)
+  local root, env = checkout(tmp)
+  assert(Fs.write(root .. "/build/paths.tl", [[
+local Fs = require("cosmic.fs")
+local record Paths end
+function Paths.main(argv: {string}): integer
+  local project = assert(argv[1])
+  if Fs.basename(project) == "candidate" then return 1 end
+  assert(Fs.put(Fs.stdout, project .. "/o\n"))
+  return 0
+end
+return Paths
+]]))
+  local tried = trying(root, env, { "build" })
+  assert(tried.ok and tried.code == 2 and tried.diagnostic:find("candidate build directory", 1, true) ~= nil,
+    tried.diagnostic .. tried.raised)
+  assert(Predicate.exists(assert(env["COSMIC_CI_LOCAL"]) .. "/candidate") == false, "the candidate was kept")
+  assert(Predicate.exists(assert(env["TRACE"])) == false, "a phase ran")
 end
 
 local function test_default_phases_keep_the_workflow_order(tmp: string)

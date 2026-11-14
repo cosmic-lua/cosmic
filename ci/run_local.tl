@@ -261,7 +261,7 @@ local function execute(argv: {string}, program: string): integer
     assert(Fs.chmod(runtime.path, 0x1c9))
   end
   -- Every invocation gets new tables; Proc.relaunch is cached.
-  local function probe(code: string, values?: {string:string}, input?: string): Child.Result
+  local function driven(tail: {string}, values?: {string:string}, input?: string, timeout_ns?: integer): Child.Result
     local words: mut {string} = {}
     for at, word in ipairs(relaunch.argv) do
       if at == 1 and runtime.fd >= 0 then
@@ -270,8 +270,7 @@ local function execute(argv: {string}, program: string): integer
         words[#words + 1] = word
       end
     end
-    words[#words + 1] = "-e"
-    words[#words + 1] = code
+    for _, word in ipairs(tail) do words[#words + 1] = word end
     local child_env: mut {string:string} = {}
     fill(child_env, values or env)
     for name, value in pairs(relaunch.env) do child_env[name] = value end
@@ -284,8 +283,11 @@ local function execute(argv: {string}, program: string): integer
       end
     end
     local answer, why = current.child_run(words, { cwd = "/", env = child_env, fds = fds,
-      credentials = credentials, input = input, stdout = "capture", stderr = "capture" })
+      credentials = credentials, input = input, stdout = "capture", stderr = "capture", timeout_ns = timeout_ns })
     return (assert(answer, why))
+  end
+  local function probe(code: string, values?: {string:string}, input?: string): Child.Result
+    return driven({ "-e", code }, values, input)
   end
   local function privileged(words: {string}, options?: Child.Options): Child.Result
     local answer, why = current.child_run(words, options)
@@ -393,6 +395,13 @@ local function execute(argv: {string}, program: string): integer
     successful(result, "git")
     return ((result.stdout or ""):gsub("\n$", ""))
   end
+  -- What every phase's driver is given.
+  local driver_env: mut {string:string} = {}
+  fill(driver_env, env)
+  driver_env["GITHUB_WORKSPACE"], driver_env["RUNNER_TEMP"] = candidate, state .. "/runner"
+  driver_env["GITHUB_RUN_ID"], driver_env["GITHUB_RUN_ATTEMPT"], driver_env["COSMIC_WORKER"] = "local", "1", "local"
+  driver_env["TARGET"], driver_env["XDG_CACHE_HOME"] = target, state .. "/cache"
+  driver_env["COSMIC_ZIG_CACHE_FROM"], driver_env["COSMIC_ZIG_GLOBAL_CACHE"] = seed, zig_global
   for _, phase in ipairs(phases) do
     assert(phase:match("^[%w_-]+$"), "invalid phase: " .. phase)
     if phase == "build" then
@@ -428,6 +437,39 @@ local function execute(argv: {string}, program: string): integer
       assert(Fs.remove_tree(state .. "/runner"))
       git_run({ "worktree", "add", "--quiet", "--detach", candidate, snapshot })
       reown(candidate, true)
+      -- The candidate is a fresh checkout at the path the last one had, so
+      -- the driver names it the build directory the last one built in,
+      -- outside the worktree and kept with the phases' cache: a build.db
+      -- there is the last candidate's, which the build phase refuses
+      -- ("build requires fresh working database"). It goes with the
+      -- worktree it was built from. The candidate's own resolver names
+      -- it, under the driver's environment and user but on the pinned
+      -- library, which names a build directory as the tree's does
+      -- (build/paths.tl runs standalone on it for bin/cosmic too). A
+      -- candidate whose old build could not be cleared is removed, so no
+      -- named phase runs it on that build.
+      local cleared, clear_trouble = pcall(function()
+        local named_build = driven({ "--standalone", candidate .. "/build/paths.tl", candidate }, driver_env, nil,
+          Clock.seconds(30))
+        successful(named_build, "candidate build directory")
+        local candidate_build = assert((named_build.stdout or ""):match("^(/[^\n]+)\n$"),
+          "candidate build directory resolver did not print one absolute path")
+        for _, kept in ipairs({ root, state, candidate, build_directory }) do
+          assert(not Fs.within(kept, candidate_build),
+            "the candidate's build directory " .. candidate_build .. " holds " .. kept)
+        end
+        assert(not Fs.within(candidate_build, root), "the candidate's build directory is inside the checkout")
+        successful(probe("assert(require('cosmic.fs').remove_tree(" .. string.format("%q", candidate_build) .. "))",
+          driver_env), "candidate build directory removal")
+      end)
+      if not cleared then
+        local dropped = privileged({ git, "-C", root, "worktree", "remove", "--force", candidate },
+          { stdout = "null", stderr = "null" })
+        if not dropped.ok then
+          local _, _ = Fs.remove_tree(candidate)
+        end
+        error(clear_trouble)
+      end
       say("candidate " .. snapshot .. " at " .. candidate)
     end
     assert(present(candidate), "no candidate; run the build phase first")
@@ -439,15 +481,9 @@ local function execute(argv: {string}, program: string): integer
     local path = state .. "/logs/" .. phase .. ".log"
     local fd, open_why = sys.open(path, sys.O_WRONLY | sys.O_CREAT | sys.O_TRUNC | sys.O_NOFOLLOW, 0x1a4)
     local log <close>: Opened = { fd = assert(fd, path .. ": " .. tostring(open_why)) }
-    local values: mut {string:string} = {}
-    fill(values, env)
-    values["GITHUB_WORKSPACE"], values["RUNNER_TEMP"] = candidate, state .. "/runner"
-    values["GITHUB_RUN_ID"], values["GITHUB_RUN_ATTEMPT"], values["COSMIC_WORKER"] = "local", "1", "local"
-    values["TARGET"], values["XDG_CACHE_HOME"] = target, state .. "/cache"
-    values["COSMIC_ZIG_CACHE_FROM"], values["COSMIC_ZIG_GLOBAL_CACHE"] = seed, zig_global
     local start = Clock.monotonic_ns()
     local result, why = current.child_run({ cosmic, "cosmic_ci/driver.tl", "platform", phase, "success" },
-      { cwd = project, env = values, credentials = credentials, stdout = log.fd, stderr = log.fd })
+      { cwd = project, env = driver_env, credentials = credentials, stdout = log.fd, stderr = log.fd })
     local closed, close_why = log:close()
     assert(result, why)
     assert(closed, close_why)

@@ -118,7 +118,6 @@ local exempt: {string: string} = {
   ["core/vector.c:dot_i8_avx512_vnni"] = vnni_only,
   ["core/vector.c:dot_i8_avx_vnni"] = vnni_only,
   ["core/store.c:die_unreadable"] = "the store's own database cannot be read, and the process ends",
-  ["core/crypto.c:mbedtls_psa_external_get_random"] = "mbedtls asks for randomness only to make keys, which the core never does",
   ["core/vfs.c:vfs_delete"] = forwarded,
   ["core/vfs.c:vfs_access"] = forwarded,
   ["core/vfs.c:vfs_randomness"] = "SQLite seeds its randomness through the default VFS, never a wrapping one",
@@ -132,7 +131,11 @@ local exempt: {string: string} = {
 --- uname(2) sysname and then by [`key_of`], and why: another host's run
 --- still holds them to being entered.
 local exempt_on: {string: {string: string}} = {
-  Linux = {},
+  Linux = {
+    ["core/socket.c:interfaces_release"] = "frees the list getifaddrs answered, which on Linux it asks for over " ..
+      "a netlink socket that a sandboxed worker's filter refuses, so no list is made; a Darwin run enters it " ..
+      "(cosmic/net_multicast_test.tl)",
+  },
   Darwin = {
     -- Every Linux core, the checked one too, is static musl, whose printf
     -- measures each `%s` with the core's strnlen, so a Linux run holds it.

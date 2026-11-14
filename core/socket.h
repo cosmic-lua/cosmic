@@ -63,13 +63,14 @@ int cosmic_open_socket (lua_State *L);
  */
 
 /*
- * --- Binds a UDP socket, nonblocking and closed on exec, to a numeric address. Port 0 takes one the kernel chooses. The returned Socket owns the descriptor before any further allocation.
+ * --- Binds a UDP socket, nonblocking and closed on exec, to a numeric address. Port 0 takes one the kernel chooses. The returned Socket owns the descriptor before any further allocation. A `shared` one may be bound where other sockets are, each of them `shared` too (SO_REUSEADDR, and on Darwin SO_REUSEPORT, which it needs for two sockets at one address): every one that joined a group gets each datagram sent to it, and a datagram sent to the port alone goes to one of them, whichever the system picks.
  * ---@param address Address a "udp" address, with numeric IPv4 or IPv6 host
+ * ---@param shared? boolean whether other sockets may bind the same address and port
  * ---@return Socket|nil socket the bound socket, or nil on failure
  * ---@return string error what went wrong, when socket is nil
  * ---@return integer errno the error number, when socket is nil
  */
-COSMIC_SYSCALL(datagram, 1);
+COSMIC_SYSCALL(datagram, 2);
 
 /*
  * --- Sends one complete UDP datagram, possibly empty, to a numeric address. No partial datagram is sent. Nothing is looked up.
@@ -91,6 +92,85 @@ COSMIC_SYSCALL(sendto, 3);
  * ---@return integer errno the error number, when packet is nil
  */
 COSMIC_SYSCALL(recvfrom, 2);
+
+/*
+ * --- Joins a datagram socket to a multicast group on one interface, or takes it out again (IP_ADD_MEMBERSHIP and IP_DROP_MEMBERSHIP, IPV6_JOIN_GROUP and IPV6_LEAVE_GROUP, chosen by the group's family). An IPv4 group's interface is named by one of its numeric IPv4 addresses and an IPv6 group's by its index; nil is the one the system chooses. An interface of the other form raises.
+ * ---@param fd integer the datagram descriptor
+ * ---@param group string the group's numeric IPv4 or IPv6 address
+ * ---@param interface? string|integer the interface: an IPv4 address of it for an IPv4 group, its index for an IPv6 one
+ * ---@param joined boolean true to join, false to leave
+ * ---@return boolean ok false on failure: EINVAL for a group or an interface that is no numeric address, or no multicast group; EADDRINUSE for a group already joined there; EADDRNOTAVAIL for one left that was not joined; ENODEV or EADDRNOTAVAIL for no such interface
+ * ---@return string error what went wrong, when ok is false
+ * ---@return integer errno the error number, when ok is false
+ */
+COSMIC_SYSCALL(membership, 4);
+
+/*
+ * --- Sets the interface a datagram socket's multicast datagrams leave by (IP_MULTICAST_IF, IPV6_MULTICAST_IF, by the family the socket is bound in): one of its numeric IPv4 addresses for an IPv4 socket, its index for an IPv6 one, and nil for the one the system chooses. An interface of the other form raises.
+ * ---@param fd integer the datagram descriptor
+ * ---@param interface? string|integer the interface
+ * ---@return boolean ok false on failure: EINVAL for an IPv4 interface that is no numeric IPv4 address, EADDRNOTAVAIL or ENODEV for no such interface
+ * ---@return string error what went wrong, when ok is false
+ * ---@return integer errno the error number, when ok is false
+ */
+COSMIC_SYSCALL(multicast_interface, 2);
+
+/*
+ * --- Sets how many hops a datagram socket's multicast datagrams live (IP_MULTICAST_TTL, IPV6_MULTICAST_HOPS): 1, the system's default, keeps them on the interface's own network, and 0 on the host.
+ * ---@param fd integer the datagram descriptor
+ * ---@param hops integer from 0 to 255
+ * ---@return boolean ok false on failure
+ * ---@return string error what went wrong, when ok is false
+ * ---@return integer errno the error number, when ok is false
+ */
+COSMIC_SYSCALL(multicast_hops, 2);
+
+/*
+ * --- Sets whether the multicast datagrams a datagram socket sends are also delivered to the host's own members of the group, the sender included (IP_MULTICAST_LOOP, IPV6_MULTICAST_LOOP). The system's default is that they are.
+ * ---@param fd integer the datagram descriptor
+ * ---@param heard boolean whether the host's own members hear them
+ * ---@return boolean ok false on failure
+ * ---@return string error what went wrong, when ok is false
+ * ---@return integer errno the error number, when ok is false
+ */
+COSMIC_SYSCALL(multicast_loop, 2);
+
+/*
+ * --- How a datagram socket sends to a multicast group, as the system holds it.
+ * ---@class MulticastSettings
+ * ---@field interface string|integer the interface its multicast leaves by: for an IPv4 socket an IPv4 address of it, "0.0.0.0" for the one the system chooses; for an IPv6 socket its index, 0 for the one the system chooses
+ * ---@field hops integer how many hops its multicast datagrams live; an IPv6 socket never set answers -1 where the system does, for the route's own limit
+ * ---@field loop boolean whether the host's own members hear them
+ */
+
+/*
+ * --- Reads back what `multicast_interface`, `multicast_hops` and `multicast_loop` set (getsockopt of the same options).
+ * ---@param fd integer the datagram descriptor
+ * ---@return MulticastSettings|nil settings the three settings, or nil on failure
+ * ---@return string error what went wrong, when settings is nil
+ * ---@return integer errno the error number, when settings is nil
+ */
+COSMIC_SYSCALL(multicast_settings, 1);
+
+/*
+ * --- One entry of `getifaddrs(3)`: an interface, and one of its addresses where the entry holds an IPv4 or IPv6 one.
+ * ---@class InterfaceEntry
+ * ---@field name string the interface's name: "lo", "en0"
+ * ---@field index integer the interface's index, from 1; 0 where the system names none
+ * ---@field up boolean whether the interface is up (IFF_UP)
+ * ---@field loopback boolean whether it is a loopback interface (IFF_LOOPBACK)
+ * ---@field multicast boolean whether it carries multicast (IFF_MULTICAST)
+ * ---@field family string|nil "ipv4" or "ipv6", for an entry holding such an address; nil for any other (a link-layer address)
+ * ---@field address string|nil that address in numeric form, as `inet_ntop` writes it, with no zone
+ */
+
+/*
+ * --- The host's interfaces as `getifaddrs(3)` lists them, in its order: an entry for each address of each, so an interface is named once for each address it has. Linux's `getifaddrs` asks the kernel over a netlink socket, which a sandboxed process's filter refuses: the call fails there.
+ * ---@return {InterfaceEntry}|nil entries every entry, or nil on failure
+ * ---@return string error what went wrong, when entries is nil
+ * ---@return integer errno the error number, when entries is nil
+ */
+COSMIC_SYSCALL(interfaces, 0);
 
 /*
  * --- Makes a stream socket listening at an address. A unix one is a new socket file, the socket's to remove: a path already there, a stale socket file included, fails with EADDRINUSE and is left alone, and one whose name another file has taken before it could be read back fails with EEXIST and is left to that file. A TCP one fails with EADDRINUSE on a port a listener holds; on Linux it takes one left in TIME_WAIT (SO_REUSEADDR), where macOS refuses it until TIME_WAIT ends. A unix path too long to bind whole is bound from its directory, and raises where the process cannot return to its working directory after.
