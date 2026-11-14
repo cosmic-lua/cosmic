@@ -656,4 +656,11 @@ local function test_dispatch_raises_for_a_see_that_names_no_other_command()
     Test.raises(function() Flags.dispatch(line, 1, itself, "prog") end, "build's see names no other command: build")
   end
   assert(ran == 0)
+  -- Of two mistaken commands the first by name is named, and "help",
+  -- which dispatch answers itself, is a command to see.
+  local both: {string:Flags.Command} = { b = { see = { "x" } }, a = { see = { "y" } }, c = {} }
+  Test.raises(function() Flags.dispatch({ "c" }, 1, both, "prog") end, "a's see names no other command: y")
+  local helped: {string:Flags.Command} = { build = { run = run, see = { "help" } } }
+  assert(assert(Flags.dispatch({ "build" }, 1, helped, "prog")).code == 0 and ran == 1)
+  assert(assert(Flags.dispatch({ "build", "-h" }, 1, helped, "prog")).help == "usage: prog build\n\nsee also: help")
 end

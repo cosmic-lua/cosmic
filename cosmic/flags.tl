@@ -91,7 +91,7 @@ local record Flags
     --- Other commands of the program, by name, for help to end "see
     --- also:" with, in the order given; none when nil.
     --- [`Flags.dispatch`] raises for a name that is not another of its
-    --- commands.
+    --- commands, "help" among them.
     see?: {string}
     --- The section of the program's help the command is listed under
     --- ("Reports"); under "commands:" when nil or "", or "other
@@ -233,6 +233,14 @@ local function meant(word: string, names: {string}): string
     return "; did you mean " .. found[1] .. "?"
   end
   return "; did you mean one of " .. table.concat(found, ", ") .. "?"
+end
+
+--- `names` in order, as a list of its own.
+local function sorted(names: {string}): {string}
+  local out: mut {string} = {}
+  for _, name in ipairs(names) do out[#out + 1] = name end
+  table.sort(out)
+  return out
 end
 
 --- The keys of `map`, in no order.
@@ -633,8 +641,9 @@ end
 --- -- so a program that prints `why` shows how to type the line. Only the
 --- first line of a multi-line `usage` is shown. Empty
 --- `commands` raises, as does a command whose `see` names itself or no
---- command of `commands`, whatever the line: a caller's mistake, met by
---- its first run.
+--- command of `commands` ("help" is one, held or not), whatever the
+--- line: a caller's mistake, met by its first run. The first such
+--- command by name is the one named.
 ---
 --- Help is answered rather than run -- `code` 0 and `help` for the
 --- caller to print -- when the command is "--help" or "-h", or "help"
@@ -665,10 +674,14 @@ function Flags.dispatch(argv: {string}, from: integer,
   if next(commands) == nil then
     error("flags: dispatch needs a command to choose among", 2)
   end
-  for held, command in pairs(commands) do
-    for _, other in ipairs(command.see or {}) do
-      if other == held or commands[other] == nil then
-        error("flags: " .. held .. "'s see names no other command: " .. other, 2)
+  for _, held in ipairs(sorted(keys(commands))) do
+    local command = commands[held]
+    local see = if command ~= nil then command.see else nil end
+    if see ~= nil then
+      for _, other in ipairs(see) do
+        if other == held or (commands[other] == nil and other ~= "help") then
+          error("flags: " .. held .. "'s see names no other command: " .. other, 2)
+        end
       end
     end
   end
