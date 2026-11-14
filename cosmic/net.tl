@@ -281,8 +281,8 @@ local record Net
     --- limit. The connections it accepts start with the same.
     timeout_ns?: integer
     --- How many connections may wait to be accepted (64 by default).
-    --- A unix connection past it fails at once rather than waiting (see
-    --- [`ConnectOptions.timeout_ns`]).
+    --- A unix connection past it fails at once rather than waiting, as
+    --- does a TCP one on macOS 27 (see [`ConnectOptions.timeout_ns`]).
     backlog?: integer
   end
 
@@ -373,9 +373,9 @@ local record Net
     record Limits
       --- The most connections open at once, from 1; nil for no limit.
       --- At the limit no listener accepts: a connection that comes waits
-      --- in its listener's backlog until one open closes, and a unix one
-      --- past the backlog fails at once (see
-      --- [`ConnectOptions.timeout_ns`]).
+      --- in its listener's backlog until one open closes, and one past
+      --- the backlog fails at once where it is a unix one, or a TCP one
+      --- on macOS 27 (see [`ConnectOptions.timeout_ns`]).
       connections?: integer
     end
     --- Bounds on what the server takes on; nil for none.
@@ -797,7 +797,9 @@ end
 --- listens at it, and fails at once at a listener whose backlog is
 --- full (see [`ConnectOptions.timeout_ns`]). A TCP one waits
 --- for the connection to be made, and fails "Connection refused" where
---- nothing listens at the port.
+--- nothing listens at the port. At a TCP listener whose backlog is full
+--- it waits, or on macOS 27 fails "Connection reset by peer" (see
+--- [`ConnectOptions.timeout_ns`]).
 --- A unix path too long to connect to whole is connected to from its
 --- directory, and raises where the process cannot return to its working
 --- directory after. An `address` that is no [`Net.Address`] raises.
