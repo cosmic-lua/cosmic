@@ -165,6 +165,8 @@ function docs_checks.rendered(db: Sqlite.Handle, exempt?: docs_checks.Exempt): {
     return { "reading the view: " .. view_trouble }
   end
   local view: docs.View = read_view
+  local read_public, _ = symbols.public_modules(db)
+  local public = read_public or {}
   local index, index_trouble = docs.index(view)
   if index == nil then
     return { "reading the index: " .. index_trouble }
@@ -256,7 +258,7 @@ function docs_checks.rendered(db: Sqlite.Handle, exempt?: docs_checks.Exempt): {
       out[#out + 1] = "the index lists " .. summary.module .. ", but `cosmic docs " ..
         summary.module .. "` does not resolve it"
     end
-    if found ~= nil and symbols.is_public_module(summary.module) then
+    if found ~= nil and public[summary.module] == true then
       local answered = false
       for _, entry in ipairs(found) do
         if entry.module == summary.module and entry.symbol == "" then
@@ -415,6 +417,8 @@ function docs_checks.references(db: Sqlite.Handle, help?: {string: string},
     return { "reading the view: " .. view_trouble }
   end
   local view: docs.View = read_view
+  local read_public, _ = symbols.public_modules(db)
+  local public = read_public or {}
   local index, index_trouble = docs.index(view)
   if index == nil then
     return { "reading the index: " .. index_trouble }
@@ -424,7 +428,7 @@ function docs_checks.references(db: Sqlite.Handle, help?: {string: string},
   local records: mut {string: boolean} = {}
   for _, summary in ipairs(index) do
     local last = summary.module:match("[^.]+$")
-    if symbols.is_public_module(summary.module) and last ~= nil then
+    if public[summary.module] == true and last ~= nil then
       records[last:sub(1, 1):upper() .. last:sub(2)] = true
     end
   end

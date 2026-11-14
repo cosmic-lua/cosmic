@@ -655,7 +655,7 @@ end
 --- [`identity.writer_modules`] the tree holds, and the core image's hash
 --- (`image_hash`), whose SQLite writes the bytes. What a module requires
 --- is what `requires` holds of its source, as for [`compiler_identity`].
---- An edit to a module outside it -- build.positions, build.todo_scan,
+--- An edit to a module outside it -- build.todo_scan,
 --- the analyzer -- writes the same projection from the same rows, so
 --- it moves no signature and settles no rebuilt tool.
 local function writer_identity(db: Sqlite.Handle): string?, string

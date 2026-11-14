@@ -66,9 +66,9 @@ local record docs
   record View
     databases: {Sqlite.Handle}
     --- Which databases are public sources, by index: one answers only
-    --- for the standard library's own modules -- `cosmic.*` that is
-    --- neither `cosmic.internal.*` nor a test -- which is what a project
-    --- sees of the binary it builds with. A project's own database, and
+    --- for the modules it records as public ([`symbols.public_modules`]),
+    --- the standard library's in the binary a project builds with, which
+    --- is what the project sees of it. A project's own database, and
     --- every database inside cosmic's own tree, answer for everything.
     public: {integer: boolean}
     owners: {string: integer}
@@ -82,6 +82,9 @@ local record docs
     --- The record each module's value is typed as (`""` for none), by
     --- module, as [`value_record`] reads it, cached as `use_counts` is.
     value_records: mut {string: string}
+    --- The modules each database records as public, by the database's
+    --- index ([`symbols.public_modules`]), cached as `use_counts` is.
+    public_modules: mut {integer: {string: boolean}}
     --- The module each module binds each name to, by module and name,
     --- as [`symbol_index.add_bound`] reads them: nil until a type's
     --- reference asks, then cached as `use_counts` is.
@@ -1404,6 +1407,31 @@ local function database_of(view: docs.View, owner: integer): Sqlite.Handle
   return (assert(view.databases[owner], "an owner is the index of one of the view's databases"))
 end
 
+--- Whether `module` is one the database that owns it records as public
+--- ([`symbols.public_modules`]): what a public source answers for. A
+--- database that cannot say records none.
+local function is_public(view: docs.View, module: string): boolean
+  local owner = view.owners[module]
+  if owner == nil then
+    return false
+  end
+  local recorded = view.public_modules[owner]
+  if recorded == nil then
+    local read, _ = symbols.public_modules(database_of(view, owner))
+    recorded = read or {}
+    view.public_modules[owner] = recorded
+  end
+  return recorded[module] == true
+end
+
+--- Whether `module` is the standard library's and public: one of the
+--- `cosmic.*` namespace, which no project may define, that the database
+--- that owns it records as public. A project's own public modules are
+--- not the library's.
+local function is_library(view: docs.View, module: string): boolean
+  return symbols.is_library_module(module) and is_public(view, module)
+end
+
 --- The record `module`'s value is typed as when the module returns a
 --- name that is not that record (`local module: Module`), as its own
 --- row records it ([`alias_members.value_record`]); nil when it returns
@@ -1480,7 +1508,7 @@ local function count_uses(view: docs.View, module: string,
       for _, row in ipairs(rows) do
         local from_module = row:text(1)
         local counted = view.public[index] ~= true or
-          (symbols.is_public_module(module) and symbols.is_public_module(from_module))
+          (is_public(view, module) and is_public(view, from_module))
         if counted and view.owners[from_module] == index then
           local position = module .. "\n" .. symbol .. "\n" .. from_module ..
             "\n" .. row:text(2) .. "\n" .. row:text(3)
@@ -1524,7 +1552,7 @@ local function count_links(view: docs.View, module: string,
       for _, row in ipairs(rows) do
         local from_module = row:text(1)
         local counted = view.public[index] ~= true or
-          (symbols.is_public_module(module) and symbols.is_public_module(from_module))
+          (is_public(view, module) and is_public(view, from_module))
         -- One place per line, as [`docs.uses`] lists them.
         local position = row:text(2) .. "\n" .. row:text(3)
         if counted and answers_for(view, index, from_module) and seen[position] ~= true then
@@ -1583,7 +1611,7 @@ function docs.view(databases: {Sqlite.Handle}, public?: {boolean}): docs.View?, 
     end
   end
   return { databases = databases, public = scope, owners = owners,
-    use_counts = {}, link_counts = {}, value_records = {} }, ""
+    use_counts = {}, link_counts = {}, value_records = {}, public_modules = {} }, ""
 end
 
 --- `entries` as a lookup's answer, with the entries of `ahead` standing before them.
@@ -1739,7 +1767,7 @@ local function lookup_names(view: docs.View, query: string): docs.Lookup?, strin
     local verb: docs.Entry? = nil
     local library = false
     for _, entry in ipairs(modules) do
-      if symbols.is_public_module(entry.module) then library = true end
+      if is_library(view, entry.module) then library = true end
     end
     for _, entry in ipairs(exact) do
       local internal = entry.module:sub(1, 16) == "cosmic.internal." and
@@ -1972,7 +2000,7 @@ function docs.index(view: docs.View): {docs.Summary}?, string
   local out: mut {docs.Summary} = {}
   for module, owner in pairs(view.owners) do
     local listed = module:sub(-5) ~= "_test" and module:sub(-8) ~= "_example" and
-      (view.public[owner] ~= true or symbols.is_public_module(module) or
+      (view.public[owner] ~= true or is_public(view, module) or
         symbols.is_public_guide(module))
     if listed then
       out[#out + 1] = { module = module, text = said[module] or "", closed = "" }
@@ -2988,7 +3016,7 @@ end
 
 --- Who alone may require each module of the tree `db` holds, as [`docs.Summary`]'s `closed` says it, by module: a
 --- module of the `module` kind only, since a guide, a test or a program is required by none, and none of the standard
---- library's public modules ([`symbols.is_public_module`]), which a project may require; absent for one any
+--- library's public modules ([`symbols.public_modules`]), which a project may require; absent for one any
 --- module may require. A module at `cosmic/internal/` is always the standard library's (a project may not define
 --- `cosmic.*`), so it is judged as cosmic's own tree judges it. A mark is a hint, not the build's refusal: one that
 --- cannot be judged, the database or the module's source not being read, is left off.
@@ -3001,11 +3029,13 @@ local function closed_in(db: Sqlite.Handle): {string: string}
   local files: mut {string} = {}
   for _, row in ipairs(rows) do files[#files + 1] = row:text(2) end
   local entries = positions.entries(files)
+  local read, _ = symbols.public_modules(db)
+  local recorded = read or {}
   for _, row in ipairs(rows) do
     local module, file = row:text(1), row:text(2)
     -- The library's public surface is a project's to require wherever it sits, though cosmic's own tree holds it
     -- to the rule: a reader of the list is told what a project may require.
-    if row:text(3) == "module" and not symbols.is_public_module(module) then
+    if row:text(3) == "module" and recorded[module] ~= true then
       -- Only a module of a closed directory is asked, so few sources are inflated. One whose source cannot be read, or
       -- is not held (a row written without it), cannot be judged, and counts as open, which leaves its mark off.
       local reach = positions.reach(file, entries, function(): boolean
@@ -3061,7 +3091,7 @@ local function modules_asked(view: docs.View, words: {string}): {docs.Summary}?,
   end
   local library: mut {docs.Summary} = {}
   for _, summary in ipairs(index) do
-    if symbols.is_public_module(summary.module) or
+    if is_library(view, summary.module) or
         symbols.is_public_guide(summary.module) then
       library[#library + 1] = summary
     end

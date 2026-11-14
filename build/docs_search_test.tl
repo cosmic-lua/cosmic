@@ -74,3 +74,22 @@ local function test_a_search_in_words_finds_the_symbol_meant()
         " in its first three answers, not " .. table.concat(top, ", "))
   end
 end
+
+--- The tool records the public standard library as public and nothing
+--- else: a module of the library, a declaration of it that is no module
+--- ([`cosmic.sys`]), and no internal module or test. A public source answers
+--- for exactly these.
+local function test_the_tool_records_the_public_library()
+  local databases: {Sqlite.Handle} = Store.databases()
+  local binary = assert(databases[#databases], "the tool has a database")
+  local rows = assert(Sqlite.text_rows(binary,
+    "SELECT (SELECT count(*) FROM public_modules WHERE path IN ('cosmic.fs', 'cosmic.sys')), " ..
+      "(SELECT count(*) FROM public_modules WHERE path LIKE 'cosmic.internal.%' OR path LIKE '%\\_test' ESCAPE '\\' " ..
+      "OR path NOT LIKE 'cosmic.%'), " ..
+      "(SELECT count(*) FROM (SELECT path FROM modules UNION SELECT path FROM decls) WHERE path LIKE 'cosmic.%' " ..
+      "AND path NOT LIKE 'cosmic.internal.%' AND path NOT IN (SELECT path FROM public_modules))"))
+  local row = assert(rows[1])
+  assert(row:text(1) == "2", "cosmic.fs and cosmic.sys are public: " .. row:text(1))
+  assert(row:text(2) == "0", "an internal module, a test or a module outside the library is recorded: " .. row:text(2))
+  assert(row:text(3) == "0", "a module of the library the tool carries is not recorded: " .. row:text(3))
+end

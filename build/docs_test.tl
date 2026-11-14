@@ -33,7 +33,7 @@ end
 --- which). A row's eighth field is "private" for an unexported symbol,
 --- its ninth its `source_symbol` when that differs from its symbol.
 local function database(rows: {{string}}, uses: {{string}},
-                        modules?: {string}): Sqlite.Handle
+                        modules?: {string}, public?: {string}): Sqlite.Handle
   local db = assert(Sqlite.memory())
   for _, statement in ipairs(schema.create("")) do
     assert(db:exec(statement))
@@ -68,6 +68,15 @@ local function database(rows: {{string}}, uses: {{string}},
         "VALUES (?1, ?2, ?3, ?4, ?5)",
       { { text = row[1] }, { text = row[2] }, { text = row[3] }, { text = row[4] },
         { integer = math.tointeger(tonumber(row[5])) } }))
+  end
+  if public ~= nil then
+    for _, module in ipairs(public) do
+      assert(Sqlite.run(db, "INSERT INTO public_modules (path) VALUES (?1)", { { text = module } }))
+    end
+  else
+    -- As cosmic's own projection records it: the library, by name.
+    assert(db:exec("INSERT OR IGNORE INTO public_modules SELECT path FROM (SELECT path FROM modules UNION SELECT module FROM docs " ..
+        "UNION SELECT module FROM uses UNION SELECT from_module FROM uses) WHERE " .. symbols.library_modules("path")))
   end
   assert(db:exec("INSERT INTO docs_fts(docs_fts) VALUES ('rebuild')"))
   assert(db:exec("INSERT INTO examples_fts(examples_fts) VALUES ('rebuild')"))
@@ -2494,6 +2503,58 @@ local function test_a_type_takes_members_through_a_required_module(dir: string)
   -- Base.Entry.path, which answers by its last names, is not Shadow's.
   assert(not found("Shadow.Entry.path"):find("cosmic.shadow", 1, true),
     found("Shadow.Entry.path"))
+end
+
+--- A public source answers for the modules its database records as public
+--- and no other, whatever they are named: a module of the library's
+--- namespace it does not record is not listed or found, and one of a
+--- project's that it does record is, as a program's database holds its
+--- project's.
+local function test_a_public_source_answers_for_what_its_database_records(_: string)
+  local db = database({
+    { "cosmic.fs", "", "module", "", "Files.", "cosmic/fs.tl", "1" },
+    { "cosmic.hidden", "", "module", "", "Unrecorded concealment.", "cosmic/hidden.tl", "1" },
+    { "cosmic.hidden", "Hidden.veil", "function", "function Hidden.veil()", "Draws the veil.", "cosmic/hidden.tl", "3" },
+    { "greet", "", "module", "", "Greetings.", "greet.tl", "1" },
+    { "greet", "Greet.hello", "function", "function Greet.hello()", "Says a salutation.", "greet.tl", "3" },
+  }, {}, nil, { "cosmic.fs", "greet" })
+  local public = assert(docs.view({ db }, { true }))
+  local listed: mut {string} = {}
+  for _, summary in ipairs((assert(docs.index(public)))) do listed[#listed + 1] = summary.module end
+  assert(table.concat(listed, " ") == "cosmic.fs greet", table.concat(listed, " "))
+  assert(#assert(docs.lookup(public, "veil")) == 0, "a module the database does not record answers")
+  assert(#assert(docs.lookup(public, "cosmic.hidden")) == 0, "a module the database does not record is found by name")
+  local found = assert(docs.lookup(public, "salutation"))
+  assert(#found == 1 and support.nth(found, 1).source_symbol == "Greet.hello", tostring(#found))
+  -- Read as the tree's own, the same database answers for everything.
+  local own = assert(docs.view({ db }))
+  assert(#assert(docs.lookup(own, "veil")) == 1)
+end
+
+--- A project's own public modules are not the standard library's. In a
+--- project with a module named for a verb, `cosmic docs sql` still answers
+--- the verb first, and `cosmic docs cosmic` lists the library alone.
+local function test_a_project_s_public_module_is_not_the_library_s(dir: string)
+  local project = database({
+    { "app.sql", "", "module", "", "The project's queries.", "app/sql.tl", "1" },
+  }, {}, nil, { "app.sql" })
+  local binary = built(dir, {
+    ["cosmic/cli.tl"] = source("--- Verbs.", "", "local record Cli", "  --- Runs SQL.", "  sql: string", "end", "",
+      "local module: Cli = { sql = \"x\" }", "", "return module"),
+    ["cosmic/fs.tl"] = source("--- Files.", "", "local record Fs", "end", "", "return Fs"),
+  })
+  local seen = assert(docs.view({ project, binary }, { false, true }))
+  local found = assert(docs.lookup(seen, "sql"))
+  local got: mut {string} = {}
+  for _, entry in ipairs(found) do
+    got[#got + 1] = entry.module .. "|" .. entry.symbol .. "|" .. entry.source_symbol
+  end
+  assert(support.nth(found, 1).source_symbol == "Cli.sql", "the verb comes first: " .. table.concat(got, ", "))
+  assert(found.verb == nil, "a project's module of a verb's name stands in for the verb")
+  local library = assert(docs.answer(seen, { "cosmic" }))
+  local text = table.concat(library.lines, "\n")
+  assert(library.said == "2 modules", library.said)
+  assert(text:find("cosmic.fs", 1, true) ~= nil and text:find("The project's queries", 1, true) == nil, text)
 end
 
 --- A binary carries a user guide as its own doc row, with no module
