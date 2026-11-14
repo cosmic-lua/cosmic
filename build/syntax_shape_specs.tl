@@ -20,12 +20,11 @@
 --- missing. Anything else (a function, a union of more than one type, a generic, an interface, a class, a record that
 --- holds itself) is refused where the call is, naming the field.
 local Ast = require("lang.ast")
-local Declarations = require("lang.declarations")
 local Lexer = require("lang.lexer")
 local Driver = require("build.driver")
 local Match = require("build.syntax_match")
 local Node = require("build.syntax_node")
-local Scopes = require("lang.scopes")
+local RecordCalls = require("build.syntax_record_calls")
 local Types = require("lang.types")
 
 local record ShapeSpecs
@@ -40,10 +39,7 @@ local record ShapeSpecs
   resolve: function(build: Driver.Build, module: string, file: string, source: string): string?, string
 
   --- One call's resolution: `text` goes after byte `at` of the source.
-  record Splice
-    at: integer
-    text: string
-  end
+  type Splice = RecordCalls.Splice
 
   --- What [`ShapeSpecs.splices`] found of a source.
   record Found
@@ -85,15 +81,8 @@ local record Gen
   --- The name the calling module gives cosmic.shape.
   shape: string
   store: Types.Store
-  program: Declarations.Program
-  --- The module the call is in, and the modules it requires at its top level by the name each is bound to.
-  module: string
-  aliases: {string: string}
-  --- The names in scope where the call is.
-  visible: {string: boolean}
-  --- The record the call names, and how the calling module spells it.
-  target: Types.Decl
-  spelled: string
+  --- Where the call stands, for how the module spells a type.
+  names: RecordCalls.Namer
   --- The records being read, which none may hold.
   holding: mut {Types.Decl: boolean}
   --- A number for each local the code names, so that no name is declared twice in it.
@@ -106,49 +95,6 @@ end
 local function fresh(g: Gen): integer
   g.count = g.count + 1
   return g.count
-end
-
---- How the calling module spells the declaration `decl`, or nil: the record the call names, a type declared inside it,
---- a type of the calling module that is in scope where the call is, or one inside the record a module it requires
---- returns.
-local function spelling(g: Gen, t: Type, decl: Types.Decl): string?
-  if decl == g.target then return g.spelled end
-  local names = decl.names
-  local path = table.concat(names, ".")
-  local mine = g.target.names
-  if decl.module == g.target.module and #names > #mine then
-    local inside = true
-    for i, name in ipairs(mine) do
-      if names[i] ~= name then inside = false end
-    end
-    if inside then return g.spelled .. "." .. table.concat(names, ".", #mine + 1) end
-  end
-  local first = names[1]
-  if decl.module == g.module and first ~= nil and g.visible[first] == true then return path end
-  local alias = g.aliases[decl.module]
-  local held = g.program.modules[decl.module]
-  local export = if held ~= nil then held.export else nil end
-  if alias ~= nil and export ~= nil then
-    local inside = table.concat(export.names, ".")
-    if path:sub(1, #inside + 1) == inside .. "." then
-      return alias .. "." .. path:sub(#inside + 2)
-    end
-  end
-  -- A type a module required at the top level spells by an alias of its own (`type Grant = rules.Grant`).
-  for _, entry in pairs(g.program.entries) do
-    local aliased = entry.alias
-    local home = g.aliases[entry.module]
-    local owner = g.program.modules[entry.module]
-    local exported = if owner ~= nil then owner.export else nil end
-    if aliased ~= nil and aliased.type == t and home ~= nil and exported ~= nil then
-      local inside = table.concat(exported.names, ".")
-      local there = table.concat(entry.names, ".")
-      if there:sub(1, #inside + 1) == inside .. "." then
-        return home .. "." .. there:sub(#inside + 2)
-      end
-    end
-  end
-  return nil
 end
 
 --- What the generator writes for a type: the Teal expression that is its spec, and the one that is its node.
@@ -186,7 +132,7 @@ local function gen_record(g: Gen, t_of_decl: Type, decl: Types.Decl, path: strin
     return nil, ("%s: a record with more fields than the %d allowed has no check: the function that checks it would name more " ..
       "locals than Lua allows; split the record"):format(path, MOST_FIELDS)
   end
-  local spelled = spelling(g, t_of_decl, decl)
+  local spelled = RecordCalls.spelling(g.names, t_of_decl, decl)
   if spelled == nil then
     return nil, path .. ": the module cannot name this record, which is declared where it does not reach: declare it " ..
       "in the calling module or in a module it requires at its top level"
@@ -280,7 +226,7 @@ gen_spec = function(g: Gen, t: Type, path: string): Written?, string
     if decl.kind == "enum" then
       local values: {string} = if body ~= nil then sorted(body.values) else {} end
       if #values == 0 then return nil, path .. ": an enum with no values has no shape" end
-      local spelled = spelling(g, t, decl)
+      local spelled = RecordCalls.spelling(g.names, t, decl)
       if spelled == nil then
         return nil, path .. ": the module cannot name this enum, which is declared where it does not reach: declare " ..
           "it in the calling module or in a module it requires at its top level"
@@ -311,121 +257,6 @@ gen_spec = function(g: Gen, t: Type, path: string): Written?, string
   return nil, path .. ": a generic type has no shape"
 end
 
---- The module `call` requires, when it is `require("name")`.
-local function required_name(call: Ast.Exp?): string?
-  if call ~= nil and (call.kind == "Call") then
-    local callee = call.callee
-    local only = call.args[1]
-    if (callee.kind == "Name") and callee.text == "require" and #call.args == 1 and only ~= nil and (only.kind == "String") then
-      return only.value
-    end
-  end
-  return nil
-end
-
---- The modules the chunk requires at its top level, each by the name it binds (`local Fs = require("cosmic.fs")`,
---- or `local type Fs = ...`). A module bound twice answers its first name.
-local function required(chunk: Ast.Chunk): {string: string}
-  local out: mut {string: string} = {}
-  for _, statement in ipairs(chunk.body.stats) do
-    local name: string? = nil
-    local alias: string? = nil
-    if (statement.kind == "Local") then
-      if #statement.bindings == 1 and #statement.values == 1 then
-        alias = assert(statement.bindings[1]).name
-        name = required_name(statement.values[1])
-      end
-    elseif (statement.kind == "Import") then
-      alias, name = statement.name.name, statement.module
-    end
-    if name ~= nil and alias ~= nil and out[name] == nil then
-      out[name] = alias
-    end
-  end
-  return out
-end
-
---- What a call's name stands for.
-local record Target
-  type: Type
-  --- How the calling module spells the type: the name itself for a record it declares, through the alias it requires
-  --- the module by otherwise.
-  spelled: string
-end
-
---- The target for what `entry` stands for, a declaration or an alias, spelled `spelled`; nil and why where it is generic,
---- and a type of it needs arguments, or an alias is not lowered.
-local function entry_target(store: Types.Store, entry: Declarations.Entry, spelled: string): Target?, string
-  local decl = entry.decl
-  if decl ~= nil then
-    if (decl.arity or 0) > 0 then
-      return nil, ("it is a generic %s, not a record"):format(decl.kind)
-    end
-    return { type = store:named(decl), spelled = spelled }, ""
-  end
-  local alias = entry.alias
-  local aliased = if alias ~= nil then alias.type else nil end
-  if aliased == nil then
-    return nil, "an alias the checker did not resolve"
-  end
-  return { type = aliased, spelled = spelled }, ""
-end
-
---- The entry for the declaration or alias at `names` below `module`, then `rest` (a dotted path inside it, or "").
-local function entry_at(program: Declarations.Program, module: string, names: {string}, rest: string):
-    Declarations.Entry?
-  local path = table.concat(names, ".")
-  if rest ~= "" then
-    path = path .. "." .. rest
-  end
-  return program.entries[module .. "\0" .. path]
-end
-
---- `name`, read as a record, or nil and why it is none. `at` is the token of the call, for the names in scope there.
-local function resolve_name(build: Driver.Build, outcome: Driver.Outcome, name: string, at: integer,
-                            required_by: {string: string}): Target?, string
-  local program = build.program
-  local first = name:match("^[^.]+")
-  if first == nil then
-    return nil, "the name must start with a module or record name"
-  end
-  local rest = name:sub(#first + 2)
-  local lowered = outcome.lowered
-  local here = Scopes.in_scope(outcome.scoped, at)[first]
-  local entry: Declarations.Entry? = nil
-  if here ~= nil and lowered ~= nil then entry = lowered.entries[here.id] end
-  if entry ~= nil then
-    local found: Declarations.Entry? = entry
-    if rest ~= "" then
-      found = entry_at(program, entry.module, entry.names, rest)
-    end
-    if found == nil then
-      return nil, ("%q has no field %q"):format(first, rest)
-    end
-    return entry_target(program.store, found, name)
-  end
-  local longest = ""
-  for module in pairs(required_by) do
-    if name:sub(1, #module + 1) == module .. "." and #module > #longest then
-      longest = module
-    end
-  end
-  if longest == "" then
-    return nil, "it names no record declared above it, and no module it requires at its top level " ..
-      "(`local X = require(\"the.module\")`)"
-  end
-  local inside = name:sub(#longest + 2)
-  local held = program.modules[longest]
-  local export = if held ~= nil then held.export else nil end
-  local found: Declarations.Entry? = nil
-  if export ~= nil then found = entry_at(program, export.module, export.names, inside) end
-  if found == nil then
-    return nil, ("module %q declares no record %q"):format(longest, inside)
-  end
-  local module_name = assert(required_by[longest], "the module found is one the file requires")
-  return entry_target(program.store, found, module_name .. "." .. inside)
-end
-
 local type Splice = ShapeSpecs.Splice
 
 --- The comment that leaves a use of `record_of` unresolved on purpose, on the line of the use, wherever it is.
@@ -433,7 +264,7 @@ local UNRESOLVED_ON_PURPOSE <const> = "-- record_of: unresolved on purpose"
 
 --- Whether `e` is `require("cosmic.shape")`.
 local function requires_shape(e: Ast.Exp): boolean
-  return required_name(e) == "cosmic.shape"
+  return RecordCalls.required_name(e) == "cosmic.shape"
 end
 
 --- Whether the line `text` ends in the comment [`UNRESOLVED_ON_PURPOSE`], exactly: the comment is the text from the first `--`
@@ -538,7 +369,7 @@ function ShapeSpecs.splices(build: Driver.Build, module: string, file: string, s
   -- finds, so their `record_of` calls get no check from the build and raise if an example runs: a guide is not refused.
   local read = build:parsed(module)
   if read ~= nil and not read.broken then
-    local top = required(read.chunk)["cosmic.shape"]
+    local top = RecordCalls.required(read.chunk)["cosmic.shape"]
     if file:sub(-3) ~= ".md" then
       local stray, stray_line = stray_use(read.chunk, file, source, top)
       if stray ~= "" then return { splices = none, refusal = stray, line = stray_line } end
@@ -553,7 +384,7 @@ function ShapeSpecs.splices(build: Driver.Build, module: string, file: string, s
     return { splices = none, refusal = "", line = 0 }
   end
   local chunk = outcome.chunk
-  local aliases = required(chunk)
+  local aliases = RecordCalls.required(chunk)
   local shape = aliases["cosmic.shape"]
   if shape == nil then
     return { splices = none, refusal = "", line = 0 }
@@ -590,7 +421,7 @@ function ShapeSpecs.splices(build: Driver.Build, module: string, file: string, s
       return { splices = none, line = span.y,
         refusal = where .. ": the name must be a plain quoted string with no escape in it" }
     end
-    local target, unresolved = resolve_name(build, outcome, literal.value, Node.base(hit.node).first, aliases)
+    local target, unresolved = RecordCalls.resolve_name(build, outcome, literal.value, Node.base(hit.node).first, aliases)
     if target == nil then
       return { splices = none, line = span.y,
         refusal = ("%s(%q): %s"):format(where, literal.value, unresolved) }
@@ -605,13 +436,12 @@ function ShapeSpecs.splices(build: Driver.Build, module: string, file: string, s
       return { splices = none, line = span.y,
         refusal = ("%s(%q): it is %s"):format(where, literal.value, what) }
     end
-    local visible: mut {string: boolean} = {}
-    for name in pairs(Scopes.in_scope(outcome.scoped, Node.base(hit.node).first)) do
-      visible[name] = true
-    end
     local g: Gen = {
-      shape = shape, store = build.program.store, program = build.program, module = module, aliases = aliases,
-      target = at.decl, spelled = target.spelled, visible = visible, holding = {}, count = 0, strict = "",
+      shape = shape, store = build.program.store, holding = {}, count = 0, strict = "",
+      names = {
+        program = build.program, module = module, aliases = aliases, target = at.decl, spelled = target.spelled,
+        visible = RecordCalls.visible(outcome, Node.base(hit.node).first),
+      },
     }
     local made, refusal = gen_record(g, at, at.decl, literal.value)
     if made == nil then
@@ -630,11 +460,7 @@ function ShapeSpecs.splices(build: Driver.Build, module: string, file: string, s
 end
 
 function ShapeSpecs.spliced(source: string, splices: {Splice}): string
-  local out = source
-  for _, splice in ipairs(splices) do
-    out = out:sub(1, splice.at) .. splice.text .. out:sub(splice.at + 1)
-  end
-  return out
+  return RecordCalls.spliced(source, splices)
 end
 
 function ShapeSpecs.resolve(build: Driver.Build, module: string, file: string, source: string):
