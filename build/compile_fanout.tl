@@ -16,6 +16,7 @@
 
 local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
+local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local sys = require("cosmic.sys")
 local process = require("cosmic.internal.process")
@@ -26,6 +27,10 @@ local record fanout
   mut least: integer
   --- The most copies, whatever the processors.
   mut most: integer
+  --- Text taken for /proc/meminfo's in place of asking the host what
+  --- memory it has, for a test: what a host has free is not a test's to
+  --- depend on.
+  mut meminfo: string?
   --- How long the copies of one [`fanout.run`] are waited for. The
   --- 1200 compiles of cosmic's own tree take one process under a minute
   --- on a four-core host ([`build.shared_compiles`]'s `fan`), so a copy
@@ -54,18 +59,32 @@ local function asked(): integer
   return count
 end
 
---- The most copies where the host's available memory cannot be asked
---- (a sandbox with no /proc): four of a build's largest, 1.5 GB each,
---- fit in the 8 GB the smallest host a build is likely to meet has.
+--- The most copies where the host does not say what memory it has
+--- available (a sandbox whose /proc has no meminfo): four, as a host with
+--- 8 GB has room for of a build's largest, 1.5 GB each.
 local unmeasured <const> = 4
 
---- How many copies of `each` bytes the host has room for, by the memory
---- it says is available ([`sys.memory_available`]): `unmeasured` where
---- it does not say.
+--- The memory the host says is available, in bytes, nil where it does not
+--- say: /proc/meminfo's MemAvailable on Linux, what [`sys.memory_available`]
+--- answers on macOS, and what [`fanout.meminfo`] says in place of either.
+local function available(): integer?
+  local text = fanout.meminfo
+  if text == nil then
+    local bytes, _ = sys.memory_available()
+    if bytes ~= nil then return bytes end
+    text, _ = Fs.read("/proc/meminfo")
+  end
+  local kilobytes = math.tointeger(tonumber(("\n" .. (text or "")):match("\nMemAvailable:%s*(%d+) kB")))
+  if kilobytes == nil then return nil end
+  return kilobytes * 1024
+end
+
+--- How many copies of `each` bytes the host has room for: `unmeasured`
+--- where it does not say what it has.
 local function room(each: integer): integer
-  local available, _ = sys.memory_available()
-  if available == nil then return unmeasured end
-  return available // each
+  local bytes = available()
+  if bytes == nil then return unmeasured end
+  return bytes // each
 end
 
 --- How many copies do `count` pieces of work on `processors`, each copy

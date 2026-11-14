@@ -5995,27 +5995,7 @@ COSMIC_SYSCALL(cpu_count, 0) {
 }
 
 COSMIC_SYSCALL(memory_available, 0) {
-#if defined(__linux__)
-  char *text;
-  size_t used;
-  int failure = read_whole("/proc/meminfo", &text, &used);
-  if (failure != 0) return cosmic_fail(L, failure);
-  static const char field[] = "MemAvailable:";
-  lua_Integer kilobytes = -1;
-  for (size_t at = 0; at + sizeof field - 1 < used; at++) {
-    if ((at > 0 && text[at - 1] != '\n') || memcmp(text + at, field, sizeof field - 1) != 0) continue;
-    for (at += sizeof field - 1; at < used && text[at] != '\n'; at++) {
-      if (text[at] < '0' || text[at] > '9') continue;
-      if (kilobytes < 0) kilobytes = 0;
-      if (kilobytes < LUA_MAXINTEGER / 10240) kilobytes = kilobytes * 10 + (text[at] - '0');
-    }
-    break;
-  }
-  cosmic_free(text);
-  if (kilobytes < 0) return cosmic_fail(L, EIO);
-  lua_pushinteger(L, kilobytes * 1024);
-  return 1;
-#elif defined(__APPLE__)
+#if defined(__APPLE__)
   mach_port_t host = mach_host_self();
   vm_statistics64_data_t pages;
   mach_msg_type_number_t count = HOST_VM_INFO64_COUNT;
@@ -6024,8 +6004,12 @@ COSMIC_SYSCALL(memory_available, 0) {
   kern_return_t sized = host_page_size(host, &page);
   mach_port_deallocate(mach_task_self(), host);
   if (counted != KERN_SUCCESS || sized != KERN_SUCCESS) return cosmic_fail(L, EIO);
-  /* `free_count` holds the speculative pages already. */
-  uint64_t available = (uint64_t)pages.free_count + (uint64_t)pages.inactive_count;
+  /* The speculative pages are files' and counted free as well: taken off
+   * once, in case the files' count holds them too, which errs low. */
+  uint64_t available = (uint64_t)pages.free_count + (uint64_t)pages.external_page_count +
+                       (uint64_t)pages.purgeable_count;
+  uint64_t twice = (uint64_t)pages.speculative_count;
+  available = available > twice ? available - twice : 0;
   lua_pushinteger(L, (lua_Integer)(available * (uint64_t)page));
   return 1;
 #else

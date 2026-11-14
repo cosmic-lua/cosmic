@@ -7,6 +7,7 @@ local Array = require("cosmic.array")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local shared_compiles = require("build.shared_compiles")
+local fanout = require("build.compile_fanout")
 local Test = require("cosmic.test")
 local type importer = require("build.importer")
 
@@ -112,6 +113,9 @@ local function test_a_query_failure_leaves_other_connections_and_files_alone(tmp
   assert(Fs.stat(path .. "-wal") == nil, "the failed build kept a connection open")
 end
 
+--- A meminfo that says the host has memory for every copy: what it has free is not what these tests check.
+local plenty <const> = "MemAvailable: 1073741824 kB\n"
+
 --- Many modules are compiled in copies of the process, and each comes
 --- back as the copy that had it made it: its own Lua and bytecode, its
 --- counts. A module no copy made a compile of is nil, for the build to
@@ -132,9 +136,11 @@ local function test_many_compiles_made_at_once_come_back_each_its_own(tmp: strin
       fact_wraps = #m.path, parameter_checks = 2 }
   end
   assert(fan({ assert(due[1]), assert(due[2]) }, true, make) == nil, "two modules are the process's own")
+  fanout.meminfo = plenty
   local fanned = fan(due, true, make)
+  fanout.meminfo = nil
   if fanned == nil then
-    Test.skip("this host makes no copy of the process: one processor, or too little memory")
+    Test.skip("this host makes no copy of the process: one processor")
   end
   local made = assert(fanned)
   for _, m in ipairs(due) do
@@ -161,6 +167,7 @@ local function test_many_parses_made_at_once_come_back_each_its_own(tmp: string)
   local build = assert(shared_compiles.for_build({ COSMIC_BUILD_CACHE = tmp .. "/cache/cache.db" }))
   local fan_parses = assert(build.fan_parses)
   local count = 400
+  fanout.meminfo = plenty
   local fanned = fan_parses(count, function(copy: integer, copies: integer): {importer.Shared.ParseMade}
     local out: mut {importer.Shared.ParseMade} = {}
     for index = copy, count, copies do
@@ -171,8 +178,9 @@ local function test_many_parses_made_at_once_come_back_each_its_own(tmp: string)
     end
     return out
   end)
+  fanout.meminfo = nil
   if fanned == nil then
-    Test.skip("this host makes no copy of the process: one processor, or too little memory")
+    Test.skip("this host makes no copy of the process: one processor")
   end
   local made = assert(fanned)
   for index = 1, count do
