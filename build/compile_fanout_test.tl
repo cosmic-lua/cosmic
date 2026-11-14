@@ -2,6 +2,7 @@
 --- copies a count of work gets, and what each copy's end says.
 
 local Fs = require("cosmic.fs")
+local Test = require("cosmic.test")
 local Sqlite = require("cosmic.sqlite")
 local sys = require("cosmic.sys")
 local fanout = require("build.compile_fanout")
@@ -18,6 +19,35 @@ local function test_few_modules_or_one_processor_make_no_copy()
   assert(fanout.copies(10000, 64, 1, 64) == fanout.most)
   assert(fanout.copies(10000, 4, 1, 1) == 0 and fanout.copies(10000, 4, 1, 0) == 0)
   assert(fanout.copies(10000, 4, 1, 3) == 3)
+end
+
+--- A host is given the copies its available memory has room for, as its meminfo says it in kilobytes: a line that
+--- only ends in the name is another's, and a host that does not say is given a few.
+local function test_copies_are_bounded_by_the_memory_meminfo_says_is_available()
+  local gigabyte <const> = 1 << 30
+  fanout.meminfo = "MemTotal: 99999999 kB\nMemAvailable:    3145728 kB\nSwapFree: 0 kB\n"
+  local three = fanout.copies(10000, 8, gigabyte)
+  fanout.meminfo = "KernelMemAvailable: 99999999 kB\nMemAvailable: 2097152 kB\n"
+  local two = fanout.copies(10000, 8, gigabyte)
+  fanout.meminfo = "MemAvailable: 524288 kB\n"
+  local none = fanout.copies(10000, 8, gigabyte)
+  fanout.meminfo = "MemTotal: 99999999 kB\n"
+  local unsaid = fanout.copies(10000, 8, gigabyte)
+  fanout.meminfo = nil
+  assert(three == 3, "3 GiB available made " .. tostring(three) .. " copies of 1 GiB")
+  assert(two == 2, "a line that ends in the name was read: " .. tostring(two))
+  assert(none == 0, "half a gigabyte made " .. tostring(none) .. " copies of one")
+  assert(unsaid == 4, "a host that does not say was given " .. tostring(unsaid))
+end
+
+--- The host itself is asked where no text stands in: no copy is made of a size no host has.
+local function test_a_copy_larger_than_the_hosts_memory_is_not_made()
+  if assert(sys.uname()).sysname == "Linux" and Fs.read("/proc/meminfo") == nil then
+    -- TODO: check this in a sandboxed run on Linux too, once a test can be given the host's /proc/meminfo.
+    Test.skip("this sandbox's /proc has no meminfo, so no host's memory to bound the copies by")
+  end
+  assert(fanout.copies(10000, 8, 1 << 55) == 0, "copies were made of more memory than the host has")
+  assert(fanout.copies(10000, 8, 1) >= 2, "no copy was made of a byte")
 end
 
 --- Each copy runs the work with its own number, and the process is told
