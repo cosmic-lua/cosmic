@@ -9,6 +9,7 @@
 ---   holding it whole.
 --- - [`Hash.sha256`] and [`Hash.hex_sha256`] are the common case in one
 ---   call.
+--- - [`Hash.hkdf`] derives keys from a secret, as RFC 5869 does.
 --- - [`Hash.equal`] compares two MACs or tokens without leaking where
 ---   they differ.
 --- - [`Hash.siphash`] is SipHash, a keyed hash for short inputs: a hash
@@ -173,6 +174,37 @@ end
 function Hash.siphash(key: string, data: string, options?: Hash.SipHashOptions): string
   local o = options or {}
   return raw.siphash(key, data, o.compression, o.finalization, o.size)
+end
+
+--- `length` bytes of key material derived from the secret `key` by HKDF,
+--- the HMAC-based key derivation function of RFC 5869, over an
+--- algorithm: the way to turn one shared secret, such as a key
+--- exchange's, into the keys a protocol needs. `salt` need not be secret
+--- and may be "", which the RFC reads as a digest's length of zero bytes.
+--- `info` names what the bytes are for, so that two purposes get
+--- unrelated keys from one secret. The same arguments always give the
+--- same bytes, and a shorter `length` gives a prefix of a longer one's.
+--- `key` is a secret of high entropy, not a password: HKDF does nothing
+--- to slow a guess. Raises on an unknown algorithm, as [`Hash.hmac`]
+--- does, and on a `length` below 0 or above 255 digests of the algorithm.
+---
+---     local shared = string.rep("s", 32)
+---     local sending = Hash.hkdf("sha256", shared, "", "client to server", 32)
+---     local receiving = Hash.hkdf("sha256", shared, "", "server to client", 32)
+function Hash.hkdf(algorithm: Hash.Algorithm, key: string, salt: string, info: string,
+                   length: integer): string
+  local extracted = raw.hmac(algorithm, salt, key)
+  local most = 255 * #extracted
+  if length < 0 or length > most then
+    error("hash: hkdf's length must be from 0 to " .. tostring(most) .. " for " .. algorithm, 2)
+  end
+  local blocks: mut {string} = {}
+  local block = ""
+  while #blocks * #extracted < length do
+    block = raw.hmac(algorithm, extracted, block .. info .. string.char(#blocks + 1))
+    blocks[#blocks + 1] = block
+  end
+  return table.concat(blocks):sub(1, length)
 end
 
 --- Whether the strings `a` and `b` are the same bytes, for checking a MAC or a

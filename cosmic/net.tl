@@ -8,7 +8,7 @@
 ---     local line = lines:read()
 ---
 --- An address's `kind` selects its fields: "unix" takes a socket file's
---- path; "tcp" takes a numeric host and port.
+--- path; "tcp" and "udp" take a numeric host and port.
 ---
 ---     local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
 ---     local port = server.address.port -- the one the kernel chose
@@ -38,6 +38,14 @@
 --- [`Net.serve`] is that server, for any protocol: a function of a
 --- connection, run for each one accepted at any of its listeners, whose
 --- failure closes that connection alone.
+---
+--- [`Net.datagram`] binds a UDP socket, which sends and receives whole
+--- datagrams, each to or from an address of its own, with no connection
+--- and no promise that one arrives.
+---
+---     local socket <close> = assert(Net.datagram(Net.udp("127.0.0.1", 0)))
+---     assert(socket:send("ping", Net.udp("127.0.0.1", 9000)))
+---     local packet = socket:receive(Clock.seconds(1))
 
 local Array = require("cosmic.array")
 local Clock = require("cosmic.clock")
@@ -69,7 +77,7 @@ local waited = Connection.waited
 --- What `address` is called in a failure: its path, or its host and
 --- port, an IPv6 host in brackets.
 local function named(address: raw_socket.Address): string
-  if address.kind ~= "tcp" then
+  if address.kind == "unix" then
     local path = assert(address.path, "a unix address has the path Net.unix gave it")
     return path
   end
@@ -136,11 +144,120 @@ local class SocketListener
   end
 end
 
+--- The most bytes one UDP datagram holds.
+local DATAGRAM_MAX <const> = 65535
+
+--- A bound UDP socket, answered by [`Net.datagram`]. A class, so a
+--- `<close>` local holds one. One dropped unclosed needs no __gc: its
+--- socket, which only the object holds, is closed by the collector.
+local class UdpSocket
+  --- Where it is bound, with the port the kernel chose for port 0.
+  address: raw_socket.Address
+  --- Internal: the socket, its descriptor and whether it is open. No caller reads or writes them.
+  socket: raw_socket.Socket
+  --- Internal: see `socket`.
+  fd: integer
+  --- Internal: see `socket`.
+  mut open: boolean
+  -- Set by [`set_timeout`]. Nil for no limit.
+  mut limit?: integer
+
+  --- Sets how long `send` and `receive` wait by default, in nanoseconds,
+  --- from 0; nil for no limit. A value no wait can last raises, naming
+  --- `timeout_ns`, at the caller.
+  function set_timeout(self, wait_ns: integer?)
+    Poll.checked_ns(wait_ns, "net", "timeout_ns", 2)
+    self.limit = wait_ns
+  end
+
+  --- Sends `data`, possibly empty, as one datagram to `to`, a
+  --- [`Net.udp`] address: true once the system has taken it whole, which
+  --- says nothing of its arrival. False and [`Poll.TIMEOUT`],
+  --- "interrupted", "cancelled" (in a task of [`Poll.run`]) or why not
+  --- sends none of it. Raises on `data` over 65535 bytes and on an
+  --- address of another kind or with a port past 65535.
+  function send(self, data: string, to: raw_socket.Address): boolean, string
+    if #data > DATAGRAM_MAX then
+      error("net: a datagram holds at most " .. tostring(DATAGRAM_MAX) .. " bytes", 2)
+    end
+    local host, port = to.host, to.port
+    if to.kind ~= "udp" or not host is string or math.type(port) ~= "integer" or port == nil or
+        port < 0 or port > 65535 then
+      error("net: a datagram is sent to a udp address, from Net.udp, whose host is a string and " ..
+          "port an integer from 0 to 65535", 2)
+    end
+    if not self.open then return false, "net: the socket is closed" end
+    local fd = self.fd
+    while true do
+      local ok, why, errno = raw.sendto(fd, data, to)
+      if ok then return true, "" end
+      if errno == raw.EINVAL then
+        return false, why .. " (not a numeric IPv4 or IPv6 address: a name is not looked up, " ..
+          "nor an IPv6 scope read)"
+      end
+      if errno ~= raw.EAGAIN then return false, why end
+      local ready, waiting = waited(fd, true, self.limit)
+      if not ready then return false, waiting end
+      if not self.open then return false, "net: the socket is closed" end
+    end
+  end
+
+  --- The next datagram whole, with the address it came from, waiting for
+  --- one as long as `timeout_ns` (this call's, or the socket's); nil and
+  --- [`Poll.TIMEOUT`], "interrupted", "cancelled" (in a task of
+  --- [`Poll.run`]), or why not. Datagrams arrive in no promised order,
+  --- and one the network or a full buffer dropped never does.
+  function receive(self, wait_ns?: integer): raw_socket.Packet?, string
+    Poll.checked_ns(wait_ns, "net", "timeout_ns", 2)
+    if not self.open then return nil, "net: the socket is closed" end
+    wait_ns = wait_ns or self.limit
+    local fd = self.fd
+    while true do
+      local packet, why, errno = raw.recvfrom(fd, DATAGRAM_MAX)
+      if packet ~= nil then return packet, "" end
+      if errno ~= raw.EAGAIN then return nil, why end
+      local ready, waiting = waited(fd, false, wait_ns)
+      if not ready then return nil, waiting end
+      if not self.open then return nil, "net: the socket is closed" end
+    end
+  end
+
+  --- Closes the socket, ending a task's wait on it. Safe to call more
+  --- than once.
+  function close(self): boolean, string
+    if not self.open then return true, "" end
+    self.open = false
+    Poll.closing(self.fd)
+    local ok, why = self.socket:close()
+    if not ok then return false, named(self.address) .. ": " .. why end
+    return true, ""
+  end
+
+  function __close(self)
+    local _, _ = self:close()
+  end
+end
+
 local record Net
   --- Where a socket is, as [`Net.unix`] and [`Net.tcp`] build one: a
-  --- `kind` of "unix", with the socket file's `path`, or "tcp", with a
-  --- numeric `host` and a `port`. It is the raw socket module's own record.
+  --- `kind` of "unix", with the socket file's `path`, or "tcp" or "udp",
+  --- with a numeric `host` and a `port`. It is the raw socket module's own
+  --- record.
   type Address = raw_socket.Address
+
+  --- A bound UDP socket, answered by [`Net.datagram`]. A class, so a
+  --- `<close>` local holds one.
+  type Datagram = UdpSocket
+
+  --- One datagram a [`Datagram`]'s `receive` answers: its `data`, whole
+  --- and possibly empty, and the "udp" `address` it came from.
+  type Packet = raw_socket.Packet
+
+  record DatagramOptions
+    --- How long `send` and `receive` wait, in nanoseconds, from 0; nil
+    --- for no limit.
+    timeout_ns?: integer
+  end
 
   --- A connection, answered by `accept` and [`Net.connect`]: a
   --- [`Stream.Reader`] of what the peer sends and a [`Stream.Writer`] to
@@ -326,6 +443,12 @@ function Net.tcp(host: string, port: integer): Net.Address
   return { kind = "tcp", host = host, port = port }
 end
 
+--- Where a [`Net.datagram`] binds or a datagram goes: UDP `port` at
+--- `host`, numeric as [`Net.tcp`]'s is.
+function Net.udp(host: string, port: integer): Net.Address
+  return { kind = "udp", host = host, port = port }
+end
+
 --- What a failed call says: its own words for a deadline or a signal,
 --- the bound a name too long ran past, what a host must be, and why a
 --- unix listener answered EAGAIN, which errno's words leave unsaid.
@@ -399,6 +522,16 @@ local function address_trouble(address: Net.Address): string
     return "a tcp address whose host is a string and port an integer from 0 to 65535"
   end
   return "an address, from Net.unix or Net.tcp"
+end
+
+--- Why `address` is no [`Net.udp`] address, or "".
+local function datagram_trouble(address: Net.Address): string
+  local host, port = address.host, address.port
+  if address.kind == "udp" and host is string and math.type(port) == "integer" and port ~= nil and
+      port >= 0 and port <= 65535 then
+    return ""
+  end
+  return "a udp address, from Net.udp, whose host is a string and port an integer from 0 to 65535"
 end
 
 --- [`Net.resolve`] through `opts.connector`, defined with the connector.
@@ -552,6 +685,29 @@ function Net.listen(address: Net.Address, opts?: Net.ListenOptions): Net.Listene
   local opened, why = listening(address, opts or {}, 2)
   if opened == nil then return nil, why end
   return opened.listener, ""
+end
+
+--- Binds a UDP socket at `address`, a [`Net.udp`] one: port 0 takes a
+--- port the kernel chooses, which the socket's `address` then names, and
+--- the host "0.0.0.0" or "::" takes datagrams at every address of the
+--- machine. Nil and why where it cannot be bound: a port in use, or a
+--- host that is no numeric address. Raises on an address of another
+--- kind or with a port past 65535, and on a `timeout_ns` no wait can last.
+function Net.datagram(address: Net.Address, opts?: Net.DatagramOptions): Net.Datagram?, string
+  local trouble = datagram_trouble(address)
+  if trouble ~= "" then error("net: address must be " .. trouble, 2) end
+  local timeout_ns = if opts ~= nil then opts.timeout_ns else nil end
+  Poll.checked_ns(timeout_ns, "net", "timeout_ns", 2)
+  local socket, why, errno = raw.datagram(address)
+  if socket == nil then return nil, named(address) .. ": " .. said(why, errno, address) end
+  local fd = socket:fd()
+  local bound, bound_trouble = raw.bound(fd)
+  if bound == nil then
+    local _, _ = socket:close()
+    return nil, named(address) .. ": " .. bound_trouble
+  end
+  local made: UdpSocket = { address = bound, socket = socket, fd = fd, open = true, limit = timeout_ns }
+  return made, ""
 end
 
 --- The listener over a listening TCP socket this process already holds:
