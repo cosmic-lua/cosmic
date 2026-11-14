@@ -837,7 +837,7 @@ that does run runs in a process of its own:
   against declarations already in the database. where a build has many
   sources to parse or modules to compile (a boot, the first build after a change to the
   checker), the host can fork and the compiles it shares are on, it makes them in copies of that
-  process, one a processor up to eight and to the memory the host says it has (four where it does not say, as on macOS), each holding the tree as it was read: a copy
+  process, one a processor up to eight and to the memory the host says it has (four where it does not say), each holding the tree as it was read: a copy
   keeps what it made in a file of its own and writes nothing else, and
   the build takes each parse and each compile where it would have made one
   ([`build/compile_fanout.tl`]). a module a copy cannot compile it says at once, so no copy compiles

@@ -2501,6 +2501,9 @@ local function test_the_checks_written_survive_every_compile_path()
   assert(plain.fact_wraps == 0 and plain.parameter_checks == 0, "an unchecked compile reported checks")
 end
 
+--- A meminfo that says the host has memory for every copy: what it has free is not what these tests check.
+local plenty <const> = "MemAvailable: 1073741824 kB\n"
+
 --- Whether a copy of the process, forked here, ran.
 local function forks(): boolean
   return fanout.run(1, function(_: integer) end).ended[1] == true
@@ -2566,13 +2569,15 @@ local function test_modules_compiled_in_copies_are_those_one_process_compiles()
   broken["m4.tl"] = assert(files["m4.tl"]):gsub("return m\n", 'local function four(): integer\n  return "four"\nend\nm.count = four()\nreturn m\n')
   local least = fanout.least
   fanout.least = 1
+  fanout.meminfo = plenty
   local at_once, fanned, made = compiled("fanned", files, true)
   local told_whole = #told
   local broken_at_once, _, broken_made = compiled("fanned-broken", broken, true)
   local told_broken = told_by_copies
   fanout.least = least
+  fanout.meminfo = nil
   if not fanned then
-    Test.skip("this host makes no copy of the process: one processor, or too little memory")
+    Test.skip("this host makes no copy of the process: one processor")
   end
   assert(forks(), "no copy of the process could be forked")
   local alone, _, _ = compiled("alone", files, false)
@@ -2644,13 +2649,15 @@ local function test_a_file_run_tells_its_copies_to_stop_at_the_refusal_it_stops_
     end }
   local least = fanout.least
   fanout.least = 1
+  fanout.meminfo = plenty
   local handle = assert(work.open(root))
   assert(work.stage(handle, { own = false }))
   local result, trouble = importer.compile_for(handle, "stopped-test", "main", watched)
   work.close(handle)
   fanout.least = least
+  fanout.meminfo = nil
   if not fanned then
-    Test.skip("this host makes no copy of the process: one processor, or too little memory")
+    Test.skip("this host makes no copy of the process: one processor")
   end
   assert(forks(), "no copy of the process could be forked")
   assert(result == nil and trouble:find("a_needed.tl", 1, true) ~= nil, trouble)

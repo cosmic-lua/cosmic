@@ -320,8 +320,8 @@ promises lean on come first:
   listen's own options (`backlog`); a listen that takes over a socket file a listener left
   behind (`reclaim`, for a daemon restarting at its socket file); a
   [`Net.serve`] in several processes of this program, which take
-  connections from the listeners it hands them; a connection's `peer`
-  address; of a unix socket, its peer's user and process
+  connections from the listeners it hands them; a unix connection's
+  `peer` and own `address`; of a unix socket, its peer's user and process
   (`SO_PEERCRED`, `getpeereid`), descriptors passed over it
   (`SCM_RIGHTS`), Linux's abstract names, and a socket file's mode.
 
@@ -357,6 +357,25 @@ promises lean on come first:
     `Last-Modified` for a file a handler serves itself.
   - File-based routing that generates the route table, and OpenAPI
     documents made from typed routes.
+
+- [`cosmic.dns`] past its first release, each once a caller needs it:
+  - Name compression in [`Dns.encode`], which writes every name in full:
+    RFC 1035 section 4.1.4's pointers for the names of questions and records
+    and for the names in the data of NS, CNAME, PTR, MX and SOA records, each
+    to the earliest place a suffix was written within the first 16384 bytes.
+    An SRV record's target is compressed in multicast DNS alone (RFC 6762
+    section 18.14; RFC 2782 forbids it elsewhere), so the caller chooses. It
+    matters once a response must fit a 512-byte datagram or a multicast
+    packet.
+  - The header and the whole records of a truncated response. A server that
+    cuts a response mid-record sets the truncated bit, and [`Dns.decode`]
+    answers nil and a reason for it, as for any message whose counts pass its
+    bytes: the caller learns neither the id nor that `truncated` was set, so
+    it cannot tell "ask again over TCP" from garbage.
+  - EDNS (RFC 6891): the OPT pseudo-record read into fields (the payload
+    size its class holds, the extended response code and flags its ttl
+    holds, its options), and written from them. Today it is a record of type
+    41 with `rdata`, its class split at the top bit like any other.
 
 - `cosmic lsp` ([`build/lsp/session.tl`]) answers diagnostics, hover, go to definition, completion and formatting. Definition and completion read
   the open document's last check, [`check.read`] and [`check.last`] (its tree, scopes and types), and the working database for
@@ -456,6 +475,7 @@ four-producer provenance join.
 [`core/coverage.c`]: ../core/coverage.c
 [`core/json.c`]: ../core/json.c
 [`cosmic.coverage`]: ../cosmic/coverage.tl
+[`cosmic.dns`]: ../cosmic/dns.tl
 [`cosmic.fs`]: ../cosmic/fs.tl
 [`cosmic.html`]: ../cosmic/html.tl
 [`cosmic.http.server`]: ../cosmic/http/server.tl
@@ -479,6 +499,8 @@ four-producer provenance join.
 [`cosmic/json_fuzz_test.tl`]: ../cosmic/json_fuzz_test.tl
 [`cosmic/stream.tl`]: ../cosmic/stream.tl
 [`cosmic/template/markup.tl`]: ../cosmic/template/markup.tl
+[`Dns.decode`]: ../cosmic/dns.tl
+[`Dns.encode`]: ../cosmic/dns.tl
 [`doc/testing.md`]: testing.md
 [`Errors.guidance`]: ../cosmic/errors.tl
 [`eval/summarize.tl`]: ../eval/summarize.tl

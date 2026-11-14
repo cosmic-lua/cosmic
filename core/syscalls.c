@@ -56,6 +56,7 @@ extern int clone (int (*)(void *), void *, int, void *, ...);
 #include <libproc.h>
 #include <sys/event.h>
 #include <sys/sysctl.h>
+#include <mach/mach.h>
 #include <arpa/inet.h>
 #include <ifaddrs.h>
 #include <net/if.h>
@@ -5991,6 +5992,30 @@ COSMIC_SYSCALL(cpu_count, 0) {
   long count = sysconf(_SC_NPROCESSORS_ONLN);
   lua_pushinteger(L, count < 1 ? 1 : (lua_Integer)count);
   return 1;
+}
+
+COSMIC_SYSCALL(memory_available, 0) {
+#if defined(__APPLE__)
+  mach_port_t host = mach_host_self();
+  vm_statistics64_data_t pages;
+  mach_msg_type_number_t count = HOST_VM_INFO64_COUNT;
+  kern_return_t counted = host_statistics64(host, HOST_VM_INFO64, (host_info64_t)&pages, &count);
+  vm_size_t page = 0;
+  kern_return_t sized = host_page_size(host, &page);
+  mach_port_deallocate(mach_task_self(), host);
+  if (counted != KERN_SUCCESS || sized != KERN_SUCCESS) return cosmic_fail(L, EIO);
+  /* The speculative pages are read ahead from files and counted free:
+   * taken off once, in case the files' count holds them too. Where it
+   * does not, the answer is low by them. */
+  uint64_t available = (uint64_t)pages.free_count + (uint64_t)pages.external_page_count +
+                       (uint64_t)pages.purgeable_count;
+  uint64_t speculative = (uint64_t)pages.speculative_count;
+  available = available > speculative ? available - speculative : 0;
+  lua_pushinteger(L, (lua_Integer)(available * (uint64_t)page));
+  return 1;
+#else
+  return cosmic_fail(L, ENOSYS);
+#endif
 }
 
 /* The features `cpu_features` answers, by /proc/cpuinfo's names, in

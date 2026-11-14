@@ -714,6 +714,18 @@ local function test_cpu_count_is_at_least_one()
   assert(math.type(count) == "integer" and count >= 1)
 end
 
+--- On macOS the memory available is a count of bytes, at least a megabyte and less than any machine holds; Linux
+--- has no such call, and says it in a file.
+local function test_memory_available_is_a_plausible_count_of_bytes_on_macos()
+  local bytes, why, number = sys.memory_available()
+  if assert(sys.uname()).sysname ~= "Darwin" then
+    assert(bytes == nil and number == sys.ENOSYS, why)
+    return
+  end
+  assert(bytes ~= nil, why)
+  assert(math.type(bytes) == "integer" and bytes >= 1 << 20 and bytes < 1 << 50, tostring(bytes))
+end
+
 local function test_uname_reports_nonempty_sysname_and_machine()
   local names = assert(sys.uname())
   assert(select("#", sys.uname()) == 1, "uname answers with one record")

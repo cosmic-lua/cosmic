@@ -591,6 +591,14 @@ COSMIC_SYSCALL(fd_flags, 1);
 COSMIC_SYSCALL(cpu_count, 0);
 
 /*
+ * --- How many bytes of memory macOS could give a process now without compressing or swapping another's: the pages its kernel counts free, those that hold files' contents, and those their owners marked purgeable, less the ones read ahead from files, which it counts free already (`host_statistics64`). An estimate: the kernel gives up a file's page in use less readily than the count supposes. EIO where the kernel does not answer. ENOSYS elsewhere: Linux gives its own estimate in /proc/meminfo's MemAvailable, for whoever reads the file.
+ * ---@return integer|nil bytes the memory available, or nil on failure
+ * ---@return string error what went wrong, when bytes is nil
+ * ---@return integer errno the error number, when bytes is nil
+ */
+COSMIC_SYSCALL(memory_available, 0);
+
+/*
  * --- The processor's features the core's own and vendored code may choose code by, each by the name Linux's /proc/cpuinfo lists it under, in byte order: on x86_64 "aes", "avx512_vnni", "avx512f", "avx512vl", "avx_vnni", "pclmulqdq", "sha_ni", "sse4_1" and "ssse3", from cpuid; on aarch64 "aes", "asimd", "crc32", "pmull", "sha2" and "sha512", from the auxiliary vector's hardware capabilities on Linux and sysctlbyname's hw.optional names on Darwin. Those this processor lacks are left out, and every one on any other machine.
  * ---@return {string} features the features this processor has
  */
