@@ -6004,12 +6004,13 @@ COSMIC_SYSCALL(memory_available, 0) {
   kern_return_t sized = host_page_size(host, &page);
   mach_port_deallocate(mach_task_self(), host);
   if (counted != KERN_SUCCESS || sized != KERN_SUCCESS) return cosmic_fail(L, EIO);
-  /* The speculative pages are files' and counted free as well: taken off
-   * once, in case the files' count holds them too, which errs low. */
+  /* The speculative pages are read ahead from files and counted free:
+   * taken off once, in case the files' count holds them too. Where it
+   * does not, the answer is low by them. */
   uint64_t available = (uint64_t)pages.free_count + (uint64_t)pages.external_page_count +
                        (uint64_t)pages.purgeable_count;
-  uint64_t twice = (uint64_t)pages.speculative_count;
-  available = available > twice ? available - twice : 0;
+  uint64_t speculative = (uint64_t)pages.speculative_count;
+  available = available > speculative ? available - speculative : 0;
   lua_pushinteger(L, (lua_Integer)(available * (uint64_t)page));
   return 1;
 #else

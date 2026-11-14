@@ -591,7 +591,7 @@ COSMIC_SYSCALL(fd_flags, 1);
 COSMIC_SYSCALL(cpu_count, 0);
 
 /*
- * --- How many bytes of memory macOS could give a process now without compressing or swapping another's: the pages its kernel counts free, those that hold files' contents, and those their owners marked purgeable (`host_statistics64`). An estimate: the kernel gives up a file's page in use less readily than the count supposes. EIO where the kernel does not answer. ENOSYS elsewhere: Linux says the same in /proc/meminfo's MemAvailable, for whoever reads the file.
+ * --- How many bytes of memory macOS could give a process now without compressing or swapping another's: the pages its kernel counts free, those that hold files' contents, and those their owners marked purgeable, less the ones read ahead from files, which it counts free already (`host_statistics64`). An estimate: the kernel gives up a file's page in use less readily than the count supposes. EIO where the kernel does not answer. ENOSYS elsewhere: Linux gives its own estimate in /proc/meminfo's MemAvailable, for whoever reads the file.
  * ---@return integer|nil bytes the memory available, or nil on failure
  * ---@return string error what went wrong, when bytes is nil
  * ---@return integer errno the error number, when bytes is nil

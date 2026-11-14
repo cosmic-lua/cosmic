@@ -60,8 +60,8 @@ local function asked(): integer
 end
 
 --- The most copies where the host does not say what memory it has
---- available (a sandbox whose /proc has no meminfo): four, as a host with
---- 8 GB has room for of a build's largest, 1.5 GB each.
+--- available (a sandbox whose /proc has no meminfo): four of a build's
+--- largest, 1.5 GB each, are 6 GB, which a host with 8 GB has.
 local unmeasured <const> = 4
 
 --- The memory the host says is available, in bytes, nil where it does not
