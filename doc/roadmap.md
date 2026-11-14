@@ -385,14 +385,16 @@ promises lean on come first:
     41 with `rdata`, its class split at the top bit like any other.
 
 - [`cosmic.protobuf`] past the wire format, each once a caller needs it:
-  - A schema layer: a message's fields declared once, each with its name,
-    number and type and whether it repeats, to get the reader that answers a
-    record and the writer that takes one. Today a caller says a field's
-    number and type at every read and write. It needs design first: whether
-    the declaration is a value checked at run time, as a [`cosmic.shape`] spec
-    is, or a record the build reads, as `record_of` reads one; how a `oneof`,
-    a map and a field's default are said; what a record keeps of the fields
-    it has no name for; and whether a `.proto` file is read to make one.
+  - In [`cosmic.protobuf.schema`], which declares a message once as a record:
+    map fields (`{string: T}`, written in key order) and `oneof` groups; two
+    records that hold each other, which the build
+    refuses and a codec declared before it is defined would allow; a field's
+    declared default; and a `.proto` file read to write the records and the
+    `message_of` calls.
+  - A faster writer in [`cosmic.protobuf.schema`]: an embedded message is
+    written to bytes and copied into its parent, so that what a record keeps
+    goes after its fields at every level. A record that keeps nothing could
+    write through a child writer.
   - Groups (wire types 3 and 4), which [`Protobuf.decode`] refuses and only
     proto2 writes. A group has no length: its end is found by reading every
     field inside it, the groups nested in it too, under a bound on how deep
@@ -585,7 +587,8 @@ four-producer provenance join.
 [`cosmic.mdns`]: ../cosmic/mdns.tl
 [`cosmic.net`]: ../cosmic/net.tl
 [`cosmic.plist`]: ../cosmic/plist.tl
-[`cosmic.protobuf`]: ../cosmic/protobuf.tl
+[`cosmic.protobuf.schema`]: ../cosmic/protobuf/schema.tl
+[`cosmic.protobuf`]: ../cosmic/protobuf/init.tl
 [`cosmic.relay.address`]: ../cosmic/relay/address.tl
 [`cosmic.relay.grant`]: ../cosmic/relay/grant.tl
 [`cosmic.removed`]: ../cosmic/removed.tl
@@ -620,7 +623,7 @@ four-producer provenance join.
 [`Plist.form`]: ../cosmic/plist.tl
 [`Plist.Value`]: ../cosmic/plist.tl
 [`Proc.relaunch`]: ../cosmic/proc.tl
-[`Protobuf.decode`]: ../cosmic/protobuf.tl
+[`Protobuf.decode`]: ../cosmic/protobuf/init.tl
 [`Sandbox.Limits`]: ../cosmic/sandbox/init.tl
 [`Sandbox.Policy`]: ../cosmic/sandbox/init.tl
 [`Server.none_match`]: ../cosmic/http/server.tl
