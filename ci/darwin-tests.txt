@@ -35,6 +35,7 @@ cosmic/child_tool_test.tl
 # (build/compile_fanout.tl, build/shared_compiles.tl's `fan`).
 core/fork_test.tl
 build/compile_fanout_test.tl
+build/shared_compiles_test.tl
 build/importer_test.tl
 # What a policy refuses where the platform has no sandbox: the one test
 # there is nothing to check of on Linux.
