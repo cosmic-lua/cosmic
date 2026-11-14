@@ -423,6 +423,32 @@ promises lean on come first:
   - An SRV record's priority and weight, and every SRV record of an instance
     that has several.
 
+- [`cosmic.plist`] past the binary and XML forms read and written whole,
+  each once a caller needs it:
+  - The old ASCII form (OpenStep's, `{ key = value; }`), which Xcode still
+    writes for a project file and `defaults` prints. [`Plist.form`] answers
+    nil for it and [`Plist.decode`] refuses it. It holds strings, data,
+    arrays and dicts alone, so reading it needs no new kind of value.
+  - A keyed archive (NSKeyedArchiver) read as the objects it archives:
+    `$top` followed through its UIDs into `$objects`, each object with its
+    class from `$class`, and the Foundation collections (`NS.objects`,
+    `NS.keys`, `NS.string`, `NS.time`) as the values they stand for. Today
+    an archive reads as the property list it is, UIDs and all, and following
+    them is the caller's. Writing one is the other half.
+  - The binary form's other versions (`bplist15`, `bplist16`), which
+    Foundation uses between processes, with types `bplist00` does not have.
+    [`Plist.decode`] refuses them by their version.
+  - A plain Lua table from a [`Plist.Value`] and back, for a caller that
+    wants neither the order of a dict's keys nor the type of a value:
+    which Lua value each kind becomes, and which kind a table that could be
+    an array or a dict is written as, are the decisions to make.
+  - A dict that holds a key twice read, the last of the key's entries
+    standing, as [`Json.decode`]'s `duplicate_keys` reads an object. Both
+    decoders refuse one today.
+  - A property list too large to hold whole, read an element at a time from
+    a stream, which the XML form allows and the binary form, whose trailer
+    is at its end, does not.
+
 - `cosmic lsp` ([`build/lsp/session.tl`]) answers diagnostics, hover, go to definition, completion and formatting. Definition and completion read
   the open document's last check, [`check.read`] and [`check.last`] (its tree, scopes and types), and the working database for
   the other modules: the `places` rows for a declaration's position ([`build/lsp/source.tl`]), the docs for a member's text.
@@ -532,6 +558,7 @@ four-producer provenance join.
 [`cosmic.internal.relay_start`]: ../cosmic/internal/relay_start.tl
 [`cosmic.mdns`]: ../cosmic/mdns.tl
 [`cosmic.net`]: ../cosmic/net.tl
+[`cosmic.plist`]: ../cosmic/plist.tl
 [`cosmic.relay.address`]: ../cosmic/relay/address.tl
 [`cosmic.relay.grant`]: ../cosmic/relay/grant.tl
 [`cosmic.removed`]: ../cosmic/removed.tl
@@ -560,6 +587,9 @@ four-producer provenance join.
 [`Mdns.responder`]: ../cosmic/mdns.tl
 [`Net.datagram`]: ../cosmic/net.tl
 [`Net.serve`]: ../cosmic/net.tl
+[`Plist.decode`]: ../cosmic/plist.tl
+[`Plist.form`]: ../cosmic/plist.tl
+[`Plist.Value`]: ../cosmic/plist.tl
 [`Proc.relaunch`]: ../cosmic/proc.tl
 [`Sandbox.Limits`]: ../cosmic/sandbox/init.tl
 [`Sandbox.Policy`]: ../cosmic/sandbox/init.tl
