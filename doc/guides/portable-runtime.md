@@ -399,10 +399,14 @@ core accepts it (it requires a core for every target) and runs as it does from
 any artifact. It runs every verb the same, and a rebuild reuses its prefix, so
 it stays what it is, and a boot it starts is a bare one when its prefix holds a
 placeholder ([`artifact.host_only`]) and `-Dboot-cores=all` when not. What needs
-another target's core refuses and names that boot: `cosmic build` of a portable
+another target's core does not get a placeholder's. `cosmic build` of a portable
 program, which would run on this host alone and say nothing of it (`--host` is
-all such a tool writes), and the tests of one, which declare `all_cores` and are
-skipped, saying so.
+all such a tool writes), runs `bin/zig build boot -Dboot-cores=all` in the
+checkout the tool was built from and re-enters the command on the tool of every
+core that boot wrote ([`reboot.every_core_into`]); where the tool does not boot
+(`COSMIC_AUTO_BOOT=0`, a copy outside its checkout's build directory, another
+run holding the checkout) it refuses and names that boot. The tests of a
+portable program declare `all_cores` and are skipped, saying so.
 
 ## test identity and transport
 
@@ -552,6 +556,7 @@ manifest: names the running core
 [`embed.tree`]: ../../build/embed.tl
 [`Proc.executable()`]: ../../cosmic/proc.tl
 [`Proc.relaunch`]: ../../cosmic/proc.tl
+[`reboot.every_core_into`]: ../../build/reboot.tl
 [`Store.attach`]: ../../cosmic/store.tl
 [`Store.databases()`]: ../../cosmic/store.tl
 [`Store.requires`]: ../../cosmic/store.tl

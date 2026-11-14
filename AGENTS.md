@@ -55,14 +55,16 @@ worktree's build directory when you delete the worktree.
    executable is not a substitute. The tool it writes carries the host's
    core alone, a placeholder script standing where each other core goes,
    which is all `cosmic test`, `fix`, `docs` and the other verbs need; it
-   rebuilds and boots itself as the same kind. What needs another
-   target's core refuses and names the remedy: `cosmic build` of a
-   portable program (`--host` works), and the tests of it, which are
-   reported skipped with `all_cores` named. `bin/zig build boot
+   rebuilds and boots itself as the same kind. `bin/zig build boot
    -Dboot-cores=all` builds every release core and writes the tool CI
    verifies; run it before a change to the portable artifact, the
    launcher or `cosmic build` ([`doc/contributing.md`]). CI names
-   `-Dboot-cores=all` itself ([`ci/cosmic_ci/orchestration.tl`]).
+   `-Dboot-cores=all` itself ([`ci/cosmic_ci/orchestration.tl`]). What
+   needs another target's core on a host-only tool: `cosmic build` of a
+   portable program (`--host` needs none) runs that boot itself, once,
+   and goes on, the tool carrying every core from then on (with
+   `COSMIC_AUTO_BOOT=0` it refuses and names the boot); the tests of
+   one are reported skipped with `all_cores` named.
 2. Edit source and tests, then run `bin/cosmic fix <changed-paths>`. It
    checks syntax and builds the tree as `cosmic test` does, so a type
    error or a broken contract fails it, saying why. It writes a C file
@@ -155,11 +157,11 @@ to the items marked (checked) in [`doc/c.md`]. Read that before writing C.
 [`bin/cosmic-bootstrap`] on the cosmic release [`ci/cosmic-driver.pin`]
 names, not on the tree, so what a change adds reaches them only once the
 pin moves. `COSMIC_BOOTSTRAP=<path>` makes them run another cosmic
-instead, such as the tree's own tool by its path in the build directory
-([`bin/cosmic`] itself is refused). A change that moves the pin also takes
-up every `TODO:` the new release unblocks: `bin/cosmic todos
-'"cosmic-driver.pin"'` lists them, and [`doc/contributing.md`] has the
-procedure.
+instead, such as the tree's own tool by its path in the build directory,
+which `bin/cosmic build` prints ([`bin/cosmic`] itself is refused). A
+change that moves the pin also takes up every `TODO:` the new release
+unblocks: `bin/cosmic todos '"cosmic-driver.pin"'` lists them, and
+[`doc/contributing.md`] has the procedure.
 
 [`bin/cosmic-bootstrap`]: bin/cosmic-bootstrap
 [`bin/cosmic`]: bin/cosmic

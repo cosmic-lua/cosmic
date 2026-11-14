@@ -32,6 +32,9 @@
 #include <libproc.h>
 #include <sys/proc_info.h>
 #endif
+#if defined(__linux__)
+#include <netpacket/packet.h>
+#endif
 
 #include <ares.h>
 
@@ -1096,6 +1099,27 @@ static void interfaces_release (void *resource) {
   freeifaddrs(resource);
 }
 
+/* The index of the interface `name` of `list`, 0 where the system names
+ * none. Linux reads it from the interface's link-layer entry: its
+ * if_nametoindex is an ioctl, which a sandboxed process's filter refuses.
+ * An address's entry may be named by its label, the interface's name and
+ * then ":" and an alias ("eth0:1"), which is the interface's all the same. */
+static lua_Integer interface_named (const struct ifaddrs *list, const char *name) {
+#if defined(__linux__)
+  size_t size = strcspn(name, ":");
+  for (const struct ifaddrs *entry = list; entry != NULL; entry = entry->ifa_next) {
+    if (entry->ifa_addr != NULL && entry->ifa_addr->sa_family == AF_PACKET &&
+        strncmp(entry->ifa_name, name, size) == 0 && entry->ifa_name[size] == '\0') {
+      return ((const struct sockaddr_ll *)entry->ifa_addr)->sll_ifindex;
+    }
+  }
+  return 0;
+#else
+  (void)list;
+  return (lua_Integer)if_nametoindex(name);
+#endif
+}
+
 COSMIC_SYSCALL(interfaces, 0) {
   struct cosmic_guard *guard = cosmic_guard_push(L, interfaces_release);
   struct ifaddrs *list = NULL;
@@ -1107,7 +1131,7 @@ COSMIC_SYSCALL(interfaces, 0) {
     lua_createtable(L, 0, 7);
     lua_pushstring(L, entry->ifa_name);
     lua_setfield(L, -2, "name");
-    lua_pushinteger(L, (lua_Integer)if_nametoindex(entry->ifa_name));
+    lua_pushinteger(L, interface_named(list, entry->ifa_name));
     lua_setfield(L, -2, "index");
     lua_pushboolean(L, (entry->ifa_flags & IFF_UP) != 0);
     lua_setfield(L, -2, "up");

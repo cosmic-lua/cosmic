@@ -5029,9 +5029,10 @@ COSMIC_SYSCALL(spawn, 12) {
   }
   /* The namespaces the child makes itself ([`start_unveiled`], [`go_offline`]):
    * a user namespace, whose capabilities the kernel does not take for the
-   * initial one's, so it cannot raise a hard limit; and for an unveiled
-   * child a pid namespace of its own. */
-  if (unveiling || offline) held |= COSMIC_HELD_LIMITS;
+   * initial one's, so it cannot raise a hard limit, nor for those of the
+   * owner of a network namespace it did not make, so it cannot change
+   * one; and for an unveiled child a pid namespace of its own. */
+  if (unveiling || offline) held |= COSMIC_HELD_LIMITS | COSMIC_HELD_NETWORK;
   if (unveiling) held |= COSMIC_HELD_PIDS;
 #endif
   (void)grant_count; /* only the Linux build holds a child to its grants */
