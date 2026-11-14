@@ -68,11 +68,13 @@ local record Cipher
     byte_order?: ByteOrder
     --- How many messages this end has already sent under `output_key`,
     --- 0 by default: for resuming a session whose keys and counts were
-    --- kept. A count lower than the true one reuses a nonce, with the
-    --- cost [`Cipher.seal`] describes.
+    --- kept. A channel does not answer its counts: the caller counts the
+    --- messages it seals. A count lower than the true one reuses a
+    --- nonce, with the cost [`Cipher.seal`] describes.
     sent?: integer
     --- How many messages this end has already opened under `input_key`,
-    --- 0 by default: for resuming, as `sent` is.
+    --- 0 by default: for resuming, as `sent` is. The caller counts the
+    --- messages that opened.
     received?: integer
   end
 
