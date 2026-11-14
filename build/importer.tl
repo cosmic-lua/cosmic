@@ -190,7 +190,7 @@ local record importer
     end
     --- Compiles `due` in copies of this process, `make` the compile of
     --- one module (nil where it makes none), or nil where no copy is
-    --- made: too few modules, one processor, or a host that forks none
+    --- made: too few modules, or one processor
     --- ([`build.compile_fanout`]). `make` is told, with a module, the
     --- paths its copy has yet to make after it. `watch` is called in
     --- this process while the copies run.

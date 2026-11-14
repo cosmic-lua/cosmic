@@ -1,13 +1,21 @@
 --- `fork` of the raw process table (core/process.h): the copy runs on from
---- the call, and a scoped one is held to signalling itself.
+--- the call, on Linux and macOS, and a scoped one, which is Linux's, is held
+--- to signalling itself.
 
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local process = require("cosmic.internal.process")
 
---- Whether this host forks at all: Linux.
+local system <const> = assert(sys.uname()).sysname
+
+--- Whether this host scopes a fork: Linux.
 local function linux(): boolean
-  return assert(sys.uname()).sysname == "Linux"
+  return system == "Linux"
+end
+
+--- Whether this host forks at all: Linux and macOS.
+local function forks(): boolean
+  return system == "Linux" or system == "Darwin"
 end
 
 --- Reaps `pid` and answers its exit status, -1 for one a signal ended.
@@ -22,7 +30,7 @@ end
 --- values, answers 0, has a pid of its own, and what it writes to a pipe made
 --- before the fork the parent reads.
 local function test_a_fork_runs_on_in_a_copy()
-  if not linux() then Test.skip("fork is Linux's") end
+  if not forks() then Test.skip("no fork here") end
   local pipe = assert(process.pipe())
   local before = sys.getpid()
   local carried = "made before the fork"
@@ -46,7 +54,7 @@ end
 --- A scoped child can signal itself and not its parent; an unscoped one can
 --- signal its parent. Signal 0 asks only whether the signal may be sent.
 local function test_a_scoped_fork_cannot_signal_its_parent()
-  if not linux() then Test.skip("fork is Linux's") end
+  if not linux() then Test.skip("a scoped fork is Linux's") end
   local abi, abi_why = process.landlock_abi()
   if abi == nil then
     Test.skip("no Landlock here: " .. abi_why)
@@ -86,7 +94,7 @@ end
 --- A scoped child moves a file from one directory to another, as its parent may: the ruleset that scopes its
 --- signals refuses no move.
 local function test_a_scoped_fork_moves_a_file_between_directories(tmp: string)
-  if not linux() then Test.skip("fork is Linux's") end
+  if not linux() then Test.skip("a scoped fork is Linux's") end
   local abi, abi_why = process.landlock_abi()
   if abi == nil then
     Test.skip("no Landlock here: " .. abi_why)
@@ -111,9 +119,51 @@ end
 -- TODO: test that a process with another thread is refused (EBUSY), once a binding the core gives a test starts a
 -- thread: none does today, so no test can have two.
 
---- Off Linux there is no fork.
-local function test_fork_is_not_implemented_off_linux()
-  if linux() then Test.skip("Linux has fork") end
+--- A fork is refused while a signal guard is open, and made once it is closed.
+local function test_a_fork_is_refused_while_a_signal_guard_is_open()
+  if not forks() then Test.skip("no fork here") end
+  local guard = assert(process.guard_child_signals())
   local pid, why, number = process.fork(false)
+  if pid == 0 then sys.exit(0) end
+  process.unguard_child_signals(guard)
+  if pid ~= nil then local _ = status_of(pid) end
+  assert(pid == nil, "a fork was made while a signal guard was open")
+  assert(sys.errno_name(number) == "EBUSY", why)
+  local after, after_why = process.fork(false)
+  if after == 0 then sys.exit(9) end
+  assert(after ~= nil, after_why)
+  assert(status_of(after) == 9)
+end
+
+--- On macOS a kqueue is not the child's: the descriptor that watches a child's exit is closed in a copy.
+local function test_a_kqueue_is_closed_in_the_copy_on_macos()
+  if system ~= "Darwin" then Test.skip("a kqueue is macOS's") end
+  local watched, watched_why = process.fork(false)
+  if watched == 0 then
+    local _, _ = sys.nanosleep(10 * 1000000000)
+    sys.exit(0)
+  end
+  assert(watched ~= nil, watched_why)
+  local watch = assert(process.exit_watch(watched))
+  assert(sys.fstat(watch) ~= nil, "the parent holds the watch")
+  local pid, why = process.fork(false)
+  if pid == 0 then
+    local held, _, number = sys.fstat(watch)
+    sys.exit(if held == nil and number == sys.EBADF then 0 else 3 end)
+  end
+  local status = if pid ~= nil then status_of(pid) else -2 end
+  local _, _ = sys.kill(watched, sys.SIGKILL)
+  local _ = status_of(watched)
+  assert(sys.close(watch))
+  assert(pid ~= nil, why)
+  assert(status == 0, "the copy's look at the watch, 3 for one still open: " .. tostring(status))
+end
+
+--- A scoped fork is refused on macOS, which scopes no child's signals, and makes no child.
+local function test_a_scoped_fork_is_refused_on_macos()
+  if system ~= "Darwin" then Test.skip("Linux scopes a fork") end
+  local pid, why, number = process.fork(true)
+  if pid == 0 then sys.exit(0) end
+  if pid ~= nil then local _ = status_of(pid) end
   assert(pid == nil and number == sys.ENOSYS, why)
 end

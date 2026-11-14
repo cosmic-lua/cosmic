@@ -8,10 +8,11 @@
 --- handle the process held when it forked, a database's among them, is
 --- never written by a copy, and a copy that uses a connection the process
 --- opened raises ([`Sqlite.disown`]). What a copy has to say it leaves in a file
---- of its own. Where the process cannot be forked (macOS; another thread
---- running; a signal guard open) no copy runs, and the caller does the
---- work itself, as it does that of a copy still running after
---- [`fanout.patience_ns`], which is ended.
+--- of its own. Where the process cannot be forked (another thread
+--- running, which on macOS the C library may have started itself; a
+--- signal guard open) no copy runs, and the caller does the work itself,
+--- as it does that of a copy still running after [`fanout.patience_ns`],
+--- which is ended.
 
 local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
@@ -54,12 +55,20 @@ local function asked(): integer
   return count
 end
 
+--- The most copies on a host that does not say what memory it has free
+--- (macOS): four of a build's largest, 1.5 GB each, fit in the 8 GB the
+--- smallest Mac this core runs on has.
+local unmeasured <const> = 4
+
 --- How many copies of `each` bytes the host has room for, by what its
---- /proc/meminfo says is available: `most` where it does not say.
+--- /proc/meminfo says is available: `unmeasured` where it does not say,
+--- as on macOS, which has none.
 local function room(each: integer): integer
   local text, _ = Fs.read("/proc/meminfo")
   local available = math.tointeger(tonumber((text or ""):match("MemAvailable:%s*(%d+) kB")))
-  if available == nil then return fanout.most end
+  -- TODO: bound the copies by the memory a Mac has free, once the core has a binding that answers it (hw.memsize
+  -- and the pages in use): until then a host that does not say gets `unmeasured`.
+  if available == nil then return unmeasured end
   return available * 1024 // each
 end
 
