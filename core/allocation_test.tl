@@ -27,6 +27,7 @@
 --- also requires the children file in this process's mounted /proc.
 
 local AllocationFixture = require("build.allocation_fixture")
+local Bigint = require("cosmic.bigint")
 local Codec = require("cosmic.codec")
 local Compress = require("cosmic.compress")
 local Fs = require("cosmic.fs")
@@ -813,6 +814,26 @@ local function test_hash_leaves_nothing_whenever_an_allocation_fails()
   end)
   assert(ended > 0, "an HMAC hasher is an allocation")
   assert_c_heap(bytes, blocks, "HMAC hashing under refusal")
+end
+
+--- Each call holds its numbers in one block of the core's own, under a
+--- guard: a refusal of the block, of the guard or of the answer's string
+--- leaves none. The limbs are mbedtls's own allocations, which the walk
+--- neither refuses nor counts.
+local function test_bigint_leaves_nothing_whenever_an_allocation_fails()
+  collectgarbage("collect")
+  local bytes, blocks = testing.c_heap()
+  local prime = string.rep("\255", 31) .. "\67"
+  local ended = AllocationFixture.under_every_failure(function()
+    local power = Bigint.powmod("\5", "\200\200", prime)
+    local product = Bigint.mul(power, power)
+    local sum = Bigint.add(product, power)
+    assert(assert(Bigint.sub(sum, power)) == product)
+    assert(Bigint.sub(power, sum) == nil)
+    assert(Bigint.compare(Bigint.mod(sum, prime), prime) == -1)
+  end)
+  assert(ended > 0, "a call's numbers are an allocation")
+  assert_c_heap(bytes, blocks, "big integers under refusal")
 end
 
 --- A safe value is a userdata and a string of Lua's own, and no C memory:

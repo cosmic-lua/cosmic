@@ -13,6 +13,7 @@
 #include <unistd.h>
 
 #include "assertions.h"
+#include "bigint.h"
 #include "check.h"
 #include "fail.h"
 #include "lauxlib.h"
@@ -105,6 +106,7 @@ static const struct raw_value {
   {"cosmic.internal.socket", cosmic_open_socket, 1},
   {"cosmic.internal.json", cosmic_open_json, 1},
   {"cosmic.internal.xml", cosmic_open_xml, 1},
+  {"cosmic.internal.bigint", cosmic_open_bigint, 1},
   {"cosmic.internal.budget", cosmic_open_budget, 0},
   {"cosmic.internal.assertions", cosmic_open_assertions, 0},
 };
