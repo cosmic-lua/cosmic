@@ -19,7 +19,8 @@ end
 --- [`positions.check`] over `files` (each file and what it requires), in a
 --- project tree or in cosmic's own.
 local function positioned(files: {{string}}, own_tree: boolean,
-                          carried?: function(name: string): boolean, sources?: {string: string}): boolean, string
+                          carried?: function(name: string): boolean, sources?: {string: string},
+                          public?: {string: boolean}): boolean, string
   local modules: mut {positions.Module} = {}
   for _, row in ipairs(files) do
     local requires: mut {string} = {}
@@ -29,7 +30,7 @@ local function positioned(files: {{string}}, own_tree: boolean,
     if sources ~= nil then source = sources[file] or "" end
     modules[#modules + 1] = module_at(file, requires, source)
   end
-  return positions.check(modules, { own = own_tree }, carried)
+  return positions.check(modules, { own = own_tree }, carried, public)
 end
 
 --- A directory's own `init.tl` is the one path in from outside: a
@@ -247,6 +248,55 @@ local function test_position_refuses_cosmic_internal_in_a_project_tree()
   assert(not ok and trouble:find("a project may not require it", 1, true) ~= nil, trouble)
   ok, trouble = positioned({ { "app/main.tl", "cosmic.internal.json" } }, false, carries)
   assert(ok, trouble)
+end
+
+--- A project tree may not require a module of the standard library that the binary carries and does not record as
+--- public: the refusal names the public module above it. One the binary records, a package's entry or a module that
+--- says `--- @public`, is required freely, and cosmic's own tree is held to its own files' positions alone.
+local function test_position_refuses_a_private_library_module_in_a_project_tree()
+  local held = { ["cosmic.web"] = true, ["cosmic.web.input"] = true, ["cosmic.web.router"] = true,
+    ["cosmic.template"] = true, ["cosmic.template.dialect"] = true, ["cosmic.template.dialect.html"] = true,
+    ["cosmic.internal.wire"] = true, ["cosmic.lone.part"] = true, ["build.importer"] = true }
+  local function carries(name: string): boolean return held[name] == true end
+  local public = { ["cosmic.web"] = true, ["cosmic.web.input"] = true, ["cosmic.template"] = true }
+  local ok, trouble = positioned({ { "app/main.tl", "cosmic.web.router" } }, false, carries, nil, public)
+  assert(not ok and trouble == "app/main.tl: cosmic.web.router is private to its directory in the standard library, " ..
+      "and a project may not require it: require cosmic.web, its package's entry, or ask that the module say " ..
+      "`--- @public`", trouble)
+  ok, trouble = positioned({ { "app/main.tl", "cosmic.web", "cosmic.web.input" } }, false, carries, nil, public)
+  assert(ok, trouble)
+  -- The entry named is the nearest public module above, past a private one.
+  ok, trouble = positioned({ { "app/main.tl", "cosmic.template.dialect.html" } }, false, carries, nil, public)
+  assert(not ok and trouble:find("require cosmic.template, its package's entry, or ask", 1, true) ~= nil, trouble)
+  -- With no public module above it there is none to name.
+  ok, trouble = positioned({ { "app/main.tl", "cosmic.lone.part" } }, false, carries, nil, public)
+  assert(not ok and trouble:find("may not require it: ask that the module say `--- @public`", 1, true) ~= nil, trouble)
+  -- Each breach is one line, and an internal module keeps its own refusal.
+  ok, trouble = positioned({ { "app/main.tl", "cosmic.web.router", "cosmic.internal.wire" } }, false, carries, nil, public)
+  assert(not ok and select(2, trouble:gsub("\n", "")) == 1 and
+      trouble:find("cosmic.internal.wire is internal to cosmic's own tree", 1, true) ~= nil, trouble)
+  -- A name the binary does not carry is no module of the library, and one outside its namespace is not this rule's.
+  ok, trouble = positioned({ { "app/main.tl", "cosmic.web.absent", "build.importer" } }, false, carries, nil, public)
+  assert(ok, trouble)
+  -- A binary that records no public set refuses none.
+  ok, trouble = positioned({ { "app/main.tl", "cosmic.web.router" } }, false, carries)
+  assert(ok, trouble)
+  -- cosmic's own tree is unaffected, whatever the binary records.
+  ok, trouble = positioned({ { "cosmic/web/init.tl", "cosmic.web.router" }, { "cosmic/web/router.tl" },
+    { "build/user.tl", "cosmic.template.dialect.html" } }, true, carries, nil, public)
+  assert(ok, trouble)
+end
+
+--- A hint names no library module the check refuses: [`positions.permits`] takes the binary's public set as
+--- [`positions.check`] does.
+local function test_position_permits_agrees_on_a_private_library_module()
+  local function carries(name: string): boolean
+    return name:sub(1, 11) == "cosmic.web." or name == "cosmic.web"
+  end
+  local public = { ["cosmic.web"] = true }
+  assert(not positions.permits({}, "app/main.tl", "module", "cosmic.web.router", { own = false }, carries, public))
+  assert(positions.permits({}, "app/main.tl", "module", "cosmic.web", { own = false }, carries, public))
+  assert(positions.permits({}, "build/user.tl", "module", "cosmic.web.router", { own = true }, carries, public))
 end
 
 --- A module whose path has an `internal` directory component may be required only by modules under that component's

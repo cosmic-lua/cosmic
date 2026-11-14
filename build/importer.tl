@@ -36,6 +36,7 @@ local type Pipeline = require("build.pipeline")
 local type ParseDerive = require("build.parse_derive")
 local analysis_schema = require("build.analysis_schema")
 local positions = require("build.positions")
+local standard_text = require("build.standard_text")
 local type SyntaxReceivers = require("build.syntax_receivers")
 local work = require("build.work")
 local log = require("build.logger").log
@@ -1358,6 +1359,9 @@ local function compile_derived(handle: work.Handle, tool: string,
     local bytecode, _ = Store.bytecode(name)
     return bytecode ~= nil
   end
+  -- Read once, and for a project alone: cosmic's own tree is held to no public set.
+  local recorded: {string: boolean}? = nil
+  if not standing.own then recorded = standard_text.public() end
   -- The modules a run holds out for what they do, not for what they hold: a position rule they break, a `global`
   -- they declare. A run that names a file stops at the first, as it always did; one over the tree refuses the modules
   -- alone ([`importer.Result`]'s `refused`) and goes on, so that a module that breaks none still builds.
@@ -1376,11 +1380,11 @@ local function compile_derived(handle: work.Handle, tool: string,
     roots_by_file[file] = resting
   end
   if lenient then
-    for _, one in ipairs(positions.violations(modules, standing, carries)) do
+    for _, one in ipairs(positions.violations(modules, standing, carries, recorded)) do
       hold(one.module.path, one.module.file, one.message)
     end
   else
-    local positioned, position_trouble = positions.check(modules, standing, carries)
+    local positioned, position_trouble = positions.check(modules, standing, carries, recorded)
     if not positioned then
       if outcome ~= nil then outcome.refused = true end
       return nil, position_trouble

@@ -17,6 +17,7 @@ local plans = require("build.plans")
 local plan = require("build.lsp.plan")
 local positions = require("build.positions")
 local source = require("build.lsp.source")
+local standard_text = require("build.standard_text")
 local type build_module = require("build.module")
 
 local record graph
@@ -61,6 +62,25 @@ end
 local function carried(name: string): boolean
   local bytecode, _ = Store.bytecode(name)
   return bytecode ~= nil
+end
+
+--- The binary's public set as [`public_of`] last read it; `read` once it has been asked.
+local record Binary
+  mut read: boolean
+  mut public: {string: boolean}?
+end
+
+local binary: Binary = { read = false, public = nil }
+
+--- The modules the running binary records as public, as a build asks them of a library module a project requires
+--- ([`positions.check`]), read once: nil for cosmic's own tree (`own`), which is held to no public set.
+local function public_of(own: boolean): {string: boolean}?
+  if own then return nil end
+  if not binary.read then
+    binary.public = standard_text.public()
+    binary.read = true
+  end
+  return binary.public
 end
 
 --- The refusal `said` at `at`.
@@ -169,10 +189,11 @@ function graph.meant(src: source.View, file: string, name: string): {string}
     kind = mine.kind
   end
   local standing = source.standing(src)
+  local public = public_of(standing.own)
   local tail = "." .. name
   local found: mut {Module} = {}
   for _, m in ipairs(modules) do
-    if m.file ~= file and #m.path > #tail and m.path:sub(-#tail) == tail and positions.permits(modules, file, kind, m.path, standing, carried) then
+    if m.file ~= file and #m.path > #tail and m.path:sub(-#tail) == tail and positions.permits(modules, file, kind, m.path, standing, carried, public) then
       found[#found + 1] = m
     end
   end
@@ -200,17 +221,18 @@ function graph.refusals(src: source.View, file: string, path: string, kind: stri
   local checked = module_of(path, file, kind, {})
   modules[#modules + 1] = checked
   local standing = source.standing(src)
+  local public = public_of(standing.own)
   -- The build's check names what each breach requires but not where the
   -- require is written: where it refuses any, each is asked alone, to
   -- place its message at that require.
   local all: mut {string} = {}
   for _, at in ipairs(requires) do all[#all + 1] = at.name end
   checked.requires = all
-  local fine, _ = positions.check(modules, standing, carried)
+  local fine, _ = positions.check(modules, standing, carried, public)
   if not fine then
     for _, at in ipairs(requires) do
       checked.requires = { at.name }
-      local ok, why = positions.check(modules, standing, carried)
+      local ok, why = positions.check(modules, standing, carried, public)
       if not ok then out[#out + 1] = placed(why, at) end
     end
   end

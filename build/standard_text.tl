@@ -24,6 +24,12 @@ local record standard_text
   --- standard library's, each as [`standard_text.of`] reads a standard-library module. `cosmic -e` takes them so, since it
   --- is the tool's one-liner; nothing else does.
   own: function(name: string): Standard?
+
+  --- The modules the databases the running binary carries record as public ([`build.schema`]'s `public_modules`), each
+  --- set: the standard library's modules a project may require. Every database that has the table is read, since a
+  --- test's worker holds the rows in the store of its closure and not in the database it reads last, and a project's
+  --- own rows name none of the library's. Nil where none has the table.
+  public: function(): {string: boolean}?
 end
 
 local function read(name: string): standard_text.Standard?
@@ -55,6 +61,19 @@ end
 
 function standard_text.own(name: string): standard_text.Standard?
   return read(name)
+end
+
+function standard_text.public(): {string: boolean}?
+  local out: mut {string: boolean}? = nil
+  for _, db in ipairs(Store.databases()) do
+    local rows, _ = Sqlite.text_rows(db, "SELECT path FROM public_modules")
+    if rows ~= nil then
+      local held: mut {string: boolean} = out or {}
+      for _, row in ipairs(rows) do held[row:text(1)] = true end
+      out = held
+    end
+  end
+  return out
 end
 
 return standard_text

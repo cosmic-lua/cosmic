@@ -14,7 +14,14 @@
 
 local Fs = require("cosmic.fs")
 local importer = require("build.importer")
+local Test = require("cosmic.test")
 local work = require("build.work")
+-- Names what the last test's fixtures require, so that the test's store carries the package with its private modules.
+local type _ = require("cosmic.web")
+local type _ = require("cosmic.web.input")
+
+-- The last test's build checks a module against the library's own text.
+Test.policy{ store_text = true }
 
 local entry_source = "local record entry\nend\nreturn entry\n"
 local sibling_source = "local record sibling\nend\nreturn sibling\n"
@@ -123,4 +130,23 @@ local function test_nested_directory_without_an_entry_reachable_from_inside(tmp:
   local ok, trouble = try_build(root)
   assert(ok, "a module required from within its own entry-less directory " ..
       "should build, but: " .. tostring(trouble))
+end
+
+--- The standard library's closed directories are held the same way: a project's require of a module the tool carries
+--- and does not record as public is refused through the build, and one of the package's entry or of a module that
+--- says `--- @public` is not.
+local function test_a_library_module_private_to_its_directory_is_refused_in_a_project(tmp: string)
+  local root = tmp .. "/library_private"
+  assert(Fs.mkdirs(root))
+  assert(Fs.write(root .. "/outsider.tl", "local router = require(\"cosmic.web.router\")\nreturn router\n"))
+  local ok, trouble = try_build(root)
+  assert(not ok and trouble:find("outsider.tl: cosmic.web.router is private to its directory in the standard " ..
+      "library, and a project may not require it: require cosmic.web, its package's entry", 1, true) ~= nil, trouble)
+  root = tmp .. "/library_public"
+  assert(Fs.mkdirs(root))
+  assert(Fs.write(root .. "/outsider.tl", "local type Web = require(\"cosmic.web\")\n" ..
+      "local type Input = require(\"cosmic.web.input\")\nlocal record user\n  app: Web.App\n  refused: Input.Invalid\n" ..
+      "end\nreturn user\n"))
+  ok, trouble = try_build(root)
+  assert(ok, trouble)
 end
