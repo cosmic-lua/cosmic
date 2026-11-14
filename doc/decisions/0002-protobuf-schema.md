@@ -225,7 +225,8 @@ fields from the root, which is built only on failure: `protobuf: Protocol.conten
 
 - a known field with another wire type than its encoding fails, unless the record keeps what it does not understand.
 - a length is checked against the bytes left before anything is copied.
-- a varint is at most 10 bytes, and a group is refused, as the wire codec refuses both.
+- a varint is at most 64 bits (ten bytes, the tenth holding one bit), and a group is refused, as the wire codec
+  refuses both.
 - messages nest at most `max_depth` deep and a message holds at most `max_fields` fields. `decode` takes both as the
   wire codec's `decode` does, and their defaults are the wire codec's.
 - nothing bounds the input's length: the caller bounds the frame it reads. the memory `decode` takes is a multiple
@@ -247,8 +248,10 @@ aside both read those, and no field's bytes are copied to be passed over.
 ### cost
 
 - against the same messages written by hand on the wire codec, an 845-byte message, the schema writes the same
-  bytes. encoding takes 1.1 to 1.6 times the hand-written time, and decoding 1.0 to 1.4 times, over several runs on
-  a shared host. an embedded message is written to bytes and copied into its parent, so that what a record keeps
+  bytes. encoding takes 1.1 to 1.6 times the hand-written time, over several runs on a shared host. decoding took
+  1.0 to 1.4 times while the wire codec read in Teal, where both took about 200 µs. the codec now reads in the
+  core's C, and the hand-written decode takes about 35 µs and the schema's about 65 µs: the strict check asks the
+  message for each declared field's wire types, a call into the core apiece, which is what is left to shorten. an embedded message is written to bytes and copied into its parent, so that what a record keeps
   goes after its fields at every level; a record that keeps nothing could write through a child writer.
 - the source of the slice falls from 625 lines to about 170: the 115 lines of records stay, and 510 lines of readers
   and writers become about 55 lines of calls. that is 73% less. the count is of the slice written on a stand-in for
