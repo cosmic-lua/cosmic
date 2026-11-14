@@ -5661,6 +5661,34 @@ COSMIC_SYSCALL(children, 0) {
     lua_rawseti(L, -2, ++count);
   }
   return 1;
+#elif defined(__APPLE__)
+  /* libproc does not say how many children there are before it is asked.
+   * So the block starts zeroed, every pid in it is a child, and one in its
+   * last place asks again with a larger block. */
+  struct cosmic_guard *guard = cosmic_guard_push(L, cosmic_free);
+  size_t room = 64;
+  pid_t *pids;
+  for (;;) {
+    pids = cosmic_realloc(guard->resource, room * sizeof *pids);
+    if (pids == NULL) return cosmic_fail(L, ENOMEM);
+    guard->resource = pids;
+    memset(pids, 0, room * sizeof *pids);
+    /* A refusal is answered as no children, with the errno set. */
+    errno = 0;
+    int got = proc_listchildpids(getpid(), pids, (int)(room * sizeof *pids));
+    if (got <= 0 && errno != 0) return cosmic_fail(L, errno);
+    if (pids[room - 1] == 0) break;
+    if (room >= ((size_t)1 << 20)) return cosmic_fail(L, EOVERFLOW);
+    room *= 4;
+  }
+  lua_newtable(L);
+  lua_Integer count = 0;
+  for (size_t at = 0; at < room; at++) {
+    if (pids[at] <= 0) continue;
+    lua_pushinteger(L, (lua_Integer)pids[at]);
+    lua_rawseti(L, -2, ++count);
+  }
+  return 1;
 #else
   return cosmic_fail(L, ENOSYS);
 #endif
