@@ -34,23 +34,25 @@
 --- absent, and `f?: {T}` nil. `{ implicit = true }` on a field declared `f: T` is proto3's field with no presence:
 --- absent reads as zero, `""` or false, and that value is not written. `{ default = 0 }` on a field declared `f: T`
 --- reads as proto2's `[default = 0]` does: absent reads as the default. Unlike proto2's, which has presence, the
---- field is always written, the default too. The default is a literal of the field's type: an integer, a number, a boolean or a string.
+--- field is always written, the default too. The default is a literal of the field's type: an integer, a
+--- number, a boolean or a string.
 ---
 --- A record that declares a field of [`Unknown`] keeps what it does not understand, so that a program which
 --- decodes a message, changes a field and encodes it loses nothing of the rest: a field whose number the call
 --- does not name, a field of a named number that arrives with another wire type, and an enum number the enum
 --- does not name. The last two leave their field nil, and are written back while it is still nil; one of a
 --- repeated field is always written back. A field declared `f: T` has no nil to be left as, so either fails
---- `decode` for it, unless it has a default: it reads as the default, and is written, so what was held for it is
---- not. A record with no such field drops the first and the third and fails `decode` for the second.
+--- `decode` for it; a field of another wire type does not where the field has a default, which it reads as, and
+--- what was held for it is not written, since the field is. A record with no such field drops the first and the
+--- third and fails `decode` for the second.
 ---
 --- `decode` with `{ lenient = true }` ([`DecodeOptions`]) passes over a field of a named number that arrives with
 --- another wire type, in that message and every one it holds, and reads the rest, as the reference implementations
---- do. The field reads as though it were absent: nil, its default, or zero where it is `implicit`. It is for a schema that may be wrong about a field, such as
---- one worked out from what a device sends. The reference implementations keep such a field as an unknown one; a
---- record with no [`Unknown`] keeps nothing of it and writes nothing of it back, and a record with one holds it
---- as without the option. A required field with no default
---- still fails for it.
+--- do. The field reads as though it were absent: nil, its default, or zero where it is `implicit`. It is for a
+--- schema that may be wrong about a field, such as one worked out from what a device sends. The reference
+--- implementations keep such a field as an unknown one; a record with no [`Unknown`] keeps nothing of it and
+--- writes nothing of it back, and a record with one holds it as without the option. A required field with no
+--- default still fails for it.
 ---
 --- `decode` never raises, whatever the bytes, under the wire codec's bounds. It answers nil and the first thing that did not fit, by the path of
 --- fields from the root: `protobuf: Album.tracks[2].title (field 1): not UTF-8`. The bounds are the wire

@@ -188,8 +188,10 @@ local function test_a_field_with_a_default_reads_as_it_where_absent_and_is_alway
 end
 
 local function test_a_default_is_refused_where_it_does_not_fit()
-  refused(DEFAULTED, defaulted("maybe", "Schema.field(8, { default = 1 })"), "maybe: `default` is for a field declared `f: T`")
-  refused(DEFAULTED, defaulted("kinds", "Schema.field(9, { default = 1 })"), "kinds: `default` is for a field declared `f: T`")
+  refused(DEFAULTED, defaulted("maybe", "Schema.field(8, { default = 1 })"),
+    "maybe: `default` is for a field declared `f: T`")
+  refused(DEFAULTED, defaulted("kinds", "Schema.field(9, { default = 1 })"),
+    "kinds: `default` is for a field declared `f: T`")
   refused(DEFAULTED, defaulted("kind", "Schema.enum(10, KIND, { default = 'a' })"),
     "kind: `default` is for a field declared `f: T`")
   refused(DEFAULTED, defaulted("type", "Schema.field(1, { default = 0, implicit = true })"),
@@ -199,14 +201,16 @@ local function test_a_default_is_refused_where_it_does_not_fit()
   refused(DEFAULTED, defaulted("type", "Schema.fixed32(1, { default = -1 })"), "type: the default -1 is outside 0 to")
   refused(DEFAULTED, defaulted("on", "Schema.field(5, { default = 1 })"), "on: the default must be a boolean")
   refused(DEFAULTED, defaulted("name", "Schema.string(6, { default = '\\255' })"), "name: the default is no UTF-8")
-  refused(DEFAULTED, defaulted("scale", "Schema.field(4, { default = 1e999 })"), "scale: the default is no finite number")
+  refused(DEFAULTED, defaulted("scale", "Schema.field(4, { default = 1e999 })"),
+    "scale: the default is no finite number")
   refused(DEFAULTED, defaulted("type", "Schema.field(1, { implicit = 1 })"), "`implicit` is written `implicit = true`")
   refused(DEFAULTED, defaulted("type", "Schema.field(1, { dflt = 1 })"), '"dflt" is no option')
   refused(DEFAULTED, defaulted("type", "Schema.fixed32(1, { default = 4294967296 })"),
     "type: the default 4294967296 is outside 0 to 4294967295")
   refused(DEFAULTED, defaulted("type", "Schema.sfixed32(1, { default = 2147483648 })"),
     "type: the default 2147483648 is outside -2147483648 to 2147483647")
-  refused(DEFAULTED, defaulted("ratio", "Schema.float(3, { default = 0.1 })"), "ratio: the default 0.10000000000000001 is no float's value")
+  refused(DEFAULTED, defaulted("ratio", "Schema.float(3, { default = 0.1 })"),
+    "ratio: the default 0.10000000000000001 is no float's value")
   refused(DEFAULTED, defaulted("ratio", "Schema.float(3, { default = 1e300 })"), "is no float's value")
 end
 
