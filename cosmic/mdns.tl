@@ -89,6 +89,15 @@
 --- are forgotten and come again can spend all of it, after which a missing record is not asked
 --- for.
 ---
+--- A search with `txt_only` lists, too, the instances whose TXT record came and whose SRV record
+--- did not. Each is one of the 64 names that wait, and holds its place to the end of the search
+--- where another name gives its up, so the search holds no more than without it: `limit`
+--- instances with an SRV record and 64 without, of which it now lists those with a TXT record,
+--- `limit` + 64 instances at most and 12 KiB for each. Once 64 names are so kept, a name is
+--- taken only with its SRV record in the same message, to the end of the search: a machine that
+--- names 64 instances with a TXT record each keeps every other instance of that kind out. A name
+--- with neither record draws a question for each of them, three times, out of the same total.
+---
 --- In a task of [`Poll.run`] a search waits through the run, so the other tasks go on: it also
 --- lets them run after every 16 datagrams, however fast those come. A cancelled task's search
 --- ends with nil and [`Poll.CANCELLED`], and answers no list: a failure carries no value. What
@@ -126,9 +135,10 @@ local record Mdns
     --- where that was asked, `_ipp._tcp.local` where that was. Of a sub-type asked for it is the
     --- sub-type, where `fullname` ends in the name of the service.
     service: string
-    --- The name of the host the instance is at, as `printer.local`.
+    --- The name of the host the instance is at, as `printer.local`; "" for an instance with no
+    --- SRV record, which only a search with `txt_only` lists.
     host: string
-    --- The port of the service at that host.
+    --- The port of the service at that host; 0 for an instance with no SRV record.
     port: integer
     --- The IPv4 addresses of the host, in the order they came; none where no answer gave one.
     ipv4: {string}
@@ -140,9 +150,9 @@ local record Mdns
     txt: {string}
     --- The strings of `txt` read as keys and values by [`Dns.attributes`].
     attributes: {string: string}
-    --- The address the datagram with the instance's SRV record came from: the responder that
-    --- answers for it, which is its host unless another machine answers on its behalf. The
-    --- interface it came by is not known.
+    --- The address the datagram with the instance's SRV record came from, or with its TXT
+    --- record for an instance with no SRV record: the responder that answers for it, which is its
+    --- host unless another machine answers on its behalf. The interface it came by is not known.
     from: string
   end
 
@@ -177,6 +187,14 @@ local record Mdns
     --- has to say: 0 ends the search with the datagram that made the instance whole.
     --- [`Mdns.resolve`] holds it to its range and reads nothing else of it.
     settle_ns?: integer
+    --- For [`Mdns.browse`]: true lists the instances with a TXT record and no SRV record too,
+    --- which the search leaves out when nil or false. Some service types have no other kind:
+    --- `_device-info._tcp` says a machine's model in a TXT record and has no SRV record. Such an
+    --- instance has "" for its host, 0 for its port and no address, is never whole and is given to
+    --- `found` as the search ends. It has no place of `limit`: it is one of the 64 names that
+    --- wait for an SRV record, so a search lists 64 of them at most, past its `limit` ([`cosmic.mdns`]
+    --- has the bound).
+    txt_only?: boolean
     --- For [`Mdns.browse`]: called with each instance of the list once, in the task of the
     --- search. It is called as soon as the instance is whole, which is when its SRV record, its
     --- TXT record and an address of its host are known, or as the search ends for one whose SRV
@@ -243,7 +261,8 @@ local record Entry
   fullname: string
   --- The service type it is one of, as the caller wrote it.
   service: string
-  --- Whoever sent the record that named it, then whoever sent its SRV record.
+  --- Whoever sent the record that named it, then its TXT record while it has no SRV record, then
+  --- its SRV record.
   mut from: string
   mut host?: string
   mut port: integer
@@ -289,6 +308,8 @@ local record Hunt
   retry_ns: integer
   limit: integer
   found?: function(Mdns.Instance)
+  --- Whether an instance with a TXT record and no SRV record is kept and listed.
+  txt_only: boolean
   --- What a browse asks about, by the name its pointers are asked at in lower case, and those
   --- names as they are asked, in the order given; none for a resolve.
   services: {string: Service}
@@ -388,6 +409,7 @@ local function open(opts: Mdns.Options): Hunt?, string
     retry_ns = retry_ns,
     limit = limit,
     found = opts.found,
+    txt_only = opts.txt_only == true,
     services = {},
     pointers = {},
     instances = {},
@@ -555,6 +577,7 @@ local function hear(hunt: Hunt, packet: Net.Packet, now: integer)
       if place(hunt, entry, srv, from, now) then hunt.waiting = hunt.waiting - 1 end
     elseif entry ~= nil and txt ~= nil and entry.txt == nil and txt_fits(txt) then
       entry.txt = txt
+      if entry.host == nil then entry.from = from end
     end
   end
   for _, record in ipairs(records) do
@@ -575,20 +598,28 @@ local function host_of(hunt: Hunt, entry: Entry): Host?
   return hunt.hosts[name:lower()]
 end
 
---- `entry` as a caller is given it, with lists of its own; nil for one whose SRV record did not
---- come.
+--- Whether the search keeps and lists `entry` though its SRV record did not come: it has its TXT
+--- record, and the search was asked for such instances.
+local function kept_without_srv(hunt: Hunt, entry: Entry): boolean
+  return hunt.txt_only and entry.host == nil and entry.txt ~= nil
+end
+
+--- `entry` as a caller is given it, with lists of its own; nil for one the search does not list:
+--- its SRV record did not come, and it is not kept without.
 local function instance_of(hunt: Hunt, entry: Entry): Mdns.Instance?
   local host = host_of(hunt, entry)
-  if host == nil then return nil end
+  if host == nil and not kept_without_srv(hunt, entry) then return nil end
   local txt = entry.txt or {}
+  local ipv4: {string} = if host ~= nil then host.ipv4 else {} end
+  local ipv6: {string} = if host ~= nil then host.ipv6 else {} end
   return {
     name = entry.name,
     fullname = entry.fullname,
     service = entry.service,
-    host = host.name,
+    host = if host ~= nil then host.name else "" end,
     port = entry.port,
-    ipv4 = table.move(host.ipv4, 1, #host.ipv4, 1, {}),
-    ipv6 = table.move(host.ipv6, 1, #host.ipv6, 1, {}),
+    ipv4 = table.move(ipv4, 1, #ipv4, 1, {}),
+    ipv6 = table.move(ipv6, 1, #ipv6, 1, {}),
     txt = txt,
     attributes = Dns.attributes(txt),
     from = entry.from,
@@ -596,20 +627,22 @@ local function instance_of(hunt: Hunt, entry: Entry): Mdns.Instance?
 end
 
 --- Calls `found` with each instance it was not called with yet, of those that are whole or, with
---- `all`, of those that have a host, and answers how many instances are whole.
+--- `all`, of those the search lists, and answers how many instances are whole.
 local function tell(hunt: Hunt, all: boolean): integer
   local whole = 0
   for _, key in ipairs(hunt.order) do
     local entry = hunt.instances[key]
-    local host = if entry ~= nil then host_of(hunt, entry) else nil end
-    if entry ~= nil and host ~= nil then
-      local is_whole = entry.txt ~= nil and #host.ipv4 + #host.ipv6 > 0
+    if entry ~= nil then
+      local host = host_of(hunt, entry)
+      local is_whole = host ~= nil and entry.txt ~= nil and #host.ipv4 + #host.ipv6 > 0
       if is_whole then whole = whole + 1 end
       local found = hunt.found
       if found ~= nil and not entry.told and (is_whole or all) then
-        entry.told = true
         local instance = instance_of(hunt, entry)
-        if instance ~= nil then found(instance) end
+        if instance ~= nil then
+          entry.told = true
+          found(instance)
+        end
       end
     end
   end
@@ -624,12 +657,12 @@ end
 
 --- Forgets each instance that has no SRV record once the last question for it has had its time,
 --- so that it makes room for another name, and every one of them once the search holds all the
---- instances it may answer.
+--- instances it may answer. One the search keeps without an SRV record is never forgotten.
 local function forget_unanswered(hunt: Hunt, now: integer)
   for at = #hunt.order, 1, -1 do
     local key = hunt.order[at]
     local entry = if key ~= nil then hunt.instances[key] else nil end
-    if key ~= nil and entry ~= nil and entry.host == nil and
+    if key ~= nil and entry ~= nil and entry.host == nil and not kept_without_srv(hunt, entry) and
         (hunt.placed >= hunt.limit or (entry.asks >= FOLLOW_UPS and entry.ask_at <= now)) then
       hunt.instances[key] = nil
       table.remove(hunt.order, at)
@@ -653,15 +686,19 @@ local function follow_ups(hunt: Hunt, now: integer, due: mut {Dns.Question}, wak
     local entry = hunt.instances[key]
     if entry ~= nil and (entry.host == nil or entry.txt == nil) then
       if entry.asks < FOLLOW_UPS and entry.ask_at <= now then
-        -- The TXT record of a name with no SRV record would say nothing of use, and a name that
-        -- leads nowhere would draw two questions for one.
-        local wanted = if entry.host == nil then Dns.SRV else Dns.TXT end
-        follow_up(hunt, due, question(entry.fullname, wanted))
+        -- The TXT record of a name with no SRV record says nothing of use to a search that lists
+        -- no such instance, and a name that leads nowhere would draw two questions for one.
+        if entry.host == nil then follow_up(hunt, due, question(entry.fullname, Dns.SRV)) end
+        if entry.txt == nil and (entry.host ~= nil or hunt.txt_only) then
+          follow_up(hunt, due, question(entry.fullname, Dns.TXT))
+        end
         entry.asks = entry.asks + 1
         entry.ask_at = next_ask(hunt, now, entry.asks)
       end
-      -- After the last question too, for one with no SRV record: that is when it is forgotten.
-      if entry.asks < FOLLOW_UPS or entry.host == nil then wake = math.min(wake, entry.ask_at) end
+      -- After the last question too, for one that is then forgotten.
+      if entry.asks < FOLLOW_UPS or (entry.host == nil and not kept_without_srv(hunt, entry)) then
+        wake = math.min(wake, entry.ask_at)
+      end
     end
   end
   for _, key in ipairs(hunt.host_order) do
@@ -763,7 +800,8 @@ end
 --- as it was first written.
 ---
 --- The list holds each instance whose SRV record came, so each has its host and port; one that
---- was only named is left out. Its TXT strings and its host's addresses are there where they
+--- was only named is left out, and so is one with a TXT record and no SRV record unless
+--- `opts.txt_only` asks for those. Its TXT strings and its host's addresses are there where they
 --- came too, and the search asks for them when an answer leaves them out. The search ends early
 --- once `opts.limit` instances have all three: a limit of 1 answers the first instance found.
 --- It ends `opts.settle_ns` after the first instance has all three, where that is given.
