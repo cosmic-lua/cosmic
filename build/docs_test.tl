@@ -2933,7 +2933,7 @@ local function test_a_view_shows_and_searches_the_options_of_the_commands_it_is_
   local db = built(dir, commands_tree())
   local seen = assert(Doc.view({ db }))
   seen.commands = {
-    { name = "add", module = "ledger.commands", symbol = "add", options = "  --amount <cents>  what was spent" },
+    { name = "spend", module = "ledger.commands", symbol = "add", options = "  --amount <cents>  what was spent" },
     { name = "list", module = "ledger.commands", symbol = "list" },
   }
   local found = assert(Doc.lookup(seen, "Commands.add"))
@@ -2946,6 +2946,12 @@ local function test_a_view_shows_and_searches_the_options_of_the_commands_it_is_
   local bare = assert(Doc.lookup(seen, "Commands.list"))
   local plain = table.concat(assert(Doc.render(seen, support.nth(bare, 1))), "\n")
   assert(not plain:find("options:", 1, true), plain)
+  -- The list of every module marks what the view's own judge says of each.
+  seen.marks = function(_: Sqlite.Handle): {string: string}
+    return { ["ledger.commands"] = "private to ledger/" }
+  end
+  local index = table.concat(assert(Doc.answer(seen, {})).lines, "\n")
+  assert(index:find("ledger.commands  (private to ledger/) What the ledger does.", 1, true), index)
   assert(db:close())
 end
 

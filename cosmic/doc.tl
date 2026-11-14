@@ -507,8 +507,8 @@ end
 --- `X:read`), or a module's own row ([`cosmic.fs`]).
 local function named(db: Sqlite.Handle, public: boolean, query: string): {Doc.Entry}?, string
   -- TODO: a function a record declares as a field and its file defines has two rows of one source symbol (`years` and
-  -- `RunDb.years`), so `cosmic docs` shows it twice. Fix: [`build.syntax_analyzer`] writes one row for it, and this
-  -- answers once, as [`build.symbol_index`] answers a link; nothing blocks it.
+  -- `RunDb.years`), so `cosmic docs` shows it twice. Fix: the build writes one row for it, and this
+  -- answers once, as a link to it resolves once; nothing blocks it.
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT " .. columns .. " FROM docs d WHERE " .. symbols.named_where("d") ..
       " AND " .. symbols.shown_in(db, "d", public) .. " ORDER BY d.module, d.id",
@@ -955,7 +955,6 @@ local function has_docs(db: Sqlite.Handle): boolean?, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'docs'")
   if rows == nil then return nil, trouble end
-  if #rows == 0 then refuse_pure(db) end
   return #rows > 0, ""
 end
 
@@ -1219,7 +1218,7 @@ end
 --- `#` and a heading's anchor (`doc/writing.md#every-example-runs`). A
 --- path alone finds the links to its headings too, and a bare lowercase
 --- name the links to each module it is the last name of, as
---- [`Doc.exact`] reads one (`plural` for [`build.plural`]). A public source
+--- [`Doc.exact`] reads one (`fs` for [`cosmic.fs`]). A public source
 --- has no link to a file of its own tree.
 local function uses_of(db: Sqlite.Handle, public: boolean, query: string): {Doc.Use}?, string
   local rows, trouble = Sqlite.text_rows(db,
@@ -1274,7 +1273,7 @@ end
 
 --- Whether the database at `index` of `view` answers for `module`: the
 --- first that holds it, or, for "" -- a Markdown, C or Zig file's link,
---- which names no module ([`build.link_index`]) -- the first that is not
+--- which names no module -- the first that is not
 --- a public source, the tree's own projection, as only a tree's own
 --- build indexes its files.
 local function answers_for(view: Doc.View, index: integer, module: string): boolean
@@ -1633,7 +1632,7 @@ end
 ---   its verb, if it is one (`test`), as a see-also line after it;
 --- - its exact matches, when it names a symbol or a module, a member of
 ---   a type an alias stands for, or a module's member written in full
----   ([`cosmic.fs.read`]) or from its last name ([`cosmic.cli.order`]);
+---   ([`cosmic.fs.read`]) or from its last name (`Cli.order`);
 --- - a name [`cosmic.removed`] lists as gone, which no live row answers
 ---   (`Codec.encoder`, `os.getenv`): what to write instead, as the
 ---   compiler says it (see [`Members.removed_by`]);
@@ -1748,7 +1747,7 @@ local function lookup_names(view: Doc.View, query: string): Doc.Lookup?, string
   end
   -- A name that was removed answers what replaces it, before a search
   -- offers another module's member of the same name (`Codec.encoder`
-  -- would find the verb's, build.codec's).
+  -- would find the verb's, another module's).
   local gone, gone_trouble = Members.removed_by(view, query)
   if gone == nil then
     return nil, gone_trouble
@@ -2079,7 +2078,7 @@ function Members.in_full(view: Doc.View, query: string): {Doc.Entry}?, string
 end
 
 --- What `Q.name` names when `Q` is the last name of a module, either
---- case ([`cosmic.cli.order`], `fs.read`): that module's member `name`, as a
+--- case (`Cli.order`, `fs.read`): that module's member `name`, as a
 --- caller that requires it under that name reads it.
 function Members.by_last_name(view: Doc.View, query: string): {Doc.Entry}?, string
   local out: mut {Doc.Entry} = {}
@@ -2226,7 +2225,7 @@ end
 --- Every place across `databases` that refers to what `query` names,
 --- in file and line order: one per line for each thing it names there.
 --- A module's member, written in full ([`cosmic.cli.order`]) or from the
---- module's last name ([`cosmic.cli.order`]), is found as [`Doc.lookup`] finds
+--- module's last name (`Cli.order`), is found as [`Doc.lookup`] finds
 --- it, and its uses and links are those of that module's member alone.
 function Doc.uses(view: Doc.View, query: string): {Doc.Use}?, string
   local found, trouble = across(view,

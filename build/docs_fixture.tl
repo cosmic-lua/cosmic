@@ -1,7 +1,7 @@
 --- A shipped database for a test, made from sources by the build's own
 --- code rather than from rows written by hand.
 ---
---- A test of [`build.docs`] or of a reader of the `docs`, `uses` and
+--- A test of [`cosmic.doc`] or of a reader of the `docs`, `uses` and
 --- `examples` tables needs rows shaped as the build writes them: an
 --- exported member's own name (`find`) beside the name it was written
 --- as ([`Proc.find`]), a use recorded without the module's record. Rows

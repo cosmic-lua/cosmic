@@ -2,7 +2,7 @@
 --- `type Handle = raw_sqlite.Handle` hands out the fields and methods of
 --- the record it names, as [`Sqlite.Handle.close`] reads, and `record
 --- Options is raw_http.Options` those of its base. One rule for
---- `cosmic docs` ([`build.docs`]), which reads it off a database, and
+--- `cosmic docs` ([`cosmic.doc`]), which reads it off a database, and
 --- for the links `cosmic fix` checks and the build indexes
 --- ([`build.symbol_index`]), which read it off rows held in memory: each
 --- gives the rule its rows through a [`Source`].

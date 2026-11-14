@@ -1,11 +1,8 @@
 --- What names an exact query as a symbol, and what is a use of it: one
---- rule, shared by `cosmic docs` and `cosmic uses` ([`build.docs`]) and by
+--- rule, shared by `cosmic docs` and `cosmic uses` ([`cosmic.doc`]) and by
 --- the compiler's hint for a name it could not resolve
 --- ([`build.importer`]), so a hint never names a row `cosmic docs <word>`
---- would disagree with. It is a module of its own because
---- [`build.importer`] requires it for the hint, and [`build.docs`] requiring
---- [`build.importer`] back for this rule would be a cycle. This module
---- requires neither.
+--- would disagree with. It requires neither, so both may require it.
 
 local Sqlite = require("cosmic.sqlite")
 

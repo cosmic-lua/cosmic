@@ -496,7 +496,7 @@ local function index_of(view: Doc.View): symbol_index.Index?, string
       "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'docs'")
     if tables == nil then return nil, tables_trouble end
     if #tables > 0 then
-      -- Every row, as [`build.docs`] reads a type an alias stands for
+      -- Every row, as [`cosmic.doc`] reads a type an alias stands for
       -- in any; only those shown, of the database that owns the
       -- module, answer a name.
       local rows, trouble = Sqlite.text_rows(db,

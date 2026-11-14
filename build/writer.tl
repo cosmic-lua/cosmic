@@ -171,7 +171,7 @@ local insert_bound =
 --- The documented symbols ([`build.syntax_analyzer`]'s `DocEntry`) found while parsing
 --- each planned module and each declaration ([`cosmic.sys`]'s only source
 --- is the C header it is generated from), in module order and then
---- source order. Which of them a reader sees is [`build.docs`]'s to
+--- source order. Which of them a reader sees is [`cosmic.doc`]'s to
 --- decide: it answers a project only for the public standard library.
 --- `id` is left for SQLite to assign in that order, so it is the same on
 --- every build of the same tree.
@@ -220,7 +220,7 @@ local insert_typed_uses =
 --- beside [`cosmic/json_example.tl`] (or with `cosmic.json_yaml`, were
 --- there one), and `cosmic/jsonx_example.tl` with neither.
 ---
---- Nothing here decides which symbol an example is for. [`build.docs`]
+--- Nothing here decides which symbol an example is for. [`cosmic.doc`]
 --- decides at read time, by matching an example's text and source
 --- against a symbol's name through `examples_fts`: an example calls the
 --- real function it demonstrates, so the symbol's name is already in its
@@ -1264,7 +1264,7 @@ local carried_alias_signatures <const> =
 --- raw_http.Options`), whose page lists them, through the name its
 --- module binds `d`'s to ([`build.syntax_analyzer`]'s `Bound`). [`symbols.shown_docs`]
 --- still hides these rows from every public query; only that page's
---- resolution ([`build.docs`]) reads them. Written as a join, which
+--- resolution ([`cosmic.doc`]) reads them. Written as a join, which
 --- looks each doc row's module up among the aliases once: an `EXISTS` that
 --- scans them for each of the several hundred internal rows took most of a
 --- second of every tool rebuild.

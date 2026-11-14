@@ -6,7 +6,7 @@
 --- names, a module's own row, a module with no row of its own by its
 --- first, or a member of a type an alias stands for
 --- ([`Sqlite.Handle.exec`]) -- and, for a module's member written in full,
---- [`build.docs`]' `member_of`'s ([`cosmic.fs.read`],
+--- [`cosmic.doc`]' `member_of`'s ([`cosmic.fs.read`],
 --- [`cosmic.cli.order`]). A name alone never comes here:
 --- it names a declaration of its own file ([`build.link_resolve`]).
 
@@ -28,7 +28,7 @@ local record symbol_index
     file: string
     --- Whether a name may answer with it: `cosmic docs` shows it, from
     --- the database that owns its module. A row not shown is still a
-    --- type an alias may stand for, as [`build.docs`] reads every row.
+    --- type an alias may stand for, as [`cosmic.doc`] reads every row.
     shown: boolean
     database: integer
     id: integer
@@ -97,7 +97,7 @@ end
 --- `bound` ([`build.schema`]) of the database `db` holds under
 --- `qualifier` (`""` or `"out."`), where it holds that table: one
 --- written before it existed binds none. The first database read that
---- binds a name answers for it, as [`build.docs`] reads them.
+--- binds a name answers for it, as [`cosmic.doc`] reads them.
 function symbol_index.add_bound(index: symbol_index.Index, db: Sqlite.Handle,
                                 qualifier: string): boolean, string
   return doc_symbols.add_bound(index.bound, db, qualifier)
@@ -185,7 +185,7 @@ local function symbols(rows: {symbol_index.Row}): {link_resolve.Symbol}
 end
 
 --- The fields and values declared directly under `target`, less any
---- named `_...`, as [`build.docs`] reads them: those of the first
+--- named `_...`, as [`cosmic.doc`] reads them: those of the first
 --- database that declares any, in its order.
 local function members_under(index: symbol_index.Index, target: symbol_index.Row): {symbol_index.Row}
   local rows = index.under[target.module .. "\n" .. target.source_symbol] or {}
@@ -239,7 +239,7 @@ end
 --- the exported member `name` of the record the module's value is typed
 --- as (`Module.order` of a module that returns `local module: Module`);
 --- else the member of a type an alias of the module stands for
---- (`Handle.close` of [`cosmic.sqlite`]): [`build.docs`]' `member_of`.
+--- (`Handle.close` of [`cosmic.sqlite`]): [`cosmic.doc`]' `member_of`.
 local function members_of(index: symbol_index.Index, module: string,
                           name: string): {symbol_index.Row}
   local dotted = name:gsub(":", ".")
@@ -268,7 +268,7 @@ function symbol_index.member(index: symbol_index.Index, module: string,
 end
 
 --- The rows `query` names as declared or by its last few names, or a
---- module's own row, as [`build.docs`]'s `named` finds them.
+--- module's own row, as [`cosmic.doc`]'s `named` finds them.
 local function named_rows(index: symbol_index.Index, query: string): mut {{symbol_index.Row}}
   return { index.exact[query] or {}, index.named[query] or {},
     index.named[(query:gsub(":", "."))] or {} }
