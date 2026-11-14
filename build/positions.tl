@@ -140,10 +140,8 @@ end
 --- The standard library's closed directories keep their own as a project's do: a project tree's module requiring a
 --- module the running binary carries and keeps out of the public ones it records (`library`) is refused, and told the
 --- public module above it to require in its place.
---
--- TODO: refuse it in `cosmic --standalone <file>` and `cosmic -e` too, which run no position check and still load such
--- a module; [`build.project_refusals`] holds `cosmic.internal.*` there by its name alone. It waits on that check being
--- handed what the binary records ([`positions.Library`]), which a check of one parsed file does not read.
+--- A file checked alone (`cosmic --standalone <file>`, `cosmic -e`) runs no position check, and is told the same of such a
+--- require by [`build.project_refusals`], in the same words ([`positions.kept`]).
 ---
 --- Declarations (`.d.tl`) never reach this check: `collect` leaves
 --- them out, and `cosmic/internal/`'s are guarded by the reserved
@@ -223,6 +221,16 @@ local function instead(name: string, public: {string: boolean}): string
   return ""
 end
 
+--- What is said of a project's require of the module `name` that `library` keeps: that it is private to its directory,
+--- and what to require in its place. Nil where the binary records nothing (`library` is nil) or does not keep it.
+function positions.kept(name: string, library: positions.Library?): string?
+  if library == nil or library.kept[name] ~= true or library.public[name] == true then
+    return nil
+  end
+  return name .. " is private to its directory in the standard library, and a project may not require it: " ..
+    instead(name, library.public) .. "ask that the module say `--- @public`"
+end
+
 --- Every breach [`positions.check`] would name, one per `require` that breaks a rule, in module order and then
 --- in the order of the requires: what a caller that refuses the modules rather than the tree reads. `modules`,
 --- `standing`, `carried` and `library` are as `check` takes them.
@@ -246,10 +254,11 @@ function positions.violations(modules: {positions.Module}, standing: tree.Standi
       return m.file .. ": " .. name .. " is internal to cosmic's own tree; " ..
         "`cosmic.internal.*` is the standard library's, and a project may not require it"
     end
-    if other == nil and not standing.own and library ~= nil and library.kept[name] == true and
-        library.public[name] ~= true then
-      return m.file .. ": " .. name .. " is private to its directory in the standard library, and a project may " ..
-        "not require it: " .. instead(name, library.public) .. "ask that the module say `--- @public`"
+    if other == nil and not standing.own then
+      local kept = positions.kept(name, library)
+      if kept ~= nil then
+        return m.file .. ": " .. kept
+      end
     end
     if other ~= nil then
       local reach = positions.reach(other.file, entries, function(): boolean

@@ -197,6 +197,29 @@ local function test_the_other_fields_of_the_store_are_used_as_they_are_written()
   accepted("local Fs = require(\"cosmic.fs\")\nreturn Fs.attach\n")
 end
 
+--- A file checked alone is told of a `require` of a module the standard library keeps, in the words it is given, a type
+--- import included; with nothing given, or of a module that is not kept, it is told nothing.
+local function test_a_require_of_a_kept_library_module_is_told_what_it_is_given()
+  local function kept(name: string): string?
+    if name == "cosmic.web.router" then return "cosmic.web.router is kept" end
+    return nil
+  end
+  local function given(source: string): {string}
+    local chunk, why = Node.parse(source, "p.tl")
+    assert(chunk ~= nil, why)
+    return ProjectRefusals.check("p.tl", chunk, Scopes.build(chunk, "p.tl", {}), kept)
+  end
+  for _, source in ipairs({ "local r = require(\"cosmic.web.router\")\nreturn r\n",
+      "local type R = require(\"cosmic.web.router\")\nlocal r: R? = nil\nreturn r\n",
+      "local ok, r = pcall(require, \"cosmic.web.router\")\nreturn ok, r\n" }) do
+    local found = given(source)
+    assert(#found == 1 and assert(found[1]):find("^p%.tl:1:%d+: cosmic%.web%.router is kept$") ~= nil,
+      source .. "\n" .. table.concat(found, "\n"))
+  end
+  assert(#given("local w = require(\"cosmic.web\")\nreturn w\n") == 0)
+  accepted("local r = require(\"cosmic.web.router\")\nreturn r\n")
+end
+
 local function test_each_place_is_told_in_source_order_with_its_column()
   local found = told("local a = package\nlocal b = require(\"cosmic.internal.x\")\nlocal c = loadfile\nreturn a, b, c\n")
   assert(#found == 3, table.concat(found, "\n"))
