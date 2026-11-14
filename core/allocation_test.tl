@@ -820,6 +820,11 @@ end
 --- guard: a refusal of the block, of the guard or of the answer's string
 --- leaves none. The limbs are mbedtls's own allocations, which the walk
 --- neither refuses nor counts.
+
+-- TODO: refuse and count mbedtls's allocations too, once
+-- core/mbedtls_cosmic_config.h routes them through core/memory.h
+-- (MBEDTLS_PLATFORM_MEMORY): a limb's refusal, which core/bigint.c
+-- raises as "not enough memory", is a path no test walks.
 local function test_bigint_leaves_nothing_whenever_an_allocation_fails()
   collectgarbage("collect")
   local bytes, blocks = testing.c_heap()

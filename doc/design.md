@@ -1163,11 +1163,7 @@ PSA API, with randomness from the OS rather than the library's own
 entropy and DRBG modules. [`cosmic.hash`] is the Teal face of it, the
 raw [`cosmic.internal.hash`] table's `digest`, `hmac` and streaming
 hasher the bindings, and every SQLite
-handle knows the same functions, so a query hashes in place.
-[`cosmic.bigint`] is arithmetic on integers of thousands of bits over
-the library's bignum, the one its RSA and ECC use, which the PSA API
-does not expose: [`core/bigint.c`] asks for the private declarations,
-and the raw [`cosmic.internal.bigint`] table holds the bindings. the TLS
+handle knows the same functions, so a query hashes in place. the TLS
 1.2 and 1.3 client under [`cosmic.http`] (curl over c-ares and mbedtls)
 comes from the same library and the same configuration: one header,
 [`core/mbedtls_cosmic_config.h`], which every file that includes an
@@ -1180,6 +1176,11 @@ pinned bump; the core parses it once, and every TLS connection, a
 proxy's too, verifies against that chain. `SSL_CERT_FILE` adds
 certificates for the corporate-proxy case without making per-machine
 trust the default.
+
+[`cosmic.bigint`] is arithmetic on integers of thousands of bits over
+the library's bignum, the one its RSA and ECC use, which the PSA API
+does not expose: [`core/bigint.c`] asks for the private declarations,
+and the raw [`cosmic.internal.bigint`] table holds the bindings.
 
 ### the sandbox
 

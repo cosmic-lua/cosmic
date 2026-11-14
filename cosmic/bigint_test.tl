@@ -252,6 +252,12 @@ local function test_powmod_matches_python_in_the_3072_bit_group_of_rfc_5054()
   assert(Bigint.powmod(v3072_base, v3072_exponent, p3072) == v3072_power, "a base and an exponent of 3072 bits")
 end
 
+local function test_leading_zero_words_of_a_modulus_and_an_exponent_change_nothing()
+  local zeros = string.rep("\0", 24)
+  assert(Bigint.powmod(zeros .. v256_base, zeros .. v256_exponent, zeros .. p256) == v256_power)
+  assert(Bigint.mod(zeros .. a, zeros .. m) == a_mod_m)
+end
+
 local function test_powmod_takes_an_odd_modulus_that_is_not_prime()
   assert(Bigint.powmod(composite_base, composite_exponent, composite) == composite_power)
 end
