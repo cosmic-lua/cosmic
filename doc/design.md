@@ -1338,7 +1338,7 @@ by modules under `app/`, as in Go (a top-level `internal/` is the
 project's own); that rule stands in the closed-directory rule's
 place for the module. a module of a closed directory that holds the
 line `--- @public` in the doc block that opens it is open to every importer, which
-is how [`cosmic.http.server`] and five others are. in cosmic's own
+is how [`cosmic.http.server`] and six others are. in cosmic's own
 tree a test, and test support (a file of the top-level `test/`
 directory), may be required only by a test or test support, since
 the tool carries neither, and two places do not fit the directory

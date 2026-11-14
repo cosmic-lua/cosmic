@@ -16,7 +16,8 @@
 --- executable is parsed here.
 ---
 --- cosmic's own tree is not embedded this way: `bin/zig build boot`
---- builds the tool.
+--- builds the tool, and `cosmic build` there prints its path
+--- ([`embed.tree_tool`]).
 
 local build_paths = require("build.paths")
 local Cli = require("cosmic.cli")
@@ -907,6 +908,56 @@ local function out_directory(root: string, given: string): string?, string
   return path, ""
 end
 
+--- The tool of cosmic's own tree at `root`, as a boot or a rebuild last wrote it in the tree's build directory
+--- ([`build.paths`]): its path, once it is also written to `out/cosmic` where `out` is given. That copy is in no
+--- checkout's build directory, so it is held to no tree ([`tree.own_tool`]): it runs a project as a release does,
+--- with the cores the tool carries. Nil and why where there is no tool or the copy cannot be written.
+--- @param out a directory, made if missing, to write the copy to
+function embed.tree_tool(root: string, out?: string): string?, string
+  local tool = build_paths.resolve(root).tool
+  local st, stat_trouble = Fs.stat(tool)
+  if st == nil or st.kind ~= "file" then
+    return nil, "no tool at " .. tool .. " (" .. (if st == nil then stat_trouble else "not a file" end) ..
+      "); run bin/zig build boot"
+  end
+  if out ~= nil then
+    local program, read_trouble = Fs.read(tool)
+    if program == nil then return nil, read_trouble end
+    local made, made_trouble = Fs.mkdirs(out)
+    if not made then return nil, "--out " .. out .. " cannot be created: " .. made_trouble end
+    local copied, copy_trouble = Fs.write(out .. "/cosmic", program, 0x1ed)
+    if not copied then return nil, copy_trouble end
+  end
+  return tool, ""
+end
+
+--- `cosmic build [--out dir]` in cosmic's own tree, whose one program is the tool itself: prints the tool's path
+--- once the tool is as new as the tree, a stale one having rebuilt itself and run the line again
+--- ([`reboot.stale_exit`]). A boot chose which cores the tool carries, so `--host`, `--roots` and paths, which
+--- choose among a project's programs and how each is made, are refused.
+local function run_own(argv: {string}, root: string, parsed: Flags.Parsed, out: string?, started: integer): integer
+  if parsed.set["--host"] == true or parsed.values["--roots"] ~= nil or #parsed.words > 0 then
+    log:complain("build: this is cosmic's own tree, whose program is the tool bin/zig build boot builds: " ..
+        "it takes --out alone")
+    return 2
+  end
+  local code = require("build.reboot").stale_exit(argv, false, root)
+  if code ~= nil then return code end
+  local tool, trouble = embed.tree_tool(root, out)
+  if tool == nil then
+    log:complain("build: " .. trouble)
+    return 1
+  end
+  log:say(tool)
+  -- What the running tool carries is what the file holds: the file is the tool that answers.
+  local prefix, _ = artifact.trusted_prefix()
+  local cores = if prefix ~= nil and artifact.host_only(prefix) then
+    " (this host's core alone: bin/zig build boot -Dboot-cores=all builds every core)" else "" end
+  local _, _ = logger.summary("build", tool .. cores .. (if out ~= nil then " and " .. out .. "/cosmic" else "" end) ..
+      ", " .. clock.took(started))
+  return 0
+end
+
 --- `cosmic build [--host] [--roots minimal|mozilla] [--out dir] [path...]`: the tree in the working directory,
 --- and its executables in its build directory's `bin/` -- only those whose `main.tl` is
 --- under one of the paths, when there are any -- and in `dir` when it is given. Prints each executable it
@@ -914,8 +965,11 @@ end
 --- stderr names them again, or says why nothing was written. A file the checker refuses, a test
 --- among them, does not keep the programs that do not need it from being written: they are, the
 --- refusals and the programs not made are named, the earlier executable of each such program is removed
---- (it would run old code), and the exit status is [`exit_status.uncompiled`].
-local function run(argv: {string}): integer
+--- (it would run old code), and the exit status is [`exit_status.uncompiled`]. In cosmic's own tree it prints
+--- the tool ([`run_own`]).
+--- @param at the tree's root, the working directory by default
+--- @param carried the `built_from` the tool carries, as [`tree.standing`] takes it
+function embed.run(argv: {string}, at?: string, carried?: string): integer
   local started = Clock.monotonic_ns()
   local parsed, parse_trouble = Flags.parse(argv, 2, assert(Cli.verbs.build.spec)) -- checked: map_field
   if parsed == nil then
@@ -928,7 +982,7 @@ local function run(argv: {string}): integer
     log:complain("build: --roots takes minimal or mozilla, not " .. roots:sub(1, 40))
     return 2
   end
-  local root, root_trouble = Fs.absolute(".")
+  local root, root_trouble = Fs.absolute(at or ".")
   if root == nil then
     log:complain(root_trouble)
     return 1
@@ -943,9 +997,15 @@ local function run(argv: {string}): integer
     end
     out = directory
   end
+  local standing, standing_trouble = tree.standing(root, carried)
+  if standing == nil then
+    log:complain(standing_trouble)
+    return 1
+  end
+  if standing.own then return run_own(argv, root, parsed, out, started) end
   local outcome: importer.Outcome = { refused = false }
   local report: embed.Report = { unbuilt = {}, removed = {}, refusal = "" }
-  local names, trouble = embed.tree(root, host, narrow.paths(root, parsed.words), roots, nil, outcome, out,
+  local names, trouble = embed.tree(root, host, narrow.paths(root, parsed.words), roots, carried, outcome, out,
     report)
   -- The refusals are named whatever else happens; a failure to read, stage or write is 1 and outranks them
   -- ([`exit_status.uncompiled`] is for a run that failed only because a file did not compile).
@@ -985,7 +1045,7 @@ embed.spec = {
   name = "build",
   guide = "none: builds a program for shipping, which doc/guides/portable-runtime.md covers; the quickstart does not",
   tests = { "build.embed_test", "build.embed_tool_test", "build.embed_portable_tool_test" },
-  run = function(argv: {string}): integer return run(argv) end,
+  run = function(argv: {string}): integer return embed.run(argv) end,
   bare = false,
   takes = "the files or directories to act on",
 }

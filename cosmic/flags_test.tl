@@ -43,7 +43,7 @@ end
 
 local function test_mistakes_are_refused_with_why()
   local cases: {Refusal} = {
-    { word = "--chek", why = "no such option: --chek" },
+    { word = "--chek", why = "no such option: --chek; did you mean --check?" },
     { word = "-c", why = "no such option: -c" },
     { word = "--check=yes", why = "--check takes no value" },
     { word = "--jobs", why = "--jobs needs a value" },
@@ -230,7 +230,7 @@ local function test_dispatch_runs_the_command_with_its_own_options()
   assert(ran[1] == "build 2 a" and ran[2] == "clean 0", table.concat(ran, "|"))
   local refusals: {Dispatch} = {
     { line = {}, why = "needs a command: build, clean" },
-    { line = { "bulid" }, why = "no such command: bulid" },
+    { line = { "bulid" }, why = "no such command: bulid; did you mean build?" },
     { line = { "--jobs" }, why = "no such command: --jobs" },
   }
   for _, case in ipairs(refusals) do
@@ -301,7 +301,7 @@ local function test_dispatch_answers_help_rather_than_running()
   local clean = assert(Flags.dispatch({ "clean", "-h" }, 1, help_commands, "prog"))
   assert(clean.help == "usage: prog clean", clean.help)
   local unknown, why = Flags.dispatch({ "help", "bulid" }, 1, help_commands, "prog")
-  assert(unknown == nil and why == "no such command: bulid", why)
+  assert(unknown == nil and why == "no such command: bulid; did you mean build?", why)
   local missing, why_missing = Flags.dispatch({}, 1, help_commands, "prog")
   assert(missing == nil and why_missing == "needs a command: build, clean", why_missing)
 end
@@ -461,4 +461,104 @@ local function test_help_marks_a_required_option()
     "  --jobs <n>",
     "  --out <path>  where to write (required)",
   }, "\n"), help)
+end
+
+local function test_nearest_finds_a_swap_an_edit_and_a_prefix()
+  local commands = { "build", "built", "clean", "report", "status" }
+  local function near(word: string): string
+    return table.concat(Flags.nearest(word, commands), " ")
+  end
+  -- Two adjacent letters swapped count one, as one letter dropped,
+  -- added or replaced does.
+  assert(near("biuld") == "build", near("biuld"))
+  assert(near("rport") == "report", near("rport"))
+  assert(near("cleann") == "clean", near("cleann"))
+  assert(near("statis") == "status", near("statis"))
+  -- A word that begins a name finds it at any length.
+  assert(near("rep") == "report", near("rep"))
+  assert(near("s") == "status", near("s"))
+  assert(near("") == "", near(""))
+end
+
+local function test_nearest_names_nothing_far_off()
+  local commands = { "build", "clean", "mv", "report" }
+  local function near(word: string): string
+    return table.concat(Flags.nearest(word, commands), " ")
+  end
+  -- Under three letters no edit is near: one is half the word.
+  assert(near("rm") == "", near("rm"))
+  assert(near("nv") == "", near("nv"))
+  -- Two edits are out of reach of a word under eight letters.
+  assert(near("biulx") == "", near("biulx"))
+  assert(near("import") == "", near("import"))
+  assert(near("xyzzy") == "", near("xyzzy"))
+  -- Dashes do not lengthen a word: "--mv" is two letters.
+  assert(table.concat(Flags.nearest("--nv", { "--mv" }), " ") == "")
+  -- Nor do a character's bytes: "né" is two letters.
+  assert(table.concat(Flags.nearest("né", { "né!", "n" }), " ") == "né!")
+end
+
+local function test_nearest_reaches_further_for_a_longer_word()
+  local function near(word: string, name: string): boolean
+    return Flags.nearest(word, { name })[1] == name
+  end
+  assert(near("--dry-rnu", "--dry-run"))
+  assert(not near("--dyr-rnu", "--dry-run"))
+  assert(near("--no-colour", "--no-color"))
+  -- Eight letters reach two edits, twelve reach three.
+  assert(near("checkuot-al", "checkout-all") and not near("chekcuot-al", "checkout-all"))
+  assert(near("chekcuot-alll", "checkout-all"))
+  assert(near("--no-vreify-singatuers", "--no-verify-signatures"))
+  assert(not near("--on-vreify-singatuers", "--no-verify-signatures"))
+end
+
+local function test_nearest_orders_the_same_name_a_prefix_then_distance_and_stops_at_three()
+  local names = { "stats", "stat", "start", "status", "state", "stat" }
+  -- "stat" itself, then what it begins, shortest first, then by name;
+  -- "start", one edit away, is fourth and left out.
+  assert(table.concat(Flags.nearest("stat", names), " ") == "stat state stats")
+  assert(table.concat(Flags.nearest("stta", names), " ") == "stat")
+  -- One edit each: shorter first, then by name.
+  assert(table.concat(Flags.nearest("stats", { "start", "status", "state", "stat" }), " ") == "stat state status")
+end
+
+local function test_a_refusal_names_what_was_probably_meant()
+  local described: {string:boolean} = { ["--check"] = false, ["--jobs"] = true, ["--jobserver"] = true,
+    ["-v"] = false, ["-verbose"] = false }
+  local cases: {Refusal} = {
+    { word = "--chek", why = "no such option: --chek; did you mean --check?" },
+    { word = "--chek=1", why = "no such option: --chek; did you mean --check?" },
+    { word = "--job", why = "no such option: --job; did you mean one of --jobs, --jobserver?" },
+    { word = "-jobs", why = "no such option: -jobs; did you mean --jobs?" },
+    -- A cluster's letter at fault, and the option the whole word is near.
+    { word = "-verbos", why = "no such option: -e in -verbos; did you mean -verbose?" },
+    { word = "--nope", why = "no such option: --nope" },
+    { word = "-x", why = "no such option: -x" },
+  }
+  for _, case in ipairs(cases) do
+    local got, why = Flags.parse({ "fix", case.word }, 2, described)
+    assert(got == nil and why == case.why, why)
+  end
+  -- A spec that names no "--help" has none to mean.
+  local _, unhelped = Flags.parse({ "--hlep" }, 1, described)
+  assert(unhelped == "no such option: --hlep", unhelped)
+  local commands: {string:Flags.Command} = {
+    build = { spec = { ["--jobs"] = true }, usage = "[options] <target>" },
+    clean = {},
+  }
+  local lines: {Dispatch} = {
+    { line = { "biuld" }, why = "no such command: biuld; did you mean build?" },
+    { line = { "help", "claen" }, why = "no such command: claen; did you mean clean?" },
+    { line = { "deploy" }, why = "no such command: deploy" },
+    -- What dispatch answers itself is named as a command's own is.
+    { line = { "hlep" }, why = "no such command: hlep; did you mean help?" },
+    { line = { "clean", "--hlep" }, why = "clean: no such option: --hlep; did you mean --help?; usage: prog clean" },
+    { line = { "build", "--jbos", "2" },
+      why = "build: no such option: --jbos; did you mean --jobs?; usage: prog build [options] <target>" },
+    { line = { "clean", "--jobs" }, why = "clean: no such option: --jobs; usage: prog clean" },
+  }
+  for _, case in ipairs(lines) do
+    local ran, why = Flags.dispatch(case.line, 1, commands, "prog")
+    assert(ran == nil and why == case.why, why)
+  end
 end
