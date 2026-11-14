@@ -179,4 +179,19 @@ function Example.serve()
   })
 end
 
+--- A line-echo server at a port of the loopback for as long as its
+--- client runs: the second function is the client, given the port, and
+--- the server is gone once it returns.
+function Example.with_loopback()
+  Net.with_loopback(function(conn: Net.Conn)
+    for line in Stream.lines(conn):each() do assert(conn:write(line .. "\n")) end
+  end, function(port: integer)
+    local client <close> = assert(Net.connect(Net.tcp("127.0.0.1", port), { timeout_ns = Clock.seconds(5) }))
+    assert(client:write("hello\n"))
+    local answer = assert(Stream.lines(client):read())
+    print(answer)
+    assert(answer == "hello", answer)
+  end)
+end
+
 return Example -- checked: export_not_declared

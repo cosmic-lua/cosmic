@@ -1447,4 +1447,110 @@ function Net.serve(spec: Net.ServeSpec): boolean, string
   return true, ""
 end
 
+--- What [`Net.with_loopback`] holds while its body runs.
+local class Standing
+  listener: Net.Listener
+  mut acceptor?: Poll.Task
+  --- Each connection open, by the task serving it.
+  conns: mut {Poll.Task: Net.Conn}
+  mut stopped: boolean
+
+  --- Stops listening and ends every task: each connection is closed and
+  --- its task killed where it waits, as [`Net.serve`] ends those its
+  --- grace leaves. Answers what a task's `<close>` handler raised as it
+  --- was killed, or "".
+  function stop(self): string
+    if self.stopped then return "" end
+    self.stopped = true
+    local _, _ = self.listener:close()
+    local tasks: mut {Poll.Task} = {}
+    local acceptor = self.acceptor
+    if acceptor ~= nil then tasks[1] = acceptor end
+    for task, conn in pairs(self.conns) do
+      local _, _ = conn:close()
+      tasks[#tasks + 1] = task
+    end
+    local trouble = ""
+    for _, task in ipairs(tasks) do
+      local killed, why: boolean, any = pcall(function() task:kill() end)
+      if not killed then
+        -- Nothing is killed from a task that is itself being killed, or
+        -- while the run closes its tasks: there a cancel ends the task
+        -- at its next wait. A kill that raised what a handler did has
+        -- ended the task, and the cancel does nothing.
+        task:cancel()
+        if trouble == "" then trouble = tostring(why) end
+      end
+    end
+    return trouble
+  end
+
+  function __close(self)
+    local _ = self:stop()
+  end
+end
+
+--- Serves `serve` at a TCP port of the loopback, 127.0.0.1, that the
+--- kernel chooses, for as long as `body` runs: `body` is called with
+--- the port, and each connection made to it meanwhile is given to
+--- `serve` in a task of its own, which closes the connection once
+--- `serve` returns. Once `body` returns or raises, the listener is
+--- closed, and every connection still open is closed and its task
+--- killed where it waits ([`Poll.Task.kill`]). A task `serve` spawned
+--- itself is its own to end.
+---
+---     Net.with_loopback(function(conn: Net.Conn)
+---       for line in Stream.lines(conn):each() do assert(conn:write(line .. "\n")) end
+---     end, function(port: integer)
+---       local client <close> = assert(Net.connect(Net.tcp("127.0.0.1", port)))
+---       assert(client:write("hello\n"))
+---       assert(Stream.lines(client):read() == "hello")
+---     end)
+---
+--- `body` runs where [`Poll.within`] calls it: in the calling task where
+--- a run is in progress, and in a run of its own otherwise, which ends
+--- once every task `body` spawned has. The connections are served only
+--- while `body` waits through the run -- a [`cosmic.net`] wait, a
+--- [`Poll.delay`], a join -- so a call in it that holds the thread
+--- ([`Http.get`]) is never answered.
+---
+--- Unlike [`Net.serve`] it holds no failure apart: what `serve` raises
+--- ends the run, as any task's error does, and so does a failure to
+--- accept. What `body` raises it raises, the server ended first.
+--- Where `body` returned, it raises the message of what a `<close>`
+--- handler of `serve` raised as its task was killed, the first of
+--- them. It raises where the loopback cannot be listened at, and in a
+--- run but outside a task's own coroutine. Where the calling task is
+--- itself killed while `body` waits, nothing can be killed from it:
+--- each connection is closed and its task cancelled
+--- ([`Poll.Task.cancel`]), to end at its next wait.
+function Net.with_loopback(serve: function(conn: Net.Conn), body: function(port: integer))
+  Poll.within(function()
+    local listener, refused = Net.listen(Net.tcp("127.0.0.1", 0))
+    if listener == nil then error("net: with_loopback: " .. refused, 0) end
+    local standing <close>: Standing = { listener = listener, acceptor = nil, conns = {}, stopped = false }
+    standing.acceptor = Poll.spawn(function()
+      while true do
+        local conn, why = listener:accept()
+        if conn == nil then
+          if standing.stopped or why == Poll.CANCELLED then return end
+          error("net: with_loopback: accepting at " .. named(listener.address) .. ": " .. why, 0)
+        end
+        local task: Poll.Task?
+        task = Poll.spawn(function()
+          local held <close> = conn
+          serve(held)
+          -- [`Poll.spawn`] runs this once the acceptor waits, after it set `task`.
+          standing.conns[assert(task, "with_loopback: the task runs before Poll.spawn returned it")] = nil
+        end)
+        standing.conns[task] = conn
+      end
+    end)
+    local port = assert(listener.address.port, "a TCP listener names its port")
+    body(port)
+    local trouble = standing:stop()
+    if trouble ~= "" then error(trouble, 0) end
+  end)
+end
+
 return Net
