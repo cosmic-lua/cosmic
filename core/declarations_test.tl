@@ -45,6 +45,7 @@ local type _http = require("cosmic.http")
 local type _json = require("cosmic.json")
 local type _net = require("cosmic.net")
 local type _proc = require("cosmic.proc")
+local type _protobuf = require("cosmic.protobuf")
 local type _sandbox = require("cosmic.sandbox")
 local type _sign = require("cosmic.sign")
 local type _sqlite = require("cosmic.sqlite")
@@ -271,6 +272,9 @@ local makers: {string: function(raw: {string: any}): Made} = {
   end,
   json = function(raw: {string: any}): Made
     return { instances = { Null = raw["null"] }, release = nothing }
+  end,
+  protobuf = function(raw: {string: any}): Made
+    return { instances = { Decoded = call(raw["decode"], "\x08\x01", 100, 65536) }, release = nothing }
   end,
   socket = function(raw: {string: any}): Made
     -- A TCP listener on the worker's own loopback: a unix one needs a `u`

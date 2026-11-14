@@ -57,6 +57,7 @@
 --- The `HX-Request` header exempts nothing: it is sent by script, and
 --- script that sets a header cross-site needs a CORS preflight, but the
 --- token does the work. A refusal of an htmx request says to reload the page.
+--- @public
 
 local Codec = require("cosmic.codec")
 local Hash = require("cosmic.hash")

@@ -1,6 +1,7 @@
 --- Constructors for the [`Web.Response`] a handler returns, and the helpers
 --- that read and add its headers. A constructor builds the table the
 --- server expects and touches no connection.
+--- @public
 
 local Html = require("cosmic.html")
 local Json = require("cosmic.json")

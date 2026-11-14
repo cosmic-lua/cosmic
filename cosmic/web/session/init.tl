@@ -48,6 +48,7 @@
 --- [`Web.app`]'s `trusted_proxy` sets from `X-Forwarded-Proto`; behind a
 --- TLS proxy without it, pass `secure = true`, and the cookie is then named
 --- `__Host-session`.
+--- @public
 
 local Clock = require("cosmic.clock")
 local Cookies = require("cosmic.web.cookies")

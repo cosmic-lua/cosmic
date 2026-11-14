@@ -277,6 +277,34 @@ local function test_a_page_naming_a_removed_symbol_is_stale()
     table.concat(found, "\n"))
 end
 
+--- A public page that names a module the library keeps to itself, by its
+--- name or its file, or a symbol of one, sends its reader to a page
+--- `cosmic docs` does not have: each is named. A module a closed directory
+--- opens is no such thing.
+local function test_a_reference_to_a_module_the_library_keeps_is_named()
+  local rows = clean()
+  Array.at(rows, MODULE).text = table.concat({
+    "Things, made and counted. See `cosmic.thing.inner` and",
+    "`cosmic/thing/inner.tl`, and `Inner.turn` there; `cosmic.thing.open`",
+    "and `Open.wide` are a caller's.",
+  }, "\n")
+  table.insert(rows, row("cosmic.thing.inner", "", "module", "", "The workings."))
+  rows[#rows + 1] = { module = "cosmic.thing.inner", symbol = "Inner.turn", source_symbol = "Inner.turn", kind = "function",
+    signature = "function Inner.turn()", text = "Turns.", exported = true }
+  table.insert(rows, row("cosmic.thing.open", "", "module", "", "The door."))
+  rows[#rows + 1] = { module = "cosmic.thing.open", symbol = "Open.wide", source_symbol = "Open.wide", kind = "function",
+    signature = "function Open.wide()", text = "Opens.", exported = true }
+  local db = projection(rows)
+  assert(db:exec("DELETE FROM public_modules WHERE path = 'cosmic.thing.inner'"))
+  local found = docs_checks.references(db, {}, { "test" }, {})
+  assert(#found == 3, table.concat(found, "\n"))
+  assert(#mentioning(found, "`cosmic.thing.inner` names a module the library keeps to itself") == 1,
+    table.concat(found, "\n"))
+  assert(#mentioning(found, "`cosmic/thing/inner.tl` names a module the library keeps to itself") == 1,
+    table.concat(found, "\n"))
+  assert(#mentioning(found, "`Inner.turn` names no symbol") == 1, table.concat(found, "\n"))
+end
+
 --- A help text is read as the module docs are, and reports under the
 --- name of what prints it.
 local function test_a_help_text_is_held_to_the_same_references()

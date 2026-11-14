@@ -143,7 +143,7 @@ kernel                               Linux; macOS
     sqlite3, its ext/misc functions  vendored, patched (patch/)
     mbedtls, miniz, bzip2, xz,       vendored pristine
     zstd, c-ares, curl, yyjson,
-    monocypher
+    monocypher, nanopb
     argon2, a regex engine           planned
     syscall table                    C, one function per syscall
   cosmic binary
@@ -224,7 +224,7 @@ with a policy in it is Teal, stored once in the database and shared
 by every target.
 
 native, per target: the Lua VM; SQLite; mbedtls, which also serves
-hashing, HMAC, authenticated encryption and X25519; Monocypher for Ed25519 signatures; miniz for deflate; yyjson for JSON; expat for XML; argon2 and a
+hashing, HMAC, authenticated encryption and X25519; Monocypher for Ed25519 signatures; nanopb for the Protocol Buffers wire format; miniz for deflate; yyjson for JSON; expat for XML; argon2 and a
 regex engine, both planned; the syscall table; the database VFS and the
 entry. measured stripped on
 x86_64 musl: Lua 360 KB, SQLite with the flags below 1.1 MB, FTS5
@@ -295,6 +295,11 @@ and yyjson is fuzzed upstream (OSS-Fuzz), keeps 64-bit integers
 exact, and reads RFC 8259 unless a caller names JSON5 for the one
 read. it reads; the core's own C walks the document into Lua values and
 writes JSON back, with yyjson printing each float's shortest form.
+Reading the Protocol Buffers wire format moved to C, and writing it is still Teal: a decoder written by hand on the Teal reader took
+180 µs for an 845-byte message of a hundred fields and takes 35 µs on the core's, and nanopb is fuzzed upstream
+(OSS-Fuzz). nanopb reads each key, varint and length, and the core's own C indexes the fields and answers each
+by its number and type ([`cosmic.protobuf`]); its generated structures are not used. A varint whose tenth byte
+holds more than the 64th bit is refused, as nanopb refuses it.
 XML starts in C on the same half: expat is fuzzed upstream (OSS-Fuzz),
 bounds entity expansion, and reads no external entity unless a handler
 asks, and the core sets none. it reads; the core's own C hands each
@@ -678,8 +683,9 @@ and examples of the public standard library alone: `cosmic test` and a lookup
 inside the tree read the rest from the projection, `cosmic.db`, and a release has no
 use for them. which modules those are is a row of
 the database, `public_modules`, that the projection records and a query of a
-public source asks: for cosmic's own tree the library by its name, for a
-project the modules any module may require, by position. a program `cosmic build` writes carries the same of its project,
+public source asks: the modules any module may require, by position, of
+the standard library for cosmic's own tree and of a project for its own.
+a program `cosmic build` writes carries the same of its project,
 for its users: the docs, uses, links and examples of the modules any module may
 require, by position, and its guides ([`build/embed.tl`]). a fresh clone and CI run `boot`; a
 developer runs `bin/cosmic build` the other hundred times a day.
@@ -999,7 +1005,7 @@ a record whose anchor no longer matches fails the build by name.
 
 vendored: Lua 5.5, the SQLite amalgamation and twelve of its ext/misc
 extensions, mbedtls, miniz, bzip2,
-xz's liblzma (decoder and LZMA2 encoder), zstd, c-ares, curl, yyjson, expat, Monocypher, Mozilla's CA bundle, the
+xz's liblzma (decoder and LZMA2 encoder), zstd, c-ares, curl, yyjson, expat, Monocypher, nanopb, Mozilla's CA bundle, the
 IANA time zone database's compiled `zoneinfo`, and tl;
 argon2's reference implementation built without threads and the regex
 engine are planned. a library that needs a configuration header gets a
@@ -1274,8 +1280,9 @@ other stock-interpreter flags, no argv[0] personality.
 [the command-line guide](guides/command-line.md) runs each of these.
 
 from a project, `docs` and `uses` answer for the project's own code
-and for the public standard library, `cosmic.*` less `internal` and
-tests: what a builder reads, never the build that made the binary.
+and for the public standard library, `cosmic.*` less `internal`,
+tests and what a closed directory keeps to itself: what a builder reads,
+never the build that made the binary.
 inside cosmic's own tree they answer for everything.
 
 `fix` rather than `format`, because there is one verb and not two: it
@@ -1517,6 +1524,7 @@ in [roadmap.md](roadmap.md).
 [`build/positions.tl`]: ../build/positions.tl
 [`cosmic.http.server`]: ../cosmic/http/server.tl
 [`cosmic.internal.globals`]: ../cosmic/internal/globals.d.tl
+[`cosmic.protobuf`]: ../cosmic/protobuf/init.tl
 [`cosmic.shape`]: ../cosmic/shape.tl
 [`cosmic.web.static`]: ../cosmic/web/static.tl
 [`doc/guides/project.md`]: guides/project.md

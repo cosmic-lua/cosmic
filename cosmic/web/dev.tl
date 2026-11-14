@@ -37,6 +37,7 @@
 --- restart is what a template edit needs; files under `static/` are served
 --- from disk and so never restart anything. Files the supervisor does not
 --- follow into (`node_modules`, build output) are named in `ignore`.
+--- @public
 
 local Assets = require("cosmic.web.assets")
 local Child = require("cosmic.child")

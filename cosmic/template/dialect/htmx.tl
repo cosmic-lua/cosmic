@@ -7,6 +7,7 @@
 ---
 --- htmx reads each attribute as `hx-x` or `data-hx-x` (getAttributeValue),
 --- so the families below also match with a `data-` prefix.
+--- @public
 
 local types = require("cosmic.template.types")
 

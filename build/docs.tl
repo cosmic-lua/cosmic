@@ -3015,9 +3015,9 @@ function docs.asked(words: {string}): {string}?
 end
 
 --- Who alone may require each module of the tree `db` holds, as [`docs.Summary`]'s `closed` says it, by module: a
---- module of the `module` kind only, since a guide, a test or a program is required by none, and none of the standard
---- library's public modules ([`symbols.public_modules`]), which a project may require; absent for one any
---- module may require. A module at `cosmic/internal/` is always the standard library's (a project may not define
+--- module of the `module` kind only, since a guide, a test or a program is required by none, and none the database
+--- records as public ([`symbols.public_modules`]); absent for one any module may require. A module at
+--- `cosmic/internal/` is always the standard library's (a project may not define
 --- `cosmic.*`), so it is judged as cosmic's own tree judges it. A mark is a hint, not the build's refusal: one that
 --- cannot be judged, the database or the module's source not being read, is left off.
 local function closed_in(db: Sqlite.Handle): {string: string}
@@ -3033,8 +3033,7 @@ local function closed_in(db: Sqlite.Handle): {string: string}
   local recorded = read or {}
   for _, row in ipairs(rows) do
     local module, file = row:text(1), row:text(2)
-    -- The library's public surface is a project's to require wherever it sits, though cosmic's own tree holds it
-    -- to the rule: a reader of the list is told what a project may require.
+    -- What the database records as public any module may require, so it has no mark to judge.
     if row:text(3) == "module" and recorded[module] ~= true then
       -- Only a module of a closed directory is asked, so few sources are inflated. One whose source cannot be read, or
       -- is not held (a row written without it), cannot be judged, and counts as open, which leaves its mark off.

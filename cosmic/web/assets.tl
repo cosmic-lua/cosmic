@@ -10,6 +10,7 @@
 ---     local asset = assert(source:get("css/app.css"))
 ---     assert(asset.type == "text/css; charset=utf-8")
 ---     assert(asset.etag == '"' .. asset.sha256:sub(1, 32) .. '"')
+--- @public
 
 local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")

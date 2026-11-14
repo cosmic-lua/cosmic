@@ -503,6 +503,7 @@ const core_sources = [_][]const u8{
     "xml.c",
     "namespace_calls.c",
     "sign.c",
+    "protobuf.c",
     "socket.c",
     "sqlite.c",
     "store.c",
@@ -762,6 +763,7 @@ pub fn build(b: *std.Build) void {
     const sqlite_ext = patched(b, trees, "sqlite-ext");
     const miniz = patched(b, trees, "miniz");
     const monocypher = patched(b, trees, "monocypher");
+    const nanopb = patched(b, trees, "nanopb");
     const mbedtls = patched(b, trees, "mbedtls");
     const bzip2 = patched(b, trees, "bzip2");
     const xz = patched(b, trees, "xz");
@@ -782,6 +784,7 @@ pub fn build(b: *std.Build) void {
         .{ "zstd", zstd },
         .{ "expat", expat },
         .{ "monocypher", monocypher },
+        .{ "nanopb", nanopb },
     }) |pair| {
         const install = b.addInstallDirectory(.{
             .source_dir = pair[1],
@@ -947,7 +950,7 @@ pub fn build(b: *std.Build) void {
             .optimize = .debug,
         }),
     });
-    const sources: Sources = .{ .own = own, .lua = lua, .sqlite = sqlite, .sqlite_ext = sqlite_ext, .miniz = miniz, .monocypher = monocypher, .mbedtls = mbedtls, .bzip2 = bzip2, .xz = xz, .zstd = zstd, .cares = cares, .curl = curl, .yyjson = yyjson, .expat = expat, .config = config };
+    const sources: Sources = .{ .own = own, .lua = lua, .sqlite = sqlite, .sqlite_ext = sqlite_ext, .miniz = miniz, .monocypher = monocypher, .nanopb = nanopb, .mbedtls = mbedtls, .bzip2 = bzip2, .xz = xz, .zstd = zstd, .cares = cares, .curl = curl, .yyjson = yyjson, .expat = expat, .config = config };
 
     const host_name = hostName(b);
     for (targets) |t| {
@@ -1533,6 +1536,7 @@ const Sources = struct {
     sqlite_ext: std.Build.LazyPath,
     miniz: std.Build.LazyPath,
     monocypher: std.Build.LazyPath,
+    nanopb: std.Build.LazyPath,
     mbedtls: std.Build.LazyPath,
     bzip2: std.Build.LazyPath,
     xz: std.Build.LazyPath,
@@ -1643,6 +1647,7 @@ fn vendorLibraries(
     const sqlite_ext = sources.sqlite_ext;
     const miniz = sources.miniz;
     const monocypher = sources.monocypher;
+    const nanopb = sources.nanopb;
     const mbedtls = sources.mbedtls;
     const bzip2 = sources.bzip2;
     const xz = sources.xz;
@@ -1829,6 +1834,15 @@ fn vendorLibraries(
     // Monocypher signs and checks Ed25519 for cosmic.sign, which mbedtls
     // does not: monocypher.c is the curve, and the optional file beside
     // it RFC 8032's SHA-512 over it.
+    // nanopb reads the Protocol Buffers wire format for cosmic.protobuf:
+    // its stream functions, without the generated structures it is
+    // usually given, which pb_common.c walks for pb_decode.c.
+    vendorPart(b, &libraries, configuration, target, "nanopb", &.{nanopb}).addCSourceFiles(.{
+        .root = nanopb,
+        .files = &.{ "pb_common.c", "pb_decode.c" },
+        .flags = &.{ "-std=c11", debug_dir },
+    });
+
     const monocypher_src = monocypher.path(b, "src");
     const monocypher_optional = monocypher.path(b, "src/optional");
     vendorPart(b, &libraries, configuration, target, "monocypher", &.{ monocypher_src, monocypher_optional }).addCSourceFiles(.{
@@ -2138,12 +2152,13 @@ fn vendorLibraries(
 /// The include directories of the vendored libraries' public headers, which
 /// the core's own C reads to call into them, in the order a name is looked
 /// up. mbedtls's configuration header is not among them ([`core`]).
-fn libraryIncludes(b: *std.Build, sources: Sources) [crypto_core_dirs.len + 13]std.Build.LazyPath {
+fn libraryIncludes(b: *std.Build, sources: Sources) [crypto_core_dirs.len + 14]std.Build.LazyPath {
     return [_]std.Build.LazyPath{
         sources.lua.path(b, "src"),
         sources.sqlite,
         sources.miniz,
         sources.monocypher.path(b, "src"),
+        sources.nanopb,
         sources.monocypher.path(b, "src/optional"),
         sources.yyjson.path(b, "src"),
         sources.expat.path(b, "lib"),
