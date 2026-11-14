@@ -13,10 +13,12 @@ local schema = require("build.schema")
 local record symbols
 end
 
---- Whether a module of cosmic's own tree is the public standard
---- library's, by its name: what the tree's projection records as public
---- ([`symbols.library_modules`]). A reader asks the database, not this
---- ([`symbols.public_modules`], [`symbols.public_only`]).
+--- Whether a module's name is in the standard library's namespace and is
+--- none of its internals or tests: `cosmic.*`, which no project may
+--- define. cosmic's own projection records these as public
+--- ([`symbols.library_modules`]). Whether a source answers for a module
+--- is asked of its database ([`symbols.public_modules`],
+--- [`symbols.public_only`]); this says only whose the module is.
 function symbols.is_library_module(module: string): boolean
   return module:sub(1, 7) == "cosmic." and module:sub(1, 16) ~= "cosmic.internal." and
     module:sub(-5) ~= "_test"

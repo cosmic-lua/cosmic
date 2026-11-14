@@ -742,6 +742,11 @@ end
 --- test support. A test, an example and a program are no module of that
 --- kind, whatever requires one.
 local function fill_public(db: Sqlite.Handle, own: boolean): boolean, string
+  -- TODO: record cosmic's own by the position rules too, as a project's
+  -- are. It waits on the library's closed directories saying which of
+  -- their modules a project may require (`--- @public`), and on the tool
+  -- carrying the types of the rest where a public alias names them, as
+  -- `carried_internal_types` does for `cosmic.internal.*`.
   if own then
     return db:exec("INSERT INTO out.public_modules (path) SELECT path FROM (SELECT path FROM out.modules " ..
         "UNION SELECT path FROM out.decls) WHERE " .. symbols.library_modules("path") .. " ORDER BY path")

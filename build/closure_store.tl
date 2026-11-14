@@ -515,6 +515,7 @@ local function read_basis(whole: string, pure?: boolean): closure_store.Basis?, 
       { owner = "from_module", columns = "module symbol path anchor from_file line column kind form source text", from = "links", order = "module, symbol, path, anchor, from_file, line, column" },
       { owner = "path", columns = "source", from = "stubs", order = "path" },
       { owner = "module", columns = "ordinal symbol kind line column length plain", from = "places", order = "ordinal" },
+      { owner = "path", columns = "path", from = "public_modules", order = "path" },
     }
     for _, group in ipairs(groups) do
       local columns: mut {string} = {}
@@ -913,6 +914,10 @@ local function closed(uses_from: string, image: boolean): {string}
       "WHERE path IN temp.wanted OR path IN temp.declared ORDER BY path, name",
     "INSERT INTO main.decls SELECT * FROM whole.decls WHERE path IN temp.declared " ..
       "ORDER BY path",
+    -- Which of them a public source answers for ([`build.symbols`]'s `public_only`): a worker that reads its
+    -- store's docs as a project reads the binary's finds them.
+    "INSERT INTO main.public_modules SELECT path FROM whole.public_modules " ..
+      "WHERE path IN temp.wanted OR path IN temp.declared ORDER BY path",
     -- The stubs (build.stub) of its standard-library modules, which a
     -- checker run in the worker (teal.standard_text) reads as a
     -- project's does.

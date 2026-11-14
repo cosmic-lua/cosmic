@@ -677,8 +677,9 @@ without the tree's own tests and examples, and with the docs, uses
 and examples of the public standard library alone: `cosmic test` and a lookup
 inside the tree read the rest from the projection, `cosmic.db`, and a release has no
 use for them. which modules those are is a row of
-the database, `public_modules`, that the projection records and each query of a
-public source asks. a program `cosmic build` writes carries the same of its project,
+the database, `public_modules`, that the projection records and a query of a
+public source asks: for cosmic's own tree the library by its name, for a
+project the modules any module may require, by position. a program `cosmic build` writes carries the same of its project,
 for its users: the docs, uses, links and examples of the modules any module may
 require, by position, and its guides ([`build/embed.tl`]). a fresh clone and CI run `boot`; a
 developer runs `bin/cosmic build` the other hundred times a day.

@@ -334,6 +334,25 @@ local function test_a_closure_store_answers_for_its_closure_s_links(tmp: string)
   assert(table.concat(links, " ") == "greet_test.tl:2", table.concat(links, " "))
 end
 
+--- A store that holds its closure's text holds which of the closure's
+--- modules are public, so a worker that reads the store as a public source
+--- finds their docs, where an empty table would answer nothing for any.
+local function test_a_closure_store_records_which_of_its_modules_are_public(tmp: string)
+  local root = tmp .. "/a"
+  local handle = build_and_write(root, "world", tmp .. "/whole.db")
+  assert(work.close(handle))
+  local basis = assert(closure_store.basis(tmp .. "/whole.db"))
+  assert(closure_store.write(tmp .. "/whole.db", tmp .. "/store.db", { "greet", "greet_test" }, basis))
+  local db = assert(Sqlite.open(tmp .. "/store.db"))
+  local recorded = assert(Sqlite.text_rows(db, "SELECT group_concat(path, ' ' ORDER BY path) FROM public_modules"))
+  assert(assert(recorded[1]):text(1) == "greet", assert(recorded[1]):text(1))
+  local view = assert(docs.view({ db }, { true }))
+  local listed: mut {string} = {}
+  for _, summary in ipairs((assert(docs.index(view)))) do listed[#listed + 1] = summary.module end
+  assert(db:close())
+  assert(table.concat(listed, " ") == "greet", table.concat(listed, " "))
+end
+
 --- An edit to a declaration of one of the core's raw modules --
 --- here `raw`, as cosmic.internal.store is to cosmic.store -- moves the
 --- store, and so the key, of each test whose import closure holds the

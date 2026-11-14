@@ -66,9 +66,9 @@ local record docs
   record View
     databases: {Sqlite.Handle}
     --- Which databases are public sources, by index: one answers only
-    --- for the standard library's own modules -- `cosmic.*` that is
-    --- neither `cosmic.internal.*` nor a test -- which is what a project
-    --- sees of the binary it builds with. A project's own database, and
+    --- for the modules it records as public ([`symbols.public_modules`]),
+    --- the standard library's in the binary a project builds with, which
+    --- is what the project sees of it. A project's own database, and
     --- every database inside cosmic's own tree, answer for everything.
     public: {integer: boolean}
     owners: {string: integer}
@@ -1424,6 +1424,14 @@ local function is_public(view: docs.View, module: string): boolean
   return recorded[module] == true
 end
 
+--- Whether `module` is the standard library's and public: one of the
+--- `cosmic.*` namespace, which no project may define, that the database
+--- that owns it records as public. A project's own public modules are
+--- not the library's.
+local function is_library(view: docs.View, module: string): boolean
+  return symbols.is_library_module(module) and is_public(view, module)
+end
+
 --- The record `module`'s value is typed as when the module returns a
 --- name that is not that record (`local module: Module`), as its own
 --- row records it ([`alias_members.value_record`]); nil when it returns
@@ -1759,7 +1767,7 @@ local function lookup_names(view: docs.View, query: string): docs.Lookup?, strin
     local verb: docs.Entry? = nil
     local library = false
     for _, entry in ipairs(modules) do
-      if is_public(view, entry.module) then library = true end
+      if is_library(view, entry.module) then library = true end
     end
     for _, entry in ipairs(exact) do
       local internal = entry.module:sub(1, 16) == "cosmic.internal." and
@@ -3083,7 +3091,7 @@ local function modules_asked(view: docs.View, words: {string}): {docs.Summary}?,
   end
   local library: mut {docs.Summary} = {}
   for _, summary in ipairs(index) do
-    if is_public(view, summary.module) or
+    if is_library(view, summary.module) or
         symbols.is_public_guide(summary.module) then
       library[#library + 1] = summary
     end
