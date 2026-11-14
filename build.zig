@@ -463,8 +463,15 @@ const crypto_include_dirs = [_][]const u8{
 };
 
 /// Those of [`crypto_include_dirs`] that hold the crypto library's public
-/// headers, all that curl and the core's own C read of it.
+/// headers, all that curl reads of it.
 const crypto_public_dirs = [_][]const u8{ "include", "drivers/builtin/include" };
+
+/// What the core's own C reads of the crypto library: its public headers,
+/// and the directories `bignum_core.h` and the headers it includes are in.
+/// [`core/bigint.c`] includes that one header of the library's sources, for
+/// the arithmetic that is constant in time, which no public header
+/// declares. No header of these directories has the name of one of core/.
+const crypto_core_dirs = crypto_public_dirs ++ [_][]const u8{ "core", "drivers/builtin/src", "utilities" };
 
 /// `names`, directories under `crypto`, the library's `tf-psa-crypto`.
 fn cryptoIncludes(
@@ -2131,7 +2138,7 @@ fn vendorLibraries(
 /// The include directories of the vendored libraries' public headers, which
 /// the core's own C reads to call into them, in the order a name is looked
 /// up. mbedtls's configuration header is not among them ([`core`]).
-fn libraryIncludes(b: *std.Build, sources: Sources) [crypto_public_dirs.len + 13]std.Build.LazyPath {
+fn libraryIncludes(b: *std.Build, sources: Sources) [crypto_core_dirs.len + 13]std.Build.LazyPath {
     return [_]std.Build.LazyPath{
         sources.lua.path(b, "src"),
         sources.sqlite,
@@ -2143,7 +2150,7 @@ fn libraryIncludes(b: *std.Build, sources: Sources) [crypto_public_dirs.len + 13
         sources.bzip2,
         sources.xz.path(b, "src/liblzma/api"),
         sources.zstd.path(b, "lib"),
-    } ++ cryptoIncludes(b, sources.mbedtls.path(b, "tf-psa-crypto"), &crypto_public_dirs) ++ [_]std.Build.LazyPath{
+    } ++ cryptoIncludes(b, sources.mbedtls.path(b, "tf-psa-crypto"), &crypto_core_dirs) ++ [_]std.Build.LazyPath{
         sources.mbedtls.path(b, "include"),
         sources.cares.path(b, "include"),
         sources.curl.path(b, "include"),
