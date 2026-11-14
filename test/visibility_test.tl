@@ -14,6 +14,7 @@
 
 local Fs = require("cosmic.fs")
 local importer = require("build.importer")
+local Pipeline = require("build.pipeline")
 local Test = require("cosmic.test")
 local work = require("build.work")
 -- Names what the last test's fixtures require, so that the test's store carries the package with its private modules.
@@ -149,4 +150,20 @@ local function test_a_library_module_private_to_its_directory_is_refused_in_a_pr
       "end\nreturn user\n"))
   ok, trouble = try_build(root)
   assert(ok, trouble)
+end
+
+--- The pipeline tells a lone file of a project what the binary records as kept, and names the public module above it;
+--- the package's entry is required freely, and cosmic's own tree is not held to it.
+local function test_a_lone_file_may_not_require_a_library_module_its_directory_keeps()
+  local project = assert(Pipeline.alone())
+  local source = "local router = require(\"cosmic.web.router\")\nprint(router)\n"
+  local code, why = Pipeline.lone("p.tl", source, project)
+  assert(code == nil and why:find("p.tl:1:16: cosmic.web.router is private to its directory in the standard library, " ..
+      "and a project may not require it: require cosmic.web in its place, or ask that the module say `--- @public`", 1,
+    true) ~= nil, tostring(why))
+  local _, entry_why = Pipeline.lone("p.tl", "local web = require(\"cosmic.web\")\nprint(web)\n", project)
+  assert(entry_why:find("is private to its directory", 1, true) == nil, entry_why)
+  local own: Pipeline.Options = { globals = project.globals, types = true, standard = nil, project = nil }
+  local _, own_why = Pipeline.lone("p.tl", source, own)
+  assert(own_why:find("is private to its directory", 1, true) == nil, own_why)
 end
