@@ -241,18 +241,19 @@ so the reader names a local for each, and the build refuses a record of more tha
 255 locals at most, the codecs a record's fields name among them: a message of more embedded types than that holds
 their codecs as fields of one record.
 
-the wire codec's message answers the wire types a number's fields have (`wires`) and copies out only the fields it
-is asked for (`fields` with a predicate). the strict check of a record that drops and what a record that keeps sets
-aside both read those, and no field's bytes are copied to be passed over.
+the wire codec's message lists the fields of another wire type than a table of numbers allows (`unfit`), in one
+pass and with no field's bytes copied to be passed over, and its writer writes an embedded message in place (`open`
+and `close`) and takes what a record keeps as bytes (`append`). the strict check of a record that drops and what a record that keeps sets
+aside both read the first.
 
 ### cost
 
 - against the same messages written by hand on the wire codec, an 845-byte message, the schema writes the same
-  bytes. encoding takes 1.1 to 1.6 times the hand-written time, over several runs on a shared host. decoding took
-  1.0 to 1.4 times while the wire codec read in Teal, where both took about 200 µs. the codec now reads in the
-  core's C, and the hand-written decode takes about 35 µs and the schema's about 65 µs: the strict check asks the
-  message for each declared field's wire types, a call into the core apiece, which is what is left to shorten. an embedded message is written to bytes and copied into its parent, so that what a record keeps
-  goes after its fields at every level; a record that keeps nothing could write through a child writer.
+  bytes. the first of it, on a wire codec in Teal, encoded in 1.1 to 1.6 times the hand-written time and decoded in
+  1.0 to 1.4 times, where each took 100 to 200 µs. the codec now reads and writes in the core's C, an embedded
+  message is written in place in its parent's bytes, and the strict check is one call into the core. encoding takes
+  the hand-written time, about 25 µs, and decoding about 60 µs to the hand-written 40, over several runs on a
+  shared host. the hand-written reader measured takes its strings as bytes, which the schema holds to UTF-8.
 - the source of the slice falls from 625 lines to about 170: the 115 lines of records stay, and 510 lines of readers
   and writers become about 55 lines of calls. that is 73% less. the count is of the slice written on a stand-in for
   the wire codec. if the client's module is shaped as the slice is, its 2,700 lines become 700 to 1,000. the
