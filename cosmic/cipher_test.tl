@@ -164,6 +164,170 @@ local function test_the_lengths_are_the_algorithms()
   assert(Cipher.key_length == 32 and Cipher.nonce_length == 12 and Cipher.tag_length == 16)
 end
 
+--- Two keys no test's vector shares: bytes 0 to 31 and 32 to 63.
+local function channel_keys(): string, string
+  local bytes: mut {string} = {}
+  for i = 1, 64 do bytes[i] = string.char(i - 1) end
+  local all = table.concat(bytes)
+  return all:sub(1, 32), all:sub(33)
+end
+
+--- The two ends of one session.
+local function ends(options?: Cipher.ChannelOptions): Cipher.Channel, Cipher.Channel
+  local a_to_b, b_to_a = channel_keys()
+  return Cipher.channel(a_to_b, b_to_a, options), Cipher.channel(b_to_a, a_to_b, options)
+end
+
+local function test_a_channels_ends_exchange_messages_in_order()
+  local alice, bob = ends()
+  for round = 1, 3 do
+    local request = "request " .. tostring(round)
+    local sealed = alice:seal(request, "to bob")
+    assert(#sealed == #request + Cipher.tag_length)
+    local opened, why = bob:open(sealed, "to bob")
+    assert(opened == request and why == "", why)
+    assert(alice:open(bob:seal("reply " .. tostring(round))) == "reply " .. tostring(round))
+  end
+end
+
+local function test_a_channel_never_seals_two_messages_alike()
+  local alice = ends()
+  local first, second = alice:seal("same"), alice:seal("same")
+  assert(first ~= second)
+end
+
+local function test_a_channel_refuses_a_replayed_message()
+  local alice, bob = ends()
+  local first = alice:seal("pay bob 10")
+  assert(bob:open(first) == "pay bob 10")
+  local again, why = bob:open(first)
+  assert(again == nil and why ~= "")
+end
+
+local function test_a_channel_refuses_a_message_out_of_order_then_opens_both_in_order()
+  local alice, bob = ends()
+  local first, second = alice:seal("first"), alice:seal("second")
+  local early, why = bob:open(second)
+  assert(early == nil and why ~= "")
+  assert(bob:open(first) == "first")
+  assert(bob:open(second) == "second")
+end
+
+local function test_a_failed_open_leaves_the_next_genuine_message_openable()
+  local alice, bob = ends()
+  local sealed = alice:seal("genuine", "header")
+  for _ = 1, 3 do
+    assert(bob:open(flipped(sealed, 0), "header") == nil)
+    assert(bob:open(sealed, "another header") == nil)
+    assert(bob:open(sealed) == nil)
+    assert(bob:open("") == nil)
+  end
+  assert(bob:open(sealed, "header") == "genuine")
+  assert(bob:open(alice:seal("next")) == "next")
+end
+
+local function test_a_channel_does_not_open_what_it_sealed()
+  local alice = ends()
+  assert(alice:open(alice:seal("to bob")) == nil)
+end
+
+--- What Python's `cryptography` seals under one key and a nonce built by
+--- hand, for the messages numbered 0, 1 and 258 of one direction and the
+--- first of the other: `ChaCha20Poly1305(key).encrypt(nonce, message, aad)`.
+local record ChannelVector
+  options: Cipher.ChannelOptions
+  first: string
+  second: string
+  reply: string
+  later: string
+end
+
+local channel_vectors: {string: ChannelVector} = {
+  -- nonce = bytes(4) + struct.pack("<Q", n)
+  ["8 bytes, little-endian"] = {
+    options = {},
+    first = "7ed13042d9a817d4a9b9ffada55b61682a8d3073bf",
+    second = "ec329030db4e3cbe8e3dbd0d2f98af1bef00da580522",
+    reply = "f2062fb06a92917818bb8d65d213de30a95401d4d1",
+    later = "71d48c5863273683e43234b9f5a6cd3ac818706e09",
+  },
+  -- nonce = n.to_bytes(12, "little")
+  ["12 bytes, little-endian"] = {
+    options = { counter_length = 12 },
+    first = "7ed13042d9a817d4a9b9ffada55b61682a8d3073bf",
+    second = "e75a1881aa8794a610a5233a47d5fb290715344cc1b5",
+    reply = "f2062fb06a92917818bb8d65d213de30a95401d4d1",
+    later = "d5d2200c0344c4bccffb252e633e3275afd8d6aa14",
+  },
+  -- nonce = n.to_bytes(12, "big")
+  ["8 bytes, big-endian"] = {
+    options = { byte_order = "big" },
+    first = "7ed13042d9a817d4a9b9ffada55b61682a8d3073bf",
+    second = "1a391fb65f6e76dd953ea8a2306e33d8ffa84cbd2f48",
+    reply = "f2062fb06a92917818bb8d65d213de30a95401d4d1",
+    later = "ef59b661561c58622018020de933e3e7b07cfcbae3",
+  },
+  ["12 bytes, big-endian"] = {
+    options = { counter_length = 12, byte_order = "big" },
+    first = "7ed13042d9a817d4a9b9ffada55b61682a8d3073bf",
+    second = "1a391fb65f6e76dd953ea8a2306e33d8ffa84cbd2f48",
+    reply = "f2062fb06a92917818bb8d65d213de30a95401d4d1",
+    later = "ef59b661561c58622018020de933e3e7b07cfcbae3",
+  },
+}
+
+local function test_a_channel_seals_what_python_seals_for_each_counter()
+  local a_to_b, b_to_a = channel_keys()
+  for name, v in pairs(channel_vectors) do
+    local alice, bob = ends(v.options)
+    local first, second = alice:seal("first"), alice:seal("second", "header")
+    assert(Codec.hex(first) == v.first, name)
+    assert(Codec.hex(second) == v.second, name)
+    assert(Codec.hex(bob:seal("reply")) == v.reply, name)
+    assert(bob:open(unhex(v.first)) == "first", name)
+    assert(bob:open(unhex(v.second), "header") == "second", name)
+    -- A resumed end counts on from the messages before it.
+    local resumed = Cipher.channel(a_to_b, b_to_a, { ...v.options, sent = 258 })
+    assert(Codec.hex(resumed:seal("later", "h")) == v.later, name)
+    local receiver = Cipher.channel(b_to_a, a_to_b, { ...v.options, received = 258 })
+    assert(receiver:open(unhex(v.later), "h") == "later", name)
+  end
+end
+
+--- A counter at its end must stop the channel: counting on would wrap to
+--- a nonce already used.
+local function test_a_channel_refuses_to_count_past_its_last_message()
+  local a_to_b, b_to_a = channel_keys()
+  local last = math.maxinteger - 1
+  local alice = Cipher.channel(a_to_b, b_to_a, { sent = last })
+  local bob = Cipher.channel(b_to_a, a_to_b, { received = last })
+  local sealed = alice:seal("last")
+  -- nonce = bytes(4) + struct.pack("<Q", 2**63 - 2)
+  assert(Codec.hex(sealed) == "a86de79cd7a981af0b3c62fc66a688ce65ace33a")
+  for _ = 1, 2 do
+    Test.raises(function() alice:seal("one more") end, "last message")
+  end
+  assert(bob:open(sealed) == "last")
+  local forged = Cipher.seal("chacha20-poly1305", a_to_b, "\0\0\0\0" .. string.pack("<i8", math.mininteger), "wrapped")
+  for _, message in ipairs({ sealed, forged }) do
+    local opened, why = bob:open(message)
+    assert(opened == nil and why:find("last message", 1, true) ~= nil, why)
+  end
+end
+
+local function test_channel_raises_on_a_key_length_or_option_it_cannot_use()
+  local a_to_b, b_to_a = channel_keys()
+  for _, key in ipairs({ "", a_to_b:sub(1, 31), a_to_b .. "\0" }) do
+    Test.raises(function() Cipher.channel(key, b_to_a) end, "32 bytes")
+    Test.raises(function() Cipher.channel(a_to_b, key) end, "32 bytes")
+  end
+  for _, length in ipairs({ 0, 4, 9, 16 }) do
+    Test.raises(function() Cipher.channel(a_to_b, b_to_a, { counter_length = length }) end, "counter_length")
+  end
+  Test.raises(function() Cipher.channel(a_to_b, b_to_a, { sent = -1 }) end, "sent")
+  Test.raises(function() Cipher.channel(a_to_b, b_to_a, { received = -1 }) end, "received")
+end
+
 --- The base point: the u-coordinate 9.
 local base <const> = "\9" .. string.rep("\0", 31)
 
