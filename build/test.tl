@@ -8,7 +8,7 @@
 --- process group of its own, with its standard streams captured and a
 --- deadline -- `--timeout SECONDS`, or `COSMIC_TEST_TIMEOUT`, 30 by
 --- default -- past which the whole group is ended and the test fails.
---- Up to `--jobs N` workers run at once, one per processor by default.
+--- Up to `--jobs N` workers run at once, one more than the processors by default.
 --- A worker reports over a pipe what it hit and whether the test
 --- passed; this process alone opens the build database and writes
 --- the verdict. A test that exits, crashes, or hangs its process fails
@@ -2088,6 +2088,13 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: State.Limits,
   return guard:cancelled()
 end
 
+--- How many workers run at once where `--jobs` does not say: one more than the processors. The runner is one
+--- thread: while it starts a worker or records a finished test, no other worker is started or collected. With
+--- one worker for each processor, about one processor in four stands idle, and the extra worker runs on it.
+local function default_jobs(): integer
+  return Proc.cpu_count() + 1
+end
+
 --- The run's bounds: `--timeout SECONDS` and `--jobs N` from the
 --- command line's options; the deadline's default from
 --- `COSMIC_TEST_TIMEOUT`. Nil and why for a value that is not a
@@ -2095,7 +2102,7 @@ end
 local function limits_of(values: {string:string}): State.Limits?, string
   local limits: State.Limits = {
     timeout_ns = Clock.seconds(default_timeout_s),
-    jobs = Proc.cpu_count(),
+    jobs = default_jobs(),
   }
   local function positive(value: string, what: string): integer?, string
     local number = math.tointeger(tonumber(value))

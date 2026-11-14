@@ -805,7 +805,7 @@ end
 --- Makes the fixture `spec`'s project (a group's own where `group` is
 --- given, [`Orchestration.fixture_project`]), places its inputs and its diagnostics
 --- directory, and says what to run: `jobs` workers where given, else the
---- runner's default of one per processor.
+--- runner's default.
 local function prepare_fixture(c: Context, work: string, spec: FixtureSpec,
                                group?: string, jobs?: integer): Prepared
   local name, source = spec.name, spec.source

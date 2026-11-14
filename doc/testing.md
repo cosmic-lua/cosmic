@@ -968,7 +968,8 @@ at once; a test that started no worker (its host lacks what it requires,
 or its start was refused) is in the summary's `ran` and not here. While
 the runner starts one worker, which includes writing a sealed database it
 has not written yet, or records one, it starts and collects no other.
-`up to 4 at a time` is the limit (`--jobs`), not how many ran at once.
+`up to 4 at a time` is the limit (`--jobs`, by default one more than the
+processors), not how many ran at once.
 `settling` is the coverage and the records kept. The `runs` table holds
 each test's own time ([measuring](guides/measuring.md)).
 
