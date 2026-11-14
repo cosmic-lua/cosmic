@@ -568,8 +568,8 @@ four-producer provenance join.
 [`cosmic.internal.relay_start`]: ../cosmic/internal/relay_start.tl
 [`cosmic.mdns`]: ../cosmic/mdns.tl
 [`cosmic.net`]: ../cosmic/net.tl
-[`cosmic.protobuf`]: ../cosmic/protobuf.tl
 [`cosmic.plist`]: ../cosmic/plist.tl
+[`cosmic.protobuf`]: ../cosmic/protobuf.tl
 [`cosmic.relay.address`]: ../cosmic/relay/address.tl
 [`cosmic.relay.grant`]: ../cosmic/relay/grant.tl
 [`cosmic.removed`]: ../cosmic/removed.tl
