@@ -133,7 +133,8 @@ point, or through code review.
 this machine, for its own target, with this checkout's own tool (the one
 `bin/cosmic` runs) as the driver instead of the pinned release. It
 snapshots the working tree, tracked and untracked files alike, into a
-fresh candidate outside the checkout, sets the variables a workflow job
+fresh candidate outside the checkout, removes the build directory the
+last candidate built in, sets the variables a workflow job
 would, and seeds the zig caches from the
 project cache every checkout shares (`COSMIC_ZIG_CACHE`, default
 `~/.cache/cosmic/zig-project`). A full run takes a few minutes. The driver runs from a

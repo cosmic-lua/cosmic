@@ -1,5 +1,4 @@
 local Clock = require("cosmic.clock")
-local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
 local Fixture = require("cosmic_ci.fixture")
@@ -243,10 +242,12 @@ local function test_runtime_logical_paths(tmp: string)
   -- [`Child.start`]/[`Child.run`] never do a PATH search of their own ("argv[1]
   -- is used exactly as given: there is no PATH search" -- cosmic.child), so
   -- PATH-based execution uses `/usr/bin/env`, with the runtime's directory
-  -- prepended to PATH.
+  -- before the system's on a PATH of the case's own: the worker's is no
+  -- input of it (a sandboxed worker has none it did not declare,
+  -- doc/testing.md), and the launcher, started by a PATH that is set,
+  -- finds its uname on that alone.
   Fixture.run("help-path", { "/usr/bin/env", "cosmic-runtime", "help" }, work,
-    diagnostics, { COSMIC_PORTABLE_CACHE = cache,
-      PATH = work .. "/bin:" .. Env.get_or("PATH", "") })
+    diagnostics, { COSMIC_PORTABLE_CACHE = cache, PATH = work .. "/bin:/usr/bin:/bin" })
 
   assert(Fs.symlink(work .. "/bin/cosmic-runtime", work .. "/cosmic-alias"))
   Fixture.run("help-symlink", { work .. "/cosmic-alias", "help" }, work,
