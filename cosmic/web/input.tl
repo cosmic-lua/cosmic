@@ -56,6 +56,7 @@
 --- A JSON body goes through [`Shape.into`] unchanged, so only its first
 --- failure is reported. A JSON client should read an error's `pointer`, not
 --- its `field`: the dotted `field` is ambiguous for a key that holds a `.`.
+--- @public
 
 local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")

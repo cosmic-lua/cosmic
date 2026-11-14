@@ -29,6 +29,7 @@
 --- cookies. Every response to a request with an `Origin`, or without one
 --- (the answer to either is not the other's), a refusal and an error
 --- included, carries `Vary: Origin`, so a cache keeps them apart.
+--- @public
 
 local Origin = require("cosmic.web.origin")
 local Response = require("cosmic.web.response")

@@ -35,6 +35,7 @@
 --- shared cache: whatever its type, a response without a Cache-Control gets
 --- `private`, and one whose Cache-Control says `public` or `s-maxage` has
 --- them replaced by `private`.
+--- @public
 
 local Codec = require("cosmic.codec")
 local Csp = require("cosmic.web.csp")

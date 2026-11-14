@@ -4,6 +4,7 @@
 --- it under its own name and documents it there. Apart from cosmic.sandbox
 --- only so that cosmic.sandbox.seatbelt, which cosmic.sandbox requires, can require
 --- this.
+--- @public
 
 local Codec = require("cosmic.codec")
 local FieldPath = require("cosmic.internal.field_path")

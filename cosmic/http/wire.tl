@@ -12,6 +12,7 @@
 --- ends it, so a head sent a byte at a time costs what one sent whole
 --- does; the bytes read past one request stay in the [`Input`] for the
 --- next, which is how a pipelined request is kept.
+--- @public
 
 local Number = require("cosmic.number")
 local Stream = require("cosmic.stream")

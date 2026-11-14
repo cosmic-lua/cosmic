@@ -731,26 +731,17 @@ local function find_reused(db: Sqlite.Handle): boolean
 end
 
 --- Records in `out.public_modules` the modules of the projection being
---- written that a reader with the binary alone is told of. In cosmic's own
---- tree those are the public standard library's, by name
---- ([`symbols.library_modules`]), a declaration among them. In a project
---- they are the modules any module may require, by the two rules of
---- [`positions.check`] that hold in every project: a module of a closed
---- directory that does not say `--- @public` is the project's own, as is
---- one under any `internal` directory, the root's included, which every
---- module of the project may require and no user of its program can, and
---- test support. A test, an example and a program are no module of that
---- kind, whatever requires one.
+--- written that a reader with the binary alone is told of: those any
+--- module may require, by the two rules of [`positions.check`] that hold in
+--- every project. A module of a closed directory that does not say
+--- `--- @public` is its directory's own. In a project so is a module under
+--- any `internal` directory, the root's included, which every module of
+--- the project may require and no user of its program can, and test
+--- support; a test, an example and a program are no module of that kind,
+--- whatever requires one. In cosmic's own tree the modules are the
+--- standard library's ([`symbols.library_modules`]), a declaration and an
+--- example among them, since a project requires nothing else of it.
 local function fill_public(db: Sqlite.Handle, own: boolean): boolean, string
-  -- TODO: record cosmic's own by the position rules too, as a project's
-  -- are. It waits on the library's closed directories saying which of
-  -- their modules a project may require (`--- @public`), and on the tool
-  -- carrying the types of the rest where a public alias names them, as
-  -- `carried_internal_types` does for `cosmic.internal.*`.
-  if own then
-    return db:exec("INSERT INTO out.public_modules (path) SELECT path FROM (SELECT path FROM out.modules " ..
-        "UNION SELECT path FROM out.decls) WHERE " .. symbols.library_modules("path") .. " ORDER BY path")
-  end
   local rows, trouble = Sqlite.text_rows(db, "SELECT path, file, kind FROM out.modules ORDER BY path")
   if rows == nil then
     return false, trouble
@@ -759,11 +750,11 @@ local function fill_public(db: Sqlite.Handle, own: boolean): boolean, string
   for _, row in ipairs(rows) do files[#files + 1] = row:text(2) end
   local entries = positions.entries(files)
   local public: mut {string} = {}
+  local closed: mut {string} = {}
   local unread = ""
   for _, row in ipairs(rows) do
     local path, file = row:text(1), row:text(2)
-    if row:text(3) == "module" and not AnalysisSchema.is_support(file) and
-        ("/" .. file):find("/internal/", 1, true) == nil then
+    if row:text(3) == "module" then
       local reach = positions.reach(file, entries, function(): boolean
         local sources, source_trouble = Sqlite.text_rows(db,
           "SELECT CAST(inflate(source) AS TEXT) FROM out.modules WHERE path = ?1 AND length(source) > 0",
@@ -775,13 +766,20 @@ local function fill_public(db: Sqlite.Handle, own: boolean): boolean, string
         local source = sources[1]
         return source ~= nil and AnalysisSchema.declares_public(source:text(1))
       end, false)
-      if reach == nil then
+      if reach ~= nil then
+        closed[#closed + 1] = path
+      elseif not AnalysisSchema.is_support(file) and ("/" .. file):find("/internal/", 1, true) == nil then
         public[#public + 1] = path
       end
     end
   end
   if unread ~= "" then
     return false, unread
+  end
+  if own then
+    return Sqlite.run(db, "INSERT INTO out.public_modules (path) SELECT path FROM (SELECT path FROM out.modules " ..
+        "UNION SELECT path FROM out.decls) WHERE " .. symbols.library_modules("path") ..
+        " AND path NOT IN carray(?1) ORDER BY path", { { texts = closed } })
   end
   return Sqlite.run(db, "INSERT INTO out.public_modules (path) SELECT value FROM carray(?1) ORDER BY value",
     { { texts = public } })
@@ -1232,7 +1230,8 @@ local dropped_modules <const> =
   "dropped(path) AS (SELECT path FROM whole.modules " ..
   "EXCEPT SELECT path FROM carried) "
 
---- The type a doc row `d` of a `cosmic.internal.*` module is or is
+--- The type a doc row `d` of a library module that is not public (a
+--- `cosmic.internal.*` one, or a closed directory's own) is or is
 --- under, as a public declaration spells it after the name its module
 --- binds the internal one to: `Handle` of [`sqlite.Handle`] and of
 --- [`Handle.exec`].
@@ -1257,8 +1256,8 @@ local carried_alias_signatures <const> =
   "(p.signature GLOB 'type * = *' OR p.signature GLOB '*record * is *' OR " ..
   "p.signature GLOB '*interface * is *')) "
 
---- The condition under which a doc row `d` of a `cosmic.internal.*`
---- module is a nested type -- [`sqlite.Handle`] -- or a member of one
+--- The condition under which a doc row `d` of a library module that is
+--- not public (`cosmic.internal.*`, or a closed directory's own) is a nested type -- [`sqlite.Handle`] -- or a member of one
 --- ([`Handle.exec`]) that a public declaration reaches: an alias
 --- (`type Handle = raw_sqlite.Handle`) or a base (`record Options is
 --- raw_http.Options`), whose page lists them, through the name its
@@ -1271,7 +1270,7 @@ local carried_alias_signatures <const> =
 local carried_internal_types =
   "d.id IN (SELECT d.id FROM whole.docs d " ..
   "JOIN alias_signatures a ON a.requires = d.module WHERE " ..
-  "d.module LIKE 'cosmic.internal.%' AND d.symbol <> '' AND " ..
+  "d.module LIKE 'cosmic.%' AND d.module NOT IN (SELECT path FROM main.public_modules) AND d.symbol <> '' AND " ..
   "((d.kind IN ('record', 'interface', 'enum') AND instr(d.source_symbol, '.') > 0) OR " ..
   "(d.kind IN ('field', 'value', 'metamethod') AND instr(d.symbol, '.') > 0)) AND " ..
   "(a.signature GLOB '*[ ,]' || a.name || '.' || " .. nested_type .. " OR " ..
