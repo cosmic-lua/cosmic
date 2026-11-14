@@ -136,6 +136,23 @@ COSMIC_SYSCALL(multicast_hops, 2);
 COSMIC_SYSCALL(multicast_loop, 2);
 
 /*
+ * --- How a datagram socket sends to a multicast group, as the system holds it.
+ * ---@class MulticastSettings
+ * ---@field interface string|integer the interface its multicast leaves by: for an IPv4 socket an IPv4 address of it, "0.0.0.0" for the one the system chooses; for an IPv6 socket its index, 0 for the one the system chooses
+ * ---@field hops integer how many hops its multicast datagrams live; an IPv6 socket never set answers -1 where the system does, for the route's own limit
+ * ---@field loop boolean whether the host's own members hear them
+ */
+
+/*
+ * --- Reads back what `multicast_interface`, `multicast_hops` and `multicast_loop` set (getsockopt of the same options).
+ * ---@param fd integer the datagram descriptor
+ * ---@return MulticastSettings|nil settings the three settings, or nil on failure
+ * ---@return string error what went wrong, when settings is nil
+ * ---@return integer errno the error number, when settings is nil
+ */
+COSMIC_SYSCALL(multicast_settings, 1);
+
+/*
  * --- One entry of `getifaddrs(3)`: an interface, and one of its addresses where the entry holds an IPv4 or IPv6 one.
  * ---@class InterfaceEntry
  * ---@field name string the interface's name: "lo", "en0"

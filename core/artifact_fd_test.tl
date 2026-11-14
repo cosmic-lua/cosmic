@@ -130,6 +130,7 @@ local cases: {string: function(at: integer, fd: integer)} = {
   end,
   multicast_hops = function(_: integer, fd: integer) socket.multicast_hops(fd, 1) end,
   multicast_loop = function(_: integer, fd: integer) socket.multicast_loop(fd, true) end,
+  multicast_settings = function(_: integer, fd: integer) socket.multicast_settings(fd) end,
   bound = function(_: integer, fd: integer) socket.bound(fd) end,
   peer = function(_: integer, fd: integer) socket.peer(fd) end,
   connected = function(_: integer, fd: integer) socket.connected(fd) end,

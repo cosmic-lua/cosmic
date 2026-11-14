@@ -429,6 +429,32 @@ local function test_multicast_raw_calls_refuse_a_stream_descriptor_and_a_misname
   assert(not unjoined and unjoined_why ~= "", "a group never joined was left")
 end
 
+--- Each multicast setter sets its own option and no other: what one set
+--- reads back, and the other two stand as they were.
+local function test_multicast_raw_settings_read_back_what_each_call_set()
+  local bound <close> = assert(raw.datagram({ kind = "udp", host = "127.0.0.1", port = 0 }))
+  local fd = bound:fd()
+  local first = assert(raw.multicast_settings(fd))
+  assert(first.interface == "0.0.0.0" and first.hops == 1 and first.loop == true, tostring(first.hops))
+  assert(raw.multicast_hops(fd, 7))
+  local hopped = assert(raw.multicast_settings(fd))
+  assert(hopped.interface == "0.0.0.0" and hopped.hops == 7 and hopped.loop == true, tostring(hopped.hops))
+  assert(raw.multicast_loop(fd, false))
+  local quiet = assert(raw.multicast_settings(fd))
+  assert(quiet.interface == "0.0.0.0" and quiet.hops == 7 and quiet.loop == false, tostring(quiet.hops))
+  assert(raw.multicast_interface(fd, "127.0.0.1"))
+  local routed = assert(raw.multicast_settings(fd))
+  assert(routed.interface == "127.0.0.1" and routed.hops == 7 and routed.loop == false, tostring(routed.interface))
+  assert(raw.multicast_hops(fd, 0) and raw.multicast_hops(fd, 255) and raw.multicast_loop(fd, true))
+  local last = assert(raw.multicast_settings(fd))
+  assert(last.interface == "127.0.0.1" and last.hops == 255 and last.loop == true, tostring(last.hops))
+  assert(raw.multicast_interface(fd))
+  assert(assert(raw.multicast_settings(fd)).interface == "0.0.0.0")
+  local listener <close> = tcp_listener()
+  local none, why = raw.multicast_settings(listener:fd())
+  assert(none == nil and why == "Protocol wrong type for socket", why)
+end
+
 --- `interfaces` answers an entry for each address `getifaddrs` lists, or
 --- fails as a value where the worker's sandbox refuses the netlink socket
 --- Linux reads them over.

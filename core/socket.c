@@ -1046,6 +1046,52 @@ COSMIC_SYSCALL(multicast_loop, 2) {
   return cosmic_ok(L);
 }
 
+COSMIC_SYSCALL(multicast_settings, 1) {
+  int fd = cosmic_checkfd(L, 1);
+  int family = 0;
+  int failure = multicast_family(fd, &family);
+  if (failure != 0) return cosmic_fail(L, failure);
+  lua_Integer hops;
+  bool heard;
+  if (family == AF_INET) {
+    unsigned char ttl = 0;
+    unsigned char on = 0;
+    struct in_addr address;
+    char text[INET_ADDRSTRLEN];
+    socklen_t size = sizeof ttl;
+    if (getsockopt(fd, IPPROTO_IP, IP_MULTICAST_TTL, &ttl, &size) != 0) return cosmic_fail(L, errno);
+    size = sizeof on;
+    if (getsockopt(fd, IPPROTO_IP, IP_MULTICAST_LOOP, &on, &size) != 0) return cosmic_fail(L, errno);
+    size = sizeof address;
+    if (getsockopt(fd, IPPROTO_IP, IP_MULTICAST_IF, &address, &size) != 0) return cosmic_fail(L, errno);
+    if (inet_ntop(AF_INET, &address, text, sizeof text) == NULL) return cosmic_fail(L, errno);
+    hops = ttl;
+    heard = on != 0;
+    lua_createtable(L, 0, 3);
+    lua_pushstring(L, text);
+  } else {
+    int limit = 0;
+    unsigned on = 0;
+    unsigned index = 0;
+    socklen_t size = sizeof limit;
+    if (getsockopt(fd, IPPROTO_IPV6, IPV6_MULTICAST_HOPS, &limit, &size) != 0) return cosmic_fail(L, errno);
+    size = sizeof on;
+    if (getsockopt(fd, IPPROTO_IPV6, IPV6_MULTICAST_LOOP, &on, &size) != 0) return cosmic_fail(L, errno);
+    size = sizeof index;
+    if (getsockopt(fd, IPPROTO_IPV6, IPV6_MULTICAST_IF, &index, &size) != 0) return cosmic_fail(L, errno);
+    hops = limit;
+    heard = on != 0;
+    lua_createtable(L, 0, 3);
+    lua_pushinteger(L, (lua_Integer)index);
+  }
+  lua_setfield(L, -2, "interface");
+  lua_pushinteger(L, hops);
+  lua_setfield(L, -2, "hops");
+  lua_pushboolean(L, heard);
+  lua_setfield(L, -2, "loop");
+  return 1;
+}
+
 static void interfaces_release (void *resource) {
   freeifaddrs(resource);
 }
