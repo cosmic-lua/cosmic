@@ -5,8 +5,7 @@ status: accepted
 ## context
 
 `cosmic.protobuf` is the Protocol Buffers wire format with no schema: a message is a list of fields, each a number, a
-wire type and a value, read by number through a method for each type and written by a writer of the same methods. it
-is intended and not in the tree yet. a program that speaks a protocol of many messages
+wire type and a value, read by number through a method for each type and written by a writer of the same methods. a program that speaks a protocol of many messages
 writes, for each message, a record, a reader and a writer on that codec. a client of the Media Remote Protocol holds
 about 2,700 lines of them, by its author's count.
 
@@ -31,14 +30,14 @@ build resolves, as it resolves [`Shape.record_of`]: `Schema.message_of("Module.R
 module `cosmic.protobuf.schema`. the wire codec's own names stay its own (`Protobuf.Message` is a message as read,
 `Protobuf.Field` a field on the wire), and a program that uses the wire codec alone carries none of this. the
 build reads the record's declaration and the table, checks one against the other, and writes the reader and the writer
-as Teal the checker types. all of it is intended.
+as Teal the checker types.
 
 the principle: what a record's declaration cannot say rides in the arguments of the call that names the record, as
 values the checker and the build both read. it does not ride in a comment, a name or a second language.
 
 ### what the caller writes
 
-```teal skip=intended
+```text
 local Schema = require("cosmic.protobuf.schema")
 
 local record Messages
@@ -131,7 +130,7 @@ local PROTOCOL <const> = Schema.message_of("Messages.Protocol", {
 
 a message is built as a record literal and read as a record:
 
-```teal skip=intended
+```text
 local item: Messages.ContentItem = { identifier = "b2", sections = {} }
 local bytes, trouble = PROTOCOL:encode({ type = "UpdateContentItem", identifier = "a1", contentItem = item })
 if bytes == nil then return nil, trouble end
@@ -152,12 +151,11 @@ if content ~= nil then print(content.identifier, #content.sections) end
   integer outside a `fixed32` field's range, and the value may come from a peer.
 - a decoded message is changed with a spread, `{ ...message, identifier = id }`, which copies every declared field,
   the unknown fields among them.
-- the build refuses, at the call's line: a field with no number, a number with no field, a number given twice or out
-  of the format's range, an encoding that does not fit the field's type (`Schema.float` on a `string`), an enum value
-  with no number or with the number of another value, and a field of a type with no encoding (a function, a union,
-  a generic).
-- the call's own form is ordinary Teal: the table is a `{string: integer | Schema.Entry}`, and a stand-in module of
-  that signature, given the functions by hand, passes the checker.
+- the build refuses, at the call's line: a field with no number, a number with no field, a number given twice, out
+  of the format's range or among those it reserves, an encoding that does not fit the field's type (`Schema.float`
+  on a `string`), an enum value with no number or with the number of another value, a field of a type with no
+  encoding (a function, a union, a generic), a field named by a keyword, and a codec given as anything but a name.
+- the call's own form is ordinary Teal: the table is a `{string: integer | Schema.Entry}`.
 
 ### how a field's type maps
 
@@ -210,7 +208,9 @@ a shape drops a key it does not name. three things are kept or dropped by that r
   drops, a repeated field is one element shorter.
 - a known field that arrives with another wire type than its encoding. where the record keeps, the field is nil, and
   what arrived is held and written back while the field is still nil: a schema that is wrong about one field still
-  relays the message. where the record drops, `decode` fails and names the field.
+  relays the message. what is held for a repeated field is always written back, since no reader of the elements
+  takes a field of another wire type for one. where the record drops, `decode` fails and names the field, whether or
+  not a field that fits comes with it.
 
 a required field fails `decode` in both kinds of record, for an unnamed enum number and for a wrong wire type.
 
@@ -231,33 +231,32 @@ fields from the root, which is built only on failure: `protobuf: Protocol.conten
 - nothing bounds the input's length: the caller bounds the frame it reads. the memory `decode` takes is a multiple
   of that length.
 
+### what the build writes
+
+a reader is one record literal, each field read from the message by its number through a helper of
+`cosmic.protobuf.schema`, and a writer one call for each field. neither names a local for a field, so a message has
+no limit of fields. two bounds remain. a required embedded message has no value to stand for it where it is missing,
+so the reader names a local for each, and the build refuses a record of more than 150. and a Lua function captures
+255 locals at most, the codecs a record's fields name among them: a message of more embedded types than that holds
+their codecs as fields of one record.
+
+the wire codec's message answers the wire types a number's fields have (`wires`) and copies out only the fields it
+is asked for (`fields` with a predicate). the strict check of a record that drops and what a record that keeps sets
+aside both read those, and no field's bytes are copied to be passed over.
+
 ### cost
 
-measured on the slice with a stand-in for the wire codec, which read a message as a list of fields where the wire
-codec reads it by number, so the first implementation measures again. on the stand-in, a 951-byte message, five runs on a shared host whose times
-moved by a third between runs. the ratios below are the spread of those runs:
-
-- the code the build writes costs what careful hand-written code costs: from 8% faster to 17% slower to encode, and
-  from 11% faster to 12% slower to decode (about 90 µs and 120 µs).
-- the source falls from 625 lines to about 170: the 115 lines of records stay, and 510 lines of readers and writers
-  become about 55 lines of calls. that is 73% less. if the client's module is shaped as the slice is, its 2,700 lines
-  become 700 to 1,000. the conversion measures it.
-- a built program carries the generated functions and nothing of the build. their Lua is 1.3 times the hand-written
-  text for the slice (24.7 kB against 18.8 kB).
-- the build gains one resolver beside [`build.syntax_shape_specs`], which is 649 lines, and the tool carries it. the
-  two places that run the shape resolver run it too: the tree's compile ([`build/tree_program.tl`]) and the language
-  server ([`build/lsp/syntax_read.tl`]).
-- a message has no limit of fields. a reader names one local for each field, and a Lua function holds 200, so for a
-  wide message the build writes another form: one scratch record declared in the reader, a slot for each field, from
-  which the message is made. a message of 300 fields compiles and decodes in that form, which decoded the slice 6% to
-  18% slower than the form with locals.
-
-what the measurement stands on: a script wrote the readers and writers from a table of the slice's fields, as
-functions of one module that call each other by name, and the checker took them as written. the build would put each
-message's pair into its own call, where a nested message is reached through its codec's field, one index more for
-each nested message, which was not timed. the stand-in checked the call's form, a nested codec and a record that holds
-itself in that form. it did not write the failure path, the options, a required field's failure or what a record
-keeps.
+- against the same messages written by hand on the wire codec, an 845-byte message, the schema writes the same
+  bytes. encoding takes 1.1 to 1.6 times the hand-written time, and decoding 1.0 to 1.4 times, over several runs on
+  a shared host. an embedded message is written to bytes and copied into its parent, so that what a record keeps
+  goes after its fields at every level; a record that keeps nothing could write through a child writer.
+- the source of the slice falls from 625 lines to about 170: the 115 lines of records stay, and 510 lines of readers
+  and writers become about 55 lines of calls. that is 73% less. the count is of the slice written on a stand-in for
+  the wire codec. if the client's module is shaped as the slice is, its 2,700 lines become 700 to 1,000. the
+  conversion measures it.
+- a built program carries the generated functions and the schema module, and nothing of the build.
+- the build holds one resolver beside [`build.syntax_shape_specs`], and the two places that ran the shape resolver
+  run both: the tree's compile ([`build/tree_program.tl`]) and the language server ([`build/lsp/syntax_read.tl`]).
 
 ### tests
 
@@ -356,7 +355,8 @@ local wrong = CONTENT_ITEM.identifier.get(message)    -- compiles, and is nil
 - the handles of a message need a record that declares them: a table of handles of several types has no type of its
   own (`arms_differ`), and a module cannot return one (`export_not_declared`). so each field is written twice, and the
   slice is 213 lines (66% less), against 170.
-- it decodes 2.2 to 2.6 times slower than the hand-written code, and encodes 1.1 to 1.4 times slower.
+- on the stand-in it decoded 2.2 to 2.6 times slower than the hand-written code, and encoded 1.1 to 1.4 times
+  slower.
 - it adds nothing to the build. the run-time module is 342 lines.
 
 ### `.proto` files read by the build
@@ -490,8 +490,8 @@ the writers of `ContentItem` and `Protocol` follow `encode_command_info` line fo
   checks one against the other. this is the class of bug the declaration removes.
 - the list of known numbers for the unknown fields, and what is kept of an unnamed enum number, are written by hand
   in each message.
-- it decodes 1.3 to 1.6 times slower than the hand-written code: it indexes the fields, then scans them once for
-  each repeated field.
+- on the stand-in it decoded 1.3 to 1.6 times slower than the hand-written code: it indexed the fields, then
+  scanned them once for each repeated field.
 
 it is what remains if the build is to gain nothing, and its helpers are small enough to land with the wire codec.
 
@@ -556,28 +556,21 @@ the same boilerplate with no grammar.
 
 ## pull requests
 
-each starts from main after the one before has merged.
-
-1. the wire codec, `cosmic.protobuf`, as the entry of its directory (`cosmic/protobuf/init.tl`), so that
-   `cosmic.protobuf.schema` sits beside it as [`cosmic.http.server`] sits beside its own. 3 and 4 depend on it.
-2. `build: share what a record's resolver needs`. the parts of [`build.syntax_shape_specs`] a second resolver uses
-   move to a module of their own. no behavior changes. depends on nothing.
-3. `protobuf: declare a message once`, the module `cosmic.protobuf.schema`. `enum_of` and `message_of` for singular scalars, enums, nested messages,
-   presence and what a record keeps, with failures, bounds, the language server, the fuzz test and the example.
-   depends on 1 and 2.
-4. `protobuf: repeated and recursive fields`, with the resolver's walk of a record that holds itself, the refusal of
-   two that hold each other, and the form for a wide message. depends on 3.
-5. `doc: a guide to a protobuf protocol`, with the roadmap's entries for what is left out. depends on 4.
-6. outside this tree: the client's module converted, its envelope message first, and the estimate measured. depends
-   on 4.
-7. the `.proto` front end. depends on 4.
+1. the wire codec, `cosmic.protobuf`.
+2. `build: share what a record's resolver needs`: the parts of [`build.syntax_shape_specs`] a second resolver uses,
+   in a module of their own.
+3. `protobuf: add cosmic.protobuf.schema`: the module, the resolver and its hooks, the wire codec as its directory's
+   entry with `wires` and the predicate of `fields`, with the tests, the fuzz test and the example.
+4. `doc: a guide to a protobuf protocol`. depends on 3.
+5. outside this tree: the client's module converted, its envelope message first, and the estimate measured. depends
+   on 3.
+6. the `.proto` front end. depends on 3.
 
 [`build.syntax_shape_specs`]: ../../build/syntax_shape_specs.tl
 [`build/derivation.tl`]: ../../build/derivation.tl
 [`build/lsp/syntax_read.tl`]: ../../build/lsp/syntax_read.tl
 [`build/syntax_shape_specs_test.tl`]: ../../build/syntax_shape_specs_test.tl
 [`build/tree_program.tl`]: ../../build/tree_program.tl
-[`cosmic.http.server`]: ../../cosmic/http/server.tl
 [`cosmic.shape`]: ../../cosmic/shape.tl
 [`cosmic.template`]: ../../cosmic/template/init.tl
 [`doc/writing.md`]: ../writing.md
