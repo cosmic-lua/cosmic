@@ -715,3 +715,95 @@ local function test_a_negative_number_is_a_word_unless_the_spec_names_a_digit_op
   local lettered, lettered_why = Flags.parse({ "-x5" }, 1, {})
   assert(lettered == nil and lettered_why:find("no such option: -x5", 1, true) == 1, lettered_why)
 end
+
+--- A program whose commands are not all typed by a name: one by an option's spelling, one by no word at all,
+--- which a first word that names no other runs, and which keeps its words for itself.
+local function odd_commands(seen: mut {string}): mut {string:Flags.Command}
+  return {
+    version = { about = "says which", typed = "--version", run = function(_: Flags.Parsed): integer
+      seen[#seen + 1] = "version"
+      return 0
+    end },
+    run = {
+      about = "runs a file", typed = "", usage = "<file> [args...]", spec = { ["--quiet"] = false },
+      rest = function(argv: {string}, from: integer): integer?
+        for slot = from, #argv do
+          local word = argv[slot]
+          if word ~= nil and word:sub(1, 1) ~= "-" then return slot end
+        end
+        return nil
+      end,
+      run = function(got: Flags.Parsed): integer
+        local said = "run " .. table.concat(got.rest, " ") .. (if got.set["--quiet"] == true then " quietly" else "" end)
+        seen[#seen + 1] = said
+        return 3
+      end,
+    },
+    check = { about = "checks", spec = { ["--all"] = false }, run = function(got: Flags.Parsed): integer
+      local said = "check " .. table.concat(got.words, " ") .. "/" .. tostring(#got.rest)
+      seen[#seen + 1] = said
+      return 0
+    end },
+  }
+end
+
+--- A command is run by the word it says it is typed as, and not by its name; the command typed by no word runs
+--- for a first word that names none, with the words it keeps unread by its spec.
+local function test_a_command_runs_by_its_spelling_or_by_no_word()
+  local seen: mut {string} = {}
+  local commands = odd_commands(seen)
+  assert(assert(Flags.dispatch({ "--version" }, 1, commands, "prog")).code == 0)
+  assert(assert(Flags.dispatch({ "check", "--all", "x" }, 1, commands, "prog")).code == 0)
+  -- The file's own options are not the command's: `--all` after the file is kept, where the spec has none.
+  assert(assert(Flags.dispatch({ "f.tl", "--all", "-5" }, 1, commands, "prog")).code == 3)
+  assert(assert(Flags.dispatch({ "--quiet", "f.tl", "--quiet" }, 1, commands, "prog")).code == 3)
+  assert(table.concat(seen, "; ") == "version; check x/0; run f.tl --all -5; run f.tl --quiet quietly",
+    table.concat(seen, "; "))
+  -- A command typed another way is not run by its name: `version` is a file to run here.
+  assert(assert(Flags.dispatch({ "version" }, 1, commands, "prog")).code == 3 and seen[#seen] == "run version")
+  -- Its help calls it as it is typed, and an option before the file that it lacks is refused with that usage.
+  local help = assert(Flags.dispatch({ "f.tl", "--help" }, 1, commands, "prog"))
+  assert(help.help == "", "the file's own --help was read as the command's")
+  local asked = assert(Flags.dispatch({ "--help", "f.tl" }, 1, commands, "prog"))
+  assert(asked.help:find("usage: prog <command>", 1, true) == 1, asked.help)
+  local refused, why = Flags.dispatch({ "--loud", "f.tl" }, 1, commands, "prog")
+  assert(refused == nil and why == "run: no such option: --loud; usage: prog <file> [args...]", why)
+  assert(assert(Flags.dispatch({ "help", "version" }, 1, commands, "prog")).help:find("usage: prog --version", 1, true) == 1)
+end
+
+--- Without a command typed by no word, a first word that names none is refused, and a mistyped spelling is
+--- named.
+local function test_a_spelling_is_among_the_names_a_mistyped_command_meant()
+  local commands = odd_commands({})
+  commands["run"] = nil
+  local refused, why = Flags.dispatch({ "--versoin" }, 1, commands, "prog")
+  assert(refused == nil and why == "no such command: --versoin; did you mean --version?", why)
+end
+
+--- Two commands typed alike are the caller's mistake, met by its first run.
+local function test_two_commands_typed_alike_raise()
+  local commands: {string:Flags.Command} = {
+    a = { typed = "go", run = function(_: Flags.Parsed): integer return 0 end },
+    go = { run = function(_: Flags.Parsed): integer return 0 end },
+  }
+  local ok, raised = pcall(Flags.dispatch, { "go" }, 1, commands, "prog")
+  assert(not ok and tostring(raised):find("a and go are typed alike: go", 1, true) ~= nil, tostring(raised))
+end
+
+--- The program's help lists each command as it is typed, in the order given, between the text given to open
+--- and to close it.
+local function test_the_programs_help_lists_usages_in_order_between_its_own_words()
+  local commands = odd_commands({})
+  local ran = assert(Flags.dispatch({ "help" }, 1, commands, "prog",
+    { usages = true, order = { "run", "version" }, before = "prog -- a program", after = "More: prog help <command>" }))
+  assert(ran.help == table.concat({
+    "prog -- a program",
+    "",
+    "commands:",
+    "  prog <file> [args...]  runs a file",
+    "  prog --version         says which",
+    "  prog check [options]   checks",
+    "",
+    "More: prog help <command>",
+  }, "\n"), ran.help)
+end
