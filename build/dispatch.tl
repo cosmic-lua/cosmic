@@ -230,29 +230,6 @@ local as_option: {string:string} = {
   ["--version"] = "version",
 }
 
---- What the index shows of `verb`'s command line: `cosmic`, what names
---- the verb there, and the verb's own `usage`. A file run is named by
---- the file, and `--standalone`, `-e` and `--version` by their spelling.
-local function usage_line(verb: string): string
-  local typed = verb
-  if verb == "run" then
-    typed = ""
-  end
-  for spelled, name in pairs(as_option) do
-    if name == verb then typed = spelled end
-  end
-  local words: mut {string} = { "cosmic" }
-  if typed ~= "" then words[#words + 1] = typed end
-  local command = assert(require("cosmic.cli").verbs[verb], "the index lists the verbs of Cli.verbs")
-  local usage = command.usage
-  if usage == nil then
-    local spec = command.spec
-    usage = if spec ~= nil and next(spec) ~= nil then "[options]" else "" end
-  end
-  if usage ~= "" then words[#words + 1] = usage end
-  return table.concat(words, " ")
-end
-
 --- What a refusal of the mistyped verb `word` ends with when any of
 --- `verbs` is near it by [`Flags.nearest`]'s rule, as [`cosmic.flags`]
 --- ends its own: "; did you mean test?". "" when none is.
@@ -268,45 +245,50 @@ end
 
 --- The index `cosmic help` prints: what `cosmic` is, the guides to
 --- start from, each verb's usage and purpose in the sections
---- [`cosmic.cli.groups`] names, and where to read more.
+--- [`cosmic.cli.groups`] names, and where to read more. It is the help
+--- [`Flags.dispatch`] writes of a program whose commands are the verbs,
+--- each listed as it is typed: a file run by the file, and
+--- `--standalone`, `-e` and `--version` by their spelling.
 local function index_help(): string
-  -- TODO: write the index through Flags.dispatch's program help, which
-  -- lists every command with its `about`, in sections by `group`, in the
-  -- order [`Flags.Documented.groups`] gives. It waits on that help taking a
-  -- usage per command in place of its name, and a preamble: the usage of
-  -- each verb, and the prose around the groups, are what `cosmic help`
-  -- shows today.
   local Cli = require("cosmic.cli")
-  local width = 0
-  for _, verb in ipairs(Cli.order) do
-    width = math.max(width, #usage_line(verb))
-  end
-  local lines = {
-    "cosmic -- a runtime for self-contained command-line software",
-    "",
-    "cosmic runs Teal and Lua programs with a standard library that needs",
-    "nothing installed, and builds them into single executables. Its",
-    "verbs run code, work on a project, do quick jobs at the shell, and",
-    "look things up.",
-    "",
-    "Start here: `cosmic docs doc.guides.quickstart` tours the standard",
-    "library, and `cosmic docs doc.guides.project` builds a project with",
-    "a module, tests, an example, a record with methods and a program",
-    "with commands.",
-  }
+  local Flags = require("cosmic.flags")
+  local titles: mut {string} = {}
+  local order: mut {string} = {}
+  local group_of: mut {string: string} = {}
   for _, group in ipairs(Cli.groups) do
-    lines[#lines + 1] = ""
-    lines[#lines + 1] = assert(group[1], "a group of Cli.groups opens with its title") .. ":"
+    local title = assert(group[1], "a group of Cli.groups opens with its title")
+    titles[#titles + 1] = title
     for slot, verb in ipairs(group) do
       if slot > 1 then
-        local usage = usage_line(verb)
-        local command = assert(Cli.verbs[verb], "a grouped verb is one of Cli.verbs")
-        lines[#lines + 1] = "  " .. usage .. string.rep(" ", width - #usage + 2) .. assert(command.about)
+        order[#order + 1] = verb
+        group_of[verb] = title
       end
     end
   end
-  for _, line in ipairs({
+  local typed: mut {string: string} = { run = "" }
+  for spelled, name in pairs(as_option) do typed[name] = spelled end
+  local commands: mut {string: Flags.Command} = {}
+  for _, verb in ipairs(order) do
+    local command = assert(Cli.verbs[verb], "a grouped verb is one of Cli.verbs")
+    commands[verb] = { spec = command.spec, about = assert(command.about), usage = command.usage,
+      group = group_of[verb], typed = typed[verb] }
+  end
+  local index = assert(Flags.dispatch({ "--help" }, 1, commands, "cosmic", {
+    groups = titles, order = order, usages = true,
+    before = table.concat({
+      "cosmic -- a runtime for self-contained command-line software",
       "",
+      "cosmic runs Teal and Lua programs with a standard library that needs",
+      "nothing installed, and builds them into single executables. Its",
+      "verbs run code, work on a project, do quick jobs at the shell, and",
+      "look things up.",
+      "",
+      "Start here: `cosmic docs doc.guides.quickstart` tours the standard",
+      "library, and `cosmic docs doc.guides.project` builds a project with",
+      "a module, tests, an example, a record with methods and a program",
+      "with commands.",
+    }, "\n"),
+    after = table.concat({
       "More:",
       "  cosmic help <verb>       a verb's full text, with its options",
       "  cosmic help exit         exit codes and summaries",
@@ -315,10 +297,9 @@ local function index_help(): string
       "",
       "Lua's io, os and debug are absent (print stays): `cosmic docs",
       "cosmic.removed` names what replaces each.",
-  }) do
-    lines[#lines + 1] = line
-  end
-  return table.concat(lines, "\n") .. "\n"
+    }, "\n"),
+  }))
+  return index.help .. "\n"
 end
 
 --- The tree a file run builds, and why it is that one.
