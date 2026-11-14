@@ -750,6 +750,22 @@ static int message_repeated_bytes (lua_State *L) {
   return 1;
 }
 
+/* Pushes the field `e` of `m` as a table of its number, wire type and
+ * value. */
+static void push_field (lua_State *L, struct message *m, struct entry *e) {
+  lua_createtable(L, 0, 3);
+  lua_pushinteger(L, (lua_Integer)e->number);
+  lua_setfield(L, -2, "number");
+  lua_pushinteger(L, (lua_Integer)e->wire);
+  lua_setfield(L, -2, "wire");
+  if (e->wire == wire_len) {
+    lua_pushlstring(L, m->data + e->value, e->length);
+  } else {
+    lua_pushinteger(L, (lua_Integer)e->value);
+  }
+  lua_setfield(L, -2, "value");
+}
+
 /* fields(keep): every field as a table of its number, wire type and
  * value, in the order of the bytes, or those `keep` answers true for
  * of a number and a wire type. */
@@ -773,17 +789,38 @@ static int message_fields (lua_State *L) {
         continue;
       }
     }
-    lua_createtable(L, 0, 3);
-    lua_pushinteger(L, (lua_Integer)e->number);
-    lua_setfield(L, -2, "number");
-    lua_pushinteger(L, (lua_Integer)e->wire);
-    lua_setfield(L, -2, "wire");
-    if (e->wire == wire_len) {
-      lua_pushlstring(L, m->data + e->value, e->length);
-    } else {
-      lua_pushinteger(L, (lua_Integer)e->value);
+    push_field(L, m, e);
+    lua_rawseti(L, 3, ++found);
+  }
+  return 1;
+}
+
+/* unfit(fits, named): the fields whose wire type is no bit of their
+ * number's entry of the table `fits`, as `fields` lists them, or nil
+ * where there is none. A number with no entry fits nothing, and with
+ * `named` it is passed over. */
+static int message_unfit (lua_State *L) {
+  struct message *m = self_of(L);
+  luaL_checktype(L, 2, LUA_TTABLE);
+  bool named = lua_toboolean(L, 3);
+  struct entry *entries = entries_of(m);
+  lua_settop(L, 2);
+  lua_pushnil(L);
+  lua_Integer found = 0;
+  for (size_t i = 0; i < m->count; i++) {
+    struct entry *e = &entries[i];
+    int isnum = 0;
+    bool known = lua_rawgeti(L, 2, (lua_Integer)e->number) != LUA_TNIL;
+    lua_Integer bits = lua_tointegerx(L, -1, &isnum);
+    lua_pop(L, 1);
+    if (known ? (isnum && (bits >> e->wire & 1) != 0) : named) {
+      continue;
     }
-    lua_setfield(L, -2, "value");
+    if (found == 0) {
+      lua_newtable(L);
+      lua_replace(L, 3);
+    }
+    push_field(L, m, e);
     lua_rawseti(L, 3, ++found);
   }
   return 1;
@@ -791,6 +828,7 @@ static int message_fields (lua_State *L) {
 
 static const luaL_Reg methods[] = {
   {"fields", message_fields},
+  {"unfit", message_unfit},
   {"has", message_has},
   {"wires", message_wires},
   {"int", message_int},
@@ -824,8 +862,16 @@ struct writer {
   char *data;
   size_t size;
   size_t room;
+  /* Where the message being written inside this one begins, or no_open:
+   * the link_size bytes there hold the same of the message around it,
+   * until `close` writes the length in their place. */
+  size_t open;
   bool troubled;
 };
+
+enum { link_size = 8 };
+static const size_t no_open = SIZE_MAX;
+static const char unclosed[] = "protobuf: a message was opened and not closed";
 
 /* Pushes a writer of no fields, with room for a few. */
 static struct writer *push_writer (lua_State *L) {
@@ -834,6 +880,7 @@ static struct writer *push_writer (lua_State *L) {
   w->size = 0;
   w->room = 0;
   w->troubled = false;
+  w->open = no_open;
   w->data = NULL;
   luaL_setmetatable(L, WRITER_TYPE);
   char *data = lua_newuserdatauv(L, first_room, 0);
@@ -1071,6 +1118,14 @@ static int writer_string (lua_State *L) {
 static int writer_message (lua_State *L) {
   struct writer *w = writer_of(L);
   struct writer *child = luaL_testudata(L, 3, WRITER_TYPE);
+  if (child != NULL && !child->troubled && child->open != no_open) {
+    if (!w->troubled) {
+      lua_pushstring(L, unclosed);
+      writer_fail(L, w);
+    }
+    lua_settop(L, 1);
+    return 1;
+  }
   if (child == NULL) {
     /* A writer that is not the core's says what it holds itself. */
     lua_getfield(L, 3, "encode");
@@ -1185,12 +1240,88 @@ static int writer_packed (lua_State *L) {
   return 1;
 }
 
+/* open(number): begins an embedded message in place, whose fields are
+ * those written until `close`. */
+static int writer_open (lua_State *L) {
+  struct writer *w = writer_of(L);
+  uint32_t number;
+  if (writer_number(L, w, &number)) {
+    char *into = writer_room(L, 1, w, 5 + link_size);
+    size_t at = put_varint(into, (uint64_t)number << 3 | wire_len);
+    put_little(into + at, (uint64_t)w->open, link_size);
+    w->open = w->size + at;
+    w->size += at + link_size;
+  }
+  lua_settop(L, 1);
+  return 1;
+}
+
+/* close(): ends the message the last `open` began: its length goes
+ * where the link was, and its bytes move down to follow it. */
+static int writer_close (lua_State *L) {
+  struct writer *w = writer_of(L);
+  if (!w->troubled && w->open == no_open) {
+    lua_pushliteral(L, "protobuf: a message was closed that was not opened");
+    writer_fail(L, w);
+  }
+  if (!w->troubled) {
+    char *link = w->data + w->open;
+    uint64_t around = 0;
+    for (size_t i = 0; i < link_size; i++) {
+      around |= (uint64_t)(unsigned char)link[i] << (8 * i);
+    }
+    size_t body = w->size - w->open - link_size;
+    char length[10];
+    size_t wide = put_varint(length, body);
+    /* A length of more than link_size bytes is of 2^56 bytes or more. */
+    if (wide <= link_size) {
+      memmove(link + wide, link + link_size, body);
+      memcpy(link, length, wide);
+      w->size -= link_size - wide;
+      w->open = (size_t)around;
+    }
+  }
+  lua_settop(L, 1);
+  return 1;
+}
+
+/* append(bytes): bytes that are fields already, as they are. */
+static int writer_append (lua_State *L) {
+  struct writer *w = writer_of(L);
+  size_t size;
+  const char *bytes = luaL_checklstring(L, 2, &size);
+  if (!w->troubled && size > 0) {
+    char *into = writer_room(L, 1, w, size);
+    memcpy(into, bytes, size);
+    w->size += size;
+  }
+  lua_settop(L, 1);
+  return 1;
+}
+
+/* trouble(): why the first field that could not be written could not,
+ * or "". */
+static int writer_trouble (lua_State *L) {
+  struct writer *w = writer_of(L);
+  if (w->troubled) {
+    lua_getiuservalue(L, 1, 1);
+  } else {
+    lua_pushliteral(L, "");
+  }
+  return 1;
+}
+
 /* encode(): the bytes and "", or nil and the writer's trouble. */
 static int writer_encode (lua_State *L) {
   struct writer *w = writer_of(L);
   if (w->troubled) {
     lua_pushnil(L);
     lua_getiuservalue(L, 1, 1);
+    return 2;
+  }
+  if (w->open != no_open) {
+    lua_pushnil(L);
+    lua_pushstring(L, unclosed);
     return 2;
   }
   lua_pushlstring(L, w->data, w->size);
@@ -1215,6 +1346,10 @@ static const luaL_Reg writer_methods[] = {
   {"string", writer_string},
   {"message", writer_message},
   {"packed", writer_packed},
+  {"open", writer_open},
+  {"close", writer_close},
+  {"append", writer_append},
+  {"trouble", writer_trouble},
   {"encode", writer_encode},
   {NULL, NULL},
 };

@@ -34,6 +34,12 @@ local record protobuf
     -- `keep`, the fields it answers true for, by number and wire type: the bytes of the others are not copied,
     -- which is how a program takes the fields it does not know from a message it has read the rest of.
     fields: function(self: Message, keep?: function(number: integer, wire: integer): boolean): {Field}
+    -- The fields whose wire type does not fit their number, as `fields` lists them, or nil where every field
+    -- fits: `fits` holds, for a number,
+    -- a bit for each wire type that fits it (`1 << Protobuf.LEN`), and a number it does not hold fits none. With
+    -- `named`, a field of a number `fits` does not hold is passed over. It is how a schema finds what a message
+    -- holds that it does not declare, in one pass.
+    unfit: function(self: Message, fits: {integer: integer}, named?: boolean): {Field}?
     -- Whether any field has this number, of any wire type.
     has: function(self: Message, number: integer): boolean
     -- The wire types of the fields of this number, a bit for each: `1 << Protobuf.LEN` is set where one is
@@ -133,9 +139,21 @@ local record protobuf
     -- one. An empty list writes no field, as the format has it. A value of an integer kind that is no
     -- integer, or past its kind, cannot be written. A `bool` is packed as the "int" 1 or 0.
     packed: function(self: Writer, number: integer, kind: Kind, values: {number}): Writer
+    -- Begins an embedded message in place: the fields written until `close` are its fields, and none of its
+    -- bytes is copied to a writer of its own. Messages open inside one another.
+    open: function(self: Writer, number: integer): Writer
+    -- Ends the embedded message the last `open` began. One that was not opened cannot be closed, and is why
+    -- `encode` fails.
+    close: function(self: Writer): Writer
+    -- Bytes that are fields already, such as [`Protobuf.encode`] answers, written as they are after the fields
+    -- so far. They are not read: bytes that are no fields make a message that is none.
+    append: function(self: Writer, bytes: string): Writer
+    -- Why the first field that could not be written could not, as `encode` answers it, or "" while every
+    -- field could.
+    trouble: function(self: Writer): string
     -- The bytes of the fields written so far, or nil and why the first that could not be written could
-    -- not. It may be called again after more fields. Two messages' bytes joined are the bytes of the two
-    -- merged.
+    -- not, or that a message is open. It may be called again after more fields. Two messages' bytes joined are
+    -- the bytes of the two merged.
     encode: function(self: Writer): string?, string
   end
 
@@ -154,6 +172,10 @@ local record protobuf
     string: function(Building, number: integer, value: string): Writer
     message: function(Building, number: integer, child: Writer): Writer
     packed: function(Building, number: integer, kind: Kind, values: {number}): Writer
+    open: function(Building, number: integer): Writer
+    close: function(Building): Writer
+    append: function(Building, bytes: string): Writer
+    trouble: function(Building): string
     encode: function(Building): string?, string
   end
 
@@ -163,6 +185,8 @@ local record protobuf
 
     -- Every field, or those `keep` answers true for.
     fields: function(Decoded, keep?: function(number: integer, wire: integer): boolean): {Field}
+    -- The fields whose wire type does not fit their number.
+    unfit: function(Decoded, fits: {integer: integer}, named?: boolean): {Field}?
     -- Whether any field has the number.
     has: function(Decoded, number: integer): boolean
     -- The wire types of the number's fields, a bit for each.
