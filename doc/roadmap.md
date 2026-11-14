@@ -441,13 +441,13 @@ symbol.
 - search a built program's help by its words. [`Flags.dispatch`] answers a
   command's page by its name and the index of them all; a program with many
   commands also wants `prog help <words>` to answer the pages that hold the
-  words, as `cosmic docs <words>` does for the library. that query is
-  FTS5 over the build's database ([`build/docs.tl`]), part of the tool and
-  no function of the library: decide whether [`cosmic.flags`] indexes the commands'
-  `about`, `usage`, options and `examples` in memory at the first query
-  (and so requires [`cosmic.sqlite`]), or `cosmic build` writes the index
-  into the program, and how a miss ranks beside [`Flags.nearest`]'s names.
-  no caller in the tree needs it yet.
+  words, as `cosmic docs <words>` does for the library. a program carries
+  its project's docs ([`build/embed.tl`]), and the query over them
+  ([`build/docs.tl`], FTS5) is part of the tool and no function of the
+  library. decide how a command's page (its `about`, `usage`, options and
+  `examples`) becomes a row beside the docs, what in the library queries
+  them from the program, and how a miss ranks beside [`Flags.nearest`]'s
+  names. no caller in the tree needs it yet.
 - add mention search for prose references that `cosmic uses` cannot see.
   old's `cosmic/doc/mentions.tl` demonstrates the separate full-text query.
 - an uncaught error's guidance ([`Errors.guidance`] in [`cosmic/errors.tl`]) is
@@ -512,6 +512,7 @@ four-producer provenance join.
 [`build/c/tree.tl`]: ../build/c/tree.tl
 [`build/dataset.tl`]: ../build/dataset.tl
 [`build/docs.tl`]: ../build/docs.tl
+[`build/embed.tl`]: ../build/embed.tl
 [`build/flow.tl`]: ../build/flow.tl
 [`build/hash_test.tl`]: ../build/hash_test.tl
 [`build/json.tl`]: ../build/json.tl
@@ -529,7 +530,6 @@ four-producer provenance join.
 [`core/json.c`]: ../core/json.c
 [`cosmic.coverage`]: ../cosmic/coverage.tl
 [`cosmic.dns`]: ../cosmic/dns.tl
-[`cosmic.flags`]: ../cosmic/flags.tl
 [`cosmic.fs`]: ../cosmic/fs.tl
 [`cosmic.html`]: ../cosmic/html.tl
 [`cosmic.http.message`]: ../cosmic/http/message.tl
@@ -545,7 +545,6 @@ four-producer provenance join.
 [`cosmic.removed`]: ../cosmic/removed.tl
 [`cosmic.sandbox`]: ../cosmic/sandbox/init.tl
 [`cosmic.shape`]: ../cosmic/shape.tl
-[`cosmic.sqlite`]: ../cosmic/sqlite.tl
 [`cosmic.template`]: ../cosmic/template/init.tl
 [`cosmic.test`]: ../cosmic/test.tl
 [`cosmic.url`]: ../cosmic/url.tl
