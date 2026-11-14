@@ -401,10 +401,14 @@ promises lean on come first:
     they nest.
 
 - [`cosmic.mdns`] past a search made once, each once a caller needs it:
-  - Publishing a service: a responder that probes for its names, announces
-    its records, answers the questions about them and says goodbye as it
-    stops (RFC 6762 sections 8 to 10), at port 5353 as [`Mdns.Listen`]'s
-    "group" binds it.
+  - The rest of publishing a service, where [`Mdns.responder`] only answers:
+    probing for its names before it uses them, announcing its records,
+    saying goodbye as it stops and settling a conflict with another
+    responder (RFC 6762 sections 8 to 10); leaving out the answers a
+    question lists as known (section 7.1); the delay before an answer
+    others may give too, and the answer that says a record does not exist
+    (section 6); the unicast answer a member's question may ask for
+    (section 5.4); and publishing a sub-type.
   - A browse that goes on until it is stopped: each record kept for its
     time to live and asked for again before that ends, an instance reported
     gone when its records expire or a goodbye (a record with a time to live
@@ -480,6 +484,16 @@ symbol.
 
 - add focused `*_example.tl` files for the public modules `cosmic/` has
   none for yet: `env` and `store`.
+- search a built program's help by its words. [`Flags.dispatch`] answers a
+  command's page by its name and the index of them all; a program with many
+  commands also wants `prog help <words>` to answer the pages that hold the
+  words, as `cosmic docs <words>` does for the library. a program carries
+  its project's docs ([`build/embed.tl`]), and the query over them
+  ([`build/docs.tl`], FTS5) is part of the tool and no function of the
+  library. decide how a command's page (its `about`, `usage`, options and
+  `examples`) becomes a row beside the docs, what in the library queries
+  them from the program, and how a miss ranks beside [`Flags.nearest`]'s
+  names. no caller in the tree needs it yet.
 - add mention search for prose references that `cosmic uses` cannot see.
   old's `cosmic/doc/mentions.tl` demonstrates the separate full-text query.
 - an uncaught error's guidance ([`Errors.guidance`] in [`cosmic/errors.tl`]) is
@@ -543,6 +557,8 @@ four-producer provenance join.
 [`build/archive_test.tl`]: ../build/archive_test.tl
 [`build/c/tree.tl`]: ../build/c/tree.tl
 [`build/dataset.tl`]: ../build/dataset.tl
+[`build/docs.tl`]: ../build/docs.tl
+[`build/embed.tl`]: ../build/embed.tl
 [`build/flow.tl`]: ../build/flow.tl
 [`build/hash_test.tl`]: ../build/hash_test.tl
 [`build/json.tl`]: ../build/json.tl
@@ -593,12 +609,14 @@ four-producer provenance join.
 [`doc/testing.md`]: testing.md
 [`Errors.guidance`]: ../cosmic/errors.tl
 [`eval/summarize.tl`]: ../eval/summarize.tl
+[`Flags.dispatch`]: ../cosmic/flags.tl
+[`Flags.nearest`]: ../cosmic/flags.tl
 [`Html.url_part`]: ../cosmic/html.tl
 [`Input.Invalid`]: ../cosmic/web/input.tl
 [`Json.decode`]: ../cosmic/json.tl
 [`lang/flow.tl`]: ../lang/flow.tl
 [`lang/stdlib.d.tl`]: ../lang/stdlib.d.tl
-[`Mdns.Listen`]: ../cosmic/mdns.tl
+[`Mdns.responder`]: ../cosmic/mdns.tl
 [`Net.datagram`]: ../cosmic/net.tl
 [`Net.serve`]: ../cosmic/net.tl
 [`Plist.decode`]: ../cosmic/plist.tl

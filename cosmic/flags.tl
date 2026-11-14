@@ -66,6 +66,15 @@ local record Flags
     help: string
   end
 
+  --- One line a command can be typed as, for its help to show.
+  record Example
+    --- What follows the command's name on the line ("--jobs 4 src");
+    --- "" for the command alone.
+    line: string
+    --- One line on what that does; "" to show the line alone.
+    about: string
+  end
+
   --- One command [`Flags.dispatch`] can run.
   record Command
     --- The options the command takes, as [`Flags.parse`] reads a spec;
@@ -76,6 +85,18 @@ local record Flags
     --- What follows the command in its usage line ("[options] <file>"),
     --- for help; "[options]" when nil and the command takes any.
     usage?: string
+    --- Lines to type, each with what it does, for help to show under
+    --- "examples:" in the order given; none when nil.
+    examples?: {Example}
+    --- Other commands of the program, by name, for help to end "see
+    --- also:" with, in the order given; none when nil.
+    --- [`Flags.dispatch`] raises for a name that is not another of its
+    --- commands, "help" among them.
+    see?: {string}
+    --- The section of the program's help the command is listed under
+    --- ("Reports"); under "commands:" when nil or "", or "other
+    --- commands:" where another command names a section.
+    group?: string
     --- Runs the command with what its line held, answering its exit
     --- status. None for a command only described, as [`cosmic.cli`]'s
     --- verbs are, which [`Flags.dispatch`] refuses to run.
@@ -212,6 +233,14 @@ local function meant(word: string, names: {string}): string
     return "; did you mean " .. found[1] .. "?"
   end
   return "; did you mean one of " .. table.concat(found, ", ") .. "?"
+end
+
+--- `names` in order, as a list of its own.
+local function sorted(names: {string}): {string}
+  local out: mut {string} = {}
+  for _, name in ipairs(names) do out[#out + 1] = name end
+  table.sort(out)
+  return out
 end
 
 --- The keys of `map`, in no order.
@@ -390,6 +419,36 @@ local function columns(text: string): integer
   return utf8.len(text) or #text
 end
 
+--- One line of a help column: what it is of, and what that does.
+local record Row
+  head: string
+  about: string?
+end
+
+--- How wide the widest head of `rows` shows.
+local function row_width(rows: {Row}): integer
+  local width = 0
+  for _, row in ipairs(rows) do
+    if columns(row.head) > width then width = columns(row.head) end
+  end
+  return width
+end
+
+--- Each of `rows` as help lists it: indented two spaces, its head padded
+--- to `width` where what it does follows.
+local function row_lines(rows: {Row}, width: integer): {string}
+  local lines: mut {string} = {}
+  for _, row in ipairs(rows) do
+    local about = row.about
+    if about ~= nil and about ~= "" then
+      lines[#lines + 1] = "  " .. row.head .. string.rep(" ", width - columns(row.head)) .. "  " .. about
+    else
+      lines[#lines + 1] = "  " .. row.head
+    end
+  end
+  return lines
+end
+
 --- Each option `spec` names, as help shows it -- its name and the name
 --- of its value -- beside what it does, in a column: sorted by name
 --- without its dashes, each line indented two spaces.
@@ -401,12 +460,7 @@ local function option_lines(spec: {string:boolean | Flags.Option}): {string}
     if bare_a ~= bare_b then return bare_a < bare_b end
     return a < b
   end)
-  local record Head
-    name: string
-    text: string
-  end
-  local heads: mut {Head} = {}
-  local width = 0
+  local rows: mut {Row} = {}
   for _, name in ipairs(names) do
     local entry = spec[name]
     local head = name
@@ -416,24 +470,13 @@ local function option_lines(spec: {string:boolean | Flags.Option}): {string}
     elseif entry == true then
       head = name .. " <value>"
     end
-    heads[#heads + 1] = { name = name, text = head }
-    if columns(head) > width then width = columns(head) end
-  end
-  local lines: mut {string} = {}
-  for _, head in ipairs(heads) do
-    local entry = spec[head.name]
     local about = if entry is Flags.Option then entry.about else nil end -- checked: is_on_record
     if entry ~= nil and is_required(entry) then
       about = if about ~= nil and about ~= "" then about .. " (required)" else "(required)" end
     end
-    if about ~= nil and about ~= "" then
-      lines[#lines + 1] = "  " .. head.text .. string.rep(" ", width - columns(head.text)) ..
-        "  " .. about
-    else
-      lines[#lines + 1] = "  " .. head.text
-    end
+    rows[#rows + 1] = { head = head, about = about }
   end
-  return lines
+  return row_lines(rows, row_width(rows))
 end
 
 --- The options `spec` names, one line each as [`Flags.help`] lists them:
@@ -450,7 +493,11 @@ end
 --- when given, and each option the command's `spec` names with its
 --- value's name and what it does, as a [`Flags.Option`] describes it:
 --- one named `false` is listed bare, and one named `true` with
---- "<value>". An option the line must give ends "(required)". Columns are
+--- "<value>". An option the line must give ends "(required)". Then its
+--- `examples`, each line after `name` beside what it does, and its `see`
+--- names after "see also:", as written: given one command, it cannot
+--- tell a name that is no command. A command with neither reads as one
+--- that has no such fields. Columns are
 --- aligned by characters, not bytes. `run` is not read, so a program with
 --- one command, or a tool that runs its command itself, describes it the
 --- way [`Flags.dispatch`] describes each of its own. It ends without a newline.
@@ -462,6 +509,12 @@ end
 ---     options:
 ---       --jobs <n>  run n at once
 ---       -v          say more
+---
+---     examples:
+---       prog count notes.txt     the lines of one file
+---       prog count -v src/*.tl   each file's count, then the total
+---
+---     see also: words
 --- @param command Command The command to describe
 --- @param name string What the usage line calls it: the program, and the
 ---   command's own word after it when it has one ("prog count"); not
@@ -481,36 +534,70 @@ function Flags.help(command: Flags.Command, name: string): string
   if next(spec) ~= nil then
     parts[#parts + 1] = "\noptions:\n" .. Flags.options(spec)
   end
+  local examples = command.examples or {}
+  if #examples > 0 then
+    local rows: mut {Row} = {}
+    for _, example in ipairs(examples) do
+      rows[#rows + 1] = {
+        head = if example.line ~= "" then name .. " " .. example.line else name end,
+        about = example.about,
+      }
+    end
+    parts[#parts + 1] = "\nexamples:\n" .. table.concat(row_lines(rows, row_width(rows)), "\n")
+  end
+  local see = command.see or {}
+  if #see > 0 then
+    parts[#parts + 1] = "\nsee also: " .. table.concat(see, ", ")
+  end
   return table.concat(parts, "\n")
 end
 
---- The help of `program` as a whole: its commands, each with its about.
+--- The help of `program` as a whole: its commands, each with its about,
+--- under "commands:" in order by name. Where any names a `group`, each
+--- group is a section under its title, the sections in order by title,
+--- and the commands that name none come last, under "other commands:".
+--- One column holds every section's names.
 local function commands_help(program: string, commands: {string:Flags.Command}): string
-  local record Row
-    name: string
-    about: string?
-  end
-  local rows: mut {Row} = {}
-  local width = 0
-  for name, command in pairs(commands) do
-    rows[#rows + 1] = { name = name, about = command.about }
-    if columns(name) > width then width = columns(name) end
-  end
-  table.sort(rows, function(a: Row, b: Row): boolean return a.name < b.name end)
+  local names: mut {string} = {}
+  local sections: mut {string: mut {Row}} = {}
+  local titles: mut {string} = {}
+  local every: mut {Row} = {}
   local any_options = false
-  for _, command in pairs(commands) do
-    local spec = command.spec
-    if spec ~= nil and next(spec) ~= nil then any_options = true end
-  end
-  local usage = "usage: " .. program .. " <command>" .. (if any_options then " [options]" else "" end)
-  local lines: mut {string} = { usage, "", "commands:" }
-  for _, row in ipairs(rows) do
-    local name, about = row.name, row.about
-    if about ~= nil and about ~= "" then
-      lines[#lines + 1] = "  " .. name .. string.rep(" ", width - columns(name)) .. "  " .. about
-    else
-      lines[#lines + 1] = "  " .. name
+  for name in pairs(commands) do names[#names + 1] = name end
+  table.sort(names)
+  for _, name in ipairs(names) do
+    local command = commands[name]
+    if command ~= nil then
+      local spec = command.spec
+      if spec ~= nil and next(spec) ~= nil then any_options = true end
+      local title = command.group or ""
+      local row: Row = { head = name, about = command.about }
+      local rows = sections[title]
+      if rows == nil then
+        sections[title] = { row }
+        if title ~= "" then titles[#titles + 1] = title end
+      else
+        rows[#rows + 1] = row
+      end
+      every[#every + 1] = row
     end
+  end
+  table.sort(titles)
+  local width = row_width(every)
+  local lines: mut {string} = {
+    "usage: " .. program .. " <command>" .. (if any_options then " [options]" else "" end),
+  }
+  local function section(heading: string, rows: {Row})
+    lines[#lines + 1] = ""
+    lines[#lines + 1] = heading .. ":"
+    for _, line in ipairs(row_lines(rows, width)) do lines[#lines + 1] = line end
+  end
+  for _, title in ipairs(titles) do
+    section(title, sections[title] or {})
+  end
+  local ungrouped = sections[""]
+  if ungrouped ~= nil then
+    section(if #titles > 0 then "other commands" else "commands" end, ungrouped)
   end
   if any_options then
     lines[#lines + 1] = ""
@@ -553,7 +640,10 @@ end
 --- line -- "build: --jobs is required; usage: prog build [options] <file>"
 --- -- so a program that prints `why` shows how to type the line. Only the
 --- first line of a multi-line `usage` is shown. Empty
---- `commands` raises.
+--- `commands` raises, as does a command whose `see` names itself or no
+--- command of `commands` ("help" is one, held or not), whatever the
+--- line: a caller's mistake, met by its first run. The first such
+--- command by name is the one named.
 ---
 --- Help is answered rather than run -- `code` 0 and `help` for the
 --- caller to print -- when the command is "--help" or "-h", or "help"
@@ -562,8 +652,10 @@ end
 --- "--help" or "-h" comes after a command whose spec does not name it,
 --- before any "--" -- even as what would be an option's value, which
 --- [`Flags.parse`] refuses anyway. Each command's help is [`Flags.help`]'s,
---- from its spec, `usage` and `about`; the program's lists every
---- command's `about`. `help` given more than one word is refused.
+--- from its spec, `usage`, `about`, `examples` and `see`; the program's
+--- lists every command's `about`, in order by name: under "commands:",
+--- or, where any command names a `group`, each group under its title, the
+--- titles in order, and the rest last under "other commands:". `help` given more than one word is refused.
 ---
 ---     local ran, why = Flags.dispatch(argv, 1, commands, "prog")
 ---     if ran == nil then Fs.put(Fs.stderr, "prog: " .. why .. "\n") return 2 end
@@ -581,6 +673,17 @@ function Flags.dispatch(argv: {string}, from: integer,
                         commands: {string:Flags.Command}, program: string): Flags.Dispatched?, string
   if next(commands) == nil then
     error("flags: dispatch needs a command to choose among", 2)
+  end
+  for _, held in ipairs(sorted(keys(commands))) do
+    local command = commands[held]
+    local see = if command ~= nil then command.see else nil end
+    if see ~= nil then
+      for _, other in ipairs(see) do
+        if other == held or (commands[other] == nil and other ~= "help") then
+          error("flags: " .. held .. "'s see names no other command: " .. other, 2)
+        end
+      end
+    end
   end
   local name = argv[from]
   if name == "--help" or name == "-h" or (name == "help" and commands.help == nil) then -- checked: map_field
