@@ -69,6 +69,22 @@ function Example.browse()
   end)
 end
 
+--- Several service types in one search: a device is often known by more than one, and each
+--- instance says in `service` which it is one of. The stand-in is a printer and no web server, so
+--- nothing answers for `_http._tcp`. `settle_ns` ends the search a tenth of a second after the
+--- printer has described itself, where it would wait five seconds for the other type.
+function Example.several()
+  Poll.run(function()
+    local device <close> = assert(Net.datagram(Net.udp("127.0.0.1", 0)))
+    Poll.spawn(function() respond(device) end)
+    local found = assert(Mdns.browse({ "_ipp._tcp", "_http._tcp" }, { address = "127.0.0.1",
+      port = assert(device.address.port), settle_ns = Clock.ms(100), timeout_ns = Clock.seconds(5) }))
+    for _, instance in ipairs(found) do print(instance.service, instance.name, instance.port) end
+    local printer = assert(found[1])
+    assert(#found == 1 and printer.service == "_ipp._tcp" and printer.name == "Front Desk. Printer")
+  end)
+end
+
 --- Instances as they are found: `found` is called with each while the search goes on, so a program
 --- can show the first before the time limit has passed.
 function Example.found()
