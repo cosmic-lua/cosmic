@@ -1195,7 +1195,10 @@ implementation verifies.
 [`cosmic.bigint`] is arithmetic on integers of thousands of bits over
 the library's bignum, the one its RSA and ECC use, which the PSA API
 does not expose: [`core/bigint.c`] asks for the private declarations,
-and the raw [`cosmic.internal.bigint`] table holds the bindings.
+and the raw [`cosmic.internal.bigint`] table holds the bindings. Its
+arithmetic for secrets calls the library's functions on arrays of limbs,
+which `bignum_core.h` declares, a header of the library's sources that
+`build.zig` puts on the include path of the core's own C.
 
 ### the sandbox
 

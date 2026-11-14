@@ -2,9 +2,16 @@
 --- Python's integers (`pow(b, e, m)`, `*`, `%`), whose answers are
 --- embedded as hexadecimal: every operation, the edges of each, and every
 --- refusal and raise.
+---
+--- The functions for secrets are proved to compute the right numbers at
+--- the right widths, and nothing here times them: a test must not depend
+--- on the host's speed. That their time is fixed by lengths rests on the
+--- guarantees mbedtls documents for the functions core/bigint.c calls,
+--- and on reading that file, not on a measurement.
 
 local Bigint = require("cosmic.bigint")
 local Codec = require("cosmic.codec")
+local Hash = require("cosmic.hash")
 local Test = require("cosmic.test")
 
 Test.policy{ cpu_features = true }
@@ -177,6 +184,170 @@ local a_mod_m = n(
     "8131644c2e44e9e5c9fa10f8301ab3426ca3452957902ab0f3759f4903a44b0ee9ed207292de6c756b9e78b699d75c84" ..
     "5686"
 )
+
+-- Operands and answers for the functions for secrets, from Python: a
+-- number below the 3072-bit prime, one of a digest's length, one of 700
+-- bytes, an even modulus of 40 bytes and an odd one of 13. The last six
+-- are SHA-256 digests of answers at the limits, whose operands `drawn`
+-- makes.
+local s_a = n(
+  "43ca95e3bc07292b6039dfb5262eabe72d1a95674819872a700efca2ce8a1eb0d1857a9a23de885ed0a49b97ecb60c98" ..
+    "ae06c30855846842a3b74a7bf6ae9ab02dbb1a7e86c54a0d5d0fcf691ce406d42efb5c91383f3572daac890912f9051f" ..
+    "9c279eb2241e1ddfa13b442ee3a55a6ea2734f466b7b07c3e58c30e4a4496fa77516d6a92d6c5974d2c107925b73f675" ..
+    "e80a4727f88566bc904e99fdfbd432d32f3e6de4a3e85d5e1ff96923bbd8dd1cf6e518fec6ab6e614a82a3267b1aee40" ..
+    "f8d7c1e7650819ba317e83e8eae6d11de1afdbc4d84de38d5e0d3dd1e2899e303606a45c90beda6d85cd9356f00b8a63" ..
+    "a78b96832648da4a7480447d3d26bec03867293445684e9fb230d6db65a66d6661030b858a4391ecc5382758a74e66d4" ..
+    "9d1fd1a7d51e51d46bb1a8cfd94b9a1b06c9e87a275f9bbdbd7674ddf8a494036e0c59b13c83ca78d83810d5c883e3cb" ..
+    "70057f540649725e7f47cc862103b33ec3b485c281607aa67bfe5dbbedf42504964278938db492c53dac1e0110672a4d"
+)
+local s_b = n(
+  "268e3fcbd96622adf51872c09aa3a89a6403bd4e5b4f0c046cb732a4814e2f437a359d186c2e013f267d3faf0f92499f" ..
+    "2e0faa5f39cba66c25f76c1bd0dcc44e"
+)
+local s_wide = n(
+  "87ce485f673d13a2c9b7a90f1cf178ebb945d7063c67ae5241ef8ad198aa34f42ef7e547608292ed2d2c36632cd8a1a2" ..
+    "c386f70529e024ea4a4226fd45092a0182de338291221ebbb5a059ca01dde4f1a8f44914a724b3278e88d609aa6812ea" ..
+    "4d8d44e0b98d81820b95da31b43ce2ef5fac6dd4f3ecee114baa92515d421bad32d77da36ed9ba4b16b0c26d93e606e8" ..
+    "8e5eedc94ae282bab8adf87f7b2e47b2a11c17954e47cbf873e49116efc81a8e7cc8aa5bc3f853001a3e4a5dc54e48f0" ..
+    "ce9f3a730a12b061440504c6dc08bb01dcc0cf32244809c8dc831b69a84f70620ebb533c25ca97afed56083552c3db4c" ..
+    "719b9cb41b6954a65db3cdc14b334ae50751b2940e60969ae18e9c66a4265af912ac372debfd8ef3fdc6b35c7326b106" ..
+    "4597cee0d8cd3556c2d5080efa13486fbc9a866ae6903d4a4787c6cae17365b5b3803762ce6ac914daa302a09d2482a1" ..
+    "820315622b386eacbd82930034c0d18e84cc77e7258170afde236f8970b203df3c530423b830b3db1fe619951deacce3" ..
+    "6ec7b8eb70584c29a86c13952d09a040dfca7946f85fd4dd67be578b1c0be182030599f4e7de596cc40ce6922c167f94" ..
+    "5f18744059baf5b8d0cf90dd88fd4c6b41df5225801714fcf64f5509e7c2de8f2783e5bb6cbb0dd4f6701af0d07c0aec" ..
+    "ad450d836ea7e222e32c9a5230e2b9e25374a6eb62486af6b5cc04e3c995950cb3116319d2e78ca2d31dcedc073afa4c" ..
+    "a9af57f13212f99af0fa407eaca68b41991e6d29746e323d7eb39a3190ffbede9b88abff34105497411821ed5ed0389d" ..
+    "84b7e589702b093dc42fafac3e30672b75d698f6d87ce577bf6e3242fb6a680ba29f78f7832a1fabb1b4ab1ecd705b3b" ..
+    "1f939625cd06fac27e2997035250d25c2785a697edde944f7e4788f27cafe5b9ffae60ea349ce5a1f50f979986cc36a7" ..
+    "c8fc62215cb9f2d4c344d6329b0770d65a7cbec29d7456c2552534e9"
+)
+local s_even = n("eeee397645d21f3c40c62c0f08cf69014ccd01df3461da37404de3e893e78b72050f53d2a28ca6d0")
+local s_odd = n("89aac84481ced6db65877a46fd")
+local s_a_times_b_mod_p = n(
+  "0eec20e489941d8743bb79c5574d4b721441236f9acc6a64d9c6218b2cad79b683f38becc2e03f63941d0a042cdcd383" ..
+    "5b9bae83e58b4ecbae99fa5c7a7e2fc16f9597d0f31fd141f10c0f5bb67b103faf58f713484982ae7b41724112c9dbac" ..
+    "9df83fc56ab1e60c90f95599d142ab99a39edd5484592a03f4aa220ebec8d9a55ee2a9dd380ae7d4462242fd6184cf50" ..
+    "9fadc607f4de073288b2d5ee3a7e74efd14d6a35e45f67ffdbf27c2e761b014adc0c7ad05d637f61bc08e62fd0d7b0d9" ..
+    "17f1e906156a5484aa99441180aafe419a96c50263ca8fb4dec5216760e422cbc9c80ca05d74262b5c8efee51cc0357f" ..
+    "44d677c91fea954e9431e3976b12103a0d42ee32746d05a7d1b0b2be2b90cf045b75b0030a316681a01086f412981165" ..
+    "ae5a6db2f1a4c5ffc4f8a6a0e89fc7fc61ddebc4694fc6161630200018f6e9583a708e17be721e62c27546241a05f158" ..
+    "8c131698dacb3753b705f2e1a3c3b246fd8c3bca21b7b364e46eb4926f8f816876e128c6df4669d059e27eff0112042e"
+)
+local s_a_plus_b_mod_p = n(
+  "43ca95e3bc07292b6039dfb5262eabe72d1a95674819872a700efca2ce8a1eb0d1857a9a23de885ed0a49b97ecb60c98" ..
+    "ae06c30855846842a3b74a7bf6ae9ab02dbb1a7e86c54a0d5d0fcf691ce406d42efb5c91383f3572daac890912f9051f" ..
+    "9c279eb2241e1ddfa13b442ee3a55a6ea2734f466b7b07c3e58c30e4a4496fa77516d6a92d6c5974d2c107925b73f675" ..
+    "e80a4727f88566bc904e99fdfbd432d32f3e6de4a3e85d5e1ff96923bbd8dd1cf6e518fec6ab6e614a82a3267b1aee40" ..
+    "f8d7c1e7650819ba317e83e8eae6d11de1afdbc4d84de38d5e0d3dd1e2899e303606a45c90beda6d85cd9356f00b8a63" ..
+    "a78b96832648da4a7480447d3d26bec03867293445684e9fb230d6db65a66d6661030b858a4391ecc5382758a74e66d4" ..
+    "9d1fd1a7d51e51d46bb1a8cfd94b9a1b06c9e87a275f9bbdbd7674ddf8a49403949a997d15e9ed26cd50839663278c65" ..
+    "d4093ca261987e62ebfeff2aa251e2823dea22daed8e7be5a27b9d6afd866ea3c45222f2c780393163a38a1ce143ee9b"
+)
+local s_b_minus_a_mod_p = n(
+  "bc356a1c43f8d6d468d5faecfb3a164d97abcd2438c295a6b8f35165bbddadc33086440c173512c380a56ce1a17df845" ..
+    "418e56ab77b5dad88c73bff1fbb0798722261aeee68c78388775e60d457a77f2c550e6586df8b7f83152d3ade10db2ce" ..
+    "5210cd49366b81c60d63dfe298a5c577a6b5170b81695379dc744bd3fd1a4f5e23c3718ceee97a2596553816a1b0d8e9" ..
+    "9b5b15fbe41e46d98c14595824b11fe86f96bb22ccae390f4712cc2a8ee3bae7fa8f530a036cb31ae80dbb1fb31bdffa" ..
+    "eac6b544b3066c4969a8ffba0120d171d415822b96fe6f3c801e8e24b2ce78e8038ea52059d69077900492c1a8ee7aac" ..
+    "6de6f7d76461e9e338b2d28fc729bb736fedf87799b46bc53acaae28f33581a429e765d1d2c27a90ee5ee82cff937df3" ..
+    "0ed5dce505eae202b2daec1070d9c782c819e9abf37352ae33b98528e0e5746190f7e88ddbaac2996eff8d02e99ae4db" ..
+    "afdf5551cf66f7126478eedf1b23c2e6bf6366f65fb331c9ee5a3df0029b3528e35002ec5551e671e84b4e1ac0759a00"
+)
+local s_wide_mod_p = n(
+  "71067d88667055870ad595e42f51e7558ab9c43bc210200208cb7e49708a93a2fdf35c1c465510008ac02b0538f5c92c" ..
+    "d48370d61c44d442218f48a7f48671f69e7611063dc2418f9a9d6e1511aea173a1f0ba34753961e57c189ccd8d0b6a15" ..
+    "23c8d048358460c83b376ff975b58388dc95ea44692f1b3e90602856f68dc13eff9c00444eb1bd36a452ea79f2b74c3b" ..
+    "675ea21aae8c2694b18e844185c389625c4b34bb6a79ac0700691da8cb4f61548f0401a2f2929788f709f201d53c1338" ..
+    "4ede53ac9926ddd60e08796ee6a65bbf7e6734b1ffa3e5ebabf1793c07fb718ad676c86c8d3b2c7cd9df3fe2f3dfac53" ..
+    "073469ce7adf417ea9b6364e2bfb04ed408c1828ba6473a6292ba24b691eb4711f6bdcc8a31d6eacd19c6f6faf7c86c6" ..
+    "d73da698dd9589ac524fb117424c0c199343b3ec42756b97be3daae3200bf3683248d54b1f1baca22d9fa3d1ad81d3c6" ..
+    "0c65e56793a917a99a47091741ffb7d1f4a6a2829eadc97202cb30ac8e258f38f16eec710500985cea96edee62cf3fde"
+)
+local s_wide_times_a_mod_p = n(
+  "d6d56deada121afde94b899d8be1a5a864522688bd2b4e0fd2d412bf3ec43ddfe035bd26770811be35a77356c1291e2e" ..
+    "6bb2b514924cff1280c07d215cb3432de1c5baee981e0f2e453739bd89665ca0927e013b29b5b3c9669697672df4c8d3" ..
+    "452958a396eeb79430cec24c9e0973d9dc39ad4871e05752430129f474bb7b5e7e528cd792bd5d9ca2b5570135294136" ..
+    "b1f92724e6545f0e48a336edddc9d7d17eecb0b8630504bf88061babb5e9939e00900c00d241933b43bde837b41e059e" ..
+    "02c9c714f8af27e8109f4ea9349993b399c069de2f265c5acee2358fed1af008a82512b169b41b93dd8c1ae3297a96ae" ..
+    "6d03c227d71d86c8a5fc3e0b23814073f6fed25a2405c031dfea2ac02ad61f5cda93234cdef495a6032875ec40903ead" ..
+    "2eeb8077745e9c207d9c754846e27c5460d7c1e426924132c9da9ed0871439bc32401678eb93a9350cf2b24f0ca2bb08" ..
+    "99bba6b39a82b8e6bc7cf9e5ca252a5f5616867d83c837d1992507195026235059b02f604a633a76a5f4e3f9c65d88aa"
+)
+local s_wide_plus_wide_mod_p = n(
+  "e20cfb10cce0ab0e15ab2bc85ea3ceab15738877842040041196fc92e1152745fbe6b8388caa20011580560a71eb9259" ..
+    "a906e1ac3889a884431e914fe90ce3ed3cec220c7b84831f353adc2a235d42e743e17468ea72c3caf831399b1a16d42a" ..
+    "4791a0906b08c190766edff2eb6b0711b92bd488d25e367d20c050aded1b827dff3800889d637a6d48a5d4f3e56e9876" ..
+    "cebd44355d184d29631d08830b8712c4b8966976d4f3580e00d23b51969ec2a91e080345e5252f11ee13e403aa782670" ..
+    "9dbca759324dbbac1c10f2ddcd4cb77efcce6963ff47cbd757e2f2780ff6e315aced90d91a7658f9b3be7fc5e7bf58a6" ..
+    "0e68d39cf5be82fd536c6c9c57f609da8118305174c8e74c52574496d23d68e23ed7b991463add59a338dedf5ef90d8d" ..
+    "ae7b4d31bb2b1358a49f622e84981833268767d884ead72f7c7b55c64017e6d06491aa963e3759445b3f47a35b03a78c" ..
+    "18cbcacf27522f53348e122e83ff6fa3e94d45053d5b92e4059661591c4b1e71e2ddd8e20a0130b9d52ddbdcc59e7fbc"
+)
+local s_a_minus_wide_mod_p = n(
+  "d2c4185b5596d3a41e742473184586c6672733b706e583f99045cc61e8675781d59ddd24189d1380972e790c41f44849" ..
+    "c9186be60679d71bb2530c41f4873cf0df263ee5b654cac3a6f816ca6d93e4278156e546693dc0f86a9348f279f452f8" ..
+    "66973a6549235cbd14a2f846ea3af6cc0f05cb53ef3047c3172c85464f1f6d6e0e551e9afb106fd897845cc165e1799a" ..
+    "04110231269cedbdfb2309129695fc2c71c86230aa0547c4869c80c93b4613cd595583649e30f85486090f6ad415a944" ..
+    "8d97e566e3efc1e7be9d8e1cf04817ee190e050347f6506b9047908c6fe643bd9925256cee1918d5c1c0798c9525e320" ..
+    "b5c9bb0f36145cf977fd253c157c3406a03032b76a20955e7600b9945563a7ffcc81a014442c2fbda732c76e9eb3c4d5" ..
+    "71d7d99bd291fbff37ee8c98e124ef9f426a06b3ffbd1e91f068c401b222a900143986d95c30883afcb7981c327d3012" ..
+    "1f80b143ed01b8215c0a4c2f99dd424ed7f032e057985c65bd0e890c40cba659f0565d4331eecd3353153012ad97ea6e"
+)
+local s_a_times_b_mod_p256 = n("e1361d6e6109cac9c2e6c180bc97485765b4d80680a7ecea2a0df98a9a8dbd2c")
+local s_a_mod_p256 = n("4d06a20ac1e6cd0899c703bdc8ea5795a98ebceec9165cb7c8c9f1984c17cb6c")
+local s_a_times_wide_mod_odd = n("190eca6b56b41b4b1bf60ace3c")
+local s_wide_mod_odd = n("50143739cac0bcd8a102e30235")
+local s_a_plus_b_mod_odd = n("3058f8a0fa3c45523c39c3f616")
+local s_b_minus_a_mod_odd = n("457b317ece43e12e69f37d7078")
+local s_a_mod_even = n("ee668554d5c8a99bf2ca30abf2031016da280303d59d34d5d26a331f53c2a909e14fde8822fe679d")
+local s_a_plus_wide_mod_even = n("47e60af8bf704487a25d087cd338a52b77d53f37463b6615bc2b38be46170110330a71f98c8e8ce6")
+local s_b_minus_wide_mod_even = n("ad5f95a26aa97f150b3010cd9afdb83fe98bc5eb09479ccfccffeda505b5f8ae7077fcec9e33a805")
+local s_a_times_b = n(
+  "0a35bd83c85507e5defd2ad5ee2f93a2ad4b8dcf639cce16bfd94e429a5e1b171c34b153cb3b107c05c3198dd5aa294e" ..
+    "61c334843484c90e149b6edac51ed2330adbe95140bd9cd9ad2a435bbbebe2d9c3537cd7e7b5b10c11f82851a09e231c" ..
+    "cdb529a1605ab0274257a4cf20f3bb0129ffa7393f490c9ab06bb4e4cd12b4a63924b66dbe51ec197f3cf4e6d532bce1" ..
+    "3b44a54a8d080726d3b039741225e5a43a6cd63c8a00bd3efb0214c914c45df6247b9d9a993463c78f1ac743b34a6e9a" ..
+    "9835bac49c9add56f0d3354b36e3a2d5cdac899b196c1bcdbb5f3c480ac3279610398ebface8c71221ad557ca5ded6de" ..
+    "0d7857d7f699652f448035cbb6765d50c0f24f985a68d88d2da80832f1cbfb92ef29c722606b512d9d2cffbf17ceae5f" ..
+    "cccdb6227ad31b247c735ae7d42d681bb10cb08758b6c46c9f0388a76a85fb9b9860a87374eacd887fe2adb41daa6d2d" ..
+    "5522d2b4df7375b886ed0be789bb866f21900781f90ca94fc3da59968746e86b6c0131973a796f579453a70394d2babc" ..
+    "516f02a3238906cd946fc9331c324137b1dd734d17965a9a9bd86c94567df42c4ffcbe421da398a4fe1209b010d4546f" ..
+    "fd246dfd8a38b3c669acd207e5fdd776"
+)
+local s_a_plus_b = n(
+  "0043ca95e3bc07292b6039dfb5262eabe72d1a95674819872a700efca2ce8a1eb0d1857a9a23de885ed0a49b97ecb60c" ..
+    "98ae06c30855846842a3b74a7bf6ae9ab02dbb1a7e86c54a0d5d0fcf691ce406d42efb5c91383f3572daac890912f905" ..
+    "1f9c279eb2241e1ddfa13b442ee3a55a6ea2734f466b7b07c3e58c30e4a4496fa77516d6a92d6c5974d2c107925b73f6" ..
+    "75e80a4727f88566bc904e99fdfbd432d32f3e6de4a3e85d5e1ff96923bbd8dd1cf6e518fec6ab6e614a82a3267b1aee" ..
+    "40f8d7c1e7650819ba317e83e8eae6d11de1afdbc4d84de38d5e0d3dd1e2899e303606a45c90beda6d85cd9356f00b8a" ..
+    "63a78b96832648da4a7480447d3d26bec03867293445684e9fb230d6db65a66d6661030b858a4391ecc5382758a74e66" ..
+    "d49d1fd1a7d51e51d46bb1a8cfd94b9a1b06c9e87a275f9bbdbd7674ddf8a49403949a997d15e9ed26cd50839663278c" ..
+    "65d4093ca261987e62ebfeff2aa251e2823dea22daed8e7be5a27b9d6afd866ea3c45222f2c780393163a38a1ce143ee" ..
+    "9b"
+)
+local s_wide_plus_a = n(
+  "0087ce485f673d13a2c9b7a90f1cf178ebb945d7063c67ae5241ef8ad198aa34f42ef7e547608292ed2d2c36632cd8a1" ..
+    "a2c386f70529e024ea4a4226fd45092a0182de338291221ebbb5a059ca01dde4f1a8f44914a724b3278e88d609aa6812" ..
+    "ea4d8d44e0b98d81820b95da31b43ce2ef5fac6dd4f3ecee114baa92515d421bad32d77da36ed9ba4b16b0c26d93e606" ..
+    "e88e5eedc94ae282bab8adf87f7b2e47b2a11c17954e47cbf873e49116efc81a8e7cc8aa5bc3f853001a3e4a5dc54e48" ..
+    "f0ce9f3a730a12b061440504c6dc08bb01dcc0cf32244809c8dc831b69a84f70620ebb533c25ca97afed56083552c3db" ..
+    "4c719b9cb41b6954a65db3cdc14b334ae50751b2940e60969ae18e9c66a4265af912ac372debfd8ef3fdc6b35c7326b1" ..
+    "064597cee0d8cd3556c2d5080efa13486fbc9a866ae6903d4a4787c6cb253dfb996f87608e2ea4a8ca00d1ae87ca3f18" ..
+    "08ca1c9c8c9b476b4f8c0cb1b106464c28a8ab0045f6260c47cad97c221eb8c6e791d76c665be7fe571694b4454ba5e7" ..
+    "61f58d02f8cd681b92c5501a695c04fcd21809aeb9d30c5de67ab75caab83380342723b7d489199d9ba7b24100ce89ce" ..
+    "daca937c043f47269d75190084fe1423146f4bab9a52d81c8f51c34b7fcfcd25b720094c77fd09a7d2f2444dc3ffba78" ..
+    "d1512d6ae18ea14b469f05776f27c7d2e11a20154caccb0e1d30e6f324c26d56f418197cd40466108bbe049ff9e8ead6" ..
+    "1181fd3b7e9020376cd383deaee2ad2f9e29dd4796fa3bc5946ebf2495388b5561c1d18649a89099147e3ee0ad973761" ..
+    "d1ca203429225be01929d61d129f3372b1001a2ae39db50cd066bc9917988a39b377bdcacbeedbc87b8b004539d43a43" ..
+    "b546f331e38a7d6fa076ce2b06c05d2c0d64097110c616a52546cb6cbdecb5650e05f7d348b3e4b22816134ad84a80bc" ..
+    "6a4a5cdcc7d8b85090b138fb373149e969e8315187db2074c3658c5f36"
+)
+local lim_times = n("4d8aa99b099daa2a5874f822aba768211d3a988728be1264b4db14dbd06e696d")
+local lim_plus = n("9ae2ffde51dab1334d13319ecdc44bb647b127ea6bc1e56ad5293da650dafe56")
+local lim_minus = n("0e93b3455e5a4cb1731725540d9fe138dc83d87ae2ab115c9e67190716a3c823")
+local lim_mod = n("7f057f5ee662a4b9ef864f4c2b81c4953f9c857ee061930f3446f3c7a8f876a5")
+local lim_product = n("c72774ab97fecd7020abf6b758de7671b0a2d84ea16bfc1a16e0c2dd79919679")
+local lim_sum = n("95edf9e7d9df0a988c1daedca98193df27d199f4beadadc237cc61d4d113194f")
 
 local zero = "\0"
 local one = "\1"
@@ -381,4 +552,256 @@ local function test_pad_refuses_a_number_that_does_not_fit()
   padded, why = Bigint.pad(p3072, 383)
   assert(padded == nil and why == "bigint: the number needs 384 bytes, more than 383", why)
   Test.raises(function() Bigint.pad(one, -1) end, "pad's width must be 0 or more")
+end
+
+--- `number` in exactly `width` bytes.
+local function wide(number: string, width: integer): string
+  return (assert(Bigint.pad(number, width)))
+end
+
+--- `count` bytes that `seed` fixes: SHA-256 of the seed and a counter
+--- byte, block after block, which the Python that made the answers below
+--- draws the same way.
+local function drawn(seed: string, count: integer): string
+  local blocks: mut {string} = {}
+  while #blocks * 32 < count do
+    local block = Hash.digest("sha256", seed .. string.char(#blocks))
+    blocks[#blocks + 1] = block
+  end
+  return table.concat(blocks):sub(1, count)
+end
+
+--- Holds the six functions for secrets to the plain ones on `x`, `y` and
+--- the modulus `modulus`, which is not zero: the same numbers, at the
+--- widths the arguments fix.
+local function assert_agreement(x: string, y: string, modulus: string)
+  local width = #modulus
+  local where = ("a of %d bytes, b of %d, a modulus of %d"):format(#x, #y, width)
+  assert(Bigint.reduce(x, modulus) == wide(Bigint.mod(x, modulus), width), where)
+  assert(Bigint.addmod(x, y, modulus) == wide(Bigint.mod(Bigint.add(x, y), modulus), width), where)
+  local lifted = Bigint.add(Bigint.mod(x, modulus), modulus)
+  local difference = Bigint.mod(assert(Bigint.sub(lifted, Bigint.mod(y, modulus))), modulus)
+  assert(Bigint.submod(x, y, modulus) == wide(difference, width), where)
+  if assert(modulus:byte(-1)) % 2 == 1 then
+    assert(Bigint.mulmod(x, y, modulus) == wide(Bigint.mod(Bigint.mul(x, y), modulus), width), where)
+  end
+  assert(Bigint.product(x, y) == wide(Bigint.mul(x, y), #x + #y), where)
+  assert(Bigint.sum(x, y) == wide(Bigint.add(x, y), math.max(#x, #y) + 1), where)
+end
+
+local function test_arithmetic_for_secrets_on_small_values_is_what_hand_arithmetic_gives()
+  assert(Bigint.mulmod("\7", "\200", "\101") == "\87", "7 * 200 is 1400, 87 modulo 101")
+  assert(Bigint.addmod("\100", "\100", "\101") == "\99", "200 is 99 modulo 101")
+  assert(Bigint.submod("\7", "\200", "\101") == "\9", "7 - 200 is -193, 9 modulo 101")
+  assert(Bigint.submod("\200", "\7", "\101") == "\92", "193 is 92 modulo 101")
+  assert(Bigint.reduce(n("03e8"), "\7") == "\6", "1000 mod 7 is 6")
+  assert(Bigint.product("\255", "\255") == n("fe01"), "255 * 255 is 65025")
+  assert(Bigint.sum("\255", "\1") == n("0100"), "255 + 1 carries into the byte the sum adds")
+end
+
+local function test_an_answer_for_secrets_is_as_wide_as_its_arguments_fix()
+  assert(Bigint.reduce("\5", "\0\0\0\7") == "\0\0\0\5", "a modulus's leading zero bytes count in the width")
+  assert(Bigint.mulmod("\2", "\3", "\0\7") == "\0\6")
+  assert(Bigint.addmod("", "", "\0\0\9") == "\0\0\0")
+  assert(Bigint.submod("\0\0\0\0\1", "\2", "\0\9") == "\0\8", "an operand's length changes no width")
+  assert(#Bigint.mulmod("\2", "\3", p3072) == #p3072)
+  assert(Bigint.product("\0\0\2", "\0\3") == "\0\0\0\0\6", "as many bytes as both operands have")
+  assert(Bigint.product("", "") == "", "zero in no bytes")
+  assert(Bigint.product("\2", "") == zero)
+  assert(Bigint.product("", "\2\2") == "\0\0")
+  assert(Bigint.sum("", "") == zero, "one byte more than the longer operand")
+  assert(Bigint.sum("\255\255", "\1") == "\1\0\0")
+  assert(Bigint.sum("\1", "\0\0\0\1") == "\0\0\0\0\2")
+  assert(Bigint.sum("\1", "") == "\0\1")
+end
+
+local function test_arithmetic_for_secrets_matches_python_modulo_a_3072_bit_prime()
+  assert(#s_a == #p3072 and #s_b == 64 and #s_wide == 700)
+  assert(Bigint.mulmod(s_a, s_b, p3072) == s_a_times_b_mod_p)
+  assert(Bigint.mulmod(s_b, s_a, p3072) == s_a_times_b_mod_p)
+  assert(Bigint.addmod(s_a, s_b, p3072) == s_a_plus_b_mod_p)
+  assert(Bigint.addmod(s_b, s_a, p3072) == s_a_plus_b_mod_p)
+  assert(Bigint.submod(s_b, s_a, p3072) == s_b_minus_a_mod_p, "the smaller less the larger wraps")
+  assert(Bigint.submod(Bigint.addmod(s_a, s_b, p3072), s_a, p3072) == wide(s_b, #p3072), "a + b - a is b")
+  assert(Bigint.reduce(s_a, p3072) == s_a, "a number below the modulus is its own remainder")
+end
+
+local function test_arithmetic_for_secrets_reduces_an_operand_above_the_modulus()
+  assert(Bigint.compare(s_wide, p3072) == 1)
+  assert(Bigint.reduce(s_wide, p3072) == s_wide_mod_p)
+  assert(Bigint.mulmod(s_wide, s_a, p3072) == s_wide_times_a_mod_p)
+  assert(Bigint.mulmod(s_a, s_wide, p3072) == s_wide_times_a_mod_p)
+  assert(Bigint.addmod(s_wide, s_wide, p3072) == s_wide_plus_wide_mod_p)
+  assert(Bigint.submod(s_a, s_wide, p3072) == s_a_minus_wide_mod_p)
+  assert(Bigint.mulmod(s_a, s_b, p256) == s_a_times_b_mod_p256, "operands twelve times the modulus's length")
+  assert(Bigint.reduce(s_a, p256) == s_a_mod_p256)
+end
+
+local function test_arithmetic_for_secrets_takes_a_modulus_that_ends_inside_a_word()
+  assert(#s_odd == 13)
+  assert(Bigint.mulmod(s_a, s_wide, s_odd) == s_a_times_wide_mod_odd)
+  assert(Bigint.reduce(s_wide, s_odd) == s_wide_mod_odd)
+  assert(Bigint.addmod(s_a, s_b, s_odd) == s_a_plus_b_mod_odd)
+  assert(Bigint.submod(s_b, s_a, s_odd) == s_b_minus_a_mod_odd)
+end
+
+local function test_all_but_mulmod_take_an_even_modulus()
+  assert(assert(s_even:byte(-1)) % 2 == 0)
+  assert(Bigint.reduce(s_a, s_even) == s_a_mod_even)
+  assert(Bigint.addmod(s_a, s_wide, s_even) == s_a_plus_wide_mod_even)
+  assert(Bigint.submod(s_b, s_wide, s_even) == s_b_minus_wide_mod_even)
+  assert(Bigint.addmod(one, one, "\2") == zero)
+  assert(Bigint.submod(zero, one, "\2") == one)
+  assert(Bigint.reduce("\255", "\2") == one)
+  local why = Test.raises(function() Bigint.mulmod("\3", "\5", "\8") end, "the modulus is even")
+  assert(why:find("bad argument #3 to 'mulmod'", 1, true), why)
+  Test.raises(function() Bigint.mulmod("\3", "\5", "\2") end, "the modulus is even")
+  Test.raises(function() Bigint.mulmod(s_a, s_b, s_even) end, "the modulus is even")
+  Test.raises(function() Bigint.mulmod(s_a, s_b, "\0\0" .. s_even) end, "the modulus is even")
+end
+
+local function test_products_and_sums_for_secrets_match_python()
+  assert(Bigint.product(s_a, s_b) == s_a_times_b)
+  assert(Bigint.product(s_b, s_a) == s_a_times_b)
+  assert(Bigint.sum(s_a, s_b) == s_a_plus_b)
+  assert(Bigint.sum(s_b, s_a) == s_a_plus_b)
+  assert(Bigint.sum(s_wide, s_a) == s_wide_plus_a)
+  assert(Bigint.sum(s_a, Bigint.product(s_b, s_b)) == wide(Bigint.add(s_a, Bigint.mul(s_b, s_b)), #s_a + 1),
+    "an exponent of the form a + u*x")
+end
+
+local function test_leading_zero_bytes_change_a_width_and_no_number()
+  local zeros = string.rep("\0", 24)
+  assert(Bigint.mulmod(zeros .. s_a, zeros .. s_b, p3072) == s_a_times_b_mod_p)
+  assert(Bigint.mulmod(s_a, s_b, zeros .. p3072) == zeros .. s_a_times_b_mod_p)
+  assert(Bigint.addmod(zeros .. s_a, s_b, zeros .. p3072) == zeros .. s_a_plus_b_mod_p)
+  assert(Bigint.submod(s_b, zeros .. s_a, "\0" .. p3072) == "\0" .. s_b_minus_a_mod_p)
+  assert(Bigint.reduce(zeros .. s_wide, "\0\0\0" .. p3072) == "\0\0\0" .. s_wide_mod_p)
+  assert(Bigint.product(zeros .. s_a, s_b) == zeros .. s_a_times_b)
+  assert(Bigint.sum(zeros .. s_a, s_b) == zeros .. s_a_plus_b)
+end
+
+local function test_arithmetic_for_secrets_at_zero_one_and_the_modulus_less_one()
+  local width = #p3072
+  local nothing, unit = string.rep("\0", width), wide(one, width)
+  local last = assert(Bigint.sub(p3072, one))
+  assert(Bigint.mulmod(last, last, p3072) == unit, "minus one, squared")
+  assert(Bigint.mulmod(zero, s_a, p3072) == nothing)
+  assert(Bigint.mulmod(s_a, "", p3072) == nothing, "the empty string is zero")
+  assert(Bigint.mulmod(one, s_a, p3072) == s_a)
+  assert(Bigint.mulmod(s_a, one, p3072) == s_a)
+  assert(Bigint.addmod(last, one, p3072) == nothing)
+  assert(Bigint.addmod(last, last, p3072) == assert(Bigint.sub(p3072, "\2")), "the largest sum of two residues")
+  assert(Bigint.addmod(zero, "", p3072) == nothing)
+  assert(Bigint.addmod(s_a, zero, p3072) == s_a)
+  assert(Bigint.submod(zero, one, p3072) == last, "zero less one is the modulus less one")
+  assert(Bigint.submod(zero, last, p3072) == unit)
+  assert(Bigint.submod(s_a, s_a, p3072) == nothing)
+  assert(Bigint.submod(last, zero, p3072) == last)
+  assert(Bigint.reduce("", p3072) == nothing)
+  assert(Bigint.reduce(last, p3072) == last)
+end
+
+local function test_an_operand_equal_to_the_modulus_is_zero()
+  local nothing = string.rep("\0", #p3072)
+  assert(Bigint.reduce(p3072, p3072) == nothing)
+  assert(Bigint.addmod(p3072, p3072, p3072) == nothing)
+  assert(Bigint.mulmod(p3072, s_a, p3072) == nothing)
+  assert(Bigint.mulmod(s_a, p3072, p3072) == nothing)
+  assert(Bigint.submod(p3072, one, p3072) == assert(Bigint.sub(p3072, one)))
+  assert(Bigint.submod(s_a, p3072, p3072) == s_a)
+  assert(Bigint.mulmod(Bigint.add(p256, "\2"), "\3", p256) == wide("\6", #p256), "p + 2 is 2 modulo p")
+end
+
+local function test_everything_is_zero_modulo_one_and_three_is_the_smallest_modulus_mulmod_works_in()
+  assert(Bigint.reduce(s_a, one) == zero)
+  assert(Bigint.mulmod(s_a, s_b, one) == zero)
+  assert(Bigint.addmod(s_a, s_b, "\0\1") == "\0\0")
+  assert(Bigint.submod(zero, one, one) == zero)
+  assert(Bigint.mulmod("\2", "\2", "\3") == one)
+  assert(Bigint.submod(one, "\2", "\3") == "\2")
+end
+
+local function test_arithmetic_for_secrets_agrees_with_the_plain_functions_across_word_boundaries()
+  -- A limb is 8 bytes: the lengths cross one, two and three of them, an
+  -- operand shorter than, as long as and longer than each modulus.
+  for _, modulus_length in ipairs{ 1, 2, 7, 8, 9, 15, 16, 17, 24, 25 } do
+    local modulus = drawn(("modulus %d"):format(modulus_length), modulus_length)
+    local odd = modulus:sub(1, -2) .. string.char(assert(modulus:byte(-1)) | 1)
+    local even = modulus:sub(1, -2) .. string.char(assert(modulus:byte(-1)) & 254 | 2)
+    for _, x_length in ipairs{ 0, 1, 7, 8, 9, 16, 17, 33 } do
+      for _, y_length in ipairs{ 0, 3, 8, 15, 16, 40 } do
+        local x = drawn(("x %d %d"):format(modulus_length, x_length), x_length)
+        local y = drawn(("y %d %d"):format(modulus_length, y_length), y_length)
+        assert_agreement(x, y, odd)
+        assert_agreement(y, x, even)
+        assert_agreement(string.rep("\255", x_length), string.rep("\255", y_length), odd)
+      end
+    end
+  end
+end
+
+local function test_arithmetic_for_secrets_raises_on_a_zero_modulus()
+  local why = Test.raises(function() Bigint.reduce(a, zero) end, "the modulus is zero")
+  assert(why:find("bad argument #2 to 'reduce'", 1, true), why)
+  Test.raises(function() Bigint.reduce(a, "") end, "the modulus is zero")
+  Test.raises(function() Bigint.reduce(a, "\0\0\0") end, "the modulus is zero")
+  why = Test.raises(function() Bigint.addmod(a, b, zero) end, "the modulus is zero")
+  assert(why:find("bad argument #3 to 'addmod'", 1, true), why)
+  Test.raises(function() Bigint.addmod(a, b, "") end, "the modulus is zero")
+  why = Test.raises(function() Bigint.submod(a, b, "\0\0") end, "the modulus is zero")
+  assert(why:find("bad argument #3 to 'submod'", 1, true), why)
+  Test.raises(function() Bigint.submod(a, b, "") end, "the modulus is zero")
+  why = Test.raises(function() Bigint.mulmod(a, b, zero) end, "the modulus is zero")
+  assert(why:find("bad argument #3 to 'mulmod'", 1, true), why)
+  Test.raises(function() Bigint.mulmod(a, b, "") end, "the modulus is zero")
+end
+
+local function test_arithmetic_for_secrets_at_the_limits_matches_python()
+  local mersenne = string.rep("\255", Bigint.modulus_bytes)
+  local v, u = drawn("v", Bigint.operand_bytes), drawn("u", Bigint.operand_bytes)
+  local function digest(number: string): string
+    return Hash.digest("sha256", number)
+  end
+  assert(digest(Bigint.mulmod(v, u, mersenne)) == lim_times)
+  assert(digest(Bigint.addmod(v, u, mersenne)) == lim_plus)
+  assert(digest(Bigint.submod(v, u, mersenne)) == lim_minus)
+  assert(digest(Bigint.reduce(v, mersenne)) == lim_mod)
+  local product, sum = Bigint.product(v, u), Bigint.sum(v, u)
+  assert(#product == 2 * Bigint.operand_bytes and digest(product) == lim_product)
+  assert(#sum == Bigint.operand_bytes + 1 and digest(sum) == lim_sum)
+  local most = string.rep("\255", Bigint.operand_bytes)
+  assert(Bigint.reduce(most, mersenne) == string.rep("\0", Bigint.modulus_bytes),
+    "2^16384 - 1 is (2^8192 - 1)(2^8192 + 1)")
+  assert(Bigint.mulmod(most, most, mersenne) == string.rep("\0", Bigint.modulus_bytes))
+  -- (2^k - 1)^2 is 2^2k - 2^(k+1) + 1, and twice 2^k - 1 is 2^(k+1) - 2.
+  assert(Bigint.product(most, most) == string.rep("\255", Bigint.operand_bytes - 1) .. "\254" ..
+      string.rep("\0", Bigint.operand_bytes - 1) .. "\1")
+  assert(Bigint.sum(most, most) == "\1" .. string.rep("\255", Bigint.operand_bytes - 1) .. "\254")
+end
+
+local function test_arithmetic_for_secrets_raises_on_a_number_over_its_limit()
+  local over = string.rep("\1", Bigint.operand_bytes + 1)
+  local long = string.rep("\1", Bigint.modulus_bytes + 1)
+  local says = "the number is longer than 2048 bytes"
+  local why = Test.raises(function() Bigint.reduce(over, "\3") end, says)
+  assert(why:find("bad argument #1 to 'reduce'", 1, true), why)
+  for name, call in pairs{ addmod = Bigint.addmod, submod = Bigint.submod, mulmod = Bigint.mulmod } do
+    why = Test.raises(function() call(over, one, "\3") end, says)
+    assert(why:find("bad argument #1 to '" .. name .. "'", 1, true), why)
+    why = Test.raises(function() call(one, over, "\3") end, says)
+    assert(why:find("bad argument #2 to '" .. name .. "'", 1, true), why)
+    why = Test.raises(function() call(one, one, long) end, "the number is longer than 1024 bytes")
+    assert(why:find("bad argument #3 to '" .. name .. "'", 1, true), why)
+  end
+  for name, call in pairs{ product = Bigint.product, sum = Bigint.sum } do
+    why = Test.raises(function() call(over, one) end, says)
+    assert(why:find("bad argument #1 to '" .. name .. "'", 1, true), why)
+    why = Test.raises(function() call(one, over) end, says)
+    assert(why:find("bad argument #2 to '" .. name .. "'", 1, true), why)
+  end
+  why = Test.raises(function() Bigint.reduce(one, long) end, "the number is longer than 1024 bytes")
+  assert(why:find("bad argument #2 to 'reduce'", 1, true), why)
+  -- The limit counts the bytes given: zero, written too long, is refused.
+  Test.raises(function() Bigint.sum(string.rep("\0", Bigint.operand_bytes + 1), one) end, says)
 end

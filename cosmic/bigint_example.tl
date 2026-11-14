@@ -4,6 +4,7 @@
 
 local Bigint = require("cosmic.bigint")
 local Codec = require("cosmic.codec")
+local Hash = require("cosmic.hash")
 local Rand = require("cosmic.rand")
 local Test = require("cosmic.test")
 
@@ -71,6 +72,85 @@ function Example.sub()
   assert(product == "\87" and difference == "\9")
   local negative, why = Bigint.sub(a, b)
   assert(negative == nil and why == "bigint: the difference is negative")
+end
+
+--- The same arithmetic on secrets: the modulus is the last argument,
+--- nothing is added before a subtraction, and each answer is as wide as
+--- the modulus, so neither the time taken nor an answer's length says
+--- anything of a value.
+function Example.submod()
+  local m = "\0\101"
+  local a, b = "\7", "\200"
+  local difference = Bigint.submod(a, b, m)
+  local back = Bigint.addmod(difference, b, m)
+  print(#difference, difference:byte(-1), back:byte(-1))
+  assert(difference == "\0\9" and back == "\0\7")
+end
+
+--- A value blinded and unblinded, as a protocol hides one in transit:
+--- multiplied by a mask modulo the prime, then by the mask's inverse,
+--- which Fermat gives as the mask to the power of the prime less 2.
+function Example.mulmod()
+  local value = assert(Rand.entropy(32))
+  local mask = assert(Rand.entropy(#prime))
+  local blinded = Bigint.mulmod(value, mask, prime)
+  local inverse = Bigint.powmod(mask, assert(Bigint.sub(prime, "\2")), prime)
+  local unblinded = Bigint.mulmod(blinded, inverse, prime)
+  assert(#blinded == #prime)
+  assert(unblinded == assert(Bigint.pad(value, #prime)))
+end
+
+--- A number below a modulus from a hash wider than it, as a signature
+--- scheme derives a secret scalar: the 64 bytes are reduced whole, with
+--- none cut off, and the scalar is as wide as the modulus whatever its
+--- value.
+function Example.reduce()
+  local order = assert(Codec.unhex("ffffffffffffffffffffffffffffffffbaaedce6af48a03bbfd25e8cd0364141"))
+  local wide = Hash.digest("sha512", "a seed that is kept secret")
+  local scalar = Bigint.reduce(wide, order)
+  print(#wide, #scalar)
+  assert(#scalar == #order and Bigint.compare(scalar, order) < 0)
+end
+
+--- A secret split into two shares, neither of which says anything of
+--- it alone: one is drawn, the other is the secret less it, and their
+--- sum modulo the prime is the secret again, at the prime's width.
+function Example.addmod()
+  local secret = assert(Rand.entropy(32))
+  local first = assert(Rand.entropy(#prime))
+  local second = Bigint.submod(secret, first, prime)
+  local joined = Bigint.addmod(first, second, prime)
+  assert(#second == #prime)
+  assert(joined == assert(Bigint.pad(secret, #prime)))
+end
+
+--- An exponent that is the sum of two secret exponents, where no
+--- modulus applies: a power of it is the product of the two powers. The
+--- sum is one byte wider than the wider exponent, whatever its value,
+--- as [`Bigint.powmod`] asks of a secret exponent.
+function Example.sum()
+  local a, b = assert(Rand.entropy(32)), assert(Rand.entropy(48))
+  local exponent = Bigint.sum(a, b)
+  print(#exponent)
+  local together = Bigint.powmod("\2", exponent, prime)
+  local apart = Bigint.mulmod(Bigint.powmod("\2", a, prime), Bigint.powmod("\2", b, prime), prime)
+  assert(#exponent == 49 and apart == assert(Bigint.pad(together, #prime)))
+end
+
+--- An exponent that is a product and a sum of secrets, as SRP's client
+--- raises to `a + u*x`: the product is as wide as `u` and `x` together,
+--- so the exponent's width is fixed by the three lengths.
+function Example.product()
+  local a = assert(Rand.entropy(64))
+  local u, x = Hash.digest("sha256", "public values"), Hash.digest("sha256", "salt and password")
+  local scaled = Bigint.product(u, x)
+  local exponent = Bigint.sum(a, scaled)
+  print(#scaled, #exponent)
+  local shared = Bigint.powmod("\2", exponent, prime)
+  -- g^(a + u*x) is g^a * (g^u)^x.
+  local scrambled = Bigint.powmod(Bigint.powmod("\2", u, prime), x, prime)
+  local parts = Bigint.mulmod(Bigint.powmod("\2", a, prime), scrambled, prime)
+  assert(#scaled == 64 and #exponent == 65 and parts == assert(Bigint.pad(shared, #prime)))
 end
 
 --- The two limits: the product of two numbers of a modulus's length is

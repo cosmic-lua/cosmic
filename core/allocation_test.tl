@@ -848,8 +848,9 @@ end
 
 --- Each call holds its numbers in one block of the core's own, under a
 --- guard: a refusal of the block, of the guard or of the answer's string
---- leaves none. The limbs are mbedtls's own allocations, which the walk
---- neither refuses nor counts.
+--- leaves none. The limbs of the functions that take a time depending on
+--- values are mbedtls's own allocations, which the walk neither refuses
+--- nor counts; those of the functions for secrets are the block.
 
 -- TODO: refuse and count mbedtls's allocations too, once
 -- core/mbedtls_cosmic_config.h routes them through core/memory.h
@@ -869,6 +870,17 @@ local function test_bigint_leaves_nothing_whenever_an_allocation_fails()
   end)
   assert(ended > 0, "a call's numbers are an allocation")
   assert_c_heap(bytes, blocks, "big integers under refusal")
+  -- The functions for secrets hold their limbs in one block of the
+  -- core's own each, under a guard of its own.
+  ended = AllocationFixture.under_every_failure(function()
+    local product = Bigint.mulmod("\5", "\200\200", prime)
+    local sum = Bigint.addmod(product, prime, prime)
+    assert(sum == product and Bigint.reduce(sum, prime) == product)
+    assert(Bigint.submod(sum, product, prime) == string.rep("\0", #prime))
+    assert(Bigint.sum(Bigint.product(product, "\2"), "") == "\0" .. Bigint.sum(product, product))
+  end)
+  assert(ended > 0, "a call's limbs are an allocation")
+  assert_c_heap(bytes, blocks, "big integers for secrets under refusal")
 end
 
 --- Sealing, opening and agreeing on a key hold no C memory of the core's
