@@ -384,6 +384,20 @@ promises lean on come first:
     holds, its options), and written from them. Today it is a record of type
     41 with `rdata`, its class split at the top bit like any other.
 
+- [`cosmic.protobuf`] past the wire format, each once a caller needs it:
+  - A schema layer: a message's fields declared once, each with its name,
+    number and type and whether it repeats, to get the reader that answers a
+    record and the writer that takes one. Today a caller says a field's
+    number and type at every read and write. It needs design first: whether
+    the declaration is a value checked at run time, as a [`cosmic.shape`] spec
+    is, or a record the build reads, as `record_of` reads one; how a `oneof`,
+    a map and a field's default are said; what a record keeps of the fields
+    it has no name for; and whether a `.proto` file is read to make one.
+  - Groups (wire types 3 and 4), which [`Protobuf.decode`] refuses and only
+    proto2 writes. A group has no length: its end is found by reading every
+    field inside it, the groups nested in it too, under a bound on how deep
+    they nest.
+
 - [`cosmic.mdns`] past a search made once, each once a caller needs it:
   - Publishing a service: a responder that probes for its names, announces
     its records, answers the questions about them and says goodbye as it
@@ -555,6 +569,7 @@ four-producer provenance join.
 [`cosmic.mdns`]: ../cosmic/mdns.tl
 [`cosmic.net`]: ../cosmic/net.tl
 [`cosmic.plist`]: ../cosmic/plist.tl
+[`cosmic.protobuf`]: ../cosmic/protobuf.tl
 [`cosmic.relay.address`]: ../cosmic/relay/address.tl
 [`cosmic.relay.grant`]: ../cosmic/relay/grant.tl
 [`cosmic.removed`]: ../cosmic/removed.tl
@@ -587,6 +602,7 @@ four-producer provenance join.
 [`Plist.form`]: ../cosmic/plist.tl
 [`Plist.Value`]: ../cosmic/plist.tl
 [`Proc.relaunch`]: ../cosmic/proc.tl
+[`Protobuf.decode`]: ../cosmic/protobuf.tl
 [`Sandbox.Limits`]: ../cosmic/sandbox/init.tl
 [`Sandbox.Policy`]: ../cosmic/sandbox/init.tl
 [`Server.none_match`]: ../cosmic/http/server.tl
